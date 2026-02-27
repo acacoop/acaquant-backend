@@ -21,7 +21,15 @@ MIS_ELEGIDOS = [
     "MERV - XMEV - GFGC59754A - 24hs",
     "MERV - XMEV - GFGV59754A - 24hs",
     "MERV - XMEV - GFGC79515A - 24hs",
-    "MERV - XMEV - GFGV79515A - 24hs"
+    "MERV - XMEV - GFGV79515A - 24hs",
+    "MERV - XMEV - GFGV61515A - 24hs",
+    "MERV - XMEV - GFGC61515A - 24hs",
+    "MERV - XMEV - GFGC73515A - 24hs",
+    "MERV - XMEV - GFGV73515A - 24hs",
+    "MERV - XMEV - GFGC6600AB - 24hs",
+    "MERV - XMEV - GFGV6600AB - 24hs",
+    "MERV - XMEV - GFGC77515A - 24hs",
+    "MERV - XMEV - GFGV77515A - 24hs"
 ]
 
 

@@ -27,6 +27,7 @@ def message_handler(message):
         symbol = message["instrumentId"]["symbol"]
         md = message["marketData"]
 
+
         # Timestamp del REGISTRO (Cuándo sacamos la foto del mercado)
         # Usamos el del mensaje para ser precisos con el movimiento de puntas
         ts_msg = md.get('timestamp')

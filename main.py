@@ -47,7 +47,7 @@ def main():
                         # print resumido para no llenar de logs pero saber que está vivo
                         print(f"[{time.strftime('%H:%M:%S')}] OK - Sync {len(matriz) - 1} filas", end='\r')
 
-                    time.sleep(2)
+                    time.sleep(3)
 
         except Exception as e:
             logger.critical(f"Error catastrofico en loop: {e}. Reiniciando en 8s...")

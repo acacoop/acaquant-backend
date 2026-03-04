@@ -2,72 +2,90 @@ import config
 import logging
 import time
 
-# Obtenemos el logger configurado en el main
 logger = logging.getLogger("TradingBot")
 
 
 class MarketManager:
     def __init__(self):
-        """
-        Gestor de precios estático. Mantiene el orden del config.py
-        """
-        # Marcador para el Watchdog
         self.last_update_time = time.time()
-
-        # Memoria viva de precios inicializada con los tickers del config
+        # Diccionario inicializado con ceros para evitar KeyErrors
         self.precios_vivos = {
-            t: {'bid': 0.0, 'bid_size': 0, 'offer': 0.0, 'offer_size': 0}
+            t: {
+                'bid': 0.0, 'bid_size': 0,
+                'offer': 0.0, 'offer_size': 0,
+                'last': 0.0, 'last_size': 0
+            }
             for t in config.TICKERS_LIST
         }
-        logger.info(f"MarketManager iniciado con {len(config.TICKERS_LIST)} activos (MODO ESTÁTICO).")
+        logger.info(f"MarketManager iniciado con {len(config.TICKERS_LIST)} activos.")
 
     def update_price(self, ticker, data):
-        """Actualiza los precios en memoria."""
-        if ticker in self.precios_vivos:
-            try:
-                self.last_update_time = time.time()
-                p = self.precios_vivos[ticker]
+        """
+        Actualiza los precios con validación de existencia total.
+        Si un ticker no viene en la data, esta función simplemente no hace nada
+        y mantiene los valores previos (o ceros).
+        """
+        # 1. Validación de seguridad: ¿El ticker es de los que nos interesa?
+        if not ticker or ticker not in self.precios_vivos:
+            return
 
-                if data.get('BI'):
-                    p['bid'] = float(data['BI'][0]['price'])
-                    p['bid_size'] = int(data['BI'][0]['size'])
-                if data.get('OF'):
-                    p['offer'] = float(data['OF'][0]['price'])
-                    p['offer_size'] = int(data['OF'][0]['size'])
-            except Exception as e:
-                logger.error(f"Error al parsear data de {ticker}: {e}")
+        try:
+            self.last_update_time = time.time()
+            p = self.precios_vivos[ticker]
+
+            # 2. Procesamiento SEGURO de Bids
+            # Chequeamos que sea lista, tenga elementos y que el elemento tenga la llave 'price'
+            bi = data.get('BI', [])
+            if isinstance(bi, list) and len(bi) > 0:
+                first_bi = bi[0]
+                if isinstance(first_bi, dict):
+                    p['bid'] = float(first_bi.get('price', p['bid']))
+                    p['bid_size'] = int(first_bi.get('size', p['bid_size']))
+
+            # 3. Procesamiento SEGURO de Offers
+            of = data.get('OF', [])
+            if isinstance(of, list) and len(of) > 0:
+                first_of = of[0]
+                if isinstance(first_of, dict):
+                    p['offer'] = float(first_of.get('price', p['offer']))
+                    p['offer_size'] = int(first_of.get('size', p['offer_size']))
+
+            # 4. Procesamiento SEGURO de Last (Trade)
+            la = data.get('LA')
+            if isinstance(la, dict):
+                p['last'] = float(la.get('price', p['last']))
+                p['last_size'] = int(la.get('size', p['last_size']))
+
+        except Exception as e:
+            # Captura cualquier error de conversión (float/int) para que el bot no muera
+            logger.error(f"⚠️ Error procesando ticker {ticker}: {e}")
 
     def check_health(self):
-        """
-        Detección de desconexión.
-        Subimos a 30 segundos para evitar falsos positivos por lentitud.
-        """
-        tiempo_inactivo = time.time() - self.last_update_time
-
-        if tiempo_inactivo > 30:  # <--- SUBIMOS A 30
-            return False
-        return True
+        """Detección de inactividad (30 segundos)."""
+        return (time.time() - self.last_update_time) <= 30
 
     def get_data_for_excel(self):
         """
-        Genera la matriz respetando el ORDEN EXACTO del config.py.
-        SIN FILTROS: Cada ticker tiene su fila fija.
+        Genera la matriz para Excel respetando el orden de config.py.
+        Si un ticker nunca se encontró, enviará los 0 iniciales.
         """
-        headers = ["Ticker", "Bid", "Bid Size", "Offer", "Offer Size"]
+        headers = ["Ticker", "Bid", "Bid Size", "Offer", "Offer Size", "Last", "Last Size"]
         matriz = [headers]
 
-        # Iteramos sobre la lista de config para mantener el orden y la posición
         for full_name in config.TICKERS_LIST:
-            p = self.precios_vivos.get(full_name)
+            # .get() con fallback a ceros por si config.TICKERS_LIST cambió en caliente
+            p = self.precios_vivos.get(full_name, {
+                'bid': 0.0, 'bid_size': 0, 'offer': 0.0, 'offer_size': 0, 'last': 0.0, 'last_size': 0
+            })
 
-            # Agregamos la fila SIEMPRE (tenga o no tenga puntas)
-            # Si no hay data, mandará los 0.0 iniciales
             matriz.append([
                 full_name,
                 p['bid'],
                 p['bid_size'],
                 p['offer'],
-                p['offer_size']
+                p['offer_size'],
+                p['last'],
+                p['last_size']
             ])
 
         return matriz

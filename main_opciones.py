@@ -83,7 +83,7 @@ def run():
                 # --- MONGO (Trades Reales + Griegas) ---
                 spot_symbol = "MERV - XMEV - GGAL - 24hs"
                 S = market_data.get(spot_symbol, {}).get('last', 0)
-                r = 0.31
+                r = 0.191
 
                 for symbol in TICKERS_DINAMICOS:
                     data = market_data.get(symbol)

@@ -33,13 +33,13 @@ class ExcelManager:
         intentos = 3
         for i in range(intentos):
             try:
-                # RAW=False permite que Google Sheets interprete numeros y formatos
+                # Tu código original intocable
                 self.sheet.update(range_name='A1', values=matriz)
                 return True
             except Exception as e:
-                # Si falla el intento 1 o 2, esperamos y reconectamos
+                # ACA ESTA EL CAMBIO: Imprimimos la 'e' para ver el error real
                 espera = (i + 1) * 3
-                logger.warning(f"Falla API Google (Intento {i + 1}/{intentos}). Reintento en {espera}s...")
+                logger.warning(f"Falla API Google (Intento {i + 1}/{intentos}) - ERROR REAL: {str(e)}")
                 time.sleep(espera)
                 self.conectar()
 

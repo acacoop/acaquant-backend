@@ -54,5 +54,12 @@ TICKERS_LIST = [
     "MERV - XMEV - X29Y6 - 24hs", "MERV - XMEV - AN29 - 24hs", "MERV - XMEV - S30N6 - 24hs","MERV - XMEV - CP39O - 24hs",
     "MERV - XMEV - T31Y7 - 24hs", "MERV - XMEV - X30N6 - 24hs", "MERV - XMEV - AO27 - 24hs", "MERV - XMEV - SFD34 - 24hs",
     "MERV - XMEV - BACGO - 24hs", "MERV - XMEV - OLC2O - 24hs", "MERV - XMEV - BUM26 - 24hs", "MERV - XMEV - AFCHO - 24hs",
-    "MERV - XMEV - AER9O - 24hs", "MERV - XMEV - LUC4O - 24hs", "MERV - XMEV - PQCKO - 24hs","MERV - XMEV - LECHO - 24hs"]
+    "MERV - XMEV - AER9O - 24hs", "MERV - XMEV - LUC4O - 24hs", "MERV - XMEV - PQCKO - 24hs","MERV - XMEV - LECHO - 24hs",
+    "MERV - XMEV - AFCBO - 24hs", "MERV - XMEV - VBC1O - 24hs",
+    "MERV - XMEV - TZV26 - 24hs", "MERV - XMEV - BPY26 - 24hs",
+    "MERV - XMEV - GD30 - 24hs", "MERV - XMEV - T30J6 - 24hs",
+    "MERV - XMEV - A3 - 24hs", "MERV - XMEV - VBC2O - 24hs",
+    "MERV - XMEV - SXC2O - 24hs","MERV - XMEV - YFCNO - 24hs",
+    "MERV - XMEV - BGC4O - 24hs", "MERV - XMEV - MSFT - 24hs", "MERV - XMEV - PLTR - 24hs"]
+
 

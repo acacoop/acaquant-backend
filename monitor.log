@@ -1,0 +1,9 @@
+2026-03-09 13:27:21,172 - INFO - Cargando catálogo crudo desde MongoDB...
+2026-03-09 13:27:21,195 - INFO - Consultando activos vivos en Rofex...
+2026-03-09 13:27:22,821 - INFO - MarketManager iniciado con 121 activos.
+2026-03-09 13:27:24,065 - INFO - Websocket connected
+2026-03-09 13:30:59,182 - INFO - Websocket connected
+2026-03-09 13:42:46,039 - INFO - connection closed. code: None. message: None
+2026-03-09 13:43:07,558 - INFO - Websocket connected
+2026-03-09 15:14:05,495 - INFO - Websocket connected
+2026-03-09 17:00:58,785 - INFO - connection closed. code: None. message: None

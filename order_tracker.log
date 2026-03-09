@@ -1,0 +1,49 @@
+2026-03-09 16:46:44,733 - INFO - Sacando foto inicial de las órdenes activas (REST)...
+2026-03-09 16:46:46,328 - INFO - Se encontraron 0 órdenes activas en el mercado.
+2026-03-09 16:46:47,591 - INFO - Websocket connected
+2026-03-09 16:46:48,331 - INFO - Suscripción al broker establecida correctamente.
+2026-03-09 16:46:51,297 - INFO - connection closed. code: None. message: None
+2026-03-09 16:46:53,326 - INFO - Sacando foto inicial de las órdenes activas (REST)...
+2026-03-09 16:46:54,895 - INFO - Se encontraron 0 órdenes activas en el mercado.
+2026-03-09 16:46:56,161 - INFO - Websocket connected
+2026-03-09 16:46:56,897 - INFO - Suscripción al broker establecida correctamente.
+2026-03-09 16:48:36,762 - INFO - connection closed. code: None. message: None
+2026-03-09 16:48:49,459 - INFO - Sacando foto inicial de las órdenes activas (REST)...
+2026-03-09 16:48:51,130 - INFO - Se encontraron 0 órdenes activas en el mercado.
+2026-03-09 16:48:52,385 - INFO - Websocket connected
+2026-03-09 16:48:53,134 - INFO - Suscripción al broker establecida correctamente.
+2026-03-09 16:49:34,195 - INFO - connection closed. code: None. message: None
+2026-03-09 16:50:34,363 - INFO - Sacando foto inicial de las órdenes activas (REST)...
+2026-03-09 16:50:35,951 - INFO - Se encontraron 0 órdenes activas en el mercado.
+2026-03-09 16:50:37,204 - INFO - Websocket connected
+2026-03-09 16:50:37,955 - INFO - Suscripción al broker establecida correctamente.
+2026-03-09 16:52:52,972 - INFO - Orden 9c9vjimy viva. Estado: NEW
+2026-03-09 16:53:27,206 - INFO - Orden MOeXmcco eliminada. Motivo: CANCELLED
+2026-03-09 16:53:27,206 - INFO - Orden 9c9vjimy eliminada. Motivo: CANCELLED
+2026-03-09 16:53:41,867 - INFO - connection closed. code: None. message: None
+2026-03-09 16:55:27,014 - INFO - Sacando foto inicial de las órdenes activas (REST)...
+2026-03-09 16:55:28,704 - INFO - Se encontraron 0 órdenes activas en el mercado.
+2026-03-09 16:55:29,975 - INFO - Websocket connected
+2026-03-09 16:55:31,709 - INFO - Suscripción al broker WS establecida.
+2026-03-09 16:56:18,269 - INFO - connection closed. code: None. message: None
+2026-03-09 16:57:51,250 - INFO - Sacando foto inicial de las órdenes activas (REST)...
+2026-03-09 16:57:51,862 - INFO - Se encontraron 0 órdenes activas en el mercado.
+2026-03-09 16:57:52,110 - INFO - Websocket connected
+2026-03-09 16:57:53,865 - INFO - Suscripción al broker WS establecida.
+2026-03-09 16:58:09,676 - INFO - connection closed. code: None. message: None
+2026-03-09 16:58:26,508 - INFO - Sacando foto inicial de las órdenes activas (REST)...
+2026-03-09 16:58:27,160 - INFO - Se encontraron 0 órdenes activas en el mercado.
+2026-03-09 16:58:28,408 - INFO - Websocket connected
+2026-03-09 16:58:30,164 - INFO - Suscripción al broker WS establecida.
+2026-03-09 16:58:40,326 - INFO - connection closed. code: None. message: None
+2026-03-09 16:59:47,411 - INFO - Sacando foto inicial de las órdenes activas (REST)...
+2026-03-09 16:59:49,008 - INFO - Se encontraron 0 órdenes activas en el mercado.
+2026-03-09 16:59:50,274 - INFO - Websocket connected
+2026-03-09 16:59:52,017 - INFO - Suscripción al broker WS establecida.
+2026-03-09 17:00:16,776 - INFO - connection closed. code: None. message: None
+2026-03-09 17:01:11,600 - INFO - Sacando foto inicial de las órdenes activas (REST)...
+2026-03-09 17:01:12,113 - INFO - Se encontraron 0 órdenes activas en el mercado.
+2026-03-09 17:01:12,330 - INFO - Websocket connected
+2026-03-09 17:01:14,116 - INFO - Suscripción al broker WS establecida.
+2026-03-09 17:01:31,666 - INFO - Orden i6epIqCE eliminada. Motivo: REJECTED
+2026-03-09 17:02:20,734 - INFO - Orden 5k2m7fE0 eliminada. Motivo: REJECTED

@@ -1,0 +1,5 @@
+2026-03-12 01:27:57,582 - INFO - Sacando foto inicial de las órdenes activas (REST)...
+2026-03-12 01:27:59,234 - INFO - Se encontraron 0 órdenes activas en el mercado.
+2026-03-12 01:27:59,488 - INFO - Websocket connected
+2026-03-12 01:28:01,238 - INFO - Suscripción al broker WS establecida.
+2026-03-12 01:28:12,233 - INFO - connection closed. code: None. message: None

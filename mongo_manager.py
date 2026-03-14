@@ -1,13 +1,39 @@
+import os
 import pymongo
 import logging
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Cargamos las variables del archivo .env
+load_dotenv()
 
 logger = logging.getLogger("TradingBot")
+
+# ==========================================
+# 🔑 LA LLAVE MAESTRA (OCULTA EN EL .ENV)
+# ==========================================
+MONGO_URI = os.getenv("MONGO_URI")
+
+
+def get_mongo_client():
+    """
+    Devuelve la conexión universal a Atlas.
+    Cualquier otro archivo del bot llama a esta función.
+    """
+    if not MONGO_URI:
+        logger.error("CRÍTICO: No se encontró MONGO_URI en el archivo .env")
+        raise ValueError("Falta MONGO_URI en el entorno")
+
+    return pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+
+
+# ==========================================
 
 class MongoManager:
     def __init__(self, db_name="Opciones", collection_name="Data"):
         try:
-            self.client = pymongo.MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=5000)
+            # Ahora usa la función segura
+            self.client = get_mongo_client()
             self.db = self.client[db_name]
             self.collection = self.db[collection_name]
             self.client.server_info()
@@ -30,7 +56,6 @@ class MongoManager:
                 "offer_size": data.get('offer_size', 0),
                 "last": data.get('last', 0),
                 "last_size": data.get('last_size', 0),
-                # --- AGREGADO: Guardamos el timestamp del ultimo trade ---
                 "last_timestamp": data.get('last_timestamp')
             }
 
@@ -38,5 +63,6 @@ class MongoManager:
                 registro.update(griegas)
 
             self.collection.insert_one(registro)
+
         except Exception as e:
-            logger.error(f"Error al insertar trade en Mongo: {e}")
+            logger.error(f"Error al guardar operacion: {e}")

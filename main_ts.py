@@ -19,6 +19,7 @@ import os
 # --- TUS MANAGERS DE INFRAESTRUCTURA ---
 from session_manager import inicializar_sesion
 from websocket_manager import WebSocketManager
+from mongo_manager import get_mongo_client
 
 # --- CONFIGURACIÓN MULTIACTIVO ---
 TICKERS = [
@@ -76,10 +77,11 @@ class MicrostructureEngine:
             } for t in self.tickers
         }
         try:
-            self.mongo_client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
+            self.mongo_client = get_mongo_client()
             self.db = self.mongo_client["Trading"]
             self.col_trades = self.db["TimeSales"]
-        except:
+        except Exception as e:
+            print(f"Error conectando a Mongo en main_ts: {e}")
             self.col_trades = None
 
         self._arranque_en_frio()

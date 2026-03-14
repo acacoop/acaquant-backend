@@ -12,7 +12,7 @@ class Config:
     WS = os.getenv("ROFEX_WS_URL")
 
 # --- GOOGLE SHEETS CONFIG ---
-GS_CREDS_FILE = 'ons-fx.json'
+GS_CREDS_FILE = 'Excel/ons-fx.json'
 SPREADSHEET_NAME = "Inversiones"
 SHEET_MARKET = "MARKET DATA"
 
@@ -40,7 +40,8 @@ TICKERS_LIST = [
     "MERV - XMEV - TZX26 - 24hs", "MERV - XMEV - TZXD6 - 24hs",
     "MERV - XMEV - TZXM6 - 24hs", "MERV - XMEV - TZXO6 - 24hs", "MERV - XMEV - TTS26 - 24hs",
     "MERV - XMEV - S17A6 - 24hs","MERV - XMEV - S16M6 - 24hs",
-    "MERV - XMEV - AL30 - 24hs", "MERV - XMEV - GD35 - 24hs","MERV - XMEV - GD38 - 24hs",
+    "MERV - XMEV - XMEV - S30O6 - 24hs","MERV - XMEV - T30A7 - 24hs",
+    "MERV - XMEV - X29Y6 - 24hs", "MERV - XMEV - AN29 - 24hs", "MER- AL30 - 24hs", "MERV - XMEV - GD35 - 24hs","MERV - XMEV - GD38 - 24hs",
     "MERV - XMEV - BPOC7 - 24hs","MERV - XMEV - BPOD7 - 24hs","MERV - XMEV - BA37D - 24hs",
     "MERV - XMEV - TTJ26 - 24hs","MERV - XMEV - TTD26 - 24hs","MERV - XMEV - S30A6 - 24hs",
     "MERV - XMEV - X15Y6 - 24hs",
@@ -50,8 +51,7 @@ TICKERS_LIST = [
     "MERV - XMEV - YM37O - 24hs","MERV - XMEV - RCCRO - 24hs","MERV - XMEV - PECKO - 24hs","MERV - XMEV - PECMO - 24hs",
     "MERV - XMEV - DHSHO - 24hs","MERV - XMEV - YMCWO - 24hs","MERV - XMEV - YFCOO - 24hs",
     "MERV - XMEV - TX26 - 24hs","MERV - XMEV - GD41 - 24hs","MERV - XMEV - TZXD7 - 24hs", "MERV - XMEV - TTM26 - 24hs",
-    "MERV - XMEV - BPOB8 - 24hs","MERV - XMEV - D30A6 - 24hs","MERV - XMEV - S30O6 - 24hs","MERV - XMEV - T30A7 - 24hs",
-    "MERV - XMEV - X29Y6 - 24hs", "MERV - XMEV - AN29 - 24hs", "MERV - XMEV - S30N6 - 24hs","MERV - XMEV - CP39O - 24hs",
+    "MERV - XMEV - BPOB8 - 24hs","MERV - XMEV - D30A6 - 24hs","MERV V - XMEV - S30N6 - 24hs","MERV - XMEV - CP39O - 24hs",
     "MERV - XMEV - T31Y7 - 24hs", "MERV - XMEV - X30N6 - 24hs", "MERV - XMEV - AO27 - 24hs", "MERV - XMEV - SFD34 - 24hs",
     "MERV - XMEV - BACGO - 24hs", "MERV - XMEV - OLC2O - 24hs", "MERV - XMEV - BUM26 - 24hs", "MERV - XMEV - AFCHO - 24hs",
     "MERV - XMEV - AER9O - 24hs", "MERV - XMEV - LUC4O - 24hs", "MERV - XMEV - PQCKO - 24hs","MERV - XMEV - LECHO - 24hs",

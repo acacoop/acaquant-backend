@@ -6,15 +6,17 @@ import pyRofex
 from datetime import datetime
 from dotenv import load_dotenv
 
-from rich.live import Live
+# --- RICH Y TEXTUAL (LA SOLUCIÓN AL PARPADEO) ---
 from rich.table import Table
 from rich.panel import Panel
-from rich.console import Group  # Usamos Group en vez de Layout (Más estable)
+from rich.console import Group
 from rich import box
+from textual.app import App, ComposeResult
+from textual.widgets import Static
+from textual.containers import ScrollableContainer
 
 load_dotenv()
 
-# Guardamos los logs de fondo, pero dejamos que los prints salgan a pantalla
 logging.basicConfig(level=logging.INFO, filename='order_tracker.log',
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("OrderTracker")
@@ -85,8 +87,7 @@ class OrderTracker:
                 if estado == "FILLED":
                     precio = order_report.get("lastPx", 0)
                     size = order_report.get("lastQty", 0)
-                    self.registrar_evento(f"¡EJECUCIÓN! Orden {clOrdId[-6:]} operó {size} nom. a ${precio}",
-                                          "ejecucion")
+                    self.registrar_evento(f"¡EJECUCIÓN! Orden {clOrdId[-6:]} operó {size} nom. a ${precio}", "ejecucion")
                 else:
                     self.registrar_evento(f"Orden {clOrdId[-8:]} eliminada. Motivo: {estado}", "cancelacion")
 
@@ -122,36 +123,47 @@ class OrderTracker:
         texto_eventos = "\n".join(self.ultimos_eventos) if self.ultimos_eventos else "Esperando eventos..."
         event_panel = Panel(texto_eventos, title="⏱️ ÚLTIMOS EVENTOS (Tiempo Real)", border_style="blue", expand=True)
 
-        # Usamos Group que apila los paneles perfectamente sin colapsar
         return Group(table, event_panel)
+
+
+# ==========================================
+# APP ESTÁTICA TEXTUAL (CERO PARPADEO)
+# ==========================================
+class OMSApp(App):
+    BINDINGS = [("q", "quit", "Cerrar OMS")]
+
+    def __init__(self, tracker):
+        super().__init__()
+        self.tracker = tracker
+
+    def compose(self) -> ComposeResult:
+        with ScrollableContainer():
+            yield Static(id="dashboard_panel")
+
+    def on_mount(self) -> None:
+        # Se actualiza cada 0.5 segundos internamente sin limpiar la pantalla
+        self.set_interval(0.5, self.actualizar_pantalla)
+
+    def actualizar_pantalla(self) -> None:
+        # Toma tu grupo de tablas de Rich y lo inyecta en el widget estático
+        self.query_one("#dashboard_panel", Static).update(self.tracker.generar_dashboard())
 
 
 # ==========================================
 # INICIO DEL PROGRAMA
 # ==========================================
-# ==========================================
-# INICIO DEL PROGRAMA (Visualización Fija)
-# ==========================================
 if __name__ == "__main__":
     from session_manager import inicializar_sesion
-    from rich.console import Console
     import sys
     import time
-
-    # Instanciamos la consola de Rich para tener control total
-    console = Console()
-
 
     def ws_error_handler(message):
         logger.error(f"Error WS: {message}")
 
-
     def ws_exception_handler(e):
         logger.critical(f"Excepción WS: {e}")
 
-
-    # Limpiamos la pantalla inicial
-    console.clear()
+    os.system('cls' if os.name == 'nt' else 'clear')
     print("🚀 Levantando Order Management System (OMS)...")
 
     if inicializar_sesion():
@@ -167,15 +179,14 @@ if __name__ == "__main__":
         pyRofex.order_report_subscription(account=tracker.account)
         tracker.registrar_evento("Suscripción al broker WS establecida.", "info")
 
-        # EL BUCLE DEFINITIVO: Borrado y dibujado manual (Sin función Live)
+        # Levantamos la App que bloquea la terminal en modo estático
         try:
-            while True:
-                time.sleep(0.5)  # Esperamos medio segundo
-                console.clear()  # Limpiamos la pantalla 100%
-                console.print(tracker.generar_dashboard())  # Dibujamos el tablero nuevo
-
+            app = OMSApp(tracker)
+            app.run()
         except KeyboardInterrupt:
+            pass
+        finally:
             pyRofex.close_websocket_connection()
-            console.clear()
+            os.system('cls' if os.name == 'nt' else 'clear')
             print("🛑 OMS Detenido correctamente.")
             sys.exit(0)

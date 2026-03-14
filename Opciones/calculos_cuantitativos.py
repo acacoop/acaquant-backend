@@ -1,37 +1,46 @@
 import numpy as np
-import yfinance as yf
+from pymongo import MongoClient
 from scipy.stats import norm
 
 
 # --- CÁLCULO DE VOLATILIDAD HISTÓRICA ---
+# --- CÁLCULO DE VOLATILIDAD HISTÓRICA DESDE MONGO ---
 def calcular_hv_40_ruedas(ticker="GGAL.BA"):
     """
-    Calcula la Volatilidad Histórica institucional de 40 ruedas.
-    Fórmula: DESVEST.M(LN_RETORNOS) * RAIZ(260)
-
+    Obtiene la Volatilidad Histórica leyendo los retornos logarítmicos
+    de las últimas 40 ruedas directamente desde MongoDB.
     """
     try:
-        # Descargamos suficiente historia para 2026
-        df = yf.download(ticker, period="1y", progress=False)
-        if df.empty: return 0.0
+        # 1. Conexión rápida a Mongo
+        client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
+        db = client["Opciones"]
+        col = db["VR-GGal"]
 
-        # Manejo de MultiIndex para GGAL.BA
-        prices = df['Close'][ticker] if ('Close', ticker) in df.columns else df['Close']
-        prices = prices.dropna()
+        # 2. Traemos los últimos 40 registros.
+        # Ordenamos por _id descendente (que contiene el timestamp de creación) para traer lo más nuevo.
+        cursor = col.find().sort("_id", -1).limit(40)
+        documentos = list(cursor)
+        client.close()
 
-        # 1. LN Retornos: ln(P_t / P_{t-1})
-        ln_returns = np.log(prices / prices.shift(1)).dropna()
+        if len(documentos) < 2:
+            return 0.0
 
-        # 2. Desviación Estándar de la muestra (ddof=1 es DESVEST.M)
-        # Tomamos exactamente las últimas 40 ruedas
-        vol_40 = ln_returns.tail(40).std(ddof=1)
+        # 3. Extraemos la lista de retornos logarítmicos de la Local
+        log_returns = [doc["LOCAL_Log"] for doc in documentos if "LOCAL_Log" in doc]
 
-        # 3. Anualización por RAIZ(260)
-        # $HV = \sigma_{40} \times \sqrt{260} \times 100$
+        if not log_returns:
+            return 0.0
+
+        # 4. Matemática: Desviación Estándar de la muestra (ddof=1)
+        vol_40 = np.std(log_returns, ddof=1)
+
+        # 5. Anualización (usando 260 como tenías en tu fórmula original)
         hv_final = vol_40 * np.sqrt(260) * 100
 
         return float(hv_final)
-    except Exception:
+
+    except Exception as e:
+        print(f"⚠️ Error calculando Volatilidad Histórica desde Mongo: {e}")
         return 0.0
 
 

@@ -1,81 +1,75 @@
-import pyRofex
 import time
 import json
+import pyRofex
+from datetime import datetime
 from session_manager import inicializar_sesion
 
-# --- CONFIGURACIÓN ---
-TICKER = "MERV - XMEV - GFGC75054F - 24hs"
+TICKER = "MERV - XMEV - X15Y6 - 24hs"
+LOG_FILENAME = "../Diagnostico_X15Y6_RAW.log"
+
+with open(LOG_FILENAME, "w", encoding="utf-8") as f:
+    f.write(f"--- INICIO DE LOG RAW PARA {TICKER} ---\n")
 
 
-# ---------------------
-
-def custom_message_handler(message):
-    data = message.get("marketData")
-    if data:
-        bids = data.get("BI", [])
-        offers = data.get("OF", [])
-
-        # Limpiamos pantalla para efecto "Terminal" (opcional)
-        # print("\033[H\033[J", end="")
-
-        print("\n" + "—" * 65)
-        print(f"📊 DEEP ORDER BOOK (L2): {TICKER}")
-        print(f"Timestamp: {time.strftime('%H:%M:%S')} | Depth: {len(bids)}B / {len(offers)}O")
-        print("-" * 65)
-        print(f"{'CANT (Buy)':<15} | {'BID':^12} || {'OFFER':^12} | {'CANT (Sell)':>15}")
-        print("-" * 65)
-
-        # Iteramos sobre todos los niveles de profundidad recibidos
-        max_rows = max(len(bids), len(offers))
-
-        for i in range(max_rows):
-            # Lado Compra
-            b_p = f"{bids[i]['price']:.3f}" if i < len(bids) else "---"
-            b_s = f"{int(bids[i]['size']):,}" if i < len(bids) else "---"
-
-            # Lado Venta
-            o_p = f"{offers[i]['price']:.3f}" if i < len(offers) else "---"
-            o_s = f"{int(offers[i]['size']):,}" if i < len(offers) else "---"
-
-            print(f"{b_s:<15} | {b_p:^12} || {o_p:^12} | {o_s:>15}")
-
-        print("—" * 65)
-
-
-def custom_error_handler(message):
-    print(f"❌ ERROR WS: {message}")
-
-
-def run_terminal():
-    # Inicializamos con tu SessionManager (clave para URLs de tu broker)
-    if not inicializar_sesion():
-        return
-
+def raw_handler(message):
     try:
-        # 1. Conexión y Handlers (v0.5.0)
-        pyRofex.init_websocket_connection()
-        pyRofex.add_websocket_market_data_handler(custom_message_handler)
-        pyRofex.add_websocket_error_handler(custom_error_handler)
+        local_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        data = message.get("marketData", {})
 
-        print(f"📡 Suscribiendo con profundidad total a {TICKER}...")
+        last = data.get("LA")
+        nv = data.get("NV")
+        has_bids = "BI" in data
+        has_offers = "OF" in data
 
-        # 2. SUSCRIPCIÓN CON DEPTH
-        # Según tu captura image_7a4bbf.png, el entero define la profundidad
-        pyRofex.market_data_subscription(
-            tickers=[TICKER],
-            entries=[
-                pyRofex.MarketDataEntry.BIDS,
-                pyRofex.MarketDataEntry.OFFERS
-            ],
-            depth=10  # <--- ACÁ ESTÁ EL CAMBIO CLAVE
-        )
+        # Armamos una etiqueta para saber QUÉ nos mandó el broker
+        contenido = []
+        if last: contenido.append("LAST")
+        if nv is not None: contenido.append("NV")
+        if has_bids: contenido.append("BIDS")
+        if has_offers: contenido.append("OFFERS")
 
-        while True:
-            time.sleep(1)
+        tag = "+".join(contenido)
+
+        px = last.get("price") if last else "N/A"
+        sz = last.get("size") if last else "N/A"
+        ts = last.get("date") if last else "N/A"
+
+        # Mostramos qué trajo el paquete para entender por qué llegó
+        print(f"[{local_time}] LLEGÓ [{tag}] -> LA_Px: {px} | LA_Sz: {sz} | Rofex_MS: {ts} | NV: {nv}")
+
+        with open(LOG_FILENAME, mode='a', encoding='utf-8') as file:
+            raw_str = json.dumps(message)
+            file.write(f"[{local_time}] {raw_str}\n")
 
     except Exception as e:
-        print(f"⚠️ Error en ejecución: {e}")
+        print(f"Error procesando mensaje: {e}")
+
+
+def run_test():
+    print("Iniciando Test 100% CRUDO (Con Etiquetas de Contenido)...")
+    if not inicializar_sesion(): return
+
+    pyRofex.add_websocket_market_data_handler(raw_handler)
+
+    pyRofex.market_data_subscription(
+        tickers=[TICKER],
+        entries=[
+            pyRofex.MarketDataEntry.LAST,
+            pyRofex.MarketDataEntry.NOMINAL_VOLUME,
+            pyRofex.MarketDataEntry.BIDS,
+            pyRofex.MarketDataEntry.OFFERS
+        ]
+    )
+
+    pyRofex.init_websocket_connection()
+    print(f"✅ Escuchando TODO. Guardando los paquetes íntegros en: {LOG_FILENAME}")
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pyRofex.close_websocket_connection()
 
 
 if __name__ == "__main__":
-    run_terminal()
+    run_test()

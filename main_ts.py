@@ -5,6 +5,7 @@ import threading
 import time
 import traceback
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from collections import deque
 from rich.table import Table
 from rich.panel import Panel
@@ -55,6 +56,8 @@ VOLUME_BUCKET_SIZES = {
     "MERV - XMEV - PARP - 24hs": 4436050
 }
 
+ART = ZoneInfo("America/Argentina/Buenos_Aires")
+
 # ==========================================
 # 1. EL CEREBRO: MicrostructureEngine
 # ==========================================
@@ -84,12 +87,15 @@ class MicrostructureEngine:
             print(f"Error conectando a Mongo en main_ts: {e}")
             self.col_trades = None
 
+        self.col_snapshots = self.db["MarketSnapshot"] if self.mongo_client else None
+
         self._arranque_en_frio()
         threading.Thread(target=self._worker_loop, daemon=True).start()
+        threading.Thread(target=self._snapshot_writer_loop, daemon=True).start()
 
     def _arranque_en_frio(self):
         if self.col_trades is None: return
-        inicio = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        inicio = datetime.now(tz=ART).replace(hour=0, minute=0, second=0, microsecond=0).replace(tzinfo=None)
         for ticker in self.tickers:
             st = self.market_state[ticker]
             for doc in self.col_trades.find({"ticker": ticker, "timestamp": {"$gte": inicio}}):
@@ -194,7 +200,7 @@ class MicrostructureEngine:
                 elif side == "SELL":
                     st["daily_financials"]["sell_money"] += cash
 
-                dt = datetime.fromtimestamp(ts_ms / 1000.0)
+                dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).astimezone(ART).replace(tzinfo=None)
                 h = dt.hour
                 if 10 <= h <= 17:
                     st["hourly_stats"][h]["total"] += cash
@@ -208,6 +214,31 @@ class MicrostructureEngine:
                 st["top_trades"] = sorted(st["top_trades"], key=lambda x: x["size"], reverse=True)[:15]
                 st["trades"].appendleft(trade)
                 self.trade_buffer.append({"ticker": ticker, **trade})
+
+    def _snapshot_writer_loop(self):
+        while True:
+            try:
+                if self.col_snapshots is not None:
+                    for ticker in self.tickers:
+                        view = self.get_market_view(ticker)
+                        doc = {
+                            "ticker": ticker,
+                            "updated_at": datetime.now(),
+                            "book": view["book"],
+                            "metrics": view["metrics"],
+                            "hourly_stats": {str(k): v for k, v in view["hourly_stats"].items()},
+                            "recent_trades": list(view["trades"])[:30],
+                            "top_trades": view["top_trades"],
+                        }
+                        self.col_snapshots.update_one(
+                            {"ticker": ticker},
+                            {"$set": doc},
+                            upsert=True
+                        )
+            except Exception:
+                with open("errores_bot.txt", "a") as f:
+                    f.write(traceback.format_exc())
+            time.sleep(1)
 
     def get_market_view(self, ticker):
         st = self.market_state[ticker]
@@ -238,7 +269,7 @@ class MicrostructureEngine:
             "hourly_stats": st["hourly_stats"],
             "metrics": {
                 "micro_price": m_px, "spread": sp, "imbalance": imb,
-                "total_nominals": fs["total_nominals"], "tot_money": fs["total_money"],
+                "total_nominals": fs["total_nominals"], "total_money": fs["total_money"],
                 "buy_money": fs["buy_money"], "sell_money": fs["sell_money"],
                 "vwap": (fs["total_money"] / fs["total_nominals"] * 100) if fs["total_nominals"] > 0 else 0,
                 "vpin_prom": vs["last_vpin"],

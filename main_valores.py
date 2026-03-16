@@ -72,12 +72,15 @@ class MicrostructureEngine:
             self.mongo_client = get_mongo_client()
             self.db = self.mongo_client["Trading"]
             self.col_trades = self.db["TimeSales"]
+            self.col_snapshot = self.db["MarketSnapshot"]
         except Exception as e:
             print(f"Error conectando a Mongo en main_ts: {e}")
             self.col_trades = None
+            self.col_snapshot = None
 
         self._arranque_en_frio()
         threading.Thread(target=self._worker_loop, daemon=True).start()
+        threading.Thread(target=self._snapshot_loop, daemon=True).start()
 
     def _arranque_en_frio(self):
         if self.col_trades is None: return
@@ -195,6 +198,78 @@ class MicrostructureEngine:
                 st["top_trades"] = sorted(st["top_trades"], key=lambda x: x["size"], reverse=True)[:15]
                 st["trades"].appendleft(trade)
                 self.trade_buffer.append({"ticker": ticker, **trade})
+
+    def _calcular_metricas(self, ticker):
+        """Calcula métricas de microestructura para el snapshot."""
+        st = self.market_state[ticker]
+        b = st["book"]["bids"]
+        o = st["book"]["offers"]
+        fs = st["daily_financials"]
+        vs = st["vpin_stats"]
+
+        m_px, sp, imb = 0.0, 0.0, 0.0
+        if b and o:
+            b_px, b_sz = b[0]['price'], b[0]['size']
+            o_px, o_sz = o[0]['price'], o[0]['size']
+            m_px = (b_px * o_sz + o_px * b_sz) / (b_sz + o_sz) if (b_sz + o_sz) > 0 else 0
+            sp = o_px - b_px
+            tot_b = sum(x['size'] for x in b)
+            tot_o = sum(x['size'] for x in o)
+            imb = (tot_b - tot_o) / (tot_b + tot_o) if (tot_b + tot_o) > 0 else 0
+
+        bucket_limit = VOLUME_BUCKET_SIZES.get(ticker, 1000000)
+        tot_bucket = vs["current_buy_vol"] + vs["current_sell_vol"]
+        progreso = tot_bucket / bucket_limit if bucket_limit > 0 else 0
+        v_vivo = abs(vs["current_buy_vol"] - vs["current_sell_vol"]) / tot_bucket if tot_bucket > 0 else 0
+
+        return {
+            "micro_price": m_px,
+            "spread": sp,
+            "imbalance": imb,
+            "total_nominals": fs["total_nominals"],
+            "total_money": fs["total_money"],
+            "buy_money": fs["buy_money"],
+            "sell_money": fs["sell_money"],
+            "vwap": (fs["total_money"] / fs["total_nominals"] * 100) if fs["total_nominals"] > 0 else 0,
+            "vpin_prom": vs["last_vpin"],
+            "vpin_vivo": v_vivo,
+            "progreso": progreso,
+            "buy_b": vs["current_buy_vol"],
+            "sell_b": vs["current_sell_vol"]
+        }
+
+    def _snapshot_loop(self):
+        """Escribe el estado completo de cada ticker a MarketSnapshot cada 1 segundo."""
+        while True:
+            time.sleep(1)
+            if self.col_snapshot is None:
+                continue
+            try:
+                for ticker in self.tickers:
+                    st = self.market_state[ticker]
+                    metricas = self._calcular_metricas(ticker)
+
+                    doc = {
+                        "ticker": ticker,
+                        "updated_at": datetime.now(),
+                        "book": {
+                            "bids": list(st["book"]["bids"]),
+                            "offers": list(st["book"]["offers"])
+                        },
+                        "metrics": metricas,
+                        "hourly_stats": {str(k): v for k, v in st["hourly_stats"].items()},
+                        "top_trades": list(st["top_trades"]),
+                        "recent_trades": list(st["trades"])[:30]
+                    }
+
+                    self.col_snapshot.replace_one(
+                        {"ticker": ticker},
+                        doc,
+                        upsert=True
+                    )
+            except Exception as e:
+                print(f"Error escribiendo snapshot: {e}")
+
 
 # ==========================================
 # 2. EL BUCLE PRINCIPAL (MODO MOTOR CIEGO)

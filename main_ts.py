@@ -84,8 +84,11 @@ class MicrostructureEngine:
             print(f"Error conectando a Mongo en main_ts: {e}")
             self.col_trades = None
 
+        self.col_snapshots = self.db["MarketSnapshot"] if self.mongo_client else None
+
         self._arranque_en_frio()
         threading.Thread(target=self._worker_loop, daemon=True).start()
+        threading.Thread(target=self._snapshot_writer_loop, daemon=True).start()
 
     def _arranque_en_frio(self):
         if self.col_trades is None: return
@@ -209,6 +212,31 @@ class MicrostructureEngine:
                 st["trades"].appendleft(trade)
                 self.trade_buffer.append({"ticker": ticker, **trade})
 
+    def _snapshot_writer_loop(self):
+        while True:
+            try:
+                if self.col_snapshots is not None:
+                    for ticker in self.tickers:
+                        view = self.get_market_view(ticker)
+                        doc = {
+                            "ticker": ticker,
+                            "updated_at": datetime.now(),
+                            "book": view["book"],
+                            "metrics": view["metrics"],
+                            "hourly_stats": {str(k): v for k, v in view["hourly_stats"].items()},
+                            "recent_trades": list(view["trades"])[:30],
+                            "top_trades": view["top_trades"],
+                        }
+                        self.col_snapshots.update_one(
+                            {"ticker": ticker},
+                            {"$set": doc},
+                            upsert=True
+                        )
+            except Exception:
+                with open("errores_bot.txt", "a") as f:
+                    f.write(traceback.format_exc())
+            time.sleep(1)
+
     def get_market_view(self, ticker):
         st = self.market_state[ticker]
         b, o, fs, vs = st["book"]["bids"], st["book"]["offers"], st["daily_financials"], st["vpin_stats"]
@@ -238,7 +266,7 @@ class MicrostructureEngine:
             "hourly_stats": st["hourly_stats"],
             "metrics": {
                 "micro_price": m_px, "spread": sp, "imbalance": imb,
-                "total_nominals": fs["total_nominals"], "tot_money": fs["total_money"],
+                "total_nominals": fs["total_nominals"], "total_money": fs["total_money"],
                 "buy_money": fs["buy_money"], "sell_money": fs["sell_money"],
                 "vwap": (fs["total_money"] / fs["total_nominals"] * 100) if fs["total_nominals"] > 0 else 0,
                 "vpin_prom": vs["last_vpin"],

@@ -5,6 +5,7 @@ import threading
 import time
 import traceback
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from collections import deque
 from rich.table import Table
 from rich.panel import Panel
@@ -55,6 +56,8 @@ VOLUME_BUCKET_SIZES = {
     "MERV - XMEV - PARP - 24hs": 4436050
 }
 
+ART = ZoneInfo("America/Argentina/Buenos_Aires")
+
 # ==========================================
 # 1. EL CEREBRO: MicrostructureEngine
 # ==========================================
@@ -92,7 +95,7 @@ class MicrostructureEngine:
 
     def _arranque_en_frio(self):
         if self.col_trades is None: return
-        inicio = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        inicio = datetime.now(tz=ART).replace(hour=0, minute=0, second=0, microsecond=0).replace(tzinfo=None)
         for ticker in self.tickers:
             st = self.market_state[ticker]
             for doc in self.col_trades.find({"ticker": ticker, "timestamp": {"$gte": inicio}}):
@@ -197,7 +200,7 @@ class MicrostructureEngine:
                 elif side == "SELL":
                     st["daily_financials"]["sell_money"] += cash
 
-                dt = datetime.fromtimestamp(ts_ms / 1000.0)
+                dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).astimezone(ART).replace(tzinfo=None)
                 h = dt.hour
                 if 10 <= h <= 17:
                     st["hourly_stats"][h]["total"] += cash

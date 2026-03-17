@@ -16,7 +16,6 @@ from mongo_manager import get_mongo_client
 
 # --- CONFIGURACIÓN MULTIACTIVO (INTACTA) ---
 TICKERS = [
-    "MERV - XMEV - AL30 - CI", "MERV - XMEV - AL30D - CI",
     "MERV - XMEV - TZXM6 - 24hs", "MERV - XMEV - S17A6 - 24hs",
     "MERV - XMEV - S30A6 - 24hs", "MERV - XMEV - S29Y6 - 24hs", "MERV - XMEV - T30J6 - 24hs",
     "MERV - XMEV - S31L6 - 24hs", "MERV - XMEV - S31G6 - 24hs", "MERV - XMEV - S30O6 - 24hs",

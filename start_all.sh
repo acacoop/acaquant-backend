@@ -1,16 +1,8 @@
 #!/bin/bash
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-export HOME="/root"
+cd /root/TradingAV
 
-DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$DIR"
+/root/TradingAV/venv/bin/python /root/TradingAV/main_valores.py &
 
-LOG="$DIR/start_all.log"
-exec >> "$LOG" 2>&1
-echo "=== $(date '+%Y-%m-%d %H:%M:%S') Iniciando ==="
+/root/TradingAV/venv/bin/streamlit run /root/TradingAV/streamlit_app.py --server.port 8501 --server.headless true &
 
-"$DIR/venv/bin/python" "$DIR/main_valores.py" &
-"$DIR/venv/bin/streamlit" run "$DIR/streamlit_app.py" --server.port 8501 --server.headless true &
-
-echo "PIDs: $(jobs -p)"
 wait

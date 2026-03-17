@@ -47,13 +47,7 @@ def sincronizar_assets(df):
     for _, row in df.iterrows():
         result = collection.update_one(
             {"unidad": row["unidad"]},
-            {"$setOnInsert": {
-                "id_cuenta": row["id_cuenta"],
-                "unidad": row["unidad"],
-                "cantidad": row["cantidad"],
-                "precio": row["precio"],
-                "actualizado": row["actualizado"],
-            }},
+            {"$setOnInsert": {"unidad": row["unidad"]}},
             upsert=True
         )
         if result.upserted_id:

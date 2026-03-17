@@ -1,10 +1,12 @@
 import sys
+import os
 import holidays
 from datetime import datetime, timedelta
 from aunesa_api_manager import AunesaApiManager
 
-# --- CAMBIO 1: Importamos el nuevo y único manager ---
-from google_sheets_manager import GoogleSheetsManager
+# Agregamos el path raíz para acceder a mongo_manager
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from mongo_manager import get_mongo_client
 
 # Definición de las cuentas
 CUENTAS_OBJETIVO = ["100", "255", "101", "163"]
@@ -30,6 +32,25 @@ def obtener_fechas_habiles():
     return t_mas_2.strftime("%d/%m/%Y"), ""
 
 
+def guardar_en_mongo(df):
+    """
+    Borra todo lo que haya en Valuaciones.Carteras y guarda los nuevos datos.
+    Nunca hay duplicados: siempre es un reemplazo total.
+    """
+    client = get_mongo_client()
+    collection = client["Valuaciones"]["Carteras"]
+
+    # Overwrite: borramos todo y reinsertamos
+    collection.delete_many({})
+
+    registros = df.to_dict(orient="records")
+    if registros:
+        collection.insert_many(registros)
+
+    client.close()
+    return len(registros)
+
+
 def run():
     print("🚀 Iniciando Actualización Única de Carteras...")
 
@@ -38,26 +59,18 @@ def run():
 
     api_manager = AunesaApiManager()
 
-    # --- CAMBIO 2: Instanciamos el manager unificado ---
-    excel_manager = GoogleSheetsManager()
-
     try:
-        # 1. Consultar a la API
         df_carteras = api_manager.consultar_cuentas(
             CUENTAS_OBJETIVO,
             desde=fecha_desde,
             hasta=fecha_hasta
         )
 
-        # 2. Escribir en Excel
         if df_carteras is not None and not df_carteras.empty:
             print(f"📊 Registros consolidados: {len(df_carteras)}")
 
-            # --- CAMBIO 3: Usamos el método específico para carteras ---
-            if excel_manager.escribir_carteras(df_carteras):
-                print("✅ Hoja 'CARTERAS' actualizada correctamente.")
-            else:
-                print("❌ Error al escribir en Excel.")
+            cantidad = guardar_en_mongo(df_carteras)
+            print(f"✅ MongoDB Valuaciones.Carteras actualizado: {cantidad} registros.")
         else:
             print("⚠️ No se recuperaron datos de la API.")
 

@@ -33,6 +33,48 @@ def obtener_fechas_habiles():
     return t_mas_2.strftime("%d/%m/%Y"), ""
 
 
+def sincronizar_assets(df):
+    """
+    Sincroniza las unidades de Carteras hacia Assets.
+    - Si la unidad ya existe: no hace nada
+    - Si no existe: la agrega
+    - Al final: elimina duplicados por unidad
+    """
+    client = get_mongo_client()
+    collection = client["Valuaciones"]["Assets"]
+
+    insertados = 0
+    for _, row in df.iterrows():
+        result = collection.update_one(
+            {"unidad": row["unidad"]},
+            {"$setOnInsert": {
+                "id_cuenta": row["id_cuenta"],
+                "unidad": row["unidad"],
+                "cantidad": row["cantidad"],
+                "precio": row["precio"],
+                "actualizado": row["actualizado"],
+            }},
+            upsert=True
+        )
+        if result.upserted_id:
+            insertados += 1
+
+    # Deduplicación: si por alguna razón hay duplicados, se eliminan
+    pipeline = [
+        {"$group": {"_id": "$unidad", "ids": {"$push": "$_id"}, "count": {"$sum": 1}}},
+        {"$match": {"count": {"$gt": 1}}}
+    ]
+    duplicados = list(collection.aggregate(pipeline))
+    eliminados = 0
+    for dup in duplicados:
+        ids_a_borrar = dup["ids"][1:]  # Conserva el primero, borra el resto
+        collection.delete_many({"_id": {"$in": ids_a_borrar}})
+        eliminados += len(ids_a_borrar)
+
+    client.close()
+    return insertados, eliminados
+
+
 def guardar_en_mongo(df):
     """
     Borra todo lo que haya en Valuaciones.Carteras y guarda los nuevos datos.
@@ -72,6 +114,9 @@ def run():
 
             cantidad = guardar_en_mongo(df_carteras)
             print(f"✅ MongoDB Valuaciones.Carteras actualizado: {cantidad} registros.")
+
+            insertados, eliminados = sincronizar_assets(df_carteras)
+            print(f"✅ MongoDB Valuaciones.Assets: {insertados} nuevos insertados, {eliminados} duplicados eliminados.")
         else:
             print("⚠️ No se recuperaron datos de la API.")
 

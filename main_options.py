@@ -129,6 +129,10 @@ class OptionsEngine:
                 }
         except:
             pass
+
+        state_copy['strike'] = K
+        state_copy['tipo'] = info['tipo']
+        state_copy['spot'] = S
         self.mongo.guardar_operacion_unica(ticker, state_copy, server_time=datetime.now(), griegas=griegas)
 
     def get_view_data(self):

@@ -1,8 +1,8 @@
 #!/bin/bash
-cd /home/user/TradingAV
+cd /root/TradingAV
 
-/home/user/TradingAV/venv/bin/python /home/user/TradingAV/main_valores.py &
+/root/TradingAV/venv/bin/python /root/TradingAV/main_valores.py &
 
-/home/user/TradingAV/venv/bin/streamlit run /home/user/TradingAV/streamlit_app.py --server.port 8501 --server.headless true &
+/root/TradingAV/venv/bin/streamlit run /root/TradingAV/streamlit_app.py --server.port 8501 --server.headless true &
 
 wait

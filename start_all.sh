@@ -1,8 +1,9 @@
 #!/bin/bash
-cd /home/user/TradingAV
+DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$DIR"
 
-/home/user/TradingAV/venv/bin/python /home/user/TradingAV/main_valores.py &
+"$DIR/venv/bin/python" "$DIR/main_valores.py" &
 
-/home/user/TradingAV/venv/bin/streamlit run /home/user/TradingAV/streamlit_app.py --server.port 8501 --server.headless true &
+"$DIR/venv/bin/streamlit" run "$DIR/streamlit_app.py" --server.port 8501 --server.headless true &
 
 wait

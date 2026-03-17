@@ -4,8 +4,8 @@ import logging
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Cargamos las variables del archivo .env
-load_dotenv()
+# Cargamos las variables del archivo .env (path absoluto para que funcione desde cron)
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 logger = logging.getLogger("TradingBot")
 

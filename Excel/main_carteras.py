@@ -1,11 +1,12 @@
 import sys
 import os
+
+# Agregamos el path raíz para acceder a mongo_manager y config
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 import holidays
 from datetime import datetime, timedelta
 from aunesa_api_manager import AunesaApiManager
-
-# Agregamos el path raíz para acceder a mongo_manager
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from mongo_manager import get_mongo_client
 
 # Definición de las cuentas

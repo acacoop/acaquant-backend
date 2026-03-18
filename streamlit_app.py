@@ -128,7 +128,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Opciones", "Mercado"],
+        ["Libro", "Opciones", "Estrategias Opciones", "Mercado"],
         label_visibility="collapsed"
     )
 
@@ -655,7 +655,45 @@ elif vista == "Opciones":
         else:
             docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
             st.markdown(render_cadena_opciones(docs, spot), unsafe_allow_html=True)
-            st.markdown(render_estrategias(docs_map), unsafe_allow_html=True)
+
+        time.sleep(0.5)
+        st.rerun()
+
+
+# ==========================================
+# VISTA: ESTRATEGIAS OPCIONES
+# ==========================================
+elif vista == "Estrategias Opciones":
+    with _main.container():
+        db_op = get_db_opciones()
+
+        st.markdown("## 🧮 ACAQuant | Estrategias Opciones GGAL")
+
+        docs = list(db_op["OptionsSnapshot"].find({}))
+
+        if docs:
+            ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
+            if ultimo_ts:
+                lag = (datetime.now() - ultimo_ts).total_seconds()
+                lag_color = "#ff4444" if lag > 10 else "#00cc66"
+                st.markdown(
+                    f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
+                    f"Última actualización: <span style='color:{lag_color}'>"
+                    f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
+                    unsafe_allow_html=True
+                )
+
+        st.divider()
+
+        if not docs:
+            st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
+        else:
+            docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
+            html = render_estrategias(docs_map)
+            if html:
+                st.markdown(html, unsafe_allow_html=True)
+            else:
+                st.info("Sin estrategias disponibles.")
 
         time.sleep(0.5)
         st.rerun()

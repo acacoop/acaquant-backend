@@ -60,6 +60,10 @@ class MongoManager:
                 "strike": data.get('strike'),
                 "tipo": data.get('tipo'),
                 "spot": data.get('spot'),
+                "open": data.get('open', 0),
+                "high": data.get('high', 0),
+                "low": data.get('low', 0),
+                "ev": data.get('ev', 0),
             }
 
             if griegas and isinstance(griegas, dict):
@@ -69,3 +73,34 @@ class MongoManager:
 
         except Exception as e:
             logger.error(f"Error al guardar operacion: {e}")
+
+    def guardar_snapshot_opciones(self, symbol, data, griegas=None):
+        """
+        Upsert del estado más reciente de cada opción.
+        Se llama cada ~2 segundos con el estado completo de RAM.
+        Permite que Streamlit vea bid/offer/high/low/ev en tiempo real.
+        """
+        try:
+            doc = {
+                "updated_at": datetime.now(),
+                "symbol": symbol,
+                "bid":    data.get('bid', 0),
+                "offer":  data.get('offer', 0),
+                "last":   data.get('last', 0),
+                "open":   data.get('open', 0),
+                "high":   data.get('high', 0),
+                "low":    data.get('low', 0),
+                "ev":     data.get('ev', 0),
+                "strike": data.get('strike'),
+                "tipo":   data.get('tipo'),
+                "spot":   data.get('spot', 0),
+            }
+            if griegas and isinstance(griegas, dict):
+                doc.update(griegas)
+            self.db["OptionsSnapshot"].update_one(
+                {"symbol": symbol},
+                {"$set": doc},
+                upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error al guardar snapshot: {e}")

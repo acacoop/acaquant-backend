@@ -132,6 +132,13 @@ with st.sidebar:
         label_visibility="collapsed"
     )
 
+# Forzar rerun limpio al cambiar de vista (evita HTML fantasma de la vista anterior)
+if "prev_vista" not in st.session_state:
+    st.session_state.prev_vista = vista
+if st.session_state.prev_vista != vista:
+    st.session_state.prev_vista = vista
+    st.rerun()
+
 
 # ==========================================
 # HELPERS DE RENDER - LIBRO

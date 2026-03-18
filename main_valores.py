@@ -91,6 +91,33 @@ class MicrostructureEngine:
         threading.Thread(target=self._snapshot_loop, daemon=True).start()
 
     def _arranque_en_frio(self):
+        # 1) Recuperar OPEN/HIGH/LOW reales desde el REST API de Rofex
+        for ticker in self.tickers:
+            try:
+                md = pyRofex.get_market_data(
+                    ticker,
+                    entries=[
+                        pyRofex.MarketDataEntry.OPENING_PRICE,
+                        pyRofex.MarketDataEntry.HIGH_PRICE,
+                        pyRofex.MarketDataEntry.LOW_PRICE,
+                        pyRofex.MarketDataEntry.LAST,
+                    ]
+                )
+                data = md.get("marketData", {})
+                st = self.market_state[ticker]
+                if data.get("OP"):
+                    st["open_price"] = float(data["OP"])
+                if data.get("HI"):
+                    st["high_price"] = float(data["HI"])
+                if data.get("LO"):
+                    st["low_price"] = float(data["LO"])
+                la = data.get("LA")
+                if la and la.get("price"):
+                    st["last_price"] = float(la["price"])
+            except Exception as e:
+                print(f"⚠️ No se pudo obtener market data REST para {ticker}: {e}")
+
+        # 2) Reconstruir financials del día desde trades en MongoDB
         if self.col_trades is None: return
         inicio = datetime.now(tz=ART).replace(hour=0, minute=0, second=0, microsecond=0).replace(tzinfo=None)
         for ticker in self.tickers:

@@ -5,8 +5,8 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/user/TradingAV
-ExecStart=/home/user/TradingAV/venv/bin/python /home/user/TradingAV/main_options.py
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/python /root/TradingAV/main_options.py
 Restart=always
 RestartSec=10
 

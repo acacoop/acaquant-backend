@@ -296,11 +296,14 @@ def render_mercado_table(snaps):
         name    = short_name(ticker)
         m       = snap.get("metrics", {})
 
-        total   = m.get("total_money", 0) or 0
-        buy     = m.get("buy_money",   0) or 0
-        sell    = m.get("sell_money",  0) or 0
-        spread  = m.get("spread",      0) or 0
-        imb     = m.get("imbalance",   0) or 0
+        total      = m.get("total_money", 0) or 0
+        buy        = m.get("buy_money",   0) or 0
+        sell       = m.get("sell_money",  0) or 0
+        spread     = m.get("spread",      0) or 0
+        imb        = m.get("imbalance",   0) or 0
+        last_price = m.get("last_price",  0) or 0
+        open_price = m.get("open_price",  0) or 0
+        vwap       = m.get("vwap",        0) or 0
 
         if total == 0:
             continue
@@ -322,13 +325,26 @@ def render_mercado_table(snaps):
         else:
             imb_css = "mkt-imb-neu"
 
+        # Intraday % = last / open - 1
+        if open_price > 0 and last_price > 0:
+            intraday = last_price / open_price - 1
+            intraday_color = "#00cc66" if intraday >= 0 else "#ff4444"
+            intraday_str = f"<span style='color:{intraday_color};font-weight:bold'>{intraday:+.2%}</span>"
+        else:
+            intraday_str = "<span style='color:#555'>-</span>"
+
+        last_str = f"{last_price:,.2f}" if last_price > 0 else "-"
+        vwap_str = f"{vwap:,.2f}"       if vwap > 0       else "-"
+
         rows.append(f"""<tr>
             <td class='mkt-ticker'>{name}</td>
             <td class='mkt-total'>{fmt_money(total)}</td>
             <td class='mkt-buy'>{fmt_money(buy)}</td>
             <td class='mkt-sell'>{fmt_money(sell)}</td>
             <td class='mkt-bar'>{bar}</td>
-            <td class='mkt-spread'>{spread:,.2f}</td>
+            <td class='mkt-spread' style='text-align:right;color:#ccc'>{last_str}</td>
+            <td class='mkt-spread' style='text-align:right;color:#888'>{vwap_str}</td>
+            <td style='text-align:right'>{intraday_str}</td>
             <td class='{imb_css}'>{imb:.2%}</td>
         </tr>""")
 
@@ -344,7 +360,9 @@ def render_mercado_table(snaps):
             <th>BUY $</th>
             <th>SELL $</th>
             <th class='mkt-th-left' style='padding-left:8px'>B / S</th>
-            <th>SPREAD</th>
+            <th>LAST</th>
+            <th>VWAP</th>
+            <th>INTRADAY</th>
             <th>IMBALANCE</th>
         </tr></thead>
         <tbody>{''.join(rows)}</tbody>

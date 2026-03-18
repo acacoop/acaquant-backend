@@ -266,9 +266,15 @@ def render_whales(top_trades):
 # ==========================================
 # HELPERS DE RENDER - OPCIONES
 # ==========================================
+def fmt_vol(v):
+    if not v or v == 0: return "-"
+    if v >= 1_000_000: return f"{v/1_000_000:.1f}M"
+    if v >= 1_000:     return f"{v/1_000:.0f}k"
+    return f"{v:.0f}"
+
+
 def render_cadena_opciones(docs, spot):
-    """Construye la tabla cadena CALL | STRIKE | PUT desde los docs de MongoDB."""
-    # Agrupar por strike
+    """Construye la tabla cadena CALL | STRIKE | PUT — idéntica a la terminal."""
     por_strike = {}
     for d in docs:
         k = d.get('strike')
@@ -283,13 +289,11 @@ def render_cadena_opciones(docs, spot):
         return "<p style='color:#888'>Sin datos de opciones. ¿El motor de opciones está corriendo?</p>"
 
     def cell(v, fmt=".2f"):
-        if v is None or v == 0:
-            return "-"
+        if v is None or v == 0: return "-"
         return f"{v:{fmt}}"
 
     def iv_str(v):
-        if v is None or v == 0:
-            return "-"
+        if v is None or v == 0: return "-"
         return f"{v*100:.1f}%"
 
     rows = []
@@ -297,24 +301,36 @@ def render_cadena_opciones(docs, spot):
         c = por_strike[K].get('CALL', {})
         p = por_strike[K].get('PUT', {})
 
+        c_mid = (c.get('bid', 0) + c.get('offer', 0)) / 2 if c.get('bid', 0) > 0 and c.get('offer', 0) > 0 else c.get('last', 0)
+        p_mid = (p.get('bid', 0) + p.get('offer', 0)) / 2 if p.get('bid', 0) > 0 and p.get('offer', 0) > 0 else p.get('last', 0)
+        if c_mid == 0 and p_mid == 0:
+            continue
+
         itm_call = spot > 0 and K < spot
         itm_put  = spot > 0 and K > spot
         css_c = "opt-itm" if itm_call else "opt-otm"
         css_p = "opt-itm" if itm_put  else "opt-otm"
 
+        c_h, c_l = c.get('high', 0) or 0, c.get('low', 0) or 0
+        p_h, p_l = p.get('high', 0) or 0, p.get('low', 0) or 0
+        c_hl = f"{c_h:.1f}/{c_l:.1f}" if c_h > 0 else "-"
+        p_hl = f"{p_h:.1f}/{p_l:.1f}" if p_h > 0 else "-"
+
         rows.append(f"""
         <tr>
+            <td class='{css_c}' style='text-align:right;color:#4da8da'>{fmt_vol(c.get('ev'))}</td>
+            <td class='{css_c}' style='text-align:center;color:#888;font-size:11px'>{c_hl}</td>
+            <td class='{css_c} c-delta'>{cell(c.get('delta'), '.3f')}</td>
+            <td class='{css_c} c-iv'>{iv_str(c.get('iv'))}</td>
             <td class='{css_c} c-bid'>{cell(c.get('bid'))}</td>
             <td class='{css_c} c-offer'>{cell(c.get('offer'))}</td>
-            <td class='{css_c} c-last'>{cell(c.get('last'))}</td>
-            <td class='{css_c} c-iv'>{iv_str(c.get('iv'))}</td>
-            <td class='{css_c} c-delta'>{cell(c.get('delta'), '.3f')}</td>
             <td class='opt-strike'>{K:,.1f}</td>
-            <td class='{css_p} c-delta'>{cell(p.get('delta'), '.3f')}</td>
-            <td class='{css_p} c-iv'>{iv_str(p.get('iv'))}</td>
-            <td class='{css_p} c-last'>{cell(p.get('last'))}</td>
-            <td class='{css_p} c-offer'>{cell(p.get('offer'))}</td>
             <td class='{css_p} c-bid'>{cell(p.get('bid'))}</td>
+            <td class='{css_p} c-offer'>{cell(p.get('offer'))}</td>
+            <td class='{css_p} c-iv'>{iv_str(p.get('iv'))}</td>
+            <td class='{css_p} c-delta'>{cell(p.get('delta'), '.3f')}</td>
+            <td class='{css_p}' style='text-align:center;color:#888;font-size:11px'>{p_hl}</td>
+            <td class='{css_p}' style='text-align:left;color:#4da8da'>{fmt_vol(p.get('ev'))}</td>
         </tr>""")
 
     return f"""
@@ -322,24 +338,103 @@ def render_cadena_opciones(docs, spot):
     <table class='opt-table'>
         <thead>
             <tr>
-                <th colspan='5' style='text-align:center;color:#00cc66'>CALL</th>
+                <th colspan='6' style='text-align:center;color:#00cc66'>CALL</th>
                 <th style='text-align:center;color:#f0c040'>STRIKE</th>
-                <th colspan='5' style='text-align:center;color:#ff4444'>PUT</th>
+                <th colspan='6' style='text-align:center;color:#ff4444'>PUT</th>
             </tr>
             <tr>
+                <th style='text-align:right'>VOL $</th>
+                <th style='text-align:center'>H/L</th>
+                <th style='text-align:right'>Delta</th>
+                <th style='text-align:right'>IV</th>
                 <th style='text-align:right'>Bid</th>
                 <th style='text-align:right'>Offer</th>
-                <th style='text-align:right'>Last</th>
-                <th style='text-align:right'>IV</th>
-                <th style='text-align:right'>Delta</th>
                 <th></th>
-                <th style='text-align:right'>Delta</th>
-                <th style='text-align:right'>IV</th>
-                <th style='text-align:right'>Last</th>
-                <th style='text-align:right'>Offer</th>
                 <th style='text-align:right'>Bid</th>
+                <th style='text-align:right'>Offer</th>
+                <th style='text-align:right'>IV</th>
+                <th style='text-align:right'>Delta</th>
+                <th style='text-align:center'>H/L</th>
+                <th style='text-align:left'>VOL $</th>
             </tr>
         </thead>
+        <tbody>{''.join(rows)}</tbody>
+    </table>"""
+
+
+def render_estrategias(docs_map):
+    """Tabla de estrategias idéntica a la terminal. docs_map: {symbol: doc}"""
+    from Opciones.estrategias_opciones import ESTRATEGIAS
+
+    def get_safe(d, key):
+        if not d: return 0
+        v = d.get(key, 0)
+        return v if v is not None else 0
+
+    rows = []
+    for estr in ESTRATEGIAS:
+        neto, d_net, g_net, t_net, valida = 0, 0, 0, 0, True
+        s_c, s_v = 0, 0
+        for pata in estr['patas']:
+            sym = pata['symbol']
+            dat = docs_map.get(sym)
+            if not dat:
+                valida = False
+                break
+            qty = pata['ratio']
+            p_off  = get_safe(dat, 'offer')
+            p_bid  = get_safe(dat, 'bid')
+            p_last = get_safe(dat, 'last')
+            px = (p_off if pata['lado'] == 'compra' else p_bid) if (p_off > 0 and p_bid > 0) else p_last
+            if px == 0:
+                valida = False
+                break
+            strike_val = get_safe(dat, 'strike')
+            if pata['lado'] == 'compra':
+                s_c = strike_val
+            else:
+                s_v = strike_val
+            m = 1 if pata['lado'] == 'compra' else -1
+            neto  += px  * qty * m
+            d_net += get_safe(dat, 'delta') * qty * m
+            g_net += get_safe(dat, 'gamma') * qty * m
+            t_net += get_safe(dat, 'theta') * qty * m
+
+        if valida:
+            color      = "#ff4444" if neto > 0 else "#00cc66"
+            f_val      = abs(s_c - s_v) - neto if (s_c > 0 and s_v > 0 and neto > 0) else 0
+            ratio_str  = f"{(f_val/neto)*100:.1f}%" if (f_val > 0 and neto > 0) else "-"
+            finish_str = f"${f_val:.2f}" if f_val > 0 else "-"
+            rows.append(f"""<tr>
+                <td style='padding:2px 6px;color:#ccc'>{estr['nombre']}</td>
+                <td style='padding:2px 6px;text-align:right;color:{color}'>${neto:.2f}</td>
+                <td style='padding:2px 6px;text-align:right;color:#aaa'>{finish_str}</td>
+                <td style='padding:2px 6px;text-align:right;color:#aaa'>{ratio_str}</td>
+                <td style='padding:2px 6px;text-align:right;color:#7eb8f7'>{d_net:.3f}</td>
+                <td style='padding:2px 6px;text-align:right;color:#aaa'>{g_net:.4f}</td>
+                <td style='padding:2px 6px;text-align:right;color:#aaa'>{t_net:.2f}</td>
+            </tr>""")
+        else:
+            rows.append(f"""<tr>
+                <td style='padding:2px 6px;color:#555'>{estr['nombre']}</td>
+                <td colspan='6' style='padding:2px 6px;color:#555;text-align:center'>Sin Liq</td>
+            </tr>""")
+
+    if not rows:
+        return ""
+    return f"""
+    <br>
+    <div class='section-title'>ESTRATEGIAS</div>
+    <table style='width:100%;border-collapse:collapse;font-size:12px'>
+        <thead><tr>
+            <th style='text-align:left;color:#555;font-size:11px;padding:3px 6px;border-bottom:1px solid #222'>ESTRATEGIA</th>
+            <th style='text-align:right;color:#555;font-size:11px;padding:3px 6px;border-bottom:1px solid #222'>COSTO</th>
+            <th style='text-align:right;color:#555;font-size:11px;padding:3px 6px;border-bottom:1px solid #222'>FINISH</th>
+            <th style='text-align:right;color:#555;font-size:11px;padding:3px 6px;border-bottom:1px solid #222'>RATIO</th>
+            <th style='text-align:right;color:#555;font-size:11px;padding:3px 6px;border-bottom:1px solid #222'>DELTA</th>
+            <th style='text-align:right;color:#555;font-size:11px;padding:3px 6px;border-bottom:1px solid #222'>GAMMA</th>
+            <th style='text-align:right;color:#555;font-size:11px;padding:3px 6px;border-bottom:1px solid #222'>THETA</th>
+        </tr></thead>
         <tbody>{''.join(rows)}</tbody>
     </table>"""
 
@@ -451,7 +546,10 @@ elif vista == "Opciones":
     if not docs:
         st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
     else:
+        # Mapa por symbol para la tabla de estrategias
+        docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
         st.markdown(render_cadena_opciones(docs, spot), unsafe_allow_html=True)
+        st.markdown(render_estrategias(docs_map), unsafe_allow_html=True)
 
     time.sleep(2)
     st.rerun()

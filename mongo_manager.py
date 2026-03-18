@@ -60,6 +60,10 @@ class MongoManager:
                 "strike": data.get('strike'),
                 "tipo": data.get('tipo'),
                 "spot": data.get('spot'),
+                "open": data.get('open', 0),
+                "high": data.get('high', 0),
+                "low": data.get('low', 0),
+                "ev": data.get('ev', 0),
             }
 
             if griegas and isinstance(griegas, dict):

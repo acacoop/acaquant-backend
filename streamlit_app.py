@@ -335,6 +335,7 @@ def render_mercado_table(snaps):
 
         last_str = f"{last_price:,.2f}" if last_price > 0 else "-"
         vwap_str = f"{vwap:,.2f}"       if vwap > 0       else "-"
+        open_str = f"{open_price:,.2f}" if open_price > 0 else "-"
 
         rows.append(f"""<tr>
             <td class='mkt-ticker'>{name}</td>
@@ -342,6 +343,7 @@ def render_mercado_table(snaps):
             <td class='mkt-buy'>{fmt_money(buy)}</td>
             <td class='mkt-sell'>{fmt_money(sell)}</td>
             <td class='mkt-bar'>{bar}</td>
+            <td class='mkt-spread' style='text-align:right;color:#aaa'>{open_str}</td>
             <td class='mkt-spread' style='text-align:right;color:#ccc'>{last_str}</td>
             <td class='mkt-spread' style='text-align:right;color:#888'>{vwap_str}</td>
             <td style='text-align:right'>{intraday_str}</td>
@@ -360,6 +362,7 @@ def render_mercado_table(snaps):
             <th>BUY $</th>
             <th>SELL $</th>
             <th class='mkt-th-left' style='padding-left:8px'>B / S</th>
+            <th>OPEN</th>
             <th>LAST</th>
             <th>VWAP</th>
             <th>INTRADAY</th>

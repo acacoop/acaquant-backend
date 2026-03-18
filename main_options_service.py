@@ -122,6 +122,55 @@ class OptionsEngine:
                         daemon=True
                     ).start()
 
+    def _snapshot_loop(self):
+        """
+        Cada 2 segundos hace upsert del estado completo de RAM en OptionsSnapshot.
+        Esto permite que Streamlit vea bid/offer/high/low/ev en tiempo real,
+        aunque no haya habido ningún trade (igual que la terminal lee de RAM).
+        """
+        while _running:
+            try:
+                S = self.market_state.get(self.spot_symbol, {}).get('last', 0)
+                for sym, info in self.mapa_opciones.items():
+                    state = self.market_state.get(sym, {})
+                    bid   = state.get('bid', 0)
+                    offer = state.get('offer', 0)
+                    last  = state.get('last', 0)
+                    if bid == 0 and offer == 0 and last == 0:
+                        continue
+
+                    data = {
+                        **state,
+                        'strike': info['strike'],
+                        'tipo':   info['tipo'],
+                        'spot':   S,
+                    }
+
+                    griegas = None
+                    if S > 0:
+                        K = info['strike']
+                        T = max((datetime.strptime(info['vence'], "%Y%m%d") - datetime.now()).days, 1) / 365.0
+                        p_mid = (bid + offer) / 2 if bid > 0 and offer > 0 else last
+                        vi = calc_intrinseco(S, K, info['tipo'])
+                        p_iv = p_mid if p_mid > vi else vi + 0.1
+                        try:
+                            iv = find_iv(p_iv, S, K, T, self.tasa, info['tipo'])
+                            if iv > 0:
+                                griegas = {
+                                    "iv":    round(iv, 4),
+                                    "delta": round(bs_delta(S, K, T, self.tasa, iv, info['tipo']), 3),
+                                    "gamma": round(bs_gamma(S, K, T, self.tasa, iv), 4),
+                                    "vega":  round(bs_vega(S, K, T, self.tasa, iv), 2),
+                                    "theta": round(bs_theta(S, K, T, self.tasa, iv, info['tipo']), 2),
+                                }
+                        except Exception:
+                            pass
+
+                    self.mongo.guardar_snapshot_opciones(sym, data, griegas=griegas)
+            except Exception as e:
+                logger.warning(f"Error en snapshot_loop: {e}")
+            time.sleep(2)
+
     def _guardar_en_mongo(self, ticker, state_copy, ts):
         """Calcula Griegas y persiste en segundo plano."""
         S = self.market_state[self.spot_symbol]['last']
@@ -173,6 +222,9 @@ def run():
     ws_manager = WebSocketManager(engine)
     ws_manager.iniciar_ws(engine.get_tickers_suscripcion())
     logger.info(f"Motor corriendo. Suscripto a {len(engine.get_tickers_suscripcion())} activos.")
+
+    threading.Thread(target=engine._snapshot_loop, daemon=True).start()
+    logger.info("Snapshot loop iniciado (OptionsSnapshot → MongoDB cada 2s).")
 
     while _running:
         time.sleep(1)

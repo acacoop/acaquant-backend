@@ -517,17 +517,12 @@ elif vista == "Opciones":
 
     st.markdown("## 📊 ACAQuant | Opciones GGAL")
 
-    # Leer el último registro por símbolo
-    pipeline = [
-        {"$sort": {"timestamp": -1}},
-        {"$group": {"_id": "$symbol", "doc": {"$first": "$$ROOT"}}},
-        {"$replaceRoot": {"newRoot": "$doc"}}
-    ]
-    docs = list(db_op["Data"].aggregate(pipeline))
+    # Leer estado en tiempo real desde OptionsSnapshot (upsert cada 2s por el motor)
+    docs = list(db_op["OptionsSnapshot"].find({}))
 
     # Timestamp de última actualización
     if docs:
-        ultimo_ts = max((d.get("timestamp") for d in docs if d.get("timestamp")), default=None)
+        ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
         spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0)
         if ultimo_ts:
             lag = (datetime.now() - ultimo_ts).total_seconds()

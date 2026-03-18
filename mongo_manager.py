@@ -56,7 +56,10 @@ class MongoManager:
                 "offer_size": data.get('offer_size', 0),
                 "last": data.get('last', 0),
                 "last_size": data.get('last_size', 0),
-                "last_timestamp": data.get('last_timestamp')
+                "last_timestamp": data.get('last_timestamp'),
+                "strike": data.get('strike'),
+                "tipo": data.get('tipo'),
+                "spot": data.get('spot'),
             }
 
             if griegas and isinstance(griegas, dict):

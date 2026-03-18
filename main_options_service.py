@@ -1,9 +1,9 @@
 """
 Motor de Opciones GGAL - Servicio Headless
 Idéntico a main_options.py pero sin UI (Textual/Rich).
-Corre como daemon: WebSocket → calcula griegas → guarda en MongoDB.
+Arquitectura event-driven: cada tick del WebSocket escribe el snapshot
+en MongoDB de forma inmediata (throttle 300ms/símbolo).
 """
-import os
 import threading
 import time
 import signal
@@ -42,6 +42,11 @@ signal.signal(signal.SIGINT, _handle_signal)
 # EL CEREBRO: OptionsEngine (idéntico a main_options.py)
 # ==========================================
 class OptionsEngine:
+    # Throttle: mínimo tiempo entre dos snapshots del mismo símbolo
+    _SNAPSHOT_THROTTLE = 0.3   # segundos
+    # Throttle para el batch-refresh cuando cambia el spot
+    _SPOT_REFRESH_THROTTLE = 1.0  # segundos
+
     def __init__(self):
         self.spot_symbol = "MERV - XMEV - GGAL - 24hs"
         self.tasa = 0.242
@@ -51,6 +56,10 @@ class OptionsEngine:
         self.mapa_opciones, self.agrupacion_strikes = self._generar_maestra()
         self.market_state = {}
         self.last_trade_cache = {}
+
+        # Timestamps para throttle de snapshots (monotonic, no datetime)
+        self._last_snapshot_ts = {}   # sym -> float
+        self._last_spot_refresh = 0.0  # float
 
         self._inicializar_estado_memoria()
 
@@ -113,6 +122,7 @@ class OptionsEngine:
             ts = datetime.fromtimestamp(la['date'] / 1000.0)
             state['last_timestamp'] = ts
 
+            # Guardar trade histórico en Data (solo en nuevos trades)
             if ticker in self.mapa_opciones:
                 if self.last_trade_cache.get(ticker) != ts:
                     self.last_trade_cache[ticker] = ts
@@ -122,57 +132,81 @@ class OptionsEngine:
                         daemon=True
                     ).start()
 
-    def _snapshot_loop(self):
-        """
-        Cada 2 segundos hace upsert del estado completo de RAM en OptionsSnapshot.
-        Esto permite que Streamlit vea bid/offer/high/low/ev en tiempo real,
-        aunque no haya habido ningún trade (igual que la terminal lee de RAM).
-        """
-        while _running:
+        # 4. EVENT-DRIVEN SNAPSHOT: escritura inmediata con throttle por símbolo
+        if ticker in self.mapa_opciones:
+            now = time.monotonic()
+            if now - self._last_snapshot_ts.get(ticker, 0) >= self._SNAPSHOT_THROTTLE:
+                self._last_snapshot_ts[ticker] = now
+                threading.Thread(
+                    target=self._write_snapshot,
+                    args=(ticker, state.copy()),
+                    daemon=True
+                ).start()
+
+        # 5. Cuando el SPOT cambia, refrescar griegas de todas las opciones
+        elif ticker == self.spot_symbol:
+            now = time.monotonic()
+            if now - self._last_spot_refresh >= self._SPOT_REFRESH_THROTTLE:
+                self._last_spot_refresh = now
+                threading.Thread(
+                    target=self._refresh_all_snapshots,
+                    daemon=True
+                ).start()
+
+    def _write_snapshot(self, sym, state_copy):
+        """Calcula griegas y hace upsert del snapshot de un único símbolo."""
+        S = self.market_state.get(self.spot_symbol, {}).get('last', 0)
+        info = self.mapa_opciones[sym]
+        K = info['strike']
+
+        data = {
+            **state_copy,
+            'strike': K,
+            'tipo':   info['tipo'],
+            'spot':   S,
+        }
+
+        griegas = None
+        if S > 0:
+            bid   = state_copy.get('bid', 0)
+            offer = state_copy.get('offer', 0)
+            last  = state_copy.get('last', 0)
+            T = max((datetime.strptime(info['vence'], "%Y%m%d") - datetime.now()).days, 1) / 365.0
+            p_mid = (bid + offer) / 2 if bid > 0 and offer > 0 else last
+            vi = calc_intrinseco(S, K, info['tipo'])
+            p_iv = p_mid if p_mid > vi else vi + 0.1
             try:
-                S = self.market_state.get(self.spot_symbol, {}).get('last', 0)
-                for sym, info in self.mapa_opciones.items():
-                    state = self.market_state.get(sym, {})
-                    bid   = state.get('bid', 0)
-                    offer = state.get('offer', 0)
-                    last  = state.get('last', 0)
-                    if bid == 0 and offer == 0 and last == 0:
-                        continue
-
-                    data = {
-                        **state,
-                        'strike': info['strike'],
-                        'tipo':   info['tipo'],
-                        'spot':   S,
+                iv = find_iv(p_iv, S, K, T, self.tasa, info['tipo'])
+                if iv > 0:
+                    griegas = {
+                        "iv":    round(iv, 4),
+                        "delta": round(bs_delta(S, K, T, self.tasa, iv, info['tipo']), 3),
+                        "gamma": round(bs_gamma(S, K, T, self.tasa, iv), 4),
+                        "vega":  round(bs_vega(S, K, T, self.tasa, iv), 2),
+                        "theta": round(bs_theta(S, K, T, self.tasa, iv, info['tipo']), 2),
                     }
+            except Exception:
+                pass
 
-                    griegas = None
-                    if S > 0:
-                        K = info['strike']
-                        T = max((datetime.strptime(info['vence'], "%Y%m%d") - datetime.now()).days, 1) / 365.0
-                        p_mid = (bid + offer) / 2 if bid > 0 and offer > 0 else last
-                        vi = calc_intrinseco(S, K, info['tipo'])
-                        p_iv = p_mid if p_mid > vi else vi + 0.1
-                        try:
-                            iv = find_iv(p_iv, S, K, T, self.tasa, info['tipo'])
-                            if iv > 0:
-                                griegas = {
-                                    "iv":    round(iv, 4),
-                                    "delta": round(bs_delta(S, K, T, self.tasa, iv, info['tipo']), 3),
-                                    "gamma": round(bs_gamma(S, K, T, self.tasa, iv), 4),
-                                    "vega":  round(bs_vega(S, K, T, self.tasa, iv), 2),
-                                    "theta": round(bs_theta(S, K, T, self.tasa, iv, info['tipo']), 2),
-                                }
-                        except Exception:
-                            pass
+        self.mongo.guardar_snapshot_opciones(sym, data, griegas=griegas)
 
-                    self.mongo.guardar_snapshot_opciones(sym, data, griegas=griegas)
-            except Exception as e:
-                logger.warning(f"Error en snapshot_loop: {e}")
-            time.sleep(2)
+    def _refresh_all_snapshots(self):
+        """
+        Se dispara cuando el spot cambia (máx 1 vez/seg).
+        Actualiza el snapshot de todas las opciones activas para que
+        las griegas reflejen el nuevo spot sin esperar a un tick propio.
+        """
+        S = self.market_state.get(self.spot_symbol, {}).get('last', 0)
+        if S <= 0:
+            return
+        for sym, info in self.mapa_opciones.items():
+            state = self.market_state.get(sym, {})
+            if state.get('bid', 0) == 0 and state.get('offer', 0) == 0 and state.get('last', 0) == 0:
+                continue
+            self._write_snapshot(sym, state.copy())
 
     def _guardar_en_mongo(self, ticker, state_copy, ts):
-        """Calcula Griegas y persiste en segundo plano."""
+        """Calcula Griegas y persiste el trade histórico en Data."""
         S = self.market_state[self.spot_symbol]['last']
         if S <= 0:
             return
@@ -221,10 +255,10 @@ def run():
 
     ws_manager = WebSocketManager(engine)
     ws_manager.iniciar_ws(engine.get_tickers_suscripcion())
-    logger.info(f"Motor corriendo. Suscripto a {len(engine.get_tickers_suscripcion())} activos.")
-
-    threading.Thread(target=engine._snapshot_loop, daemon=True).start()
-    logger.info("Snapshot loop iniciado (OptionsSnapshot → MongoDB cada 2s).")
+    logger.info(
+        f"Motor corriendo (event-driven, throttle {OptionsEngine._SNAPSHOT_THROTTLE}s/sym). "
+        f"Suscripto a {len(engine.get_tickers_suscripcion())} activos."
+    )
 
     while _running:
         time.sleep(1)

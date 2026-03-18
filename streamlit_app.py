@@ -505,7 +505,7 @@ if vista == "Libro":
     with col_right:
         st.markdown(render_whales(top_trades), unsafe_allow_html=True)
 
-    time.sleep(1)
+    time.sleep(0.5)
     st.rerun()
 
 
@@ -546,5 +546,5 @@ elif vista == "Opciones":
         st.markdown(render_cadena_opciones(docs, spot), unsafe_allow_html=True)
         st.markdown(render_estrategias(docs_map), unsafe_allow_html=True)
 
-    time.sleep(2)
+    time.sleep(0.5)
     st.rerun()

@@ -58,6 +58,7 @@ class MicrostructureEngine:
         self.tickers = tickers
         self.tick_queue = queue.Queue()
         self.trade_buffer = []
+        self._buffer_lock = threading.Lock()
         self.market_state = {
             t: {
                 "book": {"bids": [], "offers": []},
@@ -83,6 +84,7 @@ class MicrostructureEngine:
 
         self._arranque_en_frio()
         threading.Thread(target=self._worker_loop, daemon=True).start()
+        threading.Thread(target=self._flush_loop, daemon=True).start()
         threading.Thread(target=self._snapshot_loop, daemon=True).start()
 
     def _arranque_en_frio(self):
@@ -115,7 +117,6 @@ class MicrostructureEngine:
         self.tick_queue.put((ticker, data))
 
     def _worker_loop(self):
-        last_flush = time.time()
         while True:
             try:
                 ticker, data = self.tick_queue.get(timeout=0.5)
@@ -126,9 +127,20 @@ class MicrostructureEngine:
                         f.write(traceback.format_exc())
             except queue.Empty:
                 pass
-            if len(self.trade_buffer) >= 50 or (len(self.trade_buffer) > 0 and time.time() - last_flush > 1.0):
-                if self.col_trades is not None: self.col_trades.insert_many(self.trade_buffer)
-                self.trade_buffer, last_flush = [], time.time()
+
+    def _flush_loop(self):
+        """Thread dedicado: persiste trades en MongoDB sin bloquear el worker."""
+        while True:
+            time.sleep(1.0)
+            if not self.trade_buffer or self.col_trades is None:
+                continue
+            with self._buffer_lock:
+                batch = self.trade_buffer[:]
+                self.trade_buffer = []
+            try:
+                self.col_trades.insert_many(batch)
+            except Exception as e:
+                print(f"Error flush trades: {e}")
 
     def _procesar_tick_logica(self, ticker, data):
         st = self.market_state[ticker]
@@ -200,7 +212,8 @@ class MicrostructureEngine:
                 st["top_trades"].append(trade)
                 st["top_trades"] = sorted(st["top_trades"], key=lambda x: x["size"], reverse=True)[:15]
                 st["trades"].appendleft(trade)
-                self.trade_buffer.append({"ticker": ticker, **trade})
+                with self._buffer_lock:
+                    self.trade_buffer.append({"ticker": ticker, **trade})
 
     def _calcular_metricas(self, ticker):
         """Calcula métricas de microestructura para el snapshot."""

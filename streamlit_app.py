@@ -97,6 +97,25 @@ st.markdown("""
     .c-iv       { text-align: right; color: #aaa; }
     .c-delta    { text-align: right; color: #7eb8f7; }
     .c-last     { text-align: right; color: #ccc; }
+
+    /* Tabla de mercado */
+    .mkt-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .mkt-table th {
+        color: #555; font-size: 11px; padding: 5px 8px;
+        border-bottom: 1px solid #222; text-align: right;
+    }
+    .mkt-table th.mkt-th-left { text-align: left; }
+    .mkt-table td { padding: 4px 8px; border-bottom: 1px solid #1a1a1a; }
+    .mkt-table tr:hover td { background: #161b22; }
+    .mkt-ticker  { color: #4DA8DA; font-weight: bold; font-size: 13px; }
+    .mkt-total   { text-align: right; color: #f0c040; font-weight: bold; }
+    .mkt-buy     { text-align: right; color: #00cc66; font-weight: bold; }
+    .mkt-sell    { text-align: right; color: #ff4444; font-weight: bold; }
+    .mkt-spread  { text-align: right; color: #ccc; }
+    .mkt-bar     { text-align: left; font-size: 11px; }
+    .mkt-imb-pos { text-align: right; color: #00cc66; font-weight: bold; }
+    .mkt-imb-neg { text-align: right; color: #ff4444; font-weight: bold; }
+    .mkt-imb-neu { text-align: right; color: #aaa; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -109,7 +128,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Opciones"],
+        ["Libro", "Opciones", "Mercado"],
         label_visibility="collapsed"
     )
 
@@ -261,6 +280,75 @@ def render_whales(top_trades):
             </tr></thead>
             <tbody>{''.join(rows)}</tbody>
         </table>"""
+
+
+# ==========================================
+# HELPERS DE RENDER - MERCADO
+# ==========================================
+def render_mercado_table(snaps):
+    """Tabla resumen de todos los tickers ordenados por total_money desc."""
+    if not snaps:
+        return "<p style='color:#888'>Sin datos de mercado. ¿El motor está corriendo?</p>"
+
+    rows = []
+    for snap in snaps:
+        ticker  = snap.get("ticker", "")
+        name    = short_name(ticker)
+        m       = snap.get("metrics", {})
+
+        total   = m.get("total_money", 0) or 0
+        buy     = m.get("buy_money",   0) or 0
+        sell    = m.get("sell_money",  0) or 0
+        spread  = m.get("spread",      0) or 0
+        imb     = m.get("imbalance",   0) or 0
+
+        if total == 0:
+            continue
+
+        # Barra buy/sell proporcional
+        if (buy + sell) > 0:
+            buy_blocks  = int((buy  / (buy + sell)) * 10)
+            sell_blocks = 10 - buy_blocks
+            bar = (f"<span style='color:#00cc66'>{'█' * buy_blocks}</span>"
+                   f"<span style='color:#ff4444'>{'█' * sell_blocks}</span>")
+        else:
+            bar = "<span style='color:#333'>──────────</span>"
+
+        # Color del imbalance
+        if imb > 0.05:
+            imb_css = "mkt-imb-pos"
+        elif imb < -0.05:
+            imb_css = "mkt-imb-neg"
+        else:
+            imb_css = "mkt-imb-neu"
+
+        rows.append(f"""<tr>
+            <td class='mkt-ticker'>{name}</td>
+            <td class='mkt-total'>{fmt_money(total)}</td>
+            <td class='mkt-buy'>{fmt_money(buy)}</td>
+            <td class='mkt-sell'>{fmt_money(sell)}</td>
+            <td class='mkt-bar'>{bar}</td>
+            <td class='mkt-spread'>{spread:,.2f}</td>
+            <td class='{imb_css}'>{imb:.2%}</td>
+        </tr>""")
+
+    if not rows:
+        return "<p style='color:#888'>Todos los tickers sin volumen aún.</p>"
+
+    return f"""
+    <div class='section-title'>RESUMEN DE MERCADO</div>
+    <table class='mkt-table'>
+        <thead><tr>
+            <th class='mkt-th-left'>TICKER</th>
+            <th>TOTAL $</th>
+            <th>BUY $</th>
+            <th>SELL $</th>
+            <th class='mkt-th-left' style='padding-left:8px'>B / S</th>
+            <th>SPREAD</th>
+            <th>IMBALANCE</th>
+        </tr></thead>
+        <tbody>{''.join(rows)}</tbody>
+    </table>"""
 
 
 # ==========================================
@@ -545,6 +633,45 @@ elif vista == "Opciones":
         docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
         st.markdown(render_cadena_opciones(docs, spot), unsafe_allow_html=True)
         st.markdown(render_estrategias(docs_map), unsafe_allow_html=True)
+
+    time.sleep(0.5)
+    st.rerun()
+
+
+# ==========================================
+# VISTA: MERCADO
+# ==========================================
+elif vista == "Mercado":
+    db = get_db()
+
+    st.markdown("## 🏦 ACAQuant | Mercado")
+
+    all_snaps = list(db["MarketSnapshot"].find({}))
+
+    if all_snaps:
+        ultimo_ts = max(
+            (s.get("updated_at") for s in all_snaps if s.get("updated_at")),
+            default=None
+        )
+        if ultimo_ts:
+            lag = (datetime.now() - ultimo_ts).total_seconds()
+            lag_color = "#ff4444" if lag > 5 else "#00cc66"
+            st.markdown(
+                f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
+                f"Última actualización: <span style='color:{lag_color}'>"
+                f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
+                unsafe_allow_html=True
+            )
+
+    st.divider()
+
+    # Ordenar por total_money desc
+    all_snaps.sort(
+        key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
+        reverse=True
+    )
+
+    st.markdown(render_mercado_table(all_snaps), unsafe_allow_html=True)
 
     time.sleep(0.5)
     st.rerun()

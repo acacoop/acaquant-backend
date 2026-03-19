@@ -139,6 +139,13 @@ with st.sidebar:
         label_visibility="collapsed"
     )
 
+# Si el usuario acaba de salir de Carteras, forzar un rerun extra para que
+# Streamlit limpie los paneles de st.tabs() que filtran fuera del placeholder.
+if st.session_state.get("_prev_vista") == "Carteras" and vista != "Carteras":
+    st.session_state["_prev_vista"] = vista
+    st.rerun()
+st.session_state["_prev_vista"] = vista
+
 # Contenedor principal — se reemplaza atómicamente en cada rerun, evitando HTML fantasma
 _main = st.empty()
 

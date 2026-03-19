@@ -206,9 +206,11 @@ def run():
             key_field="asset",
             interval=0.5
         ).start()
-        print("Motor arriba. Escribiendo a MongoDB...")
+        print("Motor arriba. Escribiendo a MongoDB -> Trading.ArbitrageSnapshot")
         while True:
             time.sleep(10)
+            resultados = engine.get_snapshot_data()
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] tna_caucion={engine.tna_caucion_offer:.2f}% | precios_cargados={len(engine.precios)} | pares_con_dato={len(resultados)}")
 
 
 if __name__ == "__main__":

@@ -557,202 +557,200 @@ def render_estrategias(docs_map):
 
 
 # ==========================================
-# VISTA: LIBRO
+# VISTAS — todo dentro de un único container
+# para que Streamlit reconcilie correctamente
+# al cambiar de vista sin dejar ghosts.
 # ==========================================
-if vista == "Libro":
-    db = get_db()
+_main = st.empty()
+with _main.container():
 
-    header_col, select_col = st.columns([3, 1])
-    with header_col:
-        st.markdown("## 📈 ACAQuant | Mesa de Dinero")
-    with select_col:
-        if "selected_ticker" not in st.session_state:
-            st.session_state.selected_ticker = TICKERS[0]
+    # ==========================================
+    # VISTA: LIBRO
+    # ==========================================
+    if vista == "Libro":
+        db = get_db()
 
-        options_short = [short_name(t) for t in TICKERS]
-        current_idx   = TICKERS.index(st.session_state.selected_ticker)
+        header_col, select_col = st.columns([3, 1])
+        with header_col:
+            st.markdown("## 📈 ACAQuant | Mesa de Dinero")
+        with select_col:
+            if "selected_ticker" not in st.session_state:
+                st.session_state.selected_ticker = TICKERS[0]
 
-        selected_short = st.selectbox(
-            "Ticker", options_short,
-            index=current_idx,
-            label_visibility="collapsed"
-        )
-        st.session_state.selected_ticker = TICKERS[options_short.index(selected_short)]
+            options_short = [short_name(t) for t in TICKERS]
+            current_idx   = TICKERS.index(st.session_state.selected_ticker)
 
-    ticker = st.session_state.selected_ticker
-
-    snap = db["MarketSnapshot"].find_one({"ticker": ticker})
-
-    if not snap:
-        st.warning(f"Sin datos para {ticker}. ¿El motor está corriendo?")
-        time.sleep(2)
-        st.rerun()
-
-    updated_at = snap.get("updated_at")
-    if updated_at:
-        lag = (datetime.now() - updated_at).total_seconds()
-        lag_color = "#ff4444" if lag > 5 else "#00cc66"
-        st.markdown(
-            f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
-            f"Última actualización: <span style='color:{lag_color}'>"
-            f"{updated_at.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
-            unsafe_allow_html=True
-        )
-
-    st.divider()
-
-    col_left, col_center, col_right = st.columns([1, 1, 1])
-
-    book         = snap.get("book", {"bids": [], "offers": []})
-    metrics      = snap.get("metrics", {})
-    hourly_stats = snap.get("hourly_stats", {})
-    recent_trades= snap.get("recent_trades", [])
-    top_trades   = snap.get("top_trades", [])
-
-    with col_left:
-        st.markdown(render_depth(book), unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(render_quant(metrics), unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(render_hourly(hourly_stats), unsafe_allow_html=True)
-
-    with col_center:
-        st.markdown(render_tape(recent_trades), unsafe_allow_html=True)
-
-    with col_right:
-        st.markdown(render_whales(top_trades), unsafe_allow_html=True)
-
-    time.sleep(0.5)
-    st.rerun()
-
-
-# ==========================================
-# VISTA: OPCIONES
-# ==========================================
-elif vista == "Opciones":
-    db_op = get_db_opciones()
-
-    st.markdown("## 📊 ACAQuant | Opciones GGAL")
-
-    docs = list(db_op["OptionsSnapshot"].find({}))
-
-    if docs:
-        ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
-        spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0)
-        if ultimo_ts:
-            lag = (datetime.now() - ultimo_ts).total_seconds()
-            lag_color = "#ff4444" if lag > 10 else "#00cc66"
-            st.markdown(
-                f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
-                f"Última actualización: <span style='color:{lag_color}'>"
-                f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
-                unsafe_allow_html=True
+            selected_short = st.selectbox(
+                "Ticker", options_short,
+                index=current_idx,
+                label_visibility="collapsed"
             )
-    else:
-        spot = 0
+            st.session_state.selected_ticker = TICKERS[options_short.index(selected_short)]
 
-    st.divider()
+        ticker = st.session_state.selected_ticker
 
-    if not docs:
-        st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
-    else:
-        docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
-        st.markdown(render_cadena_opciones(docs, spot), unsafe_allow_html=True)
+        snap = db["MarketSnapshot"].find_one({"ticker": ticker})
 
-    time.sleep(0.5)
-    st.rerun()
+        if not snap:
+            st.warning(f"Sin datos para {ticker}. ¿El motor está corriendo?")
+            time.sleep(2)
+            st.rerun()
 
-
-# ==========================================
-# VISTA: ESTRATEGIAS OPCIONES
-# ==========================================
-elif vista == "Estrategias Opciones":
-    db_op = get_db_opciones()
-
-    st.markdown("## 🧮 ACAQuant | Estrategias Opciones GGAL")
-
-    docs = list(db_op["OptionsSnapshot"].find({}))
-
-    if docs:
-        ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
-        if ultimo_ts:
-            lag = (datetime.now() - ultimo_ts).total_seconds()
-            lag_color = "#ff4444" if lag > 10 else "#00cc66"
-            st.markdown(
-                f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
-                f"Última actualización: <span style='color:{lag_color}'>"
-                f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
-                unsafe_allow_html=True
-            )
-
-    st.divider()
-
-    if not docs:
-        st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
-    else:
-        docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
-        html = render_estrategias(docs_map)
-        if html:
-            st.markdown(html, unsafe_allow_html=True)
-        else:
-            st.info("Sin estrategias disponibles.")
-
-    time.sleep(0.5)
-    st.rerun()
-
-
-# ==========================================
-# VISTA: MERCADO
-# ==========================================
-elif vista == "Mercado":
-    db = get_db()
-
-    st.markdown("## 🏦 ACAQuant | Mercado")
-
-    all_snaps = list(db["MarketSnapshot"].find({}))
-
-    if all_snaps:
-        ultimo_ts = max(
-            (s.get("updated_at") for s in all_snaps if s.get("updated_at")),
-            default=None
-        )
-        if ultimo_ts:
-            lag = (datetime.now() - ultimo_ts).total_seconds()
+        updated_at = snap.get("updated_at")
+        if updated_at:
+            lag = (datetime.now() - updated_at).total_seconds()
             lag_color = "#ff4444" if lag > 5 else "#00cc66"
             st.markdown(
                 f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
                 f"Última actualización: <span style='color:{lag_color}'>"
-                f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
+                f"{updated_at.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
                 unsafe_allow_html=True
             )
 
-    st.divider()
+        st.divider()
 
-    all_snaps.sort(
-        key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
-        reverse=True
-    )
+        col_left, col_center, col_right = st.columns([1, 1, 1])
 
-    st.markdown(render_mercado_table(all_snaps), unsafe_allow_html=True)
+        book          = snap.get("book", {"bids": [], "offers": []})
+        metrics       = snap.get("metrics", {})
+        hourly_stats  = snap.get("hourly_stats", {})
+        recent_trades = snap.get("recent_trades", [])
+        top_trades    = snap.get("top_trades", [])
 
-    time.sleep(0.5)
-    st.rerun()
+        with col_left:
+            st.markdown(render_depth(book), unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown(render_quant(metrics), unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown(render_hourly(hourly_stats), unsafe_allow_html=True)
 
+        with col_center:
+            st.markdown(render_tape(recent_trades), unsafe_allow_html=True)
 
-# ==========================================
-# VISTA: CARTERAS
-# ==========================================
-elif vista == "Carteras":
-    db_val = get_db_valuaciones()
-    docs   = list(db_val["Carteras"].find({}, {"_id": 0}))
-    assets = {a["unidad"]: a for a in db_val["Assets"].find({}, {"_id": 0}) if a.get("unidad")}
+        with col_right:
+            st.markdown(render_whales(top_trades), unsafe_allow_html=True)
 
-    # Todo el rendering dentro de un único st.empty() para que Streamlit
-    # lo trate como 1 solo elemento root. Sin esto, los elementos extra
-    # (divider, tabla) quedan "ghosteados" al cambiar de vista porque
-    # las otras vistas tienen menos elementos root y el reconciliador no los limpia.
-    _slot = st.empty()
-    with _slot.container():
+        time.sleep(0.5)
+        st.rerun()
+
+    # ==========================================
+    # VISTA: OPCIONES
+    # ==========================================
+    elif vista == "Opciones":
+        db_op = get_db_opciones()
+
+        st.markdown("## 📊 ACAQuant | Opciones GGAL")
+
+        docs = list(db_op["OptionsSnapshot"].find({}))
+
+        if docs:
+            ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
+            spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0)
+            if ultimo_ts:
+                lag = (datetime.now() - ultimo_ts).total_seconds()
+                lag_color = "#ff4444" if lag > 10 else "#00cc66"
+                st.markdown(
+                    f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
+                    f"Última actualización: <span style='color:{lag_color}'>"
+                    f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
+                    unsafe_allow_html=True
+                )
+        else:
+            spot = 0
+
+        st.divider()
+
+        if not docs:
+            st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
+        else:
+            docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
+            st.markdown(render_cadena_opciones(docs, spot), unsafe_allow_html=True)
+
+        time.sleep(0.5)
+        st.rerun()
+
+    # ==========================================
+    # VISTA: ESTRATEGIAS OPCIONES
+    # ==========================================
+    elif vista == "Estrategias Opciones":
+        db_op = get_db_opciones()
+
+        st.markdown("## 🧮 ACAQuant | Estrategias Opciones GGAL")
+
+        docs = list(db_op["OptionsSnapshot"].find({}))
+
+        if docs:
+            ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
+            if ultimo_ts:
+                lag = (datetime.now() - ultimo_ts).total_seconds()
+                lag_color = "#ff4444" if lag > 10 else "#00cc66"
+                st.markdown(
+                    f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
+                    f"Última actualización: <span style='color:{lag_color}'>"
+                    f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
+                    unsafe_allow_html=True
+                )
+
+        st.divider()
+
+        if not docs:
+            st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
+        else:
+            docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
+            html = render_estrategias(docs_map)
+            if html:
+                st.markdown(html, unsafe_allow_html=True)
+            else:
+                st.info("Sin estrategias disponibles.")
+
+        time.sleep(0.5)
+        st.rerun()
+
+    # ==========================================
+    # VISTA: MERCADO
+    # ==========================================
+    elif vista == "Mercado":
+        db = get_db()
+
+        st.markdown("## 🏦 ACAQuant | Mercado")
+
+        all_snaps = list(db["MarketSnapshot"].find({}))
+
+        if all_snaps:
+            ultimo_ts = max(
+                (s.get("updated_at") for s in all_snaps if s.get("updated_at")),
+                default=None
+            )
+            if ultimo_ts:
+                lag = (datetime.now() - ultimo_ts).total_seconds()
+                lag_color = "#ff4444" if lag > 5 else "#00cc66"
+                st.markdown(
+                    f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
+                    f"Última actualización: <span style='color:{lag_color}'>"
+                    f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
+                    unsafe_allow_html=True
+                )
+
+        st.divider()
+
+        all_snaps.sort(
+            key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
+            reverse=True
+        )
+
+        st.markdown(render_mercado_table(all_snaps), unsafe_allow_html=True)
+
+        time.sleep(0.5)
+        st.rerun()
+
+    # ==========================================
+    # VISTA: CARTERAS
+    # ==========================================
+    elif vista == "Carteras":
+        db_val = get_db_valuaciones()
+        docs   = list(db_val["Carteras"].find({}, {"_id": 0}))
+        assets = {a["unidad"]: a for a in db_val["Assets"].find({}, {"_id": 0}) if a.get("unidad")}
+
         st.markdown("## 💼 ACAQuant | Carteras")
 
         if not docs:
@@ -895,5 +893,5 @@ elif vista == "Carteras":
                 )
                 render_tabla_enriquecida(filas_cuenta)
 
-    time.sleep(60)
-    st.rerun()
+        time.sleep(60)
+        st.rerun()

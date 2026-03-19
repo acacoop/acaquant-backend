@@ -5,9 +5,11 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import holidays
+import pyRofex
 from datetime import datetime, timedelta
 from aunesa_api_manager import AunesaApiManager
 from mongo_manager import get_mongo_client
+from session_manager import inicializar_sesion
 
 # Definición de las cuentas
 CUENTAS_OBJETIVO = ["100", "255", "101", "163"]
@@ -69,6 +71,55 @@ def sincronizar_assets(df):
     return insertados, eliminados
 
 
+def actualizar_precios_mercado():
+    """
+    Para cada asset con campo INSTRUMENTO definido, consulta el LAST price
+    via REST pyRofex y actualiza SOLO el campo 'precio' en Carteras.
+    No toca documentos sin INSTRUMENTO (ej: FCI que ya tienen precio propio).
+    """
+    client = get_mongo_client()
+    db_val = client["Valuaciones"]
+
+    assets = list(db_val["Assets"].find(
+        {"INSTRUMENTO": {"$exists": True, "$nin": ["", None]}},
+        {"_id": 0, "unidad": 1, "INSTRUMENTO": 1}
+    ))
+
+    if not assets:
+        client.close()
+        return 0
+
+    if not inicializar_sesion():
+        print("⚠️ No se pudo inicializar sesión pyRofex. Se omite actualización de precios.")
+        client.close()
+        return 0
+
+    actualizados = 0
+    for asset in assets:
+        instrumento = asset.get("INSTRUMENTO", "").strip()
+        unidad = asset.get("unidad", "").strip()
+        if not instrumento or not unidad:
+            continue
+        try:
+            resp = pyRofex.get_market_data(
+                ticker=instrumento,
+                entries=[pyRofex.MarketDataEntry.LAST]
+            )
+            la = resp.get("marketData", {}).get("LA")
+            if la and la.get("price"):
+                precio = float(la["price"])
+                db_val["Carteras"].update_many(
+                    {"unidad": unidad},
+                    {"$set": {"precio": precio}}
+                )
+                actualizados += 1
+        except Exception as e:
+            print(f"⚠️ Sin precio para {instrumento}: {e}")
+
+    client.close()
+    return actualizados
+
+
 def guardar_en_mongo(df):
     """
     Borra todo lo que haya en Valuaciones.Carteras y guarda los nuevos datos.
@@ -111,6 +162,9 @@ def run():
 
             insertados, eliminados = sincronizar_assets(df_carteras)
             print(f"✅ MongoDB Valuaciones.Assets: {insertados} nuevos insertados, {eliminados} duplicados eliminados.")
+
+            actualizados = actualizar_precios_mercado()
+            print(f"✅ Precios de mercado actualizados: {actualizados} instrumentos.")
         else:
             print("⚠️ No se recuperaron datos de la API.")
 

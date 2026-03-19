@@ -857,5 +857,5 @@ elif vista == "Carteras":
                 st.caption(f"{len(filas_cuenta)} posiciones")
                 render_tabla_enriquecida(filas_cuenta)
 
-        time.sleep(60)
+        time.sleep(0.5)
         st.rerun()

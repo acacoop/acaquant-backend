@@ -795,10 +795,13 @@ elif vista == "Carteras":
                     st.markdown("<p style='color:#888'>Sin posiciones.</p>", unsafe_allow_html=True)
                     return
 
+                TH = "text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222"
+                TH_R = "text-align:right;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222"
+
                 rows_html = []
                 for f in filas:
-                    unidad  = f.get("unidad", "")
-                    asset   = assets.get(unidad, {})
+                    unidad      = f.get("unidad", "")
+                    asset       = assets.get(unidad, {})
                     ticker      = asset.get("TICKER", unidad)
                     emisor      = asset.get("EMISOR", "")
                     vto         = asset.get("VENCIMIENTO", "")
@@ -806,12 +809,9 @@ elif vista == "Carteras":
                     calif       = asset.get("CALIFICACION", "")
                     cartera     = asset.get("CARTERA", "")
                     instrumento = asset.get("INSTRUMENTO", "")
-
-                    cuenta_td = f"<td style='padding:4px 8px;color:#555;font-size:11px'>{f.get('id_cuenta','')}</td>" if mostrar_cuenta else ""
-
+                    cuenta_td   = f"<td style='padding:4px 8px;color:#555;font-size:11px'>{f.get('id_cuenta','')}</td>" if mostrar_cuenta else ""
                     rows_html.append(
-                        f"<tr>"
-                        f"{cuenta_td}"
+                        f"<tr>{cuenta_td}"
                         f"<td style='padding:4px 8px;color:#4DA8DA;font-weight:bold;white-space:nowrap'>{ticker}</td>"
                         f"<td style='padding:4px 8px;color:#ccc'>{_na(emisor)}</td>"
                         f"<td style='padding:4px 8px;color:#888;font-size:11px;white-space:nowrap'>{_na(vto)}</td>"
@@ -824,26 +824,26 @@ elif vista == "Carteras":
                         f"</tr>"
                     )
 
-                cuenta_th = "<th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>CUENTA</th>" if mostrar_cuenta else ""
-                st.markdown(f"""
-                    <div style='overflow-x:auto'>
-                    <table style='width:100%;border-collapse:collapse;font-size:12px'>
-                        <thead><tr>
-                            {cuenta_th}
-                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>TICKER</th>
-                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>EMISOR</th>
-                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>VENCIMIENTO</th>
-                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>CLASE ACTIVO</th>
-                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>CALIFICACIÓN</th>
-                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>CARTERA</th>
-                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>INSTRUMENTO</th>
-                            <th style='text-align:right;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>CANTIDAD</th>
-                            <th style='text-align:right;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>PRECIO</th>
-                        </tr></thead>
-                        <tbody>{''.join(rows_html)}</tbody>
-                    </table>
-                    </div>
-                """, unsafe_allow_html=True)
+                cuenta_th = f"<th style='{TH}'>CUENTA</th>" if mostrar_cuenta else ""
+                html = (
+                    "<div style='overflow-x:auto'>"
+                    "<table style='width:100%;border-collapse:collapse;font-size:12px'>"
+                    "<thead><tr>"
+                    + cuenta_th
+                    + f"<th style='{TH}'>TICKER</th>"
+                    f"<th style='{TH}'>EMISOR</th>"
+                    f"<th style='{TH}'>VENCIMIENTO</th>"
+                    f"<th style='{TH}'>CLASE ACTIVO</th>"
+                    f"<th style='{TH}'>CALIFICACIÓN</th>"
+                    f"<th style='{TH}'>CARTERA</th>"
+                    f"<th style='{TH}'>INSTRUMENTO</th>"
+                    f"<th style='{TH_R}'>CANTIDAD</th>"
+                    f"<th style='{TH_R}'>PRECIO</th>"
+                    "</tr></thead>"
+                    "<tbody>" + "".join(rows_html) + "</tbody>"
+                    "</table></div>"
+                )
+                st.markdown(html, unsafe_allow_html=True)
 
             for i, cuenta in enumerate(CUENTAS):
                 with tabs[i]:

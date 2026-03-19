@@ -771,35 +771,28 @@ elif vista == "Carteras":
                 unsafe_allow_html=True
             )
 
-        # Filtro por CARTERA — se superpone sobre la barra de tabs via CSS
         carteras_disponibles = sorted(set(
             assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
             for d in docs
             if assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
         ))
-        st.markdown("""
-<style>
-div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMultiSelect"]) {
-    margin-bottom: -52px;
-    position: relative;
-    z-index: 100;
-}
-div[data-testid="stMultiSelect"] > div:first-child {
-    min-height: 32px !important;
-    font-size: 11px !important;
-}
-div[data-testid="stMultiSelect"] span {
-    font-size: 11px !important;
-}
-</style>""", unsafe_allow_html=True)
-        _, _fc = st.columns([3, 1])
-        with _fc:
+
+        col_radio, col_filtro = st.columns([3, 1])
+        CUENTAS = sorted(set(d.get("id_cuenta", "") for d in docs if d.get("id_cuenta")))
+        with col_radio:
+            cuenta_sel = st.radio(
+                "Cuenta",
+                options=[f"Cuenta {c}" for c in CUENTAS] + ["Todas"],
+                horizontal=True,
+                label_visibility="collapsed",
+            )
+        with col_filtro:
             carteras_sel = st.multiselect(
                 "Cartera",
                 options=carteras_disponibles,
                 default=[],
                 placeholder="Filtrar cartera...",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
             )
 
         st.divider()
@@ -811,10 +804,6 @@ div[data-testid="stMultiSelect"] span {
             ]
         else:
             docs_filtrados = docs
-
-        CUENTAS = sorted(set(d.get("id_cuenta", "") for d in docs if d.get("id_cuenta")))
-
-        tabs = st.tabs([f"Cuenta {c}" for c in CUENTAS] + ["Todas"])
 
         def _fmt_precio(precio):
             try:
@@ -896,18 +885,17 @@ div[data-testid="stMultiSelect"] span {
             )
             st.markdown(html, unsafe_allow_html=True)
 
-        for i, cuenta in enumerate(CUENTAS):
-            with tabs[i]:
-                filas_cuenta = [d for d in docs_filtrados if d.get("id_cuenta") == cuenta]
-                st.markdown(
-                    f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(filas_cuenta)} posiciones</div>",
-                    unsafe_allow_html=True
-                )
-                render_tabla_enriquecida(filas_cuenta)
-
-        with tabs[-1]:
+        if cuenta_sel == "Todas":
             st.markdown(
                 f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(docs_filtrados)} posiciones totales</div>",
-                unsafe_allow_html=True
+                unsafe_allow_html=True,
             )
             render_tabla_enriquecida(docs_filtrados, mostrar_cuenta=True)
+        else:
+            cuenta_id = cuenta_sel.replace("Cuenta ", "")
+            filas_cuenta = [d for d in docs_filtrados if str(d.get("id_cuenta", "")) == cuenta_id]
+            st.markdown(
+                f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(filas_cuenta)} posiciones</div>",
+                unsafe_allow_html=True,
+            )
+            render_tabla_enriquecida(filas_cuenta)

@@ -589,31 +589,14 @@ if vista == "Libro":
             time.sleep(2)
             st.rerun()
 
-        updated_at  = snap.get("updated_at")
-        last_data_at = snap.get("last_data_at")  # Último tick WS real
-
+        updated_at = snap.get("updated_at")
         if updated_at:
-            # Lag del snapshot (el motor está vivo)
-            snap_lag = (datetime.now() - updated_at).total_seconds()
-            snap_color = "#ff4444" if snap_lag > 5 else "#00cc66"
-
-            if last_data_at:
-                # Lag de datos reales del WebSocket
-                data_lag = (datetime.now() - last_data_at).total_seconds()
-                data_color = "#ff4444" if data_lag > 30 else ("#f0c040" if data_lag > 10 else "#00cc66")
-                data_str = (f"&nbsp;&nbsp;|&nbsp;&nbsp;"
-                            f"<span style='color:#555'>Último dato WS:</span> "
-                            f"<span style='color:{data_color}'>"
-                            f"{last_data_at.strftime('%H:%M:%S')} ({data_lag:.0f}s atrás)</span>")
-            else:
-                data_str = (f"&nbsp;&nbsp;|&nbsp;&nbsp;"
-                            f"<span style='color:#ff4444'>⚠️ Sin datos WS aún</span>")
-
+            lag = (datetime.now() - updated_at).total_seconds()
+            lag_color = "#ff4444" if lag > 5 else "#00cc66"
             st.markdown(
                 f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
-                f"Motor: <span style='color:{snap_color}'>"
-                f"{updated_at.strftime('%H:%M:%S')} ({snap_lag:.1f}s atrás)</span>"
-                f"{data_str}</div>",
+                f"Última actualización: <span style='color:{lag_color}'>"
+                f"{updated_at.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
                 unsafe_allow_html=True
             )
 

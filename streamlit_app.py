@@ -781,7 +781,7 @@ elif vista == "Carteras":
 
             def _fmt_cantidad(cantidad):
                 try:
-                    return f"{float(cantidad):,.2f}"
+                    return f"{float(cantidad):,.0f}"
                 except (TypeError, ValueError):
                     return "-"
 
@@ -797,6 +797,15 @@ elif vista == "Carteras":
 
                 TH = "text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222"
                 TH_R = "text-align:right;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222"
+
+                def _vto_sort_key(f):
+                    vto = assets.get(f.get("unidad", ""), {}).get("VENCIMIENTO", "")
+                    vto_str = str(vto).strip()
+                    if not vto_str or vto_str.upper() == "NO APLICA":
+                        return ""
+                    return vto_str.split(" ")[0]
+
+                filas = sorted(filas, key=_vto_sort_key, reverse=True)
 
                 rows_html = []
                 for f in filas:

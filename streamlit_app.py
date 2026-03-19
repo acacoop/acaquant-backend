@@ -139,8 +139,14 @@ with st.sidebar:
         label_visibility="collapsed"
     )
 
-# Contenedor principal — se reemplaza atómicamente en cada rerun, evitando HTML fantasma
+# Contenedor principal.
+# Al cambiar de vista se llama _main.empty() para limpiar el contenido anterior
+# ANTES de renderizar la nueva vista. Esto evita el "ghost" de vistas anteriores.
+# No se llama en cada rerun del loop de Mercado (para no flashear la tabla).
 _main = st.empty()
+if st.session_state.get("_last_vista") != vista:
+    _main.empty()
+    st.session_state["_last_vista"] = vista
 
 
 # ==========================================

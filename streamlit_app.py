@@ -1,8 +1,14 @@
 import time
 import streamlit as st
 import pandas as pd
+import pyRofex
 from datetime import datetime
 from mongo_manager import get_mongo_client
+from session_manager import inicializar_sesion
+from websocket_manager import WebSocketManager
+from main_arbitrage import ArbitrageEngine
+from main_on import MarketManager, TICKERS_MEP
+from live_pricing_bonds.db_bonds import cargar_catalogo_bonos
 
 # ==========================================
 # CONFIG
@@ -52,6 +58,72 @@ def get_db_opciones():
 def get_db_valuaciones():
     client = get_mongo_client()
     return client["Valuaciones"]
+
+
+# ==========================================
+# ENGINE HUB (singleton por proceso Streamlit)
+# Hostea ArbitrageEngine + MarketManager
+# con UNA sola conexión WebSocket a Rofex.
+# ==========================================
+class _EngineHub:
+    def __init__(self):
+        self.arb        = ArbitrageEngine()
+        self.on_engine  = None
+        self.status     = "initializing"
+        self.error      = None
+        self._last_tick = 0.0
+
+    def update_price(self, ticker, data):
+        """El WebSocketManager llama aquí; ruteamos a ambos sub-engines."""
+        self._last_tick = time.time()
+        self.arb.update_price(ticker, data)
+        if self.on_engine:
+            self.on_engine.update_price(ticker, data)
+
+    def is_alive(self):
+        return (time.time() - self._last_tick) < 30
+
+
+@st.cache_resource
+def get_engine_hub():
+    """
+    Crea el hub UNA SOLA VEZ por proceso Streamlit.
+    Inicializa sesión, cataloga ambos motores y abre el WebSocket.
+    """
+    hub = _EngineHub()
+    try:
+        if not inicializar_sesion():
+            hub.status = "error"
+            hub.error  = "No se pudo inicializar sesión Rofex."
+            return hub
+
+        # --- Catálogo Arbitraje ---
+        hub.arb.setup_inicial()   # si falla, arb.catalogo queda vacío pero continuamos
+
+        # --- Catálogo ONs ---
+        catalogo = cargar_catalogo_bonos()
+        resp = pyRofex.get_all_instruments()
+        if resp and resp.get("status") == "OK":
+            vivos    = {i["instrumentId"]["symbol"] for i in resp["instruments"]}
+            validado = {k: v for k, v in catalogo.items() if k in vivos}
+            for t in TICKERS_MEP:
+                if t not in validado:
+                    validado[t] = {}
+            hub.on_engine = MarketManager(validado)
+
+        # --- Una sola suscripción WS ---
+        tickers = hub.arb.get_tickers_suscripcion()
+        if hub.on_engine:
+            tickers = list(set(tickers + hub.on_engine.get_tickers_suscripcion()))
+        WebSocketManager(hub).iniciar_ws(tickers)
+
+        hub.status = "running"
+
+    except Exception as e:
+        hub.status = "error"
+        hub.error  = str(e)
+
+    return hub
 
 
 # ==========================================
@@ -866,82 +938,75 @@ elif vista == "Carteras":
 # ==========================================
 elif vista == "Arbitraje CI/24":
     with _main.container():
-        db = get_db()
+        hub = get_engine_hub()
 
-        rows = list(db["ArbitrageSnapshot"].find({}, {"_id": 0}).sort("pnl", -1))
+        st.markdown("## ⚖️ ACAQuant | Arbitraje CI / 24hs")
 
-        # Header + lag
-        h_col, lag_col = st.columns([4, 1])
-        with h_col:
-            st.markdown("## ⚖️ ACAQuant | Arbitraje CI / 24hs")
-        with lag_col:
-            if rows:
-                ts = rows[0].get("updated_at")
-                if ts:
-                    lag = (datetime.now() - ts).total_seconds()
-                    color = "#ff4444" if lag > 5 else "#00cc66"
-                    st.markdown(
-                        f"<div style='font-size:12px;color:#555;margin-top:18px;text-align:right'>"
-                        f"<span style='color:{color}'>{ts.strftime('%H:%M:%S')} ({lag:.1f}s)</span></div>",
-                        unsafe_allow_html=True
-                    )
+        if hub.status == "error":
+            st.error(f"Error al conectar: {hub.error}")
+            time.sleep(2)
+            st.rerun()
+        elif not hub.is_alive():
+            st.info("Conectando al WebSocket de Rofex...")
+            time.sleep(1)
+            st.rerun()
+        else:
+            rows = hub.arb.get_snapshot_data()
 
-        # Badge de fondeo
-        if rows:
-            r0 = rows[0]
-            tna = r0.get("tna_caucion", 0)
-            dias = r0.get("caucion_dias", 1)
+            # Badge de fondeo
+            tna       = hub.arb.tna_caucion_offer
+            dias      = hub.arb.caucion_dias
             positivos = sum(1 for r in rows if r.get("pnl", 0) > 0)
             st.markdown(
-                f"<div style='font-size:13px;color:#888;margin-bottom:8px'>"
+                f"<div style='font-size:13px;color:#888;margin-bottom:4px'>"
                 f"Fondeo: <b style='color:#ff6b6b'>{tna:.2f}% TNA ({dias}D)</b>"
-                f"&nbsp;&nbsp;|&nbsp;&nbsp;Oportunidades con PNL &gt; 0: "
+                f"&nbsp;&nbsp;|&nbsp;&nbsp;Pares con PNL &gt; 0: "
                 f"<b style='color:#00cc66'>{positivos}</b>"
+                f"&nbsp;&nbsp;|&nbsp;&nbsp;Total en pantalla: <b style='color:#ccc'>{len(rows)}</b>"
                 f"</div>",
                 unsafe_allow_html=True
             )
+            st.divider()
 
-        st.divider()
-
-        if not rows:
-            st.markdown(
-                "<p style='color:#555;font-size:13px'>Motor desconectado o sin liquidez en ambas puntas.</p>",
-                unsafe_allow_html=True
-            )
-        else:
-            th = "".join(
-                f"<th style='text-align:{a};color:#555;font-size:11px;padding:5px 10px;"
-                f"border-bottom:1px solid #222'>{c}</th>"
-                for c, a in [
-                    ("ASSET", "left"), ("OFFER CI", "right"), ("BID 24HS", "right"),
-                    ("SIZE", "right"), ("REND. DIR.", "right"), ("PNL NETO ($)", "right"),
-                ]
-            )
-            tbody = ""
-            for r in rows:
-                pnl   = r.get("pnl", 0)
-                pcolor = "#00cc66" if pnl > 0 else "#888"
-                pweight = "bold" if pnl > 0 else "normal"
-                tbody += (
-                    f"<tr style='border-bottom:1px solid #1a1a1a'>"
-                    f"<td style='padding:4px 10px;color:#4DA8DA;font-weight:bold'>{r.get('asset','')}</td>"
-                    f"<td style='padding:4px 10px;text-align:right;color:#ff4444;font-weight:bold'>"
-                    f"${r.get('offer_ci', 0):,.2f}</td>"
-                    f"<td style='padding:4px 10px;text-align:right;color:#00cc66;font-weight:bold'>"
-                    f"${r.get('bid_24', 0):,.2f}</td>"
-                    f"<td style='padding:4px 10px;text-align:right;color:#ccc'>"
-                    f"{r.get('size', 0):,}</td>"
-                    f"<td style='padding:4px 10px;text-align:right;color:#f0c040'>"
-                    f"{r.get('rend_directo', 0):.4f}%</td>"
-                    f"<td style='padding:4px 10px;text-align:right;color:{pcolor};font-weight:{pweight}'>"
-                    f"${pnl:,.2f}</td>"
-                    f"</tr>"
+            if not rows:
+                st.markdown(
+                    "<p style='color:#555;font-size:13px'>Sin liquidez en ambas puntas aún.</p>",
+                    unsafe_allow_html=True
                 )
-            st.markdown(
-                f"<table style='width:100%;border-collapse:collapse;font-size:13px'>"
-                f"<thead><tr>{th}</tr></thead><tbody>{tbody}</tbody></table>",
-                unsafe_allow_html=True
-            )
+            else:
+                th = "".join(
+                    f"<th style='text-align:{a};color:#555;font-size:11px;padding:5px 10px;"
+                    f"border-bottom:1px solid #222'>{c}</th>"
+                    for c, a in [
+                        ("ASSET", "left"), ("OFFER CI", "right"), ("BID 24HS", "right"),
+                        ("SIZE", "right"), ("REND. DIR.", "right"), ("PNL NETO ($)", "right"),
+                    ]
+                )
+                tbody = ""
+                for r in rows:
+                    pnl     = r.get("pnl", 0)
+                    pcolor  = "#00cc66" if pnl > 0 else "#888"
+                    pweight = "bold" if pnl > 0 else "normal"
+                    tbody += (
+                        f"<tr style='border-bottom:1px solid #1a1a1a'>"
+                        f"<td style='padding:4px 10px;color:#4DA8DA;font-weight:bold'>{r.get('asset','')}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#ff4444;font-weight:bold'>"
+                        f"${r.get('offer_ci', 0):,.2f}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#00cc66;font-weight:bold'>"
+                        f"${r.get('bid_24', 0):,.2f}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#ccc'>"
+                        f"{r.get('size', 0):,}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#f0c040'>"
+                        f"{r.get('rend_directo', 0):.4f}%</td>"
+                        f"<td style='padding:4px 10px;text-align:right;"
+                        f"color:{pcolor};font-weight:{pweight}'>${pnl:,.2f}</td>"
+                        f"</tr>"
+                    )
+                st.markdown(
+                    f"<table style='width:100%;border-collapse:collapse;font-size:13px'>"
+                    f"<thead><tr>{th}</tr></thead><tbody>{tbody}</tbody></table>",
+                    unsafe_allow_html=True
+                )
 
         time.sleep(0.5)
         st.rerun()
@@ -952,82 +1017,83 @@ elif vista == "Arbitraje CI/24":
 # ==========================================
 elif vista == "ONs":
     with _main.container():
-        db = get_db()
+        hub = get_engine_hub()
 
-        rows = list(db["ONSnapshot"].find({}, {"_id": 0}))
-        rows.sort(key=lambda x: x.get("tir_off") if x.get("tir_off") is not None else -999, reverse=True)
-
-        # Header + MEP + lag
         h_col, info_col = st.columns([3, 2])
         with h_col:
             st.markdown("## 📊 ACAQuant | Yield Screener (O.N.)")
-        with info_col:
-            if rows:
-                ts = rows[0].get("updated_at")
-                mep = rows[0].get("mep_vivo", 0)
-                mep_str = f"${mep:,.2f}" if mep and mep > 0 else "Calculando..."
-                lag_str = ""
-                if ts:
-                    lag = (datetime.now() - ts).total_seconds()
-                    color = "#ff4444" if lag > 5 else "#00cc66"
-                    lag_str = (
-                        f"&nbsp;&nbsp;<span style='color:{color}'>"
-                        f"{ts.strftime('%H:%M:%S')} ({lag:.1f}s)</span>"
-                    )
+
+        if hub.status == "error":
+            st.error(f"Error al conectar: {hub.error}")
+            time.sleep(2)
+            st.rerun()
+        elif not hub.is_alive():
+            st.info("Conectando al WebSocket de Rofex...")
+            time.sleep(1)
+            st.rerun()
+        elif hub.on_engine is None:
+            st.warning("Motor de ONs no disponible (catálogo vacío).")
+        else:
+            mep    = hub.on_engine.get_mep_dinamico()
+            rows   = hub.on_engine.get_snapshot()
+
+            with info_col:
+                mep_str = f"${mep:,.2f}" if mep > 0 else "Calculando..."
                 st.markdown(
                     f"<div style='font-size:13px;color:#888;margin-top:18px;text-align:right'>"
-                    f"MEP: <b style='color:#ff6b6b'>{mep_str}</b>{lag_str}</div>",
+                    f"MEP: <b style='color:#ff6b6b'>{mep_str}</b>"
+                    f"&nbsp;&nbsp;|&nbsp;&nbsp;<b style='color:#ccc'>{len(rows)} ONs</b></div>",
                     unsafe_allow_html=True
                 )
 
-        st.divider()
+            st.divider()
 
-        if not rows:
-            st.markdown(
-                "<p style='color:#555;font-size:13px'>Motor desconectado o aguardando precios.</p>",
-                unsafe_allow_html=True
-            )
-        else:
-            cols_cfg = [
-                ("TICKER", "left"), ("EMISOR", "left"), ("VENCE", "center"),
-                ("MON", "center"), ("VOL BID ($)", "right"), ("BID PX", "right"),
-                ("TIR BID", "right"), ("TIR OFF", "right"),
-                ("OFF PX", "right"), ("VOL OFF ($)", "right"),
-            ]
-            th = "".join(
-                f"<th style='text-align:{a};color:#555;font-size:11px;padding:5px 10px;"
-                f"border-bottom:1px solid #222'>{c}</th>"
-                for c, a in cols_cfg
-            )
-            tbody = ""
-            for r in rows:
-                tir_b = f"{r['tir_bid']:.2f}%" if r.get("tir_bid") is not None else "---"
-                tir_o = f"{r['tir_off']:.2f}%" if r.get("tir_off") is not None else "---"
-                tbody += (
-                    f"<tr style='border-bottom:1px solid #1a1a1a'>"
-                    f"<td style='padding:4px 10px;color:#4DA8DA;font-size:11px'>{r.get('ticker','')}</td>"
-                    f"<td style='padding:4px 10px;color:#aaa'>{r.get('emisor','')}</td>"
-                    f"<td style='padding:4px 10px;text-align:center;color:#ccc'>{r.get('vence','')}</td>"
-                    f"<td style='padding:4px 10px;text-align:center;color:#7eb8f7'>{r.get('moneda','')}</td>"
-                    f"<td style='padding:4px 10px;text-align:right;color:#00cc66'>"
-                    f"{fmt_money(r.get('vol_bid', 0))}</td>"
-                    f"<td style='padding:4px 10px;text-align:right;color:#00cc66;font-weight:bold'>"
-                    f"${r.get('px_bid', 0):,.2f}</td>"
-                    f"<td style='padding:4px 10px;text-align:right;color:#f0c040;font-weight:bold'>"
-                    f"{tir_b}</td>"
-                    f"<td style='padding:4px 10px;text-align:right;color:#f0c040;font-weight:bold'>"
-                    f"{tir_o}</td>"
-                    f"<td style='padding:4px 10px;text-align:right;color:#ff4444;font-weight:bold'>"
-                    f"${r.get('px_off', 0):,.2f}</td>"
-                    f"<td style='padding:4px 10px;text-align:right;color:#ff4444'>"
-                    f"{fmt_money(r.get('vol_off', 0))}</td>"
-                    f"</tr>"
+            if not rows:
+                st.markdown(
+                    "<p style='color:#555;font-size:13px'>Aguardando precios...</p>",
+                    unsafe_allow_html=True
                 )
-            st.markdown(
-                f"<table style='width:100%;border-collapse:collapse;font-size:13px'>"
-                f"<thead><tr>{th}</tr></thead><tbody>{tbody}</tbody></table>",
-                unsafe_allow_html=True
-            )
+            else:
+                cols_cfg = [
+                    ("TICKER", "left"), ("EMISOR", "left"), ("VENCE", "center"),
+                    ("MON", "center"), ("VOL BID ($)", "right"), ("BID PX", "right"),
+                    ("TIR BID", "right"), ("TIR OFF", "right"),
+                    ("OFF PX", "right"), ("VOL OFF ($)", "right"),
+                ]
+                th = "".join(
+                    f"<th style='text-align:{a};color:#555;font-size:11px;padding:5px 10px;"
+                    f"border-bottom:1px solid #222'>{c}</th>"
+                    for c, a in cols_cfg
+                )
+                tbody = ""
+                for r in rows:
+                    tir_b = f"{r['tir_bid']:.2f}%" if r.get("tir_bid") is not None else "---"
+                    tir_o = f"{r['tir_off']:.2f}%" if r.get("tir_off") is not None else "---"
+                    tbody += (
+                        f"<tr style='border-bottom:1px solid #1a1a1a'>"
+                        f"<td style='padding:4px 10px;color:#4DA8DA;font-size:11px'>{r.get('ticker','')}</td>"
+                        f"<td style='padding:4px 10px;color:#aaa'>{r.get('emisor','')}</td>"
+                        f"<td style='padding:4px 10px;text-align:center;color:#ccc'>{r.get('vence','')}</td>"
+                        f"<td style='padding:4px 10px;text-align:center;color:#7eb8f7'>{r.get('moneda','')}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#00cc66'>"
+                        f"{fmt_money(r.get('vol_bid', 0))}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#00cc66;font-weight:bold'>"
+                        f"${r.get('px_bid', 0):,.2f}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#f0c040;font-weight:bold'>"
+                        f"{tir_b}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#f0c040;font-weight:bold'>"
+                        f"{tir_o}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#ff4444;font-weight:bold'>"
+                        f"${r.get('px_off', 0):,.2f}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#ff4444'>"
+                        f"{fmt_money(r.get('vol_off', 0))}</td>"
+                        f"</tr>"
+                    )
+                st.markdown(
+                    f"<table style='width:100%;border-collapse:collapse;font-size:13px'>"
+                    f"<thead><tr>{th}</tr></thead><tbody>{tbody}</tbody></table>",
+                    unsafe_allow_html=True
+                )
 
         time.sleep(0.5)
         st.rerun()

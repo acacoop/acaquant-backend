@@ -756,7 +756,7 @@ elif vista == "Mercado":
 # VISTA: CARTERAS
 # ==========================================
 elif vista == "Carteras":
-    with _main.container():
+    with _main.container() as _c:
         db_val = get_db_valuaciones()
 
         st.markdown("## 💼 ACAQuant | Carteras")
@@ -819,7 +819,7 @@ div[data-testid="stMultiSelect"] span {
 
             CUENTAS = sorted(set(d.get("id_cuenta", "") for d in docs if d.get("id_cuenta")))
 
-            tabs = st.tabs([f"Cuenta {c}" for c in CUENTAS] + ["Todas"])
+            tabs = _c.tabs([f"Cuenta {c}" for c in CUENTAS] + ["Todas"])
 
             def _fmt_precio(precio):
                 try:

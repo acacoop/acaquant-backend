@@ -766,7 +766,32 @@ elif vista == "Carteras":
                     unsafe_allow_html=True
                 )
 
+            # Filtro por CARTERA (top derecha)
+            carteras_disponibles = sorted(set(
+                assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
+                for d in docs
+                if assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
+            ))
+            _col_title, _col_filter = st.columns([2, 1])
+            with _col_filter:
+                carteras_sel = st.multiselect(
+                    "Filtrar por Cartera",
+                    options=carteras_disponibles,
+                    default=[],
+                    placeholder="Todas las carteras",
+                    label_visibility="collapsed"
+                )
+
             st.divider()
+
+            # Aplicar filtro si hay selección
+            if carteras_sel:
+                docs_filtrados = [
+                    d for d in docs
+                    if assets.get(d.get("unidad", ""), {}).get("CARTERA", "") in carteras_sel
+                ]
+            else:
+                docs_filtrados = docs
 
             CUENTAS = sorted(set(d.get("id_cuenta", "") for d in docs if d.get("id_cuenta")))
 
@@ -802,10 +827,10 @@ elif vista == "Carteras":
                     vto = assets.get(f.get("unidad", ""), {}).get("VENCIMIENTO", "")
                     vto_str = str(vto).strip()
                     if not vto_str or vto_str.upper() == "NO APLICA":
-                        return ""
+                        return "9999-99-99"
                     return vto_str.split(" ")[0]
 
-                filas = sorted(filas, key=_vto_sort_key, reverse=True)
+                filas = sorted(filas, key=_vto_sort_key)
 
                 rows_html = []
                 for f in filas:
@@ -854,7 +879,7 @@ elif vista == "Carteras":
 
             for i, cuenta in enumerate(CUENTAS):
                 with tabs[i]:
-                    filas_cuenta = [d for d in docs if d.get("id_cuenta") == cuenta]
+                    filas_cuenta = [d for d in docs_filtrados if d.get("id_cuenta") == cuenta]
                     st.markdown(
                         f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(filas_cuenta)} posiciones</div>",
                         unsafe_allow_html=True
@@ -863,7 +888,7 @@ elif vista == "Carteras":
 
             with tabs[-1]:
                 st.markdown(
-                    f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(docs)} posiciones totales</div>",
+                    f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(docs_filtrados)} posiciones totales</div>",
                     unsafe_allow_html=True
                 )
-                render_tabla_enriquecida(docs, mostrar_cuenta=True)
+                render_tabla_enriquecida(docs_filtrados, mostrar_cuenta=True)

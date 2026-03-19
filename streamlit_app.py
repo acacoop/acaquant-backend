@@ -766,19 +766,20 @@ elif vista == "Carteras":
                     unsafe_allow_html=True
                 )
 
-            # Filtro por CARTERA (top derecha)
+            # Filtro por CARTERA en el sidebar
             carteras_disponibles = sorted(set(
                 assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
                 for d in docs
                 if assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
             ))
-            _col_title, _col_filter = st.columns([2, 1])
-            with _col_filter:
+            with st.sidebar:
+                st.markdown("---")
+                st.markdown("<div style='font-size:12px;color:#888'>Filtrar cartera</div>", unsafe_allow_html=True)
                 carteras_sel = st.multiselect(
-                    "Filtrar por Cartera",
+                    "Cartera",
                     options=carteras_disponibles,
                     default=[],
-                    placeholder="Todas las carteras",
+                    placeholder="Todas",
                     label_visibility="collapsed"
                 )
 

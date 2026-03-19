@@ -139,6 +139,13 @@ with st.sidebar:
         label_visibility="collapsed"
     )
 
+# Si el usuario acaba de salir de Carteras, forzar un rerun extra para que
+# Streamlit limpie los paneles de st.tabs() que filtran fuera del placeholder.
+if st.session_state.get("_prev_vista") == "Carteras" and vista != "Carteras":
+    st.session_state["_prev_vista"] = vista
+    st.rerun()
+st.session_state["_prev_vista"] = vista
+
 # Contenedor principal — se reemplaza atómicamente en cada rerun, evitando HTML fantasma
 _main = st.empty()
 
@@ -768,42 +775,35 @@ elif vista == "Carteras":
                     unsafe_allow_html=True
                 )
 
-            # Filtro por CARTERA + selector de cuenta
+            # Filtro por CARTERA — se superpone sobre la barra de tabs via CSS
             carteras_disponibles = sorted(set(
                 assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
                 for d in docs
                 if assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
             ))
-
-            CUENTAS = sorted(set(d.get("id_cuenta", "") for d in docs if d.get("id_cuenta")))
-            tab_options = list(CUENTAS) + ["Todas"]
-
-            # Inicializar tab activo en session_state (evita st.tabs que filtra fuera del placeholder)
-            if "carteras_tab" not in st.session_state or st.session_state.carteras_tab not in tab_options:
-                st.session_state.carteras_tab = tab_options[0] if tab_options else "Todas"
-
-            # Fila: tabs a la izquierda, filtro cartera a la derecha
-            n = len(tab_options)
-            tab_cols = st.columns(n + 2)  # tabs + spacer + filtro
-            for i, cuenta in enumerate(tab_options):
-                label = f"Cuenta {cuenta}" if cuenta != "Todas" else "Todas"
-                active = st.session_state.carteras_tab == cuenta
-                if tab_cols[i].button(
-                    label,
-                    key=f"ctab_{cuenta}",
-                    type="primary" if active else "secondary",
-                    use_container_width=True,
-                ):
-                    st.session_state.carteras_tab = cuenta
-                    st.rerun()
-
-            with tab_cols[-1]:
+            st.markdown("""
+<style>
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMultiSelect"]) {
+    margin-bottom: -52px;
+    position: relative;
+    z-index: 100;
+}
+div[data-testid="stMultiSelect"] > div:first-child {
+    min-height: 32px !important;
+    font-size: 11px !important;
+}
+div[data-testid="stMultiSelect"] span {
+    font-size: 11px !important;
+}
+</style>""", unsafe_allow_html=True)
+            _, _fc = st.columns([3, 1])
+            with _fc:
                 carteras_sel = st.multiselect(
                     "Cartera",
                     options=carteras_disponibles,
                     default=[],
                     placeholder="Filtrar cartera...",
-                    label_visibility="collapsed",
+                    label_visibility="collapsed"
                 )
 
             st.divider()
@@ -817,7 +817,9 @@ elif vista == "Carteras":
             else:
                 docs_filtrados = docs
 
-            cuenta_activa = st.session_state.carteras_tab
+            CUENTAS = sorted(set(d.get("id_cuenta", "") for d in docs if d.get("id_cuenta")))
+
+            tabs = st.tabs([f"Cuenta {c}" for c in CUENTAS] + ["Todas"])
 
             def _fmt_precio(precio):
                 try:
@@ -899,16 +901,18 @@ elif vista == "Carteras":
                 )
                 st.markdown(html, unsafe_allow_html=True)
 
-            if cuenta_activa == "Todas":
+            for i, cuenta in enumerate(CUENTAS):
+                with tabs[i]:
+                    filas_cuenta = [d for d in docs_filtrados if d.get("id_cuenta") == cuenta]
+                    st.markdown(
+                        f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(filas_cuenta)} posiciones</div>",
+                        unsafe_allow_html=True
+                    )
+                    render_tabla_enriquecida(filas_cuenta)
+
+            with tabs[-1]:
                 st.markdown(
                     f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(docs_filtrados)} posiciones totales</div>",
-                    unsafe_allow_html=True,
+                    unsafe_allow_html=True
                 )
                 render_tabla_enriquecida(docs_filtrados, mostrar_cuenta=True)
-            else:
-                filas_cuenta = [d for d in docs_filtrados if d.get("id_cuenta") == cuenta_activa]
-                st.markdown(
-                    f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(filas_cuenta)} posiciones</div>",
-                    unsafe_allow_html=True,
-                )
-                render_tabla_enriquecida(filas_cuenta)

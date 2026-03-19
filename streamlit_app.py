@@ -136,7 +136,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Opciones", "Estrategias Opciones", "Mercado", "Carteras"],
+        ["Libro", "Opciones", "Estrategias Opciones", "Mercado", "Carteras", "Arbitraje CI/24", "ONs"],
         label_visibility="collapsed"
     )
 
@@ -856,6 +856,178 @@ elif vista == "Carteras":
                 filas_cuenta = [d for d in docs_filtrados if str(d.get("id_cuenta", "")) == cuenta_id]
                 st.caption(f"{len(filas_cuenta)} posiciones")
                 render_tabla_enriquecida(filas_cuenta)
+
+        time.sleep(0.5)
+        st.rerun()
+
+
+# ==========================================
+# VISTA: ARBITRAJE CI/24
+# ==========================================
+elif vista == "Arbitraje CI/24":
+    with _main.container():
+        db = get_db()
+
+        rows = list(db["ArbitrageSnapshot"].find({}, {"_id": 0}).sort("pnl", -1))
+
+        # Header + lag
+        h_col, lag_col = st.columns([4, 1])
+        with h_col:
+            st.markdown("## ⚖️ ACAQuant | Arbitraje CI / 24hs")
+        with lag_col:
+            if rows:
+                ts = rows[0].get("updated_at")
+                if ts:
+                    lag = (datetime.now() - ts).total_seconds()
+                    color = "#ff4444" if lag > 5 else "#00cc66"
+                    st.markdown(
+                        f"<div style='font-size:12px;color:#555;margin-top:18px;text-align:right'>"
+                        f"<span style='color:{color}'>{ts.strftime('%H:%M:%S')} ({lag:.1f}s)</span></div>",
+                        unsafe_allow_html=True
+                    )
+
+        # Badge de fondeo
+        if rows:
+            r0 = rows[0]
+            tna = r0.get("tna_caucion", 0)
+            dias = r0.get("caucion_dias", 1)
+            positivos = sum(1 for r in rows if r.get("pnl", 0) > 0)
+            st.markdown(
+                f"<div style='font-size:13px;color:#888;margin-bottom:8px'>"
+                f"Fondeo: <b style='color:#ff6b6b'>{tna:.2f}% TNA ({dias}D)</b>"
+                f"&nbsp;&nbsp;|&nbsp;&nbsp;Oportunidades con PNL &gt; 0: "
+                f"<b style='color:#00cc66'>{positivos}</b>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+        st.divider()
+
+        if not rows:
+            st.markdown(
+                "<p style='color:#555;font-size:13px'>Motor desconectado o sin liquidez en ambas puntas.</p>",
+                unsafe_allow_html=True
+            )
+        else:
+            th = "".join(
+                f"<th style='text-align:{a};color:#555;font-size:11px;padding:5px 10px;"
+                f"border-bottom:1px solid #222'>{c}</th>"
+                for c, a in [
+                    ("ASSET", "left"), ("OFFER CI", "right"), ("BID 24HS", "right"),
+                    ("SIZE", "right"), ("REND. DIR.", "right"), ("PNL NETO ($)", "right"),
+                ]
+            )
+            tbody = ""
+            for r in rows:
+                pnl   = r.get("pnl", 0)
+                pcolor = "#00cc66" if pnl > 0 else "#888"
+                pweight = "bold" if pnl > 0 else "normal"
+                tbody += (
+                    f"<tr style='border-bottom:1px solid #1a1a1a'>"
+                    f"<td style='padding:4px 10px;color:#4DA8DA;font-weight:bold'>{r.get('asset','')}</td>"
+                    f"<td style='padding:4px 10px;text-align:right;color:#ff4444;font-weight:bold'>"
+                    f"${r.get('offer_ci', 0):,.2f}</td>"
+                    f"<td style='padding:4px 10px;text-align:right;color:#00cc66;font-weight:bold'>"
+                    f"${r.get('bid_24', 0):,.2f}</td>"
+                    f"<td style='padding:4px 10px;text-align:right;color:#ccc'>"
+                    f"{r.get('size', 0):,}</td>"
+                    f"<td style='padding:4px 10px;text-align:right;color:#f0c040'>"
+                    f"{r.get('rend_directo', 0):.4f}%</td>"
+                    f"<td style='padding:4px 10px;text-align:right;color:{pcolor};font-weight:{pweight}'>"
+                    f"${pnl:,.2f}</td>"
+                    f"</tr>"
+                )
+            st.markdown(
+                f"<table style='width:100%;border-collapse:collapse;font-size:13px'>"
+                f"<thead><tr>{th}</tr></thead><tbody>{tbody}</tbody></table>",
+                unsafe_allow_html=True
+            )
+
+        time.sleep(0.5)
+        st.rerun()
+
+
+# ==========================================
+# VISTA: ONs (Yield Screener)
+# ==========================================
+elif vista == "ONs":
+    with _main.container():
+        db = get_db()
+
+        rows = list(db["ONSnapshot"].find({}, {"_id": 0}))
+        rows.sort(key=lambda x: x.get("tir_off") if x.get("tir_off") is not None else -999, reverse=True)
+
+        # Header + MEP + lag
+        h_col, info_col = st.columns([3, 2])
+        with h_col:
+            st.markdown("## 📊 ACAQuant | Yield Screener (O.N.)")
+        with info_col:
+            if rows:
+                ts = rows[0].get("updated_at")
+                mep = rows[0].get("mep_vivo", 0)
+                mep_str = f"${mep:,.2f}" if mep and mep > 0 else "Calculando..."
+                lag_str = ""
+                if ts:
+                    lag = (datetime.now() - ts).total_seconds()
+                    color = "#ff4444" if lag > 5 else "#00cc66"
+                    lag_str = (
+                        f"&nbsp;&nbsp;<span style='color:{color}'>"
+                        f"{ts.strftime('%H:%M:%S')} ({lag:.1f}s)</span>"
+                    )
+                st.markdown(
+                    f"<div style='font-size:13px;color:#888;margin-top:18px;text-align:right'>"
+                    f"MEP: <b style='color:#ff6b6b'>{mep_str}</b>{lag_str}</div>",
+                    unsafe_allow_html=True
+                )
+
+        st.divider()
+
+        if not rows:
+            st.markdown(
+                "<p style='color:#555;font-size:13px'>Motor desconectado o aguardando precios.</p>",
+                unsafe_allow_html=True
+            )
+        else:
+            cols_cfg = [
+                ("TICKER", "left"), ("EMISOR", "left"), ("VENCE", "center"),
+                ("MON", "center"), ("VOL BID ($)", "right"), ("BID PX", "right"),
+                ("TIR BID", "right"), ("TIR OFF", "right"),
+                ("OFF PX", "right"), ("VOL OFF ($)", "right"),
+            ]
+            th = "".join(
+                f"<th style='text-align:{a};color:#555;font-size:11px;padding:5px 10px;"
+                f"border-bottom:1px solid #222'>{c}</th>"
+                for c, a in cols_cfg
+            )
+            tbody = ""
+            for r in rows:
+                tir_b = f"{r['tir_bid']:.2f}%" if r.get("tir_bid") is not None else "---"
+                tir_o = f"{r['tir_off']:.2f}%" if r.get("tir_off") is not None else "---"
+                tbody += (
+                    f"<tr style='border-bottom:1px solid #1a1a1a'>"
+                    f"<td style='padding:4px 10px;color:#4DA8DA;font-size:11px'>{r.get('ticker','')}</td>"
+                    f"<td style='padding:4px 10px;color:#aaa'>{r.get('emisor','')}</td>"
+                    f"<td style='padding:4px 10px;text-align:center;color:#ccc'>{r.get('vence','')}</td>"
+                    f"<td style='padding:4px 10px;text-align:center;color:#7eb8f7'>{r.get('moneda','')}</td>"
+                    f"<td style='padding:4px 10px;text-align:right;color:#00cc66'>"
+                    f"{fmt_money(r.get('vol_bid', 0))}</td>"
+                    f"<td style='padding:4px 10px;text-align:right;color:#00cc66;font-weight:bold'>"
+                    f"${r.get('px_bid', 0):,.2f}</td>"
+                    f"<td style='padding:4px 10px;text-align:right;color:#f0c040;font-weight:bold'>"
+                    f"{tir_b}</td>"
+                    f"<td style='padding:4px 10px;text-align:right;color:#f0c040;font-weight:bold'>"
+                    f"{tir_o}</td>"
+                    f"<td style='padding:4px 10px;text-align:right;color:#ff4444;font-weight:bold'>"
+                    f"${r.get('px_off', 0):,.2f}</td>"
+                    f"<td style='padding:4px 10px;text-align:right;color:#ff4444'>"
+                    f"{fmt_money(r.get('vol_off', 0))}</td>"
+                    f"</tr>"
+                )
+            st.markdown(
+                f"<table style='width:100%;border-collapse:collapse;font-size:13px'>"
+                f"<thead><tr>{th}</tr></thead><tbody>{tbody}</tbody></table>",
+                unsafe_allow_html=True
+            )
 
         time.sleep(0.5)
         st.rerun()

@@ -45,6 +45,11 @@ def get_db_opciones():
     client = get_mongo_client()
     return client["Opciones"]
 
+@st.cache_resource
+def get_db_valuaciones():
+    client = get_mongo_client()
+    return client["Valuaciones"]
+
 
 # ==========================================
 # CSS PERSONALIZADO
@@ -128,7 +133,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Opciones", "Estrategias Opciones", "Mercado"],
+        ["Libro", "Opciones", "Estrategias Opciones", "Mercado", "Carteras"],
         label_visibility="collapsed"
     )
 
@@ -736,3 +741,101 @@ elif vista == "Mercado":
 
         time.sleep(0.5)
         st.rerun()
+
+
+# ==========================================
+# VISTA: CARTERAS
+# ==========================================
+elif vista == "Carteras":
+    with _main.container():
+        db_val = get_db_valuaciones()
+
+        st.markdown("## 💼 ACAQuant | Carteras")
+
+        docs = list(db_val["Carteras"].find({}, {"_id": 0}))
+
+        if not docs:
+            st.warning("Sin datos de carteras. ¿El cron de main_carteras está configurado?")
+        else:
+            # Timestamp de última actualización (solo la primer fila lo tiene)
+            ultimo_update = next((d.get("actualizado") for d in docs if d.get("actualizado")), None)
+            if ultimo_update:
+                st.markdown(
+                    f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
+                    f"Última actualización: <span style='color:#888'>{ultimo_update}</span></div>",
+                    unsafe_allow_html=True
+                )
+
+            st.divider()
+
+            CUENTAS = sorted(set(d.get("id_cuenta", "") for d in docs if d.get("id_cuenta")))
+
+            tabs = st.tabs([f"Cuenta {c}" for c in CUENTAS] + ["Todas"])
+
+            def render_tabla_cuenta(filas):
+                if not filas:
+                    st.markdown("<p style='color:#888'>Sin posiciones.</p>", unsafe_allow_html=True)
+                    return
+
+                rows_html = []
+                for f in filas:
+                    precio = f.get("precio", "")
+                    precio_str = f"{float(precio):,.4f}" if precio not in ("", None) and str(precio).strip() != "" else "-"
+                    cantidad = f.get("cantidad", 0)
+                    cantidad_str = f"{float(cantidad):,.2f}" if cantidad not in ("", None) else "-"
+                    rows_html.append(
+                        f"<tr>"
+                        f"<td style='padding:4px 10px;color:#4DA8DA;font-weight:bold'>{f.get('unidad','')}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#e5e5e5'>{cantidad_str}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#f0c040'>{precio_str}</td>"
+                        f"</tr>"
+                    )
+
+                st.markdown(f"""
+                    <table style='width:100%;border-collapse:collapse;font-size:13px'>
+                        <thead><tr>
+                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>UNIDAD</th>
+                            <th style='text-align:right;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>CANTIDAD</th>
+                            <th style='text-align:right;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>PRECIO</th>
+                        </tr></thead>
+                        <tbody>{''.join(rows_html)}</tbody>
+                    </table>
+                """, unsafe_allow_html=True)
+
+            for i, cuenta in enumerate(CUENTAS):
+                with tabs[i]:
+                    filas_cuenta = [d for d in docs if d.get("id_cuenta") == cuenta]
+                    st.markdown(
+                        f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(filas_cuenta)} posiciones</div>",
+                        unsafe_allow_html=True
+                    )
+                    render_tabla_cuenta(filas_cuenta)
+
+            # Tab "Todas"
+            with tabs[-1]:
+                rows_html = []
+                for f in docs:
+                    precio = f.get("precio", "")
+                    precio_str = f"{float(precio):,.4f}" if precio not in ("", None) and str(precio).strip() != "" else "-"
+                    cantidad = f.get("cantidad", 0)
+                    cantidad_str = f"{float(cantidad):,.2f}" if cantidad not in ("", None) else "-"
+                    rows_html.append(
+                        f"<tr>"
+                        f"<td style='padding:4px 10px;color:#888;font-size:11px'>{f.get('id_cuenta','')}</td>"
+                        f"<td style='padding:4px 10px;color:#4DA8DA;font-weight:bold'>{f.get('unidad','')}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#e5e5e5'>{cantidad_str}</td>"
+                        f"<td style='padding:4px 10px;text-align:right;color:#f0c040'>{precio_str}</td>"
+                        f"</tr>"
+                    )
+
+                st.markdown(f"""
+                    <table style='width:100%;border-collapse:collapse;font-size:13px'>
+                        <thead><tr>
+                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>CUENTA</th>
+                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>UNIDAD</th>
+                            <th style='text-align:right;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>CANTIDAD</th>
+                            <th style='text-align:right;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>PRECIO</th>
+                        </tr></thead>
+                        <tbody>{''.join(rows_html)}</tbody>
+                    </table>
+                """, unsafe_allow_html=True)

@@ -73,18 +73,20 @@ def sincronizar_assets(df):
 
 def actualizar_precios_mercado():
     """
-    Para cada asset con campo INSTRUMENTO definido, consulta el LAST price
-    via REST pyRofex y actualiza SOLO el campo 'precio' en Carteras.
-    No toca documentos sin INSTRUMENTO (ej: FCI que ya tienen precio propio).
+    Para cada asset cuyo INSTRUMENTO contiene el patrón 'MERV - XMEV',
+    consulta el LAST price via REST pyRofex y actualiza SOLO el campo
+    'precio' en Carteras via $set. FCI sin INSTRUMENTO no son tocados.
     """
+    import re
     client = get_mongo_client()
     db_val = client["Valuaciones"]
 
     assets = list(db_val["Assets"].find(
-        {"INSTRUMENTO": {"$exists": True, "$nin": ["", None]}},
+        {"INSTRUMENTO": {"$regex": "MERV - XMEV", "$options": "i"}},
         {"_id": 0, "unidad": 1, "INSTRUMENTO": 1}
     ))
 
+    print(f"🔍 Assets con INSTRUMENTO MERV-XMEV encontrados: {len(assets)}")
     if not assets:
         client.close()
         return 0
@@ -112,9 +114,12 @@ def actualizar_precios_mercado():
                     {"unidad": unidad},
                     {"$set": {"precio": precio}}
                 )
+                print(f"   ✅ {instrumento} → {precio}")
                 actualizados += 1
+            else:
+                print(f"   ⚠️ Sin LA en respuesta para {instrumento}: {resp}")
         except Exception as e:
-            print(f"⚠️ Sin precio para {instrumento}: {e}")
+            print(f"   ❌ Error para {instrumento}: {e}")
 
     client.close()
     return actualizados

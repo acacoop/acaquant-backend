@@ -752,12 +752,12 @@ elif vista == "Carteras":
 
         st.markdown("## 💼 ACAQuant | Carteras")
 
-        docs = list(db_val["Carteras"].find({}, {"_id": 0}))
+        docs    = list(db_val["Carteras"].find({}, {"_id": 0}))
+        assets  = {a["unidad"]: a for a in db_val["Assets"].find({}, {"_id": 0}) if a.get("unidad")}
 
         if not docs:
             st.warning("Sin datos de carteras. ¿El cron de main_carteras está configurado?")
         else:
-            # Timestamp de última actualización (solo la primer fila lo tiene)
             ultimo_update = next((d.get("actualizado") for d in docs if d.get("actualizado")), None)
             if ultimo_update:
                 st.markdown(
@@ -772,34 +772,77 @@ elif vista == "Carteras":
 
             tabs = st.tabs([f"Cuenta {c}" for c in CUENTAS] + ["Todas"])
 
-            def render_tabla_cuenta(filas):
+            def _fmt_precio(precio):
+                try:
+                    v = float(precio)
+                    return f"{v:,.4f}" if v != 0 else "-"
+                except (TypeError, ValueError):
+                    return "-"
+
+            def _fmt_cantidad(cantidad):
+                try:
+                    return f"{float(cantidad):,.2f}"
+                except (TypeError, ValueError):
+                    return "-"
+
+            def _na(val):
+                if not val or str(val).strip().upper() in ("", "NO APLICA"):
+                    return "<span style='color:#333'>—</span>"
+                return val
+
+            def render_tabla_enriquecida(filas, mostrar_cuenta=False):
                 if not filas:
                     st.markdown("<p style='color:#888'>Sin posiciones.</p>", unsafe_allow_html=True)
                     return
 
                 rows_html = []
                 for f in filas:
-                    precio = f.get("precio", "")
-                    precio_str = f"{float(precio):,.4f}" if precio not in ("", None) and str(precio).strip() != "" else "-"
-                    cantidad = f.get("cantidad", 0)
-                    cantidad_str = f"{float(cantidad):,.2f}" if cantidad not in ("", None) else "-"
+                    unidad  = f.get("unidad", "")
+                    asset   = assets.get(unidad, {})
+                    ticker      = asset.get("TICKER", unidad)
+                    emisor      = asset.get("EMISOR", "")
+                    vto         = asset.get("VENCIMIENTO", "")
+                    clase       = asset.get("CLASE_ACTIVO", "")
+                    calif       = asset.get("CALIFICACION", "")
+                    cartera     = asset.get("CARTERA", "")
+                    instrumento = asset.get("INSTRUMENTO", "")
+
+                    cuenta_td = f"<td style='padding:4px 8px;color:#555;font-size:11px'>{f.get('id_cuenta','')}</td>" if mostrar_cuenta else ""
+
                     rows_html.append(
                         f"<tr>"
-                        f"<td style='padding:4px 10px;color:#4DA8DA;font-weight:bold'>{f.get('unidad','')}</td>"
-                        f"<td style='padding:4px 10px;text-align:right;color:#e5e5e5'>{cantidad_str}</td>"
-                        f"<td style='padding:4px 10px;text-align:right;color:#f0c040'>{precio_str}</td>"
+                        f"{cuenta_td}"
+                        f"<td style='padding:4px 8px;color:#4DA8DA;font-weight:bold;white-space:nowrap'>{ticker}</td>"
+                        f"<td style='padding:4px 8px;color:#ccc'>{_na(emisor)}</td>"
+                        f"<td style='padding:4px 8px;color:#888;font-size:11px;white-space:nowrap'>{_na(vto)}</td>"
+                        f"<td style='padding:4px 8px;color:#aaa'>{_na(clase)}</td>"
+                        f"<td style='padding:4px 8px;color:#aaa'>{_na(calif)}</td>"
+                        f"<td style='padding:4px 8px;color:#aaa'>{_na(cartera)}</td>"
+                        f"<td style='padding:4px 8px;color:#aaa'>{_na(instrumento)}</td>"
+                        f"<td style='padding:4px 8px;text-align:right;color:#e5e5e5'>{_fmt_cantidad(f.get('cantidad'))}</td>"
+                        f"<td style='padding:4px 8px;text-align:right;color:#f0c040'>{_fmt_precio(f.get('precio'))}</td>"
                         f"</tr>"
                     )
 
+                cuenta_th = "<th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>CUENTA</th>" if mostrar_cuenta else ""
                 st.markdown(f"""
-                    <table style='width:100%;border-collapse:collapse;font-size:13px'>
+                    <div style='overflow-x:auto'>
+                    <table style='width:100%;border-collapse:collapse;font-size:12px'>
                         <thead><tr>
-                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>UNIDAD</th>
-                            <th style='text-align:right;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>CANTIDAD</th>
-                            <th style='text-align:right;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>PRECIO</th>
+                            {cuenta_th}
+                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>TICKER</th>
+                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>EMISOR</th>
+                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>VENCIMIENTO</th>
+                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>CLASE ACTIVO</th>
+                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>CALIFICACIÓN</th>
+                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>CARTERA</th>
+                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>INSTRUMENTO</th>
+                            <th style='text-align:right;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>CANTIDAD</th>
+                            <th style='text-align:right;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222'>PRECIO</th>
                         </tr></thead>
                         <tbody>{''.join(rows_html)}</tbody>
                     </table>
+                    </div>
                 """, unsafe_allow_html=True)
 
             for i, cuenta in enumerate(CUENTAS):
@@ -809,33 +852,11 @@ elif vista == "Carteras":
                         f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(filas_cuenta)} posiciones</div>",
                         unsafe_allow_html=True
                     )
-                    render_tabla_cuenta(filas_cuenta)
+                    render_tabla_enriquecida(filas_cuenta)
 
-            # Tab "Todas"
             with tabs[-1]:
-                rows_html = []
-                for f in docs:
-                    precio = f.get("precio", "")
-                    precio_str = f"{float(precio):,.4f}" if precio not in ("", None) and str(precio).strip() != "" else "-"
-                    cantidad = f.get("cantidad", 0)
-                    cantidad_str = f"{float(cantidad):,.2f}" if cantidad not in ("", None) else "-"
-                    rows_html.append(
-                        f"<tr>"
-                        f"<td style='padding:4px 10px;color:#888;font-size:11px'>{f.get('id_cuenta','')}</td>"
-                        f"<td style='padding:4px 10px;color:#4DA8DA;font-weight:bold'>{f.get('unidad','')}</td>"
-                        f"<td style='padding:4px 10px;text-align:right;color:#e5e5e5'>{cantidad_str}</td>"
-                        f"<td style='padding:4px 10px;text-align:right;color:#f0c040'>{precio_str}</td>"
-                        f"</tr>"
-                    )
-
-                st.markdown(f"""
-                    <table style='width:100%;border-collapse:collapse;font-size:13px'>
-                        <thead><tr>
-                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>CUENTA</th>
-                            <th style='text-align:left;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>UNIDAD</th>
-                            <th style='text-align:right;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>CANTIDAD</th>
-                            <th style='text-align:right;color:#555;font-size:11px;padding:4px 10px;border-bottom:1px solid #222'>PRECIO</th>
-                        </tr></thead>
-                        <tbody>{''.join(rows_html)}</tbody>
-                    </table>
-                """, unsafe_allow_html=True)
+                st.markdown(
+                    f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(docs)} posiciones totales</div>",
+                    unsafe_allow_html=True
+                )
+                render_tabla_enriquecida(docs, mostrar_cuenta=True)

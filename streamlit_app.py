@@ -804,11 +804,11 @@ elif vista == "Carteras":
                     asset       = assets.get(unidad, {})
                     ticker      = asset.get("TICKER", unidad)
                     emisor      = asset.get("EMISOR", "")
-                    vto         = asset.get("VENCIMIENTO", "")
+                    vto_raw     = asset.get("VENCIMIENTO", "")
+                    vto         = str(vto_raw).split(" ")[0] if vto_raw and str(vto_raw).strip().upper() not in ("", "NO APLICA") else vto_raw
                     clase       = asset.get("CLASE_ACTIVO", "")
                     calif       = asset.get("CALIFICACION", "")
                     cartera     = asset.get("CARTERA", "")
-                    instrumento = asset.get("INSTRUMENTO", "")
                     cuenta_td   = f"<td style='padding:4px 8px;color:#555;font-size:11px'>{f.get('id_cuenta','')}</td>" if mostrar_cuenta else ""
                     rows_html.append(
                         f"<tr>{cuenta_td}"
@@ -818,7 +818,6 @@ elif vista == "Carteras":
                         f"<td style='padding:4px 8px;color:#aaa'>{_na(clase)}</td>"
                         f"<td style='padding:4px 8px;color:#aaa'>{_na(calif)}</td>"
                         f"<td style='padding:4px 8px;color:#aaa'>{_na(cartera)}</td>"
-                        f"<td style='padding:4px 8px;color:#aaa'>{_na(instrumento)}</td>"
                         f"<td style='padding:4px 8px;text-align:right;color:#e5e5e5'>{_fmt_cantidad(f.get('cantidad'))}</td>"
                         f"<td style='padding:4px 8px;text-align:right;color:#f0c040'>{_fmt_precio(f.get('precio'))}</td>"
                         f"</tr>"
@@ -836,7 +835,6 @@ elif vista == "Carteras":
                     f"<th style='{TH}'>CLASE ACTIVO</th>"
                     f"<th style='{TH}'>CALIFICACIÓN</th>"
                     f"<th style='{TH}'>CARTERA</th>"
-                    f"<th style='{TH}'>INSTRUMENTO</th>"
                     f"<th style='{TH_R}'>CANTIDAD</th>"
                     f"<th style='{TH_R}'>PRECIO</th>"
                     "</tr></thead>"

@@ -79,7 +79,7 @@ class ArbitrageEngine:
             validados = []
 
             for p in pares_mongo:
-                if p['patas'].get('ci') in oficiales and p['patas'].get('24hs') in oficiales:
+                if p.get('patas.ci') in oficiales and p.get('patas.24hs') in oficiales:
                     validados.append(p)
                 else:
                     logger.warning(f"Descartado {p.get('asset')}: Faltan patas en Rofex hoy.")
@@ -94,7 +94,7 @@ class ArbitrageEngine:
         """Genera la lista única de tickers para que el WebSocketManager se suscriba"""
         tickers_sub = [self.caucion_ticker]
         for p in self.catalogo:
-            tickers_sub.extend([p['patas']['ci'], p['patas']['24hs']])
+            tickers_sub.extend([p['patas.ci'], p['patas.24hs']])
         return list(set(tickers_sub))
 
     def update_price(self, ticker, data):
@@ -149,8 +149,8 @@ class ArbitrageEngine:
         resultados = []
         for doc in self.catalogo:
             lote = doc.get('lote', 100)
-            p_ci = self.precios.get(doc['patas']['ci'], {'offer': 0.0, 'offer_size': 0})
-            p_24 = self.precios.get(doc['patas']['24hs'], {'bid': 0.0, 'bid_size': 0})
+            p_ci = self.precios.get(doc['patas.ci'], {'offer': 0.0, 'offer_size': 0})
+            p_24 = self.precios.get(doc['patas.24hs'], {'bid': 0.0, 'bid_size': 0})
 
             if p_ci['offer'] > 0 and p_24['bid'] > 0 and self.tna_caucion_offer > 0:
                 size_maximo = min(p_ci['offer_size'], p_24['bid_size'])

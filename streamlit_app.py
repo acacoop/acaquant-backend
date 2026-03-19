@@ -744,151 +744,156 @@ elif vista == "Mercado":
 # ==========================================
 elif vista == "Carteras":
     db_val = get_db_valuaciones()
-
-    st.markdown("## 💼 ACAQuant | Carteras")
-
     docs   = list(db_val["Carteras"].find({}, {"_id": 0}))
     assets = {a["unidad"]: a for a in db_val["Assets"].find({}, {"_id": 0}) if a.get("unidad")}
 
-    if not docs:
-        st.warning("Sin datos de carteras. ¿El cron de main_carteras está configurado?")
-    else:
-        ultimo_update = next((d.get("actualizado") for d in docs if d.get("actualizado")), None)
-        if ultimo_update:
-            st.markdown(
-                f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
-                f"Última actualización: <span style='color:#888'>{ultimo_update}</span></div>",
-                unsafe_allow_html=True
-            )
+    # Todo el rendering dentro de un único st.empty() para que Streamlit
+    # lo trate como 1 solo elemento root. Sin esto, los elementos extra
+    # (divider, tabla) quedan "ghosteados" al cambiar de vista porque
+    # las otras vistas tienen menos elementos root y el reconciliador no los limpia.
+    _slot = st.empty()
+    with _slot.container():
+        st.markdown("## 💼 ACAQuant | Carteras")
 
-        carteras_disponibles = sorted(set(
-            assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
-            for d in docs
-            if assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
-        ))
-
-        CUENTAS = sorted(set(d.get("id_cuenta", "") for d in docs if d.get("id_cuenta")))
-        col_radio, col_filtro = st.columns([3, 1])
-        with col_radio:
-            cuenta_sel = st.radio(
-                "Cuenta",
-                options=[f"Cuenta {c}" for c in CUENTAS] + ["Todas"],
-                horizontal=True,
-                label_visibility="collapsed",
-            )
-        with col_filtro:
-            carteras_sel = st.multiselect(
-                "Cartera",
-                options=carteras_disponibles,
-                default=[],
-                placeholder="Filtrar cartera...",
-                label_visibility="collapsed",
-            )
-
-        st.divider()
-
-        if carteras_sel:
-            docs_filtrados = [
-                d for d in docs
-                if assets.get(d.get("unidad", ""), {}).get("CARTERA", "") in carteras_sel
-            ]
+        if not docs:
+            st.warning("Sin datos de carteras. ¿El cron de main_carteras está configurado?")
         else:
-            docs_filtrados = docs
-
-        def _fmt_precio(precio):
-            try:
-                v = float(precio)
-                return f"{v:,.4f}" if v != 0 else "-"
-            except (TypeError, ValueError):
-                return "-"
-
-        def _fmt_cantidad(cantidad):
-            try:
-                return f"{float(cantidad):,.0f}"
-            except (TypeError, ValueError):
-                return "-"
-
-        def _na(val):
-            if not val or str(val).strip().upper() in ("", "NO APLICA"):
-                return "<span style='color:#333'>—</span>"
-            return val
-
-        def render_tabla_enriquecida(filas, mostrar_cuenta=False):
-            if not filas:
-                st.markdown("<p style='color:#888'>Sin posiciones.</p>", unsafe_allow_html=True)
-                return
-
-            TH   = "text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222"
-            TH_R = "text-align:right;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222"
-
-            def _vto_sort_key(f):
-                vto = assets.get(f.get("unidad", ""), {}).get("VENCIMIENTO", "")
-                vto_str = str(vto).strip()
-                if not vto_str or vto_str.upper() == "NO APLICA":
-                    return "9999-99-99"
-                return vto_str.split(" ")[0]
-
-            filas = sorted(filas, key=_vto_sort_key)
-
-            rows_html = []
-            for f in filas:
-                unidad    = f.get("unidad", "")
-                asset     = assets.get(unidad, {})
-                ticker    = asset.get("TICKER", unidad)
-                emisor    = asset.get("EMISOR", "")
-                vto_raw   = asset.get("VENCIMIENTO", "")
-                vto       = str(vto_raw).split(" ")[0] if vto_raw and str(vto_raw).strip().upper() not in ("", "NO APLICA") else vto_raw
-                clase     = asset.get("CLASE_ACTIVO", "")
-                calif     = asset.get("CALIFICACION", "")
-                cartera   = asset.get("CARTERA", "")
-                cuenta_td = f"<td style='padding:4px 8px;color:#555;font-size:11px'>{f.get('id_cuenta','')}</td>" if mostrar_cuenta else ""
-                rows_html.append(
-                    f"<tr>{cuenta_td}"
-                    f"<td style='padding:4px 8px;color:#4DA8DA;font-weight:bold;white-space:nowrap'>{ticker}</td>"
-                    f"<td style='padding:4px 8px;color:#ccc'>{_na(emisor)}</td>"
-                    f"<td style='padding:4px 8px;color:#888;font-size:11px;white-space:nowrap'>{_na(vto)}</td>"
-                    f"<td style='padding:4px 8px;color:#aaa'>{_na(clase)}</td>"
-                    f"<td style='padding:4px 8px;color:#aaa'>{_na(calif)}</td>"
-                    f"<td style='padding:4px 8px;color:#aaa'>{_na(cartera)}</td>"
-                    f"<td style='padding:4px 8px;text-align:right;color:#e5e5e5'>{_fmt_cantidad(f.get('cantidad'))}</td>"
-                    f"<td style='padding:4px 8px;text-align:right;color:#f0c040'>{_fmt_precio(f.get('precio'))}</td>"
-                    f"</tr>"
+            ultimo_update = next((d.get("actualizado") for d in docs if d.get("actualizado")), None)
+            if ultimo_update:
+                st.markdown(
+                    f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
+                    f"Última actualización: <span style='color:#888'>{ultimo_update}</span></div>",
+                    unsafe_allow_html=True
                 )
 
-            cuenta_th = f"<th style='{TH}'>CUENTA</th>" if mostrar_cuenta else ""
-            html = (
-                "<div style='overflow-x:auto'>"
-                "<table style='width:100%;border-collapse:collapse;font-size:12px'>"
-                "<thead><tr>"
-                + cuenta_th
-                + f"<th style='{TH}'>TICKER</th>"
-                f"<th style='{TH}'>EMISOR</th>"
-                f"<th style='{TH}'>VENCIMIENTO</th>"
-                f"<th style='{TH}'>CLASE ACTIVO</th>"
-                f"<th style='{TH}'>CALIFICACIÓN</th>"
-                f"<th style='{TH}'>CARTERA</th>"
-                f"<th style='{TH_R}'>CANTIDAD</th>"
-                f"<th style='{TH_R}'>PRECIO</th>"
-                "</tr></thead>"
-                "<tbody>" + "".join(rows_html) + "</tbody>"
-                "</table></div>"
-            )
-            st.markdown(html, unsafe_allow_html=True)
+            carteras_disponibles = sorted(set(
+                assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
+                for d in docs
+                if assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
+            ))
 
-        if cuenta_sel == "Todas":
-            st.markdown(
-                f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(docs_filtrados)} posiciones totales</div>",
-                unsafe_allow_html=True,
-            )
-            render_tabla_enriquecida(docs_filtrados, mostrar_cuenta=True)
-        else:
-            cuenta_id = cuenta_sel.replace("Cuenta ", "")
-            filas_cuenta = [d for d in docs_filtrados if str(d.get("id_cuenta", "")) == cuenta_id]
-            st.markdown(
-                f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(filas_cuenta)} posiciones</div>",
-                unsafe_allow_html=True,
-            )
-            render_tabla_enriquecida(filas_cuenta)
+            CUENTAS = sorted(set(d.get("id_cuenta", "") for d in docs if d.get("id_cuenta")))
+            col_radio, col_filtro = st.columns([3, 1])
+            with col_radio:
+                cuenta_sel = st.radio(
+                    "Cuenta",
+                    options=[f"Cuenta {c}" for c in CUENTAS] + ["Todas"],
+                    horizontal=True,
+                    label_visibility="collapsed",
+                )
+            with col_filtro:
+                carteras_sel = st.multiselect(
+                    "Cartera",
+                    options=carteras_disponibles,
+                    default=[],
+                    placeholder="Filtrar cartera...",
+                    label_visibility="collapsed",
+                )
+
+            st.divider()
+
+            if carteras_sel:
+                docs_filtrados = [
+                    d for d in docs
+                    if assets.get(d.get("unidad", ""), {}).get("CARTERA", "") in carteras_sel
+                ]
+            else:
+                docs_filtrados = docs
+
+            def _fmt_precio(precio):
+                try:
+                    v = float(precio)
+                    return f"{v:,.4f}" if v != 0 else "-"
+                except (TypeError, ValueError):
+                    return "-"
+
+            def _fmt_cantidad(cantidad):
+                try:
+                    return f"{float(cantidad):,.0f}"
+                except (TypeError, ValueError):
+                    return "-"
+
+            def _na(val):
+                if not val or str(val).strip().upper() in ("", "NO APLICA"):
+                    return "<span style='color:#333'>—</span>"
+                return val
+
+            def render_tabla_enriquecida(filas, mostrar_cuenta=False):
+                if not filas:
+                    st.markdown("<p style='color:#888'>Sin posiciones.</p>", unsafe_allow_html=True)
+                    return
+
+                TH   = "text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222"
+                TH_R = "text-align:right;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222"
+
+                def _vto_sort_key(f):
+                    vto = assets.get(f.get("unidad", ""), {}).get("VENCIMIENTO", "")
+                    vto_str = str(vto).strip()
+                    if not vto_str or vto_str.upper() == "NO APLICA":
+                        return "9999-99-99"
+                    return vto_str.split(" ")[0]
+
+                filas = sorted(filas, key=_vto_sort_key)
+
+                rows_html = []
+                for f in filas:
+                    unidad    = f.get("unidad", "")
+                    asset     = assets.get(unidad, {})
+                    ticker    = asset.get("TICKER", unidad)
+                    emisor    = asset.get("EMISOR", "")
+                    vto_raw   = asset.get("VENCIMIENTO", "")
+                    vto       = str(vto_raw).split(" ")[0] if vto_raw and str(vto_raw).strip().upper() not in ("", "NO APLICA") else vto_raw
+                    clase     = asset.get("CLASE_ACTIVO", "")
+                    calif     = asset.get("CALIFICACION", "")
+                    cartera   = asset.get("CARTERA", "")
+                    cuenta_td = f"<td style='padding:4px 8px;color:#555;font-size:11px'>{f.get('id_cuenta','')}</td>" if mostrar_cuenta else ""
+                    rows_html.append(
+                        f"<tr>{cuenta_td}"
+                        f"<td style='padding:4px 8px;color:#4DA8DA;font-weight:bold;white-space:nowrap'>{ticker}</td>"
+                        f"<td style='padding:4px 8px;color:#ccc'>{_na(emisor)}</td>"
+                        f"<td style='padding:4px 8px;color:#888;font-size:11px;white-space:nowrap'>{_na(vto)}</td>"
+                        f"<td style='padding:4px 8px;color:#aaa'>{_na(clase)}</td>"
+                        f"<td style='padding:4px 8px;color:#aaa'>{_na(calif)}</td>"
+                        f"<td style='padding:4px 8px;color:#aaa'>{_na(cartera)}</td>"
+                        f"<td style='padding:4px 8px;text-align:right;color:#e5e5e5'>{_fmt_cantidad(f.get('cantidad'))}</td>"
+                        f"<td style='padding:4px 8px;text-align:right;color:#f0c040'>{_fmt_precio(f.get('precio'))}</td>"
+                        f"</tr>"
+                    )
+
+                cuenta_th = f"<th style='{TH}'>CUENTA</th>" if mostrar_cuenta else ""
+                html = (
+                    "<div style='overflow-x:auto'>"
+                    "<table style='width:100%;border-collapse:collapse;font-size:12px'>"
+                    "<thead><tr>"
+                    + cuenta_th
+                    + f"<th style='{TH}'>TICKER</th>"
+                    f"<th style='{TH}'>EMISOR</th>"
+                    f"<th style='{TH}'>VENCIMIENTO</th>"
+                    f"<th style='{TH}'>CLASE ACTIVO</th>"
+                    f"<th style='{TH}'>CALIFICACIÓN</th>"
+                    f"<th style='{TH}'>CARTERA</th>"
+                    f"<th style='{TH_R}'>CANTIDAD</th>"
+                    f"<th style='{TH_R}'>PRECIO</th>"
+                    "</tr></thead>"
+                    "<tbody>" + "".join(rows_html) + "</tbody>"
+                    "</table></div>"
+                )
+                st.markdown(html, unsafe_allow_html=True)
+
+            if cuenta_sel == "Todas":
+                st.markdown(
+                    f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(docs_filtrados)} posiciones totales</div>",
+                    unsafe_allow_html=True,
+                )
+                render_tabla_enriquecida(docs_filtrados, mostrar_cuenta=True)
+            else:
+                cuenta_id = cuenta_sel.replace("Cuenta ", "")
+                filas_cuenta = [d for d in docs_filtrados if str(d.get("id_cuenta", "")) == cuenta_id]
+                st.markdown(
+                    f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(filas_cuenta)} posiciones</div>",
+                    unsafe_allow_html=True,
+                )
+                render_tabla_enriquecida(filas_cuenta)
 
     time.sleep(60)
     st.rerun()

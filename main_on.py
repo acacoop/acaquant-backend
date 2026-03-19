@@ -15,6 +15,7 @@ from textual.containers import ScrollableContainer
 # --- TUS MANAGERS GLOBALES ---
 from session_manager import inicializar_sesion
 from websocket_manager import WebSocketManager  # <- Usamos el central
+from snapshot_writer import SnapshotWriter
 
 # --- MOTORES DE CÁLCULO ---
 from live_pricing_bonds.db_bonds import cargar_catalogo_bonos
@@ -144,6 +145,17 @@ class MarketManager:
         matriz.sort(key=lambda x: x['tir_off'] if x['tir_off'] is not None else -999, reverse=True)
         return matriz, mep_vivo
 
+    def get_snapshot(self):
+        """Entrypoint para el SnapshotWriter. Convierte TIRs a % y añade MEP."""
+        matriz, mep_vivo = self.calcular_pantalla()
+        for row in matriz:
+            row['mep_vivo'] = round(mep_vivo, 2)
+            if row['tir_bid'] is not None:
+                row['tir_bid'] = round(row['tir_bid'] * 100, 4)
+            if row['tir_off'] is not None:
+                row['tir_off'] = round(row['tir_off'] * 100, 4)
+        return matriz
+
     def check_health(self):
         return (time.time() - self.last_update_time) <= 60
 
@@ -256,8 +268,18 @@ def main():
             if ws_manager.iniciar_ws(engine.get_tickers_suscripcion()):
                 print("✅ Conexión establecida. Levantando Screener...")
 
-                # 5. UI
+                # 5. Snapshot para Streamlit
+                snapshot_writer = SnapshotWriter(
+                    db_name="Trading",
+                    collection_name="ONSnapshot",
+                    data_fn=engine.get_snapshot,
+                    key_field="ticker",
+                    interval=0.5
+                ).start()
+
+                # 6. UI
                 ONTerminal(engine).run()
+                snapshot_writer.stop()
 
             # Si salimos de UI es porque falló el check_health o tocamos la Q
             pyRofex.close_websocket_connection()

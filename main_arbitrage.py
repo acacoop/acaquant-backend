@@ -18,6 +18,7 @@ from session_manager import inicializar_sesion
 from websocket_manager import WebSocketManager
 from mongo_manager import MongoManager
 from arbitraje_fx.buscador_caucion import obtener_caucion_mas_corta
+from snapshot_writer import SnapshotWriter
 
 # Configuración de logs para auditoría
 logging.basicConfig(level=logging.INFO, filename='arbitraje.log')
@@ -158,40 +159,44 @@ class ArbitrageEngine:
         except Exception as e:
             logger.error(f"Falla al insertar arbitrajes en CI24: {e}")
 
-    def calcular_resultados(self):
-        """Motor Matemático: Divide por 100 y cruza Puntas Reales"""
+    def _compute_pares(self):
+        """Matemática pura, sin side effects. Usada por la UI y el SnapshotWriter."""
         resultados = []
         for doc in self.catalogo:
-            # BYMA: Bonos dividen por 100, Acciones/Cedears por 1.
-            # Usamos el lote de la DB, pero si es 0 o None, defaulteamos a 100 por seguridad en bonos.
             lote = doc.get('lote', 100)
-
             p_ci = self.precios.get(doc['patas']['ci'], {'offer': 0.0, 'offer_size': 0})
             p_24 = self.precios.get(doc['patas']['24hs'], {'bid': 0.0, 'bid_size': 0})
 
-            # CRUCIAL: Solo calculamos si AMBAS puntas existen en este milisegundo
             if p_ci['offer'] > 0 and p_24['bid'] > 0 and self.tna_caucion_offer > 0:
                 size_maximo = min(p_ci['offer_size'], p_24['bid_size'])
-
-                # Capitalizado: (Size * Precio / Lote)
                 monto_ci = (size_maximo * p_ci['offer'] / lote) * (1 + FEE)
                 monto_24 = (size_maximo * p_24['bid'] / lote) * (1 - FEE)
-
                 rend_directo = (monto_24 / monto_ci) - 1
                 costo_fondeo = monto_ci * (self.tna_caucion_offer / 100) * (self.caucion_dias / 365)
                 pnl_neto = (monto_24 - monto_ci) - costo_fondeo
 
-                if pnl_neto > -500:  # Filtro de ruido para no llenar la tabla de basura
+                if pnl_neto > -500:
                     resultados.append({
                         'asset': doc['asset'],
                         'offer_ci': p_ci['offer'],
                         'bid_24': p_24['bid'],
                         'size': size_maximo,
                         'rend_directo': rend_directo * 100,
-                        'pnl': pnl_neto
+                        'pnl': pnl_neto,
+                        'tna_caucion': self.tna_caucion_offer,
+                        'caucion_dias': self.caucion_dias,
                     })
 
         resultados.sort(key=lambda x: x['pnl'], reverse=True)
+        return resultados
+
+    def get_snapshot_data(self):
+        """Entrypoint para el SnapshotWriter: matemática pura + metadata de fondeo."""
+        return self._compute_pares()
+
+    def calcular_resultados(self):
+        """Motor Matemático: Divide por 100 y cruza Puntas Reales"""
+        resultados = self._compute_pares()
         threading.Thread(target=self._guardar_trades_background, args=(resultados,), daemon=True).start()
         return resultados
 
@@ -268,6 +273,13 @@ def run():
     ws_manager = WebSocketManager(engine)
 
     if ws_manager.iniciar_ws(engine.get_tickers_suscripcion()):
+        SnapshotWriter(
+            db_name="Trading",
+            collection_name="ArbitrageSnapshot",
+            data_fn=engine.get_snapshot_data,
+            key_field="asset",
+            interval=0.5
+        ).start()
         ArbitrageApp(engine).run()
 
 

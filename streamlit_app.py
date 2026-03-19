@@ -139,6 +139,13 @@ with st.sidebar:
         label_visibility="collapsed"
     )
 
+# Al cambiar de vista, hacer un run vacío para que Streamlit elimine todos
+# los elementos de la vista anterior antes de renderizar la nueva.
+# Sin esto, vistas que terminan normalmente (sin st.rerun) quedan "committed"
+# y sus elementos extra persisten cuando la nueva vista tiene menos elementos.
+if st.session_state.get("_vista_anterior") != vista:
+    st.session_state["_vista_anterior"] = vista
+    st.rerun()
 
 
 # ==========================================

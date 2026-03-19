@@ -756,7 +756,8 @@ elif vista == "Mercado":
 # VISTA: CARTERAS
 # ==========================================
 elif vista == "Carteras":
-    with _main.container() as _c:
+    _c = _main.container()
+    with _c:
         db_val = get_db_valuaciones()
 
         st.markdown("## 💼 ACAQuant | Carteras")

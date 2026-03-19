@@ -6,13 +6,6 @@ import pyRofex
 from datetime import datetime
 from pymongo import MongoClient
 
-# --- RICH Y TEXTUAL ---
-from rich.table import Table
-from rich import box
-from textual.app import App, ComposeResult
-from textual.widgets import Static
-from textual.containers import ScrollableContainer
-
 # --- TUS MANAGERS ---
 from session_manager import inicializar_sesion
 from websocket_manager import WebSocketManager
@@ -44,21 +37,20 @@ class ArbitrageEngine:
         self.catalogo = []
         self.last_update = time.time()
 
-        # --- NUEVO: Conexión a Mongo y Filtro Anti-Spam ---
         self.mongo = MongoManager(db_name="Trading", collection_name="CI24")
         self.last_saved_signature = None
 
     def setup_inicial(self):
         """Prepara el entorno ANTES de conectar el WebSocket"""
-        print("🔍 Buscando Caución más corta...")
+        print("Buscando Caución más corta...")
         self.caucion_ticker, self.caucion_dias = obtener_caucion_mas_corta()
         if not self.caucion_ticker:
-            print("❌ No se encontró caución activa.")
+            print("No se encontró caución activa.")
             return False
 
         self.caucion_dias = max(self.caucion_dias, 1)
 
-        print("📚 Validando catálogo de pares en Mongo...")
+        print("Validando catálogo de pares en Mongo...")
         self.catalogo = self._cargar_y_validar_catalogo()
         if not self.catalogo:
             return False
@@ -75,13 +67,13 @@ class ArbitrageEngine:
             client.close()
 
             if not pares_mongo:
-                print("⚠️ No hay documentos activos en 'TasasAssets'.")
+                print("No hay documentos activos en 'TasasAssets'.")
                 return []
 
             # Handshake con Rofex
             resp = pyRofex.get_all_instruments()
             if not resp or resp.get('status') != 'OK':
-                print("❌ Error al obtener instrumentos de Rofex.")
+                print("Error al obtener instrumentos de Rofex.")
                 return []
 
             oficiales = {inst['instrumentId']['symbol'] for inst in resp['instruments']}
@@ -93,10 +85,10 @@ class ArbitrageEngine:
                 else:
                     logger.warning(f"Descartado {p.get('asset')}: Faltan patas en Rofex hoy.")
 
-            print(f"✅ Catálogo listo: {len(validados)} pares validados.")
+            print(f"Catálogo listo: {len(validados)} pares validados.")
             return validados
         except Exception as e:
-            print(f"❌ Error en carga de catálogo: {e}")
+            print(f"Error en carga de catálogo: {e}")
             return []
 
     def get_tickers_suscripcion(self):
@@ -113,7 +105,6 @@ class ArbitrageEngine:
         of = data.get('OF', [])
         bi = data.get('BI', [])
 
-        # Si 'of' es una lista vacía, el offer es 0.0 (Liquidez agotada)
         self.precios[ticker] = {
             'offer': of[0]['price'] if of else 0.0,
             'offer_size': of[0]['size'] if of else 0,
@@ -122,8 +113,6 @@ class ArbitrageEngine:
         }
 
         if ticker == self.caucion_ticker:
-            # Para la caución, si no hay offer, mantenemos la última para no romper el cálculo,
-            # pero para activos de trading, el 0.0 es obligatorio.
             if of: self.tna_caucion_offer = of[0]['price']
 
         self.last_update = time.time()
@@ -134,19 +123,16 @@ class ArbitrageEngine:
 
     def _guardar_trades_background(self, resultados):
         """Guarda en Mongo de forma asíncrona solo si hay ganancia y es un dato nuevo"""
-        # 1. Filtramos los positivos
         positivos = [r for r in resultados if r['pnl'] > 0]
         if not positivos:
             return
 
-        # 2. Firma anti-spam (compara el activo y su PNL redondeado)
         firma_actual = str([(r['asset'], round(r['pnl'], 2)) for r in positivos])
         if firma_actual == self.last_saved_signature:
             return
 
         self.last_saved_signature = firma_actual
 
-        # 3. Preparamos y guardamos
         timestamp_actual = datetime.now()
         docs_a_guardar = []
         for p in positivos:
@@ -160,7 +146,7 @@ class ArbitrageEngine:
             logger.error(f"Falla al insertar arbitrajes en CI24: {e}")
 
     def _compute_pares(self):
-        """Matemática pura, sin side effects. Usada por la UI y el SnapshotWriter."""
+        """Matemática pura, sin side effects. Usada por el SnapshotWriter."""
         resultados = []
         for doc in self.catalogo:
             lote = doc.get('lote', 100)
@@ -191,80 +177,21 @@ class ArbitrageEngine:
         return resultados
 
     def get_snapshot_data(self):
-        """Entrypoint para el SnapshotWriter: matemática pura + metadata de fondeo."""
+        """Entrypoint para el SnapshotWriter."""
         return self._compute_pares()
 
     def calcular_resultados(self):
-        """Motor Matemático: Divide por 100 y cruza Puntas Reales"""
         resultados = self._compute_pares()
         threading.Thread(target=self._guardar_trades_background, args=(resultados,), daemon=True).start()
         return resultados
 
 
 # ==========================================
-# 2. LA INTERFAZ: ArbitrageApp
-# ==========================================
-class ArbitrageApp(App):
-    """
-    Vista pura. Solo le pide datos al Engine y los dibuja.
-    """
-    BINDINGS = [("q", "quit", "Salir")]
-
-    def __init__(self, engine):
-        super().__init__()
-        self.engine = engine
-
-    def compose(self) -> ComposeResult:
-        with ScrollableContainer():
-            yield Static(id="tabla_dinamica")
-
-    def on_mount(self) -> None:
-        self.set_interval(1.0, self.refresh_ui)
-
-    def refresh_ui(self) -> None:
-        if not self.engine.check_health():
-            pass
-
-        resultados = self.engine.calcular_resultados()
-
-        table = Table(
-            title=f"⚖️ [bold yellow]MONITOR ARBITRAJE DE PLAZOS[/bold yellow] | [cyan]FONDEO: {self.engine.tna_caucion_offer:.2f}% ({self.engine.caucion_dias}D)[/cyan]",
-            box=box.ROUNDED, header_style="bold magenta", expand=True
-        )
-
-        table.add_column("ASSET", justify="left", style="white")
-        table.add_column("OFFER CI", justify="right", style="bold red")
-        table.add_column("BID 24HS", justify="right", style="bold green")
-        table.add_column("OFFER CAU", justify="center", style="red")
-        table.add_column("SIZE CRUCE", justify="right", style="cyan")
-        table.add_column("REND. DIR.", justify="right", style="bold yellow")
-        table.add_column("PNL NETO ($)", justify="right", style="bold green")
-
-        for r in resultados:
-            color_pnl = "[bold green]" if r['pnl'] > 0 else "[white]"
-            table.add_row(
-                r['asset'],
-                f"${r['offer_ci']:,.2f}",
-                f"${r['bid_24']:,.2f}",
-                f"{self.engine.tna_caucion_offer:.2f}%",
-                f"{r['size']:,}",
-                f"{r['rend_directo']:.4f}%",
-                f"{color_pnl}${r['pnl']:,.2f}"
-            )
-
-        if not resultados:
-            table.add_row("Aguardando liquidez en ambas puntas...", "", "", "", "", "", "")
-
-        self.query_one("#tabla_dinamica", Static).update(table)
-
-
-# ==========================================
-# 3. EL ORQUESTADOR
+# 2. EL ORQUESTADOR
 # ==========================================
 def run():
-    os.system('cls' if os.name == 'nt' else 'clear')
-
-    if not inicializar_sesion(): return
+    if not inicializar_sesion():
+        return
 
     engine = ArbitrageEngine()
     if not engine.setup_inicial():
@@ -280,7 +207,9 @@ def run():
             key_field="asset",
             interval=0.5
         ).start()
-        ArbitrageApp(engine).run()
+        print("Motor arriba. Escribiendo a MongoDB...")
+        while True:
+            time.sleep(10)
 
 
 if __name__ == "__main__":

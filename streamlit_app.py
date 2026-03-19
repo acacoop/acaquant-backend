@@ -557,341 +557,338 @@ def render_estrategias(docs_map):
 
 
 # ==========================================
-# VISTAS — todo dentro de un único container
-# para que Streamlit reconcilie correctamente
-# al cambiar de vista sin dejar ghosts.
+# VISTA: LIBRO
 # ==========================================
-_main = st.empty()
-with _main.container():
+if vista == "Libro":
+    db = get_db()
 
-    # ==========================================
-    # VISTA: LIBRO
-    # ==========================================
-    if vista == "Libro":
-        db = get_db()
+    header_col, select_col = st.columns([3, 1])
+    with header_col:
+        st.markdown("## 📈 ACAQuant | Mesa de Dinero")
+    with select_col:
+        if "selected_ticker" not in st.session_state:
+            st.session_state.selected_ticker = TICKERS[0]
 
-        header_col, select_col = st.columns([3, 1])
-        with header_col:
-            st.markdown("## 📈 ACAQuant | Mesa de Dinero")
-        with select_col:
-            if "selected_ticker" not in st.session_state:
-                st.session_state.selected_ticker = TICKERS[0]
+        options_short = [short_name(t) for t in TICKERS]
+        current_idx   = TICKERS.index(st.session_state.selected_ticker)
 
-            options_short = [short_name(t) for t in TICKERS]
-            current_idx   = TICKERS.index(st.session_state.selected_ticker)
+        selected_short = st.selectbox(
+            "Ticker", options_short,
+            index=current_idx,
+            label_visibility="collapsed"
+        )
+        st.session_state.selected_ticker = TICKERS[options_short.index(selected_short)]
 
-            selected_short = st.selectbox(
-                "Ticker", options_short,
-                index=current_idx,
-                label_visibility="collapsed"
+    ticker = st.session_state.selected_ticker
+
+    snap = db["MarketSnapshot"].find_one({"ticker": ticker})
+
+    if not snap:
+        st.warning(f"Sin datos para {ticker}. ¿El motor está corriendo?")
+        time.sleep(2)
+        st.rerun()
+
+    updated_at = snap.get("updated_at")
+    if updated_at:
+        lag = (datetime.now() - updated_at).total_seconds()
+        lag_color = "#ff4444" if lag > 5 else "#00cc66"
+        st.markdown(
+            f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
+            f"Última actualización: <span style='color:{lag_color}'>"
+            f"{updated_at.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
+            unsafe_allow_html=True
+        )
+
+    st.divider()
+
+    col_left, col_center, col_right = st.columns([1, 1, 1])
+
+    book         = snap.get("book", {"bids": [], "offers": []})
+    metrics      = snap.get("metrics", {})
+    hourly_stats = snap.get("hourly_stats", {})
+    recent_trades= snap.get("recent_trades", [])
+    top_trades   = snap.get("top_trades", [])
+
+    with col_left:
+        st.markdown(render_depth(book), unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(render_quant(metrics), unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(render_hourly(hourly_stats), unsafe_allow_html=True)
+
+    with col_center:
+        st.markdown(render_tape(recent_trades), unsafe_allow_html=True)
+
+    with col_right:
+        st.markdown(render_whales(top_trades), unsafe_allow_html=True)
+
+    time.sleep(0.5)
+    st.rerun()
+
+
+# ==========================================
+# VISTA: OPCIONES
+# ==========================================
+elif vista == "Opciones":
+    db_op = get_db_opciones()
+
+    st.markdown("## 📊 ACAQuant | Opciones GGAL")
+
+    docs = list(db_op["OptionsSnapshot"].find({}))
+
+    if docs:
+        ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
+        spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0)
+        if ultimo_ts:
+            lag = (datetime.now() - ultimo_ts).total_seconds()
+            lag_color = "#ff4444" if lag > 10 else "#00cc66"
+            st.markdown(
+                f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
+                f"Última actualización: <span style='color:{lag_color}'>"
+                f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
+                unsafe_allow_html=True
             )
-            st.session_state.selected_ticker = TICKERS[options_short.index(selected_short)]
+    else:
+        spot = 0
 
-        ticker = st.session_state.selected_ticker
+    st.divider()
 
-        snap = db["MarketSnapshot"].find_one({"ticker": ticker})
+    if not docs:
+        st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
+    else:
+        docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
+        st.markdown(render_cadena_opciones(docs, spot), unsafe_allow_html=True)
 
-        if not snap:
-            st.warning(f"Sin datos para {ticker}. ¿El motor está corriendo?")
-            time.sleep(2)
-            st.rerun()
+    time.sleep(0.5)
+    st.rerun()
 
-        updated_at = snap.get("updated_at")
-        if updated_at:
-            lag = (datetime.now() - updated_at).total_seconds()
+
+# ==========================================
+# VISTA: ESTRATEGIAS OPCIONES
+# ==========================================
+elif vista == "Estrategias Opciones":
+    db_op = get_db_opciones()
+
+    st.markdown("## 🧮 ACAQuant | Estrategias Opciones GGAL")
+
+    docs = list(db_op["OptionsSnapshot"].find({}))
+
+    if docs:
+        ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
+        if ultimo_ts:
+            lag = (datetime.now() - ultimo_ts).total_seconds()
+            lag_color = "#ff4444" if lag > 10 else "#00cc66"
+            st.markdown(
+                f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
+                f"Última actualización: <span style='color:{lag_color}'>"
+                f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
+                unsafe_allow_html=True
+            )
+
+    st.divider()
+
+    if not docs:
+        st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
+    else:
+        docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
+        html = render_estrategias(docs_map)
+        if html:
+            st.markdown(html, unsafe_allow_html=True)
+        else:
+            st.info("Sin estrategias disponibles.")
+
+    time.sleep(0.5)
+    st.rerun()
+
+
+# ==========================================
+# VISTA: MERCADO
+# ==========================================
+elif vista == "Mercado":
+    db = get_db()
+
+    st.markdown("## 🏦 ACAQuant | Mercado")
+
+    all_snaps = list(db["MarketSnapshot"].find({}))
+
+    if all_snaps:
+        ultimo_ts = max(
+            (s.get("updated_at") for s in all_snaps if s.get("updated_at")),
+            default=None
+        )
+        if ultimo_ts:
+            lag = (datetime.now() - ultimo_ts).total_seconds()
             lag_color = "#ff4444" if lag > 5 else "#00cc66"
             st.markdown(
                 f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
                 f"Última actualización: <span style='color:{lag_color}'>"
-                f"{updated_at.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
+                f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
                 unsafe_allow_html=True
             )
 
-        st.divider()
+    st.divider()
 
-        col_left, col_center, col_right = st.columns([1, 1, 1])
+    all_snaps.sort(
+        key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
+        reverse=True
+    )
 
-        book          = snap.get("book", {"bids": [], "offers": []})
-        metrics       = snap.get("metrics", {})
-        hourly_stats  = snap.get("hourly_stats", {})
-        recent_trades = snap.get("recent_trades", [])
-        top_trades    = snap.get("top_trades", [])
+    st.markdown(render_mercado_table(all_snaps), unsafe_allow_html=True)
 
-        with col_left:
-            st.markdown(render_depth(book), unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown(render_quant(metrics), unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown(render_hourly(hourly_stats), unsafe_allow_html=True)
+    time.sleep(0.5)
+    st.rerun()
 
-        with col_center:
-            st.markdown(render_tape(recent_trades), unsafe_allow_html=True)
 
-        with col_right:
-            st.markdown(render_whales(top_trades), unsafe_allow_html=True)
+# ==========================================
+# VISTA: CARTERAS
+# ==========================================
+elif vista == "Carteras":
+    db_val = get_db_valuaciones()
 
-        time.sleep(0.5)
-        st.rerun()
+    st.markdown("## 💼 ACAQuant | Carteras")
 
-    # ==========================================
-    # VISTA: OPCIONES
-    # ==========================================
-    elif vista == "Opciones":
-        db_op = get_db_opciones()
+    docs   = list(db_val["Carteras"].find({}, {"_id": 0}))
+    assets = {a["unidad"]: a for a in db_val["Assets"].find({}, {"_id": 0}) if a.get("unidad")}
 
-        st.markdown("## 📊 ACAQuant | Opciones GGAL")
-
-        docs = list(db_op["OptionsSnapshot"].find({}))
-
-        if docs:
-            ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
-            spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0)
-            if ultimo_ts:
-                lag = (datetime.now() - ultimo_ts).total_seconds()
-                lag_color = "#ff4444" if lag > 10 else "#00cc66"
-                st.markdown(
-                    f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
-                    f"Última actualización: <span style='color:{lag_color}'>"
-                    f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
-                    unsafe_allow_html=True
-                )
-        else:
-            spot = 0
-
-        st.divider()
-
-        if not docs:
-            st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
-        else:
-            docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
-            st.markdown(render_cadena_opciones(docs, spot), unsafe_allow_html=True)
-
-        time.sleep(0.5)
-        st.rerun()
-
-    # ==========================================
-    # VISTA: ESTRATEGIAS OPCIONES
-    # ==========================================
-    elif vista == "Estrategias Opciones":
-        db_op = get_db_opciones()
-
-        st.markdown("## 🧮 ACAQuant | Estrategias Opciones GGAL")
-
-        docs = list(db_op["OptionsSnapshot"].find({}))
-
-        if docs:
-            ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
-            if ultimo_ts:
-                lag = (datetime.now() - ultimo_ts).total_seconds()
-                lag_color = "#ff4444" if lag > 10 else "#00cc66"
-                st.markdown(
-                    f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
-                    f"Última actualización: <span style='color:{lag_color}'>"
-                    f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
-                    unsafe_allow_html=True
-                )
-
-        st.divider()
-
-        if not docs:
-            st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
-        else:
-            docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
-            html = render_estrategias(docs_map)
-            if html:
-                st.markdown(html, unsafe_allow_html=True)
-            else:
-                st.info("Sin estrategias disponibles.")
-
-        time.sleep(0.5)
-        st.rerun()
-
-    # ==========================================
-    # VISTA: MERCADO
-    # ==========================================
-    elif vista == "Mercado":
-        db = get_db()
-
-        st.markdown("## 🏦 ACAQuant | Mercado")
-
-        all_snaps = list(db["MarketSnapshot"].find({}))
-
-        if all_snaps:
-            ultimo_ts = max(
-                (s.get("updated_at") for s in all_snaps if s.get("updated_at")),
-                default=None
+    if not docs:
+        st.warning("Sin datos de carteras. ¿El cron de main_carteras está configurado?")
+    else:
+        ultimo_update = next((d.get("actualizado") for d in docs if d.get("actualizado")), None)
+        if ultimo_update:
+            st.markdown(
+                f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
+                f"Última actualización: <span style='color:#888'>{ultimo_update}</span></div>",
+                unsafe_allow_html=True
             )
-            if ultimo_ts:
-                lag = (datetime.now() - ultimo_ts).total_seconds()
-                lag_color = "#ff4444" if lag > 5 else "#00cc66"
-                st.markdown(
-                    f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
-                    f"Última actualización: <span style='color:{lag_color}'>"
-                    f"{ultimo_ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
-                    unsafe_allow_html=True
-                )
+
+        carteras_disponibles = sorted(set(
+            assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
+            for d in docs
+            if assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
+        ))
+
+        CUENTAS = sorted(set(d.get("id_cuenta", "") for d in docs if d.get("id_cuenta")))
+        col_radio, col_filtro = st.columns([3, 1])
+        with col_radio:
+            cuenta_sel = st.radio(
+                "Cuenta",
+                options=[f"Cuenta {c}" for c in CUENTAS] + ["Todas"],
+                horizontal=True,
+                label_visibility="collapsed",
+            )
+        with col_filtro:
+            carteras_sel = st.multiselect(
+                "Cartera",
+                options=carteras_disponibles,
+                default=[],
+                placeholder="Filtrar cartera...",
+                label_visibility="collapsed",
+            )
 
         st.divider()
 
-        all_snaps.sort(
-            key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
-            reverse=True
-        )
-
-        st.markdown(render_mercado_table(all_snaps), unsafe_allow_html=True)
-
-        time.sleep(0.5)
-        st.rerun()
-
-    # ==========================================
-    # VISTA: CARTERAS
-    # ==========================================
-    elif vista == "Carteras":
-        db_val = get_db_valuaciones()
-        docs   = list(db_val["Carteras"].find({}, {"_id": 0}))
-        assets = {a["unidad"]: a for a in db_val["Assets"].find({}, {"_id": 0}) if a.get("unidad")}
-
-        st.markdown("## 💼 ACAQuant | Carteras")
-
-        if not docs:
-            st.warning("Sin datos de carteras. ¿El cron de main_carteras está configurado?")
+        if carteras_sel:
+            docs_filtrados = [
+                d for d in docs
+                if assets.get(d.get("unidad", ""), {}).get("CARTERA", "") in carteras_sel
+            ]
         else:
-            ultimo_update = next((d.get("actualizado") for d in docs if d.get("actualizado")), None)
-            if ultimo_update:
-                st.markdown(
-                    f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
-                    f"Última actualización: <span style='color:#888'>{ultimo_update}</span></div>",
-                    unsafe_allow_html=True
+            docs_filtrados = docs
+
+        def _fmt_precio(precio):
+            try:
+                v = float(precio)
+                return f"{v:,.4f}" if v != 0 else "-"
+            except (TypeError, ValueError):
+                return "-"
+
+        def _fmt_cantidad(cantidad):
+            try:
+                return f"{float(cantidad):,.0f}"
+            except (TypeError, ValueError):
+                return "-"
+
+        def _na(val):
+            if not val or str(val).strip().upper() in ("", "NO APLICA"):
+                return "<span style='color:#333'>—</span>"
+            return val
+
+        def render_tabla_enriquecida(filas, mostrar_cuenta=False):
+            if not filas:
+                st.markdown("<p style='color:#888'>Sin posiciones.</p>", unsafe_allow_html=True)
+                return
+
+            TH   = "text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222"
+            TH_R = "text-align:right;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222"
+
+            def _vto_sort_key(f):
+                vto = assets.get(f.get("unidad", ""), {}).get("VENCIMIENTO", "")
+                vto_str = str(vto).strip()
+                if not vto_str or vto_str.upper() == "NO APLICA":
+                    return "9999-99-99"
+                return vto_str.split(" ")[0]
+
+            filas = sorted(filas, key=_vto_sort_key)
+
+            rows_html = []
+            for f in filas:
+                unidad    = f.get("unidad", "")
+                asset     = assets.get(unidad, {})
+                ticker    = asset.get("TICKER", unidad)
+                emisor    = asset.get("EMISOR", "")
+                vto_raw   = asset.get("VENCIMIENTO", "")
+                vto       = str(vto_raw).split(" ")[0] if vto_raw and str(vto_raw).strip().upper() not in ("", "NO APLICA") else vto_raw
+                clase     = asset.get("CLASE_ACTIVO", "")
+                calif     = asset.get("CALIFICACION", "")
+                cartera   = asset.get("CARTERA", "")
+                cuenta_td = f"<td style='padding:4px 8px;color:#555;font-size:11px'>{f.get('id_cuenta','')}</td>" if mostrar_cuenta else ""
+                rows_html.append(
+                    f"<tr>{cuenta_td}"
+                    f"<td style='padding:4px 8px;color:#4DA8DA;font-weight:bold;white-space:nowrap'>{ticker}</td>"
+                    f"<td style='padding:4px 8px;color:#ccc'>{_na(emisor)}</td>"
+                    f"<td style='padding:4px 8px;color:#888;font-size:11px;white-space:nowrap'>{_na(vto)}</td>"
+                    f"<td style='padding:4px 8px;color:#aaa'>{_na(clase)}</td>"
+                    f"<td style='padding:4px 8px;color:#aaa'>{_na(calif)}</td>"
+                    f"<td style='padding:4px 8px;color:#aaa'>{_na(cartera)}</td>"
+                    f"<td style='padding:4px 8px;text-align:right;color:#e5e5e5'>{_fmt_cantidad(f.get('cantidad'))}</td>"
+                    f"<td style='padding:4px 8px;text-align:right;color:#f0c040'>{_fmt_precio(f.get('precio'))}</td>"
+                    f"</tr>"
                 )
 
-            carteras_disponibles = sorted(set(
-                assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
-                for d in docs
-                if assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
-            ))
+            cuenta_th = f"<th style='{TH}'>CUENTA</th>" if mostrar_cuenta else ""
+            html = (
+                "<div style='overflow-x:auto'>"
+                "<table style='width:100%;border-collapse:collapse;font-size:12px'>"
+                "<thead><tr>"
+                + cuenta_th
+                + f"<th style='{TH}'>TICKER</th>"
+                f"<th style='{TH}'>EMISOR</th>"
+                f"<th style='{TH}'>VENCIMIENTO</th>"
+                f"<th style='{TH}'>CLASE ACTIVO</th>"
+                f"<th style='{TH}'>CALIFICACIÓN</th>"
+                f"<th style='{TH}'>CARTERA</th>"
+                f"<th style='{TH_R}'>CANTIDAD</th>"
+                f"<th style='{TH_R}'>PRECIO</th>"
+                "</tr></thead>"
+                "<tbody>" + "".join(rows_html) + "</tbody>"
+                "</table></div>"
+            )
+            st.markdown(html, unsafe_allow_html=True)
 
-            CUENTAS = sorted(set(d.get("id_cuenta", "") for d in docs if d.get("id_cuenta")))
-            col_radio, col_filtro = st.columns([3, 1])
-            with col_radio:
-                cuenta_sel = st.radio(
-                    "Cuenta",
-                    options=[f"Cuenta {c}" for c in CUENTAS] + ["Todas"],
-                    horizontal=True,
-                    label_visibility="collapsed",
-                )
-            with col_filtro:
-                carteras_sel = st.multiselect(
-                    "Cartera",
-                    options=carteras_disponibles,
-                    default=[],
-                    placeholder="Filtrar cartera...",
-                    label_visibility="collapsed",
-                )
+        if cuenta_sel == "Todas":
+            st.markdown(
+                f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(docs_filtrados)} posiciones totales</div>",
+                unsafe_allow_html=True,
+            )
+            render_tabla_enriquecida(docs_filtrados, mostrar_cuenta=True)
+        else:
+            cuenta_id = cuenta_sel.replace("Cuenta ", "")
+            filas_cuenta = [d for d in docs_filtrados if str(d.get("id_cuenta", "")) == cuenta_id]
+            st.markdown(
+                f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(filas_cuenta)} posiciones</div>",
+                unsafe_allow_html=True,
+            )
+            render_tabla_enriquecida(filas_cuenta)
 
-            st.divider()
-
-            if carteras_sel:
-                docs_filtrados = [
-                    d for d in docs
-                    if assets.get(d.get("unidad", ""), {}).get("CARTERA", "") in carteras_sel
-                ]
-            else:
-                docs_filtrados = docs
-
-            def _fmt_precio(precio):
-                try:
-                    v = float(precio)
-                    return f"{v:,.4f}" if v != 0 else "-"
-                except (TypeError, ValueError):
-                    return "-"
-
-            def _fmt_cantidad(cantidad):
-                try:
-                    return f"{float(cantidad):,.0f}"
-                except (TypeError, ValueError):
-                    return "-"
-
-            def _na(val):
-                if not val or str(val).strip().upper() in ("", "NO APLICA"):
-                    return "<span style='color:#333'>—</span>"
-                return val
-
-            def render_tabla_enriquecida(filas, mostrar_cuenta=False):
-                if not filas:
-                    st.markdown("<p style='color:#888'>Sin posiciones.</p>", unsafe_allow_html=True)
-                    return
-
-                TH   = "text-align:left;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222"
-                TH_R = "text-align:right;color:#555;font-size:11px;padding:4px 8px;border-bottom:1px solid #222"
-
-                def _vto_sort_key(f):
-                    vto = assets.get(f.get("unidad", ""), {}).get("VENCIMIENTO", "")
-                    vto_str = str(vto).strip()
-                    if not vto_str or vto_str.upper() == "NO APLICA":
-                        return "9999-99-99"
-                    return vto_str.split(" ")[0]
-
-                filas = sorted(filas, key=_vto_sort_key)
-
-                rows_html = []
-                for f in filas:
-                    unidad    = f.get("unidad", "")
-                    asset     = assets.get(unidad, {})
-                    ticker    = asset.get("TICKER", unidad)
-                    emisor    = asset.get("EMISOR", "")
-                    vto_raw   = asset.get("VENCIMIENTO", "")
-                    vto       = str(vto_raw).split(" ")[0] if vto_raw and str(vto_raw).strip().upper() not in ("", "NO APLICA") else vto_raw
-                    clase     = asset.get("CLASE_ACTIVO", "")
-                    calif     = asset.get("CALIFICACION", "")
-                    cartera   = asset.get("CARTERA", "")
-                    cuenta_td = f"<td style='padding:4px 8px;color:#555;font-size:11px'>{f.get('id_cuenta','')}</td>" if mostrar_cuenta else ""
-                    rows_html.append(
-                        f"<tr>{cuenta_td}"
-                        f"<td style='padding:4px 8px;color:#4DA8DA;font-weight:bold;white-space:nowrap'>{ticker}</td>"
-                        f"<td style='padding:4px 8px;color:#ccc'>{_na(emisor)}</td>"
-                        f"<td style='padding:4px 8px;color:#888;font-size:11px;white-space:nowrap'>{_na(vto)}</td>"
-                        f"<td style='padding:4px 8px;color:#aaa'>{_na(clase)}</td>"
-                        f"<td style='padding:4px 8px;color:#aaa'>{_na(calif)}</td>"
-                        f"<td style='padding:4px 8px;color:#aaa'>{_na(cartera)}</td>"
-                        f"<td style='padding:4px 8px;text-align:right;color:#e5e5e5'>{_fmt_cantidad(f.get('cantidad'))}</td>"
-                        f"<td style='padding:4px 8px;text-align:right;color:#f0c040'>{_fmt_precio(f.get('precio'))}</td>"
-                        f"</tr>"
-                    )
-
-                cuenta_th = f"<th style='{TH}'>CUENTA</th>" if mostrar_cuenta else ""
-                html = (
-                    "<div style='overflow-x:auto'>"
-                    "<table style='width:100%;border-collapse:collapse;font-size:12px'>"
-                    "<thead><tr>"
-                    + cuenta_th
-                    + f"<th style='{TH}'>TICKER</th>"
-                    f"<th style='{TH}'>EMISOR</th>"
-                    f"<th style='{TH}'>VENCIMIENTO</th>"
-                    f"<th style='{TH}'>CLASE ACTIVO</th>"
-                    f"<th style='{TH}'>CALIFICACIÓN</th>"
-                    f"<th style='{TH}'>CARTERA</th>"
-                    f"<th style='{TH_R}'>CANTIDAD</th>"
-                    f"<th style='{TH_R}'>PRECIO</th>"
-                    "</tr></thead>"
-                    "<tbody>" + "".join(rows_html) + "</tbody>"
-                    "</table></div>"
-                )
-                st.markdown(html, unsafe_allow_html=True)
-
-            if cuenta_sel == "Todas":
-                st.markdown(
-                    f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(docs_filtrados)} posiciones totales</div>",
-                    unsafe_allow_html=True,
-                )
-                render_tabla_enriquecida(docs_filtrados, mostrar_cuenta=True)
-            else:
-                cuenta_id = cuenta_sel.replace("Cuenta ", "")
-                filas_cuenta = [d for d in docs_filtrados if str(d.get("id_cuenta", "")) == cuenta_id]
-                st.markdown(
-                    f"<div style='font-size:12px;color:#555;margin-bottom:8px'>{len(filas_cuenta)} posiciones</div>",
-                    unsafe_allow_html=True,
-                )
-                render_tabla_enriquecida(filas_cuenta)
-
-        time.sleep(60)
-        st.rerun()
+    time.sleep(60)
+    st.rerun()

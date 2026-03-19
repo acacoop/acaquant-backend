@@ -766,20 +766,34 @@ elif vista == "Carteras":
                     unsafe_allow_html=True
                 )
 
-            # Filtro por CARTERA en el sidebar
+            # Filtro por CARTERA — se superpone sobre la barra de tabs via CSS
             carteras_disponibles = sorted(set(
                 assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
                 for d in docs
                 if assets.get(d.get("unidad", ""), {}).get("CARTERA", "")
             ))
-            with st.sidebar:
-                st.markdown("---")
-                st.markdown("<div style='font-size:12px;color:#888'>Filtrar cartera</div>", unsafe_allow_html=True)
+            st.markdown("""
+<style>
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stMultiSelect"]) {
+    margin-bottom: -52px;
+    position: relative;
+    z-index: 100;
+}
+div[data-testid="stMultiSelect"] > div:first-child {
+    min-height: 32px !important;
+    font-size: 11px !important;
+}
+div[data-testid="stMultiSelect"] span {
+    font-size: 11px !important;
+}
+</style>""", unsafe_allow_html=True)
+            _, _fc = st.columns([3, 1])
+            with _fc:
                 carteras_sel = st.multiselect(
                     "Cartera",
                     options=carteras_disponibles,
                     default=[],
-                    placeholder="Todas",
+                    placeholder="Filtrar cartera...",
                     label_visibility="collapsed"
                 )
 

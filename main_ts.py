@@ -76,7 +76,8 @@ class MicrostructureEngine:
                 "vpin_stats": {"current_buy_vol": 0, "current_sell_vol": 0, "last_vpin": 0.0},
                 "daily_financials": {"total_money": 0.0, "buy_money": 0.0, "sell_money": 0.0, "total_nominals": 0.0},
                 "top_trades": [],
-                "hourly_stats": {h: {"buy": 0.0, "sell": 0.0, "total": 0.0} for h in range(10, 18)}
+                "hourly_stats": {h: {"buy": 0.0, "sell": 0.0, "total": 0.0} for h in range(10, 18)},
+                "last_data_at": None,   # Última vez que llegó un tick real del WS
             } for t in self.tickers
         }
         try:
@@ -142,6 +143,7 @@ class MicrostructureEngine:
 
     def _procesar_tick_logica(self, ticker, data):
         st = self.market_state[ticker]
+        st["last_data_at"] = datetime.now()   # Marca de tiempo REAL del último dato WS
         if "BI" in data: st["book"]["bids"] = data["BI"][:5]
         if "OF" in data: st["book"]["offers"] = data["OF"][:5]
         if "EV" in data and data["EV"] is not None: st["daily_financials"]["total_money"] = float(data["EV"])
@@ -224,6 +226,7 @@ class MicrostructureEngine:
                         doc = {
                             "ticker": ticker,
                             "updated_at": datetime.now(),
+                            "last_data_at": view["last_data_at"],   # Último tick WS real
                             "book": view["book"],
                             "metrics": view["metrics"],
                             "hourly_stats": {str(k): v for k, v in view["hourly_stats"].items()},
@@ -267,6 +270,7 @@ class MicrostructureEngine:
             "trades": list(st["trades"]),
             "top_trades": st["top_trades"],
             "hourly_stats": st["hourly_stats"],
+            "last_data_at": st["last_data_at"],
             "metrics": {
                 "micro_price": m_px, "spread": sp, "imbalance": imb,
                 "total_nominals": fs["total_nominals"], "total_money": fs["total_money"],
@@ -384,6 +388,48 @@ class MicroApp(App):
         self.query_one("#top_trades_panel", Static).update(Panel(t_w, border_style="magenta"))
 
 
+def _watchdog_reconexion(ws_manager, engine, tickers, intervalo_chequeo=30, timeout_sin_datos=60):
+    """
+    Hilo watchdog: si ningún ticker recibió datos en `timeout_sin_datos` segundos,
+    fuerza la reconexión del WebSocket.
+    """
+    print(f"🐶 Watchdog iniciado (timeout sin datos: {timeout_sin_datos}s, chequeo cada: {intervalo_chequeo}s)")
+    while True:
+        time.sleep(intervalo_chequeo)
+        try:
+            now = datetime.now()
+            # Tomamos el tick más reciente de todos los tickers
+            ultimos = [
+                engine.market_state[t]["last_data_at"]
+                for t in tickers
+                if engine.market_state[t]["last_data_at"] is not None
+            ]
+            if not ultimos:
+                # Nunca llegó ningún dato — puede ser inicio del día o falla de conexión
+                # Solo reconectamos si ya pasó tiempo suficiente desde que arrancó
+                continue
+
+            ultimo_global = max(ultimos)
+            lag = (now - ultimo_global).total_seconds()
+
+            if lag > timeout_sin_datos:
+                print(f"\n⚠️ Watchdog: {lag:.0f}s sin datos. Reconectando WebSocket...")
+                try:
+                    pyRofex.close_websocket_connection()
+                    time.sleep(2)
+                except Exception:
+                    pass
+                try:
+                    # Re-inicializar sesión REST por si expiró el token
+                    inicializar_sesion()
+                    ws_manager.iniciar_ws(tickers, depth=5)
+                    print("✅ Watchdog: WebSocket reconectado.")
+                except Exception as e:
+                    print(f"❌ Watchdog: fallo en reconexión: {e}")
+        except Exception:
+            pass
+
+
 def run():
     os.system('cls' if os.name == 'nt' else 'clear')
 
@@ -396,6 +442,13 @@ def run():
     try:
         # Iniciamos el WebSocket
         if ws_manager.iniciar_ws(TICKERS, depth=5):
+            # Watchdog de reconexión automática
+            threading.Thread(
+                target=_watchdog_reconexion,
+                args=(ws_manager, engine, TICKERS),
+                daemon=True
+            ).start()
+
             # Corremos la interfaz
             app = MicroApp(engine)
             app.run()

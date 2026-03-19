@@ -4,12 +4,11 @@ import logging
 import threading
 import pyRofex
 from datetime import datetime
-from pymongo import MongoClient
 
 # --- TUS MANAGERS ---
 from session_manager import inicializar_sesion
 from websocket_manager import WebSocketManager
-from mongo_manager import MongoManager
+from mongo_manager import MongoManager, get_mongo_client
 from arbitraje_fx.buscador_caucion import obtener_caucion_mas_corta
 from snapshot_writer import SnapshotWriter
 
@@ -60,7 +59,7 @@ class ArbitrageEngine:
     def _cargar_y_validar_catalogo(self):
         """Consulta MongoDB y cruza con el padrón de Rofex del día"""
         try:
-            client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
+            client = get_mongo_client()
             db = client["Trading"]
             coleccion = db["TasasAssets"]
             pares_mongo = list(coleccion.find({"activo": True}))

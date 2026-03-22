@@ -159,7 +159,7 @@ def render_hourly(hourly_stats):
     st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True, height=df_height(8))
 
 
-def render_tape(trades):
+def render_tape(trades, height=None):
     rows = []
     for t in trades[:30]:
         ts   = t.get("timestamp")
@@ -184,7 +184,8 @@ def render_tape(trades):
         ), subset=["Side"])
         .format({"Precio": "{:,.2f}", "Size": "{:,.0f}"})
     )
-    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(rows), max_h=1200))
+    h = height if height is not None else df_height(len(rows), max_h=1200)
+    st.dataframe(styler, hide_index=True, use_container_width=True, height=h)
 
 
 def render_whales(top_trades):
@@ -558,6 +559,9 @@ def vista_libro():
     recent_trades = snap.get("recent_trades", [])
     top_trades    = snap.get("top_trades", [])
 
+    # Altura de col_left: depth (5r) + quant (10r) + captions/espaciado
+    _TAPE_HEIGHT = df_height(5) + df_height(10) + 80  # ≈ 681px
+
     # Fila 1: depth+quant | tape | whales
     col_left, col_center, col_right = st.columns([1, 1, 1])
     with col_left:
@@ -565,7 +569,7 @@ def vista_libro():
         st.write("")
         render_quant(metrics)
     with col_center:
-        render_tape(recent_trades)
+        render_tape(recent_trades, height=_TAPE_HEIGHT)
     with col_right:
         render_whales(top_trades)
 

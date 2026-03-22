@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import logging
 from datetime import datetime
-from mongo_manager import MongoManager  # Importamos tu clase existente
+from mongo_manager import MongoManager, get_mongo_client
 
 # Configuración de Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -64,6 +64,19 @@ def actualizar_historico_ggal_mongo():
             "vol_40r_local": round(vol_local, 4)
         }
         mongo.collection.insert_one(resumen)
+
+        # 5. Upsert en Metadata para que el dashboard de Streamlit lo lea
+        client = get_mongo_client()
+        meta_col = client["Trading"]["Metadata"]
+        meta_col.update_one(
+            {"type": "vr_ggal"},
+            {"$set": {
+                "vr_local":   round(vol_local, 4),
+                "vr_adr":     round(vol_adr,   4),
+                "updated_at": datetime.now(),
+            }},
+            upsert=True
+        )
 
         print(f"\n" + "=" * 45)
         print(f"✅ DATOS PERSISTIDOS EN MONGO (VR-GGal)")

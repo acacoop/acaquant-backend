@@ -71,54 +71,8 @@ class OptionsEngine:
         # Pool acotado para guardar trades históricos (evita explosión de threads)
         self._trade_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="opt_trade")
 
-        # Calcula VR GGAL en segundo plano al arrancar (no bloquea el motor)
-        threading.Thread(target=self._calcular_vr_startup, daemon=True).start()
-
         # Hilo único de escritura de snapshots a MongoDB (bulk_write cada 1s)
         threading.Thread(target=self._batch_snapshot_loop, daemon=True).start()
-
-    def _calcular_vr_startup(self):
-        """Calcula VR GGAL via yfinance al arrancar. Si ya fue calculada hoy,
-        reutiliza el doc en Metadata y evita la descarga (restart instantáneo)."""
-        try:
-            vr_doc = self._meta_col.find_one({"type": "vr_ggal"})
-            if vr_doc:
-                updated = vr_doc.get("updated_at")
-                if updated and updated.date() == datetime.now().date():
-                    logger.info(
-                        f"VR GGAL ya calculada hoy — "
-                        f"Local: {vr_doc.get('vr_local', 0):.2%}  "
-                        f"ADR: {vr_doc.get('vr_adr', 0):.2%}"
-                    )
-                    return
-
-            import yfinance as yf
-            import numpy as np
-            logger.info("Calculando VR GGAL desde Yahoo Finance (40 ruedas)...")
-            # period="50d" cubre holgadamente 40 ruedas sin bajar datos de más
-            df = yf.download(
-                ["GGAL", "GGAL.BA"], period="50d", interval="1d",
-                progress=False, auto_adjust=True
-            )
-            if df.empty:
-                logger.warning("yfinance no devolvió datos para VR GGAL.")
-                return
-            adr_close   = df.xs("GGAL",    axis=1, level=1)["Close"].dropna()
-            local_close = df.xs("GGAL.BA", axis=1, level=1)["Close"].dropna()
-            vr_adr   = float(np.log(adr_close   / adr_close.shift(1)  ).tail(40).std() * np.sqrt(252))
-            vr_local = float(np.log(local_close / local_close.shift(1)).tail(40).std() * np.sqrt(252))
-            self._meta_col.update_one(
-                {"type": "vr_ggal"},
-                {"$set": {
-                    "vr_local":   round(vr_local, 4),
-                    "vr_adr":     round(vr_adr,   4),
-                    "updated_at": datetime.now(),
-                }},
-                upsert=True
-            )
-            logger.info(f"VR GGAL — Local(BA): {vr_local:.2%}  ADR: {vr_adr:.2%}")
-        except Exception as e:
-            logger.warning(f"No se pudo calcular VR GGAL: {e}")
 
     def _generar_maestra(self):
         """Descarga el padrón y filtra opciones de GGAL para el próximo vencimiento."""

@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
 from datetime import datetime, timedelta
 from mongo_manager import get_mongo_client
 from tickers import MERV_TICKERS as TICKERS
@@ -569,19 +570,33 @@ def vista_libro():
         render_hourly(hourly_stats)
     with col_center:
         render_tape(recent_trades)
-        # Equity curve: precio de trades del día
-        if recent_trades:
-            trade_prices = [
-                {"Hora": t["timestamp"].strftime("%H:%M:%S") if hasattr(t.get("timestamp"), "strftime") else "",
-                 "Precio": t.get("price", 0)}
-                for t in sorted(recent_trades, key=lambda x: x.get("timestamp", datetime.min))
-                if t.get("price", 0) > 0
-            ]
-            if trade_prices:
-                st.caption("EQUITY CURVE (PRECIO)")
-                st.line_chart(pd.DataFrame(trade_prices).set_index("Hora")["Precio"])
     with col_right:
         render_whales(top_trades)
+
+    # LAST MINUTES: abarca el ancho de col_center + col_right
+    _, col_chart = st.columns([1, 2])
+    with col_chart:
+        trade_prices = [
+            {
+                "Hora": t["timestamp"].strftime("%H:%M") if hasattr(t.get("timestamp"), "strftime") else "",
+                "Precio": t.get("price", 0),
+            }
+            for t in sorted(recent_trades, key=lambda x: x.get("timestamp", datetime.min))
+            if t.get("price", 0) > 0
+        ]
+        if trade_prices:
+            chart_df = pd.DataFrame(trade_prices)
+            chart = (
+                alt.Chart(chart_df)
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X("Hora:O", title=None, sort=None),
+                    y=alt.Y("Precio:Q", scale=alt.Scale(zero=False), title=None),
+                )
+                .properties(height=220)
+            )
+            st.caption("LAST MINUTES")
+            st.altair_chart(chart, use_container_width=True)
 
 
 @st.fragment(run_every=2)

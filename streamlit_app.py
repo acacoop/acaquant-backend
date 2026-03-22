@@ -187,7 +187,7 @@ def render_tape(trades):
         ), subset=["Side"])
         .format({"Precio": "{:,.2f}", "Size": "{:,.0f}"})
     )
-    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(rows), max_h=700))
+    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(rows), max_h=1200))
 
 
 def render_whales(top_trades):
@@ -561,20 +561,22 @@ def vista_libro():
     recent_trades = snap.get("recent_trades", [])
     top_trades    = snap.get("top_trades", [])
 
-    col_left, col_right_area = st.columns([1, 2])
+    # Fila 1: depth+quant | tape | whales
+    col_left, col_center, col_right = st.columns([1, 1, 1])
     with col_left:
         render_depth(book)
         st.write("")
         render_quant(metrics)
-        st.write("")
+    with col_center:
+        render_tape(recent_trades)
+    with col_right:
+        render_whales(top_trades)
+
+    # Fila 2: HOURLY VOL | LAST MINUTES — misma fila = misma altura de arranque
+    col_hourly, col_chart = st.columns([1, 2])
+    with col_hourly:
         render_hourly(hourly_stats)
-    with col_right_area:
-        col_tape, col_whales = st.columns([1, 1])
-        with col_tape:
-            render_tape(recent_trades)
-        with col_whales:
-            render_whales(top_trades)
-        # LAST MINUTES: ancho completo de col_right_area, alineado con HOURLY VOL
+    with col_chart:
         trade_prices = [
             {
                 "Hora": t["timestamp"].strftime("%H:%M") if hasattr(t.get("timestamp"), "strftime") else "",

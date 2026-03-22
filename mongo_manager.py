@@ -1,4 +1,5 @@
 import os
+import threading
 import pymongo
 import logging
 from datetime import datetime
@@ -14,17 +15,31 @@ logger = logging.getLogger("TradingBot")
 # ==========================================
 MONGO_URI = os.getenv("MONGO_URI")
 
+# Singleton thread-safe: un solo MongoClient compartido por todo el proceso.
+# MongoClient maneja internamente el connection pool y es thread-safe.
+_client: pymongo.MongoClient | None = None
+_client_lock = threading.Lock()
 
-def get_mongo_client():
+
+def get_mongo_client() -> pymongo.MongoClient:
     """
-    Devuelve la conexión universal a Atlas.
-    Cualquier otro archivo del bot llama a esta función.
+    Devuelve el cliente singleton a MongoDB Atlas.
+    Crea la conexión la primera vez; las llamadas siguientes reutilizan el mismo pool.
     """
+    global _client
     if not MONGO_URI:
         logger.error("CRÍTICO: No se encontró MONGO_URI en el archivo .env")
         raise ValueError("Falta MONGO_URI en el entorno")
 
-    return pymongo.MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    if _client is None:
+        with _client_lock:
+            if _client is None:  # double-checked locking
+                _client = pymongo.MongoClient(
+                    MONGO_URI,
+                    serverSelectionTimeoutMS=5000,
+                    maxPoolSize=10,
+                )
+    return _client
 
 
 # ==========================================

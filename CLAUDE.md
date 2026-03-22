@@ -1,0 +1,106 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+TradingAV is a quantitative trading platform for Argentine financial markets (MERVAL/ROFEX). It streams real-time market data, runs parallel analytical engines (microstructure, options, FX arbitrage, plazo arbitrage), persists state to MongoDB Atlas, and exposes a Streamlit dashboard.
+
+## Running the Project
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+# Also required: pip install pyRofex rich
+
+# Web dashboard
+streamlit run streamlit_app.py
+
+# Individual engines (run as background daemons)
+python main_ts.py         # Microstructure engine (30+ tickers)
+python main_options.py    # Options pricing/Greeks
+python main_fx.py         # FX arbitrage detection
+python main_arbitrage.py  # Plazo/term arbitrage
+python main_valores.py    # Equity tracking
+
+# Production deployment
+./start_all.sh
+```
+
+Requires a `.env` file with: `ROFEX_USER`, `ROFEX_PASSWORD`, `ROFEX_ACCOUNT`, `ROFEX_API_URL`, `ROFEX_WS_URL`, `MONGO_URI`, `AUNESA_CLIENT_ID`, `AUNESA_USERNAME`, `AUNESA_PASSWORD`.
+
+There is no test suite or linting configuration.
+
+## Architecture
+
+**Event-driven, multi-engine architecture:**
+
+```
+ROFEX WebSocket (pyRofex)
+        │
+        ▼
+WebSocketManager (websocket_manager.py)
+  - Subscribes tickers in 50-ticker chunks
+  - Dispatches market data to engine handlers
+        │
+   ┌────┴────┬──────────┬──────────┬──────────┐
+   ▼         ▼          ▼          ▼          ▼
+main_ts   main_fx   main_options main_arb  main_valores
+   │         │          │          │          │
+   └────┬────┴──────────┴──────────┴──────────┘
+        ▼
+SnapshotWriter (background thread, ~0.5s interval)
+  - Hash-based change detection
+  - Bulk writes to MongoDB Atlas
+        │
+        ▼
+MongoDB Atlas (3 databases: Trading, Opciones, Valuaciones)
+        │
+        ▼
+Streamlit Dashboard (3 pages: Libro, Mercado, Opciones)
+```
+
+### Key Components
+
+- **`config.py`** — Centralized config; loads `.env` credentials; defines the master ticker list (63 instruments: futures, equities, commodities)
+- **`session_manager.py`** — Single pyRofex auth initialization
+- **`websocket_manager.py`** — WebSocket subscriptions; registers per-engine `update_price(ticker, data)` handlers
+- **`mongo_manager.py`** — Singleton `get_mongo_client()` for Atlas; `MongoManager` class for upserts and inserts
+- **`snapshot_writer.py`** — Background thread writing engine state to MongoDB; uses hash diffing to skip unchanged data
+- **`oms_manager.py`** — Order Management System; wraps pyRofex order placement
+
+### Trading Engines
+
+Each engine has an `update_price(ticker, data)` callback called by the WebSocket handler on each tick. They maintain in-memory state and delegate persistence to `SnapshotWriter`.
+
+| Engine | MongoDB collection | Description |
+|---|---|---|
+| `main_ts.py` | `Trading.Data` | Microstructure: order book, VWAP, volume bucketing, trade tape |
+| `main_values.py` | `Trading.Data` | Equity tracking (GGAL, VSCJO, BVCOO, DHSGO) |
+| `main_options.py` | `Opciones.OptionsSnapshot` | GGAL options: Black-Scholes Greeks, IV via Newton-Raphson |
+| `main_fx.py` | `Trading.FXArbitrage` | USD pair cross-currency arbitrage (fee: 0.0847%) |
+| `main_arbitrage.py` | `Trading.CI24` | CI/24hs cash+carry repo arbitrage (headless daemon) |
+
+### Options Module (`Opciones/`)
+
+- `calculos_cuantitativos.py`: Black-Scholes engine — `bs_price()`, `bs_delta()`, `bs_gamma()`, `bs_vega()`, `bs_theta()`, `find_iv()` (Newton-Raphson), `calc_intrinseco()`
+- `estrategias_opciones.py`: Pre-configured spreads (bull calls, bear puts, ratio spreads) as (long, short) leg tuples
+- Options target GGAL April expiration; historical volatility read from MongoDB collection `VR-GGal`
+
+### FX Arbitrage Module (`arbitraje_fx/`)
+
+- `calculadora.py`: Cross-currency buy/sell price math
+- `calculadora_tasas.py`: Interest rate calculations
+- `mongo_assets.py`: FX pair definitions in MongoDB
+- `buscador_caucion.py`: Finds shortest-term overnight repo
+- `trade_logger.py`: Logs matched trades to file
+
+### Excel / Portfolio Sync (`Excel/`)
+
+- Syncs Rofex account positions to MongoDB and exports to Google Sheets
+- Uses `google_sheets_manager.py` with OAuth2 credentials in `ons-fx.json`
+- `aunesa_api_manager.py` connects to Aunesa broker for additional data
+
+## Deployment
+
+Systemd services in `motor_rofex.service` and `streamlit.service`. Production runs at `/root/TradingAV/` using a local venv. `start_all.sh` starts `main_valores.py` and Streamlit on port 8501.

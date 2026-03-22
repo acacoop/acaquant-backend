@@ -11,11 +11,12 @@ import logging
 import pyRofex
 from datetime import datetime
 from collections import defaultdict
+from pymongo import UpdateOne
 
 from Opciones.calculos_cuantitativos import (
     calc_intrinseco, find_iv, bs_delta, bs_gamma, bs_vega, bs_theta
 )
-from mongo_manager import MongoManager
+from mongo_manager import MongoManager, get_mongo_client
 from session_manager import inicializar_sesion
 from websocket_manager import WebSocketManager
 
@@ -42,10 +43,6 @@ signal.signal(signal.SIGINT, _handle_signal)
 # EL CEREBRO: OptionsEngine (idéntico a main_options.py)
 # ==========================================
 class OptionsEngine:
-    # Throttle: mínimo tiempo entre dos snapshots del mismo símbolo
-    _SNAPSHOT_THROTTLE = 0.3   # segundos
-    # Throttle para el batch-refresh cuando cambia el spot
-    _SPOT_REFRESH_THROTTLE = 1.0  # segundos
 
     def __init__(self):
         self.spot_symbol = "MERV - XMEV - GGAL - 24hs"
@@ -56,27 +53,47 @@ class OptionsEngine:
         self.mapa_opciones, self.agrupacion_strikes = self._generar_maestra()
         self.market_state = {}
         self.last_trade_cache = {}
-
-        # Timestamps para throttle de snapshots (monotonic, no datetime)
-        self._last_snapshot_ts = {}   # sym -> float
-        self._last_spot_refresh = 0.0  # float
+        self._cache_lock = threading.Lock()
 
         self._inicializar_estado_memoria()
 
+        # Hilo único de escritura de snapshots a MongoDB (bulk_write cada 1s)
+        threading.Thread(target=self._batch_snapshot_loop, daemon=True).start()
+
     def _generar_maestra(self):
-        """Descarga el padrón y filtra opciones de GGAL para Abril."""
+        """Descarga el padrón y filtra opciones de GGAL para el próximo vencimiento."""
         res = pyRofex.get_detailed_instruments()
         mapa, agrupacion = {}, defaultdict(dict)
         if not res or res.get('status') != 'OK':
             return mapa, agrupacion
 
+        hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # Primera pasada: encontrar el próximo vencimiento disponible
+        expiries = set()
         for inst in res['instruments']:
             if inst.get('underlying') == "Grupo Financiero Galicia Merval":
                 cfi = inst.get('cficode', '')
                 vence_raw = inst.get('maturity_date', inst.get('maturityDate', ''))
+                if cfi.startswith('O') and len(vence_raw) == 8:
+                    try:
+                        if datetime.strptime(vence_raw, "%Y%m%d") >= hoy:
+                            expiries.add(vence_raw)
+                    except ValueError:
+                        pass
 
-                # Filtro para Abril (04)
-                if cfi.startswith('O') and len(vence_raw) == 8 and vence_raw[4:6] == "04":
+        if not expiries:
+            return mapa, agrupacion
+
+        proxima = min(expiries)  # YYYYMMDD → orden lexicográfico = orden cronológico
+        logger.info(f"Vencimiento detectado: {proxima}")
+
+        # Segunda pasada: cargar solo ese vencimiento
+        for inst in res['instruments']:
+            if inst.get('underlying') == "Grupo Financiero Galicia Merval":
+                cfi = inst.get('cficode', '')
+                vence_raw = inst.get('maturity_date', inst.get('maturityDate', ''))
+                if vence_raw == proxima:
                     sym = inst['instrumentId']['symbol']
                     strike = float(inst.get('strike', 0))
                     tipo = 'CALL' if cfi == 'OCASPS' else 'PUT' if cfi == 'OPASPS' else None
@@ -98,7 +115,9 @@ class OptionsEngine:
         return list(self.market_state.keys())
 
     def update_price(self, ticker, data):
-        """Maneja la entrada del WebSocket y actualiza la RAM."""
+        """Maneja la entrada del WebSocket y actualiza la RAM.
+        Los snapshots a MongoDB los maneja _batch_snapshot_loop en segundo plano.
+        """
         if ticker not in self.market_state:
             return
         state = self.market_state[ticker]
@@ -109,101 +128,95 @@ class OptionsEngine:
         if 'OF' in data and data['OF']:
             state['offer'] = data['OF'][0]['price']
 
-        # 2. Datos de Mercado (OP, HI, LO, EV) con blindaje de nombres
+        # 2. Datos de Mercado (OP, HI, LO, EV)
         state['open'] = data.get('OP', data.get('OPENING_PRICE', state['open']))
         state['high'] = data.get('HI', data.get('HIGH_PRICE', state['high']))
         state['low']  = data.get('LO', data.get('LOW_PRICE', state['low']))
         state['ev']   = data.get('EV', data.get('TRADE_EFFECTIVE_VOLUME', state['ev']))
 
-        # 3. Último operado (LAST)
+        # 3. Último operado (LAST) — guarda trade histórico solo en ticks nuevos
         la = data.get('LA')
         if la and la.get('price', 0) > 0:
             state['last'] = la['price']
             ts = datetime.fromtimestamp(la['date'] / 1000.0)
             state['last_timestamp'] = ts
 
-            # Guardar trade histórico en Data (solo en nuevos trades)
             if ticker in self.mapa_opciones:
-                if self.last_trade_cache.get(ticker) != ts:
-                    self.last_trade_cache[ticker] = ts
+                spawn = False
+                with self._cache_lock:
+                    if self.last_trade_cache.get(ticker) != ts:
+                        self.last_trade_cache[ticker] = ts
+                        spawn = True
+                if spawn:
                     threading.Thread(
                         target=self._guardar_en_mongo,
                         args=(ticker, state.copy(), ts),
                         daemon=True
                     ).start()
 
-        # 4. EVENT-DRIVEN SNAPSHOT: escritura inmediata con throttle por símbolo
-        if ticker in self.mapa_opciones:
-            now = time.monotonic()
-            if now - self._last_snapshot_ts.get(ticker, 0) >= self._SNAPSHOT_THROTTLE:
-                self._last_snapshot_ts[ticker] = now
-                threading.Thread(
-                    target=self._write_snapshot,
-                    args=(ticker, state.copy()),
-                    daemon=True
-                ).start()
+    def _batch_snapshot_loop(self):
+        """
+        Hilo único de escritura a MongoDB.
+        Cada 1s calcula los Greeks de todas las opciones activas y hace
+        un único bulk_write a OptionsSnapshot — un solo round-trip a Atlas
+        sin importar cuántos activos haya.
+        """
+        col = get_mongo_client()["Opciones"]["OptionsSnapshot"]
 
-        # 5. Cuando el SPOT cambia, refrescar griegas de todas las opciones
-        elif ticker == self.spot_symbol:
-            now = time.monotonic()
-            if now - self._last_spot_refresh >= self._SPOT_REFRESH_THROTTLE:
-                self._last_spot_refresh = now
-                threading.Thread(
-                    target=self._refresh_all_snapshots,
-                    daemon=True
-                ).start()
-
-    def _write_snapshot(self, sym, state_copy):
-        """Calcula griegas y hace upsert del snapshot de un único símbolo."""
-        S = self.market_state.get(self.spot_symbol, {}).get('last', 0)
-        info = self.mapa_opciones[sym]
-        K = info['strike']
-
-        data = {
-            **state_copy,
-            'strike': K,
-            'tipo':   info['tipo'],
-            'spot':   S,
-        }
-
-        griegas = None
-        if S > 0:
-            bid   = state_copy.get('bid', 0)
-            offer = state_copy.get('offer', 0)
-            last  = state_copy.get('last', 0)
-            T = max((datetime.strptime(info['vence'], "%Y%m%d") - datetime.now()).days, 1) / 365.0
-            p_mid = (bid + offer) / 2 if bid > 0 and offer > 0 else last
-            vi = calc_intrinseco(S, K, info['tipo'])
-            p_iv = p_mid if p_mid > vi else vi + 0.1
+        while True:
+            time.sleep(1)
             try:
-                iv = find_iv(p_iv, S, K, T, self.tasa, info['tipo'])
-                if iv > 0:
-                    griegas = {
-                        "iv":    round(iv, 4),
-                        "delta": round(bs_delta(S, K, T, self.tasa, iv, info['tipo']), 3),
-                        "gamma": round(bs_gamma(S, K, T, self.tasa, iv), 4),
-                        "vega":  round(bs_vega(S, K, T, self.tasa, iv), 2),
-                        "theta": round(bs_theta(S, K, T, self.tasa, iv, info['tipo']), 2),
+                S = self.market_state.get(self.spot_symbol, {}).get('last', 0)
+                ts = datetime.now()
+                ops = []
+
+                for sym, info in self.mapa_opciones.items():
+                    md = self.market_state.get(sym, {})
+                    bid   = md.get('bid', 0)
+                    offer = md.get('offer', 0)
+                    last  = md.get('last', 0)
+
+                    # Saltear opciones sin ningún precio
+                    if bid == 0 and offer == 0 and last == 0:
+                        continue
+
+                    K    = info['strike']
+                    tipo = info['tipo']
+                    T    = max((datetime.strptime(info['vence'], "%Y%m%d") - ts).days, 1) / 365.0
+                    p_mid = (bid + offer) / 2 if bid > 0 and offer > 0 else last
+
+                    doc = {
+                        "updated_at": ts,
+                        "symbol": sym,
+                        "bid": bid, "offer": offer, "last": last,
+                        "open": md.get('open', 0), "high": md.get('high', 0),
+                        "low":  md.get('low', 0),  "ev":   md.get('ev', 0),
+                        "strike": K, "tipo": tipo, "spot": S,
                     }
-            except Exception:
-                pass
 
-        self.mongo.guardar_snapshot_opciones(sym, data, griegas=griegas)
+                    if S > 0 and p_mid > 0:
+                        try:
+                            vi   = calc_intrinseco(S, K, tipo)
+                            p_iv = p_mid if p_mid > vi else vi + 0.1
+                            iv   = find_iv(p_iv, S, K, T, self.tasa, tipo)
+                            if iv > 0:
+                                doc.update({
+                                    "iv":    round(iv, 4),
+                                    "delta": round(bs_delta(S, K, T, self.tasa, iv, tipo), 3),
+                                    "gamma": round(bs_gamma(S, K, T, self.tasa, iv), 4),
+                                    "vega":  round(bs_vega(S, K, T, self.tasa, iv), 2),
+                                    "theta": round(bs_theta(S, K, T, self.tasa, iv, tipo), 2),
+                                })
+                        except Exception:
+                            pass
 
-    def _refresh_all_snapshots(self):
-        """
-        Se dispara cuando el spot cambia (máx 1 vez/seg).
-        Actualiza el snapshot de todas las opciones activas para que
-        las griegas reflejen el nuevo spot sin esperar a un tick propio.
-        """
-        S = self.market_state.get(self.spot_symbol, {}).get('last', 0)
-        if S <= 0:
-            return
-        for sym, info in self.mapa_opciones.items():
-            state = self.market_state.get(sym, {})
-            if state.get('bid', 0) == 0 and state.get('offer', 0) == 0 and state.get('last', 0) == 0:
-                continue
-            self._write_snapshot(sym, state.copy())
+                    ops.append(UpdateOne({"symbol": sym}, {"$set": doc}, upsert=True))
+
+                if ops:
+                    col.bulk_write(ops, ordered=False)
+
+            except Exception as e:
+                logger.error(f"Error en batch_snapshot_loop: {e}")
 
     def _guardar_en_mongo(self, ticker, state_copy, ts):
         """Calcula Griegas y persiste el trade histórico en Data."""

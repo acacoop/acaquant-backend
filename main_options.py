@@ -44,18 +44,37 @@ class OptionsEngine:
         self._inicializar_estado_memoria()
 
     def _generar_maestra(self):
-        """Descarga el padrón y filtra opciones de GGAL para Abril."""
+        """Descarga el padrón y filtra opciones de GGAL para el próximo vencimiento."""
         res = pyRofex.get_detailed_instruments()
         mapa, agrupacion = {}, defaultdict(dict)
         if not res or res.get('status') != 'OK': return mapa, agrupacion
 
+        hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # Primera pasada: encontrar el próximo vencimiento disponible
+        expiries = set()
         for inst in res['instruments']:
             if inst.get('underlying') == "Grupo Financiero Galicia Merval":
                 cfi = inst.get('cficode', '')
                 vence_raw = inst.get('maturity_date', inst.get('maturityDate', ''))
+                if cfi.startswith('O') and len(vence_raw) == 8:
+                    try:
+                        if datetime.strptime(vence_raw, "%Y%m%d") >= hoy:
+                            expiries.add(vence_raw)
+                    except ValueError:
+                        pass
 
-                # Filtro para Abril (04)
-                if cfi.startswith('O') and len(vence_raw) == 8 and vence_raw[4:6] == "04":
+        if not expiries:
+            return mapa, agrupacion
+
+        proxima = min(expiries)  # YYYYMMDD → orden lexicográfico = orden cronológico
+
+        # Segunda pasada: cargar solo ese vencimiento
+        for inst in res['instruments']:
+            if inst.get('underlying') == "Grupo Financiero Galicia Merval":
+                cfi = inst.get('cficode', '')
+                vence_raw = inst.get('maturity_date', inst.get('maturityDate', ''))
+                if vence_raw == proxima:
                     sym = inst['instrumentId']['symbol']
                     strike = float(inst.get('strike', 0))
                     tipo = 'CALL' if cfi == 'OCASPS' else 'PUT' if cfi == 'OPASPS' else None
@@ -170,7 +189,11 @@ class OptionsEngine:
                     p_ref = calc_map[sym]['mid']
 
                     if p_ref > 0:
-                        T = 38 / 365.0  # Aproximación para Abril
+                        info = self.mapa_opciones.get(sym, {})
+                        vence = info.get('vence')
+                        if not vence:
+                            continue
+                        T = max((datetime.strptime(vence, "%Y%m%d") - datetime.now()).days, 1) / 365.0
                         vi = calc_intrinseco(S, strike, tipo)
                         p_iv = p_ref if p_ref > vi else vi + 0.1
                         try:

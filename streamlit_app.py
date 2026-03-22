@@ -118,26 +118,23 @@ def render_depth(book):
 
 
 def render_quant(m):
-    closing = m.get('closing_price', 0) or 0
-    last    = m.get('last_price', 0) or 0
+    closing   = m.get('closing_price', 0) or 0
+    last      = m.get('last_price', 0) or 0
+    open_     = m.get('open_price', 0) or 0
     vs_cierre = (last / closing - 1) if closing > 0 and last > 0 else None
+    intraday  = (last / open_ - 1)   if open_  > 0 and last > 0 else None
 
     rows = [
-        ("Micro-Price",       f"{m.get('micro_price', 0):,.4f}"),
-        ("Spread",            f"{m.get('spread', 0):,.2f}"),
-        ("Order Imbalance",   f"{m.get('imbalance', 0):.2%}"),
-        ("VPIN Promedio",     f"{m.get('vpin_prom', 0):.2%}"),
-        ("VPIN Vivo",         f"{m.get('vpin_vivo', 0):.2%}"),
-        ("Bucket Progress",   f"{m.get('progreso', 0):.1%}"),
-        ("Bucket Buy",        fmt_nom(m.get('buy_b', 0))),
-        ("Bucket Sell",       fmt_nom(m.get('sell_b', 0))),
-        ("Nominales Totales", fmt_nom(m.get('total_nominals', 0))),
-        ("VWAP (Daily)",      f"${m.get('vwap', 0):,.2f}"),
-        ("Total Money",       fmt_money(m.get('total_money', 0))),
-        ("Buy Session",       fmt_money(m.get('buy_money', 0))),
-        ("Sell Session",      fmt_money(m.get('sell_money', 0))),
-        ("Cierre Anterior",   f"${closing:,.2f}" if closing > 0 else "-"),
-        ("Vs. Cierre",        f"{vs_cierre:+.2%}" if vs_cierre is not None else "-"),
+        ("Total Money",     fmt_money(m.get('total_money', 0))),
+        ("Buy Session",     fmt_money(m.get('buy_money', 0))),
+        ("Sell Session",    fmt_money(m.get('sell_money', 0))),
+        ("VWAP (Daily)",    f"${m.get('vwap', 0):,.2f}"),
+        ("Micro-Price",     f"{m.get('micro_price', 0):,.4f}"),
+        ("Spread",          f"{m.get('spread', 0):,.2f}"),
+        ("Order Imbalance", f"{m.get('imbalance', 0):.2%}"),
+        ("Intraday",        f"{intraday:+.2%}" if intraday is not None else "-"),
+        ("Cierre Anterior", f"${closing:,.2f}" if closing > 0 else "-"),
+        ("Vs. Cierre",      f"{vs_cierre:+.2%}" if vs_cierre is not None else "-"),
     ]
     st.caption("QUANT ANALYTICS")
     st.dataframe(

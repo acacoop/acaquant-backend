@@ -557,10 +557,17 @@ def render_estrategias(docs_map):
 
 
 # ==========================================
-# VISTA: LIBRO
+# RENDER PRINCIPAL — un único container para todas las vistas.
+# Al haber un solo `with _main.container():` por rerun, Streamlit
+# reemplaza su contenido de forma atómica y nunca queda HTML de
+# una vista anterior "pegado" en otra.
 # ==========================================
-if vista == "Libro":
-    with _main.container():
+with _main.container():
+
+    # ------------------------------------------
+    # VISTA: LIBRO
+    # ------------------------------------------
+    if vista == "Libro":
         db = get_db()
 
         header_col, select_col = st.columns([3, 1])
@@ -581,57 +588,46 @@ if vista == "Libro":
             st.session_state.selected_ticker = TICKERS[options_short.index(selected_short)]
 
         ticker = st.session_state.selected_ticker
-
-        snap = db["MarketSnapshot"].find_one({"ticker": ticker})
+        snap   = db["MarketSnapshot"].find_one({"ticker": ticker})
 
         if not snap:
             st.warning(f"Sin datos para {ticker}. ¿El motor está corriendo?")
-            time.sleep(2)
-            st.rerun()
+        else:
+            updated_at = snap.get("updated_at")
+            if updated_at:
+                lag = (datetime.now() - updated_at).total_seconds()
+                lag_color = "#ff4444" if lag > 5 else "#00cc66"
+                st.markdown(
+                    f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
+                    f"Última actualización: <span style='color:{lag_color}'>"
+                    f"{updated_at.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
+                    unsafe_allow_html=True
+                )
 
-        updated_at = snap.get("updated_at")
-        if updated_at:
-            lag = (datetime.now() - updated_at).total_seconds()
-            lag_color = "#ff4444" if lag > 5 else "#00cc66"
-            st.markdown(
-                f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
-                f"Última actualización: <span style='color:{lag_color}'>"
-                f"{updated_at.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
-                unsafe_allow_html=True
-            )
+            st.divider()
 
-        st.divider()
+            book          = snap.get("book", {"bids": [], "offers": []})
+            metrics       = snap.get("metrics", {})
+            hourly_stats  = snap.get("hourly_stats", {})
+            recent_trades = snap.get("recent_trades", [])
+            top_trades    = snap.get("top_trades", [])
 
-        col_left, col_center, col_right = st.columns([1, 1, 1])
+            col_left, col_center, col_right = st.columns([1, 1, 1])
+            with col_left:
+                st.markdown(render_depth(book), unsafe_allow_html=True)
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown(render_quant(metrics), unsafe_allow_html=True)
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown(render_hourly(hourly_stats), unsafe_allow_html=True)
+            with col_center:
+                st.markdown(render_tape(recent_trades), unsafe_allow_html=True)
+            with col_right:
+                st.markdown(render_whales(top_trades), unsafe_allow_html=True)
 
-        book         = snap.get("book", {"bids": [], "offers": []})
-        metrics      = snap.get("metrics", {})
-        hourly_stats = snap.get("hourly_stats", {})
-        recent_trades= snap.get("recent_trades", [])
-        top_trades   = snap.get("top_trades", [])
-
-        with col_left:
-            st.markdown(render_depth(book), unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown(render_quant(metrics), unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown(render_hourly(hourly_stats), unsafe_allow_html=True)
-
-        with col_center:
-            st.markdown(render_tape(recent_trades), unsafe_allow_html=True)
-
-        with col_right:
-            st.markdown(render_whales(top_trades), unsafe_allow_html=True)
-
-        time.sleep(1)
-        st.rerun()
-
-
-# ==========================================
-# VISTA: OPCIONES
-# ==========================================
-elif vista == "Opciones":
-    with _main.container():
+    # ------------------------------------------
+    # VISTA: OPCIONES
+    # ------------------------------------------
+    elif vista == "Opciones":
         db_op = get_db_opciones()
 
         st.markdown("## 📊 ACAQuant | Opciones GGAL")
@@ -662,16 +658,10 @@ elif vista == "Opciones":
             st.markdown(render_cadena_opciones(docs, spot), unsafe_allow_html=True)
             st.markdown(render_estrategias(docs_map), unsafe_allow_html=True)
 
-        time.sleep(1)
-        st.rerun()
-
-
-
-# ==========================================
-# VISTA: MERCADO
-# ==========================================
-elif vista == "Mercado":
-    with _main.container():
+    # ------------------------------------------
+    # VISTA: MERCADO
+    # ------------------------------------------
+    elif vista == "Mercado":
         db = get_db()
 
         st.markdown("## 🏦 ACAQuant | Mercado")
@@ -699,8 +689,8 @@ elif vista == "Mercado":
             key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
             reverse=True
         )
-
         st.markdown(render_mercado_table(all_snaps), unsafe_allow_html=True)
 
-        time.sleep(0.5)
-        st.rerun()
+# Rerun global — fuera del container para que aplique a cualquier vista
+time.sleep(1)
+st.rerun()

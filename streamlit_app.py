@@ -561,21 +561,20 @@ def vista_libro():
     recent_trades = snap.get("recent_trades", [])
     top_trades    = snap.get("top_trades", [])
 
-    col_left, col_center, col_right = st.columns([1, 1, 1])
+    col_left, col_right_area = st.columns([1, 2])
     with col_left:
         render_depth(book)
         st.write("")
         render_quant(metrics)
         st.write("")
         render_hourly(hourly_stats)
-    with col_center:
-        render_tape(recent_trades)
-    with col_right:
-        render_whales(top_trades)
-
-    # LAST MINUTES: abarca el ancho de col_center + col_right
-    _, col_chart = st.columns([1, 2])
-    with col_chart:
+    with col_right_area:
+        col_tape, col_whales = st.columns([1, 1])
+        with col_tape:
+            render_tape(recent_trades)
+        with col_whales:
+            render_whales(top_trades)
+        # LAST MINUTES: ancho completo de col_right_area, alineado con HOURLY VOL
         trade_prices = [
             {
                 "Hora": t["timestamp"].strftime("%H:%M") if hasattr(t.get("timestamp"), "strftime") else "",

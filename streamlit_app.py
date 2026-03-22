@@ -362,10 +362,33 @@ def render_cadena_opciones(docs, spot):
             "P Δ%":    lambda v: f"{v:+.1%}" if pd.notna(v) else "-",
         })
     )
-    # Greeks heatmap: background_gradient sobre Delta e IV
-    heatmap_cols = [c for c in ["C IV %", "C Delta", "P IV %", "P Delta"] if c in df.columns]
-    if heatmap_cols:
-        styler = styler.background_gradient(subset=heatmap_cols, cmap="RdYlGn", axis=0)
+    # Greeks heatmap: color via applymap (sin matplotlib)
+    def _iv_color(v):
+        try:
+            val = float(str(v).replace("%", ""))
+            if val < 50:   return "color: #4caf50"
+            if val < 80:   return "color: #ff9800"
+            return "color: #f44336"
+        except Exception:
+            return ""
+
+    def _delta_color(v):
+        try:
+            val = float(v)
+            if val > 0.6:  return "color: #4caf50"
+            if val > 0.3:  return "color: #ff9800"
+            if val < -0.6: return "color: #f44336"
+            if val < -0.3: return "color: #ff9800"
+            return ""
+        except Exception:
+            return ""
+
+    for col in ["C IV %", "P IV %"]:
+        if col in df.columns:
+            styler = styler.applymap(_iv_color, subset=[col])
+    for col in ["C Delta", "P Delta"]:
+        if col in df.columns:
+            styler = styler.applymap(_delta_color, subset=[col])
 
     spot_str = f"${spot:,.2f}" if spot else "N/A"
     st.caption(f"CADENA DE OPCIONES GGAL — SPOT: {spot_str}")

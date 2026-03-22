@@ -1,5 +1,6 @@
 import os
 import queue
+import logging
 import pyRofex
 import threading
 import time
@@ -7,12 +8,14 @@ import traceback
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from collections import deque
-from pymongo import MongoClient
+from pymongo import ReplaceOne
 
 # --- TUS MANAGERS DE INFRAESTRUCTURA ---
 from session_manager import inicializar_sesion
 from websocket_manager import WebSocketManager
 from mongo_manager import get_mongo_client
+
+logger = logging.getLogger("MotorValores")
 
 # --- CONFIGURACIÓN MULTIACTIVO (INTACTA) ---
 TICKERS = [
@@ -155,8 +158,7 @@ class MicrostructureEngine:
                 try:
                     self._procesar_tick_logica(ticker, data)
                 except Exception:
-                    with open("errores_bot.txt", "a") as f:
-                        f.write(traceback.format_exc())
+                    logger.error(f"Error procesando tick {ticker}:\n{traceback.format_exc()}")
             except queue.Empty:
                 pass
 
@@ -294,36 +296,39 @@ class MicrostructureEngine:
         }
 
     def _snapshot_loop(self):
-        """Escribe el estado completo de cada ticker a MarketSnapshot cada 1 segundo."""
+        """
+        Escribe el estado completo de todos los tickers a MarketSnapshot cada 1s.
+        Un único bulk_write reemplaza N round-trips individuales a Atlas.
+        """
         while True:
             time.sleep(1)
             if self.col_snapshot is None:
                 continue
             try:
+                ts = datetime.now()
+                ops = []
                 for ticker in self.tickers:
                     st = self.market_state[ticker]
                     metricas = self._calcular_metricas(ticker)
-
                     doc = {
                         "ticker": ticker,
-                        "updated_at": datetime.now(),
+                        "updated_at": ts,
                         "book": {
-                            "bids": list(st["book"]["bids"]),
-                            "offers": list(st["book"]["offers"])
+                            "bids":   list(st["book"]["bids"]),
+                            "offers": list(st["book"]["offers"]),
                         },
                         "metrics": metricas,
                         "hourly_stats": {str(k): v for k, v in st["hourly_stats"].items()},
-                        "top_trades": list(st["top_trades"]),
-                        "recent_trades": list(st["trades"])[:30]
+                        "top_trades":   list(st["top_trades"]),
+                        "recent_trades": list(st["trades"])[:30],
                     }
+                    ops.append(ReplaceOne({"ticker": ticker}, doc, upsert=True))
 
-                    self.col_snapshot.replace_one(
-                        {"ticker": ticker},
-                        doc,
-                        upsert=True
-                    )
+                if ops:
+                    self.col_snapshot.bulk_write(ops, ordered=False)
+
             except Exception as e:
-                print(f"Error escribiendo snapshot: {e}")
+                logger.error(f"Error escribiendo snapshots: {e}")
 
 
 # ==========================================

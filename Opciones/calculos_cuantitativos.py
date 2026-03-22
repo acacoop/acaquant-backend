@@ -1,6 +1,6 @@
 import numpy as np
-from pymongo import MongoClient
 from scipy.stats import norm
+from mongo_manager import get_mongo_client
 
 
 # --- CÁLCULO DE VOLATILIDAD HISTÓRICA ---
@@ -11,16 +11,13 @@ def calcular_hv_40_ruedas(ticker="GGAL.BA"):
     de las últimas 40 ruedas directamente desde MongoDB.
     """
     try:
-        # 1. Conexión rápida a Mongo
-        client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
+        client = get_mongo_client()
         db = client["Opciones"]
         col = db["VR-GGal"]
 
-        # 2. Traemos los últimos 40 registros.
-        # Ordenamos por _id descendente (que contiene el timestamp de creación) para traer lo más nuevo.
-        cursor = col.find().sort("_id", -1).limit(40)
+        # Ordenamos por fecha explícita si existe, sino por _id
+        cursor = col.find().sort("fecha", -1).limit(40)
         documentos = list(cursor)
-        client.close()
 
         if len(documentos) < 2:
             return 0.0

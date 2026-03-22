@@ -38,20 +38,17 @@ def short_name(ticker):
 # ==========================================
 # CONEXIÓN A MONGO (cached, una sola vez)
 # ==========================================
-@st.cache_resource
+@st.cache_resource(ttl=3600)
 def get_db():
-    client = get_mongo_client()
-    return client["Trading"]
+    return get_mongo_client()["Trading"]
 
-@st.cache_resource
+@st.cache_resource(ttl=3600)
 def get_db_opciones():
-    client = get_mongo_client()
-    return client["Opciones"]
+    return get_mongo_client()["Opciones"]
 
-@st.cache_resource
+@st.cache_resource(ttl=3600)
 def get_db_valuaciones():
-    client = get_mongo_client()
-    return client["Valuaciones"]
+    return get_mongo_client()["Valuaciones"]
 
 
 # ==========================================
@@ -626,7 +623,7 @@ if vista == "Libro":
         with col_right:
             st.markdown(render_whales(top_trades), unsafe_allow_html=True)
 
-        time.sleep(0.5)
+        time.sleep(1)
         st.rerun()
 
 
@@ -663,8 +660,9 @@ elif vista == "Opciones":
         else:
             docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
             st.markdown(render_cadena_opciones(docs, spot), unsafe_allow_html=True)
+            st.markdown(render_estrategias(docs_map), unsafe_allow_html=True)
 
-        time.sleep(0.5)
+        time.sleep(1)
         st.rerun()
 
 

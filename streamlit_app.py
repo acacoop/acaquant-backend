@@ -562,6 +562,7 @@ def render_estrategias(docs_map):
 # reemplaza su contenido de forma atómica y nunca queda HTML de
 # una vista anterior "pegado" en otra.
 # ==========================================
+_main.empty()          # limpia el slot antes de escribir (nuclear clear)
 with _main.container():
 
     # ------------------------------------------

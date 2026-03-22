@@ -145,9 +145,11 @@ def render_quant(m):
     )
 
 
+_HOURLY_HEIGHT = df_height(7)  # 10hs a 16hs = 7 filas
+
 def render_hourly(hourly_stats):
     rows = []
-    for h in range(10, 18):
+    for h in range(10, 17):
         d = hourly_stats.get(str(h), {"buy": 0, "sell": 0, "total": 0})
         rows.append({
             "Hora":  f"{h}hs",
@@ -156,7 +158,7 @@ def render_hourly(hourly_stats):
             "Sell":  fmt_money(d.get("sell", 0)),
         })
     st.caption("HOURLY VOL")
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True, height=df_height(8))
+    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True, height=_HOURLY_HEIGHT)
 
 
 def render_tape(trades, height=None):
@@ -595,7 +597,8 @@ def vista_libro():
                     x=alt.X("Hora:O", title=None, sort=None),
                     y=alt.Y("Precio:Q", scale=alt.Scale(zero=False), title=None),
                 )
-                .properties(height=220)
+                .properties(height=_HOURLY_HEIGHT)
+                .interactive()
             )
             st.caption("LAST MINUTES")
             st.altair_chart(chart, use_container_width=True)

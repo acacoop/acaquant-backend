@@ -16,6 +16,7 @@ class AunesaApiManager:
         self.autenticar()
 
     def autenticar(self):
+        self.token = None  # limpiar token viejo antes de intentar re-auth
         payload = {
             "clientId": config.AUNESA_CLIENT_ID,
             "username": config.AUNESA_USERNAME,

@@ -25,11 +25,20 @@ def get_mongo_client() -> pymongo.MongoClient:
     """
     Devuelve el cliente singleton a MongoDB Atlas.
     Crea la conexión la primera vez; las llamadas siguientes reutilizan el mismo pool.
+    Si el cliente existente está caído, lo recrea automáticamente.
     """
     global _client
     if not MONGO_URI:
         logger.error("CRÍTICO: No se encontró MONGO_URI en el archivo .env")
         raise ValueError("Falta MONGO_URI en el entorno")
+
+    if _client is not None:
+        try:
+            _client.admin.command('ping')
+        except Exception:
+            logger.warning("MongoDB: cliente caído, reconectando...")
+            with _client_lock:
+                _client = None
 
     if _client is None:
         with _client_lock:

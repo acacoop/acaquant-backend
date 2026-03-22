@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import holidays
 import pyRofex
 from datetime import datetime, timedelta
+from pymongo import ReplaceOne
 from aunesa_api_manager import AunesaApiManager
 from mongo_manager import get_mongo_client
 from session_manager import inicializar_sesion
@@ -127,18 +128,30 @@ def actualizar_precios_mercado():
 
 def guardar_en_mongo(df):
     """
-    Borra todo lo que haya en Valuaciones.Carteras y guarda los nuevos datos.
-    Nunca hay duplicados: siempre es un reemplazo total.
+    Upsert atómico de Valuaciones.Carteras usando la clave (id_cuenta, unidad).
+    Evita la ventana de pérdida de datos que existía con delete_many + insert_many.
     """
     client = get_mongo_client()
     collection = client["Valuaciones"]["Carteras"]
 
-    # Overwrite: borramos todo y reinsertamos
-    collection.delete_many({})
-
     registros = df.to_dict(orient="records")
     if registros:
-        collection.insert_many(registros)
+        ops = [
+            ReplaceOne(
+                {"id_cuenta": r.get("id_cuenta"), "unidad": r.get("unidad")},
+                r,
+                upsert=True
+            )
+            for r in registros
+        ]
+        collection.bulk_write(ops, ordered=False)
+
+        # Eliminar filas que ya no vienen en el nuevo snapshot
+        claves_actuales = [
+            {"id_cuenta": r.get("id_cuenta"), "unidad": r.get("unidad")}
+            for r in registros
+        ]
+        collection.delete_many({"$nor": claves_actuales})
 
     client.close()
     return len(registros)

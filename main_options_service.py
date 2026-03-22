@@ -9,6 +9,7 @@ import time
 import signal
 import logging
 import pyRofex
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from collections import defaultdict
 from pymongo import UpdateOne
@@ -66,6 +67,9 @@ class OptionsEngine:
         self._cache_lock = threading.Lock()
 
         self._inicializar_estado_memoria()
+
+        # Pool acotado para guardar trades históricos (evita explosión de threads)
+        self._trade_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="opt_trade")
 
         # Calcula VR GGAL en segundo plano al arrancar (no bloquea el motor)
         threading.Thread(target=self._calcular_vr_startup, daemon=True).start()
@@ -205,11 +209,7 @@ class OptionsEngine:
                         self.last_trade_cache[ticker] = ts
                         spawn = True
                 if spawn:
-                    threading.Thread(
-                        target=self._guardar_en_mongo,
-                        args=(ticker, state.copy(), ts),
-                        daemon=True
-                    ).start()
+                    self._trade_pool.submit(self._guardar_en_mongo, ticker, state.copy(), ts)
 
     def _batch_snapshot_loop(self):
         """
@@ -344,7 +344,7 @@ def run():
     ws_manager = WebSocketManager(engine)
     ws_manager.iniciar_ws(engine.get_tickers_suscripcion())
     logger.info(
-        f"Motor corriendo (event-driven, throttle {OptionsEngine._SNAPSHOT_THROTTLE}s/sym). "
+        f"Motor corriendo (event-driven, snapshot cada 1s). "
         f"Suscripto a {len(engine.get_tickers_suscripcion())} activos."
     )
 

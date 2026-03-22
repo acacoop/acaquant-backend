@@ -69,10 +69,11 @@ class MicrostructureEngine:
                 "book": {"bids": [], "offers": []},
                 "trades": deque(maxlen=100),
                 "last_nv": 0.0,
-                "last_price": 0.0,
-                "open_price": 0.0,
-                "high_price": 0.0,
-                "low_price":  0.0,
+                "last_price":    0.0,
+                "open_price":    0.0,
+                "high_price":    0.0,
+                "low_price":     0.0,
+                "closing_price": 0.0,
                 "closed_vpins": deque(maxlen=50),
                 "vpin_stats": {"current_buy_vol": 0, "current_sell_vol": 0, "last_vpin": 0.0},
                 "daily_financials": {"total_money": 0.0, "buy_money": 0.0, "sell_money": 0.0, "total_nominals": 0.0},
@@ -105,6 +106,7 @@ class MicrostructureEngine:
                         pyRofex.MarketDataEntry.OPENING_PRICE,
                         pyRofex.MarketDataEntry.HIGH_PRICE,
                         pyRofex.MarketDataEntry.LOW_PRICE,
+                        pyRofex.MarketDataEntry.CLOSING_PRICE,
                         pyRofex.MarketDataEntry.LAST,
                     ]
                 )
@@ -116,6 +118,8 @@ class MicrostructureEngine:
                     st["high_price"] = float(data["HI"])
                 if data.get("LO"):
                     st["low_price"] = float(data["LO"])
+                if data.get("CL"):
+                    st["closing_price"] = float(data["CL"])
                 la = data.get("LA")
                 if la and la.get("price"):
                     st["last_price"] = float(la["price"])
@@ -182,9 +186,10 @@ class MicrostructureEngine:
         if "OF" in data: st["book"]["offers"] = data["OF"][:5]
         if "EV" in data and data["EV"] is not None: st["daily_financials"]["total_money"] = float(data["EV"])
         if "NV" in data and data["NV"] is not None: st["daily_financials"]["total_nominals"] = float(data["NV"])
-        if "OP" in data and data["OP"]: st["open_price"] = float(data["OP"])
-        if "HI" in data and data["HI"]: st["high_price"] = float(data["HI"])
-        if "LO" in data and data["LO"]: st["low_price"]  = float(data["LO"])
+        if "OP" in data and data["OP"]: st["open_price"]    = float(data["OP"])
+        if "HI" in data and data["HI"]: st["high_price"]    = float(data["HI"])
+        if "LO" in data and data["LO"]: st["low_price"]     = float(data["LO"])
+        if "CL" in data and data["CL"]: st["closing_price"] = float(data["CL"])
 
         last, nv = data.get("LA"), data.get("NV")
         if last and nv is not None:
@@ -289,10 +294,11 @@ class MicrostructureEngine:
             "progreso": progreso,
             "buy_b": vs["current_buy_vol"],
             "sell_b": vs["current_sell_vol"],
-            "last_price": st["last_price"],
-            "open_price": st["open_price"],
-            "high_price": st["high_price"],
-            "low_price":  st["low_price"],
+            "last_price":    st["last_price"],
+            "open_price":    st["open_price"],
+            "high_price":    st["high_price"],
+            "low_price":     st["low_price"],
+            "closing_price": st["closing_price"],
         }
 
     def _snapshot_loop(self):

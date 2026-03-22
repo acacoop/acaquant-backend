@@ -45,10 +45,6 @@ def get_db():
 def get_db_opciones():
     return get_mongo_client()["Opciones"]
 
-@st.cache_resource(ttl=3600)
-def get_db_valuaciones():
-    return get_mongo_client()["Valuaciones"]
-
 
 # ==========================================
 # SIDEBAR - NAVEGACIÓN
@@ -58,13 +54,13 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Mercado", "Opciones"],
+        ["Libro", "Mercado", "Opciones", "Estrategias"],
         label_visibility="collapsed"
     )
 
 
 # ==========================================
-# FORMAT HELPERS
+# HELPERS
 # ==========================================
 def fmt_money(v):
     v = v or 0
@@ -86,8 +82,11 @@ def fmt_vol(v):
     if v >= 1_000:     return f"{v/1_000:.0f}k"
     return f"{v:.0f}"
 
+def df_height(nrows, max_h=800):
+    """Altura en píxeles para que el dataframe muestre todas las filas sin scroll vertical."""
+    return min(38 + 35 * nrows, max_h)
+
 def lag_badge(ts, threshold=5):
-    """Muestra línea de última actualización con color según lag."""
     if not ts:
         return
     lag = (datetime.now() - ts).total_seconds()
@@ -125,10 +124,14 @@ def render_depth(book):
         })
     )
     st.caption("DEPTH")
-    st.dataframe(styler, hide_index=True, use_container_width=True)
+    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(5))
 
 
 def render_quant(m):
+    closing = m.get('closing_price', 0) or 0
+    last    = m.get('last_price', 0) or 0
+    vs_cierre = (last / closing - 1) if closing > 0 and last > 0 else None
+
     rows = [
         ("Micro-Price",       f"{m.get('micro_price', 0):,.4f}"),
         ("Spread",            f"{m.get('spread', 0):,.2f}"),
@@ -143,12 +146,15 @@ def render_quant(m):
         ("Total Money",       fmt_money(m.get('total_money', 0))),
         ("Buy Session",       fmt_money(m.get('buy_money', 0))),
         ("Sell Session",      fmt_money(m.get('sell_money', 0))),
+        ("Cierre Anterior",   f"${closing:,.2f}" if closing > 0 else "-"),
+        ("Vs. Cierre",        f"{vs_cierre:+.2%}" if vs_cierre is not None else "-"),
     ]
     st.caption("QUANT ANALYTICS")
     st.dataframe(
         pd.DataFrame(rows, columns=["Métrica", "Valor"]),
         hide_index=True,
         use_container_width=True,
+        height=df_height(len(rows)),
     )
 
 
@@ -163,7 +169,7 @@ def render_hourly(hourly_stats):
             "Sell":  fmt_money(d.get("sell", 0)),
         })
     st.caption("HOURLY VOL")
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True, height=df_height(8))
 
 
 def render_tape(trades):
@@ -191,7 +197,7 @@ def render_tape(trades):
         ), subset=["Side"])
         .format({"Precio": "{:,.2f}", "Size": "{:,.0f}"})
     )
-    st.dataframe(styler, hide_index=True, use_container_width=True)
+    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(rows), max_h=700))
 
 
 def render_whales(top_trades):
@@ -217,7 +223,7 @@ def render_whales(top_trades):
         ), subset=["Side"])
         .format({"Precio": "{:,.2f}"})
     )
-    st.dataframe(styler, hide_index=True, use_container_width=True)
+    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(rows), max_h=600))
 
 
 # ==========================================
@@ -234,31 +240,37 @@ def render_mercado_table(snaps):
         imb        = m.get("imbalance",   0) or 0
         last_price = m.get("last_price",  0) or 0
         open_price = m.get("open_price",  0) or 0
+        closing    = m.get("closing_price", 0) or 0
         vwap       = m.get("vwap",        0) or 0
         if total == 0:
             continue
-        intraday = (last_price / open_price - 1) if open_price > 0 and last_price > 0 else None
+        intraday  = (last_price / open_price - 1) if open_price > 0 and last_price > 0 else None
+        vs_cierre = (last_price / closing - 1) if closing > 0 and last_price > 0 else None
         rows.append({
-            "Ticker":   short_name(ticker),
-            "Total $":  fmt_money(total),
-            "Buy $":    fmt_money(buy),
-            "Sell $":   fmt_money(sell),
-            "Open":     open_price  if open_price  > 0 else None,
-            "Last":     last_price  if last_price  > 0 else None,
-            "VWAP":     vwap        if vwap        > 0 else None,
-            "Intraday": intraday,
+            "Ticker":    short_name(ticker),
+            "Total $":   fmt_money(total),
+            "Buy $":     fmt_money(buy),
+            "Sell $":    fmt_money(sell),
+            "Open":      open_price   if open_price  > 0 else None,
+            "Last":      last_price   if last_price  > 0 else None,
+            "Cierre":    closing      if closing      > 0 else None,
+            "VWAP":      vwap         if vwap         > 0 else None,
+            "Intraday":  intraday,
+            "Vs Cierre": vs_cierre,
             "Imbalance": imb,
         })
     if not rows:
         st.info("Todos los tickers sin volumen aún.")
         return
     df = pd.DataFrame(rows)
+
+    def pct_color(v):
+        if pd.isna(v): return ""
+        return "color: #00cc66; font-weight: bold" if v >= 0 else "color: #ff4444; font-weight: bold"
+
     styler = (
         df.style
-        .map(lambda v: (
-            "color: #00cc66; font-weight: bold" if pd.notna(v) and v >= 0 else
-            "color: #ff4444; font-weight: bold"
-        ) if pd.notna(v) else "", subset=["Intraday"])
+        .map(pct_color, subset=["Intraday", "Vs Cierre"])
         .map(lambda v: (
             "color: #00cc66; font-weight: bold" if v > 0.05 else
             "color: #ff4444; font-weight: bold" if v < -0.05 else
@@ -267,13 +279,15 @@ def render_mercado_table(snaps):
         .format({
             "Open":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
             "Last":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
+            "Cierre":    lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
             "VWAP":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
             "Intraday":  lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
+            "Vs Cierre": lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
             "Imbalance": "{:.2%}",
         })
     )
     st.caption("RESUMEN DE MERCADO")
-    st.dataframe(styler, hide_index=True, use_container_width=True)
+    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(df), max_h=900))
 
 
 # ==========================================
@@ -297,6 +311,11 @@ def render_cadena_opciones(docs, spot):
     def fmt_hl(h, l):
         return f"{h:.1f}/{l:.1f}" if h and h > 0 else "-"
 
+    def intraday(last, open_):
+        if last and last > 0 and open_ and open_ > 0:
+            return last / open_ - 1
+        return None
+
     rows = []
     for K in sorted(por_strike.keys()):
         c = por_strike[K].get('CALL', {})
@@ -306,6 +325,7 @@ def render_cadena_opciones(docs, spot):
         if c_mid == 0 and p_mid == 0:
             continue
         rows.append({
+            "C Δ%":    intraday(c.get('last'), c.get('open')),
             "C Vol":   fmt_vol(c.get('ev')),
             "C H/L":   fmt_hl(c.get('high', 0) or 0, c.get('low', 0) or 0),
             "C Delta": c.get('delta'),
@@ -319,6 +339,7 @@ def render_cadena_opciones(docs, spot):
             "P Delta": p.get('delta'),
             "P H/L":   fmt_hl(p.get('high', 0) or 0, p.get('low', 0) or 0),
             "P Vol":   fmt_vol(p.get('ev')),
+            "P Δ%":    intraday(p.get('last'), p.get('open')),
         })
 
     if not rows:
@@ -326,13 +347,20 @@ def render_cadena_opciones(docs, spot):
         return
 
     df = pd.DataFrame(rows)
+
+    def pct_color(v):
+        if pd.isna(v): return ""
+        return "color: #00cc66; font-weight: bold" if v >= 0 else "color: #ff4444; font-weight: bold"
+
     styler = (
         df.style
+        .map(pct_color, subset=["C Δ%", "P Δ%"])
         .map(lambda v: "color: #00cc66; font-weight: bold" if pd.notna(v) else "", subset=["C Bid", "P Bid"])
         .map(lambda v: "color: #ff4444; font-weight: bold" if pd.notna(v) else "", subset=["C Offer", "P Offer"])
         .map(lambda v: "color: #f0c040; font-weight: bold", subset=["STRIKE"])
         .format({
-            "C Delta": lambda v: f"{v:.3f}" if pd.notna(v) else "-",
+            "C Δ%":    lambda v: f"{v:+.1%}" if pd.notna(v) else "-",
+            "C Delta": lambda v: f"{v:.3f}"  if pd.notna(v) else "-",
             "C IV %":  lambda v: f"{v:.1f}%" if pd.notna(v) else "-",
             "C Bid":   lambda v: f"{v:.2f}"  if pd.notna(v) else "-",
             "C Offer": lambda v: f"{v:.2f}"  if pd.notna(v) else "-",
@@ -341,90 +369,134 @@ def render_cadena_opciones(docs, spot):
             "P Offer": lambda v: f"{v:.2f}"  if pd.notna(v) else "-",
             "P IV %":  lambda v: f"{v:.1f}%" if pd.notna(v) else "-",
             "P Delta": lambda v: f"{v:.3f}"  if pd.notna(v) else "-",
+            "P Δ%":    lambda v: f"{v:+.1%}" if pd.notna(v) else "-",
         })
     )
     spot_str = f"${spot:,.2f}" if spot else "N/A"
     st.caption(f"CADENA DE OPCIONES GGAL — SPOT: {spot_str}")
-    st.dataframe(styler, hide_index=True, use_container_width=True)
+    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(df), max_h=900))
 
 
-def render_estrategias(docs_map):
-    from Opciones.estrategias_opciones import ESTRATEGIAS
+# ==========================================
+# RENDER FUNCTIONS — ESTRATEGIAS DINÁMICAS
+# ==========================================
+#
+# Cada template define piernas relativas al índice ATM en la lista de strikes
+# líquidos ordenados. offset=0 es ATM, +1 es el strike inmediato superior, etc.
+# Cada pierna: (offset, tipo, lado, cantidad)
+#   - lado 'buy'  → precio de compra = offer
+#   - lado 'sell' → precio de venta  = bid
+#
+STRATEGY_TEMPLATES = [
+    ("Bull Call Spread",   [(0, 'CALL', 'buy', 1),  (+1, 'CALL', 'sell', 1)]),
+    ("Bear Put Spread",    [(0, 'PUT',  'buy', 1),  (-1, 'PUT',  'sell', 1)]),
+    ("Straddle ATM",       [(0, 'CALL', 'buy', 1),  ( 0, 'PUT',  'buy',  1)]),
+    ("Strangle 1-wing",    [(+1,'CALL', 'buy', 1),  (-1, 'PUT',  'buy',  1)]),
+    ("Ratio Call 1×2",     [(0, 'CALL', 'buy', 1),  (+1, 'CALL', 'sell', 2)]),
+    ("Ratio Put 1×2",      [(0, 'PUT',  'buy', 1),  (-1, 'PUT',  'sell', 2)]),
+    ("Call Backspread",    [(0, 'CALL', 'sell', 1), (+1, 'CALL', 'buy',  2)]),
+    ("Put Backspread",     [(0, 'PUT',  'sell', 1), (-1, 'PUT',  'buy',  2)]),
+    ("Iron Condor",        [(-2,'PUT',  'buy', 1),  (-1, 'PUT',  'sell', 1),
+                             (+1,'CALL', 'sell', 1), (+2, 'CALL', 'buy',  1)]),
+    ("Bull Call Spread+2", [(0, 'CALL', 'buy', 1),  (+2, 'CALL', 'sell', 1)]),
+    ("Bear Put Spread+2",  [(0, 'PUT',  'buy', 1),  (-2, 'PUT',  'sell', 1)]),
+    ("Strangle 2-wings",   [(+2,'CALL', 'buy', 1),  (-2, 'PUT',  'buy',  1)]),
+]
 
-    def get_safe(d, key):
-        if not d: return 0
-        v = d.get(key, 0)
-        return v if v is not None else 0
 
-    rows = []
-    for estr in ESTRATEGIAS:
-        neto, d_net, g_net, t_net, valida = 0, 0, 0, 0, True
-        s_c, s_v = 0, 0
-        for pata in estr['patas']:
-            sym = pata['symbol']
-            dat = docs_map.get(sym)
-            if not dat:
-                valida = False
-                break
-            qty    = pata['ratio']
-            p_off  = get_safe(dat, 'offer')
-            p_bid  = get_safe(dat, 'bid')
-            p_last = get_safe(dat, 'last')
-            px = (p_off if pata['lado'] == 'compra' else p_bid) if (p_off > 0 and p_bid > 0) else p_last
-            if px == 0:
-                valida = False
-                break
-            strike_val = get_safe(dat, 'strike')
-            if pata['lado'] == 'compra':
-                s_c = strike_val
-            else:
-                s_v = strike_val
-            m = 1 if pata['lado'] == 'compra' else -1
-            neto  += px  * qty * m
-            d_net += get_safe(dat, 'delta') * qty * m
-            g_net += get_safe(dat, 'gamma') * qty * m
-            t_net += get_safe(dat, 'theta') * qty * m
+def render_estrategias_dinamicas(docs, spot):
+    por_strike = {}
+    for d in docs:
+        k = d.get('strike')
+        t = d.get('tipo')
+        if k and t:
+            if k not in por_strike:
+                por_strike[k] = {}
+            por_strike[k][t] = d
 
-        f_val = abs(s_c - s_v) - neto if (s_c > 0 and s_v > 0 and neto > 0) else 0
-        rows.append({
-            "Estrategia": estr['nombre'],
-            "Costo":      neto  if valida else None,
-            "Finish":     f_val if (valida and f_val > 0) else None,
-            "Ratio":      (f_val / neto) if (valida and f_val > 0 and neto > 0) else None,
-            "Delta":      d_net if valida else None,
-            "Gamma":      g_net if valida else None,
-            "Theta":      t_net if valida else None,
-        })
+    def is_liquid(d):
+        if not d: return False
+        return (d.get('bid', 0) or 0) > 0 or (d.get('offer', 0) or 0) > 0
 
-    if not rows:
+    liquid_strikes = sorted([
+        k for k, v in por_strike.items()
+        if is_liquid(v.get('CALL')) or is_liquid(v.get('PUT'))
+    ])
+
+    if not liquid_strikes or spot <= 0:
+        st.info("Sin suficientes datos de mercado para construir estrategias.")
         return
 
+    atm_idx = min(range(len(liquid_strikes)), key=lambda i: abs(liquid_strikes[i] - spot))
+    atm_K   = liquid_strikes[atm_idx]
+
+    def get_px(d, side):
+        if not d: return 0
+        offer = d.get('offer', 0) or 0
+        bid   = d.get('bid',   0) or 0
+        last  = d.get('last',  0) or 0
+        return (offer if side == 'buy' else bid) if (offer > 0 and bid > 0) else last
+
+    rows = []
+    for name, legs in STRATEGY_TEMPLATES:
+        neto = d_net = g_net = t_net = 0.0
+        valid = True
+        used_K = []
+
+        for offset, tipo, side, qty in legs:
+            idx = atm_idx + offset
+            if idx < 0 or idx >= len(liquid_strikes):
+                valid = False
+                break
+            K  = liquid_strikes[idx]
+            d  = por_strike.get(K, {}).get(tipo)
+            px = get_px(d, side)
+            if px <= 0:
+                valid = False
+                break
+            m = 1 if side == 'buy' else -1
+            neto  += px * qty * m
+            d_net += (d.get('delta', 0) or 0) * qty * m
+            g_net += (d.get('gamma', 0) or 0) * qty * m
+            t_net += (d.get('theta', 0) or 0) * qty * m
+            used_K.append(K)
+
+        rows.append({
+            "Estrategia":  name,
+            "Strikes":     "/".join(f"{k:,.0f}" for k in sorted(set(used_K))) if valid else "-",
+            "Costo/Prima": neto  if valid else None,
+            "Delta":       d_net if valid else None,
+            "Gamma":       g_net if valid else None,
+            "Theta":       t_net if valid else None,
+        })
+
     df = pd.DataFrame(rows)
+
     styler = (
         df.style
         .map(lambda v: (
             "color: #ff4444; font-weight: bold" if pd.notna(v) and v > 0 else
             "color: #00cc66; font-weight: bold" if pd.notna(v) else
             "color: #555"
-        ), subset=["Costo"])
+        ), subset=["Costo/Prima"])
         .format({
-            "Costo":  lambda v: f"${v:.2f}" if pd.notna(v) else "Sin Liq",
-            "Finish": lambda v: f"${v:.2f}" if pd.notna(v) else "-",
-            "Ratio":  lambda v: f"{v:.1%}"  if pd.notna(v) else "-",
-            "Delta":  lambda v: f"{v:.3f}"  if pd.notna(v) else "-",
-            "Gamma":  lambda v: f"{v:.4f}"  if pd.notna(v) else "-",
-            "Theta":  lambda v: f"{v:.2f}"  if pd.notna(v) else "-",
+            "Costo/Prima": lambda v: f"${v:.2f}" if pd.notna(v) else "Sin Liq",
+            "Delta":       lambda v: f"{v:.3f}"  if pd.notna(v) else "-",
+            "Gamma":       lambda v: f"{v:.4f}"  if pd.notna(v) else "-",
+            "Theta":       lambda v: f"{v:.2f}"  if pd.notna(v) else "-",
         })
     )
-    st.caption("ESTRATEGIAS")
-    st.dataframe(styler, hide_index=True, use_container_width=True)
+    st.caption(f"ESTRATEGIAS DINÁMICAS — ATM: {atm_K:,.0f} | Spot: ${spot:,.2f}")
+    st.info(
+        "**Costo/Prima** — positivo = debit (pagás prima), negativo = credit (recibís prima).  \n"
+        "Los strikes se construyen automáticamente sobre el ATM más cercano al spot.",
+        icon="ℹ️"
+    )
+    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(df)))
 
 
 # ==========================================
-# VISTAS — cada una es un fragmento independiente que se auto-refresca
-# cada 1 segundo. Al cambiar de vista (radio), Streamlit destruye el
-# fragmento anterior limpiamente antes de montar el nuevo, eliminando
-# el problema de HTML "fantasma" de Opciones que persistía en otras vistas.
+# VISTAS (st.fragment → auto-refresh 1s, sin sleep ni rerun global)
 # ==========================================
 
 @st.fragment(run_every=1)
@@ -498,9 +570,27 @@ def vista_opciones():
         st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
         return
 
-    docs_map = {d['symbol']: d for d in docs if d.get('symbol')}
     render_cadena_opciones(docs, spot)
-    render_estrategias(docs_map)
+
+
+@st.fragment(run_every=1)
+def vista_estrategias():
+    db_op = get_db_opciones()
+
+    st.markdown("## 🎯 ACAQuant | Estrategias GGAL")
+
+    docs = list(db_op["OptionsSnapshot"].find({}))
+
+    if not docs:
+        st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
+        return
+
+    ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
+    spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0)
+    lag_badge(ultimo_ts, threshold=10)
+    st.divider()
+
+    render_estrategias_dinamicas(docs, spot)
 
 
 @st.fragment(run_every=1)
@@ -527,11 +617,12 @@ def vista_mercado():
     render_mercado_table(all_snaps)
 
 
-# Ruteo: solo se llama el fragmento activo. Al cambiar de vista,
-# el fragmento anterior es destruido limpiamente por Streamlit.
+# Ruteo: solo se llama el fragmento activo.
 if vista == "Libro":
     vista_libro()
 elif vista == "Opciones":
     vista_opciones()
+elif vista == "Estrategias":
+    vista_estrategias()
 elif vista == "Mercado":
     vista_mercado()

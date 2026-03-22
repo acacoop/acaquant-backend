@@ -108,7 +108,7 @@ class OptionsEngine:
         for t in set(tickers_a_monitorear):
             self.market_state[t] = {
                 'bid': 0, 'offer': 0, 'last': 0, 'last_timestamp': None,
-                'open': 0, 'high': 0, 'low': 0, 'ev': 0
+                'open': 0, 'high': 0, 'low': 0, 'ev': 0, 'closing_price': 0
             }
 
     def get_tickers_suscripcion(self):
@@ -129,10 +129,11 @@ class OptionsEngine:
             state['offer'] = data['OF'][0]['price']
 
         # 2. Datos de Mercado (OP, HI, LO, EV)
-        state['open'] = data.get('OP', data.get('OPENING_PRICE', state['open']))
-        state['high'] = data.get('HI', data.get('HIGH_PRICE', state['high']))
-        state['low']  = data.get('LO', data.get('LOW_PRICE', state['low']))
-        state['ev']   = data.get('EV', data.get('TRADE_EFFECTIVE_VOLUME', state['ev']))
+        state['open']          = data.get('OP', data.get('OPENING_PRICE', state['open']))
+        state['high']          = data.get('HI', data.get('HIGH_PRICE', state['high']))
+        state['low']           = data.get('LO', data.get('LOW_PRICE', state['low']))
+        state['ev']            = data.get('EV', data.get('TRADE_EFFECTIVE_VOLUME', state['ev']))
+        state['closing_price'] = data.get('CL', data.get('CLOSING_PRICE', state['closing_price']))
 
         # 3. Último operado (LAST) — guarda trade histórico solo en ticks nuevos
         la = data.get('LA')
@@ -189,8 +190,11 @@ class OptionsEngine:
                         "updated_at": ts,
                         "symbol": sym,
                         "bid": bid, "offer": offer, "last": last,
-                        "open": md.get('open', 0), "high": md.get('high', 0),
-                        "low":  md.get('low', 0),  "ev":   md.get('ev', 0),
+                        "open":          md.get('open', 0),
+                        "high":          md.get('high', 0),
+                        "low":           md.get('low', 0),
+                        "ev":            md.get('ev', 0),
+                        "closing_price": md.get('closing_price', 0),
                         "strike": K, "tipo": tipo, "spot": S,
                     }
 

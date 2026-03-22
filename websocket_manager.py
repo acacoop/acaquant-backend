@@ -43,6 +43,7 @@ class WebSocketManager:
                         pyRofex.MarketDataEntry.OPENING_PRICE,
                         pyRofex.MarketDataEntry.HIGH_PRICE,
                         pyRofex.MarketDataEntry.LOW_PRICE,
+                        pyRofex.MarketDataEntry.CLOSING_PRICE,
                         pyRofex.MarketDataEntry.TRADE_EFFECTIVE_VOLUME,
                         pyRofex.MarketDataEntry.NOMINAL_VOLUME
                     ],

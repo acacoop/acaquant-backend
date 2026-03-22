@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from mongo_manager import get_mongo_client
+from tickers import MERV_TICKERS as TICKERS
 
 # ==========================================
 # CONFIG
@@ -12,22 +13,6 @@ st.set_page_config(
     page_icon="📈",
     initial_sidebar_state="expanded"
 )
-
-TICKERS = [
-    "MERV - XMEV - TZXM6 - 24hs", "MERV - XMEV - S17A6 - 24hs",
-    "MERV - XMEV - S30A6 - 24hs", "MERV - XMEV - S29Y6 - 24hs", "MERV - XMEV - T30J6 - 24hs",
-    "MERV - XMEV - S15Y6 - 24hs", "MERV - XMEV - TTJ26 - 24hs", "MERV - XMEV - TTS26 - 24hs",
-    "MERV - XMEV - TTD26 - 24hs",
-    "MERV - XMEV - S31L6 - 24hs", "MERV - XMEV - S31G6 - 24hs", "MERV - XMEV - S30O6 - 24hs",
-    "MERV - XMEV - S30N6 - 24hs", "MERV - XMEV - T15E7 - 24hs", "MERV - XMEV - T30A7 - 24hs",
-    "MERV - XMEV - T31Y7 - 24hs", "MERV - XMEV - T30J7 - 24hs", "MERV - XMEV - TY30P - 24hs",
-    "MERV - XMEV - X15Y6 - 24hs", "MERV - XMEV - X29Y6 - 24hs", "MERV - XMEV - TZX26 - 24hs",
-    "MERV - XMEV - X31L6 - 24hs", "MERV - XMEV - TX26 - 24hs",  "MERV - XMEV - TZXO6 - 24hs",
-    "MERV - XMEV - X30N6 - 24hs", "MERV - XMEV - TZXD6 - 24hs", "MERV - XMEV - TZXM7 - 24hs",
-    "MERV - XMEV - TZXY7 - 24hs", "MERV - XMEV - TZX27 - 24hs", "MERV - XMEV - TX28 - 24hs",
-    "MERV - XMEV - TZXD7 - 24hs", "MERV - XMEV - TZX28 - 24hs", "MERV - XMEV - DICP - 24hs",
-    "MERV - XMEV - PARP - 24hs"
-]
 
 def short_name(ticker):
     parts = ticker.split(" - ")
@@ -94,17 +79,13 @@ def df_height(nrows, max_h=800):
     """Altura en píxeles para que el dataframe muestre todas las filas sin scroll vertical."""
     return min(38 + 35 * nrows, max_h)
 
-def lag_badge(ts, threshold=5):
+def last_update_badge(ts):
+    """Muestra la hora de última actualización en horario Argentina (UTC-3). Sin contadores."""
     if not ts:
         return
-    lag = (datetime.now() - ts).total_seconds()
-    color = "#ff4444" if lag > threshold else "#00cc66"
-    st.markdown(
-        f"<div style='font-size:12px;color:#555;margin-top:-10px'>"
-        f"Última actualización: <span style='color:{color}'>"
-        f"{ts.strftime('%H:%M:%S')} ({lag:.1f}s atrás)</span></div>",
-        unsafe_allow_html=True
-    )
+    # ts viene como UTC-naive desde MongoDB; restamos 3h para obtener ART
+    ts_art = ts - timedelta(hours=3)
+    st.caption(f"Última actualización: {ts_art.strftime('%H:%M:%S')}")
 
 
 # ==========================================
@@ -380,6 +361,11 @@ def render_cadena_opciones(docs, spot):
             "P Δ%":    lambda v: f"{v:+.1%}" if pd.notna(v) else "-",
         })
     )
+    # Greeks heatmap: background_gradient sobre Delta e IV
+    heatmap_cols = [c for c in ["C IV %", "C Delta", "P IV %", "P Delta"] if c in df.columns]
+    if heatmap_cols:
+        styler = styler.background_gradient(subset=heatmap_cols, cmap="RdYlGn", axis=0)
+
     spot_str = f"${spot:,.2f}" if spot else "N/A"
     st.caption(f"CADENA DE OPCIONES GGAL — SPOT: {spot_str}")
     st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(df), max_h=900))
@@ -537,7 +523,7 @@ def render_estrategias_dinamicas(docs, spot, por_strike=None, liquid_strikes=Non
 # VISTAS (st.fragment → auto-refresh 1s, sin sleep ni rerun global)
 # ==========================================
 
-@st.fragment(run_every=1)
+@st.fragment(run_every=2)
 def vista_libro():
     db = get_db()
 
@@ -565,7 +551,7 @@ def vista_libro():
         st.warning(f"Sin datos para {ticker}. ¿El motor está corriendo?")
         return
 
-    lag_badge(snap.get("updated_at"), threshold=5)
+    last_update_badge(snap.get("updated_at"))
     st.divider()
 
     book          = snap.get("book", {"bids": [], "offers": []})
@@ -583,11 +569,22 @@ def vista_libro():
         render_hourly(hourly_stats)
     with col_center:
         render_tape(recent_trades)
+        # Equity curve: precio de trades del día
+        if recent_trades:
+            trade_prices = [
+                {"Hora": t["timestamp"].strftime("%H:%M:%S") if hasattr(t.get("timestamp"), "strftime") else "",
+                 "Precio": t.get("price", 0)}
+                for t in sorted(recent_trades, key=lambda x: x.get("timestamp", datetime.min))
+                if t.get("price", 0) > 0
+            ]
+            if trade_prices:
+                st.caption("EQUITY CURVE (PRECIO)")
+                st.line_chart(pd.DataFrame(trade_prices).set_index("Hora")["Precio"])
     with col_right:
         render_whales(top_trades)
 
 
-@st.fragment(run_every=1)
+@st.fragment(run_every=2)
 def vista_opciones():
     db_op     = get_db_opciones()
     meta_col  = get_meta_col()
@@ -631,7 +628,7 @@ def vista_opciones():
 
     if docs:
         ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
-        lag_badge(ultimo_ts, threshold=10)
+        last_update_badge(ultimo_ts)
 
     st.divider()
 
@@ -641,8 +638,28 @@ def vista_opciones():
 
     render_cadena_opciones(docs, spot)
 
+    # ── Volatility Smile ─────────────────────────────────────────────────
+    smile_rows = {}
+    for d in docs:
+        k = d.get("strike")
+        t = d.get("tipo")
+        iv = d.get("iv")
+        if k and t and iv and iv > 0:
+            if k not in smile_rows:
+                smile_rows[k] = {}
+            smile_rows[k][t] = round(iv * 100, 2)
 
-@st.fragment(run_every=1)
+    if smile_rows:
+        smile_df = (
+            pd.DataFrame.from_dict(smile_rows, orient="index")
+            .rename(columns={"CALL": "CALL IV%", "PUT": "PUT IV%"})
+            .sort_index()
+        )
+        st.caption("VOLATILITY SMILE — IV% por strike")
+        st.line_chart(smile_df, use_container_width=True)
+
+
+@st.fragment(run_every=2)
 def vista_estrategias():
     db_op = get_db_opciones()
 
@@ -700,15 +717,35 @@ def vista_estrategias():
 
     if docs:
         ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
-        lag_badge(ultimo_ts, threshold=10)
+        last_update_badge(ultimo_ts)
 
     st.divider()
 
     render_estrategias_dinamicas(docs, spot, por_strike=por_strike,
                                   liquid_strikes=liquid_strikes, center_idx=center_idx)
 
+    # ── Greeks agregados del portfolio ATM ───────────────────────────────
+    atm_K = liquid_strikes[center_idx]
+    atm_data = por_strike.get(atm_K, {})
+    if atm_data:
+        st.divider()
+        st.caption(f"GREEKS NETOS — Strike {atm_K:,.0f} (CALL + PUT)")
+        agg_cols = st.columns(4)
+        for col, key, label in zip(
+            agg_cols,
+            ["delta", "gamma", "theta", "iv"],
+            ["Delta neto", "Gamma neto", "Theta neto", "IV media"]
+        ):
+            vals = [d.get(key, 0) or 0 for d in atm_data.values() if d]
+            if key == "iv":
+                v = sum(vals) / len(vals) if vals else 0
+                col.metric(label, f"{v:.2%}" if v else "-")
+            else:
+                v = sum(vals)
+                col.metric(label, f"{v:.4f}" if v else "-")
 
-@st.fragment(run_every=1)
+
+@st.fragment(run_every=2)
 def vista_mercado():
     db = get_db()
 
@@ -721,7 +758,7 @@ def vista_mercado():
             (s.get("updated_at") for s in all_snaps if s.get("updated_at")),
             default=None
         )
-        lag_badge(ultimo_ts, threshold=5)
+        last_update_badge(ultimo_ts)
 
     st.divider()
 

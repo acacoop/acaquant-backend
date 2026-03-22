@@ -5,7 +5,7 @@ import pyRofex
 import threading
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from collections import deque
 from pymongo import ReplaceOne
@@ -14,25 +14,9 @@ from pymongo import ReplaceOne
 from session_manager import inicializar_sesion
 from websocket_manager import WebSocketManager
 from mongo_manager import get_mongo_client
+from tickers import MERV_TICKERS as TICKERS
 
 logger = logging.getLogger("MotorValores")
-
-# --- CONFIGURACIÓN MULTIACTIVO (INTACTA) ---
-TICKERS = [
-    "MERV - XMEV - TZXM6 - 24hs", "MERV - XMEV - S17A6 - 24hs",
-    "MERV - XMEV - S30A6 - 24hs", "MERV - XMEV - S29Y6 - 24hs", "MERV - XMEV - T30J6 - 24hs",
-    "MERV - XMEV - S15Y6 - 24hs","MERV - XMEV - TTJ26 - 24hs","MERV - XMEV - TTS26 - 24hs",
-    "MERV - XMEV - TTD26 - 24hs",
-    "MERV - XMEV - S31L6 - 24hs", "MERV - XMEV - S31G6 - 24hs", "MERV - XMEV - S30O6 - 24hs",
-    "MERV - XMEV - S30N6 - 24hs", "MERV - XMEV - T15E7 - 24hs", "MERV - XMEV - T30A7 - 24hs",
-    "MERV - XMEV - T31Y7 - 24hs", "MERV - XMEV - T30J7 - 24hs", "MERV - XMEV - TY30P - 24hs",
-    "MERV - XMEV - X15Y6 - 24hs", "MERV - XMEV - X29Y6 - 24hs", "MERV - XMEV - TZX26 - 24hs",
-    "MERV - XMEV - X31L6 - 24hs", "MERV - XMEV - TX26 - 24hs", "MERV - XMEV - TZXO6 - 24hs",
-    "MERV - XMEV - X30N6 - 24hs", "MERV - XMEV - TZXD6 - 24hs", "MERV - XMEV - TZXM7 - 24hs",
-    "MERV - XMEV - TZXY7 - 24hs", "MERV - XMEV - TZX27 - 24hs", "MERV - XMEV - TX28 - 24hs",
-    "MERV - XMEV - TZXD7 - 24hs", "MERV - XMEV - TZX28 - 24hs", "MERV - XMEV - DICP - 24hs",
-    "MERV - XMEV - PARP - 24hs"
-]
 
 ART = ZoneInfo("America/Argentina/Buenos_Aires")
 
@@ -128,7 +112,8 @@ class MicrostructureEngine:
 
         # 2) Reconstruir financials del día desde trades en MongoDB
         if self.col_trades is None: return
-        inicio = datetime.now(tz=ART).replace(hour=0, minute=0, second=0, microsecond=0).replace(tzinfo=None)
+        _art_now = datetime.utcnow() - timedelta(hours=3)
+        inicio = _art_now.replace(hour=0, minute=0, second=0, microsecond=0)
         for ticker in self.tickers:
             st = self.market_state[ticker]
             for doc in self.col_trades.find({"ticker": ticker, "timestamp": {"$gte": inicio}}):

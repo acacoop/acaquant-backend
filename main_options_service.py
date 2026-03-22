@@ -46,9 +46,19 @@ class OptionsEngine:
 
     def __init__(self):
         self.spot_symbol = "MERV - XMEV - GGAL - 24hs"
-        self.tasa = 0.242
 
-        self.mongo = MongoManager(db_name="Opciones", collection_name="Data")
+        self.mongo      = MongoManager(db_name="Opciones", collection_name="Data")
+        self._meta_col  = get_mongo_client()["Opciones"]["Metadata"]
+
+        # Tasa: lee de Metadata si existe, si no usa el default y lo persiste
+        cfg = self._meta_col.find_one({"type": "config"})
+        self.tasa = cfg.get("tasa", 0.242) if cfg else 0.242
+        self._meta_col.update_one(
+            {"type": "config"},
+            {"$set": {"tasa": self.tasa}},
+            upsert=True
+        )
+        logger.info(f"Tasa libre de riesgo: {self.tasa:.3f}")
 
         self.mapa_opciones, self.agrupacion_strikes = self._generar_maestra()
         self.market_state = {}
@@ -57,8 +67,39 @@ class OptionsEngine:
 
         self._inicializar_estado_memoria()
 
+        # Calcula VR GGAL en segundo plano al arrancar (no bloquea el motor)
+        threading.Thread(target=self._calcular_vr_startup, daemon=True).start()
+
         # Hilo único de escritura de snapshots a MongoDB (bulk_write cada 1s)
         threading.Thread(target=self._batch_snapshot_loop, daemon=True).start()
+
+    def _calcular_vr_startup(self):
+        """Calcula Volatilidad Realizada GGAL via yfinance al arrancar el día.
+        Persiste un único doc resumen en Opciones.Metadata — sin guardar histórico."""
+        try:
+            import yfinance as yf
+            import numpy as np
+            logger.info("Calculando VR GGAL desde Yahoo Finance...")
+            df = yf.download(["GGAL", "GGAL.BA"], period="65d", interval="1d", progress=False)
+            if df.empty:
+                logger.warning("yfinance no devolvió datos para VR GGAL.")
+                return
+            adr_close   = df.xs("GGAL",    axis=1, level=1)["Close"].dropna()
+            local_close = df.xs("GGAL.BA", axis=1, level=1)["Close"].dropna()
+            vr_adr   = float(np.log(adr_close   / adr_close.shift(1)  ).tail(40).std() * np.sqrt(252))
+            vr_local = float(np.log(local_close / local_close.shift(1)).tail(40).std() * np.sqrt(252))
+            self._meta_col.update_one(
+                {"type": "vr_ggal"},
+                {"$set": {
+                    "vr_local":    round(vr_local, 4),
+                    "vr_adr":      round(vr_adr,   4),
+                    "updated_at":  datetime.now(),
+                }},
+                upsert=True
+            )
+            logger.info(f"VR GGAL — Local(BA): {vr_local:.2%}  ADR: {vr_adr:.2%}")
+        except Exception as e:
+            logger.warning(f"No se pudo calcular VR GGAL: {e}")
 
     def _generar_maestra(self):
         """Descarga el padrón y filtra opciones de GGAL para el próximo vencimiento."""
@@ -163,9 +204,24 @@ class OptionsEngine:
         sin importar cuántos activos haya.
         """
         col = get_mongo_client()["Opciones"]["OptionsSnapshot"]
+        _tick = 0
 
         while True:
             time.sleep(1)
+            _tick += 1
+
+            # Cada 60s lee la tasa de Metadata para que Streamlit pueda cambiarla
+            if _tick % 60 == 0:
+                try:
+                    cfg = self._meta_col.find_one({"type": "config"})
+                    if cfg and cfg.get("tasa"):
+                        nueva = cfg["tasa"]
+                        if abs(nueva - self.tasa) > 1e-6:
+                            logger.info(f"Tasa actualizada: {self.tasa:.3f} → {nueva:.3f}")
+                            self.tasa = nueva
+                except Exception:
+                    pass
+
             try:
                 S = self.market_state.get(self.spot_symbol, {}).get('last', 0)
                 ts = datetime.now()

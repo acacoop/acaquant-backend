@@ -45,6 +45,10 @@ def get_db():
 def get_db_opciones():
     return get_mongo_client()["Opciones"]
 
+@st.cache_resource(ttl=3600)
+def get_meta_col():
+    return get_mongo_client()["Opciones"]["Metadata"]
+
 
 # ==========================================
 # SIDEBAR - NAVEGACIÓN
@@ -404,31 +408,35 @@ STRATEGY_TEMPLATES = [
 ]
 
 
-def render_estrategias_dinamicas(docs, spot):
-    por_strike = {}
-    for d in docs:
-        k = d.get('strike')
-        t = d.get('tipo')
-        if k and t:
-            if k not in por_strike:
-                por_strike[k] = {}
-            por_strike[k][t] = d
+def render_estrategias_dinamicas(docs, spot, por_strike=None, liquid_strikes=None, center_idx=None):
+    # Permite recibir datos pre-computados desde vista_estrategias (evita recalcular)
+    if por_strike is None:
+        por_strike = {}
+        for d in docs:
+            k = d.get('strike')
+            t = d.get('tipo')
+            if k and t:
+                if k not in por_strike:
+                    por_strike[k] = {}
+                por_strike[k][t] = d
 
-    def is_liquid(d):
-        if not d: return False
-        return (d.get('bid', 0) or 0) > 0 or (d.get('offer', 0) or 0) > 0
-
-    liquid_strikes = sorted([
-        k for k, v in por_strike.items()
-        if is_liquid(v.get('CALL')) or is_liquid(v.get('PUT'))
-    ])
+    if liquid_strikes is None:
+        def is_liquid(d):
+            if not d: return False
+            return (d.get('bid', 0) or 0) > 0 or (d.get('offer', 0) or 0) > 0
+        liquid_strikes = sorted([
+            k for k, v in por_strike.items()
+            if is_liquid(v.get('CALL')) or is_liquid(v.get('PUT'))
+        ])
 
     if not liquid_strikes or spot <= 0:
         st.info("Sin suficientes datos de mercado para construir estrategias.")
         return
 
-    atm_idx = min(range(len(liquid_strikes)), key=lambda i: abs(liquid_strikes[i] - spot))
-    atm_K   = liquid_strikes[atm_idx]
+    if center_idx is None:
+        center_idx = min(range(len(liquid_strikes)), key=lambda i: abs(liquid_strikes[i] - spot))
+
+    atm_K = liquid_strikes[center_idx]
 
     def get_px(d, side):
         if not d: return 0
@@ -444,7 +452,7 @@ def render_estrategias_dinamicas(docs, spot):
         used_K = []
 
         for offset, tipo, side, qty in legs:
-            idx = atm_idx + offset
+            idx = center_idx + offset
             if idx < 0 or idx >= len(liquid_strikes):
                 valid = False
                 break
@@ -486,7 +494,8 @@ def render_estrategias_dinamicas(docs, spot):
             "Theta":       lambda v: f"{v:.2f}"  if pd.notna(v) else "-",
         })
     )
-    st.caption(f"ESTRATEGIAS DINÁMICAS — ATM: {atm_K:,.0f} | Spot: ${spot:,.2f}")
+    atm_label = f"  (ATM)" if center_idx == min(range(len(liquid_strikes)), key=lambda i: abs(liquid_strikes[i] - spot)) else ""
+    st.caption(f"ESTRATEGIAS — Strike central: {atm_K:,.0f}{atm_label} | Spot: ${spot:,.2f}")
     st.info(
         "**Costo/Prima** — positivo = debit (pagás prima), negativo = credit (recibís prima).  \n"
         "Los strikes se construyen automáticamente sobre el ATM más cercano al spot.",
@@ -551,18 +560,49 @@ def vista_libro():
 
 @st.fragment(run_every=1)
 def vista_opciones():
-    db_op = get_db_opciones()
-
-    st.markdown("## 📊 ACAQuant | Opciones GGAL")
+    db_op     = get_db_opciones()
+    meta_col  = get_meta_col()
 
     docs = list(db_op["OptionsSnapshot"].find({}))
+    spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0) if docs else 0
+
+    # ── cabecera con SPOT, VR y tasa ─────────────────────────────────────
+    vr_doc = meta_col.find_one({"type": "vr_ggal"})
+    vr_local = vr_doc.get("vr_local", 0) if vr_doc else 0
+    vr_adr   = vr_doc.get("vr_adr",   0) if vr_doc else 0
+
+    cfg_doc = meta_col.find_one({"type": "config"})
+    tasa_actual = cfg_doc.get("tasa", 0.242) if cfg_doc else 0.242
+    if "tasa_display" not in st.session_state:
+        st.session_state["tasa_display"] = tasa_actual
+
+    col_titulo, col_spot, col_vr, col_tasa = st.columns([3, 2, 3, 3])
+    with col_titulo:
+        st.markdown("## 📊 Opciones GGAL")
+    with col_spot:
+        st.metric("SPOT", f"${spot:,.2f}" if spot else "N/A")
+    with col_vr:
+        if vr_local:
+            st.metric("VR GGAL (40r)", f"{vr_local:.1%}", delta=f"ADR {vr_adr:.1%}", delta_color="off")
+        else:
+            st.metric("VR GGAL", "calculando…")
+    with col_tasa:
+        nueva_tasa = st.number_input(
+            "Tasa libre de riesgo",
+            min_value=0.0, max_value=3.0,
+            value=st.session_state["tasa_display"],
+            step=0.005, format="%.3f",
+            key="tasa_input",
+            help="Cambiá el valor y el motor lo aplicará en ~60s"
+        )
+        if abs(nueva_tasa - st.session_state["tasa_display"]) > 1e-6:
+            meta_col.update_one({"type": "config"}, {"$set": {"tasa": nueva_tasa}}, upsert=True)
+            st.session_state["tasa_display"] = nueva_tasa
+            st.toast(f"Tasa actualizada a {nueva_tasa:.3f}", icon="✅")
 
     if docs:
         ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
-        spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0)
         lag_badge(ultimo_ts, threshold=10)
-    else:
-        spot = 0
 
     st.divider()
 
@@ -577,20 +617,66 @@ def vista_opciones():
 def vista_estrategias():
     db_op = get_db_opciones()
 
-    st.markdown("## 🎯 ACAQuant | Estrategias GGAL")
-
     docs = list(db_op["OptionsSnapshot"].find({}))
+    spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0) if docs else 0
+
+    # ── cabecera ─────────────────────────────────────────────────────────
+    col_titulo, col_spot, col_strike = st.columns([3, 2, 4])
+    with col_titulo:
+        st.markdown("## 🎯 Estrategias GGAL")
+    with col_spot:
+        st.metric("SPOT", f"${spot:,.2f}" if spot else "N/A")
 
     if not docs:
         st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
         return
 
-    ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
-    spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0)
-    lag_badge(ultimo_ts, threshold=10)
+    # Construir lista de strikes líquidos
+    por_strike = {}
+    for d in docs:
+        k = d.get('strike')
+        t = d.get('tipo')
+        if k and t:
+            if k not in por_strike:
+                por_strike[k] = {}
+            por_strike[k][t] = d
+
+    def is_liquid(d):
+        if not d: return False
+        return (d.get('bid', 0) or 0) > 0 or (d.get('offer', 0) or 0) > 0
+
+    liquid_strikes = sorted([
+        k for k, v in por_strike.items()
+        if is_liquid(v.get('CALL')) or is_liquid(v.get('PUT'))
+    ])
+
+    if not liquid_strikes:
+        st.info("Sin strikes con liquidez aún.")
+        return
+
+    # Strike central por defecto = ATM
+    atm_idx_default = min(range(len(liquid_strikes)), key=lambda i: abs(liquid_strikes[i] - spot))
+    atm_K_default   = liquid_strikes[atm_idx_default]
+
+    with col_strike:
+        strike_sel = st.selectbox(
+            "Strike central",
+            options=liquid_strikes,
+            index=atm_idx_default,
+            format_func=lambda k: f"{k:,.0f}{'  ← ATM' if k == atm_K_default else ''}",
+            key="estrategias_strike",
+        )
+
+    center_idx = liquid_strikes.index(strike_sel)
+
+    if docs:
+        ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
+        lag_badge(ultimo_ts, threshold=10)
+
     st.divider()
 
-    render_estrategias_dinamicas(docs, spot)
+    render_estrategias_dinamicas(docs, spot, por_strike=por_strike,
+                                  liquid_strikes=liquid_strikes, center_idx=center_idx)
 
 
 @st.fragment(run_every=1)

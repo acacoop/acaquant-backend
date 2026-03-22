@@ -74,13 +74,28 @@ class OptionsEngine:
         threading.Thread(target=self._batch_snapshot_loop, daemon=True).start()
 
     def _calcular_vr_startup(self):
-        """Calcula Volatilidad Realizada GGAL via yfinance al arrancar el día.
-        Persiste un único doc resumen en Opciones.Metadata — sin guardar histórico."""
+        """Calcula VR GGAL via yfinance al arrancar. Si ya fue calculada hoy,
+        reutiliza el doc en Metadata y evita la descarga (restart instantáneo)."""
         try:
+            vr_doc = self._meta_col.find_one({"type": "vr_ggal"})
+            if vr_doc:
+                updated = vr_doc.get("updated_at")
+                if updated and updated.date() == datetime.now().date():
+                    logger.info(
+                        f"VR GGAL ya calculada hoy — "
+                        f"Local: {vr_doc.get('vr_local', 0):.2%}  "
+                        f"ADR: {vr_doc.get('vr_adr', 0):.2%}"
+                    )
+                    return
+
             import yfinance as yf
             import numpy as np
-            logger.info("Calculando VR GGAL desde Yahoo Finance...")
-            df = yf.download(["GGAL", "GGAL.BA"], period="65d", interval="1d", progress=False)
+            logger.info("Calculando VR GGAL desde Yahoo Finance (40 ruedas)...")
+            # period="50d" cubre holgadamente 40 ruedas sin bajar datos de más
+            df = yf.download(
+                ["GGAL", "GGAL.BA"], period="50d", interval="1d",
+                progress=False, auto_adjust=True
+            )
             if df.empty:
                 logger.warning("yfinance no devolvió datos para VR GGAL.")
                 return
@@ -91,9 +106,9 @@ class OptionsEngine:
             self._meta_col.update_one(
                 {"type": "vr_ggal"},
                 {"$set": {
-                    "vr_local":    round(vr_local, 4),
-                    "vr_adr":      round(vr_adr,   4),
-                    "updated_at":  datetime.now(),
+                    "vr_local":   round(vr_local, 4),
+                    "vr_adr":     round(vr_adr,   4),
+                    "updated_at": datetime.now(),
                 }},
                 upsert=True
             )

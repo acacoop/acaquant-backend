@@ -49,6 +49,10 @@ def get_db_opciones():
 def get_meta_col():
     return get_mongo_client()["Opciones"]["Metadata"]
 
+@st.cache_resource(ttl=3600)
+def get_db_valuaciones():
+    return get_mongo_client()["Valuaciones"]
+
 
 # ==========================================
 # SIDEBAR - NAVEGACIÓN
@@ -58,7 +62,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Mercado", "Opciones", "Estrategias"],
+        ["Libro", "Mercado", "Opciones", "Estrategias", "Carteras"],
         label_visibility="collapsed"
     )
 
@@ -385,27 +389,47 @@ def render_cadena_opciones(docs, spot):
 # RENDER FUNCTIONS — ESTRATEGIAS DINÁMICAS
 # ==========================================
 #
-# Cada template define piernas relativas al índice ATM en la lista de strikes
-# líquidos ordenados. offset=0 es ATM, +1 es el strike inmediato superior, etc.
-# Cada pierna: (offset, tipo, lado, cantidad)
-#   - lado 'buy'  → precio de compra = offer
-#   - lado 'sell' → precio de venta  = bid
+# Cada template: (nombre, [(offset, tipo, lado, qty), ...])
+# offset relativo al strike central elegido por el usuario.
+# lado 'buy'  → ejecución a offer (peor precio para comprador = más conservador)
+# lado 'sell' → ejecución a bid
 #
-STRATEGY_TEMPLATES = [
-    ("Bull Call Spread",   [(0, 'CALL', 'buy', 1),  (+1, 'CALL', 'sell', 1)]),
-    ("Bear Put Spread",    [(0, 'PUT',  'buy', 1),  (-1, 'PUT',  'sell', 1)]),
-    ("Straddle ATM",       [(0, 'CALL', 'buy', 1),  ( 0, 'PUT',  'buy',  1)]),
-    ("Strangle 1-wing",    [(+1,'CALL', 'buy', 1),  (-1, 'PUT',  'buy',  1)]),
-    ("Ratio Call 1×2",     [(0, 'CALL', 'buy', 1),  (+1, 'CALL', 'sell', 2)]),
-    ("Ratio Put 1×2",      [(0, 'PUT',  'buy', 1),  (-1, 'PUT',  'sell', 2)]),
-    ("Call Backspread",    [(0, 'CALL', 'sell', 1), (+1, 'CALL', 'buy',  2)]),
-    ("Put Backspread",     [(0, 'PUT',  'sell', 1), (-1, 'PUT',  'buy',  2)]),
-    ("Iron Condor",        [(-2,'PUT',  'buy', 1),  (-1, 'PUT',  'sell', 1),
-                             (+1,'CALL', 'sell', 1), (+2, 'CALL', 'buy',  1)]),
-    ("Bull Call Spread+2", [(0, 'CALL', 'buy', 1),  (+2, 'CALL', 'sell', 1)]),
-    ("Bear Put Spread+2",  [(0, 'PUT',  'buy', 1),  (-2, 'PUT',  'sell', 1)]),
-    ("Strangle 2-wings",   [(+2,'CALL', 'buy', 1),  (-2, 'PUT',  'buy',  1)]),
-]
+def _build_strategy_templates():
+    t = []
+    # Bull Call Spreads escalonados: compra centro, vende +n
+    for n in range(1, 5):
+        t.append((f"Bull Call Spread +{n}", [(0,'CALL','buy',1), (+n,'CALL','sell',1)]))
+    # Bear Put Spreads escalonados: compra centro, vende -n
+    for n in range(1, 5):
+        t.append((f"Bear Put Spread  -{n}", [(0,'PUT','buy',1), (-n,'PUT','sell',1)]))
+    # Straddle
+    t.append(("Straddle ATM", [(0,'CALL','buy',1), (0,'PUT','buy',1)]))
+    # Strangles simétricos
+    for n in range(1, 4):
+        t.append((f"Strangle         {n}w", [(+n,'CALL','buy',1), (-n,'PUT','buy',1)]))
+    # Ratio Call 1×2
+    for n in range(1, 4):
+        t.append((f"Ratio Call 1×2   +{n}", [(0,'CALL','buy',1), (+n,'CALL','sell',2)]))
+    # Ratio Put 1×2
+    for n in range(1, 4):
+        t.append((f"Ratio Put  1×2   -{n}", [(0,'PUT','buy',1), (-n,'PUT','sell',2)]))
+    # Call Backspread (crédito / neutral-alcista)
+    for n in range(1, 3):
+        t.append((f"Call Backspread  +{n}", [(0,'CALL','sell',1), (+n,'CALL','buy',2)]))
+    # Put Backspread (crédito / neutral-bajista)
+    for n in range(1, 3):
+        t.append((f"Put Backspread   -{n}", [(0,'PUT','sell',1), (-n,'PUT','buy',2)]))
+    # Iron Condors con distintas alas
+    t.append(("Iron Condor  1|2", [(-2,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+2,'CALL','buy',1)]))
+    t.append(("Iron Condor  2|3", [(-3,'PUT','buy',1),(-2,'PUT','sell',1),(+2,'CALL','sell',1),(+3,'CALL','buy',1)]))
+    t.append(("Iron Condor  1|3", [(-3,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+3,'CALL','buy',1)]))
+    # Short Straddle / Strangle (venta de vol)
+    t.append(("Short Straddle",   [(0,'CALL','sell',1), (0,'PUT','sell',1)]))
+    for n in range(1, 3):
+        t.append((f"Short Strangle   {n}w", [(+n,'CALL','sell',1), (-n,'PUT','sell',1)]))
+    return t
+
+STRATEGY_TEMPLATES = _build_strategy_templates()
 
 
 def render_estrategias_dinamicas(docs, spot, por_strike=None, liquid_strikes=None, center_idx=None):
@@ -450,6 +474,7 @@ def render_estrategias_dinamicas(docs, spot, por_strike=None, liquid_strikes=Non
         neto = d_net = g_net = t_net = 0.0
         valid = True
         used_K = []
+        leg_evs = []          # volumen negociado de cada pata (para calcular el cuello de botella)
 
         for offset, tipo, side, qty in legs:
             idx = center_idx + offset
@@ -468,14 +493,19 @@ def render_estrategias_dinamicas(docs, spot, por_strike=None, liquid_strikes=Non
             g_net += (d.get('gamma', 0) or 0) * qty * m
             t_net += (d.get('theta', 0) or 0) * qty * m
             used_K.append(K)
+            leg_evs.append((d.get('ev') or 0) / max(qty, 1))   # EV ajustado por ratio
+
+        # Volumen de la pata más restrictiva
+        vol_min = min(leg_evs) if valid and leg_evs else None
 
         rows.append({
             "Estrategia":  name,
             "Strikes":     "/".join(f"{k:,.0f}" for k in sorted(set(used_K))) if valid else "-",
-            "Costo/Prima": neto  if valid else None,
-            "Delta":       d_net if valid else None,
-            "Gamma":       g_net if valid else None,
-            "Theta":       t_net if valid else None,
+            "Costo/Prima": neto    if valid else None,
+            "Vol (pata)":  vol_min if valid else None,
+            "Delta":       d_net   if valid else None,
+            "Gamma":       g_net   if valid else None,
+            "Theta":       t_net   if valid else None,
         })
 
     df = pd.DataFrame(rows)
@@ -488,20 +518,19 @@ def render_estrategias_dinamicas(docs, spot, por_strike=None, liquid_strikes=Non
             "color: #555"
         ), subset=["Costo/Prima"])
         .format({
-            "Costo/Prima": lambda v: f"${v:.2f}" if pd.notna(v) else "Sin Liq",
-            "Delta":       lambda v: f"{v:.3f}"  if pd.notna(v) else "-",
-            "Gamma":       lambda v: f"{v:.4f}"  if pd.notna(v) else "-",
-            "Theta":       lambda v: f"{v:.2f}"  if pd.notna(v) else "-",
+            "Costo/Prima": lambda v: f"${v:.2f}"   if pd.notna(v) else "Sin Liq",
+            "Vol (pata)":  lambda v: fmt_vol(v)     if pd.notna(v) else "-",
+            "Delta":       lambda v: f"{v:.3f}"     if pd.notna(v) else "-",
+            "Gamma":       lambda v: f"{v:.4f}"     if pd.notna(v) else "-",
+            "Theta":       lambda v: f"{v:.2f}"     if pd.notna(v) else "-",
         })
     )
-    atm_label = f"  (ATM)" if center_idx == min(range(len(liquid_strikes)), key=lambda i: abs(liquid_strikes[i] - spot)) else ""
-    st.caption(f"ESTRATEGIAS — Strike central: {atm_K:,.0f}{atm_label} | Spot: ${spot:,.2f}")
-    st.info(
-        "**Costo/Prima** — positivo = debit (pagás prima), negativo = credit (recibís prima).  \n"
-        "Los strikes se construyen automáticamente sobre el ATM más cercano al spot.",
-        icon="ℹ️"
+    atm_label = " (ATM)" if center_idx == min(range(len(liquid_strikes)), key=lambda i: abs(liquid_strikes[i] - spot)) else ""
+    st.caption(
+        f"ESTRATEGIAS — Strike central: {atm_K:,.0f}{atm_label} | Spot: ${spot:,.2f}  |  "
+        f"Costo>0 = debit (pagás), Costo<0 = credit (recibís)  |  Vol = EV del leg más restrictivo"
     )
-    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(df)))
+    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(df), max_h=900))
 
 
 # ==========================================
@@ -703,6 +732,96 @@ def vista_mercado():
     render_mercado_table(all_snaps)
 
 
+@st.fragment(run_every=30)
+def vista_carteras():
+    """
+    Muestra el contenido de Valuaciones.Carteras:
+    posiciones por cuenta con precio de mercado y valuación.
+    main_carteras.py (cron en Digital Ocean) actualiza este collection.
+    """
+    db_val = get_db_valuaciones()
+
+    st.markdown("## 💼 ACAQuant | Carteras")
+
+    docs = list(db_val["Carteras"].find({}, {"_id": 0}))
+    if not docs:
+        st.warning("Sin datos de carteras. ¿El cron de `main_carteras.py` está corriendo?")
+        return
+
+    df = pd.DataFrame(docs)
+
+    # Timestamp de actualización
+    actualizado = df["actualizado"].dropna().replace("", None).dropna()
+    if not actualizado.empty:
+        st.caption(f"Última sincronización Aunesa: {actualizado.iloc[0]}")
+
+    # Convertir precio a numérico (puede venir como string vacío para no-FCI)
+    df["precio_num"] = pd.to_numeric(df["precio"], errors="coerce")
+    df["cantidad"]   = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
+    df["valuación"]  = df["cantidad"] * df["precio_num"]
+
+    st.divider()
+
+    # ── selector de cuenta ────────────────────────────────────────────────
+    cuentas = sorted(df["id_cuenta"].dropna().unique().tolist())
+    col_fil, col_resumen = st.columns([2, 5])
+    with col_fil:
+        cuenta_sel = st.selectbox(
+            "Cuenta", ["Todas"] + cuentas,
+            key="carteras_cuenta"
+        )
+
+    df_view = df if cuenta_sel == "Todas" else df[df["id_cuenta"] == cuenta_sel]
+
+    # ── métricas resumen ──────────────────────────────────────────────────
+    total_val = df_view["valuación"].sum()
+    n_pos     = len(df_view)
+    with col_resumen:
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Posiciones", n_pos)
+        m2.metric("Valuación total", fmt_money(total_val) if total_val else "N/A")
+        m3.metric("Cuenta(s)", cuenta_sel)
+
+    st.divider()
+
+    # ── tabla ─────────────────────────────────────────────────────────────
+    display = df_view[["id_cuenta", "unidad", "cantidad", "precio_num", "valuación"]].copy()
+    display.columns = ["Cuenta", "Instrumento", "Cantidad", "Precio", "Valuación"]
+    display = display.sort_values(["Cuenta", "Instrumento"])
+
+    styler = (
+        display.style
+        .map(lambda v: (
+            "color: #00cc66; font-weight: bold" if pd.notna(v) and v > 0 else
+            "color: #ff4444; font-weight: bold" if pd.notna(v) and v < 0 else ""
+        ), subset=["Cantidad", "Valuación"])
+        .format({
+            "Cantidad":  lambda v: f"{v:,.0f}"  if pd.notna(v) else "-",
+            "Precio":    lambda v: f"{v:,.4f}"  if pd.notna(v) else "-",
+            "Valuación": lambda v: fmt_money(v) if pd.notna(v) else "-",
+        })
+    )
+    st.dataframe(styler, hide_index=True, use_container_width=True,
+                 height=df_height(len(display), max_h=900))
+
+    # ── resumen por cuenta ────────────────────────────────────────────────
+    if cuenta_sel == "Todas":
+        st.divider()
+        st.caption("VALUACIÓN POR CUENTA")
+        by_account = (
+            df.groupby("id_cuenta")["valuación"]
+            .sum()
+            .reset_index()
+            .rename(columns={"id_cuenta": "Cuenta", "valuación": "Valuación"})
+            .sort_values("Valuación", ascending=False)
+        )
+        by_account["Valuación"] = by_account["Valuación"].apply(
+            lambda v: fmt_money(v) if pd.notna(v) else "-"
+        )
+        st.dataframe(by_account, hide_index=True, use_container_width=True,
+                     height=df_height(len(by_account)))
+
+
 # Ruteo: solo se llama el fragmento activo.
 if vista == "Libro":
     vista_libro()
@@ -712,3 +831,5 @@ elif vista == "Estrategias":
     vista_estrategias()
 elif vista == "Mercado":
     vista_mercado()
+elif vista == "Carteras":
+    vista_carteras()

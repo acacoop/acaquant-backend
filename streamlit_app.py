@@ -15,6 +15,23 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+st.markdown("""
+<style>
+[data-testid="stSidebar"] {
+    background-color: #094293;
+}
+[data-testid="stSidebar"] * {
+    color: #ffffff !important;
+}
+[data-testid="stSidebar"] .stRadio label {
+    color: #ffffff !important;
+}
+[data-testid="stSidebar"] hr {
+    border-color: rgba(255,255,255,0.3);
+}
+</style>
+""", unsafe_allow_html=True)
+
 def short_name(ticker):
     parts = ticker.split(" - ")
     return parts[2] if len(parts) >= 3 else ticker

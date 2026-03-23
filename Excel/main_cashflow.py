@@ -64,6 +64,8 @@ def fetch_dia(dia_str, headers):
         print("⚠️  Token expirado, re-autenticando...", flush=True)
         headers = autenticar()
         resp = requests.get(OPS_URL, params=params, headers=headers, timeout=30)
+    if resp.status_code == 400:
+        print(f"\n🔍 Respuesta 400 para {dia_str}: {resp.text[:500]}", flush=True)
     resp.raise_for_status()
     return resp.json(), headers
 

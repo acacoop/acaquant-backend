@@ -1138,14 +1138,18 @@ def vista_carteras():
             st.altair_chart(bar_venc, use_container_width=True, theme="streamlit")
 
     # ── assets incompletos (colapsado, solo si hay pendientes) ───────────
-    meta_cols = ["TICKER", "EMISOR", "CARTERA", "CLASE_ACTIVO", "CALIFICACION", "VENCIMIENTO"]
-    cols_presentes = [c for c in meta_cols if c in df.columns]
-    if cols_presentes:
-        incompletos = df[df[cols_presentes].isnull().any(axis=1)][["unidad"] + cols_presentes].copy()
+    # Usamos TICKER como indicador: si es null el asset no tiene metadata en Assets.
+    # Deduplicamos por unidad para no mostrar la misma fila N veces.
+    if "TICKER" in df.columns:
+        check_cols = [c for c in ["TICKER", "EMISOR", "CARTERA", "CLASE_ACTIVO", "CALIFICACION"] if c in df.columns]
+        incompletos = (
+            df[df["TICKER"].isnull()][["unidad"] + check_cols]
+            .drop_duplicates(subset=["unidad"])
+            .copy()
+        )
         incompletos = incompletos.rename(columns={
             "unidad": "Unidad", "TICKER": "Ticker", "EMISOR": "Emisor",
-            "CARTERA": "Cartera", "CLASE_ACTIVO": "Clase",
-            "CALIFICACION": "Calificación", "VENCIMIENTO": "Vencimiento",
+            "CARTERA": "Cartera", "CLASE_ACTIVO": "Clase", "CALIFICACION": "Calificación",
         })
         if not incompletos.empty:
             with st.expander(f"⚠️ Assets sin metadata completa ({len(incompletos)})", expanded=False):

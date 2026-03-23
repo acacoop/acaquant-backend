@@ -48,7 +48,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Mercado", "Opciones", "Estrategias", "Carteras"],
+        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Carteras"],
         label_visibility="collapsed"
     )
 
@@ -553,7 +553,7 @@ def vista_libro():
 
     header_col, select_col = st.columns([3, 1])
     with header_col:
-        st.markdown("## 📈 ACAQuant | Mesa de Dinero")
+        st.markdown("## ACAQuant | Libro")
     with select_col:
         if "selected_ticker" not in st.session_state:
             st.session_state.selected_ticker = TICKERS[0]
@@ -647,7 +647,7 @@ def vista_opciones():
 
     col_titulo, col_spot, col_vr, col_tasa = st.columns([3, 2, 3, 3])
     with col_titulo:
-        st.markdown("## 📊 Opciones GGAL")
+        st.markdown("## ACAQuant | Opciones")
     with col_spot:
         st.metric("SPOT", f"${spot:,.2f}" if spot else "N/A")
     with col_vr:
@@ -712,7 +712,7 @@ def vista_estrategias():
     # ── cabecera ─────────────────────────────────────────────────────────
     col_titulo, col_spot, col_strike = st.columns([3, 2, 4])
     with col_titulo:
-        st.markdown("## 🎯 Estrategias GGAL")
+        st.markdown("## ACAQuant | Estrategias Opciones")
     with col_spot:
         st.metric("SPOT", f"${spot:,.2f}" if spot else "N/A")
 
@@ -792,7 +792,7 @@ def vista_estrategias():
 def vista_mercado():
     db = get_db()
 
-    st.markdown("## 🏦 ACAQuant | Mercado")
+    st.markdown("## ACAQuant | Mercado")
 
     all_snaps = list(db["MarketSnapshot"].find({}))
 
@@ -829,7 +829,7 @@ def vista_carteras():
 
     header_col, mep_col = st.columns([3, 1])
     with header_col:
-        st.markdown("## 💼 ACAQuant | Carteras")
+        st.markdown("## ACAQuant | Carteras")
     with mep_col:
         nuevo_mep = st.number_input(
             "MEP", min_value=0.0, max_value=10_000_000.0,
@@ -871,6 +871,11 @@ def vista_carteras():
         df_assets = pd.DataFrame(assets_docs)
         df = df.merge(df_assets, on="unidad", how="left")
 
+    # Rellenar NaN en columnas de metadata con "-"
+    for col in ["TICKER", "EMISOR", "CLASE_ACTIVO", "CARTERA", "CALIFICACION", "VENCIMIENTO"]:
+        if col in df.columns:
+            df[col] = df[col].fillna("-")
+
     # ── valuación: P*Q/100 para bonos, P*Q para OTROS y FCI ──────────────
     es_pq_directo = (
         (df.get("CLASE_ACTIVO", pd.Series(dtype=str)) == "OTROS") |
@@ -909,10 +914,9 @@ def vista_carteras():
     mep_val   = st.session_state["mep_display"] or None
 
     with col_resumen:
-        m1, m2, m3 = st.columns(3)
+        m1, m2 = st.columns(2)
         m1.metric("Valuación ARS", fmt_money(total_val) if total_val else "N/A")
         m2.metric("Valuación USD", fmt_money(total_val / mep_val) if (mep_val and total_val) else "N/A")
-        m3.metric("MEP", f"${mep_val:,.2f}" if mep_val else "—")
 
     st.divider()
 
@@ -1104,7 +1108,7 @@ if vista == "Libro":
     vista_libro()
 elif vista == "Opciones":
     vista_opciones()
-elif vista == "Estrategias":
+elif vista == "Estrategias Opciones":
     vista_estrategias()
 elif vista == "Mercado":
     vista_mercado()

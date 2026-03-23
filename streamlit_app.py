@@ -1281,20 +1281,48 @@ def vista_operaciones():
             y_title = moneda
             y_fmt   = ",.0f"
 
-        return (
+        x_enc = alt.X("label:O", sort=x_order, axis=alt.Axis(labelAngle=-45, title=None))
+        y_enc = alt.Y("valor:Q", axis=alt.Axis(title=y_title, titleColor=color, format=y_fmt))
+        tip   = [alt.Tooltip("label:O", title="Fecha"),
+                 alt.Tooltip("valor:Q", title=y_title, format=y_fmt)]
+
+        bars = (
             alt.Chart(data)
             .mark_bar(color=color, opacity=0.85,
                       cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
-            .encode(
-                x=alt.X("label:O", sort=x_order,
-                         axis=alt.Axis(labelAngle=-45, title=None)),
-                y=alt.Y("valor:Q", axis=alt.Axis(title=y_title, titleColor=color, format=y_fmt)),
-                tooltip=[
-                    alt.Tooltip("label:O", title="Fecha"),
-                    alt.Tooltip("valor:Q", title=y_title, format=y_fmt),
-                ],
-            )
-            .properties(height=220)
+            .encode(x=x_enc, y=y_enc, tooltip=tip)
+        )
+
+        if granularity != "Mensual":
+            return bars.properties(height=220)
+
+        # Etiquetas dinámicas solo en modo mensual
+        max_val  = data["valor"].abs().max()
+        umbral   = max_val * 0.20   # barra "grande" si supera el 20% del máximo
+        padding  = max_val * 0.04   # desplazamiento para texto exterior
+
+        data["mid"]      = data["valor"] / 2
+        data["exterior"] = data["valor"].apply(
+            lambda v: v + padding if v >= 0 else v - padding
+        )
+
+        grandes  = data[data["valor"].abs() >= umbral]
+        chicas   = data[data["valor"].abs() <  umbral]
+
+        txt_inside = (
+            alt.Chart(grandes)
+            .mark_text(align="center", fontSize=10, fontWeight="600", color="white")
+            .encode(x=x_enc, y=alt.Y("mid:Q"), text=alt.Text("valor:Q", format=",.1f"))
+        )
+        txt_outside = (
+            alt.Chart(chicas)
+            .mark_text(align="center", fontSize=10, fontWeight="600", color=color)
+            .encode(x=x_enc, y=alt.Y("exterior:Q"), text=alt.Text("valor:Q", format=",.1f"))
+        )
+
+        return (
+            alt.layer(bars, txt_inside, txt_outside)
+            .properties(height=260)
         )
 
     for moneda, color in [("ARS", COLOR_ARS), ("USD", COLOR_USD)]:

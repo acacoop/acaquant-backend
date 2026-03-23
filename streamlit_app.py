@@ -840,18 +840,31 @@ def vista_carteras():
     df["cantidad"]   = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
     df["valuación"]  = df["cantidad"] * df["precio_num"]
 
+    # ── join con Assets para traer metadata ───────────────────────────────
+    assets_docs = list(db_val["Assets"].find({}, {"_id": 0, "unidad": 1,
+        "CALIFICACION": 1, "CARTERA": 1, "CLASE_ACTIVO": 1,
+        "EMISOR": 1, "TICKER": 1, "VENCIMIENTO": 1}))
+    if assets_docs:
+        df_assets = pd.DataFrame(assets_docs)
+        df = df.merge(df_assets, on="unidad", how="left")
+
     st.divider()
 
-    # ── selector de cuenta ────────────────────────────────────────────────
-    cuentas = sorted(df["id_cuenta"].dropna().unique().tolist())
-    col_fil, col_resumen = st.columns([2, 5])
-    with col_fil:
-        cuenta_sel = st.selectbox(
-            "Cuenta", ["Todas"] + cuentas,
-            key="carteras_cuenta"
-        )
+    # ── filtros ───────────────────────────────────────────────────────────
+    cuentas  = sorted(df["id_cuenta"].dropna().unique().tolist())
+    carteras = sorted(df["CARTERA"].dropna().unique().tolist()) if "CARTERA" in df.columns else []
 
-    df_view = df if cuenta_sel == "Todas" else df[df["id_cuenta"] == cuenta_sel]
+    col_fil1, col_fil2, col_resumen = st.columns([2, 2, 4])
+    with col_fil1:
+        cuenta_sel = st.selectbox("Cuenta", ["Todas"] + cuentas, key="carteras_cuenta")
+    with col_fil2:
+        cartera_sel = st.selectbox("Cartera", ["Todas"] + carteras, key="carteras_cartera")
+
+    df_view = df.copy()
+    if cuenta_sel != "Todas":
+        df_view = df_view[df_view["id_cuenta"] == cuenta_sel]
+    if cartera_sel != "Todas" and "CARTERA" in df_view.columns:
+        df_view = df_view[df_view["CARTERA"] == cartera_sel]
 
     # ── métricas resumen ──────────────────────────────────────────────────
     total_val = df_view["valuación"].sum()
@@ -865,41 +878,63 @@ def vista_carteras():
     st.divider()
 
     # ── tabla ─────────────────────────────────────────────────────────────
-    display = df_view[["id_cuenta", "unidad", "cantidad", "precio_num", "valuación"]].copy()
-    display.columns = ["Cuenta", "Instrumento", "Cantidad", "Precio", "Valuación"]
-    display = display.sort_values(["Cuenta", "Instrumento"])
+    cols_base = ["id_cuenta", "cantidad", "precio_num", "valuación"]
+    cols_meta = [c for c in ["TICKER", "CARTERA", "CLASE_ACTIVO", "EMISOR", "CALIFICACION", "VENCIMIENTO"] if c in df_view.columns]
+    display = df_view[cols_base + cols_meta].copy()
+    display.rename(columns={
+        "id_cuenta":  "Cuenta",
+        "cantidad":   "Cantidad",
+        "precio_num": "Precio",
+        "valuación":  "Valuación",
+        "TICKER":       "Ticker",
+        "CARTERA":      "Cartera",
+        "CLASE_ACTIVO": "Clase",
+        "EMISOR":       "Emisor",
+        "CALIFICACION": "Calificación",
+        "VENCIMIENTO":  "Vencimiento",
+    }, inplace=True)
+    display = display.sort_values(["Cuenta", "Ticker"] if "Ticker" in display.columns else ["Cuenta"])
 
+    fmt_cols = {
+        "Cantidad":  lambda v: f"{v:,.0f}" if pd.notna(v) else "-",
+        "Precio":    lambda v: f"{v:,.4f}" if pd.notna(v) else "-",
+        "Valuación": lambda v: fmt_money(v) if pd.notna(v) else "-",
+    }
     styler = (
         display.style
         .map(lambda v: (
             "color: #00cc66; font-weight: bold" if pd.notna(v) and v > 0 else
             "color: #ff4444; font-weight: bold" if pd.notna(v) and v < 0 else ""
         ), subset=["Cantidad", "Valuación"])
-        .format({
-            "Cantidad":  lambda v: f"{v:,.0f}"  if pd.notna(v) else "-",
-            "Precio":    lambda v: f"{v:,.4f}"  if pd.notna(v) else "-",
-            "Valuación": lambda v: fmt_money(v) if pd.notna(v) else "-",
-        })
+        .format(fmt_cols)
     )
     st.dataframe(styler, hide_index=True, use_container_width=True,
                  height=df_height(len(display), max_h=900))
 
-    # ── resumen por cuenta ────────────────────────────────────────────────
+    # ── resumen inferior ──────────────────────────────────────────────────
+    st.divider()
     if cuenta_sel == "Todas":
-        st.divider()
         st.caption("VALUACIÓN POR CUENTA")
-        by_account = (
-            df.groupby("id_cuenta")["valuación"]
-            .sum()
-            .reset_index()
+        by_group = (
+            df_view.groupby("id_cuenta")["valuación"]
+            .sum().reset_index()
             .rename(columns={"id_cuenta": "Cuenta", "valuación": "Valuación"})
             .sort_values("Valuación", ascending=False)
         )
-        by_account["Valuación"] = by_account["Valuación"].apply(
-            lambda v: fmt_money(v) if pd.notna(v) else "-"
+    else:
+        st.caption(f"VALUACIÓN POR CARTERA — Cuenta {cuenta_sel}")
+        group_col = "CARTERA" if "CARTERA" in df_view.columns else "id_cuenta"
+        by_group = (
+            df_view.groupby(group_col)["valuación"]
+            .sum().reset_index()
+            .rename(columns={group_col: "Cartera", "valuación": "Valuación"})
+            .sort_values("Valuación", ascending=False)
         )
-        st.dataframe(by_account, hide_index=True, use_container_width=True,
-                     height=df_height(len(by_account)))
+    by_group["Valuación"] = by_group["Valuación"].apply(
+        lambda v: fmt_money(v) if pd.notna(v) else "-"
+    )
+    st.dataframe(by_group, hide_index=True, use_container_width=True,
+                 height=df_height(len(by_group)))
 
 
 # Ruteo: solo se llama el fragmento activo.

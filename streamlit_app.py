@@ -1233,26 +1233,26 @@ def vista_operaciones():
     # ── Filtrar ───────────────────────────────────────────────────────────────
     df_f = df[(df["fecha"].dt.date >= rango[0]) & (df["fecha"].dt.date <= rango[1])].copy()
     monedas_sel = (["ARS"] if show_ars else []) + (["USD"] if show_usd else [])
-    df_f = df_f[df_f["unidad"].isin(monedas_sel)]
+    df_f = df_f[df_f["unidad"].isin(monedas_sel)].copy()
 
     if df_f.empty:
         st.info("Sin datos para el rango/moneda seleccionados.")
         return
 
     # ── Agrupar ───────────────────────────────────────────────────────────────
-    # Usamos clave numérica YYYYMM para evitar problemas de precisión en timestamps
+    # Clave string para groupby — evita cualquier problema de precisión en timestamps
     if granularity == "Mensual":
-        df_f["_key"] = df_f["fecha"].dt.year * 100 + df_f["fecha"].dt.month
+        df_f["_key"] = df_f["fecha"].dt.strftime("%Y-%m")
         df_agg = df_f.groupby(["_key", "unidad"], as_index=False)["total"].sum()
-        df_agg["periodo"] = pd.to_datetime(
-            df_agg["_key"].astype(str).str[:4] + "-" + df_agg["_key"].astype(str).str[4:] + "-01"
-        )
-        df_agg = df_agg.drop(columns="_key")
+        df_agg["periodo"] = pd.to_datetime(df_agg["_key"] + "-01")
         x_fmt = "%b %Y"
     else:
-        df_f["periodo"] = df_f["fecha"].dt.normalize()
-        df_agg = df_f.groupby(["periodo", "unidad"], as_index=False)["total"].sum()
+        df_f["_key"] = df_f["fecha"].dt.strftime("%Y-%m-%d")
+        df_agg = df_f.groupby(["_key", "unidad"], as_index=False)["total"].sum()
+        df_agg["periodo"] = pd.to_datetime(df_agg["_key"])
         x_fmt = "%d/%m"
+
+    df_agg = df_agg.drop(columns="_key")
 
     # ── Gráfico — un chart independiente por moneda ──────────────────────────
     tip_fmt = "%b %Y" if granularity == "Mensual" else "%d/%m/%Y"

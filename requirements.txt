@@ -5,7 +5,7 @@ pandas
 numpy
 scipy
 streamlit
-altair
+altair<5
 pymongo
 python-dotenv
 holidays

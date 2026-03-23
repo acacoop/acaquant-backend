@@ -9,7 +9,5 @@ altair
 pymongo
 python-dotenv
 holidays
-gspread
-oauth2client
 requests
 yfinance

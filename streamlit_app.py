@@ -61,7 +61,7 @@ def get_db_valuaciones():
 # SIDEBAR - NAVEGACIÓN
 # ==========================================
 with st.sidebar:
-    st.markdown("### 📈 ACAQuant")
+    st.image("images/logo-header.png", use_container_width=True)
     st.markdown("---")
     vista = st.radio(
         "Vista",

@@ -103,4 +103,32 @@ Each engine has an `update_price(ticker, data)` callback called by the WebSocket
 
 ## Deployment
 
-Systemd services in `motor_rofex.service` and `streamlit.service`. Production runs at `/root/TradingAV/` using a local venv. `start_all.sh` starts `main_valores.py` and Streamlit on port 8501.
+Systemd services en `motor_rofex.service`, `streamlit.service` y `services/motor_options.service`. Producción corre en un **Droplet de Digital Ocean** como `root` en `/root/TradingAV/` con un venv local.
+
+### Crontab del servidor (actualizado 2026-03-23)
+
+```cron
+# Prender/apagar motores y Streamlit: Lunes a Viernes
+# 13:00 UTC = 10:00 AM ARG | 20:05 UTC = 17:05 PM ARG
+0 13 * * 1-5 systemctl start motor_rofex.service
+5 20 * * 1-5 systemctl stop motor_rofex.service
+0 13 * * 1-5 systemctl start streamlit.service
+5 20 * * 1-5 systemctl stop streamlit.service
+0 13 * * 1-5 systemctl start motor_options.service
+5 20 * * 1-5 systemctl stop motor_options.service
+
+# main_carteras.py — sincronización Aunesa → MongoDB, 4 veces por día hábil
+0 10 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_carteras.py >> /root/TradingAV/logs/carteras.log 2>&1
+30 11 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_carteras.py >> /root/TradingAV/logs/carteras.log 2>&1
+0 14 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_carteras.py >> /root/TradingAV/logs/carteras.log 2>&1
+0 16 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_carteras.py >> /root/TradingAV/logs/carteras.log 2>&1
+
+# VolatilidadGGAL.py — calcula VR histórica al cierre (20:00 UTC)
+0 20 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Opciones/VolatilidadGGAL.py >> /root/TradingAV/logs/vr_ggal.log 2>&1
+
+# main_dolar_mep.py — snapshot dólar MEP (14:00 y 19:57 UTC)
+0 14 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/main_dolar_mep.py >> /root/TradingAV/logs/dolar_mep.log 2>&1
+57 19 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/main_dolar_mep.py >> /root/TradingAV/logs/dolar_mep.log 2>&1
+```
+
+Logs en `/root/TradingAV/logs/`.

@@ -1,9 +1,12 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+import re
+import requests
 from datetime import datetime, timedelta
 from mongo_manager import get_mongo_client
 from tickers import MERV_TICKERS as TICKERS
+import config
 
 # ==========================================
 # CONFIG
@@ -71,7 +74,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Carteras"],
+        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Carteras", "Operaciones"],
         label_visibility="collapsed"
     )
 
@@ -1171,6 +1174,178 @@ def vista_carteras():
                          height=df_height(len(incompletos), max_h=400))
 
 
+# ==========================================
+# OPERACIONES — helpers
+# ==========================================
+CUENTAS_OPERACIONES = ["100", "255", "101", "163"]
+
+_TIPO_PATTERNS = [
+    ("Acreencia",          r"acreencia|acreencias"),
+    ("Movimientos de Dinero", r"movimiento.?de.?dinero|transferencia|acreditac|debito|comision|cupon|renta|amortiz"),
+    ("Caución",            r"cau[cç]ion|caucion"),
+    ("FCI Bilateral",      r"fci.?bilateral|bilateral"),
+    ("Supermercado FCI",   r"supermercado"),
+    ("Operaciones",        r"compra|venta|operac"),
+]
+
+def _asignar_categoria(informacion: str) -> str:
+    inf = str(informacion).lower()
+    for cat, pat in _TIPO_PATTERNS:
+        if re.search(pat, inf):
+            return cat
+    return "Otro"
+
+def _extraer_titulo(informacion: str) -> str:
+    """Extrae el ticker/título de la columna informacion."""
+    s = str(informacion)
+    # Patrón común: "... - TICKER - ..." o texto entre corchetes
+    m = re.search(r'\b([A-Z]{2,6}(?:\/\d+)?(?:CO|GO|DO|FI)?)\b', s)
+    return m.group(1) if m else ""
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _fetch_operaciones(desde: str, hasta: str) -> pd.DataFrame:
+    """Llama a la API Aunesa y retorna operaciones filtradas y categorizadas."""
+    auth_url = "https://aca.aunesa.com/Irmo/api/login"
+    ops_url  = "https://aca.aunesa.com/Irmo/api/operaciones/consolidadosGenerales"
+
+    token_resp = requests.post(
+        auth_url,
+        json={
+            "clientId": config.AUNESA_CLIENT_ID,
+            "username": config.AUNESA_USERNAME,
+            "password": config.AUNESA_PASSWORD,
+        },
+        headers={"Content-Type": "application/json"},
+        timeout=10,
+    )
+    token_resp.raise_for_status()
+    token = token_resp.json().get("token")
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+
+    params = {
+        "tiposCuenta": "Comitentes y propias",
+        "concertacionDesde": desde,
+        "concertacionHasta": hasta,
+    }
+    resp = requests.get(ops_url, params=params, headers=headers, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+
+    if not data:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(data)
+
+    # Filtrar monedas no relevantes
+    if "moneda" in df.columns:
+        df = df[df["moneda"].str.upper().isin(["ARS", "USD", "USDC"])]
+
+    # Excluir tipos de operación no relevantes
+    excluir_pat = r"integraci[oó]n de garant[ií]as|otc|usdl"
+    if "tipo" in df.columns:
+        df = df[~df["tipo"].str.lower().str.contains(excluir_pat, na=False)]
+    if "informacion" in df.columns:
+        df = df[~df["informacion"].str.contains(r"\(Cierre\)", na=False)]
+
+    # Categorización y título
+    info_col = "informacion" if "informacion" in df.columns else None
+    if info_col:
+        df["Tipo"]   = df[info_col].apply(_asignar_categoria)
+        df["Titulo"] = df[info_col].apply(_extraer_titulo)
+
+    # Normalizar columnas de salida
+    col_map = {
+        "cuenta":       "cuenta",
+        "fecha":        "fecha",
+        "comprobante":  "comprobante",
+        "informacion":  "informacion",
+        "total":        "total",
+        "moneda":       "moneda",
+    }
+    keep = [c for c in col_map if c in df.columns] + ["Tipo", "Titulo"]
+    df = df[keep].rename(columns=col_map)
+
+    # Parsear fecha para ordenar
+    if "fecha" in df.columns:
+        df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce", dayfirst=True)
+        df = df.sort_values("fecha", ascending=False)
+
+    return df.reset_index(drop=True)
+
+
+def vista_operaciones():
+    st.markdown("## ACAQuant | Operaciones")
+
+    hoy = datetime.now().date()
+    c1, c2, c3 = st.columns([2, 2, 1])
+    with c1:
+        fecha_desde = st.date_input("Desde", value=hoy, key="ops_desde")
+    with c2:
+        fecha_hasta = st.date_input("Hasta", value=hoy, key="ops_hasta")
+    with c3:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        buscar = st.button("Buscar", use_container_width=True, key="ops_buscar")
+
+    if not buscar and "ops_df" not in st.session_state:
+        st.info("Seleccioná el rango de fechas y presioná Buscar.")
+        return
+
+    desde_str = fecha_desde.strftime("%d/%m/%Y")
+    hasta_str = fecha_hasta.strftime("%d/%m/%Y")
+
+    if buscar:
+        _fetch_operaciones.clear()
+        with st.spinner("Consultando API Aunesa..."):
+            try:
+                df = _fetch_operaciones(desde_str, hasta_str)
+                st.session_state["ops_df"] = df
+            except Exception as e:
+                st.error(f"Error al consultar la API: {e}")
+                return
+
+    df = st.session_state.get("ops_df", pd.DataFrame())
+    if df.empty:
+        st.warning("Sin operaciones para el período seleccionado.")
+        return
+
+    # Filtros
+    col_f1, col_f2 = st.columns([2, 2])
+    with col_f1:
+        tipos = ["Todos"] + sorted(df["Tipo"].unique().tolist()) if "Tipo" in df.columns else ["Todos"]
+        tipo_sel = st.selectbox("Categoría", tipos, key="ops_tipo")
+    with col_f2:
+        if "cuenta" in df.columns:
+            cuentas = ["Todas"] + sorted(df["cuenta"].dropna().unique().tolist())
+            cuenta_sel = st.selectbox("Cuenta", cuentas, key="ops_cuenta")
+        else:
+            cuenta_sel = "Todas"
+
+    df_filt = df.copy()
+    if tipo_sel != "Todos" and "Tipo" in df_filt.columns:
+        df_filt = df_filt[df_filt["Tipo"] == tipo_sel]
+    if cuenta_sel != "Todas" and "cuenta" in df_filt.columns:
+        df_filt = df_filt[df_filt["cuenta"] == cuenta_sel]
+
+    st.caption(f"{len(df_filt)} operaciones")
+
+    # Tabla
+    display_df = df_filt.copy()
+    if "fecha" in display_df.columns:
+        display_df["fecha"] = display_df["fecha"].dt.strftime("%d/%m/%Y")
+    if "total" in display_df.columns:
+        display_df["total"] = pd.to_numeric(display_df["total"], errors="coerce")
+
+    st.dataframe(
+        display_df,
+        hide_index=True,
+        use_container_width=True,
+        height=df_height(min(len(display_df), 50), max_h=800),
+        column_config={
+            "total": st.column_config.NumberColumn("Total", format="%.2f"),
+        }
+    )
+
+
 # Ruteo: solo se llama el fragmento activo.
 if vista == "Libro":
     vista_libro()
@@ -1182,3 +1357,5 @@ elif vista == "Mercado":
     vista_mercado()
 elif vista == "Carteras":
     vista_carteras()
+elif vista == "Operaciones":
+    vista_operaciones()

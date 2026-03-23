@@ -1,0 +1,126 @@
+import sys
+import os
+import unicodedata
+import holidays
+import requests
+from datetime import date, timedelta
+from pymongo import UpdateOne
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+import config
+from mongo_manager import get_mongo_client
+
+AUTH_URL = "https://aca.aunesa.com/Irmo/api/login"
+OPS_URL  = "https://aca.aunesa.com/Irmo/api/operaciones/consolidadosGenerales"
+
+PALABRAS_CLAVE = ["deposito", "transferencia", "extraccion"]
+
+
+def autenticar():
+    resp = requests.post(
+        AUTH_URL,
+        json={
+            "clientId": config.AUNESA_CLIENT_ID,
+            "username": config.AUNESA_USERNAME,
+            "password": config.AUNESA_PASSWORD,
+        },
+        headers={"Content-Type": "application/json"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    token = resp.json().get("token")
+    return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+
+
+def normalizar(s):
+    return unicodedata.normalize("NFD", str(s)).encode("ascii", "ignore").decode("utf-8").lower()
+
+
+def es_movimiento(informacion):
+    norm = normalizar(informacion)
+    return any(p in norm for p in PALABRAS_CLAVE)
+
+
+def dias_habiles(desde, hasta):
+    arg_holidays = holidays.Argentina()
+    dias = []
+    d = desde
+    while d <= hasta:
+        if d.weekday() < 5 and d not in arg_holidays:
+            dias.append(d)
+        d += timedelta(days=1)
+    return dias
+
+
+def fetch_dia(dia_str, headers):
+    params = {
+        "tiposCuenta": "Comitentes y propias",
+        "concertacionDesde": dia_str,
+        "concertacionHasta": dia_str,
+    }
+    resp = requests.get(OPS_URL, params=params, headers=headers, timeout=30)
+    if resp.status_code == 401:
+        print("⚠️  Token expirado, re-autenticando...", flush=True)
+        headers = autenticar()
+        resp = requests.get(OPS_URL, params=params, headers=headers, timeout=30)
+    resp.raise_for_status()
+    return resp.json(), headers
+
+
+def run():
+    print("🔑 Autenticando con Aunesa...", flush=True)
+    headers = autenticar()
+    print("✅ Auth OK\n", flush=True)
+
+    client = get_mongo_client()
+    col = client["Cash Flow"]["Movimientos"]
+    col.create_index("comprobante", unique=True, background=True)
+
+    desde = date(2025, 7, 1)
+    hasta = date.today()
+    dias  = dias_habiles(desde, hasta)
+    total = len(dias)
+    print(f"📅 Días hábiles a procesar: {total}  ({desde} → {hasta})\n", flush=True)
+
+    insertados_total = 0
+
+    for i, dia in enumerate(dias, 1):
+        dia_str = dia.strftime("%d/%m/%Y")
+        print(f"[{i:3d}/{total}] {dia_str} ...", end="  ", flush=True)
+
+        try:
+            data, headers = fetch_dia(dia_str, headers)
+
+            if not data:
+                print("sin datos")
+                continue
+
+            movimientos = [r for r in data if es_movimiento(r.get("informacion", ""))]
+
+            if not movimientos:
+                print("0 movimientos")
+                continue
+
+            ops = [
+                UpdateOne(
+                    {"comprobante": r["comprobante"]},
+                    {"$setOnInsert": r},
+                    upsert=True,
+                )
+                for r in movimientos
+            ]
+            result = col.bulk_write(ops, ordered=False)
+            nuevos = result.upserted_count
+            insertados_total += nuevos
+            print(f"{len(movimientos)} filtrados  →  {nuevos} nuevos en Mongo")
+
+        except Exception as e:
+            print(f"❌ Error: {e}")
+
+    print(f"\n🏁 Proceso finalizado. Total insertados: {insertados_total}")
+    client.close()
+
+
+if __name__ == "__main__":
+    run()

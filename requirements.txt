@@ -1,4 +1,15 @@
+pyRofex
+textual
+rich
+pandas
+numpy
+scipy
 streamlit
+altair
 pymongo
 python-dotenv
 holidays
+gspread
+oauth2client
+requests
+yfinance

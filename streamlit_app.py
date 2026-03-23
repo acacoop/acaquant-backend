@@ -1205,28 +1205,33 @@ def vista_operaciones():
     min_date = df["fecha"].min().date()
     max_date = df["fecha"].max().date()
 
-    # ── Controles ────────────────────────────────────────────────────────────
-    ctrl_l, ctrl_r = st.columns([4, 1])
+    COLOR_ARS = "#4C9BE8"
+    COLOR_USD = "#F5A623"
 
-    with ctrl_l:
-        rango = st.slider(
-            "Rango de fechas",
-            min_value=min_date,
-            max_value=max_date,
-            value=(min_date, max_date),
-            format="DD/MM/YY",
-            key="ops_rango",
-        )
+    # ── Slider (fila completa) ────────────────────────────────────────────────
+    rango = st.slider(
+        "Rango de fechas",
+        min_value=min_date,
+        max_value=max_date,
+        value=(min_date, max_date),
+        format="DD/MM/YY",
+        key="ops_rango",
+    )
 
-    with ctrl_r:
-        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+    # ── Filtros en una fila ───────────────────────────────────────────────────
+    c_ars, c_usd, c_sep, c_gran = st.columns([1, 1, 3, 3])
+    with c_ars:
         show_ars = st.checkbox("ARS", value=True, key="ops_ars")
+    with c_usd:
         show_usd = st.checkbox("USD", value=True, key="ops_usd")
-        granularity = st.radio("", ["Diario", "Mensual"], key="ops_gran", label_visibility="collapsed")
+    with c_gran:
+        granularity = st.radio(
+            "", ["Diario", "Mensual"], horizontal=True,
+            key="ops_gran", label_visibility="collapsed"
+        )
 
     # ── Filtrar ───────────────────────────────────────────────────────────────
     df_f = df[(df["fecha"].dt.date >= rango[0]) & (df["fecha"].dt.date <= rango[1])].copy()
-
     monedas_sel = (["ARS"] if show_ars else []) + (["USD"] if show_usd else [])
     df_f = df_f[df_f["unidad"].isin(monedas_sel)]
 
@@ -1235,73 +1240,82 @@ def vista_operaciones():
         return
 
     # ── Agrupar ───────────────────────────────────────────────────────────────
+    # Usamos clave numérica YYYYMM para evitar problemas de precisión en timestamps
     if granularity == "Mensual":
-        df_f["periodo"] = df_f["fecha"].dt.to_period("M").dt.to_timestamp()
+        df_f["_key"] = df_f["fecha"].dt.year * 100 + df_f["fecha"].dt.month
+        df_agg = df_f.groupby(["_key", "unidad"], as_index=False)["total"].sum()
+        df_agg["periodo"] = pd.to_datetime(
+            df_agg["_key"].astype(str).str[:4] + "-" + df_agg["_key"].astype(str).str[4:] + "-01"
+        )
+        df_agg = df_agg.drop(columns="_key")
         x_fmt = "%b %Y"
     else:
         df_f["periodo"] = df_f["fecha"].dt.normalize()
+        df_agg = df_f.groupby(["periodo", "unidad"], as_index=False)["total"].sum()
         x_fmt = "%d/%m"
 
-    df_agg = df_f.groupby(["periodo", "unidad"], as_index=False)["total"].sum()
-
     # ── Gráfico ───────────────────────────────────────────────────────────────
-    COLOR_ARS = "#4C9BE8"
-    COLOR_USD = "#F5A623"
-
-    def make_bars(moneda, color, y_axis_side="left"):
-        side = "left" if y_axis_side == "left" else "right"
+    def make_bars(moneda, color, y_side="left"):
+        data = df_agg[df_agg["unidad"] == moneda]
         return (
-            alt.Chart(df_agg[df_agg["unidad"] == moneda])
+            alt.Chart(data)
             .mark_bar(opacity=0.85, cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
             .encode(
-                x=alt.X(
-                    "periodo:T",
-                    axis=alt.Axis(format=x_fmt, labelAngle=-45, title=None),
-                ),
+                x=alt.X("periodo:T", axis=alt.Axis(format=x_fmt, labelAngle=-45, title=None)),
                 y=alt.Y(
                     "total:Q",
-                    axis=alt.Axis(
-                        title=moneda,
-                        titleColor=color,
-                        orient=side,
-                        format="~s",
-                    ),
+                    axis=alt.Axis(title=moneda, titleColor=color, orient=y_side, format="~s"),
                 ),
                 color=alt.value(color),
                 tooltip=[
                     alt.Tooltip("periodo:T", title="Fecha", format=x_fmt),
-                    alt.Tooltip("total:Q", title=f"Flujo {moneda}", format=",.2f"),
+                    alt.Tooltip("total:Q", title=f"Flujo {moneda}", format=",.0f"),
                 ],
             )
         )
 
     if show_ars and show_usd:
         chart = (
-            alt.layer(
-                make_bars("ARS", COLOR_ARS, "left"),
-                make_bars("USD", COLOR_USD, "right"),
-            )
+            alt.layer(make_bars("ARS", COLOR_ARS, "left"), make_bars("USD", COLOR_USD, "right"))
             .resolve_scale(y="independent")
-            .properties(height=420)
+            .properties(height=400)
         )
     elif show_ars:
-        chart = make_bars("ARS", COLOR_ARS).properties(height=420)
+        chart = make_bars("ARS", COLOR_ARS).properties(height=400)
     else:
-        chart = make_bars("USD", COLOR_USD).properties(height=420)
+        chart = make_bars("USD", COLOR_USD).properties(height=400)
 
     st.altair_chart(chart, use_container_width=True)
 
-    # ── Resumen debajo del gráfico ────────────────────────────────────────────
-    resumen_cols = st.columns(len(monedas_sel) * 2)
-    idx = 0
-    for moneda in monedas_sel:
+    # ── Tarjetas de resumen ───────────────────────────────────────────────────
+    tarjeta_cols = st.columns(len(monedas_sel))
+    for i, moneda in enumerate(monedas_sel):
+        color = COLOR_ARS if moneda == "ARS" else COLOR_USD
         sub = df_f[df_f["unidad"] == moneda]
         entradas = sub[sub["total"] > 0]["total"].sum()
         salidas  = sub[sub["total"] < 0]["total"].sum()
-        color = COLOR_ARS if moneda == "ARS" else COLOR_USD
-        resumen_cols[idx].metric(f"Entradas {moneda}", f"{entradas:,.0f}")
-        resumen_cols[idx + 1].metric(f"Salidas {moneda}", f"{salidas:,.0f}")
-        idx += 2
+        neto     = entradas + salidas
+        neto_color = "#00cc66" if neto >= 0 else "#ff4444"
+        with tarjeta_cols[i]:
+            st.markdown(f"""
+<div style="border:1px solid {color};border-radius:8px;padding:14px 18px;margin-top:8px">
+  <div style="color:{color};font-weight:700;font-size:13px;letter-spacing:1px;margin-bottom:10px">{moneda}</div>
+  <div style="display:flex;gap:24px;flex-wrap:wrap">
+    <div>
+      <div style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Entradas</div>
+      <div style="color:#00cc66;font-size:20px;font-weight:600">{fmt_nom(entradas)}</div>
+    </div>
+    <div>
+      <div style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Salidas</div>
+      <div style="color:#ff4444;font-size:20px;font-weight:600">{fmt_nom(abs(salidas))}</div>
+    </div>
+    <div>
+      <div style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Flujo Neto</div>
+      <div style="color:{neto_color};font-size:20px;font-weight:600">{fmt_nom(neto)}</div>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 
 # Ruteo: solo se llama el fragmento activo.

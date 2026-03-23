@@ -1255,20 +1255,29 @@ def vista_operaciones():
         x_fmt = "%d/%m"
 
     # ── Gráfico ───────────────────────────────────────────────────────────────
+    # En modo mensual forzamos timeUnit="yearmonth" para que Altair agrupe
+    # correctamente y muestre un solo tick por mes.
+    x_enc_daily   = alt.X("periodo:T", axis=alt.Axis(format=x_fmt, labelAngle=-45, title=None))
+    x_enc_monthly = alt.X("periodo:T", timeUnit="yearmonth",
+                           axis=alt.Axis(format=x_fmt, labelAngle=-45, title=None))
+    x_enc = x_enc_monthly if granularity == "Mensual" else x_enc_daily
+
     def make_bars(moneda, color, y_side="left"):
         data = df_agg[df_agg["unidad"] == moneda]
+        tip_fmt = "%b %Y" if granularity == "Mensual" else "%d/%m/%Y"
         return (
             alt.Chart(data)
             .mark_bar(opacity=0.85, cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
             .encode(
-                x=alt.X("periodo:T", axis=alt.Axis(format=x_fmt, labelAngle=-45, title=None)),
+                x=x_enc,
                 y=alt.Y(
                     "total:Q",
                     axis=alt.Axis(title=moneda, titleColor=color, orient=y_side, format="~s"),
                 ),
                 color=alt.value(color),
                 tooltip=[
-                    alt.Tooltip("periodo:T", title="Fecha", format=x_fmt),
+                    alt.Tooltip("periodo:T", title="Fecha", format=tip_fmt,
+                                timeUnit="yearmonth" if granularity == "Mensual" else alt.Undefined),
                     alt.Tooltip("total:Q", title=f"Flujo {moneda}", format=",.0f"),
                 ],
             )
@@ -1311,7 +1320,7 @@ def vista_operaciones():
     </div>
     <div>
       <div style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Flujo Neto</div>
-      <div style="color:{neto_color};font-size:20px;font-weight:600">{fmt_nom(neto)}</div>
+      <div style="color:{neto_color};font-size:20px;font-weight:600">{("-" if neto < 0 else "+") + fmt_nom(abs(neto))}</div>
     </div>
   </div>
 </div>

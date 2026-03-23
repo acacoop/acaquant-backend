@@ -835,10 +835,9 @@ def vista_carteras():
     if not actualizado.empty:
         st.caption(f"Última sincronización Aunesa: {actualizado.iloc[0]}")
 
-    # Convertir precio a numérico (puede venir como string vacío para no-FCI)
+    # Convertir precio y cantidad a numérico
     df["precio_num"] = pd.to_numeric(df["precio"], errors="coerce")
     df["cantidad"]   = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
-    df["valuación"]  = df["cantidad"] * df["precio_num"]
 
     # ── join con Assets para traer metadata ───────────────────────────────
     assets_docs = list(db_val["Assets"].find({}, {"_id": 0, "unidad": 1,
@@ -847,6 +846,21 @@ def vista_carteras():
     if assets_docs:
         df_assets = pd.DataFrame(assets_docs)
         df = df.merge(df_assets, on="unidad", how="left")
+
+    # ── valuación: P*Q/100 para bonos, P*Q para OTROS y FCI ──────────────
+    es_pq_directo = (
+        (df.get("CLASE_ACTIVO", pd.Series(dtype=str)) == "OTROS") |
+        (df.get("CARTERA", pd.Series(dtype=str)).str.contains("FCI", na=False))
+    ) if "CLASE_ACTIVO" in df.columns or "CARTERA" in df.columns else pd.Series(False, index=df.index)
+    df["valuación"] = df.apply(
+        lambda r: r["cantidad"] * r["precio_num"] if es_pq_directo.loc[r.name]
+                  else (r["cantidad"] * r["precio_num"] / 100),
+        axis=1
+    )
+
+    # ── formatear Vencimiento: solo Año-Mes ───────────────────────────────
+    if "VENCIMIENTO" in df.columns:
+        df["VENCIMIENTO"] = pd.to_datetime(df["VENCIMIENTO"], errors="coerce").dt.strftime("%Y-%m")
 
     st.divider()
 
@@ -878,26 +892,32 @@ def vista_carteras():
     st.divider()
 
     # ── tabla ─────────────────────────────────────────────────────────────
-    cols_base = ["id_cuenta", "cantidad", "precio_num", "valuación"]
-    cols_meta = [c for c in ["TICKER", "CARTERA", "CLASE_ACTIVO", "EMISOR", "CALIFICACION", "VENCIMIENTO"] if c in df_view.columns]
-    display = df_view[cols_base + cols_meta].copy()
+    col_order = ["TICKER", "EMISOR", "VENCIMIENTO", "CLASE_ACTIVO", "CARTERA",
+                 "CALIFICACION", "cantidad", "precio_num", "valuación"]
+    if cuenta_sel == "Todas":
+        col_order = ["id_cuenta"] + col_order
+    cols_present = [c for c in col_order if c in df_view.columns]
+    display = df_view[cols_present].copy()
     display.rename(columns={
-        "id_cuenta":  "Cuenta",
-        "cantidad":   "Cantidad",
-        "precio_num": "Precio",
-        "valuación":  "Valuación",
+        "id_cuenta":    "Cuenta",
+        "cantidad":     "VN",
+        "precio_num":   "PX",
+        "valuación":    "Valuación",
         "TICKER":       "Ticker",
-        "CARTERA":      "Cartera",
-        "CLASE_ACTIVO": "Clase",
         "EMISOR":       "Emisor",
-        "CALIFICACION": "Calificación",
         "VENCIMIENTO":  "Vencimiento",
+        "CLASE_ACTIVO": "Clase",
+        "CARTERA":      "Cartera",
+        "CALIFICACION": "Calificación",
     }, inplace=True)
-    display = display.sort_values(["Cuenta", "Ticker"] if "Ticker" in display.columns else ["Cuenta"])
+    sort_cols = (["Cuenta"] if cuenta_sel == "Todas" else []) + (["Ticker"] if "Ticker" in display.columns else [])
+    if sort_cols:
+        display = display.sort_values(sort_cols)
 
+    num_subset = [c for c in ["VN", "Valuación"] if c in display.columns]
     fmt_cols = {
-        "Cantidad":  lambda v: f"{v:,.0f}" if pd.notna(v) else "-",
-        "Precio":    lambda v: f"{v:,.4f}" if pd.notna(v) else "-",
+        "VN":        lambda v: f"{v:,.0f}" if pd.notna(v) else "-",
+        "PX":        lambda v: f"{v:,.4f}" if pd.notna(v) else "-",
         "Valuación": lambda v: fmt_money(v) if pd.notna(v) else "-",
     }
     styler = (
@@ -905,8 +925,8 @@ def vista_carteras():
         .map(lambda v: (
             "color: #00cc66; font-weight: bold" if pd.notna(v) and v > 0 else
             "color: #ff4444; font-weight: bold" if pd.notna(v) and v < 0 else ""
-        ), subset=["Cantidad", "Valuación"])
-        .format(fmt_cols)
+        ), subset=num_subset)
+        .format({k: v for k, v in fmt_cols.items() if k in display.columns})
     )
     st.dataframe(styler, hide_index=True, use_container_width=True,
                  height=df_height(len(display), max_h=900))

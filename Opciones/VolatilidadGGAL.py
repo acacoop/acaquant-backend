@@ -71,7 +71,7 @@ def actualizar_historico_ggal_mongo():
 
         # 5. Upsert en Metadata para que el dashboard de Streamlit lo lea
         client = get_mongo_client()
-        meta_col = client["Trading"]["Metadata"]
+        meta_col = client["Opciones"]["Metadata"]
         meta_col.update_one(
             {"type": "vr_ggal"},
             {"$set": {

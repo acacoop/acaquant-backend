@@ -3,7 +3,8 @@ import os
 import unicodedata
 import holidays
 import requests
-from datetime import date, timedelta
+import argparse
+from datetime import date, datetime, timedelta, timezone
 from pymongo import UpdateOne
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -70,7 +71,7 @@ def fetch_dia(dia_str, headers):
     return resp.json(), headers
 
 
-def run():
+def run(desde, hasta):
     print("🔑 Autenticando con Aunesa...", flush=True)
     headers = autenticar()
     print("✅ Auth OK\n", flush=True)
@@ -79,8 +80,6 @@ def run():
     col = client["CashFlow"]["Movimientos"]
     col.create_index("comprobante", unique=True, background=True)
 
-    desde = date(2025, 7, 1)
-    hasta = date.today()
     dias  = dias_habiles(desde, hasta)
     total = len(dias)
     print(f"📅 Días hábiles a procesar: {total}  ({desde} → {hasta})\n", flush=True)
@@ -104,6 +103,12 @@ def run():
                 print("0 movimientos")
                 continue
 
+            # La API devuelve el signo invertido: depósitos como negativos.
+            # Invertimos para que entradas sean positivas y salidas negativas.
+            for r in movimientos:
+                if "total" in r:
+                    r["total"] = float(r["total"]) * -1
+
             ops = [
                 UpdateOne(
                     {"comprobante": r["comprobante"]},
@@ -125,4 +130,16 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--today", action="store_true",
+        help="Procesar solo el día de hoy en horario Argentina (para cron diario)"
+    )
+    args = parser.parse_args()
+
+    if args.today:
+        # El cron corre a las 02:00 UTC = 23:00 ART del día anterior
+        hoy_art = (datetime.now(timezone.utc) - timedelta(hours=3)).date()
+        run(desde=hoy_art, hasta=hoy_art)
+    else:
+        run(desde=date(2025, 7, 1), hasta=date.today())

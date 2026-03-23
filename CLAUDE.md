@@ -129,6 +129,10 @@ Systemd services en `motor_rofex.service`, `streamlit.service` y `services/motor
 # main_dolar_mep.py — snapshot dólar MEP (14:00 y 19:57 UTC)
 0 14 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/main_dolar_mep.py >> /root/TradingAV/logs/dolar_mep.log 2>&1
 57 19 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/main_dolar_mep.py >> /root/TradingAV/logs/dolar_mep.log 2>&1
+
+# main_cashflow.py — carga diaria de movimientos de dinero a CashFlow.Movimientos
+# 02:00 UTC = 23:00 ART (lunes a viernes ARG = martes a sábado UTC)
+0 2 * * 2-6 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_cashflow.py --today >> /root/TradingAV/logs/cashflow.log 2>&1
 ```
 
 Logs en `/root/TradingAV/logs/`.

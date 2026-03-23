@@ -1194,6 +1194,14 @@ def _cargar_movimientos():
     return df.dropna(subset=["fecha"]).sort_values("fecha")
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _cargar_accionistas():
+    """Devuelve dict {cuenta: accionista} desde CashFlow.Accionistas."""
+    db = get_db_cashflow()
+    docs = list(db["Accionistas"].find({}, {"_id": 0, "cuenta": 1, "accionista": 1}))
+    return {d["cuenta"]: d["accionista"] for d in docs if "cuenta" in d}
+
+
 def vista_operaciones():
     st.markdown("## ACAQuant | Cash Flow")
 
@@ -1230,10 +1238,37 @@ def vista_operaciones():
             key="ops_gran", label_visibility="collapsed"
         )
 
+    # ── Filtro accionistas ────────────────────────────────────────────────────
+    acc_map = _cargar_accionistas()   # {cuenta: accionista}
+    acc_nombres = sorted(set(acc_map.values()))
+
+    fa_col, fb_col = st.columns([2, 3])
+    with fa_col:
+        filtro_acc = st.selectbox(
+            "Cuentas",
+            ["Todas", "Sin accionistas", "Solo accionistas"],
+            key="ops_filtro_acc",
+            label_visibility="collapsed",
+        )
+    with fb_col:
+        if filtro_acc == "Solo accionistas":
+            acc_sel = st.multiselect(
+                "Accionista", acc_nombres, default=acc_nombres, key="ops_acc_sel"
+            )
+        else:
+            acc_sel = acc_nombres
+
     # ── Filtrar ───────────────────────────────────────────────────────────────
     df_f = df[(df["fecha"].dt.date >= rango[0]) & (df["fecha"].dt.date <= rango[1])].copy()
     monedas_sel = (["ARS"] if show_ars else []) + (["USD"] if show_usd else [])
     df_f = df_f[df_f["unidad"].isin(monedas_sel)].copy()
+
+    # Aplicar filtro de accionistas
+    df_f["_accionista"] = df_f["cuenta"].map(acc_map)
+    if filtro_acc == "Sin accionistas":
+        df_f = df_f[df_f["_accionista"].isna()].copy()
+    elif filtro_acc == "Solo accionistas":
+        df_f = df_f[df_f["_accionista"].isin(acc_sel)].copy()
 
     if df_f.empty:
         st.info("Sin datos para el rango/moneda seleccionados.")

@@ -1240,23 +1240,24 @@ def vista_operaciones():
         return
 
     # ── Agrupar ───────────────────────────────────────────────────────────────
-    # Clave string para groupby — evita cualquier problema de precisión en timestamps
+    # Clave string garantiza un único valor por periodo/moneda.
+    # Encoding ordinal en Altair → una barra exacta por etiqueta, sin interpolación.
     if granularity == "Mensual":
         df_f["_key"] = df_f["fecha"].dt.strftime("%Y-%m")
         df_agg = df_f.groupby(["_key", "unidad"], as_index=False)["total"].sum()
-        df_agg["periodo"] = pd.to_datetime(df_agg["_key"] + "-01")
-        x_fmt = "%b %Y"
+        df_agg = df_agg.sort_values("_key")
+        df_agg["label"] = pd.to_datetime(df_agg["_key"] + "-01").dt.strftime("%b %Y")
     else:
         df_f["_key"] = df_f["fecha"].dt.strftime("%Y-%m-%d")
         df_agg = df_f.groupby(["_key", "unidad"], as_index=False)["total"].sum()
-        df_agg["periodo"] = pd.to_datetime(df_agg["_key"])
-        x_fmt = "%d/%m"
+        df_agg = df_agg.sort_values("_key")
+        df_agg["label"] = pd.to_datetime(df_agg["_key"]).dt.strftime("%d/%m/%y")
 
+    # Orden cronológico explícito para el eje ordinal
+    x_order = list(dict.fromkeys(df_agg["label"].tolist()))
     df_agg = df_agg.drop(columns="_key")
 
     # ── Gráfico — un chart independiente por moneda ──────────────────────────
-    tip_fmt = "%b %Y" if granularity == "Mensual" else "%d/%m/%Y"
-
     def make_chart(moneda, color):
         data = df_agg[df_agg["unidad"] == moneda].copy()
         if data.empty:
@@ -1285,10 +1286,11 @@ def vista_operaciones():
             .mark_bar(color=color, opacity=0.85,
                       cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
             .encode(
-                x=alt.X("periodo:T", axis=alt.Axis(format=x_fmt, labelAngle=-45, title=None)),
+                x=alt.X("label:O", sort=x_order,
+                         axis=alt.Axis(labelAngle=-45, title=None)),
                 y=alt.Y("valor:Q", axis=alt.Axis(title=y_title, titleColor=color, format=y_fmt)),
                 tooltip=[
-                    alt.Tooltip("periodo:T", title="Fecha", format=tip_fmt),
+                    alt.Tooltip("label:O", title="Fecha"),
                     alt.Tooltip("valor:Q", title=y_title, format=y_fmt),
                 ],
             )

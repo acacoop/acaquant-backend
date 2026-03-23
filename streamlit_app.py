@@ -1254,47 +1254,53 @@ def vista_operaciones():
         df_agg = df_f.groupby(["periodo", "unidad"], as_index=False)["total"].sum()
         x_fmt = "%d/%m"
 
-    # ── Gráfico ───────────────────────────────────────────────────────────────
-    # En modo mensual forzamos timeUnit="yearmonth" para que Altair agrupe
-    # correctamente y muestre un solo tick por mes.
-    x_enc_daily   = alt.X("periodo:T", axis=alt.Axis(format=x_fmt, labelAngle=-45, title=None))
-    x_enc_monthly = alt.X("periodo:T", timeUnit="yearmonth",
-                           axis=alt.Axis(format=x_fmt, labelAngle=-45, title=None))
-    x_enc = x_enc_monthly if granularity == "Mensual" else x_enc_daily
+    # ── Gráfico — un chart independiente por moneda ──────────────────────────
+    tip_fmt = "%b %Y" if granularity == "Mensual" else "%d/%m/%Y"
 
-    def make_bars(moneda, color, y_side="left"):
-        data = df_agg[df_agg["unidad"] == moneda]
-        tip_fmt = "%b %Y" if granularity == "Mensual" else "%d/%m/%Y"
+    def make_chart(moneda, color):
+        data = df_agg[df_agg["unidad"] == moneda].copy()
+        if data.empty:
+            return None
+        # Normalizar eje Y para evitar notación "G"
+        max_abs = data["total"].abs().max()
+        if max_abs >= 1e9:
+            data["valor"] = data["total"] / 1e9
+            y_title = f"Billones {moneda}"
+            y_fmt   = ",.2f"
+        elif max_abs >= 1e6:
+            data["valor"] = data["total"] / 1e6
+            y_title = f"Millones {moneda}"
+            y_fmt   = ",.1f"
+        elif max_abs >= 1e3:
+            data["valor"] = data["total"] / 1e3
+            y_title = f"Miles {moneda}"
+            y_fmt   = ",.1f"
+        else:
+            data["valor"] = data["total"]
+            y_title = moneda
+            y_fmt   = ",.0f"
+
         return (
             alt.Chart(data)
-            .mark_bar(opacity=0.85, cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
+            .mark_bar(color=color, opacity=0.85,
+                      cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
             .encode(
-                x=x_enc,
-                y=alt.Y(
-                    "total:Q",
-                    axis=alt.Axis(title=moneda, titleColor=color, orient=y_side, format="~s"),
-                ),
-                color=alt.value(color),
+                x=alt.X("periodo:T", axis=alt.Axis(format=x_fmt, labelAngle=-45, title=None)),
+                y=alt.Y("valor:Q", axis=alt.Axis(title=y_title, titleColor=color, format=y_fmt)),
                 tooltip=[
-                    alt.Tooltip("periodo:T", title="Fecha", format=tip_fmt,
-                                timeUnit="yearmonth" if granularity == "Mensual" else alt.Undefined),
-                    alt.Tooltip("total:Q", title=f"Flujo {moneda}", format=",.0f"),
+                    alt.Tooltip("periodo:T", title="Fecha", format=tip_fmt),
+                    alt.Tooltip("valor:Q", title=y_title, format=y_fmt),
                 ],
             )
+            .properties(height=220)
         )
 
-    if show_ars and show_usd:
-        chart = (
-            alt.layer(make_bars("ARS", COLOR_ARS, "left"), make_bars("USD", COLOR_USD, "right"))
-            .resolve_scale(y="independent")
-            .properties(height=400)
-        )
-    elif show_ars:
-        chart = make_bars("ARS", COLOR_ARS).properties(height=400)
-    else:
-        chart = make_bars("USD", COLOR_USD).properties(height=400)
-
-    st.altair_chart(chart, use_container_width=True)
+    for moneda, color in [("ARS", COLOR_ARS), ("USD", COLOR_USD)]:
+        if moneda not in monedas_sel:
+            continue
+        chart = make_chart(moneda, color)
+        if chart:
+            st.altair_chart(chart, use_container_width=True)
 
     # ── Tarjetas de resumen ───────────────────────────────────────────────────
     tarjeta_cols = st.columns(len(monedas_sel))

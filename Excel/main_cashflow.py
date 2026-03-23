@@ -55,7 +55,7 @@ def dias_habiles(desde, hasta):
 
 def fetch_dia(dia_str, headers):
     params = {
-        "tiposCuenta": "Comitentes y propias",
+        "tiposCuenta": "Comitentes",
         "concertacionDesde": dia_str,
         "concertacionHasta": dia_str,
     }

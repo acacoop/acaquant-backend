@@ -889,10 +889,24 @@ def vista_carteras():
 
     df = pd.DataFrame(docs)
 
-    # Timestamp de actualización
+    # Timestamp de actualización + botón manual
     actualizado = df["actualizado"].dropna().replace("", None).dropna()
-    if not actualizado.empty:
-        st.caption(f"Última sincronización Aunesa: {actualizado.iloc[0]}")
+    col_ts, col_btn = st.columns([6, 1])
+    with col_ts:
+        if not actualizado.empty:
+            st.caption(f"Última sincronización Aunesa: {actualizado.iloc[0]}")
+    with col_btn:
+        if st.button("↻ Actualizar", key="btn_actualizar_carteras", use_container_width=True):
+            with st.spinner("Sincronizando..."):
+                try:
+                    import sys, os
+                    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Excel"))
+                    import main_carteras
+                    main_carteras.run()
+                    st.toast("Carteras actualizadas", icon="✅")
+                    st.rerun()
+                except Exception as e:
+                    st.toast(f"Error: {e}", icon="❌")
 
     # Convertir precio y cantidad a numérico
     df["precio_num"] = pd.to_numeric(df["precio"], errors="coerce")

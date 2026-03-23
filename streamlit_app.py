@@ -941,29 +941,34 @@ def vista_carteras():
             .rename(columns={"id_cuenta": "Cuenta", "valuación": "Valuación"})
             .sort_values("Valuación", ascending=False)
         )
-    else:
+        by_group["Valuación"] = by_group["Valuación"].apply(
+            lambda v: fmt_money(v) if pd.notna(v) else "-"
+        )
+        st.dataframe(by_group, hide_index=True, use_container_width=True,
+                     height=df_height(len(by_group)))
+        return
+
+    # Cuenta seleccionada + sin cartera específica → tabla por cartera
+    if cartera_sel == "Todas" and "CARTERA" in df_view.columns:
         st.caption(f"VALUACIÓN POR CARTERA — Cuenta {cuenta_sel}")
-        group_col = "CARTERA" if "CARTERA" in df_view.columns else "id_cuenta"
+        group_col = "CARTERA"
         by_group = (
             df_view.groupby(group_col)["valuación"]
             .sum().reset_index()
             .rename(columns={group_col: "Cartera", "valuación": "Valuación"})
             .sort_values("Valuación", ascending=False)
         )
-    by_group["Valuación"] = by_group["Valuación"].apply(
-        lambda v: fmt_money(v) if pd.notna(v) else "-"
-    )
-    st.dataframe(by_group, hide_index=True, use_container_width=True,
-                 height=df_height(len(by_group)))
+        by_group["Valuación"] = by_group["Valuación"].apply(
+            lambda v: fmt_money(v) if pd.notna(v) else "-"
+        )
+        st.dataframe(by_group, hide_index=True, use_container_width=True,
+                     height=df_height(len(by_group)))
 
-    # ── gráficos analíticos (solo cuando hay cuenta seleccionada) ─────────
-    if cuenta_sel == "Todas":
-        return
-
+    # ── gráficos analíticos ───────────────────────────────────────────────
     st.divider()
 
-    # Torta: por CARTERA si no hay cartera seleccionada, por CLASE si hay
-    if "CARTERA" in df_view.columns and "CLASE_ACTIVO" in df_view.columns:
+    # Torta + Tabla Emisor (side by side)
+    if "CARTERA" in df_view.columns and "CLASE_ACTIVO" in df_view.columns and "EMISOR" in df_view.columns:
         pie_col = "CLASE_ACTIVO" if cartera_sel != "Todas" else "CARTERA"
         pie_label = "Clase" if cartera_sel != "Todas" else "Cartera"
         pie_data = (
@@ -971,30 +976,52 @@ def vista_carteras():
             .sum().reset_index()
             .rename(columns={pie_col: pie_label, "valuación": "Valuación"})
         )
-        pie_data = pie_data[pie_data["Valuación"] > 0]
+        pie_data = pie_data[pie_data["Valuación"] > 0].copy()
+        total_pie = pie_data["Valuación"].sum()
+        pie_data["pct"] = pie_data["Valuación"] / total_pie if total_pie else 0
 
-        torta = (
-            alt.Chart(pie_data)
-            .mark_arc(innerRadius=50)
-            .encode(
-                theta=alt.Theta("Valuación:Q"),
-                color=alt.Color(f"{pie_label}:N", legend=alt.Legend(orient="right")),
-                tooltip=[f"{pie_label}:N", alt.Tooltip("Valuación:Q", format=",.0f")],
-            )
-            .properties(title=f"Composición por {pie_label}", height=300)
+        emisor_data = (
+            df_view.groupby("EMISOR")["valuación"]
+            .sum().reset_index()
+            .rename(columns={"EMISOR": "Emisor", "valuación": "Valuación"})
+            .sort_values("Valuación", ascending=False)
         )
-        st.altair_chart(torta, use_container_width=True)
+        pie_h = max(300, df_height(len(emisor_data), max_h=9999))
 
-    st.divider()
+        base = alt.Chart(pie_data)
+        arc = base.mark_arc(innerRadius=55).encode(
+            theta=alt.Theta("Valuación:Q"),
+            color=alt.Color(f"{pie_label}:N", legend=alt.Legend(orient="bottom", columns=2)),
+            tooltip=[f"{pie_label}:N",
+                     alt.Tooltip("Valuación:Q", format=",.0f"),
+                     alt.Tooltip("pct:Q", format=".1%", title="%")],
+        )
+        text = base.mark_text(radius=115, size=11, fontWeight="bold").encode(
+            theta=alt.Theta("Valuación:Q", stack=True),
+            text=alt.Text("pct:Q", format=".1%"),
+        )
+        torta = (arc + text).properties(title=f"Composición por {pie_label}", height=pie_h, width=320)
+
+        emisor_data["Valuación"] = emisor_data["Valuación"].apply(
+            lambda v: fmt_money(v) if pd.notna(v) else "-"
+        )
+
+        col_torta, col_emisor = st.columns([2, 2])
+        with col_torta:
+            st.altair_chart(torta, use_container_width=False)
+        with col_emisor:
+            st.caption("VALUACIÓN POR EMISOR")
+            st.dataframe(emisor_data, hide_index=True, use_container_width=True,
+                         height=df_height(len(emisor_data), max_h=9999))
 
     # Gráfico de vencimientos
     if "VENCIMIENTO" in df_view.columns:
-        venc_data = df_view.copy()
-        venc_data = venc_data[
-            venc_data["VENCIMIENTO"].notna() &
-            (venc_data["VENCIMIENTO"] != "") &
-            (venc_data["VENCIMIENTO"].str.upper() != "NO APLICA")
-        ]
+        st.divider()
+        venc_data = df_view[
+            df_view["VENCIMIENTO"].notna() &
+            (df_view["VENCIMIENTO"] != "") &
+            (~df_view["VENCIMIENTO"].str.upper().isin(["NO APLICA", "NONE"]))
+        ].copy()
         if not venc_data.empty:
             venc_data = (
                 venc_data.groupby("VENCIMIENTO")["valuación"]
@@ -1013,23 +1040,6 @@ def vista_carteras():
                 .properties(title="Valuación por Vencimiento", height=300)
             )
             st.altair_chart(bar_venc, use_container_width=True)
-
-    st.divider()
-
-    # Tabla por Emisor
-    if "EMISOR" in df_view.columns:
-        st.caption("VALUACIÓN POR EMISOR")
-        emisor_data = (
-            df_view.groupby("EMISOR")["valuación"]
-            .sum().reset_index()
-            .rename(columns={"EMISOR": "Emisor", "valuación": "Valuación"})
-            .sort_values("Valuación", ascending=False)
-        )
-        emisor_data["Valuación"] = emisor_data["Valuación"].apply(
-            lambda v: fmt_money(v) if pd.notna(v) else "-"
-        )
-        st.dataframe(emisor_data, hide_index=True, use_container_width=True,
-                     height=df_height(len(emisor_data)))
 
 
 # Ruteo: solo se llama el fragmento activo.

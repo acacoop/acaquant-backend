@@ -956,6 +956,81 @@ def vista_carteras():
     st.dataframe(by_group, hide_index=True, use_container_width=True,
                  height=df_height(len(by_group)))
 
+    # ── gráficos analíticos (solo cuando hay cuenta seleccionada) ─────────
+    if cuenta_sel == "Todas":
+        return
+
+    st.divider()
+
+    # Torta: por CARTERA si no hay cartera seleccionada, por CLASE si hay
+    if "CARTERA" in df_view.columns and "CLASE_ACTIVO" in df_view.columns:
+        pie_col = "CLASE_ACTIVO" if cartera_sel != "Todas" else "CARTERA"
+        pie_label = "Clase" if cartera_sel != "Todas" else "Cartera"
+        pie_data = (
+            df_view.groupby(pie_col)["valuación"]
+            .sum().reset_index()
+            .rename(columns={pie_col: pie_label, "valuación": "Valuación"})
+        )
+        pie_data = pie_data[pie_data["Valuación"] > 0]
+
+        torta = (
+            alt.Chart(pie_data)
+            .mark_arc(innerRadius=50)
+            .encode(
+                theta=alt.Theta("Valuación:Q"),
+                color=alt.Color(f"{pie_label}:N", legend=alt.Legend(orient="right")),
+                tooltip=[f"{pie_label}:N", alt.Tooltip("Valuación:Q", format=",.0f")],
+            )
+            .properties(title=f"Composición por {pie_label}", height=300)
+        )
+        st.altair_chart(torta, use_container_width=True)
+
+    st.divider()
+
+    # Gráfico de vencimientos
+    if "VENCIMIENTO" in df_view.columns:
+        venc_data = df_view.copy()
+        venc_data = venc_data[
+            venc_data["VENCIMIENTO"].notna() &
+            (venc_data["VENCIMIENTO"] != "") &
+            (venc_data["VENCIMIENTO"].str.upper() != "NO APLICA")
+        ]
+        if not venc_data.empty:
+            venc_data = (
+                venc_data.groupby("VENCIMIENTO")["valuación"]
+                .sum().reset_index()
+                .rename(columns={"VENCIMIENTO": "Vencimiento", "valuación": "Valuación"})
+                .sort_values("Vencimiento")
+            )
+            bar_venc = (
+                alt.Chart(venc_data)
+                .mark_bar()
+                .encode(
+                    x=alt.X("Vencimiento:N", sort=None, axis=alt.Axis(labelAngle=-45)),
+                    y=alt.Y("Valuación:Q", axis=alt.Axis(format=",.0f")),
+                    tooltip=["Vencimiento:N", alt.Tooltip("Valuación:Q", format=",.0f")],
+                )
+                .properties(title="Valuación por Vencimiento", height=300)
+            )
+            st.altair_chart(bar_venc, use_container_width=True)
+
+    st.divider()
+
+    # Tabla por Emisor
+    if "EMISOR" in df_view.columns:
+        st.caption("VALUACIÓN POR EMISOR")
+        emisor_data = (
+            df_view.groupby("EMISOR")["valuación"]
+            .sum().reset_index()
+            .rename(columns={"EMISOR": "Emisor", "valuación": "Valuación"})
+            .sort_values("Valuación", ascending=False)
+        )
+        emisor_data["Valuación"] = emisor_data["Valuación"].apply(
+            lambda v: fmt_money(v) if pd.notna(v) else "-"
+        )
+        st.dataframe(emisor_data, hide_index=True, use_container_width=True,
+                     height=df_height(len(emisor_data)))
+
 
 # Ruteo: solo se llama el fragmento activo.
 if vista == "Libro":

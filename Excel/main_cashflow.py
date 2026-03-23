@@ -74,7 +74,7 @@ def run():
     print("✅ Auth OK\n", flush=True)
 
     client = get_mongo_client()
-    col = client["Cash Flow"]["Movimientos"]
+    col = client["CashFlow"]["Movimientos"]
     col.create_index("comprobante", unique=True, background=True)
 
     desde = date(2025, 7, 1)

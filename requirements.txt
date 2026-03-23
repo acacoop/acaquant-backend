@@ -4,11 +4,11 @@ rich
 pandas
 numpy
 scipy
-streamlit
+streamlit>=1.42.0
 altair<5
 pymongo
 python-dotenv
 holidays
 requests
 yfinance
-imghdr
+

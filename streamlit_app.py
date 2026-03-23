@@ -1175,175 +1175,133 @@ def vista_carteras():
 
 
 # ==========================================
-# OPERACIONES — helpers
+# OPERACIONES — Cash Flow
 # ==========================================
-CUENTAS_OPERACIONES = ["100", "255", "101", "163"]
+@st.cache_resource(ttl=3600)
+def get_db_cashflow():
+    return get_mongo_client()["CashFlow"]
 
-_TIPO_PATTERNS = [
-    ("Acreencia",          r"acreencia|acreencias"),
-    ("Movimientos de Dinero", r"movimiento.?de.?dinero|transferencia|acreditac|debito|comision|cupon|renta|amortiz"),
-    ("Caución",            r"cau[cç]ion|caucion"),
-    ("FCI Bilateral",      r"fci.?bilateral|bilateral"),
-    ("Supermercado FCI",   r"supermercado"),
-    ("Operaciones",        r"compra|venta|operac"),
-]
 
-def _asignar_categoria(informacion: str) -> str:
-    inf = str(informacion).lower()
-    for cat, pat in _TIPO_PATTERNS:
-        if re.search(pat, inf):
-            return cat
-    return "Otro"
-
-def _extraer_titulo(informacion: str) -> str:
-    """Extrae el ticker/título de la columna informacion."""
-    s = str(informacion)
-    # Patrón común: "... - TICKER - ..." o texto entre corchetes
-    m = re.search(r'\b([A-Z]{2,6}(?:\/\d+)?(?:CO|GO|DO|FI)?)\b', s)
-    return m.group(1) if m else ""
-
-@st.cache_data(ttl=120, show_spinner=False)
-def _fetch_operaciones(desde: str, hasta: str) -> pd.DataFrame:
-    """Llama a la API Aunesa y retorna operaciones filtradas y categorizadas."""
-    auth_url = "https://aca.aunesa.com/Irmo/api/login"
-    ops_url  = "https://aca.aunesa.com/Irmo/api/operaciones/consolidadosGenerales"
-
-    token_resp = requests.post(
-        auth_url,
-        json={
-            "clientId": config.AUNESA_CLIENT_ID,
-            "username": config.AUNESA_USERNAME,
-            "password": config.AUNESA_PASSWORD,
-        },
-        headers={"Content-Type": "application/json"},
-        timeout=10,
-    )
-    token_resp.raise_for_status()
-    token = token_resp.json().get("token")
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
-
-    params = {
-        "tiposCuenta": "Comitentes y propias",
-        "concertacionDesde": desde,
-        "concertacionHasta": hasta,
-    }
-    resp = requests.get(ops_url, params=params, headers=headers, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-
-    if not data:
+@st.cache_data(ttl=300, show_spinner=False)
+def _cargar_movimientos():
+    db = get_db_cashflow()
+    docs = list(db["Movimientos"].find({}, {"_id": 0, "fecha": 1, "total": 1, "unidad": 1, "informacion": 1, "cuenta": 1}))
+    if not docs:
         return pd.DataFrame()
-
-    df = pd.DataFrame(data)
-
-    # Filtrar monedas no relevantes
-    if "moneda" in df.columns:
-        df = df[df["moneda"].str.upper().isin(["ARS", "USD", "USDC"])]
-
-    # Excluir tipos de operación no relevantes
-    excluir_pat = r"integraci[oó]n de garant[ií]as|otc|usdl"
-    if "tipo" in df.columns:
-        df = df[~df["tipo"].str.lower().str.contains(excluir_pat, na=False)]
-    if "informacion" in df.columns:
-        df = df[~df["informacion"].str.contains(r"\(Cierre\)", na=False)]
-
-    # Categorización y título
-    info_col = "informacion" if "informacion" in df.columns else None
-    if info_col:
-        df["Tipo"]   = df[info_col].apply(_asignar_categoria)
-        df["Titulo"] = df[info_col].apply(_extraer_titulo)
-
-    # Normalizar columnas de salida
-    col_map = {
-        "cuenta":       "cuenta",
-        "fecha":        "fecha",
-        "comprobante":  "comprobante",
-        "informacion":  "informacion",
-        "total":        "total",
-        "moneda":       "moneda",
-    }
-    keep = [c for c in col_map if c in df.columns] + ["Tipo", "Titulo"]
-    df = df[keep].rename(columns=col_map)
-
-    # Parsear fecha para ordenar
-    if "fecha" in df.columns:
-        df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce", dayfirst=True)
-        df = df.sort_values("fecha", ascending=False)
-
-    return df.reset_index(drop=True)
+    df = pd.DataFrame(docs)
+    df["fecha"] = pd.to_datetime(df["fecha"], format="%d/%m/%Y", errors="coerce")
+    df["total"] = pd.to_numeric(df["total"], errors="coerce").fillna(0)
+    return df.dropna(subset=["fecha"]).sort_values("fecha")
 
 
 def vista_operaciones():
-    st.markdown("## ACAQuant | Operaciones")
+    st.markdown("## ACAQuant | Cash Flow")
 
-    hoy = datetime.now().date()
-    c1, c2, c3 = st.columns([2, 2, 1])
-    with c1:
-        fecha_desde = st.date_input("Desde", value=hoy, key="ops_desde")
-    with c2:
-        fecha_hasta = st.date_input("Hasta", value=hoy, key="ops_hasta")
-    with c3:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        buscar = st.button("Buscar", use_container_width=True, key="ops_buscar")
-
-    if not buscar and "ops_df" not in st.session_state:
-        st.info("Seleccioná el rango de fechas y presioná Buscar.")
-        return
-
-    desde_str = fecha_desde.strftime("%d/%m/%Y")
-    hasta_str = fecha_hasta.strftime("%d/%m/%Y")
-
-    if buscar:
-        _fetch_operaciones.clear()
-        with st.spinner("Consultando API Aunesa..."):
-            try:
-                df = _fetch_operaciones(desde_str, hasta_str)
-                st.session_state["ops_df"] = df
-            except Exception as e:
-                st.error(f"Error al consultar la API: {e}")
-                return
-
-    df = st.session_state.get("ops_df", pd.DataFrame())
+    df = _cargar_movimientos()
     if df.empty:
-        st.warning("Sin operaciones para el período seleccionado.")
+        st.warning("Sin datos. Ejecutá `main_cashflow.py` para cargar el historial.")
         return
 
-    # Filtros
-    col_f1, col_f2 = st.columns([2, 2])
-    with col_f1:
-        tipos = ["Todos"] + sorted(df["Tipo"].unique().tolist()) if "Tipo" in df.columns else ["Todos"]
-        tipo_sel = st.selectbox("Categoría", tipos, key="ops_tipo")
-    with col_f2:
-        if "cuenta" in df.columns:
-            cuentas = ["Todas"] + sorted(df["cuenta"].dropna().unique().tolist())
-            cuenta_sel = st.selectbox("Cuenta", cuentas, key="ops_cuenta")
-        else:
-            cuenta_sel = "Todas"
+    min_date = df["fecha"].min().date()
+    max_date = df["fecha"].max().date()
 
-    df_filt = df.copy()
-    if tipo_sel != "Todos" and "Tipo" in df_filt.columns:
-        df_filt = df_filt[df_filt["Tipo"] == tipo_sel]
-    if cuenta_sel != "Todas" and "cuenta" in df_filt.columns:
-        df_filt = df_filt[df_filt["cuenta"] == cuenta_sel]
+    # ── Controles ────────────────────────────────────────────────────────────
+    ctrl_l, ctrl_r = st.columns([4, 1])
 
-    st.caption(f"{len(df_filt)} operaciones")
+    with ctrl_l:
+        rango = st.slider(
+            "Rango de fechas",
+            min_value=min_date,
+            max_value=max_date,
+            value=(min_date, max_date),
+            format="DD/MM/YY",
+            key="ops_rango",
+        )
 
-    # Tabla
-    display_df = df_filt.copy()
-    if "fecha" in display_df.columns:
-        display_df["fecha"] = display_df["fecha"].dt.strftime("%d/%m/%Y")
-    if "total" in display_df.columns:
-        display_df["total"] = pd.to_numeric(display_df["total"], errors="coerce")
+    with ctrl_r:
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+        show_ars = st.checkbox("ARS", value=True, key="ops_ars")
+        show_usd = st.checkbox("USD", value=True, key="ops_usd")
+        granularity = st.radio("", ["Diario", "Mensual"], key="ops_gran", label_visibility="collapsed")
 
-    st.dataframe(
-        display_df,
-        hide_index=True,
-        use_container_width=True,
-        height=df_height(min(len(display_df), 50), max_h=800),
-        column_config={
-            "total": st.column_config.NumberColumn("Total", format="%.2f"),
-        }
-    )
+    # ── Filtrar ───────────────────────────────────────────────────────────────
+    df_f = df[(df["fecha"].dt.date >= rango[0]) & (df["fecha"].dt.date <= rango[1])].copy()
+
+    monedas_sel = (["ARS"] if show_ars else []) + (["USD"] if show_usd else [])
+    df_f = df_f[df_f["unidad"].isin(monedas_sel)]
+
+    if df_f.empty:
+        st.info("Sin datos para el rango/moneda seleccionados.")
+        return
+
+    # ── Agrupar ───────────────────────────────────────────────────────────────
+    if granularity == "Mensual":
+        df_f["periodo"] = df_f["fecha"].dt.to_period("M").dt.to_timestamp()
+        x_fmt = "%b %Y"
+    else:
+        df_f["periodo"] = df_f["fecha"].dt.normalize()
+        x_fmt = "%d/%m"
+
+    df_agg = df_f.groupby(["periodo", "unidad"], as_index=False)["total"].sum()
+
+    # ── Gráfico ───────────────────────────────────────────────────────────────
+    COLOR_ARS = "#4C9BE8"
+    COLOR_USD = "#F5A623"
+
+    def make_bars(moneda, color, y_axis_side="left"):
+        side = "left" if y_axis_side == "left" else "right"
+        return (
+            alt.Chart(df_agg[df_agg["unidad"] == moneda])
+            .mark_bar(opacity=0.85, cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
+            .encode(
+                x=alt.X(
+                    "periodo:T",
+                    axis=alt.Axis(format=x_fmt, labelAngle=-45, title=None),
+                ),
+                y=alt.Y(
+                    "total:Q",
+                    axis=alt.Axis(
+                        title=moneda,
+                        titleColor=color,
+                        orient=side,
+                        format="~s",
+                    ),
+                ),
+                color=alt.value(color),
+                tooltip=[
+                    alt.Tooltip("periodo:T", title="Fecha", format=x_fmt),
+                    alt.Tooltip("total:Q", title=f"Flujo {moneda}", format=",.2f"),
+                ],
+            )
+        )
+
+    if show_ars and show_usd:
+        chart = (
+            alt.layer(
+                make_bars("ARS", COLOR_ARS, "left"),
+                make_bars("USD", COLOR_USD, "right"),
+            )
+            .resolve_scale(y="independent")
+            .properties(height=420)
+        )
+    elif show_ars:
+        chart = make_bars("ARS", COLOR_ARS).properties(height=420)
+    else:
+        chart = make_bars("USD", COLOR_USD).properties(height=420)
+
+    st.altair_chart(chart, use_container_width=True)
+
+    # ── Resumen debajo del gráfico ────────────────────────────────────────────
+    resumen_cols = st.columns(len(monedas_sel) * 2)
+    idx = 0
+    for moneda in monedas_sel:
+        sub = df_f[df_f["unidad"] == moneda]
+        entradas = sub[sub["total"] > 0]["total"].sum()
+        salidas  = sub[sub["total"] < 0]["total"].sum()
+        color = COLOR_ARS if moneda == "ARS" else COLOR_USD
+        resumen_cols[idx].metric(f"Entradas {moneda}", f"{entradas:,.0f}")
+        resumen_cols[idx + 1].metric(f"Salidas {moneda}", f"{salidas:,.0f}")
+        idx += 2
 
 
 # Ruteo: solo se llama el fragmento activo.

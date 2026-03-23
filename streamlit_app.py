@@ -883,11 +883,26 @@ def vista_carteras():
     # ── métricas resumen ──────────────────────────────────────────────────
     total_val = df_view["valuación"].sum()
     n_pos     = len(df_view)
+    # MEP desde Valuaciones.Dolar (último registro)
+    mep_val = None
+    try:
+        dolar_doc = db_val["Dolar"].find_one(sort=[("timestamp", -1)])
+        if dolar_doc:
+            mep_val = float(dolar_doc.get("mep", 0)) or None
+    except Exception:
+        pass
+
     with col_resumen:
-        m1, m2, m3 = st.columns(3)
+        m1, m2, m3, m4 = st.columns(4)
         m1.metric("Posiciones", n_pos)
-        m2.metric("Valuación total", fmt_money(total_val) if total_val else "N/A")
-        m3.metric("Cuenta(s)", cuenta_sel)
+        m2.metric("Valuación ARS", fmt_money(total_val) if total_val else "N/A")
+        if mep_val and total_val:
+            usd_val = total_val / mep_val
+            m3.metric("Valuación USD", fmt_money(usd_val))
+            m4.metric("MEP", f"${mep_val:,.2f}")
+        else:
+            m3.metric("Valuación USD", "N/A")
+            m4.metric("Cuenta(s)", cuenta_sel)
 
     st.divider()
 
@@ -995,26 +1010,23 @@ def vista_carteras():
         pie_h = max(320, df_height(len(emisor_data), max_h=9999))
 
         base = alt.Chart(pie_data)
-        arc = base.mark_arc(innerRadius=55).encode(
+        arc = base.mark_arc(innerRadius=60, outerRadius=130).encode(
             theta=alt.Theta("Valuación:Q"),
             color=alt.Color("leyenda:N",
                             scale=alt.Scale(domain=domain_leyenda, scheme="tableau10"),
-                            legend=alt.Legend(title=pie_label, orient="bottom", columns=2)),
+                            legend=alt.Legend(
+                                title=pie_label,
+                                orient="right",
+                                labelLimit=200,
+                            )),
             tooltip=[alt.Tooltip(f"{pie_label}:N"),
                      alt.Tooltip("Valuación:Q", format=",.0f"),
                      alt.Tooltip("pct:Q", format=".1%", title="%")],
         )
-        # % solo en slices >= 4% para evitar texto encimado en slices chicos
-        text_pie = base.mark_text(radius=120, size=11, fontWeight="bold", color="white").encode(
-            theta=alt.Theta("Valuación:Q", stack=True),
-            text=alt.condition(
-                alt.datum.pct >= 0.04,
-                alt.Text("pct:Q", format=".0%"),
-                alt.value(""),
-            ),
-        )
-        torta = (arc + text_pie).properties(
-            title=f"Composición por {pie_label}", height=pie_h, width=320
+        torta = arc.properties(
+            title=alt.TitleParams(f"Composición por {pie_label}", anchor="start"),
+            height=pie_h,
+            width=260,
         )
 
         emisor_data["Valuación"] = emisor_data["Valuación"].apply(

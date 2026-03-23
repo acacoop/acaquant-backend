@@ -864,15 +864,37 @@ def vista_carteras():
 
     st.divider()
 
+    # ── MEP: leer config manual de Mongo ─────────────────────────────────
+    mep_cfg = db_val["Dolar"].find_one({"type": "config"})
+    mep_actual = float(mep_cfg.get("mep", 0)) if mep_cfg else 0.0
+    if "mep_display" not in st.session_state:
+        st.session_state["mep_display"] = mep_actual
+
     # ── filtros ───────────────────────────────────────────────────────────
     cuentas  = sorted(df["id_cuenta"].dropna().unique().tolist())
     carteras = sorted(df["CARTERA"].dropna().unique().tolist()) if "CARTERA" in df.columns else []
 
-    col_fil1, col_fil2, col_resumen = st.columns([2, 2, 4])
+    col_fil1, col_fil2, col_mep, col_resumen = st.columns([2, 2, 2, 4])
     with col_fil1:
         cuenta_sel = st.selectbox("Cuenta", ["Todas"] + cuentas, key="carteras_cuenta")
     with col_fil2:
         cartera_sel = st.selectbox("Cartera", ["Todas"] + carteras, key="carteras_cartera")
+    with col_mep:
+        nuevo_mep = st.number_input(
+            "Tipo de cambio (MEP)",
+            min_value=0.0, max_value=10_000_000.0,
+            value=st.session_state["mep_display"],
+            step=1.0, format="%.2f",
+            key="mep_input",
+        )
+        if abs(nuevo_mep - st.session_state["mep_display"]) > 1e-4:
+            db_val["Dolar"].update_one(
+                {"type": "config"},
+                {"$set": {"mep": nuevo_mep, "updated_at": datetime.utcnow()}},
+                upsert=True
+            )
+            st.session_state["mep_display"] = nuevo_mep
+            st.toast(f"MEP actualizado a ${nuevo_mep:,.2f}", icon="✅")
 
     df_view = df.copy()
     if cuenta_sel != "Todas":
@@ -883,22 +905,14 @@ def vista_carteras():
     # ── métricas resumen ──────────────────────────────────────────────────
     total_val = df_view["valuación"].sum()
     n_pos     = len(df_view)
-    # MEP desde Valuaciones.Dolar (último registro)
-    mep_val = None
-    try:
-        dolar_doc = db_val["Dolar"].find_one(sort=[("timestamp", -1)])
-        if dolar_doc:
-            mep_val = float(dolar_doc.get("mep", 0)) or None
-    except Exception:
-        pass
+    mep_val   = st.session_state["mep_display"] or None
 
     with col_resumen:
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Posiciones", n_pos)
         m2.metric("Valuación ARS", fmt_money(total_val) if total_val else "N/A")
         if mep_val and total_val:
-            usd_val = total_val / mep_val
-            m3.metric("Valuación USD", fmt_money(usd_val))
+            m3.metric("Valuación USD", fmt_money(total_val / mep_val))
             m4.metric("MEP", f"${mep_val:,.2f}")
         else:
             m3.metric("Valuación USD", "N/A")
@@ -1031,7 +1045,8 @@ def vista_carteras():
             height=280,
         )
 
-        emisor_data["Valuación"] = emisor_data["Valuación"].apply(
+        emisor_top = emisor_data.head(5).copy()
+        emisor_top["Valuación"] = emisor_top["Valuación"].apply(
             lambda v: fmt_money(v) if pd.notna(v) else "-"
         )
 
@@ -1039,9 +1054,9 @@ def vista_carteras():
         with col_torta:
             st.altair_chart(torta, use_container_width=True)
         with col_emisor:
-            st.caption("VALUACIÓN POR EMISOR")
-            st.dataframe(emisor_data, hide_index=True, use_container_width=True,
-                         height=df_height(len(emisor_data), max_h=9999))
+            st.caption("TOP STOCK x EMISOR")
+            st.dataframe(emisor_top, hide_index=True, use_container_width=True,
+                         height=df_height(len(emisor_top), max_h=9999))
 
     # Gráfico de vencimientos
     if "VENCIMIENTO" in df_view.columns:

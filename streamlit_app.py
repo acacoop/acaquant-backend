@@ -1009,33 +1009,35 @@ def vista_carteras():
         )
         pie_h = max(320, df_height(len(emisor_data), max_h=9999))
 
-        base = alt.Chart(pie_data)
-        arc = base.mark_arc(innerRadius=60, outerRadius=130).encode(
+        n_cats = len(pie_data)
+        legend_cols = min(n_cats, 3)
+        arc = alt.Chart(pie_data).mark_arc(innerRadius=60).encode(
             theta=alt.Theta("Valuación:Q"),
             color=alt.Color("leyenda:N",
                             scale=alt.Scale(domain=domain_leyenda, scheme="tableau10"),
                             legend=alt.Legend(
-                                title=pie_label,
-                                orient="right",
-                                labelLimit=200,
+                                title=None,
+                                orient="bottom",
+                                columns=legend_cols,
+                                labelLimit=180,
+                                symbolSize=120,
                             )),
             tooltip=[alt.Tooltip(f"{pie_label}:N"),
                      alt.Tooltip("Valuación:Q", format=",.0f"),
                      alt.Tooltip("pct:Q", format=".1%", title="%")],
         )
         torta = arc.properties(
-            title=alt.TitleParams(f"Composición por {pie_label}", anchor="start"),
-            height=pie_h,
-            width=260,
+            title=alt.TitleParams(f"Composición por {pie_label}", anchor="middle"),
+            height=280,
         )
 
         emisor_data["Valuación"] = emisor_data["Valuación"].apply(
             lambda v: fmt_money(v) if pd.notna(v) else "-"
         )
 
-        col_torta, col_emisor = st.columns([2, 2])
+        col_torta, col_emisor = st.columns([3, 2])
         with col_torta:
-            st.altair_chart(torta, use_container_width=False)
+            st.altair_chart(torta, use_container_width=True)
         with col_emisor:
             st.caption("VALUACIÓN POR EMISOR")
             st.dataframe(emisor_data, hide_index=True, use_container_width=True,

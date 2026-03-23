@@ -906,6 +906,14 @@ def vista_carteras():
         df_assets = pd.DataFrame(assets_docs)
         df = df.merge(df_assets, on="unidad", how="left")
 
+    # Guardar incompletos ANTES del fillna (TICKER null = sin metadata en Assets)
+    _check_cols = [c for c in ["TICKER", "EMISOR", "CARTERA", "CLASE_ACTIVO", "CALIFICACION"] if c in df.columns]
+    _incompletos_raw = (
+        df[df["TICKER"].isnull()][["unidad"] + _check_cols]
+        .drop_duplicates(subset=["unidad"])
+        .copy()
+    ) if "TICKER" in df.columns else pd.DataFrame()
+
     # Rellenar NaN en columnas de metadata con "-"
     for col in ["TICKER", "EMISOR", "CLASE_ACTIVO", "CARTERA", "CALIFICACION", "VENCIMIENTO"]:
         if col in df.columns:
@@ -1138,24 +1146,15 @@ def vista_carteras():
             st.altair_chart(bar_venc, use_container_width=True, theme="streamlit")
 
     # ── assets incompletos (colapsado, solo si hay pendientes) ───────────
-    # Usamos TICKER como indicador: si es null el asset no tiene metadata en Assets.
-    # Deduplicamos por unidad para no mostrar la misma fila N veces.
-    if "TICKER" in df.columns:
-        check_cols = [c for c in ["TICKER", "EMISOR", "CARTERA", "CLASE_ACTIVO", "CALIFICACION"] if c in df.columns]
-        incompletos = (
-            df[df["TICKER"].isnull()][["unidad"] + check_cols]
-            .drop_duplicates(subset=["unidad"])
-            .copy()
-        )
-        incompletos = incompletos.rename(columns={
+    if not _incompletos_raw.empty:
+        incompletos = _incompletos_raw.rename(columns={
             "unidad": "Unidad", "TICKER": "Ticker", "EMISOR": "Emisor",
             "CARTERA": "Cartera", "CLASE_ACTIVO": "Clase", "CALIFICACION": "Calificación",
         })
-        if not incompletos.empty:
-            with st.expander(f"⚠️ Assets sin metadata completa ({len(incompletos)})", expanded=False):
-                st.caption("Estos instrumentos tienen datos financieros pero faltan campos en Valuaciones.Assets.")
-                st.dataframe(incompletos, hide_index=True, use_container_width=True,
-                             height=df_height(len(incompletos), max_h=400))
+        with st.expander(f"⚠️ Assets sin metadata completa ({len(incompletos)})", expanded=False):
+            st.caption("Estos instrumentos tienen datos financieros pero faltan campos en Valuaciones.Assets.")
+            st.dataframe(incompletos, hide_index=True, use_container_width=True,
+                         height=df_height(len(incompletos), max_h=400))
 
 
 # Ruteo: solo se llama el fragmento activo.

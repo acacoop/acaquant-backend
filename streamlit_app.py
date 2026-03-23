@@ -977,8 +977,14 @@ def vista_carteras():
             .rename(columns={pie_col: pie_label, "valuación": "Valuación"})
         )
         pie_data = pie_data[pie_data["Valuación"] > 0].copy()
+        pie_data = pie_data.sort_values(pie_label)  # orden estable para colores fijos
         total_pie = pie_data["Valuación"].sum()
         pie_data["pct"] = pie_data["Valuación"] / total_pie if total_pie else 0
+        # Leyenda con % incluido; dominio fijo = colores estables entre renders
+        pie_data["leyenda"] = pie_data.apply(
+            lambda r: f"{r[pie_label]}  {r['pct']:.1%}", axis=1
+        )
+        domain_leyenda = pie_data["leyenda"].tolist()
 
         emisor_data = (
             df_view.groupby("EMISOR")["valuación"]
@@ -986,21 +992,30 @@ def vista_carteras():
             .rename(columns={"EMISOR": "Emisor", "valuación": "Valuación"})
             .sort_values("Valuación", ascending=False)
         )
-        pie_h = max(300, df_height(len(emisor_data), max_h=9999))
+        pie_h = max(320, df_height(len(emisor_data), max_h=9999))
 
         base = alt.Chart(pie_data)
         arc = base.mark_arc(innerRadius=55).encode(
             theta=alt.Theta("Valuación:Q"),
-            color=alt.Color(f"{pie_label}:N", legend=alt.Legend(orient="bottom", columns=2)),
-            tooltip=[f"{pie_label}:N",
+            color=alt.Color("leyenda:N",
+                            scale=alt.Scale(domain=domain_leyenda, scheme="tableau10"),
+                            legend=alt.Legend(title=pie_label, orient="bottom", columns=2)),
+            tooltip=[alt.Tooltip(f"{pie_label}:N"),
                      alt.Tooltip("Valuación:Q", format=",.0f"),
                      alt.Tooltip("pct:Q", format=".1%", title="%")],
         )
-        text = base.mark_text(radius=115, size=11, fontWeight="bold").encode(
+        # % solo en slices >= 4% para evitar texto encimado en slices chicos
+        text_pie = base.mark_text(radius=120, size=11, fontWeight="bold", color="white").encode(
             theta=alt.Theta("Valuación:Q", stack=True),
-            text=alt.Text("pct:Q", format=".1%"),
+            text=alt.condition(
+                alt.datum.pct >= 0.04,
+                alt.Text("pct:Q", format=".0%"),
+                alt.value(""),
+            ),
         )
-        torta = (arc + text).properties(title=f"Composición por {pie_label}", height=pie_h, width=320)
+        torta = (arc + text_pie).properties(
+            title=f"Composición por {pie_label}", height=pie_h, width=320
+        )
 
         emisor_data["Valuación"] = emisor_data["Valuación"].apply(
             lambda v: fmt_money(v) if pd.notna(v) else "-"
@@ -1029,17 +1044,30 @@ def vista_carteras():
                 .rename(columns={"VENCIMIENTO": "Vencimiento", "valuación": "Valuación"})
                 .sort_values("Vencimiento")
             )
-            bar_venc = (
+            venc_data["label"] = venc_data["Valuación"].apply(fmt_money)
+            bars = (
                 alt.Chart(venc_data)
                 .mark_bar()
                 .encode(
                     x=alt.X("Vencimiento:N", sort=None, axis=alt.Axis(labelAngle=-45)),
-                    y=alt.Y("Valuación:Q", axis=alt.Axis(format=",.0f")),
+                    y=alt.Y("Valuación:Q", axis=alt.Axis(format=",.0f"),
+                             scale=alt.Scale(nice=True)),
                     tooltip=["Vencimiento:N", alt.Tooltip("Valuación:Q", format=",.0f")],
                 )
-                .properties(title="Valuación por Vencimiento", height=300)
             )
-            st.altair_chart(bar_venc, use_container_width=True)
+            bar_labels = (
+                alt.Chart(venc_data)
+                .mark_text(align="center", baseline="bottom", dy=-4, fontSize=10, fontWeight="bold")
+                .encode(
+                    x=alt.X("Vencimiento:N", sort=None),
+                    y=alt.Y("Valuación:Q"),
+                    text=alt.Text("label:N"),
+                )
+            )
+            bar_venc = (bars + bar_labels).properties(
+                title="Valuación por Vencimiento", height=420
+            )
+            st.altair_chart(bar_venc, use_container_width=True, theme="streamlit")
 
 
 # Ruteo: solo se llama el fragmento activo.

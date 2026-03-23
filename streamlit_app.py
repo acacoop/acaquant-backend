@@ -1137,6 +1137,22 @@ def vista_carteras():
             )
             st.altair_chart(bar_venc, use_container_width=True, theme="streamlit")
 
+    # ── assets incompletos (colapsado, solo si hay pendientes) ───────────
+    meta_cols = ["TICKER", "EMISOR", "CARTERA", "CLASE_ACTIVO", "CALIFICACION", "VENCIMIENTO"]
+    cols_presentes = [c for c in meta_cols if c in df.columns]
+    if cols_presentes:
+        incompletos = df[df[cols_presentes].isnull().any(axis=1)][["unidad"] + cols_presentes].copy()
+        incompletos = incompletos.rename(columns={
+            "unidad": "Unidad", "TICKER": "Ticker", "EMISOR": "Emisor",
+            "CARTERA": "Cartera", "CLASE_ACTIVO": "Clase",
+            "CALIFICACION": "Calificación", "VENCIMIENTO": "Vencimiento",
+        })
+        if not incompletos.empty:
+            with st.expander(f"⚠️ Assets sin metadata completa ({len(incompletos)})", expanded=False):
+                st.caption("Estos instrumentos tienen datos financieros pero faltan campos en Valuaciones.Assets.")
+                st.dataframe(incompletos, hide_index=True, use_container_width=True,
+                             height=df_height(len(incompletos), max_h=400))
+
 
 # Ruteo: solo se llama el fragmento activo.
 if vista == "Libro":

@@ -172,8 +172,11 @@ class MicrostructureEngine:
         if "EV" in data and data["EV"] is not None: st["daily_financials"]["total_money"] = float(data["EV"])
         if "NV" in data and data["NV"] is not None: st["daily_financials"]["total_nominals"] = float(data["NV"])
         def _to_float(v):
-            if isinstance(v, dict): return float(v.get("price", 0) or 0)
-            return float(v) if v else 0.0
+            if isinstance(v, dict): v = v.get("price", 0)
+            try:
+                return float(v) if v else 0.0
+            except (TypeError, ValueError):
+                return 0.0
         if "OP" in data and data["OP"]: st["open_price"]    = _to_float(data["OP"])
         if "HI" in data and data["HI"]: st["high_price"]    = _to_float(data["HI"])
         if "LO" in data and data["LO"]: st["low_price"]     = _to_float(data["LO"])

@@ -821,7 +821,31 @@ def vista_carteras():
     """
     db_val = get_db_valuaciones()
 
-    st.markdown("## 💼 ACAQuant | Carteras")
+    # ── MEP: leer config manual de Mongo (antes de renderizar) ───────────
+    mep_cfg = db_val["Dolar"].find_one({"type": "config"})
+    mep_actual = float(mep_cfg.get("mep", 0)) if mep_cfg else 0.0
+    if "mep_display" not in st.session_state:
+        st.session_state["mep_display"] = mep_actual
+
+    header_col, mep_col = st.columns([3, 1])
+    with header_col:
+        st.markdown("## 💼 ACAQuant | Carteras")
+    with mep_col:
+        nuevo_mep = st.number_input(
+            "MEP", min_value=0.0, max_value=10_000_000.0,
+            value=st.session_state["mep_display"],
+            step=1.0, format="%.2f",
+            key="mep_input", label_visibility="collapsed",
+            placeholder="Tipo de cambio MEP",
+        )
+        if abs(nuevo_mep - st.session_state["mep_display"]) > 1e-4:
+            db_val["Dolar"].update_one(
+                {"type": "config"},
+                {"$set": {"mep": nuevo_mep, "updated_at": datetime.utcnow()}},
+                upsert=True
+            )
+            st.session_state["mep_display"] = nuevo_mep
+            st.toast(f"MEP actualizado a ${nuevo_mep:,.2f}", icon="✅")
 
     docs = list(db_val["Carteras"].find({}, {"_id": 0}))
     if not docs:
@@ -864,37 +888,15 @@ def vista_carteras():
 
     st.divider()
 
-    # ── MEP: leer config manual de Mongo ─────────────────────────────────
-    mep_cfg = db_val["Dolar"].find_one({"type": "config"})
-    mep_actual = float(mep_cfg.get("mep", 0)) if mep_cfg else 0.0
-    if "mep_display" not in st.session_state:
-        st.session_state["mep_display"] = mep_actual
-
     # ── filtros ───────────────────────────────────────────────────────────
     cuentas  = sorted(df["id_cuenta"].dropna().unique().tolist())
     carteras = sorted(df["CARTERA"].dropna().unique().tolist()) if "CARTERA" in df.columns else []
 
-    col_fil1, col_fil2, col_mep, col_resumen = st.columns([2, 2, 2, 4])
+    col_fil1, col_fil2, col_resumen = st.columns([2, 2, 5])
     with col_fil1:
         cuenta_sel = st.selectbox("Cuenta", ["Todas"] + cuentas, key="carteras_cuenta")
     with col_fil2:
         cartera_sel = st.selectbox("Cartera", ["Todas"] + carteras, key="carteras_cartera")
-    with col_mep:
-        nuevo_mep = st.number_input(
-            "Tipo de cambio (MEP)",
-            min_value=0.0, max_value=10_000_000.0,
-            value=st.session_state["mep_display"],
-            step=1.0, format="%.2f",
-            key="mep_input",
-        )
-        if abs(nuevo_mep - st.session_state["mep_display"]) > 1e-4:
-            db_val["Dolar"].update_one(
-                {"type": "config"},
-                {"$set": {"mep": nuevo_mep, "updated_at": datetime.utcnow()}},
-                upsert=True
-            )
-            st.session_state["mep_display"] = nuevo_mep
-            st.toast(f"MEP actualizado a ${nuevo_mep:,.2f}", icon="✅")
 
     df_view = df.copy()
     if cuenta_sel != "Todas":
@@ -904,19 +906,13 @@ def vista_carteras():
 
     # ── métricas resumen ──────────────────────────────────────────────────
     total_val = df_view["valuación"].sum()
-    n_pos     = len(df_view)
     mep_val   = st.session_state["mep_display"] or None
 
     with col_resumen:
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Posiciones", n_pos)
-        m2.metric("Valuación ARS", fmt_money(total_val) if total_val else "N/A")
-        if mep_val and total_val:
-            m3.metric("Valuación USD", fmt_money(total_val / mep_val))
-            m4.metric("MEP", f"${mep_val:,.2f}")
-        else:
-            m3.metric("Valuación USD", "N/A")
-            m4.metric("Cuenta(s)", cuenta_sel)
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Valuación ARS", fmt_money(total_val) if total_val else "N/A")
+        m2.metric("Valuación USD", fmt_money(total_val / mep_val) if (mep_val and total_val) else "N/A")
+        m3.metric("MEP", f"${mep_val:,.2f}" if mep_val else "—")
 
     st.divider()
 
@@ -960,38 +956,42 @@ def vista_carteras():
     st.dataframe(styler, hide_index=True, use_container_width=True,
                  height=df_height(len(display), max_h=900))
 
+    def _fmt_group(grp_df, label_col):
+        """Agrega columna USD y formatea ARS. Recibe df con col 'val_raw'."""
+        grp_df = grp_df.copy()
+        grp_df["Valuación USD"] = grp_df["val_raw"].apply(
+            lambda v: fmt_money(v / mep_val) if (mep_val and pd.notna(v)) else "-"
+        )
+        grp_df["Valuación ARS"] = grp_df["val_raw"].apply(
+            lambda v: fmt_money(v) if pd.notna(v) else "-"
+        )
+        return grp_df[[label_col, "Valuación ARS", "Valuación USD"]]
+
     # ── resumen inferior ──────────────────────────────────────────────────
     st.divider()
     if cuenta_sel == "Todas":
         st.caption("VALUACIÓN POR CUENTA")
-        by_group = (
+        raw = (
             df_view.groupby("id_cuenta")["valuación"]
             .sum().reset_index()
-            .rename(columns={"id_cuenta": "Cuenta", "valuación": "Valuación"})
-            .sort_values("Valuación", ascending=False)
+            .rename(columns={"id_cuenta": "Cuenta", "valuación": "val_raw"})
+            .sort_values("val_raw", ascending=False)
         )
-        by_group["Valuación"] = by_group["Valuación"].apply(
-            lambda v: fmt_money(v) if pd.notna(v) else "-"
-        )
-        st.dataframe(by_group, hide_index=True, use_container_width=True,
-                     height=df_height(len(by_group)))
+        st.dataframe(_fmt_group(raw, "Cuenta"), hide_index=True,
+                     use_container_width=True, height=df_height(len(raw)))
         return
 
     # Cuenta seleccionada + sin cartera específica → tabla por cartera
     if cartera_sel == "Todas" and "CARTERA" in df_view.columns:
         st.caption(f"VALUACIÓN POR CARTERA — Cuenta {cuenta_sel}")
-        group_col = "CARTERA"
-        by_group = (
-            df_view.groupby(group_col)["valuación"]
+        raw = (
+            df_view.groupby("CARTERA")["valuación"]
             .sum().reset_index()
-            .rename(columns={group_col: "Cartera", "valuación": "Valuación"})
-            .sort_values("Valuación", ascending=False)
+            .rename(columns={"CARTERA": "Cartera", "valuación": "val_raw"})
+            .sort_values("val_raw", ascending=False)
         )
-        by_group["Valuación"] = by_group["Valuación"].apply(
-            lambda v: fmt_money(v) if pd.notna(v) else "-"
-        )
-        st.dataframe(by_group, hide_index=True, use_container_width=True,
-                     height=df_height(len(by_group)))
+        st.dataframe(_fmt_group(raw, "Cartera"), hide_index=True,
+                     use_container_width=True, height=df_height(len(raw)))
 
     # ── gráficos analíticos ───────────────────────────────────────────────
     st.divider()

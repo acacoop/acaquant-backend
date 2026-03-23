@@ -668,11 +668,18 @@ def vista_opciones():
     if "tasa_display" not in st.session_state:
         st.session_state["tasa_display"] = tasa_actual
 
-    col_titulo, col_spot, col_vr, col_tasa = st.columns([3, 2, 3, 3])
-    with col_titulo:
-        st.markdown("## ACAQuant | Opciones")
+    st.markdown("## ACAQuant | Opciones")
+
+    ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None) if docs else None
+    ts_str = ""
+    if ultimo_ts:
+        ts_art = ultimo_ts - timedelta(hours=3)
+        ts_str = ts_art.strftime("%H:%M:%S")
+
+    col_spot, col_vr, col_tasa, col_ts = st.columns([2, 3, 3, 2])
     with col_spot:
-        st.metric("SPOT", f"${spot:,.2f}" if spot else "N/A")
+        st.caption("SPOT")
+        st.markdown(f"**${spot:,.2f}**" if spot else "N/A")
     with col_vr:
         if vr_local:
             st.metric("VR GGAL (40r)", f"{vr_local:.1%}", delta=f"ADR {vr_adr:.1%}", delta_color="off")
@@ -691,10 +698,10 @@ def vista_opciones():
             meta_col.update_one({"type": "config"}, {"$set": {"tasa": nueva_tasa}}, upsert=True)
             st.session_state["tasa_display"] = nueva_tasa
             st.toast(f"Tasa actualizada a {nueva_tasa:.3f}", icon="✅")
-
-    if docs:
-        ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
-        last_update_badge(ultimo_ts)
+    with col_ts:
+        if ts_str:
+            st.caption("Última actualización")
+            st.markdown(f"**{ts_str}**")
 
     st.divider()
 

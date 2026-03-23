@@ -1205,8 +1205,8 @@ def vista_operaciones():
     min_date = df["fecha"].min().date()
     max_date = df["fecha"].max().date()
 
-    COLOR_ARS = "#4C9BE8"
-    COLOR_USD = "#F5A623"
+    COLOR_ARS = "#094293"
+    COLOR_USD = "#00cc66"
 
     # ── Slider (fila completa) ────────────────────────────────────────────────
     rango = st.slider(

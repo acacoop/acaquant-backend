@@ -29,6 +29,12 @@ st.markdown("""
 [data-testid="stSidebar"] hr {
     border-color: rgba(255,255,255,0.3);
 }
+/* Fondo blanco solo en el bloque donde vive la imagen del logo */
+[data-testid="stSidebar"] [data-testid="stImage"] {
+    background-color: #ffffff;
+    padding: 12px;
+    border-radius: 0 0 8px 8px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -727,11 +733,7 @@ def vista_estrategias():
     spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0) if docs else 0
 
     # ── cabecera ─────────────────────────────────────────────────────────
-    col_titulo, col_spot, col_strike = st.columns([3, 2, 4])
-    with col_titulo:
-        st.markdown("## ACAQuant | Estrategias Opciones")
-    with col_spot:
-        st.metric("SPOT", f"${spot:,.2f}" if spot else "N/A")
+    st.markdown("## ACAQuant | Estrategias Opciones")
 
     if not docs:
         st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
@@ -764,6 +766,16 @@ def vista_estrategias():
     atm_idx_default = min(range(len(liquid_strikes)), key=lambda i: abs(liquid_strikes[i] - spot))
     atm_K_default   = liquid_strikes[atm_idx_default]
 
+    ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
+    ts_str = ""
+    if ultimo_ts:
+        ts_art = ultimo_ts - timedelta(hours=3)
+        ts_str = ts_art.strftime("%H:%M:%S")
+
+    col_spot, col_strike, col_ts = st.columns([2, 3, 2])
+    with col_spot:
+        st.caption("SPOT")
+        st.markdown(f"**${spot:,.2f}**" if spot else "N/A")
     with col_strike:
         strike_sel = st.selectbox(
             "Strike central",
@@ -772,13 +784,12 @@ def vista_estrategias():
             format_func=lambda k: f"{k:,.0f}{'  ← ATM' if k == atm_K_default else ''}",
             key="estrategias_strike",
         )
+    with col_ts:
+        if ts_str:
+            st.caption("Última actualización")
+            st.markdown(f"**{ts_str}**")
 
     center_idx = liquid_strikes.index(strike_sel)
-
-    if docs:
-        ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
-        last_update_badge(ultimo_ts)
-
     st.divider()
 
     render_estrategias_dinamicas(docs, spot, por_strike=por_strike,

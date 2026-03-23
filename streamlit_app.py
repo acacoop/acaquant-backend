@@ -1311,12 +1311,12 @@ def vista_operaciones():
 
         txt_inside = (
             alt.Chart(grandes)
-            .mark_text(align="center", fontSize=10, fontWeight="600", color="white")
+            .mark_text(align="center", fontSize=10, fontWeight=600, color="white")
             .encode(x=x_enc, y=alt.Y("mid:Q"), text=alt.Text("valor:Q", format=",.1f"))
         )
         txt_outside = (
             alt.Chart(chicas)
-            .mark_text(align="center", fontSize=10, fontWeight="600", color=color)
+            .mark_text(align="center", fontSize=10, fontWeight=600, color=color)
             .encode(x=x_enc, y=alt.Y("exterior:Q"), text=alt.Text("valor:Q", format=",.1f"))
         )
 

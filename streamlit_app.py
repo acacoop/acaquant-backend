@@ -1493,7 +1493,26 @@ def vista_aum():
     )
     st.markdown("---")
 
-    col_chart, col_table = st.columns([1, 2])
+    col_table, col_chart = st.columns([2, 1])
+
+    # ── Tabla de tenencias ────────────────────────────────────────────────────
+    with col_table:
+        display = df_cuenta[["instrumento", "tipoTitulo", "valuacion"]].copy()
+        display = display.sort_values("valuacion", ascending=False).reset_index(drop=True)
+        display["valuacion_fmt"] = display["valuacion"].apply(fmt_nom)
+        display_show = display[["instrumento", "tipoTitulo", "valuacion_fmt"]].copy()
+        display_show.columns = ["Instrumento", "Tipo", "Valuación"]
+        st.dataframe(
+            display_show,
+            hide_index=True,
+            use_container_width=True,
+            height=df_height(len(display_show), max_h=600),
+            column_config={
+                "Instrumento": st.column_config.TextColumn("Instrumento", width="medium"),
+                "Tipo":        st.column_config.TextColumn("Tipo",        width="small"),
+                "Valuación":   st.column_config.TextColumn("Valuación",   width="small"),
+            }
+        )
 
     # ── Pie por tipoTitulo con % labels ──────────────────────────────────────
     with col_chart:
@@ -1512,44 +1531,24 @@ def vista_aum():
             color=alt.Color(
                 "Tipo:N",
                 scale=alt.Scale(scheme="tableau10"),
-                legend=alt.Legend(orient="bottom", columns=2, labelFontSize=11)
+                legend=alt.Legend(orient="bottom", columns=1, labelFontSize=10),
             ),
         )
 
-        arc = base.mark_arc(innerRadius=55, outerRadius=120).encode(
+        arc = base.mark_arc(innerRadius=45, outerRadius=100).encode(
             tooltip=[
-                alt.Tooltip("Tipo:N",      title="Tipo"),
-                alt.Tooltip("Valor:Q",     title="Valuación", format=",.0f"),
-                alt.Tooltip("pct:Q",       title="%",         format=".1f"),
+                alt.Tooltip("Tipo:N",  title="Tipo"),
+                alt.Tooltip("Valor:Q", title="Valuación", format=",.0f"),
+                alt.Tooltip("pct:Q",   title="%",         format=".1f"),
             ]
         )
 
-        text = base.mark_text(radius=90, size=12, color="white").encode(
+        text = base.mark_text(radius=75, size=13, color="white").encode(
             text=alt.Text("pct_label:N"),
         )
 
-        pie = (arc + text).properties(height=340)
+        pie = (arc + text).properties(height=380, padding={"top": 20})
         st.altair_chart(pie, use_container_width=True)
-
-    # ── Tabla de tenencias ────────────────────────────────────────────────────
-    with col_table:
-        display = df_cuenta[["instrumento", "tipoTitulo", "cantidad", "precio", "valuacion"]].copy()
-        display = display.sort_values("valuacion", ascending=False).reset_index(drop=True)
-        display["valuacion_fmt"] = display["valuacion"].apply(fmt_nom)
-        display["precio_fmt"]    = display["precio"].apply(
-            lambda v: f"{v:,.4f}" if pd.notna(v) and v != 1.0 else ("-" if pd.isna(v) else f"{v:,.2f}")
-        )
-        display["cantidad_fmt"]  = display["cantidad"].apply(
-            lambda v: f"{v:,.2f}" if pd.notna(v) else "-"
-        )
-        display_show = display[["instrumento", "tipoTitulo", "cantidad_fmt", "precio_fmt", "valuacion_fmt"]].copy()
-        display_show.columns = ["Instrumento", "Tipo", "Cantidad", "Precio", "Valuación"]
-        st.dataframe(
-            display_show,
-            hide_index=True,
-            use_container_width=True,
-            height=df_height(len(display_show), max_h=600),
-        )
 
 
 # Ruteo: solo se llama el fragmento activo.

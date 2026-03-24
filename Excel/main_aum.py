@@ -87,6 +87,9 @@ def consultar_posicion(cuenta_id, headers, desde):
 TIPOS_DIVISOR_100 = {
     "Títulos Públicos",
     "Letras del Tesoro Capitalizables en Pesos",
+    "Obligaciones Negociables",
+    "Fideicomisos Financieros",
+    "Cheques de Pago Diferido",
 }
 TIPOS_FUTUROS = {"Futuros", "Forwards", "Derivados"}
 

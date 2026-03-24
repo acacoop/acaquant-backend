@@ -1443,6 +1443,47 @@ def vista_aum():
         st.info("Sin posiciones para esta cuenta.")
         return
 
+    # Limpiar unidad: "[4558] CAFCI1482-4558 - IAM Liquidez..." → "IAM Liquidez..."
+    # Formato: "[NNN] TICKER - Nombre descriptivo" o solo "TICKER"
+    import re as _re
+    def _limpiar_unidad(u):
+        u = str(u)
+        # Si tiene " - " después del bracket, quedarse con lo que sigue
+        m = _re.search(r'\]\s*\S+\s*-\s*(.+)', u)
+        if m:
+            return m.group(1).strip()
+        # Si tiene corchetes pero sin " - ", extraer solo el ticker
+        m2 = _re.search(r'\]\s*(\S+)', u)
+        if m2:
+            return m2.group(1).strip()
+        return u.strip()
+
+    df_cuenta = df_cuenta.copy()
+    df_cuenta["instrumento"] = df_cuenta["unidad"].apply(_limpiar_unidad)
+
+    # Recalcular valuacion en la vista con la fórmula correcta
+    # (corrige datos viejos en Mongo que no tenían ONs en TIPOS_DIVISOR_100)
+    _DIVISOR_100 = {
+        "Títulos Públicos",
+        "Letras del Tesoro Capitalizables en Pesos",
+        "Obligaciones Negociables",
+        "Fideicomisos Financieros",
+        "Cheques de Pago Diferido",
+    }
+    _FUTUROS = {"Futuros", "Forwards", "Derivados"}
+
+    def _valuar(row):
+        precio   = row["precio"]   if pd.notna(row["precio"])   else 1.0
+        cantidad = row["cantidad"] if pd.notna(row["cantidad"]) else 0.0
+        tipo     = str(row.get("tipoTitulo") or "")
+        if any(f.lower() in tipo.lower() for f in _FUTUROS):
+            precio += 1.0
+        if tipo in _DIVISOR_100:
+            return round((precio * cantidad) / 100, 6)
+        return round(precio * cantidad, 6)
+
+    df_cuenta["valuacion"] = df_cuenta.apply(_valuar, axis=1)
+
     # KPI total valuado
     total_val = df_cuenta["valuacion"].sum()
     st.markdown(
@@ -1454,7 +1495,7 @@ def vista_aum():
 
     col_chart, col_table = st.columns([1, 2])
 
-    # ── Pie por tipoTitulo ────────────────────────────────────────────────────
+    # ── Pie por tipoTitulo con % labels ──────────────────────────────────────
     with col_chart:
         df_tipo = (
             df_cuenta.groupby("tipoTitulo", as_index=False)["valuacion"]
@@ -1462,43 +1503,52 @@ def vista_aum():
             .rename(columns={"tipoTitulo": "Tipo", "valuacion": "Valor"})
         )
         df_tipo = df_tipo[df_tipo["Valor"] > 0].copy()
-        df_tipo["pct"] = (df_tipo["Valor"] / df_tipo["Valor"].sum() * 100).round(1)
+        total_v = df_tipo["Valor"].sum()
+        df_tipo["pct"] = (df_tipo["Valor"] / total_v * 100).round(1)
+        df_tipo["pct_label"] = df_tipo["pct"].apply(lambda x: f"{x:.1f}%")
 
-        pie = (
-            alt.Chart(df_tipo)
-            .mark_arc(innerRadius=55, outerRadius=120)
-            .encode(
-                theta=alt.Theta("Valor:Q"),
-                color=alt.Color(
-                    "Tipo:N",
-                    scale=alt.Scale(scheme="tableau10"),
-                    legend=alt.Legend(orient="bottom", columns=2, labelFontSize=11)
-                ),
-                tooltip=[
-                    alt.Tooltip("Tipo:N",  title="Tipo"),
-                    alt.Tooltip("Valor:Q", title="Valuación", format=",.0f"),
-                    alt.Tooltip("pct:Q",   title="%",         format=".1f"),
-                ]
-            )
-            .properties(height=320)
+        base = alt.Chart(df_tipo).encode(
+            theta=alt.Theta("Valor:Q", stack=True),
+            color=alt.Color(
+                "Tipo:N",
+                scale=alt.Scale(scheme="tableau10"),
+                legend=alt.Legend(orient="bottom", columns=2, labelFontSize=11)
+            ),
         )
+
+        arc = base.mark_arc(innerRadius=55, outerRadius=120).encode(
+            tooltip=[
+                alt.Tooltip("Tipo:N",      title="Tipo"),
+                alt.Tooltip("Valor:Q",     title="Valuación", format=",.0f"),
+                alt.Tooltip("pct:Q",       title="%",         format=".1f"),
+            ]
+        )
+
+        text = base.mark_text(radius=90, size=12, color="white").encode(
+            text=alt.Text("pct_label:N"),
+        )
+
+        pie = (arc + text).properties(height=340)
         st.altair_chart(pie, use_container_width=True)
 
     # ── Tabla de tenencias ────────────────────────────────────────────────────
     with col_table:
-        display = df_cuenta[["unidad", "tipoTitulo", "cantidad", "precio", "valuacion"]].copy()
+        display = df_cuenta[["instrumento", "tipoTitulo", "cantidad", "precio", "valuacion"]].copy()
         display = display.sort_values("valuacion", ascending=False).reset_index(drop=True)
-        display.columns = ["Instrumento", "Tipo", "Cantidad", "Precio", "Valuación"]
+        display["valuacion_fmt"] = display["valuacion"].apply(fmt_nom)
+        display["precio_fmt"]    = display["precio"].apply(
+            lambda v: f"{v:,.4f}" if pd.notna(v) and v != 1.0 else ("-" if pd.isna(v) else f"{v:,.2f}")
+        )
+        display["cantidad_fmt"]  = display["cantidad"].apply(
+            lambda v: f"{v:,.2f}" if pd.notna(v) else "-"
+        )
+        display_show = display[["instrumento", "tipoTitulo", "cantidad_fmt", "precio_fmt", "valuacion_fmt"]].copy()
+        display_show.columns = ["Instrumento", "Tipo", "Cantidad", "Precio", "Valuación"]
         st.dataframe(
-            display,
+            display_show,
             hide_index=True,
             use_container_width=True,
-            height=df_height(len(display), max_h=600),
-            column_config={
-                "Cantidad":  st.column_config.NumberColumn(format=",.4f"),
-                "Precio":    st.column_config.NumberColumn(format=",.4f"),
-                "Valuación": st.column_config.NumberColumn(format=",.2f"),
-            }
+            height=df_height(len(display_show), max_h=600),
         )
 
 

@@ -83,6 +83,33 @@ def consultar_posicion(cuenta_id, headers, desde):
     return resp.json(), False
 
 
+# ── Reglas de valuación ──────────────────────────────────────────────────────
+TIPOS_DIVISOR_100 = {
+    "Títulos Públicos",
+    "Letras del Tesoro Capitalizables en Pesos",
+}
+TIPOS_FUTUROS = {"Futuros", "Forwards", "Derivados"}
+
+
+def _calcular_valuacion(row):
+    precio   = row["precio"]
+    cantidad = row["cantidad"]
+    tipo     = str(row.get("tipoTitulo") or "")
+
+    # Si precio es NaN asumir 1
+    if pd.isna(precio):
+        precio = 1.0
+
+    # Futuros / Forwards / Derivados: precio + 1
+    if any(f.lower() in tipo.lower() for f in TIPOS_FUTUROS):
+        precio = precio + 1.0
+
+    # Divisor según tipo
+    if tipo in TIPOS_DIVISOR_100:
+        return round((precio * cantidad) / 100, 6)
+    return round(precio * cantidad, 6)
+
+
 # ── Procesar respuesta → lista de dicts ──────────────────────────────────────
 def procesar(data, fecha_snapshot, timestamp):
     items = [r for r in data if r.get("informacion") == "Acumulado"]
@@ -101,8 +128,29 @@ def procesar(data, fecha_snapshot, timestamp):
 
     df_g = df_g[df_g["cantidad"] != 0].copy()
 
-    df_g["fecha_snapshot"] = fecha_snapshot   # "YYYY-MM-DD" — clave de idempotencia
-    df_g["timestamp"]      = timestamp        # datetime UTC exacto de la corrida
+    # ── Filtros de limpieza ──────────────────────────────────────────────────
+    # 1. Eliminar cualquier registro que contenga "OTC" en cuenta o unidad
+    otc_mask = (
+        df_g["cuenta"].str.contains("OTC", case=False, na=False) |
+        df_g["unidad"].str.contains("OTC", case=False, na=False)
+    )
+    df_g = df_g[~otc_mask].copy()
+
+    # 2. Eliminar cash (ARS/USD) con cantidad negativa
+    cash_neg = (
+        df_g["unidad"].isin(["ARS", "USD"]) &
+        (df_g["cantidad"] < 0)
+    )
+    df_g = df_g[~cash_neg].copy()
+
+    if df_g.empty:
+        return []
+
+    # ── Valuación ────────────────────────────────────────────────────────────
+    df_g["valuacion"] = df_g.apply(_calcular_valuacion, axis=1)
+
+    df_g["fecha_snapshot"] = fecha_snapshot
+    df_g["timestamp"]      = timestamp
 
     return df_g.to_dict(orient="records")
 

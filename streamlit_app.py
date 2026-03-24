@@ -74,7 +74,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Carteras", "Operaciones"],
+        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Carteras", "Operaciones", "AuM"],
         label_visibility="collapsed"
     )
 
@@ -1398,6 +1398,110 @@ def vista_operaciones():
 """, unsafe_allow_html=True)
 
 
+# ==========================================
+# AuM
+# ==========================================
+@st.cache_data(ttl=300, show_spinner=False)
+def _cargar_aum():
+    db = get_db_valuaciones()
+    docs = list(db["AuM"].find(
+        {},
+        {"_id": 0, "id_cuenta": 1, "cuenta": 1, "unidad": 1,
+         "tipoTitulo": 1, "cantidad": 1, "precio": 1, "valuacion": 1, "fecha_snapshot": 1}
+    ))
+    if not docs:
+        return pd.DataFrame()
+    df = pd.DataFrame(docs)
+    df["valuacion"] = pd.to_numeric(df["valuacion"], errors="coerce").fillna(0)
+    df["cantidad"]  = pd.to_numeric(df["cantidad"],  errors="coerce").fillna(0)
+    df["precio"]    = pd.to_numeric(df["precio"],    errors="coerce")
+    return df
+
+
+def vista_aum():
+    st.markdown("## ACAQuant | AuM")
+
+    df = _cargar_aum()
+    if df.empty:
+        st.warning("Sin datos. Ejecutá `main_aum.py` para cargar las posiciones.")
+        return
+
+    # Selector de snapshot
+    snapshots = sorted(df["fecha_snapshot"].dropna().unique(), reverse=True)
+    snap_sel  = st.selectbox("Snapshot", snapshots, key="aum_snap",
+                             label_visibility="collapsed",
+                             format_func=lambda s: f"Snapshot: {s}")
+    df = df[df["fecha_snapshot"] == snap_sel].copy()
+
+    # Selector de cuenta
+    cuentas = sorted(df["cuenta"].dropna().unique().tolist())
+    cuenta_sel = st.selectbox("Cuenta", cuentas, key="aum_cuenta",
+                              label_visibility="collapsed")
+    df_cuenta = df[df["cuenta"] == cuenta_sel].copy()
+
+    if df_cuenta.empty:
+        st.info("Sin posiciones para esta cuenta.")
+        return
+
+    # KPI total valuado
+    total_val = df_cuenta["valuacion"].sum()
+    st.markdown(
+        f"<div style='font-size:13px;color:#888;margin-bottom:4px'>Valuación total</div>"
+        f"<div style='font-size:28px;font-weight:700;color:#094293'>{fmt_nom(total_val)}</div>",
+        unsafe_allow_html=True
+    )
+    st.markdown("---")
+
+    col_chart, col_table = st.columns([1, 2])
+
+    # ── Pie por tipoTitulo ────────────────────────────────────────────────────
+    with col_chart:
+        df_tipo = (
+            df_cuenta.groupby("tipoTitulo", as_index=False)["valuacion"]
+            .sum()
+            .rename(columns={"tipoTitulo": "Tipo", "valuacion": "Valor"})
+        )
+        df_tipo = df_tipo[df_tipo["Valor"] > 0].copy()
+        df_tipo["pct"] = (df_tipo["Valor"] / df_tipo["Valor"].sum() * 100).round(1)
+
+        pie = (
+            alt.Chart(df_tipo)
+            .mark_arc(innerRadius=55, outerRadius=120)
+            .encode(
+                theta=alt.Theta("Valor:Q"),
+                color=alt.Color(
+                    "Tipo:N",
+                    scale=alt.Scale(scheme="tableau10"),
+                    legend=alt.Legend(orient="bottom", columns=2, labelFontSize=11)
+                ),
+                tooltip=[
+                    alt.Tooltip("Tipo:N",  title="Tipo"),
+                    alt.Tooltip("Valor:Q", title="Valuación", format=",.0f"),
+                    alt.Tooltip("pct:Q",   title="%",         format=".1f"),
+                ]
+            )
+            .properties(height=320)
+        )
+        st.altair_chart(pie, use_container_width=True)
+
+    # ── Tabla de tenencias ────────────────────────────────────────────────────
+    with col_table:
+        display = df_cuenta[["unidad", "tipoTitulo", "cantidad", "precio", "valuacion"]].copy()
+        display = display.sort_values("valuacion", ascending=False).reset_index(drop=True)
+        display.columns = ["Instrumento", "Tipo", "Cantidad", "Precio", "Valuación"]
+        st.dataframe(
+            display,
+            hide_index=True,
+            use_container_width=True,
+            height=df_height(len(display), max_h=600),
+            column_config={
+                "Cantidad":  st.column_config.NumberColumn(format=",.4f"),
+                "Precio":    st.column_config.NumberColumn(format=",.4f"),
+                "Valuación": st.column_config.NumberColumn(format=",.2f"),
+            }
+        )
+
+
 # Ruteo: solo se llama el fragmento activo.
 if vista == "Libro":
     vista_libro()
@@ -1411,3 +1515,5 @@ elif vista == "Carteras":
     vista_carteras()
 elif vista == "Operaciones":
     vista_operaciones()
+elif vista == "AuM":
+    vista_aum()

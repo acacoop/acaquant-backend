@@ -101,11 +101,6 @@ def procesar(data, fecha_snapshot, timestamp):
 
     df_g = df_g[df_g["cantidad"] != 0].copy()
 
-    df_g["precio"] = df_g.apply(
-        lambda x: x["precio"] if x["tipoTitulo"] == "Fondos de Inversión" else None,
-        axis=1,
-    )
-
     df_g["fecha_snapshot"] = fecha_snapshot   # "YYYY-MM-DD" — clave de idempotencia
     df_g["timestamp"]      = timestamp        # datetime UTC exacto de la corrida
 

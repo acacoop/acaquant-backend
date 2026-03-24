@@ -100,6 +100,10 @@ Each engine has an `update_price(ticker, data)` callback called by the WebSocket
 - Syncs Rofex account positions to MongoDB and exports to Google Sheets
 - Uses `google_sheets_manager.py` with OAuth2 credentials in `ons-fx.json`
 - `aunesa_api_manager.py` connects to Aunesa broker for additional data
+- `main_cashflow.py` — carga movimientos de cash (depósitos, transferencias, extracciones) desde Aunesa API a `CashFlow.Movimientos`. Índice único por `comprobante`. Signo invertido respecto a API (depósitos positivos). Soporta `--today` para cron diario.
+- `main_aum.py` — snapshot de posiciones valuadas de TODAS las cuentas activas desde Aunesa a `Valuaciones.AuM`. Modelo time series: clave `(id_cuenta, unidad, fecha_snapshot)`. Fórmulas de valuación: P×Q/100 para renta fija (Títulos Públicos, ONs, Letras, Fideicomisos, CPD); (P+1)×Q para futuros; P×Q para el resto. Filtros: excluye OTC y cash negativo.
+- `fix_aum_valuacion.py` — script one-off que divide por 100 las valuaciones de ONs/Fideicomisos/CPD mal calculadas en Mongo (se ejecutó una vez tras el fix).
+- `fix_sign_movimientos.py` — script one-off que invirtió signos de movimientos ya insertados en Mongo (se ejecutó una vez).
 
 ## Deployment
 
@@ -136,3 +140,24 @@ Systemd services en `motor_rofex.service`, `streamlit.service` y `services/motor
 ```
 
 Logs en `/root/TradingAV/logs/`.
+
+## Streamlit Dashboard — Vistas
+
+| Vista | Descripción |
+|---|---|
+| Libro | Order book en tiempo real de ROFEX |
+| Mercado | Microstructure, VWAP, volumen intraday |
+| Opciones | Greeks GGAL, Black-Scholes, IV |
+| Estrategias Opciones | Spreads pre-configurados |
+| Carteras | Posiciones por cuenta/cartera desde Aunesa; MEP editable guardado en `Valuaciones.Dolar` |
+| Operaciones | Cash Flow (depósitos/transferencias/extracciones) desde `CashFlow.Movimientos`; filtros por fecha, moneda, accionista; gráficos ARS y USD independientes |
+| AuM | Posiciones valuadas desde `Valuaciones.AuM`; modos Total/Por cuenta; moneda ARS o USD MEP; tabla Instrumento+Tipo+Valuación + torta por tipo de activo |
+
+### Notas técnicas importantes
+- **Altair v4 pie labels**: usar `mark_text(radius=N, color="white")` dentro del arco. Labels fuera del arco se cortan.
+- **Altair eje X duplicado en barras mensuales**: usar `strftime` para agrupar como string + encoding `:O` con `sort=` explícito, nunca `:T`.
+- **Altair fontWeight**: usar entero (`fontWeight=600`), no string.
+- **MEP**: guardado en `Valuaciones.Dolar` con `{"type": "config", "mep": valor}`. Editable desde vista Carteras.
+- **Valuación AuM**: recalculada en la vista (no solo leída de Mongo) para corregir datos históricos. TIPOS_DIVISOR_100 = {Títulos Públicos, Letras, ONs, Fideicomisos, CPD}.
+- **CashFlow**: DB se llama `CashFlow` (sin espacio). Signo: depósitos positivos, extracciones negativas.
+- **En el servidor**: siempre usar `/root/TradingAV/venv/bin/python`, no `python3`.

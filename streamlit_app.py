@@ -1419,50 +1419,8 @@ def _cargar_aum():
 
 
 def vista_aum():
-    st.markdown("## ACAQuant | AuM")
-
-    df = _cargar_aum()
-    if df.empty:
-        st.warning("Sin datos. Ejecutá `main_aum.py` para cargar las posiciones.")
-        return
-
-    # Selector de snapshot
-    snapshots = sorted(df["fecha_snapshot"].dropna().unique(), reverse=True)
-    snap_sel  = st.selectbox("Snapshot", snapshots, key="aum_snap",
-                             label_visibility="collapsed",
-                             format_func=lambda s: f"Snapshot: {s}")
-    df = df[df["fecha_snapshot"] == snap_sel].copy()
-
-    # Selector de cuenta
-    cuentas = sorted(df["cuenta"].dropna().unique().tolist())
-    cuenta_sel = st.selectbox("Cuenta", cuentas, key="aum_cuenta",
-                              label_visibility="collapsed")
-    df_cuenta = df[df["cuenta"] == cuenta_sel].copy()
-
-    if df_cuenta.empty:
-        st.info("Sin posiciones para esta cuenta.")
-        return
-
-    # Limpiar unidad: "[4558] CAFCI1482-4558 - IAM Liquidez..." → "IAM Liquidez..."
-    # Formato: "[NNN] TICKER - Nombre descriptivo" o solo "TICKER"
     import re as _re
-    def _limpiar_unidad(u):
-        u = str(u)
-        # Si tiene " - " después del bracket, quedarse con lo que sigue
-        m = _re.search(r'\]\s*\S+\s*-\s*(.+)', u)
-        if m:
-            return m.group(1).strip()
-        # Si tiene corchetes pero sin " - ", extraer solo el ticker
-        m2 = _re.search(r'\]\s*(\S+)', u)
-        if m2:
-            return m2.group(1).strip()
-        return u.strip()
 
-    df_cuenta = df_cuenta.copy()
-    df_cuenta["instrumento"] = df_cuenta["unidad"].apply(_limpiar_unidad)
-
-    # Recalcular valuacion en la vista con la fórmula correcta
-    # (corrige datos viejos en Mongo que no tenían ONs en TIPOS_DIVISOR_100)
     _DIVISOR_100 = {
         "Títulos Públicos",
         "Letras del Tesoro Capitalizables en Pesos",
@@ -1471,6 +1429,16 @@ def vista_aum():
         "Cheques de Pago Diferido",
     }
     _FUTUROS = {"Futuros", "Forwards", "Derivados"}
+
+    def _limpiar_unidad(u):
+        u = str(u)
+        m = _re.search(r'\]\s*\S+\s*-\s*(.+)', u)
+        if m:
+            return m.group(1).strip()
+        m2 = _re.search(r'\]\s*(\S+)', u)
+        if m2:
+            return m2.group(1).strip()
+        return u.strip()
 
     def _valuar(row):
         precio   = row["precio"]   if pd.notna(row["precio"])   else 1.0
@@ -1482,73 +1450,122 @@ def vista_aum():
             return round((precio * cantidad) / 100, 6)
         return round(precio * cantidad, 6)
 
-    df_cuenta["valuacion"] = df_cuenta.apply(_valuar, axis=1)
+    def _render_aum(df_src, moneda, mep):
+        """Renderiza tabla + pie para un dataframe ya filtrado."""
+        df_src = df_src.copy()
+        df_src["valuacion"] = df_src.apply(_valuar, axis=1)
 
-    # KPI total valuado
-    total_val = df_cuenta["valuacion"].sum()
-    st.markdown(
-        f"<div style='font-size:13px;color:#888;margin-bottom:4px'>Valuación total</div>"
-        f"<div style='font-size:28px;font-weight:700;color:#094293'>{fmt_nom(total_val)}</div>",
-        unsafe_allow_html=True
-    )
-    st.markdown("---")
+        divisor = mep if (moneda == "USD" and mep) else 1.0
+        simbolo = "USD " if moneda == "USD" else ""
 
-    col_table, col_chart = st.columns([2, 1])
-
-    # ── Tabla de tenencias ────────────────────────────────────────────────────
-    with col_table:
-        display = df_cuenta[["instrumento", "tipoTitulo", "valuacion"]].copy()
-        display = display.sort_values("valuacion", ascending=False).reset_index(drop=True)
-        display["valuacion_fmt"] = display["valuacion"].apply(fmt_nom)
-        display_show = display[["instrumento", "tipoTitulo", "valuacion_fmt"]].copy()
-        display_show.columns = ["Instrumento", "Tipo", "Valuación"]
-        st.dataframe(
-            display_show,
-            hide_index=True,
-            use_container_width=True,
-            height=df_height(len(display_show), max_h=600),
-            column_config={
-                "Instrumento": st.column_config.TextColumn("Instrumento", width="medium"),
-                "Tipo":        st.column_config.TextColumn("Tipo",        width="small"),
-                "Valuación":   st.column_config.TextColumn("Valuación",   width="small"),
-            }
+        total_val = df_src["valuacion"].sum() / divisor
+        st.markdown(
+            f"<div style='font-size:13px;color:#888;margin-bottom:4px'>Valuación total</div>"
+            f"<div style='font-size:28px;font-weight:700;color:#094293'>{simbolo}{fmt_nom(total_val)}</div>",
+            unsafe_allow_html=True
         )
+        st.markdown("---")
 
-    # ── Pie por tipoTitulo con % labels ──────────────────────────────────────
-    with col_chart:
-        df_tipo = (
-            df_cuenta.groupby("tipoTitulo", as_index=False)["valuacion"]
-            .sum()
-            .rename(columns={"tipoTitulo": "Tipo", "valuacion": "Valor"})
-        )
-        df_tipo = df_tipo[df_tipo["Valor"] > 0].copy()
-        total_v = df_tipo["Valor"].sum()
-        df_tipo["pct"] = (df_tipo["Valor"] / total_v * 100).round(1)
-        df_tipo["pct_label"] = df_tipo["pct"].apply(lambda x: f"{x:.1f}%")
+        col_table, col_chart = st.columns([2, 1])
 
-        base = alt.Chart(df_tipo).encode(
-            theta=alt.Theta("Valor:Q", stack=True),
-            color=alt.Color(
-                "Tipo:N",
-                scale=alt.Scale(scheme="tableau10"),
-                legend=alt.Legend(orient="bottom", columns=1, labelFontSize=10),
-            ),
-        )
+        with col_table:
+            display = df_src[["instrumento", "tipoTitulo", "valuacion"]].copy()
+            display["valuacion"] = display["valuacion"] / divisor
+            display = display.sort_values("valuacion", ascending=False).reset_index(drop=True)
+            display["Valuación"] = display["valuacion"].apply(
+                lambda v: f"{simbolo}{fmt_nom(v)}"
+            )
+            display_show = display[["instrumento", "tipoTitulo", "Valuación"]].copy()
+            display_show.columns = ["Instrumento", "Tipo", "Valuación"]
+            st.dataframe(
+                display_show,
+                hide_index=True,
+                use_container_width=True,
+                height=df_height(len(display_show), max_h=600),
+                column_config={
+                    "Instrumento": st.column_config.TextColumn("Instrumento", width="medium"),
+                    "Tipo":        st.column_config.TextColumn("Tipo",        width="small"),
+                    "Valuación":   st.column_config.TextColumn("Valuación",   width="small"),
+                }
+            )
 
-        arc = base.mark_arc(innerRadius=45, outerRadius=100).encode(
-            tooltip=[
-                alt.Tooltip("Tipo:N",  title="Tipo"),
-                alt.Tooltip("Valor:Q", title="Valuación", format=",.0f"),
-                alt.Tooltip("pct:Q",   title="%",         format=".1f"),
-            ]
-        )
+        with col_chart:
+            df_tipo = (
+                df_src.groupby("tipoTitulo", as_index=False)["valuacion"]
+                .sum()
+                .rename(columns={"tipoTitulo": "Tipo", "valuacion": "Valor"})
+            )
+            df_tipo["Valor"] = df_tipo["Valor"] / divisor
+            df_tipo = df_tipo[df_tipo["Valor"] > 0].copy()
+            total_v = df_tipo["Valor"].sum()
+            df_tipo["pct"] = (df_tipo["Valor"] / total_v * 100).round(1)
+            df_tipo["pct_label"] = df_tipo["pct"].apply(lambda x: f"{x:.1f}%")
 
-        text = base.mark_text(radius=75, size=13, color="white").encode(
-            text=alt.Text("pct_label:N"),
-        )
+            base = alt.Chart(df_tipo).encode(
+                theta=alt.Theta("Valor:Q", stack=True),
+                color=alt.Color(
+                    "Tipo:N",
+                    scale=alt.Scale(scheme="tableau10"),
+                    legend=alt.Legend(orient="bottom", columns=1, labelFontSize=10),
+                ),
+            )
+            arc = base.mark_arc(innerRadius=45, outerRadius=100).encode(
+                tooltip=[
+                    alt.Tooltip("Tipo:N",  title="Tipo"),
+                    alt.Tooltip("Valor:Q", title="Valuación", format=",.0f"),
+                    alt.Tooltip("pct:Q",   title="%",         format=".1f"),
+                ]
+            )
+            text = base.mark_text(radius=75, size=13, color="white").encode(
+                text=alt.Text("pct_label:N"),
+            )
+            pie = (arc + text).properties(height=380, padding={"top": 20})
+            st.altair_chart(pie, use_container_width=True)
 
-        pie = (arc + text).properties(height=380, padding={"top": 20})
-        st.altair_chart(pie, use_container_width=True)
+    # ── Carga datos ───────────────────────────────────────────────────────────
+    st.markdown("## ACAQuant | AuM")
+
+    df = _cargar_aum()
+    if df.empty:
+        st.warning("Sin datos. Ejecutá `main_aum.py` para cargar las posiciones.")
+        return
+
+    df["instrumento"] = df["unidad"].apply(_limpiar_unidad)
+
+    # ── MEP ───────────────────────────────────────────────────────────────────
+    db_val  = get_db_valuaciones()
+    mep_cfg = db_val["Dolar"].find_one({"type": "config"})
+    mep_val = float(mep_cfg.get("mep", 0)) if mep_cfg else 0.0
+
+    # ── Controles ─────────────────────────────────────────────────────────────
+    snapshots = sorted(df["fecha_snapshot"].dropna().unique(), reverse=True)
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        snap_sel = st.selectbox("Snapshot", snapshots, key="aum_snap",
+                                label_visibility="collapsed",
+                                format_func=lambda s: f"Snapshot: {s}")
+    with c2:
+        modo = st.radio("Vista", ["Total", "Por cuenta"], horizontal=True,
+                        key="aum_modo", label_visibility="collapsed")
+    with c3:
+        moneda = st.radio("Moneda", ["ARS", "USD"], horizontal=True,
+                          key="aum_moneda", label_visibility="collapsed")
+        if moneda == "USD" and mep_val:
+            st.caption(f"MEP: ${mep_val:,.2f}")
+
+    df = df[df["fecha_snapshot"] == snap_sel].copy()
+
+    if modo == "Total":
+        _render_aum(df, moneda, mep_val)
+    else:
+        cuentas    = sorted(df["cuenta"].dropna().unique().tolist())
+        cuenta_sel = st.selectbox("Cuenta", cuentas, key="aum_cuenta",
+                                  label_visibility="collapsed")
+        df_cuenta  = df[df["cuenta"] == cuenta_sel].copy()
+        if df_cuenta.empty:
+            st.info("Sin posiciones para esta cuenta.")
+            return
+        _render_aum(df_cuenta, moneda, mep_val)
 
 
 # Ruteo: solo se llama el fragmento activo.

@@ -13,6 +13,8 @@ TIPOS_A_CORREGIR = [
     "Obligaciones Negociables",
     "Fideicomisos Financieros",
     "Cheques de Pago Diferido",
+    "Letras del Tesoro Ajustables por CER en Pesos",
+    "Títulos de Deuda",
 ]
 
 client = get_mongo_client()

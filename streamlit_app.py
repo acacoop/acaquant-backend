@@ -1424,6 +1424,8 @@ def vista_aum():
     _DIVISOR_100 = {
         "Títulos Públicos",
         "Letras del Tesoro Capitalizables en Pesos",
+        "Letras del Tesoro Ajustables por CER en Pesos",
+        "Títulos de Deuda",
         "Obligaciones Negociables",
         "Fideicomisos Financieros",
         "Cheques de Pago Diferido",
@@ -1450,7 +1452,7 @@ def vista_aum():
             return round((precio * cantidad) / 100, 6)
         return round(precio * cantidad, 6)
 
-    def _render_aum(df_src, moneda, mep):
+    def _render_aum(df_src, moneda, mep, agg_por_tipo=False):
         """Renderiza tabla + pie para un dataframe ya filtrado."""
         df_src = df_src.copy()
         df_src["valuacion"] = df_src.apply(_valuar, axis=1)
@@ -1469,25 +1471,45 @@ def vista_aum():
         col_table, col_chart = st.columns([2, 1])
 
         with col_table:
-            display = df_src[["instrumento", "tipoTitulo", "valuacion"]].copy()
-            display["valuacion"] = display["valuacion"] / divisor
-            display = display.sort_values("valuacion", ascending=False).reset_index(drop=True)
-            display["Valuación"] = display["valuacion"].apply(
-                lambda v: f"{simbolo}{fmt_nom(v)}"
-            )
-            display_show = display[["instrumento", "tipoTitulo", "Valuación"]].copy()
-            display_show.columns = ["Instrumento", "Tipo", "Valuación"]
-            st.dataframe(
-                display_show,
-                hide_index=True,
-                use_container_width=True,
-                height=df_height(len(display_show), max_h=600),
-                column_config={
-                    "Instrumento": st.column_config.TextColumn("Instrumento", width="medium"),
-                    "Tipo":        st.column_config.TextColumn("Tipo",        width="small"),
-                    "Valuación":   st.column_config.TextColumn("Valuación",   width="small"),
-                }
-            )
+            if agg_por_tipo:
+                display = (
+                    df_src.groupby("tipoTitulo", as_index=False)["valuacion"]
+                    .sum()
+                    .sort_values("valuacion", ascending=False)
+                    .reset_index(drop=True)
+                )
+                display["valuacion"] = display["valuacion"] / divisor
+                display["Valuación"] = display["valuacion"].apply(lambda v: f"{simbolo}{fmt_nom(v)}")
+                display_show = display[["tipoTitulo", "Valuación"]].copy()
+                display_show.columns = ["Tipo", "Valuación"]
+                st.dataframe(
+                    display_show,
+                    hide_index=True,
+                    use_container_width=True,
+                    height=df_height(len(display_show), max_h=600),
+                    column_config={
+                        "Tipo":      st.column_config.TextColumn("Tipo",      width="medium"),
+                        "Valuación": st.column_config.TextColumn("Valuación", width="small"),
+                    }
+                )
+            else:
+                display = df_src[["instrumento", "tipoTitulo", "valuacion"]].copy()
+                display["valuacion"] = display["valuacion"] / divisor
+                display = display.sort_values("valuacion", ascending=False).reset_index(drop=True)
+                display["Valuación"] = display["valuacion"].apply(lambda v: f"{simbolo}{fmt_nom(v)}")
+                display_show = display[["instrumento", "tipoTitulo", "Valuación"]].copy()
+                display_show.columns = ["Instrumento", "Tipo", "Valuación"]
+                st.dataframe(
+                    display_show,
+                    hide_index=True,
+                    use_container_width=True,
+                    height=df_height(len(display_show), max_h=600),
+                    column_config={
+                        "Instrumento": st.column_config.TextColumn("Instrumento", width="medium"),
+                        "Tipo":        st.column_config.TextColumn("Tipo",        width="small"),
+                        "Valuación":   st.column_config.TextColumn("Valuación",   width="small"),
+                    }
+                )
 
         with col_chart:
             df_tipo = (
@@ -1556,7 +1578,9 @@ def vista_aum():
     df = df[df["fecha_snapshot"] == snap_sel].copy()
 
     if modo == "Total":
-        _render_aum(df, moneda, mep_val)
+        agg_sel = st.radio("Agrupar por", ["Tipo", "Instrumento"], horizontal=True,
+                           key="aum_agg", label_visibility="collapsed")
+        _render_aum(df, moneda, mep_val, agg_por_tipo=(agg_sel == "Tipo"))
     else:
         cuentas    = sorted(df["cuenta"].dropna().unique().tolist())
         cuenta_sel = st.selectbox("Cuenta", cuentas, key="aum_cuenta",

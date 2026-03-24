@@ -33,7 +33,7 @@ def autenticar():
     return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
 
 
-# ── Fecha T+2 ─────────────────────────────────────────────────────────────────
+# ── Fecha T+2 (igual que main_carteras) ──────────────────────────────────────
 def fecha_t2():
     arg_holidays = holidays.Argentina()
 
@@ -53,8 +53,7 @@ def fecha_t2():
 def obtener_cuentas(headers):
     resp = requests.get(LISTADO_URL, headers=headers, timeout=15)
     resp.raise_for_status()
-    data = resp.json()
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(resp.json())
     activas = df[
         df["tipo"].isin(["Comitente", "Propia"]) &
         (df["estado"] == "Activa")
@@ -85,7 +84,7 @@ def consultar_posicion(cuenta_id, headers, desde):
 
 
 # ── Procesar respuesta → lista de dicts ──────────────────────────────────────
-def procesar(data, cuenta_id, timestamp):
+def procesar(data, fecha_snapshot, timestamp):
     items = [r for r in data if r.get("informacion") == "Acumulado"]
     if not items:
         return []
@@ -102,13 +101,14 @@ def procesar(data, cuenta_id, timestamp):
 
     df_g = df_g[df_g["cantidad"] != 0].copy()
 
-    # Precio solo para Fondos de Inversión
     df_g["precio"] = df_g.apply(
         lambda x: x["precio"] if x["tipoTitulo"] == "Fondos de Inversión" else None,
         axis=1,
     )
 
-    df_g["ultimo_update"] = timestamp
+    df_g["fecha_snapshot"] = fecha_snapshot   # "YYYY-MM-DD" — clave de idempotencia
+    df_g["timestamp"]      = timestamp        # datetime UTC exacto de la corrida
+
     return df_g.to_dict(orient="records")
 
 
@@ -123,16 +123,21 @@ def run():
     total   = len(cuentas)
     print(f"   {total} cuentas activas encontradas\n", flush=True)
 
-    client    = get_mongo_client()
-    col       = client["Valuaciones"]["AuM"]
-    col.create_index([("id_cuenta", 1), ("unidad", 1)], unique=True, background=True)
+    client = get_mongo_client()
+    col    = client["Valuaciones"]["AuM"]
+    # Índice único: misma cuenta + instrumento + día → no duplica si se corre 2 veces el mismo día
+    col.create_index(
+        [("id_cuenta", 1), ("unidad", 1), ("fecha_snapshot", 1)],
+        unique=True, background=True
+    )
 
-    desde     = fecha_t2()
-    timestamp = datetime.utcnow()
+    desde          = fecha_t2()
+    timestamp      = datetime.utcnow()
+    fecha_snapshot = timestamp.strftime("%Y-%m-%d")
     registros_total = 0
 
     for i, row in cuentas.iterrows():
-        cuenta_id   = str(row["id"])
+        cuenta_id    = str(row["id"])
         denominacion = row["denominacion"]
         print(f"[{i+1:3d}/{total}] [{cuenta_id}] {denominacion[:50]:<50} ...", end="  ", flush=True)
 
@@ -140,7 +145,7 @@ def run():
             data, necesita_reauth = consultar_posicion(cuenta_id, headers, desde)
 
             if necesita_reauth:
-                print("⚠️  Re-autenticando...", flush=True)
+                print("⚠️  Re-autenticando...", end="  ", flush=True)
                 headers = autenticar()
                 data, _ = consultar_posicion(cuenta_id, headers, desde)
 
@@ -148,16 +153,20 @@ def run():
                 print("sin datos")
                 continue
 
-            registros = procesar(data, cuenta_id, timestamp)
+            registros = procesar(data, fecha_snapshot, timestamp)
 
             if not registros:
                 print("0 posiciones")
                 continue
 
-            # Upsert inmediato
+            # Upsert por (id_cuenta, unidad, fecha_snapshot) — idempotente por día
             ops = [
                 UpdateOne(
-                    {"id_cuenta": r["id_cuenta"], "unidad": r["unidad"]},
+                    {
+                        "id_cuenta":     r["id_cuenta"],
+                        "unidad":        r["unidad"],
+                        "fecha_snapshot": r["fecha_snapshot"],
+                    },
                     {"$set": r},
                     upsert=True,
                 )
@@ -165,20 +174,13 @@ def run():
             ]
             col.bulk_write(ops, ordered=False)
 
-            # Eliminar posiciones que ya no existen para esta cuenta
-            unidades_actuales = [r["unidad"] for r in registros]
-            col.delete_many({
-                "id_cuenta": str(cuenta_id),
-                "unidad":    {"$nin": unidades_actuales},
-            })
-
             registros_total += len(registros)
             print(f"{len(registros)} posiciones guardadas")
 
         except Exception as e:
             print(f"❌ Error: {e}")
 
-    print(f"\n🏁 Proceso finalizado. Total registros en AuM: {registros_total}")
+    print(f"\n🏁 Proceso finalizado. Total registros insertados: {registros_total}")
     client.close()
 
 

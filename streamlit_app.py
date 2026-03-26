@@ -877,7 +877,7 @@ def vista_opciones():
         st.line_chart(smile_df, use_container_width=True)
 
 
-@st.fragment(run_every=5)
+@st.fragment(run_every=60)
 def vista_estrategias():
     db_op = get_db_opciones()
 

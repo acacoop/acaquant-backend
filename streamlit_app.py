@@ -621,7 +621,7 @@ def _calcular_estrategias(por_strike, liquid_strikes, center_idx, spot, categori
     return rows, resolved_legs_list
 
 
-def _chart_historico_estrategia(db_opciones, resolved_legs, dias=10):
+def _chart_historico_estrategia(db_opciones, resolved_legs, costo_actual=None, dias=10):
     """Línea temporal del costo de la estrategia usando Opciones.Data."""
     symbols = [leg['symbol'] for leg in resolved_legs if leg.get('symbol')]
     if not symbols:
@@ -689,7 +689,15 @@ def _chart_historico_estrategia(db_opciones, resolved_legs, dias=10):
         tooltip=[alt.Tooltip('x_ord:N', title='Fecha'), alt.Tooltip('Costo:Q', format='$.2f')],
     )
     zero = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='#555', strokeDash=[4, 4]).encode(y='y:Q')
-    return (line + zero).properties(height=400)
+
+    layers = [line, zero]
+    if costo_actual is not None:
+        actual_r = alt.Chart(pd.DataFrame({'y': [costo_actual]})).mark_rule(
+            color='#ffcc00', strokeDash=[6, 3], strokeWidth=1.5
+        ).encode(y='y:Q')
+        layers.append(actual_r)
+
+    return alt.layer(*layers).properties(height=400)
 
 
 def _chart_payoff_estrategia(resolved_legs, spot, neto):
@@ -1046,7 +1054,7 @@ def vista_estrategias():
             tab_hist, tab_payoff = st.tabs(["Histórico de Costo", "Payoff al Vencimiento"])
 
             with tab_hist:
-                chart_h = _chart_historico_estrategia(db_op, sel_legs)
+                chart_h = _chart_historico_estrategia(db_op, sel_legs, costo_actual=sel_cost)
                 if chart_h:
                     st.altair_chart(chart_h, use_container_width=True)
                 else:

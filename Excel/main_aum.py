@@ -3,6 +3,8 @@ import os
 import holidays
 import requests
 import pandas as pd
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pymongo import UpdateOne
 
@@ -160,59 +162,80 @@ def procesar(data, fecha_snapshot, timestamp):
     return df_g.to_dict(orient="records")
 
 
+# ── Worker por cuenta (ejecutado en threads) ──────────────────────────────────
+def _consultar_cuenta(cuenta_id, denominacion, idx, total, desde, fecha_snapshot, timestamp,
+                      headers_ref, headers_lock):
+    """Consulta y procesa una cuenta. Retorna lista de registros o []."""
+    try:
+        with headers_lock:
+            h = dict(headers_ref)
+
+        data, necesita_reauth = consultar_posicion(cuenta_id, h, desde)
+
+        if necesita_reauth:
+            with headers_lock:
+                nuevos = autenticar()
+                headers_ref.clear()
+                headers_ref.update(nuevos)
+                h = dict(headers_ref)
+            data, _ = consultar_posicion(cuenta_id, h, desde)
+
+        if not data:
+            print(f"[{idx:3d}/{total}] [{cuenta_id}] {denominacion[:40]} → sin datos", flush=True)
+            return []
+
+        registros = procesar(data, fecha_snapshot, timestamp)
+        print(f"[{idx:3d}/{total}] [{cuenta_id}] {denominacion[:40]} → {len(registros)} posiciones", flush=True)
+        return registros
+
+    except Exception as e:
+        print(f"[{idx:3d}/{total}] [{cuenta_id}] ❌ Error: {e}", flush=True)
+        return []
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def run():
     print("🔑 Autenticando con Aunesa...", flush=True)
-    headers = autenticar()
+    headers_ref  = autenticar()   # dict mutable compartido entre threads
+    headers_lock = threading.Lock()
     print("✅ Auth OK\n", flush=True)
 
     print("📋 Obteniendo listado de cuentas activas...", flush=True)
-    cuentas = obtener_cuentas(headers)
+    cuentas = obtener_cuentas(headers_ref)
     total   = len(cuentas)
     print(f"   {total} cuentas activas encontradas\n", flush=True)
 
     client = get_mongo_client()
     col    = client["Valuaciones"]["AuM"]
-    # Índice único: misma cuenta + instrumento + día → no duplica si se corre 2 veces el mismo día
-    col.create_index(
-        [("id_cuenta", 1), ("unidad", 1), ("fecha_snapshot", 1)],
-        unique=True, background=True
-    )
 
     desde          = fecha_t2()
     timestamp      = datetime.utcnow()
     fecha_snapshot = timestamp.strftime("%Y-%m-%d")
     registros_total = 0
 
-    for i, row in cuentas.iterrows():
-        cuenta_id    = str(row["id"])
-        denominacion = row["denominacion"]
-        print(f"[{i+1:3d}/{total}] [{cuenta_id}] {denominacion[:50]:<50} ...", end="  ", flush=True)
+    futures_map = {}
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        for i, row in cuentas.iterrows():
+            cuenta_id    = str(row["id"])
+            denominacion = row["denominacion"]
+            f = executor.submit(
+                _consultar_cuenta,
+                cuenta_id, denominacion, i + 1, total,
+                desde, fecha_snapshot, timestamp,
+                headers_ref, headers_lock,
+            )
+            futures_map[f] = cuenta_id
 
-        try:
-            data, necesita_reauth = consultar_posicion(cuenta_id, headers, desde)
-
-            if necesita_reauth:
-                print("⚠️  Re-autenticando...", end="  ", flush=True)
-                headers = autenticar()
-                data, _ = consultar_posicion(cuenta_id, headers, desde)
-
-            if not data:
-                print("sin datos")
-                continue
-
-            registros = procesar(data, fecha_snapshot, timestamp)
-
+        for f in as_completed(futures_map):
+            registros = f.result()
             if not registros:
-                print("0 posiciones")
                 continue
 
-            # Upsert por (id_cuenta, unidad, fecha_snapshot) — idempotente por día
             ops = [
                 UpdateOne(
                     {
-                        "id_cuenta":     r["id_cuenta"],
-                        "unidad":        r["unidad"],
+                        "id_cuenta":      r["id_cuenta"],
+                        "unidad":         r["unidad"],
                         "fecha_snapshot": r["fecha_snapshot"],
                     },
                     {"$set": r},
@@ -221,12 +244,7 @@ def run():
                 for r in registros
             ]
             col.bulk_write(ops, ordered=False)
-
             registros_total += len(registros)
-            print(f"{len(registros)} posiciones guardadas")
-
-        except Exception as e:
-            print(f"❌ Error: {e}")
 
     print(f"\n🏁 Proceso finalizado. Total registros insertados: {registros_total}")
     client.close()

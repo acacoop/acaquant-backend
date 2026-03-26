@@ -1670,46 +1670,6 @@ def vista_ons():
         if anio_sel != "Todos" and "anio" in df.columns:
             df = df[df["anio"] == anio_sel]
 
-        # ── Curva de rendimientos ──────────────────────────────────────────
-        df_curve = df[df["tir_off"].notna()].copy()
-        if "vence" in df_curve.columns:
-            df_curve["fecha_venc"] = pd.to_datetime(
-                df_curve["vence"], format="%m/%Y", errors="coerce"
-            )
-            df_curve = df_curve.dropna(subset=["fecha_venc"]).sort_values("fecha_venc")
-
-        if not df_curve.empty and "fecha_venc" in df_curve.columns:
-            color_enc = (
-                alt.Color("emisor:N", legend=alt.Legend(title="Emisor"))
-                if emisor_sel == "Todos"
-                else alt.value("#4C9BE8")
-            )
-            base = alt.Chart(df_curve).encode(
-                x=alt.X("fecha_venc:T", title="Vencimiento",
-                        axis=alt.Axis(format="%m/%Y", labelAngle=-45)),
-                y=alt.Y("tir_off:Q", title="TIR Offer (%)",
-                        scale=alt.Scale(zero=False)),
-                color=color_enc,
-                tooltip=[
-                    alt.Tooltip("asset:N", title="Bono"),
-                    alt.Tooltip("emisor:N", title="Emisor"),
-                    alt.Tooltip("vence:N", title="Venc."),
-                    alt.Tooltip("tir_off:Q", title="TIR Off (%)", format=".2f"),
-                    alt.Tooltip("tir_bid:Q", title="TIR Bid (%)", format=".2f"),
-                ],
-            )
-            lines  = base.mark_line(interpolate="monotone", strokeWidth=2)
-            points = base.mark_point(size=80, filled=True)
-            chart  = lines + points
-
-            if emisor_sel != "Todos":
-                labels = base.mark_text(dy=-12, fontSize=11, fontWeight=600).encode(
-                    text="asset:N"
-                )
-                chart = chart + labels
-
-            st.altair_chart(chart.properties(height=320), use_container_width=True)
-
         df = df.sort_values("tir_off", ascending=False, na_position="last")
 
         def fmt_tir(v):
@@ -1725,21 +1685,26 @@ def vista_ons():
             return f"${v:.0f}"
 
         display_cols = {
-            "asset":   "Bono",
-            "emisor":  "Emisor",
-            "vence":   "Venc.",
-            "moneda":  "Mon.",
-            "vol_bid": "Vol Bid",
-            "px_bid":  "Bid",
-            "tir_bid": "TIR Bid",
-            "tir_off": "TIR Off",
-            "px_off":  "Offer",
-            "vol_off": "Vol Off",
+            "asset":    "Bono",
+            "emisor":   "Emisor",
+            "vence":    "Venc.",
+            "moneda":   "Mon.",
+            "duration": "Duration",
+            "vol_bid":  "Vol Bid",
+            "px_bid":   "Bid",
+            "tir_bid":  "TIR Bid",
+            "tir_off":  "TIR Off",
+            "px_off":   "Offer",
+            "vol_off":  "Vol Off",
         }
 
         df_show = df[[c for c in display_cols if c in df.columns]].copy()
         df_show = df_show.rename(columns=display_cols)
 
+        if "Duration" in df_show.columns:
+            df_show["Duration"] = df["duration"].apply(
+                lambda v: f"{v:.2f}a" if pd.notna(v) else "---"
+            )
         if "Vol Bid" in df_show.columns:
             df_show["Vol Bid"] = df["vol_bid"].apply(fmt_vol_on)
         if "Vol Off" in df_show.columns:

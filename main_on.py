@@ -20,7 +20,7 @@ from mongo_manager import get_mongo_client
 
 # --- MOTORES DE CÁLCULO ---
 from live_pricing_bonds.db_bonds import cargar_catalogo_bonos
-from live_pricing_bonds.yield_engine import calcular_tir_live
+from live_pricing_bonds.yield_engine import calcular_tir_live, calcular_duration
 
 # Configuración de logs
 logging.basicConfig(level=logging.INFO, filename='monitor.log', filemode='a',
@@ -150,18 +150,26 @@ class MarketManager:
                     vol_bid_moneda = (p['bid_size'] / 100) * p['bid']
                     vol_off_moneda = (p['offer_size'] / 100) * p['offer']
 
+                    dur = None
+                    if tir_o is not None and p['offer'] > 0:
+                        try:
+                            dur = calcular_duration(tir_o, p['offer'], mon_cot, info, tc_oficial, mep_vivo)
+                        except Exception as e:
+                            logger.debug(f"Duration error en {ticker}: {e}")
+
                     matriz.append({
-                        'ticker': ticker,
-                        'asset':  info.get('asset', ticker),
-                        'emisor': info.get('emisor', 'S/D'),
-                        'vence': v_str,
-                        'moneda': info.get('moneda_flujo', 'USD'),
-                        'vol_bid': vol_bid_moneda,
-                        'px_bid': p['bid'],
-                        'tir_bid': tir_b,
-                        'tir_off': tir_o,
-                        'px_off': p['offer'],
-                        'vol_off': vol_off_moneda
+                        'ticker':   ticker,
+                        'asset':    info.get('asset', ticker),
+                        'emisor':   info.get('emisor', 'S/D'),
+                        'vence':    v_str,
+                        'moneda':   info.get('moneda_flujo', 'USD'),
+                        'duration': dur,
+                        'vol_bid':  vol_bid_moneda,
+                        'px_bid':   p['bid'],
+                        'tir_bid':  tir_b,
+                        'tir_off':  tir_o,
+                        'px_off':   p['offer'],
+                        'vol_off':  vol_off_moneda
                     })
 
         # Ordenamos por la TIR del Offer de mayor a menor (las más baratas de comprar primero)

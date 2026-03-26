@@ -65,3 +65,39 @@ def calcular_tir_live(precio_mercado, moneda_cotizacion, data_bono, tc_oficial, 
 
     tir = calcular_xirr(fechas_calc, cf_calc)
     return tir
+
+
+def calcular_duration(tir, precio_mercado, moneda_cotizacion, data_bono, tc_oficial, tc_mep):
+    """
+    Duration de Macaulay en años.
+    tir: decimal (ej: 0.08 para 8%). Debe estar pre-calculado con calcular_tir_live.
+    """
+    if tir is None or precio_mercado <= 0:
+        return None
+
+    naturaleza_flujo = data_bono['moneda_flujo']
+
+    if naturaleza_flujo == "USD":
+        precio_calc = precio_mercado / tc_mep if moneda_cotizacion == "ARS" else precio_mercado
+        multiplicador_flujos = 1.0
+    elif naturaleza_flujo == "ARS":
+        precio_calc = precio_mercado * tc_mep if moneda_cotizacion == "USD" else precio_mercado
+        multiplicador_flujos = tc_oficial
+    else:
+        return None
+
+    fecha_hoy = datetime.now()
+    df = pd.DataFrame(data_bono['flujos'])
+    df['fecha'] = pd.to_datetime(df['fecha'])
+    df_futuro = df[df['fecha'] > fecha_hoy].copy()
+
+    if df_futuro.empty:
+        return None
+
+    flujos_finales = ((df_futuro['amortizacion'] + df_futuro['interes']) * multiplicador_flujos).values
+    t = np.array([(f - fecha_hoy).days / 365.0 for f in df_futuro['fecha']])
+
+    pv = flujos_finales / ((1 + tir) ** t)
+    duration = np.sum(t * pv) / np.sum(pv)
+
+    return round(duration, 2)

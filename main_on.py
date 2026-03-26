@@ -14,8 +14,9 @@ from textual.containers import ScrollableContainer
 
 # --- TUS MANAGERS GLOBALES ---
 from session_manager import inicializar_sesion
-from websocket_manager import WebSocketManager  # <- Usamos el central
+from websocket_manager import WebSocketManager
 from snapshot_writer import SnapshotWriter
+from mongo_manager import get_mongo_client
 
 # --- MOTORES DE CÁLCULO ---
 from live_pricing_bonds.db_bonds import cargar_catalogo_bonos
@@ -26,8 +27,9 @@ logging.basicConfig(level=logging.INFO, filename='monitor.log', filemode='a',
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("MonitorONs")
 
-DOLAR_A3500 = 1420
 TICKERS_MEP = ["MERV - XMEV - AL30 - 24hs", "MERV - XMEV - AL30D - 24hs"]
+TC_OFICIAL_FALLBACK = 1000.0   # Solo si Mongo no tiene el valor configurado
+TC_REFRESH_INTERVAL = 30       # Segundos entre lecturas de TC desde Mongo
 
 
 # ==========================================
@@ -45,11 +47,29 @@ class MarketManager:
         self.catalogo = catalogo_valido
         self.lista_tickers = list(self.catalogo.keys())
 
+        # TC Oficial (leído desde Mongo, actualizado periódicamente)
+        self._tc_oficial = TC_OFICIAL_FALLBACK
+        self._tc_last_read = 0.0
+
         # Inicialización de estado en RAM
         self.precios_vivos = {
             t: {'bid': 0.0, 'bid_size': 0, 'offer': 0.0, 'offer_size': 0, 'last': 0.0}
             for t in self.lista_tickers
         }
+
+    def _refrescar_tc_oficial(self):
+        """Lee TC oficial desde Valuaciones.Dolar en Atlas. Cachea por TC_REFRESH_INTERVAL segundos."""
+        ahora = time.time()
+        if ahora - self._tc_last_read < TC_REFRESH_INTERVAL:
+            return
+        try:
+            col = get_mongo_client()["Valuaciones"]["Dolar"]
+            doc = col.find_one({"type": "config_on"})
+            if doc and doc.get("tc_oficial"):
+                self._tc_oficial = float(doc["tc_oficial"])
+            self._tc_last_read = ahora
+        except Exception as e:
+            logger.warning(f"No se pudo leer TC oficial desde Mongo: {e}")
 
     def get_tickers_suscripcion(self):
         """Retorna la lista de tickers para el WS Manager"""
@@ -90,8 +110,10 @@ class MarketManager:
 
     def calcular_pantalla(self):
         """Motor de cálculo de Yields (TIRs)"""
+        self._refrescar_tc_oficial()
         matriz = []
         mep_vivo = self.get_mep_dinamico()
+        tc_oficial = self._tc_oficial
 
         with self._lock:
             for ticker in self.lista_tickers:
@@ -110,8 +132,8 @@ class MarketManager:
                     # Cálculo Seguro de TIR BID
                     if p['bid'] > 0:
                         try:
-                            tir_val = calcular_tir_live(p['bid'], mon_cot, info, DOLAR_A3500, mep_vivo)
-                            if tir_val is not None and -0.5 < tir_val < 5.0:  # Filtramos locuras numéricas
+                            tir_val = calcular_tir_live(p['bid'], mon_cot, info, tc_oficial, mep_vivo)
+                            if tir_val is not None and -0.5 < tir_val < 5.0:
                                 tir_b = tir_val
                         except Exception as e:
                             logger.debug(f"TIR BID Error en {ticker}: {e}")
@@ -119,7 +141,7 @@ class MarketManager:
                     # Cálculo Seguro de TIR OFFER
                     if p['offer'] > 0:
                         try:
-                            tir_val = calcular_tir_live(p['offer'], mon_cot, info, DOLAR_A3500, mep_vivo)
+                            tir_val = calcular_tir_live(p['offer'], mon_cot, info, tc_oficial, mep_vivo)
                             if tir_val is not None and -0.5 < tir_val < 5.0:
                                 tir_o = tir_val
                         except Exception as e:

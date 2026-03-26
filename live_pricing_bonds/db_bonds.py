@@ -1,11 +1,14 @@
-from pymongo import MongoClient
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from mongo_manager import get_mongo_client
 
 
 def cargar_catalogo_bonos():
     """
-    Se conecta a Mongo y devuelve un diccionario indexado por el Ticker de Rofex.
+    Se conecta a MongoDB Atlas y devuelve un diccionario indexado por el Ticker de Rofex.
     """
-    client = MongoClient("mongodb://localhost:27017/")
+    client = get_mongo_client()
     coleccion = client["Trading"]["BondsMaster"]
 
     bonos_db = list(coleccion.find({}))

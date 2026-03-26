@@ -3,6 +3,7 @@ import pandas as pd
 import altair as alt
 import re
 import requests
+import time
 from datetime import datetime, timedelta
 from mongo_manager import get_mongo_client
 from tickers import MERV_TICKERS as TICKERS
@@ -74,7 +75,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Carteras", "Operaciones", "AuM"],
+        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Carteras", "Operaciones", "AuM", "ONs"],
         label_visibility="collapsed"
     )
 
@@ -1421,7 +1422,7 @@ def _cargar_aum():
 def vista_aum():
     import re as _re
 
-    _DIVISOR_100 = {
+    _DIVISOR_100 = {s.lower() for s in {
         "Títulos Públicos",
         "Letras del Tesoro Capitalizables en Pesos",
         "Letras del Tesoro Ajustables por CER en Pesos",
@@ -1429,7 +1430,8 @@ def vista_aum():
         "Obligaciones Negociables",
         "Fideicomisos Financieros",
         "Cheques de Pago Diferido",
-    }
+        "LETES",
+    }}
     _FUTUROS = {"Futuros", "Forwards", "Derivados"}
 
     def _limpiar_unidad(u):
@@ -1448,7 +1450,7 @@ def vista_aum():
         tipo     = str(row.get("tipoTitulo") or "")
         if any(f.lower() in tipo.lower() for f in _FUTUROS):
             precio += 1.0
-        if tipo in _DIVISOR_100:
+        if tipo.lower() in _DIVISOR_100 or tipo.lower().startswith(("letras", "letes")):
             return round((precio * cantidad) / 100, 6)
         return round(precio * cantidad, 6)
 
@@ -1493,9 +1495,13 @@ def vista_aum():
                     }
                 )
             else:
-                display = df_src[["instrumento", "tipoTitulo", "valuacion"]].copy()
+                display = (
+                    df_src.groupby(["instrumento", "tipoTitulo"], as_index=False)["valuacion"]
+                    .sum()
+                    .sort_values("valuacion", ascending=False)
+                    .reset_index(drop=True)
+                )
                 display["valuacion"] = display["valuacion"] / divisor
-                display = display.sort_values("valuacion", ascending=False).reset_index(drop=True)
                 display["Valuación"] = display["valuacion"].apply(lambda v: f"{simbolo}{fmt_nom(v)}")
                 display_show = display[["instrumento", "tipoTitulo", "Valuación"]].copy()
                 display_show.columns = ["Instrumento", "Tipo", "Valuación"]
@@ -1553,6 +1559,7 @@ def vista_aum():
         return
 
     df["instrumento"] = df["unidad"].apply(_limpiar_unidad)
+    df = df[~df["instrumento"].str.contains("USDL", na=False)].copy()
 
     # ── MEP ───────────────────────────────────────────────────────────────────
     db_val  = get_db_valuaciones()
@@ -1592,6 +1599,115 @@ def vista_aum():
         _render_aum(df_cuenta, moneda, mep_val)
 
 
+# ==========================================
+# ONs
+# ==========================================
+def vista_ons():
+    db_val = get_db_valuaciones()
+    db_trading = get_db()
+
+    # ── TC Oficial editable ────────────────────────────────────────────────
+    tc_cfg = db_val["Dolar"].find_one({"type": "config_on"})
+    tc_actual = float(tc_cfg.get("tc_oficial", 0)) if tc_cfg else 0.0
+    if "tc_on_display" not in st.session_state:
+        st.session_state["tc_on_display"] = tc_actual
+
+    header_col, tc_col = st.columns([3, 1])
+    with header_col:
+        st.markdown("## ACAQuant | Yield Screener ONs")
+    with tc_col:
+        nuevo_tc = st.number_input(
+            "TC Oficial", min_value=0.0, max_value=10_000_000.0,
+            value=st.session_state["tc_on_display"],
+            step=1.0, format="%.2f",
+            key="tc_on_input", label_visibility="collapsed",
+            placeholder="TC Oficial ARS/USD",
+        )
+        if abs(nuevo_tc - st.session_state["tc_on_display"]) > 1e-4:
+            db_val["Dolar"].update_one(
+                {"type": "config_on"},
+                {"$set": {"tc_oficial": nuevo_tc, "updated_at": datetime.utcnow()}},
+                upsert=True
+            )
+            st.session_state["tc_on_display"] = nuevo_tc
+            st.toast(f"TC Oficial actualizado a ${nuevo_tc:,.2f}", icon="✅")
+
+    # ── Datos desde ONSnapshot ─────────────────────────────────────────────
+    docs = list(db_trading["ONSnapshot"].find({}, {"_id": 0}))
+    if not docs:
+        st.warning("Sin datos. ¿Está corriendo `main_on.py` en el servidor?")
+        return
+
+    df = pd.DataFrame(docs)
+
+    # Columnas esperadas
+    cols_num = ["tir_bid", "tir_off", "px_bid", "px_off", "vol_bid", "vol_off", "mep_vivo"]
+    for c in cols_num:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # Timestamp de última actualización
+    if "timestamp" in df.columns:
+        ts = pd.to_datetime(df["timestamp"], errors="coerce").dropna()
+        if not ts.empty:
+            st.caption(f"Último snapshot: {ts.max().strftime('%H:%M:%S')} UTC")
+
+    mep_ref = df["mep_vivo"].dropna().iloc[0] if "mep_vivo" in df.columns and not df["mep_vivo"].dropna().empty else None
+    if mep_ref:
+        st.caption(f"MEP ref (live): ${mep_ref:,.2f}  |  TC Oficial: ${nuevo_tc:,.2f}")
+
+    # Ordenar por TIR offer desc
+    df = df.sort_values("tir_off", ascending=False, na_position="last")
+
+    # ── Tabla ──────────────────────────────────────────────────────────────
+    def fmt_tir(v):
+        return f"{v:.2f}%" if pd.notna(v) else "---"
+
+    def fmt_px(v):
+        return f"${v:,.2f}" if pd.notna(v) else "---"
+
+    def fmt_vol(v):
+        if pd.isna(v) or v == 0: return "-"
+        if v >= 1_000_000: return f"${v/1_000_000:.1f}M"
+        if v >= 1_000: return f"${v/1_000:.0f}K"
+        return f"${v:.0f}"
+
+    display_cols = {
+        "ticker":  "Ticker",
+        "emisor":  "Emisor",
+        "vence":   "Venc.",
+        "moneda":  "Mon.",
+        "vol_bid": "Vol Bid",
+        "px_bid":  "Bid",
+        "tir_bid": "TIR Bid",
+        "tir_off": "TIR Off",
+        "px_off":  "Offer",
+        "vol_off": "Vol Off",
+    }
+
+    df_show = df[[c for c in display_cols if c in df.columns]].copy()
+    df_show = df_show.rename(columns=display_cols)
+
+    if "Vol Bid" in df_show.columns:
+        df_show["Vol Bid"] = df["vol_bid"].apply(fmt_vol)
+    if "Vol Off" in df_show.columns:
+        df_show["Vol Off"] = df["vol_off"].apply(fmt_vol)
+    if "Bid" in df_show.columns:
+        df_show["Bid"] = df["px_bid"].apply(fmt_px)
+    if "Offer" in df_show.columns:
+        df_show["Offer"] = df["px_off"].apply(fmt_px)
+    if "TIR Bid" in df_show.columns:
+        df_show["TIR Bid"] = df["tir_bid"].apply(fmt_tir)
+    if "TIR Off" in df_show.columns:
+        df_show["TIR Off"] = df["tir_off"].apply(fmt_tir)
+
+    st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+    # ── Auto-refresh ───────────────────────────────────────────────────────
+    time.sleep(3)
+    st.rerun()
+
+
 # Ruteo: solo se llama el fragmento activo.
 if vista == "Libro":
     vista_libro()
@@ -1607,3 +1723,5 @@ elif vista == "Operaciones":
     vista_operaciones()
 elif vista == "AuM":
     vista_aum()
+elif vista == "ONs":
+    vista_ons()

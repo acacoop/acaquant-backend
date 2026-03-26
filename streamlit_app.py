@@ -681,10 +681,10 @@ def _chart_historico_estrategia(db_opciones, resolved_legs, dias=10):
 
 
 def _chart_payoff_estrategia(resolved_legs, spot, neto):
-    """Diagrama de payoff al vencimiento."""
+    """Diagrama de payoff al vencimiento. Retorna (chart, lista_breakevens)."""
     import numpy as np
     if not resolved_legs or spot <= 0:
-        return None
+        return None, []
 
     ggal = np.linspace(spot * 0.65, spot * 1.35, 400)
     intrinseco = np.zeros(len(ggal))
@@ -698,6 +698,15 @@ def _chart_payoff_estrategia(resolved_legs, spot, neto):
     pl = intrinseco - (neto or 0)
     df = pd.DataFrame({'GGAL': ggal, 'PL': pl, 'PL_pos': pl.clip(0), 'PL_neg': pl.clip(None, 0)})
 
+    # Breakevens: cruces de cero por interpolación lineal
+    breakevens = []
+    sign_changes = np.where(np.diff(np.sign(pl)))[0]
+    for i in sign_changes:
+        x0, x1, y0, y1 = ggal[i], ggal[i + 1], pl[i], pl[i + 1]
+        if y1 != y0:
+            be = x0 - y0 * (x1 - x0) / (y1 - y0)
+            breakevens.append(round(be, 0))
+
     base   = alt.Chart(df)
     area_g = base.mark_area(color='#00cc66', opacity=0.55).encode(x='GGAL:Q', y=alt.Y('PL_pos:Q', stack=None))
     area_r = base.mark_area(color='#ff4444', opacity=0.55).encode(x='GGAL:Q', y=alt.Y('PL_neg:Q', stack=None))
@@ -706,9 +715,24 @@ def _chart_payoff_estrategia(resolved_legs, spot, neto):
         y=alt.Y('PL:Q', title='P&L ($)', stack=None),
         tooltip=[alt.Tooltip('GGAL:Q', format=',.0f', title='GGAL'), alt.Tooltip('PL:Q', format=',.2f', title='P&L')],
     )
-    spot_r = alt.Chart(pd.DataFrame({'x': [spot]})).mark_rule(color='#ffcc00', strokeDash=[4, 4], strokeWidth=1.5).encode(x='x:Q')
-    zero_r = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='#555', strokeDash=[4, 4]).encode(y='y:Q')
-    return (area_g + area_r + line + spot_r + zero_r).properties(height=400)
+    spot_r = alt.Chart(pd.DataFrame({'x': [spot]})).mark_rule(
+        color='#ffcc00', strokeDash=[4, 4], strokeWidth=1.5
+    ).encode(x='x:Q')
+    zero_r = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(
+        color='#555', strokeDash=[4, 4]
+    ).encode(y='y:Q')
+
+    layers = [area_g, area_r, line, spot_r, zero_r]
+
+    if breakevens:
+        df_be = pd.DataFrame({'x': breakevens, 'label': [f"BE ${int(b):,}" for b in breakevens]})
+        be_r = alt.Chart(df_be).mark_rule(color='#ffffff', strokeDash=[6, 3], strokeWidth=1.2).encode(x='x:Q')
+        be_t = alt.Chart(df_be).mark_text(
+            color='#ffffff', dy=-8, fontSize=11, fontWeight=600
+        ).encode(x='x:Q', text='label:N')
+        layers += [be_r, be_t]
+
+    return alt.layer(*layers).properties(height=400), breakevens
 
 
 # ==========================================
@@ -1016,10 +1040,11 @@ def vista_estrategias():
                     st.info("Sin datos históricos suficientes para esta estrategia.")
 
             with tab_payoff:
-                chart_p = _chart_payoff_estrategia(sel_legs, spot, sel_cost)
+                chart_p, breakevens = _chart_payoff_estrategia(sel_legs, spot, sel_cost)
                 if chart_p:
                     st.altair_chart(chart_p, use_container_width=True)
-                    st.caption(f"Línea amarilla = Spot actual (${spot:,.0f})")
+                    be_str = "  |  Break-even: " + "  /  ".join(f"${int(b):,}" for b in breakevens) if breakevens else ""
+                    st.caption(f"Línea amarilla = Spot actual (${spot:,.0f}){be_str}")
 
 
 

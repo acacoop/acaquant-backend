@@ -431,28 +431,30 @@ def render_cadena_opciones(docs, spot):
 # lado 'sell' → ejecución a bid
 #
 def _build_strategy_templates():
-    # Cada entrada: (categoria, nombre, patas)
+    # Cada entrada: (categoria, nombre, patas) — mínimo 5 variantes por categoría
     t = []
-    for n in range(1, 5):
+    for n in range(1, 7):
         t.append(("Bull Call Spread", f"Bull Call Spread +{n}", [(0,'CALL','buy',1), (+n,'CALL','sell',1)]))
-    for n in range(1, 5):
+    for n in range(1, 7):
         t.append(("Bear Put Spread",  f"Bear Put Spread  -{n}", [(0,'PUT','buy',1), (-n,'PUT','sell',1)]))
     t.append(("Straddle / Strangle", "Straddle ATM", [(0,'CALL','buy',1), (0,'PUT','buy',1)]))
-    for n in range(1, 4):
+    for n in range(1, 6):
         t.append(("Straddle / Strangle", f"Strangle         {n}w", [(+n,'CALL','buy',1), (-n,'PUT','buy',1)]))
-    for n in range(1, 4):
+    for n in range(1, 6):
         t.append(("Ratio Call 1×2",  f"Ratio Call 1×2   +{n}", [(0,'CALL','buy',1), (+n,'CALL','sell',2)]))
-    for n in range(1, 4):
+    for n in range(1, 6):
         t.append(("Ratio Put 1×2",   f"Ratio Put  1×2   -{n}", [(0,'PUT','buy',1), (-n,'PUT','sell',2)]))
-    for n in range(1, 3):
+    for n in range(1, 6):
         t.append(("Call Backspread",  f"Call Backspread  +{n}", [(0,'CALL','sell',1), (+n,'CALL','buy',2)]))
-    for n in range(1, 3):
+    for n in range(1, 6):
         t.append(("Put Backspread",   f"Put Backspread   -{n}", [(0,'PUT','sell',1), (-n,'PUT','buy',2)]))
     t.append(("Iron Condor", "Iron Condor  1|2", [(-2,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+2,'CALL','buy',1)]))
     t.append(("Iron Condor", "Iron Condor  2|3", [(-3,'PUT','buy',1),(-2,'PUT','sell',1),(+2,'CALL','sell',1),(+3,'CALL','buy',1)]))
     t.append(("Iron Condor", "Iron Condor  1|3", [(-3,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+3,'CALL','buy',1)]))
+    t.append(("Iron Condor", "Iron Condor  1|4", [(-4,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+4,'CALL','buy',1)]))
+    t.append(("Iron Condor", "Iron Condor  2|4", [(-4,'PUT','buy',1),(-2,'PUT','sell',1),(+2,'CALL','sell',1),(+4,'CALL','buy',1)]))
     t.append(("Short Vol", "Short Straddle",     [(0,'CALL','sell',1), (0,'PUT','sell',1)]))
-    for n in range(1, 3):
+    for n in range(1, 5):
         t.append(("Short Vol", f"Short Strangle   {n}w", [(+n,'CALL','sell',1), (-n,'PUT','sell',1)]))
     return t
 
@@ -675,7 +677,7 @@ def _chart_historico_estrategia(db_opciones, resolved_legs, dias=10):
         tooltip=[alt.Tooltip('Fecha:T', format='%d/%m %H:%M'), alt.Tooltip('Costo:Q', format='$.2f')],
     )
     zero = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='#555', strokeDash=[4, 4]).encode(y='y:Q')
-    return (line + zero).properties(height=230)
+    return (line + zero).properties(height=400)
 
 
 def _chart_payoff_estrategia(resolved_legs, spot, neto):
@@ -706,7 +708,7 @@ def _chart_payoff_estrategia(resolved_legs, spot, neto):
     )
     spot_r = alt.Chart(pd.DataFrame({'x': [spot]})).mark_rule(color='#ffcc00', strokeDash=[4, 4], strokeWidth=1.5).encode(x='x:Q')
     zero_r = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='#555', strokeDash=[4, 4]).encode(y='y:Q')
-    return (area_g + area_r + line + spot_r + zero_r).properties(height=230)
+    return (area_g + area_r + line + spot_r + zero_r).properties(height=400)
 
 
 # ==========================================
@@ -1004,7 +1006,7 @@ def vista_estrategias():
             tipo_cost = "DEBIT" if (sel_cost or 0) > 0 else "CREDIT"
             st.markdown(f"**{sel_name}**  |  {tipo_cost} ${abs(sel_cost or 0):.2f}")
 
-            tab_hist, tab_payoff = st.tabs(["📈 Histórico de Costo", "📊 Payoff al Vencimiento"])
+            tab_hist, tab_payoff = st.tabs(["Histórico de Costo", "Payoff al Vencimiento"])
 
             with tab_hist:
                 chart_h = _chart_historico_estrategia(db_op, sel_legs)
@@ -1019,25 +1021,6 @@ def vista_estrategias():
                     st.altair_chart(chart_p, use_container_width=True)
                     st.caption(f"Línea amarilla = Spot actual (${spot:,.0f})")
 
-    # ── Greeks del strike seleccionado ───────────────────────────────────
-    atm_K    = liquid_strikes[center_idx]
-    atm_data = por_strike.get(atm_K, {})
-    if atm_data:
-        st.divider()
-        st.caption(f"GREEKS NETOS — Strike {atm_K:,.0f} (CALL + PUT)")
-        agg_cols = st.columns(4)
-        for col, key, label in zip(
-            agg_cols,
-            ["delta", "gamma", "theta", "iv"],
-            ["Delta neto", "Gamma neto", "Theta neto", "IV media"]
-        ):
-            vals = [d.get(key, 0) or 0 for d in atm_data.values() if d]
-            if key == "iv":
-                v = sum(vals) / len(vals) if vals else 0
-                col.metric(label, f"{v:.2%}" if v else "-")
-            else:
-                v = sum(vals)
-                col.metric(label, f"{v:.4f}" if v else "-")
 
 
 @st.fragment(run_every=60)

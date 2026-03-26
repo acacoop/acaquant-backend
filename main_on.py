@@ -152,6 +152,7 @@ class MarketManager:
 
                     matriz.append({
                         'ticker': ticker,
+                        'asset':  info.get('asset', ticker),
                         'emisor': info.get('emisor', 'S/D'),
                         'vence': v_str,
                         'moneda': info.get('moneda_flujo', 'USD'),
@@ -248,7 +249,7 @@ class ONTerminal(App):
 # ==========================================
 # 3. EL ORQUESTADOR
 # ==========================================
-def main():
+def main(headless=False):
     # El Watchdog / Auto-Reconector sigue vivo en el Main
     while True:
         try:
@@ -299,11 +300,19 @@ def main():
                     interval=0.5
                 ).start()
 
-                # 6. UI
-                ONTerminal(engine).run()
+                if headless:
+                    # Modo servicio: loop silencioso hasta SIGTERM
+                    print("▶ Modo headless — escribiendo snapshots a Mongo.", flush=True)
+                    while engine.check_health():
+                        time.sleep(5)
+                    print("⚠ Health check falló, reconectando...", flush=True)
+                else:
+                    # Modo interactivo: Textual UI
+                    ONTerminal(engine).run()
+
                 snapshot_writer.stop()
 
-            # Si salimos de UI es porque falló el check_health o tocamos la Q
+            # Si salimos es porque falló el check_health o tocamos la Q
             pyRofex.close_websocket_connection()
             time.sleep(2)
 
@@ -325,4 +334,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--headless", action="store_true", help="Sin UI Textual (para servicio systemd)")
+    args = parser.parse_args()
+    main(headless=args.headless)

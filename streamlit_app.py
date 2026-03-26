@@ -1656,6 +1656,24 @@ def vista_ons():
     if mep_ref:
         st.caption(f"MEP ref (live): ${mep_ref:,.2f}  |  TC Oficial: ${nuevo_tc:,.2f}")
 
+    # ── Extraer año de vencimiento ─────────────────────────────────────────
+    if "vence" in df.columns:
+        df["anio"] = df["vence"].str.extract(r"/(\d{4})$").squeeze()
+
+    # ── Filtros ────────────────────────────────────────────────────────────
+    fcol1, fcol2 = st.columns(2)
+    with fcol1:
+        emisores = ["Todos"] + sorted(df["emisor"].dropna().unique().tolist())
+        emisor_sel = st.selectbox("Emisor", emisores, key="on_emisor")
+    with fcol2:
+        anios = ["Todos"] + sorted(df["anio"].dropna().unique().tolist()) if "anio" in df.columns else ["Todos"]
+        anio_sel = st.selectbox("Vencimiento (año)", anios, key="on_anio")
+
+    if emisor_sel != "Todos":
+        df = df[df["emisor"] == emisor_sel]
+    if anio_sel != "Todos" and "anio" in df.columns:
+        df = df[df["anio"] == anio_sel]
+
     # Ordenar por TIR offer desc
     df = df.sort_values("tir_off", ascending=False, na_position="last")
 
@@ -1666,14 +1684,14 @@ def vista_ons():
     def fmt_px(v):
         return f"${v:,.2f}" if pd.notna(v) else "---"
 
-    def fmt_vol(v):
+    def fmt_vol_on(v):
         if pd.isna(v) or v == 0: return "-"
         if v >= 1_000_000: return f"${v/1_000_000:.1f}M"
         if v >= 1_000: return f"${v/1_000:.0f}K"
         return f"${v:.0f}"
 
     display_cols = {
-        "ticker":  "Ticker",
+        "asset":   "Bono",
         "emisor":  "Emisor",
         "vence":   "Venc.",
         "moneda":  "Mon.",
@@ -1689,9 +1707,9 @@ def vista_ons():
     df_show = df_show.rename(columns=display_cols)
 
     if "Vol Bid" in df_show.columns:
-        df_show["Vol Bid"] = df["vol_bid"].apply(fmt_vol)
+        df_show["Vol Bid"] = df["vol_bid"].apply(fmt_vol_on)
     if "Vol Off" in df_show.columns:
-        df_show["Vol Off"] = df["vol_off"].apply(fmt_vol)
+        df_show["Vol Off"] = df["vol_off"].apply(fmt_vol_on)
     if "Bid" in df_show.columns:
         df_show["Bid"] = df["px_bid"].apply(fmt_px)
     if "Offer" in df_show.columns:

@@ -57,6 +57,10 @@ class MarketManager:
             for t in self.lista_tickers
         }
 
+        # Dirty flag: tickers con precio cambiado desde el último calcular_pantalla
+        self._dirty = set(self.lista_tickers)  # todos sucios al inicio → primera pasada completa
+        self._row_cache = {}  # ticker → última fila calculada
+
     def _refrescar_tc_oficial(self):
         """Lee TC oficial desde Valuaciones.Dolar en Atlas. Cachea por TC_REFRESH_INTERVAL segundos."""
         ahora = time.time()
@@ -85,16 +89,28 @@ class MarketManager:
         with self._lock:
             self.last_update_time = time.time()
             p = self.precios_vivos[ticker]
+            changed = False
 
             bi = data.get('BI', [])
             if bi:
-                p['bid'] = float(bi[0].get('price', p['bid']))
-                p['bid_size'] = int(bi[0].get('size', p['bid_size']))
+                new_bid = float(bi[0].get('price', p['bid']))
+                new_bid_size = int(bi[0].get('size', p['bid_size']))
+                if new_bid != p['bid'] or new_bid_size != p['bid_size']:
+                    p['bid'] = new_bid
+                    p['bid_size'] = new_bid_size
+                    changed = True
 
             of = data.get('OF', [])
             if of:
-                p['offer'] = float(of[0].get('price', p['offer']))
-                p['offer_size'] = int(of[0].get('size', p['offer_size']))
+                new_offer = float(of[0].get('price', p['offer']))
+                new_offer_size = int(of[0].get('size', p['offer_size']))
+                if new_offer != p['offer'] or new_offer_size != p['offer_size']:
+                    p['offer'] = new_offer
+                    p['offer_size'] = new_offer_size
+                    changed = True
+
+            if changed:
+                self._dirty.add(ticker)
 
     def get_mep_dinamico(self):
         """Calcula el MEP en tiempo real usando AL30/AL30D"""
@@ -109,19 +125,23 @@ class MarketManager:
             return 0.0
 
     def calcular_pantalla(self):
-        """Motor de cálculo de Yields (TIRs)"""
+        """Motor de cálculo de Yields (TIRs). Solo recalcula bonos con precio cambiado (dirty flag)."""
         self._refrescar_tc_oficial()
-        matriz = []
         mep_vivo = self.get_mep_dinamico()
         tc_oficial = self._tc_oficial
 
         with self._lock:
-            for ticker in self.lista_tickers:
+            dirty_now = self._dirty.copy()
+            self._dirty.clear()
+
+            for ticker in dirty_now:
                 if ticker in TICKERS_MEP: continue
                 p = self.precios_vivos.get(ticker).copy()
                 info = self.catalogo.get(ticker)
 
-                if p['bid'] == 0 and p['offer'] == 0: continue
+                if p['bid'] == 0 and p['offer'] == 0:
+                    self._row_cache.pop(ticker, None)
+                    continue
 
                 tir_b, tir_o = None, None
                 if info:
@@ -129,7 +149,6 @@ class MarketManager:
                     v = info.get('vencimiento', '')
                     v_str = v.strftime('%m/%Y') if hasattr(v, 'strftime') else "---"
 
-                    # Cálculo Seguro de TIR BID
                     if p['bid'] > 0:
                         try:
                             tir_val = calcular_tir_live(p['bid'], mon_cot, info, tc_oficial, mep_vivo)
@@ -138,7 +157,6 @@ class MarketManager:
                         except Exception as e:
                             logger.debug(f"TIR BID Error en {ticker}: {e}")
 
-                    # Cálculo Seguro de TIR OFFER
                     if p['offer'] > 0:
                         try:
                             tir_val = calcular_tir_live(p['offer'], mon_cot, info, tc_oficial, mep_vivo)
@@ -157,7 +175,7 @@ class MarketManager:
                         except Exception as e:
                             logger.debug(f"Duration error en {ticker}: {e}")
 
-                    matriz.append({
+                    self._row_cache[ticker] = {
                         'ticker':   ticker,
                         'asset':    info.get('asset', ticker),
                         'emisor':   info.get('emisor', 'S/D'),
@@ -170,9 +188,10 @@ class MarketManager:
                         'tir_off':  tir_o,
                         'px_off':   p['offer'],
                         'vol_off':  vol_off_moneda
-                    })
+                    }
 
-        # Ordenamos por la TIR del Offer de mayor a menor (las más baratas de comprar primero)
+            matriz = list(self._row_cache.values())
+
         matriz.sort(key=lambda x: x['tir_off'] if x['tir_off'] is not None else -999, reverse=True)
         return matriz, mep_vivo
 
@@ -305,7 +324,7 @@ def main(headless=False):
                     collection_name="ONSnapshot",
                     data_fn=engine.get_snapshot,
                     key_field="ticker",
-                    interval=0.5
+                    interval=1800
                 ).start()
 
                 if headless:

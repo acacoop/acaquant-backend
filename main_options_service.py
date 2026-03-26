@@ -176,7 +176,7 @@ class OptionsEngine:
         _tick = 0
 
         while True:
-            time.sleep(1)
+            time.sleep(5)
             _tick += 1
 
             # Cada 60s lee la tasa de Metadata para que Streamlit pueda cambiarla

@@ -431,44 +431,35 @@ def render_cadena_opciones(docs, spot):
 # lado 'sell' → ejecución a bid
 #
 def _build_strategy_templates():
+    # Cada entrada: (categoria, nombre, patas)
     t = []
-    # Bull Call Spreads escalonados: compra centro, vende +n
     for n in range(1, 5):
-        t.append((f"Bull Call Spread +{n}", [(0,'CALL','buy',1), (+n,'CALL','sell',1)]))
-    # Bear Put Spreads escalonados: compra centro, vende -n
+        t.append(("Bull Call Spread", f"Bull Call Spread +{n}", [(0,'CALL','buy',1), (+n,'CALL','sell',1)]))
     for n in range(1, 5):
-        t.append((f"Bear Put Spread  -{n}", [(0,'PUT','buy',1), (-n,'PUT','sell',1)]))
-    # Straddle
-    t.append(("Straddle ATM", [(0,'CALL','buy',1), (0,'PUT','buy',1)]))
-    # Strangles simétricos
+        t.append(("Bear Put Spread",  f"Bear Put Spread  -{n}", [(0,'PUT','buy',1), (-n,'PUT','sell',1)]))
+    t.append(("Straddle / Strangle", "Straddle ATM", [(0,'CALL','buy',1), (0,'PUT','buy',1)]))
     for n in range(1, 4):
-        t.append((f"Strangle         {n}w", [(+n,'CALL','buy',1), (-n,'PUT','buy',1)]))
-    # Ratio Call 1×2
+        t.append(("Straddle / Strangle", f"Strangle         {n}w", [(+n,'CALL','buy',1), (-n,'PUT','buy',1)]))
     for n in range(1, 4):
-        t.append((f"Ratio Call 1×2   +{n}", [(0,'CALL','buy',1), (+n,'CALL','sell',2)]))
-    # Ratio Put 1×2
+        t.append(("Ratio Call 1×2",  f"Ratio Call 1×2   +{n}", [(0,'CALL','buy',1), (+n,'CALL','sell',2)]))
     for n in range(1, 4):
-        t.append((f"Ratio Put  1×2   -{n}", [(0,'PUT','buy',1), (-n,'PUT','sell',2)]))
-    # Call Backspread (crédito / neutral-alcista)
+        t.append(("Ratio Put 1×2",   f"Ratio Put  1×2   -{n}", [(0,'PUT','buy',1), (-n,'PUT','sell',2)]))
     for n in range(1, 3):
-        t.append((f"Call Backspread  +{n}", [(0,'CALL','sell',1), (+n,'CALL','buy',2)]))
-    # Put Backspread (crédito / neutral-bajista)
+        t.append(("Call Backspread",  f"Call Backspread  +{n}", [(0,'CALL','sell',1), (+n,'CALL','buy',2)]))
     for n in range(1, 3):
-        t.append((f"Put Backspread   -{n}", [(0,'PUT','sell',1), (-n,'PUT','buy',2)]))
-    # Iron Condors con distintas alas
-    t.append(("Iron Condor  1|2", [(-2,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+2,'CALL','buy',1)]))
-    t.append(("Iron Condor  2|3", [(-3,'PUT','buy',1),(-2,'PUT','sell',1),(+2,'CALL','sell',1),(+3,'CALL','buy',1)]))
-    t.append(("Iron Condor  1|3", [(-3,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+3,'CALL','buy',1)]))
-    # Short Straddle / Strangle (venta de vol)
-    t.append(("Short Straddle",   [(0,'CALL','sell',1), (0,'PUT','sell',1)]))
+        t.append(("Put Backspread",   f"Put Backspread   -{n}", [(0,'PUT','sell',1), (-n,'PUT','buy',2)]))
+    t.append(("Iron Condor", "Iron Condor  1|2", [(-2,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+2,'CALL','buy',1)]))
+    t.append(("Iron Condor", "Iron Condor  2|3", [(-3,'PUT','buy',1),(-2,'PUT','sell',1),(+2,'CALL','sell',1),(+3,'CALL','buy',1)]))
+    t.append(("Iron Condor", "Iron Condor  1|3", [(-3,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+3,'CALL','buy',1)]))
+    t.append(("Short Vol", "Short Straddle",     [(0,'CALL','sell',1), (0,'PUT','sell',1)]))
     for n in range(1, 3):
-        t.append((f"Short Strangle   {n}w", [(+n,'CALL','sell',1), (-n,'PUT','sell',1)]))
+        t.append(("Short Vol", f"Short Strangle   {n}w", [(+n,'CALL','sell',1), (-n,'PUT','sell',1)]))
     return t
 
 STRATEGY_TEMPLATES = _build_strategy_templates()
 
 
-def render_estrategias_dinamicas(docs, spot, por_strike=None, liquid_strikes=None, center_idx=None):
+def render_estrategias_dinamicas(docs, spot, por_strike=None, liquid_strikes=None, center_idx=None, categoria_sel="Todas"):
     # Permite recibir datos pre-computados desde vista_estrategias (evita recalcular)
     if por_strike is None:
         por_strike = {}
@@ -506,7 +497,9 @@ def render_estrategias_dinamicas(docs, spot, por_strike=None, liquid_strikes=Non
         return (offer if side == 'buy' else bid) if (offer > 0 and bid > 0) else last
 
     rows = []
-    for name, legs in STRATEGY_TEMPLATES:
+    for cat, name, legs in STRATEGY_TEMPLATES:
+        if categoria_sel != "Todas" and cat != categoria_sel:
+            continue
         neto = d_net = g_net = t_net = 0.0
         valid = True
         used_K = []
@@ -735,11 +728,14 @@ def vista_opciones():
         st.line_chart(smile_df, use_container_width=True)
 
 
-@st.fragment(run_every=2)
+@st.fragment(run_every=5)
 def vista_estrategias():
     db_op = get_db_opciones()
 
-    docs = list(db_op["OptionsSnapshot"].find({}))
+    _proj = {"_id": 0, "strike": 1, "tipo": 1, "bid": 1, "offer": 1,
+             "last": 1, "ev": 1, "delta": 1, "gamma": 1, "theta": 1,
+             "iv": 1, "spot": 1, "updated_at": 1}
+    docs = list(db_op["OptionsSnapshot"].find({}, _proj))
     spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0) if docs else 0
 
     # ── cabecera ─────────────────────────────────────────────────────────
@@ -782,7 +778,9 @@ def vista_estrategias():
         ts_art = ultimo_ts - timedelta(hours=3)
         ts_str = ts_art.strftime("%H:%M:%S")
 
-    col_spot, col_strike, col_ts = st.columns([2, 3, 2])
+    categorias = ["Todas"] + sorted(set(cat for cat, name, legs in STRATEGY_TEMPLATES))
+
+    col_spot, col_strike, col_cat, col_ts = st.columns([2, 3, 3, 2])
     with col_spot:
         st.caption("SPOT")
         st.markdown(f"**${spot:,.2f}**" if spot else "N/A")
@@ -794,6 +792,12 @@ def vista_estrategias():
             format_func=lambda k: f"{k:,.0f}{'  ← ATM' if k == atm_K_default else ''}",
             key="estrategias_strike",
         )
+    with col_cat:
+        categoria_sel = st.selectbox(
+            "Tipo de estrategia",
+            options=categorias,
+            key="estrategias_cat",
+        )
     with col_ts:
         if ts_str:
             st.caption("Última actualización")
@@ -803,7 +807,8 @@ def vista_estrategias():
     st.divider()
 
     render_estrategias_dinamicas(docs, spot, por_strike=por_strike,
-                                  liquid_strikes=liquid_strikes, center_idx=center_idx)
+                                  liquid_strikes=liquid_strikes, center_idx=center_idx,
+                                  categoria_sel=categoria_sel)
 
     # ── Greeks agregados del portfolio ATM ───────────────────────────────
     atm_K = liquid_strikes[center_idx]
@@ -1611,6 +1616,7 @@ def vista_aum():
 # ==========================================
 # ONs
 # ==========================================
+@st.fragment(run_every=30)
 def vista_ons():
     db_val = get_db_valuaciones()
     db_trading = get_db()
@@ -1641,96 +1647,92 @@ def vista_ons():
             st.session_state["tc_on_display"] = nuevo_tc
             st.toast(f"TC Oficial actualizado a ${nuevo_tc:,.2f}", icon="✅")
 
-    @st.fragment(run_every=3)
-    def _tabla_ons():
-        docs = list(db_trading["ONSnapshot"].find({}, {"_id": 0}))
-        if not docs:
-            st.warning("Sin datos. ¿Está corriendo `main_on.py` en el servidor?")
-            return
+    docs = list(db_trading["ONSnapshot"].find({}, {"_id": 0}))
+    if not docs:
+        st.warning("Sin datos. ¿Está corriendo `main_on.py` en el servidor?")
+        return
 
-        df = pd.DataFrame(docs)
+    df = pd.DataFrame(docs)
 
-        cols_num = ["tir_bid", "tir_off", "px_bid", "px_off", "vol_bid", "vol_off", "mep_vivo"]
-        for c in cols_num:
-            if c in df.columns:
-                df[c] = pd.to_numeric(df[c], errors="coerce")
+    cols_num = ["tir_bid", "tir_off", "px_bid", "px_off", "vol_bid", "vol_off", "mep_vivo"]
+    for c in cols_num:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
 
-        if "timestamp" in df.columns:
-            ts = pd.to_datetime(df["timestamp"], errors="coerce").dropna()
-            if not ts.empty:
-                st.caption(f"Último snapshot: {ts.max().strftime('%H:%M:%S')} UTC")
+    if "timestamp" in df.columns:
+        ts = pd.to_datetime(df["timestamp"], errors="coerce").dropna()
+        if not ts.empty:
+            st.caption(f"Último snapshot: {ts.max().strftime('%H:%M:%S')} UTC")
 
-        mep_ref = df["mep_vivo"].dropna().iloc[0] if "mep_vivo" in df.columns and not df["mep_vivo"].dropna().empty else None
-        if mep_ref:
-            st.caption(f"MEP ref (live): ${mep_ref:,.2f}  |  TC Oficial: ${nuevo_tc:,.2f}")
+    mep_ref = df["mep_vivo"].dropna().iloc[0] if "mep_vivo" in df.columns and not df["mep_vivo"].dropna().empty else None
+    if mep_ref:
+        st.caption(f"MEP ref (live): ${mep_ref:,.2f}  |  TC Oficial: ${nuevo_tc:,.2f}")
 
-        if "vence" in df.columns:
-            df["anio"] = df["vence"].str.extract(r"/(\d{4})$").squeeze()
+    if "vence" in df.columns:
+        df["anio"] = df["vence"].str.extract(r"/(\d{4})$").squeeze()
 
-        fcol1, fcol2 = st.columns(2)
-        with fcol1:
-            emisores = ["Todos"] + sorted(df["emisor"].dropna().unique().tolist())
-            emisor_sel = st.selectbox("Emisor", emisores, key="on_emisor")
-        with fcol2:
-            anios = ["Todos"] + sorted(df["anio"].dropna().unique().tolist()) if "anio" in df.columns else ["Todos"]
-            anio_sel = st.selectbox("Vencimiento (año)", anios, key="on_anio")
+    fcol1, fcol2 = st.columns(2)
+    with fcol1:
+        emisores = ["Todos"] + sorted(df["emisor"].dropna().unique().tolist())
+        emisor_sel = st.selectbox("Emisor", emisores, key="on_emisor")
+    with fcol2:
+        anios = ["Todos"] + sorted(df["anio"].dropna().unique().tolist()) if "anio" in df.columns else ["Todos"]
+        anio_sel = st.selectbox("Vencimiento (año)", anios, key="on_anio")
 
-        if emisor_sel != "Todos":
-            df = df[df["emisor"] == emisor_sel]
-        if anio_sel != "Todos" and "anio" in df.columns:
-            df = df[df["anio"] == anio_sel]
+    if emisor_sel != "Todos":
+        df = df[df["emisor"] == emisor_sel]
+    if anio_sel != "Todos" and "anio" in df.columns:
+        df = df[df["anio"] == anio_sel]
 
-        df = df.sort_values("tir_off", ascending=False, na_position="last")
+    df = df.sort_values("tir_off", ascending=False, na_position="last")
 
-        def fmt_tir(v):
-            return f"{v:.2f}%" if pd.notna(v) else "---"
+    def fmt_tir(v):
+        return f"{v:.2f}%" if pd.notna(v) else "---"
 
-        def fmt_px(v):
-            return f"${v:,.2f}" if pd.notna(v) else "---"
+    def fmt_px(v):
+        return f"${v:,.2f}" if pd.notna(v) else "---"
 
-        def fmt_vol_on(v):
-            if pd.isna(v) or v == 0: return "-"
-            if v >= 1_000_000: return f"${v/1_000_000:.1f}M"
-            if v >= 1_000: return f"${v/1_000:.0f}K"
-            return f"${v:.0f}"
+    def fmt_vol_on(v):
+        if pd.isna(v) or v == 0: return "-"
+        if v >= 1_000_000: return f"${v/1_000_000:.1f}M"
+        if v >= 1_000: return f"${v/1_000:.0f}K"
+        return f"${v:.0f}"
 
-        display_cols = {
-            "asset":    "Bono",
-            "emisor":   "Emisor",
-            "vence":    "Venc.",
-            "moneda":   "Mon.",
-            "duration": "Duration",
-            "vol_bid":  "Vol Bid",
-            "px_bid":   "Bid",
-            "tir_bid":  "TIR Bid",
-            "tir_off":  "TIR Off",
-            "px_off":   "Offer",
-            "vol_off":  "Vol Off",
-        }
+    display_cols = {
+        "asset":    "Bono",
+        "emisor":   "Emisor",
+        "vence":    "Venc.",
+        "moneda":   "Mon.",
+        "duration": "Duration",
+        "vol_bid":  "Vol Bid",
+        "px_bid":   "Bid",
+        "tir_bid":  "TIR Bid",
+        "tir_off":  "TIR Off",
+        "px_off":   "Offer",
+        "vol_off":  "Vol Off",
+    }
 
-        df_show = df[[c for c in display_cols if c in df.columns]].copy()
-        df_show = df_show.rename(columns=display_cols)
+    df_show = df[[c for c in display_cols if c in df.columns]].copy()
+    df_show = df_show.rename(columns=display_cols)
 
-        if "Duration" in df_show.columns:
-            df_show["Duration"] = df["duration"].apply(
-                lambda v: f"{v:.2f}a" if pd.notna(v) else "---"
-            )
-        if "Vol Bid" in df_show.columns:
-            df_show["Vol Bid"] = df["vol_bid"].apply(fmt_vol_on)
-        if "Vol Off" in df_show.columns:
-            df_show["Vol Off"] = df["vol_off"].apply(fmt_vol_on)
-        if "Bid" in df_show.columns:
-            df_show["Bid"] = df["px_bid"].apply(fmt_px)
-        if "Offer" in df_show.columns:
-            df_show["Offer"] = df["px_off"].apply(fmt_px)
-        if "TIR Bid" in df_show.columns:
-            df_show["TIR Bid"] = df["tir_bid"].apply(fmt_tir)
-        if "TIR Off" in df_show.columns:
-            df_show["TIR Off"] = df["tir_off"].apply(fmt_tir)
+    if "Duration" in df_show.columns:
+        df_show["Duration"] = df["duration"].apply(
+            lambda v: f"{v:.2f}a" if pd.notna(v) else "---"
+        )
+    if "Vol Bid" in df_show.columns:
+        df_show["Vol Bid"] = df["vol_bid"].apply(fmt_vol_on)
+    if "Vol Off" in df_show.columns:
+        df_show["Vol Off"] = df["vol_off"].apply(fmt_vol_on)
+    if "Bid" in df_show.columns:
+        df_show["Bid"] = df["px_bid"].apply(fmt_px)
+    if "Offer" in df_show.columns:
+        df_show["Offer"] = df["px_off"].apply(fmt_px)
+    if "TIR Bid" in df_show.columns:
+        df_show["TIR Bid"] = df["tir_bid"].apply(fmt_tir)
+    if "TIR Off" in df_show.columns:
+        df_show["TIR Off"] = df["tir_off"].apply(fmt_tir)
 
-        st.dataframe(df_show, use_container_width=True, hide_index=True)
-
-    _tabla_ons()
+    st.dataframe(df_show, use_container_width=True, hide_index=True)
 
 
 # Ruteo: solo se llama el fragmento activo.

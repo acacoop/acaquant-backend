@@ -563,6 +563,153 @@ def render_estrategias_dinamicas(docs, spot, por_strike=None, liquid_strikes=Non
 
 
 # ==========================================
+# HELPERS — ESTRATEGIAS (datos + gráficos)
+# ==========================================
+
+def _calcular_estrategias(por_strike, liquid_strikes, center_idx, spot, categoria_sel="Todas"):
+    """Construye filas de la tabla y la lista de patas resueltas (symbol, K, side, qty, px)."""
+    def get_px(d, side):
+        if not d: return 0
+        offer = d.get('offer', 0) or 0
+        bid   = d.get('bid',   0) or 0
+        last  = d.get('last',  0) or 0
+        return (offer if side == 'buy' else bid) if (offer > 0 and bid > 0) else last
+
+    rows, resolved_legs_list = [], []
+
+    for cat, name, legs in STRATEGY_TEMPLATES:
+        if categoria_sel != "Todas" and cat != categoria_sel:
+            continue
+        neto = d_net = g_net = t_net = 0.0
+        valid = True
+        used_K, leg_evs, resolved_legs = [], [], []
+
+        for offset, tipo, side, qty in legs:
+            idx = center_idx + offset
+            if idx < 0 or idx >= len(liquid_strikes):
+                valid = False; break
+            K  = liquid_strikes[idx]
+            d  = por_strike.get(K, {}).get(tipo)
+            px = get_px(d, side)
+            if px <= 0:
+                valid = False; break
+            m = 1 if side == 'buy' else -1
+            neto  += px * qty * m
+            d_net += (d.get('delta', 0) or 0) * qty * m
+            g_net += (d.get('gamma', 0) or 0) * qty * m
+            t_net += (d.get('theta', 0) or 0) * qty * m
+            used_K.append(K)
+            leg_evs.append((d.get('ev') or 0) / max(qty, 1))
+            resolved_legs.append({
+                'symbol': (d.get('symbol') or '') if d else '',
+                'K': K, 'tipo': tipo, 'side': side, 'qty': qty, 'px': px,
+            })
+
+        rows.append({
+            "Estrategia":  name,
+            "Strikes":     "/".join(f"{k:,.0f}" for k in sorted(set(used_K))) if valid else "-",
+            "Costo/Prima": neto                      if valid else None,
+            "Vol (pata)":  min(leg_evs) if leg_evs  else None,
+            "Delta":       d_net                     if valid else None,
+            "Gamma":       g_net                     if valid else None,
+            "Theta":       t_net                     if valid else None,
+        })
+        resolved_legs_list.append(resolved_legs if valid else [])
+
+    return rows, resolved_legs_list
+
+
+def _chart_historico_estrategia(db_opciones, resolved_legs, dias=10):
+    """Línea temporal del costo de la estrategia usando Opciones.Data."""
+    symbols = [leg['symbol'] for leg in resolved_legs if leg.get('symbol')]
+    if not symbols:
+        return None
+
+    desde = datetime.utcnow() - timedelta(days=dias)
+    docs = list(db_opciones["Data"].find(
+        {"symbol": {"$in": symbols}, "timestamp": {"$gte": desde}},
+        {"_id": 0, "symbol": 1, "timestamp": 1, "last": 1, "bid": 1, "offer": 1},
+    ))
+    if not docs:
+        return None
+
+    df = pd.DataFrame(docs)
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['px'] = df.apply(
+        lambda r: (r.get('bid', 0) + r.get('offer', 0)) / 2
+        if (r.get('bid') or 0) > 0 and (r.get('offer') or 0) > 0
+        else (r.get('last') or 0),
+        axis=1,
+    )
+    df = df[df['px'] > 0]
+    if df.empty:
+        return None
+
+    df = (df.set_index('timestamp')
+           .groupby('symbol')['px']
+           .resample('15min').last()
+           .reset_index()
+           .dropna())
+
+    df_pivot = df.pivot_table(index='timestamp', columns='symbol', values='px', aggfunc='last')
+    df_pivot = df_pivot.ffill().dropna()
+    if df_pivot.empty:
+        return None
+
+    leg_map = {leg['symbol']: leg for leg in resolved_legs}
+    costs = []
+    for ts, row in df_pivot.iterrows():
+        neto = sum(
+            px * leg_map[sym]['qty'] * (1 if leg_map[sym]['side'] == 'buy' else -1)
+            for sym, px in row.items() if sym in leg_map
+        )
+        costs.append({'Fecha': ts, 'Costo': round(neto, 2)})
+
+    df_cost = pd.DataFrame(costs)
+    if df_cost.empty:
+        return None
+
+    line = alt.Chart(df_cost).mark_line(color='#4a9eff', strokeWidth=1.5).encode(
+        x=alt.X('Fecha:T', title=None),
+        y=alt.Y('Costo:Q', title='Costo ($)'),
+        tooltip=[alt.Tooltip('Fecha:T', format='%d/%m %H:%M'), alt.Tooltip('Costo:Q', format='$.2f')],
+    )
+    zero = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='#555', strokeDash=[4, 4]).encode(y='y:Q')
+    return (line + zero).properties(height=230)
+
+
+def _chart_payoff_estrategia(resolved_legs, spot, neto):
+    """Diagrama de payoff al vencimiento."""
+    import numpy as np
+    if not resolved_legs or spot <= 0:
+        return None
+
+    ggal = np.linspace(spot * 0.65, spot * 1.35, 400)
+    intrinseco = np.zeros(len(ggal))
+    for leg in resolved_legs:
+        m = 1 if leg['side'] == 'buy' else -1
+        if leg['tipo'] == 'CALL':
+            intrinseco += m * leg['qty'] * np.maximum(ggal - leg['K'], 0)
+        else:
+            intrinseco += m * leg['qty'] * np.maximum(leg['K'] - ggal, 0)
+
+    pl = intrinseco - (neto or 0)
+    df = pd.DataFrame({'GGAL': ggal, 'PL': pl, 'PL_pos': pl.clip(0), 'PL_neg': pl.clip(None, 0)})
+
+    base   = alt.Chart(df)
+    area_g = base.mark_area(color='#00cc66', opacity=0.55).encode(x='GGAL:Q', y=alt.Y('PL_pos:Q', stack=None))
+    area_r = base.mark_area(color='#ff4444', opacity=0.55).encode(x='GGAL:Q', y=alt.Y('PL_neg:Q', stack=None))
+    line   = base.mark_line(color='white', strokeWidth=1.2).encode(
+        x=alt.X('GGAL:Q', title='GGAL al vencimiento ($)'),
+        y=alt.Y('PL:Q', title='P&L ($)', stack=None),
+        tooltip=[alt.Tooltip('GGAL:Q', format=',.0f', title='GGAL'), alt.Tooltip('PL:Q', format=',.2f', title='P&L')],
+    )
+    spot_r = alt.Chart(pd.DataFrame({'x': [spot]})).mark_rule(color='#ffcc00', strokeDash=[4, 4], strokeWidth=1.5).encode(x='x:Q')
+    zero_r = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='#555', strokeDash=[4, 4]).encode(y='y:Q')
+    return (area_g + area_r + line + spot_r + zero_r).properties(height=230)
+
+
+# ==========================================
 # VISTAS (st.fragment → auto-refresh 1s, sin sleep ni rerun global)
 # ==========================================
 
@@ -732,7 +879,7 @@ def vista_opciones():
 def vista_estrategias():
     db_op = get_db_opciones()
 
-    _proj = {"_id": 0, "strike": 1, "tipo": 1, "bid": 1, "offer": 1,
+    _proj = {"_id": 0, "symbol": 1, "strike": 1, "tipo": 1, "bid": 1, "offer": 1,
              "last": 1, "ev": 1, "delta": 1, "gamma": 1, "theta": 1,
              "iv": 1, "spot": 1, "updated_at": 1}
     docs = list(db_op["OptionsSnapshot"].find({}, _proj))
@@ -806,12 +953,74 @@ def vista_estrategias():
     center_idx = liquid_strikes.index(strike_sel)
     st.divider()
 
-    render_estrategias_dinamicas(docs, spot, por_strike=por_strike,
-                                  liquid_strikes=liquid_strikes, center_idx=center_idx,
-                                  categoria_sel=categoria_sel)
+    rows, resolved_legs_list = _calcular_estrategias(
+        por_strike, liquid_strikes, center_idx, spot, categoria_sel
+    )
 
-    # ── Greeks agregados del portfolio ATM ───────────────────────────────
-    atm_K = liquid_strikes[center_idx]
+    col_tabla, col_graficos = st.columns([2, 3])
+
+    with col_tabla:
+        df_est = pd.DataFrame(rows)
+        atm_label = " (ATM)" if center_idx == atm_idx_default else ""
+        st.caption(
+            f"Strike central: {strike_sel:,.0f}{atm_label} | Spot: ${spot:,.2f}  |  "
+            f"Costo>0 = debit (pagás), Costo<0 = credit (recibís)"
+        )
+        styler = (
+            df_est.style
+            .map(lambda v: (
+                "color: #ff4444; font-weight: bold" if pd.notna(v) and v > 0 else
+                "color: #00cc66; font-weight: bold" if pd.notna(v) else
+                "color: #555"
+            ), subset=["Costo/Prima"])
+            .format({
+                "Costo/Prima": lambda v: f"${v:.2f}"  if pd.notna(v) else "Sin Liq",
+                "Vol (pata)":  lambda v: fmt_vol(v)    if pd.notna(v) else "-",
+                "Delta":       lambda v: f"{v:.3f}"    if pd.notna(v) else "-",
+                "Gamma":       lambda v: f"{v:.4f}"    if pd.notna(v) else "-",
+                "Theta":       lambda v: f"{v:.2f}"    if pd.notna(v) else "-",
+            })
+        )
+        selection = st.dataframe(
+            styler,
+            hide_index=True,
+            use_container_width=True,
+            height=df_height(len(df_est), max_h=700),
+            on_select="rerun",
+            selection_mode="single-row",
+            key="estrategias_tabla",
+        )
+
+    with col_graficos:
+        sel_rows = selection.selection.rows if hasattr(selection, 'selection') else []
+        if not sel_rows:
+            st.info("← Seleccioná una estrategia de la tabla para ver los gráficos.")
+        else:
+            row_idx  = sel_rows[0]
+            sel_name = rows[row_idx]["Estrategia"]
+            sel_cost = rows[row_idx]["Costo/Prima"]
+            sel_legs = resolved_legs_list[row_idx]
+
+            tipo_cost = "DEBIT" if (sel_cost or 0) > 0 else "CREDIT"
+            st.markdown(f"**{sel_name}**  |  {tipo_cost} ${abs(sel_cost or 0):.2f}")
+
+            tab_hist, tab_payoff = st.tabs(["📈 Histórico de Costo", "📊 Payoff al Vencimiento"])
+
+            with tab_hist:
+                chart_h = _chart_historico_estrategia(db_op, sel_legs)
+                if chart_h:
+                    st.altair_chart(chart_h, use_container_width=True)
+                else:
+                    st.info("Sin datos históricos suficientes para esta estrategia.")
+
+            with tab_payoff:
+                chart_p = _chart_payoff_estrategia(sel_legs, spot, sel_cost)
+                if chart_p:
+                    st.altair_chart(chart_p, use_container_width=True)
+                    st.caption(f"Línea amarilla = Spot actual (${spot:,.0f})")
+
+    # ── Greeks del strike seleccionado ───────────────────────────────────
+    atm_K    = liquid_strikes[center_idx]
     atm_data = por_strike.get(atm_K, {})
     if atm_data:
         st.divider()

@@ -831,7 +831,7 @@ def vista_estrategias():
                 col.metric(label, f"{v:.4f}" if v else "-")
 
 
-@st.fragment(run_every=2)
+@st.fragment(run_every=60)
 def vista_mercado():
     db = get_db()
 
@@ -845,6 +845,7 @@ def vista_mercado():
             default=None
         )
         last_update_badge(ultimo_ts)
+    st.caption("Vista con actualización automática cada 1 minuto.")
 
     st.divider()
 

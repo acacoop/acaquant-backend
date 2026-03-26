@@ -1242,7 +1242,7 @@ def vista_operaciones():
     acc_map = _cargar_accionistas()   # {cuenta: accionista}
     acc_nombres = sorted(set(acc_map.values()))
 
-    fa_col, fb_col = st.columns([2, 3])
+    fa_col, fb_col, fc_col = st.columns([2, 3, 2])
     with fa_col:
         filtro_acc = st.selectbox(
             "Cuentas",
@@ -1257,11 +1257,21 @@ def vista_operaciones():
             )
         else:
             acc_sel = acc_nombres
+    with fc_col:
+        cuentas_disponibles = ["Todas"] + sorted(df["cuenta"].dropna().unique().tolist())
+        cuenta_sel = st.selectbox(
+            "Cuenta", cuentas_disponibles, key="ops_cuenta",
+            label_visibility="collapsed",
+        )
 
     # ── Filtrar ───────────────────────────────────────────────────────────────
     df_f = df[(df["fecha"].dt.date >= rango[0]) & (df["fecha"].dt.date <= rango[1])].copy()
     monedas_sel = (["ARS"] if show_ars else []) + (["USD"] if show_usd else [])
     df_f = df_f[df_f["unidad"].isin(monedas_sel)].copy()
+
+    # Aplicar filtro de cuenta
+    if cuenta_sel != "Todas":
+        df_f = df_f[df_f["cuenta"] == cuenta_sel].copy()
 
     # Aplicar filtro de accionistas
     df_f["_accionista"] = df_f["cuenta"].map(acc_map)

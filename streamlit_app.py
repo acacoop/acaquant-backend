@@ -671,16 +671,22 @@ def _chart_historico_estrategia(db_opciones, resolved_legs, dias=10):
     if df_cost.empty:
         return None
 
-    # Segmentar por gaps > 2h para no conectar días/noches con línea diagonal
+    # Eje ordinal: solo timestamps con datos reales, sin huecos por feriados/noches
     df_cost = df_cost.sort_values('Fecha').reset_index(drop=True)
     df_cost['segmento'] = (df_cost['Fecha'].diff() > pd.Timedelta(hours=2)).cumsum()
+    df_cost['x_ord'] = df_cost['Fecha'].dt.strftime('%d/%m %H:%M')
+    sort_order = df_cost['x_ord'].tolist()
+
+    # ~8 etiquetas distribuidas uniformemente
+    step = max(1, len(df_cost) // 8)
+    tick_values = df_cost['x_ord'].iloc[::step].tolist()
 
     line = alt.Chart(df_cost).mark_line(color='#4a9eff', strokeWidth=1.5).encode(
-        x=alt.X('Fecha:T', title=None,
-                axis=alt.Axis(format='%d/%m', labelAngle=-30, tickCount=8)),
+        x=alt.X('x_ord:O', sort=sort_order, title=None,
+                axis=alt.Axis(values=tick_values, labelAngle=-30)),
         y=alt.Y('Costo:Q', title='Costo ($)'),
         detail='segmento:N',
-        tooltip=[alt.Tooltip('Fecha:T', format='%d/%m %H:%M'), alt.Tooltip('Costo:Q', format='$.2f')],
+        tooltip=[alt.Tooltip('x_ord:N', title='Fecha'), alt.Tooltip('Costo:Q', format='$.2f')],
     )
     zero = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='#555', strokeDash=[4, 4]).encode(y='y:Q')
     return (line + zero).properties(height=400)

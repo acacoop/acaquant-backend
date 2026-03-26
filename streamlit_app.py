@@ -821,7 +821,7 @@ def vista_libro():
             st.altair_chart(chart, use_container_width=True)
 
 
-@st.fragment(run_every=2)
+@st.fragment(run_every=30)
 def vista_opciones():
     db_op     = get_db_opciones()
     meta_col  = get_meta_col()

@@ -409,12 +409,13 @@ def render_cadena_opciones(docs, spot):
         except Exception:
             return ""
 
+    _map = "map" if hasattr(styler, "map") else "applymap"
     for col in ["C IV %", "P IV %"]:
         if col in df.columns:
-            styler = styler.applymap(_iv_color, subset=[col])
+            styler = getattr(styler, _map)(_iv_color, subset=[col])
     for col in ["C Delta", "P Delta"]:
         if col in df.columns:
-            styler = styler.applymap(_delta_color, subset=[col])
+            styler = getattr(styler, _map)(_delta_color, subset=[col])
 
     spot_str = f"${spot:,.2f}" if spot else "N/A"
     st.caption(f"CADENA DE OPCIONES GGAL — SPOT: {spot_str}")

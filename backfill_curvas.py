@@ -200,6 +200,8 @@ def calcular_campos(doc, instrumento, cer_dict):
 
         ratio = cer_trade / cer_emision
         valor_nominal = float(instrumento.get("valor_nominal", 100))
+        precio_tecnico = valor_nominal * ratio
+        resultado["paridad"] = round(precio / precio_tecnico * 100, 4)
 
         flujos_futuros = [
             (fecha_flujo(f), monto_flujo_cer(f, valor_nominal) * ratio)

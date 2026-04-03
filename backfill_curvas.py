@@ -54,10 +54,26 @@ def macaulay_duration(fechas_flujos, montos, tir, fecha_base):
 
 
 def monto_flujo(f):
-    """Extrae el monto de un flujo independientemente de su estructura."""
+    """Extrae el monto de un flujo tasa_fija (valores absolutos)."""
     if "monto" in f:
         return float(f["monto"])
     return float(f.get("amortizacion", 0)) + float(f.get("interes", 0))
+
+
+def monto_flujo_cer(f, valor_nominal=100):
+    """
+    Extrae el monto de un flujo CER (campos en porcentaje sobre VN).
+    amortizacion_pct: % del VN que se amortiza.
+    cupon_sobre_residual: tasa aplicada sobre residual_previo_pct.
+    cupon_anual: tasa anual (solo en zero coupon, siempre 0).
+    """
+    vn = float(valor_nominal)
+    amort = float(f.get("amortizacion_pct", 0)) / 100 * vn
+    if "cupon_sobre_residual" in f:
+        cupon = float(f.get("cupon_sobre_residual", 0)) * float(f.get("residual_previo_pct", 0)) / 100 * vn
+    else:
+        cupon = float(f.get("cupon_anual", 0)) * vn
+    return amort + cupon
 
 
 def fecha_flujo(f):
@@ -183,11 +199,12 @@ def calcular_campos(doc, instrumento, cer_dict):
             return resultado
 
         ratio = cer_trade / cer_emision
+        valor_nominal = float(instrumento.get("valor_nominal", 100))
 
         flujos_futuros = [
-            (fecha_flujo(f), monto_flujo(f) * ratio)
+            (fecha_flujo(f), monto_flujo_cer(f, valor_nominal) * ratio)
             for f in flujos_raw
-            if fecha_flujo(f) and fecha_flujo(f) > fecha_trade and monto_flujo(f) > 0
+            if fecha_flujo(f) and fecha_flujo(f) > fecha_trade and monto_flujo_cer(f, valor_nominal) > 0
         ]
 
         try:
@@ -205,10 +222,6 @@ def calcular_campos(doc, instrumento, cer_dict):
                     )
                 else:
                     dur = round(dias_a_vto / 365, 4)
-            elif flujo_vto and flujo_vto > 0:
-                flujo_ajustado = flujo_vto * ratio
-                tea = (flujo_ajustado / precio) ** (365.0 / dias_a_vto) - 1
-                dur = round(dias_a_vto / 365, 4)
             else:
                 resultado["duration"] = round(dias_a_vto / 365, 4)
                 return resultado

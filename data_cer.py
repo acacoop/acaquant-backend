@@ -1,3 +1,4 @@
+import argparse
 import requests
 import urllib3
 from datetime import date
@@ -8,8 +9,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def ejecutar_backfill_cer(desde="2023-01-01", hasta=None):
+    hoy = date.today().isoformat()
     if hasta is None:
-        hasta = date.today().isoformat()
+        hasta = hoy
 
     id_cer = 30
     url_datos = f"https://api.bcra.gob.ar/estadisticas/v4.0/Monetarias/{id_cer}"
@@ -62,4 +64,12 @@ def ejecutar_backfill_cer(desde="2023-01-01", hasta=None):
 
 
 if __name__ == "__main__":
-    ejecutar_backfill_cer()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--today", action="store_true", help="Fetch solo el dia de hoy")
+    args = parser.parse_args()
+
+    if args.today:
+        hoy = date.today().isoformat()
+        ejecutar_backfill_cer(desde=hoy, hasta=hoy)
+    else:
+        ejecutar_backfill_cer()

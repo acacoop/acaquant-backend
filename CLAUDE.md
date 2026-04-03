@@ -54,7 +54,7 @@ SnapshotWriter (background thread, ~0.5s interval)
   - Bulk writes to MongoDB Atlas
         │
         ▼
-MongoDB Atlas (3 databases: Trading, Opciones, Valuaciones)
+MongoDB Atlas (4 databases: Trading, Opciones, Valuaciones, CashFlow)
         │
         ▼
 Streamlit Dashboard (3 pages: Libro, Mercado, Opciones)
@@ -109,7 +109,17 @@ Each engine has an `update_price(ticker, data)` callback called by the WebSocket
 
 Systemd services en `motor_rofex.service`, `streamlit.service` y `services/motor_options.service`. Producción corre en un **Droplet de Digital Ocean** como `root` en `/root/TradingAV/` con un venv local.
 
-### Crontab del servidor (actualizado 2026-03-23)
+### Colecciones de referencia en Trading
+
+- **`Trading.CER`** — Serie histórica del CER desde BCRA (variable id=30). Campos: `fecha`, `valor`. Upsert diario por `fecha`.
+- **`Trading.TAMAR`** — Tasa TAMAR desde BCRA (variable id=44). Campos: `fecha`, `valor`.
+- **`Trading.DOLAR`** — Tipo de cambio A3500 desde BCRA (variable id=5). Campos: `fecha`, `valor`.
+- **`Trading.BADLAR`** — Tasa BADLAR desde BCRA (variable id=7). Campos: `fecha`, `valor`.
+- **`Trading.Curvas`** — Definición estática de instrumentos de renta fija para pricing de curvas. Campos: `ticker`, `ticker_corto`, `tipo` (boncap/cer), `curva` (tasa_fija/cer), `fecha_vencimiento`, `fecha_emision`, `flujo_vencimiento`, `valor_nominal`, `cupon_anual`, `cer_emision`, `flujos[]`. Cargada manualmente en MongoDB.
+
+`data_bcra.py` — script que alimenta CER/TAMAR/DOLAR/BADLAR. Sin `--today` hace backfill desde 2023-01-01; con `--today` pide solo el día actual (modo cron). La API puede devolver el último día hábil disponible si no hay dato para hoy — el upsert por `fecha` evita duplicados en cualquier caso.
+
+### Crontab del servidor (actualizado 2026-04-03)
 
 ```cron
 # Prender/apagar motores y Streamlit: Lunes a Viernes
@@ -137,6 +147,9 @@ Systemd services en `motor_rofex.service`, `streamlit.service` y `services/motor
 # main_cashflow.py — carga diaria de movimientos de dinero a CashFlow.Movimientos
 # 02:00 UTC = 23:00 ART (lunes a viernes ARG = martes a sábado UTC)
 0 2 * * 2-6 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_cashflow.py --today >> /root/TradingAV/logs/cashflow.log 2>&1
+
+# data_bcra.py — CER, TAMAR, DOLAR, BADLAR diario (17:00 ART = 20:00 UTC, todos los días)
+0 20 * * * /root/TradingAV/venv/bin/python /root/TradingAV/data_bcra.py --today >> /root/TradingAV/logs/bcra.log 2>&1
 ```
 
 Logs en `/root/TradingAV/logs/`.

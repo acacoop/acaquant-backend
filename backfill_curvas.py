@@ -250,7 +250,7 @@ def run():
     total = col_ts.count_documents({"ticker": {"$in": tickers}})
     print(f"  {total} docs de TimeSales a procesar\n")
 
-    cursor = col_ts.find({"ticker": {"$in": tickers}}, no_cursor_timeout=True)
+    cursor = col_ts.find({"ticker": {"$in": tickers}})
 
     batch = []
     procesados = 0

@@ -2016,15 +2016,6 @@ def render_forward_matrix(doc):
     if ts:
         st.caption(f"Última actualización: {ts.strftime('%d/%m/%Y %H:%M:%S')}")
 
-    # Spot TEAs
-    spot_data = {t: tasas.get(t) for t in tickers}
-    spot_df = pd.DataFrame([
-        {"Ticker": t, "TEA Spot": f"{v:.2%}" if v is not None else "-"}
-        for t, v in spot_data.items()
-    ])
-    st.caption("TASAS SPOT")
-    st.dataframe(spot_df, hide_index=True, use_container_width=False)
-
     st.caption("MATRIZ DE TASAS FORWARD")
 
     # Construir DataFrame NxN

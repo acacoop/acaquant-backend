@@ -2028,10 +2028,11 @@ def render_forward_matrix(doc):
             row[t_corto] = val
         data[t_largo] = row
 
-    df = pd.DataFrame(data, index=tickers).T
+    import numpy as np
+    df = pd.DataFrame(data, index=tickers).T.astype(float)
 
     def fmt_cell(v):
-        if v is None or (isinstance(v, float) and pd.isna(v)):
+        if pd.isna(v):
             return ""
         return f"{v:.2%}"
 
@@ -2039,8 +2040,8 @@ def render_forward_matrix(doc):
     todos_vals = [v for row in data.values() for v in row.values() if v is not None and not pd.isna(v)]
 
     def bg_cell(v):
-        if v is None or (isinstance(v, float) and pd.isna(v)) or not todos_vals:
-            return "background-color: transparent; color: transparent; border: none"
+        if pd.isna(v) or not todos_vals:
+            return ""
         vmin = min(todos_vals)
         vmax = max(todos_vals)
         p50  = sorted(todos_vals)[len(todos_vals) // 2]

@@ -74,7 +74,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Carteras", "Operaciones", "AuM", "ONs"],
+        ["Libro", "Mercado", "Forwards", "Opciones", "Estrategias Opciones", "Carteras", "Operaciones", "AuM", "ONs"],
         label_visibility="collapsed"
     )
 
@@ -2003,6 +2003,103 @@ def vista_ons():
     st.dataframe(df_show, use_container_width=True, hide_index=True)
 
 
+def render_forward_matrix(doc):
+    tickers  = doc.get("tickers", [])   # ordenados por maturity ascendente
+    tasas    = doc.get("tasas", {})
+    matrix   = doc.get("matrix", {})
+    ts       = doc.get("updated_at")
+
+    if len(tickers) < 2:
+        st.info("Menos de 2 instrumentos con TEA disponible.")
+        return
+
+    if ts:
+        st.caption(f"Última actualización: {ts.strftime('%d/%m/%Y %H:%M:%S')}")
+
+    # Spot TEAs
+    spot_data = {t: tasas.get(t) for t in tickers}
+    spot_df = pd.DataFrame([
+        {"Ticker": t, "TEA Spot": f"{v:.2%}" if v is not None else "-"}
+        for t, v in spot_data.items()
+    ])
+    st.caption("TASAS SPOT")
+    st.dataframe(spot_df, hide_index=True, use_container_width=False)
+
+    st.caption("MATRIZ DE TASAS FORWARD")
+
+    # Construir DataFrame NxN
+    # Filas = instrumento largo, Columnas = instrumento corto
+    data = {}
+    for t_largo in tickers:
+        row = {}
+        for t_corto in tickers:
+            val = matrix.get(t_largo, {}).get(t_corto)
+            row[t_corto] = val
+        data[t_largo] = row
+
+    df = pd.DataFrame(data, index=tickers).T
+    # df.loc[fila=largo, col=corto] = forward
+
+    def fmt_cell(v):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return ""
+        return f"{v:.2%}"
+
+    def color_cell(v):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return "color: #333"
+        if v > 0.35:
+            return "color: #00cc66; font-weight: bold"
+        if v > 0.25:
+            return "color: #88dd88"
+        return "color: #aaa"
+
+    styler = (
+        df.style
+        .format(fmt_cell)
+        .map(color_cell)
+    )
+    st.dataframe(styler, use_container_width=True, height=df_height(len(tickers) + 1))
+
+
+def vista_forwards():
+    db = get_db()
+    st.markdown("## ACAQuant | Forwards")
+
+    curvas_live = db["ForwardsLive"].distinct("curva")
+    if not curvas_live:
+        st.info("Sin datos. ¿El motor de forwards está corriendo?")
+        return
+
+    curva_sel = st.selectbox("Curva", sorted(curvas_live))
+
+    tab_live, tab_hist = st.tabs(["Tiempo Real", "Histórico"])
+
+    with tab_live:
+        doc = db["ForwardsLive"].find_one({"curva": curva_sel})
+        if doc:
+            render_forward_matrix(doc)
+        else:
+            st.info("Sin datos en tiempo real para esta curva.")
+
+    with tab_hist:
+        fechas = sorted([
+            d["fecha"] for d in db["ForwardsHistorico"].find(
+                {"curva": curva_sel}, {"fecha": 1, "_id": 0}
+            )
+        ], reverse=True)
+
+        if not fechas:
+            st.info("Sin historial disponible aún.")
+        else:
+            fecha_sel = st.select_slider("Fecha", options=fechas)
+            doc_hist = db["ForwardsHistorico"].find_one(
+                {"curva": curva_sel, "fecha": fecha_sel}
+            )
+            if doc_hist:
+                render_forward_matrix(doc_hist)
+
+
 # Ruteo: solo se llama el fragmento activo.
 if vista == "Libro":
     vista_libro()
@@ -2012,6 +2109,8 @@ elif vista == "Estrategias Opciones":
     vista_estrategias()
 elif vista == "Mercado":
     vista_mercado()
+elif vista == "Forwards":
+    vista_forwards()
 elif vista == "Carteras":
     vista_carteras()
 elif vista == "Operaciones":

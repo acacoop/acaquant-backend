@@ -1,0 +1,14 @@
+[Unit]
+Description=Motor Forwards - Tasas forward en tiempo real
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/python /root/TradingAV/main_forwards.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

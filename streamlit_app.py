@@ -285,7 +285,7 @@ def render_mercado_table(snaps, enriched=None):
             "Cierre":    closing      if closing      > 0 else None,
             "VWAP":      vwap         if vwap         > 0 else None,
             "Intraday":  intraday,
-            "Vs Cierre": vs_cierre,
+            "1D%":       vs_cierre,
             "Imbalance": imb,
         })
     if not rows:
@@ -307,13 +307,13 @@ def render_mercado_table(snaps, enriched=None):
         "Cierre":    lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
         "VWAP":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
         "Intraday":  lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
-        "Vs Cierre": lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
+        "1D%":       lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
         "Imbalance": "{:.2%}",
     }
 
     styler = (
         df.style
-        .map(pct_color, subset=["Intraday", "Vs Cierre"])
+        .map(pct_color, subset=["Intraday", "1D%"])
         .map(lambda v: (
             "color: #00cc66; font-weight: bold" if v > 0.05 else
             "color: #ff4444; font-weight: bold" if v < -0.05 else

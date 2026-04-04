@@ -2341,112 +2341,151 @@ def vista_forwards():
     _render_forwards(db, key_prefix="fwd_page")
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _cargar_precios_diarios_curva(curva):
+    """
+    Último precio por ticker por día para todos los instrumentos de una curva.
+    Retorna DataFrame largo con columnas: fecha (str), ticker (ticker_corto), price.
+    """
+    db = get_db()
+    meta = {
+        d["ticker"]: d["ticker_corto"]
+        for d in db["Curvas"].find({"curva": curva}, {"ticker": 1, "ticker_corto": 1})
+    }
+    if not meta:
+        return pd.DataFrame()
+
+    pipeline = [
+        {"$match": {"ticker": {"$in": list(meta.keys())}, "price": {"$gt": 0}}},
+        {"$sort": {"timestamp": -1}},
+        {"$group": {
+            "_id": {
+                "ticker": "$ticker",
+                "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
+            },
+            "price": {"$first": "$price"},
+        }},
+    ]
+    rows = [
+        {"fecha": r["_id"]["fecha"], "ticker": meta[r["_id"]["ticker"]], "price": r["price"]}
+        for r in db["TimeSales"].aggregate(pipeline)
+        if r["_id"]["ticker"] in meta
+    ]
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values(["ticker", "fecha"]).reset_index(drop=True)
+
+
 def vista_retorno_total():
     import altair as alt
-    db = get_db()
     st.markdown("## ACAQuant | Retorno Total")
 
-    curvas = sorted(db["ForwardsHistorico"].distinct("curva"))
+    db = get_db()
+    curvas = sorted(db["Curvas"].distinct("curva"))
     if not curvas:
-        st.info("Sin datos históricos disponibles. ¿Corrió el motor de forwards?")
+        st.info("Sin curvas configuradas en Trading.Curvas.")
         return
 
-    col1, col2 = st.columns([2, 2])
-    with col1:
-        curva_sel = st.selectbox("Curva", curvas, key="rt_curva")
-    with col2:
-        if curva_sel == "tasa_fija":
-            metrica = st.radio("Métrica", ["TEM", "TEA"], horizontal=True, key="rt_metrica")
-        else:
-            metrica = "TEA"
-            st.markdown(f"**Métrica:** TEA")
+    curva_sel = st.selectbox("Curva", curvas, key="rt_curva")
 
-    # Cargar todo el histórico de esta curva
-    docs = list(db["ForwardsHistorico"].find(
-        {"curva": curva_sel},
-        {"fecha": 1, "tasas": 1, "_id": 0},
-    ).sort("fecha", 1))
+    with st.spinner("Cargando precios históricos..."):
+        df_raw = _cargar_precios_diarios_curva(curva_sel)
 
-    if not docs:
-        st.info("Sin datos para esta curva.")
+    if df_raw.empty:
+        st.info("Sin datos de precios en TimeSales para esta curva.")
         return
 
-    # Construir dataframe largo: (fecha, ticker, valor)
-    rows = []
-    for doc in docs:
-        fecha = doc["fecha"]
-        for ticker_corto, tea in doc.get("tasas", {}).items():
-            if tea is None:
-                continue
-            if metrica == "TEM":
-                valor = ((1 + float(tea)) ** (1 / 12) - 1) * 100
-            else:
-                valor = float(tea) * 100
-            rows.append({"Fecha": fecha, "Ticker": ticker_corto, metrica: round(valor, 4)})
+    fechas_ord = sorted(df_raw["fecha"].unique())
+    tickers     = sorted(df_raw["ticker"].unique())
 
-    if not rows:
-        st.info("Sin tasas disponibles.")
+    if len(fechas_ord) < 2:
+        st.info("Necesitás al menos 2 días de datos para calcular retorno.")
         return
 
-    df = pd.DataFrame(rows)
-    fechas_ord = sorted(df["Fecha"].unique())
-
-    # ── Slider de fecha ───────────────────────────────────────────
-    fecha_sel = st.select_slider(
-        "Fecha de referencia",
+    # ── Selector de fecha base (punto 0) ──────────────────────────
+    st.markdown("Seleccioná el **punto 0**: el retorno de todos los instrumentos parte de 0% en esa fecha.")
+    fecha_base = st.select_slider(
+        "Fecha base",
         options=fechas_ord,
-        value=fechas_ord[-1],
-        key="rt_fecha",
+        value=fechas_ord[0],
+        key="rt_fecha_base",
     )
 
-    # ── Gráfico de líneas ─────────────────────────────────────────
+    # ── Calcular retorno acumulado desde fecha_base ───────────────
+    # Pivotear: índice=fecha, columnas=ticker, valores=price
+    df_pivot = df_raw.pivot_table(index="fecha", columns="ticker", values="price", aggfunc="last")
+    df_pivot = df_pivot.sort_index()
+
+    # Solo fechas >= fecha_base
+    df_desde = df_pivot.loc[df_pivot.index >= fecha_base].copy()
+
+    # Precio base por ticker (precio en fecha_base o primer día disponible >= fecha_base)
+    base = df_desde.iloc[0]  # primera fila disponible
+
+    # Retorno acumulado = (precio / precio_base - 1) * 100
+    df_retorno = (df_desde.div(base) - 1) * 100
+
+    # Pasar a formato largo para Altair
+    df_long = (
+        df_retorno
+        .reset_index()
+        .melt(id_vars="fecha", var_name="Ticker", value_name="Retorno (%)")
+        .dropna(subset=["Retorno (%)"])
+    )
+
+    fechas_rango = sorted(df_long["fecha"].unique())
+
+    # ── Gráfico de líneas ──────────────────────────────────���──────
+    # Línea base en 0%
+    df_cero = pd.DataFrame({"y": [0]})
+    regla_cero = (
+        alt.Chart(df_cero)
+        .mark_rule(color="#555", strokeWidth=1)
+        .encode(y=alt.Y("y:Q"))
+    )
+
     lineas = (
-        alt.Chart(df)
-        .mark_line(point=alt.OverlayMarkDef(size=40))
+        alt.Chart(df_long)
+        .mark_line(point=alt.OverlayMarkDef(size=50))
         .encode(
-            x=alt.X("Fecha:O", title="Fecha", sort=fechas_ord,
+            x=alt.X("fecha:O", title="Fecha", sort=fechas_rango,
                     axis=alt.Axis(labelAngle=-45)),
-            y=alt.Y(f"{metrica}:Q", title=f"{metrica} (%)",
+            y=alt.Y("Retorno (%):Q", title="Retorno acumulado (%)",
                     axis=alt.Axis(format=".2f")),
             color=alt.Color("Ticker:N", legend=alt.Legend(title="Instrumento")),
-            tooltip=["Fecha:O", "Ticker:N",
-                     alt.Tooltip(f"{metrica}:Q", format=".2f", title=metrica)],
+            tooltip=[
+                alt.Tooltip("fecha:O", title="Fecha"),
+                alt.Tooltip("Ticker:N"),
+                alt.Tooltip("Retorno (%):Q", format=".2f", title="Retorno (%)"),
+            ],
         )
-    )
-
-    regla = (
-        alt.Chart(pd.DataFrame({"Fecha": [fecha_sel]}))
-        .mark_rule(color="white", strokeDash=[5, 3], strokeWidth=1.5)
-        .encode(x=alt.X("Fecha:O", sort=fechas_ord))
     )
 
     st.altair_chart(
-        (lineas + regla).properties(height=420),
+        (regla_cero + lineas).properties(height=450),
         use_container_width=True,
     )
 
-    # ── Tabla snapshot para la fecha seleccionada ─────────────────
-    st.markdown(f"#### Snapshot — {fecha_sel}")
+    # ── Tabla: retorno acumulado al último día disponible ─────────
+    fecha_ultimo = fechas_rango[-1]
+    st.markdown(f"#### Retorno acumulado al {fecha_ultimo} (base: {fecha_base})")
 
-    df_dia = df[df["Fecha"] == fecha_sel][["Ticker", metrica]].copy()
+    df_tabla = (
+        df_long[df_long["fecha"] == fecha_ultimo][["Ticker", "Retorno (%)"]]
+        .copy()
+        .sort_values("Retorno (%)", ascending=False)
+        .reset_index(drop=True)
+    )
+    df_tabla["Retorno (%)"] = df_tabla["Retorno (%)"].round(2).astype(str) + "%"
 
-    # Variación respecto al día anterior
-    idx = fechas_ord.index(fecha_sel)
-    if idx > 0:
-        fecha_prev = fechas_ord[idx - 1]
-        df_prev = (
-            df[df["Fecha"] == fecha_prev]
-            .set_index("Ticker")[metrica]
-        )
-        df_dia = df_dia.set_index("Ticker")
-        df_dia["Var. día (pp)"] = (df_dia[metrica] - df_prev).round(4)
-        df_dia = df_dia.reset_index()
+    # Precio base y precio final
+    precios_base  = df_desde.iloc[0].rename("Precio base")
+    precios_final = df_desde.loc[fecha_ultimo] if fecha_ultimo in df_desde.index else pd.Series(dtype=float)
+    df_tabla["Precio base"]  = df_tabla["Ticker"].map(precios_base).round(4)
+    df_tabla["Precio final"] = df_tabla["Ticker"].map(precios_final).round(4)
 
-    df_dia = df_dia.sort_values("Ticker").reset_index(drop=True)
-    df_dia.rename(columns={metrica: f"{metrica} (%)"}, inplace=True)
-
-    st.dataframe(df_dia, hide_index=True, use_container_width=True,
-                 height=df_height(len(df_dia)))
+    st.dataframe(df_tabla, hide_index=True, use_container_width=True,
+                 height=df_height(len(df_tabla)))
 
 
 # Ruteo: solo se llama el fragmento activo.

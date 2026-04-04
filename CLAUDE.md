@@ -76,10 +76,44 @@ Each engine has an `update_price(ticker, data)` callback called by the WebSocket
 | Engine | MongoDB collection | Description |
 |---|---|---|
 | `main_ts.py` | `Trading.Data` | Microstructure: order book, VWAP, volume bucketing, trade tape |
-| `main_values.py` | `Trading.Data` | Equity tracking (GGAL, VSCJO, BVCOO, DHSGO) |
+| `main_valores.py` | `Trading.TimeSales` + `Trading.MarketSnapshot` | Microestructura para bonos/Lecaps/CER: inserta trades en TimeSales, snapshot cada 1s en MarketSnapshot |
 | `main_options.py` | `Opciones.OptionsSnapshot` | GGAL options: Black-Scholes Greeks, IV via Newton-Raphson |
 | `main_fx.py` | `Trading.FXArbitrage` | USD pair cross-currency arbitrage (fee: 0.0847%) |
 | `main_arbitrage.py` | `Trading.CI24` | CI/24hs cash+carry repo arbitrage (headless daemon) |
+| `main_curvas.py` | `Trading.TimeSales` (enrichment) | Enriquece trades de Curvas con TEA/TEM/Duration/Paridad. Loop cada 5s, busca docs sin `duration` y los actualiza. |
+
+### Trading.TimeSales
+
+Colección de trades en tiempo real. Campos base (escritos por `main_valores.py`):
+`ticker`, `timestamp`, `price`, `size`, `side` (BUY/SELL/MID), `money`
+
+Campos enriquecidos por `main_curvas.py` (solo tickers en `Trading.Curvas`):
+
+| Campo | Instrumentos | Descripción |
+|---|---|---|
+| `duration` | todos | Macaulay duration en años |
+| `TEA` | tasa_fija + cer | Tasa efectiva anual |
+| `TEM` | tasa_fija | Tasa efectiva mensual |
+| `paridad` | cer | precio / (VN × CER_trade/CER_emision) × 100 |
+
+### Trading.MarketSnapshot
+
+Un doc por ticker, reemplazado cada 1 segundo por `main_valores.py`. Campos:
+`ticker`, `updated_at`, `book` (bids/offers top 5), `metrics` (micro_price, spread, imbalance, VWAP, VPIN, total_nominals, total_money, buy_money, sell_money, last/open/high/low/closing_price), `hourly_stats` (por hora 10-17), `top_trades` (top 15 por size), `recent_trades` (últimos 30).
+
+### Scripts de datos BCRA y Curvas
+
+- **`data_bcra.py`** — alimenta CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron, sin flag hace backfill desde 2023-01-01.
+- **`backfill_curvas.py`** — script one-off que recorre todo TimeSales y agrega TEA/TEM/Duration/Paridad a docs históricos de Curvas. Ya ejecutado (97k docs procesados).
+
+### Trading.Curvas — estructura de flujos
+
+Los flujos CER usan campos porcentuales (NO valores absolutos):
+- `amortizacion_pct`: % del VN que se amortiza
+- `cupon_sobre_residual`: tasa × `residual_previo_pct` / 100 × VN
+- `cupon_anual`: solo zero coupon (= 0)
+
+Los flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 
 ### Options Module (`Opciones/`)
 
@@ -107,7 +141,7 @@ Each engine has an `update_price(ticker, data)` callback called by the WebSocket
 
 ## Deployment
 
-Systemd services en `motor_rofex.service`, `streamlit.service` y `services/motor_options.service`. Producción corre en un **Droplet de Digital Ocean** como `root` en `/root/TradingAV/` con un venv local.
+Systemd services en `motor_rofex.service`, `streamlit.service`, `services/motor_options.service` y `services/motor_curvas.service`. Producción corre en un **Droplet de Digital Ocean** como `root` en `/root/TradingAV/` con un venv local.
 
 ### Colecciones de referencia en Trading
 
@@ -150,6 +184,10 @@ Systemd services en `motor_rofex.service`, `streamlit.service` y `services/motor
 
 # data_bcra.py — CER, TAMAR, DOLAR, BADLAR diario (17:00 ART = 20:00 UTC, todos los días)
 0 20 * * * /root/TradingAV/venv/bin/python /root/TradingAV/data_bcra.py --today >> /root/TradingAV/logs/bcra.log 2>&1
+
+# motor_curvas.service — enriquecimiento TEA/Duration TimeSales (lunes a viernes)
+0 13 * * 1-5 systemctl start motor_curvas.service
+5 20 * * 1-5 systemctl stop motor_curvas.service
 ```
 
 Logs en `/root/TradingAV/logs/`.

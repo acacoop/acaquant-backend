@@ -2066,12 +2066,15 @@ def vista_forwards():
     db = get_db()
     st.markdown("## ACAQuant | Forwards")
 
-    curvas_live = db["ForwardsLive"].distinct("curva")
-    if not curvas_live:
+    curvas_live = set(db["ForwardsLive"].distinct("curva"))
+    curvas_hist = set(db["ForwardsHistorico"].distinct("curva"))
+    curvas_todas = sorted(curvas_live | curvas_hist)
+
+    if not curvas_todas:
         st.info("Sin datos. ¿El motor de forwards está corriendo?")
         return
 
-    curva_sel = st.selectbox("Curva", sorted(curvas_live))
+    curva_sel = st.selectbox("Curva", curvas_todas)
 
     tab_live, tab_hist = st.tabs(["Tiempo Real", "Histórico"])
 

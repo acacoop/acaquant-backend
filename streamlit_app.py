@@ -1141,6 +1141,7 @@ def _render_breakevens(db):
                     _tabla_breakevens(pares),
                     hide_index=True,
                     use_container_width=True,
+                    height=df_height(len(pares)),
                 )
             else:
                 st.info("Motor activo pero sin pares calculados aún.")
@@ -1163,6 +1164,7 @@ def _render_breakevens(db):
                     _tabla_breakevens(pares),
                     hide_index=True,
                     use_container_width=True,
+                    height=df_height(len(pares)),
                 )
 
 

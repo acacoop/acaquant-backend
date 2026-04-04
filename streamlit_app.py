@@ -1170,9 +1170,14 @@ def _render_curva_rendimiento(db):
     except Exception:
         df_fit = None
 
-    # Eje Y dinámico con margen
-    y_min = float(np.min(y)) * 0.98
-    y_max = float(np.max(y)) * 1.02
+    # Eje Y dinámico: incluye puntos + línea de fit, padding absoluto
+    all_y = list(y)
+    if df_fit is not None:
+        all_y += list(df_fit[metrica].values)
+    rango = max(all_y) - min(all_y)
+    padding = rango * 0.10 if rango > 0 else 1.0
+    y_min = min(all_y) - padding
+    y_max = max(all_y) + padding
     y_fmt = ".1f" if curva_sel == "cer" else ".2f"
     y_title = f"{metrica} (%)"
 

@@ -2029,26 +2029,46 @@ def render_forward_matrix(doc):
         data[t_largo] = row
 
     df = pd.DataFrame(data, index=tickers).T
-    # df.loc[fila=largo, col=corto] = forward
 
     def fmt_cell(v):
         if v is None or (isinstance(v, float) and pd.isna(v)):
             return ""
         return f"{v:.2%}"
 
-    def color_cell(v):
-        if v is None or (isinstance(v, float) and pd.isna(v)):
-            return "color: #333"
-        if v > 0.35:
-            return "color: #00cc66; font-weight: bold"
-        if v > 0.25:
-            return "color: #88dd88"
-        return "color: #aaa"
+    # Escala rojo → amarillo → verde centrada en la mediana
+    todos_vals = [v for row in data.values() for v in row.values() if v is not None and not pd.isna(v)]
+
+    def bg_cell(v):
+        if v is None or (isinstance(v, float) and pd.isna(v)) or not todos_vals:
+            return ""
+        vmin = min(todos_vals)
+        vmax = max(todos_vals)
+        p50  = sorted(todos_vals)[len(todos_vals) // 2]
+        if vmax == vmin:
+            return "background-color: #ffdd00; color: #000"
+        # Normalizar: por debajo de p50 → [0, 0.5], por encima → [0.5, 1]
+        if v <= p50:
+            t = (v - vmin) / (p50 - vmin) * 0.5 if p50 > vmin else 0.5
+        else:
+            t = 0.5 + (v - p50) / (vmax - p50) * 0.5 if vmax > p50 else 0.5
+        t = max(0.0, min(1.0, t))
+        # Interpolar rojo(0) → amarillo(0.5) → verde(1)
+        if t <= 0.5:
+            r = 255
+            g = int(t / 0.5 * 221)   # 0 → 221
+            b = 0
+        else:
+            r = int((1 - (t - 0.5) / 0.5) * 255)
+            g = int(221 + (t - 0.5) / 0.5 * (204 - 221))
+            b = 0
+        luminancia = 0.299 * r + 0.587 * g + 0.114 * b
+        txt = "#000" if luminancia > 140 else "#fff"
+        return f"background-color: rgb({r},{g},{b}); color: {txt}; font-weight: bold"
 
     styler = (
         df.style
         .format(fmt_cell)
-        .map(color_cell)
+        .map(bg_cell)
     )
     st.dataframe(styler, use_container_width=True, height=df_height(len(tickers) + 1))
 

@@ -245,7 +245,9 @@ def render_whales(top_trades):
 # ==========================================
 # RENDER FUNCTIONS — MERCADO
 # ==========================================
-def render_mercado_table(snaps):
+def render_mercado_table(snaps, enriched=None):
+    if enriched is None:
+        enriched = {}
     rows = []
     for snap in snaps:
         ticker     = snap.get("ticker", "")
@@ -262,13 +264,24 @@ def render_mercado_table(snaps):
             continue
         intraday  = (last_price / open_price - 1) if open_price > 0 and last_price > 0 else None
         vs_cierre = (last_price / closing - 1) if closing > 0 and last_price > 0 else None
+
+        enc = enriched.get(ticker, {})
+        tea     = enc.get("TEA")
+        tem     = enc.get("TEM")
+        dur     = enc.get("duration")
+        paridad = enc.get("paridad")
+
         rows.append({
             "Ticker":    short_name(ticker),
+            "Last":      last_price   if last_price  > 0 else None,
+            "TEA":       tea,
+            "TEM":       tem,
+            "Duration":  dur,
+            "Paridad":   paridad,
             "Total $":   fmt_money(total),
             "Buy $":     fmt_money(buy),
             "Sell $":    fmt_money(sell),
             "Open":      open_price   if open_price  > 0 else None,
-            "Last":      last_price   if last_price  > 0 else None,
             "Cierre":    closing      if closing      > 0 else None,
             "VWAP":      vwap         if vwap         > 0 else None,
             "Intraday":  intraday,
@@ -284,6 +297,20 @@ def render_mercado_table(snaps):
         if pd.isna(v): return ""
         return "color: #00cc66; font-weight: bold" if v >= 0 else "color: #ff4444; font-weight: bold"
 
+    fmt = {
+        "Last":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
+        "TEA":       lambda v: f"{v:.2%}" if pd.notna(v) else "-",
+        "TEM":       lambda v: f"{v:.2%}" if pd.notna(v) else "-",
+        "Duration":  lambda v: f"{v:.2f}" if pd.notna(v) else "-",
+        "Paridad":   lambda v: f"{v:.2f}%" if pd.notna(v) else "-",
+        "Open":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
+        "Cierre":    lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
+        "VWAP":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
+        "Intraday":  lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
+        "Vs Cierre": lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
+        "Imbalance": "{:.2%}",
+    }
+
     styler = (
         df.style
         .map(pct_color, subset=["Intraday", "Vs Cierre"])
@@ -292,15 +319,7 @@ def render_mercado_table(snaps):
             "color: #ff4444; font-weight: bold" if v < -0.05 else
             "color: #aaa"
         ), subset=["Imbalance"])
-        .format({
-            "Open":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
-            "Last":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
-            "Cierre":    lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
-            "VWAP":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
-            "Intraday":  lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
-            "Vs Cierre": lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
-            "Imbalance": "{:.2%}",
-        })
+        .format(fmt)
     )
     st.caption("RESUMEN DE MERCADO")
     st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(df), max_h=900))
@@ -1088,11 +1107,20 @@ def vista_mercado():
 
     st.divider()
 
+    # Traer último trade enriquecido por ticker (TEA/TEM/Duration/Paridad)
+    curvas_tickers = [d["ticker"] for d in db["Curvas"].find({}, {"ticker": 1})]
+    pipeline = [
+        {"$match": {"ticker": {"$in": curvas_tickers}, "duration": {"$exists": True}}},
+        {"$sort": {"timestamp": -1}},
+        {"$group": {"_id": "$ticker", "doc": {"$first": "$$ROOT"}}},
+    ]
+    enriched = {r["_id"]: r["doc"] for r in db["TimeSales"].aggregate(pipeline)}
+
     all_snaps.sort(
         key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
         reverse=True
     )
-    render_mercado_table(all_snaps)
+    render_mercado_table(all_snaps, enriched)
 
 
 @st.fragment(run_every=30)

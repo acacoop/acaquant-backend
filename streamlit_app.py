@@ -1307,7 +1307,7 @@ def vista_mercado():
 
     st.markdown("## ACAQuant | Mercado")
 
-    tab_mercado, tab_curvas, tab_breakevens = st.tabs(["Mercado", "Curvas", "Breakevens"])
+    tab_mercado, tab_curvas, tab_breakevens, tab_forwards = st.tabs(["Mercado", "Curvas", "Breakevens", "Forwards"])
 
     with tab_mercado:
         all_snaps = list(db["MarketSnapshot"].find({}))
@@ -1341,6 +1341,9 @@ def vista_mercado():
 
     with tab_breakevens:
         _render_breakevens(db)
+
+    with tab_forwards:
+        _render_forwards(db, key_prefix="fwd_mercado")
 
 
 @st.fragment(run_every=30)
@@ -2294,10 +2297,7 @@ def render_forward_matrix(doc):
     st.dataframe(styler, use_container_width=True, height=df_height(len(tickers) + 1))
 
 
-def vista_forwards():
-    db = get_db()
-    st.markdown("## ACAQuant | Forwards")
-
+def _render_forwards(db, key_prefix="fwd"):
     curvas_live = set(db["ForwardsLive"].distinct("curva"))
     curvas_hist = set(db["ForwardsHistorico"].distinct("curva"))
     curvas_todas = sorted(curvas_live | curvas_hist)
@@ -2306,7 +2306,7 @@ def vista_forwards():
         st.info("Sin datos. ¿El motor de forwards está corriendo?")
         return
 
-    curva_sel = st.selectbox("Curva", curvas_todas)
+    curva_sel = st.selectbox("Curva", curvas_todas, key=f"{key_prefix}_curva")
 
     tab_live, tab_hist = st.tabs(["Tiempo Real", "Histórico"])
 
@@ -2327,12 +2327,18 @@ def vista_forwards():
         if not fechas:
             st.info("Sin historial disponible aún.")
         else:
-            fecha_sel = st.select_slider("Fecha", options=fechas)
+            fecha_sel = st.select_slider("Fecha", options=fechas, key=f"{key_prefix}_fecha")
             doc_hist = db["ForwardsHistorico"].find_one(
                 {"curva": curva_sel, "fecha": fecha_sel}
             )
             if doc_hist:
                 render_forward_matrix(doc_hist)
+
+
+def vista_forwards():
+    db = get_db()
+    st.markdown("## ACAQuant | Forwards")
+    _render_forwards(db, key_prefix="fwd_page")
 
 
 # Ruteo: solo se llama el fragmento activo.

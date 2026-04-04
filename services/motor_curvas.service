@@ -1,0 +1,14 @@
+[Unit]
+Description=Motor Curvas - Enriquecimiento TEA/Duration TimeSales
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/python /root/TradingAV/main_curvas.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

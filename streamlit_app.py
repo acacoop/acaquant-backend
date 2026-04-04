@@ -1307,7 +1307,7 @@ def vista_mercado():
 
     st.markdown("## ACAQuant | Mercado")
 
-    tab_mercado, tab_curvas, tab_breakevens, tab_forwards = st.tabs(["Mercado", "Curvas", "Breakevens", "Forwards"])
+    tab_mercado, tab_curvas, tab_breakevens, tab_forwards, tab_retorno = st.tabs(["Mercado", "Curvas", "Breakevens", "Forwards", "Retorno Total"])
 
     with tab_mercado:
         all_snaps = list(db["MarketSnapshot"].find({}))
@@ -1344,6 +1344,9 @@ def vista_mercado():
 
     with tab_forwards:
         _render_forwards(db, key_prefix="fwd_mercado")
+
+    with tab_retorno:
+        _render_retorno_total(key_prefix="rt_mercado")
 
 
 @st.fragment(run_every=30)
@@ -2376,9 +2379,8 @@ def _cargar_precios_diarios_curva(curva):
     return pd.DataFrame(rows).sort_values(["ticker", "fecha"]).reset_index(drop=True)
 
 
-def vista_retorno_total():
+def _render_retorno_total(key_prefix="rt"):
     import altair as alt
-    st.markdown("## ACAQuant | Retorno Total")
 
     db = get_db()
     curvas = sorted(db["Curvas"].distinct("curva"))
@@ -2386,7 +2388,7 @@ def vista_retorno_total():
         st.info("Sin curvas configuradas en Trading.Curvas.")
         return
 
-    curva_sel = st.selectbox("Curva", curvas, key="rt_curva")
+    curva_sel = st.selectbox("Curva", curvas, key=f"{key_prefix}_curva")
 
     with st.spinner("Cargando precios históricos..."):
         df_raw = _cargar_precios_diarios_curva(curva_sel)
@@ -2396,54 +2398,42 @@ def vista_retorno_total():
         return
 
     fechas_ord = sorted(df_raw["fecha"].unique())
-    tickers     = sorted(df_raw["ticker"].unique())
 
     if len(fechas_ord) < 2:
         st.info("Necesitás al menos 2 días de datos para calcular retorno.")
         return
 
     # ── Selector de fecha base (punto 0) ──────────────────────────
-    st.markdown("Seleccioná el **punto 0**: el retorno de todos los instrumentos parte de 0% en esa fecha.")
+    st.caption("El retorno de todos los instrumentos parte de 0% en la fecha base elegida.")
     fecha_base = st.select_slider(
-        "Fecha base",
+        "Fecha base (punto 0)",
         options=fechas_ord,
         value=fechas_ord[0],
-        key="rt_fecha_base",
+        key=f"{key_prefix}_fecha_base",
     )
 
     # ── Calcular retorno acumulado desde fecha_base ───────────────
-    # Pivotear: índice=fecha, columnas=ticker, valores=price
     df_pivot = df_raw.pivot_table(index="fecha", columns="ticker", values="price", aggfunc="last")
     df_pivot = df_pivot.sort_index()
 
-    # Solo fechas >= fecha_base
     df_desde = df_pivot.loc[df_pivot.index >= fecha_base].copy()
-
-    # Precio base por ticker (precio en fecha_base o primer día disponible >= fecha_base)
-    base = df_desde.iloc[0]  # primera fila disponible
-
-    # Retorno acumulado = (precio / precio_base - 1) * 100
+    base = df_desde.iloc[0]
     df_retorno = (df_desde.div(base) - 1) * 100
 
-    # Pasar a formato largo para Altair
     df_long = (
         df_retorno
         .reset_index()
         .melt(id_vars="fecha", var_name="Ticker", value_name="Retorno (%)")
         .dropna(subset=["Retorno (%)"])
     )
-
     fechas_rango = sorted(df_long["fecha"].unique())
 
-    # ── Gráfico de líneas ──────────────────────────────────���──────
-    # Línea base en 0%
-    df_cero = pd.DataFrame({"y": [0]})
+    # ── Gráfico de líneas ─────────────────────────────────────────
     regla_cero = (
-        alt.Chart(df_cero)
+        alt.Chart(pd.DataFrame({"y": [0]}))
         .mark_rule(color="#555", strokeWidth=1)
         .encode(y=alt.Y("y:Q"))
     )
-
     lineas = (
         alt.Chart(df_long)
         .mark_line(point=alt.OverlayMarkDef(size=50))
@@ -2460,13 +2450,12 @@ def vista_retorno_total():
             ],
         )
     )
-
     st.altair_chart(
         (regla_cero + lineas).properties(height=450),
         use_container_width=True,
     )
 
-    # ── Tabla: retorno acumulado al último día disponible ─────────
+    # ── Tabla: retorno al último día ──────────────────────────────
     fecha_ultimo = fechas_rango[-1]
     st.markdown(f"#### Retorno acumulado al {fecha_ultimo} (base: {fecha_base})")
 
@@ -2476,16 +2465,19 @@ def vista_retorno_total():
         .sort_values("Retorno (%)", ascending=False)
         .reset_index(drop=True)
     )
-    df_tabla["Retorno (%)"] = df_tabla["Retorno (%)"].round(2).astype(str) + "%"
-
-    # Precio base y precio final
-    precios_base  = df_desde.iloc[0].rename("Precio base")
+    precios_base  = df_desde.iloc[0]
     precios_final = df_desde.loc[fecha_ultimo] if fecha_ultimo in df_desde.index else pd.Series(dtype=float)
     df_tabla["Precio base"]  = df_tabla["Ticker"].map(precios_base).round(4)
     df_tabla["Precio final"] = df_tabla["Ticker"].map(precios_final).round(4)
+    df_tabla["Retorno (%)"]  = df_tabla["Retorno (%)"].round(2).astype(str) + "%"
 
     st.dataframe(df_tabla, hide_index=True, use_container_width=True,
                  height=df_height(len(df_tabla)))
+
+
+def vista_retorno_total():
+    st.markdown("## ACAQuant | Retorno Total")
+    _render_retorno_total(key_prefix="rt_page")
 
 
 # Ruteo: solo se llama el fragmento activo.

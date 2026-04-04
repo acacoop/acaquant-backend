@@ -2403,20 +2403,20 @@ def _render_retorno_total(key_prefix="rt"):
         st.info("Necesitás al menos 2 días de datos para calcular retorno.")
         return
 
-    # ── Selector de fecha base (punto 0) ──────────────────────────
-    st.caption("El retorno de todos los instrumentos parte de 0% en la fecha base elegida.")
-    fecha_base = st.select_slider(
-        "Fecha base (punto 0)",
+    # ── Selector de rango (desde / hasta) ────────────────────────
+    st.caption("El retorno parte de 0% en la fecha de inicio. Ajustá ambos extremos del slider.")
+    fecha_base, fecha_fin = st.select_slider(
+        "Período (desde → hasta)",
         options=fechas_ord,
-        value=fechas_ord[0],
-        key=f"{key_prefix}_fecha_base",
+        value=(fechas_ord[0], fechas_ord[-1]),
+        key=f"{key_prefix}_rango",
     )
 
-    # ── Calcular retorno acumulado desde fecha_base ───────────────
+    # ── Calcular retorno acumulado en el rango ────────────────────
     df_pivot = df_raw.pivot_table(index="fecha", columns="ticker", values="price", aggfunc="last")
     df_pivot = df_pivot.sort_index()
 
-    df_desde = df_pivot.loc[df_pivot.index >= fecha_base].copy()
+    df_desde = df_pivot.loc[(df_pivot.index >= fecha_base) & (df_pivot.index <= fecha_fin)].copy()
     base = df_desde.iloc[0]
     df_retorno = (df_desde.div(base) - 1) * 100
 
@@ -2455,9 +2455,9 @@ def _render_retorno_total(key_prefix="rt"):
         use_container_width=True,
     )
 
-    # ── Tabla: retorno al último día ──────────────────────────────
+    # ── Tabla: retorno al último día del rango ────────────────────
     fecha_ultimo = fechas_rango[-1]
-    st.markdown(f"#### Retorno acumulado al {fecha_ultimo} (base: {fecha_base})")
+    st.markdown(f"#### Retorno acumulado: {fecha_base} → {fecha_ultimo}")
 
     df_tabla = (
         df_long[df_long["fecha"] == fecha_ultimo][["Ticker", "Retorno (%)"]]

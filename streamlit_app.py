@@ -1089,38 +1089,152 @@ def vista_estrategias():
 
 
 
+def _render_curva_rendimiento(db):
+    import numpy as np
+    from datetime import date as _date
+    import altair as alt
+
+    curvas_disp = sorted(db["ForwardsHistorico"].distinct("curva"))
+    if not curvas_disp:
+        st.info("Sin datos históricos de curvas.")
+        return
+
+    col1, col2 = st.columns([2, 2])
+    with col1:
+        curva_sel = st.selectbox("Curva", curvas_disp, key="curva_rend_sel")
+    with col2:
+        tipo_fit = st.radio("Ajuste", ["Logarítmico", "Polinomial grado 2"], horizontal=True, key="curva_fit_tipo")
+
+    fechas = sorted([
+        d["fecha"] for d in db["ForwardsHistorico"].find(
+            {"curva": curva_sel}, {"fecha": 1, "_id": 0}
+        )
+    ], reverse=True)
+
+    if not fechas:
+        st.info("Sin datos para esta curva.")
+        return
+
+    fecha_sel = st.select_slider("Fecha", options=fechas, key="curva_fecha_slider")
+
+    doc = db["ForwardsHistorico"].find_one({"curva": curva_sel, "fecha": fecha_sel})
+    if not doc:
+        return
+
+    tasas = doc.get("tasas", {})
+    fecha_ref = _date.fromisoformat(fecha_sel)
+
+    # Metadata de cada instrumento
+    meta_map = {d["ticker_corto"]: d for d in db["Curvas"].find({"curva": curva_sel})}
+
+    puntos = []
+    for ticker_corto, tea in tasas.items():
+        meta = meta_map.get(ticker_corto)
+        if not meta or not meta.get("fecha_vencimiento"):
+            continue
+        try:
+            fecha_vto = _date.fromisoformat(meta["fecha_vencimiento"][:10])
+        except Exception:
+            continue
+        dur = (fecha_vto - fecha_ref).days / 365.0
+        if dur > 0:
+            puntos.append({"Ticker": ticker_corto, "Duration": round(dur, 4), "TEA": round(tea * 100, 4)})
+
+    if len(puntos) < 2:
+        st.info("Menos de 2 instrumentos con datos para esta curva y fecha.")
+        return
+
+    df_pts = pd.DataFrame(puntos).sort_values("Duration")
+
+    # Fit
+    x = df_pts["Duration"].values
+    y = df_pts["TEA"].values
+
+    try:
+        if tipo_fit == "Logarítmico":
+            coeffs = np.polyfit(np.log(x), y, 1)
+            x_fit = np.linspace(x.min(), x.max(), 200)
+            y_fit = coeffs[0] * np.log(x_fit) + coeffs[1]
+        else:
+            coeffs = np.polyfit(x, y, 2)
+            x_fit = np.linspace(x.min(), x.max(), 200)
+            y_fit = np.polyval(coeffs, x_fit)
+
+        df_fit = pd.DataFrame({"Duration": x_fit, "TEA": y_fit})
+    except Exception:
+        df_fit = None
+
+    # Chart
+    puntos_chart = (
+        alt.Chart(df_pts)
+        .mark_circle(size=80, color="#00cc66")
+        .encode(
+            x=alt.X("Duration:Q", title="Duration (años)"),
+            y=alt.Y("TEA:Q", title="TEA (%)"),
+            tooltip=["Ticker:N", alt.Tooltip("Duration:Q", format=".2f"), alt.Tooltip("TEA:Q", format=".2f")],
+        )
+    )
+
+    labels_chart = (
+        alt.Chart(df_pts)
+        .mark_text(dy=-12, fontSize=11, color="#aaa")
+        .encode(
+            x="Duration:Q",
+            y="TEA:Q",
+            text="Ticker:N",
+        )
+    )
+
+    chart = puntos_chart + labels_chart
+
+    if df_fit is not None:
+        fit_chart = (
+            alt.Chart(df_fit)
+            .mark_line(color="#4488ff", strokeWidth=2)
+            .encode(x="Duration:Q", y="TEA:Q")
+        )
+        chart = chart + fit_chart
+
+    st.altair_chart(chart.properties(height=420), use_container_width=True)
+
+
 @st.fragment(run_every=60)
 def vista_mercado():
     db = get_db()
 
     st.markdown("## ACAQuant | Mercado")
 
-    all_snaps = list(db["MarketSnapshot"].find({}))
+    tab_mercado, tab_curvas = st.tabs(["Mercado", "Curvas"])
 
-    if all_snaps:
-        ultimo_ts = max(
-            (s.get("updated_at") for s in all_snaps if s.get("updated_at")),
-            default=None
+    with tab_mercado:
+        all_snaps = list(db["MarketSnapshot"].find({}))
+
+        if all_snaps:
+            ultimo_ts = max(
+                (s.get("updated_at") for s in all_snaps if s.get("updated_at")),
+                default=None
+            )
+            last_update_badge(ultimo_ts)
+        st.caption("Vista con actualización automática cada 1 minuto.")
+
+        st.divider()
+
+        curvas_tickers = [d["ticker"] for d in db["Curvas"].find({}, {"ticker": 1})]
+        pipeline = [
+            {"$match": {"ticker": {"$in": curvas_tickers}, "duration": {"$exists": True}}},
+            {"$sort": {"timestamp": -1}},
+            {"$group": {"_id": "$ticker", "doc": {"$first": "$$ROOT"}}},
+        ]
+        enriched = {r["_id"]: r["doc"] for r in db["TimeSales"].aggregate(pipeline)}
+
+        all_snaps.sort(
+            key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
+            reverse=True
         )
-        last_update_badge(ultimo_ts)
-    st.caption("Vista con actualización automática cada 1 minuto.")
+        render_mercado_table(all_snaps, enriched)
 
-    st.divider()
-
-    # Traer último trade enriquecido por ticker (TEA/TEM/Duration/Paridad)
-    curvas_tickers = [d["ticker"] for d in db["Curvas"].find({}, {"ticker": 1})]
-    pipeline = [
-        {"$match": {"ticker": {"$in": curvas_tickers}, "duration": {"$exists": True}}},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {"_id": "$ticker", "doc": {"$first": "$$ROOT"}}},
-    ]
-    enriched = {r["_id"]: r["doc"] for r in db["TimeSales"].aggregate(pipeline)}
-
-    all_snaps.sort(
-        key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
-        reverse=True
-    )
-    render_mercado_table(all_snaps, enriched)
+    with tab_curvas:
+        _render_curva_rendimiento(db)
 
 
 @st.fragment(run_every=30)

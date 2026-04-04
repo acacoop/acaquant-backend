@@ -82,6 +82,7 @@ Each engine has an `update_price(ticker, data)` callback called by the WebSocket
 | `main_arbitrage.py` | `Trading.CI24` | CI/24hs cash+carry repo arbitrage (headless daemon) |
 | `main_curvas.py` | `Trading.TimeSales` (enrichment) | Enriquece trades de Curvas con TEA/TEM/Duration/Paridad. Loop cada 5s, busca docs sin `duration` y los actualiza. |
 | `main_forwards.py` | `Trading.ForwardsLive` + `Trading.ForwardsHistorico` | Calcula matriz NxN de tasas forward por curva cada 30s. ForwardsLive = 1 doc por curva (tiempo real). ForwardsHistorico = 1 doc por (fecha, curva). |
+| `main_breakevens.py` | `Trading.BreakevensLive` + `Trading.BreakevensHistorico` | Calcula breakeven de inflación mensual implícita CER/Lecap cada 30s. Empareja cada Lecap con el CER de vencimiento más cercano (≤60d). BreakevensLive = 1 doc global. BreakevensHistorico = 1 doc por fecha. |
 
 ### Trading.TimeSales
 
@@ -107,6 +108,7 @@ Un doc por ticker, reemplazado cada 1 segundo por `main_valores.py`. Campos:
 - **`data_bcra.py`** — alimenta CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron, sin flag hace backfill desde 2023-01-01.
 - **`backfill_curvas.py`** — script one-off que recorre todo TimeSales y agrega TEA/TEM/Duration/Paridad a docs históricos de Curvas. Ya ejecutado (97k docs procesados).
 - **`backfill_forwards.py`** — script one-off que construye ForwardsHistorico recorriendo las TEAs ya existentes en TimeSales. Ejecutar si hay que reconstruir el histórico.
+- **`backfill_breakevens.py`** — script one-off que construye BreakevensHistorico recorriendo TEM/paridad de TimeSales. Ejecutar tras backfill_curvas o cuando se quiera reconstruir el histórico de breakevens.
 
 ### Trading.Curvas — estructura de flujos
 
@@ -194,6 +196,10 @@ Systemd services en `motor_rofex.service`, `streamlit.service`, `services/motor_
 # motor_forwards.service — tasas forward en tiempo real (lunes a viernes)
 0 13 * * 1-5 systemctl start motor_forwards.service
 5 20 * * 1-5 systemctl stop motor_forwards.service
+
+# motor_breakevens.service — breakevens CER/Lecap en tiempo real (lunes a viernes)
+0 13 * * 1-5 systemctl start motor_breakevens.service
+5 20 * * 1-5 systemctl stop motor_breakevens.service
 ```
 
 Logs en `/root/TradingAV/logs/`.
@@ -210,6 +216,7 @@ Logs en `/root/TradingAV/logs/`.
 | Operaciones | Cash Flow (depósitos/transferencias/extracciones) desde `CashFlow.Movimientos`; filtros por fecha, moneda, accionista; gráficos ARS y USD independientes |
 | AuM | Posiciones valuadas desde `Valuaciones.AuM`; modos Total/Por cuenta; moneda ARS o USD MEP; tabla Instrumento+Tipo+Valuación + torta por tipo de activo |
 | Forwards | Matriz NxN de tasas forward por curva. Tab Tiempo Real (ForwardsLive) + tab Histórico con select_slider por fecha (ForwardsHistorico). Heatmap rojo-amarillo-verde centrado en mediana. |
+| Mercado → tab Breakevens | Inflación mensual implícita CER/Lecap. Tab Tiempo Real (BreakevensLive) + tab Histórico (BreakevensHistorico). Tabla: #, Lecap, CER, Plazo, Días, TEM Lecap, Paridad CER, Breakeven mensual. |
 
 ### Trading.ForwardsLive y Trading.ForwardsHistorico
 
@@ -217,6 +224,15 @@ Logs en `/root/TradingAV/logs/`.
 - **`ForwardsHistorico`**: 1 doc por `(fecha, curva)`. Mismo schema que ForwardsLive + campo `fecha` (string ISO). El motor lo actualiza durante la rueda; el valor final del día queda como cierre.
 - **Forward formula**: `((1 + TEA_B)^t_B / (1 + TEA_A)^t_A)^(1/(t_B - t_A)) - 1` donde `t` = días a vencimiento desde hoy / 365.
 - **Dependencia**: `main_forwards.py` requiere que `main_curvas.py` haya enriquecido TimeSales con TEA (lag ~5s aceptable dado que forwards corre cada 30s).
+
+### Trading.BreakevensLive y Trading.BreakevensHistorico
+
+- **`BreakevensLive`**: 1 doc global (`_id: "breakevens"`), upsert en cada corrida. Campos: `updated_at`, `pares` (lista de pares Lecap/CER, ordenados por vencimiento).
+- **`BreakevensHistorico`**: 1 doc por `fecha` (string ISO). Mismo schema + `fecha`. El motor lo actualiza durante la rueda.
+- **Schema de cada par**: `n`, `lecap` (ticker_corto), `cer` (ticker_corto), `fecha_vencimiento`, `dias`, `tem_lecap` (decimal), `paridad_cer` (ej: 101.0), `retorno_acumulado`, `inflacion_acumulada`, `breakeven_mensual` (decimal).
+- **Fórmulas**: `retorno = (1+TEM)^(días/30) - 1` | `inflacion = (1+retorno) * (paridad/100) - 1` | `breakeven = (1+inflacion)^(30/días) - 1`
+- **Emparejamiento**: cada Lecap (`curva=tasa_fija`) se empareja con el CER (`curva=cer`) de vencimiento más cercano (máx 60 días de diferencia).
+- **Dependencia**: requiere TEM en TimeSales (escrito por `main_curvas.py`) y paridad en TimeSales (también `main_curvas.py`).
 
 ### Notas técnicas importantes
 - **Altair v4 pie labels**: usar `mark_text(radius=N, color="white")` dentro del arco. Labels fuera del arco se cortan.

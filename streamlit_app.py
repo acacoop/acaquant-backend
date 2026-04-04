@@ -1089,6 +1089,83 @@ def vista_estrategias():
 
 
 
+_MESES_ES = {
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
+}
+
+
+def _fmt_plazo(fecha_str):
+    from datetime import date as _date
+    d = _date.fromisoformat(fecha_str[:10])
+    return f"{_MESES_ES[d.month]} {str(d.year)[2:]}"
+
+
+def _tabla_breakevens(pares):
+    """Convierte lista de pares a DataFrame formateado para st.dataframe."""
+    rows = []
+    for p in pares:
+        bkv = p.get("breakeven_mensual")
+        tem = p.get("tem_lecap")
+        par = p.get("paridad_cer")
+        rows.append({
+            "#":                  p["n"],
+            "Lecap":              p["lecap"],
+            "CER":                p["cer"],
+            "Plazo":              _fmt_plazo(p["fecha_vencimiento"]),
+            "Días":               p["dias"],
+            "TEM Lecap":          f"{tem * 100:.2f}%" if tem is not None else "—",
+            "Paridad CER":        f"{par:.1f}%" if par is not None else "—",
+            "Breakeven mensual":  f"{bkv * 100:.2f}%" if bkv is not None else "—",
+        })
+    return pd.DataFrame(rows)
+
+
+def _render_breakevens(db):
+    from datetime import date as _date
+
+    tab_live, tab_hist = st.tabs(["Tiempo Real", "Histórico"])
+
+    with tab_live:
+        doc = db["BreakevensLive"].find_one({"_id": "breakevens"})
+        if not doc:
+            st.info("Sin datos. ¿El motor de breakevens está corriendo?")
+        else:
+            updated = doc.get("updated_at")
+            if updated:
+                last_update_badge(updated)
+            pares = doc.get("pares", [])
+            if pares:
+                st.dataframe(
+                    _tabla_breakevens(pares),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+            else:
+                st.info("Motor activo pero sin pares calculados aún.")
+
+    with tab_hist:
+        fechas = sorted(
+            [d["fecha"] for d in db["BreakevensHistorico"].find({}, {"fecha": 1, "_id": 0})],
+            reverse=True,
+        )
+        if not fechas:
+            st.info("Sin historial disponible aún.")
+            return
+
+        fecha_sel = st.select_slider("Fecha", options=fechas, key="bkv_fecha_slider")
+        doc_hist = db["BreakevensHistorico"].find_one({"fecha": fecha_sel})
+        if doc_hist:
+            pares = doc_hist.get("pares", [])
+            if pares:
+                st.dataframe(
+                    _tabla_breakevens(pares),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+
 def _render_curva_rendimiento(db):
     import numpy as np
     from datetime import date as _date
@@ -1228,7 +1305,7 @@ def vista_mercado():
 
     st.markdown("## ACAQuant | Mercado")
 
-    tab_mercado, tab_curvas = st.tabs(["Mercado", "Curvas"])
+    tab_mercado, tab_curvas, tab_breakevens = st.tabs(["Mercado", "Curvas", "Breakevens"])
 
     with tab_mercado:
         all_snaps = list(db["MarketSnapshot"].find({}))
@@ -1259,6 +1336,9 @@ def vista_mercado():
 
     with tab_curvas:
         _render_curva_rendimiento(db)
+
+    with tab_breakevens:
+        _render_breakevens(db)
 
 
 @st.fragment(run_every=30)

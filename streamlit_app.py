@@ -74,7 +74,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Carteras", "Operaciones", "AuM", "ONs"],
+        ["Libro", "Mercado", "Retorno Total", "Opciones", "Estrategias Opciones", "Carteras", "Operaciones", "AuM", "ONs"],
         label_visibility="collapsed"
     )
 
@@ -2341,6 +2341,114 @@ def vista_forwards():
     _render_forwards(db, key_prefix="fwd_page")
 
 
+def vista_retorno_total():
+    import altair as alt
+    db = get_db()
+    st.markdown("## ACAQuant | Retorno Total")
+
+    curvas = sorted(db["ForwardsHistorico"].distinct("curva"))
+    if not curvas:
+        st.info("Sin datos históricos disponibles. ¿Corrió el motor de forwards?")
+        return
+
+    col1, col2 = st.columns([2, 2])
+    with col1:
+        curva_sel = st.selectbox("Curva", curvas, key="rt_curva")
+    with col2:
+        if curva_sel == "tasa_fija":
+            metrica = st.radio("Métrica", ["TEM", "TEA"], horizontal=True, key="rt_metrica")
+        else:
+            metrica = "TEA"
+            st.markdown(f"**Métrica:** TEA")
+
+    # Cargar todo el histórico de esta curva
+    docs = list(db["ForwardsHistorico"].find(
+        {"curva": curva_sel},
+        {"fecha": 1, "tasas": 1, "_id": 0},
+    ).sort("fecha", 1))
+
+    if not docs:
+        st.info("Sin datos para esta curva.")
+        return
+
+    # Construir dataframe largo: (fecha, ticker, valor)
+    rows = []
+    for doc in docs:
+        fecha = doc["fecha"]
+        for ticker_corto, tea in doc.get("tasas", {}).items():
+            if tea is None:
+                continue
+            if metrica == "TEM":
+                valor = ((1 + float(tea)) ** (1 / 12) - 1) * 100
+            else:
+                valor = float(tea) * 100
+            rows.append({"Fecha": fecha, "Ticker": ticker_corto, metrica: round(valor, 4)})
+
+    if not rows:
+        st.info("Sin tasas disponibles.")
+        return
+
+    df = pd.DataFrame(rows)
+    fechas_ord = sorted(df["Fecha"].unique())
+
+    # ── Slider de fecha ───────────────────────────────────────────
+    fecha_sel = st.select_slider(
+        "Fecha de referencia",
+        options=fechas_ord,
+        value=fechas_ord[-1],
+        key="rt_fecha",
+    )
+
+    # ── Gráfico de líneas ─────────────────────────────────────────
+    lineas = (
+        alt.Chart(df)
+        .mark_line(point=alt.OverlayMarkDef(size=40))
+        .encode(
+            x=alt.X("Fecha:O", title="Fecha", sort=fechas_ord,
+                    axis=alt.Axis(labelAngle=-45)),
+            y=alt.Y(f"{metrica}:Q", title=f"{metrica} (%)",
+                    axis=alt.Axis(format=".2f")),
+            color=alt.Color("Ticker:N", legend=alt.Legend(title="Instrumento")),
+            tooltip=["Fecha:O", "Ticker:N",
+                     alt.Tooltip(f"{metrica}:Q", format=".2f", title=metrica)],
+        )
+    )
+
+    regla = (
+        alt.Chart(pd.DataFrame({"Fecha": [fecha_sel]}))
+        .mark_rule(color="white", strokeDash=[5, 3], strokeWidth=1.5)
+        .encode(x=alt.X("Fecha:O", sort=fechas_ord))
+    )
+
+    st.altair_chart(
+        (lineas + regla).properties(height=420),
+        use_container_width=True,
+    )
+
+    # ── Tabla snapshot para la fecha seleccionada ─────────────────
+    st.markdown(f"#### Snapshot — {fecha_sel}")
+
+    df_dia = df[df["Fecha"] == fecha_sel][["Ticker", metrica]].copy()
+
+    # Variación respecto al día anterior
+    idx = fechas_ord.index(fecha_sel)
+    if idx > 0:
+        fecha_prev = fechas_ord[idx - 1]
+        df_prev = (
+            df[df["Fecha"] == fecha_prev]
+            .set_index("Ticker")[metrica]
+        )
+        df_dia = df_dia.set_index("Ticker")
+        df_dia["Var. día (pp)"] = (df_dia[metrica] - df_prev).round(4)
+        df_dia = df_dia.reset_index()
+
+    df_dia = df_dia.sort_values("Ticker").reset_index(drop=True)
+    df_dia.rename(columns={metrica: f"{metrica} (%)"}, inplace=True)
+
+    st.dataframe(df_dia, hide_index=True, use_container_width=True,
+                 height=df_height(len(df_dia)))
+
+
 # Ruteo: solo se llama el fragmento activo.
 if vista == "Libro":
     vista_libro()
@@ -2350,6 +2458,8 @@ elif vista == "Estrategias Opciones":
     vista_estrategias()
 elif vista == "Mercado":
     vista_mercado()
+elif vista == "Retorno Total":
+    vista_retorno_total()
 elif vista == "Carteras":
     vista_carteras()
 elif vista == "Operaciones":

@@ -1099,11 +1099,16 @@ def _render_curva_rendimiento(db):
         st.info("Sin datos históricos de curvas.")
         return
 
-    col1, col2 = st.columns([2, 2])
+    col1, col2, col3 = st.columns([2, 2, 2])
     with col1:
         curva_sel = st.selectbox("Curva", curvas_disp, key="curva_rend_sel")
     with col2:
         tipo_fit = st.radio("Ajuste", ["Logarítmico", "Polinomial grado 2"], horizontal=True, key="curva_fit_tipo")
+    with col3:
+        if curva_sel == "tasa_fija":
+            metrica = st.radio("Métrica", ["TEA", "TEM"], horizontal=True, key="curva_metrica")
+        else:
+            metrica = "TEA"
 
     fechas = sorted([
         d["fecha"] for d in db["ForwardsHistorico"].find(
@@ -1124,7 +1129,6 @@ def _render_curva_rendimiento(db):
     tasas = doc.get("tasas", {})
     fecha_ref = _date.fromisoformat(fecha_sel)
 
-    # Metadata de cada instrumento
     meta_map = {d["ticker_corto"]: d for d in db["Curvas"].find({"curva": curva_sel})}
 
     puntos = []
@@ -1137,8 +1141,12 @@ def _render_curva_rendimiento(db):
         except Exception:
             continue
         dur = (fecha_vto - fecha_ref).days / 365.0
-        if dur > 0:
-            puntos.append({"Ticker": ticker_corto, "Duration": round(dur, 4), "TEA": round(tea * 100, 4)})
+        if dur <= 0:
+            continue
+        tea_pct = tea * 100
+        tem_pct = ((1 + tea) ** (1 / 12) - 1) * 100
+        valor_y = tem_pct if metrica == "TEM" else tea_pct
+        puntos.append({"Ticker": ticker_corto, "Duration": round(dur, 4), metrica: round(valor_y, 4)})
 
     if len(puntos) < 2:
         st.info("Menos de 2 instrumentos con datos para esta curva y fecha.")
@@ -1146,9 +1154,8 @@ def _render_curva_rendimiento(db):
 
     df_pts = pd.DataFrame(puntos).sort_values("Duration")
 
-    # Fit
     x = df_pts["Duration"].values
-    y = df_pts["TEA"].values
+    y = df_pts[metrica].values
 
     try:
         if tipo_fit == "Logarítmico":
@@ -1159,19 +1166,28 @@ def _render_curva_rendimiento(db):
             coeffs = np.polyfit(x, y, 2)
             x_fit = np.linspace(x.min(), x.max(), 200)
             y_fit = np.polyval(coeffs, x_fit)
-
-        df_fit = pd.DataFrame({"Duration": x_fit, "TEA": y_fit})
+        df_fit = pd.DataFrame({"Duration": x_fit, metrica: y_fit})
     except Exception:
         df_fit = None
 
-    # Chart
+    # Eje Y dinámico con margen
+    y_min = float(np.min(y)) * 0.98
+    y_max = float(np.max(y)) * 1.02
+    y_fmt = ".1f" if curva_sel == "cer" else ".2f"
+    y_title = f"{metrica} (%)"
+
+    y_scale = alt.Scale(domain=[y_min, y_max], zero=False)
+
     puntos_chart = (
         alt.Chart(df_pts)
         .mark_circle(size=80, color="#00cc66")
         .encode(
             x=alt.X("Duration:Q", title="Duration (años)"),
-            y=alt.Y("TEA:Q", title="TEA (%)"),
-            tooltip=["Ticker:N", alt.Tooltip("Duration:Q", format=".2f"), alt.Tooltip("TEA:Q", format=".2f")],
+            y=alt.Y(f"{metrica}:Q", title=y_title, scale=y_scale,
+                    axis=alt.Axis(format=y_fmt)),
+            tooltip=["Ticker:N",
+                     alt.Tooltip("Duration:Q", format=".2f"),
+                     alt.Tooltip(f"{metrica}:Q", format=y_fmt)],
         )
     )
 
@@ -1180,7 +1196,7 @@ def _render_curva_rendimiento(db):
         .mark_text(dy=-12, fontSize=11, color="#aaa")
         .encode(
             x="Duration:Q",
-            y="TEA:Q",
+            y=alt.Y(f"{metrica}:Q", scale=y_scale),
             text="Ticker:N",
         )
     )
@@ -1191,7 +1207,10 @@ def _render_curva_rendimiento(db):
         fit_chart = (
             alt.Chart(df_fit)
             .mark_line(color="#4488ff", strokeWidth=2)
-            .encode(x="Duration:Q", y="TEA:Q")
+            .encode(
+                x="Duration:Q",
+                y=alt.Y(f"{metrica}:Q", scale=y_scale),
+            )
         )
         chart = chart + fit_chart
 

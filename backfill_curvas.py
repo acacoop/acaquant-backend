@@ -96,13 +96,19 @@ def cargar_curvas(client):
 
 
 def cargar_cer(client):
-    """Devuelve dict { "YYYY-MM-DD": valor_cer }"""
+    """Devuelve dict { "YYYY-MM-DD": valor }."""
     docs = list(client["Trading"]["CER"].find({}, {"fecha": 1, "valor": 1}))
     return {d["fecha"]: float(d["valor"]) for d in docs}
 
 
+def cargar_dias_habiles(client):
+    """Devuelve lista de fechas hábiles ordenadas ascendente desde Trading.DiasHabiles."""
+    docs = list(client["Trading"]["DiasHabiles"].find({}, {"fecha": 1, "_id": 0}))
+    return sorted(d["fecha"] for d in docs)
+
+
 def get_cer_en_fecha(cer_dict, fecha_date):
-    """Busca el CER de una fecha; retrocede hasta 7 días para feriados/fines de semana."""
+    """Busca el valor CER para fecha_date, retrocediendo hasta 7 días si no hay dato exacto."""
     for i in range(7):
         key = (fecha_date - timedelta(days=i)).isoformat()
         if key in cer_dict:
@@ -110,11 +116,32 @@ def get_cer_en_fecha(cer_dict, fecha_date):
     return None
 
 
+def siguiente_dia_habil(dias_habiles, fecha_date):
+    """Primer día hábil DESPUÉS de fecha_date según Trading.DiasHabiles."""
+    fecha_str = fecha_date.isoformat()
+    for f in dias_habiles:
+        if f > fecha_str:
+            return f
+    return None
+
+
+def get_cer_liquidacion(cer_dict, dias_habiles, fecha_str, n=10):
+    """Retrocede n días hábiles desde fecha_str y retorna el valor CER de esa fecha."""
+    idx = None
+    for i, f in enumerate(dias_habiles):
+        if f <= fecha_str:
+            idx = i
+    if idx is None or idx < n:
+        return None
+    fecha_n = date.fromisoformat(dias_habiles[idx - n])
+    return get_cer_en_fecha(cer_dict, fecha_n)
+
+
 # ─────────────────────────────────────────────
 # Cálculo principal por documento
 # ─────────────────────────────────────────────
 
-def calcular_campos(doc, instrumento, cer_dict):
+def calcular_campos(doc, instrumento, cer_dict, dias_habiles):
     precio = doc.get("price")
     timestamp = doc.get("timestamp")
 
@@ -193,25 +220,38 @@ def calcular_campos(doc, instrumento, cer_dict):
             resultado["duration"] = round(dias_a_vto / 365, 4)
             return resultado
 
-        cer_trade = get_cer_en_fecha(cer_dict, fecha_trade)
-        if not cer_trade:
+        # Settlement = primer día hábil después del trade
+        settlement_str = siguiente_dia_habil(dias_habiles, fecha_trade)
+        if not settlement_str:
+            resultado["duration"] = round(dias_a_vto / 365, 4)
+            return resultado
+        fecha_settlement = date.fromisoformat(settlement_str)
+
+        # CER de liquidación = CER en (settlement - 10 días hábiles)
+        cer_liq = get_cer_liquidacion(cer_dict, dias_habiles, settlement_str, n=10)
+        if not cer_liq:
             resultado["duration"] = round(dias_a_vto / 365, 4)
             return resultado
 
-        ratio = cer_trade / cer_emision
+        ratio = cer_liq / cer_emision
         valor_nominal = float(instrumento.get("valor_nominal", 100))
         precio_tecnico = valor_nominal * ratio
         resultado["paridad"] = round(precio / precio_tecnico * 100, 4)
 
+        dias_a_vto_s = (fecha_vto - fecha_settlement).days
+        if dias_a_vto_s <= 0:
+            resultado["duration"] = round(dias_a_vto / 365, 4)
+            return resultado
+
         flujos_futuros = [
             (fecha_flujo(f), monto_flujo_cer(f, valor_nominal) * ratio)
             for f in flujos_raw
-            if fecha_flujo(f) and fecha_flujo(f) > fecha_trade and monto_flujo_cer(f, valor_nominal) > 0
+            if fecha_flujo(f) and fecha_flujo(f) > fecha_settlement and monto_flujo_cer(f, valor_nominal) > 0
         ]
 
         try:
             if flujos_futuros:
-                fechas_dt = [datetime.combine(fecha_trade, datetime.min.time())] + \
+                fechas_dt = [datetime.combine(fecha_settlement, datetime.min.time())] + \
                             [datetime.combine(fd, datetime.min.time()) for fd, _ in flujos_futuros]
                 cf = [-precio] + [m for _, m in flujos_futuros]
                 tea = xirr(fechas_dt, cf)
@@ -220,23 +260,23 @@ def calcular_campos(doc, instrumento, cer_dict):
                         [datetime.combine(fd, datetime.min.time()) for fd, _ in flujos_futuros],
                         [m for _, m in flujos_futuros],
                         tea,
-                        datetime.combine(fecha_trade, datetime.min.time())
+                        datetime.combine(fecha_settlement, datetime.min.time())
                     )
                 else:
-                    dur = round(dias_a_vto / 365, 4)
+                    dur = round(dias_a_vto_s / 365, 4)
             else:
-                resultado["duration"] = round(dias_a_vto / 365, 4)
+                resultado["duration"] = round(dias_a_vto_s / 365, 4)
                 return resultado
 
-            if tea is None or not (-0.5 < tea < 50):
-                resultado["duration"] = round(dias_a_vto / 365, 4)
+            if tea is None or not (-0.99 < tea < 50):
+                resultado["duration"] = round(dias_a_vto_s / 365, 4)
                 return resultado
 
             resultado["TEA"] = round(tea, 6)
             resultado["duration"] = dur
 
         except Exception:
-            resultado["duration"] = round(dias_a_vto / 365, 4)
+            resultado["duration"] = round(dias_a_vto_s / 365, 4)
 
     # ── TAMAR / DUAL / otros ──────────────────────────────────────
     else:
@@ -261,6 +301,10 @@ def run():
     cer_dict = cargar_cer(client)
     print(f"  {len(cer_dict)} fechas de CER disponibles")
 
+    print("Cargando días hábiles...")
+    dias_habiles = cargar_dias_habiles(client)
+    print(f"  {len(dias_habiles)} días hábiles disponibles")
+
     tickers = list(curvas.keys())
     total = col_ts.count_documents({"ticker": {"$in": tickers}})
     print(f"  {total} docs de TimeSales a procesar\n")
@@ -274,7 +318,7 @@ def run():
     try:
         for doc in cursor:
             instrumento = curvas[doc["ticker"]]
-            campos = calcular_campos(doc, instrumento, cer_dict)
+            campos = calcular_campos(doc, instrumento, cer_dict, dias_habiles)
 
             if campos:
                 batch.append(UpdateOne({"_id": doc["_id"]}, {"$set": campos}))

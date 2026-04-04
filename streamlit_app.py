@@ -2040,7 +2040,7 @@ def render_forward_matrix(doc):
 
     def bg_cell(v):
         if v is None or (isinstance(v, float) and pd.isna(v)) or not todos_vals:
-            return ""
+            return "background-color: transparent; color: transparent; border: none"
         vmin = min(todos_vals)
         vmax = max(todos_vals)
         p50  = sorted(todos_vals)[len(todos_vals) // 2]

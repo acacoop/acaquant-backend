@@ -81,6 +81,7 @@ Each engine has an `update_price(ticker, data)` callback called by the WebSocket
 | `main_fx.py` | `Trading.FXArbitrage` | USD pair cross-currency arbitrage (fee: 0.0847%) |
 | `main_arbitrage.py` | `Trading.CI24` | CI/24hs cash+carry repo arbitrage (headless daemon) |
 | `main_curvas.py` | `Trading.TimeSales` (enrichment) | Enriquece trades de Curvas con TEA/TEM/Duration/Paridad. Loop cada 5s, busca docs sin `duration` y los actualiza. |
+| `main_forwards.py` | `Trading.ForwardsLive` + `Trading.ForwardsHistorico` | Calcula matriz NxN de tasas forward por curva cada 30s. ForwardsLive = 1 doc por curva (tiempo real). ForwardsHistorico = 1 doc por (fecha, curva). |
 
 ### Trading.TimeSales
 
@@ -105,6 +106,7 @@ Un doc por ticker, reemplazado cada 1 segundo por `main_valores.py`. Campos:
 
 - **`data_bcra.py`** — alimenta CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron, sin flag hace backfill desde 2023-01-01.
 - **`backfill_curvas.py`** — script one-off que recorre todo TimeSales y agrega TEA/TEM/Duration/Paridad a docs históricos de Curvas. Ya ejecutado (97k docs procesados).
+- **`backfill_forwards.py`** — script one-off que construye ForwardsHistorico recorriendo las TEAs ya existentes en TimeSales. Ejecutar si hay que reconstruir el histórico.
 
 ### Trading.Curvas — estructura de flujos
 
@@ -141,7 +143,7 @@ Los flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 
 ## Deployment
 
-Systemd services en `motor_rofex.service`, `streamlit.service`, `services/motor_options.service` y `services/motor_curvas.service`. Producción corre en un **Droplet de Digital Ocean** como `root` en `/root/TradingAV/` con un venv local.
+Systemd services en `motor_rofex.service`, `streamlit.service`, `services/motor_options.service`, `services/motor_curvas.service` y `services/motor_forwards.service`. Producción corre en un **Droplet de Digital Ocean** como `root` en `/root/TradingAV/` con un venv local.
 
 ### Colecciones de referencia en Trading
 
@@ -188,6 +190,10 @@ Systemd services en `motor_rofex.service`, `streamlit.service`, `services/motor_
 # motor_curvas.service — enriquecimiento TEA/Duration TimeSales (lunes a viernes)
 0 13 * * 1-5 systemctl start motor_curvas.service
 5 20 * * 1-5 systemctl stop motor_curvas.service
+
+# motor_forwards.service — tasas forward en tiempo real (lunes a viernes)
+0 13 * * 1-5 systemctl start motor_forwards.service
+5 20 * * 1-5 systemctl stop motor_forwards.service
 ```
 
 Logs en `/root/TradingAV/logs/`.
@@ -203,6 +209,14 @@ Logs en `/root/TradingAV/logs/`.
 | Carteras | Posiciones por cuenta/cartera desde Aunesa; MEP editable guardado en `Valuaciones.Dolar` |
 | Operaciones | Cash Flow (depósitos/transferencias/extracciones) desde `CashFlow.Movimientos`; filtros por fecha, moneda, accionista; gráficos ARS y USD independientes |
 | AuM | Posiciones valuadas desde `Valuaciones.AuM`; modos Total/Por cuenta; moneda ARS o USD MEP; tabla Instrumento+Tipo+Valuación + torta por tipo de activo |
+| Forwards | Matriz NxN de tasas forward por curva. Tab Tiempo Real (ForwardsLive) + tab Histórico con select_slider por fecha (ForwardsHistorico). Heatmap rojo-amarillo-verde centrado en mediana. |
+
+### Trading.ForwardsLive y Trading.ForwardsHistorico
+
+- **`ForwardsLive`**: 1 doc por curva, upsert en cada corrida del motor. Campos: `curva`, `updated_at`, `tickers` (lista ordenada por maturity), `tasas` (spot TEA por ticker), `matrix` (dict anidado `matrix[ticker_largo][ticker_corto] = forward_rate`).
+- **`ForwardsHistorico`**: 1 doc por `(fecha, curva)`. Mismo schema que ForwardsLive + campo `fecha` (string ISO). El motor lo actualiza durante la rueda; el valor final del día queda como cierre.
+- **Forward formula**: `((1 + TEA_B)^t_B / (1 + TEA_A)^t_A)^(1/(t_B - t_A)) - 1` donde `t` = días a vencimiento desde hoy / 365.
+- **Dependencia**: `main_forwards.py` requiere que `main_curvas.py` haya enriquecido TimeSales con TEA (lag ~5s aceptable dado que forwards corre cada 30s).
 
 ### Notas técnicas importantes
 - **Altair v4 pie labels**: usar `mark_text(radius=N, color="white")` dentro del arco. Labels fuera del arco se cortan.

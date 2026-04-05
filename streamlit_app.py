@@ -74,7 +74,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Mercado", "Retorno Total", "Opciones", "Estrategias Opciones", "Carteras", "Operaciones", "AuM", "ONs"],
+        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Carteras", "Operaciones", "AuM", "ONs"],
         label_visibility="collapsed"
     )
 
@@ -2489,8 +2489,6 @@ elif vista == "Estrategias Opciones":
     vista_estrategias()
 elif vista == "Mercado":
     vista_mercado()
-elif vista == "Retorno Total":
-    vista_retorno_total()
 elif vista == "Carteras":
     vista_carteras()
 elif vista == "Operaciones":

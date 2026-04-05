@@ -49,6 +49,17 @@ def sincronizar_assets(col_aum, col_assets):
     return nuevas, actualizadas
 
 
+def aplicar_reglas(col_assets):
+    """Reglas automáticas de clasificación sobre Assets existentes."""
+
+    # Regla 1: unidad contiene "CAFCI" → CARTERA = "CARTERA FCI" (solo si está vacío)
+    result = col_assets.update_many(
+        {"unidad": {"$regex": "CAFCI", "$options": "i"}, "CARTERA": ""},
+        {"$set": {"CARTERA": "CARTERA FCI"}},
+    )
+    print(f"  Regla CAFCI → CARTERA FCI: {result.modified_count} docs actualizados.")
+
+
 def run():
     client = get_mongo_client()
     col_aum    = client["Valuaciones"]["AuM"]
@@ -56,6 +67,9 @@ def run():
 
     print("Iniciando backfill Assets desde AuM...")
     nuevas, actualizadas = sincronizar_assets(col_aum, col_assets)
+
+    print("\nAplicando reglas de clasificación...")
+    aplicar_reglas(col_assets)
 
     total = col_assets.count_documents({})
     print(f"\nListo.")

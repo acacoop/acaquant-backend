@@ -4,6 +4,7 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import pyRofex
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from session_manager import inicializar_sesion

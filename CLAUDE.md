@@ -1,4 +1,4 @@
-# CLAUDE.md
+revis# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -16,15 +16,17 @@ pip install -r requirements.txt
 # Web dashboard
 streamlit run streamlit_app.py
 
-# Individual engines (run as background daemons)
-python main_ts.py         # Microstructure engine (30+ tickers)
-python main_options.py    # Options pricing/Greeks
-python main_fx.py         # FX arbitrage detection
-python main_arbitrage.py  # Plazo/term arbitrage
-python main_valores.py    # Equity tracking
+# Individual engines (run as background daemons via systemd)
+python main_valores.py          # Microstructure: bonos/Lecaps/CER (TimeSales + MarketSnapshot)
+python main_options_service.py  # Options pricing/Greeks headless (motor_options.service)
+python main_fx.py               # FX arbitrage detection
+python main_on.py --headless    # Yield screener ONs (motor_on.service)
+python main_curvas.py           # Enriquecimiento TEA/Duration TimeSales (motor_curvas.service)
+python main_forwards.py         # Tasas forward en tiempo real (motor_forwards.service)
+python main_breakevens.py       # Breakevens CER/Lecap en tiempo real (motor_breakevens.service)
 
-# Production deployment
-./start_all.sh
+# Production deployment (systemd services start/stop via crontab)
+# See crontab section below
 ```
 
 Requires a `.env` file with: `ROFEX_USER`, `ROFEX_PASSWORD`, `ROFEX_ACCOUNT`, `ROFEX_API_URL`, `ROFEX_WS_URL`, `MONGO_URI`, `AUNESA_CLIENT_ID`, `AUNESA_USERNAME`, `AUNESA_PASSWORD`.
@@ -75,11 +77,10 @@ Each engine has an `update_price(ticker, data)` callback called by the WebSocket
 
 | Engine | MongoDB collection | Description |
 |---|---|---|
-| `main_ts.py` | `Trading.Data` | Microstructure: order book, VWAP, volume bucketing, trade tape |
 | `main_valores.py` | `Trading.TimeSales` + `Trading.MarketSnapshot` | Microestructura para bonos/Lecaps/CER: inserta trades en TimeSales, snapshot cada 1s en MarketSnapshot |
-| `main_options.py` | `Opciones.OptionsSnapshot` | GGAL options: Black-Scholes Greeks, IV via Newton-Raphson |
+| `main_options_service.py` | `Opciones.OptionsSnapshot` | GGAL options: Black-Scholes Greeks, IV via Newton-Raphson. Servicio headless (motor_options.service). |
 | `main_fx.py` | `Trading.FXArbitrage` | USD pair cross-currency arbitrage (fee: 0.0847%) |
-| `main_arbitrage.py` | `Trading.CI24` | CI/24hs cash+carry repo arbitrage (headless daemon) |
+| `main_on.py` | `Trading.ONs` (live) | Yield screener ONs: TIR y duration en tiempo real vía WebSocket. Corre vía motor_on.service (`--headless`). |
 | `main_curvas.py` | `Trading.TimeSales` (enrichment) | Enriquece trades de Curvas con TEA/TEM/Duration/Paridad. Loop cada 5s, busca docs sin `duration` y los actualiza. |
 | `main_forwards.py` | `Trading.ForwardsLive` + `Trading.ForwardsHistorico` | Calcula matriz NxN de tasas forward por curva cada 30s. ForwardsLive = 1 doc por curva (tiempo real). ForwardsHistorico = 1 doc por (fecha, curva). |
 | `main_breakevens.py` | `Trading.BreakevensLive` + `Trading.BreakevensHistorico` | Calcula breakeven de inflación mensual implícita CER/Lecap cada 30s. Empareja cada Lecap con el CER de vencimiento más cercano (≤60d). BreakevensLive = 1 doc global. BreakevensHistorico = 1 doc por fecha. |
@@ -106,6 +107,7 @@ Un doc por ticker, reemplazado cada 1 segundo por `main_valores.py`. Campos:
 ### Scripts de datos BCRA y Curvas
 
 - **`data_bcra.py`** — alimenta CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron, sin flag hace backfill desde 2023-01-01.
+- **`data_diashabiles.py`** — genera calendario de días hábiles argentinos (año fijo `YEAR`) y los carga en `Trading.DiasHabiles`. Requiere ejecutarse una vez por año. Usado por `main_curvas.py` y `backfill_curvas.py`.
 - **`backfill_curvas.py`** — script one-off que recorre todo TimeSales y agrega TEA/TEM/Duration/Paridad a docs históricos de Curvas. Ya ejecutado (97k docs procesados).
 - **`backfill_forwards.py`** — script one-off que construye ForwardsHistorico recorriendo las TEAs ya existentes en TimeSales. Ejecutar si hay que reconstruir el histórico.
 - **`backfill_breakevens.py`** — script one-off que construye BreakevensHistorico recorriendo TEM/paridad de TimeSales. Ejecutar tras backfill_curvas o cuando se quiera reconstruir el histórico de breakevens.

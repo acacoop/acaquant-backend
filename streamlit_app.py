@@ -2093,10 +2093,13 @@ def vista_aum():
                     f"<div style='font-size:22px;font-weight:700;color:#094293'>${total:,.0f}</div>",
                     unsafe_allow_html=True,
                 )
-                st.dataframe(
+                ev_fci = st.dataframe(
                     resumen[["EMISOR", "Val.", "%"]],
                     hide_index=True, use_container_width=True,
-                    height=df_height(len(resumen), max_h=500),
+                    height=38 + 35 * len(resumen),
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key="aum_fci_tabla",
                 )
 
             with col_der:
@@ -2127,11 +2130,32 @@ def vista_aum():
                             tooltip=[alt.Tooltip("fecha_snapshot:O", title="Fecha"),
                                      alt.Tooltip("valuacion:Q", format=",.0f", title="Valuación")],
                         )
-                        .properties(height=420)
+                        .properties(height=300)
                     )
                     st.altair_chart(chart, use_container_width=True)
                 else:
                     st.info("Necesitás al menos 2 fechas para el gráfico.")
+
+                # ── Detalle de fondos por Soc. Gerente seleccionada ───────────
+                sel_rows = ev_fci.selection.rows if ev_fci.selection.rows else []
+                if sel_rows:
+                    emisor_det = resumen.iloc[sel_rows[0]]["EMISOR"]
+                    df_det = (
+                        df_fci_dia[df_fci_dia["EMISOR"] == emisor_det][["unidad", "valuacion"]]
+                        .sort_values("valuacion", ascending=False)
+                        .reset_index(drop=True)
+                    )
+                    df_det["Valuación"] = df_det["valuacion"].apply(lambda v: f"{v:,.0f}")
+                    df_det = df_det.rename(columns={"unidad": "Ticker"})
+                    st.markdown(
+                        f"<div style='font-size:12px;color:#888;margin-top:8px'>{emisor_det}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.dataframe(
+                        df_det[["Ticker", "Valuación"]],
+                        hide_index=True, use_container_width=True,
+                        height=38 + 35 * len(df_det),
+                    )
 
     # ── Tab 2: Stock Soc. Gerente ─────────────────────────────────────────────
     with tab_stock_soc:

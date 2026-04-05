@@ -2106,7 +2106,7 @@ def vista_aum():
             # altura residual para que col_der cierre al mismo nivel que col_izq:
             # col_izq fijos: header (~60px) + tabla (h_emisor)
             # col_der fijos: margen (46px) + gráfico (300px) + label (~30px) = 376px
-            h_det = max(80, h_emisor + 60 - 376)
+            h_det = max(80, h_emisor + 60 - 396)
 
             with col_der:
                 if len(fechas_all) >= 2:

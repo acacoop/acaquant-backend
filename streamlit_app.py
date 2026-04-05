@@ -1307,7 +1307,7 @@ def vista_mercado():
 
     st.markdown("## ACAQuant | Mercado")
 
-    tab_mercado, tab_curvas, tab_breakevens, tab_forwards, tab_retorno = st.tabs(["Mercado", "Curvas", "Breakevens", "Forwards", "Retorno Total"])
+    tab_mercado, tab_curvas, tab_breakevens, tab_forwards, tab_retorno, tab_vol = st.tabs(["Mercado", "Curvas", "Breakevens", "Forwards", "Retorno Total", "Volúmenes"])
 
     with tab_mercado:
         all_snaps = list(db["MarketSnapshot"].find({}))
@@ -1347,6 +1347,9 @@ def vista_mercado():
 
     with tab_retorno:
         _render_retorno_total(key_prefix="rt_mercado")
+
+    with tab_vol:
+        _render_volumenes()
 
 
 @st.fragment(run_every=30)
@@ -2342,6 +2345,90 @@ def vista_forwards():
     db = get_db()
     st.markdown("## ACAQuant | Forwards")
     _render_forwards(db, key_prefix="fwd_page")
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cargar_volumenes_diarios():
+    """Suma de money por fecha y curva desde TimeSales, solo tickers en Trading.Curvas."""
+    db = get_db()
+    ticker_curva = {
+        d["ticker"]: d["curva"]
+        for d in db["Curvas"].find({}, {"ticker": 1, "curva": 1})
+    }
+    if not ticker_curva:
+        return pd.DataFrame()
+
+    pipeline = [
+        {"$match": {"ticker": {"$in": list(ticker_curva.keys())}, "money": {"$gt": 0}}},
+        {"$group": {
+            "_id": {
+                "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
+                "ticker": "$ticker",
+            },
+            "money": {"$sum": "$money"},
+        }},
+    ]
+    rows = []
+    for r in db["TimeSales"].aggregate(pipeline):
+        ticker = r["_id"]["ticker"]
+        rows.append({
+            "fecha": r["_id"]["fecha"],
+            "curva": ticker_curva[ticker],
+            "money": r["money"],
+        })
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    df = df.groupby(["fecha", "curva"], as_index=False)["money"].sum()
+    df["money_mm"] = df["money"] / 1_000_000
+    return df.sort_values("fecha")
+
+
+def _render_volumenes():
+    import altair as alt
+
+    with st.spinner("Cargando volúmenes..."):
+        df = _cargar_volumenes_diarios()
+
+    if df.empty:
+        st.info("Sin datos de volumen en TimeSales para los instrumentos de curvas.")
+        return
+
+    fechas = sorted(df["fecha"].unique())
+
+    chart = (
+        alt.Chart(df)
+        .mark_bar()
+        .encode(
+            x=alt.X("fecha:O", title="Fecha", sort=fechas,
+                    axis=alt.Axis(labelAngle=-45)),
+            y=alt.Y("money_mm:Q", title="Volumen (MM ARS)", stack=True,
+                    axis=alt.Axis(format=".1f")),
+            color=alt.Color("curva:N", title="Curva",
+                            legend=alt.Legend(orient="top")),
+            tooltip=[
+                alt.Tooltip("fecha:O", title="Fecha"),
+                alt.Tooltip("curva:N", title="Curva"),
+                alt.Tooltip("money_mm:Q", format=".2f", title="Volumen (MM ARS)"),
+            ],
+        )
+        .properties(height=420)
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+
+    # Tabla resumen por curva
+    resumen = (
+        df.groupby("curva")["money_mm"]
+        .sum()
+        .reset_index()
+        .rename(columns={"curva": "Curva", "money_mm": "Total (MM ARS)"})
+        .sort_values("Total (MM ARS)", ascending=False)
+    )
+    resumen["Total (MM ARS)"] = resumen["Total (MM ARS)"].round(2)
+    st.dataframe(resumen, hide_index=True, use_container_width=True,
+                 height=df_height(len(resumen)))
 
 
 @st.cache_data(ttl=300, show_spinner=False)

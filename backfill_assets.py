@@ -1,10 +1,5 @@
 """
-backfill_assets.py — Script one-off.
-
-Toma todas las unidades únicas de Valuaciones.AuM y las sincroniza
-hacia Valuaciones.Assets:
-  - Si la unidad no existe: la crea con los 6 campos vacíos
-  - Si ya existe: agrega solo los campos que falten (sin pisar los que ya tienen valor)
+backfill_assets.py — Script reutilizable para enriquecer Valuaciones.Assets.
 
 Uso:
     /root/TradingAV/venv/bin/python /root/TradingAV/backfill_assets.py
@@ -16,68 +11,53 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from mongo_manager import get_mongo_client
 
-CAMPOS_REQUERIDOS = ["CALIFICACION", "CARTERA", "CLASE_ACTIVO", "EMISOR", "TICKER", "VENCIMIENTO"]
+# Reglas: (keyword_regex, EMISOR_valor)
+# Solo aplica a docs con CARTERA = "CARTERA FCI" y EMISOR = ""
+REGLAS_EMISOR_FCI = [
+    ("Max",         "MAX"),
+    ("Schroder",    "SCHRODER"),
+    ("Toronto",     "TORONTO"),
+    ("BAVSA",       "BAVSA"),
+    ("IAM",         "IAM"),
+    ("Allaria",     "ALLARIA"),
+    ("SBS",         "SBS"),
+    ("Consultatio", "one618"),
+    ("First",       "FIRST"),
+    ("Balanz",      "BALANZ"),
+    ("Compass",     "COMPASS"),
+    ("ConoSur",     "ConoSUR"),
+]
 
 
-def sincronizar_assets(col_aum, col_assets):
-    # Obtener todas las unidades únicas en AuM
-    unidades = col_aum.distinct("unidad")
-    print(f"Unidades únicas en AuM: {len(unidades)}")
-
-    nuevas = 0
-    actualizadas = 0
-
-    for unidad in unidades:
-        result = col_assets.update_one(
-            {"unidad": unidad},
-            [{"$set": {
-                "unidad":       unidad,
-                "CALIFICACION": {"$ifNull": ["$CALIFICACION", ""]},
-                "CARTERA":      {"$ifNull": ["$CARTERA",      ""]},
-                "CLASE_ACTIVO": {"$ifNull": ["$CLASE_ACTIVO", ""]},
-                "EMISOR":       {"$ifNull": ["$EMISOR",       ""]},
-                "TICKER":       {"$ifNull": ["$TICKER",       ""]},
-                "VENCIMIENTO":  {"$ifNull": ["$VENCIMIENTO",  ""]},
-            }}],
-            upsert=True,
+def rellenar_emisor_fci(col_assets):
+    print("Rellenando EMISOR para CARTERA FCI...")
+    total = 0
+    for keyword, emisor in REGLAS_EMISOR_FCI:
+        result = col_assets.update_many(
+            {
+                "CARTERA": "CARTERA FCI",
+                "EMISOR":  "",
+                "unidad":  {"$regex": keyword, "$options": "i"},
+            },
+            {"$set": {"EMISOR": emisor}},
         )
-        if result.upserted_id:
-            nuevas += 1
-        else:
-            actualizadas += 1
+        if result.modified_count:
+            print(f"  {keyword:15s} → {emisor:10s}: {result.modified_count} docs")
+        total += result.modified_count
 
-    return nuevas, actualizadas
-
-
-def aplicar_reglas(col_assets):
-    """Reglas automáticas de clasificación sobre Assets existentes."""
-
-    # Regla 1: unidad contiene "CAFCI" → CARTERA = "CARTERA FCI" (solo si está vacío)
-    result = col_assets.update_many(
-        {"unidad": {"$regex": "CAFCI", "$options": "i"}, "CARTERA": ""},
-        {"$set": {"CARTERA": "CARTERA FCI"}},
-    )
-    print(f"  Regla CAFCI → CARTERA FCI: {result.modified_count} docs actualizados.")
+    sin_emisor = col_assets.count_documents({"CARTERA": "CARTERA FCI", "EMISOR": ""})
+    print(f"\n  Total actualizados: {total}")
+    print(f"  FCI sin EMISOR aún: {sin_emisor}")
 
 
 def run():
     client = get_mongo_client()
-    col_aum    = client["Valuaciones"]["AuM"]
     col_assets = client["Valuaciones"]["Assets"]
 
-    print("Iniciando backfill Assets desde AuM...")
-    nuevas, actualizadas = sincronizar_assets(col_aum, col_assets)
-
-    print("\nAplicando reglas de clasificación...")
-    aplicar_reglas(col_assets)
-
-    total = col_assets.count_documents({})
-    print(f"\nListo.")
-    print(f"  Nuevas insertadas:     {nuevas}")
-    print(f"  Existentes revisadas:  {actualizadas}")
-    print(f"  Total en Assets ahora: {total}")
+    rellenar_emisor_fci(col_assets)
 
     client.close()
+    print("\nListo.")
 
 
 if __name__ == "__main__":

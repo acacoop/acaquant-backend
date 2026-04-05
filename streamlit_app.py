@@ -2093,14 +2093,20 @@ def vista_aum():
                     f"<div style='font-size:22px;font-weight:700;color:#094293'>${total:,.0f}</div>",
                     unsafe_allow_html=True,
                 )
+                h_emisor = 38 + 35 * len(resumen)
                 ev_fci = st.dataframe(
                     resumen[["EMISOR", "Val.", "%"]],
                     hide_index=True, use_container_width=True,
-                    height=38 + 35 * len(resumen),
+                    height=h_emisor,
                     on_select="rerun",
                     selection_mode="single-row",
                     key="aum_fci_tabla",
                 )
+
+            # altura residual para que col_der cierre al mismo nivel que col_izq:
+            # col_izq fijos: header (~60px) + tabla (h_emisor)
+            # col_der fijos: margen (46px) + gráfico (300px) + label (~30px) = 376px
+            h_det = max(80, h_emisor + 60 - 376)
 
             with col_der:
                 if len(fechas_all) >= 2:
@@ -2158,7 +2164,7 @@ def vista_aum():
                     st.dataframe(
                         df_det[["TICKER", "Valuación"]],
                         hide_index=True, use_container_width=True,
-                        height=38 + 35 * len(df_det),
+                        height=h_det,
                     )
 
     # ── Tab 2: Stock Soc. Gerente ─────────────────────────────────────────────

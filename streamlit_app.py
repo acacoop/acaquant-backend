@@ -1940,6 +1940,113 @@ def _cargar_assets():
     return {d["unidad"]: d for d in docs}
 
 
+def _render_snapshot_fci(df_fci, key_prefix):
+    """Tabla + torta de valuacion FCI por EMISOR para un df ya filtrado por fecha."""
+    if df_fci.empty:
+        st.info("Sin posiciones FCI para esta fecha.")
+        return
+
+    resumen = (
+        df_fci.groupby("EMISOR", as_index=False)["valuacion"]
+        .sum()
+        .sort_values("valuacion", ascending=False)
+        .reset_index(drop=True)
+    )
+    total = resumen["valuacion"].sum()
+    resumen["% del Total"] = (resumen["valuacion"] / total * 100).round(2)
+    resumen["Valuación"]   = resumen["valuacion"].apply(lambda v: f"{v:,.0f}")
+    resumen["% del Total"] = resumen["% del Total"].apply(lambda v: f"{v:.2f}%")
+
+    col_tabla, col_pie = st.columns([2, 1])
+    with col_tabla:
+        st.markdown(
+            f"<div style='font-size:13px;color:#888;margin-bottom:4px'>Total FCI</div>"
+            f"<div style='font-size:26px;font-weight:700;color:#094293'>${total:,.0f}</div>",
+            unsafe_allow_html=True,
+        )
+        st.dataframe(
+            resumen[["EMISOR", "Valuación", "% del Total"]],
+            hide_index=True, use_container_width=True,
+            height=df_height(len(resumen)),
+        )
+    with col_pie:
+        df_pie = resumen[resumen["valuacion"] > 0][["EMISOR", "valuacion"]].copy()
+        df_pie["pct"]       = (df_pie["valuacion"] / total * 100).round(1)
+        df_pie["pct_label"] = df_pie["pct"].apply(lambda x: f"{x:.1f}%")
+        base = alt.Chart(df_pie).encode(
+            theta=alt.Theta("valuacion:Q", stack=True),
+            color=alt.Color("EMISOR:N", scale=alt.Scale(scheme="tableau20"),
+                            legend=alt.Legend(orient="bottom", columns=2, labelFontSize=10)),
+        )
+        arc  = base.mark_arc(innerRadius=45, outerRadius=100).encode(
+            tooltip=[alt.Tooltip("EMISOR:N", title="Emisor"),
+                     alt.Tooltip("valuacion:Q", title="Valuación", format=",.0f"),
+                     alt.Tooltip("pct:Q", title="%", format=".1f")]
+        )
+        text = base.mark_text(radius=75, size=11, color="white").encode(
+            text=alt.Text("pct_label:N"),
+        )
+        st.altair_chart((arc + text).properties(height=380, padding={"top": 10}),
+                        use_container_width=True)
+
+
+def _render_barras_rango_fci(df_fci_all, color_field, key_prefix):
+    """Barras apiladas por fecha con rango slider. color_field: 'EMISOR' o None (total)."""
+    fechas = sorted(df_fci_all["fecha_snapshot"].unique())
+    if len(fechas) < 2:
+        st.info("Necesitás al menos 2 fechas de datos.")
+        return
+
+    fecha_desde, fecha_hasta = st.select_slider(
+        "Período",
+        options=fechas,
+        value=(fechas[0], fechas[-1]),
+        key=f"{key_prefix}_rango",
+    )
+    df_r = df_fci_all[
+        (df_fci_all["fecha_snapshot"] >= fecha_desde) &
+        (df_fci_all["fecha_snapshot"] <= fecha_hasta)
+    ].copy()
+
+    fechas_rango = sorted(df_r["fecha_snapshot"].unique())
+
+    if color_field:
+        df_plot = df_r.groupby(["fecha_snapshot", color_field], as_index=False)["valuacion"].sum()
+        chart = (
+            alt.Chart(df_plot)
+            .mark_bar()
+            .encode(
+                x=alt.X("fecha_snapshot:O", title="Fecha", sort=fechas_rango,
+                         axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y("valuacion:Q", title="Valuación (ARS)", stack=True,
+                         axis=alt.Axis(format=",.0f")),
+                color=alt.Color(f"{color_field}:N", scale=alt.Scale(scheme="tableau20"),
+                                legend=alt.Legend(orient="top", columns=4, labelFontSize=10)),
+                tooltip=[alt.Tooltip("fecha_snapshot:O", title="Fecha"),
+                         alt.Tooltip(f"{color_field}:N", title=color_field),
+                         alt.Tooltip("valuacion:Q", format=",.0f", title="Valuación")],
+            )
+            .properties(height=420)
+        )
+    else:
+        df_plot = df_r.groupby("fecha_snapshot", as_index=False)["valuacion"].sum()
+        chart = (
+            alt.Chart(df_plot)
+            .mark_bar(color="#094293")
+            .encode(
+                x=alt.X("fecha_snapshot:O", title="Fecha", sort=fechas_rango,
+                         axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y("valuacion:Q", title="Valuación total FCI (ARS)",
+                         axis=alt.Axis(format=",.0f")),
+                tooltip=[alt.Tooltip("fecha_snapshot:O", title="Fecha"),
+                         alt.Tooltip("valuacion:Q", format=",.0f", title="Valuación")],
+            )
+            .properties(height=420)
+        )
+
+    st.altair_chart(chart, use_container_width=True)
+
+
 def vista_aum():
     st.markdown("## ACAQuant | AuM")
 
@@ -1949,83 +2056,45 @@ def vista_aum():
         return
 
     assets = _cargar_assets()
+    df["CARTERA"] = df["unidad"].map(lambda u: assets.get(u, {}).get("CARTERA", ""))
+    df["EMISOR"]  = df["unidad"].map(lambda u: assets.get(u, {}).get("EMISOR",  ""))
 
-    # ── Join AuM con Assets ───────────────────────────────────────────────────
-    df["CARTERA"]     = df["unidad"].map(lambda u: assets.get(u, {}).get("CARTERA",     ""))
-    df["EMISOR"]      = df["unidad"].map(lambda u: assets.get(u, {}).get("EMISOR",      ""))
-    df["TICKER"]      = df["unidad"].map(lambda u: assets.get(u, {}).get("TICKER",      ""))
-    df["CLASE_ACTIVO"]= df["unidad"].map(lambda u: assets.get(u, {}).get("CLASE_ACTIVO",""))
+    df_fci_all = df[df["CARTERA"] == "CARTERA FCI"].copy()
 
-    # ── Slider de fecha ───────────────────────────────────────────────────────
-    snapshots = sorted(df["fecha_snapshot"].dropna().unique())
-    fecha_sel = st.select_slider(
-        "Fecha",
-        options=snapshots,
-        value=snapshots[-1],
-        key="aum_fecha",
+    tab_snap, tab_stock_fci, tab_stock_soc = st.tabs(
+        ["Snapshot FCI", "Stock FCI", "Stock Soc. Gerente"]
     )
-    df = df[df["fecha_snapshot"] == fecha_sel].copy()
 
-    # ── Vista CARTERA FCI ─────────────────────────────────────────────────────
-    st.markdown("### Cartera FCI")
+    # ── Tab 1: Snapshot FCI ───────────────────────────────────────────────────
+    with tab_snap:
+        snapshots = sorted(df_fci_all["fecha_snapshot"].dropna().unique())
+        if not snapshots:
+            st.info("Sin datos FCI.")
+        else:
+            fecha_sel = st.select_slider("Fecha", options=snapshots,
+                                         value=snapshots[-1], key="aum_snap_fecha")
+            df_fci_dia = df_fci_all[df_fci_all["fecha_snapshot"] == fecha_sel]
+            _render_snapshot_fci(df_fci_dia, key_prefix="snap")
 
-    df_fci = df[df["CARTERA"] == "CARTERA FCI"].copy()
+    # ── Tab 2: Stock FCI ──────────────────────────────────────────────────────
+    with tab_stock_fci:
+        st.caption("Valuación total FCI acumulada por día.")
+        _render_barras_rango_fci(df_fci_all, color_field=None, key_prefix="stock_fci")
 
-    if df_fci.empty:
-        st.info("Sin posiciones FCI para esta fecha.")
-        return
+    # ── Tab 3: Stock Soc. Gerente ─────────────────────────────────────────────
+    with tab_stock_soc:
+        snapshots = sorted(df_fci_all["fecha_snapshot"].dropna().unique())
+        if not snapshots:
+            st.info("Sin datos FCI.")
+        else:
+            fecha_sel = st.select_slider("Fecha", options=snapshots,
+                                         value=snapshots[-1], key="aum_soc_fecha")
+            df_fci_dia = df_fci_all[df_fci_all["fecha_snapshot"] == fecha_sel]
+            _render_snapshot_fci(df_fci_dia, key_prefix="soc_snap")
 
-    # Sumatoria de valuacion por EMISOR
-    resumen = (
-        df_fci.groupby("EMISOR", as_index=False)["valuacion"]
-        .sum()
-        .sort_values("valuacion", ascending=False)
-        .reset_index(drop=True)
-    )
-    total = resumen["valuacion"].sum()
-
-    resumen["% del Total"] = (resumen["valuacion"] / total * 100).round(2)
-    resumen["Valuación"]   = resumen["valuacion"].apply(lambda v: f"{v:,.0f}")
-    resumen["% del Total"] = resumen["% del Total"].apply(lambda v: f"{v:.2f}%")
-
-    col_tabla, col_pie = st.columns([2, 1])
-
-    with col_tabla:
-        st.markdown(
-            f"<div style='font-size:13px;color:#888;margin-bottom:4px'>Total FCI</div>"
-            f"<div style='font-size:26px;font-weight:700;color:#094293'>${total:,.0f}</div>",
-            unsafe_allow_html=True,
-        )
-        st.dataframe(
-            resumen[["EMISOR", "Valuación", "% del Total"]],
-            hide_index=True,
-            use_container_width=True,
-            height=df_height(len(resumen)),
-        )
-
-    with col_pie:
-        df_pie = resumen[["EMISOR", "valuacion"]].copy()
-        df_pie = df_pie[df_pie["valuacion"] > 0]
-        df_pie["pct"] = (df_pie["valuacion"] / total * 100).round(1)
-        df_pie["pct_label"] = df_pie["pct"].apply(lambda x: f"{x:.1f}%")
-
-        base = alt.Chart(df_pie).encode(
-            theta=alt.Theta("valuacion:Q", stack=True),
-            color=alt.Color("EMISOR:N", scale=alt.Scale(scheme="tableau20"),
-                            legend=alt.Legend(orient="bottom", columns=2, labelFontSize=10)),
-        )
-        arc  = base.mark_arc(innerRadius=45, outerRadius=100).encode(
-            tooltip=[
-                alt.Tooltip("EMISOR:N",    title="Emisor"),
-                alt.Tooltip("valuacion:Q", title="Valuación", format=",.0f"),
-                alt.Tooltip("pct:Q",       title="%",         format=".1f"),
-            ]
-        )
-        text = base.mark_text(radius=75, size=11, color="white").encode(
-            text=alt.Text("pct_label:N"),
-        )
-        st.altair_chart((arc + text).properties(height=400, padding={"top": 10}),
-                        use_container_width=True)
+            st.divider()
+            st.caption("Evolución de valuación por Soc. Gerente.")
+            _render_barras_rango_fci(df_fci_all, color_field="EMISOR", key_prefix="stock_soc")
 
 
 # ==========================================

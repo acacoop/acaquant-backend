@@ -74,7 +74,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Portfolios", "Operaciones", "AuM", "ONs"],
+        ["Libro", "Mercado", "Opciones", "Portfolios", "Operaciones", "AuM", "ONs"],
         label_visibility="collapsed"
     )
 
@@ -862,230 +862,190 @@ def vista_libro():
 
 @st.fragment(run_every=30)
 def vista_opciones():
-    db_op     = get_db_opciones()
-    meta_col  = get_meta_col()
-
-    docs = list(db_op["OptionsSnapshot"].find({}))
-    spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0) if docs else 0
-
-    # ── cabecera con SPOT, VR y tasa ─────────────────────────────────────
-    vr_doc = meta_col.find_one({"type": "vr_ggal"})
-    vr_local = vr_doc.get("vr_local", 0) if vr_doc else 0
-    vr_adr   = vr_doc.get("vr_adr",   0) if vr_doc else 0
-
-    cfg_doc = meta_col.find_one({"type": "config"})
-    tasa_actual = cfg_doc.get("tasa", 0.242) if cfg_doc else 0.242
-    if "tasa_display" not in st.session_state:
-        st.session_state["tasa_display"] = tasa_actual
+    db_op    = get_db_opciones()
+    meta_col = get_meta_col()
 
     st.markdown("## ACAQuant | Opciones")
+    tab_merc, tab_est = st.tabs(["Mercado", "Estrategias"])
 
-    ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None) if docs else None
-    ts_str = ""
-    if ultimo_ts:
-        ts_art = ultimo_ts - timedelta(hours=3)
-        ts_str = ts_art.strftime("%H:%M:%S")
+    # ── Tab Mercado ───────────────────────────────────────────────────────
+    with tab_merc:
+        docs = list(db_op["OptionsSnapshot"].find({}))
+        spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0) if docs else 0
 
-    col_spot, col_vr, col_tasa, col_ts = st.columns([2, 3, 3, 2])
-    with col_spot:
-        st.caption("SPOT")
-        st.markdown(f"**${spot:,.2f}**" if spot else "N/A")
-    with col_vr:
-        if vr_local:
-            st.metric("VR GGAL (40r)", f"{vr_local:.1%}", delta=f"ADR {vr_adr:.1%}", delta_color="off")
+        vr_doc   = meta_col.find_one({"type": "vr_ggal"})
+        vr_local = vr_doc.get("vr_local", 0) if vr_doc else 0
+        vr_adr   = vr_doc.get("vr_adr",   0) if vr_doc else 0
+
+        cfg_doc = meta_col.find_one({"type": "config"})
+        tasa_actual = cfg_doc.get("tasa", 0.242) if cfg_doc else 0.242
+        if "tasa_display" not in st.session_state:
+            st.session_state["tasa_display"] = tasa_actual
+
+        ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None) if docs else None
+        ts_str = (ultimo_ts - timedelta(hours=3)).strftime("%H:%M:%S") if ultimo_ts else "—"
+
+        # ── cabecera uniforme ─────────────────────────────────────────
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("SPOT", f"${spot:,.2f}" if spot else "—")
+        c2.metric("VR GGAL (40r)", f"{vr_local:.1%}" if vr_local else "—")
+        c3.metric("ADR", f"{vr_adr:.1%}" if vr_adr else "—")
+        with c4:
+            nueva_tasa = st.number_input(
+                "Tasa libre de riesgo",
+                min_value=0.0, max_value=3.0,
+                value=st.session_state["tasa_display"],
+                step=0.005, format="%.3f",
+                key="tasa_input",
+                help="Cambiá el valor y el motor lo aplicará en ~60s",
+            )
+            if abs(nueva_tasa - st.session_state["tasa_display"]) > 1e-6:
+                meta_col.update_one({"type": "config"}, {"$set": {"tasa": nueva_tasa}}, upsert=True)
+                st.session_state["tasa_display"] = nueva_tasa
+                st.toast(f"Tasa actualizada a {nueva_tasa:.3f}", icon="✅")
+        c5.metric("Última act.", ts_str)
+
+        st.divider()
+
+        if not docs:
+            st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
         else:
-            st.metric("VR GGAL", "calculando…")
-    with col_tasa:
-        nueva_tasa = st.number_input(
-            "Tasa libre de riesgo",
-            min_value=0.0, max_value=3.0,
-            value=st.session_state["tasa_display"],
-            step=0.005, format="%.3f",
-            key="tasa_input",
-            help="Cambiá el valor y el motor lo aplicará en ~60s"
-        )
-        if abs(nueva_tasa - st.session_state["tasa_display"]) > 1e-6:
-            meta_col.update_one({"type": "config"}, {"$set": {"tasa": nueva_tasa}}, upsert=True)
-            st.session_state["tasa_display"] = nueva_tasa
-            st.toast(f"Tasa actualizada a {nueva_tasa:.3f}", icon="✅")
-    with col_ts:
-        if ts_str:
-            st.caption("Última actualización")
-            st.markdown(f"**{ts_str}**")
+            render_cadena_opciones(docs, spot)
 
-    st.divider()
+            smile_rows = {}
+            for d in docs:
+                k = d.get("strike"); t = d.get("tipo"); iv = d.get("iv")
+                if k and t and iv and iv > 0:
+                    if k not in smile_rows:
+                        smile_rows[k] = {}
+                    smile_rows[k][t] = round(iv * 100, 2)
+            if smile_rows:
+                smile_df = (
+                    pd.DataFrame.from_dict(smile_rows, orient="index")
+                    .rename(columns={"CALL": "CALL IV%", "PUT": "PUT IV%"})
+                    .sort_index()
+                )
+                st.caption("VOLATILITY SMILE — IV% por strike")
+                st.line_chart(smile_df, use_container_width=True)
 
-    if not docs:
-        st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
-        return
+    # ── Tab Estrategias ───────────────────────────────────────────────────
+    with tab_est:
+        _proj = {"_id": 0, "symbol": 1, "strike": 1, "tipo": 1, "bid": 1, "offer": 1,
+                 "last": 1, "ev": 1, "delta": 1, "gamma": 1, "theta": 1,
+                 "iv": 1, "spot": 1, "updated_at": 1}
+        docs_e = list(db_op["OptionsSnapshot"].find({}, _proj))
+        spot_e = next((d.get("spot", 0) for d in docs_e if d.get("spot", 0) > 0), 0) if docs_e else 0
 
-    render_cadena_opciones(docs, spot)
-
-    # ── Volatility Smile ─────────────────────────────────────────────────
-    smile_rows = {}
-    for d in docs:
-        k = d.get("strike")
-        t = d.get("tipo")
-        iv = d.get("iv")
-        if k and t and iv and iv > 0:
-            if k not in smile_rows:
-                smile_rows[k] = {}
-            smile_rows[k][t] = round(iv * 100, 2)
-
-    if smile_rows:
-        smile_df = (
-            pd.DataFrame.from_dict(smile_rows, orient="index")
-            .rename(columns={"CALL": "CALL IV%", "PUT": "PUT IV%"})
-            .sort_index()
-        )
-        st.caption("VOLATILITY SMILE — IV% por strike")
-        st.line_chart(smile_df, use_container_width=True)
-
-
-@st.fragment(run_every=60)
-def vista_estrategias():
-    db_op = get_db_opciones()
-
-    _proj = {"_id": 0, "symbol": 1, "strike": 1, "tipo": 1, "bid": 1, "offer": 1,
-             "last": 1, "ev": 1, "delta": 1, "gamma": 1, "theta": 1,
-             "iv": 1, "spot": 1, "updated_at": 1}
-    docs = list(db_op["OptionsSnapshot"].find({}, _proj))
-    spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0) if docs else 0
-
-    # ── cabecera ─────────────────────────────────────────────────────────
-    st.markdown("## ACAQuant | Estrategias Opciones")
-
-    if not docs:
-        st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
-        return
-
-    # Construir lista de strikes líquidos
-    por_strike = {}
-    for d in docs:
-        k = d.get('strike')
-        t = d.get('tipo')
-        if k and t:
-            if k not in por_strike:
-                por_strike[k] = {}
-            por_strike[k][t] = d
-
-    def is_liquid(d):
-        if not d: return False
-        return (d.get('bid', 0) or 0) > 0 or (d.get('offer', 0) or 0) > 0
-
-    liquid_strikes = sorted([
-        k for k, v in por_strike.items()
-        if is_liquid(v.get('CALL')) or is_liquid(v.get('PUT'))
-    ])
-
-    if not liquid_strikes:
-        st.info("Sin strikes con liquidez aún.")
-        return
-
-    # Strike central por defecto = ATM
-    atm_idx_default = min(range(len(liquid_strikes)), key=lambda i: abs(liquid_strikes[i] - spot))
-    atm_K_default   = liquid_strikes[atm_idx_default]
-
-    ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None)
-    ts_str = ""
-    if ultimo_ts:
-        ts_art = ultimo_ts - timedelta(hours=3)
-        ts_str = ts_art.strftime("%H:%M:%S")
-
-    categorias = ["Todas"] + sorted(set(cat for cat, name, legs in STRATEGY_TEMPLATES))
-
-    col_spot, col_strike, col_cat, col_ts = st.columns([2, 3, 3, 2])
-    with col_spot:
-        st.caption("SPOT")
-        st.markdown(f"**${spot:,.2f}**" if spot else "N/A")
-    with col_strike:
-        strike_sel = st.selectbox(
-            "Strike central",
-            options=liquid_strikes,
-            index=atm_idx_default,
-            format_func=lambda k: f"{k:,.0f}{'  ← ATM' if k == atm_K_default else ''}",
-            key="estrategias_strike",
-        )
-    with col_cat:
-        categoria_sel = st.selectbox(
-            "Tipo de estrategia",
-            options=categorias,
-            key="estrategias_cat",
-        )
-    with col_ts:
-        if ts_str:
-            st.caption("Última actualización")
-            st.markdown(f"**{ts_str}**")
-
-    center_idx = liquid_strikes.index(strike_sel)
-    st.divider()
-
-    rows, resolved_legs_list = _calcular_estrategias(
-        por_strike, liquid_strikes, center_idx, spot, categoria_sel
-    )
-
-    col_tabla, col_graficos = st.columns([2, 3])
-
-    with col_tabla:
-        df_est = pd.DataFrame(rows)
-        atm_label = " (ATM)" if center_idx == atm_idx_default else ""
-        st.caption(
-            f"Strike central: {strike_sel:,.0f}{atm_label} | Spot: ${spot:,.2f}  |  "
-            f"Costo>0 = debit (pagás), Costo<0 = credit (recibís)"
-        )
-        styler = (
-            df_est.style
-            .map(lambda v: (
-                "color: #ff4444; font-weight: bold" if pd.notna(v) and v > 0 else
-                "color: #00cc66; font-weight: bold" if pd.notna(v) else
-                "color: #555"
-            ), subset=["Costo/Prima"])
-            .format({
-                "Costo/Prima": lambda v: f"${v:.2f}"  if pd.notna(v) else "Sin Liq",
-                "Vol (pata)":  lambda v: fmt_vol(v)    if pd.notna(v) else "-",
-                "Delta":       lambda v: f"{v:.3f}"    if pd.notna(v) else "-",
-                "Gamma":       lambda v: f"{v:.4f}"    if pd.notna(v) else "-",
-                "Theta":       lambda v: f"{v:.2f}"    if pd.notna(v) else "-",
-            })
-        )
-        selection = st.dataframe(
-            styler,
-            hide_index=True,
-            use_container_width=True,
-            height=df_height(len(df_est), max_h=700),
-            on_select="rerun",
-            selection_mode="single-row",
-            key="estrategias_tabla",
-        )
-
-    with col_graficos:
-        sel_rows = selection.selection.rows if hasattr(selection, 'selection') else []
-        if not sel_rows:
-            st.info("← Seleccioná una estrategia de la tabla para ver los gráficos.")
+        if not docs_e:
+            st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
         else:
-            row_idx  = sel_rows[0]
-            sel_name = rows[row_idx]["Estrategia"]
-            sel_cost = rows[row_idx]["Costo/Prima"]
-            sel_legs = resolved_legs_list[row_idx]
+            por_strike = {}
+            for d in docs_e:
+                k = d.get('strike'); t = d.get('tipo')
+                if k and t:
+                    if k not in por_strike:
+                        por_strike[k] = {}
+                    por_strike[k][t] = d
 
-            tipo_cost = "DEBIT" if (sel_cost or 0) > 0 else "CREDIT"
-            st.markdown(f"**{sel_name}**  |  {tipo_cost} ${abs(sel_cost or 0):.2f}")
+            def is_liquid(d):
+                if not d: return False
+                return (d.get('bid', 0) or 0) > 0 or (d.get('offer', 0) or 0) > 0
 
-            tab_hist, tab_payoff = st.tabs(["Histórico de Costo", "Payoff al Vencimiento"])
+            liquid_strikes = sorted([
+                k for k, v in por_strike.items()
+                if is_liquid(v.get('CALL')) or is_liquid(v.get('PUT'))
+            ])
 
-            with tab_hist:
-                chart_h = _chart_historico_estrategia(db_op, sel_legs, costo_actual=sel_cost)
-                if chart_h:
-                    st.altair_chart(chart_h, use_container_width=True)
-                else:
-                    st.info("Sin datos históricos suficientes para esta estrategia.")
+            if not liquid_strikes:
+                st.info("Sin strikes con liquidez aún.")
+            else:
+                atm_idx_default = min(range(len(liquid_strikes)), key=lambda i: abs(liquid_strikes[i] - spot_e))
+                atm_K_default   = liquid_strikes[atm_idx_default]
 
-            with tab_payoff:
-                chart_p, breakevens = _chart_payoff_estrategia(sel_legs, spot, sel_cost)
-                if chart_p:
-                    st.altair_chart(chart_p, use_container_width=True)
-                    be_str = "  |  Break-even: " + "  /  ".join(f"${int(b):,}" for b in breakevens) if breakevens else ""
-                    st.caption(f"Línea amarilla = Spot actual (${spot:,.0f}){be_str}")
+                ultimo_ts_e = max((d.get("updated_at") for d in docs_e if d.get("updated_at")), default=None)
+                ts_str_e = (ultimo_ts_e - timedelta(hours=3)).strftime("%H:%M:%S") if ultimo_ts_e else "—"
+
+                categorias = ["Todas"] + sorted(set(cat for cat, name, legs in STRATEGY_TEMPLATES))
+
+                col_strike, col_cat, col_ts = st.columns([3, 3, 2])
+                with col_strike:
+                    strike_sel = st.selectbox(
+                        "Strike central",
+                        options=liquid_strikes,
+                        index=atm_idx_default,
+                        format_func=lambda k: f"{k:,.0f}{'  ← ATM' if k == atm_K_default else ''}",
+                        key="estrategias_strike",
+                    )
+                with col_cat:
+                    categoria_sel = st.selectbox(
+                        "Tipo de estrategia", options=categorias, key="estrategias_cat",
+                    )
+                with col_ts:
+                    st.metric("Última act.", ts_str_e)
+
+                center_idx = liquid_strikes.index(strike_sel)
+                st.divider()
+
+                rows, resolved_legs_list = _calcular_estrategias(
+                    por_strike, liquid_strikes, center_idx, spot_e, categoria_sel
+                )
+
+                col_tabla, col_graficos = st.columns([2, 3])
+                with col_tabla:
+                    df_est = pd.DataFrame(rows)
+                    atm_label = " (ATM)" if center_idx == atm_idx_default else ""
+                    st.caption(
+                        f"Strike central: {strike_sel:,.0f}{atm_label} | Spot: ${spot_e:,.2f}  |  "
+                        f"Costo>0 = debit (pagás), Costo<0 = credit (recibís)"
+                    )
+                    styler = (
+                        df_est.style
+                        .map(lambda v: (
+                            "color: #ff4444; font-weight: bold" if pd.notna(v) and v > 0 else
+                            "color: #00cc66; font-weight: bold" if pd.notna(v) else
+                            "color: #555"
+                        ), subset=["Costo/Prima"])
+                        .format({
+                            "Costo/Prima": lambda v: f"${v:.2f}"  if pd.notna(v) else "Sin Liq",
+                            "Vol (pata)":  lambda v: fmt_vol(v)    if pd.notna(v) else "-",
+                            "Delta":       lambda v: f"{v:.3f}"    if pd.notna(v) else "-",
+                            "Gamma":       lambda v: f"{v:.4f}"    if pd.notna(v) else "-",
+                            "Theta":       lambda v: f"{v:.2f}"    if pd.notna(v) else "-",
+                        })
+                    )
+                    selection = st.dataframe(
+                        styler, hide_index=True, use_container_width=True,
+                        height=df_height(len(df_est), max_h=700),
+                        on_select="rerun", selection_mode="single-row",
+                        key="estrategias_tabla",
+                    )
+
+                with col_graficos:
+                    sel_rows = selection.selection.rows if hasattr(selection, 'selection') else []
+                    if not sel_rows:
+                        st.info("← Seleccioná una estrategia de la tabla para ver los gráficos.")
+                    else:
+                        row_idx  = sel_rows[0]
+                        sel_name = rows[row_idx]["Estrategia"]
+                        sel_cost = rows[row_idx]["Costo/Prima"]
+                        sel_legs = resolved_legs_list[row_idx]
+
+                        tipo_cost = "DEBIT" if (sel_cost or 0) > 0 else "CREDIT"
+                        st.markdown(f"**{sel_name}**  |  {tipo_cost} ${abs(sel_cost or 0):.2f}")
+
+                        tab_hist, tab_payoff = st.tabs(["Histórico de Costo", "Payoff al Vencimiento"])
+                        with tab_hist:
+                            chart_h = _chart_historico_estrategia(db_op, sel_legs, costo_actual=sel_cost)
+                            if chart_h:
+                                st.altair_chart(chart_h, use_container_width=True)
+                            else:
+                                st.info("Sin datos históricos suficientes para esta estrategia.")
+                        with tab_payoff:
+                            chart_p, breakevens = _chart_payoff_estrategia(sel_legs, spot_e, sel_cost)
+                            if chart_p:
+                                st.altair_chart(chart_p, use_container_width=True)
+                                be_str = "  |  Break-even: " + "  /  ".join(f"${int(b):,}" for b in breakevens) if breakevens else ""
+                                st.caption(f"Línea amarilla = Spot actual (${spot_e:,.0f}){be_str}")
 
 
 
@@ -1441,8 +1401,7 @@ def vista_portfolios():
 
     # ── tabs por cuenta ───────────────────────────────────────────────────
     cuentas = sorted(df["id_cuenta"].dropna().unique().tolist())
-    tab_labels = ["Todas"] + [str(c) for c in cuentas]
-    tabs = st.tabs(tab_labels)
+    tabs = st.tabs([str(c) for c in cuentas])
 
     def _fmt_group(grp_df, label_col):
         grp_df = grp_df.copy()
@@ -1454,10 +1413,9 @@ def vista_portfolios():
         )
         return grp_df[[label_col, "Valuación ARS", "Valuación USD"]]
 
-    for tab, cuenta in zip(tabs, tab_labels):
+    for tab, cuenta in zip(tabs, cuentas):
         with tab:
-            es_todas = (cuenta == "Todas")
-            df_tab = df.copy() if es_todas else df[df["id_cuenta"] == cuenta].copy()
+            df_tab = df[df["id_cuenta"] == cuenta].copy()
 
             # ── filtro cartera ─────────────────────────────────────────
             carteras = sorted(df_tab["CARTERA"].dropna().unique().tolist()) if "CARTERA" in df_tab.columns else []
@@ -1481,12 +1439,9 @@ def vista_portfolios():
             # ── tabla principal ────────────────────────────────────────
             col_order = ["TICKER", "EMISOR", "VENCIMIENTO", "CLASE_ACTIVO", "CARTERA",
                          "CALIFICACION", "cantidad", "precio_num", "valuación"]
-            if es_todas:
-                col_order = ["id_cuenta"] + col_order
             cols_present = [c for c in col_order if c in df_view.columns]
             display = df_view[cols_present].copy()
             display.rename(columns={
-                "id_cuenta":    "Cuenta",
                 "cantidad":     "VN",
                 "precio_num":   "PX",
                 "valuación":    "Valuación",
@@ -1497,9 +1452,8 @@ def vista_portfolios():
                 "CARTERA":      "Cartera",
                 "CALIFICACION": "Calificación",
             }, inplace=True)
-            sort_cols = (["Cuenta"] if es_todas else []) + (["Ticker"] if "Ticker" in display.columns else [])
-            if sort_cols:
-                display = display.sort_values(sort_cols)
+            if "Ticker" in display.columns:
+                display = display.sort_values("Ticker")
 
             num_subset = [c for c in ["VN", "Valuación"] if c in display.columns]
             fmt_cols = {
@@ -1518,20 +1472,8 @@ def vista_portfolios():
             st.dataframe(styler, hide_index=True, use_container_width=True,
                          height=df_height(len(display), max_h=900))
 
-            # ── resumen inferior ───────────────────────────────────────
+            # ── resumen por cartera ────────────────────────────────────
             st.divider()
-            if es_todas:
-                st.caption("VALUACIÓN POR CUENTA")
-                raw = (
-                    df_view.groupby("id_cuenta")["valuación"]
-                    .sum().reset_index()
-                    .rename(columns={"id_cuenta": "Cuenta", "valuación": "val_raw"})
-                    .sort_values("val_raw", ascending=False)
-                )
-                st.dataframe(_fmt_group(raw, "Cuenta"), hide_index=True,
-                             use_container_width=True, height=df_height(len(raw)))
-                continue  # no charts en tab Todas
-
             if cartera_sel == "Todas" and "CARTERA" in df_view.columns:
                 st.caption(f"VALUACIÓN POR CARTERA — Cuenta {cuenta}")
                 raw = (
@@ -1637,11 +1579,11 @@ def vista_portfolios():
                         use_container_width=True, theme="streamlit",
                     )
 
-            # ── assets incompletos (solo en tabs de cuenta individual) ──
+            # ── assets incompletos ─────────────────────────────────────
             if not _incompletos_raw.empty:
                 df_inc_cuenta = _incompletos_raw[
                     _incompletos_raw.index.isin(df_tab.index)
-                ] if not es_todas else _incompletos_raw
+                ]
                 if not df_inc_cuenta.empty:
                     incompletos = df_inc_cuenta.rename(columns={
                         "unidad": "Unidad", "TICKER": "Ticker", "EMISOR": "Emisor",
@@ -2745,8 +2687,7 @@ if vista == "Libro":
     vista_libro()
 elif vista == "Opciones":
     vista_opciones()
-elif vista == "Estrategias Opciones":
-    vista_estrategias()
+
 elif vista == "Mercado":
     vista_mercado()
 elif vista == "Portfolios":

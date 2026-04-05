@@ -74,7 +74,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Mercado", "Opciones", "Portfolios", "Operaciones", "AuM", "ONs"],
+        ["Mercado", "Opciones", "Portfolios", "Operaciones", "AuM", "ONs"],
         label_visibility="collapsed"
     )
 
@@ -784,10 +784,8 @@ def _chart_payoff_estrategia(resolved_legs, spot, neto):
 def vista_libro():
     db = get_db()
 
-    header_col, select_col = st.columns([3, 1])
-    with header_col:
-        st.markdown("## ACAQuant | Libro")
-    with select_col:
+    col_ticker, _ = st.columns([1, 3])
+    with col_ticker:
         if "selected_ticker" not in st.session_state:
             st.session_state.selected_ticker = TICKERS[0]
 
@@ -797,7 +795,7 @@ def vista_libro():
         selected_short = st.selectbox(
             "Ticker", options_short,
             index=current_idx,
-            label_visibility="collapsed"
+            label_visibility="collapsed",
         )
         st.session_state.selected_ticker = TICKERS[options_short.index(selected_short)]
 
@@ -1267,7 +1265,7 @@ def vista_mercado():
 
     st.markdown("## ACAQuant | Mercado")
 
-    tab_mercado, tab_curvas, tab_breakevens, tab_forwards, tab_retorno, tab_vol = st.tabs(["Mercado", "Curvas", "Breakevens", "Forwards", "Retorno Total", "Volúmenes"])
+    tab_mercado, tab_libro, tab_curvas, tab_breakevens, tab_forwards, tab_retorno, tab_vol = st.tabs(["Mercado", "Libro", "Curvas", "Breakevens", "Forwards", "Retorno Total", "Volúmenes"])
 
     with tab_mercado:
         all_snaps = list(db["MarketSnapshot"].find({}))
@@ -1295,6 +1293,9 @@ def vista_mercado():
             reverse=True
         )
         render_mercado_table(all_snaps, enriched)
+
+    with tab_libro:
+        vista_libro()
 
     with tab_curvas:
         _render_curva_rendimiento(db)
@@ -2683,11 +2684,8 @@ def vista_retorno_total():
 
 
 # Ruteo: solo se llama el fragmento activo.
-if vista == "Libro":
-    vista_libro()
-elif vista == "Opciones":
+if vista == "Opciones":
     vista_opciones()
-
 elif vista == "Mercado":
     vista_mercado()
 elif vista == "Portfolios":

@@ -2401,15 +2401,30 @@ def _render_volumenes():
         st.info("Necesitás al menos 2 días de datos.")
         return
 
-    # ── Selector de rango ─────────────────────────────────────────
-    fecha_desde, fecha_hasta = st.select_slider(
-        "Período",
-        options=fechas,
-        value=(fechas[0], fechas[-1]),
-        key="vol_rango",
-    )
+    # ── Filtros ───────────────────────────────────────────────────
+    col1, col2 = st.columns([2, 3])
+    with col1:
+        curvas_disp = sorted(df["curva"].unique())
+        curvas_sel = st.multiselect(
+            "Curvas", curvas_disp, default=curvas_disp, key="vol_curvas"
+        )
+    with col2:
+        fecha_desde, fecha_hasta = st.select_slider(
+            "Período",
+            options=fechas,
+            value=(fechas[0], fechas[-1]),
+            key="vol_rango",
+        )
 
-    df_rango = df[(df["fecha"] >= fecha_desde) & (df["fecha"] <= fecha_hasta)].copy()
+    if not curvas_sel:
+        st.info("Seleccioná al menos una curva.")
+        return
+
+    df_rango = df[
+        (df["fecha"] >= fecha_desde) &
+        (df["fecha"] <= fecha_hasta) &
+        (df["curva"].isin(curvas_sel))
+    ].copy()
     fechas_rango = sorted(df_rango["fecha"].unique())
 
     if df_rango.empty:

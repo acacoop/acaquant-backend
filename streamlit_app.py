@@ -2132,18 +2132,82 @@ def vista_aum():
 
     # ── Tab 2: Stock Soc. Gerente ─────────────────────────────────────────────
     with tab_stock_soc:
-        snapshots = sorted(df_fci_all["fecha_snapshot"].dropna().unique())
+        snapshots  = sorted(df_fci_all["fecha_snapshot"].dropna().unique())
+        emisores   = sorted(df_fci_all["EMISOR"].dropna().unique())
+        fechas_all = snapshots
+
         if not snapshots:
             st.info("Sin datos FCI.")
         else:
-            fecha_sel = st.select_slider("Fecha", options=snapshots,
-                                         value=snapshots[-1], key="aum_soc_fecha")
-            df_fci_dia = df_fci_all[df_fci_all["fecha_snapshot"] == fecha_sel]
-            _render_snapshot_fci(df_fci_dia, key_prefix="soc_snap")
+            col_izq, col_der = st.columns([1, 2])
 
-            st.divider()
-            st.caption("Evolución de valuación por Soc. Gerente.")
-            _render_barras_rango_fci(df_fci_all, color_field="EMISOR", key_prefix="stock_soc")
+            # ── Columna izquierda: snapshot compacto ──────────────────────────
+            with col_izq:
+                fecha_sel = st.select_slider("Fecha snapshot", options=snapshots,
+                                             value=snapshots[-1], key="aum_soc_fecha")
+                df_fci_dia = df_fci_all[df_fci_all["fecha_snapshot"] == fecha_sel]
+                resumen = (
+                    df_fci_dia.groupby("EMISOR", as_index=False)["valuacion"]
+                    .sum()
+                    .sort_values("valuacion", ascending=False)
+                    .reset_index(drop=True)
+                )
+                total = resumen["valuacion"].sum()
+                resumen["Val."] = resumen["valuacion"].apply(lambda v: f"{v:,.0f}")
+                resumen["%"]    = (resumen["valuacion"] / total * 100).apply(lambda v: f"{v:.1f}%")
+
+                st.markdown(
+                    f"<div style='font-size:12px;color:#888'>Total FCI</div>"
+                    f"<div style='font-size:22px;font-weight:700;color:#094293'>${total:,.0f}</div>",
+                    unsafe_allow_html=True,
+                )
+                st.dataframe(
+                    resumen[["EMISOR", "Val.", "%"]],
+                    hide_index=True, use_container_width=True,
+                    height=df_height(len(resumen), max_h=500),
+                )
+
+            # ── Columna derecha: evolución por emisor seleccionado ────────────
+            with col_der:
+                emisores_sel = st.multiselect(
+                    "Soc. Gerente", emisores, default=[], key="aum_soc_emisores",
+                    placeholder="Elegí una o más...",
+                )
+                if not emisores_sel:
+                    st.info("Seleccioná al menos una Soc. Gerente para ver la evolución.")
+                elif len(fechas_all) < 2:
+                    st.info("Necesitás al menos 2 fechas de datos.")
+                else:
+                    fecha_desde, fecha_hasta = st.select_slider(
+                        "Período",
+                        options=fechas_all,
+                        value=(fechas_all[0], fechas_all[-1]),
+                        key="aum_soc_rango",
+                    )
+                    df_r = df_fci_all[
+                        (df_fci_all["fecha_snapshot"] >= fecha_desde) &
+                        (df_fci_all["fecha_snapshot"] <= fecha_hasta) &
+                        (df_fci_all["EMISOR"].isin(emisores_sel))
+                    ]
+                    df_plot   = df_r.groupby(["fecha_snapshot", "EMISOR"], as_index=False)["valuacion"].sum()
+                    f_rango   = sorted(df_plot["fecha_snapshot"].unique())
+                    chart = (
+                        alt.Chart(df_plot)
+                        .mark_bar()
+                        .encode(
+                            x=alt.X("fecha_snapshot:O", title="Fecha", sort=f_rango,
+                                    axis=alt.Axis(labelAngle=-45)),
+                            y=alt.Y("valuacion:Q", title="Valuación (ARS)", stack=True,
+                                    axis=alt.Axis(format=",.0f")),
+                            color=alt.Color("EMISOR:N", scale=alt.Scale(scheme="tableau20"),
+                                            legend=alt.Legend(orient="top", labelFontSize=10)),
+                            tooltip=[alt.Tooltip("fecha_snapshot:O", title="Fecha"),
+                                     alt.Tooltip("EMISOR:N", title="Emisor"),
+                                     alt.Tooltip("valuacion:Q", format=",.0f", title="Valuación")],
+                        )
+                        .properties(height=420)
+                    )
+                    st.altair_chart(chart, use_container_width=True)
 
 
 # ==========================================

@@ -2061,27 +2061,76 @@ def vista_aum():
 
     df_fci_all = df[df["CARTERA"] == "CARTERA FCI"].copy()
 
-    tab_snap, tab_stock_fci, tab_stock_soc = st.tabs(
-        ["Snapshot FCI", "Stock FCI", "Stock Soc. Gerente"]
-    )
+    tab_fci, tab_stock_soc = st.tabs(["FCI", "Stock Soc. Gerente"])
 
-    # ── Tab 1: Snapshot FCI ───────────────────────────────────────────────────
-    with tab_snap:
+    # ── Tab 1: FCI (snapshot + stock lado a lado) ─────────────────────────────
+    with tab_fci:
         snapshots = sorted(df_fci_all["fecha_snapshot"].dropna().unique())
+        fechas_all = sorted(df_fci_all["fecha_snapshot"].dropna().unique())
+
         if not snapshots:
             st.info("Sin datos FCI.")
         else:
-            fecha_sel = st.select_slider("Fecha", options=snapshots,
-                                         value=snapshots[-1], key="aum_snap_fecha")
-            df_fci_dia = df_fci_all[df_fci_all["fecha_snapshot"] == fecha_sel]
-            _render_snapshot_fci(df_fci_dia, key_prefix="snap")
+            col_izq, col_der = st.columns([1, 2])
 
-    # ── Tab 2: Stock FCI ──────────────────────────────────────────────────────
-    with tab_stock_fci:
-        st.caption("Valuación total FCI acumulada por día.")
-        _render_barras_rango_fci(df_fci_all, color_field=None, key_prefix="stock_fci")
+            with col_izq:
+                fecha_sel = st.select_slider("Fecha snapshot", options=snapshots,
+                                             value=snapshots[-1], key="aum_snap_fecha")
+                df_fci_dia = df_fci_all[df_fci_all["fecha_snapshot"] == fecha_sel]
 
-    # ── Tab 3: Stock Soc. Gerente ─────────────────────────────────────────────
+                resumen = (
+                    df_fci_dia.groupby("EMISOR", as_index=False)["valuacion"]
+                    .sum()
+                    .sort_values("valuacion", ascending=False)
+                    .reset_index(drop=True)
+                )
+                total = resumen["valuacion"].sum()
+                resumen["Val."]  = resumen["valuacion"].apply(lambda v: f"{v:,.0f}")
+                resumen["%"]     = (resumen["valuacion"] / total * 100).apply(lambda v: f"{v:.1f}%")
+
+                st.markdown(
+                    f"<div style='font-size:12px;color:#888'>Total FCI</div>"
+                    f"<div style='font-size:22px;font-weight:700;color:#094293'>${total:,.0f}</div>",
+                    unsafe_allow_html=True,
+                )
+                st.dataframe(
+                    resumen[["EMISOR", "Val.", "%"]],
+                    hide_index=True, use_container_width=True,
+                    height=df_height(len(resumen), max_h=500),
+                )
+
+            with col_der:
+                if len(fechas_all) >= 2:
+                    fecha_desde, fecha_hasta = st.select_slider(
+                        "Período",
+                        options=fechas_all,
+                        value=(fechas_all[0], fechas_all[-1]),
+                        key="aum_fci_rango",
+                    )
+                    df_r = df_fci_all[
+                        (df_fci_all["fecha_snapshot"] >= fecha_desde) &
+                        (df_fci_all["fecha_snapshot"] <= fecha_hasta)
+                    ]
+                    df_plot = df_r.groupby("fecha_snapshot", as_index=False)["valuacion"].sum()
+                    fechas_rango = sorted(df_plot["fecha_snapshot"].unique())
+                    chart = (
+                        alt.Chart(df_plot)
+                        .mark_bar(color="#094293")
+                        .encode(
+                            x=alt.X("fecha_snapshot:O", title="Fecha", sort=fechas_rango,
+                                    axis=alt.Axis(labelAngle=-45)),
+                            y=alt.Y("valuacion:Q", title="Valuación total FCI",
+                                    axis=alt.Axis(format=",.0f")),
+                            tooltip=[alt.Tooltip("fecha_snapshot:O", title="Fecha"),
+                                     alt.Tooltip("valuacion:Q", format=",.0f", title="Valuación")],
+                        )
+                        .properties(height=420)
+                    )
+                    st.altair_chart(chart, use_container_width=True)
+                else:
+                    st.info("Necesitás al menos 2 fechas para el gráfico.")
+
+    # ── Tab 2: Stock Soc. Gerente ─────────────────────────────────────────────
     with tab_stock_soc:
         snapshots = sorted(df_fci_all["fecha_snapshot"].dropna().unique())
         if not snapshots:

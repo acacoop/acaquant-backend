@@ -2107,6 +2107,7 @@ def vista_aum():
                         value=(fechas_all[0], fechas_all[-1]),
                         key="aum_fci_rango",
                     )
+                    st.markdown("<div style='margin-top:46px'></div>", unsafe_allow_html=True)
                     df_r = df_fci_all[
                         (df_fci_all["fecha_snapshot"] >= fecha_desde) &
                         (df_fci_all["fecha_snapshot"] <= fecha_hasta)

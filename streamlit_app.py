@@ -2397,20 +2397,40 @@ def _render_volumenes():
 
     fechas = sorted(df["fecha"].unique())
 
+    if len(fechas) < 2:
+        st.info("Necesitás al menos 2 días de datos.")
+        return
+
+    # ── Selector de rango ─────────────────────────────────────────
+    fecha_desde, fecha_hasta = st.select_slider(
+        "Período",
+        options=fechas,
+        value=(fechas[0], fechas[-1]),
+        key="vol_rango",
+    )
+
+    df_rango = df[(df["fecha"] >= fecha_desde) & (df["fecha"] <= fecha_hasta)].copy()
+    fechas_rango = sorted(df_rango["fecha"].unique())
+
+    if df_rango.empty:
+        st.info("Sin datos en el rango seleccionado.")
+        return
+
+    # ── Gráfico barras apiladas ───────────────────────────────────
     chart = (
-        alt.Chart(df)
+        alt.Chart(df_rango)
         .mark_bar()
         .encode(
-            x=alt.X("fecha:O", title="Fecha", sort=fechas,
+            x=alt.X("fecha:O", title="Fecha", sort=fechas_rango,
                     axis=alt.Axis(labelAngle=-45)),
             y=alt.Y("money_mm:Q", title="Volumen (MM ARS)", stack=True,
-                    axis=alt.Axis(format=".1f")),
+                    axis=alt.Axis(format=",.0f")),
             color=alt.Color("curva:N", title="Curva",
                             legend=alt.Legend(orient="top")),
             tooltip=[
                 alt.Tooltip("fecha:O", title="Fecha"),
                 alt.Tooltip("curva:N", title="Curva"),
-                alt.Tooltip("money_mm:Q", format=".2f", title="Volumen (MM ARS)"),
+                alt.Tooltip("money_mm:Q", format=",.0f", title="Volumen (MM ARS)"),
             ],
         )
         .properties(height=420)
@@ -2418,15 +2438,16 @@ def _render_volumenes():
 
     st.altair_chart(chart, use_container_width=True)
 
-    # Tabla resumen por curva
+    # ── Tabla resumen del rango seleccionado ──────────────────────
     resumen = (
-        df.groupby("curva")["money_mm"]
+        df_rango.groupby("curva")["money_mm"]
         .sum()
         .reset_index()
         .rename(columns={"curva": "Curva", "money_mm": "Total (MM ARS)"})
         .sort_values("Total (MM ARS)", ascending=False)
+        .reset_index(drop=True)
     )
-    resumen["Total (MM ARS)"] = resumen["Total (MM ARS)"].round(2)
+    resumen["Total (MM ARS)"] = resumen["Total (MM ARS)"].apply(lambda v: f"{v:,.0f}")
     st.dataframe(resumen, hide_index=True, use_container_width=True,
                  height=df_height(len(resumen)))
 

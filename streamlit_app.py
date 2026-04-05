@@ -2189,15 +2189,16 @@ def vista_aum():
                         (df_fci_all["fecha_snapshot"] <= fecha_hasta) &
                         (df_fci_all["EMISOR"].isin(emisores_sel))
                     ]
-                    df_plot   = df_r.groupby(["fecha_snapshot", "EMISOR"], as_index=False)["valuacion"].sum()
-                    f_rango   = sorted(df_plot["fecha_snapshot"].unique())
+                    df_plot = df_r.groupby(["fecha_snapshot", "EMISOR"], as_index=False)["valuacion"].sum()
+                    f_rango = sorted(df_plot["fecha_snapshot"].unique())
                     chart = (
                         alt.Chart(df_plot)
-                        .mark_bar()
+                        .mark_line(point=alt.OverlayMarkDef(size=60))
                         .encode(
                             x=alt.X("fecha_snapshot:O", title="Fecha", sort=f_rango,
                                     axis=alt.Axis(labelAngle=-45)),
-                            y=alt.Y("valuacion:Q", title="Valuación (ARS)", stack=True,
+                            y=alt.Y("valuacion:Q", title="Valuación (ARS)",
+                                    scale=alt.Scale(zero=False),
                                     axis=alt.Axis(format=",.0f")),
                             color=alt.Color("EMISOR:N", scale=alt.Scale(scheme="tableau20"),
                                             legend=alt.Legend(orient="top", labelFontSize=10)),

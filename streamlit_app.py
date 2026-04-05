@@ -2115,11 +2115,13 @@ def vista_aum():
                     fechas_rango = sorted(df_plot["fecha_snapshot"].unique())
                     chart = (
                         alt.Chart(df_plot)
-                        .mark_bar(color="#094293")
+                        .mark_line(color="#094293", strokeWidth=2,
+                                   point=alt.OverlayMarkDef(size=60, color="#094293"))
                         .encode(
                             x=alt.X("fecha_snapshot:O", title="Fecha", sort=fechas_rango,
                                     axis=alt.Axis(labelAngle=-45)),
                             y=alt.Y("valuacion:Q", title="Valuación total FCI",
+                                    scale=alt.Scale(zero=False),
                                     axis=alt.Axis(format=",.0f")),
                             tooltip=[alt.Tooltip("fecha_snapshot:O", title="Fecha"),
                                      alt.Tooltip("valuacion:Q", format=",.0f", title="Valuación")],
@@ -2169,12 +2171,13 @@ def vista_aum():
 
             # ── Columna derecha: evolución por emisor seleccionado ────────────
             with col_der:
-                emisores_sel = st.multiselect(
-                    "Soc. Gerente", emisores, default=[], key="aum_soc_emisores",
-                    placeholder="Elegí una o más...",
+                emisor_sel = st.selectbox(
+                    "Soc. Gerente", [None] + emisores, index=0,
+                    format_func=lambda x: "Elegí una Soc. Gerente..." if x is None else x,
+                    key="aum_soc_emisores",
                 )
-                if not emisores_sel:
-                    st.info("Seleccioná al menos una Soc. Gerente para ver la evolución.")
+                if emisor_sel is None:
+                    st.info("Seleccioná una Soc. Gerente para ver la evolución.")
                 elif len(fechas_all) < 2:
                     st.info("Necesitás al menos 2 fechas de datos.")
                 else:
@@ -2187,23 +2190,21 @@ def vista_aum():
                     df_r = df_fci_all[
                         (df_fci_all["fecha_snapshot"] >= fecha_desde) &
                         (df_fci_all["fecha_snapshot"] <= fecha_hasta) &
-                        (df_fci_all["EMISOR"].isin(emisores_sel))
+                        (df_fci_all["EMISOR"] == emisor_sel)
                     ]
-                    df_plot = df_r.groupby(["fecha_snapshot", "EMISOR"], as_index=False)["valuacion"].sum()
+                    df_plot = df_r.groupby("fecha_snapshot", as_index=False)["valuacion"].sum()
                     f_rango = sorted(df_plot["fecha_snapshot"].unique())
                     chart = (
                         alt.Chart(df_plot)
-                        .mark_line(point=alt.OverlayMarkDef(size=60))
+                        .mark_line(color="#094293", strokeWidth=2,
+                                   point=alt.OverlayMarkDef(size=60, color="#094293"))
                         .encode(
                             x=alt.X("fecha_snapshot:O", title="Fecha", sort=f_rango,
                                     axis=alt.Axis(labelAngle=-45)),
                             y=alt.Y("valuacion:Q", title="Valuación (ARS)",
                                     scale=alt.Scale(zero=False),
                                     axis=alt.Axis(format=",.0f")),
-                            color=alt.Color("EMISOR:N", scale=alt.Scale(scheme="tableau20"),
-                                            legend=alt.Legend(orient="top", labelFontSize=10)),
                             tooltip=[alt.Tooltip("fecha_snapshot:O", title="Fecha"),
-                                     alt.Tooltip("EMISOR:N", title="Emisor"),
                                      alt.Tooltip("valuacion:Q", format=",.0f", title="Valuación")],
                         )
                         .properties(height=420)

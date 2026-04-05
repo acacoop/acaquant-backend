@@ -2140,19 +2140,23 @@ def vista_aum():
                 sel_rows = ev_fci.selection.rows if ev_fci.selection.rows else []
                 if sel_rows:
                     emisor_det = resumen.iloc[sel_rows[0]]["EMISOR"]
+                    df_det = df_fci_dia[df_fci_dia["EMISOR"] == emisor_det][["unidad", "valuacion"]].copy()
+                    df_det["TICKER"] = df_det["unidad"].map(
+                        lambda u: assets.get(u, {}).get("TICKER", u)
+                    )
                     df_det = (
-                        df_fci_dia[df_fci_dia["EMISOR"] == emisor_det][["unidad", "valuacion"]]
+                        df_det.groupby("TICKER", as_index=False)["valuacion"]
+                        .sum()
                         .sort_values("valuacion", ascending=False)
                         .reset_index(drop=True)
                     )
                     df_det["Valuación"] = df_det["valuacion"].apply(lambda v: f"{v:,.0f}")
-                    df_det = df_det.rename(columns={"unidad": "Ticker"})
                     st.markdown(
                         f"<div style='font-size:12px;color:#888;margin-top:8px'>{emisor_det}</div>",
                         unsafe_allow_html=True,
                     )
                     st.dataframe(
-                        df_det[["Ticker", "Valuación"]],
+                        df_det[["TICKER", "Valuación"]],
                         hide_index=True, use_container_width=True,
                         height=38 + 35 * len(df_det),
                     )

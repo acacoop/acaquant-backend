@@ -22,11 +22,22 @@ REGLAS_EMISOR_FCI = [
     ("Allaria",     "ALLARIA"),
     ("SBS",         "SBS"),
     ("Consultatio", "one618"),
+    ("ST",          "one618"),
     ("First",       "FIRST"),
     ("Balanz",      "BALANZ"),
     ("Compass",     "COMPASS"),
     ("ConoSur",     "ConoSUR"),
+    ("ADCAP",       "ADCAP"),
+    ("IEB",         "IEB"),
 ]
+
+
+def rellenar_vencimiento_fci(col_assets):
+    result = col_assets.update_many(
+        {"CARTERA": "CARTERA FCI", "VENCIMIENTO": ""},
+        {"$set": {"VENCIMIENTO": "NO APLICA"}},
+    )
+    print(f"  VENCIMIENTO → NO APLICA: {result.modified_count} docs")
 
 
 def rellenar_emisor_fci(col_assets):
@@ -54,6 +65,10 @@ def run():
     client = get_mongo_client()
     col_assets = client["Valuaciones"]["Assets"]
 
+    print("Rellenando VENCIMIENTO para CARTERA FCI...")
+    rellenar_vencimiento_fci(col_assets)
+
+    print("\nRellenando EMISOR para CARTERA FCI...")
     rellenar_emisor_fci(col_assets)
 
     client.close()

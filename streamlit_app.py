@@ -74,7 +74,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Carteras", "Operaciones", "AuM", "ONs"],
+        ["Libro", "Mercado", "Opciones", "Estrategias Opciones", "Portfolios", "Operaciones", "AuM", "ONs"],
         label_visibility="collapsed"
     )
 
@@ -1352,40 +1352,22 @@ def vista_mercado():
         _render_volumenes()
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _get_dolar_oficial():
+    """Último valor de Trading.DOLAR (tipo de cambio A3500 desde BCRA)."""
+    doc = get_db()["DOLAR"].find_one(sort=[("fecha", -1)])
+    return float(doc["valor"]) if doc else None
+
+
 @st.fragment(run_every=30)
-def vista_carteras():
+def vista_portfolios():
     """
-    Muestra el contenido de Valuaciones.Carteras:
-    posiciones por cuenta con precio de mercado y valuación.
+    Muestra el contenido de Valuaciones.Carteras por cuenta (tab por cuenta).
     main_carteras.py (cron en Digital Ocean) actualiza este collection.
     """
     db_val = get_db_valuaciones()
 
-    # ── MEP: leer config manual de Mongo (antes de renderizar) ───────────
-    mep_cfg = db_val["Dolar"].find_one({"type": "config"})
-    mep_actual = float(mep_cfg.get("mep", 0)) if mep_cfg else 0.0
-    if "mep_display" not in st.session_state:
-        st.session_state["mep_display"] = mep_actual
-
-    header_col, mep_col = st.columns([3, 1])
-    with header_col:
-        st.markdown("## ACAQuant | Carteras")
-    with mep_col:
-        nuevo_mep = st.number_input(
-            "MEP", min_value=0.0, max_value=10_000_000.0,
-            value=st.session_state["mep_display"],
-            step=1.0, format="%.2f",
-            key="mep_input", label_visibility="collapsed",
-            placeholder="Tipo de cambio MEP",
-        )
-        if abs(nuevo_mep - st.session_state["mep_display"]) > 1e-4:
-            db_val["Dolar"].update_one(
-                {"type": "config"},
-                {"$set": {"mep": nuevo_mep, "updated_at": datetime.utcnow()}},
-                upsert=True
-            )
-            st.session_state["mep_display"] = nuevo_mep
-            st.toast(f"MEP actualizado a ${nuevo_mep:,.2f}", icon="✅")
+    st.markdown("## ACAQuant | Portfolios")
 
     docs = list(db_val["Carteras"].find({}, {"_id": 0}))
     if not docs:
@@ -1394,12 +1376,16 @@ def vista_carteras():
 
     df = pd.DataFrame(docs)
 
+    # Dólar Oficial automático desde Trading.DOLAR
+    dolar = _get_dolar_oficial()
+
     # Timestamp de actualización + botón manual
     actualizado = df["actualizado"].dropna().replace("", None).dropna()
     col_ts, col_btn = st.columns([6, 1])
     with col_ts:
         if not actualizado.empty:
-            st.caption(f"Última sincronización Aunesa: {actualizado.iloc[0]}")
+            dolar_txt = f" | Dólar Oficial: ${dolar:,.2f}" if dolar else ""
+            st.caption(f"Última sincronización Aunesa: {actualizado.iloc[0]}{dolar_txt}")
     with col_btn:
         if st.button("↻ Actualizar", key="btn_actualizar_carteras", use_container_width=True):
             with st.spinner("Sincronizando..."):
@@ -1453,227 +1439,218 @@ def vista_carteras():
     if "VENCIMIENTO" in df.columns:
         df["VENCIMIENTO"] = pd.to_datetime(df["VENCIMIENTO"], errors="coerce").dt.strftime("%Y-%m")
 
-    st.divider()
-
-    # ── filtros ───────────────────────────────────────────────────────────
-    cuentas  = sorted(df["id_cuenta"].dropna().unique().tolist())
-    carteras = sorted(df["CARTERA"].dropna().unique().tolist()) if "CARTERA" in df.columns else []
-
-    col_fil1, col_fil2, col_resumen = st.columns([2, 2, 5])
-    with col_fil1:
-        cuenta_sel = st.selectbox("Cuenta", ["Todas"] + cuentas, key="carteras_cuenta")
-    with col_fil2:
-        cartera_sel = st.selectbox("Cartera", ["Todas"] + carteras, key="carteras_cartera")
-
-    df_view = df.copy()
-    if cuenta_sel != "Todas":
-        df_view = df_view[df_view["id_cuenta"] == cuenta_sel]
-    if cartera_sel != "Todas" and "CARTERA" in df_view.columns:
-        df_view = df_view[df_view["CARTERA"] == cartera_sel]
-
-    # ── métricas resumen ──────────────────────────────────────────────────
-    total_val = df_view["valuación"].sum()
-    mep_val   = st.session_state["mep_display"] or None
-
-    with col_resumen:
-        m1, m2 = st.columns(2)
-        m1.metric("Valuación ARS", fmt_money(total_val) if total_val else "N/A")
-        m2.metric("Valuación USD", fmt_money(total_val / mep_val) if (mep_val and total_val) else "N/A")
-
-    st.divider()
-
-    # ── tabla ─────────────────────────────────────────────────────────────
-    col_order = ["TICKER", "EMISOR", "VENCIMIENTO", "CLASE_ACTIVO", "CARTERA",
-                 "CALIFICACION", "cantidad", "precio_num", "valuación"]
-    if cuenta_sel == "Todas":
-        col_order = ["id_cuenta"] + col_order
-    cols_present = [c for c in col_order if c in df_view.columns]
-    display = df_view[cols_present].copy()
-    display.rename(columns={
-        "id_cuenta":    "Cuenta",
-        "cantidad":     "VN",
-        "precio_num":   "PX",
-        "valuación":    "Valuación",
-        "TICKER":       "Ticker",
-        "EMISOR":       "Emisor",
-        "VENCIMIENTO":  "Vencimiento",
-        "CLASE_ACTIVO": "Clase",
-        "CARTERA":      "Cartera",
-        "CALIFICACION": "Calificación",
-    }, inplace=True)
-    sort_cols = (["Cuenta"] if cuenta_sel == "Todas" else []) + (["Ticker"] if "Ticker" in display.columns else [])
-    if sort_cols:
-        display = display.sort_values(sort_cols)
-
-    num_subset = [c for c in ["VN", "Valuación"] if c in display.columns]
-    fmt_cols = {
-        "VN":        lambda v: f"{v:,.0f}" if pd.notna(v) else "-",
-        "PX":        lambda v: f"{v:,.4f}" if pd.notna(v) else "-",
-        "Valuación": lambda v: fmt_money(v) if pd.notna(v) else "-",
-    }
-    styler = (
-        display.style
-        .map(lambda v: (
-            "color: #00cc66; font-weight: bold" if pd.notna(v) and v > 0 else
-            "color: #ff4444; font-weight: bold" if pd.notna(v) and v < 0 else ""
-        ), subset=num_subset)
-        .format({k: v for k, v in fmt_cols.items() if k in display.columns})
-    )
-    st.dataframe(styler, hide_index=True, use_container_width=True,
-                 height=df_height(len(display), max_h=900))
+    # ── tabs por cuenta ───────────────────────────────────────────────────
+    cuentas = sorted(df["id_cuenta"].dropna().unique().tolist())
+    tab_labels = ["Todas"] + [str(c) for c in cuentas]
+    tabs = st.tabs(tab_labels)
 
     def _fmt_group(grp_df, label_col):
-        """Agrega columna USD y formatea ARS. Recibe df con col 'val_raw'."""
         grp_df = grp_df.copy()
         grp_df["Valuación USD"] = grp_df["val_raw"].apply(
-            lambda v: fmt_money(v / mep_val) if (mep_val and pd.notna(v)) else "-"
+            lambda v: fmt_money(v / dolar) if (dolar and pd.notna(v)) else "-"
         )
         grp_df["Valuación ARS"] = grp_df["val_raw"].apply(
             lambda v: fmt_money(v) if pd.notna(v) else "-"
         )
         return grp_df[[label_col, "Valuación ARS", "Valuación USD"]]
 
-    # ── resumen inferior ──────────────────────────────────────────────────
-    st.divider()
-    if cuenta_sel == "Todas":
-        st.caption("VALUACIÓN POR CUENTA")
-        raw = (
-            df_view.groupby("id_cuenta")["valuación"]
-            .sum().reset_index()
-            .rename(columns={"id_cuenta": "Cuenta", "valuación": "val_raw"})
-            .sort_values("val_raw", ascending=False)
-        )
-        st.dataframe(_fmt_group(raw, "Cuenta"), hide_index=True,
-                     use_container_width=True, height=df_height(len(raw)))
-        return
+    for tab, cuenta in zip(tabs, tab_labels):
+        with tab:
+            es_todas = (cuenta == "Todas")
+            df_tab = df.copy() if es_todas else df[df["id_cuenta"] == cuenta].copy()
 
-    # Cuenta seleccionada + sin cartera específica → tabla por cartera
-    if cartera_sel == "Todas" and "CARTERA" in df_view.columns:
-        st.caption(f"VALUACIÓN POR CARTERA — Cuenta {cuenta_sel}")
-        raw = (
-            df_view.groupby("CARTERA")["valuación"]
-            .sum().reset_index()
-            .rename(columns={"CARTERA": "Cartera", "valuación": "val_raw"})
-            .sort_values("val_raw", ascending=False)
-        )
-        st.dataframe(_fmt_group(raw, "Cartera"), hide_index=True,
-                     use_container_width=True, height=df_height(len(raw)))
+            # ── filtro cartera ─────────────────────────────────────────
+            carteras = sorted(df_tab["CARTERA"].dropna().unique().tolist()) if "CARTERA" in df_tab.columns else []
+            col_fil, col_resumen = st.columns([2, 5])
+            with col_fil:
+                cartera_sel = st.selectbox("Cartera", ["Todas"] + carteras,
+                                           key=f"cartera_{cuenta}")
+            df_view = df_tab.copy()
+            if cartera_sel != "Todas" and "CARTERA" in df_view.columns:
+                df_view = df_view[df_view["CARTERA"] == cartera_sel]
 
-    # ── gráficos analíticos ───────────────────────────────────────────────
-    st.divider()
+            # ── métricas resumen ───────────────────────────────────────
+            total_val = df_view["valuación"].sum()
+            with col_resumen:
+                m1, m2 = st.columns(2)
+                m1.metric("Valuación ARS", fmt_money(total_val) if total_val else "N/A")
+                m2.metric("Valuación USD", fmt_money(total_val / dolar) if (dolar and total_val) else "N/A")
 
-    # Torta + Tabla Emisor (side by side)
-    if "CARTERA" in df_view.columns and "CLASE_ACTIVO" in df_view.columns and "EMISOR" in df_view.columns:
-        pie_col = "CLASE_ACTIVO" if cartera_sel != "Todas" else "CARTERA"
-        pie_label = "Clase" if cartera_sel != "Todas" else "Cartera"
-        pie_data = (
-            df_view.groupby(pie_col)["valuación"]
-            .sum().reset_index()
-            .rename(columns={pie_col: pie_label, "valuación": "Valuación"})
-        )
-        pie_data = pie_data[pie_data["Valuación"] > 0].copy()
-        pie_data = pie_data.sort_values(pie_label)  # orden estable para colores fijos
-        total_pie = pie_data["Valuación"].sum()
-        pie_data["pct"] = pie_data["Valuación"] / total_pie if total_pie else 0
-        # Leyenda con % incluido; dominio fijo = colores estables entre renders
-        pie_data["leyenda"] = pie_data.apply(
-            lambda r: f"{r[pie_label]}  {r['pct']:.1%}", axis=1
-        )
-        domain_leyenda = pie_data["leyenda"].tolist()
+            st.divider()
 
-        emisor_data = (
-            df_view.groupby("EMISOR")["valuación"]
-            .sum().reset_index()
-            .rename(columns={"EMISOR": "Emisor", "valuación": "Valuación"})
-            .sort_values("Valuación", ascending=False)
-        )
-        pie_h = max(320, df_height(len(emisor_data), max_h=9999))
+            # ── tabla principal ────────────────────────────────────────
+            col_order = ["TICKER", "EMISOR", "VENCIMIENTO", "CLASE_ACTIVO", "CARTERA",
+                         "CALIFICACION", "cantidad", "precio_num", "valuación"]
+            if es_todas:
+                col_order = ["id_cuenta"] + col_order
+            cols_present = [c for c in col_order if c in df_view.columns]
+            display = df_view[cols_present].copy()
+            display.rename(columns={
+                "id_cuenta":    "Cuenta",
+                "cantidad":     "VN",
+                "precio_num":   "PX",
+                "valuación":    "Valuación",
+                "TICKER":       "Ticker",
+                "EMISOR":       "Emisor",
+                "VENCIMIENTO":  "Vencimiento",
+                "CLASE_ACTIVO": "Clase",
+                "CARTERA":      "Cartera",
+                "CALIFICACION": "Calificación",
+            }, inplace=True)
+            sort_cols = (["Cuenta"] if es_todas else []) + (["Ticker"] if "Ticker" in display.columns else [])
+            if sort_cols:
+                display = display.sort_values(sort_cols)
 
-        n_cats = len(pie_data)
-        legend_cols = min(n_cats, 3)
-        arc = alt.Chart(pie_data).mark_arc(innerRadius=60).encode(
-            theta=alt.Theta("Valuación:Q"),
-            color=alt.Color("leyenda:N",
-                            scale=alt.Scale(domain=domain_leyenda, scheme="tableau10"),
-                            legend=alt.Legend(
-                                title=None,
-                                orient="bottom",
-                                columns=legend_cols,
-                                labelLimit=180,
-                                symbolSize=120,
-                            )),
-            tooltip=[alt.Tooltip(f"{pie_label}:N"),
-                     alt.Tooltip("Valuación:Q", format=",.0f"),
-                     alt.Tooltip("pct:Q", format=".1%", title="%")],
-        )
-        torta = arc.properties(
-            title=alt.TitleParams(f"Composición por {pie_label}", anchor="middle"),
-            height=280,
-        )
-
-        emisor_top = emisor_data.head(5).copy()
-        emisor_top["Valuación"] = emisor_top["Valuación"].apply(
-            lambda v: fmt_money(v) if pd.notna(v) else "-"
-        )
-
-        col_torta, col_emisor = st.columns([3, 2])
-        with col_torta:
-            st.altair_chart(torta, use_container_width=True)
-        with col_emisor:
-            st.caption("TOP STOCK x EMISOR")
-            st.dataframe(emisor_top, hide_index=True, use_container_width=True,
-                         height=df_height(len(emisor_top), max_h=9999))
-
-    # Gráfico de vencimientos
-    if "VENCIMIENTO" in df_view.columns:
-        st.divider()
-        venc_data = df_view[
-            df_view["VENCIMIENTO"].notna() &
-            (df_view["VENCIMIENTO"] != "") &
-            (~df_view["VENCIMIENTO"].str.upper().isin(["NO APLICA", "NONE"]))
-        ].copy()
-        if not venc_data.empty:
-            venc_data = (
-                venc_data.groupby("VENCIMIENTO")["valuación"]
-                .sum().reset_index()
-                .rename(columns={"VENCIMIENTO": "Vencimiento", "valuación": "Valuación"})
-                .sort_values("Vencimiento")
+            num_subset = [c for c in ["VN", "Valuación"] if c in display.columns]
+            fmt_cols = {
+                "VN":        lambda v: f"{v:,.0f}" if pd.notna(v) else "-",
+                "PX":        lambda v: f"{v:,.4f}" if pd.notna(v) else "-",
+                "Valuación": lambda v: fmt_money(v) if pd.notna(v) else "-",
+            }
+            styler = (
+                display.style
+                .map(lambda v: (
+                    "color: #00cc66; font-weight: bold" if pd.notna(v) and v > 0 else
+                    "color: #ff4444; font-weight: bold" if pd.notna(v) and v < 0 else ""
+                ), subset=num_subset)
+                .format({k: v for k, v in fmt_cols.items() if k in display.columns})
             )
-            venc_data["label"] = venc_data["Valuación"].apply(fmt_money)
-            bars = (
-                alt.Chart(venc_data)
-                .mark_bar()
-                .encode(
-                    x=alt.X("Vencimiento:N", sort=None, axis=alt.Axis(labelAngle=-45)),
-                    y=alt.Y("Valuación:Q", axis=alt.Axis(format=",.0f"),
-                             scale=alt.Scale(nice=True)),
-                    tooltip=["Vencimiento:N", alt.Tooltip("Valuación:Q", format=",.0f")],
+            st.dataframe(styler, hide_index=True, use_container_width=True,
+                         height=df_height(len(display), max_h=900))
+
+            # ── resumen inferior ───────────────────────────────────────
+            st.divider()
+            if es_todas:
+                st.caption("VALUACIÓN POR CUENTA")
+                raw = (
+                    df_view.groupby("id_cuenta")["valuación"]
+                    .sum().reset_index()
+                    .rename(columns={"id_cuenta": "Cuenta", "valuación": "val_raw"})
+                    .sort_values("val_raw", ascending=False)
                 )
-            )
-            bar_labels = (
-                alt.Chart(venc_data)
-                .mark_text(align="center", baseline="bottom", dy=-4, fontSize=10, fontWeight="bold")
-                .encode(
-                    x=alt.X("Vencimiento:N", sort=None),
-                    y=alt.Y("Valuación:Q"),
-                    text=alt.Text("label:N"),
-                )
-            )
-            bar_venc = (bars + bar_labels).properties(
-                title="Valuación por Vencimiento", height=420
-            )
-            st.altair_chart(bar_venc, use_container_width=True, theme="streamlit")
+                st.dataframe(_fmt_group(raw, "Cuenta"), hide_index=True,
+                             use_container_width=True, height=df_height(len(raw)))
+                continue  # no charts en tab Todas
 
-    # ── assets incompletos (colapsado, solo si hay pendientes) ───────────
-    if not _incompletos_raw.empty:
-        incompletos = _incompletos_raw.rename(columns={
-            "unidad": "Unidad", "TICKER": "Ticker", "EMISOR": "Emisor",
-            "CARTERA": "Cartera", "CLASE_ACTIVO": "Clase", "CALIFICACION": "Calificación",
-        })
-        with st.expander(f"⚠️ Assets sin metadata completa ({len(incompletos)})", expanded=False):
-            st.caption("Estos instrumentos tienen datos financieros pero faltan campos en Valuaciones.Assets.")
-            st.dataframe(incompletos, hide_index=True, use_container_width=True,
-                         height=df_height(len(incompletos), max_h=400))
+            if cartera_sel == "Todas" and "CARTERA" in df_view.columns:
+                st.caption(f"VALUACIÓN POR CARTERA — Cuenta {cuenta}")
+                raw = (
+                    df_view.groupby("CARTERA")["valuación"]
+                    .sum().reset_index()
+                    .rename(columns={"CARTERA": "Cartera", "valuación": "val_raw"})
+                    .sort_values("val_raw", ascending=False)
+                )
+                st.dataframe(_fmt_group(raw, "Cartera"), hide_index=True,
+                             use_container_width=True, height=df_height(len(raw)))
+
+            # ── gráficos analíticos ────────────────────────────────────
+            st.divider()
+            if "CARTERA" in df_view.columns and "CLASE_ACTIVO" in df_view.columns and "EMISOR" in df_view.columns:
+                pie_col = "CLASE_ACTIVO" if cartera_sel != "Todas" else "CARTERA"
+                pie_label = "Clase" if cartera_sel != "Todas" else "Cartera"
+                pie_data = (
+                    df_view.groupby(pie_col)["valuación"]
+                    .sum().reset_index()
+                    .rename(columns={pie_col: pie_label, "valuación": "Valuación"})
+                )
+                pie_data = pie_data[pie_data["Valuación"] > 0].copy()
+                pie_data = pie_data.sort_values(pie_label)
+                total_pie = pie_data["Valuación"].sum()
+                pie_data["pct"] = pie_data["Valuación"] / total_pie if total_pie else 0
+                pie_data["leyenda"] = pie_data.apply(
+                    lambda r: f"{r[pie_label]}  {r['pct']:.1%}", axis=1
+                )
+                domain_leyenda = pie_data["leyenda"].tolist()
+
+                emisor_data = (
+                    df_view.groupby("EMISOR")["valuación"]
+                    .sum().reset_index()
+                    .rename(columns={"EMISOR": "Emisor", "valuación": "Valuación"})
+                    .sort_values("Valuación", ascending=False)
+                )
+
+                n_cats = len(pie_data)
+                arc = alt.Chart(pie_data).mark_arc(innerRadius=60).encode(
+                    theta=alt.Theta("Valuación:Q"),
+                    color=alt.Color("leyenda:N",
+                                    scale=alt.Scale(domain=domain_leyenda, scheme="tableau10"),
+                                    legend=alt.Legend(
+                                        title=None, orient="bottom",
+                                        columns=min(n_cats, 3), labelLimit=180, symbolSize=120,
+                                    )),
+                    tooltip=[alt.Tooltip(f"{pie_label}:N"),
+                             alt.Tooltip("Valuación:Q", format=",.0f"),
+                             alt.Tooltip("pct:Q", format=".1%", title="%")],
+                )
+                torta = arc.properties(
+                    title=alt.TitleParams(f"Composición por {pie_label}", anchor="middle"),
+                    height=280,
+                )
+                emisor_top = emisor_data.head(5).copy()
+                emisor_top["Valuación"] = emisor_top["Valuación"].apply(
+                    lambda v: fmt_money(v) if pd.notna(v) else "-"
+                )
+                col_torta, col_emisor = st.columns([3, 2])
+                with col_torta:
+                    st.altair_chart(torta, use_container_width=True)
+                with col_emisor:
+                    st.caption("TOP STOCK x EMISOR")
+                    st.dataframe(emisor_top, hide_index=True, use_container_width=True,
+                                 height=df_height(len(emisor_top), max_h=9999))
+
+            if "VENCIMIENTO" in df_view.columns:
+                st.divider()
+                venc_data = df_view[
+                    df_view["VENCIMIENTO"].notna() &
+                    (df_view["VENCIMIENTO"] != "") &
+                    (~df_view["VENCIMIENTO"].str.upper().isin(["NO APLICA", "NONE"]))
+                ].copy()
+                if not venc_data.empty:
+                    venc_data = (
+                        venc_data.groupby("VENCIMIENTO")["valuación"]
+                        .sum().reset_index()
+                        .rename(columns={"VENCIMIENTO": "Vencimiento", "valuación": "Valuación"})
+                        .sort_values("Vencimiento")
+                    )
+                    venc_data["label"] = venc_data["Valuación"].apply(fmt_money)
+                    bars = (
+                        alt.Chart(venc_data)
+                        .mark_bar()
+                        .encode(
+                            x=alt.X("Vencimiento:N", sort=None, axis=alt.Axis(labelAngle=-45)),
+                            y=alt.Y("Valuación:Q", axis=alt.Axis(format=",.0f"),
+                                     scale=alt.Scale(nice=True)),
+                            tooltip=["Vencimiento:N", alt.Tooltip("Valuación:Q", format=",.0f")],
+                        )
+                    )
+                    bar_labels = (
+                        alt.Chart(venc_data)
+                        .mark_text(align="center", baseline="bottom", dy=-4, fontSize=10, fontWeight="bold")
+                        .encode(
+                            x=alt.X("Vencimiento:N", sort=None),
+                            y=alt.Y("Valuación:Q"),
+                            text=alt.Text("label:N"),
+                        )
+                    )
+                    st.altair_chart(
+                        (bars + bar_labels).properties(title="Valuación por Vencimiento", height=420),
+                        use_container_width=True, theme="streamlit",
+                    )
+
+            # ── assets incompletos (solo en tabs de cuenta individual) ──
+            if not _incompletos_raw.empty:
+                df_inc_cuenta = _incompletos_raw[
+                    _incompletos_raw.index.isin(df_tab.index)
+                ] if not es_todas else _incompletos_raw
+                if not df_inc_cuenta.empty:
+                    incompletos = df_inc_cuenta.rename(columns={
+                        "unidad": "Unidad", "TICKER": "Ticker", "EMISOR": "Emisor",
+                        "CARTERA": "Cartera", "CLASE_ACTIVO": "Clase", "CALIFICACION": "Calificación",
+                    })
+                    with st.expander(f"⚠️ Assets sin metadata completa ({len(incompletos)})", expanded=False):
+                        st.caption("Estos instrumentos tienen datos financieros pero faltan campos en Valuaciones.Assets.")
+                        st.dataframe(incompletos, hide_index=True, use_container_width=True,
+                                     height=df_height(len(incompletos), max_h=400))
 
 
 # ==========================================
@@ -2772,8 +2749,8 @@ elif vista == "Estrategias Opciones":
     vista_estrategias()
 elif vista == "Mercado":
     vista_mercado()
-elif vista == "Carteras":
-    vista_carteras()
+elif vista == "Portfolios":
+    vista_portfolios()
 elif vista == "Operaciones":
     vista_operaciones()
 elif vista == "AuM":

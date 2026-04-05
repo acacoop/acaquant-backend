@@ -208,17 +208,30 @@ Logs en `/root/TradingAV/logs/`.
 
 ## Streamlit Dashboard — Vistas
 
-| Vista | Descripción |
-|---|---|
-| Libro | Order book en tiempo real de ROFEX |
-| Mercado | Microstructure, VWAP, volumen intraday |
-| Opciones | Greeks GGAL, Black-Scholes, IV |
-| Estrategias Opciones | Spreads pre-configurados |
-| Carteras | Posiciones por cuenta/cartera desde Aunesa; MEP editable guardado en `Valuaciones.Dolar` |
-| Operaciones | Cash Flow (depósitos/transferencias/extracciones) desde `CashFlow.Movimientos`; filtros por fecha, moneda, accionista; gráficos ARS y USD independientes |
-| AuM | Posiciones valuadas desde `Valuaciones.AuM`; modos Total/Por cuenta; moneda ARS o USD MEP; tabla Instrumento+Tipo+Valuación + torta por tipo de activo |
-| Forwards | Matriz NxN de tasas forward por curva. Tab Tiempo Real (ForwardsLive) + tab Histórico con select_slider por fecha (ForwardsHistorico). Heatmap rojo-amarillo-verde centrado en mediana. |
-| Mercado → tab Breakevens | Inflación mensual implícita CER/Lecap. Tab Tiempo Real (BreakevensLive) + tab Histórico (BreakevensHistorico). Tabla: #, Lecap, CER, Plazo, Días, TEM Lecap, Paridad CER, Breakeven mensual. |
+Nav principal: **Mercado · Opciones · Portfolios · Operaciones · AuM · ONs**
+
+| Vista | Sub-tabs | Descripción |
+|---|---|---|
+| Mercado | Mercado · Libro · Curvas · Breakevens · Forwards · Retorno Total · Volúmenes | Microstructure, VWAP, volumen intraday; order book en tiempo real (Libro, run_every=2s); curvas de rendimiento, breakevens CER/Lecap, forwards, retorno total, volúmenes |
+| Opciones | Mercado · Estrategias | Mercado: cadena GGAL con SPOT/VR/ADR/Tasa RF + volatility smile. Estrategias: spreads pre-configurados con payoff y costo histórico |
+| Portfolios | una tab por cuenta | Posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial leído automáticamente de `Trading.DOLAR` (último valor). Tab por cada `id_cuenta` único; filtro cartera dentro de cada tab |
+| Operaciones | — | Cash Flow (depósitos/transferencias/extracciones) desde `CashFlow.Movimientos`; filtros por fecha, moneda, accionista; gráficos ARS y USD independientes |
+| AuM | FCI · Stock Soc. Gerente · Tasa Fija | FCI: snapshot por fecha + gráfico evolución + detalle fondos por soc. gerente al clickear. Stock Soc. Gerente: evolución individual o comparativo base 100. Tasa Fija: posiciones en instrumentos de `Trading.Curvas` (curva=tasa_fija) + gráfico de stock actual y cobros proyectados al vencimiento |
+| ONs | — | Yield screener ONs en tiempo real |
+
+### AuM → Tab Tasa Fija
+
+Muestra posiciones de instrumentos cuyo `ticker_corto` está en `Trading.Curvas` con `curva=tasa_fija`.
+
+**Flujo de joins:**
+1. `Trading.Curvas` (filtro `curva=tasa_fija`) → `ticker_corto`, `fecha_vencimiento`, `flujo_vencimiento`
+2. `Valuaciones.Assets` → match `TICKER == ticker_corto` → obtiene `unidad`
+3. `Valuaciones.AuM` → filtra por esas `unidad` → `cantidad` (nominales) y `valuacion`
+
+**Gráfico stock + flujos futuros:**
+- Barras apiladas por `ticker_corto`, coloreadas por instrumento
+- Fecha snapshot (hoy): barras semitransparentes = valuación actual (stock)
+- Fechas de vencimiento: barras sólidas = `cantidad × flujo_vencimiento / 100` = cobro proyectado al vencimiento
 
 ### Trading.ForwardsLive y Trading.ForwardsHistorico
 
@@ -240,7 +253,7 @@ Logs en `/root/TradingAV/logs/`.
 - **Altair v4 pie labels**: usar `mark_text(radius=N, color="white")` dentro del arco. Labels fuera del arco se cortan.
 - **Altair eje X duplicado en barras mensuales**: usar `strftime` para agrupar como string + encoding `:O` con `sort=` explícito, nunca `:T`.
 - **Altair fontWeight**: usar entero (`fontWeight=600`), no string.
-- **MEP**: guardado en `Valuaciones.Dolar` con `{"type": "config", "mep": valor}`. Editable desde vista Carteras.
+- **Dólar Oficial en Portfolios**: leído automáticamente de `Trading.DOLAR` (sort por `fecha` desc, campo `valor`). Ya no hay input manual de MEP en esa vista.
 - **Valuación AuM**: recalculada en la vista (no solo leída de Mongo) para corregir datos históricos. TIPOS_DIVISOR_100 = {Títulos Públicos, Letras, ONs, Fideicomisos, CPD}.
 - **CashFlow**: DB se llama `CashFlow` (sin espacio). Signo: depósitos positivos, extracciones negativas.
 - **En el servidor**: siempre usar `/root/TradingAV/venv/bin/python`, no `python3`.

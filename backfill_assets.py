@@ -29,6 +29,10 @@ REGLAS_EMISOR_FCI = [
     ("ConoSur",     "ConoSUR"),
     ("ADCAP",       "ADCAP"),
     ("IEB",         "IEB"),
+    ("Lombard",     "LOMBARD"),
+    ("megaqm",      "MEGAQM"),
+    ("Bull Market", "BULL MARKET"),
+    ("BULLMARKET",  "BULL MARKET"),
 ]
 
 

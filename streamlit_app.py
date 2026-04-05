@@ -1930,138 +1930,17 @@ def _cargar_aum():
     return df
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _cargar_assets():
+    """Devuelve dict {unidad: {CARTERA, EMISOR, TICKER, CLASE_ACTIVO, CALIFICACION, VENCIMIENTO}}."""
+    db = get_db_valuaciones()
+    docs = list(db["Assets"].find({}, {"_id": 0, "unidad": 1,
+        "CARTERA": 1, "EMISOR": 1, "TICKER": 1,
+        "CLASE_ACTIVO": 1, "CALIFICACION": 1, "VENCIMIENTO": 1}))
+    return {d["unidad"]: d for d in docs}
+
+
 def vista_aum():
-    import re as _re
-
-    _DIVISOR_100 = {s.lower() for s in {
-        "Títulos Públicos",
-        "Letras del Tesoro Capitalizables en Pesos",
-        "Letras del Tesoro Ajustables por CER en Pesos",
-        "Títulos de Deuda",
-        "Obligaciones Negociables",
-        "Fideicomisos Financieros",
-        "Cheques de Pago Diferido",
-        "LETES",
-    }}
-    _FUTUROS = {"Futuros", "Forwards", "Derivados"}
-
-    def _limpiar_unidad(u):
-        u = str(u)
-        m = _re.search(r'\]\s*\S+\s*-\s*(.+)', u)
-        if m:
-            return m.group(1).strip()
-        m2 = _re.search(r'\]\s*(\S+)', u)
-        if m2:
-            return m2.group(1).strip()
-        return u.strip()
-
-    def _valuar(row):
-        precio   = row["precio"]   if pd.notna(row["precio"])   else 1.0
-        cantidad = row["cantidad"] if pd.notna(row["cantidad"]) else 0.0
-        tipo     = str(row.get("tipoTitulo") or "")
-        if any(f.lower() in tipo.lower() for f in _FUTUROS):
-            precio += 1.0
-        if tipo.lower() in _DIVISOR_100 or tipo.lower().startswith(("letras", "letes")):
-            return round((precio * cantidad) / 100, 6)
-        return round(precio * cantidad, 6)
-
-    def _render_aum(df_src, moneda, mep, agg_por_tipo=False):
-        """Renderiza tabla + pie para un dataframe ya filtrado."""
-        df_src = df_src.copy()
-        df_src["valuacion"] = df_src.apply(_valuar, axis=1)
-
-        divisor = mep if (moneda == "USD" and mep) else 1.0
-        simbolo = "USD " if moneda == "USD" else ""
-
-        total_val = df_src["valuacion"].sum() / divisor
-        st.markdown(
-            f"<div style='font-size:13px;color:#888;margin-bottom:4px'>Valuación total</div>"
-            f"<div style='font-size:28px;font-weight:700;color:#094293'>{simbolo}{fmt_nom(total_val)}</div>",
-            unsafe_allow_html=True
-        )
-        st.markdown("---")
-
-        col_table, col_chart = st.columns([2, 1])
-
-        with col_table:
-            if agg_por_tipo:
-                display = (
-                    df_src.groupby("tipoTitulo", as_index=False)["valuacion"]
-                    .sum()
-                    .sort_values("valuacion", ascending=False)
-                    .reset_index(drop=True)
-                )
-                display["valuacion"] = display["valuacion"] / divisor
-                display["Valuación"] = display["valuacion"].apply(lambda v: f"{simbolo}{fmt_nom(v)}")
-                display_show = display[["tipoTitulo", "Valuación"]].copy()
-                display_show.columns = ["Tipo", "Valuación"]
-                st.dataframe(
-                    display_show,
-                    hide_index=True,
-                    use_container_width=True,
-                    height=df_height(len(display_show), max_h=600),
-                    column_config={
-                        "Tipo":      st.column_config.TextColumn("Tipo",      width="medium"),
-                        "Valuación": st.column_config.TextColumn("Valuación", width="small"),
-                    }
-                )
-            else:
-                display = (
-                    df_src.groupby(["instrumento", "tipoTitulo"], as_index=False)["valuacion"]
-                    .sum()
-                    .sort_values("valuacion", ascending=False)
-                    .reset_index(drop=True)
-                )
-                display["valuacion"] = display["valuacion"] / divisor
-                display["Valuación"] = display["valuacion"].apply(lambda v: f"{simbolo}{fmt_nom(v)}")
-                display_show = display[["instrumento", "tipoTitulo", "Valuación"]].copy()
-                display_show.columns = ["Instrumento", "Tipo", "Valuación"]
-                st.dataframe(
-                    display_show,
-                    hide_index=True,
-                    use_container_width=True,
-                    height=df_height(len(display_show), max_h=600),
-                    column_config={
-                        "Instrumento": st.column_config.TextColumn("Instrumento", width="medium"),
-                        "Tipo":        st.column_config.TextColumn("Tipo",        width="small"),
-                        "Valuación":   st.column_config.TextColumn("Valuación",   width="small"),
-                    }
-                )
-
-        with col_chart:
-            df_tipo = (
-                df_src.groupby("tipoTitulo", as_index=False)["valuacion"]
-                .sum()
-                .rename(columns={"tipoTitulo": "Tipo", "valuacion": "Valor"})
-            )
-            df_tipo["Valor"] = df_tipo["Valor"] / divisor
-            df_tipo = df_tipo[df_tipo["Valor"] > 0].copy()
-            total_v = df_tipo["Valor"].sum()
-            df_tipo["pct"] = (df_tipo["Valor"] / total_v * 100).round(1)
-            df_tipo["pct_label"] = df_tipo["pct"].apply(lambda x: f"{x:.1f}%")
-
-            base = alt.Chart(df_tipo).encode(
-                theta=alt.Theta("Valor:Q", stack=True),
-                color=alt.Color(
-                    "Tipo:N",
-                    scale=alt.Scale(scheme="tableau10"),
-                    legend=alt.Legend(orient="bottom", columns=1, labelFontSize=10),
-                ),
-            )
-            arc = base.mark_arc(innerRadius=45, outerRadius=100).encode(
-                tooltip=[
-                    alt.Tooltip("Tipo:N",  title="Tipo"),
-                    alt.Tooltip("Valor:Q", title="Valuación", format=",.0f"),
-                    alt.Tooltip("pct:Q",   title="%",         format=".1f"),
-                ]
-            )
-            text = base.mark_text(radius=75, size=13, color="white").encode(
-                text=alt.Text("pct_label:N"),
-            )
-            pie = (arc + text).properties(height=380, padding={"top": 20})
-            st.altair_chart(pie, use_container_width=True)
-
-    # ── Carga datos ───────────────────────────────────────────────────────────
     st.markdown("## ACAQuant | AuM")
 
     df = _cargar_aum()
@@ -2069,45 +1948,84 @@ def vista_aum():
         st.warning("Sin datos. Ejecutá `main_aum.py` para cargar las posiciones.")
         return
 
-    df["instrumento"] = df["unidad"].apply(_limpiar_unidad)
-    df = df[~df["instrumento"].str.contains("USDL", na=False)].copy()
+    assets = _cargar_assets()
 
-    # ── MEP ───────────────────────────────────────────────────────────────────
-    db_val  = get_db_valuaciones()
-    mep_cfg = db_val["Dolar"].find_one({"type": "config"})
-    mep_val = float(mep_cfg.get("mep", 0)) if mep_cfg else 0.0
+    # ── Join AuM con Assets ───────────────────────────────────────────────────
+    df["CARTERA"]     = df["unidad"].map(lambda u: assets.get(u, {}).get("CARTERA",     ""))
+    df["EMISOR"]      = df["unidad"].map(lambda u: assets.get(u, {}).get("EMISOR",      ""))
+    df["TICKER"]      = df["unidad"].map(lambda u: assets.get(u, {}).get("TICKER",      ""))
+    df["CLASE_ACTIVO"]= df["unidad"].map(lambda u: assets.get(u, {}).get("CLASE_ACTIVO",""))
 
-    # ── Controles ─────────────────────────────────────────────────────────────
-    snapshots = sorted(df["fecha_snapshot"].dropna().unique(), reverse=True)
-    c1, c2, c3 = st.columns([2, 1, 1])
-    with c1:
-        snap_sel = st.selectbox("Snapshot", snapshots, key="aum_snap",
-                                label_visibility="collapsed",
-                                format_func=lambda s: f"Snapshot: {s}")
-    with c2:
-        modo = st.radio("Vista", ["Total", "Por cuenta"], horizontal=True,
-                        key="aum_modo", label_visibility="collapsed")
-    with c3:
-        moneda = st.radio("Moneda", ["ARS", "USD"], horizontal=True,
-                          key="aum_moneda", label_visibility="collapsed")
-        if moneda == "USD" and mep_val:
-            st.caption(f"MEP: ${mep_val:,.2f}")
+    # ── Slider de fecha ───────────────────────────────────────────────────────
+    snapshots = sorted(df["fecha_snapshot"].dropna().unique())
+    fecha_sel = st.select_slider(
+        "Fecha",
+        options=snapshots,
+        value=snapshots[-1],
+        key="aum_fecha",
+    )
+    df = df[df["fecha_snapshot"] == fecha_sel].copy()
 
-    df = df[df["fecha_snapshot"] == snap_sel].copy()
+    # ── Vista CARTERA FCI ─────────────────────────────────────────────────────
+    st.markdown("### Cartera FCI")
 
-    if modo == "Total":
-        agg_sel = st.radio("Agrupar por", ["Tipo", "Instrumento"], horizontal=True,
-                           key="aum_agg", label_visibility="collapsed")
-        _render_aum(df, moneda, mep_val, agg_por_tipo=(agg_sel == "Tipo"))
-    else:
-        cuentas    = sorted(df["cuenta"].dropna().unique().tolist())
-        cuenta_sel = st.selectbox("Cuenta", cuentas, key="aum_cuenta",
-                                  label_visibility="collapsed")
-        df_cuenta  = df[df["cuenta"] == cuenta_sel].copy()
-        if df_cuenta.empty:
-            st.info("Sin posiciones para esta cuenta.")
-            return
-        _render_aum(df_cuenta, moneda, mep_val)
+    df_fci = df[df["CARTERA"] == "CARTERA FCI"].copy()
+
+    if df_fci.empty:
+        st.info("Sin posiciones FCI para esta fecha.")
+        return
+
+    # Sumatoria de valuacion por EMISOR
+    resumen = (
+        df_fci.groupby("EMISOR", as_index=False)["valuacion"]
+        .sum()
+        .sort_values("valuacion", ascending=False)
+        .reset_index(drop=True)
+    )
+    total = resumen["valuacion"].sum()
+
+    resumen["% del Total"] = (resumen["valuacion"] / total * 100).round(2)
+    resumen["Valuación"]   = resumen["valuacion"].apply(lambda v: f"{v:,.0f}")
+    resumen["% del Total"] = resumen["% del Total"].apply(lambda v: f"{v:.2f}%")
+
+    col_tabla, col_pie = st.columns([2, 1])
+
+    with col_tabla:
+        st.markdown(
+            f"<div style='font-size:13px;color:#888;margin-bottom:4px'>Total FCI</div>"
+            f"<div style='font-size:26px;font-weight:700;color:#094293'>${total:,.0f}</div>",
+            unsafe_allow_html=True,
+        )
+        st.dataframe(
+            resumen[["EMISOR", "Valuación", "% del Total"]],
+            hide_index=True,
+            use_container_width=True,
+            height=df_height(len(resumen)),
+        )
+
+    with col_pie:
+        df_pie = resumen[["EMISOR", "valuacion"]].copy()
+        df_pie = df_pie[df_pie["valuacion"] > 0]
+        df_pie["pct"] = (df_pie["valuacion"] / total * 100).round(1)
+        df_pie["pct_label"] = df_pie["pct"].apply(lambda x: f"{x:.1f}%")
+
+        base = alt.Chart(df_pie).encode(
+            theta=alt.Theta("valuacion:Q", stack=True),
+            color=alt.Color("EMISOR:N", scale=alt.Scale(scheme="tableau20"),
+                            legend=alt.Legend(orient="bottom", columns=2, labelFontSize=10)),
+        )
+        arc  = base.mark_arc(innerRadius=45, outerRadius=100).encode(
+            tooltip=[
+                alt.Tooltip("EMISOR:N",    title="Emisor"),
+                alt.Tooltip("valuacion:Q", title="Valuación", format=",.0f"),
+                alt.Tooltip("pct:Q",       title="%",         format=".1f"),
+            ]
+        )
+        text = base.mark_text(radius=75, size=11, color="white").encode(
+            text=alt.Text("pct_label:N"),
+        )
+        st.altair_chart((arc + text).properties(height=400, padding={"top": 10}),
+                        use_container_width=True)
 
 
 # ==========================================

@@ -86,6 +86,30 @@ def consultar_posicion(cuenta_id, headers, desde):
 
 
 # ── Reglas de valuación ──────────────────────────────────────────────────────
+CAMPOS_ASSETS = ["CALIFICACION", "CARTERA", "CLASE_ACTIVO", "EMISOR", "TICKER", "VENCIMIENTO"]
+
+
+def _sincronizar_assets(col_assets, unidades):
+    """
+    Asegura que cada unidad exista en Assets con los 6 campos requeridos.
+    No pisa valores existentes — solo completa los que faltan.
+    """
+    for unidad in unidades:
+        col_assets.update_one(
+            {"unidad": unidad},
+            [{"$set": {
+                "unidad":       unidad,
+                "CALIFICACION": {"$ifNull": ["$CALIFICACION", ""]},
+                "CARTERA":      {"$ifNull": ["$CARTERA",      ""]},
+                "CLASE_ACTIVO": {"$ifNull": ["$CLASE_ACTIVO", ""]},
+                "EMISOR":       {"$ifNull": ["$EMISOR",       ""]},
+                "TICKER":       {"$ifNull": ["$TICKER",       ""]},
+                "VENCIMIENTO":  {"$ifNull": ["$VENCIMIENTO",  ""]},
+            }}],
+            upsert=True,
+        )
+
+
 TIPOS_DIVISOR_100 = {
     "Títulos Públicos",
     "Letras del Tesoro Capitalizables en Pesos",
@@ -247,6 +271,13 @@ def run():
             registros_total += len(registros)
 
     print(f"\n🏁 Proceso finalizado. Total registros insertados: {registros_total}")
+
+    # Sincronizar unidades nuevas hacia Assets
+    unidades_snapshot = col.distinct("unidad", {"fecha_snapshot": fecha_snapshot})
+    col_assets = client["Valuaciones"]["Assets"]
+    _sincronizar_assets(col_assets, unidades_snapshot)
+    print(f"✅ Assets sincronizado: {len(unidades_snapshot)} unidades revisadas.")
+
     client.close()
 
 

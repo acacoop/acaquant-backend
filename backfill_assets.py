@@ -7,6 +7,7 @@ Uso:
 
 import sys
 import os
+import re
 sys.path.insert(0, os.path.dirname(__file__))
 
 from mongo_manager import get_mongo_client
@@ -34,6 +35,28 @@ REGLAS_EMISOR_FCI = [
     ("Bull Market", "BULL MARKET"),
     ("BULLMARKET",  "BULL MARKET"),
 ]
+
+
+def _extraer_ticker(unidad):
+    """Toma todo desde el primer ' - ' hacia la derecha y elimina la palabra FCI."""
+    idx = unidad.find(" - ")
+    if idx == -1:
+        return ""
+    ticker = unidad[idx + 3:]
+    ticker = re.sub(r'\bFCI\b\s*', '', ticker, flags=re.IGNORECASE).strip()
+    return ticker
+
+
+def rellenar_ticker_fci(col_assets):
+    docs = list(col_assets.find({"CARTERA": "CARTERA FCI", "TICKER": ""}))
+    print(f"  Docs FCI sin TICKER: {len(docs)}")
+    actualizados = 0
+    for doc in docs:
+        ticker = _extraer_ticker(doc.get("unidad", ""))
+        if ticker:
+            col_assets.update_one({"_id": doc["_id"]}, {"$set": {"TICKER": ticker}})
+            actualizados += 1
+    print(f"  TICKER rellenado: {actualizados} docs")
 
 
 def rellenar_vencimiento_fci(col_assets):
@@ -74,6 +97,9 @@ def run():
 
     print("\nRellenando EMISOR para CARTERA FCI...")
     rellenar_emisor_fci(col_assets)
+
+    print("\nRellenando TICKER para CARTERA FCI...")
+    rellenar_ticker_fci(col_assets)
 
     client.close()
     print("\nListo.")

@@ -390,9 +390,9 @@ def render_cadena_opciones(docs, spot):
     styler = (
         df.style
         .map(pct_color, subset=["C Δ%", "P Δ%"])
-        .map(lambda v: "color: #00cc66; font-weight: bold" if pd.notna(v) else "", subset=["C Bid", "P Bid"])
-        .map(lambda v: "color: #ff4444; font-weight: bold" if pd.notna(v) else "", subset=["C Offer", "P Offer"])
-        .map(lambda v: "color: #f0c040; font-weight: bold", subset=["STRIKE"])
+        .map(lambda v: "color: #52946a" if pd.notna(v) else "", subset=["C Bid", "P Bid"])
+        .map(lambda v: "color: #b05858" if pd.notna(v) else "", subset=["C Offer", "P Offer"])
+        .map(lambda v: "color: #f97316; font-weight: bold", subset=["STRIKE"])
         .format({
             "C Δ%":    lambda v: f"{v:+.1%}" if pd.notna(v) else "-",
             "C Delta": lambda v: f"{v:.3f}"  if pd.notna(v) else "-",
@@ -407,34 +407,6 @@ def render_cadena_opciones(docs, spot):
             "P Δ%":    lambda v: f"{v:+.1%}" if pd.notna(v) else "-",
         })
     )
-    # Greeks heatmap: color via applymap (sin matplotlib)
-    def _iv_color(v):
-        try:
-            val = float(str(v).replace("%", ""))
-            if val < 50:   return "color: #4caf50"
-            if val < 80:   return "color: #ff9800"
-            return "color: #f44336"
-        except Exception:
-            return ""
-
-    def _delta_color(v):
-        try:
-            val = float(v)
-            if val > 0.6:  return "color: #4caf50"
-            if val > 0.3:  return "color: #ff9800"
-            if val < -0.6: return "color: #f44336"
-            if val < -0.3: return "color: #ff9800"
-            return ""
-        except Exception:
-            return ""
-
-    _map = "map" if hasattr(styler, "map") else "applymap"
-    for col in ["C IV %", "P IV %"]:
-        if col in df.columns:
-            styler = getattr(styler, _map)(_iv_color, subset=[col])
-    for col in ["C Delta", "P Delta"]:
-        if col in df.columns:
-            styler = getattr(styler, _map)(_delta_color, subset=[col])
 
     spot_str = f"${spot:,.2f}" if spot else "N/A"
     st.caption(f"CADENA DE OPCIONES GGAL — SPOT: {spot_str}")

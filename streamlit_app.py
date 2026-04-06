@@ -1079,39 +1079,46 @@ def vista_opciones():
 @st.cache_data(ttl=300)
 def _fetch_vol_historico():
     """Query única: último ev por (fecha, symbol) → agrupado por (fecha, strike, tipo).
+    Usa $year/$month/$dayOfMonth en lugar de $dateToString para máxima compatibilidad.
     Cacheada 5 minutos para no re-query en cada rerun del fragment."""
-    fecha_min = datetime.utcnow() - timedelta(days=30)
+    fecha_min = datetime.utcnow() - timedelta(days=20)
     pipeline = [
-        {"$match": {"timestamp": {"$gte": fecha_min}, "ev": {"$gt": 0}}},
-        {"$sort": {"timestamp": 1}},
-        # Paso 1: último ev por (fecha UTC, symbol) — trading 13-20 UTC, sin cruce de día
+        {"$match": {"timestamp": {"$gte": fecha_min}, "ev": {"$gt": 0},
+                    "strike": {"$exists": True}, "tipo": {"$exists": True}}},
+        # Proyectar solo lo necesario antes de ordenar (reduce memoria)
+        {"$project": {"symbol": 1, "timestamp": 1, "ev": 1, "strike": 1, "tipo": 1}},
+        {"$sort": {"timestamp": -1}},
+        # Paso 1: primer doc (= más reciente) por (año, mes, día, symbol)
         {"$group": {
             "_id": {
-                "fecha":  {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
-                "symbol": "$symbol",
+                "y": {"$year":         "$timestamp"},
+                "m": {"$month":        "$timestamp"},
+                "d": {"$dayOfMonth":   "$timestamp"},
+                "s": "$symbol",
             },
-            "ev":     {"$last": "$ev"},
-            "strike": {"$last": "$strike"},
-            "tipo":   {"$last": "$tipo"},
+            "ev":     {"$first": "$ev"},
+            "strike": {"$first": "$strike"},
+            "tipo":   {"$first": "$tipo"},
         }},
-        # Paso 2: suma por (fecha, strike, tipo)
+        # Paso 2: suma por (año, mes, día, strike, tipo)
         {"$group": {
             "_id": {
-                "fecha":  "$_id.fecha",
-                "strike": "$strike",
-                "tipo":   "$tipo",
+                "y": "$_id.y", "m": "$_id.m", "d": "$_id.d",
+                "strike": "$strike", "tipo": "$tipo",
             },
             "ev_total": {"$sum": "$ev"},
         }},
-        {"$sort": {"_id.fecha": 1, "_id.strike": 1}},
+        {"$sort": {"_id.y": 1, "_id.m": 1, "_id.d": 1, "_id.strike": 1}},
     ]
     docs = list(get_mongo_client()["Opciones"]["Data"].aggregate(pipeline))
     rows = []
     for d in docs:
+        i = d["_id"]
+        fecha = f"{i['y']:04d}-{i['m']:02d}-{i['d']:02d}"
         rows.append({
-            "fecha":  d["_id"]["fecha"],
-            "Strike": d["_id"]["strike"],
-            "Tipo":   d["_id"]["tipo"],
+            "fecha":  fecha,
+            "Strike": i["strike"],
+            "Tipo":   i["tipo"],
             "EV_M":   round(d["ev_total"] / 1_000_000, 3),
         })
     return rows

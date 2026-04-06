@@ -2246,7 +2246,7 @@ def vista_aum():
                         column_config={
                             "Ticker":      st.column_config.TextColumn(width="small"),
                             "Vencimiento": st.column_config.TextColumn(width="small"),
-                            "Valuación":   st.column_config.NumberColumn(width="small", format="$%.0f"),
+                            "Valuación":   st.column_config.TextColumn(width="small"),
                         },
                     )
 

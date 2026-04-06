@@ -752,7 +752,6 @@ def _chart_payoff_estrategia(resolved_legs, spot, neto):
 # VISTAS (st.fragment → auto-refresh 1s, sin sleep ni rerun global)
 # ==========================================
 
-@st.fragment(run_every=2)
 def vista_libro():
     db = get_db()
 
@@ -1231,7 +1230,6 @@ def _render_curva_rendimiento(db):
     st.altair_chart(chart.properties(height=420), use_container_width=True)
 
 
-@st.fragment(run_every=60)
 def vista_mercado():
     db = get_db()
 

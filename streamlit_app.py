@@ -1158,15 +1158,15 @@ def _render_volumenes_opciones(db_op):
 
     color_scale = alt.Scale(domain=["CALL", "PUT"], range=["#4a9eff", "#ff4444"])
 
-    bars = alt.Chart(df_vol).mark_bar(width={"band": 0.7}).encode(
+    bars = alt.Chart(df_vol).mark_bar().encode(
         x=alt.X("Strike_lbl:O",
                 sort=strike_labels,
                 title="Strike",
                 axis=alt.Axis(labelAngle=-45)),
-        y=alt.Y("EV_M:Q", title="Volumen ($M)"),
+        y=alt.Y("EV_M:Q", title="Volumen ($M)", stack=True),
         color=alt.Color("Tipo:N", scale=color_scale,
                         legend=alt.Legend(title="Tipo", orient="top-right")),
-        xOffset=alt.XOffset("Tipo:N"),
+        order=alt.Order("Tipo:N", sort="ascending"),
         tooltip=[
             alt.Tooltip("Strike_lbl:N", title="Strike"),
             alt.Tooltip("Tipo:N",       title="Tipo"),

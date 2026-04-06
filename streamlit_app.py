@@ -1084,11 +1084,10 @@ def _fetch_vol_historico():
     pipeline = [
         {"$match": {"timestamp": {"$gte": fecha_min}, "ev": {"$gt": 0}}},
         {"$sort": {"timestamp": 1}},
-        # Paso 1: último ev por (fecha ART, symbol)
+        # Paso 1: último ev por (fecha UTC, symbol) — trading 13-20 UTC, sin cruce de día
         {"$group": {
             "_id": {
-                "fecha":  {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp",
-                                             "timezone": "-03:00"}},
+                "fecha":  {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
                 "symbol": "$symbol",
             },
             "ev":     {"$last": "$ev"},

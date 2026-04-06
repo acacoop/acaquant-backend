@@ -2262,28 +2262,28 @@ def vista_aum():
                     sel_tf = ev_tf.selection.rows if ev_tf.selection.rows else []
                     if sel_tf:
                         ticker_det = tbl.iloc[sel_tf[0]]["ticker_corto"]
-                        df_det = (
-                            df_tf[df_tf["ticker_corto"] == ticker_det]
-                            .groupby("cuenta", as_index=False)["valuacion"]
-                            .sum()
-                            .sort_values("valuacion", ascending=False)
-                            .reset_index(drop=True)
-                        )
-                        df_det["Valuación"] = df_det["valuacion"].apply(lambda v: f"${v:,.0f}")
-                        st.markdown(
-                            f"<div style='font-size:12px;color:#888;margin-bottom:4px'>{ticker_det}</div>",
-                            unsafe_allow_html=True,
-                        )
-                        st.dataframe(
-                            df_det[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
-                            hide_index=True, use_container_width=True,
-                            height=h_tbl - 26,
-                        )
+                        df_det_src = df_tf[df_tf["ticker_corto"] == ticker_det]
+                        label_tf = ticker_det
                     else:
-                        st.dataframe(
-                            pd.DataFrame(columns=["Cuenta", "Valuación"]),
-                            hide_index=True, use_container_width=True, height=h_tbl,
-                        )
+                        df_det_src = df_tf
+                        label_tf = "Todas las posiciones"
+                    df_det = (
+                        df_det_src
+                        .groupby("cuenta", as_index=False)["valuacion"]
+                        .sum()
+                        .sort_values("valuacion", ascending=False)
+                        .reset_index(drop=True)
+                    )
+                    df_det["Valuación"] = df_det["valuacion"].apply(lambda v: f"${v:,.0f}")
+                    st.markdown(
+                        f"<div style='font-size:12px;color:#888;margin-bottom:4px'>{label_tf}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.dataframe(
+                        df_det[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
+                        hide_index=True, use_container_width=True,
+                        height=h_tbl - 26,
+                    )
 
                 # ── fila 2: gráfico a ancho completo ─────────────────────
                 if chart_rows:
@@ -2377,28 +2377,28 @@ def vista_aum():
                     sel_cer = ev_cer.selection.rows if ev_cer.selection.rows else []
                     if sel_cer:
                         ticker_det_c = tbl_cer.iloc[sel_cer[0]]["ticker_corto"]
-                        df_det_c = (
-                            df_cer[df_cer["ticker_corto"] == ticker_det_c]
-                            .groupby("cuenta", as_index=False)["valuacion"]
-                            .sum()
-                            .sort_values("valuacion", ascending=False)
-                            .reset_index(drop=True)
-                        )
-                        df_det_c["Valuación"] = df_det_c["valuacion"].apply(lambda v: f"${v:,.0f}")
-                        st.markdown(
-                            f"<div style='font-size:12px;color:#888;margin-bottom:4px'>{ticker_det_c}</div>",
-                            unsafe_allow_html=True,
-                        )
-                        st.dataframe(
-                            df_det_c[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
-                            hide_index=True, use_container_width=True,
-                            height=h_cer - 26,
-                        )
+                        df_det_c_src = df_cer[df_cer["ticker_corto"] == ticker_det_c]
+                        label_cer = ticker_det_c
                     else:
-                        st.dataframe(
-                            pd.DataFrame(columns=["Cuenta", "Valuación"]),
-                            hide_index=True, use_container_width=True, height=h_cer,
-                        )
+                        df_det_c_src = df_cer
+                        label_cer = "Todas las posiciones"
+                    df_det_c = (
+                        df_det_c_src
+                        .groupby("cuenta", as_index=False)["valuacion"]
+                        .sum()
+                        .sort_values("valuacion", ascending=False)
+                        .reset_index(drop=True)
+                    )
+                    df_det_c["Valuación"] = df_det_c["valuacion"].apply(lambda v: f"${v:,.0f}")
+                    st.markdown(
+                        f"<div style='font-size:12px;color:#888;margin-bottom:4px'>{label_cer}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.dataframe(
+                        df_det_c[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
+                        hide_index=True, use_container_width=True,
+                        height=h_cer - 26,
+                    )
 
 
     # ── Tab 5: Renta Variable ─────────────────────────────────────────────────
@@ -2449,28 +2449,28 @@ def vista_aum():
                 sel_rv = ev_rv.selection.rows if ev_rv.selection.rows else []
                 if sel_rv:
                     unidad_det = tbl_rv.iloc[sel_rv[0]]["unidad"]
-                    df_det_rv = (
-                        df_rv[df_rv["unidad"] == unidad_det]
-                        .groupby("cuenta", as_index=False)["valuacion"]
-                        .sum()
-                        .sort_values("valuacion", ascending=False)
-                        .reset_index(drop=True)
-                    )
-                    df_det_rv["Valuación"] = df_det_rv["valuacion"].apply(lambda v: f"${v:,.0f}")
-                    st.markdown(
-                        f"<div style='font-size:12px;color:#888;margin-bottom:4px'>{unidad_det}</div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.dataframe(
-                        df_det_rv[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
-                        hide_index=True, use_container_width=True,
-                        height=h_rv - 26,
-                    )
+                    df_det_rv_src = df_rv[df_rv["unidad"] == unidad_det]
+                    label_rv = unidad_det
                 else:
-                    st.dataframe(
-                        pd.DataFrame(columns=["Cuenta", "Valuación"]),
-                        hide_index=True, use_container_width=True, height=h_rv,
-                    )
+                    df_det_rv_src = df_rv
+                    label_rv = "Todas las posiciones"
+                df_det_rv = (
+                    df_det_rv_src
+                    .groupby("cuenta", as_index=False)["valuacion"]
+                    .sum()
+                    .sort_values("valuacion", ascending=False)
+                    .reset_index(drop=True)
+                )
+                df_det_rv["Valuación"] = df_det_rv["valuacion"].apply(lambda v: f"${v:,.0f}")
+                st.markdown(
+                    f"<div style='font-size:12px;color:#888;margin-bottom:4px'>{label_rv}</div>",
+                    unsafe_allow_html=True,
+                )
+                st.dataframe(
+                    df_det_rv[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
+                    hide_index=True, use_container_width=True,
+                    height=h_rv - 26,
+                )
 
 
 # ==========================================

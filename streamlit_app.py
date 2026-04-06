@@ -1076,116 +1076,129 @@ def vista_opciones():
         _render_volumenes_opciones(db_op)
 
 
-def _render_volumenes_opciones(db_op):
-    """Volumen operado (EV) por strike y tipo (CALL/PUT) usando Opciones.Data."""
-    from datetime import timezone
-
-    # Fechas disponibles (últimos 30 días con datos)
+@st.cache_data(ttl=300)
+def _fetch_vol_historico():
+    """Query única: último ev por (fecha, symbol) → agrupado por (fecha, strike, tipo).
+    Cacheada 5 minutos para no re-query en cada rerun del fragment."""
     fecha_min = datetime.utcnow() - timedelta(days=30)
-    fechas_raw = db_op["Data"].distinct("timestamp", {"timestamp": {"$gte": fecha_min}})
-    if not fechas_raw:
-        st.info("Sin datos en Opciones.Data.")
-        return
-
-    # Extraer fechas únicas en ARG (UTC-3)
-    fechas_disp = sorted(set(
-        (ts - timedelta(hours=3)).date() for ts in fechas_raw if hasattr(ts, 'date')
-    ), reverse=True)
-
-    if not fechas_disp:
-        st.info("Sin fechas disponibles.")
-        return
-
-    col_f, col_empty = st.columns([2, 5])
-    with col_f:
-        fecha_sel = st.selectbox(
-            "Fecha",
-            options=fechas_disp,
-            index=0,
-            format_func=lambda d: d.strftime("%d/%m/%Y"),
-            key="vol_opciones_fecha",
-        )
-
-    # Rango UTC del día seleccionado (en ARG = UTC-3 → agregar 3h)
-    desde_utc = datetime(fecha_sel.year, fecha_sel.month, fecha_sel.day, 3, 0, 0)  # 00:00 ART
-    hasta_utc = desde_utc + timedelta(days=1)
-
-    # Aggregation: último ev por symbol en el día → luego suma por (strike, tipo)
     pipeline = [
-        {"$match": {"timestamp": {"$gte": desde_utc, "$lt": hasta_utc}, "ev": {"$gt": 0}}},
+        {"$match": {"timestamp": {"$gte": fecha_min}, "ev": {"$gt": 0}}},
         {"$sort": {"timestamp": 1}},
+        # Paso 1: último ev por (fecha ART, symbol)
         {"$group": {
-            "_id": "$symbol",
+            "_id": {
+                "fecha":  {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp",
+                                             "timezone": "-03:00"}},
+                "symbol": "$symbol",
+            },
             "ev":     {"$last": "$ev"},
             "strike": {"$last": "$strike"},
             "tipo":   {"$last": "$tipo"},
         }},
+        # Paso 2: suma por (fecha, strike, tipo)
         {"$group": {
-            "_id": {"strike": "$strike", "tipo": "$tipo"},
+            "_id": {
+                "fecha":  "$_id.fecha",
+                "strike": "$strike",
+                "tipo":   "$tipo",
+            },
             "ev_total": {"$sum": "$ev"},
         }},
-        {"$sort": {"_id.strike": 1}},
+        {"$sort": {"_id.fecha": 1, "_id.strike": 1}},
     ]
+    docs = list(get_mongo_client()["Opciones"]["Data"].aggregate(pipeline))
+    rows = []
+    for d in docs:
+        rows.append({
+            "fecha":  d["_id"]["fecha"],
+            "Strike": d["_id"]["strike"],
+            "Tipo":   d["_id"]["tipo"],
+            "EV_M":   round(d["ev_total"] / 1_000_000, 3),
+        })
+    return rows
 
-    docs_vol = list(db_op["Data"].aggregate(pipeline))
-    if not docs_vol:
-        st.info(f"Sin datos de volumen para {fecha_sel.strftime('%d/%m/%Y')}.")
+
+def _render_volumenes_opciones(_db_op_ignored):
+    """Volumen operado (EV) por strike y tipo (CALL/PUT) usando Opciones.Data."""
+    rows = _fetch_vol_historico()
+    if not rows:
+        st.info("Sin datos en Opciones.Data.")
         return
 
-    df_vol = pd.DataFrame([{
-        "Strike":   d["_id"]["strike"],
-        "Tipo":     d["_id"]["tipo"],
-        "EV":       d["ev_total"],
-        "EV_M":     round(d["ev_total"] / 1_000_000, 2),
-    } for d in docs_vol])
-
-    # Totales para el header
-    total_call = df_vol[df_vol["Tipo"] == "CALL"]["EV"].sum()
-    total_put  = df_vol[df_vol["Tipo"] == "PUT"]["EV"].sum()
-    total_all  = total_call + total_put
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Volumen Total", f"${total_all/1e6:.1f}M")
-    c2.metric("CALLs", f"${total_call/1e6:.1f}M")
-    c3.metric("PUTs",  f"${total_put/1e6:.1f}M")
-
-    st.divider()
-
-    # ── Gráfico de barras agrupadas ───────────────────────────────────────
-    strikes_order = sorted(df_vol["Strike"].unique())
-    strike_labels = [f"{k:,.0f}" for k in strikes_order]
-    df_vol["Strike_lbl"] = df_vol["Strike"].apply(lambda k: f"{k:,.0f}")
+    df_all = pd.DataFrame(rows)
+    fechas = sorted(df_all["fecha"].unique())
+    if not fechas:
+        st.info("Sin fechas disponibles.")
+        return
 
     color_scale = alt.Scale(domain=["CALL", "PUT"], range=["#4a9eff", "#ff4444"])
 
-    bars = alt.Chart(df_vol).mark_bar().encode(
-        x=alt.X("Strike_lbl:O",
-                sort=strike_labels,
-                title="Strike",
+    # ── Gráfico 1: histórico consolidado por día ──────────────────────────
+    df_hist = (
+        df_all.groupby(["fecha", "Tipo"], as_index=False)["EV_M"].sum()
+    )
+    st.caption("Volumen total diario (CALL + PUT)")
+    hist_bars = alt.Chart(df_hist).mark_bar().encode(
+        x=alt.X("fecha:O", title="Fecha", axis=alt.Axis(labelAngle=-45)),
+        y=alt.Y("EV_M:Q",  title="Volumen ($M)", stack=True),
+        color=alt.Color("Tipo:N", scale=color_scale,
+                        legend=alt.Legend(title=None, orient="top-right")),
+        order=alt.Order("Tipo:N", sort="ascending"),
+        tooltip=[
+            alt.Tooltip("fecha:O",  title="Fecha"),
+            alt.Tooltip("Tipo:N",   title="Tipo"),
+            alt.Tooltip("EV_M:Q",   title="$M", format=".2f"),
+        ],
+    ).properties(height=280)
+    st.altair_chart(hist_bars, use_container_width=True)
+
+    st.divider()
+
+    # ── Gráfico 2: por strike — slider para moverse por fechas ────────────
+    idx_default = len(fechas) - 1  # último día por defecto
+    idx_sel = st.slider(
+        "Día",
+        min_value=0,
+        max_value=len(fechas) - 1,
+        value=idx_default,
+        format="%d",
+        key="vol_strike_slider",
+        label_visibility="collapsed",
+    )
+    fecha_sel = fechas[idx_sel]
+
+    df_dia = df_all[df_all["fecha"] == fecha_sel].copy()
+
+    total_call = df_dia[df_dia["Tipo"] == "CALL"]["EV_M"].sum()
+    total_put  = df_dia[df_dia["Tipo"] == "PUT"]["EV_M"].sum()
+    total_all_d = total_call + total_put
+
+    c1, c2, c3, _ = st.columns([2, 2, 2, 3])
+    c1.metric(fecha_sel, f"${total_all_d:.1f}M", delta="total")
+    c2.metric("CALLs", f"${total_call:.1f}M")
+    c3.metric("PUTs",  f"${total_put:.1f}M")
+
+    if df_dia.empty:
+        st.info("Sin datos para esta fecha.")
+        return
+
+    strikes_order = [f"{k:,.0f}" for k in sorted(df_dia["Strike"].unique())]
+    df_dia["Strike_lbl"] = df_dia["Strike"].apply(lambda k: f"{k:,.0f}")
+
+    strike_bars = alt.Chart(df_dia).mark_bar().encode(
+        x=alt.X("Strike_lbl:O", sort=strikes_order, title="Strike",
                 axis=alt.Axis(labelAngle=-45)),
         y=alt.Y("EV_M:Q", title="Volumen ($M)", stack=True),
         color=alt.Color("Tipo:N", scale=color_scale,
-                        legend=alt.Legend(title="Tipo", orient="top-right")),
+                        legend=alt.Legend(title=None, orient="top-right")),
         order=alt.Order("Tipo:N", sort="ascending"),
         tooltip=[
             alt.Tooltip("Strike_lbl:N", title="Strike"),
             alt.Tooltip("Tipo:N",       title="Tipo"),
-            alt.Tooltip("EV_M:Q",       title="Volumen ($M)", format=".2f"),
+            alt.Tooltip("EV_M:Q",       title="$M", format=".3f"),
         ],
-    ).properties(height=420)
-
-    st.altair_chart(bars, use_container_width=True)
-
-    # ── Tabla detalle ─────────────────────────────────────────────────────
-    df_tabla = (
-        df_vol[["Strike", "Tipo", "EV"]]
-        .sort_values(["Strike", "Tipo"])
-        .reset_index(drop=True)
-    )
-    df_tabla["EV"] = df_tabla["EV"].apply(lambda v: f"${v/1e6:.3f}M")
-    st.dataframe(df_tabla.rename(columns={"EV": "Volumen"}),
-                 hide_index=True, use_container_width=True,
-                 height=df_height(len(df_tabla), max_h=500))
+    ).properties(height=380)
+    st.altair_chart(strike_bars, use_container_width=True)
 
 
 _MESES_ES = {

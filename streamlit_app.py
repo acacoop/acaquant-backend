@@ -1157,27 +1157,22 @@ def _render_volumenes_opciones(_db_op_ignored):
 
     st.divider()
 
-    # ── Gráfico 2: por strike — slider para moverse por fechas ────────────
-    idx_default = len(fechas) - 1  # último día por defecto
-    idx_sel = st.slider(
-        "Día",
-        min_value=0,
-        max_value=len(fechas) - 1,
-        value=idx_default,
-        format="%d",
+    # ── Gráfico 2: por strike — select_slider con fechas reales ─────────
+    fecha_sel = st.select_slider(
+        "Fecha",
+        options=fechas,
+        value=fechas[-1],
         key="vol_strike_slider",
-        label_visibility="collapsed",
     )
-    fecha_sel = fechas[idx_sel]
 
     df_dia = df_all[df_all["fecha"] == fecha_sel].copy()
 
-    total_call = df_dia[df_dia["Tipo"] == "CALL"]["EV_M"].sum()
-    total_put  = df_dia[df_dia["Tipo"] == "PUT"]["EV_M"].sum()
+    total_call  = df_dia[df_dia["Tipo"] == "CALL"]["EV_M"].sum()
+    total_put   = df_dia[df_dia["Tipo"] == "PUT"]["EV_M"].sum()
     total_all_d = total_call + total_put
 
     c1, c2, c3, _ = st.columns([2, 2, 2, 3])
-    c1.metric(fecha_sel, f"${total_all_d:.1f}M", delta="total")
+    c1.metric("Total", f"${total_all_d:.1f}M")
     c2.metric("CALLs", f"${total_call:.1f}M")
     c3.metric("PUTs",  f"${total_put:.1f}M")
 

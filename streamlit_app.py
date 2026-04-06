@@ -2218,19 +2218,22 @@ def vista_aum():
                         chart_rows.append({"fecha": row["fecha_venc"], "monto": row["pago_final"],
                                            "ticker": row["ticker_corto"], "tipo": "Cobro al vencimiento"})
 
+                total_val_tf = tbl["valuacion"].sum()
+                total_cobro  = tbl["pago_final"].sum()
+                st.markdown(
+                    f"<div style='display:flex;gap:40px;margin-bottom:8px'>"
+                    f"<div><span style='font-size:11px;color:#888'>Valuación actual</span><br>"
+                    f"<span style='font-size:17px;font-weight:600'>${total_val_tf:,.0f}</span></div>"
+                    f"<div><span style='font-size:11px;color:#888'>Cobro proyectado</span><br>"
+                    f"<span style='font-size:17px;font-weight:600'>${total_cobro:,.0f}</span></div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                h_tbl = 38 + 35 * len(tbl)
                 col_tbl, col_chart = st.columns([1, 2])
 
                 with col_tbl:
-                    total_val_tf = tbl["valuacion"].sum()
-                    total_cobro  = tbl["pago_final"].sum()
-                    st.markdown(
-                        f"<div style='font-size:11px;color:#888'>Valuación actual</div>"
-                        f"<div style='font-size:18px;font-weight:600'>${total_val_tf:,.0f}</div>"
-                        f"<div style='font-size:11px;color:#888;margin-top:4px'>Cobro proyectado</div>"
-                        f"<div style='font-size:18px;font-weight:600'>${total_cobro:,.0f}</div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.write("")
                     tbl_display = tbl[["ticker_corto", "fecha_venc", "valuacion"]].copy()
                     tbl_display["valuacion"] = tbl_display["valuacion"].apply(lambda v: f"${v:,.0f}")
                     tbl_display.rename(columns={
@@ -2239,7 +2242,7 @@ def vista_aum():
                         "valuacion":    "Valuación",
                     }, inplace=True)
                     st.dataframe(tbl_display, hide_index=True, use_container_width=True,
-                                 height=38 + 35 * len(tbl_display))
+                                 height=h_tbl)
 
                 with col_chart:
                     if chart_rows:
@@ -2255,7 +2258,7 @@ def vista_aum():
                                         axis=alt.Axis(format=",.0f")),
                                 color=alt.Color("ticker:N",
                                                 scale=alt.Scale(scheme="tableau20"),
-                                                legend=alt.Legend(title=None, orient="top",
+                                                legend=alt.Legend(title=None, orient="right",
                                                                   labelFontSize=11)),
                                 opacity=alt.condition(
                                     alt.datum.tipo == "Stock actual",
@@ -2268,7 +2271,7 @@ def vista_aum():
                                     alt.Tooltip("monto:Q", format=",.0f", title="ARS"),
                                 ],
                             )
-                            .properties(height=38 + 35 * len(tbl_display))
+                            .properties(height=h_tbl)
                         )
                         st.altair_chart(bars, use_container_width=True)
 

@@ -2177,12 +2177,8 @@ def vista_aum():
         if not curvas_map:
             st.info("Sin instrumentos de tasa_fija en Trading.Curvas.")
         else:
-            # unidades que corresponden a tasa_fija (TICKER en Assets == ticker_corto en Curvas)
             tasa_fija_set = set(curvas_map.keys())
-            unidades_tf = {
-                u for u, a in assets.items()
-                if a.get("TICKER") in tasa_fija_set
-            }
+            unidades_tf = {u for u, a in assets.items() if a.get("TICKER") in tasa_fija_set}
             df_tf_all = df[df["unidad"].isin(unidades_tf)].copy()
 
             if df_tf_all.empty:
@@ -2199,103 +2195,82 @@ def vista_aum():
                 )
                 df_tf_all["pago_final"] = df_tf_all["cantidad"] * df_tf_all["flujo_venc"] / 100
 
-                snapshots_tf = sorted(df_tf_all["fecha_snapshot"].dropna().unique())
-                fecha_sel_tf = st.select_slider(
-                    "Fecha snapshot", options=snapshots_tf,
-                    value=snapshots_tf[-1], key="aum_tf_fecha",
-                )
+                # siempre el snapshot más reciente
+                fecha_sel_tf = df_tf_all["fecha_snapshot"].dropna().max()
                 df_tf = df_tf_all[df_tf_all["fecha_snapshot"] == fecha_sel_tf].copy()
 
-                # ── métricas ──────────────────────────────────────────
-                total_val_tf = df_tf["valuacion"].sum()
-                total_cobro  = df_tf["pago_final"].sum()
-                c1, c2 = st.columns(2)
-                c1.metric("Valuación actual", f"${total_val_tf:,.0f}")
-                c2.metric("Cobro proyectado total", f"${total_cobro:,.0f}")
-
-                st.divider()
-
-                # ── tabla consolidada por ticker ──────────────────────
+                # tabla consolidada por ticker
                 tbl = (
                     df_tf.groupby(["ticker_corto", "fecha_venc"], as_index=False)
-                    .agg(nominales=("cantidad", "sum"),
-                         valuacion=("valuacion", "sum"),
-                         flujo_venc=("flujo_venc", "first"),
-                         pago_final=("pago_final", "sum"))
+                    .agg(valuacion=("valuacion", "sum"), pago_final=("pago_final", "sum"))
                     .sort_values("fecha_venc")
                     .reset_index(drop=True)
                 )
-                tbl_display = tbl.rename(columns={
-                    "ticker_corto": "Ticker",
-                    "fecha_venc":   "Vencimiento",
-                    "nominales":    "Nominales",
-                    "valuacion":    "Valuación",
-                    "flujo_venc":   "Flujo final %",
-                    "pago_final":   "Cobro final",
-                }).copy()
-                tbl_display["Nominales"]    = tbl_display["Nominales"].apply(lambda v: f"{v:,.0f}")
-                tbl_display["Valuación"]    = tbl_display["Valuación"].apply(lambda v: f"${v:,.0f}")
-                tbl_display["Flujo final %"] = tbl_display["Flujo final %"].apply(lambda v: f"{v:.3f}")
-                tbl_display["Cobro final"]  = tbl_display["Cobro final"].apply(lambda v: f"${v:,.0f}")
-                st.dataframe(tbl_display, hide_index=True, use_container_width=True,
-                             height=df_height(len(tbl_display)))
 
-                st.divider()
-
-                # ── gráfico: stock actual + cobros al vencimiento ─────
+                # chart data
                 chart_rows = []
                 fecha_snap_str = str(fecha_sel_tf)
                 for _, row in tbl.iterrows():
                     if row["valuacion"] > 0:
-                        chart_rows.append({
-                            "fecha": fecha_snap_str,
-                            "monto": row["valuacion"],
-                            "ticker": row["ticker_corto"],
-                            "tipo": "Stock actual",
-                        })
+                        chart_rows.append({"fecha": fecha_snap_str, "monto": row["valuacion"],
+                                           "ticker": row["ticker_corto"], "tipo": "Stock actual"})
                     if row["pago_final"] > 0 and row["fecha_venc"]:
-                        chart_rows.append({
-                            "fecha": row["fecha_venc"],
-                            "monto": row["pago_final"],
-                            "ticker": row["ticker_corto"],
-                            "tipo": "Cobro al vencimiento",
-                        })
+                        chart_rows.append({"fecha": row["fecha_venc"], "monto": row["pago_final"],
+                                           "ticker": row["ticker_corto"], "tipo": "Cobro al vencimiento"})
 
-                if chart_rows:
-                    df_chart = pd.DataFrame(chart_rows)
-                    fechas_ord = sorted(df_chart["fecha"].unique())
-                    bars = (
-                        alt.Chart(df_chart)
-                        .mark_bar()
-                        .encode(
-                            x=alt.X("fecha:O", title="Fecha", sort=fechas_ord,
-                                    axis=alt.Axis(labelAngle=-45)),
-                            y=alt.Y("monto:Q", title="ARS", stack=True,
-                                    axis=alt.Axis(format=",.0f")),
-                            color=alt.Color("ticker:N",
-                                            scale=alt.Scale(scheme="tableau20"),
-                                            legend=alt.Legend(title="Ticker", orient="top")),
-                            opacity=alt.condition(
-                                alt.datum.tipo == "Stock actual",
-                                alt.value(0.5),
-                                alt.value(1.0),
-                            ),
-                            tooltip=[
-                                alt.Tooltip("fecha:O", title="Fecha"),
-                                alt.Tooltip("ticker:N", title="Ticker"),
-                                alt.Tooltip("tipo:N", title="Tipo"),
-                                alt.Tooltip("monto:Q", format=",.0f", title="ARS"),
-                            ],
-                        )
-                        .properties(
-                            height=380,
-                            title=alt.TitleParams(
-                                "Stock actual (opaco) y cobros al vencimiento (sólido)",
-                                anchor="start", fontSize=12, color="#888",
-                            ),
-                        )
+                col_tbl, col_chart = st.columns([1, 2])
+
+                with col_tbl:
+                    total_val_tf = tbl["valuacion"].sum()
+                    total_cobro  = tbl["pago_final"].sum()
+                    st.markdown(
+                        f"<div style='font-size:11px;color:#888'>Valuación actual</div>"
+                        f"<div style='font-size:18px;font-weight:600'>${total_val_tf:,.0f}</div>"
+                        f"<div style='font-size:11px;color:#888;margin-top:4px'>Cobro proyectado</div>"
+                        f"<div style='font-size:18px;font-weight:600'>${total_cobro:,.0f}</div>",
+                        unsafe_allow_html=True,
                     )
-                    st.altair_chart(bars, use_container_width=True)
+                    st.write("")
+                    tbl_display = tbl[["ticker_corto", "fecha_venc", "valuacion"]].copy()
+                    tbl_display["valuacion"] = tbl_display["valuacion"].apply(lambda v: f"${v:,.0f}")
+                    tbl_display.rename(columns={
+                        "ticker_corto": "Ticker",
+                        "fecha_venc":   "Vencimiento",
+                        "valuacion":    "Valuación",
+                    }, inplace=True)
+                    st.dataframe(tbl_display, hide_index=True, use_container_width=True,
+                                 height=38 + 35 * len(tbl_display))
+
+                with col_chart:
+                    if chart_rows:
+                        df_chart = pd.DataFrame(chart_rows)
+                        fechas_ord = sorted(df_chart["fecha"].unique())
+                        bars = (
+                            alt.Chart(df_chart)
+                            .mark_bar()
+                            .encode(
+                                x=alt.X("fecha:O", title=None, sort=fechas_ord,
+                                        axis=alt.Axis(labelAngle=-45)),
+                                y=alt.Y("monto:Q", title=None, stack=True,
+                                        axis=alt.Axis(format=",.0f")),
+                                color=alt.Color("ticker:N",
+                                                scale=alt.Scale(scheme="tableau20"),
+                                                legend=alt.Legend(title=None, orient="top",
+                                                                  labelFontSize=11)),
+                                opacity=alt.condition(
+                                    alt.datum.tipo == "Stock actual",
+                                    alt.value(0.45), alt.value(1.0),
+                                ),
+                                tooltip=[
+                                    alt.Tooltip("fecha:O", title="Fecha"),
+                                    alt.Tooltip("ticker:N", title="Ticker"),
+                                    alt.Tooltip("tipo:N", title="Tipo"),
+                                    alt.Tooltip("monto:Q", format=",.0f", title="ARS"),
+                                ],
+                            )
+                            .properties(height=38 + 35 * len(tbl_display))
+                        )
+                        st.altair_chart(bars, use_container_width=True)
 
 
 # ==========================================

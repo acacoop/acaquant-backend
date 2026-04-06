@@ -2275,14 +2275,10 @@ def vista_aum():
                         .reset_index(drop=True)
                     )
                     df_det["Valuación"] = df_det["valuacion"].apply(lambda v: f"${v:,.0f}")
-                    st.markdown(
-                        f"<div style='font-size:12px;color:#888;margin-bottom:4px'>{label_tf}</div>",
-                        unsafe_allow_html=True,
-                    )
                     st.dataframe(
                         df_det[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
                         hide_index=True, use_container_width=True,
-                        height=h_tbl - 26,
+                        height=h_tbl,
                     )
 
                 # ── fila 2: gráfico a ancho completo ─────────────────────
@@ -2390,14 +2386,10 @@ def vista_aum():
                         .reset_index(drop=True)
                     )
                     df_det_c["Valuación"] = df_det_c["valuacion"].apply(lambda v: f"${v:,.0f}")
-                    st.markdown(
-                        f"<div style='font-size:12px;color:#888;margin-bottom:4px'>{label_cer}</div>",
-                        unsafe_allow_html=True,
-                    )
                     st.dataframe(
                         df_det_c[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
                         hide_index=True, use_container_width=True,
-                        height=h_cer - 26,
+                        height=h_cer,
                     )
 
 
@@ -2462,14 +2454,10 @@ def vista_aum():
                     .reset_index(drop=True)
                 )
                 df_det_rv["Valuación"] = df_det_rv["valuacion"].apply(lambda v: f"${v:,.0f}")
-                st.markdown(
-                    f"<div style='font-size:12px;color:#888;margin-bottom:4px'>{label_rv}</div>",
-                    unsafe_allow_html=True,
-                )
                 st.dataframe(
                     df_det_rv[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
                     hide_index=True, use_container_width=True,
-                    height=h_rv - 26,
+                    height=h_rv,
                 )
 
 

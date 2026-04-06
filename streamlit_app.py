@@ -2278,23 +2278,23 @@ def vista_aum():
                     fechas_ord = sorted(df_chart["fecha"].unique())
                     bars = (
                         alt.Chart(df_chart)
-                        .mark_bar()
+                        .mark_bar(color="#094293")
                         .encode(
                             x=alt.X("fecha:O", title=None, sort=fechas_ord,
                                     axis=alt.Axis(labelAngle=-45)),
                             y=alt.Y("monto:Q", title="ARS", stack=True,
                                     axis=alt.Axis(format=",.0f")),
-                            color=alt.Color("ticker:N",
-                                            scale=alt.Scale(scheme="tableau20"),
-                                            legend=alt.Legend(title=None, orient="top",
-                                                              columns=6, labelFontSize=11)),
                             tooltip=[
                                 alt.Tooltip("fecha:O", title="Vencimiento"),
                                 alt.Tooltip("ticker:N", title="Ticker"),
                                 alt.Tooltip("monto:Q", format=",.0f", title="Cobro (ARS)"),
                             ],
                         )
-                        .properties(height=320)
+                        .properties(
+                            height=320,
+                            title=alt.TitleParams("Amortizaciones — Tasa Fija",
+                                                  anchor="start", fontSize=13, fontWeight=600),
+                        )
                     )
                     st.altair_chart(bars, use_container_width=True)
 

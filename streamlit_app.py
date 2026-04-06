@@ -1142,13 +1142,18 @@ def _render_volumenes_opciones(_db_op_ignored):
 
     color_scale = alt.Scale(domain=["CALL", "PUT"], range=["#4a9eff", "#ff4444"])
 
-    # ── Gráfico 1: histórico consolidado por día ──────────────────────────
-    df_hist = (
-        df_all.groupby(["fecha", "Tipo"], as_index=False)["EV_M"].sum()
+    # ── Gráfico 1: histórico consolidado — rango de fechas ───────────────
+    rango = st.select_slider(
+        "Rango de fechas",
+        options=fechas,
+        value=(fechas[0], fechas[-1]),
+        key="vol_hist_rango",
     )
-    st.caption("Volumen total diario (CALL + PUT)")
+    df_hist_fil = df_all[(df_all["fecha"] >= rango[0]) & (df_all["fecha"] <= rango[1])]
+    df_hist = df_hist_fil.groupby(["fecha", "Tipo"], as_index=False)["EV_M"].sum()
+
     hist_bars = alt.Chart(df_hist).mark_bar().encode(
-        x=alt.X("fecha:O", title="Fecha", axis=alt.Axis(labelAngle=-45)),
+        x=alt.X("fecha:O", title=None, axis=alt.Axis(labelAngle=-45)),
         y=alt.Y("EV_M:Q",  title="Volumen ($M)", stack=True),
         color=alt.Color("Tipo:N", scale=color_scale,
                         legend=alt.Legend(title=None, orient="top-right")),
@@ -1163,22 +1168,32 @@ def _render_volumenes_opciones(_db_op_ignored):
 
     st.divider()
 
-    # ── Gráfico 2: por strike — select_slider con fechas reales ─────────
-    fecha_sel = st.select_slider(
-        "Fecha",
-        options=fechas,
-        value=fechas[-1],
-        key="vol_strike_slider",
-    )
+    # ── Gráfico 2: por strike — día puntual o todas las fechas ───────────
+    col_sl, col_tog = st.columns([4, 1])
+    with col_tog:
+        ver_todo = st.toggle("Todas las fechas", value=False, key="vol_strike_todo")
+    with col_sl:
+        fecha_sel = st.select_slider(
+            "Fecha",
+            options=fechas,
+            value=fechas[-1],
+            key="vol_strike_slider",
+            disabled=ver_todo,
+        )
 
-    df_dia = df_all[df_all["fecha"] == fecha_sel].copy()
+    if ver_todo:
+        df_dia = df_all.groupby(["Strike", "Tipo"], as_index=False)["EV_M"].sum()
+        label_dia = "Todas las fechas"
+    else:
+        df_dia = df_all[df_all["fecha"] == fecha_sel].copy()
+        label_dia = fecha_sel
 
     total_call  = df_dia[df_dia["Tipo"] == "CALL"]["EV_M"].sum()
     total_put   = df_dia[df_dia["Tipo"] == "PUT"]["EV_M"].sum()
     total_all_d = total_call + total_put
 
     c1, c2, c3, _ = st.columns([2, 2, 2, 3])
-    c1.metric("Total", f"${total_all_d:.1f}M")
+    c1.metric(label_dia, f"${total_all_d:.1f}M")
     c2.metric("CALLs", f"${total_call:.1f}M")
     c3.metric("PUTs",  f"${total_put:.1f}M")
 

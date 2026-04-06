@@ -824,72 +824,78 @@ def vista_libro():
 
 
 @st.fragment(run_every=30)
-def vista_opciones():
+def _tab_opciones_mercado():
+    """Solo este fragment se refresca cada 30s."""
     db_op    = get_db_opciones()
     meta_col = get_meta_col()
+
+    docs = list(db_op["OptionsSnapshot"].find({}))
+    spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0) if docs else 0
+
+    vr_doc   = meta_col.find_one({"type": "vr_ggal"})
+    vr_local = vr_doc.get("vr_local", 0) if vr_doc else 0
+    vr_adr   = vr_doc.get("vr_adr",   0) if vr_doc else 0
+
+    cfg_doc = meta_col.find_one({"type": "config"})
+    tasa_actual = cfg_doc.get("tasa", 0.242) if cfg_doc else 0.242
+    if "tasa_display" not in st.session_state:
+        st.session_state["tasa_display"] = tasa_actual
+
+    ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None) if docs else None
+    ts_str = (ultimo_ts - timedelta(hours=3)).strftime("%H:%M:%S") if ultimo_ts else "—"
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("SPOT", f"${spot:,.2f}" if spot else "—")
+    c2.metric("VR GGAL (40r)", f"{vr_local:.1%}" if vr_local else "—")
+    c3.metric("ADR", f"{vr_adr:.1%}" if vr_adr else "—")
+    with c4:
+        nueva_tasa = st.number_input(
+            "Tasa libre de riesgo",
+            min_value=0.0, max_value=3.0,
+            value=st.session_state["tasa_display"],
+            step=0.005, format="%.3f",
+            key="tasa_input",
+            help="Cambiá el valor y el motor lo aplicará en ~60s",
+        )
+        if abs(nueva_tasa - st.session_state["tasa_display"]) > 1e-6:
+            meta_col.update_one({"type": "config"}, {"$set": {"tasa": nueva_tasa}}, upsert=True)
+            st.session_state["tasa_display"] = nueva_tasa
+            st.toast(f"Tasa actualizada a {nueva_tasa:.3f}", icon="✅")
+    c5.metric("Última act.", ts_str)
+
+    st.divider()
+
+    if not docs:
+        st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
+    else:
+        render_cadena_opciones(docs, spot)
+
+        smile_rows = {}
+        for d in docs:
+            k = d.get("strike"); t = d.get("tipo"); iv = d.get("iv")
+            if k and t and iv and iv > 0:
+                if k not in smile_rows:
+                    smile_rows[k] = {}
+                smile_rows[k][t] = round(iv * 100, 2)
+        if smile_rows:
+            smile_df = (
+                pd.DataFrame.from_dict(smile_rows, orient="index")
+                .rename(columns={"CALL": "CALL IV%", "PUT": "PUT IV%"})
+                .sort_index()
+            )
+            st.caption("VOLATILITY SMILE — IV% por strike")
+            st.line_chart(smile_df, use_container_width=True)
+
+
+def vista_opciones():
+    db_op = get_db_opciones()
 
     st.markdown("## ACAQuant | Opciones")
     tab_merc, tab_est, tab_vol = st.tabs(["Mercado", "Estrategias", "Volúmenes"])
 
-    # ── Tab Mercado ───────────────────────────────────────────────────────
+    # ── Tab Mercado — auto-refresh 30s ────────────────────────────────────
     with tab_merc:
-        docs = list(db_op["OptionsSnapshot"].find({}))
-        spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0) if docs else 0
-
-        vr_doc   = meta_col.find_one({"type": "vr_ggal"})
-        vr_local = vr_doc.get("vr_local", 0) if vr_doc else 0
-        vr_adr   = vr_doc.get("vr_adr",   0) if vr_doc else 0
-
-        cfg_doc = meta_col.find_one({"type": "config"})
-        tasa_actual = cfg_doc.get("tasa", 0.242) if cfg_doc else 0.242
-        if "tasa_display" not in st.session_state:
-            st.session_state["tasa_display"] = tasa_actual
-
-        ultimo_ts = max((d.get("updated_at") for d in docs if d.get("updated_at")), default=None) if docs else None
-        ts_str = (ultimo_ts - timedelta(hours=3)).strftime("%H:%M:%S") if ultimo_ts else "—"
-
-        # ── cabecera uniforme ─────────────────────────────────────────
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("SPOT", f"${spot:,.2f}" if spot else "—")
-        c2.metric("VR GGAL (40r)", f"{vr_local:.1%}" if vr_local else "—")
-        c3.metric("ADR", f"{vr_adr:.1%}" if vr_adr else "—")
-        with c4:
-            nueva_tasa = st.number_input(
-                "Tasa libre de riesgo",
-                min_value=0.0, max_value=3.0,
-                value=st.session_state["tasa_display"],
-                step=0.005, format="%.3f",
-                key="tasa_input",
-                help="Cambiá el valor y el motor lo aplicará en ~60s",
-            )
-            if abs(nueva_tasa - st.session_state["tasa_display"]) > 1e-6:
-                meta_col.update_one({"type": "config"}, {"$set": {"tasa": nueva_tasa}}, upsert=True)
-                st.session_state["tasa_display"] = nueva_tasa
-                st.toast(f"Tasa actualizada a {nueva_tasa:.3f}", icon="✅")
-        c5.metric("Última act.", ts_str)
-
-        st.divider()
-
-        if not docs:
-            st.warning("Sin datos de opciones. ¿El motor de opciones está corriendo?")
-        else:
-            render_cadena_opciones(docs, spot)
-
-            smile_rows = {}
-            for d in docs:
-                k = d.get("strike"); t = d.get("tipo"); iv = d.get("iv")
-                if k and t and iv and iv > 0:
-                    if k not in smile_rows:
-                        smile_rows[k] = {}
-                    smile_rows[k][t] = round(iv * 100, 2)
-            if smile_rows:
-                smile_df = (
-                    pd.DataFrame.from_dict(smile_rows, orient="index")
-                    .rename(columns={"CALL": "CALL IV%", "PUT": "PUT IV%"})
-                    .sort_index()
-                )
-                st.caption("VOLATILITY SMILE — IV% por strike")
-                st.line_chart(smile_df, use_container_width=True)
+        _tab_opciones_mercado()
 
     # ── Tab Estrategias ───────────────────────────────────────────────────
     with tab_est:

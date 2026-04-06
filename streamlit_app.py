@@ -2229,7 +2229,7 @@ def vista_aum():
                 h_tbl = 38 + 35 * len(tbl)
 
                 # ── fila 1: tabla tickers | tabla cuentas (mismo tamaño) ──
-                col_tbl, col_det = st.columns(2)
+                col_tbl, col_det = st.columns([2, 3])
 
                 with col_tbl:
                     tbl_display = tbl[["ticker_corto", "fecha_venc", "valuacion"]].copy()
@@ -2243,6 +2243,11 @@ def vista_aum():
                         tbl_display, hide_index=True, use_container_width=True,
                         height=h_tbl, on_select="rerun", selection_mode="single-row",
                         key="tf_tabla",
+                        column_config={
+                            "Ticker":      st.column_config.TextColumn(width="small"),
+                            "Vencimiento": st.column_config.TextColumn(width="small"),
+                            "Valuación":   st.column_config.NumberColumn(width="small", format="$%.0f"),
+                        },
                     )
 
                 with col_det:

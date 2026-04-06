@@ -420,28 +420,28 @@ def _build_strategy_templates():
     # Cada entrada: (categoria, nombre, patas) — mínimo 5 variantes por categoría
     t = []
     for n in range(1, 7):
-        t.append(("Bull Call Spread", f"Bull Call Spread +{n}", [(0,'CALL','buy',1), (+n,'CALL','sell',1)]))
+        t.append(("Spread Alcista", f"Spread Alcista (Calls) +{n}", [(0,'CALL','buy',1), (+n,'CALL','sell',1)]))
     for n in range(1, 7):
-        t.append(("Bear Put Spread",  f"Bear Put Spread  -{n}", [(0,'PUT','buy',1), (-n,'PUT','sell',1)]))
-    t.append(("Straddle / Strangle", "Straddle ATM", [(0,'CALL','buy',1), (0,'PUT','buy',1)]))
+        t.append(("Spread Bajista", f"Spread Bajista (Puts)  -{n}", [(0,'PUT','buy',1), (-n,'PUT','sell',1)]))
+    t.append(("Cono / Cuna", "Cono ATM", [(0,'CALL','buy',1), (0,'PUT','buy',1)]))
     for n in range(1, 6):
-        t.append(("Straddle / Strangle", f"Strangle         {n}w", [(+n,'CALL','buy',1), (-n,'PUT','buy',1)]))
+        t.append(("Cono / Cuna", f"Cuna                   {n}w", [(+n,'CALL','buy',1), (-n,'PUT','buy',1)]))
     for n in range(1, 6):
-        t.append(("Ratio Call 1×2",  f"Ratio Call 1×2   +{n}", [(0,'CALL','buy',1), (+n,'CALL','sell',2)]))
+        t.append(("Ratio", f"Ratio Call 1×2         +{n}", [(0,'CALL','buy',1), (+n,'CALL','sell',2)]))
     for n in range(1, 6):
-        t.append(("Ratio Put 1×2",   f"Ratio Put  1×2   -{n}", [(0,'PUT','buy',1), (-n,'PUT','sell',2)]))
+        t.append(("Ratio", f"Ratio Put  1×2         -{n}", [(0,'PUT','buy',1), (-n,'PUT','sell',2)]))
     for n in range(1, 6):
-        t.append(("Call Backspread",  f"Call Backspread  +{n}", [(0,'CALL','sell',1), (+n,'CALL','buy',2)]))
+        t.append(("Backspread", f"Backspread Call        +{n}", [(0,'CALL','sell',1), (+n,'CALL','buy',2)]))
     for n in range(1, 6):
-        t.append(("Put Backspread",   f"Put Backspread   -{n}", [(0,'PUT','sell',1), (-n,'PUT','buy',2)]))
-    t.append(("Iron Condor", "Iron Condor  1|2", [(-2,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+2,'CALL','buy',1)]))
-    t.append(("Iron Condor", "Iron Condor  2|3", [(-3,'PUT','buy',1),(-2,'PUT','sell',1),(+2,'CALL','sell',1),(+3,'CALL','buy',1)]))
-    t.append(("Iron Condor", "Iron Condor  1|3", [(-3,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+3,'CALL','buy',1)]))
-    t.append(("Iron Condor", "Iron Condor  1|4", [(-4,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+4,'CALL','buy',1)]))
-    t.append(("Iron Condor", "Iron Condor  2|4", [(-4,'PUT','buy',1),(-2,'PUT','sell',1),(+2,'CALL','sell',1),(+4,'CALL','buy',1)]))
-    t.append(("Short Vol", "Short Straddle",     [(0,'CALL','sell',1), (0,'PUT','sell',1)]))
+        t.append(("Backspread", f"Backspread Put         -{n}", [(0,'PUT','sell',1), (-n,'PUT','buy',2)]))
+    t.append(("Cóndor de Hierro", "Cóndor de Hierro  1|2", [(-2,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+2,'CALL','buy',1)]))
+    t.append(("Cóndor de Hierro", "Cóndor de Hierro  2|3", [(-3,'PUT','buy',1),(-2,'PUT','sell',1),(+2,'CALL','sell',1),(+3,'CALL','buy',1)]))
+    t.append(("Cóndor de Hierro", "Cóndor de Hierro  1|3", [(-3,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+3,'CALL','buy',1)]))
+    t.append(("Cóndor de Hierro", "Cóndor de Hierro  1|4", [(-4,'PUT','buy',1),(-1,'PUT','sell',1),(+1,'CALL','sell',1),(+4,'CALL','buy',1)]))
+    t.append(("Cóndor de Hierro", "Cóndor de Hierro  2|4", [(-4,'PUT','buy',1),(-2,'PUT','sell',1),(+2,'CALL','sell',1),(+4,'CALL','buy',1)]))
+    t.append(("Venta de Vol", "Cono Vendido",         [(0,'CALL','sell',1), (0,'PUT','sell',1)]))
     for n in range(1, 5):
-        t.append(("Short Vol", f"Short Strangle   {n}w", [(+n,'CALL','sell',1), (-n,'PUT','sell',1)]))
+        t.append(("Venta de Vol", f"Cuna Vendida           {n}w", [(+n,'CALL','sell',1), (-n,'PUT','sell',1)]))
     return t
 
 STRATEGY_TEMPLATES = _build_strategy_templates()
@@ -554,7 +554,7 @@ def render_estrategias_dinamicas(docs, spot, por_strike=None, liquid_strikes=Non
 # HELPERS — ESTRATEGIAS (datos + gráficos)
 # ==========================================
 
-def _calcular_estrategias(por_strike, liquid_strikes, center_idx, spot, categoria_sel="Todas"):
+def _calcular_estrategias(por_strike, liquid_strikes, center_idx, spot, categoria_sel="Spread Alcista"):
     """Construye filas de la tabla y la lista de patas resueltas (symbol, K, side, qty, px)."""
     def get_px(d, side):
         if not d: return 0
@@ -566,7 +566,7 @@ def _calcular_estrategias(por_strike, liquid_strikes, center_idx, spot, categori
     rows, resolved_legs_list = [], []
 
     for cat, name, legs in STRATEGY_TEMPLATES:
-        if categoria_sel != "Todas" and cat != categoria_sel:
+        if cat != categoria_sel:
             continue
         neto = d_net = g_net = t_net = 0.0
         valid = True
@@ -928,7 +928,11 @@ def vista_opciones():
                 ultimo_ts_e = max((d.get("updated_at") for d in docs_e if d.get("updated_at")), default=None)
                 ts_str_e = (ultimo_ts_e - timedelta(hours=3)).strftime("%H:%M:%S") if ultimo_ts_e else "—"
 
-                categorias = ["Todas"] + sorted(set(cat for cat, name, legs in STRATEGY_TEMPLATES))
+                categorias_ordenadas = ["Spread Alcista", "Spread Bajista", "Cono / Cuna",
+                                        "Ratio", "Backspread", "Cóndor de Hierro", "Venta de Vol"]
+                # Solo mostrar categorías que tienen templates definidos
+                cats_disponibles = [c for c in categorias_ordenadas
+                                    if any(cat == c for cat, _, _ in STRATEGY_TEMPLATES)]
 
                 col_strike, col_cat, col_ts = st.columns([3, 3, 2])
                 with col_strike:
@@ -941,7 +945,10 @@ def vista_opciones():
                     )
                 with col_cat:
                     categoria_sel = st.selectbox(
-                        "Tipo de estrategia", options=categorias, key="estrategias_cat",
+                        "Tipo de estrategia",
+                        options=cats_disponibles,
+                        index=0,
+                        key="estrategias_cat",
                     )
                 with col_ts:
                     st.metric("Última act.", ts_str_e)
@@ -953,62 +960,113 @@ def vista_opciones():
                     por_strike, liquid_strikes, center_idx, spot_e, categoria_sel
                 )
 
-                col_tabla, col_graficos = st.columns([2, 3])
-                with col_tabla:
-                    df_est = pd.DataFrame(rows)
-                    atm_label = " (ATM)" if center_idx == atm_idx_default else ""
-                    st.caption(
-                        f"Strike central: {strike_sel:,.0f}{atm_label} | Spot: ${spot_e:,.2f}  |  "
-                        f"Costo>0 = debit (pagás), Costo<0 = credit (recibís)"
-                    )
-                    styler = (
-                        df_est.style
-                        .map(lambda v: (
-                            "color: #ff4444; font-weight: bold" if pd.notna(v) and v > 0 else
-                            "color: #00cc66; font-weight: bold" if pd.notna(v) else
-                            "color: #555"
-                        ), subset=["Costo/Prima"])
-                        .format({
-                            "Costo/Prima": lambda v: f"${v:.2f}"  if pd.notna(v) else "Sin Liq",
-                            "Vol (pata)":  lambda v: fmt_vol(v)    if pd.notna(v) else "-",
-                            "Delta":       lambda v: f"{v:.3f}"    if pd.notna(v) else "-",
-                            "Gamma":       lambda v: f"{v:.4f}"    if pd.notna(v) else "-",
-                            "Theta":       lambda v: f"{v:.2f}"    if pd.notna(v) else "-",
-                        })
-                    )
-                    selection = st.dataframe(
-                        styler, hide_index=True, use_container_width=True,
-                        height=df_height(len(df_est), max_h=700),
-                        on_select="rerun", selection_mode="single-row",
-                        key="estrategias_tabla",
-                    )
+                df_est = pd.DataFrame(rows)
+                atm_label = " (ATM)" if center_idx == atm_idx_default else ""
+                st.caption(
+                    f"Strike central: {strike_sel:,.0f}{atm_label} | Spot: ${spot_e:,.2f}  |  "
+                    f"Costo>0 = debit (pagás), Costo<0 = credit (recibís)"
+                )
+                styler = (
+                    df_est.style
+                    .map(lambda v: (
+                        "color: #ff4444; font-weight: bold" if pd.notna(v) and v > 0 else
+                        "color: #00cc66; font-weight: bold" if pd.notna(v) else
+                        "color: #555"
+                    ), subset=["Costo/Prima"])
+                    .format({
+                        "Costo/Prima": lambda v: f"${v:.2f}"  if pd.notna(v) else "Sin Liq",
+                        "Vol (pata)":  lambda v: fmt_vol(v)    if pd.notna(v) else "-",
+                        "Delta":       lambda v: f"{v:.3f}"    if pd.notna(v) else "-",
+                        "Gamma":       lambda v: f"{v:.4f}"    if pd.notna(v) else "-",
+                        "Theta":       lambda v: f"{v:.2f}"    if pd.notna(v) else "-",
+                    })
+                )
+                selection = st.dataframe(
+                    styler, hide_index=True, use_container_width=True,
+                    height=df_height(len(df_est), max_h=700),
+                    on_select="rerun", selection_mode="single-row",
+                    key="estrategias_tabla",
+                )
 
-                with col_graficos:
-                    sel_rows = selection.selection.rows if hasattr(selection, 'selection') else []
-                    if not sel_rows:
-                        st.info("← Seleccioná una estrategia de la tabla para ver los gráficos.")
-                    else:
-                        row_idx  = sel_rows[0]
-                        sel_name = rows[row_idx]["Estrategia"]
-                        sel_cost = rows[row_idx]["Costo/Prima"]
-                        sel_legs = resolved_legs_list[row_idx]
+                st.divider()
 
-                        tipo_cost = "DEBIT" if (sel_cost or 0) > 0 else "CREDIT"
-                        st.markdown(f"**{sel_name}**  |  {tipo_cost} ${abs(sel_cost or 0):.2f}")
+                sel_rows = selection.selection.rows if hasattr(selection, 'selection') else []
 
-                        tab_hist, tab_payoff = st.tabs(["Histórico de Costo", "Payoff al Vencimiento"])
-                        with tab_hist:
-                            chart_h = _chart_historico_estrategia(db_op, sel_legs, costo_actual=sel_cost)
-                            if chart_h:
-                                st.altair_chart(chart_h, use_container_width=True)
-                            else:
-                                st.info("Sin datos históricos suficientes para esta estrategia.")
-                        with tab_payoff:
-                            chart_p, breakevens = _chart_payoff_estrategia(sel_legs, spot_e, sel_cost)
-                            if chart_p:
-                                st.altair_chart(chart_p, use_container_width=True)
-                                be_str = "  |  Break-even: " + "  /  ".join(f"${int(b):,}" for b in breakevens) if breakevens else ""
-                                st.caption(f"Línea amarilla = Spot actual (${spot_e:,.0f}){be_str}")
+                # Default: primera fila con liquidez
+                if not sel_rows:
+                    default_idx = next(
+                        (i for i, r in enumerate(rows) if r.get("Costo/Prima") is not None),
+                        0
+                    )
+                    sel_rows = [default_idx]
+
+                row_idx  = sel_rows[0]
+                sel_name = rows[row_idx]["Estrategia"]
+                sel_cost = rows[row_idx]["Costo/Prima"]
+                sel_legs = resolved_legs_list[row_idx]
+
+                tipo_cost = "DEBIT" if (sel_cost or 0) > 0 else "CREDIT"
+                st.markdown(f"### {sel_name}  —  {tipo_cost} ${abs(sel_cost or 0):.2f}")
+
+                # ── Histórico de costo a ancho completo ──────────────────
+                chart_h = _chart_historico_estrategia(db_op, sel_legs, costo_actual=sel_cost)
+                if chart_h:
+                    st.altair_chart(chart_h, use_container_width=True)
+                else:
+                    st.info("Sin datos históricos suficientes para esta estrategia.")
+
+                st.divider()
+
+                # ── Payoff (izq) + Tabla spread (der) ────────────────────
+                chart_p, breakevens = _chart_payoff_estrategia(sel_legs, spot_e, sel_cost)
+
+                col_payoff, col_tabla_spread = st.columns([3, 2])
+
+                with col_payoff:
+                    if chart_p:
+                        st.altair_chart(chart_p, use_container_width=True)
+                        be_str = "  Break-even: " + "  /  ".join(f"${int(b):,}" for b in breakevens) if breakevens else ""
+                        st.caption(f"Línea amarilla = Spot actual (${spot_e:,.0f}){be_str}")
+
+                with col_tabla_spread:
+                    import numpy as np
+                    if sel_legs and spot_e > 0:
+                        # Spread del 1%: desde -1% hasta +1% en pasos de 0.1%
+                        pct_steps = [i * 0.001 for i in range(-10, 11)]
+                        spread_rows = []
+                        for pct in pct_steps:
+                            precio = spot_e * (1 + pct)
+                            pl_val = 0.0
+                            for leg in sel_legs:
+                                m = 1 if leg['side'] == 'buy' else -1
+                                if leg['tipo'] == 'CALL':
+                                    intrinseco = max(precio - leg['K'], 0)
+                                else:
+                                    intrinseco = max(leg['K'] - precio, 0)
+                                pl_val += m * leg['qty'] * intrinseco
+                            pl_val -= (sel_cost or 0)
+                            spread_rows.append({
+                                "Precio GGAL": precio,
+                                "Var %": pct,
+                                "P&L al vto.": pl_val,
+                            })
+                        df_spread = pd.DataFrame(spread_rows)
+                        styler_sp = (
+                            df_spread.style
+                            .map(lambda v: (
+                                "color: #00cc66; font-weight: bold" if isinstance(v, float) and v > 0 else
+                                "color: #ff4444; font-weight: bold" if isinstance(v, float) and v < 0 else
+                                ""
+                            ), subset=["P&L al vto."])
+                            .format({
+                                "Precio GGAL": "${:,.2f}",
+                                "Var %":        "{:+.1%}",
+                                "P&L al vto.":  "${:,.2f}",
+                            })
+                        )
+                        st.caption(f"Tabla de rendimiento — spread ±1% (spot ${spot_e:,.2f})")
+                        st.dataframe(styler_sp, hide_index=True, use_container_width=True,
+                                     height=df_height(len(df_spread), max_h=600))
 
 
 

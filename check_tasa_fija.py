@@ -52,7 +52,7 @@ def main():
     print("-" * 55)
 
     ok = sin_pos = sin_assets = 0
-    for c in sorted(curvas, key=lambda x: x.get("fecha_vencimiento", "")):
+    for c in sorted(curvas, key=lambda x: x.get("fecha_vencimiento") or ""):
         tc   = c["ticker_corto"]
         venc = c.get("fecha_vencimiento", "")[:10]
         unidades = ticker_to_unidades.get(tc, [])

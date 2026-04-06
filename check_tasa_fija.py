@@ -48,28 +48,27 @@ def main():
 
     print(f"\nFecha snapshot: {fecha_max}")
     print(f"Instrumentos tasa_fija en Curvas: {len(curvas)}\n")
-    print(f"{'Ticker':<12}  {'Vencimiento':<12}  {'Estado'}")
-    print("-" * 55)
+    print(f"{'Ticker':<12}  {'Estado'}")
+    print("-" * 50)
 
     ok = sin_pos = sin_assets = 0
-    for c in sorted(curvas, key=lambda x: x.get("fecha_vencimiento") or ""):
-        tc   = c["ticker_corto"]
-        venc = c.get("fecha_vencimiento", "")[:10]
+    for c in sorted(curvas, key=lambda x: x.get("ticker_corto", "")):
+        tc = c["ticker_corto"]
         unidades = ticker_to_unidades.get(tc, [])
 
         if not unidades:
-            estado = "❌  sin Assets (falta doc en Valuaciones.Assets con TICKER)"
+            estado = "❌  sin Assets"
             sin_assets += 1
         elif any(u in unidades_con_posicion for u in unidades):
             estado = "✅  en vista"
             ok += 1
         else:
-            estado = "⚠️   sin posición en AuM (snapshot actual)"
+            estado = "⚠️  sin posición en AuM"
             sin_pos += 1
 
-        print(f"{tc:<12}  {venc:<12}  {estado}")
+        print(f"{tc:<12}  {estado}")
 
-    print("-" * 55)
+    print("-" * 50)
     print(f"✅ En vista: {ok}   ⚠️ Sin posición: {sin_pos}   ❌ Sin Assets: {sin_assets}\n")
 
 if __name__ == "__main__":

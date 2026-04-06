@@ -2226,11 +2226,10 @@ def vista_aum():
                     unsafe_allow_html=True,
                 )
 
-                h_tbl   = 38 + 35 * len(tbl)
-                h_chart = max(140, int(h_tbl * 0.58))
-                h_det   = max(73,  h_tbl - h_chart - 35)  # 35 = label
+                h_tbl = 38 + 35 * len(tbl)
 
-                col_tbl, col_chart = st.columns([1, 2])
+                # ── fila 1: tabla tickers | tabla cuentas (mismo tamaño) ──
+                col_tbl, col_det = st.columns(2)
 
                 with col_tbl:
                     tbl_display = tbl[["ticker_corto", "fecha_venc", "valuacion"]].copy()
@@ -2246,33 +2245,7 @@ def vista_aum():
                         key="tf_tabla",
                     )
 
-                with col_chart:
-                    if chart_rows:
-                        df_chart = pd.DataFrame(chart_rows)
-                        fechas_ord = sorted(df_chart["fecha"].unique())
-                        bars = (
-                            alt.Chart(df_chart)
-                            .mark_bar()
-                            .encode(
-                                x=alt.X("fecha:O", title=None, sort=fechas_ord,
-                                        axis=alt.Axis(labelAngle=-45)),
-                                y=alt.Y("monto:Q", title=None, stack=True,
-                                        axis=alt.Axis(format=",.0f")),
-                                color=alt.Color("ticker:N",
-                                                scale=alt.Scale(scheme="tableau20"),
-                                                legend=alt.Legend(title=None, orient="right",
-                                                                  labelFontSize=11)),
-                                tooltip=[
-                                    alt.Tooltip("fecha:O", title="Vencimiento"),
-                                    alt.Tooltip("ticker:N", title="Ticker"),
-                                    alt.Tooltip("monto:Q", format=",.0f", title="Cobro (ARS)"),
-                                ],
-                            )
-                            .properties(height=h_chart)
-                        )
-                        st.altair_chart(bars, use_container_width=True)
-
-                    # ── detalle cuentas por ticker seleccionado ────────
+                with col_det:
                     sel_tf = ev_tf.selection.rows if ev_tf.selection.rows else []
                     if sel_tf:
                         ticker_det = tbl.iloc[sel_tf[0]]["ticker_corto"]
@@ -2285,13 +2258,45 @@ def vista_aum():
                         )
                         df_det["Valuación"] = df_det["valuacion"].apply(lambda v: f"${v:,.0f}")
                         st.markdown(
-                            f"<div style='font-size:12px;color:#888;margin-top:4px'>{ticker_det}</div>",
+                            f"<div style='font-size:12px;color:#888;margin-bottom:4px'>{ticker_det}</div>",
                             unsafe_allow_html=True,
                         )
                         st.dataframe(
                             df_det[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
-                            hide_index=True, use_container_width=True, height=h_det,
+                            hide_index=True, use_container_width=True,
+                            height=h_tbl - 26,
                         )
+                    else:
+                        st.dataframe(
+                            pd.DataFrame(columns=["Cuenta", "Valuación"]),
+                            hide_index=True, use_container_width=True, height=h_tbl,
+                        )
+
+                # ── fila 2: gráfico a ancho completo ─────────────────────
+                if chart_rows:
+                    df_chart = pd.DataFrame(chart_rows)
+                    fechas_ord = sorted(df_chart["fecha"].unique())
+                    bars = (
+                        alt.Chart(df_chart)
+                        .mark_bar()
+                        .encode(
+                            x=alt.X("fecha:O", title=None, sort=fechas_ord,
+                                    axis=alt.Axis(labelAngle=-45)),
+                            y=alt.Y("monto:Q", title="ARS", stack=True,
+                                    axis=alt.Axis(format=",.0f")),
+                            color=alt.Color("ticker:N",
+                                            scale=alt.Scale(scheme="tableau20"),
+                                            legend=alt.Legend(title=None, orient="top",
+                                                              columns=6, labelFontSize=11)),
+                            tooltip=[
+                                alt.Tooltip("fecha:O", title="Vencimiento"),
+                                alt.Tooltip("ticker:N", title="Ticker"),
+                                alt.Tooltip("monto:Q", format=",.0f", title="Cobro (ARS)"),
+                            ],
+                        )
+                        .properties(height=320)
+                    )
+                    st.altair_chart(bars, use_container_width=True)
 
 
 # ==========================================

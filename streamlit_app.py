@@ -1082,21 +1082,19 @@ def _fetch_vol_historico():
     Usa $year/$month/$dayOfMonth en lugar de $dateToString para máxima compatibilidad.
     Cacheada 5 minutos para no re-query en cada rerun del fragment."""
     fecha_min = datetime.utcnow() - timedelta(days=20)
+    # Sin $sort: ev es acumulado → $max da el último valor del día sin ordenar
     pipeline = [
         {"$match": {"timestamp": {"$gte": fecha_min}, "ev": {"$gt": 0},
                     "strike": {"$exists": True}, "tipo": {"$exists": True}}},
-        # Proyectar solo lo necesario antes de ordenar (reduce memoria)
-        {"$project": {"symbol": 1, "timestamp": 1, "ev": 1, "strike": 1, "tipo": 1}},
-        {"$sort": {"timestamp": -1}},
-        # Paso 1: primer doc (= más reciente) por (año, mes, día, symbol)
+        # Paso 1: max(ev) por (año, mes, día, symbol) — equivalente al último valor
         {"$group": {
             "_id": {
-                "y": {"$year":         "$timestamp"},
-                "m": {"$month":        "$timestamp"},
-                "d": {"$dayOfMonth":   "$timestamp"},
+                "y": {"$year":       "$timestamp"},
+                "m": {"$month":      "$timestamp"},
+                "d": {"$dayOfMonth": "$timestamp"},
                 "s": "$symbol",
             },
-            "ev":     {"$first": "$ev"},
+            "ev":     {"$max": "$ev"},
             "strike": {"$first": "$strike"},
             "tipo":   {"$first": "$tipo"},
         }},
@@ -1108,7 +1106,6 @@ def _fetch_vol_historico():
             },
             "ev_total": {"$sum": "$ev"},
         }},
-        {"$sort": {"_id.y": 1, "_id.m": 1, "_id.d": 1, "_id.strike": 1}},
     ]
     docs = list(get_mongo_client()["Opciones"]["Data"].aggregate(pipeline))
     rows = []

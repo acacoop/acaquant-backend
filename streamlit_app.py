@@ -1842,6 +1842,16 @@ def _cargar_curvas_tasa_fija():
     return {d["ticker_corto"]: d for d in docs}
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _cargar_curvas_cer():
+    """Dict {ticker_corto: {fecha_vencimiento}} para curva=cer en Trading.Curvas."""
+    docs = list(get_db()["Curvas"].find(
+        {"curva": "cer"},
+        {"_id": 0, "ticker_corto": 1, "fecha_vencimiento": 1},
+    ))
+    return {d["ticker_corto"]: d for d in docs}
+
+
 def _render_snapshot_fci(df_fci, key_prefix):
     """Tabla + torta de valuacion FCI por EMISOR para un df ya filtrado por fecha."""
     if df_fci.empty:
@@ -1963,7 +1973,7 @@ def vista_aum():
 
     df_fci_all = df[df["CARTERA"] == "CARTERA FCI"].copy()
 
-    tab_fci, tab_stock_soc, tab_tasa_fija = st.tabs(["FCI", "Análisis SG", "Tasa Fija"])
+    tab_fci, tab_stock_soc, tab_tasa_fija, tab_cer = st.tabs(["FCI", "Análisis SG", "Tasa Fija", "CER"])
 
     # ── Tab 1: FCI (snapshot + stock lado a lado) ─────────────────────────────
     with tab_fci:
@@ -2302,6 +2312,95 @@ def vista_aum():
                         )
                     )
                     st.altair_chart(bars, use_container_width=True)
+
+
+    # ── Tab 4: CER ────────────────────────────────────────────────────────────
+    with tab_cer:
+        curvas_cer = _cargar_curvas_cer()
+        if not curvas_cer:
+            st.info("Sin instrumentos CER en Trading.Curvas.")
+        else:
+            cer_set = set(curvas_cer.keys())
+            unidades_cer = {u for u, a in assets.items() if a.get("TICKER") in cer_set}
+            df_cer_all = df[df["unidad"].isin(unidades_cer)].copy()
+
+            if df_cer_all.empty:
+                st.info("Sin posiciones CER en AuM.")
+            else:
+                df_cer_all["ticker_corto"] = df_cer_all["unidad"].map(
+                    lambda u: assets.get(u, {}).get("TICKER", "")
+                )
+                df_cer_all["fecha_venc"] = df_cer_all["ticker_corto"].map(
+                    lambda t: (curvas_cer.get(t, {}).get("fecha_vencimiento") or "")[:10]
+                )
+
+                fecha_sel_cer = df_cer_all["fecha_snapshot"].dropna().max()
+                df_cer = df_cer_all[df_cer_all["fecha_snapshot"] == fecha_sel_cer].copy()
+
+                tbl_cer = (
+                    df_cer.groupby(["ticker_corto", "fecha_venc"], as_index=False)
+                    .agg(valuacion=("valuacion", "sum"))
+                    .sort_values("fecha_venc")
+                    .reset_index(drop=True)
+                )
+
+                total_val_cer = tbl_cer["valuacion"].sum()
+                st.markdown(
+                    f"<div style='margin-bottom:8px'>"
+                    f"<span style='font-size:11px;color:#888'>Valuación actual</span><br>"
+                    f"<span style='font-size:17px;font-weight:600'>${total_val_cer:,.0f}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                h_cer = 38 + 35 * len(tbl_cer)
+                col_tbl_c, col_det_c = st.columns([2, 3])
+
+                with col_tbl_c:
+                    tbl_cer_disp = tbl_cer[["ticker_corto", "fecha_venc", "valuacion"]].copy()
+                    tbl_cer_disp["valuacion"] = tbl_cer_disp["valuacion"].apply(lambda v: f"${v:,.0f}")
+                    tbl_cer_disp.rename(columns={
+                        "ticker_corto": "Ticker",
+                        "fecha_venc":   "Vencimiento",
+                        "valuacion":    "Valuación",
+                    }, inplace=True)
+                    ev_cer = st.dataframe(
+                        tbl_cer_disp, hide_index=True, use_container_width=True,
+                        height=h_cer, on_select="rerun", selection_mode="single-row",
+                        key="cer_tabla",
+                        column_config={
+                            "Ticker":      st.column_config.TextColumn(width="small"),
+                            "Vencimiento": st.column_config.TextColumn(width="small"),
+                            "Valuación":   st.column_config.TextColumn(width="small"),
+                        },
+                    )
+
+                with col_det_c:
+                    sel_cer = ev_cer.selection.rows if ev_cer.selection.rows else []
+                    if sel_cer:
+                        ticker_det_c = tbl_cer.iloc[sel_cer[0]]["ticker_corto"]
+                        df_det_c = (
+                            df_cer[df_cer["ticker_corto"] == ticker_det_c]
+                            .groupby("cuenta", as_index=False)["valuacion"]
+                            .sum()
+                            .sort_values("valuacion", ascending=False)
+                            .reset_index(drop=True)
+                        )
+                        df_det_c["Valuación"] = df_det_c["valuacion"].apply(lambda v: f"${v:,.0f}")
+                        st.markdown(
+                            f"<div style='font-size:12px;color:#888;margin-bottom:4px'>{ticker_det_c}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        st.dataframe(
+                            df_det_c[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
+                            hide_index=True, use_container_width=True,
+                            height=h_cer - 26,
+                        )
+                    else:
+                        st.dataframe(
+                            pd.DataFrame(columns=["Cuenta", "Valuación"]),
+                            hide_index=True, use_container_width=True, height=h_cer,
+                        )
 
 
 # ==========================================

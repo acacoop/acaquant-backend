@@ -216,7 +216,7 @@ Nav principal: **Mercado · Opciones · Portfolios · Operaciones · AuM · ONs*
 | Opciones | Mercado · Estrategias | Mercado: cadena GGAL con SPOT/VR/ADR/Tasa RF + volatility smile. Estrategias: spreads pre-configurados con payoff y costo histórico |
 | Portfolios | una tab por cuenta | Posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial leído automáticamente de `Trading.DOLAR` (último valor). Tab por cada `id_cuenta` único; filtro cartera dentro de cada tab |
 | Operaciones | — | Cash Flow (depósitos/transferencias/extracciones) desde `CashFlow.Movimientos`; filtros por fecha, moneda, accionista; gráficos ARS y USD independientes |
-| AuM | FCI · Stock Soc. Gerente · Tasa Fija | FCI: snapshot por fecha + gráfico evolución + detalle fondos por soc. gerente al clickear. Stock Soc. Gerente: evolución individual o comparativo base 100. Tasa Fija: posiciones en instrumentos de `Trading.Curvas` (curva=tasa_fija) + gráfico de stock actual y cobros proyectados al vencimiento |
+| AuM | FCI · Análisis SG · Tasa Fija | FCI: snapshot por fecha + gráfico evolución + detalle fondos por soc. gerente al clickear. Análisis SG: evolución AuM por sociedad gerente — modo Individual o Comparativo base 100. Tasa Fija: posiciones en instrumentos de `Trading.Curvas` (curva=tasa_fija); tabla Ticker/Vencimiento/Valuación + tabla cuentas al clickear ticker + gráfico cobros al vencimiento a ancho completo |
 | ONs | — | Yield screener ONs en tiempo real |
 
 ### AuM → Tab Tasa Fija
@@ -228,10 +228,11 @@ Muestra posiciones de instrumentos cuyo `ticker_corto` está en `Trading.Curvas`
 2. `Valuaciones.Assets` → match `TICKER == ticker_corto` → obtiene `unidad`
 3. `Valuaciones.AuM` → filtra por esas `unidad` → `cantidad` (nominales) y `valuacion`
 
-**Gráfico stock + flujos futuros:**
-- Barras apiladas por `ticker_corto`, coloreadas por instrumento
-- Fecha snapshot (hoy): barras semitransparentes = valuación actual (stock)
-- Fechas de vencimiento: barras sólidas = `cantidad × flujo_vencimiento / 100` = cobro proyectado al vencimiento
+**Layout:**
+- Fila 1: tabla Ticker/Vencimiento/Valuación (izq) | tabla Cuenta/Valuación al clickear ticker (der) — misma altura
+- Fila 2: gráfico a ancho completo — barras apiladas por ticker, solo cobros al vencimiento (`cantidad × flujo_vencimiento / 100`)
+
+**Para agregar instrumentos:** insertar doc en `Trading.Curvas` con `curva: "tasa_fija"` + doc en `Valuaciones.Assets` con `TICKER == ticker_corto`. Sin esos dos docs el instrumento no aparece aunque haya posición en AuM.
 
 ### Trading.ForwardsLive y Trading.ForwardsHistorico
 

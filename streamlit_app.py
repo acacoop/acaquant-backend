@@ -1963,7 +1963,7 @@ def vista_aum():
 
     df_fci_all = df[df["CARTERA"] == "CARTERA FCI"].copy()
 
-    tab_fci, tab_stock_soc, tab_tasa_fija = st.tabs(["FCI", "Stock Soc. Gerente", "Tasa Fija"])
+    tab_fci, tab_stock_soc, tab_tasa_fija = st.tabs(["FCI", "Análisis SG", "Tasa Fija"])
 
     # ── Tab 1: FCI (snapshot + stock lado a lado) ─────────────────────────────
     with tab_fci:

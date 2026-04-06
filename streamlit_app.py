@@ -267,17 +267,13 @@ def render_mercado_table(snaps, enriched=None):
 
         enc = enriched.get(ticker, {})
         tea     = enc.get("TEA")
-        tem     = enc.get("TEM")
         dur     = enc.get("duration")
-        paridad = enc.get("paridad")
 
         rows.append({
             "Ticker":    short_name(ticker),
             "Last":      last_price   if last_price  > 0 else None,
             "TEA":       tea,
-            "TEM":       tem,
             "Duration":  dur,
-            "Paridad":   paridad,
             "Total $":   fmt_money(total),
             "Buy $":     fmt_money(buy),
             "Sell $":    fmt_money(sell),
@@ -300,9 +296,7 @@ def render_mercado_table(snaps, enriched=None):
     fmt = {
         "Last":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
         "TEA":       lambda v: f"{v:.2%}" if pd.notna(v) else "-",
-        "TEM":       lambda v: f"{v:.2%}" if pd.notna(v) else "-",
         "Duration":  lambda v: f"{v:.2f}" if pd.notna(v) else "-",
-        "Paridad":   lambda v: f"{v:.2f}%" if pd.notna(v) else "-",
         "Open":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
         "Cierre":    lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
         "VWAP":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",

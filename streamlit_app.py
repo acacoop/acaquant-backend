@@ -1020,19 +1020,22 @@ def vista_opciones():
                 # ── Payoff (izq) + Tabla spread (der) ────────────────────
                 chart_p, breakevens = _chart_payoff_estrategia(sel_legs, spot_e, sel_cost)
 
+                _SPREAD_HEIGHT = 560
+
                 col_payoff, col_tabla_spread = st.columns([3, 2])
 
                 with col_payoff:
                     if chart_p:
-                        st.altair_chart(chart_p, use_container_width=True)
+                        chart_p_tall = chart_p.properties(height=_SPREAD_HEIGHT)
+                        st.altair_chart(chart_p_tall, use_container_width=True)
                         be_str = "  Break-even: " + "  /  ".join(f"${int(b):,}" for b in breakevens) if breakevens else ""
                         st.caption(f"Línea amarilla = Spot actual (${spot_e:,.0f}){be_str}")
 
                 with col_tabla_spread:
                     import numpy as np
                     if sel_legs and spot_e > 0:
-                        # Spread del 1%: desde -1% hasta +1% en pasos de 0.1%
-                        pct_steps = [i * 0.001 for i in range(-10, 11)]
+                        # Pasos de +2% desde -14% hasta +14%
+                        pct_steps = [i * 0.02 for i in range(-7, 8)]
                         spread_rows = []
                         for pct in pct_steps:
                             precio = spot_e * (1 + pct)
@@ -1060,13 +1063,13 @@ def vista_opciones():
                             ), subset=["P&L al vto."])
                             .format({
                                 "Precio GGAL": "${:,.2f}",
-                                "Var %":        "{:+.1%}",
+                                "Var %":        "{:+.0%}",
                                 "P&L al vto.":  "${:,.2f}",
                             })
                         )
-                        st.caption(f"Tabla de rendimiento — spread ±1% (spot ${spot_e:,.2f})")
+                        st.caption(f"P&L al vencimiento — pasos de ±2% desde spot ${spot_e:,.2f}")
                         st.dataframe(styler_sp, hide_index=True, use_container_width=True,
-                                     height=df_height(len(df_spread), max_h=600))
+                                     height=_SPREAD_HEIGHT)
 
 
 

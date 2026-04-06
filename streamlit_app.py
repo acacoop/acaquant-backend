@@ -2230,7 +2230,10 @@ def vista_aum():
                     unsafe_allow_html=True,
                 )
 
-                h_tbl = 38 + 35 * len(tbl)
+                h_tbl   = 38 + 35 * len(tbl)
+                h_chart = max(140, int(h_tbl * 0.58))
+                h_det   = max(73,  h_tbl - h_chart - 35)  # 35 = label
+
                 col_tbl, col_chart = st.columns([1, 2])
 
                 with col_tbl:
@@ -2241,8 +2244,11 @@ def vista_aum():
                         "fecha_venc":   "Vencimiento",
                         "valuacion":    "Valuación",
                     }, inplace=True)
-                    st.dataframe(tbl_display, hide_index=True, use_container_width=True,
-                                 height=h_tbl)
+                    ev_tf = st.dataframe(
+                        tbl_display, hide_index=True, use_container_width=True,
+                        height=h_tbl, on_select="rerun", selection_mode="single-row",
+                        key="tf_tabla",
+                    )
 
                 with col_chart:
                     if chart_rows:
@@ -2271,9 +2277,30 @@ def vista_aum():
                                     alt.Tooltip("monto:Q", format=",.0f", title="ARS"),
                                 ],
                             )
-                            .properties(height=h_tbl)
+                            .properties(height=h_chart)
                         )
                         st.altair_chart(bars, use_container_width=True)
+
+                    # ── detalle cuentas por ticker seleccionado ────────
+                    sel_tf = ev_tf.selection.rows if ev_tf.selection.rows else []
+                    if sel_tf:
+                        ticker_det = tbl.iloc[sel_tf[0]]["ticker_corto"]
+                        df_det = (
+                            df_tf[df_tf["ticker_corto"] == ticker_det]
+                            .groupby("cuenta", as_index=False)["valuacion"]
+                            .sum()
+                            .sort_values("valuacion", ascending=False)
+                            .reset_index(drop=True)
+                        )
+                        df_det["Valuación"] = df_det["valuacion"].apply(lambda v: f"${v:,.0f}")
+                        st.markdown(
+                            f"<div style='font-size:12px;color:#888;margin-top:4px'>{ticker_det}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        st.dataframe(
+                            df_det[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
+                            hide_index=True, use_container_width=True, height=h_det,
+                        )
 
 
 # ==========================================

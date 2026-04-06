@@ -2207,16 +2207,12 @@ def vista_aum():
                     .reset_index(drop=True)
                 )
 
-                # chart data
+                # chart data — solo cobros al vencimiento
                 chart_rows = []
-                fecha_snap_str = str(fecha_sel_tf)
                 for _, row in tbl.iterrows():
-                    if row["valuacion"] > 0:
-                        chart_rows.append({"fecha": fecha_snap_str, "monto": row["valuacion"],
-                                           "ticker": row["ticker_corto"], "tipo": "Stock actual"})
                     if row["pago_final"] > 0 and row["fecha_venc"]:
                         chart_rows.append({"fecha": row["fecha_venc"], "monto": row["pago_final"],
-                                           "ticker": row["ticker_corto"], "tipo": "Cobro al vencimiento"})
+                                           "ticker": row["ticker_corto"]})
 
                 total_val_tf = tbl["valuacion"].sum()
                 total_cobro  = tbl["pago_final"].sum()
@@ -2266,15 +2262,10 @@ def vista_aum():
                                                 scale=alt.Scale(scheme="tableau20"),
                                                 legend=alt.Legend(title=None, orient="right",
                                                                   labelFontSize=11)),
-                                opacity=alt.condition(
-                                    alt.datum.tipo == "Stock actual",
-                                    alt.value(0.45), alt.value(1.0),
-                                ),
                                 tooltip=[
-                                    alt.Tooltip("fecha:O", title="Fecha"),
+                                    alt.Tooltip("fecha:O", title="Vencimiento"),
                                     alt.Tooltip("ticker:N", title="Ticker"),
-                                    alt.Tooltip("tipo:N", title="Tipo"),
-                                    alt.Tooltip("monto:Q", format=",.0f", title="ARS"),
+                                    alt.Tooltip("monto:Q", format=",.0f", title="Cobro (ARS)"),
                                 ],
                             )
                             .properties(height=h_chart)

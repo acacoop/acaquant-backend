@@ -2430,7 +2430,7 @@ def vista_aum():
                 unsafe_allow_html=True,
             )
 
-            h_rv = 38 + 35 * len(tbl_rv)
+            h_rv = 38 + 35 * min(len(tbl_rv), 20)
             col_tbl_rv, col_det_rv = st.columns([2, 3])
 
             with col_tbl_rv:

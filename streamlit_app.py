@@ -596,7 +596,7 @@ def _calcular_estrategias(por_strike, liquid_strikes, center_idx, spot, categori
         rows.append({
             "Estrategia":  name,
             "Strikes":     "/".join(f"{k:,.0f}" for k in sorted(set(used_K))) if valid else "-",
-            "Costo/Prima": neto                      if valid else None,
+            "Costo/Prima": neto * 100                if valid else None,
             "Vol (pata)":  min(leg_evs) if leg_evs  else None,
             "Delta":       d_net                     if valid else None,
             "Gamma":       g_net                     if valid else None,
@@ -651,7 +651,7 @@ def _chart_historico_estrategia(db_opciones, resolved_legs, costo_actual=None, d
             px * leg_map[sym]['qty'] * (1 if leg_map[sym]['side'] == 'buy' else -1)
             for sym, px in row.items() if sym in leg_map
         )
-        costs.append({'Fecha': ts, 'Costo': round(neto, 2)})
+        costs.append({'Fecha': ts, 'Costo': round(neto * 100, 2)})
 
     df_cost = pd.DataFrame(costs)
     if df_cost.empty:
@@ -701,7 +701,7 @@ def _chart_payoff_estrategia(resolved_legs, spot, neto):
         else:
             intrinseco += m * leg['qty'] * np.maximum(leg['K'] - ggal, 0)
 
-    pl = intrinseco - (neto or 0)
+    pl = intrinseco * 100 - (neto or 0)
     df = pd.DataFrame({'GGAL': ggal, 'PL': pl, 'PL_pos': pl.clip(0), 'PL_neg': pl.clip(None, 0)})
 
     # Breakevens: cruces de cero por interpolación lineal
@@ -1046,7 +1046,7 @@ def vista_opciones():
                                     intrinseco = max(precio - leg['K'], 0)
                                 else:
                                     intrinseco = max(leg['K'] - precio, 0)
-                                pl_val += m * leg['qty'] * intrinseco
+                                pl_val += m * leg['qty'] * intrinseco * 100
                             pl_val -= (sel_cost or 0)
                             spread_rows.append({
                                 "Precio GGAL": precio,

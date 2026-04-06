@@ -1973,7 +1973,7 @@ def vista_aum():
 
     df_fci_all = df[df["CARTERA"] == "CARTERA FCI"].copy()
 
-    tab_fci, tab_stock_soc, tab_tasa_fija, tab_cer = st.tabs(["FCI", "Análisis SG", "Tasa Fija", "CER"])
+    tab_fci, tab_stock_soc, tab_tasa_fija, tab_cer, tab_rv = st.tabs(["FCI", "Análisis SG", "Tasa Fija", "CER", "Renta Variable"])
 
     # ── Tab 1: FCI (snapshot + stock lado a lado) ─────────────────────────────
     with tab_fci:
@@ -2401,6 +2401,78 @@ def vista_aum():
                             pd.DataFrame(columns=["Cuenta", "Valuación"]),
                             hide_index=True, use_container_width=True, height=h_cer,
                         )
+
+
+    # ── Tab 5: Renta Variable ─────────────────────────────────────────────────
+    with tab_rv:
+        unidades_rv = {u for u, a in assets.items() if a.get("CLASE_ACTIVO") == "RENTA VARIABLE"}
+        df_rv_all = df[df["unidad"].isin(unidades_rv)].copy()
+
+        if df_rv_all.empty:
+            st.info("Sin posiciones de Renta Variable en AuM.")
+        else:
+            fecha_sel_rv = df_rv_all["fecha_snapshot"].dropna().max()
+            df_rv = df_rv_all[df_rv_all["fecha_snapshot"] == fecha_sel_rv].copy()
+
+            tbl_rv = (
+                df_rv.groupby("unidad", as_index=False)["valuacion"]
+                .sum()
+                .sort_values("valuacion", ascending=False)
+                .reset_index(drop=True)
+            )
+
+            total_rv = tbl_rv["valuacion"].sum()
+            st.markdown(
+                f"<div style='margin-bottom:8px'>"
+                f"<span style='font-size:11px;color:#888'>Valuación actual</span><br>"
+                f"<span style='font-size:17px;font-weight:600'>${total_rv:,.0f}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            h_rv = 38 + 35 * len(tbl_rv)
+            col_tbl_rv, col_det_rv = st.columns([2, 3])
+
+            with col_tbl_rv:
+                tbl_rv_disp = tbl_rv.copy()
+                tbl_rv_disp["valuacion"] = tbl_rv_disp["valuacion"].apply(lambda v: f"${v:,.0f}")
+                tbl_rv_disp.rename(columns={"unidad": "Unidad", "valuacion": "Valuación"}, inplace=True)
+                ev_rv = st.dataframe(
+                    tbl_rv_disp, hide_index=True, use_container_width=True,
+                    height=h_rv, on_select="rerun", selection_mode="single-row",
+                    key="rv_tabla",
+                    column_config={
+                        "Unidad":    st.column_config.TextColumn(width="medium"),
+                        "Valuación": st.column_config.TextColumn(width="small"),
+                    },
+                )
+
+            with col_det_rv:
+                sel_rv = ev_rv.selection.rows if ev_rv.selection.rows else []
+                if sel_rv:
+                    unidad_det = tbl_rv.iloc[sel_rv[0]]["unidad"]
+                    df_det_rv = (
+                        df_rv[df_rv["unidad"] == unidad_det]
+                        .groupby("cuenta", as_index=False)["valuacion"]
+                        .sum()
+                        .sort_values("valuacion", ascending=False)
+                        .reset_index(drop=True)
+                    )
+                    df_det_rv["Valuación"] = df_det_rv["valuacion"].apply(lambda v: f"${v:,.0f}")
+                    st.markdown(
+                        f"<div style='font-size:12px;color:#888;margin-bottom:4px'>{unidad_det}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.dataframe(
+                        df_det_rv[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
+                        hide_index=True, use_container_width=True,
+                        height=h_rv - 26,
+                    )
+                else:
+                    st.dataframe(
+                        pd.DataFrame(columns=["Cuenta", "Valuación"]),
+                        hide_index=True, use_container_width=True, height=h_rv,
+                    )
 
 
 # ==========================================

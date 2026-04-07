@@ -220,7 +220,7 @@ class OptionsEngine:
                         "low":           md.get('low', 0),
                         "ev":            md.get('ev', 0),
                         "closing_price": md.get('closing_price', 0),
-                        "strike": K, "tipo": tipo, "spot": S,
+                        "strike": K, "tipo": tipo, "spot": S, "vence": info['vence'],
                     }
 
                     if S > 0 and p_mid > 0:

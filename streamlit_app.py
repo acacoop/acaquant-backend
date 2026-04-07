@@ -6,6 +6,7 @@ import requests
 from datetime import datetime, timedelta
 from mongo_manager import get_mongo_client
 from tickers import MERV_TICKERS as TICKERS
+from Opciones.calculos_cuantitativos import bs_price as _bs_price
 import config
 
 # ==========================================
@@ -591,6 +592,8 @@ def _calcular_estrategias(por_strike, liquid_strikes, center_idx, spot, categori
             resolved_legs.append({
                 'symbol': (d.get('symbol') or '') if d else '',
                 'K': K, 'tipo': tipo, 'side': side, 'qty': qty, 'px': px,
+                'iv':    (d.get('iv')    or 0) if d else 0,
+                'vence': (d.get('vence') or '') if d else '',
             })
 
         rows.append({
@@ -1038,42 +1041,71 @@ def vista_opciones():
                         st.caption(f"Línea amarilla = Spot actual (${spot_e:,.0f}){be_str}")
 
                 with col_tabla_spread:
-                    import numpy as np
                     if sel_legs and spot_e > 0:
-                        # Pasos de +2% desde -14% hasta +14%
+                        # Tasa y T para pricing teórico
+                        _cfg = get_meta_col().find_one({"type": "config"})
+                        _r   = (_cfg.get("tasa", 0.242) if _cfg else 0.242)
+                        # T: desde vence del primer leg que lo tenga, fallback 30d
+                        _T   = None
+                        for _lg in sel_legs:
+                            if _lg.get('vence'):
+                                try:
+                                    _T = max((datetime.strptime(_lg['vence'], "%Y%m%d") - datetime.now()).days, 1) / 365.0
+                                except Exception:
+                                    pass
+                                break
+                        if _T is None:
+                            _T = 30 / 365.0
+
                         pct_steps = [i * 0.02 for i in range(-7, 8)]
                         spread_rows = []
                         for pct in pct_steps:
                             precio = spot_e * (1 + pct)
-                            pl_val = 0.0
+                            pl_finish = 0.0
+                            pl_teo    = 0.0
                             for leg in sel_legs:
                                 m = 1 if leg['side'] == 'buy' else -1
+                                # A finish: valor intrínseco
                                 if leg['tipo'] == 'CALL':
-                                    intrinseco = max(precio - leg['K'], 0)
+                                    pl_finish += m * leg['qty'] * max(precio - leg['K'], 0) * 100
                                 else:
-                                    intrinseco = max(leg['K'] - precio, 0)
-                                pl_val += m * leg['qty'] * intrinseco * 100
-                            pl_val -= (sel_cost or 0)
+                                    pl_finish += m * leg['qty'] * max(leg['K'] - precio, 0) * 100
+                                # Teórico: BS con IV de la pata, flat vol
+                                _iv = leg.get('iv') or 0
+                                if _iv > 0:
+                                    pl_teo += m * leg['qty'] * _bs_price(precio, leg['K'], _T, _r, _iv, leg['tipo']) * 100
+                                else:
+                                    # Sin IV: fallback a intrínseco
+                                    if leg['tipo'] == 'CALL':
+                                        pl_teo += m * leg['qty'] * max(precio - leg['K'], 0) * 100
+                                    else:
+                                        pl_teo += m * leg['qty'] * max(leg['K'] - precio, 0) * 100
+                            pl_finish -= (sel_cost or 0)
+                            pl_teo    -= (sel_cost or 0)
                             spread_rows.append({
                                 "Precio GGAL": precio,
-                                "Var %": pct,
-                                "P&L al vto.": pl_val,
+                                "Var %":       pct,
+                                "A finish":    pl_finish,
+                                "Teórico":     pl_teo,
                             })
+
                         df_spread = pd.DataFrame(spread_rows)
+                        money_cols = ["A finish", "Teórico"]
                         styler_sp = (
                             df_spread.style
                             .map(lambda v: (
                                 "color: #00cc66; font-weight: bold" if isinstance(v, float) and v > 0 else
                                 "color: #ff4444; font-weight: bold" if isinstance(v, float) and v < 0 else
                                 ""
-                            ), subset=["P&L al vto."])
+                            ), subset=money_cols)
                             .format({
                                 "Precio GGAL": "${:,.2f}",
                                 "Var %":        "{:+.0%}",
-                                "P&L al vto.":  "${:,.2f}",
+                                "A finish":     "${:,.2f}",
+                                "Teórico":      "${:,.2f}",
                             })
                         )
-                        st.caption(f"P&L al vencimiento — pasos de ±2% desde spot ${spot_e:,.2f}")
+                        st.caption(f"±2% por paso | T={_T*365:.0f}d | r={_r:.1%} | spot ${spot_e:,.2f}")
                         st.dataframe(styler_sp, hide_index=True, use_container_width=True,
                                      height=_SPREAD_HEIGHT)
 

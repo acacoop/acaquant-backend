@@ -589,11 +589,25 @@ def _calcular_estrategias(por_strike, liquid_strikes, center_idx, spot, categori
             t_net += (d.get('theta', 0) or 0) * qty * m
             used_K.append(K)
             leg_evs.append((d.get('ev') or 0) / max(qty, 1))
+            _iv    = (d.get('iv')    or 0) if d else 0
+            _vega  = (d.get('vega')  or 0) if d else 0
+            _gamma = (d.get('gamma') or 0) if d else 0
+            _dspot = (d.get('spot')  or 0) if d else 0
+            _vence = (d.get('vence') or '') if d else ''
+            # T exacto: vega/gamma = S²·σ·T  →  T = vega/(gamma·S²·σ)
+            if _vega > 0 and _gamma > 0 and _dspot > 0 and _iv > 0:
+                _T_leg = _vega / (_gamma * _dspot * _dspot * _iv)
+            elif _vence:
+                try:
+                    _T_leg = max((datetime.strptime(_vence, "%Y%m%d") - datetime.now()).days, 1) / 365.0
+                except Exception:
+                    _T_leg = None
+            else:
+                _T_leg = None
             resolved_legs.append({
                 'symbol': (d.get('symbol') or '') if d else '',
                 'K': K, 'tipo': tipo, 'side': side, 'qty': qty, 'px': px,
-                'iv':    (d.get('iv')    or 0) if d else 0,
-                'vence': (d.get('vence') or '') if d else '',
+                'iv': _iv, 'vence': _vence, 'T': _T_leg,
             })
 
         rows.append({
@@ -1045,17 +1059,9 @@ def vista_opciones():
                         # Tasa y T para pricing teórico
                         _cfg = get_meta_col().find_one({"type": "config"})
                         _r   = (_cfg.get("tasa", 0.242) if _cfg else 0.242)
-                        # T: desde vence del primer leg que lo tenga, fallback 30d
-                        _T   = None
-                        for _lg in sel_legs:
-                            if _lg.get('vence'):
-                                try:
-                                    _T = max((datetime.strptime(_lg['vence'], "%Y%m%d") - datetime.now()).days, 1) / 365.0
-                                except Exception:
-                                    pass
-                                break
-                        if _T is None:
-                            _T = 30 / 365.0
+                        # T: promedio de los T calculados por pata (vega/gamma·S²·σ)
+                        _t_vals = [lg['T'] for lg in sel_legs if lg.get('T') and lg['T'] > 0]
+                        _T = sum(_t_vals) / len(_t_vals) if _t_vals else None
 
                         pct_steps = [i * 0.02 for i in range(-7, 8)]
                         spread_rows = []
@@ -1065,32 +1071,24 @@ def vista_opciones():
                             pl_teo    = 0.0
                             for leg in sel_legs:
                                 m = 1 if leg['side'] == 'buy' else -1
-                                # A finish: valor intrínseco
                                 if leg['tipo'] == 'CALL':
                                     pl_finish += m * leg['qty'] * max(precio - leg['K'], 0) * 100
                                 else:
                                     pl_finish += m * leg['qty'] * max(leg['K'] - precio, 0) * 100
-                                # Teórico: BS con IV de la pata, flat vol
-                                _iv = leg.get('iv') or 0
-                                if _iv > 0:
-                                    pl_teo += m * leg['qty'] * _bs_price(precio, leg['K'], _T, _r, _iv, leg['tipo']) * 100
-                                else:
-                                    # Sin IV: fallback a intrínseco
-                                    if leg['tipo'] == 'CALL':
-                                        pl_teo += m * leg['qty'] * max(precio - leg['K'], 0) * 100
-                                    else:
-                                        pl_teo += m * leg['qty'] * max(leg['K'] - precio, 0) * 100
+                                if _T and (leg.get('iv') or 0) > 0:
+                                    pl_teo += m * leg['qty'] * _bs_price(precio, leg['K'], _T, _r, leg['iv'], leg['tipo']) * 100
                             pl_finish -= (sel_cost or 0)
-                            pl_teo    -= (sel_cost or 0)
-                            spread_rows.append({
-                                "Precio GGAL": precio,
-                                "Var %":       pct,
-                                "A finish":    pl_finish,
-                                "Teórico":     pl_teo,
-                            })
+                            row = {"Precio GGAL": precio, "Var %": pct, "A finish": pl_finish}
+                            if _T:
+                                row["Teórico"] = pl_teo - (sel_cost or 0)
+                            spread_rows.append(row)
 
                         df_spread = pd.DataFrame(spread_rows)
-                        money_cols = ["A finish", "Teórico"]
+                        money_cols = ["A finish"] + (["Teórico"] if _T else [])
+                        fmt = {"Precio GGAL": "${:,.2f}", "Var %": "{:+.0%}",
+                               "A finish": "${:,.2f}"}
+                        if _T:
+                            fmt["Teórico"] = "${:,.2f}"
                         styler_sp = (
                             df_spread.style
                             .map(lambda v: (
@@ -1098,14 +1096,14 @@ def vista_opciones():
                                 "color: #ff4444; font-weight: bold" if isinstance(v, float) and v < 0 else
                                 ""
                             ), subset=money_cols)
-                            .format({
-                                "Precio GGAL": "${:,.2f}",
-                                "Var %":        "{:+.0%}",
-                                "A finish":     "${:,.2f}",
-                                "Teórico":      "${:,.2f}",
-                            })
+                            .format(fmt)
                         )
-                        st.caption(f"±2% por paso | T={_T*365:.0f}d | r={_r:.1%} | spot ${spot_e:,.2f}")
+                        cap = f"±2% por paso | spot ${spot_e:,.2f} | r={_r:.1%}"
+                        if _T:
+                            cap += f" | T={_T*365:.0f}d (estimado de Greeks)"
+                        else:
+                            cap += " | Teórico no disponible (Greeks insuficientes)"
+                        st.caption(cap)
                         st.dataframe(styler_sp, hide_index=True, use_container_width=True,
                                      height=_SPREAD_HEIGHT)
 

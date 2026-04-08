@@ -2308,26 +2308,27 @@ def vista_aum():
                         f"<div style='font-size:12px;color:#888;margin-top:8px'>{emisor_det}</div>",
                         unsafe_allow_html=True,
                     )
-                    for _, row in df_det.iterrows():
-                        ticker_nom = row["TICKER"]
-                        val_total  = row["valuacion"]
-                        with st.expander(f"{ticker_nom}   —   ${val_total:,.0f}"):
-                            df_cuentas = (
-                                df_det_src[df_det_src["TICKER"] == ticker_nom]
-                                [["cuenta", "valuacion"]]
-                                .groupby("cuenta", as_index=False)["valuacion"].sum()
-                                .sort_values("valuacion", ascending=False)
-                                .reset_index(drop=True)
-                            )
-                            for _, cr in df_cuentas.iterrows():
-                                st.markdown(
-                                    f"<div style='display:flex;justify-content:space-between;"
-                                    f"padding:2px 4px;font-size:13px'>"
-                                    f"<span>{cr['cuenta']}</span>"
-                                    f"<span style='font-weight:600'>${cr['valuacion']:,.0f}</span>"
-                                    f"</div>",
-                                    unsafe_allow_html=True,
+                    with st.container(height=h_emisor, border=False):
+                        for _, row in df_det.iterrows():
+                            ticker_nom = row["TICKER"]
+                            val_total  = row["valuacion"]
+                            with st.expander(f"{ticker_nom}   —   ${val_total:,.0f}"):
+                                df_cuentas = (
+                                    df_det_src[df_det_src["TICKER"] == ticker_nom]
+                                    [["cuenta", "valuacion"]]
+                                    .groupby("cuenta", as_index=False)["valuacion"].sum()
+                                    .sort_values("valuacion", ascending=False)
+                                    .reset_index(drop=True)
                                 )
+                                for _, cr in df_cuentas.iterrows():
+                                    st.markdown(
+                                        f"<div style='display:flex;justify-content:space-between;"
+                                        f"padding:2px 4px;font-size:13px'>"
+                                        f"<span>{cr['cuenta']}</span>"
+                                        f"<span style='font-weight:600'>${cr['valuacion']:,.0f}</span>"
+                                        f"</div>",
+                                        unsafe_allow_html=True,
+                                    )
 
     # ── Tab 2: Stock Soc. Gerente ─────────────────────────────────────────────
     with tab_stock_soc:

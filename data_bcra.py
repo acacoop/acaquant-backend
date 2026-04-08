@@ -1,7 +1,7 @@
 import argparse
 import requests
 import urllib3
-from datetime import date
+from datetime import date, timedelta
 from mongo_manager import get_mongo_client
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -35,16 +35,24 @@ def fetch_y_guardar(nombre, id_variable, desde, hasta):
         client = get_mongo_client()
         coleccion = client["Trading"][nombre]
 
+        insertados = 0
+        actualizados = 0
         for d in historial:
             fecha = d.get('fecha')
             valor = d.get('valor')
-            coleccion.update_one(
+            res = coleccion.update_one(
                 {"fecha": fecha},
                 {"$set": {"fecha": fecha, "valor": valor}},
                 upsert=True
             )
+            if res.upserted_id:
+                insertados += 1
+                print(f"  [+] {fecha} = {valor} (NUEVO)")
+            else:
+                actualizados += 1
+                print(f"  [=] {fecha} = {valor} (ya existia)")
 
-        print(f"[{nombre}] {len(historial)} registros guardados en Trading.{nombre}.")
+        print(f"[{nombre}] {insertados} nuevos, {actualizados} ya existian.")
 
     except requests.exceptions.HTTPError as err:
         print(f"[{nombre}] Error HTTP: {err.response.status_code}")
@@ -54,7 +62,8 @@ def fetch_y_guardar(nombre, id_variable, desde, hasta):
 
 def run(today=False):
     if today:
-        desde = hasta = date.today().isoformat()
+        desde = (date.today() - timedelta(days=3)).isoformat()
+        hasta = date.today().isoformat()
     else:
         desde = "2023-01-01"
         hasta = date.today().isoformat()

@@ -2289,11 +2289,12 @@ def vista_aum():
             with col_der:
                 sel_rows = ev_fci.selection.rows if ev_fci.selection.rows else []
                 if not sel_rows:
-                    st.markdown(
-                        "<div style='font-size:13px;color:#888;margin-top:36px'>"
-                        "Seleccioná un emisor para ver los fondos.</div>",
-                        unsafe_allow_html=True,
-                    )
+                    with st.container(height=h_emisor, border=False):
+                        st.markdown(
+                            "<div style='font-size:13px;color:#888;padding:8px'>"
+                            "Seleccioná un emisor para ver los fondos.</div>",
+                            unsafe_allow_html=True,
+                        )
                 else:
                     emisor_det = resumen.iloc[sel_rows[0]]["EMISOR"]
                     df_det_src = df_fci_dia[df_fci_dia["EMISOR"] == emisor_det].copy()
@@ -2306,11 +2307,11 @@ def vista_aum():
                         .sort_values("valuacion", ascending=False)
                         .reset_index(drop=True)
                     )
-                    st.markdown(
-                        f"<div style='font-size:12px;color:#888'>{emisor_det}</div>",
-                        unsafe_allow_html=True,
-                    )
                     with st.container(height=h_emisor, border=False):
+                        st.markdown(
+                            f"<div style='font-size:11px;color:#888;padding:2px 4px 6px'>{emisor_det}</div>",
+                            unsafe_allow_html=True,
+                        )
                         for _, row in df_det.iterrows():
                             ticker_nom = row["TICKER"]
                             val_total  = row["valuacion"]

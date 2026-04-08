@@ -2219,29 +2219,64 @@ def vista_aum():
         if not snapshots:
             st.info("Sin datos FCI.")
         else:
-            col_izq, col_der = st.columns([1, 2])
+            # ── Gráfico a ancho completo arriba ───────────────────────────────
+            if len(fechas_all) >= 2:
+                fecha_desde, fecha_hasta = st.select_slider(
+                    "Período",
+                    options=fechas_all,
+                    value=(fechas_all[0], fechas_all[-1]),
+                    key="aum_fci_rango",
+                )
+                df_r = df_fci_all[
+                    (df_fci_all["fecha_snapshot"] >= fecha_desde) &
+                    (df_fci_all["fecha_snapshot"] <= fecha_hasta)
+                ]
+                df_plot = df_r.groupby("fecha_snapshot", as_index=False)["valuacion"].sum()
+                fechas_rango = sorted(df_plot["fecha_snapshot"].unique())
+                chart = (
+                    alt.Chart(df_plot)
+                    .mark_line(color="#094293", strokeWidth=2,
+                               point=alt.OverlayMarkDef(size=60, color="#094293"))
+                    .encode(
+                        x=alt.X("fecha_snapshot:O", title="Fecha", sort=fechas_rango,
+                                axis=alt.Axis(labelAngle=-45)),
+                        y=alt.Y("valuacion:Q", title="Valuación total FCI",
+                                scale=alt.Scale(zero=False),
+                                axis=alt.Axis(format=",.0f")),
+                        tooltip=[alt.Tooltip("fecha_snapshot:O", title="Fecha"),
+                                 alt.Tooltip("valuacion:Q", format=",.0f", title="Valuación")],
+                    )
+                    .properties(height=260)
+                )
+                st.altair_chart(chart, use_container_width=True)
+
+            st.divider()
+
+            # ── Dos columnas al mismo nivel ───────────────────────────────────
+            fecha_sel = st.select_slider("Fecha snapshot", options=snapshots,
+                                         value=snapshots[-1], key="aum_snap_fecha")
+            df_fci_dia = df_fci_all[df_fci_all["fecha_snapshot"] == fecha_sel]
+
+            resumen = (
+                df_fci_dia.groupby("EMISOR", as_index=False)["valuacion"]
+                .sum()
+                .sort_values("valuacion", ascending=False)
+                .reset_index(drop=True)
+            )
+            total = resumen["valuacion"].sum()
+            resumen["Val."] = resumen["valuacion"].apply(lambda v: f"{v:,.0f}")
+            resumen["%"]    = (resumen["valuacion"] / total * 100).apply(lambda v: f"{v:.1f}%")
+
+            h_emisor = 38 + 35 * len(resumen)
+
+            col_izq, col_der = st.columns(2)
 
             with col_izq:
-                fecha_sel = st.select_slider("Fecha snapshot", options=snapshots,
-                                             value=snapshots[-1], key="aum_snap_fecha")
-                df_fci_dia = df_fci_all[df_fci_all["fecha_snapshot"] == fecha_sel]
-
-                resumen = (
-                    df_fci_dia.groupby("EMISOR", as_index=False)["valuacion"]
-                    .sum()
-                    .sort_values("valuacion", ascending=False)
-                    .reset_index(drop=True)
-                )
-                total = resumen["valuacion"].sum()
-                resumen["Val."]  = resumen["valuacion"].apply(lambda v: f"{v:,.0f}")
-                resumen["%"]     = (resumen["valuacion"] / total * 100).apply(lambda v: f"{v:.1f}%")
-
                 st.markdown(
                     f"<div style='font-size:12px;color:#888'>Total FCI</div>"
                     f"<div style='font-size:22px;font-weight:700;color:#094293'>${total:,.0f}</div>",
                     unsafe_allow_html=True,
                 )
-                h_emisor = 38 + 35 * len(resumen)
                 ev_fci = st.dataframe(
                     resumen[["EMISOR", "Val.", "%"]],
                     hide_index=True, use_container_width=True,
@@ -2251,48 +2286,15 @@ def vista_aum():
                     key="aum_fci_tabla",
                 )
 
-            # altura residual para que col_der cierre al mismo nivel que col_izq:
-            # col_izq fijos: header (~60px) + tabla (h_emisor)
-            # col_der fijos: margen (46px) + gráfico (300px) + label (~30px) = 376px
-            h_det = max(80, h_emisor + 60 - 396)
-
             with col_der:
-                if len(fechas_all) >= 2:
-                    fecha_desde, fecha_hasta = st.select_slider(
-                        "Período",
-                        options=fechas_all,
-                        value=(fechas_all[0], fechas_all[-1]),
-                        key="aum_fci_rango",
-                    )
-                    st.markdown("<div style='margin-top:46px'></div>", unsafe_allow_html=True)
-                    df_r = df_fci_all[
-                        (df_fci_all["fecha_snapshot"] >= fecha_desde) &
-                        (df_fci_all["fecha_snapshot"] <= fecha_hasta)
-                    ]
-                    df_plot = df_r.groupby("fecha_snapshot", as_index=False)["valuacion"].sum()
-                    fechas_rango = sorted(df_plot["fecha_snapshot"].unique())
-                    chart = (
-                        alt.Chart(df_plot)
-                        .mark_line(color="#094293", strokeWidth=2,
-                                   point=alt.OverlayMarkDef(size=60, color="#094293"))
-                        .encode(
-                            x=alt.X("fecha_snapshot:O", title="Fecha", sort=fechas_rango,
-                                    axis=alt.Axis(labelAngle=-45)),
-                            y=alt.Y("valuacion:Q", title="Valuación total FCI",
-                                    scale=alt.Scale(zero=False),
-                                    axis=alt.Axis(format=",.0f")),
-                            tooltip=[alt.Tooltip("fecha_snapshot:O", title="Fecha"),
-                                     alt.Tooltip("valuacion:Q", format=",.0f", title="Valuación")],
-                        )
-                        .properties(height=300)
-                    )
-                    st.altair_chart(chart, use_container_width=True)
-                else:
-                    st.info("Necesitás al menos 2 fechas para el gráfico.")
-
-                # ── Detalle de fondos por Soc. Gerente seleccionada ───────────
                 sel_rows = ev_fci.selection.rows if ev_fci.selection.rows else []
-                if sel_rows:
+                if not sel_rows:
+                    st.markdown(
+                        "<div style='font-size:13px;color:#888;margin-top:36px'>"
+                        "Seleccioná un emisor para ver los fondos.</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
                     emisor_det = resumen.iloc[sel_rows[0]]["EMISOR"]
                     df_det_src = df_fci_dia[df_fci_dia["EMISOR"] == emisor_det].copy()
                     df_det_src["TICKER"] = df_det_src["unidad"].map(
@@ -2305,7 +2307,7 @@ def vista_aum():
                         .reset_index(drop=True)
                     )
                     st.markdown(
-                        f"<div style='font-size:12px;color:#888;margin-top:8px'>{emisor_det}</div>",
+                        f"<div style='font-size:12px;color:#888'>{emisor_det}</div>",
                         unsafe_allow_html=True,
                     )
                     with st.container(height=h_emisor, border=False):

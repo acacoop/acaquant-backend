@@ -317,17 +317,29 @@ def run():
 
             if docs:
                 ops = []
+                skipped = 0
                 for doc in docs:
                     instrumento = curvas.get(doc["ticker"])
                     if not instrumento:
+                        # ticker no está en Curvas, marcar para no reintentar
+                        ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": {"duration": -1}}))
+                        skipped += 1
                         continue
                     campos = calcular_campos(doc, instrumento, cer_dict, dias_habiles)
                     if campos:
                         ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": campos}))
+                    else:
+                        # calcular_campos falló (ej: bono vencido), marcar para no reintentar
+                        ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": {"duration": -1}}))
+                        skipped += 1
 
                 if ops:
                     col_ts.bulk_write(ops, ordered=False)
-                    logger.info(f"{len(ops)} docs enriquecidos.")
+                    enriquecidos = len(ops) - skipped
+                    if enriquecidos > 0:
+                        logger.info(f"{enriquecidos} docs enriquecidos.")
+                    if skipped > 0:
+                        logger.info(f"{skipped} docs marcados como no enriquecibles (duration=-1).")
 
         except Exception:
             logger.error(f"Error en loop:\n{traceback.format_exc()}")

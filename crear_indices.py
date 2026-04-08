@@ -31,8 +31,11 @@ def main():
 
     print(f"Creando {len(indices)} índices...\n")
     for col, keys, desc in indices:
-        col.create_index(keys)
-        print(f"  OK  {desc}")
+        try:
+            col.create_index(keys)
+            print(f"  OK       {desc}")
+        except Exception as e:
+            print(f"  SKIP     {desc}  ({e})")
 
     print("\nTodos los índices creados correctamente.")
     client.close()

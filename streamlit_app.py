@@ -2304,41 +2304,30 @@ def vista_aum():
                         .sort_values("valuacion", ascending=False)
                         .reset_index(drop=True)
                     )
-                    df_det["Valuación"] = df_det["valuacion"].apply(lambda v: f"{v:,.0f}")
                     st.markdown(
                         f"<div style='font-size:12px;color:#888;margin-top:8px'>{emisor_det}</div>",
                         unsafe_allow_html=True,
                     )
-                    ev_ticker = st.dataframe(
-                        df_det[["TICKER", "Valuación"]],
-                        hide_index=True, use_container_width=True,
-                        height=h_det,
-                        on_select="rerun",
-                        selection_mode="single-row",
-                        key="aum_fci_ticker",
-                    )
-
-                    # ── Tercer nivel: cuentas que tienen el ticker seleccionado ──
-                    sel_ticker_rows = ev_ticker.selection.rows if ev_ticker.selection.rows else []
-                    if sel_ticker_rows:
-                        ticker_det = df_det.iloc[sel_ticker_rows[0]]["TICKER"]
-                        df_cuentas = df_det_src[df_det_src["TICKER"] == ticker_det][["cuenta", "valuacion"]].copy()
-                        df_cuentas = (
-                            df_cuentas.groupby("cuenta", as_index=False)["valuacion"]
-                            .sum()
-                            .sort_values("valuacion", ascending=False)
-                            .reset_index(drop=True)
-                        )
-                        df_cuentas["Valuación"] = df_cuentas["valuacion"].apply(lambda v: f"{v:,.0f}")
-                        st.markdown(
-                            f"<div style='font-size:12px;color:#888;margin-top:8px'>{ticker_det} — por cuenta</div>",
-                            unsafe_allow_html=True,
-                        )
-                        st.dataframe(
-                            df_cuentas[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
-                            hide_index=True, use_container_width=True,
-                            height=38 + 35 * len(df_cuentas),
-                        )
+                    for _, row in df_det.iterrows():
+                        ticker_nom = row["TICKER"]
+                        val_total  = row["valuacion"]
+                        with st.expander(f"{ticker_nom}   —   ${val_total:,.0f}"):
+                            df_cuentas = (
+                                df_det_src[df_det_src["TICKER"] == ticker_nom]
+                                [["cuenta", "valuacion"]]
+                                .groupby("cuenta", as_index=False)["valuacion"].sum()
+                                .sort_values("valuacion", ascending=False)
+                                .reset_index(drop=True)
+                            )
+                            for _, cr in df_cuentas.iterrows():
+                                st.markdown(
+                                    f"<div style='display:flex;justify-content:space-between;"
+                                    f"padding:2px 4px;font-size:13px'>"
+                                    f"<span>{cr['cuenta']}</span>"
+                                    f"<span style='font-weight:600'>${cr['valuacion']:,.0f}</span>"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
 
     # ── Tab 2: Stock Soc. Gerente ─────────────────────────────────────────────
     with tab_stock_soc:

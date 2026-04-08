@@ -227,8 +227,8 @@ def calcular_campos(doc, instrumento, cer_dict, dias_habiles):
             return resultado
         fecha_settlement = date.fromisoformat(settlement_str)
 
-        # CER de liquidación = CER en (settlement - 10 días corridos)
-        cer_liq = get_cer_en_fecha(cer_dict, fecha_settlement - timedelta(days=10))
+        # CER de liquidación = CER en (settlement - 10 días hábiles)
+        cer_liq = get_cer_liquidacion(cer_dict, dias_habiles, settlement_str, n=10)
         if not cer_liq:
             resultado["duration"] = round(dias_a_vto / 365, 4)
             return resultado

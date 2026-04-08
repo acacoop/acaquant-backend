@@ -75,7 +75,7 @@ def main():
     filas = []
     for ticker, instr in sorted(instrumento_map.items()):
         doc = col_ts.find_one(
-            {"ticker": ticker, "paridad": {"$exists": True}},
+            {"ticker": ticker, "duration": {"$exists": True}},
             sort=[("timestamp", -1)]
         )
         if not doc:

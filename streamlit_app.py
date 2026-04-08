@@ -1483,12 +1483,14 @@ def vista_mercado():
         st.divider()
 
         curvas_tickers = [d["ticker"] for d in db["Curvas"].find({}, {"ticker": 1})]
-        pipeline = [
-            {"$match": {"ticker": {"$in": curvas_tickers}, "duration": {"$exists": True}}},
-            {"$sort": {"timestamp": -1}},
-            {"$group": {"_id": "$ticker", "doc": {"$first": "$$ROOT"}}},
-        ]
-        enriched = {r["_id"]: r["doc"] for r in db["TimeSales"].aggregate(pipeline)}
+        enriched = {}
+        for ticker in curvas_tickers:
+            doc = db["TimeSales"].find_one(
+                {"ticker": ticker, "duration": {"$exists": True}},
+                sort=[("timestamp", -1)]
+            )
+            if doc:
+                enriched[ticker] = doc
 
         all_snaps.sort(
             key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,

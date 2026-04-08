@@ -227,7 +227,9 @@ Logs en `/root/TradingAV/logs/`.
 
 ## Streamlit Dashboard — Vistas
 
-Nav principal: **Mercado · Opciones · Portfolios · Operaciones · AuM · ONs**
+Nav principal: **Mercado · Opciones · Portfolios · Operaciones · AuM**
+
+> **ONs pausado desde 2026-04-08**: la vista ONs fue removida del dashboard y el `motor_on.service` queda pausado. Todo lo relacionado a ONs (`main_on.py`, `vista_ons()`, `Trading.ONSnapshot`) está en el código pero desactivado hasta nuevo aviso.
 
 | Vista | Sub-tabs | Descripción |
 |---|---|---|
@@ -236,7 +238,7 @@ Nav principal: **Mercado · Opciones · Portfolios · Operaciones · AuM · ONs*
 | Portfolios | una tab por cuenta | Posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial leído automáticamente de `Trading.DOLAR` (último valor). Tab por cada `id_cuenta` único; filtro cartera dentro de cada tab |
 | Operaciones | — | Cash Flow (depósitos/transferencias/extracciones) desde `CashFlow.Movimientos`; filtros por fecha, moneda, accionista; gráficos ARS y USD independientes |
 | AuM | FCI · Análisis SG · Tasa Fija | FCI: snapshot por fecha + gráfico evolución + detalle fondos por soc. gerente al clickear. Análisis SG: evolución AuM por sociedad gerente — modo Individual o Comparativo base 100. Tasa Fija: posiciones en instrumentos de `Trading.Curvas` (curva=tasa_fija); tabla Ticker/Vencimiento/Valuación + tabla cuentas al clickear ticker + gráfico cobros al vencimiento a ancho completo |
-| ONs | — | Yield screener ONs en tiempo real |
+| ~~ONs~~ | — | ~~Yield screener ONs en tiempo real~~ — **pausado desde 2026-04-08** |
 
 ### AuM → Tab Tasa Fija
 

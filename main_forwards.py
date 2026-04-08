@@ -15,7 +15,7 @@ Uso:
 import time
 import logging
 import traceback
-from datetime import datetime, date
+from datetime import datetime
 from pymongo import UpdateOne
 
 from mongo_manager import get_mongo_client
@@ -47,15 +47,19 @@ def cargar_curvas(client):
 
 def obtener_ultimas_teas(client, tickers):
     """
-    Devuelve la última TEA disponible por ticker.
-    { ticker: TEA }
+    Devuelve la última TEA y duration disponibles por ticker.
+    { ticker: {"TEA": float, "duration": float} }
     """
     pipeline = [
-        {"$match": {"ticker": {"$in": tickers}, "TEA": {"$exists": True}}},
+        {"$match": {"ticker": {"$in": tickers}, "TEA": {"$exists": True}, "duration": {"$exists": True}}},
         {"$sort": {"timestamp": -1}},
-        {"$group": {"_id": "$ticker", "TEA": {"$first": "$TEA"}}},
+        {"$group": {
+            "_id":      "$ticker",
+            "TEA":      {"$first": "$TEA"},
+            "duration": {"$first": "$duration"},
+        }},
     ]
-    return {r["_id"]: r["TEA"] for r in client["Trading"]["TimeSales"].aggregate(pipeline)}
+    return {r["_id"]: {"TEA": r["TEA"], "duration": r["duration"]} for r in client["Trading"]["TimeSales"].aggregate(pipeline)}
 
 
 # ─────────────────────────────────────────────
@@ -65,35 +69,30 @@ def obtener_ultimas_teas(client, tickers):
 def calcular_matriz(instrumentos, tasas_tea):
     """
     Calcula la matriz NxN de tasas forward para un grupo de instrumentos.
+    Usa duration (de TimeSales) como plazo efectivo en lugar de días al vencimiento,
+    para reflejar correctamente los flujos intermedios de bonos con cupones.
 
     Retorna:
-      - ordered: lista de ticker_corto ordenados por maturity (de más corto a más largo)
+      - ordered: lista de ticker_corto ordenados por duration (de más corto a más largo)
       - tasas: { ticker_corto: TEA }
       - matrix: { ticker_largo: { ticker_corto: forward_rate } }
                (cada celda = forward desde ticker_corto hasta ticker_largo)
     """
-    hoy = date.today()
     validos = []
 
     for inst in instrumentos:
         ticker = inst.get("ticker")
-        tea = tasas_tea.get(ticker)
-        if tea is None:
+        datos = tasas_tea.get(ticker)
+        if datos is None:
             continue
-        fecha_vto_str = inst.get("fecha_vencimiento")
-        if not fecha_vto_str:
-            continue
-        try:
-            fecha_vto = date.fromisoformat(fecha_vto_str[:10])
-        except Exception:
-            continue
-        dias = (fecha_vto - hoy).days
-        if dias <= 0:
+        tea      = datos.get("TEA")
+        duration = datos.get("duration")
+        if tea is None or duration is None or duration <= 0:
             continue
         validos.append({
             "ticker_corto": inst["ticker_corto"],
             "ticker": ticker,
-            "t": dias / 365.0,
+            "t": duration,
             "TEA": tea,
         })
 

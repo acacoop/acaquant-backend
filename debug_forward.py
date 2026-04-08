@@ -5,7 +5,6 @@ Uso:
     python debug_forward.py
 """
 
-from datetime import date
 from mongo_manager import get_mongo_client
 
 
@@ -43,40 +42,30 @@ def main():
     # ── 3. Última TEA de cada uno desde TimeSales ─────────────────────────────
     def ultima_tea(ticker):
         doc = db["TimeSales"].find_one(
-            {"ticker": ticker, "TEA": {"$exists": True}},
+            {"ticker": ticker, "TEA": {"$exists": True}, "duration": {"$exists": True}},
             sort=[("timestamp", -1)]
         )
         if not doc:
-            return None, None
-        return doc.get("TEA"), doc.get("timestamp")
+            return None, None, None
+        return doc.get("TEA"), doc.get("duration"), doc.get("timestamp")
 
-    tea_tx26,  ts_tx26  = ultima_tea(tx26["ticker"])
-    tea_tzx26, ts_tzx26 = ultima_tea(tzx26["ticker"])
+    tea_tx26,  dur_tx26,  ts_tx26  = ultima_tea(tx26["ticker"])
+    tea_tzx26, dur_tzx26, ts_tzx26 = ultima_tea(tzx26["ticker"])
 
-    print(f"\n=== TEA desde TimeSales ===")
-    print(f"  TX26:  TEA={tea_tx26}  |  timestamp={ts_tx26}")
-    print(f"  TZX26: TEA={tea_tzx26} |  timestamp={ts_tzx26}")
+    print(f"\n=== TEA y Duration desde TimeSales ===")
+    print(f"  TX26:  TEA={tea_tx26}  | duration={dur_tx26}  | timestamp={ts_tx26}")
+    print(f"  TZX26: TEA={tea_tzx26} | duration={dur_tzx26} | timestamp={ts_tzx26}")
 
     if tea_tx26 is None or tea_tzx26 is None:
         print("\n❌ Falta TEA en alguno de los dos. No se puede calcular la forward.")
         return
 
-    # ── 4. Calcular t (días a vencimiento / 365) ──────────────────────────────
-    hoy = date.today()
+    t_tx26  = dur_tx26
+    t_tzx26 = dur_tzx26
 
-    vto_tx26  = date.fromisoformat(tx26["fecha_vencimiento"][:10])
-    vto_tzx26 = date.fromisoformat(tzx26["fecha_vencimiento"][:10])
-
-    dias_tx26  = (vto_tx26  - hoy).days
-    dias_tzx26 = (vto_tzx26 - hoy).days
-
-    t_tx26  = dias_tx26  / 365.0
-    t_tzx26 = dias_tzx26 / 365.0
-
-    print(f"\n=== Plazos ===")
-    print(f"  Hoy:       {hoy}")
-    print(f"  TX26  vto: {vto_tx26}  | días={dias_tx26}  | t={t_tx26:.6f}")
-    print(f"  TZX26 vto: {vto_tzx26} | días={dias_tzx26} | t={t_tzx26:.6f}")
+    print(f"\n=== Plazos (usando duration, NO días al vencimiento) ===")
+    print(f"  TX26:  duration={t_tx26:.6f} años")
+    print(f"  TZX26: duration={t_tzx26:.6f} años")
 
     # ── 5. Identificar cuál es el corto y cuál el largo ───────────────────────
     if t_tx26 < t_tzx26:

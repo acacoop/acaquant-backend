@@ -282,4 +282,22 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    import time
+    MAX_INTENTOS = 3
+    ESPERA_SEGUNDOS = 60
+
+    for intento in range(1, MAX_INTENTOS + 1):
+        try:
+            run()
+            break
+        except requests.exceptions.Timeout as e:
+            print(f"⚠️  Timeout en intento {intento}/{MAX_INTENTOS}: {e}", flush=True)
+            if intento < MAX_INTENTOS:
+                print(f"   Reintentando en {ESPERA_SEGUNDOS}s...", flush=True)
+                time.sleep(ESPERA_SEGUNDOS)
+            else:
+                print("❌ Se agotaron los reintentos.", flush=True)
+                sys.exit(1)
+        except Exception as e:
+            print(f"❌ Error inesperado: {e}", flush=True)
+            sys.exit(1)

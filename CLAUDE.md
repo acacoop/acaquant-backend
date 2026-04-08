@@ -1,4 +1,4 @@
-revis# CLAUDE.md
+# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -81,7 +81,7 @@ Each engine has an `update_price(ticker, data)` callback called by the WebSocket
 | `main_options_service.py` | `Opciones.OptionsSnapshot` | GGAL options: Black-Scholes Greeks, IV via Newton-Raphson. Servicio headless (motor_options.service). |
 | `main_fx.py` | `Trading.FXArbitrage` | USD pair cross-currency arbitrage (fee: 0.0847%) |
 | `main_on.py` | `Trading.ONs` (live) | Yield screener ONs: TIR y duration en tiempo real vía WebSocket. Corre vía motor_on.service (`--headless`). |
-| `main_curvas.py` | `Trading.TimeSales` (enrichment) | Enriquece trades de Curvas con TEA/TEM/Duration/Paridad. Loop cada 5s, busca docs sin `duration` y los actualiza. |
+| `main_curvas.py` | `Trading.TimeSales` (enrichment) | Enriquece trades de Curvas con TEA/TEM/Duration/Paridad. Loop cada 5s, busca docs sin `duration` ordenados por timestamp DESC (más recientes primero) para no bloquear trades nuevos con docs viejos irresolubles. |
 | `main_forwards.py` | `Trading.ForwardsLive` + `Trading.ForwardsHistorico` | Calcula matriz NxN de tasas forward por curva cada 30s. ForwardsLive = 1 doc por curva (tiempo real). ForwardsHistorico = 1 doc por (fecha, curva). |
 | `main_breakevens.py` | `Trading.BreakevensLive` + `Trading.BreakevensHistorico` | Calcula breakeven de inflación mensual implícita CER/Lecap cada 30s. Empareja cada Lecap con el CER de vencimiento más cercano (≤60d). BreakevensLive = 1 doc global. BreakevensHistorico = 1 doc por fecha. |
 
@@ -141,7 +141,7 @@ Los flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - Uses `google_sheets_manager.py` with OAuth2 credentials in `ons-fx.json`
 - `aunesa_api_manager.py` connects to Aunesa broker for additional data
 - `main_cashflow.py` — carga movimientos de cash (depósitos, transferencias, extracciones) desde Aunesa API a `CashFlow.Movimientos`. Índice único por `comprobante`. Signo invertido respecto a API (depósitos positivos). Soporta `--today` para cron diario.
-- `main_aum.py` — snapshot de posiciones valuadas de TODAS las cuentas activas desde Aunesa a `Valuaciones.AuM`. Modelo time series: clave `(id_cuenta, unidad, fecha_snapshot)`. Fórmulas de valuación: P×Q/100 para renta fija (Títulos Públicos, ONs, Letras, Fideicomisos, CPD); (P+1)×Q para futuros; P×Q para el resto. Filtros: excluye OTC y cash negativo.
+- `main_aum.py` — snapshot de posiciones valuadas de TODAS las cuentas activas desde Aunesa a `Valuaciones.AuM`. Modelo time series: clave `(id_cuenta, unidad, fecha_snapshot)`. Fórmulas de valuación: P×Q/100 para renta fija (Títulos Públicos, ONs, Letras, Fideicomisos, CPD); (P+1)×Q para futuros; P×Q para el resto. Filtros: excluye OTC y cash negativo. Tiene retry automático ante timeout de Aunesa (3 intentos, 60s entre intentos).
 - `fix_aum_valuacion.py` — script one-off que divide por 100 las valuaciones de ONs/Fideicomisos/CPD mal calculadas en Mongo (se ejecutó una vez tras el fix).
 - `fix_sign_movimientos.py` — script one-off que invirtió signos de movimientos ya insertados en Mongo (se ejecutó una vez).
 
@@ -159,7 +159,19 @@ Systemd services en `motor_rofex.service`, `streamlit.service`, `services/motor_
 
 `data_bcra.py` — script que alimenta CER/TAMAR/DOLAR/BADLAR. Sin `--today` hace backfill desde 2023-01-01; con `--today` pide solo el día actual (modo cron). La API puede devolver el último día hábil disponible si no hay dato para hoy — el upsert por `fecha` evita duplicados en cualquier caso.
 
-### Crontab del servidor (actualizado 2026-04-03)
+### Scripts de diagnóstico
+
+- **`check_cer_valuacion.py`** — muestra por bono CER cuál fecha/valor de CER se usó en el último trade enriquecido (settlement − 10 días hábiles). Útil para verificar que el motor de curvas está usando el CER correcto.
+- **`check_curvas_pendientes.py`** — muestra cuántos docs sin `duration` hay por ticker en TimeSales. Útil para detectar si hay tickers bloqueando el batch del motor de curvas (ej: bonos vencidos con miles de trades sin enriquecer).
+
+### Notas sobre enriquecimiento CER
+
+El CER usado para valuar depende del contexto:
+- **TimeSales histórico**: cada trade usa el CER de su propia fecha de settlement (correcto por definición).
+- **Vista de Mercado presente**: como todos los bonos operan diariamente, el último trade enriquecido es siempre de hoy → todos usan el CER de hoy automáticamente.
+- **Problema potencial**: si un bono no opera un día, su último trade enriquecido puede ser de ayer con el CER de ayer. El fix sistémico sería recalcular on-the-fly con el CER de hoy (no implementado aún).
+
+### Crontab del servidor (actualizado 2026-04-08)
 
 ```cron
 # Prender/apagar motores y Streamlit: Lunes a Viernes
@@ -202,6 +214,13 @@ Systemd services en `motor_rofex.service`, `streamlit.service`, `services/motor_
 # motor_breakevens.service — breakevens CER/Lecap en tiempo real (lunes a viernes)
 0 13 * * 1-5 systemctl start motor_breakevens.service
 5 20 * * 1-5 systemctl stop motor_breakevens.service
+
+# main_aum.py — snapshot AuM al cierre (20:00 ART = 23:00 UTC, lunes a viernes)
+0 23 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_aum.py >> /root/TradingAV/logs/aum.log 2>&1
+
+# motor_on.service — Yield Screener ONs (lunes a viernes)
+0 13 * * 1-5 systemctl start motor_on.service
+0 20 * * 1-5 systemctl stop motor_on.service
 ```
 
 Logs en `/root/TradingAV/logs/`.
@@ -212,7 +231,7 @@ Nav principal: **Mercado · Opciones · Portfolios · Operaciones · AuM · ONs*
 
 | Vista | Sub-tabs | Descripción |
 |---|---|---|
-| Mercado | Mercado · Libro · Curvas · Breakevens · Forwards · Retorno Total · Volúmenes | Microstructure, VWAP, volumen intraday; order book en tiempo real (Libro, run_every=2s); curvas de rendimiento, breakevens CER/Lecap, forwards, retorno total, volúmenes |
+| Mercado | Mercado · Libro · Curvas · Breakevens · Forwards · Retorno Total · Volúmenes | Microstructure, VWAP, volumen intraday; order book en tiempo real (Libro, run_every=2s); curvas de rendimiento, breakevens CER/Lecap, forwards, retorno total, volúmenes. Tab Mercado usa `@st.fragment(run_every=30)` para auto-refresh cada 30s. |
 | Opciones | Mercado · Estrategias | Mercado: cadena GGAL con SPOT/VR/ADR/Tasa RF + volatility smile. Estrategias: spreads pre-configurados con payoff y costo histórico |
 | Portfolios | una tab por cuenta | Posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial leído automáticamente de `Trading.DOLAR` (último valor). Tab por cada `id_cuenta` único; filtro cartera dentro de cada tab |
 | Operaciones | — | Cash Flow (depósitos/transferencias/extracciones) desde `CashFlow.Movimientos`; filtros por fecha, moneda, accionista; gráficos ARS y USD independientes |

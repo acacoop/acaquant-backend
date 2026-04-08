@@ -1470,33 +1470,37 @@ def vista_mercado():
     tab_mercado, tab_libro, tab_curvas, tab_breakevens, tab_forwards, tab_retorno, tab_vol = st.tabs(["Mercado", "Libro", "Curvas", "Breakevens", "Forwards", "Retorno Total", "Volúmenes"])
 
     with tab_mercado:
-        all_snaps = list(db["MarketSnapshot"].find({}))
+        @st.fragment(run_every=30)
+        def _tab_mercado_live():
+            all_snaps = list(db["MarketSnapshot"].find({}))
 
-        if all_snaps:
-            ultimo_ts = max(
-                (s.get("updated_at") for s in all_snaps if s.get("updated_at")),
-                default=None
+            if all_snaps:
+                ultimo_ts = max(
+                    (s.get("updated_at") for s in all_snaps if s.get("updated_at")),
+                    default=None
+                )
+                last_update_badge(ultimo_ts)
+            st.caption("Vista con actualización automática cada 30 segundos.")
+
+            st.divider()
+
+            curvas_tickers = [d["ticker"] for d in db["Curvas"].find({}, {"ticker": 1})]
+            enriched = {}
+            for ticker in curvas_tickers:
+                doc = db["TimeSales"].find_one(
+                    {"ticker": ticker, "duration": {"$exists": True}},
+                    sort=[("timestamp", -1)]
+                )
+                if doc:
+                    enriched[ticker] = doc
+
+            all_snaps.sort(
+                key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
+                reverse=True
             )
-            last_update_badge(ultimo_ts)
-        st.caption("Vista con actualización automática cada 1 minuto.")
+            render_mercado_table(all_snaps, enriched)
 
-        st.divider()
-
-        curvas_tickers = [d["ticker"] for d in db["Curvas"].find({}, {"ticker": 1})]
-        enriched = {}
-        for ticker in curvas_tickers:
-            doc = db["TimeSales"].find_one(
-                {"ticker": ticker, "duration": {"$exists": True}},
-                sort=[("timestamp", -1)]
-            )
-            if doc:
-                enriched[ticker] = doc
-
-        all_snaps.sort(
-            key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
-            reverse=True
-        )
-        render_mercado_table(all_snaps, enriched)
+        _tab_mercado_live()
 
     with tab_libro:
         vista_libro()

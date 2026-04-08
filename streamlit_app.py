@@ -1486,13 +1486,20 @@ def vista_mercado():
 
             curvas_tickers = [d["ticker"] for d in db["Curvas"].find({}, {"ticker": 1})]
             enriched = {}
-            for ticker in curvas_tickers:
-                doc = db["TimeSales"].find_one(
-                    {"ticker": ticker, "duration": {"$exists": True}},
-                    sort=[("timestamp", -1)]
-                )
-                if doc:
-                    enriched[ticker] = doc
+            if curvas_tickers:
+                pipeline = [
+                    {"$match": {"ticker": {"$in": curvas_tickers}, "duration": {"$exists": True}}},
+                    {"$sort": {"timestamp": -1}},
+                    {"$group": {
+                        "_id": "$ticker",
+                        "TEA":      {"$first": "$TEA"},
+                        "TEM":      {"$first": "$TEM"},
+                        "duration": {"$first": "$duration"},
+                        "paridad":  {"$first": "$paridad"},
+                    }},
+                ]
+                for r in db["TimeSales"].aggregate(pipeline):
+                    enriched[r["_id"]] = r
 
             all_snaps.sort(
                 key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
@@ -2910,6 +2917,15 @@ def render_forward_matrix(doc):
     st.dataframe(styler, use_container_width=True, height=df_height(len(tickers) + 1))
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _cargar_forwards_historico(curva):
+    db = get_db()
+    return list(db["ForwardsHistorico"].find(
+        {"curva": curva},
+        {"fecha": 1, "matrix": 1, "_id": 0}
+    ))
+
+
 def _render_forwards(db, key_prefix="fwd"):
     curvas_live = set(db["ForwardsLive"].distinct("curva"))
     curvas_hist = set(db["ForwardsHistorico"].distinct("curva"))
@@ -2948,11 +2964,8 @@ def _render_forwards(db, key_prefix="fwd"):
                 render_forward_matrix(doc_hist)
 
     with tab_grafico:
-        # Cargar todos los docs históricos de esta curva
-        docs_hist = list(db["ForwardsHistorico"].find(
-            {"curva": curva_sel},
-            {"fecha": 1, "matrix": 1, "_id": 0}
-        ))
+        # Cargar todos los docs históricos de esta curva (cacheado 60s)
+        docs_hist = _cargar_forwards_historico(curva_sel)
         if not docs_hist:
             st.info("Sin historial disponible aún.")
         else:

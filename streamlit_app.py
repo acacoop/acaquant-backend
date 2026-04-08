@@ -2921,7 +2921,7 @@ def _render_forwards(db, key_prefix="fwd"):
 
     curva_sel = st.selectbox("Curva", curvas_todas, key=f"{key_prefix}_curva")
 
-    tab_live, tab_hist = st.tabs(["Tiempo Real", "Histórico"])
+    tab_live, tab_hist, tab_grafico = st.tabs(["Tiempo Real", "Histórico", "Gráfico"])
 
     with tab_live:
         doc = db["ForwardsLive"].find_one({"curva": curva_sel})
@@ -2946,6 +2946,71 @@ def _render_forwards(db, key_prefix="fwd"):
             )
             if doc_hist:
                 render_forward_matrix(doc_hist)
+
+    with tab_grafico:
+        # Cargar todos los docs históricos de esta curva
+        docs_hist = list(db["ForwardsHistorico"].find(
+            {"curva": curva_sel},
+            {"fecha": 1, "matrix": 1, "_id": 0}
+        ))
+        if not docs_hist:
+            st.info("Sin historial disponible aún.")
+        else:
+            # Construir lista de pares disponibles desde el doc más reciente
+            doc_ref = max(docs_hist, key=lambda d: d["fecha"])
+            matrix_ref = doc_ref.get("matrix", {})
+            pares = []
+            for t_largo, inner in matrix_ref.items():
+                for t_corto, val in inner.items():
+                    if val is not None:
+                        pares.append(f"{t_largo} → {t_corto}")
+            pares = sorted(pares)
+
+            if not pares:
+                st.info("Sin pares disponibles en la matriz.")
+            else:
+                pares_sel = st.multiselect(
+                    "Pares", pares, default=pares[:2] if len(pares) >= 2 else pares,
+                    key=f"{key_prefix}_pares"
+                )
+                if not pares_sel:
+                    st.info("Seleccioná al menos un par.")
+                else:
+                    # Armar DataFrame fecha × par → forward rate
+                    rows = []
+                    for doc in docs_hist:
+                        fecha = doc["fecha"]
+                        matrix = doc.get("matrix", {})
+                        for par in pares_sel:
+                            t_largo, t_corto = par.split(" → ")
+                            val = matrix.get(t_largo, {}).get(t_corto)
+                            if val is not None:
+                                rows.append({"fecha": fecha, "par": par, "forward": val * 100})
+                    if not rows:
+                        st.info("Sin datos para los pares seleccionados.")
+                    else:
+                        df_fwd = pd.DataFrame(rows).sort_values("fecha")
+                        fechas_ord = sorted(df_fwd["fecha"].unique())
+                        chart = (
+                            alt.Chart(df_fwd)
+                            .mark_line(strokeWidth=2, point=alt.OverlayMarkDef(size=40))
+                            .encode(
+                                x=alt.X("fecha:O", title="Fecha", sort=fechas_ord,
+                                        axis=alt.Axis(labelAngle=-45)),
+                                y=alt.Y("forward:Q", title="Tasa Forward (%)",
+                                        axis=alt.Axis(format=".2f")),
+                                color=alt.Color("par:N",
+                                                scale=alt.Scale(scheme="tableau10"),
+                                                legend=alt.Legend(orient="top")),
+                                tooltip=[
+                                    alt.Tooltip("fecha:O", title="Fecha"),
+                                    alt.Tooltip("par:N", title="Par"),
+                                    alt.Tooltip("forward:Q", title="Forward (%)", format=".3f"),
+                                ],
+                            )
+                            .properties(height=420)
+                        )
+                        st.altair_chart(chart, use_container_width=True)
 
 
 def vista_forwards():

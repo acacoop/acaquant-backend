@@ -37,6 +37,9 @@ if __name__ == "__main__":
         {"Tipo de operación": {"$in": TIPOS}},
         {"Denominación": {"$in": DENOMINACIONES_EXACTAS}},
         {"Denominación": {"$regex": "CDC", "$options": "i"}},
+        # Suscripción/Suscripcion y Rescate/Réscate con o sin acento
+        {"Tipo de operación": {"$regex": "suscripci", "$options": "i"}},
+        {"Tipo de operación": {"$regex": "rescate",   "$options": "i"}},
     ]}
 
     a_borrar = col.count_documents(filtro)

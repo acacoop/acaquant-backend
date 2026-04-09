@@ -2409,6 +2409,14 @@ def vista_operaciones():
                 hasta_mes_an = df_an.loc[df_an["label"] == hasta_an, "_mes"].iloc[0]
                 df_an_f = df_an[(df_an["_mes"] >= desde_mes_an) & (df_an["_mes"] <= hasta_mes_an)]
 
+                # Rango completo de meses (para rellenar con 0 los meses sin actividad)
+                full_range = pd.date_range(desde_mes_an + "-01", hasta_mes_an + "-01", freq="MS")
+                df_rango = pd.DataFrame({
+                    "_mes":  full_range.strftime("%Y-%m"),
+                    "label": full_range.strftime("%b %Y"),
+                })
+                mes_order_an = df_rango["label"].tolist()
+
                 color_an = {"ARS": "#094293", "USD": "#00cc66"}.get(moneda_an, "#094293")
 
                 if modo == "Individual":
@@ -2420,13 +2428,14 @@ def vista_operaciones():
                     if cp_ind is None:
                         st.info("Seleccioná una contraparte para ver la evolución mensual.")
                     else:
-                        df_plot = (
+                        df_agg = (
                             df_an_f[df_an_f["contraparte"] == cp_ind]
-                            .groupby(["_mes", "label"], as_index=False)["bruto"]
-                            .sum()
-                            .sort_values("_mes")
+                            .groupby("_mes", as_index=False)["bruto"].sum()
                         )
-                        mes_order_an = df_plot["label"].tolist()
+                        df_plot = (
+                            df_rango.merge(df_agg, on="_mes", how="left")
+                            .fillna({"bruto": 0})
+                        )
                         max_v = df_plot["bruto"].abs().max()
                         if max_v >= 1e9:
                             df_plot["y"] = df_plot["bruto"] / 1e9; y_ttl = f"Billones {moneda_an}"; y_f = ",.2f"
@@ -2440,8 +2449,7 @@ def vista_operaciones():
                                        point=alt.OverlayMarkDef(size=60, color=color_an))
                             .encode(
                                 x=alt.X("label:O", sort=mes_order_an, axis=alt.Axis(labelAngle=-45, title=None)),
-                                y=alt.Y("y:Q", scale=alt.Scale(zero=False),
-                                        axis=alt.Axis(title=y_ttl, format=y_f)),
+                                y=alt.Y("y:Q", axis=alt.Axis(title=y_ttl, format=y_f)),
                                 tooltip=[alt.Tooltip("label:O", title="Mes"),
                                          alt.Tooltip("y:Q", format=y_f, title=y_ttl)],
                             )
@@ -2457,28 +2465,38 @@ def vista_operaciones():
                     if not cps_sel:
                         st.info("Seleccioná al menos una contraparte para comparar.")
                     else:
-                        df_plot = (
-                            df_an_f[df_an_f["contraparte"].isin(cps_sel)]
-                            .groupby(["_mes", "label", "contraparte"], as_index=False)["bruto"]
-                            .sum()
-                            .sort_values("_mes")
-                        )
+                        # Rellenar con 0 para cada contraparte en el rango completo
+                        pieces = []
+                        for cp in cps_sel:
+                            df_agg = (
+                                df_an_f[df_an_f["contraparte"] == cp]
+                                .groupby("_mes", as_index=False)["bruto"].sum()
+                            )
+                            df_cp = df_rango.merge(df_agg, on="_mes", how="left").fillna({"bruto": 0})
+                            df_cp["contraparte"] = cp
+                            pieces.append(df_cp)
+                        df_plot = pd.concat(pieces, ignore_index=True)
+
+                        # Base = primer valor no-cero de cada contraparte
                         bases = (
-                            df_plot.sort_values("_mes")
+                            df_plot[df_plot["bruto"] != 0]
+                            .sort_values("_mes")
                             .groupby("contraparte")["bruto"]
                             .first()
                             .rename("base")
                         )
                         df_plot = df_plot.join(bases, on="contraparte")
-                        df_plot["base100"] = df_plot["bruto"] / df_plot["base"] * 100
-                        mes_order_an = sorted(df_plot["label"].unique(), key=lambda l: df_plot.loc[df_plot["label"] == l, "_mes"].iloc[0])
+                        df_plot["base100"] = df_plot.apply(
+                            lambda r: r["bruto"] / r["base"] * 100
+                            if pd.notna(r["base"]) and r["base"] != 0 else 0,
+                            axis=1,
+                        )
                         chart = (
                             alt.Chart(df_plot)
                             .mark_line(strokeWidth=2, point=alt.OverlayMarkDef(size=60))
                             .encode(
                                 x=alt.X("label:O", sort=mes_order_an, axis=alt.Axis(labelAngle=-45, title=None)),
                                 y=alt.Y("base100:Q", title="Índice (base 100)",
-                                        scale=alt.Scale(zero=False),
                                         axis=alt.Axis(format=".1f")),
                                 color=alt.Color("contraparte:N",
                                                 scale=alt.Scale(scheme="tableau20"),

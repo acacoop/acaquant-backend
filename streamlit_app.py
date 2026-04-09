@@ -2237,30 +2237,30 @@ def vista_operaciones():
 
                 st.divider()
 
-                # Tabla consolidada por contraparte
-                total_bruto = df_f["bruto"].sum()
+                # Tabla consolidada por (contraparte, moneda) — % dentro de cada moneda
+                totales_mon = df_f.groupby("moneda")["bruto"].sum()
                 resumen_cp = (
-                    df_f.groupby("contraparte", as_index=False)["bruto"]
+                    df_f.groupby(["contraparte", "moneda"], as_index=False)["bruto"]
                     .sum()
-                    .sort_values("bruto", ascending=False)
+                    .sort_values(["moneda", "bruto"], ascending=[True, False])
                     .reset_index(drop=True)
                 )
                 resumen_cp["Bruto"] = resumen_cp["bruto"].apply(lambda v: f"{v:,.0f}")
-                resumen_cp["%"]     = (resumen_cp["bruto"] / total_bruto * 100).apply(lambda v: f"{v:.1f}%")
+                resumen_cp["%"]     = resumen_cp.apply(
+                    lambda r: f"{r['bruto'] / totales_mon[r['moneda']] * 100:.1f}%", axis=1
+                )
 
                 h_cp = 38 + 35 * len(resumen_cp)
-                h_det = max(120, h_cp // 2)   # cada tabla del detalle ocupa ~50% de altura
 
                 col_izq, col_der = st.columns(2)
 
                 with col_izq:
                     st.markdown(
-                        f"<div style='font-size:12px;color:#888'>Total operado · {desde_lbl} → {hasta_lbl}</div>"
-                        f"<div style='font-size:22px;font-weight:700;color:#094293'>${total_bruto:,.0f}</div>",
+                        f"<div style='font-size:12px;color:#888'>Contrapartes · {desde_lbl} → {hasta_lbl}</div>",
                         unsafe_allow_html=True,
                     )
                     ev_cp = st.dataframe(
-                        resumen_cp[["contraparte", "Bruto", "%"]],
+                        resumen_cp[["contraparte", "moneda", "Bruto", "%"]],
                         hide_index=True, use_container_width=True,
                         height=h_cp,
                         on_select="rerun",
@@ -2271,17 +2271,23 @@ def vista_operaciones():
                 with col_der:
                     sel_rows = ev_cp.selection.rows if ev_cp.selection.rows else []
                     if not sel_rows:
-                        with st.container(height=h_cp, border=False):
-                            st.markdown(
-                                "<div style='font-size:13px;color:#888;padding:8px'>"
-                                "Seleccioná una contraparte para ver el detalle.</div>",
-                                unsafe_allow_html=True,
-                            )
+                        st.markdown(
+                            "<div style='font-size:13px;color:#888;padding:8px'>"
+                            "Seleccioná una contraparte para ver el detalle.</div>",
+                            unsafe_allow_html=True,
+                        )
                     else:
-                        cp_sel = resumen_cp.iloc[sel_rows[0]]["contraparte"]
-                        df_det = df_f[df_f["contraparte"] == cp_sel].copy()
+                        cp_sel  = resumen_cp.iloc[sel_rows[0]]["contraparte"]
+                        mon_sel = resumen_cp.iloc[sel_rows[0]]["moneda"]
+                        df_det  = df_f[(df_f["contraparte"] == cp_sel) & (df_f["moneda"] == mon_sel)].copy()
 
-                        # Tabla 1: volumen mensual (más reciente → más antiguo)
+                        st.markdown(
+                            f"<div style='font-size:11px;color:#888;padding:2px 4px 6px'>"
+                            f"{cp_sel} · {mon_sel}</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                        # Tabla 1: volumen mensual (más reciente → más antiguo), seleccionable
                         df_mes_det = (
                             df_det.groupby(["_mes", "label"], as_index=False)["bruto"]
                             .sum()
@@ -2289,31 +2295,46 @@ def vista_operaciones():
                             .reset_index(drop=True)
                         )
                         df_mes_det["Bruto"] = df_mes_det["bruto"].apply(lambda v: f"{v:,.0f}")
+                        h_mes = 38 + 35 * len(df_mes_det)
 
-                        # Tabla 2: breakdown por tipo_operacion
-                        total_det = df_det["bruto"].sum()
+                        ev_mes = st.dataframe(
+                            df_mes_det[["label", "Bruto"]].rename(columns={"label": "Mes"}),
+                            hide_index=True, use_container_width=True,
+                            height=h_mes,
+                            on_select="rerun",
+                            selection_mode="single-row",
+                            key="cp_mes_tabla",
+                        )
+
+                        # Tabla 2: tipo_operacion filtrada por mes seleccionado (o total)
+                        sel_mes_rows = ev_mes.selection.rows if ev_mes.selection.rows else []
+                        if sel_mes_rows:
+                            mes_sel = df_mes_det.iloc[sel_mes_rows[0]]["_mes"]
+                            df_tipo_src = df_det[df_det["_mes"] == mes_sel]
+                            tipo_titulo = df_mes_det.iloc[sel_mes_rows[0]]["label"]
+                        else:
+                            df_tipo_src = df_det
+                            tipo_titulo = "Total"
+
+                        total_tipo = df_tipo_src["bruto"].sum()
                         df_tipo = (
-                            df_det.groupby("tipo_operacion", as_index=False)["bruto"]
+                            df_tipo_src.groupby("tipo_operacion", as_index=False)["bruto"]
                             .sum()
                             .sort_values("bruto", ascending=False)
                             .reset_index(drop=True)
                         )
                         df_tipo["Bruto"] = df_tipo["bruto"].apply(lambda v: f"{v:,.0f}")
-                        df_tipo["%"]     = (df_tipo["bruto"] / total_det * 100).apply(lambda v: f"{v:.1f}%")
+                        df_tipo["%"]     = (df_tipo["bruto"] / total_tipo * 100).apply(lambda v: f"{v:.1f}%") if total_tipo else "—"
+                        h_tipo = 38 + 35 * len(df_tipo)
 
                         st.markdown(
-                            f"<div style='font-size:11px;color:#888;padding:2px 4px 6px'>{cp_sel}</div>",
+                            f"<div style='font-size:10px;color:#888;padding:2px 4px 2px'>Tipo op. · {tipo_titulo}</div>",
                             unsafe_allow_html=True,
-                        )
-                        st.dataframe(
-                            df_mes_det[["label", "Bruto"]].rename(columns={"label": "Mes"}),
-                            hide_index=True, use_container_width=True,
-                            height=h_det,
                         )
                         st.dataframe(
                             df_tipo[["tipo_operacion", "Bruto", "%"]].rename(columns={"tipo_operacion": "Tipo"}),
                             hide_index=True, use_container_width=True,
-                            height=h_det,
+                            height=h_tipo,
                         )
 
 

@@ -1264,7 +1264,7 @@ def _fmt_plazo(fecha_str):
 
 
 def _tabla_breakevens(pares):
-    """Convierte lista de pares a DataFrame formateado para st.dataframe."""
+    """Convierte lista de pares a DataFrame compacto para st.dataframe."""
     rows = []
     for p in pares:
         bkv     = p.get("breakeven_mensual")
@@ -1272,19 +1272,44 @@ def _tabla_breakevens(pares):
         tea_cer = p.get("tea_cer")
         par     = p.get("paridad_cer")
         rows.append({
-            "#":                 p["n"],
-            "Lecap":             p["lecap"],
-            "CER":               p["cer"],
-            "Plazo":             _fmt_plazo(p["fecha_vencimiento"]),
-            "Días":              p["dias"],
-            "TEM Lecap":         f"{tem * 100:.2f}%" if tem is not None else "—",
-            "TEA CER":           f"{tea_cer * 100:.2f}%" if tea_cer is not None else "—",
-            "Paridad CER":       f"{par:.1f}%" if par is not None else "—",
-            "BE mensual":        f"{bkv * 100:.2f}%" if bkv is not None else "—",
-            "IPC último":        "—",
-            "REM":               "—",
+            "Lecap":       p["lecap"],
+            "CER":         p["cer"],
+            "Plazo":       _fmt_plazo(p["fecha_vencimiento"]),
+            "TEM Lecap":   f"{tem * 100:.2f}%" if tem is not None else "—",
+            "TEA CER":     f"{tea_cer * 100:.2f}%" if tea_cer is not None else "—",
+            "Paridad":     f"{par:.1f}%" if par is not None else "—",
+            "BE mensual":  f"{bkv * 100:.2f}%" if bkv is not None else "—",
         })
     return pd.DataFrame(rows)
+
+
+def _chart_breakevens(pares):
+    """Scatter + línea de breakeven mensual por fecha de vencimiento."""
+    import altair as alt
+    rows = [
+        {
+            "fecha":      p["fecha_vencimiento"],
+            "be_pct":     round(p["breakeven_mensual"] * 100, 4),
+            "label":      p["lecap"],
+        }
+        for p in pares if p.get("breakeven_mensual") is not None
+    ]
+    if not rows:
+        return None
+
+    df = pd.DataFrame(rows)
+    df["fecha"] = pd.to_datetime(df["fecha"])
+
+    base = alt.Chart(df).encode(
+        x=alt.X("fecha:T", title="Vencimiento", axis=alt.Axis(format="%b %y", labelAngle=-45)),
+        y=alt.Y("be_pct:Q", title="BE mensual (%)", scale=alt.Scale(zero=False)),
+    )
+
+    line   = base.mark_line(color="#4C9BE8", strokeWidth=1.5)
+    points = base.mark_point(color="#4C9BE8", size=80, filled=True)
+    labels = base.mark_text(dy=-12, fontSize=10, color="#cccccc").encode(text="label:N")
+
+    return alt.layer(line, points, labels).properties(height=320)
 
 
 def _resumen_breakevens(pares):
@@ -1328,6 +1353,25 @@ def _render_breakevens(db):
 
     tab_live, tab_hist = st.tabs(["Tiempo Real", "Histórico"])
 
+    def _render_pares(pares):
+        col_tbl, col_chart = st.columns([4, 5])
+        with col_tbl:
+            st.dataframe(
+                _tabla_breakevens(pares),
+                hide_index=True,
+                use_container_width=True,
+                height=df_height(len(pares)),
+            )
+            df_tramos, bkv_pond = _resumen_breakevens(pares)
+            if bkv_pond is not None:
+                st.metric("BE ponderado curva", f"{bkv_pond * 100:.2f}%")
+            if not df_tramos.empty:
+                st.dataframe(df_tramos, hide_index=True, use_container_width=True)
+        with col_chart:
+            chart = _chart_breakevens(pares)
+            if chart:
+                st.altair_chart(chart, use_container_width=True)
+
     with tab_live:
         doc = db["BreakevensLive"].find_one({"_id": "breakevens"})
         if not doc:
@@ -1338,17 +1382,7 @@ def _render_breakevens(db):
                 last_update_badge(updated)
             pares = doc.get("pares", [])
             if pares:
-                st.dataframe(
-                    _tabla_breakevens(pares),
-                    hide_index=True,
-                    use_container_width=True,
-                    height=df_height(len(pares)),
-                )
-                df_tramos, bkv_pond = _resumen_breakevens(pares)
-                if bkv_pond is not None:
-                    st.metric("BE ponderado curva", f"{bkv_pond * 100:.2f}%")
-                if not df_tramos.empty:
-                    st.dataframe(df_tramos, hide_index=True, use_container_width=True)
+                _render_pares(pares)
             else:
                 st.info("Motor activo pero sin pares calculados aún.")
 
@@ -1366,17 +1400,7 @@ def _render_breakevens(db):
         if doc_hist:
             pares = doc_hist.get("pares", [])
             if pares:
-                st.dataframe(
-                    _tabla_breakevens(pares),
-                    hide_index=True,
-                    use_container_width=True,
-                    height=df_height(len(pares)),
-                )
-                df_tramos, bkv_pond = _resumen_breakevens(pares)
-                if bkv_pond is not None:
-                    st.metric("BE ponderado curva", f"{bkv_pond * 100:.2f}%")
-                if not df_tramos.empty:
-                    st.dataframe(df_tramos, hide_index=True, use_container_width=True)
+                _render_pares(pares)
 
 
 def _render_curva_rendimiento(db):

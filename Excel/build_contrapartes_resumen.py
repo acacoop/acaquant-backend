@@ -1,12 +1,16 @@
 """
-build_contrapartes_resumen.py — Agrega Bruto por contraparte y moneda (2026).
+build_contrapartes_resumen.py — Migra movimientos de contrapartes conocidas.
 
 Flujo:
-  1. Lee CashFlow.Operaciones filtrando Concertación >= 2026-01-01
+  1. Lee TODOS los registros de CashFlow.Operaciones
   2. Join con CashFlow.Contrapartes por Denominación → contraparte
-  3. Detecta moneda desde Condiciones: contiene "USD" → USD, contiene "ARS" → ARS
-  4. Agrupa por (contraparte, moneda) y suma Bruto
-  5. Upsert en CashFlow.ContrapartesResumen
+  3. Solo procesa los que tienen contraparte reconocida
+  4. Guarda en CashFlow.ContrapartesResumen con campos limpios:
+       boleto, concertacion, denominacion, contraparte, tipo_operacion,
+       instrumento, condiciones, moneda, bruto
+  5. Borra esos registros de CashFlow.Operaciones
+
+Idempotente: upsert por boleto, no duplica si se corre más de una vez.
 
 Uso:
     /root/TradingAV/venv/bin/python /root/TradingAV/Excel/build_contrapartes_resumen.py
@@ -14,7 +18,6 @@ Uso:
 
 import sys
 import os
-from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from mongo_manager import get_mongo_client
@@ -29,70 +32,69 @@ def detectar_moneda(condiciones):
     return "OTRO"
 
 
+def parse_numero(v):
+    try:
+        return float(str(v).replace(",", "."))
+    except Exception:
+        return 0.0
+
+
 if __name__ == "__main__":
     client = get_mongo_client()
     db = client["CashFlow"]
 
-    # ── Join via aggregation pipeline ────────────────────────────────────────
-    pipeline = [
-        # Solo operaciones de 2026
-        {"$match": {"Concertación": {"$gte": "2026-01-01"}}},
+    col_ops = db["Operaciones"]
+    col_res = db["ContrapartesResumen"]
+    col_cp  = db["Contrapartes"]
 
-        # Join con Contrapartes por Denominación
-        {"$lookup": {
-            "from":         "Contrapartes",
-            "localField":   "Denominación",
-            "foreignField": "denominacion",
-            "as":           "_cp",
-        }},
+    # Índice único por boleto
+    col_res.create_index("boleto", unique=True, background=True)
 
-        # Descartar los que no tienen contraparte registrada
-        {"$match": {"_cp": {"$ne": []}}},
+    # Construir mapa denominacion → contraparte en memoria
+    cp_map = {d["denominacion"]: d["contraparte"] for d in col_cp.find({}, {"_id": 0})}
+    print(f"Contrapartes registradas: {len(cp_map)}")
 
-        {"$unwind": "$_cp"},
+    # Leer todos los registros de Operaciones
+    todos = list(col_ops.find({}))
+    print(f"Registros en Operaciones: {len(todos)}")
 
-        # Proyectar los campos que necesitamos (Bruto como string, se parsea en Python)
-        {"$project": {
-            "_id":         0,
-            "contraparte": "$_cp.contraparte",
-            "condiciones": "$Condiciones",
-            "bruto_raw":   {"$ifNull": ["$Bruto", 0]},
-        }},
-    ]
+    migrados   = 0
+    a_borrar   = []
 
-    rows = list(db["Operaciones"].aggregate(pipeline))
-    print(f"Registros 2026 con contraparte reconocida: {len(rows)}")
+    for r in todos:
+        den = r.get("Denominación", "")
+        contraparte = cp_map.get(den)
+        if not contraparte:
+            continue
 
-    # ── Agrupar en Python por (contraparte, moneda) ───────────────────────────
-    def parse_bruto(v):
-        try:
-            return float(str(v).replace(",", "."))
-        except Exception:
-            return 0.0
+        boleto = r.get("Boleto", "")
 
-    totales = {}
-    for r in rows:
-        moneda = detectar_moneda(r["condiciones"])
-        key    = (r["contraparte"], moneda)
-        totales[key] = totales.get(key, 0.0) + parse_bruto(r["bruto_raw"])
+        doc = {
+            "boleto":          boleto,
+            "concertacion":    r.get("Concertación", ""),
+            "denominacion":    den,
+            "contraparte":     contraparte,
+            "tipo_operacion":  r.get("Tipo de operación", ""),
+            "instrumento":     r.get("Instrumento", ""),
+            "condiciones":     r.get("Condiciones", ""),
+            "moneda":          detectar_moneda(r.get("Condiciones", "")),
+            "bruto":           parse_numero(r.get("Bruto", 0)),
+        }
 
-    # ── Upsert en ContrapartesResumen ─────────────────────────────────────────
-    col = db["ContrapartesResumen"]
-    col.create_index([("contraparte", 1), ("moneda", 1)], unique=True, background=True)
-
-    ts = datetime.utcnow()
-    for (contraparte, moneda), bruto in sorted(totales.items()):
-        col.update_one(
-            {"contraparte": contraparte, "moneda": moneda},
-            {"$set": {
-                "contraparte": contraparte,
-                "moneda":      moneda,
-                "bruto":       round(bruto, 2),
-                "updated_at":  ts,
-            }},
+        col_res.update_one(
+            {"boleto": boleto},
+            {"$set": doc},
             upsert=True,
         )
-        print(f"  {contraparte:<22}  {moneda:<4}  {bruto:>18,.2f}")
 
-    print(f"\n✅ ContrapartesResumen actualizado — {len(totales)} registros")
+        a_borrar.append(r["_id"])
+        migrados += 1
+
+    print(f"\n✅ Movimientos migrados a ContrapartesResumen: {migrados}")
+
+    # Borrar de Operaciones los que ya fueron migrados
+    if a_borrar:
+        result = col_ops.delete_many({"_id": {"$in": a_borrar}})
+        print(f"🗑️  Eliminados de Operaciones: {result.deleted_count}")
+
     client.close()

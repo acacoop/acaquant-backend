@@ -2301,7 +2301,7 @@ def vista_operaciones():
                             .reset_index(drop=True)
                         )
                         df_mes_det["Bruto"] = df_mes_det["bruto"].apply(lambda v: f"{v:,.0f}")
-                        h_mes = h_cp // 2
+                        h_mes_nat = 38 + 35 * len(df_mes_det)
 
                         ev_mes = st.dataframe(
                             df_mes_det[["label", "Bruto"]].rename(columns={"label": "Mes"}),
@@ -2331,7 +2331,13 @@ def vista_operaciones():
                         )
                         df_tipo["Bruto"] = df_tipo["bruto"].apply(lambda v: f"{v:,.0f}")
                         df_tipo["%"]     = (df_tipo["bruto"] / total_tipo * 100).apply(lambda v: f"{v:.1f}%") if total_tipo else "—"
-                        h_tipo = h_cp // 2
+                        h_tipo_nat = 38 + 35 * len(df_tipo)
+                        if h_mes_nat + h_tipo_nat <= h_cp:
+                            h_mes  = h_mes_nat
+                            h_tipo = h_tipo_nat
+                        else:
+                            h_mes  = h_cp // 2
+                            h_tipo = h_cp // 2
 
                         st.markdown(
                             f"<div style='font-size:10px;color:#888;padding:2px 4px 2px'>Tipo op. · {tipo_titulo}</div>",

@@ -51,12 +51,12 @@ if __name__ == "__main__":
 
         {"$unwind": "$_cp"},
 
-        # Proyectar los campos que necesitamos
+        # Proyectar los campos que necesitamos (Bruto como string, se parsea en Python)
         {"$project": {
-            "_id":          0,
-            "contraparte":  "$_cp.contraparte",
-            "condiciones":  "$Condiciones",
-            "bruto":        {"$toDouble": {"$ifNull": ["$Bruto", 0]}},
+            "_id":         0,
+            "contraparte": "$_cp.contraparte",
+            "condiciones": "$Condiciones",
+            "bruto_raw":   {"$ifNull": ["$Bruto", 0]},
         }},
     ]
 
@@ -64,11 +64,17 @@ if __name__ == "__main__":
     print(f"Registros 2026 con contraparte reconocida: {len(rows)}")
 
     # ── Agrupar en Python por (contraparte, moneda) ───────────────────────────
+    def parse_bruto(v):
+        try:
+            return float(str(v).replace(",", "."))
+        except Exception:
+            return 0.0
+
     totales = {}
     for r in rows:
         moneda = detectar_moneda(r["condiciones"])
         key    = (r["contraparte"], moneda)
-        totales[key] = totales.get(key, 0.0) + r["bruto"]
+        totales[key] = totales.get(key, 0.0) + parse_bruto(r["bruto_raw"])
 
     # ── Upsert en ContrapartesResumen ─────────────────────────────────────────
     col = db["ContrapartesResumen"]

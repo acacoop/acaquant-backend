@@ -1267,20 +1267,60 @@ def _tabla_breakevens(pares):
     """Convierte lista de pares a DataFrame formateado para st.dataframe."""
     rows = []
     for p in pares:
-        bkv = p.get("breakeven_mensual")
-        tem = p.get("tem_lecap")
-        par = p.get("paridad_cer")
+        bkv     = p.get("breakeven_mensual")
+        tem     = p.get("tem_lecap")
+        tea_cer = p.get("tea_cer")
+        par     = p.get("paridad_cer")
         rows.append({
-            "#":                  p["n"],
-            "Lecap":              p["lecap"],
-            "CER":                p["cer"],
-            "Plazo":              _fmt_plazo(p["fecha_vencimiento"]),
-            "Días":               p["dias"],
-            "TEM Lecap":          f"{tem * 100:.2f}%" if tem is not None else "—",
-            "Paridad CER":        f"{par:.1f}%" if par is not None else "—",
-            "Breakeven mensual":  f"{bkv * 100:.2f}%" if bkv is not None else "—",
+            "#":                 p["n"],
+            "Lecap":             p["lecap"],
+            "CER":               p["cer"],
+            "Plazo":             _fmt_plazo(p["fecha_vencimiento"]),
+            "Días":              p["dias"],
+            "TEM Lecap":         f"{tem * 100:.2f}%" if tem is not None else "—",
+            "TEA CER":           f"{tea_cer * 100:.2f}%" if tea_cer is not None else "—",
+            "Paridad CER":       f"{par:.1f}%" if par is not None else "—",
+            "BE mensual":        f"{bkv * 100:.2f}%" if bkv is not None else "—",
+            "IPC último":        "—",
+            "REM":               "—",
         })
     return pd.DataFrame(rows)
+
+
+def _resumen_breakevens(pares):
+    """Devuelve (df_tramos, bkv_ponderado) para mostrar debajo de la tabla principal."""
+    tramos = {"Corto (<90d)": [], "Medio (90-180d)": [], "Largo (>180d)": []}
+    pesos_total, bkv_pond = 0.0, 0.0
+
+    for p in pares:
+        bkv  = p.get("breakeven_mensual")
+        dias = p.get("dias", 0)
+        if bkv is None or dias <= 0:
+            continue
+
+        # Promedio ponderado global (peso = días)
+        bkv_pond    += bkv * dias
+        pesos_total += dias
+
+        if dias < 90:
+            tramos["Corto (<90d)"].append(bkv)
+        elif dias <= 180:
+            tramos["Medio (90-180d)"].append(bkv)
+        else:
+            tramos["Largo (>180d)"].append(bkv)
+
+    rows = []
+    for nombre, vals in tramos.items():
+        if vals:
+            rows.append({
+                "Tramo":              nombre,
+                "Pares":              len(vals),
+                "BE promedio":        f"{(sum(vals)/len(vals))*100:.2f}%",
+            })
+
+    df = pd.DataFrame(rows) if rows else pd.DataFrame()
+    pond = (bkv_pond / pesos_total) if pesos_total > 0 else None
+    return df, pond
 
 
 def _render_breakevens(db):
@@ -1304,6 +1344,11 @@ def _render_breakevens(db):
                     use_container_width=True,
                     height=df_height(len(pares)),
                 )
+                df_tramos, bkv_pond = _resumen_breakevens(pares)
+                if bkv_pond is not None:
+                    st.metric("BE ponderado curva", f"{bkv_pond * 100:.2f}%")
+                if not df_tramos.empty:
+                    st.dataframe(df_tramos, hide_index=True, use_container_width=True)
             else:
                 st.info("Motor activo pero sin pares calculados aún.")
 
@@ -1327,6 +1372,11 @@ def _render_breakevens(db):
                     use_container_width=True,
                     height=df_height(len(pares)),
                 )
+                df_tramos, bkv_pond = _resumen_breakevens(pares)
+                if bkv_pond is not None:
+                    st.metric("BE ponderado curva", f"{bkv_pond * 100:.2f}%")
+                if not df_tramos.empty:
+                    st.dataframe(df_tramos, hide_index=True, use_container_width=True)
 
 
 def _render_curva_rendimiento(db):

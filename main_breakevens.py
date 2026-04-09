@@ -28,7 +28,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorBreakevens")
 
 INTERVALO = 30          # segundos entre corridas
-MAX_DIFF_DIAS = 60      # umbral para emparejar Lecap↔CER por vencimiento
+MAX_DIFF_DIAS = 20      # diferencia máxima de días entre vencimientos Lecap↔CER para que sean par válido
+MIN_DIAS_PLAZO = 30     # días mínimos al vencimiento desde hoy para incluir el par
 
 
 # ─────────────────────────────────────────────
@@ -38,14 +39,17 @@ MAX_DIFF_DIAS = 60      # umbral para emparejar Lecap↔CER por vencimiento
 def cargar_pares(client):
     """
     Lee Trading.Curvas y devuelve lista de pares (Lecap, CER) ordenados por vencimiento.
-    Cada Lecap se empareja con el CER cuya fecha_vencimiento es más cercana.
-    Solo se incluyen pares con diferencia ≤ MAX_DIFF_DIAS días.
+    Reglas:
+      - Cada Lecap se empareja con el CER cuyo vencimiento es más cercano.
+      - Solo se incluyen pares con diferencia ≤ MAX_DIFF_DIAS días.
+      - Si un mismo CER aparece como par de varias Lecaps, se queda solo con
+        el par cuya diferencia de vencimiento sea menor (sin repetir CER).
     """
     docs = list(client["Trading"]["Curvas"].find({}))
     lecaps = [d for d in docs if d.get("curva") == "tasa_fija"]
     cers   = [d for d in docs if d.get("curva") == "cer"]
 
-    pares = []
+    candidatos = []
     for lecap in lecaps:
         try:
             fecha_lec = date.fromisoformat(lecap["fecha_vencimiento"][:10])
@@ -66,15 +70,26 @@ def cargar_pares(client):
         if mejor is None or mejor_diff > MAX_DIFF_DIAS:
             continue
 
-        pares.append({
-            "lecap_ticker": lecap["ticker"],
-            "lecap_corto":  lecap["ticker_corto"],
-            "cer_ticker":   mejor["ticker"],
-            "cer_corto":    mejor["ticker_corto"],
+        candidatos.append({
+            "lecap_ticker":      lecap["ticker"],
+            "lecap_corto":       lecap["ticker_corto"],
+            "cer_ticker":        mejor["ticker"],
+            "cer_corto":         mejor["ticker_corto"],
             "fecha_vencimiento": lecap["fecha_vencimiento"][:10],
+            "_diff":             mejor_diff,
         })
 
-    pares.sort(key=lambda p: p["fecha_vencimiento"])
+    # Dedup: si un CER aparece en varios pares, conservar solo el de menor diff
+    mejor_por_cer = {}
+    for c in candidatos:
+        key = c["cer_ticker"]
+        if key not in mejor_por_cer or c["_diff"] < mejor_por_cer[key]["_diff"]:
+            mejor_por_cer[key] = c
+
+    pares = sorted(mejor_por_cer.values(), key=lambda p: p["fecha_vencimiento"])
+    for p in pares:
+        del p["_diff"]
+
     logger.info(f"Pares CER/Lecap cargados: {len(pares)}")
     return pares
 
@@ -103,28 +118,41 @@ def obtener_paridades(client, tickers):
     return {r["_id"]: r["paridad"] for r in client["Trading"]["TimeSales"].aggregate(pipeline)}
 
 
+def obtener_teas_cer(client, tickers):
+    """Última TEA por ticker CER (calculada por main_curvas.py)."""
+    pipeline = [
+        {"$match": {"ticker": {"$in": tickers}, "TEA": {"$exists": True}}},
+        {"$sort": {"timestamp": -1}},
+        {"$group": {"_id": "$ticker", "TEA": {"$first": "$TEA"}}},
+    ]
+    return {r["_id"]: r["TEA"] for r in client["Trading"]["TimeSales"].aggregate(pipeline)}
+
+
 # ─────────────────────────────────────────────
 # Cálculo de breakevens
 # ─────────────────────────────────────────────
 
-def calcular_breakevens(pares, tems, paridades, fecha_ref):
+def calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref):
     """
     fecha_ref: date — se usa para calcular días a vencimiento.
     Devuelve lista de dicts con los resultados.
+    Descarta pares con menos de MIN_DIAS_PLAZO días al vencimiento.
     """
     resultado = []
-    for i, par in enumerate(pares, 1):
+    n = 0
+    for par in pares:
         try:
             fecha_vto = date.fromisoformat(par["fecha_vencimiento"])
             dias = (fecha_vto - fecha_ref).days
         except Exception:
             continue
 
-        if dias <= 0:
+        if dias < MIN_DIAS_PLAZO:
             continue
 
+        n += 1
         entry = {
-            "n":                 i,
+            "n":                 n,
             "lecap":             par["lecap_corto"],
             "cer":               par["cer_corto"],
             "fecha_vencimiento": par["fecha_vencimiento"],
@@ -133,9 +161,13 @@ def calcular_breakevens(pares, tems, paridades, fecha_ref):
 
         tem     = tems.get(par["lecap_ticker"])
         paridad = paridades.get(par["cer_ticker"])
+        tea_cer = teas_cer.get(par["cer_ticker"])
 
         if tem is not None:
             entry["tem_lecap"] = round(float(tem), 6)
+
+        if tea_cer is not None:
+            entry["tea_cer"] = round(float(tea_cer), 6)
 
         if paridad is not None:
             entry["paridad_cer"] = round(float(paridad), 4)
@@ -207,8 +239,9 @@ def run():
 
             tems      = obtener_tems(client, lecap_tickers)
             paridades = obtener_paridades(client, cer_tickers)
+            teas_cer  = obtener_teas_cer(client, cer_tickers)
 
-            pares_result = calcular_breakevens(pares, tems, paridades, fecha_ref)
+            pares_result = calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref)
             guardar(client, pares_result, ts, fecha_str)
 
             n_completos = sum(1 for p in pares_result if "breakeven_mensual" in p)

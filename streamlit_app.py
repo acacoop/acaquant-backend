@@ -2362,7 +2362,7 @@ def vista_operaciones():
             col_modo, col_mon = st.columns([3, 1])
             with col_modo:
                 modo = st.radio(
-                    "Modo", ["Individual", "Comparativo (base 100)"],
+                    "Modo", ["Individual", "Comparativo"],
                     horizontal=True, key="an_modo",
                 )
             with col_mon:
@@ -2453,11 +2453,11 @@ def vista_operaciones():
                                 tooltip=[alt.Tooltip("label:O", title="Mes"),
                                          alt.Tooltip("y:Q", format=y_f, title=y_ttl)],
                             )
-                            .properties(height=420)
+                            .properties(height=840)
                         )
                         st.altair_chart(chart, use_container_width=True)
 
-                else:  # Comparativo base 100
+                else:  # Comparativo
                     cps_sel = st.multiselect(
                         "Contrapartes", contrapartes_an, default=[],
                         placeholder="Elegí una o más...", key="an_cp_comp",
@@ -2477,38 +2477,24 @@ def vista_operaciones():
                             pieces.append(df_cp)
                         df_plot = pd.concat(pieces, ignore_index=True)
 
-                        # Base = primer valor no-cero de cada contraparte
-                        bases = (
-                            df_plot[df_plot["bruto"] != 0]
-                            .sort_values("_mes")
-                            .groupby("contraparte")["bruto"]
-                            .first()
-                            .rename("base")
-                        )
-                        df_plot = df_plot.join(bases, on="contraparte")
-                        df_plot["base100"] = df_plot.apply(
-                            lambda r: r["bruto"] / r["base"] * 100
-                            if pd.notna(r["base"]) and r["base"] != 0 else 0,
-                            axis=1,
-                        )
                         chart = (
                             alt.Chart(df_plot)
                             .mark_line(strokeWidth=2, point=alt.OverlayMarkDef(size=60))
                             .encode(
                                 x=alt.X("label:O", sort=mes_order_an, axis=alt.Axis(labelAngle=-45, title=None)),
-                                y=alt.Y("base100:Q", title="Índice (base 100)",
-                                        axis=alt.Axis(format=".1f")),
+                                y=alt.Y("bruto:Q",
+                                        title=f"Bruto ({moneda_an})",
+                                        axis=alt.Axis(format=",.0f", tickCount=alt.TickCount(step=5_000_000_000))),
                                 color=alt.Color("contraparte:N",
                                                 scale=alt.Scale(scheme="tableau20"),
                                                 legend=alt.Legend(orient="top", labelFontSize=11)),
                                 tooltip=[
                                     alt.Tooltip("label:O", title="Mes"),
                                     alt.Tooltip("contraparte:N", title="Contraparte"),
-                                    alt.Tooltip("base100:Q", format=".2f", title="Base 100"),
                                     alt.Tooltip("bruto:Q", format=",.0f", title=f"Bruto ({moneda_an})"),
                                 ],
                             )
-                            .properties(height=420)
+                            .properties(height=840)
                         )
                         st.altair_chart(chart, use_container_width=True)
 

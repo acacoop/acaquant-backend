@@ -2237,18 +2237,25 @@ def vista_operaciones():
 
                 st.divider()
 
-                # Tabla consolidada por (contraparte, moneda) — % dentro de cada moneda
-                totales_mon = df_f.groupby("moneda")["bruto"].sum()
+                # Selector de moneda para la tabla (solo si hay más de una)
+                if len(monedas_sel_cp) > 1:
+                    moneda_tabla = st.radio(
+                        "", monedas_sel_cp, horizontal=True,
+                        key="cp_mon_tabla", label_visibility="collapsed"
+                    )
+                else:
+                    moneda_tabla = monedas_sel_cp[0]
+
+                df_tabla = df_f[df_f["moneda"] == moneda_tabla]
+                total_tabla = df_tabla["bruto"].sum()
                 resumen_cp = (
-                    df_f.groupby(["contraparte", "moneda"], as_index=False)["bruto"]
+                    df_tabla.groupby("contraparte", as_index=False)["bruto"]
                     .sum()
-                    .sort_values(["moneda", "bruto"], ascending=[True, False])
+                    .sort_values("bruto", ascending=False)
                     .reset_index(drop=True)
                 )
                 resumen_cp["Bruto"] = resumen_cp["bruto"].apply(lambda v: f"{v:,.0f}")
-                resumen_cp["%"]     = resumen_cp.apply(
-                    lambda r: f"{r['bruto'] / totales_mon[r['moneda']] * 100:.1f}%", axis=1
-                )
+                resumen_cp["%"]     = (resumen_cp["bruto"] / total_tabla * 100).apply(lambda v: f"{v:.1f}%")
 
                 h_cp = 38 + 35 * len(resumen_cp)
 
@@ -2256,11 +2263,11 @@ def vista_operaciones():
 
                 with col_izq:
                     st.markdown(
-                        f"<div style='font-size:12px;color:#888'>Contrapartes · {desde_lbl} → {hasta_lbl}</div>",
+                        f"<div style='font-size:12px;color:#888'>Contrapartes · {moneda_tabla} · {desde_lbl} → {hasta_lbl}</div>",
                         unsafe_allow_html=True,
                     )
                     ev_cp = st.dataframe(
-                        resumen_cp[["contraparte", "moneda", "Bruto", "%"]],
+                        resumen_cp[["contraparte", "Bruto", "%"]],
                         hide_index=True, use_container_width=True,
                         height=h_cp,
                         on_select="rerun",
@@ -2277,13 +2284,12 @@ def vista_operaciones():
                             unsafe_allow_html=True,
                         )
                     else:
-                        cp_sel  = resumen_cp.iloc[sel_rows[0]]["contraparte"]
-                        mon_sel = resumen_cp.iloc[sel_rows[0]]["moneda"]
-                        df_det  = df_f[(df_f["contraparte"] == cp_sel) & (df_f["moneda"] == mon_sel)].copy()
+                        cp_sel = resumen_cp.iloc[sel_rows[0]]["contraparte"]
+                        df_det = df_tabla[df_tabla["contraparte"] == cp_sel].copy()
 
                         st.markdown(
                             f"<div style='font-size:11px;color:#888;padding:2px 4px 6px'>"
-                            f"{cp_sel} · {mon_sel}</div>",
+                            f"{cp_sel} · {moneda_tabla}</div>",
                             unsafe_allow_html=True,
                         )
 

@@ -47,45 +47,47 @@ def main():
 
     # ── 2. Contrapartes desde MongoDB ─────────────────────────────────────────
     client = get_mongo_client()
-    docs = list(client["CashFlow"]["Contrapartes"].find(
-        {}, {"_id": 0, "contraparte": 1, "denominacion": 1}
-    ))
-    client.close()
+    col = client["CashFlow"]["Contrapartes"]
+    docs = list(col.find({}, {"contraparte": 1, "denominacion": 1}))
     print(f"{len(docs)} contrapartes en MongoDB CashFlow.Contrapartes\n")
 
-    # ── 3. Matching ───────────────────────────────────────────────────────────
-    print(f"{'CONTRAPARTE':<20} {'DENOMINACION MONGO':<45} {'ID AUNESA':<10} {'DENOMINACION AUNESA'}")
+    # ── 3. Matching + escritura ───────────────────────────────────────────────
+    print(f"{'CONTRAPARTE':<20} {'DENOMINACION MONGO':<45} {'ID AUNESA':<10} {'RESULTADO'}")
     print("-" * 110)
 
     sin_match = []
 
     for doc in sorted(docs, key=lambda d: d.get("contraparte", "")):
-        cp   = doc.get("contraparte", "")
+        _id   = doc["_id"]
+        cp    = doc.get("contraparte", "")
         denom = doc.get("denominacion", "")
         denom_up = denom.upper().strip()
+        cuenta_id = ""
 
         # Exacto
         if denom_up in aunesa_map:
-            match = aunesa_map[denom_up]
-            print(f"{cp:<20} {denom:<45} {match['id']:<10} {match['denominacion']}")
-            continue
-
-        # Parcial: buscar si la denominacion de Mongo está contenida en alguna de Aunesa
-        parciales = [
-            v for k, v in aunesa_map.items()
-            if denom_up in k or k in denom_up
-        ]
-        if parciales:
-            for m in parciales:
-                print(f"{cp:<20} {denom:<45} {m['id']:<10} {m['denominacion']}  (parcial)")
+            cuenta_id = str(aunesa_map[denom_up]["id"])
+            print(f"{cp:<20} {denom:<45} {cuenta_id:<10} exacto")
         else:
-            sin_match.append((cp, denom))
-            print(f"{cp:<20} {denom:<45} {'???':<10} SIN MATCH")
+            # Parcial
+            parciales = [v for k, v in aunesa_map.items() if denom_up in k or k in denom_up]
+            if parciales:
+                cuenta_id = str(parciales[0]["id"])
+                print(f"{cp:<20} {denom:<45} {cuenta_id:<10} parcial → {parciales[0]['denominacion']}")
+            else:
+                sin_match.append((cp, denom))
+                print(f"{cp:<20} {denom:<45} {'—':<10} SIN MATCH")
+
+        col.update_one({"_id": _id}, {"$set": {"cuenta": cuenta_id}})
+
+    print(f"\n✅ Campo 'cuenta' actualizado en {len(docs)} documentos.")
 
     if sin_match:
-        print(f"\n⚠️  {len(sin_match)} sin match:")
+        print(f"\n⚠️  {len(sin_match)} sin match (cuenta quedó vacía):")
         for cp, d in sin_match:
             print(f"  {cp} → '{d}'")
+
+    client.close()
 
 
 if __name__ == "__main__":

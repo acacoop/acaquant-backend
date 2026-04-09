@@ -5,7 +5,6 @@ import re
 import requests
 from datetime import datetime, timedelta
 from mongo_manager import get_mongo_client
-from tickers import MERV_TICKERS as TICKERS
 from Opciones.calculos_cuantitativos import bs_price as _bs_price
 import config
 
@@ -53,6 +52,17 @@ def short_name(ticker):
 @st.cache_resource(ttl=3600)
 def get_db():
     return get_mongo_client()["Trading"]
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cargar_tickers_merv():
+    """Lista de tickers MERV desde Trading.Curvas, ordenados por fecha_vencimiento."""
+    docs = list(get_db()["Curvas"].find(
+        {"ticker": {"$exists": True}},
+        {"_id": 0, "ticker": 1, "fecha_vencimiento": 1},
+    ))
+    docs.sort(key=lambda d: d.get("fecha_vencimiento", ""))
+    return [d["ticker"] for d in docs if d.get("ticker")]
 
 @st.cache_resource(ttl=3600)
 def get_db_opciones():
@@ -766,20 +776,26 @@ def _chart_payoff_estrategia(resolved_legs, spot, neto):
 def vista_libro():
     db = get_db()
 
+    tickers = _cargar_tickers_merv()
+
     col_ticker, _ = st.columns([1, 3])
     with col_ticker:
-        if "selected_ticker" not in st.session_state:
-            st.session_state.selected_ticker = TICKERS[0]
+        if "selected_ticker" not in st.session_state or st.session_state.selected_ticker not in tickers:
+            st.session_state.selected_ticker = tickers[0] if tickers else None
 
-        options_short = [short_name(t) for t in TICKERS]
-        current_idx   = TICKERS.index(st.session_state.selected_ticker)
+        if not tickers:
+            st.warning("Sin tickers en Trading.Curvas.")
+            return
+
+        options_short = [short_name(t) for t in tickers]
+        current_idx   = tickers.index(st.session_state.selected_ticker)
 
         selected_short = st.selectbox(
             "Ticker", options_short,
             index=current_idx,
             label_visibility="collapsed",
         )
-        st.session_state.selected_ticker = TICKERS[options_short.index(selected_short)]
+        st.session_state.selected_ticker = tickers[options_short.index(selected_short)]
 
     ticker = st.session_state.selected_ticker
     snap   = db["MarketSnapshot"].find_one({"ticker": ticker})

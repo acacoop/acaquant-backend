@@ -14,7 +14,6 @@ from pymongo import ReplaceOne
 from session_manager import inicializar_sesion
 from websocket_manager import WebSocketManager
 from mongo_manager import get_mongo_client
-from tickers import MERV_TICKERS as TICKERS
 
 logger = logging.getLogger("MotorValores")
 
@@ -331,16 +330,34 @@ class MicrostructureEngine:
 # ==========================================
 # 2. EL BUCLE PRINCIPAL (MODO MOTOR CIEGO)
 # ==========================================
+def cargar_tickers_curvas(client):
+    """Lee lista de tickers MERV desde Trading.Curvas, ordenados por fecha_vencimiento."""
+    docs = list(client["Trading"]["Curvas"].find(
+        {"ticker": {"$exists": True}},
+        {"_id": 0, "ticker": 1, "fecha_vencimiento": 1},
+    ))
+    docs.sort(key=lambda d: d.get("fecha_vencimiento", ""))
+    tickers = [d["ticker"] for d in docs if d.get("ticker")]
+    print(f"📋 Tickers cargados desde Trading.Curvas: {len(tickers)}")
+    return tickers
+
+
 def run():
     print("🚀 Iniciando Motor de Escritura (Modo Headless / Sin Interfaz)...")
     if not inicializar_sesion(): return
 
-    engine = MicrostructureEngine(TICKERS)
+    client = get_mongo_client()
+    tickers = cargar_tickers_curvas(client)
+    if not tickers:
+        print("❌ Sin tickers en Trading.Curvas. Abortando.")
+        return
+
+    engine = MicrostructureEngine(tickers)
     ws_manager = WebSocketManager(engine)
 
     try:
         # Iniciamos el WebSocket
-        if ws_manager.iniciar_ws(TICKERS, depth=5):
+        if ws_manager.iniciar_ws(tickers, depth=5):
             print("✅ Conectado a Rofex. Escuchando y guardando datos...")
             # Como borramos la app visual, necesitamos este bucle infinito
             # para que el script no se cierre y el thread de Rofex siga vivo.

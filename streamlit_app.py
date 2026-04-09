@@ -2149,13 +2149,36 @@ def vista_operaciones():
         if df_cp.empty:
             st.warning("Sin datos en ContrapartesResumen.")
         else:
-            # Mes-año como clave de agrupación
+            # Mes-año como clave de agrupación (sobre datos completos)
             df_cp["_mes"] = df_cp["concertacion"].dt.strftime("%Y-%m")
             df_cp["label"] = df_cp["concertacion"].dt.strftime("%b %Y")
 
-            # Flujo acumulado por mes
+            meses_all = sorted(df_cp["_mes"].unique())
+            labels_all = (
+                df_cp.drop_duplicates("_mes")
+                .sort_values("_mes")["label"]
+                .tolist()
+            )
+
+            # ── Selector de rango de fechas ───────────────────────────────────
+            if len(labels_all) >= 2:
+                desde_lbl, hasta_lbl = st.select_slider(
+                    "Período",
+                    options=labels_all,
+                    value=(labels_all[0], labels_all[-1]),
+                    key="cp_rango",
+                )
+            else:
+                desde_lbl = hasta_lbl = labels_all[0]
+
+            # Filtrar df_cp según el rango seleccionado
+            desde_mes = df_cp.loc[df_cp["label"] == desde_lbl, "_mes"].iloc[0]
+            hasta_mes = df_cp.loc[df_cp["label"] == hasta_lbl, "_mes"].iloc[0]
+            df_f = df_cp[(df_cp["_mes"] >= desde_mes) & (df_cp["_mes"] <= hasta_mes)].copy()
+
+            # Flujo acumulado por mes (sobre rango filtrado)
             df_mes = (
-                df_cp.groupby(["_mes", "label"], as_index=False)["bruto"]
+                df_f.groupby(["_mes", "label"], as_index=False)["bruto"]
                 .sum()
                 .sort_values("_mes")
                 .reset_index(drop=True)
@@ -2200,10 +2223,10 @@ def vista_operaciones():
 
             st.divider()
 
-            # Tabla consolidada por contraparte
-            total_bruto = df_cp["bruto"].sum()
+            # Tabla consolidada por contraparte (mismo rango filtrado)
+            total_bruto = df_f["bruto"].sum()
             resumen_cp = (
-                df_cp.groupby("contraparte", as_index=False)["bruto"]
+                df_f.groupby("contraparte", as_index=False)["bruto"]
                 .sum()
                 .sort_values("bruto", ascending=False)
                 .reset_index(drop=True)
@@ -2217,7 +2240,7 @@ def vista_operaciones():
 
             with col_izq:
                 st.markdown(
-                    f"<div style='font-size:12px;color:#888'>Total operado</div>"
+                    f"<div style='font-size:12px;color:#888'>Total operado · {desde_lbl} → {hasta_lbl}</div>"
                     f"<div style='font-size:22px;font-weight:700;color:#094293'>${total_bruto:,.0f}</div>",
                     unsafe_allow_html=True,
                 )
@@ -2241,7 +2264,7 @@ def vista_operaciones():
                         )
                 else:
                     cp_sel = resumen_cp.iloc[sel_rows[0]]["contraparte"]
-                    df_det = df_cp[df_cp["contraparte"] == cp_sel].copy()
+                    df_det = df_f[df_f["contraparte"] == cp_sel].copy()
                     df_mes_det = (
                         df_det.groupby(["_mes", "label"], as_index=False)["bruto"]
                         .sum()

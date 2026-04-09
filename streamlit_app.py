@@ -2327,7 +2327,7 @@ def vista_aum():
                         tooltip=[alt.Tooltip("fecha_snapshot:O", title="Fecha"),
                                  alt.Tooltip("valuacion:Q", format=",.0f", title="Valuación")],
                     )
-                    .properties(height=260)
+                    .properties(height=400)
                 )
                 st.altair_chart(chart, use_container_width=True)
 

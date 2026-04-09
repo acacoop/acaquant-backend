@@ -53,7 +53,7 @@ def fecha_t2():
 
 # ── Listado de cuentas activas ────────────────────────────────────────────────
 def obtener_cuentas(headers):
-    resp = requests.get(LISTADO_URL, headers=headers, timeout=15)
+    resp = requests.get(LISTADO_URL, headers=headers, timeout=60)
     resp.raise_for_status()
     df = pd.DataFrame(resp.json())
     activas = df[
@@ -76,7 +76,7 @@ def consultar_posicion(cuenta_id, headers, desde):
         POSICION_URL.format(cuenta_id),
         params=params,
         headers=headers,
-        timeout=20,
+        timeout=60,
     )
     if resp.status_code == 401:
         return None, True   # señal de re-auth

@@ -2378,10 +2378,11 @@ def vista_operaciones():
                     )
 
             # ── Filtro tipo de operación ──────────────────────────────────────
-            tipos_sel = st.multiselect(
-                "Tipo de operación", tipos_keys, default=tipos_keys,
-                key="an_tipos", placeholder="Todos...",
-            )
+            with st.expander("Tipo de operación", expanded=False):
+                tipos_sel = st.multiselect(
+                    "", tipos_keys, default=tipos_keys,
+                    key="an_tipos", label_visibility="collapsed",
+                )
 
             df_an = df_an[
                 (df_an["moneda"] == moneda_an) &

@@ -7,9 +7,8 @@ from datetime import date
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import config
 
-AUTH_URL    = "https://aca.aunesa.com/Irmo/api/login"
-CUENTAS_URL = "https://aca.aunesa.com/Irmo/api/cuentas/listadoCuentas"
-INFOS_URL   = "https://aca.aunesa.com/Irmo/api/operaciones/informes"
+AUTH_URL  = "https://aca.aunesa.com/Irmo/api/login"
+INFOS_URL = "https://aca.aunesa.com/Irmo/api/operaciones/informes"
 
 
 def autenticar():
@@ -36,14 +35,7 @@ def main():
     headers = autenticar()
     print("Auth OK\n")
 
-    # Obtener lista de cuentas y usar la primera
-    print("Obteniendo cuentas...")
-    r_cuentas = requests.get(CUENTAS_URL, headers=headers, timeout=60)
-    r_cuentas.raise_for_status()
-    cuentas = r_cuentas.json()
-    activas = [c for c in cuentas if c.get("estado") == "Activa" and c.get("tipo") in ("Comitente", "Propia")]
-    print(f"{len(activas)} cuentas activas. Usando cuenta: {activas[0]['id']} — {activas[0]['denominacion']}\n")
-    cuenta_id = activas[0]["id"]
+    cuenta_id = 255
 
     params = {
         "cuenta":     cuenta_id,

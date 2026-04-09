@@ -2477,6 +2477,9 @@ def vista_operaciones():
                             pieces.append(df_cp)
                         df_plot = pd.concat(pieces, ignore_index=True)
 
+                        _step = 20_000_000_000
+                        _max  = int(df_plot["bruto"].max())
+                        _ticks = list(range(0, _max + _step, _step))
                         chart = (
                             alt.Chart(df_plot)
                             .mark_line(strokeWidth=2, point=alt.OverlayMarkDef(size=60))
@@ -2484,7 +2487,7 @@ def vista_operaciones():
                                 x=alt.X("label:O", sort=mes_order_an, axis=alt.Axis(labelAngle=-45, title=None)),
                                 y=alt.Y("bruto:Q",
                                         title=f"Bruto ({moneda_an})",
-                                        axis=alt.Axis(format=",.0f", tickCount=alt.TickCount(step=5_000_000_000))),
+                                        axis=alt.Axis(format=",.0f", values=_ticks)),
                                 color=alt.Color("contraparte:N",
                                                 scale=alt.Scale(scheme="tableau20"),
                                                 legend=alt.Legend(orient="top", labelFontSize=11)),
@@ -2494,7 +2497,7 @@ def vista_operaciones():
                                     alt.Tooltip("bruto:Q", format=",.0f", title=f"Bruto ({moneda_an})"),
                                 ],
                             )
-                            .properties(height=840)
+                            .properties(height=700)
                         )
                         st.altair_chart(chart, use_container_width=True)
 

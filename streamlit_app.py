@@ -1946,7 +1946,7 @@ def _cargar_contrapartes():
 def vista_operaciones():
     st.markdown("## ACAQuant | Operaciones")
 
-    tab_cf, tab_cp = st.tabs(["Cash Flow", "Contrapartes"])
+    tab_cf, tab_cp, tab_analisis_cp = st.tabs(["Cash Flow", "Contrapartes", "Análisis"])
 
     # ── Tab: Cash Flow (sin cambios) ──────────────────────────────────────────
     with tab_cf:
@@ -2308,16 +2308,16 @@ def vista_operaciones():
                             hide_index=True, use_container_width=True,
                             height=h_mes,
                             on_select="rerun",
-                            selection_mode="single-row",
+                            selection_mode="multi-row",
                             key="cp_mes_tabla",
                         )
 
-                        # Tabla 2: tipo_operacion filtrada por mes seleccionado (o total)
+                        # Tabla 2: tipo_operacion filtrada por meses seleccionados (o total)
                         sel_mes_rows = ev_mes.selection.rows if ev_mes.selection.rows else []
                         if sel_mes_rows:
-                            mes_sel = df_mes_det.iloc[sel_mes_rows[0]]["_mes"]
-                            df_tipo_src = df_det[df_det["_mes"] == mes_sel]
-                            tipo_titulo = df_mes_det.iloc[sel_mes_rows[0]]["label"]
+                            meses_sel = df_mes_det.iloc[sel_mes_rows]["_mes"].tolist()
+                            df_tipo_src = df_det[df_det["_mes"].isin(meses_sel)]
+                            tipo_titulo = ", ".join(df_mes_det.iloc[sel_mes_rows]["label"].tolist())
                         else:
                             df_tipo_src = df_det
                             tipo_titulo = "Total"
@@ -2342,6 +2342,136 @@ def vista_operaciones():
                             hide_index=True, use_container_width=True,
                             height=h_tipo,
                         )
+
+    # ── Tab: Análisis contrapartes ────────────────────────────────────────────
+    with tab_analisis_cp:
+        df_an = _cargar_contrapartes()
+        if df_an.empty:
+            st.warning("Sin datos en ContrapartesResumen.")
+        else:
+            df_an["_mes"] = df_an["concertacion"].dt.strftime("%Y-%m")
+            df_an["label"] = df_an["concertacion"].dt.strftime("%b %Y")
+
+            # Selector de moneda
+            monedas_an = sorted(df_an["moneda"].dropna().unique().tolist())
+            if len(monedas_an) > 1:
+                moneda_an = st.radio(
+                    "", monedas_an, horizontal=True,
+                    key="an_moneda", label_visibility="collapsed"
+                )
+            else:
+                moneda_an = monedas_an[0]
+            df_an = df_an[df_an["moneda"] == moneda_an].copy()
+
+            meses_an = (
+                df_an.drop_duplicates("_mes")
+                .sort_values("_mes")["label"]
+                .tolist()
+            )
+            contrapartes_an = sorted(df_an["contraparte"].dropna().unique().tolist())
+
+            if len(meses_an) < 2:
+                st.info("Necesitás al menos 2 meses de datos para ver la evolución.")
+            else:
+                modo = st.radio(
+                    "Modo", ["Individual", "Comparativo (base 100)"],
+                    horizontal=True, key="an_modo",
+                )
+
+                desde_an, hasta_an = st.select_slider(
+                    "Período",
+                    options=meses_an,
+                    value=(meses_an[0], meses_an[-1]),
+                    key="an_rango",
+                )
+                desde_mes_an = df_an.loc[df_an["label"] == desde_an, "_mes"].iloc[0]
+                hasta_mes_an = df_an.loc[df_an["label"] == hasta_an, "_mes"].iloc[0]
+                df_an_f = df_an[(df_an["_mes"] >= desde_mes_an) & (df_an["_mes"] <= hasta_mes_an)]
+
+                color_an = {"ARS": "#094293", "USD": "#00cc66"}.get(moneda_an, "#094293")
+
+                if modo == "Individual":
+                    cp_ind = st.selectbox(
+                        "Contraparte", [None] + contrapartes_an, index=0,
+                        format_func=lambda x: "Elegí una contraparte..." if x is None else x,
+                        key="an_cp_ind",
+                    )
+                    if cp_ind is None:
+                        st.info("Seleccioná una contraparte para ver la evolución mensual.")
+                    else:
+                        df_plot = (
+                            df_an_f[df_an_f["contraparte"] == cp_ind]
+                            .groupby(["_mes", "label"], as_index=False)["bruto"]
+                            .sum()
+                            .sort_values("_mes")
+                        )
+                        mes_order_an = df_plot["label"].tolist()
+                        max_v = df_plot["bruto"].abs().max()
+                        if max_v >= 1e9:
+                            df_plot["y"] = df_plot["bruto"] / 1e9; y_ttl = f"Billones {moneda_an}"; y_f = ",.2f"
+                        elif max_v >= 1e6:
+                            df_plot["y"] = df_plot["bruto"] / 1e6; y_ttl = f"Millones {moneda_an}"; y_f = ",.1f"
+                        else:
+                            df_plot["y"] = df_plot["bruto"]; y_ttl = moneda_an; y_f = ",.0f"
+                        chart = (
+                            alt.Chart(df_plot)
+                            .mark_line(color=color_an, strokeWidth=2,
+                                       point=alt.OverlayMarkDef(size=60, color=color_an))
+                            .encode(
+                                x=alt.X("label:O", sort=mes_order_an, axis=alt.Axis(labelAngle=-45, title=None)),
+                                y=alt.Y("y:Q", scale=alt.Scale(zero=False),
+                                        axis=alt.Axis(title=y_ttl, format=y_f)),
+                                tooltip=[alt.Tooltip("label:O", title="Mes"),
+                                         alt.Tooltip("y:Q", format=y_f, title=y_ttl)],
+                            )
+                            .properties(height=420)
+                        )
+                        st.altair_chart(chart, use_container_width=True)
+
+                else:  # Comparativo base 100
+                    cps_sel = st.multiselect(
+                        "Contrapartes", contrapartes_an, default=[],
+                        placeholder="Elegí una o más...", key="an_cp_comp",
+                    )
+                    if not cps_sel:
+                        st.info("Seleccioná al menos una contraparte para comparar.")
+                    else:
+                        df_plot = (
+                            df_an_f[df_an_f["contraparte"].isin(cps_sel)]
+                            .groupby(["_mes", "label", "contraparte"], as_index=False)["bruto"]
+                            .sum()
+                            .sort_values("_mes")
+                        )
+                        bases = (
+                            df_plot.sort_values("_mes")
+                            .groupby("contraparte")["bruto"]
+                            .first()
+                            .rename("base")
+                        )
+                        df_plot = df_plot.join(bases, on="contraparte")
+                        df_plot["base100"] = df_plot["bruto"] / df_plot["base"] * 100
+                        mes_order_an = sorted(df_plot["label"].unique(), key=lambda l: df_plot.loc[df_plot["label"] == l, "_mes"].iloc[0])
+                        chart = (
+                            alt.Chart(df_plot)
+                            .mark_line(strokeWidth=2, point=alt.OverlayMarkDef(size=60))
+                            .encode(
+                                x=alt.X("label:O", sort=mes_order_an, axis=alt.Axis(labelAngle=-45, title=None)),
+                                y=alt.Y("base100:Q", title="Índice (base 100)",
+                                        scale=alt.Scale(zero=False),
+                                        axis=alt.Axis(format=".1f")),
+                                color=alt.Color("contraparte:N",
+                                                scale=alt.Scale(scheme="tableau20"),
+                                                legend=alt.Legend(orient="top", labelFontSize=11)),
+                                tooltip=[
+                                    alt.Tooltip("label:O", title="Mes"),
+                                    alt.Tooltip("contraparte:N", title="Contraparte"),
+                                    alt.Tooltip("base100:Q", format=".2f", title="Base 100"),
+                                    alt.Tooltip("bruto:Q", format=",.0f", title=f"Bruto ({moneda_an})"),
+                                ],
+                            )
+                            .properties(height=420)
+                        )
+                        st.altair_chart(chart, use_container_width=True)
 
 
 # ==========================================

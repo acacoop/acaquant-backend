@@ -6,6 +6,8 @@ inserta/actualiza un doc en Contrapartes con:
   - denominacion: valor real del campo Denominación
   - contraparte:  etiqueta normalizada (la palabra clave que matcheó)
 
+También migra los registros existentes con contraparte="ST" → "ONE618".
+
 Uso:
     /root/TradingAV/venv/bin/python /root/TradingAV/Excel/build_contrapartes.py
 """
@@ -18,29 +20,42 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from mongo_manager import get_mongo_client
 
 # Palabras clave → etiqueta. Orden importa: las más específicas primero.
+# Multi-palabra y nombres largos van arriba para no ser opacados por keywords cortas.
 PALABRAS_CLAVE = [
     ("BULL MARKET",        "BULL MARKET"),
+    ("BM",                 "BULL MARKET"),
     ("CONO SUR",           "CONO SUR"),
+    ("CONOSUR",            "CONO SUR"),
     ("INDUSTRIAL VALORES", "INDUSTRIAL VALORES"),
     ("PP INVERSIONES",     "PP INVERSIONES"),
+    ("DA VALORES",         "DA VALORES"),
+    ("S & C",              "S & C"),
     ("ARGENFUNDS",         "ARGENFUNDS"),
+    ("CONSULTATIO",        "CONSULTATIO"),
+    ("CENTAURUS",          "CENTAURUS"),
     ("SCHRODER",           "SCHRODER"),
     ("TORONTO",            "TORONTO"),
     ("ALLARIA",            "ALLARIA"),
     ("BALANZ",             "BALANZ"),
+    ("COMPASS",            "COMPASS"),
     ("COCOS",              "COCOS"),
     ("LOMBARD",            "LOMBARD"),
     ("ADCAP",              "ADCAP"),
     ("ONE618",             "ONE618"),
+    ("DALMHORE",           "DALMHORE"),
+    ("PHAROS",             "PHAROS"),
+    ("PETRINI",            "PETRINI"),
     ("BAVSA",              "BAVSA"),
     ("BBVA",               "BBVA"),
     ("FIRST",              "FIRST"),
-    ("ARGENFUNDS",         "ARGENFUNDS"),
     ("SBS",                "SBS"),
     ("IAM",                "IAM"),
+    ("GMC",                "GMC"),
+    ("IEB",                "IEB"),
     ("MAF",                "MAF"),
     ("MAX",                "MAX"),
-    ("ST",                 "ST"),
+    # ST va al final y ahora etiqueta ONE618
+    ("ST",                 "ONE618"),
 ]
 
 
@@ -66,9 +81,17 @@ if __name__ == "__main__":
     # Índice único por denominacion para upserts idempotentes
     col_cp.create_index("denominacion", unique=True, background=True)
 
-    # Traer todas las denominaciones únicas
+    # ── Migración: ST → ONE618 en registros existentes ───────────────────────
+    migrados = col_cp.update_many(
+        {"contraparte": "ST"},
+        {"$set": {"contraparte": "ONE618"}},
+    ).modified_count
+    if migrados:
+        print(f"🔄 Migrados ST → ONE618: {migrados} registros existentes")
+
+    # ── Escanear todas las denominaciones únicas ──────────────────────────────
     denominaciones = col_ops.distinct("Denominación")
-    print(f"Denominaciones únicas en Operaciones: {len(denominaciones)}")
+    print(f"Denominaciones únicas en Operaciones: {len(denominaciones)}\n")
 
     encontradas = 0
     sin_match   = []
@@ -81,7 +104,7 @@ if __name__ == "__main__":
                 {"$set": {"denominacion": den, "contraparte": contraparte}},
                 upsert=True,
             )
-            print(f"  ✓  {contraparte:<20}  ←  {den}")
+            print(f"  ✓  {contraparte:<22}  ←  {den}")
             encontradas += 1
         else:
             sin_match.append(den)

@@ -1933,7 +1933,7 @@ def _cargar_accionistas():
 def _cargar_contrapartes():
     db = get_db_cashflow()
     docs = list(db["ContrapartesResumen"].find(
-        {}, {"_id": 0, "bruto": 1, "concertacion": 1, "contraparte": 1, "moneda": 1}
+        {}, {"_id": 0, "bruto": 1, "concertacion": 1, "contraparte": 1, "moneda": 1, "tipo_operacion": 1}
     ))
     if not docs:
         return pd.DataFrame()
@@ -2149,138 +2149,172 @@ def vista_operaciones():
         if df_cp.empty:
             st.warning("Sin datos en ContrapartesResumen.")
         else:
-            # Mes-año como clave de agrupación (sobre datos completos)
             df_cp["_mes"] = df_cp["concertacion"].dt.strftime("%Y-%m")
             df_cp["label"] = df_cp["concertacion"].dt.strftime("%b %Y")
 
-            meses_all = sorted(df_cp["_mes"].unique())
-            labels_all = (
-                df_cp.drop_duplicates("_mes")
-                .sort_values("_mes")["label"]
-                .tolist()
-            )
+            # ── Filtro moneda ─────────────────────────────────────────────────
+            monedas_disp = sorted(df_cp["moneda"].dropna().unique().tolist())
+            cp_m_cols = st.columns(len(monedas_disp) + 4)
+            monedas_sel_cp = []
+            for i, m in enumerate(monedas_disp):
+                with cp_m_cols[i]:
+                    if st.checkbox(m, value=True, key=f"cp_mon_{m}"):
+                        monedas_sel_cp.append(m)
+            df_cp = df_cp[df_cp["moneda"].isin(monedas_sel_cp)].copy() if monedas_sel_cp else df_cp.iloc[0:0]
 
-            # ── Selector de rango de fechas ───────────────────────────────────
-            if len(labels_all) >= 2:
-                desde_lbl, hasta_lbl = st.select_slider(
-                    "Período",
-                    options=labels_all,
-                    value=(labels_all[0], labels_all[-1]),
-                    key="cp_rango",
-                )
+            if df_cp.empty:
+                st.info("Sin datos para las monedas seleccionadas.")
             else:
-                desde_lbl = hasta_lbl = labels_all[0]
-
-            # Filtrar df_cp según el rango seleccionado
-            desde_mes = df_cp.loc[df_cp["label"] == desde_lbl, "_mes"].iloc[0]
-            hasta_mes = df_cp.loc[df_cp["label"] == hasta_lbl, "_mes"].iloc[0]
-            df_f = df_cp[(df_cp["_mes"] >= desde_mes) & (df_cp["_mes"] <= hasta_mes)].copy()
-
-            # Flujo acumulado por mes (sobre rango filtrado)
-            df_mes = (
-                df_f.groupby(["_mes", "label"], as_index=False)["bruto"]
-                .sum()
-                .sort_values("_mes")
-                .reset_index(drop=True)
-            )
-            df_mes["acumulado"] = df_mes["bruto"].cumsum()
-            mes_order = df_mes["label"].tolist()
-
-            # Normalizar eje Y
-            max_val = df_mes["acumulado"].abs().max()
-            if max_val >= 1e9:
-                df_mes["y"] = df_mes["acumulado"] / 1e9
-                y_title = "Billones ARS"
-                y_fmt   = ",.2f"
-            elif max_val >= 1e6:
-                df_mes["y"] = df_mes["acumulado"] / 1e6
-                y_title = "Millones ARS"
-                y_fmt   = ",.1f"
-            else:
-                df_mes["y"] = df_mes["acumulado"]
-                y_title = "ARS"
-                y_fmt   = ",.0f"
-
-            # Gráfico línea + área — flujo acumulado
-            base = alt.Chart(df_mes).encode(
-                x=alt.X("label:O", sort=mes_order, axis=alt.Axis(labelAngle=-45, title=None)),
-            )
-            area = base.mark_area(color="#094293", opacity=0.12, interpolate="monotone").encode(
-                y=alt.Y("y:Q", axis=alt.Axis(title=y_title, format=y_fmt))
-            )
-            line = base.mark_line(color="#094293", strokeWidth=2, interpolate="monotone",
-                                  point=alt.OverlayMarkDef(size=60, color="#094293")).encode(
-                y=alt.Y("y:Q"),
-                tooltip=[
-                    alt.Tooltip("label:O", title="Mes"),
-                    alt.Tooltip("y:Q", format=y_fmt, title=y_title),
-                ]
-            )
-            st.altair_chart(
-                alt.layer(area, line).properties(height=350),
-                use_container_width=True
-            )
-
-            st.divider()
-
-            # Tabla consolidada por contraparte (mismo rango filtrado)
-            total_bruto = df_f["bruto"].sum()
-            resumen_cp = (
-                df_f.groupby("contraparte", as_index=False)["bruto"]
-                .sum()
-                .sort_values("bruto", ascending=False)
-                .reset_index(drop=True)
-            )
-            resumen_cp["Bruto"] = resumen_cp["bruto"].apply(lambda v: f"{v:,.0f}")
-            resumen_cp["%"]     = (resumen_cp["bruto"] / total_bruto * 100).apply(lambda v: f"{v:.1f}%")
-
-            h_cp = 38 + 35 * len(resumen_cp)
-
-            col_izq, col_der = st.columns(2)
-
-            with col_izq:
-                st.markdown(
-                    f"<div style='font-size:12px;color:#888'>Total operado · {desde_lbl} → {hasta_lbl}</div>"
-                    f"<div style='font-size:22px;font-weight:700;color:#094293'>${total_bruto:,.0f}</div>",
-                    unsafe_allow_html=True,
-                )
-                ev_cp = st.dataframe(
-                    resumen_cp[["contraparte", "Bruto", "%"]],
-                    hide_index=True, use_container_width=True,
-                    height=h_cp,
-                    on_select="rerun",
-                    selection_mode="single-row",
-                    key="cp_tabla",
+                labels_all = (
+                    df_cp.drop_duplicates("_mes")
+                    .sort_values("_mes")["label"]
+                    .tolist()
                 )
 
-            with col_der:
-                sel_rows = ev_cp.selection.rows if ev_cp.selection.rows else []
-                if not sel_rows:
-                    with st.container(height=h_cp, border=False):
-                        st.markdown(
-                            "<div style='font-size:13px;color:#888;padding:8px'>"
-                            "Seleccioná una contraparte para ver el detalle mensual.</div>",
-                            unsafe_allow_html=True,
-                        )
-                else:
-                    cp_sel = resumen_cp.iloc[sel_rows[0]]["contraparte"]
-                    df_det = df_f[df_f["contraparte"] == cp_sel].copy()
-                    df_mes_det = (
-                        df_det.groupby(["_mes", "label"], as_index=False)["bruto"]
-                        .sum()
-                        .sort_values("_mes")
-                        .reset_index(drop=True)
+                # ── Selector de rango de fechas ───────────────────────────────
+                if len(labels_all) >= 2:
+                    desde_lbl, hasta_lbl = st.select_slider(
+                        "Período",
+                        options=labels_all,
+                        value=(labels_all[0], labels_all[-1]),
+                        key="cp_rango",
                     )
-                    df_mes_det["Bruto"] = df_mes_det["bruto"].apply(lambda v: f"{v:,.0f}")
-                    with st.container(height=h_cp, border=False):
+                else:
+                    desde_lbl = hasta_lbl = labels_all[0]
+
+                desde_mes = df_cp.loc[df_cp["label"] == desde_lbl, "_mes"].iloc[0]
+                hasta_mes = df_cp.loc[df_cp["label"] == hasta_lbl, "_mes"].iloc[0]
+                df_f = df_cp[(df_cp["_mes"] >= desde_mes) & (df_cp["_mes"] <= hasta_mes)].copy()
+
+                # Flujo acumulado por mes
+                df_mes = (
+                    df_f.groupby(["_mes", "label"], as_index=False)["bruto"]
+                    .sum()
+                    .sort_values("_mes")
+                    .reset_index(drop=True)
+                )
+                df_mes["acumulado"] = df_mes["bruto"].cumsum()
+                mes_order = df_mes["label"].tolist()
+
+                # Normalizar eje Y
+                max_val = df_mes["acumulado"].abs().max()
+                moneda_lbl = monedas_sel_cp[0] if len(monedas_sel_cp) == 1 else "Total"
+                if max_val >= 1e9:
+                    df_mes["y"] = df_mes["acumulado"] / 1e9
+                    y_title = f"Billones {moneda_lbl}"
+                    y_fmt   = ",.2f"
+                elif max_val >= 1e6:
+                    df_mes["y"] = df_mes["acumulado"] / 1e6
+                    y_title = f"Millones {moneda_lbl}"
+                    y_fmt   = ",.1f"
+                else:
+                    df_mes["y"] = df_mes["acumulado"]
+                    y_title = moneda_lbl
+                    y_fmt   = ",.0f"
+
+                # Gráfico línea + área
+                base = alt.Chart(df_mes).encode(
+                    x=alt.X("label:O", sort=mes_order, axis=alt.Axis(labelAngle=-45, title=None)),
+                )
+                area = base.mark_area(color="#094293", opacity=0.12, interpolate="monotone").encode(
+                    y=alt.Y("y:Q", axis=alt.Axis(title=y_title, format=y_fmt))
+                )
+                line = base.mark_line(color="#094293", strokeWidth=2, interpolate="monotone",
+                                      point=alt.OverlayMarkDef(size=60, color="#094293")).encode(
+                    y=alt.Y("y:Q"),
+                    tooltip=[
+                        alt.Tooltip("label:O", title="Mes"),
+                        alt.Tooltip("y:Q", format=y_fmt, title=y_title),
+                    ]
+                )
+                st.altair_chart(
+                    alt.layer(area, line).properties(height=350),
+                    use_container_width=True
+                )
+
+                st.divider()
+
+                # Tabla consolidada por contraparte
+                total_bruto = df_f["bruto"].sum()
+                resumen_cp = (
+                    df_f.groupby("contraparte", as_index=False)["bruto"]
+                    .sum()
+                    .sort_values("bruto", ascending=False)
+                    .reset_index(drop=True)
+                )
+                resumen_cp["Bruto"] = resumen_cp["bruto"].apply(lambda v: f"{v:,.0f}")
+                resumen_cp["%"]     = (resumen_cp["bruto"] / total_bruto * 100).apply(lambda v: f"{v:.1f}%")
+
+                h_cp = 38 + 35 * len(resumen_cp)
+                h_det = max(120, h_cp // 2)   # cada tabla del detalle ocupa ~50% de altura
+
+                col_izq, col_der = st.columns(2)
+
+                with col_izq:
+                    st.markdown(
+                        f"<div style='font-size:12px;color:#888'>Total operado · {desde_lbl} → {hasta_lbl}</div>"
+                        f"<div style='font-size:22px;font-weight:700;color:#094293'>${total_bruto:,.0f}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    ev_cp = st.dataframe(
+                        resumen_cp[["contraparte", "Bruto", "%"]],
+                        hide_index=True, use_container_width=True,
+                        height=h_cp,
+                        on_select="rerun",
+                        selection_mode="single-row",
+                        key="cp_tabla",
+                    )
+
+                with col_der:
+                    sel_rows = ev_cp.selection.rows if ev_cp.selection.rows else []
+                    if not sel_rows:
+                        with st.container(height=h_cp, border=False):
+                            st.markdown(
+                                "<div style='font-size:13px;color:#888;padding:8px'>"
+                                "Seleccioná una contraparte para ver el detalle.</div>",
+                                unsafe_allow_html=True,
+                            )
+                    else:
+                        cp_sel = resumen_cp.iloc[sel_rows[0]]["contraparte"]
+                        df_det = df_f[df_f["contraparte"] == cp_sel].copy()
+
+                        # Tabla 1: volumen mensual (más reciente → más antiguo)
+                        df_mes_det = (
+                            df_det.groupby(["_mes", "label"], as_index=False)["bruto"]
+                            .sum()
+                            .sort_values("_mes", ascending=False)
+                            .reset_index(drop=True)
+                        )
+                        df_mes_det["Bruto"] = df_mes_det["bruto"].apply(lambda v: f"{v:,.0f}")
+
+                        # Tabla 2: breakdown por tipo_operacion
+                        total_det = df_det["bruto"].sum()
+                        df_tipo = (
+                            df_det.groupby("tipo_operacion", as_index=False)["bruto"]
+                            .sum()
+                            .sort_values("bruto", ascending=False)
+                            .reset_index(drop=True)
+                        )
+                        df_tipo["Bruto"] = df_tipo["bruto"].apply(lambda v: f"{v:,.0f}")
+                        df_tipo["%"]     = (df_tipo["bruto"] / total_det * 100).apply(lambda v: f"{v:.1f}%")
+
                         st.markdown(
                             f"<div style='font-size:11px;color:#888;padding:2px 4px 6px'>{cp_sel}</div>",
                             unsafe_allow_html=True,
                         )
-                        st.dataframe(
-                            df_mes_det[["label", "Bruto"]].rename(columns={"label": "Mes"}),
-                            hide_index=True, use_container_width=True,
-                        )
+                        sub_izq, sub_der = st.columns(2)
+                        with sub_izq:
+                            st.dataframe(
+                                df_mes_det[["label", "Bruto"]].rename(columns={"label": "Mes"}),
+                                hide_index=True, use_container_width=True,
+                                height=h_det,
+                            )
+                        with sub_der:
+                            st.dataframe(
+                                df_tipo[["tipo_operacion", "Bruto", "%"]].rename(columns={"tipo_operacion": "Tipo"}),
+                                hide_index=True, use_container_width=True,
+                                height=h_det,
+                            )
 
 
 # ==========================================

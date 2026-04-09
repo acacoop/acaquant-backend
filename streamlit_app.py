@@ -2352,16 +2352,41 @@ def vista_operaciones():
             df_an["_mes"] = df_an["concertacion"].dt.strftime("%Y-%m")
             df_an["label"] = df_an["concertacion"].dt.strftime("%b %Y")
 
-            # Selector de moneda
             monedas_an = sorted(df_an["moneda"].dropna().unique().tolist())
-            if len(monedas_an) > 1:
-                moneda_an = st.radio(
-                    "", monedas_an, horizontal=True,
-                    key="an_moneda", label_visibility="collapsed"
+
+            # Extraer keyword de tipo_operacion (primera palabra)
+            df_an["_tipo_key"] = df_an["tipo_operacion"].fillna("").str.split().str[0]
+            tipos_keys = sorted(df_an["_tipo_key"].unique().tolist())
+
+            # ── Fila: Modo | Moneda ───────────────────────────────────────────
+            col_modo, col_mon = st.columns([3, 1])
+            with col_modo:
+                modo = st.radio(
+                    "Modo", ["Individual", "Comparativo (base 100)"],
+                    horizontal=True, key="an_modo",
                 )
-            else:
-                moneda_an = monedas_an[0]
-            df_an = df_an[df_an["moneda"] == moneda_an].copy()
+            with col_mon:
+                if len(monedas_an) > 1:
+                    moneda_an = st.radio(
+                        "Moneda", monedas_an, horizontal=True, key="an_moneda",
+                    )
+                else:
+                    moneda_an = monedas_an[0]
+                    st.markdown(
+                        f"<div style='font-size:12px;color:#888;padding-top:4px'>Moneda: {moneda_an}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+            # ── Filtro tipo de operación ──────────────────────────────────────
+            tipos_sel = st.multiselect(
+                "Tipo de operación", tipos_keys, default=tipos_keys,
+                key="an_tipos", placeholder="Todos...",
+            )
+
+            df_an = df_an[
+                (df_an["moneda"] == moneda_an) &
+                (df_an["_tipo_key"].isin(tipos_sel) if tipos_sel else True)
+            ].copy()
 
             meses_an = (
                 df_an.drop_duplicates("_mes")
@@ -2373,10 +2398,6 @@ def vista_operaciones():
             if len(meses_an) < 2:
                 st.info("Necesitás al menos 2 meses de datos para ver la evolución.")
             else:
-                modo = st.radio(
-                    "Modo", ["Individual", "Comparativo (base 100)"],
-                    horizontal=True, key="an_modo",
-                )
 
                 desde_an, hasta_an = st.select_slider(
                     "Período",

@@ -2186,51 +2186,54 @@ def vista_operaciones():
                 hasta_mes = df_cp.loc[df_cp["label"] == hasta_lbl, "_mes"].iloc[0]
                 df_f = df_cp[(df_cp["_mes"] >= desde_mes) & (df_cp["_mes"] <= hasta_mes)].copy()
 
-                # Flujo acumulado por mes
-                df_mes = (
-                    df_f.groupby(["_mes", "label"], as_index=False)["bruto"]
-                    .sum()
-                    .sort_values("_mes")
-                    .reset_index(drop=True)
-                )
-                df_mes["acumulado"] = df_mes["bruto"].cumsum()
-                mes_order = df_mes["label"].tolist()
+                # Un gráfico por moneda seleccionada
+                COLOR_CP = {"ARS": "#094293", "USD": "#00cc66"}
+                for moneda in monedas_sel_cp:
+                    df_m = df_f[df_f["moneda"] == moneda].copy()
+                    if df_m.empty:
+                        continue
+                    df_mes = (
+                        df_m.groupby(["_mes", "label"], as_index=False)["bruto"]
+                        .sum()
+                        .sort_values("_mes")
+                        .reset_index(drop=True)
+                    )
+                    df_mes["acumulado"] = df_mes["bruto"].cumsum()
+                    mes_order = df_mes["label"].tolist()
+                    color = COLOR_CP.get(moneda, "#094293")
 
-                # Normalizar eje Y
-                max_val = df_mes["acumulado"].abs().max()
-                moneda_lbl = monedas_sel_cp[0] if len(monedas_sel_cp) == 1 else "Total"
-                if max_val >= 1e9:
-                    df_mes["y"] = df_mes["acumulado"] / 1e9
-                    y_title = f"Billones {moneda_lbl}"
-                    y_fmt   = ",.2f"
-                elif max_val >= 1e6:
-                    df_mes["y"] = df_mes["acumulado"] / 1e6
-                    y_title = f"Millones {moneda_lbl}"
-                    y_fmt   = ",.1f"
-                else:
-                    df_mes["y"] = df_mes["acumulado"]
-                    y_title = moneda_lbl
-                    y_fmt   = ",.0f"
+                    max_val = df_mes["acumulado"].abs().max()
+                    if max_val >= 1e9:
+                        df_mes["y"] = df_mes["acumulado"] / 1e9
+                        y_title = f"Billones {moneda}"
+                        y_fmt   = ",.2f"
+                    elif max_val >= 1e6:
+                        df_mes["y"] = df_mes["acumulado"] / 1e6
+                        y_title = f"Millones {moneda}"
+                        y_fmt   = ",.1f"
+                    else:
+                        df_mes["y"] = df_mes["acumulado"]
+                        y_title = moneda
+                        y_fmt   = ",.0f"
 
-                # Gráfico línea + área
-                base = alt.Chart(df_mes).encode(
-                    x=alt.X("label:O", sort=mes_order, axis=alt.Axis(labelAngle=-45, title=None)),
-                )
-                area = base.mark_area(color="#094293", opacity=0.12, interpolate="monotone").encode(
-                    y=alt.Y("y:Q", axis=alt.Axis(title=y_title, format=y_fmt))
-                )
-                line = base.mark_line(color="#094293", strokeWidth=2, interpolate="monotone",
-                                      point=alt.OverlayMarkDef(size=60, color="#094293")).encode(
-                    y=alt.Y("y:Q"),
-                    tooltip=[
-                        alt.Tooltip("label:O", title="Mes"),
-                        alt.Tooltip("y:Q", format=y_fmt, title=y_title),
-                    ]
-                )
-                st.altair_chart(
-                    alt.layer(area, line).properties(height=350),
-                    use_container_width=True
-                )
+                    base = alt.Chart(df_mes).encode(
+                        x=alt.X("label:O", sort=mes_order, axis=alt.Axis(labelAngle=-45, title=None)),
+                    )
+                    area = base.mark_area(color=color, opacity=0.12, interpolate="monotone").encode(
+                        y=alt.Y("y:Q", axis=alt.Axis(title=y_title, format=y_fmt))
+                    )
+                    line = base.mark_line(color=color, strokeWidth=2, interpolate="monotone",
+                                          point=alt.OverlayMarkDef(size=60, color=color)).encode(
+                        y=alt.Y("y:Q"),
+                        tooltip=[
+                            alt.Tooltip("label:O", title="Mes"),
+                            alt.Tooltip("y:Q", format=y_fmt, title=y_title),
+                        ]
+                    )
+                    st.altair_chart(
+                        alt.layer(area, line).properties(height=300),
+                        use_container_width=True
+                    )
 
                 st.divider()
 
@@ -2302,19 +2305,16 @@ def vista_operaciones():
                             f"<div style='font-size:11px;color:#888;padding:2px 4px 6px'>{cp_sel}</div>",
                             unsafe_allow_html=True,
                         )
-                        sub_izq, sub_der = st.columns(2)
-                        with sub_izq:
-                            st.dataframe(
-                                df_mes_det[["label", "Bruto"]].rename(columns={"label": "Mes"}),
-                                hide_index=True, use_container_width=True,
-                                height=h_det,
-                            )
-                        with sub_der:
-                            st.dataframe(
-                                df_tipo[["tipo_operacion", "Bruto", "%"]].rename(columns={"tipo_operacion": "Tipo"}),
-                                hide_index=True, use_container_width=True,
-                                height=h_det,
-                            )
+                        st.dataframe(
+                            df_mes_det[["label", "Bruto"]].rename(columns={"label": "Mes"}),
+                            hide_index=True, use_container_width=True,
+                            height=h_det,
+                        )
+                        st.dataframe(
+                            df_tipo[["tipo_operacion", "Bruto", "%"]].rename(columns={"tipo_operacion": "Tipo"}),
+                            hide_index=True, use_container_width=True,
+                            height=h_det,
+                        )
 
 
 # ==========================================

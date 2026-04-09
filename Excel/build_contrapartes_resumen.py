@@ -47,6 +47,11 @@ if __name__ == "__main__":
     col_res = db["ContrapartesResumen"]
     col_cp  = db["Contrapartes"]
 
+    # Limpiar colección si tiene datos del formato viejo (sin campo boleto)
+    if col_res.count_documents({"boleto": {"$exists": False}}) > 0:
+        print("⚠️  Datos viejos detectados — limpiando ContrapartesResumen...")
+        col_res.drop()
+
     # Índice único por boleto
     col_res.create_index("boleto", unique=True, background=True)
 

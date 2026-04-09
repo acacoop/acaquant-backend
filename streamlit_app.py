@@ -2450,11 +2450,11 @@ def vista_operaciones():
                                        point=alt.OverlayMarkDef(size=60, color=color_an))
                             .encode(
                                 x=alt.X("label:O", sort=mes_order_an, axis=alt.Axis(labelAngle=-45, title=None)),
-                                y=alt.Y("y:Q", axis=alt.Axis(title=y_ttl, format=y_f)),
+                                y=alt.Y("y:Q", axis=alt.Axis(title=y_ttl, format=y_f, tickCount=6)),
                                 tooltip=[alt.Tooltip("label:O", title="Mes"),
                                          alt.Tooltip("y:Q", format=y_f, title=y_ttl)],
                             )
-                            .properties(height=840)
+                            .properties(height=400)
                         )
                         st.altair_chart(chart, use_container_width=True)
 

@@ -59,47 +59,54 @@ if __name__ == "__main__":
     cp_map = {d["denominacion"]: d["contraparte"] for d in col_cp.find({}, {"_id": 0})}
     print(f"Contrapartes registradas: {len(cp_map)}")
 
-    # Leer todos los registros de Operaciones
-    todos = list(col_ops.find({}))
-    print(f"Registros en Operaciones: {len(todos)}")
+    total_ops = col_ops.count_documents({})
+    print(f"Registros en Operaciones: {total_ops}")
 
-    migrados   = 0
-    a_borrar   = []
+    BATCH = 500
+    migrados_total = 0
+    skip = 0
 
-    for r in todos:
-        den = r.get("Denominación", "")
-        contraparte = cp_map.get(den)
-        if not contraparte:
-            continue
+    while True:
+        batch = list(col_ops.find({}).skip(skip).limit(BATCH))
+        if not batch:
+            break
 
-        boleto = r.get("Boleto", "")
+        a_upsert = []
+        a_borrar = []
 
-        doc = {
-            "boleto":          boleto,
-            "concertacion":    r.get("Concertación", ""),
-            "denominacion":    den,
-            "contraparte":     contraparte,
-            "tipo_operacion":  r.get("Tipo de operación", ""),
-            "instrumento":     r.get("Instrumento", ""),
-            "condiciones":     r.get("Condiciones", ""),
-            "moneda":          detectar_moneda(r.get("Condiciones", "")),
-            "bruto":           parse_numero(r.get("Bruto", 0)),
-        }
+        for r in batch:
+            den = r.get("Denominación", "")
+            contraparte = cp_map.get(den)
+            if not contraparte:
+                continue
 
-        col_res.update_one(
-            {"boleto": boleto},
-            {"$set": doc},
-            upsert=True,
-        )
+            boleto = r.get("Boleto", "")
+            a_upsert.append({
+                "boleto":         boleto,
+                "concertacion":   r.get("Concertación", ""),
+                "denominacion":   den,
+                "contraparte":    contraparte,
+                "tipo_operacion": r.get("Tipo de operación", ""),
+                "instrumento":    r.get("Instrumento", ""),
+                "condiciones":    r.get("Condiciones", ""),
+                "moneda":         detectar_moneda(r.get("Condiciones", "")),
+                "bruto":          parse_numero(r.get("Bruto", 0)),
+            })
+            a_borrar.append(r["_id"])
 
-        a_borrar.append(r["_id"])
-        migrados += 1
+        if a_upsert:
+            from pymongo import UpdateOne
+            ops = [
+                UpdateOne({"boleto": d["boleto"]}, {"$set": d}, upsert=True)
+                for d in a_upsert
+            ]
+            col_res.bulk_write(ops, ordered=False)
+            col_ops.delete_many({"_id": {"$in": a_borrar}})
+            migrados_total += len(a_upsert)
 
-    print(f"\n✅ Movimientos migrados a ContrapartesResumen: {migrados}")
+        skip += BATCH
+        print(f"  procesados {skip}/{total_ops} — migrados acumulados: {migrados_total}", flush=True)
 
-    # Borrar de Operaciones los que ya fueron migrados
-    if a_borrar:
-        result = col_ops.delete_many({"_id": {"$in": a_borrar}})
-        print(f"🗑️  Eliminados de Operaciones: {result.deleted_count}")
+    print(f"\n✅ Movimientos migrados a ContrapartesResumen: {migrados_total}")
 
     client.close()

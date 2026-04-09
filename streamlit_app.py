@@ -2497,7 +2497,7 @@ def vista_operaciones():
                                     alt.Tooltip("bruto:Q", format=",.0f", title=f"Bruto ({moneda_an})"),
                                 ],
                             )
-                            .properties(height=700)
+                            .properties(height=400)
                         )
                         st.altair_chart(chart, use_container_width=True)
 

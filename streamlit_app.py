@@ -211,7 +211,7 @@ def render_tape(trades, height=None):
         })
     st.caption("TAPE")
     if not rows:
-        st.info("Sin trades recientes.")
+        st.caption("Sin trades recientes.")
         return
     df = pd.DataFrame(rows)
     styler = (
@@ -864,7 +864,7 @@ def vista_libro():
                         use_container_width=True,
                     )
                 else:
-                    st.info("Sin TEA en los últimos trades.")
+                    st.caption("Sin TEA en los últimos trades.")
             else:
                 vwap_val = metrics.get("vwap", 0) or 0
                 line = (
@@ -923,9 +923,9 @@ def vista_libro():
                 )
                 st.altair_chart(vp_chart, use_container_width=True)
             else:
-                st.info("Pocos datos para graficar.")
+                st.caption("Pocos datos para graficar.")
         else:
-            st.info("Sin trades hoy.")
+            st.caption("Sin trades hoy.")
 
 
 @st.fragment(run_every=30)

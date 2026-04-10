@@ -2704,15 +2704,11 @@ def _render_flujo_vs_aum():
         st.caption("Sin contrapartes con segmento=Fondos.")
         return
 
-    col_sel, col_tog, _ = st.columns([1, 1, 3])
-    with col_sel:
-        emisor = st.selectbox(
-            "Emisor", sorted(fondos),
-            label_visibility="collapsed",
-            key="fva_emisor",
-        )
-    with col_tog:
-        acumulado = st.toggle("Acumulado", value=True, key="fva_acumulado")
+    emisor = st.selectbox(
+        "Emisor", sorted(fondos),
+        label_visibility="collapsed",
+        key="fva_emisor",
+    )
 
     fl = df_flujo[df_flujo["emisor"] == emisor].copy() if not df_flujo.empty else pd.DataFrame()
     am = df_aum[df_aum["emisor"] == emisor].copy()    if not df_aum.empty  else pd.DataFrame()
@@ -2722,77 +2718,65 @@ def _render_flujo_vs_aum():
         return
 
     start_date = am["fecha_snapshot"].min()
+    end_date   = pd.Timestamp.today().normalize()
 
+    # AuM forward-fill → línea continua sin gaps
+    am_ff = (
+        am[["fecha_snapshot", "valuacion"]]
+        .set_index("fecha_snapshot")
+        .reindex(pd.date_range(start_date, end_date, freq="D"))
+        .ffill()
+        .reset_index()
+        .rename(columns={"index": "fecha_snapshot"})
+        .dropna()
+    )
+
+    # Flujo: solo días con operaciones desde start_date
     if not fl.empty:
         fl = fl[fl["fecha"] >= start_date].sort_values("fecha")
         fl = fl.groupby("fecha", as_index=False)["bruto"].sum()
-        fl["cumflujo"] = fl["bruto"].cumsum()
 
-    # Formato Y dinámico (M / B)
-    y_label_expr = (
-        "datum.value >= 1e9 ? format(datum.value/1e9, ',.2f') + 'B' : "
-        "datum.value >= 1e6 ? format(datum.value/1e6, ',.1f') + 'M' : "
-        "datum.value <= -1e9 ? format(datum.value/1e9, ',.2f') + 'B' : "
-        "datum.value <= -1e6 ? format(datum.value/1e6, ',.1f') + 'M' : "
+    # Formato Y dinámico
+    y_expr = (
+        "abs(datum.value) >= 1e9 ? format(datum.value/1e9, ',.2f') + 'B' : "
+        "abs(datum.value) >= 1e6 ? format(datum.value/1e6, ',.1f') + 'M' : "
         "format(datum.value, ',.0f')"
     )
-
-    x_axis = alt.Axis(
-        format="%d %b",
-        labelAngle=-45,
-        tickCount="week",
-        title=None,
-    )
+    x_axis = alt.Axis(format="%d %b", labelAngle=-45, tickCount="week", title=None)
 
     layers = []
 
+    # Barras flujo — verde entrada / rojo salida
     if not fl.empty:
-        if acumulado:
-            line_fl = (
-                alt.Chart(fl)
-                .mark_line(color="#094293", strokeWidth=2, interpolate="step-after")
-                .encode(
-                    x=alt.X("fecha:T", axis=x_axis),
-                    y=alt.Y("cumflujo:Q", title="Flujo Acumulado ARS",
-                            scale=alt.Scale(zero=False),
-                            axis=alt.Axis(labelExpr=y_label_expr)),
-                    tooltip=[
-                        alt.Tooltip("fecha:T",    title="Fecha",     format="%d/%m/%Y"),
-                        alt.Tooltip("cumflujo:Q", title="Acumulado", format=",.0f"),
-                        alt.Tooltip("bruto:Q",    title="Trade",     format=",.0f"),
-                    ],
-                )
+        bars = (
+            alt.Chart(fl)
+            .mark_bar(opacity=0.85)
+            .encode(
+                x=alt.X("fecha:T", axis=x_axis),
+                y=alt.Y("bruto:Q", title="Flujo ARS",
+                        axis=alt.Axis(labelExpr=y_expr)),
+                color=alt.condition(
+                    alt.datum.bruto > 0,
+                    alt.value("#00cc66"),
+                    alt.value("#e05252"),
+                ),
+                tooltip=[
+                    alt.Tooltip("fecha:T",  title="Fecha", format="%d/%m/%Y"),
+                    alt.Tooltip("bruto:Q",  title="Flujo ARS", format=",.0f"),
+                ],
             )
-        else:
-            line_fl = (
-                alt.Chart(fl)
-                .mark_bar(opacity=0.85)
-                .encode(
-                    x=alt.X("fecha:T", axis=x_axis),
-                    y=alt.Y("bruto:Q", title="Flujo ARS",
-                            axis=alt.Axis(labelExpr=y_label_expr)),
-                    color=alt.condition(
-                        alt.datum.bruto > 0,
-                        alt.value("#00cc66"),
-                        alt.value("#e05252"),
-                    ),
-                    tooltip=[
-                        alt.Tooltip("fecha:T",  title="Fecha", format="%d/%m/%Y"),
-                        alt.Tooltip("bruto:Q",  title="Flujo", format=",.0f"),
-                    ],
-                )
-            )
-        layers.append(line_fl)
+        )
+        layers.append(bars)
 
+    # Línea AuM continua — naranja
     line_aum = (
-        alt.Chart(am)
-        .mark_line(color="#00cc66", strokeWidth=2,
-                   point=alt.OverlayMarkDef(size=40, color="#00cc66"))
+        alt.Chart(am_ff)
+        .mark_line(color="#f4a261", strokeWidth=2)
         .encode(
             x=alt.X("fecha_snapshot:T", axis=x_axis),
             y=alt.Y("valuacion:Q", title="AuM",
                     scale=alt.Scale(zero=False),
-                    axis=alt.Axis(labelExpr=y_label_expr)),
+                    axis=alt.Axis(labelExpr=y_expr)),
             tooltip=[
                 alt.Tooltip("fecha_snapshot:T", title="Fecha", format="%d/%m/%Y"),
                 alt.Tooltip("valuacion:Q",       title="AuM",  format=",.0f"),
@@ -2801,8 +2785,7 @@ def _render_flujo_vs_aum():
     )
     layers.append(line_aum)
 
-    titulo = f"{emisor} — {'FLUJO ACUMULADO' if acumulado else 'FLUJO POR OPERACIÓN'} vs AuM"
-    st.caption(titulo)
+    st.caption(f"{emisor} — FLUJO DIARIO vs AuM")
     chart = (
         alt.layer(*layers)
         .resolve_scale(y="independent")

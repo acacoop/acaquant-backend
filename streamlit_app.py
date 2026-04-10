@@ -2028,14 +2028,21 @@ def _cargar_accionistas():
 def _cargar_contrapartes():
     db = get_db_cashflow()
     docs = list(db["Flujo"].find(
-        {}, {"_id": 0, "bruto": 1, "concertacion": 1, "contraparte": 1, "moneda": 1, "tipoOperacion": 1, "segmento": 1}
+        {}, {"_id": 0, "bruto": 1, "concertacion": 1, "contraparte": 1, "moneda": 1, "tipoOperacion": 1}
     ))
     if not docs:
         return pd.DataFrame()
     df = pd.DataFrame(docs)
     df["concertacion"] = pd.to_datetime(df["concertacion"], errors="coerce")
     df["bruto"] = pd.to_numeric(df["bruto"], errors="coerce").fillna(0)
-    return df.dropna(subset=["concertacion"]).sort_values("concertacion")
+    df = df.dropna(subset=["concertacion"]).sort_values("concertacion")
+
+    # Join segmento desde CashFlow.Contrapartes
+    cp_docs = list(db["Contrapartes"].find({}, {"_id": 0, "contraparte": 1, "segmento": 1}))
+    seg_map = {d["contraparte"]: d.get("segmento") or "Sin clasificar" for d in cp_docs}
+    df["segmento"] = df["contraparte"].map(seg_map).fillna("Sin clasificar")
+
+    return df
 
 
 def vista_operaciones():
@@ -2246,6 +2253,16 @@ def vista_operaciones():
         else:
             df_cp["_mes"] = df_cp["concertacion"].dt.strftime("%Y-%m")
             df_cp["label"] = df_cp["concertacion"].dt.strftime("%b %Y")
+
+            # ── Filtro segmento ───────────────────────────────────────────────
+            segs_disp = sorted(df_cp["segmento"].dropna().unique().tolist())
+            seg_cols = st.columns(len(segs_disp) + 4)
+            segs_sel = []
+            for i, s in enumerate(segs_disp):
+                with seg_cols[i]:
+                    if st.checkbox(s, value=True, key=f"cp_seg_{s}"):
+                        segs_sel.append(s)
+            df_cp = df_cp[df_cp["segmento"].isin(segs_sel)].copy() if segs_sel else df_cp.iloc[0:0]
 
             # ── Filtro moneda ─────────────────────────────────────────────────
             monedas_disp = sorted(df_cp["moneda"].dropna().unique().tolist())

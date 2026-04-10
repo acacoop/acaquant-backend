@@ -51,10 +51,20 @@ def main():
     print(f"\n✅ {actualizados} docs actualizados")
 
     if sin_match:
-        print(f"\n⚠️  Sin segmento ({len(sin_match)}) — revisar manualmente:")
-        for cp in sin_match:
-            print(f"    - {cp}")
+        print(f"\n⚠️  Sin segmento automático ({len(sin_match)}) — asignación manual:")
+        print("     Opciones: 1=Fondos  2=ALYC  3=Bancos  Enter=saltar\n")
+        opciones = {"1": "Fondos", "2": "ALYC", "3": "Bancos"}
+        for cp_nombre in sin_match:
+            resp = input(f"  [{cp_nombre}] → ").strip()
+            if resp in opciones:
+                seg = opciones[resp]
+                col.update_one({"contraparte": cp_nombre}, {"$set": {"segmento": seg}})
+                print(f"    ✅ {cp_nombre} → {seg}")
+                actualizados += 1
+            else:
+                print(f"    — saltado")
 
+    print(f"\n✅ Total: {actualizados} docs actualizados")
     client.close()
 
 

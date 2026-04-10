@@ -2643,9 +2643,11 @@ def _cargar_fondos_flujo_aum():
     db_val = get_db_valuaciones()
 
     # 1. Fondos
-    fondos = [d["contraparte"] for d in db_cf["Contrapartes"].find(
-        {"segmento": "Fondos"}, {"_id": 0, "contraparte": 1}
-    )]
+    fondos = list(dict.fromkeys(
+        d["contraparte"] for d in db_cf["Contrapartes"].find(
+            {"segmento": "Fondos"}, {"_id": 0, "contraparte": 1}
+        )
+    ))
     if not fondos:
         return [], pd.DataFrame(), pd.DataFrame()
 

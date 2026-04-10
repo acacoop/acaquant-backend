@@ -2728,6 +2728,22 @@ def _render_flujo_vs_aum():
         fl = fl.groupby("fecha", as_index=False)["bruto"].sum()
         fl["cumflujo"] = fl["bruto"].cumsum()
 
+    # Formato Y dinámico (M / B)
+    y_label_expr = (
+        "datum.value >= 1e9 ? format(datum.value/1e9, ',.2f') + 'B' : "
+        "datum.value >= 1e6 ? format(datum.value/1e6, ',.1f') + 'M' : "
+        "datum.value <= -1e9 ? format(datum.value/1e9, ',.2f') + 'B' : "
+        "datum.value <= -1e6 ? format(datum.value/1e6, ',.1f') + 'M' : "
+        "format(datum.value, ',.0f')"
+    )
+
+    x_axis = alt.Axis(
+        format="%d %b",
+        labelAngle=-45,
+        tickCount="week",
+        title=None,
+    )
+
     layers = []
 
     if not fl.empty:
@@ -2736,9 +2752,10 @@ def _render_flujo_vs_aum():
                 alt.Chart(fl)
                 .mark_line(color="#094293", strokeWidth=2, interpolate="step-after")
                 .encode(
-                    x=alt.X("fecha:T", title=None, axis=alt.Axis(format="%b %Y")),
+                    x=alt.X("fecha:T", axis=x_axis),
                     y=alt.Y("cumflujo:Q", title="Flujo Acumulado ARS",
-                            axis=alt.Axis(format=",.0f")),
+                            scale=alt.Scale(zero=False),
+                            axis=alt.Axis(labelExpr=y_label_expr)),
                     tooltip=[
                         alt.Tooltip("fecha:T",    title="Fecha",     format="%d/%m/%Y"),
                         alt.Tooltip("cumflujo:Q", title="Acumulado", format=",.0f"),
@@ -2749,11 +2766,11 @@ def _render_flujo_vs_aum():
         else:
             line_fl = (
                 alt.Chart(fl)
-                .mark_bar(color="#094293", opacity=0.8)
+                .mark_bar(opacity=0.85)
                 .encode(
-                    x=alt.X("fecha:T", title=None, axis=alt.Axis(format="%b %Y")),
+                    x=alt.X("fecha:T", axis=x_axis),
                     y=alt.Y("bruto:Q", title="Flujo ARS",
-                            axis=alt.Axis(format=",.0f")),
+                            axis=alt.Axis(labelExpr=y_label_expr)),
                     color=alt.condition(
                         alt.datum.bruto > 0,
                         alt.value("#00cc66"),
@@ -2772,8 +2789,10 @@ def _render_flujo_vs_aum():
         .mark_line(color="#00cc66", strokeWidth=2,
                    point=alt.OverlayMarkDef(size=40, color="#00cc66"))
         .encode(
-            x=alt.X("fecha_snapshot:T", title=None, axis=alt.Axis(format="%b %Y")),
-            y=alt.Y("valuacion:Q", title="AuM", axis=alt.Axis(format=",.0f")),
+            x=alt.X("fecha_snapshot:T", axis=x_axis),
+            y=alt.Y("valuacion:Q", title="AuM",
+                    scale=alt.Scale(zero=False),
+                    axis=alt.Axis(labelExpr=y_label_expr)),
             tooltip=[
                 alt.Tooltip("fecha_snapshot:T", title="Fecha", format="%d/%m/%Y"),
                 alt.Tooltip("valuacion:Q",       title="AuM",  format=",.0f"),

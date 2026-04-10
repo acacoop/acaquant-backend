@@ -11,7 +11,10 @@ from mongo_manager import get_mongo_client
 AUTH_URL  = "https://aca.aunesa.com/Irmo/api/login"
 INFOS_URL = "https://aca.aunesa.com/Irmo/api/operaciones/informes"
 
-FECHA_DESDE = "01/01/2026"
+FECHA_DESDE = "01/01/2023"
+
+CAMPOS = {"boleto", "concertacion", "tipoOperacion", "cuenta", "denominacion",
+          "instrumento", "condiciones", "bruto", "segmento", "contraparte"}
 
 
 def autenticar():
@@ -51,6 +54,10 @@ def main():
         {"_id": 0, "contraparte": 1, "denominacion": 1, "cuenta": 1}
     ))
     print(f"{len(docs)} contrapartes con cuenta asignada\n")
+
+    # ── Limpiar colección antes de reinsertar ─────────────────────────────────
+    resultado = col_flujo.delete_many({})
+    print(f"🗑️  CashFlow.Flujo vaciada ({resultado.deleted_count} docs eliminados)\n")
 
     # ── 2. Auth ───────────────────────────────────────────────────────────────
     print("Autenticando...")
@@ -94,12 +101,14 @@ def main():
                 print(f"  [{cuenta_id}] {cp} → respuesta vacía")
                 continue
 
-            # Agregar campo contraparte a cada registro
+            # Filtrar campos y agregar contraparte
+            registros = []
             for r in data:
                 r["contraparte"] = cp
+                registros.append({k: r.get(k) for k in CAMPOS})
 
             # Insertar en CashFlow.Flujo
-            ops = [InsertOne(r) for r in data]
+            ops = [InsertOne(r) for r in registros]
             col_flujo.bulk_write(ops, ordered=False)
 
             print(f"  [{cuenta_id}] {cp} → {len(data)} operaciones insertadas")
@@ -110,6 +119,13 @@ def main():
 
     print(f"\n✅ Total insertado en CashFlow.Flujo: {total_insertados} documentos")
     print(f"   Período: {FECHA_DESDE} → {fecha_hasta}")
+
+    # ── Valores únicos de tipoOperacion ───────────────────────────────────────
+    tipos = sorted(col_flujo.distinct("tipoOperacion"))
+    print(f"\n=== tipoOperacion únicos ({len(tipos)}) ===")
+    for t in tipos:
+        print(f"  {t}")
+
     client.close()
 
 

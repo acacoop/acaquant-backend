@@ -935,6 +935,7 @@ def vista_libro():
                         ],
                     )
                     .properties(height=_HOURLY_HEIGHT)
+                    .interactive()
                 )
                 st.altair_chart(vp_chart, use_container_width=True)
             else:

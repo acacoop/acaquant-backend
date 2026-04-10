@@ -840,13 +840,22 @@ def vista_libro():
         ]
         if trade_prices:
             chart_df = pd.DataFrame(trade_prices)
-            chart = (
+            vwap_val  = metrics.get("vwap", 0) or 0
+            line = (
                 alt.Chart(chart_df)
                 .mark_line(point=True)
                 .encode(
                     x=alt.X("Hora:O", title=None, sort=None),
                     y=alt.Y("Precio:Q", scale=alt.Scale(zero=False), title=None),
                 )
+            )
+            vwap_rule = (
+                alt.Chart(pd.DataFrame({"vwap": [vwap_val]}))
+                .mark_rule(color="#00cc66", strokeWidth=1.5, strokeDash=[6, 3])
+                .encode(y=alt.Y("vwap:Q"))
+            )
+            chart = (
+                alt.layer(line, vwap_rule)
                 .properties(height=_HOURLY_HEIGHT)
                 .interactive()
             )

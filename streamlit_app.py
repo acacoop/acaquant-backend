@@ -2635,79 +2635,57 @@ def vista_operaciones():
 def _cargar_fondos_flujo_aum():
     """
     Devuelve:
-      - fondos: lista de emisores (str) con segmento=Fondos
-      - df_flujo: (emisor, _mes, label, bruto) — flujo ARS mensual
-      - df_aum:   (emisor, _mes, label, valuacion) — AuM al último snapshot del mes
+      - fondos: lista de emisores con segmento=Fondos
+      - df_flujo: (emisor, fecha, bruto) — trades individuales ARS
+      - df_aum:   (emisor, fecha_snapshot, valuacion) — AuM diario agregado por emisor
     """
     db_cf  = get_db_cashflow()
     db_val = get_db_valuaciones()
 
-    # 1. Fondos contrapartes
-    cp_docs = list(db_cf["Contrapartes"].find(
-        {"segmento": "Fondos"},
-        {"_id": 0, "contraparte": 1}
-    ))
-    fondos = [d["contraparte"] for d in cp_docs]
+    # 1. Fondos
+    fondos = [d["contraparte"] for d in db_cf["Contrapartes"].find(
+        {"segmento": "Fondos"}, {"_id": 0, "contraparte": 1}
+    )]
     if not fondos:
-        return fondos, pd.DataFrame(), pd.DataFrame()
+        return [], pd.DataFrame(), pd.DataFrame()
 
-    # 2. Flujo ARS mensual por emisor
+    # 2. Flujo ARS — nivel trade
     flujo_docs = list(db_cf["Flujo"].find(
         {"contraparte": {"$in": fondos}, "moneda": "ARS"},
         {"_id": 0, "contraparte": 1, "concertacion": 1, "bruto": 1}
     ))
     if flujo_docs:
         df_fl = pd.DataFrame(flujo_docs)
-        df_fl["concertacion"] = pd.to_datetime(df_fl["concertacion"], errors="coerce")
-        df_fl["bruto"] = pd.to_numeric(df_fl["bruto"], errors="coerce").fillna(0)
-        df_fl = df_fl.dropna(subset=["concertacion"])
-        df_fl["_mes"] = df_fl["concertacion"].dt.strftime("%Y-%m")
-        df_fl["label"] = df_fl["concertacion"].dt.strftime("%b %Y")
+        df_fl["fecha"]  = pd.to_datetime(df_fl["concertacion"], errors="coerce")
+        df_fl["bruto"]  = pd.to_numeric(df_fl["bruto"], errors="coerce").fillna(0)
         df_fl["emisor"] = df_fl["contraparte"]
-        df_fl["vol"] = df_fl["bruto"].abs()
-        df_flujo = (
-            df_fl.groupby(["emisor", "_mes", "label"], as_index=False)["vol"]
-            .sum()
-            .sort_values("_mes")
-        )
+        df_flujo = df_fl[["emisor", "fecha", "bruto"]].dropna(subset=["fecha"]).sort_values("fecha")
     else:
         df_flujo = pd.DataFrame()
 
-    # 3. AuM mensual por emisor (último snapshot del mes)
+    # 3. AuM diario por emisor (suma valuacion de todas las unidades FCI del emisor)
     assets_docs = list(db_val["Assets"].find(
         {"EMISOR": {"$in": fondos}, "CARTERA": "CARTERA FCI"},
         {"_id": 0, "unidad": 1, "EMISOR": 1}
     ))
     if assets_docs:
-        df_assets = pd.DataFrame(assets_docs)
-        unidades = df_assets["unidad"].tolist()
-        aum_docs = list(db_val["AuM"].find(
+        df_assets   = pd.DataFrame(assets_docs)
+        unidades    = df_assets["unidad"].tolist()
+        emisor_map  = df_assets.set_index("unidad")["EMISOR"].to_dict()
+        aum_docs    = list(db_val["AuM"].find(
             {"unidad": {"$in": unidades}},
             {"_id": 0, "unidad": 1, "valuacion": 1, "fecha_snapshot": 1}
         ))
         if aum_docs:
-            df_aum_raw = pd.DataFrame(aum_docs)
-            df_aum_raw["valuacion"] = pd.to_numeric(df_aum_raw["valuacion"], errors="coerce").fillna(0)
-            df_aum_raw["fecha_snapshot"] = pd.to_datetime(df_aum_raw["fecha_snapshot"], errors="coerce")
-            df_aum_raw = df_aum_raw.dropna(subset=["fecha_snapshot"])
-            # Join emisor
-            emisor_map = df_assets.set_index("unidad")["EMISOR"].to_dict()
-            df_aum_raw["emisor"] = df_aum_raw["unidad"].map(emisor_map)
-            df_aum_raw["_mes"] = df_aum_raw["fecha_snapshot"].dt.strftime("%Y-%m")
-            df_aum_raw["label"] = df_aum_raw["fecha_snapshot"].dt.strftime("%b %Y")
-            # Último snapshot del mes por (emisor, mes) → suma valuacion de ese día
-            ultimo_dia = (
-                df_aum_raw.groupby(["emisor", "_mes"])["fecha_snapshot"]
-                .max()
-                .reset_index()
-                .rename(columns={"fecha_snapshot": "ultimo_dia"})
-            )
-            df_aum_raw = df_aum_raw.merge(ultimo_dia, on=["emisor", "_mes"])
-            df_aum_raw = df_aum_raw[df_aum_raw["fecha_snapshot"] == df_aum_raw["ultimo_dia"]]
+            df_a = pd.DataFrame(aum_docs)
+            df_a["valuacion"]      = pd.to_numeric(df_a["valuacion"], errors="coerce").fillna(0)
+            df_a["fecha_snapshot"] = pd.to_datetime(df_a["fecha_snapshot"], errors="coerce")
+            df_a["emisor"]         = df_a["unidad"].map(emisor_map)
             df_aum = (
-                df_aum_raw.groupby(["emisor", "_mes", "label"], as_index=False)["valuacion"]
+                df_a.dropna(subset=["fecha_snapshot", "emisor"])
+                .groupby(["emisor", "fecha_snapshot"], as_index=False)["valuacion"]
                 .sum()
-                .sort_values("_mes")
+                .sort_values("fecha_snapshot")
             )
         else:
             df_aum = pd.DataFrame()
@@ -2721,94 +2699,74 @@ def _render_flujo_vs_aum():
     fondos, df_flujo, df_aum = _cargar_fondos_flujo_aum()
 
     if not fondos:
-        st.caption("Sin contrapartes con segmento=Fondos en Contrapartes.")
+        st.caption("Sin contrapartes con segmento=Fondos.")
         return
 
-    # ── Tabla resumen ─────────────────────────────────────────────────────────
-    resumen = []
-    for em in sorted(fondos):
-        aum_val = 0
-        if not df_aum.empty:
-            ult = df_aum[df_aum["emisor"] == em].sort_values("_mes").iloc[-1:]["valuacion"]
-            aum_val = ult.values[0] if len(ult) else 0
-        flujo_val = 0
-        if not df_flujo.empty:
-            flujo_val = df_flujo[df_flujo["emisor"] == em]["vol"].sum()
-        resumen.append({"Emisor": em, "Flujo ARS": flujo_val, "AuM actual": aum_val})
-
-    df_res = pd.DataFrame(resumen)
-    df_res["Flujo ARS fmt"] = df_res["Flujo ARS"].apply(lambda v: f"{v:,.0f}")
-    df_res["AuM actual fmt"] = df_res["AuM actual"].apply(lambda v: f"{v:,.0f}" if v else "—")
-
-    st.caption("FONDOS")
-    ev = st.dataframe(
-        df_res[["Emisor", "Flujo ARS fmt", "AuM actual fmt"]].rename(
-            columns={"Flujo ARS fmt": "Flujo ARS", "AuM actual fmt": "AuM actual"}
-        ),
-        hide_index=True,
-        use_container_width=True,
-        height=df_height(len(df_res) + 1),
-        on_select="rerun",
-        selection_mode="single-row",
-        key="fva_tabla",
+    emisor = st.selectbox(
+        "Emisor", sorted(fondos),
+        label_visibility="collapsed",
+        key="fva_emisor",
     )
 
-    # ── Gráfico dual al seleccionar emisor ───────────────────────────────────
-    sel = ev.selection.rows
-    if not sel:
-        st.caption("Seleccioná un emisor para ver el detalle.")
-        return
-
-    emisor = df_res.iloc[sel[0]]["Emisor"]
-    st.caption(f"{emisor} — VOLUMEN FLUJO vs AuM")
-
     fl = df_flujo[df_flujo["emisor"] == emisor].copy() if not df_flujo.empty else pd.DataFrame()
-    am = df_aum[df_aum["emisor"] == emisor].copy()   if not df_aum.empty  else pd.DataFrame()
+    am = df_aum[df_aum["emisor"] == emisor].copy()    if not df_aum.empty  else pd.DataFrame()
 
-    if fl.empty and am.empty:
-        st.caption("Sin datos para este emisor.")
+    if am.empty:
+        st.caption("Sin datos de AuM para este emisor.")
         return
 
-    # Orden de meses unificado
-    meses = sorted(set(
-        (fl["_mes"].tolist() if not fl.empty else []) +
-        (am["_mes"].tolist() if not am.empty else [])
-    ))
-    label_order = []
-    for m in meses:
-        if not fl.empty and m in fl["_mes"].values:
-            label_order.append(fl[fl["_mes"] == m]["label"].values[0])
-        elif not am.empty and m in am["_mes"].values:
-            label_order.append(am[am["_mes"] == m]["label"].values[0])
+    # Punto de partida = primer fecha_snapshot de AuM
+    start_date = am["fecha_snapshot"].min()
+
+    # Flujo acumulado desde start_date
+    if not fl.empty:
+        fl = fl[fl["fecha"] >= start_date].sort_values("fecha")
+        # Agrupar por fecha (puede haber varios trades el mismo día)
+        fl = fl.groupby("fecha", as_index=False)["bruto"].sum()
+        fl["cumflujo"] = fl["bruto"].cumsum()
 
     layers = []
+
     if not fl.empty:
-        bars = (
+        line_fl = (
             alt.Chart(fl)
-            .mark_bar(color="#094293", opacity=0.7)
+            .mark_line(color="#094293", strokeWidth=2, interpolate="step-after")
             .encode(
-                x=alt.X("label:O", sort=label_order, axis=alt.Axis(labelAngle=-45, title=None)),
-                y=alt.Y("vol:Q", title="Volumen Flujo ARS", axis=alt.Axis(format=",.0f")),
-                tooltip=[alt.Tooltip("label:O", title="Mes"), alt.Tooltip("vol:Q", format=",.0f", title="Flujo ARS")],
+                x=alt.X("fecha:T", title=None, axis=alt.Axis(format="%b %Y")),
+                y=alt.Y("cumflujo:Q", title="Flujo Acumulado ARS",
+                        axis=alt.Axis(format=",.0f")),
+                tooltip=[
+                    alt.Tooltip("fecha:T",    title="Fecha",   format="%d/%m/%Y"),
+                    alt.Tooltip("cumflujo:Q", title="Flujo Ac.", format=",.0f"),
+                ],
             )
         )
-        layers.append(bars)
+        layers.append(line_fl)
 
-    if not am.empty:
-        line = (
-            alt.Chart(am)
-            .mark_line(color="#00cc66", strokeWidth=2, point=alt.OverlayMarkDef(size=50, color="#00cc66"))
-            .encode(
-                x=alt.X("label:O", sort=label_order),
-                y=alt.Y("valuacion:Q", title="AuM", axis=alt.Axis(format=",.0f")),
-                tooltip=[alt.Tooltip("label:O", title="Mes"), alt.Tooltip("valuacion:Q", format=",.0f", title="AuM")],
-            )
+    line_aum = (
+        alt.Chart(am)
+        .mark_line(color="#00cc66", strokeWidth=2,
+                   point=alt.OverlayMarkDef(size=40, color="#00cc66"))
+        .encode(
+            x=alt.X("fecha_snapshot:T", title=None, axis=alt.Axis(format="%b %Y")),
+            y=alt.Y("valuacion:Q", title="AuM",
+                    axis=alt.Axis(format=",.0f")),
+            tooltip=[
+                alt.Tooltip("fecha_snapshot:T", title="Fecha",  format="%d/%m/%Y"),
+                alt.Tooltip("valuacion:Q",       title="AuM",   format=",.0f"),
+            ],
         )
-        layers.append(line)
+    )
+    layers.append(line_aum)
 
-    if layers:
-        chart = alt.layer(*layers).resolve_scale(y="independent").properties(height=350)
-        st.altair_chart(chart, use_container_width=True)
+    st.caption(f"{emisor} — FLUJO ACUMULADO ARS vs AuM")
+    chart = (
+        alt.layer(*layers)
+        .resolve_scale(y="independent")
+        .properties(height=380)
+        .interactive()
+    )
+    st.altair_chart(chart, use_container_width=True)
 
 
 # ==========================================

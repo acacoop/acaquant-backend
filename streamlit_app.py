@@ -840,12 +840,12 @@ def vista_libro():
             for t in trades_sorted
             if t.get("price", 0) > 0
         ]
+        cap_col, _ = st.columns([1, 3])
+        with cap_col:
+            st.caption("LAST MINUTES")
         if trade_rows:
             chart_df = pd.DataFrame(trade_rows)
             tea_mode  = st.toggle("TEA", key="libro_tea_mode", value=False)
-            cap_col, _ = st.columns([1, 3])
-            with cap_col:
-                st.caption("LAST MINUTES")
 
             if tea_mode:
                 df_tea = chart_df.dropna(subset=["TEA"])
@@ -884,6 +884,8 @@ def vista_libro():
                     alt.layer(line, vwap_rule).properties(height=_HOURLY_HEIGHT).interactive(),
                     use_container_width=True,
                 )
+        else:
+            st.caption("Sin trades recientes.")
 
     with col_vp:
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)

@@ -791,23 +791,13 @@ def vista_libro():
     # Fila header: selector | vacío | última actualización (alineado sobre Quant)
     col_ticker, col_mid, col_badge = st.columns([1, 1, 1])
     with col_ticker:
-        search = st.text_input(
-            "Buscar",
-            label_visibility="collapsed",
-            placeholder="Filtrar...",
-            key="libro_ticker_search",
-        )
-        q = search.strip().upper()
-        filtered_short = [s for s in options_short if q in s.upper()] if q else options_short
-        filtered_tickers = [tickers[options_short.index(s)] for s in filtered_short]
-
-        current_idx = filtered_tickers.index(st.session_state.selected_ticker) if st.session_state.selected_ticker in filtered_tickers else 0
+        current_idx   = tickers.index(st.session_state.selected_ticker)
         selected_short = st.selectbox(
-            "Ticker", filtered_short,
+            "Ticker", options_short,
             index=current_idx,
             label_visibility="collapsed",
         )
-        st.session_state.selected_ticker = filtered_tickers[filtered_short.index(selected_short)]
+        st.session_state.selected_ticker = tickers[options_short.index(selected_short)]
 
     ticker = st.session_state.selected_ticker
     snap   = db["MarketSnapshot"].find_one({"ticker": ticker})

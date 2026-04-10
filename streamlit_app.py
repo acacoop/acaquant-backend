@@ -786,17 +786,30 @@ def vista_libro():
         st.warning("Sin tickers en Trading.Curvas.")
         return
 
+    options_short  = [short_name(t) for t in tickers]
+    options_upper  = [s.upper() for s in options_short]
+
+    # Inicializar búsqueda con el ticker actual solo la primera vez
+    if "libro_ticker_search" not in st.session_state:
+        st.session_state["libro_ticker_search"] = short_name(st.session_state.selected_ticker)
+
     # Fila header: selector | vacío | última actualización (alineado sobre Quant)
     col_ticker, col_mid, col_badge = st.columns([1, 1, 1])
     with col_ticker:
-        options_short = [short_name(t) for t in tickers]
-        current_idx   = tickers.index(st.session_state.selected_ticker)
-        selected_short = st.selectbox(
-            "Ticker", options_short,
-            index=current_idx,
+        search = st.text_input(
+            "Ticker",
             label_visibility="collapsed",
+            placeholder="Buscar ticker...",
+            key="libro_ticker_search",
         )
-        st.session_state.selected_ticker = tickers[options_short.index(selected_short)]
+        q = search.strip().upper()
+        if q:
+            if q in options_upper:
+                st.session_state.selected_ticker = tickers[options_upper.index(q)]
+            else:
+                prefix = [i for i, s in enumerate(options_upper) if s.startswith(q)]
+                if len(prefix) == 1:
+                    st.session_state.selected_ticker = tickers[prefix[0]]
 
     ticker = st.session_state.selected_ticker
     snap   = db["MarketSnapshot"].find_one({"ticker": ticker})

@@ -1932,8 +1932,8 @@ def _cargar_accionistas():
 @st.cache_data(ttl=300, show_spinner=False)
 def _cargar_contrapartes():
     db = get_db_cashflow()
-    docs = list(db["ContrapartesResumen"].find(
-        {}, {"_id": 0, "bruto": 1, "concertacion": 1, "contraparte": 1, "moneda": 1, "tipo_operacion": 1}
+    docs = list(db["Flujo"].find(
+        {}, {"_id": 0, "bruto": 1, "concertacion": 1, "contraparte": 1, "moneda": 1, "tipoOperacion": 1, "segmento": 1}
     ))
     if not docs:
         return pd.DataFrame()
@@ -2147,7 +2147,7 @@ def vista_operaciones():
     with tab_cp:
         df_cp = _cargar_contrapartes()
         if df_cp.empty:
-            st.warning("Sin datos en ContrapartesResumen.")
+            st.warning("Sin datos en CashFlow.Flujo.")
         else:
             df_cp["_mes"] = df_cp["concertacion"].dt.strftime("%Y-%m")
             df_cp["label"] = df_cp["concertacion"].dt.strftime("%b %Y")
@@ -2313,7 +2313,7 @@ def vista_operaciones():
                             key="cp_mes_tabla",
                         )
 
-                        # Tabla 2: tipo_operacion filtrada por meses seleccionados (o total)
+                        # Tabla 2: tipoOperacion filtrada por meses seleccionados (o total)
                         sel_mes_rows = ev_mes.selection.rows if ev_mes.selection.rows else []
                         if sel_mes_rows:
                             meses_sel = df_mes_det.iloc[sel_mes_rows]["_mes"].tolist()
@@ -2325,7 +2325,7 @@ def vista_operaciones():
 
                         total_tipo = df_tipo_src["bruto"].sum()
                         df_tipo = (
-                            df_tipo_src.groupby("tipo_operacion", as_index=False)["bruto"]
+                            df_tipo_src.groupby("tipoOperacion", as_index=False)["bruto"]
                             .sum()
                             .sort_values("bruto", ascending=False)
                             .reset_index(drop=True)
@@ -2340,7 +2340,7 @@ def vista_operaciones():
                             unsafe_allow_html=True,
                         )
                         st.dataframe(
-                            df_tipo[["tipo_operacion", "Bruto", "%"]].rename(columns={"tipo_operacion": "Tipo"}),
+                            df_tipo[["tipoOperacion", "Bruto", "%"]].rename(columns={"tipoOperacion": "Tipo"}),
                             hide_index=True, use_container_width=True,
                             height=h_tipo,
                         )
@@ -2349,16 +2349,14 @@ def vista_operaciones():
     with tab_analisis_cp:
         df_an = _cargar_contrapartes()
         if df_an.empty:
-            st.warning("Sin datos en ContrapartesResumen.")
+            st.warning("Sin datos en CashFlow.Flujo.")
         else:
             df_an["_mes"] = df_an["concertacion"].dt.strftime("%Y-%m")
             df_an["label"] = df_an["concertacion"].dt.strftime("%b %Y")
 
             monedas_an = sorted(df_an["moneda"].dropna().unique().tolist())
 
-            # Extraer keyword de tipo_operacion (primera palabra)
-            df_an["_tipo_key"] = df_an["tipo_operacion"].fillna("").str.split().str[0]
-            tipos_keys = sorted(df_an["_tipo_key"].unique().tolist())
+            segmentos = sorted(df_an["segmento"].dropna().unique().tolist())
 
             # ── Fila: Modo | Moneda ───────────────────────────────────────────
             col_modo, col_mon = st.columns([3, 1])
@@ -2379,16 +2377,16 @@ def vista_operaciones():
                         unsafe_allow_html=True,
                     )
 
-            # ── Filtro tipo de operación ──────────────────────────────────────
-            with st.expander("Tipo de operación", expanded=False):
-                tipos_sel = st.multiselect(
-                    "", tipos_keys, default=tipos_keys,
-                    key="an_tipos", label_visibility="collapsed",
+            # ── Filtro segmento ───────────────────────────────────────────────
+            with st.expander("Segmento", expanded=False):
+                segmentos_sel = st.multiselect(
+                    "", segmentos, default=segmentos,
+                    key="an_segmentos", label_visibility="collapsed",
                 )
 
             df_an = df_an[
                 (df_an["moneda"] == moneda_an) &
-                (df_an["_tipo_key"].isin(tipos_sel) if tipos_sel else True)
+                (df_an["segmento"].isin(segmentos_sel) if segmentos_sel else True)
             ].copy()
 
             meses_an = (

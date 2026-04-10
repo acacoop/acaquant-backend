@@ -778,18 +778,18 @@ def vista_libro():
 
     tickers = _cargar_tickers_merv()
 
-    col_ticker, _ = st.columns([1, 3])
+    if "selected_ticker" not in st.session_state or st.session_state.selected_ticker not in tickers:
+        st.session_state.selected_ticker = tickers[0] if tickers else None
+
+    if not tickers:
+        st.warning("Sin tickers en Trading.Curvas.")
+        return
+
+    # Fila header: selector | vacío | última actualización (alineado sobre Quant)
+    col_ticker, col_mid, col_badge = st.columns([1, 1, 1])
     with col_ticker:
-        if "selected_ticker" not in st.session_state or st.session_state.selected_ticker not in tickers:
-            st.session_state.selected_ticker = tickers[0] if tickers else None
-
-        if not tickers:
-            st.warning("Sin tickers en Trading.Curvas.")
-            return
-
         options_short = [short_name(t) for t in tickers]
         current_idx   = tickers.index(st.session_state.selected_ticker)
-
         selected_short = st.selectbox(
             "Ticker", options_short,
             index=current_idx,
@@ -804,8 +804,8 @@ def vista_libro():
         st.warning(f"Sin datos para {ticker}. ¿El motor está corriendo?")
         return
 
-    last_update_badge(snap.get("updated_at"))
-    st.divider()
+    with col_badge:
+        last_update_badge(snap.get("updated_at"))
 
     book          = snap.get("book", {"bids": [], "offers": []})
     metrics       = snap.get("metrics", {})

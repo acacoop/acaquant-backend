@@ -2742,7 +2742,17 @@ def _render_flujo_vs_aum():
         "abs(datum.value) >= 1e6 ? format(datum.value/1e6, ',.1f') + 'M' : "
         "format(datum.value, ',.0f')"
     )
-    x_axis = alt.Axis(format="%d %b", labelAngle=-45, tickCount="week", title=None)
+    rango_dias = (end_date - start_date).days
+    if rango_dias <= 30:
+        tick_count = "day"
+        x_fmt = "%d %b"
+    elif rango_dias <= 120:
+        tick_count = "week"
+        x_fmt = "%d %b"
+    else:
+        tick_count = "month"
+        x_fmt = "%b %Y"
+    x_axis = alt.Axis(format=x_fmt, labelAngle=-45, tickCount=tick_count, title=None)
 
     layers = []
 

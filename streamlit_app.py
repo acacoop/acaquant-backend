@@ -2778,6 +2778,12 @@ def _render_flujo_vs_aum():
         )
         layers.append(bars)
 
+    # Dominio AuM con padding visible (no arranca en 0)
+    aum_min = am_ff["valuacion"].min()
+    aum_max = am_ff["valuacion"].max()
+    aum_pad = (aum_max - aum_min) * 0.15 if aum_max > aum_min else aum_max * 0.05
+    aum_scale = alt.Scale(domain=[aum_min - aum_pad, aum_max + aum_pad], zero=False)
+
     # Línea AuM continua — naranja
     line_aum = (
         alt.Chart(am_ff)
@@ -2785,7 +2791,7 @@ def _render_flujo_vs_aum():
         .encode(
             x=alt.X("fecha_snapshot:T", axis=x_axis),
             y=alt.Y("valuacion:Q", title="AuM",
-                    scale=alt.Scale(zero=False),
+                    scale=aum_scale,
                     axis=alt.Axis(labelExpr=y_expr)),
             tooltip=[
                 alt.Tooltip("fecha_snapshot:T", title="Fecha", format="%d/%m/%Y"),

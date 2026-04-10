@@ -147,6 +147,8 @@ Los flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - `fix_sign_movimientos.py` — script one-off que invirtió signos de movimientos ya insertados en Mongo (se ejecutó una vez).
 - `fix_flujo_borrar_tipos.py` — script one-off que borró de `CashFlow.Flujo` los tipos: "Concurrencia - Caución colocadora (Apertura/Cierre)" y "Futuros Financieros - Compra/Venta". Ya ejecutado.
 - `backfill_moneda_flujo.py` — script one-off que agrega campo `moneda` (ARS/USD) a todos los docs existentes en `CashFlow.Flujo` inferido de `condiciones`. Ejecutar una vez si hay docs sin ese campo.
+- `fix_contraparte_names.py` — script one-off (re-ejecutable) que actualiza el campo `contraparte` en todos los docs de `CashFlow.Flujo` usando `CashFlow.Contrapartes` como fuente de verdad. Join por `cuenta` con match flexible: string, int, float y variantes con/sin ceros adelante (ej: "20" == "020"). Correr tras cambiar nombres en Contrapartes.
+- `set_segmento_contrapartes.py` — asigna campo `segmento` ("Fondos"/"ALYC"/"Bancos") en `CashFlow.Contrapartes`. Reglas automáticas: `denominacion` contiene "FCI" → Fondos; `contraparte` contiene "ALYC" → ALYC; `denominacion` contiene "BANCO" → Bancos. Para los sin match, modo interactivo: tecleás 1/2/3 o Enter para saltear.
 
 ## Deployment
 
@@ -166,6 +168,7 @@ Systemd services en `motor_rofex.service`, `streamlit.service`, `services/motor_
 
 - **`check_cer_valuacion.py`** — muestra por bono CER cuál fecha/valor de CER se usó en el último trade enriquecido (settlement − 10 días hábiles). Útil para verificar que el motor de curvas está usando el CER correcto.
 - **`check_curvas_pendientes.py`** — muestra cuántos docs sin `duration` hay por ticker en TimeSales. Útil para detectar si hay tickers bloqueando el batch del motor de curvas (ej: bonos vencidos con miles de trades sin enriquecer).
+- **`check_forwards.py`** — diagnóstico completo de forwards por curva: lista todos los instrumentos en `Trading.Curvas`, cuáles tienen TEA disponible en TimeSales (aparecerían en la matriz) y cuáles no (ausentes), y compara el orden actual en `ForwardsLive` vs orden esperado por `fecha_vencimiento`.
 
 ### Notas sobre enriquecimiento CER
 
@@ -176,11 +179,26 @@ El CER usado para valuar depende del contexto:
 
 ### CashFlow.Flujo
 
-Operaciones de contrapartes cargadas desde Aunesa API. Campos: `boleto`, `concertacion`, `tipoOperacion`, `cuenta`, `denominacion`, `instrumento`, `condiciones`, `bruto`, `segmento`, `contraparte`, `moneda`.
-- `moneda`: "ARS" o "USD" inferido de `condiciones` (contiene "ARS" o "USD"). Campo agregado por backfill y por el cron diario.
+Operaciones de contrapartes cargadas desde Aunesa API. Campos guardados (definidos en `CAMPOS` de `main_flujo_contrapartes.py`):
+`boleto`, `concertacion`, `tipoOperacion`, `cuenta`, `denominacion`, `instrumento`, `condiciones`, `bruto`, `segmento`, `contraparte`
+
+Campo agregado por el script (NO viene de la API):
+- `moneda`: "ARS" o "USD" inferido de `condiciones` (contiene "ARS" o "USD"). Agregado por `inferir_moneda()` en el cron y por `backfill_moneda_flujo.py` para históricos.
+
+**Notas importantes sobre CAMPOS:**
+- `segmento` aquí es el segmento de mercado que devuelve Aunesa (ej: "SENEBI", "MAE"). Es distinto del campo `segmento` de `CashFlow.Contrapartes` (que es "Fondos"/"ALYC"/"Bancos").
+- `contraparte` se sobreescribe con el nombre que tenemos en `CashFlow.Contrapartes` (no el que devuelve Aunesa).
 - `boleto` es la clave única. El cron deduplica al final de cada corrida.
 - Tipos excluidos permanentemente: "Concurrencia - Caución colocadora (Apertura)", "Concurrencia - Caución colocadora (Cierre)", "Futuros Financieros - Compra", "Futuros Financieros - Venta".
 - Las contrapartes deben tener el campo `cuenta` seteado en `CashFlow.Contrapartes` (ejecutar `test_match_contrapartes.py` para hacer el match con Aunesa si hace falta).
+
+### CashFlow.Contrapartes
+
+Catálogo de contrapartes. Campos relevantes:
+- `contraparte`: nombre corto (ej: "MAX", "IEB"). Es la clave de join con `CashFlow.Flujo.contraparte`.
+- `cuenta`: número de cuenta en Aunesa. Puede ser int, string, o CUIT ("30-67724257-0"). El cron usa este campo para hacer el fetch por cuenta. Puede haber múltiples docs para la misma contraparte (una por cuenta).
+- `denominacion`: nombre legal completo (ej: "MAX VALORES S.A.").
+- `segmento`: tipo de contraparte — "Fondos", "ALYC" o "Bancos". Asignado por `set_segmento_contrapartes.py`. Usado para filtrar en la vista Operaciones → Contrapartes y para la vista Flujo vs AuM (solo segmento=Fondos).
 
 ### Crontab del servidor (actualizado 2026-04-10)
 
@@ -250,7 +268,7 @@ Nav principal: **Mercado · Opciones · Portfolios · Operaciones · AuM**
 | Mercado | Mercado · Libro · Curvas · Breakevens · Forwards · Retorno Total · Volúmenes | Microstructure, VWAP, volumen intraday; Libro en tiempo real (run_every=2s); curvas de rendimiento, breakevens CER/Lecap, forwards, retorno total, volúmenes. Tab Mercado usa `@st.fragment(run_every=30)`. |
 | Opciones | Mercado · Estrategias | Mercado: cadena GGAL con SPOT/VR/ADR/Tasa RF + volatility smile. Estrategias: spreads pre-configurados con payoff y costo histórico |
 | Portfolios | una tab por cuenta | Posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial leído automáticamente de `Trading.DOLAR` (último valor). Tab por cada `id_cuenta` único; filtro cartera dentro de cada tab |
-| Operaciones | Cash Flow · Contrapartes · Análisis | Cash Flow: depósitos/transferencias/extracciones desde `CashFlow.Movimientos`. Contrapartes: flujo acumulado mensual + tabla consolidada + drill-down por contraparte desde `CashFlow.Flujo`. Análisis: evolución Individual/Comparativo con filtro por segmento. |
+| Operaciones | Cash Flow · Contrapartes · Análisis · Flujo vs AuM | Cash Flow: depósitos/transferencias/extracciones desde `CashFlow.Movimientos`. Contrapartes: filtros SEGMENTO+MONEDA en una fila (checkboxes compactos), flujo acumulado mensual + tabla consolidada + drill-down. Análisis: evolución Individual/Comparativo. Flujo vs AuM: gráfico dual para contrapartes segmento=Fondos. |
 | AuM | FCI · Análisis SG · Tasa Fija | FCI: snapshot por fecha + gráfico evolución + detalle fondos por soc. gerente al clickear. Análisis SG: evolución AuM por sociedad gerente — modo Individual o Comparativo base 100. Tasa Fija: posiciones en instrumentos de `Trading.Curvas` (curva=tasa_fija); tabla Ticker/Vencimiento/Valuación + tabla cuentas al clickear ticker + gráfico cobros al vencimiento a ancho completo |
 | ~~ONs~~ | — | ~~Yield screener ONs en tiempo real~~ — **pausado desde 2026-04-08** |
 
@@ -263,9 +281,9 @@ Vista de order book en tiempo real para traders. Auto-refresh cada 2s via `@st.f
 - **Fila 1**: Depth (book top 5) + Hourly Vol · Tape · Quant Analytics
 - **Fila 2**: Last Minutes chart · Volume Profile
 
-**Last Minutes chart**: line chart Hora→Precio con línea VWAP horizontal verde (`mark_rule`, `strokeDash=[6,3]`). Toggle `st.toggle("TEA")` para alternar eje Y entre Precio y TEA (formato `%`). Cuando está en modo TEA el VWAP se oculta.
+**Last Minutes chart**: line chart con eje X temporal real (`:T`, formato `%H:%M:%S`) — escala proporcional, trades del mismo minuto no colapsan. Línea VWAP horizontal verde (`mark_rule`, `strokeDash=[6,3]`). Toggle `st.toggle("TEA")` para alternar eje Y entre Precio y TEA (formato `%`). Cuando está en modo TEA el VWAP se oculta. Mensajes vacíos usan `st.caption` (no `st.info`).
 
-**Volume Profile**: query `Trading.TimeSales` para el ticker seleccionado desde medianoche UTC. Binea precios en 20 buckets con `pd.cut`, suma `money` por bucket, bar chart Altair (X=precio, Y=money).
+**Volume Profile**: query `Trading.TimeSales` desde medianoche UTC. Tick size dinámico: calcula rango real de precios, apunta a ~25 barras, redondea a número "lindo" (0.01/0.05/0.10/0.25/0.50/1.0...). Usa `groupby` sobre precio redondeado — solo aparecen niveles donde realmente se operó (sin buckets vacíos). Interactivo (zoom/pan).
 
 **Tabla Whales eliminada** (2026-04-10). Reemplazada por Volume Profile en fila 2.
 
@@ -284,8 +302,26 @@ Muestra posiciones de instrumentos cuyo `ticker_corto` está en `Trading.Curvas`
 
 **Para agregar instrumentos:** insertar doc en `Trading.Curvas` con `curva: "tasa_fija"` + doc en `Valuaciones.Assets` con `TICKER == ticker_corto`. Sin esos dos docs el instrumento no aparece aunque haya posición en AuM.
 
+### Operaciones → Tab Flujo vs AuM
+
+Vista para analizar reciprocidad con fondos (contrapartes con `segmento=Fondos`).
+
+**Join chain:**
+1. `CashFlow.Contrapartes` (segmento=Fondos) → nombres de emisores (deduplicados)
+2. `Valuaciones.Assets` (CARTERA=CARTERA FCI, EMISOR in fondos) → unidades FCI del emisor
+3. `Valuaciones.AuM` (unidad in esas unidades) → valuacion diaria por emisor
+4. `CashFlow.Flujo` (contraparte in fondos, moneda=ARS) → flujo diario
+
+**Gráfico:** dual eje Y independiente. Eje X temporal dinámico (día/semana/mes según rango).
+- **Barras verde/rojo** (eje izq): flujo ARS por día de operación. Verde = entra plata, rojo = sale.
+- **Línea naranja** (`#f4a261`, eje der): AuM con **forward-fill** diario (último valor conocido se arrastra). Escala `zero=False` con dominio explícito ±15% del rango real.
+- **Leyenda** sobre el gráfico: ■ AuM actual (valor) + ■ Flujo acumulado (valor) en formato M/B.
+
+**Inicio del gráfico**: primer `fecha_snapshot` disponible para ese emisor en AuM.
+
 ### Trading.ForwardsLive y Trading.ForwardsHistorico
 
+- Vista Forwards tiene **auto-refresh cada 30s** (`@st.fragment(run_every=30)`), tanto en tab de Mercado como en página dedicada. Matriz se muestra como "MATRIZ DE TASAS FORWARD (TEA)".
 - **`ForwardsLive`**: 1 doc por curva, upsert en cada corrida del motor. Campos: `curva`, `updated_at`, `tickers` (lista ordenada por maturity), `tasas` (spot TEA por ticker), `matrix` (dict anidado `matrix[ticker_largo][ticker_corto] = forward_rate`).
 - **`ForwardsHistorico`**: 1 doc por `(fecha, curva)`. Mismo schema que ForwardsLive + campo `fecha` (string ISO). El motor lo actualiza durante la rueda; el valor final del día queda como cierre.
 - **Forward formula**: `((1 + TEA_B)^t_B / (1 + TEA_A)^t_A)^(1/(t_B - t_A)) - 1` donde `t` = días a vencimiento desde hoy / 365.

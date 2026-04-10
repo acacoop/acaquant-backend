@@ -15,11 +15,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from mongo_manager import get_mongo_client
 
 
-def normalizar_cuenta(cuenta_str):
+def variantes_cuenta(cuenta_val):
+    """Devuelve todas las formas posibles del valor para el match en Flujo."""
+    raw = str(cuenta_val).strip()
+    variants = {raw}
     try:
-        return int(str(cuenta_str).strip())
+        variants.add(int(raw))
     except (ValueError, TypeError):
-        return None
+        pass
+    try:
+        variants.add(float(raw))
+    except (ValueError, TypeError):
+        pass
+    return list(variants)
 
 
 def main():
@@ -37,19 +45,16 @@ def main():
     total_actualizados = 0
 
     for doc in contrapartes:
-        nombre    = doc["contraparte"]
-        cuenta_id = normalizar_cuenta(doc["cuenta"])
-
-        if cuenta_id is None:
-            print(f"  SKIP '{nombre}' — cuenta inválida")
-            continue
+        nombre  = doc["contraparte"]
+        cuenta  = doc["cuenta"]
+        queries = variantes_cuenta(cuenta)
 
         result = col_flujo.update_many(
-            {"cuenta": cuenta_id},
+            {"cuenta": {"$in": queries}},
             {"$set": {"contraparte": nombre}},
         )
 
-        print(f"  cuenta {cuenta_id:>6} | {nombre:<40} → {result.modified_count} docs actualizados")
+        print(f"  cuenta {str(cuenta):<20} | {nombre:<40} → {result.modified_count} docs actualizados")
         total_actualizados += result.modified_count
 
     print(f"\n✅ Total: {total_actualizados} docs actualizados en CashFlow.Flujo")

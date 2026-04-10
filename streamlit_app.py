@@ -2254,24 +2254,33 @@ def vista_operaciones():
             df_cp["_mes"] = df_cp["concertacion"].dt.strftime("%Y-%m")
             df_cp["label"] = df_cp["concertacion"].dt.strftime("%b %Y")
 
-            # ── Filtro segmento ───────────────────────────────────────────────
-            segs_disp = sorted(df_cp["segmento"].dropna().unique().tolist())
-            seg_cols = st.columns(len(segs_disp) + 4)
+            # ── Filtros: segmento (izq) + moneda (der) en una sola fila ─────────
+            segs_disp   = sorted(df_cp["segmento"].dropna().unique().tolist())
+            monedas_disp = sorted(df_cp["moneda"].dropna().unique().tolist())
+
+            # Columnas: título_seg | seg×N | spacer | título_mon | mon×N
+            n_seg = len(segs_disp)
+            n_mon = len(monedas_disp)
+            widths = [0.6] + [0.7] * n_seg + [3] + [0.6] + [0.7] * n_mon
+            fcols = st.columns(widths)
+
+            with fcols[0]:
+                st.caption("SEGMENTO")
             segs_sel = []
             for i, s in enumerate(segs_disp):
-                with seg_cols[i]:
+                with fcols[1 + i]:
                     if st.checkbox(s, value=True, key=f"cp_seg_{s}"):
                         segs_sel.append(s)
-            df_cp = df_cp[df_cp["segmento"].isin(segs_sel)].copy() if segs_sel else df_cp.iloc[0:0]
 
-            # ── Filtro moneda ─────────────────────────────────────────────────
-            monedas_disp = sorted(df_cp["moneda"].dropna().unique().tolist())
-            cp_m_cols = st.columns(len(monedas_disp) + 4)
+            with fcols[1 + n_seg + 1]:
+                st.caption("MONEDA")
             monedas_sel_cp = []
             for i, m in enumerate(monedas_disp):
-                with cp_m_cols[i]:
+                with fcols[1 + n_seg + 2 + i]:
                     if st.checkbox(m, value=True, key=f"cp_mon_{m}"):
                         monedas_sel_cp.append(m)
+
+            df_cp = df_cp[df_cp["segmento"].isin(segs_sel)].copy() if segs_sel else df_cp.iloc[0:0]
             df_cp = df_cp[df_cp["moneda"].isin(monedas_sel_cp)].copy() if monedas_sel_cp else df_cp.iloc[0:0]
 
             if df_cp.empty:

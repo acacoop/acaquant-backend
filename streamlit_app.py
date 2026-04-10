@@ -811,30 +811,28 @@ def vista_libro():
     metrics       = snap.get("metrics", {})
     hourly_stats  = snap.get("hourly_stats", {})
     recent_trades = snap.get("recent_trades", [])
-    top_trades    = snap.get("top_trades", [])
 
-    # Altura de col_left: depth (5r) + quant (10r) + captions/espaciado
-    _TAPE_HEIGHT = df_height(5) + df_height(10) + 80  # ≈ 681px
+    # Tape height: depth (5r) + hourly (7r) + captions/espaciado
+    _TAPE_HEIGHT = df_height(5) + _HOURLY_HEIGHT + 80
 
-    # Fila 1: depth+quant | tape | whales
+    # Fila 1: depth+hourly | tape | quant
     col_left, col_center, col_right = st.columns([1, 1, 1])
     with col_left:
         render_depth(book)
         st.write("")
-        render_quant(metrics)
+        render_hourly(hourly_stats)
     with col_center:
         render_tape(recent_trades, height=_TAPE_HEIGHT)
     with col_right:
-        render_whales(top_trades)
+        render_quant(metrics)
 
-    # Fila 2: HOURLY VOL | LAST MINUTES — misma fila = misma altura de arranque
-    col_hourly, col_chart = st.columns([1, 2])
-    with col_hourly:
-        render_hourly(hourly_stats)
-    with col_chart:
+    # Fila 2: LAST MINUTES | VOLUME PROFILE
+    col_last, col_vp = st.columns([1, 1])
+
+    with col_last:
         trade_prices = [
             {
-                "Hora": t["timestamp"].strftime("%H:%M") if hasattr(t.get("timestamp"), "strftime") else "",
+                "Hora":   t["timestamp"].strftime("%H:%M") if hasattr(t.get("timestamp"), "strftime") else "",
                 "Precio": t.get("price", 0),
             }
             for t in sorted(recent_trades, key=lambda x: x.get("timestamp", datetime.min))
@@ -854,6 +852,46 @@ def vista_libro():
             )
             st.caption("LAST MINUTES")
             st.altair_chart(chart, use_container_width=True)
+
+    with col_vp:
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        trades_hoy = list(db["TimeSales"].find(
+            {"ticker": ticker, "timestamp": {"$gte": today_start}},
+            {"price": 1, "money": 1, "_id": 0},
+        ))
+        st.caption("VOLUME PROFILE")
+        if trades_hoy:
+            df_vp = pd.DataFrame(trades_hoy)
+            df_vp = df_vp[(df_vp["price"] > 0) & (df_vp["money"] > 0)]
+            if not df_vp.empty and len(df_vp) >= 2:
+                df_vp["bucket"] = pd.cut(df_vp["price"], bins=20)
+                df_vp["price_mid"] = df_vp["bucket"].apply(
+                    lambda x: round((x.left + x.right) / 2, 2) if pd.notna(x) else None
+                )
+                df_agg = (
+                    df_vp.dropna(subset=["price_mid"])
+                    .groupby("price_mid", as_index=False)["money"]
+                    .sum()
+                    .sort_values("price_mid")
+                )
+                vp_chart = (
+                    alt.Chart(df_agg)
+                    .mark_bar(color="#4c9be8", opacity=0.85)
+                    .encode(
+                        x=alt.X("price_mid:Q", title=None, axis=alt.Axis(format=",.2f")),
+                        y=alt.Y("money:Q",      title=None, axis=alt.Axis(format=",.0f")),
+                        tooltip=[
+                            alt.Tooltip("price_mid:Q", title="Precio",  format=",.2f"),
+                            alt.Tooltip("money:Q",      title="Money",   format=",.0f"),
+                        ],
+                    )
+                    .properties(height=_HOURLY_HEIGHT)
+                )
+                st.altair_chart(vp_chart, use_container_width=True)
+            else:
+                st.info("Pocos datos para graficar.")
+        else:
+            st.info("Sin trades hoy.")
 
 
 @st.fragment(run_every=30)

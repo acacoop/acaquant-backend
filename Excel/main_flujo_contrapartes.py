@@ -11,7 +11,12 @@ from mongo_manager import get_mongo_client
 AUTH_URL  = "https://aca.aunesa.com/Irmo/api/login"
 INFOS_URL = "https://aca.aunesa.com/Irmo/api/operaciones/informes"
 
-FECHA_DESDE = "01/01/2023"
+TIPOS_EXCLUIR = {
+    "Concurrencia - Caución colocadora (Apertura)",
+    "Concurrencia - Caución colocadora (Cierre)",
+    "Futuros Financieros - Compra",
+    "Futuros Financieros - Venta",
+}
 
 CAMPOS = {"boleto", "concertacion", "tipoOperacion", "cuenta", "denominacion",
           "instrumento", "condiciones", "bruto", "segmento", "contraparte"}
@@ -33,8 +38,18 @@ def autenticar():
     return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
 
 
+def inferir_moneda(condiciones):
+    if not condiciones:
+        return ""
+    c = condiciones.upper()
+    if "USD" in c:
+        return "USD"
+    if "ARS" in c:
+        return "ARS"
+    return ""
+
+
 def normalizar_cuenta(cuenta_str):
-    """Convierte '020' → 20, '255' → 255 para comparación sin ceros."""
     try:
         return int(str(cuenta_str).strip())
     except (ValueError, TypeError):
@@ -42,44 +57,44 @@ def normalizar_cuenta(cuenta_str):
 
 
 def main():
-    fecha_hasta = date.today().strftime("%d/%m/%Y")
+    hoy = date.today().strftime("%d/%m/%Y")
+    print(f"Fecha: {hoy}\n")
 
-    # ── 1. Contrapartes con cuenta desde Mongo ────────────────────────────────
     client = get_mongo_client()
     col_contrapartes = client["CashFlow"]["Contrapartes"]
     col_flujo        = client["CashFlow"]["Flujo"]
 
-    docs = list(col_contrapartes.find(
-        {"cuenta": {"$exists": True, "$ne": ""}},
-        {"_id": 0, "contraparte": 1, "denominacion": 1, "cuenta": 1}
-    ))
-    print(f"{len(docs)} contrapartes con cuenta asignada\n")
-
-    # ── Limpiar colección antes de reinsertar ─────────────────────────────────
-    resultado = col_flujo.delete_many({})
-    print(f"🗑️  CashFlow.Flujo vaciada ({resultado.deleted_count} docs eliminados)\n")
+    # ── 1. Borrar docs de hoy ─────────────────────────────────────────────────
+    del_result = col_flujo.delete_many({"concertacion": hoy})
+    print(f"🗑️  {del_result.deleted_count} docs de hoy eliminados\n")
 
     # ── 2. Auth ───────────────────────────────────────────────────────────────
     print("Autenticando...")
     headers = autenticar()
     print("Auth OK\n")
 
-    # ── 3. Consultar e insertar por contraparte ───────────────────────────────
-    total_insertados = 0
+    # ── 3. Contrapartes con cuenta ────────────────────────────────────────────
+    docs = list(col_contrapartes.find(
+        {"cuenta": {"$exists": True, "$ne": ""}},
+        {"_id": 0, "contraparte": 1, "cuenta": 1}
+    ))
+    print(f"{len(docs)} contrapartes con cuenta asignada\n")
+
+    # ── 4. Fetch por contraparte ──────────────────────────────────────────────
+    registros = {}  # boleto -> doc (dedup)
 
     for doc in docs:
         cp        = doc["contraparte"]
-        denom     = doc["denominacion"]
         cuenta_id = normalizar_cuenta(doc["cuenta"])
 
         if cuenta_id is None:
-            print(f"  SKIP {cp} — cuenta inválida: {doc['cuenta']}")
+            print(f"  SKIP {cp} — cuenta inválida")
             continue
 
         params = {
             "cuenta":         cuenta_id,
-            "fechaConcDesde": FECHA_DESDE,
-            "fechaConcHasta": fecha_hasta,
+            "fechaConcDesde": hoy,
+            "fechaConcHasta": hoy,
         }
 
         try:
@@ -101,30 +116,55 @@ def main():
                 print(f"  [{cuenta_id}] {cp} → respuesta vacía")
                 continue
 
-            # Filtrar campos y agregar contraparte
-            registros = []
+            count = 0
             for r in data:
+                if r.get("tipoOperacion") in TIPOS_EXCLUIR:
+                    continue
                 r["contraparte"] = cp
-                registros.append({k: r.get(k) for k in CAMPOS})
+                rec = {k: r.get(k) for k in CAMPOS}
+                rec["moneda"] = inferir_moneda(rec.get("condiciones", ""))
 
-            # Insertar en CashFlow.Flujo
-            ops = [InsertOne(r) for r in registros]
-            col_flujo.bulk_write(ops, ordered=False)
+                boleto = rec.get("boleto")
+                if boleto is not None:
+                    if boleto not in registros:
+                        registros[boleto] = rec
+                else:
+                    # Sin boleto: usar id único para no perderlo
+                    registros[f"_no_boleto_{len(registros)}"] = rec
 
-            print(f"  [{cuenta_id}] {cp} → {len(data)} operaciones insertadas")
-            total_insertados += len(data)
+                count += 1
+
+            print(f"  [{cuenta_id}] {cp} → {count} operaciones")
 
         except Exception as e:
             print(f"  [{cuenta_id}] {cp} → ERROR: {e}")
 
-    print(f"\n✅ Total insertado en CashFlow.Flujo: {total_insertados} documentos")
-    print(f"   Período: {FECHA_DESDE} → {fecha_hasta}")
+    # ── 5. Insertar ───────────────────────────────────────────────────────────
+    if registros:
+        ops = [InsertOne(r) for r in registros.values()]
+        col_flujo.bulk_write(ops, ordered=False)
+        print(f"\n✅ {len(registros)} documentos insertados para {hoy}")
+    else:
+        print(f"\n⚠️  Sin operaciones para insertar en {hoy}")
 
-    # ── Valores únicos de tipoOperacion ───────────────────────────────────────
-    tipos = sorted(col_flujo.distinct("tipoOperacion"))
-    print(f"\n=== tipoOperacion únicos ({len(tipos)}) ===")
-    for t in tipos:
-        print(f"  {t}")
+    # ── 6. Dedup global por boleto ────────────────────────────────────────────
+    print("\nVerificando duplicados en toda la colección...")
+    pipeline = [
+        {"$match": {"boleto": {"$ne": None}}},
+        {"$group": {"_id": "$boleto", "ids": {"$push": "$_id"}, "count": {"$sum": 1}}},
+        {"$match": {"count": {"$gt": 1}}},
+    ]
+    duplicados = list(col_flujo.aggregate(pipeline))
+
+    if not duplicados:
+        print("✅ Sin duplicados")
+    else:
+        ids_a_borrar = []
+        for d in duplicados:
+            # Conservar el primero, borrar el resto
+            ids_a_borrar.extend(d["ids"][1:])
+        result = col_flujo.delete_many({"_id": {"$in": ids_a_borrar}})
+        print(f"🧹 {result.deleted_count} duplicados eliminados ({len(duplicados)} boletos afectados)")
 
     client.close()
 

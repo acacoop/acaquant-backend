@@ -16,15 +16,20 @@ from mongo_manager import get_mongo_client
 
 
 def variantes_cuenta(cuenta_val):
-    """Devuelve todas las formas posibles del valor para el match en Flujo."""
+    """Devuelve todas las formas posibles del valor para el match en Flujo.
+    Cubre: string raw, int, float, con/sin ceros adelante (ej: '20' y '020').
+    """
     raw = str(cuenta_val).strip()
     variants = {raw}
     try:
-        variants.add(int(raw))
-    except (ValueError, TypeError):
-        pass
-    try:
-        variants.add(float(raw))
+        n = int(raw)
+        variants.add(n)
+        variants.add(float(n))
+        # Variantes con ceros adelante hasta 4 dígitos
+        for pad in range(1, 5):
+            variants.add(str(n).zfill(pad + len(str(n))))
+        # Sin ceros adelante (por si la fuente tiene "020" y Flujo tiene "20")
+        variants.add(str(n))
     except (ValueError, TypeError):
         pass
     return list(variants)

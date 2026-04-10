@@ -2801,7 +2801,32 @@ def _render_flujo_vs_aum():
     )
     layers.append(line_aum)
 
+    # ── Leyenda con valores actuales ─────────────────────────────────────────
+    def fmt_val(v):
+        if abs(v) >= 1e9: return f"{v/1e9:,.2f}B"
+        if abs(v) >= 1e6: return f"{v/1e6:,.1f}M"
+        return f"{v:,.0f}"
+
+    aum_actual   = am_ff["valuacion"].iloc[-1] if not am_ff.empty else 0
+    flujo_acum   = fl["bruto"].sum()           if not fl.empty    else 0
+
     st.caption(f"{emisor} — FLUJO DIARIO vs AuM")
+    leg1, leg2, _ = st.columns([1.2, 1.2, 4])
+    with leg1:
+        st.markdown(
+            f"<span style='color:#f4a261;font-size:16px'>■</span> "
+            f"<span style='font-size:12px;color:#aaa'>AuM actual</span><br>"
+            f"<span style='font-size:13px;font-weight:600'>{fmt_val(aum_actual)}</span>",
+            unsafe_allow_html=True,
+        )
+    with leg2:
+        st.markdown(
+            f"<span style='color:#00cc66;font-size:16px'>■</span> "
+            f"<span style='font-size:12px;color:#aaa'>Flujo acumulado</span><br>"
+            f"<span style='font-size:13px;font-weight:600'>{fmt_val(flujo_acum)}</span>",
+            unsafe_allow_html=True,
+        )
+
     chart = (
         alt.layer(*layers)
         .resolve_scale(y="independent")

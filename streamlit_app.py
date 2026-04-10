@@ -830,37 +830,60 @@ def vista_libro():
     col_last, col_vp = st.columns([1, 1])
 
     with col_last:
-        trade_prices = [
+        trades_sorted = sorted(recent_trades, key=lambda x: x.get("timestamp", datetime.min))
+        trade_rows = [
             {
                 "Hora":   t["timestamp"].strftime("%H:%M") if hasattr(t.get("timestamp"), "strftime") else "",
                 "Precio": t.get("price", 0),
+                "TEA":    t.get("TEA"),
             }
-            for t in sorted(recent_trades, key=lambda x: x.get("timestamp", datetime.min))
+            for t in trades_sorted
             if t.get("price", 0) > 0
         ]
-        if trade_prices:
-            chart_df = pd.DataFrame(trade_prices)
-            vwap_val  = metrics.get("vwap", 0) or 0
-            line = (
-                alt.Chart(chart_df)
-                .mark_line(point=True)
-                .encode(
-                    x=alt.X("Hora:O", title=None, sort=None),
-                    y=alt.Y("Precio:Q", scale=alt.Scale(zero=False), title=None),
+        if trade_rows:
+            chart_df = pd.DataFrame(trade_rows)
+            tea_mode  = st.toggle("TEA", key="libro_tea_mode", value=False)
+            cap_col, _ = st.columns([1, 3])
+            with cap_col:
+                st.caption("LAST MINUTES")
+
+            if tea_mode:
+                df_tea = chart_df.dropna(subset=["TEA"])
+                if not df_tea.empty:
+                    line = (
+                        alt.Chart(df_tea)
+                        .mark_line(point=True)
+                        .encode(
+                            x=alt.X("Hora:O", title=None, sort=None),
+                            y=alt.Y("TEA:Q",   scale=alt.Scale(zero=False), title=None,
+                                    axis=alt.Axis(format=".1%")),
+                        )
+                    )
+                    st.altair_chart(
+                        line.properties(height=_HOURLY_HEIGHT).interactive(),
+                        use_container_width=True,
+                    )
+                else:
+                    st.info("Sin TEA en los últimos trades.")
+            else:
+                vwap_val = metrics.get("vwap", 0) or 0
+                line = (
+                    alt.Chart(chart_df)
+                    .mark_line(point=True)
+                    .encode(
+                        x=alt.X("Hora:O",   title=None, sort=None),
+                        y=alt.Y("Precio:Q", scale=alt.Scale(zero=False), title=None),
+                    )
                 )
-            )
-            vwap_rule = (
-                alt.Chart(pd.DataFrame({"vwap": [vwap_val]}))
-                .mark_rule(color="#00cc66", strokeWidth=1.5, strokeDash=[6, 3])
-                .encode(y=alt.Y("vwap:Q"))
-            )
-            chart = (
-                alt.layer(line, vwap_rule)
-                .properties(height=_HOURLY_HEIGHT)
-                .interactive()
-            )
-            st.caption("LAST MINUTES")
-            st.altair_chart(chart, use_container_width=True)
+                vwap_rule = (
+                    alt.Chart(pd.DataFrame({"vwap": [vwap_val]}))
+                    .mark_rule(color="#00cc66", strokeWidth=1.5, strokeDash=[6, 3])
+                    .encode(y=alt.Y("vwap:Q"))
+                )
+                st.altair_chart(
+                    alt.layer(line, vwap_rule).properties(height=_HOURLY_HEIGHT).interactive(),
+                    use_container_width=True,
+                )
 
     with col_vp:
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)

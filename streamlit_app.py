@@ -1701,7 +1701,10 @@ def vista_mercado():
         _render_breakevens(db)
 
     with tab_forwards:
-        _render_forwards(db, key_prefix="fwd_mercado")
+        @st.fragment(run_every=30)
+        def _tab_forwards_live():
+            _render_forwards(get_db(), key_prefix="fwd_mercado")
+        _tab_forwards_live()
 
     with tab_retorno:
         _render_retorno_total(key_prefix="rt_mercado")
@@ -3409,7 +3412,7 @@ def render_forward_matrix(doc):
     if ts:
         st.caption(f"Última actualización: {ts.strftime('%d/%m/%Y %H:%M:%S')}")
 
-    st.caption("MATRIZ DE TASAS FORWARD")
+    st.caption("MATRIZ DE TASAS FORWARD (TEA)")
 
     # Construir DataFrame NxN
     # Filas = instrumento largo, Columnas = instrumento corto
@@ -3576,6 +3579,7 @@ def _render_forwards(db, key_prefix="fwd"):
                         st.altair_chart(chart, use_container_width=True)
 
 
+@st.fragment(run_every=30)
 def vista_forwards():
     db = get_db()
     st.markdown("## ACAQuant | Forwards")

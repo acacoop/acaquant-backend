@@ -141,9 +141,12 @@ Los flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - Uses `google_sheets_manager.py` with OAuth2 credentials in `ons-fx.json`
 - `aunesa_api_manager.py` connects to Aunesa broker for additional data
 - `main_cashflow.py` — carga movimientos de cash (depósitos, transferencias, extracciones) desde Aunesa API a `CashFlow.Movimientos`. Índice único por `comprobante`. Signo invertido respecto a API (depósitos positivos). Soporta `--today` para cron diario.
-- `main_aum.py` — snapshot de posiciones valuadas de TODAS las cuentas activas desde Aunesa a `Valuaciones.AuM`. Modelo time series: clave `(id_cuenta, unidad, fecha_snapshot)`. Fórmulas de valuación: P×Q/100 para renta fija (Títulos Públicos, ONs, Letras, Fideicomisos, CPD); (P+1)×Q para futuros; P×Q para el resto. Filtros: excluye OTC y cash negativo. Tiene retry automático ante timeout de Aunesa (3 intentos, 60s entre intentos).
+- `main_aum.py` — snapshot de posiciones valuadas de TODAS las cuentas activas desde Aunesa a `Valuaciones.AuM`. Modelo time series: clave `(id_cuenta, unidad, fecha_snapshot)`. Fórmulas de valuación: P×Q/100 para renta fija (Títulos Públicos, ONs, Letras, Fideicomisos, CPD); (P+1)×Q para futuros; P×Q para el resto. Filtros: excluye OTC y cash negativo. Tiene retry automático ante timeout de Aunesa (3 intentos, 60s entre intentos). Timeouts: `obtener_cuentas` y `consultar_posicion` = 60s.
+- `main_flujo_contrapartes.py` — cron diario que carga operaciones de hoy desde Aunesa API a `CashFlow.Flujo`. Lógica: borra docs donde `concertacion == hoy`, fetch por cada contraparte con `cuenta` asignada (`fechaConcDesde/Hasta = hoy`), filtra 4 tipos excluidos, agrega campo `moneda` (ARS/USD desde `condiciones`), deduplica por `boleto`, inserta. Al final verifica duplicados en toda la colección y borra extras. Cron: 02:00 UTC martes-sábado.
 - `fix_aum_valuacion.py` — script one-off que divide por 100 las valuaciones de ONs/Fideicomisos/CPD mal calculadas en Mongo (se ejecutó una vez tras el fix).
 - `fix_sign_movimientos.py` — script one-off que invirtió signos de movimientos ya insertados en Mongo (se ejecutó una vez).
+- `fix_flujo_borrar_tipos.py` — script one-off que borró de `CashFlow.Flujo` los tipos: "Concurrencia - Caución colocadora (Apertura/Cierre)" y "Futuros Financieros - Compra/Venta". Ya ejecutado.
+- `backfill_moneda_flujo.py` — script one-off que agrega campo `moneda` (ARS/USD) a todos los docs existentes en `CashFlow.Flujo` inferido de `condiciones`. Ejecutar una vez si hay docs sin ese campo.
 
 ## Deployment
 
@@ -171,7 +174,15 @@ El CER usado para valuar depende del contexto:
 - **Vista de Mercado presente**: como todos los bonos operan diariamente, el último trade enriquecido es siempre de hoy → todos usan el CER de hoy automáticamente.
 - **Problema potencial**: si un bono no opera un día, su último trade enriquecido puede ser de ayer con el CER de ayer. El fix sistémico sería recalcular on-the-fly con el CER de hoy (no implementado aún).
 
-### Crontab del servidor (actualizado 2026-04-08)
+### CashFlow.Flujo
+
+Operaciones de contrapartes cargadas desde Aunesa API. Campos: `boleto`, `concertacion`, `tipoOperacion`, `cuenta`, `denominacion`, `instrumento`, `condiciones`, `bruto`, `segmento`, `contraparte`, `moneda`.
+- `moneda`: "ARS" o "USD" inferido de `condiciones` (contiene "ARS" o "USD"). Campo agregado por backfill y por el cron diario.
+- `boleto` es la clave única. El cron deduplica al final de cada corrida.
+- Tipos excluidos permanentemente: "Concurrencia - Caución colocadora (Apertura)", "Concurrencia - Caución colocadora (Cierre)", "Futuros Financieros - Compra", "Futuros Financieros - Venta".
+- Las contrapartes deben tener el campo `cuenta` seteado en `CashFlow.Contrapartes` (ejecutar `test_match_contrapartes.py` para hacer el match con Aunesa si hace falta).
+
+### Crontab del servidor (actualizado 2026-04-10)
 
 ```cron
 # Prender/apagar motores y Streamlit: Lunes a Viernes
@@ -199,6 +210,9 @@ El CER usado para valuar depende del contexto:
 # main_cashflow.py — carga diaria de movimientos de dinero a CashFlow.Movimientos
 # 02:00 UTC = 23:00 ART (lunes a viernes ARG = martes a sábado UTC)
 0 2 * * 2-6 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_cashflow.py --today >> /root/TradingAV/logs/cashflow.log 2>&1
+
+# main_flujo_contrapartes.py — carga operaciones de hoy a CashFlow.Flujo
+0 2 * * 2-6 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_flujo_contrapartes.py >> /root/TradingAV/logs/flujo_contrapartes.log 2>&1
 
 # data_bcra.py — CER, TAMAR, DOLAR, BADLAR diario (17:00 ART = 20:00 UTC, todos los días)
 0 20 * * * /root/TradingAV/venv/bin/python /root/TradingAV/data_bcra.py --today >> /root/TradingAV/logs/bcra.log 2>&1
@@ -233,12 +247,27 @@ Nav principal: **Mercado · Opciones · Portfolios · Operaciones · AuM**
 
 | Vista | Sub-tabs | Descripción |
 |---|---|---|
-| Mercado | Mercado · Libro · Curvas · Breakevens · Forwards · Retorno Total · Volúmenes | Microstructure, VWAP, volumen intraday; order book en tiempo real (Libro, run_every=2s); curvas de rendimiento, breakevens CER/Lecap, forwards, retorno total, volúmenes. Tab Mercado usa `@st.fragment(run_every=30)` para auto-refresh cada 30s. |
+| Mercado | Mercado · Libro · Curvas · Breakevens · Forwards · Retorno Total · Volúmenes | Microstructure, VWAP, volumen intraday; Libro en tiempo real (run_every=2s); curvas de rendimiento, breakevens CER/Lecap, forwards, retorno total, volúmenes. Tab Mercado usa `@st.fragment(run_every=30)`. |
 | Opciones | Mercado · Estrategias | Mercado: cadena GGAL con SPOT/VR/ADR/Tasa RF + volatility smile. Estrategias: spreads pre-configurados con payoff y costo histórico |
 | Portfolios | una tab por cuenta | Posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial leído automáticamente de `Trading.DOLAR` (último valor). Tab por cada `id_cuenta` único; filtro cartera dentro de cada tab |
-| Operaciones | — | Cash Flow (depósitos/transferencias/extracciones) desde `CashFlow.Movimientos`; filtros por fecha, moneda, accionista; gráficos ARS y USD independientes |
+| Operaciones | Cash Flow · Contrapartes · Análisis | Cash Flow: depósitos/transferencias/extracciones desde `CashFlow.Movimientos`. Contrapartes: flujo acumulado mensual + tabla consolidada + drill-down por contraparte desde `CashFlow.Flujo`. Análisis: evolución Individual/Comparativo con filtro por segmento. |
 | AuM | FCI · Análisis SG · Tasa Fija | FCI: snapshot por fecha + gráfico evolución + detalle fondos por soc. gerente al clickear. Análisis SG: evolución AuM por sociedad gerente — modo Individual o Comparativo base 100. Tasa Fija: posiciones en instrumentos de `Trading.Curvas` (curva=tasa_fija); tabla Ticker/Vencimiento/Valuación + tabla cuentas al clickear ticker + gráfico cobros al vencimiento a ancho completo |
 | ~~ONs~~ | — | ~~Yield screener ONs en tiempo real~~ — **pausado desde 2026-04-08** |
+
+### Mercado → Tab Libro
+
+Vista de order book en tiempo real para traders. Auto-refresh cada 2s via `@st.fragment(run_every=2)`.
+
+**Layout:**
+- **Header**: selector de ticker (izq) | última actualización (der, alineada sobre Quant)
+- **Fila 1**: Depth (book top 5) + Hourly Vol · Tape · Quant Analytics
+- **Fila 2**: Last Minutes chart · Volume Profile
+
+**Last Minutes chart**: line chart Hora→Precio con línea VWAP horizontal verde (`mark_rule`, `strokeDash=[6,3]`). Toggle `st.toggle("TEA")` para alternar eje Y entre Precio y TEA (formato `%`). Cuando está en modo TEA el VWAP se oculta.
+
+**Volume Profile**: query `Trading.TimeSales` para el ticker seleccionado desde medianoche UTC. Binea precios en 20 buckets con `pd.cut`, suma `money` por bucket, bar chart Altair (X=precio, Y=money).
+
+**Tabla Whales eliminada** (2026-04-10). Reemplazada por Volume Profile en fila 2.
 
 ### AuM → Tab Tasa Fija
 

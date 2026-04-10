@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import re
+import math
 import requests
 from datetime import datetime, timedelta
 from mongo_manager import get_mongo_client
@@ -898,14 +899,28 @@ def vista_libro():
             df_vp = pd.DataFrame(trades_hoy)
             df_vp = df_vp[(df_vp["price"] > 0) & (df_vp["money"] > 0)]
             if not df_vp.empty and len(df_vp) >= 2:
-                df_vp["bucket"] = pd.cut(df_vp["price"], bins=20)
-                df_vp["price_mid"] = df_vp["bucket"].apply(
-                    lambda x: round((x.left + x.right) / 2, 2) if pd.notna(x) else None
-                )
+                price_range = df_vp["price"].max() - df_vp["price"].min()
+                if price_range > 0:
+                    raw_tick = price_range / 25
+                    magnitude = 10 ** math.floor(math.log10(raw_tick))
+                    normalized = raw_tick / magnitude
+                    if normalized < 1.5:
+                        nice = 1
+                    elif normalized < 3.5:
+                        nice = 2
+                    elif normalized < 7.5:
+                        nice = 5
+                    else:
+                        nice = 10
+                    tick = round(nice * magnitude, 10)
+                else:
+                    tick = 0.01
+                df_vp["bucket"] = (df_vp["price"] / tick).round() * tick
+                df_vp["bucket"] = df_vp["bucket"].round(10)
                 df_agg = (
-                    df_vp.dropna(subset=["price_mid"])
-                    .groupby("price_mid", as_index=False)["money"]
+                    df_vp.groupby("bucket", as_index=False)["money"]
                     .sum()
+                    .rename(columns={"bucket": "price_mid"})
                     .sort_values("price_mid")
                 )
                 vp_chart = (

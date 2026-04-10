@@ -834,12 +834,12 @@ def vista_libro():
         trades_sorted = sorted(recent_trades, key=lambda x: x.get("timestamp", datetime.min))
         trade_rows = [
             {
-                "Hora":   t["timestamp"].strftime("%H:%M") if hasattr(t.get("timestamp"), "strftime") else "",
+                "Hora":   t["timestamp"] if hasattr(t.get("timestamp"), "strftime") else None,
                 "Precio": t.get("price", 0),
                 "TEA":    t.get("TEA"),
             }
             for t in trades_sorted
-            if t.get("price", 0) > 0
+            if t.get("price", 0) > 0 and hasattr(t.get("timestamp"), "strftime")
         ]
         cap_col, _ = st.columns([1, 3])
         with cap_col:
@@ -855,7 +855,7 @@ def vista_libro():
                         alt.Chart(df_tea)
                         .mark_line(point=True)
                         .encode(
-                            x=alt.X("Hora:O", title=None, sort=None),
+                            x=alt.X("Hora:T", title=None, axis=alt.Axis(format="%H:%M:%S")),
                             y=alt.Y("TEA:Q",   scale=alt.Scale(zero=False), title=None,
                                     axis=alt.Axis(format=".1%")),
                         )
@@ -872,7 +872,7 @@ def vista_libro():
                     alt.Chart(chart_df)
                     .mark_line(point=True)
                     .encode(
-                        x=alt.X("Hora:O",   title=None, sort=None),
+                        x=alt.X("Hora:T", title=None, axis=alt.Axis(format="%H:%M:%S")),
                         y=alt.Y("Precio:Q", scale=alt.Scale(zero=False), title=None),
                     )
                 )

@@ -1600,7 +1600,10 @@ def vista_mercado():
         _tab_mercado_live()
 
     with tab_libro:
-        vista_libro()
+        @st.fragment(run_every=2)
+        def _tab_libro_live():
+            vista_libro()
+        _tab_libro_live()
 
     with tab_curvas:
         _render_curva_rendimiento(db)

@@ -11,20 +11,21 @@ import sys
 import threading
 import subprocess
 import contextlib
+import requests
 from collections import Counter
 from datetime import date, datetime, timedelta
 
 import pandas as pd
 import streamlit as st
-from pymongo import UpdateOne
+from pymongo import UpdateOne, InsertOne
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Aseguramos que el root esté en sys.path para imports internos
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from mongo_manager import get_mongo_client
+import config
 
 
 # ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -35,7 +36,10 @@ def _dbcf(): return get_mongo_client()["CashFlow"]
 
 
 def _run_bg(script_relpath: str, args: list, key: str):
-    """Lanza script como subprocess en background; acumula output en session_state."""
+    """
+    Lanza script como subprocess en background.
+    PYTHONUNBUFFERED=1 + flag -u para que el output llegue línea a línea sin buffering.
+    """
     sk = f"dm_{key}"
     if st.session_state.get(f"{sk}_status") == "running":
         st.warning("Ya hay un proceso corriendo para este script.")
@@ -43,19 +47,24 @@ def _run_bg(script_relpath: str, args: list, key: str):
     st.session_state[f"{sk}_log"]        = []
     st.session_state[f"{sk}_status"]     = "running"
     st.session_state[f"{sk}_returncode"] = None
+    st.session_state[f"{sk}_started_at"] = datetime.now()
 
     script_path = os.path.join(PROJECT_ROOT, script_relpath)
 
     def _worker():
         env = os.environ.copy()
-        env["PYTHONPATH"] = PROJECT_ROOT
-        cmd = [sys.executable, script_path] + [str(a) for a in args]
+        env["PYTHONPATH"]      = PROJECT_ROOT
+        env["PYTHONUNBUFFERED"] = "1"          # sin buffering en stdout del hijo
+        cmd = [sys.executable, "-u", script_path] + [str(a) for a in args]
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1, env=env, cwd=PROJECT_ROOT,
         )
         for line in proc.stdout:
-            st.session_state[f"{sk}_log"].append(line.rstrip())
+            stripped = line.rstrip()
+            if stripped:
+                ts = datetime.now().strftime("%H:%M:%S")
+                st.session_state[f"{sk}_log"].append(f"[{ts}]  {stripped}")
         proc.wait()
         st.session_state[f"{sk}_returncode"] = proc.returncode
         st.session_state[f"{sk}_status"] = "done" if proc.returncode == 0 else "error"
@@ -64,24 +73,30 @@ def _run_bg(script_relpath: str, args: list, key: str):
 
 
 def _log_panel(key: str):
-    """Render log panel: badge de estado + bloque de código scrolleable."""
-    sk     = f"dm_{key}"
-    status = st.session_state.get(f"{sk}_status", "idle")
-    lines  = st.session_state.get(f"{sk}_log", [])
+    """Render log panel: status badge + contador de líneas + bloque scrolleable."""
+    sk      = f"dm_{key}"
+    status  = st.session_state.get(f"{sk}_status", "idle")
+    lines   = st.session_state.get(f"{sk}_log", [])
+    started = st.session_state.get(f"{sk}_started_at")
 
     if status == "idle" and not lines:
         return
 
-    c1, c2 = st.columns([5, 1])
+    c1, c2, c3 = st.columns([4, 2, 1])
     with c1:
         if status == "running":
-            st.info("Ejecutando...")
+            elapsed = (datetime.now() - started).seconds if started else 0
+            st.info(f"Ejecutando... {elapsed}s transcurridos — {len(lines)} líneas recibidas")
         elif status == "done":
-            st.success("Completado")
+            elapsed = (datetime.now() - started).seconds if started else 0
+            st.success(f"Completado en ~{elapsed}s — {len(lines)} líneas de log")
         elif status == "error":
             rc = st.session_state.get(f"{sk}_returncode")
-            st.error(f"Error (código {rc})")
+            st.error(f"Error (returncode={rc}) — {len(lines)} líneas de log")
     with c2:
+        if lines:
+            st.caption(f"Última: {lines[-1][:60]}...")
+    with c3:
         if st.button("Limpiar", key=f"dm_clear_{key}"):
             st.session_state[f"{sk}_log"]    = []
             st.session_state[f"{sk}_status"] = "idle"
@@ -94,10 +109,8 @@ def _log_panel(key: str):
 # ─── FRAGMENTS (auto-refresh mientras corre el subprocess) ───────────────────
 
 @st.fragment(run_every=2)
-def _frag_aum():   _log_panel("aum_bf")
-
-@st.fragment(run_every=2)
-def _frag_flujo(): _log_panel("flujo_bf")
+def _frag_aum():
+    _log_panel("aum_bf")
 
 
 # ─── TAB DIAGNÓSTICO ─────────────────────────────────────────────────────────
@@ -369,90 +382,295 @@ def _tab_diagnostico():
 
 # ─── TAB BACKFILLS ────────────────────────────────────────────────────────────
 
-def _tab_backfills():
-    st.caption("Carga de datos históricos. Los scripts de subprocess muestran log en tiempo real.")
+# Tipos excluidos por defecto en main_flujo_contrapartes.py
+_TIPOS_EXCLUIR_DEFAULT = {
+    "Concurrencia - Caución colocadora (Apertura)",
+    "Concurrencia - Caución colocadora (Cierre)",
+    "Futuros Financieros - Compra",
+    "Futuros Financieros - Venta",
+}
 
-    # ── AuM Snapshot ──────────────────────────────────────────────────────────
-    with st.expander("AuM Snapshot — backfill para una fecha específica"):
+_CAMPOS_FLUJO = {"boleto", "concertacion", "tipoOperacion", "cuenta", "denominacion",
+                 "instrumento", "condiciones", "bruto", "segmento", "contraparte"}
+
+AUTH_URL_FLUJO  = "https://aca.aunesa.com/Irmo/api/login"
+INFOS_URL_FLUJO = "https://aca.aunesa.com/Irmo/api/operaciones/informes"
+
+
+def _autenticar_flujo():
+    resp = requests.post(
+        AUTH_URL_FLUJO,
+        json={"clientId": config.AUNESA_CLIENT_ID,
+              "username":  config.AUNESA_USERNAME,
+              "password":  config.AUNESA_PASSWORD},
+        headers={"Content-Type": "application/json"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    token = resp.json().get("token")
+    return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
+
+
+def _inferir_moneda(condiciones):
+    if not condiciones:
+        return ""
+    c = condiciones.upper()
+    if "USD" in c: return "USD"
+    if "ARS" in c: return "ARS"
+    return ""
+
+
+def _tab_backfills():
+    st.caption("Carga de datos históricos.")
+
+    # ─── AuM Snapshot ────────────────────────────────────────────────────────
+    with st.expander("AuM Snapshot — backfill para una fecha específica", expanded=False):
         st.info("Llama a Aunesa y guarda posiciones en Valuaciones.AuM para la fecha indicada. "
-                "Puede tardar 2-5 minutos.")
+                "Puede tardar 2-5 minutos. El log se actualiza automáticamente cada 2 segundos.")
+
         fecha_aum = st.date_input("Fecha snapshot", value=date.today() - timedelta(days=1),
                                    key="bf_aum_fecha")
-        c1, c2 = st.columns([2, 5])
+
+        status_aum = st.session_state.get("dm_aum_bf_status", "idle")
+        badges = {"idle": "⬜ Idle", "running": "🔄 Corriendo",
+                  "done": "✅ Listo", "error": "❌ Error"}
+
+        c1, c2 = st.columns([2, 4])
         with c1:
-            if st.button("▶ Ejecutar", key="bf_aum_btn"):
+            btn_disabled = status_aum == "running"
+            if st.button("▶ Ejecutar", key="bf_aum_btn", disabled=btn_disabled):
                 _run_bg("Excel/backfill_aum.py", [fecha_aum.isoformat()], "aum_bf")
                 st.rerun()
         with c2:
-            status = st.session_state.get("dm_aum_bf_status", "idle")
-            badges = {"idle": "⬜ Idle", "running": "🔄 Corriendo", "done": "✅ Listo", "error": "❌ Error"}
-            st.caption(f"Estado: {badges.get(status, status)}")
+            st.caption(f"Estado: {badges.get(status_aum, status_aum)}")
+            if status_aum == "running":
+                lines = st.session_state.get("dm_aum_bf_log", [])
+                started = st.session_state.get("dm_aum_bf_started_at")
+                elapsed = (datetime.now() - started).seconds if started else 0
+                st.caption(f"{elapsed}s transcurridos — {len(lines)} líneas recibidas")
+
+        # Fragment con auto-refresh (sigue corriendo aunque no se vea el log)
         _frag_aum()
 
-    # ── BCRA Data ─────────────────────────────────────────────────────────────
-    with st.expander("BCRA Data — CER / TAMAR / DOLAR / BADLAR por rango de fechas"):
-        c1, c2 = st.columns(2)
-        with c1: desde_bcra = st.date_input("Desde", value=date.today() - timedelta(days=7),
-                                             key="bf_bcra_desde")
-        with c2: hasta_bcra = st.date_input("Hasta", value=date.today(), key="bf_bcra_hasta")
+    # ─── Flujo Contrapartes ───────────────────────────────────────────────────
+    with st.expander("Flujo Contrapartes — cargar operaciones por fecha y tipo", expanded=False):
+        st.info("Consulta Aunesa por cada contraparte con cuenta asignada y guarda las operaciones "
+                "en CashFlow.Flujo. Podés elegir qué tipos incluir antes de ejecutar.")
 
-        if st.button("▶ Ejecutar", key="bf_bcra_btn"):
-            with st.spinner("Descargando de API BCRA..."):
-                buf = io.StringIO()
-                try:
-                    from data_bcra import fetch_y_guardar, VARIABLES_BCRA
-                    with contextlib.redirect_stdout(buf):
-                        for nombre, id_var in VARIABLES_BCRA.items():
-                            fetch_y_guardar(nombre, id_var,
-                                            desde_bcra.strftime("%Y-%m-%d"),
-                                            hasta_bcra.strftime("%Y-%m-%d"))
-                    st.success("BCRA actualizado correctamente")
-                except Exception as e:
-                    st.error(f"Error: {e}")
-                output = buf.getvalue()
-                if output:
-                    st.code(output, language=None)
+        fecha_flujo = st.date_input(
+            "Fecha de concertación",
+            value=date.today() - timedelta(days=1),
+            key="bf_flujo_fecha",
+        )
+        fecha_str_flujo = fecha_flujo.strftime("%d/%m/%Y")
 
-    # ── Flujo Contrapartes ────────────────────────────────────────────────────
-    with st.expander("Flujo Contrapartes — re-cargar operaciones del día"):
-        st.warning("Ejecuta el mismo script del cron: borra lo de HOY y recarga desde Aunesa.")
-        c1, c2 = st.columns([2, 5])
-        with c1:
-            if st.button("▶ Ejecutar", key="bf_flujo_btn"):
-                _run_bg("Excel/main_flujo_contrapartes.py", [], "flujo_bf")
-                st.rerun()
-        with c2:
-            status = st.session_state.get("dm_flujo_bf_status", "idle")
-            badges = {"idle": "⬜ Idle", "running": "🔄 Corriendo", "done": "✅ Listo", "error": "❌ Error"}
-            st.caption(f"Estado: {badges.get(status, status)}")
-        _frag_flujo()
+        # ── Cargar tipos disponibles desde CashFlow.Flujo (sin API call) ──────
+        col_flujo = _dbcf()["Flujo"]
+        tipos_en_mongo = sorted(col_flujo.distinct("tipoOperacion"))
+        tipos_disponibles = [t for t in tipos_en_mongo if t and t not in _TIPOS_EXCLUIR_DEFAULT]
 
-    # ── Días Hábiles ──────────────────────────────────────────────────────────
-    with st.expander("Días Hábiles — generar calendario argentino para un año"):
-        year_dh = st.number_input("Año", min_value=2024, max_value=2035,
-                                   value=date.today().year + 1, step=1, key="bf_dh_year")
+        # También mostrar los siempre excluidos como info
+        st.caption(f"Tipos en MongoDB (excluidos por defecto no se muestran): "
+                   f"{len(tipos_disponibles)} tipos")
 
-        if st.button("▶ Generar", key="bf_dh_btn"):
-            with st.spinner(f"Generando días hábiles {year_dh}..."):
-                try:
-                    import holidays
-                    arg_holidays = holidays.Argentina(years=int(year_dh))
-                    dias = []
-                    d = date(int(year_dh), 1, 1)
-                    while d <= date(int(year_dh), 12, 31):
-                        if d.weekday() < 5 and d not in arg_holidays:
-                            dias.append(d.isoformat())
-                        d += timedelta(days=1)
+        if not tipos_disponibles:
+            st.warning("No hay tipos de operación en CashFlow.Flujo. "
+                       "Ejecutá primero para ver los tipos disponibles, o usá 'Preview tipos'.")
+        else:
+            st.markdown("**Tipos a incluir** (destildá los que no querés cargar):")
+            tipos_seleccionados = []
+            # Mostrar en 2 columnas
+            mitad = (len(tipos_disponibles) + 1) // 2
+            col_left, col_right = st.columns(2)
+            for i, tipo in enumerate(tipos_disponibles):
+                col = col_left if i < mitad else col_right
+                with col:
+                    checked = st.checkbox(tipo, value=True, key=f"flujo_tipo_{i}")
+                    if checked:
+                        tipos_seleccionados.append(tipo)
 
-                    col = get_mongo_client()["Trading"]["DiasHabiles"]
-                    ops = [UpdateOne({"fecha": f}, {"$set": {"fecha": f}}, upsert=True)
-                           for f in dias]
-                    col.bulk_write(ops, ordered=False)
-                    st.success(f"✅ {len(dias)} días hábiles cargados para {int(year_dh)}")
-                    st.code("\n".join(f"  {d}" for d in dias[:5]) + f"\n  ... ({len(dias)} total)",
-                            language=None)
-                except Exception as e:
-                    st.error(f"Error: {e}")
+        # Preview tipos desde Aunesa (optional, hace una sola cuenta de prueba)
+        with st.expander("Preview tipos desde Aunesa (llama a la API)", expanded=False):
+            st.caption("Consulta una sola contraparte para ver qué tipos devuelve Aunesa hoy. "
+                       "Útil para descubrir tipos nuevos no presentes en MongoDB.")
+            if st.button("Consultar preview", key="flujo_preview_btn"):
+                with st.spinner("Consultando Aunesa..."):
+                    try:
+                        col_cp = _dbcf()["Contrapartes"]
+                        primera = col_cp.find_one({"cuenta": {"$exists": True, "$ne": ""}},
+                                                  {"contraparte": 1, "cuenta": 1})
+                        if not primera:
+                            st.warning("No hay contrapartes con cuenta asignada.")
+                        else:
+                            headers_prev = _autenticar_flujo()
+                            try:
+                                cid = int(str(primera["cuenta"]).strip())
+                            except (ValueError, TypeError):
+                                cid = str(primera["cuenta"]).strip()
+                            params = {"cuenta": cid,
+                                      "fechaConcDesde": fecha_str_flujo,
+                                      "fechaConcHasta": fecha_str_flujo}
+                            resp = requests.get(INFOS_URL_FLUJO, params=params,
+                                                headers=headers_prev, timeout=60)
+                            if resp.status_code == 204:
+                                st.info(f"Contraparte [{primera['contraparte']}] sin operaciones para {fecha_str_flujo}.")
+                            else:
+                                resp.raise_for_status()
+                                data_prev = resp.json() or []
+                                tipos_api = sorted({r.get("tipoOperacion", "") for r in data_prev if r.get("tipoOperacion")})
+                                st.success(f"Tipos encontrados en [{primera['contraparte']}] para {fecha_str_flujo}:")
+                                for t in tipos_api:
+                                    excluido = t in _TIPOS_EXCLUIR_DEFAULT
+                                    st.write(f"  {'🚫' if excluido else '✅'} {t}" +
+                                             (" (excluido por defecto)" if excluido else ""))
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+        st.divider()
+
+        # ── Ejecutar ──────────────────────────────────────────────────────────
+        tipos_excluir_run = set()
+        if tipos_disponibles:
+            tipos_excluir_run = {t for t in tipos_disponibles if t not in tipos_seleccionados}
+        tipos_excluir_run |= _TIPOS_EXCLUIR_DEFAULT   # siempre excluimos los default
+
+        resumen_excluir = sorted(tipos_excluir_run - _TIPOS_EXCLUIR_DEFAULT)
+        if resumen_excluir:
+            st.caption(f"Además de los excluidos por defecto, también se excluirán: {resumen_excluir}")
+
+        if st.button("▶ Ejecutar carga", key="bf_flujo_run"):
+            _ejecutar_flujo(fecha_str_flujo, tipos_excluir_run)
+
+
+def _ejecutar_flujo(fecha_str: str, tipos_excluir: set):
+    """Ejecuta la carga de flujo inline con log visible en pantalla."""
+    log_area = st.empty()
+    lineas   = []
+
+    def log(msg):
+        ts = datetime.now().strftime("%H:%M:%S")
+        lineas.append(f"[{ts}]  {msg}")
+        log_area.code("\n".join(lineas[-200:]), language=None)
+
+    try:
+        client           = get_mongo_client()
+        col_contrapartes = client["CashFlow"]["Contrapartes"]
+        col_flujo        = client["CashFlow"]["Flujo"]
+
+        log(f"Fecha objetivo: {fecha_str}")
+        log(f"Tipos excluidos: {sorted(tipos_excluir)}")
+        log("")
+
+        # 1. Borrar docs de esa fecha
+        del_result = col_flujo.delete_many({"concertacion": fecha_str})
+        log(f"🗑️  {del_result.deleted_count} docs eliminados para {fecha_str}")
+
+        # 2. Auth
+        log("Autenticando en Aunesa...")
+        headers = _autenticar_flujo()
+        log("✅ Auth OK")
+        log("")
+
+        # 3. Contrapartes con cuenta
+        docs_cp = list(col_contrapartes.find(
+            {"cuenta": {"$exists": True, "$ne": ""}},
+            {"_id": 0, "contraparte": 1, "cuenta": 1}
+        ))
+        log(f"{len(docs_cp)} contrapartes con cuenta asignada")
+        log("")
+
+        # 4. Fetch por contraparte
+        registros = {}
+        total_cp  = len(docs_cp)
+
+        for idx, doc in enumerate(docs_cp, 1):
+            cp = doc["contraparte"]
+            try:
+                cuenta_id = int(str(doc["cuenta"]).strip())
+            except (ValueError, TypeError):
+                log(f"  [{idx}/{total_cp}] SKIP {cp} — cuenta inválida ({doc['cuenta']})")
+                continue
+
+            params = {"cuenta": cuenta_id,
+                      "fechaConcDesde": fecha_str,
+                      "fechaConcHasta": fecha_str}
+            try:
+                resp = requests.get(INFOS_URL_FLUJO, params=params,
+                                    headers=headers, timeout=60)
+
+                if resp.status_code == 204:
+                    log(f"  [{idx}/{total_cp}] [{cuenta_id}] {cp} → sin operaciones")
+                    continue
+
+                if resp.status_code == 401:
+                    log(f"  [{idx}/{total_cp}] Re-autenticando...")
+                    headers = _autenticar_flujo()
+                    resp    = requests.get(INFOS_URL_FLUJO, params=params,
+                                           headers=headers, timeout=60)
+
+                resp.raise_for_status()
+                data = resp.json() or []
+
+                count = 0
+                tipos_vistos = set()
+                for r in data:
+                    tipo = r.get("tipoOperacion", "")
+                    tipos_vistos.add(tipo)
+                    if tipo in tipos_excluir:
+                        continue
+                    r["contraparte"] = cp
+                    rec = {k: r.get(k) for k in _CAMPOS_FLUJO}
+                    rec["moneda"] = _inferir_moneda(rec.get("condiciones", ""))
+                    boleto = rec.get("boleto")
+                    if boleto is not None:
+                        if boleto not in registros:
+                            registros[boleto] = rec
+                    else:
+                        registros[f"_no_boleto_{len(registros)}"] = rec
+                    count += 1
+
+                tipos_excluidos_aqui = tipos_vistos & tipos_excluir
+                detalle = f" (excluidos: {sorted(tipos_excluidos_aqui)})" if tipos_excluidos_aqui else ""
+                log(f"  [{idx}/{total_cp}] [{cuenta_id}] {cp} → {count} operaciones incluidas{detalle}")
+
+            except Exception as e:
+                log(f"  [{idx}/{total_cp}] [{cuenta_id}] {cp} → ERROR: {e}")
+
+        log("")
+
+        # 5. Insertar
+        if registros:
+            ops = [InsertOne(r) for r in registros.values()]
+            col_flujo.bulk_write(ops, ordered=False)
+            log(f"✅ {len(registros)} documentos insertados para {fecha_str}")
+        else:
+            log(f"⚠️  Sin operaciones para insertar en {fecha_str}")
+
+        # 6. Dedup global por boleto
+        log("")
+        log("Verificando duplicados en toda la colección...")
+        pipeline = [
+            {"$match": {"boleto": {"$ne": None}}},
+            {"$group": {"_id": "$boleto", "ids": {"$push": "$_id"}, "count": {"$sum": 1}}},
+            {"$match": {"count": {"$gt": 1}}},
+        ]
+        duplicados = list(col_flujo.aggregate(pipeline))
+        if not duplicados:
+            log("✅ Sin duplicados encontrados")
+        else:
+            ids_a_borrar = []
+            for d in duplicados:
+                ids_a_borrar.extend(d["ids"][1:])
+            result = col_flujo.delete_many({"_id": {"$in": ids_a_borrar}})
+            log(f"🧹 {result.deleted_count} duplicados eliminados ({len(duplicados)} boletos afectados)")
+
+        log("")
+        log("═" * 50)
+        log(f"Proceso finalizado. Total insertados: {len(registros)}")
+        client.close()
+
+    except Exception as e:
+        log(f"❌ Error inesperado: {e}")
 
 
 # ─── TAB VALIDACIONES ────────────────────────────────────────────────────────
@@ -507,15 +725,15 @@ def _tab_validaciones():
                                 st.warning(f"No se encontró la cuenta {cuenta_f}.")
 
                         resultados = []
-                        progress = st.progress(0)
-                        total = len(cuentas)
+                        progress   = st.progress(0)
+                        total      = len(cuentas)
                         for i, (_, row) in enumerate(cuentas.iterrows()):
                             cid  = str(row["id"])
                             den  = row["denominacion"]
                             data, _ = consultar_posicion(cid, headers, desde)
                             if data:
                                 df_raw = pd.DataFrame(data)
-                                mask = pd.Series([False] * len(df_raw))
+                                mask   = pd.Series([False] * len(df_raw))
                                 for col_name in df_raw.columns:
                                     try:
                                         mask |= df_raw[col_name].astype(str).str.contains(
@@ -602,10 +820,10 @@ def _tab_setup():
             opciones = ["(saltar)", "Fondos", "ALYC", "Bancos"]
             asignaciones = {}
             for doc in sin_match:
-                cp  = doc.get("contraparte", "?")
-                den = doc.get("denominacion", "")
+                cp         = doc.get("contraparte", "?")
+                den        = doc.get("denominacion", "")
                 seg_actual = doc.get("segmento", "—")
-                ca, cb = st.columns([4, 2])
+                ca, cb     = st.columns([4, 2])
                 with ca:
                     st.text(f"{cp}  —  {den}")
                     st.caption(f"Segmento actual: {seg_actual}")
@@ -630,7 +848,7 @@ def _tab_setup():
 
 def vista_data_manager():
     st.markdown("## Data Manager")
-    st.caption("Herramientas de diagnóstico, carga histórica, validaciones y setup.")
+    st.caption("Diagnóstico, backfills, validaciones y setup desde el dashboard.")
 
     tab1, tab2, tab3, tab4 = st.tabs(["Diagnóstico", "Backfills", "Validaciones", "Setup"])
     with tab1: _tab_diagnostico()

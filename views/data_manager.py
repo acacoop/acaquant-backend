@@ -11,6 +11,7 @@ import sys
 import threading
 import subprocess
 import contextlib
+import tempfile
 import requests
 from collections import Counter
 from datetime import date, datetime, timedelta
@@ -38,13 +39,19 @@ def _dbcf(): return get_mongo_client()["CashFlow"]
 def _run_bg(script_relpath: str, args: list, key: str):
     """
     Lanza script como subprocess en background.
-    PYTHONUNBUFFERED=1 + flag -u para que el output llegue línea a línea sin buffering.
+    Escribe stdout+stderr a un archivo temporal que el fragment lee periódicamente.
+    Evita todo problema de pipe buffering (incluso con threads internos en el hijo).
     """
     sk = f"dm_{key}"
     if st.session_state.get(f"{sk}_status") == "running":
         st.warning("Ya hay un proceso corriendo para este script.")
         return
-    st.session_state[f"{sk}_log"]        = []
+
+    # Temp file: el subprocess escribe directo acá, sin pipe intermediario
+    tmpfd, tmppath = tempfile.mkstemp(suffix=".log", prefix=f"dm_{key}_")
+    os.close(tmpfd)
+
+    st.session_state[f"{sk}_tmpfile"]    = tmppath
     st.session_state[f"{sk}_status"]     = "running"
     st.session_state[f"{sk}_returncode"] = None
     st.session_state[f"{sk}_started_at"] = datetime.now()
@@ -53,53 +60,81 @@ def _run_bg(script_relpath: str, args: list, key: str):
 
     def _worker():
         env = os.environ.copy()
-        env["PYTHONPATH"]      = PROJECT_ROOT
-        env["PYTHONUNBUFFERED"] = "1"          # sin buffering en stdout del hijo
+        env["PYTHONPATH"]       = PROJECT_ROOT
+        env["PYTHONUNBUFFERED"] = "1"
         cmd = [sys.executable, "-u", script_path] + [str(a) for a in args]
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, env=env, cwd=PROJECT_ROOT,
-        )
-        for line in proc.stdout:
-            stripped = line.rstrip()
-            if stripped:
-                ts = datetime.now().strftime("%H:%M:%S")
-                st.session_state[f"{sk}_log"].append(f"[{ts}]  {stripped}")
-        proc.wait()
+
+        with open(tmppath, "w", buffering=1) as out:
+            ts = datetime.now().strftime("%H:%M:%S")
+            out.write(f"[{ts}]  Iniciando: {' '.join(cmd[-3:])}\n")
+            out.write(f"[{ts}]  Directorio: {PROJECT_ROOT}\n\n")
+            out.flush()
+
+            proc = subprocess.Popen(
+                cmd,
+                stdout=out,
+                stderr=out,          # stderr también va al mismo archivo
+                env=env,
+                cwd=PROJECT_ROOT,
+            )
+            ts2 = datetime.now().strftime("%H:%M:%S")
+            out.write(f"[{ts2}]  PID: {proc.pid}\n\n")
+            out.flush()
+
+            proc.wait()
+
+            ts3 = datetime.now().strftime("%H:%M:%S")
+            out.write(f"\n[{ts3}]  Proceso finalizado — returncode: {proc.returncode}\n")
+
         st.session_state[f"{sk}_returncode"] = proc.returncode
         st.session_state[f"{sk}_status"] = "done" if proc.returncode == 0 else "error"
 
     threading.Thread(target=_worker, daemon=True).start()
 
 
+def _read_tmplog(key: str) -> list[str]:
+    """Lee el archivo temporal del subprocess y devuelve las líneas."""
+    sk      = f"dm_{key}"
+    tmppath = st.session_state.get(f"{sk}_tmpfile")
+    if not tmppath or not os.path.exists(tmppath):
+        return []
+    try:
+        with open(tmppath, "r") as f:
+            content = f.read()
+        return [l for l in content.splitlines() if l.strip()]
+    except Exception:
+        return []
+
+
 def _log_panel(key: str):
-    """Render log panel: status badge + contador de líneas + bloque scrolleable."""
+    """Render log panel: status badge + contador + bloque scrolleable."""
     sk      = f"dm_{key}"
     status  = st.session_state.get(f"{sk}_status", "idle")
-    lines   = st.session_state.get(f"{sk}_log", [])
     started = st.session_state.get(f"{sk}_started_at")
+    lines   = _read_tmplog(key)
 
     if status == "idle" and not lines:
         return
 
-    c1, c2, c3 = st.columns([4, 2, 1])
+    elapsed = int((datetime.now() - started).total_seconds()) if started else 0
+
+    c1, c2 = st.columns([5, 1])
     with c1:
         if status == "running":
-            elapsed = (datetime.now() - started).seconds if started else 0
-            st.info(f"Ejecutando... {elapsed}s transcurridos — {len(lines)} líneas recibidas")
+            st.info(f"Ejecutando... {elapsed}s transcurridos — {len(lines)} líneas de log")
         elif status == "done":
-            elapsed = (datetime.now() - started).seconds if started else 0
-            st.success(f"Completado en ~{elapsed}s — {len(lines)} líneas de log")
+            st.success(f"Completado en {elapsed}s — {len(lines)} líneas de log")
         elif status == "error":
             rc = st.session_state.get(f"{sk}_returncode")
             st.error(f"Error (returncode={rc}) — {len(lines)} líneas de log")
     with c2:
-        if lines:
-            st.caption(f"Última: {lines[-1][:60]}...")
-    with c3:
         if st.button("Limpiar", key=f"dm_clear_{key}"):
-            st.session_state[f"{sk}_log"]    = []
-            st.session_state[f"{sk}_status"] = "idle"
+            tmppath = st.session_state.get(f"{sk}_tmpfile")
+            if tmppath and os.path.exists(tmppath):
+                try: os.remove(tmppath)
+                except Exception: pass
+            st.session_state[f"{sk}_status"]  = "idle"
+            st.session_state[f"{sk}_tmpfile"] = None
             st.rerun()
 
     if lines:
@@ -443,11 +478,9 @@ def _tab_backfills():
                 st.rerun()
         with c2:
             st.caption(f"Estado: {badges.get(status_aum, status_aum)}")
-            if status_aum == "running":
-                lines = st.session_state.get("dm_aum_bf_log", [])
-                started = st.session_state.get("dm_aum_bf_started_at")
-                elapsed = (datetime.now() - started).seconds if started else 0
-                st.caption(f"{elapsed}s transcurridos — {len(lines)} líneas recibidas")
+            tmppath = st.session_state.get("dm_aum_bf_tmpfile")
+            if tmppath:
+                st.caption(f"Log: `{tmppath}`")
 
         # Fragment con auto-refresh (sigue corriendo aunque no se vea el log)
         _frag_aum()

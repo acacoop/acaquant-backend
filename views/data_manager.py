@@ -460,29 +460,30 @@ def _tab_backfills():
     st.caption("Carga de datos históricos.")
 
     # ─── Credenciales Aunesa ─────────────────────────────────────────────────
-    with st.expander("Credenciales Aunesa", expanded=True):
+    creds_completas = (
+        st.session_state.get("aunesa_cred_user", "").strip() and
+        st.session_state.get("aunesa_cred_pass", "").strip()
+    )
+    with st.expander("Credenciales Aunesa",
+                     expanded=not creds_completas):
         st.caption("Ingresalas una vez por sesión. No se guardan en disco ni en secrets.")
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         with c1:
-            aunesa_client = st.text_input("Client ID", key="aunesa_cred_client",
-                                          value=st.session_state.get("aunesa_cred_client", ""))
+            st.text_input("Usuario", type="password", key="aunesa_cred_user")
         with c2:
-            aunesa_user = st.text_input("Usuario", key="aunesa_cred_user",
-                                        value=st.session_state.get("aunesa_cred_user", ""))
-        with c3:
-            aunesa_pass = st.text_input("Password", type="password", key="aunesa_cred_pass",
-                                        value=st.session_state.get("aunesa_cred_pass", ""))
+            st.text_input("Password", type="password", key="aunesa_cred_pass")
+        if creds_completas:
+            st.success("Credenciales cargadas para esta sesión.")
 
     def _creds_ok():
         return all([
-            st.session_state.get("aunesa_cred_client", "").strip(),
             st.session_state.get("aunesa_cred_user", "").strip(),
             st.session_state.get("aunesa_cred_pass", "").strip(),
         ])
 
     def _aunesa_env():
         return {
-            "AUNESA_CLIENT_ID": st.session_state.get("aunesa_cred_client", "").strip(),
+            "AUNESA_CLIENT_ID": "",
             "AUNESA_USERNAME":  st.session_state.get("aunesa_cred_user", "").strip(),
             "AUNESA_PASSWORD":  st.session_state.get("aunesa_cred_pass", "").strip(),
         }

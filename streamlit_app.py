@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from mongo_manager import get_mongo_client
 from Opciones.calculos_cuantitativos import bs_price as _bs_price
 import config
+from views.data_manager import vista_data_manager
 
 # ==========================================
 # CONFIG
@@ -86,7 +87,7 @@ with st.sidebar:
     st.markdown("---")
     vista = st.radio(
         "Vista",
-        ["Mercado", "Opciones", "Portfolios", "Operaciones", "AuM"],
+        ["Mercado", "Opciones", "Portfolios", "Operaciones", "AuM", "Data Manager"],
         label_visibility="collapsed"
     )
 
@@ -4091,3 +4092,5 @@ elif vista == "Operaciones":
     vista_operaciones()
 elif vista == "AuM":
     vista_aum()
+elif vista == "Data Manager":
+    vista_data_manager()

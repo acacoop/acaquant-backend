@@ -36,18 +36,17 @@ def _dbv():  return get_mongo_client()["Valuaciones"]
 def _dbcf(): return get_mongo_client()["CashFlow"]
 
 
-def _run_bg(script_relpath: str, args: list, key: str):
+def _run_bg(script_relpath: str, args: list, key: str, extra_env: dict | None = None):
     """
     Lanza script como subprocess en background.
     Escribe stdout+stderr a un archivo temporal que el fragment lee periódicamente.
-    Evita todo problema de pipe buffering (incluso con threads internos en el hijo).
+    extra_env: variables de entorno adicionales (ej. credenciales Aunesa ingresadas en UI).
     """
     sk = f"dm_{key}"
     if st.session_state.get(f"{sk}_status") == "running":
         st.warning("Ya hay un proceso corriendo para este script.")
         return
 
-    # Temp file: el subprocess escribe directo acá, sin pipe intermediario
     tmpfd, tmppath = tempfile.mkstemp(suffix=".log", prefix=f"dm_{key}_")
     os.close(tmpfd)
 
@@ -62,6 +61,8 @@ def _run_bg(script_relpath: str, args: list, key: str):
         env = os.environ.copy()
         env["PYTHONPATH"]       = PROJECT_ROOT
         env["PYTHONUNBUFFERED"] = "1"
+        if extra_env:
+            env.update(extra_env)
         cmd = [sys.executable, "-u", script_path] + [str(a) for a in args]
 
         with open(tmppath, "w", buffering=1) as out:
@@ -71,11 +72,8 @@ def _run_bg(script_relpath: str, args: list, key: str):
             out.flush()
 
             proc = subprocess.Popen(
-                cmd,
-                stdout=out,
-                stderr=out,          # stderr también va al mismo archivo
-                env=env,
-                cwd=PROJECT_ROOT,
+                cmd, stdout=out, stderr=out,
+                env=env, cwd=PROJECT_ROOT,
             )
             ts2 = datetime.now().strftime("%H:%M:%S")
             out.write(f"[{ts2}]  PID: {proc.pid}\n\n")
@@ -432,12 +430,15 @@ AUTH_URL_FLUJO  = "https://aca.aunesa.com/Irmo/api/login"
 INFOS_URL_FLUJO = "https://aca.aunesa.com/Irmo/api/operaciones/informes"
 
 
-def _autenticar_flujo():
+def _autenticar_flujo(client_id=None, username=None, password=None):
+    """Autentica en Aunesa. Usa los parámetros si se pasan; si no, cae al config/env."""
     resp = requests.post(
         AUTH_URL_FLUJO,
-        json={"clientId": config.AUNESA_CLIENT_ID,
-              "username":  config.AUNESA_USERNAME,
-              "password":  config.AUNESA_PASSWORD},
+        json={
+            "clientId": client_id or config.AUNESA_CLIENT_ID,
+            "username":  username  or config.AUNESA_USERNAME,
+            "password":  password  or config.AUNESA_PASSWORD,
+        },
         headers={"Content-Type": "application/json"},
         timeout=10,
     )
@@ -458,6 +459,34 @@ def _inferir_moneda(condiciones):
 def _tab_backfills():
     st.caption("Carga de datos históricos.")
 
+    # ─── Credenciales Aunesa ─────────────────────────────────────────────────
+    with st.expander("Credenciales Aunesa", expanded=True):
+        st.caption("Ingresalas una vez por sesión. No se guardan en disco ni en secrets.")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            aunesa_client = st.text_input("Client ID", key="aunesa_cred_client",
+                                          value=st.session_state.get("aunesa_cred_client", ""))
+        with c2:
+            aunesa_user = st.text_input("Usuario", key="aunesa_cred_user",
+                                        value=st.session_state.get("aunesa_cred_user", ""))
+        with c3:
+            aunesa_pass = st.text_input("Password", type="password", key="aunesa_cred_pass",
+                                        value=st.session_state.get("aunesa_cred_pass", ""))
+
+    def _creds_ok():
+        return all([
+            st.session_state.get("aunesa_cred_client", "").strip(),
+            st.session_state.get("aunesa_cred_user", "").strip(),
+            st.session_state.get("aunesa_cred_pass", "").strip(),
+        ])
+
+    def _aunesa_env():
+        return {
+            "AUNESA_CLIENT_ID": st.session_state.get("aunesa_cred_client", "").strip(),
+            "AUNESA_USERNAME":  st.session_state.get("aunesa_cred_user", "").strip(),
+            "AUNESA_PASSWORD":  st.session_state.get("aunesa_cred_pass", "").strip(),
+        }
+
     # ─── AuM Snapshot ────────────────────────────────────────────────────────
     with st.expander("AuM Snapshot — backfill para una fecha específica", expanded=False):
         st.info("Llama a Aunesa y guarda posiciones en Valuaciones.AuM para la fecha indicada. "
@@ -474,15 +503,18 @@ def _tab_backfills():
         with c1:
             btn_disabled = status_aum == "running"
             if st.button("▶ Ejecutar", key="bf_aum_btn", disabled=btn_disabled):
-                _run_bg("Excel/backfill_aum.py", [fecha_aum.isoformat()], "aum_bf")
-                st.rerun()
+                if not _creds_ok():
+                    st.error("Completá las credenciales de Aunesa arriba antes de ejecutar.")
+                else:
+                    _run_bg("Excel/backfill_aum.py", [fecha_aum.isoformat()],
+                            "aum_bf", extra_env=_aunesa_env())
+                    st.rerun()
         with c2:
             st.caption(f"Estado: {badges.get(status_aum, status_aum)}")
             tmppath = st.session_state.get("dm_aum_bf_tmpfile")
             if tmppath:
                 st.caption(f"Log: `{tmppath}`")
 
-        # Fragment con auto-refresh (sigue corriendo aunque no se vea el log)
         _frag_aum()
 
     # ─── Flujo Contrapartes ───────────────────────────────────────────────────
@@ -535,7 +567,12 @@ def _tab_backfills():
                         if not primera:
                             st.warning("No hay contrapartes con cuenta asignada.")
                         else:
-                            headers_prev = _autenticar_flujo()
+                            c_prev = _aunesa_env() if _creds_ok() else {}
+                            headers_prev = _autenticar_flujo(
+                                c_prev.get("AUNESA_CLIENT_ID"),
+                                c_prev.get("AUNESA_USERNAME"),
+                                c_prev.get("AUNESA_PASSWORD"),
+                            )
                             try:
                                 cid = int(str(primera["cuenta"]).strip())
                             except (ValueError, TypeError):
@@ -572,10 +609,13 @@ def _tab_backfills():
             st.caption(f"Además de los excluidos por defecto, también se excluirán: {resumen_excluir}")
 
         if st.button("▶ Ejecutar carga", key="bf_flujo_run"):
-            _ejecutar_flujo(fecha_str_flujo, tipos_excluir_run)
+            if not _creds_ok():
+                st.error("Completá las credenciales de Aunesa arriba antes de ejecutar.")
+            else:
+                _ejecutar_flujo(fecha_str_flujo, tipos_excluir_run, _aunesa_env())
 
 
-def _ejecutar_flujo(fecha_str: str, tipos_excluir: set):
+def _ejecutar_flujo(fecha_str: str, tipos_excluir: set, creds: dict | None = None):
     """Ejecuta la carga de flujo inline con log visible en pantalla."""
     log_area = st.empty()
     lineas   = []
@@ -590,6 +630,7 @@ def _ejecutar_flujo(fecha_str: str, tipos_excluir: set):
         col_contrapartes = client["CashFlow"]["Contrapartes"]
         col_flujo        = client["CashFlow"]["Flujo"]
 
+        c = creds or {}
         log(f"Fecha objetivo: {fecha_str}")
         log(f"Tipos excluidos: {sorted(tipos_excluir)}")
         log("")
@@ -600,7 +641,9 @@ def _ejecutar_flujo(fecha_str: str, tipos_excluir: set):
 
         # 2. Auth
         log("Autenticando en Aunesa...")
-        headers = _autenticar_flujo()
+        headers = _autenticar_flujo(c.get("AUNESA_CLIENT_ID"),
+                                    c.get("AUNESA_USERNAME"),
+                                    c.get("AUNESA_PASSWORD"))
         log("✅ Auth OK")
         log("")
 
@@ -637,7 +680,9 @@ def _ejecutar_flujo(fecha_str: str, tipos_excluir: set):
 
                 if resp.status_code == 401:
                     log(f"  [{idx}/{total_cp}] Re-autenticando...")
-                    headers = _autenticar_flujo()
+                    headers = _autenticar_flujo(c.get("AUNESA_CLIENT_ID"),
+                                                c.get("AUNESA_USERNAME"),
+                                                c.get("AUNESA_PASSWORD"))
                     resp    = requests.get(INFOS_URL_FLUJO, params=params,
                                            headers=headers, timeout=60)
 

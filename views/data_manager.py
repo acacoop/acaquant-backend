@@ -519,104 +519,167 @@ def _tab_backfills():
         _frag_aum()
 
     # ─── Flujo Contrapartes ───────────────────────────────────────────────────
-    with st.expander("Flujo Contrapartes — cargar operaciones por fecha y tipo", expanded=False):
+    with st.expander("Flujo Contrapartes — cargar operaciones por rango y tipo", expanded=False):
         st.info("Consulta Aunesa por cada contraparte con cuenta asignada y guarda las operaciones "
-                "en CashFlow.Flujo. Podés elegir qué tipos incluir antes de ejecutar.")
+                "en CashFlow.Flujo. Podés elegir rango de fechas y qué tipos incluir.")
 
-        fecha_flujo = st.date_input(
-            "Fecha de concertación",
-            value=date.today() - timedelta(days=1),
-            key="bf_flujo_fecha",
-        )
-        fecha_str_flujo = fecha_flujo.strftime("%d/%m/%Y")
+        c1, c2 = st.columns(2)
+        with c1:
+            fecha_flujo_desde = st.date_input(
+                "Desde", value=date.today() - timedelta(days=1), key="bf_flujo_desde"
+            )
+        with c2:
+            fecha_flujo_hasta = st.date_input(
+                "Hasta", value=date.today() - timedelta(days=1), key="bf_flujo_hasta"
+            )
 
-        # ── Cargar tipos disponibles desde CashFlow.Flujo (sin API call) ──────
-        col_flujo = _dbcf()["Flujo"]
-        tipos_en_mongo = sorted(col_flujo.distinct("tipoOperacion"))
-        tipos_disponibles = [t for t in tipos_en_mongo if t and t not in _TIPOS_EXCLUIR_DEFAULT]
-
-        # También mostrar los siempre excluidos como info
-        st.caption(f"Tipos en MongoDB (excluidos por defecto no se muestran): "
-                   f"{len(tipos_disponibles)} tipos")
-
-        if not tipos_disponibles:
-            st.warning("No hay tipos de operación en CashFlow.Flujo. "
-                       "Ejecutá primero para ver los tipos disponibles, o usá 'Preview tipos'.")
+        if fecha_flujo_hasta < fecha_flujo_desde:
+            st.error("La fecha Hasta debe ser mayor o igual a Desde.")
         else:
-            st.markdown("**Tipos a incluir** (destildá los que no querés cargar):")
+            desde_str = fecha_flujo_desde.strftime("%d/%m/%Y")
+            hasta_str = fecha_flujo_hasta.strftime("%d/%m/%Y")
+            n_dias = (fecha_flujo_hasta - fecha_flujo_desde).days + 1
+            if n_dias > 1:
+                st.caption(f"Rango: {desde_str} → {hasta_str} ({n_dias} días)")
+
+            # ── Tipos disponibles desde MongoDB ───────────────────────────────
+            col_flujo = _dbcf()["Flujo"]
+            tipos_en_mongo    = sorted(col_flujo.distinct("tipoOperacion"))
+            tipos_disponibles = [t for t in tipos_en_mongo
+                                 if t and t not in _TIPOS_EXCLUIR_DEFAULT]
+
+            st.caption(f"{len(tipos_disponibles)} tipos disponibles en MongoDB "
+                       "(los excluidos por defecto no se muestran)")
+
             tipos_seleccionados = []
-            # Mostrar en 2 columnas
-            mitad = (len(tipos_disponibles) + 1) // 2
-            col_left, col_right = st.columns(2)
-            for i, tipo in enumerate(tipos_disponibles):
-                col = col_left if i < mitad else col_right
-                with col:
-                    checked = st.checkbox(tipo, value=True, key=f"flujo_tipo_{i}")
-                    if checked:
-                        tipos_seleccionados.append(tipo)
-
-        # Preview tipos desde Aunesa (optional, hace una sola cuenta de prueba)
-        with st.expander("Preview tipos desde Aunesa (llama a la API)", expanded=False):
-            st.caption("Consulta una sola contraparte para ver qué tipos devuelve Aunesa hoy. "
-                       "Útil para descubrir tipos nuevos no presentes en MongoDB.")
-            if st.button("Consultar preview", key="flujo_preview_btn"):
-                with st.spinner("Consultando Aunesa..."):
-                    try:
-                        col_cp = _dbcf()["Contrapartes"]
-                        primera = col_cp.find_one({"cuenta": {"$exists": True, "$ne": ""}},
-                                                  {"contraparte": 1, "cuenta": 1})
-                        if not primera:
-                            st.warning("No hay contrapartes con cuenta asignada.")
-                        else:
-                            c_prev = _aunesa_env() if _creds_ok() else {}
-                            headers_prev = _autenticar_flujo(
-                                c_prev.get("AUNESA_CLIENT_ID"),
-                                c_prev.get("AUNESA_USERNAME"),
-                                c_prev.get("AUNESA_PASSWORD"),
-                            )
-                            try:
-                                cid = int(str(primera["cuenta"]).strip())
-                            except (ValueError, TypeError):
-                                cid = str(primera["cuenta"]).strip()
-                            params = {"cuenta": cid,
-                                      "fechaConcDesde": fecha_str_flujo,
-                                      "fechaConcHasta": fecha_str_flujo}
-                            resp = requests.get(INFOS_URL_FLUJO, params=params,
-                                                headers=headers_prev, timeout=60)
-                            if resp.status_code == 204:
-                                st.info(f"Contraparte [{primera['contraparte']}] sin operaciones para {fecha_str_flujo}.")
-                            else:
-                                resp.raise_for_status()
-                                data_prev = resp.json() or []
-                                tipos_api = sorted({r.get("tipoOperacion", "") for r in data_prev if r.get("tipoOperacion")})
-                                st.success(f"Tipos encontrados en [{primera['contraparte']}] para {fecha_str_flujo}:")
-                                for t in tipos_api:
-                                    excluido = t in _TIPOS_EXCLUIR_DEFAULT
-                                    st.write(f"  {'🚫' if excluido else '✅'} {t}" +
-                                             (" (excluido por defecto)" if excluido else ""))
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-
-        st.divider()
-
-        # ── Ejecutar ──────────────────────────────────────────────────────────
-        tipos_excluir_run = set()
-        if tipos_disponibles:
-            tipos_excluir_run = {t for t in tipos_disponibles if t not in tipos_seleccionados}
-        tipos_excluir_run |= _TIPOS_EXCLUIR_DEFAULT   # siempre excluimos los default
-
-        resumen_excluir = sorted(tipos_excluir_run - _TIPOS_EXCLUIR_DEFAULT)
-        if resumen_excluir:
-            st.caption(f"Además de los excluidos por defecto, también se excluirán: {resumen_excluir}")
-
-        if st.button("▶ Ejecutar carga", key="bf_flujo_run"):
-            if not _creds_ok():
-                st.error("Completá las credenciales de Aunesa arriba antes de ejecutar.")
+            if not tipos_disponibles:
+                st.warning("No hay tipos en CashFlow.Flujo. Usá 'Preview tipos' para descubrirlos.")
             else:
-                _ejecutar_flujo(fecha_str_flujo, tipos_excluir_run, _aunesa_env())
+                st.markdown("**Tipos a incluir** (destildá los que no querés):")
+                mitad = (len(tipos_disponibles) + 1) // 2
+                col_left, col_right = st.columns(2)
+                for i, tipo in enumerate(tipos_disponibles):
+                    col = col_left if i < mitad else col_right
+                    with col:
+                        if st.checkbox(tipo, value=True, key=f"flujo_tipo_{i}"):
+                            tipos_seleccionados.append(tipo)
+
+            # ── Preview tipos (una sola cuenta) ───────────────────────────────
+            with st.expander("Preview tipos desde Aunesa (llama a la API)", expanded=False):
+                st.caption("Consulta una sola contraparte para ver qué tipos devuelve Aunesa. "
+                           "Útil para descubrir tipos nuevos no presentes en MongoDB.")
+                if st.button("Consultar preview", key="flujo_preview_btn"):
+                    with st.spinner("Consultando Aunesa..."):
+                        try:
+                            col_cp  = _dbcf()["Contrapartes"]
+                            primera = col_cp.find_one({"cuenta": {"$exists": True, "$ne": ""}},
+                                                      {"contraparte": 1, "cuenta": 1})
+                            if not primera:
+                                st.warning("No hay contrapartes con cuenta asignada.")
+                            else:
+                                c_prev       = _aunesa_env() if _creds_ok() else {}
+                                headers_prev = _autenticar_flujo(
+                                    c_prev.get("AUNESA_CLIENT_ID"),
+                                    c_prev.get("AUNESA_USERNAME"),
+                                    c_prev.get("AUNESA_PASSWORD"),
+                                )
+                                try:
+                                    cid = int(str(primera["cuenta"]).strip())
+                                except (ValueError, TypeError):
+                                    cid = str(primera["cuenta"]).strip()
+                                params = {"cuenta": cid,
+                                          "fechaConcDesde": desde_str,
+                                          "fechaConcHasta": hasta_str}
+                                resp = requests.get(INFOS_URL_FLUJO, params=params,
+                                                    headers=headers_prev, timeout=60)
+                                if resp.status_code == 204:
+                                    st.info(f"[{primera['contraparte']}] sin operaciones en el rango.")
+                                else:
+                                    resp.raise_for_status()
+                                    data_prev = resp.json() or []
+                                    tipos_api = sorted({r.get("tipoOperacion", "")
+                                                        for r in data_prev if r.get("tipoOperacion")})
+                                    st.success(f"Tipos en [{primera['contraparte']}]:")
+                                    for t in tipos_api:
+                                        excluido = t in _TIPOS_EXCLUIR_DEFAULT
+                                        st.write(f"  {'🚫' if excluido else '✅'} {t}" +
+                                                 (" (excluido por defecto)" if excluido else ""))
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+            st.divider()
+
+            # ── Ejecutar ──────────────────────────────────────────────────────
+            tipos_excluir_run  = {t for t in tipos_disponibles if t not in tipos_seleccionados}
+            tipos_excluir_run |= _TIPOS_EXCLUIR_DEFAULT
+
+            extra = sorted(tipos_excluir_run - _TIPOS_EXCLUIR_DEFAULT)
+            if extra:
+                st.caption(f"También se excluirán: {extra}")
+
+            if st.button("▶ Ejecutar carga", key="bf_flujo_run"):
+                if not _creds_ok():
+                    st.error("Completá las credenciales de Aunesa arriba antes de ejecutar.")
+                else:
+                    _ejecutar_flujo(desde_str, hasta_str, tipos_excluir_run, _aunesa_env())
+
+    # ─── Borrar por tipo de operación ────────────────────────────────────────
+    with st.expander("Borrar operaciones por tipo — limpieza de CashFlow.Flujo", expanded=False):
+        st.warning("Operación destructiva. Borra permanentemente docs de CashFlow.Flujo "
+                   "según el tipo de operación y rango de fechas.")
+
+        col_flujo_b = _dbcf()["Flujo"]
+        todos_tipos = sorted(t for t in col_flujo_b.distinct("tipoOperacion") if t)
+
+        if not todos_tipos:
+            st.info("No hay documentos en CashFlow.Flujo.")
+        else:
+            tipos_a_borrar = st.multiselect(
+                "Tipos a borrar", todos_tipos, key="del_tipos"
+            )
+
+            c1, c2 = st.columns(2)
+            with c1:
+                del_desde = st.date_input("Desde (opcional)", value=None,
+                                           key="del_desde")
+            with c2:
+                del_hasta = st.date_input("Hasta (opcional)", value=None,
+                                           key="del_hasta")
+
+            # Construir filtro y mostrar preview
+            if tipos_a_borrar:
+                filtro: dict = {"tipoOperacion": {"$in": tipos_a_borrar}}
+                if del_desde or del_hasta:
+                    # concertacion está como "DD/MM/YYYY" — generamos el set de fechas
+                    d_ini = del_desde or date(2000, 1, 1)
+                    d_fin = del_hasta or date(2099, 12, 31)
+                    fechas_rango = []
+                    d_cur = d_ini
+                    while d_cur <= d_fin:
+                        fechas_rango.append(d_cur.strftime("%d/%m/%Y"))
+                        d_cur += timedelta(days=1)
+                    filtro["concertacion"] = {"$in": fechas_rango}
+
+                count_prev = col_flujo_b.count_documents(filtro)
+                if count_prev == 0:
+                    st.info("No hay documentos que coincidan con ese filtro.")
+                else:
+                    st.error(f"Se borrarán **{count_prev:,} documentos**. Esta acción no se puede deshacer.")
+                    confirmar = st.checkbox(
+                        f"Confirmo que quiero borrar {count_prev:,} docs", key="del_confirm"
+                    )
+                    if confirmar:
+                        if st.button("🗑️ Borrar ahora", key="del_exec_btn"):
+                            result = col_flujo_b.delete_many(filtro)
+                            st.success(f"✅ {result.deleted_count:,} documentos eliminados.")
+                            st.session_state["del_confirm"] = False
+                            st.rerun()
+            else:
+                st.caption("Seleccioná al menos un tipo para ver el preview.")
 
 
-def _ejecutar_flujo(fecha_str: str, tipos_excluir: set, creds: dict | None = None):
+def _ejecutar_flujo(desde_str: str, hasta_str: str,
+                    tipos_excluir: set, creds: dict | None = None):
     """Ejecuta la carga de flujo inline con log visible en pantalla."""
     log_area = st.empty()
     lineas   = []
@@ -632,13 +695,22 @@ def _ejecutar_flujo(fecha_str: str, tipos_excluir: set, creds: dict | None = Non
         col_flujo        = client["CashFlow"]["Flujo"]
 
         c = creds or {}
-        log(f"Fecha objetivo: {fecha_str}")
+        rango = desde_str if desde_str == hasta_str else f"{desde_str} → {hasta_str}"
+        log(f"Rango: {rango}")
         log(f"Tipos excluidos: {sorted(tipos_excluir)}")
         log("")
 
-        # 1. Borrar docs de esa fecha
-        del_result = col_flujo.delete_many({"concertacion": fecha_str})
-        log(f"🗑️  {del_result.deleted_count} docs eliminados para {fecha_str}")
+        # 1. Borrar docs del rango — generar lista de fechas DD/MM/YYYY
+        fmt = "%d/%m/%Y"
+        d_ini = datetime.strptime(desde_str, fmt).date()
+        d_fin = datetime.strptime(hasta_str, fmt).date()
+        fechas_rango = []
+        d_cur = d_ini
+        while d_cur <= d_fin:
+            fechas_rango.append(d_cur.strftime(fmt))
+            d_cur += timedelta(days=1)
+        del_result = col_flujo.delete_many({"concertacion": {"$in": fechas_rango}})
+        log(f"🗑️  {del_result.deleted_count} docs eliminados para {rango}")
 
         # 2. Auth
         log("Autenticando en Aunesa...")
@@ -669,8 +741,8 @@ def _ejecutar_flujo(fecha_str: str, tipos_excluir: set, creds: dict | None = Non
                 continue
 
             params = {"cuenta": cuenta_id,
-                      "fechaConcDesde": fecha_str,
-                      "fechaConcHasta": fecha_str}
+                      "fechaConcDesde": desde_str,
+                      "fechaConcHasta": hasta_str}
             try:
                 resp = requests.get(INFOS_URL_FLUJO, params=params,
                                     headers=headers, timeout=60)
@@ -721,9 +793,9 @@ def _ejecutar_flujo(fecha_str: str, tipos_excluir: set, creds: dict | None = Non
         if registros:
             ops = [InsertOne(r) for r in registros.values()]
             col_flujo.bulk_write(ops, ordered=False)
-            log(f"✅ {len(registros)} documentos insertados para {fecha_str}")
+            log(f"✅ {len(registros)} documentos insertados para {rango}")
         else:
-            log(f"⚠️  Sin operaciones para insertar en {fecha_str}")
+            log(f"⚠️  Sin operaciones para insertar en {rango}")
 
         # 6. Dedup global por boleto
         log("")

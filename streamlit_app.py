@@ -394,10 +394,8 @@ def render_tramo_vol(snaps, enriched):
 
     styler = df.style.map(_pct_str_color, subset=["Intraday", "1D%"])
 
-    col_t, _ = st.columns([2, 1])
-    with col_t:
-        st.caption("VOLUMEN POR TRAMO · RETORNO PONDERADO")
-        st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(df)))
+    st.caption("VOLUMEN POR TRAMO · RETORNO PONDERADO")
+    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(df)))
 
 
 # ==========================================
@@ -1789,9 +1787,12 @@ def vista_mercado():
             else:
                 snaps_show = all_snaps
 
-            # ── Tablas ────────────────────────────────────────────────────────
-            render_mercado_table(snaps_show, enriched)
-            render_tramo_vol(snaps_show, enriched)
+            # ── Tablas side by side ───────────────────────────────────────────
+            col_main, col_tramo = st.columns([3, 2])
+            with col_main:
+                render_mercado_table(snaps_show, enriched)
+            with col_tramo:
+                render_tramo_vol(snaps_show, enriched)
 
         _tab_mercado_live()
 

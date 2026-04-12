@@ -317,16 +317,18 @@ def render_mercado_table(snaps, enriched=None):
 
 
 def render_tramo_vol(snaps, enriched):
-    """Tabla: volumen por tramo de duration + TEA/Intraday/1D% ponderados por volumen."""
-    # Tramos definidos por Macaulay duration en años
+    """Tabla: volumen por tramo (clickable) → detalle de tickers del tramo seleccionado."""
     TRAMOS = [
         ("Corto",  0.0,  0.5,  "≤ 6m"),
         ("Medio",  0.5,  1.5,  "6m–18m"),
         ("Largo",  1.5,  99.0, "> 18m"),
     ]
 
-    buckets = {label: {"vol": 0.0, "tea_vol": 0.0, "intra_vol": 0.0, "oned_vol": 0.0,
-                        "intra_w": 0.0, "oned_w": 0.0} for label, *_ in TRAMOS}
+    buckets = {label: {
+        "vol": 0.0, "tea_vol": 0.0, "intra_vol": 0.0, "oned_vol": 0.0,
+        "intra_w": 0.0, "oned_w": 0.0,
+        "items": [],   # [(snap, enc, total), ...]
+    } for label, *_ in TRAMOS}
 
     for snap in snaps:
         ticker     = snap.get("ticker", "")
@@ -358,44 +360,94 @@ def render_tramo_vol(snaps, enriched):
                 if vs_cierre is not None:
                     b["oned_vol"]  += vs_cierre * total
                     b["oned_w"]    += total
+                b["items"].append((snap, enc, total))
                 break
 
     total_global = sum(b["vol"] for b in buckets.values())
     if total_global == 0:
         return
 
+    labels_order = [label for label, *_ in TRAMOS]
     rows = []
     for label, _, _, rango in TRAMOS:
         b   = buckets[label]
         vol = b["vol"]
         pct = vol / total_global if total_global > 0 else 0
-        tea_p   = b["tea_vol"]  / vol        if vol > 0 else None
-        intra_p = b["intra_vol"] / b["intra_w"] if b["intra_w"] > 0 else None
-        oned_p  = b["oned_vol"]  / b["oned_w"]  if b["oned_w"]  > 0 else None
+        tea_p   = b["tea_vol"]  / vol           if vol > 0           else None
+        intra_p = b["intra_vol"] / b["intra_w"] if b["intra_w"] > 0  else None
+        oned_p  = b["oned_vol"]  / b["oned_w"]  if b["oned_w"]  > 0  else None
         rows.append({
-            "Tramo":      f"{label} ({rango})",
-            "Vol $":      fmt_money(vol) if vol > 0 else "—",
-            "% Vol":      f"{pct:.0%}"   if vol > 0 else "—",
-            "TEA pond.":  f"{tea_p:.2%}"   if tea_p   is not None else "—",
-            "Intraday":   f"{intra_p:+.2%}" if intra_p is not None else "—",
-            "1D%":        f"{oned_p:+.2%}"  if oned_p  is not None else "—",
+            "Tramo":     f"{label} ({rango})",
+            "Vol $":     fmt_money(vol)        if vol > 0            else "—",
+            "% Vol":     f"{pct:.0%}"          if vol > 0            else "—",
+            "TEA pond.": f"{tea_p:.2%}"        if tea_p   is not None else "—",
+            "Intraday":  f"{intra_p:+.2%}"     if intra_p is not None else "—",
+            "1D%":       f"{oned_p:+.2%}"      if oned_p  is not None else "—",
         })
 
-    df = pd.DataFrame(rows)
-
-    def _pct_str_color(v):
-        if not isinstance(v, str) or v == "—":
-            return ""
-        try:
-            num = float(v.replace("%", "").replace("+", ""))
-            return "color: #00cc66; font-weight: bold" if num >= 0 else "color: #ff4444; font-weight: bold"
-        except ValueError:
-            return ""
-
-    styler = df.style.map(_pct_str_color, subset=["Intraday", "1D%"])
+    df_summary = pd.DataFrame(rows)
 
     st.caption("VOLUMEN POR TRAMO · RETORNO PONDERADO")
-    st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(df)))
+    ev = st.dataframe(
+        df_summary,
+        hide_index=True,
+        use_container_width=True,
+        height=df_height(len(df_summary)),
+        on_select="rerun",
+        selection_mode="single-row",
+        key="tramo_vol_sel",
+    )
+
+    # ── Detalle del tramo seleccionado ────────────────────────────────────────
+    sel_rows = ev.selection.rows if hasattr(ev, "selection") and ev.selection.rows else []
+    if not sel_rows:
+        return
+
+    idx       = sel_rows[0]
+    label_sel = labels_order[idx]
+    items     = sorted(buckets[label_sel]["items"], key=lambda x: x[2], reverse=True)
+    if not items:
+        return
+
+    st.caption(f"DETALLE — {rows[idx]['Tramo']}")
+
+    det_rows = []
+    for snap, enc, total in items:
+        m          = snap.get("metrics", {})
+        last       = m.get("last_price",    0) or 0
+        open_      = m.get("open_price",    0) or 0
+        closing    = m.get("closing_price", 0) or 0
+        tea        = enc.get("TEA")
+        dur        = enc.get("duration")
+        intraday   = (last / open_   - 1) if open_   > 0 and last > 0 else None
+        vs_cierre  = (last / closing - 1) if closing > 0 and last > 0 else None
+        det_rows.append({
+            "Ticker":   short_name(snap.get("ticker", "")),
+            "TEA":      tea,
+            "Dur":      dur,
+            "Total $":  fmt_money(total),
+            "Intraday": intraday,
+            "1D%":      vs_cierre,
+        })
+
+    df_det = pd.DataFrame(det_rows)
+
+    def _pct_color(v):
+        if pd.isna(v): return ""
+        return "color: #00cc66; font-weight: bold" if v >= 0 else "color: #ff4444; font-weight: bold"
+
+    styler_det = (
+        df_det.style
+        .map(_pct_color, subset=["Intraday", "1D%"])
+        .format({
+            "TEA":      lambda v: f"{v:.2%}"  if pd.notna(v) else "—",
+            "Dur":      lambda v: f"{v:.2f}"  if pd.notna(v) else "—",
+            "Intraday": lambda v: f"{v:+.2%}" if pd.notna(v) else "—",
+            "1D%":      lambda v: f"{v:+.2%}" if pd.notna(v) else "—",
+        })
+    )
+    st.dataframe(styler_det, hide_index=True, use_container_width=True,
+                 height=df_height(len(df_det)))
 
 
 # ==========================================

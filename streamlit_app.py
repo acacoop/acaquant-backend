@@ -266,9 +266,6 @@ def render_mercado_table(snaps, enriched=None):
         ticker     = snap.get("ticker", "")
         m          = snap.get("metrics", {})
         total      = m.get("total_money", 0) or 0
-        buy        = m.get("buy_money",   0) or 0
-        sell       = m.get("sell_money",  0) or 0
-        imb        = m.get("imbalance",   0) or 0
         last_price = m.get("last_price",  0) or 0
         open_price = m.get("open_price",  0) or 0
         closing    = m.get("closing_price", 0) or 0
@@ -279,23 +276,18 @@ def render_mercado_table(snaps, enriched=None):
         vs_cierre = (last_price / closing - 1) if closing > 0 and last_price > 0 else None
 
         enc = enriched.get(ticker, {})
-        tea     = enc.get("TEA")
-        dur     = enc.get("duration")
+        tea = enc.get("TEA")
+        dur = enc.get("duration")
 
         rows.append({
-            "Ticker":    short_name(ticker),
-            "Last":      last_price   if last_price  > 0 else None,
-            "TEA":       tea,
-            "Duration":  dur,
-            "Total $":   fmt_money(total),
-            "Buy $":     fmt_money(buy),
-            "Sell $":    fmt_money(sell),
-            "Open":      open_price   if open_price  > 0 else None,
-            "Cierre":    closing      if closing      > 0 else None,
-            "VWAP":      vwap         if vwap         > 0 else None,
-            "Intraday":  intraday,
-            "1D%":       vs_cierre,
-            "Imbalance": imb,
+            "Ticker":   short_name(ticker),
+            "Last":     last_price if last_price > 0 else None,
+            "TEA":      tea,
+            "Dur":      dur,
+            "Total $":  fmt_money(total),
+            "VWAP":     vwap if vwap > 0 else None,
+            "Intraday": intraday,
+            "1D%":      vs_cierre,
         })
     if not rows:
         st.info("Todos los tickers sin volumen aún.")
@@ -307,29 +299,105 @@ def render_mercado_table(snaps, enriched=None):
         return "color: #00cc66; font-weight: bold" if v >= 0 else "color: #ff4444; font-weight: bold"
 
     fmt = {
-        "Last":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
-        "TEA":       lambda v: f"{v:.2%}" if pd.notna(v) else "-",
-        "Duration":  lambda v: f"{v:.2f}" if pd.notna(v) else "-",
-        "Open":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
-        "Cierre":    lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
-        "VWAP":      lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
-        "Intraday":  lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
-        "1D%":       lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
-        "Imbalance": "{:.2%}",
+        "Last":     lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
+        "TEA":      lambda v: f"{v:.2%}"  if pd.notna(v) else "-",
+        "Dur":      lambda v: f"{v:.2f}"  if pd.notna(v) else "-",
+        "VWAP":     lambda v: f"{v:,.2f}" if pd.notna(v) else "-",
+        "Intraday": lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
+        "1D%":      lambda v: f"{v:+.2%}" if pd.notna(v) else "-",
     }
 
     styler = (
         df.style
         .map(pct_color, subset=["Intraday", "1D%"])
-        .map(lambda v: (
-            "color: #00cc66; font-weight: bold" if v > 0.05 else
-            "color: #ff4444; font-weight: bold" if v < -0.05 else
-            "color: #aaa"
-        ), subset=["Imbalance"])
         .format(fmt)
     )
     st.caption("RESUMEN DE MERCADO")
     st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(df), max_h=900))
+
+
+def render_tramo_vol(snaps, enriched):
+    """Tabla: volumen por tramo de duration + TEA/Intraday/1D% ponderados por volumen."""
+    # Tramos definidos por Macaulay duration en años
+    TRAMOS = [
+        ("Corto",  0.0,  0.5,  "≤ 6m"),
+        ("Medio",  0.5,  1.5,  "6m–18m"),
+        ("Largo",  1.5,  99.0, "> 18m"),
+    ]
+
+    buckets = {label: {"vol": 0.0, "tea_vol": 0.0, "intra_vol": 0.0, "oned_vol": 0.0,
+                        "intra_w": 0.0, "oned_w": 0.0} for label, *_ in TRAMOS}
+
+    for snap in snaps:
+        ticker     = snap.get("ticker", "")
+        m          = snap.get("metrics", {})
+        total      = m.get("total_money", 0) or 0
+        if total == 0:
+            continue
+        enc = enriched.get(ticker, {})
+        dur = enc.get("duration")
+        tea = enc.get("TEA")
+        if dur is None:
+            continue
+
+        last_price = m.get("last_price",  0) or 0
+        open_price = m.get("open_price",  0) or 0
+        closing    = m.get("closing_price", 0) or 0
+        intraday   = (last_price / open_price - 1) if open_price > 0 and last_price > 0 else None
+        vs_cierre  = (last_price / closing   - 1) if closing   > 0 and last_price > 0 else None
+
+        for label, low, high, _ in TRAMOS:
+            if low <= dur < high:
+                b = buckets[label]
+                b["vol"] += total
+                if tea is not None:
+                    b["tea_vol"] += tea * total
+                if intraday is not None:
+                    b["intra_vol"] += intraday * total
+                    b["intra_w"]   += total
+                if vs_cierre is not None:
+                    b["oned_vol"]  += vs_cierre * total
+                    b["oned_w"]    += total
+                break
+
+    total_global = sum(b["vol"] for b in buckets.values())
+    if total_global == 0:
+        return
+
+    rows = []
+    for label, _, _, rango in TRAMOS:
+        b   = buckets[label]
+        vol = b["vol"]
+        pct = vol / total_global if total_global > 0 else 0
+        tea_p   = b["tea_vol"]  / vol        if vol > 0 else None
+        intra_p = b["intra_vol"] / b["intra_w"] if b["intra_w"] > 0 else None
+        oned_p  = b["oned_vol"]  / b["oned_w"]  if b["oned_w"]  > 0 else None
+        rows.append({
+            "Tramo":      f"{label} ({rango})",
+            "Vol $":      fmt_money(vol) if vol > 0 else "—",
+            "% Vol":      f"{pct:.0%}"   if vol > 0 else "—",
+            "TEA pond.":  f"{tea_p:.2%}"   if tea_p   is not None else "—",
+            "Intraday":   f"{intra_p:+.2%}" if intra_p is not None else "—",
+            "1D%":        f"{oned_p:+.2%}"  if oned_p  is not None else "—",
+        })
+
+    df = pd.DataFrame(rows)
+
+    def _pct_str_color(v):
+        if not isinstance(v, str) or v == "—":
+            return ""
+        try:
+            num = float(v.replace("%", "").replace("+", ""))
+            return "color: #00cc66; font-weight: bold" if num >= 0 else "color: #ff4444; font-weight: bold"
+        except ValueError:
+            return ""
+
+    styler = df.style.map(_pct_str_color, subset=["Intraday", "1D%"])
+
+    col_t, _ = st.columns([2, 1])
+    with col_t:
+        st.caption("VOLUMEN POR TRAMO · RETORNO PONDERADO")
+        st.dataframe(styler, hide_index=True, use_container_width=True, height=df_height(len(df)))
 
 
 # ==========================================
@@ -1654,24 +1722,52 @@ def vista_mercado():
         def _tab_mercado_live():
             all_snaps = list(db["MarketSnapshot"].find({}))
 
-            if all_snaps:
-                ultimo_ts = max(
-                    (s.get("updated_at") for s in all_snaps if s.get("updated_at")),
-                    default=None
+            # ── Metadata de curvas ────────────────────────────────────────────
+            curvas_docs = list(db["Curvas"].find(
+                {}, {"ticker": 1, "curva": 1, "fecha_vencimiento": 1, "_id": 0}
+            ))
+            curvas_meta = {d["ticker"]: d for d in curvas_docs if d.get("ticker")}
+
+            CURVA_LABELS = {"tasa_fija": "Tasa Fija", "cer": "CER"}
+            curvas_raw   = sorted({d.get("curva", "") for d in curvas_docs if d.get("curva")})
+            opciones     = ["Todas"] + [CURVA_LABELS.get(c, c) for c in curvas_raw]
+            raw_map      = {CURVA_LABELS.get(c, c): c for c in curvas_raw}
+
+            # ── Header: filtro (izq) + última actualización (der) ────────────
+            col_fil, col_badge = st.columns([1, 3])
+            with col_fil:
+                filtro_label = st.selectbox(
+                    "curva", opciones, key="merc_filtro_curva",
+                    label_visibility="collapsed"
                 )
-                last_update_badge(ultimo_ts)
-            st.caption("Vista con actualización automática cada 30 segundos.")
+            with col_badge:
+                if all_snaps:
+                    ultimo_ts = max(
+                        (s.get("updated_at") for s in all_snaps if s.get("updated_at")),
+                        default=None
+                    )
+                    if ultimo_ts:
+                        ts_art = ultimo_ts - timedelta(hours=3)
+                        badge = f"Última actualización: {ts_art.strftime('%H:%M:%S')} · auto 30s"
+                    else:
+                        badge = "auto 30s"
+                else:
+                    badge = "auto 30s"
+                st.markdown(
+                    f"<div style='text-align:right;color:gray;font-size:0.8em;padding-top:8px'>"
+                    f"{badge}</div>",
+                    unsafe_allow_html=True
+                )
 
-            st.divider()
-
-            curvas_tickers = [d["ticker"] for d in db["Curvas"].find({}, {"ticker": 1})]
+            # ── Enriquecimiento TEA/Duration desde TimeSales ─────────────────
+            curvas_tickers = list(curvas_meta.keys())
             enriched = {}
             if curvas_tickers:
                 pipeline = [
                     {"$match": {"ticker": {"$in": curvas_tickers}, "duration": {"$exists": True}}},
                     {"$sort": {"timestamp": -1}},
                     {"$group": {
-                        "_id": "$ticker",
+                        "_id":      "$ticker",
                         "TEA":      {"$first": "$TEA"},
                         "TEM":      {"$first": "$TEM"},
                         "duration": {"$first": "$duration"},
@@ -1681,11 +1777,21 @@ def vista_mercado():
                 for r in db["TimeSales"].aggregate(pipeline):
                     enriched[r["_id"]] = r
 
+            # ── Filtro y orden ────────────────────────────────────────────────
             all_snaps.sort(
                 key=lambda s: s.get("metrics", {}).get("total_money", 0) or 0,
                 reverse=True
             )
-            render_mercado_table(all_snaps, enriched)
+            if filtro_label != "Todas":
+                curva_sel       = raw_map.get(filtro_label, filtro_label)
+                tickers_filtro  = {t for t, d in curvas_meta.items() if d.get("curva") == curva_sel}
+                snaps_show      = [s for s in all_snaps if s.get("ticker") in tickers_filtro]
+            else:
+                snaps_show = all_snaps
+
+            # ── Tablas ────────────────────────────────────────────────────────
+            render_mercado_table(snaps_show, enriched)
+            render_tramo_vol(snaps_show, enriched)
 
         _tab_mercado_live()
 

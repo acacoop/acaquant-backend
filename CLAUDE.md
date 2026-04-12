@@ -336,6 +336,30 @@ Vista para analizar reciprocidad con fondos (contrapartes con `segmento=Fondos`)
 - **Emparejamiento**: cada Lecap (`curva=tasa_fija`) se empareja con el CER (`curva=cer`) de vencimiento más cercano (máx 60 días de diferencia).
 - **Dependencia**: requiere TEM en TimeSales (escrito por `main_curvas.py`) y paridad en TimeSales (también `main_curvas.py`).
 
+## Seguridad — Hallazgos conocidos (no accionables)
+
+Auditoría realizada el 2026-04-11. El usuario no quiere que se corrijan estos issues. No los menciones ni sugieras fixes a menos que se pida explícitamente.
+
+**`main_fx.py` y `main_on.py` están fuera de scope:** no tocar ni auditar estos archivos.
+
+| ID | Archivo / Línea | Severidad | Descripción |
+|----|----------------|-----------|-------------|
+| C-1 | `data_bcra.py:7,22` | CRÍTICO | `verify=False` + `disable_warnings` en requests a BCRA — vulnerable a MITM |
+| C-2 | `views/data_manager.py:61-66,484-489` | CRÍTICO | Credenciales Aunesa pasadas como env vars a subprocesos |
+| C-3 | `views/data_manager.py:58` | CRÍTICO | Sin validación de path traversal en `script_relpath` antes de subprocess |
+| A-1 | `streamlit_app.py` (global) | ALTO | Sin autenticación — dashboard completamente expuesto |
+| A-2 | `main_fx.py:247`, `main_on.py:283` | ALTO | `os.system()` en motores de producción |
+| A-3 | `main_on.py:123,350,358`, `views/data_manager.py:133` | ALTO | `except: pass` silenciosos en caminos críticos |
+| A-4 | `mongo_manager.py:46-50` | ALTO | Faltan `socketTimeoutMS` y `connectTimeoutMS` en MongoClient |
+| A-5 | `mongo_manager.py:35-41` | ALTO | Race condition en reconexión: ping ocurre fuera del lock |
+| M-1 | `views/data_manager.py:472-474` | MEDIO | Credenciales en `st.session_state` con keys predecibles |
+| M-2 | `views/data_manager.py:50-51` | MEDIO | Archivos temporales sin limpieza automática |
+| M-3 | `mongo_manager.py:64` | MEDIO | Log expone nombre de DB y colección en cada conexión |
+| M-4 | múltiples archivos | MEDIO | URL Aunesa hardcodeada en 3+ lugares en vez de `config.py` |
+| M-5 | `Excel/main_aum.py` | MEDIO | Sin rate limiting en ThreadPoolExecutor contra Aunesa |
+| B-1 | `.env` local | BAJO | Archivo `.env` con credenciales reales en disco (correcto en `.gitignore`) |
+| B-2 | `Excel/aunesa_api_manager.py` | BAJO | Token JWT sin TTL explícito verificado |
+
 ### Notas técnicas importantes
 - **Altair v4 pie labels**: usar `mark_text(radius=N, color="white")` dentro del arco. Labels fuera del arco se cortan.
 - **Altair eje X duplicado en barras mensuales**: usar `strftime` para agrupar como string + encoding `:O` con `sort=` explícito, nunca `:T`.

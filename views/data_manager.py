@@ -464,8 +464,7 @@ def _tab_backfills():
         st.session_state.get("aunesa_cred_user", "").strip() and
         st.session_state.get("aunesa_cred_pass", "").strip()
     )
-    with st.expander("Credenciales Aunesa",
-                     expanded=not creds_completas):
+    with st.expander("Credenciales Aunesa", expanded=not creds_completas):
         st.caption("Ingresalas una vez por sesión. No se guardan en disco ni en secrets.")
         c1, c2 = st.columns(2)
         with c1:
@@ -488,194 +487,270 @@ def _tab_backfills():
             "AUNESA_PASSWORD":  st.session_state.get("aunesa_cred_pass", "").strip(),
         }
 
-    # ─── AuM Snapshot ────────────────────────────────────────────────────────
-    with st.expander("AuM Snapshot — backfill para una fecha específica", expanded=False):
-        st.info("Llama a Aunesa y guarda posiciones en Valuaciones.AuM para la fecha indicada. "
-                "Puede tardar 2-5 minutos. El log se actualiza automáticamente cada 2 segundos.")
+    st.divider()
 
-        fecha_aum = st.date_input("Fecha snapshot", value=date.today() - timedelta(days=1),
-                                   key="bf_aum_fecha")
+    # ─── Selector de sub-vista ────────────────────────────────────────────────
+    subvista = st.radio(
+        "Sección",
+        ["Flujo vs Contrapartes", "AuM"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="bf_subvista",
+    )
 
-        status_aum = st.session_state.get("dm_aum_bf_status", "idle")
-        badges = {"idle": "⬜ Idle", "running": "🔄 Corriendo",
-                  "done": "✅ Listo", "error": "❌ Error"}
+    st.divider()
 
-        c1, c2 = st.columns([2, 4])
-        with c1:
-            btn_disabled = status_aum == "running"
-            if st.button("▶ Ejecutar", key="bf_aum_btn", disabled=btn_disabled):
-                if not _creds_ok():
-                    st.error("Completá las credenciales de Aunesa arriba antes de ejecutar.")
-                else:
-                    _run_bg("Excel/backfill_aum.py", [fecha_aum.isoformat()],
-                            "aum_bf", extra_env=_aunesa_env())
-                    st.rerun()
-        with c2:
-            st.caption(f"Estado: {badges.get(status_aum, status_aum)}")
-            tmppath = st.session_state.get("dm_aum_bf_tmpfile")
-            if tmppath:
-                st.caption(f"Log: `{tmppath}`")
+    # ══════════════════════════════════════════════════════════════════════════
+    # SUB-VISTA: Flujo vs Contrapartes
+    # ══════════════════════════════════════════════════════════════════════════
+    if subvista == "Flujo vs Contrapartes":
 
-        _frag_aum()
+        col_flujo = _dbcf()["Flujo"]
 
-    # ─── Flujo Contrapartes ───────────────────────────────────────────────────
-    with st.expander("Flujo Contrapartes — cargar operaciones por rango y tipo", expanded=False):
-        st.info("Consulta Aunesa por cada contraparte con cuenta asignada y guarda las operaciones "
-                "en CashFlow.Flujo. Podés elegir rango de fechas y qué tipos incluir.")
+        # ── Fila principal: tabla tipoOperacion (izq) | Cargar Operaciones (der) ──
+        col_tabla, col_carga = st.columns([2, 3])
 
-        c1, c2 = st.columns(2)
-        with c1:
-            fecha_flujo_desde = st.date_input(
-                "Desde", value=date.today() - timedelta(days=1), key="bf_flujo_desde"
-            )
-        with c2:
-            fecha_flujo_hasta = st.date_input(
-                "Hasta", value=date.today() - timedelta(days=1), key="bf_flujo_hasta"
-            )
-
-        if fecha_flujo_hasta < fecha_flujo_desde:
-            st.error("La fecha Hasta debe ser mayor o igual a Desde.")
-        else:
-            desde_str = fecha_flujo_desde.strftime("%d/%m/%Y")
-            hasta_str = fecha_flujo_hasta.strftime("%d/%m/%Y")
-            n_dias = (fecha_flujo_hasta - fecha_flujo_desde).days + 1
-            if n_dias > 1:
-                st.caption(f"Rango: {desde_str} → {hasta_str} ({n_dias} días)")
-
-            # ── Tipos disponibles desde MongoDB ───────────────────────────────
-            col_flujo = _dbcf()["Flujo"]
-            tipos_en_mongo    = sorted(col_flujo.distinct("tipoOperacion"))
-            tipos_disponibles = [t for t in tipos_en_mongo
-                                 if t and t not in _TIPOS_EXCLUIR_DEFAULT]
-
-            st.caption(f"{len(tipos_disponibles)} tipos disponibles en MongoDB "
-                       "(los excluidos por defecto no se muestran)")
-
-            tipos_seleccionados = []
-            if not tipos_disponibles:
-                st.warning("No hay tipos en CashFlow.Flujo. Usá 'Preview tipos' para descubrirlos.")
+        with col_tabla:
+            st.markdown("**Tipos de operación**")
+            pipeline = [
+                {"$group": {"_id": "$tipoOperacion", "cantidad": {"$sum": 1}}},
+                {"$sort": {"cantidad": -1}},
+            ]
+            rows = list(col_flujo.aggregate(pipeline))
+            if rows:
+                df_tipos = pd.DataFrame([
+                    {"Tipo": r["_id"] or "(vacío)", "Cantidad": r["cantidad"]}
+                    for r in rows
+                ])
+                st.dataframe(df_tipos, use_container_width=True, hide_index=True,
+                             height=min(38 + len(df_tipos) * 35, 420))
             else:
-                st.markdown("**Tipos a incluir** (destildá los que no querés):")
-                mitad = (len(tipos_disponibles) + 1) // 2
-                col_left, col_right = st.columns(2)
-                for i, tipo in enumerate(tipos_disponibles):
-                    col = col_left if i < mitad else col_right
-                    with col:
-                        if st.checkbox(tipo, value=True, key=f"flujo_tipo_{i}"):
-                            tipos_seleccionados.append(tipo)
+                st.caption("Sin datos en la colección.")
 
-            # ── Preview tipos (una sola cuenta) ───────────────────────────────
-            with st.expander("Preview tipos desde Aunesa (llama a la API)", expanded=False):
-                st.caption("Consulta una sola contraparte para ver qué tipos devuelve Aunesa. "
-                           "Útil para descubrir tipos nuevos no presentes en MongoDB.")
-                if st.button("Consultar preview", key="flujo_preview_btn"):
-                    with st.spinner("Consultando Aunesa..."):
-                        try:
-                            col_cp  = _dbcf()["Contrapartes"]
-                            primera = col_cp.find_one({"cuenta": {"$exists": True, "$ne": ""}},
-                                                      {"contraparte": 1, "cuenta": 1})
-                            if not primera:
-                                st.warning("No hay contrapartes con cuenta asignada.")
-                            else:
-                                c_prev       = _aunesa_env() if _creds_ok() else {}
-                                headers_prev = _autenticar_flujo(
-                                    c_prev.get("AUNESA_CLIENT_ID"),
-                                    c_prev.get("AUNESA_USERNAME"),
-                                    c_prev.get("AUNESA_PASSWORD"),
+        with col_carga:
+            st.markdown("**Cargar Operaciones**")
+            st.caption("Consulta Aunesa por cada contraparte con cuenta asignada "
+                       "y guarda las operaciones. Elegí rango y tipos a incluir.")
+
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                fecha_flujo_desde = st.date_input(
+                    "Desde", value=date.today() - timedelta(days=1), key="bf_flujo_desde"
+                )
+            with cc2:
+                fecha_flujo_hasta = st.date_input(
+                    "Hasta", value=date.today() - timedelta(days=1), key="bf_flujo_hasta"
+                )
+
+            if fecha_flujo_hasta < fecha_flujo_desde:
+                st.error("La fecha Hasta debe ser mayor o igual a Desde.")
+            else:
+                desde_str = fecha_flujo_desde.strftime("%d/%m/%Y")
+                hasta_str = fecha_flujo_hasta.strftime("%d/%m/%Y")
+                n_dias = (fecha_flujo_hasta - fecha_flujo_desde).days + 1
+                if n_dias > 1:
+                    st.caption(f"Rango: {desde_str} → {hasta_str} ({n_dias} días)")
+
+                tipos_en_mongo    = sorted(col_flujo.distinct("tipoOperacion"))
+                tipos_disponibles = [t for t in tipos_en_mongo
+                                     if t and t not in _TIPOS_EXCLUIR_DEFAULT]
+
+                st.caption(f"{len(tipos_disponibles)} tipos disponibles "
+                           "(excluidos por defecto no se muestran)")
+
+                tipos_seleccionados = []
+                if not tipos_disponibles:
+                    st.warning("Sin tipos en la colección. Usá 'Preview tipos' para descubrirlos.")
+                else:
+                    st.markdown("**Tipos a incluir** (destildá los que no querés):")
+                    mitad = (len(tipos_disponibles) + 1) // 2
+                    col_left, col_right = st.columns(2)
+                    for i, tipo in enumerate(tipos_disponibles):
+                        col = col_left if i < mitad else col_right
+                        with col:
+                            if st.checkbox(tipo, value=True, key=f"flujo_tipo_{i}"):
+                                tipos_seleccionados.append(tipo)
+
+                # Preview tipos desde Aunesa
+                with st.expander("Preview tipos desde Aunesa (llama a la API)", expanded=False):
+                    st.caption("Consulta una sola contraparte para ver qué tipos devuelve Aunesa.")
+                    if st.button("Consultar preview", key="flujo_preview_btn"):
+                        with st.spinner("Consultando Aunesa..."):
+                            try:
+                                col_cp  = _dbcf()["Contrapartes"]
+                                primera = col_cp.find_one(
+                                    {"cuenta": {"$exists": True, "$ne": ""}},
+                                    {"contraparte": 1, "cuenta": 1},
                                 )
-                                try:
-                                    cid = int(str(primera["cuenta"]).strip())
-                                except (ValueError, TypeError):
-                                    cid = str(primera["cuenta"]).strip()
-                                params = {"cuenta": cid,
-                                          "fechaConcDesde": desde_str,
-                                          "fechaConcHasta": hasta_str}
-                                resp = requests.get(INFOS_URL_FLUJO, params=params,
-                                                    headers=headers_prev, timeout=60)
-                                if resp.status_code == 204:
-                                    st.info(f"[{primera['contraparte']}] sin operaciones en el rango.")
+                                if not primera:
+                                    st.warning("No hay contrapartes con cuenta asignada.")
                                 else:
-                                    resp.raise_for_status()
-                                    data_prev = resp.json() or []
-                                    tipos_api = sorted({r.get("tipoOperacion", "")
-                                                        for r in data_prev if r.get("tipoOperacion")})
-                                    st.success(f"Tipos en [{primera['contraparte']}]:")
-                                    for t in tipos_api:
-                                        excluido = t in _TIPOS_EXCLUIR_DEFAULT
-                                        st.write(f"  {'🚫' if excluido else '✅'} {t}" +
-                                                 (" (excluido por defecto)" if excluido else ""))
-                        except Exception as e:
-                            st.error(f"Error: {e}")
+                                    c_prev       = _aunesa_env() if _creds_ok() else {}
+                                    headers_prev = _autenticar_flujo(
+                                        c_prev.get("AUNESA_CLIENT_ID"),
+                                        c_prev.get("AUNESA_USERNAME"),
+                                        c_prev.get("AUNESA_PASSWORD"),
+                                    )
+                                    try:
+                                        cid = int(str(primera["cuenta"]).strip())
+                                    except (ValueError, TypeError):
+                                        cid = str(primera["cuenta"]).strip()
+                                    params = {"cuenta": cid,
+                                              "fechaConcDesde": desde_str,
+                                              "fechaConcHasta": hasta_str}
+                                    resp = requests.get(INFOS_URL_FLUJO, params=params,
+                                                        headers=headers_prev, timeout=60)
+                                    if resp.status_code == 204:
+                                        st.info(f"[{primera['contraparte']}] sin operaciones en el rango.")
+                                    else:
+                                        resp.raise_for_status()
+                                        data_prev = resp.json() or []
+                                        tipos_api = sorted({r.get("tipoOperacion", "")
+                                                            for r in data_prev if r.get("tipoOperacion")})
+                                        st.success(f"Tipos en [{primera['contraparte']}]:")
+                                        for t in tipos_api:
+                                            excluido = t in _TIPOS_EXCLUIR_DEFAULT
+                                            st.write(f"  {'🚫' if excluido else '✅'} {t}" +
+                                                     (" (excluido por defecto)" if excluido else ""))
+                            except Exception as e:
+                                st.error(f"Error: {e}")
 
-            st.divider()
+                tipos_excluir_run  = {t for t in tipos_disponibles if t not in tipos_seleccionados}
+                tipos_excluir_run |= _TIPOS_EXCLUIR_DEFAULT
+                extra = sorted(tipos_excluir_run - _TIPOS_EXCLUIR_DEFAULT)
+                if extra:
+                    st.caption(f"También se excluirán: {extra}")
 
-            # ── Ejecutar ──────────────────────────────────────────────────────
-            tipos_excluir_run  = {t for t in tipos_disponibles if t not in tipos_seleccionados}
-            tipos_excluir_run |= _TIPOS_EXCLUIR_DEFAULT
+                if st.button("▶ Cargar Operaciones", key="bf_flujo_run"):
+                    if not _creds_ok():
+                        st.error("Completá las credenciales de Aunesa arriba antes de ejecutar.")
+                    else:
+                        _ejecutar_flujo(desde_str, hasta_str, tipos_excluir_run, _aunesa_env())
 
-            extra = sorted(tipos_excluir_run - _TIPOS_EXCLUIR_DEFAULT)
-            if extra:
-                st.caption(f"También se excluirán: {extra}")
+        st.divider()
 
-            if st.button("▶ Ejecutar carga", key="bf_flujo_run"):
-                if not _creds_ok():
-                    st.error("Completá las credenciales de Aunesa arriba antes de ejecutar.")
+        # ── Validar duplicados por boleto ─────────────────────────────────────
+        with st.expander("Validar duplicados — campo boleto", expanded=False):
+            st.caption("Detecta documentos con el mismo valor de `boleto` (clave de negocio única). "
+                       "Si hay duplicados, los muestra para que puedas decidir si borrarlos.")
+            if st.button("Buscar duplicados", key="flujo_dup_btn"):
+                with st.spinner("Analizando..."):
+                    pipeline_dup = [
+                        {"$group": {"_id": "$boleto", "count": {"$sum": 1},
+                                    "ids": {"$push": {"$toString": "$_id"}}}},
+                        {"$match": {"count": {"$gt": 1}}},
+                        {"$sort": {"count": -1}},
+                    ]
+                    dups = list(col_flujo.aggregate(pipeline_dup))
+                if not dups:
+                    st.success(f"Sin duplicados. La colección está limpia.")
                 else:
-                    _ejecutar_flujo(desde_str, hasta_str, tipos_excluir_run, _aunesa_env())
+                    total_extras = sum(d["count"] - 1 for d in dups)
+                    st.warning(f"{len(dups)} boletos duplicados — {total_extras} docs extras.")
+                    df_dup = pd.DataFrame([
+                        {"Boleto": d["_id"], "Repeticiones": d["count"]}
+                        for d in dups
+                    ])
+                    st.dataframe(df_dup, use_container_width=True, hide_index=True)
 
-    # ─── Borrar por tipo de operación ────────────────────────────────────────
-    with st.expander("Borrar operaciones por tipo — limpieza de CashFlow.Flujo", expanded=False):
-        st.warning("Operación destructiva. Borra permanentemente docs de CashFlow.Flujo "
-                   "según el tipo de operación y rango de fechas.")
+                    st.session_state["flujo_dups_encontrados"] = dups
 
-        col_flujo_b = _dbcf()["Flujo"]
-        todos_tipos = sorted(t for t in col_flujo_b.distinct("tipoOperacion") if t)
+            if st.session_state.get("flujo_dups_encontrados"):
+                dups = st.session_state["flujo_dups_encontrados"]
+                total_extras = sum(d["count"] - 1 for d in dups)
+                st.error(f"Se eliminarán **{total_extras} documentos** extras (se conserva 1 por boleto).")
+                if st.checkbox(f"Confirmo que quiero borrar {total_extras} docs duplicados",
+                               key="flujo_dup_confirm"):
+                    if st.button("🗑️ Eliminar duplicados", key="flujo_dup_del_btn"):
+                        ids_borrar = []
+                        for d in dups:
+                            ids_borrar.extend(d["ids"][1:])  # conserva el primero
+                        from bson import ObjectId
+                        result = col_flujo.delete_many(
+                            {"_id": {"$in": [ObjectId(i) for i in ids_borrar]}}
+                        )
+                        st.success(f"✅ {result.deleted_count} duplicados eliminados.")
+                        st.session_state.pop("flujo_dups_encontrados", None)
+                        st.rerun()
 
-        if not todos_tipos:
-            st.info("No hay documentos en CashFlow.Flujo.")
-        else:
-            tipos_a_borrar = st.multiselect(
-                "Tipos a borrar", todos_tipos, key="del_tipos"
-            )
+        # ── Borrar por tipo de operación ──────────────────────────────────────
+        with st.expander("Borrar operaciones por tipo", expanded=False):
+            st.warning("Operación destructiva. Borra permanentemente docs según tipo y rango de fechas.")
 
-            c1, c2 = st.columns(2)
-            with c1:
-                del_desde = st.date_input("Desde (opcional)", value=None,
-                                           key="del_desde")
-            with c2:
-                del_hasta = st.date_input("Hasta (opcional)", value=None,
-                                           key="del_hasta")
+            todos_tipos = sorted(t for t in col_flujo.distinct("tipoOperacion") if t)
 
-            # Construir filtro y mostrar preview
-            if tipos_a_borrar:
-                filtro: dict = {"tipoOperacion": {"$in": tipos_a_borrar}}
-                if del_desde or del_hasta:
-                    # concertacion está como "DD/MM/YYYY" — generamos el set de fechas
-                    d_ini = del_desde or date(2000, 1, 1)
-                    d_fin = del_hasta or date(2099, 12, 31)
-                    fechas_rango = []
-                    d_cur = d_ini
-                    while d_cur <= d_fin:
-                        fechas_rango.append(d_cur.strftime("%d/%m/%Y"))
-                        d_cur += timedelta(days=1)
-                    filtro["concertacion"] = {"$in": fechas_rango}
-
-                count_prev = col_flujo_b.count_documents(filtro)
-                if count_prev == 0:
-                    st.info("No hay documentos que coincidan con ese filtro.")
-                else:
-                    st.error(f"Se borrarán **{count_prev:,} documentos**. Esta acción no se puede deshacer.")
-                    confirmar = st.checkbox(
-                        f"Confirmo que quiero borrar {count_prev:,} docs", key="del_confirm"
-                    )
-                    if confirmar:
-                        if st.button("🗑️ Borrar ahora", key="del_exec_btn"):
-                            result = col_flujo_b.delete_many(filtro)
-                            st.success(f"✅ {result.deleted_count:,} documentos eliminados.")
-                            st.session_state["del_confirm"] = False
-                            st.rerun()
+            if not todos_tipos:
+                st.info("No hay documentos en la colección.")
             else:
-                st.caption("Seleccioná al menos un tipo para ver el preview.")
+                tipos_a_borrar = st.multiselect("Tipos a borrar", todos_tipos, key="del_tipos")
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    del_desde = st.date_input("Desde (opcional)", value=None, key="del_desde")
+                with c2:
+                    del_hasta = st.date_input("Hasta (opcional)", value=None, key="del_hasta")
+
+                if tipos_a_borrar:
+                    filtro: dict = {"tipoOperacion": {"$in": tipos_a_borrar}}
+                    if del_desde or del_hasta:
+                        d_ini = del_desde or date(2000, 1, 1)
+                        d_fin = del_hasta or date(2099, 12, 31)
+                        fechas_rango = []
+                        d_cur = d_ini
+                        while d_cur <= d_fin:
+                            fechas_rango.append(d_cur.strftime("%d/%m/%Y"))
+                            d_cur += timedelta(days=1)
+                        filtro["concertacion"] = {"$in": fechas_rango}
+
+                    count_prev = col_flujo.count_documents(filtro)
+                    if count_prev == 0:
+                        st.info("No hay documentos que coincidan con ese filtro.")
+                    else:
+                        st.error(f"Se borrarán **{count_prev:,} documentos**. Esta acción no se puede deshacer.")
+                        confirmar = st.checkbox(
+                            f"Confirmo que quiero borrar {count_prev:,} docs", key="del_confirm"
+                        )
+                        if confirmar:
+                            if st.button("🗑️ Borrar ahora", key="del_exec_btn"):
+                                result = col_flujo.delete_many(filtro)
+                                st.success(f"✅ {result.deleted_count:,} documentos eliminados.")
+                                st.session_state["del_confirm"] = False
+                                st.rerun()
+                else:
+                    st.caption("Seleccioná al menos un tipo para ver el preview.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SUB-VISTA: AuM
+    # ══════════════════════════════════════════════════════════════════════════
+    else:
+        with st.expander("AuM Snapshot — backfill para una fecha específica", expanded=True):
+            st.info("Llama a Aunesa y guarda posiciones en Valuaciones.AuM para la fecha indicada. "
+                    "Puede tardar 2-5 minutos. El log se actualiza automáticamente cada 2 segundos.")
+
+            fecha_aum = st.date_input("Fecha snapshot", value=date.today() - timedelta(days=1),
+                                       key="bf_aum_fecha")
+
+            status_aum = st.session_state.get("dm_aum_bf_status", "idle")
+            badges = {"idle": "⬜ Idle", "running": "🔄 Corriendo",
+                      "done": "✅ Listo", "error": "❌ Error"}
+
+            c1, c2 = st.columns([2, 4])
+            with c1:
+                btn_disabled = status_aum == "running"
+                if st.button("▶ Ejecutar", key="bf_aum_btn", disabled=btn_disabled):
+                    if not _creds_ok():
+                        st.error("Completá las credenciales de Aunesa arriba antes de ejecutar.")
+                    else:
+                        _run_bg("Excel/backfill_aum.py", [fecha_aum.isoformat()],
+                                "aum_bf", extra_env=_aunesa_env())
+                        st.rerun()
+            with c2:
+                st.caption(f"Estado: {badges.get(status_aum, status_aum)}")
+                tmppath = st.session_state.get("dm_aum_bf_tmpfile")
+                if tmppath:
+                    st.caption(f"Log: `{tmppath}`")
+
+            _frag_aum()
 
 
 def _ejecutar_flujo(desde_str: str, hasta_str: str,

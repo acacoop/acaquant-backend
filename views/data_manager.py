@@ -14,7 +14,8 @@ import contextlib
 import tempfile
 import requests
 from collections import Counter
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -229,10 +230,173 @@ def _run_bg_aum_multi(fechas: list[str], key: str, extra_env: dict | None = None
     threading.Thread(target=_worker, daemon=True).start()
 
 
+# ─── STATUS PANEL ────────────────────────────────────────────────────────────
+
+_AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+
+# (db, coll, field_ts, nombre, umbral_seg)
+_STATUS_LIVE = [
+    ("Trading",  "TimeSales",       "timestamp",  "TimeSales",       300),
+    ("Trading",  "MarketSnapshot",  "updated_at", "MarketSnapshot",  120),
+    ("Trading",  "ForwardsLive",    "updated_at", "ForwardsLive",     60),
+    ("Trading",  "BreakevensLive",  "updated_at", "BreakevensLive",   60),
+    ("Opciones", "OptionsSnapshot", "updated_at", "OptionsSnapshot", 180),
+]
+
+# (db, coll, field, tipo, nombre, umbral_dias_habiles, descripcion)
+_STATUS_PERIODICO = [
+    ("Trading",     "CER",         "fecha",         "iso",     "CER (BCRA)",        2, "diario 20:00 UTC"),
+    ("Trading",     "TAMAR",       "fecha",         "iso",     "TAMAR (BCRA)",      2, "diario 20:00 UTC"),
+    ("Trading",     "DOLAR",       "fecha",         "iso",     "DOLAR (BCRA)",      2, "diario 20:00 UTC"),
+    ("Trading",     "BADLAR",      "fecha",         "iso",     "BADLAR (BCRA)",     2, "diario 20:00 UTC"),
+    ("Valuaciones", "AuM",         "fecha_snapshot","iso",     "AuM (cierre)",      2, "diario 23:00 UTC L-V"),
+    ("Valuaciones", "Carteras",    "timestamp",     "datetime","Carteras",          1, "4x / día hábil"),
+    ("CashFlow",    "Movimientos", "fecha",         "iso",     "CashFlow Mov.",     2, "02:00 UTC mar-sáb"),
+    ("CashFlow",    "Flujo",       "concertacion",  "ddmmyyyy","Flujo Contrapartes",2, "02:00 UTC mar-sáb"),
+]
+
+
+def _es_hora_rueda(now_ar: datetime | None = None) -> bool:
+    """True si ahora es L-V AR y estamos dentro de 10:00-17:05 ARG."""
+    n = now_ar or datetime.now(_AR_TZ)
+    if n.weekday() >= 5:
+        return False
+    return time(10, 0) <= n.time() <= time(17, 5)
+
+
+def _fmt_delta(segundos: float) -> str:
+    s = int(segundos)
+    if s < 0:               return "—"
+    if s < 60:              return f"{s}s"
+    if s < 3600:            return f"{s//60}m {s%60}s"
+    if s < 86400:           return f"{s//3600}h {(s%3600)//60}m"
+    return f"{s//86400}d {(s%86400)//3600}h"
+
+
+def _parse_periodic_value(val, tipo: str) -> datetime | None:
+    if val is None or val == "":
+        return None
+    try:
+        if tipo == "datetime":
+            v = val if isinstance(val, datetime) else datetime.fromisoformat(str(val))
+            if v.tzinfo is None:
+                v = v.replace(tzinfo=timezone.utc)
+            return v
+        if tipo == "iso":
+            return datetime.combine(date.fromisoformat(str(val)[:10]),
+                                    time(0, 0), tzinfo=_AR_TZ)
+        if tipo == "ddmmyyyy":
+            return datetime.combine(datetime.strptime(str(val), "%d/%m/%Y").date(),
+                                    time(0, 0), tzinfo=_AR_TZ)
+    except Exception:
+        return None
+    return None
+
+
+def _status_live_rows(en_rueda: bool) -> list[dict]:
+    ahora = datetime.now(timezone.utc)
+    rows = []
+    for db_n, coll_n, field, nombre, umbral in _STATUS_LIVE:
+        coll = get_mongo_client()[db_n][coll_n]
+        doc  = coll.find_one({field: {"$exists": True}},
+                             sort=[(field, -1)], projection={field: 1})
+        if not doc or not doc.get(field):
+            rows.append({"Colección": nombre, "Última": "—", "Hace": "—",
+                         "Umbral": f"{umbral}s", "Estado": "⚪ Sin datos"})
+            continue
+        ts = doc[field]
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        delta = (ahora - ts).total_seconds()
+
+        if not en_rueda:
+            estado = "⚪ Fuera de rueda"
+        elif delta > umbral * 3:
+            estado = "🔴 Crítico"
+        elif delta > umbral:
+            estado = "🟡 Lento"
+        else:
+            estado = "🟢 OK"
+
+        rows.append({
+            "Colección": nombre,
+            "Última":    ts.astimezone(_AR_TZ).strftime("%H:%M:%S"),
+            "Hace":      _fmt_delta(delta),
+            "Umbral":    f"{umbral}s",
+            "Estado":    estado,
+        })
+    return rows
+
+
+def _status_periodico_rows() -> list[dict]:
+    ahora = datetime.now(_AR_TZ)
+    rows = []
+    for db_n, coll_n, field, tipo, nombre, umbral_dias, desc in _STATUS_PERIODICO:
+        coll = get_mongo_client()[db_n][coll_n]
+        doc  = coll.find_one({field: {"$exists": True, "$nin": [None, ""]}},
+                             sort=[(field, -1)], projection={field: 1})
+        if not doc:
+            rows.append({"Colección": nombre, "Último dato": "—",
+                         "Hace": "—", "Frecuencia": desc, "Estado": "⚪ Sin datos"})
+            continue
+
+        ts = _parse_periodic_value(doc.get(field), tipo)
+        if ts is None:
+            rows.append({"Colección": nombre, "Último dato": str(doc.get(field))[:19],
+                         "Hace": "—", "Frecuencia": desc, "Estado": "⚪ Error parse"})
+            continue
+
+        delta_dias = (ahora.date() - ts.date()).days
+        if delta_dias <= 0:
+            estado = "🟢 OK"
+        elif delta_dias <= umbral_dias:
+            estado = "🟡 Atrasado"
+        else:
+            estado = "🔴 Crítico"
+
+        rows.append({
+            "Colección":   nombre,
+            "Último dato": ts.astimezone(_AR_TZ).strftime("%Y-%m-%d %H:%M"),
+            "Hace":        _fmt_delta((ahora - ts).total_seconds()),
+            "Frecuencia":  desc,
+            "Estado":      estado,
+        })
+    return rows
+
+
+@st.fragment(run_every=10)
+def _frag_status():
+    ahora_ar = datetime.now(_AR_TZ)
+    en_rueda = _es_hora_rueda(ahora_ar)
+
+    badge = "🟢 En rueda" if en_rueda else "⚪ Fuera de rueda"
+    st.caption(f"{badge} · Chequeado: {ahora_ar.strftime('%Y-%m-%d %H:%M:%S')} ART · "
+               f"Auto-refresh cada 10s")
+
+    try:
+        live_rows = _status_live_rows(en_rueda)
+        st.markdown("**Live engines**")
+        st.dataframe(pd.DataFrame(live_rows), hide_index=True,
+                     use_container_width=True,
+                     height=38 + len(live_rows) * 35)
+
+        per_rows = _status_periodico_rows()
+        st.markdown("**Periódicas (crons)**")
+        st.dataframe(pd.DataFrame(per_rows), hide_index=True,
+                     use_container_width=True,
+                     height=38 + len(per_rows) * 35)
+    except Exception as e:
+        st.error(f"Error consultando estado: {e}")
+
+
 # ─── TAB DIAGNÓSTICO ─────────────────────────────────────────────────────────
 
 def _tab_diagnostico():
     st.caption("Inspección rápida del estado de los datos en MongoDB. Sin efectos secundarios.")
+
+    # ── Status ────────────────────────────────────────────────────────────────
+    with st.expander("Status — Salud de colecciones (live + crons)", expanded=True):
+        _frag_status()
 
     # ── Curvas pendientes ─────────────────────────────────────────────────────
     with st.expander("Curvas Pendientes — docs sin `duration` en TimeSales"):
@@ -1545,7 +1709,7 @@ def _tab_setup():
 # ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
 def vista_data_manager():
-    st.markdown("## Data Manager")
+    st.markdown("## Manager")
     st.caption("Diagnóstico, backfills, validaciones y setup desde el dashboard.")
 
     tab1, tab2, tab3, tab4 = st.tabs(["Diagnóstico", "Backfills", "Validaciones", "Setup"])

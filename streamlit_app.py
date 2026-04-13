@@ -2864,11 +2864,13 @@ def _render_flujo_vs_aum():
         st.caption("Sin contrapartes con segmento=Fondos.")
         return
 
-    emisor = st.selectbox(
-        "Emisor", sorted(fondos),
-        label_visibility="collapsed",
-        key="fva_emisor",
-    )
+    col_emisor, col_desde, col_hasta = st.columns([2, 1, 1])
+    with col_emisor:
+        emisor = st.selectbox(
+            "Emisor", sorted(fondos),
+            label_visibility="collapsed",
+            key="fva_emisor",
+        )
 
     fl = df_flujo[df_flujo["emisor"] == emisor].copy() if not df_flujo.empty else pd.DataFrame()
     am = df_aum[df_aum["emisor"] == emisor].copy()    if not df_aum.empty  else pd.DataFrame()
@@ -2877,8 +2879,28 @@ def _render_flujo_vs_aum():
         st.caption("Sin datos de AuM para este emisor.")
         return
 
-    start_date = am["fecha_snapshot"].min()
-    end_date   = pd.Timestamp.today().normalize()
+    data_min = am["fecha_snapshot"].min().date()
+    data_max  = pd.Timestamp.today().normalize().date()
+
+    with col_desde:
+        desde = st.date_input(
+            "Desde", value=data_min,
+            min_value=data_min, max_value=data_max,
+            key="fva_desde",
+        )
+    with col_hasta:
+        hasta = st.date_input(
+            "Hasta", value=data_max,
+            min_value=data_min, max_value=data_max,
+            key="fva_hasta",
+        )
+
+    if desde > hasta:
+        st.warning("'Desde' debe ser anterior a 'Hasta'.")
+        return
+
+    start_date = pd.Timestamp(desde)
+    end_date   = pd.Timestamp(hasta)
 
     # AuM forward-fill → línea continua sin gaps
     am_ff = (
@@ -2891,9 +2913,9 @@ def _render_flujo_vs_aum():
         .dropna()
     )
 
-    # Flujo: solo días con operaciones desde start_date
+    # Flujo: solo días con operaciones en el rango seleccionado
     if not fl.empty:
-        fl = fl[fl["fecha"] >= start_date].sort_values("fecha")
+        fl = fl[(fl["fecha"] >= start_date) & (fl["fecha"] <= end_date)].sort_values("fecha")
         fl = fl.groupby("fecha", as_index=False)["bruto"].sum()
 
     # Formato Y dinámico

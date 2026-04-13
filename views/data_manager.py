@@ -256,8 +256,8 @@ _STATUS_PERIODICO = [
     ("Trading",     "BADLAR",      "fecha",         "iso",     "BADLAR (BCRA)",     2, "diario 20:00 UTC",      None),
     ("Valuaciones", "AuM",         "fecha_snapshot","iso",     "AuM (cierre)",      2, "diario 23:00 UTC L-V",  None),
     ("Valuaciones", "Carteras",    "timestamp",     "datetime","Carteras",          1, "4x / día hábil",        timezone.utc),
-    ("CashFlow",    "Movimientos", "fecha",         "iso",     "CashFlow Mov.",     2, "02:00 UTC mar-sáb",     None),
-    ("CashFlow",    "Flujo",       "concertacion",  "ddmmyyyy","Flujo Contrapartes",2, "02:00 UTC mar-sáb",     None),
+    ("CashFlow",    "Movimientos", "fecha",         "ddmmyyyy","CashFlow Mov.",     2, "02:00 UTC mar-sáb",     None),
+    ("CashFlow",    "Flujo",       "concertacion",  "iso",     "Flujo Contrapartes",2, "02:00 UTC mar-sáb",     None),
 ]
 
 

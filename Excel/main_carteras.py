@@ -136,6 +136,9 @@ def guardar_en_mongo(df):
 
     registros = df.to_dict(orient="records")
     if registros:
+        ahora = datetime.utcnow()
+        for r in registros:
+            r["timestamp"] = ahora
         ops = [
             ReplaceOne(
                 {"id_cuenta": r.get("id_cuenta"), "unidad": r.get("unidad")},

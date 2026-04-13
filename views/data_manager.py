@@ -7,12 +7,15 @@ Tabs: Diagnóstico | Backfills | Validaciones | Setup
 
 import io
 import os
+import re
 import sys
+import shutil
 import threading
 import subprocess
 import contextlib
 import tempfile
 import requests
+from pathlib import Path
 from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -1711,14 +1714,148 @@ def _tab_setup():
                 st.rerun()
 
 
+# ─── LOGS ────────────────────────────────────────────────────────────────────
+
+_LOGS_CANDIDATES = [
+    Path("/root/TradingAV/logs"),
+    Path(PROJECT_ROOT) / "logs",
+]
+
+_LOG_LEVEL_RE = re.compile(r"\b(ERROR|CRITICAL|FATAL|WARNING|WARN|INFO|DEBUG)\b", re.IGNORECASE)
+
+
+def _logs_dir() -> Path | None:
+    for p in _LOGS_CANDIDATES:
+        if p.is_dir():
+            return p
+    return None
+
+
+def _tail_bytes(path: Path, n_lines: int, max_bytes: int = 2_000_000) -> list[str]:
+    size = path.stat().st_size
+    with path.open("rb") as f:
+        if size > max_bytes:
+            f.seek(-max_bytes, os.SEEK_END)
+            f.readline()  # descarta línea parcial
+        data = f.read()
+    try:
+        texto = data.decode("utf-8", errors="replace")
+    except Exception:
+        texto = data.decode("latin-1", errors="replace")
+    lineas = texto.splitlines()
+    return lineas[-n_lines:]
+
+
+def _filtrar_lineas(lineas: list[str], nivel: str) -> list[str]:
+    if nivel == "Todos":
+        return lineas
+    niveles = {
+        "Errores":   {"ERROR", "CRITICAL", "FATAL"},
+        "Warnings+": {"ERROR", "CRITICAL", "FATAL", "WARNING", "WARN"},
+    }
+    objetivo = niveles.get(nivel, set())
+    if not objetivo:
+        return lineas
+    out = []
+    for l in lineas:
+        m = _LOG_LEVEL_RE.search(l)
+        if m and m.group(1).upper() in objetivo:
+            out.append(l)
+    return out
+
+
+def _rotar_log(path: Path, keep_last: int = 2000) -> int:
+    """Archiva el contenido actual a .1 y trunca el archivo manteniendo las últimas keep_last líneas."""
+    archivo_archive = path.with_suffix(path.suffix + ".1")
+    shutil.copy2(path, archivo_archive)
+    ultimas = _tail_bytes(path, keep_last)
+    with path.open("w", encoding="utf-8") as f:
+        f.write("\n".join(ultimas))
+        if ultimas:
+            f.write("\n")
+    return archivo_archive.stat().st_size
+
+
+def _tab_logs():
+    st.markdown("### Logs")
+
+    d = _logs_dir()
+    if d is None:
+        st.warning(f"No encuentro un directorio de logs. Buscado en: {', '.join(str(p) for p in _LOGS_CANDIDATES)}")
+        return
+    st.caption(f"Directorio: `{d}`")
+
+    archivos = sorted(
+        [p for p in d.iterdir() if p.is_file() and not p.name.startswith(".")],
+        key=lambda p: p.stat().st_mtime, reverse=True,
+    )
+    if not archivos:
+        st.info("No hay archivos en el directorio.")
+        return
+
+    resumen = pd.DataFrame([{
+        "Archivo":  p.name,
+        "Tamaño":   f"{p.stat().st_size / 1024:.1f} KB" if p.stat().st_size < 1_048_576 else f"{p.stat().st_size / 1_048_576:.2f} MB",
+        "Modificado": datetime.fromtimestamp(p.stat().st_mtime, tz=_AR_TZ).strftime("%Y-%m-%d %H:%M"),
+    } for p in archivos])
+    st.dataframe(resumen, hide_index=True, use_container_width=True)
+
+    c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+    with c1:
+        elegido = st.selectbox("Archivo", [p.name for p in archivos], key="logs_file")
+    with c2:
+        n_lineas = st.number_input("Líneas", min_value=50, max_value=5000, value=500, step=50, key="logs_n")
+    with c3:
+        nivel = st.selectbox("Filtro", ["Todos", "Errores", "Warnings+"], key="logs_nivel")
+    with c4:
+        autorefresh = st.toggle("Auto (10s)", key="logs_auto")
+
+    path = d / elegido
+
+    if autorefresh:
+        @st.fragment(run_every=10)
+        def _render():
+            _render_log(path, n_lineas, nivel)
+        _render()
+    else:
+        _render_log(path, n_lineas, nivel)
+
+    st.divider()
+    cc1, cc2 = st.columns([1, 5])
+    with cc1:
+        if st.button("Rotar ahora", key="logs_rotate", help=f"Copia a {elegido}.1 y trunca el actual a últimas 2000 líneas"):
+            try:
+                tamanio_archivo = _rotar_log(path)
+                st.success(f"Rotado: {elegido} → {elegido}.1 ({tamanio_archivo/1024:.1f} KB)")
+            except Exception as e:
+                st.error(f"Error: {e}")
+    with cc2:
+        st.caption("Rotación manual: guarda copia `.1` y deja el archivo actual con las últimas 2000 líneas.")
+
+
+def _render_log(path: Path, n_lineas: int, nivel: str):
+    try:
+        lineas = _tail_bytes(path, int(n_lineas))
+    except FileNotFoundError:
+        st.warning("Archivo desaparecido.")
+        return
+    lineas = _filtrar_lineas(lineas, nivel)
+    if not lineas:
+        st.info("Sin líneas para mostrar con ese filtro.")
+        return
+    st.caption(f"Mostrando {len(lineas)} líneas · actualizado {datetime.now(_AR_TZ).strftime('%H:%M:%S')}")
+    st.code("\n".join(lineas), language="log")
+
+
 # ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
 def vista_data_manager():
     st.markdown("## Manager")
-    st.caption("Diagnóstico, backfills, validaciones y setup desde el dashboard.")
+    st.caption("Diagnóstico, backfills, validaciones, logs y setup desde el dashboard.")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Diagnóstico", "Backfills", "Validaciones", "Setup"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Diagnóstico", "Backfills", "Validaciones", "Logs", "Setup"])
     with tab1: _tab_diagnostico()
     with tab2: _tab_backfills()
     with tab3: _tab_validaciones()
-    with tab4: _tab_setup()
+    with tab4: _tab_logs()
+    with tab5: _tab_setup()

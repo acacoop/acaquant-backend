@@ -143,7 +143,90 @@ def _log_panel(key: str):
 
 @st.fragment(run_every=2)
 def _frag_aum():
+    sk      = "dm_aum_bf"
+    status  = st.session_state.get(f"{sk}_status", "idle")
+    total   = st.session_state.get(f"{sk}_total", 0)
+    done    = st.session_state.get(f"{sk}_done", 0)
+    current = st.session_state.get(f"{sk}_current", "")
+
+    if total > 0 and status in ("running", "done", "error"):
+        pct = min(done / total, 1.0) if total else 0
+        if status == "running":
+            idx = min(done + 1, total)
+            label = f"Procesando {idx}/{total} — {current} — {pct*100:.0f}%"
+        elif status == "done":
+            pct   = 1.0
+            label = f"✅ Completado — {done}/{total} fechas"
+        else:
+            label = f"❌ Detenido en {done}/{total} fechas"
+        st.progress(pct, text=label)
+
     _log_panel("aum_bf")
+
+
+def _run_bg_aum_multi(fechas: list[str], key: str, extra_env: dict | None = None):
+    """Ejecuta Excel/backfill_aum.py una vez por cada fecha, secuencialmente."""
+    sk = f"dm_{key}"
+    if st.session_state.get(f"{sk}_status") == "running":
+        st.warning("Ya hay un proceso corriendo.")
+        return
+
+    tmpfd, tmppath = tempfile.mkstemp(suffix=".log", prefix=f"dm_{key}_")
+    os.close(tmpfd)
+
+    st.session_state[f"{sk}_tmpfile"]    = tmppath
+    st.session_state[f"{sk}_status"]     = "running"
+    st.session_state[f"{sk}_returncode"] = None
+    st.session_state[f"{sk}_started_at"] = datetime.now()
+    st.session_state[f"{sk}_total"]      = len(fechas)
+    st.session_state[f"{sk}_done"]       = 0
+    st.session_state[f"{sk}_current"]    = fechas[0] if fechas else ""
+
+    script_path = os.path.join(PROJECT_ROOT, "Excel/backfill_aum.py")
+
+    def _worker():
+        env = os.environ.copy()
+        env["PYTHONPATH"]       = PROJECT_ROOT
+        env["PYTHONUNBUFFERED"] = "1"
+        if extra_env:
+            env.update(extra_env)
+
+        all_ok    = True
+        last_rc   = 0
+        with open(tmppath, "w", buffering=1) as out:
+            out.write(f"[{datetime.now().strftime('%H:%M:%S')}]  "
+                      f"Procesando {len(fechas)} fecha(s): "
+                      f"{fechas[0]} → {fechas[-1]}\n\n")
+            out.flush()
+
+            for i, fecha in enumerate(fechas, 1):
+                st.session_state[f"{sk}_current"] = fecha
+                ts = datetime.now().strftime("%H:%M:%S")
+                out.write(f"\n[{ts}]  ══ Fecha {i}/{len(fechas)}: {fecha} ══\n")
+                out.flush()
+
+                cmd  = [sys.executable, "-u", script_path, fecha]
+                proc = subprocess.Popen(cmd, stdout=out, stderr=out,
+                                        env=env, cwd=PROJECT_ROOT)
+                proc.wait()
+                last_rc = proc.returncode
+
+                st.session_state[f"{sk}_done"] = i
+                ts2 = datetime.now().strftime("%H:%M:%S")
+                if proc.returncode == 0:
+                    out.write(f"[{ts2}]  ✅ {fecha} OK\n")
+                else:
+                    all_ok = False
+                    out.write(f"[{ts2}]  ❌ {fecha} falló (rc={proc.returncode})\n")
+                out.flush()
+
+            out.write(f"\n[{datetime.now().strftime('%H:%M:%S')}]  "
+                      f"Finalizado — {len(fechas)} fecha(s) procesada(s)\n")
+
+        st.session_state[f"{sk}_returncode"] = 0 if all_ok else last_rc
+        st.session_state[f"{sk}_status"]     = "done" if all_ok else "error"
+
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 # ─── TAB DIAGNÓSTICO ─────────────────────────────────────────────────────────
@@ -725,28 +808,65 @@ def _tab_backfills():
     # SUB-VISTA: AuM
     # ══════════════════════════════════════════════════════════════════════════
     elif subvista == "AuM":
-        with st.expander("AuM Snapshot — backfill para una fecha específica", expanded=True):
-            st.info("Llama a Aunesa y guarda posiciones en Valuaciones.AuM para la fecha indicada. "
-                    "Puede tardar 2-5 minutos. El log se actualiza automáticamente cada 2 segundos.")
+        with st.expander("AuM Snapshot — backfill por fechas", expanded=True):
+            st.info("Elegí una o más fechas y se procesan secuencialmente "
+                    "(una corrida de backfill_aum por fecha). El progreso se "
+                    "actualiza cada 2 segundos.")
 
-            fecha_aum = st.date_input("Fecha snapshot", value=date.today() - timedelta(days=1),
-                                       key="bf_aum_fecha")
+            fechas_aum = st.session_state.setdefault("bf_aum_fechas", [])
 
-            status_aum = st.session_state.get("dm_aum_bf_status", "idle")
-            badges = {"idle": "⬜ Idle", "running": "🔄 Corriendo",
-                      "done": "✅ Listo", "error": "❌ Error"}
-
-            c1, c2 = st.columns([2, 4])
+            c1, c2, c3 = st.columns([2, 1, 1])
             with c1:
-                btn_disabled = status_aum == "running"
+                nueva_fecha = st.date_input("Agregar fecha",
+                                            value=date.today() - timedelta(days=1),
+                                            key="bf_aum_nueva")
+            with c2:
+                st.caption(" ")
+                if st.button("➕ Agregar", key="bf_aum_add",
+                             use_container_width=True):
+                    iso = nueva_fecha.isoformat()
+                    if iso not in fechas_aum:
+                        fechas_aum.append(iso)
+                        fechas_aum.sort()
+                    st.rerun()
+            with c3:
+                st.caption(" ")
+                if st.button("🗑️ Limpiar", key="bf_aum_clear",
+                             use_container_width=True,
+                             disabled=not fechas_aum):
+                    st.session_state["bf_aum_fechas"] = []
+                    st.rerun()
+
+            if fechas_aum:
+                st.markdown(f"**{len(fechas_aum)} fecha(s) seleccionada(s):**")
+                # Mostrar como chips con botón X
+                chips_per_row = 6
+                for i in range(0, len(fechas_aum), chips_per_row):
+                    cols = st.columns(chips_per_row)
+                    for j, f in enumerate(fechas_aum[i:i+chips_per_row]):
+                        with cols[j]:
+                            if st.button(f"✕ {f}", key=f"bf_aum_rm_{f}",
+                                         use_container_width=True):
+                                fechas_aum.remove(f)
+                                st.rerun()
+            else:
+                st.caption("Sin fechas seleccionadas.")
+
+            status_aum   = st.session_state.get("dm_aum_bf_status", "idle")
+            btn_disabled = status_aum == "running" or not fechas_aum
+            badges       = {"idle": "⬜ Idle", "running": "🔄 Corriendo",
+                            "done": "✅ Listo", "error": "❌ Error"}
+
+            cb1, cb2 = st.columns([2, 4])
+            with cb1:
                 if st.button("▶ Ejecutar", key="bf_aum_btn", disabled=btn_disabled):
                     if not _creds_ok():
                         _dialog_aunesa_creds()
                     else:
-                        _run_bg("Excel/backfill_aum.py", [fecha_aum.isoformat()],
-                                "aum_bf", extra_env=_aunesa_env())
+                        _run_bg_aum_multi(list(fechas_aum), "aum_bf",
+                                          extra_env=_aunesa_env())
                         st.rerun()
-            with c2:
+            with cb2:
                 st.caption(f"Estado: {badges.get(status_aum, status_aum)}")
                 tmppath = st.session_state.get("dm_aum_bf_tmpfile")
                 if tmppath:

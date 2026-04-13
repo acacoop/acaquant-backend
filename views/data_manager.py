@@ -40,6 +40,21 @@ def _dbv():  return get_mongo_client()["Valuaciones"]
 def _dbcf(): return get_mongo_client()["CashFlow"]
 
 
+# ─── AUDIT LOG ───────────────────────────────────────────────────────────────
+
+def _audit_log(rows: list[dict]) -> None:
+    """Inserta entradas en Admin.ChangeLog. Silencioso ante errores para no bloquear updates."""
+    if not rows:
+        return
+    ahora = datetime.now(timezone.utc)
+    for r in rows:
+        r.setdefault("when", ahora)
+    try:
+        get_mongo_client()["Admin"]["ChangeLog"].insert_many(rows, ordered=False)
+    except Exception as e:
+        print(f"[audit] error insertando log: {e}")
+
+
 def _run_bg(script_relpath: str, args: list, key: str, extra_env: dict | None = None):
     """
     Lanza script como subprocess en background.
@@ -1214,7 +1229,18 @@ def _subvista_assets():
                 key="as_confirm",
             )
             if confirmar and st.button("▶ Aplicar", key="as_apply_btn"):
+                docs_antes = list(col.find(
+                    filtro_final, {"_id": 1, "unidad": 1, campo_set: 1}
+                ))
                 result = col.update_many(filtro_final, {"$set": {campo_set: valor_set}})
+                _audit_log([{
+                    "where":  "Valuaciones.Assets",
+                    "key":    {"unidad": d.get("unidad"), "_id": d.get("_id")},
+                    "field":  campo_set,
+                    "old":    d.get(campo_set),
+                    "new":    valor_set,
+                    "action": "mass_set",
+                } for d in docs_antes])
                 st.success(
                     f"✅ Update aplicado: matched={result.matched_count:,}, "
                     f"modified={result.modified_count:,}"
@@ -1250,10 +1276,24 @@ def _subvista_assets():
                     if not doc_aum:
                         sin_match.append(u)
                         continue
+                    filtro_u = {"unidad": u, **_asset_esta_vacio("precio")}
+                    docs_antes = list(col_carteras.find(
+                        filtro_u, {"_id": 1, "unidad": 1, "id_cuenta": 1}
+                    ))
                     res = col_carteras.update_many(
-                        {"unidad": u, **_asset_esta_vacio("precio")},
+                        filtro_u,
                         {"$set": {"precio": doc_aum["precio"]}},
                     )
+                    _audit_log([{
+                        "where":  "Valuaciones.Carteras",
+                        "key":    {"unidad": d.get("unidad"),
+                                   "id_cuenta": d.get("id_cuenta"),
+                                   "_id": d.get("_id")},
+                        "field":  "precio",
+                        "old":    None,
+                        "new":    doc_aum["precio"],
+                        "action": "backfill_precio",
+                    } for d in docs_antes])
                     actualizados += res.modified_count
 
                 st.success(f"✅ {actualizados:,} docs actualizados "
@@ -1393,6 +1433,14 @@ def _subvista_portfolio():
                     upsert=True,
                 )
                 accion = "creado" if (res.upserted_id or es_nuevo) else "actualizado"
+                _audit_log([{
+                    "where":  "Valuaciones.Assets",
+                    "key":    {"unidad": u_sel},
+                    "field":  c,
+                    "old":    a_actual.get(c),
+                    "new":    v,
+                    "action": "upsert_portfolio" if accion == "creado" else "set_portfolio",
+                } for c, v in update.items()])
                 st.success(f"✅ Asset {accion}: {sorted(update.keys()) or '(sin cambios)'}")
                 st.rerun()
 
@@ -1668,13 +1716,26 @@ def _tab_setup():
                                                "contraparte": 1, "segmento": 1}))
                     auto_ok   = 0
                     sin_match = []
+                    log_entries = []
                     for doc in docs:
                         seg = inferir_segmento(doc.get("denominacion"), doc.get("contraparte"))
                         if seg:
-                            col.update_one({"_id": doc["_id"]}, {"$set": {"segmento": seg}})
+                            old_seg = doc.get("segmento")
+                            if old_seg != seg:
+                                col.update_one({"_id": doc["_id"]}, {"$set": {"segmento": seg}})
+                                log_entries.append({
+                                    "where":  "CashFlow.Contrapartes",
+                                    "key":    {"_id": doc["_id"],
+                                               "contraparte": doc.get("contraparte")},
+                                    "field":  "segmento",
+                                    "old":    old_seg,
+                                    "new":    seg,
+                                    "action": "auto_segmento",
+                                })
                             auto_ok += 1
                         else:
                             sin_match.append(doc)
+                    _audit_log(log_entries)
                     st.success(f"✅ {auto_ok} docs actualizados automáticamente")
                     if sin_match:
                         st.session_state["dm_seg_sin_match"] = sin_match
@@ -1705,10 +1766,23 @@ def _tab_setup():
             if st.button("💾 Guardar asignaciones manuales", key="s_seg_save"):
                 col       = _dbcf()["Contrapartes"]
                 guardados = 0
+                doc_by_id = {d["_id"]: d for d in sin_match}
+                log_entries = []
                 for _id, seg in asignaciones.items():
                     if seg != "(saltar)":
+                        doc_prev = doc_by_id.get(_id, {})
                         col.update_one({"_id": _id}, {"$set": {"segmento": seg}})
+                        log_entries.append({
+                            "where":  "CashFlow.Contrapartes",
+                            "key":    {"_id": _id,
+                                       "contraparte": doc_prev.get("contraparte")},
+                            "field":  "segmento",
+                            "old":    doc_prev.get("segmento"),
+                            "new":    seg,
+                            "action": "manual_segmento",
+                        })
                         guardados += 1
+                _audit_log(log_entries)
                 st.success(f"✅ {guardados} docs actualizados")
                 st.session_state["dm_seg_sin_match"] = []
                 st.rerun()
@@ -1850,15 +1924,85 @@ def _render_log(path: Path, n_lineas: int, nivel: str):
     st.code("\n".join(lineas), language="log")
 
 
+# ─── HISTORIAL ───────────────────────────────────────────────────────────────
+
+def _tab_historial():
+    st.markdown("### Historial de cambios")
+    st.caption("Registra cambios manuales aplicados desde Manager en `Admin.ChangeLog`.")
+
+    col = get_mongo_client()["Admin"]["ChangeLog"]
+
+    try:
+        total = col.estimated_document_count()
+    except Exception as e:
+        st.error(f"No se pudo acceder a Admin.ChangeLog: {e}")
+        return
+
+    if total == 0:
+        st.info("Sin cambios registrados todavía.")
+        return
+
+    c1, c2, c3 = st.columns([2, 2, 1])
+    with c1:
+        wheres = sorted({w for w in col.distinct("where") if w})
+        sel_where = st.multiselect("Colección", wheres, default=wheres, key="hist_where")
+    with c2:
+        actions = sorted({a for a in col.distinct("action") if a})
+        sel_action = st.multiselect("Acción", actions, default=actions, key="hist_action")
+    with c3:
+        limite = st.number_input("Últimos N", min_value=20, max_value=5000,
+                                 value=200, step=50, key="hist_limit")
+
+    filtro = {}
+    if sel_where:  filtro["where"]  = {"$in": sel_where}
+    if sel_action: filtro["action"] = {"$in": sel_action}
+
+    docs = list(col.find(filtro).sort("when", -1).limit(int(limite)))
+    if not docs:
+        st.info("Sin resultados con los filtros actuales.")
+        return
+
+    def _fmt_when(w):
+        if isinstance(w, datetime):
+            if w.tzinfo is None:
+                w = w.replace(tzinfo=timezone.utc)
+            return w.astimezone(_AR_TZ).strftime("%Y-%m-%d %H:%M:%S")
+        return str(w)
+
+    def _fmt_key(k):
+        if not isinstance(k, dict): return str(k)
+        partes = []
+        for kk in ("unidad", "contraparte", "id_cuenta"):
+            if kk in k and k[kk] not in (None, ""):
+                partes.append(f"{kk}={k[kk]}")
+        return " · ".join(partes) if partes else str(k.get("_id", k))[:60]
+
+    df = pd.DataFrame([{
+        "Cuándo":  _fmt_when(d.get("when")),
+        "Dónde":   d.get("where", ""),
+        "Clave":   _fmt_key(d.get("key", {})),
+        "Campo":   d.get("field", ""),
+        "Anterior": "" if d.get("old") is None else str(d.get("old"))[:60],
+        "Nuevo":    "" if d.get("new") is None else str(d.get("new"))[:60],
+        "Acción":  d.get("action", ""),
+    } for d in docs])
+
+    st.dataframe(df, hide_index=True, use_container_width=True, height=500)
+    st.caption(f"Mostrando {len(df):,} de {total:,} entradas totales.")
+
+
 # ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
 def vista_data_manager():
     st.markdown("## Manager")
-    st.caption("Diagnóstico, backfills, validaciones, logs y setup desde el dashboard.")
+    st.caption("Diagnóstico, backfills, validaciones, logs, historial y setup.")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Diagnóstico", "Backfills", "Validaciones", "Logs", "Setup"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        ["Diagnóstico", "Backfills", "Validaciones", "Logs", "Historial", "Setup"]
+    )
     with tab1: _tab_diagnostico()
     with tab2: _tab_backfills()
     with tab3: _tab_validaciones()
     with tab4: _tab_logs()
-    with tab5: _tab_setup()
+    with tab5: _tab_historial()
+    with tab6: _tab_setup()

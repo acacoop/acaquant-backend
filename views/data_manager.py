@@ -1726,8 +1726,11 @@ _LOG_LEVEL_RE = re.compile(r"\b(ERROR|CRITICAL|FATAL|WARNING|WARN|INFO|DEBUG)\b"
 
 def _logs_dir() -> Path | None:
     for p in _LOGS_CANDIDATES:
-        if p.is_dir():
-            return p
+        try:
+            if p.is_dir():
+                return p
+        except (PermissionError, OSError):
+            continue
     return None
 
 

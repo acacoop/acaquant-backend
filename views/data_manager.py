@@ -456,38 +456,37 @@ def _inferir_moneda(condiciones):
     return ""
 
 
+@st.dialog("Credenciales Aunesa")
+def _dialog_aunesa_creds():
+    st.caption("Ingresalas para esta sesión. No se guardan en disco ni en secrets.")
+    user  = st.text_input("Usuario",  type="password", key="dlg_aunesa_user")
+    passw = st.text_input("Password", type="password", key="dlg_aunesa_pass")
+    if st.button("Guardar", key="dlg_aunesa_save"):
+        if not (user.strip() and passw.strip()):
+            st.error("Completá usuario y password.")
+        else:
+            st.session_state["aunesa_cred_user"] = user.strip()
+            st.session_state["aunesa_cred_pass"] = passw.strip()
+            st.rerun()
+
+
+def _creds_ok():
+    return all([
+        st.session_state.get("aunesa_cred_user", "").strip(),
+        st.session_state.get("aunesa_cred_pass", "").strip(),
+    ])
+
+
+def _aunesa_env():
+    return {
+        "AUNESA_CLIENT_ID": "",
+        "AUNESA_USERNAME":  st.session_state.get("aunesa_cred_user", "").strip(),
+        "AUNESA_PASSWORD":  st.session_state.get("aunesa_cred_pass", "").strip(),
+    }
+
+
 def _tab_backfills():
     st.caption("Carga de datos históricos.")
-
-    # ─── Credenciales Aunesa ─────────────────────────────────────────────────
-    creds_completas = (
-        st.session_state.get("aunesa_cred_user", "").strip() and
-        st.session_state.get("aunesa_cred_pass", "").strip()
-    )
-    with st.expander("Credenciales Aunesa", expanded=not creds_completas):
-        st.caption("Ingresalas una vez por sesión. No se guardan en disco ni en secrets.")
-        c1, c2 = st.columns(2)
-        with c1:
-            st.text_input("Usuario", type="password", key="aunesa_cred_user")
-        with c2:
-            st.text_input("Password", type="password", key="aunesa_cred_pass")
-        if creds_completas:
-            st.success("Credenciales cargadas para esta sesión.")
-
-    def _creds_ok():
-        return all([
-            st.session_state.get("aunesa_cred_user", "").strip(),
-            st.session_state.get("aunesa_cred_pass", "").strip(),
-        ])
-
-    def _aunesa_env():
-        return {
-            "AUNESA_CLIENT_ID": "",
-            "AUNESA_USERNAME":  st.session_state.get("aunesa_cred_user", "").strip(),
-            "AUNESA_PASSWORD":  st.session_state.get("aunesa_cred_pass", "").strip(),
-        }
-
-    st.divider()
 
     # ─── Selector de sub-vista ────────────────────────────────────────────────
     subvista = st.radio(
@@ -575,6 +574,9 @@ def _tab_backfills():
                 with st.expander("Preview tipos desde Aunesa (llama a la API)", expanded=False):
                     st.caption("Consulta una sola contraparte para ver qué tipos devuelve Aunesa.")
                     if st.button("Consultar preview", key="flujo_preview_btn"):
+                        if not _creds_ok():
+                            _dialog_aunesa_creds()
+                            st.stop()
                         with st.spinner("Consultando Aunesa..."):
                             try:
                                 col_cp  = _dbcf()["Contrapartes"]
@@ -585,7 +587,7 @@ def _tab_backfills():
                                 if not primera:
                                     st.warning("No hay contrapartes con cuenta asignada.")
                                 else:
-                                    c_prev       = _aunesa_env() if _creds_ok() else {}
+                                    c_prev       = _aunesa_env()
                                     headers_prev = _autenticar_flujo(
                                         c_prev.get("AUNESA_CLIENT_ID"),
                                         c_prev.get("AUNESA_USERNAME"),
@@ -623,7 +625,7 @@ def _tab_backfills():
 
                 if st.button("▶ Cargar Operaciones", key="bf_flujo_run"):
                     if not _creds_ok():
-                        st.error("Completá las credenciales de Aunesa arriba antes de ejecutar.")
+                        _dialog_aunesa_creds()
                     else:
                         _ejecutar_flujo(desde_str, hasta_str, tipos_excluir_run, _aunesa_env())
 
@@ -739,7 +741,7 @@ def _tab_backfills():
                 btn_disabled = status_aum == "running"
                 if st.button("▶ Ejecutar", key="bf_aum_btn", disabled=btn_disabled):
                     if not _creds_ok():
-                        st.error("Completá las credenciales de Aunesa arriba antes de ejecutar.")
+                        _dialog_aunesa_creds()
                     else:
                         _run_bg("Excel/backfill_aum.py", [fecha_aum.isoformat()],
                                 "aum_bf", extra_env=_aunesa_env())
@@ -779,29 +781,29 @@ def _subvista_assets():
 
     st.markdown(f"**Valuaciones.Assets** — {total_docs:,} documentos")
 
-    # ── Sección 1: Diagnóstico de campos vacíos ───────────────────────────────
-    st.markdown("### Diagnóstico de campos vacíos")
-    st.caption("Cantidad de documentos con el campo ausente, `null` o `\"\"` por campo.")
+    # ── Campos Vacíos ─────────────────────────────────────────────────────────
+    with st.expander("Campos Vacíos", expanded=False):
+        st.caption("Cantidad de documentos con el campo ausente, `null` o `\"\"` por campo.")
 
-    if total_docs == 0:
-        st.info("Colección vacía.")
-    else:
-        rows = []
-        for campo in _ASSETS_CAMPOS:
-            vacios = col.count_documents(_asset_esta_vacio(campo))
-            con_valor = total_docs - vacios
-            rows.append({
-                "Campo":       campo,
-                "Vacíos":      vacios,
-                "Con valor":   con_valor,
-                "Cobertura":   f"{(con_valor / total_docs * 100):.1f}%" if total_docs else "—",
-            })
-        df_diag = pd.DataFrame(rows)
-        st.dataframe(df_diag, hide_index=True, use_container_width=True,
-                     height=38 + len(df_diag) * 35)
+        if total_docs == 0:
+            st.info("Colección vacía.")
+        else:
+            rows = []
+            for campo in _ASSETS_CAMPOS:
+                vacios    = col.count_documents(_asset_esta_vacio(campo))
+                con_valor = total_docs - vacios
+                rows.append({
+                    "Campo":     campo,
+                    "Vacíos":    vacios,
+                    "Con valor": con_valor,
+                    "Cobertura": f"{(con_valor / total_docs * 100):.1f}%",
+                })
+            df_diag = pd.DataFrame(rows)
+            st.dataframe(df_diag, hide_index=True, use_container_width=True,
+                         height=38 + len(df_diag) * 35)
 
-        with st.expander("Ver `unidad` sin valor por campo", expanded=False):
-            campo_ver = st.selectbox("Campo", _ASSETS_CAMPOS, key="as_ver_campo")
+            campo_ver = st.selectbox("Ver `unidad` sin valor para el campo",
+                                     _ASSETS_CAMPOS, key="as_ver_campo")
             if st.button("Listar", key="as_ver_btn"):
                 docs = list(col.find(_asset_esta_vacio(campo_ver),
                                      {"_id": 0, "unidad": 1}).limit(500))
@@ -812,113 +814,108 @@ def _subvista_assets():
                     st.dataframe(pd.DataFrame(docs), hide_index=True,
                                  use_container_width=True)
 
-    st.divider()
+    # ── Insertar Valores ──────────────────────────────────────────────────────
+    with st.expander("Insertar Valores", expanded=False):
+        st.caption("Setea un valor en un campo para los docs que cumplan los filtros.")
 
-    # ── Sección 2: Update masivo condicional ──────────────────────────────────
-    st.markdown("### Update masivo condicional")
-    st.caption("Setea un valor en un campo para los docs que cumplan los filtros.")
-
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        campo_set = st.selectbox("Campo a setear", _ASSETS_CAMPOS, key="as_set_campo")
-    with c2:
-        valor_set = st.text_input(
-            "Nuevo valor",
-            key="as_set_valor",
-            placeholder='Ej: "NO APLICA" o "2027-05-07 00:00:00"',
-        )
-
-    st.markdown("**Filtros** (se aplican con AND)")
-
-    # Filtros dinámicos
-    n_filtros = st.session_state.get("as_n_filtros", 1)
-    cf1, cf2 = st.columns([1, 1])
-    with cf1:
-        if st.button("➕ Agregar filtro", key="as_add_filtro"):
-            st.session_state["as_n_filtros"] = n_filtros + 1
-            st.rerun()
-    with cf2:
-        if n_filtros > 0 and st.button("➖ Quitar último filtro", key="as_del_filtro"):
-            st.session_state["as_n_filtros"] = max(0, n_filtros - 1)
-            st.rerun()
-
-    filtros_mongo = []
-    filtros_desc  = []
-    for i in range(n_filtros):
-        col_a, col_b, col_c = st.columns([2, 2, 3])
-        with col_a:
-            f_campo = st.selectbox(f"Campo #{i+1}", _ASSETS_CAMPOS, key=f"as_f_campo_{i}")
-        with col_b:
-            f_tipo = st.selectbox(
-                f"Condición #{i+1}",
-                ["es igual a", "está vacío"],
-                key=f"as_f_tipo_{i}",
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            campo_set = st.selectbox("Campo a setear", _ASSETS_CAMPOS, key="as_set_campo")
+        with c2:
+            valor_set = st.text_input(
+                "Nuevo valor",
+                key="as_set_valor",
+                placeholder='Ej: "NO APLICA" o "2027-05-07 00:00:00"',
             )
-        with col_c:
-            if f_tipo == "es igual a":
-                valores_disp = sorted(
-                    str(v) for v in col.distinct(f_campo)
-                    if v not in (None, "")
+
+        st.markdown("**Filtros** (se aplican con AND)")
+
+        n_filtros = st.session_state.get("as_n_filtros", 1)
+        cf1, cf2 = st.columns([1, 1])
+        with cf1:
+            if st.button("➕ Agregar filtro", key="as_add_filtro"):
+                st.session_state["as_n_filtros"] = n_filtros + 1
+                st.rerun()
+        with cf2:
+            if n_filtros > 0 and st.button("➖ Quitar último filtro", key="as_del_filtro"):
+                st.session_state["as_n_filtros"] = max(0, n_filtros - 1)
+                st.rerun()
+
+        filtros_mongo = []
+        filtros_desc  = []
+        for i in range(n_filtros):
+            col_a, col_b, col_c = st.columns([2, 2, 3])
+            with col_a:
+                f_campo = st.selectbox(f"Campo #{i+1}", _ASSETS_CAMPOS, key=f"as_f_campo_{i}")
+            with col_b:
+                f_tipo = st.selectbox(
+                    f"Condición #{i+1}",
+                    ["es igual a", "está vacío"],
+                    key=f"as_f_tipo_{i}",
                 )
-                if valores_disp:
-                    f_val = st.selectbox(
-                        f"Valor #{i+1}", valores_disp, key=f"as_f_val_{i}",
+            with col_c:
+                if f_tipo == "es igual a":
+                    valores_disp = sorted(
+                        str(v) for v in col.distinct(f_campo)
+                        if v not in (None, "")
                     )
+                    if valores_disp:
+                        f_val = st.selectbox(
+                            f"Valor #{i+1}", valores_disp, key=f"as_f_val_{i}",
+                        )
+                    else:
+                        f_val = st.text_input(
+                            f"Valor #{i+1}", key=f"as_f_val_{i}",
+                            help="Sin valores distintos en la colección.",
+                        )
                 else:
-                    f_val = st.text_input(
-                        f"Valor #{i+1}", key=f"as_f_val_{i}",
-                        help="Sin valores distintos en la colección.",
-                    )
-            else:
-                f_val = None
-                st.caption("—")
+                    f_val = None
+                    st.caption("—")
 
-        if f_tipo == "es igual a" and f_val:
-            filtros_mongo.append({f_campo: f_val})
-            filtros_desc.append(f"`{f_campo}` == `{f_val}`")
-        elif f_tipo == "está vacío":
-            filtros_mongo.append(_asset_esta_vacio(f_campo))
-            filtros_desc.append(f"`{f_campo}` vacío")
+            if f_tipo == "es igual a" and f_val:
+                filtros_mongo.append({f_campo: f_val})
+                filtros_desc.append(f"`{f_campo}` == `{f_val}`")
+            elif f_tipo == "está vacío":
+                filtros_mongo.append(_asset_esta_vacio(f_campo))
+                filtros_desc.append(f"`{f_campo}` vacío")
 
-    filtro_final = {"$and": filtros_mongo} if filtros_mongo else {}
+        filtro_final = {"$and": filtros_mongo} if filtros_mongo else {}
 
-    if filtros_desc:
-        st.caption("Filtro: " + "  ∧  ".join(filtros_desc))
-    else:
-        st.warning("⚠️ Sin filtros — el update afectaría TODA la colección.")
+        if filtros_desc:
+            st.caption("Filtro: " + "  ∧  ".join(filtros_desc))
+        else:
+            st.warning("⚠️ Sin filtros — el update afectaría TODA la colección.")
 
-    # Preview
-    match_count = col.count_documents(filtro_final)
-    st.markdown(f"**Documentos que matchean: `{match_count:,}`**")
+        match_count = col.count_documents(filtro_final)
+        st.markdown(f"**Documentos que matchean: `{match_count:,}`**")
 
-    if match_count > 0:
-        with st.expander(f"Preview (máx 10 de {match_count:,})", expanded=False):
+        if match_count > 0:
             preview = list(col.find(filtro_final, {"_id": 0, "unidad": 1,
                                                     campo_set: 1}).limit(10))
             if preview:
+                st.caption(f"Preview (máx 10 de {match_count:,})")
                 st.dataframe(pd.DataFrame(preview), hide_index=True,
                              use_container_width=True)
 
-    # Confirmación + ejecución
-    puede_ejecutar = (
-        match_count > 0
-        and valor_set.strip() != ""
-        and len(filtros_mongo) > 0
-    )
-
-    if not puede_ejecutar:
-        faltantes = []
-        if valor_set.strip() == "":     faltantes.append("nuevo valor")
-        if len(filtros_mongo) == 0:     faltantes.append("al menos un filtro")
-        if match_count == 0:            faltantes.append("docs que matcheen")
-        st.caption("Falta: " + ", ".join(faltantes) if faltantes else "")
-    else:
-        confirmar = st.checkbox(
-            f"Confirmo setear `{campo_set} = \"{valor_set}\"` en {match_count:,} docs",
-            key="as_confirm",
+        puede_ejecutar = (
+            match_count > 0
+            and valor_set.strip() != ""
+            and len(filtros_mongo) > 0
         )
-        if confirmar:
-            if st.button("▶ Aplicar update masivo", key="as_apply_btn"):
+
+        if not puede_ejecutar:
+            faltantes = []
+            if valor_set.strip() == "":     faltantes.append("nuevo valor")
+            if len(filtros_mongo) == 0:     faltantes.append("al menos un filtro")
+            if match_count == 0:            faltantes.append("docs que matcheen")
+            if faltantes:
+                st.caption("Falta: " + ", ".join(faltantes))
+        else:
+            confirmar = st.checkbox(
+                f"Confirmo setear `{campo_set} = \"{valor_set}\"` en {match_count:,} docs",
+                key="as_confirm",
+            )
+            if confirmar and st.button("▶ Aplicar", key="as_apply_btn"):
                 result = col.update_many(filtro_final, {"$set": {campo_set: valor_set}})
                 st.success(
                     f"✅ Update aplicado: matched={result.matched_count:,}, "
@@ -926,30 +923,26 @@ def _subvista_assets():
                 )
                 st.session_state["as_confirm"] = False
 
-    st.divider()
+    # ── Actualizar Precios ────────────────────────────────────────────────────
+    with st.expander("Actualizar Precios", expanded=False):
+        st.caption("Para los docs de `Valuaciones.Carteras` sin `precio`, toma el "
+                   "precio más reciente de `Valuaciones.AuM` por `unidad` y lo completa.")
 
-    # ── Sección 3: Actualizar Precios (Valuaciones.Carteras) ──────────────────
-    st.markdown("### Actualizar Precios")
-    st.caption("Para los docs de `Valuaciones.Carteras` sin `precio`, toma el "
-               "precio más reciente de `Valuaciones.AuM` por `unidad` y lo completa.")
+        col_carteras = _dbv()["Carteras"]
+        col_aum      = _dbv()["AuM"]
 
-    col_carteras = _dbv()["Carteras"]
-    col_aum      = _dbv()["AuM"]
+        pendientes = col_carteras.count_documents(_asset_esta_vacio("precio"))
+        st.markdown(f"**Docs en Carteras sin precio: `{pendientes:,}`**")
 
-    pendientes = col_carteras.count_documents(_asset_esta_vacio("precio"))
-    st.markdown(f"**Docs en Carteras sin precio: `{pendientes:,}`**")
-
-    if pendientes == 0:
-        st.success("Todos los docs de Carteras tienen precio.")
-    else:
-        if st.button("▶ Actualizar Precios", key="as_upd_precios"):
+        if pendientes == 0:
+            st.success("Todos los docs de Carteras tienen precio.")
+        elif st.button("▶ Actualizar Precios", key="as_upd_precios"):
             with st.spinner("Buscando precios en AuM y actualizando..."):
                 unidades = [u for u in col_carteras.distinct(
                     "unidad", _asset_esta_vacio("precio")) if u]
 
                 actualizados = 0
                 sin_match    = []
-                ops = []
                 for u in unidades:
                     doc_aum = col_aum.find_one(
                         {"unidad": u, "precio": {"$exists": True, "$nin": [None, ""]}},
@@ -959,10 +952,9 @@ def _subvista_assets():
                     if not doc_aum:
                         sin_match.append(u)
                         continue
-                    precio = doc_aum["precio"]
                     res = col_carteras.update_many(
                         {"unidad": u, **_asset_esta_vacio("precio")},
-                        {"$set": {"precio": precio}},
+                        {"$set": {"precio": doc_aum["precio"]}},
                     )
                     actualizados += res.modified_count
 

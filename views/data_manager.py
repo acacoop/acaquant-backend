@@ -234,25 +234,30 @@ def _run_bg_aum_multi(fechas: list[str], key: str, extra_env: dict | None = None
 
 _AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# (db, coll, field_ts, nombre, umbral_seg)
+# (db, coll, field_ts, nombre, umbral_seg, tz_si_naive)
+# Los engines graban con datetime.now() o utcnow() sin tz; el TZ correcto
+# depende de cada engine:
+#   - TimeSales: main_valores.py:234 hace astimezone(ART).replace(tzinfo=None) → ART
+#   - MarketSnapshot/ForwardsLive/BreakevensLive/OptionsSnapshot: datetime.now()
+#     en el droplet (TZ=UTC) → UTC naive
 _STATUS_LIVE = [
-    ("Trading",  "TimeSales",       "timestamp",  "TimeSales",       300),
-    ("Trading",  "MarketSnapshot",  "updated_at", "MarketSnapshot",  120),
-    ("Trading",  "ForwardsLive",    "updated_at", "ForwardsLive",     60),
-    ("Trading",  "BreakevensLive",  "updated_at", "BreakevensLive",   60),
-    ("Opciones", "OptionsSnapshot", "updated_at", "OptionsSnapshot", 180),
+    ("Trading",  "TimeSales",       "timestamp",  "TimeSales",       300, _AR_TZ),
+    ("Trading",  "MarketSnapshot",  "updated_at", "MarketSnapshot",  120, timezone.utc),
+    ("Trading",  "ForwardsLive",    "updated_at", "ForwardsLive",     60, timezone.utc),
+    ("Trading",  "BreakevensLive",  "updated_at", "BreakevensLive",   60, timezone.utc),
+    ("Opciones", "OptionsSnapshot", "updated_at", "OptionsSnapshot", 180, timezone.utc),
 ]
 
-# (db, coll, field, tipo, nombre, umbral_dias_habiles, descripcion)
+# (db, coll, field, tipo, nombre, umbral_dias_habiles, descripcion, tz_si_naive)
 _STATUS_PERIODICO = [
-    ("Trading",     "CER",         "fecha",         "iso",     "CER (BCRA)",        2, "diario 20:00 UTC"),
-    ("Trading",     "TAMAR",       "fecha",         "iso",     "TAMAR (BCRA)",      2, "diario 20:00 UTC"),
-    ("Trading",     "DOLAR",       "fecha",         "iso",     "DOLAR (BCRA)",      2, "diario 20:00 UTC"),
-    ("Trading",     "BADLAR",      "fecha",         "iso",     "BADLAR (BCRA)",     2, "diario 20:00 UTC"),
-    ("Valuaciones", "AuM",         "fecha_snapshot","iso",     "AuM (cierre)",      2, "diario 23:00 UTC L-V"),
-    ("Valuaciones", "Carteras",    "timestamp",     "datetime","Carteras",          1, "4x / día hábil"),
-    ("CashFlow",    "Movimientos", "fecha",         "iso",     "CashFlow Mov.",     2, "02:00 UTC mar-sáb"),
-    ("CashFlow",    "Flujo",       "concertacion",  "ddmmyyyy","Flujo Contrapartes",2, "02:00 UTC mar-sáb"),
+    ("Trading",     "CER",         "fecha",         "iso",     "CER (BCRA)",        2, "diario 20:00 UTC",      None),
+    ("Trading",     "TAMAR",       "fecha",         "iso",     "TAMAR (BCRA)",      2, "diario 20:00 UTC",      None),
+    ("Trading",     "DOLAR",       "fecha",         "iso",     "DOLAR (BCRA)",      2, "diario 20:00 UTC",      None),
+    ("Trading",     "BADLAR",      "fecha",         "iso",     "BADLAR (BCRA)",     2, "diario 20:00 UTC",      None),
+    ("Valuaciones", "AuM",         "fecha_snapshot","iso",     "AuM (cierre)",      2, "diario 23:00 UTC L-V",  None),
+    ("Valuaciones", "Carteras",    "timestamp",     "datetime","Carteras",          1, "4x / día hábil",        timezone.utc),
+    ("CashFlow",    "Movimientos", "fecha",         "iso",     "CashFlow Mov.",     2, "02:00 UTC mar-sáb",     None),
+    ("CashFlow",    "Flujo",       "concertacion",  "ddmmyyyy","Flujo Contrapartes",2, "02:00 UTC mar-sáb",     None),
 ]
 
 
@@ -273,14 +278,14 @@ def _fmt_delta(segundos: float) -> str:
     return f"{s//86400}d {(s%86400)//3600}h"
 
 
-def _parse_periodic_value(val, tipo: str) -> datetime | None:
+def _parse_periodic_value(val, tipo: str, tz_naive) -> datetime | None:
     if val is None or val == "":
         return None
     try:
         if tipo == "datetime":
             v = val if isinstance(val, datetime) else datetime.fromisoformat(str(val))
             if v.tzinfo is None:
-                v = v.replace(tzinfo=timezone.utc)
+                v = v.replace(tzinfo=tz_naive or timezone.utc)
             return v
         if tipo == "iso":
             return datetime.combine(date.fromisoformat(str(val)[:10]),
@@ -296,7 +301,7 @@ def _parse_periodic_value(val, tipo: str) -> datetime | None:
 def _status_live_rows(en_rueda: bool) -> list[dict]:
     ahora = datetime.now(_AR_TZ)
     rows = []
-    for db_n, coll_n, field, nombre, umbral in _STATUS_LIVE:
+    for db_n, coll_n, field, nombre, umbral, tz_naive in _STATUS_LIVE:
         coll = get_mongo_client()[db_n][coll_n]
         doc  = coll.find_one({field: {"$exists": True}},
                              sort=[(field, -1)], projection={field: 1})
@@ -305,10 +310,8 @@ def _status_live_rows(en_rueda: bool) -> list[dict]:
                          "Umbral": f"{umbral}s", "Estado": "⚪ Sin datos"})
             continue
         ts = doc[field]
-        # Los engines graban timestamps naive en hora ARG (ej: main_valores.py
-        # usa astimezone(ART).replace(tzinfo=None)).
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=_AR_TZ)
+            ts = ts.replace(tzinfo=tz_naive)
         delta = (ahora - ts).total_seconds()
 
         if not en_rueda:
@@ -333,7 +336,7 @@ def _status_live_rows(en_rueda: bool) -> list[dict]:
 def _status_periodico_rows() -> list[dict]:
     ahora = datetime.now(_AR_TZ)
     rows = []
-    for db_n, coll_n, field, tipo, nombre, umbral_dias, desc in _STATUS_PERIODICO:
+    for db_n, coll_n, field, tipo, nombre, umbral_dias, desc, tz_naive in _STATUS_PERIODICO:
         coll = get_mongo_client()[db_n][coll_n]
         doc  = coll.find_one({field: {"$exists": True, "$nin": [None, ""]}},
                              sort=[(field, -1)], projection={field: 1})
@@ -342,7 +345,7 @@ def _status_periodico_rows() -> list[dict]:
                          "Hace": "—", "Frecuencia": desc, "Estado": "⚪ Sin datos"})
             continue
 
-        ts = _parse_periodic_value(doc.get(field), tipo)
+        ts = _parse_periodic_value(doc.get(field), tipo, tz_naive)
         if ts is None:
             rows.append({"Colección": nombre, "Último dato": str(doc.get(field))[:19],
                          "Hace": "—", "Frecuencia": desc, "Estado": "⚪ Error parse"})

@@ -43,14 +43,14 @@ def _dbcf(): return get_mongo_client()["CashFlow"]
 # ─── AUDIT LOG ───────────────────────────────────────────────────────────────
 
 def _audit_log(rows: list[dict]) -> None:
-    """Inserta entradas en Admin.ChangeLog. Silencioso ante errores para no bloquear updates."""
+    """Inserta entradas en Manager.ChangeLog. Silencioso ante errores para no bloquear updates."""
     if not rows:
         return
     ahora = datetime.now(timezone.utc)
     for r in rows:
         r.setdefault("when", ahora)
     try:
-        get_mongo_client()["Admin"]["ChangeLog"].insert_many(rows, ordered=False)
+        get_mongo_client()["Manager"]["ChangeLog"].insert_many(rows, ordered=False)
     except Exception as e:
         print(f"[audit] error insertando log: {e}")
 
@@ -1928,14 +1928,14 @@ def _render_log(path: Path, n_lineas: int, nivel: str):
 
 def _tab_historial():
     st.markdown("### Historial de cambios")
-    st.caption("Registra cambios manuales aplicados desde Manager en `Admin.ChangeLog`.")
+    st.caption("Registra cambios manuales aplicados desde Manager en `Manager.ChangeLog`.")
 
-    col = get_mongo_client()["Admin"]["ChangeLog"]
+    col = get_mongo_client()["Manager"]["ChangeLog"]
 
     try:
         total = col.estimated_document_count()
     except Exception as e:
-        st.error(f"No se pudo acceder a Admin.ChangeLog: {e}")
+        st.error(f"No se pudo acceder a Manager.ChangeLog: {e}")
         return
 
     if total == 0:

@@ -294,7 +294,7 @@ def _parse_periodic_value(val, tipo: str) -> datetime | None:
 
 
 def _status_live_rows(en_rueda: bool) -> list[dict]:
-    ahora = datetime.now(timezone.utc)
+    ahora = datetime.now(_AR_TZ)
     rows = []
     for db_n, coll_n, field, nombre, umbral in _STATUS_LIVE:
         coll = get_mongo_client()[db_n][coll_n]
@@ -305,8 +305,10 @@ def _status_live_rows(en_rueda: bool) -> list[dict]:
                          "Umbral": f"{umbral}s", "Estado": "⚪ Sin datos"})
             continue
         ts = doc[field]
+        # Los engines graban timestamps naive en hora ARG (ej: main_valores.py
+        # usa astimezone(ART).replace(tzinfo=None)).
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
+            ts = ts.replace(tzinfo=_AR_TZ)
         delta = (ahora - ts).total_seconds()
 
         if not en_rueda:

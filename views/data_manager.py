@@ -926,6 +926,53 @@ def _subvista_assets():
                 )
                 st.session_state["as_confirm"] = False
 
+    st.divider()
+
+    # ── Sección 3: Actualizar Precios (Valuaciones.Carteras) ──────────────────
+    st.markdown("### Actualizar Precios")
+    st.caption("Para los docs de `Valuaciones.Carteras` sin `precio`, toma el "
+               "precio más reciente de `Valuaciones.AuM` por `unidad` y lo completa.")
+
+    col_carteras = _dbv()["Carteras"]
+    col_aum      = _dbv()["AuM"]
+
+    pendientes = col_carteras.count_documents(_asset_esta_vacio("precio"))
+    st.markdown(f"**Docs en Carteras sin precio: `{pendientes:,}`**")
+
+    if pendientes == 0:
+        st.success("Todos los docs de Carteras tienen precio.")
+    else:
+        if st.button("▶ Actualizar Precios", key="as_upd_precios"):
+            with st.spinner("Buscando precios en AuM y actualizando..."):
+                unidades = [u for u in col_carteras.distinct(
+                    "unidad", _asset_esta_vacio("precio")) if u]
+
+                actualizados = 0
+                sin_match    = []
+                ops = []
+                for u in unidades:
+                    doc_aum = col_aum.find_one(
+                        {"unidad": u, "precio": {"$exists": True, "$nin": [None, ""]}},
+                        sort=[("fecha_snapshot", -1), ("timestamp", -1)],
+                        projection={"precio": 1},
+                    )
+                    if not doc_aum:
+                        sin_match.append(u)
+                        continue
+                    precio = doc_aum["precio"]
+                    res = col_carteras.update_many(
+                        {"unidad": u, **_asset_esta_vacio("precio")},
+                        {"$set": {"precio": precio}},
+                    )
+                    actualizados += res.modified_count
+
+                st.success(f"✅ {actualizados:,} docs actualizados "
+                           f"({len(unidades) - len(sin_match)}/{len(unidades)} unidades).")
+                if sin_match:
+                    st.warning(f"⚠️ {len(sin_match)} unidades sin precio en AuM:")
+                    st.dataframe(pd.DataFrame({"unidad": sin_match}),
+                                 hide_index=True, use_container_width=True)
+
 
 def _ejecutar_flujo(desde_str: str, hasta_str: str,
                     tipos_excluir: set, creds: dict | None = None):

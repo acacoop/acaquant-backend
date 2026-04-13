@@ -574,7 +574,7 @@ def _tab_backfills():
     # ─── Selector de sub-vista ────────────────────────────────────────────────
     subvista = st.radio(
         "Sección",
-        ["Flujo vs Contrapartes", "AuM", "Assets"],
+        ["Flujo vs Contrapartes", "AuM", "Assets", "Portfolio"],
         horizontal=True,
         label_visibility="collapsed",
         key="bf_subvista",
@@ -877,8 +877,14 @@ def _tab_backfills():
     # ══════════════════════════════════════════════════════════════════════════
     # SUB-VISTA: Assets (Valuaciones.Assets)
     # ══════════════════════════════════════════════════════════════════════════
-    else:
+    elif subvista == "Assets":
         _subvista_assets()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SUB-VISTA: Portfolio (Valuaciones.Carteras × Assets)
+    # ══════════════════════════════════════════════════════════════════════════
+    else:
+        _subvista_portfolio()
 
 
 # ─── SUB-VISTA ASSETS ────────────────────────────────────────────────────────
@@ -1084,6 +1090,139 @@ def _subvista_assets():
                     st.warning(f"⚠️ {len(sin_match)} unidades sin precio en AuM:")
                     st.dataframe(pd.DataFrame({"unidad": sin_match}),
                                  hide_index=True, use_container_width=True)
+
+
+# ─── SUB-VISTA PORTFOLIO ─────────────────────────────────────────────────────
+
+_PORTFOLIO_CLAVE   = ["TICKER", "EMISOR", "CLASE_ACTIVO", "CARTERA"]
+_PORTFOLIO_EDIT    = ["TICKER", "EMISOR", "CLASE_ACTIVO", "CARTERA",
+                      "VENCIMIENTO", "CALIFICACION"]
+
+
+def _subvista_portfolio():
+    col_assets   = _dbv()["Assets"]
+    col_carteras = _dbv()["Carteras"]
+
+    st.markdown("**Unidades de Carteras con Asset incompleto**")
+    st.caption("Detecta `unidad` presente en `Valuaciones.Carteras` cuyo Asset tiene "
+               "al menos uno de TICKER / EMISOR / CLASE_ACTIVO / CARTERA vacío o "
+               "que no tiene Asset.")
+
+    # Agregar posiciones/valuación por unidad en Carteras
+    pipeline = [
+        {"$match": {"unidad": {"$ne": ""}}},
+        {"$group": {
+            "_id": "$unidad",
+            "n_posiciones": {"$sum": 1},
+            "valuacion":    {"$sum": {"$ifNull": ["$valuacion", 0]}},
+        }},
+    ]
+    carteras_agg = {r["_id"]: r for r in col_carteras.aggregate(pipeline)}
+    unidades_en_carteras = list(carteras_agg.keys())
+
+    if not unidades_en_carteras:
+        st.info("No hay posiciones en Valuaciones.Carteras.")
+        return
+
+    # Traer Assets para esas unidades
+    proj = {"_id": 0, "unidad": 1,
+            **{c: 1 for c in _PORTFOLIO_EDIT}}
+    assets_map = {
+        a["unidad"]: a
+        for a in col_assets.find({"unidad": {"$in": unidades_en_carteras}}, proj)
+    }
+
+    def _vacio(v):
+        return v in (None, "")
+
+    rows = []
+    for u in unidades_en_carteras:
+        a = assets_map.get(u, {})
+        vacios = [c for c in _PORTFOLIO_CLAVE if _vacio(a.get(c))]
+        if not vacios and u in assets_map:
+            continue
+        rows.append({
+            "unidad":       u,
+            "TICKER":       a.get("TICKER") or "—",
+            "EMISOR":       a.get("EMISOR") or "—",
+            "CLASE_ACTIVO": a.get("CLASE_ACTIVO") or "—",
+            "CARTERA":      a.get("CARTERA") or "—",
+            "VENCIMIENTO":  a.get("VENCIMIENTO") or "—",
+            "# pos":        carteras_agg[u]["n_posiciones"],
+            "Valuación":    round(carteras_agg[u]["valuacion"] or 0, 2),
+            "Vacíos":       len(vacios) if u in assets_map else len(_PORTFOLIO_CLAVE),
+            "Sin Asset":    "❌" if u not in assets_map else "",
+        })
+
+    total = len(unidades_en_carteras)
+    problema = len(rows)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Unidades en Carteras", f"{total:,}")
+    c2.metric("Con problemas", f"{problema:,}")
+    c3.metric("% afectado", f"{problema/total*100:.1f}%" if total else "—")
+
+    if not rows:
+        st.success("✅ Todas las unidades de Carteras tienen Asset completo.")
+        return
+
+    df = pd.DataFrame(rows).sort_values(
+        ["Vacíos", "Valuación"], ascending=[False, False]
+    ).reset_index(drop=True)
+    st.dataframe(df, hide_index=True, use_container_width=True,
+                 height=min(38 + len(df) * 35, 500))
+
+    st.divider()
+
+    # ── Editor por unidad ─────────────────────────────────────────────────────
+    st.markdown("### Completar Asset")
+    st.caption("Seleccioná una unidad y completá los campos faltantes. "
+               "`Guardar` hace upsert en `Valuaciones.Assets`.")
+
+    unidades_opts = df["unidad"].tolist()
+    u_sel = st.selectbox("Unidad", unidades_opts, key="port_unidad")
+
+    a_actual = assets_map.get(u_sel, {})
+    es_nuevo = u_sel not in assets_map
+    if es_nuevo:
+        st.warning(f"No existe Asset para `{u_sel}` — se creará al guardar.")
+
+    with st.form(key="port_form"):
+        nuevos_vals = {}
+        cols = st.columns(2)
+        for idx, campo in enumerate(_PORTFOLIO_EDIT):
+            actual = a_actual.get(campo) or ""
+            distinct_vals = sorted(
+                str(v) for v in col_assets.distinct(campo)
+                if v not in (None, "")
+            )
+            with cols[idx % 2]:
+                nuevos_vals[campo] = st.text_input(
+                    campo, value=actual, key=f"port_f_{campo}",
+                    help=f"Valores existentes en la colección: {len(distinct_vals)}"
+                                + (f" — ej: {', '.join(distinct_vals[:5])}"
+                                   if distinct_vals else ""),
+                )
+
+        submitted = st.form_submit_button("💾 Guardar")
+
+        if submitted:
+            update = {}
+            for c, v in nuevos_vals.items():
+                v_clean = v.strip()
+                if v_clean != (a_actual.get(c) or ""):
+                    update[c] = v_clean
+            if not update and not es_nuevo:
+                st.info("Sin cambios.")
+            else:
+                res = col_assets.update_one(
+                    {"unidad": u_sel},
+                    {"$set": {**update, "unidad": u_sel}},
+                    upsert=True,
+                )
+                accion = "creado" if (res.upserted_id or es_nuevo) else "actualizado"
+                st.success(f"✅ Asset {accion}: {sorted(update.keys()) or '(sin cambios)'}")
+                st.rerun()
 
 
 def _ejecutar_flujo(desde_str: str, hasta_str: str,

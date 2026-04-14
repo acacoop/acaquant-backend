@@ -2343,22 +2343,10 @@ def _render_reporte_ejecutivo():
     # Breakdown real por cartera — mes actual (groupby CARTERA)
     if "CARTERA" in _df_cta.columns and not _df_cta.empty:
         _grp_cart = _df_cta.groupby("CARTERA")["valuación"].sum()
-        ars_mes = float(_grp_cart.get("Cartera ARS", 0.0))
-        dl_mes  = float(_grp_cart.get("Cartera DL",  0.0))
-        hd_mes  = float(_grp_cart.get("Cartera HD",  0.0))
-        fci_mes = float(_grp_cart.get("Cartera FCI", 0.0))
-
-        # ── Debug temporal: muestra los nombres reales de CARTERA ──
-        with st.expander("🔍 Debug — valores únicos de CARTERA en esta cuenta", expanded=False):
-            _dbg = (_grp_cart.reset_index()
-                    .rename(columns={"CARTERA": "Valor CARTERA en Mongo",
-                                     "valuación": "Suma Valuación"})
-                    .sort_values("Suma Valuación", ascending=False))
-            _dbg["Suma Valuación"] = _dbg["Suma Valuación"].map(lambda v: f"{v:,.0f}")
-            st.dataframe(_dbg, hide_index=True, use_container_width=True)
-            st.caption("Los valores mostrados deben coincidir exactamente con 'Cartera ARS', 'Cartera DL', "
-                       "'Cartera HD', 'Cartera FCI' para que el breakdown funcione. "
-                       "Si están con otros nombres, avisá y ajustamos el mapping.")
+        ars_mes = float(_grp_cart.get("CARTERA ARS", 0.0))
+        dl_mes  = float(_grp_cart.get("CARTERA DL",  0.0))
+        hd_mes  = float(_grp_cart.get("CARTERA HD",  0.0))
+        fci_mes = float(_grp_cart.get("CARTERA FCI", 0.0))
     else:
         ars_mes = dl_mes = hd_mes = fci_mes = 0.0
     # Mes anterior sigue dummy (requiere histórico — próxima iteración)

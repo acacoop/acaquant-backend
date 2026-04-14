@@ -2355,21 +2355,27 @@ def _render_reporte_ejecutivo():
 
     ars_prev, dl_prev, hd_prev, fci_prev = _rep_dummy_carteras(str(cuenta_sel), mes_prev)
 
-    # Fila 1: KPIs (izq) — aislados arriba de todo
+    # Fila 1: KPIs — bloque izq (Informe/MEP/A3500 stackeados) + 3 valuaciones horizontales
+    _kpi_label = f"font-size:11px;color:#666;font-weight:600"
+    _kpi_val   = f"font-size:16px;color:{_REP_NAVY};font-weight:700"
     kpi_grid = f"""
-    <div style='display:grid;grid-template-columns:repeat(6,auto);gap:6px 28px;margin-bottom:10px'>
-      <div><div style='font-size:11px;color:#666;font-weight:600'>Informe al</div>
-           <div style='font-size:15px;color:{_REP_NAVY};font-weight:700'>{fecha_str}</div></div>
-      <div><div style='font-size:11px;color:#666;font-weight:600'>Valor MEP</div>
-           <div style='font-size:15px;color:{_REP_NAVY};font-weight:700'>{val_mep:,.2f}</div></div>
-      <div><div style='font-size:11px;color:#666;font-weight:600'>Valor A3500</div>
-           <div style='font-size:15px;color:{_REP_NAVY};font-weight:700'>{val_a3500:,.2f}</div></div>
-      <div><div style='font-size:11px;color:#666;font-weight:600'>Valuación ARS</div>
-           <div style='font-size:15px;color:{_REP_NAVY};font-weight:700'>{total_ars:,.0f}</div></div>
-      <div><div style='font-size:11px;color:#666;font-weight:600'>Valuación A3500</div>
-           <div style='font-size:15px;color:{_REP_NAVY};font-weight:700'>{val_a3500_total:,.0f}</div></div>
-      <div><div style='font-size:11px;color:#666;font-weight:600'>Valuación USD MEP</div>
-           <div style='font-size:15px;color:{_REP_NAVY};font-weight:700'>{val_usd_total:,.0f}</div></div>
+    <div style='display:flex;gap:48px;align-items:flex-start;margin-bottom:36px'>
+      <div style='display:flex;flex-direction:column;gap:10px;min-width:150px'>
+        <div><div style='{_kpi_label}'>Informe al</div>
+             <div style='{_kpi_val}'>{fecha_str}</div></div>
+        <div><div style='{_kpi_label}'>Valor MEP</div>
+             <div style='{_kpi_val}'>{val_mep:,.2f}</div></div>
+        <div><div style='{_kpi_label}'>Valor A3500</div>
+             <div style='{_kpi_val}'>{val_a3500:,.2f}</div></div>
+      </div>
+      <div style='display:flex;gap:48px;flex:1;justify-content:flex-end'>
+        <div><div style='{_kpi_label}'>Valuación ARS</div>
+             <div style='{_kpi_val}'>{total_ars:,.0f}</div></div>
+        <div><div style='{_kpi_label}'>Valuación A3500</div>
+             <div style='{_kpi_val}'>{val_a3500_total:,.0f}</div></div>
+        <div><div style='{_kpi_label}'>Valuación USD MEP</div>
+             <div style='{_kpi_val}'>{val_usd_total:,.0f}</div></div>
+      </div>
     </div>
     """
     st.markdown(kpi_grid, unsafe_allow_html=True)
@@ -2393,24 +2399,28 @@ def _render_reporte_ejecutivo():
         }
         _domain = donut_df["Cartera"].tolist()
         _range = [_palette[c] for c in _domain]
-        arc = alt.Chart(donut_df).mark_arc(innerRadius=60, outerRadius=110).encode(
+        arc = alt.Chart(donut_df).mark_arc(innerRadius=70, outerRadius=125).encode(
             theta=alt.Theta("Monto:Q"),
             color=alt.Color(
                 "Cartera:N",
                 scale=alt.Scale(domain=_domain, range=_range),
-                legend=alt.Legend(title=None, orient="right"),
+                legend=alt.Legend(
+                    title=None, orient="right",
+                    offset=-30, padding=0, labelPadding=2,
+                    rowPadding=2, symbolSize=80, labelFontSize=11,
+                ),
             ),
             tooltip=["Cartera:N", alt.Tooltip("Monto:Q", format=",.0f"),
                      alt.Tooltip("pct:Q", format=".1%")],
         )
-        labels = alt.Chart(donut_df).mark_text(radius=85, size=11, color="white", fontWeight="bold").encode(
+        labels = alt.Chart(donut_df).mark_text(radius=97, size=11, color="white", fontWeight="bold").encode(
             theta=alt.Theta("Monto:Q", stack=True),
             text=alt.Text("label:N"),
         )
         st.altair_chart(
             (arc + labels).properties(
                 title=alt.TitleParams(mes_actual.upper(), anchor="middle", fontSize=14),
-                height=280,
+                height=340,
             ),
             use_container_width=True,
         )

@@ -2269,9 +2269,8 @@ def vista_operaciones():
 
             # ── Filtro accionistas ────────────────────────────────────────────
             acc_map = _cargar_accionistas()   # {cuenta: accionista}
-            acc_nombres = sorted(set(acc_map.values()))
 
-            fa_col, fb_col, fc_col = st.columns([2, 3, 2])
+            fa_col, fb_col = st.columns([2, 5])
             with fa_col:
                 filtro_acc = st.selectbox(
                     "Cuentas",
@@ -2279,17 +2278,19 @@ def vista_operaciones():
                     key="ops_filtro_acc",
                     label_visibility="collapsed",
                 )
+
+            todas_cuentas = df["cuenta"].dropna().unique().tolist()
+            if filtro_acc == "Solo accionistas":
+                cuentas_filtradas = [c for c in todas_cuentas if c in acc_map]
+            elif filtro_acc == "Sin accionistas":
+                cuentas_filtradas = [c for c in todas_cuentas if c not in acc_map]
+            else:
+                cuentas_filtradas = todas_cuentas
+
             with fb_col:
-                if filtro_acc == "Solo accionistas":
-                    acc_sel = st.multiselect(
-                        "Accionista", acc_nombres, default=acc_nombres, key="ops_acc_sel"
-                    )
-                else:
-                    acc_sel = acc_nombres
-            with fc_col:
-                cuentas_disponibles = ["Todas"] + sorted(df["cuenta"].dropna().unique().tolist())
+                cuentas_disponibles = ["Todas"] + sorted(cuentas_filtradas)
                 cuenta_sel = st.selectbox(
-                    "Cuenta", cuentas_disponibles, key="ops_cuenta",
+                    "Cuenta", cuentas_disponibles, key=f"ops_cuenta_{filtro_acc}",
                     label_visibility="collapsed",
                 )
 
@@ -2298,14 +2299,14 @@ def vista_operaciones():
             monedas_sel = (["ARS"] if show_ars else []) + (["USD"] if show_usd else [])
             df_f = df_f[df_f["unidad"].isin(monedas_sel)].copy()
 
-            if cuenta_sel != "Todas":
-                df_f = df_f[df_f["cuenta"] == cuenta_sel].copy()
-
             df_f["_accionista"] = df_f["cuenta"].map(acc_map)
             if filtro_acc == "Sin accionistas":
                 df_f = df_f[df_f["_accionista"].isna()].copy()
             elif filtro_acc == "Solo accionistas":
-                df_f = df_f[df_f["_accionista"].isin(acc_sel)].copy()
+                df_f = df_f[df_f["_accionista"].notna()].copy()
+
+            if cuenta_sel != "Todas":
+                df_f = df_f[df_f["cuenta"] == cuenta_sel].copy()
 
             if df_f.empty:
                 st.info("Sin datos para el rango/moneda seleccionados.")

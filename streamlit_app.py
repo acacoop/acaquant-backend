@@ -2452,11 +2452,7 @@ def _render_reporte_ejecutivo():
             _tabla_html(mes_actual, ars_mes, dl_mes, hd_mes, fci_mes)
             + _tabla_html(mes_prev, ars_prev, dl_prev, hd_prev, fci_prev)
         )
-        # Subimos las tablas para que queden cerca de la fila de KPIs (arriba del donut)
-        st.markdown(
-            f"<div style='margin-top:-240px'>{html_tablas}</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown(html_tablas, unsafe_allow_html=True)
 
     # ───────────────── 2. CARTERAS vs BENCHMARKS ─────────────────
     _rep_section_header("Detalle de las carteras vs benchmarks")

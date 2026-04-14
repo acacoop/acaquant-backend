@@ -2408,7 +2408,7 @@ def _render_reporte_ejecutivo():
         )
 
     with col_tablas:
-        st.markdown("<div style='margin-top:-24px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top:-80px'></div>", unsafe_allow_html=True)
         def _tabla_mes(titulo, ars, dl, hd, fci):
             total = ars + dl + hd + fci
             total_dolar = dl + hd

@@ -2269,7 +2269,7 @@ def _rep_dummy_carteras(cuenta: str, mes: str):
     return ars, dl, hd, fci
 
 
-def _render_reporte_ejecutivo(cuentas_disponibles, dolar_actual):
+def _render_reporte_ejecutivo(cuentas_disponibles, dolar_actual, df_carteras=None):
     import datetime as _dt
 
     if not cuentas_disponibles:
@@ -2297,8 +2297,16 @@ def _render_reporte_ejecutivo(cuentas_disponibles, dolar_actual):
 
     val_mep = _get_valor_mep() or 0.0
     val_a3500 = _get_dolar_oficial() or 0.0
+
+    # Valuación ARS real = suma de columna 'valuación' del df para la cuenta
+    if df_carteras is not None and "valuación" in df_carteras.columns:
+        _df_cta = df_carteras[df_carteras["id_cuenta"].astype(str) == str(cuenta_sel)]
+        total_ars = float(_df_cta["valuación"].sum())
+    else:
+        total_ars = 0.0
+
+    # Breakdown por cartera (ARS/DL/HD/FCI) sigue dummy hasta próxima iteración
     ars_mes, dl_mes, hd_mes, fci_mes = _rep_dummy_carteras(str(cuenta_sel), mes_actual)
-    total_ars = ars_mes + dl_mes + hd_mes + fci_mes
     val_a3500_total = total_ars / val_a3500 if val_a3500 else 0.0
     val_usd_total = total_ars / val_mep if val_mep else 0.0
 
@@ -2720,7 +2728,7 @@ def vista_portfolios():
     sub_carteras, sub_reportes = st.tabs(["Carteras", "Reportes"])
 
     with sub_reportes:
-        _render_reporte_ejecutivo([str(c) for c in cuentas], dolar)
+        _render_reporte_ejecutivo([str(c) for c in cuentas], dolar, df_carteras=df)
 
     with sub_carteras:
         tabs = st.tabs([str(c) for c in cuentas])

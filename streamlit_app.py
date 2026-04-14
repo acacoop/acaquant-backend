@@ -2513,7 +2513,7 @@ def _render_reporte_ejecutivo():
             + _tabla_html(mes_prev, ars_prev, dl_prev, hd_prev, fci_prev)
         )
         st.markdown(
-            f"<div style='margin-top:-30px'>{html_tablas}</div>",
+            f"<div style='margin-top:-60px'>{html_tablas}</div>",
             unsafe_allow_html=True,
         )
 

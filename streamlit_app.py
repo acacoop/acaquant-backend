@@ -2375,7 +2375,8 @@ def _render_reporte_ejecutivo():
             "Cartera": ["Cartera ARS", "Cartera DL", "Cartera HD", "Cartera FCI"],
             "Monto": [ars_mes, dl_mes, hd_mes, fci_mes],
         })
-        donut_df["pct"] = donut_df["Monto"] / donut_df["Monto"].sum()
+        _s = donut_df["Monto"].sum()
+        donut_df["pct"] = (donut_df["Monto"] / _s) if _s else 0.0
         donut_df["label"] = donut_df["pct"].map(lambda v: f"{v:.1%}")
         arc = alt.Chart(donut_df).mark_arc(innerRadius=60, outerRadius=110).encode(
             theta=alt.Theta("Monto:Q"),
@@ -2406,13 +2407,15 @@ def _render_reporte_ejecutivo():
             total = ars + dl + hd + fci
             total_dolar = dl + hd
             total_pesos = ars + fci
+            def _p(v):
+                return (v / total) if total else 0.0
             rows = [
-                ("Cartera ARS", ars, ars / total),
-                ("Cartera DL",  dl,  dl / total),
-                ("Cartera HD",  hd,  hd / total),
-                ("Cartera FCI", fci, fci / total),
-                ("Total Dolarizado", total_dolar, total_dolar / total),
-                ("Total Pesos",      total_pesos, total_pesos / total),
+                ("Cartera ARS", ars, _p(ars)),
+                ("Cartera DL",  dl,  _p(dl)),
+                ("Cartera HD",  hd,  _p(hd)),
+                ("Cartera FCI", fci, _p(fci)),
+                ("Total Dolarizado", total_dolar, _p(total_dolar)),
+                ("Total Pesos",      total_pesos, _p(total_pesos)),
             ]
             import pandas as _pd
             dfm = _pd.DataFrame(rows, columns=[titulo, "Monto ARS", "Ponderación"])

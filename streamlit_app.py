@@ -2408,8 +2408,7 @@ def _render_reporte_ejecutivo():
         )
 
     with col_tablas:
-        st.markdown("<div style='margin-top:-180px'></div>", unsafe_allow_html=True)
-        def _tabla_mes(titulo, ars, dl, hd, fci):
+        def _tabla_html(titulo, ars, dl, hd, fci):
             total = ars + dl + hd + fci
             total_dolar = dl + hd
             total_pesos = ars + fci
@@ -2425,16 +2424,30 @@ def _render_reporte_ejecutivo():
             ]
             rows = [r for r in rows if r[1] > 0]
             if not rows:
-                return
-            import pandas as _pd
-            dfm = _pd.DataFrame(rows, columns=[titulo, "Monto ARS", "Ponderación"])
-            dfm["Monto ARS"] = dfm["Monto ARS"].map(lambda v: f"{v:,.0f}")
-            dfm["Ponderación"] = dfm["Ponderación"].map(lambda v: f"{v:.1%}")
-            st.dataframe(dfm, hide_index=True, use_container_width=True,
-                         height=df_height(len(dfm), max_h=260))
+                return ""
+            tr_rows = "".join(
+                f"<tr><td style='padding:4px 8px;border-bottom:1px solid #eee'>{label}</td>"
+                f"<td style='padding:4px 8px;border-bottom:1px solid #eee;text-align:right'>{monto:,.0f}</td>"
+                f"<td style='padding:4px 8px;border-bottom:1px solid #eee;text-align:right'>{pct:.1%}</td></tr>"
+                for label, monto, pct in rows
+            )
+            return (
+                f"<table style='width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px'>"
+                f"<thead><tr style='background:{_REP_NAVY};color:#fff'>"
+                f"<th style='padding:6px 8px;text-align:left;font-style:italic'>{titulo}</th>"
+                f"<th style='padding:6px 8px;text-align:right'>Monto ARS</th>"
+                f"<th style='padding:6px 8px;text-align:right'>Ponderación</th>"
+                f"</tr></thead><tbody>{tr_rows}</tbody></table>"
+            )
 
-        _tabla_mes(mes_actual, ars_mes, dl_mes, hd_mes, fci_mes)
-        _tabla_mes(mes_prev,   ars_prev, dl_prev, hd_prev, fci_prev)
+        html_tablas = (
+            _tabla_html(mes_actual, ars_mes, dl_mes, hd_mes, fci_mes)
+            + _tabla_html(mes_prev, ars_prev, dl_prev, hd_prev, fci_prev)
+        )
+        st.markdown(
+            f"<div style='margin-top:-360px'>{html_tablas}</div>",
+            unsafe_allow_html=True,
+        )
 
     # ───────────────── 2. CARTERAS vs BENCHMARKS ─────────────────
     _rep_section_header("Detalle de las carteras vs benchmarks")

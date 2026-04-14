@@ -1595,10 +1595,19 @@ def _resumen_breakevens(pares):
     return df, pond
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _cargar_breakevens_historico():
+    db = get_db()
+    return list(db["BreakevensHistorico"].find(
+        {},
+        {"fecha": 1, "pares": 1, "_id": 0}
+    ))
+
+
 def _render_breakevens(db):
     from datetime import date as _date
 
-    tab_live, tab_hist = st.tabs(["Tiempo Real", "Histórico"])
+    tab_live, tab_hist, tab_grafico = st.tabs(["Tiempo Real", "Histórico", "Gráfico"])
 
     def _render_pares(pares):
         col_tbl, col_chart = st.columns([4, 5])
@@ -1640,14 +1649,78 @@ def _render_breakevens(db):
         )
         if not fechas:
             st.info("Sin historial disponible aún.")
+        else:
+            fecha_sel = st.select_slider("Fecha", options=fechas, key="bkv_fecha_slider")
+            doc_hist = db["BreakevensHistorico"].find_one({"fecha": fecha_sel})
+            if doc_hist:
+                pares = doc_hist.get("pares", [])
+                if pares:
+                    _render_pares(pares)
+
+    with tab_grafico:
+        docs_hist = _cargar_breakevens_historico()
+        if not docs_hist:
+            st.info("Sin historial disponible aún.")
             return
 
-        fecha_sel = st.select_slider("Fecha", options=fechas, key="bkv_fecha_slider")
-        doc_hist = db["BreakevensHistorico"].find_one({"fecha": fecha_sel})
-        if doc_hist:
-            pares = doc_hist.get("pares", [])
-            if pares:
-                _render_pares(pares)
+        # Pares disponibles desde el doc más reciente, ordenados por vencimiento
+        doc_ref = max(docs_hist, key=lambda d: d["fecha"])
+        pares_ref = doc_ref.get("pares", [])
+        lecaps_orden = sorted(
+            {p["lecap"]: p.get("fecha_vencimiento", "") for p in pares_ref if p.get("lecap")}.items(),
+            key=lambda kv: kv[1],
+        )
+        lecaps_disp = [lecap for lecap, _ in lecaps_orden]
+
+        if not lecaps_disp:
+            st.info("Sin plazos disponibles.")
+            return
+
+        lecaps_sel = st.multiselect(
+            "Plazos", lecaps_disp,
+            default=lecaps_disp[:2] if len(lecaps_disp) >= 2 else lecaps_disp,
+            key="bkv_lecaps_grafico",
+        )
+        if not lecaps_sel:
+            st.info("Seleccioná al menos un plazo.")
+            return
+
+        rows = []
+        for doc in docs_hist:
+            fecha = doc["fecha"]
+            for p in doc.get("pares", []):
+                lecap = p.get("lecap")
+                bkv = p.get("breakeven_mensual")
+                if lecap in lecaps_sel and bkv is not None:
+                    rows.append({"fecha": fecha, "plazo": lecap, "breakeven": bkv * 100})
+
+        if not rows:
+            st.info("Sin datos para los plazos seleccionados.")
+            return
+
+        df_bkv = pd.DataFrame(rows).sort_values("fecha")
+        fechas_ord = sorted(df_bkv["fecha"].unique())
+        chart = (
+            alt.Chart(df_bkv)
+            .mark_line(strokeWidth=2, point=alt.OverlayMarkDef(size=40))
+            .encode(
+                x=alt.X("fecha:O", title="Fecha", sort=fechas_ord,
+                        axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y("breakeven:Q", title="Breakeven mensual (%)",
+                        axis=alt.Axis(format=".2f"),
+                        scale=alt.Scale(zero=False)),
+                color=alt.Color("plazo:N",
+                                scale=alt.Scale(scheme="tableau10"),
+                                legend=alt.Legend(orient="top")),
+                tooltip=[
+                    alt.Tooltip("fecha:O", title="Fecha"),
+                    alt.Tooltip("plazo:N", title="Plazo"),
+                    alt.Tooltip("breakeven:Q", title="BE mensual (%)", format=".3f"),
+                ],
+            )
+            .properties(height=420)
+        )
+        st.altair_chart(chart, use_container_width=True)
 
 
 def _render_curva_rendimiento(db):

@@ -2452,9 +2452,9 @@ def _render_reporte_ejecutivo():
             _tabla_html(mes_actual, ars_mes, dl_mes, hd_mes, fci_mes)
             + _tabla_html(mes_prev, ars_prev, dl_prev, hd_prev, fci_prev)
         )
-        # Subimos las tablas para que queden cerca del tope de la columna de la derecha
+        # Subimos las tablas para que queden cerca de la fila de KPIs (arriba del donut)
         st.markdown(
-            f"<div style='margin-top:-40px'>{html_tablas}</div>",
+            f"<div style='margin-top:-240px'>{html_tablas}</div>",
             unsafe_allow_html=True,
         )
 

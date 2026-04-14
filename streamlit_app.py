@@ -6,6 +6,7 @@ import math
 import requests
 from datetime import datetime, timedelta
 from mongo_manager import get_mongo_client, get_mongo_client_read
+from config import MANAGER_EMAILS
 from Opciones.calculos_cuantitativos import bs_price as _bs_price
 import config
 from views.data_manager import vista_data_manager
@@ -42,6 +43,25 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
+
+def get_user_email() -> str:
+    """
+    Lee el email autenticado por Cloudflare Access del header HTTP.
+    En desarrollo local (sin Cloudflare) devuelve string vacío.
+    """
+    try:
+        headers = st.context.headers
+        return headers.get("Cf-Access-Authenticated-User-Email", "").strip().lower()
+    except Exception:
+        return ""
+
+
+def is_manager_allowed() -> bool:
+    """Devuelve True si el usuario actual tiene acceso al Manager."""
+    if not MANAGER_EMAILS:
+        return True  # Si no hay lista configurada, permite acceso (modo dev local)
+    return get_user_email() in MANAGER_EMAILS
+
 
 def short_name(ticker):
     parts = ticker.split(" - ")
@@ -85,9 +105,12 @@ def get_db_valuaciones():
 with st.sidebar:
     st.image("images/logo-header.png", use_container_width=True)
     st.markdown("---")
+    _opciones_nav = ["Mercado", "Opciones", "Portfolios", "Operaciones", "AuM"]
+    if is_manager_allowed():
+        _opciones_nav.append("Manager")
     vista = st.radio(
         "Vista",
-        ["Mercado", "Opciones", "Portfolios", "Operaciones", "AuM", "Manager"],
+        _opciones_nav,
         label_visibility="collapsed"
     )
 
@@ -4150,4 +4173,7 @@ elif vista == "Operaciones":
 elif vista == "AuM":
     vista_aum()
 elif vista == "Manager":
-    vista_data_manager()
+    if is_manager_allowed():
+        vista_data_manager()
+    else:
+        st.error("Acceso denegado.")

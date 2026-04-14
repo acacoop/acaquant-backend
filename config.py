@@ -15,3 +15,12 @@ class Config:
 AUNESA_CLIENT_ID = os.getenv("AUNESA_CLIENT_ID")
 AUNESA_USERNAME = os.getenv("AUNESA_USERNAME")
 AUNESA_PASSWORD = os.getenv("AUNESA_PASSWORD")
+
+# --- ACCESO MANAGER ---
+# Emails con acceso a la vista Manager. Separados por coma en MANAGER_EMAILS o hardcodeados aquí.
+_manager_env = os.getenv("MANAGER_EMAILS", "")
+MANAGER_EMAILS: set[str] = {
+    e.strip().lower()
+    for e in _manager_env.split(",")
+    if e.strip()
+}

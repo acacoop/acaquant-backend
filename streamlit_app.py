@@ -5,7 +5,7 @@ import re
 import math
 import requests
 from datetime import datetime, timedelta
-from mongo_manager import get_mongo_client
+from mongo_manager import get_mongo_client, get_mongo_client_read
 from Opciones.calculos_cuantitativos import bs_price as _bs_price
 import config
 from views.data_manager import vista_data_manager
@@ -53,7 +53,7 @@ def short_name(ticker):
 # ==========================================
 @st.cache_resource(ttl=3600)
 def get_db():
-    return get_mongo_client()["Trading"]
+    return get_mongo_client_read()["Trading"]
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -68,15 +68,15 @@ def _cargar_tickers_merv():
 
 @st.cache_resource(ttl=3600)
 def get_db_opciones():
-    return get_mongo_client()["Opciones"]
+    return get_mongo_client_read()["Opciones"]
 
 @st.cache_resource(ttl=3600)
 def get_meta_col():
-    return get_mongo_client()["Opciones"]["Metadata"]
+    return get_mongo_client_read()["Opciones"]["Metadata"]
 
 @st.cache_resource(ttl=3600)
 def get_db_valuaciones():
-    return get_mongo_client()["Valuaciones"]
+    return get_mongo_client_read()["Valuaciones"]
 
 
 # ==========================================
@@ -1367,7 +1367,7 @@ def _fetch_vol_historico():
             "ev_total": {"$sum": "$ev"},
         }},
     ]
-    docs = list(get_mongo_client()["Opciones"]["Data"].aggregate(pipeline))
+    docs = list(get_mongo_client_read()["Opciones"]["Data"].aggregate(pipeline))
     rows = []
     for d in docs:
         i = d["_id"]
@@ -2161,7 +2161,7 @@ def vista_portfolios():
 # ==========================================
 @st.cache_resource(ttl=3600)
 def get_db_cashflow():
-    return get_mongo_client()["CashFlow"]
+    return get_mongo_client_read()["CashFlow"]
 
 
 @st.cache_data(ttl=300, show_spinner=False)

@@ -13,12 +13,15 @@ logger = logging.getLogger("TradingBot")
 # ==========================================
 # 🔑 LA LLAVE MAESTRA (OCULTA EN EL .ENV)
 # ==========================================
-MONGO_URI = os.getenv("MONGO_URI")
+MONGO_URI      = os.getenv("MONGO_URI")
+MONGO_URI_READ = os.getenv("MONGO_URI_READ")
 
 # Singleton thread-safe: un solo MongoClient compartido por todo el proceso.
 # MongoClient maneja internamente el connection pool y es thread-safe.
-_client: pymongo.MongoClient | None = None
-_client_lock = threading.Lock()
+_client:      pymongo.MongoClient | None = None
+_client_read: pymongo.MongoClient | None = None
+_client_lock:      threading.Lock = threading.Lock()
+_client_read_lock: threading.Lock = threading.Lock()
 
 
 def get_mongo_client() -> pymongo.MongoClient:
@@ -49,6 +52,35 @@ def get_mongo_client() -> pymongo.MongoClient:
                     maxPoolSize=10,
                 )
     return _client
+
+
+def get_mongo_client_read() -> pymongo.MongoClient:
+    """
+    Devuelve el cliente singleton read-only a MongoDB Atlas.
+    Usa MONGO_URI_READ si está definido; si no, cae a MONGO_URI (fallback seguro).
+    """
+    global _client_read
+    uri = MONGO_URI_READ or MONGO_URI
+    if not uri:
+        raise ValueError("Falta MONGO_URI en el entorno")
+
+    if _client_read is not None:
+        try:
+            _client_read.admin.command('ping')
+        except Exception:
+            logger.warning("MongoDB read: cliente caído, reconectando...")
+            with _client_read_lock:
+                _client_read = None
+
+    if _client_read is None:
+        with _client_read_lock:
+            if _client_read is None:
+                _client_read = pymongo.MongoClient(
+                    uri,
+                    serverSelectionTimeoutMS=5000,
+                    maxPoolSize=10,
+                )
+    return _client_read
 
 
 # ==========================================

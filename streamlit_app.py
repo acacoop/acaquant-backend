@@ -2216,6 +2216,42 @@ def _get_dolar_oficial():
     return float(doc["valor"]) if doc else None
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _get_carteras_df():
+    """
+    Lee Valuaciones.Carteras + join con Valuaciones.Assets y calcula columna
+    'valuación'. Autónomo — no depende de vista_portfolios.
+    """
+    db_val = get_db_valuaciones()
+    docs = list(db_val["Carteras"].find({}, {"_id": 0}))
+    if not docs:
+        return pd.DataFrame()
+    df = pd.DataFrame(docs)
+    df["precio_num"] = pd.to_numeric(df["precio"], errors="coerce")
+    df["cantidad"]   = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
+
+    assets_docs = list(db_val["Assets"].find({}, {"_id": 0, "unidad": 1,
+        "CALIFICACION": 1, "CARTERA": 1, "CLASE_ACTIVO": 1,
+        "EMISOR": 1, "TICKER": 1, "VENCIMIENTO": 1}))
+    if assets_docs:
+        df = df.merge(pd.DataFrame(assets_docs), on="unidad", how="left")
+
+    for col in ["TICKER", "EMISOR", "CLASE_ACTIVO", "CARTERA", "CALIFICACION", "VENCIMIENTO"]:
+        if col in df.columns:
+            df[col] = df[col].fillna("-")
+
+    es_pq_directo = (
+        (df.get("CLASE_ACTIVO", pd.Series(dtype=str)) == "OTROS") |
+        (df.get("CARTERA", pd.Series(dtype=str)).str.contains("FCI", na=False))
+    )
+    df["valuación"] = df.apply(
+        lambda r: r["cantidad"] * r["precio_num"] if es_pq_directo.loc[r.name]
+                  else (r["cantidad"] * r["precio_num"] / 100),
+        axis=1,
+    )
+    return df
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def _get_valor_mep():
     """Último valor MEP desde Valuaciones.Dolar (sort por timestamp desc)."""
@@ -2269,12 +2305,14 @@ def _rep_dummy_carteras(cuenta: str, mes: str):
     return ars, dl, hd, fci
 
 
-def _render_reporte_ejecutivo(cuentas_disponibles, dolar_actual, df_carteras=None):
+def _render_reporte_ejecutivo():
     import datetime as _dt
 
-    if not cuentas_disponibles:
-        st.warning("Sin cuentas disponibles en Carteras.")
+    df_carteras = _get_carteras_df()
+    if df_carteras.empty:
+        st.warning("Sin datos en Valuaciones.Carteras.")
         return
+    cuentas_disponibles = sorted(df_carteras["id_cuenta"].dropna().astype(str).unique().tolist())
 
     col_sel, col_info = st.columns([2, 5])
     with col_sel:
@@ -2284,7 +2322,7 @@ def _render_reporte_ejecutivo(cuentas_disponibles, dolar_actual, df_carteras=Non
             key="rep_cuenta_sel",
         )
     with col_info:
-        st.info("📋 Reporte con **datos dummy** — el layout queda fijado antes de conectar a Mongo.")
+        st.info("📋 Reporte — datos reales conectándose por sección. Secciones pendientes siguen en dummy.")
 
     fecha_hoy = _dt.date.today()
     fecha_str = fecha_hoy.strftime("%d/%m/%Y")
@@ -2298,12 +2336,9 @@ def _render_reporte_ejecutivo(cuentas_disponibles, dolar_actual, df_carteras=Non
     val_mep = _get_valor_mep() or 0.0
     val_a3500 = _get_dolar_oficial() or 0.0
 
-    # Valuación ARS real = suma de columna 'valuación' del df para la cuenta
-    if df_carteras is not None and "valuación" in df_carteras.columns:
-        _df_cta = df_carteras[df_carteras["id_cuenta"].astype(str) == str(cuenta_sel)]
-        total_ars = float(_df_cta["valuación"].sum())
-    else:
-        total_ars = 0.0
+    # Valuación ARS real = suma de columna 'valuación' para la cuenta
+    _df_cta = df_carteras[df_carteras["id_cuenta"].astype(str) == str(cuenta_sel)]
+    total_ars = float(_df_cta["valuación"].sum())
 
     # Breakdown por cartera (ARS/DL/HD/FCI) sigue dummy hasta próxima iteración
     ars_mes, dl_mes, hd_mes, fci_mes = _rep_dummy_carteras(str(cuenta_sel), mes_actual)
@@ -2728,7 +2763,7 @@ def vista_portfolios():
     sub_carteras, sub_reportes = st.tabs(["Carteras", "Reportes"])
 
     with sub_reportes:
-        _render_reporte_ejecutivo([str(c) for c in cuentas], dolar, df_carteras=df)
+        _render_reporte_ejecutivo()
 
     with sub_carteras:
         tabs = st.tabs([str(c) for c in cuentas])

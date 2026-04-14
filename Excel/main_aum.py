@@ -278,7 +278,6 @@ def run():
     _sincronizar_assets(col_assets, unidades_snapshot)
     print(f"✅ Assets sincronizado: {len(unidades_snapshot)} unidades revisadas.")
 
-    client.close()
 
 
 if __name__ == "__main__":

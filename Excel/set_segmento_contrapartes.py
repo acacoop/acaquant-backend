@@ -65,7 +65,6 @@ def main():
                 print(f"    — saltado")
 
     print(f"\n✅ Total: {actualizados} docs actualizados")
-    client.close()
 
 
 if __name__ == "__main__":

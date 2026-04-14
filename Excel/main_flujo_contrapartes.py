@@ -166,7 +166,6 @@ def main():
         result = col_flujo.delete_many({"_id": {"$in": ids_a_borrar}})
         print(f"🧹 {result.deleted_count} duplicados eliminados ({len(duplicados)} boletos afectados)")
 
-    client.close()
 
 
 if __name__ == "__main__":

@@ -68,7 +68,6 @@ def sincronizar_assets(df):
         collection.delete_many({"_id": {"$in": ids_a_borrar}})
         eliminados += len(ids_a_borrar)
 
-    client.close()
     return insertados, eliminados
 
 
@@ -89,12 +88,10 @@ def actualizar_precios_mercado():
 
     print(f"🔍 Assets con INSTRUMENTO MERV-XMEV encontrados: {len(assets)}")
     if not assets:
-        client.close()
         return 0
 
     if not inicializar_sesion():
         print("⚠️ No se pudo inicializar sesión pyRofex. Se omite actualización de precios.")
-        client.close()
         return 0
 
     actualizados = 0
@@ -122,7 +119,6 @@ def actualizar_precios_mercado():
         except Exception as e:
             print(f"   ❌ Error para {instrumento}: {e}")
 
-    client.close()
     return actualizados
 
 
@@ -176,7 +172,6 @@ def guardar_en_mongo(df):
         ]
         collection.delete_many({"$nor": claves_actuales})
 
-    client.close()
     return len(registros)
 
 
@@ -230,7 +225,6 @@ def limpiar_carteras_existentes():
 
     resultado = collection.delete_many(filtro)
     print(f"🧹 Carteras limpiadas: {resultado.deleted_count} docs eliminados.")
-    client.close()
 
 
 if __name__ == "__main__":

@@ -87,7 +87,6 @@ def main():
         for cp, d in sin_match:
             print(f"  {cp} → '{d}'")
 
-    client.close()
 
 
 if __name__ == "__main__":

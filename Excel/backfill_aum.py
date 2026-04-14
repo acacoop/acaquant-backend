@@ -128,7 +128,6 @@ def main():
     unidades = col.distinct("unidad", {"fecha_snapshot": fecha_snapshot})
     _sincronizar_assets(client["Valuaciones"]["Assets"], unidades)
     print(f"✅ Assets sincronizado: {len(unidades)} unidades.")
-    client.close()
 
 
 if __name__ == "__main__":

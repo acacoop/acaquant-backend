@@ -126,7 +126,6 @@ def run(desde, hasta):
             print(f"❌ Error: {e}")
 
     print(f"\n🏁 Proceso finalizado. Total insertados: {insertados_total}")
-    client.close()
 
 
 if __name__ == "__main__":

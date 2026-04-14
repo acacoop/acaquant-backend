@@ -4,20 +4,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TradingAV is a quantitative trading platform for Argentine financial markets (MERVAL/ROFEX). It streams real-time market data, runs parallel analytical engines (microstructure, options, FX arbitrage, plazo arbitrage), persists state to MongoDB Atlas, and exposes a Streamlit dashboard.
+TradingAV is a quantitative trading platform for Argentine financial markets (MERVAL/ROFEX). It streams real-time market data, runs parallel analytical engines (microstructure, options, curvas, forwards, breakevens), persists state to MongoDB Atlas, and exposes a Streamlit dashboard accessible via `www.acaquant.com`.
 
-## Dashboard — Acceso actual (2026-04-14)
+## Acceso al Dashboard
 
-Existen dos deploys activos en paralelo. La idea es migrar todo a acaquant y dar de baja Streamlit Cloud eventualmente.
+Dos deploys activos en paralelo. La migración definitiva a acaquant está en curso.
 
 | Deploy | URL | Auth | Estado |
 |---|---|---|---|
 | Streamlit Cloud | URL privada de streamlit.io | Sin login (URL secreta) | Activo — uso actual de usuarios |
 | Droplet + Cloudflare | www.acaquant.com | Cloudflare Access (email OTP) | Activo — nuevo, en transición |
 
-**Streamlit Cloud**: credenciales de MongoDB Atlas cargadas como secrets en la plataforma. No está indexado públicamente pero cualquiera con la URL accede sin login.
+**acaquant.com**: corre en el Droplet de DigitalOcean. `cloudflared.service` (always-on, systemd) establece el tunnel hacia Cloudflare. Cloudflare Access exige autenticación por email OTP antes de llegar al servidor. `streamlit.service` también es always-on.
 
-**acaquant.com**: corre en el Droplet de DigitalOcean. Cloudflare Tunnel (cloudflared) + Cloudflare Access protegen el acceso. El tunnel corre como proceso manual por ahora — falta configurarlo como servicio systemd.
+**Vista Manager restringida**: solo emails en `MANAGER_EMAILS` (`.env`) pueden ver y acceder al Manager. El email autenticado lo lee Streamlit del header HTTP `Cf-Access-Authenticated-User-Email` que inyecta Cloudflare. En local (sin Cloudflare) el Manager es accesible para todos.
+
+## Variables de entorno requeridas (`.env`)
+
+```
+ROFEX_USER / ROFEX_PASSWORD / ROFEX_ACCOUNT / ROFEX_API_URL / ROFEX_WS_URL
+MONGO_URI          ← usuario read-write (motores + Manager)
+MONGO_URI_READ     ← usuario read-only (dashboard Streamlit)
+AUNESA_CLIENT_ID / AUNESA_USERNAME / AUNESA_PASSWORD
+MANAGER_EMAILS     ← emails separados por coma con acceso al Manager
+```
 
 ## Running the Project
 
@@ -32,8 +42,6 @@ streamlit run streamlit_app.py
 # Individual engines (run as background daemons via systemd)
 python main_valores.py          # Microstructure: bonos/Lecaps/CER (TimeSales + MarketSnapshot)
 python main_options_service.py  # Options pricing/Greeks headless (motor_options.service)
-python main_fx.py               # FX arbitrage detection
-python main_on.py --headless    # Yield screener ONs (motor_on.service)
 python main_curvas.py           # Enriquecimiento TEA/Duration TimeSales (motor_curvas.service)
 python main_forwards.py         # Tasas forward en tiempo real (motor_forwards.service)
 python main_breakevens.py       # Breakevens CER/Lecap en tiempo real (motor_breakevens.service)
@@ -42,9 +50,7 @@ python main_breakevens.py       # Breakevens CER/Lecap en tiempo real (motor_bre
 # See crontab section below
 ```
 
-Requires a `.env` file with: `ROFEX_USER`, `ROFEX_PASSWORD`, `ROFEX_ACCOUNT`, `ROFEX_API_URL`, `ROFEX_WS_URL`, `MONGO_URI`, `AUNESA_CLIENT_ID`, `AUNESA_USERNAME`, `AUNESA_PASSWORD`.
-
-There is no test suite or linting configuration.
+No hay test suite ni linting configurado.
 
 ## Architecture
 
@@ -58,11 +64,11 @@ WebSocketManager (websocket_manager.py)
   - Subscribes tickers in 50-ticker chunks
   - Dispatches market data to engine handlers
         │
-   ┌────┴────┬──────────┬──────────┬──────────┐
-   ▼         ▼          ▼          ▼          ▼
-main_ts   main_fx   main_options main_arb  main_valores
-   │         │          │          │          │
-   └────┬────┴──────────┴──────────┴──────────┘
+   ┌────┴────┬──────────┐
+   ▼         ▼          ▼
+main_valores  main_options  main_curvas
+   │         │          │
+   └────┬────┴──────────┘
         ▼
 SnapshotWriter (background thread, ~0.5s interval)
   - Hash-based change detection
@@ -72,36 +78,36 @@ SnapshotWriter (background thread, ~0.5s interval)
 MongoDB Atlas (4 databases: Trading, Opciones, Valuaciones, CashFlow)
         │
         ▼
-Streamlit Dashboard (3 pages: Libro, Mercado, Opciones)
+Streamlit Dashboard (www.acaquant.com)
 ```
 
 ### Key Components
 
-- **`config.py`** — Centralized config; loads `.env` credentials; defines the master ticker list (63 instruments: futures, equities, commodities)
-- **`session_manager.py`** — Single pyRofex auth initialization
-- **`websocket_manager.py`** — WebSocket subscriptions; registers per-engine `update_price(ticker, data)` handlers
-- **`mongo_manager.py`** — Singleton `get_mongo_client()` for Atlas; `MongoManager` class for upserts and inserts
-- **`snapshot_writer.py`** — Background thread writing engine state to MongoDB; uses hash diffing to skip unchanged data
-- **`oms_manager.py`** — Order Management System; wraps pyRofex order placement
+- **`config.py`** — Config centralizado; carga `.env`; lista de tickers (63 instrumentos); `MANAGER_EMAILS` para control de acceso.
+- **`session_manager.py`** — Auth única de pyRofex.
+- **`websocket_manager.py`** — Suscripciones WebSocket; registra handlers `update_price(ticker, data)` por motor.
+- **`mongo_manager.py`** — Dos clientes singleton thread-safe:
+  - `get_mongo_client()` → `MONGO_URI` (read-write). Usado por motores, crons y Manager.
+  - `get_mongo_client_read()` → `MONGO_URI_READ` (read-only). Usado por todas las vistas del dashboard. Fallback a `MONGO_URI` si `MONGO_URI_READ` no está definido.
+  - **Nunca llamar `client.close()`** — ambos clientes son singletons de larga vida; cerrarlos rompe el pool compartido con Streamlit.
+- **`snapshot_writer.py`** — Thread de escritura a MongoDB; hash diffing para saltear datos sin cambios.
+- **`oms_manager.py`** — Order Management System; wrappea pyRofex order placement.
 
 ### Trading Engines
 
-Each engine has an `update_price(ticker, data)` callback called by the WebSocket handler on each tick. They maintain in-memory state and delegate persistence to `SnapshotWriter`.
+Cada motor tiene `update_price(ticker, data)` llamado por el WebSocket en cada tick.
 
-| Engine | MongoDB collection | Description |
+| Motor | Colección MongoDB | Descripción |
 |---|---|---|
-| `main_valores.py` | `Trading.TimeSales` + `Trading.MarketSnapshot` | Microestructura para bonos/Lecaps/CER: inserta trades en TimeSales, snapshot cada 1s en MarketSnapshot |
-| `main_options_service.py` | `Opciones.OptionsSnapshot` | GGAL options: Black-Scholes Greeks, IV via Newton-Raphson. Servicio headless (motor_options.service). |
-| `main_fx.py` | `Trading.FXArbitrage` | USD pair cross-currency arbitrage (fee: 0.0847%) |
-| `main_on.py` | `Trading.ONs` (live) | Yield screener ONs: TIR y duration en tiempo real vía WebSocket. Corre vía motor_on.service (`--headless`). |
-| `main_curvas.py` | `Trading.TimeSales` (enrichment) | Enriquece trades de Curvas con TEA/TEM/Duration/Paridad. Loop cada 5s, busca docs sin `duration` ordenados por timestamp DESC (más recientes primero) para no bloquear trades nuevos con docs viejos irresolubles. |
-| `main_forwards.py` | `Trading.ForwardsLive` + `Trading.ForwardsHistorico` | Calcula matriz NxN de tasas forward por curva cada 30s. ForwardsLive = 1 doc por curva (tiempo real). ForwardsHistorico = 1 doc por (fecha, curva). |
-| `main_breakevens.py` | `Trading.BreakevensLive` + `Trading.BreakevensHistorico` | Calcula breakeven de inflación mensual implícita CER/Lecap cada 30s. Empareja cada Lecap con el CER de vencimiento más cercano (≤60d). BreakevensLive = 1 doc global. BreakevensHistorico = 1 doc por fecha. |
+| `main_valores.py` | `Trading.TimeSales` + `Trading.MarketSnapshot` | Microestructura bonos/Lecaps/CER: inserta trades en TimeSales, snapshot cada 1s en MarketSnapshot |
+| `main_options_service.py` | `Opciones.OptionsSnapshot` | Opciones GGAL: Black-Scholes Greeks, IV via Newton-Raphson. Headless (motor_options.service) |
+| `main_curvas.py` | `Trading.TimeSales` (enriquecimiento) | Agrega TEA/TEM/Duration/Paridad. Loop cada 5s, docs sin `duration` ordenados DESC para no bloquear con docs viejos irresolubles |
+| `main_forwards.py` | `Trading.ForwardsLive` + `Trading.ForwardsHistorico` | Matriz NxN de tasas forward por curva cada 30s |
+| `main_breakevens.py` | `Trading.BreakevensLive` + `Trading.BreakevensHistorico` | Breakeven inflación mensual implícita CER/Lecap cada 30s |
 
 ### Trading.TimeSales
 
-Colección de trades en tiempo real. Campos base (escritos por `main_valores.py`):
-`ticker`, `timestamp`, `price`, `size`, `side` (BUY/SELL/MID), `money`
+Trades en tiempo real. Campos base (`main_valores.py`): `ticker`, `timestamp`, `price`, `size`, `side` (BUY/SELL/MID), `money`
 
 Campos enriquecidos por `main_curvas.py` (solo tickers en `Trading.Curvas`):
 
@@ -114,116 +120,74 @@ Campos enriquecidos por `main_curvas.py` (solo tickers en `Trading.Curvas`):
 
 ### Trading.MarketSnapshot
 
-Un doc por ticker, reemplazado cada 1 segundo por `main_valores.py`. Campos:
-`ticker`, `updated_at`, `book` (bids/offers top 5), `metrics` (micro_price, spread, imbalance, VWAP, VPIN, total_nominals, total_money, buy_money, sell_money, last/open/high/low/closing_price), `hourly_stats` (por hora 10-17), `top_trades` (top 15 por size), `recent_trades` (últimos 30).
-
-### Scripts de datos BCRA y Curvas
-
-- **`data_bcra.py`** — alimenta CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron, sin flag hace backfill desde 2023-01-01.
-- **`data_diashabiles.py`** — genera calendario de días hábiles argentinos (año fijo `YEAR`) y los carga en `Trading.DiasHabiles`. Requiere ejecutarse una vez por año. Usado por `main_curvas.py` y `backfill_curvas.py`.
-- **`backfill_curvas.py`** — script one-off que recorre todo TimeSales y agrega TEA/TEM/Duration/Paridad a docs históricos de Curvas. Ya ejecutado (97k docs procesados).
-- **`backfill_forwards.py`** — script one-off que construye ForwardsHistorico recorriendo las TEAs ya existentes en TimeSales. Ejecutar si hay que reconstruir el histórico.
-- **`backfill_breakevens.py`** — script one-off que construye BreakevensHistorico recorriendo TEM/paridad de TimeSales. Ejecutar tras backfill_curvas o cuando se quiera reconstruir el histórico de breakevens.
+Un doc por ticker, reemplazado cada 1s. Campos: `ticker`, `updated_at`, `book` (bids/offers top 5), `metrics` (micro_price, spread, imbalance, VWAP, VPIN, total_nominals, total_money, buy_money, sell_money, last/open/high/low/closing_price), `hourly_stats` (por hora 10-17), `top_trades` (top 15 por size), `recent_trades` (últimos 30).
 
 ### Trading.Curvas — estructura de flujos
 
-Los flujos CER usan campos porcentuales (NO valores absolutos):
+Flujos CER usan campos porcentuales (NO valores absolutos):
 - `amortizacion_pct`: % del VN que se amortiza
 - `cupon_sobre_residual`: tasa × `residual_previo_pct` / 100 × VN
 - `cupon_anual`: solo zero coupon (= 0)
 
-Los flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
+Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 
 ### Options Module (`Opciones/`)
 
-- `calculos_cuantitativos.py`: Black-Scholes engine — `bs_price()`, `bs_delta()`, `bs_gamma()`, `bs_vega()`, `bs_theta()`, `find_iv()` (Newton-Raphson), `calc_intrinseco()`
-- `estrategias_opciones.py`: Pre-configured spreads (bull calls, bear puts, ratio spreads) as (long, short) leg tuples
-- Options target GGAL April expiration; historical volatility read from MongoDB collection `VR-GGal`
-
-### FX Arbitrage Module (`arbitraje_fx/`)
-
-- `calculadora.py`: Cross-currency buy/sell price math
-- `calculadora_tasas.py`: Interest rate calculations
-- `mongo_assets.py`: FX pair definitions in MongoDB
-- `buscador_caucion.py`: Finds shortest-term overnight repo
-- `trade_logger.py`: Logs matched trades to file
+- `calculos_cuantitativos.py`: Black-Scholes — `bs_price()`, `bs_delta()`, `bs_gamma()`, `bs_vega()`, `bs_theta()`, `find_iv()` (Newton-Raphson), `calc_intrinseco()`
+- `VolatilidadGGAL.py`: calcula volatilidad realizada histórica al cierre. Cron 20:00 UTC.
+- Options target GGAL; volatilidad histórica leída de `VR-GGal`.
 
 ### Excel / Portfolio Sync (`Excel/`)
 
-- Syncs Rofex account positions to MongoDB and exports to Google Sheets
-- Uses `google_sheets_manager.py` with OAuth2 credentials in `ons-fx.json`
-- `aunesa_api_manager.py` connects to Aunesa broker for additional data
-- `main_cashflow.py` — carga movimientos de cash (depósitos, transferencias, extracciones) desde Aunesa API a `CashFlow.Movimientos`. Índice único por `comprobante`. Signo invertido respecto a API (depósitos positivos). Soporta `--today` para cron diario.
-- `main_aum.py` — snapshot de posiciones valuadas de TODAS las cuentas activas desde Aunesa a `Valuaciones.AuM`. Modelo time series: clave `(id_cuenta, unidad, fecha_snapshot)`. Fórmulas de valuación: P×Q/100 para renta fija (Títulos Públicos, ONs, Letras, Fideicomisos, CPD); (P+1)×Q para futuros; P×Q para el resto. Filtros: excluye OTC y cash negativo. Tiene retry automático ante timeout de Aunesa (3 intentos, 60s entre intentos). Timeouts: `obtener_cuentas` y `consultar_posicion` = 60s.
-- `main_flujo_contrapartes.py` — cron diario que carga operaciones de hoy desde Aunesa API a `CashFlow.Flujo`. Lógica: borra docs donde `concertacion == hoy`, fetch por cada contraparte con `cuenta` asignada (`fechaConcDesde/Hasta = hoy`), filtra 4 tipos excluidos, agrega campo `moneda` (ARS/USD desde `condiciones`), deduplica por `boleto`, inserta. Al final verifica duplicados en toda la colección y borra extras. Cron: 02:00 UTC martes-sábado.
-- `fix_aum_valuacion.py` — script one-off que divide por 100 las valuaciones de ONs/Fideicomisos/CPD mal calculadas en Mongo (se ejecutó una vez tras el fix).
-- `fix_sign_movimientos.py` — script one-off que invirtió signos de movimientos ya insertados en Mongo (se ejecutó una vez).
-- `fix_flujo_borrar_tipos.py` — script one-off que borró de `CashFlow.Flujo` los tipos: "Concurrencia - Caución colocadora (Apertura/Cierre)" y "Futuros Financieros - Compra/Venta". Ya ejecutado.
-- `backfill_moneda_flujo.py` — script one-off que agrega campo `moneda` (ARS/USD) a todos los docs existentes en `CashFlow.Flujo` inferido de `condiciones`. Ejecutar una vez si hay docs sin ese campo.
-- `fix_contraparte_names.py` — script one-off (re-ejecutable) que actualiza el campo `contraparte` en todos los docs de `CashFlow.Flujo` usando `CashFlow.Contrapartes` como fuente de verdad. Join por `cuenta` con match flexible: string, int, float y variantes con/sin ceros adelante (ej: "20" == "020"). Correr tras cambiar nombres en Contrapartes.
-- `set_segmento_contrapartes.py` — asigna campo `segmento` ("Fondos"/"ALYC"/"Bancos") en `CashFlow.Contrapartes`. Reglas automáticas: `denominacion` contiene "FCI" → Fondos; `contraparte` contiene "ALYC" → ALYC; `denominacion` contiene "BANCO" → Bancos. Para los sin match, modo interactivo: tecleás 1/2/3 o Enter para saltear.
+- **`aunesa_api_manager.py`** — cliente Aunesa API (auth + posicionValuada).
+- **`main_carteras.py`** — sincroniza posiciones Aunesa → `Valuaciones.Carteras`. Clave upsert: `(id_cuenta, unidad)`. Filtra unidades inválidas antes de guardar (`filtrar_unidades()`): excluye exactas `{ARS, USDL}` y las que contienen `[1] Depósito U$`, `OTC`, `2024`, `2025`, `DLR`. Flag `--clean` para borrar docs ya existentes con esas unidades.
+- **`main_aum.py`** — snapshot AuM de TODAS las cuentas activas → `Valuaciones.AuM`. Clave: `(id_cuenta, unidad, fecha_snapshot)`. Fórmulas: P×Q/100 para renta fija (Títulos Públicos, ONs, Letras, Fideicomisos, CPD); (P+1)×Q para futuros; P×Q para el resto. Retry automático ante timeout Aunesa (3 intentos, 60s). Cron 23:00 UTC.
+- **`main_cashflow.py`** — movimientos de cash desde Aunesa → `CashFlow.Movimientos`. Índice único por `comprobante`. Signo invertido (depósitos positivos). `--today` para cron.
+- **`main_flujo_contrapartes.py`** — operaciones del día desde Aunesa → `CashFlow.Flujo`. Borra docs donde `concertacion == hoy`, fetch por cada contraparte con `cuenta` asignada, filtra 4 tipos excluidos, agrega `moneda` (ARS/USD), deduplica por `boleto`. Cron 02:00 UTC martes-sábado.
+- **`set_segmento_contrapartes.py`** — asigna `segmento` ("Fondos"/"ALYC"/"Bancos") en `CashFlow.Contrapartes`. Reglas automáticas + modo interactivo para sin match. Importado por `data_manager.py`.
+- **`backfill_aum.py`** — re-ejecutable, reconstruye AuM por fechas. Usado desde el Manager (subprocess).
+- **`test_match_contrapartes.py`** — match de contrapartes con Aunesa. Importado por `data_manager.py`.
+
+### Scripts de datos y diagnóstico
+
+- **`data_bcra.py`** — alimenta CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron; sin flag hace backfill desde 2023-01-01. SSL verificado (verify=True).
+- **`data_diashabiles.py`** — genera calendario de días hábiles argentinos. Ejecutar una vez por año.
+- **`crear_indices.py`** — crea todos los índices MongoDB necesarios. Idempotente. Ejecutar al agregar colecciones nuevas o en un servidor nuevo.
+- **`check_cer_valuacion.py`** — muestra el CER usado en el último trade enriquecido por bono.
+- **`check_curvas_pendientes.py`** — cuántos docs sin `duration` hay por ticker en TimeSales.
+- **`check_forwards.py`** — diagnóstico completo de forwards por curva.
+- **`check_tasa_fija.py`** — diagnóstico de instrumentos tasa_fija en AuM.
 
 ## Deployment
 
-Systemd services en `motor_rofex.service`, `streamlit.service`, `services/motor_options.service`, `services/motor_curvas.service` y `services/motor_forwards.service`. Producción corre en un **Droplet de Digital Ocean** como `root` en `/root/TradingAV/` con un venv local.
+**Servidor**: Droplet de DigitalOcean, `root` en `/root/TradingAV/`, venv local en `/root/TradingAV/venv/`.
 
-### Colecciones de referencia en Trading
+**Servicios always-on** (arrancan con el servidor):
+- `cloudflared.service` — Cloudflare Tunnel, siempre activo
+- `streamlit.service` — dashboard Streamlit, siempre activo
 
-- **`Trading.CER`** — Serie histórica del CER desde BCRA (variable id=30). Campos: `fecha`, `valor`. Upsert diario por `fecha`.
-- **`Trading.TAMAR`** — Tasa TAMAR desde BCRA (variable id=44). Campos: `fecha`, `valor`.
-- **`Trading.DOLAR`** — Tipo de cambio A3500 desde BCRA (variable id=5). Campos: `fecha`, `valor`.
-- **`Trading.BADLAR`** — Tasa BADLAR desde BCRA (variable id=7). Campos: `fecha`, `valor`.
-- **`Trading.Curvas`** — Definición estática de instrumentos de renta fija para pricing de curvas. Campos: `ticker`, `ticker_corto`, `tipo` (boncap/cer), `curva` (tasa_fija/cer), `fecha_vencimiento`, `fecha_emision`, `flujo_vencimiento`, `valor_nominal`, `cupon_anual`, `cer_emision`, `flujos[]`. Cargada manualmente en MongoDB.
+**Servicios de mercado** (lunes a viernes, horario de mercado):
+- `motor_rofex.service` → `main_valores.py`
+- `motor_options.service` → `main_options_service.py`
+- `motor_curvas.service` → `main_curvas.py`
+- `motor_forwards.service` → `main_forwards.py`
+- `motor_breakevens.service` → `main_breakevens.py`
 
-`data_bcra.py` — script que alimenta CER/TAMAR/DOLAR/BADLAR. Sin `--today` hace backfill desde 2023-01-01; con `--today` pide solo el día actual (modo cron). La API puede devolver el último día hábil disponible si no hay dato para hoy — el upsert por `fecha` evita duplicados en cualquier caso.
-
-### Scripts de diagnóstico
-
-- **`check_cer_valuacion.py`** — muestra por bono CER cuál fecha/valor de CER se usó en el último trade enriquecido (settlement − 10 días hábiles). Útil para verificar que el motor de curvas está usando el CER correcto.
-- **`check_curvas_pendientes.py`** — muestra cuántos docs sin `duration` hay por ticker en TimeSales. Útil para detectar si hay tickers bloqueando el batch del motor de curvas (ej: bonos vencidos con miles de trades sin enriquecer).
-- **`check_forwards.py`** — diagnóstico completo de forwards por curva: lista todos los instrumentos en `Trading.Curvas`, cuáles tienen TEA disponible en TimeSales (aparecerían en la matriz) y cuáles no (ausentes), y compara el orden actual en `ForwardsLive` vs orden esperado por `fecha_vencimiento`.
-
-### Notas sobre enriquecimiento CER
-
-El CER usado para valuar depende del contexto:
-- **TimeSales histórico**: cada trade usa el CER de su propia fecha de settlement (correcto por definición).
-- **Vista de Mercado presente**: como todos los bonos operan diariamente, el último trade enriquecido es siempre de hoy → todos usan el CER de hoy automáticamente.
-- **Problema potencial**: si un bono no opera un día, su último trade enriquecido puede ser de ayer con el CER de ayer. El fix sistémico sería recalcular on-the-fly con el CER de hoy (no implementado aún).
-
-### CashFlow.Flujo
-
-Operaciones de contrapartes cargadas desde Aunesa API. Campos guardados (definidos en `CAMPOS` de `main_flujo_contrapartes.py`):
-`boleto`, `concertacion`, `tipoOperacion`, `cuenta`, `denominacion`, `instrumento`, `condiciones`, `bruto`, `segmento`, `contraparte`
-
-Campo agregado por el script (NO viene de la API):
-- `moneda`: "ARS" o "USD" inferido de `condiciones` (contiene "ARS" o "USD"). Agregado por `inferir_moneda()` en el cron y por `backfill_moneda_flujo.py` para históricos.
-
-**Notas importantes sobre CAMPOS:**
-- `segmento` aquí es el segmento de mercado que devuelve Aunesa (ej: "SENEBI", "MAE"). Es distinto del campo `segmento` de `CashFlow.Contrapartes` (que es "Fondos"/"ALYC"/"Bancos").
-- `contraparte` se sobreescribe con el nombre que tenemos en `CashFlow.Contrapartes` (no el que devuelve Aunesa).
-- `boleto` es la clave única. El cron deduplica al final de cada corrida.
-- Tipos excluidos permanentemente: "Concurrencia - Caución colocadora (Apertura)", "Concurrencia - Caución colocadora (Cierre)", "Futuros Financieros - Compra", "Futuros Financieros - Venta".
-- Las contrapartes deben tener el campo `cuenta` seteado en `CashFlow.Contrapartes` (ejecutar `test_match_contrapartes.py` para hacer el match con Aunesa si hace falta).
-
-### CashFlow.Contrapartes
-
-Catálogo de contrapartes. Campos relevantes:
-- `contraparte`: nombre corto (ej: "MAX", "IEB"). Es la clave de join con `CashFlow.Flujo.contraparte`.
-- `cuenta`: número de cuenta en Aunesa. Puede ser int, string, o CUIT ("30-67724257-0"). El cron usa este campo para hacer el fetch por cuenta. Puede haber múltiples docs para la misma contraparte (una por cuenta).
-- `denominacion`: nombre legal completo (ej: "MAX VALORES S.A.").
-- `segmento`: tipo de contraparte — "Fondos", "ALYC" o "Bancos". Asignado por `set_segmento_contrapartes.py`. Usado para filtrar en la vista Operaciones → Contrapartes y para la vista Flujo vs AuM (solo segmento=Fondos).
-
-### Crontab del servidor (actualizado 2026-04-10)
+### Crontab del servidor (actualizado 2026-04-14)
 
 ```cron
-# Prender/apagar motores y Streamlit: Lunes a Viernes
-# 13:00 UTC = 10:00 AM ARG | 20:05 UTC = 17:05 PM ARG
+# Motores de mercado: Lunes a Viernes
+# 13:00 UTC = 10:00 ART | 20:05 UTC = 17:05 ART
 0 13 * * 1-5 systemctl start motor_rofex.service
 5 20 * * 1-5 systemctl stop motor_rofex.service
-0 13 * * 1-5 systemctl start streamlit.service
-5 20 * * 1-5 systemctl stop streamlit.service
 0 13 * * 1-5 systemctl start motor_options.service
 5 20 * * 1-5 systemctl stop motor_options.service
+0 13 * * 1-5 systemctl start motor_curvas.service
+5 20 * * 1-5 systemctl stop motor_curvas.service
+0 13 * * 1-5 systemctl start motor_forwards.service
+5 20 * * 1-5 systemctl stop motor_forwards.service
+0 13 * * 1-5 systemctl start motor_breakevens.service
+5 20 * * 1-5 systemctl stop motor_breakevens.service
 
 # main_carteras.py — sincronización Aunesa → MongoDB, 4 veces por día hábil
 0 10 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_carteras.py >> /root/TradingAV/logs/carteras.log 2>&1
@@ -231,153 +195,138 @@ Catálogo de contrapartes. Campos relevantes:
 0 14 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_carteras.py >> /root/TradingAV/logs/carteras.log 2>&1
 0 16 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_carteras.py >> /root/TradingAV/logs/carteras.log 2>&1
 
-# VolatilidadGGAL.py — calcula VR histórica al cierre (20:00 UTC)
+# VolatilidadGGAL.py — calcula VR histórica al cierre
 0 20 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Opciones/VolatilidadGGAL.py >> /root/TradingAV/logs/vr_ggal.log 2>&1
 
-# main_dolar_mep.py — snapshot dólar MEP (14:00 y 19:57 UTC)
+# main_dolar_mep.py — snapshot dólar MEP
 0 14 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/main_dolar_mep.py >> /root/TradingAV/logs/dolar_mep.log 2>&1
 57 19 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/main_dolar_mep.py >> /root/TradingAV/logs/dolar_mep.log 2>&1
 
-# main_cashflow.py — carga diaria de movimientos de dinero a CashFlow.Movimientos
-# 02:00 UTC = 23:00 ART (lunes a viernes ARG = martes a sábado UTC)
+# main_cashflow.py — movimientos de dinero (02:00 UTC = 23:00 ART)
 0 2 * * 2-6 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_cashflow.py --today >> /root/TradingAV/logs/cashflow.log 2>&1
 
-# main_flujo_contrapartes.py — carga operaciones de hoy a CashFlow.Flujo
+# main_flujo_contrapartes.py — operaciones del día
 0 2 * * 2-6 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_flujo_contrapartes.py >> /root/TradingAV/logs/flujo_contrapartes.log 2>&1
 
-# data_bcra.py — CER, TAMAR, DOLAR, BADLAR diario (17:00 ART = 20:00 UTC, todos los días)
+# data_bcra.py — CER, TAMAR, DOLAR, BADLAR (20:00 UTC, todos los días)
 0 20 * * * /root/TradingAV/venv/bin/python /root/TradingAV/data_bcra.py --today >> /root/TradingAV/logs/bcra.log 2>&1
 
-# motor_curvas.service — enriquecimiento TEA/Duration TimeSales (lunes a viernes)
-0 13 * * 1-5 systemctl start motor_curvas.service
-5 20 * * 1-5 systemctl stop motor_curvas.service
-
-# motor_forwards.service — tasas forward en tiempo real (lunes a viernes)
-0 13 * * 1-5 systemctl start motor_forwards.service
-5 20 * * 1-5 systemctl stop motor_forwards.service
-
-# motor_breakevens.service — breakevens CER/Lecap en tiempo real (lunes a viernes)
-0 13 * * 1-5 systemctl start motor_breakevens.service
-5 20 * * 1-5 systemctl stop motor_breakevens.service
-
-# main_aum.py — snapshot AuM al cierre (20:00 ART = 23:00 UTC, lunes a viernes)
+# main_aum.py — snapshot AuM al cierre (23:00 UTC = 20:00 ART)
 0 23 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_aum.py >> /root/TradingAV/logs/aum.log 2>&1
-
-# motor_on.service — Yield Screener ONs (lunes a viernes)
-0 13 * * 1-5 systemctl start motor_on.service
-0 20 * * 1-5 systemctl stop motor_on.service
 ```
 
-Logs en `/root/TradingAV/logs/`.
+Logs en `/root/TradingAV/logs/`. Python siempre via `/root/TradingAV/venv/bin/python`.
 
 ## Streamlit Dashboard — Vistas
 
-Nav principal: **Mercado · Opciones · Portfolios · Operaciones · AuM**
+Nav principal: **Mercado · Opciones · Portfolios · Operaciones · AuM · Manager**
 
-> **ONs pausado desde 2026-04-08**: la vista ONs fue removida del dashboard y el `motor_on.service` queda pausado. Todo lo relacionado a ONs (`main_on.py`, `vista_ons()`, `Trading.ONSnapshot`) está en el código pero desactivado hasta nuevo aviso.
+Manager visible solo para emails en `MANAGER_EMAILS`. Determinado por header `Cf-Access-Authenticated-User-Email` de Cloudflare Access.
 
 | Vista | Sub-tabs | Descripción |
 |---|---|---|
 | Mercado | Mercado · Libro · Curvas · Breakevens · Forwards · Retorno Total · Volúmenes | Microstructure, VWAP, volumen intraday; Libro en tiempo real (run_every=2s); curvas de rendimiento, breakevens CER/Lecap, forwards, retorno total, volúmenes. Tab Mercado usa `@st.fragment(run_every=30)`. |
-| Opciones | Mercado · Estrategias | Mercado: cadena GGAL con SPOT/VR/ADR/Tasa RF + volatility smile. Estrategias: spreads pre-configurados con payoff y costo histórico |
-| Portfolios | una tab por cuenta | Posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial leído automáticamente de `Trading.DOLAR` (último valor). Tab por cada `id_cuenta` único; filtro cartera dentro de cada tab |
-| Operaciones | Cash Flow · Contrapartes · Análisis · Flujo vs AuM | Cash Flow: depósitos/transferencias/extracciones desde `CashFlow.Movimientos`. Contrapartes: filtros SEGMENTO+MONEDA en una fila (checkboxes compactos), flujo acumulado mensual + tabla consolidada + drill-down. Análisis: evolución Individual/Comparativo. Flujo vs AuM: gráfico dual para contrapartes segmento=Fondos. |
-| AuM | FCI · Análisis SG · Tasa Fija | FCI: snapshot por fecha + gráfico evolución + detalle fondos por soc. gerente al clickear. Análisis SG: evolución AuM por sociedad gerente — modo Individual o Comparativo base 100. Tasa Fija: posiciones en instrumentos de `Trading.Curvas` (curva=tasa_fija); tabla Ticker/Vencimiento/Valuación + tabla cuentas al clickear ticker + gráfico cobros al vencimiento a ancho completo |
-| ~~ONs~~ | — | ~~Yield screener ONs en tiempo real~~ — **pausado desde 2026-04-08** |
+| Opciones | Mercado · Estrategias | Cadena GGAL con SPOT/VR/ADR/Tasa RF + volatility smile. Estrategias: spreads pre-configurados con payoff y costo histórico. |
+| Portfolios | una tab por cuenta | Posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial de `Trading.DOLAR`. Tab por `id_cuenta`; filtro cartera dentro de cada tab. |
+| Operaciones | Cash Flow · Contrapartes · Análisis · Flujo vs AuM | Cash Flow: `CashFlow.Movimientos`. Contrapartes: filtros SEGMENTO+MONEDA, flujo mensual + drill-down. Análisis: Individual/Comparativo. Flujo vs AuM: gráfico dual para segmento=Fondos. |
+| AuM | FCI · Análisis SG · Tasa Fija | FCI: snapshot por fecha + evolución + detalle por soc. gerente. Análisis SG: Individual o Comparativo base 100. Tasa Fija: posiciones en `curva=tasa_fija`. |
+| Manager | Diagnóstico · Backfills · Assets · Portfolio · ... | Solo admins. Backfills, upserts a Assets/Contrapartes, flujo inline, audit log en `Manager.ChangeLog`. |
 
 ### Mercado → Tab Libro
 
-Vista de order book en tiempo real para traders. Auto-refresh cada 2s via `@st.fragment(run_every=2)`.
+Auto-refresh cada 2s via `@st.fragment(run_every=2)`.
 
-**Layout:**
-- **Header**: selector de ticker (izq) | última actualización (der, alineada sobre Quant)
+- **Header**: selector de ticker (izq) | última actualización (der)
 - **Fila 1**: Depth (book top 5) + Hourly Vol · Tape · Quant Analytics
 - **Fila 2**: Last Minutes chart · Volume Profile
 
-**Last Minutes chart**: line chart con eje X temporal real (`:T`, formato `%H:%M:%S`) — escala proporcional, trades del mismo minuto no colapsan. Línea VWAP horizontal verde (`mark_rule`, `strokeDash=[6,3]`). Toggle `st.toggle("TEA")` para alternar eje Y entre Precio y TEA (formato `%`). Cuando está en modo TEA el VWAP se oculta. Mensajes vacíos usan `st.caption` (no `st.info`).
+**Last Minutes chart**: eje X temporal real (`:T`, `%H:%M:%S`). VWAP horizontal verde (`strokeDash=[6,3]`). Toggle TEA alterna eje Y entre Precio y TEA (oculta VWAP en modo TEA).
 
-**Volume Profile**: query `Trading.TimeSales` desde medianoche UTC. Tick size dinámico: calcula rango real de precios, apunta a ~25 barras, redondea a número "lindo" (0.01/0.05/0.10/0.25/0.50/1.0...). Usa `groupby` sobre precio redondeado — solo aparecen niveles donde realmente se operó (sin buckets vacíos). Interactivo (zoom/pan).
-
-**Tabla Whales eliminada** (2026-04-10). Reemplazada por Volume Profile en fila 2.
+**Volume Profile**: query desde medianoche UTC. Tick size dinámico (~25 barras). Solo niveles con operaciones reales.
 
 ### AuM → Tab Tasa Fija
 
-Muestra posiciones de instrumentos cuyo `ticker_corto` está en `Trading.Curvas` con `curva=tasa_fija`.
+Join chain: `Trading.Curvas` (curva=tasa_fija) → `ticker_corto` → `Valuaciones.Assets` (TICKER==ticker_corto) → `unidad` → `Valuaciones.AuM`.
 
-**Flujo de joins:**
-1. `Trading.Curvas` (filtro `curva=tasa_fija`) → `ticker_corto`, `fecha_vencimiento`, `flujo_vencimiento`
-2. `Valuaciones.Assets` → match `TICKER == ticker_corto` → obtiene `unidad`
-3. `Valuaciones.AuM` → filtra por esas `unidad` → `cantidad` (nominales) y `valuacion`
+Layout: tabla Ticker/Vencimiento/Valuación (izq) | tabla Cuenta/Valuación al clickear (der) | gráfico cobros al vencimiento (ancho completo).
 
-**Layout:**
-- Fila 1: tabla Ticker/Vencimiento/Valuación (izq) | tabla Cuenta/Valuación al clickear ticker (der) — misma altura
-- Fila 2: gráfico a ancho completo — barras apiladas por ticker, solo cobros al vencimiento (`cantidad × flujo_vencimiento / 100`)
-
-**Para agregar instrumentos:** insertar doc en `Trading.Curvas` con `curva: "tasa_fija"` + doc en `Valuaciones.Assets` con `TICKER == ticker_corto`. Sin esos dos docs el instrumento no aparece aunque haya posición en AuM.
+Para agregar instrumentos: insertar doc en `Trading.Curvas` con `curva: "tasa_fija"` + doc en `Valuaciones.Assets` con `TICKER == ticker_corto`.
 
 ### Operaciones → Tab Flujo vs AuM
 
-Vista para analizar reciprocidad con fondos (contrapartes con `segmento=Fondos`).
+Join chain: `CashFlow.Contrapartes` (segmento=Fondos) → `Valuaciones.Assets` (CARTERA FCI, EMISOR in fondos) → `Valuaciones.AuM` (valuacion diaria) + `CashFlow.Flujo` (contraparte in fondos, moneda=ARS).
 
-**Join chain:**
-1. `CashFlow.Contrapartes` (segmento=Fondos) → nombres de emisores (deduplicados)
-2. `Valuaciones.Assets` (CARTERA=CARTERA FCI, EMISOR in fondos) → unidades FCI del emisor
-3. `Valuaciones.AuM` (unidad in esas unidades) → valuacion diaria por emisor
-4. `CashFlow.Flujo` (contraparte in fondos, moneda=ARS) → flujo diario
-
-**Gráfico:** dual eje Y independiente. Eje X temporal dinámico (día/semana/mes según rango).
-- **Barras verde/rojo** (eje izq): flujo ARS por día de operación. Verde = entra plata, rojo = sale.
-- **Línea naranja** (`#f4a261`, eje der): AuM con **forward-fill** diario (último valor conocido se arrastra). Escala `zero=False` con dominio explícito ±15% del rango real.
-- **Leyenda** sobre el gráfico: ■ AuM actual (valor) + ■ Flujo acumulado (valor) en formato M/B.
-
-**Inicio del gráfico**: primer `fecha_snapshot` disponible para ese emisor en AuM.
+Gráfico dual: barras verde/rojo (flujo, eje izq) + línea naranja con forward-fill (AuM, eje der, `zero=False`).
 
 ### Trading.ForwardsLive y Trading.ForwardsHistorico
 
-- Vista Forwards tiene **auto-refresh cada 30s** (`@st.fragment(run_every=30)`), tanto en tab de Mercado como en página dedicada. Matriz se muestra como "MATRIZ DE TASAS FORWARD (TEA)".
-- **`ForwardsLive`**: 1 doc por curva, upsert en cada corrida del motor. Campos: `curva`, `updated_at`, `tickers` (lista ordenada por maturity), `tasas` (spot TEA por ticker), `matrix` (dict anidado `matrix[ticker_largo][ticker_corto] = forward_rate`).
-- **`ForwardsHistorico`**: 1 doc por `(fecha, curva)`. Mismo schema que ForwardsLive + campo `fecha` (string ISO). El motor lo actualiza durante la rueda; el valor final del día queda como cierre.
-- **Forward formula**: `((1 + TEA_B)^t_B / (1 + TEA_A)^t_A)^(1/(t_B - t_A)) - 1` donde `t` = días a vencimiento desde hoy / 365.
-- **Dependencia**: `main_forwards.py` requiere que `main_curvas.py` haya enriquecido TimeSales con TEA (lag ~5s aceptable dado que forwards corre cada 30s).
+- `ForwardsLive`: 1 doc por curva. Campos: `curva`, `updated_at`, `tickers`, `tasas`, `matrix`.
+- `ForwardsHistorico`: 1 doc por `(fecha, curva)`.
+- Forward formula: `((1 + TEA_B)^t_B / (1 + TEA_A)^t_A)^(1/(t_B - t_A)) - 1`
+- Requiere TEA en TimeSales (escrito por `main_curvas.py`, lag ~5s aceptable).
 
 ### Trading.BreakevensLive y Trading.BreakevensHistorico
 
-- **`BreakevensLive`**: 1 doc global (`_id: "breakevens"`), upsert en cada corrida. Campos: `updated_at`, `pares` (lista de pares Lecap/CER, ordenados por vencimiento).
-- **`BreakevensHistorico`**: 1 doc por `fecha` (string ISO). Mismo schema + `fecha`. El motor lo actualiza durante la rueda.
-- **Schema de cada par**: `n`, `lecap` (ticker_corto), `cer` (ticker_corto), `fecha_vencimiento`, `dias`, `tem_lecap` (decimal), `paridad_cer` (ej: 101.0), `retorno_acumulado`, `inflacion_acumulada`, `breakeven_mensual` (decimal).
-- **Fórmulas**: `retorno = (1+TEM)^(días/30) - 1` | `inflacion = (1+retorno) * (paridad/100) - 1` | `breakeven = (1+inflacion)^(30/días) - 1`
-- **Emparejamiento**: cada Lecap (`curva=tasa_fija`) se empareja con el CER (`curva=cer`) de vencimiento más cercano (máx 60 días de diferencia).
-- **Dependencia**: requiere TEM en TimeSales (escrito por `main_curvas.py`) y paridad en TimeSales (también `main_curvas.py`).
+- `BreakevensLive`: 1 doc global (`_id: "breakevens"`).
+- `BreakevensHistorico`: 1 doc por `fecha`.
+- Schema por par: `lecap`, `cer`, `fecha_vencimiento`, `dias`, `tem_lecap`, `paridad_cer`, `retorno_acumulado`, `inflacion_acumulada`, `breakeven_mensual`.
+- Fórmulas: `retorno = (1+TEM)^(días/30) - 1` | `inflacion = (1+retorno)*(paridad/100) - 1` | `breakeven = (1+inflacion)^(30/días) - 1`
+- Emparejamiento: Lecap con CER de vencimiento más cercano (máx 60 días de diferencia).
 
-## Seguridad — Hallazgos conocidos (no accionables)
+## Colecciones de referencia
 
-Auditoría realizada el 2026-04-11. El usuario no quiere que se corrijan estos issues. No los menciones ni sugieras fixes a menos que se pida explícitamente.
+### Trading
+- **`CER`** — Serie BCRA id=30. `fecha`, `valor`.
+- **`TAMAR`** — BCRA id=44.
+- **`DOLAR`** — A3500, BCRA id=5.
+- **`BADLAR`** — BCRA id=7.
+- **`Curvas`** — Definición estática de renta fija. `ticker`, `ticker_corto`, `tipo`, `curva` (tasa_fija/cer), `fecha_vencimiento`, `fecha_emision`, `flujo_vencimiento`, `valor_nominal`, `cupon_anual`, `cer_emision`, `flujos[]`. Cargada manualmente.
+- **`DiasHabiles`** — Calendario hábil argentino. Generado por `data_diashabiles.py` una vez por año.
 
-**`main_fx.py` y `main_on.py` están fuera de scope:** no tocar ni auditar estos archivos.
+### CashFlow.Flujo
 
-| ID | Archivo / Línea | Severidad | Descripción |
-|----|----------------|-----------|-------------|
-| C-1 | `data_bcra.py:7,22` | CRÍTICO | `verify=False` + `disable_warnings` en requests a BCRA — vulnerable a MITM |
-| C-2 | `views/data_manager.py:61-66,484-489` | CRÍTICO | Credenciales Aunesa pasadas como env vars a subprocesos |
-| C-3 | `views/data_manager.py:58` | CRÍTICO | Sin validación de path traversal en `script_relpath` antes de subprocess |
-| A-1 | `streamlit_app.py` (global) | ALTO | Sin autenticación — dashboard completamente expuesto |
-| A-2 | `main_fx.py:247`, `main_on.py:283` | ALTO | `os.system()` en motores de producción |
-| A-3 | `main_on.py:123,350,358`, `views/data_manager.py:133` | ALTO | `except: pass` silenciosos en caminos críticos |
-| A-4 | `mongo_manager.py:46-50` | ALTO | Faltan `socketTimeoutMS` y `connectTimeoutMS` en MongoClient |
-| A-5 | `mongo_manager.py:35-41` | ALTO | Race condition en reconexión: ping ocurre fuera del lock |
-| M-1 | `views/data_manager.py:472-474` | MEDIO | Credenciales en `st.session_state` con keys predecibles |
-| M-2 | `views/data_manager.py:50-51` | MEDIO | Archivos temporales sin limpieza automática |
-| M-3 | `mongo_manager.py:64` | MEDIO | Log expone nombre de DB y colección en cada conexión |
-| M-4 | múltiples archivos | MEDIO | URL Aunesa hardcodeada en 3+ lugares en vez de `config.py` |
-| M-5 | `Excel/main_aum.py` | MEDIO | Sin rate limiting en ThreadPoolExecutor contra Aunesa |
-| B-1 | `.env` local | BAJO | Archivo `.env` con credenciales reales en disco (correcto en `.gitignore`) |
-| B-2 | `Excel/aunesa_api_manager.py` | BAJO | Token JWT sin TTL explícito verificado |
+Campos: `boleto`, `concertacion`, `tipoOperacion`, `cuenta`, `denominacion`, `instrumento`, `condiciones`, `bruto`, `segmento`, `contraparte`, `moneda`.
 
-### Notas técnicas importantes
-- **Altair v4 pie labels**: usar `mark_text(radius=N, color="white")` dentro del arco. Labels fuera del arco se cortan.
-- **Altair eje X duplicado en barras mensuales**: usar `strftime` para agrupar como string + encoding `:O` con `sort=` explícito, nunca `:T`.
-- **Altair fontWeight**: usar entero (`fontWeight=600`), no string.
-- **Dólar Oficial en Portfolios**: leído automáticamente de `Trading.DOLAR` (sort por `fecha` desc, campo `valor`). Ya no hay input manual de MEP en esa vista.
-- **Valuación AuM**: recalculada en la vista (no solo leída de Mongo) para corregir datos históricos. TIPOS_DIVISOR_100 = {Títulos Públicos, Letras, ONs, Fideicomisos, CPD}.
-- **CashFlow**: DB se llama `CashFlow` (sin espacio). Signo: depósitos positivos, extracciones negativas.
-- **En el servidor**: siempre usar `/root/TradingAV/venv/bin/python`, no `python3`.
+- `segmento` = segmento de mercado Aunesa (ej: "SENEBI", "MAE"). Distinto del `segmento` de Contrapartes.
+- `contraparte` sobreescrito con nombre de `CashFlow.Contrapartes`.
+- `boleto` = clave única, deduplicado en cada corrida.
+- Tipos excluidos: "Concurrencia - Caución colocadora (Apertura/Cierre)", "Futuros Financieros - Compra/Venta".
+
+### CashFlow.Contrapartes
+
+- `contraparte`: clave de join con `Flujo.contraparte`.
+- `cuenta`: número en Aunesa (int, string, o CUIT). Puede haber múltiples docs por contraparte.
+- `denominacion`: nombre legal.
+- `segmento`: "Fondos" / "ALYC" / "Bancos". Asignado por `set_segmento_contrapartes.py`.
+
+## MongoDB Índices
+
+Definidos en `crear_indices.py`. Ejecutar en servidor nuevo o al agregar colecciones.
+
+| Colección | Índice |
+|---|---|
+| `Trading.TimeSales` | `(ticker, timestamp)`, `(ticker, duration, timestamp)`, `(ticker, TEA, timestamp)`, `(ticker, TEM, timestamp)`, `(ticker, paridad, timestamp)` |
+| `Trading.MarketSnapshot` | `ticker` |
+| `Trading.ForwardsHistorico` | `(curva, fecha)` |
+| `Trading.BreakevensHistorico` | `fecha` |
+| `Trading.CER` | `fecha` |
+| `Trading.Curvas` | `curva`, `ticker_corto` |
+| `Valuaciones.AuM` | `fecha_snapshot`, `(unidad, fecha_snapshot)`, `(id_cuenta, fecha_snapshot)` |
+| `Valuaciones.Carteras` | `(id_cuenta, unidad)` |
+| `Valuaciones.Assets` | `unidad`, `(EMISOR, CARTERA)` |
+| `CashFlow.Flujo` | `(contraparte, moneda)`, `concertacion`, `boleto` |
+| `CashFlow.Movimientos` | `fecha` |
+
+## Notas técnicas importantes
+
+- **MongoClient**: nunca llamar `client.close()`. Es un singleton compartido; cerrarlo mata el pool de Streamlit y tira `InvalidOperation` en todas las queries subsiguientes.
+- **Dos clientes MongoDB**: `get_mongo_client()` (read-write) para motores y Manager. `get_mongo_client_read()` (read-only) para todas las vistas del dashboard. Fallback a `MONGO_URI` si `MONGO_URI_READ` no está definido.
+- **Cloudflare Access header**: `Cf-Access-Authenticated-User-Email` — solo presente cuando el request pasa por Cloudflare Access. En local el header no existe y `MANAGER_EMAILS` vacío permite acceso.
+- **Altair v4 pie labels**: usar `mark_text(radius=N, color="white")` dentro del arco.
+- **Altair eje X duplicado en barras mensuales**: usar `strftime` para agrupar como string + encoding `:O` con `sort=` explícito.
+- **Altair fontWeight**: entero (`fontWeight=600`), no string.
+- **Dólar Oficial en Portfolios**: leído de `Trading.DOLAR` (sort por `fecha` desc). No hay input manual.
+- **Valuación AuM**: recalculada en la vista. `TIPOS_DIVISOR_100 = {Títulos Públicos, Letras, ONs, Fideicomisos, CPD}`.
+- **CashFlow DB**: se llama `CashFlow` (sin espacio). Depósitos positivos, extracciones negativas.
+- **Enriquecimiento CER**: el CER usado depende de la fecha de settlement del trade (T-10 días hábiles). Si un bono no opera un día, su último trade enriquecido puede usar el CER de ayer.
+- **En el servidor**: siempre usar `/root/TradingAV/venv/bin/python`.

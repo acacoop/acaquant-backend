@@ -126,6 +126,26 @@ def actualizar_precios_mercado():
     return actualizados
 
 
+UNIDADES_EXACTAS_EXCLUIDAS = {"ARS", "USDL"}
+UNIDADES_CONTIENEN_EXCLUIDAS = ["[1] Depósito U$", "OTC", "2024", "2025", "DLR"]
+
+
+def filtrar_unidades(df):
+    """Elimina filas cuya unidad no debería estar en Carteras."""
+    def debe_excluir(unidad):
+        if not isinstance(unidad, str):
+            return False
+        if unidad in UNIDADES_EXACTAS_EXCLUIDAS:
+            return True
+        return any(p in unidad for p in UNIDADES_CONTIENEN_EXCLUIDAS)
+
+    mask = df["unidad"].apply(debe_excluir)
+    filtrados = mask.sum()
+    if filtrados:
+        print(f"🚫 Unidades excluidas: {filtrados} filas → {df[mask]['unidad'].unique().tolist()}")
+    return df[~mask].copy()
+
+
 def guardar_en_mongo(df):
     """
     Upsert atómico de Valuaciones.Carteras usando la clave (id_cuenta, unidad).
@@ -176,7 +196,8 @@ def run():
         )
 
         if df_carteras is not None and not df_carteras.empty:
-            print(f"📊 Registros consolidados: {len(df_carteras)}")
+            df_carteras = filtrar_unidades(df_carteras)
+            print(f"📊 Registros consolidados (post-filtro): {len(df_carteras)}")
 
             cantidad = guardar_en_mongo(df_carteras)
             print(f"✅ MongoDB Valuaciones.Carteras actualizado: {cantidad} registros.")
@@ -196,5 +217,30 @@ def run():
     sys.exit()
 
 
+def limpiar_carteras_existentes():
+    """Borra de Valuaciones.Carteras los docs con unidades que nunca deberían estar."""
+    client = get_mongo_client()
+    collection = client["Valuaciones"]["Carteras"]
+
+    filtro = {"$or": [
+        {"unidad": {"$in": list(UNIDADES_EXACTAS_EXCLUIDAS)}},
+        *[{"unidad": {"$regex": p.replace("[", "\\[").replace("]", "\\]").replace("$", "\\$")}}
+          for p in UNIDADES_CONTIENEN_EXCLUIDAS]
+    ]}
+
+    resultado = collection.delete_many(filtro)
+    print(f"🧹 Carteras limpiadas: {resultado.deleted_count} docs eliminados.")
+    client.close()
+
+
 if __name__ == "__main__":
-    run()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--clean", action="store_true",
+                        help="Elimina docs con unidades excluidas de Valuaciones.Carteras")
+    args = parser.parse_args()
+
+    if args.clean:
+        limpiar_carteras_existentes()
+    else:
+        run()

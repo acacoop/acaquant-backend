@@ -2252,6 +2252,31 @@ def _get_carteras_df():
     return df
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _get_carteras_ii_df():
+    """
+    Lee Valuaciones.CarterasII (snapshot del primer día hábil del mes anterior)
+    + join con Assets. Usa 'valuacion' ya calculada en el snapshot.
+    """
+    db_val = get_db_valuaciones()
+    docs = list(db_val["CarterasII"].find({}, {"_id": 0}))
+    if not docs:
+        return pd.DataFrame()
+    df = pd.DataFrame(docs)
+    df["valuación"] = pd.to_numeric(df.get("valuacion"), errors="coerce").fillna(0)
+
+    assets_docs = list(db_val["Assets"].find({}, {"_id": 0, "unidad": 1,
+        "CALIFICACION": 1, "CARTERA": 1, "CLASE_ACTIVO": 1,
+        "EMISOR": 1, "TICKER": 1, "VENCIMIENTO": 1}))
+    if assets_docs:
+        df = df.merge(pd.DataFrame(assets_docs), on="unidad", how="left")
+
+    for col in ["TICKER", "EMISOR", "CLASE_ACTIVO", "CARTERA", "CALIFICACION", "VENCIMIENTO"]:
+        if col in df.columns:
+            df[col] = df[col].fillna("-")
+    return df
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def _get_valor_mep():
     """Último valor MEP desde Valuaciones.Dolar (sort por timestamp desc)."""
@@ -2349,11 +2374,20 @@ def _render_reporte_ejecutivo():
         fci_mes = float(_grp_cart.get("CARTERA FCI", 0.0))
     else:
         ars_mes = dl_mes = hd_mes = fci_mes = 0.0
-    # Mes anterior sigue dummy (requiere histórico — próxima iteración)
     val_a3500_total = total_ars / val_a3500 if val_a3500 else 0.0
     val_usd_total = total_ars / val_mep if val_mep else 0.0
 
-    ars_prev, dl_prev, hd_prev, fci_prev = _rep_dummy_carteras(str(cuenta_sel), mes_prev)
+    # Mes anterior: desde Valuaciones.CarterasII (primer día hábil mes anterior)
+    df_cii = _get_carteras_ii_df()
+    if not df_cii.empty and "CARTERA" in df_cii.columns:
+        _df_cta_prev = df_cii[df_cii["id_cuenta"].astype(str) == str(cuenta_sel)]
+        _grp_prev = _df_cta_prev.groupby("CARTERA")["valuación"].sum()
+        ars_prev = float(_grp_prev.get("CARTERA ARS", 0.0))
+        dl_prev  = float(_grp_prev.get("CARTERA DL",  0.0))
+        hd_prev  = float(_grp_prev.get("CARTERA HD",  0.0))
+        fci_prev = float(_grp_prev.get("CARTERA FCI", 0.0))
+    else:
+        ars_prev = dl_prev = hd_prev = fci_prev = 0.0
 
     # Fila 1: KPIs — bloque izq (Informe/MEP/A3500 stackeados) + 3 valuaciones horizontales
     _kpi_label = f"font-size:14px;color:#666;font-weight:600"

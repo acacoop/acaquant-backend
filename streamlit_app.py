@@ -2541,10 +2541,137 @@ def _cargar_contrapartes():
     return df
 
 
+def _render_flujo_chart_y_cards(df_f, monedas_sel, granularity):
+    """Renderiza chart por moneda + tarjetas de resumen sobre df_f ya filtrado."""
+    COLOR_ARS = "#094293"
+    COLOR_USD = "#00cc66"
+
+    if granularity == "Mensual":
+        df_f = df_f.copy()
+        df_f["_key"] = df_f["fecha"].dt.strftime("%Y-%m")
+        df_agg = df_f.groupby(["_key", "unidad"], as_index=False)["total"].sum()
+        df_agg = df_agg.sort_values("_key")
+        df_agg["label"] = pd.to_datetime(df_agg["_key"] + "-01").dt.strftime("%b %Y")
+    else:
+        df_f = df_f.copy()
+        df_f["_key"] = df_f["fecha"].dt.strftime("%Y-%m-%d")
+        df_agg = df_f.groupby(["_key", "unidad"], as_index=False)["total"].sum()
+        df_agg = df_agg.sort_values("_key")
+        df_agg["label"] = pd.to_datetime(df_agg["_key"]).dt.strftime("%d/%m/%y")
+
+    x_order = list(dict.fromkeys(df_agg["label"].tolist()))
+    df_agg = df_agg.drop(columns="_key")
+
+    def make_chart(moneda, color):
+        data = df_agg[df_agg["unidad"] == moneda].copy()
+        if data.empty:
+            return None
+        max_abs = data["total"].abs().max()
+        if max_abs >= 1e9:
+            data["valor"] = data["total"] / 1e9
+            y_title = f"Billones {moneda}"
+            y_fmt = ",.2f"
+        elif max_abs >= 1e6:
+            data["valor"] = data["total"] / 1e6
+            y_title = f"Millones {moneda}"
+            y_fmt = ",.1f"
+        elif max_abs >= 1e3:
+            data["valor"] = data["total"] / 1e3
+            y_title = f"Miles {moneda}"
+            y_fmt = ",.1f"
+        else:
+            data["valor"] = data["total"]
+            y_title = moneda
+            y_fmt = ",.0f"
+
+        x_enc = alt.X("label:O", sort=x_order, axis=alt.Axis(labelAngle=-45, title=None))
+        y_enc = alt.Y("valor:Q", axis=alt.Axis(title=y_title, titleColor=color, format=y_fmt))
+        tip = [alt.Tooltip("label:O", title="Fecha"),
+               alt.Tooltip("valor:Q", title=y_title, format=y_fmt)]
+
+        bars = (
+            alt.Chart(data)
+            .mark_bar(color=color, opacity=0.85,
+                      cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
+            .encode(x=x_enc, y=y_enc, tooltip=tip)
+        )
+
+        if granularity != "Mensual":
+            return bars.properties(height=220)
+
+        max_val = data["valor"].abs().max()
+        umbral = max_val * 0.20
+        padding = max_val * 0.04
+
+        data["mid"] = data["valor"] / 2
+        data["exterior"] = data["valor"].apply(
+            lambda v: v + padding if v >= 0 else v - padding
+        )
+
+        grandes = data[data["valor"].abs() >= umbral]
+        chicas = data[data["valor"].abs() < umbral]
+
+        txt_inside = (
+            alt.Chart(grandes)
+            .mark_text(align="center", fontSize=10, fontWeight=600, color="white")
+            .encode(x=x_enc, y=alt.Y("mid:Q"), text=alt.Text("valor:Q", format=",.1f"))
+        )
+        txt_outside = (
+            alt.Chart(chicas)
+            .mark_text(align="center", fontSize=10, fontWeight=600, color=color)
+            .encode(x=x_enc, y=alt.Y("exterior:Q"), text=alt.Text("valor:Q", format=",.1f"))
+        )
+
+        return alt.layer(bars, txt_inside, txt_outside).properties(height=260)
+
+    for moneda, color in [("ARS", COLOR_ARS), ("USD", COLOR_USD)]:
+        if moneda not in monedas_sel:
+            continue
+        chart = make_chart(moneda, color)
+        if chart:
+            st.altair_chart(chart, use_container_width=True)
+
+    tarjeta_cols = st.columns(len(monedas_sel)) if monedas_sel else []
+    for i, moneda in enumerate(monedas_sel):
+        color = COLOR_ARS if moneda == "ARS" else COLOR_USD
+        sub = df_f[df_f["unidad"] == moneda]
+        entradas = sub[sub["total"] > 0]["total"].sum()
+        salidas = sub[sub["total"] < 0]["total"].sum()
+        neto = entradas + salidas
+        neto_color = "#00cc66" if neto >= 0 else "#ff4444"
+        with tarjeta_cols[i]:
+            st.markdown(f"""
+<div style="border:1px solid {color};border-radius:8px;padding:14px 18px;margin-top:8px">
+  <div style="color:{color};font-weight:700;font-size:13px;letter-spacing:1px;margin-bottom:10px">{moneda}</div>
+  <div style="display:flex;gap:24px;flex-wrap:wrap">
+    <div>
+      <div style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Entradas</div>
+      <div style="color:#00cc66;font-size:20px;font-weight:600">{fmt_nom(entradas)}</div>
+    </div>
+    <div>
+      <div style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Salidas</div>
+      <div style="color:#ff4444;font-size:20px;font-weight:600">{fmt_nom(abs(salidas))}</div>
+    </div>
+    <div>
+      <div style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Flujo Neto</div>
+      <div style="color:{neto_color};font-size:20px;font-weight:600">{("-" if neto < 0 else "+") + fmt_nom(abs(neto))}</div>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+_COOP_RE = re.compile(r"\bcoop", re.IGNORECASE)
+
+
+def _es_cooperativa(cuenta_str):
+    return bool(cuenta_str) and bool(_COOP_RE.search(str(cuenta_str)))
+
+
 def vista_operaciones():
     st.markdown("## ACAQuant | Operaciones")
 
-    tab_cf, tab_cp, tab_analisis_cp, tab_fva = st.tabs(["Cash Flow", "Contrapartes", "Análisis", "Flujo vs AuM"])
+    tab_cf, tab_coop, tab_cp, tab_analisis_cp, tab_fva = st.tabs(["Cash Flow", "Cooperativas", "Contrapartes", "Análisis", "Flujo vs AuM"])
 
     # ── Tab: Cash Flow (sin cambios) ──────────────────────────────────────────
     with tab_cf:
@@ -2633,123 +2760,63 @@ def vista_operaciones():
             if df_f.empty:
                 st.info("Sin datos para el rango/moneda seleccionados.")
             else:
-                # ── Agrupar ───────────────────────────────────────────────────
-                if granularity == "Mensual":
-                    df_f["_key"] = df_f["fecha"].dt.strftime("%Y-%m")
-                    df_agg = df_f.groupby(["_key", "unidad"], as_index=False)["total"].sum()
-                    df_agg = df_agg.sort_values("_key")
-                    df_agg["label"] = pd.to_datetime(df_agg["_key"] + "-01").dt.strftime("%b %Y")
+                _render_flujo_chart_y_cards(df_f, monedas_sel, granularity)
+
+    # ── Tab: Cooperativas ─────────────────────────────────────────────────────
+    with tab_coop:
+        df_all = _cargar_movimientos()
+        if df_all.empty:
+            st.warning("Sin datos. Ejecutá `main_cashflow.py` para cargar el historial.")
+        else:
+            acc_map = _cargar_accionistas()
+
+            # Pre-filtro: cuenta NO accionista AND nombre contiene COOP
+            mask_coop = df_all["cuenta"].apply(_es_cooperativa) & (~df_all["cuenta"].isin(acc_map))
+            df_coop = df_all[mask_coop].copy()
+
+            if df_coop.empty:
+                st.info("Sin operaciones de cooperativas en el historial.")
+            else:
+                min_date = df_coop["fecha"].min().date()
+                max_date = df_coop["fecha"].max().date()
+
+                rango = st.slider(
+                    "Rango de fechas",
+                    min_value=min_date, max_value=max_date,
+                    value=(min_date, max_date),
+                    format="DD/MM/YY", key="coop_rango",
+                )
+
+                c_ars, c_usd, c_sep, c_gran = st.columns([1, 1, 3, 3])
+                with c_ars:
+                    show_ars = st.checkbox("ARS", value=True, key="coop_ars")
+                with c_usd:
+                    show_usd = st.checkbox("USD", value=True, key="coop_usd")
+                with c_gran:
+                    granularity = st.radio(
+                        "", ["Diario", "Mensual"], horizontal=True,
+                        key="coop_gran", label_visibility="collapsed",
+                    )
+
+                cuentas_coop = sorted(df_coop["cuenta"].dropna().unique().tolist())
+                seleccion = st.selectbox(
+                    "Cuenta", ["Todas"] + cuentas_coop,
+                    key="coop_cuenta", label_visibility="collapsed",
+                )
+
+                df_f = df_coop[
+                    (df_coop["fecha"].dt.date >= rango[0]) &
+                    (df_coop["fecha"].dt.date <= rango[1])
+                ].copy()
+                monedas_sel = (["ARS"] if show_ars else []) + (["USD"] if show_usd else [])
+                df_f = df_f[df_f["unidad"].isin(monedas_sel)].copy()
+                if seleccion != "Todas":
+                    df_f = df_f[df_f["cuenta"] == seleccion].copy()
+
+                if df_f.empty:
+                    st.info("Sin datos para el rango/moneda/cuenta seleccionados.")
                 else:
-                    df_f["_key"] = df_f["fecha"].dt.strftime("%Y-%m-%d")
-                    df_agg = df_f.groupby(["_key", "unidad"], as_index=False)["total"].sum()
-                    df_agg = df_agg.sort_values("_key")
-                    df_agg["label"] = pd.to_datetime(df_agg["_key"]).dt.strftime("%d/%m/%y")
-
-                x_order = list(dict.fromkeys(df_agg["label"].tolist()))
-                df_agg = df_agg.drop(columns="_key")
-
-                # ── Gráfico — un chart independiente por moneda ───────────────
-                def make_chart(moneda, color):
-                    data = df_agg[df_agg["unidad"] == moneda].copy()
-                    if data.empty:
-                        return None
-                    max_abs = data["total"].abs().max()
-                    if max_abs >= 1e9:
-                        data["valor"] = data["total"] / 1e9
-                        y_title = f"Billones {moneda}"
-                        y_fmt   = ",.2f"
-                    elif max_abs >= 1e6:
-                        data["valor"] = data["total"] / 1e6
-                        y_title = f"Millones {moneda}"
-                        y_fmt   = ",.1f"
-                    elif max_abs >= 1e3:
-                        data["valor"] = data["total"] / 1e3
-                        y_title = f"Miles {moneda}"
-                        y_fmt   = ",.1f"
-                    else:
-                        data["valor"] = data["total"]
-                        y_title = moneda
-                        y_fmt   = ",.0f"
-
-                    x_enc = alt.X("label:O", sort=x_order, axis=alt.Axis(labelAngle=-45, title=None))
-                    y_enc = alt.Y("valor:Q", axis=alt.Axis(title=y_title, titleColor=color, format=y_fmt))
-                    tip   = [alt.Tooltip("label:O", title="Fecha"),
-                             alt.Tooltip("valor:Q", title=y_title, format=y_fmt)]
-
-                    bars = (
-                        alt.Chart(data)
-                        .mark_bar(color=color, opacity=0.85,
-                                  cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
-                        .encode(x=x_enc, y=y_enc, tooltip=tip)
-                    )
-
-                    if granularity != "Mensual":
-                        return bars.properties(height=220)
-
-                    max_val  = data["valor"].abs().max()
-                    umbral   = max_val * 0.20
-                    padding  = max_val * 0.04
-
-                    data["mid"]      = data["valor"] / 2
-                    data["exterior"] = data["valor"].apply(
-                        lambda v: v + padding if v >= 0 else v - padding
-                    )
-
-                    grandes  = data[data["valor"].abs() >= umbral]
-                    chicas   = data[data["valor"].abs() <  umbral]
-
-                    txt_inside = (
-                        alt.Chart(grandes)
-                        .mark_text(align="center", fontSize=10, fontWeight=600, color="white")
-                        .encode(x=x_enc, y=alt.Y("mid:Q"), text=alt.Text("valor:Q", format=",.1f"))
-                    )
-                    txt_outside = (
-                        alt.Chart(chicas)
-                        .mark_text(align="center", fontSize=10, fontWeight=600, color=color)
-                        .encode(x=x_enc, y=alt.Y("exterior:Q"), text=alt.Text("valor:Q", format=",.1f"))
-                    )
-
-                    return (
-                        alt.layer(bars, txt_inside, txt_outside)
-                        .properties(height=260)
-                    )
-
-                for moneda, color in [("ARS", COLOR_ARS), ("USD", COLOR_USD)]:
-                    if moneda not in monedas_sel:
-                        continue
-                    chart = make_chart(moneda, color)
-                    if chart:
-                        st.altair_chart(chart, use_container_width=True)
-
-                # ── Tarjetas de resumen ───────────────────────────────────────
-                tarjeta_cols = st.columns(len(monedas_sel))
-                for i, moneda in enumerate(monedas_sel):
-                    color = COLOR_ARS if moneda == "ARS" else COLOR_USD
-                    sub = df_f[df_f["unidad"] == moneda]
-                    entradas = sub[sub["total"] > 0]["total"].sum()
-                    salidas  = sub[sub["total"] < 0]["total"].sum()
-                    neto     = entradas + salidas
-                    neto_color = "#00cc66" if neto >= 0 else "#ff4444"
-                    with tarjeta_cols[i]:
-                        st.markdown(f"""
-<div style="border:1px solid {color};border-radius:8px;padding:14px 18px;margin-top:8px">
-  <div style="color:{color};font-weight:700;font-size:13px;letter-spacing:1px;margin-bottom:10px">{moneda}</div>
-  <div style="display:flex;gap:24px;flex-wrap:wrap">
-    <div>
-      <div style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Entradas</div>
-      <div style="color:#00cc66;font-size:20px;font-weight:600">{fmt_nom(entradas)}</div>
-    </div>
-    <div>
-      <div style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Salidas</div>
-      <div style="color:#ff4444;font-size:20px;font-weight:600">{fmt_nom(abs(salidas))}</div>
-    </div>
-    <div>
-      <div style="color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Flujo Neto</div>
-      <div style="color:{neto_color};font-size:20px;font-weight:600">{("-" if neto < 0 else "+") + fmt_nom(abs(neto))}</div>
-    </div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+                    _render_flujo_chart_y_cards(df_f, monedas_sel, granularity)
 
     # ── Tab: Contrapartes ─────────────────────────────────────────────────────
     with tab_cp:

@@ -3495,17 +3495,25 @@ def vista_aum():
 
                 total_val_tf = tbl["valuacion"].sum()
                 total_cobro  = tbl["pago_final"].sum()
-                st.markdown(
-                    f"<div style='display:flex;gap:40px;margin-bottom:8px'>"
-                    f"<div><span style='font-size:11px;color:#888'>Valuación actual</span><br>"
-                    f"<span style='font-size:17px;font-weight:600'>${total_val_tf:,.0f}</span></div>"
-                    f"<div><span style='font-size:11px;color:#888'>Cobro proyectado</span><br>"
-                    f"<span style='font-size:17px;font-weight:600'>${total_cobro:,.0f}</span></div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
+                col_metrics_tf, col_toggle_tf = st.columns([5, 1])
+                with col_metrics_tf:
+                    st.markdown(
+                        f"<div style='display:flex;gap:40px;margin-bottom:8px'>"
+                        f"<div><span style='font-size:11px;color:#888'>Valuación actual</span><br>"
+                        f"<span style='font-size:17px;font-weight:600'>${total_val_tf:,.0f}</span></div>"
+                        f"<div><span style='font-size:11px;color:#888'>Cobro proyectado</span><br>"
+                        f"<span style='font-size:17px;font-weight:600'>${total_cobro:,.0f}</span></div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                with col_toggle_tf:
+                    st.markdown(
+                        "<div style='display:flex;justify-content:flex-end;padding-top:14px'>",
+                        unsafe_allow_html=True,
+                    )
+                    ver_vn_tf = st.toggle("Valor Nominal", key="tf_toggle_vn")
+                    st.markdown("</div>", unsafe_allow_html=True)
 
-                ver_vn_tf = st.toggle("Ver por Valor Nominal", key="tf_toggle_vn")
                 col_src_tf = "cantidad" if ver_vn_tf else "valuacion"
                 col_lbl_tf = "VN" if ver_vn_tf else "Valuación"
                 fmt_tf = (lambda v: f"{v:,.2f}") if ver_vn_tf else (lambda v: f"${v:,.0f}")
@@ -3616,15 +3624,23 @@ def vista_aum():
                 )
 
                 total_val_cer = tbl_cer["valuacion"].sum()
-                st.markdown(
-                    f"<div style='margin-bottom:8px'>"
-                    f"<span style='font-size:11px;color:#888'>Valuación actual</span><br>"
-                    f"<span style='font-size:17px;font-weight:600'>${total_val_cer:,.0f}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
+                col_metrics_cer, col_toggle_cer = st.columns([5, 1])
+                with col_metrics_cer:
+                    st.markdown(
+                        f"<div style='margin-bottom:8px'>"
+                        f"<span style='font-size:11px;color:#888'>Valuación actual</span><br>"
+                        f"<span style='font-size:17px;font-weight:600'>${total_val_cer:,.0f}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                with col_toggle_cer:
+                    st.markdown(
+                        "<div style='display:flex;justify-content:flex-end;padding-top:14px'>",
+                        unsafe_allow_html=True,
+                    )
+                    ver_vn_cer = st.toggle("Valor Nominal", key="cer_toggle_vn")
+                    st.markdown("</div>", unsafe_allow_html=True)
 
-                ver_vn_cer = st.toggle("Ver por Valor Nominal", key="cer_toggle_vn")
                 col_src_cer = "cantidad" if ver_vn_cer else "valuacion"
                 col_lbl_cer = "VN" if ver_vn_cer else "Valuación"
                 fmt_cer = (lambda v: f"{v:,.2f}") if ver_vn_cer else (lambda v: f"${v:,.0f}")

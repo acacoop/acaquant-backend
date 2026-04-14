@@ -1410,7 +1410,7 @@ def _subvista_portfolio():
             )
             with cols[idx % 2]:
                 nuevos_vals[campo] = st.text_input(
-                    campo, value=actual, key=f"port_f_{campo}",
+                    campo, value=actual, key=f"port_f_{u_sel}_{campo}",
                     help=f"Valores existentes en la colección: {len(distinct_vals)}"
                                 + (f" — ej: {', '.join(distinct_vals[:5])}"
                                    if distinct_vals else ""),

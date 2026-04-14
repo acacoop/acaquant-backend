@@ -2472,23 +2472,33 @@ def _render_reporte_ejecutivo():
             total_pesos = ars + fci
             def _p(v):
                 return (v / total) if total else 0.0
-            rows = [
+            carteras = [
                 ("Cartera ARS", ars, _p(ars)),
                 ("Cartera DL",  dl,  _p(dl)),
                 ("Cartera HD",  hd,  _p(hd)),
                 ("Cartera FCI", fci, _p(fci)),
+            ]
+            totales = [
                 ("Total Dolarizado", total_dolar, _p(total_dolar)),
                 ("Total Pesos",      total_pesos, _p(total_pesos)),
             ]
-            rows = [r for r in rows if r[1] > 0]
-            if not rows:
+            carteras = [r for r in carteras if r[1] > 0]
+            totales  = [r for r in totales  if r[1] > 0]
+            if not carteras and not totales:
                 return ""
-            tr_rows = "".join(
-                f"<tr><td style='padding:4px 8px;border-bottom:1px solid #eee'>{label}</td>"
-                f"<td style='padding:4px 8px;border-bottom:1px solid #eee;text-align:right'>{monto:,.0f}</td>"
-                f"<td style='padding:4px 8px;border-bottom:1px solid #eee;text-align:right'>{pct:.1%}</td></tr>"
-                for label, monto, pct in rows
-            )
+
+            def _render_rows(items):
+                return "".join(
+                    f"<tr><td style='padding:4px 8px;border-bottom:1px solid #eee'>{label}</td>"
+                    f"<td style='padding:4px 8px;border-bottom:1px solid #eee;text-align:right'>{monto:,.0f}</td>"
+                    f"<td style='padding:4px 8px;border-bottom:1px solid #eee;text-align:right'>{pct:.1%}</td></tr>"
+                    for label, monto, pct in items
+                )
+            sep_row = "<tr><td colspan='3' style='padding:0;height:10px;background:#fff;border:none'></td></tr>"
+            tr_rows = _render_rows(carteras)
+            if carteras and totales:
+                tr_rows += sep_row
+            tr_rows += _render_rows(totales)
             return (
                 f"<table style='width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px'>"
                 f"<thead><tr style='background:{_REP_NAVY};color:#fff'>"

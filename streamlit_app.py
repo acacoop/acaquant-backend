@@ -2340,8 +2340,16 @@ def _render_reporte_ejecutivo():
     _df_cta = df_carteras[df_carteras["id_cuenta"].astype(str) == str(cuenta_sel)]
     total_ars = float(_df_cta["valuación"].sum())
 
-    # Breakdown por cartera (ARS/DL/HD/FCI) sigue dummy hasta próxima iteración
-    ars_mes, dl_mes, hd_mes, fci_mes = _rep_dummy_carteras(str(cuenta_sel), mes_actual)
+    # Breakdown real por cartera — mes actual (groupby CARTERA)
+    if "CARTERA" in _df_cta.columns and not _df_cta.empty:
+        _grp_cart = _df_cta.groupby("CARTERA")["valuación"].sum()
+        ars_mes = float(_grp_cart.get("Cartera ARS", 0.0))
+        dl_mes  = float(_grp_cart.get("Cartera DL",  0.0))
+        hd_mes  = float(_grp_cart.get("Cartera HD",  0.0))
+        fci_mes = float(_grp_cart.get("Cartera FCI", 0.0))
+    else:
+        ars_mes = dl_mes = hd_mes = fci_mes = 0.0
+    # Mes anterior sigue dummy (requiere histórico — próxima iteración)
     val_a3500_total = total_ars / val_a3500 if val_a3500 else 0.0
     val_usd_total = total_ars / val_mep if val_mep else 0.0
 
@@ -2393,6 +2401,7 @@ def _render_reporte_ejecutivo():
         )
 
     with col_tablas:
+        st.markdown("<div style='margin-top:-24px'></div>", unsafe_allow_html=True)
         def _tabla_mes(titulo, ars, dl, hd, fci):
             total = ars + dl + hd + fci
             total_dolar = dl + hd

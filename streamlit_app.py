@@ -2216,6 +2216,18 @@ def _get_dolar_oficial():
     return float(doc["valor"]) if doc else None
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _get_valor_mep():
+    """Último valor MEP desde Valuaciones.Dolar (sort por timestamp desc)."""
+    doc = get_db_valuaciones()["Dolar"].find_one(sort=[("timestamp", -1)])
+    if not doc or "mep" not in doc:
+        return None
+    try:
+        return float(doc["mep"])
+    except (TypeError, ValueError):
+        return None
+
+
 # ==========================================
 # PORTFOLIOS → REPORTES (layout replica informe ejecutivo mensual)
 # Datos dummy — a conectar con Mongo tras validación de layout
@@ -2283,12 +2295,12 @@ def _render_reporte_ejecutivo(cuentas_disponibles, dolar_actual):
     # ───────────────── 1. RESUMEN EJECUTIVO ─────────────────
     _rep_section_header("RESUMEN EJECUTIVO")
 
-    val_mep = 1422.00
+    val_mep = _get_valor_mep() or 0.0
     val_a3500 = 1389.00
     ars_mes, dl_mes, hd_mes, fci_mes = _rep_dummy_carteras(str(cuenta_sel), mes_actual)
     total_ars = ars_mes + dl_mes + hd_mes + fci_mes
-    val_a3500_total = total_ars / val_a3500
-    val_usd_total = total_ars / val_mep
+    val_a3500_total = total_ars / val_a3500 if val_a3500 else 0.0
+    val_usd_total = total_ars / val_mep if val_mep else 0.0
 
     ars_prev, dl_prev, hd_prev, fci_prev = _rep_dummy_carteras(str(cuenta_sel), mes_prev)
 

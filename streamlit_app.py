@@ -2375,15 +2375,21 @@ def _render_reporte_ejecutivo():
             "Cartera": ["Cartera ARS", "Cartera DL", "Cartera HD", "Cartera FCI"],
             "Monto": [ars_mes, dl_mes, hd_mes, fci_mes],
         })
+        donut_df = donut_df[donut_df["Monto"] > 0].reset_index(drop=True)
         _s = donut_df["Monto"].sum()
         donut_df["pct"] = (donut_df["Monto"] / _s) if _s else 0.0
         donut_df["label"] = donut_df["pct"].map(lambda v: f"{v:.1%}")
+        _palette = {
+            "Cartera ARS": "#4472C4", "Cartera DL": "#5B9BD5",
+            "Cartera HD":  "#8FAADC", "Cartera FCI": "#B4C7E7",
+        }
+        _domain = donut_df["Cartera"].tolist()
+        _range = [_palette[c] for c in _domain]
         arc = alt.Chart(donut_df).mark_arc(innerRadius=60, outerRadius=110).encode(
             theta=alt.Theta("Monto:Q"),
             color=alt.Color(
                 "Cartera:N",
-                scale=alt.Scale(domain=["Cartera ARS", "Cartera DL", "Cartera HD", "Cartera FCI"],
-                                range=["#4472C4", "#5B9BD5", "#8FAADC", "#B4C7E7"]),
+                scale=alt.Scale(domain=_domain, range=_range),
                 legend=alt.Legend(title=None, orient="right"),
             ),
             tooltip=["Cartera:N", alt.Tooltip("Monto:Q", format=",.0f"),
@@ -2417,6 +2423,9 @@ def _render_reporte_ejecutivo():
                 ("Total Dolarizado", total_dolar, _p(total_dolar)),
                 ("Total Pesos",      total_pesos, _p(total_pesos)),
             ]
+            rows = [r for r in rows if r[1] > 0]
+            if not rows:
+                return
             import pandas as _pd
             dfm = _pd.DataFrame(rows, columns=[titulo, "Monto ARS", "Ponderación"])
             dfm["Monto ARS"] = dfm["Monto ARS"].map(lambda v: f"{v:,.0f}")

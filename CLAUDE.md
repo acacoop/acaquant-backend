@@ -6,6 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TradingAV is a quantitative trading platform for Argentine financial markets (MERVAL/ROFEX). It streams real-time market data, runs parallel analytical engines (microstructure, options, FX arbitrage, plazo arbitrage), persists state to MongoDB Atlas, and exposes a Streamlit dashboard.
 
+## Dashboard — Acceso actual (2026-04-14)
+
+Existen dos deploys activos en paralelo. La idea es migrar todo a acaquant y dar de baja Streamlit Cloud eventualmente.
+
+| Deploy | URL | Auth | Estado |
+|---|---|---|---|
+| Streamlit Cloud | URL privada de streamlit.io | Sin login (URL secreta) | Activo — uso actual de usuarios |
+| Droplet + Cloudflare | www.acaquant.com | Cloudflare Access (email OTP) | Activo — nuevo, en transición |
+
+**Streamlit Cloud**: credenciales de MongoDB Atlas cargadas como secrets en la plataforma. No está indexado públicamente pero cualquiera con la URL accede sin login.
+
+**acaquant.com**: corre en el Droplet de DigitalOcean. Cloudflare Tunnel (cloudflared) + Cloudflare Access protegen el acceso. El tunnel corre como proceso manual por ahora — falta configurarlo como servicio systemd.
+
 ## Running the Project
 
 ```bash

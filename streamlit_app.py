@@ -2399,21 +2399,17 @@ def _render_reporte_ejecutivo():
         }
         _domain = donut_df["Cartera"].tolist()
         _range = [_palette[c] for c in _domain]
-        arc = alt.Chart(donut_df).mark_arc(innerRadius=70, outerRadius=125).encode(
+        arc = alt.Chart(donut_df).mark_arc(innerRadius=85, outerRadius=140).encode(
             theta=alt.Theta("Monto:Q"),
             color=alt.Color(
                 "Cartera:N",
                 scale=alt.Scale(domain=_domain, range=_range),
-                legend=alt.Legend(
-                    title=None, orient="right",
-                    offset=-30, padding=0, labelPadding=2,
-                    rowPadding=2, symbolSize=80, labelFontSize=11,
-                ),
+                legend=None,
             ),
             tooltip=["Cartera:N", alt.Tooltip("Monto:Q", format=",.0f"),
                      alt.Tooltip("pct:Q", format=".1%")],
         )
-        labels = alt.Chart(donut_df).mark_text(radius=97, size=11, color="white", fontWeight="bold").encode(
+        labels = alt.Chart(donut_df).mark_text(radius=112, size=12, color="white", fontWeight="bold").encode(
             theta=alt.Theta("Monto:Q", stack=True),
             text=alt.Text("label:N"),
         )
@@ -2423,6 +2419,16 @@ def _render_reporte_ejecutivo():
                 height=340,
             ),
             use_container_width=True,
+        )
+        # Leyenda custom pegada al donut
+        _legend_items = "".join(
+            f"<div style='display:flex;align-items:center;gap:6px;font-size:12px;color:#333'>"
+            f"<span style='width:10px;height:10px;background:{_palette[c]};border-radius:50%;display:inline-block'></span>{c}</div>"
+            for c in _domain
+        )
+        st.markdown(
+            f"<div style='display:flex;justify-content:center;gap:20px;margin-top:-24px'>{_legend_items}</div>",
+            unsafe_allow_html=True,
         )
 
     with col_tablas:

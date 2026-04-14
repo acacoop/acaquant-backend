@@ -1607,7 +1607,7 @@ def _cargar_breakevens_historico():
 def _render_breakevens(db):
     from datetime import date as _date
 
-    tab_live, tab_hist, tab_grafico = st.tabs(["Tiempo Real", "Histórico", "Gráfico"])
+    tab_live, tab_hist, tab_grafico, tab_simulador = st.tabs(["Tiempo Real", "Histórico", "Gráfico", "Simulador"])
 
     def _render_pares(pares):
         col_tbl, col_chart = st.columns([4, 5])
@@ -1742,6 +1742,9 @@ def _render_breakevens(db):
             .properties(height=420)
         )
         st.altair_chart(chart, use_container_width=True)
+
+    with tab_simulador:
+        _render_simulador(db)
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -2098,7 +2101,7 @@ def vista_mercado():
 
     st.markdown("## ACAQuant | Mercado")
 
-    tab_mercado, tab_libro, tab_curvas, tab_breakevens, tab_simulador, tab_forwards, tab_retorno, tab_vol = st.tabs(["Mercado", "Libro", "Curvas", "Breakevens", "Simulador", "Forwards", "Retorno Total", "Volúmenes"])
+    tab_mercado, tab_libro, tab_curvas, tab_breakevens, tab_forwards, tab_retorno, tab_vol = st.tabs(["Mercado", "Libro", "Curvas", "Breakevens", "Forwards", "Retorno Total", "Volúmenes"])
 
     with tab_mercado:
         @st.fragment(run_every=30)
@@ -2192,9 +2195,6 @@ def vista_mercado():
 
     with tab_breakevens:
         _render_breakevens(db)
-
-    with tab_simulador:
-        _render_simulador(db)
 
     with tab_forwards:
         @st.fragment(run_every=30)

@@ -2356,11 +2356,11 @@ def _render_reporte_ejecutivo():
     ars_prev, dl_prev, hd_prev, fci_prev = _rep_dummy_carteras(str(cuenta_sel), mes_prev)
 
     # Fila 1: KPIs — bloque izq (Informe/MEP/A3500 stackeados) + 3 valuaciones horizontales
-    _kpi_label = f"font-size:11px;color:#666;font-weight:600"
-    _kpi_val   = f"font-size:16px;color:{_REP_NAVY};font-weight:700"
+    _kpi_label = f"font-size:14px;color:#666;font-weight:600"
+    _kpi_val   = f"font-size:22px;color:{_REP_NAVY};font-weight:700"
     kpi_grid = f"""
-    <div style='display:flex;gap:48px;align-items:flex-start;margin-bottom:36px'>
-      <div style='display:flex;flex-direction:column;gap:10px;min-width:150px'>
+    <div style='display:flex;gap:32px;align-items:flex-start;margin-bottom:24px'>
+      <div style='display:flex;flex-direction:column;gap:12px;min-width:180px'>
         <div><div style='{_kpi_label}'>Informe al</div>
              <div style='{_kpi_val}'>{fecha_str}</div></div>
         <div><div style='{_kpi_label}'>Valor MEP</div>
@@ -2368,7 +2368,7 @@ def _render_reporte_ejecutivo():
         <div><div style='{_kpi_label}'>Valor A3500</div>
              <div style='{_kpi_val}'>{val_a3500:,.2f}</div></div>
       </div>
-      <div style='display:flex;gap:48px;flex:1;justify-content:flex-end'>
+      <div style='display:flex;flex:1;justify-content:space-around;align-items:flex-start;padding-top:4px'>
         <div><div style='{_kpi_label}'>Valuación ARS</div>
              <div style='{_kpi_val}'>{total_ars:,.0f}</div></div>
         <div><div style='{_kpi_label}'>Valuación A3500</div>
@@ -2468,7 +2468,10 @@ def _render_reporte_ejecutivo():
             _tabla_html(mes_actual, ars_mes, dl_mes, hd_mes, fci_mes)
             + _tabla_html(mes_prev, ars_prev, dl_prev, hd_prev, fci_prev)
         )
-        st.markdown(html_tablas, unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='margin-top:-30px'>{html_tablas}</div>",
+            unsafe_allow_html=True,
+        )
 
     # ───────────────── 2. CARTERAS vs BENCHMARKS ─────────────────
     _rep_section_header("Detalle de las carteras vs benchmarks")

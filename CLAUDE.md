@@ -144,9 +144,10 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - **`main_aum.py`** — snapshot AuM de TODAS las cuentas activas → `Valuaciones.AuM`. Clave: `(id_cuenta, unidad, fecha_snapshot)`. Fórmulas: P×Q/100 para renta fija (Títulos Públicos, ONs, Letras, Fideicomisos, CPD); (P+1)×Q para futuros; P×Q para el resto. Retry automático ante timeout Aunesa (3 intentos, 60s). Cron 23:00 UTC.
 - **`main_cashflow.py`** — movimientos de cash desde Aunesa → `CashFlow.Movimientos`. Índice único por `comprobante`. Signo invertido (depósitos positivos). `--today` para cron.
 - **`main_flujo_contrapartes.py`** — operaciones del día desde Aunesa → `CashFlow.Flujo`. Borra docs donde `concertacion == hoy`, fetch por cada contraparte con `cuenta` asignada, filtra 4 tipos excluidos, agrega `moneda` (ARS/USD), deduplica por `boleto`. Cron 02:00 UTC martes-sábado.
-- **`set_segmento_contrapartes.py`** — asigna `segmento` ("Fondos"/"ALYC"/"Bancos") en `CashFlow.Contrapartes`. Reglas automáticas + modo interactivo para sin match. Importado por `data_manager.py`.
+- **`set_segmento_contrapartes.py`** — asigna `segmento` ("Fondos"/"ALYC"/"Bancos") en `CashFlow.Contrapartes`. Reglas automáticas + modo interactivo para sin match. Importado por `views/data_manager.py`.
+- **`main_aum_resumen.py`** — pre-une `Valuaciones.AuM` con `Valuaciones.Assets` y guarda en `Valuaciones.AuMResumen`. Agrega `CARTERA`, `EMISOR`, `TICKER`, `CLASE_ACTIVO` a cada doc de AuM. `--backfill` para procesar todo el historial. Cron 23:15 UTC (después de `main_aum.py`).
 - **`backfill_aum.py`** — re-ejecutable, reconstruye AuM por fechas. Usado desde el Manager (subprocess).
-- **`test_match_contrapartes.py`** — match de contrapartes con Aunesa. Importado por `data_manager.py`.
+- **`test_match_contrapartes.py`** — match de contrapartes con Aunesa. Importado por `views/data_manager.py`.
 
 ### Scripts de datos y diagnóstico
 
@@ -167,7 +168,7 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - `streamlit.service` — dashboard Streamlit, siempre activo
 
 **Servicios de mercado** (lunes a viernes, horario de mercado):
-- `motor_rofex.service` → `main_valores.py`
+- `motor_rofex.service` → `main_valores.py` (archivo .service solo existe en el servidor, no en el repo)
 - `motor_options.service` → `main_options_service.py`
 - `motor_curvas.service` → `main_curvas.py`
 - `motor_forwards.service` → `main_forwards.py`
@@ -213,6 +214,9 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 
 # main_aum.py — snapshot AuM al cierre (23:00 UTC = 20:00 ART)
 0 23 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_aum.py >> /root/TradingAV/logs/aum.log 2>&1
+
+# main_aum_resumen.py — pre-une AuM con Assets → AuMResumen (23:15 UTC, después de main_aum.py)
+15 23 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_aum_resumen.py >> /root/TradingAV/logs/aum_resumen.log 2>&1
 ```
 
 Logs en `/root/TradingAV/logs/`. Python siempre via `/root/TradingAV/venv/bin/python`.
@@ -312,6 +316,7 @@ Definidos en `crear_indices.py`. Ejecutar en servidor nuevo o al agregar colecci
 | `Trading.CER` | `fecha` |
 | `Trading.Curvas` | `curva`, `ticker_corto` |
 | `Valuaciones.AuM` | `fecha_snapshot`, `(unidad, fecha_snapshot)`, `(id_cuenta, fecha_snapshot)` |
+| `Valuaciones.AuMResumen` | `(id_cuenta, unidad, fecha_snapshot)`, `(CARTERA, fecha_snapshot)`, `(EMISOR, fecha_snapshot)` |
 | `Valuaciones.Carteras` | `(id_cuenta, unidad)` |
 | `Valuaciones.Assets` | `unidad`, `(EMISOR, CARTERA)` |
 | `CashFlow.Flujo` | `(contraparte, moneda)`, `concertacion`, `boleto` |

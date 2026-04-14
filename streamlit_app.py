@@ -3047,17 +3047,22 @@ def _render_flujo_vs_aum():
 @st.cache_data(ttl=300, show_spinner=False)
 def _cargar_aum():
     db = get_db_valuaciones()
-    docs = list(db["AuM"].find(
+    docs = list(db["AuMResumen"].find(
         {},
         {"_id": 0, "id_cuenta": 1, "cuenta": 1, "unidad": 1,
-         "tipoTitulo": 1, "cantidad": 1, "precio": 1, "valuacion": 1, "fecha_snapshot": 1}
+         "CARTERA": 1, "EMISOR": 1, "TICKER": 1, "CLASE_ACTIVO": 1,
+         "cantidad": 1, "valuacion": 1, "fecha_snapshot": 1}
     ))
     if not docs:
         return pd.DataFrame()
     df = pd.DataFrame(docs)
     df["valuacion"] = pd.to_numeric(df["valuacion"], errors="coerce").fillna(0)
     df["cantidad"]  = pd.to_numeric(df["cantidad"],  errors="coerce").fillna(0)
-    df["precio"]    = pd.to_numeric(df["precio"],    errors="coerce")
+    for col in ("CARTERA", "EMISOR", "TICKER", "CLASE_ACTIVO"):
+        if col not in df.columns:
+            df[col] = ""
+        else:
+            df[col] = df[col].fillna("")
     return df
 
 
@@ -3203,12 +3208,11 @@ def vista_aum():
 
     df = _cargar_aum()
     if df.empty:
-        st.warning("Sin datos. Ejecutá `main_aum.py` para cargar las posiciones.")
+        st.warning("Sin datos. Ejecutá `main_aum_resumen.py` para generar el resumen.")
         return
 
-    assets = _cargar_assets()
-    df["CARTERA"] = df["unidad"].map(lambda u: assets.get(u, {}).get("CARTERA", ""))
-    df["EMISOR"]  = df["unidad"].map(lambda u: assets.get(u, {}).get("EMISOR",  ""))
+    # CARTERA, EMISOR, TICKER, CLASE_ACTIVO ya vienen pre-unidos desde AuMResumen
+    assets = _cargar_assets()  # necesario para Tasa Fija ticker_corto y otras vistas
 
     df_fci_all = df[df["CARTERA"] == "CARTERA FCI"].copy()
 
@@ -3301,9 +3305,7 @@ def vista_aum():
                 else:
                     emisor_det = resumen.iloc[sel_rows[0]]["EMISOR"]
                     df_det_src = df_fci_dia[df_fci_dia["EMISOR"] == emisor_det].copy()
-                    df_det_src["TICKER"] = df_det_src["unidad"].map(
-                        lambda u: assets.get(u, {}).get("TICKER", u)
-                    )
+                    # TICKER ya viene pre-unido desde AuMResumen
                     df_det = (
                         df_det_src.groupby("TICKER", as_index=False)["valuacion"]
                         .sum()
@@ -3445,15 +3447,12 @@ def vista_aum():
             st.info("Sin instrumentos de tasa_fija en Trading.Curvas.")
         else:
             tasa_fija_set = set(curvas_map.keys())
-            unidades_tf = {u for u, a in assets.items() if a.get("TICKER") in tasa_fija_set}
-            df_tf_all = df[df["unidad"].isin(unidades_tf)].copy()
+            df_tf_all = df[df["TICKER"].isin(tasa_fija_set)].copy()
 
             if df_tf_all.empty:
                 st.info("Sin posiciones de Tasa Fija en AuM.")
             else:
-                df_tf_all["ticker_corto"] = df_tf_all["unidad"].map(
-                    lambda u: assets.get(u, {}).get("TICKER", "")
-                )
+                df_tf_all["ticker_corto"] = df_tf_all["TICKER"]
                 df_tf_all["fecha_venc"] = df_tf_all["ticker_corto"].map(
                     lambda t: (curvas_map.get(t, {}).get("fecha_vencimiento") or "")[:10]
                 )
@@ -3574,15 +3573,12 @@ def vista_aum():
             st.info("Sin instrumentos CER en Trading.Curvas.")
         else:
             cer_set = set(curvas_cer.keys())
-            unidades_cer = {u for u, a in assets.items() if a.get("TICKER") in cer_set}
-            df_cer_all = df[df["unidad"].isin(unidades_cer)].copy()
+            df_cer_all = df[df["TICKER"].isin(cer_set)].copy()
 
             if df_cer_all.empty:
                 st.info("Sin posiciones CER en AuM.")
             else:
-                df_cer_all["ticker_corto"] = df_cer_all["unidad"].map(
-                    lambda u: assets.get(u, {}).get("TICKER", "")
-                )
+                df_cer_all["ticker_corto"] = df_cer_all["TICKER"]
                 df_cer_all["fecha_venc"] = df_cer_all["ticker_corto"].map(
                     lambda t: (curvas_cer.get(t, {}).get("fecha_vencimiento") or "")[:10]
                 )
@@ -3654,8 +3650,7 @@ def vista_aum():
 
     # ── Tab 5: Renta Variable ─────────────────────────────────────────────────
     with tab_rv:
-        unidades_rv = {u for u, a in assets.items() if a.get("CLASE_ACTIVO") == "RENTA VARIABLE"}
-        df_rv_all = df[df["unidad"].isin(unidades_rv)].copy()
+        df_rv_all = df[df["CLASE_ACTIVO"] == "RENTA VARIABLE"].copy()
 
         if df_rv_all.empty:
             st.info("Sin posiciones de Renta Variable en AuM.")

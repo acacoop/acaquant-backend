@@ -59,6 +59,14 @@ def main():
         (valuaciones["AuM"], [("id_cuenta", 1), ("fecha_snapshot", -1)],
             "AuM: id_cuenta + fecha_snapshot"),
 
+        # ── Valuaciones.AuMResumen ────────────────────────────────────────
+        (valuaciones["AuMResumen"], [("id_cuenta", 1), ("unidad", 1), ("fecha_snapshot", -1)],
+            "AuMResumen: id_cuenta + unidad + fecha_snapshot"),
+        (valuaciones["AuMResumen"], [("CARTERA", 1), ("fecha_snapshot", -1)],
+            "AuMResumen: CARTERA + fecha_snapshot"),
+        (valuaciones["AuMResumen"], [("EMISOR", 1), ("fecha_snapshot", -1)],
+            "AuMResumen: EMISOR + fecha_snapshot"),
+
         # ── Valuaciones.Carteras ──────────────────────────────────────────
         (valuaciones["Carteras"], [("id_cuenta", 1), ("unidad", 1)],
             "Carteras: id_cuenta + unidad"),

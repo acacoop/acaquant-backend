@@ -29,7 +29,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from mongo_manager import get_mongo_client
+from mongo_manager import get_mongo_client, get_mongo_client_read
 import config
 
 
@@ -1991,14 +1991,189 @@ def _tab_historial():
     st.caption(f"Mostrando {len(df):,} de {total:,} entradas totales.")
 
 
+# ─── TAB LATENCIA ────────────────────────────────────────────────────────────
+
+def _tab_latencia():
+    import time as _time
+    from mongo_manager import get_mongo_client_read
+
+    st.markdown("### Test de Latencia")
+    st.caption(
+        "Mide cuánto tarda cada query MongoDB en ejecutarse. "
+        "Refleja lo que tarda el dashboard en cargar datos reales. "
+        "Usá el cliente read-only (igual que el dashboard)."
+    )
+
+    if not st.button("▶ Ejecutar test", key="lat_run"):
+        st.info("Presioná **Ejecutar test** para correr el benchmark.")
+        return
+
+    client = get_mongo_client_read()
+    db_trading    = client["Trading"]
+    db_valuaciones = client["Valuaciones"]
+    db_cashflow   = client["CashFlow"]
+    db_opciones   = client["Opciones"]
+
+    resultados = []
+
+    def medir(vista, coleccion, db, query=None, projection=None, descripcion=""):
+        q    = query or {}
+        proj = projection or {"_id": 0}
+        t0   = _time.perf_counter()
+        docs = list(db[coleccion].find(q, proj))
+        ms   = (_time.perf_counter() - t0) * 1000
+        resultados.append({
+            "Vista":       vista,
+            "Colección":   coleccion,
+            "Descripción": descripcion,
+            "Docs":        len(docs),
+            "ms":          round(ms, 1),
+            "ms/doc":      round(ms / max(len(docs), 1), 3),
+        })
+
+    progress = st.progress(0, text="Iniciando...")
+
+    # ── Trading ──────────────────────────────────────────────────────────────
+    progress.progress(5,  text="Trading.MarketSnapshot...")
+    medir("Mercado", "MarketSnapshot", db_trading,
+          descripcion="Un doc por ticker, snapshot en tiempo real")
+
+    progress.progress(12, text="Trading.TimeSales (últimas 24h)...")
+    desde_24h = datetime.utcnow() - timedelta(hours=24)
+    medir("Mercado", "TimeSales", db_trading,
+          query={"timestamp": {"$gte": desde_24h}},
+          descripcion="Trades de las últimas 24 horas")
+
+    progress.progress(20, text="Trading.ForwardsLive...")
+    medir("Mercado — Forwards", "ForwardsLive", db_trading,
+          descripcion="1 doc por curva con la matriz forward")
+
+    progress.progress(25, text="Trading.BreakevensLive...")
+    medir("Mercado — Breakevens", "BreakevensLive", db_trading,
+          descripcion="1 doc global con todos los breakevens")
+
+    progress.progress(30, text="Trading.ForwardsHistorico...")
+    medir("Mercado — Forwards hist.", "ForwardsHistorico", db_trading,
+          descripcion="Historial completo de forwards")
+
+    progress.progress(35, text="Trading.BreakevensHistorico...")
+    medir("Mercado — Breakevens hist.", "BreakevensHistorico", db_trading,
+          descripcion="Historial completo de breakevens")
+
+    progress.progress(40, text="Trading.CER...")
+    medir("Varios", "CER", db_trading,
+          descripcion="Serie histórica CER desde BCRA")
+
+    progress.progress(45, text="Trading.DOLAR...")
+    medir("Portfolios", "DOLAR", db_trading,
+          descripcion="Dólar oficial A3500 desde BCRA")
+
+    progress.progress(50, text="Trading.Curvas...")
+    medir("Mercado — Curvas", "Curvas", db_trading,
+          descripcion="Definición estática de instrumentos")
+
+    # ── Opciones ─────────────────────────────────────────────────────────────
+    progress.progress(55, text="Opciones.OptionsSnapshot...")
+    medir("Opciones", "OptionsSnapshot", db_opciones,
+          descripcion="Snapshot en tiempo real de opciones GGAL")
+
+    # ── Valuaciones ──────────────────────────────────────────────────────────
+    progress.progress(62, text="Valuaciones.AuM (full)...")
+    medir("AuM", "AuM", db_valuaciones,
+          descripcion="Carga completa — todos los snapshots históricos")
+
+    progress.progress(72, text="Valuaciones.AuM (último snapshot)...")
+    ultimo_snap = db_valuaciones["AuM"].find_one(
+        {}, {"fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)]
+    )
+    if ultimo_snap:
+        medir("AuM (latest)", "AuM", db_valuaciones,
+              query={"fecha_snapshot": ultimo_snap["fecha_snapshot"]},
+              descripcion=f"Solo fecha {ultimo_snap['fecha_snapshot']}")
+
+    progress.progress(78, text="Valuaciones.Carteras...")
+    medir("Portfolios", "Carteras", db_valuaciones,
+          descripcion="Posiciones actuales de todas las cuentas")
+
+    progress.progress(83, text="Valuaciones.Assets...")
+    medir("AuM / Portfolios", "Assets", db_valuaciones,
+          descripcion="Metadata de instrumentos (EMISOR, CARTERA, etc.)")
+
+    # ── CashFlow ─────────────────────────────────────────────────────────────
+    progress.progress(88, text="CashFlow.Movimientos...")
+    medir("Operaciones — Cash Flow", "Movimientos", db_cashflow,
+          descripcion="Historial completo de movimientos de dinero")
+
+    progress.progress(92, text="CashFlow.Flujo...")
+    medir("Operaciones — Contrapartes", "Flujo", db_cashflow,
+          descripcion="Operaciones del día por contraparte")
+
+    progress.progress(96, text="CashFlow.Contrapartes...")
+    medir("Operaciones", "Contrapartes", db_cashflow,
+          descripcion="Tabla maestra de contrapartes")
+
+    progress.progress(100, text="Listo.")
+    progress.empty()
+
+    # ── Resultados ────────────────────────────────────────────────────────────
+    df_res = pd.DataFrame(resultados).sort_values("ms", ascending=False).reset_index(drop=True)
+
+    total_ms = df_res["ms"].sum()
+    total_docs = df_res["Docs"].sum()
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Tiempo total", f"{total_ms / 1000:.2f} s")
+    col2.metric("Docs totales cargados", f"{total_docs:,}")
+    col3.metric("Queries ejecutadas", len(df_res))
+
+    st.divider()
+
+    # Tabla principal con color por tiempo
+    def _color_ms(val):
+        if val < 200:
+            return "color: #2d8a4e"   # verde
+        elif val < 800:
+            return "color: #b07d00"   # amarillo
+        else:
+            return "color: #c0392b; font-weight:600"  # rojo
+
+    st.markdown("#### Detalle por colección (ordenado por lentitud)")
+    styled = (
+        df_res.style
+        .applymap(_color_ms, subset=["ms"])
+        .format({"ms": "{:.1f}", "ms/doc": "{:.3f}", "Docs": "{:,}"})
+    )
+    st.dataframe(styled, hide_index=True, use_container_width=True,
+                 height=38 + 35 * len(df_res))
+
+    st.divider()
+
+    # Top 3 más lentas con contexto
+    st.markdown("#### Principales cuellos de botella")
+    top3 = df_res.head(3)
+    for _, row in top3.iterrows():
+        color = "#c0392b" if row["ms"] >= 800 else "#b07d00" if row["ms"] >= 200 else "#2d8a4e"
+        st.markdown(
+            f"<div style='padding:8px 12px;margin-bottom:6px;border-left:4px solid {color};"
+            f"background:#1a1a1a;border-radius:4px'>"
+            f"<span style='font-weight:600;font-size:14px'>{row['Colección']}</span>"
+            f"<span style='color:#888;font-size:12px;margin-left:8px'>({row['Vista']})</span>"
+            f"<br><span style='color:{color};font-size:20px;font-weight:700'>{row['ms']:.0f} ms</span>"
+            f"<span style='color:#888;font-size:12px;margin-left:8px'>"
+            f"{row['Docs']:,} docs · {row['ms/doc']:.3f} ms/doc</span>"
+            f"<br><span style='color:#aaa;font-size:12px'>{row['Descripción']}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+
 # ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
 def vista_data_manager():
     st.markdown("## Manager")
     st.caption("Diagnóstico, backfills, validaciones, logs, historial y setup.")
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-        ["Diagnóstico", "Backfills", "Validaciones", "Logs", "Historial", "Setup"]
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+        ["Diagnóstico", "Backfills", "Validaciones", "Logs", "Historial", "Setup", "Latencia"]
     )
     with tab1: _tab_diagnostico()
     with tab2: _tab_backfills()
@@ -2006,3 +2181,4 @@ def vista_data_manager():
     with tab4: _tab_logs()
     with tab5: _tab_historial()
     with tab6: _tab_setup()
+    with tab7: _tab_latencia()

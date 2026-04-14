@@ -145,7 +145,6 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - **`main_cashflow.py`** — movimientos de cash desde Aunesa → `CashFlow.Movimientos`. Índice único por `comprobante`. Signo invertido (depósitos positivos). `--today` para cron.
 - **`main_flujo_contrapartes.py`** — operaciones del día desde Aunesa → `CashFlow.Flujo`. Borra docs donde `concertacion == hoy`, fetch por cada contraparte con `cuenta` asignada, filtra 4 tipos excluidos, agrega `moneda` (ARS/USD), deduplica por `boleto`. Cron 02:00 UTC martes-sábado.
 - **`set_segmento_contrapartes.py`** — asigna `segmento` ("Fondos"/"ALYC"/"Bancos") en `CashFlow.Contrapartes`. Reglas automáticas + modo interactivo para sin match. Importado por `views/data_manager.py`.
-- **`main_aum_resumen.py`** — pre-une `Valuaciones.AuM` con `Valuaciones.Assets` y guarda en `Valuaciones.AuMResumen`. Agrega `CARTERA`, `EMISOR`, `TICKER`, `CLASE_ACTIVO` a cada doc de AuM. `--backfill` para procesar todo el historial. Cron 23:15 UTC (después de `main_aum.py`).
 - **`backfill_aum.py`** — re-ejecutable, reconstruye AuM por fechas. Usado desde el Manager (subprocess).
 - **`test_match_contrapartes.py`** — match de contrapartes con Aunesa. Importado por `views/data_manager.py`.
 
@@ -215,8 +214,6 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 # main_aum.py — snapshot AuM al cierre (23:00 UTC = 20:00 ART)
 0 23 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_aum.py >> /root/TradingAV/logs/aum.log 2>&1
 
-# main_aum_resumen.py — pre-une AuM con Assets → AuMResumen (23:15 UTC, después de main_aum.py)
-15 23 * * 1-5 /root/TradingAV/venv/bin/python /root/TradingAV/Excel/main_aum_resumen.py >> /root/TradingAV/logs/aum_resumen.log 2>&1
 ```
 
 Logs en `/root/TradingAV/logs/`. Python siempre via `/root/TradingAV/venv/bin/python`.
@@ -234,7 +231,7 @@ Manager visible solo para emails en `MANAGER_EMAILS`. Determinado por header `Cf
 | Portfolios | una tab por cuenta | Posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial de `Trading.DOLAR`. Tab por `id_cuenta`; filtro cartera dentro de cada tab. |
 | Operaciones | Cash Flow · Contrapartes · Análisis · Flujo vs AuM | Cash Flow: `CashFlow.Movimientos`. Contrapartes: filtros SEGMENTO+MONEDA, flujo mensual + drill-down. Análisis: Individual/Comparativo. Flujo vs AuM: gráfico dual para segmento=Fondos. |
 | AuM | FCI · Análisis SG · Tasa Fija | FCI: snapshot por fecha + evolución + detalle por soc. gerente. Análisis SG: Individual o Comparativo base 100. Tasa Fija: posiciones en `curva=tasa_fija`. |
-| Manager | Diagnóstico · Backfills · Assets · Portfolio · ... | Solo admins. Backfills, upserts a Assets/Contrapartes, flujo inline, audit log en `Manager.ChangeLog`. |
+| Manager | Diagnóstico · Backfills · Validaciones · Logs · Historial · Setup · Latencia | Solo admins. Backfills, upserts a Assets/Contrapartes, flujo inline, audit log en `Manager.ChangeLog`. Tab Latencia: benchmark en tiempo real de todas las queries MongoDB del dashboard (ms, docs, ms/doc). |
 
 ### Mercado → Tab Libro
 
@@ -316,7 +313,6 @@ Definidos en `crear_indices.py`. Ejecutar en servidor nuevo o al agregar colecci
 | `Trading.CER` | `fecha` |
 | `Trading.Curvas` | `curva`, `ticker_corto` |
 | `Valuaciones.AuM` | `fecha_snapshot`, `(unidad, fecha_snapshot)`, `(id_cuenta, fecha_snapshot)` |
-| `Valuaciones.AuMResumen` | `(id_cuenta, unidad, fecha_snapshot)`, `(CARTERA, fecha_snapshot)`, `(EMISOR, fecha_snapshot)` |
 | `Valuaciones.Carteras` | `(id_cuenta, unidad)` |
 | `Valuaciones.Assets` | `unidad`, `(EMISOR, CARTERA)` |
 | `CashFlow.Flujo` | `(contraparte, moneda)`, `concertacion`, `boleto` |

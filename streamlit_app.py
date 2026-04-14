@@ -3479,7 +3479,9 @@ def vista_aum():
                 # tabla consolidada por ticker
                 tbl = (
                     df_tf.groupby(["ticker_corto", "fecha_venc"], as_index=False)
-                    .agg(valuacion=("valuacion", "sum"), pago_final=("pago_final", "sum"))
+                    .agg(valuacion=("valuacion", "sum"),
+                         cantidad=("cantidad", "sum"),
+                         pago_final=("pago_final", "sum"))
                     .sort_values("fecha_venc")
                     .reset_index(drop=True)
                 )
@@ -3503,18 +3505,23 @@ def vista_aum():
                     unsafe_allow_html=True,
                 )
 
+                ver_vn_tf = st.toggle("Ver por Valor Nominal", key="tf_toggle_vn")
+                col_src_tf = "cantidad" if ver_vn_tf else "valuacion"
+                col_lbl_tf = "VN" if ver_vn_tf else "Valuación"
+                fmt_tf = (lambda v: f"{v:,.2f}") if ver_vn_tf else (lambda v: f"${v:,.0f}")
+
                 h_tbl = 38 + 35 * len(tbl)
 
                 # ── fila 1: tabla tickers | tabla cuentas (mismo tamaño) ──
                 col_tbl, col_det = st.columns([2, 3])
 
                 with col_tbl:
-                    tbl_display = tbl[["ticker_corto", "fecha_venc", "valuacion"]].copy()
-                    tbl_display["valuacion"] = tbl_display["valuacion"].apply(lambda v: f"${v:,.0f}")
+                    tbl_display = tbl[["ticker_corto", "fecha_venc", col_src_tf]].copy()
+                    tbl_display[col_src_tf] = tbl_display[col_src_tf].apply(fmt_tf)
                     tbl_display.rename(columns={
                         "ticker_corto": "Ticker",
                         "fecha_venc":   "Vencimiento",
-                        "valuacion":    "Valuación",
+                        col_src_tf:     col_lbl_tf,
                     }, inplace=True)
                     ev_tf = st.dataframe(
                         tbl_display, hide_index=True, use_container_width=True,
@@ -3523,7 +3530,7 @@ def vista_aum():
                         column_config={
                             "Ticker":      st.column_config.TextColumn(width="small"),
                             "Vencimiento": st.column_config.TextColumn(width="small"),
-                            "Valuación":   st.column_config.TextColumn(width="small"),
+                            col_lbl_tf:    st.column_config.TextColumn(width="small"),
                         },
                     )
 
@@ -3538,14 +3545,14 @@ def vista_aum():
                         label_tf = "Todas las posiciones"
                     df_det = (
                         df_det_src
-                        .groupby("cuenta", as_index=False)["valuacion"]
-                        .sum()
-                        .sort_values("valuacion", ascending=False)
+                        .groupby("cuenta", as_index=False)
+                        .agg(valuacion=("valuacion", "sum"), cantidad=("cantidad", "sum"))
+                        .sort_values(col_src_tf, ascending=False)
                         .reset_index(drop=True)
                     )
-                    df_det["Valuación"] = df_det["valuacion"].apply(lambda v: f"${v:,.0f}")
+                    df_det[col_lbl_tf] = df_det[col_src_tf].apply(fmt_tf)
                     st.dataframe(
-                        df_det[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
+                        df_det[["cuenta", col_lbl_tf]].rename(columns={"cuenta": "Cuenta"}),
                         hide_index=True, use_container_width=True,
                         height=h_tbl,
                     )
@@ -3602,7 +3609,8 @@ def vista_aum():
 
                 tbl_cer = (
                     df_cer.groupby(["ticker_corto", "fecha_venc"], as_index=False)
-                    .agg(valuacion=("valuacion", "sum"))
+                    .agg(valuacion=("valuacion", "sum"),
+                         cantidad=("cantidad", "sum"))
                     .sort_values("fecha_venc")
                     .reset_index(drop=True)
                 )
@@ -3616,16 +3624,21 @@ def vista_aum():
                     unsafe_allow_html=True,
                 )
 
+                ver_vn_cer = st.toggle("Ver por Valor Nominal", key="cer_toggle_vn")
+                col_src_cer = "cantidad" if ver_vn_cer else "valuacion"
+                col_lbl_cer = "VN" if ver_vn_cer else "Valuación"
+                fmt_cer = (lambda v: f"{v:,.2f}") if ver_vn_cer else (lambda v: f"${v:,.0f}")
+
                 h_cer = 38 + 35 * len(tbl_cer)
                 col_tbl_c, col_det_c = st.columns([2, 3])
 
                 with col_tbl_c:
-                    tbl_cer_disp = tbl_cer[["ticker_corto", "fecha_venc", "valuacion"]].copy()
-                    tbl_cer_disp["valuacion"] = tbl_cer_disp["valuacion"].apply(lambda v: f"${v:,.0f}")
+                    tbl_cer_disp = tbl_cer[["ticker_corto", "fecha_venc", col_src_cer]].copy()
+                    tbl_cer_disp[col_src_cer] = tbl_cer_disp[col_src_cer].apply(fmt_cer)
                     tbl_cer_disp.rename(columns={
                         "ticker_corto": "Ticker",
                         "fecha_venc":   "Vencimiento",
-                        "valuacion":    "Valuación",
+                        col_src_cer:    col_lbl_cer,
                     }, inplace=True)
                     ev_cer = st.dataframe(
                         tbl_cer_disp, hide_index=True, use_container_width=True,
@@ -3634,7 +3647,7 @@ def vista_aum():
                         column_config={
                             "Ticker":      st.column_config.TextColumn(width="small"),
                             "Vencimiento": st.column_config.TextColumn(width="small"),
-                            "Valuación":   st.column_config.TextColumn(width="small"),
+                            col_lbl_cer:   st.column_config.TextColumn(width="small"),
                         },
                     )
 
@@ -3649,14 +3662,14 @@ def vista_aum():
                         label_cer = "Todas las posiciones"
                     df_det_c = (
                         df_det_c_src
-                        .groupby("cuenta", as_index=False)["valuacion"]
-                        .sum()
-                        .sort_values("valuacion", ascending=False)
+                        .groupby("cuenta", as_index=False)
+                        .agg(valuacion=("valuacion", "sum"), cantidad=("cantidad", "sum"))
+                        .sort_values(col_src_cer, ascending=False)
                         .reset_index(drop=True)
                     )
-                    df_det_c["Valuación"] = df_det_c["valuacion"].apply(lambda v: f"${v:,.0f}")
+                    df_det_c[col_lbl_cer] = df_det_c[col_src_cer].apply(fmt_cer)
                     st.dataframe(
-                        df_det_c[["cuenta", "Valuación"]].rename(columns={"cuenta": "Cuenta"}),
+                        df_det_c[["cuenta", col_lbl_cer]].rename(columns={"cuenta": "Cuenta"}),
                         hide_index=True, use_container_width=True,
                         height=h_cer,
                     )

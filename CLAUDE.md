@@ -67,12 +67,6 @@ WebSocketManager (websocket_manager.py)
    ┌────┴────┬──────────┐
    ▼         ▼          ▼
 main_valores  main_options  main_curvas
-   │         │          │
-   └────┬────┴──────────┘
-        ▼
-SnapshotWriter (background thread, ~0.5s interval)
-  - Hash-based change detection
-  - Bulk writes to MongoDB Atlas
         │
         ▼
 MongoDB Atlas (4 databases: Trading, Opciones, Valuaciones, CashFlow)
@@ -83,15 +77,13 @@ Streamlit Dashboard (www.acaquant.com)
 
 ### Key Components
 
-- **`config.py`** — Config centralizado; carga `.env`; lista de tickers (63 instrumentos); `MANAGER_EMAILS` para control de acceso.
+- **`config.py`** — Config centralizado; carga `.env` (credenciales ROFEX, Aunesa); `MANAGER_EMAILS` para control de acceso al Manager.
 - **`session_manager.py`** — Auth única de pyRofex.
 - **`websocket_manager.py`** — Suscripciones WebSocket; registra handlers `update_price(ticker, data)` por motor.
 - **`mongo_manager.py`** — Dos clientes singleton thread-safe:
   - `get_mongo_client()` → `MONGO_URI` (read-write). Usado por motores, crons y Manager.
   - `get_mongo_client_read()` → `MONGO_URI_READ` (read-only). Usado por todas las vistas del dashboard. Fallback a `MONGO_URI` si `MONGO_URI_READ` no está definido.
   - **Nunca llamar `client.close()`** — ambos clientes son singletons de larga vida; cerrarlos rompe el pool compartido con Streamlit.
-- **`snapshot_writer.py`** — Thread de escritura a MongoDB; hash diffing para saltear datos sin cambios.
-- **`oms_manager.py`** — Order Management System; wrappea pyRofex order placement.
 
 ### Trading Engines
 
@@ -226,11 +218,11 @@ Manager visible solo para emails en `MANAGER_EMAILS`. Determinado por header `Cf
 
 | Vista | Sub-tabs | Descripción |
 |---|---|---|
-| Mercado | Mercado · Libro · Curvas · Breakevens · Forwards · Retorno Total · Volúmenes | Microstructure, VWAP, volumen intraday; Libro en tiempo real (run_every=2s); curvas de rendimiento, breakevens CER/Lecap, forwards, retorno total, volúmenes. Tab Mercado usa `@st.fragment(run_every=30)`. |
+| Mercado | Mercado · Libro · Curvas · Breakevens · Forwards · Retorno Total · Volúmenes | Microstructure, VWAP, volumen intraday; Libro en tiempo real (run_every=2s); curvas, breakevens (sub-tabs Tiempo Real · Histórico · Gráfico · Simulador), forwards, retorno total. Tab Mercado usa `@st.fragment(run_every=30)`. |
 | Opciones | Mercado · Estrategias | Cadena GGAL con SPOT/VR/ADR/Tasa RF + volatility smile. Estrategias: spreads pre-configurados con payoff y costo histórico. |
 | Portfolios | una tab por cuenta | Posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial de `Trading.DOLAR`. Tab por `id_cuenta`; filtro cartera dentro de cada tab. |
-| Operaciones | Cash Flow · Contrapartes · Análisis · Flujo vs AuM | Cash Flow: `CashFlow.Movimientos`. Contrapartes: filtros SEGMENTO+MONEDA, flujo mensual + drill-down. Análisis: Individual/Comparativo. Flujo vs AuM: gráfico dual para segmento=Fondos. |
-| AuM | FCI · Análisis SG · Tasa Fija | FCI: snapshot por fecha + evolución + detalle por soc. gerente. Análisis SG: Individual o Comparativo base 100. Tasa Fija: posiciones en `curva=tasa_fija`. |
+| Operaciones | Cash Flow · Contrapartes · Análisis · Flujo vs AuM | Cash Flow: `CashFlow.Movimientos`, filtro "Todas / Sin accionistas / Solo accionistas / Solo cooperativas". Contrapartes: filtros SEGMENTO+MONEDA, flujo mensual + drill-down. Análisis: Individual/Comparativo. Flujo vs AuM: gráfico dual para segmento=Fondos. |
+| AuM | FCI · Análisis SG · Tasa Fija · CER | FCI: snapshot por fecha + evolución + detalle por soc. gerente. Análisis SG: Individual o Comparativo base 100. Tasa Fija y CER: toggle "Valor Nominal" alterna columna entre `cantidad` (VN) y `valuacion` (P×Q). |
 | Manager | Diagnóstico · Backfills · Validaciones · Logs · Historial · Setup · Latencia | Solo admins. Backfills, upserts a Assets/Contrapartes, flujo inline, audit log en `Manager.ChangeLog`. Tab Latencia: benchmark en tiempo real de todas las queries MongoDB del dashboard (ms, docs, ms/doc). |
 
 ### Mercado → Tab Libro
@@ -274,6 +266,16 @@ Gráfico dual: barras verde/rojo (flujo, eje izq) + línea naranja con forward-f
 - Fórmulas: `retorno = (1+TEM)^(días/30) - 1` | `inflacion = (1+retorno)*(paridad/100) - 1` | `breakeven = (1+inflacion)^(30/días) - 1`
 - Emparejamiento: Lecap con CER de vencimiento más cercano (máx 60 días de diferencia).
 
+### Mercado → Breakevens → Simulador
+
+Calcula P&L relativo **CER vs Lecap** por par, bajo escenarios de inflación mensual flat.
+
+- **Settlement T+1** (próximo día hábil); **CER liq** = settlement − 10 días hábiles.
+- `ret_lecap = flujo_vencimiento / precio_lecap − 1` (tasa fija, cierto).
+- Para cada flujo pendiente del CER: `CER_proy = cer_liq × (1 + infl)^meses` → `flujo_pesos = monto_VN × CER_proy / cer_emision`.
+- `ret_cer = Σ flujo_pesos / precio_cer − 1` → `P&L = ret_cer − ret_lecap` (en bps, verde/rojo).
+- El BE mensual calculado por `main_breakevens.py` debería caer entre los dos escenarios donde el P&L cambia de signo (verificación visual).
+
 ## Colecciones de referencia
 
 ### Trading
@@ -299,6 +301,11 @@ Campos: `boleto`, `concertacion`, `tipoOperacion`, `cuenta`, `denominacion`, `in
 - `cuenta`: número en Aunesa (int, string, o CUIT). Puede haber múltiples docs por contraparte.
 - `denominacion`: nombre legal.
 - `segmento`: "Fondos" / "ALYC" / "Bancos". Asignado por `set_segmento_contrapartes.py`.
+
+### CashFlow.Accionistas y Cooperativas
+
+- **`CashFlow.Accionistas`**: colección manual con `{cuenta, accionista}`. Permite consolidar múltiples comitentes de un mismo accionista bajo un nombre único (ej. varios comitentes → "LA SEGUNDA"). Usada en el filtro de Cash Flow.
+- **Cooperativas**: sin colección propia. Auto-detectadas en runtime por regex `\bcoop` case-insensitive sobre el nombre de cuenta, excluyendo cuentas que estén en `Accionistas`. Filtro "Solo cooperativas" en Cash Flow. Cada cuenta coop tiene 1 solo comitente (no requiere consolidación).
 
 ## MongoDB Índices
 

@@ -217,6 +217,71 @@ def _consultar_cuenta(cuenta_id, denominacion, idx, total, desde, fecha_snapshot
         return []
 
 
+# ── CarterasII: snapshot fijo del primer día hábil del mes anterior ──────────
+def _primer_dia_habil_mes_anterior(hoy_str):
+    """
+    Devuelve la fecha (YYYY-MM-DD) del primer día hábil del mes anterior
+    relativo a hoy_str. Consulta Trading.DiasHabiles.
+    """
+    hoy = datetime.strptime(hoy_str, "%Y-%m-%d").date()
+    primer_dia_mes_actual = hoy.replace(day=1)
+    ultimo_dia_mes_anterior = primer_dia_mes_actual - timedelta(days=1)
+    primer_dia_mes_anterior = ultimo_dia_mes_anterior.replace(day=1)
+
+    client = get_mongo_client()
+    col_dh = client["Trading"]["DiasHabiles"]
+    doc = col_dh.find_one(
+        {
+            "fecha": {
+                "$gte": primer_dia_mes_anterior.isoformat(),
+                "$lte": ultimo_dia_mes_anterior.isoformat(),
+            }
+        },
+        sort=[("fecha", 1)],
+    )
+    return doc["fecha"] if doc else None
+
+
+def sync_carteras_ii(hoy_str=None):
+    """
+    Reconstruye Valuaciones.CarterasII con los docs de Valuaciones.AuM
+    cuyo fecha_snapshot = primer día hábil del mes anterior a hoy.
+    Overwrite completo (upsert + delete de docs huérfanos).
+    """
+    if hoy_str is None:
+        hoy_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+    fecha_target = _primer_dia_habil_mes_anterior(hoy_str)
+    if not fecha_target:
+        print(f"⚠️ CarterasII: no se encontró primer día hábil del mes anterior en DiasHabiles.")
+        return
+
+    client = get_mongo_client()
+    col_aum = client["Valuaciones"]["AuM"]
+    col_cii = client["Valuaciones"]["CarterasII"]
+
+    docs = list(col_aum.find({"fecha_snapshot": fecha_target}, {"_id": 0}))
+    if not docs:
+        print(f"⚠️ CarterasII: AuM vacío para {fecha_target}. No se actualiza.")
+        return
+
+    ops = [
+        UpdateOne(
+            {"id_cuenta": d["id_cuenta"], "unidad": d["unidad"]},
+            {"$set": d},
+            upsert=True,
+        )
+        for d in docs
+    ]
+    col_cii.bulk_write(ops, ordered=False)
+
+    claves = [{"id_cuenta": d["id_cuenta"], "unidad": d["unidad"]} for d in docs]
+    col_cii.delete_many({"fecha_snapshot": {"$ne": fecha_target}})
+    col_cii.delete_many({"$nor": claves} if claves else {})
+
+    print(f"✅ CarterasII sincronizado: {len(docs)} docs para fecha_snapshot={fecha_target}")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def run():
     print("🔑 Autenticando con Aunesa...", flush=True)
@@ -277,6 +342,9 @@ def run():
     col_assets = client["Valuaciones"]["Assets"]
     _sincronizar_assets(col_assets, unidades_snapshot)
     print(f"✅ Assets sincronizado: {len(unidades_snapshot)} unidades revisadas.")
+
+    # Sincronizar CarterasII (primer día hábil del mes anterior a hoy)
+    sync_carteras_ii(fecha_snapshot)
 
 
 

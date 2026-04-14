@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from mongo_manager import get_mongo_client
 from Excel.main_aum import (
     autenticar, obtener_cuentas, consultar_posicion,
-    procesar, _sincronizar_assets
+    procesar, _sincronizar_assets, sync_carteras_ii
 )
 
 
@@ -128,6 +128,9 @@ def main():
     unidades = col.distinct("unidad", {"fecha_snapshot": fecha_snapshot})
     _sincronizar_assets(client["Valuaciones"]["Assets"], unidades)
     print(f"✅ Assets sincronizado: {len(unidades)} unidades.")
+
+    # Refrescar CarterasII (basado en hoy, no en la fecha backfilleada)
+    sync_carteras_ii()
 
 
 if __name__ == "__main__":

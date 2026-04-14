@@ -2281,16 +2281,21 @@ def vista_operaciones():
 
             todas_cuentas = df["cuenta"].dropna().unique().tolist()
             if filtro_acc == "Solo accionistas":
-                cuentas_filtradas = [c for c in todas_cuentas if c in acc_map]
+                accionistas_disponibles = sorted({
+                    acc_map[c] for c in todas_cuentas if c in acc_map
+                })
+                opciones = ["Todos"] + accionistas_disponibles
+                label_sel = "Accionista"
             elif filtro_acc == "Sin accionistas":
-                cuentas_filtradas = [c for c in todas_cuentas if c not in acc_map]
+                opciones = ["Todas"] + sorted(c for c in todas_cuentas if c not in acc_map)
+                label_sel = "Cuenta"
             else:
-                cuentas_filtradas = todas_cuentas
+                opciones = ["Todas"] + sorted(todas_cuentas)
+                label_sel = "Cuenta"
 
             with fb_col:
-                cuentas_disponibles = ["Todas"] + sorted(cuentas_filtradas)
-                cuenta_sel = st.selectbox(
-                    "Cuenta", cuentas_disponibles, key=f"ops_cuenta_{filtro_acc}",
+                seleccion = st.selectbox(
+                    label_sel, opciones, key=f"ops_sel_{filtro_acc}",
                     label_visibility="collapsed",
                 )
 
@@ -2302,11 +2307,15 @@ def vista_operaciones():
             df_f["_accionista"] = df_f["cuenta"].map(acc_map)
             if filtro_acc == "Sin accionistas":
                 df_f = df_f[df_f["_accionista"].isna()].copy()
+                if seleccion != "Todas":
+                    df_f = df_f[df_f["cuenta"] == seleccion].copy()
             elif filtro_acc == "Solo accionistas":
                 df_f = df_f[df_f["_accionista"].notna()].copy()
-
-            if cuenta_sel != "Todas":
-                df_f = df_f[df_f["cuenta"] == cuenta_sel].copy()
+                if seleccion != "Todos":
+                    df_f = df_f[df_f["_accionista"] == seleccion].copy()
+            else:
+                if seleccion != "Todas":
+                    df_f = df_f[df_f["cuenta"] == seleccion].copy()
 
             if df_f.empty:
                 st.info("Sin datos para el rango/moneda seleccionados.")

@@ -1744,6 +1744,222 @@ def _render_breakevens(db):
         st.altair_chart(chart, use_container_width=True)
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _cargar_datos_simulador():
+    """Carga datos necesarios para el simulador: curvas, CER, días hábiles, últimos precios."""
+    db = get_db()
+    curvas = list(db["Curvas"].find({}))
+    cer_docs = list(db["CER"].find({}, {"fecha": 1, "valor": 1, "_id": 0}))
+    dias_habiles = sorted(d["fecha"] for d in db["DiasHabiles"].find({}, {"fecha": 1, "_id": 0}))
+    # último precio por ticker desde MarketSnapshot
+    snaps = list(db["MarketSnapshot"].find({}, {"ticker": 1, "metrics": 1, "_id": 0}))
+    last_price = {}
+    for s in snaps:
+        t = s.get("ticker")
+        p = (s.get("metrics") or {}).get("last_price")
+        if t and p:
+            last_price[t] = float(p)
+    cer_dict = {d["fecha"]: float(d["valor"]) for d in cer_docs}
+    return curvas, cer_dict, dias_habiles, last_price
+
+
+def _render_simulador(db):
+    from datetime import date as _date, timedelta
+
+    doc_bkv = db["BreakevensLive"].find_one({"_id": "breakevens"})
+    if not doc_bkv or not doc_bkv.get("pares"):
+        st.info("Sin pares de breakevens. ¿El motor está corriendo?")
+        return
+
+    curvas_list, cer_dict, dias_habiles, last_price = _cargar_datos_simulador()
+    if not curvas_list or not cer_dict or not dias_habiles:
+        st.info("Faltan datos de referencia (Curvas / CER / DiasHabiles).")
+        return
+
+    curvas_por_corto = {d.get("ticker_corto"): d for d in curvas_list if d.get("ticker_corto")}
+
+    # ── Settlement de hoy y CER liquidación ───────────────────────────────────
+    def _siguiente_habil(fecha_d):
+        s = fecha_d.isoformat()
+        for f in dias_habiles:
+            if f > s:
+                return _date.fromisoformat(f)
+        return None
+
+    def _retroceder_n_habiles(fecha_d, n):
+        s = fecha_d.isoformat()
+        idx = None
+        for i, f in enumerate(dias_habiles):
+            if f <= s:
+                idx = i
+        if idx is None or idx < n:
+            return None
+        return _date.fromisoformat(dias_habiles[idx - n])
+
+    def _cer_en_fecha(fecha_d):
+        for i in range(7):
+            key = (fecha_d - timedelta(days=i)).isoformat()
+            if key in cer_dict:
+                return cer_dict[key]
+        return None
+
+    def _monto_flujo_cer(f, vn=100):
+        amort = float(f.get("amortizacion_pct", 0)) / 100 * vn
+        if "cupon_sobre_residual" in f:
+            cupon = (float(f.get("cupon_sobre_residual", 0))
+                     * float(f.get("residual_previo_pct", 0)) / 100 * vn)
+        else:
+            cupon = float(f.get("cupon_anual", 0)) * vn
+        return amort + cupon
+
+    def _fecha_flujo(f):
+        v = f.get("fecha")
+        if isinstance(v, str):
+            try:
+                return _date.fromisoformat(v[:10])
+            except Exception:
+                return None
+        return None
+
+    hoy = _date.today()
+    settlement_hoy = _siguiente_habil(hoy)
+    if not settlement_hoy:
+        st.warning("No se pudo calcular settlement T+1.")
+        return
+    fecha_cer_liq = _retroceder_n_habiles(settlement_hoy, 10)
+    if not fecha_cer_liq:
+        st.warning("No se pudo calcular fecha de CER liquidación.")
+        return
+    cer_liq = _cer_en_fecha(fecha_cer_liq)
+    if not cer_liq:
+        st.warning("Sin valor de CER para la fecha de liquidación.")
+        return
+
+    # ── Input de escenarios ───────────────────────────────────────────────────
+    col_info, col_input = st.columns([1, 2])
+    with col_info:
+        st.markdown(
+            f"<div style='font-size:12px;color:#888'>"
+            f"Settlement T+1: <b>{settlement_hoy.strftime('%d/%m/%y')}</b> · "
+            f"CER liq (<b>{fecha_cer_liq.strftime('%d/%m/%y')}</b>): <b>{cer_liq:,.4f}</b>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with col_input:
+        escenarios_str = st.text_input(
+            "Escenarios de inflación mensual (%)",
+            value="2.0, 2.5, 3.0, 3.2, 3.5",
+            key="sim_escenarios",
+        )
+
+    try:
+        escenarios = [float(x.strip()) / 100 for x in escenarios_str.split(",") if x.strip()]
+        escenarios = sorted(set(escenarios))
+    except ValueError:
+        st.error("Escenarios inválidos. Usá números separados por coma (ej: 2.0, 2.5, 3.0).")
+        return
+
+    if not escenarios:
+        st.info("Ingresá al menos un escenario.")
+        return
+
+    # ── Calcular filas por par ────────────────────────────────────────────────
+    filas = []
+    for par in doc_bkv["pares"]:
+        lecap_corto = par.get("lecap")
+        cer_corto = par.get("cer")
+        if not lecap_corto or not cer_corto:
+            continue
+        lecap_doc = curvas_por_corto.get(lecap_corto)
+        cer_doc = curvas_por_corto.get(cer_corto)
+        if not lecap_doc or not cer_doc:
+            continue
+
+        precio_lecap = last_price.get(lecap_doc.get("ticker"))
+        precio_cer = last_price.get(cer_doc.get("ticker"))
+        flujo_lecap = lecap_doc.get("flujo_vencimiento")
+        cer_emision = cer_doc.get("cer_emision")
+        if not (precio_lecap and precio_cer and flujo_lecap and cer_emision):
+            continue
+
+        ret_lecap = flujo_lecap / precio_lecap - 1
+
+        flujos_cer = cer_doc.get("flujos") or []
+        flujos_pendientes = []
+        for f in flujos_cer:
+            fd = _fecha_flujo(f)
+            monto_vn = _monto_flujo_cer(f, float(cer_doc.get("valor_nominal", 100)))
+            if fd and fd > settlement_hoy and monto_vn > 0:
+                flujos_pendientes.append((fd, monto_vn))
+
+        if not flujos_pendientes:
+            continue
+
+        fila = {
+            "Par": f"{lecap_corto} · {cer_corto}",
+            "Vto": par.get("fecha_vencimiento", "")[:10],
+            "Días": par.get("dias", 0),
+            "Ret. Lecap": ret_lecap,
+            "BE mensual": par.get("breakeven_mensual"),
+        }
+
+        for infl in escenarios:
+            flujo_cer_est = 0.0
+            for fd, monto_vn in flujos_pendientes:
+                meses = (fd - fecha_cer_liq).days / 30.0
+                cer_k_est = cer_liq * (1 + infl) ** meses
+                flujo_cer_est += monto_vn * (cer_k_est / cer_emision)
+            ret_cer = flujo_cer_est / precio_cer - 1
+            pnl = ret_cer - ret_lecap
+            fila[f"{infl * 100:.1f}%"] = pnl
+
+        filas.append(fila)
+
+    if not filas:
+        st.info("No hay pares con datos completos para simular.")
+        return
+
+    df_sim = pd.DataFrame(filas).sort_values("Días").reset_index(drop=True)
+
+    # ── Render tabla con formato y color ──────────────────────────────────────
+    escenarios_cols = [f"{i * 100:.1f}%" for i in escenarios]
+
+    def _fmt_pnl(v):
+        if v is None or pd.isna(v):
+            return ""
+        bps = v * 10000
+        signo = "+" if bps >= 0 else ""
+        return f"{signo}{bps:,.0f} bps"
+
+    def _color_pnl(v):
+        if v is None or pd.isna(v):
+            return ""
+        if v > 0:
+            return "color:#2ea043;font-weight:600"
+        if v < 0:
+            return "color:#e66767;font-weight:600"
+        return ""
+
+    def _fmt_pct(v):
+        return f"{v * 100:.2f}%" if v is not None and not pd.isna(v) else ""
+
+    styled = (
+        df_sim.style
+        .format({"Ret. Lecap": _fmt_pct, "BE mensual": _fmt_pct,
+                 **{c: _fmt_pnl for c in escenarios_cols}})
+        .map(_color_pnl, subset=escenarios_cols)
+    )
+
+    st.dataframe(styled, hide_index=True, use_container_width=True,
+                 height=df_height(len(df_sim)))
+
+    st.caption(
+        "P&L = Retorno CER − Retorno Lecap bajo el escenario. "
+        "Verde: CER le gana a Lecap. Rojo: Lecap le gana a CER. "
+        "El BE mensual debería caer entre los dos escenarios donde cambia el signo."
+    )
+
+
 def _render_curva_rendimiento(db):
     import numpy as np
     from datetime import date as _date
@@ -1882,7 +2098,7 @@ def vista_mercado():
 
     st.markdown("## ACAQuant | Mercado")
 
-    tab_mercado, tab_libro, tab_curvas, tab_breakevens, tab_forwards, tab_retorno, tab_vol = st.tabs(["Mercado", "Libro", "Curvas", "Breakevens", "Forwards", "Retorno Total", "Volúmenes"])
+    tab_mercado, tab_libro, tab_curvas, tab_breakevens, tab_simulador, tab_forwards, tab_retorno, tab_vol = st.tabs(["Mercado", "Libro", "Curvas", "Breakevens", "Simulador", "Forwards", "Retorno Total", "Volúmenes"])
 
     with tab_mercado:
         @st.fragment(run_every=30)
@@ -1976,6 +2192,9 @@ def vista_mercado():
 
     with tab_breakevens:
         _render_breakevens(db)
+
+    with tab_simulador:
+        _render_simulador(db)
 
     with tab_forwards:
         @st.fragment(run_every=30)

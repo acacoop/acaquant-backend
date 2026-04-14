@@ -2331,6 +2331,11 @@ def _render_reporte_ejecutivo():
     mes_prev = mes_prev_d.strftime("%B - %Y").capitalize()
 
     # ───────────────── 1. RESUMEN EJECUTIVO ─────────────────
+    st.markdown(
+        "<div style='background:#ff0000;color:#fff;padding:10px;text-align:center;"
+        "font-size:18px;font-weight:900'>🔴 TEST DEPLOY 19:58 — SI VES ESTO, EL CÓDIGO NUEVO CARGÓ</div>",
+        unsafe_allow_html=True,
+    )
     _rep_section_header("RESUMEN EJECUTIVO")
 
     val_mep = _get_valor_mep() or 0.0

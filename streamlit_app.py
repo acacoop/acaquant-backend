@@ -2296,7 +2296,7 @@ def _render_reporte_ejecutivo(cuentas_disponibles, dolar_actual):
     _rep_section_header("RESUMEN EJECUTIVO")
 
     val_mep = _get_valor_mep() or 0.0
-    val_a3500 = 1389.00
+    val_a3500 = _get_dolar_oficial() or 0.0
     ars_mes, dl_mes, hd_mes, fci_mes = _rep_dummy_carteras(str(cuenta_sel), mes_actual)
     total_ars = ars_mes + dl_mes + hd_mes + fci_mes
     val_a3500_total = total_ars / val_a3500 if val_a3500 else 0.0

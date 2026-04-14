@@ -2671,7 +2671,7 @@ def _es_cooperativa(cuenta_str):
 def vista_operaciones():
     st.markdown("## ACAQuant | Operaciones")
 
-    tab_cf, tab_coop, tab_cp, tab_analisis_cp, tab_fva = st.tabs(["Cash Flow", "Cooperativas", "Contrapartes", "Análisis", "Flujo vs AuM"])
+    tab_cf, tab_cp, tab_analisis_cp, tab_fva = st.tabs(["Cash Flow", "Contrapartes", "Análisis", "Flujo vs AuM"])
 
     # ── Tab: Cash Flow (sin cambios) ──────────────────────────────────────────
     with tab_cf:
@@ -2707,14 +2707,14 @@ def vista_operaciones():
                     key="ops_gran", label_visibility="collapsed"
                 )
 
-            # ── Filtro accionistas ────────────────────────────────────────────
+            # ── Filtro cuentas ────────────────────────────────────────────────
             acc_map = _cargar_accionistas()   # {cuenta: accionista}
 
             fa_col, fb_col = st.columns([2, 5])
             with fa_col:
                 filtro_acc = st.selectbox(
                     "Cuentas",
-                    ["Todas", "Sin accionistas", "Solo accionistas"],
+                    ["Todas", "Sin accionistas", "Solo accionistas", "Solo cooperativas"],
                     key="ops_filtro_acc",
                     label_visibility="collapsed",
                 )
@@ -2729,6 +2729,13 @@ def vista_operaciones():
             elif filtro_acc == "Sin accionistas":
                 opciones = ["Todas"] + sorted(c for c in todas_cuentas if c not in acc_map)
                 label_sel = "Cuenta"
+            elif filtro_acc == "Solo cooperativas":
+                cuentas_coop = sorted(
+                    c for c in todas_cuentas
+                    if c not in acc_map and _es_cooperativa(c)
+                )
+                opciones = ["Todas"] + cuentas_coop
+                label_sel = "Cooperativa"
             else:
                 opciones = ["Todas"] + sorted(todas_cuentas)
                 label_sel = "Cuenta"
@@ -2753,6 +2760,10 @@ def vista_operaciones():
                 df_f = df_f[df_f["_accionista"].notna()].copy()
                 if seleccion != "Todos":
                     df_f = df_f[df_f["_accionista"] == seleccion].copy()
+            elif filtro_acc == "Solo cooperativas":
+                df_f = df_f[df_f["_accionista"].isna() & df_f["cuenta"].apply(_es_cooperativa)].copy()
+                if seleccion != "Todas":
+                    df_f = df_f[df_f["cuenta"] == seleccion].copy()
             else:
                 if seleccion != "Todas":
                     df_f = df_f[df_f["cuenta"] == seleccion].copy()
@@ -2761,62 +2772,6 @@ def vista_operaciones():
                 st.info("Sin datos para el rango/moneda seleccionados.")
             else:
                 _render_flujo_chart_y_cards(df_f, monedas_sel, granularity)
-
-    # ── Tab: Cooperativas ─────────────────────────────────────────────────────
-    with tab_coop:
-        df_all = _cargar_movimientos()
-        if df_all.empty:
-            st.warning("Sin datos. Ejecutá `main_cashflow.py` para cargar el historial.")
-        else:
-            acc_map = _cargar_accionistas()
-
-            # Pre-filtro: cuenta NO accionista AND nombre contiene COOP
-            mask_coop = df_all["cuenta"].apply(_es_cooperativa) & (~df_all["cuenta"].isin(acc_map))
-            df_coop = df_all[mask_coop].copy()
-
-            if df_coop.empty:
-                st.info("Sin operaciones de cooperativas en el historial.")
-            else:
-                min_date = df_coop["fecha"].min().date()
-                max_date = df_coop["fecha"].max().date()
-
-                rango = st.slider(
-                    "Rango de fechas",
-                    min_value=min_date, max_value=max_date,
-                    value=(min_date, max_date),
-                    format="DD/MM/YY", key="coop_rango",
-                )
-
-                c_ars, c_usd, c_sep, c_gran = st.columns([1, 1, 3, 3])
-                with c_ars:
-                    show_ars = st.checkbox("ARS", value=True, key="coop_ars")
-                with c_usd:
-                    show_usd = st.checkbox("USD", value=True, key="coop_usd")
-                with c_gran:
-                    granularity = st.radio(
-                        "", ["Diario", "Mensual"], horizontal=True,
-                        key="coop_gran", label_visibility="collapsed",
-                    )
-
-                cuentas_coop = sorted(df_coop["cuenta"].dropna().unique().tolist())
-                seleccion = st.selectbox(
-                    "Cuenta", ["Todas"] + cuentas_coop,
-                    key="coop_cuenta", label_visibility="collapsed",
-                )
-
-                df_f = df_coop[
-                    (df_coop["fecha"].dt.date >= rango[0]) &
-                    (df_coop["fecha"].dt.date <= rango[1])
-                ].copy()
-                monedas_sel = (["ARS"] if show_ars else []) + (["USD"] if show_usd else [])
-                df_f = df_f[df_f["unidad"].isin(monedas_sel)].copy()
-                if seleccion != "Todas":
-                    df_f = df_f[df_f["cuenta"] == seleccion].copy()
-
-                if df_f.empty:
-                    st.info("Sin datos para el rango/moneda/cuenta seleccionados.")
-                else:
-                    _render_flujo_chart_y_cards(df_f, monedas_sel, granularity)
 
     # ── Tab: Contrapartes ─────────────────────────────────────────────────────
     with tab_cp:

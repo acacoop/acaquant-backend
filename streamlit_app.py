@@ -2355,29 +2355,29 @@ def _render_reporte_ejecutivo():
 
     ars_prev, dl_prev, hd_prev, fci_prev = _rep_dummy_carteras(str(cuenta_sel), mes_prev)
 
-    col_izq, col_tablas = st.columns([1, 1.1])
+    # Fila 1: KPIs (izq) — aislados arriba de todo
+    kpi_grid = f"""
+    <div style='display:grid;grid-template-columns:repeat(6,auto);gap:6px 28px;margin-bottom:10px'>
+      <div><div style='font-size:11px;color:#666;font-weight:600'>Informe al</div>
+           <div style='font-size:15px;color:{_REP_NAVY};font-weight:700'>{fecha_str}</div></div>
+      <div><div style='font-size:11px;color:#666;font-weight:600'>Valor MEP</div>
+           <div style='font-size:15px;color:{_REP_NAVY};font-weight:700'>{val_mep:,.2f}</div></div>
+      <div><div style='font-size:11px;color:#666;font-weight:600'>Valor A3500</div>
+           <div style='font-size:15px;color:{_REP_NAVY};font-weight:700'>{val_a3500:,.2f}</div></div>
+      <div><div style='font-size:11px;color:#666;font-weight:600'>Valuación ARS</div>
+           <div style='font-size:15px;color:{_REP_NAVY};font-weight:700'>{total_ars:,.0f}</div></div>
+      <div><div style='font-size:11px;color:#666;font-weight:600'>Valuación A3500</div>
+           <div style='font-size:15px;color:{_REP_NAVY};font-weight:700'>{val_a3500_total:,.0f}</div></div>
+      <div><div style='font-size:11px;color:#666;font-weight:600'>Valuación USD MEP</div>
+           <div style='font-size:15px;color:{_REP_NAVY};font-weight:700'>{val_usd_total:,.0f}</div></div>
+    </div>
+    """
+    st.markdown(kpi_grid, unsafe_allow_html=True)
 
-    with col_izq:
-        # KPIs arriba (Informe + Dólares + Valuaciones)
-        kpi_grid = f"""
-        <div style='display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;margin-bottom:18px'>
-          <div><div style='font-size:11px;color:#666;font-weight:600'>Informe al</div>
-               <div style='font-size:16px;color:{_REP_NAVY};font-weight:700'>{fecha_str}</div></div>
-          <div><div style='font-size:11px;color:#666;font-weight:600'>Valor MEP</div>
-               <div style='font-size:16px;color:{_REP_NAVY};font-weight:700'>{val_mep:,.2f}</div></div>
-          <div><div style='font-size:11px;color:#666;font-weight:600'>Valor A3500</div>
-               <div style='font-size:16px;color:{_REP_NAVY};font-weight:700'>{val_a3500:,.2f}</div></div>
-          <div><div style='font-size:11px;color:#666;font-weight:600'>Valuación ARS</div>
-               <div style='font-size:16px;color:{_REP_NAVY};font-weight:700'>{total_ars:,.0f}</div></div>
-          <div><div style='font-size:11px;color:#666;font-weight:600'>Valuación A3500</div>
-               <div style='font-size:16px;color:{_REP_NAVY};font-weight:700'>{val_a3500_total:,.0f}</div></div>
-          <div><div style='font-size:11px;color:#666;font-weight:600'>Valuación USD MEP</div>
-               <div style='font-size:16px;color:{_REP_NAVY};font-weight:700'>{val_usd_total:,.0f}</div></div>
-        </div>
-        """
-        st.markdown(kpi_grid, unsafe_allow_html=True)
+    # Fila 2: donut (izq) + tablas (der) — tablas subidas con margin-top negativo
+    col_donut, col_tablas = st.columns([1, 1.1])
 
-        # Donut debajo de KPIs
+    with col_donut:
         import pandas as _pd
         donut_df = _pd.DataFrame({
             "Cartera": ["Cartera ARS", "Cartera DL", "Cartera HD", "Cartera FCI"],
@@ -2452,7 +2452,11 @@ def _render_reporte_ejecutivo():
             _tabla_html(mes_actual, ars_mes, dl_mes, hd_mes, fci_mes)
             + _tabla_html(mes_prev, ars_prev, dl_prev, hd_prev, fci_prev)
         )
-        st.markdown(html_tablas, unsafe_allow_html=True)
+        # Subimos las tablas para que queden cerca del tope de la columna de la derecha
+        st.markdown(
+            f"<div style='margin-top:-40px'>{html_tablas}</div>",
+            unsafe_allow_html=True,
+        )
 
     # ───────────────── 2. CARTERAS vs BENCHMARKS ─────────────────
     _rep_section_header("Detalle de las carteras vs benchmarks")

@@ -1,10 +1,7 @@
 import argparse
 import requests
-import urllib3
 from datetime import date, timedelta
 from mongo_manager import get_mongo_client
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 VARIABLES_BCRA = {
     "CER":    30,
@@ -19,7 +16,7 @@ def fetch_y_guardar(nombre, id_variable, desde, hasta):
     params = {"desde": desde, "hasta": hasta}
 
     try:
-        res = requests.get(url, params=params, verify=False)
+        res = requests.get(url, params=params)
         res.raise_for_status()
 
         resultados = res.json().get('results', [])

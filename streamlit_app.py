@@ -1666,24 +1666,45 @@ def _render_breakevens(db):
         # Pares disponibles desde el doc más reciente, ordenados por vencimiento
         doc_ref = max(docs_hist, key=lambda d: d["fecha"])
         pares_ref = doc_ref.get("pares", [])
-        lecaps_orden = sorted(
-            {p["lecap"]: p.get("fecha_vencimiento", "") for p in pares_ref if p.get("lecap")}.items(),
-            key=lambda kv: kv[1],
-        )
-        lecaps_disp = [lecap for lecap, _ in lecaps_orden]
 
-        if not lecaps_disp:
+        def _fmt_fecha(s):
+            try:
+                return _date.fromisoformat(s[:10]).strftime("%d/%m/%y")
+            except Exception:
+                return s[:10] if s else ""
+
+        lecap_info = {}
+        for p in pares_ref:
+            lecap = p.get("lecap")
+            if not lecap:
+                continue
+            lecap_info[lecap] = {
+                "fecha_vto": p.get("fecha_vencimiento", ""),
+                "dias": p.get("dias", 0),
+            }
+
+        # label = "dd/mm/yy · Nd · lecap"
+        label_to_lecap = {}
+        for lecap, info in sorted(lecap_info.items(), key=lambda kv: kv[1]["fecha_vto"]):
+            label = f"{_fmt_fecha(info['fecha_vto'])} · {info['dias']}d · {lecap}"
+            label_to_lecap[label] = lecap
+
+        labels_disp = list(label_to_lecap.keys())
+        if not labels_disp:
             st.info("Sin plazos disponibles.")
             return
 
-        lecaps_sel = st.multiselect(
-            "Plazos", lecaps_disp,
-            default=lecaps_disp[:2] if len(lecaps_disp) >= 2 else lecaps_disp,
+        labels_sel = st.multiselect(
+            "Plazos", labels_disp,
+            default=labels_disp[:2] if len(labels_disp) >= 2 else labels_disp,
             key="bkv_lecaps_grafico",
         )
-        if not lecaps_sel:
+        if not labels_sel:
             st.info("Seleccioná al menos un plazo.")
             return
+
+        lecap_to_label = {v: k for k, v in label_to_lecap.items()}
+        lecaps_sel = {label_to_lecap[l] for l in labels_sel}
 
         rows = []
         for doc in docs_hist:
@@ -1692,7 +1713,7 @@ def _render_breakevens(db):
                 lecap = p.get("lecap")
                 bkv = p.get("breakeven_mensual")
                 if lecap in lecaps_sel and bkv is not None:
-                    rows.append({"fecha": fecha, "plazo": lecap, "breakeven": bkv * 100})
+                    rows.append({"fecha": fecha, "plazo": lecap_to_label[lecap], "breakeven": bkv * 100})
 
         if not rows:
             st.info("Sin datos para los plazos seleccionados.")

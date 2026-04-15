@@ -39,3 +39,6 @@
 
 # ─── AuM snapshot al cierre (23:00 UTC = 20:00 ART, L-V)
 0 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1
+
+# ─── Rollup diario de opciones (20:15 UTC = 17:15 ART, L-V)
+15 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.options_rollup >> /root/TradingAV/logs/options_rollup.log 2>&1

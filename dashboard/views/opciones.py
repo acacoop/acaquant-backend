@@ -725,47 +725,26 @@ def vista_opciones():
 
 @st.cache_data(ttl=300)
 def _fetch_vol_historico():
-    """Query única: último ev por (fecha, symbol) → agrupado por (fecha, strike, tipo).
-    Usa $year/$month/$dayOfMonth en lugar de $dateToString para máxima compatibilidad.
-    Cacheada 5 minutos para no re-query en cada rerun del fragment."""
-    fecha_min = datetime.utcnow() - timedelta(days=20)
-    # Sin $sort: ev es acumulado → $max da el último valor del día sin ordenar
+    """Lee rollup diario de Opciones.DataHistorica (alimentado por jobs.options_rollup).
+
+    Devuelve filas (fecha, Strike, Tipo, EV_M) de los últimos 20 días.
+    """
+    fecha_min = (datetime.utcnow() - timedelta(days=20)).strftime("%Y-%m-%d")
     pipeline = [
-        {"$match": {"timestamp": {"$gte": fecha_min}, "ev": {"$gt": 0},
+        {"$match": {"fecha": {"$gte": fecha_min}, "ev": {"$gt": 0},
                     "strike": {"$exists": True}, "tipo": {"$exists": True}}},
-        # Paso 1: max(ev) por (año, mes, día, symbol) — equivalente al último valor
         {"$group": {
-            "_id": {
-                "y": {"$year":       "$timestamp"},
-                "m": {"$month":      "$timestamp"},
-                "d": {"$dayOfMonth": "$timestamp"},
-                "s": "$symbol",
-            },
-            "ev":     {"$max": "$ev"},
-            "strike": {"$first": "$strike"},
-            "tipo":   {"$first": "$tipo"},
-        }},
-        # Paso 2: suma por (año, mes, día, strike, tipo)
-        {"$group": {
-            "_id": {
-                "y": "$_id.y", "m": "$_id.m", "d": "$_id.d",
-                "strike": "$strike", "tipo": "$tipo",
-            },
+            "_id": {"fecha": "$fecha", "strike": "$strike", "tipo": "$tipo"},
             "ev_total": {"$sum": "$ev"},
         }},
     ]
-    docs = list(get_mongo_client_read()["Opciones"]["Data"].aggregate(pipeline))
-    rows = []
-    for d in docs:
-        i = d["_id"]
-        fecha = f"{i['y']:04d}-{i['m']:02d}-{i['d']:02d}"
-        rows.append({
-            "fecha":  fecha,
-            "Strike": i["strike"],
-            "Tipo":   i["tipo"],
-            "EV_M":   round(d["ev_total"] / 1_000_000, 3),
-        })
-    return rows
+    docs = list(get_mongo_client_read()["Opciones"]["DataHistorica"].aggregate(pipeline))
+    return [{
+        "fecha":  d["_id"]["fecha"],
+        "Strike": d["_id"]["strike"],
+        "Tipo":   d["_id"]["tipo"],
+        "EV_M":   round(d["ev_total"] / 1_000_000, 3),
+    } for d in docs]
 
 
 def _render_volumenes_opciones(_db_op_ignored):

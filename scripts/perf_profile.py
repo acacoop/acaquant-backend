@@ -136,21 +136,13 @@ def _mercado_queries(client):
 
 def _opciones_queries(_client):
     queries = []
-    fecha_min = datetime.utcnow() - timedelta(days=20)
-    queries.append(("opciones._fetch_vol_historico", "Opciones", "Data", "agg", {
+    fecha_min = (datetime.utcnow() - timedelta(days=20)).strftime("%Y-%m-%d")
+    queries.append(("opciones._fetch_vol_historico", "Opciones", "DataHistorica", "agg", {
         "pipeline": [
-            {"$match": {"timestamp": {"$gte": fecha_min}, "ev": {"$gt": 0},
+            {"$match": {"fecha": {"$gte": fecha_min}, "ev": {"$gt": 0},
                         "strike": {"$exists": True}, "tipo": {"$exists": True}}},
             {"$group": {
-                "_id": {"y": {"$year": "$timestamp"}, "m": {"$month": "$timestamp"},
-                        "d": {"$dayOfMonth": "$timestamp"}, "s": "$symbol"},
-                "ev":     {"$max":   "$ev"},
-                "strike": {"$first": "$strike"},
-                "tipo":   {"$first": "$tipo"},
-            }},
-            {"$group": {
-                "_id": {"y": "$_id.y", "m": "$_id.m", "d": "$_id.d",
-                        "strike": "$strike", "tipo": "$tipo"},
+                "_id": {"fecha": "$fecha", "strike": "$strike", "tipo": "$tipo"},
                 "ev_total": {"$sum": "$ev"},
             }},
         ],

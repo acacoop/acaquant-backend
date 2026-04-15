@@ -205,6 +205,7 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - **`volatilidad_ggal.py`** — VR histórica GGAL al cierre. Cron 20:00 UTC.
 - **`bcra.py`** — alimenta CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron; sin flag hace backfill desde 2023-01-01. SSL verificado (verify=True).
 - **`dias_habiles.py`** — genera calendario de días hábiles argentinos. Ejecutar una vez por año.
+- **`options_rollup.py`** — rollup diario `Opciones.Data` → `Opciones.DataHistorica` (una fila por `(fecha, symbol)` con high/low/last/ev + griegas del último tick). Upsert idempotente. Cron 20:15 UTC L-V. `--backfill` procesa todos los días con datos en `Opciones.Data`; `--fecha YYYY-MM-DD` uno puntual.
 
 ### Scripts de diagnóstico (`scripts/`)
 
@@ -255,6 +256,7 @@ Resumen de horarios (ver `deploy/crontab.txt` para el detalle):
 | 20:00 | `jobs.volatilidad_ggal` | L-V |
 | 20:00 | `jobs.bcra --today` | todos los días |
 | 23:00 | `jobs.aum` | L-V |
+| 20:15 | `jobs.options_rollup` | L-V |
 | 02:00 | `jobs.cashflow --today` + `jobs.flujo_contrapartes` | Mar-Sáb |
 
 ## Streamlit Dashboard — Vistas
@@ -422,6 +424,7 @@ Definidos en `scripts/crear_indices.py`. Ejecutar en servidor nuevo o al agregar
 | `Valuaciones.Assets` | `unidad`, `(EMISOR, CARTERA)` |
 | `CashFlow.Flujo` | `(contraparte, moneda)`, `concertacion`, `boleto` |
 | `CashFlow.Movimientos` | `fecha` |
+| `Opciones.DataHistorica` | `fecha`, `(symbol, fecha)` |
 
 ## Notas técnicas importantes
 

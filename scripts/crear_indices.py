@@ -17,6 +17,7 @@ def main():
     trading    = client["Trading"]
     valuaciones = client["Valuaciones"]
     cashflow   = client["CashFlow"]
+    opciones   = client["Opciones"]
 
     indices = [
         # ── Trading.TimeSales ─────────────────────────────────────────────
@@ -88,6 +89,12 @@ def main():
         # ── CashFlow.Movimientos ──────────────────────────────────────────
         (cashflow["Movimientos"], [("fecha", -1)],
             "Movimientos: fecha"),
+
+        # ── Opciones.DataHistorica (rollup diario) ────────────────────────
+        (opciones["DataHistorica"], [("fecha", -1)],
+            "DataHistorica: fecha"),
+        (opciones["DataHistorica"], [("symbol", 1), ("fecha", -1)],
+            "DataHistorica: symbol + fecha"),
     ]
 
     print(f"Creando {len(indices)} índices...\n")

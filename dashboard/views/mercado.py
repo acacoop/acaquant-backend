@@ -1570,129 +1570,200 @@ def vista_forwards():
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _cargar_volumenes_diarios():
-    """Suma de money por fecha y curva desde TimeSales, solo tickers en Trading.Curvas.
-
-    Limita a los últimos 5 días para evitar escanear meses de TimeSales.
-    """
+def _cargar_tickers_curvas():
+    """Tickers en Trading.Curvas con su label corto. DataFrame: ticker, ticker_corto, curva."""
     db = get_db()
-    ticker_curva = {
-        d["ticker"]: d["curva"]
-        for d in db["Curvas"].find({}, {"ticker": 1, "curva": 1})
-    }
-    if not ticker_curva:
-        return pd.DataFrame()
+    rows = [
+        {"ticker": d["ticker"],
+         "ticker_corto": d.get("ticker_corto") or d["ticker"],
+         "curva": d.get("curva", "")}
+        for d in db["Curvas"].find({}, {"ticker": 1, "ticker_corto": 1, "curva": 1})
+    ]
+    return pd.DataFrame(rows).sort_values("ticker_corto").reset_index(drop=True)
 
-    fecha_min = datetime.utcnow() - timedelta(days=5)
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cargar_volumen_diario_tickers(tickers_key: tuple):
+    """Suma de money por (fecha, ticker) en los últimos 15 días corridos."""
+    if not tickers_key:
+        return pd.DataFrame()
+    db = get_db()
+    fecha_min = datetime.utcnow() - timedelta(days=15)
     pipeline = [
-        {"$match": {"ticker": {"$in": list(ticker_curva.keys())},
+        {"$match": {"ticker": {"$in": list(tickers_key)},
                     "money": {"$gt": 0},
                     "timestamp": {"$gte": fecha_min}}},
         {"$group": {
             "_id": {
-                "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
+                "fecha":  {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
                 "ticker": "$ticker",
             },
             "money": {"$sum": "$money"},
         }},
     ]
-    rows = []
-    for r in db["TimeSales"].aggregate(pipeline):
-        ticker = r["_id"]["ticker"]
-        rows.append({
-            "fecha": r["_id"]["fecha"],
-            "curva": ticker_curva[ticker],
-            "money": r["money"],
-        })
+    rows = [
+        {"fecha": r["_id"]["fecha"], "ticker": r["_id"]["ticker"], "money": r["money"]}
+        for r in db["TimeSales"].aggregate(pipeline)
+    ]
     if not rows:
         return pd.DataFrame()
-
     df = pd.DataFrame(rows)
-    df = df.groupby(["fecha", "curva"], as_index=False)["money"].sum()
     df["money_mm"] = df["money"] / 1_000_000
-    return df.sort_values("fecha")
+    return df.sort_values(["fecha", "ticker"])
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cargar_precios_intraday(tickers_key: tuple):
+    """Serie intradiaria (ticker, timestamp, price) de los últimos 15 días corridos."""
+    if not tickers_key:
+        return pd.DataFrame()
+    db = get_db()
+    fecha_min = datetime.utcnow() - timedelta(days=15)
+    cursor = db["TimeSales"].find(
+        {"ticker": {"$in": list(tickers_key)},
+         "price": {"$gt": 0},
+         "timestamp": {"$gte": fecha_min}},
+        {"_id": 0, "ticker": 1, "timestamp": 1, "price": 1},
+    )
+    rows = list(cursor)
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df.sort_values("timestamp")
 
 
 def _render_volumenes():
     import altair as alt
 
-    with st.spinner("Cargando volúmenes..."):
-        df = _cargar_volumenes_diarios()
-
-    if df.empty:
-        st.info("Sin datos de volumen en TimeSales para los instrumentos de curvas.")
+    meta = _cargar_tickers_curvas()
+    if meta.empty:
+        st.info("Sin tickers configurados en Trading.Curvas.")
         return
 
-    fechas = sorted(df["fecha"].unique())
+    tickers_disp = meta["ticker_corto"].tolist()
+    t2short = dict(zip(meta["ticker"], meta["ticker_corto"]))
+    short2t = dict(zip(meta["ticker_corto"], meta["ticker"]))
 
-    if len(fechas) < 2:
+    col1, _ = st.columns([3, 2])
+    with col1:
+        default_sel = tickers_disp[: min(4, len(tickers_disp))]
+        sel_cortos = st.multiselect(
+            "Tickers", tickers_disp, default=default_sel, key="vol_tickers"
+        )
+    if not sel_cortos:
+        st.info("Seleccioná al menos un ticker.")
+        return
+
+    sel_tickers = tuple(sorted(short2t[s] for s in sel_cortos))
+
+    with st.spinner("Cargando datos..."):
+        df_vol   = _cargar_volumen_diario_tickers(sel_tickers)
+        df_price = _cargar_precios_intraday(sel_tickers)
+
+    if df_vol.empty and df_price.empty:
+        st.info("Sin datos en los últimos 15 días para los tickers seleccionados.")
+        return
+
+    fechas_vol = sorted(df_vol["fecha"].unique()) if not df_vol.empty else []
+    ts_min = df_price["timestamp"].min() if not df_price.empty else None
+    ts_max = df_price["timestamp"].max() if not df_price.empty else None
+    if ts_min is None and fechas_vol:
+        ts_min = pd.to_datetime(fechas_vol[0])
+        ts_max = pd.to_datetime(fechas_vol[-1]) + pd.Timedelta(days=1)
+
+    fechas_disp = fechas_vol or [
+        d.strftime("%Y-%m-%d")
+        for d in pd.date_range(ts_min.normalize(), ts_max.normalize(), freq="D")
+    ]
+    if len(fechas_disp) < 2:
         st.info("Necesitás al menos 2 días de datos.")
         return
 
-    # ── Filtros ───────────────────────────────────────────────────
-    col1, col2 = st.columns([2, 3])
-    with col1:
-        curvas_disp = sorted(df["curva"].unique())
-        curvas_sel = st.multiselect(
-            "Curvas", curvas_disp, default=curvas_disp, key="vol_curvas"
-        )
-    with col2:
-        fecha_desde, fecha_hasta = st.select_slider(
-            "Período",
-            options=fechas,
-            value=(fechas[0], fechas[-1]),
-            key="vol_rango",
-        )
+    fecha_desde, fecha_hasta = st.select_slider(
+        "Período",
+        options=fechas_disp,
+        value=(fechas_disp[0], fechas_disp[-1]),
+        key="vol_rango",
+    )
+    ts_desde = pd.to_datetime(fecha_desde)
+    ts_hasta = pd.to_datetime(fecha_hasta) + pd.Timedelta(days=1)
 
-    if not curvas_sel:
-        st.info("Seleccioná al menos una curva.")
-        return
+    df_vol_r = df_vol[
+        (df_vol["fecha"] >= fecha_desde) & (df_vol["fecha"] <= fecha_hasta)
+    ].copy() if not df_vol.empty else pd.DataFrame()
+    df_price_r = df_price[
+        (df_price["timestamp"] >= ts_desde) & (df_price["timestamp"] < ts_hasta)
+    ].copy() if not df_price.empty else pd.DataFrame()
 
-    df_rango = df[
-        (df["fecha"] >= fecha_desde) &
-        (df["fecha"] <= fecha_hasta) &
-        (df["curva"].isin(curvas_sel))
-    ].copy()
-    fechas_rango = sorted(df_rango["fecha"].unique())
+    if not df_vol_r.empty:
+        df_vol_r["ticker_corto"] = df_vol_r["ticker"].map(t2short)
+        df_vol_r["fecha_ts"] = pd.to_datetime(df_vol_r["fecha"])
+    if not df_price_r.empty:
+        df_price_r["ticker_corto"] = df_price_r["ticker"].map(t2short)
 
-    if df_rango.empty:
+    if df_vol_r.empty and df_price_r.empty:
         st.info("Sin datos en el rango seleccionado.")
         return
 
-    # ── Gráfico barras apiladas ───────────────────────────────────
-    chart = (
-        alt.Chart(df_rango)
-        .mark_bar()
-        .encode(
-            x=alt.X("fecha:O", title="Fecha", sort=fechas_rango,
-                    axis=alt.Axis(labelAngle=-45)),
-            y=alt.Y("money_mm:Q", title="Volumen (MM ARS)", stack=True,
-                    axis=alt.Axis(format=",.0f")),
-            color=alt.Color("curva:N", title="Curva",
-                            legend=alt.Legend(orient="top")),
-            tooltip=[
-                alt.Tooltip("fecha:O", title="Fecha"),
-                alt.Tooltip("curva:N", title="Curva"),
-                alt.Tooltip("money_mm:Q", format=",.0f", title="Volumen (MM ARS)"),
-            ],
-        )
-        .properties(height=420)
-    )
+    color_enc = alt.Color("ticker_corto:N", title="Ticker",
+                          legend=alt.Legend(orient="top"))
 
+    layers = []
+    if not df_vol_r.empty:
+        bars = (
+            alt.Chart(df_vol_r)
+            .mark_bar(opacity=0.45)
+            .encode(
+                x=alt.X("fecha_ts:T", title="Fecha", axis=alt.Axis(format="%d-%b")),
+                y=alt.Y("money_mm:Q",
+                        title="Volumen (MM ARS)",
+                        stack=True,
+                        axis=alt.Axis(format=",.0f", orient="right")),
+                color=color_enc,
+                tooltip=[
+                    alt.Tooltip("fecha:N", title="Fecha"),
+                    alt.Tooltip("ticker_corto:N", title="Ticker"),
+                    alt.Tooltip("money_mm:Q", format=",.0f", title="Volumen (MM ARS)"),
+                ],
+            )
+        )
+        layers.append(bars)
+
+    if not df_price_r.empty:
+        lines = (
+            alt.Chart(df_price_r)
+            .mark_line(strokeWidth=2)
+            .encode(
+                x=alt.X("timestamp:T", title="Fecha"),
+                y=alt.Y("price:Q", title="Precio",
+                        scale=alt.Scale(zero=False),
+                        axis=alt.Axis(format=",.2f")),
+                color=color_enc,
+                tooltip=[
+                    alt.Tooltip("timestamp:T", title="Fecha", format="%d-%b %H:%M"),
+                    alt.Tooltip("ticker_corto:N", title="Ticker"),
+                    alt.Tooltip("price:Q", format=",.2f", title="Precio"),
+                ],
+            )
+        )
+        layers.append(lines)
+
+    chart = alt.layer(*layers).resolve_scale(y="independent").properties(height=460)
     st.altair_chart(chart, use_container_width=True)
 
-    # ── Tabla resumen del rango seleccionado ──────────────────────
-    resumen = (
-        df_rango.groupby("curva")["money_mm"]
-        .sum()
-        .reset_index()
-        .rename(columns={"curva": "Curva", "money_mm": "Total (MM ARS)"})
-        .sort_values("Total (MM ARS)", ascending=False)
-        .reset_index(drop=True)
-    )
-    resumen["Total (MM ARS)"] = resumen["Total (MM ARS)"].apply(lambda v: f"{v:,.0f}")
-    st.dataframe(resumen, hide_index=True, use_container_width=True,
-                 height=df_height(len(resumen)))
+    if not df_vol_r.empty:
+        resumen = (
+            df_vol_r.groupby("ticker_corto")["money_mm"]
+            .sum()
+            .reset_index()
+            .rename(columns={"ticker_corto": "Ticker", "money_mm": "Total (MM ARS)"})
+            .sort_values("Total (MM ARS)", ascending=False)
+            .reset_index(drop=True)
+        )
+        resumen["Total (MM ARS)"] = resumen["Total (MM ARS)"].apply(lambda v: f"{v:,.0f}")
+        st.dataframe(resumen, hide_index=True, use_container_width=True,
+                     height=df_height(len(resumen)))
 
 
 @st.cache_data(ttl=300, show_spinner=False)

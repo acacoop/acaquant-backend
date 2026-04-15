@@ -100,12 +100,13 @@ def _mercado_queries(client):
     }))
 
     tickers_curvas = [d["ticker"] for d in client["Trading"]["Curvas"].find({}, {"ticker": 1, "_id": 0})]
-    fecha_min_5d = datetime.utcnow() - timedelta(days=5)
-    queries.append(("mercado._cargar_volumenes_diarios", "Trading", "TimeSales", "agg", {
+    sel_tickers = tickers_curvas[: min(4, len(tickers_curvas))]
+    fecha_min_15d = datetime.utcnow() - timedelta(days=15)
+    queries.append(("mercado._cargar_volumen_diario_tickers", "Trading", "TimeSales", "agg", {
         "pipeline": [
-            {"$match": {"ticker": {"$in": tickers_curvas},
+            {"$match": {"ticker": {"$in": sel_tickers},
                         "money": {"$gt": 0},
-                        "timestamp": {"$gte": fecha_min_5d}}},
+                        "timestamp": {"$gte": fecha_min_15d}}},
             {"$group": {
                 "_id": {
                     "fecha":  {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
@@ -114,6 +115,13 @@ def _mercado_queries(client):
                 "money": {"$sum": "$money"},
             }},
         ],
+    }))
+
+    queries.append(("mercado._cargar_precios_intraday", "Trading", "TimeSales", "find", {
+        "filter": {"ticker": {"$in": sel_tickers},
+                   "price": {"$gt": 0},
+                   "timestamp": {"$gte": fecha_min_15d}},
+        "projection": {"_id": 0, "ticker": 1, "timestamp": 1, "price": 1},
     }))
 
     tickers_tf = [d["ticker"] for d in client["Trading"]["Curvas"].find({"curva": "tasa_fija"}, {"ticker": 1, "_id": 0})]

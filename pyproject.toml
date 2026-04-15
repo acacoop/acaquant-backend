@@ -19,10 +19,15 @@ ignore = [
     "E702",   # idem
     "E741",   # ambiguous variable name (l, I)
     "B008",   # defaults complejos (común en Streamlit)
+    "SIM102", # nested if: a veces más claro que un `and` largo
+    "SIM105", # contextlib.suppress: try/except/pass es más explícito
     "SIM108", # if-else vs ternario: a veces el if-else es más legible
+    "SIM117", # combinar with-statements
     "RUF001", # unicode ambiguo en strings (−, σ, →, × son matemáticos legítimos)
     "RUF002", # unicode ambiguo en docstrings
     "RUF003", # unicode ambiguo en comentarios
+    "RUF005", # concat lista en lugar de spread: da igual
+    "B905",   # zip sin strict=: usado en muchos sitios por compat
 ]
 
 [tool.ruff.lint.per-file-ignores]

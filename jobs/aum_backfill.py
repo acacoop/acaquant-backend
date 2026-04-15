@@ -108,7 +108,7 @@ def main():
                     print(f"[{idx+1:3d}/{total}] [{cid}] {den[:40]} → {len(registros)} posiciones", flush=True)
                     return registros
                 except Exception as e:
-                    print(f"[{idx+1:3d}/{total}] [{cuenta_id}] ❌ {e}", flush=True)
+                    print(f"[{idx+1:3d}/{total}] [{cid}] ❌ {e}", flush=True)
                     return []
 
             futures_map[executor.submit(_worker)] = cuenta_id

@@ -6,14 +6,13 @@ from unittest.mock import MagicMock
 # No necesitamos Streamlit real para testear las funciones puras.
 sys.modules.setdefault("streamlit", MagicMock())
 
-from dashboard.shared.format import (  # noqa: E402
+from dashboard.shared.format import (
     df_height,
     fmt_money,
     fmt_nom,
     fmt_vol,
     short_name,
 )
-
 
 # ─── fmt_money ──────────────────────────────────────────────────────────
 

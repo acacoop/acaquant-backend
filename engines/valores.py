@@ -376,7 +376,7 @@ def run():
         print("\n🛑 Cerrando WebSocket y limpiando hilos...")
         try:
             pyRofex.close_websocket_connection()
-        except:
+        except Exception:
             pass
         os._exit(0)
 

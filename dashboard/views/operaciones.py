@@ -194,9 +194,6 @@ def vista_operaciones():
             min_date = df["fecha"].min().date()
             max_date = df["fecha"].max().date()
 
-            COLOR_ARS = "#094293"
-            COLOR_USD = "#00cc66"
-
             # ── Slider (fila completa) ────────────────────────────────────────
             rango = st.slider(
                 "Rango de fechas",
@@ -208,7 +205,7 @@ def vista_operaciones():
             )
 
             # ── Filtros en una fila ───────────────────────────────────────────
-            c_ars, c_usd, c_sep, c_gran = st.columns([1, 1, 3, 3])
+            c_ars, c_usd, _, c_gran = st.columns([1, 1, 3, 3])
             with c_ars:
                 show_ars = st.checkbox("ARS", value=True, key="ops_ars")
             with c_usd:

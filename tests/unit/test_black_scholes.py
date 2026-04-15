@@ -12,7 +12,6 @@ from quant.black_scholes import (
     find_iv,
 )
 
-
 S, K, T, R, SIGMA = 100.0, 100.0, 1.0, 0.05, 0.30
 
 

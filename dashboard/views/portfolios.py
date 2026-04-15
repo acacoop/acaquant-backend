@@ -388,7 +388,7 @@ def _render_reporte_ejecutivo():
         rnd = _r.Random(hash(f"{cuenta_sel}{seed_key}v2") & 0xffffffff)
         cur = 0
         out = []
-        for i in range(9):
+        for _ in range(9):
             cur += rnd.gauss(step, sig)
             out.append(cur)
         out.extend([None, None, None])

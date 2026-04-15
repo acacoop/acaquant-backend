@@ -352,7 +352,7 @@ def vista_libro():
     options_short = [short_name(t) for t in tickers]
 
     # Fila header: selector | vacío | última actualización (alineado sobre Quant)
-    col_ticker, col_mid, col_badge = st.columns([1, 1, 1])
+    col_ticker, _, col_badge = st.columns([1, 1, 1])
     with col_ticker:
         current_idx   = tickers.index(st.session_state.selected_ticker)
         selected_short = st.selectbox(
@@ -1386,7 +1386,6 @@ def _render_estrategias():
 
 def render_forward_matrix(doc):
     tickers  = doc.get("tickers", [])   # ordenados por maturity ascendente
-    tasas    = doc.get("tasas", {})
     matrix   = doc.get("matrix", {})
     ts       = doc.get("updated_at")
 

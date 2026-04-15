@@ -88,7 +88,7 @@ def find_iv(market_price, S, K, T, r, option_type='CALL'):
     intrinsic = max(0, S - K) if option_type == 'CALL' else max(0, K - S)
     if market_price <= (intrinsic + 0.01) or market_price <= 0.05: return 0.0
     sigma = 0.5
-    for i in range(20):
+    for _ in range(20):
         price = bs_price(S, K, T, r, sigma, option_type)
         vega = bs_vega(S, K, T, r, sigma)
         if vega < 0.01: break

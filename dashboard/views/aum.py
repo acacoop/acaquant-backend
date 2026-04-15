@@ -500,10 +500,8 @@ def vista_aum():
                     if sel_tf:
                         ticker_det = tbl.iloc[sel_tf[0]]["ticker_corto"]
                         df_det_src = df_tf[df_tf["ticker_corto"] == ticker_det]
-                        label_tf = ticker_det
                     else:
                         df_det_src = df_tf
-                        label_tf = "Todas las posiciones"
                     df_det = (
                         df_det_src
                         .groupby("cuenta", as_index=False)
@@ -625,10 +623,8 @@ def vista_aum():
                     if sel_cer:
                         ticker_det_c = tbl_cer.iloc[sel_cer[0]]["ticker_corto"]
                         df_det_c_src = df_cer[df_cer["ticker_corto"] == ticker_det_c]
-                        label_cer = ticker_det_c
                     else:
                         df_det_c_src = df_cer
-                        label_cer = "Todas las posiciones"
                     df_det_c = (
                         df_det_c_src
                         .groupby("cuenta", as_index=False)
@@ -693,10 +689,8 @@ def vista_aum():
                 if sel_rv:
                     unidad_det = tbl_rv.iloc[sel_rv[0]]["unidad"]
                     df_det_rv_src = df_rv[df_rv["unidad"] == unidad_det]
-                    label_rv = unidad_det
                 else:
                     df_det_rv_src = df_rv
-                    label_rv = "Todas las posiciones"
                 df_det_rv = (
                     df_det_rv_src
                     .groupby("cuenta", as_index=False)["valuacion"]

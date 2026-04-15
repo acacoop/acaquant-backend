@@ -15,7 +15,7 @@ def main():
     # ── 1. Leer instrumentos de Curvas ────────────────────────────────────────
     curvas = {d["ticker"]: d for d in db["Curvas"].find({})}
     print("=== INSTRUMENTOS EN Trading.Curvas ===")
-    for ticker, inst in curvas.items():
+    for _, inst in curvas.items():
         print(f"  {inst.get('ticker_corto'):10} | curva={inst.get('curva'):10} | vto={inst.get('fecha_vencimiento','?')[:10]}")
 
     # ── 2. Buscar TX26 y TZX26 ────────────────────────────────────────────────

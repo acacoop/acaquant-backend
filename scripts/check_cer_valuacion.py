@@ -54,8 +54,6 @@ def main():
         print("No se encontraron instrumentos CER en Trading.Curvas")
         return
 
-    tickers = [c["ticker"] for c in curvas]
-
     # Cargar CER
     cer_docs = list(db["CER"].find({}, {"fecha": 1, "valor": 1}))
     cer_dict = {d["fecha"]: float(d["valor"]) for d in cer_docs}

@@ -4,87 +4,12 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from dashboard.shared.db import get_db, get_db_valuaciones
+from dashboard.repos.portfolios import get_dolar_oficial, get_valor_mep
+from dashboard.services.portfolios import (
+    build_carteras_enriquecidas,
+    build_carteras_ii_enriquecidas,
+)
 from dashboard.shared.format import df_height
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def _get_dolar_oficial():
-    """Último valor de Trading.DOLAR (tipo de cambio A3500 desde BCRA)."""
-    doc = get_db()["DOLAR"].find_one(sort=[("fecha", -1)])
-    return float(doc["valor"]) if doc else None
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def _cargar_assets_df():
-    """Assets con columnas usadas en Reportes. Cacheado y compartido."""
-    assets_docs = list(get_db_valuaciones()["Assets"].find(
-        {}, {"_id": 0, "unidad": 1, "CALIFICACION": 1, "CARTERA": 1,
-             "CLASE_ACTIVO": 1, "EMISOR": 1, "TICKER": 1, "VENCIMIENTO": 1}
-    ))
-    return pd.DataFrame(assets_docs) if assets_docs else pd.DataFrame()
-
-
-def _merge_assets(df):
-    assets_df = _cargar_assets_df()
-    if not assets_df.empty:
-        df = df.merge(assets_df, on="unidad", how="left")
-    for col in ["TICKER", "EMISOR", "CLASE_ACTIVO", "CARTERA", "CALIFICACION", "VENCIMIENTO"]:
-        if col in df.columns:
-            df[col] = df[col].fillna("-")
-    return df
-
-
-@st.cache_data(ttl=120, show_spinner=False)
-def _get_carteras_df():
-    """Lee Valuaciones.Carteras + join con Assets y calcula columna 'valuación'."""
-    db_val = get_db_valuaciones()
-    docs = list(db_val["Carteras"].find({}, {"_id": 0}))
-    if not docs:
-        return pd.DataFrame()
-    df = pd.DataFrame(docs)
-    df["precio_num"] = pd.to_numeric(df["precio"], errors="coerce")
-    df["cantidad"] = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
-
-    df = _merge_assets(df)
-
-    es_pq_directo = (
-        (df.get("CLASE_ACTIVO", pd.Series(dtype=str)) == "OTROS") |
-        (df.get("CARTERA", pd.Series(dtype=str)).str.contains("FCI", na=False))
-    )
-    df["valuación"] = df.apply(
-        lambda r: r["cantidad"] * r["precio_num"] if es_pq_directo.loc[r.name]
-                  else (r["cantidad"] * r["precio_num"] / 100),
-        axis=1,
-    )
-    return df
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def _get_carteras_ii_df():
-    """
-    Lee Valuaciones.CarterasII (snapshot del primer día hábil del mes anterior)
-    + join con Assets. Usa 'valuacion' ya calculada en el snapshot.
-    """
-    db_val = get_db_valuaciones()
-    docs = list(db_val["CarterasII"].find({}, {"_id": 0}))
-    if not docs:
-        return pd.DataFrame()
-    df = pd.DataFrame(docs)
-    df["valuación"] = pd.to_numeric(df.get("valuacion"), errors="coerce").fillna(0)
-    return _merge_assets(df)
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def _get_valor_mep():
-    """Último valor MEP desde Valuaciones.Dolar (sort por timestamp desc)."""
-    doc = get_db_valuaciones()["Dolar"].find_one(sort=[("timestamp", -1)])
-    if not doc or "mep" not in doc:
-        return None
-    try:
-        return float(doc["mep"])
-    except (TypeError, ValueError):
-        return None
 
 
 # ==========================================
@@ -131,7 +56,7 @@ def _rep_dummy_carteras(cuenta: str, mes: str):
 def _render_reporte_ejecutivo():
     import datetime as _dt
 
-    df_carteras = _get_carteras_df()
+    df_carteras = build_carteras_enriquecidas()
     if df_carteras.empty:
         st.warning("Sin datos en Valuaciones.Carteras.")
         return
@@ -156,8 +81,8 @@ def _render_reporte_ejecutivo():
     # ───────────────── 1. RESUMEN EJECUTIVO ─────────────────
     _rep_section_header("RESUMEN EJECUTIVO")
 
-    val_mep = _get_valor_mep() or 0.0
-    val_a3500 = _get_dolar_oficial() or 0.0
+    val_mep = get_valor_mep() or 0.0
+    val_a3500 = get_dolar_oficial() or 0.0
 
     # Valuación ARS real = suma de columna 'valuación' para la cuenta
     _df_cta = df_carteras[df_carteras["id_cuenta"].astype(str) == str(cuenta_sel)]
@@ -176,7 +101,7 @@ def _render_reporte_ejecutivo():
     val_usd_total = total_ars / val_mep if val_mep else 0.0
 
     # Mes anterior: desde Valuaciones.CarterasII (primer día hábil mes anterior)
-    df_cii = _get_carteras_ii_df()
+    df_cii = build_carteras_ii_enriquecidas()
     if not df_cii.empty and "CARTERA" in df_cii.columns:
         _df_cta_prev = df_cii[df_cii["id_cuenta"].astype(str) == str(cuenta_sel)]
         _grp_prev = _df_cta_prev.groupby("CARTERA")["valuación"].sum()

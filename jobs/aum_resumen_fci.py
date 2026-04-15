@@ -1,33 +1,30 @@
 """aum_resumen_fci.py — pre-materializa Valuaciones.AuMResumenFCI.
 
-Para cada par (fecha_snapshot, unidad) donde `unidad` pertenece a una
-CARTERA FCI en Valuaciones.Assets, calcula la suma de valuaciones y el
-conteo de cuentas, y upserta un doc en AuMResumenFCI.
+Para cada fecha_snapshot, agrupa las posiciones FCI por unidad y persiste
+UN SOLO doc por fecha (array de unidades dentro). Este esquema minimiza
+el transporte por cursor: N fechas en vez de N×M (fecha × unidad).
 
-Esquema destino (un doc por par):
+Esquema destino:
 
     {
+      "_id": "YYYY-MM-DD",           # = fecha_snapshot (único por fecha)
       "fecha_snapshot": "YYYY-MM-DD",
-      "unidad":         "<string>",
-      "valuacion_total": <number>,
-      "num_cuentas":     <int>,
+      "unidades": [
+        {"unidad": "<str>", "valuacion_total": <num>, "num_cuentas": <int>},
+        ...
+      ]
     }
 
-Clave de upsert: (fecha_snapshot, unidad). Idempotente: se puede correr
-N veces para la misma fecha sin duplicar.
+Idempotente: `replace_one` por `_id`. Se invoca automáticamente al final de
+jobs.aum y jobs.aum_backfill; el modo CLI existe para reconstrucción manual.
 
 Modos:
   --fecha YYYY-MM-DD    procesa solo esa fecha_snapshot
-  --backfill            recalcula todas las fechas presentes en AuM
+  --backfill            dropea y recalcula todas las fechas presentes en AuM
   (sin flag)            usa la fecha_snapshot más reciente en AuM
-
-Se invoca automáticamente al final de jobs.aum y jobs.aum_backfill; el
-modo CLI existe para reconstrucción manual.
 """
 
 import argparse
-
-from pymongo import UpdateOne
 
 from core.mongo import get_mongo_client
 
@@ -64,57 +61,55 @@ def sync_fecha(client, fecha_snapshot, unidades=None):
     ]
     rows = list(col_aum.aggregate(pipeline))
 
-    # Borrar docs previos de esta fecha que ya no tengan una unidad FCI
-    # con posición (ej. se liquidó la tenencia).
-    unidades_presentes = [r["_id"] for r in rows]
-    col_dst.delete_many({
-        "fecha_snapshot": fecha_snapshot,
-        "unidad": {"$nin": unidades_presentes},
-    })
-
     if not rows:
-        print(f"  {fecha_snapshot}: sin posiciones FCI")
+        col_dst.delete_one({"_id": fecha_snapshot})
+        print(f"  {fecha_snapshot}: sin posiciones FCI (doc borrado)")
         return 0
 
-    ops = [
-        UpdateOne(
-            {"fecha_snapshot": fecha_snapshot, "unidad": r["_id"]},
-            {"$set": {
-                "fecha_snapshot":  fecha_snapshot,
+    doc = {
+        "_id":            fecha_snapshot,
+        "fecha_snapshot": fecha_snapshot,
+        "unidades": [
+            {
                 "unidad":          r["_id"],
                 "valuacion_total": r["valuacion_total"],
                 "num_cuentas":     r["num_cuentas"],
-            }},
-            upsert=True,
-        )
-        for r in rows
-    ]
-    col_dst.bulk_write(ops, ordered=False)
-    print(f"  {fecha_snapshot}: {len(rows)} unidades FCI upserted")
+            }
+            for r in rows
+        ],
+    }
+    col_dst.replace_one({"_id": fecha_snapshot}, doc, upsert=True)
+    print(f"  {fecha_snapshot}: {len(rows)} unidades FCI → 1 doc")
     return len(rows)
 
 
 def sync_backfill(client):
-    """Recalcula AuMResumenFCI para todas las fechas presentes en AuM."""
+    """Dropea AuMResumenFCI y lo reconstruye desde cero leyendo AuM."""
     unidades = _fci_unidades(client)
     if not unidades:
         print("Backfill abortado: Assets sin unidades FCI.")
         return
 
+    col_dst = client["Valuaciones"]["AuMResumenFCI"]
+    col_dst.drop()
+    print("Colección AuMResumenFCI dropeada. Reconstruyendo...")
+
     fechas = sorted(client["Valuaciones"]["AuM"].distinct("fecha_snapshot"))
     print(f"Backfill: {len(fechas)} fechas encontradas en AuM")
 
-    total = 0
+    total_fechas = 0
     for f in fechas:
-        total += sync_fecha(client, f, unidades=unidades)
-    print(f"\n✅ Backfill completo: {total} upserts totales")
+        n = sync_fecha(client, f, unidades=unidades)
+        if n > 0:
+            total_fechas += 1
+    print(f"\n✅ Backfill completo: {total_fechas} fechas con datos FCI")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fecha",    help="Procesar solo YYYY-MM-DD")
     ap.add_argument("--backfill", action="store_true",
-                    help="Recalcular todas las fechas presentes en AuM")
+                    help="Dropear y recalcular todas las fechas presentes en AuM")
     args = ap.parse_args()
 
     client = get_mongo_client()
@@ -127,7 +122,6 @@ def main():
         sync_fecha(client, args.fecha)
         return
 
-    # Sin flag: usar la fecha_snapshot más reciente en AuM
     last = client["Valuaciones"]["AuM"].find_one(
         {}, {"fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)]
     )

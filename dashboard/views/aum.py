@@ -61,17 +61,26 @@ def _cargar_aum_fci_agg():
     """Histórico agregado (fecha_snapshot, unidad) → suma de valuación.
 
     Lee de `Valuaciones.AuMResumenFCI` (rollup pre-materializado por
-    `jobs/aum_resumen_fci.py`, ejecutado al final de cada corrida de
-    `jobs/aum` y `jobs/aum_backfill`). Reemplaza un $group en vivo sobre
-    ~40k docs por un find sobre ~12k docs ya agregados.
+    `jobs/aum_resumen_fci.py`). Esquema: un doc por fecha con array de
+    unidades adentro, para minimizar transporte por cursor (~22 docs en
+    vez de ~2.4k).
     """
     db = get_db_valuaciones()
     docs = list(db["AuMResumenFCI"].find(
-        {}, {"_id": 0, "fecha_snapshot": 1, "unidad": 1, "valuacion_total": 1}
+        {}, {"_id": 0, "fecha_snapshot": 1, "unidades": 1}
     ))
     if not docs:
         return pd.DataFrame()
-    df = pd.DataFrame(docs).rename(columns={"valuacion_total": "valuacion"})
+    rows = [
+        {"fecha_snapshot": d["fecha_snapshot"],
+         "unidad":         u["unidad"],
+         "valuacion":      u["valuacion_total"]}
+        for d in docs
+        for u in d.get("unidades", [])
+    ]
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
     df["valuacion"] = pd.to_numeric(df["valuacion"], errors="coerce").fillna(0)
     return df
 

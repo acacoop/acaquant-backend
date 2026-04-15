@@ -60,12 +60,6 @@ def main():
         (valuaciones["AuM"], [("id_cuenta", 1), ("fecha_snapshot", -1)],
             "AuM: id_cuenta + fecha_snapshot"),
 
-        # ── Valuaciones.AuMResumenFCI (rollup por fecha_snapshot, unidad) ─
-        (valuaciones["AuMResumenFCI"], [("fecha_snapshot", -1)],
-            "AuMResumenFCI: fecha_snapshot"),
-        (valuaciones["AuMResumenFCI"], [("unidad", 1), ("fecha_snapshot", -1)],
-            "AuMResumenFCI: unidad + fecha_snapshot"),
-
         # ── Valuaciones.AuMResumen ────────────────────────────────────────
         (valuaciones["AuMResumen"], [("id_cuenta", 1), ("unidad", 1), ("fecha_snapshot", -1)],
             "AuMResumen: id_cuenta + unidad + fecha_snapshot"),

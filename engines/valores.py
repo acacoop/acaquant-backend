@@ -162,7 +162,7 @@ class MicrostructureEngine:
                 batch = self.trade_buffer[:]
                 self.trade_buffer = []
             try:
-                self.col_trades.insert_many(batch)
+                self.col_trades.insert_many(batch, ordered=False)
             except Exception as e:
                 print(f"Error flush trades: {e}")
 

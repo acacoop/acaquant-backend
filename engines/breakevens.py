@@ -20,6 +20,7 @@ Uso:
 import logging
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 
 from core.mongo import get_mongo_client
@@ -237,9 +238,11 @@ def run():
             fecha_ref  = ts.date()
             fecha_str  = fecha_ref.isoformat()
 
-            tems      = obtener_tems(client, lecap_tickers)
-            paridades = obtener_paridades(client, cer_tickers)
-            teas_cer  = obtener_teas_cer(client, cer_tickers)
+            with ThreadPoolExecutor(max_workers=3) as ex:
+                f_tems      = ex.submit(obtener_tems,      client, lecap_tickers)
+                f_paridades = ex.submit(obtener_paridades, client, cer_tickers)
+                f_teas      = ex.submit(obtener_teas_cer,  client, cer_tickers)
+                tems, paridades, teas_cer = f_tems.result(), f_paridades.result(), f_teas.result()
 
             pares_result = calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref)
             guardar(client, pares_result, ts, fecha_str)

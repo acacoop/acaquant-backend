@@ -51,7 +51,8 @@ def get_mongo_client() -> pymongo.MongoClient:
                 _client = pymongo.MongoClient(
                     MONGO_URI,
                     serverSelectionTimeoutMS=5000,
-                    maxPoolSize=10,
+                    maxPoolSize=20,
+                    compressors="zstd,snappy,zlib",
                 )
     return _client
 
@@ -74,7 +75,8 @@ def get_mongo_client_read() -> pymongo.MongoClient:
                 _client_read = pymongo.MongoClient(
                     uri,
                     serverSelectionTimeoutMS=5000,
-                    maxPoolSize=10,
+                    maxPoolSize=20,
+                    compressors="zstd,snappy,zlib",
                 )
     return _client_read
 

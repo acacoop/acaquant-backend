@@ -31,8 +31,8 @@
 # ─── CashFlow (martes a sábado 02:00 UTC = lunes-viernes 23:00 ART)
 0 2 * * 2-6 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cashflow --today >> /root/TradingAV/logs/cashflow.log 2>&1
 
-# ─── Flujo Contrapartes (martes a sábado)
-0 2 * * 2-6 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.flujo_contrapartes >> /root/TradingAV/logs/flujo_contrapartes.log 2>&1
+# ─── Flujo Contrapartes (lunes-viernes 22:00 UTC = 19:00 ART)
+0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.flujo_contrapartes >> /root/TradingAV/logs/flujo_contrapartes.log 2>&1
 
 # ─── BCRA (CER/TAMAR/DOLAR/BADLAR, 20:00 UTC todos los días)
 0 20 * * * cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bcra --today >> /root/TradingAV/logs/bcra.log 2>&1

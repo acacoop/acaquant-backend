@@ -200,7 +200,7 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - **`aum.py`** — snapshot AuM de TODAS las cuentas activas → `Valuaciones.AuM`. Clave: `(id_cuenta, unidad, fecha_snapshot)`. Fórmulas: P×Q/100 para renta fija (Títulos Públicos, ONs, Letras, Fideicomisos, CPD); (P+1)×Q para futuros; P×Q para el resto. Retry automático ante timeout Aunesa (3 intentos, 60s). Cron 23:00 UTC.
 - **`aum_backfill.py`** — re-ejecutable, reconstruye AuM por fechas. Usado desde el Manager (subprocess: `python -m jobs.aum_backfill <fecha>`).
 - **`cashflow.py`** — movimientos de cash desde Aunesa → `CashFlow.Movimientos`. Índice único por `comprobante`. Signo invertido (depósitos positivos). `--today` para cron.
-- **`flujo_contrapartes.py`** — operaciones del día desde Aunesa → `CashFlow.Flujo`. Borra docs donde `concertacion == hoy`, fetch por cada contraparte con `cuenta` asignada, filtra 4 tipos excluidos, agrega `moneda` (ARS/USD), deduplica por `boleto`. Cron 02:00 UTC martes-sábado.
+- **`flujo_contrapartes.py`** — operaciones del día desde Aunesa → `CashFlow.Flujo`. Borra docs donde `concertacion == hoy`, fetch por cada contraparte con `cuenta` asignada, filtra 4 tipos excluidos, agrega `moneda` (ARS/USD), deduplica por `boleto`. Cron 22:00 UTC L-V (19:00 ART, en mercado aún abierto).
 - **`segmento_contrapartes.py`** — asigna `segmento` ("Fondos"/"ALYC"/"Bancos") en `CashFlow.Contrapartes`. Reglas automáticas + modo interactivo para sin match. Importado por `dashboard/views/manager.py`.
 - **`volatilidad_ggal.py`** — VR histórica GGAL al cierre. Cron 20:00 UTC.
 - **`bcra.py`** — alimenta CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron; sin flag hace backfill desde 2023-01-01. SSL verificado (verify=True).
@@ -257,7 +257,8 @@ Resumen de horarios (ver `deploy/crontab.txt` para el detalle):
 | 20:00 | `jobs.bcra --today` | todos los días |
 | 23:00 | `jobs.aum` | L-V |
 | 20:15 | `jobs.options_rollup` | L-V |
-| 02:00 | `jobs.cashflow --today` + `jobs.flujo_contrapartes` | Mar-Sáb |
+| 22:00 | `jobs.flujo_contrapartes` | L-V |
+| 02:00 | `jobs.cashflow --today` | Mar-Sáb |
 
 ## Streamlit Dashboard — Vistas
 

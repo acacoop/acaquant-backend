@@ -103,7 +103,7 @@ def get_db_valuaciones():
 # SIDEBAR - NAVEGACIÓN
 # ==========================================
 with st.sidebar:
-    st.image("assets/logo-header.png", use_container_width=True)
+    st.image("images/logo-header.png", use_container_width=True)
     st.markdown("---")
     _opciones_nav = ["Mercado", "Opciones", "Portfolios", "Operaciones", "AuM"]
     if is_manager_allowed():

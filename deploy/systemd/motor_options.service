@@ -1,0 +1,14 @@
+[Unit]
+Description=Motor Opciones GGAL - TradingAV
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/python -m engines.options
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

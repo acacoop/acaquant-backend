@@ -5,11 +5,11 @@ import re
 import math
 import requests
 from datetime import datetime, timedelta
-from mongo_manager import get_mongo_client, get_mongo_client_read
+from core.mongo import get_mongo_client, get_mongo_client_read
 from config import MANAGER_EMAILS
-from Opciones.calculos_cuantitativos import bs_price as _bs_price
+from quant.black_scholes import bs_price as _bs_price
 import config
-from views.data_manager import vista_data_manager
+from dashboard.views.manager import vista_data_manager
 
 # ==========================================
 # CONFIG
@@ -103,7 +103,7 @@ def get_db_valuaciones():
 # SIDEBAR - NAVEGACIÓN
 # ==========================================
 with st.sidebar:
-    st.image("images/logo-header.png", use_container_width=True)
+    st.image("assets/logo-header.png", use_container_width=True)
     st.markdown("---")
     _opciones_nav = ["Mercado", "Opciones", "Portfolios", "Operaciones", "AuM"]
     if is_manager_allowed():
@@ -2974,9 +2974,7 @@ def vista_portfolios():
         if st.button("↻ Actualizar", key="btn_actualizar_carteras", use_container_width=True):
             with st.spinner("Sincronizando..."):
                 try:
-                    import sys, os
-                    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Excel"))
-                    import main_carteras
+                    from jobs import carteras as main_carteras
                     main_carteras.run()
                     st.toast("Carteras actualizadas", icon="✅")
                     st.rerun()

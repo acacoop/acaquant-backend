@@ -1,0 +1,14 @@
+[Unit]
+Description=Motor de Captura Rofex a MongoDB (main_valores)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/python -m engines.valores
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

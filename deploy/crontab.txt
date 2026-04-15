@@ -1,0 +1,41 @@
+# Crontab de producción — TradingAV
+# Fuente de verdad. Aplicar con:   crontab /root/TradingAV/deploy/crontab.txt
+#
+# Todos los módulos se invocan con -m desde /root/TradingAV (requiere cd previo).
+
+# ─── Motores de mercado (Lunes a Viernes, 13:00 UTC → 20:05 UTC = 10:00 → 17:05 ART)
+0 13 * * 1-5 systemctl start motor_rofex.service
+5 20 * * 1-5 systemctl stop  motor_rofex.service
+0 13 * * 1-5 systemctl start motor_options.service
+5 20 * * 1-5 systemctl stop  motor_options.service
+0 13 * * 1-5 systemctl start motor_curvas.service
+5 20 * * 1-5 systemctl stop  motor_curvas.service
+0 13 * * 1-5 systemctl start motor_forwards.service
+5 20 * * 1-5 systemctl stop  motor_forwards.service
+0 13 * * 1-5 systemctl start motor_breakevens.service
+5 20 * * 1-5 systemctl stop  motor_breakevens.service
+
+# ─── Sincronización Aunesa → MongoDB (4 veces por día hábil)
+0  10 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1
+30 11 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1
+0  14 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1
+0  16 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1
+
+# ─── Volatilidad GGAL (al cierre)
+0 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.volatilidad_ggal >> /root/TradingAV/logs/vr_ggal.log 2>&1
+
+# ─── Dólar MEP (intradía + cierre)
+0  14 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m engines.dolar_mep >> /root/TradingAV/logs/dolar_mep.log 2>&1
+57 19 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m engines.dolar_mep >> /root/TradingAV/logs/dolar_mep.log 2>&1
+
+# ─── CashFlow (martes a sábado 02:00 UTC = lunes-viernes 23:00 ART)
+0 2 * * 2-6 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cashflow --today >> /root/TradingAV/logs/cashflow.log 2>&1
+
+# ─── Flujo Contrapartes (martes a sábado)
+0 2 * * 2-6 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.flujo_contrapartes >> /root/TradingAV/logs/flujo_contrapartes.log 2>&1
+
+# ─── BCRA (CER/TAMAR/DOLAR/BADLAR, 20:00 UTC todos los días)
+0 20 * * * cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bcra --today >> /root/TradingAV/logs/bcra.log 2>&1
+
+# ─── AuM snapshot al cierre (23:00 UTC = 20:00 ART, L-V)
+0 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1

@@ -2139,9 +2139,9 @@ def _tab_latencia():
             return "color: #c0392b; font-weight:600"  # rojo
 
     st.markdown("#### Detalle por colección (ordenado por lentitud)")
+    _style_map = df_res.style.map if hasattr(df_res.style, "map") else df_res.style.applymap
     styled = (
-        df_res.style
-        .applymap(_color_ms, subset=["ms"])
+        _style_map(_color_ms, subset=["ms"])
         .format({"ms": "{:.1f}", "ms/doc": "{:.3f}", "Docs": "{:,}"})
     )
     st.dataframe(styled, hide_index=True, use_container_width=True,

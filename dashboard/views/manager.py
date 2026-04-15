@@ -314,13 +314,23 @@ def _parse_periodic_value(val, tipo: str, tz_naive) -> datetime | None:
     return None
 
 
+def _fetch_latest(db_n: str, coll_n: str, field: str, filtro: dict) -> dict | None:
+    coll = get_mongo_client()[db_n][coll_n]
+    return coll.find_one(filtro, sort=[(field, -1)], projection={field: 1})
+
+
 def _status_live_rows(en_rueda: bool) -> list[dict]:
+    from concurrent.futures import ThreadPoolExecutor
     ahora = datetime.now(_AR_TZ)
+
+    with ThreadPoolExecutor(max_workers=len(_STATUS_LIVE)) as ex:
+        docs = list(ex.map(
+            lambda s: _fetch_latest(s[0], s[1], s[2], {s[2]: {"$exists": True}}),
+            _STATUS_LIVE,
+        ))
+
     rows = []
-    for db_n, coll_n, field, nombre, umbral, tz_naive in _STATUS_LIVE:
-        coll = get_mongo_client()[db_n][coll_n]
-        doc  = coll.find_one({field: {"$exists": True}},
-                             sort=[(field, -1)], projection={field: 1})
+    for (db_n, coll_n, field, nombre, umbral, tz_naive), doc in zip(_STATUS_LIVE, docs):
         if not doc or not doc.get(field):
             rows.append({"Colección": nombre, "Última": "—", "Hace": "—",
                          "Umbral": f"{umbral}s", "Estado": "⚪ Sin datos"})
@@ -350,12 +360,20 @@ def _status_live_rows(en_rueda: bool) -> list[dict]:
 
 
 def _status_periodico_rows() -> list[dict]:
+    from concurrent.futures import ThreadPoolExecutor
     ahora = datetime.now(_AR_TZ)
+
+    with ThreadPoolExecutor(max_workers=len(_STATUS_PERIODICO)) as ex:
+        docs = list(ex.map(
+            lambda s: _fetch_latest(s[0], s[1], s[2],
+                                    {s[2]: {"$exists": True, "$nin": [None, ""]}}),
+            _STATUS_PERIODICO,
+        ))
+
     rows = []
-    for db_n, coll_n, field, tipo, nombre, umbral_dias, desc, tz_naive in _STATUS_PERIODICO:
-        coll = get_mongo_client()[db_n][coll_n]
-        doc  = coll.find_one({field: {"$exists": True, "$nin": [None, ""]}},
-                             sort=[(field, -1)], projection={field: 1})
+    for (db_n, coll_n, field, tipo, nombre, umbral_dias, desc, tz_naive), doc in zip(
+        _STATUS_PERIODICO, docs
+    ):
         if not doc:
             rows.append({"Colección": nombre, "Último dato": "—",
                          "Hace": "—", "Frecuencia": desc, "Estado": "⚪ Sin datos"})
@@ -395,13 +413,18 @@ def _frag_status():
                f"Auto-refresh cada 10s")
 
     try:
-        live_rows = _status_live_rows(en_rueda)
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_live = ex.submit(_status_live_rows, en_rueda)
+            f_per  = ex.submit(_status_periodico_rows)
+            live_rows = f_live.result()
+            per_rows  = f_per.result()
+
         st.markdown("**Live engines**")
         st.dataframe(pd.DataFrame(live_rows), hide_index=True,
                      use_container_width=True,
                      height=38 + len(live_rows) * 35)
 
-        per_rows = _status_periodico_rows()
         st.markdown("**Periódicas (crons)**")
         st.dataframe(pd.DataFrame(per_rows), hide_index=True,
                      use_container_width=True,

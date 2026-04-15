@@ -7,6 +7,15 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from dashboard.repos.mercado import (
+    get_breakevens_historico,
+    get_datos_simulador,
+    get_forwards_historico,
+    get_precios_diarios_curva,
+    get_precios_intraday,
+    get_tickers_curvas,
+    get_volumen_diario_tickers,
+)
 from dashboard.shared.db import _cargar_tickers_merv, get_db
 from dashboard.shared.format import df_height, fmt_money, last_update_badge, short_name
 
@@ -606,15 +615,6 @@ def _resumen_breakevens(pares):
     return df, pond
 
 
-@st.cache_data(ttl=60, show_spinner=False)
-def _cargar_breakevens_historico():
-    db = get_db()
-    return list(db["BreakevensHistorico"].find(
-        {},
-        {"fecha": 1, "pares": 1, "_id": 0}
-    ))
-
-
 def _render_breakevens(db):
     from datetime import date as _date
 
@@ -669,7 +669,7 @@ def _render_breakevens(db):
                     _render_pares(pares)
 
     with tab_grafico:
-        docs_hist = _cargar_breakevens_historico()
+        docs_hist = get_breakevens_historico()
         if not docs_hist:
             st.info("Sin historial disponible aún.")
             return
@@ -758,25 +758,6 @@ def _render_breakevens(db):
         _render_simulador(db)
 
 
-@st.cache_data(ttl=60, show_spinner=False)
-def _cargar_datos_simulador():
-    """Carga datos necesarios para el simulador: curvas, CER, días hábiles, últimos precios."""
-    db = get_db()
-    curvas = list(db["Curvas"].find({}))
-    cer_docs = list(db["CER"].find({}, {"fecha": 1, "valor": 1, "_id": 0}))
-    dias_habiles = sorted(d["fecha"] for d in db["DiasHabiles"].find({}, {"fecha": 1, "_id": 0}))
-    # último precio por ticker desde MarketSnapshot
-    snaps = list(db["MarketSnapshot"].find({}, {"ticker": 1, "metrics": 1, "_id": 0}))
-    last_price = {}
-    for s in snaps:
-        t = s.get("ticker")
-        p = (s.get("metrics") or {}).get("last_price")
-        if t and p:
-            last_price[t] = float(p)
-    cer_dict = {d["fecha"]: float(d["valor"]) for d in cer_docs}
-    return curvas, cer_dict, dias_habiles, last_price
-
-
 def _render_simulador(db):
     from datetime import date as _date
     from datetime import timedelta
@@ -786,7 +767,7 @@ def _render_simulador(db):
         st.info("Sin pares de breakevens. ¿El motor está corriendo?")
         return
 
-    curvas_list, cer_dict, dias_habiles, last_price = _cargar_datos_simulador()
+    curvas_list, cer_dict, dias_habiles, last_price = get_datos_simulador()
     if not curvas_list or not cer_dict or not dias_habiles:
         st.info("Faltan datos de referencia (Curvas / CER / DiasHabiles).")
         return
@@ -1453,15 +1434,6 @@ def render_forward_matrix(doc):
     st.dataframe(styler, use_container_width=True, height=df_height(len(tickers) + 1))
 
 
-@st.cache_data(ttl=60, show_spinner=False)
-def _cargar_forwards_historico(curva):
-    db = get_db()
-    return list(db["ForwardsHistorico"].find(
-        {"curva": curva},
-        {"fecha": 1, "matrix": 1, "_id": 0}
-    ))
-
-
 def _render_forwards(db, key_prefix="fwd"):
     curvas_live = set(db["ForwardsLive"].distinct("curva"))
     curvas_hist = set(db["ForwardsHistorico"].distinct("curva"))
@@ -1501,7 +1473,7 @@ def _render_forwards(db, key_prefix="fwd"):
 
     with tab_grafico:
         # Cargar todos los docs históricos de esta curva (cacheado 60s)
-        docs_hist = _cargar_forwards_historico(curva_sel)
+        docs_hist = get_forwards_historico(curva_sel)
         if not docs_hist:
             st.info("Sin historial disponible aún.")
         else:
@@ -1569,86 +1541,10 @@ def vista_forwards():
     _render_forwards(db, key_prefix="fwd_page")
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def _cargar_tickers_curvas():
-    """Tickers en Trading.Curvas con su label corto. DataFrame: ticker, ticker_corto, curva."""
-    db = get_db()
-    rows = [
-        {"ticker": d["ticker"],
-         "ticker_corto": d.get("ticker_corto") or d["ticker"],
-         "curva": d.get("curva", "")}
-        for d in db["Curvas"].find({}, {"ticker": 1, "ticker_corto": 1, "curva": 1})
-    ]
-    return pd.DataFrame(rows).sort_values("ticker_corto").reset_index(drop=True)
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def _cargar_volumen_diario_tickers(tickers_key: tuple):
-    """Suma de money por (fecha, ticker) en los últimos 15 días corridos."""
-    if not tickers_key:
-        return pd.DataFrame()
-    db = get_db()
-    fecha_min = datetime.utcnow() - timedelta(days=15)
-    pipeline = [
-        {"$match": {"ticker": {"$in": list(tickers_key)},
-                    "money": {"$gt": 0},
-                    "timestamp": {"$gte": fecha_min}}},
-        {"$group": {
-            "_id": {
-                "fecha":  {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
-                "ticker": "$ticker",
-            },
-            "money": {"$sum": "$money"},
-        }},
-    ]
-    rows = [
-        {"fecha": r["_id"]["fecha"], "ticker": r["_id"]["ticker"], "money": r["money"]}
-        for r in db["TimeSales"].aggregate(pipeline)
-    ]
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    df["money_mm"] = df["money"] / 1_000_000
-    return df.sort_values(["fecha", "ticker"])
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def _cargar_precios_intraday(tickers_key: tuple):
-    """Último precio por minuto (downsample server-side) para los últimos 15 días corridos."""
-    if not tickers_key:
-        return pd.DataFrame()
-    db = get_db()
-    fecha_min = datetime.utcnow() - timedelta(days=15)
-    pipeline = [
-        {"$match": {"ticker": {"$in": list(tickers_key)},
-                    "price": {"$gt": 0},
-                    "timestamp": {"$gte": fecha_min}}},
-        {"$sort": {"timestamp": 1}},
-        {"$group": {
-            "_id": {
-                "ticker": "$ticker",
-                "bucket": {"$dateTrunc": {"date": "$timestamp", "unit": "minute"}},
-            },
-            "price": {"$last": "$price"},
-        }},
-    ]
-    rows = [
-        {"ticker": r["_id"]["ticker"],
-         "timestamp": r["_id"]["bucket"],
-         "price": r["price"]}
-        for r in db["TimeSales"].aggregate(pipeline)
-    ]
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    return df.sort_values("timestamp")
-
-
 def _render_volumenes():
     import altair as alt
 
-    meta = _cargar_tickers_curvas()
+    meta = get_tickers_curvas()
     if meta.empty:
         st.info("Sin tickers configurados en Trading.Curvas.")
         return
@@ -1669,8 +1565,8 @@ def _render_volumenes():
     sel_tickers = (short2t[sel_corto],)
 
     with st.spinner("Cargando datos..."):
-        df_vol   = _cargar_volumen_diario_tickers(sel_tickers)
-        df_price = _cargar_precios_intraday(sel_tickers)
+        df_vol   = get_volumen_diario_tickers(sel_tickers)
+        df_price = get_precios_intraday(sel_tickers)
 
     if df_vol.empty and df_price.empty:
         st.info("Sin datos en los últimos 15 días para los tickers seleccionados.")
@@ -1788,41 +1684,6 @@ def _render_volumenes():
                      height=df_height(len(resumen)))
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def _cargar_precios_diarios_curva(curva):
-    """
-    Último precio por ticker por día para todos los instrumentos de una curva.
-    Retorna DataFrame largo con columnas: fecha (str), ticker (ticker_corto), price.
-    """
-    db = get_db()
-    meta = {
-        d["ticker"]: d["ticker_corto"]
-        for d in db["Curvas"].find({"curva": curva}, {"ticker": 1, "ticker_corto": 1})
-    }
-    if not meta:
-        return pd.DataFrame()
-
-    pipeline = [
-        {"$match": {"ticker": {"$in": list(meta.keys())}, "price": {"$gt": 0}}},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {
-            "_id": {
-                "ticker": "$ticker",
-                "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
-            },
-            "price": {"$first": "$price"},
-        }},
-    ]
-    rows = [
-        {"fecha": r["_id"]["fecha"], "ticker": meta[r["_id"]["ticker"]], "price": r["price"]}
-        for r in db["TimeSales"].aggregate(pipeline)
-        if r["_id"]["ticker"] in meta
-    ]
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame(rows).sort_values(["ticker", "fecha"]).reset_index(drop=True)
-
-
 def _render_retorno_total(key_prefix="rt"):
     import altair as alt
 
@@ -1835,7 +1696,7 @@ def _render_retorno_total(key_prefix="rt"):
     curva_sel = st.selectbox("Curva", curvas, key=f"{key_prefix}_curva")
 
     with st.spinner("Cargando precios históricos..."):
-        df_raw = _cargar_precios_diarios_curva(curva_sel)
+        df_raw = get_precios_diarios_curva(curva_sel)
 
     if df_raw.empty:
         st.info("Sin datos de precios en TimeSales para esta curva.")

@@ -31,6 +31,7 @@ if PROJECT_ROOT not in sys.path:
 
 import config
 from core.mongo import get_mongo_client, get_mongo_client_read
+from core.profiler import Stopwatch
 
 # ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -1997,17 +1998,23 @@ def _tab_historial():
 # ─── TAB LATENCIA ────────────────────────────────────────────────────────────
 
 def _tab_latencia():
+    st.markdown("### Test de Latencia")
+    sub_bench, sub_trace = st.tabs(["Benchmark", "Trace por vista"])
+    with sub_bench: _latencia_benchmark()
+    with sub_trace: _latencia_trace()
+
+
+def _latencia_benchmark():
     import time as _time
 
-    st.markdown("### Test de Latencia")
     st.caption(
         "Mide cuánto tarda cada query MongoDB en ejecutarse. "
-        "Refleja lo que tarda el dashboard en cargar datos reales. "
-        "Usá el cliente read-only (igual que el dashboard)."
+        "Es un barrido genérico — no refleja exactamente lo que ejecuta cada vista. "
+        "Para eso usá **Trace por vista**."
     )
 
-    if not st.button("▶ Ejecutar test", key="lat_run"):
-        st.info("Presioná **Ejecutar test** para correr el benchmark.")
+    if not st.button("▶ Ejecutar benchmark", key="lat_run"):
+        st.info("Presioná **Ejecutar benchmark** para correrlo.")
         return
 
     client = get_mongo_client_read()
@@ -2166,6 +2173,223 @@ def _tab_latencia():
             f"</div>",
             unsafe_allow_html=True,
         )
+
+
+# ─── TRACE POR VISTA ─────────────────────────────────────────────────────────
+# Replica la carga de cada vista con un Stopwatch inyectado en cada etapa
+# (mongo, pandas, altair) para descomponer el tiempo real. Ignora la cache
+# de Streamlit — cada trace mide trabajo real, no hits de cache.
+
+def _trace_aum_fci(client):
+    import altair as alt
+    db_val = client["Valuaciones"]
+    sw = Stopwatch("AuM — FCI")
+
+    sw.step("mongo: find ultimo fecha_snapshot")
+    last = db_val["AuM"].find_one({}, {"fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)])
+    fecha = last["fecha_snapshot"] if last else None
+
+    sw.step("mongo: find Assets (CARTERA FCI)")
+    unidades = [
+        a["unidad"]
+        for a in db_val["Assets"].find({"CARTERA": "CARTERA FCI"}, {"unidad": 1, "_id": 0})
+        if a.get("unidad")
+    ]
+
+    sw.step("mongo: agg FCI histórico ($group)")
+    pipeline = [
+        {"$match": {"unidad": {"$in": unidades}}},
+        {"$group": {"_id": {"fecha": "$fecha_snapshot", "unidad": "$unidad"},
+                    "valuacion": {"$sum": "$valuacion"}}},
+        {"$project": {"_id": 0, "fecha_snapshot": "$_id.fecha",
+                      "unidad": "$_id.unidad", "valuacion": "$valuacion"}},
+    ]
+    rows_hist = list(db_val["AuM"].aggregate(pipeline))
+
+    sw.step("mongo: find AuM snapshot último (FCI)")
+    docs_snap = list(db_val["AuM"].find(
+        {"unidad": {"$in": unidades}, "fecha_snapshot": fecha},
+        {"_id": 0, "cuenta": 1, "unidad": 1, "valuacion": 1, "fecha_snapshot": 1},
+    ))
+
+    sw.step("pandas: DataFrames + conversiones")
+    df_hist = pd.DataFrame(rows_hist)
+    _ = pd.DataFrame(docs_snap)
+    if not df_hist.empty:
+        df_hist["valuacion"] = pd.to_numeric(df_hist["valuacion"], errors="coerce").fillna(0)
+
+    sw.step("altair: build chart evolución")
+    _ = (alt.Chart(df_hist).mark_line()
+         .encode(x="fecha_snapshot:T", y="valuacion:Q", color="unidad:N")
+         if not df_hist.empty else None)
+
+    return sw.done()
+
+
+def _trace_operaciones_cashflow(client):
+    db_cf = client["CashFlow"]
+    sw = Stopwatch("Operaciones — Cash Flow")
+
+    sw.step("mongo: find Movimientos (full)")
+    docs = list(db_cf["Movimientos"].find(
+        {}, {"_id": 0, "fecha": 1, "total": 1, "unidad": 1, "informacion": 1, "cuenta": 1}
+    ))
+
+    sw.step("mongo: find Accionistas")
+    _ = list(db_cf["Accionistas"].find({}, {"_id": 0, "cuenta": 1, "accionista": 1}))
+
+    sw.step("pandas: DataFrame + parse fechas + sort")
+    df = pd.DataFrame(docs)
+    if not df.empty:
+        df["fecha"] = pd.to_datetime(df["fecha"], format="%d/%m/%Y", errors="coerce")
+        df["total"] = pd.to_numeric(df["total"], errors="coerce").fillna(0)
+        df = df.dropna(subset=["fecha"]).sort_values("fecha")
+
+    sw.step("pandas: groupby mes × unidad")
+    if not df.empty:
+        df["_key"] = df["fecha"].dt.strftime("%Y-%m")
+        _ = df.groupby(["_key", "unidad"], as_index=False)["total"].sum()
+
+    return sw.done()
+
+
+def _trace_mercado_libro(client):
+    db_tr = client["Trading"]
+    sw = Stopwatch("Mercado — Libro (1 ticker)")
+
+    sw.step("mongo: find_one MarketSnapshot (primer ticker)")
+    first = db_tr["MarketSnapshot"].find_one({}, {"ticker": 1, "_id": 0})
+    ticker = first["ticker"] if first else None
+
+    sw.step("mongo: find_one snapshot completo")
+    _ = db_tr["MarketSnapshot"].find_one({"ticker": ticker}) if ticker else None
+
+    sw.step("mongo: find TimeSales últimos 60 min (ticker)")
+    desde = datetime.utcnow() - timedelta(minutes=60)
+    if ticker:
+        trades = list(db_tr["TimeSales"].find(
+            {"ticker": ticker, "timestamp": {"$gte": desde}},
+            {"_id": 0, "timestamp": 1, "price": 1, "size": 1},
+        ))
+    else:
+        trades = []
+
+    sw.step("pandas: DataFrame trades")
+    df = pd.DataFrame(trades)
+    if not df.empty:
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    return sw.done()
+
+
+def _trace_opciones_mercado(client):
+    sw = Stopwatch("Opciones — Mercado")
+
+    sw.step("mongo: find OptionsSnapshot (full)")
+    _ = list(client["Opciones"]["OptionsSnapshot"].find({}, {"_id": 0}))
+
+    sw.step("mongo: agg vol histórico DataHistorica (20d)")
+    fecha_min = (datetime.utcnow() - timedelta(days=20)).strftime("%Y-%m-%d")
+    pipeline = [
+        {"$match": {"fecha": {"$gte": fecha_min}, "ev": {"$gt": 0},
+                    "strike": {"$exists": True}, "tipo": {"$exists": True}}},
+        {"$group": {
+            "_id": {"fecha": "$fecha", "strike": "$strike", "tipo": "$tipo"},
+            "ev_total": {"$sum": "$ev"},
+        }},
+    ]
+    rows = list(client["Opciones"]["DataHistorica"].aggregate(pipeline))
+
+    sw.step("pandas: DataFrame agg")
+    _ = pd.DataFrame([
+        {"fecha": d["_id"]["fecha"], "Strike": d["_id"]["strike"],
+         "Tipo": d["_id"]["tipo"], "EV_M": d["ev_total"] / 1_000_000}
+        for d in rows
+    ])
+
+    return sw.done()
+
+
+_TRACES = {
+    "AuM — FCI":                _trace_aum_fci,
+    "Operaciones — Cash Flow":  _trace_operaciones_cashflow,
+    "Mercado — Libro":          _trace_mercado_libro,
+    "Opciones — Mercado":       _trace_opciones_mercado,
+}
+
+
+def _render_trace_waterfall(trace):
+    """Waterfall horizontal: una barra por step, labels con ms."""
+    import altair as alt
+
+    steps = trace["steps"]
+    if not steps:
+        st.info("Sin pasos registrados.")
+        return
+
+    total = trace["total_ms"]
+    df = pd.DataFrame([
+        {"#": i + 1, "paso": s["name"], "ms": round(s["ms"], 1),
+         "%": round(s["ms"] / total * 100, 1)}
+        for i, s in enumerate(steps)
+    ])
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total", f"{total:.0f} ms")
+    c2.metric("Pasos", len(steps))
+    c3.metric("Paso más lento", f"{df['ms'].max():.0f} ms")
+
+    df_chart = df.copy()
+    df_chart["label"] = df_chart["#"].astype(str) + ". " + df_chart["paso"]
+    order = df_chart["label"].tolist()
+
+    chart = (
+        alt.Chart(df_chart)
+        .mark_bar()
+        .encode(
+            y=alt.Y("label:N", title=None, sort=order,
+                    axis=alt.Axis(labelLimit=400)),
+            x=alt.X("ms:Q", title="ms"),
+            color=alt.Color("ms:Q", scale=alt.Scale(scheme="reds"),
+                            legend=None),
+            tooltip=[alt.Tooltip("paso:N"),
+                     alt.Tooltip("ms:Q", format=".1f"),
+                     alt.Tooltip("%:Q", format=".1f")],
+        )
+        .properties(height=30 + 28 * len(df_chart))
+    )
+    st.altair_chart(chart, use_container_width=True)
+
+    st.dataframe(df, hide_index=True, use_container_width=True,
+                 height=38 + 35 * len(df))
+
+
+def _latencia_trace():
+    st.caption(
+        "Reproduce la carga de una vista con un Stopwatch en cada etapa "
+        "(mongo → pandas → altair). Ignora la cache: cada corrida mide trabajo real."
+    )
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        vista_sel = st.selectbox("Vista", list(_TRACES.keys()), key="trace_vista")
+    with col2:
+        st.write("")
+        run = st.button("▶ Ejecutar trace", key="trace_run", use_container_width=True)
+
+    if not run:
+        st.info("Elegí una vista y presioná **Ejecutar trace**.")
+        return
+
+    client = get_mongo_client_read()
+    try:
+        with st.spinner(f"Midiendo {vista_sel}..."):
+            trace = _TRACES[vista_sel](client)
+    except Exception as e:
+        st.error(f"Error corriendo el trace: {type(e).__name__}: {e}")
+        return
+
+    _render_trace_waterfall(trace)
 
 
 # ─── ENTRY POINT ─────────────────────────────────────────────────────────────

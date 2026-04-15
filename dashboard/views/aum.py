@@ -31,23 +31,61 @@ def _cargar_aum_ultimo():
     return df
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def _cargar_aum_fci_hist():
-    """Histórico de AuM solo para unidades con CARTERA == 'CARTERA FCI'."""
+def _fci_unidades():
     db = get_db_valuaciones()
-    fci_unidades = [
+    return [
         a["unidad"]
         for a in db["Assets"].find(
             {"CARTERA": "CARTERA FCI"}, {"unidad": 1, "_id": 0}
         )
         if a.get("unidad")
     ]
-    if not fci_unidades:
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cargar_aum_fci_agg():
+    """Agregación server-side para charts: (fecha_snapshot, unidad) → sum(valuacion).
+
+    Colapsa cuentas en Mongo via $group. Usado por charts de evolución FCI y
+    Análisis SG. Payload ~5-10× más chico que el histórico raw.
+    """
+    db = get_db_valuaciones()
+    unidades = _fci_unidades()
+    if not unidades:
+        return pd.DataFrame()
+    pipeline = [
+        {"$match": {"unidad": {"$in": unidades}}},
+        {"$group": {
+            "_id":       {"fecha": "$fecha_snapshot", "unidad": "$unidad"},
+            "valuacion": {"$sum": "$valuacion"},
+        }},
+        {"$project": {
+            "_id":            0,
+            "fecha_snapshot": "$_id.fecha",
+            "unidad":         "$_id.unidad",
+            "valuacion":      "$valuacion",
+        }},
+    ]
+    rows = list(db["AuM"].aggregate(pipeline))
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    df["valuacion"] = pd.to_numeric(df["valuacion"], errors="coerce").fillna(0)
+    return df
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cargar_aum_fci_snapshot(fecha):
+    """Raw docs FCI para una fecha puntual. Usado para drill-down (emisor → ticker → cuenta)."""
+    if not fecha:
+        return pd.DataFrame()
+    db = get_db_valuaciones()
+    unidades = _fci_unidades()
+    if not unidades:
         return pd.DataFrame()
     docs = list(db["AuM"].find(
-        {"unidad": {"$in": fci_unidades}},
-        {"_id": 0, "id_cuenta": 1, "cuenta": 1, "unidad": 1,
-         "valuacion": 1, "fecha_snapshot": 1},
+        {"unidad": {"$in": unidades}, "fecha_snapshot": fecha},
+        {"_id": 0, "cuenta": 1, "unidad": 1, "valuacion": 1, "fecha_snapshot": 1},
     ))
     if not docs:
         return pd.DataFrame()
@@ -136,9 +174,9 @@ def _render_snapshot_fci(df_fci, key_prefix):
                         use_container_width=True)
 
 
-def _render_barras_rango_fci(df_fci_all, color_field, key_prefix):
+def _render_barras_rango_fci(df_fci_agg, color_field, key_prefix):
     """Barras apiladas por fecha con rango slider. color_field: 'EMISOR' o None (total)."""
-    fechas = sorted(df_fci_all["fecha_snapshot"].unique())
+    fechas = sorted(df_fci_agg["fecha_snapshot"].unique())
     if len(fechas) < 2:
         st.info("Necesitás al menos 2 fechas de datos.")
         return
@@ -149,9 +187,9 @@ def _render_barras_rango_fci(df_fci_all, color_field, key_prefix):
         value=(fechas[0], fechas[-1]),
         key=f"{key_prefix}_rango",
     )
-    df_r = df_fci_all[
-        (df_fci_all["fecha_snapshot"] >= fecha_desde) &
-        (df_fci_all["fecha_snapshot"] <= fecha_hasta)
+    df_r = df_fci_agg[
+        (df_fci_agg["fecha_snapshot"] >= fecha_desde) &
+        (df_fci_agg["fecha_snapshot"] <= fecha_hasta)
     ].copy()
 
     fechas_rango = sorted(df_r["fecha_snapshot"].unique())
@@ -197,13 +235,13 @@ def vista_aum():
     st.markdown("## ACAQuant | AuM")
 
     df = _cargar_aum_ultimo()
-    df_fci_all = _cargar_aum_fci_hist()
-    if df.empty and df_fci_all.empty:
+    df_fci_agg = _cargar_aum_fci_agg()
+    if df.empty and df_fci_agg.empty:
         st.warning("Sin datos. Ejecutá `main_aum.py` para cargar las posiciones.")
         return
 
     assets = _cargar_assets()
-    for _df in (df, df_fci_all):
+    for _df in (df, df_fci_agg):
         if not _df.empty:
             _df["CARTERA"] = _df["unidad"].map(lambda u: assets.get(u, {}).get("CARTERA", ""))
             _df["EMISOR"]  = _df["unidad"].map(lambda u: assets.get(u, {}).get("EMISOR",  ""))
@@ -212,8 +250,8 @@ def vista_aum():
 
     # ── Tab 1: FCI (snapshot + stock lado a lado) ─────────────────────────────
     with tab_fci:
-        snapshots = sorted(df_fci_all["fecha_snapshot"].dropna().unique())
-        fechas_all = sorted(df_fci_all["fecha_snapshot"].dropna().unique())
+        snapshots = sorted(df_fci_agg["fecha_snapshot"].dropna().unique())
+        fechas_all = sorted(df_fci_agg["fecha_snapshot"].dropna().unique())
 
         if not snapshots:
             st.info("Sin datos FCI.")
@@ -226,9 +264,9 @@ def vista_aum():
                     value=(fechas_all[0], fechas_all[-1]),
                     key="aum_fci_rango",
                 )
-                df_r = df_fci_all[
-                    (df_fci_all["fecha_snapshot"] >= fecha_desde) &
-                    (df_fci_all["fecha_snapshot"] <= fecha_hasta)
+                df_r = df_fci_agg[
+                    (df_fci_agg["fecha_snapshot"] >= fecha_desde) &
+                    (df_fci_agg["fecha_snapshot"] <= fecha_hasta)
                 ]
                 df_plot = df_r.groupby("fecha_snapshot", as_index=False)["valuacion"].sum()
                 fechas_rango = sorted(df_plot["fecha_snapshot"].unique())
@@ -254,7 +292,11 @@ def vista_aum():
             # ── Dos columnas al mismo nivel ───────────────────────────────────
             fecha_sel = st.select_slider("Fecha snapshot", options=snapshots,
                                          value=snapshots[-1], key="aum_snap_fecha")
-            df_fci_dia = df_fci_all[df_fci_all["fecha_snapshot"] == fecha_sel]
+            df_fci_dia = _cargar_aum_fci_snapshot(fecha_sel)
+            if not df_fci_dia.empty:
+                df_fci_dia["EMISOR"] = df_fci_dia["unidad"].map(
+                    lambda u: assets.get(u, {}).get("EMISOR", "")
+                )
 
             resumen = (
                 df_fci_dia.groupby("EMISOR", as_index=False)["valuacion"]
@@ -334,8 +376,8 @@ def vista_aum():
 
     # ── Tab 2: Stock Soc. Gerente ─────────────────────────────────────────────
     with tab_stock_soc:
-        snapshots  = sorted(df_fci_all["fecha_snapshot"].dropna().unique())
-        emisores   = sorted(df_fci_all["EMISOR"].dropna().unique())
+        snapshots  = sorted(df_fci_agg["fecha_snapshot"].dropna().unique())
+        emisores   = sorted(df_fci_agg["EMISOR"].dropna().unique())
         fechas_all = snapshots
 
         if not snapshots:
@@ -364,10 +406,10 @@ def vista_aum():
                 if emisor_sel is None:
                     st.info("Seleccioná una Soc. Gerente para ver la evolución.")
                 else:
-                    df_r = df_fci_all[
-                        (df_fci_all["fecha_snapshot"] >= fecha_desde) &
-                        (df_fci_all["fecha_snapshot"] <= fecha_hasta) &
-                        (df_fci_all["EMISOR"] == emisor_sel)
+                    df_r = df_fci_agg[
+                        (df_fci_agg["fecha_snapshot"] >= fecha_desde) &
+                        (df_fci_agg["fecha_snapshot"] <= fecha_hasta) &
+                        (df_fci_agg["EMISOR"] == emisor_sel)
                     ]
                     df_plot = df_r.groupby("fecha_snapshot", as_index=False)["valuacion"].sum()
                     f_rango = sorted(df_plot["fecha_snapshot"].unique())
@@ -396,10 +438,10 @@ def vista_aum():
                 if not emisores_sel:
                     st.info("Seleccioná al menos una Soc. Gerente para comparar.")
                 else:
-                    df_r = df_fci_all[
-                        (df_fci_all["fecha_snapshot"] >= fecha_desde) &
-                        (df_fci_all["fecha_snapshot"] <= fecha_hasta) &
-                        (df_fci_all["EMISOR"].isin(emisores_sel))
+                    df_r = df_fci_agg[
+                        (df_fci_agg["fecha_snapshot"] >= fecha_desde) &
+                        (df_fci_agg["fecha_snapshot"] <= fecha_hasta) &
+                        (df_fci_agg["EMISOR"].isin(emisores_sel))
                     ]
                     df_plot = df_r.groupby(["fecha_snapshot", "EMISOR"], as_index=False)["valuacion"].sum()
                     # Normalizar a base 100 desde la primera fecha del rango para cada emisor

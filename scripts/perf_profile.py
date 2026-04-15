@@ -117,11 +117,20 @@ def _mercado_queries(client):
         ],
     }))
 
-    queries.append(("mercado._cargar_precios_intraday", "Trading", "TimeSales", "find", {
-        "filter": {"ticker": {"$in": sel_tickers},
-                   "price": {"$gt": 0},
-                   "timestamp": {"$gte": fecha_min_15d}},
-        "projection": {"_id": 0, "ticker": 1, "timestamp": 1, "price": 1},
+    queries.append(("mercado._cargar_precios_intraday", "Trading", "TimeSales", "agg", {
+        "pipeline": [
+            {"$match": {"ticker": {"$in": sel_tickers},
+                        "price": {"$gt": 0},
+                        "timestamp": {"$gte": fecha_min_15d}}},
+            {"$sort": {"timestamp": 1}},
+            {"$group": {
+                "_id": {
+                    "ticker": "$ticker",
+                    "bucket": {"$dateTrunc": {"date": "$timestamp", "unit": "minute"}},
+                },
+                "price": {"$last": "$price"},
+            }},
+        ],
     }))
 
     tickers_tf = [d["ticker"] for d in client["Trading"]["Curvas"].find({"curva": "tasa_fija"}, {"ticker": 1, "_id": 0})]

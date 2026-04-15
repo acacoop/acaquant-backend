@@ -1614,18 +1614,30 @@ def _cargar_volumen_diario_tickers(tickers_key: tuple):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _cargar_precios_intraday(tickers_key: tuple):
-    """Serie intradiaria (ticker, timestamp, price) de los últimos 15 días corridos."""
+    """Último precio por minuto (downsample server-side) para los últimos 15 días corridos."""
     if not tickers_key:
         return pd.DataFrame()
     db = get_db()
     fecha_min = datetime.utcnow() - timedelta(days=15)
-    cursor = db["TimeSales"].find(
-        {"ticker": {"$in": list(tickers_key)},
-         "price": {"$gt": 0},
-         "timestamp": {"$gte": fecha_min}},
-        {"_id": 0, "ticker": 1, "timestamp": 1, "price": 1},
-    )
-    rows = list(cursor)
+    pipeline = [
+        {"$match": {"ticker": {"$in": list(tickers_key)},
+                    "price": {"$gt": 0},
+                    "timestamp": {"$gte": fecha_min}}},
+        {"$sort": {"timestamp": 1}},
+        {"$group": {
+            "_id": {
+                "ticker": "$ticker",
+                "bucket": {"$dateTrunc": {"date": "$timestamp", "unit": "minute"}},
+            },
+            "price": {"$last": "$price"},
+        }},
+    ]
+    rows = [
+        {"ticker": r["_id"]["ticker"],
+         "timestamp": r["_id"]["bucket"],
+         "price": r["price"]}
+        for r in db["TimeSales"].aggregate(pipeline)
+    ]
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
@@ -1665,46 +1677,56 @@ def _render_volumenes():
         st.info("Sin datos en los últimos 15 días para los tickers seleccionados.")
         return
 
-    fechas_vol = sorted(df_vol["fecha"].unique()) if not df_vol.empty else []
-    ts_min = df_price["timestamp"].min() if not df_price.empty else None
-    ts_max = df_price["timestamp"].max() if not df_price.empty else None
-    if ts_min is None and fechas_vol:
-        ts_min = pd.to_datetime(fechas_vol[0])
-        ts_max = pd.to_datetime(fechas_vol[-1]) + pd.Timedelta(days=1)
-
-    fechas_disp = fechas_vol or [
-        d.strftime("%Y-%m-%d")
-        for d in pd.date_range(ts_min.normalize(), ts_max.normalize(), freq="D")
-    ]
-    if len(fechas_disp) < 2:
-        st.info("Necesitás al menos 2 días de datos.")
+    fechas_hab = sorted(
+        (set(df_vol["fecha"].tolist()) if not df_vol.empty else set())
+        | (set(df_price["timestamp"].dt.strftime("%Y-%m-%d").tolist())
+           if not df_price.empty else set())
+    )
+    if len(fechas_hab) < 2:
+        st.info("Necesitás al menos 2 días hábiles con datos.")
         return
 
     fecha_desde, fecha_hasta = st.select_slider(
         "Período",
-        options=fechas_disp,
-        value=(fechas_disp[0], fechas_disp[-1]),
+        options=fechas_hab,
+        value=(fechas_hab[0], fechas_hab[-1]),
         key="vol_rango",
     )
-    ts_desde = pd.to_datetime(fecha_desde)
-    ts_hasta = pd.to_datetime(fecha_hasta) + pd.Timedelta(days=1)
+    fechas_rango = [f for f in fechas_hab if fecha_desde <= f <= fecha_hasta]
+    day_to_idx = {d: i for i, d in enumerate(fechas_rango)}
 
-    df_vol_r = df_vol[
-        (df_vol["fecha"] >= fecha_desde) & (df_vol["fecha"] <= fecha_hasta)
-    ].copy() if not df_vol.empty else pd.DataFrame()
+    df_vol_r = df_vol[df_vol["fecha"].isin(fechas_rango)].copy() \
+        if not df_vol.empty else pd.DataFrame()
     df_price_r = df_price[
-        (df_price["timestamp"] >= ts_desde) & (df_price["timestamp"] < ts_hasta)
+        df_price["timestamp"].dt.strftime("%Y-%m-%d").isin(fechas_rango)
     ].copy() if not df_price.empty else pd.DataFrame()
+
+    MARKET_OPEN_MIN = 13 * 60   # 13:00 UTC = 10:00 ART
+    MARKET_SPAN_MIN = 7 * 60    # 13:00 → 20:00 UTC
 
     if not df_vol_r.empty:
         df_vol_r["ticker_corto"] = df_vol_r["ticker"].map(t2short)
-        df_vol_r["fecha_ts"] = pd.to_datetime(df_vol_r["fecha"])
+        df_vol_r["x"] = df_vol_r["fecha"].map(day_to_idx) + 0.5
     if not df_price_r.empty:
         df_price_r["ticker_corto"] = df_price_r["ticker"].map(t2short)
+        fstr = df_price_r["timestamp"].dt.strftime("%Y-%m-%d")
+        df_price_r["day_idx"] = fstr.map(day_to_idx)
+        mod = df_price_r["timestamp"].dt.hour * 60 + df_price_r["timestamp"].dt.minute
+        df_price_r["frac"] = ((mod - MARKET_OPEN_MIN) / MARKET_SPAN_MIN).clip(0, 1)
+        df_price_r["x"] = df_price_r["day_idx"] + df_price_r["frac"]
 
     if df_vol_r.empty and df_price_r.empty:
         st.info("Sin datos en el rango seleccionado.")
         return
+
+    tick_vals = [i + 0.5 for i in range(len(fechas_rango))]
+    tick_labels = [pd.to_datetime(d).strftime("%d-%b") for d in fechas_rango]
+    label_expr = " : ".join(
+        f"datum.value === {v} ? '{l}'" for v, l in zip(tick_vals, tick_labels)
+    ) + " : ''"
+    x_axis  = alt.Axis(values=tick_vals, labelExpr=label_expr,
+                       labelAngle=-45, title="Fecha", grid=False)
+    x_scale = alt.Scale(domain=[0, len(fechas_rango)])
 
     color_enc = alt.Color("ticker_corto:N", title="Ticker",
                           legend=alt.Legend(orient="top"))
@@ -1713,9 +1735,9 @@ def _render_volumenes():
     if not df_vol_r.empty:
         bars = (
             alt.Chart(df_vol_r)
-            .mark_bar(opacity=0.45)
+            .mark_bar(opacity=0.45, size=18)
             .encode(
-                x=alt.X("fecha_ts:T", title="Fecha", axis=alt.Axis(format="%d-%b")),
+                x=alt.X("x:Q", axis=x_axis, scale=x_scale),
                 y=alt.Y("money_mm:Q",
                         title="Volumen (MM ARS)",
                         stack=True,
@@ -1735,13 +1757,14 @@ def _render_volumenes():
             alt.Chart(df_price_r)
             .mark_line(strokeWidth=2)
             .encode(
-                x=alt.X("timestamp:T", title="Fecha"),
+                x=alt.X("x:Q", axis=x_axis, scale=x_scale),
                 y=alt.Y("price:Q", title="Precio",
                         scale=alt.Scale(zero=False),
                         axis=alt.Axis(format=",.2f")),
                 color=color_enc,
+                detail="day_idx:N",
                 tooltip=[
-                    alt.Tooltip("timestamp:T", title="Fecha", format="%d-%b %H:%M"),
+                    alt.Tooltip("timestamp:T", title="Hora", format="%d-%b %H:%M"),
                     alt.Tooltip("ticker_corto:N", title="Ticker"),
                     alt.Tooltip("price:Q", format=",.2f", title="Precio"),
                 ],

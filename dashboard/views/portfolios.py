@@ -1,12 +1,51 @@
 """Vista Portfolios del dashboard: Reportes ejecutivos mensuales por cuenta."""
-from datetime import datetime, timedelta
 
-import pandas as pd
 import altair as alt
+import pandas as pd
 import streamlit as st
 
-from dashboard.shared.db import get_db_valuaciones
-from dashboard.shared.format import fmt_money, df_height
+from dashboard.shared.db import get_db, get_db_valuaciones
+from dashboard.shared.format import df_height
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _get_dolar_oficial():
+    """Último valor de Trading.DOLAR (tipo de cambio A3500 desde BCRA)."""
+    doc = get_db()["DOLAR"].find_one(sort=[("fecha", -1)])
+    return float(doc["valor"]) if doc else None
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _get_carteras_df():
+    """Lee Valuaciones.Carteras + join con Assets y calcula columna 'valuación'."""
+    db_val = get_db_valuaciones()
+    docs = list(db_val["Carteras"].find({}, {"_id": 0}))
+    if not docs:
+        return pd.DataFrame()
+    df = pd.DataFrame(docs)
+    df["precio_num"] = pd.to_numeric(df["precio"], errors="coerce")
+    df["cantidad"] = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
+
+    assets_docs = list(db_val["Assets"].find({}, {"_id": 0, "unidad": 1,
+        "CALIFICACION": 1, "CARTERA": 1, "CLASE_ACTIVO": 1,
+        "EMISOR": 1, "TICKER": 1, "VENCIMIENTO": 1}))
+    if assets_docs:
+        df = df.merge(pd.DataFrame(assets_docs), on="unidad", how="left")
+
+    for col in ["TICKER", "EMISOR", "CLASE_ACTIVO", "CARTERA", "CALIFICACION", "VENCIMIENTO"]:
+        if col in df.columns:
+            df[col] = df[col].fillna("-")
+
+    es_pq_directo = (
+        (df.get("CLASE_ACTIVO", pd.Series(dtype=str)) == "OTROS") |
+        (df.get("CARTERA", pd.Series(dtype=str)).str.contains("FCI", na=False))
+    )
+    df["valuación"] = df.apply(
+        lambda r: r["cantidad"] * r["precio_num"] if es_pq_directo.loc[r.name]
+                  else (r["cantidad"] * r["precio_num"] / 100),
+        axis=1,
+    )
+    return df
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -147,7 +186,7 @@ def _render_reporte_ejecutivo():
         ars_prev = dl_prev = hd_prev = fci_prev = 0.0
 
     # Fila 1: KPIs — bloque izq (Informe/MEP/A3500 stackeados) + 3 valuaciones horizontales
-    _kpi_label = f"font-size:14px;color:#666;font-weight:600"
+    _kpi_label = "font-size:14px;color:#666;font-weight:600"
     _kpi_val   = f"font-size:22px;color:{_REP_NAVY};font-weight:700"
     kpi_grid = f"""
     <div style='display:flex;gap:32px;align-items:flex-start;margin-bottom:24px'>

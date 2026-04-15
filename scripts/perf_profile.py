@@ -58,7 +58,11 @@ def profile(client, db_name, coll_name, filtro, proj):
     col = client[db_name][coll_name]
 
     try:
-        explain = col.find(filtro, proj).explain("executionStats")
+        explain = client[db_name].command(
+            "explain",
+            {"find": coll_name, "filter": filtro, "projection": proj},
+            verbosity="executionStats",
+        )
         stats = explain.get("executionStats", {})
         plan = explain.get("queryPlanner", {}).get("winningPlan", {})
         idx = _find_index(plan) or "?"

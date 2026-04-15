@@ -1,10 +1,24 @@
 """Vista AuM del dashboard: FCI, Análisis SG, Tasa Fija, CER, Renta Variable."""
+from concurrent.futures import ThreadPoolExecutor
+
 import altair as alt
 import pandas as pd
 import streamlit as st
 
 from dashboard.shared.db import get_db, get_db_valuaciones
 from dashboard.shared.format import df_height
+
+
+def _parallel(*fns):
+    """Ejecuta funciones sin args en paralelo; devuelve resultados en el mismo orden.
+
+    Aprovecha que los loaders cacheados son independientes entre sí y que cada
+    query contra Atlas pasa ~180ms esperando la red: se solapan en vez de
+    encadenarse. Seguro con @st.cache_data (es thread-safe).
+    """
+    with ThreadPoolExecutor(max_workers=len(fns)) as ex:
+        futures = [ex.submit(fn) for fn in fns]
+        return [f.result() for f in futures]
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -222,13 +236,14 @@ def _render_barras_rango_fci(df_fci_agg, color_field, key_prefix):
 def vista_aum():
     st.markdown("## ACAQuant | AuM")
 
-    df = _cargar_aum_ultimo()
-    df_fci_agg = _cargar_aum_fci_agg()
+    df, df_fci_agg, assets = _parallel(
+        _cargar_aum_ultimo, _cargar_aum_fci_agg, _cargar_assets,
+    )
     if df.empty and df_fci_agg.empty:
         st.warning("Sin datos. Ejecutá `main_aum.py` para cargar las posiciones.")
         return
 
-    assets = _cargar_assets()
+
     for _df in (df, df_fci_agg):
         if not _df.empty:
             _df["CARTERA"] = _df["unidad"].map(lambda u: assets.get(u, {}).get("CARTERA", ""))

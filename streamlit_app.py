@@ -5,11 +5,21 @@ import re
 import math
 import requests
 from datetime import datetime, timedelta
-from core.mongo import get_mongo_client, get_mongo_client_read
-from config import MANAGER_EMAILS
+from core.mongo import get_mongo_client_read
 from quant.black_scholes import bs_price as _bs_price
 import config
 from dashboard.views.manager import vista_data_manager
+from dashboard.shared.auth import get_user_email, is_manager_allowed
+from dashboard.shared.format import short_name, fmt_money, fmt_nom, fmt_vol, df_height, last_update_badge
+from dashboard.shared.db import (
+    get_db,
+    _cargar_tickers_merv,
+    get_db_opciones,
+    get_meta_col,
+    get_db_valuaciones,
+    get_db_cashflow,
+)
+from dashboard.shared.styles import apply_sidebar_styles
 
 # ==========================================
 # CONFIG
@@ -21,82 +31,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.markdown("""
-<style>
-[data-testid="stSidebar"] {
-    background-color: #094293;
-}
-[data-testid="stSidebar"] * {
-    color: #ffffff !important;
-}
-[data-testid="stSidebar"] .stRadio label {
-    color: #ffffff !important;
-}
-[data-testid="stSidebar"] hr {
-    border-color: rgba(255,255,255,0.3);
-}
-/* Fondo blanco solo en el bloque donde vive la imagen del logo */
-[data-testid="stSidebar"] [data-testid="stImage"] {
-    background-color: #ffffff;
-    padding: 12px;
-    border-radius: 0 0 8px 8px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-def get_user_email() -> str:
-    """
-    Lee el email autenticado por Cloudflare Access del header HTTP.
-    En desarrollo local (sin Cloudflare) devuelve string vacío.
-    """
-    try:
-        headers = st.context.headers
-        return headers.get("Cf-Access-Authenticated-User-Email", "").strip().lower()
-    except Exception:
-        return ""
-
-
-def is_manager_allowed() -> bool:
-    """Devuelve True si el usuario actual tiene acceso al Manager."""
-    if not MANAGER_EMAILS:
-        return True  # Si no hay lista configurada, permite acceso (modo dev local)
-    return get_user_email() in MANAGER_EMAILS
-
-
-def short_name(ticker):
-    parts = ticker.split(" - ")
-    return parts[2] if len(parts) >= 3 else ticker
-
-
-# ==========================================
-# CONEXIÓN A MONGO (cached, una sola vez)
-# ==========================================
-@st.cache_resource(ttl=3600)
-def get_db():
-    return get_mongo_client_read()["Trading"]
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def _cargar_tickers_merv():
-    """Lista de tickers MERV desde Trading.Curvas, ordenados por fecha_vencimiento."""
-    docs = list(get_db()["Curvas"].find(
-        {"ticker": {"$exists": True}},
-        {"_id": 0, "ticker": 1, "fecha_vencimiento": 1},
-    ))
-    docs.sort(key=lambda d: d.get("fecha_vencimiento", ""))
-    return [d["ticker"] for d in docs if d.get("ticker")]
-
-@st.cache_resource(ttl=3600)
-def get_db_opciones():
-    return get_mongo_client_read()["Opciones"]
-
-@st.cache_resource(ttl=3600)
-def get_meta_col():
-    return get_mongo_client_read()["Opciones"]["Metadata"]
-
-@st.cache_resource(ttl=3600)
-def get_db_valuaciones():
-    return get_mongo_client_read()["Valuaciones"]
+apply_sidebar_styles()
 
 
 # ==========================================
@@ -113,42 +48,6 @@ with st.sidebar:
         _opciones_nav,
         label_visibility="collapsed"
     )
-
-
-# ==========================================
-# HELPERS
-# ==========================================
-def fmt_money(v):
-    v = v or 0
-    if v >= 1_000_000_000: return f"${v/1_000_000_000:.1f}B"
-    if v >= 1_000_000:     return f"${v/1_000_000:.1f}M"
-    if v >= 1_000:         return f"${v/1_000:.0f}K"
-    return f"${v:.0f}"
-
-def fmt_nom(v):
-    v = v or 0
-    if v >= 1_000_000_000: return f"{v/1_000_000_000:.2f}B"
-    if v >= 1_000_000:     return f"{v/1_000_000:.1f}M"
-    if v >= 1_000:         return f"{v/1_000:.0f}K"
-    return f"{v:.0f}"
-
-def fmt_vol(v):
-    if not v or v == 0: return "-"
-    if v >= 1_000_000: return f"{v/1_000_000:.1f}M"
-    if v >= 1_000:     return f"{v/1_000:.0f}k"
-    return f"{v:.0f}"
-
-def df_height(nrows, max_h=800):
-    """Altura en píxeles para que el dataframe muestre todas las filas sin scroll vertical."""
-    return min(38 + 35 * nrows, max_h)
-
-def last_update_badge(ts):
-    """Muestra la hora de última actualización en horario Argentina (UTC-3). Sin contadores."""
-    if not ts:
-        return
-    # ts viene como UTC-naive desde MongoDB; restamos 3h para obtener ART
-    ts_art = ts - timedelta(hours=3)
-    st.caption(f"Última actualización: {ts_art.strftime('%H:%M:%S')}")
 
 
 # ==========================================
@@ -3226,11 +3125,6 @@ def vista_portfolios():
 # ==========================================
 # OPERACIONES — Cash Flow
 # ==========================================
-@st.cache_resource(ttl=3600)
-def get_db_cashflow():
-    return get_mongo_client_read()["CashFlow"]
-
-
 @st.cache_data(ttl=300, show_spinner=False)
 def _cargar_movimientos():
     db = get_db_cashflow()

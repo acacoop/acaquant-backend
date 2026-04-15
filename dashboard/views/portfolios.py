@@ -537,7 +537,7 @@ def _render_reporte_ejecutivo():
                      height=df_height(len(disp_dl), max_h=400))
 
 
-@st.fragment(run_every=30)
+@st.fragment(run_every=3600)
 def vista_portfolios():
     """Vista Portfolios: informe ejecutivo mensual por cuenta."""
     st.markdown("## ACAQuant | Portfolios")

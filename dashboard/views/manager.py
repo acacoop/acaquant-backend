@@ -13,7 +13,6 @@ import sys
 import tempfile
 import threading
 from datetime import UTC, date, datetime, time, timedelta
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -329,7 +328,7 @@ def _status_live_rows(en_rueda: bool) -> list[dict]:
         ))
 
     rows = []
-    for (db_n, coll_n, field, nombre, umbral, tz_naive), doc in zip(_STATUS_LIVE, docs):
+    for (_db_n, _coll_n, field, nombre, umbral, tz_naive), doc in zip(_STATUS_LIVE, docs):
         if not doc or not doc.get(field):
             rows.append({"Colección": nombre, "Última": "—", "Hace": "—",
                          "Umbral": f"{umbral}s", "Estado": "⚪ Sin datos"})
@@ -370,7 +369,7 @@ def _status_periodico_rows() -> list[dict]:
         ))
 
     rows = []
-    for (db_n, coll_n, field, tipo, nombre, umbral_dias, desc, tz_naive), doc in zip(
+    for (_db_n, _coll_n, field, tipo, nombre, umbral_dias, desc, tz_naive), doc in zip(
         _STATUS_PERIODICO, docs
     ):
         if not doc:

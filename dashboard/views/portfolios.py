@@ -1,7 +1,6 @@
 """Vista Portfolios del dashboard: Reportes ejecutivos mensuales por cuenta."""
 
 import altair as alt
-import pandas as pd
 import streamlit as st
 
 from dashboard.repos.portfolios import get_dolar_oficial, get_valor_mep
@@ -10,7 +9,6 @@ from dashboard.services.portfolios import (
     build_carteras_ii_enriquecidas,
 )
 from dashboard.shared.format import df_height
-
 
 # ==========================================
 # PORTFOLIOS → REPORTES (layout replica informe ejecutivo mensual)

@@ -20,7 +20,7 @@ def _cargar_movimientos():
     # para acotar la transferencia a los últimos ~24 meses.
     y_now = datetime.utcnow().year
     years = [str(y_now - i) for i in range(3)]  # cur, prev, prev-1
-    pat = r"/(%s)$" % "|".join(years)
+    pat = rf"/({'|'.join(years)})$"
     docs = list(db["Movimientos"].find(
         {"fecha": {"$regex": pat}},
         {"_id": 0, "fecha": 1, "total": 1, "unidad": 1, "informacion": 1, "cuenta": 1},

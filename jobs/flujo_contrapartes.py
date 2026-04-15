@@ -145,7 +145,7 @@ def main():
     # (ver scripts/crear_indices.py: Flujo.boleto unique partial).
     if registros:
         ops = []
-        for k, r in registros.items():
+        for r in registros.values():
             boleto = r.get("boleto")
             if isinstance(boleto, int):
                 ops.append(UpdateOne({"boleto": boleto}, {"$setOnInsert": r}, upsert=True))

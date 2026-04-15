@@ -8,19 +8,51 @@ from dashboard.shared.format import df_height
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _cargar_aum():
+def _cargar_aum_ultimo():
+    """Último snapshot de AuM (todas las carteras). Para tabs Tasa Fija / CER / RV."""
     db = get_db_valuaciones()
+    last = db["AuM"].find_one(
+        {}, {"fecha_snapshot": 1, "_id": 0},
+        sort=[("fecha_snapshot", -1)],
+    )
+    if not last:
+        return pd.DataFrame()
+    fecha = last["fecha_snapshot"]
     docs = list(db["AuM"].find(
-        {},
+        {"fecha_snapshot": fecha},
         {"_id": 0, "id_cuenta": 1, "cuenta": 1, "unidad": 1,
-         "tipoTitulo": 1, "cantidad": 1, "precio": 1, "valuacion": 1, "fecha_snapshot": 1}
+         "cantidad": 1, "valuacion": 1, "fecha_snapshot": 1},
     ))
     if not docs:
         return pd.DataFrame()
     df = pd.DataFrame(docs)
     df["valuacion"] = pd.to_numeric(df["valuacion"], errors="coerce").fillna(0)
     df["cantidad"]  = pd.to_numeric(df["cantidad"],  errors="coerce").fillna(0)
-    df["precio"]    = pd.to_numeric(df["precio"],    errors="coerce")
+    return df
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cargar_aum_fci_hist():
+    """Histórico de AuM solo para unidades con CARTERA == 'CARTERA FCI'."""
+    db = get_db_valuaciones()
+    fci_unidades = [
+        a["unidad"]
+        for a in db["Assets"].find(
+            {"CARTERA": "CARTERA FCI"}, {"unidad": 1, "_id": 0}
+        )
+        if a.get("unidad")
+    ]
+    if not fci_unidades:
+        return pd.DataFrame()
+    docs = list(db["AuM"].find(
+        {"unidad": {"$in": fci_unidades}},
+        {"_id": 0, "id_cuenta": 1, "cuenta": 1, "unidad": 1,
+         "valuacion": 1, "fecha_snapshot": 1},
+    ))
+    if not docs:
+        return pd.DataFrame()
+    df = pd.DataFrame(docs)
+    df["valuacion"] = pd.to_numeric(df["valuacion"], errors="coerce").fillna(0)
     return df
 
 
@@ -164,16 +196,17 @@ def _render_barras_rango_fci(df_fci_all, color_field, key_prefix):
 def vista_aum():
     st.markdown("## ACAQuant | AuM")
 
-    df = _cargar_aum()
-    if df.empty:
+    df = _cargar_aum_ultimo()
+    df_fci_all = _cargar_aum_fci_hist()
+    if df.empty and df_fci_all.empty:
         st.warning("Sin datos. Ejecutá `main_aum.py` para cargar las posiciones.")
         return
 
     assets = _cargar_assets()
-    df["CARTERA"] = df["unidad"].map(lambda u: assets.get(u, {}).get("CARTERA", ""))
-    df["EMISOR"]  = df["unidad"].map(lambda u: assets.get(u, {}).get("EMISOR",  ""))
-
-    df_fci_all = df[df["CARTERA"] == "CARTERA FCI"].copy()
+    for _df in (df, df_fci_all):
+        if not _df.empty:
+            _df["CARTERA"] = _df["unidad"].map(lambda u: assets.get(u, {}).get("CARTERA", ""))
+            _df["EMISOR"]  = _df["unidad"].map(lambda u: assets.get(u, {}).get("EMISOR",  ""))
 
     tab_fci, tab_stock_soc, tab_tasa_fija, tab_cer, tab_rv = st.tabs(["FCI", "Análisis SG", "Tasa Fija", "CER", "Renta Variable"])
 

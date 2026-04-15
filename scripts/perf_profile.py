@@ -20,19 +20,45 @@ import bson
 
 from core.mongo import get_mongo_client_read
 
-# (label, db, coll, filtro, projection)
-QUERIES = [
-    ("aum._cargar_aum", "Valuaciones", "AuM", {},
-        {"_id": 0, "id_cuenta": 1, "cuenta": 1, "unidad": 1, "tipoTitulo": 1,
-         "cantidad": 1, "precio": 1, "valuacion": 1, "fecha_snapshot": 1}),
-    ("aum._cargar_assets", "Valuaciones", "Assets", {},
+
+def _build_queries(client):
+    queries = []
+
+    last = client["Valuaciones"]["AuM"].find_one(
+        {}, {"fecha_snapshot": 1, "_id": 0},
+        sort=[("fecha_snapshot", -1)],
+    )
+    fecha_ultimo = last["fecha_snapshot"] if last else None
+
+    fci_unidades = [
+        a["unidad"]
+        for a in client["Valuaciones"]["Assets"].find(
+            {"CARTERA": "CARTERA FCI"}, {"unidad": 1, "_id": 0}
+        )
+        if a.get("unidad")
+    ]
+
+    queries.append(("aum._cargar_aum_ultimo", "Valuaciones", "AuM",
+        {"fecha_snapshot": fecha_ultimo} if fecha_ultimo else {},
+        {"_id": 0, "id_cuenta": 1, "cuenta": 1, "unidad": 1,
+         "cantidad": 1, "valuacion": 1, "fecha_snapshot": 1}))
+
+    queries.append(("aum._cargar_aum_fci_hist", "Valuaciones", "AuM",
+        {"unidad": {"$in": fci_unidades}} if fci_unidades else {"unidad": {"$in": []}},
+        {"_id": 0, "id_cuenta": 1, "cuenta": 1, "unidad": 1,
+         "valuacion": 1, "fecha_snapshot": 1}))
+
+    queries.append(("aum._cargar_assets", "Valuaciones", "Assets", {},
         {"_id": 0, "unidad": 1, "CARTERA": 1, "EMISOR": 1, "TICKER": 1,
-         "CLASE_ACTIVO": 1, "CALIFICACION": 1, "VENCIMIENTO": 1}),
-    ("aum._cargar_curvas_tasa_fija", "Trading", "Curvas", {"curva": "tasa_fija"},
-        {"_id": 0, "ticker_corto": 1, "fecha_vencimiento": 1, "flujo_vencimiento": 1}),
-    ("aum._cargar_curvas_cer", "Trading", "Curvas", {"curva": "cer"},
-        {"_id": 0, "ticker_corto": 1, "fecha_vencimiento": 1}),
-]
+         "CLASE_ACTIVO": 1, "CALIFICACION": 1, "VENCIMIENTO": 1}))
+
+    queries.append(("aum._cargar_curvas_tasa_fija", "Trading", "Curvas", {"curva": "tasa_fija"},
+        {"_id": 0, "ticker_corto": 1, "fecha_vencimiento": 1, "flujo_vencimiento": 1}))
+
+    queries.append(("aum._cargar_curvas_cer", "Trading", "Curvas", {"curva": "cer"},
+        {"_id": 0, "ticker_corto": 1, "fecha_vencimiento": 1}))
+
+    return queries
 
 
 def _find_index(node):
@@ -98,7 +124,7 @@ def profile(client, db_name, coll_name, filtro, proj):
 def main():
     client = get_mongo_client_read()
     rows = []
-    for label, db_name, coll, filtro, proj in QUERIES:
+    for label, db_name, coll, filtro, proj in _build_queries(client):
         print(f"→ {label} ...", flush=True)
         r = profile(client, db_name, coll, filtro, proj)
         r["label"] = label

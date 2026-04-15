@@ -55,9 +55,7 @@ def _is_list_wrap(call, pmap):
 def _has_projection(call):
     if any(k.arg == "projection" for k in call.keywords):
         return True
-    if call.func.attr in ("find", "find_one") and len(call.args) >= 2:
-        return True
-    return False
+    return call.func.attr in ("find", "find_one") and len(call.args) >= 2
 
 
 def _is_empty_filter(call):

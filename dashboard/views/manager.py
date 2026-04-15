@@ -470,10 +470,11 @@ def _tab_diagnostico():
                 for d in db["Curvas"].find({}):
                     grupos.setdefault(d.get("curva", "?"), []).append(d)
 
-            for curva, instrumentos in sorted(grupos.items()):
-                tickers = [i["ticker"] for i in instrumentos if i.get("ticker")]
+                # Un solo aggregate consolidado para todos los tickers
+                all_tickers = [i["ticker"] for insts in grupos.values()
+                               for i in insts if i.get("ticker")]
                 pipeline = [
-                    {"$match": {"ticker": {"$in": tickers},
+                    {"$match": {"ticker": {"$in": all_tickers},
                                 "TEA":      {"$exists": True},
                                 "duration": {"$exists": True}}},
                     {"$sort": {"timestamp": -1}},
@@ -482,7 +483,11 @@ def _tab_diagnostico():
                                 "duration": {"$first": "$duration"},
                                 "ts":       {"$first": "$timestamp"}}},
                 ]
-                teas  = {r["_id"]: r for r in db["TimeSales"].aggregate(pipeline)}
+                teas_all = {r["_id"]: r for r in db["TimeSales"].aggregate(pipeline)} if all_tickers else {}
+
+            for curva, instrumentos in sorted(grupos.items()):
+                tickers = [i["ticker"] for i in instrumentos if i.get("ticker")]
+                teas  = {tk: teas_all[tk] for tk in tickers if tk in teas_all}
                 insts = sorted(instrumentos, key=lambda x: x.get("fecha_vencimiento", "9999"))
 
                 st.markdown(f"**Curva: {curva}** ({len(instrumentos)} instrumentos)")

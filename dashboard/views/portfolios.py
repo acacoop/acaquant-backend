@@ -15,6 +15,26 @@ def _get_dolar_oficial():
     return float(doc["valor"]) if doc else None
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _cargar_assets_df():
+    """Assets con columnas usadas en Reportes. Cacheado y compartido."""
+    assets_docs = list(get_db_valuaciones()["Assets"].find(
+        {}, {"_id": 0, "unidad": 1, "CALIFICACION": 1, "CARTERA": 1,
+             "CLASE_ACTIVO": 1, "EMISOR": 1, "TICKER": 1, "VENCIMIENTO": 1}
+    ))
+    return pd.DataFrame(assets_docs) if assets_docs else pd.DataFrame()
+
+
+def _merge_assets(df):
+    assets_df = _cargar_assets_df()
+    if not assets_df.empty:
+        df = df.merge(assets_df, on="unidad", how="left")
+    for col in ["TICKER", "EMISOR", "CLASE_ACTIVO", "CARTERA", "CALIFICACION", "VENCIMIENTO"]:
+        if col in df.columns:
+            df[col] = df[col].fillna("-")
+    return df
+
+
 @st.cache_data(ttl=120, show_spinner=False)
 def _get_carteras_df():
     """Lee Valuaciones.Carteras + join con Assets y calcula columna 'valuación'."""
@@ -26,15 +46,7 @@ def _get_carteras_df():
     df["precio_num"] = pd.to_numeric(df["precio"], errors="coerce")
     df["cantidad"] = pd.to_numeric(df["cantidad"], errors="coerce").fillna(0)
 
-    assets_docs = list(db_val["Assets"].find({}, {"_id": 0, "unidad": 1,
-        "CALIFICACION": 1, "CARTERA": 1, "CLASE_ACTIVO": 1,
-        "EMISOR": 1, "TICKER": 1, "VENCIMIENTO": 1}))
-    if assets_docs:
-        df = df.merge(pd.DataFrame(assets_docs), on="unidad", how="left")
-
-    for col in ["TICKER", "EMISOR", "CLASE_ACTIVO", "CARTERA", "CALIFICACION", "VENCIMIENTO"]:
-        if col in df.columns:
-            df[col] = df[col].fillna("-")
+    df = _merge_assets(df)
 
     es_pq_directo = (
         (df.get("CLASE_ACTIVO", pd.Series(dtype=str)) == "OTROS") |
@@ -60,17 +72,7 @@ def _get_carteras_ii_df():
         return pd.DataFrame()
     df = pd.DataFrame(docs)
     df["valuación"] = pd.to_numeric(df.get("valuacion"), errors="coerce").fillna(0)
-
-    assets_docs = list(db_val["Assets"].find({}, {"_id": 0, "unidad": 1,
-        "CALIFICACION": 1, "CARTERA": 1, "CLASE_ACTIVO": 1,
-        "EMISOR": 1, "TICKER": 1, "VENCIMIENTO": 1}))
-    if assets_docs:
-        df = df.merge(pd.DataFrame(assets_docs), on="unidad", how="left")
-
-    for col in ["TICKER", "EMISOR", "CLASE_ACTIVO", "CARTERA", "CALIFICACION", "VENCIMIENTO"]:
-        if col in df.columns:
-            df[col] = df[col].fillna("-")
-    return df
+    return _merge_assets(df)
 
 
 @st.cache_data(ttl=60, show_spinner=False)

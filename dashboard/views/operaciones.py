@@ -1,5 +1,6 @@
 """Vista Operaciones del dashboard: Cash Flow, Contrapartes, Análisis, Flujo vs AuM."""
 import re
+from datetime import datetime
 
 import altair as alt
 import pandas as pd
@@ -12,10 +13,18 @@ from dashboard.shared.format import fmt_nom
 # ==========================================
 # OPERACIONES — Cash Flow
 # ==========================================
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=900, show_spinner=False)
 def _cargar_movimientos():
     db = get_db_cashflow()
-    docs = list(db["Movimientos"].find({}, {"_id": 0, "fecha": 1, "total": 1, "unidad": 1, "informacion": 1, "cuenta": 1}))
+    # fecha es "dd/mm/yyyy" en Mongo — filtramos server-side por año con regex
+    # para acotar la transferencia a los últimos ~24 meses.
+    y_now = datetime.utcnow().year
+    years = [str(y_now - i) for i in range(3)]  # cur, prev, prev-1
+    pat = r"/(%s)$" % "|".join(years)
+    docs = list(db["Movimientos"].find(
+        {"fecha": {"$regex": pat}},
+        {"_id": 0, "fecha": 1, "total": 1, "unidad": 1, "informacion": 1, "cuenta": 1},
+    ))
     if not docs:
         return pd.DataFrame()
     df = pd.DataFrame(docs)
@@ -32,7 +41,7 @@ def _cargar_accionistas():
     return {d["cuenta"]: d["accionista"] for d in docs if "cuenta" in d}
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=900, show_spinner=False)
 def _cargar_contrapartes():
     db = get_db_cashflow()
     docs = list(db["Flujo"].find(
@@ -668,7 +677,7 @@ def vista_operaciones():
 # Flujo vs AuM (Fondos)
 # ==========================================
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=900, show_spinner=False)
 def _cargar_fondos_flujo_aum():
     """
     Devuelve:
@@ -711,9 +720,12 @@ def _cargar_fondos_flujo_aum():
         df_assets   = pd.DataFrame(assets_docs)
         unidades    = df_assets["unidad"].tolist()
         emisor_map  = df_assets.set_index("unidad")["EMISOR"].to_dict()
-        # $group server-side: colapsa cuentas por (unidad, fecha) antes del transfer
+        # $group server-side: colapsa cuentas por (unidad, fecha) antes del transfer.
+        # Ventana de 36 meses para acotar el cache (fecha_snapshot es ISO "YYYY-MM-DD").
+        desde_snap = (datetime.utcnow() - pd.Timedelta(days=365 * 3)).strftime("%Y-%m-%d")
         aum_rows = list(db_val["AuM"].aggregate([
-            {"$match":   {"unidad": {"$in": unidades}}},
+            {"$match":   {"unidad": {"$in": unidades},
+                          "fecha_snapshot": {"$gte": desde_snap}}},
             {"$group":   {"_id": {"u": "$unidad", "f": "$fecha_snapshot"},
                           "valuacion": {"$sum": "$valuacion"}}},
             {"$project": {"_id": 0, "unidad": "$_id.u",

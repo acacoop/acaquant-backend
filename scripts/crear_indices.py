@@ -72,6 +72,10 @@ def main():
         (valuaciones["Carteras"], [("id_cuenta", 1), ("unidad", 1)],
             "Carteras: id_cuenta + unidad"),
 
+        # ── Valuaciones.Dolar ─────────────────────────────────────────────
+        (valuaciones["Dolar"], [("timestamp", -1)],
+            "Dolar: timestamp"),
+
         # ── Valuaciones.Assets ────────────────────────────────────────────
         (valuaciones["Assets"], [("unidad", 1)],
             "Assets: unidad (unique)", {"unique": True}),

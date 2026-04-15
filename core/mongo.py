@@ -5,6 +5,7 @@ from datetime import datetime
 
 import pymongo
 from dotenv import load_dotenv
+from pymongo import ReadPreference
 
 from core import mongo_monitor
 
@@ -50,7 +51,7 @@ def get_mongo_client() -> pymongo.MongoClient:
             if _client is None:  # double-checked locking
                 _client = pymongo.MongoClient(
                     MONGO_URI,
-                    serverSelectionTimeoutMS=5000,
+                    serverSelectionTimeoutMS=30000,
                     maxPoolSize=20,
                     compressors="zstd,snappy,zlib",
                 )
@@ -72,11 +73,15 @@ def get_mongo_client_read() -> pymongo.MongoClient:
     if _client_read is None:
         with _client_read_lock:
             if _client_read is None:
+                # secondaryPreferred: si no hay primary (elecciones, upgrades)
+                # las vistas siguen leyendo de un secundario. En M10 el lag es
+                # típicamente <1s → aceptable para dashboard.
                 _client_read = pymongo.MongoClient(
                     uri,
-                    serverSelectionTimeoutMS=5000,
+                    serverSelectionTimeoutMS=30000,
                     maxPoolSize=20,
                     compressors="zstd,snappy,zlib",
+                    read_preference=ReadPreference.SECONDARY_PREFERRED,
                 )
     return _client_read
 

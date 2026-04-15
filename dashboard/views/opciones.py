@@ -6,30 +6,15 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from core.mongo import get_mongo_client_read
+from dashboard.repos.opciones import (
+    fetch_estrategia_historico,
+    fetch_vol_historico,
+    get_metadata,
+    get_options_snapshot,
+)
 from dashboard.shared.db import get_db_opciones, get_meta_col
 from dashboard.shared.format import df_height, fmt_vol
 from quant.black_scholes import bs_price as _bs_price
-
-
-@st.cache_data(ttl=5, show_spinner=False)
-def _get_options_snapshot():
-    return list(get_db_opciones()["OptionsSnapshot"].find({}))
-
-
-@st.cache_data(ttl=5, show_spinner=False)
-def _get_metadata():
-    docs = list(get_meta_col().find({"type": {"$in": ["vr_ggal", "config"]}}))
-    return {d.get("type"): d for d in docs}
-
-
-@st.cache_data(ttl=120, show_spinner=False)
-def _fetch_estrategia_historico(symbols_key: frozenset, dias: int):
-    desde = datetime.utcnow() - timedelta(days=dias)
-    return list(get_db_opciones()["Data"].find(
-        {"symbol": {"$in": list(symbols_key)}, "timestamp": {"$gte": desde}},
-        {"_id": 0, "symbol": 1, "timestamp": 1, "last": 1, "bid": 1, "offer": 1},
-    ))
 
 
 # ==========================================
@@ -342,7 +327,7 @@ def _chart_historico_estrategia(db_opciones, resolved_legs, costo_actual=None, d
     if not symbols:
         return None
 
-    docs = _fetch_estrategia_historico(frozenset(symbols), dias)
+    docs = fetch_estrategia_historico(frozenset(symbols), dias)
     if not docs:
         return None
 
@@ -472,10 +457,10 @@ def _tab_opciones_mercado():
     """Solo este fragment se refresca cada 30s."""
     meta_col = get_meta_col()
 
-    docs = _get_options_snapshot()
+    docs = get_options_snapshot()
     spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0) if docs else 0
 
-    meta = _get_metadata()
+    meta = get_metadata()
     vr_doc   = meta.get("vr_ggal") or {}
     vr_local = vr_doc.get("vr_local", 0)
     vr_adr   = vr_doc.get("vr_adr",   0)
@@ -543,7 +528,7 @@ def vista_opciones():
 
     # ── Tab Estrategias ───────────────────────────────────────────────────
     with tab_est:
-        docs_e = _get_options_snapshot()
+        docs_e = get_options_snapshot()
         spot_e = next((d.get("spot", 0) for d in docs_e if d.get("spot", 0) > 0), 0) if docs_e else 0
 
         if not docs_e:
@@ -681,7 +666,7 @@ def vista_opciones():
                 with col_tabla_spread:
                     if sel_legs and spot_e > 0:
                         # Tasa y T para pricing teórico
-                        _cfg = _get_metadata().get("config") or {}
+                        _cfg = get_metadata().get("config") or {}
                         _r   = _cfg.get("tasa", 0.242)
                         # T: promedio de los T calculados por pata (vega/gamma·S²·σ)
                         _t_vals = [lg['T'] for lg in sel_legs if lg.get('T') and lg['T'] > 0]
@@ -736,33 +721,9 @@ def vista_opciones():
         _render_volumenes_opciones(db_op)
 
 
-@st.cache_data(ttl=300)
-def _fetch_vol_historico():
-    """Lee rollup diario de Opciones.DataHistorica (alimentado por jobs.options_rollup).
-
-    Devuelve filas (fecha, Strike, Tipo, EV_M) de los últimos 20 días.
-    """
-    fecha_min = (datetime.utcnow() - timedelta(days=20)).strftime("%Y-%m-%d")
-    pipeline = [
-        {"$match": {"fecha": {"$gte": fecha_min}, "ev": {"$gt": 0},
-                    "strike": {"$exists": True}, "tipo": {"$exists": True}}},
-        {"$group": {
-            "_id": {"fecha": "$fecha", "strike": "$strike", "tipo": "$tipo"},
-            "ev_total": {"$sum": "$ev"},
-        }},
-    ]
-    docs = list(get_mongo_client_read()["Opciones"]["DataHistorica"].aggregate(pipeline))
-    return [{
-        "fecha":  d["_id"]["fecha"],
-        "Strike": d["_id"]["strike"],
-        "Tipo":   d["_id"]["tipo"],
-        "EV_M":   round(d["ev_total"] / 1_000_000, 3),
-    } for d in docs]
-
-
 def _render_volumenes_opciones(_db_op_ignored):
     """Volumen operado (EV) por strike y tipo (CALL/PUT) usando Opciones.Data."""
-    rows = _fetch_vol_historico()
+    rows = fetch_vol_historico()
     if not rows:
         st.info("Sin datos en Opciones.Data.")
         return

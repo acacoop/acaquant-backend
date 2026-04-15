@@ -2196,15 +2196,10 @@ def _trace_aum_fci(client):
         if a.get("unidad")
     ]
 
-    sw.step("mongo: agg FCI histórico ($group)")
-    pipeline = [
-        {"$match": {"unidad": {"$in": unidades}}},
-        {"$group": {"_id": {"fecha": "$fecha_snapshot", "unidad": "$unidad"},
-                    "valuacion": {"$sum": "$valuacion"}}},
-        {"$project": {"_id": 0, "fecha_snapshot": "$_id.fecha",
-                      "unidad": "$_id.unidad", "valuacion": "$valuacion"}},
-    ]
-    rows_hist = list(db_val["AuM"].aggregate(pipeline))
+    sw.step("mongo: find AuMResumenFCI (rollup pre-materializado)")
+    rows_hist = list(db_val["AuMResumenFCI"].find(
+        {}, {"_id": 0, "fecha_snapshot": 1, "unidad": 1, "valuacion_total": 1}
+    ))
 
     sw.step("mongo: find AuM snapshot último (FCI)")
     docs_snap = list(db_val["AuM"].find(
@@ -2213,7 +2208,7 @@ def _trace_aum_fci(client):
     ))
 
     sw.step("pandas: DataFrames + conversiones")
-    df_hist = pd.DataFrame(rows_hist)
+    df_hist = pd.DataFrame(rows_hist).rename(columns={"valuacion_total": "valuacion"})
     _ = pd.DataFrame(docs_snap)
     if not df_hist.empty:
         df_hist["valuacion"] = pd.to_numeric(df_hist["valuacion"], errors="coerce").fillna(0)

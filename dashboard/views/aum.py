@@ -44,32 +44,20 @@ def _fci_unidades():
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _cargar_aum_fci_agg():
-    """Agregación server-side para charts: (fecha_snapshot, unidad) → sum(valuacion).
+    """Histórico agregado (fecha_snapshot, unidad) → suma de valuación.
 
-    Colapsa cuentas en Mongo via $group. Usado por charts de evolución FCI y
-    Análisis SG. Payload ~5-10× más chico que el histórico raw.
+    Lee de `Valuaciones.AuMResumenFCI` (rollup pre-materializado por
+    `jobs/aum_resumen_fci.py`, ejecutado al final de cada corrida de
+    `jobs/aum` y `jobs/aum_backfill`). Reemplaza un $group en vivo sobre
+    ~40k docs por un find sobre ~12k docs ya agregados.
     """
     db = get_db_valuaciones()
-    unidades = _fci_unidades()
-    if not unidades:
+    docs = list(db["AuMResumenFCI"].find(
+        {}, {"_id": 0, "fecha_snapshot": 1, "unidad": 1, "valuacion_total": 1}
+    ))
+    if not docs:
         return pd.DataFrame()
-    pipeline = [
-        {"$match": {"unidad": {"$in": unidades}}},
-        {"$group": {
-            "_id":       {"fecha": "$fecha_snapshot", "unidad": "$unidad"},
-            "valuacion": {"$sum": "$valuacion"},
-        }},
-        {"$project": {
-            "_id":            0,
-            "fecha_snapshot": "$_id.fecha",
-            "unidad":         "$_id.unidad",
-            "valuacion":      "$valuacion",
-        }},
-    ]
-    rows = list(db["AuM"].aggregate(pipeline))
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(docs).rename(columns={"valuacion_total": "valuacion"})
     df["valuacion"] = pd.to_numeric(df["valuacion"], errors="coerce").fillna(0)
     return df
 

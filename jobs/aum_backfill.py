@@ -137,6 +137,10 @@ def main():
     # Refrescar CarterasII (basado en hoy, no en la fecha backfilleada)
     sync_carteras_ii()
 
+    # Pre-materializar resumen FCI para la fecha backfilleada
+    from jobs.aum_resumen_fci import sync_fecha as sync_resumen_fci
+    sync_resumen_fci(client, fecha_snapshot)
+
 
 if __name__ == "__main__":
     main()

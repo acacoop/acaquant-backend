@@ -347,6 +347,10 @@ def run():
     # Sincronizar CarterasII (primer día hábil del mes anterior a hoy)
     sync_carteras_ii(fecha_snapshot)
 
+    # Pre-materializar resumen FCI por (fecha_snapshot, unidad)
+    from jobs.aum_resumen_fci import sync_fecha as sync_resumen_fci
+    sync_resumen_fci(client, fecha_snapshot)
+
 
 
 if __name__ == "__main__":

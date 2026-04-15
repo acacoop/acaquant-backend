@@ -1659,15 +1659,14 @@ def _render_volumenes():
 
     col1, _ = st.columns([3, 2])
     with col1:
-        default_sel = tickers_disp[: min(4, len(tickers_disp))]
-        sel_cortos = st.multiselect(
-            "Tickers", tickers_disp, default=default_sel, key="vol_tickers"
+        sel_corto = st.selectbox(
+            "Ticker", tickers_disp, index=0, key="vol_ticker"
         )
-    if not sel_cortos:
-        st.info("Seleccioná al menos un ticker.")
+    if not sel_corto:
+        st.info("Seleccioná un ticker.")
         return
 
-    sel_tickers = tuple(sorted(short2t[s] for s in sel_cortos))
+    sel_tickers = (short2t[sel_corto],)
 
     with st.spinner("Cargando datos..."):
         df_vol   = _cargar_volumen_diario_tickers(sel_tickers)

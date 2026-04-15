@@ -9,3 +9,4 @@ Excel/response_cuenta_*.json
 .DS_Store
 .claude/
 .ipynb_checkpoints/
+.idea/

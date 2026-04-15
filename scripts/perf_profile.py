@@ -15,18 +15,14 @@ Ejecutar en el servidor (donde .env apunta a prod):
 """
 
 import time
+from datetime import datetime, timedelta
 
 import bson
 
 from core.mongo import get_mongo_client_read
 
 
-def _build_queries(client):
-    """Cada entry: (label, db_name, coll_name, kind, spec).
-
-    kind = "find"  → spec = {"filter": ..., "projection": ...}
-    kind = "agg"   → spec = {"pipeline": [...]}
-    """
+def _aum_queries(client):
     queries = []
 
     last = client["Valuaciones"]["AuM"].find_one(
@@ -90,6 +86,145 @@ def _build_queries(client):
     return queries
 
 
+def _mercado_queries(client):
+    queries = []
+
+    queries.append(("mercado._cargar_breakevens_historico", "Trading", "BreakevensHistorico", "find", {
+        "filter": {},
+        "projection": {"fecha": 1, "pares": 1, "_id": 0},
+    }))
+
+    queries.append(("mercado._cargar_forwards_historico(tasa_fija)", "Trading", "ForwardsHistorico", "find", {
+        "filter": {"curva": "tasa_fija"},
+        "projection": {"fecha": 1, "matrix": 1, "_id": 0},
+    }))
+
+    tickers_curvas = [d["ticker"] for d in client["Trading"]["Curvas"].find({}, {"ticker": 1, "_id": 0})]
+    queries.append(("mercado._cargar_volumenes_diarios", "Trading", "TimeSales", "agg", {
+        "pipeline": [
+            {"$match": {"ticker": {"$in": tickers_curvas}, "money": {"$gt": 0}}},
+            {"$group": {
+                "_id": {
+                    "fecha":  {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
+                    "ticker": "$ticker",
+                },
+                "money": {"$sum": "$money"},
+            }},
+        ],
+    }))
+
+    tickers_tf = [d["ticker"] for d in client["Trading"]["Curvas"].find({"curva": "tasa_fija"}, {"ticker": 1, "_id": 0})]
+    queries.append(("mercado._cargar_precios_diarios_curva(tasa_fija)", "Trading", "TimeSales", "agg", {
+        "pipeline": [
+            {"$match": {"ticker": {"$in": tickers_tf}, "price": {"$gt": 0}}},
+            {"$sort":  {"timestamp": -1}},
+            {"$group": {
+                "_id": {
+                    "ticker": "$ticker",
+                    "fecha":  {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
+                },
+                "price": {"$first": "$price"},
+            }},
+        ],
+    }))
+
+    return queries
+
+
+def _opciones_queries(_client):
+    queries = []
+    fecha_min = datetime.utcnow() - timedelta(days=20)
+    queries.append(("opciones._fetch_vol_historico", "Opciones", "Data", "agg", {
+        "pipeline": [
+            {"$match": {"timestamp": {"$gte": fecha_min}, "ev": {"$gt": 0},
+                        "strike": {"$exists": True}, "tipo": {"$exists": True}}},
+            {"$group": {
+                "_id": {"y": {"$year": "$timestamp"}, "m": {"$month": "$timestamp"},
+                        "d": {"$dayOfMonth": "$timestamp"}, "s": "$symbol"},
+                "ev":     {"$max":   "$ev"},
+                "strike": {"$first": "$strike"},
+                "tipo":   {"$first": "$tipo"},
+            }},
+            {"$group": {
+                "_id": {"y": "$_id.y", "m": "$_id.m", "d": "$_id.d",
+                        "strike": "$strike", "tipo": "$tipo"},
+                "ev_total": {"$sum": "$ev"},
+            }},
+        ],
+    }))
+    return queries
+
+
+def _operaciones_queries(client):
+    queries = []
+
+    queries.append(("operaciones._cargar_movimientos", "CashFlow", "Movimientos", "find", {
+        "filter": {},
+        "projection": {"_id": 0, "fecha": 1, "total": 1, "unidad": 1,
+                       "informacion": 1, "cuenta": 1},
+    }))
+
+    queries.append(("operaciones._cargar_contrapartes.Flujo", "CashFlow", "Flujo", "find", {
+        "filter": {},
+        "projection": {"_id": 0, "bruto": 1, "concertacion": 1, "contraparte": 1,
+                       "moneda": 1, "tipoOperacion": 1},
+    }))
+
+    # _cargar_fondos_flujo_aum: encadenado
+    fondos = [d["contraparte"] for d in client["CashFlow"]["Contrapartes"].find(
+        {"segmento": "Fondos"}, {"_id": 0, "contraparte": 1}
+    )]
+    queries.append(("operaciones.fondos_flujo_aum.Flujo", "CashFlow", "Flujo", "find", {
+        "filter": {"contraparte": {"$in": fondos}, "moneda": "ARS"} if fondos else {"contraparte": {"$in": []}},
+        "projection": {"_id": 0, "contraparte": 1, "concertacion": 1, "bruto": 1},
+    }))
+    queries.append(("operaciones.fondos_flujo_aum.Assets", "Valuaciones", "Assets", "find", {
+        "filter": {"EMISOR": {"$in": fondos}, "CARTERA": "CARTERA FCI"} if fondos else {"EMISOR": {"$in": []}},
+        "projection": {"_id": 0, "unidad": 1, "EMISOR": 1},
+    }))
+    fondo_unidades = []
+    if fondos:
+        fondo_unidades = [a["unidad"] for a in client["Valuaciones"]["Assets"].find(
+            {"EMISOR": {"$in": fondos}, "CARTERA": "CARTERA FCI"}, {"unidad": 1, "_id": 0}
+        ) if a.get("unidad")]
+    queries.append(("operaciones.fondos_flujo_aum.AuM", "Valuaciones", "AuM", "find", {
+        "filter": {"unidad": {"$in": fondo_unidades}} if fondo_unidades else {"unidad": {"$in": []}},
+        "projection": {"_id": 0, "unidad": 1, "valuacion": 1, "fecha_snapshot": 1},
+    }))
+
+    return queries
+
+
+def _portfolios_queries(_client):
+    queries = []
+
+    queries.append(("portfolios._get_carteras_df.Carteras", "Valuaciones", "Carteras", "find", {
+        "filter": {},
+        "projection": {"_id": 0},
+    }))
+    queries.append(("portfolios._get_carteras_ii_df.CarterasII", "Valuaciones", "CarterasII", "find", {
+        "filter": {},
+        "projection": {"_id": 0},
+    }))
+
+    return queries
+
+
+def _build_queries(client):
+    """Cada entry: (label, db_name, coll_name, kind, spec).
+
+    kind = "find"  → spec = {"filter": ..., "projection": ...}
+    kind = "agg"   → spec = {"pipeline": [...]}
+    """
+    queries = []
+    queries.extend(_aum_queries(client))
+    queries.extend(_mercado_queries(client))
+    queries.extend(_opciones_queries(client))
+    queries.extend(_operaciones_queries(client))
+    queries.extend(_portfolios_queries(client))
+    return queries
+
+
 def _find_index(node):
     """Busca recursivamente el indexName o COLLSCAN en el winning plan."""
     if isinstance(node, dict):
@@ -143,7 +278,6 @@ def _profile_agg(client, db_name, coll_name, pipeline):
             {"aggregate": coll_name, "pipeline": pipeline, "cursor": {}},
             verbosity="executionStats",
         )
-        # En aggregate el winningPlan está en stages[0] o en queryPlanner
         idx = "?"
         mongo_ms = 0
         n_examined = 0
@@ -212,13 +346,13 @@ def main():
     rows.sort(key=lambda r: r["roundtrip_ms"], reverse=True)
 
     print()
-    hdr = f"{'QUERY':<32} {'DOCS':>9} {'EXAM':>9} {'MONGO':>9} {'RED':>9} {'TOTAL':>9} {'MB':>7}  ÍNDICE"
+    hdr = f"{'QUERY':<48} {'DOCS':>9} {'EXAM':>9} {'MONGO':>9} {'RED':>9} {'TOTAL':>9} {'MB':>7}  ÍNDICE"
     print(hdr)
     print("-" * len(hdr))
     for r in rows:
         ratio = r["totalDocsExamined"] / max(r["nReturned"], 1)
         flag = " ⚠" if ratio > 10 or r["index"] == "COLLSCAN" else ""
-        print(f"{r['label']:<32} "
+        print(f"{r['label']:<48} "
               f"{r['nReturned']:>9,} "
               f"{r['totalDocsExamined']:>9,} "
               f"{r['mongo_ms']:>7,}ms "

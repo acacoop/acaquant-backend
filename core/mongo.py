@@ -6,6 +6,10 @@ from datetime import datetime
 import pymongo
 from dotenv import load_dotenv
 
+from core import mongo_monitor
+
+mongo_monitor.register()
+
 # Cargamos las variables del archivo .env en la raíz del proyecto
 # (este módulo vive en core/, por eso subimos un nivel)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

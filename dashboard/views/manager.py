@@ -1753,9 +1753,10 @@ def _tab_historial():
 
 def _tab_latencia():
     st.markdown("### Test de Latencia")
-    sub_bench, sub_trace = st.tabs(["Benchmark", "Trace por vista"])
+    sub_bench, sub_trace, sub_log = st.tabs(["Benchmark", "Trace por vista", "Query Log"])
     with sub_bench: _latencia_benchmark()
     with sub_trace: _latencia_trace()
+    with sub_log:   _latencia_querylog()
 
 
 def _latencia_benchmark():
@@ -2146,6 +2147,80 @@ def _latencia_trace():
         return
 
     _render_trace_waterfall(trace)
+
+
+# ─── QUERY LOG (pymongo CommandListener) ─────────────────────────────────────
+
+def _latencia_querylog():
+    from core import mongo_monitor
+
+    st.caption(
+        "Graba cada comando de pymongo que pasa por este proceso (find/aggregate/"
+        "update/etc.) con duración real. Útil para ver qué queries dispara cada "
+        "click sin tener que instrumentar vista por vista."
+    )
+
+    col_a, col_b, col_c, col_d = st.columns([1, 1, 1, 2])
+    recording = mongo_monitor.is_recording()
+
+    with col_a:
+        if recording:
+            if st.button("⏹ Parar grabación", type="primary", use_container_width=True):
+                mongo_monitor.stop()
+                st.rerun()
+        else:
+            if st.button("● Empezar a grabar", type="primary", use_container_width=True):
+                mongo_monitor.start()
+                st.rerun()
+
+    with col_b:
+        if st.button("🗑 Limpiar buffer", use_container_width=True):
+            mongo_monitor.clear()
+            st.rerun()
+
+    with col_c:
+        if st.button("🔄 Refrescar", use_container_width=True):
+            st.rerun()
+
+    with col_d:
+        estado = "🔴 Grabando" if recording else "⚪ Detenido"
+        st.markdown(f"**Estado:** {estado}")
+
+    st.divider()
+
+    records = mongo_monitor.get_records()
+    if not records:
+        if recording:
+            st.info(
+                "Grabando — navegá por el dashboard en otra pestaña y volvé acá para "
+                "ver las queries capturadas."
+            )
+        else:
+            st.info("Sin queries grabadas. Activá la grabación y navegá el dashboard.")
+        return
+
+    df_log = pd.DataFrame(records)
+    df_log["ts"] = pd.to_datetime(df_log["ts"], unit="s").dt.strftime("%H:%M:%S.%f").str[:-3]
+    df_log = df_log[["ts", "db", "coll", "op", "ms", "status", "filter"]].copy()
+    df_log["ms"] = pd.to_numeric(df_log["ms"], errors="coerce").round(1)
+    df_log = df_log.sort_values("ms", ascending=False).reset_index(drop=True)
+
+    total_ms  = float(df_log["ms"].sum())
+    p95       = float(df_log["ms"].quantile(0.95)) if len(df_log) > 1 else float(df_log["ms"].max())
+    slow_1s   = int((df_log["ms"] >= 1000).sum())
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Queries",        len(df_log))
+    m2.metric("Tiempo total",   f"{total_ms:,.0f} ms")
+    m3.metric("p95",            f"{p95:,.0f} ms")
+    m4.metric("Queries ≥ 1s",   slow_1s)
+
+    st.dataframe(df_log, use_container_width=True, hide_index=True, height=520)
+
+    st.caption(
+        f"Buffer: {len(records)} registros (máx 2000 en memoria, circular). "
+        "Ordenado por duración descendente."
+    )
 
 
 # ─── ENTRY POINT ─────────────────────────────────────────────────────────────

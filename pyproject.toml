@@ -1,0 +1,35 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["venv", "logs", ".ipynb_checkpoints", "Excel"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes (imports / vars sin usar, typos)
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",   # line-too-long (hay queries Mongo y pipelines largos)
+    "E701",   # multiple statements on one line (estilo de algunos motores)
+    "E702",   # idem
+    "E741",   # ambiguous variable name (l, I)
+    "B008",   # defaults complejos (común en Streamlit)
+    "SIM108", # if-else vs ternario: a veces el if-else es más legible
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*"          = ["T201"]   # prints OK en diagnóstico
+"dashboard/**/*.py"  = ["E402"]   # streamlit permite imports no-top
+"tests/**/*.py"      = ["S101", "E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requiere MongoDB o APIs externas (corre con -m integration)",
+]
+addopts = "-m 'not integration' -ra --strict-markers"

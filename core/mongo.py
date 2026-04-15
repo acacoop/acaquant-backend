@@ -1,8 +1,9 @@
+import logging
 import os
 import threading
-import pymongo
-import logging
 from datetime import datetime
+
+import pymongo
 from dotenv import load_dotenv
 
 # Cargamos las variables del archivo .env en la raíz del proyecto

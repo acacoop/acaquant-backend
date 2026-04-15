@@ -29,12 +29,12 @@ def main():
         print("\n❌ TZX26 no encontrado en Trading.Curvas")
         return
 
-    print(f"\n=== TX26 ===")
+    print("\n=== TX26 ===")
     print(f"  ticker:    {tx26['ticker']}")
     print(f"  curva:     {tx26.get('curva')}")
     print(f"  vto:       {tx26.get('fecha_vencimiento','?')[:10]}")
 
-    print(f"\n=== TZX26 ===")
+    print("\n=== TZX26 ===")
     print(f"  ticker:    {tzx26['ticker']}")
     print(f"  curva:     {tzx26.get('curva')}")
     print(f"  vto:       {tzx26.get('fecha_vencimiento','?')[:10]}")
@@ -52,7 +52,7 @@ def main():
     tea_tx26,  dur_tx26,  ts_tx26  = ultima_tea(tx26["ticker"])
     tea_tzx26, dur_tzx26, ts_tzx26 = ultima_tea(tzx26["ticker"])
 
-    print(f"\n=== TEA y Duration desde TimeSales ===")
+    print("\n=== TEA y Duration desde TimeSales ===")
     print(f"  TX26:  TEA={tea_tx26}  | duration={dur_tx26}  | timestamp={ts_tx26}")
     print(f"  TZX26: TEA={tea_tzx26} | duration={dur_tzx26} | timestamp={ts_tzx26}")
 
@@ -63,7 +63,7 @@ def main():
     t_tx26  = dur_tx26
     t_tzx26 = dur_tzx26
 
-    print(f"\n=== Plazos (usando duration, NO días al vencimiento) ===")
+    print("\n=== Plazos (usando duration, NO días al vencimiento) ===")
     print(f"  TX26:  duration={t_tx26:.6f} años")
     print(f"  TZX26: duration={t_tzx26:.6f} años")
 
@@ -75,7 +75,7 @@ def main():
         t_a, tea_a, nombre_a = t_tzx26, tea_tzx26, "TZX26"
         t_b, tea_b, nombre_b = t_tx26,  tea_tx26,  "TX26"
 
-    print(f"\n=== Orden (A=corto, B=largo) ===")
+    print("\n=== Orden (A=corto, B=largo) ===")
     print(f"  A (corto): {nombre_a} | TEA={tea_a:.6f} | t={t_a:.6f}")
     print(f"  B (largo): {nombre_b} | TEA={tea_b:.6f} | t={t_b:.6f}")
 
@@ -94,7 +94,7 @@ def main():
     print(f"  forward     = cociente^(1/dt) - 1 = {forward:.6f}  ({forward*100:.4f}%)")
 
     # ── 7. Comparar con lo guardado en ForwardsLive ───────────────────────────
-    print(f"\n=== Valor en ForwardsLive ===")
+    print("\n=== Valor en ForwardsLive ===")
     for curva_nombre in set(v.get("curva") for v in [tx26, tzx26]):
         doc_live = db["ForwardsLive"].find_one({"curva": curva_nombre})
         if not doc_live:

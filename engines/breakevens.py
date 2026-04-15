@@ -17,10 +17,10 @@ Uso:
     /root/TradingAV/venv/bin/python /root/TradingAV/main_breakevens.py
 """
 
-import time
 import logging
+import time
 import traceback
-from datetime import datetime, date
+from datetime import date, datetime
 
 from core.mongo import get_mongo_client
 

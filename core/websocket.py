@@ -1,5 +1,6 @@
-import pyRofex
 import time  # <-- AGREGADO PARA LA MICROPAUSA
+
+import pyRofex
 
 
 class WebSocketManager:
@@ -16,7 +17,7 @@ class WebSocketManager:
             data = message['marketData']
             # Le pasamos la data cruda al gestor de mercado
             self.mm.update_price(ticker, data)
-        except Exception as e:
+        except Exception:
             # En producción podrías usar un logger aquí
             pass
 

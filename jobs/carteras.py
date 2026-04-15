@@ -1,16 +1,18 @@
-import sys
 import os
+import sys
 
 # Agregamos el path raíz para acceder a mongo_manager y config
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+from datetime import datetime, timedelta
+
 import holidays
 import pyRofex
-from datetime import datetime, timedelta
 from pymongo import ReplaceOne
-from jobs.aunesa_client import AunesaApiManager
+
 from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
+from jobs.aunesa_client import AunesaApiManager
 
 # Definición de las cuentas
 CUENTAS_OBJETIVO = ["100", "255", "101", "163"]
@@ -77,7 +79,6 @@ def actualizar_precios_mercado():
     consulta el LAST price via REST pyRofex y actualiza SOLO el campo
     'precio' en Carteras via $set. FCI sin INSTRUMENTO no son tocados.
     """
-    import re
     client = get_mongo_client()
     db_val = client["Valuaciones"]
 

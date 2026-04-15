@@ -1,12 +1,15 @@
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import yfinance as yf
-import pandas as pd
-import numpy as np
 import logging
 from datetime import datetime
+
+import numpy as np
+import pandas as pd
+import yfinance as yf
+
 from core.mongo import MongoManager, get_mongo_client
 
 # Configuración de Logging
@@ -82,13 +85,13 @@ def actualizar_historico_ggal_mongo():
             upsert=True
         )
 
-        print(f"\n" + "=" * 45)
-        print(f"✅ DATOS PERSISTIDOS EN MONGO (VR-GGal)")
-        print(f"=" * 45)
-        print(f"📊 VOLATILIDAD REALIZADA (40R):")
+        print("\n" + "=" * 45)
+        print("✅ DATOS PERSISTIDOS EN MONGO (VR-GGal)")
+        print("=" * 45)
+        print("📊 VOLATILIDAD REALIZADA (40R):")
         print(f"🔹 ADR (GGAL):   {vol_adr:.2%}")
         print(f"🔸 Local (BA):   {vol_local:.2%}")
-        print(f"=" * 45)
+        print("=" * 45)
 
     except Exception as e:
         logger.error(f"🔥 Error en el proceso: {e}")

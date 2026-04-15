@@ -6,9 +6,11 @@ Uso:
 """
 
 from datetime import date, timedelta
+
 import holidays
-from core.mongo import get_mongo_client
 from pymongo import UpdateOne
+
+from core.mongo import get_mongo_client
 
 YEAR = 2026
 

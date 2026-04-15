@@ -1,16 +1,15 @@
 """Vista Opciones del dashboard: cadena GGAL, estrategias dinámicas, volúmenes."""
-import re
 from datetime import datetime, timedelta
 
+import altair as alt
 import numpy as np
 import pandas as pd
-import altair as alt
 import streamlit as st
 
 from core.mongo import get_mongo_client_read
-from quant.black_scholes import bs_price as _bs_price
 from dashboard.shared.db import get_db_opciones, get_meta_col
-from dashboard.shared.format import fmt_vol, df_height
+from dashboard.shared.format import df_height, fmt_vol
+from quant.black_scholes import bs_price as _bs_price
 
 
 # ==========================================
@@ -398,7 +397,6 @@ def _chart_historico_estrategia(db_opciones, resolved_legs, costo_actual=None, d
 
 def _chart_payoff_estrategia(resolved_legs, spot, neto):
     """Diagrama de payoff al vencimiento. Retorna (chart, lista_breakevens)."""
-    import numpy as np
     if not resolved_legs or spot <= 0:
         return None, []
 

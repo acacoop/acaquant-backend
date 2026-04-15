@@ -1,6 +1,6 @@
 """Vista AuM del dashboard: FCI, Análisis SG, Tasa Fija, CER, Renta Variable."""
-import pandas as pd
 import altair as alt
+import pandas as pd
 import streamlit as st
 
 from dashboard.shared.db import get_db, get_db_valuaciones

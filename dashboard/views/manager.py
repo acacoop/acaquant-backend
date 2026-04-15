@@ -5,33 +5,32 @@ Consolida scripts de diagnóstico, backfills, validaciones y setup en una UI web
 Tabs: Diagnóstico | Backfills | Validaciones | Setup
 """
 
+import contextlib
 import io
 import os
 import re
-import sys
 import shutil
-import threading
 import subprocess
-import contextlib
+import sys
 import tempfile
-import requests
-from pathlib import Path
+import threading
 from collections import Counter
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+import requests
 import streamlit as st
-from pymongo import UpdateOne, InsertOne
+from pymongo import InsertOne
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from core.mongo import get_mongo_client, get_mongo_client_read
 import config
-
+from core.mongo import get_mongo_client, get_mongo_client_read
 
 # ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -46,7 +45,7 @@ def _audit_log(rows: list[dict]) -> None:
     """Inserta entradas en Manager.ChangeLog. Silencioso ante errores para no bloquear updates."""
     if not rows:
         return
-    ahora = datetime.now(timezone.utc)
+    ahora = datetime.now(UTC)
     for r in rows:
         r.setdefault("when", ahora)
     try:
@@ -116,7 +115,7 @@ def _read_tmplog(key: str) -> list[str]:
     if not tmppath or not os.path.exists(tmppath):
         return []
     try:
-        with open(tmppath, "r") as f:
+        with open(tmppath) as f:
             content = f.read()
         return [l for l in content.splitlines() if l.strip()]
     except Exception:
@@ -260,10 +259,10 @@ _AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 #     en el droplet (TZ=UTC) → UTC naive
 _STATUS_LIVE = [
     ("Trading",  "TimeSales",       "timestamp",  "TimeSales",       300, _AR_TZ),
-    ("Trading",  "MarketSnapshot",  "updated_at", "MarketSnapshot",  120, timezone.utc),
-    ("Trading",  "ForwardsLive",    "updated_at", "ForwardsLive",     60, timezone.utc),
-    ("Trading",  "BreakevensLive",  "updated_at", "BreakevensLive",   60, timezone.utc),
-    ("Opciones", "OptionsSnapshot", "updated_at", "OptionsSnapshot", 180, timezone.utc),
+    ("Trading",  "MarketSnapshot",  "updated_at", "MarketSnapshot",  120, UTC),
+    ("Trading",  "ForwardsLive",    "updated_at", "ForwardsLive",     60, UTC),
+    ("Trading",  "BreakevensLive",  "updated_at", "BreakevensLive",   60, UTC),
+    ("Opciones", "OptionsSnapshot", "updated_at", "OptionsSnapshot", 180, UTC),
 ]
 
 # (db, coll, field, tipo, nombre, umbral_dias_habiles, descripcion, tz_si_naive)
@@ -273,7 +272,7 @@ _STATUS_PERIODICO = [
     ("Trading",     "DOLAR",       "fecha",         "iso",     "DOLAR (BCRA)",      2, "diario 20:00 UTC",      None),
     ("Trading",     "BADLAR",      "fecha",         "iso",     "BADLAR (BCRA)",     2, "diario 20:00 UTC",      None),
     ("Valuaciones", "AuM",         "fecha_snapshot","iso",     "AuM (cierre)",      2, "diario 23:00 UTC L-V",  None),
-    ("Valuaciones", "Carteras",    "timestamp",     "datetime","Carteras",          1, "4x / día hábil",        timezone.utc),
+    ("Valuaciones", "Carteras",    "timestamp",     "datetime","Carteras",          1, "4x / día hábil",        UTC),
     ("CashFlow",    "Movimientos", "fecha",         "ddmmyyyy","CashFlow Mov.",     2, "02:00 UTC mar-sáb",     None),
     ("CashFlow",    "Flujo",       "concertacion",  "iso",     "Flujo Contrapartes",2, "02:00 UTC mar-sáb",     None),
 ]
@@ -303,7 +302,7 @@ def _parse_periodic_value(val, tipo: str, tz_naive) -> datetime | None:
         if tipo == "datetime":
             v = val if isinstance(val, datetime) else datetime.fromisoformat(str(val))
             if v.tzinfo is None:
-                v = v.replace(tzinfo=tz_naive or timezone.utc)
+                v = v.replace(tzinfo=tz_naive or UTC)
             return v
         if tipo == "iso":
             return datetime.combine(date.fromisoformat(str(val)[:10]),
@@ -915,7 +914,7 @@ def _tab_backfills():
                     ]
                     dups = list(col_flujo.aggregate(pipeline_dup))
                 if not dups:
-                    st.success(f"Sin duplicados. La colección está limpia.")
+                    st.success("Sin duplicados. La colección está limpia.")
                 else:
                     total_extras = sum(d["count"] - 1 for d in dups)
                     st.warning(f"{len(dups)} boletos duplicados — {total_extras} docs extras.")
@@ -1630,8 +1629,12 @@ def _tab_validaciones():
             else:
                 with st.spinner(f"Buscando '{keyword}' en Aunesa..."):
                     try:
-                        from jobs.aum import (autenticar, obtener_cuentas,
-                                                     consultar_posicion, fecha_t2)
+                        from jobs.aum import (
+                            autenticar,
+                            consultar_posicion,
+                            fecha_t2,
+                            obtener_cuentas,
+                        )
                         kw_upper = keyword.strip().upper()
                         headers  = autenticar()
                         cuentas  = obtener_cuentas(headers)
@@ -1965,7 +1968,7 @@ def _tab_historial():
     def _fmt_when(w):
         if isinstance(w, datetime):
             if w.tzinfo is None:
-                w = w.replace(tzinfo=timezone.utc)
+                w = w.replace(tzinfo=UTC)
             return w.astimezone(_AR_TZ).strftime("%Y-%m-%d %H:%M:%S")
         return str(w)
 
@@ -1995,7 +1998,6 @@ def _tab_historial():
 
 def _tab_latencia():
     import time as _time
-    from core.mongo import get_mongo_client_read
 
     st.markdown("### Test de Latencia")
     st.caption(

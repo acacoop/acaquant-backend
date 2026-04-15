@@ -1,5 +1,6 @@
 """Helpers de formato compartidos por todas las vistas del dashboard."""
 from datetime import timedelta
+
 import streamlit as st
 
 

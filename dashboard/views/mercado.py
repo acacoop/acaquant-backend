@@ -2,13 +2,13 @@
 import math
 from datetime import datetime, timedelta
 
+import altair as alt
 import numpy as np
 import pandas as pd
-import altair as alt
 import streamlit as st
 
-from dashboard.shared.db import get_db, get_db_valuaciones, _cargar_tickers_merv
-from dashboard.shared.format import fmt_money, df_height, short_name, last_update_badge
+from dashboard.shared.db import _cargar_tickers_merv, get_db
+from dashboard.shared.format import df_height, fmt_money, last_update_badge, short_name
 
 
 # ==========================================
@@ -778,7 +778,8 @@ def _cargar_datos_simulador():
 
 
 def _render_simulador(db):
-    from datetime import date as _date, timedelta
+    from datetime import date as _date
+    from datetime import timedelta
 
     doc_bkv = db["BreakevensLive"].find_one({"_id": "breakevens"})
     if not doc_bkv or not doc_bkv.get("pares"):
@@ -975,8 +976,8 @@ def _render_simulador(db):
 
 
 def _render_curva_rendimiento(db):
-    import numpy as np
     from datetime import date as _date
+
     import altair as alt
 
     curvas_disp = sorted(db["ForwardsHistorico"].distinct("curva"))
@@ -1408,7 +1409,6 @@ def render_forward_matrix(doc):
             row[t_corto] = val
         data[t_largo] = row
 
-    import numpy as np
     df = pd.DataFrame(data, index=tickers).T.astype(float)
 
     def fmt_cell(v):

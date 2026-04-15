@@ -1,10 +1,12 @@
 import hashlib
 import json
-import time
 import logging
 import threading
+import time
 from datetime import datetime
+
 from pymongo import UpdateOne
+
 from core.mongo import get_mongo_client
 
 logger = logging.getLogger("SnapshotWriter")

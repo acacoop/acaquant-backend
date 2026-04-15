@@ -1,13 +1,12 @@
 """Vista Operaciones del dashboard: Cash Flow, Contrapartes, Análisis, Flujo vs AuM."""
 import re
-from datetime import datetime, timedelta
 
-import pandas as pd
 import altair as alt
+import pandas as pd
 import streamlit as st
 
 from dashboard.shared.db import get_db_cashflow, get_db_valuaciones
-from dashboard.shared.format import fmt_money, fmt_nom, df_height
+from dashboard.shared.format import fmt_nom
 
 
 # ==========================================

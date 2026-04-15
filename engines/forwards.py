@@ -12,11 +12,10 @@ Uso:
     /root/TradingAV/venv/bin/python /root/TradingAV/main_forwards.py
 """
 
-import time
 import logging
+import time
 import traceback
 from datetime import datetime
-from pymongo import UpdateOne
 
 from core.mongo import get_mongo_client
 

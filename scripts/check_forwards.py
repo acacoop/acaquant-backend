@@ -8,9 +8,8 @@ Muestra por curva:
   - Comparación: orden actual en ForwardsLive vs orden por fecha_vencimiento
 """
 
-import sys
 import os
-from datetime import datetime
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.mongo import get_mongo_client
@@ -72,7 +71,7 @@ def main():
                 ts_str   = "-"
                 sin_tea += 1
             marca = "  " if datos else "❌"
-            print(f"{marca} {tc:<12} {ticker:<20} {str(venc):<14} {tea_str:>8} {dur_str:>10}   {ts_str}")
+            print(f"{marca} {tc:<12} {ticker:<20} {venc!s:<14} {tea_str:>8} {dur_str:>10}   {ts_str}")
 
         print(f"\n  ✅ Con TEA: {con_tea}  |  ❌ Sin TEA: {sin_tea}")
 
@@ -86,7 +85,7 @@ def main():
             print(f"  Orden por fecha_vencimiento: {order_venc}")
             print(f"  {'✅ Coinciden' if match else '⚠️  DIFIEREN'}")
         else:
-            print(f"\n  ⚠️  Sin doc en ForwardsLive para esta curva")
+            print("\n  ⚠️  Sin doc en ForwardsLive para esta curva")
 
         print("=" * 70)
 

@@ -1,6 +1,8 @@
 import argparse
-import requests
 from datetime import date, timedelta
+
+import requests
+
 from core.mongo import get_mongo_client
 
 VARIABLES_BCRA = {

@@ -11,11 +11,12 @@ Uso:
     /root/TradingAV/venv/bin/python /root/TradingAV/main_curvas.py
 """
 
-import time
 import logging
+import time
 import traceback
+from datetime import date, datetime, timedelta
+
 import numpy as np
-from datetime import datetime, date, timedelta
 from pymongo import UpdateOne
 from scipy.optimize import newton
 

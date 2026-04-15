@@ -9,6 +9,7 @@ Uso:
 """
 
 from datetime import date, timedelta
+
 from core.mongo import get_mongo_client
 
 
@@ -135,7 +136,7 @@ def main():
             f"{cer_val_str:>12} {cer_emi_str:>12} {ratio_str:>8} {paridad_str:>9}"
         )
 
-    print(f"\nNota: ratio = CER_liq / CER_emision | paridad = precio / (VN × ratio) × 100")
+    print("\nNota: ratio = CER_liq / CER_emision | paridad = precio / (VN × ratio) × 100")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.stats import norm
+
 from core.mongo import get_mongo_client
 
 

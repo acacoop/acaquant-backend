@@ -1,7 +1,8 @@
-import sys
 import os
-import requests
+import sys
 from datetime import date
+
+import requests
 from pymongo import InsertOne
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))

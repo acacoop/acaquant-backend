@@ -1,7 +1,6 @@
 """CSS global del dashboard (sidebar)."""
 import streamlit as st
 
-
 SIDEBAR_CSS = """
 <style>
 [data-testid="stSidebar"] {

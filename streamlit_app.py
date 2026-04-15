@@ -1,13 +1,13 @@
 import streamlit as st
 
-from dashboard.views.manager import vista_data_manager
-from dashboard.views.aum import vista_aum
-from dashboard.views.operaciones import vista_operaciones
-from dashboard.views.portfolios import vista_portfolios
-from dashboard.views.opciones import vista_opciones
-from dashboard.views.mercado import vista_mercado
 from dashboard.shared.auth import is_manager_allowed
 from dashboard.shared.styles import apply_sidebar_styles
+from dashboard.views.aum import vista_aum
+from dashboard.views.manager import vista_data_manager
+from dashboard.views.mercado import vista_mercado
+from dashboard.views.opciones import vista_opciones
+from dashboard.views.operaciones import vista_operaciones
+from dashboard.views.portfolios import vista_portfolios
 
 # ==========================================
 # CONFIG

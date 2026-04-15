@@ -9,8 +9,8 @@ Reglas (en orden de prioridad):
   4. Sin match                     → deja el campo vacío / sin tocar
 """
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from core.mongo import get_mongo_client
@@ -62,7 +62,7 @@ def main():
                 print(f"    ✅ {cp_nombre} → {seg}")
                 actualizados += 1
             else:
-                print(f"    — saltado")
+                print("    — saltado")
 
     print(f"\n✅ Total: {actualizados} docs actualizados")
 

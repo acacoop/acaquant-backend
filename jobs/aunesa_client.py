@@ -1,8 +1,10 @@
-import requests
-import pandas as pd
 import logging
-import config
 from datetime import datetime
+
+import pandas as pd
+import requests
+
+import config
 
 logger = logging.getLogger("TradingBot")
 

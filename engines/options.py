@@ -4,22 +4,21 @@ Idéntico a main_options.py pero sin UI (Textual/Rich).
 Arquitectura event-driven: cada tick del WebSocket escribe el snapshot
 en MongoDB de forma inmediata (throttle 300ms/símbolo).
 """
+import logging
+import signal
 import threading
 import time
-import signal
-import logging
-import pyRofex
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from collections import defaultdict
+
+import pyRofex
 from pymongo import UpdateOne
 
-from quant.black_scholes import (
-    calc_intrinseco, find_iv, bs_delta, bs_gamma, bs_vega, bs_theta
-)
 from core.mongo import MongoManager, get_mongo_client
 from core.rofex_session import inicializar_sesion
 from core.websocket import WebSocketManager
+from quant.black_scholes import bs_delta, bs_gamma, bs_theta, bs_vega, calc_intrinseco, find_iv
 
 logging.basicConfig(
     level=logging.INFO,
@@ -137,9 +136,9 @@ class OptionsEngine:
         state = self.market_state[ticker]
 
         # 1. Puntas (BID/OFFER)
-        if 'BI' in data and data['BI']:
+        if data.get('BI'):
             state['bid'] = data['BI'][0]['price']
-        if 'OF' in data and data['OF']:
+        if data.get('OF'):
             state['offer'] = data['OF'][0]['price']
 
         # 2. Datos de Mercado (OP, HI, LO, EV)

@@ -1,14 +1,15 @@
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-import pyRofex
-
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from core.rofex_session import inicializar_sesion
+
+import pyRofex
+
 from core.mongo import get_mongo_client
+from core.rofex_session import inicializar_sesion
 
 TICKER_AL30  = "MERV - XMEV - AL30 - CI"
 TICKER_AL30D = "MERV - XMEV - AL30D - CI"

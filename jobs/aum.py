@@ -1,11 +1,12 @@
-import sys
 import os
-import holidays
-import requests
-import pandas as pd
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
+
+import holidays
+import pandas as pd
+import requests
 from pymongo import UpdateOne
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -253,7 +254,7 @@ def sync_carteras_ii(hoy_str=None):
 
     fecha_target = _primer_dia_habil_mes_anterior(hoy_str)
     if not fecha_target:
-        print(f"⚠️ CarterasII: no se encontró primer día hábil del mes anterior en DiasHabiles.")
+        print("⚠️ CarterasII: no se encontró primer día hábil del mes anterior en DiasHabiles.")
         return
 
     client = get_mongo_client()

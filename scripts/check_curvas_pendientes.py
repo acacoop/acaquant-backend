@@ -8,6 +8,7 @@ Uso:
 """
 
 from collections import Counter
+
 from core.mongo import get_mongo_client
 
 

@@ -10,3 +10,6 @@ Excel/response_cuenta_*.json
 .claude/
 .ipynb_checkpoints/
 .idea/
+.pytest_cache/
+.ruff_cache/
+.venv/

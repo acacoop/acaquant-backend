@@ -12,19 +12,24 @@ Uso:
 Si la fecha ya tiene datos en AuM, los pisa (upsert por id_cuenta+unidad+fecha_snapshot).
 """
 
-import sys
 import os
-import holidays
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
+
+import holidays
 from pymongo import UpdateOne
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from core.mongo import get_mongo_client
 from jobs.aum import (
-    autenticar, obtener_cuentas, consultar_posicion,
-    procesar, _sincronizar_assets, sync_carteras_ii
+    _sincronizar_assets,
+    autenticar,
+    consultar_posicion,
+    obtener_cuentas,
+    procesar,
+    sync_carteras_ii,
 )
 
 
@@ -65,7 +70,7 @@ def main():
         desde = t2_para_fecha(fecha_dt)
         print(f"📅 fecha_snapshot: {fecha_snapshot} | desde (T+2 calculado): {desde}")
 
-    print(f"\n🔑 Autenticando...", flush=True)
+    print("\n🔑 Autenticando...", flush=True)
     headers_ref  = autenticar()
     headers_lock = threading.Lock()
     print("✅ Auth OK\n", flush=True)

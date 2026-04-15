@@ -1,5 +1,6 @@
 """Autenticación del dashboard: lectura del email inyectado por Cloudflare Access."""
 import streamlit as st
+
 from config import MANAGER_EMAILS
 
 

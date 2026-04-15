@@ -1,10 +1,11 @@
-import sys
+import argparse
 import os
+import sys
 import unicodedata
+from datetime import UTC, date, datetime, timedelta
+
 import holidays
 import requests
-import argparse
-from datetime import date, datetime, timedelta, timezone
 from pymongo import UpdateOne
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -138,7 +139,7 @@ if __name__ == "__main__":
 
     if args.today:
         # El cron corre a las 02:00 UTC = 23:00 ART del día anterior
-        hoy_art = (datetime.now(timezone.utc) - timedelta(hours=3)).date()
+        hoy_art = (datetime.now(UTC) - timedelta(hours=3)).date()
         run(desde=hoy_art, hasta=hoy_art)
     else:
         run(desde=date(2025, 7, 1), hasta=date.today())

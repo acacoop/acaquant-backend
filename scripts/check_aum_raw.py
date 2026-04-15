@@ -7,14 +7,13 @@ Uso:
     python check_aum_raw.py MAX 004      # busca "MAX" solo en cuenta 004
 """
 
-import sys
 import os
-import requests
+import sys
+
 import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-import config
-from jobs.aum import autenticar, obtener_cuentas, consultar_posicion, fecha_t2
+from jobs.aum import autenticar, consultar_posicion, fecha_t2, obtener_cuentas
 
 KEYWORD  = sys.argv[1].upper() if len(sys.argv) > 1 else "MAX"
 CUENTA_F = sys.argv[2] if len(sys.argv) > 2 else None

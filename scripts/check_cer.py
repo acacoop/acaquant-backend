@@ -2,9 +2,11 @@
 check_cer.py — Muestra qué CER se usó para los últimos trades CER en TimeSales.
 """
 import sys
+
 sys.path.insert(0, '/root/TradingAV')
 
-from datetime import datetime, date, timedelta
+from datetime import date, datetime, timedelta
+
 from core.mongo import get_mongo_client
 
 client = get_mongo_client()

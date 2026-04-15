@@ -1,5 +1,7 @@
 import pyRofex
+
 from config import Config
+
 
 def inicializar_sesion():
     """Establece los parámetros de entorno e inicia sesión en pyRofex"""

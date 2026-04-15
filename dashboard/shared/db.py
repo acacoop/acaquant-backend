@@ -1,5 +1,6 @@
 """Accesos cacheados a las DBs de MongoDB (read-only) para el dashboard."""
 import streamlit as st
+
 from core.mongo import get_mongo_client_read
 
 

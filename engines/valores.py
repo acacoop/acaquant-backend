@@ -1,19 +1,21 @@
+import logging
 import os
 import queue
-import logging
-import pyRofex
 import threading
 import time
 import traceback
-from datetime import datetime, timezone, timedelta
-from zoneinfo import ZoneInfo
 from collections import deque
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import pyRofex
 from pymongo import ReplaceOne
+
+from core.mongo import get_mongo_client
 
 # --- TUS MANAGERS DE INFRAESTRUCTURA ---
 from core.rofex_session import inicializar_sesion
 from core.websocket import WebSocketManager
-from core.mongo import get_mongo_client
 
 logger = logging.getLogger("MotorValores")
 
@@ -176,10 +178,10 @@ class MicrostructureEngine:
                 return float(v) if v else 0.0
             except (TypeError, ValueError):
                 return 0.0
-        if "OP" in data and data["OP"]: st["open_price"]    = _to_float(data["OP"])
-        if "HI" in data and data["HI"]: st["high_price"]    = _to_float(data["HI"])
-        if "LO" in data and data["LO"]: st["low_price"]     = _to_float(data["LO"])
-        if "CL" in data and data["CL"]: st["closing_price"] = _to_float(data["CL"])
+        if data.get("OP"): st["open_price"]    = _to_float(data["OP"])
+        if data.get("HI"): st["high_price"]    = _to_float(data["HI"])
+        if data.get("LO"): st["low_price"]     = _to_float(data["LO"])
+        if data.get("CL"): st["closing_price"] = _to_float(data["CL"])
 
         last, nv = data.get("LA"), data.get("NV")
         if last and nv is not None:
@@ -231,7 +233,7 @@ class MicrostructureEngine:
                 elif side == "SELL":
                     st["daily_financials"]["sell_money"] += cash
 
-                dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).astimezone(ART).replace(tzinfo=None)
+                dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC).astimezone(ART).replace(tzinfo=None)
                 h = dt.hour
                 if 10 <= h <= 17:
                     st["hourly_stats"][h]["total"] += cash

@@ -12,3 +12,7 @@ holidays
 requests
 yfinance
 
+# dev
+ruff
+pytest
+

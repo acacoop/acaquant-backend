@@ -32,23 +32,18 @@ _client_read_lock: threading.Lock = threading.Lock()
 
 
 def get_mongo_client() -> pymongo.MongoClient:
-    """
-    Devuelve el cliente singleton a MongoDB Atlas.
-    Crea la conexión la primera vez; las llamadas siguientes reutilizan el mismo pool.
-    Si el cliente existente está caído, lo recrea automáticamente.
+    """Devuelve el cliente singleton a MongoDB Atlas.
+
+    Crea la conexión la primera vez; las llamadas siguientes reutilizan el
+    mismo pool. pymongo se encarga de detectar desconexiones y reconectar
+    automáticamente, así que no hace falta un health-check en cada llamada
+    (el ping costaba ~180ms por invocación y explotaba la latencia del
+    dashboard).
     """
     global _client
     if not MONGO_URI:
         logger.error("CRÍTICO: No se encontró MONGO_URI en el archivo .env")
         raise ValueError("Falta MONGO_URI en el entorno")
-
-    if _client is not None:
-        try:
-            _client.admin.command('ping')
-        except Exception:
-            logger.warning("MongoDB: cliente caído, reconectando...")
-            with _client_lock:
-                _client = None
 
     if _client is None:
         with _client_lock:
@@ -62,22 +57,16 @@ def get_mongo_client() -> pymongo.MongoClient:
 
 
 def get_mongo_client_read() -> pymongo.MongoClient:
-    """
-    Devuelve el cliente singleton read-only a MongoDB Atlas.
-    Usa MONGO_URI_READ si está definido; si no, cae a MONGO_URI (fallback seguro).
+    """Devuelve el cliente singleton read-only a MongoDB Atlas.
+
+    Usa MONGO_URI_READ si está definido; si no, cae a MONGO_URI. Igual que
+    el cliente RW, delega la detección de desconexiones al driver y evita
+    el ping por llamada.
     """
     global _client_read
     uri = MONGO_URI_READ or MONGO_URI
     if not uri:
         raise ValueError("Falta MONGO_URI en el entorno")
-
-    if _client_read is not None:
-        try:
-            _client_read.admin.command('ping')
-        except Exception:
-            logger.warning("MongoDB read: cliente caído, reconectando...")
-            with _client_read_lock:
-                _client_read = None
 
     if _client_read is None:
         with _client_read_lock:

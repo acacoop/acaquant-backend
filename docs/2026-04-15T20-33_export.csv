@@ -1,0 +1,142 @@
+﻿ts,db,coll,op,ms,status,filter
+20:32:22.321,Opciones,,getMore,1726,ok,{'batchSize': None}
+20:32:20.898,Opciones,,getMore,399.5,ok,{'batchSize': None}
+20:32:20.540,Opciones,OptionsSnapshot,find,357.9,ok,{}
+20:32:24.661,admin,,ping,205.1,ok,
+20:33:08.770,CashFlow,Flujo,distinct,195.4,ok,
+20:32:22.127,Opciones,Data,find,194,ok,"{'symbol': {'$in': ['MERV - XMEV - GFGC71487A - 24hs', 'MERV - XMEV - GFGC71747A - 24hs']}, 'timestamp': {'$gte': datetime.datetime(2026, 4,..."
+20:30:37.391,Valuaciones,AuM,find,193.6,ok,"{'fecha_snapshot': {'$exists': True, '$nin': [None, '']}}"
+20:30:47.662,Valuaciones,AuM,find,191.7,ok,"{'fecha_snapshot': {'$exists': True, '$nin': [None, '']}}"
+20:30:57.836,admin,,ping,191.1,ok,
+20:30:39.032,admin,,ping,190.2,ok,
+20:30:57.105,admin,,ping,190,ok,
+20:30:45.482,Trading,BreakevensLive,find,188.2,ok,{'updated_at': {'$exists': True}}
+20:33:09.691,Manager,ChangeLog,find,187.6,ok,"{'where': {'$in': ['Valuaciones.Assets']}, 'action': {'$in': ['set_portfolio']}}"
+20:30:46.034,admin,,ping,187.3,ok,
+20:30:48.761,CashFlow,Flujo,find,187.2,ok,"{'concertacion': {'$exists': True, '$nin': [None, '']}}"
+20:30:36.122,admin,,ping,186.9,ok,
+20:32:24.867,Opciones,DataHistorica,aggregate,186.4,ok,"[{'$match': {'fecha': {'$gte': '2026-03-26'}, 'ev': {'$gt': 0}, 'strike': {'$exists': True}, 'tipo': {'$exists': True}}}, {'$group': {'_id':..."
+20:30:44.757,Trading,MarketSnapshot,find,186.3,ok,{'updated_at': {'$exists': True}}
+20:30:47.854,admin,,ping,186,ok,
+20:30:39.797,admin,,ping,185.5,ok,
+20:33:08.575,CashFlow,Flujo,distinct,185.3,ok,
+20:30:39.606,CashFlow,Flujo,distinct,185.2,ok,
+20:30:39.412,CashFlow,Flujo,distinct,185.2,ok,
+20:30:34.498,Trading,MarketSnapshot,find,184.6,ok,{'updated_at': {'$exists': True}}
+20:30:56.560,Trading,TAMAR,find,184.3,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:39.223,CashFlow,Flujo,aggregate,183.4,ok,"[{'$group': {'_id': '$tipoOperacion', 'cantidad': {'$sum': 1}}}, {'$sort': {'cantidad': -1}}]"
+20:33:03.337,Trading,TimeSales,find,183.3,ok,{'timestamp': {'$exists': True}}
+20:30:44.573,admin,,ping,183.3,ok,
+20:33:08.387,CashFlow,Flujo,aggregate,183.2,ok,"[{'$group': {'_id': '$tipoOperacion', 'cantidad': {'$sum': 1}}}, {'$sort': {'cantidad': -1}}]"
+20:32:21.298,Opciones,Metadata,find,182.4,ok,{'type': 'vr_ggal'}
+20:30:48.040,Valuaciones,Carteras,find,182.2,ok,"{'timestamp': {'$exists': True, '$nin': [None, '']}}"
+20:32:25.054,Opciones,,getMore,181.9,ok,{'batchSize': None}
+20:33:06.219,Trading,BADLAR,find,181.3,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:36.309,Trading,TAMAR,find,181.3,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:54.400,Trading,TimeSales,find,181,ok,{'timestamp': {'$exists': True}}
+20:30:47.301,Trading,BADLAR,find,181,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:56.924,Trading,DOLAR,find,180.9,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:46.941,Trading,DOLAR,find,180.8,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:33:05.859,Trading,DOLAR,find,180.8,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:57.296,Trading,BADLAR,find,180.8,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:36.669,Trading,DOLAR,find,180.8,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:37.030,Trading,BADLAR,find,180.8,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:32:21.926,Opciones,,getMore,180.6,ok,{'batchSize': None}
+20:33:05.499,Trading,TAMAR,find,180.2,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:33:07.299,CashFlow,Movimientos,find,180.1,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:32:21.746,Opciones,OptionsSnapshot,find,180.1,ok,{}
+20:30:46.581,Trading,TAMAR,find,180.1,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:33:03.700,Trading,MarketSnapshot,find,180.1,ok,{'updated_at': {'$exists': True}}
+20:30:45.850,Opciones,OptionsSnapshot,find,180,ok,{'updated_at': {'$exists': True}}
+20:33:04.060,Trading,ForwardsLive,find,179.9,ok,{'updated_at': {'$exists': True}}
+20:30:55.838,Opciones,OptionsSnapshot,find,179.9,ok,{'updated_at': {'$exists': True}}
+20:30:35.579,Opciones,OptionsSnapshot,find,179.9,ok,{'updated_at': {'$exists': True}}
+20:30:58.028,Valuaciones,Carteras,find,179.9,ok,"{'timestamp': {'$exists': True, '$nin': [None, '']}}"
+20:30:57.656,Valuaciones,AuM,find,179.8,ok,"{'fecha_snapshot': {'$exists': True, '$nin': [None, '']}}"
+20:33:08.023,Trading,Curvas,find,179.8,ok,{}
+20:30:56.201,Trading,CER,find,179.8,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:33:04.778,Opciones,OptionsSnapshot,find,179.8,ok,{'updated_at': {'$exists': True}}
+20:30:38.669,admin,,ping,179.7,ok,
+20:30:34.138,Trading,TimeSales,find,179.7,ok,{'timestamp': {'$exists': True}}
+20:30:46.222,Trading,CER,find,179.7,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:40.525,Manager,ChangeLog,find,179.7,ok,"{'where': {'$in': ['Valuaciones.Assets']}, 'action': {'$in': ['set_portfolio']}}"
+20:30:37.764,Valuaciones,Carteras,find,179.7,ok,"{'timestamp': {'$exists': True, '$nin': [None, '']}}"
+20:33:05.140,Trading,CER,find,179.6,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:58.746,CashFlow,Flujo,find,179.6,ok,"{'concertacion': {'$exists': True, '$nin': [None, '']}}"
+20:32:24.471,Opciones,Metadata,find,179.6,ok,{'type': 'config'}
+20:33:06.939,Valuaciones,Carteras,find,179.6,ok,"{'timestamp': {'$exists': True, '$nin': [None, '']}}"
+20:30:44.393,Trading,TimeSales,find,179.6,ok,{'timestamp': {'$exists': True}}
+20:30:45.123,Trading,ForwardsLive,find,179.6,ok,{'updated_at': {'$exists': True}}
+20:30:35.942,Trading,CER,find,179.6,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:34.861,Trading,ForwardsLive,find,179.6,ok,{'updated_at': {'$exists': True}}
+20:33:06.580,Valuaciones,AuM,find,179.6,ok,"{'fecha_snapshot': {'$exists': True, '$nin': [None, '']}}"
+20:30:54.761,Trading,MarketSnapshot,find,179.6,ok,{'updated_at': {'$exists': True}}
+20:30:38.849,Trading,Curvas,find,179.6,ok,{}
+20:30:55.120,Trading,ForwardsLive,find,179.6,ok,{'updated_at': {'$exists': True}}
+20:30:38.483,CashFlow,Flujo,find,179.6,ok,"{'concertacion': {'$exists': True, '$nin': [None, '']}}"
+20:33:09.329,Manager,ChangeLog,distinct,179.5,ok,
+20:30:48.402,CashFlow,Movimientos,find,179.5,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:55.479,Trading,BreakevensLive,find,179.5,ok,{'updated_at': {'$exists': True}}
+20:30:38.124,CashFlow,Movimientos,find,179.5,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:58.387,CashFlow,Movimientos,find,179.5,ok,"{'fecha': {'$exists': True, '$nin': [None, '']}}"
+20:30:40.163,Manager,ChangeLog,distinct,179.4,ok,
+20:33:07.658,CashFlow,Flujo,find,179.4,ok,"{'concertacion': {'$exists': True, '$nin': [None, '']}}"
+20:33:09.510,Manager,ChangeLog,distinct,179.4,ok,
+20:33:04.419,Trading,BreakevensLive,find,179.4,ok,{'updated_at': {'$exists': True}}
+20:30:37.211,admin,,ping,179.4,ok,
+20:30:40.344,Manager,ChangeLog,distinct,179.4,ok,
+20:30:39.983,Manager,ChangeLog,count,179.3,ok,
+20:30:35.220,Trading,BreakevensLive,find,179.3,ok,{'updated_at': {'$exists': True}}
+20:30:44.214,admin,,ping,179.1,ok,
+20:33:09.149,Manager,ChangeLog,count,179.1,ok,
+20:30:37.585,admin,,ping,179,ok,
+20:30:56.021,admin,,ping,179,ok,
+20:33:07.844,admin,,ping,179,ok,
+20:30:48.582,admin,,ping,179,ok,
+20:33:06.401,admin,,ping,178.9,ok,
+20:33:05.680,admin,,ping,178.9,ok,
+20:30:56.745,admin,,ping,178.9,ok,
+20:33:08.207,admin,,ping,178.9,ok,
+20:30:35.763,admin,,ping,178.9,ok,
+20:33:03.880,admin,,ping,178.9,ok,
+20:30:47.482,admin,,ping,178.9,ok,
+20:30:37.944,admin,,ping,178.9,ok,
+20:30:58.567,admin,,ping,178.9,ok,
+20:32:21.481,Opciones,Metadata,find,178.9,ok,{'type': 'config'}
+20:30:46.402,admin,,ping,178.9,ok,
+20:33:03.158,admin,,ping,178.9,ok,
+20:33:04.599,admin,,ping,178.9,ok,
+20:30:33.959,admin,,ping,178.8,ok,
+20:30:35.400,admin,,ping,178.8,ok,
+20:33:07.119,admin,,ping,178.8,ok,
+20:33:07.479,admin,,ping,178.8,ok,
+20:30:34.318,admin,,ping,178.8,ok,
+20:30:55.659,admin,,ping,178.8,ok,
+20:30:54.581,admin,,ping,178.8,ok,
+20:30:54.221,admin,,ping,178.8,ok,
+20:30:47.122,admin,,ping,178.8,ok,
+20:30:56.381,admin,,ping,178.8,ok,
+20:30:46.762,admin,,ping,178.8,ok,
+20:30:45.671,admin,,ping,178.8,ok,
+20:30:45.303,admin,,ping,178.8,ok,
+20:30:36.851,admin,,ping,178.8,ok,
+20:30:44.944,admin,,ping,178.8,ok,
+20:30:38.304,admin,,ping,178.8,ok,
+20:30:48.223,admin,,ping,178.8,ok,
+20:30:54.941,admin,,ping,178.8,ok,
+20:33:06.040,admin,,ping,178.8,ok,
+20:30:57.477,admin,,ping,178.8,ok,
+20:33:04.961,admin,,ping,178.8,ok,
+20:33:06.760,admin,,ping,178.8,ok,
+20:30:58.208,admin,,ping,178.8,ok,
+20:33:03.521,admin,,ping,178.8,ok,
+20:33:05.320,admin,,ping,178.8,ok,
+20:30:34.682,admin,,ping,178.7,ok,
+20:30:35.041,admin,,ping,178.7,ok,
+20:30:36.490,admin,,ping,178.7,ok,
+20:30:55.300,admin,,ping,178.7,ok,
+20:33:04.240,admin,,ping,178.7,ok,
+20:33:08.970,admin,,ping,178.7,ok,
+20:32:20.182,admin,,saslContinue,178.3,ok,
+20:32:20.002,admin,,saslStart,178.1,ok,
+20:32:20.361,admin,,ping,178.1,ok,

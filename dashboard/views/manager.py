@@ -12,7 +12,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-from collections import Counter
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -446,18 +445,19 @@ def _tab_diagnostico():
     with st.expander("Curvas Pendientes — docs sin `duration` en TimeSales"):
         if st.button("Ejecutar", key="d_cp"):
             with st.spinner("Consultando TimeSales..."):
-                docs = list(_db()["TimeSales"].find(
-                    {"duration": {"$exists": False}}, {"ticker": 1}
-                ))
-            if not docs:
+                pipeline = [
+                    {"$match": {"duration": {"$exists": False}}},
+                    {"$group": {"_id": "$ticker", "n": {"$sum": 1}}},
+                    {"$sort": {"n": -1}},
+                ]
+                rows = list(_db()["TimeSales"].aggregate(pipeline))
+            if not rows:
                 st.success("No hay docs pendientes de enriquecer.")
             else:
-                conteo = Counter(d["ticker"] for d in docs)
-                total  = sum(conteo.values())
+                total = sum(r["n"] for r in rows)
                 st.warning(f"Total pendientes: {total:,}")
                 df = pd.DataFrame([
-                    {"Ticker": t, "Pendientes": n}
-                    for t, n in sorted(conteo.items(), key=lambda x: -x[1])
+                    {"Ticker": r["_id"], "Pendientes": r["n"]} for r in rows
                 ])
                 st.dataframe(df, hide_index=True, use_container_width=True)
 

@@ -45,6 +45,7 @@ def _cargar_aum_ultimo():
     return df
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def _fci_unidades():
     db = get_db_valuaciones()
     return [

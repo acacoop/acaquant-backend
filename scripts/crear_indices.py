@@ -74,7 +74,7 @@ def main():
 
         # ── Valuaciones.Assets ────────────────────────────────────────────
         (valuaciones["Assets"], [("unidad", 1)],
-            "Assets: unidad"),
+            "Assets: unidad (unique)", {"unique": True}),
         (valuaciones["Assets"], [("EMISOR", 1), ("CARTERA", 1)],
             "Assets: EMISOR + CARTERA"),
 
@@ -84,7 +84,8 @@ def main():
         (cashflow["Flujo"], [("concertacion", -1)],
             "Flujo: concertacion"),
         (cashflow["Flujo"], [("boleto", 1)],
-            "Flujo: boleto"),
+            "Flujo: boleto (unique int)",
+            {"unique": True, "partialFilterExpression": {"boleto": {"$type": "int"}}}),
 
         # ── CashFlow.Movimientos ──────────────────────────────────────────
         (cashflow["Movimientos"], [("fecha", -1)],
@@ -98,9 +99,11 @@ def main():
     ]
 
     print(f"Creando {len(indices)} índices...\n")
-    for col, keys, desc in indices:
+    for entry in indices:
+        col, keys, desc = entry[0], entry[1], entry[2]
+        kwargs = entry[3] if len(entry) > 3 else {}
         try:
-            col.create_index(keys)
+            col.create_index(keys, **kwargs)
             print(f"  OK       {desc}")
         except Exception as e:
             print(f"  SKIP     {desc}  ({e})")

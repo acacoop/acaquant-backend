@@ -3,7 +3,7 @@ import sys
 from datetime import date
 
 import requests
-from pymongo import InsertOne
+from pymongo import InsertOne, UpdateOne
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import config
@@ -140,32 +140,21 @@ def main():
         except Exception as e:
             print(f"  [{cuenta_id}] {cp} → ERROR: {e}")
 
-    # ── 5. Insertar ───────────────────────────────────────────────────────────
+    # ── 5. Upsert ─────────────────────────────────────────────────────────────
+    # Duplicados por boleto se previenen con índice único parcial
+    # (ver scripts/crear_indices.py: Flujo.boleto unique partial).
     if registros:
-        ops = [InsertOne(r) for r in registros.values()]
+        ops = []
+        for k, r in registros.items():
+            boleto = r.get("boleto")
+            if isinstance(boleto, int):
+                ops.append(UpdateOne({"boleto": boleto}, {"$setOnInsert": r}, upsert=True))
+            else:
+                ops.append(InsertOne(r))
         col_flujo.bulk_write(ops, ordered=False)
-        print(f"\n✅ {len(registros)} documentos insertados para {hoy}")
+        print(f"\n✅ {len(registros)} documentos procesados para {hoy}")
     else:
         print(f"\n⚠️  Sin operaciones para insertar en {hoy}")
-
-    # ── 6. Dedup global por boleto ────────────────────────────────────────────
-    print("\nVerificando duplicados en toda la colección...")
-    pipeline = [
-        {"$match": {"boleto": {"$ne": None}}},
-        {"$group": {"_id": "$boleto", "ids": {"$push": "$_id"}, "count": {"$sum": 1}}},
-        {"$match": {"count": {"$gt": 1}}},
-    ]
-    duplicados = list(col_flujo.aggregate(pipeline))
-
-    if not duplicados:
-        print("✅ Sin duplicados")
-    else:
-        ids_a_borrar = []
-        for d in duplicados:
-            # Conservar el primero, borrar el resto
-            ids_a_borrar.extend(d["ids"][1:])
-        result = col_flujo.delete_many({"_id": {"$in": ids_a_borrar}})
-        print(f"🧹 {result.deleted_count} duplicados eliminados ({len(duplicados)} boletos afectados)")
 
 
 

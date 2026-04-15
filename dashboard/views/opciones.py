@@ -12,6 +12,26 @@ from dashboard.shared.format import df_height, fmt_vol
 from quant.black_scholes import bs_price as _bs_price
 
 
+@st.cache_data(ttl=5, show_spinner=False)
+def _get_options_snapshot():
+    return list(get_db_opciones()["OptionsSnapshot"].find({}))
+
+
+@st.cache_data(ttl=5, show_spinner=False)
+def _get_metadata():
+    docs = list(get_meta_col().find({"type": {"$in": ["vr_ggal", "config"]}}))
+    return {d.get("type"): d for d in docs}
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _fetch_estrategia_historico(symbols_key: frozenset, dias: int):
+    desde = datetime.utcnow() - timedelta(days=dias)
+    return list(get_db_opciones()["Data"].find(
+        {"symbol": {"$in": list(symbols_key)}, "timestamp": {"$gte": desde}},
+        {"_id": 0, "symbol": 1, "timestamp": 1, "last": 1, "bid": 1, "offer": 1},
+    ))
+
+
 # ==========================================
 # RENDER FUNCTIONS — OPCIONES
 # ==========================================
@@ -322,11 +342,7 @@ def _chart_historico_estrategia(db_opciones, resolved_legs, costo_actual=None, d
     if not symbols:
         return None
 
-    desde = datetime.utcnow() - timedelta(days=dias)
-    docs = list(db_opciones["Data"].find(
-        {"symbol": {"$in": symbols}, "timestamp": {"$gte": desde}},
-        {"_id": 0, "symbol": 1, "timestamp": 1, "last": 1, "bid": 1, "offer": 1},
-    ))
+    docs = _fetch_estrategia_historico(frozenset(symbols), dias)
     if not docs:
         return None
 
@@ -454,18 +470,18 @@ def _chart_payoff_estrategia(resolved_legs, spot, neto):
 @st.fragment(run_every=30)
 def _tab_opciones_mercado():
     """Solo este fragment se refresca cada 30s."""
-    db_op    = get_db_opciones()
     meta_col = get_meta_col()
 
-    docs = list(db_op["OptionsSnapshot"].find({}))
+    docs = _get_options_snapshot()
     spot = next((d.get("spot", 0) for d in docs if d.get("spot", 0) > 0), 0) if docs else 0
 
-    vr_doc   = meta_col.find_one({"type": "vr_ggal"})
-    vr_local = vr_doc.get("vr_local", 0) if vr_doc else 0
-    vr_adr   = vr_doc.get("vr_adr",   0) if vr_doc else 0
+    meta = _get_metadata()
+    vr_doc   = meta.get("vr_ggal") or {}
+    vr_local = vr_doc.get("vr_local", 0)
+    vr_adr   = vr_doc.get("vr_adr",   0)
 
-    cfg_doc = meta_col.find_one({"type": "config"})
-    tasa_actual = cfg_doc.get("tasa", 0.242) if cfg_doc else 0.242
+    cfg_doc = meta.get("config") or {}
+    tasa_actual = cfg_doc.get("tasa", 0.242)
     if "tasa_display" not in st.session_state:
         st.session_state["tasa_display"] = tasa_actual
 
@@ -527,10 +543,7 @@ def vista_opciones():
 
     # ── Tab Estrategias ───────────────────────────────────────────────────
     with tab_est:
-        _proj = {"_id": 0, "symbol": 1, "strike": 1, "tipo": 1, "bid": 1, "offer": 1,
-                 "last": 1, "ev": 1, "delta": 1, "gamma": 1, "theta": 1,
-                 "iv": 1, "spot": 1, "updated_at": 1}
-        docs_e = list(db_op["OptionsSnapshot"].find({}, _proj))
+        docs_e = _get_options_snapshot()
         spot_e = next((d.get("spot", 0) for d in docs_e if d.get("spot", 0) > 0), 0) if docs_e else 0
 
         if not docs_e:
@@ -668,8 +681,8 @@ def vista_opciones():
                 with col_tabla_spread:
                     if sel_legs and spot_e > 0:
                         # Tasa y T para pricing teórico
-                        _cfg = get_meta_col().find_one({"type": "config"})
-                        _r   = (_cfg.get("tasa", 0.242) if _cfg else 0.242)
+                        _cfg = _get_metadata().get("config") or {}
+                        _r   = _cfg.get("tasa", 0.242)
                         # T: promedio de los T calculados por pata (vega/gamma·S²·σ)
                         _t_vals = [lg['T'] for lg in sel_legs if lg.get('T') and lg['T'] > 0]
                         _T = sum(_t_vals) / len(_t_vals) if _t_vals else None

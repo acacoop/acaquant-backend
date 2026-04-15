@@ -276,9 +276,7 @@ def sync_carteras_ii(hoy_str=None):
     ]
     col_cii.bulk_write(ops, ordered=False)
 
-    claves = [{"id_cuenta": d["id_cuenta"], "unidad": d["unidad"]} for d in docs]
     col_cii.delete_many({"fecha_snapshot": {"$ne": fecha_target}})
-    col_cii.delete_many({"$nor": claves} if claves else {})
 
     print(f"✅ CarterasII sincronizado: {len(docs)} docs para fecha_snapshot={fecha_target}")
 

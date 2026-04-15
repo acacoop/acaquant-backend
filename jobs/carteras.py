@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import holidays
 import pyRofex
-from pymongo import ReplaceOne
+from pymongo import ReplaceOne, UpdateOne
 
 from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
@@ -40,37 +40,22 @@ def obtener_fechas_habiles():
 
 def sincronizar_assets(df):
     """
-    Sincroniza las unidades de Carteras hacia Assets.
-    - Si la unidad ya existe: no hace nada
-    - Si no existe: la agrega
-    - Al final: elimina duplicados por unidad
+    Sincroniza las unidades de Carteras hacia Assets (upsert bulk).
+    Asume índice único en Valuaciones.Assets.unidad (ver scripts/crear_indices.py).
     """
     client = get_mongo_client()
     collection = client["Valuaciones"]["Assets"]
 
-    insertados = 0
-    for _, row in df.iterrows():
-        result = collection.update_one(
-            {"unidad": row["unidad"]},
-            {"$setOnInsert": {"unidad": row["unidad"]}},
-            upsert=True
-        )
-        if result.upserted_id:
-            insertados += 1
+    unidades = [u for u in df["unidad"].dropna().unique().tolist() if u]
+    if not unidades:
+        return 0, 0
 
-    # Deduplicación: si por alguna razón hay duplicados, se eliminan
-    pipeline = [
-        {"$group": {"_id": "$unidad", "ids": {"$push": "$_id"}, "count": {"$sum": 1}}},
-        {"$match": {"count": {"$gt": 1}}}
+    ops = [
+        UpdateOne({"unidad": u}, {"$setOnInsert": {"unidad": u}}, upsert=True)
+        for u in unidades
     ]
-    duplicados = list(collection.aggregate(pipeline))
-    eliminados = 0
-    for dup in duplicados:
-        ids_a_borrar = dup["ids"][1:]  # Conserva el primero, borra el resto
-        collection.delete_many({"_id": {"$in": ids_a_borrar}})
-        eliminados += len(ids_a_borrar)
-
-    return insertados, eliminados
+    result = collection.bulk_write(ops, ordered=False)
+    return result.upserted_count, 0
 
 
 def actualizar_precios_mercado():

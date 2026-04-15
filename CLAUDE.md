@@ -220,10 +220,61 @@ Manager visible solo para emails en `MANAGER_EMAILS`. Determinado por header `Cf
 |---|---|---|
 | Mercado | Mercado · Libro · Curvas · Breakevens · Forwards · Retorno Total · Volúmenes | Microstructure, VWAP, volumen intraday; Libro en tiempo real (run_every=2s); curvas, breakevens (sub-tabs Tiempo Real · Histórico · Gráfico · Simulador), forwards, retorno total. Tab Mercado usa `@st.fragment(run_every=30)`. |
 | Opciones | Mercado · Estrategias | Cadena GGAL con SPOT/VR/ADR/Tasa RF + volatility smile. Estrategias: spreads pre-configurados con payoff y costo histórico. |
-| Portfolios | una tab por cuenta | Posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial de `Trading.DOLAR`. Tab por `id_cuenta`; filtro cartera dentro de cada tab. |
+| Portfolios | Carteras · Reportes | Carteras: posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial de `Trading.DOLAR`. Tab por `id_cuenta`; filtro cartera dentro de cada tab. Reportes: informe ejecutivo mensual por cuenta (ver sección abajo). |
 | Operaciones | Cash Flow · Contrapartes · Análisis · Flujo vs AuM | Cash Flow: `CashFlow.Movimientos`, filtro "Todas / Sin accionistas / Solo accionistas / Solo cooperativas". Contrapartes: filtros SEGMENTO+MONEDA, flujo mensual + drill-down. Análisis: Individual/Comparativo. Flujo vs AuM: gráfico dual para segmento=Fondos. |
 | AuM | FCI · Análisis SG · Tasa Fija · CER | FCI: snapshot por fecha + evolución + detalle por soc. gerente. Análisis SG: Individual o Comparativo base 100. Tasa Fija y CER: toggle "Valor Nominal" alterna columna entre `cantidad` (VN) y `valuacion` (P×Q). |
 | Manager | Diagnóstico · Backfills · Validaciones · Logs · Historial · Setup · Latencia | Solo admins. Backfills, upserts a Assets/Contrapartes, flujo inline, audit log en `Manager.ChangeLog`. Tab Latencia: benchmark en tiempo real de todas las queries MongoDB del dashboard (ms, docs, ms/doc). |
+
+### Portfolios → Tab Reportes
+
+Informe ejecutivo mensual por cuenta. Selector de cuenta en el header. Secciones:
+
+#### 1. Resumen Ejecutivo
+- KPIs: fecha, valor MEP, valor A3500 (de `Valuaciones.Dolar` y `Trading.DOLAR`), valuación ARS/A3500/USD total.
+- Donut chart + tablas mes actual y mes anterior por cartera (ARS / DL / HD / FCI).
+- **Mes actual**: de `Valuaciones.Carteras` (último snapshot Aunesa, campo `valuacion`).
+- **Mes anterior**: de `Valuaciones.CarterasII` (snapshot manual del primer día hábil del mes anterior, sincronizado al final de `main_aum.py` y `backfill_aum.py`).
+
+#### 2. Carteras vs Benchmarks (4 gráficos — rendimiento acumulado mensual)
+
+Todos los gráficos muestran rendimiento acumulado en eje Y (formato %).
+
+| Gráfico | Fuente cartera | Benchmarks | Estado |
+|---|---|---|---|
+| Cartera Total ARS vs Benchmarks | `Valuaciones.Rendimientos` campo `rendimiento_ars` | A3500, Inflacion, Badlar (de `Valuaciones.Benchmarks`) | **Pendiente conectar** |
+| Cartera Total USD | `Valuaciones.Rendimientos` campo `rendimiento_usd` | Sin benchmarks | **Pendiente conectar** |
+| Cartera Pesos vs Benchmarks | `Valuaciones.Rendimientos` campo `rendimiento_carteraars` | Badlar, Inflacion (de `Valuaciones.Benchmarks`) | **Pendiente conectar** |
+| Cartera Dolar Linked USD | — | — | **Dummy — pendiente** |
+
+#### Colecciones de soporte (carga manual por ahora)
+
+**`Valuaciones.Benchmarks`** — una fila por `(periodo, benchmark)`:
+```
+{ periodo: "ago-25", benchmark: "Badlar", mensual: 0.033, acumulado: 0.057 }
+{ periodo: "ago-25", benchmark: "A3500",  mensual: 0.132, acumulado: 0.204 }
+{ periodo: "ago-25", benchmark: "Inflacion", mensual: 0.027, acumulado: 0.091 }
+```
+- `benchmark`: valores posibles → `"Badlar"`, `"A3500"`, `"Inflacion"` (la inflación mensual, NO el índice CER).
+- `periodo`: formato `"mmm-aa"` (ej. `"ago-25"`). Igual al formato usado en los gráficos.
+- `mensual`: variación del mes (decimal). `acumulado`: acumulado desde inicio de serie (decimal).
+- Los gráficos usan `acumulado` como eje Y.
+
+**`Valuaciones.Rendimientos`** — una fila por `(id_cuenta, periodo)`:
+```
+{
+  id_cuenta: "1234",
+  periodo: "ago-25",
+  rendimiento_ars: 0.041,         // variación % de valuación total ARS vs mes anterior
+  rendimiento_usd: 0.018,         // variación % de valuación total USD vs mes anterior
+  rendimiento_carteraars: 0.052,  // variación % de CARTERA ARS solamente vs mes anterior
+}
+```
+- `rendimiento_ars` y `rendimiento_usd` calculados como `(valor_actual / valor_anterior) - 1`.
+- Los gráficos acumulan estos valores mensualmente para construir la serie (igual que benchmarks).
+- Carga manual de momento. A futuro: script automático post-cierre mensual.
+
+#### 3. Variaciones del mes — **Dummy (pendiente conectar)**
+#### 4–7. Detalle de activos — **Dummy (pendiente conectar)**
 
 ### Mercado → Tab Libro
 

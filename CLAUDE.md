@@ -267,7 +267,7 @@ Manager visible solo para emails en `MANAGER_EMAILS`. Determinado por header `Cf
 |---|---|---|
 | Mercado | Mercado · Libro · Curvas · Breakevens · Forwards · Retorno Total · Volúmenes | Microstructure, VWAP, volumen intraday; Libro en tiempo real (run_every=2s); curvas, breakevens (sub-tabs Tiempo Real · Histórico · Gráfico · Simulador), forwards, retorno total. Tab Mercado usa `@st.fragment(run_every=30)`. |
 | Opciones | Mercado · Estrategias | Cadena GGAL con SPOT/VR/ADR/Tasa RF + volatility smile. Estrategias: spreads pre-configurados con payoff y costo histórico. |
-| Portfolios | Carteras · Reportes | Carteras: posiciones por cuenta desde Aunesa (`Valuaciones.Carteras`). Dólar oficial de `Trading.DOLAR`. Tab por `id_cuenta`; filtro cartera dentro de cada tab. Reportes: informe ejecutivo mensual por cuenta (ver sección abajo). |
+| Portfolios | Reportes | Informe ejecutivo mensual por cuenta. Lee `Valuaciones.Carteras` (mes actual) y `Valuaciones.CarterasII` (mes anterior). Ver sección abajo. |
 | Operaciones | Cash Flow · Contrapartes · Análisis · Flujo vs AuM | Cash Flow: `CashFlow.Movimientos`, filtro "Todas / Sin accionistas / Solo accionistas / Solo cooperativas". Contrapartes: filtros SEGMENTO+MONEDA, flujo mensual + drill-down. Análisis: Individual/Comparativo. Flujo vs AuM: gráfico dual para segmento=Fondos. |
 | AuM | FCI · Análisis SG · Tasa Fija · CER | FCI: snapshot por fecha + evolución + detalle por soc. gerente. Análisis SG: Individual o Comparativo base 100. Tasa Fija y CER: toggle "Valor Nominal" alterna columna entre `cantidad` (VN) y `valuacion` (P×Q). |
 | Manager | Diagnóstico · Backfills · Validaciones · Logs · Historial · Setup · Latencia | Solo admins. Backfills, upserts a Assets/Contrapartes, flujo inline, audit log en `Manager.ChangeLog`. Tab Latencia: benchmark en tiempo real de todas las queries MongoDB del dashboard (ms, docs, ms/doc). |
@@ -431,7 +431,6 @@ Definidos en `scripts/crear_indices.py`. Ejecutar en servidor nuevo o al agregar
 - **Altair v4 pie labels**: usar `mark_text(radius=N, color="white")` dentro del arco.
 - **Altair eje X duplicado en barras mensuales**: usar `strftime` para agrupar como string + encoding `:O` con `sort=` explícito.
 - **Altair fontWeight**: entero (`fontWeight=600`), no string.
-- **Dólar Oficial en Portfolios**: leído de `Trading.DOLAR` (sort por `fecha` desc). No hay input manual.
 - **Valuación AuM**: recalculada en la vista. `TIPOS_DIVISOR_100 = {Títulos Públicos, Letras, ONs, Fideicomisos, CPD}`.
 - **CashFlow DB**: se llama `CashFlow` (sin espacio). Depósitos positivos, extracciones negativas.
 - **Enriquecimiento CER**: el CER usado depende de la fecha de settlement del trade (T-10 días hábiles). Si un bono no opera un día, su último trade enriquecido puede usar el CER de ayer.

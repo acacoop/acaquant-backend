@@ -2554,7 +2554,7 @@ def _render_reporte_ejecutivo():
                             scale=alt.Scale(domain=list(series_dict.keys()), range=colors),
                             legend=alt.Legend(title=None, orient="top")),
             tooltip=["Mes:N", "Serie:N", alt.Tooltip("Valor:Q", format=".2%")],
-        ).properties(title=title, height=240)
+        ).properties(title=title, height=360)
         return line
 
     g1, g2 = st.columns(2)

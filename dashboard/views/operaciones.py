@@ -1,65 +1,16 @@
 """Vista Operaciones del dashboard: Cash Flow, Contrapartes, Análisis, Flujo vs AuM."""
-import re
-from datetime import datetime
-
 import altair as alt
 import pandas as pd
 import streamlit as st
 
-from dashboard.shared.db import get_db_cashflow, get_db_valuaciones
+from dashboard.repos.operaciones import (
+    get_accionistas_map,
+    get_flujo_contrapartes,
+    get_fondos_flujo_aum,
+    get_movimientos,
+)
+from dashboard.services.operaciones import es_cooperativa, filtrar_movimientos
 from dashboard.shared.format import fmt_nom
-
-
-# ==========================================
-# OPERACIONES — Cash Flow
-# ==========================================
-@st.cache_data(ttl=900, show_spinner=False)
-def _cargar_movimientos():
-    db = get_db_cashflow()
-    # fecha es "dd/mm/yyyy" en Mongo — filtramos server-side por año con regex
-    # para acotar la transferencia a los últimos ~24 meses.
-    y_now = datetime.utcnow().year
-    years = [str(y_now - i) for i in range(3)]  # cur, prev, prev-1
-    pat = rf"/({'|'.join(years)})$"
-    docs = list(db["Movimientos"].find(
-        {"fecha": {"$regex": pat}},
-        {"_id": 0, "fecha": 1, "total": 1, "unidad": 1, "informacion": 1, "cuenta": 1},
-    ))
-    if not docs:
-        return pd.DataFrame()
-    df = pd.DataFrame(docs)
-    df["fecha"] = pd.to_datetime(df["fecha"], format="%d/%m/%Y", errors="coerce")
-    df["total"] = pd.to_numeric(df["total"], errors="coerce").fillna(0)
-    return df.dropna(subset=["fecha"]).sort_values("fecha")
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def _cargar_accionistas():
-    """Devuelve dict {cuenta: accionista} desde CashFlow.Accionistas."""
-    db = get_db_cashflow()
-    docs = list(db["Accionistas"].find({}, {"_id": 0, "cuenta": 1, "accionista": 1}))
-    return {d["cuenta"]: d["accionista"] for d in docs if "cuenta" in d}
-
-
-@st.cache_data(ttl=900, show_spinner=False)
-def _cargar_contrapartes():
-    db = get_db_cashflow()
-    docs = list(db["Flujo"].find(
-        {}, {"_id": 0, "bruto": 1, "concertacion": 1, "contraparte": 1, "moneda": 1, "tipoOperacion": 1}
-    ))
-    if not docs:
-        return pd.DataFrame()
-    df = pd.DataFrame(docs)
-    df["concertacion"] = pd.to_datetime(df["concertacion"], errors="coerce")
-    df["bruto"] = pd.to_numeric(df["bruto"], errors="coerce").fillna(0)
-    df = df.dropna(subset=["concertacion"]).sort_values("concertacion")
-
-    # Join segmento desde CashFlow.Contrapartes
-    cp_docs = list(db["Contrapartes"].find({}, {"_id": 0, "contraparte": 1, "segmento": 1}))
-    seg_map = {d["contraparte"]: d.get("segmento") or "Sin clasificar" for d in cp_docs}
-    df["segmento"] = df["contraparte"].map(seg_map).fillna("Sin clasificar")
-
-    return df
 
 
 def _render_flujo_chart_y_cards(df_f, monedas_sel, granularity):
@@ -182,13 +133,6 @@ def _render_flujo_chart_y_cards(df_f, monedas_sel, granularity):
 """, unsafe_allow_html=True)
 
 
-_COOP_RE = re.compile(r"\bcoop", re.IGNORECASE)
-
-
-def _es_cooperativa(cuenta_str):
-    return bool(cuenta_str) and bool(_COOP_RE.search(str(cuenta_str)))
-
-
 def vista_operaciones():
     st.markdown("## ACAQuant | Operaciones")
 
@@ -196,7 +140,7 @@ def vista_operaciones():
 
     # ── Tab: Cash Flow (sin cambios) ──────────────────────────────────────────
     with tab_cf:
-        df = _cargar_movimientos()
+        df = get_movimientos()
         if df.empty:
             st.warning("Sin datos. Ejecutá `main_cashflow.py` para cargar el historial.")
         else:
@@ -226,7 +170,7 @@ def vista_operaciones():
                 )
 
             # ── Filtro cuentas ────────────────────────────────────────────────
-            acc_map = _cargar_accionistas()   # {cuenta: accionista}
+            acc_map = get_accionistas_map()   # {cuenta: accionista}
 
             fa_col, fb_col = st.columns([2, 5])
             with fa_col:
@@ -250,7 +194,7 @@ def vista_operaciones():
             elif filtro_acc == "Solo cooperativas":
                 cuentas_coop = sorted(
                     c for c in todas_cuentas
-                    if c not in acc_map and _es_cooperativa(c)
+                    if c not in acc_map and es_cooperativa(c)
                 )
                 opciones = ["Todas"] + cuentas_coop
                 label_sel = "Cooperativa"
@@ -265,26 +209,8 @@ def vista_operaciones():
                 )
 
             # ── Filtrar ───────────────────────────────────────────────────────
-            df_f = df[(df["fecha"].dt.date >= rango[0]) & (df["fecha"].dt.date <= rango[1])].copy()
             monedas_sel = (["ARS"] if show_ars else []) + (["USD"] if show_usd else [])
-            df_f = df_f[df_f["unidad"].isin(monedas_sel)].copy()
-
-            df_f["_accionista"] = df_f["cuenta"].map(acc_map)
-            if filtro_acc == "Sin accionistas":
-                df_f = df_f[df_f["_accionista"].isna()].copy()
-                if seleccion != "Todas":
-                    df_f = df_f[df_f["cuenta"] == seleccion].copy()
-            elif filtro_acc == "Solo accionistas":
-                df_f = df_f[df_f["_accionista"].notna()].copy()
-                if seleccion != "Todos":
-                    df_f = df_f[df_f["_accionista"] == seleccion].copy()
-            elif filtro_acc == "Solo cooperativas":
-                df_f = df_f[df_f["_accionista"].isna() & df_f["cuenta"].apply(_es_cooperativa)].copy()
-                if seleccion != "Todas":
-                    df_f = df_f[df_f["cuenta"] == seleccion].copy()
-            else:
-                if seleccion != "Todas":
-                    df_f = df_f[df_f["cuenta"] == seleccion].copy()
+            df_f = filtrar_movimientos(df, rango, monedas_sel, filtro_acc, seleccion, acc_map)
 
             if df_f.empty:
                 st.info("Sin datos para el rango/moneda seleccionados.")
@@ -293,7 +219,7 @@ def vista_operaciones():
 
     # ── Tab: Contrapartes ─────────────────────────────────────────────────────
     with tab_cp:
-        df_cp = _cargar_contrapartes()
+        df_cp = get_flujo_contrapartes()
         if df_cp.empty:
             st.warning("Sin datos en CashFlow.Flujo.")
         else:
@@ -514,7 +440,7 @@ def vista_operaciones():
 
     # ── Tab: Análisis contrapartes ────────────────────────────────────────────
     with tab_analisis_cp:
-        df_an = _cargar_contrapartes()
+        df_an = get_flujo_contrapartes()
         if df_an.empty:
             st.warning("Sin datos en CashFlow.Flujo.")
         else:
@@ -677,81 +603,8 @@ def vista_operaciones():
 # Flujo vs AuM (Fondos)
 # ==========================================
 
-@st.cache_data(ttl=900, show_spinner=False)
-def _cargar_fondos_flujo_aum():
-    """
-    Devuelve:
-      - fondos: lista de emisores con segmento=Fondos
-      - df_flujo: (emisor, fecha, bruto) — trades individuales ARS
-      - df_aum:   (emisor, fecha_snapshot, valuacion) — AuM diario agregado por emisor
-    """
-    db_cf  = get_db_cashflow()
-    db_val = get_db_valuaciones()
-
-    # 1. Fondos
-    fondos = list(dict.fromkeys(
-        d["contraparte"] for d in db_cf["Contrapartes"].find(
-            {"segmento": "Fondos"}, {"_id": 0, "contraparte": 1}
-        )
-    ))
-    if not fondos:
-        return [], pd.DataFrame(), pd.DataFrame()
-
-    # 2. Flujo ARS — nivel trade
-    flujo_docs = list(db_cf["Flujo"].find(
-        {"contraparte": {"$in": fondos}, "moneda": "ARS"},
-        {"_id": 0, "contraparte": 1, "concertacion": 1, "bruto": 1}
-    ))
-    if flujo_docs:
-        df_fl = pd.DataFrame(flujo_docs)
-        df_fl["fecha"]  = pd.to_datetime(df_fl["concertacion"], errors="coerce")
-        df_fl["bruto"]  = pd.to_numeric(df_fl["bruto"], errors="coerce").fillna(0)
-        df_fl["emisor"] = df_fl["contraparte"]
-        df_flujo = df_fl[["emisor", "fecha", "bruto"]].dropna(subset=["fecha"]).sort_values("fecha")
-    else:
-        df_flujo = pd.DataFrame()
-
-    # 3. AuM diario por emisor (suma valuacion de todas las unidades FCI del emisor)
-    assets_docs = list(db_val["Assets"].find(
-        {"EMISOR": {"$in": fondos}, "CARTERA": "CARTERA FCI"},
-        {"_id": 0, "unidad": 1, "EMISOR": 1}
-    ))
-    if assets_docs:
-        df_assets   = pd.DataFrame(assets_docs)
-        unidades    = df_assets["unidad"].tolist()
-        emisor_map  = df_assets.set_index("unidad")["EMISOR"].to_dict()
-        # $group server-side: colapsa cuentas por (unidad, fecha) antes del transfer.
-        # Ventana de 36 meses para acotar el cache (fecha_snapshot es ISO "YYYY-MM-DD").
-        desde_snap = (datetime.utcnow() - pd.Timedelta(days=365 * 3)).strftime("%Y-%m-%d")
-        aum_rows = list(db_val["AuM"].aggregate([
-            {"$match":   {"unidad": {"$in": unidades},
-                          "fecha_snapshot": {"$gte": desde_snap}}},
-            {"$group":   {"_id": {"u": "$unidad", "f": "$fecha_snapshot"},
-                          "valuacion": {"$sum": "$valuacion"}}},
-            {"$project": {"_id": 0, "unidad": "$_id.u",
-                          "fecha_snapshot": "$_id.f", "valuacion": 1}},
-        ]))
-        if aum_rows:
-            df_a = pd.DataFrame(aum_rows)
-            df_a["valuacion"]      = pd.to_numeric(df_a["valuacion"], errors="coerce").fillna(0)
-            df_a["fecha_snapshot"] = pd.to_datetime(df_a["fecha_snapshot"], errors="coerce")
-            df_a["emisor"]         = df_a["unidad"].map(emisor_map)
-            df_aum = (
-                df_a.dropna(subset=["fecha_snapshot", "emisor"])
-                .groupby(["emisor", "fecha_snapshot"], as_index=False)["valuacion"]
-                .sum()
-                .sort_values("fecha_snapshot")
-            )
-        else:
-            df_aum = pd.DataFrame()
-    else:
-        df_aum = pd.DataFrame()
-
-    return fondos, df_flujo, df_aum
-
-
 def _render_flujo_vs_aum():
-    fondos, df_flujo, df_aum = _cargar_fondos_flujo_aum()
+    fondos, df_flujo, df_aum = get_fondos_flujo_aum()
 
     if not fondos:
         st.caption("Sin contrapartes con segmento=Fondos.")

@@ -68,11 +68,18 @@ def _is_empty_filter(call):
 
 
 def _inside_for(node, pmap):
-    cur = _parent(node, pmap)
-    while cur is not None:
-        if isinstance(cur, (ast.For, ast.AsyncFor)):
-            return True
-        cur = _parent(cur, pmap)
+    """True si node se ejecuta en cada iteración (body).
+    False si está en el `iter` (se ejecuta 1 vez como cursor)."""
+    cur = node
+    parent = _parent(cur, pmap)
+    while parent is not None:
+        if isinstance(parent, (ast.For, ast.AsyncFor)):
+            if cur in parent.body:
+                return True
+            # cur está en parent.iter o parent.target → sigo subiendo por si
+            # hay un for externo que sí contiene todo esto en su body.
+        cur = parent
+        parent = _parent(cur, pmap)
     return False
 
 

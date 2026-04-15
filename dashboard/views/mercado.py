@@ -1571,7 +1571,10 @@ def vista_forwards():
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _cargar_volumenes_diarios():
-    """Suma de money por fecha y curva desde TimeSales, solo tickers en Trading.Curvas."""
+    """Suma de money por fecha y curva desde TimeSales, solo tickers en Trading.Curvas.
+
+    Limita a los últimos 5 días para evitar escanear meses de TimeSales.
+    """
     db = get_db()
     ticker_curva = {
         d["ticker"]: d["curva"]
@@ -1580,8 +1583,11 @@ def _cargar_volumenes_diarios():
     if not ticker_curva:
         return pd.DataFrame()
 
+    fecha_min = datetime.utcnow() - timedelta(days=5)
     pipeline = [
-        {"$match": {"ticker": {"$in": list(ticker_curva.keys())}, "money": {"$gt": 0}}},
+        {"$match": {"ticker": {"$in": list(ticker_curva.keys())},
+                    "money": {"$gt": 0},
+                    "timestamp": {"$gte": fecha_min}}},
         {"$group": {
             "_id": {
                 "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},

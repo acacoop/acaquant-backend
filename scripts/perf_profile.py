@@ -100,9 +100,12 @@ def _mercado_queries(client):
     }))
 
     tickers_curvas = [d["ticker"] for d in client["Trading"]["Curvas"].find({}, {"ticker": 1, "_id": 0})]
+    fecha_min_5d = datetime.utcnow() - timedelta(days=5)
     queries.append(("mercado._cargar_volumenes_diarios", "Trading", "TimeSales", "agg", {
         "pipeline": [
-            {"$match": {"ticker": {"$in": tickers_curvas}, "money": {"$gt": 0}}},
+            {"$match": {"ticker": {"$in": tickers_curvas},
+                        "money": {"$gt": 0},
+                        "timestamp": {"$gte": fecha_min_5d}}},
             {"$group": {
                 "_id": {
                     "fecha":  {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
@@ -187,9 +190,15 @@ def _operaciones_queries(client):
         fondo_unidades = [a["unidad"] for a in client["Valuaciones"]["Assets"].find(
             {"EMISOR": {"$in": fondos}, "CARTERA": "CARTERA FCI"}, {"unidad": 1, "_id": 0}
         ) if a.get("unidad")]
-    queries.append(("operaciones.fondos_flujo_aum.AuM", "Valuaciones", "AuM", "find", {
-        "filter": {"unidad": {"$in": fondo_unidades}} if fondo_unidades else {"unidad": {"$in": []}},
-        "projection": {"_id": 0, "unidad": 1, "valuacion": 1, "fecha_snapshot": 1},
+    queries.append(("operaciones.fondos_flujo_aum.AuM", "Valuaciones", "AuM", "agg", {
+        "pipeline": [
+            {"$match":   {"unidad": {"$in": fondo_unidades}} if fondo_unidades
+                         else {"unidad": {"$in": []}}},
+            {"$group":   {"_id": {"u": "$unidad", "f": "$fecha_snapshot"},
+                          "valuacion": {"$sum": "$valuacion"}}},
+            {"$project": {"_id": 0, "unidad": "$_id.u",
+                          "fecha_snapshot": "$_id.f", "valuacion": 1}},
+        ],
     }))
 
     return queries

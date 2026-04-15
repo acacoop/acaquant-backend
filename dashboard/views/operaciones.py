@@ -711,12 +711,16 @@ def _cargar_fondos_flujo_aum():
         df_assets   = pd.DataFrame(assets_docs)
         unidades    = df_assets["unidad"].tolist()
         emisor_map  = df_assets.set_index("unidad")["EMISOR"].to_dict()
-        aum_docs    = list(db_val["AuM"].find(
-            {"unidad": {"$in": unidades}},
-            {"_id": 0, "unidad": 1, "valuacion": 1, "fecha_snapshot": 1}
-        ))
-        if aum_docs:
-            df_a = pd.DataFrame(aum_docs)
+        # $group server-side: colapsa cuentas por (unidad, fecha) antes del transfer
+        aum_rows = list(db_val["AuM"].aggregate([
+            {"$match":   {"unidad": {"$in": unidades}}},
+            {"$group":   {"_id": {"u": "$unidad", "f": "$fecha_snapshot"},
+                          "valuacion": {"$sum": "$valuacion"}}},
+            {"$project": {"_id": 0, "unidad": "$_id.u",
+                          "fecha_snapshot": "$_id.f", "valuacion": 1}},
+        ]))
+        if aum_rows:
+            df_a = pd.DataFrame(aum_rows)
             df_a["valuacion"]      = pd.to_numeric(df_a["valuacion"], errors="coerce").fillna(0)
             df_a["fecha_snapshot"] = pd.to_datetime(df_a["fecha_snapshot"], errors="coerce")
             df_a["emisor"]         = df_a["unidad"].map(emisor_map)

@@ -2101,7 +2101,7 @@ def vista_mercado():
 
     st.markdown("## ACAQuant | Mercado")
 
-    tab_mercado, tab_libro, tab_curvas, tab_breakevens, tab_forwards, tab_retorno, tab_vol = st.tabs(["Mercado", "Libro", "Curvas", "Breakevens", "Forwards", "Retorno Total", "Volúmenes"])
+    tab_mercado, tab_libro, tab_curvas, tab_breakevens, tab_forwards, tab_retorno, tab_vol, tab_estrategias = st.tabs(["Mercado", "Libro", "Curvas", "Breakevens", "Forwards", "Retorno Total", "Volúmenes", "Estrategias"])
 
     with tab_mercado:
         @st.fragment(run_every=30)
@@ -2207,6 +2207,169 @@ def vista_mercado():
 
     with tab_vol:
         _render_volumenes()
+
+    with tab_estrategias:
+        _render_estrategias()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MERCADO → ESTRATEGIAS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _carry_rolldown_data():
+    """
+    Retorna lista de dicts con carry, roll-down y retorno total esperado a 30 días
+    para cada bono de la curva tasa_fija con datos enriquecidos disponibles.
+
+    Algoritmo:
+      - Carry = TEM (rendimiento cierto a 30 días de un cupón-cero)
+      - Roll-down: interpolación lineal de la curva TEM vs duration para encontrar
+        la TEM en (duration_actual - 30/365). Luego:
+        roll_down ≈ duration_actual × (TEM_actual − TEM_futura)
+      - Retorno_total = carry + roll_down
+    """
+    db = get_db()
+
+    # 1. Metadata de curvas — solo tasa_fija
+    curvas_docs = list(db["Curvas"].find(
+        {"curva": "tasa_fija"},
+        {"ticker": 1, "ticker_corto": 1, "fecha_vencimiento": 1, "_id": 0}
+    ))
+    if not curvas_docs:
+        return []
+    tickers_tf = [d["ticker"] for d in curvas_docs if d.get("ticker")]
+    curva_meta = {d["ticker"]: d for d in curvas_docs}
+
+    # 2. Último trade enriquecido por ticker
+    pipeline = [
+        {"$match": {"ticker": {"$in": tickers_tf}, "TEM": {"$exists": True}, "duration": {"$exists": True}}},
+        {"$sort": {"timestamp": -1}},
+        {"$group": {
+            "_id":      "$ticker",
+            "TEM":      {"$first": "$TEM"},
+            "TEA":      {"$first": "$TEA"},
+            "duration": {"$first": "$duration"},
+            "price":    {"$first": "$price"},
+        }},
+    ]
+    enriched = {r["_id"]: r for r in db["TimeSales"].aggregate(pipeline)}
+    if not enriched:
+        return []
+
+    # 3. Construir curva: lista de (duration, TEM) ordenada por duration
+    curva_pts = sorted(
+        [(enriched[t]["duration"], enriched[t]["TEM"], t) for t in enriched],
+        key=lambda x: x[0]
+    )
+    durations = [p[0] for p in curva_pts]
+    tems      = [p[1] for p in curva_pts]
+
+    def _interp_tem(d_target):
+        """Interpolación lineal de TEM en d_target. Extrapolación flat en extremos."""
+        if d_target <= durations[0]:
+            return tems[0]
+        if d_target >= durations[-1]:
+            return tems[-1]
+        for i in range(len(durations) - 1):
+            if durations[i] <= d_target <= durations[i + 1]:
+                w = (d_target - durations[i]) / (durations[i + 1] - durations[i])
+                return tems[i] + w * (tems[i + 1] - tems[i])
+        return tems[-1]
+
+    # 4. Calcular carry + roll-down para cada bono
+    DIAS_30 = 30 / 365
+    rows = []
+    for ticker, data in enriched.items():
+        tem      = data["TEM"]
+        dur      = data["duration"]
+        tea      = data.get("TEA")
+        price    = data.get("price")
+        meta     = curva_meta.get(ticker, {})
+        vto      = meta.get("fecha_vencimiento", "")
+        nombre   = meta.get("ticker_corto", ticker)
+
+        carry    = tem
+        dur_fut  = max(dur - DIAS_30, 0.0)
+        tem_fut  = _interp_tem(dur_fut)
+        rolldown = dur * (tem - tem_fut)
+        total    = carry + rolldown
+
+        rows.append({
+            "Ticker":       nombre or ticker,
+            "Duration":     dur,
+            "TEM":          tem,
+            "Carry":        carry,
+            "Roll-Down":    rolldown,
+            "Retorno Total": total,
+            "TEA":          tea,
+            "Precio":       price,
+            "Vencimiento":  vto,
+        })
+
+    rows.sort(key=lambda r: r["Retorno Total"], reverse=True)
+    return rows
+
+
+def _render_carry_rolldown():
+    rows = _carry_rolldown_data()
+    if not rows:
+        st.info("Sin datos enriquecidos disponibles. El motor de curvas debe estar activo.")
+        return
+
+    import pandas as _pd
+
+    df = _pd.DataFrame(rows)
+
+    # Tabla principal
+    df_disp = df[["Ticker", "Vencimiento", "Duration", "TEM", "Carry", "Roll-Down", "Retorno Total"]].copy()
+    for col in ["TEM", "Carry", "Roll-Down", "Retorno Total"]:
+        df_disp[col] = df_disp[col].map(lambda v: f"{v*100:.3f}%" if v is not None else "-")
+    df_disp["Duration"] = df_disp["Duration"].map(lambda v: f"{v:.3f}")
+
+    st.dataframe(df_disp, hide_index=True, use_container_width=True,
+                 height=df_height(len(df_disp), max_h=600))
+
+    # Gráfico: Carry vs Roll-Down por bono, ordenado por duration
+    df_chart = df.copy()
+    df_melt = _pd.melt(
+        df_chart[["Ticker", "Duration", "Carry", "Roll-Down"]],
+        id_vars=["Ticker", "Duration"],
+        value_vars=["Carry", "Roll-Down"],
+        var_name="Componente",
+        value_name="Rendimiento",
+    )
+    df_melt = df_melt.sort_values("Duration")
+    tickers_orden = df_chart.sort_values("Duration")["Ticker"].tolist()
+
+    bars = alt.Chart(df_melt).mark_bar().encode(
+        x=alt.X("Ticker:N", sort=tickers_orden, axis=alt.Axis(labelAngle=-35, title=None)),
+        y=alt.Y("Rendimiento:Q", axis=alt.Axis(format=".2%", title="Rendimiento 30d")),
+        color=alt.Color(
+            "Componente:N",
+            scale=alt.Scale(domain=["Carry", "Roll-Down"], range=["#1F3864", "#5B9BD5"]),
+            legend=alt.Legend(title=None, orient="top"),
+        ),
+        tooltip=["Ticker:N", "Componente:N", alt.Tooltip("Rendimiento:Q", format=".3%")],
+    ).properties(height=280)
+
+    st.altair_chart(bars, use_container_width=True)
+
+
+def _render_estrategias():
+    tab_crd, tab_vr, tab_fly = st.tabs([
+        "Carry + Roll-Down",
+        "Valor Relativo",
+        "Butterfly",
+    ])
+
+    with tab_crd:
+        _render_carry_rolldown()
+
+    with tab_vr:
+        st.info("Módulo Valor Relativo — próximamente.")
+
+    with tab_fly:
+        st.info("Módulo Butterfly Scanner — próximamente.")
 
 
 @st.cache_data(ttl=300, show_spinner=False)

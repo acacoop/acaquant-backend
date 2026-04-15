@@ -762,51 +762,16 @@ def _render_volumenes_opciones(_db_op_ignored):
 
     color_scale = alt.Scale(domain=["CALL", "PUT"], range=["#4a9eff", "#ff4444"])
 
-    # ── Gráfico 1: histórico consolidado — rango de fechas ───────────────
-    rango = st.select_slider(
+    # ── Volumen por strike — rango desde / hasta ─────────────────────────
+    desde, hasta = st.select_slider(
         "Rango de fechas",
         options=fechas,
         value=(fechas[0], fechas[-1]),
-        key="vol_hist_rango",
+        key="vol_strike_rango",
     )
-    df_hist_fil = df_all[(df_all["fecha"] >= rango[0]) & (df_all["fecha"] <= rango[1])]
-    df_hist = df_hist_fil.groupby(["fecha", "Tipo"], as_index=False)["EV_M"].sum()
-
-    hist_bars = alt.Chart(df_hist).mark_bar().encode(
-        x=alt.X("fecha:O", title=None, axis=alt.Axis(labelAngle=-45)),
-        y=alt.Y("EV_M:Q",  title="Volumen ($M)", stack=True),
-        color=alt.Color("Tipo:N", scale=color_scale,
-                        legend=alt.Legend(title=None, orient="top-right")),
-        order=alt.Order("Tipo:N", sort="ascending"),
-        tooltip=[
-            alt.Tooltip("fecha:O",  title="Fecha"),
-            alt.Tooltip("Tipo:N",   title="Tipo"),
-            alt.Tooltip("EV_M:Q",   title="$M", format=".2f"),
-        ],
-    ).properties(height=280)
-    st.altair_chart(hist_bars, use_container_width=True)
-
-    st.divider()
-
-    # ── Gráfico 2: por strike — día puntual o todas las fechas ───────────
-    col_sl, col_tog = st.columns([4, 1])
-    with col_tog:
-        ver_todo = st.toggle("Todas las fechas", value=False, key="vol_strike_todo")
-    with col_sl:
-        fecha_sel = st.select_slider(
-            "Fecha",
-            options=fechas,
-            value=fechas[-1],
-            key="vol_strike_slider",
-            disabled=ver_todo,
-        )
-
-    if ver_todo:
-        df_dia = df_all.groupby(["Strike", "Tipo"], as_index=False)["EV_M"].sum()
-        label_dia = "Todas las fechas"
-    else:
-        df_dia = df_all[df_all["fecha"] == fecha_sel].copy()
-        label_dia = fecha_sel
+    df_fil = df_all[(df_all["fecha"] >= desde) & (df_all["fecha"] <= hasta)]
+    df_dia = df_fil.groupby(["Strike", "Tipo"], as_index=False)["EV_M"].sum()
+    label_dia = desde if desde == hasta else f"{desde} → {hasta}"
 
     total_call  = df_dia[df_dia["Tipo"] == "CALL"]["EV_M"].sum()
     total_put   = df_dia[df_dia["Tipo"] == "PUT"]["EV_M"].sum()

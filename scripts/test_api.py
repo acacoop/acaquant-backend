@@ -15,6 +15,8 @@ ENDPOINTS = [
     ("GET", "/api/health"),
     ("GET", "/api/cuentas/accionistas"),
     ("GET", "/api/cuentas/contrapartes"),
+    ("GET", "/api/operaciones/flujo"),
+    ("GET", "/api/operaciones/flujo?contraparte=ADCAP&moneda=ARS"),
 ]
 
 

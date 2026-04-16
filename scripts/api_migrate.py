@@ -3,6 +3,7 @@
 Uso:
     python -m scripts.api_migrate accionistas       → migra CashFlow.Accionistas → CashFlow.AccionistasAPI
     python -m scripts.api_migrate contrapartes      → migra CashFlow.Contrapartes → CashFlow.ContrapartesAPI
+    python -m scripts.api_migrate flujo             → copia CashFlow.Flujo → OperacionesAPI.MesaAPI
 """
 import re
 import sys
@@ -125,10 +126,55 @@ def mover_a_cuentasapi():
         print(f"OK: CashFlow.{col_name} eliminada")
 
 
+def migrate_flujo():
+    """Copia CashFlow.Flujo → OperacionesAPI.MesaAPI con campos renombrados.
+
+    Origen:  {instrumento, bruto, contraparte, concertacion, boleto, cuenta, segmento, moneda, ...}
+    Destino: {unidad, bruto, contraparte, concertacion, boleto, cuenta, segmento, moneda}
+
+    No borra el origen.
+    """
+    client = get_mongo_client()
+    src = client["CashFlow"]["Flujo"]
+    dst = client["OperacionesAPI"]["MesaAPI"]
+
+    projection = {
+        "_id": 0, "instrumento": 1, "bruto": 1, "contraparte": 1,
+        "concertacion": 1, "boleto": 1, "cuenta": 1, "segmento": 1, "moneda": 1,
+    }
+    docs = list(src.find({}, projection))
+    if not docs:
+        print("No hay docs en CashFlow.Flujo — nada que migrar.")
+        return
+
+    bulk = []
+    for doc in docs:
+        bulk.append({
+            "unidad": doc.get("instrumento", ""),
+            "bruto": doc.get("bruto"),
+            "contraparte": doc.get("contraparte", ""),
+            "concertacion": doc.get("concertacion", ""),
+            "boleto": doc.get("boleto"),
+            "cuenta": doc.get("cuenta"),
+            "segmento": doc.get("segmento", ""),
+            "moneda": doc.get("moneda", ""),
+        })
+
+    dst.drop()
+    dst.insert_many(bulk)
+    print(f"OK: {len(bulk)} docs copiados a OperacionesAPI.MesaAPI")
+
+    for d in bulk[:3]:
+        print(f"  unidad={d['unidad']!r}  contraparte={d['contraparte']!r}  bruto={d['bruto']}  concertacion={d['concertacion']!r}")
+    if len(bulk) > 3:
+        print(f"  ... y {len(bulk) - 3} más")
+
+
 COMMANDS = {
     "accionistas": migrate_accionistas,
     "contrapartes": migrate_contrapartes,
     "mover": mover_a_cuentasapi,
+    "flujo": migrate_flujo,
 }
 
 

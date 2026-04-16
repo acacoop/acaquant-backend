@@ -283,6 +283,73 @@ DESTINO: { unidad: "ARS", calificacion: "NO APLICA", cartera: "OTROS",
 
 ---
 
+## 8. FlujosAPI (Flujos de caja por instrumento)
+
+| | Origen | Destino |
+|---|---|---|
+| **Database** | `Trading` | `TitulosAPI` |
+| **Colección** | `Curvas` + `BondMaster` | `FlujosAPI` |
+| **Comando** | `python -m scripts.api_migrate flujos-titulos` |
+| **Borra origen** | No |
+
+### Merge de 2 fuentes en 1 colección
+
+Un doc por instrumento. `Trading.Curvas` tiene prioridad: si un ticker aparece en ambas fuentes, se usa Curvas.
+
+### Mapping de campos — Trading.Curvas
+
+| Campo origen | Campo destino | Transformación |
+|---|---|---|
+| `ticker_corto` | `ticker` | Renombrado (join key con AssetsAPI) |
+| `ticker` | `instrumento` | Renombrado |
+| `curva` | `curva` | Sin cambio |
+| — | `moneda_flujo` | `""` (no disponible en Curvas) |
+| `fecha_emision` | `fecha_emision` | String → datetime |
+| `fecha_vencimiento` | `fecha_vencimiento` | String → datetime |
+| `valor_nominal` | `valor_nominal` | Sin cambio |
+| `cupon_anual` | `cupon_anual` | Sin cambio |
+| `cer_emision` | `cer_emision` | Sin cambio (null si no es CER) |
+| — | `tasa_cupon` | `null` |
+| `flujo_vencimiento` | `flujo_vencimiento` | Sin cambio (null si no es Lecap) |
+| `valor_residual_actual_pct` | `valor_residual_actual_pct` | Sin cambio |
+| `flujos[].fecha` | `flujos[].fecha` | String → datetime |
+| `flujos[].amortizacion_pct` | `flujos[].amortizacion` | Renombrado |
+| `flujos[].cupon_sobre_residual` | `flujos[].interes` | Renombrado |
+| `flujos[].residual_previo_pct` | `flujos[].residual` | Renombrado |
+
+### Mapping de campos — Trading.BondMaster
+
+| Campo origen | Campo destino | Transformación |
+|---|---|---|
+| `asset` | `ticker` | Renombrado (join key con AssetsAPI) |
+| `tickers.ARS` (o `.USD`) | `instrumento` | Primer ticker disponible |
+| — | `curva` | `""` (a completar manualmente) |
+| `moneda_flujo` | `moneda_flujo` | Sin cambio |
+| — | `fecha_emision` | `null` |
+| `vencimiento` | `fecha_vencimiento` | datetime truncado a fecha |
+| — | `valor_nominal` | `100` (implícito) |
+| — | `cupon_anual` | `null` |
+| — | `cer_emision` | `null` |
+| `tasa_cupon` | `tasa_cupon` | Sin cambio |
+| — | `flujo_vencimiento` | `null` |
+| — | `valor_residual_actual_pct` | `null` |
+| `flujos[].fecha` | `flujos[].fecha` | datetime truncado a fecha |
+| `flujos[].amortizacion` | `flujos[].amortizacion` | Sin cambio |
+| `flujos[].interes` | `flujos[].interes` | Sin cambio |
+| `flujos[].valor_residual` | `flujos[].residual` | Renombrado |
+
+### Campos descartados
+
+| Campo origen | Fuente | Motivo |
+|---|---|---|
+| `_id` | Ambas | Interno Mongo |
+| `tipo` | Curvas | Ya en AssetsAPI |
+| `emisor` | BondMaster | Ya en AssetsAPI |
+| `updated_at` | BondMaster | No requerido |
+| `tickers` (objeto completo) | BondMaster | Se extrae solo el primer ticker |
+
+---
+
 ## Resincronización rápida
 
 Si se actualizan datos en las colecciones origen y necesitás reflejarlos en las API:
@@ -312,6 +379,9 @@ cd /root/TradingAV
 
 # Assets (directo a TitulosAPI)
 /root/TradingAV/venv/bin/python -m scripts.api_migrate assets
+
+# Flujos titulos (merge Curvas + BondMaster → TitulosAPI)
+/root/TradingAV/venv/bin/python -m scripts.api_migrate flujos-titulos
 ```
 
 Todos los comandos hacen `drop()` + `insert_many()` — son idempotentes y seguros de re-ejecutar.

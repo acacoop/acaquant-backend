@@ -422,6 +422,91 @@ GET /api/titulos/assets?ticker=TXAR
 
 ---
 
+#### `GET /api/titulos/flujos`
+
+Returns cash flow data per instrument. Merges data from `Trading.Curvas` (local bonds: Lecaps, CER) and `Trading.BondMaster` (corporate/sovereign bonds) into a unified schema. Join with `/api/titulos/assets` by `ticker`.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `ticker` | `string` | Filter by short ticker (e.g., `TX26`, `YMCXO`) |
+| `curva` | `string` | Filter by curve: `tasa_fija`, `cer`, or empty for bonds |
+| `moneda_flujo` | `string` | Filter by cash flow currency: `ARS`, `USD` |
+
+**Response Schema**
+
+| Field | Type | Description |
+|---|---|---|
+| `ticker` | `string` | Short ticker (join key with AssetsAPI) |
+| `instrumento` | `string` | Full ROFEX ticker |
+| `curva` | `string` | `tasa_fija` / `cer` / `""` (bonds, to be filled manually) |
+| `moneda_flujo` | `string` | Cash flow currency or `""` if not set |
+| `fecha_emision` | `datetime` or `null` | Emission date |
+| `fecha_vencimiento` | `datetime` | Maturity date |
+| `valor_nominal` | `number` | Face value (typically 100) |
+| `cupon_anual` | `number` or `null` | Annual coupon rate (Curvas only) |
+| `cer_emision` | `number` or `null` | CER at emission (CER bonds only) |
+| `tasa_cupon` | `number` or `null` | Coupon rate (BondMaster only) |
+| `flujo_vencimiento` | `number` or `null` | Maturity flow (Lecaps/zero coupon only) |
+| `valor_residual_actual_pct` | `number` or `null` | Current residual value % |
+| `flujos` | `array` | Normalized cash flows (see below) |
+
+**Flujos array schema:**
+
+| Field | Type | Description |
+|---|---|---|
+| `fecha` | `datetime` | Payment date |
+| `amortizacion` | `number` | Amortization (% of VN for CER, absolute for bonds) |
+| `interes` | `number` | Interest (rate on residual for CER, absolute for bonds) |
+| `residual` | `number` | Residual after payment |
+
+**Example Requests**
+
+```
+GET /api/titulos/flujos
+GET /api/titulos/flujos?ticker=TX26
+GET /api/titulos/flujos?curva=cer
+GET /api/titulos/flujos?moneda_flujo=USD
+```
+
+**Example Response**
+
+```json
+[
+  {
+    "ticker": "TX26",
+    "instrumento": "MERV - XMEV - TX26 - 24hs",
+    "curva": "cer",
+    "moneda_flujo": "",
+    "fecha_emision": "2020-11-09T00:00:00",
+    "fecha_vencimiento": "2026-11-09T00:00:00",
+    "valor_nominal": 100,
+    "cupon_anual": 0.02,
+    "cer_emision": 22.544,
+    "tasa_cupon": null,
+    "flujo_vencimiento": null,
+    "valor_residual_actual_pct": 40,
+    "flujos": [
+      {
+        "fecha": "2026-05-11T00:00:00",
+        "amortizacion": 20,
+        "interes": 0.01,
+        "residual": 40
+      },
+      {
+        "fecha": "2026-11-09T00:00:00",
+        "amortizacion": 20,
+        "interes": 0.01,
+        "residual": 20
+      }
+    ]
+  }
+]
+```
+
+---
+
 ## Data Architecture
 
 The API reads from dedicated MongoDB databases with normalized schemas, separate from the operational databases used by engines and Streamlit.
@@ -435,6 +520,7 @@ The API reads from dedicated MongoDB databases with normalized schemas, separate
 | `PortfolioAPI` | `CarterasAPI` | `Valuaciones.Carteras` | Manual via `scripts/api_migrate carteras` |
 | `PortfolioAPI` | `AumAPI` | `Valuaciones.AuM` | Manual via `scripts/api_migrate aum` |
 | `TitulosAPI` | `AssetsAPI` | `Valuaciones.Assets` | Manual via `scripts/api_migrate assets` |
+| `TitulosAPI` | `FlujosAPI` | `Trading.Curvas` + `Trading.BondMaster` | Manual via `scripts/api_migrate flujos-titulos` |
 
 Migration scripts normalize field names and extract structured data from legacy formats. Source collections are never modified.
 
@@ -469,3 +555,4 @@ python -m scripts.test_api http://192.168.1.100:8000
 | 2026-04-15 | Add `/api/operaciones/flujos` (cash movements from `CashFlow.Movimientos`) |
 | 2026-04-16 | Add `/api/portfolio/carteras` and `/api/portfolio/aum` (DB renamed to `PortfolioAPI`) |
 | 2026-04-16 | Add `/api/titulos/assets` (instrument metadata from `Valuaciones.Assets`) |
+| 2026-04-16 | Add `/api/titulos/flujos` (cash flows from `Trading.Curvas` + `Trading.BondMaster`) |

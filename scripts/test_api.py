@@ -25,6 +25,9 @@ ENDPOINTS = [
     ("GET", "/api/portfolio/aum?id_cuenta=101&desde=2026-03-01&hasta=2026-03-31"),
     ("GET", "/api/titulos/assets"),
     ("GET", "/api/titulos/assets?cartera=CARTERA%20FCI"),
+    ("GET", "/api/titulos/flujos"),
+    ("GET", "/api/titulos/flujos?ticker=TX26"),
+    ("GET", "/api/titulos/flujos?curva=cer"),
 ]
 
 

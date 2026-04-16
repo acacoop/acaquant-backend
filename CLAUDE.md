@@ -207,6 +207,7 @@ python -m scripts.api_migrate movimientos
 python -m scripts.api_migrate carteras
 python -m scripts.api_migrate aum
 python -m scripts.api_migrate assets
+python -m scripts.api_migrate flujos-titulos
 
 # Test endpoints API
 python -m scripts.test_api                   # localhost:8000
@@ -558,6 +559,7 @@ Cada router usa `get_mongo_client_read()` (read-only, igual que el dashboard).
 | GET | `/api/portfolio/carteras` | `PortfolioAPI.CarterasAPI` | `id_cuenta`, `unidad` |
 | GET | `/api/portfolio/aum` | `PortfolioAPI.AumAPI` | `id_cuenta`, `unidad`, `cuenta`, `desde`, `hasta` |
 | GET | `/api/titulos/assets` | `TitulosAPI.AssetsAPI` | `unidad`, `ticker`, `cartera`, `emisor`, `clase_activo` |
+| GET | `/api/titulos/flujos` | `TitulosAPI.FlujosAPI` | `ticker`, `curva`, `moneda_flujo` |
 
 ### Patrón de migraciones (colecciones API)
 
@@ -584,6 +586,7 @@ Las colecciones originales (`CashFlow.*`, `Valuaciones.*`, etc.) son la **fuente
 | `Valuaciones.Carteras` | `PortfolioAPI.CarterasAPI` | timestamp truncado a fecha (sin hora), descarta `actualizado` | `carteras` |
 | `Valuaciones.AuM` | `PortfolioAPI.AumAPI` | fecha_snapshot→fecha (str→datetime), descarta `timestamp`, `tipoTitulo` | `aum` |
 | `Valuaciones.Assets` | `TitulosAPI.AssetsAPI` | todos los campos a minúscula | `assets` |
+| `Trading.Curvas` + `Trading.BondMaster` | `TitulosAPI.FlujosAPI` | merge 2 fuentes, flujos normalizados, fechas→datetime | `flujos-titulos` |
 
 ### Esquema unificado Cuentas (AccionistasAPI / ContrapartesAPI)
 

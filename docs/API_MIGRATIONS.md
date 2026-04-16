@@ -260,7 +260,7 @@ DESTINO: { fecha: ISODate("2026-03-28T00:00:00Z"), id_cuenta: "1010", unidad: "[
 | `CLASE_ACTIVO` | `clase_activo` | Renombrado a minúscula |
 | `EMISOR` | `emisor` | Renombrado a minúscula |
 | `TICKER` | `ticker` | Renombrado a minúscula |
-| `VENCIMIENTO` | `vencimiento` | Renombrado a minúscula |
+| `VENCIMIENTO` | `vencimiento` | Minúscula + convertido de string `YYYY-MM-DD HH:MM:SS` a datetime (solo fecha). `NO APLICA` → `null` |
 | `INSTRUMENTO` | `instrumento` | Renombrado a minúscula |
 
 ### Campos descartados
@@ -278,7 +278,7 @@ ORIGEN:  { unidad: "ARS", CALIFICACION: "NO APLICA", CARTERA: "OTROS",
 
 DESTINO: { unidad: "ARS", calificacion: "NO APLICA", cartera: "OTROS",
            clase_activo: "MONEDA", emisor: "NO APLICA", ticker: "ARS",
-           vencimiento: "NO APLICA", instrumento: "NO APLICA" }
+           vencimiento: null, instrumento: "NO APLICA" }
 ```
 
 ---

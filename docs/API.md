@@ -392,7 +392,7 @@ Returns instrument metadata. Each record describes a single financial instrument
 | `clase_activo` | `string` | Asset class |
 | `emisor` | `string` | Issuer name or `NO APLICA` |
 | `ticker` | `string` | Ticker symbol |
-| `vencimiento` | `string` | Maturity date or `NO APLICA` |
+| `vencimiento` | `datetime` or `null` | Maturity date (date only) or `null` if not applicable |
 | `instrumento` | `string` | Instrument type or `NO APLICA` |
 
 **Example Requests**
@@ -414,7 +414,7 @@ GET /api/titulos/assets?ticker=TXAR
     "clase_activo": "MONEDA",
     "emisor": "NO APLICA",
     "ticker": "ARS",
-    "vencimiento": "NO APLICA",
+    "vencimiento": null,
     "instrumento": "NO APLICA"
   }
 ]

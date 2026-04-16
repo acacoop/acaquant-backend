@@ -323,11 +323,25 @@ def migrate_aum():
         print(f"  ... y {len(bulk) - 3} más")
 
 
+def _parse_vencimiento(raw: str) -> datetime | None:
+    """Convierte '2026-10-30 00:00:00' o 'NO APLICA' → datetime(2026,10,30) o None."""
+    if not raw or raw.strip().upper() == "NO APLICA":
+        return None
+    try:
+        dt = datetime.strptime(raw.strip()[:10], "%Y-%m-%d")
+        return datetime(dt.year, dt.month, dt.day)
+    except (ValueError, AttributeError):
+        return None
+
+
 def migrate_assets():
     """Copia Valuaciones.Assets → TitulosAPI.AssetsAPI con campos en minúscula.
 
     Origen:  {unidad, CALIFICACION, CARTERA, CLASE_ACTIVO, EMISOR, TICKER, VENCIMIENTO, INSTRUMENTO}
-    Destino: {unidad, calificacion, cartera, clase_activo, emisor, ticker, vencimiento, instrumento}
+    Destino: {unidad, calificacion, cartera, clase_activo, emisor, ticker, vencimiento (datetime), instrumento}
+
+    VENCIMIENTO se convierte de string 'YYYY-MM-DD HH:MM:SS' a datetime (solo fecha).
+    'NO APLICA' se convierte a null.
 
     No borra el origen.
     """
@@ -342,6 +356,8 @@ def migrate_assets():
 
     bulk = []
     for doc in docs:
+        venc_raw = doc.get("VENCIMIENTO", "")
+        venc = _parse_vencimiento(venc_raw)
         bulk.append({
             "unidad": doc.get("unidad", ""),
             "calificacion": doc.get("CALIFICACION", ""),
@@ -349,7 +365,7 @@ def migrate_assets():
             "clase_activo": doc.get("CLASE_ACTIVO", ""),
             "emisor": doc.get("EMISOR", ""),
             "ticker": doc.get("TICKER", ""),
-            "vencimiento": doc.get("VENCIMIENTO", ""),
+            "vencimiento": venc,
             "instrumento": doc.get("INSTRUMENTO", ""),
         })
 

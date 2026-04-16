@@ -16,3 +16,7 @@ def get_db_portfolio():
 
 def get_db_titulos():
     return get_mongo_client_read()["TitulosAPI"]
+
+
+def get_db_trading():
+    return get_mongo_client_read()["Trading"]

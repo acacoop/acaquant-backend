@@ -28,6 +28,15 @@ ENDPOINTS = [
     ("GET", "/api/titulos/flujos"),
     ("GET", "/api/titulos/flujos?ticker=TX26"),
     ("GET", "/api/titulos/flujos?curva=cer"),
+    ("GET", "/api/cotizaciones/badlar"),
+    ("GET", "/api/cotizaciones/badlar?desde=2026-03-01&hasta=2026-03-31"),
+    ("GET", "/api/cotizaciones/cer"),
+    ("GET", "/api/cotizaciones/dolar"),
+    ("GET", "/api/cotizaciones/forwards"),
+    ("GET", "/api/cotizaciones/forwards?curva=tasa_fija"),
+    ("GET", "/api/cotizaciones/mercado"),
+    ("GET", "/api/cotizaciones/mercado?ticker=MERV%20-%20XMEV%20-%20S30A6%20-%2024hs"),
+    ("GET", "/api/cotizaciones/breakevens"),
 ]
 
 

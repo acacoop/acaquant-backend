@@ -507,6 +507,96 @@ GET /api/titulos/flujos?moneda_flujo=USD
 
 ---
 
+### Cotizaciones
+
+Live and historical market data. Read directly from `Trading.*` collections (no migration needed — always up to date).
+
+---
+
+#### `GET /api/cotizaciones/badlar`
+
+Returns BADLAR interest rate series (BCRA id=7).
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `desde` | `string` | Start date inclusive (`YYYY-MM-DD`) |
+| `hasta` | `string` | End date inclusive (`YYYY-MM-DD`) |
+
+**Response Schema:** `{ fecha: string, valor: number }`
+
+---
+
+#### `GET /api/cotizaciones/cer`
+
+Returns CER index series (BCRA id=30).
+
+**Query Parameters:** Same as BADLAR.
+
+**Response Schema:** `{ fecha: string, valor: number }`
+
+---
+
+#### `GET /api/cotizaciones/dolar`
+
+Returns official dollar rate (A3500, BCRA id=5).
+
+**Query Parameters:** Same as BADLAR.
+
+**Response Schema:** `{ fecha: string, valor: number }`
+
+---
+
+#### `GET /api/cotizaciones/forwards`
+
+Returns live forward rate matrix by curve.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `curva` | `string` | Filter by curve: `tasa_fija` or `cer` |
+
+**Response Schema:** `{ curva, matrix, tasas, tickers, updated_at }`
+
+---
+
+#### `GET /api/cotizaciones/mercado`
+
+Returns market snapshot per ticker (book, key metrics, recent trades).
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `ticker` | `string` | Filter by full ticker (e.g., `MERV - XMEV - S30A6 - 24hs`) |
+
+**Response Schema**
+
+| Field | Type | Description |
+|---|---|---|
+| `ticker` | `string` | Full ROFEX ticker |
+| `book` | `object` | Top 5 bids and offers |
+| `metrics.total_nominals` | `number` | Total nominals traded |
+| `metrics.vwap` | `number` | Volume-weighted average price |
+| `metrics.last_price` | `number` | Last trade price |
+| `metrics.open_price` | `number` | Opening price |
+| `metrics.high_price` | `number` | High of the day |
+| `metrics.low_price` | `number` | Low of the day |
+| `metrics.closing_price` | `number` | Previous closing price |
+| `recent_trades` | `array` | Last 30 trades (timestamp, price, size, side, money) |
+
+---
+
+#### `GET /api/cotizaciones/breakevens`
+
+Returns live breakeven inflation rates (CER vs Lecap pairs).
+
+**Response Schema:** `{ _id, pares: [{ n, lecap, cer, fecha_vencimiento, dias, tem_lecap, tea_cer, paridad_cer, retorno_acumulado, inflacion_acumulada, breakeven_mensual }], updated_at }`
+
+---
+
 ## Data Architecture
 
 The API reads from dedicated MongoDB databases with normalized schemas, separate from the operational databases used by engines and Streamlit.
@@ -521,8 +611,16 @@ The API reads from dedicated MongoDB databases with normalized schemas, separate
 | `PortfolioAPI` | `AumAPI` | `Valuaciones.AuM` | Manual via `scripts/api_migrate aum` |
 | `TitulosAPI` | `AssetsAPI` | `Valuaciones.Assets` | Manual via `scripts/api_migrate assets` |
 | `TitulosAPI` | `ValuacionesAPI` | `Trading.Curvas` + `Trading.BondsMaster` | Manual via `scripts/api_migrate flujos-titulos` |
+| `Trading` | `BADLAR` | — (lectura directa) | N/A — datos live |
+| `Trading` | `CER` | — (lectura directa) | N/A — datos live |
+| `Trading` | `DOLAR` | — (lectura directa) | N/A — datos live |
+| `Trading` | `ForwardsLive` | — (lectura directa) | N/A — datos live |
+| `Trading` | `MarketSnapshot` | — (lectura directa) | N/A — datos live |
+| `Trading` | `BreakevensLive` | — (lectura directa) | N/A — datos live |
 
 Migration scripts normalize field names and extract structured data from legacy formats. Source collections are never modified.
+
+Cotizaciones endpoints read directly from `Trading.*` — no migration needed since data is always up to date (written by engines in real time).
 
 ## Project Structure
 
@@ -532,6 +630,7 @@ api/
 ├── deps.py              # Shared dependencies (DB access)
 └── routers/
     ├── carteras.py      # /api/portfolio/*
+    ├── cotizaciones.py  # /api/cotizaciones/* (direct reads from Trading.*)
     ├── cuentas.py       # /api/cuentas/*
     ├── operaciones.py   # /api/operaciones/*
     └── titulos.py       # /api/titulos/*
@@ -555,4 +654,5 @@ python -m scripts.test_api http://192.168.1.100:8000
 | 2026-04-15 | Add `/api/operaciones/flujos` (cash movements from `CashFlow.Movimientos`) |
 | 2026-04-16 | Add `/api/portfolio/carteras` and `/api/portfolio/aum` (DB renamed to `PortfolioAPI`) |
 | 2026-04-16 | Add `/api/titulos/assets` (instrument metadata from `Valuaciones.Assets`) |
-| 2026-04-16 | Add `/api/titulos/flujos` (cash flows from `Trading.Curvas` + `Trading.BondMaster`) |
+| 2026-04-16 | Add `/api/titulos/flujos` (cash flows from `Trading.Curvas` + `Trading.BondsMaster`) |
+| 2026-04-16 | Add `/api/cotizaciones/*` — 6 endpoints (badlar, cer, dolar, forwards, mercado, breakevens) reading directly from `Trading.*` |

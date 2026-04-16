@@ -537,10 +537,13 @@ uvicorn api.main:app --reload --port 8000   # dev
 ```
 api/
 ├── main.py                # FastAPI app + health endpoint
-├── deps.py                # get_db_cuentas() → CuentasAPI, get_db_operaciones() → OperacionesAPI
+├── deps.py                # get_db_* helpers (CuentasAPI, OperacionesAPI, PortfolioAPI, TitulosAPI, Trading)
 └── routers/
+    ├── carteras.py        # /api/portfolio/* (carteras + aum)
+    ├── cotizaciones.py    # /api/cotizaciones/* (lectura directa Trading.*)
     ├── cuentas.py         # /api/cuentas/*
-    └── operaciones.py     # /api/operaciones/*
+    ├── operaciones.py     # /api/operaciones/*
+    └── titulos.py         # /api/titulos/*
 ```
 
 Cada router usa `get_mongo_client_read()` (read-only, igual que el dashboard).
@@ -560,6 +563,12 @@ Cada router usa `get_mongo_client_read()` (read-only, igual que el dashboard).
 | GET | `/api/portfolio/aum` | `PortfolioAPI.AumAPI` | `id_cuenta`, `unidad`, `cuenta`, `desde`, `hasta` |
 | GET | `/api/titulos/assets` | `TitulosAPI.AssetsAPI` | `unidad`, `ticker`, `cartera`, `emisor`, `clase_activo` |
 | GET | `/api/titulos/flujos` | `TitulosAPI.ValuacionesAPI` | `ticker`, `curva`, `moneda_flujo` |
+| GET | `/api/cotizaciones/badlar` | `Trading.BADLAR` (directo) | `desde`, `hasta` |
+| GET | `/api/cotizaciones/cer` | `Trading.CER` (directo) | `desde`, `hasta` |
+| GET | `/api/cotizaciones/dolar` | `Trading.DOLAR` (directo) | `desde`, `hasta` |
+| GET | `/api/cotizaciones/forwards` | `Trading.ForwardsLive` (directo) | `curva` |
+| GET | `/api/cotizaciones/mercado` | `Trading.MarketSnapshot` (directo) | `ticker` |
+| GET | `/api/cotizaciones/breakevens` | `Trading.BreakevensLive` (directo) | — |
 
 ### Patrón de migraciones (colecciones API)
 
@@ -594,7 +603,7 @@ Ambas colecciones comparten: `cuenta` (str, original), `id_cuenta` (str, numéri
 
 ### Testing
 
-`python -m scripts.test_api [URL]` — prueba los 7 endpoints con filtros de ejemplo.
+`python -m scripts.test_api [URL]` — prueba todos los endpoints (19 casos) con filtros de ejemplo.
 
 ## Colecciones de referencia
 

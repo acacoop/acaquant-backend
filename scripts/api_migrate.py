@@ -4,9 +4,11 @@ Uso:
     python -m scripts.api_migrate accionistas       → migra CashFlow.Accionistas → CashFlow.AccionistasAPI
     python -m scripts.api_migrate contrapartes      → migra CashFlow.Contrapartes → CashFlow.ContrapartesAPI
     python -m scripts.api_migrate flujo             → copia CashFlow.Flujo → OperacionesAPI.MesaAPI
+    python -m scripts.api_migrate movimientos       → copia CashFlow.Movimientos → OperacionesAPI.FlujosAPI
 """
 import re
 import sys
+from datetime import datetime
 
 from core.mongo import get_mongo_client
 
@@ -170,11 +172,63 @@ def migrate_flujo():
         print(f"  ... y {len(bulk) - 3} más")
 
 
+def _fecha_ddmmyyyy_to_iso(raw: str) -> str:
+    """Convierte '02/07/2025' (dd/mm/yyyy) → '2025-07-02' (YYYY-MM-DD)."""
+    try:
+        return datetime.strptime(raw.strip(), "%d/%m/%Y").strftime("%Y-%m-%d")
+    except (ValueError, AttributeError):
+        return raw
+
+
+def migrate_movimientos():
+    """Copia CashFlow.Movimientos → OperacionesAPI.FlujosAPI con campos renombrados.
+
+    Origen:  {comprobante, cuenta, fecha, informacion, total, unidad, ...}
+    Destino: {boleto, cuenta, concertacion, informacion, bruto, unidad}
+
+    fecha se convierte de dd/mm/yyyy a YYYY-MM-DD.
+    No borra el origen.
+    """
+    client = get_mongo_client()
+    src = client["CashFlow"]["Movimientos"]
+    dst = client["OperacionesAPI"]["FlujosAPI"]
+
+    projection = {
+        "_id": 0, "comprobante": 1, "cuenta": 1, "fecha": 1,
+        "informacion": 1, "total": 1, "unidad": 1,
+    }
+    docs = list(src.find({}, projection))
+    if not docs:
+        print("No hay docs en CashFlow.Movimientos — nada que migrar.")
+        return
+
+    bulk = []
+    for doc in docs:
+        bulk.append({
+            "boleto": doc.get("comprobante", ""),
+            "cuenta": doc.get("cuenta", ""),
+            "concertacion": _fecha_ddmmyyyy_to_iso(doc.get("fecha", "")),
+            "informacion": doc.get("informacion", ""),
+            "bruto": doc.get("total"),
+            "unidad": doc.get("unidad", ""),
+        })
+
+    dst.drop()
+    dst.insert_many(bulk)
+    print(f"OK: {len(bulk)} docs copiados a OperacionesAPI.FlujosAPI")
+
+    for d in bulk[:3]:
+        print(f"  boleto={d['boleto']!r}  cuenta={d['cuenta']!r}  concertacion={d['concertacion']!r}  bruto={d['bruto']}  unidad={d['unidad']!r}")
+    if len(bulk) > 3:
+        print(f"  ... y {len(bulk) - 3} más")
+
+
 COMMANDS = {
     "accionistas": migrate_accionistas,
     "contrapartes": migrate_contrapartes,
     "mover": mover_a_cuentasapi,
     "flujo": migrate_flujo,
+    "movimientos": migrate_movimientos,
 }
 
 

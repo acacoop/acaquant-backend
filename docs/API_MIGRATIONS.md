@@ -114,6 +114,49 @@ DESTINO: { unidad: "[05493] TX24", bruto: 589800000, contraparte: "ADCAP",
 
 ---
 
+## 4. FlujosAPI (Movimientos de Dinero)
+
+| | Origen | Destino |
+|---|---|---|
+| **Database** | `CashFlow` | `OperacionesAPI` |
+| **Colección** | `Movimientos` | `FlujosAPI` |
+| **Comando** | `python -m scripts.api_migrate movimientos` |
+| **Borra origen** | No |
+
+### Mapping de campos
+
+| Campo origen | Campo destino | Transformación |
+|---|---|---|
+| `comprobante` | `boleto` | Renombrado |
+| `cuenta` | `cuenta` | Sin cambio |
+| `fecha` | `concertacion` | Renombrado + convertido de `dd/mm/yyyy` → `YYYY-MM-DD` |
+| `informacion` | `informacion` | Sin cambio |
+| `total` | `bruto` | Renombrado |
+| `unidad` | `unidad` | Sin cambio |
+
+### Campos descartados
+
+| Campo origen | Motivo |
+|---|---|
+| `_id` | Interno Mongo |
+| `estado` | No requerido en la API |
+| `lugar` | No requerido en la API |
+| `uso` | No requerido en la API |
+
+### Ejemplo
+
+```
+ORIGEN:  { comprobante: "CD 2025003117", cuenta: "[1005] FIBIGER, BRANCO NAHUEL", estado: "DIS",
+           fecha: "02/07/2025", informacion: "Depósito - TR 20250702124409871",
+           lugar: "Local", total: 100000, unidad: "ARS", uso: "GRAL" }
+
+DESTINO: { boleto: "CD 2025003117", cuenta: "[1005] FIBIGER, BRANCO NAHUEL",
+           concertacion: "2025-07-02", informacion: "Depósito - TR 20250702124409871",
+           bruto: 100000, unidad: "ARS" }
+```
+
+---
+
 ## Resincronización rápida
 
 Si se actualizan datos en las colecciones origen y necesitás reflejarlos en las API:
@@ -131,6 +174,9 @@ cd /root/TradingAV
 
 # Flujo (directo a OperacionesAPI)
 /root/TradingAV/venv/bin/python -m scripts.api_migrate flujo
+
+# Movimientos (directo a OperacionesAPI)
+/root/TradingAV/venv/bin/python -m scripts.api_migrate movimientos
 ```
 
 Todos los comandos hacen `drop()` + `insert_many()` — son idempotentes y seguros de re-ejecutar.

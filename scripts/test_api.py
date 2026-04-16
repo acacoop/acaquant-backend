@@ -17,6 +17,8 @@ ENDPOINTS = [
     ("GET", "/api/cuentas/contrapartes"),
     ("GET", "/api/operaciones/flujo"),
     ("GET", "/api/operaciones/flujo?contraparte=ADCAP&moneda=ARS"),
+    ("GET", "/api/operaciones/flujos"),
+    ("GET", "/api/operaciones/flujos?unidad=ARS&desde=2025-01-01"),
 ]
 
 

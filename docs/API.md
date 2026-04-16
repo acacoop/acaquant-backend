@@ -211,6 +211,55 @@ GET /api/operaciones/flujo?segmento=SENEBI&moneda=USD
 
 ---
 
+#### `GET /api/operaciones/flujos`
+
+Returns cash movement records (deposits, withdrawals, transfers). Each record represents a single accounting entry identified by a unique voucher (boleto).
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `cuenta` | `string` | Filter by account (format `[N] NAME`) |
+| `unidad` | `string` | Filter by currency: `ARS` or `USD` |
+| `desde` | `string` | Start date inclusive (`YYYY-MM-DD`) |
+| `hasta` | `string` | End date inclusive (`YYYY-MM-DD`) |
+
+**Response Schema**
+
+| Field | Type | Description |
+|---|---|---|
+| `boleto` | `string` | Unique voucher ID (e.g., `CD 2025003117`) |
+| `cuenta` | `string` | Account with ID prefix (e.g., `[1005] FIBIGER, BRANCO NAHUEL`) |
+| `concertacion` | `string` | Movement date (`YYYY-MM-DD`, converted from `dd/mm/yyyy`) |
+| `informacion` | `string` | Description of the movement |
+| `bruto` | `number` | Amount (positive = deposit, negative = withdrawal) |
+| `unidad` | `string` | Currency: `ARS` or `USD` |
+
+**Example Requests**
+
+```
+GET /api/operaciones/flujos
+GET /api/operaciones/flujos?unidad=ARS&desde=2025-01-01
+GET /api/operaciones/flujos?cuenta=[1005] FIBIGER, BRANCO NAHUEL
+```
+
+**Example Response**
+
+```json
+[
+  {
+    "boleto": "CD 2025003117",
+    "cuenta": "[1005] FIBIGER, BRANCO NAHUEL",
+    "concertacion": "2025-07-02",
+    "informacion": "Depósito - TR 20250702124409871",
+    "bruto": 100000,
+    "unidad": "ARS"
+  }
+]
+```
+
+---
+
 ## Data Architecture
 
 The API reads from dedicated MongoDB databases with normalized schemas, separate from the operational databases used by engines and Streamlit.
@@ -220,6 +269,7 @@ The API reads from dedicated MongoDB databases with normalized schemas, separate
 | `CuentasAPI` | `AccionistasAPI` | `CashFlow.Accionistas` | Manual via `scripts/api_migrate accionistas` |
 | `CuentasAPI` | `ContrapartesAPI` | `CashFlow.Contrapartes` | Manual via `scripts/api_migrate contrapartes` |
 | `OperacionesAPI` | `MesaAPI` | `CashFlow.Flujo` | Manual via `scripts/api_migrate flujo` |
+| `OperacionesAPI` | `FlujosAPI` | `CashFlow.Movimientos` | Manual via `scripts/api_migrate movimientos` |
 
 Migration scripts normalize field names and extract structured data from legacy formats. Source collections are never modified.
 
@@ -249,3 +299,4 @@ python -m scripts.test_api http://192.168.1.100:8000
 | Date | Change |
 |---|---|
 | 2026-04-15 | Initial release: `/api/health`, `/api/cuentas/accionistas`, `/api/cuentas/contrapartes`, `/api/operaciones/flujo` |
+| 2026-04-15 | Add `/api/operaciones/flujos` (cash movements from `CashFlow.Movimientos`) |

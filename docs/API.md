@@ -562,21 +562,21 @@ Returns live forward rate matrix by curve.
 
 ---
 
-#### `GET /api/cotizaciones/mercado`
+#### `GET /api/cotizaciones/renta-fija`
 
-Returns market snapshot per ticker (book, key metrics, recent trades).
+Returns market snapshot per fixed-income instrument (book, key metrics, recent trades).
 
 **Query Parameters**
 
 | Parameter | Type | Description |
 |---|---|---|
-| `ticker` | `string` | Filter by full ticker (e.g., `MERV - XMEV - S30A6 - 24hs`) |
+| `instrumento` | `string` | Filter by full instrument (e.g., `MERV - XMEV - S30A6 - 24hs`) |
 
 **Response Schema**
 
 | Field | Type | Description |
 |---|---|---|
-| `ticker` | `string` | Full ROFEX ticker |
+| `instrumento` | `string` | Full ROFEX instrument identifier |
 | `book` | `object` | Top 5 bids and offers |
 | `metrics.total_nominals` | `number` | Total nominals traded |
 | `metrics.vwap` | `number` | Volume-weighted average price |
@@ -586,6 +586,43 @@ Returns market snapshot per ticker (book, key metrics, recent trades).
 | `metrics.low_price` | `number` | Low of the day |
 | `metrics.closing_price` | `number` | Previous closing price |
 | `recent_trades` | `array` | Last 30 trades (timestamp, price, size, side, money) |
+
+---
+
+#### `GET /api/cotizaciones/opciones`
+
+Returns live options snapshot (GGAL options chain with Greeks).
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `instrumento` | `string` | Filter by full instrument (e.g., `MERV - XMEV - GFGC10950A - 24hs`) |
+| `tipo` | `string` | Filter by option type: `CALL` or `PUT` |
+
+**Response Schema**
+
+| Field | Type | Description |
+|---|---|---|
+| `instrumento` | `string` | Full ROFEX instrument identifier (renamed from `symbol`) |
+| `bid` | `number` | Best bid price |
+| `offer` | `number` | Best offer price |
+| `last` | `number` | Last trade price |
+| `open` | `number` | Opening price |
+| `high` | `number` | High of the day |
+| `low` | `number` | Low of the day |
+| `ev` | `number` | Expected value |
+| `spot` | `number` | Underlying spot price |
+| `strike` | `number` | Strike price |
+| `tipo` | `string` | Option type (`CALL` / `PUT`) |
+| `vence` | `string` | Expiration date (`YYYYMMDD`) |
+| `closing_price` | `object` | Previous close: `{ price, date }` |
+| `delta` | `number` | Delta (Black-Scholes) |
+| `gamma` | `number` | Gamma |
+| `iv` | `number` | Implied volatility |
+| `theta` | `number` | Theta |
+| `vega` | `number` | Vega |
+| `updated_at` | `datetime` | Last update timestamp |
 
 ---
 
@@ -615,8 +652,9 @@ The API reads from dedicated MongoDB databases with normalized schemas, separate
 | `Trading` | `CER` | — (lectura directa) | N/A — datos live |
 | `Trading` | `DOLAR` | — (lectura directa) | N/A — datos live |
 | `Trading` | `ForwardsLive` | — (lectura directa) | N/A — datos live |
-| `Trading` | `MarketSnapshot` | — (lectura directa) | N/A — datos live |
+| `Trading` | `MarketSnapshot` | — (lectura directa, `ticker`→`instrumento`) | N/A — datos live |
 | `Trading` | `BreakevensLive` | — (lectura directa) | N/A — datos live |
+| `Opciones` | `OptionsSnapshot` | — (lectura directa, `symbol`→`instrumento`) | N/A — datos live |
 
 Migration scripts normalize field names and extract structured data from legacy formats. Source collections are never modified.
 
@@ -655,4 +693,5 @@ python -m scripts.test_api http://192.168.1.100:8000
 | 2026-04-16 | Add `/api/portfolio/carteras` and `/api/portfolio/aum` (DB renamed to `PortfolioAPI`) |
 | 2026-04-16 | Add `/api/titulos/assets` (instrument metadata from `Valuaciones.Assets`) |
 | 2026-04-16 | Add `/api/titulos/flujos` (cash flows from `Trading.Curvas` + `Trading.BondsMaster`) |
-| 2026-04-16 | Add `/api/cotizaciones/*` — 6 endpoints (badlar, cer, dolar, forwards, mercado, breakevens) reading directly from `Trading.*` |
+| 2026-04-16 | Add `/api/cotizaciones/*` — 6 endpoints (badlar, cer, dolar, forwards, renta-fija, breakevens) reading directly from `Trading.*` |
+| 2026-04-16 | Add `/api/cotizaciones/opciones` (live options snapshot from `Opciones.OptionsSnapshot`). Rename `/mercado` → `/renta-fija`, `ticker`/`symbol` → `instrumento` |

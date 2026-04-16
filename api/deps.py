@@ -18,5 +18,9 @@ def get_db_titulos():
     return get_mongo_client_read()["TitulosAPI"]
 
 
+def get_db_opciones():
+    return get_mongo_client_read()["Opciones"]
+
+
 def get_db_trading():
     return get_mongo_client_read()["Trading"]

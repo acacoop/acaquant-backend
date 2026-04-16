@@ -1,7 +1,7 @@
-"""Router Cotizaciones: lectura directa de Trading.* (sin migración)."""
+"""Router Cotizaciones: lectura directa de Trading.* y Opciones.* (sin migración)."""
 from fastapi import APIRouter, Query
 
-from api.deps import get_db_trading
+from api.deps import get_db_opciones, get_db_trading
 
 router = APIRouter(prefix="/api/cotizaciones", tags=["Cotizaciones"])
 
@@ -58,31 +58,34 @@ def listar_forwards(
     return list(db["ForwardsLive"].find(filtro, {"_id": 0}))
 
 
-# ── Market Snapshot ──
+# ── Renta Fija (ex Market Snapshot) ──
 
-@router.get("/mercado")
-def listar_mercado(
-    ticker: str | None = Query(None, description="Filtrar por ticker (ej: MERV - XMEV - S30A6 - 24hs)"),
+@router.get("/renta-fija")
+def listar_renta_fija(
+    instrumento: str | None = Query(None, description="Filtrar por instrumento (ej: MERV - XMEV - S30A6 - 24hs)"),
 ):
     db = get_db_trading()
     filtro = {}
-    if ticker:
-        filtro["ticker"] = ticker
+    if instrumento:
+        filtro["ticker"] = instrumento
 
-    projection = {
-        "_id": 0,
-        "ticker": 1,
-        "book": 1,
-        "metrics.total_nominals": 1,
-        "metrics.vwap": 1,
-        "metrics.last_price": 1,
-        "metrics.open_price": 1,
-        "metrics.high_price": 1,
-        "metrics.low_price": 1,
-        "metrics.closing_price": 1,
-        "recent_trades": 1,
-    }
-    return list(db["MarketSnapshot"].find(filtro, projection))
+    pipeline = [
+        {"$match": filtro},
+        {"$project": {
+            "_id": 0,
+            "instrumento": "$ticker",
+            "book": 1,
+            "metrics.total_nominals": 1,
+            "metrics.vwap": 1,
+            "metrics.last_price": 1,
+            "metrics.open_price": 1,
+            "metrics.high_price": 1,
+            "metrics.low_price": 1,
+            "metrics.closing_price": 1,
+            "recent_trades": 1,
+        }},
+    ]
+    return list(db["MarketSnapshot"].aggregate(pipeline))
 
 
 # ── Breakevens Live ──
@@ -91,3 +94,45 @@ def listar_mercado(
 def listar_breakevens():
     db = get_db_trading()
     return list(db["BreakevensLive"].find({}, {"_id": 0}))
+
+
+# ── Opciones (OptionsSnapshot) ──
+
+@router.get("/opciones")
+def listar_opciones(
+    instrumento: str | None = Query(None, description="Filtrar por instrumento (ej: MERV - XMEV - GFGC10950A - 24hs)"),
+    tipo: str | None = Query(None, description="Filtrar por tipo (CALL/PUT)"),
+):
+    db = get_db_opciones()
+    filtro = {}
+    if instrumento:
+        filtro["symbol"] = instrumento
+    if tipo:
+        filtro["tipo"] = tipo.upper()
+
+    pipeline = [
+        {"$match": filtro},
+        {"$project": {
+            "_id": 0,
+            "instrumento": "$symbol",
+            "bid": 1,
+            "offer": 1,
+            "last": 1,
+            "open": 1,
+            "high": 1,
+            "low": 1,
+            "ev": 1,
+            "spot": 1,
+            "strike": 1,
+            "tipo": 1,
+            "vence": 1,
+            "closing_price": 1,
+            "delta": 1,
+            "gamma": 1,
+            "iv": 1,
+            "theta": 1,
+            "vega": 1,
+            "updated_at": 1,
+        }},
+    ]
+    return list(db["OptionsSnapshot"].aggregate(pipeline))

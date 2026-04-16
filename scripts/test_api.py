@@ -34,9 +34,12 @@ ENDPOINTS = [
     ("GET", "/api/cotizaciones/dolar"),
     ("GET", "/api/cotizaciones/forwards"),
     ("GET", "/api/cotizaciones/forwards?curva=tasa_fija"),
-    ("GET", "/api/cotizaciones/mercado"),
-    ("GET", "/api/cotizaciones/mercado?ticker=MERV%20-%20XMEV%20-%20S30A6%20-%2024hs"),
+    ("GET", "/api/cotizaciones/renta-fija"),
+    ("GET", "/api/cotizaciones/renta-fija?instrumento=MERV%20-%20XMEV%20-%20S30A6%20-%2024hs"),
     ("GET", "/api/cotizaciones/breakevens"),
+    ("GET", "/api/cotizaciones/opciones"),
+    ("GET", "/api/cotizaciones/opciones?tipo=CALL"),
+    ("GET", "/api/cotizaciones/opciones?instrumento=MERV%20-%20XMEV%20-%20GFGC10950A%20-%2024hs"),
 ]
 
 

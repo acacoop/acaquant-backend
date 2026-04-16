@@ -537,7 +537,7 @@ uvicorn api.main:app --reload --port 8000   # dev
 ```
 api/
 ├── main.py                # FastAPI app + health endpoint
-├── deps.py                # get_db_* helpers (CuentasAPI, OperacionesAPI, PortfolioAPI, TitulosAPI, Trading)
+├── deps.py                # get_db_* helpers (CuentasAPI, OperacionesAPI, PortfolioAPI, TitulosAPI, Opciones, Trading)
 └── routers/
     ├── carteras.py        # /api/portfolio/* (carteras + aum)
     ├── cotizaciones.py    # /api/cotizaciones/* (lectura directa Trading.*)
@@ -567,8 +567,9 @@ Cada router usa `get_mongo_client_read()` (read-only, igual que el dashboard).
 | GET | `/api/cotizaciones/cer` | `Trading.CER` (directo) | `desde`, `hasta` |
 | GET | `/api/cotizaciones/dolar` | `Trading.DOLAR` (directo) | `desde`, `hasta` |
 | GET | `/api/cotizaciones/forwards` | `Trading.ForwardsLive` (directo) | `curva` |
-| GET | `/api/cotizaciones/mercado` | `Trading.MarketSnapshot` (directo) | `ticker` |
+| GET | `/api/cotizaciones/renta-fija` | `Trading.MarketSnapshot` (directo) | `instrumento` |
 | GET | `/api/cotizaciones/breakevens` | `Trading.BreakevensLive` (directo) | — |
+| GET | `/api/cotizaciones/opciones` | `Opciones.OptionsSnapshot` (directo) | `instrumento`, `tipo` |
 
 ### Patrón de migraciones (colecciones API)
 
@@ -603,7 +604,7 @@ Ambas colecciones comparten: `cuenta` (str, original), `id_cuenta` (str, numéri
 
 ### Testing
 
-`python -m scripts.test_api [URL]` — prueba todos los endpoints (19 casos) con filtros de ejemplo.
+`python -m scripts.test_api [URL]` — prueba todos los endpoints (22 casos) con filtros de ejemplo.
 
 ## Colecciones de referencia
 

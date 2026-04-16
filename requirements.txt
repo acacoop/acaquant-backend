@@ -12,6 +12,8 @@ python-dotenv
 holidays
 requests
 yfinance
+fastapi
+uvicorn[standard]
 
 # dev
 ruff

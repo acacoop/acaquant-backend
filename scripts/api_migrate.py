@@ -8,7 +8,7 @@ Uso:
     python -m scripts.api_migrate carteras          → copia Valuaciones.Carteras → PortfolioAPI.CarterasAPI
     python -m scripts.api_migrate aum               → copia Valuaciones.AuM → PortfolioAPI.AumAPI
     python -m scripts.api_migrate assets            → copia Valuaciones.Assets → TitulosAPI.AssetsAPI
-    python -m scripts.api_migrate flujos-titulos    → merge Trading.Curvas + Trading.BondMaster → TitulosAPI.FlujosAPI
+    python -m scripts.api_migrate flujos-titulos    → merge Trading.Curvas + Trading.BondsMaster → TitulosAPI.FlujosAPI
 """
 import re
 import sys
@@ -423,7 +423,7 @@ def _build_from_curvas(doc: dict) -> dict:
 
 
 def _build_from_bondmaster(doc: dict) -> dict:
-    """Construye un doc FlujosAPI desde un doc de Trading.BondMaster."""
+    """Construye un doc FlujosAPI desde un doc de Trading.BondsMaster."""
     flujos_raw = doc.get("flujos", []) or []
     flujos = []
     for f in flujos_raw:
@@ -455,7 +455,7 @@ def _build_from_bondmaster(doc: dict) -> dict:
 
 
 def migrate_flujos_titulos():
-    """Merge Trading.Curvas + Trading.BondMaster → TitulosAPI.FlujosAPI.
+    """Merge Trading.Curvas + Trading.BondsMaster → TitulosAPI.FlujosAPI.
 
     Un doc por instrumento con flujos normalizados.
     Join key con AssetsAPI: ticker.
@@ -470,8 +470,8 @@ def migrate_flujos_titulos():
     bulk = [_build_from_curvas(d) for d in curvas_docs]
     n_curvas = len(bulk)
 
-    # --- Trading.BondMaster ---
-    bond_docs = list(client["Trading"]["BondMaster"].find({}, {"_id": 0}))
+    # --- Trading.BondsMaster ---
+    bond_docs = list(client["Trading"]["BondsMaster"].find({}, {"_id": 0}))
     # Evitar duplicados: si un ticker ya vino de Curvas, no lo pisamos
     tickers_curvas = {d["ticker"] for d in bulk}
     for d in bond_docs:
@@ -481,12 +481,12 @@ def migrate_flujos_titulos():
     n_bonds = len(bulk) - n_curvas
 
     if not bulk:
-        print("No hay docs en Trading.Curvas ni Trading.BondMaster — nada que migrar.")
+        print("No hay docs en Trading.Curvas ni Trading.BondsMaster — nada que migrar.")
         return
 
     dst.drop()
     dst.insert_many(bulk)
-    print(f"OK: {len(bulk)} docs copiados a TitulosAPI.FlujosAPI ({n_curvas} de Curvas, {n_bonds} de BondMaster)")
+    print(f"OK: {len(bulk)} docs copiados a TitulosAPI.FlujosAPI ({n_curvas} de Curvas, {n_bonds} de BondsMaster)")
 
     for d in bulk[:3]:
         n_flujos = len(d["flujos"])

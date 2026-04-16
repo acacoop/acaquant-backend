@@ -260,15 +260,15 @@ GET /api/operaciones/flujos?cuenta=[1005] FIBIGER, BRANCO NAHUEL
 
 ---
 
-### Carteras
+### Portfolio
 
-Portfolio positions by account. Each record represents a single instrument held by an account with its quantity and price.
+Portfolio data: current positions (carteras) and historical AuM snapshots.
 
 ---
 
-#### `GET /api/carteras/`
+#### `GET /api/portfolio/carteras`
 
-Returns portfolio positions. Each record is a single holding (account + instrument).
+Returns current portfolio positions. Each record is a single holding (account + instrument).
 
 **Query Parameters**
 
@@ -290,9 +290,8 @@ Returns portfolio positions. Each record is a single holding (account + instrume
 **Example Requests**
 
 ```
-GET /api/carteras/
-GET /api/carteras/?id_cuenta=101
-GET /api/carteras/?id_cuenta=101&unidad=[840] CAFCI577-840
+GET /api/portfolio/carteras
+GET /api/portfolio/carteras?id_cuenta=101
 ```
 
 **Example Response**
@@ -311,6 +310,58 @@ GET /api/carteras/?id_cuenta=101&unidad=[840] CAFCI577-840
 
 ---
 
+#### `GET /api/portfolio/aum`
+
+Returns historical AuM (Assets under Management) snapshots. Each record is a daily valuation per account and instrument.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id_cuenta` | `string` | Filter by account ID (e.g., `1010`) |
+| `unidad` | `string` | Filter by instrument/unit |
+| `cuenta` | `string` | Filter by account (format `[N] NAME`) |
+| `desde` | `string` | Start date inclusive (`YYYY-MM-DD`) |
+| `hasta` | `string` | End date inclusive (`YYYY-MM-DD`) |
+
+**Response Schema**
+
+| Field | Type | Description |
+|---|---|---|
+| `fecha` | `datetime` | Snapshot date (converted from string to datetime) |
+| `id_cuenta` | `string` | Account ID |
+| `unidad` | `string` | Instrument identifier |
+| `cantidad` | `number` | Quantity held |
+| `cuenta` | `string` | Account with ID prefix (e.g., `[1010] FORCINITI, DARIO GUILLERMO`) |
+| `precio` | `number` | Unit price |
+| `valuacion` | `number` | Total valuation (pre-calculated) |
+
+**Example Requests**
+
+```
+GET /api/portfolio/aum
+GET /api/portfolio/aum?id_cuenta=1010
+GET /api/portfolio/aum?id_cuenta=1010&desde=2026-03-01&hasta=2026-03-31
+```
+
+**Example Response**
+
+```json
+[
+  {
+    "fecha": "2026-03-28T00:00:00",
+    "id_cuenta": "1010",
+    "unidad": "[839] TXAR",
+    "cantidad": 608,
+    "cuenta": "[1010] FORCINITI, DARIO GUILLERMO",
+    "precio": 661.5,
+    "valuacion": 402192
+  }
+]
+```
+
+---
+
 ## Data Architecture
 
 The API reads from dedicated MongoDB databases with normalized schemas, separate from the operational databases used by engines and Streamlit.
@@ -321,7 +372,8 @@ The API reads from dedicated MongoDB databases with normalized schemas, separate
 | `CuentasAPI` | `ContrapartesAPI` | `CashFlow.Contrapartes` | Manual via `scripts/api_migrate contrapartes` |
 | `OperacionesAPI` | `MesaAPI` | `CashFlow.Flujo` | Manual via `scripts/api_migrate flujo` |
 | `OperacionesAPI` | `FlujosAPI` | `CashFlow.Movimientos` | Manual via `scripts/api_migrate movimientos` |
-| `CarterasAPI` | `CarterasAPI` | `Valuaciones.Carteras` | Manual via `scripts/api_migrate carteras` |
+| `PortfolioAPI` | `CarterasAPI` | `Valuaciones.Carteras` | Manual via `scripts/api_migrate carteras` |
+| `PortfolioAPI` | `AumAPI` | `Valuaciones.AuM` | Manual via `scripts/api_migrate aum` |
 
 Migration scripts normalize field names and extract structured data from legacy formats. Source collections are never modified.
 
@@ -332,7 +384,7 @@ api/
 ├── main.py              # FastAPI app entrypoint
 ├── deps.py              # Shared dependencies (DB access)
 └── routers/
-    ├── carteras.py      # /api/carteras/*
+    ├── carteras.py      # /api/portfolio/*
     ├── cuentas.py       # /api/cuentas/*
     └── operaciones.py   # /api/operaciones/*
 ```
@@ -353,4 +405,4 @@ python -m scripts.test_api http://192.168.1.100:8000
 |---|---|
 | 2026-04-15 | Initial release: `/api/health`, `/api/cuentas/accionistas`, `/api/cuentas/contrapartes`, `/api/operaciones/flujo` |
 | 2026-04-15 | Add `/api/operaciones/flujos` (cash movements from `CashFlow.Movimientos`) |
-| 2026-04-16 | Add `/api/carteras/` (portfolio positions from `Valuaciones.Carteras`) |
+| 2026-04-16 | Add `/api/portfolio/carteras` and `/api/portfolio/aum` (DB renamed to `PortfolioAPI`) |

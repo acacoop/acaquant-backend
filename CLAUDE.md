@@ -204,6 +204,8 @@ python -m scripts.api_migrate contrapartes
 python -m scripts.api_migrate mover
 python -m scripts.api_migrate flujo
 python -m scripts.api_migrate movimientos
+python -m scripts.api_migrate carteras
+python -m scripts.api_migrate aum
 
 # Test endpoints API
 python -m scripts.test_api                   # localhost:8000
@@ -541,6 +543,8 @@ api/
 
 Cada router usa `get_mongo_client_read()` (read-only, igual que el dashboard).
 
+**Nota:** el archivo `api/routers/carteras.py` contiene el router de Portfolio (carteras + aum). El nombre del archivo es legacy del primer endpoint; el prefix es `/api/portfolio`.
+
 ### Endpoints
 
 | Método | Ruta | Colección API | Query params |
@@ -550,7 +554,8 @@ Cada router usa `get_mongo_client_read()` (read-only, igual que el dashboard).
 | GET | `/api/cuentas/contrapartes` | `CuentasAPI.ContrapartesAPI` | — |
 | GET | `/api/operaciones/flujo` | `OperacionesAPI.MesaAPI` | `contraparte`, `moneda`, `segmento`, `desde`, `hasta` |
 | GET | `/api/operaciones/flujos` | `OperacionesAPI.FlujosAPI` | `cuenta`, `unidad`, `desde`, `hasta` |
-| GET | `/api/carteras/` | `CarterasAPI.CarterasAPI` | `id_cuenta`, `unidad` |
+| GET | `/api/portfolio/carteras` | `PortfolioAPI.CarterasAPI` | `id_cuenta`, `unidad` |
+| GET | `/api/portfolio/aum` | `PortfolioAPI.AumAPI` | `id_cuenta`, `unidad`, `cuenta`, `desde`, `hasta` |
 
 ### Patrón de migraciones (colecciones API)
 
@@ -574,7 +579,8 @@ Las colecciones originales (`CashFlow.*`, `Valuaciones.*`, etc.) son la **fuente
 | `CashFlow.Contrapartes` | `CuentasAPI.ContrapartesAPI` | denominacion→cuenta, cuenta→id_cuenta, contraparte→nombre, segmento→grupo | `contrapartes` + `mover` |
 | `CashFlow.Flujo` | `OperacionesAPI.MesaAPI` | instrumento→unidad, cuenta→id_cuenta | `flujo` |
 | `CashFlow.Movimientos` | `OperacionesAPI.FlujosAPI` | comprobante→boleto, fecha→concertacion (dd/mm→YYYY-MM-DD), total→bruto | `movimientos` |
-| `Valuaciones.Carteras` | `CarterasAPI.CarterasAPI` | timestamp truncado a fecha (sin hora), descarta `actualizado` | `carteras` |
+| `Valuaciones.Carteras` | `PortfolioAPI.CarterasAPI` | timestamp truncado a fecha (sin hora), descarta `actualizado` | `carteras` |
+| `Valuaciones.AuM` | `PortfolioAPI.AumAPI` | fecha_snapshot→fecha (str→datetime), descarta `timestamp`, `tipoTitulo` | `aum` |
 
 ### Esquema unificado Cuentas (AccionistasAPI / ContrapartesAPI)
 

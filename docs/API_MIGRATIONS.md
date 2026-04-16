@@ -161,7 +161,7 @@ DESTINO: { boleto: "CD 2025003117", cuenta: "[1005] FIBIGER, BRANCO NAHUEL",
 
 | | Origen | Destino |
 |---|---|---|
-| **Database** | `Valuaciones` | `CarterasAPI` |
+| **Database** | `Valuaciones` | `PortfolioAPI` |
 | **Colección** | `Carteras` | `CarterasAPI` |
 | **Comando** | `python -m scripts.api_migrate carteras` |
 | **Borra origen** | No |
@@ -197,6 +197,50 @@ DESTINO: { id_cuenta: "101", unidad: "[840] CAFCI577-840 - SBS AHORRO PESOS Clas
 
 ---
 
+## 6. AumAPI (Snapshots históricos AuM)
+
+| | Origen | Destino |
+|---|---|---|
+| **Database** | `Valuaciones` | `PortfolioAPI` |
+| **Colección** | `AuM` | `AumAPI` |
+| **Comando** | `python -m scripts.api_migrate aum` |
+| **Borra origen** | No |
+
+### Mapping de campos
+
+| Campo origen | Campo destino | Transformación |
+|---|---|---|
+| `fecha_snapshot` | `fecha` | Renombrado + convertido de string `YYYY-MM-DD` a datetime |
+| `id_cuenta` | `id_cuenta` | Sin cambio |
+| `unidad` | `unidad` | Sin cambio |
+| `cantidad` | `cantidad` | Sin cambio |
+| `cuenta` | `cuenta` | Sin cambio |
+| `precio` | `precio` | Sin cambio |
+| `valuacion` | `valuacion` | Sin cambio |
+
+### Campos descartados
+
+| Campo origen | Motivo |
+|---|---|
+| `_id` | Interno Mongo |
+| `timestamp` | Redundante con `fecha_snapshot` |
+| `tipoTitulo` | No requerido en la API |
+
+### Ejemplo
+
+```
+ORIGEN:  { fecha_snapshot: "2026-03-28", id_cuenta: "1010", unidad: "[839] TXAR",
+           cantidad: 608, cuenta: "[1010] FORCINITI, DARIO GUILLERMO", precio: 661.5,
+           timestamp: ISODate("2026-03-28T23:00:11.666Z"), tipoTitulo: "Acciones",
+           valuacion: 402192 }
+
+DESTINO: { fecha: ISODate("2026-03-28T00:00:00Z"), id_cuenta: "1010", unidad: "[839] TXAR",
+           cantidad: 608, cuenta: "[1010] FORCINITI, DARIO GUILLERMO", precio: 661.5,
+           valuacion: 402192 }
+```
+
+---
+
 ## Resincronización rápida
 
 Si se actualizan datos en las colecciones origen y necesitás reflejarlos en las API:
@@ -217,11 +261,12 @@ cd /root/TradingAV
 
 # Movimientos (directo a OperacionesAPI)
 /root/TradingAV/venv/bin/python -m scripts.api_migrate movimientos
+
+# Carteras (directo a PortfolioAPI)
+/root/TradingAV/venv/bin/python -m scripts.api_migrate carteras
+
+# AuM (directo a PortfolioAPI)
+/root/TradingAV/venv/bin/python -m scripts.api_migrate aum
 ```
 
 Todos los comandos hacen `drop()` + `insert_many()` — son idempotentes y seguros de re-ejecutar.
-
-```bash
-# Carteras (directo a CarterasAPI)
-/root/TradingAV/venv/bin/python -m scripts.api_migrate carteras
-```

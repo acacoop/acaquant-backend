@@ -5,7 +5,8 @@ Uso:
     python -m scripts.api_migrate contrapartes      → migra CashFlow.Contrapartes → CashFlow.ContrapartesAPI
     python -m scripts.api_migrate flujo             → copia CashFlow.Flujo → OperacionesAPI.MesaAPI
     python -m scripts.api_migrate movimientos       → copia CashFlow.Movimientos → OperacionesAPI.FlujosAPI
-    python -m scripts.api_migrate carteras          → copia Valuaciones.Carteras → CarterasAPI.CarterasAPI
+    python -m scripts.api_migrate carteras          → copia Valuaciones.Carteras → PortfolioAPI.CarterasAPI
+    python -m scripts.api_migrate aum               → copia Valuaciones.AuM → PortfolioAPI.AumAPI
 """
 import re
 import sys
@@ -225,7 +226,7 @@ def migrate_movimientos():
 
 
 def migrate_carteras():
-    """Copia Valuaciones.Carteras → CarterasAPI.CarterasAPI con timestamp truncado a fecha.
+    """Copia Valuaciones.Carteras → PortfolioAPI.CarterasAPI con timestamp truncado a fecha.
 
     Origen:  {id_cuenta, unidad, cantidad, precio, actualizado, timestamp}
     Destino: {id_cuenta, unidad, cantidad, precio, timestamp (datetime solo fecha)}
@@ -234,7 +235,7 @@ def migrate_carteras():
     """
     client = get_mongo_client()
     src = client["Valuaciones"]["Carteras"]
-    dst = client["CarterasAPI"]["CarterasAPI"]
+    dst = client["PortfolioAPI"]["CarterasAPI"]
 
     projection = {
         "_id": 0, "id_cuenta": 1, "unidad": 1, "cantidad": 1,
@@ -260,10 +261,63 @@ def migrate_carteras():
 
     dst.drop()
     dst.insert_many(bulk)
-    print(f"OK: {len(bulk)} docs copiados a CarterasAPI.CarterasAPI")
+    print(f"OK: {len(bulk)} docs copiados a PortfolioAPI.CarterasAPI")
 
     for d in bulk[:3]:
         print(f"  id_cuenta={d['id_cuenta']!r}  unidad={d['unidad']!r}  cantidad={d['cantidad']}  precio={d['precio']}  timestamp={d['timestamp']}")
+    if len(bulk) > 3:
+        print(f"  ... y {len(bulk) - 3} más")
+
+
+def _fecha_str_to_datetime(raw: str) -> datetime | None:
+    """Convierte '2026-03-28' (YYYY-MM-DD) → datetime(2026, 3, 28)."""
+    try:
+        return datetime.strptime(raw.strip(), "%Y-%m-%d")
+    except (ValueError, AttributeError):
+        return None
+
+
+def migrate_aum():
+    """Copia Valuaciones.AuM → PortfolioAPI.AumAPI con campos seleccionados.
+
+    Origen:  {fecha_snapshot, id_cuenta, unidad, cantidad, cuenta, precio, valuacion, timestamp, tipoTitulo, ...}
+    Destino: {fecha, id_cuenta, unidad, cantidad, cuenta, precio, valuacion}
+
+    fecha_snapshot (string YYYY-MM-DD) se convierte a datetime.
+    No borra el origen.
+    """
+    client = get_mongo_client()
+    src = client["Valuaciones"]["AuM"]
+    dst = client["PortfolioAPI"]["AumAPI"]
+
+    projection = {
+        "_id": 0, "fecha_snapshot": 1, "id_cuenta": 1, "unidad": 1,
+        "cantidad": 1, "cuenta": 1, "precio": 1, "valuacion": 1,
+    }
+    docs = list(src.find({}, projection))
+    if not docs:
+        print("No hay docs en Valuaciones.AuM — nada que migrar.")
+        return
+
+    bulk = []
+    for doc in docs:
+        fecha = _fecha_str_to_datetime(doc.get("fecha_snapshot", ""))
+        bulk.append({
+            "fecha": fecha,
+            "id_cuenta": doc.get("id_cuenta", ""),
+            "unidad": doc.get("unidad", ""),
+            "cantidad": doc.get("cantidad"),
+            "cuenta": doc.get("cuenta", ""),
+            "precio": doc.get("precio"),
+            "valuacion": doc.get("valuacion"),
+        })
+
+    dst.drop()
+    dst.insert_many(bulk)
+    print(f"OK: {len(bulk)} docs copiados a PortfolioAPI.AumAPI")
+
+    for d in bulk[:3]:
+        print(f"  fecha={d['fecha']}  id_cuenta={d['id_cuenta']!r}  unidad={d['unidad']!r}  valuacion={d['valuacion']}")
     if len(bulk) > 3:
         print(f"  ... y {len(bulk) - 3} más")
 
@@ -275,6 +329,7 @@ COMMANDS = {
     "flujo": migrate_flujo,
     "movimientos": migrate_movimientos,
     "carteras": migrate_carteras,
+    "aum": migrate_aum,
 }
 
 

@@ -10,5 +10,5 @@ def get_db_operaciones():
     return get_mongo_client_read()["OperacionesAPI"]
 
 
-def get_db_carteras():
-    return get_mongo_client_read()["CarterasAPI"]
+def get_db_portfolio():
+    return get_mongo_client_read()["PortfolioAPI"]

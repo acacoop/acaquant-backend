@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Query
 
-from api.deps import get_db_opciones, get_db_trading
+from api.deps import get_db_opciones, get_db_trading, get_db_valuaciones
 
 router = APIRouter(prefix="/api/cotizaciones", tags=["Cotizaciones"])
 
@@ -45,6 +45,19 @@ def _query_serie(collection: str, desde: str | None, hasta: str | None) -> list:
             rango["$lte"] = hasta
         filtro["fecha"] = rango
     return list(db[collection].find(filtro, {"_id": 0}))
+
+
+# ── Dólar MEP ──
+
+@router.get("/mep")
+def ultimo_mep():
+    """Último valor del dólar MEP (Valuaciones.Dolar)."""
+    db = get_db_valuaciones()
+    doc = db["Dolar"].find_one(
+        {}, {"_id": 0, "mep": 1, "timestamp": 1},
+        sort=[("timestamp", -1)],
+    )
+    return doc or {}
 
 
 # ── Forwards Live ──
@@ -177,6 +190,24 @@ def historico_breakevens(
             rango["$lte"] = hasta
         filtro["fecha"] = rango
     return list(db["BreakevensHistorico"].find(filtro, {"_id": 0}))
+
+
+@router.get("/historico/mep")
+def historico_mep(
+    desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+):
+    """Serie histórica del dólar MEP (Valuaciones.Dolar)."""
+    db = get_db_valuaciones()
+    filtro: dict = {}
+    if desde or hasta:
+        rango: dict = {}
+        if desde:
+            rango["$gte"] = datetime.fromisoformat(desde)
+        if hasta:
+            rango["$lte"] = datetime.fromisoformat(hasta + "T23:59:59")
+        filtro["timestamp"] = rango
+    return list(db["Dolar"].find(filtro, {"_id": 0, "mep": 1, "timestamp": 1}))
 
 
 @router.get("/historico/trades")

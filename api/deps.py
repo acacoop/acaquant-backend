@@ -24,3 +24,7 @@ def get_db_opciones():
 
 def get_db_trading():
     return get_mongo_client_read()["Trading"]
+
+
+def get_db_valuaciones():
+    return get_mongo_client_read()["Valuaciones"]

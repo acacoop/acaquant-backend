@@ -537,7 +537,7 @@ uvicorn api.main:app --reload --port 8000   # dev
 ```
 api/
 ├── main.py                # FastAPI app + health endpoint
-├── deps.py                # get_db_* helpers (CuentasAPI, OperacionesAPI, PortfolioAPI, TitulosAPI, Opciones, Trading)
+├── deps.py                # get_db_* helpers (CuentasAPI, OperacionesAPI, PortfolioAPI, TitulosAPI, Opciones, Trading, Valuaciones)
 └── routers/
     ├── carteras.py        # /api/portfolio/* (carteras + aum)
     ├── cotizaciones.py    # /api/cotizaciones/* (lectura directa Trading.*)
@@ -566,12 +566,14 @@ Cada router usa `get_mongo_client_read()` (read-only, igual que el dashboard).
 | GET | `/api/cotizaciones/badlar` | `Trading.BADLAR` (directo) | `desde`, `hasta` |
 | GET | `/api/cotizaciones/cer` | `Trading.CER` (directo) | `desde`, `hasta` |
 | GET | `/api/cotizaciones/dolar` | `Trading.DOLAR` (directo) | `desde`, `hasta` |
+| GET | `/api/cotizaciones/mep` | `Valuaciones.Dolar` (último) | — |
 | GET | `/api/cotizaciones/forwards` | `Trading.ForwardsLive` (directo) | `curva` |
 | GET | `/api/cotizaciones/renta-fija` | `Trading.MarketSnapshot` (directo) | `instrumento` |
 | GET | `/api/cotizaciones/breakevens` | `Trading.BreakevensLive` (directo) | — |
 | GET | `/api/cotizaciones/opciones` | `Opciones.OptionsSnapshot` (directo) | `instrumento`, `tipo` |
 | GET | `/api/cotizaciones/historico/forwards` | `Trading.ForwardsHistorico` (directo) | `curva`, `desde`, `hasta` |
 | GET | `/api/cotizaciones/historico/breakevens` | `Trading.BreakevensHistorico` (directo) | `desde`, `hasta` |
+| GET | `/api/cotizaciones/historico/mep` | `Valuaciones.Dolar` (serie) | `desde`, `hasta` |
 | GET | `/api/cotizaciones/historico/trades` | `Trading.TimeSales` (directo, últimos 15 días) | `instrumento` |
 
 ### Patrón de migraciones (colecciones API)

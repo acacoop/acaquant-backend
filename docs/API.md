@@ -548,6 +548,21 @@ Returns official dollar rate (A3500, BCRA id=5).
 
 ---
 
+#### `GET /api/cotizaciones/mep`
+
+Returns the latest MEP dollar value from `Valuaciones.Dolar`.
+
+**Query Parameters:** None.
+
+**Response Schema:** `{ mep: number, timestamp: datetime }`
+
+**Example Response:**
+```json
+{ "mep": 1410.8578, "timestamp": "2026-03-25T11:00:02.854000" }
+```
+
+---
+
 #### `GET /api/cotizaciones/forwards`
 
 Returns live forward rate matrix by curve.
@@ -671,6 +686,21 @@ Returns historical breakeven inflation rates by date.
 
 ---
 
+#### `GET /api/cotizaciones/historico/mep`
+
+Returns historical MEP dollar series from `Valuaciones.Dolar`.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `desde` | `string` | Start date inclusive (`YYYY-MM-DD`) |
+| `hasta` | `string` | End date inclusive (`YYYY-MM-DD`) |
+
+**Response Schema:** `{ mep: number, timestamp: datetime }`
+
+---
+
 #### `GET /api/cotizaciones/historico/trades`
 
 Returns trades from `TimeSales` for the **last 15 days** from today. Includes enriched fields (duration, TEA, TEM, paridad) when available. Results sorted by timestamp descending.
@@ -721,6 +751,7 @@ The API reads from dedicated MongoDB databases with normalized schemas, separate
 | `Trading` | `MarketSnapshot` | — (lectura directa, `ticker`→`instrumento`) | N/A — datos live |
 | `Trading` | `BreakevensLive` | — (lectura directa) | N/A — datos live |
 | `Opciones` | `OptionsSnapshot` | — (lectura directa, `symbol`→`instrumento`) | N/A — datos live |
+| `Valuaciones` | `Dolar` | — (lectura directa, solo `mep`+`timestamp`) | N/A — datos live |
 | `Trading` | `ForwardsHistorico` | — (lectura directa) | N/A — datos históricos |
 | `Trading` | `BreakevensHistorico` | — (lectura directa) | N/A — datos históricos |
 | `Trading` | `TimeSales` | — (lectura directa, `ticker`→`instrumento`, últimos 15 días) | N/A — datos históricos |
@@ -765,3 +796,4 @@ python -m scripts.test_api http://192.168.1.100:8000
 | 2026-04-16 | Add `/api/cotizaciones/*` — 6 endpoints (badlar, cer, dolar, forwards, renta-fija, breakevens) reading directly from `Trading.*` |
 | 2026-04-16 | Add `/api/cotizaciones/opciones` (live options snapshot from `Opciones.OptionsSnapshot`). Rename `/mercado` → `/renta-fija`, `ticker`/`symbol` → `instrumento` |
 | 2026-04-16 | Add `/api/cotizaciones/historico/*` — forwards, breakevens, trades (TimeSales últimos 15 días) |
+| 2026-04-16 | Add `/api/cotizaciones/mep` (último MEP) y `/api/cotizaciones/historico/mep` (serie) desde `Valuaciones.Dolar` |

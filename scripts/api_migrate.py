@@ -132,7 +132,7 @@ def migrate_flujo():
     """Copia CashFlow.Flujo → OperacionesAPI.MesaAPI con campos renombrados.
 
     Origen:  {instrumento, bruto, contraparte, concertacion, boleto, cuenta, segmento, moneda, ...}
-    Destino: {unidad, bruto, contraparte, concertacion, boleto, cuenta, segmento, moneda}
+    Destino: {unidad, bruto, contraparte, concertacion, boleto, id_cuenta, segmento, moneda}
 
     No borra el origen.
     """
@@ -157,7 +157,7 @@ def migrate_flujo():
             "contraparte": doc.get("contraparte", ""),
             "concertacion": doc.get("concertacion", ""),
             "boleto": doc.get("boleto"),
-            "cuenta": doc.get("cuenta"),
+            "id_cuenta": doc.get("cuenta"),
             "segmento": doc.get("segmento", ""),
             "moneda": doc.get("moneda", ""),
         })

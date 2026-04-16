@@ -179,7 +179,7 @@ Returns trade flow records from the trading desk. Each record represents a singl
 | `contraparte` | `string` | Counterparty short name |
 | `concertacion` | `string` | Trade date (`YYYY-MM-DD`) |
 | `boleto` | `string` or `int` | Unique trade ticket ID |
-| `cuenta` | `string` | Counterparty account number |
+| `id_cuenta` | `string` | Counterparty account number |
 | `segmento` | `string` | Market segment (e.g., `SENEBI`, `MAE`) |
 | `moneda` | `string` | Currency: `ARS` or `USD` |
 
@@ -202,7 +202,7 @@ GET /api/operaciones/flujo?segmento=SENEBI&moneda=USD
     "contraparte": "ADCAP",
     "concertacion": "2023-11-09",
     "boleto": "BOL 2023038769",
-    "cuenta": "362",
+    "id_cuenta": "362",
     "segmento": "SENEBI",
     "moneda": "ARS"
   }

@@ -87,7 +87,7 @@ DESTINO: { cuenta: " FCI ADCAP PESOS PLUS", id_cuenta: "362", nombre: "ADCAP", g
 | `contraparte` | `contraparte` | Sin cambio |
 | `concertacion` | `concertacion` | Sin cambio |
 | `boleto` | `boleto` | Sin cambio |
-| `cuenta` | `cuenta` | Sin cambio |
+| `cuenta` | `id_cuenta` | Renombrado |
 | `segmento` | `segmento` | Sin cambio |
 | `moneda` | `moneda` | Sin cambio |
 
@@ -109,7 +109,7 @@ ORIGEN:  { instrumento: "[05493] TX24", bruto: 589800000, contraparte: "ADCAP", 
 
 DESTINO: { unidad: "[05493] TX24", bruto: 589800000, contraparte: "ADCAP",
            concertacion: "2023-11-09", boleto: "BOL 2023038769",
-           cuenta: "362", segmento: "SENEBI", moneda: "ARS" }
+           id_cuenta: "362", segmento: "SENEBI", moneda: "ARS" }
 ```
 
 ---

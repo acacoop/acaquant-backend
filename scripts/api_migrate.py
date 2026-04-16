@@ -7,6 +7,7 @@ Uso:
     python -m scripts.api_migrate movimientos       → copia CashFlow.Movimientos → OperacionesAPI.FlujosAPI
     python -m scripts.api_migrate carteras          → copia Valuaciones.Carteras → PortfolioAPI.CarterasAPI
     python -m scripts.api_migrate aum               → copia Valuaciones.AuM → PortfolioAPI.AumAPI
+    python -m scripts.api_migrate assets            → copia Valuaciones.Assets → TitulosAPI.AssetsAPI
 """
 import re
 import sys
@@ -322,6 +323,46 @@ def migrate_aum():
         print(f"  ... y {len(bulk) - 3} más")
 
 
+def migrate_assets():
+    """Copia Valuaciones.Assets → TitulosAPI.AssetsAPI con campos en minúscula.
+
+    Origen:  {unidad, CALIFICACION, CARTERA, CLASE_ACTIVO, EMISOR, TICKER, VENCIMIENTO, INSTRUMENTO}
+    Destino: {unidad, calificacion, cartera, clase_activo, emisor, ticker, vencimiento, instrumento}
+
+    No borra el origen.
+    """
+    client = get_mongo_client()
+    src = client["Valuaciones"]["Assets"]
+    dst = client["TitulosAPI"]["AssetsAPI"]
+
+    docs = list(src.find({}, {"_id": 0}))
+    if not docs:
+        print("No hay docs en Valuaciones.Assets — nada que migrar.")
+        return
+
+    bulk = []
+    for doc in docs:
+        bulk.append({
+            "unidad": doc.get("unidad", ""),
+            "calificacion": doc.get("CALIFICACION", ""),
+            "cartera": doc.get("CARTERA", ""),
+            "clase_activo": doc.get("CLASE_ACTIVO", ""),
+            "emisor": doc.get("EMISOR", ""),
+            "ticker": doc.get("TICKER", ""),
+            "vencimiento": doc.get("VENCIMIENTO", ""),
+            "instrumento": doc.get("INSTRUMENTO", ""),
+        })
+
+    dst.drop()
+    dst.insert_many(bulk)
+    print(f"OK: {len(bulk)} docs copiados a TitulosAPI.AssetsAPI")
+
+    for d in bulk[:3]:
+        print(f"  unidad={d['unidad']!r}  ticker={d['ticker']!r}  cartera={d['cartera']!r}  emisor={d['emisor']!r}")
+    if len(bulk) > 3:
+        print(f"  ... y {len(bulk) - 3} más")
+
+
 COMMANDS = {
     "accionistas": migrate_accionistas,
     "contrapartes": migrate_contrapartes,
@@ -330,6 +371,7 @@ COMMANDS = {
     "movimientos": migrate_movimientos,
     "carteras": migrate_carteras,
     "aum": migrate_aum,
+    "assets": migrate_assets,
 }
 
 

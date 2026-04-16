@@ -362,6 +362,66 @@ GET /api/portfolio/aum?id_cuenta=1010&desde=2026-03-01&hasta=2026-03-31
 
 ---
 
+### Titulos
+
+Instrument metadata and reference data.
+
+---
+
+#### `GET /api/titulos/assets`
+
+Returns instrument metadata. Each record describes a single financial instrument with its classification.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `unidad` | `string` | Filter by unit identifier |
+| `ticker` | `string` | Filter by ticker symbol |
+| `cartera` | `string` | Filter by portfolio category (e.g., `CARTERA FCI`, `OTROS`) |
+| `emisor` | `string` | Filter by issuer |
+| `clase_activo` | `string` | Filter by asset class (e.g., `MONEDA`, `TITULO`) |
+
+**Response Schema**
+
+| Field | Type | Description |
+|---|---|---|
+| `unidad` | `string` | Unit identifier (primary key) |
+| `calificacion` | `string` | Credit rating or `NO APLICA` |
+| `cartera` | `string` | Portfolio category |
+| `clase_activo` | `string` | Asset class |
+| `emisor` | `string` | Issuer name or `NO APLICA` |
+| `ticker` | `string` | Ticker symbol |
+| `vencimiento` | `string` | Maturity date or `NO APLICA` |
+| `instrumento` | `string` | Instrument type or `NO APLICA` |
+
+**Example Requests**
+
+```
+GET /api/titulos/assets
+GET /api/titulos/assets?cartera=CARTERA%20FCI
+GET /api/titulos/assets?ticker=TXAR
+```
+
+**Example Response**
+
+```json
+[
+  {
+    "unidad": "ARS",
+    "calificacion": "NO APLICA",
+    "cartera": "OTROS",
+    "clase_activo": "MONEDA",
+    "emisor": "NO APLICA",
+    "ticker": "ARS",
+    "vencimiento": "NO APLICA",
+    "instrumento": "NO APLICA"
+  }
+]
+```
+
+---
+
 ## Data Architecture
 
 The API reads from dedicated MongoDB databases with normalized schemas, separate from the operational databases used by engines and Streamlit.
@@ -374,6 +434,7 @@ The API reads from dedicated MongoDB databases with normalized schemas, separate
 | `OperacionesAPI` | `FlujosAPI` | `CashFlow.Movimientos` | Manual via `scripts/api_migrate movimientos` |
 | `PortfolioAPI` | `CarterasAPI` | `Valuaciones.Carteras` | Manual via `scripts/api_migrate carteras` |
 | `PortfolioAPI` | `AumAPI` | `Valuaciones.AuM` | Manual via `scripts/api_migrate aum` |
+| `TitulosAPI` | `AssetsAPI` | `Valuaciones.Assets` | Manual via `scripts/api_migrate assets` |
 
 Migration scripts normalize field names and extract structured data from legacy formats. Source collections are never modified.
 
@@ -386,7 +447,8 @@ api/
 └── routers/
     ├── carteras.py      # /api/portfolio/*
     ├── cuentas.py       # /api/cuentas/*
-    └── operaciones.py   # /api/operaciones/*
+    ├── operaciones.py   # /api/operaciones/*
+    └── titulos.py       # /api/titulos/*
 ```
 
 ## Running Tests
@@ -406,3 +468,4 @@ python -m scripts.test_api http://192.168.1.100:8000
 | 2026-04-15 | Initial release: `/api/health`, `/api/cuentas/accionistas`, `/api/cuentas/contrapartes`, `/api/operaciones/flujo` |
 | 2026-04-15 | Add `/api/operaciones/flujos` (cash movements from `CashFlow.Movimientos`) |
 | 2026-04-16 | Add `/api/portfolio/carteras` and `/api/portfolio/aum` (DB renamed to `PortfolioAPI`) |
+| 2026-04-16 | Add `/api/titulos/assets` (instrument metadata from `Valuaciones.Assets`) |

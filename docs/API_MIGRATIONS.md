@@ -241,6 +241,48 @@ DESTINO: { fecha: ISODate("2026-03-28T00:00:00Z"), id_cuenta: "1010", unidad: "[
 
 ---
 
+## 7. AssetsAPI (Metadata de instrumentos)
+
+| | Origen | Destino |
+|---|---|---|
+| **Database** | `Valuaciones` | `TitulosAPI` |
+| **Colección** | `Assets` | `AssetsAPI` |
+| **Comando** | `python -m scripts.api_migrate assets` |
+| **Borra origen** | No |
+
+### Mapping de campos
+
+| Campo origen | Campo destino | Transformación |
+|---|---|---|
+| `unidad` | `unidad` | Sin cambio |
+| `CALIFICACION` | `calificacion` | Renombrado a minúscula |
+| `CARTERA` | `cartera` | Renombrado a minúscula |
+| `CLASE_ACTIVO` | `clase_activo` | Renombrado a minúscula |
+| `EMISOR` | `emisor` | Renombrado a minúscula |
+| `TICKER` | `ticker` | Renombrado a minúscula |
+| `VENCIMIENTO` | `vencimiento` | Renombrado a minúscula |
+| `INSTRUMENTO` | `instrumento` | Renombrado a minúscula |
+
+### Campos descartados
+
+| Campo origen | Motivo |
+|---|---|
+| `_id` | Interno Mongo |
+
+### Ejemplo
+
+```
+ORIGEN:  { unidad: "ARS", CALIFICACION: "NO APLICA", CARTERA: "OTROS",
+           CLASE_ACTIVO: "MONEDA", EMISOR: "NO APLICA", TICKER: "ARS",
+           VENCIMIENTO: "NO APLICA", INSTRUMENTO: "NO APLICA" }
+
+DESTINO: { unidad: "ARS", calificacion: "NO APLICA", cartera: "OTROS",
+           clase_activo: "MONEDA", emisor: "NO APLICA", ticker: "ARS",
+           vencimiento: "NO APLICA", instrumento: "NO APLICA" }
+```
+
+---
+
 ## Resincronización rápida
 
 Si se actualizan datos en las colecciones origen y necesitás reflejarlos en las API:
@@ -267,6 +309,9 @@ cd /root/TradingAV
 
 # AuM (directo a PortfolioAPI)
 /root/TradingAV/venv/bin/python -m scripts.api_migrate aum
+
+# Assets (directo a TitulosAPI)
+/root/TradingAV/venv/bin/python -m scripts.api_migrate assets
 ```
 
 Todos los comandos hacen `drop()` + `insert_many()` — son idempotentes y seguros de re-ejecutar.

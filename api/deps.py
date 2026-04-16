@@ -12,3 +12,7 @@ def get_db_operaciones():
 
 def get_db_portfolio():
     return get_mongo_client_read()["PortfolioAPI"]
+
+
+def get_db_titulos():
+    return get_mongo_client_read()["TitulosAPI"]

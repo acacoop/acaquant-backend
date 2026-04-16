@@ -12,11 +12,11 @@ from core.mongo import get_mongo_client
 _CUENTA_RE = re.compile(r"^\[(\d+)\]\s+(.+)$")
 
 
-def _parse_cuenta(raw: str) -> tuple[int | None, str]:
+def _parse_cuenta(raw: str) -> tuple[str | None, str]:
     """Extrae (id_cuenta, nombre) de '[139] LA SEGUNDA SEGUROS DE RETIRO SA RVP'."""
     m = _CUENTA_RE.match(raw.strip())
     if m:
-        return int(m.group(1)), m.group(2).strip()
+        return m.group(1), m.group(2).strip()
     return None, raw.strip()
 
 

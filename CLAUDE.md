@@ -560,7 +560,7 @@ Cada router usa `get_mongo_client_read()` (read-only, igual que el dashboard).
 | GET | `/api/operaciones/flujo` | `OperacionesAPI.MesaAPI` | `contraparte`, `moneda`, `segmento`, `desde`, `hasta` |
 | GET | `/api/operaciones/flujos` | `OperacionesAPI.FlujosAPI` | `cuenta`, `unidad`, `desde`, `hasta` |
 | GET | `/api/portfolio/carteras` | `PortfolioAPI.CarterasAPI` | `id_cuenta`, `unidad` |
-| GET | `/api/portfolio/aum` | `PortfolioAPI.AumAPI` | `id_cuenta`, `unidad`, `cuenta`, `desde`, `hasta` |
+| GET | `/api/portfolio/aum` | `PortfolioAPI.AumAPI` | `id_cuenta`, `unidad`, `cuenta`, `desde`, `hasta`, `ultimo` |
 | GET | `/api/titulos/assets` | `TitulosAPI.AssetsAPI` | `unidad`, `ticker`, `cartera`, `emisor`, `clase_activo` |
 | GET | `/api/titulos/flujos` | `TitulosAPI.ValuacionesAPI` | `ticker`, `curva`, `moneda_flujo` |
 | GET | `/api/cotizaciones/badlar` | `Trading.BADLAR` (directo) | `desde`, `hasta` |

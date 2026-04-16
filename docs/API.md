@@ -323,6 +323,7 @@ Returns historical AuM (Assets under Management) snapshots. Each record is a dai
 | `cuenta` | `string` | Filter by account (format `[N] NAME`) |
 | `desde` | `string` | Start date inclusive (`YYYY-MM-DD`) |
 | `hasta` | `string` | End date inclusive (`YYYY-MM-DD`) |
+| `ultimo` | `boolean` | If `true`, returns only the most recent snapshot date. Ignores `desde`/`hasta`. Combinable with `id_cuenta`, `unidad`, `cuenta`. |
 
 **Response Schema**
 
@@ -342,6 +343,8 @@ Returns historical AuM (Assets under Management) snapshots. Each record is a dai
 GET /api/portfolio/aum
 GET /api/portfolio/aum?id_cuenta=1010
 GET /api/portfolio/aum?id_cuenta=1010&desde=2026-03-01&hasta=2026-03-31
+GET /api/portfolio/aum?ultimo=true
+GET /api/portfolio/aum?ultimo=true&id_cuenta=1010
 ```
 
 **Example Response**

@@ -671,7 +671,7 @@ Definidos en `scripts/crear_indices.py` (idempotente, soporta `unique` + `partia
 | `Trading.BreakevensHistorico` | `fecha` |
 | `Trading.CER` | `fecha` |
 | `Trading.Curvas` | `curva`, `ticker_corto` |
-| `Valuaciones.AuM` | `fecha_snapshot`, `(unidad, fecha_snapshot)`, `(id_cuenta, fecha_snapshot)` |
+| `Valuaciones.AuM` | `fecha_snapshot`, `(unidad, fecha_snapshot)`, `(id_cuenta, fecha_snapshot)`, `(cuenta, fecha_snapshot)` |
 | `Valuaciones.AuMResumen` | `(id_cuenta, unidad, fecha_snapshot)`, `(CARTERA, fecha_snapshot)`, `(EMISOR, fecha_snapshot)` |
 | `Valuaciones.Carteras` | `(id_cuenta, unidad)` |
 | `Valuaciones.Dolar` | `timestamp` |

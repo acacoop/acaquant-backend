@@ -59,6 +59,8 @@ def main():
             "AuM: unidad + fecha_snapshot"),
         (valuaciones["AuM"], [("id_cuenta", 1), ("fecha_snapshot", -1)],
             "AuM: id_cuenta + fecha_snapshot"),
+        (valuaciones["AuM"], [("cuenta", 1), ("fecha_snapshot", -1)],
+            "AuM: cuenta + fecha_snapshot"),
 
         # ── Valuaciones.AuMResumen ────────────────────────────────────────
         (valuaciones["AuMResumen"], [("id_cuenta", 1), ("unidad", 1), ("fecha_snapshot", -1)],

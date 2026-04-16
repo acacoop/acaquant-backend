@@ -634,6 +634,72 @@ Returns live breakeven inflation rates (CER vs Lecap pairs).
 
 ---
 
+### Histórico
+
+Historical market data. Same `Trading.*` collections as live endpoints, with date range filters.
+
+---
+
+#### `GET /api/cotizaciones/historico/forwards`
+
+Returns historical forward rate matrices by date.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `curva` | `string` | Filter by curve: `tasa_fija` or `cer` |
+| `desde` | `string` | Start date inclusive (`YYYY-MM-DD`) |
+| `hasta` | `string` | End date inclusive (`YYYY-MM-DD`) |
+
+**Response Schema:** `{ curva, fecha, matrix, tasas, tickers, updated_at }`
+
+---
+
+#### `GET /api/cotizaciones/historico/breakevens`
+
+Returns historical breakeven inflation rates by date.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `desde` | `string` | Start date inclusive (`YYYY-MM-DD`) |
+| `hasta` | `string` | End date inclusive (`YYYY-MM-DD`) |
+
+**Response Schema:** `{ fecha, pares: [{ n, lecap, cer, fecha_vencimiento, dias, tem_lecap, tea_cer, paridad_cer, retorno_acumulado, inflacion_acumulada, breakeven_mensual }], updated_at }`
+
+---
+
+#### `GET /api/cotizaciones/historico/trades`
+
+Returns trades from `TimeSales` for the **last 15 days** from today. Includes enriched fields (duration, TEA, TEM, paridad) when available. Results sorted by timestamp descending.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `instrumento` | `string` | Filter by full instrument (e.g., `MERV - XMEV - TX26 - 24hs`) |
+
+**Response Schema**
+
+| Field | Type | Description |
+|---|---|---|
+| `instrumento` | `string` | Full ROFEX instrument identifier (renamed from `ticker`) |
+| `timestamp` | `datetime` | Trade timestamp |
+| `price` | `number` | Trade price |
+| `size` | `number` | Trade size (nominals) |
+| `side` | `string` | `BUY` / `SELL` / `MID` |
+| `money` | `number` | Trade money (`price × size / 100`) |
+| `duration` | `number` | Macaulay duration in years (if enriched) |
+| `TEA` | `number` | Annual effective rate (if enriched, tasa_fija/cer) |
+| `TEM` | `number` | Monthly effective rate (if enriched, tasa_fija only) |
+| `paridad` | `number` | Parity percentage (if enriched, cer only) |
+
+> **Note:** Not all trades have enriched fields. Only instruments defined in `Trading.Curvas` get duration/TEA/TEM/paridad from `engines/curvas.py`.
+
+---
+
 ## Data Architecture
 
 The API reads from dedicated MongoDB databases with normalized schemas, separate from the operational databases used by engines and Streamlit.
@@ -655,6 +721,9 @@ The API reads from dedicated MongoDB databases with normalized schemas, separate
 | `Trading` | `MarketSnapshot` | — (lectura directa, `ticker`→`instrumento`) | N/A — datos live |
 | `Trading` | `BreakevensLive` | — (lectura directa) | N/A — datos live |
 | `Opciones` | `OptionsSnapshot` | — (lectura directa, `symbol`→`instrumento`) | N/A — datos live |
+| `Trading` | `ForwardsHistorico` | — (lectura directa) | N/A — datos históricos |
+| `Trading` | `BreakevensHistorico` | — (lectura directa) | N/A — datos históricos |
+| `Trading` | `TimeSales` | — (lectura directa, `ticker`→`instrumento`, últimos 15 días) | N/A — datos históricos |
 
 Migration scripts normalize field names and extract structured data from legacy formats. Source collections are never modified.
 
@@ -695,3 +764,4 @@ python -m scripts.test_api http://192.168.1.100:8000
 | 2026-04-16 | Add `/api/titulos/flujos` (cash flows from `Trading.Curvas` + `Trading.BondsMaster`) |
 | 2026-04-16 | Add `/api/cotizaciones/*` — 6 endpoints (badlar, cer, dolar, forwards, renta-fija, breakevens) reading directly from `Trading.*` |
 | 2026-04-16 | Add `/api/cotizaciones/opciones` (live options snapshot from `Opciones.OptionsSnapshot`). Rename `/mercado` → `/renta-fija`, `ticker`/`symbol` → `instrumento` |
+| 2026-04-16 | Add `/api/cotizaciones/historico/*` — forwards, breakevens, trades (TimeSales últimos 15 días) |

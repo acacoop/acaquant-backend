@@ -570,6 +570,9 @@ Cada router usa `get_mongo_client_read()` (read-only, igual que el dashboard).
 | GET | `/api/cotizaciones/renta-fija` | `Trading.MarketSnapshot` (directo) | `instrumento` |
 | GET | `/api/cotizaciones/breakevens` | `Trading.BreakevensLive` (directo) | — |
 | GET | `/api/cotizaciones/opciones` | `Opciones.OptionsSnapshot` (directo) | `instrumento`, `tipo` |
+| GET | `/api/cotizaciones/historico/forwards` | `Trading.ForwardsHistorico` (directo) | `curva`, `desde`, `hasta` |
+| GET | `/api/cotizaciones/historico/breakevens` | `Trading.BreakevensHistorico` (directo) | `desde`, `hasta` |
+| GET | `/api/cotizaciones/historico/trades` | `Trading.TimeSales` (directo, últimos 15 días) | `instrumento` |
 
 ### Patrón de migraciones (colecciones API)
 
@@ -604,7 +607,7 @@ Ambas colecciones comparten: `cuenta` (str, original), `id_cuenta` (str, numéri
 
 ### Testing
 
-`python -m scripts.test_api [URL]` — prueba todos los endpoints (22 casos) con filtros de ejemplo.
+`python -m scripts.test_api [URL]` — prueba todos los endpoints (28 casos) con filtros de ejemplo.
 
 ## Colecciones de referencia
 

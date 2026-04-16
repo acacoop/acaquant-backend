@@ -1,4 +1,6 @@
 """Router Cotizaciones: lectura directa de Trading.* y Opciones.* (sin migración)."""
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Query
 
 from api.deps import get_db_opciones, get_db_trading
@@ -136,3 +138,73 @@ def listar_opciones(
         }},
     ]
     return list(db["OptionsSnapshot"].aggregate(pipeline))
+
+
+# ── Histórico ──
+
+@router.get("/historico/forwards")
+def historico_forwards(
+    curva: str | None = Query(None, description="Filtrar por curva (tasa_fija/cer)"),
+    desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+):
+    db = get_db_trading()
+    filtro: dict = {}
+    if curva:
+        filtro["curva"] = curva
+    if desde or hasta:
+        rango: dict = {}
+        if desde:
+            rango["$gte"] = desde
+        if hasta:
+            rango["$lte"] = hasta
+        filtro["fecha"] = rango
+    return list(db["ForwardsHistorico"].find(filtro, {"_id": 0}))
+
+
+@router.get("/historico/breakevens")
+def historico_breakevens(
+    desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+):
+    db = get_db_trading()
+    filtro: dict = {}
+    if desde or hasta:
+        rango: dict = {}
+        if desde:
+            rango["$gte"] = desde
+        if hasta:
+            rango["$lte"] = hasta
+        filtro["fecha"] = rango
+    return list(db["BreakevensHistorico"].find(filtro, {"_id": 0}))
+
+
+@router.get("/historico/trades")
+def historico_trades(
+    instrumento: str | None = Query(None, description="Filtrar por instrumento (ej: MERV - XMEV - TX26 - 24hs)"),
+):
+    """Trades de los últimos 15 días desde hoy."""
+    db = get_db_trading()
+    corte = datetime.now(UTC) - timedelta(days=15)
+    filtro: dict = {"timestamp": {"$gte": corte}}
+    if instrumento:
+        filtro["ticker"] = instrumento
+
+    pipeline = [
+        {"$match": filtro},
+        {"$sort": {"timestamp": -1}},
+        {"$project": {
+            "_id": 0,
+            "instrumento": "$ticker",
+            "timestamp": 1,
+            "price": 1,
+            "size": 1,
+            "side": 1,
+            "money": 1,
+            "duration": 1,
+            "TEA": 1,
+            "TEM": 1,
+            "paridad": 1,
+        }},
+    ]
+    return list(db["TimeSales"].aggregate(pipeline))

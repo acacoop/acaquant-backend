@@ -422,6 +422,25 @@ def _build_from_curvas(doc: dict) -> dict:
     }
 
 
+def _calcular_residual_actual(flujos: list[dict]) -> float | None:
+    """Calcula el residual actual: residual del último flujo cuya fecha ya pasó.
+
+    Si no hay flujos pasados, devuelve 100 (no amortizó nada aún).
+    Si no hay flujos, devuelve None.
+    """
+    if not flujos:
+        return None
+    hoy = datetime.now()
+    ultimo_residual = 100.0
+    for f in flujos:
+        fecha = f.get("fecha")
+        if fecha and fecha <= hoy:
+            residual = f.get("residual")
+            if residual is not None:
+                ultimo_residual = residual
+    return ultimo_residual
+
+
 def _build_from_bondmaster(doc: dict) -> dict:
     """Construye un doc FlujosAPI desde un doc de Trading.BondsMaster."""
     flujos_raw = doc.get("flujos", []) or []
@@ -449,7 +468,7 @@ def _build_from_bondmaster(doc: dict) -> dict:
         "cer_emision": None,
         "tasa_cupon": doc.get("tasa_cupon"),
         "flujo_vencimiento": None,
-        "valor_residual_actual_pct": None,
+        "valor_residual_actual_pct": _calcular_residual_actual(flujos),
         "flujos": flujos,
     }
 

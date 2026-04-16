@@ -520,7 +520,7 @@ The API reads from dedicated MongoDB databases with normalized schemas, separate
 | `PortfolioAPI` | `CarterasAPI` | `Valuaciones.Carteras` | Manual via `scripts/api_migrate carteras` |
 | `PortfolioAPI` | `AumAPI` | `Valuaciones.AuM` | Manual via `scripts/api_migrate aum` |
 | `TitulosAPI` | `AssetsAPI` | `Valuaciones.Assets` | Manual via `scripts/api_migrate assets` |
-| `TitulosAPI` | `FlujosAPI` | `Trading.Curvas` + `Trading.BondMaster` | Manual via `scripts/api_migrate flujos-titulos` |
+| `TitulosAPI` | `ValuacionesAPI` | `Trading.Curvas` + `Trading.BondsMaster` | Manual via `scripts/api_migrate flujos-titulos` |
 
 Migration scripts normalize field names and extract structured data from legacy formats. Source collections are never modified.
 

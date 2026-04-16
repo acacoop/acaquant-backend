@@ -46,5 +46,5 @@ def listar_flujos_titulos(
     if moneda_flujo:
         filtro["moneda_flujo"] = moneda_flujo
 
-    docs = list(db["FlujosAPI"].find(filtro, {"_id": 0}))
+    docs = list(db["ValuacionesAPI"].find(filtro, {"_id": 0}))
     return docs

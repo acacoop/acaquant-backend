@@ -283,12 +283,12 @@ DESTINO: { unidad: "ARS", calificacion: "NO APLICA", cartera: "OTROS",
 
 ---
 
-## 8. FlujosAPI (Flujos de caja por instrumento)
+## 8. ValuacionesAPI (Flujos de caja por instrumento)
 
 | | Origen | Destino |
 |---|---|---|
 | **Database** | `Trading` | `TitulosAPI` |
-| **Colección** | `Curvas` + `BondMaster` | `FlujosAPI` |
+| **Colección** | `Curvas` + `BondsMaster` | `ValuacionesAPI` |
 | **Comando** | `python -m scripts.api_migrate flujos-titulos` |
 | **Borra origen** | No |
 

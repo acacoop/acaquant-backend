@@ -8,7 +8,7 @@ Uso:
     python -m scripts.api_migrate carteras          → copia Valuaciones.Carteras → PortfolioAPI.CarterasAPI
     python -m scripts.api_migrate aum               → copia Valuaciones.AuM → PortfolioAPI.AumAPI
     python -m scripts.api_migrate assets            → copia Valuaciones.Assets → TitulosAPI.AssetsAPI
-    python -m scripts.api_migrate flujos-titulos    → merge Trading.Curvas + Trading.BondsMaster → TitulosAPI.FlujosAPI
+    python -m scripts.api_migrate flujos-titulos    → merge Trading.Curvas + Trading.BondsMaster → TitulosAPI.ValuacionesAPI
 """
 import re
 import sys
@@ -474,7 +474,7 @@ def _build_from_bondmaster(doc: dict) -> dict:
 
 
 def migrate_flujos_titulos():
-    """Merge Trading.Curvas + Trading.BondsMaster → TitulosAPI.FlujosAPI.
+    """Merge Trading.Curvas + Trading.BondsMaster → TitulosAPI.ValuacionesAPI.
 
     Un doc por instrumento con flujos normalizados.
     Join key con AssetsAPI: ticker.
@@ -482,7 +482,7 @@ def migrate_flujos_titulos():
     No borra los orígenes.
     """
     client = get_mongo_client()
-    dst = client["TitulosAPI"]["FlujosAPI"]
+    dst = client["TitulosAPI"]["ValuacionesAPI"]
 
     # --- Trading.Curvas ---
     curvas_docs = list(client["Trading"]["Curvas"].find({}, {"_id": 0}))
@@ -505,7 +505,7 @@ def migrate_flujos_titulos():
 
     dst.drop()
     dst.insert_many(bulk)
-    print(f"OK: {len(bulk)} docs copiados a TitulosAPI.FlujosAPI ({n_curvas} de Curvas, {n_bonds} de BondsMaster)")
+    print(f"OK: {len(bulk)} docs copiados a TitulosAPI.ValuacionesAPI ({n_curvas} de Curvas, {n_bonds} de BondsMaster)")
 
     for d in bulk[:3]:
         n_flujos = len(d["flujos"])

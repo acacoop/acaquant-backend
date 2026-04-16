@@ -157,6 +157,46 @@ DESTINO: { boleto: "CD 2025003117", cuenta: "[1005] FIBIGER, BRANCO NAHUEL",
 
 ---
 
+## 5. CarterasAPI (Posiciones por cuenta)
+
+| | Origen | Destino |
+|---|---|---|
+| **Database** | `Valuaciones` | `CarterasAPI` |
+| **Colección** | `Carteras` | `CarterasAPI` |
+| **Comando** | `python -m scripts.api_migrate carteras` |
+| **Borra origen** | No |
+
+### Mapping de campos
+
+| Campo origen | Campo destino | Transformación |
+|---|---|---|
+| `id_cuenta` | `id_cuenta` | Sin cambio |
+| `unidad` | `unidad` | Sin cambio |
+| `cantidad` | `cantidad` | Sin cambio |
+| `precio` | `precio` | Sin cambio |
+| `timestamp` | `timestamp` | Truncado a fecha (datetime sin hora: `YYYY-MM-DDT00:00:00`) |
+
+### Campos descartados
+
+| Campo origen | Motivo |
+|---|---|
+| `_id` | Interno Mongo |
+| `actualizado` | No requerido en la API |
+
+### Ejemplo
+
+```
+ORIGEN:  { id_cuenta: "101", unidad: "[840] CAFCI577-840 - SBS AHORRO PESOS Clase B",
+           cantidad: 0.00006814, precio: 164.067031, actualizado: "",
+           timestamp: ISODate("2026-04-16T14:00:21.706Z") }
+
+DESTINO: { id_cuenta: "101", unidad: "[840] CAFCI577-840 - SBS AHORRO PESOS Clase B",
+           cantidad: 0.00006814, precio: 164.067031,
+           timestamp: ISODate("2026-04-16T00:00:00Z") }
+```
+
+---
+
 ## Resincronización rápida
 
 Si se actualizan datos en las colecciones origen y necesitás reflejarlos en las API:
@@ -180,3 +220,8 @@ cd /root/TradingAV
 ```
 
 Todos los comandos hacen `drop()` + `insert_many()` — son idempotentes y seguros de re-ejecutar.
+
+```bash
+# Carteras (directo a CarterasAPI)
+/root/TradingAV/venv/bin/python -m scripts.api_migrate carteras
+```

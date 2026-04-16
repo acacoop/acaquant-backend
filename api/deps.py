@@ -8,3 +8,7 @@ def get_db_cuentas():
 
 def get_db_operaciones():
     return get_mongo_client_read()["OperacionesAPI"]
+
+
+def get_db_carteras():
+    return get_mongo_client_read()["CarterasAPI"]

@@ -5,10 +5,11 @@ Uso:
 """
 from fastapi import FastAPI
 
-from api.routers import cuentas, operaciones
+from api.routers import carteras, cuentas, operaciones
 
 app = FastAPI(title="TradingAV API", version="0.1.0")
 
+app.include_router(carteras.router)
 app.include_router(cuentas.router)
 app.include_router(operaciones.router)
 

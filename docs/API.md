@@ -260,6 +260,57 @@ GET /api/operaciones/flujos?cuenta=[1005] FIBIGER, BRANCO NAHUEL
 
 ---
 
+### Carteras
+
+Portfolio positions by account. Each record represents a single instrument held by an account with its quantity and price.
+
+---
+
+#### `GET /api/carteras/`
+
+Returns portfolio positions. Each record is a single holding (account + instrument).
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id_cuenta` | `string` | Filter by account ID (e.g., `101`) |
+| `unidad` | `string` | Filter by instrument/unit |
+
+**Response Schema**
+
+| Field | Type | Description |
+|---|---|---|
+| `id_cuenta` | `string` | Account ID |
+| `unidad` | `string` | Instrument identifier (e.g., `[840] CAFCI577-840 - SBS Ahorro Pesos Clase B`) |
+| `cantidad` | `number` | Quantity held |
+| `precio` | `number` | Unit price |
+| `timestamp` | `datetime` | Snapshot date (date only, no time component) |
+
+**Example Requests**
+
+```
+GET /api/carteras/
+GET /api/carteras/?id_cuenta=101
+GET /api/carteras/?id_cuenta=101&unidad=[840] CAFCI577-840
+```
+
+**Example Response**
+
+```json
+[
+  {
+    "id_cuenta": "101",
+    "unidad": "[840] CAFCI577-840 - SBS AHORRO PESOS Clase B",
+    "cantidad": 0.00006814,
+    "precio": 164.067031,
+    "timestamp": "2026-04-16T00:00:00"
+  }
+]
+```
+
+---
+
 ## Data Architecture
 
 The API reads from dedicated MongoDB databases with normalized schemas, separate from the operational databases used by engines and Streamlit.
@@ -270,6 +321,7 @@ The API reads from dedicated MongoDB databases with normalized schemas, separate
 | `CuentasAPI` | `ContrapartesAPI` | `CashFlow.Contrapartes` | Manual via `scripts/api_migrate contrapartes` |
 | `OperacionesAPI` | `MesaAPI` | `CashFlow.Flujo` | Manual via `scripts/api_migrate flujo` |
 | `OperacionesAPI` | `FlujosAPI` | `CashFlow.Movimientos` | Manual via `scripts/api_migrate movimientos` |
+| `CarterasAPI` | `CarterasAPI` | `Valuaciones.Carteras` | Manual via `scripts/api_migrate carteras` |
 
 Migration scripts normalize field names and extract structured data from legacy formats. Source collections are never modified.
 
@@ -280,6 +332,7 @@ api/
 ├── main.py              # FastAPI app entrypoint
 ├── deps.py              # Shared dependencies (DB access)
 └── routers/
+    ├── carteras.py      # /api/carteras/*
     ├── cuentas.py       # /api/cuentas/*
     └── operaciones.py   # /api/operaciones/*
 ```
@@ -300,3 +353,4 @@ python -m scripts.test_api http://192.168.1.100:8000
 |---|---|
 | 2026-04-15 | Initial release: `/api/health`, `/api/cuentas/accionistas`, `/api/cuentas/contrapartes`, `/api/operaciones/flujo` |
 | 2026-04-15 | Add `/api/operaciones/flujos` (cash movements from `CashFlow.Movimientos`) |
+| 2026-04-16 | Add `/api/carteras/` (portfolio positions from `Valuaciones.Carteras`) |

@@ -101,9 +101,34 @@ def migrate_contrapartes():
         print(f"  ... y {len(bulk) - 3} más")
 
 
+def mover_a_cuentasapi():
+    """Mueve AccionistasAPI y ContrapartesAPI de CashFlow → CuentasAPI, y borra las de CashFlow."""
+    client = get_mongo_client()
+    src_db = client["CashFlow"]
+    dst_db = client["CuentasAPI"]
+
+    colecciones = ["AccionistasAPI", "ContrapartesAPI"]
+    for col_name in colecciones:
+        src_col = src_db[col_name]
+        dst_col = dst_db[col_name]
+
+        docs = list(src_col.find({}, {"_id": 0}))
+        if not docs:
+            print(f"SKIP: CashFlow.{col_name} está vacía o no existe.")
+            continue
+
+        dst_col.drop()
+        dst_col.insert_many(docs)
+        print(f"OK: {len(docs)} docs copiados a CuentasAPI.{col_name}")
+
+        src_col.drop()
+        print(f"OK: CashFlow.{col_name} eliminada")
+
+
 COMMANDS = {
     "accionistas": migrate_accionistas,
     "contrapartes": migrate_contrapartes,
+    "mover": mover_a_cuentasapi,
 }
 
 

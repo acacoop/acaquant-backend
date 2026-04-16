@@ -2,6 +2,7 @@
 
 Uso:
     python -m scripts.api_migrate accionistas       → migra CashFlow.Accionistas → CashFlow.AccionistasAPI
+    python -m scripts.api_migrate contrapartes      → migra CashFlow.Contrapartes → CashFlow.ContrapartesAPI
 """
 import re
 import sys
@@ -66,8 +67,43 @@ def migrate_accionistas():
         print(f"  ... y {len(bulk) - 3} más")
 
 
+def migrate_contrapartes():
+    """Lee CashFlow.Contrapartes y crea CashFlow.ContrapartesAPI con campos normalizados.
+
+    Origen:  {denominacion, cuenta, contraparte, segmento}
+    Destino: {cuenta, id_cuenta, nombre, grupo}
+    """
+    client = get_mongo_client()
+    src = client["CashFlow"]["Contrapartes"]
+    dst = client["CashFlow"]["ContrapartesAPI"]
+
+    docs = list(src.find({}, {"_id": 0}))
+    if not docs:
+        print("No hay docs en CashFlow.Contrapartes — nada que migrar.")
+        return
+
+    bulk = []
+    for doc in docs:
+        bulk.append({
+            "cuenta": doc.get("denominacion", ""),
+            "id_cuenta": doc.get("cuenta"),
+            "nombre": doc.get("contraparte", ""),
+            "grupo": doc.get("segmento", ""),
+        })
+
+    dst.drop()
+    dst.insert_many(bulk)
+    print(f"OK: {len(bulk)} docs migrados a CashFlow.ContrapartesAPI")
+
+    for d in bulk[:3]:
+        print(f"  cuenta={d['cuenta']!r}  id_cuenta={d['id_cuenta']}  nombre={d['nombre']!r}  grupo={d['grupo']!r}")
+    if len(bulk) > 3:
+        print(f"  ... y {len(bulk) - 3} más")
+
+
 COMMANDS = {
     "accionistas": migrate_accionistas,
+    "contrapartes": migrate_contrapartes,
 }
 
 

@@ -675,3 +675,10 @@ Definidos en `scripts/crear_indices.py` (idempotente, soporta `unique` + `partia
 - **En el servidor**: siempre usar `/root/TradingAV/venv/bin/python`.
 - **Ejecución siempre desde la raíz**: todos los entrypoints usan `python -m <módulo>` con `cwd=/root/TradingAV`. Ejecutar `python engines/valores.py` falla porque `core`, `jobs`, etc. no son discoverables con el working dir en `engines/`.
 - **CI ruff**: GitHub Actions corre `ruff check` en cada push. Los errores más comunes en este repo: `F401` (import no usado — típicamente queda después de mover código a repos/services) y `F821` (nombre no definido — suele ser un `datetime`/`timedelta` que se removió al limpiar imports).
+
+## Pendientes
+
+- [ ] **(2026-04-16)** Cron para sincronizar colecciones API automáticamente. `flujos-titulos` necesita re-sync periódico porque `valor_residual_actual_pct` de BondsMaster se calcula en base a la fecha actual (cambia cuando pasa una amortización). Evaluar si otras migraciones (carteras, aum, assets) también necesitan cron o si alcanzan con sync manual.
+- [ ] **(2026-04-16)** Borrar DB huérfana `CarterasAPI` de Atlas (fue renombrada a `PortfolioAPI`).
+- [ ] **(2026-04-16)** Levantar uvicorn como servicio en el Droplet (actualmente la API solo corre en local).
+- [ ] **(2026-04-16)** Auth para la API: Cloudflare Access + API Keys.

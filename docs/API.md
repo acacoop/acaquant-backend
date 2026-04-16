@@ -32,9 +32,32 @@ Interactive documentation is auto-generated at:
 
 ## Authentication
 
-Not yet implemented. The API currently runs on `127.0.0.1` (localhost only) and is not exposed to the public internet.
+Two layers of security:
 
-Planned: Cloudflare Access (email OTP) for browser access, API Key (`Authorization: Bearer <key>`) for programmatic access.
+### Layer 1 — Cloudflare Tunnel + Access
+
+The API is only reachable through Cloudflare Tunnel (`api.acaquant.com`). It is never exposed directly to the internet. Cloudflare Access requires email OTP authentication before any request reaches the server.
+
+### Layer 2 — API Key
+
+All endpoints (except `/api/health`) require an API key via the `Authorization` header:
+
+```
+Authorization: Bearer <API_KEY>
+```
+
+The key is configured in `.env` on the server (`API_KEY=...`). If `API_KEY` is not set, auth is disabled (dev mode — local use without key).
+
+**`/api/health`** is always public (no key required) for monitoring and health checks.
+
+**Example:**
+```bash
+# Authenticated request
+curl -H "Authorization: Bearer your-secret-key" https://api.acaquant.com/api/portfolio/aum?ultimo=true
+
+# Health check (no auth needed)
+curl https://api.acaquant.com/api/health
+```
 
 ## Conventions
 

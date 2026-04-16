@@ -1,5 +1,19 @@
 """Dependencias compartidas de la API."""
+from fastapi import Header, HTTPException
+
+from config import API_KEY
 from core.mongo import get_mongo_client_read
+
+
+def verify_api_key(authorization: str = Header(...)) -> None:
+    """Valida el header Authorization: Bearer <API_KEY>.
+
+    Si API_KEY no está configurada en .env, deja pasar todo (modo dev).
+    """
+    if not API_KEY:
+        return
+    if authorization != f"Bearer {API_KEY}":
+        raise HTTPException(status_code=401, detail="API key inválida")
 
 
 def get_db_cuentas():

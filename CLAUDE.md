@@ -27,6 +27,7 @@ MONGO_URI          ← usuario read-write (motores + Manager)
 MONGO_URI_READ     ← usuario read-only (dashboard Streamlit)
 AUNESA_CLIENT_ID / AUNESA_USERNAME / AUNESA_PASSWORD
 MANAGER_EMAILS     ← emails separados por coma con acceso al Manager
+API_KEY            ← clave para autenticar requests a la API (vacío = sin auth, modo dev)
 ```
 
 ## Estructura de carpetas
@@ -332,6 +333,7 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 **Servicios always-on** (arrancan con el servidor):
 - `cloudflared.service` — Cloudflare Tunnel, siempre activo
 - `streamlit.service` — dashboard Streamlit, siempre activo
+- `api.service` — FastAPI (uvicorn), siempre activo, `127.0.0.1:8000`
 
 **Servicios de mercado** (lunes a viernes, horario de mercado). Definidos en `deploy/systemd/` (copiar a `/etc/systemd/system/` en el servidor):
 
@@ -700,5 +702,5 @@ Definidos en `scripts/crear_indices.py` (idempotente, soporta `unique` + `partia
 
 - [ ] **(2026-04-16)** Cron para sincronizar colecciones API automáticamente. `flujos-titulos` necesita re-sync periódico porque `valor_residual_actual_pct` de BondsMaster se calcula en base a la fecha actual (cambia cuando pasa una amortización). Evaluar si otras migraciones (carteras, aum, assets) también necesitan cron o si alcanzan con sync manual.
 - [ ] **(2026-04-16)** Borrar DB huérfana `CarterasAPI` de Atlas (fue renombrada a `PortfolioAPI`).
-- [ ] **(2026-04-16)** Levantar uvicorn como servicio en el Droplet (actualmente la API solo corre en local).
-- [ ] **(2026-04-16)** Auth para la API: Cloudflare Access + API Keys.
+- [x] **(2026-04-16)** Levantar uvicorn como servicio en el Droplet → `deploy/systemd/api.service`.
+- [x] **(2026-04-16)** Auth para la API: API Key via `Authorization: Bearer <key>` + Cloudflare Tunnel.

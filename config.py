@@ -17,6 +17,9 @@ AUNESA_CLIENT_ID = os.getenv("AUNESA_CLIENT_ID")
 AUNESA_USERNAME = os.getenv("AUNESA_USERNAME")
 AUNESA_PASSWORD = os.getenv("AUNESA_PASSWORD")
 
+# --- API KEY ---
+API_KEY = os.getenv("API_KEY", "")
+
 # --- ACCESO MANAGER ---
 # Emails con acceso a la vista Manager. Separados por coma en MANAGER_EMAILS o hardcodeados aquí.
 _manager_env = os.getenv("MANAGER_EMAILS", "")

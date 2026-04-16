@@ -3,6 +3,9 @@
 #
 # Todos los módulos se invocan con -m desde /root/TradingAV (requiere cd previo).
 
+# ─── Limpieza de instrumentos vencidos (12:30 UTC = 09:30 ART, L-V, antes de abrir motores)
+30 12 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_curvas >> /root/TradingAV/logs/cleanup_curvas.log 2>&1
+
 # ─── Motores de mercado (Lunes a Viernes, 13:00 UTC → 20:05 UTC = 10:00 → 17:05 ART)
 0 13 * * 1-5 systemctl start motor_rofex.service
 5 20 * * 1-5 systemctl stop  motor_rofex.service

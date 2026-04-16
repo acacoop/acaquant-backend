@@ -58,6 +58,7 @@ TradingAV/
 │   ├── aum.py                # snapshot AuM diario + sync CarterasII
 │   ├── aum_backfill.py       # reconstrucción histórica (invocado por Manager)
 │   ├── aum_resumen_fci.py    # rollup 1 doc/fecha → Valuaciones.AuMResumenFCI
+│   ├── cleanup_curvas.py      # elimina instrumentos vencidos de Trading.Curvas
 │   ├── cashflow.py           # movimientos → CashFlow.Movimientos
 │   ├── flujo_contrapartes.py # operaciones del día → CashFlow.Flujo
 │   ├── segmento_contrapartes.py  # setea Fondos/ALYC/Bancos
@@ -192,6 +193,8 @@ python -m engines.dolar_mep            # snapshot MEP (cron intradía)
 python -m jobs.aum                     # snapshot AuM (cron 23:00 UTC) + sync CarterasII
 python -m jobs.aum_resumen_fci         # rollup AuMResumenFCI (post-aum)
 python -m jobs.carteras                # sync carteras (cron 4×/día)
+python -m jobs.cleanup_curvas          # limpieza instrumentos vencidos (cron 12:30 UTC)
+python -m jobs.cleanup_curvas --dry    # preview sin borrar
 python -m jobs.cashflow --today        # cron 02:00 UTC
 python -m jobs.bcra --today            # cron 20:00 UTC diario
 
@@ -308,6 +311,7 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - **`volatilidad_ggal.py`** — VR histórica GGAL al cierre. Cron 20:00 UTC.
 - **`options_rollup.py`** — rollup diario `Opciones.Data` → `Opciones.DataHistorica` (una fila por `(fecha, symbol)` con high/low/last/ev + griegas del último tick). Upsert idempotente. Cron 20:15 UTC L-V. `--backfill` procesa todos los días con datos en `Opciones.Data`; `--fecha YYYY-MM-DD` uno puntual.
 - **`bcra.py`** — alimenta CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron; sin flag hace backfill desde 2023-01-01. SSL verificado (verify=True).
+- **`cleanup_curvas.py`** — elimina instrumentos vencidos de `Trading.Curvas` (< 2 días hábiles al vencimiento). Usa `Trading.DiasHabiles` como calendario. Flag `--dry` para preview. Cron 12:30 UTC L-V (antes de abrir motores).
 - **`dias_habiles.py`** — genera calendario de días hábiles argentinos. Ejecutar una vez por año.
 
 ### Scripts de diagnóstico (`scripts/`)
@@ -353,6 +357,7 @@ Resumen de horarios (ver `deploy/crontab.txt` para el detalle):
 
 | Horario UTC | Job | Frecuencia |
 |---|---|---|
+| 12:30 | `jobs.cleanup_curvas` (limpieza instrumentos vencidos) | L-V |
 | 13:00 / 20:05 | start/stop motores de mercado | L-V |
 | 10:00 / 11:30 / 14:00 / 16:00 | `jobs.carteras` | L-V |
 | 14:00 / 19:57 | `engines.dolar_mep` | L-V |

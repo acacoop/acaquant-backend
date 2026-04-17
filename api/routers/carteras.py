@@ -125,19 +125,19 @@ def fci_serie(
 def fci_snapshot(fecha: str = Query(..., description="Fecha snapshot (YYYY-MM-DD)")):
     """Snapshot FCI en una fecha: detalle por unidad/emisor/cuenta.
 
-    Lee PortfolioAPI.AumAPI filtrado por fecha y unidades FCI, enriquece con
-    TICKER/EMISOR desde TitulosAPI.AssetsAPI.
+    Lee Valuaciones.AuM (fuente de verdad, actualizada diario por cron) con
+    fecha_snapshot string y unidades FCI. Enriquece con TICKER/EMISOR desde
+    TitulosAPI.AssetsAPI.
     """
-    db_p = get_db_portfolio()
+    db_v = get_db_valuaciones()
     assets_map = _fci_assets_map()
     unidades_fci = list(assets_map.keys())
 
     if not unidades_fci:
         return []
 
-    fecha_dt = datetime.strptime(fecha, "%Y-%m-%d")
-    docs = db_p["AumAPI"].find(
-        {"fecha": fecha_dt, "unidad": {"$in": unidades_fci}},
+    docs = db_v["AuM"].find(
+        {"fecha_snapshot": fecha, "unidad": {"$in": unidades_fci}},
         {"_id": 0, "unidad": 1, "cuenta": 1, "id_cuenta": 1,
          "valuacion": 1, "cantidad": 1},
     )

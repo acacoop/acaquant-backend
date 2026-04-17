@@ -1,10 +1,11 @@
 """Router Cotizaciones: lectura directa de Trading.* y Opciones.* (sin migración)."""
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
-from api.cache import cached
+from api.cache import cached, clear_cache
 from api.deps import get_db_opciones, get_db_trading, get_db_valuaciones
+from core.mongo import get_mongo_client
 
 router = APIRouter(prefix="/api/cotizaciones", tags=["Cotizaciones"])
 
@@ -256,6 +257,43 @@ def historico_trades(
         }},
     ]
     return list(db["TimeSales"].aggregate(pipeline))
+
+
+@router.get("/opciones/meta")
+@cached(ttl=60)
+def opciones_meta():
+    """Metadata opciones: tasa libre de riesgo + VR (ADR/local)."""
+    db = get_db_opciones()
+    docs = list(db["Metadata"].find(
+        {"type": {"$in": ["vr_ggal", "config"]}}, {"_id": 0}
+    ))
+    by_type = {d.get("type"): d for d in docs}
+    vr = by_type.get("vr_ggal") or {}
+    cfg = by_type.get("config") or {}
+    return {
+        "tasa": float(cfg.get("tasa") or 0.0),
+        "vr_local": float(vr.get("vr_local") or 0.0),
+        "vr_adr": float(vr.get("vr_adr") or 0.0),
+        "updated_at": vr.get("updated_at"),
+    }
+
+
+@router.put("/opciones/tasa")
+def opciones_update_tasa(
+    valor: float = Query(..., gt=0.0, lt=3.0, description="Tasa libre de riesgo (0.242 = 24.2%)"),
+):
+    """Actualiza la tasa libre de riesgo en Opciones.Metadata.config."""
+    try:
+        col = get_mongo_client()["Opciones"]["Metadata"]
+        col.update_one(
+            {"type": "config"},
+            {"$set": {"tasa": float(valor)}},
+            upsert=True,
+        )
+        clear_cache()
+        return {"ok": True, "tasa": float(valor)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/historico/opciones")

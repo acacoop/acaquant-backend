@@ -1,5 +1,8 @@
 """Router Operaciones: endpoints para MesaAPI (flujo contrapartes) y FlujosAPI (movimientos)."""
-from fastapi import APIRouter, Query
+import logging
+from datetime import datetime
+
+from fastapi import APIRouter, HTTPException, Query
 
 from api.cache import cached
 from api.deps import (
@@ -8,6 +11,8 @@ from api.deps import (
     get_db_portfolio,
     get_db_titulos,
 )
+
+logger = logging.getLogger("api.operaciones")
 
 router = APIRouter(prefix="/api/operaciones", tags=["Operaciones"])
 
@@ -106,7 +111,21 @@ def _fondos_emisores() -> list[str]:
 @cached(ttl=600)
 def listar_fondos():
     """Contrapartes con grupo=Fondos que tienen unidades FCI asociadas."""
-    return _fondos_emisores()
+    try:
+        return _fondos_emisores()
+    except Exception as e:
+        logger.exception("listar_fondos failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _mes_key(value) -> str | None:
+    """Normaliza fecha a 'YYYY-MM'. Acepta datetime, date-like o string YYYY-MM-DD."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m")
+    s = str(value)
+    return s[:7] if len(s) >= 7 else None
 
 
 @router.get("/flujo-vs-aum")
@@ -115,56 +134,71 @@ def flujo_vs_aum(
     contraparte: str = Query(..., description="Nombre del fondo (contraparte)"),
     moneda: str = Query("ARS", description="Moneda del flujo (ARS/USD)"),
 ):
-    """Serie mensual de AuM (línea) + flujo operado (barras) para un fondo."""
-    db_t = get_db_titulos()
-    unidades = [
-        d["unidad"]
-        for d in db_t["AssetsAPI"].find(
-            {"cartera": "CARTERA FCI", "emisor": contraparte},
-            {"_id": 0, "unidad": 1},
-        )
-        if d.get("unidad")
-    ]
+    """Serie mensual de AuM (línea) + flujo operado (barras) para un fondo.
 
-    aum: list[dict] = []
-    if unidades:
-        db_p = get_db_portfolio()
-        pipeline_aum = [
-            {"$match": {"unidad": {"$in": unidades}}},
-            {"$project": {
-                "_id": 0, "fecha": 1, "valuacion": 1,
-                "mes": {"$dateToString": {"format": "%Y-%m", "date": "$fecha"}},
-            }},
-            {"$group": {
-                "_id": {"mes": "$mes", "fecha": "$fecha"},
-                "total": {"$sum": "$valuacion"},
-            }},
-            {"$sort": {"_id.fecha": 1}},
-            {"$group": {
-                "_id": "$_id.mes",
-                "total": {"$last": "$total"},
-            }},
-            {"$sort": {"_id": 1}},
-            {"$project": {"_id": 0, "mes": "$_id", "total": 1}},
+    Agrupación en Python para tolerar docs con fecha null/inválida.
+    """
+    try:
+        db_t = get_db_titulos()
+        unidades = [
+            d["unidad"]
+            for d in db_t["AssetsAPI"].find(
+                {"cartera": "CARTERA FCI", "emisor": contraparte},
+                {"_id": 0, "unidad": 1},
+            )
+            if d.get("unidad")
         ]
-        aum = list(db_p["AumAPI"].aggregate(pipeline_aum))
 
-    db_o = get_db_operaciones()
-    pipeline_flujo = [
-        {"$match": {"contraparte": contraparte, "moneda": moneda}},
-        {"$group": {
-            "_id": {"$substr": ["$concertacion", 0, 7]},
-            "bruto": {"$sum": "$bruto"},
-        }},
-        {"$sort": {"_id": 1}},
-        {"$project": {"_id": 0, "mes": "$_id", "bruto": 1}},
-    ]
-    flujo = list(db_o["MesaAPI"].aggregate(pipeline_flujo))
+        aum: list[dict] = []
+        if unidades:
+            db_p = get_db_portfolio()
+            docs = db_p["AumAPI"].find(
+                {"unidad": {"$in": unidades}},
+                {"_id": 0, "fecha": 1, "valuacion": 1},
+            )
+            # (mes, fecha_exacta) → suma valuacion; luego por mes tomamos la última fecha
+            por_mes_fecha: dict[tuple[str, datetime], float] = {}
+            for d in docs:
+                mes = _mes_key(d.get("fecha"))
+                if not mes:
+                    continue
+                val = d.get("valuacion")
+                if val is None:
+                    continue
+                key = (mes, d["fecha"])
+                por_mes_fecha[key] = por_mes_fecha.get(key, 0.0) + float(val)
 
-    return {
-        "contraparte": contraparte,
-        "moneda": moneda,
-        "unidades": unidades,
-        "aum": aum,
-        "flujo": flujo,
-    }
+            # Último total del mes (por fecha más reciente dentro del mes)
+            por_mes: dict[str, tuple[datetime, float]] = {}
+            for (mes, fecha), total in por_mes_fecha.items():
+                prev = por_mes.get(mes)
+                if prev is None or fecha > prev[0]:
+                    por_mes[mes] = (fecha, total)
+            aum = [
+                {"mes": mes, "total": total}
+                for mes, (_, total) in sorted(por_mes.items())
+            ]
+
+        db_o = get_db_operaciones()
+        docs_flujo = db_o["MesaAPI"].find(
+            {"contraparte": contraparte, "moneda": moneda},
+            {"_id": 0, "concertacion": 1, "bruto": 1},
+        )
+        flujo_map: dict[str, float] = {}
+        for d in docs_flujo:
+            mes = _mes_key(d.get("concertacion"))
+            if not mes:
+                continue
+            flujo_map[mes] = flujo_map.get(mes, 0.0) + float(d.get("bruto") or 0)
+        flujo = [{"mes": m, "bruto": v} for m, v in sorted(flujo_map.items())]
+
+        return {
+            "contraparte": contraparte,
+            "moneda": moneda,
+            "unidades": unidades,
+            "aum": aum,
+            "flujo": flujo,
+        }
+    except Exception as e:
+        logger.exception("flujo_vs_aum failed for contraparte=%s", contraparte)
+        raise HTTPException(status_code=500, detail=str(e)) from e

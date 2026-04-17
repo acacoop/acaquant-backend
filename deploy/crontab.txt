@@ -37,11 +37,16 @@
 # ─── Flujo Contrapartes (lunes-viernes 22:00 UTC = 19:00 ART)
 0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.flujo_contrapartes >> /root/TradingAV/logs/flujo_contrapartes.log 2>&1
 
-# ─── BCRA (CER/TAMAR/DOLAR/BADLAR, 20:00 UTC todos los días)
-0 20 * * * cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bcra --today >> /root/TradingAV/logs/bcra.log 2>&1
+# ─── BCRA (CER/TAMAR/DOLAR/BADLAR, 20:00 UTC L-V — fin de semana no publica)
+0 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bcra --today >> /root/TradingAV/logs/bcra.log 2>&1
 
 # ─── AuM snapshot al cierre (23:00 UTC = 20:00 ART, L-V)
 0 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1
 
 # ─── Rollup diario de opciones (20:15 UTC = 17:15 ART, L-V)
 15 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.options_rollup >> /root/TradingAV/logs/options_rollup.log 2>&1
+
+# ─── Atlas cluster pause (sábado 02:30 UTC = viernes 23:30 ART, después del cashflow)
+# ─── Atlas cluster resume (lunes 12:00 UTC = 09:00 ART, 30 min antes de cleanup_curvas)
+30 2  * * 6 /root/TradingAV/deploy/atlas_cluster.sh pause  >> /root/TradingAV/logs/atlas_cluster.log 2>&1
+0  12 * * 1 /root/TradingAV/deploy/atlas_cluster.sh resume >> /root/TradingAV/logs/atlas_cluster.log 2>&1

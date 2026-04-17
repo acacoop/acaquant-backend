@@ -256,3 +256,42 @@ def historico_trades(
         }},
     ]
     return list(db["TimeSales"].aggregate(pipeline))
+
+
+@router.get("/historico/opciones")
+@cached(ttl=30)
+def historico_opciones(
+    instrumento: str | None = Query(None, description="Filtrar por instrumento (symbol)"),
+    tipo: str | None = Query(None, description="Filtrar por tipo (CALL/PUT)"),
+):
+    """Trades de opciones de los últimos 21 días (Opciones.Data)."""
+    db = get_db_opciones()
+    corte = datetime.now() - timedelta(days=21)
+    filtro: dict = {"timestamp": {"$gte": corte}}
+    if instrumento:
+        filtro["symbol"] = instrumento
+    if tipo:
+        filtro["tipo"] = tipo.upper()
+
+    pipeline = [
+        {"$match": filtro},
+        {"$sort": {"timestamp": -1}},
+        {"$project": {
+            "_id": 0,
+            "instrumento": "$symbol",
+            "timestamp": 1,
+            "last_timestamp": 1,
+            "bid": 1,
+            "offer": 1,
+            "last": 1,
+            "spot": 1,
+            "strike": 1,
+            "tipo": 1,
+            "iv": 1,
+            "delta": 1,
+            "gamma": 1,
+            "vega": 1,
+            "theta": 1,
+        }},
+    ]
+    return list(db["Data"].aggregate(pipeline))

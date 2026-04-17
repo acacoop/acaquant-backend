@@ -361,7 +361,7 @@ Resumen de horarios (ver `deploy/crontab.txt` para el detalle):
 |---|---|---|
 | 12:30 | `jobs.cleanup_curvas` (limpieza instrumentos vencidos) | L-V |
 | 13:00 / 20:05 | start/stop motores de mercado | L-V |
-| 10:00 / 11:30 / 14:00 / 16:00 | `jobs.carteras` | L-V |
+| 11:35 / 14:00 / 16:00 | `jobs.carteras` | L-V |
 | 14:00 / 19:57 | `engines.dolar_mep` | L-V |
 | 20:00 | `jobs.volatilidad_ggal` | L-V |
 | 20:00 | `jobs.bcra --today` | L-V (BCRA no publica weekend) |
@@ -370,9 +370,9 @@ Resumen de horarios (ver `deploy/crontab.txt` para el detalle):
 | 20:15 | `jobs.options_rollup` | L-V |
 | 22:00 | `jobs.flujo_contrapartes` | L-V |
 | 02:00 | `jobs.cashflow --today` | Mar-Sáb |
-| Sáb 02:30 / Lun 12:00 | `deploy/atlas_cluster.sh {pause,resume}` | pausa del cluster Atlas para ahorrar compute en weekend |
+| 04:00 / 11:20 | `deploy/atlas_cluster.sh {pause,resume}` | pausa nocturna del cluster Atlas (01:00-08:20 ART, todos los días) |
 
-**Atlas cluster pause**: el cluster M10 se pausa los fines de semana para reducir el costo de compute (pausado no cobra compute, solo storage). Ventana: sábado 02:30 UTC (después del cashflow) → lunes 12:00 UTC (30 min antes de cleanup_curvas). Requiere en `.env`: `ATLAS_PUBLIC_KEY`, `ATLAS_PRIVATE_KEY`, `ATLAS_PROJECT_ID`, `ATLAS_CLUSTER_NAME`. Durante la pausa el dashboard y la API devuelven error de conexión.
+**Atlas cluster pause**: el cluster M10 se pausa **todos los días** entre 01:00 y 08:30 ART (04:00-11:30 UTC) para reducir costo de compute (pausado no cobra compute, solo storage). Resume scheduled a 11:20 UTC (08:20 ART) con 10 min de buffer para que esté operativo a las 08:30 ART. Requiere en `.env`: `ATLAS_PUBLIC_KEY`, `ATLAS_PRIVATE_KEY`, `ATLAS_PROJECT_ID`, `ATLAS_CLUSTER_NAME`. Durante la pausa el dashboard y la API devuelven error de conexión. Ahorro ≈ 31% sobre compute (7.5h/día × 7 días = 52.5h/semana pausado).
 
 ## Streamlit Dashboard — Vistas
 

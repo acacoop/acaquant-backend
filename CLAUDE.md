@@ -4,43 +4,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TradingAV is a quantitative trading platform for Argentine financial markets (MERVAL/ROFEX). It streams real-time market data, runs parallel analytical engines (microstructure, options, curvas, forwards, breakevens), persists state to MongoDB Atlas (cluster M10), y expone un dashboard Streamlit accesible vía `www.acaquant.com`.
+TradingAV es la plataforma cuantitativa de mercados argentinos (MERVAL/ROFEX). Streama datos en tiempo real, corre motores analíticos paralelos (microstructure, opciones, curvas, forwards, breakevens), persiste en MongoDB Atlas (cluster M10), y expone datos vía REST API (FastAPI) consumida por **acaquant-web** (Next.js), el frontend activo en `trading.acaquant.com`.
 
-## Acceso al Dashboard
+**Streamlit fue reemplazado.** El directorio `dashboard/` queda como código legacy — no agregar features ni queries nuevas ahí. Todo desarrollo de frontend nuevo va en el repo `acaquant-web` (Next.js, `/Users/nicomollo/PycharmProjects/acaquant-web`).
 
-Dos deploys activos en paralelo. La migración definitiva a acaquant está en curso.
+## Acceso
 
-| Deploy | URL | Auth | Estado |
-|---|---|---|---|
-| Streamlit Cloud | URL privada de streamlit.io | Sin login (URL secreta) | Activo — uso actual de usuarios |
-| Droplet + Cloudflare | www.acaquant.com | Cloudflare Access (email OTP) | Activo — nuevo, en transición |
+| Capa | URL | Auth |
+|---|---|---|
+| Frontend (acaquant-web) | trading.acaquant.com | Cloudflare Access (email OTP) |
+| REST API | api.acaquant.com | Bearer `API_KEY` + Cloudflare Access service token |
+| Swagger UI | api.acaquant.com/docs | — |
 
-**acaquant.com**: corre en el Droplet de DigitalOcean. `cloudflared.service` (always-on, systemd) establece el tunnel hacia Cloudflare. Cloudflare Access exige autenticación por email OTP antes de llegar al servidor. `streamlit.service` también es always-on.
-
-**Vista Manager restringida**: solo emails en `MANAGER_EMAILS` (`.env`) pueden ver y acceder al Manager. El email autenticado lo lee Streamlit del header HTTP `Cf-Access-Authenticated-User-Email` que inyecta Cloudflare. En local (sin Cloudflare) el Manager es accesible para todos.
+**Infraestructura backend**: Droplet DigitalOcean. `cloudflared.service` (always-on) establece el tunnel hacia Cloudflare. Cloudflare Access exige OTP antes de llegar al servidor.
+**Infraestructura frontend**: acaquant-web deploya en **Vercel** (push a `main` → deploy automático). No tiene systemd ni Droplet.
 
 ## Variables de entorno requeridas (`.env`)
 
 ```
 ROFEX_USER / ROFEX_PASSWORD / ROFEX_ACCOUNT / ROFEX_API_URL / ROFEX_WS_URL
 MONGO_URI          ← usuario read-write (motores + Manager)
-MONGO_URI_READ     ← usuario read-only (dashboard Streamlit)
+MONGO_URI_READ     ← usuario read-only (API)
 AUNESA_CLIENT_ID / AUNESA_USERNAME / AUNESA_PASSWORD
-MANAGER_EMAILS     ← emails separados por coma con acceso al Manager
+MANAGER_EMAILS     ← emails separados por coma con acceso al Manager (legacy Streamlit)
 API_KEY            ← clave para autenticar requests a la API (vacío = sin auth, modo dev)
+ATLAS_PUBLIC_KEY / ATLAS_PRIVATE_KEY / ATLAS_PROJECT_ID / ATLAS_CLUSTER_NAME  ← pausa nocturna Atlas
 ```
 
 ## Estructura de carpetas
 
 ```
 TradingAV/
-├── streamlit_app.py          # entrypoint Streamlit (nav + router)
 ├── config.py                 # credenciales .env
 │
 ├── core/                     # infra compartida (importada por todos)
 │   ├── mongo.py              # singletons get_mongo_client() / get_mongo_client_read()
 │   ├── mongo_monitor.py      # command listener para métricas Atlas
-│   ├── profiler.py           # Stopwatch (traces de latencia del Manager)
+│   ├── profiler.py           # Stopwatch (traces de latencia)
 │   ├── rofex_session.py      # auth pyRofex
 │   ├── websocket.py          # WebSocketManager
 │   └── snapshot_writer.py    # writer background genérico
@@ -57,9 +57,9 @@ TradingAV/
 │   ├── aunesa_client.py      # cliente API Aunesa
 │   ├── carteras.py           # Aunesa → Valuaciones.Carteras
 │   ├── aum.py                # snapshot AuM diario + sync CarterasII
-│   ├── aum_backfill.py       # reconstrucción histórica (invocado por Manager)
+│   ├── aum_backfill.py       # reconstrucción histórica
 │   ├── aum_resumen_fci.py    # rollup 1 doc/fecha → Valuaciones.AuMResumenFCI
-│   ├── cleanup_curvas.py      # elimina instrumentos vencidos de Trading.Curvas
+│   ├── cleanup_curvas.py     # elimina instrumentos vencidos de Trading.Curvas
 │   ├── cashflow.py           # movimientos → CashFlow.Movimientos
 │   ├── flujo_contrapartes.py # operaciones del día → CashFlow.Flujo
 │   ├── segmento_contrapartes.py  # setea Fondos/ALYC/Bancos
@@ -68,194 +68,168 @@ TradingAV/
 │   ├── bcra.py               # CER/TAMAR/DOLAR/BADLAR
 │   └── dias_habiles.py       # calendario hábil argentino
 │
-├── quant/                    # cálculo puro (sin I/O de red; lee Mongo para HV)
+├── quant/                    # cálculo puro (sin I/O de red)
 │   └── black_scholes.py      # bs_price / bs_delta / bs_gamma / bs_vega / bs_theta / find_iv
 │
-├── dashboard/                # todo Streamlit — arquitectura 3 capas
-│   ├── shared/               # helpers compartidos entre vistas
-│   │   ├── db.py             # get_db() / get_db_valuaciones() / get_db_cashflow() / get_db_opciones() (cache_resource)
-│   │   ├── auth.py           # identificación via header Cf-Access
-│   │   ├── format.py         # formatters ARS / USD / %
-│   │   └── styles.py         # CSS y paleta de colores
-│   ├── repos/                # capa 1: I/O a Mongo con @st.cache_data (read-only)
-│   │   ├── portfolios.py     # Reportes (Carteras, CarterasII, Assets, Dolar, MEP)
-│   │   ├── operaciones.py    # Cash Flow, Flujo vs AuM, Accionistas
-│   │   ├── aum.py            # AuM último, FCI agg/snapshot, Assets map, Curvas
-│   │   ├── opciones.py       # OptionsSnapshot, metadata, histórico EV
-│   │   ├── mercado.py        # Breakevens, Forwards, Curvas, Precios, Volúmenes
-│   │   └── manager.py        # fetch_latest + traces de latencia del Manager
-│   ├── services/             # capa 2: lógica pura sobre DataFrames (sin I/O)
-│   │   ├── portfolios.py     # build_carteras_enriquecidas + valuación AuM
-│   │   └── operaciones.py    # filtrar_movimientos + es_cooperativa
-│   └── views/                # capa 3: solo UI Streamlit (widgets + Altair)
-│       ├── mercado.py        # Mercado · Libro · Curvas · Breakevens · Forwards · Retorno · Volúmenes
-│       ├── opciones.py       # Cadena GGAL + Estrategias
-│       ├── portfolios.py     # Reportes (informe ejecutivo mensual)
-│       ├── operaciones.py    # Cash Flow · Contrapartes · Análisis · Flujo vs AuM
-│       ├── aum.py            # FCI · Análisis SG · Tasa Fija · CER
-│       └── manager.py        # Diagnóstico · Backfills · Validaciones · Logs · Setup · Latencia
+├── api/                      # REST API (FastAPI) — consumida por acaquant-web
+│   ├── main.py               # entrypoint FastAPI
+│   ├── deps.py               # get_db_* helpers
+│   └── routers/
+│       ├── carteras.py       # /api/portfolio/*
+│       ├── cotizaciones.py   # /api/cotizaciones/*
+│       ├── cuentas.py        # /api/cuentas/*
+│       ├── operaciones.py    # /api/operaciones/*
+│       └── titulos.py        # /api/titulos/*
+│
+├── dashboard/                # LEGACY — Streamlit. No agregar features nuevas.
 │
 ├── scripts/                  # one-shot / diagnóstico manual
 │   ├── crear_indices.py      # idempotente
 │   ├── api_migrate.py        # migraciones colecciones legacy → API
 │   ├── test_api.py           # smoke test endpoints API
-│   ├── check_cer.py / check_cer_valuacion.py / check_curvas_pendientes.py
-│   ├── check_forwards.py / check_tasa_fija.py / debug_forward.py
-│   ├── check_aum_raw.py      # dump Aunesa por keyword
-│   └── test_match_contrapartes.py
+│   ├── perf_scan.py          # análisis estático anti-patterns Mongo
+│   └── check_*.py / debug_*.py
 │
-├── api/                      # REST API (FastAPI)
-│   ├── main.py               # entrypoint FastAPI
-│   ├── deps.py               # get_db_cuentas() / get_db_operaciones()
-│   └── routers/
-│       ├── cuentas.py        # /api/cuentas/*
-│       └── operaciones.py    # /api/operaciones/*
+├── tests/                    # pytest unit tests (no requieren Mongo)
+│   └── unit/                 # black_scholes, breakevens, curvas, dias_habiles, etc.
 │
 ├── deploy/
-│   ├── systemd/              # 6 .service (motor_* + streamlit)
+│   ├── systemd/              # .service files (motor_* + api + cloudflared)
 │   └── crontab.txt           # fuente de verdad del cron
 │
-├── assets/logo-header.png
-├── docs/                     # API.md, API_MIGRATIONS.md, AUDIT.md, diccionario_rofex.xlsx
-└── logs/                     # git-ignored
+└── docs/                     # API.md, API_MIGRATIONS.md, AUDIT.md
 ```
 
-**Regla de capas**: `core/` no importa a nadie. `engines/` y `jobs/` importan `core/` + `quant/`. `dashboard/` lee Mongo vía `core.mongo.get_mongo_client_read()`; solo el Manager escribe. `api/` lee Mongo vía `core.mongo.get_mongo_client_read()` (read-only). `scripts/` puede importar lo que necesite.
+**Regla de capas**: `core/` no importa a nadie. `engines/` y `jobs/` importan `core/` + `quant/`. `api/` usa `core.mongo.get_mongo_client_read()` (read-only). `scripts/` puede importar lo que necesite.
 
-## Arquitectura del Dashboard (repos / services / views)
+## Frontend: acaquant-web
 
-Desde el refactor de abril-2026, cada vista Streamlit está dividida en **3 capas** con responsabilidades estrictas y sin behavior change respecto a la versión monolítica previa:
+Repo separado: `/Users/nicomollo/PycharmProjects/acaquant-web`. **Este es el frontend activo.**
+
+**Stack**: Next.js 15 (App Router) + TypeScript + Tailwind CSS 4 + React 19. Lightweight Charts para gráficos trading-style, Recharts para el resto.
+
+### Estructura acaquant-web
 
 ```
-┌───────────────────────────────────┐
-│  dashboard/views/<vista>.py       │  Widgets Streamlit + Altair. UI only.
-│  (Capa 3)                         │  NO Mongo, NO lógica de negocio no trivial.
-└────────────────┬──────────────────┘
-                 │
-┌────────────────▼──────────────────┐
-│  dashboard/services/<vista>.py    │  Funciones puras sobre DataFrames.
-│  (Capa 2)                         │  Reglas de dominio. NO Mongo, NO Streamlit.
-└────────────────┬──────────────────┘
-                 │
-┌────────────────▼──────────────────┐
-│  dashboard/repos/<vista>.py       │  Loaders cacheados (@st.cache_data).
-│  (Capa 1)                         │  Única puerta a Mongo (read-only).
-└────────────────┬──────────────────┘
-                 │
-┌────────────────▼──────────────────┐
-│  dashboard/shared/db.py           │  get_db_* (@st.cache_resource).
-│                                   │  Wrapea get_mongo_client_read().
-└───────────────────────────────────┘
+src/
+├── app/
+│   ├── layout.tsx            # Root layout: Header, TopTicker, AutoRefresh
+│   ├── page.tsx              # DIARIO: renta fija, forwards, curvas, breakevens
+│   ├── /api/                 # Proxy routes (ocultan API_KEY del cliente)
+│   │   ├── aum-fci/snapshot + serie
+│   │   ├── cashflow, contrapartes, flujo-vs-aum
+│   │   ├── historico-curva, opciones-meta, trades
+│   ├── /aum /derivados /operaciones /portfolios /retorno
+├── components/               # Componentes por dominio (tabla renta fija, curvas, libro, etc.)
+├── lib/
+│   ├── api.ts                # apiFetch(): Bearer token + CF service token + ISR TTL
+│   └── estrategias.ts        # lógica de estrategias opciones (pura)
 ```
 
-**Reglas estrictas**:
+### Patrón API proxy
 
-- **`repos/`**: cada función devuelve un `pd.DataFrame`, `dict` o primitivo. Decoradas con `@st.cache_data(ttl=..., show_spinner=False)`. TTL corto para datos live (5–60 s), largo para estáticos (300–900 s). Puede hacer agregaciones server-side (`$group`, `$match`, `$project`) pero NO aplica reglas de negocio. Toda proyección (`{campo: 1}`) se define acá para minimizar el transporte.
-- **`services/`**: funciones puras sobre DataFrames ya cargados. Importan desde `repos/` o reciben el DF como argumento. No pueden importar `streamlit` ni `core.mongo`. Son testeables sin I/O.
-- **`views/`**: solo orquestan (tabs, selectboxes, `st.columns`) y pintan. Delegan cualquier query a `repos/` y cualquier cálculo a `services/`.
+Las API routes de Next.js (`src/app/api/*/route.ts`) proxean a `api.acaquant.com` para no exponer el `API_KEY` al browser. `apiFetch()` en `lib/api.ts` maneja:
+- Header `Authorization: Bearer <API_KEY>`
+- Headers `CF-Access-Client-Id` / `CF-Access-Client-Secret` (service token para bypass Cloudflare Access)
+- `next: { revalidate: N }` por ruta (ISR, TTL variable)
 
-### Loaders por vista (capa repos)
+Las páginas son **server components async** con `Promise.all()` para fetching paralelo. `safeFetch()` envuelve cada llamada con fallback para graceful degradation si el backend no responde.
 
-| Vista | Archivo | Funciones principales | TTL |
-|---|---|---|---|
-| Portfolios | `repos/portfolios.py` | `get_dolar_oficial`, `get_valor_mep`, `get_assets`, `get_carteras`, `get_carteras_ii` | 60–600 s |
-| Operaciones | `repos/operaciones.py` | `get_movimientos` (regex año), `get_accionistas_map`, `get_flujo_contrapartes`, `get_fondos_flujo_aum` ($group server-side) | 600–900 s |
-| AuM | `repos/aum.py` | `get_aum_ultimo`, `get_fci_unidades`, `get_aum_fci_agg` (rollup AuMResumenFCI), `get_aum_fci_snapshot`, `get_assets_map`, `get_curvas_tasa_fija`, `get_curvas_cer` + helper `parallel(*fns)` con ThreadPoolExecutor | 300–600 s |
-| Opciones | `repos/opciones.py` | `get_options_snapshot`, `get_metadata`, `fetch_estrategia_historico`, `fetch_vol_historico` | 5–300 s |
-| Mercado | `repos/mercado.py` | `get_breakevens_historico`, `get_datos_simulador`, `get_forwards_historico`, `get_tickers_curvas`, `get_volumen_diario_tickers`, `get_precios_intraday` (downsample 1-min server-side), `get_precios_diarios_curva` | 60–300 s |
-| Manager | `repos/manager.py` | `fetch_latest(db, coll, field, filtro)` + `trace_aum_fci` / `trace_operaciones_cashflow` / `trace_mercado_libro` / `trace_opciones_mercado` (Stopwatch por etapa) + `TRACES` dict | sin cache |
+### Variables de entorno acaquant-web (`.env.local`)
 
-### Services por vista (capa services)
+```
+API_URL                    ← URL base de la FastAPI (https://api.acaquant.com)
+API_KEY                    ← Bearer token
+CF_ACCESS_CLIENT_ID        ← service token para bypass Cloudflare Access
+CF_ACCESS_CLIENT_SECRET
+```
 
-- **`services/portfolios.py`** — `build_carteras_enriquecidas()` (hace merge con `Assets` y calcula `valuación`), `build_carteras_ii_enriquecidas()` (`valuacion` viene pre-calc del snapshot). Usa `_merge_with_assets()` para rellenar `TICKER/EMISOR/CLASE_ACTIVO/CARTERA/CALIFICACION/VENCIMIENTO` y `_calcular_valuacion(row)` para aplicar la regla P×Q (FCI/OTROS) vs P×Q/100 (renta fija).
-- **`services/operaciones.py`** — `es_cooperativa(cuenta_str)` usa regex `\bcoop` case-insensitive. `filtrar_movimientos(df, rango, monedas_sel, filtro_acc, seleccion, acc_map)` aplica los filtros del Cash Flow (Todas / Sin accionistas / Solo accionistas / Solo cooperativas) con dropdown secundario.
+### Comandos acaquant-web
 
-**Manager no tiene `services/`** — es una vista admin con escrituras y flujos one-shot; la lógica vive inline en la view y los helpers de I/O están en `repos/manager.py`.
+```bash
+npm run dev      # localhost:3000
+npm run build
+npm run lint     # ESLint
+```
 
-## Running the Project
+## Running the Project (TradingAV)
 
 Todo se ejecuta desde la raíz del proyecto con `python -m <módulo>`:
 
 ```bash
-pip install -r requirements.txt        # deps incluyen pyRofex, rich
-
-# Web dashboard
-streamlit run streamlit_app.py
-
-# Motores (systemd los corre como `python -m engines.<nombre>`)
-python -m engines.valores              # TimeSales + MarketSnapshot
-python -m engines.options              # Opciones GGAL headless
-python -m engines.curvas               # enriquecimiento TEA/Duration
-python -m engines.forwards             # tasas forward cada 30s
-python -m engines.breakevens           # breakevens cada 30s
-python -m engines.dolar_mep            # snapshot MEP (cron intradía)
-
-# Jobs batch
-python -m jobs.aum                     # snapshot AuM (cron 23:00 UTC) + sync CarterasII
-python -m jobs.aum_resumen_fci         # rollup AuMResumenFCI (post-aum)
-python -m jobs.carteras                # sync carteras (cron 4×/día)
-python -m jobs.cleanup_curvas          # limpieza instrumentos vencidos (cron 12:30 UTC)
-python -m jobs.cleanup_curvas --dry    # preview sin borrar
-python -m jobs.cashflow --today        # cron 02:00 UTC
-python -m jobs.bcra --today            # cron 20:00 UTC diario
+pip install -r requirements.txt
 
 # REST API
 uvicorn api.main:app --reload --port 8000
 
-# Migraciones API (colecciones legacy → API)
-python -m scripts.api_migrate accionistas
-python -m scripts.api_migrate contrapartes
-python -m scripts.api_migrate mover
-python -m scripts.api_migrate flujo
-python -m scripts.api_migrate movimientos
-python -m scripts.api_migrate carteras
-python -m scripts.api_migrate aum
-python -m scripts.api_migrate assets
-python -m scripts.api_migrate flujos-titulos
+# Motores (systemd los corre como `python -m engines.<nombre>`)
+python -m engines.valores
+python -m engines.options
+python -m engines.curvas
+python -m engines.forwards
+python -m engines.breakevens
+python -m engines.dolar_mep
 
-# Test endpoints API
-python -m scripts.test_api                   # localhost:8000
-python -m scripts.test_api http://host:port  # custom URL
+# Jobs batch
+python -m jobs.aum                     # snapshot AuM (cron 23:00 UTC) + sync CarterasII
+python -m jobs.aum_resumen_fci
+python -m jobs.carteras
+python -m jobs.cleanup_curvas          # --dry para preview
+python -m jobs.cashflow --today
+python -m jobs.bcra --today
 
-# Scripts
-python -m scripts.crear_indices
-python -m scripts.check_forwards
+# Migraciones API
+python -m scripts.api_migrate <comando>   # accionistas, contrapartes, flujo, movimientos, carteras, aum, assets, flujos-titulos
+
+# Test y lint
+ruff check .
+ruff check . --fix
+pytest -ra                                        # todos los unit tests
+pytest tests/unit/test_black_scholes.py           # un archivo
+pytest -m integration                             # requiere Mongo (excluidos por defecto)
+python -m scripts.perf_scan                       # anti-patterns Mongo (informativo)
+python -m scripts.perf_scan --strict              # exit 1 si hay findings
+python -m scripts.test_api                        # smoke test endpoints (localhost:8000)
+python -m scripts.crear_indices                   # idempotente
 ```
 
-No hay test suite ni linting configurado en CI local. GitHub Actions corre `ruff check` en cada push.
+CI (`.github/workflows/ci.yml`) corre `ruff check`, `perf_scan` (informativo) y `pytest -ra` en cada push a `main`.
+
+**ruff** (`pyproject.toml`): `line-length=100`, `target-version=py312`. Ignora `E501` (pipelines Mongo largos). `scripts/*` permite `print`. `# noqa: PERF001` suprime findings de perf_scan línea a línea.
 
 ## Architecture
-
-**Event-driven, multi-engine architecture:**
 
 ```
 ROFEX WebSocket (pyRofex)
         │
         ▼
 core.websocket.WebSocketManager
-  - Subscribes tickers in 50-ticker chunks
-  - Dispatches market data to engine handlers
+  - Suscribe tickers en chunks de 50
+  - Dispatches a handlers por motor
         │
    ┌────┴────┬──────────┐
    ▼         ▼          ▼
-engines.valores  engines.options  engines.curvas
+engines.valores  engines.options  engines.curvas  ...
         │
         ▼
-MongoDB Atlas M10 (4 DBs: Trading, Opciones, Valuaciones, CashFlow)
+MongoDB Atlas M10 (Trading, Opciones, Valuaciones, CashFlow)
         │
         ▼
-Streamlit Dashboard (www.acaquant.com)
+FastAPI (api.acaquant.com)
+        │
+        ▼
+acaquant-web Next.js (trading.acaquant.com)
 ```
 
 ### Key Components
 
-- **`config.py`** — Config centralizado; carga `.env` (credenciales ROFEX, Aunesa); `MANAGER_EMAILS` para control de acceso al Manager.
+- **`config.py`** — Config centralizado; carga `.env`.
 - **`core/rofex_session.py`** — Auth única de pyRofex (`inicializar_sesion`).
 - **`core/websocket.py`** — `WebSocketManager`: suscripciones WS; registra handlers `update_price(ticker, data)` por motor.
-- **`core/mongo.py`** — Dos clientes singleton thread-safe (double-checked locking). Ambos usan `serverSelectionTimeoutMS=30000`, `maxPoolSize=20`, `compressors="zstd,snappy,zlib"`:
-  - `get_mongo_client()` → `MONGO_URI` (read-write). Usado por motores, crons y Manager.
-  - `get_mongo_client_read()` → `MONGO_URI_READ` con `read_preference=SECONDARY_PREFERRED` (lee de réplicas para liberar primary; M10 lag <1s, aceptable para dashboard). Fallback a `MONGO_URI` si `MONGO_URI_READ` no está definido.
-  - **Nunca llamar `client.close()`** — son singletons de larga vida; cerrarlos rompe el pool compartido con Streamlit.
+- **`core/mongo.py`** — Dos clientes singleton thread-safe (double-checked locking). `serverSelectionTimeoutMS=30000`, `maxPoolSize=20`, `compressors="zstd,snappy,zlib"`:
+  - `get_mongo_client()` → `MONGO_URI` (read-write). Motores, crons.
+  - `get_mongo_client_read()` → `MONGO_URI_READ` con `read_preference=SECONDARY_PREFERRED`. API y dashboard legacy. Fallback a `MONGO_URI` si no está definido.
+  - **Nunca llamar `client.close()`** — son singletons de larga vida.
 
 ### Trading Engines
 
@@ -264,14 +238,14 @@ Cada motor tiene `update_price(ticker, data)` llamado por el WebSocket en cada t
 | Motor | Colección MongoDB | Descripción |
 |---|---|---|
 | `engines/valores.py` | `Trading.TimeSales` + `Trading.MarketSnapshot` | Microestructura bonos/Lecaps/CER: inserta trades en TimeSales, snapshot cada 1s en MarketSnapshot |
-| `engines/options.py` | `Opciones.OptionsSnapshot` | Opciones GGAL: Black-Scholes Greeks, IV via Newton-Raphson. Headless (motor_options.service) |
-| `engines/curvas.py` | `Trading.TimeSales` (enriquecimiento) | Agrega TEA/TEM/Duration/Paridad. Loop cada 5s, docs sin `duration` ordenados DESC para no bloquear con docs viejos irresolubles |
+| `engines/options.py` | `Opciones.OptionsSnapshot` | Opciones GGAL: Black-Scholes Greeks, IV via Newton-Raphson |
+| `engines/curvas.py` | `Trading.TimeSales` (enriquecimiento) | Agrega TEA/TEM/Duration/Paridad. Loop cada 5s, docs sin `duration` ordenados DESC |
 | `engines/forwards.py` | `Trading.ForwardsLive` + `Trading.ForwardsHistorico` | Matriz NxN de tasas forward por curva cada 30s |
 | `engines/breakevens.py` | `Trading.BreakevensLive` + `Trading.BreakevensHistorico` | Breakeven inflación mensual implícita CER/Lecap cada 30s |
 
 ### Trading.TimeSales
 
-Trades en tiempo real. Campos base (`engines/valores.py`): `ticker`, `timestamp`, `price`, `size`, `side` (BUY/SELL/MID), `money`
+Campos base: `ticker`, `timestamp`, `price`, `size`, `side` (BUY/SELL/MID), `money`.
 
 Campos enriquecidos por `engines/curvas.py` (solo tickers en `Trading.Curvas`):
 
@@ -297,46 +271,42 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 
 ### Cálculo cuantitativo (`quant/`)
 
-- `quant/black_scholes.py`: Black-Scholes — `bs_price()`, `bs_delta()`, `bs_gamma()`, `bs_vega()`, `bs_theta()`, `find_iv()` (Newton-Raphson), `calc_intrinseco()`. Además lee `VR-GGal` de Mongo para HV.
+- `quant/black_scholes.py`: `bs_price()`, `bs_delta()`, `bs_gamma()`, `bs_vega()`, `bs_theta()`, `find_iv()` (Newton-Raphson), `calc_intrinseco()`. Lee `VR-GGal` de Mongo para HV.
 
 ### Jobs batch (`jobs/`)
 
 - **`aunesa_client.py`** — cliente Aunesa API (auth + posicionValuada). Importado por el resto.
-- **`carteras.py`** — sincroniza posiciones Aunesa → `Valuaciones.Carteras`. Clave upsert: `(id_cuenta, unidad)`. Filtra unidades inválidas antes de guardar (`filtrar_unidades()`): excluye exactas `{ARS, USDL}` y las que contienen `[1] Depósito U$`, `OTC`, `2024`, `2025`, `DLR`. Flag `--clean` para borrar docs ya existentes con esas unidades.
-- **`aum.py`** — snapshot AuM de TODAS las cuentas activas → `Valuaciones.AuM`. Clave: `(id_cuenta, unidad, fecha_snapshot)`. Fórmulas: P×Q/100 para renta fija (Títulos Públicos, ONs, Letras, Fideicomisos, CPD); (P+1)×Q para futuros; P×Q para el resto. Retry automático ante timeout Aunesa (3 intentos, 60s). Al final sincroniza `Valuaciones.CarterasII` si corresponde (primer día hábil del mes anterior). Cron 23:00 UTC.
-- **`aum_backfill.py`** — re-ejecutable, reconstruye AuM por fechas. Usado desde el Manager (subprocess: `python -m jobs.aum_backfill <fecha>`). También sincroniza CarterasII al final.
-- **`aum_resumen_fci.py`** — rollup `Valuaciones.AuM` (CARTERA FCI) → `Valuaciones.AuMResumenFCI`. **Un doc por `fecha_snapshot`** con array `unidades[]` (cada entry tiene `unidad` y `valuacion_total`). Objetivo: minimizar transporte de bytes al dashboard (~22 docs vs ~2.4k). Consumido por `repos/aum.py::get_aum_fci_agg()`.
-- **`cashflow.py`** — movimientos de cash desde Aunesa → `CashFlow.Movimientos`. Índice único por `comprobante`. Signo invertido (depósitos positivos). `--today` para cron.
-- **`flujo_contrapartes.py`** — operaciones del día desde Aunesa → `CashFlow.Flujo`. Borra docs donde `concertacion == hoy`, fetch por cada contraparte con `cuenta` asignada, filtra 4 tipos excluidos, agrega `moneda` (ARS/USD), deduplica por `boleto`. Cron 22:00 UTC L-V (19:00 ART, en mercado aún abierto).
-- **`segmento_contrapartes.py`** — asigna `segmento` ("Fondos"/"ALYC"/"Bancos") en `CashFlow.Contrapartes`. Reglas automáticas + modo interactivo para sin match. Importado por `dashboard/views/manager.py`.
-- **`volatilidad_ggal.py`** — VR histórica GGAL al cierre. Cron 20:00 UTC.
-- **`options_rollup.py`** — rollup diario `Opciones.Data` → `Opciones.DataHistorica` (una fila por `(fecha, symbol)` con high/low/last/ev + griegas del último tick). Upsert idempotente. Cron 20:15 UTC L-V. `--backfill` procesa todos los días con datos en `Opciones.Data`; `--fecha YYYY-MM-DD` uno puntual.
-- **`bcra.py`** — alimenta CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron; sin flag hace backfill desde 2023-01-01. SSL verificado (verify=True).
-- **`cleanup_curvas.py`** — elimina instrumentos vencidos de `Trading.Curvas` (< 2 días hábiles al vencimiento). Usa `Trading.DiasHabiles` como calendario. Flag `--dry` para preview. Cron 12:30 UTC L-V (antes de abrir motores).
-- **`dias_habiles.py`** — genera calendario de días hábiles argentinos. Ejecutar una vez por año.
+- **`carteras.py`** — sincroniza posiciones Aunesa → `Valuaciones.Carteras`. Clave upsert: `(id_cuenta, unidad)`. `filtrar_unidades()` excluye `{ARS, USDL}` y strings con `[1] Depósito U$`, `OTC`, `2024`, `2025`, `DLR`. Flag `--clean`.
+- **`aum.py`** — snapshot AuM de TODAS las cuentas activas → `Valuaciones.AuM`. Clave: `(id_cuenta, unidad, fecha_snapshot)`. Fórmulas: P×Q/100 renta fija; (P+1)×Q futuros; P×Q resto. Retry 3 intentos / 60s. Sincroniza `Valuaciones.CarterasII` al final (primer día hábil mes anterior). Cron 23:00 UTC.
+- **`aum_backfill.py`** — re-ejecutable, reconstruye AuM por fechas. `python -m jobs.aum_backfill <fecha>`.
+- **`aum_resumen_fci.py`** — rollup → `Valuaciones.AuMResumenFCI`. Un doc por `fecha_snapshot` con `unidades[].{unidad, valuacion_total}` (~22 docs vs ~2.4k raw).
+- **`cashflow.py`** — movimientos Aunesa → `CashFlow.Movimientos`. Índice único por `comprobante`. Depósitos positivos. `--today` para cron.
+- **`flujo_contrapartes.py`** — operaciones del día → `CashFlow.Flujo`. Borra docs donde `concertacion == hoy`, fetch por contraparte, filtra 4 tipos excluidos, agrega `moneda`. Cron 22:00 UTC L-V.
+- **`segmento_contrapartes.py`** — asigna `segmento` ("Fondos"/"ALYC"/"Bancos") en `CashFlow.Contrapartes`.
+- **`options_rollup.py`** — rollup diario `Opciones.Data` → `Opciones.DataHistorica`. Upsert idempotente. `--backfill` / `--fecha YYYY-MM-DD`. Cron 20:15 UTC L-V.
+- **`bcra.py`** — CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron; sin flag backfill desde 2023-01-01.
+- **`cleanup_curvas.py`** — elimina instrumentos vencidos de `Trading.Curvas` (< 2 días hábiles). `--dry` para preview. Cron 12:30 UTC L-V.
+- **`dias_habiles.py`** — genera calendario hábil argentino. Ejecutar una vez por año.
 
 ### Scripts de diagnóstico (`scripts/`)
 
-- **`crear_indices.py`** — crea todos los índices MongoDB necesarios. Idempotente. Soporta `unique` y `partialFilterExpression`. Ejecutar al agregar colecciones nuevas o en un servidor nuevo. Invocado también desde la tab Setup del Manager.
-- **`check_cer_valuacion.py`** — muestra el CER usado en el último trade enriquecido por bono.
-- **`check_curvas_pendientes.py`** — cuántos docs sin `duration` hay por ticker en TimeSales.
+- **`crear_indices.py`** — crea todos los índices MongoDB. Idempotente.
+- **`perf_scan.py`** — análisis estático: `PERF001` find sin projection, `PERF002` query en for (N+1), `PERF003` count_documents({}), `PERF004` query repetida. Suprimir por línea con `# noqa: PERF00X`.
+- **`check_cer_valuacion.py`** — CER usado en último trade enriquecido por bono.
+- **`check_curvas_pendientes.py`** — docs sin `duration` por ticker en TimeSales.
 - **`check_forwards.py`** — diagnóstico completo de forwards por curva.
-- **`check_tasa_fija.py`** — diagnóstico de instrumentos tasa_fija en AuM.
-- **`check_aum_raw.py`** — consulta directa Aunesa, filtra por keyword. Invocado desde la tab Validaciones del Manager.
-- **`test_match_contrapartes.py`** — match de contrapartes con Aunesa. Importado por `dashboard/views/manager.py`.
+- **`check_aum_raw.py`** — consulta directa Aunesa filtrando por keyword.
 - **`debug_forward.py`** — walk-through paso a paso del cálculo forward TX26 vs TZX26.
 
 ## Deployment
 
-**Servidor**: Droplet de DigitalOcean, `root` en `/root/TradingAV/`, venv local en `/root/TradingAV/venv/`.
+**Servidor**: Droplet DigitalOcean, `root` en `/root/TradingAV/`, venv en `/root/TradingAV/venv/`.
 
-**Servicios always-on** (arrancan con el servidor):
-- `cloudflared.service` — Cloudflare Tunnel, siempre activo
-- `streamlit.service` — dashboard Streamlit, siempre activo
-- `api.service` — FastAPI (uvicorn), siempre activo, `127.0.0.1:8000`
+**Servicios always-on**:
+- `cloudflared.service` — Cloudflare Tunnel
+- `api.service` — FastAPI (uvicorn), `127.0.0.1:8000`
 
-**Servicios de mercado** (lunes a viernes, horario de mercado). Definidos en `deploy/systemd/` (copiar a `/etc/systemd/system/` en el servidor):
-
+**Servicios de mercado** (L-V, horario de mercado):
 - `motor_rofex.service` → `python -m engines.valores`
 - `motor_options.service` → `python -m engines.options`
 - `motor_curvas.service` → `python -m engines.curvas`
@@ -347,222 +317,31 @@ Todas las `.service` usan `WorkingDirectory=/root/TradingAV` + `ExecStart=/root/
 
 ### Crontab
 
-Fuente de verdad: **`deploy/crontab.txt`**. Para aplicar en el servidor:
-
-```bash
-crontab /root/TradingAV/deploy/crontab.txt
-```
-
-Todos los jobs se invocan como `cd /root/TradingAV && /root/TradingAV/venv/bin/python -m <módulo>`. Logs en `/root/TradingAV/logs/`.
-
-Resumen de horarios (ver `deploy/crontab.txt` para el detalle):
+Fuente de verdad: **`deploy/crontab.txt`**. Aplicar: `crontab /root/TradingAV/deploy/crontab.txt`.
 
 | Horario UTC | Job | Frecuencia |
 |---|---|---|
-| 12:30 | `jobs.cleanup_curvas` (limpieza instrumentos vencidos) | L-V |
+| 12:30 | `jobs.cleanup_curvas` | L-V |
 | 13:00 / 20:05 | start/stop motores de mercado | L-V |
 | 11:35 / 14:00 / 16:00 | `jobs.carteras` | L-V |
 | 14:00 / 19:57 | `engines.dolar_mep` | L-V |
-| 20:00 | `jobs.volatilidad_ggal` | L-V |
-| 20:00 | `jobs.bcra --today` | L-V (BCRA no publica weekend) |
+| 20:00 | `jobs.volatilidad_ggal` + `jobs.bcra --today` | L-V |
 | 23:00 | `jobs.aum` (+ CarterasII sync) | L-V |
 | 23:30 | `jobs.aum_resumen_fci` | L-V |
 | 20:15 | `jobs.options_rollup` | L-V |
 | 22:00 | `jobs.flujo_contrapartes` | L-V |
 | 02:00 | `jobs.cashflow --today` | Mar-Sáb |
-| 04:00 / 11:20 | `deploy/atlas_cluster.sh {pause,resume}` | pausa nocturna del cluster Atlas (01:00-08:20 ART, todos los días) |
+| 04:00 / 11:20 | `deploy/atlas_cluster.sh {pause,resume}` | diario |
 
-**Atlas cluster pause**: el cluster M10 se pausa **todos los días** entre 01:00 y 08:30 ART (04:00-11:30 UTC) para reducir costo de compute (pausado no cobra compute, solo storage). Resume scheduled a 11:20 UTC (08:20 ART) con 10 min de buffer para que esté operativo a las 08:30 ART. Requiere en `.env`: `ATLAS_PUBLIC_KEY`, `ATLAS_PRIVATE_KEY`, `ATLAS_PROJECT_ID`, `ATLAS_CLUSTER_NAME`. Durante la pausa el dashboard y la API devuelven error de conexión. Ahorro ≈ 31% sobre compute (7.5h/día × 7 días = 52.5h/semana pausado).
-
-## Streamlit Dashboard — Vistas
-
-Nav principal: **Mercado · Opciones · Portfolios · Operaciones · AuM · Manager**
-
-Manager visible solo para emails en `MANAGER_EMAILS`. Determinado por header `Cf-Access-Authenticated-User-Email` de Cloudflare Access.
-
-| Vista | Sub-tabs | Descripción |
-|---|---|---|
-| Mercado | Mercado · Libro · Curvas · Breakevens · Forwards · Retorno Total · Volúmenes | Microstructure, VWAP, volumen intraday; Libro en tiempo real (run_every=2s); curvas, breakevens (sub-tabs Tiempo Real · Histórico · Gráfico · Simulador), forwards, retorno total. Tab Mercado usa `@st.fragment(run_every=30)`. |
-| Opciones | Mercado · Estrategias | Cadena GGAL con SPOT/VR/ADR/Tasa RF + volatility smile. Estrategias: spreads pre-configurados con payoff y costo histórico. |
-| Portfolios | Reportes | Informe ejecutivo mensual por cuenta. Lee `Valuaciones.Carteras` (mes actual) y `Valuaciones.CarterasII` (mes anterior). Ver sección abajo. |
-| Operaciones | Cash Flow · Contrapartes · Análisis · Flujo vs AuM | Cash Flow: `CashFlow.Movimientos`, filtro "Todas / Sin accionistas / Solo accionistas / Solo cooperativas". Contrapartes: filtros SEGMENTO+MONEDA, flujo mensual + drill-down. Análisis: Individual/Comparativo. Flujo vs AuM: gráfico dual para segmento=Fondos. |
-| AuM | FCI · Análisis SG · Tasa Fija · CER | FCI: snapshot por fecha + evolución + detalle por soc. gerente. Análisis SG: Individual o Comparativo base 100. Tasa Fija y CER: toggle "Valor Nominal" alterna columna entre `cantidad` (VN) y `valuacion` (P×Q). |
-| Manager | Diagnóstico · Backfills · Validaciones · Logs · Historial · Setup · Latencia | Solo admins. Backfills, upserts a Assets/Contrapartes, flujo inline, audit log en `Manager.ChangeLog`. Tab Latencia: benchmark en tiempo real de todas las queries MongoDB del dashboard (ms, docs, ms/doc). |
-
-## Lógica de Negocio (consolidada)
-
-Resumen de todas las reglas de dominio aplicadas en el dashboard. Implementación en `dashboard/services/` y, cuando es inevitable, inline en la view.
-
-### 1. Valuación AuM
-
-Fórmula por tipo de instrumento (aplicada por `services/portfolios.py::_calcular_valuacion` y dentro de `jobs/aum.py`):
-
-- **Renta fija** (`Títulos Públicos`, `Letras`, `ONs`, `Fideicomisos`, `CPD`) → `cantidad × precio / 100` (precio cotiza sobre 100 de VN).
-- **FCI / OTROS** → `cantidad × precio` directo.
-- **Futuros** (en `jobs/aum.py`) → `(precio + 1) × cantidad`.
-
-Constante: `TIPOS_DIVISOR_100 = {Títulos Públicos, Letras, ONs, Fideicomisos, CPD}`.
-
-### 2. Cash Flow — filtros (`services/operaciones.py::filtrar_movimientos`)
-
-Orden de aplicación:
-1. **Rango fecha**: `fecha.dt.date` entre `rango[0]` y `rango[1]`.
-2. **Monedas**: `unidad ∈ monedas_sel` (p.ej. `["ARS", "USD"]`).
-3. **Filtro accionistas** (`filtro_acc`):
-   - `"Todas"` → sin filtro; `seleccion` opcional filtra por `cuenta`.
-   - `"Sin accionistas"` → cuenta **no** está en `CashFlow.Accionistas`.
-   - `"Solo accionistas"` → cuenta está en `Accionistas`; dropdown permite elegir accionista específico (agrupa varios comitentes bajo un mismo nombre legal).
-   - `"Solo cooperativas"` → cuenta **no** es accionista Y matchea regex `\bcoop` (case-insensitive). `es_cooperativa()`.
-
-### 3. Portfolios Reportes — dataflow
-
-```
-repos.portfolios.get_carteras()        →  mes actual  (último snapshot Aunesa)
-repos.portfolios.get_carteras_ii()     →  mes anterior (snapshot manual primer día hábil)
-repos.portfolios.get_assets()          →  metadata por unidad
-repos.portfolios.get_dolar_oficial()   →  A3500 (Trading.DOLAR)
-repos.portfolios.get_valor_mep()       →  MEP (Valuaciones.Dolar)
-
-services.portfolios.build_carteras_enriquecidas()
-  → merge Carteras ⟵ Assets por 'unidad'
-  → columna 'valuación' = P×Q (FCI/OTROS) o P×Q/100 (renta fija)
-
-services.portfolios.build_carteras_ii_enriquecidas()
-  → merge CarterasII ⟵ Assets (valuacion viene pre-calc del snapshot)
-
-views.portfolios → donut + tablas + KPIs
-```
-
-### 4. AuM FCI — pipeline
-
-```
-repos.aum.get_aum_fci_agg()    ← Valuaciones.AuMResumenFCI (rollup, 1 doc/fecha)
-repos.aum.get_aum_fci_snapshot(fecha)  ← Valuaciones.AuM raw (drill-down)
-repos.aum.get_fci_unidades()   ← Assets.CARTERA=='CARTERA FCI'
-```
-
-El rollup AuMResumenFCI es un trade-off: el job `aum_resumen_fci.py` pre-materializa la suma por `(fecha, unidad)` para que el chart histórico transfiera ~22 docs en vez de los ~2.4k raw.
-
-### 5. AuM Tasa Fija / CER — join chain
-
-Tasa Fija: `Trading.Curvas` (`curva=='tasa_fija'`) → `ticker_corto` → `Valuaciones.Assets` (`TICKER==ticker_corto`) → `unidad` → `Valuaciones.AuM`.
-CER: idem con `curva=='cer'`.
-
-Para agregar un nuevo instrumento: insertar doc en `Trading.Curvas` con `curva: "tasa_fija"` (o `"cer"`) + doc en `Valuaciones.Assets` con `TICKER == ticker_corto`.
-
-### 6. Flujo vs AuM (tab Operaciones)
-
-`CashFlow.Contrapartes` (`segmento=="Fondos"`) → lista de fondos → `Valuaciones.Assets` (`CARTERA=="CARTERA FCI"`, `EMISOR ∈ fondos`) → `unidad` → `Valuaciones.AuM` (con `$group` por `(unidad, fecha_snapshot)` server-side).
-En paralelo: `CashFlow.Flujo` filtrado por `contraparte ∈ fondos` y `moneda=="ARS"`.
-
-Gráfico dual: barras verde/rojo (flujo por signo, eje izq) + línea naranja con forward-fill del AuM (eje der, `zero=False`).
-
-### 7. Breakevens
-
-Fórmulas (`engines/breakevens.py`):
-- `retorno = (1+TEM)^(días/30) - 1`
-- `inflacion = (1+retorno) × (paridad/100) - 1`
-- `breakeven = (1+inflacion)^(30/días) - 1`
-
-Emparejamiento: cada Lecap con el CER de vencimiento más cercano (máx 60 días de diferencia).
-
-### 8. Simulador Breakevens (Mercado → Breakevens → Simulador)
-
-P&L relativo **CER vs Lecap** por par, bajo escenarios de inflación mensual flat:
-- **Settlement T+1** (próximo día hábil); **CER liq** = settlement − 10 días hábiles.
-- `ret_lecap = flujo_vencimiento / precio_lecap − 1` (cierto).
-- Para cada flujo pendiente del CER: `CER_proy = cer_liq × (1 + infl)^meses` → `flujo_pesos = monto_VN × CER_proy / cer_emision`.
-- `ret_cer = Σ flujo_pesos / precio_cer − 1` → `P&L = ret_cer − ret_lecap` (bps, verde/rojo).
-- El BE mensual calculado por `engines/breakevens.py` debería caer entre los dos escenarios donde el P&L cambia de signo.
-
-### 9. Forwards
-
-Fórmula: `((1 + TEA_B)^t_B / (1 + TEA_A)^t_A)^(1/(t_B - t_A)) - 1`.
-Requiere TEA en TimeSales (escrito por `engines/curvas.py`, lag ~5s aceptable).
-Matriz NxN por curva re-escrita cada 30s en `Trading.ForwardsLive`; snapshot diario en `Trading.ForwardsHistorico`.
-
-### 10. Mercado → Tab Libro
-
-Auto-refresh cada 2s via `@st.fragment(run_every=2)`.
-
-- **Header**: selector de ticker (izq) | última actualización (der)
-- **Fila 1**: Depth (book top 5) + Hourly Vol · Tape · Quant Analytics
-- **Fila 2**: Last Minutes chart · Volume Profile
-
-**Last Minutes chart**: eje X temporal real (`:T`, `%H:%M:%S`). VWAP horizontal verde (`strokeDash=[6,3]`). Toggle TEA alterna eje Y entre Precio y TEA (oculta VWAP en modo TEA).
-
-**Volume Profile**: query desde medianoche UTC. Tick size dinámico (~25 barras). Solo niveles con operaciones reales.
-
-### 11. Portfolios → Tab Reportes
-
-Informe ejecutivo mensual por cuenta. Selector de cuenta en el header. Secciones:
-
-#### 1. Resumen Ejecutivo
-- KPIs: fecha, valor MEP, valor A3500 (de `Valuaciones.Dolar` y `Trading.DOLAR`), valuación ARS/A3500/USD total.
-- Donut chart + tablas mes actual y mes anterior por cartera (ARS / DL / HD / FCI).
-- **Mes actual**: `Valuaciones.Carteras` (último snapshot Aunesa, campo `valuacion` recalculado con regla 1).
-- **Mes anterior**: `Valuaciones.CarterasII` (snapshot manual primer día hábil mes anterior, sincronizado al final de `jobs/aum.py` y `jobs/aum_backfill.py`).
-
-#### 2. Carteras vs Benchmarks (4 gráficos — rendimiento acumulado mensual)
-
-| Gráfico | Fuente cartera | Benchmarks | Estado |
-|---|---|---|---|
-| Cartera Total ARS vs Benchmarks | `Valuaciones.Rendimientos.rendimiento_ars` | A3500, Inflacion, Badlar | **Pendiente conectar** |
-| Cartera Total USD | `Valuaciones.Rendimientos.rendimiento_usd` | — | **Pendiente conectar** |
-| Cartera Pesos vs Benchmarks | `Valuaciones.Rendimientos.rendimiento_carteraars` | Badlar, Inflacion | **Pendiente conectar** |
-| Cartera Dolar Linked USD | — | — | **Dummy — pendiente** |
-
-#### Colecciones de soporte (carga manual por ahora)
-
-**`Valuaciones.Benchmarks`** — una fila por `(periodo, benchmark)`:
-```
-{ periodo: "ago-25", benchmark: "Badlar", mensual: 0.033, acumulado: 0.057 }
-{ periodo: "ago-25", benchmark: "A3500",  mensual: 0.132, acumulado: 0.204 }
-{ periodo: "ago-25", benchmark: "Inflacion", mensual: 0.027, acumulado: 0.091 }
-```
-- `benchmark` ∈ `{"Badlar", "A3500", "Inflacion"}` (inflación mensual, NO el índice CER).
-- `periodo`: `"mmm-aa"` (ej. `"ago-25"`).
-- Los gráficos usan `acumulado` como eje Y.
-
-**`Valuaciones.Rendimientos`** — una fila por `(id_cuenta, periodo)`:
-```
-{ id_cuenta: "1234", periodo: "ago-25",
-  rendimiento_ars: 0.041, rendimiento_usd: 0.018, rendimiento_carteraars: 0.052 }
-```
-- `(valor_actual / valor_anterior) − 1`. Carga manual de momento; a futuro automatizado post-cierre mensual.
-
-#### 3–7. Variaciones del mes y detalle de activos — **Dummy (pendiente conectar)**
+**Atlas cluster pause**: se pausa entre 01:00–08:30 ART (04:00–11:30 UTC) todos los días. Durante la pausa la API devuelve error de conexión. Resume a 11:20 UTC con 10 min de buffer. Ahorro ≈ 31% sobre compute.
 
 ## REST API (`api/`)
 
-FastAPI (v0.1.0) expone datos de las colecciones MongoDB en endpoints REST/JSON. Sin autenticación por ahora (solo localhost); planeado: Cloudflare Access + API Keys.
-
-```bash
-uvicorn api.main:app --reload --port 8000   # dev
-# Swagger UI: http://localhost:8000/docs
-```
-
-### Estructura
-
-```
-api/
-├── main.py                # FastAPI app + health endpoint
-├── deps.py                # get_db_* helpers (CuentasAPI, OperacionesAPI, PortfolioAPI, TitulosAPI, Opciones, Trading, Valuaciones)
-└── routers/
-    ├── carteras.py        # /api/portfolio/* (carteras + aum)
-    ├── cotizaciones.py    # /api/cotizaciones/* (lectura directa Trading.*)
-    ├── cuentas.py         # /api/cuentas/*
-    ├── operaciones.py     # /api/operaciones/*
-    └── titulos.py         # /api/titulos/*
-```
-
-Cada router usa `get_mongo_client_read()` (read-only, igual que el dashboard).
-
-**Nota:** el archivo `api/routers/carteras.py` contiene el router de Portfolio (carteras + aum). El nombre del archivo es legacy del primer endpoint; el prefix es `/api/portfolio`.
+FastAPI consumida exclusivamente por acaquant-web (a través de sus API routes proxy).
 
 ### Endpoints
 
-| Método | Ruta | Colección API | Query params |
+| Método | Ruta | Colección | Query params |
 |---|---|---|---|
 | GET | `/api/health` | — | — |
 | GET | `/api/cuentas/accionistas` | `CuentasAPI.AccionistasAPI` | — |
@@ -573,53 +352,111 @@ Cada router usa `get_mongo_client_read()` (read-only, igual que el dashboard).
 | GET | `/api/portfolio/aum` | `PortfolioAPI.AumAPI` | `id_cuenta`, `unidad`, `cuenta`, `desde`, `hasta`, `ultimo` |
 | GET | `/api/titulos/assets` | `TitulosAPI.AssetsAPI` | `unidad`, `ticker`, `cartera`, `emisor`, `clase_activo` |
 | GET | `/api/titulos/flujos` | `TitulosAPI.ValuacionesAPI` | `ticker`, `curva`, `moneda_flujo` |
-| GET | `/api/cotizaciones/badlar` | `Trading.BADLAR` (directo) | `desde`, `hasta` |
-| GET | `/api/cotizaciones/cer` | `Trading.CER` (directo) | `desde`, `hasta` |
-| GET | `/api/cotizaciones/dolar` | `Trading.DOLAR` (directo) | `desde`, `hasta` |
+| GET | `/api/cotizaciones/badlar` | `Trading.BADLAR` | `desde`, `hasta` |
+| GET | `/api/cotizaciones/cer` | `Trading.CER` | `desde`, `hasta` |
+| GET | `/api/cotizaciones/dolar` | `Trading.DOLAR` | `desde`, `hasta` |
 | GET | `/api/cotizaciones/mep` | `Valuaciones.Dolar` (último) | — |
-| GET | `/api/cotizaciones/forwards` | `Trading.ForwardsLive` (directo) | `curva` |
-| GET | `/api/cotizaciones/renta-fija` | `Trading.MarketSnapshot` (directo) | `instrumento` |
-| GET | `/api/cotizaciones/breakevens` | `Trading.BreakevensLive` (directo) | — |
-| GET | `/api/cotizaciones/opciones` | `Opciones.OptionsSnapshot` (directo) | `instrumento`, `tipo` |
-| GET | `/api/cotizaciones/historico/forwards` | `Trading.ForwardsHistorico` (directo) | `curva`, `desde`, `hasta` |
-| GET | `/api/cotizaciones/historico/breakevens` | `Trading.BreakevensHistorico` (directo) | `desde`, `hasta` |
+| GET | `/api/cotizaciones/forwards` | `Trading.ForwardsLive` | `curva` |
+| GET | `/api/cotizaciones/renta-fija` | `Trading.MarketSnapshot` | `instrumento` |
+| GET | `/api/cotizaciones/breakevens` | `Trading.BreakevensLive` | — |
+| GET | `/api/cotizaciones/opciones` | `Opciones.OptionsSnapshot` | `instrumento`, `tipo` |
+| GET | `/api/cotizaciones/historico/forwards` | `Trading.ForwardsHistorico` | `curva`, `desde`, `hasta` |
+| GET | `/api/cotizaciones/historico/breakevens` | `Trading.BreakevensHistorico` | `desde`, `hasta` |
 | GET | `/api/cotizaciones/historico/mep` | `Valuaciones.Dolar` (serie) | `desde`, `hasta` |
-| GET | `/api/cotizaciones/historico/trades` | `Trading.TimeSales` (directo, últimos 15 días) | `instrumento` |
+| GET | `/api/cotizaciones/historico/trades` | `Trading.TimeSales` (últimos 15 días) | `instrumento` |
+| GET | `/api/cotizaciones/historico/curva` | `Trading.TimeSales` (serie diaria) | `instrumento`, `desde`, `hasta` |
 
 ### Patrón de migraciones (colecciones API)
 
-Las colecciones originales (`CashFlow.*`, `Valuaciones.*`, etc.) son la **fuente de verdad**, actualizadas automáticamente por engines y jobs. Las colecciones API son **copias derivadas** con campos renombrados, limpiados o descartados, optimizadas para consumo externo.
+Las colecciones originales son la **fuente de verdad**. Las colecciones API son copias derivadas optimizadas para consumo externo.
 
-**Flujo para agregar un nuevo endpoint:**
-1. Identificar la colección origen y definir el mapping de campos (renombrar, descartar, transformar).
-2. Agregar la función de migración en `scripts/api_migrate.py` (patrón: `drop()` + `insert_many()`, idempotente).
-3. Crear el router/endpoint en `api/routers/`.
-4. Agregar la nueva DB helper en `api/deps.py` si es una DB nueva.
-5. Documentar el mapping en `docs/API_MIGRATIONS.md`.
-6. Documentar el endpoint en `docs/API.md`.
+**Flujo para nuevo endpoint:**
+1. Definir mapping de campos en `scripts/api_migrate.py` (patrón: `drop()` + `insert_many()`, idempotente).
+2. Crear router/endpoint en `api/routers/`.
+3. Agregar DB helper en `api/deps.py` si es DB nueva.
+4. Documentar en `docs/API_MIGRATIONS.md` y `docs/API.md`.
 
-**Re-sincronización:** `python -m scripts.api_migrate <comando>`. Todos los comandos son idempotentes (drop + insert).
+**Re-sincronización:** `python -m scripts.api_migrate <comando>`.
 
 ### Colecciones API actuales
 
-| Origen | Destino | Campos renombrados | Comando migrate |
-|---|---|---|---|
-| `CashFlow.Accionistas` | `CuentasAPI.AccionistasAPI` | cuenta→cuenta+id_cuenta+nombre, accionista→grupo | `accionistas` + `mover` |
-| `CashFlow.Contrapartes` | `CuentasAPI.ContrapartesAPI` | denominacion→cuenta, cuenta→id_cuenta, contraparte→nombre, segmento→grupo | `contrapartes` + `mover` |
-| `CashFlow.Flujo` | `OperacionesAPI.MesaAPI` | instrumento→unidad, cuenta→id_cuenta | `flujo` |
-| `CashFlow.Movimientos` | `OperacionesAPI.FlujosAPI` | comprobante→boleto, fecha→concertacion (dd/mm→YYYY-MM-DD), total→bruto | `movimientos` |
-| `Valuaciones.Carteras` | `PortfolioAPI.CarterasAPI` | timestamp truncado a fecha (sin hora), descarta `actualizado` | `carteras` |
-| `Valuaciones.AuM` | `PortfolioAPI.AumAPI` | fecha_snapshot→fecha (str→datetime), descarta `timestamp`, `tipoTitulo` | `aum` |
-| `Valuaciones.Assets` | `TitulosAPI.AssetsAPI` | todos los campos a minúscula | `assets` |
-| `Trading.Curvas` + `Trading.BondsMaster` | `TitulosAPI.ValuacionesAPI` | merge 2 fuentes, flujos normalizados, fechas→datetime | `flujos-titulos` |
+| Origen | Destino | Comando migrate |
+|---|---|---|
+| `CashFlow.Accionistas` | `CuentasAPI.AccionistasAPI` | `accionistas` + `mover` |
+| `CashFlow.Contrapartes` | `CuentasAPI.ContrapartesAPI` | `contrapartes` + `mover` |
+| `CashFlow.Flujo` | `OperacionesAPI.MesaAPI` | `flujo` |
+| `CashFlow.Movimientos` | `OperacionesAPI.FlujosAPI` | `movimientos` |
+| `Valuaciones.Carteras` | `PortfolioAPI.CarterasAPI` | `carteras` |
+| `Valuaciones.AuM` | `PortfolioAPI.AumAPI` | `aum` |
+| `Valuaciones.Assets` | `TitulosAPI.AssetsAPI` | `assets` |
+| `Trading.Curvas` + `Trading.BondsMaster` | `TitulosAPI.ValuacionesAPI` | `flujos-titulos` |
 
-### Esquema unificado Cuentas (AccionistasAPI / ContrapartesAPI)
+## Lógica de Negocio (consolidada)
 
-Ambas colecciones comparten: `cuenta` (str, original), `id_cuenta` (str, numérico), `nombre` (str), `grupo` (str).
+### 1. Valuación AuM
 
-### Testing
+Fórmula por tipo (`jobs/aum.py`, también en `dashboard/services/` legacy):
 
-`python -m scripts.test_api [URL]` — prueba todos los endpoints (28 casos) con filtros de ejemplo.
+- **Renta fija** (`Títulos Públicos`, `Letras`, `ONs`, `Fideicomisos`, `CPD`) → `cantidad × precio / 100`
+- **FCI / OTROS** → `cantidad × precio`
+- **Futuros** → `(precio + 1) × cantidad`
+
+Constante: `TIPOS_DIVISOR_100 = {Títulos Públicos, Letras, ONs, Fideicomisos, CPD}`.
+
+### 2. Breakevens
+
+Fórmulas (`engines/breakevens.py`):
+- `retorno = (1+TEM)^(días/30) - 1`
+- `inflacion = (1+retorno) × (paridad/100) - 1`
+- `breakeven = (1+inflacion)^(30/días) - 1`
+
+Emparejamiento: cada Lecap con el CER de vencimiento más cercano (máx 60 días de diferencia).
+
+### 3. Simulador Breakevens
+
+P&L relativo **CER vs Lecap** bajo escenarios de inflación mensual flat:
+- Settlement T+1; CER liq = settlement − 10 días hábiles.
+- `ret_lecap = flujo_vencimiento / precio_lecap − 1`.
+- `CER_proy = cer_liq × (1 + infl)^meses` → `flujo_pesos = monto_VN × CER_proy / cer_emision`.
+- `ret_cer = Σ flujo_pesos / precio_cer − 1` → `P&L = ret_cer − ret_lecap` (bps).
+
+### 4. Forwards
+
+Fórmula: `((1 + TEA_B)^t_B / (1 + TEA_A)^t_A)^(1/(t_B - t_A)) - 1`.
+Requiere TEA en TimeSales (escrito por `engines/curvas.py`, lag ~5s aceptable).
+Matriz NxN por curva re-escrita cada 30s en `Trading.ForwardsLive`; snapshot diario en `Trading.ForwardsHistorico`.
+
+### 5. Flujo vs AuM
+
+`CashFlow.Contrapartes` (`segmento=="Fondos"`) → lista fondos → `Valuaciones.Assets` (`CARTERA=="CARTERA FCI"`) → `unidad` → `Valuaciones.AuM` (`$group` server-side).
+En paralelo: `CashFlow.Flujo` filtrado por `contraparte ∈ fondos` y `moneda=="ARS"`.
+
+### 6. AuM FCI — pipeline
+
+```
+Valuaciones.AuMResumenFCI (rollup, 1 doc/fecha)  ← job aum_resumen_fci.py
+Valuaciones.AuM raw (drill-down por fecha)
+Assets.CARTERA=='CARTERA FCI'
+```
+
+### 7. AuM Tasa Fija / CER — join chain
+
+`Trading.Curvas` (`curva=='tasa_fija'`) → `ticker_corto` → `Valuaciones.Assets` (`TICKER==ticker_corto`) → `unidad` → `Valuaciones.AuM`. Idem con `curva=='cer'`.
+
+Para agregar instrumento: insertar doc en `Trading.Curvas` + doc en `Valuaciones.Assets` con `TICKER == ticker_corto`.
+
+### 8. Cash Flow — filtros
+
+1. Rango fecha
+2. `unidad ∈ monedas_sel`
+3. Filtro accionistas: `"Todas"` / `"Sin accionistas"` / `"Solo accionistas"` (agrupa por `CashFlow.Accionistas`) / `"Solo cooperativas"` (regex `\bcoop`, excluye accionistas)
+
+### 9. Portfolios Reportes — dataflow
+
+- Mes actual: `Valuaciones.Carteras` (último snapshot Aunesa, valuación recalculada con regla 1)
+- Mes anterior: `Valuaciones.CarterasII` (snapshot manual primer día hábil mes anterior, `valuacion` pre-calc)
+- Benchmarks: `Valuaciones.Benchmarks` — `(periodo, benchmark)` → `mensual`, `acumulado`. `benchmark` ∈ `{"Badlar", "A3500", "Inflacion"}`, `periodo`: `"mmm-aa"`.
+- Rendimientos: `Valuaciones.Rendimientos` — `(id_cuenta, periodo)` → `rendimiento_ars`, `rendimiento_usd`, `rendimiento_carteraars`. Carga manual.
 
 ## Colecciones de referencia
 
@@ -628,43 +465,26 @@ Ambas colecciones comparten: `cuenta` (str, original), `id_cuenta` (str, numéri
 - **`TAMAR`** — BCRA id=44.
 - **`DOLAR`** — A3500, BCRA id=5.
 - **`BADLAR`** — BCRA id=7.
-- **`Curvas`** — Definición estática de renta fija. `ticker`, `ticker_corto`, `tipo`, `curva` (tasa_fija/cer), `fecha_vencimiento`, `fecha_emision`, `flujo_vencimiento`, `valor_nominal`, `cupon_anual`, `cer_emision`, `flujos[]`. Cargada manualmente.
-- **`DiasHabiles`** — Calendario hábil argentino. Generado por `jobs/dias_habiles.py` una vez por año.
+- **`Curvas`** — Definición estática renta fija. `ticker`, `ticker_corto`, `tipo`, `curva` (tasa_fija/cer), `fecha_vencimiento`, `fecha_emision`, `flujo_vencimiento`, `valor_nominal`, `cupon_anual`, `cer_emision`, `flujos[]`. Cargada manualmente.
+- **`DiasHabiles`** — Calendario hábil argentino. `jobs/dias_habiles.py` una vez por año.
 
 ### Valuaciones
-- **`Carteras`** — Último snapshot Aunesa por cuenta. Clave `(id_cuenta, unidad)`.
-- **`CarterasII`** — Snapshot manual primer día hábil del mes anterior. Sincronizado al final de `jobs/aum.py` y `jobs/aum_backfill.py`. Campo `valuacion` pre-calculado.
-- **`AuM`** — Snapshot diario por `(id_cuenta, unidad, fecha_snapshot)`.
-- **`AuMResumenFCI`** — Rollup 1 doc por `fecha_snapshot` con `unidades[].{unidad, valuacion_total}`. Alimentado por `jobs/aum_resumen_fci.py`.
-- **`Assets`** — Metadata de activos por `unidad`. Campos: `CARTERA`, `EMISOR`, `TICKER`, `CLASE_ACTIVO`, `CALIFICACION`, `VENCIMIENTO`. Unique index en `unidad`.
-- **`Dolar`** — Snapshot MEP intradía. `timestamp`, `mep`, etc.
-- **`Benchmarks`** — carga manual. `(periodo, benchmark)` → `mensual`, `acumulado`.
-- **`Rendimientos`** — carga manual. `(id_cuenta, periodo)` → tres rendimientos.
+- **`Carteras`** — Último snapshot Aunesa. Clave `(id_cuenta, unidad)`.
+- **`CarterasII`** — Snapshot manual primer día hábil mes anterior. `valuacion` pre-calculado.
+- **`AuM`** — Snapshot diario `(id_cuenta, unidad, fecha_snapshot)`.
+- **`AuMResumenFCI`** — Rollup 1 doc/`fecha_snapshot` con `unidades[].{unidad, valuacion_total}`.
+- **`Assets`** — Metadata por `unidad`: `CARTERA`, `EMISOR`, `TICKER`, `CLASE_ACTIVO`, `CALIFICACION`, `VENCIMIENTO`. Unique index en `unidad`.
+- **`Dolar`** — Snapshot MEP intradía.
+- **`Benchmarks`** / **`Rendimientos`** — carga manual (ver sección Portfolios).
 
-### CashFlow.Flujo
-
-Campos: `boleto`, `concertacion`, `tipoOperacion`, `cuenta`, `denominacion`, `instrumento`, `condiciones`, `bruto`, `segmento`, `contraparte`, `moneda`.
-
-- `segmento` = segmento de mercado Aunesa (ej: "SENEBI", "MAE"). Distinto del `segmento` de Contrapartes.
-- `contraparte` sobreescrito con nombre de `CashFlow.Contrapartes`.
-- `boleto` = clave única (partial index sobre `$type: int`).
-- Tipos excluidos: "Concurrencia - Caución colocadora (Apertura/Cierre)", "Futuros Financieros - Compra/Venta".
-
-### CashFlow.Contrapartes
-
-- `contraparte`: clave de join con `Flujo.contraparte`.
-- `cuenta`: número en Aunesa (int, string, o CUIT). Puede haber múltiples docs por contraparte.
-- `denominacion`: nombre legal.
-- `segmento`: "Fondos" / "ALYC" / "Bancos". Asignado por `jobs/segmento_contrapartes.py`.
-
-### CashFlow.Accionistas y Cooperativas
-
-- **`CashFlow.Accionistas`**: colección manual con `{cuenta, accionista}`. Permite consolidar múltiples comitentes de un mismo accionista bajo un nombre único (ej. varios comitentes → "LA SEGUNDA"). Usada en el filtro de Cash Flow.
-- **Cooperativas**: sin colección propia. Auto-detectadas en runtime por regex `\bcoop` case-insensitive (`services/operaciones.py::es_cooperativa`), excluyendo cuentas que estén en `Accionistas`. Filtro "Solo cooperativas" en Cash Flow.
+### CashFlow
+- **`Flujo`** — Campos: `boleto` (clave única partial int), `concertacion`, `tipoOperacion`, `cuenta`, `denominacion`, `instrumento`, `condiciones`, `bruto`, `segmento` (de mercado Aunesa, distinto del `segmento` de Contrapartes), `contraparte`, `moneda`.
+- **`Contrapartes`** — `contraparte` (join con Flujo), `cuenta`, `denominacion`, `segmento` ("Fondos"/"ALYC"/"Bancos").
+- **`Accionistas`** — manual. `{cuenta, accionista}`. Consolida múltiples comitentes bajo un nombre.
 
 ## MongoDB Índices
 
-Definidos en `scripts/crear_indices.py` (idempotente, soporta `unique` + `partialFilterExpression`). Ejecutar en servidor nuevo o al agregar colecciones (`python -m scripts.crear_indices`).
+Definidos en `scripts/crear_indices.py` (idempotente).
 
 | Colección | Índice |
 |---|---|
@@ -683,27 +503,18 @@ Definidos en `scripts/crear_indices.py` (idempotente, soporta `unique` + `partia
 | `CashFlow.Movimientos` | `fecha` |
 | `Opciones.DataHistorica` | `fecha`, `(symbol, fecha)` |
 
-## Notas técnicas importantes
+## Notas técnicas
 
-- **MongoClient**: nunca llamar `client.close()`. Es un singleton compartido; cerrarlo mata el pool de Streamlit y tira `InvalidOperation` en todas las queries subsiguientes.
-- **Dos clientes MongoDB**: `get_mongo_client()` (read-write) para motores y Manager. `get_mongo_client_read()` (read-only, `SECONDARY_PREFERRED`) para todas las vistas del dashboard. Ambos usan `serverSelectionTimeoutMS=30000` para tolerar elecciones en el cluster M10. Fallback a `MONGO_URI` si `MONGO_URI_READ` no está definido.
-- **Regla repos/services/views**: toda query nueva a Mongo del dashboard va en `repos/<vista>.py`; toda lógica nueva sobre DataFrames en `services/<vista>.py`; la view solo orquesta. No regresar al patrón de queries inline.
-- **`@st.cache_resource` para objetos DB**: `dashboard/shared/db.py` usa `cache_resource` porque `Database` no es serializable. Los loaders usan `cache_data`.
-- **`parallel(*fns)` (`repos/aum.py`)**: ejecuta loaders cacheados sin args con `ThreadPoolExecutor`. Seguro con `@st.cache_data` (es thread-safe). Se usa para solapar 3–4 queries independientes en la vista AuM.
-- **Cloudflare Access header**: `Cf-Access-Authenticated-User-Email` — solo presente cuando el request pasa por Cloudflare Access. En local el header no existe y `MANAGER_EMAILS` vacío permite acceso.
-- **Altair v4 pie labels**: usar `mark_text(radius=N, color="white")` dentro del arco.
-- **Altair eje X duplicado en barras mensuales**: usar `strftime` para agrupar como string + encoding `:O` con `sort=` explícito.
-- **Altair fontWeight**: entero (`fontWeight=600`), no string.
-- **Valuación AuM**: recalculada en la vista/services. `TIPOS_DIVISOR_100 = {Títulos Públicos, Letras, ONs, Fideicomisos, CPD}`.
-- **CashFlow DB**: se llama `CashFlow` (sin espacio). Depósitos positivos, extracciones negativas.
-- **Enriquecimiento CER**: el CER usado depende de la fecha de settlement del trade (T-10 días hábiles). Si un bono no opera un día, su último trade enriquecido puede usar el CER de ayer.
-- **En el servidor**: siempre usar `/root/TradingAV/venv/bin/python`.
-- **Ejecución siempre desde la raíz**: todos los entrypoints usan `python -m <módulo>` con `cwd=/root/TradingAV`. Ejecutar `python engines/valores.py` falla porque `core`, `jobs`, etc. no son discoverables con el working dir en `engines/`.
-- **CI ruff**: GitHub Actions corre `ruff check` en cada push. Los errores más comunes en este repo: `F401` (import no usado — típicamente queda después de mover código a repos/services) y `F821` (nombre no definido — suele ser un `datetime`/`timedelta` que se removió al limpiar imports).
+- **MongoClient**: nunca llamar `client.close()`. Singleton compartido; cerrarlo mata el pool.
+- **Dos clientes MongoDB**: `get_mongo_client()` (read-write) para motores y jobs. `get_mongo_client_read()` (`SECONDARY_PREFERRED`) para la API. `serverSelectionTimeoutMS=30000` para tolerar elecciones en M10.
+- **Ejecución siempre desde la raíz**: `python -m <módulo>` con `cwd=/root/TradingAV`. `python engines/valores.py` falla porque `core` no es discoverable.
+- **En el servidor**: siempre `/root/TradingAV/venv/bin/python`.
+- **Enriquecimiento CER**: el CER usado depende del settlement del trade (T-10 días hábiles). Si un bono no opera un día, su último trade puede usar el CER de ayer.
+- **CashFlow DB**: nombre `CashFlow` (sin espacio). Depósitos positivos, extracciones negativas.
+- **ruff errores comunes**: `F401` (import no usado tras mover código) y `F821` (nombre no definido — suele ser `datetime`/`timedelta` removido al limpiar imports).
 
 ## Pendientes
 
-- [ ] **(2026-04-16)** Cron para sincronizar colecciones API automáticamente. `flujos-titulos` necesita re-sync periódico porque `valor_residual_actual_pct` de BondsMaster se calcula en base a la fecha actual (cambia cuando pasa una amortización). Evaluar si otras migraciones (carteras, aum, assets) también necesitan cron o si alcanzan con sync manual.
-- [ ] **(2026-04-16)** Borrar DB huérfana `CarterasAPI` de Atlas (fue renombrada a `PortfolioAPI`).
-- [x] **(2026-04-16)** Levantar uvicorn como servicio en el Droplet → `deploy/systemd/api.service`.
-- [x] **(2026-04-16)** Auth para la API: API Key via `Authorization: Bearer <key>` + Cloudflare Tunnel.
+- [ ] **(2026-04-16)** Cron para sincronizar colecciones API automáticamente. `flujos-titulos` necesita re-sync periódico (el campo `valor_residual_actual_pct` de BondsMaster cambia con cada amortización).
+- [ ] **(2026-04-16)** Borrar DB huérfana `CarterasAPI` de Atlas (renombrada a `PortfolioAPI`).
+- [ ] **(2026-04-17)** Migrar vistas restantes de Streamlit a acaquant-web (operaciones, portfolios, aum).

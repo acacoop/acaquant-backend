@@ -84,13 +84,16 @@ def fci_serie(
     """
     db_v = get_db_valuaciones()
 
+    # fecha_snapshot se almacena como string "YYYY-MM-DD" (jobs/aum_resumen_fci.py).
+    # Los strings ISO ordenan lexicográficamente, así que $gte/$lte sobre string
+    # funciona para rangos de fechas.
     filtro: dict = {}
     if desde or hasta:
         rango: dict = {}
         if desde:
-            rango["$gte"] = datetime.strptime(desde, "%Y-%m-%d")
+            rango["$gte"] = desde
         if hasta:
-            rango["$lte"] = datetime.strptime(hasta, "%Y-%m-%d")
+            rango["$lte"] = hasta
         filtro["fecha_snapshot"] = rango
 
     cursor = db_v["AuMResumenFCI"].find(filtro, {"_id": 0}).sort("fecha_snapshot", 1)

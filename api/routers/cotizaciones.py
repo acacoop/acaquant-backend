@@ -296,6 +296,56 @@ def opciones_update_tasa(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/historico/curva")
+@cached(ttl=300)
+def historico_curva(
+    curva: str = Query(..., description="tasa_fija / cer"),
+):
+    """Serie diaria por ticker de una curva: último precio + TEA/TEM/duration/paridad por día.
+
+    Fuente: Trading.TimeSales (con enriquecimiento de engines.curvas). La lista de
+    tickers a consultar sale de Trading.Curvas filtrada por `curva`.
+    Formato: [{fecha, ticker, price, TEA, TEM, duration, paridad}].
+    """
+    db = get_db_trading()
+    meta = {
+        d["ticker"]: d.get("ticker_corto") or d["ticker"]
+        for d in db["Curvas"].find({"curva": curva}, {"ticker": 1, "ticker_corto": 1})
+    }
+    if not meta:
+        return []
+
+    pipeline = [
+        {"$match": {"ticker": {"$in": list(meta.keys())}, "price": {"$gt": 0}}},
+        {"$sort": {"timestamp": -1}},
+        {"$group": {
+            "_id": {
+                "ticker": "$ticker",
+                "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
+            },
+            "price": {"$first": "$price"},
+            "TEA": {"$first": "$TEA"},
+            "TEM": {"$first": "$TEM"},
+            "duration": {"$first": "$duration"},
+            "paridad": {"$first": "$paridad"},
+        }},
+        {"$sort": {"_id.fecha": 1, "_id.ticker": 1}},
+    ]
+    out = []
+    for r in db["TimeSales"].aggregate(pipeline):
+        t_full = r["_id"]["ticker"]
+        out.append({
+            "fecha": r["_id"]["fecha"],
+            "ticker": meta.get(t_full, t_full),
+            "price": r.get("price"),
+            "TEA": r.get("TEA"),
+            "TEM": r.get("TEM"),
+            "duration": r.get("duration"),
+            "paridad": r.get("paridad"),
+        })
+    return out
+
+
 @router.get("/historico/opciones")
 @cached(ttl=30)
 def historico_opciones(

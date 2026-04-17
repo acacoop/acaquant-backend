@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Query
 
+from api.cache import cached
 from api.deps import get_db_opciones, get_db_trading, get_db_valuaciones
 
 router = APIRouter(prefix="/api/cotizaciones", tags=["Cotizaciones"])
@@ -11,6 +12,7 @@ router = APIRouter(prefix="/api/cotizaciones", tags=["Cotizaciones"])
 # ── Series BCRA (BADLAR, CER, DOLAR) ──
 
 @router.get("/badlar")
+@cached(ttl=3600)
 def listar_badlar(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
@@ -19,6 +21,7 @@ def listar_badlar(
 
 
 @router.get("/cer")
+@cached(ttl=3600)
 def listar_cer(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
@@ -27,6 +30,7 @@ def listar_cer(
 
 
 @router.get("/dolar")
+@cached(ttl=3600)
 def listar_dolar(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
@@ -44,12 +48,17 @@ def _query_serie(collection: str, desde: str | None, hasta: str | None) -> list:
         if hasta:
             rango["$lte"] = hasta
         filtro["fecha"] = rango
-    return list(db[collection].find(filtro, {"_id": 0}))
+    return list(
+        db[collection]
+        .find(filtro, {"_id": 0, "fecha": 1, "valor": 1})
+        .sort("fecha", 1)
+    )
 
 
 # ── Dólar MEP ──
 
 @router.get("/mep")
+@cached(ttl=30)
 def ultimo_mep():
     """Último valor del dólar MEP (Valuaciones.Dolar)."""
     db = get_db_valuaciones()
@@ -63,6 +72,7 @@ def ultimo_mep():
 # ── Forwards Live ──
 
 @router.get("/forwards")
+@cached(ttl=30)
 def listar_forwards(
     curva: str | None = Query(None, description="Filtrar por curva (tasa_fija/cer)"),
 ):
@@ -76,6 +86,7 @@ def listar_forwards(
 # ── Renta Fija (ex Market Snapshot) ──
 
 @router.get("/renta-fija")
+@cached(ttl=5)
 def listar_renta_fija(
     instrumento: str | None = Query(None, description="Filtrar por instrumento (ej: MERV - XMEV - S30A6 - 24hs)"),
 ):
@@ -106,6 +117,7 @@ def listar_renta_fija(
 # ── Breakevens Live ──
 
 @router.get("/breakevens")
+@cached(ttl=30)
 def listar_breakevens():
     db = get_db_trading()
     return list(db["BreakevensLive"].find({}, {"_id": 0}))
@@ -114,6 +126,7 @@ def listar_breakevens():
 # ── Opciones (OptionsSnapshot) ──
 
 @router.get("/opciones")
+@cached(ttl=10)
 def listar_opciones(
     instrumento: str | None = Query(None, description="Filtrar por instrumento (ej: MERV - XMEV - GFGC10950A - 24hs)"),
     tipo: str | None = Query(None, description="Filtrar por tipo (CALL/PUT)"),
@@ -156,6 +169,7 @@ def listar_opciones(
 # ── Histórico ──
 
 @router.get("/historico/forwards")
+@cached(ttl=300)
 def historico_forwards(
     curva: str | None = Query(None, description="Filtrar por curva (tasa_fija/cer)"),
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
@@ -176,6 +190,7 @@ def historico_forwards(
 
 
 @router.get("/historico/breakevens")
+@cached(ttl=300)
 def historico_breakevens(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
@@ -193,6 +208,7 @@ def historico_breakevens(
 
 
 @router.get("/historico/mep")
+@cached(ttl=300)
 def historico_mep(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
@@ -211,6 +227,7 @@ def historico_mep(
 
 
 @router.get("/historico/trades")
+@cached(ttl=15)
 def historico_trades(
     instrumento: str | None = Query(None, description="Filtrar por instrumento (ej: MERV - XMEV - TX26 - 24hs)"),
 ):

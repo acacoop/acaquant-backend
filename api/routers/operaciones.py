@@ -1,12 +1,26 @@
 """Router Operaciones: endpoints para MesaAPI (flujo contrapartes) y FlujosAPI (movimientos)."""
 from fastapi import APIRouter, Query
 
+from api.cache import cached
 from api.deps import get_db_operaciones
 
 router = APIRouter(prefix="/api/operaciones", tags=["Operaciones"])
 
+# Proyección de MesaAPI — solo los campos que consume el frontend.
+_PROJ_FLUJO = {
+    "_id": 0, "boleto": 1, "concertacion": 1, "tipoOperacion": 1,
+    "cuenta": 1, "denominacion": 1, "unidad": 1, "bruto": 1,
+    "segmento": 1, "contraparte": 1, "moneda": 1,
+}
+
+_PROJ_MOVIMIENTOS = {
+    "_id": 0, "boleto": 1, "concertacion": 1, "cuenta": 1,
+    "informacion": 1, "bruto": 1, "unidad": 1,
+}
+
 
 @router.get("/flujo")
+@cached(ttl=300)
 def listar_flujo(
     contraparte: str | None = Query(None, description="Filtrar por contraparte"),
     moneda: str | None = Query(None, description="Filtrar por moneda (ARS/USD)"),
@@ -30,11 +44,11 @@ def listar_flujo(
             rango["$lte"] = hasta
         filtro["concertacion"] = rango
 
-    docs = list(db["MesaAPI"].find(filtro, {"_id": 0}))
-    return docs
+    return list(db["MesaAPI"].find(filtro, _PROJ_FLUJO).sort("concertacion", 1))
 
 
 @router.get("/flujos")
+@cached(ttl=300)
 def listar_flujos(
     cuenta: str | None = Query(None, description="Filtrar por cuenta (formato [N] NOMBRE)"),
     unidad: str | None = Query(None, description="Filtrar por moneda (ARS/USD)"),
@@ -55,5 +69,4 @@ def listar_flujos(
             rango["$lte"] = hasta
         filtro["concertacion"] = rango
 
-    docs = list(db["FlujosAPI"].find(filtro, {"_id": 0}))
-    return docs
+    return list(db["FlujosAPI"].find(filtro, _PROJ_MOVIMIENTOS).sort("concertacion", 1))

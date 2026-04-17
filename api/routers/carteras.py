@@ -3,12 +3,23 @@ from datetime import datetime
 
 from fastapi import APIRouter, Query
 
+from api.cache import cached
 from api.deps import get_db_portfolio, get_db_titulos, get_db_valuaciones
 
 router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
 
+_PROJ_CARTERAS = {
+    "_id": 0, "id_cuenta": 1, "unidad": 1, "cantidad": 1,
+    "precio": 1, "timestamp": 1,
+}
+_PROJ_AUM = {
+    "_id": 0, "fecha": 1, "id_cuenta": 1, "unidad": 1,
+    "cantidad": 1, "cuenta": 1, "precio": 1, "valuacion": 1,
+}
+
 
 @router.get("/carteras")
+@cached(ttl=300)
 def listar_carteras(
     id_cuenta: str | None = Query(None, description="Filtrar por id de cuenta"),
     unidad: str | None = Query(None, description="Filtrar por unidad/instrumento"),
@@ -20,11 +31,11 @@ def listar_carteras(
     if unidad:
         filtro["unidad"] = unidad
 
-    docs = list(db["CarterasAPI"].find(filtro, {"_id": 0}))
-    return docs
+    return list(db["CarterasAPI"].find(filtro, _PROJ_CARTERAS))
 
 
 @router.get("/aum")
+@cached(ttl=300)
 def listar_aum(
     id_cuenta: str | None = Query(None, description="Filtrar por id de cuenta"),
     unidad: str | None = Query(None, description="Filtrar por unidad/instrumento"),
@@ -58,7 +69,7 @@ def listar_aum(
             rango["$lte"] = datetime.strptime(hasta, "%Y-%m-%d")
         filtro["fecha"] = rango
 
-    return list(db["AumAPI"].find(filtro, {"_id": 0}))
+    return list(db["AumAPI"].find(filtro, _PROJ_AUM))
 
 
 def _fci_assets_map() -> dict[str, dict]:
@@ -73,6 +84,7 @@ def _fci_assets_map() -> dict[str, dict]:
 
 
 @router.get("/fci-serie")
+@cached(ttl=300)
 def fci_serie(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
@@ -122,6 +134,7 @@ def fci_serie(
 
 
 @router.get("/fci-snapshot")
+@cached(ttl=300)
 def fci_snapshot(fecha: str = Query(..., description="Fecha snapshot (YYYY-MM-DD)")):
     """Snapshot FCI en una fecha: detalle por unidad/emisor/cuenta.
 

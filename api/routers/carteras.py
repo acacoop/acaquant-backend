@@ -190,6 +190,63 @@ def resumen_portfolio(
     return {"cuentas": cuentas, "mes_actual": mes_actual}
 
 
+@router.get("/detalle")
+@cached(ttl=300)
+def detalle_portfolio(
+    id_cuenta: str = Query(..., description="id_cuenta de la cuenta a consultar"),
+):
+    """Posiciones individuales de una cuenta, enriquecidas con AssetsAPI.
+
+    Devuelve cada posición con ticker, emisor, clase_activo, cartera,
+    calificacion, vencimiento, cantidad, precio, valuacion y pct_share.
+    """
+    db_p = get_db_portfolio()
+    assets = _assets_enrich_map()
+
+    # Enrich map completo (ticker, emisor, calificacion, vencimiento)
+    db_t = get_db_titulos()
+    assets_full: dict[str, dict] = {
+        d["unidad"]: d
+        for d in db_t["AssetsAPI"].find({}, {"_id": 0})
+        if d.get("unidad")
+    }
+
+    posiciones = []
+    total = 0.0
+
+    for d in db_p["CarterasAPI"].find(
+        {"id_cuenta": id_cuenta},
+        {"_id": 0, "unidad": 1, "cantidad": 1, "precio": 1},
+    ):
+        cant = float(d.get("cantidad") or 0)
+        px = float(d.get("precio") or 0)
+        unidad = d.get("unidad", "")
+        enrich = assets.get(unidad, {})
+        full = assets_full.get(unidad, {})
+        cartera = enrich.get("cartera", "OTROS")
+        clase = enrich.get("clase_activo", "")
+        val = _valuacion_api(cant, px, cartera, clase)
+        total += val
+        posiciones.append({
+            "unidad": unidad,
+            "ticker": full.get("ticker") or unidad,
+            "emisor": full.get("emisor") or "-",
+            "clase_activo": clase or "-",
+            "cartera": cartera,
+            "calificacion": full.get("calificacion") or "-",
+            "vencimiento": full.get("vencimiento"),
+            "cantidad": round(cant, 6),
+            "precio": round(px, 6),
+            "valuacion": round(val, 2),
+        })
+
+    posiciones.sort(key=lambda p: (p["cartera"], -p["valuacion"]))
+    for p in posiciones:
+        p["pct"] = round(p["valuacion"] / total * 100, 2) if total > 0 else 0.0
+
+    return {"posiciones": posiciones, "total": round(total, 2)}
+
+
 @router.get("/fci-serie")
 @cached(ttl=300)
 def fci_serie(

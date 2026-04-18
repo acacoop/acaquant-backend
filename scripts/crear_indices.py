@@ -14,10 +14,14 @@ from core.mongo import get_mongo_client
 def main():
     client = get_mongo_client()
 
-    trading    = client["Trading"]
-    valuaciones = client["Valuaciones"]
-    cashflow   = client["CashFlow"]
-    opciones   = client["Opciones"]
+    trading         = client["Trading"]
+    valuaciones     = client["Valuaciones"]
+    cashflow        = client["CashFlow"]
+    opciones        = client["Opciones"]
+    cuentas_api     = client["CuentasAPI"]
+    operaciones_api = client["OperacionesAPI"]
+    portfolio_api   = client["PortfolioAPI"]
+    titulos_api     = client["TitulosAPI"]
 
     indices = [
         # ── Trading.TimeSales ─────────────────────────────────────────────
@@ -102,6 +106,34 @@ def main():
             "DataHistorica: fecha"),
         (opciones["DataHistorica"], [("symbol", 1), ("fecha", -1)],
             "DataHistorica: symbol + fecha"),
+
+        # ── CuentasAPI (colecciones derivadas consumidas por la API REST) ─
+        (cuentas_api["ContrapartesAPI"], [("grupo", 1)],
+            "ContrapartesAPI: grupo"),
+
+        # ── OperacionesAPI ────────────────────────────────────────────────
+        (operaciones_api["MesaAPI"], [("contraparte", 1), ("moneda", 1)],
+            "MesaAPI: contraparte + moneda"),
+        (operaciones_api["MesaAPI"], [("concertacion", -1)],
+            "MesaAPI: concertacion"),
+
+        # ── PortfolioAPI ──────────────────────────────────────────────────
+        (portfolio_api["AumAPI"], [("fecha", -1)],
+            "AumAPI: fecha"),
+        (portfolio_api["AumAPI"], [("unidad", 1), ("fecha", -1)],
+            "AumAPI: unidad + fecha"),
+        (portfolio_api["CarterasAPI"], [("id_cuenta", 1), ("unidad", 1)],
+            "CarterasAPI: id_cuenta + unidad"),
+
+        # ── TitulosAPI ────────────────────────────────────────────────────
+        (titulos_api["AssetsAPI"], [("cartera", 1)],
+            "AssetsAPI: cartera"),
+        (titulos_api["AssetsAPI"], [("emisor", 1), ("cartera", 1)],
+            "AssetsAPI: emisor + cartera"),
+        (titulos_api["ValuacionesAPI"], [("curva", 1)],
+            "ValuacionesAPI: curva"),
+        (titulos_api["ValuacionesAPI"], [("ticker", 1)],
+            "ValuacionesAPI: ticker"),
     ]
 
     print(f"Creando {len(indices)} índices...\n")

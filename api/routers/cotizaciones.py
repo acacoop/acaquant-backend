@@ -242,6 +242,7 @@ def historico_trades(
     pipeline = [
         {"$match": filtro},
         {"$sort": {"timestamp": -1}},
+        {"$limit": 10000},
         {"$project": {
             "_id": 0,
             "instrumento": "$ticker",
@@ -364,6 +365,7 @@ def historico_opciones(
     pipeline = [
         {"$match": filtro},
         {"$sort": {"timestamp": -1}},
+        {"$limit": 5000},
         {"$project": {
             "_id": 0,
             "instrumento": "$symbol",

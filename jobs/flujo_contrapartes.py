@@ -65,11 +65,7 @@ def main():
     col_contrapartes = client["CashFlow"]["Contrapartes"]
     col_flujo        = client["CashFlow"]["Flujo"]
 
-    # ── 1. Borrar docs de hoy ─────────────────────────────────────────────────
-    del_result = col_flujo.delete_many({"concertacion": hoy})
-    print(f"🗑️  {del_result.deleted_count} docs de hoy eliminados\n")
-
-    # ── 2. Auth ───────────────────────────────────────────────────────────────
+    # ── 1. Auth (delete se hace al final, solo si el fetch es exitoso) ───────
     print("Autenticando...")
     headers = autenticar()
     print("Auth OK\n")
@@ -141,9 +137,11 @@ def main():
             print(f"  [{cuenta_id}] {cp} → ERROR: {e}")
 
     # ── 5. Upsert ─────────────────────────────────────────────────────────────
-    # Duplicados por boleto se previenen con índice único parcial
-    # (ver scripts/crear_indices.py: Flujo.boleto unique partial).
+    # El delete se hace AQUÍ (después del fetch exitoso) para evitar pérdida de datos
+    # si el fetch de Aunesa falla: si no hay registros, los docs existentes se preservan.
     if registros:
+        del_result = col_flujo.delete_many({"concertacion": hoy})
+        print(f"🗑️  {del_result.deleted_count} docs de hoy eliminados")
         ops = []
         for r in registros.values():
             boleto = r.get("boleto")
@@ -152,9 +150,9 @@ def main():
             else:
                 ops.append(InsertOne(r))
         col_flujo.bulk_write(ops, ordered=False)
-        print(f"\n✅ {len(registros)} documentos procesados para {hoy}")
+        print(f"✅ {len(registros)} documentos procesados para {hoy}")
     else:
-        print(f"\n⚠️  Sin operaciones para insertar en {hoy}")
+        print(f"\n⚠️  Sin operaciones para insertar en {hoy} — docs existentes preservados")
 
 
 

@@ -1,6 +1,7 @@
 """Router Operaciones: endpoints para MesaAPI (flujo contrapartes) y FlujosAPI (movimientos)."""
 import logging
-from datetime import datetime
+import threading
+import time
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -13,6 +14,12 @@ from api.deps import (
 )
 
 logger = logging.getLogger("api.operaciones")
+
+# Cache in-process para helpers sin parámetros (datos que cambian ≤1 vez/semana)
+_fondos_cache_data: list | None = None
+_fondos_cache_ts: float = 0.0
+_fondos_lock = threading.Lock()
+_FONDOS_TTL = 600
 
 router = APIRouter(prefix="/api/operaciones", tags=["Operaciones"])
 
@@ -85,7 +92,16 @@ def listar_flujos(
 # ── Flujo vs AUM (solo Fondos) ──
 
 def _fondos_emisores() -> list[str]:
-    """Lista de emisores de CashFlow con grupo=Fondos que tienen al menos un asset FCI."""
+    """Lista de emisores de CashFlow con grupo=Fondos que tienen al menos un asset FCI.
+
+    Cacheado 10 min en proceso — estos datos cambian como mucho una vez por semana.
+    """
+    global _fondos_cache_data, _fondos_cache_ts
+    now = time.time()
+    with _fondos_lock:
+        if _fondos_cache_data is not None and now < _fondos_cache_ts:
+            return _fondos_cache_data
+
     db_cu = get_db_cuentas()
     fondos_cu = {
         d["nombre"]
@@ -94,17 +110,22 @@ def _fondos_emisores() -> list[str]:
         )
         if d.get("nombre")
     }
-    if not fondos_cu:
-        return []
-    db_t = get_db_titulos()
-    emisores_fci = {
-        d["emisor"]
-        for d in db_t["AssetsAPI"].find(
-            {"cartera": "CARTERA FCI"}, {"_id": 0, "emisor": 1}
-        )
-        if d.get("emisor")
-    }
-    return sorted(fondos_cu & emisores_fci)
+    result: list[str] = []
+    if fondos_cu:
+        db_t = get_db_titulos()
+        emisores_fci = {
+            d["emisor"]
+            for d in db_t["AssetsAPI"].find(
+                {"cartera": "CARTERA FCI"}, {"_id": 0, "emisor": 1}
+            )
+            if d.get("emisor")
+        }
+        result = sorted(fondos_cu & emisores_fci)
+
+    with _fondos_lock:
+        _fondos_cache_data = result
+        _fondos_cache_ts = now + _FONDOS_TTL
+    return result
 
 
 @router.get("/fondos")
@@ -118,16 +139,6 @@ def listar_fondos():
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-def _mes_key(value) -> str | None:
-    """Normaliza fecha a 'YYYY-MM'. Acepta datetime, date-like o string YYYY-MM-DD."""
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.strftime("%Y-%m")
-    s = str(value)
-    return s[:7] if len(s) >= 7 else None
-
-
 @router.get("/flujo-vs-aum")
 @cached(ttl=300)
 def flujo_vs_aum(
@@ -136,7 +147,7 @@ def flujo_vs_aum(
 ):
     """Serie mensual de AuM (línea) + flujo operado (barras) para un fondo.
 
-    Agrupación en Python para tolerar docs con fecha null/inválida.
+    Agrupación server-side via $group pipeline para evitar traer docs en bulk.
     """
     try:
         db_t = get_db_titulos()
@@ -152,45 +163,35 @@ def flujo_vs_aum(
         aum: list[dict] = []
         if unidades:
             db_p = get_db_portfolio()
-            docs = db_p["AumAPI"].find(
-                {"unidad": {"$in": unidades}},
-                {"_id": 0, "fecha": 1, "valuacion": 1},
-            )
-            # (mes, fecha_exacta) → suma valuacion; luego por mes tomamos la última fecha
-            por_mes_fecha: dict[tuple[str, datetime], float] = {}
-            for d in docs:
-                mes = _mes_key(d.get("fecha"))
-                if not mes:
-                    continue
-                val = d.get("valuacion")
-                if val is None:
-                    continue
-                key = (mes, d["fecha"])
-                por_mes_fecha[key] = por_mes_fecha.get(key, 0.0) + float(val)
-
-            # Último total del mes (por fecha más reciente dentro del mes)
-            por_mes: dict[str, tuple[datetime, float]] = {}
-            for (mes, fecha), total in por_mes_fecha.items():
-                prev = por_mes.get(mes)
-                if prev is None or fecha > prev[0]:
-                    por_mes[mes] = (fecha, total)
-            aum = [
-                {"mes": mes, "total": total}
-                for mes, (_, total) in sorted(por_mes.items())
+            # Agrupación server-side: suma por fecha → toma la más reciente por mes
+            pipeline_aum = [
+                {"$match": {"unidad": {"$in": unidades}, "valuacion": {"$ne": None}}},
+                {"$group": {"_id": "$fecha", "total": {"$sum": "$valuacion"}}},
+                {"$sort": {"_id": 1}},
+                {"$group": {
+                    "_id": {"$dateToString": {"format": "%Y-%m", "date": "$_id"}},
+                    "total": {"$last": "$total"},
+                }},
+                {"$sort": {"_id": 1}},
+                {"$project": {"_id": 0, "mes": "$_id", "total": 1}},
             ]
+            aum = list(db_p["AumAPI"].aggregate(pipeline_aum))
 
         db_o = get_db_operaciones()
-        docs_flujo = db_o["MesaAPI"].find(
-            {"contraparte": contraparte, "moneda": moneda},
-            {"_id": 0, "concertacion": 1, "bruto": 1},
-        )
-        flujo_map: dict[str, float] = {}
-        for d in docs_flujo:
-            mes = _mes_key(d.get("concertacion"))
-            if not mes:
-                continue
-            flujo_map[mes] = flujo_map.get(mes, 0.0) + float(d.get("bruto") or 0)
-        flujo = [{"mes": m, "bruto": v} for m, v in sorted(flujo_map.items())]
+        pipeline_flujo = [
+            {"$match": {
+                "contraparte": contraparte,
+                "moneda": moneda,
+                "concertacion": {"$type": "string"},
+            }},
+            {"$group": {
+                "_id": {"$substr": ["$concertacion", 0, 7]},
+                "bruto": {"$sum": "$bruto"},
+            }},
+            {"$sort": {"_id": 1}},
+            {"$project": {"_id": 0, "mes": "$_id", "bruto": 1}},
+        ]
+        flujo = list(db_o["MesaAPI"].aggregate(pipeline_flujo))
 
         return {
             "contraparte": contraparte,

@@ -1,10 +1,17 @@
 """Router Portfolio: endpoints para CarterasAPI y AumAPI."""
+import threading
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, Query
 
 from api.cache import cached
 from api.deps import get_db_portfolio, get_db_titulos, get_db_valuaciones
+
+_fci_assets_cache_data: dict | None = None
+_fci_assets_cache_ts: float = 0.0
+_fci_assets_lock = threading.Lock()
+_FCI_ASSETS_TTL = 600
 
 router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
 
@@ -73,14 +80,28 @@ def listar_aum(
 
 
 def _fci_assets_map() -> dict[str, dict]:
-    """Mapea unidad → {emisor, ticker} para unidades con CARTERA=CARTERA FCI."""
+    """Mapea unidad → {emisor, ticker} para unidades con CARTERA=CARTERA FCI.
+
+    Cacheado 10 min en proceso — los assets FCI cambian como mucho mensualmente.
+    """
+    global _fci_assets_cache_data, _fci_assets_cache_ts
+    now = time.time()
+    with _fci_assets_lock:
+        if _fci_assets_cache_data is not None and now < _fci_assets_cache_ts:
+            return _fci_assets_cache_data
+
     db_t = get_db_titulos()
-    docs = db_t["AssetsAPI"].find(
-        {"cartera": "CARTERA FCI"},
-        {"_id": 0, "unidad": 1, "emisor": 1, "ticker": 1},
-    )
-    return {d["unidad"]: {"emisor": d.get("emisor", ""), "ticker": d.get("ticker", "")}
-            for d in docs}
+    result = {
+        d["unidad"]: {"emisor": d.get("emisor", ""), "ticker": d.get("ticker", "")}
+        for d in db_t["AssetsAPI"].find(
+            {"cartera": "CARTERA FCI"},
+            {"_id": 0, "unidad": 1, "emisor": 1, "ticker": 1},
+        )
+    }
+    with _fci_assets_lock:
+        _fci_assets_cache_data = result
+        _fci_assets_cache_ts = now + _FCI_ASSETS_TTL
+    return result
 
 
 @router.get("/fci-serie")
@@ -108,7 +129,7 @@ def fci_serie(
             rango["$lte"] = hasta
         filtro["fecha_snapshot"] = rango
 
-    cursor = db_v["AuMResumenFCI"].find(filtro, {"_id": 0}).sort("fecha_snapshot", 1)
+    cursor = db_v["AuMResumenFCI"].find(filtro, {"_id": 0}).sort("fecha_snapshot", 1).limit(730)
     assets_map = _fci_assets_map()
 
     out = []

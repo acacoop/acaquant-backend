@@ -13,11 +13,9 @@ _fci_assets_cache_ts: float = 0.0
 _fci_assets_lock = threading.Lock()
 _FCI_ASSETS_TTL = 600
 
-_cartera_map_cache: dict | None = None
-_cartera_map_ts: float = 0.0
-_cartera_map_lock = threading.Lock()
-
-TIPOS_DIVISOR_100 = {"Títulos Públicos", "Letras", "ONs", "Fideicomisos", "CPD"}
+_assets_enrich_cache: dict | None = None
+_assets_enrich_ts: float = 0.0
+_assets_enrich_lock = threading.Lock()
 
 router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
 
@@ -110,27 +108,35 @@ def _fci_assets_map() -> dict[str, dict]:
     return result
 
 
-def _assets_cartera_map() -> dict[str, str]:
-    """unidad → CARTERA desde TitulosAPI.AssetsAPI (cacheado 10 min)."""
-    global _cartera_map_cache, _cartera_map_ts
+def _assets_enrich_map() -> dict[str, dict]:
+    """unidad → {cartera, clase_activo} desde TitulosAPI.AssetsAPI (cacheado 10 min)."""
+    global _assets_enrich_cache, _assets_enrich_ts
     now = time.time()
-    with _cartera_map_lock:
-        if _cartera_map_cache is not None and now < _cartera_map_ts:
-            return _cartera_map_cache
+    with _assets_enrich_lock:
+        if _assets_enrich_cache is not None and now < _assets_enrich_ts:
+            return _assets_enrich_cache
     db_t = get_db_titulos()
     result = {
-        d["unidad"]: d.get("cartera") or "OTROS"
-        for d in db_t["AssetsAPI"].find({}, {"_id": 0, "unidad": 1, "cartera": 1})
+        d["unidad"]: {
+            "cartera": d.get("cartera") or "OTROS",
+            "clase_activo": d.get("clase_activo") or "",
+        }
+        for d in db_t["AssetsAPI"].find(
+            {}, {"_id": 0, "unidad": 1, "cartera": 1, "clase_activo": 1}
+        )
         if d.get("unidad")
     }
-    with _cartera_map_lock:
-        _cartera_map_cache = result
-        _cartera_map_ts = now + 600
+    with _assets_enrich_lock:
+        _assets_enrich_cache = result
+        _assets_enrich_ts = now + 600
     return result
 
 
-def _valuacion_carteras(cant: float, px: float, tipo: str) -> float:
-    return cant * px / 100 if tipo in TIPOS_DIVISOR_100 else cant * px
+def _valuacion_api(cant: float, px: float, cartera: str, clase_activo: str) -> float:
+    """Regla de valuación: FCI o clase OTROS → P×Q directo, resto → P×Q/100."""
+    if clase_activo == "OTROS" or "FCI" in cartera:
+        return cant * px
+    return cant * px / 100
 
 
 @router.get("/resumen")
@@ -138,14 +144,13 @@ def _valuacion_carteras(cant: float, px: float, tipo: str) -> float:
 def resumen_portfolio(
     id_cuenta: str | None = Query(None, description="id_cuenta para filtrar breakdown por cartera"),
 ):
-    """Resumen ejecutivo: lista de cuentas + breakdown por CARTERA mes actual y anterior.
+    """Resumen ejecutivo: lista de cuentas + breakdown por CARTERA del mes actual.
 
-    Sin id_cuenta devuelve solo `cuentas`. Con id_cuenta devuelve además
-    `mes_actual` (Valuaciones.Carteras) y `mes_anterior` (Valuaciones.CarterasII).
+    Lee PortfolioAPI.CarterasAPI (mes vigente) + TitulosAPI.AssetsAPI (clasificación).
+    Sin id_cuenta devuelve solo la lista de cuentas.
     """
-    db_v = get_db_valuaciones()
     db_p = get_db_portfolio()
-    assets_map = _assets_cartera_map()
+    assets = _assets_enrich_map()
 
     cuentas = list(db_p["AumAPI"].aggregate([
         {"$sort": {"fecha": -1}},
@@ -155,27 +160,23 @@ def resumen_portfolio(
     ]))
 
     if not id_cuenta:
-        return {"cuentas": cuentas, "mes_actual": {}, "mes_anterior": {}}
+        return {"cuentas": cuentas, "mes_actual": {}}
 
-    def breakdown(col: str) -> dict[str, float]:
-        por_cartera: dict[str, float] = {}
-        for d in db_v[col].find(
-            {"id_cuenta": id_cuenta},
-            {"_id": 0, "unidad": 1, "cantidad": 1, "precio": 1, "tipoTitulo": 1},
-        ):
-            cant = float(d.get("cantidad") or 0)
-            px = float(d.get("precio") or 0)
-            tipo = d.get("tipoTitulo") or ""
-            val = _valuacion_carteras(cant, px, tipo)
-            cartera = assets_map.get(d.get("unidad", ""), "OTROS")
-            por_cartera[cartera] = por_cartera.get(cartera, 0.0) + val
-        return {k: round(v, 2) for k, v in sorted(por_cartera.items()) if v > 0}
+    por_cartera: dict[str, float] = {}
+    for d in db_p["CarterasAPI"].find(
+        {"id_cuenta": id_cuenta},
+        {"_id": 0, "unidad": 1, "cantidad": 1, "precio": 1},
+    ):
+        cant = float(d.get("cantidad") or 0)
+        px = float(d.get("precio") or 0)
+        asset = assets.get(d.get("unidad", ""), {})
+        cartera = asset.get("cartera", "OTROS")
+        clase = asset.get("clase_activo", "")
+        val = _valuacion_api(cant, px, cartera, clase)
+        por_cartera[cartera] = por_cartera.get(cartera, 0.0) + val
 
-    return {
-        "cuentas": cuentas,
-        "mes_actual": breakdown("Carteras"),
-        "mes_anterior": breakdown("CarterasII"),
-    }
+    mes_actual = {k: round(v, 2) for k, v in sorted(por_cartera.items()) if v > 0}
+    return {"cuentas": cuentas, "mes_actual": mes_actual}
 
 
 @router.get("/fci-serie")

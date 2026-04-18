@@ -171,8 +171,9 @@ def resumen_portfolio(
     ]
 
     if not id_cuenta:
-        return {"cuentas": cuentas, "mes_actual": {}}
+        return {"cuentas": cuentas, "mes_actual": {}, "mes_anterior": {}}
 
+    # Mes actual desde CarterasAPI (cantidad × precio con regla valuación)
     por_cartera: dict[str, float] = {}
     for d in db_p["CarterasAPI"].find(
         {"id_cuenta": id_cuenta},
@@ -185,9 +186,21 @@ def resumen_portfolio(
         clase = asset.get("clase_activo", "")
         val = _valuacion_api(cant, px, cartera, clase)
         por_cartera[cartera] = por_cartera.get(cartera, 0.0) + val
-
     mes_actual = {k: round(v, 2) for k, v in sorted(por_cartera.items()) if v > 0}
-    return {"cuentas": cuentas, "mes_actual": mes_actual}
+
+    # Mes anterior desde Valuaciones.CarterasII (valuacion ya pre-calculada por aum.py)
+    db_v = get_db_valuaciones()
+    por_cartera_prev: dict[str, float] = {}
+    for d in db_v["CarterasII"].find(
+        {"id_cuenta": id_cuenta},
+        {"_id": 0, "unidad": 1, "valuacion": 1},
+    ):
+        val = float(d.get("valuacion") or 0)
+        cartera = assets.get(d.get("unidad", ""), {}).get("cartera", "OTROS")
+        por_cartera_prev[cartera] = por_cartera_prev.get(cartera, 0.0) + val
+    mes_anterior = {k: round(v, 2) for k, v in sorted(por_cartera_prev.items()) if v > 0}
+
+    return {"cuentas": cuentas, "mes_actual": mes_actual, "mes_anterior": mes_anterior}
 
 
 @router.get("/detalle")

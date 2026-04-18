@@ -20,9 +20,9 @@
 
 # ─── Sincronización Aunesa → MongoDB (3 veces por día hábil, todas post-resume del cluster)
 # Cada corrida re-sincroniza PortfolioAPI.CarterasAPI para mantener la API fresca.
-35 11 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --carteras >> /root/TradingAV/logs/sync_api.log 2>&1
-0  14 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --carteras >> /root/TradingAV/logs/sync_api.log 2>&1
-0  16 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --carteras >> /root/TradingAV/logs/sync_api.log 2>&1
+35 11 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --carteras --assets >> /root/TradingAV/logs/sync_api.log 2>&1
+0  14 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --carteras --assets >> /root/TradingAV/logs/sync_api.log 2>&1
+0  16 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --carteras --assets >> /root/TradingAV/logs/sync_api.log 2>&1
 
 # ─── Volatilidad GGAL (al cierre)
 0 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.volatilidad_ggal >> /root/TradingAV/logs/vr_ggal.log 2>&1
@@ -44,7 +44,7 @@
 
 # ─── AuM snapshot al cierre (23:00 UTC = 20:00 ART, L-V)
 # Chainea sync a PortfolioAPI.AumAPI + TitulosAPI.ValuacionesAPI (residual cambia con fecha).
-0 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos >> /root/TradingAV/logs/sync_api.log 2>&1
+0 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets >> /root/TradingAV/logs/sync_api.log 2>&1
 
 # ─── Rollup diario de opciones (20:15 UTC = 17:15 ART, L-V)
 15 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.options_rollup >> /root/TradingAV/logs/options_rollup.log 2>&1

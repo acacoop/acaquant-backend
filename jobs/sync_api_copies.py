@@ -10,17 +10,19 @@ migración respectiva:
 
     python -m jobs.sync_api_copies --aum           # Valuaciones.AuM        → PortfolioAPI.AumAPI
     python -m jobs.sync_api_copies --carteras      # Valuaciones.Carteras   → PortfolioAPI.CarterasAPI
+    python -m jobs.sync_api_copies --assets        # Valuaciones.Assets     → TitulosAPI.AssetsAPI
     python -m jobs.sync_api_copies --flujo         # CashFlow.Flujo         → OperacionesAPI.MesaAPI
     python -m jobs.sync_api_copies --movimientos   # CashFlow.Movimientos   → OperacionesAPI.FlujosAPI
     python -m jobs.sync_api_copies --titulos       # Trading.Curvas+Bonds   → TitulosAPI.ValuacionesAPI
     python -m jobs.sync_api_copies --all           # todas (modo backfill)
-    python -m jobs.sync_api_copies --all-dashboard # las 5 que consume el dashboard
+    python -m jobs.sync_api_copies --all-dashboard # las 6 que consume el dashboard
 """
 import argparse
 import time
 import traceback
 
 from scripts.api_migrate import (
+    migrate_assets,
     migrate_aum,
     migrate_carteras,
     migrate_flujo,
@@ -29,11 +31,12 @@ from scripts.api_migrate import (
 )
 
 TASKS = {
-    "aum":         ("Valuaciones.AuM → PortfolioAPI.AumAPI",           migrate_aum),
-    "carteras":    ("Valuaciones.Carteras → PortfolioAPI.CarterasAPI", migrate_carteras),
-    "flujo":       ("CashFlow.Flujo → OperacionesAPI.MesaAPI",         migrate_flujo),
-    "movimientos": ("CashFlow.Movimientos → OperacionesAPI.FlujosAPI", migrate_movimientos),
+    "aum":         ("Valuaciones.AuM → PortfolioAPI.AumAPI",            migrate_aum),
+    "carteras":    ("Valuaciones.Carteras → PortfolioAPI.CarterasAPI",  migrate_carteras),
+    "flujo":       ("CashFlow.Flujo → OperacionesAPI.MesaAPI",          migrate_flujo),
+    "movimientos": ("CashFlow.Movimientos → OperacionesAPI.FlujosAPI",  migrate_movimientos),
     "titulos":     ("Trading.Curvas+Bonds → TitulosAPI.ValuacionesAPI", migrate_flujos_titulos),
+    "assets":      ("Valuaciones.Assets → TitulosAPI.AssetsAPI",        migrate_assets),
 }
 
 

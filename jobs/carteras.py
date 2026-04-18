@@ -40,22 +40,35 @@ def obtener_fechas_habiles():
 
 def sincronizar_assets(df):
     """
-    Sincroniza las unidades de Carteras hacia Assets (upsert bulk).
-    Asume índice único en Valuaciones.Assets.unidad (ver scripts/crear_indices.py).
+    Sincroniza las unidades nuevas de Carteras hacia TitulosAPI.AssetsAPI (fuente de verdad).
+    No pisa valores existentes — $ifNull solo completa campos vacíos.
     """
     client = get_mongo_client()
-    collection = client["Valuaciones"]["Assets"]
+    collection = client["TitulosAPI"]["AssetsAPI"]
 
     unidades = [u for u in df["unidad"].dropna().unique().tolist() if u]
     if not unidades:
         return 0, 0
 
-    ops = [
-        UpdateOne({"unidad": u}, {"$setOnInsert": {"unidad": u}}, upsert=True)
-        for u in unidades
-    ]
-    result = collection.bulk_write(ops, ordered=False)
-    return result.upserted_count, 0
+    insertados = 0
+    for u in unidades:
+        result = collection.update_one(
+            {"unidad": u},
+            [{"$set": {
+                "unidad":       u,
+                "calificacion": {"$ifNull": ["$calificacion", ""]},
+                "cartera":      {"$ifNull": ["$cartera",      ""]},
+                "clase_activo": {"$ifNull": ["$clase_activo", ""]},
+                "emisor":       {"$ifNull": ["$emisor",       ""]},
+                "ticker":       {"$ifNull": ["$ticker",       ""]},
+                "vencimiento":  {"$ifNull": ["$vencimiento",  None]},
+                "instrumento":  {"$ifNull": ["$instrumento",  ""]},
+            }}],
+            upsert=True,
+        )
+        if result.upserted_id:
+            insertados += 1
+    return insertados, 0
 
 
 def actualizar_precios_mercado():

@@ -87,25 +87,23 @@ def consultar_posicion(cuenta_id, headers, desde):
 
 
 # ── Reglas de valuación ──────────────────────────────────────────────────────
-CAMPOS_ASSETS = ["CALIFICACION", "CARTERA", "CLASE_ACTIVO", "EMISOR", "TICKER", "VENCIMIENTO"]
-
-
 def _sincronizar_assets(col_assets, unidades):
     """
-    Asegura que cada unidad exista en Assets con los 6 campos requeridos.
-    No pisa valores existentes — solo completa los que faltan.
+    Asegura que cada unidad exista en TitulosAPI.AssetsAPI con los campos requeridos.
+    No pisa valores existentes — solo completa los que faltan ($ifNull).
     """
     for unidad in unidades:
         col_assets.update_one(
             {"unidad": unidad},
             [{"$set": {
                 "unidad":       unidad,
-                "CALIFICACION": {"$ifNull": ["$CALIFICACION", ""]},
-                "CARTERA":      {"$ifNull": ["$CARTERA",      ""]},
-                "CLASE_ACTIVO": {"$ifNull": ["$CLASE_ACTIVO", ""]},
-                "EMISOR":       {"$ifNull": ["$EMISOR",       ""]},
-                "TICKER":       {"$ifNull": ["$TICKER",       ""]},
-                "VENCIMIENTO":  {"$ifNull": ["$VENCIMIENTO",  ""]},
+                "calificacion": {"$ifNull": ["$calificacion", ""]},
+                "cartera":      {"$ifNull": ["$cartera",      ""]},
+                "clase_activo": {"$ifNull": ["$clase_activo", ""]},
+                "emisor":       {"$ifNull": ["$emisor",       ""]},
+                "ticker":       {"$ifNull": ["$ticker",       ""]},
+                "vencimiento":  {"$ifNull": ["$vencimiento",  None]},
+                "instrumento":  {"$ifNull": ["$instrumento",  ""]},
             }}],
             upsert=True,
         )
@@ -336,11 +334,11 @@ def run():
 
     print(f"\n🏁 Proceso finalizado. Total registros insertados: {registros_total}")
 
-    # Sincronizar unidades nuevas hacia Assets
+    # Sincronizar unidades nuevas hacia TitulosAPI.AssetsAPI (fuente de verdad de la API)
     unidades_snapshot = col.distinct("unidad", {"fecha_snapshot": fecha_snapshot})
-    col_assets = client["Valuaciones"]["Assets"]
+    col_assets = client["TitulosAPI"]["AssetsAPI"]
     _sincronizar_assets(col_assets, unidades_snapshot)
-    print(f"✅ Assets sincronizado: {len(unidades_snapshot)} unidades revisadas.")
+    print(f"✅ AssetsAPI sincronizado: {len(unidades_snapshot)} unidades revisadas.")
 
     # Sincronizar CarterasII (primer día hábil del mes anterior a hoy)
     sync_carteras_ii(fecha_snapshot)

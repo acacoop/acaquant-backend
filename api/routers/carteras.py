@@ -260,6 +260,112 @@ def detalle_portfolio(
     return {"posiciones": posiciones, "total": round(total, 2)}
 
 
+@router.get("/tasa-fija")
+@cached(ttl=300)
+def tasa_fija_snapshot():
+    """Posiciones de Tasa Fija del último snapshot AuM.
+
+    Join: AumAPI (último) → AssetsAPI (clase_activo=FIJA) → ValuacionesAPI (curva=tasa_fija).
+    Devuelve tickers con valuacion total, cobro proyectado y detalle por cuenta.
+    """
+    db_p = get_db_portfolio()
+    db_t = get_db_titulos()
+
+    # 1. AssetsAPI: unidad → ticker para clase_activo FIJA (puede ser mayúscula o minúscula)
+    assets_fija: dict[str, str] = {}
+    for d in db_t["AssetsAPI"].find(
+        {"clase_activo": {"$in": ["FIJA", "fija"]}},
+        {"_id": 0, "unidad": 1, "ticker": 1},
+    ):
+        if d.get("unidad") and d.get("ticker"):
+            assets_fija[d["unidad"]] = d["ticker"]
+
+    if not assets_fija:
+        return {"fecha": None, "total_valuacion": 0, "total_cobro": 0, "tickers": []}
+
+    # 2. ValuacionesAPI: ticker → {flujo_vencimiento, fecha_vencimiento}
+    flujos_map: dict[str, dict] = {}
+    for d in db_t["ValuacionesAPI"].find(
+        {"curva": "tasa_fija"},
+        {"_id": 0, "ticker": 1, "flujo_vencimiento": 1, "fecha_vencimiento": 1},
+    ):
+        t = d.get("ticker")
+        if t:
+            flujos_map[t] = {
+                "flujo_vencimiento": float(d.get("flujo_vencimiento") or 0),
+                "fecha_vencimiento": d.get("fecha_vencimiento"),
+            }
+
+    # 3. AumAPI último snapshot, filtrar a unidades FIJA
+    last = db_p["AumAPI"].find_one({}, {"fecha": 1, "_id": 0}, sort=[("fecha", -1)])
+    if not last:
+        return {"fecha": None, "total_valuacion": 0, "total_cobro": 0, "tickers": []}
+
+    fecha = last["fecha"]
+    unidades_fija = list(assets_fija.keys())
+
+    docs = list(db_p["AumAPI"].find(
+        {"fecha": fecha, "unidad": {"$in": unidades_fija}},
+        {"_id": 0, "unidad": 1, "cuenta": 1, "id_cuenta": 1, "valuacion": 1, "cantidad": 1},
+    ))
+
+    # 4. Agrupar por ticker
+    by_ticker: dict[str, dict] = {}
+    for d in docs:
+        unidad = d.get("unidad", "")
+        ticker = assets_fija.get(unidad, "")
+        if not ticker or ticker not in flujos_map:
+            continue
+        flujo = flujos_map[ticker]
+        cant = float(d.get("cantidad") or 0)
+        val  = float(d.get("valuacion") or 0)
+        cobro = cant * flujo["flujo_vencimiento"] / 100
+
+        if ticker not in by_ticker:
+            by_ticker[ticker] = {
+                "ticker":            ticker,
+                "fecha_vencimiento": flujo["fecha_vencimiento"],
+                "flujo_vencimiento": flujo["flujo_vencimiento"],
+                "valuacion":         0.0,
+                "cantidad":          0.0,
+                "cobro_proyectado":  0.0,
+                "cuentas":           [],
+            }
+        by_ticker[ticker]["valuacion"]        += val
+        by_ticker[ticker]["cantidad"]         += cant
+        by_ticker[ticker]["cobro_proyectado"] += cobro
+        by_ticker[ticker]["cuentas"].append({
+            "cuenta":           d.get("cuenta", ""),
+            "id_cuenta":        d.get("id_cuenta", ""),
+            "valuacion":        round(val, 2),
+            "cantidad":         round(cant, 2),
+            "cobro_proyectado": round(cobro, 2),
+        })
+
+    tickers = sorted(by_ticker.values(), key=lambda t: t.get("fecha_vencimiento") or "")
+    for t in tickers:
+        t["valuacion"]       = round(t["valuacion"], 2)
+        t["cantidad"]        = round(t["cantidad"], 2)
+        t["cobro_proyectado"]= round(t["cobro_proyectado"], 2)
+        # fecha_vencimiento como string YYYY-MM-DD
+        fv = t["fecha_vencimiento"]
+        if fv and not isinstance(fv, str):
+            t["fecha_vencimiento"] = str(fv)[:10]
+        elif fv:
+            t["fecha_vencimiento"] = str(fv)[:10]
+
+    total_val   = round(sum(t["valuacion"]        for t in tickers), 2)
+    total_cobro = round(sum(t["cobro_proyectado"] for t in tickers), 2)
+    fecha_str = str(fecha)[:10] if fecha else None
+
+    return {
+        "fecha":           fecha_str,
+        "total_valuacion": total_val,
+        "total_cobro":     total_cobro,
+        "tickers":         tickers,
+    }
+
+
 @router.get("/fci-serie")
 @cached(ttl=300)
 def fci_serie(

@@ -515,6 +515,6 @@ Definidos en `scripts/crear_indices.py` (idempotente).
 
 ## Pendientes
 
-- [ ] **(2026-04-16)** Cron para sincronizar colecciones API automáticamente. `flujos-titulos` necesita re-sync periódico (el campo `valor_residual_actual_pct` de BondsMaster cambia con cada amortización).
+- [x] **(2026-04-16)** Cron para sincronizar colecciones API automáticamente. Implementado via `jobs/sync_api_copies.py` encadenado en `deploy/crontab.txt` después de cada job: `--carteras` (3×/día), `--movimientos`, `--flujo`, `--aum --titulos` (flujos-titulos se re-sync diario post-cierre).
 - [ ] **(2026-04-16)** Borrar DB huérfana `CarterasAPI` de Atlas (renombrada a `PortfolioAPI`).
 - [ ] **(2026-04-17)** Migrar vistas restantes de Streamlit a acaquant-web (operaciones, portfolios, aum).

@@ -152,12 +152,23 @@ def resumen_portfolio(
     db_p = get_db_portfolio()
     assets = _assets_enrich_map()
 
-    cuentas = list(db_p["AumAPI"].aggregate([
-        {"$sort": {"fecha": -1}},
-        {"$group": {"_id": "$id_cuenta", "cuenta": {"$first": "$cuenta"}}},
-        {"$sort": {"_id": 1}},
-        {"$project": {"_id": 0, "id_cuenta": "$_id", "cuenta": 1}},
-    ]))
+    # Cuentas desde CarterasAPI (fuente de verdad del mes actual)
+    ids = sorted({
+        str(d["id_cuenta"])
+        for d in db_p["CarterasAPI"].find({}, {"_id": 0, "id_cuenta": 1})
+        if d.get("id_cuenta")
+    })
+    # Nombres desde AuMAPI (tiene el campo 'cuenta' completo)
+    aum_nombres = {
+        str(d["_id"]): d.get("cuenta", "")
+        for d in db_p["AumAPI"].aggregate([
+            {"$group": {"_id": "$id_cuenta", "cuenta": {"$first": "$cuenta"}}},
+        ])
+    }
+    cuentas = [
+        {"id_cuenta": i, "cuenta": aum_nombres.get(i, i)}
+        for i in ids
+    ]
 
     if not id_cuenta:
         return {"cuentas": cuentas, "mes_actual": {}}

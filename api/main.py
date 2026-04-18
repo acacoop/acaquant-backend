@@ -11,7 +11,7 @@ Auth:
 from fastapi import Depends, FastAPI
 
 from api.deps import verify_api_key
-from api.routers import carteras, cotizaciones, cuentas, operaciones, titulos
+from api.routers import carteras, cotizaciones, cuentas, manager, operaciones, titulos
 
 app = FastAPI(title="TradingAV API", version="0.1.0")
 
@@ -20,6 +20,7 @@ app.include_router(cotizaciones.router, dependencies=[Depends(verify_api_key)])
 app.include_router(cuentas.router, dependencies=[Depends(verify_api_key)])
 app.include_router(operaciones.router, dependencies=[Depends(verify_api_key)])
 app.include_router(titulos.router, dependencies=[Depends(verify_api_key)])
+app.include_router(manager.router, dependencies=[Depends(verify_api_key)])
 
 
 @app.get("/api/health")

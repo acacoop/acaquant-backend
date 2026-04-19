@@ -6,8 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TradingAV es la plataforma cuantitativa de mercados argentinos (MERVAL/ROFEX). Streama datos en tiempo real, corre motores analíticos paralelos (microstructure, opciones, curvas, forwards, breakevens), persiste en MongoDB Atlas (cluster M10), y expone datos vía REST API (FastAPI) consumida por **acaquant-web** (Next.js), el frontend activo en `trading.acaquant.com`.
 
-**Streamlit fue reemplazado.** El directorio `dashboard/` queda como código legacy — no agregar features ni queries nuevas ahí. Todo desarrollo de frontend nuevo va en el repo `acaquant-web` (Next.js, `/Users/nicomollo/PycharmProjects/acaquant-web`).
-
 ## Acceso
 
 | Capa | URL | Auth |
@@ -26,7 +24,7 @@ ROFEX_USER / ROFEX_PASSWORD / ROFEX_ACCOUNT / ROFEX_API_URL / ROFEX_WS_URL
 MONGO_URI          ← usuario read-write (motores + Manager)
 MONGO_URI_READ     ← usuario read-only (API)
 AUNESA_CLIENT_ID / AUNESA_USERNAME / AUNESA_PASSWORD
-MANAGER_EMAILS     ← emails separados por coma con acceso al Manager (legacy Streamlit)
+MANAGER_EMAILS     ← emails separados por coma con acceso al Manager (leído por proxy.ts en acaquant-web)
 API_KEY            ← clave para autenticar requests a la API (vacío = sin auth, modo dev)
 ATLAS_PUBLIC_KEY / ATLAS_PRIVATE_KEY / ATLAS_PROJECT_ID / ATLAS_CLUSTER_NAME  ← pausa nocturna Atlas
 ```
@@ -80,8 +78,6 @@ TradingAV/
 │       ├── cuentas.py        # /api/cuentas/*
 │       ├── operaciones.py    # /api/operaciones/*
 │       └── titulos.py        # /api/titulos/*
-│
-├── dashboard/                # LEGACY — Streamlit. No agregar features nuevas.
 │
 ├── scripts/                  # one-shot / diagnóstico manual
 │   ├── crear_indices.py      # idempotente
@@ -228,7 +224,7 @@ acaquant-web Next.js (trading.acaquant.com)
 - **`core/websocket.py`** — `WebSocketManager`: suscripciones WS; registra handlers `update_price(ticker, data)` por motor.
 - **`core/mongo.py`** — Dos clientes singleton thread-safe (double-checked locking). `serverSelectionTimeoutMS=30000`, `maxPoolSize=20`, `compressors="zstd,snappy,zlib"`:
   - `get_mongo_client()` → `MONGO_URI` (read-write). Motores, crons.
-  - `get_mongo_client_read()` → `MONGO_URI_READ` con `read_preference=SECONDARY_PREFERRED`. API y dashboard legacy. Fallback a `MONGO_URI` si no está definido.
+  - `get_mongo_client_read()` → `MONGO_URI_READ` con `read_preference=SECONDARY_PREFERRED`. Usado por la API. Fallback a `MONGO_URI` si no está definido.
   - **Nunca llamar `client.close()`** — son singletons de larga vida.
 
 ### Trading Engines
@@ -365,6 +361,15 @@ FastAPI consumida exclusivamente por acaquant-web (a través de sus API routes p
 | GET | `/api/cotizaciones/historico/mep` | `Valuaciones.Dolar` (serie) | `desde`, `hasta` |
 | GET | `/api/cotizaciones/historico/trades` | `Trading.TimeSales` (últimos 15 días) | `instrumento` |
 | GET | `/api/cotizaciones/historico/curva` | `Trading.TimeSales` (serie diaria) | `instrumento`, `desde`, `hasta` |
+| GET | `/api/portfolio/resumen` | `CarterasAPI` + `CarterasII` + `AssetsAPI` | `id_cuenta` |
+| GET | `/api/portfolio/detalle` | `CarterasAPI` + `AssetsAPI` | `id_cuenta` |
+| GET | `/api/portfolio/tasa-fija` | `AumAPI` + `AssetsAPI` + `ValuacionesAPI` | — |
+| GET | `/api/manager/status` | múltiples colecciones (read) | — |
+| POST | `/api/manager/jobs/run` | subprocess en background | `tipo`, `args` |
+| GET | `/api/manager/jobs/{id}` | in-memory job store | — |
+| GET | `/api/manager/changelog` | `Manager.ChangeLog` | `limit` |
+| GET | `/api/manager/latencia` | benchmark todas las colecciones | — |
+| GET | `/api/manager/checks/*` | validaciones de datos | ver abajo |
 
 ### Patrón de migraciones (colecciones API)
 
@@ -395,7 +400,7 @@ Las colecciones originales son la **fuente de verdad**. Las colecciones API son 
 
 ### 1. Valuación AuM
 
-Fórmula por tipo (`jobs/aum.py`, también en `dashboard/services/` legacy):
+Fórmula por tipo (`jobs/aum.py` y `api/routers/carteras.py::_valuacion_api`):
 
 - **Renta fija** (`Títulos Públicos`, `Letras`, `ONs`, `Fideicomisos`, `CPD`) → `cantidad × precio / 100`
 - **FCI / OTROS** → `cantidad × precio`
@@ -517,4 +522,4 @@ Definidos en `scripts/crear_indices.py` (idempotente).
 
 - [x] **(2026-04-16)** Cron para sincronizar colecciones API automáticamente. Implementado via `jobs/sync_api_copies.py` encadenado en `deploy/crontab.txt` después de cada job: `--carteras` (3×/día), `--movimientos`, `--flujo`, `--aum --titulos` (flujos-titulos se re-sync diario post-cierre).
 - [ ] **(2026-04-16)** Borrar DB huérfana `CarterasAPI` de Atlas (renombrada a `PortfolioAPI`).
-- [ ] **(2026-04-17)** Migrar vistas restantes de Streamlit a acaquant-web (operaciones, portfolios, aum).
+- [x] **(2026-04-19)** Migración completa a acaquant-web finalizada. Streamlit y `dashboard/` eliminados del repo.

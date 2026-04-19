@@ -4,8 +4,6 @@ rich
 pandas
 numpy
 scipy
-streamlit>=1.42.0
-altair<5
 pymongo
 zstandard
 python-dotenv

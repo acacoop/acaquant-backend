@@ -24,8 +24,9 @@ ROFEX_USER / ROFEX_PASSWORD / ROFEX_ACCOUNT / ROFEX_API_URL / ROFEX_WS_URL
 MONGO_URI          ← usuario read-write (motores + Manager)
 MONGO_URI_READ     ← usuario read-only (API)
 AUNESA_CLIENT_ID / AUNESA_USERNAME / AUNESA_PASSWORD
-MANAGER_EMAILS     ← emails separados por coma con acceso al Manager (leído por proxy.ts en acaquant-web)
+MANAGER_EMAILS     ← emails separados por coma con acceso al Manager/Asistente (leído por proxy.ts en acaquant-web)
 API_KEY            ← clave para autenticar requests a la API (vacío = sin auth, modo dev)
+GEMINI_API_KEY     ← key de Google AI Studio, usada por el asistente conversacional
 ATLAS_PUBLIC_KEY / ATLAS_PRIVATE_KEY / ATLAS_PROJECT_ID / ATLAS_CLUSTER_NAME  ← pausa nocturna Atlas
 ```
 
@@ -73,8 +74,14 @@ TradingAV/
 ├── api/                      # REST API (FastAPI) — consumida por acaquant-web
 │   ├── main.py               # entrypoint FastAPI
 │   ├── deps.py               # get_db_* helpers
+│   ├── agent/                # asistente IA (tool-use Gemini)
+│   │   ├── provider.py       # cliente HTTP hacia Gemini (swappable)
+│   │   ├── tools.py          # menú de tools + dispatch + BLOCKED_PATH_PREFIXES
+│   │   ├── prompt.py         # system prompt (reglas + glosario + alcance)
+│   │   └── runner.py         # bucle tool-use (MAX_STEPS=8)
 │   └── routers/
 │       ├── carteras.py       # /api/portfolio/*
+│       ├── chat.py           # /api/chat (asistente de mesa)
 │       ├── cotizaciones.py   # /api/cotizaciones/*
 │       ├── cuentas.py        # /api/cuentas/*
 │       ├── manager.py        # /api/manager/* (status, jobs, checks, latencia)
@@ -133,6 +140,14 @@ Las API routes de Next.js (`src/app/api/*/route.ts`) proxean a `api.acaquant.com
 
 Las páginas son **server components async** con `Promise.all()` para fetching paralelo. `safeFetch()` envuelve cada llamada con fallback para graceful degradation si el backend no responde.
 
+### Gating admin — proxy.ts (Next 16)
+
+**Importante Next 16+**: el viejo `middleware.ts` fue renombrado a **`src/proxy.ts`** (exporta función `proxy`, no `middleware`). Tener los dos archivos a la vez rompe el build. Solo se usa `proxy.ts`.
+
+`src/proxy.ts` restringe `/manager`, `/asistente` y `/api/chat` a los emails de `MANAGER_EMAILS`. El email viene del header `cf-access-authenticated-user-email` que inyecta Cloudflare Access. Si `MANAGER_EMAILS` vacío → modo dev, deja pasar todo.
+
+`layout.tsx` además lee el header server-side para computar `isManager` y pasárselo a `<Header />`, que filtra los links admin del nav.
+
 ### Variables de entorno acaquant-web (`.env.local`)
 
 ```
@@ -188,6 +203,8 @@ pytest -m integration                             # requiere Mongo (excluidos po
 python -m scripts.perf_scan                       # anti-patterns Mongo (informativo)
 python -m scripts.perf_scan --strict              # exit 1 si hay findings
 python -m scripts.test_api                        # smoke test endpoints (localhost:8000)
+python -m scripts.test_gemini                     # smoke test Gemini API (ambos modelos)
+python -m scripts.test_chat                       # smoke test /api/chat (requiere uvicorn up)
 python -m scripts.crear_indices                   # idempotente
 ```
 
@@ -300,6 +317,8 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - **`check_aum_raw.py`** — consulta directa Aunesa filtrando por keyword.
 - **`debug_forward.py`** — walk-through paso a paso del cálculo forward TX26 vs TZX26.
 - **`test_match_contrapartes.py`** — verifica matcheo contrapartes Flujo ↔ Contrapartes.
+- **`test_gemini.py`** — smoke test Gemini API (flash y pro). Flags `--modelo`, `--prompt`.
+- **`test_chat.py`** — smoke test `/api/chat` contra localhost o prod. Requiere uvicorn corriendo.
 
 ## Deployment
 
@@ -377,6 +396,7 @@ FastAPI consumida exclusivamente por acaquant-web (a través de sus API routes p
 | GET | `/api/manager/changelog` | `Manager.ChangeLog` | `limit` |
 | GET | `/api/manager/latencia` | benchmark todas las colecciones | — |
 | GET | `/api/manager/checks/*` | validaciones de datos | ver abajo |
+| POST | `/api/chat` | asistente conversacional (Gemini + tool-use) | body: `message`, `history?` |
 
 ### Patrón de migraciones (colecciones API)
 
@@ -402,6 +422,56 @@ Las colecciones originales son la **fuente de verdad**. Las colecciones API son 
 | `Valuaciones.AuM` | `PortfolioAPI.AumAPI` | `aum` |
 | `Valuaciones.Assets` | `TitulosAPI.AssetsAPI` | `assets` |
 | `Trading.Curvas` + `Trading.BondsMaster` | `TitulosAPI.ValuacionesAPI` | `flujos-titulos` |
+
+## Asistente de mesa (IA generativa)
+
+Módulo `api/agent/` + endpoint `POST /api/chat` + vista `/asistente` en acaquant-web. El modelo es **Gemini 2.5 Flash** (free tier) vía tool-use. No toca Mongo directo: pide tools → ejecutamos un GET HTTP a los endpoints de la misma API → le devolvemos JSON.
+
+### Arquitectura
+
+```
+usuario → /asistente (Next) → /api/chat (Next proxy) → /api/chat (FastAPI)
+                                                          │
+                                                          ▼
+                             api/agent/runner.py  ──────▶  Gemini API
+                                                          │  (pide tool)
+                                                          ▼
+                             api/agent/tools.py::dispatch
+                                                          │
+                                                          ▼
+                             HTTP GET /api/cotizaciones/... (misma API, localhost)
+```
+
+- **`provider.py`** — cliente HTTP de Gemini. Fácil swappear a Claude/OpenAI.
+- **`tools.py`** — **único lugar** que define qué puede tocar el modelo. Lista `TOOLS[]` + `dispatch()` + constante `BLOCKED_PATH_PREFIXES`.
+- **`prompt.py`** — system prompt: reglas, glosario financiero y alcance explícito.
+- **`runner.py`** — bucle tool-use con `MAX_STEPS=8` (tope de seguridad ante loops).
+
+### Política de datos (free tier)
+
+Gemini free tier **usa prompts y respuestas para entrenar**. Por eso el modelo SOLO ve data pública de mercado:
+
+- ✅ **Grupo 1** — `/api/cotizaciones/*` (precios, forwards, breakevens, series BCRA, MEP, históricos).
+- ✅ **Grupo 2** — `/api/titulos/*` (metadata de activos, cronogramas de flujos).
+- ❌ **BLOQUEADO** — `/api/portfolio/*`, `/api/operaciones/*`, `/api/cuentas/*`, `/api/manager/*`.
+
+**Doble bloqueo** en `api/agent/tools.py`:
+1. `gemini_tool_declarations()` filtra rutas bloqueadas antes de mostrarle el menú al modelo (el modelo ni sabe que existen).
+2. `dispatch()` verifica de nuevo antes del HTTP GET. Si alguien agregara una tool a ruta bloqueada por error, dispatch la rechaza.
+
+### Cuando se active billing en Google Cloud
+
+Gemini deja de entrenar. Se levanta el bloqueo en una línea de `api/agent/tools.py`:
+
+```python
+BLOCKED_PATH_PREFIXES = ()   # vacío = nada bloqueado
+```
+
+Y se agregan tools nuevas para los endpoints de clientes.
+
+### Auditoría
+
+Cada turno se loggea en `Manager.AsistenteLogs` (insertado desde `api/routers/chat.py::_log_interaccion`): timestamp, pregunta, respuesta, tool_calls, usage tokens, elapsed, truncated. Útil para detectar uso, debuggear respuestas raras y medir costo.
 
 ## Lógica de Negocio (consolidada)
 
@@ -530,3 +600,5 @@ Definidos en `scripts/crear_indices.py` (idempotente).
 - [x] **(2026-04-16)** Cron para sincronizar colecciones API automáticamente. Implementado via `jobs/sync_api_copies.py` encadenado en `deploy/crontab.txt` después de cada job: `--carteras` (3×/día), `--movimientos`, `--flujo`, `--aum --titulos` (flujos-titulos se re-sync diario post-cierre).
 - [ ] **(2026-04-16)** Borrar DB huérfana `CarterasAPI` de Atlas (renombrada a `PortfolioAPI`).
 - [x] **(2026-04-19)** Migración completa a acaquant-web finalizada. Streamlit y `dashboard/` eliminados del repo.
+- [x] **(2026-04-19)** Asistente de mesa con Gemini 2.5 Flash + tool-use. Vista `/asistente` restringida por `MANAGER_EMAILS`. Free tier: solo data pública (Grupos 1 y 2).
+- [ ] **(2026-04-19)** Activar billing en Google Cloud para el proyecto de Gemini (deja de entrenar) y levantar `BLOCKED_PATH_PREFIXES` en `api/agent/tools.py` para exponer tools de cartera/AuM/operaciones.

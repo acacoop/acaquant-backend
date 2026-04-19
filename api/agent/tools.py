@@ -48,137 +48,108 @@ TOOLS: list[dict[str, Any]] = [
     # ─── GRUPO 1: cotizaciones y mercado (data pública) ──────────────────────
     {
         "name": "cotizacion_renta_fija",
-        "description": (
-            "Snapshot de mercado de un bono/letra: book (top 5 bids/offers), "
-            "VWAP, spread, último/máximo/mínimo/cierre, trades recientes. "
-            "Usar para 'cómo está TX26', 'precio de AL30', 'spread de S31M6'."
-        ),
+        "description": "Cotización de un bono/letra: book, VWAP, último, min/max/cierre. Acepta ticker corto o full ROFEX.",
         "endpoint": "/api/cotizaciones/renta-fija",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "instrumento": {
-                    "type": "STRING",
-                    "description": "Ticker (ej: 'TX26', 'AL30', 'S31M6').",
-                },
+                "instrumento": {"type": "STRING", "description": "Ticker (ej 'TX26')."},
             },
             "required": ["instrumento"],
         },
     },
     {
         "name": "cotizacion_opciones",
-        "description": (
-            "Cotizaciones de opciones de GGAL con Greeks (delta, gamma, vega, theta) "
-            "e IV. Usar para 'opciones de GGAL', 'call 3000 GGAL', 'IV de puts'."
-        ),
+        "description": "Opciones GGAL: bid/offer, greeks, IV, strike, vence.",
         "endpoint": "/api/cotizaciones/opciones",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "instrumento": {
-                    "type": "STRING",
-                    "description": "Símbolo de la opción (ej: 'GFGC3000JU').",
-                },
-                "tipo": {
-                    "type": "STRING",
-                    "description": "Filtrar por 'CALL' o 'PUT'.",
-                },
+                "instrumento": {"type": "STRING", "description": "Ticker opción."},
+                "tipo": {"type": "STRING", "description": "CALL o PUT."},
             },
         },
     },
     {
         "name": "forwards_por_curva",
-        "description": (
-            "Matriz NxN de tasas forward implícitas entre todos los instrumentos "
-            "de una curva. Usar para 'forwards de tasa fija', 'forward TX26-TZX26'."
-        ),
+        "description": "Matriz NxN de forwards implícitos entre bonos de una curva.",
         "endpoint": "/api/cotizaciones/forwards",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "curva": {
-                    "type": "STRING",
-                    "description": "Nombre de la curva: 'tasa_fija' o 'cer'.",
-                },
+                "curva": {"type": "STRING", "description": "tasa_fija o cer."},
             },
             "required": ["curva"],
         },
     },
     {
         "name": "breakevens_actuales",
-        "description": (
-            "Breakevens vigentes: inflación mensual implícita del pareo Lecap vs CER. "
-            "Sin parámetros. Usar para 'cómo están los breakevens', "
-            "'qué infla implícita el mercado'."
-        ),
+        "description": "Breakevens inflación mensual implícita por pareo Lecap↔CER.",
         "endpoint": "/api/cotizaciones/breakevens",
         "parameters": {"type": "OBJECT", "properties": {}},
     },
     {
         "name": "serie_cer",
-        "description": "Serie histórica del índice CER (BCRA). Rango opcional.",
+        "description": "Serie CER (BCRA).",
         "endpoint": "/api/cotizaciones/cer",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "desde": {"type": "STRING", "description": "Fecha YYYY-MM-DD."},
-                "hasta": {"type": "STRING", "description": "Fecha YYYY-MM-DD."},
+                "desde": {"type": "STRING"},
+                "hasta": {"type": "STRING"},
             },
         },
     },
     {
         "name": "serie_badlar",
-        "description": "Serie histórica de la tasa BADLAR (bancos privados, BCRA).",
+        "description": "Serie BADLAR privados (BCRA).",
         "endpoint": "/api/cotizaciones/badlar",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "desde": {"type": "STRING", "description": "Fecha YYYY-MM-DD."},
-                "hasta": {"type": "STRING", "description": "Fecha YYYY-MM-DD."},
+                "desde": {"type": "STRING"},
+                "hasta": {"type": "STRING"},
             },
         },
     },
     {
         "name": "serie_dolar_a3500",
-        "description": "Serie histórica del dólar A3500 (referencia BCRA).",
+        "description": "Serie dólar A3500 oficial BCRA.",
         "endpoint": "/api/cotizaciones/dolar",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "desde": {"type": "STRING", "description": "Fecha YYYY-MM-DD."},
-                "hasta": {"type": "STRING", "description": "Fecha YYYY-MM-DD."},
+                "desde": {"type": "STRING"},
+                "hasta": {"type": "STRING"},
             },
         },
     },
     {
         "name": "mep_actual",
-        "description": "Último snapshot intradía del dólar MEP. Sin parámetros.",
+        "description": "Último snapshot dólar MEP.",
         "endpoint": "/api/cotizaciones/mep",
         "parameters": {"type": "OBJECT", "properties": {}},
     },
     {
         "name": "historico_trades",
-        "description": (
-            "Trades de un instrumento en los últimos 15 días (serie intradía). "
-            "Usar para 'evolución de TX26 en 15 días', 'trades recientes de AL30'."
-        ),
+        "description": "Trades de un instrumento, últimos 15 días (con TEA/TEM/duration/paridad).",
         "endpoint": "/api/cotizaciones/historico/trades",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "instrumento": {"type": "STRING", "description": "Ticker."},
+                "instrumento": {"type": "STRING"},
             },
             "required": ["instrumento"],
         },
     },
     {
         "name": "historico_forwards",
-        "description": "Evolución diaria de forwards por curva.",
+        "description": "Evolución diaria forwards por curva.",
         "endpoint": "/api/cotizaciones/historico/forwards",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "curva": {"type": "STRING", "description": "'tasa_fija' o 'cer'."},
+                "curva": {"type": "STRING"},
                 "desde": {"type": "STRING"},
                 "hasta": {"type": "STRING"},
             },
@@ -187,7 +158,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "historico_breakevens",
-        "description": "Evolución diaria de los breakevens Lecap vs CER.",
+        "description": "Evolución diaria breakevens Lecap↔CER.",
         "endpoint": "/api/cotizaciones/historico/breakevens",
         "parameters": {
             "type": "OBJECT",
@@ -199,7 +170,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "historico_mep",
-        "description": "Serie histórica del dólar MEP.",
+        "description": "Serie histórica MEP.",
         "endpoint": "/api/cotizaciones/historico/mep",
         "parameters": {
             "type": "OBJECT",
@@ -211,31 +182,21 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "historico_curva",
-        "description": (
-            "Serie diaria (último precio + TEA/TEM/duration/paridad por día) de "
-            "TODOS los instrumentos de UNA curva. Útil para ver evolución completa "
-            "de una curva. Devuelve lista larga, preferí usar historico_trades si "
-            "querés un solo instrumento."
-        ),
+        "description": "Serie diaria de TODOS los bonos de UNA curva (para gráficos de curva completa).",
         "endpoint": "/api/cotizaciones/historico/curva",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "curva": {"type": "STRING", "description": "'tasa_fija' o 'cer'."},
+                "curva": {"type": "STRING"},
             },
             "required": ["curva"],
         },
     },
 
-    # ─── GRUPO 2: metadata de títulos (info pública de CNV/prospectos) ──────
+    # ─── GRUPO 2: metadata de títulos ─────────────────────────────────────
     {
         "name": "metadata_activos",
-        "description": (
-            "Metadata de instrumentos (emisor, clase de activo, calificación, "
-            "vencimiento). Filtrar por ticker/emisor/clase_activo. "
-            "Usar para 'emisor de TX26', 'ONs con calificación AAA', 'bonos que "
-            "vencen en 2027'."
-        ),
+        "description": "Metadata bonos: emisor, clase, calificación, vencimiento.",
         "endpoint": "/api/titulos/assets",
         "parameters": {
             "type": "OBJECT",
@@ -248,57 +209,35 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "flujos_titulo",
-        "description": (
-            "Cronograma de flujos de un bono (cupones, amortizaciones, moneda). "
-            "Usar para 'cuándo paga TX26', 'próximo cupón de AL30', 'amortizaciones "
-            "de TZX26'."
-        ),
+        "description": "Cronograma de flujos de un bono (cupones y amortizaciones).",
         "endpoint": "/api/titulos/flujos",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "ticker":        {"type": "STRING"},
-                "curva":         {"type": "STRING", "description": "'tasa_fija' o 'cer'."},
-                "moneda_flujo":  {"type": "STRING", "description": "ARS o USD."},
+                "curva":         {"type": "STRING"},
+                "moneda_flujo":  {"type": "STRING"},
             },
         },
     },
 
-    # ─── Catálogo técnico on-demand (local, sin HTTP) ──────────────────────
+    # ─── Contexto analítico on-demand (local, sin HTTP) ───────────────────
+    {
+        "name": "consultar_framework_analitico",
+        "description": "Framework de 4 capas + house view + señales + rotaciones. USAR para preguntas estratégicas (view de mercado, CER vs Lecap, qué rotar, HD vs DL). NO para lookup.",
+        "endpoint": "__local__:framework",
+        "parameters": {"type": "OBJECT", "properties": {}},
+    },
     {
         "name": "consultar_catalogo_estrategias",
-        "description": (
-            "Consulta el catálogo técnico de estrategias para traer fórmulas, "
-            "estructura (legs), datos necesarios y construcción paso a paso. "
-            "USAR cuando el usuario pregunte por una estrategia específica o "
-            "estructura técnica (ej: 'armame un barbell', 'cómo hago un butterfly', "
-            "'covered call en GGAL', 'TIPS-Treasury arbitrage', 'carry trade', "
-            "'steepener', 'long strangle'). NO usar para cotizaciones ni datos de "
-            "mercado — usá las otras tools para eso."
-        ),
+        "description": "Fórmulas y construcción de estrategias (barbell, butterfly, covered call, carry, etc). USAR cuando piden armar una estructura específica. NO para lookup.",
         "endpoint": "__local__:catalogo",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "tema": {
                     "type": "STRING",
-                    "description": (
-                        "Sección del catálogo. Opciones: "
-                        "'mapa-datos' (mapa dato→tool→campo), "
-                        "'fi-curva' (bullet/barbell/ladder), "
-                        "'fi-butterfly' (4 variantes de butterfly), "
-                        "'fi-carry' (carry factor, rolling-down, flatteners/steepeners, value, low-risk), "
-                        "'inflation' (Lecap/CER sintético, TIPS-Treasury arbitrage), "
-                        "'fx-carry' (carry sintético Lelink+ROFEX, brecha MEP/A3500), "
-                        "'options-bullish' (covered call, bull spreads, synthetic forward, combos, ladders, ratio backspread, strap, diagonal), "
-                        "'options-bearish' (covered put, bear spreads, short synthetic, ratio backspread, strip), "
-                        "'options-neutral' (straddles/strangles cortos, butterflies, condors, iron, box, collar, calendar), "
-                        "'options-vol' (long straddle/strangle/guts, short butterfly), "
-                        "'options-notas' (liquidez GGAL, caveats comisiones y dividendos), "
-                        "'macro' (fundamental momentum traducido al framework), "
-                        "'no-aplican' (lista de estrategias descartadas con razón), "
-                        "'reglas-asistente' (los 7 pasos para construir una respuesta)."
-                    ),
+                    "description": "Temas: mapa-datos, fi-curva, fi-butterfly, fi-carry, inflation, fx-carry, options-bullish, options-bearish, options-neutral, options-vol, options-notas, macro, no-aplican, reglas-asistente.",
                 },
             },
             "required": ["tema"],
@@ -349,6 +288,11 @@ def dispatch(name: str, args: dict[str, Any]) -> dict[str, Any]:
         tema = (args or {}).get("tema", "")
         content = get_seccion(tema)
         return {"ok": True, "data": {"tema": tema, "content": content}}
+
+    if endpoint == "__local__:framework":
+        from api.agent.estrategia import load_estrategia
+        content = load_estrategia() or "(framework no disponible — archivo estrategia.md faltante)"
+        return {"ok": True, "data": {"content": content}}
 
     if _is_blocked(endpoint):
         return {

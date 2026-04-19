@@ -14,14 +14,15 @@ from typing import Any
 
 from api.agent.context import build_market_context
 from api.agent.data_inventory import build_data_inventory
-from api.agent.estrategia import load_estrategia
 from api.agent.prompt import build_system_prompt
 from api.agent.provider import GeminiProvider, LLMError
 from api.agent.tools import dispatch, gemini_tool_declarations
 
-# NOTA: `estrategias.md` YA NO se inyecta en el system prompt (ahorra ~10K
-# tokens/request). El modelo lo consulta bajo demanda vía la tool
-# `consultar_catalogo_estrategias`. Ver api/agent/estrategias.py.
+# NOTA: Ni `estrategia.md` ni `estrategias.md` se inyectan en el system prompt.
+# El modelo los consulta bajo demanda vía las tools:
+#   - consultar_framework_analitico() → estrategia.md
+#   - consultar_catalogo_estrategias(tema) → sección de estrategias.md
+# Esto lleva el prompt base de ~10K → ~2.5K tokens en requests simples.
 
 logger = logging.getLogger(__name__)
 
@@ -77,12 +78,7 @@ def run_conversation(
     except Exception:
         logger.exception("no se pudo armar el data inventory; continúo sin él")
         data_inv = ""
-    try:
-        estrategia = load_estrategia()
-    except Exception:
-        logger.exception("no se pudo cargar estrategia.md; continúo sin él")
-        estrategia = ""
-    system_prompt = build_system_prompt(market_ctx, data_inv, estrategia)
+    system_prompt = build_system_prompt(market_ctx, data_inv)
 
     t_start = time.time()
     last_usage: dict[str, Any] = {}

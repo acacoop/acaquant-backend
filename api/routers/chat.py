@@ -26,14 +26,13 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from api.agent.provider import (
-    GeminiProvider,
     LLMBadResponseError,
     LLMError,
     LLMRateLimitError,
     LLMTransportError,
 )
 from api.agent.runner import run_conversation
-from config import GEMINI_API_KEY
+from config import ANTHROPIC_API_KEY, GEMINI_API_KEY, LLM_PROVIDER
 from core.mongo import get_mongo_client
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -53,6 +52,7 @@ class ChatResponse(BaseModel):
     steps: int
     elapsed_s: float
     truncated: bool = False
+    model_used: str = ""
 
 
 def _log_interaccion(
@@ -61,10 +61,7 @@ def _log_interaccion(
     user_email: str,
     error: dict[str, Any] | None = None,
 ) -> None:
-    """Persiste cada turno en Manager.AsistenteLogs para auditoría.
-
-    Si `error` está presente, se loggea como intento fallido (sin resp).
-    """
+    """Persiste cada turno en Manager.AsistenteLogs para auditoría."""
     try:
         doc: dict[str, Any] = {
             "ts": datetime.now(timezone.utc),
@@ -81,6 +78,7 @@ def _log_interaccion(
                 "elapsed_s": resp.get("elapsed_s", 0),
                 "truncated": resp.get("truncated", False),
                 "history_len": len(resp.get("history", [])),
+                "model_used": resp.get("model_used", ""),
             })
         if error:
             doc["error"] = error
@@ -96,16 +94,20 @@ def chat(
 ) -> ChatResponse:
     user_email = (cf_email or "").lower().strip() or "anon"
 
-    if not GEMINI_API_KEY:
+    # Validar que haya key del provider activo
+    if LLM_PROVIDER == "claude" and not ANTHROPIC_API_KEY:
         raise HTTPException(
             status_code=503,
-            detail="GEMINI_API_KEY no configurada en .env",
+            detail="ANTHROPIC_API_KEY no configurada (LLM_PROVIDER=claude).",
+        )
+    if LLM_PROVIDER == "gemini" and not GEMINI_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="GEMINI_API_KEY no configurada (LLM_PROVIDER=gemini).",
         )
 
     try:
-        provider = GeminiProvider(api_key=GEMINI_API_KEY)
         result = run_conversation(
-            provider=provider,
             user_message=req.message,
             history=req.history,
         )

@@ -1,10 +1,24 @@
-"""Runner del tool-use loop.
+"""Runner del tool-use loop (provider-agnostic).
 
 Flujo:
-1. Recibimos mensajes del usuario.
-2. Le pasamos a Gemini con el listado de tools.
-3. Si Gemini pide una tool, la ejecutamos y le devolvemos el resultado.
-4. Loop hasta que Gemini responda texto final (sin functionCall) o se alcance MAX_STEPS.
+1. Recibimos el mensaje del usuario + history.
+2. `router.decide_model()` elige haiku o sonnet para este turno.
+3. `get_provider()` nos devuelve el cliente (Claude o Gemini según LLM_PROVIDER).
+4. Armamos el system prompt dinámico (framework + context + data inventory on demand).
+5. Loop: modelo decide → si text final, respondemos; si tool_use, ejecutamos
+   la tool y volvemos al modelo con el resultado.
+6. Corte a MAX_STEPS para controlar costo.
+
+El history que entra/sale está en formato CANÓNICO (estilo Claude):
+  [
+    {"role": "user", "content": "..."},
+    {"role": "assistant", "content": [{"type": "text", ...} | {"type": "tool_use", ...}]},
+    {"role": "user", "content": [{"type": "tool_result", ...}]},
+    ...
+  ]
+
+Si el history llega en formato Gemini viejo (items con `parts`), lo descartamos
+silenciosamente — el usuario arranca la conversación de cero esa vez.
 """
 from __future__ import annotations
 
@@ -15,126 +29,147 @@ from typing import Any
 from api.agent.context import build_market_context
 from api.agent.data_inventory import build_data_inventory
 from api.agent.prompt import build_system_prompt
-from api.agent.provider import GeminiProvider, LLMError
-from api.agent.tools import dispatch, gemini_tool_declarations
-
-# NOTA: Ni `estrategia.md` ni `estrategias.md` se inyectan en el system prompt.
-# El modelo los consulta bajo demanda vía las tools:
-#   - consultar_framework_analitico() → estrategia.md
-#   - consultar_catalogo_estrategias(tema) → sección de estrategias.md
-# Esto lleva el prompt base de ~10K → ~2.5K tokens en requests simples.
+from api.agent.provider import (
+    LLMError,
+    LLMProvider,
+    get_provider,
+)
+from api.agent.router import decide_model
+from api.agent.tools import dispatch
+from api.agent.types import LLMResponse, tool_result_message, user_text_message
 
 logger = logging.getLogger(__name__)
 
-# Máximo de tool-calls encadenadas. Evita loops y controla costo.
-# Bajado de 8 a 6 para dar margen de tiempo cuando el prompt es grande
-# (framework + catálogo + contexto = ~15K tokens, cada turno ~5-8s).
+# Tope de turnos encadenados. Controla costo ante loops de tool-use.
 MAX_STEPS = 6
 
 
-def _user_message(text: str) -> dict[str, Any]:
-    return {"role": "user", "parts": [{"text": text}]}
+def _is_legacy_gemini_history(history: list[dict[str, Any]] | None) -> bool:
+    if not history:
+        return False
+    for m in history:
+        if isinstance(m, dict) and "parts" in m:
+            return True
+    return False
 
 
-def _function_response_message(name: str, result: dict[str, Any]) -> dict[str, Any]:
-    # En Gemini las function responses van con role="user".
-    return {
-        "role": "user",
-        "parts": [{"functionResponse": {"name": name, "response": result}}],
-    }
+def _sanitize_history(history: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Limpia history en formato canónico o descarta si es legacy."""
+    if _is_legacy_gemini_history(history):
+        logger.info("history legacy (Gemini) detectado — descartando")
+        return []
+    return [m for m in (history or []) if isinstance(m, dict) and "role" in m]
 
 
 def run_conversation(
-    provider: GeminiProvider,
     user_message: str,
     history: list[dict[str, Any]] | None = None,
+    *,
+    provider: LLMProvider | None = None,
+    force_model: str | None = None,
+    tools_list: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Corre una vuelta de conversación.
 
-    history: mensajes previos (formato Gemini). Si None, se arranca desde cero.
-    Devuelve:
+    Retorna:
         {
-            "reply": str,               # texto final del modelo
-            "tool_calls": [...],        # para auditar qué consultó
-            "history": [...],           # para enviarlo de vuelta en el siguiente turno
-            "usage": {...},             # tokens del último turno
+            "reply": str,
+            "tool_calls": [{"name", "args", "ok"}],
+            "history": [...]           # formato canónico para persistir
+            "usage": {"promptTokenCount", "candidatesTokenCount", "totalTokenCount", "model", "model_alias"}
+            "steps": int,
+            "elapsed_s": float,
+            "truncated": bool,
+            "model_used": str          # alias (haiku | sonnet | gemini-flash)
         }
     """
-    contents: list[dict[str, Any]] = list(history or [])
-    contents.append(_user_message(user_message))
+    # Tools list del sistema (si no se pasa, cargar las definidas en tools.py)
+    if tools_list is None:
+        from api.agent.tools import TOOLS, _is_blocked
+        tools_list = [t for t in TOOLS if not _is_blocked(t["endpoint"])]
 
-    tools = gemini_tool_declarations()
-    tool_calls: list[dict[str, Any]] = []
+    # Decidir modelo y provider
+    if provider is None:
+        model_alias = decide_model(user_message, force=force_model)
+        provider = get_provider(model_alias)
+    model_used = getattr(provider, "alias", getattr(provider, "model", "unknown"))
 
-    # Armar el system prompt con los 3 bloques dinámicos. Cada bloque falla
-    # independiente: si uno no puede, seguimos con los otros.
+    # Mensajes canónicos
+    messages: list[dict[str, Any]] = _sanitize_history(history)
+    messages.append(user_text_message(user_message))
+
+    # System prompt dinámico (cacheable por Claude)
     try:
         market_ctx = build_market_context()
     except Exception:
-        logger.exception("no se pudo armar el market context; continúo sin él")
+        logger.exception("fallo market_context; sigo")
         market_ctx = ""
     try:
         data_inv = build_data_inventory()
     except Exception:
-        logger.exception("no se pudo armar el data inventory; continúo sin él")
+        logger.exception("fallo data_inventory; sigo")
         data_inv = ""
     system_prompt = build_system_prompt(market_ctx, data_inv)
 
-    t_start = time.time()
+    tool_calls_log: list[dict[str, Any]] = []
     last_usage: dict[str, Any] = {}
+    t_start = time.time()
 
     for step in range(MAX_STEPS):
         try:
-            candidate = provider.generate(contents=contents, system_prompt=system_prompt, tools=tools)
-        except LLMError as e:
-            logger.exception("LLM error en step %d", step)
+            resp: LLMResponse = provider.generate(
+                messages=messages,
+                system_prompt=system_prompt,
+                tools=tools_list,
+            )
+        except LLMError:
             raise
+        except Exception as e:
+            logger.exception("error no controlado del provider")
+            raise LLMError(f"error del provider: {e}") from e
 
-        last_usage = candidate.get("usageMetadata", {})
-        parts = candidate.get("content", {}).get("parts", [])
-        model_message = {"role": "model", "parts": parts}
+        last_usage = resp.usage
 
-        # Separamos functionCalls de texto.
-        function_calls = [p["functionCall"] for p in parts if "functionCall" in p]
-        texts = [p["text"] for p in parts if "text" in p and p["text"]]
+        # Apendear mensaje del asistente al history SIEMPRE
+        messages.append(resp.assistant_message)
 
-        if not function_calls:
-            # Respuesta final. Guardamos el mensaje del modelo y salimos.
-            contents.append(model_message)
-            reply = "\n".join(texts).strip() or "(respuesta vacía)"
+        # Si no pidió tools, cerramos
+        if not resp.tool_calls:
             return {
-                "reply": reply,
-                "tool_calls": tool_calls,
-                "history": contents,
+                "reply": resp.text or "(respuesta vacía)",
+                "tool_calls": tool_calls_log,
+                "history": messages,
                 "usage": last_usage,
                 "steps": step + 1,
                 "elapsed_s": round(time.time() - t_start, 2),
+                "truncated": False,
+                "model_used": model_used,
             }
 
-        # Agregamos el mensaje del modelo con los functionCalls al historial.
-        contents.append(model_message)
+        # Ejecutar cada tool call y apendear los resultados
+        for tc in resp.tool_calls:
+            logger.info("tool_call name=%s args=%s", tc.name, tc.args)
+            result = dispatch(tc.name, tc.args)
+            tool_calls_log.append({
+                "name": tc.name,
+                "args": tc.args,
+                "ok": bool(result.get("ok", False)),
+            })
+            messages.append(tool_result_message(tc.id, result))
 
-        # Ejecutamos cada functionCall pedida y le devolvemos la respuesta.
-        for fc in function_calls:
-            name = fc.get("name", "")
-            args = fc.get("args", {}) or {}
-            logger.info("tool_call name=%s args=%s", name, args)
-            result = dispatch(name, args)
-            tool_calls.append({"name": name, "args": args, "ok": result.get("ok", False)})
-            contents.append(_function_response_message(name, result))
-
-    # Si llegamos acá, el modelo entró en loop de tools.
-    logger.warning("Conversación cortada por MAX_STEPS=%d", MAX_STEPS)
+    # Llegamos al tope
+    logger.warning("MAX_STEPS=%d alcanzado", MAX_STEPS)
     return {
         "reply": (
-            "Corté el procesamiento para controlar costos: el modelo pidió "
-            f"más de {MAX_STEPS} consultas encadenadas. Reformulá la pregunta "
-            "siendo más específico."
+            "Corté el procesamiento para controlar costos: el modelo pidió más de "
+            f"{MAX_STEPS} consultas encadenadas. Reformulá la pregunta siendo más "
+            "específico."
         ),
-        "tool_calls": tool_calls,
-        "history": contents,
+        "tool_calls": tool_calls_log,
+        "history": messages,
         "usage": last_usage,
         "steps": MAX_STEPS,
         "elapsed_s": round(time.time() - t_start, 2),
         "truncated": True,
+        "model_used": model_used,
     }

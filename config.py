@@ -22,6 +22,9 @@ API_KEY = os.getenv("API_KEY", "")
 
 # --- LLM / IA GENERATIVA ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+# 'claude' (default) usa router haiku/sonnet; 'gemini' usa Flash legacy.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "claude").lower()
 
 # --- ACCESO MANAGER ---
 # Emails con acceso a la vista Manager. Separados por coma en MANAGER_EMAILS o hardcodeados aquí.

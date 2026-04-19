@@ -6,6 +6,8 @@ creamos otra clase con la misma interfaz `generate(...)` y cambiamos una línea.
 from __future__ import annotations
 
 import json
+import re
+import time
 from typing import Any
 
 import requests
@@ -34,6 +36,62 @@ class LLMTransportError(LLMError):
 
 class LLMBadResponseError(LLMError):
     """Respuesta 4xx/5xx que no es 429, o payload mal formado."""
+
+
+def _parse_429_detail(resp_text: str) -> tuple[str, float | None]:
+    """Extrae de la respuesta 429 de Gemini:
+    - nombre compacto de la cuota que se tocó (RPM / RPD / TPM / etc.)
+    - retryDelay en segundos, si Google lo incluyó.
+    """
+    quota_short = "unknown"
+    try:
+        data = json.loads(resp_text)
+        err = data.get("error", {})
+        # Ejemplos de quotaMetric:
+        # "...generate_content_free_tier_requests" → RPM/RPD
+        # "...generate_content_free_tier_input_token_count" → TPM in
+        msg = err.get("message", "")
+        details = err.get("details", []) or []
+
+        for d in details:
+            for v in d.get("violations", []) or []:
+                m = v.get("quotaMetric", "")
+                qid = v.get("quotaId", "")
+                if "PerMinute" in qid:
+                    if "Tokens" in qid:
+                        quota_short = "TPM (tokens/min)"
+                    else:
+                        quota_short = "RPM (requests/min)"
+                elif "PerDay" in qid:
+                    if "Tokens" in qid:
+                        quota_short = "input tokens/day"
+                    else:
+                        quota_short = "RPD (requests/day)"
+                if quota_short != "unknown":
+                    break
+            if quota_short != "unknown":
+                break
+
+        # retryDelay del bloque RetryInfo
+        retry_delay = None
+        for d in details:
+            rd = d.get("retryDelay")
+            if rd and isinstance(rd, str):
+                m2 = re.match(r"(\d+(?:\.\d+)?)s", rd)
+                if m2:
+                    retry_delay = float(m2.group(1))
+                    break
+
+        # Fallback: parsear del message si no hubo estructura
+        if quota_short == "unknown" and "Quota exceeded" in msg:
+            if "token_count" in msg.lower():
+                quota_short = "tokens/min" if "PerMinute" in msg else "tokens/day"
+            elif "requests" in msg.lower():
+                quota_short = "requests/min" if "PerMinute" in msg else "requests/day"
+
+        return quota_short, retry_delay
+    except Exception:
+        return "unknown", None
 
 
 class GeminiProvider:
@@ -66,27 +124,43 @@ class GeminiProvider:
         if tools:
             body["tools"] = tools
 
-        try:
-            resp = requests.post(
-                url,
-                params={"key": self.api_key},
-                headers={"Content-Type": "application/json"},
-                data=json.dumps(body),
-                timeout=self.timeout,
-            )
-        except requests.RequestException as e:
-            raise LLMTransportError(f"no pude contactar al modelo: {e}") from e
+        # Reintento silencioso ante 429 transitorio: si Google manda un retryDelay
+        # chico (<= 6s), esperamos y reintentamos UNA vez antes de fallar.
+        attempt = 0
+        max_attempts = 2
+        while True:
+            attempt += 1
+            try:
+                resp = requests.post(
+                    url,
+                    params={"key": self.api_key},
+                    headers={"Content-Type": "application/json"},
+                    data=json.dumps(body),
+                    timeout=self.timeout,
+                )
+            except requests.RequestException as e:
+                raise LLMTransportError(f"no pude contactar al modelo: {e}") from e
 
-        if resp.status_code == 429:
-            raise LLMRateLimitError(
-                "el modelo está temporalmente saturado (rate limit). "
-                "Esperá ~1 minuto y reintentá."
-            )
+            if resp.status_code == 429:
+                quota_short, retry_delay = _parse_429_detail(resp.text)
+                if attempt < max_attempts and retry_delay and retry_delay <= 6.0:
+                    time.sleep(retry_delay + 0.5)
+                    continue
+                delay_hint = (
+                    f" (el modelo pide esperar {int(retry_delay)}s)"
+                    if retry_delay else ""
+                )
+                raise LLMRateLimitError(
+                    f"rate limit Gemini — cuota: {quota_short}{delay_hint}. "
+                    "En free tier esto pasa mucho al encadenar tool-use. "
+                    "Esperá y reintentá, o activá billing en Google Cloud."
+                )
 
-        if resp.status_code != 200:
-            raise LLMBadResponseError(
-                f"el modelo respondió {resp.status_code}: {resp.text[:300]}"
-            )
+            if resp.status_code != 200:
+                raise LLMBadResponseError(
+                    f"el modelo respondió {resp.status_code}: {resp.text[:300]}"
+                )
+            break
 
         data = resp.json()
         candidates = data.get("candidates") or []

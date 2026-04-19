@@ -212,18 +212,18 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "historico_curva",
         "description": (
-            "Serie diaria del precio de cierre de un instrumento (para gráficos "
-            "de evolución largos)."
+            "Serie diaria (último precio + TEA/TEM/duration/paridad por día) de "
+            "TODOS los instrumentos de UNA curva. Útil para ver evolución completa "
+            "de una curva. Devuelve lista larga, preferí usar historico_trades si "
+            "querés un solo instrumento."
         ),
         "endpoint": "/api/cotizaciones/historico/curva",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "instrumento": {"type": "STRING", "description": "Ticker."},
-                "desde": {"type": "STRING"},
-                "hasta": {"type": "STRING"},
+                "curva": {"type": "STRING", "description": "'tasa_fija' o 'cer'."},
             },
-            "required": ["instrumento"],
+            "required": ["curva"],
         },
     },
 

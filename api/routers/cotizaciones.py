@@ -1,4 +1,5 @@
 """Router Cotizaciones: lectura directa de Trading.* y Opciones.* (sin migración)."""
+import re
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
@@ -8,6 +9,13 @@ from api.deps import get_db_opciones, get_db_trading, get_db_valuaciones
 from core.mongo import get_mongo_client
 
 router = APIRouter(prefix="/api/cotizaciones", tags=["Cotizaciones"])
+
+
+def _ticker_filter(instrumento: str) -> dict:
+    """Matchea tanto el ticker completo ROFEX ('MERV - XMEV - X29Y6 - 24hs')
+    como el ticker corto ('X29Y6'). Hace regex substring con escape.
+    """
+    return {"$regex": re.escape(instrumento), "$options": "i"}
 
 
 # ── Series BCRA (BADLAR, CER, DOLAR) ──
@@ -89,12 +97,12 @@ def listar_forwards(
 @router.get("/renta-fija")
 @cached(ttl=5)
 def listar_renta_fija(
-    instrumento: str | None = Query(None, description="Filtrar por instrumento (ej: MERV - XMEV - S30A6 - 24hs)"),
+    instrumento: str | None = Query(None, description="Filtrar por instrumento. Acepta ticker corto ('TX26') o completo ('MERV - XMEV - TX26 - 24hs')."),
 ):
     db = get_db_trading()
     filtro = {}
     if instrumento:
-        filtro["ticker"] = instrumento
+        filtro["ticker"] = _ticker_filter(instrumento)
 
     pipeline = [
         {"$match": filtro},
@@ -129,13 +137,13 @@ def listar_breakevens():
 @router.get("/opciones")
 @cached(ttl=10)
 def listar_opciones(
-    instrumento: str | None = Query(None, description="Filtrar por instrumento (ej: MERV - XMEV - GFGC10950A - 24hs)"),
+    instrumento: str | None = Query(None, description="Filtrar por instrumento. Acepta corto ('GFGC10950A') o completo ('MERV - XMEV - GFGC10950A - 24hs')."),
     tipo: str | None = Query(None, description="Filtrar por tipo (CALL/PUT)"),
 ):
     db = get_db_opciones()
     filtro = {}
     if instrumento:
-        filtro["symbol"] = instrumento
+        filtro["symbol"] = _ticker_filter(instrumento)
     if tipo:
         filtro["tipo"] = tipo.upper()
 
@@ -230,14 +238,14 @@ def historico_mep(
 @router.get("/historico/trades")
 @cached(ttl=15)
 def historico_trades(
-    instrumento: str | None = Query(None, description="Filtrar por instrumento (ej: MERV - XMEV - TX26 - 24hs)"),
+    instrumento: str | None = Query(None, description="Filtrar por instrumento. Acepta corto ('TX26') o completo ('MERV - XMEV - TX26 - 24hs')."),
 ):
     """Trades de los últimos 15 días desde hoy."""
     db = get_db_trading()
     corte = datetime.now(UTC) - timedelta(days=15)
     filtro: dict = {"timestamp": {"$gte": corte}}
     if instrumento:
-        filtro["ticker"] = instrumento
+        filtro["ticker"] = _ticker_filter(instrumento)
 
     pipeline = [
         {"$match": filtro},

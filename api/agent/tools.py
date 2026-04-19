@@ -1,12 +1,24 @@
-"""Tools expuestas al LLM (read-only).
+"""Tools expuestas al LLM (read-only, SOLO data de mercado).
 
-Cada tool es un wrapper sobre un endpoint de la propia API. El LLM NO toca
-Mongo directo: toca herramientas → ejecutamos un GET HTTP a localhost → devolvemos JSON.
+===============================================================================
+POLÍTICA DE DATOS — LEER ANTES DE AGREGAR UNA TOOL
+===============================================================================
 
-Esto nos da:
-- seguridad (mismo pipeline de auth/validación que el frontend)
-- observabilidad (los logs del API quedan igual)
-- desacoplamiento (si cambiamos la query interna, el tool sigue sirviendo el mismo contrato)
+El modelo usado actualmente (Gemini Flash en FREE TIER) **usa los prompts y
+respuestas para entrenar** sus próximos modelos. Por eso acá SOLO exponemos
+endpoints con data pública de mercado (cotizaciones, historicos, metadata
+de títulos). NUNCA data de clientes.
+
+PROHIBIDO exponer al modelo (blocked en dispatch() más abajo):
+    /api/portfolio/*   → carteras, AuM (data de clientes)
+    /api/operaciones/* → operaciones de mesa (clientes + montos)
+    /api/cuentas/*     → accionistas, contrapartes (partes)
+    /api/manager/*     → operaciones internas
+
+Cuando se active billing en Google Cloud (Gemini deja de entrenar), se levanta
+el bloqueo editando BLOCKED_PATH_PREFIXES abajo y agregando tools nuevas.
+
+===============================================================================
 """
 from __future__ import annotations
 
@@ -17,110 +29,29 @@ import requests
 
 from config import API_KEY
 
-# Base URL del FastAPI. En producción corre en localhost:8000.
 API_BASE = "http://127.0.0.1:8000"
 TOOL_TIMEOUT = 15
 
-# Gemini usa tipos en MAYÚSCULA en sus function_declarations (Schema type enum).
-# Referencia: STRING, INTEGER, NUMBER, BOOLEAN, ARRAY, OBJECT.
+# Prefijos de rutas BLOQUEADAS para el LLM. dispatch() se niega a llamarlas
+# aunque figuren en TOOLS. Safety belt por si alguien agrega una tool sin pensar.
+BLOCKED_PATH_PREFIXES = (
+    "/api/portfolio",
+    "/api/operaciones",
+    "/api/cuentas",
+    "/api/manager",
+)
+
+# Gemini usa tipos en MAYÚSCULA (Schema type enum: STRING, INTEGER, NUMBER,
+# BOOLEAN, ARRAY, OBJECT).
 
 TOOLS: list[dict[str, Any]] = [
-    {
-        "name": "listar_accionistas",
-        "description": (
-            "Devuelve la lista completa de accionistas de la firma (cuentas + nombre). "
-            "Usar cuando el usuario pregunta quiénes son accionistas o cuántos hay."
-        ),
-        "endpoint": "/api/cuentas/accionistas",
-        "parameters": {"type": "OBJECT", "properties": {}},
-    },
-    {
-        "name": "listar_contrapartes",
-        "description": (
-            "Devuelve la lista de contrapartes (fondos, bancos, ALYCs) con las que operamos. "
-            "Cada una tiene un segmento: Fondos | ALYC | Bancos. Usar para preguntas tipo "
-            "'qué fondos hay', 'listame las ALYCs', etc."
-        ),
-        "endpoint": "/api/cuentas/contrapartes",
-        "parameters": {"type": "OBJECT", "properties": {}},
-    },
-    {
-        "name": "cartera_por_cuenta",
-        "description": (
-            "Devuelve las posiciones actuales de UNA cuenta específica (último snapshot). "
-            "Requiere el id_cuenta numérico. Si el usuario da un nombre, primero hay que "
-            "encontrar el id con listar_accionistas o pedir aclaración."
-        ),
-        "endpoint": "/api/portfolio/carteras",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "id_cuenta": {
-                    "type": "STRING",
-                    "description": "ID numérico de la cuenta (ej: '12345')",
-                },
-                "unidad": {
-                    "type": "STRING",
-                    "description": "Opcional. Filtra por unidad/activo específico.",
-                },
-            },
-            "required": ["id_cuenta"],
-        },
-    },
-    {
-        "name": "aum_historico",
-        "description": (
-            "Devuelve AuM (Assets under Management) con filtros. Sin filtros devuelve "
-            "la última foto agregada. Usar para consultas tipo 'AuM del fondo X', "
-            "'serie histórica de AuM de cuenta Y', 'AuM entre fechas'."
-        ),
-        "endpoint": "/api/portfolio/aum",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "id_cuenta": {"type": "STRING", "description": "Filtra por id_cuenta."},
-                "cuenta": {"type": "STRING", "description": "Filtra por nombre de cuenta."},
-                "unidad": {"type": "STRING", "description": "Filtra por unidad/activo."},
-                "desde": {
-                    "type": "STRING",
-                    "description": "Fecha desde en formato YYYY-MM-DD.",
-                },
-                "hasta": {
-                    "type": "STRING",
-                    "description": "Fecha hasta en formato YYYY-MM-DD.",
-                },
-                "ultimo": {
-                    "type": "BOOLEAN",
-                    "description": "Si true, devuelve solo el último snapshot.",
-                },
-            },
-        },
-    },
-    {
-        "name": "flujo_mesa",
-        "description": (
-            "Devuelve operaciones de mesa (libro de operaciones) filtradas. "
-            "Usar para preguntas tipo 'qué operó contraparte X esta semana', "
-            "'flujo en ARS de mayo', 'operaciones con fondos el último mes'."
-        ),
-        "endpoint": "/api/operaciones/flujo",
-        "parameters": {
-            "type": "OBJECT",
-            "properties": {
-                "contraparte": {"type": "STRING", "description": "Nombre de la contraparte."},
-                "moneda": {"type": "STRING", "description": "ARS o USD."},
-                "segmento": {"type": "STRING", "description": "Fondos | ALYC | Bancos."},
-                "desde": {"type": "STRING", "description": "YYYY-MM-DD."},
-                "hasta": {"type": "STRING", "description": "YYYY-MM-DD."},
-            },
-        },
-    },
+    # ─── GRUPO 1: cotizaciones y mercado (data pública) ──────────────────────
     {
         "name": "cotizacion_renta_fija",
         "description": (
-            "Devuelve el snapshot de mercado de un bono/letra (book, métricas de microestructura, "
-            "VWAP, spread, último precio, máximos/mínimos). Usar para 'cómo está cotizando X', "
-            "'precio de TX26', 'spread de AL30'."
+            "Snapshot de mercado de un bono/letra: book (top 5 bids/offers), "
+            "VWAP, spread, último/máximo/mínimo/cierre, trades recientes. "
+            "Usar para 'cómo está TX26', 'precio de AL30', 'spread de S31M6'."
         ),
         "endpoint": "/api/cotizaciones/renta-fija",
         "parameters": {
@@ -128,26 +59,38 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "instrumento": {
                     "type": "STRING",
-                    "description": "Ticker del instrumento (ej: 'TX26', 'AL30', 'S31M6').",
+                    "description": "Ticker (ej: 'TX26', 'AL30', 'S31M6').",
                 },
             },
             "required": ["instrumento"],
         },
     },
     {
-        "name": "breakevens_actuales",
+        "name": "cotizacion_opciones",
         "description": (
-            "Devuelve los breakevens vigentes (inflación mensual implícita) del pareo Lecap vs CER. "
-            "Sin parámetros. Usar para 'cómo están los breakevens', 'qué infla implícita el mercado'."
+            "Cotizaciones de opciones de GGAL con Greeks (delta, gamma, vega, theta) "
+            "e IV. Usar para 'opciones de GGAL', 'call 3000 GGAL', 'IV de puts'."
         ),
-        "endpoint": "/api/cotizaciones/breakevens",
-        "parameters": {"type": "OBJECT", "properties": {}},
+        "endpoint": "/api/cotizaciones/opciones",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "instrumento": {
+                    "type": "STRING",
+                    "description": "Símbolo de la opción (ej: 'GFGC3000JU').",
+                },
+                "tipo": {
+                    "type": "STRING",
+                    "description": "Filtrar por 'CALL' o 'PUT'.",
+                },
+            },
+        },
     },
     {
         "name": "forwards_por_curva",
         "description": (
-            "Matriz NxN de tasas forward entre todos los instrumentos de UNA curva. "
-            "Usar para 'forwards de la curva tasa fija', 'forward implícito TX26-TZX26'."
+            "Matriz NxN de tasas forward implícitas entre todos los instrumentos "
+            "de una curva. Usar para 'forwards de tasa fija', 'forward TX26-TZX26'."
         ),
         "endpoint": "/api/cotizaciones/forwards",
         "parameters": {
@@ -161,16 +104,184 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["curva"],
         },
     },
+    {
+        "name": "breakevens_actuales",
+        "description": (
+            "Breakevens vigentes: inflación mensual implícita del pareo Lecap vs CER. "
+            "Sin parámetros. Usar para 'cómo están los breakevens', "
+            "'qué infla implícita el mercado'."
+        ),
+        "endpoint": "/api/cotizaciones/breakevens",
+        "parameters": {"type": "OBJECT", "properties": {}},
+    },
+    {
+        "name": "serie_cer",
+        "description": "Serie histórica del índice CER (BCRA). Rango opcional.",
+        "endpoint": "/api/cotizaciones/cer",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "desde": {"type": "STRING", "description": "Fecha YYYY-MM-DD."},
+                "hasta": {"type": "STRING", "description": "Fecha YYYY-MM-DD."},
+            },
+        },
+    },
+    {
+        "name": "serie_badlar",
+        "description": "Serie histórica de la tasa BADLAR (bancos privados, BCRA).",
+        "endpoint": "/api/cotizaciones/badlar",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "desde": {"type": "STRING", "description": "Fecha YYYY-MM-DD."},
+                "hasta": {"type": "STRING", "description": "Fecha YYYY-MM-DD."},
+            },
+        },
+    },
+    {
+        "name": "serie_dolar_a3500",
+        "description": "Serie histórica del dólar A3500 (referencia BCRA).",
+        "endpoint": "/api/cotizaciones/dolar",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "desde": {"type": "STRING", "description": "Fecha YYYY-MM-DD."},
+                "hasta": {"type": "STRING", "description": "Fecha YYYY-MM-DD."},
+            },
+        },
+    },
+    {
+        "name": "mep_actual",
+        "description": "Último snapshot intradía del dólar MEP. Sin parámetros.",
+        "endpoint": "/api/cotizaciones/mep",
+        "parameters": {"type": "OBJECT", "properties": {}},
+    },
+    {
+        "name": "historico_trades",
+        "description": (
+            "Trades de un instrumento en los últimos 15 días (serie intradía). "
+            "Usar para 'evolución de TX26 en 15 días', 'trades recientes de AL30'."
+        ),
+        "endpoint": "/api/cotizaciones/historico/trades",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "instrumento": {"type": "STRING", "description": "Ticker."},
+            },
+            "required": ["instrumento"],
+        },
+    },
+    {
+        "name": "historico_forwards",
+        "description": "Evolución diaria de forwards por curva.",
+        "endpoint": "/api/cotizaciones/historico/forwards",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "curva": {"type": "STRING", "description": "'tasa_fija' o 'cer'."},
+                "desde": {"type": "STRING"},
+                "hasta": {"type": "STRING"},
+            },
+            "required": ["curva"],
+        },
+    },
+    {
+        "name": "historico_breakevens",
+        "description": "Evolución diaria de los breakevens Lecap vs CER.",
+        "endpoint": "/api/cotizaciones/historico/breakevens",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "desde": {"type": "STRING"},
+                "hasta": {"type": "STRING"},
+            },
+        },
+    },
+    {
+        "name": "historico_mep",
+        "description": "Serie histórica del dólar MEP.",
+        "endpoint": "/api/cotizaciones/historico/mep",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "desde": {"type": "STRING"},
+                "hasta": {"type": "STRING"},
+            },
+        },
+    },
+    {
+        "name": "historico_curva",
+        "description": (
+            "Serie diaria del precio de cierre de un instrumento (para gráficos "
+            "de evolución largos)."
+        ),
+        "endpoint": "/api/cotizaciones/historico/curva",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "instrumento": {"type": "STRING", "description": "Ticker."},
+                "desde": {"type": "STRING"},
+                "hasta": {"type": "STRING"},
+            },
+            "required": ["instrumento"],
+        },
+    },
+
+    # ─── GRUPO 2: metadata de títulos (info pública de CNV/prospectos) ──────
+    {
+        "name": "metadata_activos",
+        "description": (
+            "Metadata de instrumentos (emisor, clase de activo, calificación, "
+            "vencimiento). Filtrar por ticker/emisor/clase_activo. "
+            "Usar para 'emisor de TX26', 'ONs con calificación AAA', 'bonos que "
+            "vencen en 2027'."
+        ),
+        "endpoint": "/api/titulos/assets",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "ticker":        {"type": "STRING"},
+                "emisor":        {"type": "STRING"},
+                "clase_activo":  {"type": "STRING"},
+            },
+        },
+    },
+    {
+        "name": "flujos_titulo",
+        "description": (
+            "Cronograma de flujos de un bono (cupones, amortizaciones, moneda). "
+            "Usar para 'cuándo paga TX26', 'próximo cupón de AL30', 'amortizaciones "
+            "de TZX26'."
+        ),
+        "endpoint": "/api/titulos/flujos",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "ticker":        {"type": "STRING"},
+                "curva":         {"type": "STRING", "description": "'tasa_fija' o 'cer'."},
+                "moneda_flujo":  {"type": "STRING", "description": "ARS o USD."},
+            },
+        },
+    },
 ]
 
 TOOL_BY_NAME = {t["name"]: t for t in TOOLS}
 
 
+def _is_blocked(endpoint: str) -> bool:
+    return any(endpoint.startswith(p) for p in BLOCKED_PATH_PREFIXES)
+
+
 def gemini_tool_declarations() -> list[dict[str, Any]]:
-    """Formato que espera Gemini: lista con una entrada `function_declarations`."""
+    """Formato que espera Gemini: lista con una entrada `function_declarations`.
+
+    Filtra automáticamente cualquier tool que apunte a ruta bloqueada, para que
+    ni siquiera aparezca en el menú que ve el modelo.
+    """
     decls = [
         {"name": t["name"], "description": t["description"], "parameters": t["parameters"]}
         for t in TOOLS
+        if not _is_blocked(t["endpoint"])
     ]
     return [{"function_declarations": decls}]
 
@@ -178,15 +289,25 @@ def gemini_tool_declarations() -> list[dict[str, Any]]:
 def dispatch(name: str, args: dict[str, Any]) -> dict[str, Any]:
     """Ejecuta la tool pedida por el LLM.
 
-    Devuelve un dict con la forma `{"ok": bool, "data": ..., "error": ...}`
-    para que el modelo distinga éxito de error explícitamente.
+    Double-check: aunque el modelo solo ve las tools no-bloqueadas (por
+    gemini_tool_declarations), acá verificamos de nuevo antes de pegarle al
+    endpoint. Belt-and-suspenders.
     """
     tool = TOOL_BY_NAME.get(name)
     if tool is None:
         return {"ok": False, "error": f"tool '{name}' no existe"}
 
+    if _is_blocked(tool["endpoint"]):
+        return {
+            "ok": False,
+            "error": (
+                "ruta bloqueada por política de datos (free tier del modelo). "
+                "No tengo acceso a información de clientes, carteras, AuM, "
+                "operaciones, accionistas ni contrapartes."
+            ),
+        }
+
     url = API_BASE + tool["endpoint"]
-    # Limpiamos params None/vacíos para no ensuciar la URL.
     params = {k: v for k, v in (args or {}).items() if v not in (None, "")}
 
     headers = {}

@@ -20,6 +20,9 @@ AUNESA_PASSWORD = os.getenv("AUNESA_PASSWORD")
 # --- API KEY ---
 API_KEY = os.getenv("API_KEY", "")
 
+# --- LLM / IA GENERATIVA ---
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
 # --- ACCESO MANAGER ---
 # Emails con acceso a la vista Manager. Separados por coma en MANAGER_EMAILS o hardcodeados aquí.
 _manager_env = os.getenv("MANAGER_EMAILS", "")

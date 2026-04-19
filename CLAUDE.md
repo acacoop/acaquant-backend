@@ -64,6 +64,7 @@ TradingAV/
 │   ├── volatilidad_ggal.py   # VR histórica GGAL al cierre
 │   ├── options_rollup.py     # rollup Opciones.Data → DataHistorica
 │   ├── bcra.py               # CER/TAMAR/DOLAR/BADLAR
+│   ├── sync_api_copies.py    # re-sync colecciones *API.*API desde fuentes
 │   └── dias_habiles.py       # calendario hábil argentino
 │
 ├── quant/                    # cálculo puro (sin I/O de red)
@@ -76,6 +77,7 @@ TradingAV/
 │       ├── carteras.py       # /api/portfolio/*
 │       ├── cotizaciones.py   # /api/cotizaciones/*
 │       ├── cuentas.py        # /api/cuentas/*
+│       ├── manager.py        # /api/manager/* (status, jobs, checks, latencia)
 │       ├── operaciones.py    # /api/operaciones/*
 │       └── titulos.py        # /api/titulos/*
 │
@@ -282,17 +284,22 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - **`options_rollup.py`** — rollup diario `Opciones.Data` → `Opciones.DataHistorica`. Upsert idempotente. `--backfill` / `--fecha YYYY-MM-DD`. Cron 20:15 UTC L-V.
 - **`bcra.py`** — CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron; sin flag backfill desde 2023-01-01.
 - **`cleanup_curvas.py`** — elimina instrumentos vencidos de `Trading.Curvas` (< 2 días hábiles). `--dry` para preview. Cron 12:30 UTC L-V.
+- **`sync_api_copies.py`** — re-sincroniza colecciones derivadas `*API.*API` llamando a `scripts.api_migrate`. Flags: `--aum`, `--carteras`, `--flujo`, `--movimientos`, `--titulos`, `--all`. Encadenado en crontab después de cada job fuente.
 - **`dias_habiles.py`** — genera calendario hábil argentino. Ejecutar una vez por año.
 
 ### Scripts de diagnóstico (`scripts/`)
 
 - **`crear_indices.py`** — crea todos los índices MongoDB. Idempotente.
 - **`perf_scan.py`** — análisis estático: `PERF001` find sin projection, `PERF002` query en for (N+1), `PERF003` count_documents({}), `PERF004` query repetida. Suprimir por línea con `# noqa: PERF00X`.
+- **`perf_profile.py`** — profiling runtime de endpoints críticos (traces de latencia Mongo).
+- **`check_cer.py`** — diagnóstico serie `Trading.CER` (huecos, últimos valores).
 - **`check_cer_valuacion.py`** — CER usado en último trade enriquecido por bono.
+- **`check_tasa_fija.py`** — diagnóstico join chain `Trading.Curvas` (tasa_fija) → `Assets` → `AuM`.
 - **`check_curvas_pendientes.py`** — docs sin `duration` por ticker en TimeSales.
 - **`check_forwards.py`** — diagnóstico completo de forwards por curva.
 - **`check_aum_raw.py`** — consulta directa Aunesa filtrando por keyword.
 - **`debug_forward.py`** — walk-through paso a paso del cálculo forward TX26 vs TZX26.
+- **`test_match_contrapartes.py`** — verifica matcheo contrapartes Flujo ↔ Contrapartes.
 
 ## Deployment
 

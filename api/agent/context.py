@@ -83,7 +83,7 @@ def _a3500_line(client) -> str:
 
 
 def _top_volumen_line(client) -> str:
-    """Top 5 tickers por volumen en los últimos 3 días (cubre fines de semana)."""
+    """Top 5 tickers por volumen en los últimos 3 días, enriquecidos con curva/tipo."""
     corte = datetime.now(timezone.utc) - timedelta(days=3)
     pipeline = [
         {"$match": {"timestamp": {"$gte": corte}, "money": {"$gt": 0}}},
@@ -94,8 +94,53 @@ def _top_volumen_line(client) -> str:
     rows = list(client["Trading"]["TimeSales"].aggregate(pipeline))
     if not rows:
         return "Top volumen (últimos 3d): sin datos"
-    cortos = [_short_ticker(r["_id"]) for r in rows]
-    return "Top volumen (últimos 3d): " + ", ".join(cortos)
+
+    # Buscar curva/tipo en Trading.Curvas por ticker para clasificar.
+    fulls = [r["_id"] for r in rows]
+    curvas_docs = list(
+        client["Trading"]["Curvas"].find(
+            {"ticker": {"$in": fulls}},
+            {"_id": 0, "ticker": 1, "ticker_corto": 1, "curva": 1, "tipo": 1},
+        )
+    )
+    by_full = {d["ticker"]: d for d in curvas_docs}
+
+    items = []
+    for r in rows:
+        full = r["_id"]
+        info = by_full.get(full, {})
+        corto = info.get("ticker_corto") or _short_ticker(full)
+        curva = info.get("curva") or ""
+        items.append(f"{corto}{' (' + curva + ')' if curva else ''}")
+    return "Top volumen (últimos 3d): " + ", ".join(items)
+
+
+def _ultima_licitacion_line(client) -> str:
+    """Último instrumento emitido en Trading.Curvas (proxy de 'última licitación').
+
+    Si encontramos un doc con fecha_emision dentro de los últimos 10 días, lo
+    marcamos como recién emitido (datos provisorios primeros 3-5 días).
+    """
+    hoy = datetime.now(TZ_AR).date()
+    corte = (hoy - timedelta(days=10)).isoformat()
+    cur = (
+        client["Trading"]["Curvas"]
+        .find(
+            {"fecha_emision": {"$gte": corte}},
+            {"_id": 0, "ticker_corto": 1, "ticker": 1, "fecha_emision": 1, "curva": 1},
+        )
+        .sort("fecha_emision", -1)
+        .limit(3)
+    )
+    items = []
+    for d in cur:
+        corto = d.get("ticker_corto") or _short_ticker(d.get("ticker", ""))
+        fecha = d.get("fecha_emision", "")
+        curva = d.get("curva", "")
+        items.append(f"{corto} ({curva}, emitido {_fmt_date(fecha)})")
+    if not items:
+        return "Últimas emisiones (10d): sin datos"
+    return "Últimas emisiones (10d) — primeros 3-5 días los datos son provisorios: " + " · ".join(items)
 
 
 def _short_ticker(full: str) -> str:
@@ -162,17 +207,18 @@ def build_market_context() -> str:
     client = get_mongo_client_read()
 
     lineas = [
-        f"CONTEXTO DEL MERCADO (actualizado {ahora.strftime('%d/%m/%Y %H:%M')} ART):",
-        f"- Mercado: {estado}",
-        f"- {_safe(lambda: _mep_line(client))}",
-        f"- {_safe(lambda: _a3500_line(client))}",
-        f"- {_safe(lambda: _cer_line(client))}",
-        f"- {_safe(lambda: _top_volumen_line(client))}",
-        f"- {_safe(lambda: _proximos_vencimientos_line(client, 'tasa_fija', 'Lecap'))}",
-        f"- {_safe(lambda: _proximos_vencimientos_line(client, 'cer', 'CER'))}",
-        f"- {_safe(lambda: _breakevens_line(client))}",
+        f"Fecha/hora AR: {ahora.strftime('%d/%m/%Y %H:%M')}",
+        f"Mercado: {estado}",
+        f"{_safe(lambda: _mep_line(client))}",
+        f"{_safe(lambda: _a3500_line(client))}",
+        f"{_safe(lambda: _cer_line(client))}",
+        f"{_safe(lambda: _top_volumen_line(client))}",
+        f"{_safe(lambda: _proximos_vencimientos_line(client, 'tasa_fija', 'Lecap'))}",
+        f"{_safe(lambda: _proximos_vencimientos_line(client, 'cer', 'CER'))}",
+        f"{_safe(lambda: _breakevens_line(client))}",
+        f"{_safe(lambda: _ultima_licitacion_line(client))}",
     ]
-    text = "\n".join(lineas)
+    text = "\n".join(f"- {l}" for l in lineas)
 
     _cache["ts"] = now
     _cache["text"] = text

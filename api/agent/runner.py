@@ -13,6 +13,8 @@ import time
 from typing import Any
 
 from api.agent.context import build_market_context
+from api.agent.data_inventory import build_data_inventory
+from api.agent.estrategia import load_estrategia
 from api.agent.prompt import build_system_prompt
 from api.agent.provider import GeminiProvider, LLMError
 from api.agent.tools import dispatch, gemini_tool_declarations
@@ -57,13 +59,24 @@ def run_conversation(
     tools = gemini_tool_declarations()
     tool_calls: list[dict[str, Any]] = []
 
-    # Armar el system prompt con contexto dinámico (cacheado 60s).
+    # Armar el system prompt con los 3 bloques dinámicos. Cada bloque falla
+    # independiente: si uno no puede, seguimos con los otros.
     try:
         market_ctx = build_market_context()
     except Exception:
         logger.exception("no se pudo armar el market context; continúo sin él")
         market_ctx = ""
-    system_prompt = build_system_prompt(market_ctx)
+    try:
+        data_inv = build_data_inventory()
+    except Exception:
+        logger.exception("no se pudo armar el data inventory; continúo sin él")
+        data_inv = ""
+    try:
+        estrategia = load_estrategia()
+    except Exception:
+        logger.exception("no se pudo cargar estrategia.md; continúo sin él")
+        estrategia = ""
+    system_prompt = build_system_prompt(market_ctx, data_inv, estrategia)
 
     t_start = time.time()
     last_usage: dict[str, Any] = {}

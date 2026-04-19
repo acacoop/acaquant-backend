@@ -1,7 +1,6 @@
 """Router Cotizaciones: lectura directa de Trading.* y Opciones.* (sin migración)."""
 import re
 from datetime import UTC, datetime, timedelta
-
 from fastapi import APIRouter, HTTPException, Query
 
 from api.cache import cached, clear_cache

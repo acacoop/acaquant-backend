@@ -23,7 +23,9 @@ from api.agent.tools import dispatch, gemini_tool_declarations
 logger = logging.getLogger(__name__)
 
 # Máximo de tool-calls encadenadas. Evita loops y controla costo.
-MAX_STEPS = 8
+# Bajado de 8 a 6 para dar margen de tiempo cuando el prompt es grande
+# (framework + catálogo + contexto = ~15K tokens, cada turno ~5-8s).
+MAX_STEPS = 6
 
 
 def _user_message(text: str) -> dict[str, Any]:

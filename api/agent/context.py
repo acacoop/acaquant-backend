@@ -143,6 +143,74 @@ def _ultima_licitacion_line(client) -> str:
     return "Últimas emisiones (10d) — primeros 3-5 días los datos son provisorios: " + " · ".join(items)
 
 
+# ── INTEL del reporte más reciente (editado desde Manager/INTEL) ──────────────
+
+_INTEL_LABELS = {
+    "reservas_netas_mkt":      ("Reservas netas (VM)",       "USD MM"),
+    "reservas_netas_fmi":      ("Reservas netas (FMI)",      "USD MM"),
+    "repo_stock_ars":          ("REPO stock",                "ARS"),
+    "riesgo_pais_bps":         ("Riesgo país",               "bps"),
+    "compras_bcra_dia_usd_mm": ("Compras BCRA día",          "USD MM"),
+    "compras_bcra_ytd_usd_mm": ("Compras BCRA YTD",          "USD MM"),
+    "brecha_mep_a3500_pct":    ("Brecha MEP-A3500",          "%"),
+    "canje_ccl_mep_pct":       ("Canje CCL-MEP",             "%"),
+    "rollover_lici_pct":       ("Rollover lici",             "%"),
+    "bid_to_cover_lici":       ("Bid-to-cover lici",         ""),
+    "inflacion_proy_mens_pct": ("Inflación proy. mensual",   "%"),
+    "caucion_prom_pct":        ("Caución promedio",          "% TNA"),
+}
+
+
+def _fmt_num_compact(v: float | int | None) -> str:
+    if v is None:
+        return "—"
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    absn = abs(n)
+    if absn >= 1e12:
+        return f"{n / 1e12:.2f}B"   # billones ARS
+    if absn >= 1e9:
+        return f"{n / 1e9:.2f}MM"
+    if absn >= 1e6:
+        return f"{n / 1e6:.1f}M"
+    if absn == int(absn):
+        return f"{int(n)}"
+    return f"{n:.2f}"
+
+
+def _intel_block(client) -> str:
+    """Lee el último IntelDoc confirmado y arma un bloque de texto."""
+    doc = client["Manager"]["IntelDocs"].find_one(
+        {"confirmed": True},
+        sort=[("fecha", -1), ("created_at", -1)],
+    )
+    if not doc:
+        return ""
+    extracted = doc.get("extracted") or {}
+    fuente = doc.get("fuente") or "—"
+    fecha = doc.get("fecha") or ""
+
+    lineas_vars = []
+    for key, (label, unit) in _INTEL_LABELS.items():
+        v = extracted.get(key)
+        if v is None or v == "":
+            continue
+        lineas_vars.append(f"- {label}: {_fmt_num_compact(v)}{' ' + unit if unit else ''}")
+
+    comentario = (extracted.get("comentario_macro") or "").strip()
+
+    bloque = [f"INTEL MÁS RECIENTE ({fecha} — {fuente}):"]
+    if lineas_vars:
+        bloque.extend(lineas_vars)
+    if comentario:
+        bloque.append(f"- Comentario: {comentario}")
+    if not lineas_vars and not comentario:
+        return ""
+    return "\n".join(bloque)
+
+
 def _short_ticker(full: str) -> str:
     """'MERV - XMEV - TX26 - 24hs' → 'TX26'."""
     if not full or " - " not in full:
@@ -219,6 +287,11 @@ def build_market_context() -> str:
         f"{_safe(lambda: _ultima_licitacion_line(client))}",
     ]
     text = "\n".join(f"- {l}" for l in lineas)
+
+    # INTEL del reporte más reciente (si hay alguno confirmado)
+    intel = _safe(lambda: _intel_block(client), default="")
+    if intel:
+        text += "\n\n" + intel
 
     _cache["ts"] = now
     _cache["text"] = text

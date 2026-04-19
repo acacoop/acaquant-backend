@@ -12,6 +12,8 @@ requests
 yfinance
 fastapi
 uvicorn[standard]
+python-multipart  # file upload en /api/manager/intel/*
+pypdf             # parser de PDFs para ingesta de reportes
 
 # dev
 ruff

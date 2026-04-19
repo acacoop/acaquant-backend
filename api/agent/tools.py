@@ -263,12 +263,56 @@ TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+
+    # ─── Catálogo técnico on-demand (local, sin HTTP) ──────────────────────
+    {
+        "name": "consultar_catalogo_estrategias",
+        "description": (
+            "Consulta el catálogo técnico de estrategias para traer fórmulas, "
+            "estructura (legs), datos necesarios y construcción paso a paso. "
+            "USAR cuando el usuario pregunte por una estrategia específica o "
+            "estructura técnica (ej: 'armame un barbell', 'cómo hago un butterfly', "
+            "'covered call en GGAL', 'TIPS-Treasury arbitrage', 'carry trade', "
+            "'steepener', 'long strangle'). NO usar para cotizaciones ni datos de "
+            "mercado — usá las otras tools para eso."
+        ),
+        "endpoint": "__local__:catalogo",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "tema": {
+                    "type": "STRING",
+                    "description": (
+                        "Sección del catálogo. Opciones: "
+                        "'mapa-datos' (mapa dato→tool→campo), "
+                        "'fi-curva' (bullet/barbell/ladder), "
+                        "'fi-butterfly' (4 variantes de butterfly), "
+                        "'fi-carry' (carry factor, rolling-down, flatteners/steepeners, value, low-risk), "
+                        "'inflation' (Lecap/CER sintético, TIPS-Treasury arbitrage), "
+                        "'fx-carry' (carry sintético Lelink+ROFEX, brecha MEP/A3500), "
+                        "'options-bullish' (covered call, bull spreads, synthetic forward, combos, ladders, ratio backspread, strap, diagonal), "
+                        "'options-bearish' (covered put, bear spreads, short synthetic, ratio backspread, strip), "
+                        "'options-neutral' (straddles/strangles cortos, butterflies, condors, iron, box, collar, calendar), "
+                        "'options-vol' (long straddle/strangle/guts, short butterfly), "
+                        "'options-notas' (liquidez GGAL, caveats comisiones y dividendos), "
+                        "'macro' (fundamental momentum traducido al framework), "
+                        "'no-aplican' (lista de estrategias descartadas con razón), "
+                        "'reglas-asistente' (los 7 pasos para construir una respuesta)."
+                    ),
+                },
+            },
+            "required": ["tema"],
+        },
+    },
 ]
 
 TOOL_BY_NAME = {t["name"]: t for t in TOOLS}
 
 
 def _is_blocked(endpoint: str) -> bool:
+    # Tools locales (prefijo __local__:) nunca están bloqueadas.
+    if endpoint.startswith("__local__:"):
+        return False
     return any(endpoint.startswith(p) for p in BLOCKED_PATH_PREFIXES)
 
 
@@ -297,7 +341,16 @@ def dispatch(name: str, args: dict[str, Any]) -> dict[str, Any]:
     if tool is None:
         return {"ok": False, "error": f"tool '{name}' no existe"}
 
-    if _is_blocked(tool["endpoint"]):
+    endpoint = tool["endpoint"]
+
+    # Tools locales (no HTTP). Se identifican por prefijo "__local__:".
+    if endpoint == "__local__:catalogo":
+        from api.agent.estrategias import get_seccion
+        tema = (args or {}).get("tema", "")
+        content = get_seccion(tema)
+        return {"ok": True, "data": {"tema": tema, "content": content}}
+
+    if _is_blocked(endpoint):
         return {
             "ok": False,
             "error": (
@@ -307,7 +360,7 @@ def dispatch(name: str, args: dict[str, Any]) -> dict[str, Any]:
             ),
         }
 
-    url = API_BASE + tool["endpoint"]
+    url = API_BASE + endpoint
     params = {k: v for k, v in (args or {}).items() if v not in (None, "")}
 
     headers = {}

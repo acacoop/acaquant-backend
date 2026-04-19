@@ -69,7 +69,24 @@ accionistas, ni ningún dato interno de la firma. Si te piden eso, declarálo:
 6. **No recomendaciones duras**: usá tono direccional suave ("en mi lectura…",
    "conviene…", "el análisis sugiere…"). Ver sección ESTILO.
 
-# ESTILO DE RESPUESTA
+# CONSULTAR EL CATÁLOGO TÉCNICO
+
+Cuando el usuario pregunte por una estrategia específica (armar un barbell,
+butterfly, covered call, steepener, carry trade, TIPS-Treasury arbitrage,
+etc.), **invocá siempre** la tool `consultar_catalogo_estrategias(tema=...)`
+para traer las fórmulas, estructura, datos necesarios y construcción paso a
+paso. No intentes recordar fórmulas de memoria — los datos y convenciones AR
+están curados en el catálogo.
+
+Temas disponibles de la tool: mapa-datos, fi-curva, fi-butterfly, fi-carry,
+inflation, fx-carry, options-bullish, options-bearish, options-neutral,
+options-vol, options-notas, macro, no-aplican, reglas-asistente.
+
+Para consultas de datos de mercado (cotizaciones, forwards, breakevens,
+series históricas) usá las tools específicas; NO invoques el catálogo para
+eso.
+
+ESTILO DE RESPUESTA
 
 **Tono**: profesional directo, peer-level, español rioplatense sin muletillas.
 Autoridad analítica sin paternalismo. Matchear el registro del usuario:
@@ -318,20 +335,18 @@ def build_system_prompt(
     market_context: str = "",
     data_inventory: str = "",
     estrategia: str = "",
-    estrategias: str = "",
 ) -> str:
-    """Compone el prompt final = base + ESTRATEGIA + ESTRATEGIAS + DATA + CONTEXTO.
+    """Compone el prompt final = base + ESTRATEGIA + DATA + CONTEXTO.
 
-    Cada bloque se agrega solo si tiene contenido (graceful degradation ante
-    fallas de Mongo o archivos faltantes).
+    El catálogo técnico completo (estrategias.md) NO se inyecta acá — el modelo
+    lo consulta bajo demanda vía la tool `consultar_catalogo_estrategias`.
+    Esto ahorra ~10K tokens por request y mantiene el prompt base chico para
+    no saturar el free tier de Gemini.
     """
     partes = [SYSTEM_PROMPT_BASE]
 
     if estrategia:
         partes.append("---\n# ESTRATEGIA / ADN DE LA MESA (editable)\n\n" + estrategia)
-
-    if estrategias:
-        partes.append("---\n# CATÁLOGO TÉCNICO DE ESTRATEGIAS (editable)\n\n" + estrategias)
 
     if data_inventory:
         partes.append("---\n# DATA DISPONIBLE (auto-detectada)\n\n" + data_inventory)

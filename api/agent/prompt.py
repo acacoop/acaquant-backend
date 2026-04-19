@@ -318,8 +318,9 @@ def build_system_prompt(
     market_context: str = "",
     data_inventory: str = "",
     estrategia: str = "",
+    estrategias: str = "",
 ) -> str:
-    """Compone el prompt final = base + ESTRATEGIA + DATA DISPONIBLE + CONTEXTO.
+    """Compone el prompt final = base + ESTRATEGIA + ESTRATEGIAS + DATA + CONTEXTO.
 
     Cada bloque se agrega solo si tiene contenido (graceful degradation ante
     fallas de Mongo o archivos faltantes).
@@ -328,6 +329,9 @@ def build_system_prompt(
 
     if estrategia:
         partes.append("---\n# ESTRATEGIA / ADN DE LA MESA (editable)\n\n" + estrategia)
+
+    if estrategias:
+        partes.append("---\n# CATÁLOGO TÉCNICO DE ESTRATEGIAS (editable)\n\n" + estrategias)
 
     if data_inventory:
         partes.append("---\n# DATA DISPONIBLE (auto-detectada)\n\n" + data_inventory)

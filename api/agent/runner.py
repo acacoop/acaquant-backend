@@ -15,6 +15,7 @@ from typing import Any
 from api.agent.context import build_market_context
 from api.agent.data_inventory import build_data_inventory
 from api.agent.estrategia import load_estrategia
+from api.agent.estrategias import load_estrategias
 from api.agent.prompt import build_system_prompt
 from api.agent.provider import GeminiProvider, LLMError
 from api.agent.tools import dispatch, gemini_tool_declarations
@@ -76,7 +77,12 @@ def run_conversation(
     except Exception:
         logger.exception("no se pudo cargar estrategia.md; continúo sin él")
         estrategia = ""
-    system_prompt = build_system_prompt(market_ctx, data_inv, estrategia)
+    try:
+        estrategias = load_estrategias()
+    except Exception:
+        logger.exception("no se pudo cargar estrategias.md; continúo sin él")
+        estrategias = ""
+    system_prompt = build_system_prompt(market_ctx, data_inv, estrategia, estrategias)
 
     t_start = time.time()
     last_usage: dict[str, Any] = {}

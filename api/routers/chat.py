@@ -22,7 +22,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from api.agent.provider import (
@@ -55,27 +55,47 @@ class ChatResponse(BaseModel):
     truncated: bool = False
 
 
-def _log_interaccion(req: ChatRequest, resp: dict[str, Any]) -> None:
-    """Persiste cada turno en Manager.AsistenteLogs para auditoría."""
+def _log_interaccion(
+    req: ChatRequest,
+    resp: dict[str, Any] | None,
+    user_email: str,
+    error: dict[str, Any] | None = None,
+) -> None:
+    """Persiste cada turno en Manager.AsistenteLogs para auditoría.
+
+    Si `error` está presente, se loggea como intento fallido (sin resp).
+    """
     try:
-        doc = {
+        doc: dict[str, Any] = {
             "ts": datetime.now(timezone.utc),
+            "user": user_email or "anon",
             "message": req.message,
-            "reply": resp.get("reply", ""),
-            "tool_calls": resp.get("tool_calls", []),
-            "usage": resp.get("usage", {}),
-            "steps": resp.get("steps", 0),
-            "elapsed_s": resp.get("elapsed_s", 0),
-            "truncated": resp.get("truncated", False),
-            "history_len": len(resp.get("history", [])),
+            "estado": "error" if error else ("truncated" if resp and resp.get("truncated") else "ok"),
         }
+        if resp:
+            doc.update({
+                "reply": resp.get("reply", ""),
+                "tool_calls": resp.get("tool_calls", []),
+                "usage": resp.get("usage", {}),
+                "steps": resp.get("steps", 0),
+                "elapsed_s": resp.get("elapsed_s", 0),
+                "truncated": resp.get("truncated", False),
+                "history_len": len(resp.get("history", [])),
+            })
+        if error:
+            doc["error"] = error
         get_mongo_client()["Manager"]["AsistenteLogs"].insert_one(doc)
     except Exception:
         logger.exception("no se pudo loggear la interacción")
 
 
 @router.post("", response_model=ChatResponse)
-def chat(req: ChatRequest) -> ChatResponse:
+def chat(
+    req: ChatRequest,
+    cf_email: str | None = Header(default=None, alias="cf-access-authenticated-user-email"),
+) -> ChatResponse:
+    user_email = (cf_email or "").lower().strip() or "anon"
+
     if not GEMINI_API_KEY:
         raise HTTPException(
             status_code=503,
@@ -91,6 +111,7 @@ def chat(req: ChatRequest) -> ChatResponse:
         )
     except LLMRateLimitError as e:
         logger.warning("rate limit Gemini: %s", e)
+        _log_interaccion(req, None, user_email, error={"code": "rate_limit", "message": str(e)[:300]})
         raise HTTPException(
             status_code=429,
             detail={
@@ -102,6 +123,7 @@ def chat(req: ChatRequest) -> ChatResponse:
         ) from e
     except LLMTransportError as e:
         logger.warning("transport error Gemini: %s", e)
+        _log_interaccion(req, None, user_email, error={"code": "transport", "message": str(e)[:300]})
         raise HTTPException(
             status_code=503,
             detail={
@@ -113,6 +135,7 @@ def chat(req: ChatRequest) -> ChatResponse:
         ) from e
     except LLMBadResponseError as e:
         logger.warning("bad response Gemini: %s", e)
+        _log_interaccion(req, None, user_email, error={"code": "bad_response", "message": str(e)[:300]})
         raise HTTPException(
             status_code=502,
             detail={
@@ -124,6 +147,7 @@ def chat(req: ChatRequest) -> ChatResponse:
         ) from e
     except LLMError as e:
         logger.exception("LLMError genérico")
+        _log_interaccion(req, None, user_email, error={"code": "llm_error", "message": str(e)[:300]})
         raise HTTPException(
             status_code=502,
             detail={
@@ -135,6 +159,7 @@ def chat(req: ChatRequest) -> ChatResponse:
         ) from e
     except Exception as e:
         logger.exception("error inesperado en /api/chat")
+        _log_interaccion(req, None, user_email, error={"code": "internal", "message": str(e)[:300]})
         raise HTTPException(
             status_code=500,
             detail={
@@ -144,5 +169,5 @@ def chat(req: ChatRequest) -> ChatResponse:
             },
         ) from e
 
-    _log_interaccion(req, result)
+    _log_interaccion(req, result, user_email)
     return ChatResponse(**result)

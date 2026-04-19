@@ -12,7 +12,8 @@ import logging
 import time
 from typing import Any
 
-from api.agent.prompt import SYSTEM_PROMPT
+from api.agent.context import build_market_context
+from api.agent.prompt import build_system_prompt
 from api.agent.provider import GeminiProvider, LLMError
 from api.agent.tools import dispatch, gemini_tool_declarations
 
@@ -56,12 +57,20 @@ def run_conversation(
     tools = gemini_tool_declarations()
     tool_calls: list[dict[str, Any]] = []
 
+    # Armar el system prompt con contexto dinámico (cacheado 60s).
+    try:
+        market_ctx = build_market_context()
+    except Exception:
+        logger.exception("no se pudo armar el market context; continúo sin él")
+        market_ctx = ""
+    system_prompt = build_system_prompt(market_ctx)
+
     t_start = time.time()
     last_usage: dict[str, Any] = {}
 
     for step in range(MAX_STEPS):
         try:
-            candidate = provider.generate(contents=contents, system_prompt=SYSTEM_PROMPT, tools=tools)
+            candidate = provider.generate(contents=contents, system_prompt=system_prompt, tools=tools)
         except LLMError as e:
             logger.exception("LLM error en step %d", step)
             raise

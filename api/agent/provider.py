@@ -17,7 +17,23 @@ DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 class LLMError(RuntimeError):
-    """Error del provider (HTTP, rate limit, respuesta mal formada)."""
+    """Error del provider (HTTP, rate limit, respuesta mal formada).
+
+    Subclases permiten discriminar en el router (chat.py) para devolver
+    status codes y mensajes adecuados al cliente.
+    """
+
+
+class LLMRateLimitError(LLMError):
+    """Gemini respondió 429 (rate limit / quota excedida)."""
+
+
+class LLMTransportError(LLMError):
+    """Fallo de red, DNS, TLS, timeout."""
+
+
+class LLMBadResponseError(LLMError):
+    """Respuesta 4xx/5xx que no es 429, o payload mal formado."""
 
 
 class GeminiProvider:
@@ -59,15 +75,23 @@ class GeminiProvider:
                 timeout=self.timeout,
             )
         except requests.RequestException as e:
-            raise LLMError(f"error HTTP contra Gemini: {e}") from e
+            raise LLMTransportError(f"no pude contactar al modelo: {e}") from e
+
+        if resp.status_code == 429:
+            raise LLMRateLimitError(
+                "el modelo está temporalmente saturado (rate limit). "
+                "Esperá ~1 minuto y reintentá."
+            )
 
         if resp.status_code != 200:
-            raise LLMError(f"Gemini respondió {resp.status_code}: {resp.text[:500]}")
+            raise LLMBadResponseError(
+                f"el modelo respondió {resp.status_code}: {resp.text[:300]}"
+            )
 
         data = resp.json()
         candidates = data.get("candidates") or []
         if not candidates:
-            raise LLMError(f"Gemini sin candidates: {data}")
+            raise LLMBadResponseError("el modelo devolvió una respuesta vacía")
 
         # Pegamos usage del top-level al candidate por comodidad del runner.
         candidate = candidates[0]

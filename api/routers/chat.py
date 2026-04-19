@@ -25,7 +25,13 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from api.agent.provider import GeminiProvider, LLMError
+from api.agent.provider import (
+    GeminiProvider,
+    LLMBadResponseError,
+    LLMError,
+    LLMRateLimitError,
+    LLMTransportError,
+)
 from api.agent.runner import run_conversation
 from config import GEMINI_API_KEY
 from core.mongo import get_mongo_client
@@ -83,12 +89,60 @@ def chat(req: ChatRequest) -> ChatResponse:
             user_message=req.message,
             history=req.history,
         )
+    except LLMRateLimitError as e:
+        logger.warning("rate limit Gemini: %s", e)
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "rate_limit",
+                "message": str(e),
+                "retryable": True,
+                "retry_after_s": 60,
+            },
+        ) from e
+    except LLMTransportError as e:
+        logger.warning("transport error Gemini: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "transport",
+                "message": "No pude conectar con el modelo. Reintentá en unos segundos.",
+                "retryable": True,
+                "retry_after_s": 10,
+            },
+        ) from e
+    except LLMBadResponseError as e:
+        logger.warning("bad response Gemini: %s", e)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "bad_response",
+                "message": "El modelo devolvió una respuesta inválida. Reintentá.",
+                "detail": str(e)[:200],
+                "retryable": True,
+            },
+        ) from e
     except LLMError as e:
-        logger.exception("LLMError")
-        raise HTTPException(status_code=502, detail=f"error del modelo: {e}") from e
+        logger.exception("LLMError genérico")
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "llm_error",
+                "message": "Error del modelo.",
+                "detail": str(e)[:200],
+                "retryable": True,
+            },
+        ) from e
     except Exception as e:
         logger.exception("error inesperado en /api/chat")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "internal",
+                "message": "Error interno del servidor.",
+                "retryable": False,
+            },
+        ) from e
 
     _log_interaccion(req, result)
     return ChatResponse(**result)

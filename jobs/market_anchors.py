@@ -21,8 +21,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
-from core.finnhub import FinnhubError, stock_candle
 from core.mongo import get_mongo_client
+from core.yahoo import YahooError, stock_candle
 from jobs.market_quotes import EXTRA_STOCKS, HOME_FX, HOME_STOCKS
 
 logger = logging.getLogger(__name__)
@@ -55,10 +55,11 @@ def update_stock_anchors(coll, sym: str, now: datetime) -> bool:
     desde = hasta - 400 * 86400  # ~13 meses de colchón
     try:
         c = stock_candle(sym, "D", desde, hasta)
-    except FinnhubError as e:
+    except YahooError as e:
         logger.warning("candle %s failed: %s", sym, e)
         return False
     if c.get("s") != "ok":
+        logger.warning("candle %s status=%s", sym, c.get("s"))
         return False
 
     times  = c.get("t")  or []

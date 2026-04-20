@@ -90,13 +90,13 @@ def candle(
     desde:      str | None = Query(None),
     hasta:      str | None = Query(None),
 ):
-    """Histórico OHLC directo a Finnhub.
+    """Histórico OHLC vía Yahoo Finance (yfinance).
 
-    Free tier solo tiene US stocks + ETFs. Índices vía ETF proxy (SPY, QQQ,
-    DIA). FX no acá (usar /forex/candle si hace falta; no expuesto al
-    frontend por ahora).
+    Finnhub free bloqueó candles (403), así que usamos Yahoo. Cubre stocks,
+    ETFs, ADRs e índices globalmente. Para FX usar endpoint separado o
+    frankfurter.app directo.
     """
-    from core.finnhub import FinnhubError, stock_candle
+    from core.yahoo import YahooError, stock_candle
 
     now = datetime.now(UTC)
     d_desde = _parse(desde) or (now - timedelta(days=365))
@@ -108,8 +108,8 @@ def candle(
             int(d_desde.timestamp()),
             int(d_hasta.timestamp()),
         )
-    except FinnhubError as e:
-        raise HTTPException(status_code=502, detail=f"Finnhub: {e}") from e
+    except YahooError as e:
+        raise HTTPException(status_code=502, detail=f"Yahoo: {e}") from e
 
     status = data.get("s")
     if status != "ok":

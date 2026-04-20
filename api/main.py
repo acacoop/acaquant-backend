@@ -17,6 +17,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from api.deps import verify_api_key
 from api.routers import (
+    analitica,
     carteras,
     chat,
     cotizaciones,
@@ -67,6 +68,7 @@ app = FastAPI(title="TradingAV API", version="0.1.0", lifespan=lifespan)
 # Compresión ~80% en JSON. minimum_size=1024 evita overhead en responses chicas.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
+app.include_router(analitica.router, dependencies=[Depends(verify_api_key)])
 app.include_router(carteras.router, dependencies=[Depends(verify_api_key)])
 app.include_router(cotizaciones.router, dependencies=[Depends(verify_api_key)])
 app.include_router(cuentas.router, dependencies=[Depends(verify_api_key)])

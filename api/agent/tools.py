@@ -253,6 +253,82 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
 
+    # ─── Tier 1: analítica core (framework de benchmarks dinámicos) ───────
+    {
+        "name": "listar_curva",
+        "description": (
+            "Lista TODOS los bonos de una curva con metadata enriquecida "
+            "(precio, TEA, TEM, paridad, duration, volumen del día, vencimiento). "
+            "USAR siempre que necesites la curva entera o filtrar por horizonte "
+            "(ej: 'Boncer ≤ 6m', 'Lecap largas'). Evita múltiples calls a "
+            "cotizacion_renta_fija uno por uno."
+        ),
+        "endpoint": "/api/analitica/listar-curva",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "curva": {
+                    "type": "STRING",
+                    "description": "Una de: cer, tasa_fija, tamar, soberanos, dolar_linked.",
+                },
+                "ordenar_por": {
+                    "type": "STRING",
+                    "description": "vencimiento (default) | volumen_dia | tea | duration.",
+                },
+                "vencimiento_min_meses": {
+                    "type": "NUMBER",
+                    "description": "Filtrar a bonos con >= N meses al vencimiento.",
+                },
+                "vencimiento_max_meses": {
+                    "type": "NUMBER",
+                    "description": "Filtrar a bonos con <= N meses al vencimiento.",
+                },
+                "limit": {"type": "INTEGER", "description": "Top N después de ordenar."},
+            },
+            "required": ["curva"],
+        },
+    },
+    {
+        "name": "obtener_serie_macro",
+        "description": (
+            "Devuelve valor actual + serie histórica + stats (percentil, z-score, "
+            "clasificación) de una variable macro o una serie por ticker. "
+            "Variables macro: tamar, cer, dolar, badlar, mep, ccl, canje, ipc, "
+            "ipim, riesgo_pais, repo, rem_inflacion. "
+            "Series por ticker: '<TICKER>.<CAMPO>' donde CAMPO ∈ {TEA, TEM, "
+            "paridad, duration, price} — ej 'TX26.TEM', 'GD30.paridad'. "
+            "USAR para análisis 'está alto o bajo vs historia' — reemplaza a "
+            "obtener_xxx_actual + obtener_xxx_historia."
+        ),
+        "endpoint": "/api/analitica/serie-macro",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "variable": {"type": "STRING", "description": "Ver descripción para valores válidos."},
+                "ventana_dias": {"type": "INTEGER", "description": "Default 90."},
+            },
+            "required": ["variable"],
+        },
+    },
+    {
+        "name": "clasificar_nivel",
+        "description": (
+            "Wrapper compacto de obtener_serie_macro: devuelve SOLO clasificación "
+            "+ percentil + z-score, sin la serie entera. USAR cuando alcanza con "
+            "la etiqueta ('TAMAR en mínimos', 'canje en percentil 75') para no "
+            "gastar tokens."
+        ),
+        "endpoint": "/api/analitica/clasificar-nivel",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "variable": {"type": "STRING"},
+                "ventana_dias": {"type": "INTEGER", "description": "Default 90."},
+            },
+            "required": ["variable"],
+        },
+    },
+
     # ─── Contexto analítico on-demand (local, sin HTTP) ───────────────────
     {
         "name": "consultar_framework_analitico",

@@ -26,10 +26,16 @@ from collections.abc import Callable
 from typing import Any
 
 from api.services import cotizaciones as svc_cotizaciones
+from api.services import macro as svc_macro
 
 # Endpoint → función servicio. La función recibe kwargs (mismo shape que
 # los args del TOOLS entry) y devuelve lo que el endpoint HTTP devolvería.
 SERVICE_HANDLERS: dict[str, Callable[..., Any]] = {
+    # Analítica — Tier 1 (framework stats + curva general)
+    "/api/analitica/listar-curva":        svc_cotizaciones.listar_curva,
+    "/api/analitica/serie-macro":         svc_macro.obtener_serie_macro,
+    "/api/analitica/clasificar-nivel":    svc_macro.clasificar_nivel,
+
     # Cotizaciones — series BCRA
     "/api/cotizaciones/badlar":     svc_cotizaciones.get_badlar,
     "/api/cotizaciones/cer":        svc_cotizaciones.get_cer,

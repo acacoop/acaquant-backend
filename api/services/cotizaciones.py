@@ -360,6 +360,138 @@ def get_historico_trades(instrumento: str | None = None) -> list:
     return list(db["TimeSales"].aggregate(pipeline))
 
 
+_CURVAS_VALIDAS = ("cer", "tasa_fija", "tamar", "soberanos", "dolar_linked")
+_ORDENES_VALIDOS = ("vencimiento", "volumen_dia", "tea", "duration")
+
+
+@cached(ttl=30)
+def listar_curva(
+    curva: str,
+    ordenar_por: str = "vencimiento",
+    vencimiento_min_meses: float | None = None,
+    vencimiento_max_meses: float | None = None,
+    limit: int | None = None,
+) -> list[dict]:
+    """Lista los bonos de una curva con metadata enriquecida.
+
+    Devuelve para cada instrumento: ticker, ticker_corto, tipo, vencimiento,
+    precio, TEA/TEM, paridad, duration, volumen del día. Ordenable por
+    vencimiento (default), volumen, TEA o duration. Filtrable por horizonte
+    (vencimiento_min/max_meses).
+
+    Ver docs/asistente/tools_spec.md §2.1 para contrato completo.
+    """
+    if curva not in _CURVAS_VALIDAS:
+        return []
+    if ordenar_por not in _ORDENES_VALIDOS:
+        ordenar_por = "vencimiento"
+
+    db = get_db_trading()
+
+    # 1. Definición estática de la curva
+    curva_docs = list(db["Curvas"].find(
+        {"curva": curva},
+        {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
+         "fecha_vencimiento": 1, "fecha_emision": 1},
+    ))
+    if not curva_docs:
+        return []
+
+    # 2. Filtrar por horizonte (meses al vencimiento)
+    ahora = datetime.now(UTC)
+    filtrados: list[dict] = []
+    for d in curva_docs:
+        vto_raw = d.get("fecha_vencimiento")
+        if not vto_raw:
+            continue
+        try:
+            if isinstance(vto_raw, datetime):
+                vto = vto_raw if vto_raw.tzinfo else vto_raw.replace(tzinfo=UTC)
+            else:
+                vto = datetime.fromisoformat(str(vto_raw)[:10]).replace(tzinfo=UTC)
+        except Exception:
+            continue
+        meses = round((vto - ahora).days / 30.44, 1)
+        if vencimiento_min_meses is not None and meses < vencimiento_min_meses:
+            continue
+        if vencimiento_max_meses is not None and meses > vencimiento_max_meses:
+            continue
+        d["_meses"] = meses
+        filtrados.append(d)
+
+    if not filtrados:
+        return []
+
+    tickers = [d["ticker"] for d in filtrados]
+
+    # 3. Último trade enriquecido por ticker (TEA/TEM/paridad/duration/price)
+    enrich_map: dict[str, dict] = {}
+    for r in db["TimeSales"].aggregate([
+        {"$match": {"ticker": {"$in": tickers}, "price": {"$gt": 0}}},
+        {"$sort": {"timestamp": -1}},
+        {"$group": {
+            "_id": "$ticker",
+            "price":    {"$first": "$price"},
+            "TEA":      {"$first": "$TEA"},
+            "TEM":      {"$first": "$TEM"},
+            "paridad":  {"$first": "$paridad"},
+            "duration": {"$first": "$duration"},
+            "ts":       {"$first": "$timestamp"},
+        }},
+    ]):
+        enrich_map[r["_id"]] = r
+
+    # 4. Volumen del día desde MarketSnapshot
+    vol_map: dict[str, dict] = {}
+    for r in db["MarketSnapshot"].find(
+        {"ticker": {"$in": tickers}},
+        {"_id": 0, "ticker": 1, "metrics.total_money": 1, "metrics.total_nominals": 1},
+    ):
+        m = r.get("metrics") or {}
+        vol_map[r["ticker"]] = {
+            "total_money": m.get("total_money") or 0,
+            "total_nominals": m.get("total_nominals") or 0,
+        }
+
+    # 5. Construir output
+    out: list[dict] = []
+    for d in filtrados:
+        enrich = enrich_map.get(d["ticker"], {})
+        vol = vol_map.get(d["ticker"], {})
+        ts_last = enrich.get("ts")
+        out.append({
+            "ticker": d["ticker"],
+            "ticker_corto": d.get("ticker_corto"),
+            "tipo": d.get("tipo"),
+            "fecha_vencimiento": str(d.get("fecha_vencimiento"))[:10] if d.get("fecha_vencimiento") else None,
+            "fecha_emision": str(d.get("fecha_emision"))[:10] if d.get("fecha_emision") else None,
+            "meses_al_vto": d["_meses"],
+            "ultimo_precio": enrich.get("price"),
+            "tea": enrich.get("TEA"),
+            "tem": enrich.get("TEM"),
+            "paridad": enrich.get("paridad"),
+            "duration": enrich.get("duration"),
+            "total_money_dia": vol.get("total_money"),
+            "total_nominals_dia": vol.get("total_nominals"),
+            "ts_ultimo_trade": ts_last.isoformat() if isinstance(ts_last, datetime) else ts_last,
+        })
+
+    # 6. Ordenamiento
+    if ordenar_por == "vencimiento":
+        out.sort(key=lambda x: x.get("fecha_vencimiento") or "9999")
+    elif ordenar_por == "volumen_dia":
+        out.sort(key=lambda x: -(x.get("total_money_dia") or 0))
+    elif ordenar_por == "tea":
+        out.sort(key=lambda x: (x.get("tea") is None, x.get("tea") or 0))
+    elif ordenar_por == "duration":
+        out.sort(key=lambda x: (x.get("duration") is None, x.get("duration") or 0))
+
+    if limit and limit > 0:
+        out = out[:limit]
+
+    return out
+
+
 @cached(ttl=300)
 def get_historico_curva(curva: str) -> list:
     """Serie diaria por ticker de una curva: último precio + enriquecimiento."""

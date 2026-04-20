@@ -2,7 +2,6 @@ pyRofex
 textual
 rich
 pandas
-pyarrow           # backend Parquet para jobs/archive_options_data.py
 numpy
 scipy
 pymongo

@@ -23,7 +23,7 @@ import requests
 
 from core.mongo import get_mongo_client
 from core.yahoo import YahooError, stock_candle
-from jobs.market_quotes import EXTRA_STOCKS, HOME_FX, HOME_STOCKS
+from jobs.market_quotes import EXTRA_STOCKS, HOME_FX, HOME_STOCKS, HOME_TREASURIES
 
 logger = logging.getLogger(__name__)
 
@@ -126,9 +126,42 @@ def ingesta() -> int:
         else:
             fail_fx += 1
 
-    logger.info("market_anchors — stocks ok=%d fail=%d · fx ok=%d fail=%d",
-                ok_s, fail_s, ok_fx, fail_fx)
+    # Treasury yields: el yahoo_sym es lo que fetchamos, pero el doc se
+    # guarda bajo el display (UST 10Y, etc). Necesitamos update_stock_anchors
+    # usando yahoo_sym y luego guardar bajo display.
+    ok_t = fail_t = 0
+    for yahoo_sym, display in HOME_TREASURIES:
+        if _update_treasury_anchors(coll, yahoo_sym, display, now):
+            ok_t += 1
+        else:
+            fail_t += 1
+
+    logger.info("market_anchors — stocks ok=%d fail=%d · fx ok=%d fail=%d · treasuries ok=%d fail=%d",
+                ok_s, fail_s, ok_fx, fail_fx, ok_t, fail_t)
     return 0
+
+
+def _update_treasury_anchors(coll, yahoo_sym: str, display: str, now: datetime) -> bool:
+    """Variante de update_stock_anchors que guarda bajo display pero fetchea
+    con el yahoo_sym (^IRX, ^TNX, etc)."""
+    hasta = int(now.timestamp())
+    desde = hasta - 400 * 86400
+    try:
+        c = stock_candle(yahoo_sym, "D", desde, hasta)
+    except YahooError as e:
+        logger.warning("treasury candle %s failed: %s", yahoo_sym, e)
+        return False
+    if c.get("s") != "ok":
+        return False
+    times  = c.get("t")  or []
+    closes = c.get("c")  or []
+    if not times or not closes:
+        return False
+    ts_map = _anchor_timestamps(now)
+    update = {k: _closest_close(times, closes, ts) for k, ts in ts_map.items()}
+    update["anchors_updated_at"] = now
+    coll.update_one({"symbol": display}, {"$set": update}, upsert=True)
+    return True
 
 
 if __name__ == "__main__":

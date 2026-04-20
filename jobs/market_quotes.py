@@ -25,6 +25,7 @@ import requests
 
 from core.finnhub import FinnhubError, quote
 from core.mongo import get_mongo_client
+from core.yahoo import YahooError, yahoo_quote
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,16 @@ HOME_FX: list[tuple[str, str, str, str]] = [
     ("EURUSD", "EUR", "USD", "Monedas"),
     ("USDBRL", "USD", "BRL", "Monedas"),
     ("USDMXN", "USD", "MXN", "Monedas"),
+]
+
+# US Treasury yields vía Yahoo (^IRX 13w, ^FVX 5y, ^TNX 10y, ^TYX 30y).
+# Finnhub free no cotiza yields. Yahoo los expone como "^" index tickers.
+HOME_TREASURIES: list[tuple[str, str]] = [
+    # (yahoo_symbol, display_label)
+    ("^IRX", "UST 13W"),
+    ("^FVX", "UST 5Y"),
+    ("^TNX", "UST 10Y"),
+    ("^TYX", "UST 30Y"),
 ]
 
 FRANKFURTER_LATEST = "https://api.frankfurter.app/latest"
@@ -198,8 +209,42 @@ def ingesta(include_extra: bool = False) -> int:
         else:
             fail += 1
 
-    logger.info("market_quotes — ok=%d fail=%d stocks=%d fx=%d",
-                ok, fail, len(stocks), len(HOME_FX))
+    # US Treasury yields vía Yahoo
+    for yahoo_sym, display in HOME_TREASURIES:
+        try:
+            q = yahoo_quote(yahoo_sym)
+        except YahooError as e:
+            logger.warning("treasury %s failed: %s", yahoo_sym, e)
+            fail += 1
+            continue
+        if not q or q.get("c") is None:
+            fail += 1
+            continue
+        # Guardamos con el display como symbol (no el ^ de Yahoo)
+        last   = q.get("c")
+        prev   = q.get("pc")
+        pct_day = None
+        if last is not None and prev:
+            try:
+                pct_day = (last - prev) / prev * 100
+            except (TypeError, ZeroDivisionError):
+                pass
+        doc = {
+            "symbol":     display,
+            "yahoo_sym":  yahoo_sym,
+            "type":       "treasury",
+            "grupo":      "US Treasury",
+            "last":       last,
+            "prev_close": prev,
+            "pct_day":    pct_day,
+            "timestamp":  datetime.fromtimestamp(q["t"], tz=timezone.utc) if q.get("t") else now,
+            "updated_at": now,
+        }
+        coll.update_one({"symbol": display}, {"$set": doc}, upsert=True)
+        ok += 1
+
+    logger.info("market_quotes — ok=%d fail=%d stocks=%d fx=%d treasuries=%d",
+                ok, fail, len(stocks), len(HOME_FX), len(HOME_TREASURIES))
     return 0 if fail < ok else 1
 
 

@@ -31,6 +31,45 @@ class YahooError(RuntimeError):
     pass
 
 
+def yahoo_quote(symbol: str) -> dict[str, Any]:
+    """Quote último + previous close desde Yahoo. Shape compatible con
+    Finnhub /quote: {c, o, h, l, pc, t}.
+
+    Útil para yields de Treasury (^IRX, ^TNX, etc) y otros que Finnhub
+    free no cotiza directamente.
+    """
+    try:
+        import yfinance as yf
+    except ImportError as e:
+        raise YahooError("yfinance no instalado") from e
+
+    try:
+        t = yf.Ticker(symbol)
+        hist = t.history(period="5d", interval="1d", auto_adjust=False)
+    except Exception as e:
+        logger.warning("yahoo_quote %s failed: %s", symbol, e)
+        raise YahooError(f"fetch {symbol}: {e}") from e
+
+    if hist is None or hist.empty or len(hist) < 1:
+        return {}
+
+    try:
+        last_row = hist.iloc[-1]
+        prev_row = hist.iloc[-2] if len(hist) >= 2 else last_row
+        last_ts = int(hist.index[-1].timestamp())
+        return {
+            "c":  float(last_row["Close"]),
+            "o":  float(last_row["Open"]),
+            "h":  float(last_row["High"]),
+            "l":  float(last_row["Low"]),
+            "pc": float(prev_row["Close"]),
+            "t":  last_ts,
+        }
+    except Exception as e:
+        logger.warning("yahoo_quote parse %s failed: %s", symbol, e)
+        return {}
+
+
 def stock_candle(symbol: str, resolution: str, desde_ts: int, hasta_ts: int) -> dict[str, Any]:
     """Histórico OHLCV desde Yahoo. Shape compatible con Finnhub stock_candle.
 

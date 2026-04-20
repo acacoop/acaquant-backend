@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Query
 
 from api.cache import cached
-from api.deps import get_db_portfolio, get_db_titulos, get_db_valuaciones
+from api.deps import get_db_portfolio, get_db_titulos, get_db_trading, get_db_valuaciones
 
 _fci_assets_cache_data: dict | None = None
 _fci_assets_cache_ts: float = 0.0
@@ -363,6 +363,138 @@ def tasa_fija_snapshot():
         "total_valuacion": total_val,
         "total_cobro":     total_cobro,
         "tickers":         tickers,
+    }
+
+
+@router.get("/cer")
+@cached(ttl=300)
+def cer_snapshot():
+    """Posiciones CER del último snapshot AuM.
+
+    Join: ValuacionesAPI (curva=cer) → AssetsAPI (por ticker) → AumAPI (último).
+    Devuelve tickers con valuacion total, cantidad (VN) y detalle por cuenta.
+
+    A diferencia de /tasa-fija NO se calcula "cobro proyectado" porque el cash
+    flow de un bono CER al vto depende del CER futuro (no se puede proyectar
+    determinísticamente). Se agrega `paridad` y `tea` del último trade
+    enriquecido en Trading.TimeSales si están disponibles.
+    """
+    db_p = get_db_portfolio()
+    db_t = get_db_titulos()
+    db_tr = get_db_trading()
+
+    # 1. ValuacionesAPI: tickers con curva=cer → {ticker, fecha_vencimiento}
+    tickers_cer: dict[str, dict] = {}
+    for d in db_t["ValuacionesAPI"].find(
+        {"curva": "cer"},
+        {"_id": 0, "ticker": 1, "fecha_vencimiento": 1},
+    ):
+        t = d.get("ticker")
+        if t:
+            fv = d.get("fecha_vencimiento")
+            tickers_cer[t] = {
+                "fecha_vencimiento": str(fv)[:10] if fv else None,
+            }
+
+    if not tickers_cer:
+        return {"fecha": None, "total_valuacion": 0, "tickers": []}
+
+    # 2. AssetsAPI: resolver unidad ↔ ticker. Los bonos CER pueden tener más
+    # de una unidad (distintos settlements); matcheamos por ticker.
+    ticker_to_unidades: dict[str, list[str]] = {}
+    unidad_to_ticker: dict[str, str] = {}
+    for d in db_t["AssetsAPI"].find(
+        {"ticker": {"$in": list(tickers_cer.keys())}},
+        {"_id": 0, "unidad": 1, "ticker": 1},
+    ):
+        u = d.get("unidad")
+        t = d.get("ticker")
+        if u and t:
+            ticker_to_unidades.setdefault(t, []).append(u)
+            unidad_to_ticker[u] = t
+
+    if not unidad_to_ticker:
+        return {"fecha": None, "total_valuacion": 0, "tickers": []}
+
+    # 3. Último TEA/paridad por ticker desde Trading.TimeSales (opcional,
+    # best-effort: buscamos en los últimos trades por ticker_corto).
+    tea_paridad: dict[str, dict] = {}
+    try:
+        # En TimeSales el ticker incluye el prefijo ROFEX (MERV - XMEV - TX26 - 24hs).
+        # Buscamos con regex substring del ticker corto.
+        for short_ticker in tickers_cer:
+            last = db_tr["TimeSales"].find_one(
+                {"ticker": {"$regex": short_ticker, "$options": "i"},
+                 "TEA": {"$exists": True}},
+                {"_id": 0, "TEA": 1, "paridad": 1, "duration": 1, "timestamp": 1},
+                sort=[("timestamp", -1)],
+            )
+            if last:
+                tea_paridad[short_ticker] = {
+                    "tea":      last.get("TEA"),
+                    "paridad":  last.get("paridad"),
+                    "duration": last.get("duration"),
+                }
+    except Exception:
+        pass
+
+    # 4. AumAPI último snapshot, filtrar a unidades CER
+    last = db_p["AumAPI"].find_one({}, {"fecha": 1, "_id": 0}, sort=[("fecha", -1)])
+    if not last:
+        return {"fecha": None, "total_valuacion": 0, "tickers": []}
+
+    fecha = last["fecha"]
+    unidades = list(unidad_to_ticker.keys())
+
+    docs = list(db_p["AumAPI"].find(
+        {"fecha": fecha, "unidad": {"$in": unidades}},
+        {"_id": 0, "unidad": 1, "cuenta": 1, "id_cuenta": 1, "valuacion": 1, "cantidad": 1},
+    ))
+
+    # 5. Agrupar por ticker
+    by_ticker: dict[str, dict] = {}
+    for d in docs:
+        unidad = d.get("unidad", "")
+        ticker = unidad_to_ticker.get(unidad, "")
+        if not ticker:
+            continue
+        meta = tickers_cer[ticker]
+        cant = float(d.get("cantidad") or 0)
+        val  = float(d.get("valuacion") or 0)
+
+        if ticker not in by_ticker:
+            tp = tea_paridad.get(ticker, {})
+            by_ticker[ticker] = {
+                "ticker":            ticker,
+                "fecha_vencimiento": meta["fecha_vencimiento"],
+                "valuacion":         0.0,
+                "cantidad":          0.0,
+                "tea":               tp.get("tea"),
+                "paridad":           tp.get("paridad"),
+                "duration":          tp.get("duration"),
+                "cuentas":           [],
+            }
+        by_ticker[ticker]["valuacion"] += val
+        by_ticker[ticker]["cantidad"]  += cant
+        by_ticker[ticker]["cuentas"].append({
+            "cuenta":    d.get("cuenta", ""),
+            "id_cuenta": d.get("id_cuenta", ""),
+            "valuacion": round(val, 2),
+            "cantidad":  round(cant, 2),
+        })
+
+    tickers_out = sorted(by_ticker.values(), key=lambda t: t.get("fecha_vencimiento") or "")
+    for t in tickers_out:
+        t["valuacion"] = round(t["valuacion"], 2)
+        t["cantidad"]  = round(t["cantidad"], 2)
+
+    total_val = round(sum(t["valuacion"] for t in tickers_out), 2)
+    fecha_str = str(fecha)[:10] if fecha else None
+
+    return {
+        "fecha":           fecha_str,
+        "total_valuacion": total_val,
+        "tickers":         tickers_out,
     }
 
 

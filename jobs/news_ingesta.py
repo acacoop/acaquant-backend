@@ -32,25 +32,27 @@ NEWS_FEEDS: list[dict[str, str]] = [
     {"fuente": "Ámbito",       "categoria": "finanzas",  "url": "https://www.ambito.com/rss/finanzas.xml"},
     {"fuente": "Ámbito",       "categoria": "mercados",  "url": "https://www.ambito.com/rss/negocios.xml"},
 
-    # Cronista
+    # Cronista (finanzas-mercados rompe XML, economía OK)
     {"fuente": "Cronista",     "categoria": "economia",  "url": "https://www.cronista.com/files/rss/economia-politica.xml"},
-    {"fuente": "Cronista",     "categoria": "finanzas",  "url": "https://www.cronista.com/files/rss/finanzas-mercados.xml"},
-
-    # Infobae
-    {"fuente": "Infobae",      "categoria": "economia",  "url": "https://www.infobae.com/feeds/rss/economia/"},
 
     # iProfesional
     {"fuente": "iProfesional", "categoria": "finanzas",  "url": "https://www.iprofesional.com/rss/finanzas"},
     {"fuente": "iProfesional", "categoria": "economia",  "url": "https://www.iprofesional.com/rss/economia"},
 
-    # La Nación
-    {"fuente": "La Nación",    "categoria": "economia",  "url": "https://www.lanacion.com.ar/economia/rss/"},
-
     # Clarín
     {"fuente": "Clarín",       "categoria": "economia",  "url": "https://www.clarin.com/rss/economia/"},
 
-    # BAE Negocios
-    {"fuente": "BAE",          "categoria": "economia",  "url": "https://www.baenegocios.com/rss/economia.xml"},
+    # ───────────────────────────────────────────────────────────────────────
+    # Feeds pendientes de corregir URL (devuelven bozo=1 / 0 entries hoy):
+    # - Cronista finanzas-mercados (XML syntax error)
+    # - Infobae economía (0 entries con la URL /feeds/rss/economia/)
+    # - La Nación economía (XML not well-formed en /economia/rss/)
+    # - BAE economía (XML mismatched tag)
+    # Si algún día encontrás las URLs correctas, descomentar:
+    # {"fuente": "Cronista",  "categoria": "finanzas", "url": "???"},
+    # {"fuente": "Infobae",   "categoria": "economia", "url": "???"},
+    # {"fuente": "La Nación", "categoria": "economia", "url": "???"},
+    # {"fuente": "BAE",       "categoria": "economia", "url": "???"},
 ]
 
 

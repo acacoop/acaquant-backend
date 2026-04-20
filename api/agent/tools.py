@@ -27,6 +27,7 @@ from typing import Any
 
 import requests
 
+from api.agent.invariants import run_invariants
 from api.agent.ticker_catalog import did_you_mean
 from api.agent.tool_metadata import compute_meta
 from config import API_KEY
@@ -376,10 +377,15 @@ def dispatch(name: str, args: dict[str, Any]) -> dict[str, Any]:
                 ),
             }
 
+    meta = compute_meta(data, source=endpoint)
+    warnings = run_invariants(data)
+    if warnings:
+        meta["warnings"] = warnings
+
     return {
         "ok": True,
         "data": data,
-        "_meta": compute_meta(data, source=endpoint),
+        "_meta": meta,
     }
 
 

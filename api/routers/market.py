@@ -22,10 +22,27 @@ def _parse(s: str | None) -> datetime | None:
 def _serialize(d: dict) -> dict:
     d = dict(d)
     d.pop("_id", None)
-    for k in ("timestamp", "updated_at", "fetched_at"):
+    for k in ("timestamp", "updated_at", "fetched_at", "anchors_updated_at"):
         v = d.get(k)
         if isinstance(v, datetime):
             d[k] = v.astimezone(UTC).isoformat()
+
+    # Compute retornos on-the-fly desde anchors
+    last = d.get("last")
+    for key_ret, key_anchor in [
+        ("ret_7d",  "anchor_7d"),
+        ("ret_mtd", "anchor_mtd"),
+        ("ret_ytd", "anchor_ytd"),
+        ("ret_1y",  "anchor_1y"),
+    ]:
+        anchor = d.get(key_anchor)
+        if last is not None and anchor:
+            try:
+                d[key_ret] = round((last - anchor) / anchor * 100, 2)
+            except (TypeError, ZeroDivisionError):
+                d[key_ret] = None
+        else:
+            d[key_ret] = None
     return d
 
 

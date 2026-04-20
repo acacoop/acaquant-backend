@@ -1,4 +1,4 @@
-"""mongo_monitor.py — listener de pymongo para grabar queries del dashboard.
+"""mongo_monitor.py — listener de pymongo para grabar queries de la API.
 
 Usa la API oficial `pymongo.monitoring.CommandListener` para capturar cada
 comando (`find`, `aggregate`, `count`, `update`, etc.) con su duración. Los

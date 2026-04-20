@@ -102,7 +102,7 @@ TradingAV/
 │   ├── systemd/              # .service files (motor_* + api + cloudflared)
 │   └── crontab.txt           # fuente de verdad del cron
 │
-└── docs/                     # API.md, API_MIGRATIONS.md, AUDIT.md
+└── docs/                     # API.md, API_MIGRATIONS.md, ASISTENTE.md, asistente/estrategia.md, asistente/estrategias.md
 ```
 
 **Regla de capas**: `core/` no importa a nadie. `engines/` y `jobs/` importan `core/` + `quant/`. `api/` usa `core.mongo.get_mongo_client_read()` (read-only). `scripts/` puede importar lo que necesite.
@@ -425,53 +425,57 @@ Las colecciones originales son la **fuente de verdad**. Las colecciones API son 
 
 ## Asistente de mesa (IA generativa)
 
-Módulo `api/agent/` + endpoint `POST /api/chat` + vista `/asistente` en acaquant-web. El modelo es **Gemini 2.5 Flash** (free tier) vía tool-use. No toca Mongo directo: pide tools → ejecutamos un GET HTTP a los endpoints de la misma API → le devolvemos JSON.
+**Doc completo**: [`docs/ASISTENTE.md`](docs/ASISTENTE.md) — fuente de verdad del módulo (arquitectura, archivos, data flow, observabilidad, roadmap, troubleshooting).
 
-### Arquitectura
+### Resumen
+
+Módulo `api/agent/` + endpoint `POST /api/chat` + vistas en acaquant-web:
+- `/asistente` — chat.
+- `/manager` tab **ASISTENTE** — dashboard live de observabilidad.
+- `/manager` tab **INTEL** — carga de reportes con extracción estructurada.
+
+**Provider activo**: Claude con router automático Haiku/Sonnet (`LLM_PROVIDER=claude`). Gemini Flash queda como fallback legacy (`LLM_PROVIDER=gemini`).
+
+**Arquitectura en 1 línea**: el runner usa formato canónico estilo Claude; cada provider convierte a su API. El modelo recibe un menú de tools, decide qué llamar (ninguna toca Mongo directo — todas invocan endpoints HTTP existentes), y el runner itera hasta que el modelo devuelve texto final o se llega a `MAX_STEPS=6`.
+
+### Archivos clave
+
+- `api/agent/types.py` — tipos neutros (`LLMResponse`, `ToolCallRequest`, helpers de mensajes).
+- `api/agent/provider.py` — `ClaudeProvider` + `GeminiProvider` + factory `get_provider()`.
+- `api/agent/router.py` — `decide_model(user_message)` → Haiku o Sonnet por heurísticas.
+- `api/agent/runner.py` — bucle tool-use provider-agnostic.
+- `api/agent/prompt.py` — `SYSTEM_PROMPT_BASE` compacto (~1.5K tokens) + `build_system_prompt()`.
+- `api/agent/context.py` — "foto del día" (MEP, CER, top volumen, vtos, breakevens, últimas emisiones, bloque INTEL del último reporte).
+- `api/agent/data_inventory.py` — introspección automática de Mongo.
+- `api/agent/estrategia.py` / `estrategias.py` — loaders de los .md editables del framework y catálogo.
+- `api/agent/intel_extraction.py` — extracción estructurada con JSON mode.
+- `api/agent/tools.py` — `TOOLS[]` (17 tools), `dispatch()`, bloqueo Grupo 3.
+
+### Política de datos
+
+Tools bloqueadas por policy (`BLOCKED_PATH_PREFIXES`): `/api/portfolio/*`, `/api/operaciones/*`, `/api/cuentas/*`, `/api/manager/*`. **Doble cinturón**: se filtran al declararlas al modelo y se revisan de nuevo en `dispatch()`.
+
+Con Claude y ZDR activado el bloqueo se puede relajar (roadmap). Con Gemini free tier queda firme porque Gemini entrena con la data.
+
+### Variables de entorno
 
 ```
-usuario → /asistente (Next) → /api/chat (Next proxy) → /api/chat (FastAPI)
-                                                          │
-                                                          ▼
-                             api/agent/runner.py  ──────▶  Gemini API
-                                                          │  (pide tool)
-                                                          ▼
-                             api/agent/tools.py::dispatch
-                                                          │
-                                                          ▼
-                             HTTP GET /api/cotizaciones/... (misma API, localhost)
+ANTHROPIC_API_KEY=sk-ant-api03-...  # obligatoria si LLM_PROVIDER=claude
+GEMINI_API_KEY=AIzaSy...            # obligatoria si LLM_PROVIDER=gemini o para intel_extraction
+LLM_PROVIDER=claude                  # claude (default) | gemini
 ```
 
-- **`provider.py`** — cliente HTTP de Gemini. Fácil swappear a Claude/OpenAI.
-- **`tools.py`** — **único lugar** que define qué puede tocar el modelo. Lista `TOOLS[]` + `dispatch()` + constante `BLOCKED_PATH_PREFIXES`.
-- **`prompt.py`** — system prompt: reglas, glosario financiero y alcance explícito.
-- **`runner.py`** — bucle tool-use con `MAX_STEPS=8` (tope de seguridad ante loops).
+### Observabilidad
 
-### Política de datos (free tier)
+- **Manager.AsistenteLogs**: cada turno (incluyendo errores). Dashboard live en `/manager` tab ASISTENTE.
+- **Manager.IntelDocs**: reportes cargados, con extracción estructurada + texto crudo. Tab `/manager` INTEL.
 
-Gemini free tier **usa prompts y respuestas para entrenar**. Por eso el modelo SOLO ve data pública de mercado:
+### Archivos editables sin tocar código
 
-- ✅ **Grupo 1** — `/api/cotizaciones/*` (precios, forwards, breakevens, series BCRA, MEP, históricos).
-- ✅ **Grupo 2** — `/api/titulos/*` (metadata de activos, cronogramas de flujos).
-- ❌ **BLOQUEADO** — `/api/portfolio/*`, `/api/operaciones/*`, `/api/cuentas/*`, `/api/manager/*`.
+- `docs/asistente/estrategia.md` — ADN analítico de la mesa (framework de 4 capas, house view, señales).
+- `docs/asistente/estrategias.md` — catálogo técnico de ~45 estrategias por asset class.
 
-**Doble bloqueo** en `api/agent/tools.py`:
-1. `gemini_tool_declarations()` filtra rutas bloqueadas antes de mostrarle el menú al modelo (el modelo ni sabe que existen).
-2. `dispatch()` verifica de nuevo antes del HTTP GET. Si alguien agregara una tool a ruta bloqueada por error, dispatch la rechaza.
-
-### Cuando se active billing en Google Cloud
-
-Gemini deja de entrenar. Se levanta el bloqueo en una línea de `api/agent/tools.py`:
-
-```python
-BLOCKED_PATH_PREFIXES = ()   # vacío = nada bloqueado
-```
-
-Y se agregan tools nuevas para los endpoints de clientes.
-
-### Auditoría
-
-Cada turno se loggea en `Manager.AsistenteLogs` (insertado desde `api/routers/chat.py::_log_interaccion`): timestamp, pregunta, respuesta, tool_calls, usage tokens, elapsed, truncated. Útil para detectar uso, debuggear respuestas raras y medir costo.
+Ambos se releen automáticamente cuando cambia el mtime. No hace falta restart.
 
 ## Lógica de Negocio (consolidada)
 
@@ -601,4 +605,9 @@ Definidos en `scripts/crear_indices.py` (idempotente).
 - [ ] **(2026-04-16)** Borrar DB huérfana `CarterasAPI` de Atlas (renombrada a `PortfolioAPI`).
 - [x] **(2026-04-19)** Migración completa a acaquant-web finalizada. Streamlit y `dashboard/` eliminados del repo.
 - [x] **(2026-04-19)** Asistente de mesa con Gemini 2.5 Flash + tool-use. Vista `/asistente` restringida por `MANAGER_EMAILS`. Free tier: solo data pública (Grupos 1 y 2).
-- [ ] **(2026-04-19)** Activar billing en Google Cloud para el proyecto de Gemini (deja de entrenar) y levantar `BLOCKED_PATH_PREFIXES` en `api/agent/tools.py` para exponer tools de cartera/AuM/operaciones.
+- [x] **(2026-04-19)** Switch a Claude (Haiku/Sonnet con router automático) + prompt caching. Gemini queda como fallback legacy vía `LLM_PROVIDER=gemini`. Ver `docs/ASISTENTE.md`.
+- [x] **(2026-04-19)** Observabilidad live del asistente: tab `/manager` ASISTENTE con métricas, charts, logs con expand, filtros. Errores tipados + UI amigable con retry.
+- [x] **(2026-04-19)** Ingesta de reportes de research: tab `/manager` INTEL. PDF o paste → extracción estructurada (12 variables macro) con Gemini JSON mode → preview editable → persist. El último IntelDoc confirmado se inyecta automáticamente al contexto del asistente.
+- [x] **(2026-04-19)** `docs/AUDIT.md` eliminado (obsoleto, mencionaba Streamlit). `docs/ASISTENTE.md` es la nueva fuente de verdad del módulo IA.
+- [ ] **(2026-04-19)** Destrabar tools del Grupo 3 (cartera/AuM/operaciones) ahora que el default es Claude. Pendiente decidir policy con compliance + activar ZDR con Anthropic.
+- [ ] **(2026-04-19)** Roadmap asistente (en `docs/ASISTENTE.md` §9): feedback 👍/👎, suite de evals, RAG sobre IntelDocs con Atlas Vector Search, email forwarding para ingesta automática, exportar conversación a PDF, modo análisis profundo con Opus.

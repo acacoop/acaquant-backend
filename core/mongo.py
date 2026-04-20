@@ -38,8 +38,7 @@ def get_mongo_client() -> pymongo.MongoClient:
     Crea la conexión la primera vez; las llamadas siguientes reutilizan el
     mismo pool. pymongo se encarga de detectar desconexiones y reconectar
     automáticamente, así que no hace falta un health-check en cada llamada
-    (el ping costaba ~180ms por invocación y explotaba la latencia del
-    dashboard).
+    (el ping costaba ~180ms por invocación y explotaba la latencia de la API).
     """
     global _client
     if not MONGO_URI:
@@ -74,8 +73,8 @@ def get_mongo_client_read() -> pymongo.MongoClient:
         with _client_read_lock:
             if _client_read is None:
                 # secondaryPreferred: si no hay primary (elecciones, upgrades)
-                # las vistas siguen leyendo de un secundario. En M10 el lag es
-                # típicamente <1s → aceptable para dashboard.
+                # la API sigue leyendo de un secundario. En M10 el lag es
+                # típicamente <1s → aceptable para la mayoría de endpoints.
                 _client_read = pymongo.MongoClient(
                     uri,
                     serverSelectionTimeoutMS=30000,

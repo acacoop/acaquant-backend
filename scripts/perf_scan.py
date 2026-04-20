@@ -1,6 +1,6 @@
 """perf_scan.py — Static analysis para anti-patterns de queries Mongo.
 
-Scanea dashboard/, engines/, jobs/ y reporta:
+Scanea api/, engines/, jobs/ y reporta:
   PERF001  list(col.find(...)) sin projection      → carga docs completos
   PERF002  find/find_one/aggregate dentro de un for → posible N+1
   PERF003  count_documents({}) con filtro vacío     → escaneo total
@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCAN_DIRS = ("dashboard", "engines", "jobs")
+SCAN_DIRS = ("api", "engines", "jobs")
 SKIP_PARTS = {"__pycache__", ".venv", "venv"}
 MONGO_METHODS = {"find", "find_one", "aggregate", "count_documents"}
 

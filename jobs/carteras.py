@@ -10,6 +10,7 @@ import holidays
 import pyRofex
 from pymongo import ReplaceOne, UpdateOne
 
+from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
 from jobs.aunesa_client import AunesaApiManager
@@ -141,73 +142,110 @@ def filtrar_unidades(df):
     return df[~mask].copy()
 
 
-def guardar_en_mongo(df):
+def guardar_en_mongo(df, cuentas_ok: list[str] | None = None):
     """
     Upsert atómico de Valuaciones.Carteras usando la clave (id_cuenta, unidad).
-    Evita la ventana de pérdida de datos que existía con delete_many + insert_many.
+
+    `cuentas_ok` limita el delete de posiciones obsoletas a las cuentas que
+    efectivamente devolvieron datos frescos en esta corrida. Sin este scope,
+    una falla de Aunesa en una sola cuenta borraba todas sus posiciones
+    históricas. Si `cuentas_ok` es None se usa la lista de id_cuenta presentes
+    en `df` (fallback).
     """
     client = get_mongo_client()
     collection = client["Valuaciones"]["Carteras"]
 
     registros = df.to_dict(orient="records")
-    if registros:
-        ahora = datetime.utcnow()
-        for r in registros:
-            r["timestamp"] = ahora
-        ops = [
-            ReplaceOne(
-                {"id_cuenta": r.get("id_cuenta"), "unidad": r.get("unidad")},
-                r,
-                upsert=True
-            )
-            for r in registros
-        ]
-        collection.bulk_write(ops, ordered=False)
+    if not registros:
+        return 0
 
-        # Eliminar filas que ya no vienen en el nuevo snapshot
+    ahora = datetime.utcnow()
+    for r in registros:
+        r["timestamp"] = ahora
+    ops = [
+        ReplaceOne(
+            {"id_cuenta": r.get("id_cuenta"), "unidad": r.get("unidad")},
+            r,
+            upsert=True
+        )
+        for r in registros
+    ]
+    collection.bulk_write(ops, ordered=False)
+
+    # Eliminar filas que ya no vienen en el snapshot, SOLO dentro de las
+    # cuentas que sí respondieron. Si cuentas_ok es None, derivarlo del df.
+    if cuentas_ok is None:
+        cuentas_ok = sorted({r.get("id_cuenta") for r in registros if r.get("id_cuenta")})
+
+    if cuentas_ok:
         claves_actuales = [
             {"id_cuenta": r.get("id_cuenta"), "unidad": r.get("unidad")}
             for r in registros
         ]
-        collection.delete_many({"$nor": claves_actuales})
+        filtro_delete = {"id_cuenta": {"$in": cuentas_ok}}
+        if claves_actuales:
+            filtro_delete["$nor"] = claves_actuales
+        collection.delete_many(filtro_delete)
 
     return len(registros)
 
 
 def run():
-    print("🚀 Iniciando Actualización Única de Carteras...")
+    with JobRunLogger("carteras") as job:
+        job.log("🚀 Iniciando Actualización de Carteras...")
 
-    fecha_desde, fecha_hasta = obtener_fechas_habiles()
-    print(f"📅 Consulta Desde (T+2): {fecha_desde}")
+        fecha_desde, fecha_hasta = obtener_fechas_habiles()
+        job.log(f"📅 Consulta Desde (T+2): {fecha_desde}")
+        job.set_stat("fecha_desde", fecha_desde)
+        job.set_stat("cuentas_objetivo", CUENTAS_OBJETIVO)
 
-    api_manager = AunesaApiManager()
-
-    try:
-        df_carteras = api_manager.consultar_cuentas(
+        api_manager = AunesaApiManager()
+        df_carteras, per_cuenta = api_manager.consultar_cuentas(
             CUENTAS_OBJETIVO,
             desde=fecha_desde,
-            hasta=fecha_hasta
+            hasta=fecha_hasta,
         )
 
-        if df_carteras is not None and not df_carteras.empty:
-            df_carteras = filtrar_unidades(df_carteras)
-            print(f"📊 Registros consolidados (post-filtro): {len(df_carteras)}")
+        job.set_stat("cuentas_resultado", per_cuenta)
+        for cta, info in per_cuenta.items():
+            marker = "✅" if info["status"] == "ok" else "⚠️"
+            detalle = f"{info['count']} posiciones" if info["status"] == "ok" else info["status"]
+            if info.get("error"):
+                detalle = f"{detalle} — {info['error']}"
+            job.log(f"  {marker} Cuenta {cta}: {detalle}")
 
-            cantidad = guardar_en_mongo(df_carteras)
-            print(f"✅ MongoDB Valuaciones.Carteras actualizado: {cantidad} registros.")
+        cuentas_ok = [c for c, info in per_cuenta.items() if info["status"] == "ok"]
+        cuentas_fallidas = [c for c in CUENTAS_OBJETIVO if c not in cuentas_ok]
+        job.set_stat("cuentas_ok", cuentas_ok)
+        job.set_stat("cuentas_fallidas", cuentas_fallidas)
 
-            insertados, eliminados = sincronizar_assets(df_carteras)
-            print(f"✅ MongoDB Valuaciones.Assets: {insertados} nuevos insertados, {eliminados} duplicados eliminados.")
+        if cuentas_fallidas:
+            job.error(
+                f"Cuentas sin datos frescos: {cuentas_fallidas}. "
+                f"Posiciones viejas de estas cuentas se preservan en Mongo."
+            )
 
-            actualizados = actualizar_precios_mercado()
-            print(f"✅ Precios de mercado actualizados: {actualizados} instrumentos.")
-        else:
-            print("⚠️ No se recuperaron datos de la API.")
+        if df_carteras is None or df_carteras.empty:
+            job.error("No se recuperaron datos de la API.")
+            return
 
-    except Exception as e:
-        print(f"🔥 Error crítico en main: {e}")
+        df_carteras = filtrar_unidades(df_carteras)
+        job.log(f"📊 Registros consolidados (post-filtro): {len(df_carteras)}")
+        job.set_stat("registros_sincronizados", len(df_carteras))
 
-    print("🏁 Proceso finalizado. Saliendo...")
+        cantidad = guardar_en_mongo(df_carteras, cuentas_ok=cuentas_ok)
+        job.log(f"✅ Valuaciones.Carteras actualizado: {cantidad} registros.")
+
+        insertados, _ = sincronizar_assets(df_carteras)
+        job.set_stat("assets_insertados", insertados)
+        job.log(f"✅ Valuaciones.Assets: {insertados} nuevos insertados.")
+
+        actualizados = actualizar_precios_mercado()
+        job.set_stat("precios_actualizados", actualizados)
+        job.log(f"✅ Precios de mercado actualizados: {actualizados} instrumentos.")
+
+        job.log("🏁 Proceso finalizado.")
+
     sys.exit()
 
 

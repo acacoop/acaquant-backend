@@ -424,6 +424,85 @@ def get_job_status(job_id: str = Path(...)):
     return job
 
 
+# ── Historial de runs de jobs (Manager.JobRuns) ──────────────────────────────
+@router.get("/jobs/history")
+def get_jobs_history(
+    tipo: str | None = Query(None, description="Filtrar por tipo de job (carteras, aum, ...)"),
+    status: str | None = Query(None, description="ok | partial | error"),
+    desde: str | None = Query(None, description="ISO datetime o YYYY-MM-DD (UTC)"),
+    hasta: str | None = Query(None, description="ISO datetime o YYYY-MM-DD (UTC)"),
+    limit: int = Query(100, le=500),
+):
+    """Últimas corridas registradas en Manager.JobRuns. La colección tiene
+    TTL 60d definido en scripts/crear_indices.py."""
+    filtro: dict = {}
+    if tipo:
+        filtro["tipo"] = tipo
+    if status:
+        filtro["status"] = status
+    if desde or hasta:
+        rango: dict = {}
+
+        def _parse(s: str) -> datetime:
+            try:
+                return datetime.fromisoformat(s.replace("Z", "+00:00"))
+            except ValueError:
+                return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=UTC)
+
+        if desde:
+            rango["$gte"] = _parse(desde)
+        if hasta:
+            rango["$lte"] = _parse(hasta)
+        filtro["started_at"] = rango
+
+    docs = list(
+        get_mongo_client_read()["Manager"]["JobRuns"]
+        .find(filtro, {"_id": 0})
+        .sort("started_at", -1)
+        .limit(limit)
+    )
+    for d in docs:
+        for k in ("started_at", "finished_at"):
+            v = d.get(k)
+            if isinstance(v, datetime):
+                d[k] = (v if v.tzinfo else v.replace(tzinfo=UTC)) \
+                    .astimezone(_AR_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    return docs
+
+
+@router.get("/jobs/history/stats")
+def get_jobs_history_stats(
+    desde: str | None = Query(None, description="YYYY-MM-DD (default: últimos 7 días)"),
+):
+    """Resumen por tipo: runs totales, ok/partial/error y último run."""
+    if desde:
+        dt_desde = datetime.strptime(desde, "%Y-%m-%d").replace(tzinfo=UTC)
+    else:
+        dt_desde = datetime.now(UTC) - timedelta(days=7)
+
+    pipeline = [
+        {"$match": {"started_at": {"$gte": dt_desde}}},
+        {"$group": {
+            "_id": "$tipo",
+            "total":   {"$sum": 1},
+            "ok":      {"$sum": {"$cond": [{"$eq": ["$status", "ok"]},      1, 0]}},
+            "partial": {"$sum": {"$cond": [{"$eq": ["$status", "partial"]}, 1, 0]}},
+            "error":   {"$sum": {"$cond": [{"$eq": ["$status", "error"]},   1, 0]}},
+            "last_run": {"$max": "$started_at"},
+            "last_status": {"$last": "$status"},
+        }},
+        {"$sort": {"_id": 1}},
+    ]
+    rows = list(get_mongo_client_read()["Manager"]["JobRuns"].aggregate(pipeline))
+    for r in rows:
+        r["tipo"] = r.pop("_id")
+        v = r.get("last_run")
+        if isinstance(v, datetime):
+            r["last_run"] = (v if v.tzinfo else v.replace(tzinfo=UTC)) \
+                .astimezone(_AR_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    return rows
+
+
 # ── ChangeLog ─────────────────────────────────────────────────────────────────
 @router.get("/changelog")
 def get_changelog(limit: int = Query(100, le=500)):

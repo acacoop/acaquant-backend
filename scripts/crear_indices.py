@@ -22,6 +22,7 @@ def main():
     operaciones_api = client["OperacionesAPI"]
     portfolio_api   = client["PortfolioAPI"]
     titulos_api     = client["TitulosAPI"]
+    manager_db      = client["Manager"]
 
     indices = [
         # ── Trading.TimeSales ─────────────────────────────────────────────
@@ -134,6 +135,16 @@ def main():
             "ValuacionesAPI: curva"),
         (titulos_api["ValuacionesAPI"], [("ticker", 1)],
             "ValuacionesAPI: ticker"),
+
+        # ── Manager.JobRuns (historial de runs de cron) ──────────────────
+        # TTL: expira 60 días después de started_at.
+        (manager_db["JobRuns"], [("started_at", -1)],
+            "JobRuns: started_at (TTL 60d)",
+            {"expireAfterSeconds": 60 * 24 * 3600}),
+        (manager_db["JobRuns"], [("tipo", 1), ("started_at", -1)],
+            "JobRuns: tipo + started_at"),
+        (manager_db["JobRuns"], [("status", 1), ("started_at", -1)],
+            "JobRuns: status + started_at"),
     ]
 
     print(f"Creando {len(indices)} índices...\n")

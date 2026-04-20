@@ -1,0 +1,87 @@
+"""Context manager para registrar runs de jobs automáticos en Manager.JobRuns.
+
+Cada cron job puede envolverse en `with JobRunLogger("tipo") as run:` para
+capturar stdout, stats estructurados, duración, errores y persistir un doc
+al salir — sin perder los logs de archivo que ya existen.
+
+Esquema del doc en Manager.JobRuns:
+    {
+        tipo:         str,                # "carteras", "aum", etc.
+        started_at:   datetime (UTC),
+        finished_at:  datetime (UTC),
+        elapsed_s:    float,
+        status:       "ok" | "partial" | "error",
+        stats:        dict,               # contadores estructurados, libre
+        errors:       list[str],          # mensajes non-fatal acumulados
+        log:          list[str],          # últimas ~200 líneas
+    }
+
+El índice TTL en Manager.JobRuns se crea en scripts/crear_indices.py.
+"""
+from __future__ import annotations
+
+import time
+from datetime import datetime, timezone
+from typing import Any
+
+_MAX_LOG_LINES = 200
+
+
+class JobRunLogger:
+    def __init__(self, tipo: str):
+        self.tipo = tipo
+        self.stats: dict[str, Any] = {}
+        self.errors: list[str] = []
+        self._log: list[str] = []
+        self._started: datetime | None = None
+        self._start_perf: float = 0.0
+
+    def __enter__(self) -> "JobRunLogger":
+        self._started = datetime.now(timezone.utc)
+        self._start_perf = time.perf_counter()
+        return self
+
+    def log(self, msg: str) -> None:
+        """Imprime a stdout (para que siga en el log de archivo) y acumula."""
+        print(msg, flush=True)
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        self._log.append(f"{ts} {msg}")
+
+    def error(self, msg: str) -> None:
+        self.errors.append(msg)
+        self.log(f"⚠️  {msg}")
+
+    def set_stat(self, key: str, value: Any) -> None:
+        self.stats[key] = value
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        finished = datetime.now(timezone.utc)
+        elapsed = time.perf_counter() - self._start_perf
+
+        if exc_type is not None:
+            status = "error"
+            self.errors.append(f"{exc_type.__name__}: {exc_val}")
+        elif self.errors:
+            status = "partial"
+        else:
+            status = "ok"
+
+        doc = {
+            "tipo":        self.tipo,
+            "started_at":  self._started,
+            "finished_at": finished,
+            "elapsed_s":   round(elapsed, 2),
+            "status":      status,
+            "stats":       self.stats,
+            "errors":      self.errors,
+            "log":         self._log[-_MAX_LOG_LINES:],
+        }
+
+        try:
+            from core.mongo import get_mongo_client
+            get_mongo_client()["Manager"]["JobRuns"].insert_one(doc)
+        except Exception as e:
+            # No queremos que un fallo al registrar tire abajo el job.
+            print(f"⚠️  JobRunLogger: no se pudo persistir run: {e}", flush=True)
+
+        return False  # re-raise si hubo excepción

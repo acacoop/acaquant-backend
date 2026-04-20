@@ -19,7 +19,7 @@ Respuesta:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
@@ -64,7 +64,7 @@ def _log_interaccion(
     """Persiste cada turno en Manager.AsistenteLogs para auditoría."""
     try:
         doc: dict[str, Any] = {
-            "ts": datetime.now(timezone.utc),
+            "ts": datetime.now(UTC),
             "user": user_email or "anon",
             "message": req.message,
             "estado": "error" if error else ("truncated" if resp and resp.get("truncated") else "ok"),
@@ -112,7 +112,7 @@ def chat(
             history=req.history,
         )
     except LLMRateLimitError as e:
-        logger.warning("rate limit Gemini: %s", e)
+        logger.warning("rate limit llm: %s", e)
         _log_interaccion(req, None, user_email, error={"code": "rate_limit", "message": str(e)[:300]})
         raise HTTPException(
             status_code=429,
@@ -124,7 +124,7 @@ def chat(
             },
         ) from e
     except LLMTransportError as e:
-        logger.warning("transport error Gemini: %s", e)
+        logger.warning("transport error llm: %s", e)
         _log_interaccion(req, None, user_email, error={"code": "transport", "message": str(e)[:300]})
         raise HTTPException(
             status_code=503,
@@ -136,7 +136,7 @@ def chat(
             },
         ) from e
     except LLMBadResponseError as e:
-        logger.warning("bad response Gemini: %s", e)
+        logger.warning("bad response llm: %s", e)
         _log_interaccion(req, None, user_email, error={"code": "bad_response", "message": str(e)[:300]})
         raise HTTPException(
             status_code=502,

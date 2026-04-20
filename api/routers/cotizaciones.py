@@ -18,6 +18,28 @@ def _ticker_filter(instrumento: str) -> dict:
     return {"$regex": re.escape(instrumento), "$options": "i"}
 
 
+def _resolver_ticker_exacto(instrumento: str) -> str | None:
+    """Resuelve un ticker (corto o completo) al ticker completo de ROFEX.
+
+    Evita regex table-scan cuando se puede usar match exacto (índice
+    (ticker, timestamp) en TimeSales). Si el input ya trae ' - ', se asume
+    completo. Si es corto, se busca en Trading.Curvas.ticker_corto.
+
+    Devuelve el ticker completo o None si no se pudo resolver (ticker
+    desconocido → el caller debería devolver lista vacía).
+    """
+    instr = (instrumento or "").strip()
+    if not instr:
+        return None
+    if " - " in instr:
+        return instr  # ya es completo
+    db = get_db_trading()
+    doc = db["Curvas"].find_one(
+        {"ticker_corto": instr}, {"ticker": 1, "_id": 0}
+    )
+    return doc.get("ticker") if doc else None
+
+
 # ── Series BCRA (BADLAR, CER, DOLAR) ──
 
 @router.get("/badlar")
@@ -248,7 +270,12 @@ def historico_trades(
     corte = datetime.now(UTC) - timedelta(days=15)
     filtro: dict = {"timestamp": {"$gte": corte}}
     if instrumento:
-        filtro["ticker"] = _ticker_filter(instrumento)
+        # Match EXACTO por ticker completo para usar el índice (ticker, timestamp).
+        # El regex substring anterior forzaba COLLSCAN sobre 15d de TimeSales.
+        exacto = _resolver_ticker_exacto(instrumento)
+        if exacto is None:
+            return []  # ticker desconocido → no hay data
+        filtro["ticker"] = exacto
 
     pipeline = [
         {"$match": filtro},

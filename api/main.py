@@ -13,6 +13,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 
 from api.deps import verify_api_key
 from api.routers import (
@@ -61,6 +62,10 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="TradingAV API", version="0.1.0", lifespan=lifespan)
+
+# GZip: /historico/trades puede devolver hasta 10K trades JSON (~1-3 MB).
+# Compresión ~80% en JSON. minimum_size=1024 evita overhead en responses chicas.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.include_router(carteras.router, dependencies=[Depends(verify_api_key)])
 app.include_router(cotizaciones.router, dependencies=[Depends(verify_api_key)])

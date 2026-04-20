@@ -349,9 +349,7 @@ def tasa_fija_snapshot():
         t["cobro_proyectado"]= round(t["cobro_proyectado"], 2)
         # fecha_vencimiento como string YYYY-MM-DD
         fv = t["fecha_vencimiento"]
-        if fv and not isinstance(fv, str):
-            t["fecha_vencimiento"] = str(fv)[:10]
-        elif fv:
+        if (fv and not isinstance(fv, str)) or fv:
             t["fecha_vencimiento"] = str(fv)[:10]
 
     total_val   = round(sum(t["valuacion"]        for t in tickers), 2)
@@ -432,8 +430,12 @@ def cer_snapshot():
         if curvas_map:
             ticker_to_short = {v: k for k, v in curvas_map.items()}
             pipeline = [
+                # Exigir también duration: hay docs con TEA stampeada pero sin
+                # duration (hueco de enriquecimiento). Sin este filtro, el
+                # $first podía devolver null en duration.
                 {"$match": {"ticker": {"$in": list(curvas_map.values())},
-                            "TEA": {"$exists": True}}},
+                            "TEA": {"$exists": True},
+                            "duration": {"$exists": True}}},
                 {"$sort": {"timestamp": -1}},
                 {"$group": {
                     "_id":       "$ticker",

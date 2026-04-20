@@ -5,14 +5,16 @@ from config import API_KEY
 from core.mongo import get_mongo_client_read
 
 
-def verify_api_key(authorization: str = Header(...)) -> None:
+def verify_api_key(authorization: str | None = Header(default=None)) -> None:
     """Valida el header Authorization: Bearer <API_KEY>.
 
-    Si API_KEY no está configurada en .env, deja pasar todo (modo dev).
+    Si API_KEY no está configurada en .env, deja pasar todo (modo dev) —
+    el header es opcional en ese caso. Si API_KEY está seteada, el header
+    es obligatorio y debe matchear.
     """
     if not API_KEY:
         return
-    if authorization != f"Bearer {API_KEY}":
+    if authorization is None or authorization != f"Bearer {API_KEY}":
         raise HTTPException(status_code=401, detail="API key inválida")
 
 

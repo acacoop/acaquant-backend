@@ -7,7 +7,8 @@ import threading
 import time as _time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, date as _date, datetime, time, timedelta
+from datetime import UTC, datetime, time, timedelta
+from datetime import date as _date
 from zoneinfo import ZoneInfo
 
 from bson import ObjectId
@@ -415,13 +416,9 @@ def run_job(
     return {"job_id": job_id}
 
 
-@router.get("/jobs/{job_id}")
-def get_job_status(job_id: str = Path(...)):
-    with _jobs_lock:
-        job = _jobs.get(job_id)
-    if not job:
-        raise HTTPException(404, "Job no encontrado")
-    return job
+# /jobs/{job_id} queda declarado AL FINAL (después de /jobs/history y
+# /jobs/history/stats) porque FastAPI matchea por orden y {job_id} captura
+# cualquier segmento: "history" incluido. Ver bloque al pie de este módulo.
 
 
 # ── Config de Opciones (vencimientos trackeados) ─────────────────────────────
@@ -544,6 +541,17 @@ def get_jobs_history_stats(
             r["last_run"] = (v if v.tzinfo else v.replace(tzinfo=UTC)) \
                 .astimezone(_AR_TZ).strftime("%Y-%m-%d %H:%M:%S")
     return rows
+
+
+# /jobs/{job_id} — catch-all, DEBE ir después de /jobs/history y /history/stats
+# para que FastAPI no lo matchee ("history" se capturaba como job_id antes).
+@router.get("/jobs/{job_id}")
+def get_job_status(job_id: str = Path(...)):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job no encontrado")
+    return job
 
 
 # ── ChangeLog ─────────────────────────────────────────────────────────────────

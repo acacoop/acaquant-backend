@@ -111,31 +111,40 @@ class MicrostructureEngine:
             except Exception as e:
                 print(f"⚠️ No se pudo obtener market data REST para {ticker}: {e}")
 
-        # 2) Reconstruir financials del día desde trades en MongoDB
+        # 2) Reconstruir financials del día desde trades en MongoDB.
+        # Una sola query con $in en vez de N find secuenciales (antes N+1).
         if self.col_trades is None: return
         _art_now = datetime.utcnow() - timedelta(hours=3)
         inicio = _art_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        cursor = self.col_trades.find(
+            {"ticker": {"$in": list(self.tickers)}, "timestamp": {"$gte": inicio}},
+            {"_id": 0, "ticker": 1, "price": 1, "size": 1, "side": 1, "timestamp": 1},
+        )
+        for doc in cursor:
+            st = self.market_state.get(doc.get("ticker"))
+            if not st:
+                continue
+            px, sz, sd = doc.get("price", 0), doc.get("size", 0), doc.get("side", "MID")
+            cash = (px / 100.0) * sz
+            st["daily_financials"]["total_nominals"] += sz
+            st["daily_financials"]["total_money"] += cash
+            if sd == "BUY":
+                st["daily_financials"]["buy_money"] += cash
+            elif sd == "SELL":
+                st["daily_financials"]["sell_money"] += cash
+            h = doc["timestamp"].hour
+            if 10 <= h <= 17:
+                st["hourly_stats"][h]["total"] += cash
+                if sd == "BUY":
+                    st["hourly_stats"][h]["buy"] += cash
+                elif sd == "SELL":
+                    st["hourly_stats"][h]["sell"] += cash
+            st["top_trades"].append(
+                {"timestamp": doc["timestamp"], "price": px, "size": sz, "side": sd, "money": cash})
+
+        # Sort top_trades una sola vez al final (antes se sortaba por ticker)
         for ticker in self.tickers:
             st = self.market_state[ticker]
-            for doc in self.col_trades.find({"ticker": ticker, "timestamp": {"$gte": inicio}}):
-                px, sz, sd = doc.get("price", 0), doc.get("size", 0), doc.get("side", "MID")
-                cash = (px / 100.0) * sz
-                st["daily_financials"]["total_nominals"] += sz
-                st["daily_financials"]["total_money"] += cash
-                if sd == "BUY":
-                    st["daily_financials"]["buy_money"] += cash
-                elif sd == "SELL":
-                    st["daily_financials"]["sell_money"] += cash
-                h = doc["timestamp"].hour
-                if 10 <= h <= 17:
-                    st["hourly_stats"][h]["total"] += cash
-                    if sd == "BUY":
-                        st["hourly_stats"][h]["buy"] += cash
-                    elif sd == "SELL":
-                        st["hourly_stats"][h]["sell"] += cash
-                st["top_trades"].append(
-                    {"timestamp": doc["timestamp"], "price": px, "size": sz, "side": sd, "money": cash})
-
             st["top_trades"] = sorted(st["top_trades"], key=lambda x: x["money"], reverse=True)[:15]
 
     def update_price(self, ticker, data):

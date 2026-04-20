@@ -416,25 +416,41 @@ def cer_snapshot():
     if not unidad_to_ticker:
         return {"fecha": None, "total_valuacion": 0, "tickers": []}
 
-    # 3. Último TEA/paridad por ticker desde Trading.TimeSales (opcional,
-    # best-effort: buscamos en los últimos trades por ticker_corto).
+    # 3. Último TEA/paridad por ticker desde Trading.TimeSales.
+    # 1 sola aggregation en vez de N find_one con regex (N+1 eliminado).
+    # Match por ticker completo usando Trading.Curvas (ticker_corto → ticker).
     tea_paridad: dict[str, dict] = {}
     try:
-        # En TimeSales el ticker incluye el prefijo ROFEX (MERV - XMEV - TX26 - 24hs).
-        # Buscamos con regex substring del ticker corto.
-        for short_ticker in tickers_cer:
-            last = db_tr["TimeSales"].find_one(
-                {"ticker": {"$regex": short_ticker, "$options": "i"},
-                 "TEA": {"$exists": True}},
-                {"_id": 0, "TEA": 1, "paridad": 1, "duration": 1, "timestamp": 1},
-                sort=[("timestamp", -1)],
+        curvas_map = {
+            c["ticker_corto"]: c["ticker"]
+            for c in db_tr["Curvas"].find(
+                {"ticker_corto": {"$in": list(tickers_cer.keys())}},
+                {"_id": 0, "ticker": 1, "ticker_corto": 1},
             )
-            if last:
-                tea_paridad[short_ticker] = {
-                    "tea":      last.get("TEA"),
-                    "paridad":  last.get("paridad"),
-                    "duration": last.get("duration"),
-                }
+            if c.get("ticker") and c.get("ticker_corto")
+        }
+        if curvas_map:
+            ticker_to_short = {v: k for k, v in curvas_map.items()}
+            pipeline = [
+                {"$match": {"ticker": {"$in": list(curvas_map.values())},
+                            "TEA": {"$exists": True}}},
+                {"$sort": {"timestamp": -1}},
+                {"$group": {
+                    "_id":       "$ticker",
+                    "TEA":       {"$first": "$TEA"},
+                    "paridad":   {"$first": "$paridad"},
+                    "duration":  {"$first": "$duration"},
+                    "timestamp": {"$first": "$timestamp"},
+                }},
+            ]
+            for row in db_tr["TimeSales"].aggregate(pipeline):
+                short = ticker_to_short.get(row["_id"])
+                if short:
+                    tea_paridad[short] = {
+                        "tea":      row.get("TEA"),
+                        "paridad":  row.get("paridad"),
+                        "duration": row.get("duration"),
+                    }
     except Exception:
         pass
 

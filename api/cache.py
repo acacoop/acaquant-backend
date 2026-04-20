@@ -33,6 +33,11 @@ def cached(ttl: int) -> Callable:
                 if entry and entry[0] > now:
                     return entry[1]
             result = fn(**kwargs)
+            # Negative caching off: no cacheamos respuestas vacías. Suelen
+            # indicar error transitorio (cluster pausado, query caída) y
+            # cachearlas propaga el estado vacío durante TTL segundos.
+            if result is None or result == [] or result == {}:
+                return result
             with _lock:
                 _store[key] = (now + ttl, result)
             return result

@@ -8,6 +8,9 @@ Auth:
     Authorization: Bearer <API_KEY>.
     Si API_KEY no está definida en .env, auth está desactivada (modo dev).
 """
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI
 
 from api.deps import verify_api_key
@@ -22,8 +25,25 @@ from api.routers import (
     operaciones,
     titulos,
 )
+from core.mongo import get_mongo_client, get_mongo_client_read
 
-app = FastAPI(title="TradingAV API", version="0.1.0")
+logger = logging.getLogger("api")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Pool warmup: ping a Atlas al arrancar para que el primer request del
+    día no pague la penalización de establecer conexión (~500ms–2s)."""
+    for nombre, getter in (("rw", get_mongo_client), ("read", get_mongo_client_read)):
+        try:
+            getter().admin.command("ping")
+            logger.info("Mongo pool warmup OK (%s)", nombre)
+        except Exception as e:
+            logger.warning("Mongo pool warmup falló (%s): %s", nombre, e)
+    yield
+
+
+app = FastAPI(title="TradingAV API", version="0.1.0", lifespan=lifespan)
 
 app.include_router(carteras.router, dependencies=[Depends(verify_api_key)])
 app.include_router(cotizaciones.router, dependencies=[Depends(verify_api_key)])

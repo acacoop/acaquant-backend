@@ -105,11 +105,20 @@ def cargar_curvas(client):
     return {d["ticker"]: d for d in docs}
 
 
-def cargar_cer(client):
-    docs = list(client["Trading"]["CER"].find({}, {"fecha": 1, "valor": 1}))
-    logger.info(f"CER cargado: {len(docs)} fechas")
-    cer_dict = {d["fecha"]: float(d["valor"]) for d in docs}
-    return cer_dict
+def cargar_cer(client, dias: int = 90):
+    """Carga CER solo de los últimos N días.
+
+    El enriquecimiento de trades usa T-10 días hábiles como settlement,
+    así que los valores más viejos nunca se consultan en tiempo real.
+    Carga completa crece monotónica sin sentido.
+    """
+    from datetime import date, timedelta as _td
+    desde = (date.today() - _td(days=dias)).isoformat()
+    docs = list(client["Trading"]["CER"].find(
+        {"fecha": {"$gte": desde}}, {"fecha": 1, "valor": 1, "_id": 0},
+    ))
+    logger.info(f"CER cargado: {len(docs)} fechas (últimos {dias} días)")
+    return {d["fecha"]: float(d["valor"]) for d in docs}
 
 
 def cargar_dias_habiles(client):

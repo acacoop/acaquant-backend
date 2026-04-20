@@ -125,6 +125,8 @@ def main():
             "AumAPI: unidad + fecha"),
         (portfolio_api["CarterasAPI"], [("id_cuenta", 1), ("unidad", 1)],
             "CarterasAPI: id_cuenta + unidad"),
+        (portfolio_api["CarterasAPI"], [("unidad", 1)],
+            "CarterasAPI: unidad (queries sin id_cuenta)"),
 
         # ── TitulosAPI ────────────────────────────────────────────────────
         (titulos_api["AssetsAPI"], [("cartera", 1)],

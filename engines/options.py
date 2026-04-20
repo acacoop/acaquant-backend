@@ -262,6 +262,10 @@ class OptionsEngine:
         """
         col = get_mongo_client()["Opciones"]["OptionsSnapshot"]
         _tick = 0
+        # Cache del último estado que vimos por símbolo — evita upserts
+        # idénticos. Suele reducir ~90% de writes entre ticks quietos.
+        _last_seen: dict[str, tuple] = {}
+        _SPOT_RESYNC_EVERY = 12  # reescribir igual cada 12 ticks (~1 min) para refrescar `updated_at`
 
         while True:
             time.sleep(5)
@@ -309,6 +313,17 @@ class OptionsEngine:
                     # Saltear opciones sin ningún precio
                     if bid == 0 and offer == 0 and last == 0:
                         continue
+
+                    # Dirty check: si nada del book/stats/spot cambió desde el
+                    # tick anterior, skip el upsert (salvo cada ~1 min para
+                    # refrescar `updated_at` y que la UI sepa que sigue vivo).
+                    huella = (bid, offer, last,
+                              md.get('open', 0), md.get('high', 0), md.get('low', 0),
+                              md.get('ev', 0), md.get('closing_price', 0), S)
+                    prev = _last_seen.get(sym)
+                    if prev == huella and (_tick % _SPOT_RESYNC_EVERY) != 0:
+                        continue
+                    _last_seen[sym] = huella
 
                     K    = info['strike']
                     tipo = info['tipo']

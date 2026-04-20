@@ -66,6 +66,7 @@ class OptionsEngine:
         self._cache_lock = threading.Lock()
 
         self._inicializar_estado_memoria()
+        self._purgar_snapshots_fuera_de_mapa()
 
         # Pool acotado para guardar trades históricos (evita explosión de threads)
         self._trade_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="opt_trade")
@@ -127,6 +128,23 @@ class OptionsEngine:
                 'open': 0, 'high': 0, 'low': 0, 'ev': 0, 'closing_price': 0
             }
 
+    def _purgar_snapshots_fuera_de_mapa(self):
+        """Borra docs de OptionsSnapshot cuyo symbol no esté en el mapa vigente.
+
+        Mantiene la colección alineada con la serie de opciones que se está
+        trackeando activamente. Sin esto, los snapshots de ruedas pasadas
+        quedaban para siempre y contaminaban la vista del frontend.
+        """
+        if not self.mapa_opciones:
+            return
+        try:
+            col = get_mongo_client()["Opciones"]["OptionsSnapshot"]
+            resultado = col.delete_many({"symbol": {"$nin": list(self.mapa_opciones.keys())}})
+            if resultado.deleted_count:
+                logger.info(f"🧹 OptionsSnapshot: purgados {resultado.deleted_count} docs de series anteriores.")
+        except Exception as e:
+            logger.error(f"Error purgando OptionsSnapshot: {e}")
+
     def refrescar_mapa(self) -> list[str]:
         """Recomputa mapa_opciones desde pyRofex y devuelve símbolos nuevos.
 
@@ -160,6 +178,9 @@ class OptionsEngine:
                     'bid': 0, 'offer': 0, 'last': 0, 'last_timestamp': None,
                     'open': 0, 'high': 0, 'low': 0, 'ev': 0, 'closing_price': 0
                 }
+
+        # Si hubo rotación de vencimiento, limpiar docs de la serie anterior.
+        self._purgar_snapshots_fuera_de_mapa()
         return nuevos
 
     def get_tickers_suscripcion(self):

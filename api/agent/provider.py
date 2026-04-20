@@ -80,9 +80,16 @@ CLAUDE_MODELS = {
 }
 
 
-def _claude_tool_declarations(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _claude_tool_declarations(
+    tools: list[dict[str, Any]],
+    cache_last: bool = True,
+) -> list[dict[str, Any]]:
     """Convierte TOOLS (formato interno, tipos MAYÚSCULA estilo Gemini) a
-    formato Claude (tipos lowercase, key `input_schema`)."""
+    formato Claude (tipos lowercase, key `input_schema`).
+
+    Si `cache_last` está activado, marca la última tool con `cache_control`
+    para que Claude cachee todo el bloque tools (son ~3K tokens estables).
+    """
     def _lower_schema(s: Any) -> Any:
         if isinstance(s, dict):
             out: dict = {}
@@ -103,6 +110,10 @@ def _claude_tool_declarations(tools: list[dict[str, Any]]) -> list[dict[str, Any
             "description": t["description"],
             "input_schema": _lower_schema(t.get("parameters", {"type": "OBJECT", "properties": {}})),
         })
+
+    if cache_last and claude_tools:
+        claude_tools[-1]["cache_control"] = {"type": "ephemeral"}
+
     return claude_tools
 
 
@@ -408,7 +419,7 @@ class GeminiProvider(LLMProvider):
         tool_calls = []
         claude_style_content = []
         for p in parts:
-            if "text" in p and p["text"]:
+            if p.get("text"):
                 text_parts.append(p["text"])
                 claude_style_content.append({"type": "text", "text": p["text"]})
             elif "functionCall" in p:

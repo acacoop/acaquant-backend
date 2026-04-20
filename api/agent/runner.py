@@ -47,10 +47,7 @@ MAX_STEPS = 6
 def _is_legacy_gemini_history(history: list[dict[str, Any]] | None) -> bool:
     if not history:
         return False
-    for m in history:
-        if isinstance(m, dict) and "parts" in m:
-            return True
-    return False
+    return any(isinstance(m, dict) and "parts" in m for m in history)
 
 
 def _sanitize_history(history: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -112,7 +109,34 @@ def run_conversation(
     system_prompt = build_system_prompt(market_ctx, data_inv)
 
     tool_calls_log: list[dict[str, Any]] = []
-    last_usage: dict[str, Any] = {}
+    # Usage acumulado a lo largo de los turns. Arrancamos con los counters en 0
+    # y vamos sumando por turn. Esto permite medir el hit rate real del prompt
+    # caching (cache_read_input_tokens / total input) en Manager.AsistenteLogs.
+    acc_usage: dict[str, Any] = {
+        "promptTokenCount": 0,
+        "candidatesTokenCount": 0,
+        "totalTokenCount": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "turns": 0,
+    }
+
+    def _acumular(u: dict[str, Any]) -> None:
+        for k in (
+            "promptTokenCount",
+            "candidatesTokenCount",
+            "totalTokenCount",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+        ):
+            acc_usage[k] += int(u.get(k, 0) or 0)
+        acc_usage["turns"] += 1
+        # model/model_alias los pisamos con el último — no cambian intra-conversación.
+        if u.get("model"):
+            acc_usage["model"] = u["model"]
+        if u.get("model_alias"):
+            acc_usage["model_alias"] = u["model_alias"]
+
     t_start = time.time()
 
     for step in range(MAX_STEPS):
@@ -128,7 +152,7 @@ def run_conversation(
             logger.exception("error no controlado del provider")
             raise LLMError(f"error del provider: {e}") from e
 
-        last_usage = resp.usage
+        _acumular(resp.usage)
 
         # Apendear mensaje del asistente al history SIEMPRE
         messages.append(resp.assistant_message)
@@ -139,7 +163,7 @@ def run_conversation(
                 "reply": resp.text or "(respuesta vacía)",
                 "tool_calls": tool_calls_log,
                 "history": messages,
-                "usage": last_usage,
+                "usage": acc_usage,
                 "steps": step + 1,
                 "elapsed_s": round(time.time() - t_start, 2),
                 "truncated": False,
@@ -167,7 +191,7 @@ def run_conversation(
         ),
         "tool_calls": tool_calls_log,
         "history": messages,
-        "usage": last_usage,
+        "usage": acc_usage,
         "steps": MAX_STEPS,
         "elapsed_s": round(time.time() - t_start, 2),
         "truncated": True,

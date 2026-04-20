@@ -28,6 +28,7 @@ from typing import Any
 import requests
 
 from api.agent.invariants import run_invariants
+from api.agent.service_registry import get_service_handler
 from api.agent.ticker_catalog import did_you_mean
 from api.agent.tool_metadata import compute_meta
 from config import API_KEY
@@ -335,6 +336,22 @@ def dispatch(name: str, args: dict[str, Any]) -> dict[str, Any]:
             ),
         }
 
+    # Service registry primero: si el endpoint tiene una función Python
+    # registrada, la llamamos directo (sin loopback HTTP). Ver
+    # api/agent/service_registry.py. Ganancia ~100-300ms por call.
+    handler = get_service_handler(endpoint)
+    if handler is not None:
+        params = {k: v for k, v in (args or {}).items() if v not in (None, "")}
+        try:
+            data = handler(**params)
+        except TypeError as e:
+            # Arg mismatch: el LLM pasó un kwarg que la función no acepta
+            return {"ok": False, "error": f"args inválidos para {name}: {e}"}
+        except Exception as e:
+            return {"ok": False, "error": f"error del service: {e}"}
+        return _process_service_output(data, endpoint, args)
+
+    # Fallback HTTP — para endpoints aún no migrados al service registry
     url = API_BASE + endpoint
     params = {k: v for k, v in (args or {}).items() if v not in (None, "")}
 
@@ -359,9 +376,20 @@ def dispatch(name: str, args: dict[str, Any]) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {"ok": False, "error": "respuesta no es JSON", "raw": resp.text[:400]}
 
-    # Si la response viene vacía Y el args incluye algún ticker, probablemente
-    # el modelo se equivocó de símbolo. Devolvemos did_you_mean para que se
-    # auto-corrija en el siguiente turn sin molestar al usuario.
+    return _process_service_output(data, endpoint, args)
+
+
+def _process_service_output(
+    data: Any,
+    endpoint: str,
+    args: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Post-procesa el output de una tool (service o HTTP) uniformemente.
+
+    - Si data viene vacía Y hay ticker en args → devuelve did_you_mean.
+    - Calcula `_meta` con staleness.
+    - Corre invariantes del dominio y agrega warnings si corresponde.
+    """
     if _is_empty_response(data):
         ticker = _extract_ticker_from_args(args or {})
         if ticker:

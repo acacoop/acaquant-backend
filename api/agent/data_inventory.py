@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from core.mongo import get_mongo_client_read
@@ -113,7 +113,7 @@ def build_data_inventory() -> str:
         return _cache["text"]  # devuelvo el último bueno si hay
 
     lineas = [
-        f"DATA DISPONIBLE EN BASE (auto, {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}):"
+        f"DATA DISPONIBLE EN BASE (auto, {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}):"
     ]
     for db, col, campo, label, desc in COLECCIONES:
         rango = _inspect(client, db, col, campo)

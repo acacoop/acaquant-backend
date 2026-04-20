@@ -1,8 +1,21 @@
-"""Dependencias compartidas de la API."""
+"""Dependencias de FastAPI (auth) + re-export de helpers de DB.
+
+La capa de servicios (`api/services/*`) importa los helpers de DB desde
+`api/db.py` directo para no depender de fastapi. Los routers pueden seguir
+importándolos desde acá por compat.
+"""
 from fastapi import Header, HTTPException
 
+from api.db import (  # noqa: F401 — reexport para compat
+    get_db_cuentas,
+    get_db_opciones,
+    get_db_operaciones,
+    get_db_portfolio,
+    get_db_titulos,
+    get_db_trading,
+    get_db_valuaciones,
+)
 from config import API_KEY
-from core.mongo import get_mongo_client_read
 
 
 def verify_api_key(authorization: str | None = Header(default=None)) -> None:
@@ -16,31 +29,3 @@ def verify_api_key(authorization: str | None = Header(default=None)) -> None:
         return
     if authorization is None or authorization != f"Bearer {API_KEY}":
         raise HTTPException(status_code=401, detail="API key inválida")
-
-
-def get_db_cuentas():
-    return get_mongo_client_read()["CuentasAPI"]
-
-
-def get_db_operaciones():
-    return get_mongo_client_read()["OperacionesAPI"]
-
-
-def get_db_portfolio():
-    return get_mongo_client_read()["PortfolioAPI"]
-
-
-def get_db_titulos():
-    return get_mongo_client_read()["TitulosAPI"]
-
-
-def get_db_opciones():
-    return get_mongo_client_read()["Opciones"]
-
-
-def get_db_trading():
-    return get_mongo_client_read()["Trading"]
-
-
-def get_db_valuaciones():
-    return get_mongo_client_read()["Valuaciones"]

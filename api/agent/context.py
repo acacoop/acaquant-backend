@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 from core.mongo import get_mongo_client_read
@@ -84,7 +84,7 @@ def _a3500_line(client) -> str:
 
 def _top_volumen_line(client) -> str:
     """Top 5 tickers por volumen en los últimos 3 días, enriquecidos con curva/tipo."""
-    corte = datetime.now(timezone.utc) - timedelta(days=3)
+    corte = datetime.now(UTC) - timedelta(days=3)
     pipeline = [
         {"$match": {"timestamp": {"$gte": corte}, "money": {"$gt": 0}}},
         {"$group": {"_id": "$ticker", "money": {"$sum": "$money"}}},

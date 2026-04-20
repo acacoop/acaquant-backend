@@ -75,7 +75,11 @@ class OptionsEngine:
         threading.Thread(target=self._batch_snapshot_loop, daemon=True).start()
 
     def _generar_maestra(self):
-        """Descarga el padrón y filtra opciones de GGAL para el próximo vencimiento."""
+        """Descarga el padrón y filtra opciones GGAL según la config del Manager.
+
+        Si `Opciones.Metadata.expiries` tiene vencimientos (lista YYYYMMDD),
+        trackea SOLO esos. Si está vacía/None → auto-pick (próximo > hoy).
+        """
         res = pyRofex.get_detailed_instruments()
         mapa, agrupacion = {}, defaultdict(dict)
         if not res or res.get('status') != 'OK':
@@ -83,11 +87,9 @@ class OptionsEngine:
 
         hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # Primera pasada: encontrar el próximo vencimiento disponible.
-        # Usamos `> hoy` (no `>= hoy`) para saltar el OPEX del propio día —
-        # si hoy es OPEX, queremos trackear la serie siguiente, no la que
-        # se está liquidando.
-        expiries = set()
+        # Primera pasada: todas las expiries futuras disponibles en ROFEX hoy.
+        # Usamos `> hoy` para saltar el OPEX del propio día.
+        expiries_futuras = set()
         for inst in res['instruments']:
             if inst.get('underlying') == "Grupo Financiero Galicia Merval":
                 cfi = inst.get('cficode', '')
@@ -95,28 +97,56 @@ class OptionsEngine:
                 if cfi.startswith('O') and len(vence_raw) == 8:
                     try:
                         if datetime.strptime(vence_raw, "%Y%m%d") > hoy:
-                            expiries.add(vence_raw)
+                            expiries_futuras.add(vence_raw)
                     except ValueError:
                         pass
 
-        if not expiries:
+        if not expiries_futuras:
             return mapa, agrupacion
 
-        proxima = min(expiries)  # YYYYMMDD → orden lexicográfico = orden cronológico
-        logger.info(f"Vencimiento detectado: {proxima}")
+        # Publicar disponibles (lo usa el Manager para el multi-select)
+        try:
+            self._meta_col.update_one(
+                {"type": "config"},
+                {"$set": {
+                    "expiries_disponibles": sorted(expiries_futuras),
+                    "expiries_updated_at":  datetime.utcnow(),
+                }},
+                upsert=True,
+            )
+        except Exception as e:
+            logger.warning(f"No se pudo publicar expiries_disponibles: {e}")
 
-        # Segunda pasada: cargar solo ese vencimiento
+        # Leer config del Manager (qué vencimientos eligió el user)
+        cfg = self._meta_col.find_one({"type": "config"}) or {}
+        expiries_cfg = [e for e in (cfg.get("expiries") or []) if isinstance(e, str)]
+
+        if expiries_cfg:
+            expiries_usar = set(expiries_cfg) & expiries_futuras
+            ignoradas = set(expiries_cfg) - expiries_futuras
+            if ignoradas:
+                logger.warning(f"Expiries configuradas ya vencidas/ausentes: {sorted(ignoradas)}")
+            if not expiries_usar:
+                logger.warning("Ninguna expiry configurada está disponible → cayendo a auto-pick")
+                expiries_usar = {min(expiries_futuras)}
+        else:
+            expiries_usar = {min(expiries_futuras)}
+
+        logger.info(f"Vencimientos a trackear: {sorted(expiries_usar)}")
+
+        # Segunda pasada: cargar strikes de los vencimientos elegidos
         for inst in res['instruments']:
-            if inst.get('underlying') == "Grupo Financiero Galicia Merval":
-                cfi = inst.get('cficode', '')
-                vence_raw = inst.get('maturity_date', inst.get('maturityDate', ''))
-                if vence_raw == proxima:
-                    sym = inst['instrumentId']['symbol']
-                    strike = float(inst.get('strike', 0))
-                    tipo = 'CALL' if cfi == 'OCASPS' else 'PUT' if cfi == 'OPASPS' else None
-                    if tipo and strike:
-                        mapa[sym] = {'strike': strike, 'tipo': tipo, 'vence': vence_raw}
-                        agrupacion[strike][tipo] = sym
+            if inst.get('underlying') != "Grupo Financiero Galicia Merval":
+                continue
+            cfi = inst.get('cficode', '')
+            vence_raw = inst.get('maturity_date', inst.get('maturityDate', ''))
+            if vence_raw in expiries_usar:
+                sym = inst['instrumentId']['symbol']
+                strike = float(inst.get('strike', 0))
+                tipo = 'CALL' if cfi == 'OCASPS' else 'PUT' if cfi == 'OPASPS' else None
+                if tipo and strike:
+                    mapa[sym] = {'strike': strike, 'tipo': tipo, 'vence': vence_raw}
+                    agrupacion[strike][tipo] = sym
         return mapa, dict(agrupacion)
 
     def _inicializar_estado_memoria(self):
@@ -237,17 +267,33 @@ class OptionsEngine:
             time.sleep(5)
             _tick += 1
 
-            # Cada 60s lee la tasa de Metadata para que Streamlit pueda cambiarla
+            # Cada ~5 min lee Metadata para aplicar cambios de tasa y expiries
             if _tick % 60 == 0:
                 try:
-                    cfg = self._meta_col.find_one({"type": "config"})
-                    if cfg and cfg.get("tasa"):
-                        nueva = cfg["tasa"]
-                        if abs(nueva - self.tasa) > 1e-6:
-                            logger.info(f"Tasa actualizada: {self.tasa:.3f} → {nueva:.3f}")
-                            self.tasa = nueva
-                except Exception:
-                    pass
+                    cfg = self._meta_col.find_one({"type": "config"}) or {}
+                    nueva = cfg.get("tasa")
+                    if nueva and abs(nueva - self.tasa) > 1e-6:
+                        logger.info(f"Tasa actualizada: {self.tasa:.3f} → {nueva:.3f}")
+                        self.tasa = nueva
+
+                    # Si el user cambió los expiries desde el Manager, refrescar
+                    expiries_cfg     = set(cfg.get("expiries") or [])
+                    expiries_actuales = {v['vence'] for v in self.mapa_opciones.values()}
+                    if expiries_cfg and expiries_cfg != expiries_actuales:
+                        logger.info("Config de expiries cambió → refrescando mapa")
+                        nuevos = self.refrescar_mapa()
+                        ws = getattr(self, "_ws_ref", None)
+                        if nuevos and ws is not None:
+                            ws.agregar_suscripciones(nuevos)
+                    elif not expiries_cfg and len(expiries_actuales) > 1:
+                        # User volvió a auto-pick (expiries=[]), pero teníamos más de uno → refrescar
+                        logger.info("Auto-pick re-activado → refrescando mapa")
+                        nuevos = self.refrescar_mapa()
+                        ws = getattr(self, "_ws_ref", None)
+                        if nuevos and ws is not None:
+                            ws.agregar_suscripciones(nuevos)
+                except Exception as e:
+                    logger.warning(f"Error leyendo config de Metadata: {e}")
 
             try:
                 S = self.market_state.get(self.spot_symbol, {}).get('last', 0)
@@ -354,6 +400,7 @@ def run():
         return
 
     ws_manager = WebSocketManager(engine)
+    engine._ws_ref = ws_manager  # permite que el engine agregue suscripciones dinámicas
     ws_manager.iniciar_ws(engine.get_tickers_suscripcion())
     logger.info(
         f"Motor corriendo (event-driven, snapshot cada 1s). "

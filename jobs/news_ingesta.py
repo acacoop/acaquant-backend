@@ -42,8 +42,8 @@ NEWS_FEEDS: list[dict[str, str]] = [
     # Clarín
     {"fuente": "Clarín",       "categoria": "economia",  "url": "https://www.clarin.com/rss/economia/"},
 
-    # Infobae (URL vía Arc XP)
-    {"fuente": "Infobae",      "categoria": "economia",  "url": "https://www.infobae.com/arc/outboundfeeds/rss/?outputType=xml&category=economia"},
+    # Infobae (URL vía Arc XP — formato path-based, filtra correctamente)
+    {"fuente": "Infobae",      "categoria": "economia",  "url": "https://www.infobae.com/arc/outboundfeeds/rss/category/economia/?outputType=xml"},
 
     # La Nación (URL vía Arc XP)
     {"fuente": "La Nación",    "categoria": "economia",  "url": "https://www.lanacion.com.ar/arc/outboundfeeds/rss/category/economia/?outputType=xml"},

@@ -1,11 +1,18 @@
-"""Router News: headlines agregados de RSS (News.Headlines)."""
+"""Router News: headlines agregados de RSS (News.Headlines) + reader mode."""
+import logging
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from core.mongo import get_mongo_client_read
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/news", tags=["News"])
+
+# Cache simple en memoria para articles extraídos (1 hora TTL).
+_ARTICLE_CACHE: dict[str, tuple[float, dict]] = {}
+_ARTICLE_CACHE_TTL = 3600.0
 
 
 def _db():
@@ -73,6 +80,68 @@ def list_headlines(
         docs.append(d)
 
     return docs
+
+
+@router.get("/article")
+def article(url: str = Query(..., description="URL original de la nota a leer inline.")):
+    """Fetcha la URL y extrae el artículo limpio con trafilatura (reader mode).
+
+    Cachea 1h en memoria para no hammerear la fuente en recargas.
+    Devuelve: {ok, title, author, date, text, hostname, excerpt}.
+    """
+    import time as _time
+    url = url.strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="URL inválida")
+
+    now = _time.time()
+    cached = _ARTICLE_CACHE.get(url)
+    if cached and (now - cached[0]) < _ARTICLE_CACHE_TTL:
+        return cached[1]
+
+    try:
+        import trafilatura
+    except ImportError as e:
+        raise HTTPException(
+            status_code=500,
+            detail="trafilatura no instalado; correr pip install trafilatura",
+        ) from e
+
+    try:
+        downloaded = trafilatura.fetch_url(url, no_ssl=False)
+        if not downloaded:
+            return {"ok": False, "error": "no pude descargar la URL"}
+        data = trafilatura.extract(
+            downloaded,
+            output_format="json",
+            include_comments=False,
+            include_links=False,
+            include_tables=False,
+            with_metadata=True,
+            deduplicate=True,
+            favor_precision=True,
+        )
+        if not data:
+            return {"ok": False, "error": "no pude extraer texto (posible paywall)"}
+
+        import json as _json
+        parsed = _json.loads(data)
+        out = {
+            "ok":       True,
+            "title":    parsed.get("title") or "",
+            "author":   parsed.get("author") or "",
+            "date":     parsed.get("date") or "",
+            "hostname": parsed.get("hostname") or "",
+            "excerpt":  parsed.get("excerpt") or "",
+            "text":     parsed.get("text") or "",
+            "url":      url,
+        }
+    except Exception as e:
+        logger.exception("extracción falló para %s", url)
+        out = {"ok": False, "error": f"extracción falló: {e}"}
+
+    _ARTICLE_CACHE[url] = (now, out)
+    return out
 
 
 @router.get("/stats")

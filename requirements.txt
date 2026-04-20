@@ -15,6 +15,7 @@ uvicorn[standard]
 python-multipart  # file upload en /api/manager/intel/*
 pypdf             # parser de PDFs para ingesta de reportes
 feedparser        # ingesta de RSS para jobs/news_ingesta.py
+trafilatura       # extracción de texto limpio de artículos (reader mode)
 
 # dev
 ruff

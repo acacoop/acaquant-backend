@@ -42,17 +42,16 @@ NEWS_FEEDS: list[dict[str, str]] = [
     # Clarín
     {"fuente": "Clarín",       "categoria": "economia",  "url": "https://www.clarin.com/rss/economia/"},
 
+    # Infobae (URL vía Arc XP)
+    {"fuente": "Infobae",      "categoria": "economia",  "url": "https://www.infobae.com/arc/outboundfeeds/rss/?outputType=xml&category=economia"},
+
+    # La Nación (URL vía Arc XP)
+    {"fuente": "La Nación",    "categoria": "economia",  "url": "https://www.lanacion.com.ar/arc/outboundfeeds/rss/category/economia/?outputType=xml"},
+
     # ───────────────────────────────────────────────────────────────────────
-    # Feeds pendientes de corregir URL (devuelven bozo=1 / 0 entries hoy):
-    # - Cronista finanzas-mercados (XML syntax error)
-    # - Infobae economía (0 entries con la URL /feeds/rss/economia/)
-    # - La Nación economía (XML not well-formed en /economia/rss/)
+    # Feeds pendientes de corregir URL:
+    # - Cronista finanzas-mercados (XML syntax error al día de hoy)
     # - BAE economía (XML mismatched tag)
-    # Si algún día encontrás las URLs correctas, descomentar:
-    # {"fuente": "Cronista",  "categoria": "finanzas", "url": "???"},
-    # {"fuente": "Infobae",   "categoria": "economia", "url": "???"},
-    # {"fuente": "La Nación", "categoria": "economia", "url": "???"},
-    # {"fuente": "BAE",       "categoria": "economia", "url": "???"},
 ]
 
 

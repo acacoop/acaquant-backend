@@ -27,7 +27,12 @@ from typing import Any
 
 import requests
 
+from api.agent.ticker_catalog import did_you_mean
+from api.agent.tool_metadata import compute_meta
 from config import API_KEY
+
+# Keys que típicamente contienen un ticker en los args del modelo.
+_TICKER_ARG_KEYS = ("instrumento", "ticker", "ticker_corto", "symbol")
 
 API_BASE = "http://127.0.0.1:8000"
 TOOL_TIMEOUT = 15
@@ -349,6 +354,56 @@ def dispatch(name: str, args: dict[str, Any]) -> dict[str, Any]:
         }
 
     try:
-        return {"ok": True, "data": resp.json()}
+        data = resp.json()
     except json.JSONDecodeError:
         return {"ok": False, "error": "respuesta no es JSON", "raw": resp.text[:400]}
+
+    # Si la response viene vacía Y el args incluye algún ticker, probablemente
+    # el modelo se equivocó de símbolo. Devolvemos did_you_mean para que se
+    # auto-corrija en el siguiente turn sin molestar al usuario.
+    if _is_empty_response(data):
+        ticker = _extract_ticker_from_args(args or {})
+        if ticker:
+            suggestions = did_you_mean(ticker)
+            return {
+                "ok": False,
+                "error": f"no se encontraron datos para '{ticker}'",
+                "did_you_mean": suggestions,
+                "hint": (
+                    f"Probá con uno de estos tickers: {', '.join(suggestions)}"
+                    if suggestions
+                    else "Revisá el ticker, puede que no exista o no esté cargado."
+                ),
+            }
+
+    return {
+        "ok": True,
+        "data": data,
+        "_meta": compute_meta(data, source=endpoint),
+    }
+
+
+def _extract_ticker_from_args(args: dict[str, Any]) -> str | None:
+    """Busca el primer valor no-vacío en args cuya key sea un ticker."""
+    for k in _TICKER_ARG_KEYS:
+        v = args.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
+def _is_empty_response(data: Any) -> bool:
+    """Detecta responses 'vacías' típicas de nuestra API (ticker no encontrado)."""
+    if data is None:
+        return True
+    if isinstance(data, list):
+        return len(data) == 0
+    if isinstance(data, dict):
+        # Patrones comunes: {"resultados": []}, {"items": []}, {"data": []}, {}
+        if not data:
+            return True
+        for key in ("resultados", "items", "data", "values", "rows"):
+            inner = data.get(key)
+            if isinstance(inner, list) and len(inner) == 0:
+                return True
+    return False

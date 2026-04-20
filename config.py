@@ -37,3 +37,12 @@ MANAGER_EMAILS: set[str] = {
     for e in _manager_env.split(",")
     if e.strip()
 }
+
+# --- CLOUDFLARE ACCESS (validación JWT) ---
+# Team domain (sin https://, sin /cdn-cgi/access/certs). Ej: "acaquant".
+# Si está vacío, el JWT no se valida y se cae al header spoofable (modo dev).
+CF_ACCESS_TEAM = os.getenv("CF_ACCESS_TEAM", "").strip()
+# Audience tag (AUD) del application en Cloudflare Zero Trust. Sin esto no
+# se valida el JWT. Se obtiene en Zero Trust → Access → Applications →
+# Application → Overview → "Application Audience (AUD) Tag".
+CF_ACCESS_AUD = os.getenv("CF_ACCESS_AUD", "").strip()

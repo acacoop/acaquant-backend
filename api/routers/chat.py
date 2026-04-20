@@ -22,8 +22,9 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from starlette.requests import Request
 
 from api.agent.provider import (
     LLMBadResponseError,
@@ -32,6 +33,8 @@ from api.agent.provider import (
     LLMTransportError,
 )
 from api.agent.runner import run_conversation
+from api.auth import get_user_email
+from api.ratelimit import limiter
 from config import ANTHROPIC_API_KEY, GEMINI_API_KEY, LLM_PROVIDER
 from core.mongo import get_mongo_client
 
@@ -88,11 +91,18 @@ def _log_interaccion(
 
 
 @router.post("", response_model=ChatResponse)
+@limiter.limit("30/minute;500/day")
 def chat(
+    request: Request,  # requerido por slowapi para aplicar key_func
     req: ChatRequest,
-    cf_email: str | None = Header(default=None, alias="cf-access-authenticated-user-email"),
 ) -> ChatResponse:
-    user_email = (cf_email or "").lower().strip() or "anon"
+    # Resolución inline del email: si hay CF_ACCESS_TEAM+AUD, valida el JWT;
+    # si no, cae al header. Evitamos Depends() acá porque no se mezcla bien
+    # con Request + BaseModel body en la misma firma.
+    user_email = get_user_email(
+        cf_jwt=request.headers.get("cf-access-jwt-assertion"),
+        cf_email=request.headers.get("cf-access-authenticated-user-email"),
+    )
 
     # Validar que haya key del provider activo
     if LLM_PROVIDER == "claude" and not ANTHROPIC_API_KEY:

@@ -14,8 +14,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
+from api.auth import require_manager
 from api.deps import verify_api_key
+from api.ratelimit import limiter
 from api.routers import (
     analitica,
     carteras,
@@ -64,21 +70,54 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="TradingAV API", version="0.1.0", lifespan=lifespan)
 
+# Rate limiter compartido — keying por email CF (ver api/ratelimit.py).
+app.state.limiter = limiter
+
+
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Handler custom: shape consistente con otros errores + status 429."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": {
+                "code": "rate_limit",
+                "message": f"límite alcanzado: {exc.detail}",
+                "retryable": True,
+                "retry_after_s": 60,
+            }
+        },
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+app.add_middleware(SlowAPIMiddleware)
+
 # GZip: /historico/trades puede devolver hasta 10K trades JSON (~1-3 MB).
 # Compresión ~80% en JSON. minimum_size=1024 evita overhead en responses chicas.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
-app.include_router(analitica.router, dependencies=[Depends(verify_api_key)])
-app.include_router(carteras.router, dependencies=[Depends(verify_api_key)])
-app.include_router(cotizaciones.router, dependencies=[Depends(verify_api_key)])
-app.include_router(cuentas.router, dependencies=[Depends(verify_api_key)])
-app.include_router(operaciones.router, dependencies=[Depends(verify_api_key)])
-app.include_router(titulos.router, dependencies=[Depends(verify_api_key)])
-app.include_router(manager.router, dependencies=[Depends(verify_api_key)])
-app.include_router(manager_resources.router, dependencies=[Depends(verify_api_key)])
-app.include_router(chat.router, dependencies=[Depends(verify_api_key)])
-app.include_router(news.router, dependencies=[Depends(verify_api_key)])
-app.include_router(market.router, dependencies=[Depends(verify_api_key)])
+# Dependencies por router:
+#   verify_api_key  → bearer token (común a todos).
+#   require_manager → gate de admin server-side (emails en MANAGER_EMAILS).
+#                     Si MANAGER_EMAILS está vacío en .env, deja pasar todo (dev).
+_PUBLIC = [Depends(verify_api_key)]
+_ADMIN = [Depends(verify_api_key), Depends(require_manager)]
+
+app.include_router(analitica.router,         dependencies=_PUBLIC)
+app.include_router(carteras.router,          dependencies=_PUBLIC)
+app.include_router(cotizaciones.router,      dependencies=_PUBLIC)
+app.include_router(cuentas.router,           dependencies=_PUBLIC)
+app.include_router(operaciones.router,       dependencies=_PUBLIC)
+app.include_router(titulos.router,           dependencies=_PUBLIC)
+app.include_router(news.router,              dependencies=_PUBLIC)
+app.include_router(market.router,            dependencies=_PUBLIC)
+
+# Rutas que tocan state interno o consumen LLM: solo usuarios en MANAGER_EMAILS.
+# Antes el gate vivía solo en acaquant-web/src/proxy.ts (client-side,
+# bypasseable con curl directo). Ahora también server-side.
+app.include_router(manager.router,           dependencies=_ADMIN)
+app.include_router(manager_resources.router, dependencies=_ADMIN)
+app.include_router(chat.router,              dependencies=_ADMIN)
 
 
 @app.get("/api/health")

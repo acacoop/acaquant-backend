@@ -14,7 +14,9 @@ from zoneinfo import ZoneInfo
 from bson import ObjectId
 from fastapi import APIRouter, Body, File, Form, HTTPException, Path, Query, UploadFile
 from pydantic import BaseModel
+from starlette.requests import Request
 
+from api.ratelimit import limiter
 from core.mongo import get_mongo_client, get_mongo_client_read
 
 router = APIRouter(prefix="/api/manager", tags=["Manager"])
@@ -380,7 +382,9 @@ _CMDS: dict[str, list[str]] = {
 
 
 @router.post("/jobs/run")
+@limiter.limit("5/hour;20/day")
 def run_job(
+    request: Request,  # requerido por slowapi
     tipo: str = Body(..., embed=True),
     args: list[str] = Body(default=[], embed=True),
 ):

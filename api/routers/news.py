@@ -1,6 +1,9 @@
 """Router News: headlines agregados de RSS (News.Headlines) + reader mode."""
+import ipaddress
 import logging
+import socket
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -9,6 +12,41 @@ from core.mongo import get_mongo_client_read
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/news", tags=["News"])
+
+
+def _is_safe_external_url(url: str) -> tuple[bool, str]:
+    """Valida URL antes de hacer fetch externo (anti-SSRF).
+
+    Bloquea: scheme no-http(s), puertos no-estándar, IPs privadas/loopback/
+    link-local/reserved (incluye metadata services cloud: 169.254.169.254,
+    etc.).
+
+    Devuelve (ok, reason). Si ok es False, reason explica por qué.
+    """
+    try:
+        p = urlparse(url)
+    except Exception as e:
+        return False, f"URL inválida: {e}"
+    if p.scheme not in ("http", "https"):
+        return False, f"scheme no permitido: {p.scheme}"
+    if not p.hostname:
+        return False, "hostname vacío"
+    # Solo puertos estándar web
+    if p.port and p.port not in (80, 443):
+        return False, f"puerto no permitido: {p.port}"
+    # Resolver y chequear IP. Si el hostname resuelve a IP privada, bloquear.
+    # Ojo: DNS rebinding sigue posible pero cubre el 95% de casos reales.
+    try:
+        resolved = socket.gethostbyname(p.hostname)
+    except socket.gaierror as e:
+        return False, f"DNS no resuelve: {e}"
+    try:
+        ip = ipaddress.ip_address(resolved)
+    except ValueError:
+        return False, f"IP inválida: {resolved}"
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+        return False, f"IP bloqueada por policy (privada/loopback/link-local): {resolved}"
+    return True, ""
 
 # Cache simple en memoria para articles extraídos (1 hora TTL).
 _ARTICLE_CACHE: dict[str, tuple[float, dict]] = {}
@@ -93,6 +131,15 @@ def article(url: str = Query(..., description="URL original de la nota a leer in
     url = url.strip()
     if not url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="URL inválida")
+
+    # SSRF guard: rechazar URLs que resuelvan a IPs privadas / loopback /
+    # link-local / metadata services cloud (169.254.169.254). Si alguien
+    # autenticado logra pedir al reader mode un URL interno, podría
+    # leakear tokens del Droplet o pegar a servicios internos.
+    safe, reason = _is_safe_external_url(url)
+    if not safe:
+        logger.warning("SSRF block: url=%s reason=%s", url[:100], reason)
+        raise HTTPException(status_code=400, detail=f"URL no permitida: {reason}")
 
     now = _time.time()
     cached = _ARTICLE_CACHE.get(url)

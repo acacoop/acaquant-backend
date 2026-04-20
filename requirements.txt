@@ -17,6 +17,8 @@ pypdf             # parser de PDFs para ingesta de reportes
 feedparser        # ingesta de RSS para jobs/news_ingesta.py
 trafilatura       # extracción de texto limpio de artículos (reader mode)
 psutil            # métricas de sistema (CPU/RAM/swap) para /manager/resources
+slowapi           # rate-limit por usuario en /api/chat y /manager/jobs/run
+pyjwt[crypto]     # validación de JWT de Cloudflare Access
 
 # dev
 ruff

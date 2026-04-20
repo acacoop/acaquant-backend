@@ -35,6 +35,22 @@ def ingesta() -> int:
     events = data.get("economicCalendar", []) or []
     logger.info("Finnhub devolvió %d eventos", len(events))
 
+    # Finnhub puede devolver impact como string ('low'/'medium'/'high') o int (1-3).
+    # Normalizamos todo a int: 0=none, 1=low, 2=medium, 3=high.
+    IMPACT_MAP = {"low": 1, "medium": 2, "high": 3}
+
+    def _impact_to_int(v) -> int:
+        if v is None:
+            return 0
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str):
+            return IMPACT_MAP.get(v.strip().lower(), 0)
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 0
+
     now = datetime.now(timezone.utc)
     ins = upd = skip = 0
     for ev in events:
@@ -48,7 +64,7 @@ def ingesta() -> int:
         key = {"time": dt, "country": ev.get("country", ""), "event": ev.get("event", "")}
         doc = {
             **key,
-            "impact":   int(ev.get("impact", 0) or 0),  # 0 low … 3 high
+            "impact":   _impact_to_int(ev.get("impact")),
             "actual":   ev.get("actual"),
             "prev":     ev.get("prev"),
             "estimate": ev.get("estimate"),

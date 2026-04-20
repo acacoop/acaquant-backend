@@ -5,12 +5,14 @@ snapshot por símbolo. Los clientes (home, /renta-variable, asistente) leen
 de Mongo — cero hammering adicional sobre Finnhub aunque haya muchos tabs
 abiertos.
 
+Fuentes:
+- Equities (stocks, ETFs, índices vía ETF proxy): Finnhub /quote.
+- Forex: frankfurter.app (ECB reference rates, gratis, sin API key).
+  Finnhub free NO tiene forex.
+
 Cron sugerido (cada 1 min en horario de mercado US, L-V):
     * 13-21 * * 1-5 cd /root/TradingAV && venv/bin/python -m jobs.market_quotes
-    * 13-21 * * 1-5 cd /root/TradingAV && venv/bin/python -m jobs.market_quotes --extra  # incluye ADRs
-
-En horario no-mercado, el último snapshot persiste. No es crítico refrescar
-overnight.
+    * 13-21 * * 1-5 cd /root/TradingAV && venv/bin/python -m jobs.market_quotes --extra
 """
 from __future__ import annotations
 
@@ -19,7 +21,9 @@ import logging
 import sys
 from datetime import datetime, timezone
 
-from core.finnhub import FinnhubError, forex_candle, quote
+import requests
+
+from core.finnhub import FinnhubError, quote
 from core.mongo import get_mongo_client
 
 logger = logging.getLogger(__name__)
@@ -44,12 +48,17 @@ HOME_STOCKS: list[tuple[str, str]] = [
     ("WEAT", "Commodities"),
 ]
 
-HOME_FX: list[tuple[str, str, str]] = [
-    # (display_symbol, finnhub_symbol, grupo)
-    ("EURUSD", "OANDA:EUR_USD", "Monedas"),
-    ("USDBRL", "OANDA:USD_BRL", "Monedas"),
-    ("USDMXN", "OANDA:USD_MXN", "Monedas"),
+# FX — Finnhub free NO tiene forex (403). Usamos frankfurter.app (ECB, gratis,
+# sin API key). Cada par se lee como base vs target.
+HOME_FX: list[tuple[str, str, str, str]] = [
+    # (display_symbol, base, target, grupo)
+    ("EURUSD", "EUR", "USD", "Monedas"),
+    ("USDBRL", "USD", "BRL", "Monedas"),
+    ("USDMXN", "USD", "MXN", "Monedas"),
 ]
+
+FRANKFURTER_LATEST = "https://api.frankfurter.app/latest"
+FRANKFURTER_DATE   = "https://api.frankfurter.app"  # + /YYYY-MM-DD
 
 # Watchlist ampliada para /renta-variable
 EXTRA_STOCKS: list[tuple[str, str]] = [
@@ -111,44 +120,49 @@ def _upsert_stock(coll, sym: str, grupo: str, q: dict, now: datetime) -> bool:
     return True
 
 
-def _upsert_forex(coll, display: str, fh_sym: str, grupo: str, now: datetime) -> bool:
-    # Usamos /forex/candle con resolución horaria de las últimas 48h para
-    # obtener last + first-of-day.
-    now_ts = int(now.timestamp())
+def _frankfurter_rate(base: str, target: str, date: str | None = None) -> float | None:
+    """Fetch 1 {base} = X {target} desde frankfurter.app.
+    date=None → latest. date='YYYY-MM-DD' → histórico.
+    """
+    url = f"{FRANKFURTER_LATEST}" if date is None else f"{FRANKFURTER_DATE}/{date}"
     try:
-        c = forex_candle(fh_sym, "60", now_ts - 2 * 86400, now_ts)
-    except FinnhubError as e:
-        logger.warning("forex %s failed: %s", fh_sym, e)
+        r = requests.get(url, params={"from": base, "to": target}, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return float((data.get("rates") or {}).get(target))
+    except Exception as e:
+        logger.warning("frankfurter %s→%s %s failed: %s", base, target, date or "latest", e)
+        return None
+
+
+def _upsert_forex(coll, display: str, base: str, target: str, grupo: str, now: datetime) -> bool:
+    last = _frankfurter_rate(base, target)
+    if last is None:
         return False
-    if c.get("s") != "ok":
-        return False
-    closes = c.get("c") or []
-    times = c.get("t") or []
-    if not closes:
-        return False
-    last = closes[-1]
-    # first-of-day = la primera vela con timestamp de hoy UTC
-    hoy_ts = int(datetime(now.year, now.month, now.day, tzinfo=timezone.utc).timestamp())
-    first_today = None
-    for t, cl in zip(times, closes):
-        if t >= hoy_ts:
-            first_today = cl
+    # Previous close = último día hábil previo. Frankfurter NO tiene fines de
+    # semana (ECB). Pedimos el día anterior hasta que haya datos.
+    prev = None
+    for dd in range(1, 5):
+        d = (now - timedelta(days=dd)).date().isoformat()
+        prev = _frankfurter_rate(base, target, d)
+        if prev is not None and prev != last:
             break
-    if first_today is None:
-        first_today = closes[0]
+
     pct_day = None
-    if first_today:
+    if prev:
         try:
-            pct_day = (last - first_today) / first_today * 100
+            pct_day = (last - prev) / prev * 100
         except ZeroDivisionError:
-            pct_day = None
+            pass
+
     doc = {
         "symbol":     display,
-        "fh_symbol":  fh_sym,
+        "base":       base,
+        "target":     target,
         "type":       "forex",
         "grupo":      grupo,
         "last":       last,
-        "prev_close": first_today,
+        "prev_close": prev,
         "pct_day":    pct_day,
         "timestamp":  now,
         "updated_at": now,
@@ -178,8 +192,8 @@ def ingesta(include_extra: bool = False) -> int:
         else:
             fail += 1
 
-    for display, fh_sym, grupo in HOME_FX:
-        if _upsert_forex(coll, display, fh_sym, grupo, now):
+    for display, base, target, grupo in HOME_FX:
+        if _upsert_forex(coll, display, base, target, grupo, now):
             ok += 1
         else:
             fail += 1

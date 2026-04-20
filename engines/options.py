@@ -82,7 +82,10 @@ class OptionsEngine:
 
         hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # Primera pasada: encontrar el próximo vencimiento disponible
+        # Primera pasada: encontrar el próximo vencimiento disponible.
+        # Usamos `> hoy` (no `>= hoy`) para saltar el OPEX del propio día —
+        # si hoy es OPEX, queremos trackear la serie siguiente, no la que
+        # se está liquidando.
         expiries = set()
         for inst in res['instruments']:
             if inst.get('underlying') == "Grupo Financiero Galicia Merval":
@@ -90,7 +93,7 @@ class OptionsEngine:
                 vence_raw = inst.get('maturity_date', inst.get('maturityDate', ''))
                 if cfi.startswith('O') and len(vence_raw) == 8:
                     try:
-                        if datetime.strptime(vence_raw, "%Y%m%d") >= hoy:
+                        if datetime.strptime(vence_raw, "%Y%m%d") > hoy:
                             expiries.add(vence_raw)
                     except ValueError:
                         pass
@@ -123,6 +126,41 @@ class OptionsEngine:
                 'bid': 0, 'offer': 0, 'last': 0, 'last_timestamp': None,
                 'open': 0, 'high': 0, 'low': 0, 'ev': 0, 'closing_price': 0
             }
+
+    def refrescar_mapa(self) -> list[str]:
+        """Recomputa mapa_opciones desde pyRofex y devuelve símbolos nuevos.
+
+        Llamar periódicamente (ej. cada 30 min) para pillar contratos que
+        ROFEX publica durante la rueda sin reiniciar el motor. Si cambió
+        el vencimiento objetivo (rotación post-OPEX), reemplaza el mapa
+        entero — los símbolos viejos quedan suscriptos en el WS pero el
+        loop los ignora porque no están en mapa_opciones.
+        """
+        nuevo_mapa, nueva_agrup = self._generar_maestra()
+        if not nuevo_mapa:
+            return []
+
+        viejo_set = set(self.mapa_opciones.keys())
+        nuevo_set = set(nuevo_mapa.keys())
+        if nuevo_set == viejo_set:
+            return []
+
+        vencs_viejos = {v['vence'] for v in self.mapa_opciones.values()} if self.mapa_opciones else set()
+        vencs_nuevos = {v['vence'] for v in nuevo_mapa.values()}
+        if vencs_viejos and vencs_nuevos and vencs_viejos != vencs_nuevos:
+            logger.info(f"🔄 Rotación de vencimiento: {sorted(vencs_viejos)} → {sorted(vencs_nuevos)}")
+
+        self.mapa_opciones = nuevo_mapa
+        self.agrupacion_strikes = nueva_agrup
+
+        nuevos = sorted(nuevo_set - viejo_set)
+        for sym in nuevos:
+            if sym not in self.market_state:
+                self.market_state[sym] = {
+                    'bid': 0, 'offer': 0, 'last': 0, 'last_timestamp': None,
+                    'open': 0, 'high': 0, 'low': 0, 'ev': 0, 'closing_price': 0
+                }
+        return nuevos
 
     def get_tickers_suscripcion(self):
         return list(self.market_state.keys())
@@ -300,6 +338,24 @@ def run():
         f"Motor corriendo (event-driven, snapshot cada 1s). "
         f"Suscripto a {len(engine.get_tickers_suscripcion())} activos."
     )
+
+    # Refresh del padrón cada 30 min: capta strikes nuevos publicados por
+    # ROFEX durante la rueda (y rota el vencimiento si hace falta).
+    def _refresh_loop():
+        while _running:
+            for _ in range(1800):  # 30 min en ticks de 1s, cortable por _running
+                if not _running:
+                    return
+                time.sleep(1)
+            try:
+                nuevos = engine.refrescar_mapa()
+                if nuevos:
+                    logger.info(f"➕ {len(nuevos)} símbolos nuevos detectados, suscribiendo...")
+                    ws_manager.agregar_suscripciones(nuevos)
+            except Exception as e:
+                logger.error(f"Error en _refresh_loop: {e}")
+
+    threading.Thread(target=_refresh_loop, daemon=True).start()
 
     while _running:
         time.sleep(1)

@@ -21,41 +21,47 @@ class WebSocketManager:
             # En producción podrías usar un logger aquí
             pass
 
-    # --- CAMBIO: Agregamos depth=1 como parámetro por defecto ---
+    _ENTRIES = [
+        pyRofex.MarketDataEntry.BIDS,
+        pyRofex.MarketDataEntry.OFFERS,
+        pyRofex.MarketDataEntry.LAST,
+        pyRofex.MarketDataEntry.OPENING_PRICE,
+        pyRofex.MarketDataEntry.HIGH_PRICE,
+        pyRofex.MarketDataEntry.LOW_PRICE,
+        pyRofex.MarketDataEntry.CLOSING_PRICE,
+        pyRofex.MarketDataEntry.TRADE_EFFECTIVE_VOLUME,
+        pyRofex.MarketDataEntry.NOMINAL_VOLUME,
+    ]
+
+    def agregar_suscripciones(self, lista_tickers, depth=1):
+        """Suscribe tickers adicionales sin reabrir la conexión WS.
+
+        Útil para rotación dinámica (ej. nuevos strikes de opciones que
+        aparecen durante la rueda). pyRofex.market_data_subscription es
+        aditivo — se puede llamar varias veces sobre el mismo socket.
+        """
+        if not lista_tickers:
+            return
+        chunk_size = 50
+        for i in range(0, len(lista_tickers), chunk_size):
+            chunk = lista_tickers[i:i + chunk_size]
+            pyRofex.market_data_subscription(
+                tickers=chunk,
+                entries=self._ENTRIES,
+                depth=depth,
+            )
+            time.sleep(0.01)
+
     def iniciar_ws(self, lista_tickers, depth=1):
         """Configura la suscripción e inicia la conexión viva"""
         try:
-            # 1. Definimos qué función va a recibir los datos
             pyRofex.add_websocket_market_data_handler(self._handler_mercado)
-
-            # 2. Nos suscribimos a los instrumentos filtrados (AHORA POR LOTES)
-            chunk_size = 50
-            for i in range(0, len(lista_tickers), chunk_size):
-                chunk = lista_tickers[i:i + chunk_size]
-
-                # --- ACÁ ESTABA EL CUELLO DE BOTELLA ---
-                # Ahora sí le exigimos al broker que nos mande la data completa
-                pyRofex.market_data_subscription(
-                    tickers=chunk,
-                    entries=[
-                        pyRofex.MarketDataEntry.BIDS,
-                        pyRofex.MarketDataEntry.OFFERS,
-                        pyRofex.MarketDataEntry.LAST,
-                        pyRofex.MarketDataEntry.OPENING_PRICE,
-                        pyRofex.MarketDataEntry.HIGH_PRICE,
-                        pyRofex.MarketDataEntry.LOW_PRICE,
-                        pyRofex.MarketDataEntry.CLOSING_PRICE,
-                        pyRofex.MarketDataEntry.TRADE_EFFECTIVE_VOLUME,
-                        pyRofex.MarketDataEntry.NOMINAL_VOLUME
-                    ],
-                    depth=depth
-                )
-                time.sleep(0.01)  # <-- AGREGADO: Micropausa para que el broker asimile el lote
-
-            # 3. Abrimos la conexión (esto corre en un hilo separado de fondo)
+            self.agregar_suscripciones(lista_tickers, depth=depth)
             pyRofex.init_websocket_connection()
             print(
-                f"📡 WebSocket conectado y suscripto a {len(lista_tickers)} activos (Lotes: {chunk_size}, Profundidad: {depth}).")
+                f"📡 WebSocket conectado y suscripto a {len(lista_tickers)} activos "
+                f"(Lotes: 50, Profundidad: {depth})."
+            )
             return True
         except Exception as e:
             print(f"❌ Error al iniciar WebSocket: {e}")

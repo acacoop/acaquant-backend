@@ -1,6 +1,8 @@
 """Router Cotizaciones: lectura directa de Trading.* y Opciones.* (sin migración)."""
 import re
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
+
 from fastapi import APIRouter, HTTPException, Query
 
 from api.cache import cached, clear_cache
@@ -140,7 +142,13 @@ def listar_opciones(
     tipo: str | None = Query(None, description="Filtrar por tipo (CALL/PUT)"),
 ):
     db = get_db_opciones()
-    filtro = {}
+
+    # Solo contratos actualizados hoy — OptionsSnapshot acumula legacy y no
+    # queremos mostrar strikes de ruedas pasadas con datos viejos.
+    ar_tz = ZoneInfo("America/Argentina/Buenos_Aires")
+    inicio_dia_ar = datetime.now(ar_tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    filtro: dict = {"updated_at": {"$gte": inicio_dia_ar.astimezone(UTC)}}
+
     if instrumento:
         filtro["symbol"] = _ticker_filter(instrumento)
     if tipo:

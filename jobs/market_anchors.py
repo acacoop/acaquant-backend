@@ -23,7 +23,13 @@ import requests
 
 from core.mongo import get_mongo_client
 from core.yahoo import YahooError, stock_candle
-from jobs.market_quotes import EXTRA_STOCKS, HOME_FX, HOME_STOCKS, HOME_TREASURIES
+from jobs.market_quotes import (
+    EXTRA_STOCKS,
+    HOME_FX,
+    HOME_INDICES_YAHOO,
+    HOME_STOCKS,
+    HOME_TREASURIES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -136,8 +142,19 @@ def ingesta() -> int:
         else:
             fail_t += 1
 
-    logger.info("market_anchors — stocks ok=%d fail=%d · fx ok=%d fail=%d · treasuries ok=%d fail=%d",
-                ok_s, fail_s, ok_fx, fail_fx, ok_t, fail_t)
+    # Índices locales (MERVAL, etc) — mismo patrón display ≠ yahoo_sym.
+    ok_i = fail_i = 0
+    for yahoo_sym, display, _grupo in HOME_INDICES_YAHOO:
+        if _update_treasury_anchors(coll, yahoo_sym, display, now):
+            ok_i += 1
+        else:
+            fail_i += 1
+
+    logger.info(
+        "market_anchors — stocks ok=%d fail=%d · fx ok=%d fail=%d · "
+        "treasuries ok=%d fail=%d · indices ok=%d fail=%d",
+        ok_s, fail_s, ok_fx, fail_fx, ok_t, fail_t, ok_i, fail_i,
+    )
     return 0
 
 

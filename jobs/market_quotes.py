@@ -36,8 +36,8 @@ HOME_STOCKS: list[tuple[str, str]] = [
     ("QQQ",  "Índices"),
     ("DIA",  "Índices"),
     ("IWM",  "Índices"),
+    ("EWZ",  "Índices"),
     ("ARGT", "Regiones"),
-    ("EWZ",  "Regiones"),
     ("EEM",  "Regiones"),
     ("EWW",  "Regiones"),
     ("GLD",  "Commodities"),
@@ -66,6 +66,13 @@ HOME_TREASURIES: list[tuple[str, str]] = [
     ("^FVX", "UST 5Y"),
     ("^TNX", "UST 10Y"),
     ("^TYX", "UST 30Y"),
+]
+
+# Índices locales/LATAM que Finnhub free no cotiza. Yahoo los tiene como
+# "^" tickers. Se guardan como type="index" con el display_label.
+HOME_INDICES_YAHOO: list[tuple[str, str, str]] = [
+    # (yahoo_symbol, display_label, grupo)
+    ("^MERV", "MERVAL", "Índices"),
 ]
 
 FRANKFURTER_LATEST = "https://api.frankfurter.app/latest"
@@ -243,8 +250,41 @@ def ingesta(include_extra: bool = False) -> int:
         coll.update_one({"symbol": display}, {"$set": doc}, upsert=True)
         ok += 1
 
-    logger.info("market_quotes — ok=%d fail=%d stocks=%d fx=%d treasuries=%d",
-                ok, fail, len(stocks), len(HOME_FX), len(HOME_TREASURIES))
+    # Índices locales (MERVAL, etc) vía Yahoo
+    for yahoo_sym, display, grupo in HOME_INDICES_YAHOO:
+        try:
+            q = yahoo_quote(yahoo_sym)
+        except YahooError as e:
+            logger.warning("index %s failed: %s", yahoo_sym, e)
+            fail += 1
+            continue
+        if not q or q.get("c") is None:
+            fail += 1
+            continue
+        last = q.get("c")
+        prev = q.get("pc")
+        pct_day = None
+        if last is not None and prev:
+            try:
+                pct_day = (last - prev) / prev * 100
+            except (TypeError, ZeroDivisionError):
+                pass
+        doc = {
+            "symbol":     display,
+            "yahoo_sym":  yahoo_sym,
+            "type":       "index",
+            "grupo":      grupo,
+            "last":       last,
+            "prev_close": prev,
+            "pct_day":    pct_day,
+            "timestamp":  datetime.fromtimestamp(q["t"], tz=timezone.utc) if q.get("t") else now,
+            "updated_at": now,
+        }
+        coll.update_one({"symbol": display}, {"$set": doc}, upsert=True)
+        ok += 1
+
+    logger.info("market_quotes — ok=%d fail=%d stocks=%d fx=%d treasuries=%d indices=%d",
+                ok, fail, len(stocks), len(HOME_FX), len(HOME_TREASURIES), len(HOME_INDICES_YAHOO))
     return 0 if fail < ok else 1
 
 

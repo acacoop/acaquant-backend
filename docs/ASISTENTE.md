@@ -15,7 +15,7 @@ fundamentos numéricos, aplica el framework analítico de la firma, responde
 en el tono y vocabulario de la mesa argentina.
 
 **Qué NO es**: un lookup. El usuario ya tiene las tablas de cotizaciones,
-curvas, forwards y breakevens en `/` (DIARIO). El asistente se usa cuando
+curvas, forwards y breakevens en `/renta-fija`. El asistente se usa cuando
 la pregunta requiere **análisis**, **comparación** o **recomendación
 direccional**.
 

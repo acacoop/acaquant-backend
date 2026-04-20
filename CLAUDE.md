@@ -119,7 +119,8 @@ Repo separado: `/Users/nicomollo/PycharmProjects/acaquant-web`. **Este es el fro
 src/
 ├── app/
 │   ├── layout.tsx            # Root layout: Header, TopTicker, AutoRefresh
-│   ├── page.tsx              # DIARIO: renta fija, forwards, curvas, breakevens
+│   ├── page.tsx              # HOME con news panel live
+│   ├── renta-fija/page.tsx   # RENTA FIJA: cotizaciones, curvas, forwards, breakevens
 │   ├── /api/                 # Proxy routes (ocultan API_KEY del cliente)
 │   │   ├── aum-fci/snapshot + serie
 │   │   ├── cashflow, contrapartes, flujo-vs-aum

@@ -189,12 +189,14 @@ def _upsert_forex(coll, display: str, base: str, target: str, grupo: str, now: d
     return True
 
 
-def ingesta(include_extra: bool = False) -> int:
+def ingesta(include_extra: bool = True) -> int:
     client = get_mongo_client()
     coll = client["Market"]["Quotes"]
     coll.create_index("symbol", unique=True)
 
     now = datetime.now(timezone.utc)
+    # HOME + EXTRA se pullean juntos (~38 tickers, dentro del cap Finnhub free).
+    # El flag include_extra queda por compatibilidad pero el default es True.
     stocks = HOME_STOCKS + (EXTRA_STOCKS if include_extra else [])
 
     ok = fail = 0
@@ -290,10 +292,13 @@ def ingesta(include_extra: bool = False) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--extra", action="store_true", help="Incluir ADRs + Big Tech (/renta-variable)")
+    parser.add_argument("--no-extra", action="store_true",
+                        help="Solo HOME_STOCKS (skip ADRs + Big Tech). Default: todos.")
+    # Legacy: --extra ya no es necesario (default True), pero se acepta para compat con crons viejos.
+    parser.add_argument("--extra", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    return ingesta(include_extra=args.extra)
+    return ingesta(include_extra=not args.no_extra)
 
 
 if __name__ == "__main__":

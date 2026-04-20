@@ -13,3 +13,4 @@ Excel/response_cuenta_*.json
 .pytest_cache/
 .ruff_cache/
 .venv/
+archive/

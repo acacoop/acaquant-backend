@@ -674,9 +674,12 @@ def asistente_logs(
     cur = _asistente_coll().find(filtro, {"_id": 0}).sort("ts", -1).limit(limit)
     docs = []
     for d in cur:
-        # Serialización limpia
-        if isinstance(d.get("ts"), datetime):
-            d["ts"] = d["ts"].astimezone(UTC).isoformat()
+        # Serialización: pymongo devuelve datetime naive (BSON siempre es UTC
+        # internamente). Le anotamos tzinfo=UTC para que el ISO output lleve
+        # +00:00 y el browser no lo interprete como local.
+        v = d.get("ts")
+        if isinstance(v, datetime):
+            d["ts"] = (v if v.tzinfo else v.replace(tzinfo=UTC)).isoformat()
         docs.append(d)
     return docs
 

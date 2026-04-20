@@ -15,7 +15,7 @@ Uso:
 import logging
 import time
 import traceback
-from datetime import datetime
+from datetime import UTC, datetime
 
 from core.mongo import get_mongo_client
 
@@ -182,7 +182,7 @@ def run():
 
     while True:
         try:
-            ts = datetime.now()
+            ts = datetime.now(UTC)
             fecha_str = ts.date().isoformat()
 
             tasas_tea = obtener_ultimas_teas(client, todos_tickers)

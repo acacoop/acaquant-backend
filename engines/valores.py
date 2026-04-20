@@ -312,7 +312,7 @@ class MicrostructureEngine:
             if self.col_snapshot is None:
                 continue
             try:
-                ts = datetime.now()
+                ts = datetime.now(UTC)
                 ops = []
                 for ticker in self.tickers:
                     st = self.market_state[ticker]

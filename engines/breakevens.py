@@ -21,7 +21,7 @@ import logging
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from core.mongo import get_mongo_client
 
@@ -234,7 +234,7 @@ def run():
 
     while True:
         try:
-            ts         = datetime.now()
+            ts         = datetime.now(UTC)
             fecha_ref  = ts.date()
             fecha_str  = fecha_ref.isoformat()
 

@@ -66,7 +66,12 @@ TradingAV/
 │   ├── options_rollup.py     # rollup Opciones.Data → DataHistorica
 │   ├── bcra.py               # CER/TAMAR/DOLAR/BADLAR
 │   ├── sync_api_copies.py    # re-sync colecciones *API.*API desde fuentes
-│   └── dias_habiles.py       # calendario hábil argentino
+│   ├── dias_habiles.py       # calendario hábil argentino
+│   ├── news_ingesta.py       # RSS + Finnhub global → Manager.News
+│   ├── news_finnhub.py       # ingesta news Finnhub
+│   ├── economic_calendar.py  # Finnhub economic calendar
+│   ├── market_quotes.py      # watchlist equity + Treasuries (yfinance)
+│   └── market_anchors.py     # anchors 7d/MTD/YTD/1Y + retornos
 │
 ├── quant/                    # cálculo puro (sin I/O de red)
 │   └── black_scholes.py      # bs_price / bs_delta / bs_gamma / bs_vega / bs_theta / find_iv
@@ -78,13 +83,15 @@ TradingAV/
 │   │   ├── provider.py       # cliente HTTP hacia Gemini (swappable)
 │   │   ├── tools.py          # menú de tools + dispatch + BLOCKED_PATH_PREFIXES
 │   │   ├── prompt.py         # system prompt (reglas + glosario + alcance)
-│   │   └── runner.py         # bucle tool-use (MAX_STEPS=8)
+│   │   └── runner.py         # bucle tool-use (MAX_STEPS=6)
 │   └── routers/
 │       ├── carteras.py       # /api/portfolio/*
 │       ├── chat.py           # /api/chat (asistente de mesa)
 │       ├── cotizaciones.py   # /api/cotizaciones/*
 │       ├── cuentas.py        # /api/cuentas/*
 │       ├── manager.py        # /api/manager/* (status, jobs, checks, latencia)
+│       ├── market.py         # /api/market/* (watchlist equity + Treasuries)
+│       ├── news.py           # /api/news (feed Bloomberg-style)
 │       ├── operaciones.py    # /api/operaciones/*
 │       └── titulos.py        # /api/titulos/*
 │
@@ -391,6 +398,14 @@ FastAPI consumida exclusivamente por acaquant-web (a través de sus API routes p
 | GET | `/api/portfolio/resumen` | `CarterasAPI` + `CarterasII` + `AssetsAPI` | `id_cuenta` |
 | GET | `/api/portfolio/detalle` | `CarterasAPI` + `AssetsAPI` | `id_cuenta` |
 | GET | `/api/portfolio/tasa-fija` | `AumAPI` + `AssetsAPI` + `ValuacionesAPI` | — |
+| GET | `/api/portfolio/cer` | `AumAPI` + `AssetsAPI` + `Trading.Curvas` | — |
+| GET | `/api/news` | `Manager.News` (RSS + Finnhub) | — |
+| GET | `/api/news/article` | reader mode vía trafilatura | `url` |
+| GET | `/api/news/stats` | — | — |
+| GET | `/api/market/quotes` | watchlist equity + UST (incluye anchors 7d/MTD/YTD/1Y) | — |
+| GET | `/api/market/calendar/economic` | Finnhub economic calendar | — |
+| GET | `/api/market/candle` | velas Yahoo Finance (yfinance) | — |
+| GET | `/api/market/profile` | Finnhub company profile | — |
 | GET | `/api/manager/status` | múltiples colecciones (read) | — |
 | POST | `/api/manager/jobs/run` | subprocess en background | `tipo`, `args` |
 | GET | `/api/manager/jobs/{id}` | in-memory job store | — |

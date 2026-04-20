@@ -53,3 +53,23 @@
 # ─── Atlas cluster resume diaria (11:20 UTC = 08:20 ART — 10 min de buffer para que esté up a las 08:30 ART)
 0  4  * * * /root/TradingAV/deploy/atlas_cluster.sh pause  >> /root/TradingAV/logs/atlas_cluster.log 2>&1
 20 11 * * * /root/TradingAV/deploy/atlas_cluster.sh resume >> /root/TradingAV/logs/atlas_cluster.log 2>&1
+
+# ─── News RSS medios AR (Ámbito, Cronista, Infobae, iProfesional, La Nación, Clarín)
+# Primer disparo a las 11:25 UTC (5 min post-resume de Atlas) para tener noticias frescas a la mañana.
+# Updates cada 15 min en ventana activa (12-23 UTC = 09-20 ART), todos los días (las noticias no paran fin de semana).
+25 11    * * *   cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_ingesta >> /root/TradingAV/logs/news_ingesta.log 2>&1
+*/15 12-23 * * * cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_ingesta >> /root/TradingAV/logs/news_ingesta.log 2>&1
+
+# ─── News Finnhub (globales + ADRs AR/LATAM, sentiment skip)
+# Mismo patrón: 1er tiro post-resume + updates cada 30 min en ventana activa.
+25 11    * * *   cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_finnhub >> /root/TradingAV/logs/news_finnhub.log 2>&1
+*/30 12-23 * * * cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_finnhub >> /root/TradingAV/logs/news_finnhub.log 2>&1
+
+# ─── Calendario económico global (Finnhub) — 1x/día post-resume
+30 11 * * * cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.economic_calendar >> /root/TradingAV/logs/economic_calendar.log 2>&1
+
+# ─── Market quotes (watchlist HOME: índices, commodities, FX, treasuries) — cada 1 min en horario US (L-V)
+*    13-21 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_quotes >> /root/TradingAV/logs/market_quotes.log 2>&1
+
+# ─── Market anchors (retornos 7d/MTD/YTD/1Y) — 1x/día post-cierre US (22:00 UTC = 19:00 ART, L-V)
+0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_anchors >> /root/TradingAV/logs/market_anchors.log 2>&1

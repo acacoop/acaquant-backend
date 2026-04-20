@@ -1,0 +1,170 @@
+"""news_ingesta.py — Ingesta de RSS de medios económicos argentinos.
+
+Corre cada 15 min vía cron y mete las headlines en `News.Headlines` con dedup
+por URL. Si algún feed devuelve error, se loggea y se sigue con el resto.
+
+Uso:
+    python -m jobs.news_ingesta           # una corrida normal
+    python -m jobs.news_ingesta --backfill # ignora fetched_at reciente, relee todo
+
+Agregar una fuente nueva: sumar un dict a NEWS_FEEDS más abajo.
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+import time
+from datetime import datetime, timezone
+
+from pymongo.errors import DuplicateKeyError
+
+from core.mongo import get_mongo_client
+
+logger = logging.getLogger(__name__)
+
+# Fuentes con RSS público. Si una URL cambia, solo se ignora esa fuente esa
+# corrida (el resto sigue). El campo `fuente` se usa también como clave
+# visible en la UI.
+NEWS_FEEDS: list[dict[str, str]] = [
+    # Ámbito
+    {"fuente": "Ámbito",       "categoria": "economia",  "url": "https://www.ambito.com/rss/economia.xml"},
+    {"fuente": "Ámbito",       "categoria": "finanzas",  "url": "https://www.ambito.com/rss/finanzas.xml"},
+    {"fuente": "Ámbito",       "categoria": "mercados",  "url": "https://www.ambito.com/rss/negocios.xml"},
+
+    # Cronista
+    {"fuente": "Cronista",     "categoria": "economia",  "url": "https://www.cronista.com/files/rss/economia-politica.xml"},
+    {"fuente": "Cronista",     "categoria": "finanzas",  "url": "https://www.cronista.com/files/rss/finanzas-mercados.xml"},
+
+    # Infobae
+    {"fuente": "Infobae",      "categoria": "economia",  "url": "https://www.infobae.com/feeds/rss/economia/"},
+
+    # iProfesional
+    {"fuente": "iProfesional", "categoria": "finanzas",  "url": "https://www.iprofesional.com/rss/finanzas"},
+    {"fuente": "iProfesional", "categoria": "economia",  "url": "https://www.iprofesional.com/rss/economia"},
+
+    # La Nación
+    {"fuente": "La Nación",    "categoria": "economia",  "url": "https://www.lanacion.com.ar/economia/rss/"},
+
+    # Clarín
+    {"fuente": "Clarín",       "categoria": "economia",  "url": "https://www.clarin.com/rss/economia/"},
+
+    # BAE Negocios
+    {"fuente": "BAE",          "categoria": "economia",  "url": "https://www.baenegocios.com/rss/economia.xml"},
+]
+
+
+def _ensure_indexes(coll) -> None:
+    coll.create_index("url", unique=True)
+    coll.create_index([("fecha_publicacion", -1)])
+    coll.create_index([("fuente", 1), ("fecha_publicacion", -1)])
+    coll.create_index("categoria")
+
+
+def _parse_entry_date(entry) -> datetime:
+    """Intenta extraer fecha del entry del feed; fallback = ahora UTC."""
+    try:
+        import feedparser  # noqa: F401 (importado acá solo para tipear entry)
+    except ImportError:
+        pass
+    # feedparser expone struct_time en `published_parsed` o `updated_parsed`
+    for key in ("published_parsed", "updated_parsed"):
+        t = getattr(entry, key, None)
+        if t:
+            try:
+                return datetime(*t[:6], tzinfo=timezone.utc)
+            except Exception:
+                continue
+    return datetime.now(timezone.utc)
+
+
+def _clean_excerpt(raw: str, maxlen: int = 400) -> str:
+    if not raw:
+        return ""
+    # Limpiar tags HTML crudos con un pase regex (simple, no queremos BeautifulSoup).
+    import re
+    txt = re.sub(r"<[^>]+>", "", raw)
+    txt = re.sub(r"\s+", " ", txt).strip()
+    return txt[:maxlen]
+
+
+def ingesta_una_fuente(feed_cfg: dict, coll) -> tuple[int, int, int]:
+    """Parsea un feed y hace upsert en la colección. Devuelve (insertados, duplicados, errores)."""
+    import feedparser
+    insertados = duplicados = errores = 0
+    try:
+        parsed = feedparser.parse(feed_cfg["url"])
+    except Exception as e:
+        logger.warning("feed %s fallo al parsear: %s", feed_cfg["url"], e)
+        return 0, 0, 1
+
+    if parsed.bozo and not parsed.entries:
+        logger.warning("feed %s no devolvió entries (bozo=%s): %s",
+                       feed_cfg["url"], parsed.bozo, getattr(parsed, "bozo_exception", ""))
+        return 0, 0, 1
+
+    now = datetime.now(timezone.utc)
+    for entry in parsed.entries:
+        url = getattr(entry, "link", "") or ""
+        titulo = getattr(entry, "title", "") or ""
+        if not url or not titulo:
+            continue
+
+        doc = {
+            "url":                url,
+            "fuente":             feed_cfg["fuente"],
+            "categoria":          feed_cfg["categoria"],
+            "titulo":             titulo.strip(),
+            "excerpt":            _clean_excerpt(getattr(entry, "summary", "") or ""),
+            "fecha_publicacion":  _parse_entry_date(entry),
+            "fetched_at":         now,
+        }
+        try:
+            coll.insert_one(doc)
+            insertados += 1
+        except DuplicateKeyError:
+            duplicados += 1
+        except Exception as e:
+            logger.exception("error insertando %s: %s", url, e)
+            errores += 1
+
+    return insertados, duplicados, errores
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--backfill", action="store_true", help="(reservado)")
+    parser.add_argument("--fuente", default=None, help="Correr solo una fuente (ej: 'Ámbito')")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    feeds = NEWS_FEEDS
+    if args.fuente:
+        feeds = [f for f in feeds if f["fuente"].lower() == args.fuente.lower()]
+        if not feeds:
+            logger.error("fuente %s no encontrada", args.fuente)
+            return 2
+
+    client = get_mongo_client()
+    coll = client["News"]["Headlines"]
+    _ensure_indexes(coll)
+
+    t0 = time.time()
+    total_ins = total_dup = total_err = 0
+    for f in feeds:
+        ins, dup, err = ingesta_una_fuente(f, coll)
+        total_ins += ins
+        total_dup += dup
+        total_err += err
+        logger.info("[%s/%s] ins=%d dup=%d err=%d",
+                    f["fuente"], f["categoria"], ins, dup, err)
+
+    elapsed = time.time() - t0
+    logger.info("DONE — feeds=%d ins=%d dup=%d err=%d %.1fs",
+                len(feeds), total_ins, total_dup, total_err, elapsed)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -26,6 +26,9 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 # 'claude' (default) usa router haiku/sonnet; 'gemini' usa Flash legacy.
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "claude").lower()
 
+# --- DATA DE MERCADO EXTERNA ---
+FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
+
 # --- ACCESO MANAGER ---
 # Emails con acceso a la vista Manager. Separados por coma en MANAGER_EMAILS o hardcodeados aquí.
 _manager_env = os.getenv("MANAGER_EMAILS", "")

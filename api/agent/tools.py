@@ -220,6 +220,31 @@ TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "name": "cotizacion_equity",
+        "description": "Cotización live de acciones/ETFs/índices (ADRs AR: GGAL, YPF, BMA, etc; ETFs: SPY, QQQ, GLD, USO). Fuente: Finnhub, último snapshot cacheado. NO para bonos AR — usar cotizacion_renta_fija.",
+        "endpoint": "/api/market/quotes",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "symbols": {"type": "STRING", "description": "CSV de tickers, ej 'GGAL,YPF,SPY'."},
+            },
+        },
+    },
+    {
+        "name": "calendario_economico",
+        "description": "Eventos macro próximos (FOMC, CPI US, jobs, etc). USAR para 'qué datos macro salen esta semana', 'cuándo es la próxima Fed'. Cubre todo el mundo (US, EU, AR si publican).",
+        "endpoint": "/api/market/calendar/economic",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "desde":       {"type": "STRING", "description": "YYYY-MM-DD; default hoy."},
+                "hasta":       {"type": "STRING", "description": "YYYY-MM-DD; default +30 días."},
+                "importancia": {"type": "INTEGER", "description": "0 todas, 1 low, 2 medium, 3 high (solo importantes)."},
+                "country":     {"type": "STRING", "description": "Código ISO: US, EU, AR, BR, MX."},
+            },
+        },
+    },
 
     # ─── Contexto analítico on-demand (local, sin HTTP) ───────────────────
     {

@@ -17,6 +17,10 @@
 5 20 * * 1-5 systemctl stop  motor_forwards.service
 0 13 * * 1-5 systemctl start motor_breakevens.service
 5 20 * * 1-5 systemctl stop  motor_breakevens.service
+0 13 * * 1-5 systemctl start motor_caucion.service
+5 20 * * 1-5 systemctl stop  motor_caucion.service
+0 13 * * 1-5 systemctl start motor_futuros_dlr.service
+5 20 * * 1-5 systemctl stop  motor_futuros_dlr.service
 
 # ─── Sincronización Aunesa → MongoDB (3 veces por día hábil, todas post-resume del cluster)
 # Cada corrida re-sincroniza PortfolioAPI.CarterasAPI para mantener la API fresca.

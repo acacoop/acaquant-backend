@@ -120,6 +120,89 @@ def get_historico_mep(desde: str | None = None, hasta: str | None = None) -> lis
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Caución (escrita por engines/caucion.py — snapshot live + cierre histórico)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@cached(ttl=15)
+def get_caucion(moneda: str | None = None) -> list:
+    """Snapshot live de caución (Trading.CaucionSnapshot).
+
+    Devuelve 1 o 2 docs: con `moneda` filtra solo esa, sin filtro devuelve ambas.
+    Cada doc trae TNA last/bid/offer/open/high/low/closing + plazo_dias + ticker.
+    """
+    db = get_db_trading()
+    filtro: dict = {}
+    if moneda:
+        filtro["moneda"] = moneda.upper()
+    return list(db["CaucionSnapshot"].find(filtro, {"_id": 0}))
+
+
+@cached(ttl=300)
+def get_historico_caucion(
+    moneda: str | None = None,
+    desde: str | None = None,
+    hasta: str | None = None,
+) -> list:
+    """Serie histórica de caución cierre diario (Trading.Caucion)."""
+    db = get_db_trading()
+    filtro: dict = {}
+    if moneda:
+        filtro["moneda"] = moneda.upper()
+    if desde or hasta:
+        rango: dict = {}
+        if desde:
+            rango["$gte"] = desde
+        if hasta:
+            rango["$lte"] = hasta
+        filtro["fecha"] = rango
+    return list(
+        db["Caucion"]
+        .find(filtro, {"_id": 0})
+        .sort([("fecha", 1), ("moneda", 1)])
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Futuros DLR (escrita por engines/futuros_dlr.py — outrights DLR/MMMYY)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@cached(ttl=15)
+def get_futuros_dlr() -> list:
+    """Snapshot live de outrights DLR (Trading.FuturosDLRSnapshot).
+    Devuelve la curva entera ordenada por vencimiento ascendente."""
+    db = get_db_trading()
+    out = list(db["FuturosDLRSnapshot"].find({}, {"_id": 0}).sort("vencimiento", 1))
+    return out
+
+
+@cached(ttl=300)
+def get_historico_futuros_dlr(
+    ticker: str | None = None,
+    desde: str | None = None,
+    hasta: str | None = None,
+) -> list:
+    """Cierre histórico (Trading.FuturosDLR). Filtrable por ticker y rango."""
+    db = get_db_trading()
+    filtro: dict = {}
+    if ticker:
+        filtro["ticker"] = ticker
+    if desde or hasta:
+        rango: dict = {}
+        if desde:
+            rango["$gte"] = desde
+        if hasta:
+            rango["$lte"] = hasta
+        filtro["fecha"] = rango
+    return list(
+        db["FuturosDLR"]
+        .find(filtro, {"_id": 0})
+        .sort([("fecha", 1), ("vencimiento", 1)])
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Forwards
 # ─────────────────────────────────────────────────────────────────────────────
 

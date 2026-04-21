@@ -56,6 +56,42 @@ def historico_mep(
     return svc.get_historico_mep(desde=desde, hasta=hasta)
 
 
+# ── Caución ──
+
+
+@router.get("/caucion")
+def caucion(
+    moneda: str | None = Query(None, description="ARS o USD; vacío = ambas"),
+):
+    return svc.get_caucion(moneda=moneda)
+
+
+@router.get("/historico/caucion")
+def historico_caucion(
+    moneda: str | None = Query(None, description="ARS o USD"),
+    desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+):
+    return svc.get_historico_caucion(moneda=moneda, desde=desde, hasta=hasta)
+
+
+# ── Futuros DLR ──
+
+
+@router.get("/futuros-dlr")
+def futuros_dlr():
+    return svc.get_futuros_dlr()
+
+
+@router.get("/historico/futuros-dlr")
+def historico_futuros_dlr(
+    ticker: str | None = Query(None, description="Filtrar por ticker (DLR/MMMYY)"),
+    desde:  str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    hasta:  str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+):
+    return svc.get_historico_futuros_dlr(ticker=ticker, desde=desde, hasta=hasta)
+
+
 # ── Forwards ──
 
 

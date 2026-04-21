@@ -138,6 +138,61 @@ TOOLS: list[dict[str, Any]] = [
         "parameters": {"type": "OBJECT", "properties": {}},
     },
     {
+        "name": "caucion_actual",
+        "description": (
+            "Snapshot live de la caución corta (típicamente 1 día, viernes 3 días). "
+            "Devuelve la TNA last/bid/offer/closing por moneda. Sin filtro trae "
+            "ambas monedas. La 'caución' es la tasa libre de riesgo del peso a "
+            "1 día — todo el carry trade y la valuación de Lecaps cortas se "
+            "prices off de acá."
+        ),
+        "endpoint": "/api/cotizaciones/caucion",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "moneda": {"type": "STRING", "description": "ARS o USD; vacío = ambas."},
+            },
+        },
+    },
+    {
+        "name": "caucion_historica",
+        "description": "Cierre diario histórico de la caución por moneda.",
+        "endpoint": "/api/cotizaciones/historico/caucion",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "moneda": {"type": "STRING"},
+                "desde":  {"type": "STRING"},
+                "hasta":  {"type": "STRING"},
+            },
+        },
+    },
+    {
+        "name": "futuros_dlr",
+        "description": (
+            "Curva entera de futuros del Dólar A3500 (outrights DLR/MMMYY). "
+            "Devuelve para cada vencimiento: bid/offer/last + tasa implícita "
+            "anualizada (TNA) calculada vs MEP spot. Útil para 'cuánta "
+            "devaluación pricea el mercado a 3/6/12 meses', 'la curva está "
+            "más empinada hoy?', arbitraje vs caución/lecaps."
+        ),
+        "endpoint": "/api/cotizaciones/futuros-dlr",
+        "parameters": {"type": "OBJECT", "properties": {}},
+    },
+    {
+        "name": "futuros_dlr_historico",
+        "description": "Cierre histórico de futuros DLR. Filtrable por ticker y rango.",
+        "endpoint": "/api/cotizaciones/historico/futuros-dlr",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "ticker": {"type": "STRING", "description": "Ej: DLR/JUN26"},
+                "desde":  {"type": "STRING"},
+                "hasta":  {"type": "STRING"},
+            },
+        },
+    },
+    {
         "name": "historico_trades",
         "description": "Trades de un instrumento, últimos 15 días (con TEA/TEM/duration/paridad).",
         "endpoint": "/api/cotizaciones/historico/trades",

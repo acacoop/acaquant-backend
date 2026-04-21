@@ -40,6 +40,10 @@ _MACROS: dict[str, dict[str, Any]] = {
     "mep":    {"db": "Valuaciones", "col": "Dolar",  "ts": "timestamp", "val": "mep",   "ts_tipo": "datetime"},
     "ccl":    {"db": "Valuaciones", "col": "Dolar",  "ts": "timestamp", "val": "ccl",   "ts_tipo": "datetime"},
     "canje":  {"db": "Valuaciones", "col": "Dolar",  "ts": "timestamp", "val": "canje", "ts_tipo": "datetime"},
+    # Caución: serie de cierre histórico, escrita por engines/caucion.py al apagado.
+    # Filtra por moneda en el fetcher; la tool delega a obtener_serie_macro genérico.
+    "caucion_ars": {"db": "Trading", "col": "Caucion", "ts": "fecha", "val": "tna_cierre", "ts_tipo": "string", "extra_filter": {"moneda": "ARS"}},
+    "caucion_usd": {"db": "Trading", "col": "Caucion", "ts": "fecha", "val": "tna_cierre", "ts_tipo": "string", "extra_filter": {"moneda": "USD"}},
 }
 
 # Variables conocidas pero bloqueadas por falta de data en Mongo.
@@ -73,6 +77,12 @@ def _fetch_serie_macro(variable: str, ventana_dias: int) -> list[dict]:
         filtro = {cfg["ts"]: {"$gte": corte.strftime("%Y-%m-%d")}}
     else:
         filtro = {cfg["ts"]: {"$gte": corte}}
+
+    # Mappings de colecciones compartidas (ej: Trading.Caucion tiene moneda) usan
+    # extra_filter para discriminar la serie correcta.
+    extra = cfg.get("extra_filter")
+    if extra:
+        filtro.update(extra)
 
     docs = list(
         db[cfg["col"]]

@@ -1,0 +1,14 @@
+[Unit]
+Description=Motor Futuros DLR - Curva outright Dolar A3500 con tasa implicita
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/python -m engines.futuros_dlr
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

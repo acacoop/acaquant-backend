@@ -45,6 +45,14 @@ SERVICE_HANDLERS: dict[str, Callable[..., Any]] = {
     "/api/cotizaciones/mep":            svc_cotizaciones.get_ultimo_mep,
     "/api/cotizaciones/historico/mep":  svc_cotizaciones.get_historico_mep,
 
+    # Cotizaciones — Caución (live + cierre histórico)
+    "/api/cotizaciones/caucion":            svc_cotizaciones.get_caucion,
+    "/api/cotizaciones/historico/caucion":  svc_cotizaciones.get_historico_caucion,
+
+    # Cotizaciones — Futuros DLR (curva live + cierre histórico)
+    "/api/cotizaciones/futuros-dlr":            svc_cotizaciones.get_futuros_dlr,
+    "/api/cotizaciones/historico/futuros-dlr":  svc_cotizaciones.get_historico_futuros_dlr,
+
     # Cotizaciones — Forwards
     "/api/cotizaciones/forwards":           svc_cotizaciones.get_forwards,
     "/api/cotizaciones/historico/forwards": svc_cotizaciones.get_historico_forwards,

@@ -1,0 +1,14 @@
+[Unit]
+Description=Motor Caucion - TNA caucion ARS y USD a corto plazo (1D, viernes 3D)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/python -m engines.caucion
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

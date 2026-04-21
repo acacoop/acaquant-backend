@@ -47,11 +47,12 @@ def _jwks_client():
     return jwt.PyJWKClient(url)
 
 
-def _verify_cf_jwt(cf_jwt: str) -> str | None:
-    """Valida el JWT firmado por Cloudflare Access y devuelve el email claim.
+def _verify_cf_jwt(cf_jwt: str) -> dict | None:
+    """Valida el JWT firmado por Cloudflare Access y devuelve los claims.
 
-    Devuelve None si no se pudo validar (JWT inválido, exp, audience
-    incorrecta, claves no disponibles). El caller decide qué hacer.
+    Devuelve None si no se pudo validar (firma inválida, exp, audience
+    incorrecta, claves no disponibles). El caller extrae lo que necesita
+    del dict de claims.
     """
     if not (CF_ACCESS_TEAM and CF_ACCESS_AUD):
         return None
@@ -67,11 +68,7 @@ def _verify_cf_jwt(cf_jwt: str) -> str | None:
             audience=CF_ACCESS_AUD,
             algorithms=["RS256"],
         )
-        email = claims.get("email") or claims.get("identity", {}).get("email")
-        if not email:
-            logger.warning("CF JWT válido pero sin email claim")
-            return None
-        return str(email).lower().strip()
+        return claims
     except Exception as e:
         logger.warning("CF JWT inválido: %s", e)
         return None
@@ -83,28 +80,54 @@ def get_user_email(
 ) -> str:
     """Devuelve el email del usuario autenticado.
 
-    Preferencia: JWT validado > header de email (fallback dev).
-    Si no hay ninguno, devuelve "anon".
+    Hay DOS tipos de JWT emitidos por Cloudflare Access:
 
-    En producción (CF_ACCESS_TEAM + CF_ACCESS_AUD seteados), siempre se
-    valida el JWT. En dev, si no están configurados, se acepta el header
-    con warning visible en los logs de cada request.
+    1. **User JWT** (login OTP directo): trae `email` o `identity.email`.
+       El user se autenticó directamente contra CF. Usamos ese email.
+
+    2. **Service token JWT** (acaquant-web → api.acaquant.com SSR): trae
+       `common_name` pero NO `email` — es identidad de máquina. En este
+       caso el frontend propaga el email del user en el header
+       `cf-access-authenticated-user-email`. Como el JWT del service token
+       YA probó criptográficamente que viene del frontend legítimo,
+       confiar en ese header es seguro.
+
+    Si no hay JWT (o CF_ACCESS_TEAM/AUD no están configurados), cae al
+    header directo (modo dev).
     """
     if cf_jwt:
-        email = _verify_cf_jwt(cf_jwt)
-        if email:
-            return email
-        # JWT presente pero no validó — es sospechoso. Log y 401.
-        if CF_ACCESS_TEAM and CF_ACCESS_AUD:
-            raise HTTPException(status_code=401, detail="CF JWT inválido")
+        claims = _verify_cf_jwt(cf_jwt)
+        if claims is None:
+            # JWT presente pero con firma/audience inválidas → sospechoso
+            if CF_ACCESS_TEAM and CF_ACCESS_AUD:
+                raise HTTPException(status_code=401, detail="CF JWT inválido")
+        else:
+            # Rama 1: user JWT con email directo
+            email_claim = (
+                claims.get("email")
+                or (claims.get("identity") or {}).get("email")
+            )
+            if email_claim:
+                return str(email_claim).lower().strip()
 
-    # Fallback al header spoofable — solo si JWT no está configurado
+            # Rama 2: service token JWT (sin email, con common_name).
+            # El frontend propaga el email del user en el header.
+            common_name = claims.get("common_name")
+            if common_name and cf_email:
+                return cf_email.lower().strip()
+
+            # Rama 3: JWT válido pero no user ni service conocido.
+            # Aceptar header si viene (CF Access igual validó algo).
+            if cf_email:
+                logger.info("JWT válido sin email claim, usando header (cn=%s)", common_name)
+                return cf_email.lower().strip()
+
+            logger.warning("JWT válido pero sin email claim ni header fallback")
+            return "anon"
+
+    # Sin JWT: modo dev o request sin CF Access activo
     if cf_email:
-        if not (CF_ACCESS_TEAM and CF_ACCESS_AUD):
-            # En dev dejamos pasar. En prod con JWT configurado ya
-            # habría salido por la rama de arriba.
-            return cf_email.lower().strip()
-
+        return cf_email.lower().strip()
     return "anon"
 
 

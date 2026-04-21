@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import requests
 
@@ -29,7 +29,7 @@ from core.yahoo import YahooError, yahoo_quote
 
 logger = logging.getLogger(__name__)
 
-# ── Watchlist HOME — ~18 tickers (panel widget) ──
+# ── Watchlist HOME — equity/ETFs (panel widget) ──
 HOME_STOCKS: list[tuple[str, str]] = [
     # (símbolo, grupo)
     ("SPY",  "Índices"),
@@ -40,13 +40,19 @@ HOME_STOCKS: list[tuple[str, str]] = [
     ("ARGT", "Regiones"),
     ("EEM",  "Regiones"),
     ("EWW",  "Regiones"),
-    ("GLD",  "Commodities"),
-    ("SLV",  "Commodities"),
-    ("USO",  "Commodities"),
-    ("UNG",  "Commodities"),
-    ("CORN", "Commodities"),
-    ("SOYB", "Commodities"),
-    ("WEAT", "Commodities"),
+]
+
+# ── Futuros CME / CBOT / COMEX / NYMEX vía Yahoo (front-month continuo).
+# Yahoo cotiza con sufijo '=F' el contrato continuous (proxy del mes activo).
+HOME_FUTUROS: list[tuple[str, str, str]] = [
+    # (yahoo_symbol, display_label, exchange_label)
+    ("ES=F",  "S&P FUT",   "CME"),
+    ("NQ=F",  "NASDAQ FUT","CME"),
+    ("CL=F",  "WTI",       "NYMEX"),
+    ("GC=F",  "ORO",       "COMEX"),
+    ("ZS=F",  "SOJA",      "CBOT"),
+    ("ZC=F",  "MAIZ",      "CBOT"),
+    ("ZW=F",  "TRIGO",     "CBOT"),
 ]
 
 # FX — Finnhub free NO tiene forex (403). Usamos frankfurter.app (ECB, gratis,
@@ -131,7 +137,7 @@ def _upsert_stock(coll, sym: str, grupo: str, q: dict, now: datetime) -> bool:
         "low":        q.get("l"),
         "prev_close": prev_close,
         "pct_day":    pct_day,
-        "timestamp":  datetime.fromtimestamp(q["t"], tz=timezone.utc) if q.get("t") else now,
+        "timestamp":  datetime.fromtimestamp(q["t"], tz=UTC) if q.get("t") else now,
         "updated_at": now,
     }
     coll.update_one({"symbol": sym}, {"$set": doc}, upsert=True)
@@ -194,7 +200,7 @@ def ingesta(include_extra: bool = True) -> int:
     coll = client["Market"]["Quotes"]
     coll.create_index("symbol", unique=True)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     # HOME + EXTRA se pullean juntos (~38 tickers, dentro del cap Finnhub free).
     # El flag include_extra queda por compatibilidad pero el default es True.
     stocks = HOME_STOCKS + (EXTRA_STOCKS if include_extra else [])
@@ -246,7 +252,41 @@ def ingesta(include_extra: bool = True) -> int:
             "last":       last,
             "prev_close": prev,
             "pct_day":    pct_day,
-            "timestamp":  datetime.fromtimestamp(q["t"], tz=timezone.utc) if q.get("t") else now,
+            "timestamp":  datetime.fromtimestamp(q["t"], tz=UTC) if q.get("t") else now,
+            "updated_at": now,
+        }
+        coll.update_one({"symbol": display}, {"$set": doc}, upsert=True)
+        ok += 1
+
+    # Futuros CME/CBOT/COMEX/NYMEX vía Yahoo (continuous front-month).
+    for yahoo_sym, display, exchange in HOME_FUTUROS:
+        try:
+            q = yahoo_quote(yahoo_sym)
+        except YahooError as e:
+            logger.warning("future %s failed: %s", yahoo_sym, e)
+            fail += 1
+            continue
+        if not q or q.get("c") is None:
+            fail += 1
+            continue
+        last = q.get("c")
+        prev = q.get("pc")
+        pct_day = None
+        if last is not None and prev:
+            try:
+                pct_day = (last - prev) / prev * 100
+            except (TypeError, ZeroDivisionError):
+                pass
+        doc = {
+            "symbol":     display,
+            "yahoo_sym":  yahoo_sym,
+            "exchange":   exchange,
+            "type":       "future",
+            "grupo":      "Futuros",
+            "last":       last,
+            "prev_close": prev,
+            "pct_day":    pct_day,
+            "timestamp":  datetime.fromtimestamp(q["t"], tz=UTC) if q.get("t") else now,
             "updated_at": now,
         }
         coll.update_one({"symbol": display}, {"$set": doc}, upsert=True)
@@ -279,14 +319,29 @@ def ingesta(include_extra: bool = True) -> int:
             "last":       last,
             "prev_close": prev,
             "pct_day":    pct_day,
-            "timestamp":  datetime.fromtimestamp(q["t"], tz=timezone.utc) if q.get("t") else now,
+            "timestamp":  datetime.fromtimestamp(q["t"], tz=UTC) if q.get("t") else now,
             "updated_at": now,
         }
         coll.update_one({"symbol": display}, {"$set": doc}, upsert=True)
         ok += 1
 
-    logger.info("market_quotes — ok=%d fail=%d stocks=%d fx=%d treasuries=%d indices=%d",
-                ok, fail, len(stocks), len(HOME_FX), len(HOME_TREASURIES), len(HOME_INDICES_YAHOO))
+    # Limpieza: eliminar docs cuyo grupo ya no existe (ej. los ETFs viejos
+    # de "Commodities" que migraron a "Futuros"). Idempotente.
+    grupos_validos = (
+        {g for _, g in HOME_STOCKS}
+        | {g for _, _, _, g in HOME_FX}
+        | {g for _, _, g in HOME_INDICES_YAHOO}
+        | {"Futuros", "US Treasury"}
+    )
+    purga = coll.delete_many({"grupo": {"$nin": list(grupos_validos)}})
+    if purga.deleted_count:
+        logger.info("market_quotes — purgados %d docs de grupos obsoletos", purga.deleted_count)
+
+    logger.info(
+        "market_quotes — ok=%d fail=%d stocks=%d fx=%d futuros=%d treasuries=%d indices=%d",
+        ok, fail, len(stocks), len(HOME_FX), len(HOME_FUTUROS),
+        len(HOME_TREASURIES), len(HOME_INDICES_YAHOO),
+    )
     return 0 if fail < ok else 1
 
 

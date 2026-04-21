@@ -13,6 +13,7 @@ from core.rofex_session import inicializar_sesion
 
 TICKER_AL30  = "MERV - XMEV - AL30 - CI"
 TICKER_AL30D = "MERV - XMEV - AL30D - CI"
+TICKER_AL30C = "MERV - XMEV - AL30C - CI"   # AL30 Cable: para CCL
 ART = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
@@ -57,8 +58,28 @@ def run():
             "mep":        mep,
         }
 
+        # CCL best-effort: si AL30C no tiene bid, no rompemos el job, pero
+        # lo loggeamos. La query histórica filtra docs sin ccl naturalmente.
+        try:
+            al30c_bid = obtener_bid(TICKER_AL30C)
+            if al30c_bid > 0:
+                ccl   = round(al30_offer / al30c_bid, 4)
+                canje = round((ccl - mep) / mep * 100, 2)
+                doc["al30c_bid"] = al30c_bid
+                doc["ccl"]       = ccl
+                doc["canje"]     = canje
+        except Exception as e_ccl:
+            print(f"⚠ AL30C no disponible este turno: {e_ccl}. Se persiste solo MEP.")
+
         client["Valuaciones"]["Dolar"].insert_one(doc)
-        print(f"MEP guardado: {mep} (AL30 offer={al30_offer} / AL30D bid={al30d_bid})")
+
+        if "ccl" in doc:
+            print(
+                f"MEP={mep} (AL30 offer={al30_offer} / AL30D bid={al30d_bid})  "
+                f"CCL={doc['ccl']} (AL30C bid={doc['al30c_bid']})  canje={doc['canje']}%"
+            )
+        else:
+            print(f"MEP guardado: {mep} (AL30 offer={al30_offer} / AL30D bid={al30d_bid})")
 
     except Exception as e:
         print(f"Error: {e}")

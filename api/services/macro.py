@@ -38,12 +38,12 @@ _MACROS: dict[str, dict[str, Any]] = {
     "dolar":  {"db": "Trading",     "col": "DOLAR",  "ts": "fecha",     "val": "valor", "ts_tipo": "string"},
     "badlar": {"db": "Trading",     "col": "BADLAR", "ts": "fecha",     "val": "valor", "ts_tipo": "string"},
     "mep":    {"db": "Valuaciones", "col": "Dolar",  "ts": "timestamp", "val": "mep",   "ts_tipo": "datetime"},
+    "ccl":    {"db": "Valuaciones", "col": "Dolar",  "ts": "timestamp", "val": "ccl",   "ts_tipo": "datetime"},
+    "canje":  {"db": "Valuaciones", "col": "Dolar",  "ts": "timestamp", "val": "canje", "ts_tipo": "datetime"},
 }
 
 # Variables conocidas pero bloqueadas por falta de data en Mongo.
 _BLOQUEADAS: dict[str, str] = {
-    "ccl":          "serie CCL no cargada — falta motor engines/dolar_ccl.py",
-    "canje":        "canje CCL-MEP requiere CCL (falta) + MEP (ok)",
     "ipc":          "IPC INDEC no cargado — falta job jobs/inflacion.py",
     "ipim":         "IPIM INDEC no cargado — falta job jobs/inflacion.py",
     "riesgo_pais":  "EMBI+ no cargado — falta job jobs/riesgo_pais.py",

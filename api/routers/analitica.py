@@ -44,3 +44,33 @@ def clasificar_nivel(
     ventana_dias: int = Query(90, ge=1, le=3650),
 ):
     return svc_macro.clasificar_nivel(variable=variable, ventana_dias=ventana_dias)
+
+
+# ── Tier 2: extensiones sobre data existente ──
+
+
+@router.get("/snapshot-curva-historico")
+def snapshot_curva_historico(
+    curva: str = Query(..., description="cer|tasa_fija|tamar|soberanos|dolar_linked"),
+    fecha: str = Query(..., description="YYYY-MM-DD (día de cierre a reconstruir)"),
+):
+    return svc_cot.snapshot_curva_historico(curva=curva, fecha=fecha)
+
+
+@router.get("/pendiente-curva")
+def pendiente_curva(
+    curva: str = Query(..., description="cer|tasa_fija|tamar|soberanos"),
+    metrica: str = Query("tea", description="tea|tem|duration"),
+    fecha_comparacion: str | None = Query(None, description="YYYY-MM-DD opcional"),
+):
+    return svc_cot.calcular_pendiente_curva(
+        curva=curva, metrica=metrica, fecha_comparacion=fecha_comparacion,
+    )
+
+
+@router.get("/liquidez-secundario")
+def liquidez_secundario(
+    ticker: str = Query(..., description="Ticker corto o completo ROFEX"),
+    dias: int = Query(20, ge=3, le=252, description="Ventana para el promedio"),
+):
+    return svc_cot.liquidez_secundario(ticker=ticker, dias=dias)

@@ -394,6 +394,63 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["variable"],
         },
     },
+    {
+        "name": "snapshot_curva_historico",
+        "description": (
+            "Devuelve la curva entera tal como cerró un día pasado: para cada "
+            "bono el último trade de ese día con precio, TEA, TEM, paridad, "
+            "duration, convexity. USAR para comparar curva actual vs pasada, "
+            "reconstruir estado histórico. Si un bono no operó ese día no "
+            "aparece (no inventa datos)."
+        ),
+        "endpoint": "/api/analitica/snapshot-curva-historico",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "curva": {"type": "STRING", "description": "cer | tasa_fija | tamar | soberanos | dolar_linked"},
+                "fecha": {"type": "STRING", "description": "YYYY-MM-DD del día a reconstruir"},
+            },
+            "required": ["curva", "fecha"],
+        },
+    },
+    {
+        "name": "pendiente_curva",
+        "description": (
+            "Pendiente de una curva = valor del bono largo − valor del corto, "
+            "expresado en bps. Opcionalmente compara contra una fecha pasada y "
+            "devuelve delta (positivo = empinamiento, negativo = aplanamiento). "
+            "USAR para 'se aplanó la curva?', 'está más empinada que hace un mes?'."
+        ),
+        "endpoint": "/api/analitica/pendiente-curva",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "curva":   {"type": "STRING", "description": "cer | tasa_fija | tamar | soberanos"},
+                "metrica": {"type": "STRING", "description": "tea (default) | tem | duration"},
+                "fecha_comparacion": {"type": "STRING", "description": "YYYY-MM-DD opcional"},
+            },
+            "required": ["curva"],
+        },
+    },
+    {
+        "name": "liquidez_secundario",
+        "description": (
+            "Mide qué tan líquido es un bono: volumen operado hoy vs promedio "
+            "de los últimos N días. Devuelve ratio y clasificación "
+            "(baja | media | alta | anomalamente_alta). USAR antes de "
+            "recomendar un bono con tamaños grandes — si la clasificación es "
+            "'baja', avisar al usuario que puede ser difícil salir."
+        ),
+        "endpoint": "/api/analitica/liquidez-secundario",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "ticker": {"type": "STRING", "description": "Ticker corto o completo ROFEX"},
+                "dias":   {"type": "INTEGER", "description": "Ventana para el promedio (default 20)"},
+            },
+            "required": ["ticker"],
+        },
+    },
 
     # ─── Contexto analítico on-demand (local, sin HTTP) ───────────────────
     {

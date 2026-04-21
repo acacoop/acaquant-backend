@@ -37,6 +37,11 @@ SERVICE_HANDLERS: dict[str, Callable[..., Any]] = {
     "/api/analitica/serie-macro":         svc_macro.obtener_serie_macro,
     "/api/analitica/clasificar-nivel":    svc_macro.clasificar_nivel,
 
+    # Analítica — Tier 2 (extensiones sobre TimeSales y MarketSnapshot)
+    "/api/analitica/snapshot-curva-historico": svc_cotizaciones.snapshot_curva_historico,
+    "/api/analitica/pendiente-curva":          svc_cotizaciones.calcular_pendiente_curva,
+    "/api/analitica/liquidez-secundario":      svc_cotizaciones.liquidez_secundario,
+
     # Cotizaciones — series BCRA
     "/api/cotizaciones/badlar":     svc_cotizaciones.get_badlar,
     "/api/cotizaciones/cer":        svc_cotizaciones.get_cer,

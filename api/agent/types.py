@@ -8,7 +8,9 @@ Cada provider (Gemini, Claude) traduce ese formato a/desde su propio shape.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from typing import Any
 
 
@@ -31,6 +33,20 @@ class LLMResponse:
     assistant_message: dict[str, Any] = field(default_factory=dict)
 
 
+def _json_default(o: Any) -> str:
+    """Handler de `json.dumps` para tipos no-JSON-serializables nativos.
+
+    Los tools del agente leen directo de Mongo y pueden devolver `datetime`
+    (y, por extensión, `date`) crudos en el payload. Sin este handler el
+    dumps tira TypeError y el turno del asistente muere en el runner.
+
+    Cualquier otro tipo raro se cae a `str(o)` — mejor eso que reventar.
+    """
+    if isinstance(o, datetime | date):
+        return o.isoformat()
+    return str(o)
+
+
 def user_text_message(text: str) -> dict[str, Any]:
     """Construye un mensaje user simple con texto."""
     return {"role": "user", "content": text}
@@ -38,8 +54,7 @@ def user_text_message(text: str) -> dict[str, Any]:
 
 def tool_result_message(tool_call_id: str, result: dict[str, Any]) -> dict[str, Any]:
     """Construye un mensaje user con el resultado de una tool call."""
-    import json as _json
-    content_str = _json.dumps(result, ensure_ascii=False)[:20000]
+    content_str = json.dumps(result, ensure_ascii=False, default=_json_default)[:20000]
     return {
         "role": "user",
         "content": [

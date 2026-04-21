@@ -34,7 +34,7 @@ FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
 # Scope requerido para los endpoints actuales: bymaPrimariasPlacements.read
 BYMA_CLIENT_ID     = os.getenv("BYMA_CLIENT_ID", "")
 BYMA_CLIENT_SECRET = os.getenv("BYMA_CLIENT_SECRET", "")
-BYMA_TOKEN_URL     = os.getenv("BYMA_TOKEN_URL", "https://apigw.byma.com.ar/oauth/token")
+BYMA_TOKEN_URL     = os.getenv("BYMA_TOKEN_URL", "https://apigw.byma.com.ar/oauth/token/")
 BYMA_BASE_URL      = os.getenv(
     "BYMA_BASE_URL",
     "https://apigw.byma.com.ar/byma-primarias-placements/v1",

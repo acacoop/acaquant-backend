@@ -10,7 +10,6 @@ No hace requests reales — todo va vía monkeypatch de core.byma.requests.
 """
 from __future__ import annotations
 
-import base64
 import time
 from unittest.mock import MagicMock
 
@@ -77,16 +76,17 @@ def test_get_access_token_primera_llamada_hace_request(monkeypatch):
     assert tok == "tok-abc"
     assert mock_post.call_count == 1
 
-    # Header Basic Auth correcto
     _, kwargs = mock_post.call_args
-    auth_header = kwargs["headers"]["Authorization"]
-    assert auth_header.startswith("Basic ")
-    decoded = base64.b64decode(auth_header.split(" ", 1)[1]).decode()
-    assert decoded == "test-client-id:test-secret"
 
-    # Body correcto
-    assert kwargs["data"]["grant_type"] == "client_credentials"
-    assert kwargs["data"]["scope"] == "bymaPrimariasPlacements.read"
+    # BYMA espera credenciales en el body, no en Authorization header.
+    assert "Authorization" not in kwargs["headers"]
+    assert kwargs["headers"]["Content-Type"] == "application/x-www-form-urlencoded"
+
+    # Body: client_id + client_secret + grant_type + scope en form-encoded.
+    assert kwargs["data"]["client_id"]     == "test-client-id"
+    assert kwargs["data"]["client_secret"] == "test-secret"
+    assert kwargs["data"]["grant_type"]    == "client_credentials"
+    assert kwargs["data"]["scope"]         == "bymaPrimariasPlacements.read"
 
 
 def test_get_access_token_reusa_cache_si_no_expiró(monkeypatch):

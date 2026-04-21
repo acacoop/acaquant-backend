@@ -1,8 +1,10 @@
 """Cliente BYMA Primarias Placements.
 
-OAuth2 client_credentials flow:
-1. POST a BYMA_TOKEN_URL con Basic Auth (client_id:client_secret) y body
-   grant_type=client_credentials, scope=bymaPrimariasPlacements.read
+OAuth2 client_credentials flow (per docs del portal BYMA):
+1. POST a BYMA_TOKEN_URL con Content-Type form-urlencoded y body con 4
+   params: client_id, client_secret, grant_type=client_credentials,
+   scope=bymaPrimariasPlacements.read. NO usa Basic Auth — las
+   credenciales viajan en el body.
 2. Response trae {access_token, expires_in, scope}. Cacheamos el token en
    memoria del proceso hasta (now + expires_in - 60s de buffer).
 3. Cada request GET al API se autentica con `Authorization: Bearer <token>`.
@@ -29,7 +31,6 @@ Excepciones:
 """
 from __future__ import annotations
 
-import base64
 import logging
 import threading
 import time
@@ -104,19 +105,21 @@ def _ensure_configured() -> None:
 
 
 def _fetch_new_token() -> dict[str, Any]:
-    """Intercambia client_credentials por access_token (OAuth2 estándar)."""
+    """Intercambia client_credentials por access_token.
+
+    Flujo según doc portal BYMA: todas las credenciales en el body como
+    form-urlencoded. No usa Basic Auth.
+    """
     _ensure_configured()
-    basic = base64.b64encode(
-        f"{BYMA_CLIENT_ID}:{BYMA_CLIENT_SECRET}".encode()
-    ).decode()
     headers = {
-        "Authorization": f"Basic {basic}",
-        "Content-Type":  "application/x-www-form-urlencoded",
-        "Accept":        "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept":       "application/json",
     }
     body = {
-        "grant_type": "client_credentials",
-        "scope":      "bymaPrimariasPlacements.read",
+        "client_id":     BYMA_CLIENT_ID,
+        "client_secret": BYMA_CLIENT_SECRET,
+        "grant_type":    "client_credentials",
+        "scope":         "bymaPrimariasPlacements.read",
     }
     try:
         r = requests.post(BYMA_TOKEN_URL, headers=headers, data=body, timeout=15)

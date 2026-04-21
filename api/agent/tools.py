@@ -138,6 +138,17 @@ TOOLS: list[dict[str, Any]] = [
         "parameters": {"type": "OBJECT", "properties": {}},
     },
     {
+        "name": "argy_overview",
+        "description": (
+            "Snapshot agregado de las 5 métricas argentinas core: DOLAR MEP, "
+            "DOLAR CCL, CANJE, CAUCION ARS y CAUCION USD. Incluye valor actual "
+            "+ variaciones %Día, %7d, %MTD y %YTD. USAR para 'cómo está el panel "
+            "argentino hoy', 'qué se movió esta semana', view sintética macro AR."
+        ),
+        "endpoint": "/api/cotizaciones/argy",
+        "parameters": {"type": "OBJECT", "properties": {}},
+    },
+    {
         "name": "caucion_actual",
         "description": (
             "Snapshot live de la caución corta (típicamente 1 día, viernes 3 días). "

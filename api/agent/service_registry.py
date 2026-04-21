@@ -25,6 +25,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from api.services import argy as svc_argy
 from api.services import cotizaciones as svc_cotizaciones
 from api.services import macro as svc_macro
 
@@ -48,6 +49,9 @@ SERVICE_HANDLERS: dict[str, Callable[..., Any]] = {
     # Cotizaciones — Caución (live + cierre histórico)
     "/api/cotizaciones/caucion":            svc_cotizaciones.get_caucion,
     "/api/cotizaciones/historico/caucion":  svc_cotizaciones.get_historico_caucion,
+
+    # Cotizaciones — ARGY (snapshot multi-métrica con returns)
+    "/api/cotizaciones/argy":               svc_argy.get_argy_with_returns,
 
     # Cotizaciones — Futuros DLR (curva live + cierre histórico)
     "/api/cotizaciones/futuros-dlr":            svc_cotizaciones.get_futuros_dlr,

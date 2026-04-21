@@ -41,7 +41,7 @@ from core.websocket import WebSocketManager
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorFuturosDLR")
 
-INTERVALO_SNAPSHOT_S = 15
+INTERVALO_SNAPSHOT_S = 5
 INTERVALO_REDISCOVERY_S = 300   # cada 5 min re-evalúa universo de tickers
 
 UNDERLYING_DLR = "Dólar USA A3500"

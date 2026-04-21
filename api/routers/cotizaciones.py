@@ -8,6 +8,7 @@ pagar el roundtrip HTTP loopback. Ver auditoría #14.
 """
 from fastapi import APIRouter, HTTPException, Query
 
+from api.services import argy as svc_argy
 from api.services import cotizaciones as svc
 
 router = APIRouter(prefix="/api/cotizaciones", tags=["Cotizaciones"])
@@ -54,6 +55,14 @@ def historico_mep(
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
 ):
     return svc.get_historico_mep(desde=desde, hasta=hasta)
+
+
+# ── ARGY (panel de control: MEP/CCL/canje/cauciones con returns) ──
+
+
+@router.get("/argy")
+def argy():
+    return svc_argy.get_argy_with_returns()
 
 
 # ── Caución ──

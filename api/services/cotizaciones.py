@@ -93,14 +93,30 @@ def get_dolar(desde: str | None = None, hasta: str | None = None) -> list:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@cached(ttl=30)
+@cached(ttl=5)
 def get_ultimo_mep() -> dict:
-    """Último valor del dólar MEP (Valuaciones.Dolar)."""
+    """Último valor de dólar MEP/CCL/canje. Prefiere snapshot live (5s
+    desde engines/dolares.py vía WS) y cae al último doc del cron de cierre
+    (Valuaciones.Dolar) si el snapshot live no existe.
+
+    Devuelve {mep, ccl, canje, timestamp, source}. Los 3 campos numéricos
+    pueden ser None si los inputs WS no están disponibles."""
     db = get_db_valuaciones()
+
+    snap = db["DolarSnapshot"].find_one(
+        {"_id": "current"},
+        {"_id": 0, "mep": 1, "ccl": 1, "canje": 1, "timestamp": 1, "source": 1},
+    )
+    if snap and snap.get("mep") is not None:
+        return snap
+
+    # Fallback: último cron de cierre. No tiene 'source' → marcamos.
     doc = db["Dolar"].find_one(
-        {}, {"_id": 0, "mep": 1, "timestamp": 1},
+        {}, {"_id": 0, "mep": 1, "ccl": 1, "canje": 1, "timestamp": 1},
         sort=[("timestamp", -1)],
     )
+    if doc:
+        doc["source"] = "cron_close"
     return doc or {}
 
 
@@ -124,7 +140,7 @@ def get_historico_mep(desde: str | None = None, hasta: str | None = None) -> lis
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@cached(ttl=15)
+@cached(ttl=5)
 def get_caucion(moneda: str | None = None) -> list:
     """Snapshot live de caución (Trading.CaucionSnapshot).
 
@@ -168,7 +184,7 @@ def get_historico_caucion(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@cached(ttl=15)
+@cached(ttl=5)
 def get_futuros_dlr() -> list:
     """Snapshot live de outrights DLR (Trading.FuturosDLRSnapshot).
     Devuelve la curva entera ordenada por vencimiento ascendente."""

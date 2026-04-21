@@ -35,7 +35,7 @@ from core.websocket import WebSocketManager
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorCaucion")
 
-INTERVALO_SNAPSHOT_S = 15
+INTERVALO_SNAPSHOT_S = 5
 INTERVALO_RECARGA_PLAZO_S = 3600   # re-evaluar plazo cada 1h
 
 _running = True

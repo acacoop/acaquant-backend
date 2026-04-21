@@ -617,13 +617,23 @@ Definidos en `scripts/crear_indices.py` (idempotente).
 
 ## Pendientes
 
+### Completados
+
 - [x] **(2026-04-16)** Cron para sincronizar colecciones API automáticamente. Implementado via `jobs/sync_api_copies.py` encadenado en `deploy/crontab.txt` después de cada job: `--carteras` (3×/día), `--movimientos`, `--flujo`, `--aum --titulos` (flujos-titulos se re-sync diario post-cierre).
-- [ ] **(2026-04-16)** Borrar DB huérfana `CarterasAPI` de Atlas (renombrada a `PortfolioAPI`).
 - [x] **(2026-04-19)** Migración completa a acaquant-web finalizada. Streamlit y `dashboard/` eliminados del repo.
 - [x] **(2026-04-19)** Asistente de mesa con Gemini 2.5 Flash + tool-use. Vista `/asistente` restringida por `MANAGER_EMAILS`. Free tier: solo data pública (Grupos 1 y 2).
 - [x] **(2026-04-19)** Switch a Claude (Haiku/Sonnet con router automático) + prompt caching. Gemini queda como fallback legacy vía `LLM_PROVIDER=gemini`. Ver `docs/ASISTENTE.md`.
 - [x] **(2026-04-19)** Observabilidad live del asistente: tab `/manager` ASISTENTE con métricas, charts, logs con expand, filtros. Errores tipados + UI amigable con retry.
 - [x] **(2026-04-19)** Ingesta de reportes de research: tab `/manager` INTEL. PDF o paste → extracción estructurada (12 variables macro) con Gemini JSON mode → preview editable → persist. El último IntelDoc confirmado se inyecta automáticamente al contexto del asistente.
 - [x] **(2026-04-19)** `docs/AUDIT.md` eliminado (obsoleto, mencionaba Streamlit). `docs/ASISTENTE.md` es la nueva fuente de verdad del módulo IA.
+- [x] **(2026-04-20)** Tier 1 de seguridad API: SSRF block en `/api/news/article`, validación criptográfica del JWT de Cloudflare Access (`api/auth.py`), `require_manager` como gate server-side de `/api/manager/*` y `/api/chat`, rate limit por identidad vía slowapi (`/api/chat` 30/min-500/día, `/api/manager/jobs/run` 5/h-20/día). Error model tipado `{code, message, retryable, retry_after_s}`.
+- [x] **(2026-04-20)** Tier 2 auditoría API: extracción de `api/services/*` (pura, sin FastAPI). El asistente dispatchea directo sobre el service registry — elimina HTTP loopback (~100-300 ms menos por turn) y permite tests deterministas sin levantar uvicorn. Cache `@cached(ttl=N)` vive en el service para que router y dispatch compartan hit.
+- [x] **(2026-04-20)** `api/auth.py` acepta service token JWT de acaquant-web SSR: whitelist `CF_TRUSTED_SERVICE_TOKENS` (CSV de `common_name`s legítimos). Service tokens desconocidos → 401 con warning que incluye el `common_name` full para triaje.
+- [x] **(2026-04-20)** `/api/analitica/*` — Tier 1 tools del asistente expuestas vía HTTP: `listar-curva`, `serie-macro`, `clasificar-nivel`.
+- [x] **(2026-04-21)** `docs/API.md` reescrito: auth multi-capa, rate limits por endpoint, error model tipado, catálogo completo de rutas (analítica, news, market, manager, chat, resources, intel).
+
+### Abiertos
+
+- [ ] **(2026-04-16)** Borrar DB huérfana `CarterasAPI` de Atlas (renombrada a `PortfolioAPI`).
 - [ ] **(2026-04-19)** Destrabar tools del Grupo 3 (cartera/AuM/operaciones) ahora que el default es Claude. Pendiente decidir policy con compliance + activar ZDR con Anthropic.
 - [ ] **(2026-04-19)** Roadmap asistente (en `docs/ASISTENTE.md` §9): feedback 👍/👎, suite de evals, RAG sobre IntelDocs con Atlas Vector Search, email forwarding para ingesta automática, exportar conversación a PDF, modo análisis profundo con Opus.

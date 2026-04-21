@@ -9,6 +9,7 @@ from datetime import date
 import pytest
 
 from engines.curvas import (
+    convexity,
     fecha_flujo,
     get_cer_en_fecha,
     get_cer_liquidacion,
@@ -81,6 +82,45 @@ def test_duration_pv_cero_retorna_none():
     fechas = [date(2026, 1, 1)]
     montos = [0.0]
     assert macaulay_duration(fechas, montos, tir=0.10, fecha_base=fecha_base) is None
+
+
+# ─────────────────────────────────────────────
+# convexity
+# ─────────────────────────────────────────────
+
+
+def test_convexity_zero_coupon_5y():
+    """Bono cero cupón a 5 años, tasa 10%. Convexity analítica = t(t+1)/(1+y)² = 30/1.21 = 24.79."""
+    fecha_base = date(2025, 1, 1)
+    vto = date(2030, 1, 1)
+    c = convexity([vto], [100.0], tir=0.10, fecha_base=fecha_base)
+    assert c is not None
+    # Tolerancia 0.5: rounding de días → años puede dar 4.997-5.003
+    assert abs(c - 24.79) < 0.5
+
+
+def test_convexity_no_negativa_para_bono_con_cupones():
+    """Para flujos positivos, convexity siempre > 0."""
+    fecha_base = date(2025, 1, 1)
+    fechas = [date(2026, 1, 1), date(2027, 1, 1), date(2028, 1, 1)]
+    montos = [5.0, 5.0, 105.0]
+    c = convexity(fechas, montos, tir=0.05, fecha_base=fecha_base)
+    assert c is not None
+    assert c > 0
+
+
+def test_convexity_aumenta_con_plazo():
+    """A igual estructura de cupón y tasa, bono más largo tiene mayor convexity."""
+    fecha_base = date(2025, 1, 1)
+    c_corto = convexity([date(2027, 1, 1)], [100.0], tir=0.10, fecha_base=fecha_base)
+    c_largo = convexity([date(2035, 1, 1)], [100.0], tir=0.10, fecha_base=fecha_base)
+    assert c_corto is not None and c_largo is not None
+    assert c_largo > c_corto
+
+
+def test_convexity_pv_cero_retorna_none():
+    fecha_base = date(2025, 1, 1)
+    assert convexity([date(2026, 1, 1)], [0.0], tir=0.10, fecha_base=fecha_base) is None
 
 
 # ─────────────────────────────────────────────

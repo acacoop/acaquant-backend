@@ -63,6 +63,31 @@ def macaulay_duration(fechas_flujos, montos, tir, fecha_base):
     return round(float(np.sum(t * pv) / total_pv), 4)
 
 
+def convexity(fechas_flujos, montos, tir, fecha_base):
+    """Convexity (segunda derivada del precio respecto al yield, normalizada).
+
+    Fórmula: C = (1/P) × Σ [t(t+1) × CF_t / (1+y)^(t+2)]
+
+    Dimensiones: años². Usar en aproximación de Taylor de 2º orden:
+        ΔP/P ≈ -D·Δy + (1/2)·C·Δy²
+
+    El término convex es siempre positivo cuando los flujos son positivos,
+    de ahí la propiedad financiera "la convexity te ayuda" (cuando cae la
+    tasa el precio sube más de lo que duration estimaría; cuando sube,
+    cae menos). Útil para escenarios de stress > 100 bps.
+
+    Devuelve None si total_pv ≤ 0 (igual fallback que macaulay_duration).
+    """
+    t = np.array([(f - fecha_base).days / 365.0 for f in fechas_flujos])
+    cf = np.array(montos, dtype=float)
+    pv = cf / ((1 + tir) ** t)
+    total_pv = np.sum(pv)
+    if total_pv <= 0:
+        return None
+    sum_term = np.sum(t * (t + 1) * cf / ((1 + tir) ** (t + 2)))
+    return round(float(sum_term / total_pv), 4)
+
+
 def monto_flujo(f):
     if "monto" in f:
         return float(f["monto"])
@@ -185,23 +210,27 @@ def calcular_campos(doc, instrumento, cer_dict, dias_habiles):
         ]
 
         try:
+            conv = None
             if flujos_futuros:
                 fechas_dt = [datetime.combine(fecha_trade, datetime.min.time())] + \
                             [datetime.combine(fd, datetime.min.time()) for fd, _ in flujos_futuros]
                 cf = [-precio] + [m for _, m in flujos_futuros]
                 tea = xirr(fechas_dt, cf)
                 if tea is not None:
-                    dur = macaulay_duration(
-                        [datetime.combine(fd, datetime.min.time()) for fd, _ in flujos_futuros],
-                        [m for _, m in flujos_futuros],
-                        tea,
-                        datetime.combine(fecha_trade, datetime.min.time())
-                    )
+                    fechas_flujos_dt = [datetime.combine(fd, datetime.min.time()) for fd, _ in flujos_futuros]
+                    montos_flujos    = [m for _, m in flujos_futuros]
+                    fecha_base_dt    = datetime.combine(fecha_trade, datetime.min.time())
+                    dur  = macaulay_duration(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
+                    conv = convexity(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
                 else:
                     dur = round(dias_a_vto / 365, 4)
             elif flujo_vto and flujo_vto > 0:
                 tea = (flujo_vto / precio) ** (365.0 / dias_a_vto) - 1
                 dur = round(dias_a_vto / 365, 4)
+                # Zero coupon: un único flujo al vto. C = t(t+1)/(1+y)^2.
+                fecha_base_dt = datetime.combine(fecha_trade, datetime.min.time())
+                fecha_vto_dt  = datetime.combine(fecha_vto,   datetime.min.time())
+                conv = convexity([fecha_vto_dt], [flujo_vto], tea, fecha_base_dt)
             else:
                 return None
 
@@ -212,6 +241,8 @@ def calcular_campos(doc, instrumento, cer_dict, dias_habiles):
             resultado["TEA"] = round(tea, 6)
             resultado["TEM"] = round(tem, 6)
             resultado["duration"] = dur
+            if conv is not None:
+                resultado["convexity"] = conv
 
         except Exception:
             return None
@@ -253,18 +284,18 @@ def calcular_campos(doc, instrumento, cer_dict, dias_habiles):
         ]
 
         try:
+            conv = None
             if flujos_futuros:
                 fechas_dt = [datetime.combine(fecha_settlement, datetime.min.time())] + \
                             [datetime.combine(fd, datetime.min.time()) for fd, _ in flujos_futuros]
                 cf = [-precio] + [m for _, m in flujos_futuros]
                 tea = xirr(fechas_dt, cf)
                 if tea is not None:
-                    dur = macaulay_duration(
-                        [datetime.combine(fd, datetime.min.time()) for fd, _ in flujos_futuros],
-                        [m for _, m in flujos_futuros],
-                        tea,
-                        datetime.combine(fecha_settlement, datetime.min.time())
-                    )
+                    fechas_flujos_dt = [datetime.combine(fd, datetime.min.time()) for fd, _ in flujos_futuros]
+                    montos_flujos    = [m for _, m in flujos_futuros]
+                    fecha_base_dt    = datetime.combine(fecha_settlement, datetime.min.time())
+                    dur  = macaulay_duration(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
+                    conv = convexity(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
                 else:
                     dur = round(dias_a_vto_s / 365, 4)
             else:
@@ -277,6 +308,8 @@ def calcular_campos(doc, instrumento, cer_dict, dias_habiles):
 
             resultado["TEA"] = round(tea, 6)
             resultado["duration"] = dur
+            if conv is not None:
+                resultado["convexity"] = conv
 
         except Exception:
             resultado["duration"] = round(dias_a_vto_s / 365, 4)

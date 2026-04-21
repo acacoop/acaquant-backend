@@ -424,19 +424,20 @@ def listar_curva(
 
     tickers = [d["ticker"] for d in filtrados]
 
-    # 3. Último trade enriquecido por ticker (TEA/TEM/paridad/duration/price)
+    # 3. Último trade enriquecido por ticker (TEA/TEM/paridad/duration/convexity/price)
     enrich_map: dict[str, dict] = {}
     for r in db["TimeSales"].aggregate([
         {"$match": {"ticker": {"$in": tickers}, "price": {"$gt": 0}}},
         {"$sort": {"timestamp": -1}},
         {"$group": {
             "_id": "$ticker",
-            "price":    {"$first": "$price"},
-            "TEA":      {"$first": "$TEA"},
-            "TEM":      {"$first": "$TEM"},
-            "paridad":  {"$first": "$paridad"},
-            "duration": {"$first": "$duration"},
-            "ts":       {"$first": "$timestamp"},
+            "price":     {"$first": "$price"},
+            "TEA":       {"$first": "$TEA"},
+            "TEM":       {"$first": "$TEM"},
+            "paridad":   {"$first": "$paridad"},
+            "duration":  {"$first": "$duration"},
+            "convexity": {"$first": "$convexity"},
+            "ts":        {"$first": "$timestamp"},
         }},
     ]):
         enrich_map[r["_id"]] = r
@@ -471,6 +472,7 @@ def listar_curva(
             "tem": enrich.get("TEM"),
             "paridad": enrich.get("paridad"),
             "duration": enrich.get("duration"),
+            "convexity": enrich.get("convexity"),
             "total_money_dia": vol.get("total_money"),
             "total_nominals_dia": vol.get("total_nominals"),
             "ts_ultimo_trade": ts_last.isoformat() if isinstance(ts_last, datetime) else ts_last,

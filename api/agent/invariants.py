@@ -112,6 +112,23 @@ def _check_duration_positiva(data: Any) -> list[str]:
     return out
 
 
+def _check_convexity_no_negativa(data: Any) -> list[str]:
+    """Convexity para bonos con cupones positivos siempre debe ser ≥ 0.
+    Negativa indica error de cálculo o flujos mal cargados."""
+    out: list[str] = []
+    for item in _iter_items(data):
+        c = _as_float(item.get("convexity"))
+        if c is None:
+            metrics = item.get("metrics")
+            if isinstance(metrics, dict):
+                c = _as_float(metrics.get("convexity"))
+        if c is None:
+            continue
+        if c < 0:
+            out.append(f"convexity={c:.3f} negativa en {_label(item)}")
+    return out
+
+
 def _check_residual_monotonico(data: Any) -> list[str]:
     """El residual_previo_pct de los flujos debe ser monótonamente no-creciente
     (una vez que empieza a amortizar, no puede volver a subir)."""
@@ -147,6 +164,7 @@ CHECKS = [
     _check_paridad,
     _check_amortizaciones_suman_100,
     _check_duration_positiva,
+    _check_convexity_no_negativa,
     _check_residual_monotonico,
 ]
 

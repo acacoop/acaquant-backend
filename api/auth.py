@@ -126,8 +126,13 @@ def get_user_email(
                 # al origin, y Next.js debe propagarlo manualmente).
                 if cn in CF_TRUSTED_SERVICE_TOKENS:
                     return f"service:{cn}"
-                # 2c: service token desconocido — 401 para que notemos
-                logger.warning("service token no autorizado: cn=%s", cn)
+                # 2c: service token desconocido — 401 para que notemos.
+                # Log el common_name en full para que puedas agregarlo a
+                # CF_TRUSTED_SERVICE_TOKENS si es legítimo.
+                logger.warning(
+                    "service token no autorizado: common_name=%r "
+                    "(agregalo a CF_TRUSTED_SERVICE_TOKENS si es legítimo)", cn,
+                )
 
             # Rama 3: JWT válido pero no user ni service conocido.
             if cf_email:

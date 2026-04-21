@@ -22,9 +22,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from api.agent.stats import cambio_pct, compute_stats
 from api.cache import cached
 from api.db import get_db_trading, get_db_valuaciones
+from quant.stats import cambio_pct, compute_stats
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Config: mapping variable macro → (db, coleccion, campo_fecha, campo_valor)

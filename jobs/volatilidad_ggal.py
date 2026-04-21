@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-from core.mongo import MongoManager, get_mongo_client
+from core.mongo import get_mongo_client
 
 # Configuración de Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -18,9 +18,8 @@ logger = logging.getLogger("VR_GGal")
 
 
 def actualizar_historico_ggal_mongo():
-    # 1. Inicializamos tu manager apuntando a la colección correcta
-    # Usamos la DB 'Opciones' y la colección 'VR-GGal' según tu imagen
-    mongo = MongoManager(db_name="Opciones", collection_name="VR-GGal")
+    # Acceso directo a la colección — el singleton de get_mongo_client() maneja el pool.
+    col_vr = get_mongo_client()["Opciones"]["VR-GGal"]
 
     logger.info("📉 Descargando y procesando métricas de Yahoo Finance...")
     tickers = ["GGAL", "GGAL.BA"]
@@ -57,11 +56,11 @@ def actualizar_historico_ggal_mongo():
         final_df_sub = final_df_sub.reset_index()
 
         # 2. Limpieza previa de la colección para refrescar datos
-        mongo.collection.delete_many({})
+        col_vr.delete_many({})
 
         # 3. Inserción de registros
         registros = final_df_sub.to_dict('records')
-        mongo.collection.insert_many(registros)
+        col_vr.insert_many(registros)
 
         # 4. Insertamos un documento de resumen con las volatilidades calculadas
         resumen = {
@@ -70,11 +69,10 @@ def actualizar_historico_ggal_mongo():
             "vol_40r_adr": round(vol_adr, 4),
             "vol_40r_local": round(vol_local, 4)
         }
-        mongo.collection.insert_one(resumen)
+        col_vr.insert_one(resumen)
 
-        # 5. Upsert en Metadata para que el dashboard de Streamlit lo lea
-        client = get_mongo_client()
-        meta_col = client["Opciones"]["Metadata"]
+        # 5. Upsert en Metadata para que el dashboard lo lea
+        meta_col = get_mongo_client()["Opciones"]["Metadata"]
         meta_col.update_one(
             {"type": "vr_ggal"},
             {"$set": {

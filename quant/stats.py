@@ -1,12 +1,15 @@
 """Helpers estadísticos sobre series numéricas.
 
-Funciones puras (sin Mongo, sin cache) usadas por:
-- `obtener_serie_macro` / `clasificar_nivel` (api/services/macro.py)
-- Tools de análisis que necesitan contextualizar un valor vs historia.
+Funciones puras (sin Mongo, sin cache, sin FastAPI). Vive en `quant/` porque
+es cálculo de propósito general, no específico del agente IA.
 
-Implementa el framework de "benchmarks dinámicos" acordado con el user:
-en vez de evaluar valores absolutos (que cambian cada día), clasificamos
-relativos a la propia historia — percentil, z-score, tendencia.
+Usado por:
+- `obtener_serie_macro` / `clasificar_nivel` (api/services/macro.py)
+- Cualquier consumidor que necesite contextualizar un valor vs historia.
+
+Implementa el framework de "benchmarks dinámicos": en vez de evaluar valores
+absolutos (que cambian cada día), clasificamos relativos a la propia
+historia — percentil, z-score, tendencia.
 """
 from __future__ import annotations
 

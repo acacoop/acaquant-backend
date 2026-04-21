@@ -15,7 +15,7 @@ from datetime import datetime
 import pyRofex
 from pymongo import UpdateOne
 
-from core.mongo import MongoManager, get_mongo_client
+from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
 from core.websocket import WebSocketManager
 from quant.black_scholes import bs_delta, bs_gamma, bs_theta, bs_vega, calc_intrinseco, find_iv
@@ -37,6 +37,78 @@ def _handle_signal(sig, frame):
 
 signal.signal(signal.SIGTERM, _handle_signal)
 signal.signal(signal.SIGINT, _handle_signal)
+
+
+# ==========================================
+# Persistencia específica de opciones
+# ==========================================
+# Antes vivía en core/mongo.py, pero su única responsabilidad es escribir a
+# colecciones `Opciones.*`. Es lógica de dominio, no de infraestructura
+# compartida → se quedó acá, junto al único consumidor.
+class MongoManager:
+    def __init__(self, db_name="Opciones", collection_name="Data"):
+        try:
+            self.client = get_mongo_client()
+            self.db = self.client[db_name]
+            self.collection = self.db[collection_name]
+            self.client.server_info()
+            logger.info(f"MongoDB Conectado -> DB: {db_name} | Coll: {collection_name}")
+        except Exception as e:
+            logger.error(f"Error conexion MongoDB: {e}")
+
+    def guardar_operacion_unica(self, symbol, data, server_time=None, griegas=None):
+        """Guarda una operacion individual en Opciones.Data."""
+        try:
+            registro = {
+                "timestamp": server_time if server_time else datetime.now(),
+                "symbol": symbol,
+                "bid": data.get('bid', 0),
+                "bid_size": data.get('bid_size', 0),
+                "offer": data.get('offer', 0),
+                "offer_size": data.get('offer_size', 0),
+                "last": data.get('last', 0),
+                "last_size": data.get('last_size', 0),
+                "last_timestamp": data.get('last_timestamp'),
+                "strike": data.get('strike'),
+                "tipo": data.get('tipo'),
+                "spot": data.get('spot'),
+                "open": data.get('open', 0),
+                "high": data.get('high', 0),
+                "low": data.get('low', 0),
+                "ev": data.get('ev', 0),
+            }
+            if griegas and isinstance(griegas, dict):
+                registro.update(griegas)
+            self.collection.insert_one(registro)
+        except Exception as e:
+            logger.error(f"Error al guardar operacion: {e}")
+
+    def guardar_snapshot_opciones(self, symbol, data, griegas=None):
+        """Upsert del estado más reciente de cada opción en Opciones.OptionsSnapshot."""
+        try:
+            doc = {
+                "updated_at": datetime.now(),
+                "symbol": symbol,
+                "bid":    data.get('bid', 0),
+                "offer":  data.get('offer', 0),
+                "last":   data.get('last', 0),
+                "open":   data.get('open', 0),
+                "high":   data.get('high', 0),
+                "low":    data.get('low', 0),
+                "ev":     data.get('ev', 0),
+                "strike": data.get('strike'),
+                "tipo":   data.get('tipo'),
+                "spot":   data.get('spot', 0),
+            }
+            if griegas and isinstance(griegas, dict):
+                doc.update(griegas)
+            self.db["OptionsSnapshot"].update_one(
+                {"symbol": symbol},
+                {"$set": doc},
+                upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error al guardar snapshot: {e}")
 
 
 # ==========================================

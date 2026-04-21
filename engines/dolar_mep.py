@@ -62,8 +62,8 @@ def run():
 
     except Exception as e:
         print(f"Error: {e}")
-    finally:
-        client.close()
+    # No cerramos el client: es singleton compartido (core/mongo.py).
+    # El proceso muere al terminar el cron y el OS reclama el FD.
 
 
 if __name__ == "__main__":

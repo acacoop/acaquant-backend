@@ -24,7 +24,7 @@ from functools import lru_cache
 
 from fastapi import Depends, Header, HTTPException
 
-from config import CF_ACCESS_AUD, CF_ACCESS_TEAM, MANAGER_EMAILS
+from config import CF_ACCESS_AUD, CF_ACCESS_TEAM, CF_TRUSTED_SERVICE_TOKENS, MANAGER_EMAILS
 
 logger = logging.getLogger(__name__)
 
@@ -111,13 +111,25 @@ def get_user_email(
                 return str(email_claim).lower().strip()
 
             # Rama 2: service token JWT (sin email, con common_name).
-            # El frontend propaga el email del user en el header.
+            # Ej: acaquant-web (Vercel SSR) → api.acaquant.com.
             common_name = claims.get("common_name")
-            if common_name and cf_email:
-                return cf_email.lower().strip()
+            if common_name:
+                cn = str(common_name).lower().strip()
+                # 2a: si el frontend propaga el email del user, usarlo
+                if cf_email:
+                    return cf_email.lower().strip()
+                # 2b: si no hay email pero el service token está en la
+                # whitelist de identidades confiables, devolver un email
+                # sintético "service:<cn>" que `require_manager` reconoce.
+                # Esto permite que el frontend llame al backend sin tener
+                # que propagar el user email (CF Access no siempre lo pasa
+                # al origin, y Next.js debe propagarlo manualmente).
+                if cn in CF_TRUSTED_SERVICE_TOKENS:
+                    return f"service:{cn}"
+                # 2c: service token desconocido — 401 para que notemos
+                logger.warning("service token no autorizado: cn=%s", cn)
 
             # Rama 3: JWT válido pero no user ni service conocido.
-            # Aceptar header si viene (CF Access igual validó algo).
             if cf_email:
                 logger.info("JWT válido sin email claim, usando header (cn=%s)", common_name)
                 return cf_email.lower().strip()
@@ -132,13 +144,20 @@ def get_user_email(
 
 
 def require_manager(email: str = Depends(get_user_email)) -> str:
-    """Exige que el usuario esté en MANAGER_EMAILS. 403 si no.
+    """Exige que el usuario esté en MANAGER_EMAILS, o sea un service token
+    confiable (ej. acaquant-web llamando al API).
 
-    Si MANAGER_EMAILS está vacío en `.env`, deja pasar todo (modo dev) —
-    igual que el proxy.ts del frontend acaquant-web.
+    Si MANAGER_EMAILS está vacío en `.env`, deja pasar todo (modo dev).
     """
     if not MANAGER_EMAILS:
         return email  # dev: sin restricción
+
+    # Service tokens autorizados: el frontend llamando al API. El gate real
+    # de MANAGER_EMAILS ya lo hizo el frontend (proxy.ts) antes de pegar.
+    if email.startswith("service:"):
+        return email
+
+    # User: debe estar en la whitelist de emails
     if email not in MANAGER_EMAILS:
         logger.warning(
             "require_manager: rechazado email=%r (autorizados: %d emails)",

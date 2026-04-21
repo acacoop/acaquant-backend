@@ -46,3 +46,14 @@ CF_ACCESS_TEAM = os.getenv("CF_ACCESS_TEAM", "").strip()
 # se valida el JWT. Se obtiene en Zero Trust → Access → Applications →
 # Application → Overview → "Application Audience (AUD) Tag".
 CF_ACCESS_AUD = os.getenv("CF_ACCESS_AUD", "").strip()
+
+# Service tokens de Cloudflare Access que se consideran "admin" automáticamente.
+# Estos son las identidades de MÁQUINA (ej. el frontend Vercel llamando al API
+# backend) que ya pasaron por su propio gate antes de llegar acá.
+# Formato: common_names separados por coma, ej: "acaquant-web-prod,acaquant-web-preview".
+_trusted_cf_env = os.getenv("CF_TRUSTED_SERVICE_TOKENS", "")
+CF_TRUSTED_SERVICE_TOKENS: set[str] = {
+    t.strip().lower()
+    for t in _trusted_cf_env.split(",")
+    if t.strip()
+}

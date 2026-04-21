@@ -1,21 +1,10 @@
 """Router Portfolio: endpoints para CarterasAPI y AumAPI."""
-import threading
-import time
 from datetime import datetime
 
 from fastapi import APIRouter, Query
 
 from api.cache import cached
 from api.deps import get_db_portfolio, get_db_titulos, get_db_trading, get_db_valuaciones
-
-_fci_assets_cache_data: dict | None = None
-_fci_assets_cache_ts: float = 0.0
-_fci_assets_lock = threading.Lock()
-_FCI_ASSETS_TTL = 600
-
-_assets_enrich_cache: dict | None = None
-_assets_enrich_ts: float = 0.0
-_assets_enrich_lock = threading.Lock()
 
 router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
 
@@ -83,40 +72,27 @@ def listar_aum(
     return list(db["AumAPI"].find(filtro, _PROJ_AUM))
 
 
+@cached(ttl=600)
 def _fci_assets_map() -> dict[str, dict]:
     """Mapea unidad → {emisor, ticker} para unidades con CARTERA=CARTERA FCI.
 
-    Cacheado 10 min en proceso — los assets FCI cambian como mucho mensualmente.
+    Cacheado 10 min — los assets FCI cambian como mucho mensualmente.
     """
-    global _fci_assets_cache_data, _fci_assets_cache_ts
-    now = time.time()
-    with _fci_assets_lock:
-        if _fci_assets_cache_data is not None and now < _fci_assets_cache_ts:
-            return _fci_assets_cache_data
-
     db_t = get_db_titulos()
-    result = {
+    return {
         d["unidad"]: {"emisor": d.get("emisor", ""), "ticker": d.get("ticker", "")}
         for d in db_t["AssetsAPI"].find(
             {"cartera": "CARTERA FCI"},
             {"_id": 0, "unidad": 1, "emisor": 1, "ticker": 1},
         )
     }
-    with _fci_assets_lock:
-        _fci_assets_cache_data = result
-        _fci_assets_cache_ts = now + _FCI_ASSETS_TTL
-    return result
 
 
+@cached(ttl=600)
 def _assets_enrich_map() -> dict[str, dict]:
     """unidad → {cartera, clase_activo} desde TitulosAPI.AssetsAPI (cacheado 10 min)."""
-    global _assets_enrich_cache, _assets_enrich_ts
-    now = time.time()
-    with _assets_enrich_lock:
-        if _assets_enrich_cache is not None and now < _assets_enrich_ts:
-            return _assets_enrich_cache
     db_t = get_db_titulos()
-    result = {
+    return {
         d["unidad"]: {
             "cartera": d.get("cartera") or "OTROS",
             "clase_activo": d.get("clase_activo") or "",
@@ -126,10 +102,6 @@ def _assets_enrich_map() -> dict[str, dict]:
         )
         if d.get("unidad")
     }
-    with _assets_enrich_lock:
-        _assets_enrich_cache = result
-        _assets_enrich_ts = now + 600
-    return result
 
 
 def _valuacion_api(cant: float, px: float, cartera: str, clase_activo: str) -> float:

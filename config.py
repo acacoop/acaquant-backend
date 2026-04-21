@@ -29,6 +29,17 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "claude").lower()
 # --- DATA DE MERCADO EXTERNA ---
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
 
+# --- BYMA Primarias Placements (licitaciones / colocaciones primarias) ---
+# OAuth2 client_credentials flow. Credenciales desde el portal BYMA Developer.
+# Scope requerido para los endpoints actuales: bymaPrimariasPlacements.read
+BYMA_CLIENT_ID     = os.getenv("BYMA_CLIENT_ID", "")
+BYMA_CLIENT_SECRET = os.getenv("BYMA_CLIENT_SECRET", "")
+BYMA_TOKEN_URL     = os.getenv("BYMA_TOKEN_URL", "https://apigw.byma.com.ar/oauth/token")
+BYMA_BASE_URL      = os.getenv(
+    "BYMA_BASE_URL",
+    "https://apigw.byma.com.ar/byma-primarias-placements/v1",
+)
+
 # --- ACCESO MANAGER ---
 # Emails con acceso a la vista Manager. Separados por coma en MANAGER_EMAILS o hardcodeados aquí.
 _manager_env = os.getenv("MANAGER_EMAILS", "")

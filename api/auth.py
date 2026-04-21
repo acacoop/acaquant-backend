@@ -140,5 +140,9 @@ def require_manager(email: str = Depends(get_user_email)) -> str:
     if not MANAGER_EMAILS:
         return email  # dev: sin restricción
     if email not in MANAGER_EMAILS:
+        logger.warning(
+            "require_manager: rechazado email=%r (autorizados: %d emails)",
+            email, len(MANAGER_EMAILS),
+        )
         raise HTTPException(status_code=403, detail="no autorizado")
     return email

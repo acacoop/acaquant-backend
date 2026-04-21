@@ -21,6 +21,7 @@ from pymongo import UpdateOne
 from scipy.optimize import newton
 
 from core.mongo import get_mongo_client
+from engines._curvas_loader import cargar_indexado_por_ticker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorCurvas")
@@ -99,12 +100,6 @@ def get_cer_en_fecha(cer_dict, fecha_date):
 # Carga de datos de referencia
 # ─────────────────────────────────────────────
 
-def cargar_curvas(client):
-    docs = list(client["Trading"]["Curvas"].find({}))
-    logger.info(f"Curvas cargadas: {len(docs)} instrumentos")
-    return {d["ticker"]: d for d in docs}
-
-
 def cargar_cer(client, dias: int = 90):
     """Carga CER solo de los últimos N días.
 
@@ -112,8 +107,7 @@ def cargar_cer(client, dias: int = 90):
     así que los valores más viejos nunca se consultan en tiempo real.
     Carga completa crece monotónica sin sentido.
     """
-    from datetime import date, timedelta as _td
-    desde = (date.today() - _td(days=dias)).isoformat()
+    desde = (date.today() - timedelta(days=dias)).isoformat()
     docs = list(client["Trading"]["CER"].find(
         {"fecha": {"$gte": desde}}, {"fecha": 1, "valor": 1, "_id": 0},
     ))
@@ -303,7 +297,8 @@ def run():
     client = get_mongo_client()
     col_ts = client["Trading"]["TimeSales"]
 
-    curvas = cargar_curvas(client)
+    curvas = cargar_indexado_por_ticker()
+    logger.info(f"Curvas cargadas: {len(curvas)} instrumentos")
     cer_dict = cargar_cer(client)
     dias_habiles = cargar_dias_habiles(client)
     tickers = list(curvas.keys())

@@ -18,6 +18,7 @@ import traceback
 from datetime import UTC, datetime
 
 from core.mongo import get_mongo_client
+from engines._curvas_loader import cargar_por_curva
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorForwards")
@@ -28,21 +29,6 @@ INTERVALO = 30  # segundos
 # ─────────────────────────────────────────────
 # Carga de referencia
 # ─────────────────────────────────────────────
-
-def cargar_curvas(client):
-    """Devuelve instrumentos agrupados por curva."""
-    docs = list(client["Trading"]["Curvas"].find({}))
-    grupos = {}
-    for d in docs:
-        curva = d.get("curva")
-        if not curva:
-            continue
-        if curva not in grupos:
-            grupos[curva] = []
-        grupos[curva].append(d)
-    logger.info(f"Curvas cargadas: {list(grupos.keys())}")
-    return grupos
-
 
 def obtener_ultimas_teas(client, tickers):
     """
@@ -170,7 +156,8 @@ def run():
     logger.info("Motor Forwards iniciando...")
     client = get_mongo_client()
 
-    grupos = cargar_curvas(client)
+    grupos = cargar_por_curva()
+    logger.info(f"Curvas cargadas: {list(grupos.keys())}")
     todos_tickers = [
         inst["ticker"]
         for insts in grupos.values()

@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 
 from core.mongo import get_mongo_client
+from engines._curvas_loader import cargar_por_curva
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorBreakevens")
@@ -37,18 +38,18 @@ MIN_DIAS_PLAZO = 30     # días mínimos al vencimiento desde hoy para incluir e
 # Carga y emparejamiento de instrumentos
 # ─────────────────────────────────────────────
 
-def cargar_pares(client):
-    """
-    Lee Trading.Curvas y devuelve lista de pares (Lecap, CER) ordenados por vencimiento.
+def cargar_pares():
+    """Devuelve lista de pares (Lecap, CER) ordenados por vencimiento.
+
     Reglas:
       - Cada Lecap se empareja con el CER cuyo vencimiento es más cercano.
       - Solo se incluyen pares con diferencia ≤ MAX_DIFF_DIAS días.
       - Si un mismo CER aparece como par de varias Lecaps, se queda solo con
         el par cuya diferencia de vencimiento sea menor (sin repetir CER).
     """
-    docs = list(client["Trading"]["Curvas"].find({}))
-    lecaps = [d for d in docs if d.get("curva") == "tasa_fija"]
-    cers   = [d for d in docs if d.get("curva") == "cer"]
+    grupos = cargar_por_curva()
+    lecaps = grupos.get("tasa_fija", [])
+    cers   = grupos.get("cer", [])
 
     candidatos = []
     for lecap in lecaps:
@@ -226,7 +227,7 @@ def run():
     logger.info("Motor Breakevens iniciando...")
     client = get_mongo_client()
 
-    pares         = cargar_pares(client)
+    pares         = cargar_pares()
     lecap_tickers = [p["lecap_ticker"] for p in pares]
     cer_tickers   = [p["cer_ticker"]   for p in pares]
 

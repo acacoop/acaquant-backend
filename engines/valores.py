@@ -16,6 +16,7 @@ from core.mongo import get_mongo_client
 # --- TUS MANAGERS DE INFRAESTRUCTURA ---
 from core.rofex_session import inicializar_sesion
 from core.websocket import WebSocketManager
+from engines._curvas_loader import cargar_tickers_ordenados
 
 logger = logging.getLogger("MotorValores")
 
@@ -341,24 +342,12 @@ class MicrostructureEngine:
 # ==========================================
 # 2. EL BUCLE PRINCIPAL (MODO MOTOR CIEGO)
 # ==========================================
-def cargar_tickers_curvas(client):
-    """Lee lista de tickers MERV desde Trading.Curvas, ordenados por fecha_vencimiento."""
-    docs = list(client["Trading"]["Curvas"].find(
-        {"ticker": {"$exists": True}},
-        {"_id": 0, "ticker": 1, "fecha_vencimiento": 1},
-    ))
-    docs.sort(key=lambda d: d.get("fecha_vencimiento", ""))
-    tickers = [d["ticker"] for d in docs if d.get("ticker")]
-    print(f"📋 Tickers cargados desde Trading.Curvas: {len(tickers)}")
-    return tickers
-
-
 def run():
     print("🚀 Iniciando Motor de Escritura (Modo Headless / Sin Interfaz)...")
     if not inicializar_sesion(): return
 
-    client = get_mongo_client()
-    tickers = cargar_tickers_curvas(client)
+    tickers = cargar_tickers_ordenados()
+    print(f"📋 Tickers cargados desde Trading.Curvas: {len(tickers)}")
     if not tickers:
         print("❌ Sin tickers en Trading.Curvas. Abortando.")
         return

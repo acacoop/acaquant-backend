@@ -32,8 +32,25 @@ def _safe(d, k, default=None):
     return d.get(k, default) if isinstance(d, dict) else default
 
 
+def _str(v) -> str:
+    """Normaliza a string seguro para .upper() / startswith. None → ''."""
+    return v if isinstance(v, str) else ""
+
+
 def _maturity(inst):
-    return _safe(inst, "maturity_date") or _safe(inst, "maturityDate") or ""
+    return _str(_safe(inst, "maturity_date")) or _str(_safe(inst, "maturityDate")) or ""
+
+
+def _ticker(inst) -> str:
+    """Extrae el ticker real. ROFEX a veces lo pone en 'symbol' directo,
+    otras veces dentro de 'instrumentId': {'symbol': ...}."""
+    sym = _str(_safe(inst, "symbol"))
+    if sym:
+        return sym
+    iid = _safe(inst, "instrumentId")
+    if isinstance(iid, dict):
+        return _str(iid.get("symbol"))
+    return ""
 
 
 def _print_md_sample(symbol: str, label: str):
@@ -80,16 +97,48 @@ def main():
     print(f"\nTotal de instrumentos: {len(instrumentos)}\n")
 
     # ─────────────────────────────────────────────────────────────────────────
+    # 0. Dump completo del PRIMER instrumento — para ver todos los keys/values
+    # ─────────────────────────────────────────────────────────────────────────
+    print("─── ESTRUCTURA cruda del primer instrumento (todos los keys) ────────────")
+    if instrumentos:
+        print(json.dumps(instrumentos[0], indent=2, default=str, ensure_ascii=False))
+    print()
+
+    # Dump del primer FUTURO también, porque la estructura puede diferir
+    print("─── ESTRUCTURA cruda del primer FUTURO (cficode F...) ───────────────────")
+    primer_futuro = next(
+        (i for i in instrumentos if _str(_safe(i, "cficode")).startswith("F")),
+        None
+    )
+    if primer_futuro:
+        print(json.dumps(primer_futuro, indent=2, default=str, ensure_ascii=False))
+    else:
+        print("  No encontré ningún futuro.")
+    print()
+
+    # Dump de la primera CAUCIÓN
+    print("─── ESTRUCTURA cruda de la primera CAUCIÓN (cficode RP...) ──────────────")
+    primera_caucion = next(
+        (i for i in instrumentos if _str(_safe(i, "cficode")).startswith("R")),
+        None
+    )
+    if primera_caucion:
+        print(json.dumps(primera_caucion, indent=2, default=str, ensure_ascii=False))
+    else:
+        print("  No encontré ninguna caución.")
+    print()
+
+    # ─────────────────────────────────────────────────────────────────────────
     # 1. Categorización general
     # ─────────────────────────────────────────────────────────────────────────
     underlyings: Counter = Counter()
     cficodes_full: Counter = Counter()
     cficodes_cat: Counter = Counter()  # primer char
     for inst in instrumentos:
-        underlyings[_safe(inst, "underlying", "?")] += 1
-        cf = _safe(inst, "cficode", "?")
+        underlyings[_str(_safe(inst, "underlying")) or "?"] += 1
+        cf = _str(_safe(inst, "cficode")) or "?"
         cficodes_full[cf] += 1
-        cficodes_cat[cf[:1] if cf else "?"] += 1
+        cficodes_cat[cf[:1]] += 1
 
     print("─── Underlyings (top 30 por cantidad) ───────────────────────────────────")
     for u, n in underlyings.most_common(30):
@@ -115,24 +164,24 @@ def main():
     # 2. Futuros vigentes — agrupados por underlying
     # ─────────────────────────────────────────────────────────────────────────
     print("\n─── FUTUROS (cficode empieza con 'F') ───────────────────────────────────")
-    futuros = [i for i in instrumentos if _safe(i, "cficode", "").startswith("F")]
+    futuros = [i for i in instrumentos if _str(_safe(i, "cficode")).startswith("F")]
     print(f"Total futuros (todos): {len(futuros)}\n")
 
     hoy_str = datetime.now().strftime("%Y%m%d")
     futuros_por_und: dict[str, list] = defaultdict(list)
     for f in futuros:
-        futuros_por_und[_safe(f, "underlying", "?")].append(f)
+        futuros_por_und[_str(_safe(f, "underlying")) or "?"].append(f)
 
     for und in sorted(futuros_por_und.keys()):
         items = futuros_por_und[und]
-        vigentes = [i for i in items if str(_maturity(i)) > hoy_str]
+        vigentes = [i for i in items if _maturity(i) > hoy_str]
         if not vigentes:
             print(f"  underlying={und!r}: {len(items)} totales, 0 vigentes (todos vencidos)")
             continue
         print(f"  underlying={und!r}: {len(items)} totales, {len(vigentes)} vigentes")
         for inst in vigentes[:12]:  # primeros 12
-            sym = _safe(inst, "symbol", "?")
-            cf = _safe(inst, "cficode", "?")
+            sym = _ticker(inst) or "(sin ticker)"
+            cf = _str(_safe(inst, "cficode")) or "?"
             mat = _maturity(inst)
             print(f"      {sym}  |  cficode={cf}  |  maturity={mat}")
         if len(vigentes) > 12:
@@ -145,60 +194,72 @@ def main():
     print("\n─── CAUCIONES (cficode 'R...' o '1D' en el symbol) ──────────────────────")
     cauciones = [
         i for i in instrumentos
-        if _safe(i, "cficode", "").startswith("R")
-        or "1D" in _safe(i, "symbol", "").upper()
+        if _str(_safe(i, "cficode")).startswith("R")
+        or "1D" in _ticker(i).upper()
     ]
     print(f"Total candidatos: {len(cauciones)}\n")
-    for inst in cauciones[:30]:
-        sym = _safe(inst, "symbol", "?")
-        cf = _safe(inst, "cficode", "?")
-        und = _safe(inst, "underlying", "?")
-        print(f"  {sym}  |  cficode={cf}  |  underlying={und!r}")
-    if len(cauciones) > 30:
-        print(f"  ... ({len(cauciones) - 30} más)")
+
+    # Agrupar por underlying para entender mejor
+    cauciones_por_und: dict[str, list] = defaultdict(list)
+    for c in cauciones:
+        cauciones_por_und[_str(_safe(c, "underlying")) or "?"].append(c)
+
+    for und in sorted(cauciones_por_und.keys()):
+        items = cauciones_por_und[und]
+        print(f"\n  underlying={und!r}: {len(items)} instrumentos")
+        for inst in items[:8]:
+            sym = _ticker(inst) or "(sin ticker)"
+            cf = _str(_safe(inst, "cficode")) or "?"
+            mat = _maturity(inst)
+            print(f"      {sym}  |  cficode={cf}  |  maturity={mat}")
+        if len(items) > 8:
+            print(f"      ... ({len(items) - 8} más)")
 
     # ─────────────────────────────────────────────────────────────────────────
     # 4. Sample MD: futuros DLR
     # ─────────────────────────────────────────────────────────────────────────
-    print("\n─── SAMPLE: get_market_data sobre un futuro DLR ─────────────────────────")
+    print("\n─── SAMPLE: get_market_data sobre un futuro Dólar A3500 ─────────────────")
+    # Buscamos por underlying en vez de por substring del symbol — el discovery
+    # confirmó que ROFEX usa "Dólar USA A3500" como underlying de los DLR.
     dlr_candidatos = [
         i for i in instrumentos
-        if "DLR" in _safe(i, "symbol", "").upper()
-        and _safe(i, "cficode", "").startswith("F")
-        and str(_maturity(i)) > hoy_str
+        if _str(_safe(i, "underlying")) == "Dólar USA A3500"
+        and _str(_safe(i, "cficode")).startswith("F")
+        and _maturity(i) > hoy_str
     ]
     if not dlr_candidatos:
-        print("  No encontré futuros con 'DLR' en el symbol y vigentes.")
+        print("  No encontré futuros con underlying='Dólar USA A3500' y vigentes.")
     else:
         # Tomamos el de vencimiento más cercano
-        dlr_candidatos.sort(key=lambda x: _maturity(x))
-        _print_md_sample(_safe(dlr_candidatos[0], "symbol"), "DLR cercano")
+        dlr_candidatos.sort(key=_maturity)
+        _print_md_sample(_ticker(dlr_candidatos[0]), "DLR cercano")
 
     # ─────────────────────────────────────────────────────────────────────────
     # 5. Sample MD: caución pesos / dólares
     # ─────────────────────────────────────────────────────────────────────────
-    print("\n─── SAMPLE: get_market_data sobre caución (pesos preferido) ─────────────")
-    if not cauciones:
-        print("  No hay candidatos de caución para muestrear.")
+    print("\n─── SAMPLE: get_market_data sobre caución pesos a 1 día ─────────────────")
+    # Filtramos por underlying = 'Cauciones Pesos' y maturity más cercano (= 1 día).
+    cauciones_ars = [
+        i for i in instrumentos
+        if _str(_safe(i, "underlying")) == "Cauciones Pesos"
+    ]
+    if not cauciones_ars:
+        print("  No encontré cauciones con underlying='Cauciones Pesos'.")
     else:
-        # Preferir pesos
-        preferred = next(
-            (i for i in cauciones
-             if "PESO" in _safe(i, "symbol", "").upper()),
-            cauciones[0]
-        )
-        _print_md_sample(_safe(preferred, "symbol"), "caución")
+        cauciones_ars.sort(key=_maturity)
+        # La de maturity más temprana suele ser la 1D
+        _print_md_sample(_ticker(cauciones_ars[0]), "caución ARS 1D")
 
-        # Y si hay dólares, también
-        dolares = next(
-            (i for i in cauciones
-             if "DOLAR" in _safe(i, "symbol", "").upper()
-             or "USD" in _safe(i, "symbol", "").upper()),
-            None
-        )
-        if dolares and dolares is not preferred:
-            print("\n─── SAMPLE: caución dólares ─────────────────────────────────────────")
-            _print_md_sample(_safe(dolares, "symbol"), "caución USD")
+    print("\n─── SAMPLE: get_market_data sobre caución dólares a 1 día ──────────────")
+    cauciones_usd = [
+        i for i in instrumentos
+        if _str(_safe(i, "underlying")) == "Cauciones USD"
+    ]
+    if not cauciones_usd:
+        print("  No encontré cauciones con underlying='Cauciones USD'.")
+    else:
+        cauciones_usd.sort(key=_maturity)
+        _print_md_sample(_ticker(cauciones_usd[0]), "caución USD 1D")
 
     print("\n" + "=" * 78)
     print("Fin del discovery. Pegale a Claude el output completo.")

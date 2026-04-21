@@ -42,17 +42,21 @@ HOME_STOCKS: list[tuple[str, str]] = [
     ("EWW",  "Regiones"),
 ]
 
-# ── Futuros CME / CBOT / COMEX / NYMEX vía Yahoo (front-month continuo).
-# Yahoo cotiza con sufijo '=F' el contrato continuous (proxy del mes activo).
+# ── Futuros CME / CBOT / COMEX / NYMEX / ICE + cripto spot vía Yahoo.
+# Equity/comms: '=F' indica continuous front-month (proxy del mes activo).
+# Cripto: BTC-USD / ETH-USD son spot (Yahoo agrega varios exchanges, ~24/7).
 HOME_FUTUROS: list[tuple[str, str, str]] = [
     # (yahoo_symbol, display_label, exchange_label)
-    ("ES=F",  "S&P FUT",   "CME"),
-    ("NQ=F",  "NASDAQ FUT","CME"),
-    ("CL=F",  "WTI",       "NYMEX"),
-    ("GC=F",  "ORO",       "COMEX"),
-    ("ZS=F",  "SOJA",      "CBOT"),
-    ("ZC=F",  "MAIZ",      "CBOT"),
-    ("ZW=F",  "TRIGO",     "CBOT"),
+    ("ES=F",    "S&P FUT",   "CME"),
+    ("NQ=F",    "NASDAQ FUT","CME"),
+    ("CL=F",    "WTI",       "NYMEX"),
+    ("BZ=F",    "BRENT",     "ICE"),
+    ("GC=F",    "ORO",       "COMEX"),
+    ("ZS=F",    "SOJA",      "CBOT"),
+    ("ZC=F",    "MAIZ",      "CBOT"),
+    ("ZW=F",    "TRIGO",     "CBOT"),
+    ("BTC-USD", "BTCUSDT",   "BINANCE"),
+    ("ETH-USD", "ETHUSDT",   "BINANCE"),
 ]
 
 # FX — Finnhub free NO tiene forex (403). Usamos frankfurter.app (ECB, gratis,

@@ -43,6 +43,10 @@
 # por engines.futuros_dlr para la tasa implícita (vs mayorista, no vs MEP).
 */5 13-20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.dolar_api >> /root/TradingAV/logs/dolar_api.log 2>&1
 
+# ─── Indicadores macro argentinadatos.com (1x/día, 12:00 UTC = 09:00 ART)
+# Persiste Trading.RiesgoPais / InflacionMensual / InflacionInteranual.
+0 12 * * * cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.argentina_datos >> /root/TradingAV/logs/argentina_datos.log 2>&1
+
 # ─── CashFlow (martes a sábado 02:00 UTC = lunes-viernes 23:00 ART)
 # Chainea sync a OperacionesAPI.FlujosAPI.
 0 2 * * 2-6 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cashflow --today >> /root/TradingAV/logs/cashflow.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --movimientos >> /root/TradingAV/logs/sync_api.log 2>&1

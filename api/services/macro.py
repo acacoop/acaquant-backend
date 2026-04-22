@@ -126,15 +126,22 @@ _MACROS: dict[str, dict[str, Any]] = {
     # Filtra por moneda en el fetcher; la tool delega a obtener_serie_macro genérico.
     "caucion_ars": {"db": "Trading", "col": "Caucion", "ts": "fecha", "val": "tna_cierre", "ts_tipo": "string", "extra_filter": {"moneda": "ARS"}},
     "caucion_usd": {"db": "Trading", "col": "Caucion", "ts": "fecha", "val": "tna_cierre", "ts_tipo": "string", "extra_filter": {"moneda": "USD"}},
+
+    # Series argentinadatos.com (vía jobs/argentina_datos.py, cron 1x/día).
+    "riesgo_pais":       {"db": "Trading", "col": "RiesgoPais",          "ts": "fecha", "val": "valor", "ts_tipo": "string"},
+    "ipc":               {"db": "Trading", "col": "InflacionMensual",    "ts": "fecha", "val": "valor", "ts_tipo": "string"},
+    "ipc_interanual":    {"db": "Trading", "col": "InflacionInteranual", "ts": "fecha", "val": "valor", "ts_tipo": "string"},
+    # Dólares agregados (dolarapi.com vía jobs/dolar_api.py).
+    "dolar_oficial":   {"db": "Valuaciones", "col": "DolarOficial", "ts": "fecha", "val": "venta", "ts_tipo": "string", "extra_filter": {"casa": "oficial"}},
+    "dolar_mayorista": {"db": "Valuaciones", "col": "DolarOficial", "ts": "fecha", "val": "venta", "ts_tipo": "string", "extra_filter": {"casa": "mayorista"}},
+    "dolar_blue":      {"db": "Valuaciones", "col": "DolarOficial", "ts": "fecha", "val": "venta", "ts_tipo": "string", "extra_filter": {"casa": "blue"}},
 }
 
 # Variables conocidas pero bloqueadas por falta de data en Mongo.
 _BLOQUEADAS: dict[str, str] = {
-    "ipc":          "IPC INDEC no cargado — falta job jobs/inflacion.py",
     "ipim":         "IPIM INDEC no cargado — falta job jobs/inflacion.py",
-    "riesgo_pais":  "EMBI+ no cargado — falta job jobs/riesgo_pais.py",
     "repo":         "stock REPO BCRA no cargado — falta extensión de jobs/bcra.py",
-    "rem_inflacion": "REM BCRA no cargado — falta job jobs/rem.py",
+    "rem_inflacion": "REM BCRA no cargado — falta job jobs/rem.py (tiene múltiples indicadores, requiere schema específico)",
 }
 
 _CAMPOS_TICKER_VALIDOS = ("TEA", "TEM", "paridad", "duration", "price")

@@ -95,6 +95,7 @@ flowchart TD
         CP["core.profiler"]
         CY["core.yahoo / core.finnhub"]
         CJ["core.job_runs<br/>(JobRunLogger)"]
+        CB["core.byma<br/>(OAuth2 Primarias)"]
     end
 
     subgraph L2A["Capa 2A — Cálculo puro (quant/)"]
@@ -112,7 +113,7 @@ flowchart TD
     end
 
     subgraph L3B["Capa 3B — Servicios (api/services/)"]
-        SVC["cotizaciones · macro"]
+        SVC["cotizaciones · macro · argy"]
     end
 
     subgraph L3C["Capa 3C — Asistente (api/agent/)"]
@@ -188,11 +189,14 @@ sequenceDiagram
 | Motor | Origen | Destino | Cadencia | Mecanismo |
 |---|---|---|---|---|
 | `engines/valores.py` | ROFEX WS | `Trading.TimeSales` + `Trading.MarketSnapshot` | tick + snapshot 1 s | Cerebro con 3 threads (`worker_loop`, `flush_loop`, `snapshot_loop`). Warm-start desde REST + Mongo del día. Calcula VPIN por bucket de volumen, hourly stats, top trades. |
-| `engines/options.py` | ROFEX WS | `Opciones.Data` + `Opciones.OptionsSnapshot` + `Opciones.Metadata` | tick + snapshot 1 s | Usa la clase local `MongoManager` para persistencia. Greeks con Black-Scholes y IV con Newton-Raphson. Lee tasa de `Metadata.config`. |
-| `engines/curvas.py` | `Trading.TimeSales` (lectura) | `Trading.TimeSales` (update) | loop 5 s | Enriquece trades sin `duration` con TEA/TEM/Duration/Paridad. Recarga CER cada 1 h. |
+| `engines/options.py` | ROFEX WS | `Opciones.Data` + `Opciones.OptionsSnapshot` + `Opciones.Metadata` | tick + snapshot 1 s | Usa la clase local `MongoManager` (vive en este módulo, no en `core/`). Greeks con Black-Scholes y IV con Newton-Raphson. Lee tasa de `Metadata.config`. |
+| `engines/curvas.py` | `Trading.TimeSales` (lectura) | `Trading.TimeSales` (update) | loop 5 s | Enriquece trades sin `duration` con TEA/TEM/Duration/Convexity/Paridad. Recarga CER cada 1 h. |
 | `engines/forwards.py` | `Trading.TimeSales` agregada | `Trading.ForwardsLive` + `Trading.ForwardsHistorico` | loop 30 s | Matriz NxN por curva. Usa `duration` como horizonte. |
 | `engines/breakevens.py` | `Trading.TimeSales` agregada | `Trading.BreakevensLive` + `Trading.BreakevensHistorico` | loop 30 s | Empareja cada Lecap con el CER de vencimiento más cercano (≤ 20 días de diferencia). |
-| `engines/dolar_mep.py` | ROFEX REST puntual | `Valuaciones.Dolar` | cron 14:00 + 19:57 UTC | Calcula `AL30 offer / AL30D bid`. No es un loop: se ejecuta dos veces por día. |
+| `engines/caucion.py` | ROFEX WS | `Trading.CaucionSnapshot` + `Trading.Caucion` | tick + snapshot 5 s | Suscribe los 2 tickers ROFEX (`PESOS - {N}D` + `DOLAR - {N}D`) con `N` = días al próximo hábil (lun-jue: 1, vie: 3, vie+lun feriado: 4). Replaces por moneda cada 5 s. Vuelca al cierre a `Trading.Caucion` (1 doc por fecha×moneda). |
+| `engines/futuros_dlr.py` | ROFEX WS | `Trading.FuturosDLRSnapshot` + `Trading.FuturosDLR` | tick + snapshot 5 s | Discovery dinámico cada 5 min de outrights vigentes (`underlying='Dólar USA A3500'`, `cficode='FXXXSX'`, un solo `/`, sin sufijo `M`). Tasa implícita TNA calculada vs MEP spot del último `DolarSnapshot`. |
+| `engines/dolares.py` | ROFEX WS | `Valuaciones.DolarSnapshot` | tick + snapshot 5 s | Suscribe AL30 / AL30D / AL30C; calcula MEP = offer/bid, CCL = offer/bid_C, canje = (CCL-MEP)/MEP·100. 1 doc fijo con `_id='current'` replaced cada 5 s. |
+| `engines/dolar_mep.py` | ROFEX REST puntual | `Valuaciones.Dolar` | cron `*/15 13-20 L-V` | Calcula MEP+CCL+canje con snapshots REST cada 15 min. Escribe la serie histórica que alimenta `/api/cotizaciones/historico/mep` y los anchors de ARGY. Complementa `engines.dolares` (live en memoria) con la persistencia histórica. |
 
 ### Propiedades de la ingesta
 
@@ -413,10 +417,14 @@ sequenceDiagram
 
 | DB | Colección | Escritor | Lector primario | Notas |
 |---|---|---|---|---|
-| `Trading` | `TimeSales` | `engines.valores` (insert) + `engines.curvas` (update) | API `/cotizaciones/historico/*`, motores agregadores | Índices `(ticker, timestamp)` + variantes con campos enriquecidos. |
+| `Trading` | `TimeSales` | `engines.valores` (insert) + `engines.curvas` (update) | API `/cotizaciones/historico/*`, motores agregadores | Índices `(ticker, timestamp)` + variantes con campos enriquecidos. Campo `convexity` agregado. |
 | `Trading` | `MarketSnapshot` | `engines.valores` (replace 1 s) | API `/cotizaciones/renta-fija` | 1 doc por ticker. |
 | `Trading` | `ForwardsLive` / `ForwardsHistorico` | `engines.forwards` | API `/cotizaciones/forwards*` | Live = upsert por curva. Histórico = doc por (curva, fecha). |
 | `Trading` | `BreakevensLive` / `BreakevensHistorico` | `engines.breakevens` | API `/cotizaciones/breakevens*` | Live = 1 doc global con `pares[]`. Histórico = 1 doc por fecha. |
+| `Trading` | `CaucionSnapshot` | `engines.caucion` (replace 5 s) | API `/cotizaciones/caucion` | 1 doc por moneda (ARS/USD). `plazo_dias` dinámico según próximo hábil. |
+| `Trading` | `Caucion` | `engines.caucion` al apagado | API `/historico/caucion`, tool `caucion_historica` | 1 doc por (fecha, moneda). Cierre diario. |
+| `Trading` | `FuturosDLRSnapshot` | `engines.futuros_dlr` (replace 5 s) | API `/cotizaciones/futuros-dlr` | 1 doc por ticker. Tasa implícita TNA vs MEP spot. |
+| `Trading` | `FuturosDLR` | `engines.futuros_dlr` al apagado | API `/historico/futuros-dlr` | 1 doc por (fecha, ticker). Cierre diario. |
 | `Trading` | `Curvas` | manual + seeders | `engines.curvas`, `breakevens`, `forwards` | Definición estática de instrumentos. |
 | `Trading` | `CER`, `DOLAR`, `BADLAR`, `TAMAR` | `jobs.bcra` | API `/cotizaciones/*` | Series macro BCRA. |
 | `Opciones` | `Data` / `OptionsSnapshot` | `engines.options` (vía clase local `MongoManager`) | API `/cotizaciones/opciones*` | Ticks históricos + snapshot live. |
@@ -424,7 +432,8 @@ sequenceDiagram
 | `Opciones` | `DataHistorica` | `jobs.options_rollup` | analytics | Rollup diario. |
 | `Opciones` | `VR-GGal` | `jobs.volatilidad_ggal` | `quant.black_scholes.calcular_hv_40_ruedas` | 40 ruedas + SUMMARY_METRICS. |
 | `Valuaciones` | `Carteras` / `CarterasII` / `AuM` / `AuMResumenFCI` / `Assets` | `jobs.carteras`, `jobs.aum`, `jobs.aum_resumen_fci` | API `/portfolio/*`, `sync_api_copies` | Estado patrimonial. AuM cron 23 UTC. |
-| `Valuaciones` | `Dolar` | `engines.dolar_mep` | API `/cotizaciones/mep*` | MEP intradía + cierre. |
+| `Valuaciones` | `DolarSnapshot` | `engines.dolares` (replace 5 s) | API `/cotizaciones/mep`, service `argy._live_dolar` | 1 doc fijo (`_id='current'`). MEP/CCL/canje live via WS. |
+| `Valuaciones` | `Dolar` | `engines.dolar_mep` (cron 15 min) | API `/historico/mep`, anchors ARGY | Histórico diario + intradía (cron). |
 | `CashFlow` | `Flujo` / `Movimientos` / `Contrapartes` / `Accionistas` | `jobs.flujo_contrapartes`, `jobs.cashflow`, manual | `sync_api_copies`, API `/cuentas/*` | Operaciones + entidades. |
 | `CuentasAPI`, `OperacionesAPI`, `PortfolioAPI`, `TitulosAPI` | `*API` | `scripts.api_migrate` (vía `jobs.sync_api_copies`) | API `/cuentas/*`, `/operaciones/*`, `/portfolio/*`, `/titulos/*` | Copias derivadas. drop+insert, idempotente. |
 | `Manager` | `JobRuns` | `core.job_runs.JobRunLogger` | API `/manager/jobs/history*` | TTL 60 d. |
@@ -473,4 +482,4 @@ flowchart LR
 
 ---
 
-*Última revisión: 2026-04-21. Actualizar cuando cambien las capas, el deployment o la política de seguridad.*
+*Última revisión: 2026-04-21 (post motores caución / futuros DLR / dolares + ARGY + Tier 2 analítica + scaffolding BYMA). Actualizar cuando cambien las capas, el deployment o la política de seguridad.*

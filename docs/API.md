@@ -188,19 +188,24 @@ Live and historical market data. All reads go directly against `Trading.*` / `Op
 | GET | `/badlar` | pub | BADLAR series (BCRA id=7) |
 | GET | `/cer` | pub | CER series (BCRA id=30) |
 | GET | `/dolar` | pub | Official USD (A3500, BCRA id=5) |
-| GET | `/mep` | pub | Latest MEP snapshot |
+| GET | `/mep` | pub | Latest MEP/CCL/canje (prefers live `DolarSnapshot`, falls back to cron histórico) |
 | GET | `/forwards` | pub | Live forward rate matrix |
 | GET | `/breakevens` | pub | Live breakeven inflation |
 | GET | `/renta-fija` | pub | Fixed-income market snapshot |
 | GET | `/opciones` | pub | Options chain with Greeks |
 | GET | `/opciones/meta` | pub | Risk-free rate + VR anchors |
 | PUT | `/opciones/tasa` | pub | Update risk-free rate (`valor` 0<v<3). Clears cache. |
+| GET | `/caucion` | pub | Live TNA caución ARS + USD (plazo del próximo día hábil) |
+| GET | `/futuros-dlr` | pub | Curva live de outrights DLR con tasa implícita TNA |
+| GET | `/argy` | pub | Panel MEP/CCL/canje/caución ARS/USD con %Día/%7d/%MTD/%YTD |
 | GET | `/historico/mep` | pub | MEP series |
 | GET | `/historico/forwards` | pub | Forward matrices by date |
 | GET | `/historico/breakevens` | pub | Breakevens by date |
 | GET | `/historico/trades` | pub | TimeSales, last 15 days, hard-limit 10 000 trades |
 | GET | `/historico/opciones` | pub | Option trades, last 21 days, hard-limit 5 000 |
 | GET | `/historico/curva` | pub | Daily close per ticker in a curve (`curva` required) |
+| GET | `/historico/caucion` | pub | Cierre diario de TNA por moneda (`moneda`, `desde`, `hasta`) |
+| GET | `/historico/futuros-dlr` | pub | Cierre diario de futuros DLR (`ticker`, `desde`, `hasta`) |
 
 #### Common query parameters
 
@@ -264,13 +269,16 @@ curl -H "Authorization: Bearer $API_KEY" \
 
 ### 7.3 Analítica (`/api/analitica/*`)
 
-HTTP projection of the assistant's Tier 1 tools. Same functions (`listar_curva`, `obtener_serie_macro`, `clasificar_nivel`) that the assistant invokes directly through the service registry.
+HTTP projection of the assistant tools. Same functions that the assistant invokes directly through the service registry (zero-loopback dispatch).
 
 | Method | Path | Access | Summary |
 |---|---|---|---|
 | GET | `/listar-curva` | pub | Enriched bond table per curve |
 | GET | `/serie-macro` | pub | Series for a macro variable or `<TICKER>.<FIELD>` |
 | GET | `/clasificar-nivel` | pub | Percentile classification vs window |
+| GET | `/snapshot-curva-historico` | pub | Curve at a past date (last trade of each bond that day) |
+| GET | `/pendiente-curva` | pub | Slope (long − short) in bps, optional comparison vs past date |
+| GET | `/liquidez-secundario` | pub | Today's volume vs N-day average + classification |
 
 #### `GET /listar-curva`
 
@@ -282,11 +290,38 @@ HTTP projection of the assistant's Tier 1 tools. Same functions (`listar_curva`,
 | `vencimiento_max_meses` | float | no | Horizon upper bound (months) |
 | `limit` | int | no | Top-N after sort |
 
-Each element: `ticker`, `ticker_corto`, `tipo`, `fecha_vencimiento`, `fecha_emision`, `meses_al_vto`, `ultimo_precio`, `tea`, `tem`, `paridad`, `duration`, `total_money_dia`, `total_nominals_dia`, `ts_ultimo_trade`.
+Each element: `ticker`, `ticker_corto`, `tipo`, `fecha_vencimiento`, `fecha_emision`, `meses_al_vto`, `ultimo_precio`, `tea`, `tem`, `paridad`, `duration`, `convexity`, `total_money_dia`, `total_nominals_dia`, `ts_ultimo_trade`.
 
 #### `GET /serie-macro`
 
-`variable` accepts keyword aliases (`tamar`, `cer`, `dolar`, `badlar`, `mep`, `ccl`, `canje`, `ipc`, `ipim`, `riesgo_pais`, `repo`, `rem_inflacion`) or a `<TICKER>.<FIELD>` reference. `ventana_dias` bounded to `[1, 3650]` (default 90).
+`variable` accepts keyword aliases (`tamar`, `cer`, `dolar`, `badlar`, `mep`, `ccl`, `canje`, `caucion_ars`, `caucion_usd`, `ipc`, `ipim`, `riesgo_pais`, `repo`, `rem_inflacion`) or a `<TICKER>.<FIELD>` reference. `ventana_dias` bounded to `[1, 3650]` (default 90). Variables with missing data return a stub `{actual: null, hint: "..."}`.
+
+#### `GET /snapshot-curva-historico`
+
+Reconstructs an entire curve as it closed on a past date. For each bond in the curve, pulls the last trade of the requested day from `Trading.TimeSales`. Bonds that didn't trade that day are omitted (never fabricates data).
+
+| Param | Type | Required |
+|---|---|---|
+| `curva` | enum | yes |
+| `fecha` | date | yes (`YYYY-MM-DD`) |
+
+Same element shape as `/listar-curva`.
+
+#### `GET /pendiente-curva`
+
+Slope of a curve (longest-duration bond minus shortest), in basis points. Optional `fecha_comparacion` adds past slope and a `delta_bps` with qualitative interpretation (`empinamiento` / `aplanamiento` / `sin cambio material`).
+
+| Param | Type | Required |
+|---|---|---|
+| `curva` | enum | yes |
+| `metrica` | enum | no (`tea` default \| `tem` \| `duration`) |
+| `fecha_comparacion` | date | no |
+
+#### `GET /liquidez-secundario`
+
+Day-over-average volume ratio for a specific bond. Aggregates `Trading.TimeSales.money` by day over the last `dias` and compares today vs the rolling average (excluding today).
+
+Returns `{ticker, volumen_dia_actual, volumen_promedio_dia, ratio_vs_promedio, dias_analizados, clasificacion}`. Classification: `baja` (<0.3), `media` (0.3–1.5), `alta` (1.5–3.0), `anomalamente_alta` (>3.0), `sin_datos` (no history).
 
 ---
 
@@ -555,8 +590,11 @@ Source collections are the system of record. API-facing collections are denormal
 | `TitulosAPI.AssetsAPI` | `Valuaciones.Assets` | `scripts.api_migrate assets` |
 | `TitulosAPI.ValuacionesAPI` | `Trading.Curvas` + `Trading.BondsMaster` | `scripts.api_migrate flujos-titulos` |
 | `Trading.*` (live / hist) | — | Motors write real-time |
+| `Trading.CaucionSnapshot` / `Caucion` | — | `engines.caucion` (live + cierre histórico) |
+| `Trading.FuturosDLRSnapshot` / `FuturosDLR` | — | `engines.futuros_dlr` |
 | `Opciones.*` | — | Motor `engines.options` + `jobs.options_rollup` |
-| `Valuaciones.Dolar` | — | `engines.dolar_mep` |
+| `Valuaciones.DolarSnapshot` | — | `engines.dolares` (live, `_id='current'`) |
+| `Valuaciones.Dolar` | — | `engines.dolar_mep` (cron cada 15 min, histórico) |
 | `News.Headlines` | — | `jobs.news_ingesta`, `jobs.news_finnhub` |
 | `Market.Quotes` / `Market.EconomicCalendar` | — | `jobs.market_quotes`, `jobs.market_anchors`, `jobs.economic_calendar` |
 | `Manager.JobRuns` | — | Background writers + TTL 60 d |
@@ -578,8 +616,11 @@ api/
 ├── db.py                 # get_db_* helpers (no FastAPI import → reusable from services)
 ├── deps.py               # verify_api_key + re-export of db helpers (compat)
 ├── services/             # pure-Python service layer (used by routers AND agent dispatch)
-│   ├── cotizaciones.py   # listar_curva, market snapshot, forwards, breakevens, historic
-│   └── macro.py          # obtener_serie_macro, clasificar_nivel
+│   ├── cotizaciones.py   # listar_curva, market snapshot, forwards, breakevens,
+│   │                       caucion, futuros-dlr, snapshot_curva_historico,
+│   │                       calcular_pendiente_curva, liquidez_secundario, historic
+│   ├── macro.py          # obtener_serie_macro, clasificar_nivel
+│   └── argy.py           # ARGY panel (MEP/CCL/canje/caución con returns)
 ├── agent/                # LLM assistant (docs/ASISTENTE.md is authoritative)
 └── routers/
     ├── analitica.py          # /api/analitica/*
@@ -646,3 +687,9 @@ python -m scripts.perf_scan             # static analysis for Mongo anti-pattern
 | 2026-04-20 | Add `/api/analitica/*` (Tier 1 assistant tools exposed over HTTP) |
 | 2026-04-20 | `api/auth.py` accepts service-token JWTs from acaquant-web SSR; `CF_TRUSTED_SERVICE_TOKENS` allow-list |
 | 2026-04-21 | Add typed error model (`{detail:{code,message,retryable,retry_after_s?}}`) for `/api/chat` and rate limiting |
+| 2026-04-21 | Add `/api/cotizaciones/caucion` + `/historico/caucion` (TNA ARS/USD del plazo próximo hábil, live via WS) |
+| 2026-04-21 | Add `/api/cotizaciones/futuros-dlr` + `/historico/futuros-dlr` (curva outrights DLR con tasa implícita TNA vs MEP spot) |
+| 2026-04-21 | Add `/api/cotizaciones/argy` (panel MEP/CCL/canje/caución con returns %Día/%7d/%MTD/%YTD calculados vs anchors históricos) |
+| 2026-04-21 | `/api/cotizaciones/mep` ahora prefiere `Valuaciones.DolarSnapshot` (live via WS); fallback al cron histórico |
+| 2026-04-21 | Add `convexity` en `Trading.TimeSales` y expuesto en `/api/analitica/listar-curva` |
+| 2026-04-21 | Add Tier 2 analytics: `/api/analitica/snapshot-curva-historico`, `/pendiente-curva`, `/liquidez-secundario` |

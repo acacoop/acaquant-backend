@@ -128,7 +128,11 @@ aproximadamente un 40-60%.
 | `estrategia.py` | Loader con mtime-cache de `docs/asistente/estrategia.md`. Retornado por la tool `consultar_framework_analitico()`. |
 | `estrategias.py` | Loader + slicer de `docs/asistente/estrategias.md` por 14 secciones. Retornado por la tool `consultar_catalogo_estrategias(tema)`. |
 | `intel_extraction.py` | Schema JSON + función `extract_intel(text)` que llama a Gemini Flash con `responseSchema` para pulls out variables macro estructuradas. |
-| `tools.py` | Lista `TOOLS[]` (15 de datos de mercado + 2 locales on-demand), `dispatch(name, args)` que ejecuta, `_is_blocked()` que impone policy de datos (bloquea `/api/portfolio/*`, `/api/operaciones/*`, `/api/cuentas/*`, `/api/manager/*`). |
+| `tools.py` | Lista `TOOLS[]` (~25: datos live + analítica Tier 1 + Tier 2 + locales), `dispatch(name, args)` que ejecuta, `_is_blocked()` que impone policy de datos (bloquea `/api/portfolio/*`, `/api/operaciones/*`, `/api/cuentas/*`, `/api/manager/*`). |
+| `service_registry.py` | Mapping endpoint → función Python directa. Cuando hay handler registrado, `dispatch()` lo llama sin HTTP loopback (~100-300 ms menos). |
+| `invariants.py` | Checks de dominio sobre tool outputs (paridad ∈ [0,150], duration ≥ 0, convexity ≥ 0, residuales monotónicos, amortizaciones ≈ 100). Warnings se anexan a `_meta.warnings`. |
+| `tool_metadata.py` | Calcula staleness (fresh/stale/very_stale/unknown) a partir de timestamps en el payload. |
+| `ticker_catalog.py` | `did_you_mean()` — sugerencias cuando un ticker no se resuelve. |
 
 ### 3.2 Backend — endpoints
 
@@ -281,46 +285,69 @@ El frontend parsea el payload estructurado y muestra UI amigable con
 
 ---
 
-## 9. Funcionalidades — estado actual (2026-04-19)
+## 9. Funcionalidades — estado actual (2026-04-21)
 
 ### ✅ Implementado
 
-- [x] Provider Claude con router Haiku/Sonnet automático.
-- [x] Fallback Gemini (free tier) via `LLM_PROVIDER=gemini`.
-- [x] Prompt caching Claude activado (5min TTL).
-- [x] Framework de 4 capas editable (`estrategia.md`).
-- [x] Catálogo técnico ~45 estrategias editable (`estrategias.md`).
-- [x] Contexto dinámico (market + data inventory + INTEL).
-- [x] Tool-use con 17 tools (15 datos + 2 locales on-demand).
-- [x] Bloqueo Grupo 3 (clientes/carteras/ops).
+- [x] Provider Claude con router Haiku/Sonnet automático + prompt caching.
+- [x] Fallback Gemini via `LLM_PROVIDER=gemini`.
+- [x] Framework de 4 capas editable (`estrategia.md`) + catálogo ~45 estrategias (`estrategias.md`).
+- [x] Contexto dinámico (market + data inventory + último IntelDoc).
+- [x] Tool-use con ~25 tools (live + analítica Tier 1 + Tier 2 + locales).
+- [x] Bloqueo Grupo 3 (`/api/portfolio/*`, `/api/operaciones/*`, `/api/cuentas/*`, `/api/manager/*`) con doble cinturón (declaración + dispatch).
 - [x] Errores tipados + UI amigable con retry.
 - [x] Render inline de markdown en respuestas.
-- [x] Regla anti-dump de tablas + linkeo a vistas UI.
-- [x] Dashboard Manager/ASISTENTE con métricas, charts, logs.
-- [x] Tab Manager/INTEL con carga de PDFs + extracción estructurada.
-- [x] Inyección automática del último IntelDoc al contexto del modelo.
+- [x] Dashboard Manager/ASISTENTE con métricas, charts, logs, tools-ranking.
+- [x] Tab Manager/INTEL: carga PDFs + extracción estructurada + inyección al contexto.
+- [x] Service registry sin HTTP loopback (dispatch llama funciones Python directo).
+- [x] Invariantes de dominio sobre tool outputs (paridad, convexity, duration, amortizaciones).
+- [x] Staleness + `did_you_mean` metadata en cada tool result.
+- [x] Serialización segura de datetime en `tool_result_message` (no rompe turnos ante fechas crudas de Mongo).
+
+### 🟢 Tools de data (última actualización 2026-04-21)
+
+**Cotizaciones live**:
+- `cotizacion_renta_fija`, `cotizacion_opciones`, `forwards_por_curva`, `breakevens_actuales`, `mep_actual`
+- `caucion_actual` — TNA ARS/USD del plazo dinámico (1D/3D)
+- `caucion_historica` — cierre histórico por moneda
+- `futuros_dlr` — curva entera outrights con TNA implícita
+- `futuros_dlr_historico` — cierre histórico por ticker
+- `argy_overview` — MEP + CCL + canje + caución ARS/USD con returns
+- Series BCRA: `serie_cer`, `serie_badlar`, `serie_dolar_a3500`
+- Históricos: `historico_trades`, `historico_forwards`, `historico_breakevens`, `historico_mep`, `historico_curva`
+
+**Metadata y equity**:
+- `metadata_activos`, `flujos_titulo`, `cotizacion_equity`, `calendario_economico`
+
+**Analítica Tier 1** (benchmarks dinámicos):
+- `listar_curva` — curva entera enriquecida (incluye `convexity`)
+- `obtener_serie_macro` — serie + stats + clasificación. Variables soportadas: tamar, cer, dolar, badlar, mep, ccl, canje, caucion_ars, caucion_usd, `<TICKER>.<CAMPO>`. Bloqueadas por falta de data: ipc, ipim, riesgo_pais, repo, rem_inflacion.
+- `clasificar_nivel` — wrapper compacto (solo etiqueta + percentil).
+
+**Analítica Tier 2** (sobre data existente):
+- `snapshot_curva_historico(curva, fecha)` — curva entera a fecha pasada
+- `pendiente_curva(curva, metrica?, fecha_comparacion?)` — slope en bps + delta vs pasado
+- `liquidez_secundario(ticker, dias?)` — ratio vs promedio + clasificación
+
+**Tools locales** (on-demand, no HTTP):
+- `consultar_framework_analitico` — carga `docs/asistente/estrategia.md`
+- `consultar_catalogo_estrategias(tema)` — carga sección de `docs/asistente/estrategias.md`
 
 ### 🟡 Pendiente (roadmap)
 
-1. **Feedback 👍/👎** por respuesta → colección `Manager.AsistenteFeedback`
-   → usado para identificar consultas mal resueltas y mejorar prompt.
-2. **Suite de evals** (30-50 preguntas con respuesta esperada) para
-   regression testing al cambiar prompts/modelo.
-3. **RAG con embeddings** sobre el `raw_text` de los IntelDocs: tool nueva
-   `buscar_reportes(query)` con Atlas Vector Search. El asistente puede
-   citar párrafos de research ("según el reporte del 15/04...").
-4. **Email forwarding** a `intel@acaquant.com` → ingesta automática.
-5. **Chips de sugerencias curadas** en el empty state del chat (vaciados el
-   2026-04-19 pendiente definir cuáles dejar).
-6. **Exportar conversación** a PDF/markdown para adjuntar a reportes.
-7. **Gráficos inline** en respuestas (el modelo devuelve bloque JSON que el
-   frontend renderiza como Lightweight Chart).
-8. **"Modo análisis profundo"** con Opus 4.7 a pedido del usuario (botón
-   explícito en el chat, claramente marcado como más caro).
-9. **Destrabar Grupo 3** (carteras/AuM/operaciones) ahora que estamos en
-   Claude con privacidad mejorada. Requiere decidir policy con compliance.
-10. **Multi-tenant** si algún día vendemos el asistente a otra ALYC —
-    separar datos + prompts + logs por tenant.
+1. **BYMA Primarias Placements** — cliente OAuth2 (`core/byma.py`) + smoke test listos. Esperando credenciales/scope en el portal BYMA. Desbloquea tools de licitaciones históricas, issuers, underwriters, docs de colocación.
+2. **Feedback 👍/👎** por respuesta → `Manager.AsistenteFeedback` → input para mejorar prompt.
+3. **Suite de evals** contra `golden_set.yaml` (55 test cases ya definidos) para regression testing.
+4. **RAG con embeddings** sobre `IntelDocs` con Atlas Vector Search. Tool `buscar_reportes(query)`. Hoy solo se inyecta el último IntelDoc confirmado.
+5. **Email forwarding** a `intel@acaquant.com` → ingesta automática de reportes.
+6. **Chips de sugerencias curadas** en empty state del chat.
+7. **Exportar conversación** a PDF/markdown.
+8. **Gráficos inline** (modelo devuelve JSON → frontend renderiza Lightweight Chart).
+9. **"Modo análisis profundo"** con Opus 4.7 (botón explícito, cost-marked).
+10. **Streaming UX** (SSE) — mostrar "pensando..." y tool calls en vivo en lugar de full-block al final.
+11. **Destrabar Grupo 3** (carteras/AuM/operaciones) con Claude + ZDR. Policy con compliance + activar ZDR Anthropic.
+12. **Data macro faltante**: IPC/IPIM INDEC (scraping mensual), riesgo país EMBI+ (scraping ámbito), REM BCRA (CSV mensual), Hard Dollar enrichment (YTM/duration/convexity para Globales), Dólar Linked seedeado.
+13. **Multi-tenant** si se vende a otra ALYC.
 
 ---
 
@@ -404,3 +431,13 @@ python -m scripts.debug_claude_key
 - **2026-04-19** — Tab Manager/INTEL: carga de reportes con extracción estructurada + inyección al contexto.
 - **2026-04-19** — Switch a Claude con router Haiku/Sonnet + prompt caching.
 - **2026-04-19** — Regla anti-dump de tablas + linkeo a vistas UI.
+- **2026-04-20** — Tier 2 audit: service layer (`api/services/*`) sin FastAPI, dispatch directo sin HTTP loopback.
+- **2026-04-20** — Tools Tier 1 expuestas en `/api/analitica/*`: `listar_curva`, `obtener_serie_macro`, `clasificar_nivel`.
+- **2026-04-21** — CCL + canje live via WS (`engines/dolares.py`), disponibles como variables macro (`ccl`, `canje`).
+- **2026-04-21** — Tool `caucion_actual` + `caucion_historica` (plazo dinámico 1D/3D según próximo hábil).
+- **2026-04-21** — Tool `futuros_dlr` (curva outrights con TNA implícita) + `futuros_dlr_historico`.
+- **2026-04-21** — Tool `argy_overview` (panel MEP/CCL/canje/caución con returns %Día/%7d/%MTD/%YTD).
+- **2026-04-21** — `convexity` agregado al enriquecimiento de `Trading.TimeSales` y expuesto en `listar_curva`.
+- **2026-04-21** — Tools Tier 2: `snapshot_curva_historico`, `pendiente_curva`, `liquidez_secundario`.
+- **2026-04-21** — Fix serialización datetime en `tool_result_message` (rompía turnos con fechas crudas).
+- **2026-04-21** — Scaffolding cliente BYMA Primarias Placements (`core/byma.py`) pendiente desbloqueo portal.

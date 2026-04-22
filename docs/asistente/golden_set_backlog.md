@@ -227,7 +227,19 @@ antes de empezar a procesar preguntas.
 
 ## ✅ Completado
 
-*(ítems que ya se construyeron, con commit hash)*
+- [x] **`listar_curva(curva, ordenar_por, vencimiento_min/max_meses, limit)`** — `api/services/cotizaciones.py`, expuesta como `/api/analitica/listar-curva` (commit `c37e119`/`5c587b6`). Incluye `convexity` desde 2026-04-21.
+- [x] **`obtener_serie_macro(variable, ventana_dias)`** — `api/services/macro.py` con delega a `quant/stats.py`. Soporta `tamar|cer|dolar|badlar|mep|ccl|canje|caucion_ars|caucion_usd` + `<TICKER>.<CAMPO>`. Bloqueadas (faltan data): `ipc, ipim, riesgo_pais, repo, rem_inflacion`.
+- [x] **`clasificar_nivel(variable, ventana_dias)`** — wrapper compacto (idem).
+- [x] **`snapshot_curva_historico(curva, fecha)`** — curva entera en fecha pasada (commit `255cb82`, 2026-04-21).
+- [x] **`calcular_pendiente_curva(curva, metrica, fecha_comparacion?)`** — slope + delta histórico (commit `255cb82`).
+- [x] **`liquidez_secundario(ticker, dias)`** — ratio vs promedio + clasificación (commit `255cb82`).
+- [x] **Convexity en `engines/curvas.py`** — calculada con `(1/P)·Σ[t(t+1)·CF_t/(1+y)^(t+2)]`, persistida en `Trading.TimeSales.convexity` (commit `0a5ad25`).
+- [x] **CCL + canje** — `engines/dolares.py` (WS live, `Valuaciones.DolarSnapshot`) + `engines/dolar_mep.py` (cron 15 min, histórico). Variables desbloqueadas en `_MACROS`.
+- [x] **Tool `caucion_actual` + `caucion_historica`** — motor `engines/caucion.py` con plazo dinámico (1D/3D/4D según próximo hábil). Colecciones `Trading.CaucionSnapshot` + `Trading.Caucion`.
+- [x] **Tool `futuros_dlr` + `futuros_dlr_historico`** — motor `engines/futuros_dlr.py`. Discovery dinámico outrights (`underlying='Dólar USA A3500'`, `cficode='FXXXSX'`, un solo `/`, sin sufijo `M`). Tasa implícita TNA calculada vs MEP spot.
+- [x] **Tool `argy_overview`** — endpoint `/api/cotizaciones/argy` agrega MEP/CCL/canje/caución ARS/USD con returns %Día/%7d/%MTD/%YTD calculados vs anchors históricos.
+- [x] **Wrappers de historical endpoints como tools** (`historico_trades`, `historico_forwards`, `historico_breakevens`, `historico_mep`, `historico_curva`, `historico_opciones`).
+- [x] **Scaffolding cliente BYMA Primarias Placements** (`core/byma.py`) — OAuth2 client_credentials con cache, rate limit, wrappers de los 4 métodos. Tests unitarios con mocks (`tests/unit/test_byma_client.py`). Smoke test (`scripts/test_byma.py`). **Pendiente desbloqueo portal** para ingesta y tools.
 
 ---
 

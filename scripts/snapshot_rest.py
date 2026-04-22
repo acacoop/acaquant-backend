@@ -144,8 +144,8 @@ def main() -> int:
         pyRofex.MarketDataEntry.HIGH_PRICE,
         pyRofex.MarketDataEntry.LOW_PRICE,
         pyRofex.MarketDataEntry.CLOSING_PRICE,
-        pyRofex.MarketDataEntry.NOMINAL_VOLUME,
-        pyRofex.MarketDataEntry.EFFECTIVE_VOLUME,
+        pyRofex.MarketDataEntry.TRADE_VOLUME,           # NV en el response
+        pyRofex.MarketDataEntry.TRADE_EFFECTIVE_VOLUME, # EV en el response
     ]
 
     col = client["Trading"]["MarketSnapshot"]

@@ -31,10 +31,39 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from pathlib import Path
 
 from core.mongo import get_mongo_client
+
+
+def _validar_ticker(ticker: str) -> str:
+    """Normaliza (collapse whitespace + trim) y valida el formato ROFEX.
+
+    Formato esperado: 'MERV - XMEV - <SYMBOL> - 24hs' o similar. Si trae
+    doble espacio en algún lado (típico de copy-paste mal), lo normaliza.
+    Si igual no matchea el formato, aborta — el motor_rofex fallaría al
+    suscribir un ticker con formato raro.
+    """
+    original = ticker
+    ticker = re.sub(r"\s+", " ", ticker).strip()
+    if ticker != original:
+        print(f"  ⚠ ticker normalizado: {original!r} -> {ticker!r}")
+
+    partes = ticker.split(" - ")
+    if len(partes) != 4:
+        raise SystemExit(
+            f"Ticker {ticker!r} no tiene 4 segmentos 'A - B - C - D'. "
+            f"Formato esperado: 'MERV - XMEV - <SYMBOL> - 24hs'."
+        )
+    simbolo = partes[2]
+    if not re.fullmatch(r"[A-Z0-9]+", simbolo):
+        raise SystemExit(
+            f"Símbolo {simbolo!r} contiene caracteres inválidos. "
+            f"Solo letras mayúsculas y dígitos."
+        )
+    return ticker
 
 
 def _pct(s: str) -> float:
@@ -137,9 +166,14 @@ def main() -> int:
     if not path.exists():
         raise SystemExit(f"CSV no existe: {path}")
 
+    # Normaliza el ticker (collapse whitespace) y valida formato antes de
+    # escribir en Mongo. Evita que un doble espacio accidental al pegar el
+    # comando genere un ticker ROFEX inválido que rompa la suscripción WS.
+    ticker_limpio = _validar_ticker(args.ticker)
+
     flujos = parse_csv(path)
     doc = build_doc(
-        ticker=args.ticker,
+        ticker=ticker_limpio,
         ticker_corto=args.ticker_corto,
         fecha_emision=args.fecha_emision,
         flujos=flujos,

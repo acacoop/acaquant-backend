@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query
 from api.services import analitica as svc_ana
 from api.services import macro as svc_macro
 from api.services import renta_fija as svc_rf
+from api.services import sensibilidad as svc_sens
 
 router = APIRouter(prefix="/api/analitica", tags=["Analítica"])
 
@@ -74,3 +75,25 @@ def liquidez_secundario(
     dias: int = Query(20, ge=3, le=252, description="Ventana para el promedio"),
 ):
     return svc_ana.liquidez_secundario(ticker=ticker, dias=dias)
+
+
+@router.get("/sensibilidad-retorno")
+def sensibilidad_retorno(
+    curva: str = Query("soberanos", description="Curva (soberanos)"),
+    tirs: str = Query("9,10,11,12,13",
+                      description="CSV de TIRs (en %, ej. '9,10,11,12,13')"),
+    horizonte_dias: int = Query(365, ge=30, le=1095,
+                                description="Horizonte en días (default 365)"),
+):
+    """Tabla de sensibilidad de retorno total por escenario de TIR.
+
+    Para cada bono de la curva, devuelve precio actual + analíticos +
+    [{tir, precio_1anio, retorno_total}, ...] por cada TIR escenario.
+    """
+    try:
+        tirs_t = tuple(float(t.strip()) / 100 for t in tirs.split(",") if t.strip())
+    except ValueError:
+        return {"error": "tirs malformado, esperado CSV de números"}
+    if not tirs_t:
+        return {"error": "tirs vacío"}
+    return svc_sens.sensibilidad_retorno_total(curva, tirs_t, horizonte_dias)

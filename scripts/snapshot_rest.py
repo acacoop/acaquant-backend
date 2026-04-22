@@ -56,11 +56,6 @@ def _resolver_tickers(client, inputs: list[str], all_soberanos: bool) -> list[tu
     return out
 
 
-def _parse_ticker_full(ticker_full: str) -> dict[str, str]:
-    """pyRofex espera {marketId: ..., symbol: ...} — extraemos del ticker completo."""
-    return {"marketId": "ROFX", "symbol": ticker_full}
-
-
 def _book_levels(entries_side: Any) -> list[dict]:
     """Normaliza el formato de pyRofex (list de dicts con price/size) a top-5."""
     if not entries_side:
@@ -157,7 +152,8 @@ def main() -> int:
 
     for ticker_full, ticker_corto in tickers:
         try:
-            md = pyRofex.get_market_data(_parse_ticker_full(ticker_full), entries=entries)
+            # pyRofex resuelve el market a partir del string del ticker.
+            md = pyRofex.get_market_data(ticker_full, entries=entries)
         except Exception as e:
             print(f"  [err] {ticker_full}: {e}")
             continue

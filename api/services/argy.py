@@ -104,6 +104,29 @@ def _serie_caucion(moneda: str) -> list[tuple[date, float]]:
     return out
 
 
+def _serie_dolar_api(casa: str) -> list[tuple[date, float]]:
+    """Serie histórica de `venta` por casa desde Valuaciones.DolarOficial.
+    Escrita por jobs/dolar_api.py cada 5 min durante la rueda."""
+    db = get_db_valuaciones()
+    docs = list(
+        db["DolarOficial"]
+        .find({"casa": casa, "venta": {"$ne": None}},
+              {"_id": 0, "fecha": 1, "venta": 1})
+        .sort("fecha", 1)
+    )
+    out: list[tuple[date, float]] = []
+    for d in docs:
+        f = d.get("fecha")
+        v = d.get("venta")
+        if not f or v is None:
+            continue
+        try:
+            out.append((date.fromisoformat(str(f)[:10]), float(v)))
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Live values
 # ─────────────────────────────────────────────────────────────────────────────
@@ -150,6 +173,25 @@ def _live_caucion(moneda: str) -> dict:
         "value":      val,
         "plazo_dias": snap.get("plazo_dias"),
         "ts":         snap.get("updated_at"),
+    }
+
+
+def _live_dolar_api(casa: str) -> dict:
+    """Último snapshot de Valuaciones.DolarOficial para la casa indicada.
+    Escrito por jobs/dolar_api.py (cron 5 min). Devuelve {value, ts, source}."""
+    db = get_db_valuaciones()
+    doc = db["DolarOficial"].find_one(
+        {"casa": casa},
+        {"_id": 0, "venta": 1, "compra": 1, "fechaActualizacion": 1, "updated_at": 1},
+        sort=[("updated_at", -1)],
+    )
+    if not doc:
+        return {"value": None, "ts": None, "source": "none"}
+    return {
+        "value":  doc.get("venta"),
+        "compra": doc.get("compra"),
+        "ts":     doc.get("fechaActualizacion") or doc.get("updated_at"),
+        "source": "dolarapi.com",
     }
 
 
@@ -202,6 +244,32 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
             "ret_ytd": _ret_pct(actual, _last_le(s, anchors["ytd"])),
             "ts":      dolar.get("ts").isoformat() if isinstance(dolar.get("ts"), datetime) else None,
             "source":  dolar.get("src"),
+        })
+
+    # ── Dólar oficial / mayorista / blue (dolarapi.com) ──
+    # Los 3 se leen de Valuaciones.DolarOficial escrito por jobs/dolar_api.py
+    # cada 5 min. El MEP/CCL/canje de arriba sigue siendo nuestro (ROFEX WS
+    # via engines/dolares.py) porque es más preciso; dolarapi.com lo traería
+    # también pero con más lag.
+    dolar_api_metas = [
+        ("DOLAR OFICIAL",   "oficial"),
+        ("DOLAR MAYORISTA", "mayorista"),
+        ("DOLAR BLUE",      "blue"),
+    ]
+    for label, casa in dolar_api_metas:
+        live = _live_dolar_api(casa)
+        actual = live.get("value")
+        s = _serie_dolar_api(casa)
+        out.append({
+            "label":   label,
+            "value":   actual,
+            "unit":    "$",
+            "ret_day": _ret_pct(actual, _last_le(s, anchors["day"])),
+            "ret_7d":  _ret_pct(actual, _last_le(s, anchors["7d"])),
+            "ret_mtd": _ret_pct(actual, _last_le(s, anchors["mtd"])),
+            "ret_ytd": _ret_pct(actual, _last_le(s, anchors["ytd"])),
+            "ts":      live.get("ts").isoformat() if isinstance(live.get("ts"), datetime) else None,
+            "source":  live.get("source"),
         })
 
     # ── Caución ARS y USD ──

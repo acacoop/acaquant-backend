@@ -16,8 +16,18 @@ Persistencia:
   {fecha, ticker, vencimiento, dias_a_vto, precio_cierre, vol_dia,
    tasa_implicita_tna_cierre}
 
-Tasa implícita: ((last_dlr / mep_actual) ** (365 / dias_a_vto)) - 1.
-Lee el MEP del último doc en Valuaciones.Dolar (cron lo actualiza c/15min).
+Tasa implícita: ((last_dlr / spot) ** (365 / dias_a_vto)) - 1.
+
+Spot de referencia — en orden de preferencia:
+    1. Valuaciones.DolarOficial casa='mayorista' (dolarapi.com, cron 5min)
+       es lo más cercano al A3500 real que se usa para liquidar los DLR.
+    2. Trading.DOLAR (BCRA A3500 fixing diario) — fallback si dolar_api
+       job falló o está stale.
+    3. Valuaciones.Dolar .mep — último fallback para que nunca quede None.
+
+NOTA: antes usaba MEP como spot. Era conceptualmente MAL — los DLR
+liquidan contra A3500 mayorista, no contra MEP. Con spread MEP-mayorista
+~35% la tasa implícita quedaba sobreestimada por ese mismo orden.
 
 Ejecutar:
     python -m engines.futuros_dlr
@@ -126,22 +136,46 @@ def _dias_a_vto(mat_str: str) -> int:
         return 1
 
 
-def _ultimo_mep(client) -> float | None:
-    doc = client["Valuaciones"]["Dolar"].find_one(
-        {}, {"_id": 0, "mep": 1}, sort=[("timestamp", -1)],
+def _spot_referencia(client) -> tuple[float | None, str]:
+    """Spot de referencia para calcular tasa implícita. Devuelve (valor, fuente).
+
+    Prefiere mayorista (lo más cercano al A3500 real que liquidan los DLR).
+    Cae a A3500 BCRA fixing, y finalmente a MEP.
+    """
+    # 1) Mayorista — dolarapi.com, cron 5 min
+    doc = client["Valuaciones"]["DolarOficial"].find_one(
+        {"casa": "mayorista", "venta": {"$gt": 0}},
+        {"_id": 0, "venta": 1},
+        sort=[("updated_at", -1)],
     )
-    if not doc:
-        return None
-    mep = doc.get("mep")
-    return float(mep) if mep else None
+    if doc:
+        return float(doc["venta"]), "mayorista_dolarapi"
+
+    # 2) A3500 BCRA fixing diario
+    doc = client["Trading"]["DOLAR"].find_one(
+        {"valor": {"$gt": 0}},
+        {"_id": 0, "valor": 1},
+        sort=[("fecha", -1)],
+    )
+    if doc:
+        return float(doc["valor"]), "a3500_bcra"
+
+    # 3) Último fallback: MEP (incorrecto conceptualmente pero mejor que None)
+    doc = client["Valuaciones"]["Dolar"].find_one(
+        {"mep": {"$gt": 0}}, {"_id": 0, "mep": 1}, sort=[("timestamp", -1)],
+    )
+    if doc:
+        return float(doc["mep"]), "mep_fallback"
+
+    return None, "none"
 
 
-def _tasa_implicita_tna(precio_dlr: float | None, mep: float | None, dias: int) -> float | None:
-    """((dlr/mep)^(365/dias)) - 1, en porcentaje. None si falta data."""
-    if not precio_dlr or not mep or precio_dlr <= 0 or mep <= 0 or dias <= 0:
+def _tasa_implicita_tna(precio_dlr: float | None, spot: float | None, dias: int) -> float | None:
+    """((dlr/spot)^(365/dias)) - 1, en porcentaje. None si falta data."""
+    if not precio_dlr or not spot or precio_dlr <= 0 or spot <= 0 or dias <= 0:
         return None
     try:
-        return round(((precio_dlr / mep) ** (365 / dias) - 1) * 100, 4)
+        return round(((precio_dlr / spot) ** (365 / dias) - 1) * 100, 4)
     except Exception:
         return None
 
@@ -229,19 +263,20 @@ class FuturosDLREngine:
 
     def _volcar_snapshot(self):
         ts = datetime.now(UTC)
-        mep = _ultimo_mep(self.client)
+        spot, fuente_spot = _spot_referencia(self.client)
         ops = []
         with self._state_lock:
             for ticker, mat in self.tickers_actuales:
                 st = self.market_state.get(ticker, {})
-                doc = self._build_snapshot_doc(ticker, mat, st, mep, ts)
+                doc = self._build_snapshot_doc(ticker, mat, st, spot, fuente_spot, ts)
                 if doc:
                     ops.append(ReplaceOne({"ticker": ticker}, doc, upsert=True))
         if ops:
             self.col_snap.bulk_write(ops, ordered=False)
 
     def _build_snapshot_doc(
-        self, ticker: str, mat: str, st: dict, mep: float | None, ts: datetime,
+        self, ticker: str, mat: str, st: dict, spot: float | None,
+        fuente_spot: str, ts: datetime,
     ) -> dict | None:
         last = st.get("last") or {}
         bid = st.get("bid") or {}
@@ -264,8 +299,9 @@ class FuturosDLREngine:
             "low":                 st.get("low"),
             "closing":             closing.get("price"),
             "vol_efectivo":        st.get("vol_efectivo"),
-            "tasa_implicita_tna":  _tasa_implicita_tna(precio_last, mep, dias),
-            "mep_referencia":      mep,
+            "tasa_implicita_tna":  _tasa_implicita_tna(precio_last, spot, dias),
+            "spot_referencia":     spot,
+            "fuente_spot":         fuente_spot,
             "updated_at":          ts,
         }
 
@@ -273,7 +309,7 @@ class FuturosDLREngine:
     def vuelco_cierre(self):
         hoy = date.today().isoformat()
         ts = datetime.now(UTC)
-        mep = _ultimo_mep(self.client)
+        spot, fuente_spot = _spot_referencia(self.client)
         ops = []
         with self._state_lock:
             for ticker, mat in self.tickers_actuales:
@@ -294,8 +330,9 @@ class FuturosDLREngine:
                     "high":                        st.get("high"),
                     "low":                         st.get("low"),
                     "vol_efectivo":                st.get("vol_efectivo"),
-                    "tasa_implicita_tna_cierre":   _tasa_implicita_tna(precio_cierre, mep, dias),
-                    "mep_referencia":              mep,
+                    "tasa_implicita_tna_cierre":   _tasa_implicita_tna(precio_cierre, spot, dias),
+                    "spot_referencia":             spot,
+                    "fuente_spot":                 fuente_spot,
                     "persisted_at":                ts,
                 }
                 ops.append(UpdateOne(

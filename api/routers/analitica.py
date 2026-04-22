@@ -80,8 +80,8 @@ def liquidez_secundario(
 @router.get("/sensibilidad-retorno")
 def sensibilidad_retorno(
     curva: str = Query("soberanos", description="Curva (soberanos)"),
-    tirs: str = Query("9,10,11,12,13",
-                      description="CSV de TIRs (en %, ej. '9,10,11,12,13')"),
+    tirs: str = Query("4,5,6,7,8,9,10,11",
+                      description="CSV de TIRs (en %, ej. '4,5,6,7,8,9,10,11')"),
     horizonte_dias: int = Query(365, ge=30, le=1095,
                                 description="Horizonte en días (default 365)"),
 ):

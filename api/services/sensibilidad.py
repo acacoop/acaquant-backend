@@ -19,7 +19,7 @@ from api.cache import cached
 from api.db import get_db_trading
 from engines.curvas import fecha_flujo, monto_flujo_soberano
 
-_DEFAULT_TIRS: tuple[float, ...] = (0.09, 0.10, 0.11, 0.12, 0.13)
+_DEFAULT_TIRS: tuple[float, ...] = (0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11)
 _DEFAULT_HORIZONTE_DIAS = 365
 
 
@@ -157,6 +157,6 @@ def sensibilidad_retorno_total(
             "escenarios":        escenarios,
         })
 
-    # Ordenar por duration ascendente — el chart lee en orden corto → largo.
-    out.sort(key=lambda x: x.get("duration") or 999)
+    # Ordenar por fecha de vencimiento ascendente (corto → largo).
+    out.sort(key=lambda x: x.get("fecha_vencimiento") or "9999")
     return out

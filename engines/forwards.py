@@ -84,12 +84,19 @@ def calcular_matriz(instrumentos, tasas_tea):
     # Ordenar por maturity ascendente
     validos.sort(key=lambda x: x["t"])
 
-    if len(validos) < 2:
+    if not validos:
         return [], {}, {}
 
     ordered = [v["ticker_corto"] for v in validos]
     tasas = {v["ticker_corto"]: round(v["TEA"], 6) for v in validos}
-    matrix = {}
+
+    # Con 1 solo bono no hay forwards que calcular — publicamos las tasas
+    # spot igualmente para que la UI pueda mostrar la TEA en la tabla de
+    # renta fija. La matrix queda vacía hasta que entre un segundo bono.
+    if len(validos) < 2:
+        return ordered, tasas, {}
+
+    matrix: dict = {}
 
     for i, a in enumerate(validos):
         for j, b in enumerate(validos):

@@ -9,9 +9,21 @@ def _instr(tc):
     return {"ticker": f"{tc}-24hs", "ticker_corto": tc}
 
 
-def test_calcular_matriz_empty_si_menos_de_2_instrumentos():
+def test_calcular_matriz_un_solo_instrumento_publica_tasa_sin_matrix():
+    """Con 1 bono no hay forwards posibles pero sí queremos publicar la tasa
+    spot (la UI la usa para mostrar TEA en la tabla de renta fija)."""
     instr = [_instr("A")]
     tasas = {"A-24hs": {"TEA": 0.30, "duration": 0.5}}
+    ordered, t, m = calcular_matriz(instr, tasas)
+    assert ordered == ["A"]
+    assert t == {"A": 0.30}
+    assert m == {}   # matrix vacía, no hay forwards con 1 solo punto
+
+
+def test_calcular_matriz_sin_validos_es_empty():
+    """Sin instrumentos con TEA+duration válida, todo vacío."""
+    instr = [_instr("A")]
+    tasas = {"A-24hs": {"TEA": None, "duration": 0.5}}
     ordered, t, m = calcular_matriz(instr, tasas)
     assert ordered == []
     assert t == {}

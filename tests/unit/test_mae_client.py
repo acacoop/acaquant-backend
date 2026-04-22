@@ -54,17 +54,17 @@ def test_ensure_configured_ok_con_key():
 
 def test_base_url_prod(monkeypatch):
     monkeypatch.setattr(mae, "MAE_ENV", "prod")
-    assert mae._base_url() == "https://api.mae.com.ar/MarketData/v1"
+    assert mae._base_url() == "https://api.mae.com.ar"
 
 
 def test_base_url_uat(monkeypatch):
     monkeypatch.setattr(mae, "MAE_ENV", "uat")
-    assert mae._base_url() == "https://apiuat.mae.com.ar/MarketData/v1"
+    assert mae._base_url() == "https://apiuat.mae.com.ar"
 
 
 def test_base_url_env_desconocido_cae_a_prod(monkeypatch):
     monkeypatch.setattr(mae, "MAE_ENV", "sandbox")
-    assert mae._base_url() == "https://api.mae.com.ar/MarketData/v1"
+    assert mae._base_url() == "https://api.mae.com.ar"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -73,35 +73,52 @@ def test_base_url_env_desconocido_cae_a_prod(monkeypatch):
 
 
 def test_get_repo_usa_x_api_key_header(monkeypatch):
-    mock_get = MagicMock(return_value=_mk_response(200, {"result": []}))
+    mock_get = MagicMock(return_value=_mk_response(200, []))
     monkeypatch.setattr(mae.requests, "get", mock_get)
 
-    mae.get_repo(desde="2026-04-20", hasta="2026-04-21")
+    mae.get_repo(page=2)
 
     args, kwargs = mock_get.call_args
-    assert args[0] == "https://api.mae.com.ar/MarketData/v1/mercado/repo"
+    assert args[0] == "https://api.mae.com.ar/api/v1/mercado/cotizaciones/repo"
     assert kwargs["headers"]["x-api-key"] == "test-key-abc"
     assert kwargs["headers"]["Accept"] == "application/json"
-    assert kwargs["params"] == {"desde": "2026-04-20", "hasta": "2026-04-21"}
+    assert kwargs["params"] == {"pageNumber": 2}
 
 
-def test_get_repo_sin_params(monkeypatch):
+def test_get_repo_default_page_1(monkeypatch):
     mock_get = MagicMock(return_value=_mk_response(200, []))
     monkeypatch.setattr(mae.requests, "get", mock_get)
 
     mae.get_repo()
 
     _, kwargs = mock_get.call_args
-    assert kwargs["params"] is None
+    assert kwargs["params"] == {"pageNumber": 1}
 
 
 def test_get_repo_devuelve_json(monkeypatch):
     monkeypatch.setattr(
         mae.requests, "get",
-        MagicMock(return_value=_mk_response(200, {"result": [{"id": 1}]})),
+        MagicMock(return_value=_mk_response(200, [{"fecha": "2026-04-21", "plazo": "001"}])),
     )
     out = mae.get_repo()
-    assert out == {"result": [{"id": 1}]}
+    assert out == [{"fecha": "2026-04-21", "plazo": "001"}]
+
+
+def test_iter_repo_pages_corta_en_vacia(monkeypatch):
+    # Devuelve 2 items, 1 item, vacía → itera 2 páginas (la 3ra ya no yield)
+    responses = iter([
+        _mk_response(200, [{"fecha": "a"}, {"fecha": "b"}]),
+        _mk_response(200, [{"fecha": "c"}]),
+        _mk_response(200, []),
+    ])
+    monkeypatch.setattr(mae.requests, "get", MagicMock(side_effect=lambda *a, **k: next(responses)))
+
+    pages = list(mae.iter_repo_pages(max_pages=10))
+    # La vacía se yield también (lo corta dentro con len==0)
+    assert len(pages) == 3
+    assert len(pages[0]) == 2
+    assert len(pages[1]) == 1
+    assert pages[2] == []
 
 
 # ─────────────────────────────────────────────────────────────────────────────

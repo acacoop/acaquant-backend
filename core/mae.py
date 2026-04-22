@@ -4,17 +4,17 @@ Auth simple: header `x-api-key: <API_KEY>` en cada request.
 
 Dos ambientes: prod y UAT. La variable `MAE_ENV` en `.env` decide cuál
 base URL se usa:
-    - prod → https://api.mae.com.ar/MarketData/v1
-    - uat  → https://apiuat.mae.com.ar/MarketData/v1
+    - prod → https://api.mae.com.ar
+    - uat  → https://apiuat.mae.com.ar
 
 Rate limit interno hard-cap de 30 req/min para no pegarle en ráfaga —
 MAE no publica límites oficiales, mejor ser conservador.
 
 Endpoints wrappeados (inicial):
-    get_repo(desde, hasta)   → /mercado/repo (rango de fechas)
+    get_repo(page=1)   → /api/v1/mercado/cotizaciones/repo (paginado)
 
 Diseñado genérico para sumar otros endpoints MAE más adelante
-(/mercado/cauciones, /mercado/titulos, /mercado/acciones) sin cambios
+(/api/v1/mercado/cotizaciones/cauciones, /titulos, /acciones) sin cambios
 en la infra de auth/rate-limit.
 
 Excepciones:
@@ -37,8 +37,8 @@ from config import MAE_API_KEY, MAE_ENV
 logger = logging.getLogger(__name__)
 
 _BASE_URLS = {
-    "prod": "https://api.mae.com.ar/MarketData/v1",
-    "uat":  "https://apiuat.mae.com.ar/MarketData/v1",
+    "prod": "https://api.mae.com.ar",
+    "uat":  "https://apiuat.mae.com.ar",
 }
 
 # Rate limit interno. MAE no publica números pero 30/min es un techo prudente.
@@ -136,21 +136,36 @@ def _get(path: str, params: dict[str, Any] | None = None) -> Any:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def get_repo(desde: str | None = None, hasta: str | None = None) -> Any:
-    """Operaciones de Repo del MAE en el rango dado.
+def get_repo(page: int = 1) -> Any:
+    """Operaciones de Repo del MAE (paginado).
 
-    `desde` y `hasta` son strings de fecha (formato a confirmar con el
-    response real — la doc dice "rango" pero no detalla el formato exacto;
-    probablemente 'YYYY-MM-DD' o 'DD/MM/YYYY'). Sin params, pide todo lo
-    que la API devuelva por default (probablemente último día o ventana
-    reciente).
+    GET /api/v1/mercado/cotizaciones/repo?pageNumber=<page>
 
-    La primera llamada del smoke test aclara el shape del response y los
-    parámetros aceptados.
+    Response: lista de entidades Repo con fields:
+        fecha (ISO datetime), rueda, moneda ("$"/"USD"), plazo (str, ej "003"),
+        tasaApertura, ultimaTasa, tasaPP, tasaMinimo, tasaMaximo, cierreAyer,
+        cantidad (VN), volumen (total), cantOperaciones, variacion.
+
+    Si `pageNumber` no se especifica, default 1. Para recorrer todo hay que
+    iterar hasta que devuelva lista vacía.
     """
-    params: dict[str, Any] = {}
-    if desde:
-        params["desde"] = desde
-    if hasta:
-        params["hasta"] = hasta
-    return _get("/mercado/repo", params or None)
+    return _get("/api/v1/mercado/cotizaciones/repo", {"pageNumber": page})
+
+
+def iter_repo_pages(max_pages: int = 50):
+    """Itera páginas de /mercado/cotizaciones/repo hasta que venga vacía.
+
+    Yields cada página (lista de dicts). `max_pages` como guardia por si la
+    API no devuelve terminación.
+    """
+    for p in range(1, max_pages + 1):
+        data = get_repo(page=p)
+        if not data:
+            return
+        if not isinstance(data, list):
+            logger.warning("repo page %d: shape inesperada %s", p, type(data).__name__)
+            yield data
+            return
+        yield data
+        if len(data) == 0:
+            return

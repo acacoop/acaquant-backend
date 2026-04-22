@@ -1,27 +1,22 @@
-"""scripts/test_mae.py — smoke test del endpoint /mercado/repo del MAE.
+"""scripts/test_mae.py — smoke test del endpoint /api/v1/mercado/cotizaciones/repo.
 
-Requiere MAE_API_KEY en .env. Pega 3 variantes de rango (hoy-hoy, últimos
-3 días, sin params) y muestra el status + primeros items + shape del
-response. Sirve para:
-- Validar que la API key funciona.
-- Descubrir el formato de params exacto (probable: YYYY-MM-DD; la doc no
-  es explícita).
-- Ver qué campos trae cada operación de repo (clave upsert, plazo, TNA,
-  volumen, etc).
+Requiere MAE_API_KEY en .env. Pega páginas 1-3 del endpoint REPO y muestra
+el shape del response.
 
 Uso:
     /root/TradingAV/venv/bin/python -m scripts.test_mae
-    /root/TradingAV/venv/bin/python -m scripts.test_mae --fecha 2026-04-18
+    /root/TradingAV/venv/bin/python -m scripts.test_mae --page 2
+    /root/TradingAV/venv/bin/python -m scripts.test_mae --all   # itera todas
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-from datetime import UTC, datetime, timedelta
+from collections import Counter
 from typing import Any
 
-from core.mae import MaeError, MaeNotConfigured, get_repo
+from core.mae import MaeError, MaeNotConfigured, get_repo, iter_repo_pages
 
 
 def _pretty(obj: Any, max_chars: int = 3000) -> str:
@@ -36,119 +31,98 @@ def _header(title: str) -> None:
     print(f"\n── {title} ".ljust(78, "─"))
 
 
-def _sample(data: Any, tag: str) -> None:
-    """Resume lo que llegó sin inundar el log."""
-    print(f"\n  tipo raíz: {type(data).__name__}")
-
+def _resumir_pagina(data: Any, tag: str) -> int:
+    """Imprime resumen + primeros items. Devuelve cantidad."""
+    print(f"\n  tipo raíz ({tag}): {type(data).__name__}")
     if isinstance(data, dict):
         print(f"  keys top-level: {list(data.keys())}")
-        # Si hay una key que parece la lista de resultados, resumirla.
-        for key in ("result", "data", "results", "items", "operations"):
-            if key in data and isinstance(data[key], list):
-                arr = data[key]
-                print(f"  {tag}: key '{key}' tiene {len(arr)} items")
-                if arr:
-                    print(f"  primer item ({tag}):")
-                    print(_pretty(arr[0], 800))
-                return
-        # Si es un dict sin envelope obvio, imprimir entero (truncado)
-        print(f"\n  response completo ({tag}):")
         print(_pretty(data, 2500))
-        return
+        return 0
+    if not isinstance(data, list):
+        print(f"  response atípico: {_pretty(data, 1500)}")
+        return 0
 
-    if isinstance(data, list):
-        print(f"  {tag}: lista directa con {len(data)} items")
-        if data:
-            print(f"  primer item ({tag}):")
-            print(_pretty(data[0], 800))
-        if len(data) > 1:
-            print(f"  segundo item ({tag}):")
-            print(_pretty(data[1], 500))
-        return
+    n = len(data)
+    print(f"  {tag}: lista con {n} items")
+    if not data:
+        return 0
 
-    print(f"  response atípico ({tag}):")
-    print(_pretty(data, 1500))
+    # Muestro primeros 2 items completos
+    print(f"\n  primer item ({tag}):")
+    print(_pretty(data[0], 1200))
+    if n > 1:
+        print(f"\n  segundo item ({tag}):")
+        print(_pretty(data[1], 1200))
 
-
-def _intentar(label: str, **kwargs) -> Any:
-    _header(label)
-    print(f"  params: {kwargs}")
-    try:
-        out = get_repo(**kwargs)
-        _sample(out, label)
-        return out
-    except MaeError as e:
-        print(f"  ✗ {type(e).__name__}: {e}")
-        return None
+    # Stats rápidas
+    monedas = Counter(d.get("moneda") for d in data if isinstance(d, dict))
+    plazos = Counter(d.get("plazo") for d in data if isinstance(d, dict))
+    ruedas = Counter(d.get("rueda") for d in data if isinstance(d, dict))
+    fechas = sorted({(d.get("fecha") or "")[:10] for d in data if isinstance(d, dict)})
+    print(f"\n  stats {tag}:")
+    print(f"    monedas: {dict(monedas)}")
+    print(f"    plazos:  {dict(plazos)}")
+    print(f"    ruedas:  {dict(ruedas)}")
+    print(f"    fechas distintas: {len(fechas)}  (ej: {fechas[:5]}...)")
+    return n
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--page", type=int, default=None, help="Página específica")
     parser.add_argument(
-        "--fecha",
-        default=None,
-        help="YYYY-MM-DD de un día específico (default: probar varias variantes)",
+        "--all", action="store_true",
+        help="Iterar todas las páginas hasta que venga vacía (máx 50)",
     )
     args = parser.parse_args()
 
     print("=" * 78)
-    print(" MAE MarketData — smoke test /mercado/repo")
+    print(" MAE MarketData — smoke test /api/v1/mercado/cotizaciones/repo")
     print("=" * 78)
 
-    # Chequeo de config
     try:
-        _ = get_repo.__module__  # tocar algo del módulo; _ensure_configured corre dentro
-    except Exception as e:
-        print(f"  error importando core.mae: {e}")
-        return 1
+        if args.page is not None:
+            _header(f"Página {args.page}")
+            data = get_repo(page=args.page)
+            _resumir_pagina(data, f"p{args.page}")
+            return 0
 
-    # Si el user pidió fecha explícita
-    if args.fecha:
-        _intentar(f"Fecha explícita {args.fecha}", desde=args.fecha, hasta=args.fecha)
-        print("\n" + "=" * 78)
-        print(" Fin. Pegame el output completo.")
-        print("=" * 78)
-        return 0
+        if args.all:
+            _header("Iterando TODAS las páginas (máx 50)")
+            total = 0
+            for i, page in enumerate(iter_repo_pages(max_pages=50), start=1):
+                n = _resumir_pagina(page, f"p{i}") if i <= 2 else len(page)
+                if i > 2 and isinstance(page, list):
+                    print(f"  página {i}: {n} items (skip detalle)")
+                total += n
+            print(f"\n  TOTAL items across pages: {total}")
+            return 0
 
-    # 3 variantes: sin params, rango hoy, rango últimos 3 días
-    hoy = datetime.now(UTC).date()
-    ayer = hoy - timedelta(days=1)
-    hace_3 = hoy - timedelta(days=3)
+        # Default: páginas 1 y 2
+        _header("Página 1 (default)")
+        data1 = get_repo(page=1)
+        n1 = _resumir_pagina(data1, "p1")
 
-    first: Any | None = None
+        if n1:
+            _header("Página 2")
+            try:
+                data2 = get_repo(page=2)
+                _resumir_pagina(data2, "p2")
+            except MaeError as e:
+                print(f"  ✗ p2 falló: {type(e).__name__}: {e}")
 
-    try:
-        first = _intentar("Variante A: sin params (lo que sea que devuelva por default)")
     except MaeNotConfigured as e:
         print(f"\n✗ {e}")
         print("Agregá MAE_API_KEY a /root/TradingAV/.env y volvé a correr.")
         return 1
-
-    _intentar(
-        "Variante B: ayer completo",
-        desde=ayer.isoformat(),
-        hasta=ayer.isoformat(),
-    )
-
-    _intentar(
-        "Variante C: últimos 3 días",
-        desde=hace_3.isoformat(),
-        hasta=hoy.isoformat(),
-    )
-
-    # Variante extra si la A no trajo nada o da formato distinto: probar
-    # formato DD/MM/YYYY por las dudas
-    _intentar(
-        "Variante D: formato DD/MM/YYYY (por compatibilidad)",
-        desde=ayer.strftime("%d/%m/%Y"),
-        hasta=ayer.strftime("%d/%m/%Y"),
-    )
+    except MaeError as e:
+        print(f"\n✗ {type(e).__name__}: {e}")
+        return 2
 
     print("\n" + "=" * 78)
-    print(" Fin. Pegame todo el output (sobre todo el shape de la variante")
-    print(" que devolvió 200). Con eso diseño el schema del rollup diario.")
+    print(" Fin. Pegame el output — con el shape real + volumen típico")
+    print(" diseño schema Trading.RepoMAE + job con cron diario.")
     print("=" * 78)
-    _ = first  # evita warning si ninguna variante retornó
     return 0
 
 

@@ -34,6 +34,7 @@ CF_ACCESS_TEAM / CF_ACCESS_AUD             ← validación JWT CF Access
 CF_TRUSTED_SERVICE_TOKENS                   ← common_names allow-list (acaquant-web SSR)
 BYMA_CLIENT_ID / BYMA_CLIENT_SECRET         ← OAuth2 BYMA Primarias
 BYMA_TOKEN_URL / BYMA_BASE_URL              ← endpoints BYMA (defaults en config.py)
+MAE_API_KEY / MAE_ENV                       ← MAE MarketData (x-api-key). MAE_ENV ∈ {prod, uat}, default prod
 ATLAS_PUBLIC_KEY / ATLAS_PRIVATE_KEY / ATLAS_PROJECT_ID / ATLAS_CLUSTER_NAME  ← pausa nocturna Atlas
 ```
 
@@ -52,7 +53,8 @@ TradingAV/
 │   ├── snapshot_writer.py    # writer background genérico
 │   ├── yahoo.py / finnhub.py # clientes externos (quotes, news, calendar)
 │   ├── job_runs.py           # JobRunLogger context manager → Manager.JobRuns
-│   └── byma.py               # cliente OAuth2 BYMA Primarias Placements
+│   ├── byma.py               # cliente OAuth2 BYMA Primarias Placements
+│   └── mae.py                # cliente MAE MarketData (x-api-key, prod/uat, rate-limit 30/min)
 │
 ├── engines/                  # motores always-on (WS → Mongo)
 │   ├── _curvas_loader.py     # helper compartido para leer Trading.Curvas
@@ -78,6 +80,7 @@ TradingAV/
 │   ├── segmento_contrapartes.py  # setea Fondos/ALYC/Bancos
 │   ├── volatilidad_ggal.py   # VR histórica GGAL al cierre
 │   ├── options_rollup.py     # rollup Opciones.Data → DataHistorica
+│   ├── archive_options_data.py  # backup JSON + purga Opciones.Data pre-hoy (manual post-OPEX)
 │   ├── bcra.py               # CER/TAMAR/DOLAR/BADLAR
 │   ├── sync_api_copies.py    # re-sync colecciones *API.*API desde fuentes
 │   ├── dias_habiles.py       # calendario hábil argentino
@@ -112,7 +115,9 @@ TradingAV/
 │   │   ├── prompt.py         # system prompt + caching ephemeral
 │   │   ├── context.py        # foto del día + último IntelDoc
 │   │   ├── runner.py         # bucle tool-use (MAX_STEPS=6)
-│   │   └── invariants.py     # checks dominio (paridad, convexity, duration)
+│   │   ├── invariants.py     # checks dominio (paridad, convexity, duration)
+│   │   ├── ticker_catalog.py # catálogo de tickers/curvas disponibles para el modelo
+│   │   └── tool_metadata.py  # declaraciones JSON-schema de las tools
 │   └── routers/
 │       ├── analitica.py      # /api/analitica/* (Tier 1 + Tier 2 tools)
 │       ├── carteras.py       # /api/portfolio/*
@@ -131,6 +136,9 @@ TradingAV/
 │   ├── api_migrate.py        # migraciones colecciones legacy → API
 │   ├── test_api.py           # smoke test endpoints API
 │   ├── test_byma.py          # smoke test BYMA Primarias (4 endpoints)
+│   ├── test_mae.py           # smoke test MAE MarketData (/repo paginado)
+│   ├── diagnose_mae_auth.py  # prueba 6 variantes de auth header contra MAE
+│   ├── seed_soberanos.py     # upsert docs/soberanos/*.json → Trading.Curvas
 │   ├── perf_scan.py          # análisis estático anti-patterns Mongo
 │   └── check_*.py / debug_*.py
 │
@@ -141,7 +149,9 @@ TradingAV/
 │   ├── systemd/              # .service files (motor_* + api + cloudflared)
 │   └── crontab.txt           # fuente de verdad del cron
 │
-└── docs/                     # API.md, API_MIGRATIONS.md, ASISTENTE.md, asistente/estrategia.md, asistente/estrategias.md
+└── docs/                     # API.md, API_MIGRATIONS.md, ARCHITECTURE.md, ASISTENTE.md, FRONTEND_AUDIT.md,
+                              #   asistente/{estrategia.md, estrategias.md, tools_spec.md, golden_set.yaml},
+                              #   soberanos/*.json (seed de bonos hard-dollar para Trading.Curvas)
 ```
 
 **Regla de capas**: `core/` no importa a nadie. `engines/` y `jobs/` importan `core/` + `quant/`. `api/` usa `core.mongo.get_mongo_client_read()` (read-only). `scripts/` puede importar lo que necesite.
@@ -364,6 +374,9 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - **`test_match_contrapartes.py`** — verifica matcheo contrapartes Flujo ↔ Contrapartes.
 - **`test_gemini.py`** — smoke test Gemini API (flash y pro). Flags `--modelo`, `--prompt`.
 - **`test_chat.py`** — smoke test `/api/chat` contra localhost o prod. Requiere uvicorn corriendo.
+- **`test_mae.py`** — smoke test `core.mae.get_repo()`. Requiere `MAE_API_KEY` en `.env`.
+- **`diagnose_mae_auth.py`** — diagnóstico: prueba 6 variantes de header de auth contra MAE cuando falla 401/403.
+- **`seed_soberanos.py`** — upsert de `docs/soberanos/*.json` en `Trading.Curvas`. Idempotente. Flags `--dry`, `--only TICKER`.
 
 ## Deployment
 

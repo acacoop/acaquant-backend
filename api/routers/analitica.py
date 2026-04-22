@@ -1,14 +1,14 @@
-"""Router Analítica — Tier 1 tools del asistente expuestas como HTTP.
+"""Router Analítica — Tier 1 + Tier 2 tools del asistente expuestas como HTTP.
 
-Los 3 endpoints acá son thin wrappers sobre `api/services/cotizaciones.py`
-y `api/services/macro.py`. El asistente los llama directo via service
-registry (sin HTTP loopback); este router existe para consumo externo
-(acaquant-web, curl, debugging).
+Los 6 endpoints acá son thin wrappers sobre `api/services/*`. El asistente
+los llama directo via service registry (sin HTTP loopback); este router
+existe para consumo externo (acaquant-web, curl, debugging).
 """
 from fastapi import APIRouter, Query
 
-from api.services import cotizaciones as svc_cot
+from api.services import analitica as svc_ana
 from api.services import macro as svc_macro
+from api.services import renta_fija as svc_rf
 
 router = APIRouter(prefix="/api/analitica", tags=["Analítica"])
 
@@ -21,7 +21,7 @@ def listar_curva(
     vencimiento_max_meses: float | None = Query(None, description="Filtrar ≤ N meses"),
     limit: int | None = Query(None, description="Top N después de ordenar"),
 ):
-    return svc_cot.listar_curva(
+    return svc_rf.listar_curva(
         curva=curva,
         ordenar_por=ordenar_por,
         vencimiento_min_meses=vencimiento_min_meses,
@@ -54,7 +54,7 @@ def snapshot_curva_historico(
     curva: str = Query(..., description="cer|tasa_fija|tamar|soberanos|dolar_linked"),
     fecha: str = Query(..., description="YYYY-MM-DD (día de cierre a reconstruir)"),
 ):
-    return svc_cot.snapshot_curva_historico(curva=curva, fecha=fecha)
+    return svc_ana.snapshot_curva_historico(curva=curva, fecha=fecha)
 
 
 @router.get("/pendiente-curva")
@@ -63,7 +63,7 @@ def pendiente_curva(
     metrica: str = Query("tea", description="tea|tem|duration"),
     fecha_comparacion: str | None = Query(None, description="YYYY-MM-DD opcional"),
 ):
-    return svc_cot.calcular_pendiente_curva(
+    return svc_ana.calcular_pendiente_curva(
         curva=curva, metrica=metrica, fecha_comparacion=fecha_comparacion,
     )
 
@@ -73,4 +73,4 @@ def liquidez_secundario(
     ticker: str = Query(..., description="Ticker corto o completo ROFEX"),
     dias: int = Query(20, ge=3, le=252, description="Ventana para el promedio"),
 ):
-    return svc_cot.liquidez_secundario(ticker=ticker, dias=dias)
+    return svc_ana.liquidez_secundario(ticker=ticker, dias=dias)

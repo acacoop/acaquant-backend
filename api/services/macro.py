@@ -27,6 +27,88 @@ from api.db import get_db_trading, get_db_valuaciones
 from quant.stats import cambio_pct, compute_stats
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Series raw de cotizaciones (BCRA + Dólar financiero)
+#
+# Wrappers simples a Mongo usados por los endpoints `/api/cotizaciones/*`.
+# La tool analítica `obtener_serie_macro` (más abajo) hace lo mismo vía
+# `_fetch_serie_macro` genérico + stats. Se mantienen separados porque los
+# callers HTTP devuelven data cruda sin stats ni clasificación.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _query_serie(collection: str, desde: str | None, hasta: str | None) -> list:
+    db = get_db_trading()
+    filtro: dict = {}
+    if desde or hasta:
+        rango: dict = {}
+        if desde:
+            rango["$gte"] = desde
+        if hasta:
+            rango["$lte"] = hasta
+        filtro["fecha"] = rango
+    return list(
+        db[collection]
+        .find(filtro, {"_id": 0, "fecha": 1, "valor": 1})
+        .sort("fecha", 1)
+    )
+
+
+@cached(ttl=3600)
+def get_badlar(desde: str | None = None, hasta: str | None = None) -> list:
+    return _query_serie("BADLAR", desde, hasta)
+
+
+@cached(ttl=3600)
+def get_cer(desde: str | None = None, hasta: str | None = None) -> list:
+    return _query_serie("CER", desde, hasta)
+
+
+@cached(ttl=3600)
+def get_dolar(desde: str | None = None, hasta: str | None = None) -> list:
+    return _query_serie("DOLAR", desde, hasta)
+
+
+@cached(ttl=5)
+def get_ultimo_mep() -> dict:
+    """Último valor de dólar MEP/CCL/canje. Prefiere snapshot live (5s desde
+    engines/dolares.py vía WS) y cae al último doc del cron de cierre
+    (Valuaciones.Dolar) si el snapshot live no existe.
+
+    Devuelve {mep, ccl, canje, timestamp, source}. Los 3 campos numéricos
+    pueden ser None si los inputs WS no están disponibles."""
+    db = get_db_valuaciones()
+
+    snap = db["DolarSnapshot"].find_one(
+        {"_id": "current"},
+        {"_id": 0, "mep": 1, "ccl": 1, "canje": 1, "timestamp": 1, "source": 1},
+    )
+    if snap and snap.get("mep") is not None:
+        return snap
+
+    doc = db["Dolar"].find_one(
+        {}, {"_id": 0, "mep": 1, "ccl": 1, "canje": 1, "timestamp": 1},
+        sort=[("timestamp", -1)],
+    )
+    if doc:
+        doc["source"] = "cron_close"
+    return doc or {}
+
+
+@cached(ttl=300)
+def get_historico_mep(desde: str | None = None, hasta: str | None = None) -> list:
+    """Serie histórica del dólar MEP (Valuaciones.Dolar)."""
+    db = get_db_valuaciones()
+    filtro: dict = {}
+    if desde or hasta:
+        rango: dict = {}
+        if desde:
+            rango["$gte"] = datetime.fromisoformat(desde)
+        if hasta:
+            rango["$lte"] = datetime.fromisoformat(hasta + "T23:59:59")
+        filtro["timestamp"] = rango
+    return list(db["Dolar"].find(filtro, {"_id": 0, "mep": 1, "timestamp": 1}))
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Config: mapping variable macro → (db, coleccion, campo_fecha, campo_valor)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -108,7 +190,7 @@ def _fetch_serie_ticker(variable: str, ventana_dias: int) -> list[dict]:
     Devuelve un punto por día (último valor del día para ese ticker/campo).
     """
     # Import lazy para evitar ciclo al importar macro desde tools.py
-    from api.services.cotizaciones import resolver_ticker_exacto
+    from api.services.renta_fija import resolver_ticker_exacto
 
     parts = variable.split(".", 1)
     if len(parts) != 2:

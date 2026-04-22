@@ -1,6 +1,17 @@
 # Arquitectura — TradingAV
 
-Documento de referencia del código actual. Describe cómo están organizados los módulos, cómo fluyen los datos y qué responsabilidad tiene cada capa. Los diagramas usan Mermaid (renderizan en GitHub, GitLab, VS Code y Obsidian).
+Documento funcional de referencia del código actual. Describe cómo están organizados los módulos, cómo fluyen los datos y qué responsabilidad tiene cada capa. Los diagramas usan Mermaid (renderizan en GitHub, GitLab, VS Code y Obsidian).
+
+**Documentos complementarios** (mismo repo, `docs/`):
+
+| Doc | Qué cubre |
+|---|---|
+| `API.md` | Contrato HTTP (endpoints, auth, rate limits, errores, ejemplos). |
+| `ASISTENTE.md` | Detalle del módulo IA (`api/agent/`): tools, providers, observabilidad, roadmap. |
+| `API_MIGRATIONS.md` | Cómo se sincronizan las colecciones `*API.*API` desde sus fuentes. |
+| `FRONTEND_AUDIT.md` | Estado del frontend `acaquant-web` (hallazgos priorizados). |
+
+Este documento es el punto de entrada para Desarrollo / Ciberseguridad. Los anexos amplían puntos específicos sin duplicar la visión global.
 
 ---
 
@@ -48,6 +59,8 @@ flowchart LR
         ROFEX["ROFEX (WS + REST)"]
         AUN["Aunesa (REST)"]
         BCRA["BCRA / Finnhub / Yahoo"]
+        MAE["MAE MarketData<br/>(x-api-key)"]
+        BYMA["BYMA Primarias<br/>(OAuth2)"]
         ANT["Anthropic Claude /<br/>Google Gemini"]
     end
 
@@ -65,6 +78,8 @@ flowchart LR
     E1 & E2 & E3 & E4 & E5 -->|WS/REST| ROFEX
     CR -->|REST| AUN
     CR -->|REST| BCRA
+    CR -->|REST| MAE
+    CR -->|REST| BYMA
     API -->|HTTPS| ANT
     API & E1 & E2 & E3 & E4 & E5 & CR -->|TLS + zstd| DB
 ```
@@ -96,6 +111,7 @@ flowchart TD
         CY["core.yahoo / core.finnhub"]
         CJ["core.job_runs<br/>(JobRunLogger)"]
         CB["core.byma<br/>(OAuth2 Primarias)"]
+        CME["core.mae<br/>(x-api-key, rate-limit 30/min)"]
     end
 
     subgraph L2A["Capa 2A — Cálculo puro (quant/)"]
@@ -251,6 +267,8 @@ flowchart LR
 ```
 
 **Patrón de derivadas API**: las colecciones `*API.*API` son copias optimizadas (campos normalizados, índices propios) reconstruidas con `drop() + insert_many()` en `scripts/api_migrate.py`. `jobs/sync_api_copies.py` se encadena al final de cada job fuente en el crontab para que la API quede fresca sin intervención manual.
+
+**Jobs manuales (sin cron)**: `jobs/archive_options_data.py` exporta `Opciones.Data` completa a JSON local y purga los docs pre-hoy; se corre a mano post-OPEX para liberar espacio.
 
 **Observabilidad**: cada job se envuelve en `core.job_runs.JobRunLogger` (context manager). El `__exit__` persiste un doc en `Manager.JobRuns` con duración, status (`ok|partial|error`), stats estructurados y últimas ~200 líneas de log. El índice TTL de 60 días vive en `scripts/crear_indices.py`.
 
@@ -482,4 +500,4 @@ flowchart LR
 
 ---
 
-*Última revisión: 2026-04-21 (post motores caución / futuros DLR / dolares + ARGY + Tier 2 analítica + scaffolding BYMA). Actualizar cuando cambien las capas, el deployment o la política de seguridad.*
+*Última revisión: 2026-04-22 (scaffolding cliente MAE MarketData; se absorbe el proyecto a la empresa — documento funcional de referencia para auditoría de Ciberseguridad y Desarrollo). Actualizar cuando cambien las capas, el deployment o la política de seguridad.*

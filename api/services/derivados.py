@@ -1,0 +1,111 @@
+"""Capa de servicio — derivados (futuros DLR, forwards, breakevens).
+
+Reúne las magnitudes derivadas de la curva local y los únicos derivados
+puros (futuros DLR de ROFEX). Separación por dominio vs `renta_fija.py`:
+allá viven los cash bonds; acá todo lo que se construye a partir de ellos.
+
+Fuentes:
+- Futuros DLR      → engines/futuros_dlr.py
+- Forwards         → engines/forwards.py
+- Breakevens       → engines/breakevens.py
+"""
+from __future__ import annotations
+
+from api.cache import cached
+from api.db import get_db_trading
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Futuros DLR (Trading.FuturosDLRSnapshot + FuturosDLR)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@cached(ttl=5)
+def get_futuros_dlr() -> list:
+    """Snapshot live de outrights DLR (Trading.FuturosDLRSnapshot).
+    Devuelve la curva entera ordenada por vencimiento ascendente."""
+    db = get_db_trading()
+    return list(db["FuturosDLRSnapshot"].find({}, {"_id": 0}).sort("vencimiento", 1))
+
+
+@cached(ttl=300)
+def get_historico_futuros_dlr(
+    ticker: str | None = None,
+    desde: str | None = None,
+    hasta: str | None = None,
+) -> list:
+    """Cierre histórico (Trading.FuturosDLR). Filtrable por ticker y rango."""
+    db = get_db_trading()
+    filtro: dict = {}
+    if ticker:
+        filtro["ticker"] = ticker
+    if desde or hasta:
+        rango: dict = {}
+        if desde:
+            rango["$gte"] = desde
+        if hasta:
+            rango["$lte"] = hasta
+        filtro["fecha"] = rango
+    return list(
+        db["FuturosDLR"]
+        .find(filtro, {"_id": 0})
+        .sort([("fecha", 1), ("vencimiento", 1)])
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Forwards (Trading.ForwardsLive + ForwardsHistorico)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@cached(ttl=30)
+def get_forwards(curva: str | None = None) -> list:
+    db = get_db_trading()
+    filtro: dict = {}
+    if curva:
+        filtro["curva"] = curva
+    return list(db["ForwardsLive"].find(filtro, {"_id": 0}))
+
+
+@cached(ttl=300)
+def get_historico_forwards(
+    curva: str | None = None,
+    desde: str | None = None,
+    hasta: str | None = None,
+) -> list:
+    db = get_db_trading()
+    filtro: dict = {}
+    if curva:
+        filtro["curva"] = curva
+    if desde or hasta:
+        rango: dict = {}
+        if desde:
+            rango["$gte"] = desde
+        if hasta:
+            rango["$lte"] = hasta
+        filtro["fecha"] = rango
+    return list(db["ForwardsHistorico"].find(filtro, {"_id": 0}))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Breakevens (Trading.BreakevensLive + BreakevensHistorico)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@cached(ttl=30)
+def get_breakevens() -> list:
+    db = get_db_trading()
+    return list(db["BreakevensLive"].find({}, {"_id": 0}))
+
+
+@cached(ttl=300)
+def get_historico_breakevens(desde: str | None = None, hasta: str | None = None) -> list:
+    db = get_db_trading()
+    filtro: dict = {}
+    if desde or hasta:
+        rango: dict = {}
+        if desde:
+            rango["$gte"] = desde
+        if hasta:
+            rango["$lte"] = hasta
+        filtro["fecha"] = rango
+    return list(db["BreakevensHistorico"].find(filtro, {"_id": 0}))

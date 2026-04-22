@@ -1,6 +1,6 @@
 """Tests unitarios de las tools Tier 2 (snapshot_historico, pendiente, liquidez).
 
-Las 3 son funciones puras sobre el módulo `api.services.cotizaciones` que
+Las 3 son funciones puras sobre el módulo `api.services.analitica` que
 consultan Mongo. Acá mockeamos el acceso a Mongo (get_db_trading) para
 validar la lógica sin DB real.
 """
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import api.services.cotizaciones as svc
+import api.services.analitica as svc
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers para mockear Mongo

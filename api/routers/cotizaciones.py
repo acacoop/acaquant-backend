@@ -1,15 +1,26 @@
-"""Router Cotizaciones — thin wrappers sobre api.services.cotizaciones.
+"""Router Cotizaciones — thin wrappers sobre la capa de servicio.
 
-La lógica vive en `api/services/cotizaciones.py`. Acá solo declaramos
-endpoints FastAPI que parsean query params y delegan al service.
+La lógica vive en `api/services/*`. Acá solo declaramos endpoints FastAPI
+que parsean query params y delegan al service. Separación por dominio:
 
-Motivo: la misma capa de servicio la usa `api/agent/tools.py::dispatch` sin
-pagar el roundtrip HTTP loopback. Ver auditoría #14.
+- macro           → series BCRA (BADLAR/CER/DOLAR) + dólar MEP
+- repo            → caución (ARS + USD)
+- derivados       → futuros DLR + forwards + breakevens
+- renta_fija      → MarketSnapshot + TimeSales + curvas
+- opciones        → chain + meta + históricos
+- argy            → panel multi-métrica con returns
+
+Motivo de la capa de servicio: `api/agent/tools.py::dispatch` la invoca
+directamente, sin loopback HTTP.
 """
 from fastapi import APIRouter, HTTPException, Query
 
 from api.services import argy as svc_argy
-from api.services import cotizaciones as svc
+from api.services import derivados as svc_der
+from api.services import macro as svc_macro
+from api.services import opciones as svc_opt
+from api.services import renta_fija as svc_rf
+from api.services import repo as svc_repo
 
 router = APIRouter(prefix="/api/cotizaciones", tags=["Cotizaciones"])
 
@@ -22,7 +33,7 @@ def listar_badlar(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
 ):
-    return svc.get_badlar(desde=desde, hasta=hasta)
+    return svc_macro.get_badlar(desde=desde, hasta=hasta)
 
 
 @router.get("/cer")
@@ -30,7 +41,7 @@ def listar_cer(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
 ):
-    return svc.get_cer(desde=desde, hasta=hasta)
+    return svc_macro.get_cer(desde=desde, hasta=hasta)
 
 
 @router.get("/dolar")
@@ -38,7 +49,7 @@ def listar_dolar(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
 ):
-    return svc.get_dolar(desde=desde, hasta=hasta)
+    return svc_macro.get_dolar(desde=desde, hasta=hasta)
 
 
 # ── Dólar MEP ──
@@ -46,7 +57,7 @@ def listar_dolar(
 
 @router.get("/mep")
 def ultimo_mep():
-    return svc.get_ultimo_mep()
+    return svc_macro.get_ultimo_mep()
 
 
 @router.get("/historico/mep")
@@ -54,7 +65,7 @@ def historico_mep(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
 ):
-    return svc.get_historico_mep(desde=desde, hasta=hasta)
+    return svc_macro.get_historico_mep(desde=desde, hasta=hasta)
 
 
 # ── ARGY (panel de control: MEP/CCL/canje/cauciones con returns) ──
@@ -65,14 +76,14 @@ def argy():
     return svc_argy.get_argy_with_returns()
 
 
-# ── Caución ──
+# ── Caución (mercado repo) ──
 
 
 @router.get("/caucion")
 def caucion(
     moneda: str | None = Query(None, description="ARS o USD; vacío = ambas"),
 ):
-    return svc.get_caucion(moneda=moneda)
+    return svc_repo.get_caucion(moneda=moneda)
 
 
 @router.get("/historico/caucion")
@@ -81,7 +92,7 @@ def historico_caucion(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
 ):
-    return svc.get_historico_caucion(moneda=moneda, desde=desde, hasta=hasta)
+    return svc_repo.get_historico_caucion(moneda=moneda, desde=desde, hasta=hasta)
 
 
 # ── Futuros DLR ──
@@ -89,7 +100,7 @@ def historico_caucion(
 
 @router.get("/futuros-dlr")
 def futuros_dlr():
-    return svc.get_futuros_dlr()
+    return svc_der.get_futuros_dlr()
 
 
 @router.get("/historico/futuros-dlr")
@@ -98,7 +109,7 @@ def historico_futuros_dlr(
     desde:  str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta:  str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
 ):
-    return svc.get_historico_futuros_dlr(ticker=ticker, desde=desde, hasta=hasta)
+    return svc_der.get_historico_futuros_dlr(ticker=ticker, desde=desde, hasta=hasta)
 
 
 # ── Forwards ──
@@ -108,7 +119,7 @@ def historico_futuros_dlr(
 def listar_forwards(
     curva: str | None = Query(None, description="Filtrar por curva (tasa_fija/cer)"),
 ):
-    return svc.get_forwards(curva=curva)
+    return svc_der.get_forwards(curva=curva)
 
 
 @router.get("/historico/forwards")
@@ -117,7 +128,7 @@ def historico_forwards(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
 ):
-    return svc.get_historico_forwards(curva=curva, desde=desde, hasta=hasta)
+    return svc_der.get_historico_forwards(curva=curva, desde=desde, hasta=hasta)
 
 
 # ── Breakevens ──
@@ -125,7 +136,7 @@ def historico_forwards(
 
 @router.get("/breakevens")
 def listar_breakevens():
-    return svc.get_breakevens()
+    return svc_der.get_breakevens()
 
 
 @router.get("/historico/breakevens")
@@ -133,7 +144,7 @@ def historico_breakevens(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
 ):
-    return svc.get_historico_breakevens(desde=desde, hasta=hasta)
+    return svc_der.get_historico_breakevens(desde=desde, hasta=hasta)
 
 
 # ── Renta Fija ──
@@ -143,7 +154,7 @@ def historico_breakevens(
 def listar_renta_fija(
     instrumento: str | None = Query(None, description="Filtrar por instrumento. Acepta ticker corto ('TX26') o completo ('MERV - XMEV - TX26 - 24hs')."),
 ):
-    return svc.get_renta_fija(instrumento=instrumento)
+    return svc_rf.get_renta_fija(instrumento=instrumento)
 
 
 # ── Opciones ──
@@ -154,12 +165,12 @@ def listar_opciones(
     instrumento: str | None = Query(None, description="Filtrar por instrumento. Acepta corto ('GFGC10950A') o completo ('MERV - XMEV - GFGC10950A - 24hs')."),
     tipo: str | None = Query(None, description="Filtrar por tipo (CALL/PUT)"),
 ):
-    return svc.get_opciones(instrumento=instrumento, tipo=tipo)
+    return svc_opt.get_opciones(instrumento=instrumento, tipo=tipo)
 
 
 @router.get("/opciones/meta")
 def opciones_meta():
-    return svc.get_opciones_meta()
+    return svc_opt.get_opciones_meta()
 
 
 @router.put("/opciones/tasa")
@@ -167,7 +178,7 @@ def opciones_update_tasa(
     valor: float = Query(..., gt=0.0, lt=3.0, description="Tasa libre de riesgo (0.242 = 24.2%)"),
 ):
     try:
-        return svc.update_opciones_tasa(valor)
+        return svc_opt.update_opciones_tasa(valor)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -177,7 +188,7 @@ def historico_opciones(
     instrumento: str | None = Query(None, description="Filtrar por instrumento (symbol)"),
     tipo: str | None = Query(None, description="Filtrar por tipo (CALL/PUT)"),
 ):
-    return svc.get_historico_opciones(instrumento=instrumento, tipo=tipo)
+    return svc_opt.get_historico_opciones(instrumento=instrumento, tipo=tipo)
 
 
 # ── Históricos TimeSales ──
@@ -187,11 +198,11 @@ def historico_opciones(
 def historico_trades(
     instrumento: str | None = Query(None, description="Filtrar por instrumento. Acepta corto ('TX26') o completo ('MERV - XMEV - TX26 - 24hs')."),
 ):
-    return svc.get_historico_trades(instrumento=instrumento)
+    return svc_rf.get_historico_trades(instrumento=instrumento)
 
 
 @router.get("/historico/curva")
 def historico_curva(
     curva: str = Query(..., description="tasa_fija / cer"),
 ):
-    return svc.get_historico_curva(curva=curva)
+    return svc_rf.get_historico_curva(curva=curva)

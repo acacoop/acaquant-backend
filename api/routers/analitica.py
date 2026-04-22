@@ -81,14 +81,20 @@ def liquidez_secundario(
 def sensibilidad_retorno(
     curva: str = Query("soberanos", description="Curva (soberanos)"),
     tirs: str = Query("4,5,6,7,8,9,10,11",
-                      description="CSV de TIRs (en %, ej. '4,5,6,7,8,9,10,11')"),
+                      description="CSV de TIRs (modo absoluta) o shocks pp "
+                                  "(modo relativa). En %."),
     horizonte_dias: int = Query(365, ge=30, le=1095,
                                 description="Horizonte en días (default 365)"),
+    modo: str = Query("absoluta",
+                      description="'absoluta' = TIRs finales; 'relativa' = "
+                                  "shocks pp sobre la TEA actual"),
 ):
     """Tabla de sensibilidad de retorno total por escenario de TIR.
 
     Para cada bono de la curva, devuelve precio actual + analíticos +
-    [{tir, precio_1anio, retorno_total}, ...] por cada TIR escenario.
+    [{tir, shock_pp, precio_1anio, retorno_total}, ...] por escenario.
+    En modo relativa cada bono se evalúa con TIRs centradas en su TEA
+    actual (comparación apples-to-apples).
     """
     try:
         tirs_t = tuple(float(t.strip()) / 100 for t in tirs.split(",") if t.strip())
@@ -97,5 +103,5 @@ def sensibilidad_retorno(
     if not tirs_t:
         return {"error": "tirs vacío"}
     return svc_sens.sensibilidad_retorno_total(
-        curva=curva, tirs=tirs_t, horizonte_dias=horizonte_dias,
+        curva=curva, tirs=tirs_t, horizonte_dias=horizonte_dias, modo=modo,
     )

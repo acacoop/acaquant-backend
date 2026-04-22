@@ -72,8 +72,17 @@ def sensibilidad_retorno_total(
     curva: str = "soberanos",
     tirs: tuple[float, ...] = _DEFAULT_TIRS,
     horizonte_dias: int = _DEFAULT_HORIZONTE_DIAS,
+    modo: str = "absoluta",
 ) -> list[dict]:
     """Devuelve tabla de sensibilidad: 1 entrada por bono, con escenarios.
+
+    `modo`:
+      - "absoluta"  → `tirs` se interpretan como TIRs finales (ej. 0.06 = 6%).
+      - "relativa"  → `tirs` se interpretan como SHOCKS en puntos porcentuales
+                       sobre la TEA actual de cada bono. Ej. tirs=(-0.02, 0,
+                       0.02) y tea_actual=0.092 → escenarios reales 7.2%,
+                       9.2%, 11.2% para ese bono. Permite comparar bonos
+                       con rangos centrados en su propia TEA.
 
     Output:
     [
@@ -81,12 +90,15 @@ def sensibilidad_retorno_total(
         ticker, ticker_completo, fecha_vencimiento,
         precio_actual, tea_actual, duration, paridad,
         cobrado_anio, n_flujos_anio,
-        escenarios: [{tir, precio_1anio, retorno_total}, ...]
+        escenarios: [{tir, shock_pp, precio_1anio, retorno_total}, ...]
       },
       ...
     ]
     """
     db = get_db_trading()
+    modo = (modo or "absoluta").lower()
+    if modo not in ("absoluta", "relativa"):
+        modo = "absoluta"
 
     bonos = list(db["Curvas"].find(
         {"curva": curva},
@@ -115,33 +127,47 @@ def sensibilidad_retorno_total(
         cobrado_anio = sum(m for _, m in flujos_anio)
 
         flujos_post = [(fd, m) for fd, m in flujos if fd > horizonte]
-        if not flujos_post:
-            # Bono que vence dentro del horizonte → retorno solo carry.
-            # No hay precio futuro que descontar; los escenarios de TIR
-            # no afectan el resultado.
-            ret_carry = cobrado_anio / precio_actual - 1
-            escenarios = [
-                {"tir": round(t, 6), "precio_1anio": 0.0,
-                 "retorno_total": round(ret_carry, 6)}
-                for t in tirs
-            ]
-        else:
-            escenarios = []
-            for tir in tirs:
-                precio_1anio = _precio_proyectado(flujos_post, tir, horizonte)
-                retorno_total = (precio_1anio + cobrado_anio) / precio_actual - 1
-                escenarios.append({
-                    "tir":           round(tir, 6),
-                    "precio_1anio":  round(precio_1anio, 4),
-                    "retorno_total": round(retorno_total, 6),
-                })
 
         # TEA / duration / paridad del MarketSnapshot (escritos por motor_curvas).
+        # Se necesita ANTES del cálculo de escenarios porque el modo relativo
+        # los aplica como shock sobre tea_actual.
         snap = db["MarketSnapshot"].find_one(
             {"ticker": ticker_full},
             {"_id": 0, "metrics.TEA": 1, "metrics.duration": 1, "metrics.paridad": 1},
         )
         ms = (snap or {}).get("metrics") or {}
+        tea_actual = ms.get("TEA")
+
+        # Construir las TIRs reales según el modo.
+        if modo == "relativa":
+            if tea_actual is None:
+                # Sin TEA actual no hay base para shockear → skip bono.
+                continue
+            tirs_reales = [(s, tea_actual + s) for s in tirs]
+        else:
+            tirs_reales = [(None, t) for t in tirs]
+
+        if not flujos_post:
+            # Bono que vence dentro del horizonte → retorno solo carry.
+            ret_carry = cobrado_anio / precio_actual - 1
+            escenarios = [
+                {"shock_pp":      round(shock, 6) if shock is not None else None,
+                 "tir":           round(tir, 6),
+                 "precio_1anio":  0.0,
+                 "retorno_total": round(ret_carry, 6)}
+                for shock, tir in tirs_reales
+            ]
+        else:
+            escenarios = []
+            for shock, tir in tirs_reales:
+                precio_1anio = _precio_proyectado(flujos_post, tir, horizonte)
+                retorno_total = (precio_1anio + cobrado_anio) / precio_actual - 1
+                escenarios.append({
+                    "shock_pp":      round(shock, 6) if shock is not None else None,
+                    "tir":           round(tir, 6),
+                    "precio_1anio":  round(precio_1anio, 4),
+                    "retorno_total": round(retorno_total, 6),
+                })
 
         out.append({
             "ticker":            ticker_corto,

@@ -300,6 +300,15 @@ class MicrostructureEngine:
                 for ticker in self.tickers:
                     st = self.market_state[ticker]
                     metricas = self._calcular_metricas(ticker)
+
+                    # Defensivo: si no tenemos last_price real en memoria
+                    # (p.ej. _arranque_en_frio falló silencioso para este
+                    # ticker, o nunca recibimos tick del WS), no pisamos
+                    # el doc — preservamos lo que puso snapshot_rest o la
+                    # sesión previa.
+                    if metricas.get("last_price") is None:
+                        continue
+
                     # NOTA: este ReplaceOne borraría los campos analíticos
                     # (metrics.TEA, .TEM, .duration, .convexity, .paridad)
                     # que escribe engines/curvas.py. Los preservamos leyendo

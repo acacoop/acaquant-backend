@@ -42,14 +42,14 @@ Resumen ejecutivo por cuenta: valuación del mes corriente y del mes anterior, a
 **Response 200** (sin `id_cuenta`)
 
 ```json
-{ "cuentas": ["[42] ACME SA", "[43] DUMMY SA"] }
+{ "cuentas": ["ACA"] }
 ```
 
 **Response 200** (con `id_cuenta`)
 
 ```json
 {
-  "cuentas": ["[42] ACME SA"],
+  "cuentas": ["ACA"],
   "mes_actual":   { "Renta Fija": 12500000.0, "FCI": 3400000.0 },
   "mes_anterior": { "Renta Fija": 12100000.0, "FCI": 3200000.0 }
 }
@@ -114,7 +114,7 @@ Posiciones en instrumentos de tasa fija, agrupadas por ticker, con `cobro_proyec
       "cuentas": [
         {
           "id_cuenta": "123456",
-          "cuenta": "[42] ACME SA",
+          "cuenta": "ACA",
           "valuacion": 8500000.0
         }
       ]
@@ -147,7 +147,7 @@ Idéntico a `/tasa-fija` pero para instrumentos CER (ajustables por inflación).
       "cuentas": [
         {
           "id_cuenta": "123456",
-          "cuenta": "[42] ACME SA",
+          "cuenta": "ACA",
           "valuacion": 8200000.0
         }
       ]

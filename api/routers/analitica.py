@@ -96,4 +96,6 @@ def sensibilidad_retorno(
         return {"error": "tirs malformado, esperado CSV de números"}
     if not tirs_t:
         return {"error": "tirs vacío"}
-    return svc_sens.sensibilidad_retorno_total(curva, tirs_t, horizonte_dias)
+    return svc_sens.sensibilidad_retorno_total(
+        curva=curva, tirs=tirs_t, horizonte_dias=horizonte_dias,
+    )

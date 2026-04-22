@@ -260,47 +260,29 @@ class MicrostructureEngine:
                     self.trade_buffer.append({"ticker": ticker, **trade})
 
     def _calcular_metricas(self, ticker):
-        """Calcula métricas de microestructura para el snapshot."""
+        """Calcula métricas del snapshot (shape reducido).
+
+        Deprecado y removido: micro_price, spread, imbalance, total_money,
+        buy_money, sell_money, vpin_prom, vpin_vivo, progreso, buy_b, sell_b.
+        Eran útiles en el modo terminal original pero la app no los usa.
+        Si en el futuro los necesita alguien, el state interno del engine
+        los sigue calculando — solo no los persistimos.
+
+        Los campos analíticos (TEA, TEM, duration, convexity, paridad) los
+        escribe engines/curvas.py directamente en este mismo doc cuando
+        enriquece trades. Acá no los tocamos.
+        """
         st = self.market_state[ticker]
-        b = st["book"]["bids"]
-        o = st["book"]["offers"]
         fs = st["daily_financials"]
-        vs = st["vpin_stats"]
-
-        m_px, sp, imb = 0.0, 0.0, 0.0
-        if b and o:
-            b_px, b_sz = b[0]['price'], b[0]['size']
-            o_px, o_sz = o[0]['price'], o[0]['size']
-            m_px = (b_px * o_sz + o_px * b_sz) / (b_sz + o_sz) if (b_sz + o_sz) > 0 else 0
-            sp = o_px - b_px
-            tot_b = sum(x['size'] for x in b)
-            tot_o = sum(x['size'] for x in o)
-            imb = (tot_b - tot_o) / (tot_b + tot_o) if (tot_b + tot_o) > 0 else 0
-
-        bucket_limit = VOLUME_BUCKET_SIZES.get(ticker, 1000000)
-        tot_bucket = vs["current_buy_vol"] + vs["current_sell_vol"]
-        progreso = tot_bucket / bucket_limit if bucket_limit > 0 else 0
-        v_vivo = abs(vs["current_buy_vol"] - vs["current_sell_vol"]) / tot_bucket if tot_bucket > 0 else 0
 
         return {
-            "micro_price": m_px,
-            "spread": sp,
-            "imbalance": imb,
-            "total_nominals": fs["total_nominals"],
-            "total_money": fs["total_money"],
-            "buy_money": fs["buy_money"],
-            "sell_money": fs["sell_money"],
-            "vwap": (fs["total_money"] / fs["total_nominals"] * 100) if fs["total_nominals"] > 0 else 0,
-            "vpin_prom": vs["last_vpin"],
-            "vpin_vivo": v_vivo,
-            "progreso": progreso,
-            "buy_b": vs["current_buy_vol"],
-            "sell_b": vs["current_sell_vol"],
             "last_price":    st["last_price"],
             "open_price":    st["open_price"],
             "high_price":    st["high_price"],
             "low_price":     st["low_price"],
             "closing_price": st["closing_price"],
+            "vwap":           (fs["total_money"] / fs["total_nominals"] * 100) if fs["total_nominals"] > 0 else 0,
+            "total_nominals": fs["total_nominals"],
         }
 
     def _snapshot_loop(self):
@@ -318,16 +300,33 @@ class MicrostructureEngine:
                 for ticker in self.tickers:
                     st = self.market_state[ticker]
                     metricas = self._calcular_metricas(ticker)
+                    # NOTA: este ReplaceOne borraría los campos analíticos
+                    # (metrics.TEA, .TEM, .duration, .convexity, .paridad)
+                    # que escribe engines/curvas.py. Los preservamos leyendo
+                    # su valor actual de Mongo (si existe) y fusionándolo
+                    # antes del replace. Costo extra: 1 find por ticker/seg,
+                    # pero es local a Atlas y va con el read client.
+                    existing = self.col_snapshot.find_one(
+                        {"ticker": ticker},
+                        {"_id": 0, "metrics.TEA": 1, "metrics.TEM": 1,
+                         "metrics.duration": 1, "metrics.convexity": 1,
+                         "metrics.paridad": 1},
+                    )
+                    if existing and existing.get("metrics"):
+                        for k in ("TEA", "TEM", "duration", "convexity", "paridad"):
+                            v = existing["metrics"].get(k)
+                            if v is not None:
+                                metricas[k] = v
+
                     doc = {
-                        "ticker": ticker,
-                        "updated_at": ts,
+                        "ticker":        ticker,
+                        "updated_at":    ts,
                         "book": {
                             "bids":   list(st["book"]["bids"]),
                             "offers": list(st["book"]["offers"]),
                         },
-                        "metrics": metricas,
-                        "hourly_stats": {str(k): v for k, v in st["hourly_stats"].items()},
-                        "top_trades":   list(st["top_trades"]),
+                        "metrics":       metricas,
+                        "top_trades":    list(st["top_trades"]),
                         "recent_trades": list(st["trades"])[:30],
                     }
                     ops.append(ReplaceOne({"ticker": ticker}, doc, upsert=True))

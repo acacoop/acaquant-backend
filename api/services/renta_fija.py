@@ -72,6 +72,12 @@ def get_renta_fija(instrumento: str | None = None) -> list:
             "metrics.high_price": 1,
             "metrics.low_price": 1,
             "metrics.closing_price": 1,
+            # Analíticos (escritos por engines/curvas.py en el mismo doc).
+            "metrics.TEA": 1,
+            "metrics.TEM": 1,
+            "metrics.duration": 1,
+            "metrics.convexity": 1,
+            "metrics.paridad": 1,
             "recent_trades": 1,
         }},
     ]

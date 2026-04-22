@@ -499,17 +499,50 @@ def run():
 
             if docs:
                 ops = []
+                # Para cada ticker, retenemos el enriquecimiento del trade
+                # más reciente para propagarlo al MarketSnapshot después.
+                por_ticker_reciente: dict[str, tuple[datetime, dict]] = {}
+
                 for doc in docs:
                     instrumento = curvas.get(doc["ticker"])
                     if not instrumento:
                         continue
                     campos = calcular_campos(doc, instrumento, cer_dict, dias_habiles, mep_actual)
-                    if campos:
-                        ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": campos}))
+                    if not campos:
+                        continue
+                    ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": campos}))
+
+                    # Guardar el más reciente por ticker (los docs vienen
+                    # ordenados desc por timestamp, pero dentro del batch
+                    # puede repetirse ticker).
+                    ts = doc.get("timestamp")
+                    if ts:
+                        prev = por_ticker_reciente.get(doc["ticker"])
+                        if prev is None or ts > prev[0]:
+                            por_ticker_reciente[doc["ticker"]] = (ts, campos)
 
                 if ops:
                     col_ts.bulk_write(ops, ordered=False)
                     logger.info(f"{len(ops)} docs enriquecidos.")
+
+                # Propagar los campos analíticos al MarketSnapshot del
+                # ticker — así la tabla de renta fija y cualquier otro
+                # consumer del snapshot ven TEA/duration/paridad sin tener
+                # que hacer un join extra a TimeSales.
+                if por_ticker_reciente:
+                    col_ms = client["Trading"]["MarketSnapshot"]
+                    ops_ms = []
+                    for ticker, (_, campos) in por_ticker_reciente.items():
+                        updates = {}
+                        for field in ("TEA", "TEM", "duration", "convexity", "paridad"):
+                            if field in campos:
+                                updates[f"metrics.{field}"] = campos[field]
+                        if updates:
+                            ops_ms.append(UpdateOne(
+                                {"ticker": ticker}, {"$set": updates},
+                            ))
+                    if ops_ms:
+                        col_ms.bulk_write(ops_ms, ordered=False)
 
         except Exception:
             logger.error(f"Error en loop:\n{traceback.format_exc()}")

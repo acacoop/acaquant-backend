@@ -93,17 +93,15 @@ def _build_snapshot_doc(ticker_full: str, md: dict, ts: datetime) -> dict:
         },
         "metrics": {
             "last_price":     last_price,
-            "vwap":           vwap,
-            "total_nominals": total_nominals,
-            "total_money":    total_money,
             "open_price":     entries.get("OP"),
             "high_price":     entries.get("HI"),
             "low_price":      entries.get("LO"),
             "closing_price":  entries.get("CL"),
-            "buy_money":      0.0,
-            "sell_money":     0.0,
+            "vwap":           vwap,
+            "total_nominals": total_nominals,
+            # TEA/TEM/duration/convexity/paridad las completa engines/curvas.py
+            # cuando procesa los trades; acá no las tenemos.
         },
-        "hourly_stats":  {},
         "top_trades":    [],
         "recent_trades": [],
     }

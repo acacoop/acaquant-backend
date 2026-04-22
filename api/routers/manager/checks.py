@@ -1,7 +1,7 @@
 """GET /api/manager/checks/* — validaciones de consistencia sobre Mongo."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from core.mongo import get_mongo_client_read
 
@@ -226,3 +226,134 @@ def tickers_curvas():
         client["Trading"]["Curvas"].find({}, {"ticker_corto": 1})
         if d.get("ticker_corto")
     })
+
+
+@router.get("/checks/debug-soberano")
+def debug_soberano(
+    ticker_corto: str = Query(..., description="Ticker corto del bono soberano (ej. GD30D)"),
+):
+    """Reproduce paso a paso el cálculo del branch soberano de engines/curvas.
+
+    Devuelve el instrumento de Trading.Curvas, el precio convertido a USD
+    (aplicando MEP si corresponde), los flujos futuros al settlement con
+    su monto calculado, el cashflow que entra al XIRR, y el TEA/duration/
+    paridad resultante. Útil para diagnosticar cuando un bono da TEA rara.
+    """
+    from datetime import UTC, date, datetime
+
+    from engines.curvas import (
+        cargar_dias_habiles,
+        cargar_mep_actual,
+        fecha_flujo,
+        macaulay_duration,
+        monto_flujo_soberano,
+        precio_soberano_a_usd,
+        siguiente_dia_habil,
+        xirr,
+    )
+
+    client = get_mongo_client_read()
+    inst = client["Trading"]["Curvas"].find_one({"ticker_corto": ticker_corto})
+    if not inst:
+        raise HTTPException(404, f"No existe ticker_corto={ticker_corto!r} en Trading.Curvas")
+
+    curva = inst.get("curva")
+    if curva != "soberanos":
+        raise HTTPException(
+            400,
+            f"Este check solo aplica a curva='soberanos' — el ticker tiene curva={curva!r}",
+        )
+
+    # ── Instrumento + último precio ────────────────────────────────────
+    last = client["Trading"]["TimeSales"].find_one(
+        {"ticker": inst["ticker"]},
+        {"_id": 0, "price": 1, "timestamp": 1},
+        sort=[("timestamp", -1)],
+    )
+    precio = last.get("price") if last else None
+    ts_trade = last.get("timestamp") if last else None
+
+    mep = cargar_mep_actual(client)
+    precio_usd = precio_soberano_a_usd(precio, inst.get("ticker") or "", mep) if precio else None
+
+    # ── Settlement ─────────────────────────────────────────────────────
+    dias_habiles = cargar_dias_habiles(client)
+    hoy = datetime.now(UTC).date()
+    settlement_str = siguiente_dia_habil(dias_habiles, hoy)
+    fecha_settlement = date.fromisoformat(settlement_str) if settlement_str else hoy
+
+    # ── Flujos futuros ─────────────────────────────────────────────────
+    flujos_raw = inst.get("flujos") or []
+    valor_nominal = float(inst.get("valor_nominal", 100))
+    flujos_futuros: list[dict] = []
+    for f in flujos_raw:
+        fd = fecha_flujo(f)
+        if not fd or fd <= fecha_settlement:
+            continue
+        monto = monto_flujo_soberano(f, valor_nominal)
+        if monto <= 0:
+            continue
+        flujos_futuros.append({
+            "fecha":              fd.isoformat(),
+            "amortizacion_pct":   f.get("amortizacion_pct", 0),
+            "cupon_sobre_residual": f.get("cupon_sobre_residual", 0),
+            "residual_previo_pct": f.get("residual_previo_pct", 0),
+            "monto_usd":          round(monto, 4),
+        })
+
+    total_flujos = round(sum(f["monto_usd"] for f in flujos_futuros), 4)
+
+    # ── XIRR / duration / paridad ──────────────────────────────────────
+    tea = None
+    duration = None
+    paridad = None
+    cashflow: list[dict] = []
+    if precio_usd and flujos_futuros:
+        cashflow.append({"fecha": fecha_settlement.isoformat(), "monto": -round(precio_usd, 4)})
+        for f in flujos_futuros:
+            cashflow.append({"fecha": f["fecha"], "monto": f["monto_usd"]})
+
+        fechas_dt = [datetime.combine(fecha_settlement, datetime.min.time())] + \
+                    [datetime.combine(date.fromisoformat(f["fecha"]), datetime.min.time()) for f in flujos_futuros]
+        cf = [-precio_usd] + [f["monto_usd"] for f in flujos_futuros]
+
+        tea_val = xirr(fechas_dt, cf)
+        if tea_val is not None:
+            tea = round(tea_val, 6)
+            fechas_flujos_dt = [datetime.combine(date.fromisoformat(f["fecha"]), datetime.min.time()) for f in flujos_futuros]
+            montos_flujos = [f["monto_usd"] for f in flujos_futuros]
+            fecha_base_dt = datetime.combine(fecha_settlement, datetime.min.time())
+            duration = macaulay_duration(fechas_flujos_dt, montos_flujos, tea_val, fecha_base_dt)
+
+    if precio_usd and flujos_futuros:
+        residual_vivo = flujos_futuros[0]["residual_previo_pct"]
+        if residual_vivo:
+            paridad = round(precio_usd / float(residual_vivo) * 100, 4)
+
+    return {
+        "instrumento": {
+            "ticker":             inst.get("ticker"),
+            "ticker_corto":       inst.get("ticker_corto"),
+            "tipo":               inst.get("tipo"),
+            "curva":              curva,
+            "fecha_emision":      inst.get("fecha_emision"),
+            "fecha_vencimiento":  inst.get("fecha_vencimiento"),
+            "valor_nominal":      valor_nominal,
+            "flujos_total":       len(flujos_raw),
+        },
+        "precio": {
+            "ultimo_trade_ts": ts_trade.isoformat() if hasattr(ts_trade, "isoformat") else None,
+            "precio_rofex":   precio,
+            "mep":            mep,
+            "precio_usd":     round(precio_usd, 4) if precio_usd else None,
+        },
+        "settlement": fecha_settlement.isoformat(),
+        "flujos_futuros": flujos_futuros,
+        "total_flujos_usd": total_flujos,
+        "cashflow": cashflow,
+        "resultado": {
+            "tea_pct":  round(tea * 100, 4) if tea is not None else None,
+            "duration": duration,
+            "paridad":  paridad,
+        },
+    }

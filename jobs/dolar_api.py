@@ -34,6 +34,15 @@ from core.mongo import get_mongo_client
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("dolar_api")
 
+# Sanity check — si el agregador devuelve un valor fuera de este rango lo
+# descartamos. Defensa contra respuesta corrompida, cambio de schema de
+# dolarapi, o escenario improbable de compromiso del servicio. Rango
+# ajustado a los niveles actuales del dólar AR (~1400) con un ceiling
+# razonablemente estricto: detecta spikes con un 0 de más antes que
+# contaminen los docs. Subir cuando los valores se acerquen al techo.
+VALOR_MIN = 1000
+VALOR_MAX = 2500
+
 
 def _parse_fecha_act(raw: str | None) -> datetime | None:
     if not raw:
@@ -65,12 +74,26 @@ def run() -> dict:
 
     ops = []
     escritos_por_casa: dict[str, dict] = {}
+    descartados: list[str] = []
     for it in items:
         casa = it.get("casa")
         compra = it.get("compra")
         venta = it.get("venta")
         if casa not in CASAS_SOPORTADAS or venta is None:
             continue
+
+        # Sanity check — fuera del rango [VALOR_MIN, VALOR_MAX] asumimos
+        # que el valor viene corrupto y lo descartamos sin persistir.
+        venta_f = float(venta)
+        if not (VALOR_MIN <= venta_f <= VALOR_MAX):
+            msg = (
+                f"Sanity fail {casa}: venta={venta_f} "
+                f"fuera de [{VALOR_MIN}, {VALOR_MAX}]"
+            )
+            logger.error(msg)
+            descartados.append(msg)
+            continue
+
         doc = {
             "casa":               casa,
             "fecha":              fecha_key,
@@ -89,7 +112,16 @@ def run() -> dict:
         escritos_por_casa[casa] = {"compra": doc["compra"], "venta": doc["venta"]}
 
     if not ops:
-        return {"ok": False, "error": "ningún doc válido", "escritos": 0}
+        err = (
+            "ningún doc válido tras sanity check: " + "; ".join(descartados)
+            if descartados else "ningún doc válido"
+        )
+        return {
+            "ok":          False,
+            "error":       err,
+            "escritos":    0,
+            "descartados": descartados,
+        }
 
     coll.bulk_write(ops, ordered=False)
     logger.info(
@@ -97,10 +129,11 @@ def run() -> dict:
         ", ".join(f"{k}={v['venta']}" for k, v in escritos_por_casa.items()),
     )
     return {
-        "ok":       True,
-        "escritos": len(ops),
-        "por_casa": escritos_por_casa,
-        "fecha":    fecha_key,
+        "ok":          True,
+        "escritos":    len(ops),
+        "descartados": descartados,
+        "por_casa":    escritos_por_casa,
+        "fecha":       fecha_key,
     }
 
 

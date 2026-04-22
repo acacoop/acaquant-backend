@@ -105,10 +105,11 @@ def _mock_mongo_coll():
 def test_run_job_persiste_3_casas():
     from jobs.dolar_api import run
 
+    # Valores realistas dentro del sanity check [1000, 2500].
     payload = [
-        {"casa": "oficial",   "compra": 990,  "venta": 1000, "fechaActualizacion": "2026-04-23T14:30:00Z"},
-        {"casa": "mayorista", "compra": 990,  "venta": 995,  "fechaActualizacion": "2026-04-23T14:30:00Z"},
-        {"casa": "blue",      "compra": 1240, "venta": 1250, "fechaActualizacion": "2026-04-23T14:30:00Z"},
+        {"casa": "oficial",   "compra": 1380, "venta": 1400, "fechaActualizacion": "2026-04-23T14:30:00Z"},
+        {"casa": "mayorista", "compra": 1370, "venta": 1376, "fechaActualizacion": "2026-04-23T14:30:00Z"},
+        {"casa": "blue",      "compra": 1410, "venta": 1415, "fechaActualizacion": "2026-04-23T14:30:00Z"},
     ]
     client, coll = _mock_mongo_coll()
 
@@ -147,7 +148,7 @@ def test_run_job_ignora_casas_sin_venta():
     from jobs.dolar_api import run
 
     payload = [
-        {"casa": "oficial",   "compra": 990,  "venta": 1000},
+        {"casa": "oficial",   "compra": 1200, "venta": 1400},
         {"casa": "mayorista", "compra": None, "venta": None},  # será ignorada
         {"casa": "blue",      "compra": 1240, "venta": 1250},
     ]
@@ -161,3 +162,100 @@ def test_run_job_ignora_casas_sin_venta():
 
     assert res["ok"] is True
     assert res["escritos"] == 2
+
+
+# ─── Sanity check ────────────────────────────────────────────────────────────
+
+
+def test_sanity_rechaza_valor_muy_bajo():
+    """Valor < VALOR_MIN (1000) se descarta sin persistir."""
+    from jobs.dolar_api import VALOR_MIN, run
+
+    payload = [
+        {"casa": "oficial",   "venta": VALOR_MIN - 1},   # rechaza
+        {"casa": "mayorista", "venta": 1376},            # OK
+        {"casa": "blue",      "venta": 1415},            # OK
+    ]
+    client, coll = _mock_mongo_coll()
+    with (
+        patch("jobs.dolar_api.get_mongo_client", return_value=client),
+        patch("core.dolar_api.requests.get",
+              return_value=_mk_response(200, payload)),
+    ):
+        res = run()
+
+    assert res["ok"] is True
+    assert res["escritos"] == 2
+    assert len(res["descartados"]) == 1
+    assert "oficial" in res["descartados"][0]
+    # Bulk solo con los 2 OK
+    ops = coll.bulk_write.call_args.args[0]
+    assert len(ops) == 2
+
+
+def test_sanity_rechaza_valor_muy_alto():
+    """Valor > VALOR_MAX (2500) se descarta — típico bug 'un 0 de más'."""
+    from jobs.dolar_api import VALOR_MAX, run
+
+    payload = [
+        {"casa": "oficial",   "venta": 14000},  # spike anómalo, rechaza
+        {"casa": "mayorista", "venta": VALOR_MAX + 1},  # justo afuera, rechaza
+        {"casa": "blue",      "venta": 1415},    # OK
+    ]
+    client, coll = _mock_mongo_coll()
+    with (
+        patch("jobs.dolar_api.get_mongo_client", return_value=client),
+        patch("core.dolar_api.requests.get",
+              return_value=_mk_response(200, payload)),
+    ):
+        res = run()
+
+    assert res["ok"] is True
+    assert res["escritos"] == 1
+    assert len(res["descartados"]) == 2
+    ops = coll.bulk_write.call_args.args[0]
+    assert len(ops) == 1
+
+
+def test_sanity_todos_afuera_marca_error():
+    """Si las 3 casas están fuera del rango, el job reporta not-ok."""
+    payload = [
+        {"casa": "oficial",   "venta": 50_000},
+        {"casa": "mayorista", "venta": 50_000},
+        {"casa": "blue",      "venta": 999_999},
+    ]
+    from jobs.dolar_api import run
+
+    client, coll = _mock_mongo_coll()
+    with (
+        patch("jobs.dolar_api.get_mongo_client", return_value=client),
+        patch("core.dolar_api.requests.get",
+              return_value=_mk_response(200, payload)),
+    ):
+        res = run()
+
+    assert res["ok"] is False
+    assert res["escritos"] == 0
+    assert len(res["descartados"]) == 3
+    coll.bulk_write.assert_not_called()
+
+
+def test_sanity_acepta_extremos_del_rango():
+    """VALOR_MIN y VALOR_MAX exactos deben pasar (rango cerrado)."""
+    from jobs.dolar_api import VALOR_MAX, VALOR_MIN, run
+
+    payload = [
+        {"casa": "oficial",   "venta": VALOR_MIN},  # borde inferior
+        {"casa": "mayorista", "venta": VALOR_MAX},  # borde superior
+    ]
+    client, _coll = _mock_mongo_coll()
+    with (
+        patch("jobs.dolar_api.get_mongo_client", return_value=client),
+        patch("core.dolar_api.requests.get",
+              return_value=_mk_response(200, payload)),
+    ):
+        res = run()
+
+    assert res["ok"] is True
+    assert res["escritos"] == 2
+    assert res["descartados"] == []

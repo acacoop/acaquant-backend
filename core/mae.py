@@ -103,16 +103,34 @@ def _wait_for_rate_limit() -> None:
         _calls_ts.append(now)
 
 
-def _get(path: str, params: dict[str, Any] | None = None) -> Any:
-    """GET contra MAE con x-api-key + rate limit + error handling tipado."""
+def _get(
+    path: str,
+    params: dict[str, Any] | None = None,
+    extra_headers: dict[str, str] | None = None,
+) -> Any:
+    """GET contra MAE con x-api-key + rate limit + error handling tipado.
+
+    `extra_headers` permite sobrescribir/agregar headers desde el caller
+    (útil para debuggear bloqueos del WAF probando variantes del auth header).
+    """
     _ensure_configured()
     _wait_for_rate_limit()
 
     url = f"{_base_url()}{path}"
+    # User-Agent + headers tipo navegador para evitar bloqueo del WAF (Incapsula).
     headers = {
         "x-api-key": MAE_API_KEY,
-        "Accept":    "application/json",
+        "Accept": "application/json",
+        "Accept-Language": "es-AR,es;q=0.9,en;q=0.8",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Connection": "keep-alive",
     }
+    if extra_headers:
+        headers.update(extra_headers)
     try:
         r = requests.get(url, headers=headers, params=params, timeout=20)
     except requests.RequestException as e:

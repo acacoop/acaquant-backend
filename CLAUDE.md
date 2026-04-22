@@ -702,7 +702,6 @@ Definidos en `scripts/crear_indices.py` (idempotente).
 
 ### Abiertos
 
-- [ ] **(2026-04-16)** Borrar DB huérfana `CarterasAPI` de Atlas (renombrada a `PortfolioAPI`).
 - [ ] **(2026-04-19)** Destrabar tools del Grupo 3 (cartera/AuM/operaciones) ahora que el default es Claude. Pendiente decidir policy con compliance + activar ZDR con Anthropic.
 - [ ] **(2026-04-21)** BYMA Primarias Placements — scaffolding listo; esperando que la app en el portal BYMA tenga credenciales + scope `bymaPrimariasPlacements.read` habilitados. Una vez resuelto: schema `Licitaciones.Primarias`, job `jobs/byma_primarias.py`, endpoints `/api/licitaciones/*`, tools del agente.
 - [ ] **(2026-04-21)** Hard Dollar enrichment: extender `engines/curvas.py` a Globales/Bonares con YTM Newton-Raphson + duration + convexity sobre flujos USD. Habilita `listar_curva("soberanos")` con tasas reales.

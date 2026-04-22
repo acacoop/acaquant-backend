@@ -28,6 +28,7 @@ logger = logging.getLogger("MotorCurvas")
 
 INTERVALO_SEGUNDOS = 5
 INTERVALO_RECARGA_CER = 3600   # recarga CER cada 1 hora
+INTERVALO_RECARGA_MEP = 60     # refresca MEP cada 1 min (para soberanos)
 BATCH_SIZE = 200
 
 
@@ -104,6 +105,21 @@ def monto_flujo_cer(f, valor_nominal=100):
     return amort + cupon
 
 
+def monto_flujo_soberano(f, valor_nominal=100):
+    """Flujo USD de un bono soberano hard-dollar. Shape idéntico a CER pero
+    SIN ajuste por CER (los flujos ya son USD nominales del prospecto).
+
+    amortizacion_pct · VN + cupon_sobre_residual · residual_previo_pct · VN
+    """
+    vn = float(valor_nominal)
+    amort = float(f.get("amortizacion_pct", 0)) / 100 * vn
+    cupon = (
+        float(f.get("cupon_sobre_residual", 0))
+        * float(f.get("residual_previo_pct", 0)) / 100 * vn
+    )
+    return amort + cupon
+
+
 def fecha_flujo(f):
     v = f.get("fecha")
     if isinstance(v, datetime):
@@ -147,6 +163,49 @@ def cargar_dias_habiles(client):
     return dias
 
 
+def cargar_mep_actual(client) -> float | None:
+    """Último MEP disponible. Prefiere DolarSnapshot live; cae al histórico.
+
+    Usado para convertir precios de bonos soberanos ley-NY en pesos
+    (ticker sin sufijo D/C) a USD antes del cálculo de YTM.
+    """
+    snap = client["Valuaciones"]["DolarSnapshot"].find_one(
+        {"_id": "current"}, {"_id": 0, "mep": 1},
+    )
+    if snap and snap.get("mep"):
+        return float(snap["mep"])
+    doc = client["Valuaciones"]["Dolar"].find_one(
+        {"mep": {"$gt": 0}}, {"_id": 0, "mep": 1}, sort=[("timestamp", -1)],
+    )
+    if doc and doc.get("mep"):
+        return float(doc["mep"])
+    return None
+
+
+def precio_soberano_a_usd(precio: float, ticker_completo: str, mep: float | None) -> float | None:
+    """Convierte precio de bono soberano a USD según el sufijo del ticker ROFEX.
+
+    El detector mira el tercer segmento del ticker completo
+    ('MERV - XMEV - <SIMBOLO> - 24hs'), porque el `ticker_corto` es un
+    label humano y puede no reflejar la moneda (ej. usuario deja
+    ticker_corto='GD30' aunque el ticker sea 'GD30D' en USD).
+
+    - …/GD30D/…, …/GD30C/…  → precio ya en USD (retorna tal cual)
+    - …/GD30/…               → precio en pesos, divide por MEP
+    - Si falta MEP cuando se necesita → None (no enriquece).
+    """
+    if precio is None or precio <= 0 or not ticker_completo:
+        return None
+    partes = ticker_completo.split(" - ")
+    simbolo = partes[2] if len(partes) >= 3 else ticker_completo
+    sufijo = simbolo[-1].upper() if simbolo else ""
+    if sufijo in ("D", "C"):
+        return precio
+    if not mep or mep <= 0:
+        return None
+    return precio / mep
+
+
 def siguiente_dia_habil(dias_habiles, fecha_date):
     """Primer día hábil DESPUÉS de fecha_date según Trading.DiasHabiles."""
     fecha_str = fecha_date.isoformat()
@@ -172,7 +231,7 @@ def get_cer_liquidacion(cer_dict, dias_habiles, fecha_str, n=10):
 # Cálculo principal por documento
 # ─────────────────────────────────────────────
 
-def calcular_campos(doc, instrumento, cer_dict, dias_habiles):
+def calcular_campos(doc, instrumento, cer_dict, dias_habiles, mep: float | None = None):
     precio = doc.get("price")
     timestamp = doc.get("timestamp")
 
@@ -314,6 +373,74 @@ def calcular_campos(doc, instrumento, cer_dict, dias_habiles):
         except Exception:
             resultado["duration"] = round(dias_a_vto_s / 365, 4)
 
+    # ── SOBERANOS (Globales/Bonares hard-dollar) ──────────────────
+    elif curva == "soberanos":
+        # Settlement T+1 (primer día hábil después del trade).
+        settlement_str = siguiente_dia_habil(dias_habiles, fecha_trade)
+        if settlement_str:
+            fecha_settlement = date.fromisoformat(settlement_str)
+        else:
+            fecha_settlement = fecha_trade
+
+        valor_nominal = float(instrumento.get("valor_nominal", 100))
+        ticker_completo = instrumento.get("ticker") or ""
+
+        # Precio a USD — divide por MEP solo si el ticker cotiza en pesos.
+        # Decide según el sufijo del símbolo ROFEX (no del ticker_corto, que
+        # es un label humano y puede no coincidir con la moneda real).
+        precio_usd = precio_soberano_a_usd(precio, ticker_completo, mep)
+        if precio_usd is None:
+            # Sin MEP no podemos calcular YTM USD; dejamos duration ingenua.
+            resultado["duration"] = round(dias_a_vto / 365, 4)
+            return resultado
+
+        # Filtrar solo flujos futuros al settlement.
+        flujos_futuros = [
+            (fecha_flujo(f), monto_flujo_soberano(f, valor_nominal), f)
+            for f in flujos_raw
+            if fecha_flujo(f)
+            and fecha_flujo(f) > fecha_settlement
+            and monto_flujo_soberano(f, valor_nominal) > 0
+        ]
+
+        if not flujos_futuros:
+            resultado["duration"] = round(dias_a_vto / 365, 4)
+            return resultado
+
+        # Paridad = precio_usd / (residual_previo del primer flujo vivo).
+        # Es el % de valor técnico pagado respecto al nominal vivo.
+        primer_flujo = flujos_futuros[0][2]
+        residual_vivo = float(primer_flujo.get("residual_previo_pct", 100))
+        if residual_vivo > 0:
+            resultado["paridad"] = round(precio_usd / residual_vivo * 100, 4)
+
+        try:
+            fechas_dt = [datetime.combine(fecha_settlement, datetime.min.time())] + \
+                        [datetime.combine(fd, datetime.min.time()) for fd, _, _ in flujos_futuros]
+            cf = [-precio_usd] + [m for _, m, _ in flujos_futuros]
+            tea = xirr(fechas_dt, cf)
+
+            if tea is None or not (-0.5 < tea < 10):
+                # YTM no convergió o está fuera de rango razonable USD (50%-1000%
+                # para soberanos stressed, pero >1000% es error numérico).
+                resultado["duration"] = round(dias_a_vto / 365, 4)
+                return resultado
+
+            fechas_flujos_dt = [datetime.combine(fd, datetime.min.time()) for fd, _, _ in flujos_futuros]
+            montos_flujos    = [m for _, m, _ in flujos_futuros]
+            fecha_base_dt    = datetime.combine(fecha_settlement, datetime.min.time())
+
+            dur  = macaulay_duration(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
+            conv = convexity(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
+
+            resultado["TEA"] = round(tea, 6)
+            resultado["duration"] = dur if dur is not None else round(dias_a_vto / 365, 4)
+            if conv is not None:
+                resultado["convexity"] = conv
+
+        except Exception:
+            resultado["duration"] = round(dias_a_vto / 365, 4)
+
     # ── TAMAR / DUAL / otros ──────────────────────────────────────
     else:
         resultado["duration"] = round(dias_a_vto / 365, 4)
@@ -334,11 +461,16 @@ def run():
     logger.info(f"Curvas cargadas: {len(curvas)} instrumentos")
     cer_dict = cargar_cer(client)
     dias_habiles = cargar_dias_habiles(client)
+    mep_actual = cargar_mep_actual(client)
     tickers = list(curvas.keys())
 
     ultimo_reload_cer = time.time()
+    ultimo_reload_mep = time.time()
 
-    logger.info(f"Escuchando {len(tickers)} tickers. Loop cada {INTERVALO_SEGUNDOS}s.")
+    logger.info(
+        "Escuchando %d tickers. Loop cada %ds. MEP inicial: %s",
+        len(tickers), INTERVALO_SEGUNDOS, mep_actual,
+    )
 
     while True:
         try:
@@ -346,6 +478,11 @@ def run():
             if time.time() - ultimo_reload_cer > INTERVALO_RECARGA_CER:
                 cer_dict = cargar_cer(client)
                 ultimo_reload_cer = time.time()
+
+            # Recargar MEP cada minuto (motor_dolares lo actualiza cada 5s).
+            if time.time() - ultimo_reload_mep > INTERVALO_RECARGA_MEP:
+                mep_actual = cargar_mep_actual(client)
+                ultimo_reload_mep = time.time()
 
             # Buscar docs sin enriquecer — más recientes primero para no bloquear trades nuevos
             docs = list(col_ts.find(
@@ -360,7 +497,7 @@ def run():
                     instrumento = curvas.get(doc["ticker"])
                     if not instrumento:
                         continue
-                    campos = calcular_campos(doc, instrumento, cer_dict, dias_habiles)
+                    campos = calcular_campos(doc, instrumento, cer_dict, dias_habiles, mep_actual)
                     if campos:
                         ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": campos}))
 

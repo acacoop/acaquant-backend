@@ -40,6 +40,11 @@ BYMA_BASE_URL      = os.getenv(
     "https://apigw.byma.com.ar/byma-primarias-placements/v1",
 )
 
+# --- MAE MarketData (repos, cauciones, títulos wholesale) ---
+# Auth simple por x-api-key. 2 ambientes: prod y uat. Default prod.
+MAE_API_KEY = os.getenv("MAE_API_KEY", "")
+MAE_ENV     = os.getenv("MAE_ENV", "prod").lower()  # 'prod' | 'uat'
+
 # --- ACCESO MANAGER ---
 # Emails con acceso a la vista Manager. Separados por coma en MANAGER_EMAILS o hardcodeados aquí.
 _manager_env = os.getenv("MANAGER_EMAILS", "")

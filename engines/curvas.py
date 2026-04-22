@@ -106,17 +106,23 @@ def monto_flujo_cer(f, valor_nominal=100):
 
 
 def monto_flujo_soberano(f, valor_nominal=100):
-    """Flujo USD de un bono soberano hard-dollar. Shape idéntico a CER pero
-    SIN ajuste por CER (los flujos ya son USD nominales del prospecto).
+    """Flujo USD de un bono soberano hard-dollar.
 
-    amortizacion_pct · VN + cupon_sobre_residual · residual_previo_pct · VN
+    Atención con la semántica del campo: aunque `cupon_sobre_residual` suena
+    a "tasa × residual", en los JSONs de soberanos del prospecto el valor
+    ya viene MULTIPLICADO — es el monto del cupón en USD por cada 100 de VN.
+    Ej. GD30 2026-07-13 con residual 72% y tasa anual 0.75%:
+        tasa_semestral · residual · VN = 0.00375 · 0.72 · 100 = 0.27 USD
+        → en el JSON aparece `cupon_sobre_residual: 0.27` (ya resuelto).
+
+    Por eso el cálculo NO multiplica de nuevo por residual_previo_pct.
+    La amortización sigue siendo % del VN original.
+
+    amortizacion_pct · VN  +  cupon_sobre_residual · VN / 100
     """
     vn = float(valor_nominal)
     amort = float(f.get("amortizacion_pct", 0)) / 100 * vn
-    cupon = (
-        float(f.get("cupon_sobre_residual", 0))
-        * float(f.get("residual_previo_pct", 0)) / 100 * vn
-    )
+    cupon = float(f.get("cupon_sobre_residual", 0)) / 100 * vn
     return amort + cupon
 
 

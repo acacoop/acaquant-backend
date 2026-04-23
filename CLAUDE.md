@@ -38,6 +38,8 @@ MAE_API_KEY / MAE_ENV                       ← MAE MarketData (x-api-key). MAE_
 ATLAS_PUBLIC_KEY / ATLAS_PRIVATE_KEY / ATLAS_PROJECT_ID / ATLAS_CLUSTER_NAME  ← pausa nocturna Atlas
 ```
 
+`config.TICKERS_EXTRA_PRECIOS`: lista hardcoded de tickers que `motor_rofex` suscribe live pero `motor_curvas` ignora (no calcula TEA/duration porque no están en `Trading.Curvas`). Usado para análisis derivados que solo necesitan precio crudo. Default: `['MERV - XMEV - AL30C - 24hs']` para alimentar el endpoint de canje.
+
 ## Estructura de carpetas
 
 ```
@@ -131,16 +133,26 @@ TradingAV/
 │       ├── operaciones.py    # /api/operaciones/*
 │       └── titulos.py        # /api/titulos/*
 │
-├── scripts/                  # one-shot / diagnóstico manual
-│   ├── crear_indices.py      # idempotente
-│   ├── api_migrate.py        # migraciones colecciones legacy → API
-│   ├── test_api.py           # smoke test endpoints API
-│   ├── test_byma.py          # smoke test BYMA Primarias (4 endpoints)
-│   ├── test_mae.py           # smoke test MAE MarketData (/repo paginado)
-│   ├── diagnose_mae_auth.py  # prueba 6 variantes de auth header contra MAE
-│   ├── seed_soberanos.py     # upsert docs/soberanos/*.json → Trading.Curvas
-│   ├── perf_scan.py          # análisis estático anti-patterns Mongo
-│   └── check_*.py / debug_*.py
+├── scripts/                  # one-shot / diagnóstico manual / seeds
+│   ├── crear_indices.py            # idempotente, crea índices Mongo
+│   ├── api_migrate.py              # migraciones colecciones legacy → API
+│   ├── seed_soberano_csv.py        # seed individual de un Globale/Bonar desde CSV BCBA
+│   ├── seed_bonares_batch.py       # seed batch de los 8 Bonares D (AE38/AL29/AL30/AL35/AL41/AN29/AO27/AO28)
+│   ├── backfill_timesales_csv.py   # carga histórico de TimeSales desde CSV (single o wide multi-ticker)
+│   ├── perf_scan.py                # análisis estático anti-patterns Mongo
+│   ├── test_api.py                 # smoke test endpoints API
+│   ├── test_byma.py                # smoke test BYMA Primarias (4 endpoints)
+│   ├── test_mae.py                 # smoke test MAE MarketData (/repo paginado)
+│   ├── test_chat.py                # smoke test /api/chat (requiere uvicorn up)
+│   ├── test_gemini.py              # smoke test Gemini API
+│   ├── test_enrich_one.py          # diagnóstico: prueba calcular_campos sobre 1 doc específico
+│   ├── test_motor_query.py         # diagnóstico: replica el query de motor_curvas
+│   ├── diagnose_backfill_enrich.py # diagnóstico: ¿qué docs del backfill están enriquecidos?
+│   ├── diagnose_mae_auth.py        # diagnóstico: prueba 6 variantes de auth header contra MAE
+│   ├── debug_claude_key.py         # diagnóstico: valida ANTHROPIC_API_KEY
+│   ├── check_api_flujos.py         # valida que TitulosAPI.ValuacionesAPI tenga datos
+│   ├── check_api_sync.py           # valida sincronización de colecciones API
+│   └── check_historico_soberanos.py # valida que get_historico_curva('soberanos') devuelva data esperada
 │
 ├── tests/                    # pytest unit tests (no requieren Mongo)
 │   └── unit/                 # black_scholes, breakevens, curvas, dias_habiles, etc.
@@ -167,18 +179,28 @@ Repo separado (ubicación local varía por máquina; sibling del repo `TradingAV
 ```
 src/
 ├── app/
-│   ├── layout.tsx            # Root layout: Header, TopTicker, AutoRefresh
+│   ├── layout.tsx            # Root layout: Header, TopTicker
 │   ├── page.tsx              # HOME con news panel live
-│   ├── renta-fija/page.tsx   # RENTA FIJA: cotizaciones, curvas, forwards, breakevens
+│   ├── renta-fija/page.tsx   # RENTA FIJA: cotizaciones, curvas (TASA FIJA/CER/GLOBALES con LIVE+HIST), forwards, breakevens
+│   ├── retorno/page.tsx      # ESTRATEGIA: 4 tabs (Retorno Total / Sensibilidad / Canje / Carry Trade)
 │   ├── /api/                 # Proxy routes (ocultan API_KEY del cliente)
 │   │   ├── aum-fci/snapshot + serie
 │   │   ├── cashflow, contrapartes, flujo-vs-aum
 │   │   ├── historico-curva, opciones-meta, trades
-│   ├── /aum /derivados /operaciones /portfolios /retorno
-├── components/               # Componentes por dominio (tabla renta fija, curvas, libro, etc.)
+│   │   ├── analitica/[...path]   ← canje, carry-trade, sensibilidad-retorno, listar-curva, etc.
+│   │   └── cotizaciones/[...path], argy, futuros-dlr, caucion, mep
+│   ├── /aum /derivados /operaciones /portfolios
+├── components/               # Componentes por dominio
+│   ├── retorno-total-view.tsx     # Container de las 4 tabs de Estrategia
+│   ├── sensibilidad-table.tsx     # Tab SENSIBILIDAD (con filtro globales/bonares)
+│   ├── canje-tab.tsx              # Tab CANJE (line chart con KPIs, polling 5min)
+│   ├── carry-trade-tab.tsx        # Tab CARRY TRADE (slider fechas + toggles tickers + MEP/OFICIAL)
+│   ├── curvas-chart.tsx           # Chart de curvas con LIVE+HIST + 2 series para soberanos
+│   └── ...
 ├── lib/
 │   ├── api.ts                # apiFetch(): Bearer token + CF service token + ISR TTL
 │   └── estrategias.ts        # lógica de estrategias opciones (pura)
+└── proxy.ts                  # Next 16+: gating /manager /asistente /api/chat por MANAGER_EMAILS
 ```
 
 ### Patrón API proxy
@@ -304,7 +326,7 @@ Cada motor tiene `update_price(ticker, data)` llamado por el WebSocket en cada t
 |---|---|---|
 | `engines/valores.py` | `Trading.TimeSales` + `Trading.MarketSnapshot` | Microestructura bonos/Lecaps/CER: inserta trades en TimeSales, snapshot cada 1s en MarketSnapshot |
 | `engines/options.py` | `Opciones.OptionsSnapshot` | Opciones GGAL: Black-Scholes Greeks, IV via Newton-Raphson. Contiene la clase local `MongoManager` |
-| `engines/curvas.py` | `Trading.TimeSales` (enriquecimiento) | Agrega TEA/TEM/Duration/Convexity/Paridad. Loop cada 5s, docs sin `duration` ordenados DESC |
+| `engines/curvas.py` | `Trading.TimeSales` (enriquecimiento) | Agrega TEA/TEM/Duration/Convexity/Paridad para tasa_fija, CER y soberanos (USD). Loop cada 5s, docs sin `duration` ordenados DESC. Si `calcular_campos` retorna None, marca `duration: null` para no entrar en loop infinito. |
 | `engines/forwards.py` | `Trading.ForwardsLive` + `Trading.ForwardsHistorico` | Matriz NxN de tasas forward por curva cada 30s |
 | `engines/breakevens.py` | `Trading.BreakevensLive` + `Trading.BreakevensHistorico` | Breakeven inflación mensual implícita CER/Lecap cada 30s |
 | `engines/caucion.py` | `Trading.CaucionSnapshot` + `Trading.Caucion` | Caución ARS + USD del plazo correspondiente al próximo día hábil (1D/3D/4D según calendario). Snapshot 5s, cierre histórico al apagado |
@@ -324,7 +346,7 @@ Campos enriquecidos por `engines/curvas.py` (solo tickers en `Trading.Curvas`):
 | `convexity` | tasa_fija + cer | Segunda derivada del precio respecto al yield (años²) |
 | `TEA` | tasa_fija + cer | Tasa efectiva anual |
 | `TEM` | tasa_fija | Tasa efectiva mensual |
-| `paridad` | cer | precio / (VN × CER_trade/CER_emision) × 100 |
+| `paridad` | cer + soberanos | precio / técnico × 100 (CER usa CER_trade/CER_emision; soberanos usa residual_previo del primer flujo vivo) |
 
 ### Trading.MarketSnapshot
 
@@ -334,10 +356,20 @@ Un doc por ticker, reemplazado cada 1s. Campos: `ticker`, `updated_at`, `book` (
 
 Flujos CER usan campos porcentuales (NO valores absolutos):
 - `amortizacion_pct`: % del VN que se amortiza
-- `cupon_sobre_residual`: tasa × `residual_previo_pct` / 100 × VN
+- `cupon_sobre_residual`: tasa × `residual_previo_pct` / 100 × VN (NO se multiplica de nuevo)
 - `cupon_anual`: solo zero coupon (= 0)
 
 Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
+
+Flujos soberanos (Globales/Bonares hard-dollar): mismo shape que CER pero `cupon_sobre_residual` ya viene resuelto en USD (NO multiplicar por residual_previo_pct).
+
+**Bonos soberanos USD seedeados** (`curva='soberanos'`):
+- **Globales** (`tipo='globales'`, ley NY): GD29D, GD30D, GD35D, GD38D, GD41D
+- **Bonares** (`tipo='bonares'`, ley argentina): AE38D, AL29D, AL30D, AL35D, AL41D, AN29D, AO27D, AO28D
+
+Frontend `/renta-fija` los pinta en el mismo gráfico de CURVAS pero con colores distintos (Globales verde, Bonares naranja). En `/retorno (Estrategia) → SENSIBILIDAD` el filtro permite ver uno u otro tipo (default Globales).
+
+**Tickers extra para precio crudo** (no en `Trading.Curvas`, sí en `config.TICKERS_EXTRA_PRECIOS`): `MERV - XMEV - AL30C - 24hs`. Se suscribe live por `motor_rofex` para alimentar `/api/analitica/canje` (precio CCL del par AL30) y se completa con backfill desde Reuters.
 
 ### Cálculo cuantitativo (`quant/`)
 
@@ -359,24 +391,32 @@ Flujos tasa_fija usan valores absolutos: `amortizacion` + `interes`.
 - **`sync_api_copies.py`** — re-sincroniza colecciones derivadas `*API.*API` llamando a `scripts.api_migrate`. Flags: `--aum`, `--carteras`, `--flujo`, `--movimientos`, `--titulos`, `--all`. Encadenado en crontab después de cada job fuente.
 - **`dias_habiles.py`** — genera calendario hábil argentino. Ejecutar una vez por año.
 
-### Scripts de diagnóstico (`scripts/`)
+### Scripts (`scripts/`)
 
+**Operación habitual**:
 - **`crear_indices.py`** — crea todos los índices MongoDB. Idempotente.
-- **`perf_scan.py`** — análisis estático: `PERF001` find sin projection, `PERF002` query en for (N+1), `PERF003` count_documents({}), `PERF004` query repetida. Suprimir por línea con `# noqa: PERF00X`.
-- **`perf_profile.py`** — profiling runtime de endpoints críticos (traces de latencia Mongo).
-- **`check_cer.py`** — diagnóstico serie `Trading.CER` (huecos, últimos valores).
-- **`check_cer_valuacion.py`** — CER usado en último trade enriquecido por bono.
-- **`check_tasa_fija.py`** — diagnóstico join chain `Trading.Curvas` (tasa_fija) → `Assets` → `AuM`.
-- **`check_curvas_pendientes.py`** — docs sin `duration` por ticker en TimeSales.
-- **`check_forwards.py`** — diagnóstico completo de forwards por curva.
-- **`check_aum_raw.py`** — consulta directa Aunesa filtrando por keyword.
-- **`debug_forward.py`** — walk-through paso a paso del cálculo forward TX26 vs TZX26.
-- **`test_match_contrapartes.py`** — verifica matcheo contrapartes Flujo ↔ Contrapartes.
+- **`api_migrate.py`** — re-genera colecciones API derivadas (`*API.*API`). Comandos: `accionistas`, `contrapartes`, `flujo`, `movimientos`, `carteras`, `aum`, `assets`, `flujos-titulos`, `mover`. Encadenado en crontab vía `jobs.sync_api_copies`.
+- **`backfill_timesales_csv.py`** — carga histórico de precios crudos en `Trading.TimeSales` desde CSV. Auto-detecta separador (`,`/`;`) y modo (single-ticker `fecha,close` o wide multi-ticker con un bono por columna). Idempotente por `(ticker, timestamp)`. Usado para Globales/Bonares con CSVs de Reuters.
+- **`seed_soberano_csv.py`** — seedea un bono individual en `Trading.Curvas` desde CSV BCBA (2 filas header + flujos). Args: `--csv`, `--ticker`, `--ticker-corto`, `--fecha-emision`, `--tipo` (default `globales`).
+- **`seed_bonares_batch.py`** — wrapper que reusa `seed_soberano_csv` para los 8 Bonares D (AE38/AL29/AL30/AL35/AL41/AN29/AO27/AO28). `tipo='bonares'`, `curva='soberanos'`.
+
+**Smoke tests**:
+- **`test_api.py`** — golpea endpoints clave contra localhost o host pasado por arg.
+- **`test_byma.py`** — smoke test BYMA Primarias (4 endpoints + 22 unit tests).
+- **`test_mae.py`** — smoke test `core.mae.get_repo()`. Requiere `MAE_API_KEY`.
+- **`test_chat.py`** — smoke test `/api/chat` contra localhost o prod. Requiere uvicorn up.
 - **`test_gemini.py`** — smoke test Gemini API (flash y pro). Flags `--modelo`, `--prompt`.
-- **`test_chat.py`** — smoke test `/api/chat` contra localhost o prod. Requiere uvicorn corriendo.
-- **`test_mae.py`** — smoke test `core.mae.get_repo()`. Requiere `MAE_API_KEY` en `.env`.
-- **`diagnose_mae_auth.py`** — diagnóstico: prueba 6 variantes de header de auth contra MAE cuando falla 401/403.
-- **`seed_soberanos.py`** — upsert de `docs/soberanos/*.json` en `Trading.Curvas`. Idempotente. Flags `--dry`, `--only TICKER`.
+
+**Diagnósticos** (correr cuando algo se rompe):
+- **`perf_scan.py`** — análisis estático: `PERF001` find sin projection, `PERF002` query en for (N+1), `PERF003` count_documents({}), `PERF004` query repetida. Suprimir por línea con `# noqa: PERF00X`.
+- **`diagnose_mae_auth.py`** — prueba 6 variantes de header de auth contra MAE cuando falla 401/403.
+- **`diagnose_backfill_enrich.py`** — para cada ticker del backfill (`size=1, side=MID`), reporta cuántos docs hay, cuántos tienen `duration`/`TEA`, y si está en `Trading.Curvas`. Diff char-by-char vs el ticker más parecido cuando hay mismatch. Usado para detectar dobles espacios, NBSP y typos.
+- **`test_enrich_one.py`** — toma un doc histórico específico (default GD30D del backfill) y corre `engines.curvas.calcular_campos` paso a paso, imprimiendo cada early return y el resultado final. Aísla bugs de `calcular_campos`.
+- **`test_motor_query.py`** — replica EXACTO el query de `motor_curvas` (`{ticker: $in, duration: $exists: false}` ordenado DESC, limit 200) y muestra qué docs encuentra. Detectó el loop infinito sobre TY30P en abril 2026.
+- **`check_api_flujos.py`** — valida `TitulosAPI.ValuacionesAPI` (cuántos docs por curva).
+- **`check_api_sync.py`** — valida sincronización de colecciones API vs sus fuentes.
+- **`check_historico_soberanos.py`** — valida `get_historico_curva('soberanos')` (cuántas fechas/tickers, primer/último día).
+- **`debug_claude_key.py`** — valida `ANTHROPIC_API_KEY` con un ping mínimo.
 
 ## Deployment
 
@@ -462,6 +502,9 @@ FastAPI consumida exclusivamente por acaquant-web (a través de sus API routes p
 | GET | `/api/analitica/snapshot-curva-historico` | `Trading.TimeSales` (agregado por día) | `curva` (req), `fecha` (req) |
 | GET | `/api/analitica/pendiente-curva` | reusa listar_curva + snapshot histórico | `curva` (req), `metrica`, `fecha_comparacion` |
 | GET | `/api/analitica/liquidez-secundario` | `Trading.TimeSales` (agregado por día) | `ticker` (req), `dias` |
+| GET | `/api/analitica/sensibilidad-retorno` | reusa `listar_curva` + flujos + MarketSnapshot | `curva`, `tirs`, `horizonte_dias`, `modo` (absoluta/relativa), `tipos` (CSV opcional: `globales`/`bonares`) |
+| GET | `/api/analitica/canje` | `Trading.TimeSales` (precio_C / precio_D − 1 por día) | `par` (AL30/GD30), `desde`, `hasta` |
+| GET | `/api/analitica/carry-trade` | `Trading.TimeSales` + `Valuaciones.Dolar` (MEP) o `Trading.DOLAR` (oficial A3500) | `curva` (tasa_fija/cer), `dolar` (mep/oficial), `desde`, `hasta` |
 | GET | `/api/portfolio/resumen` | `CarterasAPI` + `CarterasII` + `AssetsAPI` | `id_cuenta` |
 | GET | `/api/portfolio/detalle` | `CarterasAPI` + `AssetsAPI` | `id_cuenta` |
 | GET | `/api/portfolio/tasa-fija` | `AumAPI` + `AssetsAPI` + `ValuacionesAPI` | — |
@@ -712,12 +755,23 @@ Definidos en `scripts/crear_indices.py` (idempotente).
 - [x] **(2026-04-21)** `AutoRefresh` global eliminado del layout de acaquant-web. Los componentes que necesitan refresh live ya tienen polling propio con intervalos correctos. Fix del incidente de 502s de Cloudflare Bot Fight Mode.
 - [x] **(2026-04-21)** `docs/FRONTEND_AUDIT.md` con reporte priorizado del frontend.
 - [x] **(2026-04-21)** Fix serialización datetime en `tool_result_message` (rompía turnos del asistente cuando las tools devolvían fechas crudas de Mongo).
+- [x] **(2026-04-22)** Hard Dollar enrichment: `engines/curvas.py` calcula YTM/duration/convexity en USD para `curva='soberanos'`. Settlement T+1, conversión MEP solo para tickers en pesos (sufijo D/C ya están en USD). 5 Globales seedeados (GD29D/GD30D/GD35D/GD38D/GD41D).
+- [x] **(2026-04-22)** Backfill de histórico desde CSV Reuters: `scripts/backfill_timesales_csv.py` (single + wide multi-ticker). Idempotente. Cargados ~73 días para los 5 GDs.
+- [x] **(2026-04-22)** `jobs/backfill_forwards.py` reconstruye `Trading.ForwardsHistorico` por día desde TimeSales enriquecido. Reusa `engines.forwards.calcular_matriz()`.
+- [x] **(2026-04-23)** Fix loop infinito en `motor_curvas`: si `calcular_campos` retornaba None, el doc quedaba sin marcar y se re-leía en cada batch. Ahora setea `duration: null` como sentinela. Detectado vía `scripts/test_motor_query.py` (200/200 docs eran TY30P).
+- [x] **(2026-04-23)** Bonares D seedeados (8): AE38D/AL29D/AL30D/AL35D/AL41D/AN29D/AO27D/AO28D vía `scripts/seed_bonares_batch.py`. `tipo='bonares'` para distinguirlos visualmente de los Globales en el chart.
+- [x] **(2026-04-23)** Frontend `/renta-fija` chart de CURVAS para soberanos: LIVE usa duration Macaulay real desde MarketSnapshot (no TTM). HIST con slider de fechas. Globales y Bonares como 2 series separadas con leyenda.
+- [x] **(2026-04-23)** Vista `/retorno` renombrada a **ESTRATEGIA**. 4 tabs: RETORNO TOTAL (con GLOBALES además de TASA FIJA/CER), SENSIBILIDAD (filtro globales/bonares, default globales), **CANJE** (AL30C/AL30D con polling 5min), **CARRY TRADE** (vs MEP u OFICIAL BCRA, slider de fechas + toggles de tickers, renormalización al primer día del rango).
+- [x] **(2026-04-23)** `TICKERS_EXTRA_PRECIOS` en `config.py`: lista que `motor_rofex` suscribe live pero `motor_curvas` ignora. AL30C ahí para alimentar `/api/analitica/canje` sin tener que seedearlo en `Trading.Curvas`.
+- [x] **(2026-04-23)** TTL de cache `get_historico_curva` y `serie_canje` bajado de 300s a 60s para que el polling de 5min del frontend tome precios del día.
+- [x] **(2026-04-23)** Limpieza de scripts obsoletos: borrados 16 (debug_*, fix_*, reset_*, snapshot_rest, perf_profile, check_* viejos, seed_soberanos.py reemplazado, test_match_contrapartes).
 
 ### Abiertos
 
 - [ ] **(2026-04-19)** Destrabar tools del Grupo 3 (cartera/AuM/operaciones) ahora que el default es Claude. Pendiente decidir policy con compliance + activar ZDR con Anthropic.
 - [ ] **(2026-04-21)** BYMA Primarias Placements — scaffolding listo; esperando que la app en el portal BYMA tenga credenciales + scope `bymaPrimariasPlacements.read` habilitados. Una vez resuelto: schema `Licitaciones.Primarias`, job `jobs/byma_primarias.py`, endpoints `/api/licitaciones/*`, tools del agente.
-- [ ] **(2026-04-21)** Hard Dollar enrichment: extender `engines/curvas.py` a Globales/Bonares con YTM Newton-Raphson + duration + convexity sobre flujos USD. Habilita `listar_curva("soberanos")` con tasas reales.
+- [ ] **(2026-04-23)** Vista RIESGO POLÍTICO en Estrategia: forward implícita AO27D/AO28D con convención semestral (180/360 — la del mercado de Bonares). Endpoint `/api/analitica/forward-implicita` que toma TEAs diarias de TimeSales y calcula `((1+r28/2)^(2·D28) / (1+r27/2)^(2·D27))^(1/(2·(D28-D27)))·2 − 1`.
+- [ ] **(2026-04-23)** Total return de Globales/Bonares en `/retorno → RETORNO TOTAL`: hoy se ve mal porque el día del cupón el precio cae por ex-cupón. Sumar al precio los flujos cobrados en la ventana (cobrado_anio).
 - [ ] **(2026-04-21)** Seed de bonos Dólar Linked (TZV26, TZV28, D15F7, etc) en `Trading.Curvas` con `curva: "dolar_linked"`.
 - [ ] **(2026-04-21)** Macro externa faltante: Riesgo País EMBI+, IPC/IPIM INDEC, REM BCRA. Todos bloqueados por scraping/ingesta no implementada.
 - [ ] **(2026-04-19)** Roadmap asistente (`docs/ASISTENTE.md` §9): feedback 👍/👎, suite de evals con `golden_set.yaml`, RAG sobre IntelDocs con Atlas Vector Search, email forwarding para ingesta automática, exportar conversación a PDF, modo análisis profundo con Opus, streaming UX.

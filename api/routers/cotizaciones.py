@@ -184,6 +184,13 @@ def rem_breakeven_acumulado(
     return svc_rem.breakeven_acumulado(informe=informe, indicador=indicador)
 
 
+@router.get("/rem/debug")
+def rem_debug():
+    """Diagnóstico: qué indicadores / períodos / informes hay en Mongo y qué
+    indicador IPC elige el fuzzy match. Útil cuando el chart no dibuja."""
+    return svc_rem.debug_info()
+
+
 # ── Renta Fija ──
 
 

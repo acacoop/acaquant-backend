@@ -112,9 +112,10 @@ SERVICE_HANDLERS: dict[str, Callable[..., Any]] = {
     "/api/cotizaciones/historico/breakevens": svc_der.get_historico_breakevens,
 
     # Cotizaciones — REM (expectativas BCRA)
-    "/api/cotizaciones/rem":                    svc_rem.expectativas,
-    "/api/cotizaciones/rem/informes":           svc_rem.listar_informes,
+    "/api/cotizaciones/rem":                     svc_rem.expectativas,
+    "/api/cotizaciones/rem/informes":            svc_rem.listar_informes,
     "/api/cotizaciones/rem/breakeven-acumulado": svc_rem.breakeven_acumulado,
+    "/api/cotizaciones/rem/debug":               svc_rem.debug_info,
 
     # Cotizaciones — Renta fija / opciones
     "/api/cotizaciones/renta-fija":    svc_rf.get_renta_fija,

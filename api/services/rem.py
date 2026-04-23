@@ -12,10 +12,58 @@ Expone 3 funciones:
 """
 from __future__ import annotations
 
+import re
 from datetime import date, timedelta
 
 from api.cache import cached
 from api.db import get_db_trading
+
+_MESES_ES = {
+    "ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6,
+    "jul": 7, "ago": 8, "sep": 9, "set": 9, "oct": 10, "nov": 11, "dic": 12,
+}
+
+
+def _periodo_a_yyyymm(raw) -> str | None:
+    """Normaliza cualquier formato de período a 'YYYY-MM'.
+
+    Formatos aceptados:
+      '2026-04', '2026-04-01', '2026-4',
+      '04-2026', '04/2026',
+      'abr-26', 'abr-2026', 'Abr 26', etc.
+    Devuelve None si no logra parsear.
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip().lower()
+    if not s:
+        return None
+
+    # YYYY-MM[-DD]
+    m = re.match(r"^(\d{4})-(\d{1,2})", s)
+    if m:
+        y, mm = int(m.group(1)), int(m.group(2))
+        if 1 <= mm <= 12:
+            return f"{y:04d}-{mm:02d}"
+
+    # MM-YYYY o MM/YYYY
+    m = re.match(r"^(\d{1,2})[-/](\d{4})$", s)
+    if m:
+        mm, y = int(m.group(1)), int(m.group(2))
+        if 1 <= mm <= 12:
+            return f"{y:04d}-{mm:02d}"
+
+    # abr-26, abr 2026, abril-26
+    m = re.match(r"^([a-záéíóú]{3,})[\s.\-/]+(\d{2,4})$", s)
+    if m:
+        mes_name = m.group(1)[:3]
+        y_raw = int(m.group(2))
+        y = 2000 + y_raw if y_raw < 100 else y_raw
+        mm = _MESES_ES.get(mes_name)
+        if mm:
+            return f"{y:04d}-{mm:02d}"
+
+    return None
 
 
 def _resolver_indicador_ipc(db, informe: str | None) -> str | None:
@@ -47,6 +95,55 @@ def _resolver_indicador_ipc(db, informe: str | None) -> str | None:
 
     ranked = sorted(candidatos, key=_score, reverse=True)
     return ranked[0]
+
+
+@cached(ttl=60)
+def debug_info() -> dict:
+    """Diagnóstico rápido de Trading.REM: contadores, indicadores e
+    indicador elegido por el fuzzy match para el último informe. Útil para
+    entender por qué el chart no dibuja la serie sin tener que mirar Mongo.
+    """
+    db = get_db_trading()
+    total = db["REM"].count_documents({})
+    informes = sorted(db["REM"].distinct("informe"), reverse=True)
+    ultimo = informes[0] if informes else None
+
+    indicadores_ultimo: list[str] = []
+    n_mensual = 0
+    sample_periodos: list[str] = []
+    indicador_elegido: str | None = None
+    n_en_indicador: int = 0
+    if ultimo:
+        indicadores_ultimo = sorted(
+            db["REM"].distinct("indicador", {"informe": ultimo}),
+        )
+        n_mensual = db["REM"].count_documents(
+            {"informe": ultimo, "periodo_tipo": "mensual"},
+        )
+        sample_periodos = [
+            r["periodo"] for r in db["REM"].find(
+                {"informe": ultimo, "periodo_tipo": "mensual"},
+                {"_id": 0, "periodo": 1},
+            ).limit(6)
+        ]
+        indicador_elegido = _resolver_indicador_ipc(db, ultimo)
+        if indicador_elegido:
+            n_en_indicador = db["REM"].count_documents({
+                "informe": ultimo, "indicador": indicador_elegido,
+                "periodo_tipo": "mensual",
+            })
+
+    return {
+        "total_docs":                total,
+        "n_informes":                len(informes),
+        "ultimo_informe":            ultimo,
+        "informes":                  informes[:15],
+        "indicadores_ultimo":        indicadores_ultimo,
+        "n_mensuales_ultimo":        n_mensual,
+        "sample_periodos":           sample_periodos,
+        "indicador_elegido_por_ipc": indicador_elegido,
+        "n_filas_indicador_elegido": n_en_indicador,
+    }
 
 
 @cached(ttl=300)
@@ -143,31 +240,41 @@ def breakeven_acumulado(
     items = list(db["REM"].find(
         {"informe": inf, "indicador": ind, "periodo_tipo": "mensual"},
         {"_id": 0, "periodo": 1, "mediana": 1, "periodo_hasta": 1},
-    ).sort("periodo", 1))
+    ))
 
-    # Filtrar a meses futuros (periodo >= mes actual).
+    # Normalizar periodo y ordenar. El sort nativo de Mongo no sirve si el
+    # string viene en formato humano (ej 'abr-26' ordena alfabético, no
+    # cronológico). Parseamos primero, ordenamos por el YYYY-MM normalizado.
+    items_norm = []
+    for r in items:
+        yyyy_mm = _periodo_a_yyyymm(r.get("periodo"))
+        if yyyy_mm is None:
+            continue
+        items_norm.append((yyyy_mm, r.get("mediana")))
+    items_norm.sort(key=lambda x: x[0])
+
+    # Filtrar a meses futuros (periodo >= mes actual, lexicográfico funciona
+    # con YYYY-MM).
     mes_actual_key = hoy.strftime("%Y-%m")
-    futuros = [r for r in items if str(r.get("periodo", ""))[:7] >= mes_actual_key]
+    futuros = [(ym, med) for ym, med in items_norm if ym >= mes_actual_key]
 
     serie: list[dict] = []
     factor_acum = 1.0
     n = 0
-    for r in futuros:
-        med = r.get("mediana")
+    for yyyy_mm, med in futuros:
         if med is None:
             continue
         m_pct = float(med) / 100.0
         factor_acum *= (1 + m_pct)
         n += 1
         prom_mensual_geom = factor_acum ** (1 / n) - 1
-        periodo_key = str(r["periodo"])[:7]
-        fin_mes = _fin_de_mes(periodo_key)
+        fin_mes = _fin_de_mes(yyyy_mm)
         serie.append({
-            "periodo":              periodo_key,
-            "fin_mes":              fin_mes.isoformat() if fin_mes else None,
-            "ipc_mensual_rem":      round(m_pct, 6),
+            "periodo":               yyyy_mm,
+            "fin_mes":               fin_mes.isoformat() if fin_mes else None,
+            "ipc_mensual_rem":       round(m_pct, 6),
             "promedio_mensual_acum": round(prom_mensual_geom, 6),
-            "meses_acumulados":     n,
+            "meses_acumulados":      n,
         })
     return {"informe": inf, "indicador": ind, "serie": serie}
 

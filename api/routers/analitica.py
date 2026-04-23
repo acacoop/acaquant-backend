@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query
 
 from api.services import analitica as svc_ana
 from api.services import canje as svc_canje
+from api.services import carry_trade as svc_carry
 from api.services import macro as svc_macro
 from api.services import renta_fija as svc_rf
 from api.services import sensibilidad as svc_sens
@@ -131,3 +132,19 @@ def canje(
     de cada pata + el canje. Solo días con ambos precios disponibles.
     """
     return svc_canje.serie_canje(par=par, desde=desde, hasta=hasta)
+
+
+@router.get("/carry-trade")
+def carry_trade(
+    curva: str = Query("tasa_fija", description="tasa_fija | cer"),
+    desde: str | None = Query(None, description="YYYY-MM-DD (default: 180 días)"),
+    hasta: str | None = Query(None, description="YYYY-MM-DD (default: hoy)"),
+    dolar: str = Query("mep", description="mep | ccl"),
+):
+    """Carry trade en USD por bono = retorno ARS descontado por var del dólar.
+
+    Fórmula: (1 + ret_ars) / (1 + var_dolar) − 1.
+    """
+    return svc_carry.serie_carry_trade(
+        curva=curva, desde=desde, hasta=hasta, dolar=dolar,
+    )

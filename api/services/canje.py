@@ -63,7 +63,7 @@ def _ultimos_precios_diarios(db, tickers: list[str], desde: date, hasta: date) -
     return out
 
 
-@cached(ttl=300)
+@cached(ttl=60)
 def serie_canje(par: str = "AL30", desde: str | None = None, hasta: str | None = None) -> dict:
     """Devuelve serie histórica del canje para un par.
 

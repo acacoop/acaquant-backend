@@ -246,7 +246,7 @@ def listar_curva(
     return out
 
 
-@cached(ttl=300)
+@cached(ttl=60)
 def get_historico_curva(curva: str) -> list:
     """Serie diaria por ticker de una curva: último precio + enriquecimiento.
 

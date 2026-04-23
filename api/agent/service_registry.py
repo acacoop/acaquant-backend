@@ -32,6 +32,7 @@ from api.services import carry_trade as svc_carry
 from api.services import derivados as svc_der
 from api.services import macro as svc_macro
 from api.services import opciones as svc_opt
+from api.services import rem as svc_rem
 from api.services import renta_fija as svc_rf
 from api.services import repo as svc_repo
 from api.services import sensibilidad as svc_sens
@@ -109,6 +110,11 @@ SERVICE_HANDLERS: dict[str, Callable[..., Any]] = {
     # Cotizaciones — Breakevens
     "/api/cotizaciones/breakevens":           svc_der.get_breakevens,
     "/api/cotizaciones/historico/breakevens": svc_der.get_historico_breakevens,
+
+    # Cotizaciones — REM (expectativas BCRA)
+    "/api/cotizaciones/rem":                    svc_rem.expectativas,
+    "/api/cotizaciones/rem/informes":           svc_rem.listar_informes,
+    "/api/cotizaciones/rem/breakeven-acumulado": svc_rem.breakeven_acumulado,
 
     # Cotizaciones — Renta fija / opciones
     "/api/cotizaciones/renta-fija":    svc_rf.get_renta_fija,

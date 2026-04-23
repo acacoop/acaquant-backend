@@ -19,6 +19,7 @@ from api.services import argy as svc_argy
 from api.services import derivados as svc_der
 from api.services import macro as svc_macro
 from api.services import opciones as svc_opt
+from api.services import rem as svc_rem
 from api.services import renta_fija as svc_rf
 from api.services import repo as svc_repo
 
@@ -145,6 +146,42 @@ def historico_breakevens(
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
 ):
     return svc_der.get_historico_breakevens(desde=desde, hasta=hasta)
+
+
+# ── REM (Relevamiento de Expectativas de Mercado, BCRA) ──
+
+
+@router.get("/rem/informes")
+def rem_listar_informes():
+    """Informes REM disponibles en Mongo (ordenados desc)."""
+    return svc_rem.listar_informes()
+
+
+@router.get("/rem")
+def rem_expectativas(
+    indicador: str | None = Query(None, description="Default: 'IPC nivel general'"),
+    informe: str | None = Query(None, description="'YYYY-MM' o vacío=último disponible"),
+    periodo_tipo: str | None = Query(None, description="mensual | anual | trimestral"),
+    periodo_desde: str | None = Query(None, description="Filtro mínimo de periodo ('YYYY-MM')"),
+    periodo_hasta: str | None = Query(None, description="Filtro máximo de periodo ('YYYY-MM')"),
+):
+    """Expectativas REM crudas por informe + indicador (mediana / promedio /
+    percentiles / participantes, ordenado por periodo)."""
+    return svc_rem.expectativas(
+        indicador=indicador, informe=informe, periodo_tipo=periodo_tipo,
+        periodo_desde=periodo_desde, periodo_hasta=periodo_hasta,
+    )
+
+
+@router.get("/rem/breakeven-acumulado")
+def rem_breakeven_acumulado(
+    informe: str | None = Query(None, description="'YYYY-MM' o vacío=último"),
+    indicador: str | None = Query(None, description="Default: 'IPC nivel general'"),
+):
+    """IPC mensual del REM → promedio mensual geométrico acumulado desde HOY
+    hasta cada mes futuro. Formato listo para superponer con breakeven de
+    mercado en el chart."""
+    return svc_rem.breakeven_acumulado(informe=informe, indicador=indicador)
 
 
 # ── Renta Fija ──

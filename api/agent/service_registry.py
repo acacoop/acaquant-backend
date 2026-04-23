@@ -40,9 +40,9 @@ from api.services import sensibilidad as svc_sens
 def _sensibilidad_retorno_csv(
     curva: str = "soberanos",
     tirs: str = "4,5,6,7,8,9,10,11",
+    horizonte_dias: int = 0,
     modo: str = "absoluta",
     tipos: str | None = None,
-    **_ignored,  # tragamos kwargs viejos (ej. horizonte_dias) sin romper.
 ) -> Any:
     """Wrapper que parsea `tirs` y `tipos` como CSV (mismo contrato que el
     endpoint HTTP). El service interno espera tuplas de floats; el modelo nos
@@ -60,7 +60,8 @@ def _sensibilidad_retorno_csv(
     if tipos:
         tipos_t = tuple(t.strip() for t in str(tipos).split(",") if t.strip()) or None
     return svc_sens.sensibilidad_retorno_total(
-        curva=curva, tirs=tirs_t, modo=modo, tipos=tipos_t,
+        curva=curva, tirs=tirs_t, horizonte_dias=horizonte_dias,
+        modo=modo, tipos=tipos_t,
     )
 
 # Endpoint → función servicio. La función recibe kwargs (mismo shape que

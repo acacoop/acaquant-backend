@@ -85,6 +85,11 @@ def sensibilidad_retorno(
     tirs: str = Query("4,5,6,7,8,9,10,11",
                       description="CSV de TIRs (modo absoluta) o shocks pp "
                                   "(modo relativa). En %."),
+    horizonte_dias: int = Query(0, ge=0, le=1095,
+                                description="Días a proyectar el precio. "
+                                            "0 = upside instantáneo; 365 = "
+                                            "dentro de 1 año (incluye "
+                                            "pull-to-par, sin carry)."),
     modo: str = Query("absoluta",
                       description="'absoluta' = TIRs finales; 'relativa' = "
                                   "shocks pp sobre la TEA actual"),
@@ -94,11 +99,12 @@ def sensibilidad_retorno(
                                           "'globales,bonares'). Si se omite "
                                           "trae todos los tipos."),
 ):
-    """Tabla de sensibilidad de PRECIO por escenario de TIR (upside puro).
+    """Tabla de sensibilidad de PRECIO por escenario de TIR (upside capital-only).
 
-    Responde: si la TIR cotizara HOY a X%, ¿a qué precio estaría el bono
-    y cuánto es el upside vs el precio actual? No incluye carry ni paso del
-    tiempo — es capital-only instantáneo.
+    Responde: si dentro de `horizonte_dias` días el bono cotiza a TIR X,
+    ¿a qué precio estaría y cuánto es el upside vs el precio actual? NO
+    incluye carry — es capital puro. Con horizonte=0 es instantáneo;
+    horizontes mayores incluyen pull-to-par.
 
     Para cada bono devuelve precio actual + analíticos +
     [{tir, shock_pp, precio_objetivo, upside}, ...] por escenario.
@@ -117,7 +123,8 @@ def sensibilidad_retorno(
         if not tipos_t:
             tipos_t = None
     return svc_sens.sensibilidad_retorno_total(
-        curva=curva, tirs=tirs_t, modo=modo, tipos=tipos_t,
+        curva=curva, tirs=tirs_t, horizonte_dias=horizonte_dias,
+        modo=modo, tipos=tipos_t,
     )
 
 

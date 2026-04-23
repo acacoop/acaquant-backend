@@ -1,27 +1,30 @@
-"""Análisis de sensibilidad de PRECIO a escenarios de TIR (upside puro).
+"""Análisis de sensibilidad de PRECIO a escenarios de TIR (upside capital-only).
 
 Para cada bono de la curva soberanos, responde:
-  "Si la TIR del bono ya cotizara a X% HOY, ¿qué precio tendría y cuánto
+  "Si dentro de N días el bono cotiza a TIR X, ¿a qué precio estaría y cuánto
    es el upside vs el precio actual?"
 
-Es decir: precio_objetivo = PV de los flujos remanentes descontados a TIR X
-desde HOY; upside = precio_objetivo / precio_actual − 1.
+Es decir: precio_objetivo = PV de los flujos futuros (post-horizonte) descontados
+a TIR X desde fecha_horizonte; upside = precio_objetivo / precio_actual − 1.
 
-NO incluye carry ni paso del tiempo — es capital-only instantáneo. Si la TIR
-objetivo es mayor que la TEA actual, el upside es negativo (el bono debe
-bajar de precio para rendir más). Si es menor, positivo.
+NO incluye carry — es capital-only. Esto es deliberado: muestra CUÁNTO tiene
+que moverse el precio del bono para rendir la TIR objetivo. Si TIR objetivo >
+TEA actual, upside es negativo (el bono tiene que caer). Si TIR objetivo < TEA
+actual, upside es positivo (compresión). A medida que crece el horizonte el
+precio hace pull-to-par y el upside gana por ese lado.
 
 Usado por la tab "Análisis Sensibilidad" de /retorno en acaquant-web.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from api.cache import cached
 from api.db import get_db_trading
 from engines.curvas import fecha_flujo, monto_flujo_soberano
 
 _DEFAULT_TIRS: tuple[float, ...] = (0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11)
+_DEFAULT_HORIZONTE_DIAS = 0  # 0 = upside instantáneo (sin pull-to-par)
 
 
 def _precio_actual_usd(db, ticker_full: str) -> float | None:
@@ -72,11 +75,17 @@ def _pv_a_tir(
 def sensibilidad_retorno_total(
     curva: str = "soberanos",
     tirs: tuple[float, ...] = _DEFAULT_TIRS,
+    horizonte_dias: int = _DEFAULT_HORIZONTE_DIAS,
     modo: str = "absoluta",
     tipos: tuple[str, ...] | None = None,
 ) -> list[dict]:
     """Devuelve tabla de sensibilidad de precio: 1 entrada por bono, con
     escenarios de TIR.
+
+    `horizonte_dias`: a cuántos días proyectar el precio. 0 = hoy (upside
+    instantáneo); 365 = dentro de 1 año (incluye pull-to-par pero NO carry);
+    etc. Capital-only siempre — el upside no suma los cupones cobrados en
+    la ventana.
 
     `modo`:
       - "absoluta"  → `tirs` se interpretan como TIRs finales (ej. 0.06 = 6%).
@@ -118,6 +127,7 @@ def sensibilidad_retorno_total(
     ))
 
     hoy = date.today()
+    horizonte = hoy + timedelta(days=max(horizonte_dias, 0))
 
     out: list[dict] = []
     for bono in bonos:
@@ -133,8 +143,12 @@ def sensibilidad_retorno_total(
         if precio_actual is None or precio_actual <= 0:
             continue
 
-        flujos_futuros = [(fd, m) for fd, m in flujos if fd > hoy]
-        if not flujos_futuros:
+        # Flujos que quedan DESPUÉS del horizonte. Son los que componen el
+        # precio del bono a fecha_horizonte. Si horizonte=0 esto equivale
+        # a todos los flujos futuros.
+        flujos_post = [(fd, m) for fd, m in flujos if fd > horizonte]
+        if not flujos_post:
+            # Bono que vence antes del horizonte → no hay precio proyectado.
             continue
 
         # TEA / duration / paridad del MarketSnapshot (escritos por motor_curvas).
@@ -158,7 +172,7 @@ def sensibilidad_retorno_total(
 
         escenarios = []
         for shock, tir in tirs_reales:
-            precio_objetivo = _pv_a_tir(flujos_futuros, tir, hoy)
+            precio_objetivo = _pv_a_tir(flujos_post, tir, horizonte)
             upside = precio_objetivo / precio_actual - 1
             escenarios.append({
                 "shock_pp":        round(shock, 6) if shock is not None else None,

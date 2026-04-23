@@ -99,7 +99,7 @@ ACA Quant estructura los datos de los dos universos para que cada pregunta tenga
 
 ## 4. Componentes principales
 
-TradingAV se divide en cuatro grupos lógicos:
+ACA Quant se divide en cuatro grupos lógicos:
 
 ### 4.1 Motores (`engines/`)
 
@@ -149,7 +149,7 @@ Se dividen en tres familias:
 
 **c) Sincronización de colecciones API derivadas**:
 
-- `jobs.sync_api_copies` — encadena `scripts.api_migrate <comando>` después de cada job fuente (carteras, movimientos, flujo, AuM, títulos). Sin esto, las colecciones `*API.*API` (que es lo que la API REST y el frontend leen) quedan desactualizadas. **Ver sección 4.5**.
+- `jobs.sync_api_copies` — encadena `scripts.api_migrate <comando>` después de cada job fuente (carteras, movimientos, flujo, AuM, títulos). Sin esto, las colecciones `*API.*API` (que es lo que la API REST y el frontend leen) quedan desactualizadas. **Ver sección 4.4**.
 
 **d) Otros**:
 
@@ -218,93 +218,90 @@ El frontend nunca habla directo con la API pública — pasa siempre por **API r
 
 ## 5. Diagrama de flujo
 
-Hay **dos pipelines de ingesta independientes** que aterrizan en el mismo MongoDB y se sirven al mismo frontend:
+Hay **dos pipelines de ingesta independientes** que aterrizan en el mismo MongoDB y se sirven al mismo frontend.
 
-```
-═══ PIPELINE A: MERCADO (always-on, L-V horario de mercado) ═══
+```mermaid
+flowchart TB
+    %% ───────── PIPELINE A: MERCADO ─────────
+    subgraph PA["⚡ PIPELINE A · MERCADO LIVE (always-on, L-V horario de mercado)"]
+        direction TB
+        ROFEX([ROFEX WebSocket<br/>mercado live])
+        WSM[core/websocket.py<br/>WebSocketManager<br/>chunks de 50 tickers]
+        ROFEX --> WSM
 
-                            ┌──────────────────────┐
-                            │   ROFEX WebSocket    │
-                            │   (mercado live)     │
-                            └──────────┬───────────┘
-                                       │ trades + libro
-                                       ▼
-                  ┌────────────────────────────────────────┐
-                  │  core/websocket.py — WebSocketManager  │
-                  │  Suscribe tickers en chunks de 50,     │
-                  │  dispatchea a handlers por motor       │
-                  └────────────────────┬───────────────────┘
-                                       │
-        ┌──────────────┬───────────────┼───────────────┬──────────────┐
-        ▼              ▼               ▼               ▼              ▼
-  ┌──────────┐  ┌──────────┐    ┌──────────┐    ┌──────────┐   ┌──────────┐
-  │ valores  │  │ options  │    │ curvas   │    │ forwards │   │ caucion  │
-  │ (1s)     │  │ (tick)   │    │ (5s)     │    │ (30s)    │   │ (5s)     │
-  └────┬─────┘  └────┬─────┘    └────┬─────┘    └────┬─────┘   └────┬─────┘
-       │             │               │               │              │
-       └─────────────┴───────┬───────┴───────────────┴──────────────┘
-                             ▼
-                  Trading.* / Opciones.* / Valuaciones.Dolar*
+        subgraph ENGINES["8 motores en paralelo (systemd)"]
+            direction LR
+            E1[valores<br/>1s]
+            E2[options<br/>tick]
+            E3[curvas<br/>5s]
+            E4[forwards<br/>30s]
+            E5[breakevens<br/>30s]
+            E6[caucion<br/>5s]
+            E7[futuros_dlr<br/>5s]
+            E8[dolares<br/>5s]
+        end
 
-═══ PIPELINE B: INTERNO ALyC (cron batch vía API Aunesa) ══════
+        WSM --> ENGINES
+        COL_A[(Trading.* · Opciones.*<br/>Valuaciones.Dolar*)]
+        ENGINES --> COL_A
+    end
 
-                          ┌──────────────────────┐
-                          │   Aunesa REST API    │
-                          │   (back-office ALyC) │
-                          └──────────┬───────────┘
-                                     │ posiciones, movimientos, operaciones
-                                     ▼
-                    ┌────────────────────────────────┐
-                    │  jobs/aunesa_client.py         │
-                    │  (cliente HTTP compartido)     │
-                    └────────────────┬───────────────┘
-                                     │
-        ┌──────────────┬─────────────┼─────────────┬──────────────────┐
-        ▼              ▼             ▼             ▼                  ▼
-  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  ┌──────────────────┐
-  │ carteras │  │   aum    │  │ cashflow │  │   flujo_   │  │ aum_resumen_fci  │
-  │ 3×/día   │  │ 23:00 UTC│  │ 02:00 UTC│  │contrapartes│  │ 23:30 UTC (rollup)│
-  └────┬─────┘  └────┬─────┘  └────┬─────┘  └─────┬──────┘  └────────┬─────────┘
-       │             │             │              │                  │
-       ▼             ▼             ▼              ▼                  ▼
-   Valuaciones.  Valuaciones.  CashFlow.    CashFlow.         Valuaciones.
-   Carteras +    AuM           Movimientos  Flujo +           AuMResumenFCI
-   CarterasII                                Contrapartes
+    %% ───────── PIPELINE B: AUNESA ─────────
+    subgraph PB["📋 PIPELINE B · INTERNO ALyC (cron batch vía Aunesa)"]
+        direction TB
+        AUNESA([Aunesa REST API<br/>back-office ALyC])
+        CLI[jobs/aunesa_client.py<br/>cliente HTTP compartido]
+        AUNESA --> CLI
 
-═══ PUENTE: scripts/api_migrate.py + jobs/sync_api_copies ════
-              (re-sync idempotente de colecciones derivadas)
-                                     │
-                                     ▼
-              CuentasAPI / PortfolioAPI / OperacionesAPI / TitulosAPI
+        subgraph JOBS["Jobs cron (deploy/crontab.txt)"]
+            direction LR
+            J1[carteras<br/>3×/día]
+            J2[aum<br/>23:00 UTC]
+            J3[cashflow<br/>02:00 UTC]
+            J4[flujo_contrapartes<br/>22:00 UTC]
+            J5[aum_resumen_fci<br/>23:30 UTC]
+        end
 
-═══════════════════════════════════════════════════════════════
-                                     │
-                                     ▼
-                ┌──────────────────────────────────┐
-                │       MongoDB Atlas (M10)        │
-                └────────────────┬─────────────────┘
-                                 │ get_mongo_client_read()
-                                 │ (SECONDARY_PREFERRED, read-only)
-                                 ▼
-                       ┌─────────────────────┐
-                       │ FastAPI (api/)      │
-                       │ ~70 endpoints       │
-                       │ @cached(ttl=60–300) │
-                       └──────────┬──────────┘
-                                  │ HTTP
-                                  ▼
-                  ┌────────────────────────────────┐
-                  │  Cloudflare Tunnel + Access    │
-                  └──────────────┬─────────────────┘
-                                 ▼
-                       ┌──────────────────────┐
-                       │  acaquant-web        │
-                       │  (Next.js / Vercel)  │
-                       │  trading.acaquant... │
-                       └──────────┬───────────┘
-                                  ▼
-                              👤 Usuario
-                              (mesa / dirección / [futuro: ACA])
+        CLI --> JOBS
+        COL_B[(Valuaciones.Carteras · CarterasII<br/>Valuaciones.AuM · AuMResumenFCI<br/>CashFlow.Movimientos<br/>CashFlow.Flujo · Contrapartes)]
+        JOBS --> COL_B
+    end
+
+    %% ───────── PUENTE ─────────
+    BRIDGE[scripts/api_migrate.py<br/>+ jobs/sync_api_copies<br/><br/>re-sync idempotente]
+    COL_A --> BRIDGE
+    COL_B --> BRIDGE
+    DERIVED[(CuentasAPI · PortfolioAPI<br/>OperacionesAPI · TitulosAPI<br/><br/>colecciones derivadas optimizadas para lectura)]
+    BRIDGE --> DERIVED
+
+    %% ───────── CONSUMO ─────────
+    MONGO[(MongoDB Atlas M10)]
+    DERIVED --> MONGO
+    API[FastAPI · ~70 endpoints<br/>get_mongo_client_read SECONDARY_PREFERRED<br/>@cached ttl=60–300]
+    MONGO --> API
+    CF[Cloudflare Tunnel + Access<br/>JWT validado + service tokens whitelisted]
+    API --> CF
+    WEB[acaquant-web · Next.js / Vercel<br/>trading.acaquant.com]
+    CF --> WEB
+    USER([👤 Usuario<br/>mesa · dirección · futuro: ACA])
+    WEB --> USER
+
+    %% ───────── ESTILOS ─────────
+    classDef external fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#78350f
+    classDef engine fill:#dbeafe,stroke:#2563eb,stroke-width:1px,color:#1e3a8a
+    classDef job fill:#e0e7ff,stroke:#6366f1,stroke-width:1px,color:#312e81
+    classDef storage fill:#f3f4f6,stroke:#6b7280,stroke-width:2px,color:#111827
+    classDef bridge fill:#fce7f3,stroke:#db2777,stroke-width:2px,color:#831843
+    classDef serve fill:#d1fae5,stroke:#059669,stroke-width:2px,color:#064e3b
+    classDef user fill:#fef9c3,stroke:#ca8a04,stroke-width:2px,color:#713f12
+
+    class ROFEX,AUNESA external
+    class WSM,E1,E2,E3,E4,E5,E6,E7,E8 engine
+    class CLI,J1,J2,J3,J4,J5 job
+    class COL_A,COL_B,DERIVED,MONGO storage
+    class BRIDGE bridge
+    class API,CF,WEB serve
+    class USER user
 ```
 
 **Por qué dos pipelines**: el mercado se rompe si pierde un tick, así que vive en motores `always-on` con WebSocket. Aunesa solo refresca lo que cambió hoy (carteras, movimientos, operaciones del día), así que vive en cron batch. Ambos terminan en el mismo MongoDB, pero la cadencia, las garantías y los puntos de falla son distintos — por eso conviene pensarlos por separado.
@@ -339,57 +336,41 @@ El modelo no inventa datos: el sistema le da un **menú de "tools"** (funciones 
 
 ### 6.3 Arquitectura interna
 
-```
-                ┌─────────────────────────┐
-                │  POST /api/chat         │
-                │  body: {message, ...}   │
-                └────────────┬────────────┘
-                             │
-                             ▼
-                  ┌─────────────────────┐
-                  │  router.py          │  ← decide modelo
-                  │  (heurísticas)      │     (Haiku para preguntas
-                  └──────────┬──────────┘     simples; Sonnet para
-                             │                 razonamiento complejo)
-                             ▼
-                  ┌─────────────────────┐
-                  │  context.py         │  ← arma "foto del día"
-                  │  (MEP, CER, top     │     (~500 tokens fijos
-                  │   volumen, vtos)    │     para anclar al modelo)
-                  └──────────┬──────────┘
-                             │
-                             ▼
-                  ┌─────────────────────┐
-                  │  prompt.py          │  ← system prompt cacheado
-                  │  + estrategia.md    │     (4 capas analíticas
-                  │  + estrategias.md   │     + catálogo de 45+
-                  │  + IntelDoc actual  │     estrategias)
-                  └──────────┬──────────┘
-                             │
-                             ▼
-                  ┌─────────────────────┐
-                  │  runner.py          │
-                  │  bucle (max 6       │
-                  │  iteraciones):      │
-                  │                     │
-                  │  1. modelo elige    │
-                  │     tool (o no)     │
-                  │  2. dispatcher      │     ← service_registry.py
-                  │     ejecuta sin     │       (mapea endpoint →
-                  │     hacer HTTP      │        función service)
-                  │  3. resultado       │
-                  │     vuelve al       │
-                  │     modelo          │
-                  │  4. modelo decide   │
-                  │     siguiente paso  │
-                  └──────────┬──────────┘
-                             │
-                             ▼
-                  ┌─────────────────────┐
-                  │  Respuesta final    │
-                  │  + log a            │
-                  │  Manager.AsistLogs  │
-                  └─────────────────────┘
+```mermaid
+flowchart TB
+    REQ([POST /api/chat<br/>body: message, history])
+
+    ROUTER[router.py<br/>decide modelo según heurísticas<br/>Haiku para preguntas simples<br/>Sonnet para razonamiento complejo]
+    CONTEXT[context.py<br/>arma 'foto del día'<br/>MEP · CER · top volumen · vencimientos<br/>~500 tokens fijos]
+    PROMPT[prompt.py<br/>system prompt cacheado<br/>+ estrategia.md<br/>+ estrategias.md<br/>+ último IntelDoc]
+
+    REQ --> ROUTER --> CONTEXT --> PROMPT --> RUNNER
+
+    subgraph RUNNER["runner.py · bucle tool-use (max 6 iteraciones)"]
+        direction TB
+        S1[1 · modelo elige tool<br/>o devuelve texto final]
+        S2[2 · dispatcher ejecuta tool<br/>service_registry.py<br/>SIN HTTP loopback]
+        S3[3 · resultado vuelve al modelo]
+        S4[4 · modelo decide siguiente paso]
+        S1 --> S2 --> S3 --> S4 --> S1
+    end
+
+    OUT[Respuesta final al usuario]
+    LOG[(Manager.AsistenteLogs<br/>tokens · latencia · tools usadas · errores)]
+    RUNNER --> OUT
+    RUNNER --> LOG
+
+    classDef entry fill:#fef9c3,stroke:#ca8a04,stroke-width:2px,color:#713f12
+    classDef stage fill:#dbeafe,stroke:#2563eb,stroke-width:1px,color:#1e3a8a
+    classDef step fill:#e0e7ff,stroke:#6366f1,stroke-width:1px,color:#312e81
+    classDef output fill:#d1fae5,stroke:#059669,stroke-width:2px,color:#064e3b
+    classDef storage fill:#f3f4f6,stroke:#6b7280,stroke-width:2px,color:#111827
+
+    class REQ entry
+    class ROUTER,CONTEXT,PROMPT stage
+    class S1,S2,S3,S4 step
+    class OUT output
+    class LOG storage
 ```
 
 ### 6.4 Qué datos consume
@@ -518,3 +499,16 @@ Si esto te dejó dudas en algún tema específico, mirá:
 | `CLAUDE.md` | Guía de operación para devs (cómo arrancar, comandos, deploy). |
 
 > **Nota sobre el nombre**: el producto se llama **ACA Quant**. El repositorio Git se llama `TradingAV` por razones históricas (era el nombre cuando arrancó el proyecto). Cualquier mención a "TradingAV" en código, paths o systemd services se refiere al repo, no al producto.
+
+---
+
+## Cómo se ven los diagramas
+
+Los diagramas están escritos en **Mermaid**. Se renderizan automáticamente como imagen en:
+
+- **GitHub** y **GitLab** (al ver el archivo en la web).
+- **VS Code** con la extensión [Markdown Preview Mermaid Support](https://marketplace.visualstudio.com/items?itemName=bierner.markdown-mermaid).
+- **Notion**, **Obsidian**, **Cursor**, **Claude.ai** (al pegar el bloque).
+- **Vercel** si se renderiza el `.md` en una página Next con un plugin de mermaid.
+
+Si querés exportar a PNG/SVG (por ejemplo para slides), pegá el bloque ` ```mermaid ` en [https://mermaid.live](https://mermaid.live) y descargalo desde ahí.

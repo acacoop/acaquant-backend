@@ -38,7 +38,10 @@ logger = logging.getLogger("MotorBreakevens")
 
 INTERVALO = 30          # segundos entre corridas
 MAX_DIFF_DIAS = 20      # diferencia máxima entre vto Lecap/Boncap y vto CER
-MIN_DIAS_PLAZO = 30     # días mínimos al vto desde hoy para incluir el par
+# MIN_DIAS_PLAZO: bonos con vto < 50 días implican inflación de meses ya
+# publicados (IPC del mes M-2 cuando M está a <60d = M-2 ya publicado).
+# No tiene utilidad analítica mostrar esos BE. 50 = 60 − 10 de tolerancia.
+MIN_DIAS_PLAZO = 50
 
 
 # ─────────────────────────────────────────────

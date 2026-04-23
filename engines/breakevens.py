@@ -190,10 +190,9 @@ def calcular_breakevens(
         if dias < MIN_DIAS_PLAZO:
             continue
 
-        # Plazo efectivo de la inflación: hasta la fecha del CER de
-        # liquidación (vto − 10 hábiles), no hasta el vto puro. Si no
-        # tenemos calendario, fallback a `dias`.
-        dias_cer = dias
+        # Info extra del CER de liquidación (T-10 hábiles). Se expone en
+        # el output para el panel de debug, pero la fórmula del BE usa el
+        # plazo completo hasta el vto (convención Fisher clásica).
         fecha_liq_cer = None
         if dias_habiles:
             fecha_liq_cer_str = fecha_cer_liquidacion(
@@ -201,11 +200,6 @@ def calcular_breakevens(
             )
             if fecha_liq_cer_str:
                 fecha_liq_cer = date.fromisoformat(fecha_liq_cer_str)
-                dias_cer = (fecha_liq_cer - fecha_ref).days
-                if dias_cer <= 0:
-                    # El CER ya se fijó — el flujo final está determinado y
-                    # no hay inflación que pricear. Saltamos.
-                    continue
 
         # Mes del IPC cuya inflación pricean estos breakevens. Por la
         # convención del CER (settlement T-10 hábiles + IPC publicado con
@@ -230,10 +224,9 @@ def calcular_breakevens(
             "lecap":             par["lecap_corto"],
             "cer":               par["cer_corto"],
             "fecha_vencimiento": par["fecha_vencimiento"],
+            "fecha_cer_liq":     fecha_liq_cer.isoformat() if fecha_liq_cer else None,
             "mes_inflacion":     mes_inflacion,
             "dias":              dias,
-            "dias_cer":          dias_cer,
-            "fecha_cer_liq":     fecha_liq_cer.isoformat() if fecha_liq_cer else None,
         }
 
         tem     = tems.get(par["lecap_ticker"])
@@ -251,20 +244,9 @@ def calcular_breakevens(
 
         if tem is not None and paridad is not None:
             try:
-                # Plazos:
-                #   dias      = hoy → vto del bono (cuando cobrás)
-                #   dias_cer  = hoy → CER de liquidación (cuando se FIJA el
-                #               flujo final en pesos, ~14 días calendario
-                #               antes del vto)
-                # El retorno nominal de la Lecap usa `dias` (plazo real del
-                # cobro), pero la inflación implícita corresponde al período
-                # hasta la liquidación del CER (`dias_cer`) porque eso es
-                # cuando queda determinado. La anualización mensual divide
-                # por `dias_cer`, no `dias` — esto es el "Buscar Objetivo"
-                # de Excel bien hecho. En plazos cortos cambia fuerte.
                 retorno    = (1 + float(tem)) ** (dias / 30) - 1
                 inflacion  = (1 + retorno) * (float(paridad) / 100) - 1
-                bkv        = (1 + inflacion) ** (30 / dias_cer) - 1
+                bkv        = (1 + inflacion) ** (30 / dias) - 1
                 if -0.5 < bkv < 10:
                     entry["retorno_acumulado"]   = round(retorno, 6)
                     entry["inflacion_acumulada"] = round(inflacion, 6)

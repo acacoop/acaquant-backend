@@ -452,6 +452,83 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
 
+    # ─── Tier 3: estrategia (canje, carry trade, sensibilidad de retorno) ─
+    {
+        "name": "serie_canje",
+        "description": (
+            "Serie histórica diaria del CANJE legislación (ley NY vs ley Arg) "
+            "para un par soberano. canje = precio_C / precio_D − 1 (en decimal, "
+            "ej 0.024 = 2.4%). Devuelve día por día el precio de cada pata + el "
+            "canje resultante. Pares soportados: 'AL30' (default, Bonar) y "
+            "'GD30' (Global). USAR para 'cómo evolucionó el canje', 'está más "
+            "alto/bajo que hace un mes', 'cuándo fue el máximo del año', "
+            "comparativas legislativas. Distinto de obtener_serie_macro('canje') "
+            "que devuelve la serie genérica MEP/CCL."
+        ),
+        "endpoint": "/api/analitica/canje",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "par":   {"type": "STRING", "description": "AL30 (default) | GD30"},
+                "desde": {"type": "STRING", "description": "YYYY-MM-DD; default últimos 365 días"},
+                "hasta": {"type": "STRING", "description": "YYYY-MM-DD; default hoy"},
+            },
+        },
+    },
+    {
+        "name": "carry_trade_serie",
+        "description": (
+            "Serie diaria del carry trade en USD por bono. Para cada bono de la "
+            "curva calcula el retorno acumulado en USD = retorno ARS descontado "
+            "por la variación del dólar elegido (MEP u OFICIAL A3500), "
+            "renormalizado al primer día del rango. Devuelve serie graficable "
+            "(% por ticker por fecha) + tabla resumen por bono "
+            "(base, final, ret_ars, var_dolar, carry_usd). USAR para 'qué Lecap "
+            "rindió mejor en USD desde X', 'comparar carry de tasa_fija vs MEP', "
+            "'el CER ganó o perdió contra el oficial este trimestre'. Curvas "
+            "soportadas: tasa_fija, cer."
+        ),
+        "endpoint": "/api/analitica/carry-trade",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "curva": {"type": "STRING", "description": "tasa_fija (default) | cer"},
+                "dolar": {"type": "STRING", "description": "mep (default) | oficial (BCRA A3500)"},
+                "desde": {"type": "STRING", "description": "YYYY-MM-DD; default últimos 180 días"},
+                "hasta": {"type": "STRING", "description": "YYYY-MM-DD; default hoy"},
+            },
+        },
+    },
+    {
+        "name": "sensibilidad_retorno",
+        "description": (
+            "Tabla de sensibilidad de retorno total para Globales/Bonares por "
+            "escenario de TIR. Para cada bono devuelve precio actual + "
+            "TEA/duration/paridad + lista de escenarios "
+            "[{tir, shock_pp, precio_proyectado, retorno_total}]. "
+            "Modo 'absoluta': `tirs` son TIRs finales en % (ej '6,8,10,12' → "
+            "evalúa cada bono a esas TIRs). "
+            "Modo 'relativa': `tirs` son shocks en pp sobre la TEA actual de "
+            "cada bono (ej '-2,0,2' → para un bono con TEA 9%, evalúa 7%, 9%, "
+            "11% — útil para comparar bonos centrados en su propia TIR). "
+            "USAR para stress tests, 'cuánto ganaría el GD35 si la TIR baja a "
+            "8% en 1 año', 'qué Bonar es más sensible a una baja de tasa', "
+            "'precio objetivo bajo escenario X'. Por defecto: curva soberanos, "
+            "horizonte 365 días."
+        ),
+        "endpoint": "/api/analitica/sensibilidad-retorno",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "curva":          {"type": "STRING", "description": "soberanos (default)"},
+                "tirs":           {"type": "STRING", "description": "CSV de TIRs en % (modo absoluta) o de shocks pp (modo relativa). Default '4,5,6,7,8,9,10,11'."},
+                "horizonte_dias": {"type": "INTEGER", "description": "Días al futuro a proyectar (default 365)"},
+                "modo":           {"type": "STRING", "description": "absoluta (default) | relativa"},
+                "tipos":          {"type": "STRING", "description": "CSV opcional: globales | bonares | 'globales,bonares'. Default: todos."},
+            },
+        },
+    },
+
     # ─── Contexto analítico on-demand (local, sin HTTP) ───────────────────
     {
         "name": "consultar_framework_analitico",

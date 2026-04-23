@@ -27,11 +27,42 @@ from typing import Any
 
 from api.services import analitica as svc_ana
 from api.services import argy as svc_argy
+from api.services import canje as svc_canje
+from api.services import carry_trade as svc_carry
 from api.services import derivados as svc_der
 from api.services import macro as svc_macro
 from api.services import opciones as svc_opt
 from api.services import renta_fija as svc_rf
 from api.services import repo as svc_repo
+from api.services import sensibilidad as svc_sens
+
+
+def _sensibilidad_retorno_csv(
+    curva: str = "soberanos",
+    tirs: str = "4,5,6,7,8,9,10,11",
+    horizonte_dias: int = 365,
+    modo: str = "absoluta",
+    tipos: str | None = None,
+) -> Any:
+    """Wrapper que parsea `tirs` y `tipos` como CSV (mismo contrato que el
+    endpoint HTTP). El service interno espera tuplas de floats; el modelo nos
+    pasa strings — acá hacemos la traducción para evitar duplicar lógica del
+    router en el dispatcher."""
+    try:
+        tirs_t = tuple(
+            float(t.strip()) / 100 for t in str(tirs).split(",") if t.strip()
+        )
+    except ValueError:
+        return {"error": "tirs malformado, esperado CSV de números (ej '6,8,10')"}
+    if not tirs_t:
+        return {"error": "tirs vacío"}
+    tipos_t: tuple[str, ...] | None = None
+    if tipos:
+        tipos_t = tuple(t.strip() for t in str(tipos).split(",") if t.strip()) or None
+    return svc_sens.sensibilidad_retorno_total(
+        curva=curva, tirs=tirs_t, horizonte_dias=horizonte_dias,
+        modo=modo, tipos=tipos_t,
+    )
 
 # Endpoint → función servicio. La función recibe kwargs (mismo shape que
 # los args del TOOLS entry) y devuelve lo que el endpoint HTTP devolvería.
@@ -45,6 +76,11 @@ SERVICE_HANDLERS: dict[str, Callable[..., Any]] = {
     "/api/analitica/snapshot-curva-historico": svc_ana.snapshot_curva_historico,
     "/api/analitica/pendiente-curva":          svc_ana.calcular_pendiente_curva,
     "/api/analitica/liquidez-secundario":      svc_ana.liquidez_secundario,
+
+    # Analítica — Tier 3 (estrategia: canje, carry, sensibilidad de retorno)
+    "/api/analitica/canje":                svc_canje.serie_canje,
+    "/api/analitica/carry-trade":          svc_carry.serie_carry_trade,
+    "/api/analitica/sensibilidad-retorno": _sensibilidad_retorno_csv,
 
     # Cotizaciones — series BCRA
     "/api/cotizaciones/badlar":     svc_macro.get_badlar,

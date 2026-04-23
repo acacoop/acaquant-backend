@@ -536,24 +536,21 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "rem_expectativas",
         "description": (
-            "Expectativas REM del BCRA: consenso de analistas sobre IPC "
-            "mensual/anual, dólar, PBI, TAMAR, etc. Devuelve por cada período "
-            "proyectado: mediana, promedio, percentiles (10/25/75/90), "
-            "min/max, participantes. "
-            "Defaults: indicador='IPC nivel general', informe=último disponible. "
+            "Expectativas REM del BCRA sobre IPC nivel general INDEC (consenso "
+            "de analistas). Devuelve por cada período proyectado: mediana, "
+            "promedio, percentiles (10/25/75/90), min/max, participantes. "
+            "Default: informe=último disponible. "
             "USAR para 'qué inflación espera el REM para mayo', 'cuánto subió "
-            "la expectativa de inflación desde el informe anterior', 'mediana "
-            "del dólar esperada a fin de año'. "
-            "COMPLEMENTA a breakevens_actuales: breakevens = inflación implícita "
-            "en precios de mercado; REM = inflación esperada por analistas. "
-            "Comparar ambos = view sobre si el mercado está pricing 'más alto' "
-            "o 'más bajo' que el consenso de research."
+            "la expectativa desde el informe anterior'. "
+            "COMPLEMENTA a breakevens_actuales: breakevens = inflación "
+            "implícita en precios de mercado; REM = inflación esperada por "
+            "analistas. Comparar = view sobre si el mercado está pricing "
+            "'más alto' o 'más bajo' que el consenso de research."
         ),
         "endpoint": "/api/cotizaciones/rem",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "indicador":     {"type": "STRING", "description": "Default 'IPC nivel general'. Otros: 'Tipo de Cambio Nominal', 'PIB a precios constantes', 'TAMAR', etc."},
                 "informe":       {"type": "STRING", "description": "'YYYY-MM' (ej '2026-03') o vacío = último publicado."},
                 "periodo_tipo":  {"type": "STRING", "description": "mensual | anual | trimestral (opcional)"},
                 "periodo_desde": {"type": "STRING", "description": "Filtro mínimo de período ('YYYY-MM')."},

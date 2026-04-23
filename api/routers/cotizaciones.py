@@ -159,16 +159,15 @@ def rem_listar_informes():
 
 @router.get("/rem")
 def rem_expectativas(
-    indicador: str | None = Query(None, description="Default: 'IPC nivel general'"),
     informe: str | None = Query(None, description="'YYYY-MM' o vacío=último disponible"),
     periodo_tipo: str | None = Query(None, description="mensual | anual | trimestral"),
     periodo_desde: str | None = Query(None, description="Filtro mínimo de periodo ('YYYY-MM')"),
     periodo_hasta: str | None = Query(None, description="Filtro máximo de periodo ('YYYY-MM')"),
 ):
-    """Expectativas REM crudas por informe + indicador (mediana / promedio /
-    percentiles / participantes, ordenado por periodo)."""
+    """Expectativas REM crudas (IPC nivel general INDEC): mediana / promedio /
+    percentiles / participantes por período, ordenado asc."""
     return svc_rem.expectativas(
-        indicador=indicador, informe=informe, periodo_tipo=periodo_tipo,
+        informe=informe, periodo_tipo=periodo_tipo,
         periodo_desde=periodo_desde, periodo_hasta=periodo_hasta,
     )
 
@@ -176,12 +175,11 @@ def rem_expectativas(
 @router.get("/rem/breakeven-acumulado")
 def rem_breakeven_acumulado(
     informe: str | None = Query(None, description="'YYYY-MM' o vacío=último"),
-    indicador: str | None = Query(None, description="Default: 'IPC nivel general'"),
 ):
     """IPC mensual del REM → promedio mensual geométrico acumulado desde HOY
     hasta cada mes futuro. Formato listo para superponer con breakeven de
     mercado en el chart."""
-    return svc_rem.breakeven_acumulado(informe=informe, indicador=indicador)
+    return svc_rem.breakeven_acumulado(informe=informe)
 
 
 @router.get("/rem/debug")

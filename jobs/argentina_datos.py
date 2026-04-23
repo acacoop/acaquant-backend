@@ -5,11 +5,13 @@ Escribe 3 series simples + REM estructurado:
     Trading.RiesgoPais           ← /v1/finanzas/indices/riesgo-pais
     Trading.InflacionMensual     ← /v1/finanzas/indices/inflacion
     Trading.InflacionInteranual  ← /v1/finanzas/indices/inflacionInteranual
-    Trading.REM                  ← /v1/rems/{...} (expectativas de mercado BCRA)
+    Trading.REM                  ← /v1/rems/{...} (IPC INDEC esperado por el REM)
 
-Las 3 series de índices usan shape estándar `{fecha: 'YYYY-MM-DD', valor: float}`
-que consume `services/macro._fetch_serie_macro`. El REM tiene shape propia (1
-doc por (informe, indicador, periodo, periodoTipo)) — ver _persistir_rem.
+Las 3 series de índices usan shape estándar `{fecha: 'YYYY-MM-DD', valor: float}`.
+
+El REM se filtra en la ingesta a UN SOLO indicador (IPC nivel general INDEC)
+y se guarda con shape chica: solo estadísticos de consenso + periodo YYYY-MM
+normalizado. Clave única: (informe, periodo, periodo_tipo).
 
 Cadencia: diaria. Riesgo país cambia intradía pero con 1 update al cierre
 alcanza para la foto. El REM sale ~1× al mes (15 del mes aprox) pero correr
@@ -19,11 +21,13 @@ Uso:
     python -m jobs.argentina_datos                # todo
     python -m jobs.argentina_datos --only riesgo  # solo una
     python -m jobs.argentina_datos --only rem     # solo REM
+    python -m jobs.argentina_datos --only rem --reset   # drop + re-ingest REM
 """
 from __future__ import annotations
 
 import argparse
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -40,6 +44,47 @@ from core.argentina_datos import (
 )
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
+
+# Indicador REM único que nos interesa. argentinadatos.com lo devuelve con
+# este label literal (verificado en /rem/debug: abril 2026).
+_INDICADOR_IPC_INDEC = "Precios minoristas (IPC nivel general-Nacional; INDEC)"
+
+# Meses que difieren entre es/en. Los otros (feb/mar/may/jun/jul/sep/oct/nov)
+# coinciden letra por letra. argentinadatos devuelve 'Apr-26', 'Aug-26', etc.
+_MESES = {
+    "ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6,
+    "jul": 7, "ago": 8, "sep": 9, "set": 9, "oct": 10, "nov": 11, "dic": 12,
+    "jan": 1, "apr": 4, "aug": 8, "dec": 12,
+}
+
+
+def _periodo_a_yyyymm(raw) -> str | None:
+    """Normaliza cualquier formato razonable de período a 'YYYY-MM'.
+    Devuelve None si no parsea."""
+    if raw is None:
+        return None
+    s = str(raw).strip().lower()
+    if not s:
+        return None
+    m = re.match(r"^(\d{4})-(\d{1,2})", s)
+    if m:
+        y, mm = int(m.group(1)), int(m.group(2))
+        if 1 <= mm <= 12:
+            return f"{y:04d}-{mm:02d}"
+    m = re.match(r"^(\d{1,2})[-/](\d{4})$", s)
+    if m:
+        mm, y = int(m.group(1)), int(m.group(2))
+        if 1 <= mm <= 12:
+            return f"{y:04d}-{mm:02d}"
+    m = re.match(r"^([a-záéíóú]{3,})[\s.\-/]+(\d{2,4})$", s)
+    if m:
+        mes_name = m.group(1)[:3]
+        y_raw = int(m.group(2))
+        y = 2000 + y_raw if y_raw < 100 else y_raw
+        mm = _MESES.get(mes_name)
+        if mm:
+            return f"{y:04d}-{mm:02d}"
+    return None
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("argentina_datos")
@@ -109,87 +154,93 @@ def _parse_informe(path_o_item: str | dict) -> str | None:
 
 
 def _persistir_rem(coll, items: list[dict]) -> dict[str, Any]:
-    """Upsert de una lista de registros REM en `Trading.REM`.
+    """Upsert de registros REM en `Trading.REM`, filtrados a UN indicador
+    (_INDICADOR_IPC_INDEC) y con schema mínimo.
 
-    Clave única: (informe, indicador, periodo, periodoTipo). Un mismo
-    indicador puede proyectar mensual y anual para el mismo periodo, por
-    eso la clave incluye el tipo. Si el informe ya existía, los cambios
-    tardíos se pisan.
+    Clave única: (informe, periodo, periodo_tipo). El periodo se normaliza
+    a 'YYYY-MM' para poder ordenar/comparar lexicográficamente sin parsing
+    en cada query.
     """
     ops = []
-    descartados = 0
+    descartados_indicador = 0
+    descartados_periodo = 0
     for r in items:
-        informe = r.get("informe")
-        indicador = r.get("indicador")
-        periodo = r.get("periodo")
-        periodo_tipo = r.get("periodoTipo")
-        if not (informe and indicador and periodo and periodo_tipo):
-            descartados += 1
+        if r.get("indicador") != _INDICADOR_IPC_INDEC:
+            descartados_indicador += 1
             continue
-        informe_key = str(informe)[:7]  # normaliza a 'YYYY-MM'
+
+        informe_raw = r.get("informe")
+        periodo_raw = r.get("periodo")
+        periodo_tipo = r.get("periodoTipo")
+        if not (informe_raw and periodo_raw and periodo_tipo):
+            descartados_periodo += 1
+            continue
+
+        periodo_yyyymm = _periodo_a_yyyymm(periodo_raw)
+        if periodo_yyyymm is None:
+            descartados_periodo += 1
+            continue
+
+        informe_key = str(informe_raw)[:7]
         doc = {
-            "informe":        informe_key,
-            "fecha":          r.get("fecha"),
-            "muestra":        r.get("muestra"),
-            "indicador":      indicador,
-            "periodo":        periodo,
-            "periodo_tipo":   periodo_tipo,
-            "periodo_desde":  r.get("periodoDesde"),
-            "periodo_hasta":  r.get("periodoHasta"),
-            "unidad":         r.get("unidad"),
-            "mediana":        r.get("mediana"),
-            "promedio":       r.get("promedio"),
-            "desvio":         r.get("desvio"),
-            "maximo":         r.get("maximo"),
-            "minimo":         r.get("minimo"),
-            "p10":            r.get("percentil10"),
-            "p25":            r.get("percentil25"),
-            "p75":            r.get("percentil75"),
-            "p90":            r.get("percentil90"),
-            "participantes":  r.get("participantes"),
-            "fuente":         r.get("fuente") or "BCRA",
-            "publicacion_url": r.get("publicacionUrl"),
-            "xlsx_url":       r.get("xlsxUrl"),
-            "updated_at":     datetime.now(UTC),
+            "informe":       informe_key,
+            "periodo":       periodo_yyyymm,
+            "periodo_tipo":  periodo_tipo,
+            "fecha_informe": r.get("fecha"),
+            "mediana":       r.get("mediana"),
+            "promedio":      r.get("promedio"),
+            "desvio":        r.get("desvio"),
+            "minimo":        r.get("minimo"),
+            "maximo":        r.get("maximo"),
+            "p10":           r.get("percentil10"),
+            "p25":           r.get("percentil25"),
+            "p75":           r.get("percentil75"),
+            "p90":           r.get("percentil90"),
+            "participantes": r.get("participantes"),
+            "updated_at":    datetime.now(UTC),
         }
         ops.append(UpdateOne(
             {
                 "informe":      informe_key,
-                "indicador":    indicador,
-                "periodo":      periodo,
+                "periodo":      periodo_yyyymm,
                 "periodo_tipo": periodo_tipo,
             },
             {"$set": doc},
             upsert=True,
         ))
     if not ops:
-        return {"persistidos": 0, "descartados": descartados}
+        return {
+            "persistidos":           0,
+            "descartados_indicador": descartados_indicador,
+            "descartados_periodo":   descartados_periodo,
+        }
     coll.bulk_write(ops, ordered=False)
-    return {"persistidos": len(ops), "descartados": descartados}
+    return {
+        "persistidos":           len(ops),
+        "descartados_indicador": descartados_indicador,
+        "descartados_periodo":   descartados_periodo,
+    }
 
 
-def _ingestar_rem(db) -> dict[str, Any]:
+def _ingestar_rem(db, reset: bool = False) -> dict[str, Any]:
     """Baja informes REM faltantes + re-baja siempre el último.
 
-    El último puede tener correcciones tardías. Los anteriores son estables,
-    así que si ya están en Mongo los saltamos para no pegarle a la API por
-    nada.
+    `reset=True` dropea la colección antes de ingestar (para migrar schema
+    sin dejar docs con shape vieja). Correr una vez tras deploy.
     """
     coll = db["REM"]
 
-    # Índices (idempotente).
+    if reset:
+        coll.drop()
+        logger.info("REM: colección dropeada (--reset)")
+
+    # Índices del nuevo schema (sin campo indicador). Idempotente.
     coll.create_index(
-        [
-            ("informe",       ASCENDING),
-            ("indicador",     ASCENDING),
-            ("periodo",       ASCENDING),
-            ("periodo_tipo",  ASCENDING),
-        ],
+        [("informe", ASCENDING), ("periodo", ASCENDING), ("periodo_tipo", ASCENDING)],
         unique=True,
-        name="informe_indicador_periodo_tipo_uniq",
+        name="informe_periodo_tipo_uniq",
     )
-    coll.create_index([("indicador", ASCENDING), ("periodo", ASCENDING)],
-                      name="indicador_periodo")
+    coll.create_index([("periodo", ASCENDING)], name="periodo")
 
     paths = get_rems_meses()
     disponibles = {_parse_informe(p) for p in paths}
@@ -233,8 +284,10 @@ def _ingestar_rem(db) -> dict[str, Any]:
     }
 
 
-def run(solo: str | None = None) -> dict[str, Any]:
-    """Fetchea y persiste las series. `solo` = 'riesgo'|'ipc'|'ipcy'|'rem'|None."""
+def run(solo: str | None = None, reset_rem: bool = False) -> dict[str, Any]:
+    """Fetchea y persiste las series. `solo` = 'riesgo'|'ipc'|'ipcy'|'rem'|None.
+    `reset_rem=True` solo tiene efecto si corre REM — dropea la colección antes
+    de ingestar."""
     client = get_mongo_client()
     db = client["Trading"]
 
@@ -284,7 +337,7 @@ def run(solo: str | None = None) -> dict[str, Any]:
     # REM (estructurado, shape propia)
     if solo in (None, "rem"):
         try:
-            stats = _ingestar_rem(db)
+            stats = _ingestar_rem(db, reset=reset_rem)
             resultado["series"]["rem"] = stats
             logger.info("REM: %s", stats)
         except ArgDataError as e:
@@ -298,10 +351,12 @@ def run(solo: str | None = None) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", choices=["riesgo", "ipc", "ipcy", "rem"])
+    parser.add_argument("--reset", action="store_true",
+                        help="Dropea Trading.REM antes de ingestar (migración de schema)")
     args = parser.parse_args()
 
     with JobRunLogger("argentina_datos") as jr:
-        res = run(solo=args.only)
+        res = run(solo=args.only, reset_rem=args.reset)
         jr.stats.update(res)
         if not res.get("ok"):
             jr.error("argentina_datos: al menos una serie falló")

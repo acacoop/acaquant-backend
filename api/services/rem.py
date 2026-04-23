@@ -17,9 +17,36 @@ from datetime import date, timedelta
 from api.cache import cached
 from api.db import get_db_trading
 
-# Nombre default del indicador IPC mensual. La API del BCRA usa labels
-# humanos; si cambia el string habrá que actualizarlo acá.
-_INDICADOR_IPC_MENSUAL_DEFAULT = "IPC nivel general"
+
+def _resolver_indicador_ipc(db, informe: str | None) -> str | None:
+    """Busca en el informe el indicador de IPC mensual sin depender del
+    string exacto.
+
+    La API del BCRA usa labels humanos que pueden variar entre informes
+    ('IPC nivel general', 'IPC Nacional Nivel General', etc). Buscamos
+    case-insensitive algo que contenga 'IPC' Y alguna forma de 'nivel
+    general' o simplemente 'general'. Fallback al primer indicador con
+    periodo_tipo='mensual' si nada matchea.
+    """
+    filtro: dict = {"periodo_tipo": "mensual"}
+    if informe:
+        filtro["informe"] = informe
+    candidatos = db["REM"].distinct("indicador", filtro)
+    if not candidatos:
+        return None
+
+    def _score(nombre: str) -> int:
+        low = nombre.lower()
+        if "ipc" in low and ("nivel general" in low or "general" in low):
+            return 3
+        if "ipc" in low and "núcleo" not in low and "nucleo" not in low:
+            return 2
+        if "inflación" in low or "inflacion" in low:
+            return 1
+        return 0
+
+    ranked = sorted(candidatos, key=_score, reverse=True)
+    return ranked[0]
 
 
 @cached(ttl=300)
@@ -58,14 +85,15 @@ def expectativas(
 ) -> dict:
     """Serie cruda de expectativas para un indicador.
 
-    Defaults: indicador='IPC nivel general', informe=último disponible.
+    Defaults: indicador = IPC mensual (auto-detectado por fuzzy match sobre
+    los indicadores presentes), informe = último disponible.
     Devuelve ordenado por período asc.
     """
     db = get_db_trading()
-    ind = indicador or _INDICADOR_IPC_MENSUAL_DEFAULT
     inf = _resolver_informe(db, informe)
-    if inf is None:
-        return {"informe": None, "indicador": ind, "items": []}
+    ind = indicador or _resolver_indicador_ipc(db, inf)
+    if inf is None or ind is None:
+        return {"informe": inf, "indicador": ind, "items": []}
 
     filtro: dict = {"informe": inf, "indicador": ind}
     if periodo_tipo:
@@ -106,10 +134,10 @@ def breakeven_acumulado(
     vencimientos de Lecap, que son a fin de mes típicamente).
     """
     db = get_db_trading()
-    ind = indicador or _INDICADOR_IPC_MENSUAL_DEFAULT
     inf = _resolver_informe(db, informe)
-    if inf is None:
-        return {"informe": None, "indicador": ind, "serie": []}
+    ind = indicador or _resolver_indicador_ipc(db, inf)
+    if inf is None or ind is None:
+        return {"informe": inf, "indicador": ind, "serie": []}
 
     hoy = date.today()
     items = list(db["REM"].find(

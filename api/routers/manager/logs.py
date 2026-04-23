@@ -93,7 +93,10 @@ def get_service_logs(
             detail=f"servicio '{servicio}' no permitido",
         )
     try:
-        logs = _fetch_logs_cached(servicio, lines)
+        # kwargs explícitos: el decorador @cached (api/cache.py) solo acepta
+        # kwargs — si se invoca posicionalmente tira TypeError y el handler
+        # responde 500 genérico.
+        logs = _fetch_logs_cached(servicio=servicio, lines=lines)
     except subprocess.TimeoutExpired as e:
         raise HTTPException(status_code=504, detail="journalctl timeout (10s)") from e
     except FileNotFoundError as e:

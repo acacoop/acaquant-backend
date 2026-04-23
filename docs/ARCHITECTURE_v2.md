@@ -164,7 +164,7 @@ FastAPI que escucha en `127.0.0.1:8000` (no expuesta directo a internet — entr
 - `/api/analitica/*` — análisis: listar curva, serie macro, sensibilidad, **canje**, **carry trade**, pendiente, liquidez secundario.
 - `/api/portfolio/*` — carteras y AuM (vista admin).
 - `/api/operaciones/*` — flujos y movimientos de tesorería (vista admin).
-- `/api/manager/*` — observabilidad y control (status de motores, jobs, latencia, ChangeLog, logs del asistente).
+- `/api/manager/*` — observabilidad y control (status de motores, jobs, logs del asistente).
 - `/api/news` — feed de noticias unificado (RSS + Finnhub).
 - `/api/market/*` — quotes globales, calendario económico, candles Yahoo.
 - `/api/chat` — endpoint del asistente de IA (ver sección 6).
@@ -210,7 +210,7 @@ Next.js 15 deployado en Vercel. Vive en `trading.acaquant.com`.
 | `/portfolios` | Reportes mensuales por cuenta vs benchmarks (admin). |
 | `/aum` | Evolución de AuM por moneda y desglose por cartera (admin). |
 | `/asistente` | Chat con el asistente IA (admin). |
-| `/manager` | Observabilidad: status motores, jobs, latencia, ChangeLog, logs del asistente, INTEL (research extraído) (admin). |
+| `/manager` | Observabilidad: status motores, jobs, logs del asistente, INTEL (research extraído) (admin). |
 
 El frontend nunca habla directo con la API pública — pasa siempre por **API routes proxy** de Next (en `src/app/api/`), que añaden el Bearer token + service token de Cloudflare antes de llamar al backend. Eso oculta credenciales del browser.
 

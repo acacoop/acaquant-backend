@@ -95,7 +95,7 @@ Admin-only routers:
 
 | Prefix | Purpose |
 |---|---|
-| `/api/manager/*` | Engine/job status, checks, job runs, changelog, latency, assistant observability, intel ingest, options config |
+| `/api/manager/*` | Engine/job status, checks, job runs, assistant observability, intel ingest, options config, service logs |
 | `/api/chat` | Trading-desk assistant |
 
 Non-admin calls to these routes return `403 no autorizado`.
@@ -500,19 +500,14 @@ Route ordering matters: `/jobs/history` and `/jobs/history/stats` are declared b
 | GET | `/options/expiries` | `{disponibles, activos, auto_pick, actualizado, mapa_size}` from `Opciones.Metadata` |
 | PUT | `/options/expiries` | Body `{expiries: string[8]}`; empty → auto-pick mode. Engine reloads on next 5 min tick. |
 
-#### 7.10.5 Changelog & latency
-
-- `GET /changelog` — `Manager.ChangeLog` newest-first, `limit≤500`.
-- `GET /latencia` — One-shot benchmark across 15 collections. Returns `{total_ms, total_docs, queries, resultados[]}` sorted by slowest.
-
-#### 7.10.6 Asistente observability
+#### 7.10.5 Asistente observability
 
 - `GET /asistente/stats?horas=` — Counts (`ok|error|truncated`), token usage, avg/p95 latency, estimated cost (Gemini Flash pricing constants, kept for cost parity with prior provider).
 - `GET /asistente/logs?horas=&estado=&limit=` — Newest-first entries from `Manager.AsistenteLogs`.
 - `GET /asistente/timeseries?horas=` — Hourly buckets with `count`, `tokens`, `errors`.
 - `GET /asistente/tools-ranking?horas=` — Tools ordered by invocation count with `ok`/`fail`.
 
-#### 7.10.7 Intel ingest
+#### 7.10.6 Intel ingest
 
 Reports are ingested as PDF or pasted text, the Gemini JSON-mode extractor parses 12 macro variables, and the last confirmed `IntelDoc` is injected into the assistant context automatically.
 
@@ -526,7 +521,7 @@ Reports are ingested as PDF or pasted text, the Gemini JSON-mode extractor parse
 | PATCH | `/intel/{id}` | Partial update: `fuente`, `fecha`, `titulo`, `extracted` |
 | DELETE | `/intel/{id}` | Remove |
 
-#### 7.10.8 Resources
+#### 7.10.7 Resources
 
 | Method | Path | Description |
 |---|---|---|

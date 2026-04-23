@@ -519,8 +519,6 @@ FastAPI consumida exclusivamente por acaquant-web (a través de sus API routes p
 | GET | `/api/manager/status` | múltiples colecciones (read) | — |
 | POST | `/api/manager/jobs/run` | subprocess en background | `tipo`, `args` |
 | GET | `/api/manager/jobs/{id}` | in-memory job store | — |
-| GET | `/api/manager/changelog` | `Manager.ChangeLog` | `limit` |
-| GET | `/api/manager/latencia` | benchmark todas las colecciones | — |
 | GET | `/api/manager/checks/*` | validaciones de datos | ver abajo |
 | POST | `/api/chat` | asistente conversacional (Gemini + tool-use) | body: `message`, `history?` |
 

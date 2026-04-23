@@ -1,9 +1,9 @@
 """Backfill histórico de Trading.BreakevensHistorico.
 
-Reconstruye, para cada día del rango, la tabla de breakevens usando la
-lógica CORRECTA (emparejamiento Lecap(M) ↔ CER(M+2 meses) + label
-mes_inflacion = vto_lecap − 2 meses). Sobreescribe docs preexistentes que
-hayan sido calculados con el emparejamiento nominal viejo.
+Reconstruye, para cada día del rango, la tabla de breakevens con la lógica
+vigente en engines.breakevens (matching por mismo vto ±20d, label
+mes_inflacion = vto − 2m, anualización sobre días hasta liquidación CER
+en lugar de días al vto). Sobreescribe docs preexistentes.
 
 Usa `engines.breakevens.cargar_pares()` y `calcular_breakevens()` para
 garantizar paridad 100% con el motor live.
@@ -11,7 +11,7 @@ garantizar paridad 100% con el motor live.
 Idempotente: upsert por `fecha`. Se saltea hoy por default (lo maneja
 el motor live).
 
-Uso típico (después del deploy del fix de emparejamiento):
+Uso típico:
 
     python -m jobs.backfill_breakevens            # rango autodetectado
     python -m jobs.backfill_breakevens --desde 2026-01-02 --hasta 2026-04-22
@@ -127,7 +127,7 @@ def main() -> int:
 
     client = get_mongo_client()
 
-    # Pares Lecap/CER con el emparejamiento ajustado (+60d). Tomamos los
+    # Pares Lecap/Boncap ↔ CER matcheados por mismo vto. Tomamos los
     # instrumentos vivos hoy; para fechas pasadas donde un bono no estaba
     # activo aún, simplemente no va a tener datos en TimeSales y se saltea.
     pares = cargar_pares()
@@ -165,7 +165,7 @@ def main() -> int:
         raise SystemExit(f"--desde {desde} > --hasta {hasta}")
 
     hoy = datetime.now(UTC).date()
-    print(f"Pares:      {len(pares)} (emparejamiento Lecap ↔ CER +60d)")
+    print(f"Pares:      {len(pares)} (Lecap/Boncap ↔ CER por mismo vto, ±20d)")
     print(f"Rango:      {desde} → {hasta}")
     print(f"Saltea hoy: {'no' if args.incluir_hoy else 'sí'}")
 

@@ -509,6 +509,14 @@ def run():
                         continue
                     campos = calcular_campos(doc, instrumento, cer_dict, dias_habiles, mep_actual)
                     if not campos:
+                        # Marcamos el doc con duration: null para que el filtro
+                        # {duration: {$exists: false}} deje de devolverlo. Sin
+                        # esto el motor entra en loop infinito sobre docs que
+                        # no se pueden enriquecer (ej. ticker sin TEA derivable)
+                        # y nunca llega a procesar los más viejos.
+                        ops.append(UpdateOne(
+                            {"_id": doc["_id"]}, {"$set": {"duration": None}},
+                        ))
                         continue
                     ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": campos}))
 

@@ -55,8 +55,13 @@
 # Chainea sync a OperacionesAPI.MesaAPI.
 0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.flujo_contrapartes >> /root/TradingAV/logs/flujo_contrapartes.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --flujo >> /root/TradingAV/logs/sync_api.log 2>&1
 
-# ─── BCRA (CER/TAMAR/DOLAR/BADLAR, 20:00 UTC L-V — fin de semana no publica)
-0 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bcra --today >> /root/TradingAV/logs/bcra.log 2>&1
+# ─── BCRA (CER/TAMAR/DOLAR/BADLAR, 22:00 UTC L-V = 19:00 ART)
+# El CER se publica ~18 ART con 10 días hábiles de anticipación (forward).
+# Corremos DESPUÉS de la publicación para capturar los valores del día.
+# El job pide hasta hoy+21 días corridos, así los forward quedan en Mongo
+# y motor_curvas puede marcar los bonos CER con cer_fijado=true cuando su
+# CER de liquidación ya es conocido.
+0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bcra --today >> /root/TradingAV/logs/bcra.log 2>&1
 
 # ─── AuM snapshot al cierre (23:00 UTC = 20:00 ART, L-V)
 # Chainea sync a PortfolioAPI.AumAPI + TitulosAPI.ValuacionesAPI (residual cambia con fecha).

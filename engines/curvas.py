@@ -233,6 +233,20 @@ def get_cer_liquidacion(cer_dict, dias_habiles, fecha_str, n=10):
     return get_cer_en_fecha(cer_dict, fecha_n)
 
 
+def fecha_cer_liquidacion(dias_habiles, fecha_str, n=10):
+    """Devuelve la fecha ISO (YYYY-MM-DD) del CER de liquidación de un flujo
+    que settlea en fecha_str — o sea `fecha_str − n días hábiles`. No busca
+    el valor en cer_dict; solo resuelve la fecha. None si no hay suficientes
+    días hábiles atrás."""
+    idx = None
+    for i, f in enumerate(dias_habiles):
+        if f <= fecha_str:
+            idx = i
+    if idx is None or idx < n:
+        return None
+    return dias_habiles[idx - n]
+
+
 # ─────────────────────────────────────────────
 # Cálculo principal por documento
 # ─────────────────────────────────────────────
@@ -336,6 +350,17 @@ def calcular_campos(doc, instrumento, cer_dict, dias_habiles, mep: float | None 
         valor_nominal = float(instrumento.get("valor_nominal", 100))
         precio_tecnico = valor_nominal * ratio
         resultado["paridad"] = round(precio / precio_tecnico * 100, 4)
+
+        # ¿El CER de liquidación del VTO ya está publicado por el BCRA?
+        # Si sí, el flujo final del bono está en pesos fijos y el bono
+        # se comporta como tasa fija desde este momento (no hay más
+        # variabilidad CER que absorber hasta el vto). El motor agrega
+        # el flag en TimeSales para que el frontend pueda mostrar un
+        # badge y el asistente/mesa lo sepan.
+        fecha_cer_liq_vto = fecha_cer_liquidacion(dias_habiles, fecha_vto_str, n=10)
+        if fecha_cer_liq_vto and cer_dict:
+            max_cer_publicado = max(cer_dict.keys())
+            resultado["cer_fijado"] = fecha_cer_liq_vto <= max_cer_publicado
 
         dias_a_vto_s = (fecha_vto - fecha_settlement).days
         if dias_a_vto_s <= 0:

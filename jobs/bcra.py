@@ -60,12 +60,15 @@ def fetch_y_guardar(nombre, id_variable, desde, hasta):
 
 
 def run(today=False):
+    # El BCRA publica el CER con ~10 días hábiles de anticipación (forward).
+    # Pedimos hasta hoy+21 días corridos para capturar esos valores — las
+    # otras series (TAMAR/DOLAR/BADLAR) no publican forward, simplemente
+    # devuelven vacío para fechas futuras, no rompe.
+    hasta = (date.today() + timedelta(days=21)).isoformat()
     if today:
         desde = (date.today() - timedelta(days=3)).isoformat()
-        hasta = date.today().isoformat()
     else:
         desde = "2023-01-01"
-        hasta = date.today().isoformat()
 
     for nombre, id_variable in VARIABLES_BCRA.items():
         fetch_y_guardar(nombre, id_variable, desde, hasta)

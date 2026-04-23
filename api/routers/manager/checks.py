@@ -68,6 +68,7 @@ def check_forwards():
 @router.get("/checks/cer")
 def check_cer():
     """CER usado en el último trade enriquecido por bono CER."""
+    import bisect
     from datetime import date, timedelta
     client = get_mongo_client_read()
     db = client["Trading"]
@@ -88,8 +89,11 @@ def check_cer():
         return None, None
 
     def _cer_liq(settle_str, n=10):
-        idx = next((i for i, f in enumerate(dias_hab) if f <= settle_str), None)
-        if idx is None or idx < n:
+        # Último día hábil <= settle_str (dias_hab está sorted asc).
+        # bisect_right da el primer índice > settle_str → restamos 1 para el
+        # último <=. Si settle es anterior a todo el calendario, idx = -1.
+        idx = bisect.bisect_right(dias_hab, settle_str) - 1
+        if idx < n:
             return None, None
         return _cer_en_fecha(date.fromisoformat(dias_hab[idx - n]))
 

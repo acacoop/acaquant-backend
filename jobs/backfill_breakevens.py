@@ -39,23 +39,22 @@ def _parse_fecha(s: str) -> date | None:
         return None
 
 
-def _fecha_cer_max_en(client, fecha: date) -> str | None:
-    """CER publicado más reciente con fecha ≤ la fecha del día histórico.
+def _cer_max_y_valor_en(client, fecha: date) -> tuple[str | None, float | None]:
+    """CER publicado más reciente con fecha ≤ (fecha + 14d corridos), y su
+    valor. Devuelve (fecha_iso, valor).
 
-    Para backfill necesitamos la foto de `fecha_cer_max` que VIO el motor
-    ese día, no el CER actual (que ya está en el futuro relativo al
-    backfill). Nota: el BCRA publica CER con ~10 días hábiles de forward,
-    así que efectivamente usamos fecha + ~10 días como techo.
+    El BCRA publica CER con ~10 hábiles de forward — por eso el horizonte
+    es `fecha + 14d corridos` y no simplemente `fecha`.
     """
     horizonte = (fecha + timedelta(days=14)).isoformat()
     doc = client["Trading"]["CER"].find_one(
         {"fecha": {"$lte": horizonte}},
         sort=[("fecha", -1)],
-        projection={"_id": 0, "fecha": 1},
+        projection={"_id": 0, "fecha": 1, "valor": 1},
     )
-    if not doc or not doc.get("fecha"):
-        return None
-    return str(doc["fecha"])[:10]
+    if not doc or not doc.get("fecha") or doc.get("valor") is None:
+        return None, None
+    return str(doc["fecha"])[:10], float(doc["valor"])
 
 
 def _ultimos_valores_por_dia(
@@ -64,75 +63,43 @@ def _ultimos_valores_por_dia(
     tickers_cer: list[str],
     desde: date,
     hasta: date,
-) -> tuple[dict[date, dict], dict[date, dict], dict[date, dict]]:
-    """Último TEM por Lecap y última paridad+TEA por CER, por día del rango.
+) -> tuple[dict[date, dict], dict[date, dict], dict[date, dict], dict[date, dict]]:
+    """Por cada día del rango: último TEM por Lecap, última paridad+TEA+precio
+    por CER, y último precio por Lecap.
 
-    Devuelve (tems_por_dia, paridades_por_dia, teas_cer_por_dia).
+    Devuelve (tems, paridades, teas_cer, precios).
     """
     inicio = datetime.combine(desde, datetime.min.time(), tzinfo=UTC)
     fin = datetime.combine(hasta + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
+    todos_tickers = tickers_lecap + tickers_cer
 
-    # TEMs de Lecap
-    pipeline_tem = [
-        {"$match": {
-            "ticker":    {"$in": tickers_lecap},
-            "TEM":       {"$exists": True},
-            "timestamp": {"$gte": inicio, "$lt": fin},
-        }},
-        {"$addFields": {
-            "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
-        }},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {"_id": {"ticker": "$ticker", "fecha": "$fecha"},
-                    "TEM": {"$first": "$TEM"}}},
-    ]
-    tems: dict[date, dict] = defaultdict(dict)
-    for r in client["Trading"]["TimeSales"].aggregate(pipeline_tem):
-        f = _parse_fecha(r["_id"]["fecha"])
-        if f is not None:
-            tems[f][r["_id"]["ticker"]] = r["TEM"]
+    def _por_dia(match_extra: dict, campo: str) -> dict[date, dict]:
+        pipeline = [
+            {"$match": {
+                "ticker":    {"$in": todos_tickers},
+                "timestamp": {"$gte": inicio, "$lt": fin},
+                **match_extra,
+            }},
+            {"$addFields": {
+                "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
+            }},
+            {"$sort": {"timestamp": -1}},
+            {"$group": {"_id": {"ticker": "$ticker", "fecha": "$fecha"},
+                        campo: {"$first": f"${campo}"}}},
+        ]
+        out: dict[date, dict] = defaultdict(dict)
+        for r in client["Trading"]["TimeSales"].aggregate(pipeline):
+            f = _parse_fecha(r["_id"]["fecha"])
+            if f is not None:
+                out[f][r["_id"]["ticker"]] = r[campo]
+        return out
 
-    # Paridades de CER
-    pipeline_par = [
-        {"$match": {
-            "ticker":    {"$in": tickers_cer},
-            "paridad":   {"$exists": True},
-            "timestamp": {"$gte": inicio, "$lt": fin},
-        }},
-        {"$addFields": {
-            "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
-        }},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {"_id": {"ticker": "$ticker", "fecha": "$fecha"},
-                    "paridad": {"$first": "$paridad"}}},
-    ]
-    paridades: dict[date, dict] = defaultdict(dict)
-    for r in client["Trading"]["TimeSales"].aggregate(pipeline_par):
-        f = _parse_fecha(r["_id"]["fecha"])
-        if f is not None:
-            paridades[f][r["_id"]["ticker"]] = r["paridad"]
+    tems      = _por_dia({"TEM":     {"$exists": True}},            "TEM")
+    paridades = _por_dia({"paridad": {"$exists": True}},            "paridad")
+    teas_cer  = _por_dia({"TEA":     {"$exists": True}},            "TEA")
+    precios   = _por_dia({"price":   {"$gt": 0}},                   "price")
 
-    # TEAs de CER
-    pipeline_tea = [
-        {"$match": {
-            "ticker":    {"$in": tickers_cer},
-            "TEA":       {"$exists": True},
-            "timestamp": {"$gte": inicio, "$lt": fin},
-        }},
-        {"$addFields": {
-            "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
-        }},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {"_id": {"ticker": "$ticker", "fecha": "$fecha"},
-                    "TEA": {"$first": "$TEA"}}},
-    ]
-    teas_cer: dict[date, dict] = defaultdict(dict)
-    for r in client["Trading"]["TimeSales"].aggregate(pipeline_tea):
-        f = _parse_fecha(r["_id"]["fecha"])
-        if f is not None:
-            teas_cer[f][r["_id"]["ticker"]] = r["TEA"]
-
-    return tems, paridades, teas_cer
+    return tems, paridades, teas_cer, precios
 
 
 def main() -> int:
@@ -188,8 +155,8 @@ def main() -> int:
     print(f"Rango:      {desde} → {hasta}")
     print(f"Saltea hoy: {'no' if args.incluir_hoy else 'sí'}")
 
-    tems_por_dia, paridades_por_dia, teas_cer_por_dia = _ultimos_valores_por_dia(
-        client, tickers_lecap, tickers_cer, desde, hasta,
+    tems_por_dia, paridades_por_dia, teas_cer_por_dia, precios_por_dia = (
+        _ultimos_valores_por_dia(client, tickers_lecap, tickers_cer, desde, hasta)
     )
     fechas_ord = sorted(
         set(tems_por_dia.keys()) | set(paridades_por_dia.keys()),
@@ -212,16 +179,19 @@ def main() -> int:
         tems      = tems_por_dia.get(fecha, {})
         paridades = paridades_por_dia.get(fecha, {})
         teas_cer  = teas_cer_por_dia.get(fecha, {})
+        precios   = precios_por_dia.get(fecha, {})
 
         # Para backfill histórico NO filtramos por IPC publicado: queremos
         # reconstruir la foto del mercado TAL COMO ERA ese día. Sí pasamos
-        # dias_habiles y fecha_cer_max (del día que se está backfilleando)
-        # para el método Buscar Objetivo.
-        cer_max_dia = _fecha_cer_max_en(client, fecha)
+        # todo lo que necesita el método Buscar Objetivo (dias_habiles,
+        # fecha_cer_max + su valor, precios por bono del día).
+        cer_max_dia, cer_actual_dia = _cer_max_y_valor_en(client, fecha)
         resultado = calcular_breakevens(
             pares, tems, paridades, teas_cer, fecha,
             dias_habiles=dias_habiles,
             fecha_cer_max=cer_max_dia,
+            precios=precios,
+            cer_actual=cer_actual_dia,
         )
         con_bkv = [r for r in resultado if "breakeven_mensual" in r]
         if not con_bkv:

@@ -365,16 +365,23 @@ def debug_soberano(
 
 @router.get("/checks/breakevens-debug")
 def check_breakevens_debug():
-    """Desglose paso a paso del BE (método Buscar Objetivo) para cada par
-    Lecap/Boncap ↔ CER del motor live. Devuelve la cadena de cálculo
-    completa para que la mesa pueda validar contra Excel.
+    """Desglose paso a paso del BE para cada par Lecap/Boncap ↔ CER del
+    motor live. Devuelve tanto Buscar Objetivo como Fisher clásico para
+    que la mesa compare los dos.
 
-    Pasos mostrados:
-      1. Retorno acumulado Lecap: (1+TEM)^(días/30) − 1
-      2. Inflación acumulada implícita: (1+R) × (paridad/100) − 1
-      3. BE mensual: (1+π)^(1/meses_pendientes) − 1
-         (donde meses_pendientes = días entre cer_max publicado y la
-          fecha de liquidación del CER del bono)
+    Buscar Objetivo (preferido, usa precio y flujo directos):
+      retorno_lecap = flujo_vto_lecap / precio_lecap − 1
+      factor        = (1+retorno_lecap) × (precio_cer × cer_emision)
+                                       / (vn_cer × cer_actual)
+      BE            = factor^(1/meses_pendientes) − 1
+
+    Fisher clásico (fallback, usa TEM y paridad):
+      R   = (1 + TEM)^(días/30) − 1
+      π   = (1 + R) × (paridad/100) − 1
+      BE  = (1 + π)^(30/días) − 1
+
+    meses_pendientes = días entre cer_max publicado y la fecha de liquidación
+    del CER del bono (vto − 10 hábiles).
     """
     from datetime import date
 
@@ -382,7 +389,9 @@ def check_breakevens_debug():
         cargar_dias_habiles,
         cargar_pares,
         obtener_paridades,
+        obtener_precios,
         obtener_tems,
+        obtener_valor_cer,
         ultimo_cer_publicado,
     )
     from engines.curvas import fecha_cer_liquidacion
@@ -390,14 +399,16 @@ def check_breakevens_debug():
     client = get_mongo_client_read()
     pares = cargar_pares()
     if not pares:
-        return {"pares": [], "fecha_cer_max": None}
+        return {"pares": [], "fecha_cer_max": None, "cer_actual": None}
 
     lecap_tickers = [p["lecap_ticker"] for p in pares]
     cer_tickers   = [p["cer_ticker"]   for p in pares]
-    tems         = obtener_tems(client, lecap_tickers)
-    paridades    = obtener_paridades(client, cer_tickers)
-    dias_habiles = cargar_dias_habiles(client)
+    tems          = obtener_tems(client, lecap_tickers)
+    paridades     = obtener_paridades(client, cer_tickers)
+    precios       = obtener_precios(client, lecap_tickers + cer_tickers)
+    dias_habiles  = cargar_dias_habiles(client)
     fecha_cer_max = ultimo_cer_publicado(client)
+    cer_actual    = obtener_valor_cer(client, fecha_cer_max) if fecha_cer_max else None
 
     hoy = date.today()
     filas = []
@@ -412,8 +423,11 @@ def check_breakevens_debug():
 
         tem = tems.get(par["lecap_ticker"])
         paridad = paridades.get(par["cer_ticker"])
-        if tem is None or paridad is None:
-            continue
+        precio_lecap = precios.get(par["lecap_ticker"])
+        precio_cer   = precios.get(par["cer_ticker"])
+        flujo_vto_lecap = par.get("flujo_vto_lecap")
+        vn_cer       = par.get("vn_cer") or 100
+        cer_emision  = par.get("cer_emision")
 
         fecha_liq_cer_str = fecha_cer_liquidacion(
             dias_habiles, par["fecha_vencimiento"], n=10,
@@ -431,27 +445,64 @@ def check_breakevens_debug():
             except Exception:
                 pass
 
-        retorno   = (1 + float(tem)) ** (dias / 30) - 1
-        inflacion = (1 + retorno) * (float(paridad) / 100) - 1
-        exponente = (
-            (1 / meses_pendientes) if meses_pendientes else (30 / dias)
-        )
-        bkv = (1 + inflacion) ** exponente - 1
+        # Buscar Objetivo
+        be_bo = None
+        factor_bo = None
+        retorno_lecap_directo = None
+        if (
+            precio_lecap and precio_cer and flujo_vto_lecap
+            and cer_emision and cer_actual and meses_pendientes
+        ):
+            try:
+                retorno_lecap_directo = float(flujo_vto_lecap) / float(precio_lecap) - 1
+                factor_bo = (
+                    (1 + retorno_lecap_directo)
+                    * float(precio_cer) * float(cer_emision)
+                    / (float(vn_cer) * float(cer_actual))
+                )
+                if factor_bo > 0:
+                    be_bo = factor_bo ** (1 / meses_pendientes) - 1
+            except Exception:
+                pass
+
+        # Fisher clásico
+        be_fisher = None
+        retorno_fisher = None
+        inflacion_fisher = None
+        if tem is not None and paridad is not None:
+            try:
+                retorno_fisher = (1 + float(tem)) ** (dias / 30) - 1
+                inflacion_fisher = (1 + retorno_fisher) * (float(paridad) / 100) - 1
+                be_fisher = (1 + inflacion_fisher) ** (30 / dias) - 1
+            except Exception:
+                pass
 
         filas.append({
-            "lecap":            par["lecap_corto"],
-            "cer":              par["cer_corto"],
-            "fecha_vto":        par["fecha_vencimiento"],
-            "dias":             dias,
-            "fecha_cer_liq":    fecha_liq_cer.isoformat() if fecha_liq_cer else None,
-            "meses_pendientes": round(meses_pendientes, 4) if meses_pendientes else None,
-            "tem_lecap":        round(float(tem), 6),
-            "paridad_cer":      round(float(paridad), 4),
-            "retorno":          round(retorno, 6),
-            "inflacion":        round(inflacion, 6),
-            "exponente":        round(exponente, 4),
-            "be_mensual":       round(bkv, 6),
-            "metodo":           "BuscarObjetivo" if meses_pendientes else "Fisher",
+            "lecap":             par["lecap_corto"],
+            "cer":               par["cer_corto"],
+            "fecha_vto":         par["fecha_vencimiento"],
+            "dias":              dias,
+            "fecha_cer_liq":     fecha_liq_cer.isoformat() if fecha_liq_cer else None,
+            "meses_pendientes":  round(meses_pendientes, 4) if meses_pendientes else None,
+            # Buscar Objetivo
+            "precio_lecap":      round(float(precio_lecap), 4) if precio_lecap else None,
+            "flujo_vto_lecap":   flujo_vto_lecap,
+            "precio_cer":        round(float(precio_cer), 4) if precio_cer else None,
+            "vn_cer":            vn_cer,
+            "cer_emision":       cer_emision,
+            "retorno_lecap":     round(retorno_lecap_directo, 6) if retorno_lecap_directo is not None else None,
+            "factor_bo":         round(factor_bo, 6) if factor_bo else None,
+            "be_buscar_obj":     round(be_bo, 6) if be_bo else None,
+            # Fisher (comparación)
+            "tem_lecap":         round(float(tem), 6) if tem is not None else None,
+            "paridad_cer":       round(float(paridad), 4) if paridad is not None else None,
+            "retorno_fisher":    round(retorno_fisher, 6) if retorno_fisher is not None else None,
+            "inflacion_fisher":  round(inflacion_fisher, 6) if inflacion_fisher is not None else None,
+            "be_fisher":         round(be_fisher, 6) if be_fisher is not None else None,
         })
 
-    return {"fecha_cer_max": fecha_cer_max, "pares": filas}
+    return {
+        "fecha_cer_max": fecha_cer_max,
+        "cer_actual":    cer_actual,
+        "pares":         filas,
+    }

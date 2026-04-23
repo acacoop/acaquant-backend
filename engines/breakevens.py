@@ -57,6 +57,10 @@ def cargar_pares():
       - Tolerancia: MAX_DIFF_DIAS (±20 días).
       - Si un mismo CER aparece en varios pares, se queda con el de menor
         diferencia absoluta de vto.
+
+    Cada par trae también los campos del CER que hacen falta para el BE
+    por método Buscar Objetivo: flujo_vencimiento_lecap, valor_nominal_cer,
+    cer_emision.
     """
     grupos = cargar_por_curva()
     lecaps = grupos.get("tasa_fija", [])  # incluye Lecap Y Boncap (ambos curva=tasa_fija)
@@ -89,6 +93,9 @@ def cargar_pares():
             "cer_ticker":        mejor["ticker"],
             "cer_corto":         mejor["ticker_corto"],
             "fecha_vencimiento": lecap["fecha_vencimiento"][:10],
+            "flujo_vto_lecap":   lecap.get("flujo_vencimiento"),
+            "vn_cer":            mejor.get("valor_nominal", 100),
+            "cer_emision":       mejor.get("cer_emision"),
             "_diff":             mejor_diff,
         })
 
@@ -129,6 +136,28 @@ def obtener_paridades(client, tickers):
         {"$group": {"_id": "$ticker", "paridad": {"$first": "$paridad"}}},
     ]
     return {r["_id"]: r["paridad"] for r in client["Trading"]["TimeSales"].aggregate(pipeline)}
+
+
+def obtener_precios(client, tickers):
+    """Último precio (positivo) por ticker. Para Lecaps/Boncap y CER.
+
+    Se usa para el BE por método Buscar Objetivo: precio_lecap y precio_cer
+    directos, sin pasar por TEM/paridad (evita compounding de convenciones).
+    """
+    pipeline = [
+        {"$match": {"ticker": {"$in": tickers}, "price": {"$gt": 0}}},
+        {"$sort": {"timestamp": -1}},
+        {"$group": {"_id": "$ticker", "price": {"$first": "$price"}}},
+    ]
+    return {r["_id"]: r["price"] for r in client["Trading"]["TimeSales"].aggregate(pipeline)}
+
+
+def obtener_valor_cer(client, fecha_iso: str) -> float | None:
+    """Valor del CER publicado para una fecha ISO."""
+    doc = client["Trading"]["CER"].find_one(
+        {"fecha": fecha_iso}, {"_id": 0, "valor": 1},
+    )
+    return float(doc["valor"]) if doc and doc.get("valor") is not None else None
 
 
 def ultimo_ipc_publicado(client) -> str | None:
@@ -179,34 +208,44 @@ def obtener_teas_cer(client, tickers):
 def calcular_breakevens(
     pares, tems, paridades, teas_cer, fecha_ref,
     ultimo_ipc_mes=None, dias_habiles=None, fecha_cer_max=None,
+    precios=None, cer_actual=None,
 ):
-    """Resuelve el BE mensual por el método 'Buscar Objetivo' de Excel.
+    """Resuelve el BE mensual por el método 'Buscar Objetivo' de Excel
+    (cupón cero) usando precio y flujo directos — sin TEM ni paridad.
 
-    Para un par Lecap/Boncap ↔ CER (cupón cero), la inflación mensual X
-    que iguala los retornos es la solución de:
+    Para un par Lecap/Boncap ↔ CER:
 
-        (1 + TEM_lecap)^(días_lecap/30) · (paridad_cer/100) = (1 + X)^meses_pendientes
+        retorno_lecap = flujo_vto_lecap / precio_lecap − 1
+        retorno_cer(X) = (vn_cer · cer_vto(X) / cer_emision) / precio_cer − 1
+        cer_vto(X) = cer_actual · (1 + X)^meses_pendientes
 
-    donde `meses_pendientes` es la cantidad de meses de inflación que
-    faltan pricear: desde el CER publicado más reciente (fecha_cer_max)
-    hasta el CER de liquidación del bono (vto − 10 hábiles). Despejando:
+    Buscamos X tal que retorno_cer(X) = retorno_lecap. Despejando:
 
-        X = [(1 + TEM)^(días/30) · (paridad/100)]^(1/meses_pendientes) − 1
+        X = [(1 + retorno_lecap) · (precio_cer · cer_emision) /
+             (vn_cer · cer_actual)]^(1/meses_pendientes) − 1
 
-    Esto es la forma cerrada equivalente al brentq de scipy — coincide
-    exactamente porque la ecuación es algebráica y tiene solución única
-    en el rango [0, ∞).
+    Esto evita el compounding de convenciones que generaba la fórmula con
+    TEM/paridad (que daba números sobreestimados).
 
     Parámetros:
       fecha_ref: date — para calcular días a vencimiento.
       ultimo_ipc_mes: 'YYYY-MM' del último IPC publicado. Se descartan
-        pares con mes_inflacion ≤ ese mes (ya no es expectativa).
-      dias_habiles: lista ISO de días hábiles AR. Necesario para
-        calcular la fecha del CER de liquidación del bono.
-      fecha_cer_max: 'YYYY-MM-DD' del último CER publicado por BCRA.
-        Necesario para contar los meses pendientes. Si no se pasa, se
-        cae a la fórmula vieja (Fisher con 30/días al vto).
+        pares con mes_inflacion ≤ ese mes.
+      dias_habiles: lista ISO de días hábiles AR. Para calcular
+        fecha_cer_liq = vto − 10 hábiles.
+      fecha_cer_max: 'YYYY-MM-DD' del último CER publicado.
+      precios: dict {ticker: precio} para lecap y CER.
+      cer_actual: float — valor del CER publicado más reciente.
+
+    Si falta alguno de los datos necesarios para el método nuevo (precios,
+    cer_actual, meses_pendientes), se cae a la fórmula vieja Fisher con
+    TEM/paridad para no bloquear el cálculo.
     """
+    if tems is None or paridades is None:
+        # Defensa: si no hay dicts, tratamos como vacíos.
+        tems = tems or {}
+        paridades = paridades or {}
+    precios = precios or {}
     resultado = []
     n = 0
     for par in pares:
@@ -276,29 +315,64 @@ def calcular_breakevens(
         tem     = tems.get(par["lecap_ticker"])
         paridad = paridades.get(par["cer_ticker"])
         tea_cer = teas_cer.get(par["cer_ticker"])
+        precio_lecap = precios.get(par["lecap_ticker"]) if precios else None
+        precio_cer   = precios.get(par["cer_ticker"])   if precios else None
+        flujo_vto_lecap = par.get("flujo_vto_lecap")
+        vn_cer          = par.get("vn_cer") or 100
+        cer_emision     = par.get("cer_emision")
 
         if tem is not None:
             entry["tem_lecap"] = round(float(tem), 6)
-
         if tea_cer is not None:
             entry["tea_cer"] = round(float(tea_cer), 6)
-
         if paridad is not None:
             entry["paridad_cer"] = round(float(paridad), 4)
+        if precio_lecap is not None:
+            entry["precio_lecap"] = round(float(precio_lecap), 4)
+        if precio_cer is not None:
+            entry["precio_cer"] = round(float(precio_cer), 4)
 
-        if tem is not None and paridad is not None:
+        # ── Método Buscar Objetivo (preferido) ──
+        # Requiere: precios, flujo_vto_lecap, cer_emision, cer_actual,
+        # meses_pendientes. Si falta alguno, fallback al método viejo.
+        pudo_buscar_objetivo = False
+        if (
+            precio_lecap and precio_lecap > 0
+            and precio_cer and precio_cer > 0
+            and flujo_vto_lecap and flujo_vto_lecap > 0
+            and cer_emision and cer_emision > 0
+            and cer_actual and cer_actual > 0
+            and meses_pendientes and meses_pendientes > 0
+        ):
             try:
-                retorno    = (1 + float(tem)) ** (dias / 30) - 1
-                inflacion  = (1 + retorno) * (float(paridad) / 100) - 1
-                # Anualización: preferimos `meses_pendientes` (método
-                # Buscar Objetivo). Si no está disponible, fallback al
-                # clásico Fisher con días al vto.
-                exponente = (1 / meses_pendientes) if meses_pendientes else (30 / dias)
-                bkv       = (1 + inflacion) ** exponente - 1
+                retorno_lecap = (float(flujo_vto_lecap) / float(precio_lecap)) - 1
+                factor = (
+                    (1 + retorno_lecap)
+                    * float(precio_cer) * float(cer_emision)
+                    / (float(vn_cer) * float(cer_actual))
+                )
+                if factor > 0:
+                    bkv = factor ** (1 / meses_pendientes) - 1
+                    if -0.5 < bkv < 10:
+                        entry["retorno_acumulado"]   = round(retorno_lecap, 6)
+                        entry["breakeven_mensual"]   = round(bkv, 6)
+                        entry["metodo"]              = "BuscarObjetivo"
+                        pudo_buscar_objetivo = True
+            except Exception:
+                pass
+
+        # ── Fallback Fisher clásico (si no tenemos datos para Buscar Objetivo) ──
+        # Usa TEM + paridad + días al vto (convención tradicional).
+        if not pudo_buscar_objetivo and tem is not None and paridad is not None:
+            try:
+                retorno   = (1 + float(tem)) ** (dias / 30) - 1
+                inflacion = (1 + retorno) * (float(paridad) / 100) - 1
+                bkv       = (1 + inflacion) ** (30 / dias) - 1
                 if -0.5 < bkv < 10:
                     entry["retorno_acumulado"]   = round(retorno, 6)
                     entry["inflacion_acumulada"] = round(inflacion, 6)
                     entry["breakeven_mensual"]   = round(bkv, 6)
+                    entry["metodo"]              = "Fisher"
             except Exception:
                 pass
 
@@ -367,19 +441,26 @@ def run():
             fecha_ref  = ts.date()
             fecha_str  = fecha_ref.isoformat()
 
-            with ThreadPoolExecutor(max_workers=3) as ex:
+            with ThreadPoolExecutor(max_workers=4) as ex:
                 f_tems      = ex.submit(obtener_tems,      client, lecap_tickers)
                 f_paridades = ex.submit(obtener_paridades, client, cer_tickers)
                 f_teas      = ex.submit(obtener_teas_cer,  client, cer_tickers)
-                tems, paridades, teas_cer = f_tems.result(), f_paridades.result(), f_teas.result()
+                f_precios   = ex.submit(obtener_precios,   client, lecap_tickers + cer_tickers)
+                tems       = f_tems.result()
+                paridades  = f_paridades.result()
+                teas_cer   = f_teas.result()
+                precios    = f_precios.result()
 
             ipc_mes = ultimo_ipc_publicado(client)
             cer_max = ultimo_cer_publicado(client)
+            cer_actual = obtener_valor_cer(client, cer_max) if cer_max else None
             pares_result = calcular_breakevens(
                 pares, tems, paridades, teas_cer, fecha_ref,
                 ultimo_ipc_mes=ipc_mes,
                 dias_habiles=dias_habiles,
                 fecha_cer_max=cer_max,
+                precios=precios,
+                cer_actual=cer_actual,
             )
             guardar(client, pares_result, ts, fecha_str)
 

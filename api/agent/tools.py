@@ -502,29 +502,29 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "sensibilidad_retorno",
         "description": (
-            "Tabla de sensibilidad de retorno total para Globales/Bonares por "
-            "escenario de TIR. Para cada bono devuelve precio actual + "
-            "TEA/duration/paridad + lista de escenarios "
-            "[{tir, shock_pp, precio_proyectado, retorno_total}]. "
-            "Modo 'absoluta': `tirs` son TIRs finales en % (ej '6,8,10,12' → "
-            "evalúa cada bono a esas TIRs). "
-            "Modo 'relativa': `tirs` son shocks en pp sobre la TEA actual de "
-            "cada bono (ej '-2,0,2' → para un bono con TEA 9%, evalúa 7%, 9%, "
-            "11% — útil para comparar bonos centrados en su propia TIR). "
-            "USAR para stress tests, 'cuánto ganaría el GD35 si la TIR baja a "
-            "8% en 1 año', 'qué Bonar es más sensible a una baja de tasa', "
-            "'precio objetivo bajo escenario X'. Por defecto: curva soberanos, "
-            "horizonte 365 días."
+            "Tabla de sensibilidad de PRECIO (upside puro, capital-only) para "
+            "Globales/Bonares por escenario de TIR. Responde: si la TIR del "
+            "bono cotizara HOY a X%, ¿qué precio tendría y cuánto es el upside "
+            "vs el precio actual? NO incluye carry ni paso del tiempo. "
+            "Para cada bono devuelve precio actual + TEA/duration/paridad + "
+            "lista de escenarios [{tir, shock_pp, precio_objetivo, upside}]. "
+            "upside = precio_objetivo / precio_actual − 1. Es NEGATIVO si la "
+            "TIR objetivo > TEA actual (el bono debe caer para rendir más) y "
+            "POSITIVO si la TIR objetivo < TEA actual. "
+            "Modo 'absoluta': `tirs` son TIRs finales en % (ej '6,8,10,12'). "
+            "Modo 'relativa': `tirs` son shocks en pp sobre la TEA actual "
+            "(ej '-2,0,2' → para TEA 9%, evalúa 7%, 9%, 11%). "
+            "USAR para 'qué upside tiene GD35 si la TIR comprime a 8%', "
+            "'qué Bonar tiene más upside en compresión', stress tests de precio."
         ),
         "endpoint": "/api/analitica/sensibilidad-retorno",
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "curva":          {"type": "STRING", "description": "soberanos (default)"},
-                "tirs":           {"type": "STRING", "description": "CSV de TIRs en % (modo absoluta) o de shocks pp (modo relativa). Default '4,5,6,7,8,9,10,11'."},
-                "horizonte_dias": {"type": "INTEGER", "description": "Días al futuro a proyectar (default 365)"},
-                "modo":           {"type": "STRING", "description": "absoluta (default) | relativa"},
-                "tipos":          {"type": "STRING", "description": "CSV opcional: globales | bonares | 'globales,bonares'. Default: todos."},
+                "curva": {"type": "STRING", "description": "soberanos (default)"},
+                "tirs":  {"type": "STRING", "description": "CSV de TIRs en % (modo absoluta) o de shocks pp (modo relativa). Default '4,5,6,7,8,9,10,11'."},
+                "modo":  {"type": "STRING", "description": "absoluta (default) | relativa"},
+                "tipos": {"type": "STRING", "description": "CSV opcional: globales | bonares | 'globales,bonares'. Default: todos."},
             },
         },
     },

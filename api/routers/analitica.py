@@ -88,6 +88,11 @@ def sensibilidad_retorno(
     modo: str = Query("absoluta",
                       description="'absoluta' = TIRs finales; 'relativa' = "
                                   "shocks pp sobre la TEA actual"),
+    tipos: str | None = Query(None,
+                              description="CSV opcional para filtrar por "
+                                          "tipo (ej. 'globales' o "
+                                          "'globales,bonares'). Si se omite "
+                                          "trae todos los tipos."),
 ):
     """Tabla de sensibilidad de retorno total por escenario de TIR.
 
@@ -102,6 +107,12 @@ def sensibilidad_retorno(
         return {"error": "tirs malformado, esperado CSV de números"}
     if not tirs_t:
         return {"error": "tirs vacío"}
+    tipos_t: tuple[str, ...] | None = None
+    if tipos:
+        tipos_t = tuple(t.strip() for t in tipos.split(",") if t.strip())
+        if not tipos_t:
+            tipos_t = None
     return svc_sens.sensibilidad_retorno_total(
-        curva=curva, tirs=tirs_t, horizonte_dias=horizonte_dias, modo=modo,
+        curva=curva, tirs=tirs_t, horizonte_dias=horizonte_dias,
+        modo=modo, tipos=tipos_t,
     )

@@ -73,6 +73,7 @@ def sensibilidad_retorno_total(
     tirs: tuple[float, ...] = _DEFAULT_TIRS,
     horizonte_dias: int = _DEFAULT_HORIZONTE_DIAS,
     modo: str = "absoluta",
+    tipos: tuple[str, ...] | None = None,
 ) -> list[dict]:
     """Devuelve tabla de sensibilidad: 1 entrada por bono, con escenarios.
 
@@ -100,10 +101,16 @@ def sensibilidad_retorno_total(
     if modo not in ("absoluta", "relativa"):
         modo = "absoluta"
 
+    filtro: dict = {"curva": curva}
+    if tipos:
+        # Normaliza a lowercase y matchea contra Trading.Curvas.tipo (que
+        # ya está en lowercase: 'globales' / 'bonares' / etc).
+        filtro["tipo"] = {"$in": [t.lower() for t in tipos]}
+
     bonos = list(db["Curvas"].find(
-        {"curva": curva},
-        {"_id": 0, "ticker": 1, "ticker_corto": 1, "valor_nominal": 1,
-         "fecha_vencimiento": 1, "flujos": 1},
+        filtro,
+        {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
+         "valor_nominal": 1, "fecha_vencimiento": 1, "flujos": 1},
     ))
 
     hoy = date.today()
@@ -172,6 +179,7 @@ def sensibilidad_retorno_total(
         out.append({
             "ticker":            ticker_corto,
             "ticker_completo":   ticker_full,
+            "tipo":              bono.get("tipo"),
             "fecha_vencimiento": str(bono.get("fecha_vencimiento"))[:10]
                                  if bono.get("fecha_vencimiento") else None,
             "precio_actual":     round(precio_actual, 4),

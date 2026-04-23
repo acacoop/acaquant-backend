@@ -1,17 +1,20 @@
-"""Análisis de sensibilidad de PRECIO a escenarios de TIR (upside capital-only).
+"""Análisis de sensibilidad de retorno a escenarios de TIR.
 
 Para cada bono de la curva soberanos, responde:
   "Si dentro de N días el bono cotiza a TIR X, ¿a qué precio estaría y cuánto
-   es el upside vs el precio actual?"
+   es el retorno vs el precio actual?"
 
-Es decir: precio_objetivo = PV de los flujos futuros (post-horizonte) descontados
-a TIR X desde fecha_horizonte; upside = precio_objetivo / precio_actual − 1.
+Se devuelven DOS upsides por escenario:
+  - `upside_sin_carry` = precio_objetivo / precio_actual − 1. Capital-only.
+    Si TIR objetivo > TEA actual, es negativo (el bono cae). Es la foto
+    limpia de sensibilidad precio-TIR.
+  - `upside_con_carry` = (precio_objetivo + cobrado_horizonte) / precio_actual − 1.
+    Retorno total: suma los cupones + amortizaciones cobrados durante el
+    horizonte. Es lo que efectivamente cobraría quien holdea el bono.
 
-NO incluye carry — es capital-only. Esto es deliberado: muestra CUÁNTO tiene
-que moverse el precio del bono para rendir la TIR objetivo. Si TIR objetivo >
-TEA actual, upside es negativo (el bono tiene que caer). Si TIR objetivo < TEA
-actual, upside es positivo (compresión). A medida que crece el horizonte el
-precio hace pull-to-par y el upside gana por ese lado.
+El frontend toglea entre los dos sin re-fetchear. precio_objetivo se calcula
+siempre igual (PV de flujos post-horizonte descontados a TIR desde la fecha
+horizonte).
 
 Usado por la tab "Análisis Sensibilidad" de /retorno en acaquant-web.
 """
@@ -100,14 +103,17 @@ def sensibilidad_retorno_total(
       {
         ticker, ticker_completo, fecha_vencimiento,
         precio_actual, tea_actual, duration, paridad,
-        escenarios: [{tir, shock_pp, precio_objetivo, upside}, ...]
+        cobrado_horizonte, n_flujos_horizonte,
+        escenarios: [
+          {tir, shock_pp, precio_objetivo,
+           upside_sin_carry, upside_con_carry}, ...
+        ]
       },
       ...
     ]
 
-    `upside = precio_objetivo / precio_actual − 1`. Negativo si TIR objetivo
-    > TEA actual (el bono tendría que caer para rendir más); positivo si
-    TIR objetivo < TEA actual.
+    Con horizonte=0, cobrado_horizonte=0 (no pasa tiempo, no hay cobros) y
+    upside_con_carry = upside_sin_carry.
     """
     db = get_db_trading()
     modo = (modo or "absoluta").lower()
@@ -143,10 +149,13 @@ def sensibilidad_retorno_total(
         if precio_actual is None or precio_actual <= 0:
             continue
 
-        # Flujos que quedan DESPUÉS del horizonte. Son los que componen el
-        # precio del bono a fecha_horizonte. Si horizonte=0 esto equivale
-        # a todos los flujos futuros.
+        # Flujos que quedan DESPUÉS del horizonte (componen el precio
+        # objetivo) y los que caen ENTRE hoy y el horizonte (componen el
+        # carry cobrado). Si horizonte=0, el carry es 0 y flujos_post =
+        # todos los flujos futuros.
         flujos_post = [(fd, m) for fd, m in flujos if fd > horizonte]
+        flujos_periodo = [(fd, m) for fd, m in flujos if hoy < fd <= horizonte]
+        cobrado_horizonte = sum(m for _, m in flujos_periodo)
         if not flujos_post:
             # Bono que vence antes del horizonte → no hay precio proyectado.
             continue
@@ -173,25 +182,29 @@ def sensibilidad_retorno_total(
         escenarios = []
         for shock, tir in tirs_reales:
             precio_objetivo = _pv_a_tir(flujos_post, tir, horizonte)
-            upside = precio_objetivo / precio_actual - 1
+            upside_sc = precio_objetivo / precio_actual - 1
+            upside_cc = (precio_objetivo + cobrado_horizonte) / precio_actual - 1
             escenarios.append({
-                "shock_pp":        round(shock, 6) if shock is not None else None,
-                "tir":             round(tir, 6),
-                "precio_objetivo": round(precio_objetivo, 4),
-                "upside":          round(upside, 6),
+                "shock_pp":         round(shock, 6) if shock is not None else None,
+                "tir":              round(tir, 6),
+                "precio_objetivo":  round(precio_objetivo, 4),
+                "upside_sin_carry": round(upside_sc, 6),
+                "upside_con_carry": round(upside_cc, 6),
             })
 
         out.append({
-            "ticker":            ticker_corto,
-            "ticker_completo":   ticker_full,
-            "tipo":              bono.get("tipo"),
-            "fecha_vencimiento": str(bono.get("fecha_vencimiento"))[:10]
-                                 if bono.get("fecha_vencimiento") else None,
-            "precio_actual":     round(precio_actual, 4),
-            "tea_actual":        ms.get("TEA"),
-            "duration":          ms.get("duration"),
-            "paridad":           ms.get("paridad"),
-            "escenarios":        escenarios,
+            "ticker":              ticker_corto,
+            "ticker_completo":     ticker_full,
+            "tipo":                bono.get("tipo"),
+            "fecha_vencimiento":   str(bono.get("fecha_vencimiento"))[:10]
+                                   if bono.get("fecha_vencimiento") else None,
+            "precio_actual":       round(precio_actual, 4),
+            "tea_actual":          ms.get("TEA"),
+            "duration":            ms.get("duration"),
+            "paridad":             ms.get("paridad"),
+            "cobrado_horizonte":   round(cobrado_horizonte, 4),
+            "n_flujos_horizonte":  len(flujos_periodo),
+            "escenarios":          escenarios,
         })
 
     # Ordenar por fecha de vencimiento ascendente (corto → largo).

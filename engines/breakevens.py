@@ -3,7 +3,11 @@ main_breakevens.py — Motor de breakevens CER/Lecap en tiempo real.
 
 Cada 30s:
   1. Lee última TEM por Lecap y última paridad por CER desde Trading.TimeSales
-  2. Empareja cada Lecap con el CER de vencimiento más cercano (Trading.Curvas)
+  2. Empareja cada Lecap(M) con el CER más cercano a M+60 días (Trading.Curvas)
+     — no al CER del mismo vto, por la convención del CER (settlement T-10
+     hábiles + rezago de 1 mes en la publicación del IPC). El CER que vence
+     en M captura inflación hasta ~M-2; para medir inflación hasta M se
+     empareja con el CER(M+2).
   3. Calcula breakeven de inflación mensual implícita
   4. Upsert Trading.BreakevensLive  → 1 doc global (tiempo real)
   5. Upsert Trading.BreakevensHistorico → 1 doc por fecha (histórico diario)
@@ -29,9 +33,14 @@ from engines._curvas_loader import cargar_por_curva
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorBreakevens")
 
-INTERVALO = 30          # segundos entre corridas
-MAX_DIFF_DIAS = 20      # diferencia máxima de días entre vencimientos Lecap↔CER para que sean par válido
-MIN_DIAS_PLAZO = 30     # días mínimos al vencimiento desde hoy para incluir el par
+INTERVALO = 30               # segundos entre corridas
+# Desfasaje CER por convención: el CER que vence en el mes M captura
+# inflación hasta ~M-2 (settlement T-10 hábiles + IPC publicado con rezago
+# de 1 mes). Para medir la inflación implícita "real" hasta el vto de la
+# Lecap, emparejamos Lecap(M) con CER cercano a M+2 meses.
+TARGET_GAP_DIAS   = 60        # distancia objetivo entre vto Lecap y vto CER (CER posterior)
+TOLERANCIA_GAP_DIAS = 20      # ±20 días sobre el target (40-80d). Fuera de eso → sin par.
+MIN_DIAS_PLAZO = 30           # días mínimos al vto desde hoy para incluir el par
 
 
 # ─────────────────────────────────────────────
@@ -39,13 +48,19 @@ MIN_DIAS_PLAZO = 30     # días mínimos al vencimiento desde hoy para incluir e
 # ─────────────────────────────────────────────
 
 def cargar_pares():
-    """Devuelve lista de pares (Lecap, CER) ordenados por vencimiento.
+    """Devuelve lista de pares (Lecap, CER) ordenados por vto de la Lecap.
 
-    Reglas:
-      - Cada Lecap se empareja con el CER cuyo vencimiento es más cercano.
-      - Solo se incluyen pares con diferencia ≤ MAX_DIFF_DIAS días.
+    Reglas (emparejamiento desfasado para corregir el rezago del CER):
+      - Target: CER que vence a ~TARGET_GAP_DIAS después de la Lecap.
+      - Se elige el CER cuyo gap real (fecha_cer − fecha_lecap, con signo)
+        esté más cerca del TARGET_GAP_DIAS.
+      - Solo se incluyen pares con |gap_real − TARGET| ≤ TOLERANCIA_GAP_DIAS.
+        Si ninguno entra en la tolerancia → la Lecap queda sin par.
       - Si un mismo CER aparece como par de varias Lecaps, se queda solo con
-        el par cuya diferencia de vencimiento sea menor (sin repetir CER).
+        la que tiene mejor matching (menor distancia al target).
+      - En cada par se guarda `gap_cer_dias` = días reales entre vto Lecap
+        y vto CER (positivo = CER posterior), para que el frontend muestre
+        cuán limpio salió el matching.
     """
     grupos = cargar_por_curva()
     lecaps = grupos.get("tasa_fija", [])
@@ -58,18 +73,20 @@ def cargar_pares():
         except Exception:
             continue
 
-        mejor, mejor_diff = None, None
+        mejor, mejor_dist_target, mejor_gap = None, None, None
         for cer in cers:
             try:
                 fecha_cer = date.fromisoformat(cer["fecha_vencimiento"][:10])
             except Exception:
                 continue
-            diff = abs((fecha_lec - fecha_cer).days)
-            if mejor_diff is None or diff < mejor_diff:
-                mejor_diff = diff
+            gap = (fecha_cer - fecha_lec).days  # signed
+            dist_target = abs(gap - TARGET_GAP_DIAS)
+            if mejor_dist_target is None or dist_target < mejor_dist_target:
+                mejor_dist_target = dist_target
                 mejor = cer
+                mejor_gap = gap
 
-        if mejor is None or mejor_diff > MAX_DIFF_DIAS:
+        if mejor is None or mejor_dist_target > TOLERANCIA_GAP_DIAS:
             continue
 
         candidatos.append({
@@ -78,21 +95,27 @@ def cargar_pares():
             "cer_ticker":        mejor["ticker"],
             "cer_corto":         mejor["ticker_corto"],
             "fecha_vencimiento": lecap["fecha_vencimiento"][:10],
-            "_diff":             mejor_diff,
+            "fecha_vto_cer":     mejor["fecha_vencimiento"][:10],
+            "gap_cer_dias":      mejor_gap,
+            "_dist_target":      mejor_dist_target,
         })
 
-    # Dedup: si un CER aparece en varios pares, conservar solo el de menor diff
+    # Dedup: si un CER aparece en varios pares, quedarnos con el que tiene
+    # mejor matching (menor distancia al target).
     mejor_por_cer = {}
     for c in candidatos:
         key = c["cer_ticker"]
-        if key not in mejor_por_cer or c["_diff"] < mejor_por_cer[key]["_diff"]:
+        if key not in mejor_por_cer or c["_dist_target"] < mejor_por_cer[key]["_dist_target"]:
             mejor_por_cer[key] = c
 
     pares = sorted(mejor_por_cer.values(), key=lambda p: p["fecha_vencimiento"])
     for p in pares:
-        del p["_diff"]
+        del p["_dist_target"]
 
-    logger.info(f"Pares CER/Lecap cargados: {len(pares)}")
+    logger.info(
+        "Pares CER/Lecap cargados: %d (target_gap=%dd, tolerancia=±%dd)",
+        len(pares), TARGET_GAP_DIAS, TOLERANCIA_GAP_DIAS,
+    )
     return pares
 
 
@@ -158,6 +181,8 @@ def calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref):
             "lecap":             par["lecap_corto"],
             "cer":               par["cer_corto"],
             "fecha_vencimiento": par["fecha_vencimiento"],
+            "fecha_vto_cer":     par.get("fecha_vto_cer"),
+            "gap_cer_dias":      par.get("gap_cer_dias"),
             "dias":              dias,
         }
 

@@ -7,6 +7,7 @@ existe para consumo externo (acaquant-web, curl, debugging).
 from fastapi import APIRouter, Query
 
 from api.services import analitica as svc_ana
+from api.services import canje as svc_canje
 from api.services import macro as svc_macro
 from api.services import renta_fija as svc_rf
 from api.services import sensibilidad as svc_sens
@@ -116,3 +117,17 @@ def sensibilidad_retorno(
         curva=curva, tirs=tirs_t, horizonte_dias=horizonte_dias,
         modo=modo, tipos=tipos_t,
     )
+
+
+@router.get("/canje")
+def canje(
+    par: str = Query("AL30", description="Par (AL30 / GD30 / etc)"),
+    desde: str | None = Query(None, description="YYYY-MM-DD (default: 365 días)"),
+    hasta: str | None = Query(None, description="YYYY-MM-DD (default: hoy)"),
+):
+    """Serie histórica de canje legislación NY vs Arg.
+
+    canje = precio_C / precio_D − 1. Devuelve serie diaria con precio
+    de cada pata + el canje. Solo días con ambos precios disponibles.
+    """
+    return svc_canje.serie_canje(par=par, desde=desde, hasta=hasta)

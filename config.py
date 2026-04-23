@@ -45,6 +45,16 @@ BYMA_BASE_URL      = os.getenv(
 MAE_API_KEY = os.getenv("MAE_API_KEY", "")
 MAE_ENV     = os.getenv("MAE_ENV", "prod").lower()  # 'prod' | 'uat'
 
+# --- TICKERS EXTRA (precio crudo, sin enrichment) ---
+# motor_rofex se suscribe a estos para tener precio live en TimeSales,
+# pero motor_curvas los IGNORA (no calcula TEA/duration porque no están
+# en Trading.Curvas). Se usan para análisis derivados que solo necesitan
+# precio: ej. canje AL30C/AL30D, brecha CCL/MEP, etc.
+TICKERS_EXTRA_PRECIOS: list[str] = [
+    "MERV - XMEV - AL30C - 24hs",  # canje AL30C/AL30D
+]
+
+
 # --- ACCESO MANAGER ---
 # Emails con acceso a la vista Manager. Separados por coma en MANAGER_EMAILS o hardcodeados aquí.
 _manager_env = os.getenv("MANAGER_EMAILS", "")

@@ -51,10 +51,26 @@ def cargar_tickers_ordenados() -> list[str]:
 
     Docs sin `fecha_vencimiento` ordenan primero (string vacío). Ignora
     docs sin `ticker`. Usa projection para minimizar payload.
+
+    Incluye al final los tickers de `config.TICKERS_EXTRA_PRECIOS` (que
+    no están en Trading.Curvas) para que motor_rofex se suscriba live.
+    motor_curvas no los toca porque sigue indexando solo desde Curvas.
     """
     docs = list(_coll().find(
         {"ticker": {"$exists": True}},
         {"_id": 0, "ticker": 1, "fecha_vencimiento": 1},
     ))
     docs.sort(key=lambda d: d.get("fecha_vencimiento", ""))
-    return [d["ticker"] for d in docs if d.get("ticker")]
+    base = [d["ticker"] for d in docs if d.get("ticker")]
+
+    try:
+        from config import TICKERS_EXTRA_PRECIOS
+    except ImportError:
+        TICKERS_EXTRA_PRECIOS = []
+
+    base_set = set(base)
+    for tk in TICKERS_EXTRA_PRECIOS:
+        if tk and tk not in base_set:
+            base.append(tk)
+            base_set.add(tk)
+    return base

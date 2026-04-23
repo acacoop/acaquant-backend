@@ -19,17 +19,17 @@ from api.cache import cached
 from api.db import get_db_trading, get_db_valuaciones
 
 _CURVAS_VALIDAS = ("tasa_fija", "cer")
-_DOLARES_VALIDOS = ("mep", "ccl")
+_DOLARES_VALIDOS = ("mep", "oficial")
 
 
-def _serie_dolar_diaria(db_val, campo: str, desde: date, hasta: date) -> dict[date, float]:
-    """Último valor del campo (mep / ccl) por día desde Valuaciones.Dolar."""
+def _serie_mep_diaria(db_val, desde: date, hasta: date) -> dict[date, float]:
+    """Último valor de MEP por día desde Valuaciones.Dolar (cron + WS)."""
     inicio = datetime.combine(desde, datetime.min.time())
     fin = datetime.combine(hasta + timedelta(days=1), datetime.min.time())
     pipeline = [
         {"$match": {
             "timestamp": {"$gte": inicio, "$lt": fin},
-            campo:       {"$gt": 0},
+            "mep":       {"$gt": 0},
         }},
         {"$addFields": {
             "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
@@ -37,7 +37,7 @@ def _serie_dolar_diaria(db_val, campo: str, desde: date, hasta: date) -> dict[da
         {"$sort": {"timestamp": -1}},
         {"$group": {
             "_id":   "$fecha",
-            "valor": {"$first": f"${campo}"},
+            "valor": {"$first": "$mep"},
         }},
     ]
     out: dict[date, float] = {}
@@ -47,6 +47,24 @@ def _serie_dolar_diaria(db_val, campo: str, desde: date, hasta: date) -> dict[da
         except ValueError:
             continue
         out[f] = float(r["valor"])
+    return out
+
+
+def _serie_oficial_diaria(db_trd, desde: date, hasta: date) -> dict[date, float]:
+    """Serie A3500 (BCRA) diaria desde Trading.DOLAR. Fecha guardada como
+    string 'YYYY-MM-DD'."""
+    desde_s = desde.isoformat()
+    hasta_s = hasta.isoformat()
+    out: dict[date, float] = {}
+    for d in db_trd["DOLAR"].find(
+        {"fecha": {"$gte": desde_s, "$lte": hasta_s}, "valor": {"$gt": 0}},
+        {"_id": 0, "fecha": 1, "valor": 1},
+    ):
+        try:
+            f = datetime.strptime(d["fecha"], "%Y-%m-%d").date()
+        except (ValueError, KeyError):
+            continue
+        out[f] = float(d["valor"])
     return out
 
 
@@ -142,7 +160,10 @@ def serie_carry_trade(
     if not precios:
         return {"error": "no hay precios en la curva para el rango"}
 
-    dolares = _serie_dolar_diaria(db_val, dolar_l, desde_d, hasta_d)
+    if dolar_l == "oficial":
+        dolares = _serie_oficial_diaria(db_trd, desde_d, hasta_d)
+    else:  # mep
+        dolares = _serie_mep_diaria(db_val, desde_d, hasta_d)
     if not dolares:
         return {"error": f"no hay serie de {dolar_l} para el rango"}
 

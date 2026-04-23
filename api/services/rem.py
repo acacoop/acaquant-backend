@@ -18,9 +18,14 @@ from datetime import date, timedelta
 from api.cache import cached
 from api.db import get_db_trading
 
-_MESES_ES = {
+_MESES = {
+    # Español
     "ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6,
     "jul": 7, "ago": 8, "sep": 9, "set": 9, "oct": 10, "nov": 11, "dic": 12,
+    # Inglés (argentinadatos.com devuelve los periodos con mes-EN como
+    # 'Apr-26', 'Aug-26', 'Jul-26'). Mantenemos ambos dicts fusionados.
+    "jan": 1, "apr": 4, "aug": 8, "dec": 12,
+    # nota: feb/mar/may/jun/jul/sep/oct/nov coinciden en es/en
 }
 
 
@@ -59,7 +64,7 @@ def _periodo_a_yyyymm(raw) -> str | None:
         mes_name = m.group(1)[:3]
         y_raw = int(m.group(2))
         y = 2000 + y_raw if y_raw < 100 else y_raw
-        mm = _MESES_ES.get(mes_name)
+        mm = _MESES.get(mes_name)
         if mm:
             return f"{y:04d}-{mm:02d}"
 

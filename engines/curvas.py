@@ -351,17 +351,6 @@ def calcular_campos(doc, instrumento, cer_dict, dias_habiles, mep: float | None 
         precio_tecnico = valor_nominal * ratio
         resultado["paridad"] = round(precio / precio_tecnico * 100, 4)
 
-        # ¿El CER de liquidación del VTO ya está publicado por el BCRA?
-        # Si sí, el flujo final del bono está en pesos fijos y el bono
-        # se comporta como tasa fija desde este momento (no hay más
-        # variabilidad CER que absorber hasta el vto). El motor agrega
-        # el flag en TimeSales para que el frontend pueda mostrar un
-        # badge y el asistente/mesa lo sepan.
-        fecha_cer_liq_vto = fecha_cer_liquidacion(dias_habiles, fecha_vto_str, n=10)
-        if fecha_cer_liq_vto and cer_dict:
-            max_cer_publicado = max(cer_dict.keys())
-            resultado["cer_fijado"] = fecha_cer_liq_vto <= max_cer_publicado
-
         dias_a_vto_s = (fecha_vto - fecha_settlement).days
         if dias_a_vto_s <= 0:
             resultado["duration"] = round(dias_a_vto / 365, 4)

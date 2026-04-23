@@ -101,11 +101,13 @@ def test_run_persiste_3_series():
 
     client, _coll = _mock_mongo()
 
-    # El cliente hace 3 calls distintas — las respondemos por side_effect.
+    # riesgo + ipc + ipcy + REM (rems/ultimo vacío → sale rápido, 1 call).
     responses = iter([
         _mk_response(200, rp_data),
         _mk_response(200, ipc_data),
         _mk_response(200, ipcy_data),
+        _mk_response(200, []),  # /v1/rems → sin informes disponibles
+        _mk_response(200, []),  # /v1/rems/ultimo → vacío
     ])
 
     with (
@@ -138,6 +140,8 @@ def test_run_sanity_descarta_riesgo_pais_anomalo():
         _mk_response(200, rp_data),
         _mk_response(200, ipc_data),
         _mk_response(200, ipcy_data),
+        _mk_response(200, []),  # /v1/rems vacío
+        _mk_response(200, []),  # /v1/rems/ultimo vacío
     ])
 
     with (
@@ -178,6 +182,8 @@ def test_run_una_serie_falla_no_rompe_las_otras():
         _mk_response(500, "boom"),                                  # riesgo-pais
         _mk_response(200, [{"fecha": "2026-03-01", "valor": 3.2}]), # ipc OK
         _mk_response(200, [{"fecha": "2026-03-01", "valor": 90}]),  # ipcy OK
+        _mk_response(200, []),                                       # /v1/rems vacío
+        _mk_response(200, []),                                       # /v1/rems/ultimo vacío
     ])
 
     with (

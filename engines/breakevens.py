@@ -176,6 +176,19 @@ def calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref):
             continue
 
         n += 1
+
+        # Mes del IPC cuya inflación pricean estos breakevens. Convención:
+        # el CER emparejado con vto +60 días está "publicado" (liquidación
+        # ~vto_cer-10háb) usando el IPC del mes anterior, que es ~2 meses
+        # antes del vto de la Lecap. Por eso el breakeven de una Lecap con
+        # vto en 'M' representa la inflación implícita del IPC de 'M-2'.
+        y = fecha_vto.year
+        m = fecha_vto.month - 2
+        if m <= 0:
+            m += 12
+            y -= 1
+        mes_inflacion = f"{y:04d}-{m:02d}"
+
         entry = {
             "n":                 n,
             "lecap":             par["lecap_corto"],
@@ -183,6 +196,7 @@ def calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref):
             "fecha_vencimiento": par["fecha_vencimiento"],
             "fecha_vto_cer":     par.get("fecha_vto_cer"),
             "gap_cer_dias":      par.get("gap_cer_dias"),
+            "mes_inflacion":     mes_inflacion,
             "dias":              dias,
         }
 

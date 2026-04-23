@@ -123,6 +123,36 @@ def get_historico_trades(instrumento: str | None = None) -> list:
 
 
 @cached(ttl=30)
+def _bonos_cer_fijados(db) -> set[str]:
+    """Tickers de bonos CER cuyo CER de liquidación del VTO ya fue publicado
+    por el BCRA → efectivamente tasa fija desde ya. Se recalcula por request
+    (barato: 1 query CER + 1 query DiasHabiles + loop chico).
+    """
+    from engines.curvas import fecha_cer_liquidacion
+
+    cer_max_doc = db["CER"].find_one({}, sort=[("fecha", -1)], projection={"fecha": 1})
+    if not cer_max_doc:
+        return set()
+    max_cer_publicado = cer_max_doc["fecha"]
+
+    dias_habiles = sorted(
+        d["fecha"] for d in db["DiasHabiles"].find({}, {"fecha": 1, "_id": 0})
+    )
+
+    fijados: set[str] = set()
+    for inst in db["Curvas"].find(
+        {"curva": "cer"},
+        {"_id": 0, "ticker": 1, "fecha_vencimiento": 1},
+    ):
+        vto = str(inst.get("fecha_vencimiento") or "")[:10]
+        if not vto:
+            continue
+        fecha_liq = fecha_cer_liquidacion(dias_habiles, vto, n=10)
+        if fecha_liq and fecha_liq <= max_cer_publicado:
+            fijados.add(inst["ticker"])
+    return fijados
+
+
 def listar_curva(
     curva: str,
     ordenar_por: str = "vencimiento",
@@ -132,12 +162,17 @@ def listar_curva(
 ) -> list[dict]:
     """Lista los bonos de una curva con metadata enriquecida.
 
+    Reasignación automática CER → tasa_fija: los bonos CER cuyo CER de
+    liquidación del vencimiento ya está publicado por el BCRA se comportan
+    como tasa fija (su flujo final está determinado). Por eso:
+      - `curva='cer'`       → incluye solo los CER que TODAVÍA no están fijados.
+      - `curva='tasa_fija'` → incluye tasa fija propia + CER ya fijados, con
+                              un flag `cer_fijado=true` para el frontend.
+
     Devuelve para cada instrumento: ticker, ticker_corto, tipo, vencimiento,
     precio, TEA/TEM, paridad, duration, volumen del día. Ordenable por
     vencimiento (default), volumen, TEA o duration. Filtrable por horizonte
     (vencimiento_min/max_meses).
-
-    Ver docs/asistente/tools_spec.md §2.1 para contrato completo.
     """
     if curva not in _CURVAS_VALIDAS:
         return []
@@ -146,11 +181,38 @@ def listar_curva(
 
     db = get_db_trading()
 
-    curva_docs = list(db["Curvas"].find(
-        {"curva": curva},
-        {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
-         "fecha_vencimiento": 1, "fecha_emision": 1},
-    ))
+    # Reasignación CER ↔ tasa_fija.
+    fijados_tickers = _bonos_cer_fijados(db) if curva in ("cer", "tasa_fija") else set()
+
+    if curva == "cer":
+        # Solo CER todavía variable (excluye los que ya quedaron fijados).
+        filtro_curva = {"curva": "cer"}
+        if fijados_tickers:
+            filtro_curva["ticker"] = {"$nin": list(fijados_tickers)}
+        curva_docs = list(db["Curvas"].find(
+            filtro_curva,
+            {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
+             "fecha_vencimiento": 1, "fecha_emision": 1},
+        ))
+    elif curva == "tasa_fija":
+        # tasa_fija propia + CER fijados (se marcan como `cer_fijado=true`).
+        curva_docs = list(db["Curvas"].find(
+            {
+                "$or": [
+                    {"curva": "tasa_fija"},
+                    {"curva": "cer", "ticker": {"$in": list(fijados_tickers)}}
+                    if fijados_tickers else {"curva": "tasa_fija"},
+                ]
+            },
+            {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
+             "curva": 1, "fecha_vencimiento": 1, "fecha_emision": 1},
+        ))
+    else:
+        curva_docs = list(db["Curvas"].find(
+            {"curva": curva},
+            {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
+             "fecha_vencimiento": 1, "fecha_emision": 1},
+        ))
     if not curva_docs:
         return []
 
@@ -213,7 +275,7 @@ def listar_curva(
         enrich = enrich_map.get(d["ticker"], {})
         vol = vol_map.get(d["ticker"], {})
         ts_last = enrich.get("ts")
-        out.append({
+        entry = {
             "ticker": d["ticker"],
             "ticker_corto": d.get("ticker_corto"),
             "tipo": d.get("tipo"),
@@ -229,7 +291,12 @@ def listar_curva(
             "total_money_dia": vol.get("total_money"),
             "total_nominals_dia": vol.get("total_nominals"),
             "ts_ultimo_trade": ts_last.isoformat() if isinstance(ts_last, datetime) else ts_last,
-        })
+        }
+        # Badge para el frontend: este bono cotiza en la tabla tasa_fija por
+        # tener su CER de liquidación ya publicado, pero nativamente es CER.
+        if d["ticker"] in fijados_tickers:
+            entry["cer_fijado"] = True
+        out.append(entry)
 
     if ordenar_por == "vencimiento":
         out.sort(key=lambda x: x.get("fecha_vencimiento") or "9999")

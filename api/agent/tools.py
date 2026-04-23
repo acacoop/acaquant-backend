@@ -502,22 +502,22 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "sensibilidad_retorno",
         "description": (
-            "Tabla de sensibilidad de PRECIO (upside capital-only) para "
-            "Globales/Bonares por escenario de TIR. Responde: si dentro de "
-            "`horizonte_dias` días el bono cotiza a TIR X, ¿qué precio tendría "
-            "y cuánto es el upside vs el precio actual? NO incluye carry "
-            "(capital puro). Con horizonte=0 es upside instantáneo; horizontes "
-            "mayores incluyen pull-to-par. "
+            "Tabla de sensibilidad de retorno total para Globales/Bonares por "
+            "escenario de TIR. Responde: si dentro de `horizonte_dias` días el "
+            "bono cotiza a TIR X, ¿cuál es el retorno total (precio proyectado "
+            "+ cupones/amortizaciones cobradas durante el horizonte) vs el "
+            "precio actual? "
             "Para cada bono devuelve precio actual + TEA/duration/paridad + "
-            "lista de escenarios [{tir, shock_pp, precio_objetivo, upside}]. "
-            "upside = precio_objetivo / precio_actual − 1. Es NEGATIVO si la "
-            "TIR objetivo > TEA actual y POSITIVO si TIR objetivo < TEA actual. "
+            "cobrado_horizonte + lista de escenarios "
+            "[{tir, shock_pp, precio_objetivo, upside}]. "
+            "upside = (precio_objetivo + cobrado_horizonte) / precio_actual − 1. "
+            "Con horizonte=0 cobrado_horizonte=0 → upside es capital-only "
+            "(cuánto debe moverse el bono para cotizar a TIR X). "
             "Modo 'absoluta': `tirs` son TIRs finales en % (ej '6,8,10,12'). "
             "Modo 'relativa': `tirs` son shocks en pp sobre la TEA actual "
             "(ej '-2,0,2' → para TEA 9%, evalúa 7%, 9%, 11%). "
-            "USAR para 'qué upside tiene GD35 si la TIR comprime a 8%', "
-            "'cuánto cae GD41 en stress a 12%', 'qué Bonar tiene más upside "
-            "en compresión a 1 año vista'."
+            "USAR para 'qué retorno da GD35 si la TIR comprime a 8% en 1 año', "
+            "'qué Bonar rinde más en compresión a 1 año vista'."
         ),
         "endpoint": "/api/analitica/sensibilidad-retorno",
         "parameters": {

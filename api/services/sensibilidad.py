@@ -1,20 +1,15 @@
-"""Análisis de sensibilidad de retorno a escenarios de TIR.
+"""Análisis de sensibilidad de retorno total a escenarios de TIR.
 
 Para cada bono de la curva soberanos, responde:
-  "Si dentro de N días el bono cotiza a TIR X, ¿a qué precio estaría y cuánto
-   es el retorno vs el precio actual?"
+  "Si dentro de N días el bono cotiza a TIR X, ¿cuál es el retorno total
+   (precio proyectado + cupones/amortizaciones cobradas) vs el precio
+   actual?"
 
-Se devuelven DOS upsides por escenario:
-  - `upside_sin_carry` = precio_objetivo / precio_actual − 1. Capital-only.
-    Si TIR objetivo > TEA actual, es negativo (el bono cae). Es la foto
-    limpia de sensibilidad precio-TIR.
-  - `upside_con_carry` = (precio_objetivo + cobrado_horizonte) / precio_actual − 1.
-    Retorno total: suma los cupones + amortizaciones cobrados durante el
-    horizonte. Es lo que efectivamente cobraría quien holdea el bono.
+  upside = (precio_objetivo + cobrado_horizonte) / precio_actual − 1
 
-El frontend toglea entre los dos sin re-fetchear. precio_objetivo se calcula
-siempre igual (PV de flujos post-horizonte descontados a TIR desde la fecha
-horizonte).
+donde precio_objetivo = PV de los flujos post-horizonte descontados a la TIR
+del escenario desde fecha_horizonte, y cobrado_horizonte = suma de cupones y
+amortizaciones que caen entre hoy y el horizonte.
 
 Usado por la tab "Análisis Sensibilidad" de /retorno en acaquant-web.
 """
@@ -104,16 +99,13 @@ def sensibilidad_retorno_total(
         ticker, ticker_completo, fecha_vencimiento,
         precio_actual, tea_actual, duration, paridad,
         cobrado_horizonte, n_flujos_horizonte,
-        escenarios: [
-          {tir, shock_pp, precio_objetivo,
-           upside_sin_carry, upside_con_carry}, ...
-        ]
+        escenarios: [{tir, shock_pp, precio_objetivo, upside}, ...]
       },
       ...
     ]
 
-    Con horizonte=0, cobrado_horizonte=0 (no pasa tiempo, no hay cobros) y
-    upside_con_carry = upside_sin_carry.
+    Con horizonte=0, cobrado_horizonte=0 → el upside colapsa a upside de
+    precio puro (capital-only, sin paso del tiempo).
     """
     db = get_db_trading()
     modo = (modo or "absoluta").lower()
@@ -182,14 +174,12 @@ def sensibilidad_retorno_total(
         escenarios = []
         for shock, tir in tirs_reales:
             precio_objetivo = _pv_a_tir(flujos_post, tir, horizonte)
-            upside_sc = precio_objetivo / precio_actual - 1
-            upside_cc = (precio_objetivo + cobrado_horizonte) / precio_actual - 1
+            upside = (precio_objetivo + cobrado_horizonte) / precio_actual - 1
             escenarios.append({
                 "shock_pp":         round(shock, 6) if shock is not None else None,
                 "tir":              round(tir, 6),
                 "precio_objetivo":  round(precio_objetivo, 4),
-                "upside_sin_carry": round(upside_sc, 6),
-                "upside_con_carry": round(upside_cc, 6),
+                "upside":           round(upside, 6),
             })
 
         out.append({

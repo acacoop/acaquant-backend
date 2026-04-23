@@ -361,3 +361,97 @@ def debug_soberano(
             "paridad":  paridad,
         },
     }
+
+
+@router.get("/checks/breakevens-debug")
+def check_breakevens_debug():
+    """Desglose paso a paso del BE (método Buscar Objetivo) para cada par
+    Lecap/Boncap ↔ CER del motor live. Devuelve la cadena de cálculo
+    completa para que la mesa pueda validar contra Excel.
+
+    Pasos mostrados:
+      1. Retorno acumulado Lecap: (1+TEM)^(días/30) − 1
+      2. Inflación acumulada implícita: (1+R) × (paridad/100) − 1
+      3. BE mensual: (1+π)^(1/meses_pendientes) − 1
+         (donde meses_pendientes = días entre cer_max publicado y la
+          fecha de liquidación del CER del bono)
+    """
+    from datetime import date
+
+    from engines.breakevens import (
+        cargar_dias_habiles,
+        cargar_pares,
+        obtener_paridades,
+        obtener_tems,
+        ultimo_cer_publicado,
+    )
+    from engines.curvas import fecha_cer_liquidacion
+
+    client = get_mongo_client_read()
+    pares = cargar_pares()
+    if not pares:
+        return {"pares": [], "fecha_cer_max": None}
+
+    lecap_tickers = [p["lecap_ticker"] for p in pares]
+    cer_tickers   = [p["cer_ticker"]   for p in pares]
+    tems         = obtener_tems(client, lecap_tickers)
+    paridades    = obtener_paridades(client, cer_tickers)
+    dias_habiles = cargar_dias_habiles(client)
+    fecha_cer_max = ultimo_cer_publicado(client)
+
+    hoy = date.today()
+    filas = []
+    for par in pares:
+        try:
+            fecha_vto = date.fromisoformat(par["fecha_vencimiento"])
+        except Exception:
+            continue
+        dias = (fecha_vto - hoy).days
+        if dias < 30:
+            continue
+
+        tem = tems.get(par["lecap_ticker"])
+        paridad = paridades.get(par["cer_ticker"])
+        if tem is None or paridad is None:
+            continue
+
+        fecha_liq_cer_str = fecha_cer_liquidacion(
+            dias_habiles, par["fecha_vencimiento"], n=10,
+        )
+        fecha_liq_cer = (
+            date.fromisoformat(fecha_liq_cer_str) if fecha_liq_cer_str else None
+        )
+        meses_pendientes = None
+        if fecha_liq_cer and fecha_cer_max:
+            try:
+                fecha_cer_max_d = date.fromisoformat(fecha_cer_max)
+                delta_dias = (fecha_liq_cer - fecha_cer_max_d).days
+                if delta_dias > 0:
+                    meses_pendientes = delta_dias / 30.0
+            except Exception:
+                pass
+
+        retorno   = (1 + float(tem)) ** (dias / 30) - 1
+        inflacion = (1 + retorno) * (float(paridad) / 100) - 1
+        exponente = (
+            (1 / meses_pendientes) if meses_pendientes else (30 / dias)
+        )
+        bkv = (1 + inflacion) ** exponente - 1
+
+        filas.append({
+            "lecap":            par["lecap_corto"],
+            "cer":              par["cer_corto"],
+            "fecha_vto":        par["fecha_vencimiento"],
+            "dias":             dias,
+            "fecha_cer_liq":    fecha_liq_cer.isoformat() if fecha_liq_cer else None,
+            "meses_pendientes": round(meses_pendientes, 4) if meses_pendientes else None,
+            "tem_lecap":        round(float(tem), 6),
+            "paridad_cer":      round(float(paridad), 4),
+            "retorno":          round(retorno, 6),
+            "inflacion":        round(inflacion, 6),
+            "exponente":        round(exponente, 4),
+            "be_mensual":       round(bkv, 6),
+            "metodo":           "BuscarObjetivo" if meses_pendientes else "Fisher",
+        })
+
+    return {"fecha_cer_max": fecha_cer_max, "pares": filas}

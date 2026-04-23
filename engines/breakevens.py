@@ -148,6 +148,20 @@ def ultimo_ipc_publicado(client) -> str | None:
     return str(doc["fecha"])[:7]
 
 
+def ultimo_cer_publicado(client) -> str | None:
+    """YYYY-MM-DD del CER más reciente en Trading.CER.
+
+    Lo usa calcular_breakevens como fecha de referencia para contar los
+    meses pendientes hasta que se fije el CER de liquidación del bono.
+    """
+    doc = client["Trading"]["CER"].find_one(
+        {}, sort=[("fecha", -1)], projection={"_id": 0, "fecha": 1},
+    )
+    if not doc or not doc.get("fecha"):
+        return None
+    return str(doc["fecha"])[:10]
+
+
 def obtener_teas_cer(client, tickers):
     """Última TEA por ticker CER (calculada por main_curvas.py)."""
     pipeline = [
@@ -164,19 +178,34 @@ def obtener_teas_cer(client, tickers):
 
 def calcular_breakevens(
     pares, tems, paridades, teas_cer, fecha_ref,
-    ultimo_ipc_mes=None, dias_habiles=None,
+    ultimo_ipc_mes=None, dias_habiles=None, fecha_cer_max=None,
 ):
-    """
-    fecha_ref: date — se usa para calcular días a vencimiento.
-    ultimo_ipc_mes: 'YYYY-MM' del último IPC publicado (INDEC). Si se pasa,
-      descarta pares cuyo mes_inflacion ≤ ultimo_ipc_mes.
-    dias_habiles: lista ISO ordenada de días hábiles. Si se pasa, el BE se
-      calcula sobre el plazo hasta el CER DE LIQUIDACIÓN (vto − 10 hábiles),
-      no hasta el vto. Eso es el "Buscar Objetivo" de Excel correcto: la
-      inflación implícita va desde hoy hasta cuando se FIJA el flujo CER,
-      no hasta cuando se paga. En plazos cortos cambia bastante el número.
-    Devuelve lista de dicts con los resultados.
-    Descarta pares con menos de MIN_DIAS_PLAZO días al vencimiento.
+    """Resuelve el BE mensual por el método 'Buscar Objetivo' de Excel.
+
+    Para un par Lecap/Boncap ↔ CER (cupón cero), la inflación mensual X
+    que iguala los retornos es la solución de:
+
+        (1 + TEM_lecap)^(días_lecap/30) · (paridad_cer/100) = (1 + X)^meses_pendientes
+
+    donde `meses_pendientes` es la cantidad de meses de inflación que
+    faltan pricear: desde el CER publicado más reciente (fecha_cer_max)
+    hasta el CER de liquidación del bono (vto − 10 hábiles). Despejando:
+
+        X = [(1 + TEM)^(días/30) · (paridad/100)]^(1/meses_pendientes) − 1
+
+    Esto es la forma cerrada equivalente al brentq de scipy — coincide
+    exactamente porque la ecuación es algebráica y tiene solución única
+    en el rango [0, ∞).
+
+    Parámetros:
+      fecha_ref: date — para calcular días a vencimiento.
+      ultimo_ipc_mes: 'YYYY-MM' del último IPC publicado. Se descartan
+        pares con mes_inflacion ≤ ese mes (ya no es expectativa).
+      dias_habiles: lista ISO de días hábiles AR. Necesario para
+        calcular la fecha del CER de liquidación del bono.
+      fecha_cer_max: 'YYYY-MM-DD' del último CER publicado por BCRA.
+        Necesario para contar los meses pendientes. Si no se pasa, se
+        cae a la fórmula vieja (Fisher con 30/días al vto).
     """
     resultado = []
     n = 0
@@ -219,12 +248,27 @@ def calcular_breakevens(
 
         n += 1
 
+        # Meses de inflación pendientes a pricear: entre el último CER
+        # publicado y la liquidación del CER del bono. Si `fecha_cer_max`
+        # o `fecha_liq_cer` faltan, fallback a días al vto / 30.
+        meses_pendientes: float | None = None
+        if fecha_cer_max and fecha_liq_cer:
+            try:
+                fecha_cer_max_d = date.fromisoformat(fecha_cer_max)
+                delta_dias = (fecha_liq_cer - fecha_cer_max_d).days
+                if delta_dias > 0:
+                    meses_pendientes = delta_dias / 30.0
+            except Exception:
+                meses_pendientes = None
+
         entry = {
             "n":                 n,
             "lecap":             par["lecap_corto"],
             "cer":               par["cer_corto"],
             "fecha_vencimiento": par["fecha_vencimiento"],
             "fecha_cer_liq":     fecha_liq_cer.isoformat() if fecha_liq_cer else None,
+            "fecha_cer_max":     fecha_cer_max,
+            "meses_pendientes":  round(meses_pendientes, 4) if meses_pendientes else None,
             "mes_inflacion":     mes_inflacion,
             "dias":              dias,
         }
@@ -246,7 +290,11 @@ def calcular_breakevens(
             try:
                 retorno    = (1 + float(tem)) ** (dias / 30) - 1
                 inflacion  = (1 + retorno) * (float(paridad) / 100) - 1
-                bkv        = (1 + inflacion) ** (30 / dias) - 1
+                # Anualización: preferimos `meses_pendientes` (método
+                # Buscar Objetivo). Si no está disponible, fallback al
+                # clásico Fisher con días al vto.
+                exponente = (1 / meses_pendientes) if meses_pendientes else (30 / dias)
+                bkv       = (1 + inflacion) ** exponente - 1
                 if -0.5 < bkv < 10:
                     entry["retorno_acumulado"]   = round(retorno, 6)
                     entry["inflacion_acumulada"] = round(inflacion, 6)
@@ -326,9 +374,12 @@ def run():
                 tems, paridades, teas_cer = f_tems.result(), f_paridades.result(), f_teas.result()
 
             ipc_mes = ultimo_ipc_publicado(client)
+            cer_max = ultimo_cer_publicado(client)
             pares_result = calcular_breakevens(
                 pares, tems, paridades, teas_cer, fecha_ref,
-                ultimo_ipc_mes=ipc_mes, dias_habiles=dias_habiles,
+                ultimo_ipc_mes=ipc_mes,
+                dias_habiles=dias_habiles,
+                fecha_cer_max=cer_max,
             )
             guardar(client, pares_result, ts, fecha_str)
 

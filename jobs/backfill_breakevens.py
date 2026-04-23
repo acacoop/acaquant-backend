@@ -39,6 +39,25 @@ def _parse_fecha(s: str) -> date | None:
         return None
 
 
+def _fecha_cer_max_en(client, fecha: date) -> str | None:
+    """CER publicado más reciente con fecha ≤ la fecha del día histórico.
+
+    Para backfill necesitamos la foto de `fecha_cer_max` que VIO el motor
+    ese día, no el CER actual (que ya está en el futuro relativo al
+    backfill). Nota: el BCRA publica CER con ~10 días hábiles de forward,
+    así que efectivamente usamos fecha + ~10 días como techo.
+    """
+    horizonte = (fecha + timedelta(days=14)).isoformat()
+    doc = client["Trading"]["CER"].find_one(
+        {"fecha": {"$lte": horizonte}},
+        sort=[("fecha", -1)],
+        projection={"_id": 0, "fecha": 1},
+    )
+    if not doc or not doc.get("fecha"):
+        return None
+    return str(doc["fecha"])[:10]
+
+
 def _ultimos_valores_por_dia(
     client,
     tickers_lecap: list[str],
@@ -195,11 +214,14 @@ def main() -> int:
         teas_cer  = teas_cer_por_dia.get(fecha, {})
 
         # Para backfill histórico NO filtramos por IPC publicado: queremos
-        # reconstruir la foto del mercado TAL COMO ERA ese día. En ese momento
-        # los BE de ese mes eran relevantes. El filtro es para live, no para
-        # histórico. Sí pasamos dias_habiles para el ajuste del plazo CER.
+        # reconstruir la foto del mercado TAL COMO ERA ese día. Sí pasamos
+        # dias_habiles y fecha_cer_max (del día que se está backfilleando)
+        # para el método Buscar Objetivo.
+        cer_max_dia = _fecha_cer_max_en(client, fecha)
         resultado = calcular_breakevens(
-            pares, tems, paridades, teas_cer, fecha, dias_habiles=dias_habiles,
+            pares, tems, paridades, teas_cer, fecha,
+            dias_habiles=dias_habiles,
+            fecha_cer_max=cer_max_dia,
         )
         con_bkv = [r for r in resultado if "breakeven_mensual" in r]
         if not con_bkv:

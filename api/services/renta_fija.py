@@ -248,11 +248,20 @@ def listar_curva(
 
 @cached(ttl=300)
 def get_historico_curva(curva: str) -> list:
-    """Serie diaria por ticker de una curva: último precio + enriquecimiento."""
+    """Serie diaria por ticker de una curva: último precio + enriquecimiento.
+
+    Incluye `tipo` (globales / bonares / etc) para que el frontend pueda
+    pintar curvas separadas dentro del mismo chart.
+    """
     db = get_db_trading()
     meta = {
-        d["ticker"]: d.get("ticker_corto") or d["ticker"]
-        for d in db["Curvas"].find({"curva": curva}, {"ticker": 1, "ticker_corto": 1})
+        d["ticker"]: {
+            "corto": d.get("ticker_corto") or d["ticker"],
+            "tipo":  d.get("tipo"),
+        }
+        for d in db["Curvas"].find(
+            {"curva": curva}, {"ticker": 1, "ticker_corto": 1, "tipo": 1},
+        )
     }
     if not meta:
         return []
@@ -276,9 +285,11 @@ def get_historico_curva(curva: str) -> list:
     out = []
     for r in db["TimeSales"].aggregate(pipeline):
         t_full = r["_id"]["ticker"]
+        m = meta.get(t_full) or {}
         out.append({
             "fecha": r["_id"]["fecha"],
-            "ticker": meta.get(t_full, t_full),
+            "ticker": m.get("corto") or t_full,
+            "tipo": m.get("tipo"),
             "price": r.get("price"),
             "TEA": r.get("TEA"),
             "TEM": r.get("TEM"),

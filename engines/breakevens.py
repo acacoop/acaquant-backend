@@ -130,6 +130,23 @@ def obtener_paridades(client, tickers):
     return {r["_id"]: r["paridad"] for r in client["Trading"]["TimeSales"].aggregate(pipeline)}
 
 
+def ultimo_ipc_publicado(client) -> str | None:
+    """YYYY-MM del IPC más reciente en Trading.InflacionMensual (INDEC).
+
+    Se usa para filtrar pares cuyo `mes_inflacion` ya salió — no tiene
+    sentido mostrar el BE de un IPC que YA se publicó.
+
+    Devuelve None si la colección está vacía (para que el motor no filtre
+    nada y deje pasar todo en ese caso borde).
+    """
+    doc = client["Trading"]["InflacionMensual"].find_one(
+        {}, sort=[("fecha", -1)], projection={"_id": 0, "fecha": 1},
+    )
+    if not doc or not doc.get("fecha"):
+        return None
+    return str(doc["fecha"])[:7]
+
+
 def obtener_teas_cer(client, tickers):
     """Última TEA por ticker CER (calculada por main_curvas.py)."""
     pipeline = [
@@ -144,9 +161,12 @@ def obtener_teas_cer(client, tickers):
 # Cálculo de breakevens
 # ─────────────────────────────────────────────
 
-def calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref):
+def calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref, ultimo_ipc_mes=None):
     """
     fecha_ref: date — se usa para calcular días a vencimiento.
+    ultimo_ipc_mes: 'YYYY-MM' del último IPC publicado (INDEC). Si se pasa,
+      descarta pares cuyo mes_inflacion ≤ ultimo_ipc_mes (el IPC ya es
+      conocido, no hay nada que pricear).
     Devuelve lista de dicts con los resultados.
     Descarta pares con menos de MIN_DIAS_PLAZO días al vencimiento.
     """
@@ -162,8 +182,6 @@ def calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref):
         if dias < MIN_DIAS_PLAZO:
             continue
 
-        n += 1
-
         # Mes del IPC cuya inflación pricean estos breakevens. Por la
         # convención del CER (settlement T-10 hábiles + IPC publicado con
         # 1 mes de rezago), un par Lecap(M) ↔ CER(M) refleja la inflación
@@ -174,6 +192,13 @@ def calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref):
             m += 12
             y -= 1
         mes_inflacion = f"{y:04d}-{m:02d}"
+
+        # Si el IPC de ese mes ya fue publicado por INDEC, el BE no tiene
+        # utilidad (es un número conocido, no una expectativa). Filtramos.
+        if ultimo_ipc_mes and mes_inflacion <= ultimo_ipc_mes:
+            continue
+
+        n += 1
 
         entry = {
             "n":                 n,
@@ -268,7 +293,10 @@ def run():
                 f_teas      = ex.submit(obtener_teas_cer,  client, cer_tickers)
                 tems, paridades, teas_cer = f_tems.result(), f_paridades.result(), f_teas.result()
 
-            pares_result = calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref)
+            ipc_mes = ultimo_ipc_publicado(client)
+            pares_result = calcular_breakevens(
+                pares, tems, paridades, teas_cer, fecha_ref, ultimo_ipc_mes=ipc_mes,
+            )
             guardar(client, pares_result, ts, fecha_str)
 
             n_completos = sum(1 for p in pares_result if "breakeven_mensual" in p)

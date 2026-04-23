@@ -184,6 +184,10 @@ def main() -> int:
         paridades = paridades_por_dia.get(fecha, {})
         teas_cer  = teas_cer_por_dia.get(fecha, {})
 
+        # Para backfill histórico NO filtramos por IPC publicado: queremos
+        # reconstruir la foto del mercado TAL COMO ERA ese día. En ese momento
+        # los BE de ese mes eran relevantes. El filtro es para live, no para
+        # histórico.
         resultado = calcular_breakevens(pares, tems, paridades, teas_cer, fecha)
         con_bkv = [r for r in resultado if "breakeven_mensual" in r]
         if not con_bkv:

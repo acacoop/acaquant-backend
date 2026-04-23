@@ -25,7 +25,11 @@ from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 
 from core.mongo import get_mongo_client
-from engines.breakevens import calcular_breakevens, cargar_pares
+from engines.breakevens import (
+    calcular_breakevens,
+    cargar_dias_habiles,
+    cargar_pares,
+)
 
 
 def _parse_fecha(s: str) -> date | None:
@@ -130,6 +134,12 @@ def main() -> int:
     if not pares:
         raise SystemExit("No hay pares Lecap/CER cargados — revisá Trading.Curvas.")
 
+    dias_habiles = cargar_dias_habiles(client)
+    if not dias_habiles:
+        raise SystemExit(
+            "Trading.DiasHabiles vacío — corré jobs.dias_habiles primero.",
+        )
+
     tickers_lecap = [p["lecap_ticker"] for p in pares]
     tickers_cer   = [p["cer_ticker"]   for p in pares]
 
@@ -187,8 +197,10 @@ def main() -> int:
         # Para backfill histórico NO filtramos por IPC publicado: queremos
         # reconstruir la foto del mercado TAL COMO ERA ese día. En ese momento
         # los BE de ese mes eran relevantes. El filtro es para live, no para
-        # histórico.
-        resultado = calcular_breakevens(pares, tems, paridades, teas_cer, fecha)
+        # histórico. Sí pasamos dias_habiles para el ajuste del plazo CER.
+        resultado = calcular_breakevens(
+            pares, tems, paridades, teas_cer, fecha, dias_habiles=dias_habiles,
+        )
         con_bkv = [r for r in resultado if "breakeven_mensual" in r]
         if not con_bkv:
             saltados_sin_pares += 1

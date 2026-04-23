@@ -32,6 +32,7 @@ from datetime import UTC, date, datetime
 
 from core.mongo import get_mongo_client
 from engines._curvas_loader import cargar_por_curva
+from engines.curvas import fecha_cer_liquidacion
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorBreakevens")
@@ -161,12 +162,19 @@ def obtener_teas_cer(client, tickers):
 # Cálculo de breakevens
 # ─────────────────────────────────────────────
 
-def calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref, ultimo_ipc_mes=None):
+def calcular_breakevens(
+    pares, tems, paridades, teas_cer, fecha_ref,
+    ultimo_ipc_mes=None, dias_habiles=None,
+):
     """
     fecha_ref: date — se usa para calcular días a vencimiento.
     ultimo_ipc_mes: 'YYYY-MM' del último IPC publicado (INDEC). Si se pasa,
-      descarta pares cuyo mes_inflacion ≤ ultimo_ipc_mes (el IPC ya es
-      conocido, no hay nada que pricear).
+      descarta pares cuyo mes_inflacion ≤ ultimo_ipc_mes.
+    dias_habiles: lista ISO ordenada de días hábiles. Si se pasa, el BE se
+      calcula sobre el plazo hasta el CER DE LIQUIDACIÓN (vto − 10 hábiles),
+      no hasta el vto. Eso es el "Buscar Objetivo" de Excel correcto: la
+      inflación implícita va desde hoy hasta cuando se FIJA el flujo CER,
+      no hasta cuando se paga. En plazos cortos cambia bastante el número.
     Devuelve lista de dicts con los resultados.
     Descarta pares con menos de MIN_DIAS_PLAZO días al vencimiento.
     """
@@ -181,6 +189,23 @@ def calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref, ultimo_ipc_
 
         if dias < MIN_DIAS_PLAZO:
             continue
+
+        # Plazo efectivo de la inflación: hasta la fecha del CER de
+        # liquidación (vto − 10 hábiles), no hasta el vto puro. Si no
+        # tenemos calendario, fallback a `dias`.
+        dias_cer = dias
+        fecha_liq_cer = None
+        if dias_habiles:
+            fecha_liq_cer_str = fecha_cer_liquidacion(
+                dias_habiles, par["fecha_vencimiento"], n=10,
+            )
+            if fecha_liq_cer_str:
+                fecha_liq_cer = date.fromisoformat(fecha_liq_cer_str)
+                dias_cer = (fecha_liq_cer - fecha_ref).days
+                if dias_cer <= 0:
+                    # El CER ya se fijó — el flujo final está determinado y
+                    # no hay inflación que pricear. Saltamos.
+                    continue
 
         # Mes del IPC cuya inflación pricean estos breakevens. Por la
         # convención del CER (settlement T-10 hábiles + IPC publicado con
@@ -207,6 +232,8 @@ def calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref, ultimo_ipc_
             "fecha_vencimiento": par["fecha_vencimiento"],
             "mes_inflacion":     mes_inflacion,
             "dias":              dias,
+            "dias_cer":          dias_cer,
+            "fecha_cer_liq":     fecha_liq_cer.isoformat() if fecha_liq_cer else None,
         }
 
         tem     = tems.get(par["lecap_ticker"])
@@ -224,9 +251,20 @@ def calcular_breakevens(pares, tems, paridades, teas_cer, fecha_ref, ultimo_ipc_
 
         if tem is not None and paridad is not None:
             try:
+                # Plazos:
+                #   dias      = hoy → vto del bono (cuando cobrás)
+                #   dias_cer  = hoy → CER de liquidación (cuando se FIJA el
+                #               flujo final en pesos, ~14 días calendario
+                #               antes del vto)
+                # El retorno nominal de la Lecap usa `dias` (plazo real del
+                # cobro), pero la inflación implícita corresponde al período
+                # hasta la liquidación del CER (`dias_cer`) porque eso es
+                # cuando queda determinado. La anualización mensual divide
+                # por `dias_cer`, no `dias` — esto es el "Buscar Objetivo"
+                # de Excel bien hecho. En plazos cortos cambia fuerte.
                 retorno    = (1 + float(tem)) ** (dias / 30) - 1
                 inflacion  = (1 + retorno) * (float(paridad) / 100) - 1
-                bkv        = (1 + inflacion) ** (30 / dias) - 1
+                bkv        = (1 + inflacion) ** (30 / dias_cer) - 1
                 if -0.5 < bkv < 10:
                     entry["retorno_acumulado"]   = round(retorno, 6)
                     entry["inflacion_acumulada"] = round(inflacion, 6)
@@ -271,6 +309,12 @@ def guardar(client, pares_result, ts, fecha_str):
 # Loop principal
 # ─────────────────────────────────────────────
 
+def cargar_dias_habiles(client):
+    """Lista ordenada ASC de días hábiles desde Trading.DiasHabiles."""
+    docs = list(client["Trading"]["DiasHabiles"].find({}, {"fecha": 1, "_id": 0}))
+    return sorted(d["fecha"] for d in docs)
+
+
 def run():
     logger.info("Motor Breakevens iniciando...")
     client = get_mongo_client()
@@ -278,8 +322,14 @@ def run():
     pares         = cargar_pares()
     lecap_tickers = [p["lecap_ticker"] for p in pares]
     cer_tickers   = [p["cer_ticker"]   for p in pares]
+    # Los días hábiles los cargamos una vez al arrancar — la tabla cambia
+    # solo al fin de año (job dias_habiles corre 1×/año). Si el motor corre
+    # por meses sin reinicio, la lista sigue siendo válida.
+    dias_habiles = cargar_dias_habiles(client)
 
-    logger.info(f"Monitoreando {len(pares)} pares Lecap/CER.")
+    logger.info(
+        f"Monitoreando {len(pares)} pares Lecap/CER · {len(dias_habiles)} días hábiles cargados.",
+    )
 
     while True:
         try:
@@ -295,7 +345,8 @@ def run():
 
             ipc_mes = ultimo_ipc_publicado(client)
             pares_result = calcular_breakevens(
-                pares, tems, paridades, teas_cer, fecha_ref, ultimo_ipc_mes=ipc_mes,
+                pares, tems, paridades, teas_cer, fecha_ref,
+                ultimo_ipc_mes=ipc_mes, dias_habiles=dias_habiles,
             )
             guardar(client, pares_result, ts, fecha_str)
 

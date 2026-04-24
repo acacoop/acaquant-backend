@@ -176,6 +176,45 @@ def _lookup_role_db(email: str) -> str | None:
     return str(role) if role else None
 
 
+def _auto_register(email_norm: str) -> str:
+    """Registra un email visto por primera vez en Manager.Users.
+
+    Se dispara cuando `get_user_role()` no encuentra el email en la DB.
+    Regla de asignación:
+      - Si está en MANAGER_EMAILS → role=admin (legacy).
+      - Si no → DEFAULT_ROLE (sales).
+
+    Marca el doc con `auto_registered=True` para que la UI lo pinte como
+    "detectado automáticamente" y el admin sepa que hay que revisarlo.
+    Idempotente: el upsert no duplica ni sobrescribe si alguien ya lo
+    ajustó a mano. Falla silenciosa si Mongo no responde (el caller cae
+    a DEFAULT_ROLE igual).
+    """
+    role = "admin" if email_norm in MANAGER_EMAILS else DEFAULT_ROLE
+    now = datetime.now(UTC)
+    try:
+        _users_col().update_one(
+            {"email": email_norm},
+            {
+                "$set": {
+                    "email": email_norm,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "role": role,
+                    "enabled": True,
+                    "auto_registered": True,
+                    "notes": "auto-registrado en primera visita",
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+    except Exception as e:
+        logger.warning("auto-register falló para %s: %s", email_norm, e)
+    return role
+
+
 def get_user_role(email: str) -> str:
     """Devuelve el role de un email, con cache TTL 60s.
 
@@ -183,9 +222,10 @@ def get_user_role(email: str) -> str:
       1. Service tokens (common_name del frontend Vercel) → "admin" directo.
          El gate real lo hizo el frontend (proxy.ts) antes de pegar al API.
       2. Manager.Users con enabled=True → role del doc.
-      3. Email en MANAGER_EMAILS (fallback legacy, bootstrap) → "admin".
-      4. Cualquier otro email autenticado por Cloudflare → DEFAULT_ROLE.
-      5. email "anon" / vacío → DEFAULT_ROLE (se enforcea abajo con require_module).
+      3. Email no registrado → _auto_register() crea el doc (admin si está
+         en MANAGER_EMAILS, sino DEFAULT_ROLE). Así el admin ve en la tab
+         USUARIOS a todos los emails que pasaron CF Access.
+      4. email "anon" / vacío → DEFAULT_ROLE sin persistir.
     """
     if not email:
         return DEFAULT_ROLE
@@ -194,6 +234,10 @@ def get_user_role(email: str) -> str:
     # Rama 1: service tokens propagados por el frontend SSR
     if email_norm.startswith("service:"):
         return "admin"
+
+    # Emails sintéticos / vacíos: no persistimos, devolvemos default.
+    if email_norm in ("anon", ""):
+        return DEFAULT_ROLE
 
     now = time.time()
     with _cache_lock:
@@ -205,7 +249,13 @@ def get_user_role(email: str) -> str:
     # Rama 2: lookup en Manager.Users
     role = _lookup_role_db(email_norm)
 
-    # Rama 3: fallback legacy
+    # Rama 3: primera visita → auto-registrar
+    if role is None:
+        role = _auto_register(email_norm)
+
+    # Rama legacy: si _auto_register falló y no está en MANAGER_EMAILS,
+    # este check ya no aplica porque _auto_register lo maneja. Se mantiene
+    # por defensa si upsert tiró excepción.
     if role is None and email_norm in MANAGER_EMAILS:
         role = "admin"
 

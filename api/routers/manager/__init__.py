@@ -13,10 +13,22 @@ Sub-dominios:
 - `asistente`  — 4× GET /asistente/* (observabilidad IA)
 - `intel`      — 7× /intel/* (ingesta de reportes macro)
 - `logs`       — GET /logs?servicio=&lines= (journalctl de services)
+- `users`      — CRUD Manager.Users (admin panel)
+- `roles`      — matriz Manager.RoleMatrix + audit log
 """
 from fastapi import APIRouter
 
-from api.routers.manager import asistente, checks, intel, jobs, logs, options, status
+from api.routers.manager import (
+    asistente,
+    checks,
+    intel,
+    jobs,
+    logs,
+    options,
+    roles,
+    status,
+    users,
+)
 
 router = APIRouter(prefix="/api/manager", tags=["Manager"])
 
@@ -27,3 +39,5 @@ router.include_router(options.router)
 router.include_router(asistente.router)
 router.include_router(intel.router)
 router.include_router(logs.router)
+router.include_router(users.router)
+router.include_router(roles.router)

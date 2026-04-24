@@ -19,7 +19,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from api.auth import require_manager
+from api.auth import require_module
 from api.deps import verify_api_key
 from api.ratelimit import limiter
 from api.routers import (
@@ -31,6 +31,7 @@ from api.routers import (
     manager,
     manager_resources,
     market,
+    me,
     news,
     operaciones,
     titulos,
@@ -96,28 +97,34 @@ app.add_middleware(SlowAPIMiddleware)
 # Compresión ~80% en JSON. minimum_size=1024 evita overhead en responses chicas.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
-# Dependencies por router:
-#   verify_api_key  → bearer token (común a todos).
-#   require_manager → gate de admin server-side (emails en MANAGER_EMAILS).
-#                     Si MANAGER_EMAILS está vacío en .env, deja pasar todo (dev).
-_PUBLIC = [Depends(verify_api_key)]
-_ADMIN = [Depends(verify_api_key), Depends(require_manager)]
+# Dependencies por router (RBAC por módulo):
+#   verify_api_key           → bearer token (común a todos).
+#   require_module(modulo)   → gate por role según core/roles.py::MODULES.
+#
+# Cloudflare Access ya validó que el email puede entrar al sitio;
+# require_module chequea que el role del email tenga el módulo listado
+# en Manager.RoleMatrix.
+_PUBLIC       = [Depends(verify_api_key)]
+_PORTFOLIOS   = [Depends(verify_api_key), Depends(require_module("portfolios"))]
+_OPERACIONES  = [Depends(verify_api_key), Depends(require_module("operaciones"))]
+_ASISTENTE    = [Depends(verify_api_key), Depends(require_module("asistente"))]
+_MANAGER      = [Depends(verify_api_key), Depends(require_module("manager"))]
 
+# Públicos (todos los roles tienen home/renta-fija/derivados/estrategia):
+app.include_router(me.router)                                      # /api/me — sin gate (identidad propia)
 app.include_router(analitica.router,         dependencies=_PUBLIC)
-app.include_router(carteras.router,          dependencies=_PUBLIC)
 app.include_router(cotizaciones.router,      dependencies=_PUBLIC)
-app.include_router(cuentas.router,           dependencies=_PUBLIC)
-app.include_router(operaciones.router,       dependencies=_PUBLIC)
-app.include_router(titulos.router,           dependencies=_PUBLIC)
 app.include_router(news.router,              dependencies=_PUBLIC)
 app.include_router(market.router,            dependencies=_PUBLIC)
 
-# Rutas que tocan state interno o consumen LLM: solo usuarios en MANAGER_EMAILS.
-# Antes el gate vivía solo en acaquant-web/src/proxy.ts (client-side,
-# bypasseable con curl directo). Ahora también server-side.
-app.include_router(manager.router,           dependencies=_ADMIN)
-app.include_router(manager_resources.router, dependencies=_ADMIN)
-app.include_router(chat.router,              dependencies=_ADMIN)
+# Restringidos a roles con el módulo respectivo:
+app.include_router(carteras.router,          dependencies=_PORTFOLIOS)
+app.include_router(titulos.router,           dependencies=_PORTFOLIOS)
+app.include_router(operaciones.router,       dependencies=_OPERACIONES)
+app.include_router(cuentas.router,           dependencies=_OPERACIONES)
+app.include_router(chat.router,              dependencies=_ASISTENTE)
+app.include_router(manager.router,           dependencies=_MANAGER)
+app.include_router(manager_resources.router, dependencies=_MANAGER)
 
 
 @app.get("/api/health")

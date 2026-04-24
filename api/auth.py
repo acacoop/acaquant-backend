@@ -24,7 +24,7 @@ from functools import lru_cache
 
 from fastapi import Depends, Header, HTTPException
 
-from config import CF_ACCESS_AUD, CF_ACCESS_TEAM, CF_TRUSTED_SERVICE_TOKENS, MANAGER_EMAILS
+from config import CF_ACCESS_AUD, CF_ACCESS_TEAM, CF_TRUSTED_SERVICE_TOKENS
 
 logger = logging.getLogger(__name__)
 
@@ -149,30 +149,22 @@ def get_user_email(
 
 
 def require_manager(email: str = Depends(get_user_email)) -> str:
-    """Exige que el usuario esté en MANAGER_EMAILS, o sea un service token
-    confiable (ej. acaquant-web llamando al API).
+    """Exige role con acceso al módulo `manager`.
 
-    Si MANAGER_EMAILS está vacío en `.env`, deja pasar todo (modo dev).
+    Alias histórico que ahora delega a la matriz RBAC. El resultado es
+    idéntico para admins: MANAGER_EMAILS queda como fallback (`core/roles.py`
+    lo cacha en `get_user_role`) y los emails ya seedeados en
+    `Manager.Users` con `role=admin` pasan naturalmente.
 
-    DEPRECADO: usar `require_module("manager")` en su lugar. Se mantiene
-    como alias para no romper llamadas existentes hasta que se migren.
+    Se mantiene por compat con callers externos; código nuevo usar
+    `require_module("manager")` directamente.
     """
-    if not MANAGER_EMAILS:
-        return email  # dev: sin restricción
+    from core.roles import has_access
 
-    # Service tokens autorizados: el frontend llamando al API. El gate real
-    # de MANAGER_EMAILS ya lo hizo el frontend (proxy.ts) antes de pegar.
-    if email.startswith("service:"):
+    if has_access(email, "manager"):
         return email
-
-    # User: debe estar en la whitelist de emails
-    if email not in MANAGER_EMAILS:
-        logger.warning(
-            "require_manager: rechazado email=%r (autorizados: %d emails)",
-            email, len(MANAGER_EMAILS),
-        )
-        raise HTTPException(status_code=403, detail="no autorizado")
-    return email
+    logger.warning("require_manager: rechazado email=%r", email)
+    raise HTTPException(status_code=403, detail="acceso al módulo manager no autorizado")
 
 
 # ─────────────────────────────────────────────────────────────

@@ -48,6 +48,28 @@ _JOBS_STATUS = [
 ]
 
 
+# APIs externas que alimentan data — chequeamos el último dato escrito
+# por el job consumidor. Tupla:
+# (db, coll, field, tipo_ts, filtro, nombre, umbral_min, cadencia_label, solo_en_rueda)
+#
+# solo_en_rueda=True → fuera de la ventana 10-17 ART no se espera data
+# nueva, último conocido se muestra como "fuera_ventana" (no stale).
+_APIS_EXTERNAS = [
+    ("Valuaciones", "DolarOficial",      "updated_at",        "datetime",
+     None,                          "dolarapi.com",           15,  "*/5 min 13-20 UTC L-V", True),
+    ("Trading",     "RiesgoPais",        "fecha",              "iso",
+     None,                          "argentinadatos (RP)",    36*60, "diario 12:00 UTC",     False),
+    ("Trading",     "InflacionMensual",  "fecha",              "iso",
+     None,                          "argentinadatos (IPC)",   36*60, "diario 12:00 UTC",     False),
+    ("Market",      "Quotes",            "updated_at",         "datetime",
+     None,                          "Yahoo (market_quotes)",  10,  "cada 1 min 13-21 UTC L-V", True),
+    ("News",        "Headlines",         "fecha_publicacion",  "datetime",
+     {"fuente": "finnhub"},         "Finnhub news",           60,  "*/30 min 12-23 UTC",   False),
+    ("News",        "Headlines",         "fecha_publicacion",  "datetime",
+     {"fuente": {"$ne": "finnhub"}},"RSS medios AR",          45,  "*/15 min 12-23 UTC",   False),
+]
+
+
 def _parse_ts(val, tipo: str) -> datetime | None:
     if val is None:
         return None
@@ -106,13 +128,53 @@ def get_status():
             "estado":    estado,
         }
 
+    def check_api(s):
+        db_n, coll, field, tipo, filtro, nombre, umbral_min, cadencia, solo_rueda = s
+        base_filtro = {field: {"$exists": True, "$nin": [None, ""]}}
+        if filtro:
+            base_filtro = {**base_filtro, **filtro}
+        doc = _fetch_last(db_n, coll, field, base_filtro)
+        if not doc:
+            return {
+                "nombre": nombre, "ultimo": None, "hace": "—",
+                "cadencia": cadencia, "estado": "sin_datos",
+            }
+        ts = _parse_ts(doc.get(field), tipo)
+        if not ts:
+            return {
+                "nombre": nombre, "ultimo": str(doc.get(field))[:19], "hace": "—",
+                "cadencia": cadencia, "estado": "error_parse",
+            }
+        delta = (ahora.astimezone(UTC) - ts.astimezone(UTC)).total_seconds()
+        delta_min = delta / 60
+
+        if solo_rueda and not rueda:
+            estado = "fuera_rueda"
+        elif delta_min > umbral_min * 3:
+            estado = "critico"
+        elif delta_min > umbral_min:
+            estado = "lento"
+        else:
+            estado = "ok"
+
+        return {
+            "nombre":   nombre,
+            "ultimo":   ts.astimezone(_AR_TZ).strftime("%Y-%m-%d %H:%M"),
+            "hace":     _fmt_delta(delta),
+            "cadencia": cadencia,
+            "umbral":   f"{umbral_min}m",
+            "estado":   estado,
+        }
+
     with ThreadPoolExecutor(max_workers=8) as ex:
         motores = list(ex.map(check_motor, _MOTORES))
         jobs    = list(ex.map(check_job,   _JOBS_STATUS))
+        apis    = list(ex.map(check_api,   _APIS_EXTERNAS))
 
     return {
         "ahora_ar": ahora.strftime("%Y-%m-%d %H:%M:%S"),
         "en_rueda": rueda,
         "motores":  motores,
         "jobs":     jobs,
+        "apis":     apis,
     }

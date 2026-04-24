@@ -4,12 +4,14 @@ Los 6 endpoints acá son thin wrappers sobre `api/services/*`. El asistente
 los llama directo via service registry (sin HTTP loopback); este router
 existe para consumo externo (acaquant-web, curl, debugging).
 """
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Body, Query
+from pydantic import BaseModel, Field
 
 from api.services import analitica as svc_ana
 from api.services import canje as svc_canje
 from api.services import carry_trade as svc_carry
 from api.services import macro as svc_macro
+from api.services import opciones as svc_opc
 from api.services import renta_fija as svc_rf
 from api.services import sensibilidad as svc_sens
 
@@ -155,4 +157,40 @@ def carry_trade(
     """
     return svc_carry.serie_carry_trade(
         curva=curva, desde=desde, hasta=hasta, dolar=dolar,
+    )
+
+
+class _EstrategiaLeg(BaseModel):
+    offset: int = 0
+    tipo: str  # CALL | PUT
+    side: str  # buy | sell
+    qty: int = 1
+
+
+class _EstrategiaHistoricoReq(BaseModel):
+    legs: list[_EstrategiaLeg] = Field(..., min_length=1, max_length=8)
+    bucket_min: int = Field(15, ge=1, le=240)
+    desde: str | None = None
+    hasta: str | None = None
+
+
+@router.post("/estrategia-historico")
+def estrategia_historico(req: _EstrategiaHistoricoReq = Body(...)):
+    """Serie intradía de costo de una estrategia de opciones.
+
+    Lee Opciones.Data (tick-level del OPEX en curso), agrupa en buckets de
+    N minutos, reproduce en cada bucket el cálculo de costo del frontend:
+    construye la chain por strike, detecta el ATM del bucket (strike líquido
+    más cercano al spot), aplica los offsets de cada pata del template, y
+    suma precios (buy=offer, sell=bid, fallback last) × qty × 100.
+
+    Buckets donde la estrategia no es válida (pata fuera de rango o iliquida)
+    se omiten — la serie queda con huecos, no con ceros.
+    """
+    legs = [leg.model_dump() for leg in req.legs]
+    return svc_opc.estrategia_historico(
+        legs=legs,
+        bucket_min=req.bucket_min,
+        desde=req.desde,
+        hasta=req.hasta,
     )

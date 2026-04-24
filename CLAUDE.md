@@ -84,6 +84,10 @@ TradingAV/
 │   ├── options_rollup.py     # rollup Opciones.Data → DataHistorica
 │   ├── archive_options_data.py  # backup JSON + purga Opciones.Data pre-hoy (manual post-OPEX)
 │   ├── bcra.py               # CER/TAMAR/DOLAR/BADLAR
+│   ├── argentina_datos.py    # RiesgoPais / InflacionMensual / InflacionInteranual / REM (IPC INDEC)
+│   ├── dolar_api.py          # dolarapi.com → Valuaciones.DolarOficial (oficial/mayorista/blue)
+│   ├── backfill_breakevens.py  # reconstruye Trading.BreakevensHistorico por día
+│   ├── backfill_forwards.py  # reconstruye Trading.ForwardsHistorico por día
 │   ├── sync_api_copies.py    # re-sync colecciones *API.*API desde fuentes
 │   ├── dias_habiles.py       # calendario hábil argentino
 │   ├── news_ingesta.py       # RSS + Finnhub global → Manager.News
@@ -104,11 +108,18 @@ TradingAV/
 │   ├── db.py                 # get_db_* (sin fastapi, usable por services)
 │   ├── deps.py               # verify_api_key + re-export de db helpers
 │   ├── services/             # lógica pura (sin FastAPI)
-│   │   ├── cotizaciones.py   # listar_curva, get_caucion, get_futuros_dlr,
-│   │   │                       snapshot_curva_historico, calcular_pendiente_curva,
-│   │   │                       liquidez_secundario, etc.
-│   │   ├── macro.py          # obtener_serie_macro, clasificar_nivel
-│   │   └── argy.py           # panel ARGY (MEP/CCL/canje/caución con returns)
+│   │   ├── analitica.py      # listar_curva + helpers de curva
+│   │   ├── renta_fija.py     # snapshots, pendiente, liquidez, breakevens live/hist
+│   │   ├── macro.py          # obtener_serie_macro, clasificar_nivel (CER/TAMAR/DOLAR/MEP/CCL/canje/caución)
+│   │   ├── argy.py           # panel ARGY (MEP/CCL/canje/caución con returns)
+│   │   ├── canje.py          # serie AL30C/AL30D (y GD30C/GD30D)
+│   │   ├── carry_trade.py    # tasa_fija/cer vs MEP u OFICIAL
+│   │   ├── sensibilidad.py   # upside con/sin carry por TIR escenario
+│   │   ├── derivados.py      # caución + futuros DLR
+│   │   ├── opciones.py       # panel opciones GGAL
+│   │   ├── portfolio.py      # carteras/AuM/tasa-fija/cer (tools bloqueadas para el agente)
+│   │   ├── repo.py           # MAE /repo (cauciones wholesale)
+│   │   └── rem.py            # REM IPC INDEC (argentinadatos.com)
 │   ├── agent/                # asistente IA (tool-use Claude/Gemini)
 │   │   ├── provider.py       # ClaudeProvider + GeminiProvider
 │   │   ├── router.py         # decide_model (haiku/sonnet por heurísticas)
@@ -121,38 +132,35 @@ TradingAV/
 │   │   ├── ticker_catalog.py # catálogo de tickers/curvas disponibles para el modelo
 │   │   └── tool_metadata.py  # declaraciones JSON-schema de las tools
 │   └── routers/
-│       ├── analitica.py      # /api/analitica/* (Tier 1 + Tier 2 tools)
+│       ├── analitica.py      # /api/analitica/* (Tier 1 + Tier 2 tools + REM)
 │       ├── carteras.py       # /api/portfolio/*
 │       ├── chat.py           # /api/chat (asistente de mesa)
 │       ├── cotizaciones.py   # /api/cotizaciones/* (incluye caución, futuros DLR, ARGY)
 │       ├── cuentas.py        # /api/cuentas/*
-│       ├── manager.py        # /api/manager/* (status, jobs, checks, latencia, intel)
+│       ├── manager/          # paquete: status, checks, jobs, options, asistente, intel, logs
+│       │   ├── __init__.py   # APIRouter(prefix='/api/manager') que agrega sub-routers
+│       │   ├── _common.py    # helpers compartidos entre sub-routers
+│       │   ├── status.py     # GET /status (motores + jobs batch)
+│       │   ├── checks.py     # 6× /checks/* (consistencia data + debug breakevens)
+│       │   ├── jobs.py       # POST /jobs/run + GET /jobs/history + /jobs/{id}
+│       │   ├── options.py    # GET/PUT /options/expiries
+│       │   ├── asistente.py  # 4× /asistente/* (observabilidad IA)
+│       │   ├── intel.py      # 7× /intel/* (ingesta reportes macro)
+│       │   └── logs.py       # GET /logs (journalctl de services)
 │       ├── manager_resources.py # /api/manager/resources (sampler CPU/RAM)
 │       ├── market.py         # /api/market/* (watchlist equity + Treasuries)
 │       ├── news.py           # /api/news (feed Bloomberg-style)
 │       ├── operaciones.py    # /api/operaciones/*
 │       └── titulos.py        # /api/titulos/*
 │
-├── scripts/                  # one-shot / diagnóstico manual / seeds
+├── scripts/                  # one-shot / diagnóstico manual
 │   ├── crear_indices.py            # idempotente, crea índices Mongo
 │   ├── api_migrate.py              # migraciones colecciones legacy → API
-│   ├── seed_soberano_csv.py        # seed individual de un Globale/Bonar desde CSV BCBA
-│   ├── seed_bonares_batch.py       # seed batch de los 8 Bonares D (AE38/AL29/AL30/AL35/AL41/AN29/AO27/AO28)
-│   ├── backfill_timesales_csv.py   # carga histórico de TimeSales desde CSV (single o wide multi-ticker)
 │   ├── perf_scan.py                # análisis estático anti-patterns Mongo
 │   ├── test_api.py                 # smoke test endpoints API
-│   ├── test_byma.py                # smoke test BYMA Primarias (4 endpoints)
-│   ├── test_mae.py                 # smoke test MAE MarketData (/repo paginado)
 │   ├── test_chat.py                # smoke test /api/chat (requiere uvicorn up)
-│   ├── test_gemini.py              # smoke test Gemini API
-│   ├── test_enrich_one.py          # diagnóstico: prueba calcular_campos sobre 1 doc específico
-│   ├── test_motor_query.py         # diagnóstico: replica el query de motor_curvas
-│   ├── diagnose_backfill_enrich.py # diagnóstico: ¿qué docs del backfill están enriquecidos?
-│   ├── diagnose_mae_auth.py        # diagnóstico: prueba 6 variantes de auth header contra MAE
-│   ├── debug_claude_key.py         # diagnóstico: valida ANTHROPIC_API_KEY
 │   ├── check_api_flujos.py         # valida que TitulosAPI.ValuacionesAPI tenga datos
-│   ├── check_api_sync.py           # valida sincronización de colecciones API
-│   └── check_historico_soberanos.py # valida que get_historico_curva('soberanos') devuelva data esperada
+│   └── check_api_sync.py           # valida sincronización de colecciones API
 │
 ├── tests/                    # pytest unit tests (no requieren Mongo)
 │   └── unit/                 # black_scholes, breakevens, curvas, dias_habiles, etc.
@@ -161,9 +169,9 @@ TradingAV/
 │   ├── systemd/              # .service files (motor_* + api + cloudflared)
 │   └── crontab.txt           # fuente de verdad del cron
 │
-└── docs/                     # API.md, API_MIGRATIONS.md, ARCHITECTURE.md, ASISTENTE.md, FRONTEND_AUDIT.md,
-                              #   asistente/{estrategia.md, estrategias.md, tools_spec.md, golden_set.yaml},
-                              #   soberanos/*.json (seed de bonos hard-dollar para Trading.Curvas)
+└── docs/                     # API.md, API_MIGRATIONS.md, ARCHITECTURE.md, ARCHITECTURE_v2.md, ASISTENTE.md,
+                              #   asistente/{estrategia.md, estrategias.md, tools_spec.md,
+                              #             golden_set.yaml, golden_set_backlog.md, golden_set_guia.md}
 ```
 
 **Regla de capas**: `core/` no importa a nadie. `engines/` y `jobs/` importan `core/` + `quant/`. `api/` usa `core.mongo.get_mongo_client_read()` (read-only). `scripts/` puede importar lo que necesite.
@@ -275,7 +283,6 @@ pytest -m integration                             # requiere Mongo (excluidos po
 python -m scripts.perf_scan                       # anti-patterns Mongo (informativo)
 python -m scripts.perf_scan --strict              # exit 1 si hay findings
 python -m scripts.test_api                        # smoke test endpoints (localhost:8000)
-python -m scripts.test_gemini                     # smoke test Gemini API (ambos modelos)
 python -m scripts.test_chat                       # smoke test /api/chat (requiere uvicorn up)
 python -m scripts.crear_indices                   # idempotente
 ```
@@ -386,37 +393,26 @@ Frontend `/renta-fija` los pinta en el mismo gráfico de CURVAS pero con colores
 - **`flujo_contrapartes.py`** — operaciones del día → `CashFlow.Flujo`. Borra docs donde `concertacion == hoy`, fetch por contraparte, filtra 4 tipos excluidos, agrega `moneda`. Cron 22:00 UTC L-V.
 - **`segmento_contrapartes.py`** — asigna `segmento` ("Fondos"/"ALYC"/"Bancos") en `CashFlow.Contrapartes`.
 - **`options_rollup.py`** — rollup diario `Opciones.Data` → `Opciones.DataHistorica`. Upsert idempotente. `--backfill` / `--fecha YYYY-MM-DD`. Cron 20:15 UTC L-V.
-- **`bcra.py`** — CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron; sin flag backfill desde 2023-01-01.
+- **`bcra.py`** — CER/TAMAR/DOLAR/BADLAR desde API BCRA. `--today` para cron; sin flag backfill desde 2023-01-01. Pide hasta hoy+21 días corridos para capturar CER forward (habilita `cer_fijado=true` en `Trading.Curvas`).
+- **`argentina_datos.py`** — pega `argentinadatos.com` y persiste `Trading.RiesgoPais`, `InflacionMensual`, `InflacionInteranual` y `REM` (IPC INDEC consensus, filtrado a 1 indicador, clave única `(informe, periodo, periodo_tipo)`). Cron 12:00 UTC diario.
+- **`dolar_api.py`** — pega `dolarapi.com` (oficial/mayorista/blue) → `Valuaciones.DolarOficial`. Cron cada 5 min 13-20 UTC L-V. Lo consume `/api/cotizaciones/argy` y `engines.futuros_dlr` (tasa implícita vs mayorista, no MEP).
+- **`backfill_breakevens.py`** — reconstruye `Trading.BreakevensHistorico` por día usando el método Buscar Objetivo con precios históricos + `cer_actual`.
+- **`backfill_forwards.py`** — reconstruye `Trading.ForwardsHistorico` por día desde TimeSales enriquecido. Reusa `engines.forwards.calcular_matriz()`.
 - **`cleanup_curvas.py`** — elimina instrumentos vencidos de `Trading.Curvas` (< 2 días hábiles). `--dry` para preview. Cron 12:30 UTC L-V.
 - **`sync_api_copies.py`** — re-sincroniza colecciones derivadas `*API.*API` llamando a `scripts.api_migrate`. Flags: `--aum`, `--carteras`, `--flujo`, `--movimientos`, `--titulos`, `--all`. Encadenado en crontab después de cada job fuente.
 - **`dias_habiles.py`** — genera calendario hábil argentino. Ejecutar una vez por año.
 
 ### Scripts (`scripts/`)
 
-**Operación habitual**:
+Directorio ya podado. Lo que queda es operación habitual, smoke tests y validadores de data. Si hace falta un script one-shot de diagnóstico (debug/fix/diagnose) crearlo y **borrarlo** cuando el bug se cierre — no acumular.
+
 - **`crear_indices.py`** — crea todos los índices MongoDB. Idempotente.
 - **`api_migrate.py`** — re-genera colecciones API derivadas (`*API.*API`). Comandos: `accionistas`, `contrapartes`, `flujo`, `movimientos`, `carteras`, `aum`, `assets`, `flujos-titulos`, `mover`. Encadenado en crontab vía `jobs.sync_api_copies`.
-- **`backfill_timesales_csv.py`** — carga histórico de precios crudos en `Trading.TimeSales` desde CSV. Auto-detecta separador (`,`/`;`) y modo (single-ticker `fecha,close` o wide multi-ticker con un bono por columna). Idempotente por `(ticker, timestamp)`. Usado para Globales/Bonares con CSVs de Reuters.
-- **`seed_soberano_csv.py`** — seedea un bono individual en `Trading.Curvas` desde CSV BCBA (2 filas header + flujos). Args: `--csv`, `--ticker`, `--ticker-corto`, `--fecha-emision`, `--tipo` (default `globales`).
-- **`seed_bonares_batch.py`** — wrapper que reusa `seed_soberano_csv` para los 8 Bonares D (AE38/AL29/AL30/AL35/AL41/AN29/AO27/AO28). `tipo='bonares'`, `curva='soberanos'`.
-
-**Smoke tests**:
-- **`test_api.py`** — golpea endpoints clave contra localhost o host pasado por arg.
-- **`test_byma.py`** — smoke test BYMA Primarias (4 endpoints + 22 unit tests).
-- **`test_mae.py`** — smoke test `core.mae.get_repo()`. Requiere `MAE_API_KEY`.
-- **`test_chat.py`** — smoke test `/api/chat` contra localhost o prod. Requiere uvicorn up.
-- **`test_gemini.py`** — smoke test Gemini API (flash y pro). Flags `--modelo`, `--prompt`.
-
-**Diagnósticos** (correr cuando algo se rompe):
 - **`perf_scan.py`** — análisis estático: `PERF001` find sin projection, `PERF002` query en for (N+1), `PERF003` count_documents({}), `PERF004` query repetida. Suprimir por línea con `# noqa: PERF00X`.
-- **`diagnose_mae_auth.py`** — prueba 6 variantes de header de auth contra MAE cuando falla 401/403.
-- **`diagnose_backfill_enrich.py`** — para cada ticker del backfill (`size=1, side=MID`), reporta cuántos docs hay, cuántos tienen `duration`/`TEA`, y si está en `Trading.Curvas`. Diff char-by-char vs el ticker más parecido cuando hay mismatch. Usado para detectar dobles espacios, NBSP y typos.
-- **`test_enrich_one.py`** — toma un doc histórico específico (default GD30D del backfill) y corre `engines.curvas.calcular_campos` paso a paso, imprimiendo cada early return y el resultado final. Aísla bugs de `calcular_campos`.
-- **`test_motor_query.py`** — replica EXACTO el query de `motor_curvas` (`{ticker: $in, duration: $exists: false}` ordenado DESC, limit 200) y muestra qué docs encuentra. Detectó el loop infinito sobre TY30P en abril 2026.
+- **`test_api.py`** — golpea endpoints clave contra localhost o host pasado por arg.
+- **`test_chat.py`** — smoke test `/api/chat` contra localhost o prod. Requiere uvicorn up.
 - **`check_api_flujos.py`** — valida `TitulosAPI.ValuacionesAPI` (cuántos docs por curva).
 - **`check_api_sync.py`** — valida sincronización de colecciones API vs sus fuentes.
-- **`check_historico_soberanos.py`** — valida `get_historico_curva('soberanos')` (cuántas fechas/tickers, primer/último día).
-- **`debug_claude_key.py`** — valida `ANTHROPIC_API_KEY` con un ping mínimo.
 
 ## Deployment
 
@@ -444,20 +440,24 @@ Fuente de verdad: **`deploy/crontab.txt`**. Aplicar: `crontab /root/TradingAV/de
 
 | Horario UTC | Job | Frecuencia |
 |---|---|---|
+| 12:00 | `jobs.argentina_datos` (RiesgoPais / InflacionMensual / Interanual / REM) | diario |
 | 12:30 | `jobs.cleanup_curvas` | L-V |
 | 13:00 / 20:05 | start/stop motores de mercado (8 motores: valores, options, curvas, forwards, breakevens, caucion, futuros_dlr, dolares) | L-V |
-| 11:35 / 14:00 / 16:00 | `jobs.carteras` | L-V |
+| 11:35 / 14:00 / 16:00 | `jobs.carteras` (+ sync_api_copies --carteras) | L-V |
+| `*/5  13-20` | `jobs.dolar_api` (oficial/mayorista/blue → Valuaciones.DolarOficial) | L-V |
 | `*/15 13-20` | `engines.dolar_mep` (histórico complementario al motor WS) | L-V |
-| 20:00 | `jobs.volatilidad_ggal` + `jobs.bcra --today` | L-V |
-| 23:00 | `jobs.aum` (+ CarterasII sync) | L-V |
+| 20:00 | `jobs.volatilidad_ggal` | L-V |
+| 22:00 | `jobs.bcra --today` (hoy+21d para capturar CER forward) | L-V |
+| 23:00 | `jobs.aum` (+ CarterasII sync + sync --aum --titulos) | L-V |
 | 23:30 | `jobs.aum_resumen_fci` | L-V |
 | 20:15 | `jobs.options_rollup` | L-V |
-| 22:00 | `jobs.flujo_contrapartes` + `jobs.market_anchors` | L-V |
-| 02:00 | `jobs.cashflow --today` | Mar-Sáb |
+| 22:00 | `jobs.flujo_contrapartes` (+ sync --flujo) + `jobs.market_anchors` | L-V |
+| 02:00 | `jobs.cashflow --today` (+ sync --movimientos) | Mar-Sáb |
 | 04:00 / 11:20 | `deploy/atlas_cluster.sh {pause,resume}` | diario |
 | `*/15 12-23` | `jobs.news_ingesta` | diario |
 | `*/30 12-23` | `jobs.news_finnhub` | diario |
-| `* 13-21` | `jobs.market_quotes` (cada 1 min horario US) | L-V |
+| 11:30 | `jobs.economic_calendar` (Finnhub) | diario |
+| `*    13-21` | `jobs.market_quotes` (cada 1 min horario US) | L-V |
 
 **Atlas cluster pause**: se pausa entre 01:00–08:30 ART (04:00–11:30 UTC) todos los días. Durante la pausa la API devuelve error de conexión. Resume a 11:20 UTC con 10 min de buffer. Ahorro ≈ 31% sobre compute.
 
@@ -615,12 +615,28 @@ Constante: `TIPOS_DIVISOR_100 = {Títulos Públicos, Letras, ONs, Fideicomisos, 
 
 ### 2. Breakevens
 
-Fórmulas (`engines/breakevens.py`):
-- `retorno = (1+TEM)^(días/30) - 1`
-- `inflacion = (1+retorno) × (paridad/100) - 1`
-- `breakeven = (1+inflacion)^(30/días) - 1`
+Motor `engines/breakevens.py` + cron `jobs/backfill_breakevens.py`. Tick 30s.
 
-Emparejamiento: cada Lecap con el CER de vencimiento más cercano (máx 60 días de diferencia).
+**Método activo: "Buscar Objetivo"** (cupón cero, sin TEM/paridad — evita compounding de convenciones que sobreestimaba el BE):
+
+```
+retorno_lecap = flujo_vto_lecap / precio_lecap − 1
+cer_vto(X)    = cer_actual · (1 + X)^meses_pendientes
+retorno_cer(X)= (vn_cer · cer_vto(X) / cer_emision) / precio_cer − 1
+⇒ X = [(1 + retorno_lecap) · (precio_cer · cer_emision) / (vn_cer · cer_actual)]^(1/meses_pendientes) − 1
+```
+
+Si faltan precios o `cer_actual`, cae al Fisher clásico: `retorno = (1+TEM)^(dias_cer/30) − 1`, `inflacion = (1+retorno)·(paridad/100) − 1`, `BE = (1+inflacion)^(30/dias_cer) − 1`. Anualización usa `dias_cer` (vto − 10 hábiles), **no** días al vencimiento.
+
+**Emparejamiento**: Lecap/Boncap ↔ CER con **mismo vto** (tolerancia `MAX_DIFF_DIAS=20`). Dedup: si un CER queda en varios pares, gana el de menor diff.
+
+**Filtros**:
+- `MIN_DIAS_PLAZO = 50` — descarta pares cuyo IPC ya salió o sale en <10 días (el BE no tiene utilidad analítica).
+- Filtra pares cuyo `mes_inflacion ≤ último IPC publicado` (lee `Trading.InflacionMensual`).
+
+**`cer_fijado`**: bandera en `Trading.Curvas` seteada por `engines/curvas.py` cuando el CER de liquidación (T-10 hábiles) ya se publicó forward por BCRA. Permite frontend-side diferenciar "CER conocido" vs "CER estimado".
+
+Endpoint debug: `GET /api/manager/checks/breakevens` muestra paso-a-paso del cálculo por par.
 
 ### 3. Simulador Breakevens
 
@@ -763,6 +779,11 @@ Definidos en `scripts/crear_indices.py` (idempotente).
 - [x] **(2026-04-23)** `TICKERS_EXTRA_PRECIOS` en `config.py`: lista que `motor_rofex` suscribe live pero `motor_curvas` ignora. AL30C ahí para alimentar `/api/analitica/canje` sin tener que seedearlo en `Trading.Curvas`.
 - [x] **(2026-04-23)** TTL de cache `get_historico_curva` y `serie_canje` bajado de 300s a 60s para que el polling de 5min del frontend tome precios del día.
 - [x] **(2026-04-23)** Limpieza de scripts obsoletos: borrados 16 (debug_*, fix_*, reset_*, snapshot_rest, perf_profile, check_* viejos, seed_soberanos.py reemplazado, test_match_contrapartes).
+- [x] **(2026-04-24)** Macro externa vía `argentinadatos.com`: `jobs/argentina_datos.py` ingesta diaria de Riesgo País, IPC mensual/interanual INDEC y REM BCRA (filtrado a IPC nivel general, consensus estadísticos). Service `api/services/rem.py` + tool del agente. Elimina el pendiente de "Macro externa faltante".
+- [x] **(2026-04-24)** `jobs/dolar_api.py` (dolarapi.com) → `Valuaciones.DolarOficial` con casas oficial/mayorista/blue. Consumido por `/api/cotizaciones/argy` y `engines/futuros_dlr` (tasa implícita vs mayorista).
+- [x] **(2026-04-24)** Breakevens método **Buscar Objetivo** (sin TEM/paridad, precio y flujo directos) + anualización por `dias_cer` + filtro IPC ya publicado + flag `cer_fijado` en `Trading.Curvas`. Backfill `jobs/backfill_breakevens.py`. Endpoint debug `/api/manager/checks/breakevens`.
+- [x] **(2026-04-24)** `api/routers/manager.py` dividido en paquete `api/routers/manager/` con 7 sub-routers (status, checks, jobs, options, asistente, intel, logs) + `_common.py`.
+- [x] **(2026-04-24)** Servicios extraídos como módulos puros: `analitica.py`, `renta_fija.py`, `canje.py`, `carry_trade.py`, `sensibilidad.py`, `derivados.py`, `opciones.py`, `portfolio.py`, `repo.py`, `rem.py`.
 
 ### Abiertos
 
@@ -771,5 +792,4 @@ Definidos en `scripts/crear_indices.py` (idempotente).
 - [ ] **(2026-04-23)** Vista RIESGO POLÍTICO en Estrategia: forward implícita AO27D/AO28D con convención semestral (180/360 — la del mercado de Bonares). Endpoint `/api/analitica/forward-implicita` que toma TEAs diarias de TimeSales y calcula `((1+r28/2)^(2·D28) / (1+r27/2)^(2·D27))^(1/(2·(D28-D27)))·2 − 1`.
 - [ ] **(2026-04-23)** Total return de Globales/Bonares en `/retorno → RETORNO TOTAL`: hoy se ve mal porque el día del cupón el precio cae por ex-cupón. Sumar al precio los flujos cobrados en la ventana (cobrado_anio).
 - [ ] **(2026-04-21)** Seed de bonos Dólar Linked (TZV26, TZV28, D15F7, etc) en `Trading.Curvas` con `curva: "dolar_linked"`.
-- [ ] **(2026-04-21)** Macro externa faltante: Riesgo País EMBI+, IPC/IPIM INDEC, REM BCRA. Todos bloqueados por scraping/ingesta no implementada.
 - [ ] **(2026-04-19)** Roadmap asistente (`docs/ASISTENTE.md` §9): feedback 👍/👎, suite de evals con `golden_set.yaml`, RAG sobre IntelDocs con Atlas Vector Search, email forwarding para ingesta automática, exportar conversación a PDF, modo análisis profundo con Opus, streaming UX.

@@ -153,6 +153,9 @@ def require_manager(email: str = Depends(get_user_email)) -> str:
     confiable (ej. acaquant-web llamando al API).
 
     Si MANAGER_EMAILS está vacío en `.env`, deja pasar todo (modo dev).
+
+    DEPRECADO: usar `require_module("manager")` en su lugar. Se mantiene
+    como alias para no romper llamadas existentes hasta que se migren.
     """
     if not MANAGER_EMAILS:
         return email  # dev: sin restricción
@@ -170,3 +173,73 @@ def require_manager(email: str = Depends(get_user_email)) -> str:
         )
         raise HTTPException(status_code=403, detail="no autorizado")
     return email
+
+
+# ─────────────────────────────────────────────────────────────
+# RBAC por módulo — enforcement server-side
+# ─────────────────────────────────────────────────────────────
+# Mapeo de prefijo de path → módulo. Se usa para inferir qué módulo
+# cubre un endpoint dado. Solo listamos los módulos que RESTRINGEN:
+# home / renta-fija / derivados / estrategia los tienen todos los roles,
+# así que no hace falta gatearlos (sale más barato un `_PUBLIC` sin
+# require_module).
+ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("/api/manager",     "manager"),
+    ("/api/chat",        "asistente"),
+    ("/api/portfolio",   "portfolios"),
+    ("/api/titulos",     "portfolios"),
+    ("/api/operaciones", "operaciones"),
+    ("/api/cuentas",     "operaciones"),
+)
+
+
+def get_module_for_path(path: str) -> str | None:
+    """Devuelve el módulo que cubre un path, o None si el path es público.
+
+    Match por prefix más largo primero. Si ningún prefix matchea, el endpoint
+    se considera `home` (o sea, accesible por todos los roles) y devuelve
+    None para señalizar al caller que no hace falta check de módulo.
+    """
+    if not path:
+        return None
+    best_prefix = ""
+    best_module: str | None = None
+    for prefix, module in ENDPOINT_MODULE_PREFIXES:
+        if path.startswith(prefix) and len(prefix) > len(best_prefix):
+            best_prefix = prefix
+            best_module = module
+    return best_module
+
+
+def require_module(module: str):
+    """Dependency factory: exige que el user tenga acceso al módulo.
+
+    Uso:
+        app.include_router(
+            manager.router,
+            dependencies=[Depends(verify_api_key), Depends(require_module("manager"))],
+        )
+
+    Cloudflare Access ya validó que el email puede entrar al sitio; acá
+    solo chequeamos que el role del email tenga el módulo en la matriz.
+
+    En dev (sin MANAGER_EMAILS ni Mongo) deja pasar todo: get_user_role
+    cae a DEFAULT_ROLE que tiene los módulos públicos. Módulos
+    restringidos (manager/portfolios/etc) tiran 403.
+    """
+    # Import lazy para evitar ciclos core ↔ api en el arranque
+    from core.roles import has_access
+
+    def _dep(email: str = Depends(get_user_email)) -> str:
+        # Dev: sin whitelist ni DB de roles, el código de abajo igual
+        # funciona porque get_user_role cae a DEFAULT_ROLE.
+        if has_access(email, module):
+            return email
+        logger.warning(
+            "require_module(%s): rechazado email=%r", module, email,
+        )
+        raise HTTPException(status_code=403, detail=f"acceso al módulo {module} no autorizado")
+
+    # Para que FastAPI diferencie cada instancia en la cache de deps
+    _dep.__name__ = f"require_module_{module.replace('-', '_')}"
+    return _dep

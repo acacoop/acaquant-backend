@@ -1,4 +1,5 @@
 import time  # <-- AGREGADO PARA LA MICROPAUSA
+from typing import ClassVar
 
 import pyRofex
 
@@ -21,7 +22,7 @@ class WebSocketManager:
             # En producción podrías usar un logger aquí
             pass
 
-    _ENTRIES = [
+    _ENTRIES: ClassVar[list] = [
         pyRofex.MarketDataEntry.BIDS,
         pyRofex.MarketDataEntry.OFFERS,
         pyRofex.MarketDataEntry.LAST,

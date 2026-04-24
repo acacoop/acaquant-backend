@@ -9,11 +9,14 @@ Se aplica cuando el usuario pide "crear un endpoint nuevo" o "exponer X al front
 
 ## 1. Decidir el módulo y el gating
 
-Antes de escribir código, preguntá/inferí:
+Antes de escribir código:
 
-- **¿A qué módulo pertenece?** (`home`, `renta-fija`, `derivados`, `estrategia`, `operaciones`, `portfolios`, `asistente`, `manager`). Define el role requerido.
-- **¿Es público o restringido?** Si cae en módulos restringidos (portfolios/operaciones/manager), el router tiene que usar `Depends(require_module("..."))`. Si es público (cotizaciones/analítica/home), basta `_PUBLIC`.
-- **¿Tiene que ser consumido por el asistente?** Si sí, hace falta registrarlo en `api/agent/service_registry.py` + declarar la tool en `api/agent/tool_metadata.py`.
+- **¿A qué módulo pertenece?** (`home`, `renta-fija`, `derivados`, `estrategia`, `operaciones`, `portfolios`, `asistente`, `manager`).
+- **¿Router existente o nuevo?** El gate RBAC está aplicado **a nivel de router** en `api/main.py` (constantes `_PUBLIC` / `_PORTFOLIOS` / `_OPERACIONES` / `_ASISTENTE` / `_MANAGER` con `Depends(require_module(...))`). Si agregás un endpoint a un router existente, hereda el gate; si creás router nuevo tenés que incluirlo con las deps correctas en `main.py`. **No se aplica `require_module` per-endpoint** — va al router entero.
+- **¿Tiene que consumirlo el asistente?** Si sí:
+  1. Registrar la función en `api/agent/service_registry.py` (mapeo endpoint → callable).
+  2. Declarar la tool en `api/agent/tool_metadata.py` con JSON schema.
+  3. Confirmar que NO cae en `BLOCKED_PATH_PREFIXES` (portfolio/operaciones/cuentas/manager). Si el módulo es restringido, la tool queda bloqueada por policy y NO se declara — consultar antes de tocarlo.
 
 ## 2. Escribir la lógica en `api/services/`
 
@@ -62,9 +65,12 @@ En `acaquant-web/src/app/api/<modulo>/[...path]/route.ts` (si el catch-all ya ex
 
 - GET: forward con `Bearer API_KEY` + `CF-Access-Client-{Id,Secret}` + `cache: "no-store"`.
 - POST: agregar bloque separado, forward del body con `content-type: application/json`.
+- Si el endpoint audita al actor (ej. `/api/manager/*`), propagar el header `cf-access-authenticated-user-email` — si no, el audit log registra "service:<cn>" en lugar del email real.
 - NO filtrar ni transformar — solo proxy + auth.
 
-Referencia: ver `acaquant-web/src/app/api/analitica/[...path]/route.ts` como ejemplo completo GET+POST.
+**Si el endpoint es restringido (módulo no-público)**, sumar el path a `src/proxy.ts::PATH_MODULES` para que el frontend redirija al user con role equivocado en lugar de dejar que el backend le tire 403 feo. El mapping tiene que coincidir con `ENDPOINT_MODULE_PREFIXES` del backend (`api/auth.py`).
+
+Referencia: `acaquant-web/src/app/api/analitica/[...path]/route.ts` (GET+POST) y `acaquant-web/src/app/api/manager/[...path]/route.ts` (todos los métodos + propagación de email).
 
 ## 5. Consumo en la vista
 
@@ -91,3 +97,4 @@ Sumar al catálogo de `docs/API.md` con:
 - ✓ `ruff check .` limpio.
 - ✓ Proxy de acaquant-web devuelve el mismo JSON.
 - ✓ Doc actualizado en `docs/API.md`.
+- ✓ **Si es restringido**: un role sin acceso al módulo recibe 403 del backend, y el frontend redirige al home sin pegarle al API (test: curl con `cf-access-authenticated-user-email` de un user en otro role).

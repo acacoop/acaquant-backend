@@ -10,6 +10,7 @@ Excel/response_cuenta_*.json
 .claude/*
 !.claude/commands/
 !.claude/skills/
+!.claude/INDEX.md
 .ipynb_checkpoints/
 .idea/
 .pytest_cache/

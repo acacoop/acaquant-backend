@@ -7,7 +7,9 @@ logs/
 Excel/response_cuenta_*.json
 *.pyc
 .DS_Store
-.claude/
+.claude/*
+!.claude/commands/
+!.claude/skills/
 .ipynb_checkpoints/
 .idea/
 .pytest_cache/

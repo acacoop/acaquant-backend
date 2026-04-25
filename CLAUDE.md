@@ -1,4 +1,4 @@
-# CLAUDE.md
+s# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -27,8 +27,8 @@ api/routers  # thin HTTP wrappers. manager/ es paquete de sub-routers
 api/agent/   # asistente tool-use (Claude/Gemini)
 scripts/     # one-shot / migraciones / smoke
 deploy/      # systemd + crontab.txt (fuente de verdad)
-.claude/     # commands (/smoke /perf /seed-roles /deploy) + skills (add-bono add-endpoint debug-motor)
-docs/        # API.md, ARCHITECTURE.md, ASISTENTE.md, API_MIGRATIONS.md
+.claude/     # commands (/smoke /perf /seed-roles /deploy /motor-status) + skills (add-bono add-endpoint add-job debug-motor)
+docs/        # API.md, ASISTENTE.md, API_MIGRATIONS.md
 ```
 
 ## Comandos

@@ -562,7 +562,7 @@ TOOLS: list[dict[str, Any]] = [
     # ─── Contexto analítico on-demand (local, sin HTTP) ───────────────────
     {
         "name": "consultar_framework_analitico",
-        "description": "Framework de 4 capas + house view + señales + rotaciones. USAR para preguntas estratégicas (view de mercado, CER vs Lecap, qué rotar, HD vs DL). NO para lookup.",
+        "description": "Checklist mental de 4 capas (régimen / programa / ciclo / precio) + criterio de armado de carteras + 3 sanity checks. USAR para preguntas estratégicas (view de mercado, CER vs Lecap, qué rotar, HD vs DL, armar cartera por perfil). NO trae cifras macro — esas se traen de tools en vivo (REM, breakevens, series BCRA). NO para lookup puntual.",
         "endpoint": "__local__:framework",
         "parameters": {"type": "OBJECT", "properties": {}},
     },

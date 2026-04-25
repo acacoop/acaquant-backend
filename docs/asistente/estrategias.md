@@ -478,10 +478,10 @@ El **fixed rate K del swap = breakeven implícito** entre Lecap y CER.
 - Si **inflación esperada < breakeven implícito** → long Lecap, short CER.
 
 **Datos necesarios**:
-- `breakevens_actuales()` → breakeven por par (lecap, cer).
+- `breakevens_actuales()` → breakeven por par (lecap, cer) + `mes_inflacion` (último IPC publicado).
 - `historico_breakevens()` → cómo se movió el breakeven.
+- `rem_expectativas()` → consenso de analistas para los meses futuros.
 - CER actual → `serie_cer()` último valor.
-- House view de inflación mensual → en `estrategia.md`.
 
 **Fórmula del breakeven** (del engine):
 ```
@@ -491,10 +491,11 @@ breakeven_mensual = (1 + inflación_implicita)^(30/días) - 1
 ```
 
 **Construcción**:
-1. `breakevens_actuales()` → ver pares vigentes.
-2. Comparar con house view (en `estrategia.md`).
-3. Si breakeven < house view → long CER del par, short Lecap del par (dollar-
-   duration matched).
+1. `breakevens_actuales()` → ver pares vigentes (cada par trae `mes_inflacion`
+   = último IPC publicado).
+2. `rem_expectativas()` → consenso de analistas para el mes que el par price.
+3. Si breakeven < REM → long CER del par, short Lecap del par (dollar-duration
+   matched). Si breakeven > REM y > realizada reciente → simétrico inverso.
 
 **Aplicable en AR cuando**:
 - Hay un par (Lecap, CER) con vencimientos muy cercanos (±60 días, filtro del
@@ -839,9 +840,9 @@ El libro (Eq. 19.1) sugiere asignar commodities según spread HI-CI. En AR **no
 tenemos HI ni CI como data estructurada** (solo CER que proxea el ex-post).
 
 **Aplicación indirecta**: comparar **inflación núcleo implícita** (via
-breakevens de Lecaps cortas vs CER cortas) con **inflación esperada house view**.
-Si el spread se amplía, puede indicar presión inflacionaria no incorporada →
-sesgar CER.
+breakevens de Lecaps cortas vs CER cortas) con la **inflación esperada por REM**
+(`rem_expectativas()`). Si el spread se amplía, puede indicar presión
+inflacionaria no incorporada → sesgar CER.
 
 ---
 

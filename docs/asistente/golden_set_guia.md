@@ -40,7 +40,7 @@ aproximada sugerida:
 |---|---|---|
 | Lookup puro | 20% | el modelo busca un dato y lo devuelve 1-línea |
 | Comparación / análisis chico | 20% | razonamiento numérico entre 2-3 activos |
-| View estratégica | 15% | framework + house view, respuesta elaborada |
+| View estratégica | 15% | framework aplicado + tools en vivo (REM, breakevens), respuesta narrativa 1-2 párrafos |
 | Estructura / estrategia | 10% | armado de carry, butterfly, barbell, etc. |
 | Desambiguación | 10% | queries ambiguos ("el 26", "la letra") |
 | Scope / compliance | 10% | preguntas que deben **rechazarse** (cartera, AuM) |
@@ -181,10 +181,12 @@ Framework de 4 capas, respuesta elaborada.
     - name: consultar_framework_analitico
     - name: breakevens_actuales
   rubric: |
-    Debe invocar el framework analítico.
-    Respuesta de 3-5 párrafos cubriendo: lectura de la curva (forma,
-    breakevens), house view o señales gatillo, comparación con alternativas
+    Debe invocar el framework analítico y traer cifras de inflación de tools
+    en vivo (REM o breakevens), nunca de memoria.
+    Respuesta narrativa 1-2 párrafos cubriendo: lectura de la curva (forma,
+    breakevens), comparación con consenso REM, comparación con alternativas
     (Lecap / HD), recomendación direccional con condicionantes.
+    NO secciones tipo "Distribución / Métricas / Escenario / Sanity checks".
     Debe anclar temporalmente ("a la hora X", "al cierre Y").
     No recomendaciones duras: usar "en mi lectura", "el análisis sugiere".
 ```

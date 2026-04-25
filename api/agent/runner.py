@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from api.agent.context import build_market_context
@@ -170,10 +171,20 @@ def run_conversation(
                 "model_used": model_used,
             }
 
-        # Ejecutar cada tool call y apendear los resultados
+        # Ejecutar tool calls en paralelo cuando hay más de uno (I/O bound).
+        # ThreadPoolExecutor.map preserva el orden por input, así el log y los
+        # tool_result_message quedan alineados con el orden original.
         for tc in resp.tool_calls:
             logger.info("tool_call name=%s args=%s", tc.name, tc.args)
-            result = dispatch(tc.name, tc.args)
+
+        if len(resp.tool_calls) == 1:
+            tc = resp.tool_calls[0]
+            results = [dispatch(tc.name, tc.args)]
+        else:
+            with ThreadPoolExecutor(max_workers=min(len(resp.tool_calls), 8)) as ex:
+                results = list(ex.map(lambda tc: dispatch(tc.name, tc.args), resp.tool_calls))
+
+        for tc, result in zip(resp.tool_calls, results, strict=True):
             tool_calls_log.append({
                 "name": tc.name,
                 "args": tc.args,

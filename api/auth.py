@@ -24,7 +24,7 @@ from functools import lru_cache
 
 from fastapi import Depends, Header, HTTPException
 
-from config import CF_ACCESS_AUD, CF_ACCESS_TEAM, CF_TRUSTED_SERVICE_TOKENS, MANAGER_EMAILS
+from config import CF_ACCESS_AUD, CF_ACCESS_TEAM, CF_TRUSTED_SERVICE_TOKENS
 
 logger = logging.getLogger(__name__)
 
@@ -149,24 +149,89 @@ def get_user_email(
 
 
 def require_manager(email: str = Depends(get_user_email)) -> str:
-    """Exige que el usuario esté en MANAGER_EMAILS, o sea un service token
-    confiable (ej. acaquant-web llamando al API).
+    """Exige role con acceso al módulo `manager`.
 
-    Si MANAGER_EMAILS está vacío en `.env`, deja pasar todo (modo dev).
+    Alias histórico que ahora delega a la matriz RBAC. El resultado es
+    idéntico para admins: MANAGER_EMAILS queda como fallback (`core/roles.py`
+    lo cacha en `get_user_role`) y los emails ya seedeados en
+    `Manager.Users` con `role=admin` pasan naturalmente.
+
+    Se mantiene por compat con callers externos; código nuevo usar
+    `require_module("manager")` directamente.
     """
-    if not MANAGER_EMAILS:
-        return email  # dev: sin restricción
+    from core.roles import has_access
 
-    # Service tokens autorizados: el frontend llamando al API. El gate real
-    # de MANAGER_EMAILS ya lo hizo el frontend (proxy.ts) antes de pegar.
-    if email.startswith("service:"):
+    if has_access(email, "manager"):
         return email
+    logger.warning("require_manager: rechazado email=%r", email)
+    raise HTTPException(status_code=403, detail="acceso al módulo manager no autorizado")
 
-    # User: debe estar en la whitelist de emails
-    if email not in MANAGER_EMAILS:
-        logger.warning(
-            "require_manager: rechazado email=%r (autorizados: %d emails)",
-            email, len(MANAGER_EMAILS),
+
+# ─────────────────────────────────────────────────────────────
+# RBAC por módulo — enforcement server-side
+# ─────────────────────────────────────────────────────────────
+# Mapeo de prefijo de path → módulo. Se usa para inferir qué módulo
+# cubre un endpoint dado. Solo listamos los módulos que RESTRINGEN:
+# home / renta-fija / derivados / estrategia los tienen todos los roles,
+# así que no hace falta gatearlos (sale más barato un `_PUBLIC` sin
+# require_module).
+ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("/api/manager",     "manager"),
+    ("/api/chat",        "asistente"),
+    ("/api/portfolio",   "portfolios"),
+    ("/api/titulos",     "portfolios"),
+    ("/api/operaciones", "operaciones"),
+    ("/api/cuentas",     "operaciones"),
+)
+
+
+def get_module_for_path(path: str) -> str | None:
+    """Devuelve el módulo que cubre un path, o None si el path es público.
+
+    Match por prefix más largo primero. Si ningún prefix matchea, el endpoint
+    se considera `home` (o sea, accesible por todos los roles) y devuelve
+    None para señalizar al caller que no hace falta check de módulo.
+    """
+    if not path:
+        return None
+    best_prefix = ""
+    best_module: str | None = None
+    for prefix, module in ENDPOINT_MODULE_PREFIXES:
+        if path.startswith(prefix) and len(prefix) > len(best_prefix):
+            best_prefix = prefix
+            best_module = module
+    return best_module
+
+
+def require_module(module: str):
+    """Dependency factory: exige que el user tenga acceso al módulo.
+
+    Uso:
+        app.include_router(
+            manager.router,
+            dependencies=[Depends(verify_api_key), Depends(require_module("manager"))],
         )
-        raise HTTPException(status_code=403, detail="no autorizado")
-    return email
+
+    Cloudflare Access ya validó que el email puede entrar al sitio; acá
+    solo chequeamos que el role del email tenga el módulo en la matriz.
+
+    En dev (sin MANAGER_EMAILS ni Mongo) deja pasar todo: get_user_role
+    cae a DEFAULT_ROLE que tiene los módulos públicos. Módulos
+    restringidos (manager/portfolios/etc) tiran 403.
+    """
+    # Import lazy para evitar ciclos core ↔ api en el arranque
+    from core.roles import has_access
+
+    def _dep(email: str = Depends(get_user_email)) -> str:
+        # Dev: sin whitelist ni DB de roles, el código de abajo igual
+        # funciona porque get_user_role cae a DEFAULT_ROLE.
+        if has_access(email, module):
+            return email
+        logger.warning(
+            "require_module(%s): rechazado email=%r", module, email,
+        )
+        raise HTTPException(status_code=403, detail=f"acceso al módulo {module} no autorizado")
+
+    # Para que FastAPI diferencie cada instancia en la cache de deps
+    _dep.__name__ = f"require_module_{module.replace('-', '_')}"
+    return _dep

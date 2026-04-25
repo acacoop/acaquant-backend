@@ -11,7 +11,6 @@ Sub-dominios:
 - `jobs`       — POST /jobs/run, GET /jobs/history, /jobs/history/stats, /jobs/{id}
 - `options`    — GET/PUT /options/expiries
 - `asistente`  — 4× GET /asistente/* (observabilidad IA)
-- `intel`      — 7× /intel/* (ingesta de reportes macro)
 - `logs`       — GET /logs?servicio=&lines= (journalctl de services)
 - `users`      — CRUD Manager.Users (admin panel)
 - `roles`      — matriz Manager.RoleMatrix + audit log
@@ -21,7 +20,6 @@ from fastapi import APIRouter
 from api.routers.manager import (
     asistente,
     checks,
-    intel,
     jobs,
     logs,
     options,
@@ -37,7 +35,6 @@ router.include_router(checks.router)
 router.include_router(jobs.router)
 router.include_router(options.router)
 router.include_router(asistente.router)
-router.include_router(intel.router)
 router.include_router(logs.router)
 router.include_router(users.router)
 router.include_router(roles.router)

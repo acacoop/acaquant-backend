@@ -5,43 +5,19 @@ Ahora se consulta por sección bajo demanda mediante la tool
 `consultar_catalogo_estrategias`. Así el prompt base queda chico y el modelo
 solo "paga" la sección cuando realmente la necesita.
 
-Re-lee del disco por mtime (edición inmediata sin restart).
+Usa el loader genérico (`markdown_loader.load_md`) para cachear por mtime.
 """
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from api.agent.markdown_loader import load_md
 
-_BASE = Path(__file__).resolve().parent.parent.parent
-ESTRATEGIAS_PATH = _BASE / "docs" / "asistente" / "estrategias.md"
-
-_cache: dict = {"mtime": 0.0, "content": ""}
+ESTRATEGIAS_PATH = Path(__file__).resolve().parent.parent.parent / "docs" / "asistente" / "estrategias.md"
 
 
 def load_estrategias() -> str:
-    """Devuelve el contenido completo de estrategias.md o '' si no existe."""
-    try:
-        mtime = ESTRATEGIAS_PATH.stat().st_mtime
-    except FileNotFoundError:
-        return ""
-    except Exception as e:
-        logger.warning("No pude stat estrategias.md: %s", e)
-        return ""
-
-    if _cache["mtime"] >= mtime and _cache["content"]:
-        return _cache["content"]
-
-    try:
-        content = ESTRATEGIAS_PATH.read_text(encoding="utf-8")
-    except Exception as e:
-        logger.warning("No pude leer estrategias.md: %s", e)
-        return _cache["content"]
-
-    _cache["mtime"] = mtime
-    _cache["content"] = content
-    return content
+    return load_md(ESTRATEGIAS_PATH)
 
 
 # Mapa tema → (marker_start, marker_end). end=None significa "hasta el final".

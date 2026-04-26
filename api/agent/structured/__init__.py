@@ -16,6 +16,7 @@ Próximos (TODO): `analisis_bono`, `comparar_curvas`.
 from api.agent.structured.cartera import (
     RESPONDER_CARTERA_TOOL,
     CarteraRequest,
+    run_cartera_flow,
     validar_pesos_suman_100,
 )
 from api.agent.structured.cartera import (
@@ -30,5 +31,6 @@ __all__ = [
     "RESPONDER_CARTERA_TOOL",
     "CarteraRequest",
     "build_user_message_cartera",
+    "run_cartera_flow",
     "validar_pesos_suman_100",
 ]

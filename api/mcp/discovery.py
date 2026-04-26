@@ -17,16 +17,27 @@ from config import MCP_OAUTH_ISSUER
 router = APIRouter(tags=["MCP Discovery"])
 
 
-@router.get("/.well-known/oauth-protected-resource")
-def oauth_protected_resource_metadata():
-    """RFC 9728. Claude Desktop hits esto cuando ve el MCP server por
-    primera vez para descubrir el authorization server."""
+def _protected_resource_metadata():
     return {
         "resource": f"{MCP_OAUTH_ISSUER}/mcp",
         "authorization_servers": [MCP_OAUTH_ISSUER],
         "scopes_supported": ["mcp:read"],
         "bearer_methods_supported": ["header"],
     }
+
+
+@router.get("/.well-known/oauth-protected-resource")
+def oauth_protected_resource_metadata():
+    """RFC 9728. Claude Desktop hits esto cuando ve el MCP server por
+    primera vez para descubrir el authorization server."""
+    return _protected_resource_metadata()
+
+
+@router.get("/.well-known/oauth-protected-resource/mcp")
+def oauth_protected_resource_metadata_mcp_suffix():
+    """Algunos clientes (Claude Desktop) buscan primero el path con sufijo
+    del recurso (RFC 9728 sec 3.2). Servimos los mismos metadata."""
+    return _protected_resource_metadata()
 
 
 @router.get("/.well-known/oauth-authorization-server")

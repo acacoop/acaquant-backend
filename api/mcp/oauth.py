@@ -269,7 +269,12 @@ async def token_endpoint(
     auth_code_doc = _consume_authorization_code(code)
     if not auth_code_doc:
         return JSONResponse({"error": "invalid_grant"}, status_code=400)
-    if auth_code_doc["expires_at"] < datetime.now(UTC):
+    # PyMongo devuelve datetimes naive (sin tz) por default; comparar contra
+    # datetime.now(UTC) (aware) tira TypeError → 500. Normalizamos a UTC.
+    expires_at = auth_code_doc["expires_at"]
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at < datetime.now(UTC):
         return JSONResponse({"error": "invalid_grant"}, status_code=400)
     if auth_code_doc["client_id"] != client_id:
         return JSONResponse({"error": "invalid_grant"}, status_code=400)

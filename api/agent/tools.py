@@ -23,6 +23,7 @@ el bloqueo editando BLOCKED_PATH_PREFIXES abajo y agregando tools nuevas.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import requests
@@ -32,6 +33,8 @@ from api.agent.service_registry import get_service_handler
 from api.agent.ticker_catalog import did_you_mean
 from api.agent.tool_metadata import compute_meta
 from config import API_KEY
+
+logger = logging.getLogger(__name__)
 
 # Keys que típicamente contienen un ticker en los args del modelo.
 _TICKER_ARG_KEYS = ("instrumento", "ticker", "ticker_corto", "symbol")
@@ -652,9 +655,12 @@ def dispatch(name: str, args: dict[str, Any]) -> dict[str, Any]:
             data = handler(**params)
         except TypeError as e:
             # Arg mismatch: el LLM pasó un kwarg que la función no acepta
+            logger.warning("tool '%s' args inválidos: %s (args=%s)", name, e, args)
             return {"ok": False, "error": f"args inválidos para {name}: {e}"}
         except Exception as e:
-            return {"ok": False, "error": f"error del service: {e}"}
+            # Sin esto la traza se pierde y solo vemos `ok=False` en Mongo logs.
+            logger.exception("tool '%s' falló (args=%s)", name, args)
+            return {"ok": False, "error": f"error del service: {type(e).__name__}: {e}"}
         return _process_service_output(data, endpoint, args)
 
     # Fallback HTTP — para endpoints aún no migrados al service registry

@@ -11,11 +11,14 @@ tickers y curvas; el resto de services los importa desde este módulo.
 """
 from __future__ import annotations
 
+import logging
 import re
 from datetime import UTC, datetime, timedelta
 
 from api.cache import cached
 from api.db import get_db_trading
+
+logger = logging.getLogger(__name__)
 
 _CURVAS_VALIDAS = ("cer", "tasa_fija", "tamar", "soberanos", "dolar_linked")
 _ORDENES_VALIDOS = ("vencimiento", "volumen_dia", "tea", "duration")
@@ -127,30 +130,40 @@ def _bonos_cer_fijados(db) -> set[str]:
     """Tickers de bonos CER cuyo CER de liquidación del VTO ya fue publicado
     por el BCRA → efectivamente tasa fija desde ya. Se recalcula por request
     (barato: 1 query CER + 1 query DiasHabiles + loop chico).
+
+    Fallback: si la función falla por cualquier motivo (Mongo down, dato
+    faltante, comparación de tipos), devuelve set vacío y logea. Así
+    `listar_curva` sigue devolviendo bonos aunque la reasignación CER↔
+    tasa_fija se pierda. Sin esto, todo `listar_curva` con curva ∈ {cer,
+    tasa_fija} se cae con un error opaco "error del service".
     """
     from engines.curvas import fecha_cer_liquidacion
 
-    cer_max_doc = db["CER"].find_one({}, sort=[("fecha", -1)], projection={"fecha": 1})
-    if not cer_max_doc:
+    try:
+        cer_max_doc = db["CER"].find_one({}, sort=[("fecha", -1)], projection={"fecha": 1})
+        if not cer_max_doc:
+            return set()
+        max_cer_publicado = cer_max_doc["fecha"]
+
+        dias_habiles = sorted(
+            d["fecha"] for d in db["DiasHabiles"].find({}, {"fecha": 1, "_id": 0})
+        )
+
+        fijados: set[str] = set()
+        for inst in db["Curvas"].find(
+            {"curva": "cer"},
+            {"_id": 0, "ticker": 1, "fecha_vencimiento": 1},
+        ):
+            vto = str(inst.get("fecha_vencimiento") or "")[:10]
+            if not vto:
+                continue
+            fecha_liq = fecha_cer_liquidacion(dias_habiles, vto, n=10)
+            if fecha_liq and fecha_liq <= max_cer_publicado:
+                fijados.add(inst["ticker"])
+        return fijados
+    except Exception:
+        logger.exception("_bonos_cer_fijados falló — devuelvo set vacío (fallback)")
         return set()
-    max_cer_publicado = cer_max_doc["fecha"]
-
-    dias_habiles = sorted(
-        d["fecha"] for d in db["DiasHabiles"].find({}, {"fecha": 1, "_id": 0})
-    )
-
-    fijados: set[str] = set()
-    for inst in db["Curvas"].find(
-        {"curva": "cer"},
-        {"_id": 0, "ticker": 1, "fecha_vencimiento": 1},
-    ):
-        vto = str(inst.get("fecha_vencimiento") or "")[:10]
-        if not vto:
-            continue
-        fecha_liq = fecha_cer_liquidacion(dias_habiles, vto, n=10)
-        if fecha_liq and fecha_liq <= max_cer_publicado:
-            fijados.add(inst["ticker"])
-    return fijados
 
 
 def listar_curva(

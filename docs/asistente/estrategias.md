@@ -1,7 +1,17 @@
 # Biblioteca de estrategias — modelado para los datos de TradingAV
 
 Este archivo es el **catálogo técnico** de estrategias que el asistente puede
-construir con los datos disponibles en la base. Para cada una:
+construir con los datos disponibles en la base. Cada estrategia arranca con
+un header `STATUS / DATA REQUERIDA / DATA FALTANTE / SI BLOQUEADA` para que
+el modelo descarte temprano las que no son ejecutables hoy.
+
+Convenciones del header:
+- `STATUS: ejecutable` → toda la data está en tools. La estrategia se puede armar tal cual.
+- `STATUS: parcial` → mayoría de la data está, falta algo no crítico o reemplazable por proxy.
+- `STATUS: bloqueada` → falta data estructural. Solo proponerla con `SI BLOQUEADA` (proxy alternativo) o descartar.
+- `DATA FALTANTE` y `SI BLOQUEADA` se omiten cuando STATUS es ejecutable y no hay caveats relevantes.
+
+Para cada estrategia, además del header:
 
 - **Outlook**: qué view la justifica.
 - **Estructura**: piernas (legs) del trade.
@@ -58,6 +68,8 @@ que están en `Trading.Curvas`.
 # 1. FIXED INCOME — Posiciones de curva
 
 ## 1.1 Bullet
+**STATUS**: ejecutable
+**DATA REQUERIDA**: `metadata_activos`, `cotizacion_renta_fija`, `historico_trades`
 
 **Outlook**: view fuerte sobre un punto específico de la curva. Si espera
 compresión, va a tramo más largo. Si espera empinamiento, más corto.
@@ -91,6 +103,8 @@ compresión, va a tramo más largo. Si espera empinamiento, más corto.
 ---
 
 ## 1.2 Barbell
+**STATUS**: ejecutable
+**DATA REQUERIDA**: `historico_trades`, `cotizacion_renta_fija`
 
 **Outlook**: la curva podría tener shifts no-paralelos (twist); se quiere más
 convexidad que un bullet de misma duration.
@@ -137,6 +151,8 @@ Exceso de convexity: C_barbell - C_bullet = w1·w2·(T2-T1)²
 ---
 
 ## 1.3 Ladder
+**STATUS**: ejecutable
+**DATA REQUERIDA**: `metadata_activos`, `flujos_titulo`, `historico_trades`
 
 **Outlook**: se quiere una posición de duration estable en el tiempo sin tener
 que rebalancear mucho, con ingresos de cupones/amortizaciones escalonados.
@@ -177,6 +193,8 @@ body es T2. El trade apuesta a cambios en la CURVATURA de la curva, no a shifts
 paralelos.
 
 ## 2.1 Butterfly Dollar-Duration-Neutral (zero-cost)
+**STATUS**: ejecutable
+**DATA REQUERIDA**: `historico_trades` (×3 bonos), `cotizacion_renta_fija` (×3 bonos)
 
 **Outlook**: curva va a cambiar CURVATURA pero no nivel. Típicamente: "el belly
 está barato/caro respecto a los wings".
@@ -218,6 +236,8 @@ P3 = P2 · (D1 - D2) / (D1 - D3)
 ---
 
 ## 2.2 Butterfly Fifty-Fifty (neutral curve)
+**STATUS**: ejecutable
+**DATA REQUERIDA**: `historico_trades` (×3 bonos), `cotizacion_renta_fija` (×3 bonos)
 
 **Outlook**: similar a 2.1 pero además se quiere inmunidad a flattening/
 steepening pequeños. No es zero-cost.
@@ -248,6 +268,9 @@ P3 = P2·D2 / (2·D3)
 ---
 
 ## 2.3 Butterfly Regression-Weighted
+**STATUS**: ejecutable (con caveat)
+**DATA REQUERIDA**: `historico_curva` (60-180 días)
+**CAVEAT**: bonos recién emitidos no califican (sin historia para β estable)
 
 **Outlook**: los wings tienen volatilidades distintas (wing corto suele ser más
 volátil que largo). Se quiere neutralidad "real" ante twist, ponderando por β.
@@ -280,6 +303,8 @@ P1·D1 = β · P3·D3      (β = β_regression estimado historicamente)
 ---
 
 ## 2.4 Butterfly Maturity-Weighted
+**STATUS**: ejecutable
+**DATA REQUERIDA**: `metadata_activos` (vencimientos), `historico_trades` (durations)
 
 **Outlook**: como 2.3 pero sin tener que correr regresión. β se deriva de las
 maturities.
@@ -303,6 +328,8 @@ y durations (`historico_trades`).
 # 3. FIXED INCOME — Carry, roll-down y factores
 
 ## 3.1 Carry Factor (ranking por carry)
+**STATUS**: ejecutable
+**DATA REQUERIDA**: `historico_trades`, `historico_curva`
 
 **Outlook**: bonos con mayor carry tienden a outperformar en horizontes cortos
 si la curva no cambia.
@@ -342,6 +369,8 @@ roll_mensual = -D_mod · ΔTEA_por_mes_en_curva
 ---
 
 ## 3.2 Rolling Down the Yield Curve
+**STATUS**: ejecutable
+**DATA REQUERIDA**: `forwards_por_curva`, `historico_trades`
 
 **Outlook**: la curva tiene un tramo muy empinado. Comprar ahí y dejar que el
 bono "baje" la curva hacia tramos más planos con el paso del tiempo.
@@ -371,6 +400,8 @@ está en el segmento más empinado.
 ---
 
 ## 3.3 Yield Curve Spread (Flatteners y Steepeners)
+**STATUS**: ejecutable
+**DATA REQUERIDA**: `historico_trades` (×2 bonos), `cotizacion_renta_fija` (×2 bonos)
 
 **Outlook**: view direccional sobre la PENDIENTE de la curva.
 - **Flattener**: se espera que la pendiente baje (corto sube más que largo o
@@ -408,6 +439,10 @@ N1 · P1 · D1 = N2 · P2 · D2
 ---
 
 ## 3.4 Value Factor (residual de credit spread)
+**STATUS**: parcial
+**DATA REQUERIDA**: `metadata_activos` (CALIFICACION), `historico_trades` (TEA)
+**DATA FALTANTE**: TAMAR mayorista directo
+**SI BLOQUEADA**: usar BADLAR (`serie_badlar`) como risk-free proxy
 
 **Outlook**: algunos bonos cotizan "caros" o "baratos" relativo a lo que
 predeciría su rating + maturity.
@@ -444,6 +479,9 @@ V_i = S_i / S*_i - 1  (value factor)
 ---
 
 ## 3.5 Low-Risk Factor
+**STATUS**: parcial
+**DATA REQUERIDA**: `metadata_activos` (CALIFICACION + VENCIMIENTO)
+**CAVEAT**: aplica solo a ONs — en soberanos puros el factor colapsa por homogeneidad de rating
 
 **Outlook**: bonos con menor riesgo (rating alto + maturity corta) tienden a
 outperform en riesgo ajustado.
@@ -463,6 +501,8 @@ outperform en riesgo ajustado.
 # 4. INFLATION — traducción de inflation swaps al mercado AR
 
 ## 4.1 Inflation Swap sintético: Lecap + CER del mismo vto
+**STATUS**: ejecutable
+**DATA REQUERIDA**: `breakevens_actuales`, `historico_breakevens`, `rem_expectativas`, `serie_cer`
 
 **Insight clave**: un zero-coupon inflation swap del libro (fixed K vs floating
 CPI) es conceptualmente equivalente a:
@@ -511,6 +551,9 @@ breakeven_mensual = (1 + inflación_implicita)^(30/días) - 1
 ---
 
 ## 4.2 TIPS-Treasury Arbitrage (traducido: Lecap sintético vs Lecap real)
+**STATUS**: ejecutable (con condición de viabilidad real)
+**DATA REQUERIDA**: `cotizacion_renta_fija` (Lecap+Boncer mismo vto), `flujos_titulo`, `serie_cer`
+**CAVEAT**: requiere par con vencimientos casi idénticos (raro en AR) y spread > 30-50 bps para superar costos
 
 **Insight**: el libro muestra que empíricamente los TIPS están baratos vs
 Treasury (el sintético Lecap = CER + short inflation swap cuesta menos que la
@@ -554,6 +597,10 @@ En AR, el análogo directo es:
 # 5. FX / CARRY — Carry trade sintético
 
 ## 5.1 Carry trade sintético Lelink + Short ROFEX
+**STATUS**: bloqueada
+**DATA REQUERIDA**: `serie_dolar_a3500`, `mep_actual`, `historico_trades` (Lelink), forward ROFEX
+**DATA FALTANTE**: feed de futuros ROFEX (no hay endpoint directo)
+**SI BLOQUEADA**: estimar forward sintético con `(1 + TEM_lecap_equivalente)^(días/30) × A3500_actual` y declarar explícitamente que es estimación, no precio de mercado. Para arbitraje real, no es construible — descartar.
 
 **Outlook**: la tasa en pesos (TEM) está por encima de lo que justifica la
 depreciación esperada del peso según A3500 proyectado por ROFEX.
@@ -591,6 +638,8 @@ Si el mercado de futures cotiza F' distinto, hay profit/pérdida implícito.
 ---
 
 ## 5.2 Decisión HD vs DL según brecha MEP-A3500
+**STATUS**: ejecutable
+**DATA REQUERIDA**: `mep_actual`, `serie_dolar_a3500`
 
 **Ver `estrategia.md` sección "Brecha MEP vs A3500"**. Este es el trade más
 directo que replica la lógica del libro sin necesidad de futures:
@@ -607,6 +656,15 @@ directo que replica la lógica del libro sin necesidad de futures:
 ---
 
 # 6. OPTIONS — Estrategias GGAL
+
+**STATUS general de la sección**: ejecutable en ATM ± 2 strikes y vencimientos
+1-3 meses; **parcial** fuera de ese rango (liquidez cae rápido).
+**DATA REQUERIDA**: `cotizacion_opciones(instrumento, tipo)` para cada pierna.
+**CAVEAT** (aplica a todas las variantes):
+- Liquidez OTM far → spreads bid-ask anchos pueden invalidar el trade aunque
+  los greeks teóricos lo respalden.
+- Comisiones y arancel en ARS — varios spreads del libro no son rentables.
+- GGAL paga dividendos: spot efectivo = `spot - PV(div)` para put-call parity.
 
 Todas las estrategias abajo se construyen con `cotizacion_opciones(instrumento,
 tipo)`, que devuelve: bid, offer, last, strike, vence, delta, gamma, vega,
@@ -816,6 +874,8 @@ Simétricas a las bullish. Las listo con sus datos clave.
 # 7. MACRO — Framework de momentum (conceptual)
 
 ## 7.1 Fundamental Macro Momentum (traducido al framework de la mesa)
+**STATUS**: conceptual (no es estrategia mecánica con fórmula cerrada)
+**DATA REQUERIDA**: la del framework de 4 capas (ver `estrategia.md`)
 
 El libro propone 4 state variables cross-country. En una ALYC single-country,
 el concepto se traduce a **regímenes internos** y mapea directo al framework
@@ -835,6 +895,10 @@ de 4 capas del usuario (ver `estrategia.md`):
 estrategia mecánica con fórmula cerrada sino el modo de pensar estructurado.
 
 ## 7.2 Pass-through de inflación (HI → CI)
+**STATUS**: parcial
+**DATA REQUERIDA**: `breakevens_actuales` (Lecaps cortas vs CER cortas), `rem_expectativas`
+**DATA FALTANTE**: IPC core (núcleo) separado del IPC headline
+**SI BLOQUEADA**: usar el spread `breakeven_implicito − REM_consenso` como proxy de "inflación no incorporada". Si se amplía → sesgar CER.
 
 El libro (Eq. 19.1) sugiere asignar commodities según spread HI-CI. En AR **no
 tenemos HI ni CI como data estructurada** (solo CER que proxea el ex-post).
@@ -879,14 +943,17 @@ Cuando un usuario pregunte por una estrategia:
 1. **Identificar outlook**: el usuario busca dirección / curvatura / vol /
    carry / arb?
 2. **Matchear con sección**: buscar la estrategia del catálogo.
-3. **Verificar datos**: recorrer la sección "Datos necesarios" y consultar
+3. **Leer el header STATUS** de esa estrategia. Si es `bloqueada` y el
+   `SI BLOQUEADA` no aplica al caso → declarar la limitación y descartar.
+   Si es `parcial` → mencionar el caveat al usuario antes de seguir.
+4. **Verificar datos**: recorrer la sección "Datos necesarios" y consultar
    CADA tool listada. Si alguna falta → declarar limitación.
-4. **Aplicar fórmulas**: usar las fórmulas de la sección, con números reales.
-5. **Chequear contra 4 capas** (ver `estrategia.md`): ¿el régimen actual
+5. **Aplicar fórmulas**: usar las fórmulas de la sección, con números reales.
+6. **Chequear contra 4 capas** (ver `estrategia.md`): ¿el régimen actual
    valida la estrategia? ¿cómo se comporta en escenario de error?
-6. **Sanity checks**: cuantificar asimetría, articular escenario de error,
+7. **Sanity checks**: cuantificar asimetría, articular escenario de error,
    detectar si el mercado price algo que no vemos.
-7. **Entregar**: estructura + fórmulas + números + caveats.
+8. **Entregar**: estructura + fórmulas + números + caveats.
 
 **Nunca inventar datos que faltan. Nunca proponer una estrategia que requiere
 feeds que no tenemos. Si la estrategia ideal no es construible, proponer el

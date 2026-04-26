@@ -1,13 +1,17 @@
-"""Middleware Bearer para el sub-app MCP.
+"""Middleware de auth para el sub-app MCP.
 
-Valida `Authorization: Bearer <MCP_BEARER_TOKEN>` en todas las requests
-que entran a /mcp/*. Rechaza con 401 si falta o no matchea.
+Acepta DOS tipos de bearer en `Authorization: Bearer <token>`:
 
-El token MCP es DISTINTO del API_KEY del resto de la API:
-- API_KEY: usado por acaquant-web y curl interno.
-- MCP_BEARER_TOKEN: usado por Claude Desktop / Claude Code.
+1. JWT OAuth-issued (path principal): emitido por nuestro /oauth/token
+   después que el user se autenticó vía CF Access. Validamos firma,
+   expiry, audience y que el jti no haya sido revocado.
+   Usado por Claude Desktop / claude.ai / Claude Code via Custom Connector.
 
-Si querés rotar uno sin tocar el otro, son env vars independientes.
+2. Static bearer (fallback dev/curl): MCP_BEARER_TOKEN del .env.
+   Sigue funcionando para scripts y debugging interno.
+
+Si NINGUNO de los dos está configurado, el sub-app MCP no se monta
+(ver api/main.py).
 """
 from __future__ import annotations
 
@@ -15,18 +19,19 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from config import MCP_BEARER_TOKEN
+from config import MCP_BEARER_TOKEN, MCP_JWT_SECRET
 
 
 class MCPBearerMiddleware(BaseHTTPMiddleware):
-    """Bearer auth para todas las requests del sub-app MCP."""
+    """Bearer auth para todas las requests del sub-app MCP.
+
+    Match en orden: static token (constant-time compare) → JWT OAuth-issued.
+    """
 
     async def dispatch(self, request: Request, call_next):
-        # Sanity: si no hay token configurado, el módulo no debería
-        # haberse montado — lo chequeamos defensivamente.
-        if not MCP_BEARER_TOKEN:
+        if not (MCP_BEARER_TOKEN or MCP_JWT_SECRET):
             return JSONResponse(
-                {"error": "MCP server no configurado (MCP_BEARER_TOKEN vacío)"},
+                {"error": "MCP no configurado (sin token estático ni JWT secret)"},
                 status_code=503,
             )
 
@@ -36,12 +41,20 @@ class MCPBearerMiddleware(BaseHTTPMiddleware):
                 {"error": "Falta header Authorization: Bearer <token>"},
                 status_code=401,
             )
-
         token = auth[len("Bearer "):].strip()
-        if token != MCP_BEARER_TOKEN:
-            return JSONResponse(
-                {"error": "Token MCP inválido"},
-                status_code=401,
-            )
 
-        return await call_next(request)
+        # 1. Static bearer (fallback dev/curl).
+        if MCP_BEARER_TOKEN and token == MCP_BEARER_TOKEN:
+            return await call_next(request)
+
+        # 2. JWT OAuth-issued (path principal Claude clients).
+        if MCP_JWT_SECRET:
+            from api.mcp.oauth import verify_access_token  # lazy: evita ciclo
+            claims = verify_access_token(token)
+            if claims:
+                # Propagamos identidad al request scope por si alguna tool
+                # quiere saber quién está llamando.
+                request.scope["mcp_user"] = claims.get("sub")
+                return await call_next(request)
+
+        return JSONResponse({"error": "Token MCP inválido"}, status_code=401)

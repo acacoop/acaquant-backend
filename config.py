@@ -21,10 +21,18 @@ AUNESA_PASSWORD = os.getenv("AUNESA_PASSWORD")
 API_KEY = os.getenv("API_KEY", "")
 
 # --- MCP server (Model Context Protocol) ---
-# Token bearer separado del API_KEY para gateear /mcp/*. Va al
-# Claude Desktop / Claude Code de quien quiera consumir la data.
-# Si está vacío, /mcp queda DESHABILITADO (no se monta).
+# Auth en /mcp tiene 2 caminos:
+#   1) OAuth (para Claude Desktop / claude.ai / Claude Code via Custom
+#      Connector dialog): el server emite JWTs firmados con MCP_JWT_SECRET
+#      después que el user pase por CF Access en /oauth/authorize.
+#   2) Static bearer (para curl, scripts, dev): MCP_BEARER_TOKEN.
+#      Sigue funcionando como fallback.
+# Si MCP_BEARER_TOKEN está vacío Y MCP_JWT_SECRET está vacío, /mcp queda
+# DESHABILITADO (no se monta).
 MCP_BEARER_TOKEN = os.getenv("MCP_BEARER_TOKEN", "")
+MCP_JWT_SECRET   = os.getenv("MCP_JWT_SECRET", "")
+# Issuer que va en los JWTs OAuth-issued. Default: la URL pública del API.
+MCP_OAUTH_ISSUER = os.getenv("MCP_OAUTH_ISSUER", "https://api.acaquant.com")
 
 # --- LLM / IA GENERATIVA ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")

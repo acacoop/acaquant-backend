@@ -1,13 +1,13 @@
 # MCP — TradingAV
 
-Servidor MCP (Model Context Protocol) que expone data **100% de mercado** al
-Claude Desktop / Claude Code. Permite que Claude haga análisis razonando
-sobre los números reales en lugar de adivinar o de que vos le pegues
+Servidor MCP que expone data **100% de mercado** al Claude Desktop /
+Claude Code / claude.ai. Permite que Claude haga análisis razonando sobre
+los números reales en lugar de adivinar o de que vos le pegues
 screenshots.
 
 ## Qué expone
 
-Tools de SOLO LECTURA, ~25 en total. Cada una es thin wrapper sobre un
+Tools de SOLO LECTURA, ~27 en total. Cada una es thin wrapper sobre un
 servicio puro de `api/services/*`.
 
 | Categoría | Tools |
@@ -22,84 +22,115 @@ servicio puro de `api/services/*`.
 | Opciones | `opciones_chain`, `opciones_meta`, `opciones_historico` |
 
 **No expone (por diseño)**: portfolio, operaciones, cuentas, AuM, manager,
-intel — son datos privados, no de mercado. Si en el futuro se agregan
-tools al asistente, NO copiarlas ciegamente al MCP — respetar la
-separación.
+intel — son datos privados, no de mercado.
+
+## Auth — dos caminos
+
+El middleware del MCP acepta dos tipos de bearer:
+
+### A) OAuth (Claude Desktop / claude.ai / Claude Code via Custom Connector)
+
+Flujo completo OAuth 2.1 con PKCE + Dynamic Client Registration. Login
+delegado a **Cloudflare Access** — cuando Claude Desktop redirige al user
+a `/oauth/authorize`, CF Access lo desafía con email + OTP, y nuestro
+server lee la identidad del JWT validado por CF para emitir el access
+token.
+
+- `MCP_JWT_SECRET` en `.env` activa este path.
+- Endpoints implementados:
+  - `POST /oauth/register` (RFC 7591 — Dynamic Client Registration)
+  - `GET  /oauth/authorize` (gated por CF Access)
+  - `POST /oauth/token` (intercambio code → access_token con PKCE)
+  - `GET  /.well-known/oauth-protected-resource` (RFC 9728)
+  - `GET  /.well-known/oauth-authorization-server` (RFC 8414)
+- Storage: Mongo db `MCP`, colecciones `OAuthClients` / `OAuthCodes` /
+  `OAuthTokens`. TTL automático (10min codes, 1h tokens).
+
+### B) Static bearer token (curl, scripts, dev)
+
+`MCP_BEARER_TOKEN` en `.env`. Cualquier request con
+`Authorization: Bearer <token>` con ese valor pasa, sin OAuth. Útil para
+smoke tests, scripts internos.
 
 ## Setup en el server
 
-1. Generar un token bearer (cualquier secreto random, ~32 chars):
+### 1) Generar secrets
 
-   ```bash
-   python -c "import secrets; print(secrets.token_urlsafe(32))"
-   ```
+```bash
+# JWT secret (firma los access tokens OAuth)
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 
-2. Agregarlo al `.env` del Droplet:
+# (opcional) Static bearer token para dev
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
 
-   ```
-   MCP_BEARER_TOKEN=<el-token-de-arriba>
-   ```
+### 2) Sumar al `.env` del Droplet
 
-3. Restart del API:
+```
+MCP_JWT_SECRET=<el-secret-largo>
+MCP_BEARER_TOKEN=<el-token-corto>             # opcional, fallback dev
+MCP_OAUTH_ISSUER=https://api.acaquant.com     # default ya OK
+```
 
-   ```bash
-   systemctl restart api.service
-   ```
+### 3) Restart
 
-   En el log debería aparecer `MCP montado en /mcp (Streamable HTTP, bearer auth)`.
-   Si en cambio dice `MCP_BEARER_TOKEN no configurado — /mcp deshabilitado`,
-   revisar que el `.env` haya cargado.
+```bash
+systemctl restart api.service
+```
 
-4. **Cloudflare Access**: el path `/mcp/*` queda detrás de la misma policy
-   de CF que el resto del API. Para que Claude Desktop / Code llegue desde
-   afuera necesitás un **service token de CF Access** O exponer el path sin
-   gate de CF (no recomendado).
+En el log deberías ver:
+```
+MCP montado en /mcp + OAuth + discovery (JWT)
+```
 
-   Opción mínima para empezar: agregar el path `/mcp/*` a una application
-   de CF Access con policy "Service Auth" usando un service token, o
-   directamente "bypass" si el bearer interno es suficiente para vos.
+### 4) Cloudflare Access — múltiples destinos
+
+La app de CF Access `acaquant-mcp-bypass` (la que creamos antes) tenía
+SOLO `api.acaquant.com/mcp` como destino. Hay que sumar más destinos
+para que los endpoints de discovery y token sean accesibles sin login:
+
+En CF Zero Trust → Access → Applications → editar `acaquant-mcp-bypass` →
+Destinations:
+
+| Destino | ¿Por qué Bypass? |
+|---|---|
+| `api.acaquant.com/mcp` (ya existe) | Tráfico MCP, gated por nuestro middleware bearer |
+| `api.acaquant.com/oauth/token` | Claude Desktop lo POSTea sin browser → no puede hacer login CF |
+| `api.acaquant.com/oauth/register` | Idem (DCR llamada de máquina) |
+| `api.acaquant.com/.well-known/oauth-protected-resource` | Discovery público |
+| `api.acaquant.com/.well-known/oauth-authorization-server` | Discovery público |
+
+**NO incluyas `api.acaquant.com/oauth/authorize`** — ese path SÍ tiene
+que estar gateado por la app general de CF Access (es donde el user se
+loguea).
 
 ## Setup en el cliente
 
 ### Claude Desktop
 
-`~/.claude/claude_desktop_config.json` (Mac/Linux) o `%APPDATA%/Claude/claude_desktop_config.json` (Windows):
-
-```json
-{
-  "mcpServers": {
-    "tradingav": {
-      "url": "https://api.acaquant.com/mcp",
-      "auth": {
-        "type": "bearer",
-        "token": "<MCP_BEARER_TOKEN del .env>"
-      }
-    }
-  }
-}
-```
+1. Abrí Claude Desktop → Settings → **Conectores**.
+2. **Añadir conector personalizado**.
+3. Pegá:
+   - Nombre: `TradingAV`
+   - URL: `https://api.acaquant.com/mcp/`
+4. Sin OAuth Client ID ni Client Secret — los detecta solo via DCR.
+5. Apretá **Conectar**. Se abre browser → CF Access te pide email + OTP →
+   logueás → vuelve a Claude → conectado.
+6. En el chat, las 27 tools deberían aparecer al toque.
 
 ### Claude Code
 
-`~/.claude/settings.json` (global) o `.claude/settings.json` (por proyecto):
-
-```json
-{
-  "mcpServers": {
-    "tradingav": {
-      "url": "https://api.acaquant.com/mcp",
-      "auth": {
-        "type": "bearer",
-        "token": "<MCP_BEARER_TOKEN del .env>"
-      }
-    }
-  }
-}
+```bash
+claude mcp add tradingav https://api.acaquant.com/mcp/ --transport http
 ```
 
-Después de guardar el config, reiniciar Claude Desktop / Code para que
-descubra el server. En la UI de Claude debería aparecer el server
-`tradingav` con sus tools listadas.
+(reemplazar `--transport http` por la flag actual si cambia). El primer
+uso abre browser con CF Access; flujo idéntico.
+
+### claude.ai (web)
+
+Settings → Connectors → Add custom connector → URL =
+`https://api.acaquant.com/mcp/`. Mismo flujo.
 
 ## Cómo usarlo
 
@@ -107,29 +138,30 @@ Una vez conectado, podés pedirle a Claude cosas como:
 
 - "Mostrame las Lecap rankeadas por rolldown esperado a 60 días."
 - "Comparame la curva CER de hoy vs hace 30 días, qué tramo se movió más."
-- "Hay dislocaciones de breakevens vs el último REM publicado?"
-- "¿Qué bonos del Bonar tienen más upside si el rendimiento de mercado de
-  GD30 baja al 8%?"
+- "¿Hay dislocaciones de breakevens vs el último REM publicado?"
 - "Mostrame la chain de calls de Galicia cerca del ATM con sus IV."
 
-Claude llama las tools, agrupa los datos, razona, y te devuelve el insight.
-Todas las llamadas pagan ~50–300 ms (Mongo + cómputo) y pueden estar hasta
-~5 min vieja por el cache TTL del API. Para Q&A casual está bien; para
-timing de orden no.
+Claude llama las tools, agrupa los datos, razona y te devuelve el insight.
+Cada llamada paga ~50–300 ms. Cache TTL de 60–300s en muchos services.
 
-## Smoke test desde el server
-
-El endpoint MCP usa Streamable HTTP. Probar con curl que esté arriba:
+## Smoke test desde el server (static bearer)
 
 ```bash
-TOKEN=$(grep -E '^MCP_BEARER_TOKEN=' /root/TradingAV/.env | cut -d= -f2-)
-
-# Esto debería devolver JSON-RPC initialize response (no 401)
-curl -s -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
-     -H "Accept: application/json, text/event-stream" \
-     -X POST http://localhost:8000/mcp/ \
-     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
+TOKEN=$(grep '^MCP_BEARER_TOKEN=' /root/TradingAV/.env | cut -d= -f2-)
+curl -s -X POST http://localhost:8000/mcp/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
 ```
 
-Sin el header de Authorization devolvería 401.
+## Smoke test del discovery público
+
+Sin auth (debería responder 200 con el JSON de metadata):
+
+```bash
+curl -s https://api.acaquant.com/.well-known/oauth-authorization-server | jq .
+```
+
+Si tira 403 o HTML de CF Access, falta agregar ese path como destino
+Bypass en CF Access.

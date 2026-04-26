@@ -37,7 +37,7 @@ from api.routers import (
     simulaciones,
     titulos,
 )
-from config import MCP_BEARER_TOKEN
+from config import MCP_BEARER_TOKEN, MCP_JWT_SECRET
 from core.mongo import get_mongo_client, get_mongo_client_read
 
 logger = logging.getLogger("api")
@@ -62,9 +62,10 @@ async def lifespan(_app: FastAPI):
 
     sampler_task = asyncio.create_task(manager_resources.resources_sampler_loop(interval_s=60))
 
-    # Si MCP está configurado, levantamos su session manager dentro del
-    # mismo lifespan. Sin token configurado, no se monta y se saltea.
-    if MCP_BEARER_TOKEN:
+    # Si MCP está configurado (con token estático o JWT secret), levantamos
+    # su session manager dentro del mismo lifespan. Si nada está
+    # configurado, no se monta y se saltea.
+    if MCP_BEARER_TOKEN or MCP_JWT_SECRET:
         from api.mcp.server import mcp as mcp_server
         async with mcp_server.session_manager.run():
             try:
@@ -150,16 +151,29 @@ def health():
     return {"status": "ok"}
 
 
-# ── MCP server (sub-app en /mcp con bearer auth propio) ──
-# Se monta solo si MCP_BEARER_TOKEN está configurado. Auth con
-# middleware bearer separado del API_KEY del resto del API.
-if MCP_BEARER_TOKEN:
+# ── MCP server (sub-app en /mcp + OAuth + discovery) ──
+# Se monta si hay MCP_BEARER_TOKEN (static) o MCP_JWT_SECRET (OAuth).
+# - /mcp/*                                  → MCP Streamable HTTP, gated por middleware bearer.
+# - /oauth/{authorize,token,register}       → OAuth provider (solo si MCP_JWT_SECRET).
+# - /.well-known/oauth-{authorization-server,protected-resource}
+#                                           → discovery público (solo si MCP_JWT_SECRET).
+if MCP_BEARER_TOKEN or MCP_JWT_SECRET:
     from api.mcp.auth import MCPBearerMiddleware
     from api.mcp.server import mcp as _mcp
 
     _mcp_app = _mcp.streamable_http_app()
     _mcp_app.add_middleware(MCPBearerMiddleware)
     app.mount("/mcp", _mcp_app)
-    logger.info("MCP montado en /mcp (Streamable HTTP, bearer auth)")
+
+    if MCP_JWT_SECRET:
+        from api.mcp import discovery as _mcp_discovery
+        from api.mcp import oauth as _mcp_oauth
+        # Sin gate del API_KEY: estos endpoints definen su propia auth (CF
+        # Access + DCR + PKCE). El _PUBLIC bearer del API_KEY no aplica.
+        app.include_router(_mcp_discovery.router)
+        app.include_router(_mcp_oauth.router)
+        logger.info("MCP montado en /mcp + OAuth + discovery (JWT)")
+    else:
+        logger.info("MCP montado en /mcp (solo static bearer; sin OAuth)")
 else:
-    logger.info("MCP_BEARER_TOKEN no configurado — /mcp deshabilitado")
+    logger.info("MCP no configurado — /mcp deshabilitado")

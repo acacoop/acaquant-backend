@@ -23,6 +23,7 @@ from api.services.simulaciones import (
     crear_simulacion,
     eliminar_simulacion,
     listar_simulaciones,
+    listar_tickers_disponibles,
     obtener_simulacion,
 )
 
@@ -44,6 +45,22 @@ def crear(
     """Crea una nueva simulación con nombre + posiciones iniciales (puede
     venir vacío si el usuario quiere empezar a cargar tickers después)."""
     return crear_simulacion(email, data)
+
+
+# Rutas ESTÁTICAS antes que las dinámicas (`/{simulacion_id}`) para que
+# FastAPI no las confunda con un id inválido.
+
+
+@router.get("/tickers")
+def tickers(_email: str = Depends(get_user_email)) -> list[dict[str, Any]]:
+    """Universo de tickers disponibles para el autocomplete del frontend.
+
+    Lista plana de Valuaciones.Assets enriquecida con curva/tipo desde
+    Trading.Curvas cuando existe (no todos los tickers tienen entrada en
+    Curvas, ej. FCI). Sin filtro por usuario — el universo es público
+    dentro de la mesa.
+    """
+    return listar_tickers_disponibles()
 
 
 @router.get("/{simulacion_id}", response_model=Simulacion)

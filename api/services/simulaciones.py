@@ -118,6 +118,51 @@ def listar_simulaciones(user_email: str) -> list[Simulacion]:
     return [_doc_to_model(d) for d in docs]
 
 
+def listar_tickers_disponibles() -> list[dict[str, Any]]:
+    """Universo de tickers para el autocomplete del frontend.
+
+    Une `Valuaciones.Assets` con `Trading.Curvas` (por TICKER == ticker_corto)
+    para enriquecer cada ticker con curva + tipo cuando existen. Solo devuelve
+    docs con TICKER no vacío. Sin filtro por usuario (el universo es público
+    dentro de la mesa).
+    """
+    db_v = get_db_valuaciones()
+    db_t = get_db_trading()
+
+    # Curvas: ticker_corto → metadata
+    curvas_map: dict[str, dict] = {}
+    for c in db_t["Curvas"].find(
+        {}, {"_id": 0, "ticker_corto": 1, "tipo": 1, "curva": 1, "fecha_vencimiento": 1},
+    ):
+        ck = c.get("ticker_corto")
+        if ck:
+            curvas_map[ck] = c
+
+    out: list[dict[str, Any]] = []
+    for a in db_v["Assets"].find(
+        {"TICKER": {"$ne": ""}},
+        {"_id": 0, "TICKER": 1, "clase_activo": 1, "emisor": 1,
+         "vencimiento": 1, "calificacion": 1, "cartera": 1},
+    ):
+        ticker = a.get("TICKER")
+        if not ticker:
+            continue
+        c = curvas_map.get(ticker, {})
+        vto = a.get("vencimiento") or c.get("fecha_vencimiento")
+        out.append({
+            "ticker":       ticker,
+            "clase_activo": a.get("clase_activo"),
+            "emisor":       a.get("emisor"),
+            "calificacion": a.get("calificacion"),
+            "cartera":      a.get("cartera"),
+            "tipo":         c.get("tipo"),
+            "curva":        c.get("curva"),
+            "vencimiento":  str(vto)[:10] if vto else None,
+        })
+    out.sort(key=lambda x: x["ticker"])
+    return out
+
+
 def crear_simulacion(user_email: str, data: SimulacionCreate) -> Simulacion:
     """Crea una nueva simulación. `creado` y `actualizado` se setean al ahora."""
     ahora = datetime.now(UTC)

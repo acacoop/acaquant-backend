@@ -126,10 +126,15 @@ def get_historico_trades(instrumento: str | None = None) -> list:
 
 
 @cached(ttl=30)
-def _bonos_cer_fijados(db) -> set[str]:
+def _bonos_cer_fijados() -> set[str]:
     """Tickers de bonos CER cuyo CER de liquidación del VTO ya fue publicado
     por el BCRA → efectivamente tasa fija desde ya. Se recalcula por request
     (barato: 1 query CER + 1 query DiasHabiles + loop chico).
+
+    El `db` se resuelve adentro (no como arg) porque el decorador
+    `@cached` solo acepta kwargs hashables — pasar el handle de Mongo
+    como posicional dispara `takes 0 positional arguments but 1 was given`
+    y rompe todo `listar_curva(curva ∈ {cer, tasa_fija})`.
 
     Fallback: si la función falla por cualquier motivo (Mongo down, dato
     faltante, comparación de tipos), devuelve set vacío y logea. Así
@@ -140,6 +145,7 @@ def _bonos_cer_fijados(db) -> set[str]:
     from engines.curvas import fecha_cer_liquidacion
 
     try:
+        db = get_db_trading()
         cer_max_doc = db["CER"].find_one({}, sort=[("fecha", -1)], projection={"fecha": 1})
         if not cer_max_doc:
             return set()
@@ -195,7 +201,7 @@ def listar_curva(
     db = get_db_trading()
 
     # Reasignación CER ↔ tasa_fija.
-    fijados_tickers = _bonos_cer_fijados(db) if curva in ("cer", "tasa_fija") else set()
+    fijados_tickers = _bonos_cer_fijados() if curva in ("cer", "tasa_fija") else set()
 
     if curva == "cer":
         # Solo CER todavía variable (excluye los que ya quedaron fijados).

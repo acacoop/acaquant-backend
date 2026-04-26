@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from api.services import analitica as svc_ana
 from api.services import canje as svc_canje
 from api.services import carry_trade as svc_carry
+from api.services import descomposicion_retorno as svc_desc
 from api.services import macro as svc_macro
 from api.services import opciones as svc_opc
 from api.services import renta_fija as svc_rf
@@ -172,6 +173,40 @@ class _EstrategiaHistoricoReq(BaseModel):
     bucket_min: int = Field(15, ge=1, le=240)
     desde: str | None = None
     hasta: str | None = None
+
+
+@router.get("/descomposicion-retorno")
+def descomposicion_retorno(
+    desde: str = Query(..., description="YYYY-MM-DD (snapshot inicial)"),
+    hasta: str = Query(..., description="YYYY-MM-DD (snapshot final, > desde)"),
+    metodo: str = Query("lineal", description="lineal | cuadratica (interpolación de curva)"),
+):
+    """Atribución ex-post para Lecap/Boncap entre dos fechas.
+
+    Descompone el retorno total de cada bono en 3 componentes puros: carry
+    (paso del tiempo), rolldown (rolling sin que se mueva la curva) y
+    cambio_tasa (residuo, lo que el mercado movió). Cada uno en %.
+
+    Carry y descomposición usan la forma exacta del PDF (composición
+    exponencial), no la linealización. Rolldown se calcula revaluando el
+    bono al plazo final con la curva inicial — captura convexidad implícita
+    sin asumir aproximación lineal `D × Δy`.
+    """
+    return svc_desc.descomposicion_realizada(desde=desde, hasta=hasta, metodo=metodo)
+
+
+@router.get("/rolldown-esperado")
+def rolldown_esperado(
+    horizonte_dias: int = Query(30, ge=1, le=365, description="Horizonte de proyección en días"),
+    metodo: str = Query("lineal", description="lineal | cuadratica"),
+):
+    """Atribución prospectiva: por Lecap/Boncap, retorno esperado a horizonte
+    si la curva no se mueve.
+
+    total_esperado = carry_esperado + rolldown_esperado. Útil para rankear
+    qué Lecap comprar bajo escenario de curva quieta.
+    """
+    return svc_desc.rolldown_esperado(horizonte_dias=horizonte_dias, metodo=metodo)
 
 
 @router.post("/estrategia-historico")

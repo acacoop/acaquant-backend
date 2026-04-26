@@ -263,18 +263,42 @@ class ClaudeProvider(LLMProvider):
 
         text_parts = []
         tool_calls = []
+        # Dedup defensivo: Claude ocasionalmente emite dos tool_use blocks con
+        # el mismo `id` dentro del mismo assistant_message (bug del modelo,
+        # raro pero ocurre). Si lo dejamos pasar, el siguiente request al API
+        # falla con "messages.X.content.Y: tool_use ids must be unique" y se
+        # cae todo el flow. Nos quedamos con el primer block por ID y
+        # descartamos los demás. tool_calls y assistant_msg.content quedan
+        # consistentes.
+        seen_tool_ids: set[str] = set()
+        deduped_blocks: list[dict[str, Any]] = []
         for block in content_blocks:
             t = block.get("type")
             if t == "text":
                 text_parts.append(block.get("text", ""))
+                deduped_blocks.append(block)
             elif t == "tool_use":
+                bid = block.get("id", "")
+                if bid and bid in seen_tool_ids:
+                    logger.warning(
+                        "claude emitió tool_use con id duplicado: id=%s name=%s — descartando",
+                        bid, block.get("name", ""),
+                    )
+                    continue
+                if bid:
+                    seen_tool_ids.add(bid)
                 tool_calls.append(ToolCallRequest(
-                    id=block.get("id", ""),
+                    id=bid,
                     name=block.get("name", ""),
                     args=block.get("input", {}) or {},
                 ))
+                deduped_blocks.append(block)
+            else:
+                # Cualquier otro tipo de block (thinking, etc.) lo preservamos
+                # tal cual para no romper conversaciones con extended thinking.
+                deduped_blocks.append(block)
 
-        assistant_msg = {"role": "assistant", "content": content_blocks}
+        assistant_msg = {"role": "assistant", "content": deduped_blocks}
 
         return LLMResponse(
             text="\n".join([t for t in text_parts if t]).strip(),

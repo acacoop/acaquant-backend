@@ -61,15 +61,45 @@ def _as_float(v: Any) -> float | None:
 
 
 def _check_paridad(data: Any) -> list[str]:
-    """Paridad (%) debería estar entre 0 y 150 para bonos argentinos. Fuera de
-    ese rango huele a bug de cálculo (ej. CER no normalizado, división por cero)."""
+    """Paridad (%) en rango "normal" [10, 130] para bonos argentinos. Fuera de
+    eso = posible dato roto (CER no normalizado, división por cero, etc.) o
+    bono en distress real (paridad < 10) que la mesa querría flaggear igual.
+
+    Bounds anteriores [0, 150] eran demasiado laxos: un bono con paridad 145
+    (dato roto) y uno con paridad 25 (distress real) entraban ambos como OK.
+    """
     out: list[str] = []
     for item in _iter_items(data):
         p = _as_float(item.get("paridad"))
         if p is None:
             continue
-        if not (0 <= p <= 150):
-            out.append(f"paridad={p:.2f}% fuera de [0,150] en {_label(item)}")
+        if not (10 <= p <= 130):
+            out.append(
+                f"paridad={p:.2f}% fuera de rango típico [10,130] en {_label(item)} "
+                f"— posible dato roto o bono en distress"
+            )
+    return out
+
+
+def _check_tem_tea_razonables(data: Any) -> list[str]:
+    """TEM/TEA fuera de rango sensato para Argentina actual.
+
+    Bounds amplios pensados para no generar falsos positivos en bonos en
+    distress o CER con TEA real negativa, pero detectar bugs de cálculo
+    evidentes:
+      - TEM: [0, 50] %. Negativa o > 50% mensual = casi seguro bug.
+      - TEA: [-50, 200] %. Permite TEAs reales negativas en CER bajo
+        circunstancias atípicas, pero > 200% TNA es absurdo para cualquier
+        escenario AR razonable.
+    """
+    out: list[str] = []
+    for item in _iter_items(data):
+        tem = _as_float(item.get("TEM"))
+        if tem is not None and not (0 <= tem <= 50):
+            out.append(f"TEM={tem:.2f}% fuera de rango razonable [0,50] en {_label(item)}")
+        tea = _as_float(item.get("TEA"))
+        if tea is not None and not (-50 <= tea <= 200):
+            out.append(f"TEA={tea:.2f}% fuera de rango razonable [-50,200] en {_label(item)}")
     return out
 
 
@@ -162,6 +192,7 @@ def _check_residual_monotonico(data: Any) -> list[str]:
 
 CHECKS = [
     _check_paridad,
+    _check_tem_tea_razonables,
     _check_amortizaciones_suman_100,
     _check_duration_positiva,
     _check_convexity_no_negativa,

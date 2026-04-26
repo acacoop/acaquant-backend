@@ -200,4 +200,155 @@ def chat(
 
     _log_interaccion(req, result, user_email, conversation_id)
     result["conversation_id"] = conversation_id
-    return ChatResponse(**result)
+    # ChatResponse no conoce los nuevos campos del flow estructurado — los
+    # filtramos para no romper la validación.
+    response_fields = set(ChatResponse.model_fields.keys())
+    return ChatResponse(**{k: v for k, v in result.items() if k in response_fields})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Flow estructurado: Recomendar cartera
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# A diferencia de POST /api/chat (chat libre), acá el usuario llena un
+# formulario tipado en el frontend, el backend construye el user message
+# determinístico y fuerza al modelo a responder vía la tool `responder_cartera`.
+# Garantiza output con shape fijo (tesis + cartera + que_invalida + alertas).
+# Ver api/agent/structured/cartera.py para el schema y la lógica.
+
+from api.agent.structured import CarteraRequest, run_cartera_flow  # noqa: E402
+
+
+class CarteraResponse(BaseModel):
+    """Response del flow estructurado de cartera. `data` es None si el
+    modelo no produjo output estructurado válido (ej. truncado por max_steps
+    o falló alguna parte crítica)."""
+
+    data: dict[str, Any] | None  # los args de responder_cartera tal cual
+    tool_calls: list[dict[str, Any]]
+    usage: dict[str, Any]
+    steps: int
+    elapsed_s: float
+    truncated: bool = False
+    model_used: str = ""
+    pesos_ok: bool = True   # si la suma de peso_pct dio 100 (±0.5)
+    pesos_suma: float = 0.0
+    error: str | None = None  # si data es None, qué falló
+
+
+def _log_structured_cartera(
+    req: CarteraRequest,
+    resp: dict[str, Any] | None,
+    user_email: str,
+    error: dict[str, Any] | None = None,
+) -> None:
+    """Log dedicado para el flow de cartera. Usa `tipo: structured_cartera`
+    en Manager.AsistenteLogs para poder filtrar en el dashboard separado del
+    chat libre."""
+    try:
+        doc: dict[str, Any] = {
+            "ts": datetime.now(UTC),
+            "user": user_email or "anon",
+            "tipo": "structured_cartera",
+            "metadata": req.model_dump(),
+            "estado": "error" if error else ("truncated" if resp and resp.get("truncated") else "ok"),
+        }
+        if resp:
+            doc.update({
+                "structured_output": resp.get("structured_output"),
+                "tool_calls": resp.get("tool_calls", []),
+                "usage": resp.get("usage", {}),
+                "steps": resp.get("steps", 0),
+                "elapsed_s": resp.get("elapsed_s", 0),
+                "truncated": resp.get("truncated", False),
+                "model_used": resp.get("model_used", ""),
+                "pesos_ok": resp.get("pesos_ok", True),
+                "pesos_suma": resp.get("pesos_suma", 0),
+            })
+        if error:
+            doc["error"] = error
+        get_mongo_client()["Manager"]["AsistenteLogs"].insert_one(doc)
+    except Exception:
+        logger.exception("no se pudo loggear cartera structured")
+
+
+@router.post("/structured/cartera", response_model=CarteraResponse)
+@limiter.limit("10/minute;200/day")
+def chat_structured_cartera(
+    request: Request,  # requerido por slowapi
+    req: CarteraRequest,
+) -> CarteraResponse:
+    """Construye una cartera recomendada según los params del formulario.
+
+    El frontend valida los enums vía OpenAPI; acá Pydantic re-valida.
+    Output: el args de la tool `responder_cartera` que el modelo emite,
+    más metadata de ejecución (tools, usage, latencia).
+    """
+    user_email = get_user_email(
+        cf_jwt=request.headers.get("cf-access-jwt-assertion"),
+        cf_email=request.headers.get("cf-access-authenticated-user-email"),
+    )
+
+    if LLM_PROVIDER == "claude" and not ANTHROPIC_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="ANTHROPIC_API_KEY no configurada.",
+        )
+
+    try:
+        result = run_cartera_flow(req)
+    except LLMRateLimitError as e:
+        logger.warning("rate limit cartera: %s", e)
+        _log_structured_cartera(req, None, user_email, error={"code": "rate_limit", "message": str(e)[:300]})
+        raise HTTPException(
+            status_code=429,
+            detail={"code": "rate_limit", "message": str(e), "retryable": True, "retry_after_s": 60},
+        ) from e
+    except LLMTransportError as e:
+        logger.warning("transport cartera: %s", e)
+        _log_structured_cartera(req, None, user_email, error={"code": "transport", "message": str(e)[:300]})
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "transport", "message": "No pude conectar con el modelo.", "retryable": True},
+        ) from e
+    except LLMError as e:
+        logger.exception("LLMError cartera")
+        _log_structured_cartera(req, None, user_email, error={"code": "llm_error", "message": str(e)[:300]})
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "llm_error", "message": "Error del modelo.", "retryable": True},
+        ) from e
+    except Exception as e:
+        logger.exception("error inesperado cartera")
+        _log_structured_cartera(req, None, user_email, error={"code": "internal", "message": str(e)[:300]})
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "internal", "message": "Error interno.", "retryable": False},
+        ) from e
+
+    _log_structured_cartera(req, result, user_email)
+
+    structured = result.get("structured_output") or {}
+    args = structured.get("args") if structured.get("name") == "responder_cartera" else None
+    error_msg = None
+    if args is None:
+        # El modelo no llamó la tool — caso raro porque la forzamos en el
+        # último step, pero podría pasar si truncated o si el modelo solo
+        # llamó tools de data y nunca cerró.
+        error_msg = (
+            "El modelo no produjo cartera estructurada. "
+            "Probá con otros parámetros o reintentá."
+        )
+
+    return CarteraResponse(
+        data=args,
+        tool_calls=result.get("tool_calls", []),
+        usage=result.get("usage", {}),
+        steps=result.get("steps", 0),
+        elapsed_s=result.get("elapsed_s", 0),
+        truncated=result.get("truncated", False),
+        model_used=result.get("model_used", ""),
+        pesos_ok=result.get("pesos_ok", True),
+        pesos_suma=result.get("pesos_suma", 0),
+        error=error_msg,
+    )

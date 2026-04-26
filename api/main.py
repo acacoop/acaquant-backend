@@ -37,6 +37,7 @@ from api.routers import (
     simulaciones,
     titulos,
 )
+from config import MCP_BEARER_TOKEN
 from core.mongo import get_mongo_client, get_mongo_client_read
 
 logger = logging.getLogger("api")
@@ -60,14 +61,29 @@ async def lifespan(_app: FastAPI):
             logger.warning("Mongo pool warmup falló (%s): %s", nombre, e)
 
     sampler_task = asyncio.create_task(manager_resources.resources_sampler_loop(interval_s=60))
-    try:
-        yield
-    finally:
-        sampler_task.cancel()
+
+    # Si MCP está configurado, levantamos su session manager dentro del
+    # mismo lifespan. Sin token configurado, no se monta y se saltea.
+    if MCP_BEARER_TOKEN:
+        from api.mcp.server import mcp as mcp_server
+        async with mcp_server.session_manager.run():
+            try:
+                yield
+            finally:
+                sampler_task.cancel()
+                try:
+                    await sampler_task
+                except asyncio.CancelledError:
+                    pass
+    else:
         try:
-            await sampler_task
-        except asyncio.CancelledError:
-            pass
+            yield
+        finally:
+            sampler_task.cancel()
+            try:
+                await sampler_task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="TradingAV API", version="0.1.0", lifespan=lifespan)
@@ -132,3 +148,18 @@ app.include_router(manager_resources.router, dependencies=_MANAGER)
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# ── MCP server (sub-app en /mcp con bearer auth propio) ──
+# Se monta solo si MCP_BEARER_TOKEN está configurado. Auth con
+# middleware bearer separado del API_KEY del resto del API.
+if MCP_BEARER_TOKEN:
+    from api.mcp.auth import MCPBearerMiddleware
+    from api.mcp.server import mcp as _mcp
+
+    _mcp_app = _mcp.streamable_http_app()
+    _mcp_app.add_middleware(MCPBearerMiddleware)
+    app.mount("/mcp", _mcp_app)
+    logger.info("MCP montado en /mcp (Streamable HTTP, bearer auth)")
+else:
+    logger.info("MCP_BEARER_TOKEN no configurado — /mcp deshabilitado")

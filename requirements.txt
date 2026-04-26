@@ -20,6 +20,7 @@ psutil            # métricas de sistema (CPU/RAM/swap) para /manager/resources
 slowapi           # rate-limit por usuario en /api/chat y /manager/jobs/run
 pyjwt[crypto]     # validación de JWT de Cloudflare Access
 email-validator   # requerido por pydantic.EmailStr en /api/manager/users
+mcp               # Model Context Protocol — server expuesto en /mcp para Claude Desktop/Code
 
 # dev
 ruff

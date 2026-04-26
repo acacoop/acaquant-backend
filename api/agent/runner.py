@@ -235,6 +235,31 @@ def run_conversation(
             else None
         )
 
+        # DEBUG temporal: dump del shape de messages antes de cada generate.
+        # Sirve para diagnosticar errores 400 de Anthropic del estilo
+        # "tool_use ids were found without tool_result blocks". Quitar cuando
+        # se confirme que el flow estructurado de cartera cierra estable.
+        if logger.isEnabledFor(logging.INFO):
+            shape = []
+            for i, m in enumerate(messages):
+                content = m.get("content")
+                if isinstance(content, str):
+                    shape.append(f"[{i}]{m.get('role')}=text({len(content)})")
+                elif isinstance(content, list):
+                    parts = []
+                    for b in content:
+                        t = b.get("type")
+                        if t == "tool_use":
+                            parts.append(f"use:{b.get('id', '?')[-8:]}")
+                        elif t == "tool_result":
+                            parts.append(f"res:{b.get('tool_use_id', '?')[-8:]}")
+                        elif t == "text":
+                            parts.append("txt")
+                        else:
+                            parts.append(t or "?")
+                    shape.append(f"[{i}]{m.get('role')}={parts}")
+            logger.info("runner step=%d shape=%s", step, shape)
+
         try:
             resp: LLMResponse = provider.generate(
                 messages=messages,

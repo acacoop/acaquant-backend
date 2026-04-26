@@ -493,37 +493,59 @@ def _composicion_por(items: list[dict], campo: str, monto_total: float) -> list[
     return salida
 
 
+def _stats_de_grupo(items: list[dict], cashflows_por_pos: dict[str, list[dict]]) -> dict[str, Any]:
+    """Stats de UN grupo (cartera): cashflows agregados + composición + métricas
+    ponderadas. Asume que todos los items son comparables (misma moneda /
+    misma cartera) — ponderar TEA o duration entre carteras distintas (ej.
+    pesos vs USD) no tiene sentido."""
+    monto_total = sum(it["importe"] for it in items)
+    cashflows_acumulados: dict[str, float] = defaultdict(float)
+    for it in items:
+        for cf in cashflows_por_pos.get(it["ticker_corto"], []):
+            cashflows_acumulados[cf["fecha"][:7]] += cf["monto"]
+
+    return {
+        "monto_total":      round(monto_total, 2),
+        "posiciones":       items,
+        "cashflows": [
+            {"mes": mes, "monto": round(monto, 2)}
+            for mes, monto in sorted(cashflows_acumulados.items())
+        ],
+        "composicion": {
+            "por_curva":        _composicion_por(items, "curva", monto_total),
+            "por_clase_activo": _composicion_por(items, "clase_activo", monto_total),
+            "por_emisor":       _composicion_por(items, "emisor", monto_total),
+        },
+        "metricas": {
+            "duration_ponderada": _ponderar(items, "duration"),
+            "tea_ponderada":      _ponderar(items, "tea"),
+        },
+    }
+
+
 def calcular(posiciones: list[Posicion]) -> dict[str, Any]:
-    """Pipeline completo: enriquece, calcula cashflows + composición + métricas.
+    """Pipeline completo: enriquece, agrupa por cartera, calcula stats por grupo.
+
+    NO mezcla activos de carteras distintas (ej. "CARTERA ARS" vs "CARTERA
+    HARD DOLAR"): ponderar TEA/duration entre monedas distintas no tiene
+    sentido financiero, sumar montos tampoco. Cada cartera devuelve su
+    propio bloque de stats independiente.
 
     Devuelve dict con:
-      - posiciones_enriquecidas: cada posición con datos de mercado y derivados.
-      - cashflows: timeline mes a mes [{mes: 'YYYY-MM', monto: X}].
-      - composicion: dict con {por_curva, por_clase_activo, por_emisor, por_moneda}.
-      - metricas: dict con duration / TEA / paridad ponderadas + monto_total.
-      - alertas: lista de strings con problemas detectados (ticker desconocido,
-        sin precio, etc) — la UI los muestra junto a la cartera.
+      - grupos: lista [{cartera, monto_total, posiciones, cashflows,
+        composicion, metricas}], ordenados por monto desc.
+      - alertas: warnings (ticker desconocido, sin precio, fuzzy match)
+        que aplican transversalmente — se muestran arriba de los grupos.
     """
     if not posiciones:
-        return {
-            "posiciones_enriquecidas": [],
-            "cashflows": [],
-            "composicion": {"por_curva": [], "por_clase_activo": [], "por_emisor": [], "por_moneda": []},
-            "metricas": {
-                "monto_total": 0,
-                "duration_ponderada": None,
-                "tea_ponderada": None,
-                "paridad_ponderada": None,
-            },
-            "alertas": [],
-        }
+        return {"grupos": [], "alertas": []}
 
     tickers = [p.ticker for p in posiciones]
     enriq = _enriquecer_lote(tickers)
     ahora = datetime.now(UTC)
 
     items: list[dict] = []
-    cashflows_acumulados: dict[str, float] = defaultdict(float)
+    cashflows_por_pos: dict[str, list[dict]] = {}
     alertas: list[str] = []
 
     for pos in posiciones:
@@ -537,6 +559,7 @@ def calcular(posiciones: list[Posicion]) -> dict[str, Any]:
                 "cantidad_nominal": None,
                 "curva": None, "tipo": None, "clase_activo": None,
                 "emisor": None, "calificacion": None, "moneda": None,
+                "cartera": None,
                 "fecha_vencimiento": None,
                 "tea": None, "duration": None, "paridad": None,
             })
@@ -551,13 +574,10 @@ def calcular(posiciones: list[Posicion]) -> dict[str, Any]:
                 f"(soberanos solo cotizan con sufijo D/C en Trading.Curvas)."
             )
 
-        cashflows_pos = (
-            _proyectar_cashflows(meta["curva"], meta["flujos"], cantidad, ahora)
-            if cantidad is not None else []
-        )
-        for cf in cashflows_pos:
-            mes = cf["fecha"][:7]  # YYYY-MM
-            cashflows_acumulados[mes] += cf["monto"]
+        if cantidad is not None:
+            cashflows_por_pos[pos.ticker] = _proyectar_cashflows(
+                meta["curva"], meta["flujos"], cantidad, ahora,
+            )
 
         items.append({
             "ticker_corto":     meta["ticker_corto"],
@@ -571,6 +591,7 @@ def calcular(posiciones: list[Posicion]) -> dict[str, Any]:
             "emisor":           meta["emisor"],
             "calificacion":     meta["calificacion"],
             "moneda":           _moneda_de(meta["curva"], meta["cartera"]),
+            "cartera":          meta["cartera"],
             "fecha_vencimiento": (
                 str(meta["fecha_vencimiento"])[:10] if meta["fecha_vencimiento"] else None
             ),
@@ -579,31 +600,18 @@ def calcular(posiciones: list[Posicion]) -> dict[str, Any]:
             "paridad":          meta["paridad"],
         })
 
-    monto_total = sum(it["importe"] for it in items)
+    # Agrupar por `cartera` (campo de Valuaciones.Assets — la fuente de verdad
+    # de qué activos son comparables entre sí). Items sin cartera se agrupan
+    # bajo "(sin clasificar)" para que el usuario los note.
+    grupos_dict: dict[str, list[dict]] = defaultdict(list)
+    for it in items:
+        clave = it.get("cartera") or "(sin clasificar)"
+        grupos_dict[clave].append(it)
 
-    cashflows_timeline = [
-        {"mes": mes, "monto": round(monto, 2)}
-        for mes, monto in sorted(cashflows_acumulados.items())
+    grupos = [
+        {"cartera": clave, **_stats_de_grupo(items_grupo, cashflows_por_pos)}
+        for clave, items_grupo in grupos_dict.items()
     ]
+    grupos.sort(key=lambda g: -g["monto_total"])
 
-    composicion = {
-        "por_curva":        _composicion_por(items, "curva", monto_total),
-        "por_clase_activo": _composicion_por(items, "clase_activo", monto_total),
-        "por_emisor":       _composicion_por(items, "emisor", monto_total),
-        "por_moneda":       _composicion_por(items, "moneda", monto_total),
-    }
-
-    metricas = {
-        "monto_total":         round(monto_total, 2),
-        "duration_ponderada":  _ponderar(items, "duration"),
-        "tea_ponderada":       _ponderar(items, "tea"),
-        "paridad_ponderada":   _ponderar(items, "paridad"),
-    }
-
-    return {
-        "posiciones_enriquecidas": items,
-        "cashflows": cashflows_timeline,
-        "composicion": composicion,
-        "metricas": metricas,
-        "alertas": alertas,
-    }
+    return {"grupos": grupos, "alertas": alertas}

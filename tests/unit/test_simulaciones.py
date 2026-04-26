@@ -307,67 +307,116 @@ def test_composicion_sin_clasificar_para_items_sin_valor():
 
 def test_calcular_vacio_devuelve_estructura_consistente():
     out = svc.calcular([])
-    assert out["posiciones_enriquecidas"] == []
-    assert out["cashflows"] == []
-    assert out["metricas"]["monto_total"] == 0
-    assert out["alertas"] == []
+    assert out == {"grupos": [], "alertas": []}
 
 
 def test_calcular_marca_alerta_si_ticker_desconocido(monkeypatch):
     monkeypatch.setattr(svc, "_enriquecer_lote", lambda tk: {})
     out = svc.calcular([Posicion(ticker="FAKE", importe=100)])
     assert any("FAKE" in a for a in out["alertas"])
-    assert out["posiciones_enriquecidas"][0]["precio"] is None
+    # Cae al grupo "(sin clasificar)" porque no hay cartera resuelta.
+    assert len(out["grupos"]) == 1
+    assert out["grupos"][0]["cartera"] == "(sin clasificar)"
+    assert out["grupos"][0]["posiciones"][0]["precio"] is None
 
 
-def test_calcular_pipeline_end_to_end_un_bono(monkeypatch):
-    """Path completo con un solo bono CER mockeado, verificando shape de salida."""
-    fake_meta = {
-        "TZX26": {
-            "ticker_corto":     "TZX26",
-            "ticker_largo":     "MERV - XMEV - TZX26 - 24hs",
-            "tipo":             "cer",
-            "curva":            "cer",
-            "fecha_emision":    "2024-06-30",
-            "fecha_vencimiento": "2099-06-30",  # futuro lejano para no filtrar flujos
-            "valor_nominal":    100,
-            "flujos": [{
-                "fecha": "2099-06-30",
-                "amortizacion_pct": 100.0,
-                "cupon_sobre_residual": 5.0,
-            }],
-            "cer_emision":      100.0,
-            "precio":           90.0,
-            "tea":              0.30,
-            "tem":              0.022,
-            "paridad":          95.0,
-            "duration":         1.5,
-            "ts_precio":        datetime(2026, 4, 26, tzinfo=UTC),
-            "clase_activo":     "Títulos Públicos",
-            "calificacion":     "CCC+",
-            "emisor":           "TESORO",
-            "cartera":          "CARTERA ARS",
-            "unidad":           "[9240] TZX26",
-        }
+def _meta_bono(**overrides):
+    """Helper para armar metadata mock de un bono enriquecido."""
+    base = {
+        "ticker_corto":     "TZX26",
+        "ticker_largo":     "MERV - XMEV - TZX26 - 24hs",
+        "alias_de":         None,
+        "tipo":             "cer",
+        "curva":            "cer",
+        "fecha_emision":    "2024-06-30",
+        "fecha_vencimiento": "2099-06-30",
+        "valor_nominal":    100,
+        "flujos":           [{
+            "fecha": "2099-06-30",
+            "amortizacion_pct": 100.0,
+            "cupon_sobre_residual": 5.0,
+        }],
+        "cer_emision":      100.0,
+        "precio":           90.0,
+        "tea":              0.30,
+        "tem":              0.022,
+        "paridad":          95.0,
+        "duration":         1.5,
+        "ts_precio":        datetime(2026, 4, 26, tzinfo=UTC),
+        "clase_activo":     "Títulos Públicos",
+        "calificacion":     "CCC+",
+        "emisor":           "TESORO",
+        "cartera":          "CARTERA ARS",
+        "unidad":           "[9240] TZX26",
     }
-    monkeypatch.setattr(svc, "_enriquecer_lote", lambda tk: fake_meta)
+    base.update(overrides)
+    return base
+
+
+def test_calcular_un_bono_un_grupo(monkeypatch):
+    """Path completo con un solo bono CER en CARTERA ARS."""
+    monkeypatch.setattr(svc, "_enriquecer_lote", lambda tk: {"TZX26": _meta_bono()})
 
     out = svc.calcular([Posicion(ticker="TZX26", importe=900_000)])
 
-    pos = out["posiciones_enriquecidas"][0]
-    # 900k / (90/100) = 1M VN
-    assert pos["cantidad_nominal"] == 1_000_000
-    assert pos["moneda"] == "ARS"
-    assert pos["emisor"] == "TESORO"
-
+    assert len(out["grupos"]) == 1
+    g = out["grupos"][0]
+    assert g["cartera"] == "CARTERA ARS"
+    assert g["monto_total"] == 900_000
+    assert g["metricas"]["tea_ponderada"] == 0.30
+    assert g["metricas"]["duration_ponderada"] == 1.5
     # Cashflow único: ratio 10000 × (100 + 5) = 1_050_000
-    assert out["cashflows"] == [{"mes": "2099-06", "monto": 1_050_000.0}]
+    assert g["cashflows"] == [{"mes": "2099-06", "monto": 1_050_000.0}]
+    assert g["composicion"]["por_curva"][0]["valor"] == "cer"
+    assert g["composicion"]["por_curva"][0]["pct"] == 100.0
+    # Paridad ya no se devuelve en métricas — la sacamos en una iteración.
+    assert "paridad_ponderada" not in g["metricas"]
 
-    # Métricas ponderadas con un solo bono = el valor del bono
-    assert out["metricas"]["tea_ponderada"] == 0.30
-    assert out["metricas"]["duration_ponderada"] == 1.5
-    assert out["metricas"]["monto_total"] == 900_000
 
-    # Composición 100% CER / Títulos Públicos / TESORO / ARS
-    assert out["composicion"]["por_curva"][0]["valor"] == "cer"
-    assert out["composicion"]["por_curva"][0]["pct"] == 100.0
+def test_calcular_no_mezcla_pesos_con_dolares(monkeypatch):
+    """ARS y USD tienen que quedar en grupos separados — no se ponderan juntos."""
+    bono_ars = _meta_bono(ticker_corto="TZX26", cartera="CARTERA ARS", tea=0.30)
+    bono_usd = _meta_bono(
+        ticker_corto="GD30D",
+        ticker_largo="MERV - XMEV - GD30D - 24hs",
+        cartera="CARTERA HARD DOLAR",
+        curva="soberanos",
+        tipo="globales",
+        tea=0.10,
+        flujos=[],  # simplifico — no nos interesan cashflows acá
+    )
+    monkeypatch.setattr(
+        svc, "_enriquecer_lote",
+        lambda tk: {"TZX26": bono_ars, "GD30D": bono_usd},
+    )
+
+    out = svc.calcular([
+        Posicion(ticker="TZX26", importe=500_000),
+        Posicion(ticker="GD30D", importe=500_000),
+    ])
+
+    carteras = {g["cartera"] for g in out["grupos"]}
+    assert carteras == {"CARTERA ARS", "CARTERA HARD DOLAR"}
+
+    # TEA de cada grupo debe ser SOLO la del bono de ese grupo, no
+    # ponderado con el del otro grupo (que daría 0.20 sin sentido).
+    teas = {g["cartera"]: g["metricas"]["tea_ponderada"] for g in out["grupos"]}
+    assert teas == {"CARTERA ARS": 0.30, "CARTERA HARD DOLAR": 0.10}
+
+    # Cada grupo tiene su propio monto, NO se suman pesos+USD.
+    for g in out["grupos"]:
+        assert g["monto_total"] == 500_000
+
+
+def test_calcular_grupos_ordenan_por_monto_desc(monkeypatch):
+    grande = _meta_bono(ticker_corto="A", cartera="CARTERA GRANDE", flujos=[])
+    chico  = _meta_bono(ticker_corto="B", cartera="CARTERA CHICA", flujos=[])
+    monkeypatch.setattr(
+        svc, "_enriquecer_lote",
+        lambda tk: {"A": grande, "B": chico},
+    )
+    out = svc.calcular([
+        Posicion(ticker="A", importe=800_000),
+        Posicion(ticker="B", importe=200_000),
+    ])
+    assert [g["cartera"] for g in out["grupos"]] == ["CARTERA GRANDE", "CARTERA CHICA"]

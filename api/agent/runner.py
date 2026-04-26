@@ -37,7 +37,7 @@ from api.agent.provider import (
 )
 from api.agent.router import decide_model
 from api.agent.tools import dispatch
-from api.agent.types import LLMResponse, tool_result_message, user_text_message
+from api.agent.types import LLMResponse, tool_results_message, user_text_message
 
 logger = logging.getLogger(__name__)
 
@@ -307,9 +307,14 @@ def run_conversation(
                 "args": tc.args,
                 "ok": bool(result.get("ok", False)),
             })
-            tr_msg = tool_result_message(tc.id, result)
-            messages.append(tr_msg)
-            messages_full.append(tr_msg)
+        # Un solo user message con N bloques tool_result. Mandar N mensajes
+        # separados rompe la API ("tool_use ids were found without tool_result
+        # blocks immediately after") cuando hay tool calls en paralelo.
+        tr_msg = tool_results_message(
+            [(tc.id, result) for tc, result in zip(resp.tool_calls, results, strict=True)]
+        )
+        messages.append(tr_msg)
+        messages_full.append(tr_msg)
 
     # Llegamos al tope sin que el modelo cierre con texto. Devolvemos una
     # respuesta sintética que muestre qué alcanzamos a consultar (en vez del

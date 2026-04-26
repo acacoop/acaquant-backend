@@ -240,15 +240,27 @@ def _log_structured_cartera(
     req: CarteraRequest,
     resp: dict[str, Any] | None,
     user_email: str,
+    conversation_id: str,
     error: dict[str, Any] | None = None,
 ) -> None:
     """Log dedicado para el flow de cartera. Usa `tipo: structured_cartera`
     en Manager.AsistenteLogs para poder filtrar en el dashboard separado del
-    chat libre."""
+    chat libre.
+
+    `conversation_id` y `message` se setean siempre para que el dashboard
+    del manager (que agrupa por conversation_id y muestra `message` como
+    preview) renderice cada request como una conversación propia."""
     try:
+        # Texto descriptivo derivado del request — se usa como preview en el
+        # dashboard. Los flows estructurados son one-shot, no hay free text.
+        msg_preview = (
+            f"[Cartera] {req.perfil} / {req.exposicion} / {req.plazo} / {req.benchmark}"
+        )
         doc: dict[str, Any] = {
             "ts": datetime.now(UTC),
             "user": user_email or "anon",
+            "conversation_id": conversation_id,
+            "message": msg_preview,
             "tipo": "structured_cartera",
             "metadata": req.model_dump(),
             "estado": "error" if error else ("truncated" if resp and resp.get("truncated") else "ok"),
@@ -289,6 +301,12 @@ def chat_structured_cartera(
         cf_email=request.headers.get("cf-access-authenticated-user-email"),
     )
 
+    # Cada request del flow estructurado es one-shot — generamos un
+    # conversation_id propio para que el dashboard del manager agrupe
+    # cada intento como una conversación propia (en vez de caer en el
+    # bucket "(legacy)" por ausencia del campo).
+    conversation_id = uuid.uuid4().hex
+
     if LLM_PROVIDER == "claude" and not ANTHROPIC_API_KEY:
         raise HTTPException(
             status_code=503,
@@ -299,34 +317,34 @@ def chat_structured_cartera(
         result = run_cartera_flow(req)
     except LLMRateLimitError as e:
         logger.warning("rate limit cartera: %s", e)
-        _log_structured_cartera(req, None, user_email, error={"code": "rate_limit", "message": str(e)[:300]})
+        _log_structured_cartera(req, None, user_email, conversation_id, error={"code": "rate_limit", "message": str(e)[:300]})
         raise HTTPException(
             status_code=429,
             detail={"code": "rate_limit", "message": str(e), "retryable": True, "retry_after_s": 60},
         ) from e
     except LLMTransportError as e:
         logger.warning("transport cartera: %s", e)
-        _log_structured_cartera(req, None, user_email, error={"code": "transport", "message": str(e)[:300]})
+        _log_structured_cartera(req, None, user_email, conversation_id, error={"code": "transport", "message": str(e)[:300]})
         raise HTTPException(
             status_code=503,
             detail={"code": "transport", "message": "No pude conectar con el modelo.", "retryable": True},
         ) from e
     except LLMError as e:
         logger.exception("LLMError cartera")
-        _log_structured_cartera(req, None, user_email, error={"code": "llm_error", "message": str(e)[:300]})
+        _log_structured_cartera(req, None, user_email, conversation_id, error={"code": "llm_error", "message": str(e)[:300]})
         raise HTTPException(
             status_code=502,
             detail={"code": "llm_error", "message": "Error del modelo.", "retryable": True},
         ) from e
     except Exception as e:
         logger.exception("error inesperado cartera")
-        _log_structured_cartera(req, None, user_email, error={"code": "internal", "message": str(e)[:300]})
+        _log_structured_cartera(req, None, user_email, conversation_id, error={"code": "internal", "message": str(e)[:300]})
         raise HTTPException(
             status_code=500,
             detail={"code": "internal", "message": "Error interno.", "retryable": False},
         ) from e
 
-    _log_structured_cartera(req, result, user_email)
+    _log_structured_cartera(req, result, user_email, conversation_id)
 
     structured = result.get("structured_output") or {}
     args = structured.get("args") if structured.get("name") == "responder_cartera" else None

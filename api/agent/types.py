@@ -54,14 +54,25 @@ def user_text_message(text: str) -> dict[str, Any]:
 
 def tool_result_message(tool_call_id: str, result: dict[str, Any]) -> dict[str, Any]:
     """Construye un mensaje user con el resultado de una tool call."""
-    content_str = json.dumps(result, ensure_ascii=False, default=_json_default)[:20000]
-    return {
-        "role": "user",
-        "content": [
-            {
-                "type": "tool_result",
-                "tool_use_id": tool_call_id,
-                "content": content_str,
-            }
-        ],
-    }
+    return tool_results_message([(tool_call_id, result)])
+
+
+def tool_results_message(
+    items: list[tuple[str, dict[str, Any]]],
+) -> dict[str, Any]:
+    """Construye UN solo mensaje user con N bloques tool_result.
+
+    Anthropic exige que cuando el assistant_message previo tiene N tool_use,
+    el siguiente user_message contenga los N tool_result en bloques dentro
+    del MISMO mensaje. Mandarlos como N mensajes separados rompe con
+    "tool_use ids were found without tool_result blocks immediately after".
+    """
+    blocks = [
+        {
+            "type": "tool_result",
+            "tool_use_id": tid,
+            "content": json.dumps(result, ensure_ascii=False, default=_json_default)[:20000],
+        }
+        for tid, result in items
+    ]
+    return {"role": "user", "content": blocks}

@@ -91,10 +91,17 @@ def _truncate_for_model(messages: list[dict[str, Any]], max_user_turns: int) -> 
 
     Corta en boundary de mensaje user real para no dejar tool_use huérfanos.
     Si hay menos turnos que el tope, devuelve la lista intacta.
+
+    SIEMPRE devuelve una lista nueva (no la misma referencia). El runner
+    mantiene `messages` y `messages_full` como listas paralelas y appendea
+    a ambas en cada step; si esta función devolviera la misma referencia
+    en el caso "lista corta", ambas variables quedarían apuntando al mismo
+    objeto y cada append duplicaría el mensaje, rompiendo el contrato de
+    Anthropic ("tool_use without tool_result immediately after").
     """
     user_indices = [i for i, m in enumerate(messages) if _is_real_user_message(m)]
     if len(user_indices) <= max_user_turns:
-        return messages
+        return list(messages)
     cut = user_indices[-max_user_turns]
     return messages[cut:]
 
@@ -234,31 +241,6 @@ def run_conversation(
             if (force_tool_name_on_last and is_last_step)
             else None
         )
-
-        # DEBUG temporal: dump del shape de messages antes de cada generate.
-        # Sirve para diagnosticar errores 400 de Anthropic del estilo
-        # "tool_use ids were found without tool_result blocks". Quitar cuando
-        # se confirme que el flow estructurado de cartera cierra estable.
-        if logger.isEnabledFor(logging.INFO):
-            shape = []
-            for i, m in enumerate(messages):
-                content = m.get("content")
-                if isinstance(content, str):
-                    shape.append(f"[{i}]{m.get('role')}=text({len(content)})")
-                elif isinstance(content, list):
-                    parts = []
-                    for b in content:
-                        t = b.get("type")
-                        if t == "tool_use":
-                            parts.append(f"use:{b.get('id', '?')[-8:]}")
-                        elif t == "tool_result":
-                            parts.append(f"res:{b.get('tool_use_id', '?')[-8:]}")
-                        elif t == "text":
-                            parts.append("txt")
-                        else:
-                            parts.append(t or "?")
-                    shape.append(f"[{i}]{m.get('role')}={parts}")
-            logger.info("runner step=%d shape=%s", step, shape)
 
         try:
             resp: LLMResponse = provider.generate(

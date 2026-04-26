@@ -29,7 +29,10 @@ from api.services import sensibilidad as svc_sens
 
 # Stateless HTTP: cada request se procesa independiente, sin sesión
 # persistente — más simple y compatible con load balancers.
-mcp = FastMCP(name="TradingAV", stateless_http=True)
+# streamable_http_path="/": que el transporte quede en el ROOT del sub-app.
+# Si dejamos el default ("/mcp"), al hacer app.mount("/mcp", sub_app) la
+# URL real termina en /mcp/mcp/ y no responde a /mcp/.
+mcp = FastMCP(name="TradingAV", stateless_http=True, streamable_http_path="/")
 
 
 # ─────────────────────────────────────────────────────────────────

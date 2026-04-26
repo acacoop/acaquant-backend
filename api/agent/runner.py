@@ -44,6 +44,11 @@ logger = logging.getLogger(__name__)
 # Tope de turnos encadenados. Controla costo ante loops de tool-use.
 MAX_STEPS = 6
 
+# Tope de turnos de USUARIO que se mandan al modelo. El frontend sigue viendo
+# la conversación entera; sólo se trunca lo que va a la API para evitar que
+# los tokens crezcan O(N) con la longitud de la conversación.
+MAX_USER_TURNS_TO_MODEL = 6
+
 
 def _is_legacy_gemini_history(history: list[dict[str, Any]] | None) -> bool:
     if not history:
@@ -57,6 +62,33 @@ def _sanitize_history(history: list[dict[str, Any]] | None) -> list[dict[str, An
         logger.info("history legacy (Gemini) detectado — descartando")
         return []
     return [m for m in (history or []) if isinstance(m, dict) and "role" in m]
+
+
+def _is_real_user_message(msg: dict[str, Any]) -> bool:
+    """True si el mensaje es texto del usuario (no un tool_result devuelto al modelo)."""
+    if msg.get("role") != "user":
+        return False
+    content = msg.get("content")
+    if isinstance(content, str):
+        return True
+    if isinstance(content, list):
+        return not any(
+            isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+        )
+    return False
+
+
+def _truncate_for_model(messages: list[dict[str, Any]], max_user_turns: int) -> list[dict[str, Any]]:
+    """Devuelve los últimos `max_user_turns` turnos (y todo lo encadenado).
+
+    Corta en boundary de mensaje user real para no dejar tool_use huérfanos.
+    Si hay menos turnos que el tope, devuelve la lista intacta.
+    """
+    user_indices = [i for i, m in enumerate(messages) if _is_real_user_message(m)]
+    if len(user_indices) <= max_user_turns:
+        return messages
+    cut = user_indices[-max_user_turns]
+    return messages[cut:]
 
 
 def run_conversation(
@@ -92,9 +124,21 @@ def run_conversation(
         provider = get_provider(model_alias)
     model_used = getattr(provider, "alias", getattr(provider, "model", "unknown"))
 
-    # Mensajes canónicos
-    messages: list[dict[str, Any]] = _sanitize_history(history)
-    messages.append(user_text_message(user_message))
+    # Dos listas:
+    # - messages_full: el history que se devuelve al frontend para persistir
+    #   y mostrar (el usuario sigue viendo la conversación entera).
+    # - messages: lo que se envía al modelo en cada turn, truncado a los
+    #   últimos N turnos de usuario para evitar que los tokens crezcan O(N).
+    # Ambas crecen en paralelo dentro del loop.
+    messages_full: list[dict[str, Any]] = _sanitize_history(history)
+    messages_full.append(user_text_message(user_message))
+
+    messages: list[dict[str, Any]] = _truncate_for_model(messages_full, MAX_USER_TURNS_TO_MODEL)
+    if len(messages) < len(messages_full):
+        logger.info(
+            "history truncado para modelo: %d → %d mensajes (cap=%d turnos user)",
+            len(messages_full), len(messages), MAX_USER_TURNS_TO_MODEL,
+        )
 
     # System prompt dinámico (cacheable por Claude)
     try:
@@ -155,15 +199,16 @@ def run_conversation(
 
         _acumular(resp.usage)
 
-        # Apendear mensaje del asistente al history SIEMPRE
+        # Apendear mensaje del asistente a las dos listas (full y la del modelo)
         messages.append(resp.assistant_message)
+        messages_full.append(resp.assistant_message)
 
         # Si no pidió tools, cerramos
         if not resp.tool_calls:
             return {
                 "reply": resp.text or "(respuesta vacía)",
                 "tool_calls": tool_calls_log,
-                "history": messages,
+                "history": messages_full,
                 "usage": acc_usage,
                 "steps": step + 1,
                 "elapsed_s": round(time.time() - t_start, 2),
@@ -190,7 +235,9 @@ def run_conversation(
                 "args": tc.args,
                 "ok": bool(result.get("ok", False)),
             })
-            messages.append(tool_result_message(tc.id, result))
+            tr_msg = tool_result_message(tc.id, result)
+            messages.append(tr_msg)
+            messages_full.append(tr_msg)
 
     # Llegamos al tope
     logger.warning("MAX_STEPS=%d alcanzado", MAX_STEPS)
@@ -201,7 +248,7 @@ def run_conversation(
             "específico."
         ),
         "tool_calls": tool_calls_log,
-        "history": messages,
+        "history": messages_full,
         "usage": acc_usage,
         "steps": MAX_STEPS,
         "elapsed_s": round(time.time() - t_start, 2),

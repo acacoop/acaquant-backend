@@ -56,11 +56,16 @@ class LLMProvider(ABC):
     def generate(
         self,
         messages: list[dict[str, Any]],
-        system_prompt: str,
+        system_prompt: str | list[dict[str, Any]],
         tools: list[dict[str, Any]],
         temperature: float = 0.2,
     ) -> LLMResponse:
         """Invoca el modelo. messages + tools en formato canónico (estilo Claude).
+
+        `system_prompt` puede ser:
+        - `str`: texto plano (legacy). El provider lo envuelve en un bloque cacheable.
+        - `list[dict]`: bloques estilo Anthropic con cache_control opcional. Permite
+          split estático/dinámico (ver `prompt.build_system_prompt`).
 
         Devuelve `LLMResponse` con text, tool_calls, usage, stop_reason y
         assistant_message (el mensaje del modelo listo para apendear al history).
@@ -155,12 +160,16 @@ class ClaudeProvider(LLMProvider):
     def generate(
         self,
         messages: list[dict[str, Any]],
-        system_prompt: str,
+        system_prompt: str | list[dict[str, Any]],
         tools: list[dict[str, Any]],
         temperature: float = 0.2,
     ) -> LLMResponse:
-        # System con cache_control: el prefijo estático se cachea (5 min TTL).
-        if self.enable_cache and system_prompt:
+        # System en bloques. Si viene lista, ya tiene cache_control donde
+        # corresponde (ver prompt.build_system_prompt). Si viene string (legacy),
+        # se envuelve en UN bloque cacheable.
+        if isinstance(system_prompt, list):
+            system_blocks = list(system_prompt)
+        elif system_prompt:
             system_blocks = [
                 {
                     "type": "text",
@@ -169,7 +178,16 @@ class ClaudeProvider(LLMProvider):
                 }
             ]
         else:
-            system_blocks = [{"type": "text", "text": system_prompt}] if system_prompt else []
+            system_blocks = []
+
+        # Si el cache está deshabilitado, despojar cache_control de todos los
+        # bloques antes de mandar (Anthropic ignora `cache_control: null` pero
+        # mejor no enviar la key).
+        if not self.enable_cache:
+            system_blocks = [
+                {k: v for k, v in b.items() if k != "cache_control"}
+                for b in system_blocks
+            ]
 
         body: dict[str, Any] = {
             "model": self.model,
@@ -356,19 +374,26 @@ class GeminiProvider(LLMProvider):
     def generate(
         self,
         messages: list[dict[str, Any]],
-        system_prompt: str,
+        system_prompt: str | list[dict[str, Any]],
         tools: list[dict[str, Any]],
         temperature: float = 0.2,
     ) -> LLMResponse:
         url = GEMINI_URL.format(model=self.model)
         contents = _messages_to_gemini_contents(messages)
 
+        # Si viene lista de bloques (cache split de Anthropic), concatenamos
+        # los textos — Gemini no tiene cache breakpoints.
+        if isinstance(system_prompt, list):
+            sp_text = "\n\n".join(b.get("text", "") for b in system_prompt if b.get("text"))
+        else:
+            sp_text = system_prompt or ""
+
         body: dict[str, Any] = {
             "contents": contents,
             "generationConfig": {"temperature": temperature},
         }
-        if system_prompt:
-            body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+        if sp_text:
+            body["systemInstruction"] = {"parts": [{"text": sp_text}]}
         if tools:
             decls = [
                 {"name": t["name"], "description": t["description"], "parameters": t.get("parameters", {"type": "OBJECT", "properties": {}})}

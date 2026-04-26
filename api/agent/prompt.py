@@ -141,22 +141,36 @@ def build_system_prompt(
     market_context: str = "",
     data_inventory: str = "",
     estrategia: str = "",  # retrocompat: aceptado pero NO se usa más
-) -> str:
-    """Compone el prompt final = base + DATA + CONTEXTO.
+) -> list[dict[str, str | dict]]:
+    """Compone el system prompt como bloques para Anthropic con cache split.
 
-    El framework (estrategia.md) y el catálogo (estrategias.md) NO se inyectan
-    acá — se consultan bajo demanda vía tools. Esto baja el prompt de ~10K a
-    ~2.5K tokens para consultas simples.
+    Devuelve una lista de bloques estilo Anthropic (`{type, text, cache_control?}`):
+
+    - **Bloque 1 (cacheable)**: `SYSTEM_PROMPT_BASE` + `DATA DISPONIBLE`. Cambia
+      rara vez (cuando se edita el código o el inventory recompila). Lleva
+      `cache_control: ephemeral` → Anthropic lo cachea con TTL 5min y los turns
+      siguientes pagan input al ~10% (cache_read).
+    - **Bloque 2 (NO cacheable)**: `CONTEXTO DEL MERCADO`. Cambia minuto a
+      minuto (precios live, hora). Si se cacheara, invalidaría el bloque 1
+      cada vez que un precio se mueve. Va sin cache_control.
+
+    Antes el prompt era un solo bloque que se invalidaba completo en cada
+    cambio de contexto — la cache hit ratio quedaba en cero.
 
     El parámetro `estrategia` queda por retrocompatibilidad pero se ignora.
     """
     _ = estrategia  # unused intentionally
-    partes = [SYSTEM_PROMPT_BASE]
 
+    static_text = SYSTEM_PROMPT_BASE
     if data_inventory:
-        partes.append("---\n# DATA DISPONIBLE\n\n" + data_inventory)
+        static_text += "\n\n---\n# DATA DISPONIBLE\n\n" + data_inventory
 
+    blocks: list[dict[str, str | dict]] = [
+        {"type": "text", "text": static_text, "cache_control": {"type": "ephemeral"}},
+    ]
     if market_context:
-        partes.append("---\n# CONTEXTO DEL MERCADO\n\n" + market_context)
-
-    return "\n\n".join(partes)
+        blocks.append({
+            "type": "text",
+            "text": "---\n# CONTEXTO DEL MERCADO\n\n" + market_context,
+        })
+    return blocks

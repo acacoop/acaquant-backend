@@ -62,9 +62,10 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
             "TEA":       {"$first": "$TEA"},
             "TEM":       {"$first": "$TEM"},
             "paridad":   {"$first": "$paridad"},
-            "duration":  {"$first": "$duration"},
-            "convexity": {"$first": "$convexity"},
-            "ts":        {"$first": "$timestamp"},
+            "duration":     {"$first": "$duration"},
+            "mod_duration": {"$first": "$mod_duration"},
+            "convexity":    {"$first": "$convexity"},
+            "ts":           {"$first": "$timestamp"},
         }},
     ]):
         enrich[r["_id"]] = r
@@ -97,6 +98,7 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
             "tem":                en.get("TEM"),
             "paridad":             en.get("paridad"),
             "duration":           en.get("duration"),
+            "mod_duration":       en.get("mod_duration"),
             "convexity":          en.get("convexity"),
             "ts_ultimo_trade":    ts_last.isoformat() if isinstance(ts_last, datetime) else ts_last,
         })

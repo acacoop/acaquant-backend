@@ -320,6 +320,8 @@ def calcular_campos(doc, instrumento, cer_dict, dias_habiles, mep: float | None 
             resultado["TEA"] = round(tea, 6)
             resultado["TEM"] = round(tem, 6)
             resultado["duration"] = dur
+            if dur is not None and tea > -1:
+                resultado["mod_duration"] = round(dur / (1 + tea), 4)
             if conv is not None:
                 resultado["convexity"] = conv
 
@@ -387,6 +389,8 @@ def calcular_campos(doc, instrumento, cer_dict, dias_habiles, mep: float | None 
 
             resultado["TEA"] = round(tea, 6)
             resultado["duration"] = dur
+            if dur is not None and tea > -1:
+                resultado["mod_duration"] = round(dur / (1 + tea), 4)
             if conv is not None:
                 resultado["convexity"] = conv
 
@@ -455,6 +459,8 @@ def calcular_campos(doc, instrumento, cer_dict, dias_habiles, mep: float | None 
 
             resultado["TEA"] = round(tea, 6)
             resultado["duration"] = dur if dur is not None else round(dias_a_vto / 365, 4)
+            if dur is not None and tea > -1:
+                resultado["mod_duration"] = round(dur / (1 + tea), 4)
             if conv is not None:
                 resultado["convexity"] = conv
 
@@ -556,7 +562,7 @@ def run():
                     ops_ms = []
                     for ticker, (_, campos) in por_ticker_reciente.items():
                         updates = {}
-                        for field in ("TEA", "TEM", "duration", "convexity", "paridad"):
+                        for field in ("TEA", "TEM", "duration", "mod_duration", "convexity", "paridad"):
                             if field in campos:
                                 updates[f"metrics.{field}"] = campos[field]
                         if updates:

@@ -159,6 +159,30 @@ def _check_convexity_no_negativa(data: Any) -> list[str]:
     return out
 
 
+def _check_mod_duration_lte_duration(data: Any) -> list[str]:
+    """Modified duration = D / (1+y) — siempre ≤ Macaulay para y > 0.
+    Si supera la macaulay (con tolerancia 0.01) hay error de cálculo o
+    yield negativo extremo."""
+    out: list[str] = []
+    for item in _iter_items(data):
+        d = _as_float(item.get("duration"))
+        m = _as_float(item.get("mod_duration"))
+        if d is None or m is None:
+            metrics = item.get("metrics")
+            if isinstance(metrics, dict):
+                if d is None:
+                    d = _as_float(metrics.get("duration"))
+                if m is None:
+                    m = _as_float(metrics.get("mod_duration"))
+        if d is None or m is None:
+            continue
+        if m > d + 0.01:
+            out.append(
+                f"mod_duration={m:.3f} > duration={d:.3f} en {_label(item)}"
+            )
+    return out
+
+
 def _check_residual_monotonico(data: Any) -> list[str]:
     """El residual_previo_pct de los flujos debe ser monótonamente no-creciente
     (una vez que empieza a amortizar, no puede volver a subir)."""
@@ -196,6 +220,7 @@ CHECKS = [
     _check_amortizaciones_suman_100,
     _check_duration_positiva,
     _check_convexity_no_negativa,
+    _check_mod_duration_lte_duration,
     _check_residual_monotonico,
 ]
 

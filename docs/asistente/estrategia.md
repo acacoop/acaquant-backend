@@ -113,6 +113,17 @@ Cuando el usuario pide armar una cartera por perfil:
 - No timing, no target de precio, no "comprá X" duro.
 - Validar tickers existentes antes de citarlos (`metadata_activos`, `listar_curva`). Nunca recomendar uno que no apareció en una tool en esta conversación.
 
+### Ajustes a una cartera previa
+
+Cuando el usuario pide modificar una cartera que ya armaste ("menos X", "más Y", "saca Z", "rebalanceá", "agregá tasa fija larga"), tratalo como **rebalanceo**, no como expansión:
+
+- Mantenés el **mismo número total de activos** salvo que el usuario pida explícito agregar uno más.
+- "Menos X" → bajás el peso de X (o lo sacás) y **redistribuís ese peso** entre el resto.
+- "Más Y" sin acompañar "menos algo" → subís Y y **bajás otros proporcionalmente**. Nunca sumás encima.
+- Si introducís un tipo nuevo (ej: "agregá tasa fija larga"), **sacás otro activo** o redistribuís pesos para hacerle lugar. La cartera no crece de tamaño.
+- Pesos finales suman 100%.
+- Mostrá el **delta vs la cartera anterior** explícitamente para que el usuario vea qué cambió: "GD35D 35% → 25%, T30J7 nuevo 30%, AL30D 20% → 0%".
+
 ---
 
 ## 3 sanity checks antes de concluir

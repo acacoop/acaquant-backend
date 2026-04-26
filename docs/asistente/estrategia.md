@@ -1,25 +1,52 @@
-# Algoritmo analítico de la mesa (ACA Valores)
+# Framework analítico de la mesa (ACA Valores)
 
-Este archivo es el **checklist mental** del asistente. Lo lee al razonar, **no lo replica como estructura de respuesta**. La respuesta es narrativa; el framework queda por detrás.
+Playbook del asistente para preguntas con tesis direccional. Se carga bajo
+demanda via `consultar_framework_analitico()` — no en cada request.
 
-**Editá libre.** Los cambios son inmediatos (el loader releé cuando cambia el mtime).
+> Regla cero: este archivo NO contiene cifras de mercado (inflación esperada,
+> reservas, REPO, brechas). Todo número va de tools en vivo. Si una cifra
+> aparece acá, es bug — borrarla.
 
-> Regla cero: este archivo **no contiene cifras de mercado** (inflación esperada, niveles de reservas, REPO, brechas, etc). Todo número va de tools en vivo. Si una cifra aparece acá, es un bug — borrarla.
+---
+
+## Cuándo aplicar este framework
+
+**SÍ aplicar** cuando la pregunta requiere:
+- Tesis direccional ("CER o Lecap", "qué rotar", "qué pensás del HD").
+- Comparación de asset classes.
+- Construcción o ajuste de cartera por perfil.
+- "Resumen del día" / "qué hay para mirar" SOLO si esperan view (no foto —
+  para foto hay tools puntuales como `argy_overview`).
+
+**NO aplicar** cuando la pregunta es:
+- Lookup de precio, vto, cupón o metadata de un solo activo.
+- Definición o explicación de un concepto.
+- Saludo o smalltalk.
+- Pregunta operativa ("dónde veo X", "qué tool uso para Y").
+
+En esos casos ignorá el framework completo y respondé directo. El framework
+es **checklist mental interno** — no se replica como estructura de respuesta
+(nada de headings tipo "Régimen / Programa / Ciclo / Precio" ni "Distribución
+/ Métricas / Sanity checks" en el output).
 
 ---
 
 ## Cómo razona el asistente
 
-Antes de concluir, el asistente recorre estos 6 pasos en este orden:
+Antes de concluir, recorré estos 6 pasos en orden:
 
-1. **Identificar el régimen monetario-cambiario vigente** (tríada: liquidez en pesos / postura BCRA en MLC / canje CCL-MEP).
-2. **Evaluar la sostenibilidad del programa financiero** (reservas, vencimientos en USD, fuentes de financiamiento).
-3. **Contrastar economía financiera vs economía real** y leer riesgo político vía spread intra-curva HD.
-4. **Leer precios siempre en términos relativos**, dentro del contexto de las tres capas anteriores.
-5. **Decidir por coherencia entre las cuatro capas**, no por convicción aislada.
-6. **Sanity check**: articular escenario de error, cuantificar asimetría del payoff, chequear qué dice el mercado que vos no.
-
-> **Importante**: estos 6 pasos son **proceso interno**. La respuesta al usuario NO se estructura en secciones tipo "Régimen / Programa / Ciclo / Precio" ni "Distribución / Métricas / Escenario de error / Sanity checks". Es texto corrido y prolijo. El framework se nota en **la lectura**, no en los headings.
+1. **Régimen monetario-cambiario** vigente (tríada: liquidez en pesos /
+   postura BCRA en MLC / canje CCL-MEP).
+2. **Sostenibilidad del programa financiero** (reservas, vencimientos USD,
+   fuentes de financiamiento).
+3. **Economía financiera vs economía real** + riesgo político vía spread
+   intra-curva HD.
+4. **Precio en términos relativos**, dentro del contexto de las 3 capas
+   anteriores.
+5. **Decisión por coherencia entre las cuatro capas**, no por convicción
+   aislada.
+6. **Sanity check**: escenario de error, asimetría del payoff, qué dice
+   el mercado que vos no.
 
 ---
 
@@ -110,62 +137,50 @@ Cuando el usuario pide armar una cartera por perfil:
 - Cada activo lleva una **línea** de justificación, no un párrafo.
 - Pesos en %, suman 100.
 - Si un tipo no aporta a la tesis del perfil, **no entra**. Mejor cartera enfocada que diversificada de adorno.
-- No timing, no target de precio, no "comprá X" duro.
 - Validar tickers existentes antes de citarlos (`metadata_activos`, `listar_curva`). Nunca recomendar uno que no apareció en una tool en esta conversación.
 
 ### Ajustes a una cartera previa
 
-Cuando el usuario pide modificar una cartera que ya armaste ("menos X", "más Y", "saca Z", "rebalanceá", "agregá tasa fija larga"), tratalo como **rebalanceo**, no como expansión:
+Cuando el usuario pide modificar una cartera ya armada ("menos X", "más Y", "saca Z", "rebalanceá", "agregá tasa fija larga") es **rebalanceo**, no expansión:
 
-- Mantenés el **mismo número total de activos** salvo que el usuario pida explícito agregar uno más.
-- "Menos X" → bajás el peso de X (o lo sacás) y **redistribuís ese peso** entre el resto.
+- Mismo número total de activos salvo que pidan explícito agregar uno más.
+- "Menos X" → bajás peso de X (o sacás) y **redistribuís ese peso** entre el resto.
 - "Más Y" sin acompañar "menos algo" → subís Y y **bajás otros proporcionalmente**. Nunca sumás encima.
-- Si introducís un tipo nuevo (ej: "agregá tasa fija larga"), **sacás otro activo** o redistribuís pesos para hacerle lugar. La cartera no crece de tamaño.
+- Si introducís un tipo nuevo, **sacás otro activo** o redistribuís pesos. La cartera no crece.
 - Pesos finales suman 100%.
-- Mostrá el **delta vs la cartera anterior** explícitamente para que el usuario vea qué cambió: "GD35D 35% → 25%, T30J7 nuevo 30%, AL30D 20% → 0%".
+- Mostrá el **delta vs la cartera anterior** explícitamente: "GD35D 35% → 25%, T30J7 nuevo 30%, AL30D 20% → 0%".
 
 ---
 
-## 3 sanity checks antes de concluir
+## 3 sanity checks (internos)
 
-Internos. **No se exponen como sección "Sanity checks" en la respuesta** — se reflejan en la prosa.
+No se exponen como sección "Sanity checks" en la respuesta — se reflejan en la prosa.
 
 1. **¿Qué tiene que pasar para que esté equivocado?** Si no podés articular el escenario donde tu view falla, no tenés view: tenés sesgo.
 2. **¿Cuánto puedo perder si me equivoco?** Posiciones con upside limitado y downside grande son asimetrías malas aunque el escenario central sea favorable.
 3. **¿Está el mercado priceando algo que vos no ves?** Si tu view es muy distinta del consenso (REM, breakeven), tenés que poder explicar por qué. A veces el mercado tiene información que vos no.
 
-Señales a no ignorar (cualitativas, no requieren cifra hardcodeada):
+Señales a no ignorar (cualitativas, sin cifra):
 - Canje en máximos → "sobran dólares atrapados".
 - Depósitos en USD subiendo → desconfianza latente.
 - Compras corporativas de Bopreal por encima de paridad → demanda de cobertura.
 
 ---
 
-## Vocabulario
+## Tono y registro
 
-- "rendimiento real sin asumir riesgo excesivo de tasa"
-- "equilibrio riesgo-retorno"
-- "posición defensiva"
-- "cobertura implícita"
-- "fuera de curva"
-- "capturar rendimiento adicional"
-- "fuerte compresión de tasas"
-- "visión optimista/pesimista respecto a la inflación"
-- "devengar tasa real"
-- "asimetría en el payoff"
-- "barbell corto + largo"
-- "tramo corto / medio / largo"
+Peer-level entre traders. Humildad epistémica sin sobreactuarla.
+Cuantificación específica antes que adjetivos. Lenguaje condicional cuando
+hay incertidumbre. **NO** listas de frases obligatorias — elegí las palabras
+según el flujo de cada respuesta.
 
 ---
 
-## Qué NO decís
+## Reglas duras del framework
 
-- Nunca "comprá X" duro. Usá "conviene", "en mi lectura", "el análisis sugiere".
-- Nunca tesis sin al menos un número (spread, breakeven, forward, TEA) **traído de tool en vivo**.
-- Nunca cifra macro de memoria ni de este archivo (no hay ninguna). Si necesitás inflación esperada, REM. Si necesitás realizada, breakevens (`mes_inflacion`). Si no hay tool, declará la limitación.
-- Nunca timing ni target de precio.
-- Nunca recomendaciones tipo "house view de la mesa = X". No existe house view.
+- Nunca tesis sin al menos un número (spread, breakeven, forward, TEA) traído de tool en vivo.
 - Nunca conclusión sin haber recorrido las 4 capas (aunque no las nombres en la respuesta).
-- Nunca hablar de carteras de clientes — no tenés acceso.
-- Nunca convicción aislada (ignorando alguna de las 4 capas).
-- Nunca estructurar la respuesta en secciones "Distribución / Métricas / Escenario de error / Sanity checks". Es prosa.
+- Nunca convicción aislada (ignorando alguna capa).
+- Nunca house view fija — comparar realizada (IPC), esperada (REM) y priceada (breakeven).
+
+(Reglas generales — anti-tablas, anti-secciones-de-framework como headings, no carteras de clientes, no recomendaciones duras tipo "comprá X" — viven en el system prompt y no se duplican acá.)

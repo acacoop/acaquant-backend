@@ -34,6 +34,7 @@ from api.routers import (
     me,
     news,
     operaciones,
+    simulaciones,
     titulos,
 )
 from core.mongo import get_mongo_client, get_mongo_client_read
@@ -116,6 +117,7 @@ app.include_router(analitica.router,         dependencies=_PUBLIC)
 app.include_router(cotizaciones.router,      dependencies=_PUBLIC)
 app.include_router(news.router,              dependencies=_PUBLIC)
 app.include_router(market.router,            dependencies=_PUBLIC)
+app.include_router(simulaciones.router,      dependencies=_PUBLIC)  # gate por user_email en service
 
 # Restringidos a roles con el módulo respectivo:
 app.include_router(carteras.router,          dependencies=_PORTFOLIOS)

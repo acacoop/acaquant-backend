@@ -1,0 +1,78 @@
+"""Router /api/simulaciones — carteras hipotéticas por usuario.
+
+CRUD básico. Cada usuario solo ve y muta sus propias simulaciones (filtro
+por user_email en el service). El cálculo de cashflows / métricas / composición
+se expone aparte en POST /api/simulaciones/calcular (próximamente PR2).
+"""
+from __future__ import annotations
+
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from api.auth import get_user_email
+from api.services.simulaciones import (
+    Simulacion,
+    SimulacionCreate,
+    SimulacionUpdate,
+    actualizar_simulacion,
+    crear_simulacion,
+    eliminar_simulacion,
+    listar_simulaciones,
+    obtener_simulacion,
+)
+
+router = APIRouter(prefix="/api/simulaciones", tags=["simulaciones"])
+logger = logging.getLogger(__name__)
+
+
+@router.get("", response_model=list[Simulacion])
+def listar(email: str = Depends(get_user_email)) -> list[Simulacion]:
+    """Todas las simulaciones del usuario, más recientes primero."""
+    return listar_simulaciones(email)
+
+
+@router.post("", response_model=Simulacion, status_code=201)
+def crear(
+    data: SimulacionCreate,
+    email: str = Depends(get_user_email),
+) -> Simulacion:
+    """Crea una nueva simulación con nombre + posiciones iniciales (puede
+    venir vacío si el usuario quiere empezar a cargar tickers después)."""
+    return crear_simulacion(email, data)
+
+
+@router.get("/{simulacion_id}", response_model=Simulacion)
+def obtener(
+    simulacion_id: str,
+    email: str = Depends(get_user_email),
+) -> Simulacion:
+    """Devuelve una simulación. 404 si no existe o pertenece a otro usuario
+    (no se distingue uno del otro a propósito — no leakeamos existencia)."""
+    sim = obtener_simulacion(simulacion_id, email)
+    if sim is None:
+        raise HTTPException(status_code=404, detail="simulación no encontrada")
+    return sim
+
+
+@router.put("/{simulacion_id}", response_model=Simulacion)
+def actualizar(
+    simulacion_id: str,
+    data: SimulacionUpdate,
+    email: str = Depends(get_user_email),
+) -> Simulacion:
+    """PATCH semantics: solo se actualizan los campos que vienen no-None."""
+    sim = actualizar_simulacion(simulacion_id, email, data)
+    if sim is None:
+        raise HTTPException(status_code=404, detail="simulación no encontrada")
+    return sim
+
+
+@router.delete("/{simulacion_id}", status_code=204)
+def eliminar(
+    simulacion_id: str,
+    email: str = Depends(get_user_email),
+) -> None:
+    """204 si se eliminó. 404 si no existía o pertenecía a otro usuario."""
+    if not eliminar_simulacion(simulacion_id, email):
+        raise HTTPException(status_code=404, detail="simulación no encontrada")

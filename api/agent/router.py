@@ -1,54 +1,51 @@
 """Router heurístico: decide si una pregunta del usuario va a Haiku o Sonnet.
 
-Haiku (default): lookups simples, cotizaciones, saludos, consultas directas.
-Sonnet: análisis estratégico, comparaciones, recomendaciones, multi-paso.
+DEFAULT = Sonnet. Haiku SOLO si la pregunta es claramente lookup puro corto
+o saludo. Heurística inversa al diseño anterior, que tenía default Haiku +
+triggers regex para Sonnet — ese diseño rompía en los bordes:
+  - "qué pasaría con CER si la inflación se acelera" → no matcheaba triggers,
+     iba a Haiku, daba respuesta pobre.
+  - "explícame por qué la curva está invertida" → idem.
+  - "el 26 vs el 28" → matcheaba `vs`, iba a Sonnet, podía haber sido lookup.
 
-Se hace por keywords en el mensaje + longitud. Si matchea algún trigger
-estratégico → Sonnet. Si no → Haiku.
+El costo subió (Sonnet ~10x Haiku), pero la calidad de las respuestas en los
+bordes es más predecible. Si en el futuro se quiere abaratar más sin
+sacrificar calidad, alternativa robusta es un primer pase con Haiku que
+clasifique (`is_strategic`) y enrute en consecuencia.
 """
 from __future__ import annotations
 
 import re
 
-# Triggers que indican pregunta analítica/estratégica → Sonnet.
-# Matcheo case-insensitive sobre el mensaje completo.
-SONNET_TRIGGERS = [
-    # Comparaciones
-    r"\b(comparame|compará|compar(a|á) )",
-    r"\b(vs|versus)\b",
-    r"\b(o)\s+(lecap|cer|tasa[- ]fija|hd|dl|boncer|bonar)\b",
-    r"\b(cer|lecap|hd|dl|boncer|bonar)\s+o\b",
-
-    # Recomendaciones / view
-    r"\b(recomend(a|á|ás|arias|aría)|sugerí|sugerís|qué hago)",
-    r"\b(qué opinás?|qué pensás?|qué te parece|cómo lo ves)",
-    r"\b(cómo ves|cómo viene|view|tesis|análisis|analizame|analiz(á|a))",
-    r"\b(qué rotar|qué rot(ar|o)|rotación)",
-    r"\b(armá?me|armar?me|construí|armar un|estructura)",
-    r"\b(estirar|acortarse|duration)\b",
-
-    # Preguntas abiertas / resúmenes
-    r"\b(resumen|resumí|síntesis|conclusión|cuadro de situación)\b",
-    r"\b(qué pasó|cómo cerró|qué está pasando)\b",
-
-    # Estructuras de opciones / renta fija técnicas
-    r"\b(covered call|protective put|bull spread|bear spread|butterfly|condor|iron condor|straddle|strangle|ratio backspread|collar|calendar spread|diagonal spread)\b",
-    r"\b(barbell|bullet|ladder|steepener|flattener|immunization|carry|roll-down|roll down|break[- ]?even|forward\s+implí?cit|arbitraje|arb|tips[- ]treasury)\b",
-
-    # Framework
-    r"\b(régimen|programa financiero|riesgo político|economía real|valor relativo)\b",
-    r"\b(escenario|asimetr(ia|í))\b",
-
-    # Brechas / macro
-    r"\b(brecha|canje|mep vs|ccl vs|rollover|bid[- ]to[- ]cover|licitación)\b",
+# Patrones que disparan Haiku. Si NO matchea ninguno, va a Sonnet.
+# Anclados al inicio del texto (^) para no matchear keywords sueltos en
+# preguntas elaboradas (ej. "no me digas el precio, decime tu view" NO debe
+# disparar Haiku por la palabra "precio").
+HAIKU_PATTERNS = [
+    # Saludos / smalltalk
+    r"^(hola|buen[oa]s?\b|gracias|ok\b|listo|perfecto|dale|bárbaro|chau|adi[oó]s|hi\b)",
+    # Lookup puro: pregunta arranca con campo o término de cotización.
+    r"^(precio|cotización|cotizacion|vto|vencimiento|cupón|cupon|paridad|tem|tea|duration)\b",
+    # "cómo está X" / "cómo viene X" / "cuánto vale X" — info directa de UN activo.
+    r"^(cómo|como)\s+(está|viene|vale|cierra|cerró|cotiza)\s+\S+",
+    r"^(cuánto|cuanto)\s+(vale|cuesta|paga|rinde|cotiza)",
+    r"^(qué|que)\s+(precio|paridad|tea|tem|duration|cupón|cupon|vto|vence)\s+",
+    # Mensaje que es solo un ticker (o ticker + ?). El usuario pide info implícita.
+    r"^[A-Z]{1,4}\d{1,4}[A-Z]?\d?\??$",
 ]
 
-# Pre-compilamos para velocidad.
-_SONNET_RE = [re.compile(p, re.IGNORECASE) for p in SONNET_TRIGGERS]
+_HAIKU_RE = [re.compile(p, re.IGNORECASE) for p in HAIKU_PATTERNS]
+
+# Cota dura: arriba de este largo asumimos pregunta elaborada → Sonnet.
+HAIKU_MAX_LEN = 60
 
 
 def decide_model(user_message: str, *, force: str | None = None) -> str:
     """Decide entre 'haiku' y 'sonnet' para el turno actual.
+
+    Default: sonnet. Haiku SOLO si:
+    - Saludo / smalltalk evidente, O
+    - Mensaje corto (< HAIKU_MAX_LEN chars) que matchea un patrón de lookup puro.
 
     Args:
         user_message: pregunta del usuario en texto plano.
@@ -64,14 +61,11 @@ def decide_model(user_message: str, *, force: str | None = None) -> str:
     if not text:
         return "haiku"
 
-    # Mensaje muy largo (elaborado) → probablemente analítico
-    if len(text) > 280:
+    if len(text) > HAIKU_MAX_LEN:
         return "sonnet"
 
-    # Matchea algún trigger estratégico → Sonnet
-    for regex in _SONNET_RE:
+    for regex in _HAIKU_RE:
         if regex.search(text):
-            return "sonnet"
+            return "haiku"
 
-    # Todo lo demás → Haiku
-    return "haiku"
+    return "sonnet"

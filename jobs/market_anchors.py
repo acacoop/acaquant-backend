@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import requests
 
@@ -50,8 +50,8 @@ def _closest_close(times: list[int], closes: list[float], target_ts: int) -> flo
 def _anchor_timestamps(now: datetime) -> dict[str, int]:
     return {
         "anchor_7d":  int((now - timedelta(days=7)).timestamp()),
-        "anchor_mtd": int(datetime(now.year, now.month, 1, tzinfo=timezone.utc).timestamp()),
-        "anchor_ytd": int(datetime(now.year, 1, 1, tzinfo=timezone.utc).timestamp()),
+        "anchor_mtd": int(datetime(now.year, now.month, 1, tzinfo=UTC).timestamp()),
+        "anchor_ytd": int(datetime(now.year, 1, 1, tzinfo=UTC).timestamp()),
         "anchor_1y":  int((now - timedelta(days=365)).timestamp()),
     }
 
@@ -97,8 +97,8 @@ def update_fx_anchors(coll, display: str, base: str, target: str, now: datetime)
     """Para FX: 1 request por anchor. frankfurter cachea internamente ECB
     reference rates, así que es rápido y gratis."""
     date_7d  = (now - timedelta(days=7)).date().isoformat()
-    date_mtd = datetime(now.year, now.month, 1, tzinfo=timezone.utc).date().isoformat()
-    date_ytd = datetime(now.year, 1, 1, tzinfo=timezone.utc).date().isoformat()
+    date_mtd = datetime(now.year, now.month, 1, tzinfo=UTC).date().isoformat()
+    date_ytd = datetime(now.year, 1, 1, tzinfo=UTC).date().isoformat()
     date_1y  = (now - timedelta(days=365)).date().isoformat()
 
     update = {
@@ -115,7 +115,7 @@ def update_fx_anchors(coll, display: str, base: str, target: str, now: datetime)
 def ingesta() -> int:
     client = get_mongo_client()
     coll = client["Market"]["Quotes"]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     all_stocks = [sym for sym, _ in HOME_STOCKS + EXTRA_STOCKS]
     ok_s = fail_s = 0

@@ -21,7 +21,7 @@ El índice TTL en Manager.JobRuns se crea en scripts/crear_indices.py.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 _MAX_LOG_LINES = 200
@@ -36,15 +36,15 @@ class JobRunLogger:
         self._started: datetime | None = None
         self._start_perf: float = 0.0
 
-    def __enter__(self) -> "JobRunLogger":
-        self._started = datetime.now(timezone.utc)
+    def __enter__(self) -> JobRunLogger:
+        self._started = datetime.now(UTC)
         self._start_perf = time.perf_counter()
         return self
 
     def log(self, msg: str) -> None:
         """Imprime a stdout (para que siga en el log de archivo) y acumula."""
         print(msg, flush=True)
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        ts = datetime.now(UTC).strftime("%H:%M:%S")
         self._log.append(f"{ts} {msg}")
 
     def error(self, msg: str) -> None:
@@ -55,7 +55,7 @@ class JobRunLogger:
         self.stats[key] = value
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
-        finished = datetime.now(timezone.utc)
+        finished = datetime.now(UTC)
         elapsed = time.perf_counter() - self._start_perf
 
         if exc_type is not None:

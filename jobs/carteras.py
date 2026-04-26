@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import holidays
 import pyRofex
-from pymongo import ReplaceOne, UpdateOne
+from pymongo import ReplaceOne
 
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client

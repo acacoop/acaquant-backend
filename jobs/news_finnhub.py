@@ -17,7 +17,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from pymongo.errors import DuplicateKeyError
 
@@ -51,9 +51,9 @@ def _to_doc(item: dict, categoria: str, extra_tag: str | None = None) -> dict | 
 
     ts = item.get("datetime")
     if isinstance(ts, (int, float)) and ts > 0:
-        fecha = datetime.fromtimestamp(ts, tz=timezone.utc)
+        fecha = datetime.fromtimestamp(ts, tz=UTC)
     else:
-        fecha = datetime.now(timezone.utc)
+        fecha = datetime.now(UTC)
 
     doc = {
         "url": url,
@@ -62,7 +62,7 @@ def _to_doc(item: dict, categoria: str, extra_tag: str | None = None) -> dict | 
         "titulo": headline,
         "excerpt": (item.get("summary") or "").strip()[:500],
         "fecha_publicacion": fecha,
-        "fetched_at": datetime.now(timezone.utc),
+        "fetched_at": datetime.now(UTC),
     }
     if extra_tag:
         doc["tag"] = extra_tag  # ticker ADR, por ejemplo
@@ -96,7 +96,7 @@ def ingesta(categorias: bool = True, adrs: bool = True) -> int:
             logger.info("general/%s: %d items", fh_cat, len(items))
 
     if adrs:
-        hasta = datetime.now(timezone.utc).date()
+        hasta = datetime.now(UTC).date()
         desde = hasta - timedelta(days=3)
         for sym in ADR_TICKERS:
             try:

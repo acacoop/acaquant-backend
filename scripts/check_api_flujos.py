@@ -30,7 +30,7 @@ def main() -> int:
         por_curva[cv].append(d.get("ticker") or "?")
 
     print("=" * 60)
-    print(f"MONGO · TitulosAPI.ValuacionesAPI")
+    print("MONGO · TitulosAPI.ValuacionesAPI")
     print("=" * 60)
     print(f"Total docs: {total}")
     for cv in sorted(por_curva.keys()):
@@ -55,7 +55,7 @@ def main() -> int:
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     print()
     print("=" * 60)
-    print(f"HTTP · GET http://127.0.0.1:8000/api/titulos/flujos")
+    print("HTTP · GET http://127.0.0.1:8000/api/titulos/flujos")
     print("=" * 60)
     try:
         r = requests.get(

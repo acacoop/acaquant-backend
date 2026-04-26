@@ -18,7 +18,7 @@ import argparse
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -48,7 +48,7 @@ def run(apply: bool) -> int:
 
     total = col.count_documents({})
     hoy_ar  = datetime.now(AR_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
-    hoy_utc = hoy_ar.astimezone(timezone.utc)
+    hoy_utc = hoy_ar.astimezone(UTC)
     a_borrar = col.count_documents({"timestamp": {"$lt": hoy_utc}})
 
     ts_corrida = datetime.now(AR_TZ).strftime("%Y%m%d_%H%M%S")

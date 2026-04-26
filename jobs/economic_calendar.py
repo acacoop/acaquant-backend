@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from core.finnhub import FinnhubError, economic_calendar
 from core.mongo import get_mongo_client
@@ -51,12 +51,12 @@ def ingesta() -> int:
         except (TypeError, ValueError):
             return 0
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ins = upd = skip = 0
     for ev in events:
         raw_time = ev.get("time", "")
         try:
-            dt = datetime.strptime(raw_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            dt = datetime.strptime(raw_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
         except (ValueError, TypeError):
             skip += 1
             continue

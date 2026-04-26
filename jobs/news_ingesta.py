@@ -15,7 +15,7 @@ import argparse
 import logging
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pymongo.errors import DuplicateKeyError
 
@@ -73,10 +73,10 @@ def _parse_entry_date(entry) -> datetime:
         t = getattr(entry, key, None)
         if t:
             try:
-                return datetime(*t[:6], tzinfo=timezone.utc)
+                return datetime(*t[:6], tzinfo=UTC)
             except Exception:
                 continue
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _clean_excerpt(raw: str, maxlen: int = 400) -> str:
@@ -104,7 +104,7 @@ def ingesta_una_fuente(feed_cfg: dict, coll) -> tuple[int, int, int]:
                        feed_cfg["url"], parsed.bozo, getattr(parsed, "bozo_exception", ""))
         return 0, 0, 1
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for entry in parsed.entries:
         url = getattr(entry, "link", "") or ""
         titulo = getattr(entry, "title", "") or ""

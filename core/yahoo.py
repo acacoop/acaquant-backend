@@ -10,7 +10,7 @@ migren sin cambios: {s, t, o, h, l, c, v}.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -83,8 +83,8 @@ def stock_candle(symbol: str, resolution: str, desde_ts: int, hasta_ts: int) -> 
         raise YahooError("yfinance no instalado — pip install yfinance") from e
 
     interval = _RES_MAP.get(resolution, "1d")
-    start = datetime.fromtimestamp(desde_ts, tz=timezone.utc)
-    end   = datetime.fromtimestamp(hasta_ts, tz=timezone.utc)
+    start = datetime.fromtimestamp(desde_ts, tz=UTC)
+    end   = datetime.fromtimestamp(hasta_ts, tz=UTC)
 
     try:
         t = yf.Ticker(symbol)

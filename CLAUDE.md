@@ -99,4 +99,6 @@ Doc completo: `docs/ASISTENTE.md`. `api/agent/` + `POST /api/chat`. Provider Cla
 
 Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `systemctl restart api.service` en el Droplet, o skill `/deploy`. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`. Colecciones `*API.*API` se re-sync via `jobs/sync_api_copies.py` encadenado post-job fuente; manual con `scripts.api_migrate <cmd>`.
 
+**Frontend en repo hermano `../acaquant-web/`** (Next.js, deploy auto en Vercel). Cambios de API con impacto en UI se editan ahí con rutas absolutas — no es submodule, es checkout paralelo.
+
 Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.dolar_api` (*/5 13-20 L-V, `Valuaciones.DolarOficial`), `jobs.aum` (23 L-V).

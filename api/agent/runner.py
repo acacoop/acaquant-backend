@@ -7,7 +7,7 @@ Flujo:
 4. Armamos el system prompt dinámico (framework + context + data inventory on demand).
 5. Loop: modelo decide → si text final, respondemos; si tool_use, ejecutamos
    la tool y volvemos al modelo con el resultado.
-6. Corte a MAX_STEPS para controlar costo.
+6. Corte por modelo (MAX_STEPS_BY_ALIAS) para controlar costo.
 
 El history que entra/sale está en formato CANÓNICO (estilo Claude):
   [
@@ -41,13 +41,21 @@ from api.agent.types import LLMResponse, tool_result_message, user_text_message
 
 logger = logging.getLogger(__name__)
 
-# Tope de turnos encadenados. Controla costo ante loops de tool-use.
-MAX_STEPS = 6
+# Tope de turnos encadenados, por alias de modelo. Sonnet maneja análisis
+# multi-paso bien (puede necesitar 6-7 tools en una vista de mercado completa);
+# Haiku conviene cortarlo antes (lookups simples no deberían encadenar mucho).
+# Si el alias del modelo no está en el dict, se usa MAX_STEPS_DEFAULT.
+MAX_STEPS_DEFAULT = 6
+MAX_STEPS_BY_ALIAS = {"sonnet": 8, "haiku": 4}
 
 # Tope de turnos de USUARIO que se mandan al modelo. El frontend sigue viendo
 # la conversación entera; sólo se trunca lo que va a la API para evitar que
 # los tokens crezcan O(N) con la longitud de la conversación.
 MAX_USER_TURNS_TO_MODEL = 6
+
+
+def _max_steps_for(alias: str) -> int:
+    return MAX_STEPS_BY_ALIAS.get(alias, MAX_STEPS_DEFAULT)
 
 
 def _is_legacy_gemini_history(history: list[dict[str, Any]] | None) -> bool:
@@ -183,8 +191,9 @@ def run_conversation(
             acc_usage["model_alias"] = u["model_alias"]
 
     t_start = time.time()
+    max_steps = _max_steps_for(model_used)
 
-    for step in range(MAX_STEPS):
+    for step in range(max_steps):
         try:
             resp: LLMResponse = provider.generate(
                 messages=messages,
@@ -239,18 +248,29 @@ def run_conversation(
             messages.append(tr_msg)
             messages_full.append(tr_msg)
 
-    # Llegamos al tope
-    logger.warning("MAX_STEPS=%d alcanzado", MAX_STEPS)
+    # Llegamos al tope sin que el modelo cierre con texto. Devolvemos una
+    # respuesta sintética que muestre qué alcanzamos a consultar (en vez del
+    # mensaje crudo "reformulá", que tira el problema al usuario sin pista).
+    logger.warning("max_steps=%d alcanzado (alias=%s)", max_steps, model_used)
+    tools_invocadas = sorted({tc["name"] for tc in tool_calls_log})
+    if tools_invocadas:
+        reply = (
+            f"Paré después de {max_steps} consultas encadenadas para controlar costos. "
+            f"Alcancé a consultar: {', '.join(tools_invocadas)}. "
+            f"Si querés profundizar, pedime algo más específico (ej. un instrumento "
+            f"o tramo concreto)."
+        )
+    else:
+        reply = (
+            f"Paré después de {max_steps} pasos sin haber resuelto la consulta. "
+            f"Reformulá siendo más específico."
+        )
     return {
-        "reply": (
-            "Corté el procesamiento para controlar costos: el modelo pidió más de "
-            f"{MAX_STEPS} consultas encadenadas. Reformulá la pregunta siendo más "
-            "específico."
-        ),
+        "reply": reply,
         "tool_calls": tool_calls_log,
         "history": messages_full,
         "usage": acc_usage,
-        "steps": MAX_STEPS,
+        "steps": max_steps,
         "elapsed_s": round(time.time() - t_start, 2),
         "truncated": True,
         "model_used": model_used,

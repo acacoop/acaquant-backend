@@ -19,6 +19,7 @@ Respuesta:
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -45,6 +46,10 @@ logger = logging.getLogger(__name__)
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     history: list[dict[str, Any]] | None = None
+    # ID de conversación opcional. Si no viene, el backend genera uno nuevo y
+    # lo devuelve en la response — el frontend debe guardarlo y mandarlo en
+    # los siguientes turns para agrupar la conversación entera en logs.
+    conversation_id: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -56,19 +61,26 @@ class ChatResponse(BaseModel):
     elapsed_s: float
     truncated: bool = False
     model_used: str = ""
+    conversation_id: str = ""
 
 
 def _log_interaccion(
     req: ChatRequest,
     resp: dict[str, Any] | None,
     user_email: str,
+    conversation_id: str,
     error: dict[str, Any] | None = None,
 ) -> None:
-    """Persiste cada turno en Manager.AsistenteLogs para auditoría."""
+    """Persiste cada turno en Manager.AsistenteLogs para auditoría.
+
+    `conversation_id` es siempre el resuelto (nunca None) para poder agrupar
+    todos los turns de una misma conversación en el dashboard.
+    """
     try:
         doc: dict[str, Any] = {
             "ts": datetime.now(UTC),
             "user": user_email or "anon",
+            "conversation_id": conversation_id,
             "message": req.message,
             "estado": "error" if error else ("truncated" if resp and resp.get("truncated") else "ok"),
         }
@@ -104,6 +116,11 @@ def chat(
         cf_email=request.headers.get("cf-access-authenticated-user-email"),
     )
 
+    # Resolver conversation_id: si el frontend mandó uno, lo respetamos; si
+    # no, generamos uno nuevo (primer turn de una conversación). El ID se
+    # devuelve en la response y se persiste en cada doc de AsistenteLogs.
+    conversation_id = (req.conversation_id or "").strip() or uuid.uuid4().hex
+
     # Validar que haya key del provider activo
     if LLM_PROVIDER == "claude" and not ANTHROPIC_API_KEY:
         raise HTTPException(
@@ -123,7 +140,7 @@ def chat(
         )
     except LLMRateLimitError as e:
         logger.warning("rate limit llm: %s", e)
-        _log_interaccion(req, None, user_email, error={"code": "rate_limit", "message": str(e)[:300]})
+        _log_interaccion(req, None, user_email, conversation_id, error={"code": "rate_limit", "message": str(e)[:300]})
         raise HTTPException(
             status_code=429,
             detail={
@@ -135,7 +152,7 @@ def chat(
         ) from e
     except LLMTransportError as e:
         logger.warning("transport error llm: %s", e)
-        _log_interaccion(req, None, user_email, error={"code": "transport", "message": str(e)[:300]})
+        _log_interaccion(req, None, user_email, conversation_id, error={"code": "transport", "message": str(e)[:300]})
         raise HTTPException(
             status_code=503,
             detail={
@@ -147,7 +164,7 @@ def chat(
         ) from e
     except LLMBadResponseError as e:
         logger.warning("bad response llm: %s", e)
-        _log_interaccion(req, None, user_email, error={"code": "bad_response", "message": str(e)[:300]})
+        _log_interaccion(req, None, user_email, conversation_id, error={"code": "bad_response", "message": str(e)[:300]})
         raise HTTPException(
             status_code=502,
             detail={
@@ -159,7 +176,7 @@ def chat(
         ) from e
     except LLMError as e:
         logger.exception("LLMError genérico")
-        _log_interaccion(req, None, user_email, error={"code": "llm_error", "message": str(e)[:300]})
+        _log_interaccion(req, None, user_email, conversation_id, error={"code": "llm_error", "message": str(e)[:300]})
         raise HTTPException(
             status_code=502,
             detail={
@@ -171,7 +188,7 @@ def chat(
         ) from e
     except Exception as e:
         logger.exception("error inesperado en /api/chat")
-        _log_interaccion(req, None, user_email, error={"code": "internal", "message": str(e)[:300]})
+        _log_interaccion(req, None, user_email, conversation_id, error={"code": "internal", "message": str(e)[:300]})
         raise HTTPException(
             status_code=500,
             detail={
@@ -181,5 +198,6 @@ def chat(
             },
         ) from e
 
-    _log_interaccion(req, result, user_email)
+    _log_interaccion(req, result, user_email, conversation_id)
+    result["conversation_id"] = conversation_id
     return ChatResponse(**result)

@@ -93,6 +93,79 @@ def asistente_logs(
     return docs
 
 
+@router.get("/asistente/conversations")
+def asistente_conversations(
+    limit: int = Query(50, ge=1, le=500),
+    horas: int = Query(24, ge=1, le=720),
+):
+    """Lista de conversaciones agrupadas por conversation_id.
+
+    Cada item devuelve metadata agregada de la conversación entera:
+    primer/último ts, cantidad de turns, tokens totales, primer mensaje del
+    usuario como preview. El detalle de cada turn se consulta via
+    /asistente/conversations/{conversation_id}.
+
+    Conversaciones legacy sin conversation_id quedan agrupadas bajo
+    "(legacy)" y se muestran al final.
+    """
+    desde = datetime.now(UTC) - timedelta(hours=horas)
+    pipeline = [
+        {"$match": {"ts": {"$gte": desde}}},
+        {"$group": {
+            "_id": {"$ifNull": ["$conversation_id", "(legacy)"]},
+            "user": {"$first": "$user"},
+            "first_ts": {"$min": "$ts"},
+            "last_ts":  {"$max": "$ts"},
+            "turns":    {"$sum": 1},
+            "tokens":   {"$sum": {"$ifNull": ["$usage.totalTokenCount", 0]}},
+            "errors":   {"$sum": {"$cond": [{"$eq": ["$estado", "error"]}, 1, 0]}},
+            # Primer mensaje del user para preview (ordenando por ts asc dentro
+            # del grupo). $first después de $sort sobre ts asc da el primero.
+            "messages_first": {"$push": {"ts": "$ts", "message": "$message"}},
+        }},
+        {"$sort": {"last_ts": -1}},
+        {"$limit": limit},
+    ]
+    rows = list(_asistente_coll().aggregate(pipeline))
+
+    out = []
+    for r in rows:
+        # Tomamos el message del turn más viejo como preview.
+        msgs = sorted(r.get("messages_first", []), key=lambda m: m.get("ts") or datetime.min.replace(tzinfo=UTC))
+        preview = msgs[0]["message"] if msgs else ""
+        for ts_field in ("first_ts", "last_ts"):
+            v = r.get(ts_field)
+            if isinstance(v, datetime):
+                r[ts_field] = (v if v.tzinfo else v.replace(tzinfo=UTC)).isoformat()
+        out.append({
+            "conversation_id": r["_id"],
+            "user": r.get("user", ""),
+            "first_ts": r.get("first_ts"),
+            "last_ts": r.get("last_ts"),
+            "turns": r.get("turns", 0),
+            "tokens": r.get("tokens", 0) or 0,
+            "errors": r.get("errors", 0),
+            "preview": (preview or "")[:120],
+        })
+    return out
+
+
+@router.get("/asistente/conversations/{conversation_id}")
+def asistente_conversation_detail(conversation_id: str):
+    """Devuelve todos los turns de una conversación, ordenados ascending."""
+    cur = _asistente_coll().find(
+        {"conversation_id": conversation_id},
+        {"_id": 0},
+    ).sort("ts", 1)
+    docs = []
+    for d in cur:
+        v = d.get("ts")
+        if isinstance(v, datetime):
+            d["ts"] = (v if v.tzinfo else v.replace(tzinfo=UTC)).isoformat()
+        docs.append(d)
+    return docs
+
+
 @router.get("/asistente/timeseries")
 def asistente_timeseries(horas: int = Query(24, ge=1, le=720)):
     """Serie por hora: conversaciones, tokens, errores."""

@@ -130,9 +130,10 @@ def asistente_conversations(
 
     out = []
     for r in rows:
-        # Tomamos el message del turn más viejo como preview.
+        # Tomamos el message del turn más viejo como preview. Logs legacy / de
+        # error pueden no tener `message`, así que usamos `.get` con default.
         msgs = sorted(r.get("messages_first", []), key=lambda m: m.get("ts") or datetime.min.replace(tzinfo=UTC))
-        preview = msgs[0]["message"] if msgs else ""
+        preview = next((m.get("message", "") for m in msgs if m.get("message")), "")
         for ts_field in ("first_ts", "last_ts"):
             v = r.get(ts_field)
             if isinstance(v, datetime):

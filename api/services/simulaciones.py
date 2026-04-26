@@ -263,17 +263,45 @@ def _enriquecer_lote(tickers_cortos: list[str]) -> dict[str, dict]:
     db_t = get_db_trading()
     db_v = get_db_valuaciones()
 
-    # 1. Curvas: lookup por ticker_corto. Trae shape del instrumento + flujos.
+    proyeccion_curvas = {
+        "_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1, "curva": 1,
+        "fecha_emision": 1, "fecha_vencimiento": 1, "valor_nominal": 1,
+        "flujos": 1, "cer_emision": 1,
+    }
+
+    # 1. Curvas: lookup exacto por ticker_corto. Trae shape del instrumento.
     curva_docs = list(db_t["Curvas"].find(
-        {"ticker_corto": {"$in": tickers_cortos}},
-        {
-            "_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1, "curva": 1,
-            "fecha_emision": 1, "fecha_vencimiento": 1, "valor_nominal": 1,
-            "flujos": 1, "cer_emision": 1,
-        },
+        {"ticker_corto": {"$in": tickers_cortos}}, proyeccion_curvas,
     ))
-    by_corto = {d["ticker_corto"]: d for d in curva_docs}
-    tickers_largos = [d["ticker"] for d in curva_docs]
+    by_corto: dict[str, dict] = {d["ticker_corto"]: d for d in curva_docs}
+
+    # 1b. Fuzzy match para soberanos: en Trading.Curvas los bonos USD (globales
+    # / bonares) viven SOLO con sufijo D (ej. AL30D, GD30D), porque el motor
+    # de curvas calcula TEA/duration/paridad sobre la cotización en USD MEP.
+    # La versión pesos (AL30) y la cable (AL30C) no tienen doc propio. Si el
+    # user eligió "AL30", buscamos AL30D o AL30C como fallback. Mismo flujo,
+    # mismo bono subyacente — solo cambia la moneda en la que cotiza.
+    no_matched = [tk for tk in tickers_cortos if tk not in by_corto]
+    if no_matched:
+        variantes: dict[str, str] = {}  # variante → ticker original
+        for tk in no_matched:
+            for sufijo in ("D", "C"):
+                variantes[f"{tk}{sufijo}"] = tk
+        encontrados = list(db_t["Curvas"].find(
+            {"ticker_corto": {"$in": list(variantes.keys())}}, proyeccion_curvas,
+        ))
+        for d in encontrados:
+            original = variantes.get(d["ticker_corto"])
+            if original and original not in by_corto:
+                # Guardamos bajo el ticker original que el user pidió, así el
+                # cashflow / composición / etc se asocian correctamente. Pero
+                # el `ticker_largo` y precio siguen siendo de la variante real.
+                d["_alias_de"] = d["ticker_corto"]
+                d["ticker_corto"] = original
+                by_corto[original] = d
+                logger.info("simulaciones: %s → %s (fuzzy match)", original, d["_alias_de"])
+
+    tickers_largos = [d["ticker"] for d in by_corto.values()]
 
     # 2. TimeSales: último precio + analíticos por ticker (largo).
     enrich_map: dict[str, dict] = {}
@@ -310,6 +338,7 @@ def _enriquecer_lote(tickers_cortos: list[str]) -> dict[str, dict]:
         out[corto] = {
             "ticker_corto":     corto,
             "ticker_largo":     c["ticker"],
+            "alias_de":         c.get("_alias_de"),  # None si no hubo fuzzy match
             "tipo":             c.get("tipo"),
             "curva":            c.get("curva"),
             "fecha_emision":    c.get("fecha_emision"),
@@ -516,6 +545,11 @@ def calcular(posiciones: list[Posicion]) -> dict[str, Any]:
         cantidad = _cantidad_nominal(pos.importe, meta["precio"], meta["clase_activo"])
         if cantidad is None:
             alertas.append(f"{pos.ticker}: sin precio actual (Atlas pausado o ticker sin trades hoy)")
+        if meta.get("alias_de"):
+            alertas.append(
+                f"{pos.ticker}: usando flujos de {meta['alias_de']} "
+                f"(soberanos solo cotizan con sufijo D/C en Trading.Curvas)."
+            )
 
         cashflows_pos = (
             _proyectar_cashflows(meta["curva"], meta["flujos"], cantidad, ahora)

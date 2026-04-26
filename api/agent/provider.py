@@ -59,6 +59,7 @@ class LLMProvider(ABC):
         system_prompt: str | list[dict[str, Any]],
         tools: list[dict[str, Any]],
         temperature: float = 0.2,
+        tool_choice: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """Invoca el modelo. messages + tools en formato canónico (estilo Claude).
 
@@ -66,6 +67,12 @@ class LLMProvider(ABC):
         - `str`: texto plano (legacy). El provider lo envuelve en un bloque cacheable.
         - `list[dict]`: bloques estilo Anthropic con cache_control opcional. Permite
           split estático/dinámico (ver `prompt.build_system_prompt`).
+
+        `tool_choice` (opcional): fuerza al modelo a llamar una tool específica
+        en lugar de dejarlo elegir. Shape Anthropic: `{"type": "tool", "name": "..."}`
+        o `{"type": "any"}` para forzar cualquier tool. Default `None` = auto.
+        Usado por flows estructurados para forzar la tool de output schema.
+        Gemini no soporta esto y lo ignora (sin error).
 
         Devuelve `LLMResponse` con text, tool_calls, usage, stop_reason y
         assistant_message (el mensaje del modelo listo para apendear al history).
@@ -163,6 +170,7 @@ class ClaudeProvider(LLMProvider):
         system_prompt: str | list[dict[str, Any]],
         tools: list[dict[str, Any]],
         temperature: float = 0.2,
+        tool_choice: dict[str, Any] | None = None,
     ) -> LLMResponse:
         # System en bloques. Si viene lista, ya tiene cache_control donde
         # corresponde (ver prompt.build_system_prompt). Si viene string (legacy),
@@ -199,6 +207,8 @@ class ClaudeProvider(LLMProvider):
             body["system"] = system_blocks
         if tools:
             body["tools"] = _claude_tool_declarations(tools)
+        if tool_choice:
+            body["tool_choice"] = tool_choice
 
         headers = {
             "x-api-key": self.api_key,
@@ -377,6 +387,7 @@ class GeminiProvider(LLMProvider):
         system_prompt: str | list[dict[str, Any]],
         tools: list[dict[str, Any]],
         temperature: float = 0.2,
+        tool_choice: dict[str, Any] | None = None,
     ) -> LLMResponse:
         url = GEMINI_URL.format(model=self.model)
         contents = _messages_to_gemini_contents(messages)

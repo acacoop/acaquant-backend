@@ -106,25 +106,51 @@ def run_conversation(
     provider: LLMProvider | None = None,
     force_model: str | None = None,
     tools_list: list[dict[str, Any]] | None = None,
+    extra_tools: list[dict[str, Any]] | None = None,
+    force_tool_name_on_last: str | None = None,
+    extra_system_blocks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Corre una vuelta de conversación.
 
+    Args (todos kwargs opcionales salvo user_message + history):
+        provider: cliente LLM ya instanciado. Si None, se decide por router.
+        force_model: forzar 'haiku' o 'sonnet' (override del router).
+        tools_list: tools de data (las que pasan por dispatch). Default: TOOLS.
+        extra_tools: tools adicionales que el modelo PUEDE llamar pero NO se
+            dispatchan — sus args son interpretados como respuesta estructurada
+            del flow. Usado por structured intake (ej. flow cartera).
+        force_tool_name_on_last: nombre de una tool (debe estar en extra_tools)
+            que se fuerza vía tool_choice en el último step disponible. Garantiza
+            que el modelo cierre con structured output incluso si no quiso solo.
+        extra_system_blocks: bloques adicionales al system prompt (sin
+            cache_control típicamente). Usado para inyectar el addendum de cada
+            flow estructurado.
+
     Retorna:
         {
-            "reply": str,
+            "reply": str,                            # vacío si structured_output presente
+            "structured_output": {                   # presente solo en flows estructurados
+                "name": str, "args": dict             # cuando el modelo llamó una extra_tool
+            } | None,
             "tool_calls": [{"name", "args", "ok"}],
-            "history": [...]           # formato canónico para persistir
-            "usage": {"promptTokenCount", "candidatesTokenCount", "totalTokenCount", "model", "model_alias"}
+            "history": [...],                        # formato canónico para persistir
+            "usage": {...},
             "steps": int,
             "elapsed_s": float,
             "truncated": bool,
-            "model_used": str          # alias (haiku | sonnet | gemini-flash)
+            "model_used": str,
         }
     """
     # Tools list del sistema (si no se pasa, cargar las definidas en tools.py)
     if tools_list is None:
         from api.agent.tools import TOOLS, _is_blocked
         tools_list = [t for t in TOOLS if not _is_blocked(t["endpoint"])]
+
+    # Combinar con extra_tools (output schemas de structured flows). Estas NO
+    # se dispatchan — el runner intercepta cuando el modelo las llama.
+    extra_tools = extra_tools or []
+    extra_tool_names: set[str] = {t["name"] for t in extra_tools}
+    final_tools = [*tools_list, *extra_tools] if extra_tools else tools_list
 
     # Decidir modelo y provider
     if provider is None:
@@ -160,6 +186,10 @@ def run_conversation(
         logger.exception("fallo data_inventory; sigo")
         data_inv = ""
     system_prompt = build_system_prompt(market_ctx, data_inv)
+    if extra_system_blocks:
+        # Bloques adicionales (ej. addendum del flow estructurado) van DESPUÉS
+        # del CONTEXTO DEL MERCADO, sin cache_control (son chicos y específicos).
+        system_prompt = [*system_prompt, *extra_system_blocks]
 
     tool_calls_log: list[dict[str, Any]] = []
     # Usage acumulado a lo largo de los turns. Arrancamos con los counters en 0
@@ -194,11 +224,23 @@ def run_conversation(
     max_steps = _max_steps_for(model_used)
 
     for step in range(max_steps):
+        # En el último step disponible, si vino una tool a forzar, decirle al
+        # modelo que SÓLO puede llamar esa tool. Útil para garantizar que un
+        # flow estructurado cierre con structured output aunque el modelo no
+        # quiera solo. En steps intermedios, tool_choice queda en auto.
+        is_last_step = step == max_steps - 1
+        tool_choice = (
+            {"type": "tool", "name": force_tool_name_on_last}
+            if (force_tool_name_on_last and is_last_step)
+            else None
+        )
+
         try:
             resp: LLMResponse = provider.generate(
                 messages=messages,
                 system_prompt=system_prompt,
-                tools=tools_list,
+                tools=final_tools,
+                tool_choice=tool_choice,
             )
         except LLMError:
             raise
@@ -212,10 +254,31 @@ def run_conversation(
         messages.append(resp.assistant_message)
         messages_full.append(resp.assistant_message)
 
+        # ¿Llamó alguna extra_tool? Esa es la respuesta estructurada del flow.
+        # Interceptamos: NO pasa por dispatch, los args son el output final.
+        # Si hay múltiples tool_use en la misma respuesta y al menos uno es
+        # extra_tool, gana ese (descartamos los otros del step actual).
+        if extra_tool_names:
+            for tc in resp.tool_calls:
+                if tc.name in extra_tool_names:
+                    logger.info("intercept extra_tool name=%s args=%s", tc.name, tc.args)
+                    return {
+                        "reply": "",
+                        "structured_output": {"name": tc.name, "args": tc.args},
+                        "tool_calls": tool_calls_log,
+                        "history": messages_full,
+                        "usage": acc_usage,
+                        "steps": step + 1,
+                        "elapsed_s": round(time.time() - t_start, 2),
+                        "truncated": False,
+                        "model_used": model_used,
+                    }
+
         # Si no pidió tools, cerramos
         if not resp.tool_calls:
             return {
                 "reply": resp.text or "(respuesta vacía)",
+                "structured_output": None,
                 "tool_calls": tool_calls_log,
                 "history": messages_full,
                 "usage": acc_usage,
@@ -267,6 +330,7 @@ def run_conversation(
         )
     return {
         "reply": reply,
+        "structured_output": None,
         "tool_calls": tool_calls_log,
         "history": messages_full,
         "usage": acc_usage,

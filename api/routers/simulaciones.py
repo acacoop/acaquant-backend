@@ -7,15 +7,19 @@ se expone aparte en POST /api/simulaciones/calcular (próximamente PR2).
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.services.simulaciones import (
+    Posicion,
     Simulacion,
     SimulacionCreate,
     SimulacionUpdate,
     actualizar_simulacion,
+    calcular,
     crear_simulacion,
     eliminar_simulacion,
     listar_simulaciones,
@@ -76,3 +80,33 @@ def eliminar(
     """204 si se eliminó. 404 si no existía o pertenecía a otro usuario."""
     if not eliminar_simulacion(simulacion_id, email):
         raise HTTPException(status_code=404, detail="simulación no encontrada")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cálculo (preview live, sin guardar)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class CalcularRequest(BaseModel):
+    """Body de POST /api/simulaciones/calcular.
+
+    No requiere `nombre` ni id — el cálculo es stateless. El frontend lo
+    invoca tanto al cargar una simulación guardada como al editar en vivo.
+    """
+
+    posiciones: list[Posicion] = Field(default_factory=list)
+
+
+@router.post("/calcular")
+def calcular_endpoint(
+    req: CalcularRequest,
+    _email: str = Depends(get_user_email),  # solo para auth, no se usa
+) -> dict[str, Any]:
+    """Devuelve analytics de una cartera: cashflows + composición + métricas.
+
+    No persiste. No requiere que la cartera esté guardada. Está protegido
+    por auth para evitar uso anónimo.
+
+    Response shape: ver `api.services.simulaciones.calcular`.
+    """
+    return calcular(req.posiciones)

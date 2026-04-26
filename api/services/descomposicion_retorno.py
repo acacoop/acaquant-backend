@@ -169,8 +169,9 @@ def descomposicion_realizada(
     if f_fin <= f_ini:
         return {"error": "hasta debe ser > desde"}
 
-    snap_ini = snapshot_curva_historico("tasa_fija", desde)
-    snap_fin = snapshot_curva_historico("tasa_fija", hasta)
+    # @cached solo acepta kwargs — pasar posicional dispara TypeError.
+    snap_ini = snapshot_curva_historico(curva="tasa_fija", fecha=desde)
+    snap_fin = snapshot_curva_historico(curva="tasa_fija", fecha=hasta)
     if not snap_ini or not snap_fin:
         return {"error": "snapshots vacíos en una o ambas fechas (¿día no hábil?)"}
 

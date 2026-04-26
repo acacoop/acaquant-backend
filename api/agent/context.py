@@ -22,6 +22,13 @@ TZ_AR = timezone(timedelta(hours=-3))  # Argentina no tiene DST
 _CACHE_TTL = 60  # segundos
 _cache: dict[str, Any] = {"ts": 0.0, "text": ""}
 
+# Cortes para spread HD intra-mandato vs post-mandato (termómetro político
+# de Capa 3 del framework). Elecciones AR: 24-oct-2027, asunción próximo
+# presidente: 10-dic-2027. Si el calendario electoral cambia (nueva elección,
+# mandato adelantado), actualizar estas dos constantes.
+_INTRA_MANDATO_MAX = "2027-10-24"
+_POST_MANDATO_MIN = "2027-12-10"
+
 
 def _fmt_money(v: float | int | None) -> str:
     if v is None:
@@ -80,6 +87,30 @@ def _a3500_line(client) -> str:
     if not doc:
         return "A3500: sin datos"
     return f"A3500: ${_fmt_money(doc.get('valor'))} (al {_fmt_date(doc.get('fecha'))})"
+
+
+def _tamar_line(client) -> str:
+    """TAMAR (BCRA). Capa 4 del framework la nombra explícito para Duales."""
+    doc = client["Trading"]["TAMAR"].find_one({}, sort=[("fecha", -1)])
+    if not doc:
+        return "TAMAR: sin datos"
+    return f"TAMAR: {_fmt_money(doc.get('valor'))}% (al {_fmt_date(doc.get('fecha'))})"
+
+
+def _caucion_line(client) -> str:
+    """Tasa de caución 1d ARS — proxy de risk-free del peso a 1 día."""
+    doc = client["Trading"]["Caucion"].find_one({"moneda": "ARS"}, sort=[("fecha", -1)])
+    if not doc:
+        return "Caución ARS 1d: sin datos"
+    return f"Caución ARS 1d: {_fmt_money(doc.get('tna_cierre'))}% TNA (al {_fmt_date(doc.get('fecha'))})"
+
+
+def _ipc_realizado_line(client) -> str:
+    """IPC mensual realizado (último publicado por INDEC vía argentinadatos)."""
+    doc = client["Trading"]["InflacionMensual"].find_one({}, sort=[("fecha", -1)])
+    if not doc:
+        return "IPC mensual realizado: sin datos"
+    return f"IPC mensual realizado: {_fmt_money(doc.get('valor'))}% (mes {_fmt_date(doc.get('fecha'))})"
 
 
 def _top_volumen_line(client) -> str:
@@ -188,6 +219,64 @@ def _breakevens_line(client) -> str:
     return "Breakevens: " + " · ".join(items)
 
 
+def _spread_hd_mandato_line(client) -> str:
+    """Spread TEA entre el Bonar más cercano por debajo del corte electoral
+    (vto < 2027-10-24, "intra-mandato") y el más cercano por arriba de la
+    asunción (vto >= 2027-12-10, "post-mandato"). Termómetro de riesgo
+    político — Capa 3 del framework. Si el spread se abre, el mercado
+    descuenta más riesgo del próximo gobierno.
+
+    Búsqueda dinámica para no hardcodear tickers (CLAUDE.md prohíbe asumir
+    AO27/AO28 vivos). Si el calendario electoral cambia, ajustar las
+    constantes _INTRA_MANDATO_MAX / _POST_MANDATO_MIN arriba.
+    """
+    hoy_iso = datetime.now(TZ_AR).strftime("%Y-%m-%d")
+
+    intra = client["Trading"]["Curvas"].find_one(
+        {"curva": "soberanos", "tipo": "bonares",
+         "fecha_vencimiento": {"$gte": hoy_iso, "$lt": _INTRA_MANDATO_MAX}},
+        {"_id": 0, "ticker": 1, "ticker_corto": 1, "fecha_vencimiento": 1},
+        sort=[("fecha_vencimiento", -1)],  # el último antes del corte
+    )
+    post = client["Trading"]["Curvas"].find_one(
+        {"curva": "soberanos", "tipo": "bonares",
+         "fecha_vencimiento": {"$gte": _POST_MANDATO_MIN}},
+        {"_id": 0, "ticker": 1, "ticker_corto": 1, "fecha_vencimiento": 1},
+        sort=[("fecha_vencimiento", 1)],  # el primero después del corte
+    )
+    if not intra or not post or intra.get("ticker") == post.get("ticker"):
+        return "Spread HD intra/post-mandato: no calculable hoy"
+
+    def _last_tea(instrumento: str) -> float | None:
+        doc = client["Trading"]["TimeSales"].find_one(
+            {"instrumento": instrumento, "TEA": {"$exists": True, "$ne": None}},
+            {"_id": 0, "TEA": 1},
+            sort=[("timestamp", -1)],
+        )
+        if not doc:
+            return None
+        try:
+            return float(doc["TEA"])
+        except (TypeError, ValueError):
+            return None
+
+    tea_intra = _last_tea(intra["ticker"])
+    tea_post = _last_tea(post["ticker"])
+    if tea_intra is None or tea_post is None:
+        return "Spread HD intra/post-mandato: no calculable hoy (sin trades recientes)"
+
+    spread_bps = round((tea_post - tea_intra) * 100)  # TEA viene en %, spread en bps
+    intra_corto = intra.get("ticker_corto") or _short_ticker(intra["ticker"])
+    post_corto  = post.get("ticker_corto")  or _short_ticker(post["ticker"])
+    intra_vto = _fmt_date(intra.get("fecha_vencimiento"))[3:]  # MM/AAAA
+    post_vto  = _fmt_date(post.get("fecha_vencimiento"))[3:]
+    return (
+        f"Spread HD intra/post-mandato: {post_corto} ({post_vto}) {tea_post:.1f}% "
+        f"− {intra_corto} ({intra_vto}) {tea_intra:.1f}% = {spread_bps:+d} bps "
+        f"(termómetro político)"
+    )
+
+
 def build_market_context() -> str:
     """Retorna el bloque de contexto listo para concatenar al system prompt.
 
@@ -211,12 +300,18 @@ def build_market_context() -> str:
         f"Mercado: {estado}",
         f"{_safe(lambda: _mep_line(client))}",
         f"{_safe(lambda: _a3500_line(client))}",
+        f"{_safe(lambda: _caucion_line(client))}",
         f"{_safe(lambda: _cer_line(client))}",
+        f"{_safe(lambda: _tamar_line(client))}",
+        f"{_safe(lambda: _ipc_realizado_line(client))}",
         f"{_safe(lambda: _top_volumen_line(client))}",
         f"{_safe(lambda: _proximos_vencimientos_line(client, 'tasa_fija', 'Lecap'))}",
         f"{_safe(lambda: _proximos_vencimientos_line(client, 'cer', 'CER'))}",
         f"{_safe(lambda: _breakevens_line(client))}",
+        f"{_safe(lambda: _spread_hd_mandato_line(client))}",
         f"{_safe(lambda: _ultima_licitacion_line(client))}",
+        # Explícito para que el modelo NO invente — no hay job que cargue REPO stock.
+        "REPO BCRA stock: no disponible (job no implementado, ver macro.py:_BLOQUEADAS)",
     ]
     text = "\n".join(f"- {l}" for l in lineas)
 

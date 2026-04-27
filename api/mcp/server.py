@@ -144,39 +144,46 @@ def historico_curva(curva: str) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────
-# Atribución de retorno (Lecap / Boncap)
+# Atribución de retorno (Lecap / Boncap / Lecer)
 # ─────────────────────────────────────────────────────────────────
 
 
 @mcp.tool(
     description=(
-        "Atribución ex-post entre dos fechas (YYYY-MM-DD) para Lecap/Boncap: "
-        "descompone el retorno total en carry / rolldown / cambio_tasa. "
-        "Forma exacta del PDF (composición exponencial), no linealización. "
-        "metodo: lineal | cuadratica (interpolación de la curva inicial)."
+        "Atribución ex-post entre dos fechas (YYYY-MM-DD): descompone el "
+        "retorno total en carry / rolldown / cambio_tasa. curva: tasa_fija "
+        "(default, sobre precio sucio + TEM) o cer (sobre paridad + TEA "
+        "real, suma cer_accrual del período y r_total_ars compuesto). "
+        "Forma exacta (composición exponencial), no linealización. "
+        "metodo: lineal | cuadratica."
     ),
 )
 def descomposicion_retorno(
-    desde: str, hasta: str, metodo: str = "lineal",
+    desde: str, hasta: str,
+    metodo: str = "lineal",
+    curva: str = "tasa_fija",
 ) -> dict:
     return svc_desc.descomposicion_realizada(
-        desde=desde, hasta=hasta, metodo=metodo,
+        desde=desde, hasta=hasta, metodo=metodo, curva=curva,
     )
 
 
 @mcp.tool(
     description=(
-        "Atribución prospectiva por Lecap/Boncap a horizonte (días): qué "
-        "rinde si la curva no se mueve. Devuelve carry_esperado + "
-        "rolldown_esperado por bono, rankeado por total_esperado. Útil para "
-        "rankear 'qué Lecap comprar este mes'."
+        "Atribución prospectiva a horizonte (días) si la curva no se mueve. "
+        "curva: tasa_fija (devuelve carry+rolldown sobre TEM) o cer "
+        "(carry+rolldown sobre TEA real más cer_accrual_esperado del REM "
+        "y total_esperado_ars compuesto). Rankeado por total esperado. Útil "
+        "para 'qué Lecap/Lecer comprar este mes'."
     ),
 )
 def rolldown_esperado(
-    horizonte_dias: int = 30, metodo: str = "lineal",
+    horizonte_dias: int = 30,
+    metodo: str = "lineal",
+    curva: str = "tasa_fija",
 ) -> dict:
     return svc_desc.rolldown_esperado(
-        horizonte_dias=horizonte_dias, metodo=metodo,
+        horizonte_dias=horizonte_dias, metodo=metodo, curva=curva,
     )
 
 

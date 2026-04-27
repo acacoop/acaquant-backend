@@ -31,10 +31,15 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
 
     db = get_db_trading()
 
+    # cupon_anual + cer_emision: necesarios para que la descomposición de
+    # retorno CER pueda distinguir Lecers (zero coupon) de Boncers cupón
+    # y des-indexar precios sucios a paridad real. Para el resto de las
+    # curvas son no-ops (los docs no traen esos campos).
     curva_docs = list(db["Curvas"].find(
         {"curva": curva},
         {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
-         "fecha_vencimiento": 1, "fecha_emision": 1},
+         "fecha_vencimiento": 1, "fecha_emision": 1,
+         "cupon_anual": 1, "cer_emision": 1},
     ))
     if not curva_docs:
         return []
@@ -87,7 +92,7 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
         except Exception:
             pass
         ts_last = en.get("ts")
-        out.append({
+        entry = {
             "ticker":             ticker,
             "ticker_corto":       m.get("ticker_corto"),
             "tipo":               m.get("tipo"),
@@ -101,7 +106,15 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
             "mod_duration":       en.get("mod_duration"),
             "convexity":          en.get("convexity"),
             "ts_ultimo_trade":    ts_last.isoformat() if isinstance(ts_last, datetime) else ts_last,
-        })
+        }
+        # Metadatos extra para curva CER (descomposición de retorno).
+        if curva == "cer":
+            cupon = m.get("cupon_anual")
+            entry["is_zero_coupon"] = (cupon is None) or (float(cupon) == 0.0)
+            cer_em = m.get("cer_emision")
+            if cer_em:
+                entry["cer_emision"] = float(cer_em)
+        out.append(entry)
     out.sort(key=lambda x: x.get("fecha_vencimiento") or "9999")
     return out
 

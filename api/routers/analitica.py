@@ -187,34 +187,41 @@ class _EstrategiaHistoricoReq(BaseModel):
 def descomposicion_retorno(
     desde: str = Query(..., description="YYYY-MM-DD (snapshot inicial)"),
     hasta: str = Query(..., description="YYYY-MM-DD (snapshot final, > desde)"),
-    metodo: str = Query("lineal", description="lineal | cuadratica (interpolación de curva)"),
+    metodo: str = Query("lineal", description="lineal | cuadratica"),
+    curva: str = Query("tasa_fija", description="tasa_fija | cer"),
 ):
-    """Atribución ex-post para Lecap/Boncap entre dos fechas.
+    """Atribución ex-post entre dos fechas. Curva: tasa_fija (default) o cer.
 
-    Descompone el retorno total de cada bono en 3 componentes puros: carry
-    (paso del tiempo), rolldown (rolling sin que se mueva la curva) y
-    cambio_tasa (residuo, lo que el mercado movió). Cada uno en %.
+    Descompone el retorno total en 3 componentes puros: carry (paso del
+    tiempo), rolldown (rolling sin que se mueva la curva) y cambio_tasa
+    (residuo, lo que el mercado movió). Cada uno en %.
 
-    Carry y descomposición usan la forma exacta del PDF (composición
-    exponencial), no la linealización. Rolldown se calcula revaluando el
-    bono al plazo final con la curva inicial — captura convexidad implícita
-    sin asumir aproximación lineal `D × Δy`.
+    Para `curva=cer` el cálculo se hace sobre paridad + TEA real (no sobre
+    precio sucio para no doble-contar la indexación) y agrega `cer_accrual`
+    del período + `r_total_ars` compuesto. Carry y descomposición usan
+    forma exacta (composición exponencial), no linealización.
     """
-    return svc_desc.descomposicion_realizada(desde=desde, hasta=hasta, metodo=metodo)
+    return svc_desc.descomposicion_realizada(
+        desde=desde, hasta=hasta, metodo=metodo, curva=curva,
+    )
 
 
 @router.get("/rolldown-esperado")
 def rolldown_esperado(
-    horizonte_dias: int = Query(30, ge=1, le=365, description="Horizonte de proyección en días"),
+    horizonte_dias: int = Query(30, ge=1, le=365, description="Horizonte en días"),
     metodo: str = Query("lineal", description="lineal | cuadratica"),
+    curva: str = Query("tasa_fija", description="tasa_fija | cer"),
 ):
-    """Atribución prospectiva: por Lecap/Boncap, retorno esperado a horizonte
-    si la curva no se mueve.
+    """Atribución prospectiva: retorno esperado a horizonte si la curva no
+    se mueve. Curva: tasa_fija (default) o cer.
 
-    total_esperado = carry_esperado + rolldown_esperado. Útil para rankear
-    qué Lecap comprar bajo escenario de curva quieta.
+    Para `curva=cer` suma `cer_accrual_esperado` (mediana del REM proyectada
+    en N meses) y `total_esperado_ars` compuesto. Útil para rankear qué
+    Lecap/Lecer comprar bajo escenario de curva quieta.
     """
-    return svc_desc.rolldown_esperado(horizonte_dias=horizonte_dias, metodo=metodo)
+    return svc_desc.rolldown_esperado(
+        horizonte_dias=horizonte_dias, metodo=metodo, curva=curva,
+    )
 
 
 @router.post("/estrategia-historico")

@@ -261,10 +261,15 @@ def listar_curva(
         filtro_curva = {"curva": "cer"}
         if fijados_tickers:
             filtro_curva["ticker"] = {"$nin": list(fijados_tickers)}
+        # cupon_anual + cer_emision: para distinguir Lecers (zero coupon)
+        # de Boncers cupón tipo TX26/TX28 (cupon_anual > 0). Lo necesita
+        # la descomposición de retorno CER para filtrar la curva de
+        # interpolación a los zero coupon (la spec lo pide explícitamente).
         curva_docs = list(db["Curvas"].find(
             filtro_curva,
             {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
-             "fecha_vencimiento": 1, "fecha_emision": 1},
+             "fecha_vencimiento": 1, "fecha_emision": 1,
+             "cupon_anual": 1, "cer_emision": 1},
         ))
     elif curva == "tasa_fija":
         # tasa_fija propia + CER fijados (se marcan como `cer_fijado=true`).
@@ -386,6 +391,17 @@ def listar_curva(
             entry["tc_breakeven"] = _tc_breakeven(
                 enrich.get("price"), d.get("flujo_vencimiento"), mep_actual,
             )
+        # Metadatos extra para curva CER:
+        #   - is_zero_coupon: distingue Lecers (cupon_anual=0) de Boncers cupón.
+        #   - cer_emision: factor de emisión, para des-indexar precios sucios
+        #     a paridad real cuando se descompone el retorno (carry/rolldown
+        #     se calculan sobre paridad, el cer_accrual se separa después).
+        if curva == "cer":
+            cupon = d.get("cupon_anual")
+            entry["is_zero_coupon"] = (cupon is None) or (float(cupon) == 0.0)
+            cer_em = d.get("cer_emision")
+            if cer_em:
+                entry["cer_emision"] = float(cer_em)
         out.append(entry)
 
     if ordenar_por == "vencimiento":

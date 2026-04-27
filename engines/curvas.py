@@ -27,8 +27,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorCurvas")
 
 INTERVALO_SEGUNDOS = 5
-INTERVALO_RECARGA_CER = 3600   # recarga CER cada 1 hora
-INTERVALO_RECARGA_MEP = 60     # refresca MEP cada 1 min (para soberanos)
+INTERVALO_RECARGA_CER = 3600    # recarga CER cada 1 hora
+INTERVALO_RECARGA_MEP = 60      # refresca MEP cada 1 min (para soberanos)
+INTERVALO_RECARGA_A3500 = 3600  # A3500 BCRA es un fixing diario, alcanza 1h
 BATCH_SIZE = 200
 
 
@@ -188,6 +189,23 @@ def cargar_mep_actual(client) -> float | None:
     return None
 
 
+def cargar_a3500_actual(client) -> float | None:
+    """Último A3500 BCRA disponible (fixing mayorista diario).
+
+    Usado para valuar bonos dolar-linked: el flujo en pesos al vto es
+    VN_USD × TC_A3500_actual, y la TEA implícita se calcula descontando
+    los flujos en USD a yield USD (precio_USD = precio_pesos / TC).
+    """
+    doc = client["Trading"]["DOLAR"].find_one(
+        {"valor": {"$gt": 0}},
+        {"_id": 0, "valor": 1, "fecha": 1},
+        sort=[("fecha", -1)],
+    )
+    if doc and doc.get("valor"):
+        return float(doc["valor"])
+    return None
+
+
 def precio_soberano_a_usd(precio: float, ticker_completo: str, mep: float | None) -> float | None:
     """Convierte precio de bono soberano a USD según el sufijo del ticker ROFEX.
 
@@ -251,7 +269,11 @@ def fecha_cer_liquidacion(dias_habiles, fecha_str, n=10):
 # Cálculo principal por documento
 # ─────────────────────────────────────────────
 
-def calcular_campos(doc, instrumento, cer_dict, dias_habiles, mep: float | None = None):
+def calcular_campos(
+    doc, instrumento, cer_dict, dias_habiles,
+    mep: float | None = None,
+    tc_a3500: float | None = None,
+):
     precio = doc.get("price")
     timestamp = doc.get("timestamp")
 
@@ -467,6 +489,80 @@ def calcular_campos(doc, instrumento, cer_dict, dias_habiles, mep: float | None 
         except Exception:
             resultado["duration"] = round(dias_a_vto / 365, 4)
 
+    # ── DOLAR LINKED (paga ARS a TC del momento del pago) ─────────
+    elif curva == "dolar_linked":
+        # Sin A3500 actual no podemos convertir el precio en pesos a USD
+        # ni reportar paridad — dejamos solo duration ingenua.
+        if not tc_a3500 or tc_a3500 <= 0:
+            resultado["duration"] = round(dias_a_vto / 365, 4)
+            return resultado
+
+        # Settlement T+1.
+        settlement_str = siguiente_dia_habil(dias_habiles, fecha_trade)
+        if settlement_str:
+            fecha_settlement = date.fromisoformat(settlement_str)
+        else:
+            fecha_settlement = fecha_trade
+
+        valor_nominal = float(instrumento.get("valor_nominal", 100))
+
+        # Precio en USD implícito por el TC actual. Análogo a dividir por
+        # MEP en soberanos en pesos, pero acá usamos A3500 (lo que el bono
+        # pacta como TC de referencia, según el campo tasa_referencia).
+        precio_usd = precio / tc_a3500
+
+        # Flujos en USD nominal — el shape es porcentual sobre VN igual
+        # que soberanos. monto_flujo_soberano hace exactamente lo que
+        # necesitamos: amort_pct/100·VN + cupon_sobre_residual/100·VN.
+        flujos_futuros = [
+            (fecha_flujo(f), monto_flujo_soberano(f, valor_nominal), f)
+            for f in flujos_raw
+            if fecha_flujo(f)
+            and fecha_flujo(f) > fecha_settlement
+            and monto_flujo_soberano(f, valor_nominal) > 0
+        ]
+
+        if not flujos_futuros:
+            resultado["duration"] = round(dias_a_vto / 365, 4)
+            return resultado
+
+        # Paridad = precio_usd / VN — mide cuánto cotiza el bono respecto
+        # al nominal en USD. Para zero coupon a la par sería 100%; bajo
+        # la par (yield positivo) < 100%.
+        if valor_nominal > 0:
+            resultado["paridad"] = round(precio_usd / valor_nominal * 100, 4)
+
+        try:
+            fechas_dt = [datetime.combine(fecha_settlement, datetime.min.time())] + \
+                        [datetime.combine(fd, datetime.min.time()) for fd, _, _ in flujos_futuros]
+            cf = [-precio_usd] + [m for _, m, _ in flujos_futuros]
+            tea = xirr(fechas_dt, cf)
+
+            if tea is None or not (-0.5 < tea < 10):
+                resultado["duration"] = round(dias_a_vto / 365, 4)
+                return resultado
+
+            fechas_flujos_dt = [datetime.combine(fd, datetime.min.time()) for fd, _, _ in flujos_futuros]
+            montos_flujos    = [m for _, m, _ in flujos_futuros]
+            fecha_base_dt    = datetime.combine(fecha_settlement, datetime.min.time())
+
+            dur  = macaulay_duration(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
+            conv = convexity(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
+
+            # TEA en USD para dolar_linked. La TEM se reporta para tener
+            # un equivalente mensual comparable a tasa_fija (operativo —
+            # no es una TEM "real" porque la tasa subyacente es anual USD).
+            resultado["TEA"] = round(tea, 6)
+            resultado["TEM"] = round((1 + tea) ** (1 / 12) - 1, 6)
+            resultado["duration"] = dur if dur is not None else round(dias_a_vto / 365, 4)
+            if dur is not None and tea > -1:
+                resultado["mod_duration"] = round(dur / (1 + tea), 4)
+            if conv is not None:
+                resultado["convexity"] = conv
+
+        except Exception:
+            resultado["duration"] = round(dias_a_vto / 365, 4)
+
     # ── TAMAR / DUAL / otros ──────────────────────────────────────
     else:
         resultado["duration"] = round(dias_a_vto / 365, 4)
@@ -488,14 +584,16 @@ def run():
     cer_dict = cargar_cer(client)
     dias_habiles = cargar_dias_habiles(client)
     mep_actual = cargar_mep_actual(client)
+    tc_a3500_actual = cargar_a3500_actual(client)
     tickers = list(curvas.keys())
 
     ultimo_reload_cer = time.time()
     ultimo_reload_mep = time.time()
+    ultimo_reload_a3500 = time.time()
 
     logger.info(
-        "Escuchando %d tickers. Loop cada %ds. MEP inicial: %s",
-        len(tickers), INTERVALO_SEGUNDOS, mep_actual,
+        "Escuchando %d tickers. Loop cada %ds. MEP inicial: %s · A3500: %s",
+        len(tickers), INTERVALO_SEGUNDOS, mep_actual, tc_a3500_actual,
     )
 
     while True:
@@ -509,6 +607,11 @@ def run():
             if time.time() - ultimo_reload_mep > INTERVALO_RECARGA_MEP:
                 mep_actual = cargar_mep_actual(client)
                 ultimo_reload_mep = time.time()
+
+            # Recargar A3500 BCRA cada hora (jobs/bcra.py lo escribe 1×/día).
+            if time.time() - ultimo_reload_a3500 > INTERVALO_RECARGA_A3500:
+                tc_a3500_actual = cargar_a3500_actual(client)
+                ultimo_reload_a3500 = time.time()
 
             # Buscar docs sin enriquecer — más recientes primero para no bloquear trades nuevos
             docs = list(col_ts.find(
@@ -527,7 +630,10 @@ def run():
                     instrumento = curvas.get(doc["ticker"])
                     if not instrumento:
                         continue
-                    campos = calcular_campos(doc, instrumento, cer_dict, dias_habiles, mep_actual)
+                    campos = calcular_campos(
+                        doc, instrumento, cer_dict, dias_habiles,
+                        mep_actual, tc_a3500_actual,
+                    )
                     if not campos:
                         # Marcamos el doc con duration: null para que el filtro
                         # {duration: {$exists: false}} deje de devolverlo. Sin

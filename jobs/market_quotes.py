@@ -30,6 +30,10 @@ from core.yahoo import YahooError, yahoo_quote
 logger = logging.getLogger(__name__)
 
 # ── Watchlist HOME — equity/ETFs (panel widget) ──
+# Grupos:
+#   Índices: ETFs de mercado (S&P500, Nasdaq, Dow, etc.)
+#   Acciones: tickers individuales que la mesa quiere monitorear
+# (Regiones/Monedas/Big Tech viejos quedaron afuera por pedido.)
 HOME_STOCKS: list[tuple[str, str]] = [
     # (símbolo, grupo)
     ("SPY",  "Índices"),
@@ -37,9 +41,26 @@ HOME_STOCKS: list[tuple[str, str]] = [
     ("DIA",  "Índices"),
     ("IWM",  "Índices"),
     ("EWZ",  "Índices"),
-    ("ARGT", "Regiones"),
-    ("EEM",  "Regiones"),
-    ("EWW",  "Regiones"),
+    # Acciones — ordenadas por sector aprox para legibilidad.
+    ("NVDA",  "Acciones"),
+    ("TSLA",  "Acciones"),
+    ("AAPL",  "Acciones"),
+    ("MSFT",  "Acciones"),
+    ("META",  "Acciones"),
+    ("GOOGL", "Acciones"),
+    ("AMZN",  "Acciones"),
+    ("AMD",   "Acciones"),
+    ("INTC",  "Acciones"),
+    ("DELL",  "Acciones"),
+    ("PLTR",  "Acciones"),
+    ("RKLB",  "Acciones"),
+    ("JPM",   "Acciones"),
+    ("KO",    "Acciones"),
+    ("MELI",  "Acciones"),
+    # ADRs argentinos
+    ("YPF",   "Acciones"),
+    ("VIST",  "Acciones"),
+    ("GGAL",  "Acciones"),
 ]
 
 # ── Futuros CME / CBOT / COMEX / NYMEX / ICE + cripto spot vía Yahoo.
@@ -59,14 +80,10 @@ HOME_FUTUROS: list[tuple[str, str, str]] = [
     ("ETH-USD", "ETHUSDT",   "BINANCE"),
 ]
 
-# FX — Finnhub free NO tiene forex (403). Usamos frankfurter.app (ECB, gratis,
-# sin API key). Cada par se lee como base vs target.
-HOME_FX: list[tuple[str, str, str, str]] = [
-    # (display_symbol, base, target, grupo)
-    ("EURUSD", "EUR", "USD", "Monedas"),
-    ("USDBRL", "USD", "BRL", "Monedas"),
-    ("USDMXN", "USD", "MXN", "Monedas"),
-]
+# FX — la mesa pidió sacar las monedas de la watchlist (no aportaba).
+# Si querés volver a habilitar EURUSD/USDBRL/USDMXN, sumalos acá; el
+# fetcher (frankfurter.app, ECB, gratis sin API key) ya estaba listo.
+HOME_FX: list[tuple[str, str, str, str]] = []
 
 # US Treasury yields vía Yahoo (^IRX 13w, ^FVX 5y, ^TNX 10y, ^TYX 30y).
 # Finnhub free no cotiza yields. Yahoo los expone como "^" index tickers.
@@ -88,10 +105,14 @@ HOME_INDICES_YAHOO: list[tuple[str, str, str]] = [
 FRANKFURTER_LATEST = "https://api.frankfurter.app/latest"
 FRANKFURTER_DATE   = "https://api.frankfurter.app"  # + /YYYY-MM-DD
 
-# Watchlist ampliada para /renta-variable
+# Watchlist ampliada para /renta-variable.
+# IMPORTANTE: el upsert de _upsert_stock usa `{symbol}` como key — si un
+# ticker está acá Y en HOME_STOCKS, el último que carga pisa al primero.
+# YPF/GGAL/VIST se movieron a HOME_STOCKS grupo "Acciones" y se sacaron
+# de "ADR Argentina" para no pisarlos. El bloque entero "Big Tech" tampoco
+# está acá por la misma razón (todos los Big Tech ya están en "Acciones"
+# en HOME_STOCKS).
 EXTRA_STOCKS: list[tuple[str, str]] = [
-    ("GGAL",  "ADR Argentina"),
-    ("YPF",   "ADR Argentina"),
     ("BMA",   "ADR Argentina"),
     ("BBAR",  "ADR Argentina"),
     ("TGS",   "ADR Argentina"),
@@ -103,20 +124,11 @@ EXTRA_STOCKS: list[tuple[str, str]] = [
     ("CEPU",  "ADR Argentina"),
     ("TEO",   "ADR Argentina"),
     ("SUPV",  "ADR Argentina"),
-    ("VIST",  "ADR Argentina"),
     # LATAM referencia
     ("VALE", "ADR LATAM"),
     ("ITUB", "ADR LATAM"),
     ("PBR",  "ADR LATAM"),
     ("AMX",  "ADR LATAM"),
-    # Big tech US (contexto)
-    ("AAPL", "Big Tech"),
-    ("MSFT", "Big Tech"),
-    ("NVDA", "Big Tech"),
-    ("GOOGL", "Big Tech"),
-    ("AMZN", "Big Tech"),
-    ("META", "Big Tech"),
-    ("TSLA", "Big Tech"),
 ]
 
 

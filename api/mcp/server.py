@@ -333,7 +333,7 @@ def canje(
     par: str = "AL30",
     desde: str | None = None,
     hasta: str | None = None,
-) -> list[dict]:
+) -> dict:
     return svc_canje.serie_canje(par=par, desde=desde, hasta=hasta)
 
 
@@ -348,7 +348,7 @@ def carry_trade(
     desde: str | None = None,
     hasta: str | None = None,
     dolar: str = "mep",
-) -> list[dict]:
+) -> dict:
     return svc_carry.serie_carry_trade(
         curva=curva, desde=desde, hasta=hasta, dolar=dolar,
     )
@@ -367,7 +367,7 @@ def carry_trade(
         "para cualquier doc en colecciones macro. ventana_dias: 1..3650."
     ),
 )
-def serie_macro(variable: str, ventana_dias: int = 90) -> list[dict]:
+def serie_macro(variable: str, ventana_dias: int = 90) -> dict:
     return svc_macro.obtener_serie_macro(
         variable=variable, ventana_dias=ventana_dias,
     )
@@ -398,7 +398,7 @@ def rem_expectativas(
     periodo_tipo: str | None = None,
     periodo_desde: str | None = None,
     periodo_hasta: str | None = None,
-) -> list[dict]:
+) -> dict:
     return svc_rem.expectativas(
         informe=informe, periodo_tipo=periodo_tipo,
         periodo_desde=periodo_desde, periodo_hasta=periodo_hasta,

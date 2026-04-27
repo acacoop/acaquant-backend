@@ -14,6 +14,7 @@ La lógica vive ahí; este archivo es solo la capa de exposición MCP.
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from api.services import analitica as svc_ana
 from api.services import canje as svc_canje
@@ -32,7 +33,18 @@ from api.services import sensibilidad as svc_sens
 # streamable_http_path="/": que el transporte quede en el ROOT del sub-app.
 # Si dejamos el default ("/mcp"), al hacer app.mount("/mcp", sub_app) la
 # URL real termina en /mcp/mcp/ y no responde a /mcp/.
-mcp = FastMCP(name="TradingAV", stateless_http=True, streamable_http_path="/")
+# transport_security: el SDK default solo acepta localhost (DNS rebinding
+# protection). Custom Connector de Claude pega con Host=api.acaquant.com y
+# Origin=https://claude.ai → 421 Misdirected Request si no whitelistamos.
+mcp = FastMCP(
+    name="TradingAV",
+    stateless_http=True,
+    streamable_http_path="/",
+    transport_security=TransportSecuritySettings(
+        allowed_hosts=["api.acaquant.com", "api.acaquant.com:443", "localhost:*", "127.0.0.1:*"],
+        allowed_origins=["https://claude.ai", "https://claude.com", "http://localhost:*", "http://127.0.0.1:*"],
+    ),
+)
 
 
 # ─────────────────────────────────────────────────────────────────

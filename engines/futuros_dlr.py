@@ -17,7 +17,11 @@ Persistencia:
    tasa_implicita_tna_cierre}
 
 Tasa implícita: ((precio_dlr / spot) ** (365 / dias_a_vto)) - 1.
-Se calcula sobre last, bid y offer — los tres campos van al snapshot.
+El campo principal `tasa_implicita_tna` se calcula sobre el mid
+(bid+offer)/2 — el last se queda viejo en outrights ilíquidos y
+distorsiona la TNA reportada. Si falta bid o offer, se devuelve None.
+Además se persisten `tasa_implicita_tna_bid` y `_offer` separados
+para que el debug pueda mostrar la dispersión.
 
 Spot de referencia — en orden de preferencia:
     1. Valuaciones.DolarOficial casa='oficial' (dolarapi.com, cron 5min).
@@ -287,6 +291,12 @@ class FuturosDLREngine:
         precio_last = last.get("price")
         precio_bid = bid.get("price")
         precio_offer = offer.get("price")
+        # Mid sólo si hay las dos puntas — sin offer no es mid, es media bid.
+        precio_mid = (
+            (precio_bid + precio_offer) / 2
+            if (precio_bid and precio_offer and precio_bid > 0 and precio_offer > 0)
+            else None
+        )
         dias = _dias_a_vto(mat)
         return {
             "ticker":                    ticker,
@@ -303,7 +313,7 @@ class FuturosDLREngine:
             "low":                       st.get("low"),
             "closing":                   closing.get("price"),
             "vol_efectivo":              st.get("vol_efectivo"),
-            "tasa_implicita_tna":        _tasa_implicita_tna(precio_last, spot, dias),
+            "tasa_implicita_tna":        _tasa_implicita_tna(precio_mid, spot, dias),
             "tasa_implicita_tna_bid":    _tasa_implicita_tna(precio_bid, spot, dias),
             "tasa_implicita_tna_offer":  _tasa_implicita_tna(precio_offer, spot, dias),
             "spot_referencia":           spot,

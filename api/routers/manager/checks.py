@@ -555,7 +555,7 @@ def check_futuros_dlr():
             "last":       d.get("last_price"),
             "offer":      d.get("offer_price"),
             "tna_bid":    d.get("tasa_implicita_tna_bid"),
-            "tna_last":   d.get("tasa_implicita_tna"),
+            "tna_mid":    d.get("tasa_implicita_tna"),
             "tna_offer":  d.get("tasa_implicita_tna_offer"),
             "updated_at": d.get("updated_at"),
         }

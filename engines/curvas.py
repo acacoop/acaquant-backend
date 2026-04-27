@@ -202,7 +202,14 @@ def cargar_a3500_actual(client) -> float | None:
         sort=[("fecha", -1)],
     )
     if doc and doc.get("valor"):
-        return float(doc["valor"])
+        valor = float(doc["valor"])
+        logger.info("A3500 cargado: %.4f (fecha=%s)", valor, doc.get("fecha"))
+        return valor
+    logger.warning(
+        "A3500 NO disponible — Trading.DOLAR vacío o sin `valor>0`. "
+        "Bonos dolar-linked van a quedar sin TEA/paridad. "
+        "Corré: python -m jobs.bcra --today"
+    )
     return None
 
 

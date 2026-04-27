@@ -85,17 +85,19 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 - `vencimiento_max_meses: float | None`
 - `limit: int | None`
 
-**Retorna:** `list[dict]` con: `ticker`, `ticker_corto`, `tipo`, `fecha_vencimiento` (ISO), `fecha_emision`, `meses_al_vto`, `ultimo_precio`, `tea`, `tem`, `paridad`, `duration`, `mod_duration`, `convexity`, `total_money_dia`, `total_nominals_dia`, `ts_ultimo_trade`, `cer_fijado` (opcional, true si CER reasignado a tasa_fija).
+**Retorna:** `list[dict]` con: `ticker`, `ticker_corto`, `tipo`, `fecha_vencimiento` (ISO), `fecha_emision`, `meses_al_vto`, `ultimo_precio`, `tea`, `tem`, `paridad`, `duration`, `mod_duration`, `convexity`, `total_money_dia`, `total_nominals_dia`, `ts_ultimo_trade`, `cer_fijado` (opcional, true si CER reasignado a tasa_fija), `tc_breakeven` (sólo `curva="tasa_fija"`).
 
 **Prompts típicos:**
 - "Listame las Lecaps ordenadas por TEA"
 - "¿Qué bonos CER vencen entre 6 y 18 meses?"
 - "Top 5 soberanos por duration"
+- "¿Qué TC necesito a vto del S30A6 para empatar contra MEP?"
 
 **Gotchas:**
 - TEA viene en decimales: `0.092` → mostrar como "9.2%".
 - Bonos sin trades del día tienen `ultimo_precio: null`.
 - `cer_fijado: true` significa que ese bono está en `tasa_fija` aunque originalmente sea CER (porque el CER de liquidación ya está publicado).
+- `tc_breakeven` = MEP × (flujo_vencimiento / ultimo_precio). En ARS por dólar, ya redondeado. `null` si falta MEP o el bono no es tasa fija.
 
 ---
 

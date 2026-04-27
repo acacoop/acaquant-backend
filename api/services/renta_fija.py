@@ -55,8 +55,32 @@ def resolver_ticker_exacto(instrumento: str) -> str | None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _tc_breakeven(precio: float | None, flujo_vto: float | None,
+                  mep: float | None) -> float | None:
+    """TC al que el bono en pesos comprado hoy y mantenido a vto empata
+    contra haber comprado dólar MEP hoy.
+
+        TC_BE = MEP × (flujo_vencimiento / precio_actual)
+
+    Solo aplica a tasa fija (incluye CER ya fijados, donde el flujo final
+    está determinado). Devuelve None si falta cualquier input.
+    """
+    if not precio or not flujo_vto or not mep:
+        return None
+    if precio <= 0 or flujo_vto <= 0 or mep <= 0:
+        return None
+    return round(mep * (flujo_vto / precio), 2)
+
+
 @cached(ttl=5)
 def get_renta_fija(instrumento: str | None = None) -> list:
+    """Snapshot de renta fija con métricas live + TC breakeven (tasa fija).
+
+    El TC BE se calcula on-the-fly: requiere `flujo_vencimiento` (de
+    Trading.Curvas) + last_price (del snapshot) + MEP live (macro).
+    Sólo se popula para tickers cuya curva sea tasa_fija nativa o CER ya
+    fijado (mismo set que `listar_curva` cuando curva='tasa_fija').
+    """
     db = get_db_trading()
     filtro: dict = {}
     if instrumento:
@@ -85,7 +109,35 @@ def get_renta_fija(instrumento: str | None = None) -> list:
             "recent_trades": 1,
         }},
     ]
-    return list(db["MarketSnapshot"].aggregate(pipeline))
+    docs = list(db["MarketSnapshot"].aggregate(pipeline))
+
+    # ── Enriquecimiento con TC breakeven para tasa fija ──
+    # Build set de tickers tasa_fija (nativa + CER ya fijados → comportan tasa fija).
+    fijados = _bonos_cer_fijados()
+    flujo_por_ticker: dict[str, float] = {}
+    for c in db["Curvas"].find(
+        {"$or": [{"curva": "tasa_fija"}, {"ticker": {"$in": list(fijados)}}]}
+        if fijados else {"curva": "tasa_fija"},
+        {"_id": 0, "ticker": 1, "flujo_vencimiento": 1},
+    ):
+        fv = c.get("flujo_vencimiento")
+        if fv and fv > 0:
+            flujo_por_ticker[c["ticker"]] = float(fv)
+
+    if flujo_por_ticker:
+        from api.services.macro import get_ultimo_mep  # lazy: evita ciclo
+        mep_doc = get_ultimo_mep()
+        mep = mep_doc.get("mep") if mep_doc else None
+        if mep:
+            for d in docs:
+                fv = flujo_por_ticker.get(d.get("instrumento") or "")
+                if fv is None:
+                    continue
+                m = d.setdefault("metrics", {})
+                last = m.get("last_price")
+                m["tc_breakeven"] = _tc_breakeven(last, fv, mep)
+
+    return docs
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -216,6 +268,7 @@ def listar_curva(
         ))
     elif curva == "tasa_fija":
         # tasa_fija propia + CER fijados (se marcan como `cer_fijado=true`).
+        # `flujo_vencimiento` se proyecta acá para calcular tc_breakeven.
         curva_docs = list(db["Curvas"].find(
             {
                 "$or": [
@@ -225,7 +278,8 @@ def listar_curva(
                 ]
             },
             {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
-             "curva": 1, "fecha_vencimiento": 1, "fecha_emision": 1},
+             "curva": 1, "fecha_vencimiento": 1, "fecha_emision": 1,
+             "flujo_vencimiento": 1},
         ))
     else:
         curva_docs = list(db["Curvas"].find(
@@ -291,6 +345,15 @@ def listar_curva(
             "total_nominals": m.get("total_nominals") or 0,
         }
 
+    # MEP live para TC breakeven (sólo aplica a curva='tasa_fija' acá).
+    mep_actual: float | None = None
+    if curva == "tasa_fija":
+        from api.services.macro import get_ultimo_mep  # lazy: evita ciclo
+        mep_doc = get_ultimo_mep()
+        mep_raw = mep_doc.get("mep") if mep_doc else None
+        if mep_raw and mep_raw > 0:
+            mep_actual = float(mep_raw)
+
     out: list[dict] = []
     for d in filtrados:
         enrich = enrich_map.get(d["ticker"], {})
@@ -318,6 +381,11 @@ def listar_curva(
         # tener su CER de liquidación ya publicado, pero nativamente es CER.
         if d["ticker"] in fijados_tickers:
             entry["cer_fijado"] = True
+        # TC breakeven: sólo tasa_fija (nativa o CER fijada).
+        if curva == "tasa_fija":
+            entry["tc_breakeven"] = _tc_breakeven(
+                enrich.get("price"), d.get("flujo_vencimiento"), mep_actual,
+            )
         out.append(entry)
 
     if ordenar_por == "vencimiento":

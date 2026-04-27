@@ -49,6 +49,51 @@ BONOS: list[dict] = [
             {"fecha": "2026-06-30", "amortizacion_pct": 100},
         ],
     },
+    {
+        "ticker": "MERV - XMEV - D30S6 - 24hs",
+        "ticker_corto": "D30S6",
+        "tipo": "dolar_linked",
+        "curva": "dolar_linked",
+        "tasa_referencia": "A3500",
+        "tc_emision": 1396.4528,
+        "fecha_emision": "2026-03-16",
+        "fecha_vencimiento": "2026-09-30",
+        "valor_nominal": 100,
+        "cupon_anual": 0,
+        "flujos": [
+            {"fecha": "2026-09-30", "amortizacion_pct": 100},
+        ],
+    },
+    {
+        "ticker": "MERV - XMEV - TZV27 - 24hs",
+        "ticker_corto": "TZV27",
+        "tipo": "dolar_linked",
+        "curva": "dolar_linked",
+        "tasa_referencia": "A3500",
+        "tc_emision": 1377.0942,
+        "fecha_emision": "2026-02-27",
+        "fecha_vencimiento": "2027-06-30",
+        "valor_nominal": 100,
+        "cupon_anual": 0,
+        "flujos": [
+            {"fecha": "2027-06-30", "amortizacion_pct": 100},
+        ],
+    },
+    {
+        "ticker": "MERV - XMEV - TZV28 - 24hs",
+        "ticker_corto": "TZV28",
+        "tipo": "dolar_linked",
+        "curva": "dolar_linked",
+        "tasa_referencia": "A3500",
+        "tc_emision": 1370.2909,
+        "fecha_emision": "2026-03-31",
+        "fecha_vencimiento": "2028-06-30",
+        "valor_nominal": 100,
+        "cupon_anual": 0,
+        "flujos": [
+            {"fecha": "2028-06-30", "amortizacion_pct": 100},
+        ],
+    },
 ]
 
 

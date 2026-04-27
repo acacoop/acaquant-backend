@@ -323,8 +323,10 @@ def mep_historico(
 
 @mcp.tool(
     description=(
-        "Serie histórica del canje legislación NY vs Argentina para un par "
-        "(default AL30). canje = precio_C / precio_D − 1."
+        "Serie histórica del canje CCL/MEP intra-bono (mismo bono, especies C "
+        "y D distintas). canje = precio_C / precio_D − 1. Mide brecha CCL/MEP "
+        "implícita en un único bono. NO es spread legislación (GD30 vs AL30). "
+        "Pares disponibles: AL30 (default), GD30."
     ),
 )
 def canje(

@@ -1,7 +1,15 @@
-"""Serie histórica de canje legislación NY vs Arg (ej. AL30C / AL30D − 1).
+"""Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).
+
+Mismo bono, dos especies de liquidación distintas: la C (settlement
+contado con liqui en USD ~ CCL) y la D (settlement MEP en USD). El
+spread mide la brecha cambiaria implícita en ese bono.
+
+NO confundir con "spread legislación" (GD30 vs AL30, bonos distintos al
+mismo plazo, mide riesgo crediticio diferencial entre jurisdicciones NY
+y Arg). Esto NO es eso.
 
 Toma precios diarios de los dos tickers desde Trading.TimeSales y arma
-una serie por día con: precio_c, precio_d, canje%. Sin enrichment ni
+una serie por día con: precio_c, precio_d, canje. Sin enrichment ni
 flujos — solo necesitamos el último precio del día por ticker.
 
 El cálculo NO se hace en el frontend: queda acá para que la UI solo

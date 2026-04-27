@@ -327,11 +327,13 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 ### Cross-asset
 
 #### `canje`
-**Para qué:** Serie histórica del canje legislación NY vs Argentina (precio_C / precio_D − 1).
+**Para qué:** Serie histórica del canje **CCL/MEP intra-bono** (mismo bono, especies C y D distintas). canje = precio_C / precio_D − 1. Mide la brecha CCL/MEP implícita en ese bono específico.
+
+**OJO con la nomenclatura:** esto NO es "spread legislación" (que sería GD30 vs AL30, bonos distintos al mismo plazo, mide riesgo crediticio diferencial entre jurisdicciones NY y Argentina). Esto es brecha cambiaria intra-bono — los `ticker_c` / `ticker_d` que devuelve son del MISMO bono (ej. `AL30C` y `AL30D`, no `GD30` y `AL30`).
 
 **Params:** `par: str = "AL30"` — `AL30 | GD30` (otros no soportados), `desde`, `hasta`.
 
-**Retorna:** `dict` con `par`, `ticker_c`, `ticker_d`, `serie: list` (cada entrada `{fecha, precio_c, precio_d, canje}`), y `meta` con conteos.
+**Retorna:** `dict` con `par`, `ticker_c` (ej `AL30C`), `ticker_d` (ej `AL30D`), `serie: list` (cada entrada `{fecha, precio_c, precio_d, canje}`), y `meta` con conteos.
 
 **Default de ventana:** últimos 365 días si no se filtra.
 

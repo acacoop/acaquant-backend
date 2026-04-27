@@ -137,10 +137,12 @@ def canje(
     desde: str | None = Query(None, description="YYYY-MM-DD (default: 365 días)"),
     hasta: str | None = Query(None, description="YYYY-MM-DD (default: hoy)"),
 ):
-    """Serie histórica de canje legislación NY vs Arg.
+    """Serie histórica del canje CCL/MEP intra-bono.
 
-    canje = precio_C / precio_D − 1. Devuelve serie diaria con precio
-    de cada pata + el canje. Solo días con ambos precios disponibles.
+    Mismo bono, dos especies (C y D). canje = precio_C / precio_D − 1.
+    Devuelve serie diaria con precio de cada pata + el canje. Solo días
+    con ambos precios disponibles. NO es "spread legislación" (GD30 vs
+    AL30) — es la brecha CCL/MEP implícita en un único bono.
     """
     return svc_canje.serie_canje(par=par, desde=desde, hasta=hasta)
 

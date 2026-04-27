@@ -56,7 +56,10 @@ mcp = FastMCP(
     description=(
         "Lista bonos de una curva con su estado vigente: precio, TEA/TEM, "
         "duration, mod_duration, convexity, paridad, vencimiento, volumen "
-        "del día. Ordenable por vencimiento, volumen, tea o duration."
+        "del día. Para curva='tasa_fija' agrega tc_breakeven (TC al que el "
+        "bono en pesos comprado hoy y mantenido a vto empata contra haber "
+        "comprado MEP hoy: MEP × flujo_vto / precio). Ordenable por "
+        "vencimiento, volumen, tea o duration."
     ),
 )
 def listar_curva(

@@ -17,17 +17,16 @@ Persistencia:
    tasa_implicita_tna_cierre}
 
 Tasa implícita: ((precio_dlr / spot) ** (365 / dias_a_vto)) - 1.
-El campo principal `tasa_implicita_tna` se calcula sobre el mid
-(bid+offer)/2 — el last se queda viejo en outrights ilíquidos y
-distorsiona la TNA reportada. Si falta bid o offer, se devuelve None.
-Además se persisten `tasa_implicita_tna_bid` y `_offer` separados
-para que el debug pueda mostrar la dispersión.
+Se persisten 3 TNAs separadas — sobre bid, sobre last y sobre offer.
+La principal (`tasa_implicita_tna`) es la del last; las otras dos
+quedan en `_bid` y `_offer` para mostrar dispersión en la watchlist.
 
-Spot de referencia — en orden de preferencia:
+Spot de referencia — mid del dólar oficial = (compra + venta) / 2:
     1. Valuaciones.DolarOficial casa='oficial' (dolarapi.com, cron 5min).
-       Es el spot que la mesa usa para reportar TNA implícita.
+       Mid de las dos puntas del oficial. Es el spot que la mesa usa
+       para reportar TNA implícita.
     2. Trading.DOLAR (BCRA A3500 fixing diario) — fallback si dolar_api
-       job falló o está stale.
+       job falló o está stale (un solo valor, no hay mid).
     3. Valuaciones.Dolar .mep — último fallback para que nunca quede None.
 
 NOTA: el spot anterior fue mayorista (más cercano al A3500 que liquidan
@@ -145,17 +144,24 @@ def _dias_a_vto(mat_str: str) -> int:
 def _spot_referencia(client) -> tuple[float | None, str]:
     """Spot de referencia para calcular tasa implícita. Devuelve (valor, fuente).
 
-    Prefiere oficial (lo que la mesa usa para reportar TNA implícita).
-    Cae a A3500 BCRA fixing, y finalmente a MEP.
+    Prefiere mid (compra+venta)/2 del oficial — la mesa lo usa para
+    reportar TNA. Cae a A3500 BCRA fixing, y finalmente a MEP.
     """
-    # 1) Oficial — dolarapi.com, cron 5 min
+    # 1) Mid del oficial — dolarapi.com, cron 5 min
     doc = client["Valuaciones"]["DolarOficial"].find_one(
         {"casa": "oficial", "venta": {"$gt": 0}},
-        {"_id": 0, "venta": 1},
+        {"_id": 0, "compra": 1, "venta": 1},
         sort=[("updated_at", -1)],
     )
     if doc:
-        return float(doc["venta"]), "oficial_dolarapi"
+        compra = doc.get("compra")
+        venta = doc.get("venta")
+        # Si compra no viene o es 0, devolvemos venta sola (no rompemos el
+        # snapshot por una punta vacía del agregador).
+        if compra and compra > 0 and venta and venta > 0:
+            return (float(compra) + float(venta)) / 2, "oficial_mid_dolarapi"
+        if venta:
+            return float(venta), "oficial_venta_dolarapi"
 
     # 2) A3500 BCRA fixing diario
     doc = client["Trading"]["DOLAR"].find_one(
@@ -291,12 +297,6 @@ class FuturosDLREngine:
         precio_last = last.get("price")
         precio_bid = bid.get("price")
         precio_offer = offer.get("price")
-        # Mid sólo si hay las dos puntas — sin offer no es mid, es media bid.
-        precio_mid = (
-            (precio_bid + precio_offer) / 2
-            if (precio_bid and precio_offer and precio_bid > 0 and precio_offer > 0)
-            else None
-        )
         dias = _dias_a_vto(mat)
         return {
             "ticker":                    ticker,
@@ -313,7 +313,9 @@ class FuturosDLREngine:
             "low":                       st.get("low"),
             "closing":                   closing.get("price"),
             "vol_efectivo":              st.get("vol_efectivo"),
-            "tasa_implicita_tna":        _tasa_implicita_tna(precio_mid, spot, dias),
+            # 3 TNAs separadas — la principal es sobre last, las otras dos
+            # se persisten para mostrar la dispersión en la watchlist.
+            "tasa_implicita_tna":        _tasa_implicita_tna(precio_last, spot, dias),
             "tasa_implicita_tna_bid":    _tasa_implicita_tna(precio_bid, spot, dias),
             "tasa_implicita_tna_offer":  _tasa_implicita_tna(precio_offer, spot, dias),
             "spot_referencia":           spot,

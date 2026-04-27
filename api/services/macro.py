@@ -113,20 +113,26 @@ def get_historico_mep(desde: str | None = None, hasta: str | None = None) -> lis
 def get_historico_dolares(
     desde: str | None = None,
     hasta: str | None = None,
-    ventana_dias: int = 7,
+    ventana_dias: int = 30,
 ) -> dict:
-    """3 series de dólar normalizadas para el chart de la watchlist ARGY.
+    """3 series de dólar DAILY-CLOSE para el chart de la watchlist ARGY.
 
     Devuelve `{mep: [...], ccl: [...], oficial: [...]}` con cada item
-    `{ts: ISO, valor: float}`. Las 3 granularidades son distintas (MEP/CCL
-    son ticks del WS, oficial es cada 5 min del cron) — el chart las
-    renderiza como series independientes, no se joinean por timestamp.
+    `{ts: "YYYY-MM-DD", valor: float}` — un punto por día. Garantiza
+    continuidad visual (sin cortes intraday, sin huecos los fines de
+    semana cuando se conectan los puntos en el frontend).
 
-    Si no se pasan `desde`/`hasta`, default últimos `ventana_dias` (7).
-    Acotamos para evitar payloads enormes: el MEP/CCL en horario de
-    mercado puede tirar varios miles de ticks por día.
+    Fuentes:
+      - MEP / CCL → último tick del día en Valuaciones.Dolar (WS engines/dolares.py).
+      - Oficial   → Trading.DOLAR (A3500 BCRA fixing diario, escrito por
+                    jobs/bcra.py 22 UTC L-V). 1 valor por día garantizado.
+                    Antes usábamos dolarapi.com pero a veces no popula y
+                    BCRA es la fuente oficial canónica.
+
+    Default ventana: últimos `ventana_dias` (30).
     """
-    db = get_db_valuaciones()
+    db_val = get_db_valuaciones()
+    db_tr = get_db_trading()
 
     # Resolución de ventana
     if hasta:
@@ -138,49 +144,41 @@ def get_historico_dolares(
     else:
         desde_dt = hasta_dt - timedelta(days=ventana_dias)
 
-    # MEP + CCL: misma colección Valuaciones.Dolar (timestamp datetime).
-    docs = list(
-        db["Dolar"].find(
-            {"timestamp": {"$gte": desde_dt, "$lte": hasta_dt}},
-            {"_id": 0, "timestamp": 1, "mep": 1, "ccl": 1},
-        ).sort("timestamp", 1)
-    )
+    # MEP + CCL: aggregate por día, último tick del día (`$last`).
+    pipeline = [
+        {"$match": {"timestamp": {"$gte": desde_dt, "$lte": hasta_dt}}},
+        {"$sort": {"timestamp": 1}},
+        {"$group": {
+            "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
+            "mep": {"$last": "$mep"},
+            "ccl": {"$last": "$ccl"},
+        }},
+        {"$sort": {"_id": 1}},
+    ]
+    mep_ccl_docs = list(db_val["Dolar"].aggregate(pipeline))
     mep_series = [
-        {"ts": d["timestamp"].isoformat(), "valor": float(d["mep"])}
-        for d in docs if d.get("mep") is not None
+        {"ts": d["_id"], "valor": float(d["mep"])}
+        for d in mep_ccl_docs if d.get("mep") is not None
     ]
     ccl_series = [
-        {"ts": d["timestamp"].isoformat(), "valor": float(d["ccl"])}
-        for d in docs if d.get("ccl") is not None
+        {"ts": d["_id"], "valor": float(d["ccl"])}
+        for d in mep_ccl_docs if d.get("ccl") is not None
     ]
 
-    # Oficial: Valuaciones.DolarOficial (fecha string YYYY-MM-DD).
+    # Oficial = Trading.DOLAR (A3500 BCRA fixing diario). El campo `fecha`
+    # ya es string YYYY-MM-DD y hay 1 doc por día — no hace falta reducir.
     desde_str = desde_dt.strftime("%Y-%m-%d")
     hasta_str = hasta_dt.strftime("%Y-%m-%d")
     docs_of = list(
-        db["DolarOficial"].find(
-            {"casa": "oficial", "fecha": {"$gte": desde_str, "$lte": hasta_str},
-             "venta": {"$gt": 0}},
-            {"_id": 0, "fecha": 1, "compra": 1, "venta": 1, "updated_at": 1},
+        db_tr["DOLAR"].find(
+            {"fecha": {"$gte": desde_str, "$lte": hasta_str},
+             "valor": {"$gt": 0}},
+            {"_id": 0, "fecha": 1, "valor": 1},
         ).sort("fecha", 1)
     )
-    oficial_series = []
-    for d in docs_of:
-        compra = d.get("compra")
-        venta = d.get("venta")
-        if compra and compra > 0 and venta and venta > 0:
-            valor = (float(compra) + float(venta)) / 2
-        elif venta:
-            valor = float(venta)
-        else:
-            continue
-        # Preferimos updated_at (datetime) si está; fallback al string fecha.
-        ts_obj = d.get("updated_at")
-        if isinstance(ts_obj, datetime):
-            ts_iso = ts_obj.isoformat()
-        else:
-            ts_iso = f"{d['fecha']}T00:00:00+00:00"
-        oficial_series.append({"ts": ts_iso, "valor": valor})
+    oficial_series = [
+        {"ts": d["fecha"], "valor": float(d["valor"])} for d in docs_of
+    ]
 
     return {"mep": mep_series, "ccl": ccl_series, "oficial": oficial_series}
 

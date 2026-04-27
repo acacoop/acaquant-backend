@@ -69,6 +69,18 @@ def historico_mep(
     return svc_macro.get_historico_mep(desde=desde, hasta=hasta)
 
 
+@router.get("/historico/dolares")
+def historico_dolares(
+    desde:        str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    hasta:        str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    ventana_dias: int        = Query(7, description="Default ventana si no hay desde/hasta"),
+):
+    """Serie histórica MEP + CCL + oficial para el chart de ARGY."""
+    return svc_macro.get_historico_dolares(
+        desde=desde, hasta=hasta, ventana_dias=ventana_dias,
+    )
+
+
 # ── ARGY (panel de control: MEP/CCL/canje/cauciones con returns) ──
 
 

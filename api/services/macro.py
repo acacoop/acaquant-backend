@@ -108,6 +108,82 @@ def get_historico_mep(desde: str | None = None, hasta: str | None = None) -> lis
         filtro["timestamp"] = rango
     return list(db["Dolar"].find(filtro, {"_id": 0, "mep": 1, "timestamp": 1}))
 
+
+@cached(ttl=60)
+def get_historico_dolares(
+    desde: str | None = None,
+    hasta: str | None = None,
+    ventana_dias: int = 7,
+) -> dict:
+    """3 series de dólar normalizadas para el chart de la watchlist ARGY.
+
+    Devuelve `{mep: [...], ccl: [...], oficial: [...]}` con cada item
+    `{ts: ISO, valor: float}`. Las 3 granularidades son distintas (MEP/CCL
+    son ticks del WS, oficial es cada 5 min del cron) — el chart las
+    renderiza como series independientes, no se joinean por timestamp.
+
+    Si no se pasan `desde`/`hasta`, default últimos `ventana_dias` (7).
+    Acotamos para evitar payloads enormes: el MEP/CCL en horario de
+    mercado puede tirar varios miles de ticks por día.
+    """
+    db = get_db_valuaciones()
+
+    # Resolución de ventana
+    if hasta:
+        hasta_dt = datetime.fromisoformat(hasta + "T23:59:59").replace(tzinfo=UTC)
+    else:
+        hasta_dt = datetime.now(UTC)
+    if desde:
+        desde_dt = datetime.fromisoformat(desde).replace(tzinfo=UTC)
+    else:
+        desde_dt = hasta_dt - timedelta(days=ventana_dias)
+
+    # MEP + CCL: misma colección Valuaciones.Dolar (timestamp datetime).
+    docs = list(
+        db["Dolar"].find(
+            {"timestamp": {"$gte": desde_dt, "$lte": hasta_dt}},
+            {"_id": 0, "timestamp": 1, "mep": 1, "ccl": 1},
+        ).sort("timestamp", 1)
+    )
+    mep_series = [
+        {"ts": d["timestamp"].isoformat(), "valor": float(d["mep"])}
+        for d in docs if d.get("mep") is not None
+    ]
+    ccl_series = [
+        {"ts": d["timestamp"].isoformat(), "valor": float(d["ccl"])}
+        for d in docs if d.get("ccl") is not None
+    ]
+
+    # Oficial: Valuaciones.DolarOficial (fecha string YYYY-MM-DD).
+    desde_str = desde_dt.strftime("%Y-%m-%d")
+    hasta_str = hasta_dt.strftime("%Y-%m-%d")
+    docs_of = list(
+        db["DolarOficial"].find(
+            {"casa": "oficial", "fecha": {"$gte": desde_str, "$lte": hasta_str},
+             "venta": {"$gt": 0}},
+            {"_id": 0, "fecha": 1, "compra": 1, "venta": 1, "updated_at": 1},
+        ).sort("fecha", 1)
+    )
+    oficial_series = []
+    for d in docs_of:
+        compra = d.get("compra")
+        venta = d.get("venta")
+        if compra and compra > 0 and venta and venta > 0:
+            valor = (float(compra) + float(venta)) / 2
+        elif venta:
+            valor = float(venta)
+        else:
+            continue
+        # Preferimos updated_at (datetime) si está; fallback al string fecha.
+        ts_obj = d.get("updated_at")
+        if isinstance(ts_obj, datetime):
+            ts_iso = ts_obj.isoformat()
+        else:
+            ts_iso = f"{d['fecha']}T00:00:00+00:00"
+        oficial_series.append({"ts": ts_iso, "valor": valor})
+
+    return {"mep": mep_series, "ccl": ccl_series, "oficial": oficial_series}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Config: mapping variable macro → (db, coleccion, campo_fecha, campo_valor)
 # ─────────────────────────────────────────────────────────────────────────────

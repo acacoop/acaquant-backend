@@ -246,15 +246,15 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
             "source":  dolar.get("src"),
         })
 
-    # ── Dólar oficial / mayorista / blue (dolarapi.com) ──
-    # Los 3 se leen de Valuaciones.DolarOficial escrito por jobs/dolar_api.py
-    # cada 5 min. El MEP/CCL/canje de arriba sigue siendo nuestro (ROFEX WS
-    # via engines/dolares.py) porque es más preciso; dolarapi.com lo traería
-    # también pero con más lag.
+    # ── Dólar oficial (dolarapi.com) ──
+    # Se lee de Valuaciones.DolarOficial escrito por jobs/dolar_api.py cada
+    # 5 min. El MEP/CCL/canje de arriba sigue siendo nuestro (ROFEX WS via
+    # engines/dolares.py) porque es más preciso.
+    # Mayorista y blue quedaron afuera de la watchlist por pedido de la mesa
+    # (mayorista se usa en cálculos internos, blue es ruido). El job
+    # `jobs.dolar_api` los sigue persistiendo igual.
     dolar_api_metas = [
         ("DOLAR OFICIAL",   "oficial"),
-        ("DOLAR MAYORISTA", "mayorista"),
-        ("DOLAR BLUE",      "blue"),
     ]
     for label, casa in dolar_api_metas:
         live = _live_dolar_api(casa)

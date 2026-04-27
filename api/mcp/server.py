@@ -90,16 +90,22 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
 @mcp.tool(
     description=(
         "Pendiente de una curva en bps (largo - corto, según métrica) y "
-        "opcionalmente delta vs un día pasado. Métricas: tea, tem, duration."
+        "opcionalmente delta vs un día pasado. Métricas: tea, tem, duration. "
+        "dias_min_corto (default 30) excluye bonos a punto de vencer del anchor "
+        "'corto' — sus TEAs son ruidosas e inflan el spread. Bajalo a 0 para "
+        "incluir todos los bonos."
     ),
 )
 def pendiente_curva(
     curva: str,
     metrica: str = "tea",
     fecha_comparacion: str | None = None,
+    dias_min_corto: int = 30,
 ) -> dict:
     return svc_ana.calcular_pendiente_curva(
-        curva=curva, metrica=metrica, fecha_comparacion=fecha_comparacion,
+        curva=curva, metrica=metrica,
+        fecha_comparacion=fecha_comparacion,
+        dias_min_corto=dias_min_corto,
     )
 
 

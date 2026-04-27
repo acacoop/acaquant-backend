@@ -114,13 +114,18 @@ def calcular_pendiente_curva(
     curva: str,
     metrica: str = "tea",
     fecha_comparacion: str | None = None,
+    dias_min_corto: int = 30,
 ) -> dict:
     """Pendiente de una curva (valor largo − valor corto).
 
-    "Corto" = menor duration. "Largo" = mayor duration. El resultado se
-    expresa en basis points (bps). Opcionalmente compara con la curva del
-    día `fecha_comparacion` y devuelve el delta de pendiente (útil para
-    detectar empinamiento/aplanamiento).
+    "Corto" = menor duration entre los bonos con vencimiento ≥ `dias_min_corto`
+    días. "Largo" = mayor duration. El resultado se expresa en basis points (bps).
+    Opcionalmente compara con la curva del día `fecha_comparacion` y devuelve el
+    delta de pendiente (útil para detectar empinamiento/aplanamiento).
+
+    `dias_min_corto` (default 30) excluye bonos a punto de vencer del anchor
+    "corto" — sus TEAs son ruidosas (microestructura de fin de plazo) e
+    inflan artificialmente el spread. Bajalo a 0 si querés incluir todo.
 
     metrica ∈ {tea, tem, duration}. Default tea.
     """
@@ -131,9 +136,18 @@ def calcular_pendiente_curva(
         return {"error": f"metrica inválida: {metrica}"}
 
     ahora = listar_curva(curva=curva, ordenar_por="duration")
-    validos = [b for b in ahora if b.get(metrica) is not None and b.get("duration")]
+    meses_min = dias_min_corto / 30.0
+    validos = [
+        b for b in ahora
+        if b.get(metrica) is not None
+        and b.get("duration")
+        and (b.get("meses_al_vto") or 0) >= meses_min
+    ]
     if len(validos) < 2:
-        return {"error": "insuficientes instrumentos con metrica + duration"}
+        return {
+            "error": f"insuficientes instrumentos con metrica + duration "
+                     f"+ vto ≥ {dias_min_corto} días",
+        }
 
     corto_now = validos[0]
     largo_now = validos[-1]

@@ -68,9 +68,15 @@ def pendiente_curva(
     curva: str = Query(..., description="cer|tasa_fija|tamar|soberanos"),
     metrica: str = Query("tea", description="tea|tem|duration"),
     fecha_comparacion: str | None = Query(None, description="YYYY-MM-DD opcional"),
+    dias_min_corto: int = Query(30, ge=0, le=365,
+                                description="Excluye bonos del anchor 'corto' "
+                                            "con menos de N días al vencimiento. "
+                                            "Default 30 (evita ruido de fin de plazo)."),
 ):
     return svc_ana.calcular_pendiente_curva(
-        curva=curva, metrica=metrica, fecha_comparacion=fecha_comparacion,
+        curva=curva, metrica=metrica,
+        fecha_comparacion=fecha_comparacion,
+        dias_min_corto=dias_min_corto,
     )
 
 

@@ -77,12 +77,16 @@ def get_historico_opciones(
     instrumento: str | None = None,
     tipo: str | None = None,
 ) -> list:
-    """Trades de opciones de los últimos 21 días (Opciones.Data)."""
+    """Trades de opciones de los últimos 21 días (Opciones.Data).
+
+    `instrumento` acepta forma corta ('GFGC10950A') o completa
+    ('MERV - XMEV - GFGC10950A - 24hs') — ambas matchean.
+    """
     db = get_db_opciones()
     corte = datetime.now() - timedelta(days=21)
     filtro: dict = {"timestamp": {"$gte": corte}}
     if instrumento:
-        filtro["symbol"] = instrumento
+        filtro["symbol"] = _ticker_filter(instrumento)
     if tipo:
         filtro["tipo"] = tipo.upper()
 

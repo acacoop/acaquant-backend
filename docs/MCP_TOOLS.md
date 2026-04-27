@@ -21,7 +21,7 @@ Si el usuario pide algo de esos rubros, el connector no puede ayudar — hay que
 
 | Convención | Detalle |
 |---|---|
-| **Tasas** | Siempre en **decimales**, no en %. `tea = 0.092` significa 9.2% TEA. Nunca convertir a % salvo que se le presente al usuario final. **Excepción**: el parámetro `tirs` de `sensibilidad_retorno` se recibe como CSV de **porcentajes** ("4,5,6") y se convierte internamente. |
+| **Tasas** | **Por default decimales** (`tea = 0.092` = 9.2%). Pero hay excepciones donde el dato viene en %: tirs param de `sensibilidad_retorno` (CSV "4,5,6"), TNA de `cauciones_live/historico` (26.1 = 26.1%), `tasa_implicita_tna` de `futuros_dlr_live` (TNA, no TEA), `canje` de `mep_actual` (4.11 = 4.11%), valores de IPC en `rem_expectativas` (%), y `carry_usd` de `carry_trade.tabla` (%). Cada tool detallada abajo aclara su unidad. **Antes de mostrar al usuario, leé la unidad real de la tool — no asumas decimal.** |
 | **Fechas** | Inputs y outputs en `YYYY-MM-DD` (ISO date) o `YYYY-MM-DDTHH:MM:SSZ` (ISO datetime UTC). |
 | **Tickers** | "Corto" = `TX26`, `AL30`, `S15D5`, `GFGC10950A`. "Completo" = `MERV - XMEV - TX26 - 24hs`. La mayoría de tools aceptan ambos. |
 | **Curvas válidas** | `tasa_fija`, `cer`, `soberanos`, `tamar`, `dolar_linked`. **No hay curva `lecap` ni `boncap`**: ambas viven dentro de `tasa_fija`. |
@@ -117,7 +117,11 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 #### `pendiente_curva`
 **Para qué:** Mide el spread (largo - corto) de una curva en bps, y opcionalmente lo compara con un día pasado para ver empinamiento/aplanamiento.
 
-**Params:** `curva: str`, `metrica: str = "tea"` (`tea | tem | duration`), `fecha_comparacion: str | None` (YYYY-MM-DD).
+**Params:**
+- `curva: str`
+- `metrica: str = "tea"` (`tea | tem | duration`)
+- `fecha_comparacion: str | None` (YYYY-MM-DD)
+- `dias_min_corto: int = 30` — excluye bonos del anchor "corto" con menos de N días al vencimiento. Default 30 evita TEAs ruidosas de fin de plazo que inflan artificialmente el spread. Bajalo a 0 para incluir todos.
 
 **Retorna:** `dict` con `pendiente_actual_bps`, `corto: {ticker, duration, [metrica]}`, `largo: {ticker, duration, [metrica]}`, y si `fecha_comparacion` se provee: `pendiente_comparacion_bps`, `delta_bps`, `interpretacion` (`empinamiento | aplanamiento | sin cambio material`).
 
@@ -125,7 +129,9 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 - "¿Está empinándose la curva tasa fija?"
 - "Pendiente CER hoy vs hace una semana"
 
-**Gotchas:** "Largo" y "corto" se determinan por **duration**, no por vencimiento. La diferencia es chica para Lecaps zero coupon, pero importa en bonos con cupones.
+**Gotchas:**
+- "Largo" y "corto" se determinan por **duration**, no por vencimiento. La diferencia es chica para Lecaps zero coupon, pero importa en bonos con cupones.
+- Si querés ver el spread "puro" entre primer y último bono sin filtro, pasar `dias_min_corto=0` — pero el resultado puede ser ruido si el primer bono está a días de vencer.
 
 ---
 
@@ -237,7 +243,19 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 
 **Params:** `curva: str | None` — `tasa_fija | cer`. Omitir = ambas.
 
-**Retorna:** `list[dict]` desde `Trading.ForwardsLive`. Campos típicos: `curva`, `par_a`, `par_b`, `forward`, `timestamp`. Estructura exacta puede variar — inspeccionar primer doc.
+**Retorna:** `list[dict]` desde `Trading.ForwardsLive` — **1 documento por curva** (no uno por par). Cada doc trae:
+- `curva: str` — `tasa_fija` o `cer`
+- `ts: datetime` — timestamp del cálculo
+- `fecha: str` — YYYY-MM-DD
+- `ordered: list[str]` — tickers ordenados por vencimiento ascendente
+- `tasas: dict[str, float]` — `{ticker: TEA}` (TEA en decimal)
+- `matrix: dict[str, dict[str, float]]` — **NxN forward**: `{ticker_largo: {ticker_corto: forward_rate}}`. El forward de A→B se busca en `matrix[B][A]`. Forward en decimal.
+
+**Cómo leer el forward A→B:**
+```python
+doc = forwards_live(curva="tasa_fija")[0]
+forward_a_b = doc["matrix"][ticker_b][ticker_a]
+```
 
 **Prompts típicos:**
 - "Forwards entre Lecaps"
@@ -248,9 +266,7 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 ---
 
 #### `forwards_historico`
-**Params:** `curva`, `desde`, `hasta`. Mismo shape + `fecha`.
-
-**Prompts típicos:** "Cómo evolucionó el forward 6m-12m de tasa fija desde enero".
+**Params:** `curva`, `desde`, `hasta`. **Mismo shape que `forwards_live` pero un doc por (curva, fecha)**.
 
 ---
 
@@ -281,23 +297,25 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 
 **Retorna:** `list[dict]` con `moneda`, `ticker`, `plazo_dias`, `tna_last`, `tna_bid`, `tna_offer`, `tna_open`, `tna_high`, `tna_low`, `tna_closing`. Típicamente 1–2 docs.
 
-**Gotchas:** TNA en decimales. Hay distintos plazos (1d, 7d, etc) — chequear `plazo_dias`.
+**Gotchas:** **TNA en %, NO en decimales** (ej. `26.1` = 26.1% TNA, no 2610%). Hay distintos plazos (1d, 7d, etc) — chequear `plazo_dias`. Para convertir a TEA: `(1 + tna/100/365)**365 - 1`.
 
 ---
 
 #### `cauciones_historico`
-**Params:** `moneda`, `desde`, `hasta`. Cierre diario.
+**Params:** `moneda`, `desde`, `hasta`. Cierre diario. Mismo shape, TNA también en %.
 
 ---
 
 #### `futuros_dlr_live`
-**Para qué:** Outrights vigentes del futuro de dólar Rofex con TEA implícita.
+**Para qué:** Outrights vigentes del futuro de dólar Rofex con tasa implícita.
 
-**Retorna:** `list[dict]` con `ticker` (ej `DLR/MAY26`), `vencimiento`, `precio`, `tea_implicita`, `timestamp`.
+**Retorna:** `list[dict]` desde `Trading.FuturosDLRSnapshot`. Campos típicos: `ticker` (ej `DLR/MAY26`), `vencimiento`, `precio`, **`tasa_implicita_tna`** (TNA, NO TEA), `timestamp`.
+
+**Gotcha clave:** la tasa implícita está en **TNA** (Tasa Nominal Anual), no TEA. Si querés TEA, capitalizá: `tea = (1 + tna/365)**365 - 1` (siempre que tna venga en decimal — confirmar contra el dato real).
 
 **Prompts típicos:**
 - "Curva de futuros DLR"
-- "TEA implícita del DLR/JUL26"
+- "TNA implícita del DLR/JUL26"
 
 ---
 
@@ -311,16 +329,23 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 
 **Params:** ninguno.
 
-**Retorna:** `dict` con `mep`, `ccl`, `canje` (decimal), `timestamp`, `source` (`live | cron_close`).
+**Retorna:** `dict` con `mep` (ARS), `ccl` (ARS), `canje` (**en %**, ej `4.11` = 4.11%), `timestamp`, `source` (`live | cron_close`).
 
-**Gotchas:** Si snapshot live no está, fallback a último cierre cron. Cualquier campo puede ser `null`.
+**Gotchas:** Si snapshot live no está, fallback a último cierre cron. Cualquier campo puede ser `null`. **`canje` viene en %**, ojo no convertir.
 
 ---
 
 #### `mep_historico`
+**Para qué:** Serie histórica del dólar MEP.
+
 **Params:** `desde`, `hasta` (ISO date o datetime).
 
 **Retorna:** `list[dict]` con `mep`, `timestamp`. **No trae CCL ni canje** (solo MEP).
+
+**Gotchas críticos:**
+- **NO es cierre diario, es tick intradía cada 15 min** (engine `dolar_mep` corre `*/15 13-20 UTC` los días hábiles → ~32 puntos por día).
+- Los primeros valores del día (alrededor de 13:00 UTC = 10:00 ART, apertura) suelen ser **outliers** (precio formado con poco volumen). Para series limpias, descartar el primer punto del día o quedarse con el último por día.
+- Para "cierre diario", agregá vos: agrupar por `date(timestamp)` y tomar `last(mep)`.
 
 ---
 
@@ -441,7 +466,7 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 #### `opciones_historico`
 **Para qué:** Histórico tick-level del OPEX en curso para una opción específica.
 
-**Params:** `instrumento`, `tipo`. **Match exacto** en `instrumento` (no regex como en `opciones_chain`).
+**Params:** `instrumento` (acepta corto `GFGC10950A` o completo `MERV - XMEV - GFGC10950A - 24hs`), `tipo` (`CALL | PUT`).
 
 **Retorna:** `list[dict]` de hasta 5000 trades, últimos 21 días.
 

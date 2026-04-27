@@ -49,7 +49,11 @@ flujo_ARS(fecha_pago) = (amortizacion_pct/100 · VN + cupon_sobre_residual/100 �
 
 Donde `TC(fecha_pago)` se lee según `tasa_referencia`:
 
-- `"A3500"` → `Trading.DOLAR` (escrito por `jobs/bcra.py --today` cron 22 UTC L-V).
+- `"A3500"` → en runtime usamos `Valuaciones.DolarOficial` casa=`"mayorista"`
+  (escrito por `jobs/dolar_api.py`, cron 5 min en horario rueda) como
+  proxy intra-day del A3500. **NO usamos `Trading.DOLAR` (BCRA fixing
+  diario)**: aunque el A3500 oficial sea el TC pactado, ese fixing se
+  publica 1 vez por día y daría paridades/TEAs stale durante el día.
 
 **`tc_emision` no entra en la fórmula del flujo**. Aparece sólo como
 referencia para reportar paridad inicial / brecha vs TC actual.

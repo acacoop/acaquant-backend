@@ -29,7 +29,9 @@ logger = logging.getLogger("MotorCurvas")
 INTERVALO_SEGUNDOS = 5
 INTERVALO_RECARGA_CER = 3600    # recarga CER cada 1 hora
 INTERVALO_RECARGA_MEP = 60      # refresca MEP cada 1 min (para soberanos)
-INTERVALO_RECARGA_A3500 = 3600  # A3500 BCRA es un fixing diario, alcanza 1h
+# TC dolar-linked: mayorista dolarapi se actualiza cada 5 min en horario
+# rueda. Recargar cada 5 min para que paridad / TEA sigan al spot.
+INTERVALO_RECARGA_A3500 = 300
 BATCH_SIZE = 200
 
 
@@ -190,25 +192,47 @@ def cargar_mep_actual(client) -> float | None:
 
 
 def cargar_a3500_actual(client) -> float | None:
-    """Último A3500 BCRA disponible (fixing mayorista diario).
+    """TC para valuar dolar-linked en tiempo real durante horas de mercado.
 
-    Usado para valuar bonos dolar-linked: el flujo en pesos al vto es
-    VN_USD × TC_A3500_actual, y la TEA implícita se calcula descontando
-    los flujos en USD a yield USD (precio_USD = precio_pesos / TC).
+    Fuente única: Valuaciones.DolarOficial casa="mayorista" — escrito por
+    jobs/dolar_api.py (cron cada 5 min en horario de rueda L-V 13-20 UTC).
+    Es el proxy intra-day del A3500.
+
+    NO usamos Trading.DOLAR (A3500 BCRA fixing diario). Aunque ese sea
+    el TC pactado en el prospecto, durante el día estaría 1 día stale
+    y daría paridades/TEAs erradas. Si dolar_api no tiene dato (cron
+    caído / fuera de rueda), devolvemos None: prefiero no enriquecer
+    a enriquecer con dato viejo del BCRA.
+
+    Mid (compra+venta)/2 si las dos puntas están; fallback a venta sola.
     """
-    doc = client["Trading"]["DOLAR"].find_one(
-        {"valor": {"$gt": 0}},
-        {"_id": 0, "valor": 1, "fecha": 1},
-        sort=[("fecha", -1)],
+    doc = client["Valuaciones"]["DolarOficial"].find_one(
+        {"casa": "mayorista", "venta": {"$gt": 0}},
+        {"_id": 0, "compra": 1, "venta": 1, "updated_at": 1, "fecha": 1},
+        sort=[("updated_at", -1)],
     )
-    if doc and doc.get("valor"):
-        valor = float(doc["valor"])
-        logger.info("A3500 cargado: %.4f (fecha=%s)", valor, doc.get("fecha"))
-        return valor
+    if doc:
+        compra = doc.get("compra")
+        venta = doc.get("venta")
+        if compra and compra > 0 and venta and venta > 0:
+            valor = (float(compra) + float(venta)) / 2.0
+            logger.info(
+                "TC dolar-linked: %.4f (mayorista_dolarapi mid, fecha=%s)",
+                valor, doc.get("fecha"),
+            )
+            return valor
+        if venta and venta > 0:
+            valor = float(venta)
+            logger.info(
+                "TC dolar-linked: %.4f (mayorista_dolarapi venta sola, fecha=%s)",
+                valor, doc.get("fecha"),
+            )
+            return valor
+
     logger.warning(
-        "A3500 NO disponible — Trading.DOLAR vacío o sin `valor>0`. "
-        "Bonos dolar-linked van a quedar sin TEA/paridad. "
-        "Corré: python -m jobs.bcra --today"
+        "TC dolar-linked NO disponible — Valuaciones.DolarOficial casa='mayorista' "
+        "vacío. Bonos dolar-linked van a quedar sin TEA/paridad. "
+        "Corré: python -m jobs.dolar_api"
     )
     return None
 

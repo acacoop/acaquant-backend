@@ -1,8 +1,11 @@
-"""inspect_a3500.py — qué A3500 está usando el motor de curvas.
+"""inspect_a3500.py — diagnóstico del TC para dolar-linked.
 
-Cuando los bonos dolar-linked salen con TEA negativa o paridad > 100%
-suele ser porque Trading.DOLAR (BCRA fixing diario) está stale.
-Este script muestra el último valor disponible y la edad del dato.
+El motor de curvas usa Valuaciones.DolarOficial casa="mayorista" (escrito
+por jobs/dolar_api.py, cron 5 min) como TC intra-day para dolar-linked.
+NO usa Trading.DOLAR (BCRA fixing diario).
+
+Este script muestra el último valor disponible del mayorista y su edad,
+para confirmar que el motor lo va a leer bien.
 
 Uso:
     python -m scripts.inspect_a3500
@@ -14,49 +17,51 @@ from datetime import UTC, datetime
 from core.mongo import get_mongo_client
 
 
+def _fmt_dt(dt) -> str:
+    if isinstance(dt, datetime):
+        return dt.isoformat()
+    return str(dt)
+
+
 def main() -> None:
     client = get_mongo_client()
-    col = client["Trading"]["DOLAR"]
 
-    doc = col.find_one(
-        {"valor": {"$gt": 0}},
-        {"_id": 0, "valor": 1, "fecha": 1, "updated_at": 1},
-        sort=[("fecha", -1)],
+    print("─── TC dolar-linked: Valuaciones.DolarOficial casa='mayorista' ───")
+    doc = client["Valuaciones"]["DolarOficial"].find_one(
+        {"casa": "mayorista", "venta": {"$gt": 0}},
+        {"_id": 0, "compra": 1, "venta": 1, "updated_at": 1, "fecha": 1},
+        sort=[("updated_at", -1)],
     )
     if not doc:
-        print("❌ Trading.DOLAR vacío — corré: python -m jobs.bcra --today")
+        print("❌ Sin doc en Valuaciones.DolarOficial casa='mayorista'.")
+        print("   El motor no va a poder enriquecer dolar-linked.")
+        print("   Corré: python -m jobs.dolar_api")
         return
 
-    valor = doc.get("valor")
-    fecha = doc.get("fecha")
-    updated_at = doc.get("updated_at")
+    compra = doc.get("compra")
+    venta = doc.get("venta")
+    if compra and venta and compra > 0 and venta > 0:
+        mid = (float(compra) + float(venta)) / 2.0
+        print(f"  compra: {compra:.4f}")
+        print(f"  venta:  {venta:.4f}")
+        print(f"  MID:    {mid:.4f}  ← el motor usa este")
+    elif venta:
+        print(f"  venta:  {float(venta):.4f}  ← el motor usa este (compra ausente)")
 
-    print(f"Último A3500: {valor:.4f}")
-    print(f"Fecha       : {fecha}")
-    if updated_at:
-        print(f"Updated_at  : {updated_at}")
+    print(f"  fecha:      {doc.get('fecha')}")
+    print(f"  updated_at: {_fmt_dt(doc.get('updated_at'))}")
 
-    # Edad del dato vs hoy
-    hoy = datetime.now(UTC).date().isoformat()
-    if fecha and isinstance(fecha, str) and fecha < hoy:
-        try:
-            f_doc = datetime.strptime(fecha, "%Y-%m-%d").date()
-            dias_atras = (datetime.now(UTC).date() - f_doc).days
-            print(f"\n⚠️  El dato es de hace {dias_atras} día(s). Hoy es {hoy}.")
-            print("   Si la curva DL muestra TEA rara, este es el motivo.")
-            print("   Solución: python -m jobs.bcra --today  →  systemctl restart motor_curvas.service")
-        except ValueError:
-            pass
-    else:
-        print(f"\n✓ Dato del día actual ({hoy}).")
-
-    # Contar cuántos docs hay en total (sirve para ver si el job corrió)
-    total = col.count_documents({})
-    ult5 = list(col.find({}, {"_id": 0, "fecha": 1, "valor": 1}).sort("fecha", -1).limit(5))
-    print(f"\nTotal docs en Trading.DOLAR: {total}")
-    print("Últimos 5 fixings:")
-    for d in ult5:
-        print(f"  {d.get('fecha')}: {d.get('valor')}")
+    ua = doc.get("updated_at")
+    if isinstance(ua, datetime):
+        if ua.tzinfo is None:
+            ua = ua.replace(tzinfo=UTC)
+        edad_min = (datetime.now(UTC) - ua).total_seconds() / 60.0
+        print(f"  edad:       {edad_min:.1f} min")
+        if edad_min > 30:
+            print("\n⚠️  Más de 30 min sin actualizar — probable que el cron")
+            print("   jobs.dolar_api esté caído. Corré: python -m jobs.dolar_api")
+        else:
+            print("\n✓ Dato fresco. El motor lo va a usar bien.")
 
 
 if __name__ == "__main__":

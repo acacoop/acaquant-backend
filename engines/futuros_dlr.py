@@ -16,18 +16,20 @@ Persistencia:
   {fecha, ticker, vencimiento, dias_a_vto, precio_cierre, vol_dia,
    tasa_implicita_tna_cierre}
 
-Tasa implícita: ((last_dlr / spot) ** (365 / dias_a_vto)) - 1.
+Tasa implícita: ((precio_dlr / spot) ** (365 / dias_a_vto)) - 1.
+Se calcula sobre last, bid y offer — los tres campos van al snapshot.
 
 Spot de referencia — en orden de preferencia:
-    1. Valuaciones.DolarOficial casa='mayorista' (dolarapi.com, cron 5min)
-       es lo más cercano al A3500 real que se usa para liquidar los DLR.
+    1. Valuaciones.DolarOficial casa='oficial' (dolarapi.com, cron 5min).
+       Es el spot que la mesa usa para reportar TNA implícita.
     2. Trading.DOLAR (BCRA A3500 fixing diario) — fallback si dolar_api
        job falló o está stale.
     3. Valuaciones.Dolar .mep — último fallback para que nunca quede None.
 
-NOTA: antes usaba MEP como spot. Era conceptualmente MAL — los DLR
-liquidan contra A3500 mayorista, no contra MEP. Con spread MEP-mayorista
-~35% la tasa implícita quedaba sobreestimada por ese mismo orden.
+NOTA: el spot anterior fue mayorista (más cercano al A3500 que liquidan
+los DLR), pero la mesa pidió oficial para que la TNA reportada coincida
+con la del resto del sistema. Cambia los niveles absolutos de TNA, no
+la forma de la curva.
 
 Ejecutar:
     python -m engines.futuros_dlr
@@ -139,17 +141,17 @@ def _dias_a_vto(mat_str: str) -> int:
 def _spot_referencia(client) -> tuple[float | None, str]:
     """Spot de referencia para calcular tasa implícita. Devuelve (valor, fuente).
 
-    Prefiere mayorista (lo más cercano al A3500 real que liquidan los DLR).
+    Prefiere oficial (lo que la mesa usa para reportar TNA implícita).
     Cae a A3500 BCRA fixing, y finalmente a MEP.
     """
-    # 1) Mayorista — dolarapi.com, cron 5 min
+    # 1) Oficial — dolarapi.com, cron 5 min
     doc = client["Valuaciones"]["DolarOficial"].find_one(
-        {"casa": "mayorista", "venta": {"$gt": 0}},
+        {"casa": "oficial", "venta": {"$gt": 0}},
         {"_id": 0, "venta": 1},
         sort=[("updated_at", -1)],
     )
     if doc:
-        return float(doc["venta"]), "mayorista_dolarapi"
+        return float(doc["venta"]), "oficial_dolarapi"
 
     # 2) A3500 BCRA fixing diario
     doc = client["Trading"]["DOLAR"].find_one(
@@ -283,26 +285,30 @@ class FuturosDLREngine:
         offer = st.get("offer") or {}
         closing = st.get("closing") or {}
         precio_last = last.get("price")
+        precio_bid = bid.get("price")
+        precio_offer = offer.get("price")
         dias = _dias_a_vto(mat)
         return {
-            "ticker":              ticker,
-            "vencimiento":         mat,
-            "dias_a_vto":          dias,
-            "bid_price":           bid.get("price"),
-            "bid_size":            bid.get("size"),
-            "offer_price":         offer.get("price"),
-            "offer_size":          offer.get("size"),
-            "last_price":          precio_last,
-            "last_size":           last.get("size"),
-            "open":                st.get("open"),
-            "high":                st.get("high"),
-            "low":                 st.get("low"),
-            "closing":             closing.get("price"),
-            "vol_efectivo":        st.get("vol_efectivo"),
-            "tasa_implicita_tna":  _tasa_implicita_tna(precio_last, spot, dias),
-            "spot_referencia":     spot,
-            "fuente_spot":         fuente_spot,
-            "updated_at":          ts,
+            "ticker":                    ticker,
+            "vencimiento":               mat,
+            "dias_a_vto":                dias,
+            "bid_price":                 precio_bid,
+            "bid_size":                  bid.get("size"),
+            "offer_price":               precio_offer,
+            "offer_size":                offer.get("size"),
+            "last_price":                precio_last,
+            "last_size":                 last.get("size"),
+            "open":                      st.get("open"),
+            "high":                      st.get("high"),
+            "low":                       st.get("low"),
+            "closing":                   closing.get("price"),
+            "vol_efectivo":              st.get("vol_efectivo"),
+            "tasa_implicita_tna":        _tasa_implicita_tna(precio_last, spot, dias),
+            "tasa_implicita_tna_bid":    _tasa_implicita_tna(precio_bid, spot, dias),
+            "tasa_implicita_tna_offer":  _tasa_implicita_tna(precio_offer, spot, dias),
+            "spot_referencia":           spot,
+            "fuente_spot":               fuente_spot,
+            "updated_at":                ts,
         }
 
     # ─── Vuelco al cierre ─────────────────────────────────────────────────

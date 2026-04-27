@@ -44,7 +44,9 @@ Si el usuario pide algo de esos rubros, el connector no puede ayudar — hay que
 | "Trades del último mes del AL30" | `historico_trades` | — |
 | "Series de cierre de toda la curva tasa fija" | `historico_curva` | — |
 | "¿Qué Lecap convino comprar entre A y B?" (post-mortem) | `descomposicion_retorno` | `historico_trades` para contexto |
-| "¿Qué Lecap conviene a 30 días si la curva no se mueve?" (forward-looking) | `rolldown_esperado` | — |
+| "¿Qué Lecer convino el último mes?" (post-mortem CER) | `descomposicion_retorno` (curva="cer") | — |
+| "¿Qué Lecap conviene a 30 días si la curva no se mueve?" | `rolldown_esperado` | — |
+| "Ranking de Lecers por carry+roll a 60 días" | `rolldown_esperado` (curva="cer") | — |
 | "Si la TIR de Globales sube a 11%, ¿cuánto pierdo?" | `sensibilidad_retorno` | — |
 | "Forwards vivos entre Lecaps" | `forwards_live` | — |
 | "¿Cómo evolucionó el forward marzo-junio?" | `forwards_historico` | — |
@@ -180,35 +182,55 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 
 ---
 
-### Atribución de retorno (Lecap / Boncap)
+### Atribución de retorno (Lecap / Boncap / Lecer)
 
 #### `descomposicion_retorno`
-**Para qué:** Atribución **ex-post** del retorno de Lecaps/Boncaps entre dos fechas. Descompone en `carry` (paso del tiempo), `rolldown` (acortamiento de plazo) y `cambio_tasa` (movimiento real de la curva).
+**Para qué:** Atribución **ex-post** del retorno entre dos fechas. Descompone en `carry` (paso del tiempo), `rolldown` (acortamiento de plazo) y `cambio_tasa` (movimiento real de la curva). Soporta `tasa_fija` (default) y `cer`.
 
-**Params:** `desde: str`, `hasta: str` (ambas YYYY-MM-DD), `metodo: str = "lineal"` (`lineal | cuadratica`).
+**Params:** `desde: str`, `hasta: str` (ambas YYYY-MM-DD), `metodo: str = "lineal"` (`lineal | cuadratica`), `curva: str = "tasa_fija"` (`tasa_fija | cer`).
 
-**Retorna:** `dict` con `desde`, `hasta`, `dias`, `metodo`, `bonos: list[dict]` (cada uno con `ticker`, `tipo`, `precio_ini/fin`, `tem_ini`, `r_total`, `carry`, `rolldown`, `cambio_tasa`, `tem_curva_ini_at_dias_fin`), y `promedio_simple`.
+**Retorna:** `dict` con `desde`, `hasta`, `dias`, `metodo`, `curva`, `bonos: list[dict]`, `promedio_simple`.
+
+Cada bono trae:
+- Comunes: `ticker`, `tipo`, `valor_ini/fin` (precio sucio para tasa_fija, paridad para cer), `tasa_ini` (TEM o TEA real), `r_total`, `carry`, `rolldown`, `cambio_tasa`, `tasa_curva_ini_at_dias_fin`.
+- Solo `curva=cer`: `is_zero_coupon` (bool), `cer_accrual` (variación del CER del período), `r_total_ars` (retorno total compuesto: `(1+r_paridad)·(1+cer_accrual) − 1`).
+
+Solo `curva=cer`: el dict raíz incluye `cer_accrual_periodo` y `cer_debug` (CER ini/fin, fechas).
 
 **Prompts típicos:**
 - "¿Por qué el TX26 rindió tanto entre marzo y abril?"
 - "Atribución de las Lecaps el último mes"
+- "Descomponé el retorno de los CER del último mes" → usar `curva="cer"`
 
-**Gotchas:** Solo aplica a **Lecap** y **Boncap** (zero coupon). Excluye bonos que vencieron entre las fechas. `metodo: cuadratica` es más fiel pero requiere ≥3 puntos en la curva.
+**Gotchas:**
+- `tasa_fija`: incluye Lecap + Boncap zero coupon.
+- `cer`: incluye Lecers (zero coupon) + Boncers cupón en la tabla, pero la **curva de referencia para el rolldown** se construye **solo con Lecers** (excluyendo TX26/TX28 cuyas TEAs comprimidas por cupones ensucian la pendiente).
+- Excluye bonos que vencieron entre las fechas.
+- `metodo: cuadratica` es más fiel pero requiere ≥3 puntos en la curva.
 
 ---
 
 #### `rolldown_esperado`
-**Para qué:** **Forward-looking** — qué rinde cada Lecap/Boncap a un horizonte si la curva no se mueve. Útil para rankear "qué Lecap comprar este mes".
+**Para qué:** **Forward-looking** — qué rinde cada bono a un horizonte si la curva no se mueve. Útil para rankear "qué bono comprar este mes". Soporta `tasa_fija` (default) y `cer`.
 
-**Params:** `horizonte_dias: int = 30` (1..365), `metodo: str = "lineal"`.
+**Params:** `horizonte_dias: int = 30` (1..365), `metodo: str = "lineal"`, `curva: str = "tasa_fija"` (`tasa_fija | cer`).
 
-**Retorna:** `dict` con `bonos: list[dict]` ordenado **descendente por `total_esperado`**. Cada bono trae `carry_esperado`, `rolldown_esperado`, `total_esperado`, `tem_curva_at_horizonte`.
+**Retorna:** `dict` con `bonos: list[dict]` ordenado **descendente** por `total_esperado` (tasa_fija) o `total_esperado_ars` (cer).
+
+Cada bono trae:
+- Comunes: `ticker`, `tipo`, `valor` (precio o paridad), `tasa` (TEM/TEA), `vto_dias`, `vto_dias_horizonte`, `tasa_curva_at_horizonte`, `carry_esperado`, `rolldown_esperado`, `total_esperado`.
+- Solo `curva=cer`: `is_zero_coupon`, `cer_accrual_esperado` (mediana del REM compoundeada), `total_esperado_ars` (retorno ARS compuesto).
+
+Solo `curva=cer`: el dict raíz incluye `cer_accrual_esperado` y `cer_debug` (n_meses_compoundeados, medianas_mensuales).
 
 **Prompts típicos:**
 - "¿Cuál es la mejor Lecap para 30 días?"
-- "Ranking de Boncaps por rolldown a 60 días"
+- "Ranking de Lecers por carry+roll a 60 días" → usar `curva="cer"`
 
-**Gotchas:** Asume curva estática — el ranking real depende del movimiento de tasas. Excluye bonos que vencen antes del horizonte.
+**Gotchas:**
+- Asume curva estática — el ranking real depende del movimiento de tasas.
+- Excluye bonos que vencen antes del horizonte.
+- En CER el accrual forward sale del REM (mediana de inflación esperada) y compoundeada `round(horizonte_dias/30)` meses; horizontes < 15 días pueden tener proyección ruidosa.
 
 ---
 

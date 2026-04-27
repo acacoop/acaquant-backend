@@ -25,6 +25,7 @@ quant/       # cálculo puro (black_scholes, stats)
 api/services # lógica pura (invocada por routers y por el agente)
 api/routers  # thin HTTP wrappers. manager/ es paquete de sub-routers
 api/agent/   # asistente tool-use (Claude/Gemini)
+api/mcp/     # MCP server (FastMCP) + OAuth 2.1 provider + discovery
 scripts/     # one-shot / migraciones / smoke
 deploy/      # systemd + crontab.txt (fuente de verdad)
 .claude/     # commands (/smoke /perf /seed-roles /deploy /motor-status) + skills (add-bono add-endpoint add-job debug-motor)
@@ -94,6 +95,21 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 ## Asistente
 
 Doc completo: `docs/ASISTENTE.md`. `api/agent/` + `POST /api/chat`. Provider Claude con router Haiku/Sonnet (`LLM_PROVIDER=claude`), Gemini fallback. Tools invocan `api/services/*` directamente. `BLOCKED_PATH_PREFIXES` = portfolio/operaciones/cuentas/manager (policy — no modificar sin coordinar). Editables sin deploy: `docs/asistente/estrategia.md` + `estrategias.md` (releen al cambiar mtime).
+
+## MCP server (Custom Connector)
+
+`api/mcp/` montado en `https://api.acaquant.com/mcp` — 27 tools de SOLO LECTURA sobre datos de mercado (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad). NO expone portfolio/operaciones/cuentas/AuM/manager (mismo policy que el asistente). Cada tool es thin wrapper sobre `api/services/*`. Cliente principal: Claude Desktop / claude.ai vía Custom Connector.
+
+**Auth**: OAuth 2.1 + PKCE + DCR (RFC 7591), Cloudflare Access como IdP. Flow: Claude hace DCR → `/oauth/authorize` (CF Access pide login al user) → handler lee `cf-access-jwt-assertion` → emite `code` → `/oauth/token` lo canjea por JWT (HS256, TTL 1h) → Claude usa el JWT en Bearer en `/mcp/`. Storage en Mongo db `MCP` (TTL automático en codes/tokens).
+
+Configurable: `MCP_BEARER_TOKEN` (static, fallback dev/curl), `MCP_JWT_SECRET` (firma JWTs OAuth), `MCP_OAUTH_ISSUER` (default `https://api.acaquant.com`). Sin ninguno de los dos, `/mcp` queda deshabilitado.
+
+**Dos cosas críticas que rompen el connector** (se aprendieron a los golpes; doc completo en memoria `project_mcp_cf_access.md`):
+
+1. **CF Access path scoping**. App `acaquant-mcp-bypass` (BYPASS + Everyone) cubre 5 paths: `/mcp`, `/oauth/token`, `/oauth/register`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`. Si CF Access tapa `/mcp`, el cliente recibe HTML de login en vez de 401 → muere silencioso. `/oauth/authorize` SÍ debe estar protegido (ahí logea el user). 5/5 destinations al tope.
+2. **`TransportSecuritySettings` en `api/mcp/server.py`** con `allowed_hosts` (`api.acaquant.com`) y `allowed_origins` (`https://claude.ai`, `https://claude.com`). El default del SDK MCP solo acepta localhost → 421 Misdirected Request. El smoke local NO replica esta condición.
+
+Smoke: `python -m scripts.mcp_smoke_oauth` (auto-emite JWT y pega a `/mcp/` local — valida middleware bearer + tools, no condiciones de prod).
 
 ## Deploy
 

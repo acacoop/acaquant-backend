@@ -318,11 +318,12 @@ class MicrostructureEngine:
                     existing = self.col_snapshot.find_one(
                         {"ticker": ticker},
                         {"_id": 0, "metrics.TEA": 1, "metrics.TEM": 1,
-                         "metrics.duration": 1, "metrics.convexity": 1,
-                         "metrics.paridad": 1},
+                         "metrics.duration": 1, "metrics.mod_duration": 1,
+                         "metrics.convexity": 1, "metrics.paridad": 1},
                     )
                     if existing and existing.get("metrics"):
-                        for k in ("TEA", "TEM", "duration", "convexity", "paridad"):
+                        for k in ("TEA", "TEM", "duration", "mod_duration",
+                                  "convexity", "paridad"):
                             v = existing["metrics"].get(k)
                             if v is not None:
                                 metricas[k] = v

@@ -289,6 +289,20 @@ def fair_value(
 
 @mcp.tool(
     description=(
+        "Serie diaria del residuo de un bono específico vs su curva fair value "
+        "(últimos `dias` cierres). Devuelve {ticker, curva, dias, serie: "
+        "[{fecha, residuo_bps, z_temporal, z_estatico, tea_obs, tea_teorica, "
+        "duration}]}. USAR para 'cómo viene cotizando T30A7 vs su historia' o "
+        "'ver evolución del z-score temporal de X bono'. Ticker debe ser el full "
+        "(MERV - XMEV - X - 24hs)."
+    ),
+)
+def fair_value_historico_bono(ticker: str, dias: int = 60) -> dict:
+    return svc_fv.get_fair_value_historico_bono(ticker=ticker, dias=dias)
+
+
+@mcp.tool(
+    description=(
         "Breakevens vivos: pares Lecap-CER de mismo vencimiento con la "
         "inflación mensual implícita en el spread."
     ),

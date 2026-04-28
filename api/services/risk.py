@@ -21,7 +21,6 @@ from typing import Any
 
 import pyRofex
 
-from api.cache import cached
 from core.rofex_orders_session import cuenta_default, ensure_session_envio
 
 logger = logging.getLogger("api.services.risk")
@@ -66,7 +65,6 @@ def _resolve_account(account: str | None) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@cached(ttl=3)
 def account_report(account: str | None = None) -> dict[str, Any]:
     """Reporte completo de la cuenta — saldos por moneda y por settlement,
     márgenes, portfolio. Cache 3s."""
@@ -77,7 +75,6 @@ def account_report(account: str | None = None) -> dict[str, Any]:
     return resp
 
 
-@cached(ttl=5)
 def account_positions(account: str | None = None) -> dict[str, Any]:
     """Posiciones (qué tickers tiene la cuenta y a qué precio promedio). Cache 5s."""
     acc = _resolve_account(account)
@@ -87,7 +84,6 @@ def account_positions(account: str | None = None) -> dict[str, Any]:
     return resp
 
 
-@cached(ttl=5)
 def account_detailed_position(account: str | None = None) -> dict[str, Any]:
     """Posiciones detalladas por tipo de instrumento (BOND, NEGOTIABLE_OBLIGATION,
     etc.) con valuación a market. Cache 5s."""
@@ -103,7 +99,6 @@ def account_detailed_position(account: str | None = None) -> dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@cached(ttl=3)
 def saldo_para_rueda(rueda: str = "CI", account: str | None = None) -> dict[str, Any]:
     """Saldo ARS y USD MEP (USD D) disponible para operar en una rueda.
 

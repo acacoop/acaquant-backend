@@ -1,34 +1,37 @@
-"""Triggers condicionales sobre la operativa Dólar MEP.
+"""Triggers condicionales sobre la operativa Dólar MEP — bracket order.
 
-El user define un MEP objetivo (ej $1.420). Mientras el MEP > objetivo, el
-trigger está ACTIVE. Cuando MEP <= objetivo, el scanner dispara la operativa
-estándar (BUY AL30 + SELL AL30D, con todo el guard que ya tenemos en
-crear_operativa: factor 100, espera ER, etc.).
+Modos:
+  - Compra simple: ACTIVE → (MEP <= tc_objetivo) → EXECUTED
+  - Bracket TP/SL: ACTIVE → (MEP <= tc_objetivo) → WAITING_EXIT
+                   WAITING_EXIT → (MEP >= tp o MEP <= sl) → EXITED
 
 Persistencia: Operaciones.TriggersMep.
   {
     trigger_id, account, actor_email,
     monto_ars, comision_pct, rueda,
-    tc_objetivo,             # disparar cuando MEP <= este valor
-    estado,                  # ACTIVE | FIRING | EXECUTED | CANCELLED |
-                             # CANCELLED_EOD | FAIL
-    operativa_id,            # link a OperativasMep cuando dispara
+    tc_objetivo,             # entry: disparar compra cuando MEP <= esto
+    tp_objetivo, sl_objetivo,# salida (opcionales). Si alguno está, modo
+                             # bracket; si no, modo compra simple.
+    estado,                  # ACTIVE | FIRING | EXECUTED |
+                             # WAITING_EXIT | EXITING | EXITED | EXIT_FAIL |
+                             # CANCELLED | CANCELLED_EOD | FAIL
+    operativa_id,            # link a OperativasMep de la entry (compra)
+    operativa_exit_id,       # link a OperativasMep de la salida (venta)
+    nominales_entry,         # nominales que entraron en la compra
     last_seen_mep,           # último MEP visto por el scanner (debug)
     created_at, updated_at,
-    fired_at?, error?,
+    fired_at?, exit_fired_at?, error?,
   }
 
 Scanner: corre como background task asyncio en el lifespan de api.main.
-Cada N segundos:
-  1) evaluar_y_disparar_pendientes() — lee ACTIVE, dispara los que cumplen
+Cada N segundos, en orden:
+  1) evaluar_y_disparar_pendientes() — entries (ACTIVE) y salidas (WAITING_EXIT)
   2) cancelar_pendientes_eod() — si hora UTC ≥ 19:50, cancela todo ACTIVE
+     y WAITING_EXIT. Las posiciones abiertas con WAITING_EXIT NO se cierran
+     forzosamente — el user las maneja al día siguiente.
 
-Concurrencia: lock optimista — un update_one filtra por estado=ACTIVE y
-pasa a FIRING. Solo el primer scan que llegue gana, los demás skipean.
-
-Stale guard: si el último trade de AL30 o AL30D tiene > STALE_THRESHOLD_S
-segundos, NO se dispara — el motor de market data probablemente está
-desconectado y la cotización es vieja.
+Concurrencia: lock optimista — ACTIVE → FIRING, WAITING_EXIT → EXITING.
+Stale guard: ver STALE_THRESHOLD_S.
 """
 from __future__ import annotations
 
@@ -43,6 +46,7 @@ from pymongo import ASCENDING
 from api.services.operativa_mep import (
     RUEDAS_VALIDAS,
     crear_operativa,
+    crear_operativa_venta,
     get_cotizaciones,
 )
 from core.mongo import get_mongo_client, get_mongo_client_read
@@ -98,9 +102,14 @@ def crear_trigger(
     comision_pct: float,
     rueda: str,
     tc_objetivo: float,
+    tp_objetivo: float | None = None,
+    sl_objetivo: float | None = None,
     account: str | None = None,
     actor_email: str | None = None,
 ) -> dict[str, Any]:
+    """Crea trigger ACTIVE. Si tp_objetivo o sl_objetivo están definidos,
+    el trigger queda en modo bracket: tras la entry pasa a WAITING_EXIT
+    y el scanner monitorea TP/SL para disparar la venta inversa."""
     if rueda not in RUEDAS_VALIDAS:
         raise ValueError(f"rueda inválida: {rueda!r}")
     if monto_ars <= 0:
@@ -109,37 +118,51 @@ def crear_trigger(
         raise ValueError("comision_pct fuera de rango [0,5]")
     if tc_objetivo <= 0:
         raise ValueError("tc_objetivo debe ser > 0")
+    if tp_objetivo is not None and tp_objetivo <= 0:
+        raise ValueError("tp_objetivo debe ser > 0")
+    if sl_objetivo is not None and sl_objetivo <= 0:
+        raise ValueError("sl_objetivo debe ser > 0")
 
     _ensure_indexes()
     trigger_id = str(uuid4())
     now = datetime.now(UTC)
     doc = {
-        "trigger_id":   trigger_id,
-        "account":      account,
-        "actor_email":  actor_email,
-        "monto_ars":    monto_ars,
-        "comision_pct": comision_pct,
-        "rueda":        rueda,
-        "tc_objetivo":  tc_objetivo,
-        "estado":       "ACTIVE",
-        "operativa_id": None,
-        "last_seen_mep": None,
-        "created_at":   now,
-        "updated_at":   now,
+        "trigger_id":        trigger_id,
+        "account":           account,
+        "actor_email":       actor_email,
+        "monto_ars":         monto_ars,
+        "comision_pct":      comision_pct,
+        "rueda":             rueda,
+        "tc_objetivo":       tc_objetivo,
+        "tp_objetivo":       tp_objetivo,
+        "sl_objetivo":       sl_objetivo,
+        "estado":            "ACTIVE",
+        "operativa_id":      None,
+        "operativa_exit_id": None,
+        "nominales_entry":   None,
+        "last_seen_mep":     None,
+        "created_at":        now,
+        "updated_at":        now,
     }
     get_mongo_client()[DB_OPS][COL_TRIGGERS].insert_one(doc)
     logger.info(
-        "trigger creado %s (rueda=%s, tc<=%s, monto=%s, actor=%s)",
-        trigger_id, rueda, tc_objetivo, monto_ars, actor_email,
+        "trigger creado %s (rueda=%s, tc<=%s, tp>=%s, sl<=%s, monto=%s, actor=%s)",
+        trigger_id, rueda, tc_objetivo, tp_objetivo, sl_objetivo, monto_ars, actor_email,
     )
     return {"ok": True, "trigger_id": trigger_id, "estado": "ACTIVE"}
 
 
 def cancelar_trigger(trigger_id: str, *, actor_email: str | None = None) -> dict[str, Any]:
-    """Cancela un trigger ACTIVE. Si está en otro estado, no-op."""
+    """Cancela un trigger en estado ACTIVE o WAITING_EXIT.
+
+    En ACTIVE → CANCELLED (la compra nunca se ejecuta).
+    En WAITING_EXIT → CANCELLED (la compra YA se ejecutó; la posición USD
+    queda abierta. El user la cierra manualmente cuando quiera.).
+    En cualquier otro estado → no-op.
+    """
     db = get_mongo_client()[DB_OPS]
     res = db[COL_TRIGGERS].update_one(
-        {"trigger_id": trigger_id, "estado": "ACTIVE"},
+        {"trigger_id": trigger_id, "estado": {"$in": ["ACTIVE", "WAITING_EXIT"]}},
         {"$set": {
             "estado": "CANCELLED",
             "cancelled_by": actor_email,
@@ -147,7 +170,7 @@ def cancelar_trigger(trigger_id: str, *, actor_email: str | None = None) -> dict
         }},
     )
     if res.matched_count == 0:
-        return {"ok": False, "error": "trigger no existe o no está ACTIVE"}
+        return {"ok": False, "error": "trigger no existe o no es cancelable"}
     return {"ok": True, "trigger_id": trigger_id, "estado": "CANCELLED"}
 
 
@@ -187,24 +210,25 @@ def _is_cot_fresh(cot: dict, now: datetime) -> bool:
 
 
 def evaluar_y_disparar_pendientes() -> int:
-    """Evalúa todos los triggers ACTIVE; dispara los que cumplen tc_objetivo.
-    Devuelve la cantidad de triggers disparados en este tick.
+    """Evalúa triggers en estado ACTIVE (entry) y WAITING_EXIT (salida).
+    Devuelve la cantidad de triggers que disparó alguna acción este tick.
 
     Diseño:
-      1) Una sola lectura de cotización por rueda (no por trigger).
-      2) Lock optimista por trigger: ACTIVE → FIRING en update atómico.
-      3) Si la cotización no está fresca, NO disparar — al próximo tick
-         se reintenta con datos nuevos.
+      - Una sola lectura de cotización por rueda (no por trigger).
+      - Lock optimista por trigger: ACTIVE → FIRING o WAITING_EXIT → EXITING.
+      - Stale guard: NO dispara si la cotización está vieja (>5s).
     """
     db = get_mongo_client()[DB_OPS]
-    activos = list(db[COL_TRIGGERS].find({"estado": "ACTIVE"}))
+    activos = list(
+        db[COL_TRIGGERS].find({"estado": {"$in": ["ACTIVE", "WAITING_EXIT"]}})
+    )
     if not activos:
         return 0
 
     now = datetime.now(UTC)
     cot_cache: dict[str, dict] = {}
-
     disparados = 0
+
     for t in activos:
         rueda = t.get("rueda")
         if rueda not in cot_cache:
@@ -217,81 +241,175 @@ def evaluar_y_disparar_pendientes() -> int:
         cot = cot_cache[rueda]
         mep = cot.get("mep_implicito")
 
-        # Update last_seen_mep (debugging — independiente de disparo).
+        # Tick para debugging — independiente de si dispara o no.
         db[COL_TRIGGERS].update_one(
             {"trigger_id": t["trigger_id"]},
             {"$set": {"last_seen_mep": mep, "updated_at": now}},
         )
 
-        if mep is None:
+        if mep is None or not _is_cot_fresh(cot, now):
             continue
 
-        if not _is_cot_fresh(cot, now):
-            # Cotización stale — esperar al próximo tick.
-            logger.debug("trigger %s: cotización stale, skip", t["trigger_id"])
-            continue
-
-        if mep > t["tc_objetivo"]:
-            # Todavía no se cumple la condición.
-            continue
-
-        # Lock optimista: el primero que pase ACTIVE → FIRING gana.
-        res = db[COL_TRIGGERS].update_one(
-            {"trigger_id": t["trigger_id"], "estado": "ACTIVE"},
-            {"$set": {
-                "estado": "FIRING",
-                "fired_at": now,
-                "fired_at_mep": mep,
-                "updated_at": now,
-            }},
-        )
-        if res.matched_count == 0:
-            continue  # otro tick lo agarró primero
-
-        # Disparar.
-        try:
-            op_resp = crear_operativa(
-                monto_ars=t["monto_ars"],
-                comision_pct=t["comision_pct"],
-                rueda=t["rueda"],
-                account=t.get("account"),
-                actor_email=t.get("actor_email"),
-            )
-            estado_final = "EXECUTED" if op_resp.get("ok") else "FAIL"
-            db[COL_TRIGGERS].update_one(
-                {"trigger_id": t["trigger_id"]},
-                {"$set": {
-                    "estado":       estado_final,
-                    "operativa_id": op_resp.get("operativa_id"),
-                    "error":        op_resp.get("error"),
-                    "updated_at":   datetime.now(UTC),
-                }},
-            )
-            disparados += 1
-            logger.info(
-                "trigger %s disparado: mep=%s <= %s, operativa=%s estado=%s",
-                t["trigger_id"], mep, t["tc_objetivo"],
-                op_resp.get("operativa_id"), estado_final,
-            )
-        except Exception as e:
-            logger.exception("trigger %s falló al disparar", t["trigger_id"])
-            db[COL_TRIGGERS].update_one(
-                {"trigger_id": t["trigger_id"]},
-                {"$set": {
-                    "estado":     "FAIL",
-                    "error":      str(e),
-                    "updated_at": datetime.now(UTC),
-                }},
-            )
+        estado = t.get("estado")
+        if estado == "ACTIVE":
+            if _disparar_entry(db, t, mep, now):
+                disparados += 1
+        elif estado == "WAITING_EXIT":
+            if _disparar_exit(db, t, mep, now):
+                disparados += 1
 
     return disparados
 
 
+def _disparar_entry(db, t: dict, mep: float, now: datetime) -> bool:
+    """Si MEP <= tc_objetivo, ejecuta la compra. Si el trigger tiene TP
+    o SL, queda en WAITING_EXIT; sino EXECUTED. Devuelve True si actuó."""
+    if mep > t["tc_objetivo"]:
+        return False
+
+    res = db[COL_TRIGGERS].update_one(
+        {"trigger_id": t["trigger_id"], "estado": "ACTIVE"},
+        {"$set": {
+            "estado":       "FIRING",
+            "fired_at":     now,
+            "fired_at_mep": mep,
+            "updated_at":   now,
+        }},
+    )
+    if res.matched_count == 0:
+        return False  # otro thread lo agarró
+
+    try:
+        op_resp = crear_operativa(
+            monto_ars=t["monto_ars"],
+            comision_pct=t["comision_pct"],
+            rueda=t["rueda"],
+            account=t.get("account"),
+            actor_email=t.get("actor_email"),
+        )
+        # Si la compra falla → FAIL, terminó.
+        # Si la compra OK y NO hay TP/SL → EXECUTED, terminó.
+        # Si la compra OK y hay TP o SL → WAITING_EXIT, esperamos salida.
+        nominales_entry = op_resp.get("nominales") or 0
+        op_ok = op_resp.get("ok") and nominales_entry > 0
+        tiene_bracket = (t.get("tp_objetivo") is not None
+                         or t.get("sl_objetivo") is not None)
+
+        if not op_ok:
+            estado_final = "FAIL"
+        elif tiene_bracket:
+            estado_final = "WAITING_EXIT"
+        else:
+            estado_final = "EXECUTED"
+
+        db[COL_TRIGGERS].update_one(
+            {"trigger_id": t["trigger_id"]},
+            {"$set": {
+                "estado":          estado_final,
+                "operativa_id":    op_resp.get("operativa_id"),
+                "nominales_entry": nominales_entry,
+                "error":           op_resp.get("error"),
+                "updated_at":      datetime.now(UTC),
+            }},
+        )
+        logger.info(
+            "trigger %s entry: mep=%s <= %s, operativa=%s nominales=%s estado=%s",
+            t["trigger_id"], mep, t["tc_objetivo"],
+            op_resp.get("operativa_id"), nominales_entry, estado_final,
+        )
+        return True
+    except Exception as e:
+        logger.exception("trigger %s falló al disparar entry", t["trigger_id"])
+        db[COL_TRIGGERS].update_one(
+            {"trigger_id": t["trigger_id"]},
+            {"$set": {"estado": "FAIL", "error": str(e), "updated_at": datetime.now(UTC)}},
+        )
+        return True
+
+
+def _disparar_exit(db, t: dict, mep: float, now: datetime) -> bool:
+    """Si MEP cruza TP (>= tp_objetivo) o SL (<= sl_objetivo), ejecuta venta
+    inversa de los nominales que entraron. Devuelve True si actuó."""
+    tp = t.get("tp_objetivo")
+    sl = t.get("sl_objetivo")
+    motivo: str | None = None
+    if tp is not None and mep >= tp:
+        motivo = "TP"
+    elif sl is not None and mep <= sl:
+        motivo = "SL"
+    if motivo is None:
+        return False
+
+    nominales = t.get("nominales_entry") or 0
+    if nominales <= 0:
+        # Defensivo — no debería pasar, pero si pasa marcamos error y salimos.
+        db[COL_TRIGGERS].update_one(
+            {"trigger_id": t["trigger_id"]},
+            {"$set": {
+                "estado":     "EXIT_FAIL",
+                "error":      "nominales_entry <= 0 — no podemos cerrar la posición",
+                "updated_at": datetime.now(UTC),
+            }},
+        )
+        return True
+
+    res = db[COL_TRIGGERS].update_one(
+        {"trigger_id": t["trigger_id"], "estado": "WAITING_EXIT"},
+        {"$set": {
+            "estado":         "EXITING",
+            "exit_fired_at":  now,
+            "exit_fired_mep": mep,
+            "exit_motivo":    motivo,
+            "updated_at":     now,
+        }},
+    )
+    if res.matched_count == 0:
+        return False
+
+    try:
+        venta_resp = crear_operativa_venta(
+            nominales=nominales,
+            rueda=t["rueda"],
+            account=t.get("account"),
+            actor_email=t.get("actor_email"),
+            parent_trigger_id=t["trigger_id"],
+        )
+        estado_final = "EXITED" if venta_resp.get("ok") else "EXIT_FAIL"
+        db[COL_TRIGGERS].update_one(
+            {"trigger_id": t["trigger_id"]},
+            {"$set": {
+                "estado":            estado_final,
+                "operativa_exit_id": venta_resp.get("operativa_id"),
+                "exit_error":        venta_resp.get("error"),
+                "updated_at":        datetime.now(UTC),
+            }},
+        )
+        logger.info(
+            "trigger %s exit (%s): mep=%s, operativa_venta=%s estado=%s",
+            t["trigger_id"], motivo, mep,
+            venta_resp.get("operativa_id"), estado_final,
+        )
+        return True
+    except Exception as e:
+        logger.exception("trigger %s falló al disparar exit", t["trigger_id"])
+        db[COL_TRIGGERS].update_one(
+            {"trigger_id": t["trigger_id"]},
+            {"$set": {
+                "estado":     "EXIT_FAIL",
+                "exit_error": str(e),
+                "updated_at": datetime.now(UTC),
+            }},
+        )
+        return True
+
+
 def cancelar_pendientes_eod() -> int:
-    """Si la hora UTC actual cruzó EOD_HOUR_UTC:EOD_MIN_UTC, cancela todos
-    los triggers ACTIVE. Idempotente — se llama en cada tick del scanner
-    pero solo ejecuta el mass-update cuando hay ACTIVE y la hora es >=
-    el corte.
+    """Cuando hora UTC ≥ EOD_HOUR_UTC:EOD_MIN_UTC, cancela todos los
+    triggers en ACTIVE y WAITING_EXIT. Idempotente.
+
+    Importante: para WAITING_EXIT NO se fuerza la venta — la posición USD
+    queda abierta. El user la cierra manualmente al día siguiente. Eso
+    es lo acordado: 16:50 ART cancela el trigger, no el riesgo.
 
     Devuelve cantidad cancelada.
     """
@@ -300,14 +418,11 @@ def cancelar_pendientes_eod() -> int:
         return 0
     db = get_mongo_client()[DB_OPS]
     res = db[COL_TRIGGERS].update_many(
-        {"estado": "ACTIVE"},
-        {"$set": {
-            "estado":     "CANCELLED_EOD",
-            "updated_at": now,
-        }},
+        {"estado": {"$in": ["ACTIVE", "WAITING_EXIT"]}},
+        {"$set": {"estado": "CANCELLED_EOD", "updated_at": now}},
     )
     if res.modified_count > 0:
-        logger.info("EOD: cancelados %d trigger(s) ACTIVE", res.modified_count)
+        logger.info("EOD: cancelados %d trigger(s) en ACTIVE/WAITING_EXIT", res.modified_count)
     return res.modified_count
 
 

@@ -155,6 +155,86 @@ def _wait_buy_resolved(
     return ((last_doc or {}).get("status"), last_doc)
 
 
+def _ejecutar_buy_then_sell(
+    *,
+    buy_ticker: str,
+    sell_ticker: str,
+    nominales: int,
+    account: str | None,
+    actor_email: str | None,
+) -> dict[str, Any]:
+    """Manda BUY MARKET, espera ER, y si confirma manda SELL MARKET.
+
+    Lógica común entre operativa de compra MEP (BUY AL30 + SELL AL30D) y
+    venta MEP (BUY AL30D + SELL AL30). Si la BUY rechaza/expira/timeouts,
+    NO se manda SELL para evitar shorts involuntarios contra tenencia previa.
+
+    Returns:
+        {
+          "stage":          "buy_ack" | "buy_er" | "sell" | "all_ok",
+          "global_status":  "OK" | "OK_PARCIAL" | "FAIL" | "STALE_BUY",
+          "buy":            {cl_ord_id, status, ok, reason?},
+          "sell":           {cl_ord_id, status, ok, error?} | None,
+          "error":          str | None,
+        }
+    """
+    buy_resp = send_order(
+        ticker=buy_ticker, side="BUY", size=nominales,
+        order_type="MARKET", price=None, tif="DAY",
+        account=account, actor_email=actor_email,
+    )
+    if not buy_resp.get("ok"):
+        return {
+            "stage": "buy_ack", "global_status": "FAIL",
+            "buy": {"cl_ord_id": None, "status": "REJECTED_LOCAL",
+                    "ok": False, "reason": buy_resp.get("error")},
+            "sell": None, "error": buy_resp.get("error"),
+        }
+    buy_cl_ord_id = buy_resp["cl_ord_id"]
+
+    buy_status, buy_doc = _wait_buy_resolved(buy_cl_ord_id)
+    buy_reason = (buy_doc or {}).get("reject_reason")
+
+    if buy_status in BUY_BLOQUEA_SELL:
+        logger.warning(
+            "BUY %s rechazada/cancelada (status=%s, reason=%s) — NO mandamos SELL",
+            buy_cl_ord_id, buy_status, buy_reason,
+        )
+        return {
+            "stage": "buy_er", "global_status": "FAIL",
+            "buy": {"cl_ord_id": buy_cl_ord_id, "status": buy_status,
+                    "ok": False, "reason": buy_reason},
+            "sell": None, "error": buy_reason or buy_status,
+        }
+
+    if buy_status not in BUY_HABILITA_SELL:
+        motivo = f"BUY no resuelta en {BUY_WAIT_TIMEOUT_S}s (status={buy_status})"
+        logger.warning(motivo)
+        return {
+            "stage": "buy_er", "global_status": "STALE_BUY",
+            "buy": {"cl_ord_id": buy_cl_ord_id, "status": buy_status, "ok": False},
+            "sell": None, "error": motivo,
+        }
+
+    sell_resp = send_order(
+        ticker=sell_ticker, side="SELL", size=nominales,
+        order_type="MARKET", price=None, tif="DAY",
+        account=account, actor_email=actor_email,
+    )
+    sell_cl_ord_id = sell_resp.get("cl_ord_id")
+    sell_ok = bool(sell_resp.get("ok"))
+
+    return {
+        "stage": "all_ok" if sell_ok else "sell",
+        "global_status": "OK" if sell_ok else "OK_PARCIAL",
+        "buy": {"cl_ord_id": buy_cl_ord_id, "status": buy_status, "ok": True},
+        "sell": {"cl_ord_id": sell_cl_ord_id, "status": "PENDING_NEW",
+                 "ok": sell_ok,
+                 "error": None if sell_ok else sell_resp.get("error")},
+        "error": None if sell_ok else sell_resp.get("error"),
+    }
+
+
 def crear_operativa(
     *,
     monto_ars: float,
@@ -201,6 +281,7 @@ def crear_operativa(
     db_ops = get_mongo_client()[DB_OPS]
     doc = {
         "operativa_id": operativa_id,
+        "tipo": "compra",
         "fecha": now.strftime("%Y-%m-%d"),
         "account": account,
         "actor_email": actor_email,
@@ -240,127 +321,117 @@ def crear_operativa(
             "error": motivo,
         }
 
-    # ── BUY AL30 MARKET ──
-    buy_resp = send_order(
-        ticker=tk["al30"],
-        side="BUY",
-        size=nominales,
-        order_type="MARKET",
-        price=None,
-        tif="DAY",
+    res = _ejecutar_buy_then_sell(
+        buy_ticker=tk["al30"],
+        sell_ticker=tk["al30d"],
+        nominales=nominales,
         account=account,
         actor_email=actor_email,
     )
-    if not buy_resp.get("ok"):
-        db_ops[COL_OPERATIVAS].update_one(
-            {"operativa_id": operativa_id},
-            {"$set": {
-                "status": "FAIL",
-                "buy_error": buy_resp.get("error"),
-                "updated_at": datetime.now(UTC),
-            }},
-        )
-        return {
-            "ok": False,
-            "operativa_id": operativa_id,
-            "status": "FAIL",
-            "stage": "buy",
-            "error": buy_resp.get("error"),
-        }
-    buy_cl_ord_id = buy_resp["cl_ord_id"]
+    return _persistir_resultado_operativa(operativa_id, nominales, res, db_ops)
 
-    # ── ESPERAR ER DE LA BUY ANTES DE MANDAR SELL ──
-    # send_order().ok=True solo confirma el ack inicial del broker, no que
-    # la orden se haya filleado. Si la BUY rechaza por saldo/etc., la SELL
-    # podría dispararse SHORT contra una tenencia previa de AL30D — riesgo
-    # financiero gigante. Polleamos OrdenesLive hasta que motor_ordenes
-    # nos diga el estado real, con timeout chico.
-    buy_status, buy_doc = _wait_buy_resolved(buy_cl_ord_id)
-    buy_reject_reason = (buy_doc or {}).get("reject_reason")
 
-    if buy_status in BUY_BLOQUEA_SELL:
-        logger.warning(
-            "BUY %s rechazada/cancelada (status=%s, reason=%s) — NO se manda SELL",
-            buy_cl_ord_id, buy_status, buy_reject_reason,
-        )
-        db_ops[COL_OPERATIVAS].update_one(
-            {"operativa_id": operativa_id},
-            {"$set": {
-                "buy.cl_ord_id": buy_cl_ord_id,
-                "status": "FAIL",
-                "buy_error": buy_reject_reason or buy_status,
-                "updated_at": datetime.now(UTC),
-            }},
-        )
-        return {
-            "ok": False,
-            "operativa_id": operativa_id,
-            "status": "FAIL",
-            "stage": "buy",
-            "error": buy_reject_reason or buy_status,
-            "buy": {"cl_ord_id": buy_cl_ord_id, "ok": False,
-                    "status": buy_status, "reason": buy_reject_reason},
-        }
+def crear_operativa_venta(
+    *,
+    nominales: int,
+    rueda: str = "CI",
+    account: str | None = None,
+    actor_email: str | None = None,
+    parent_trigger_id: str | None = None,
+) -> dict[str, Any]:
+    """Cierre de posición MEP: USD → ARS. Vende los nominales que vinieron de
+    una operativa de compra previa (o que tenga la cuenta).
 
-    if buy_status not in BUY_HABILITA_SELL:
-        # Timeout o estado raro (ej. todavía PENDING_NEW). NO arriesgamos
-        # la SELL — el user va a tener que decidir manualmente qué hacer
-        # con la BUY (reconciliar / cancelar) si efectivamente quedó viva.
-        motivo = (
-            f"BUY no resuelta en {BUY_WAIT_TIMEOUT_S}s "
-            f"(status={buy_status or 'sin ER'}). NO se mandó SELL."
-        )
-        logger.warning("operativa %s: %s", operativa_id, motivo)
-        db_ops[COL_OPERATIVAS].update_one(
-            {"operativa_id": operativa_id},
-            {"$set": {
-                "buy.cl_ord_id": buy_cl_ord_id,
-                "status": "STALE_BUY",
-                "buy_error": motivo,
-                "updated_at": datetime.now(UTC),
-            }},
-        )
-        return {
-            "ok": False,
-            "operativa_id": operativa_id,
-            "status": "STALE_BUY",
-            "stage": "buy_timeout",
-            "error": motivo,
-            "buy": {"cl_ord_id": buy_cl_ord_id, "ok": False, "status": buy_status},
-        }
+    Mecánica: BUY AL30D MARKET (recompra los AL30D que se vendieron en la
+    entry, cancela el short) + SELL AL30 MARKET (vende los AL30 que se
+    compraron en la entry). Mismo guard de BUY antes que SELL.
 
-    # ── SELL AL30D MARKET ── (solo si la BUY está confirmada en el book)
-    sell_resp = send_order(
-        ticker=tk["al30d"],
-        side="SELL",
-        size=nominales,
-        order_type="MARKET",
-        price=None,
-        tif="DAY",
+    `parent_trigger_id` queda en el doc para auditoría — el scanner lo
+    setea cuando dispara la salida de un trigger.
+    """
+    if rueda not in RUEDAS_VALIDAS:
+        raise ValueError(f"rueda inválida: {rueda!r} (esperado: {sorted(RUEDAS_VALIDAS)})")
+    if nominales <= 0:
+        raise ValueError("nominales debe ser > 0")
+
+    tk = TICKERS_POR_RUEDA[rueda]
+    cot = get_cotizaciones(rueda)
+    precio_al30 = float(cot["al30"]["price"]) if cot["al30"] else None
+    precio_al30d = float(cot["al30d"]["price"]) if cot["al30d"] else None
+
+    operativa_id = str(uuid4())
+    now = datetime.now(UTC)
+    db_ops = get_mongo_client()[DB_OPS]
+    doc = {
+        "operativa_id": operativa_id,
+        "tipo": "venta",
+        "parent_trigger_id": parent_trigger_id,
+        "fecha": now.strftime("%Y-%m-%d"),
+        "account": account,
+        "actor_email": actor_email,
+        "rueda": rueda,
+        "precio_al30_inicial": precio_al30,
+        "precio_al30d_inicial": precio_al30d,
+        "mep_inicial": cot["mep_implicito"],
+        "nominales": nominales,
+        # Patas invertidas vs. compra: comprás AL30D (cancelás short) y
+        # vendés AL30 (cerrás long).
+        "buy":  {"cl_ord_id": None, "ticker": tk["al30d"]},
+        "sell": {"cl_ord_id": None, "ticker": tk["al30"]},
+        "status": "PENDING",
+        "created_at": now,
+        "updated_at": now,
+    }
+    db_ops[COL_OPERATIVAS].insert_one(doc)
+
+    res = _ejecutar_buy_then_sell(
+        buy_ticker=tk["al30d"],
+        sell_ticker=tk["al30"],
+        nominales=nominales,
         account=account,
         actor_email=actor_email,
     )
-    sell_cl_ord_id = sell_resp.get("cl_ord_id")
-    sell_ok = bool(sell_resp.get("ok"))
+    return _persistir_resultado_operativa(operativa_id, nominales, res, db_ops)
+
+
+def _persistir_resultado_operativa(
+    operativa_id: str,
+    nominales: int,
+    res: dict[str, Any],
+    db_ops,
+) -> dict[str, Any]:
+    """Toma el resultado de _ejecutar_buy_then_sell y persiste el update final
+    en OperativasMep. Devuelve el dict que sube al router."""
+    buy = res.get("buy") or {}
+    sell = res.get("sell")
+    global_status = res["global_status"]
+
+    update_set = {
+        "buy.cl_ord_id": buy.get("cl_ord_id"),
+        "status": global_status,
+        "updated_at": datetime.now(UTC),
+    }
+    if buy.get("reason") or res.get("error"):
+        update_set["buy_error"] = buy.get("reason") or res.get("error")
+    if sell:
+        update_set["sell.cl_ord_id"] = sell.get("cl_ord_id")
+        if sell.get("error"):
+            update_set["sell_error"] = sell.get("error")
 
     db_ops[COL_OPERATIVAS].update_one(
         {"operativa_id": operativa_id},
-        {"$set": {
-            "buy.cl_ord_id": buy_cl_ord_id,
-            "sell.cl_ord_id": sell_cl_ord_id,
-            "status": "OK" if sell_ok else "OK_PARCIAL",
-            "sell_error": None if sell_ok else sell_resp.get("error"),
-            "updated_at": datetime.now(UTC),
-        }},
+        {"$set": update_set},
     )
+
     return {
-        "ok": True,
-        "operativa_id": operativa_id,
-        "status": "OK" if sell_ok else "OK_PARCIAL",
-        "buy": {"cl_ord_id": buy_cl_ord_id, "ok": True},
-        "sell": {"cl_ord_id": sell_cl_ord_id, "ok": sell_ok,
-                 "error": None if sell_ok else sell_resp.get("error")},
-        "nominales": nominales,
+        "ok":            global_status in {"OK", "OK_PARCIAL"},
+        "operativa_id":  operativa_id,
+        "status":        global_status,
+        "stage":         res.get("stage"),
+        "error":         res.get("error"),
+        "buy":           buy,
+        "sell":          sell,
+        "nominales":     nominales,
     }
 
 
@@ -445,15 +516,17 @@ def listar_operativas_dia(account: str | None = None) -> list[dict]:
 
         ts_created = op.get("created_at")
         out.append({
-            "operativa_id":  op.get("operativa_id"),
-            "created_at":    ts_created.isoformat() if isinstance(ts_created, datetime) else ts_created,
-            "rueda":         op.get("rueda"),
-            "account":       op.get("account"),
-            "actor_email":   op.get("actor_email"),
-            "monto_ars":     op.get("monto_ars"),
-            "comision_pct":  op.get("comision_pct"),
-            "nominales":     op.get("nominales"),
-            "mep_inicial":   op.get("mep_inicial"),
+            "operativa_id":      op.get("operativa_id"),
+            "tipo":              op.get("tipo", "compra"),  # legacy docs sin tipo = compras
+            "parent_trigger_id": op.get("parent_trigger_id"),
+            "created_at":        ts_created.isoformat() if isinstance(ts_created, datetime) else ts_created,
+            "rueda":             op.get("rueda"),
+            "account":           op.get("account"),
+            "actor_email":       op.get("actor_email"),
+            "monto_ars":         op.get("monto_ars"),
+            "comision_pct":      op.get("comision_pct"),
+            "nominales":         op.get("nominales"),
+            "mep_inicial":       op.get("mep_inicial"),
             "buy":  _enrich_pata(buy_ord),
             "sell": _enrich_pata(sell_ord),
             "usd_efectivo":  usd_efectivo,

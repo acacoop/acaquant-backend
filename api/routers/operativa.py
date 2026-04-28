@@ -88,7 +88,11 @@ class TriggerIn(BaseModel):
     comision_pct: float = Field(0.62, ge=0, le=5)
     rueda: Literal["CI", "24hs"] = "CI"
     tc_objetivo: float = Field(..., gt=0,
-                               description="Disparar cuando MEP <= este valor")
+                               description="Disparar compra cuando MEP <= este valor")
+    tp_objetivo: float | None = Field(None, gt=0,
+                                      description="Take profit: vender cuando MEP >= esto. Opcional.")
+    sl_objetivo: float | None = Field(None, gt=0,
+                                      description="Stop loss: vender cuando MEP <= esto. Opcional.")
     account: str | None = None
 
 
@@ -98,13 +102,17 @@ def crear_trigger_mep(
     email: str = Depends(get_user_email),
 ) -> dict[str, Any]:
     """Crea un trigger ACTIVE. El scanner lo monitorea cada 1s y dispara
-    crear_operativa cuando se cumple. Auto-cancelado a las 19:50 UTC."""
+    la operativa cuando se cumple tc_objetivo. Si hay tp/sl, después de
+    la entry pasa a WAITING_EXIT y monitorea esos precios. Auto-cancela
+    todo trigger vivo (ACTIVE o WAITING_EXIT) a las 19:50 UTC."""
     try:
         return crear_trigger(
             monto_ars=data.monto_ars,
             comision_pct=data.comision_pct,
             rueda=data.rueda,
             tc_objetivo=data.tc_objetivo,
+            tp_objetivo=data.tp_objetivo,
+            sl_objetivo=data.sl_objetivo,
             account=data.account,
             actor_email=email,
         )

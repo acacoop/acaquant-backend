@@ -256,6 +256,18 @@ def forwards_historico(
 
 @mcp.tool(
     description=(
+        "Coeficientes (media, desvío, n_obs) sobre 30 días hábiles por par "
+        "de la matriz de forwards. Para z-scorear el forward live: "
+        "z = (forward_live − media) / desvio. Pares con n_obs<20 o "
+        "desvío≈0 quedan fuera del payload. Refrescado 1x/día post-cierre."
+    ),
+)
+def forwards_zscore(curva: str | None = None) -> list[dict]:
+    return svc_der.get_forwards_zscore(curva=curva)
+
+
+@mcp.tool(
+    description=(
         "Breakevens vivos: pares Lecap-CER de mismo vencimiento con la "
         "inflación mensual implícita en el spread."
     ),

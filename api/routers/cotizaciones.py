@@ -144,6 +144,19 @@ def historico_forwards(
     return svc_der.get_historico_forwards(curva=curva, desde=desde, hasta=hasta)
 
 
+@router.get("/forwards-zscore")
+def forwards_zscore(
+    curva: str | None = Query(None, description="Filtrar por curva (tasa_fija/cer)"),
+):
+    """Coeficientes (media, desvío, n_obs) por par para z-scoreo de forwards.
+
+    El front computa z = (forward_live − media) / desvío en cada tick. El doc
+    se refresca 1x/día por jobs/forwards_zscore.py post-cierre del motor.
+    Pares con n_obs<20 o desvío≈0 no aparecen en `stats` (front los pinta n/d).
+    """
+    return svc_der.get_forwards_zscore(curva=curva)
+
+
 # ── Breakevens ──
 
 

@@ -86,6 +86,18 @@ def get_historico_forwards(
     return list(db["ForwardsHistorico"].find(filtro, {"_id": 0}))
 
 
+# Coeficientes (media, desvío) por par de forwards. Se actualizan 1x/día por
+# jobs/forwards_zscore.py. El front computa z = (live − media) / desvío en
+# cada tick — por eso TTL corto: cuando llega el cierre, el front debe verlo.
+@cached(ttl=60)
+def get_forwards_zscore(curva: str | None = None) -> list:
+    db = get_db_trading()
+    filtro: dict = {}
+    if curva:
+        filtro["curva"] = curva
+    return list(db["ForwardsZscore"].find(filtro, {"_id": 0}))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Breakevens (Trading.BreakevensLive + BreakevensHistorico)
 # ─────────────────────────────────────────────────────────────────────────────

@@ -29,6 +29,7 @@ _ALLOWED_SERVICES: set[str] = {
     "motor_caucion",
     "motor_futuros_dlr",
     "motor_dolares",
+    "motor_ordenes",
     "api",
     "cloudflared",
 }

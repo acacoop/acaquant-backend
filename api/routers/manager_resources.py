@@ -37,6 +37,7 @@ _PROCESS_LABELS: list[tuple[str, str]] = [
     ("motor_curvas",      "engines.curvas"),
     ("motor_forwards",    "engines.forwards"),
     ("motor_breakevens",  "engines.breakevens"),
+    ("motor_ordenes",     "engines.motor_ordenes"),
     ("cloudflared",       "cloudflared"),
 ]
 

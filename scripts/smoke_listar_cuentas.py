@@ -29,16 +29,35 @@ load_dotenv()
 # Endpoints REST que vale la pena probar. La mayoría siguen la convención
 # Primary; algunos están en xoms (ACA Valores) por ser fork. Si ninguno
 # devuelve OK, el broker no expone el listado y hay que pedirlo a soporte.
-ENDPOINTS = [
-    "rest/auth/getAccounts",
-    "rest/auth/getaccounts",
-    "rest/getAccounts",
-    "rest/account/list",
-    "rest/account/all",
-    "rest/risk/accountReport/all",
-    "rest/risk/accountList",
-    "rest/cuentas",
-]
+def _build_endpoints(user: str, account: str) -> list[str]:
+    """Lista de endpoints a probar. Algunos esperan el user / account en
+    el path, otros son query params. La pista buena es que
+    `rest/risk/accountReport/all` tiró NullPointerException (HTTP 200) —
+    eso significa que existe pero le falta un argumento.
+    """
+    return [
+        # /accountReport/all + variantes con user / account
+        "rest/risk/accountReport/all",
+        f"rest/risk/accountReport/all/{user}",
+        f"rest/risk/accountReport/all/{account}",
+        f"rest/risk/accountReport/all?user={user}",
+        f"rest/risk/accountReport/all?account={account}",
+        # /accountReport singular con identidades del user
+        f"rest/risk/accountReport/{user}",
+        f"rest/risk/accountReport/{account}",
+        # /detailedPosition/all (algunos brokers)
+        "rest/risk/detailedPosition/all",
+        f"rest/risk/detailedPosition/all/{user}",
+        # auth/getAccounts variantes
+        "rest/auth/getAccounts",
+        f"rest/auth/getAccounts?user={user}",
+        f"rest/auth/getAccounts/{user}",
+        # otros caminos
+        "rest/account/all",
+        "rest/account/list",
+        "rest/risk/accounts",
+        f"rest/users/{user}/accounts",
+    ]
 
 
 def _read(name: str) -> str | None:
@@ -94,7 +113,7 @@ def main() -> int:
     print("─" * 72)
 
     encontrados: list[tuple[str, dict | list]] = []
-    for ep in ENDPOINTS:
+    for ep in _build_endpoints(user, account):
         full = f"{url_base}/{ep}"
         try:
             r = requests.get(

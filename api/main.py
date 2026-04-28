@@ -34,6 +34,7 @@ from api.routers import (
     me,
     news,
     operaciones,
+    ordenes,
     simulaciones,
     titulos,
 )
@@ -140,6 +141,7 @@ app.include_router(simulaciones.router,      dependencies=_PUBLIC)  # gate por u
 app.include_router(carteras.router,          dependencies=_PORTFOLIOS)
 app.include_router(titulos.router,           dependencies=_PORTFOLIOS)
 app.include_router(operaciones.router,       dependencies=_OPERACIONES)
+app.include_router(ordenes.router,           dependencies=_OPERACIONES)
 app.include_router(cuentas.router,           dependencies=_OPERACIONES)
 app.include_router(chat.router,              dependencies=_ASISTENTE)
 app.include_router(manager.router,           dependencies=_MANAGER)

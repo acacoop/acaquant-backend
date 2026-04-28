@@ -181,6 +181,7 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/api/portfolio",   "portfolios"),
     ("/api/titulos",     "portfolios"),
     ("/api/operaciones", "operaciones"),
+    ("/api/ordenes",     "operaciones"),
     ("/api/cuentas",     "operaciones"),
 )
 

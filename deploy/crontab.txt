@@ -24,6 +24,13 @@
 0 13 * * 1-5 systemctl start motor_dolares.service
 5 20 * * 1-5 systemctl stop  motor_dolares.service
 
+# ─── Motor de órdenes (10:30 ART → 17:05 ART = 13:30 UTC → 20:05 UTC)
+# Escucha order_report y persiste el ciclo de vida de cada orden en
+# Operaciones.OrdenesLive / OrdenesAudit. El API tiene su propia sesión
+# pyRofex liviana (REST) y manda al broker; este motor solo escucha.
+30 13 * * 1-5 systemctl start motor_ordenes.service
+5  20 * * 1-5 systemctl stop  motor_ordenes.service
+
 # ─── Sincronización Aunesa → MongoDB (3 veces por día hábil, todas post-resume del cluster)
 # Cada corrida re-sincroniza PortfolioAPI.CarterasAPI para mantener la API fresca.
 35 11 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --carteras >> /root/TradingAV/logs/sync_api.log 2>&1

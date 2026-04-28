@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -535,3 +535,61 @@ def listar_operativas_dia(account: str | None = None) -> list[dict]:
             "wrapper_status": op.get("status"),
         })
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Serie MEP por minuto (chart TRADING)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def serie_mep_minuto(
+    rueda: str = "CI",
+    desde: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Serie del MEP por minuto. Para cada minuto donde hay trade de AL30 Y
+    AL30D, calcula MEP = last_price_AL30 / last_price_AL30D usando
+    aggregation pipelines de Mongo ($dateTrunc + $last) — la base hace el
+    heavy lifting, el proceso solo hace el merge.
+
+    Default: últimas 24h. Devuelve [{ts, mep}] ordenado ascendente.
+    """
+    if rueda not in RUEDAS_VALIDAS:
+        raise ValueError(f"rueda inválida: {rueda!r}")
+    if desde is None:
+        desde = datetime.now(UTC) - timedelta(hours=24)
+
+    tk = TICKERS_POR_RUEDA[rueda]
+    db = get_mongo_client_read()[DB_TRADING]
+
+    def _serie_ticker(ticker: str) -> dict[datetime, float]:
+        cursor = db[COL_TIMESALES].aggregate([
+            {"$match": {"ticker": ticker, "timestamp": {"$gte": desde}}},
+            {"$group": {
+                "_id": {"$dateTrunc": {"date": "$timestamp", "unit": "minute"}},
+                "last_price": {"$last": "$price"},
+            }},
+            {"$sort": {"_id": 1}},
+        ])
+        out: dict[datetime, float] = {}
+        for row in cursor:
+            px = row.get("last_price")
+            if px is None:
+                continue
+            try:
+                out[row["_id"]] = float(px)
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    al30 = _serie_ticker(tk["al30"])
+    al30d = _serie_ticker(tk["al30d"])
+
+    minutos = sorted(set(al30) & set(al30d))
+    return [
+        {
+            "ts":  m.isoformat() if isinstance(m, datetime) else str(m),
+            "mep": round(al30[m] / al30d[m], 2),
+        }
+        for m in minutos
+        if al30d[m] > 0
+    ]

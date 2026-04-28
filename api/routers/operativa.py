@@ -19,6 +19,7 @@ from api.services.operativa_mep import (
     crear_operativa,
     get_cotizaciones,
     listar_operativas_dia,
+    serie_mep_minuto,
 )
 from api.services.triggers_mep import (
     cancelar_trigger,
@@ -47,6 +48,21 @@ def cotizacion_mep(
         return get_cotizaciones(rueda)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.get("/mep/timesales")
+def timesales_mep(
+    rueda: Literal["CI", "24hs"] = Query("CI"),
+    _email: str = Depends(get_user_email),
+) -> dict[str, Any]:
+    """Serie del MEP por minuto (últimas 24h). Para el chart de TRADING."""
+    try:
+        return {"rueda": rueda, "points": serie_mep_minuto(rueda)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("timesales_mep failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/mep")

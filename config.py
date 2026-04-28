@@ -66,6 +66,14 @@ MAE_ENV     = os.getenv("MAE_ENV", "prod").lower()  # 'prod' | 'uat'
 # precio: ej. canje AL30C/AL30D, brecha CCL/MEP, etc.
 TICKERS_EXTRA_PRECIOS: list[str] = [
     "MERV - XMEV - AL30C - 24hs",  # canje AL30C/AL30D
+    # Operativa MEP (api/services/operativa_mep.py): la versión pesos (AL30
+    # sin D) no está en Curvas — bonares se indexan solo con sufijo D — y
+    # las ruedas CI tampoco. Las suscribimos acá para que motor_rofex
+    # alimente Trading.TimeSales y la UI tenga MEP live.
+    "MERV - XMEV - AL30 - CI",
+    "MERV - XMEV - AL30D - CI",
+    "MERV - XMEV - AL30 - 24hs",
+    "MERV - XMEV - AL30D - 24hs",
 ]
 
 

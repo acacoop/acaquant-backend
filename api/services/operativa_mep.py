@@ -62,6 +62,11 @@ RUEDAS_VALIDAS = set(TICKERS_POR_RUEDA.keys())
 
 ESTADOS_FINALES_ORDEN = {"FILLED", "CANCELLED", "REJECTED", "EXPIRED"}
 
+# Convención BYMA: los bonos cotizan precio por cada 100 VN. Para pasar a
+# precio por 1 VN (que es la unidad de `size` en la orden) hay que multiplicar
+# por 0.01. En get_detailed_position aparece como `priceConversionFactor`.
+PRICE_FACTOR_BONOS = 0.01
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cotización live
@@ -146,16 +151,14 @@ def crear_operativa(
     if precio_al30 <= 0:
         raise ValueError("precio AL30 <= 0, no se puede operar")
 
+    # Precio por VN (no por 100 VN como cotiza pantalla).
+    precio_al30_vn = precio_al30 * PRICE_FACTOR_BONOS
     ars_neto = monto_ars * (1.0 - comision_pct / 100.0)
-    nominales = math.floor(ars_neto / precio_al30)
-    if nominales <= 0:
-        raise ValueError(
-            f"monto insuficiente — ars_neto={ars_neto:.2f}, precio_al30={precio_al30:.2f}, "
-            "nominales=0. Subí el monto o bajá la comisión."
-        )
+    nominales = math.floor(ars_neto / precio_al30_vn) if precio_al30_vn > 0 else 0
 
-    # Persistimos el doc inicial ANTES de tocar el broker. Si crashea pyRofex,
-    # el doc queda con status=PENDING y el user puede hacer recovery manual.
+    # Persistimos el doc SIEMPRE — incluso cuando nominales=0 — para que el
+    # user vea todos los intentos en la tabla. Solo si nominales>0 vamos
+    # al broker; sino marcamos FAIL_VALIDACION y devolvemos.
     operativa_id = str(uuid4())
     now = datetime.now(UTC)
     db_ops = get_mongo_client()[DB_OPS]
@@ -178,6 +181,27 @@ def crear_operativa(
         "updated_at": now,
     }
     db_ops[COL_OPERATIVAS].insert_one(doc)
+
+    if nominales <= 0:
+        motivo = (
+            f"nominales=0 (ars_neto=${ars_neto:.2f} / precio_VN=${precio_al30_vn:.2f}). "
+            "Subí el monto o bajá la comisión."
+        )
+        db_ops[COL_OPERATIVAS].update_one(
+            {"operativa_id": operativa_id},
+            {"$set": {
+                "status": "FAIL_VALIDACION",
+                "buy_error": motivo,
+                "updated_at": datetime.now(UTC),
+            }},
+        )
+        return {
+            "ok": False,
+            "operativa_id": operativa_id,
+            "status": "FAIL_VALIDACION",
+            "stage": "validacion",
+            "error": motivo,
+        }
 
     # ── BUY AL30 MARKET ──
     buy_resp = send_order(

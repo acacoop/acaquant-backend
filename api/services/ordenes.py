@@ -161,7 +161,13 @@ def send_order(
     if size <= 0:
         raise ValueError("size debe ser > 0")
 
-    acc = account or _ensure_session()
+    # ensure_session_envio es idempotente — la llamamos SIEMPRE para
+    # garantizar que pyRofex tenga environment y default seteados, incluso
+    # cuando el caller pasa `account` (scanner de triggers, etc.). Sin esto,
+    # pyRofex.send_order tira ApiException("Environment not specify.") si
+    # ningún endpoint del API tocó pyRofex antes en este proceso.
+    _ensure_session()
+    acc = account or cuenta_default()
 
     request_payload = {
         "ticker": ticker, "side": side, "size": size,

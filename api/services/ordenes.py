@@ -210,7 +210,20 @@ def send_order(
                 "error": (resp or {}).get("description", "broker rechazó la orden"),
                 "broker_response": resp}
 
-    cl_ord_id = (resp.get("order") or {}).get("clOrdId")
+    # pyRofex devuelve `order.clientId` y `order.proprietary`. El clientId
+    # es el mismo identificador que después llega en los order_report como
+    # `clOrdId` — lo usamos como cl_ord_id en Mongo. El proprietary hace
+    # falta para cancelar (cancel_order pide ambos).
+    order_blk = resp.get("order") or {}
+    cl_ord_id = order_blk.get("clientId") or order_blk.get("clOrdId")
+    proprietary = order_blk.get("proprietary")
+
+    if not cl_ord_id:
+        _audit("SEND_ERROR", account=acc, actor_email=actor_email,
+               payload={"request": request_payload, "response": resp,
+                        "note": "broker OK pero sin clientId"})
+        return {"ok": False, "cl_ord_id": None, "status": "REJECTED_BROKER",
+                "error": "broker no devolvió clientId", "broker_response": resp}
 
     # Insert inicial — el motor lo va a actualizar con cada ER. Si el motor
     # está caído, el doc queda con PENDING_NEW hasta que el motor arranque
@@ -228,6 +241,7 @@ def send_order(
                 "tif": (tif or "DAY").upper(),
                 "size": size,
                 "price": price,
+                "proprietary": proprietary,
                 "actor_email": actor_email,
                 "updated_at": now,
             },
@@ -245,19 +259,36 @@ def send_order(
     _audit("SEND_OK", cl_ord_id=cl_ord_id, account=acc, actor_email=actor_email,
            payload={"request": request_payload, "response": resp})
     return {"ok": True, "cl_ord_id": cl_ord_id, "status": "PENDING_NEW",
-            "broker_response": resp}
+            "proprietary": proprietary, "broker_response": resp}
 
 
 def cancel_order(cl_ord_id: str, *, actor_email: str | None = None) -> dict[str, Any]:
     """Cancela una orden por clOrdId. El estado real llega por order_report
     al motor — acá solo registramos el intento.
+
+    pyRofex.cancel_order pide (client_order_id, proprietary). Sacamos el
+    proprietary del doc en Mongo (lo guardamos al enviar).
     """
     acc = _ensure_session()
     _audit("CANCEL_REQUEST", cl_ord_id=cl_ord_id, account=acc,
            actor_email=actor_email, payload={"cl_ord_id": cl_ord_id})
 
+    db = get_mongo_client()[DB_NAME]
+    doc = db[COL_LIVE].find_one({"cl_ord_id": cl_ord_id}, {"proprietary": 1})
+    if not doc:
+        _audit("CANCEL_ERROR", cl_ord_id=cl_ord_id, account=acc,
+               actor_email=actor_email,
+               payload={"reason": "cl_ord_id no existe en OrdenesLive"})
+        return {"ok": False, "error": f"cl_ord_id {cl_ord_id!r} no encontrado en OrdenesLive"}
+    proprietary = doc.get("proprietary")
+    if not proprietary:
+        _audit("CANCEL_ERROR", cl_ord_id=cl_ord_id, account=acc,
+               actor_email=actor_email,
+               payload={"reason": "proprietary faltante en doc"})
+        return {"ok": False, "error": "doc en OrdenesLive sin proprietary — no se puede cancelar"}
+
     try:
-        resp = pyRofex.cancel_order(cl_ord_id)
+        resp = pyRofex.cancel_order(cl_ord_id, proprietary)
     except Exception as e:
         logger.error("cancel_order falló: %s", e, exc_info=True)
         _audit("CANCEL_ERROR", cl_ord_id=cl_ord_id, account=acc,

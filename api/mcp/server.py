@@ -21,6 +21,7 @@ from api.services import canje as svc_canje
 from api.services import carry_trade as svc_carry
 from api.services import derivados as svc_der
 from api.services import descomposicion_retorno as svc_desc
+from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
 from api.services import opciones as svc_opt
 from api.services import rem as svc_rem
@@ -264,6 +265,26 @@ def forwards_historico(
 )
 def forwards_zscore(curva: str | None = None) -> list[dict]:
     return svc_der.get_forwards_zscore(curva=curva)
+
+
+@mcp.tool(
+    description=(
+        "Fair value relativo intra-curva: residuo y z-scores de cada bono "
+        "vs la curva cuadrática TEA(d) = β₀ + β₁·d + β₂·d². z_estatico = "
+        "residuo / σ del universo del día. z_temporal = (residuo_hoy − media_30d) "
+        "/ desvio_30d (NULL con n_obs<20). Modo 'live' usa β del último cierre + "
+        "TEAs vivas; 'cierre' lee el snapshot persistido. Curvas válidas: "
+        "tasa_fija, cer (V1)."
+    ),
+)
+def fair_value(
+    curva: str,
+    modo: str = "live",
+    fecha: str | None = None,
+) -> dict:
+    if modo == "cierre":
+        return svc_fv.get_fair_value_cierre(curva=curva, fecha=fecha)
+    return svc_fv.get_fair_value_live(curva=curva)
 
 
 @mcp.tool(

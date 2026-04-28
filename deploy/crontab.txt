@@ -75,6 +75,12 @@
 # por par en Trading.ForwardsZscore. El front computa z en cada tick live.
 30 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.forwards_zscore >> /root/TradingAV/logs/forwards_zscore.log 2>&1
 
+# ─── Fair Value cierre + fit + residuos (20:25 UTC = 17:25 ART, L-V)
+# Encadenado: snapshot_cierre materializa Trading.SnapshotsCierre del día,
+# fair_value ajusta cuadrática por curva y persiste β + residuos + z-scores
+# en Trading.FitParams y Trading.FairValueResiduos. Curvas V1: tasa_fija + cer.
+25 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.snapshot_cierre >> /root/TradingAV/logs/snapshot_cierre.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.fair_value >> /root/TradingAV/logs/fair_value.log 2>&1
+
 # ─── Atlas cluster pause diaria (04:00 UTC = 01:00 ART)
 # ─── Atlas cluster resume diaria (11:20 UTC = 08:20 ART — 10 min de buffer para que esté up a las 08:30 ART)
 0  4  * * * /root/TradingAV/deploy/atlas_cluster.sh pause  >> /root/TradingAV/logs/atlas_cluster.log 2>&1

@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from api.services import argy as svc_argy
 from api.services import derivados as svc_der
+from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
 from api.services import opciones as svc_opt
 from api.services import rem as svc_rem
@@ -155,6 +156,38 @@ def forwards_zscore(
     Pares con n_obs<20 o desvío≈0 no aparecen en `stats` (front los pinta n/d).
     """
     return svc_der.get_forwards_zscore(curva=curva)
+
+
+# ── Fair Value (curva cuadrática + residuos + z-scores) ──
+
+
+@router.get("/fair-value")
+def fair_value_live(
+    curva: str = Query(..., description="tasa_fija | cer"),
+):
+    """Live: β del último cierre + TEAs vivas → residuos + z_estatico recompute.
+
+    z_temporal viene del cierre (no se recalcula intra-día).
+    """
+    return svc_fv.get_fair_value_live(curva=curva)
+
+
+@router.get("/fair-value/cierre")
+def fair_value_cierre(
+    curva: str = Query(..., description="tasa_fija | cer"),
+    fecha: str | None = Query(None, description="YYYY-MM-DD (default: último)"),
+):
+    """Snapshot persistido del cierre de FairValueResiduos."""
+    return svc_fv.get_fair_value_cierre(curva=curva, fecha=fecha)
+
+
+@router.get("/fair-value/historico")
+def fair_value_historico(
+    ticker: str = Query(..., description="Ticker completo (MERV - XMEV - X - 24hs)"),
+    dias: int = Query(60, ge=1, le=365),
+):
+    """Serie diaria del residuo del bono — alimenta el modal de drill-down."""
+    return svc_fv.get_fair_value_historico_bono(ticker=ticker, dias=dias)
 
 
 # ── Breakevens ──

@@ -1,0 +1,309 @@
+"""fair_value.py — fit cuadrático + residuos + z-scores diarios.
+
+Encadenado al cron de snapshot_cierre. Por cada curva:
+
+  1. Lee Trading.SnapshotsCierre del día.
+  2. Filtra el universo del fit:
+       - dias_al_vto >= 15
+       - total_nominals_dia >= --vol-min (default 50M)
+       - tea y duration not None
+       - dias_desde_emision >= 5
+       - is_zero_coupon == True (solo CER — los con cupón viejo desvirtúan
+         el OLS porque sus paridades distintas a Lecers de duration similar
+         meten ruido estructural, no mispricing).
+  3. Ajusta cuadrática TEA = β₀ + β₁·d + β₂·d² (quant.curve_fit).
+     Persiste β + R² en Trading.FitParams (PK ts_cierre, curva).
+  4. Para CADA bono con tea+duration disponibles (filtrado o no, salvo TEA
+     null que se omite por imposibilidad de calcular residuo):
+       - tea_teorica = β₀ + β₁·d + β₂·d²
+       - residuo_bps = (tea_obs − tea_teorica) · 10000
+  5. z_estatico = residuo / σ(residuos del UNIVERSO FILTRADO).
+     (Bonos fuera del universo se valúan con la misma σ — su z queda en
+      la misma escala que los del universo.)
+  6. z_temporal: media + desvío de los últimos 30 cierres (≤30 docs ya que
+     SnapshotsCierre es diario). Si n_obs < 20 → NULL.
+  7. Persiste todo en Trading.FairValueResiduos (PK ts_cierre, curva, ticker).
+
+Uso:
+    python -m jobs.fair_value
+    python -m jobs.fair_value --fecha 2026-04-25 --vol-min 100_000_000
+    python -m jobs.fair_value --dry
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import statistics
+import sys
+from datetime import UTC, date, datetime, timedelta
+
+from core.mongo import get_mongo_client
+from quant.curve_fit import fit_quadratic
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("FairValue")
+
+CURVAS_V1 = ("tasa_fija", "cer")
+DIAS_AL_VTO_MIN = 15
+DIAS_DESDE_EMISION_MIN = 5
+VOL_MIN_DEFAULT = 50_000_000
+VENTANA_TEMPORAL_DIAS = 30
+N_OBS_TEMPORAL_MIN = 20
+R2_WARNING_THRESHOLD = 0.85
+
+
+def _dias_al_vto(fecha_vto: str | None, fecha_ref: date) -> int | None:
+    if not fecha_vto:
+        return None
+    try:
+        d = date.fromisoformat(fecha_vto[:10])
+    except ValueError:
+        return None
+    return (d - fecha_ref).days
+
+
+def _dias_desde_emision(fecha_emi: str | None, fecha_ref: date) -> int | None:
+    if not fecha_emi:
+        return None
+    try:
+        d = date.fromisoformat(fecha_emi[:10])
+    except ValueError:
+        return None
+    return (fecha_ref - d).days
+
+
+def _en_universo_fit(
+    bono: dict, curva: str, fecha_ref: date, vol_min: float,
+) -> bool:
+    """Filtros del universo que afecta el ajuste OLS (β)."""
+    tea = bono.get("tea")
+    dur = bono.get("duration")
+    if tea is None or dur is None or dur <= 0:
+        return False
+
+    dvto = _dias_al_vto(bono.get("fecha_vencimiento"), fecha_ref)
+    if dvto is None or dvto < DIAS_AL_VTO_MIN:
+        return False
+
+    vol = bono.get("total_nominals_dia") or 0
+    if vol < vol_min:
+        return False
+
+    # fecha_emision puede ser None para algunos lecaps (no hay emision en
+    # Trading.Curvas) — en ese caso no aplicamos el filtro (asumimos OK).
+    demi = _dias_desde_emision(bono.get("fecha_emision"), fecha_ref)
+    if demi is not None and demi < DIAS_DESDE_EMISION_MIN:
+        return False
+
+    return not (curva == "cer" and not bono.get("is_zero_coupon"))
+
+
+def _residuos_historicos(
+    client, curva: str, ticker: str, fecha_ref: date,
+) -> list[float]:
+    """Últimos VENTANA_TEMPORAL_DIAS residuos del bono, EXCLUYENDO el día
+    actual (que todavía no se persistió). Orden no importa para media/desvío.
+    """
+    desde = (fecha_ref - timedelta(days=int(VENTANA_TEMPORAL_DIAS * 1.7))).isoformat()
+    hasta = (fecha_ref - timedelta(days=1)).isoformat()
+    cur = (
+        client["Trading"]["FairValueResiduos"]
+        .find(
+            {"curva": curva, "ticker": ticker,
+             "ts_cierre": {"$gte": desde, "$lte": hasta}},
+            {"_id": 0, "residuo_bps": 1},
+        )
+        .sort("ts_cierre", -1)
+        .limit(VENTANA_TEMPORAL_DIAS)
+    )
+    out: list[float] = []
+    for d in cur:
+        v = d.get("residuo_bps")
+        if v is not None:
+            try:
+                out.append(float(v))
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def procesar_curva(
+    client, curva: str, fecha_str: str, vol_min: float, dry: bool,
+) -> dict:
+    fecha_ref = date.fromisoformat(fecha_str)
+
+    snap = list(client["Trading"]["SnapshotsCierre"].find(
+        {"ts_cierre": fecha_str, "curva": curva},
+        {"_id": 0},
+    ))
+    if not snap:
+        logger.warning("[%s %s] sin SnapshotsCierre — corre snapshot_cierre primero", curva, fecha_str)
+        return {"curva": curva, "n_universo": 0, "n_residuos": 0}
+
+    universo = [b for b in snap if _en_universo_fit(b, curva, fecha_ref, vol_min)]
+    if len(universo) < 3:
+        logger.warning(
+            "[%s %s] universo del fit con %d bonos (<3 mínimo cuadrática)",
+            curva, fecha_str, len(universo),
+        )
+        return {"curva": curva, "n_universo": len(universo), "n_residuos": 0}
+
+    fit = fit_quadratic(
+        [float(b["duration"]) for b in universo],
+        [float(b["tea"]) for b in universo],
+    )
+    if fit is None:
+        logger.error("[%s %s] fit cuadrático falló (XᵀX singular)", curva, fecha_str)
+        return {"curva": curva, "n_universo": len(universo), "n_residuos": 0}
+
+    if fit.r2 < R2_WARNING_THRESHOLD:
+        logger.warning(
+            "[%s %s] R² bajo: %.3f (esperado ≥%.2f). Universo n=%d",
+            curva, fecha_str, fit.r2, R2_WARNING_THRESHOLD, fit.n,
+        )
+
+    # Residuos del universo filtrado para sigma estática del día.
+    residuos_universo: list[float] = []
+    universo_tickers = {b["ticker"] for b in universo}
+    for b in universo:
+        residuo = (float(b["tea"]) - fit.predict(float(b["duration"]))) * 10000
+        residuos_universo.append(residuo)
+
+    if len(residuos_universo) >= 2:
+        sigma_dia = statistics.stdev(residuos_universo)  # muestral
+    else:
+        sigma_dia = 0.0
+
+    # Sanity OLS: media de residuos del universo cerca de cero (con intercepto).
+    media_universo = statistics.fmean(residuos_universo)
+    if abs(media_universo) > 5.0:
+        logger.warning(
+            "[%s %s] OLS sanity: media residuos universo = %.2f bps (esperado ~0)",
+            curva, fecha_str, media_universo,
+        )
+
+    col_fit = client["Trading"]["FitParams"]
+    col_res = client["Trading"]["FairValueResiduos"]
+
+    if not dry:
+        col_fit.update_one(
+            {"ts_cierre": fecha_str, "curva": curva},
+            {"$set": {
+                "ts_cierre": fecha_str,
+                "curva": curva,
+                "updated_at": datetime.now(UTC),
+                "beta0": fit.beta0, "beta1": fit.beta1, "beta2": fit.beta2,
+                "r2": fit.r2,
+                "n_bonos_universo": fit.n,
+                "vol_min_aplicado": vol_min,
+                "sigma_dia_bps": sigma_dia,
+                "media_residuos_universo_bps": media_universo,
+            }},
+            upsert=True,
+        )
+
+    # Residuos para todos los bonos del snapshot con tea+duration disponibles
+    # (filtrado o no — los que no tienen tea no se valúan).
+    n_persistidos = 0
+    for b in snap:
+        tea = b.get("tea")
+        dur = b.get("duration")
+        if tea is None or dur is None or dur <= 0:
+            continue
+        residuo_bps = (float(tea) - fit.predict(float(dur))) * 10000
+        z_estatico = residuo_bps / sigma_dia if sigma_dia > 1e-9 else None
+
+        residuos_hist = _residuos_historicos(client, curva, b["ticker"], fecha_ref)
+        n_obs = len(residuos_hist) + 1  # +1 por el de hoy que estamos guardando
+        if n_obs >= N_OBS_TEMPORAL_MIN and len(residuos_hist) >= N_OBS_TEMPORAL_MIN - 1:
+            # Calculamos sobre histórico + hoy.
+            serie = residuos_hist + [residuo_bps]
+            media_t = statistics.fmean(serie)
+            try:
+                desv_t = statistics.stdev(serie)
+            except statistics.StatisticsError:
+                desv_t = 0.0
+            z_temporal = (residuo_bps - media_t) / desv_t if desv_t > 1e-9 else None
+        else:
+            z_temporal = None
+
+        en_universo = b["ticker"] in universo_tickers
+
+        doc = {
+            "ts_cierre":      fecha_str,
+            "curva":          curva,
+            "ticker":         b["ticker"],
+            "ticker_corto":   b.get("ticker_corto"),
+            "duration":       float(dur),
+            "tea_obs":        float(tea),
+            "tea_teorica":    fit.predict(float(dur)),
+            "residuo_bps":    residuo_bps,
+            "z_estatico":     z_estatico,
+            "z_temporal":     z_temporal,
+            "n_obs":          n_obs,
+            "en_universo":    en_universo,
+        }
+        if not dry:
+            col_res.update_one(
+                {"ts_cierre": fecha_str, "curva": curva, "ticker": b["ticker"]},
+                {"$set": doc},
+                upsert=True,
+            )
+        n_persistidos += 1
+
+    logger.info(
+        "[%s %s] universo=%d β=(%.4f, %.4f, %.4f) R²=%.3f σ=%.1fbps residuos=%d",
+        curva, fecha_str, fit.n, fit.beta0, fit.beta1, fit.beta2, fit.r2,
+        sigma_dia, n_persistidos,
+    )
+    return {
+        "curva": curva, "n_universo": fit.n, "n_residuos": n_persistidos,
+        "r2": fit.r2, "sigma_dia": sigma_dia,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fecha", help="YYYY-MM-DD (default: hoy UTC)")
+    parser.add_argument(
+        "--vol-min", type=float, default=VOL_MIN_DEFAULT,
+        help=f"Volumen nominal mínimo del día (default {VOL_MIN_DEFAULT:,.0f})",
+    )
+    parser.add_argument("--dry", action="store_true")
+    args = parser.parse_args()
+
+    if args.fecha:
+        try:
+            fecha_d = date.fromisoformat(args.fecha)
+        except ValueError:
+            raise SystemExit(f"--fecha inválida: {args.fecha}") from None
+    else:
+        fecha_d = datetime.now(UTC).date()
+    fecha_str = fecha_d.isoformat()
+
+    client = get_mongo_client()
+
+    # Índices unicos idempotentes.
+    client["Trading"]["FitParams"].create_index(
+        [("ts_cierre", 1), ("curva", 1)], unique=True, name="uq_ts_curva",
+    )
+    client["Trading"]["FairValueResiduos"].create_index(
+        [("ts_cierre", 1), ("curva", 1), ("ticker", 1)],
+        unique=True, name="uq_ts_curva_ticker",
+    )
+    # Para el lookup de residuos históricos por bono.
+    client["Trading"]["FairValueResiduos"].create_index(
+        [("curva", 1), ("ticker", 1), ("ts_cierre", -1)],
+        name="ix_curva_ticker_ts_desc",
+    )
+
+    for curva in CURVAS_V1:
+        procesar_curva(client, curva, fecha_str, args.vol_min, args.dry)
+
+    if args.dry:
+        logger.info("(--dry: no se escribió en Mongo)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

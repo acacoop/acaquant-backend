@@ -77,6 +77,7 @@ def _verify_cf_jwt(cf_jwt: str) -> dict | None:
 def get_user_email(
     cf_jwt: str | None = Header(default=None, alias="cf-access-jwt-assertion"),
     cf_email: str | None = Header(default=None, alias="cf-access-authenticated-user-email"),
+    forwarded_email: str | None = Header(default=None, alias="x-acaquant-user-email"),
 ) -> str:
     """Devuelve el email del usuario autenticado.
 
@@ -86,11 +87,13 @@ def get_user_email(
        El user se autenticó directamente contra CF. Usamos ese email.
 
     2. **Service token JWT** (acaquant-web → api.acaquant.com SSR): trae
-       `common_name` pero NO `email` — es identidad de máquina. En este
-       caso el frontend propaga el email del user en el header
-       `cf-access-authenticated-user-email`. Como el JWT del service token
-       YA probó criptográficamente que viene del frontend legítimo,
-       confiar en ese header es seguro.
+       `common_name` pero NO `email` — es identidad de máquina. CF Access
+       ESTRIPA el header `cf-access-authenticated-user-email` que el
+       frontend mandó (sólo emite ese header CF mismo, al validar un user
+       JWT). El frontend tiene que propagar el email en un header custom
+       que CF no controle: `x-acaquant-user-email`. Si llega ahí, ese es
+       el user. Sin él, el request es identidad-de-máquina y va por la
+       rama de service token.
 
     Si no hay JWT (o CF_ACCESS_TEAM/AUD no están configurados), cae al
     header directo (modo dev).
@@ -115,15 +118,18 @@ def get_user_email(
             common_name = claims.get("common_name")
             if common_name:
                 cn = str(common_name).lower().strip()
-                # 2a: si el frontend propaga el email del user, usarlo
-                if cf_email:
-                    return cf_email.lower().strip()
-                # 2b: si no hay email pero el service token está en la
-                # whitelist de identidades confiables, devolver un email
-                # sintético "service:<cn>" que `require_manager` reconoce.
-                # Esto permite que el frontend llame al backend sin tener
-                # que propagar el user email (CF Access no siempre lo pasa
-                # al origin, y Next.js debe propagarlo manualmente).
+                # 2a: el frontend propaga el email del user en
+                # x-acaquant-user-email (CF NO estripa este header — no es
+                # CF-controlled). Es el camino oficial. cf_email queda como
+                # fallback histórico por si en algún env CF lo pasa.
+                user_email = forwarded_email or cf_email
+                if user_email:
+                    return str(user_email).lower().strip()
+                # 2b: service token sin email del user — request de máquina
+                # legítimo (cron, smoke). Devolvemos sintético "service:<cn>"
+                # que get_user_role() trata como DEFAULT_ROLE (sales). Si
+                # alguna integración de máquina necesita más permisos, hay
+                # que registrarla explícitamente en Manager.Users.
                 if cn in CF_TRUSTED_SERVICE_TOKENS:
                     return f"service:{cn}"
                 # 2c: service token desconocido — 401 para que notemos.
@@ -135,14 +141,16 @@ def get_user_email(
                 )
 
             # Rama 3: JWT válido pero no user ni service conocido.
-            if cf_email:
+            if forwarded_email or cf_email:
                 logger.info("JWT válido sin email claim, usando header (cn=%s)", common_name)
-                return cf_email.lower().strip()
+                return str(forwarded_email or cf_email).lower().strip()
 
             logger.warning("JWT válido pero sin email claim ni header fallback")
             return "anon"
 
     # Sin JWT: modo dev o request sin CF Access activo
+    if forwarded_email:
+        return forwarded_email.lower().strip()
     if cf_email:
         return cf_email.lower().strip()
     return "anon"

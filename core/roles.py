@@ -219,24 +219,35 @@ def get_user_role(email: str) -> str:
     """Devuelve el role de un email, con cache TTL 60s.
 
     Resolución:
-      1. Service tokens (common_name del frontend Vercel) → "admin" directo.
-         El gate real lo hizo el frontend (proxy.ts) antes de pegar al API.
-      2. Manager.Users con enabled=True → role del doc.
-      3. Email no registrado → _auto_register() crea el doc (admin si está
+      1. Manager.Users con enabled=True → role del doc.
+      2. Email no registrado → _auto_register() crea el doc (admin si está
          en MANAGER_EMAILS, sino DEFAULT_ROLE). Así el admin ve en la tab
          USUARIOS a todos los emails que pasaron CF Access.
-      4. email "anon" / vacío → DEFAULT_ROLE sin persistir.
+      3. email "anon" / vacío / service token sin email del user →
+         DEFAULT_ROLE (sales) — fail-closed: solo los módulos públicos.
+
+    IMPORTANTE: hasta 2026-04-28 esta función tenía una rama que devolvía
+    "admin" a CUALQUIER email que empezara con "service:" (los sintéticos
+    de service tokens del frontend SSR). El supuesto era que el frontend
+    ya gateaba al user en proxy.ts antes de pegar al API. Eso resultó ser
+    un agujero: proxy.ts solo gatea por path, no por endpoint, y CF Access
+    estripa el header `cf-access-authenticated-user-email` cuando el
+    request viene autenticado por service token. Resultado: TODO user que
+    pasaba CF Access aparecía como `service:<cn>` y se trataba como admin
+    server-side, ignorando Manager.Users / RoleMatrix completamente.
+    Ahora los `service:` caen al DEFAULT_ROLE como cualquier email
+    desconocido. El frontend debe propagar `x-acaquant-user-email` para
+    que el backend identifique al user (api/auth.py rama 2a).
     """
     if not email:
         return DEFAULT_ROLE
     email_norm = email.lower().strip()
 
-    # Rama 1: service tokens propagados por el frontend SSR
-    if email_norm.startswith("service:"):
-        return "admin"
-
-    # Emails sintéticos / vacíos: no persistimos, devolvemos default.
-    if email_norm in ("anon", ""):
+    # Emails sintéticos / vacíos / service tokens sin user: no persistimos,
+    # devolvemos default. Si llegamos a un `service:` acá significa que el
+    # frontend NO propagó x-acaquant-user-email (bug del frontend o request
+    # legítimo de máquina) — fail-closed a sales.
+    if email_norm in ("anon", "") or email_norm.startswith("service:"):
         return DEFAULT_ROLE
 
     now = time.time()

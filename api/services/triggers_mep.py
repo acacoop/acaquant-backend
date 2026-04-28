@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -59,6 +59,14 @@ COL_TRIGGERS = "TriggersMep"
 # Si el último trade de AL30 o AL30D supera esto sin actualizarse, no
 # disparamos — la cotización puede ser fantasma (motor caído).
 STALE_THRESHOLD_S = 5.0
+
+# motor_rofex (engines/valores.py:118) hace
+#   `_art_now = datetime.utcnow() - timedelta(hours=3)`
+# y escribe ese naive datetime en Trading.TimeSales.timestamp. Mongo lo
+# guarda como UTC (porque no tiene tzinfo) → los timestamps quedan
+# corridos -3h vs UTC real. Para comparar freshness contra now(UTC) tenemos
+# que sumar el offset al ts antes de medir edad. NO tocamos el motor.
+MOTOR_TS_OFFSET = timedelta(hours=3)
 
 # 16:50 ART = 19:50 UTC. A esa hora cancelamos todo trigger que quede vivo
 # para que no se disparen al cierre o al día siguiente (TIF de las órdenes
@@ -190,7 +198,12 @@ def listar_triggers_dia(account: str | None = None) -> list[dict]:
 
 
 def _is_cot_fresh(cot: dict, now: datetime) -> bool:
-    """True si AL30 y AL30D tienen trades recientes (< STALE_THRESHOLD_S)."""
+    """True si AL30 y AL30D tienen trades recientes (< STALE_THRESHOLD_S).
+
+    Compensa el offset del motor (ts está en ART rotulado UTC) sumando
+    MOTOR_TS_OFFSET. Sin esto, el guard se dispara siempre porque cree
+    que la cotización tiene 3 horas de atraso aunque sea de hace 200ms.
+    """
     for key in ("al30", "al30d"):
         leg = cot.get(key)
         if not leg or not leg.get("ts"):
@@ -201,7 +214,8 @@ def _is_cot_fresh(cot: dict, now: datetime) -> bool:
                 ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=UTC)
-            edad = (now - ts).total_seconds()
+            ts_real = ts + MOTOR_TS_OFFSET
+            edad = (now - ts_real).total_seconds()
             if edad > STALE_THRESHOLD_S:
                 return False
         except (ValueError, TypeError):

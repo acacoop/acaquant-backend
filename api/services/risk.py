@@ -161,3 +161,67 @@ def cuenta_efectiva(account: str | None = None) -> str:
     """Helper para que el router resuelva account=None contra la default.
     NO inicializa la sesión — solo devuelve el nombre."""
     return account or cuenta_default()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Listado de cuentas — populadas por jobs.descubrir_cuentas (read-only)
+# ─────────────────────────────────────────────────────────────────────────────
+
+DB_OPS = "Operaciones"
+COL_ACCOUNTS = "AccountsDescubiertas"
+
+
+def listado_cuentas(solo_activas: bool = False) -> list[dict[str, Any]]:
+    """Lee Operaciones.AccountsDescubiertas y devuelve la lista para el
+    dropdown del frontend.
+
+    NO pega al broker — la colección la mantiene `jobs.descubrir_cuentas`
+    (un backfill que corre 1 vez/día por cron). Ordenadas por ARS
+    disponible descendente (las gordas arriba).
+
+    Returns:
+        [
+          {
+            "account_id": "100",
+            "ars_disponible": 3007793886.49,
+            "usd_d_disponible": 4237.87,
+            "n_posiciones": 8,
+            "activa": True,
+            "last_discovered_at": "2026-04-28T11:30:00+00:00"
+          },
+          ...
+        ]
+    """
+    from core.mongo import get_mongo_client_read
+
+    filtro: dict[str, Any] = {}
+    if solo_activas:
+        filtro["activa"] = True
+
+    col = get_mongo_client_read()[DB_OPS][COL_ACCOUNTS]
+    cursor = col.find(filtro, {"_id": 0})
+    docs = list(cursor)
+
+    out: list[dict[str, Any]] = []
+    for d in docs:
+        snap = d.get("last_snapshot") or {}
+        ts = d.get("last_discovered_at")
+        out.append({
+            "account_id":         d.get("account_id"),
+            "ars_disponible":     snap.get("ars_disponible"),
+            "usd_d_disponible":   snap.get("usd_d_disponible"),
+            "n_posiciones":       snap.get("n_posiciones") or 0,
+            "activa":             bool(d.get("activa")),
+            "last_discovered_at": ts.isoformat() if isinstance(ts, datetime) else ts,
+        })
+
+    # Ordenar por ARS descendente (las cuentas gordas primero); las de
+    # ARS=None / 0 al final pero antes que las negativas.
+    def _key(c):
+        ars = c.get("ars_disponible")
+        if ars is None:
+            return (1, 0)
+        return (0, -ars)
+
+    out.sort(key=_key)
+    return out

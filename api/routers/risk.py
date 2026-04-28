@@ -20,6 +20,7 @@ from api.services.risk import (
     account_detailed_position,
     account_positions,
     account_report,
+    listado_cuentas,
     saldo_para_rueda,
 )
 
@@ -86,3 +87,22 @@ def detailed(
     except Exception as e:
         logger.exception("detailed failed (account=%s)", account)
         raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@router.get("/account/listado")
+def listado(
+    solo_activas: bool = False,
+    _email: str = Depends(get_user_email),
+) -> list[dict[str, Any]]:
+    """Listado de cuentas asociadas al user master, leídas de Mongo
+    (las pobla `jobs.descubrir_cuentas` con un backfill diario).
+
+    NO pega al broker. Lo consume el dropdown de cuentas del frontend
+    en /operar. `solo_activas=true` filtra las que tengan saldo o
+    posiciones; default `false` muestra todas las autorizadas.
+
+    Si la colección está vacía (job nunca corrió) devuelve `[]` y el
+    frontend tiene que mostrar un mensaje "no hay cuentas descubiertas
+    todavía — corré jobs.descubrir_cuentas".
+    """
+    return listado_cuentas(solo_activas=solo_activas)

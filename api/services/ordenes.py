@@ -83,19 +83,23 @@ def _order_type_enum(order_type: str):
     raise ValueError(f"order_type inválido: {order_type!r} (esperado MARKET|LIMIT)")
 
 
+_TIF_VALIDOS = {"DAY", "IOC", "FOK", "GTC"}
+
+
 def _tif_enum(tif: str | None):
-    if tif is None:
-        return pyRofex.TimeInForce.DAY
-    t = tif.strip().upper()
-    mapping = {
-        "DAY": pyRofex.TimeInForce.DAY,
-        "IOC": pyRofex.TimeInForce.IOC,
-        "FOK": pyRofex.TimeInForce.FOK,
-        "GTC": pyRofex.TimeInForce.GTC,
-    }
-    if t not in mapping:
+    """Resolve perezosamente — no todas las versiones de pyRofex exponen
+    los 4 valores (vimos `TimeInForce.IOC` faltar). Si el broker no
+    soporta el tif pedido, error explícito."""
+    t = (tif or "DAY").strip().upper()
+    if t not in _TIF_VALIDOS:
         raise ValueError(f"tif inválido: {tif!r} (esperado DAY|IOC|FOK|GTC)")
-    return mapping[t]
+    enum_val = getattr(pyRofex.TimeInForce, t, None)
+    if enum_val is None:
+        raise ValueError(
+            f"tif {t!r} no soportado por esta versión de pyRofex "
+            f"(disponibles: {sorted(a for a in dir(pyRofex.TimeInForce) if not a.startswith('_'))})"
+        )
+    return enum_val
 
 
 # ─────────────────────────────────────────────────────────────────────────────

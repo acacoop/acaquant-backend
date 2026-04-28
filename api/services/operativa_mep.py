@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -66,6 +67,18 @@ ESTADOS_FINALES_ORDEN = {"FILLED", "CANCELLED", "REJECTED", "EXPIRED"}
 # precio por 1 VN (que es la unidad de `size` en la orden) hay que multiplicar
 # por 0.01. En get_detailed_position aparece como `priceConversionFactor`.
 PRICE_FACTOR_BONOS = 0.01
+
+# Estados de la BUY que IMPIDEN mandar la SELL — la BUY no se va a llenar,
+# entonces vender AL30D dispararía short si la cuenta tiene tenencia previa.
+BUY_BLOQUEA_SELL = {"REJECTED", "CANCELLED", "EXPIRED", "UNKNOWN_LOCAL"}
+
+# Estados de la BUY que CONFIRMAN que llegó al book — recién ahí mandamos SELL.
+BUY_HABILITA_SELL = {"NEW", "PARTIALLY_FILLED", "FILLED"}
+
+# Timeout de espera del ER de la BUY. AL30 MARKET en mercado abierto se
+# resuelve en milisegundos; 3s es generoso y bloquea la SELL si algo raro pasa.
+BUY_WAIT_TIMEOUT_S = 3.0
+BUY_WAIT_INTERVAL_S = 0.1
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -116,6 +129,30 @@ def get_cotizaciones(rueda: str) -> dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 # Crear operativa
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def _wait_buy_resolved(
+    cl_ord_id: str,
+    timeout_s: float = BUY_WAIT_TIMEOUT_S,
+    interval_s: float = BUY_WAIT_INTERVAL_S,
+) -> tuple[str | None, dict | None]:
+    """Espera al motor_ordenes a que actualice OrdenesLive con un status ≠ PENDING_NEW.
+
+    Devuelve (status, doc). status=None si timeout y nunca apareció el doc.
+    El status final puede ser cualquier estado del broker (NEW/REJECTED/...);
+    el caller decide qué hacer.
+    """
+    db = get_mongo_client()[DB_OPS]
+    deadline = time.monotonic() + timeout_s
+    last_doc: dict | None = None
+    while time.monotonic() < deadline:
+        last_doc = db[COL_ORDENES].find_one({"cl_ord_id": cl_ord_id})
+        if last_doc:
+            st = last_doc.get("status")
+            if st and st != "PENDING_NEW":
+                return st, last_doc
+        time.sleep(interval_s)
+    return ((last_doc or {}).get("status"), last_doc)
 
 
 def crear_operativa(
@@ -232,7 +269,67 @@ def crear_operativa(
         }
     buy_cl_ord_id = buy_resp["cl_ord_id"]
 
-    # ── SELL AL30D MARKET ──
+    # ── ESPERAR ER DE LA BUY ANTES DE MANDAR SELL ──
+    # send_order().ok=True solo confirma el ack inicial del broker, no que
+    # la orden se haya filleado. Si la BUY rechaza por saldo/etc., la SELL
+    # podría dispararse SHORT contra una tenencia previa de AL30D — riesgo
+    # financiero gigante. Polleamos OrdenesLive hasta que motor_ordenes
+    # nos diga el estado real, con timeout chico.
+    buy_status, buy_doc = _wait_buy_resolved(buy_cl_ord_id)
+    buy_reject_reason = (buy_doc or {}).get("reject_reason")
+
+    if buy_status in BUY_BLOQUEA_SELL:
+        logger.warning(
+            "BUY %s rechazada/cancelada (status=%s, reason=%s) — NO se manda SELL",
+            buy_cl_ord_id, buy_status, buy_reject_reason,
+        )
+        db_ops[COL_OPERATIVAS].update_one(
+            {"operativa_id": operativa_id},
+            {"$set": {
+                "buy.cl_ord_id": buy_cl_ord_id,
+                "status": "FAIL",
+                "buy_error": buy_reject_reason or buy_status,
+                "updated_at": datetime.now(UTC),
+            }},
+        )
+        return {
+            "ok": False,
+            "operativa_id": operativa_id,
+            "status": "FAIL",
+            "stage": "buy",
+            "error": buy_reject_reason or buy_status,
+            "buy": {"cl_ord_id": buy_cl_ord_id, "ok": False,
+                    "status": buy_status, "reason": buy_reject_reason},
+        }
+
+    if buy_status not in BUY_HABILITA_SELL:
+        # Timeout o estado raro (ej. todavía PENDING_NEW). NO arriesgamos
+        # la SELL — el user va a tener que decidir manualmente qué hacer
+        # con la BUY (reconciliar / cancelar) si efectivamente quedó viva.
+        motivo = (
+            f"BUY no resuelta en {BUY_WAIT_TIMEOUT_S}s "
+            f"(status={buy_status or 'sin ER'}). NO se mandó SELL."
+        )
+        logger.warning("operativa %s: %s", operativa_id, motivo)
+        db_ops[COL_OPERATIVAS].update_one(
+            {"operativa_id": operativa_id},
+            {"$set": {
+                "buy.cl_ord_id": buy_cl_ord_id,
+                "status": "STALE_BUY",
+                "buy_error": motivo,
+                "updated_at": datetime.now(UTC),
+            }},
+        )
+        return {
+            "ok": False,
+            "operativa_id": operativa_id,
+            "status": "STALE_BUY",
+            "stage": "buy_timeout",
+            "error": motivo,
+            "buy": {"cl_ord_id": buy_cl_ord_id, "ok": False, "status": buy_status},
+        }
+
+    # ── SELL AL30D MARKET ── (solo si la BUY está confirmada en el book)
     sell_resp = send_order(
         ticker=tk["al30d"],
         side="SELL",

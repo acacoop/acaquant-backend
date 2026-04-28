@@ -46,6 +46,13 @@ COL_ORDENES = "OrdenesLive"
 DB_TRADING = "Trading"
 COL_TIMESALES = "TimeSales"
 
+# motor_rofex (engines/valores.py) escribe `timestamp` como naive ART
+# (utcnow() llevado a ART y replace(tzinfo=None)). Mongo lo guarda como UTC,
+# entonces los ts quedan -3h vs UTC real. Para devolver ts honestos en
+# /timesales hay que sumar 3h y rotular UTC. Constante duplicada de
+# triggers_mep.py — convención del proyecto: NO tocar el motor.
+MOTOR_TS_OFFSET = timedelta(hours=3)
+
 # Tickers según rueda. El frontend solo manda "CI" o "24hs" — los símbolos
 # full quedan acá, no exponemos detalles del broker a la UI.
 TICKERS_POR_RUEDA: dict[str, dict[str, str]] = {
@@ -551,12 +558,16 @@ def serie_mep_minuto(
     aggregation pipelines de Mongo ($dateTrunc + $last) — la base hace el
     heavy lifting, el proceso solo hace el merge.
 
-    Default: últimas 24h. Devuelve [{ts, mep}] ordenado ascendente.
+    Default: últimas 24h. Devuelve [{ts, mep}] ordenado ascendente, con `ts`
+    en ISO UTC real (con tz explícito) — el frontend lo localiza a ART.
     """
     if rueda not in RUEDAS_VALIDAS:
         raise ValueError(f"rueda inválida: {rueda!r}")
+    # `desde` se compara contra ts naive ART (rotulado UTC en Mongo). Para
+    # incluir las últimas 24h reales hay que mirar 24h atrás en ese mismo
+    # espacio: now_utc - offset - 24h.
     if desde is None:
-        desde = datetime.now(UTC) - timedelta(hours=24)
+        desde = datetime.now(UTC).replace(tzinfo=None) - MOTOR_TS_OFFSET - timedelta(hours=24)
 
     tk = TICKERS_POR_RUEDA[rueda]
     db = get_mongo_client_read()[DB_TRADING]
@@ -585,11 +596,11 @@ def serie_mep_minuto(
     al30d = _serie_ticker(tk["al30d"])
 
     minutos = sorted(set(al30) & set(al30d))
-    return [
-        {
-            "ts":  m.isoformat() if isinstance(m, datetime) else str(m),
-            "mep": round(al30[m] / al30d[m], 2),
-        }
-        for m in minutos
-        if al30d[m] > 0
-    ]
+    out: list[dict[str, Any]] = []
+    for m in minutos:
+        if al30d[m] <= 0:
+            continue
+        # m es naive ART rotulado UTC → sumamos offset y forzamos tz UTC real.
+        ts_utc = (m.replace(tzinfo=None) + MOTOR_TS_OFFSET).replace(tzinfo=UTC)
+        out.append({"ts": ts_utc.isoformat(), "mep": round(al30[m] / al30d[m], 2)})
+    return out

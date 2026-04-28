@@ -36,6 +36,7 @@ from api.routers import (
     operaciones,
     operativa,
     ordenes,
+    risk,
     simulaciones,
     titulos,
 )
@@ -144,6 +145,7 @@ app.include_router(titulos.router,           dependencies=_PORTFOLIOS)
 app.include_router(operaciones.router,       dependencies=_OPERACIONES)
 app.include_router(ordenes.router,           dependencies=_OPERACIONES)
 app.include_router(operativa.router,         dependencies=_OPERACIONES)
+app.include_router(risk.router,              dependencies=_OPERACIONES)
 app.include_router(cuentas.router,           dependencies=_OPERACIONES)
 app.include_router(chat.router,              dependencies=_ASISTENTE)
 app.include_router(manager.router,           dependencies=_MANAGER)

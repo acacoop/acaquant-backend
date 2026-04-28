@@ -24,14 +24,13 @@ Idempotencia:
 from __future__ import annotations
 
 import logging
-import threading
 from datetime import UTC, datetime
 from typing import Any
 
 import pyRofex
 
 from core.mongo import get_mongo_client
-from core.rofex_orders_session import cuenta_default, inicializar_para_envio
+from core.rofex_orders_session import cuenta_default, ensure_session_envio
 
 logger = logging.getLogger("api.services.ordenes")
 
@@ -40,24 +39,9 @@ COL_LIVE = "OrdenesLive"
 COL_AUDIT = "OrdenesAudit"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Sesión pyRofex — lazy + lock (un init por proceso)
-# ─────────────────────────────────────────────────────────────────────────────
-
-_session_ready = False
-_session_lock = threading.Lock()
-
-
-def _ensure_session() -> str:
-    """Inicializa pyRofex la primera vez. Devuelve la cuenta default."""
-    global _session_ready
-    if _session_ready:
-        return cuenta_default()
-    with _session_lock:
-        if not _session_ready:
-            inicializar_para_envio()
-            _session_ready = True
-    return cuenta_default()
+# El singleton de inicialización pyRofex vive en core/rofex_orders_session.py
+# (`ensure_session_envio`) — compartido con api/services/risk.py y otros.
+_ensure_session = ensure_session_envio
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 
 import pyRofex
@@ -33,6 +34,13 @@ logger = logging.getLogger("rofex_orders_session")
 
 _MAX_RETRIES = 3
 _RETRY_DELAY_S = 2  # backoff lineal
+
+# Singleton del estado de inicialización REST. pyRofex es process-scoped:
+# una sola sesión inicializada por proceso. Múltiples services del API
+# (ordenes, risk, …) comparten esto vía `ensure_session_envio()` para
+# evitar reinicializaciones redundantes.
+_envio_ready: bool = False
+_envio_lock = threading.Lock()
 
 
 def _env_kind() -> str:
@@ -125,6 +133,21 @@ def inicializar_para_envio() -> tuple[str, pyRofex.Environment]:
     caller persista el contexto en cada doc de Mongo.
     """
     return _initialize_with_retry()
+
+
+def ensure_session_envio() -> str:
+    """Idempotente: inicializa la sesión REST la primera vez y devuelve
+    la cuenta default. Pensada para ser llamada desde cualquier service
+    del API que necesite pegar a pyRofex (REST). Thread-safe.
+    """
+    global _envio_ready
+    if _envio_ready:
+        return cuenta_default()
+    with _envio_lock:
+        if not _envio_ready:
+            inicializar_para_envio()
+            _envio_ready = True
+    return cuenta_default()
 
 
 def inicializar_para_motor(order_report_handler) -> tuple[str, pyRofex.Environment]:

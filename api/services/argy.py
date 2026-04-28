@@ -105,23 +105,20 @@ def _serie_caucion(moneda: str) -> list[tuple[date, float]]:
 
 
 def _serie_dolar_api(casa: str) -> list[tuple[date, float]]:
-    """Serie histórica de `venta` por casa desde Valuaciones.DolarOficial.
-    Escrita por jobs/dolar_api.py cada 5 min durante la rueda."""
-    db = get_db_valuaciones()
-    docs = list(
-        db["DolarOficial"]
-        .find({"casa": casa, "venta": {"$ne": None}},
-              {"_id": 0, "fecha": 1, "venta": 1})
-        .sort("fecha", 1)
-    )
+    """Serie histórica del MID oficial por casa desde Valuaciones.DolarOficial.
+
+    Antes leía solo `venta`. Ahora usa el mid (compra+venta)/2 vía
+    core.dolar_oficial.serie_oficial_mid para que el watchlist quede
+    coherente con el TC que usan los futuros DLR (mismo concepto de
+    "dólar oficial").
+    """
+    from core.dolar_oficial import serie_oficial_mid
+
     out: list[tuple[date, float]] = []
-    for d in docs:
-        f = d.get("fecha")
-        v = d.get("venta")
-        if not f or v is None:
-            continue
+    for f, v in serie_oficial_mid(casa):
         try:
-            out.append((date.fromisoformat(str(f)[:10]), float(v)))
+            d = f if isinstance(f, date) else date.fromisoformat(str(f)[:10])
+            out.append((d, float(v)))
         except (ValueError, TypeError):
             continue
     return out
@@ -177,22 +174,16 @@ def _live_caucion(moneda: str) -> dict:
 
 
 def _live_dolar_api(casa: str) -> dict:
-    """Último snapshot de Valuaciones.DolarOficial para la casa indicada.
-    Escrito por jobs/dolar_api.py (cron 5 min). Devuelve {value, ts, source}."""
-    db = get_db_valuaciones()
-    doc = db["DolarOficial"].find_one(
-        {"casa": casa},
-        {"_id": 0, "venta": 1, "compra": 1, "fechaActualizacion": 1, "updated_at": 1},
-        sort=[("updated_at", -1)],
-    )
-    if not doc:
-        return {"value": None, "ts": None, "source": "none"}
-    return {
-        "value":  doc.get("venta"),
-        "compra": doc.get("compra"),
-        "ts":     doc.get("fechaActualizacion") or doc.get("updated_at"),
-        "source": "dolarapi.com",
-    }
+    """Último snapshot live del oficial — devuelve el MID (compra+venta)/2.
+
+    Antes devolvía `venta` directo, lo cual hacía que el watchlist
+    mostrara 1430 y los futuros DLR usaran 1405 como TC para calcular
+    directo/TNA — descoordinado entre vistas. La fuente única ahora vive
+    en core.dolar_oficial.mid_oficial_live.
+    """
+    from core.dolar_oficial import mid_oficial_live
+
+    return mid_oficial_live(casa)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

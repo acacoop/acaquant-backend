@@ -144,24 +144,17 @@ def _dias_a_vto(mat_str: str) -> int:
 def _spot_referencia(client) -> tuple[float | None, str]:
     """Spot de referencia para calcular tasa implícita. Devuelve (valor, fuente).
 
-    Prefiere mid (compra+venta)/2 del oficial — la mesa lo usa para
-    reportar TNA. Cae a A3500 BCRA fixing, y finalmente a MEP.
+    Prefiere mid (compra+venta)/2 del oficial vía core.dolar_oficial —
+    fuente única compartida con el watchlist ARGY. Cae a A3500 BCRA
+    fixing, y finalmente a MEP.
     """
-    # 1) Mid del oficial — dolarapi.com, cron 5 min
-    doc = client["Valuaciones"]["DolarOficial"].find_one(
-        {"casa": "oficial", "venta": {"$gt": 0}},
-        {"_id": 0, "compra": 1, "venta": 1},
-        sort=[("updated_at", -1)],
-    )
-    if doc:
-        compra = doc.get("compra")
-        venta = doc.get("venta")
-        # Si compra no viene o es 0, devolvemos venta sola (no rompemos el
-        # snapshot por una punta vacía del agregador).
-        if compra and compra > 0 and venta and venta > 0:
-            return (float(compra) + float(venta)) / 2, "oficial_mid_dolarapi"
-        if venta:
-            return float(venta), "oficial_venta_dolarapi"
+    # 1) Mid del oficial — fuente única
+    from core.dolar_oficial import mid_oficial_live
+    live = mid_oficial_live("oficial")
+    if live.get("value"):
+        return float(live["value"]), "oficial_mid_dolarapi"
+    # Si solo hay venta (sin compra), mid_oficial_live ya devuelve venta;
+    # si ni siquiera vino venta, value=None y caemos al fallback.
 
     # 2) A3500 BCRA fixing diario
     doc = client["Trading"]["DOLAR"].find_one(

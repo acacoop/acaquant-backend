@@ -72,9 +72,15 @@ def _tc_breakeven(precio: float | None, flujo_vto: float | None,
     return round(mep * (flujo_vto / precio), 2)
 
 
-@cached(ttl=5)
+@cached(ttl=10)
 def get_renta_fija(instrumento: str | None = None) -> list:
     """Snapshot de renta fija con métricas live + TC breakeven (tasa fija).
+
+    TTL=10s (subido de 5s 2026-04-28): con el frontend poleando cada 5s
+    en /snapshot-live + 8 users en mesa, el cache de 5s se vencía en
+    cada poll y el backend recalculaba 12 veces/min. Con 10s, recalcula
+    6/min — 50% menos trabajo. El delay máximo del dato visto por el
+    user pasa de 5s a 10s, despreciable para los bonos de la mesa.
 
     El TC BE se calcula on-the-fly: requiere `flujo_vencimiento` (de
     Trading.Curvas) + last_price (del snapshot) + MEP live (macro).

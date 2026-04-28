@@ -499,15 +499,16 @@ def listar_operativas_dia(account: str | None = None) -> list[dict]:
         buy_ord = ordenes_by_id.get(buy_cid) if buy_cid else None
         sell_ord = ordenes_by_id.get(sell_cid) if sell_cid else None
 
-        # USD efectivo: cumQty * avgPx de la SELL (lo que se pagó en USD por el AL30D
-        # vendido). MEP efectivo = monto_ars original / USD efectivo.
+        # USD efectivo: cumQty * avgPx de la SELL, escalado por el factor BYMA
+        # (los bonos cotizan por 100 VN — sin esto el USD da 100x mayor y el
+        # MEP efectivo da ridículamente bajo). MEP efectivo = ARS / USD.
         usd_efectivo: float | None = None
         mep_efectivo: float | None = None
         if sell_ord:
             cum = float(sell_ord.get("cum_qty") or 0)
             avg = float(sell_ord.get("avg_px") or 0)
             if cum > 0 and avg > 0:
-                usd_efectivo = round(cum * avg, 2)
+                usd_efectivo = round(cum * avg * PRICE_FACTOR_BONOS, 2)
                 if usd_efectivo > 0:
                     mep_efectivo = round(op.get("monto_ars", 0) / usd_efectivo, 2)
 

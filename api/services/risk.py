@@ -32,9 +32,9 @@ SETTLE_POR_RUEDA: dict[str, str] = {
     "24hs": "2",
 }
 
-# Moneda dentro de detailedCash que representa el dólar MEP. El broker
-# distingue 8+ tipos de USD (D=MEP, C=CCL, G=Garantizado, etc.); este
-# wrapper expone solo el relevante para la operativa MEP.
+# Moneda dentro de detailedCurrencyBalance que representa el dólar MEP.
+# El broker distingue 8+ tipos de USD (D=MEP, C=CCL, G=Garantizado, etc.);
+# este wrapper expone solo los relevantes para la operativa MEP.
 USD_MEP_KEY = "USD D"
 ARS_KEY = "ARS"
 
@@ -100,18 +100,25 @@ def account_detailed_position(account: str | None = None) -> dict[str, Any]:
 
 
 def saldo_para_rueda(rueda: str = "CI", account: str | None = None) -> dict[str, Any]:
-    """Saldo ARS y USD MEP (USD D) disponible para operar en una rueda.
+    """Saldos por moneda en una rueda — paridad con la vista "Posiciones" de Primary.
 
-    Lee `accountData.detailedAccountReports[settle].availableToOperate.cash.detailedCash`
-    del report. Devuelve None en saldo_ars / saldo_usd_d si la moneda
-    no aparece (caso poco probable — el broker siempre lista las claves).
+    Lee `accountData.detailedAccountReports[settle].currencyBalance.detailedCurrencyBalance`
+    del report. Cada moneda trae:
+        - available: efectivo disponible para esa moneda en esa rueda
+        - consumed:  movimientos del día (con signo)
+
+    Antes leíamos `availableToOperate.cash.detailedCash`, que es lo que el
+    broker te DEJA OPERAR ahora (post-márgenes y movimientos pendientes), y
+    no coincide con la columna "Efectivo Disponible" que muestra Primary.
 
     Returns:
         {
           account, rueda, settlement_type, settlement_date, last_calc,
-          saldo_ars,        # ARS disponible (puede ser negativo)
-          saldo_usd_d,      # USD MEP disponible (puede ser negativo)
-          total_cash,       # totalCash del bloque (suma de todas las monedas)
+          saldo_ars,        # = monedas["ARS"]["available"]
+          saldo_usd_d,      # = monedas["USD D"]["available"]
+          movimiento_ars,   # = monedas["ARS"]["consumed"]
+          movimiento_usd_d, # = monedas["USD D"]["consumed"]
+          monedas: { <code>: {"available": float, "consumed": float}, ... }
         }
     """
     if rueda not in SETTLE_POR_RUEDA:
@@ -124,22 +131,29 @@ def saldo_para_rueda(rueda: str = "CI", account: str | None = None) -> dict[str,
     account_data = rpt.get("accountData") or {}
     detailed = (account_data.get("detailedAccountReports") or {}).get(settle_str) or {}
 
-    cash_block = (detailed.get("availableToOperate") or {}).get("cash") or {}
-    detailed_cash = cash_block.get("detailedCash") or {}
+    cb = (detailed.get("currencyBalance") or {}).get("detailedCurrencyBalance") or {}
+    monedas: dict[str, dict[str, float | None]] = {
+        codigo: {
+            "available": (entry or {}).get("available"),
+            "consumed":  (entry or {}).get("consumed"),
+        }
+        for codigo, entry in cb.items()
+    }
 
-    saldo_ars = detailed_cash.get(ARS_KEY)
-    saldo_usd_d = detailed_cash.get(USD_MEP_KEY)
-    total_cash = cash_block.get("totalCash")
+    ars = monedas.get(ARS_KEY) or {}
+    usd_d = monedas.get(USD_MEP_KEY) or {}
 
     return {
-        "account":          acc,
-        "rueda":            rueda,
-        "settlement_type":  settle_str,
-        "settlement_date":  _ms_to_iso(detailed.get("settlementDate")),
-        "last_calc":        _ms_to_iso(account_data.get("lastCalculation")),
-        "saldo_ars":        saldo_ars,
-        "saldo_usd_d":      saldo_usd_d,
-        "total_cash":       total_cash,
+        "account":           acc,
+        "rueda":             rueda,
+        "settlement_type":   settle_str,
+        "settlement_date":   _ms_to_iso(detailed.get("settlementDate")),
+        "last_calc":         _ms_to_iso(account_data.get("lastCalculation")),
+        "saldo_ars":         ars.get("available"),
+        "saldo_usd_d":       usd_d.get("available"),
+        "movimiento_ars":    ars.get("consumed"),
+        "movimiento_usd_d":  usd_d.get("consumed"),
+        "monedas":           monedas,
     }
 
 

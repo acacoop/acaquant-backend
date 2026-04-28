@@ -137,6 +137,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 # en Manager.RoleMatrix.
 _PUBLIC       = [Depends(verify_api_key)]
 _PORTFOLIOS   = [Depends(verify_api_key), Depends(require_module("portfolios"))]
+_OPERAR       = [Depends(verify_api_key), Depends(require_module("operar"))]
 _OPERACIONES  = [Depends(verify_api_key), Depends(require_module("operaciones"))]
 _ASISTENTE    = [Depends(verify_api_key), Depends(require_module("asistente"))]
 _MANAGER      = [Depends(verify_api_key), Depends(require_module("manager"))]
@@ -152,10 +153,12 @@ app.include_router(simulaciones.router,      dependencies=_PUBLIC)  # gate por u
 # Restringidos a roles con el módulo respectivo:
 app.include_router(carteras.router,          dependencies=_PORTFOLIOS)
 app.include_router(titulos.router,           dependencies=_PORTFOLIOS)
+# Acción de operar (DOLAR MEP, órdenes vivas, saldo): puede ser para sales también
+app.include_router(ordenes.router,           dependencies=_OPERAR)
+app.include_router(operativa.router,         dependencies=_OPERAR)
+app.include_router(risk.router,              dependencies=_OPERAR)
+# Mesa / flujo / contrapartes: solo trader y admin
 app.include_router(operaciones.router,       dependencies=_OPERACIONES)
-app.include_router(ordenes.router,           dependencies=_OPERACIONES)
-app.include_router(operativa.router,         dependencies=_OPERACIONES)
-app.include_router(risk.router,              dependencies=_OPERACIONES)
 app.include_router(cuentas.router,           dependencies=_OPERACIONES)
 app.include_router(chat.router,              dependencies=_ASISTENTE)
 app.include_router(manager.router,           dependencies=_MANAGER)

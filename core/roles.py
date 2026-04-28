@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
 from config import MANAGER_EMAILS
@@ -49,7 +49,8 @@ MODULES: tuple[str, ...] = (
     "renta-fija",     # /renta-fija + cotizaciones + curvas
     "derivados",      # /derivados + opciones
     "estrategia",     # /retorno (sensibilidad, canje, carry)
-    "operaciones",    # /operaciones + cuentas
+    "operar",         # /operar (DOLAR MEP) + /api/ordenes + /api/operativa + /api/risk
+    "operaciones",    # /operaciones (mesa, flujo) + /api/cuentas
     "portfolios",     # /portfolios + /aum + carteras + AuM + titulos
     "asistente",      # /asistente + /api/chat
     "manager",        # /manager + intel + jobs + logs
@@ -58,14 +59,19 @@ MODULES: tuple[str, ...] = (
 
 # Matriz por defecto (se seedea en Manager.RoleMatrix la primera vez).
 # Si la colección está vacía o el role no existe en ella, se cae acá.
+# Nota: si Manager.RoleMatrix ya está poblada (caso prod), agregar un
+# módulo nuevo NO se propaga automáticamente — el admin debe editar la
+# matriz desde el panel para asignar el módulo nuevo a los roles que
+# correspondan. Default es el bootstrap inicial.
 DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "admin":  MODULES,  # todo
     "trader": (
         "home", "renta-fija", "derivados", "estrategia",
-        "operaciones", "portfolios", "asistente",
+        "operar", "operaciones", "portfolios", "asistente",
     ),
     "sales":  (
         "home", "renta-fija", "derivados", "estrategia",
+        "operar",  # sales puede operar pero NO ver la mesa de flujos
     ),
 }
 
@@ -83,6 +89,12 @@ _CACHE_TTL = 60.0
 _cache_lock = threading.RLock()
 _role_by_email: dict[str, tuple[float, str | None]] = {}
 _matrix_cache: tuple[float, dict[str, tuple[str, ...]]] | None = None
+
+# Last-seen throttle: solo escribimos `last_seen_at` en Mongo si pasaron
+# más de N segundos del último valor — evita 1 write por request en horas
+# pico (cada user suele pegar al backend muchas veces por minuto). 5 min
+# es suficiente granularidad para "últ. visto" en el panel de usuarios.
+_LAST_SEEN_THROTTLE_S = 300
 
 
 def invalidate_cache() -> None:
@@ -154,6 +166,34 @@ def get_matrix() -> dict[str, tuple[str, ...]]:
 # ─────────────────────────────────────────────────────────────
 # Resolución email → role
 # ─────────────────────────────────────────────────────────────
+
+def _touch_last_seen(email_norm: str) -> None:
+    """Marca al user como visto ahora. Throttled: solo escribe si el
+    último `last_seen_at` es más viejo que _LAST_SEEN_THROTTLE_S.
+
+    Solo aplica a users reales (los que están en Manager.Users con un
+    email humano). Falla silenciosa — no es crítica para el flujo de
+    auth, solo alimenta la columna "ÚLT. VISTO" del panel.
+    """
+    if not email_norm or email_norm == "anon" or email_norm.startswith("service:"):
+        return
+    threshold = datetime.now(UTC) - timedelta(seconds=_LAST_SEEN_THROTTLE_S)
+    try:
+        # Update only-if filter: respeta el throttle sin necesidad de leer
+        # antes. `last_seen_at` ausente cuenta como "viejo" (legacy docs).
+        _users_col().update_one(
+            {
+                "email": email_norm,
+                "$or": [
+                    {"last_seen_at": {"$lt": threshold}},
+                    {"last_seen_at": {"$exists": False}},
+                ],
+            },
+            {"$set": {"last_seen_at": datetime.now(UTC)}},
+        )
+    except Exception as e:
+        logger.debug("touch_last_seen falló para %s: %s", email_norm, e)
+
 
 def _lookup_role_db(email: str) -> str | None:
     """Lee Manager.Users. Devuelve None si no está o enabled=False."""
@@ -253,6 +293,11 @@ def get_user_role(email: str) -> str:
     with _cache_lock:
         hit = _role_by_email.get(email_norm)
         if hit and now - hit[0] < _CACHE_TTL:
+            # Cache hit: igual marcamos visto (throttled). Sin esto el
+            # last_seen_at solo se actualizaría 1 vez/min en el primer
+            # tick del cache, lo que se ve como "no actualiza" cuando
+            # el user navega activamente.
+            _touch_last_seen(email_norm)
             cached = hit[1]
             return cached if cached is not None else DEFAULT_ROLE
 
@@ -272,6 +317,9 @@ def get_user_role(email: str) -> str:
     # Rama 4/5: nadie le asignó role → DEFAULT_ROLE (no rechazamos; que se
     # encargue require_module() de rechazar si el módulo está restringido)
     effective = role if role is not None else DEFAULT_ROLE
+
+    # Actualizar last_seen_at (throttled — barata aunque parezca cara).
+    _touch_last_seen(email_norm)
 
     with _cache_lock:
         _role_by_email[email_norm] = (now, role)

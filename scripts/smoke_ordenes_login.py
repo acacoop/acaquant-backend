@@ -23,8 +23,12 @@ import os
 import sys
 
 import pyRofex
+from dotenv import load_dotenv
 
-from core.rofex_orders_session import (
+# Cargar .env antes de leer cualquier var (sin esto os.getenv solo ve shell env).
+load_dotenv()
+
+from core.rofex_orders_session import (  # noqa: E402
     cuenta_default,
     inicializar_para_envio,
 )

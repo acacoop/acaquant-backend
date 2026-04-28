@@ -48,10 +48,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pyRofex
+from dotenv import load_dotenv
 from pymongo import ASCENDING
 
-from core.mongo import get_mongo_client
-from core.rofex_orders_session import (
+# Cargar .env antes que core/rofex_orders_session lea ROFEX_ORDERS_ENV y demás.
+load_dotenv()
+
+from core.mongo import get_mongo_client  # noqa: E402
+from core.rofex_orders_session import (  # noqa: E402
     cerrar_ws,
     inicializar_para_motor,
 )

@@ -198,6 +198,31 @@ def listar_breakevens():
     return svc_der.get_breakevens()
 
 
+@router.get("/snapshot-live")
+def snapshot_live() -> dict:
+    """Bundle live de la pantalla RENTA FIJA: renta_fija + forwards +
+    breakevens en una sola respuesta. Cada bloque viene del cache TTL
+    propio del service (renta_fija=5s, forwards=30s, breakevens=30s),
+    así que esta llamada NO multiplica trabajo: lee del cache de cada
+    bloque y arma el dict.
+
+    Pensado para que el frontend haga 1 poll cada 5s en vez de 3 polls
+    paralelos (5/15/15s). Con 8 users concurrentes la carga al backend
+    cae ~70% en esa pantalla.
+
+    Nota: los timestamps individuales de cada bloque se pierden. El
+    frontend muestra 1 solo "actualizado a las HH:MM:SS" para los 3
+    paneles, que es el momento del fetch. Conceptualmente honesto:
+    "estos 3 datos los recibí en este instante", aunque internamente
+    forwards/breakevens vengan del cache.
+    """
+    return {
+        "renta_fija": svc_rf.get_renta_fija(),
+        "forwards":   svc_der.get_forwards(),
+        "breakevens": svc_der.get_breakevens(),
+    }
+
+
 @router.get("/historico/breakevens")
 def historico_breakevens(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),

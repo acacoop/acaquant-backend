@@ -219,39 +219,34 @@ def get_user_role(email: str) -> str:
     """Devuelve el role de un email, con cache TTL 60s.
 
     Resolución:
-      1. Service tokens (`service:<cn>`) — TEMPORAL: admin. Ver nota.
-      2. Manager.Users con enabled=True → role del doc.
-      3. Email no registrado → _auto_register() crea el doc (admin si está
+      1. Manager.Users con enabled=True → role del doc.
+      2. Email no registrado → _auto_register() crea el doc (admin si está
          en MANAGER_EMAILS, sino DEFAULT_ROLE). Así el admin ve en la tab
          USUARIOS a todos los emails que pasaron CF Access.
-      4. email "anon" / vacío → DEFAULT_ROLE (sales) sin persistir.
+      3. email "anon" / vacío / service token sin user (frontend no
+         propagó x-acaquant-user-email) → DEFAULT_ROLE (sales) — fail-closed.
 
-    NOTA TÉCNICA — `service:*` = admin (transitorio).
-
-    Hasta 2026-04-28 esta rama se justificaba con "el frontend gateó al
-    user en proxy.ts antes de pegar al API". Eso era falso: proxy.ts solo
-    gatea por path, y CF Access estripa cf-access-authenticated-user-email
-    cuando el request entra autenticado por service token, así que el
-    backend nunca recibía el email del user real → todo el RBAC se anulaba.
-
-    El fix completo (commit 12b7008 + frontend 64156e2) introduce
-    x-acaquant-user-email para que el frontend identifique al user
-    explícitamente. Una vez que esos commits estén deployados en ambos
-    repos Y verifiquemos que x-acaquant-user-email llega al backend, esta
-    rama se puede eliminar (los `service:` caerán a DEFAULT_ROLE como
-    cualquier desconocido). Mientras tanto la dejamos para no dejar al
-    admin sin acceso si Vercel demora el deploy.
+    Historia (importante para no recaer):
+    - El `service:<cn>` aparece cuando un request entra al backend
+      autenticado por service token (acaquant-web SSR → api.acaquant.com)
+      y CF Access estripa el header cf-access-authenticated-user-email
+      que el origin intentó mandar.
+    - El frontend resuelve eso mandando `x-acaquant-user-email` (CF no
+      controla ese namespace, lo deja pasar). Cuando llega, api/auth.py
+      lo lee con prioridad y devuelve el email del user real, no
+      `service:*`.
+    - Entonces `service:*` solo aparece en el backend cuando NO hay
+      x-acaquant-user-email — request de máquina legítimo (cron, smoke).
+      Esos NO son admin: caen a DEFAULT_ROLE como cualquier desconocido.
+    - Antes esta rama mapeaba `service:* → admin`, lo cual anulaba RBAC
+      por completo. Ver commits 12b7008 (fix backend), 64156e2 (fix
+      frontend), 2281cf5 (rollback temporal mientras Vercel deployaba).
     """
     if not email:
         return DEFAULT_ROLE
     email_norm = email.lower().strip()
 
-    # Rama 1 transitoria — ver docstring. Sacar cuando x-acaquant-user-email
-    # esté verificado en producción.
-    if email_norm.startswith("service:"):
-        return "admin"
-
-    if email_norm in ("anon", ""):
+    if email_norm in ("anon", "") or email_norm.startswith("service:"):
         return DEFAULT_ROLE
 
     now = time.time()

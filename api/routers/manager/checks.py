@@ -594,7 +594,16 @@ def check_debug_tna_futuros():
     )
 
     if not docs:
-        return {"spot": None, "filas": [], "total": 0}
+        return {
+            "spot":   {"valor": None, "fuente": None},
+            "filas":  [],
+            "total":  0,
+            "nota":   (
+                "Sin docs en Trading.FuturosDLRSnapshot. El motor de futuros DLR "
+                "probablemente está caído o aún no escribió. Reiniciá "
+                "motor_futuros_dlr.service y volvé a ejecutar."
+            ),
+        }
 
     primero = docs[0]
     spot_val = primero.get("spot_referencia")

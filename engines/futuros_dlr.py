@@ -16,8 +16,13 @@ Persistencia:
   {fecha, ticker, vencimiento, dias_a_vto, precio_cierre, vol_dia,
    tasa_implicita_tna_cierre}
 
-Tasa implícita: ((precio_dlr / spot) ** (365 / dias_a_vto)) - 1.
-Se persisten 3 TNAs separadas — sobre bid, sobre last y sobre offer.
+Tasa implícita: TNA LINEAL = (precio_dlr/spot - 1) × (365 / dias_a_vto).
+Antes era TEA compuesta ((precio/spot)^(365/dias) - 1) — la mesa pidió
+TNA lineal porque es lo que muestra el terminal Rofex y los traders
+comparan tasas en esa convención. Para vencimientos largos (>180 días)
+la TNA lineal es 2-4 puntos más baja que la TEA compuesta.
+
+Se persisten 3 tasas separadas — sobre bid, sobre last y sobre offer.
 La principal (`tasa_implicita_tna`) es la del last; las otras dos
 quedan en `_bid` y `_offer` para mostrar dispersión en la watchlist.
 
@@ -175,11 +180,18 @@ def _spot_referencia(client) -> tuple[float | None, str]:
 
 
 def _tasa_implicita_tna(precio_dlr: float | None, spot: float | None, dias: int) -> float | None:
-    """((dlr/spot)^(365/dias)) - 1, en porcentaje. None si falta data."""
+    """TNA lineal: (dlr/spot - 1) × (365/dias), en porcentaje.
+
+    Convención del terminal Rofex y de la mesa local. NO es TEA compuesta
+    (que sería ((dlr/spot)^(365/dias) - 1)). Para vencimientos cortos
+    convergen, para largos divergen 2-4 puntos.
+
+    None si falta data.
+    """
     if not precio_dlr or not spot or precio_dlr <= 0 or spot <= 0 or dias <= 0:
         return None
     try:
-        return round(((precio_dlr / spot) ** (365 / dias) - 1) * 100, 4)
+        return round((precio_dlr / spot - 1) * (365 / dias) * 100, 4)
     except Exception:
         return None
 

@@ -657,8 +657,10 @@ def check_debug_tna_futuros():
         "filas":  filas,
         "total":  len(filas),
         "nota":   (
-            "El motor persiste TEA compuesta en 'tasa_implicita_tna'. "
-            "Si tu referencia es TNA lineal del terminal Rofex, los "
-            "valores divergen — más cuanto más lejano el vencimiento."
+            "El motor persiste TNA LINEAL en 'tasa_implicita_tna' "
+            "(convención terminal Rofex). La columna PERSISTIDA debería "
+            "matchear TNA LIN (last). Si ves TEA COMP, es porque todavía "
+            "no reiniciaste motor_futuros_dlr.service después del último "
+            "deploy."
         ),
     }

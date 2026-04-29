@@ -666,6 +666,21 @@ def check_debug_tna_futuros():
     }
 
 
+@router.get("/checks/debug-curva-tea")
+def check_debug_curva_tea(ticker: str):
+    """Debug paso-a-paso del cálculo de TEA/TNA/Duration de un ticker.
+
+    Replica la lógica de engines/curvas.calcular_campos() devolviendo
+    todos los inputs intermedios (instrumento, settlement, CER, MEP/TC,
+    flujos futuros, cashflow del XIRR) + el resultado recalculado vs
+    el persistido en TimeSales.
+
+    Soporta las 4 curvas: tasa_fija, cer, soberanos, dolar_linked.
+    """
+    from api.services.debug_curva import debug_calculo_tea
+    return debug_calculo_tea(ticker)
+
+
 @router.get("/checks/discovery-pyrofex")
 def check_discovery_pyrofex():
     """Lista los instruments de pyRofex agrupados por CFI code.

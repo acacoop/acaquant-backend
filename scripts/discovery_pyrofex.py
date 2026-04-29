@@ -58,6 +58,10 @@ def main() -> None:
         lambda: {"count": 0, "underlyings": set(), "samples": []}
     )
 
+    # 20 samples por CFI alcanza para ver formato de ticker, naming de mes/año,
+    # variantes de underlying. Más que eso satura la UI.
+    SAMPLES_PER_CFI = 20
+
     for inst in instruments:
         cficode = inst.get("cficode") or "?"
         underlying = inst.get("underlying") or "?"
@@ -67,7 +71,7 @@ def main() -> None:
         g = by_cfi[cficode]
         g["count"] += 1
         g["underlyings"].add(underlying)
-        if len(g["samples"]) < 5:
+        if len(g["samples"]) < SAMPLES_PER_CFI:
             g["samples"].append({
                 "ticker":     ticker,
                 "maturity":   mat,

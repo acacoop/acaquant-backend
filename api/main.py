@@ -152,7 +152,12 @@ app.include_router(market.router,            dependencies=_PUBLIC)
 
 # Restringidos a roles con el módulo respectivo:
 app.include_router(carteras.router,          dependencies=_PORTFOLIOS)
-app.include_router(titulos.router,           dependencies=_PORTFOLIOS)
+# titulos.router (assets + flujos) es PURO catálogo de instrumentos — sin
+# info de cuentas/posiciones. Lo necesita renta-fija/page.tsx para mapear
+# ticker → curva al pintar la tabla. Antes estaba bajo _PORTFOLIOS y para
+# rol SALES devolvía 403 → renta-fija quedaba en "MERCADO CERRADO" porque
+# allFlujos venía vacío. Pasa a _PUBLIC, igual que cotizaciones / analitica.
+app.include_router(titulos.router,           dependencies=_PUBLIC)
 # Acción de operar (DOLAR MEP, órdenes vivas, saldo): puede ser para sales también
 app.include_router(ordenes.router,           dependencies=_OPERAR)
 app.include_router(operativa.router,         dependencies=_OPERAR)

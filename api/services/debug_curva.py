@@ -158,7 +158,7 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
         "fecha_settlement":  fecha_settlement.isoformat(),
         "dias_a_vto_trade":  dias_a_vto,
         "dias_a_vto_settle": (fecha_vto - fecha_settlement).days,
-        "regla":             "T+1 hábil (excepto tasa_fija que usa fecha_trade)",
+        "regla":             "T+1 hábil para todas las curvas (incluso tasa_fija desde 2026-04-29)",
     }
 
     # ── 5. Branch por curva ─────────────────────────────────────────────
@@ -172,11 +172,15 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
 
     try:
         if curva == "tasa_fija":
-            fecha_base_calc = fecha_trade
+            # Fecha base = settlement (T+1 hábil), igual que las otras curvas.
+            # Misma convención que la calculadora local de la mesa:
+            # =POW(payoff/precio, 30.4166/dias_settle) - 1
+            fecha_base_calc = fecha_settlement
+            dias_a_vto_efectivo = (fecha_vto - fecha_settlement).days
             futuros = [
                 (fecha_flujo(f), monto_flujo(f), f)
                 for f in flujos_raw
-                if fecha_flujo(f) and fecha_flujo(f) > fecha_trade and monto_flujo(f) > 0
+                if fecha_flujo(f) and fecha_flujo(f) > fecha_settlement and monto_flujo(f) > 0
             ]
             flujos_futuros = [
                 {"fecha": fd.isoformat(), "monto": round(m, 4), "raw": f}
@@ -192,7 +196,7 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
             else:
                 flujo_vto = inst.get("flujo_vencimiento")
                 if flujo_vto and flujo_vto > 0:
-                    tea = (flujo_vto / precio) ** (365.0 / dias_a_vto) - 1
+                    tea = (flujo_vto / precio) ** (365.0 / dias_a_vto_efectivo) - 1
                     futuros = [(fecha_vto, float(flujo_vto), {"fecha": fecha_vto_str, "flujo_vto": flujo_vto})]
                     flujos_futuros = [{"fecha": fecha_vto.isoformat(), "monto": float(flujo_vto), "raw": {"flujo_vto": flujo_vto}}]
                 else:

@@ -335,32 +335,44 @@ def calcular_campos(
 
     # ── TASA FIJA ─────────────────────────────────────────────────
     if curva == "tasa_fija":
+        # Fecha base = settlement (T+1 hábil), igual que las otras curvas.
+        # Antes era fecha_trade — daba TEM ~50bps arriba en Lecaps cortos
+        # vs la calculadora local de la mesa. Ver memoria:
+        # =POW(payoff/precio, 30.4166/dias_settle)-1.
+        settlement_str_tf = siguiente_dia_habil(dias_habiles, fecha_trade)
+        fecha_settlement_tf = (
+            date.fromisoformat(settlement_str_tf) if settlement_str_tf else fecha_trade
+        )
+        dias_a_vto_s = (fecha_vto - fecha_settlement_tf).days
+        if dias_a_vto_s <= 0:
+            return None
+
         flujos_futuros = [
             (fecha_flujo(f), monto_flujo(f))
             for f in flujos_raw
-            if fecha_flujo(f) and fecha_flujo(f) > fecha_trade and monto_flujo(f) > 0
+            if fecha_flujo(f) and fecha_flujo(f) > fecha_settlement_tf and monto_flujo(f) > 0
         ]
 
         try:
             conv = None
             if flujos_futuros:
-                fechas_dt = [datetime.combine(fecha_trade, datetime.min.time())] + \
+                fechas_dt = [datetime.combine(fecha_settlement_tf, datetime.min.time())] + \
                             [datetime.combine(fd, datetime.min.time()) for fd, _ in flujos_futuros]
                 cf = [-precio] + [m for _, m in flujos_futuros]
                 tea = xirr(fechas_dt, cf)
                 if tea is not None:
                     fechas_flujos_dt = [datetime.combine(fd, datetime.min.time()) for fd, _ in flujos_futuros]
                     montos_flujos    = [m for _, m in flujos_futuros]
-                    fecha_base_dt    = datetime.combine(fecha_trade, datetime.min.time())
+                    fecha_base_dt    = datetime.combine(fecha_settlement_tf, datetime.min.time())
                     dur  = macaulay_duration(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
                     conv = convexity(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
                 else:
-                    dur = round(dias_a_vto / 365, 4)
+                    dur = round(dias_a_vto_s / 365, 4)
             elif flujo_vto and flujo_vto > 0:
-                tea = (flujo_vto / precio) ** (365.0 / dias_a_vto) - 1
-                dur = round(dias_a_vto / 365, 4)
+                tea = (flujo_vto / precio) ** (365.0 / dias_a_vto_s) - 1
+                dur = round(dias_a_vto_s / 365, 4)
                 # Zero coupon: un único flujo al vto. C = t(t+1)/(1+y)^2.
-                fecha_base_dt = datetime.combine(fecha_trade, datetime.min.time())
+                fecha_base_dt = datetime.combine(fecha_settlement_tf, datetime.min.time())
                 fecha_vto_dt  = datetime.combine(fecha_vto,   datetime.min.time())
                 conv = convexity([fecha_vto_dt], [flujo_vto], tea, fecha_base_dt)
             else:

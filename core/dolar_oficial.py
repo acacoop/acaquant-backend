@@ -28,7 +28,17 @@ DB = "Valuaciones"
 COL_LIVE = "DolarOficialLive"   # MAE (script local oficina)
 COL_HIST = "DolarOficial"       # dolarapi.com cron 5min — solo para series históricas
 
-MAE_TICKER_OFICIAL = "UST$T"    # USA Transferencia mayorista (proxy A3500 spot)
+# Filtro EXACTO del dólar oficial mayorista spot (= A3500 / liquidación T+0).
+# MAE devuelve muchos instrumentos con `ticker == "UST$T"` (mayorista,
+# minorista, T+0, T+1...). El "dólar oficial" que usa la mesa y que liquida
+# los futuros DLR es Mayorista (M) plazo 000 (contado, mismo día).
+# Sin este filtro estricto, agarraríamos cualquiera y el TC saltaría 5
+# pesos al azar entre plazos.
+MAE_FILTER_OFICIAL = {
+    "data.ticker":         "UST$T",
+    "data.codigoSegmento": "M",
+    "data.codigoPlazo":    "000",
+}
 
 
 def mid_oficial_live(casa: str = "oficial") -> dict[str, Any]:
@@ -50,7 +60,7 @@ def mid_oficial_live(casa: str = "oficial") -> dict[str, Any]:
         return {"value": None, "variacion": None, "ts": None, "source": "none"}
 
     doc = get_mongo_client_read()[DB][COL_LIVE].find_one(
-        {"data.ticker": MAE_TICKER_OFICIAL},
+        MAE_FILTER_OFICIAL,
         {"_id": 0, "data.precioUltimo": 1, "data.variacion": 1, "updated_at": 1},
         sort=[("updated_at", -1)],
     )

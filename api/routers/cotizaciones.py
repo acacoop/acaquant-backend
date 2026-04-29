@@ -13,8 +13,9 @@ que parsean query params y delegan al service. Separación por dominio:
 Motivo de la capa de servicio: `api/agent/tools.py::dispatch` la invoca
 directamente, sin loopback HTTP.
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from api.auth import require_module
 from api.services import argy as svc_argy
 from api.services import derivados as svc_der
 from api.services import fair_value as svc_fv
@@ -301,7 +302,12 @@ def opciones_meta():
 @router.put("/opciones/tasa")
 def opciones_update_tasa(
     valor: float = Query(..., gt=0.0, lt=3.0, description="Tasa libre de riesgo (0.242 = 24.2%)"),
+    _admin: str = Depends(require_module("manager")),
 ):
+    """La tasa risk-free es global (afecta los Greeks de todos los users
+    en simultáneo). Por eso solo el admin (módulo `manager`) puede
+    modificarla — un trader o sales no debería poder cambiarle el shock
+    a toda la mesa con un click."""
     try:
         return svc_opt.update_opciones_tasa(valor)
     except Exception as e:

@@ -1,4 +1,4 @@
-"""MM Workstation — service de backtest.
+"""MM Workstation — service de backtest + paper trading vivo.
 
 Port en Python puro de `runBacktest` de docs/mm_workstation.jsx, manteniendo
 las MISMAS reglas para que REPLAY (frontend, JS) y BACKTEST (backend, Python)
@@ -34,6 +34,9 @@ logger = logging.getLogger("api.services.mm")
 
 DB_TRADING = "Trading"
 COL_TIMESALES = "TimeSales"
+COL_SNAPSHOT = "MarketSnapshot"
+
+LIVE_TRADES_LIMIT = 500  # cap defensivo por llamada a /live-snapshot
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constantes — alineadas con docs/mm_workstation.jsx (NO tocar sin sincronizar
@@ -353,6 +356,113 @@ def run_backtest_sweep(
         },
         "por_spread":       por_spread,
         "por_dia":          por_dia,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Paper trading vivo — solo lectura sobre datos que ya escribe engines/valores.py.
+#
+# Trading.MarketSnapshot tiene book top-5 de cada ticker actualizado a 1Hz.
+# Trading.TimeSales tiene cada trade con timestamp sub-segundo (naive ART).
+# Polleando este endpoint cada 1s, el frontend reconstruye:
+#   - Mid del top of book (best bid + best ask) / 2.
+#   - Cola de su orden virtual: cuántos lotes adelante en el price level y
+#     cómo avanza con cada trade nuevo (ver QueueSimulator del frontend).
+#   - PnL = cash + inv * mid_actual.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def fetch_live_snapshot(
+    *,
+    instrumento_full: str,
+    since_ts: str | None = None,
+) -> dict[str, Any]:
+    """Snapshot vivo del instrumento.
+
+    `since_ts` es un cursor opaco (ISO datetime) devuelto por la llamada
+    anterior. La primera llamada lo manda en None y solo recibe el cursor —
+    los trades nuevos llegan en la siguiente. El cursor está expresado en
+    naive ART (igual que TimeSales.timestamp), no UTC.
+
+    Devuelve:
+      - book.bids/offers: top-5 de cada lado, [{price, size}].
+      - last_price: último print conocido (de MarketSnapshot.metrics).
+      - new_trades: trades con timestamp > since_ts (cap LIVE_TRADES_LIMIT).
+      - ts_now: cursor para la próxima llamada.
+      - book_updated_at: cuán fresco está el snapshot del book.
+
+    No escribe nada — pura lectura sobre las dos colecciones que ya pueblan
+    los engines.
+    """
+    db = get_mongo_client_read()[DB_TRADING]
+
+    snap = db[COL_SNAPSHOT].find_one(
+        {"ticker": instrumento_full},
+        {
+            "_id":                 0,
+            "updated_at":          1,
+            "book.bids":           1,
+            "book.offers":         1,
+            "metrics.last_price":  1,
+        },
+    )
+
+    bids_raw = ((snap or {}).get("book") or {}).get("bids", [])
+    offers_raw = ((snap or {}).get("book") or {}).get("offers", [])
+    last_price = ((snap or {}).get("metrics") or {}).get("last_price")
+    book_updated_at = (snap or {}).get("updated_at")
+
+    new_trades: list[dict[str, Any]] = []
+    if since_ts:
+        # since_ts viene como string ISO (lo que devolvimos en ts_now). Lo
+        # parseamos a naive datetime para matchear el shape de TimeSales.
+        cutoff = datetime.fromisoformat(since_ts).replace(tzinfo=None)
+        cursor = (
+            db[COL_TIMESALES]
+            .find(
+                {
+                    "ticker":    instrumento_full,
+                    "timestamp": {"$gt": cutoff},
+                },
+                {"_id": 0, "timestamp": 1, "price": 1, "size": 1, "side": 1},
+            )
+            .sort("timestamp", 1)
+            .limit(LIVE_TRADES_LIMIT)
+        )
+        for doc in cursor:
+            ts = doc.get("timestamp")
+            new_trades.append({
+                "timestamp": ts.isoformat() if isinstance(ts, datetime) else ts,
+                "price":     float(doc.get("price") or 0),
+                "size":      int(doc.get("size") or 0),
+                "side":      str(doc.get("side") or "").upper(),
+            })
+
+    # Cursor de salida: timestamp del último trade procesado, o "ahora ART"
+    # si no hubo. Mantener naive ART para que la próxima llamada filtre bien
+    # contra TimeSales.timestamp.
+    if new_trades:
+        ts_now = new_trades[-1]["timestamp"]
+    else:
+        ts_now = (datetime.utcnow() - timedelta(hours=3)).isoformat()
+
+    return {
+        "instrumento_full": instrumento_full,
+        "ts_now":           ts_now,
+        "book": {
+            "bids":   [_book_level(lvl) for lvl in bids_raw[:5]],
+            "offers": [_book_level(lvl) for lvl in offers_raw[:5]],
+        },
+        "last_price":       last_price,
+        "book_updated_at":  book_updated_at.isoformat() if isinstance(book_updated_at, datetime) else book_updated_at,
+        "new_trades":       new_trades,
+    }
+
+
+def _book_level(level: dict[str, Any]) -> dict[str, float]:
+    return {
+        "price": float(level.get("price") or 0),
+        "size":  float(level.get("size") or 0),
     }
 
 

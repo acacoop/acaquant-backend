@@ -1,4 +1,4 @@
-"""Router /api/mm — MM Workstation: replay + backtest.
+"""Router /api/mm — MM Workstation: replay + backtest + paper trading vivo.
 
 Gate _MM (módulo `mm`) — solo admin por default. Trader / sales no
 acceden hasta que el admin tilde `mm` en la matriz de roles.
@@ -7,6 +7,7 @@ Endpoints:
   GET  /api/mm/trades-dia        → trades de UN día para REPLAY
   GET  /api/mm/fechas            → fechas con actividad (selector REPLAY)
   POST /api/mm/backtest          → sweep multi-día sobre N spreads
+  GET  /api/mm/live-snapshot     → book actual + trades nuevos (paper trading)
 """
 from __future__ import annotations
 
@@ -62,6 +63,39 @@ def fechas(
         "instrumento_full": full,
         "fechas":           svc.fechas_disponibles(full, dias_atras=dias_atras),
     }
+
+
+@router.get("/live-snapshot")
+def live_snapshot(
+    instrumento: str = Query(..., description="Ticker corto ('AL30D') o full"),
+    since_ts: str | None = Query(
+        None,
+        description="Cursor opaco (ISO datetime ART) devuelto por la llamada anterior. "
+        "La primera llamada lo manda en None y solo recibe el cursor de salida.",
+    ),
+    _email: str = Depends(get_user_email),
+) -> dict[str, Any]:
+    """Snapshot vivo: book top-5 actual + trades nuevos desde `since_ts`.
+
+    Pensado para ser polleado a ~1Hz por el frontend del paper trading.
+    Solo lectura — no inserta nada en Mongo. Las dos colecciones que toca
+    (Trading.MarketSnapshot y Trading.TimeSales) las puebla `engines/valores.py`.
+
+    El frontend usa la respuesta para:
+      - Calcular el mid (best bid + best ask) / 2.
+      - Avanzar la cola de sus órdenes virtuales con cada trade en
+        `new_trades` que matchee el price level.
+      - Detectar fills (cola en 0 + trade en su precio).
+      - Actualizar PnL = cash + inv * mid.
+    """
+    full = svc.resolver_instrumento_full(instrumento)
+    try:
+        return svc.fetch_live_snapshot(instrumento_full=full, since_ts=since_ts)
+    except Exception as e:
+        logger.exception(
+            "live_snapshot failed (instrumento=%s, since_ts=%s)", instrumento, since_ts,
+        )
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 class BacktestIn(BaseModel):

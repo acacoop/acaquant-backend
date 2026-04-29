@@ -37,7 +37,6 @@ from api.routers import (
     operativa,
     ordenes,
     risk,
-    simulaciones,
     titulos,
 )
 from config import MCP_BEARER_TOKEN, MCP_JWT_SECRET
@@ -148,7 +147,6 @@ app.include_router(analitica.router,         dependencies=_PUBLIC)
 app.include_router(cotizaciones.router,      dependencies=_PUBLIC)
 app.include_router(news.router,              dependencies=_PUBLIC)
 app.include_router(market.router,            dependencies=_PUBLIC)
-app.include_router(simulaciones.router,      dependencies=_PUBLIC)  # gate por user_email en service
 
 # Restringidos a roles con el módulo respectivo:
 app.include_router(carteras.router,          dependencies=_PORTFOLIOS)

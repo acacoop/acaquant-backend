@@ -681,6 +681,36 @@ def check_debug_curva_tea(ticker: str):
     return debug_calculo_tea(ticker)
 
 
+@router.get("/checks/instruments-by-cfi")
+def check_instruments_by_cfi(cficode: str):
+    """Detalle completo de TODOS los instruments de un CFI code.
+
+    Lee Manager.PyRofexInstruments[cficode] (escrita por
+    scripts/discovery_pyrofex.py al mismo tiempo que PyRofexDiscovery).
+
+    Devuelve por instrument: ticker, maturity, underlying, currency,
+    tickSize, contractMultiplier, putOrCall, strikePrice, etc. Todo lo
+    relevante para identificar un instrumento sin tener que pegarle a
+    pyRofex en runtime.
+    """
+    client = get_mongo_client_read()
+    doc = client["Manager"]["PyRofexInstruments"].find_one({"_id": cficode})
+    if not doc:
+        return {
+            "ok":          False,
+            "message":     f"No hay data para CFI '{cficode}'. Correr scripts.discovery_pyrofex.",
+            "cficode":     cficode,
+            "instruments": [],
+        }
+    return {
+        "ok":          True,
+        "cficode":     cficode,
+        "count":       doc.get("count", 0),
+        "underlyings": doc.get("underlyings", []),
+        "instruments": doc.get("instruments", []),
+    }
+
+
 @router.get("/checks/discovery-pyrofex")
 def check_discovery_pyrofex():
     """Lista los instruments de pyRofex agrupados por CFI code.

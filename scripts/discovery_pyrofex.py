@@ -55,11 +55,12 @@ def main() -> None:
     logger.info("Total instruments recibidos: %d", total)
 
     by_cfi: dict[str, dict] = defaultdict(
-        lambda: {"count": 0, "underlyings": set(), "samples": []}
+        lambda: {"count": 0, "underlyings": set(), "samples": [], "all": []}
     )
 
-    # 20 samples por CFI alcanza para ver formato de ticker, naming de mes/año,
-    # variantes de underlying. Más que eso satura la UI.
+    # 20 samples para PyRofexDiscovery (summary, vista principal del panel).
+    # all[] queda con TODOS los instruments del CFI — se persiste a la
+    # collection separada PyRofexInstruments para drill-down lazy-loaded.
     SAMPLES_PER_CFI = 20
 
     for inst in instruments:
@@ -77,6 +78,25 @@ def main() -> None:
                 "maturity":   mat,
                 "underlying": underlying,
             })
+        # Persistimos TODOS los campos relevantes para el drill-down.
+        g["all"].append({
+            "ticker":           ticker,
+            "maturity":         mat,
+            "underlying":       underlying,
+            "marketSegmentId":  inst.get("marketSegmentId"),
+            "currency":         inst.get("currency"),
+            "tickSize":         inst.get("tickSize") or inst.get("priceVariation"),
+            "lowLimitPrice":    inst.get("lowLimitPrice"),
+            "highLimitPrice":   inst.get("highLimitPrice"),
+            "minPriceIncrement": inst.get("minPriceIncrement"),
+            "minTradeVol":      inst.get("minTradeVol"),
+            "maxTradeVol":      inst.get("maxTradeVol"),
+            "instrumentPricePrecision": inst.get("instrumentPricePrecision"),
+            "instrumentSizePrecision":  inst.get("instrumentSizePrecision"),
+            "contractMultiplier": inst.get("contractMultiplier"),
+            "putOrCall":        inst.get("putOrCall"),
+            "strikePrice":      inst.get("strikePrice"),
+        })
 
     by_cficode = []
     for cficode, g in sorted(by_cfi.items(), key=lambda x: -x[1]["count"]):
@@ -87,7 +107,7 @@ def main() -> None:
             "samples":     g["samples"],
         })
 
-    doc = {
+    summary_doc = {
         "_id":               "current",
         "generated_at":      datetime.now(UTC),
         "total_instruments": total,
@@ -96,11 +116,32 @@ def main() -> None:
 
     client = get_mongo_client()
     client["Manager"]["PyRofexDiscovery"].replace_one(
-        {"_id": "current"}, doc, upsert=True,
+        {"_id": "current"}, summary_doc, upsert=True,
     )
     logger.info(
         "Persistidos %d CFI groups (total %d instruments) a Manager.PyRofexDiscovery",
         len(by_cficode), total,
+    )
+
+    # Drill-down: 1 doc por CFI con TODOS los instruments completos.
+    # La vista Assets fetcha por cficode cuando se expande una fila.
+    col_full = client["Manager"]["PyRofexInstruments"]
+    col_full.delete_many({})  # full refresh, idempotente
+    full_docs = [
+        {
+            "_id":         cficode,
+            "count":       g["count"],
+            "underlyings": sorted(g["underlyings"]),
+            "instruments": g["all"],
+            "generated_at": datetime.now(UTC),
+        }
+        for cficode, g in by_cfi.items()
+    ]
+    if full_docs:
+        col_full.insert_many(full_docs)
+    logger.info(
+        "Persistido detalle completo a Manager.PyRofexInstruments (%d CFI)",
+        len(full_docs),
     )
 
     # Resumen al stdout para ver de un vistazo qué hay.

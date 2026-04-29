@@ -664,3 +664,50 @@ def check_debug_tna_futuros():
             "deploy."
         ),
     }
+
+
+@router.get("/checks/discovery-pyrofex")
+def check_discovery_pyrofex():
+    """Lista los instruments de pyRofex agrupados por CFI code.
+
+    Lee Manager.PyRofexDiscovery (escrita por scripts/discovery_pyrofex.py).
+    Útil para identificar qué CFI usa cada producto antes de extender el
+    motor (DLR, agro, opciones, ETFs, etc.).
+
+    Si la collection está vacía o stale (>24h), avisa al usuario que
+    corra el script en el Droplet:
+        python -m scripts.discovery_pyrofex
+    """
+    from datetime import UTC, datetime
+
+    client = get_mongo_client_read()
+    doc = client["Manager"]["PyRofexDiscovery"].find_one(
+        {"_id": "current"}, {"_id": 0},
+    )
+    if not doc:
+        return {
+            "ok":                False,
+            "message":           (
+                "Sin data en Manager.PyRofexDiscovery. "
+                "Correr en el Droplet: python -m scripts.discovery_pyrofex"
+            ),
+            "total_instruments": 0,
+            "by_cficode":        [],
+            "generated_at":      None,
+            "stale_h":           None,
+        }
+
+    generated_at = doc.get("generated_at")
+    stale_h: float | None = None
+    if isinstance(generated_at, datetime):
+        if generated_at.tzinfo is None:
+            generated_at = generated_at.replace(tzinfo=UTC)
+        stale_h = round((datetime.now(UTC) - generated_at).total_seconds() / 3600.0, 1)
+
+    return {
+        "ok":                True,
+        "total_instruments": doc.get("total_instruments", 0),
+        "by_cficode":        doc.get("by_cficode", []),
+        "generated_at":      generated_at.isoformat() if isinstance(generated_at, datetime) else None,
+        "stale_h":           stale_h,
+    }

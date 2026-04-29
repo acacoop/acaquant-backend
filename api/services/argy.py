@@ -237,13 +237,13 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
             "source":  dolar.get("src"),
         })
 
-    # ── Dólar oficial (dolarapi.com) ──
-    # Se lee de Valuaciones.DolarOficial escrito por jobs/dolar_api.py cada
-    # 5 min. El MEP/CCL/canje de arriba sigue siendo nuestro (ROFEX WS via
-    # engines/dolares.py) porque es más preciso.
-    # Mayorista y blue quedaron afuera de la watchlist por pedido de la mesa
-    # (mayorista se usa en cálculos internos, blue es ruido). El job
-    # `jobs.dolar_api` los sigue persistiendo igual.
+    # ── Dólar oficial (MAE mayorista UST$T) ──
+    # Spot vivo desde Valuaciones.DolarOficialLive (script `mae_forex.py`
+    # corriendo en PC oficina, IP no bloqueada por MAE).
+    # %Día sale directo de `data.variacion` que ya devuelve MAE — no
+    # hace falta calcularlo contra anchor histórico.
+    # 7d/MTD/YTD siguen calculándose contra Valuaciones.DolarOficial
+    # (dolarapi.com) hasta que la nueva colección acumule history.
     dolar_api_metas = [
         ("DOLAR OFICIAL",   "oficial"),
     ]
@@ -251,11 +251,19 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
         live = _live_dolar_api(casa)
         actual = live.get("value")
         s = _serie_dolar_api(casa)
+        # MAE entrega `variacion` ya en % — usamos ese valor directo para
+        # ret_day. Solo cae al cálculo de serie si MAE no envió variación
+        # (no debería pasar mientras el script esté vivo).
+        var_mae = live.get("variacion")
+        ret_day = (
+            round(var_mae, 2) if var_mae is not None
+            else _ret_pct(actual, _last_le(s, anchors["day"]))
+        )
         out.append({
             "label":   label,
             "value":   actual,
             "unit":    "$",
-            "ret_day": _ret_pct(actual, _last_le(s, anchors["day"])),
+            "ret_day": ret_day,
             "ret_7d":  _ret_pct(actual, _last_le(s, anchors["7d"])),
             "ret_mtd": _ret_pct(actual, _last_le(s, anchors["mtd"])),
             "ret_ytd": _ret_pct(actual, _last_le(s, anchors["ytd"])),

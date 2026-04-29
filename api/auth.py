@@ -195,6 +195,8 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     # /api/operaciones + /api/cuentas → módulo `operaciones` (mesa, flujo, contrapartes)
     ("/api/operaciones", "operaciones"),
     ("/api/cuentas",     "operaciones"),
+    # /api/mm → módulo `mm` (MM Workstation: backtest sweep, etc.)
+    ("/api/mm",          "mm"),
 )
 
 

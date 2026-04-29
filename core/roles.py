@@ -53,6 +53,7 @@ MODULES: tuple[str, ...] = (
     "operaciones",    # /operaciones (mesa, flujo) + /api/cuentas
     "portfolios",     # /portfolios + /aum + carteras + AuM + titulos
     "asistente",      # /asistente + /api/chat
+    "mm",             # /mm (MM Workstation: replay + backtest) + /api/mm
     "manager",        # /manager + intel + jobs + logs
 )
 

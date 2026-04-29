@@ -563,3 +563,93 @@ def check_futuros_dlr():
     ]
 
     return {"spot": spot, "outrights": outrights, "total": len(docs)}
+
+
+@router.get("/checks/debug-tna-futuros")
+def check_debug_tna_futuros():
+    """Validación paso-a-paso del cálculo de TNA implícita por outright DLR.
+
+    El motor persiste UN solo número en `tasa_implicita_tna` calculado como
+    TEA compuesta: `((dlr/spot)^(365/dias) - 1) * 100`. Pero la mesa puede
+    estar mirando TNA lineal en el terminal Rofex. Este endpoint muestra
+    AMBAS convenciones por outright para que se pueda confirmar contra
+    cualquier referencia externa cuál matchea.
+
+    Cálculos por outright (sobre last):
+      directo = (last / spot - 1) × 100              → % absoluto al vto
+      tna_lineal = directo × (365 / dias)            → anualizado lineal
+      tea_compuesta = ((last/spot)^(365/dias) - 1)×100  → anualizado compuesto
+
+    Diferencia esperada:
+      30 días  → tna_lineal ≈ tea_compuesta - 0.5
+      90 días  → tna_lineal ≈ tea_compuesta - 1.5
+      180 días → tna_lineal ≈ tea_compuesta - 3
+      365 días → tna_lineal == tea_compuesta (idénticas)
+    """
+    client = get_mongo_client_read()
+    docs = list(
+        client["Trading"]["FuturosDLRSnapshot"]
+        .find({}, {"_id": 0})
+        .sort("vencimiento", 1)
+    )
+
+    if not docs:
+        return {"spot": None, "filas": [], "total": 0}
+
+    primero = docs[0]
+    spot_val = primero.get("spot_referencia")
+    spot_fuente = primero.get("fuente_spot")
+
+    def _directo(px, spot, dias):
+        if not px or not spot or spot <= 0 or dias <= 0:
+            return None
+        return round((px / spot - 1) * 100, 4)
+
+    def _tna_lineal(px, spot, dias):
+        d = _directo(px, spot, dias)
+        if d is None:
+            return None
+        return round(d * (365 / dias), 4)
+
+    def _tea_compuesta(px, spot, dias):
+        if not px or not spot or spot <= 0 or dias <= 0:
+            return None
+        return round(((px / spot) ** (365 / dias) - 1) * 100, 4)
+
+    filas = []
+    for d in docs:
+        last = d.get("last_price")
+        bid = d.get("bid_price")
+        offer = d.get("offer_price")
+        dias = d.get("dias_a_vto") or 1
+        mid_book = (bid + offer) / 2 if (bid and offer) else None
+
+        filas.append({
+            "ticker":             d.get("ticker"),
+            "vto":                d.get("vencimiento"),
+            "dias":               dias,
+            "bid":                bid,
+            "last":               last,
+            "offer":              offer,
+            "mid_book":           round(mid_book, 4) if mid_book else None,
+            # Cálculos sobre last
+            "directo_last":       _directo(last, spot_val, dias),
+            "tna_lineal_last":    _tna_lineal(last, spot_val, dias),
+            "tea_compuesta_last": _tea_compuesta(last, spot_val, dias),
+            # Cálculos sobre mid del book (si hay puntas)
+            "tna_lineal_mid":     _tna_lineal(mid_book, spot_val, dias),
+            "tea_compuesta_mid":  _tea_compuesta(mid_book, spot_val, dias),
+            # Lo que ESTÁ persistido (TEA hoy, a pesar del nombre)
+            "tna_persistida":     d.get("tasa_implicita_tna"),
+        })
+
+    return {
+        "spot":   {"valor": spot_val, "fuente": spot_fuente},
+        "filas":  filas,
+        "total":  len(filas),
+        "nota":   (
+            "El motor persiste TEA compuesta en 'tasa_implicita_tna'. "
+            "Si tu referencia es TNA lineal del terminal Rofex, los "
+            "valores divergen — más cuanto más lejano el vencimiento."
+        ),
+    }

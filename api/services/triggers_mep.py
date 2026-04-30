@@ -459,13 +459,21 @@ async def scanner_loop(interval_s: float = 1.0) -> None:
     """
     logger.info("scanner_loop arrancado (interval=%ss, stale=%ss, eod=%02d:%02d UTC)",
                 interval_s, STALE_THRESHOLD_S, EOD_HOUR_UTC, EOD_MIN_UTC)
+    # Guard horario: fuera de L-V 13:00-20:59 UTC el scanner no puede
+    # disparar nada (no hay cotizaciones live frescas, _is_cot_fresh las
+    # rechaza > 5s). Además la ventana 04:00-11:20 UTC tiene Atlas pausado
+    # → cada find() falla con ServerSelectionTimeoutError y loggea
+    # stacktrace. Sin guard: ~26k logger.exception()/día.
     try:
         while True:
-            try:
-                await asyncio.to_thread(evaluar_y_disparar_pendientes)
-                await asyncio.to_thread(cancelar_pendientes_eod)
-            except Exception:
-                logger.exception("scanner_loop tick falló (sigo corriendo)")
+            now = datetime.now(UTC)
+            en_ventana = now.weekday() < 5 and 13 <= now.hour < 21
+            if en_ventana:
+                try:
+                    await asyncio.to_thread(evaluar_y_disparar_pendientes)
+                    await asyncio.to_thread(cancelar_pendientes_eod)
+                except Exception:
+                    logger.exception("scanner_loop tick falló (sigo corriendo)")
             await asyncio.sleep(interval_s)
     except asyncio.CancelledError:
         logger.info("scanner_loop detenido (cancel)")

@@ -1,13 +1,12 @@
 """Router /api/derivados/agro — Pase Agro (Trigo/Maíz/Soja Rosario).
 
-GET    /api/derivados/agro                       (público — todos los roles ven derivados)
-PATCH  /api/derivados/agro/pizarra/{commodity}   (gate inline: trader+admin)
+GET    /api/derivados/agro                       (admin only por ahora)
+PATCH  /api/derivados/agro/pizarra/{commodity}   (admin only por ahora)
 
-El PATCH usa un check inline contra core.roles.get_user_role en lugar del
-módulo "operaciones" o "operar" porque la pizarra agro no encaja
-semánticamente en ninguno de esos: "operar" incluye a sales (puede operar
-DOLAR MEP) y "operaciones" es la mesa de flujos. Acá queremos exactamente
-el subset trader+admin, sin acoplarnos a otra matriz.
+Tanto el GET como el PATCH están restringidos a admin mientras la vista
+está en beta — el resto de /derivados (Opciones) sigue público para los
+roles con módulo derivados. Cuando la mesa valide la tabla, abrimos el
+GET a sales/trader y dejamos el PATCH solo a trader+admin.
 """
 from __future__ import annotations
 
@@ -24,8 +23,14 @@ router = APIRouter(prefix="/api/derivados", tags=["DerivadosAgro"])
 
 
 @router.get("/agro")
-def pase_agro():
-    """Tabla PASE AGRO completa (3 bloques: TRIGO/MAIZ/SOJA)."""
+def pase_agro(email: str = Depends(get_user_email)):
+    """Tabla PASE AGRO completa (3 bloques: TRIGO/MAIZ/SOJA) — admin only."""
+    role = get_user_role(email)
+    if role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail=f"role {role!r} no autorizado para ver pase agro (solo admin)",
+        )
     return get_pase_agro()
 
 
@@ -44,9 +49,9 @@ def patch_pizarra(
     payload: PizarraIn,
     email: str = Depends(get_user_email),
 ):
-    """Upsert de la fila PIZARRA — solo trader+admin."""
+    """Upsert de la fila PIZARRA — admin only (beta)."""
     role = get_user_role(email)
-    if role not in ("trader", "admin"):
+    if role != "admin":
         raise HTTPException(
             status_code=403,
             detail=f"role {role!r} no autorizado para editar pizarra agro",

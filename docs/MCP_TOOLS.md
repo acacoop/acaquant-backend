@@ -1,6 +1,6 @@
 # MCP Tools Reference — TradingAV
 
-> Documento de referencia para LLMs que consumen las 27 tools del MCP server `https://api.acaquant.com/mcp`. Pensado para alimentar el contexto de Claude (Custom Connector / Project knowledge) y acelerar la decisión de qué tool usar para cada pregunta del usuario.
+> Documento de referencia para LLMs que consumen las 30 tools del MCP server `https://api.acaquant.com/mcp`. Pensado para alimentar el contexto de Claude (Custom Connector / Project knowledge) y acelerar la decisión de qué tool usar para cada pregunta del usuario.
 
 ## Qué expone este MCP
 
@@ -50,6 +50,9 @@ Si el usuario pide algo de esos rubros, el connector no puede ayudar — hay que
 | "Si la TIR de Globales sube a 11%, ¿cuánto pierdo?" | `sensibilidad_retorno` | — |
 | "Forwards vivos entre Lecaps" | `forwards_live` | — |
 | "¿Cómo evolucionó el forward marzo-junio?" | `forwards_historico` | — |
+| "¿El forward A-B está caro o barato vs su historia?" | `forwards_zscore` | combinar con `forwards_live` |
+| "¿Qué bonos están baratos vs su curva fair value?" | `fair_value` | — |
+| "Evolución del z-score temporal del T30A7" | `fair_value_historico_bono` | — |
 | "¿Qué inflación implícita hay entre TX26 y S15D5?" | `breakevens_live` | — |
 | "Histórico del breakeven a 6 meses" | `breakevens_historico` | — |
 | "TNA caución en pesos hoy" | `cauciones_live` | — |
@@ -291,6 +294,69 @@ forward_a_b = doc["matrix"][ticker_b][ticker_a]
 
 #### `forwards_historico`
 **Params:** `curva`, `desde`, `hasta`. **Mismo shape que `forwards_live` pero un doc por (curva, fecha)**.
+
+---
+
+#### `forwards_zscore`
+**Para qué:** Z-score del forward live contra su historia rolling de 30 días hábiles. Sirve para detectar pares "caros/baratos" relativo a su distribución reciente.
+
+**Params:** `curva: str | None` — `tasa_fija | cer`. Omitir = ambas.
+
+**Retorna:** `list[dict]` con coeficientes por par (`ticker_a`, `ticker_b`, `media`, `desvio`, `n_obs`). Para z-scorear el forward live: `z = (forward_live − media) / desvio`. Pares con `n_obs < 20` o `desvio ≈ 0` quedan fuera del payload.
+
+**Prompts típicos:**
+- "¿El forward TZX26-TZX27 está caro o barato vs los últimos 30 días?"
+- "Pares con z-score más extremo en la curva CER"
+
+**Gotchas:**
+- Refrescado **1x/día post-cierre** — durante la rueda, comparar contra el último cierre.
+- El forward live se obtiene aparte con `forwards_live`; esta tool sólo da los coeficientes.
+- Pares con poca data (< 20 ruedas) no aparecen — bonos nuevos no tienen z-score todavía.
+
+---
+
+#### `fair_value`
+**Para qué:** Fair value relativo intra-curva. Ajusta una curva cuadrática `TEA(d) = β₀ + β₁·d + β₂·d²` y devuelve el residuo de cada bono + z-scores. Z negativo → bono "rico" (TEA por debajo de la curva, precio por arriba); positivo → "barato".
+
+**Params:**
+- `curva: str` — `tasa_fija | cer` (V1; el resto no soportado)
+- `modo: str = "live"` — `live` (β del último cierre + TEAs vivas) | `cierre` (snapshot persistido del día)
+- `fecha: str | None` — YYYY-MM-DD; sólo aplica con `modo="cierre"`
+
+**Retorna:** `dict` con `bonos: list` por ticker: `tea_obs`, `tea_teorica`, `residuo_bps`, `z_estatico`, `z_temporal`, `duration`. Plus metadata de los betas.
+
+**Z-scores explicados:**
+- `z_estatico` = `residuo / σ del universo del día`. Comparación intra-rueda: ¿este bono está más caro/barato que sus pares HOY?
+- `z_temporal` = `(residuo_hoy − media_30d) / desvio_30d`. Comparación temporal: ¿este bono está más caro/barato que SU PROPIA historia? `null` con `n_obs < 20`.
+
+**Prompts típicos:**
+- "Bonos baratos en la curva tasa fija hoy"
+- "¿Qué Lecaps están con z-score temporal < -1?"
+- "Fair value al cierre del 25/04"
+
+**Gotchas:**
+- Sólo `tasa_fija` y `cer` por ahora. Otras curvas devuelven error.
+- `modo="live"` mezcla β congelado del cierre anterior con TEAs vivas — durante la rueda los z-scores estáticos pueden ser ruidosos hasta que la curva se asiente.
+- Bonos sin TEA del día no aparecen.
+
+---
+
+#### `fair_value_historico_bono`
+**Para qué:** Serie diaria del residuo y z-scores de un bono específico contra su curva fair value. Útil para ver "cómo viene cotizando este bono vs su propia historia".
+
+**Params:**
+- `ticker: str` — **debe ser el ticker FULL** (`MERV - XMEV - T30A7 - 24hs`), no el corto.
+- `dias: int = 60` — últimos N cierres.
+
+**Retorna:** `dict` con `ticker`, `curva`, `dias`, `serie: list[{fecha, residuo_bps, z_temporal, z_estatico, tea_obs, tea_teorica, duration}]`.
+
+**Prompts típicos:**
+- "¿Cómo viene cotizando T30A7 vs su curva?"
+- "Evolución del z-score del TZX26 últimos 90 días"
+
+**Gotchas:**
+- **Ticker debe ser FULL** — la tool no resuelve corto. Si el usuario da `T30A7`, primero `listar_curva` para sacar el full.
+- Sólo días con cierre (no incluye intradía).
 
 ---
 

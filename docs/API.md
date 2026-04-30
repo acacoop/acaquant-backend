@@ -1,6 +1,6 @@
 # TradingAV API
 
-**Version:** 0.2.0
+**Version:** 0.3.0
 **Base URL (prod):** `https://api.acaquant.com`
 **Base URL (dev):** `http://127.0.0.1:8000`
 **Protocol:** REST over HTTP/1.1 · JSON
@@ -121,29 +121,33 @@ Identity tells us **who is calling**; RBAC tells us **what they can see**. Backe
 **Modules** (canonical list in `core/roles.py::MODULES`):
 
 ```
-home · renta-fija · derivados · estrategia · operaciones · portfolios · asistente · manager
+home · renta-fija · derivados · estrategia · operar · operaciones · portfolios · asistente · mm · manager
 ```
+
+> **`operar` vs `operaciones`** — son módulos distintos. `operar` cubre **acciones del trading desk** (mandar/cancelar órdenes, MEP, riesgo de cuenta) y lo tienen `admin + trader + sales`. `operaciones` cubre la **mesa de flujo** (boletos, cash movements, contrapartes) y lo tienen `admin + trader` solamente — sales NO.
 
 **Default matrix** (`DEFAULT_MATRIX` — used until the admin overrides per role from the panel):
 
 | Role | Modules |
 |---|---|
-| `admin` | all 8 |
-| `trader` | home, renta-fija, derivados, estrategia, operaciones, portfolios, asistente |
-| `sales` | home, renta-fija, derivados, estrategia |
+| `admin` | all 10 |
+| `trader` | home, renta-fija, derivados, estrategia, **operar**, operaciones, portfolios, asistente |
+| `sales` | home, renta-fija, derivados, estrategia, **operar** |
 
 Enforcement:
 
 - `api/main.py` wraps every router with `Depends(require_module("<m>"))` based on the path prefix:
   ```
   /api/portfolio, /api/titulos              → portfolios
-  /api/operaciones, /api/ordenes,
-  /api/operativa, /api/risk, /api/cuentas   → operaciones
+  /api/ordenes, /api/operativa, /api/risk   → operar       (sales puede)
+  /api/operaciones, /api/cuentas            → operaciones  (admin + trader)
   /api/chat                                 → asistente
+  /api/mm                                   → mm           (admin only por default)
   /api/manager                              → manager
   ```
 - `home / renta-fija / derivados / estrategia` paths use `_PUBLIC` (auth + bearer, no module gate).
 - `/api/me` and `/api/simulaciones/*` have no module gate; ownership is enforced inside the service (`user_email` filter).
+- `/api/derivados/agro` está bajo `_PUBLIC` para el routing pero el handler aplica un check inline `role == "admin"` (el resto de `/derivados` sigue público para todos los roles con módulo `derivados`).
 
 ### 3.5 Identity propagation: `X-Acaquant-User-Email`
 
@@ -232,8 +236,10 @@ Routes are grouped by tag. Access column:
 
 - **pub** — `_PUBLIC` (auth + bearer, no module gate). Visible to every authenticated user including `sales`.
 - **port** — `_PORTFOLIOS` (`portfolios` module).
-- **op** — `_OPERACIONES` (`operaciones` module — admin + trader by default).
+- **opr** — `_OPERAR` (`operar` module — admin + trader + sales: trading-desk actions).
+- **op** — `_OPERACIONES` (`operaciones` module — admin + trader: mesa de flujo).
 - **chat** — `_ASISTENTE` (`asistente` module).
+- **mm** — `_MM` (`mm` module — admin only by default).
 - **adm** — `_MANAGER` (`manager` module — admin only by default).
 - **own** — no module gate; ownership filter inside the service (`user_email`).
 
@@ -397,7 +403,7 @@ Field schemas unchanged from v0.1 (see service module for full details).
 
 ---
 
-### 7.6 Órdenes (`/api/ordenes/*`) · op
+### 7.6 Órdenes (`/api/ordenes/*`) · opr
 
 Direct ROFEX order send / cancel / status. Backed by `api/services/ordenes.py` over `pyRofex`.
 
@@ -414,7 +420,7 @@ Direct ROFEX order send / cancel / status. Backed by `api/services/ordenes.py` o
 
 ---
 
-### 7.7 Operativa MEP (`/api/operativa/*`) · op
+### 7.7 Operativa MEP (`/api/operativa/*`) · opr
 
 Wrapped operativa: BUY AL30 + SELL AL30D in one call. Persists to `Operaciones.OperativasMep`; the legs live in `Operaciones.OrdenesLive` and join at read time.
 
@@ -463,7 +469,7 @@ Trigger states: `ACTIVE | FIRING | EXECUTED | WAITING_EXIT | EXITING | EXITED | 
 
 ---
 
-### 7.8 Risk · cuenta del broker (`/api/risk/*`) · op
+### 7.8 Risk · cuenta del broker (`/api/risk/*`) · opr
 
 Wrapper over `pyRofex.get_account_*`. Uncached — always fresh from the broker.
 
@@ -614,6 +620,10 @@ Every mutation invalidates the in-process cache (`core/roles.py::invalidate_cach
 | `GET /checks/debug-soberano?ticker_corto=` | Inspect curve enrichment of a soberano |
 | `GET /checks/breakevens-debug` | Trace the live breakeven aggregation |
 | `GET /checks/futuros-dlr` | Diagnostics of the DLR outright curve enrichment |
+| `GET /checks/debug-tna-futuros` | Per-outright comparison of TNA lineal vs TEA compuesta — used to validate the formula change of 2026-04-29 |
+| `GET /checks/debug-curva-tea?ticker=` | Step-by-step recomputation of TEA / duration / convexity for one bond, exposing all intermediate inputs (trade, settlement, CER ratio, cashflow grid, XIRR). Mirrors `engines/curvas.py::calcular_campos`. |
+| `GET /checks/discovery-pyrofex` | Reads `Manager.PyRofexDiscovery` — summary of every CFI code seen in `pyRofex.get_detailed_instruments()` with sample tickers. Used to identify CFI codes when extending motors. |
+| `GET /checks/instruments-by-cfi?cficode=` | Drill-down: ALL instruments under one CFI from `Manager.PyRofexInstruments` (currency, tickSize, contractMultiplier, putOrCall, strikePrice, etc.). |
 
 #### 7.14.4 Jobs
 
@@ -711,9 +721,58 @@ PDF or pasted-text reports → Gemini JSON-mode extracts 12 macro variables → 
 
 ---
 
-### 7.16 MCP server (`/mcp`)
+### 7.16 MM Workstation (`/api/mm/*`) · mm
 
-Read-only re-exposure of 27 analytical tools (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad). Independent OAuth 2.1 + PKCE + DCR layer on top of CF Access — does NOT use the bearer API key. Full doc: **`docs/MCP.md`**.
+Backend del módulo MM Workstation: replay de trades históricos para timing-de-entrada training, paper trading vivo y backtest sweep multi-día sobre la lógica de quoting. Gate `_MM` (admin only por default; el admin puede tildar `mm` a un trader desde el panel de roles si quiere abrir el acceso).
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/trades-dia` | Trades de UN día para alimentar el REPLAY del frontend. Param `instrumento` (corto o full) + `fecha` opcional (default: último día con ≥100 trades de los últimos 30). |
+| GET | `/fechas` | Fechas con actividad para un instrumento, ventana `dias_atras` (1..90, default 30). Pobla el dropdown de día del REPLAY. |
+| GET | `/live-snapshot` | Book top-5 + trades nuevos desde un cursor opaco `since_ts`. Pensado para polling 1Hz del paper trading. **Solo lectura**: no inserta nada en Mongo. Lee `Trading.MarketSnapshot` (book) + `Trading.TimeSales` (trades), poblados por `engines/valores.py`. |
+| POST | `/backtest` | Sweep multi-día sobre N spreads. Body `{instrumento, desde?, hasta?, dias_atras?, quote_size, skew_intensity, auto_skew, inv_cap, spreads?}`. Devuelve estadísticas agregadas (PnL medio/std, win rate, Sharpe, max DD) + detalle por día. ~7 spreads × 10 días × 5000 trades < 2 s típico. |
+
+`live-snapshot` response shape:
+
+```json
+{
+  "ts_now":            "2026-04-29T18:42:11+00:00",
+  "book":              { "bids": [[1234.5, 100], ...], "asks": [[1235.0, 80], ...] },
+  "last_price":        1234.75,
+  "book_updated_at":   "2026-04-29T18:42:10+00:00",
+  "new_trades":        [ { "ts": "...", "price": 1234.5, "size": 50, "side": "buy" } ],
+  "next_since_ts":     "2026-04-29T18:42:11+00:00"
+}
+```
+
+El frontend usa la respuesta para: calcular el mid, avanzar la cola de órdenes virtuales con cada trade que matchee price level, detectar fills (cola en 0 + trade en su precio) y actualizar PnL = `cash + inv × mid`.
+
+---
+
+### 7.17 Derivados Agro (`/api/derivados/agro*`) · admin-only inline
+
+Tabla **PASE AGRO** (Trigo / Maíz / Soja Rosario). El backend lee snapshots live de `Trading.AgroSnapshot` (escrito por `engines/motor_agro.py` — outrights FXXXSX filtrados por underlying agro), los joina con la fila PIZARRA manual de `Derivados.AgroPizarra` y devuelve la tabla calculada. **Beta — restringido a `role == "admin"` mientras la mesa valida los números.** El router está montado bajo `_PUBLIC` para el routing pero ambos handlers chequean rol inline. Cuando se abra, el GET pasará a sales/trader y el PATCH a trader+admin.
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/api/derivados/agro` | Tabla completa (3 bloques: TRIGO, MAIZ, SOJA). Cada bloque trae 1 fila PIZARRA + 1 fila DISPO (placeholder) + N filas de futuros vivos. |
+| PATCH | `/api/derivados/agro/pizarra/{commodity}` | Upsert de la fila PIZARRA. Body `{vencimiento_pizarra?, us_pizarra?}` (null = no tocar). Audit en `Derivados.AgroPizarraAudit`. |
+
+**Cálculos puros (no se persisten):**
+
+- `ars      = us × dolar_oficial_mid` (mid del UST$T mayorista MAE, vía `core.dolar_oficial.mid_oficial_live`)
+- `pase     = us_pizarra − us_futuro`
+- `tnav_us  = (us_pizarra / us_futuro)^(365/dias_a_vto) − 1` (compuesta)
+
+Validado contra la planilla de la mesa: `(202.79/229.60)^(365/236) − 1 = -17.41%` (planilla -17.47%); `(190.00/191.90)^(365/149) − 1 = -2.41%` (planilla -2.41%).
+
+El motor (`engines/motor_agro.py`) **no escribe `Trading.TimeSales`** (decisión consciente de la mesa para reducir presión sobre Atlas — esta tabla sólo necesita el último precio). Filtra variantes paralelas (`*M`) y placeholders (`DISPO`) del universo descubierto. No persiste histórico diario por ahora.
+
+---
+
+### 7.18 MCP server (`/mcp`)
+
+Read-only re-exposure of 30 analytical tools (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad, fair value). Independent OAuth 2.1 + PKCE + DCR layer on top of CF Access — does NOT use the bearer API key. Full doc: **`docs/MCP.md`**, tool reference: **`docs/MCP_TOOLS.md`**.
 
 ---
 
@@ -734,12 +793,15 @@ Source collections are the system of record. API-facing collections are denormal
 | `Trading.*` | — | Motors write real-time |
 | `Trading.CaucionSnapshot` / `Caucion` | — | `engines.caucion` |
 | `Trading.FuturosDLRSnapshot` / `FuturosDLR` | — | `engines.futuros_dlr` |
+| `Trading.AgroSnapshot` | — | `engines.motor_agro` (snapshot only — no TimeSales) |
+| `Derivados.AgroPizarra` / `AgroPizarraAudit` | — | `PATCH /api/derivados/agro/pizarra/{commodity}` |
 | `Opciones.*` | — | `engines.options` + `jobs.options_rollup` |
 | `Valuaciones.DolarSnapshot` | — | `engines.dolares` (live, `_id='current'`) |
 | `Valuaciones.Dolar` | — | `engines.dolar_mep` (cron, histórico) |
 | `News.Headlines` | — | `jobs.news_ingesta`, `jobs.news_finnhub` |
 | `Market.Quotes` / `Market.EconomicCalendar` | — | `jobs.market_quotes`, `jobs.market_anchors`, `jobs.economic_calendar` |
 | `Manager.JobRuns` | — | Background writers + TTL 60 d |
+| `Manager.PyRofexDiscovery` / `PyRofexInstruments` | — | `scripts.discovery_pyrofex` (one-shot manual) |
 | `Manager.AsistenteLogs` | — | `POST /api/chat` |
 | `Manager.IntelDocs` | — | `/api/manager/intel/*` |
 | `Manager.Users` / `RoleMatrix` / `RoleAudit` | — | `/api/manager/users`, `/api/manager/roles`, auto-register on first visit |
@@ -777,6 +839,9 @@ api/
 │   ├── risk.py              # account_report, account_positions, account_detailed_position, saldo_para_rueda
 │   ├── simulaciones.py      # CRUD + calcular (stateless)
 │   ├── portfolio.py / renta_fija.py / canje.py / carry_trade.py
+│   ├── derivados_agro.py    # PASE AGRO (pizarra manual + futuros live)
+│   ├── mm.py                # MM Workstation: replay + paper trading + backtest sweep
+│   ├── debug_curva.py       # Recompute paso-a-paso de TEA/duration (manager/checks)
 │   └── …
 ├── agent/                   # LLM assistant (docs/ASISTENTE.md is authoritative)
 ├── mcp/                     # MCP server (docs/MCP.md is authoritative)
@@ -786,6 +851,7 @@ api/
     ├── chat.py                  # /api/chat              (chat)
     ├── cotizaciones.py          # /api/cotizaciones/*    (pub)
     ├── cuentas.py               # /api/cuentas/*         (op)
+    ├── derivados_agro.py        # /api/derivados/agro    (pub + admin-only inline)
     ├── manager/                 # /api/manager/*         (adm)  — paquete con sub-routers
     │   ├── status.py
     │   ├── checks.py
@@ -798,11 +864,12 @@ api/
     ├── manager_resources.py     # /api/manager/resources*(adm)
     ├── market.py                # /api/market/*          (pub)
     ├── me.py                    # /api/me                (own)
+    ├── mm.py                    # /api/mm/*              (mm — admin only por default)
     ├── news.py                  # /api/news*             (pub)
     ├── operaciones.py           # /api/operaciones/*     (op)
-    ├── operativa.py             # /api/operativa/*       (op)
-    ├── ordenes.py               # /api/ordenes/*         (op)
-    ├── risk.py                  # /api/risk/*            (op)
+    ├── operativa.py             # /api/operativa/*       (opr)
+    ├── ordenes.py               # /api/ordenes/*         (opr)
+    ├── risk.py                  # /api/risk/*            (opr)
     ├── simulaciones.py          # /api/simulaciones/*    (own)
     └── titulos.py               # /api/titulos/*         (port)
 core/
@@ -879,3 +946,12 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest on every push.
 | 2026-04-28 | **fix(operativa-mep):** `usd_efectivo`/`mep_efectivo` now apply `PRICE_FACTOR_BONOS` (BYMA "per 100 VN"). Series `/timesales` returns real UTC with explicit tz. |
 | 2026-04-28 | **fix(ordenes):** `send_order` always initializes pyRofex (was conditional on `account is None` — broke trigger scanner with `Environment not specify.`). |
 | 2026-04-28 | **fix(risk):** `/account/saldo` reads `currencyBalance.detailedCurrencyBalance` (Primary's "Efectivo Disponible"), not `availableToOperate.cash` (post-margin). |
+| 2026-04-28 | **rbac:** Split del módulo `operar` — antes todas las acciones de trading caían bajo `operaciones`; ahora `/api/ordenes`, `/api/operativa`, `/api/risk` están bajo `operar` (admin + trader + sales) y `/api/operaciones`, `/api/cuentas` quedan en `operaciones` (admin + trader). Sales puede operar pero NO ver la mesa de flujos. |
+| 2026-04-29 | Add `/api/mm/*` — MM Workstation backend: replay (`/trades-dia`, `/fechas`), paper trading vivo (`/live-snapshot`) y backtest sweep (`POST /backtest`). Módulo `mm` (admin only por default). |
+| 2026-04-29 | **fix(dolar):** Dólar oficial pasa al feed MAE mayorista (UST$T plazo 000) vía script local en PC oficina (`Valuaciones.DolarOficialLive`). dolarapi.com queda solo para series históricas. Filtro estricto Mayorista plazo 000 (= A3500 spot). Watchlist `/argy` y `/api/cotizaciones/futuros-dlr` consumen el mismo mid. |
+| 2026-04-29 | **fix(futuros-dlr):** `tasa_implicita_tna` cambia de TEA compuesta a **TNA lineal** `(precio/spot − 1) × 365/dias` para alinearse con la convención del terminal Rofex / la mesa. Diverge 2-4 puntos de la TEA en vencimientos largos. |
+| 2026-04-29 | **fix(curvas):** Branch `tasa_fija` de `engines/curvas.py` pasa a usar **settlement T+1** como base para `dias_a_vto` y filtro de cashflows (antes era `fecha_trade`). Alinea con calculadora local de la mesa (15 días settle vs 16 trade). |
+| 2026-04-29 | Add `/api/manager/checks/debug-tna-futuros`, `/checks/debug-curva-tea`, `/checks/discovery-pyrofex`, `/checks/instruments-by-cfi`. Discovery persiste en `Manager.PyRofexDiscovery` (summary 20 samples/CFI) y `Manager.PyRofexInstruments` (full detail por CFI). |
+| 2026-04-29 | **fix(rbac):** `/api/titulos/*` pasa de `_PORTFOLIOS` a `_PUBLIC` — sales no podía ver la curva de renta-fija ("MERCADO CERRADO") porque el catálogo no devolvía `flujos`. `titulos` es puro catálogo, no info de portfolio. |
+| 2026-04-29 | Add MM Workstation Manager **ASSETS tab** — selector CFI + selector underlying + tabla con todos los instruments del mercado (drill-down de discovery pyRofex). |
+| 2026-04-29 | Add `/api/derivados/agro` + `engines/motor_agro.py` — Pase Agro (Trigo/Maíz/Soja Rosario, CFI FXXXSX). Tabla con fila PIZARRA editable manual (admin only beta) + futuros live de `Trading.AgroSnapshot`. TNAV = `(pizarra/last)^(365/dias) − 1` validada contra planilla mesa. Motor NO escribe TimeSales (solo snapshot). |

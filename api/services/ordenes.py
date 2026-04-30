@@ -24,12 +24,13 @@ Idempotencia:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
 import pyRofex
 
-from core.mongo import get_mongo_client
+from core.mongo import get_mongo_client, get_mongo_client_read
 from core.rofex_orders_session import cuenta_default, ensure_session_envio
 
 logger = logging.getLogger("api.services.ordenes")
@@ -310,3 +311,49 @@ def list_orders_dia(account: str | None = None, fecha: datetime | None = None) -
         {"_id": 0},
     ).sort("created_at", -1)
     return list(cursor)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Catálogo de símbolos para autocomplete (PRUEBA → envío de órdenes raw)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def search_symbols(q: str, limit: int = 20) -> list[dict[str, Any]]:
+    """Busca instruments operables que matcheen `q` por substring de ticker
+    o underlying. Lee Manager.PyRofexInstruments — la colección que pobla
+    scripts.discovery_pyrofex con todos los instruments del broker.
+
+    Excluye FCI (no son operables vía pyRofex; el dropdown del frontend
+    no debe sugerirlos). Devuelve top `limit` resultados con los campos
+    mínimos que el combobox necesita.
+    """
+    if not q or len(q.strip()) < 2:
+        return []
+    db = get_mongo_client_read()["Manager"]
+    pattern = re.escape(q.strip())
+    regex = {"$regex": pattern, "$options": "i"}
+    fci_neg = {"$not": {"$regex": "FCI", "$options": "i"}}
+
+    pipeline: list[dict[str, Any]] = [
+        {"$unwind": "$instruments"},
+        {"$match": {
+            "$and": [
+                {"$or": [
+                    {"instruments.ticker":     regex},
+                    {"instruments.underlying": regex},
+                ]},
+                {"instruments.ticker":     fci_neg},
+                {"instruments.underlying": fci_neg},
+            ],
+        }},
+        {"$limit": limit},
+        {"$project": {
+            "_id":        0,
+            "ticker":     "$instruments.ticker",
+            "underlying": "$instruments.underlying",
+            "maturity":   "$instruments.maturity",
+            "currency":   "$instruments.currency",
+            "cficode":    "$_id",
+        }},
+    ]
+    return list(db["PyRofexInstruments"].aggregate(pipeline))

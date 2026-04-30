@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
@@ -27,6 +27,7 @@ from api.services.ordenes import (
     cancel_order,
     get_order_status,
     list_orders_dia,
+    search_symbols,
     send_order,
 )
 
@@ -93,6 +94,18 @@ def listar_dia(
 ) -> list[dict]:
     """Órdenes del día UTC actual para la cuenta default."""
     return list_orders_dia()
+
+
+@router.get("/symbols")
+def buscar_symbols(
+    q: str = Query(..., min_length=2, description="Substring para matchear ticker o underlying (case-insensitive)"),
+    limit: int = Query(20, ge=1, le=50),
+    _email: str = Depends(get_user_email),
+) -> list[dict]:
+    """Autocomplete del campo TICKER en /operar → PRUEBA. Devuelve top
+    `limit` instruments que matcheen `q` en ticker o underlying. Excluye
+    FCI (no operables vía pyRofex)."""
+    return search_symbols(q, limit=limit)
 
 
 @router.get("/{cl_ord_id}")

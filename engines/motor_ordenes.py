@@ -254,15 +254,44 @@ def _recovery(db, account: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _accounts_para_suscribir(db) -> list[str]:
+    """Lee Operaciones.AccountsDescubiertas para que el motor se suscriba a
+    todas las cuentas que el frontend permite operar (AccountPicker).
+
+    Sin esto, las órdenes mandadas a una subcuenta del cliente (≠ default
+    del .env) generan ER que el motor no recibe → OrdenesLive queda en
+    PENDING_NEW eterno → operativa_mep ve STALE_BUY y NO manda la SELL
+    (guard contra short involuntario), dejando un long abierto.
+
+    Si la colección está vacía (job descubrir_cuentas nunca corrió)
+    devuelve []. El motor sigue funcionando solo con la cuenta default.
+    """
+    try:
+        docs = db["AccountsDescubiertas"].find({}, {"_id": 0, "account_id": 1})
+        return [str(d["account_id"]) for d in docs if d.get("account_id")]
+    except Exception as e:
+        logger.error("No pude leer AccountsDescubiertas: %s — sigo solo con default.", e)
+        return []
+
+
 def main() -> None:
     db = get_mongo_client()[DB_NAME]
     _ensure_indexes(db)
 
     handler = _make_er_handler(db)
-    account, env = inicializar_para_motor(handler)
-    logger.info("Motor de órdenes ARRIBA (cuenta=%s, env=%s)", account, env.name)
+    accounts_extra = _accounts_para_suscribir(db)
+    account, env = inicializar_para_motor(handler, accounts_extra=accounts_extra)
+    logger.info(
+        "Motor de órdenes ARRIBA (cuenta_default=%s, env=%s, total_cuentas=%d)",
+        account, env.name, len(set([account, *accounts_extra])),
+    )
 
     _recovery(db, account)
+    # Recovery también por las cuentas extra: si el motor estaba caído y
+    # hubo órdenes pendientes en una subcuenta, sin esto quedan UNKNOWN_LOCAL.
+    for acc in accounts_extra:
+        if acc != account:
+            _recovery(db, acc)
 
     while _running:
         time.sleep(HEARTBEAT_S)

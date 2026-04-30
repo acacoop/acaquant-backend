@@ -17,7 +17,7 @@ from api.services.renta_fija import _ticker_filter
 from core.mongo import get_mongo_client
 
 
-@cached(ttl=10)
+@cached(ttl=60)
 def get_opciones(instrumento: str | None = None, tipo: str | None = None) -> list:
     db = get_db_opciones()
     filtro: dict = {}

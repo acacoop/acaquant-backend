@@ -127,6 +127,16 @@ def descubrir_outrights_agro() -> list[dict]:
         ticker = _ticker_de(inst)
         if not ticker or ticker.count("/") != 1:
             continue
+        # Variantes paralelas (TRI.ROS/JUL26M, etc.) — mismo filtro que en
+        # motor_futuros_dlr. La mesa quiere el outright canonical, no la
+        # variante que sólo cotiza en cámaras alternativas.
+        if ticker.endswith("M"):
+            continue
+        # Placeholders del propio mercado: TRI.ROS/DISPO, TRI.ROS.P/DISPO,
+        # SOJ.ROS/DISPO, etc. La fila DISPO se renderea manualmente desde el
+        # service (placeholder #N/A) y la PIZARRA es manual del trader.
+        if "DISPO" in ticker:
+            continue
         out.append({
             "ticker":     ticker,
             "maturity":   mat,
@@ -164,6 +174,16 @@ class AgroEngine:
             "Outrights agro descubiertos: %d (commodities: %s)",
             len(self.universo), commodities,
         )
+
+        # Limpiar stale: si una corrida anterior dejó tickers que ya no
+        # están en el universo (variantes M, DISPO, vencimientos cumplidos),
+        # los borramos para que el GET no los rendere zombie.
+        tickers_actuales = [u["ticker"] for u in self.universo]
+        deleted = self.col_snap.delete_many(
+            {"ticker": {"$nin": tickers_actuales}}
+        )
+        if deleted.deleted_count:
+            logger.info("Limpieza stale: %d snapshots viejos borrados", deleted.deleted_count)
 
         self.market_state: dict[str, dict] = {u["ticker"]: {} for u in self.universo}
         self._state_lock = threading.Lock()

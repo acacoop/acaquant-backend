@@ -70,28 +70,36 @@ def get_dolar(desde: str | None = None, hasta: str | None = None) -> list:
 
 @cached(ttl=5)
 def get_ultimo_mep() -> dict:
-    """Último valor de dólar MEP/CCL/canje. Prefiere snapshot live (5s desde
-    engines/dolares.py vía WS) y cae al último doc del cron de cierre
+    """Último valor de dólar MEP/CCL/canje + oficial. Prefiere snapshot live
+    (5s desde engines/dolares.py vía WS) y cae al último doc del cron de cierre
     (Valuaciones.Dolar) si el snapshot live no existe.
 
-    Devuelve {mep, ccl, canje, timestamp, source}. Los 3 campos numéricos
-    pueden ser None si los inputs WS no están disponibles."""
+    Devuelve {mep, ccl, canje, oficial, timestamp, source}. Los 4 campos
+    numéricos pueden ser None si los inputs WS no están disponibles.
+
+    El `oficial` viene de Valuaciones.DolarOficialLive (MAE UST$T mayorista
+    plazo 000) — fuente única del dólar oficial en toda la app. Es
+    independiente de la fuente del MEP/CCL: el snapshot WS no lo escribe."""
+    from core.dolar_oficial import mid_oficial_live
+
     db = get_db_valuaciones()
 
     snap = db["DolarSnapshot"].find_one(
         {"_id": "current"},
         {"_id": 0, "mep": 1, "ccl": 1, "canje": 1, "timestamp": 1, "source": 1},
     )
-    if snap and snap.get("mep") is not None:
-        return snap
+    base = snap if (snap and snap.get("mep") is not None) else None
+    if base is None:
+        doc = db["Dolar"].find_one(
+            {}, {"_id": 0, "mep": 1, "ccl": 1, "canje": 1, "timestamp": 1},
+            sort=[("timestamp", -1)],
+        )
+        if doc:
+            doc["source"] = "cron_close"
+        base = doc or {}
 
-    doc = db["Dolar"].find_one(
-        {}, {"_id": 0, "mep": 1, "ccl": 1, "canje": 1, "timestamp": 1},
-        sort=[("timestamp", -1)],
-    )
-    if doc:
-        doc["source"] = "cron_close"
-    return doc or {}
+    base["oficial"] = mid_oficial_live("oficial").get("value")
+    return base
 
 
 @cached(ttl=300)

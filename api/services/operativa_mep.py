@@ -591,18 +591,25 @@ def listar_operativas_dia(account: str | None = None) -> list[dict]:
         buy_ord = ordenes_by_id.get(buy_cid) if buy_cid else None
         sell_ord = ordenes_by_id.get(sell_cid) if sell_cid else None
 
-        # USD efectivo: cumQty * avgPx de la SELL, escalado por el factor BYMA
-        # (los bonos cotizan por 100 VN — sin esto el USD da 100x mayor y el
-        # MEP efectivo da ridículamente bajo). MEP efectivo = ARS / USD.
+        # USD efectivo: cum_sell * avg_sell * 0.01 (los bonos cotizan por 100 VN).
+        # MEP efectivo de MERCADO: ARS_operados / USD_obtenidos. Antes usábamos
+        # `monto_ars` bruto en el numerador — pero ese monto incluye la comisión
+        # que se descuenta antes de calcular nominales, así que el "slippage"
+        # daba inflado por la comisión, no por el book. Ahora usamos los ARS
+        # realmente movidos por la BUY (cum_buy * avg_buy * 0.01) → el slippage
+        # vs MEP_ini refleja solo movimiento de precios.
         usd_efectivo: float | None = None
         mep_efectivo: float | None = None
-        if sell_ord:
-            cum = float(sell_ord.get("cum_qty") or 0)
-            avg = float(sell_ord.get("avg_px") or 0)
-            if cum > 0 and avg > 0:
-                usd_efectivo = round(cum * avg * PRICE_FACTOR_BONOS, 2)
-                if usd_efectivo > 0:
-                    mep_efectivo = round(op.get("monto_ars", 0) / usd_efectivo, 2)
+        if sell_ord and buy_ord:
+            cum_sell = float(sell_ord.get("cum_qty") or 0)
+            avg_sell = float(sell_ord.get("avg_px") or 0)
+            cum_buy = float(buy_ord.get("cum_qty") or 0)
+            avg_buy = float(buy_ord.get("avg_px") or 0)
+            if cum_sell > 0 and avg_sell > 0:
+                usd_efectivo = round(cum_sell * avg_sell * PRICE_FACTOR_BONOS, 2)
+            if cum_buy > 0 and avg_buy > 0 and usd_efectivo and usd_efectivo > 0:
+                ars_operados = cum_buy * avg_buy * PRICE_FACTOR_BONOS
+                mep_efectivo = round(ars_operados / usd_efectivo, 2)
 
         # Status compuesto basado en las 2 patas
         st_buy = (buy_ord or {}).get("status")
@@ -698,20 +705,34 @@ def obtener_detalle_operativa(operativa_id: str) -> dict[str, Any] | None:
     buy = _pata(buy_cid)
     sell = _pata(sell_cid)
 
-    # Métricas derivadas
+    # Métricas derivadas — MEP efectivo de MERCADO = ARS_operados / USD obtenidos.
+    # Ver listar_operativas_dia para el racional completo (no usar monto_ars
+    # bruto porque la comisión infla el slippage).
     metricas: dict[str, Any] = {}
     sell_live = sell.get("live") or {}
-    cum = float(sell_live.get("cum_qty") or 0)
-    avg = float(sell_live.get("avg_px") or 0)
-    if cum > 0 and avg > 0:
-        usd_efectivo = round(cum * avg * PRICE_FACTOR_BONOS, 2)
+    buy_live = buy.get("live") or {}
+    cum_sell = float(sell_live.get("cum_qty") or 0)
+    avg_sell = float(sell_live.get("avg_px") or 0)
+    cum_buy = float(buy_live.get("cum_qty") or 0)
+    avg_buy = float(buy_live.get("avg_px") or 0)
+
+    if cum_sell > 0 and avg_sell > 0:
+        usd_efectivo = round(cum_sell * avg_sell * PRICE_FACTOR_BONOS, 2)
         metricas["usd_efectivo"] = usd_efectivo
-        if usd_efectivo > 0 and op.get("monto_ars"):
-            mep_ef = round(op["monto_ars"] / usd_efectivo, 2)
-            metricas["mep_efectivo"] = mep_ef
-            mep_ini = op.get("mep_inicial")
-            if mep_ini:
-                metricas["slippage_pct"] = round((mep_ef / mep_ini - 1) * 100, 3)
+        if cum_buy > 0 and avg_buy > 0:
+            ars_operados = round(cum_buy * avg_buy * PRICE_FACTOR_BONOS, 2)
+            metricas["ars_operados"] = ars_operados
+            metricas["precio_compra_al30"] = avg_buy
+            metricas["precio_venta_al30d"] = avg_sell
+            if usd_efectivo > 0:
+                mep_ef = round(ars_operados / usd_efectivo, 2)
+                metricas["mep_efectivo"] = mep_ef
+                mep_ini = op.get("mep_inicial")
+                if mep_ini:
+                    metricas["slippage_pct"] = round((mep_ef / mep_ini - 1) * 100, 3)
+                # Costo cliente = monto bruto / USD (incluye comisión).
+                if op.get("monto_ars"):
+                    metricas["mep_costo_cliente"] = round(op["monto_ars"] / usd_efectivo, 2)
 
     # Duración: del primer audit al último (across both patas)
     timestamps = []

@@ -185,13 +185,19 @@ def _persistir_orden_live(
     side: str,
     order: dict | None,
 ) -> None:
-    """Snapshot REST del estado de una orden en Operaciones.OrdenesLive.
+    """Snapshot REST del estado de una orden en Operaciones.OrdenesLive +
+    audit en OrdenesAudit.
 
     Reemplaza la dependencia del motor_ordenes para esta operativa: el
     flujo de operativa_mep escribe el estado final directamente desde
     el resultado del polling REST, así `listar_operativas_dia` lo lee
     sin esperar que el WS del motor llegue. El motor sigue corriendo
     para audit general, pero no es bloqueante.
+
+    También deja un `kind=REST_SNAPSHOT` en OrdenesAudit por cada llamada
+    para que el drilldown del frontend tenga al menos un timeline aunque
+    el motor no haya recibido el ER por WS (caso típico: subcuenta no
+    suscripta).
     """
     if not order:
         return
@@ -214,6 +220,13 @@ def _persistir_orden_live(
         }},
         upsert=True,
     )
+    db["OrdenesAudit"].insert_one({
+        "ts":         now,
+        "kind":       "REST_SNAPSHOT",
+        "cl_ord_id":  cl_ord_id,
+        "account":    account,
+        "payload":    order,
+    })
 
 
 def _ejecutar_buy_then_sell(
@@ -622,6 +635,104 @@ def listar_operativas_dia(account: str | None = None) -> list[dict]:
             "wrapper_status": op.get("status"),
         })
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Detalle de una operativa (drilldown del frontend)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _serializar_doc(doc: dict | None) -> dict | None:
+    """Convierte ts a ISO + filtra _id para enviar al frontend."""
+    if not doc:
+        return None
+    out = {}
+    for k, v in doc.items():
+        if k == "_id":
+            continue
+        if isinstance(v, datetime):
+            out[k] = v.isoformat()
+        else:
+            out[k] = v
+    return out
+
+
+def obtener_detalle_operativa(operativa_id: str) -> dict[str, Any] | None:
+    """Devuelve el detalle completo de una operativa MEP para el drilldown.
+
+    Incluye:
+      - El doc completo de OperativasMep.
+      - Por cada pata (buy/sell): el doc de OrdenesLive + timeline de
+        OrdenesAudit (ER del motor + REST_SNAPSHOTs del flujo lineal).
+      - Métricas derivadas (slippage, duración).
+
+    Devuelve None si la operativa no existe.
+    """
+    db = get_mongo_client_read()[DB_OPS]
+    op = db[COL_OPERATIVAS].find_one({"operativa_id": operativa_id})
+    if not op:
+        return None
+
+    buy_cid = (op.get("buy") or {}).get("cl_ord_id")
+    sell_cid = (op.get("sell") or {}).get("cl_ord_id")
+
+    def _pata(cid: str | None) -> dict[str, Any]:
+        if not cid:
+            return {"live": None, "audit": []}
+        live = db[COL_ORDENES].find_one({"cl_ord_id": cid})
+        audit_cursor = (
+            db["OrdenesAudit"]
+            .find({"cl_ord_id": cid}, {"_id": 0})
+            .sort("ts", 1)
+        )
+        audit = []
+        for a in audit_cursor:
+            ts = a.get("ts")
+            audit.append({
+                "ts":      ts.isoformat() if isinstance(ts, datetime) else ts,
+                "kind":    a.get("kind"),
+                "payload": a.get("payload"),
+            })
+        return {"live": _serializar_doc(live), "audit": audit}
+
+    buy = _pata(buy_cid)
+    sell = _pata(sell_cid)
+
+    # Métricas derivadas
+    metricas: dict[str, Any] = {}
+    sell_live = sell.get("live") or {}
+    cum = float(sell_live.get("cum_qty") or 0)
+    avg = float(sell_live.get("avg_px") or 0)
+    if cum > 0 and avg > 0:
+        usd_efectivo = round(cum * avg * PRICE_FACTOR_BONOS, 2)
+        metricas["usd_efectivo"] = usd_efectivo
+        if usd_efectivo > 0 and op.get("monto_ars"):
+            mep_ef = round(op["monto_ars"] / usd_efectivo, 2)
+            metricas["mep_efectivo"] = mep_ef
+            mep_ini = op.get("mep_inicial")
+            if mep_ini:
+                metricas["slippage_pct"] = round((mep_ef / mep_ini - 1) * 100, 3)
+
+    # Duración: del primer audit al último (across both patas)
+    timestamps = []
+    for pata in (buy, sell):
+        for a in pata["audit"]:
+            timestamps.append(a["ts"])
+    if len(timestamps) >= 2:
+        timestamps.sort()
+        try:
+            dt0 = datetime.fromisoformat(timestamps[0])
+            dt1 = datetime.fromisoformat(timestamps[-1])
+            metricas["duracion_ms"] = int((dt1 - dt0).total_seconds() * 1000)
+        except (ValueError, TypeError):
+            pass
+
+    return {
+        "operativa": _serializar_doc(op),
+        "buy": buy,
+        "sell": sell,
+        "metricas": metricas,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ from api.services.operativa_mep import (
     crear_operativa,
     get_cotizaciones,
     listar_operativas_dia,
+    obtener_detalle_operativa,
     serie_mep_minuto,
 )
 from api.services.triggers_mep import (
@@ -94,6 +95,19 @@ def listar_dia(
 ) -> list[dict]:
     """Operativas MEP del día UTC, con join a OrdenesLive + USD/MEP efectivo."""
     return listar_operativas_dia(account=account)
+
+
+@router.get("/mep/{operativa_id}/detalle")
+def detalle_operativa(
+    operativa_id: str,
+    _email: str = Depends(get_user_email),
+) -> dict[str, Any]:
+    """Drilldown de una operativa MEP: doc completo + 2 patas con sus
+    OrdenesLive y timeline de execution reports + REST snapshots."""
+    detalle = obtener_detalle_operativa(operativa_id)
+    if detalle is None:
+        raise HTTPException(status_code=404, detail=f"operativa {operativa_id!r} no existe")
+    return detalle
 
 
 # ── Triggers (operativas condicionales que esperan MEP <= objetivo) ──

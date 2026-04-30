@@ -55,7 +55,7 @@ def timesales_mep(
     rueda: Literal["CI", "24hs"] = Query("CI"),
     _email: str = Depends(get_user_email),
 ) -> dict[str, Any]:
-    """Serie del MEP por minuto (últimas 24h). Para el chart de TRADING."""
+    """Serie del MEP por minuto desde el inicio del día (ART). Para el chart de TRADING."""
     try:
         return {"rueda": rueda, "points": serie_mep_minuto(rueda)}
     except ValueError as e:

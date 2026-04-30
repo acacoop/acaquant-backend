@@ -559,16 +559,19 @@ def serie_mep_minuto(
     aggregation pipelines de Mongo ($dateTrunc + $last) — la base hace el
     heavy lifting, el proceso solo hace el merge.
 
-    Default: últimas 24h. Devuelve [{ts, mep}] ordenado ascendente, con `ts`
-    en ISO UTC real (con tz explícito) — el frontend lo localiza a ART.
+    Default: desde el inicio del día (ART) de hoy. La mesa pidió no
+    arrastrar datos del día anterior — el chart de TRADING tiene que
+    mostrar solo la rueda actual. Devuelve [{ts, mep}] ordenado
+    ascendente, con `ts` en ISO UTC real (con tz explícito) — el
+    frontend lo localiza a ART.
     """
     if rueda not in RUEDAS_VALIDAS:
         raise ValueError(f"rueda inválida: {rueda!r}")
-    # `desde` se compara contra ts naive ART (rotulado UTC en Mongo). Para
-    # incluir las últimas 24h reales hay que mirar 24h atrás en ese mismo
-    # espacio: now_utc - offset - 24h.
+    # `desde` se compara contra ts naive ART (rotulado UTC en Mongo).
+    # Para "hoy" de la mesa = inicio del día ART de hoy en ese espacio.
     if desde is None:
-        desde = datetime.now(UTC).replace(tzinfo=None) - MOTOR_TS_OFFSET - timedelta(hours=24)
+        now_naive_art = datetime.now(UTC).replace(tzinfo=None) - MOTOR_TS_OFFSET
+        desde = now_naive_art.replace(hour=0, minute=0, second=0, microsecond=0)
 
     tk = TICKERS_POR_RUEDA[rueda]
     db = get_mongo_client_read()[DB_TRADING]

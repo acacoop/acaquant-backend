@@ -34,6 +34,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+import pyRofex
+
 from api.services.ordenes import send_order
 from core.mongo import get_mongo_client, get_mongo_client_read
 
@@ -82,10 +84,11 @@ BUY_BLOQUEA_SELL = {"REJECTED", "CANCELLED", "EXPIRED", "UNKNOWN_LOCAL"}
 # Estados de la BUY que CONFIRMAN que llegó al book — recién ahí mandamos SELL.
 BUY_HABILITA_SELL = {"NEW", "PARTIALLY_FILLED", "FILLED"}
 
-# Timeout de espera del ER de la BUY. AL30 MARKET en mercado abierto se
-# resuelve en milisegundos; 3s es generoso y bloquea la SELL si algo raro pasa.
-BUY_WAIT_TIMEOUT_S = 3.0
-BUY_WAIT_INTERVAL_S = 0.1
+# Timeouts del polling REST contra el broker. AL30 MARKET en mercado abierto
+# fillea en milisegundos. 5s es generoso para tolerar lag de red sin bloquear
+# al user demasiado. Se chequea cada 200ms — 25 fetches max por orden.
+ORDER_POLL_TIMEOUT_S = 5.0
+ORDER_POLL_INTERVAL_S = 0.2
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -138,28 +141,79 @@ def get_cotizaciones(rueda: str) -> dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _wait_buy_resolved(
+def _wait_order_filled_rest(
     cl_ord_id: str,
-    timeout_s: float = BUY_WAIT_TIMEOUT_S,
-    interval_s: float = BUY_WAIT_INTERVAL_S,
+    proprietary: str | None,
+    timeout_s: float = ORDER_POLL_TIMEOUT_S,
+    interval_s: float = ORDER_POLL_INTERVAL_S,
 ) -> tuple[str | None, dict | None]:
-    """Espera al motor_ordenes a que actualice OrdenesLive con un status ≠ PENDING_NEW.
+    """Pollea pyRofex.get_order_status (REST) hasta status final o timeout.
 
-    Devuelve (status, doc). status=None si timeout y nunca apareció el doc.
-    El status final puede ser cualquier estado del broker (NEW/REJECTED/...);
-    el caller decide qué hacer.
+    Va directo al broker — no depende del motor_ordenes ni del WS ni de
+    Mongo. Si el broker dice FILLED, la orden está llena. La sesión
+    pyRofex del API (que llama esto) está autenticada con la cuenta
+    master, y `get_order_status` resuelve por clOrdId — la subcuenta
+    de la orden no afecta la consulta.
+
+    Devuelve (status, order_dict). status=None si nunca pudimos parsear
+    una respuesta válida del broker.
     """
-    db = get_mongo_client()[DB_OPS]
     deadline = time.monotonic() + timeout_s
-    last_doc: dict | None = None
+    last_order: dict | None = None
     while time.monotonic() < deadline:
-        last_doc = db[COL_ORDENES].find_one({"cl_ord_id": cl_ord_id})
-        if last_doc:
-            st = last_doc.get("status")
-            if st and st != "PENDING_NEW":
-                return st, last_doc
+        try:
+            resp = pyRofex.get_order_status(cl_ord_id, proprietary)
+        except Exception as e:
+            logger.warning("get_order_status falló (cl_ord_id=%s): %s", cl_ord_id, e)
+            time.sleep(interval_s)
+            continue
+        if resp and resp.get("status") == "OK":
+            order = resp.get("order") or {}
+            last_order = order
+            st = order.get("status")
+            if st in ESTADOS_FINALES_ORDEN or st in {"NEW", "PARTIALLY_FILLED"}:
+                return st, order
         time.sleep(interval_s)
-    return ((last_doc or {}).get("status"), last_doc)
+    return (last_order or {}).get("status"), last_order
+
+
+def _persistir_orden_live(
+    cl_ord_id: str,
+    *,
+    account: str | None,
+    ticker: str,
+    side: str,
+    order: dict | None,
+) -> None:
+    """Snapshot REST del estado de una orden en Operaciones.OrdenesLive.
+
+    Reemplaza la dependencia del motor_ordenes para esta operativa: el
+    flujo de operativa_mep escribe el estado final directamente desde
+    el resultado del polling REST, así `listar_operativas_dia` lo lee
+    sin esperar que el WS del motor llegue. El motor sigue corriendo
+    para audit general, pero no es bloqueante.
+    """
+    if not order:
+        return
+    db = get_mongo_client()[DB_OPS]
+    now = datetime.now(UTC)
+    db[COL_ORDENES].update_one(
+        {"cl_ord_id": cl_ord_id},
+        {"$set": {
+            "ticker":     ticker,
+            "side":       side.upper(),
+            "account":    account,
+            "status":     order.get("status"),
+            "cum_qty":    order.get("cumQty"),
+            "leaves_qty": order.get("leavesQty"),
+            "avg_px":     order.get("avgPx"),
+            "last_px":    order.get("lastPx"),
+            "last_qty":   order.get("lastQty"),
+            "updated_at": now,
+            "source":     "rest_poll",
+        }},
+        upsert=True,
+    )
 
 
 def _ejecutar_buy_then_sell(
@@ -185,6 +239,7 @@ def _ejecutar_buy_then_sell(
           "error":          str | None,
         }
     """
+    # 1. Mandar BUY al broker (REST, sincrónico).
     buy_resp = send_order(
         ticker=buy_ticker, side="BUY", size=nominales,
         order_type="MARKET", price=None, tif="DAY",
@@ -198,9 +253,15 @@ def _ejecutar_buy_then_sell(
             "sell": None, "error": buy_resp.get("error"),
         }
     buy_cl_ord_id = buy_resp["cl_ord_id"]
+    buy_proprietary = buy_resp.get("proprietary")
 
-    buy_status, buy_doc = _wait_buy_resolved(buy_cl_ord_id)
-    buy_reason = (buy_doc or {}).get("reject_reason")
+    # 2. Esperar resultado de la BUY pegando al broker REST. No dependemos
+    # del WS ni del motor_ordenes — `get_order_status` resuelve por clOrdId.
+    buy_status, buy_order = _wait_order_filled_rest(buy_cl_ord_id, buy_proprietary)
+    _persistir_orden_live(
+        buy_cl_ord_id, account=account, ticker=buy_ticker, side="BUY", order=buy_order,
+    )
+    buy_reason = (buy_order or {}).get("text")
 
     if buy_status in BUY_BLOQUEA_SELL:
         logger.warning(
@@ -215,7 +276,7 @@ def _ejecutar_buy_then_sell(
         }
 
     if buy_status not in BUY_HABILITA_SELL:
-        motivo = f"BUY no resuelta en {BUY_WAIT_TIMEOUT_S}s (status={buy_status})"
+        motivo = f"BUY no resuelta en {ORDER_POLL_TIMEOUT_S}s (status={buy_status})"
         logger.warning(motivo)
         return {
             "stage": "buy_er", "global_status": "STALE_BUY",
@@ -223,22 +284,40 @@ def _ejecutar_buy_then_sell(
             "sell": None, "error": motivo,
         }
 
+    # 3. Mandar SELL al broker.
     sell_resp = send_order(
         ticker=sell_ticker, side="SELL", size=nominales,
         order_type="MARKET", price=None, tif="DAY",
         account=account, actor_email=actor_email,
     )
-    sell_cl_ord_id = sell_resp.get("cl_ord_id")
-    sell_ok = bool(sell_resp.get("ok"))
+    if not sell_resp.get("ok"):
+        return {
+            "stage": "sell", "global_status": "OK_PARCIAL",
+            "buy": {"cl_ord_id": buy_cl_ord_id, "status": buy_status, "ok": True},
+            "sell": {"cl_ord_id": None, "status": "REJECTED_LOCAL",
+                     "ok": False, "error": sell_resp.get("error")},
+            "error": sell_resp.get("error"),
+        }
+    sell_cl_ord_id = sell_resp["cl_ord_id"]
+    sell_proprietary = sell_resp.get("proprietary")
+
+    # 4. Esperar resultado de la SELL — devolvemos al frontend el estado
+    # confirmado por el broker, no un PENDING_NEW que después tiene que
+    # actualizar el motor.
+    sell_status, sell_order = _wait_order_filled_rest(sell_cl_ord_id, sell_proprietary)
+    _persistir_orden_live(
+        sell_cl_ord_id, account=account, ticker=sell_ticker, side="SELL", order=sell_order,
+    )
+    sell_filled_ok = sell_status in {"FILLED", "PARTIALLY_FILLED"}
 
     return {
-        "stage": "all_ok" if sell_ok else "sell",
-        "global_status": "OK" if sell_ok else "OK_PARCIAL",
+        "stage": "all_ok" if sell_filled_ok else "sell",
+        "global_status": "OK" if sell_filled_ok else "OK_PARCIAL",
         "buy": {"cl_ord_id": buy_cl_ord_id, "status": buy_status, "ok": True},
-        "sell": {"cl_ord_id": sell_cl_ord_id, "status": "PENDING_NEW",
-                 "ok": sell_ok,
-                 "error": None if sell_ok else sell_resp.get("error")},
-        "error": None if sell_ok else sell_resp.get("error"),
+        "sell": {"cl_ord_id": sell_cl_ord_id, "status": sell_status or "UNKNOWN",
+                 "ok": sell_filled_ok,
+                 "error": None if sell_filled_ok else f"SELL en estado {sell_status}"},
+        "error": None if sell_filled_ok else f"SELL en estado {sell_status}",
     }
 
 

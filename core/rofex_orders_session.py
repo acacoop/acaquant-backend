@@ -150,22 +150,13 @@ def ensure_session_envio() -> str:
     return cuenta_default()
 
 
-def inicializar_para_motor(
-    order_report_handler,
-    accounts_extra: list[str] | None = None,
-) -> tuple[str, pyRofex.Environment]:
+def inicializar_para_motor(order_report_handler) -> tuple[str, pyRofex.Environment]:
     """Sesión completa para el motor de órdenes: REST + WS + order reports.
 
     `order_report_handler` recibe un dict con la forma:
         {"orderReport": {clOrdId, wsClOrdId, status, lastPx, lastQty, ...}}
     El motor le hace upsert a `Operaciones.OrdenesLive` y append a
     `Operaciones.OrdenesAudit`.
-
-    `accounts_extra`: cuentas adicionales a suscribir al WS más allá de
-    la default del .env. El frontend (AccountPicker) permite operar
-    contra subcuentas de clientes (805, etc.) — sin suscribir esas
-    cuentas, los ER se pierden y los wrappers ven PENDING_NEW eterno
-    (operativa_mep nunca manda la SELL → posición long abierta).
 
     Si el broker corta el WS, pyRofex tira `_on_close`. Acá NO manejamos
     reconnect — el motor lo detecta vía heartbeat y reinicializa toda
@@ -187,23 +178,6 @@ def inicializar_para_motor(
     )
     pyRofex.order_report_subscription(account=account)
     logger.info("WS suscripto a order_report (cuenta=%s, env=%s)", account, env.name)
-
-    if accounts_extra:
-        suscriptas = 0
-        for acc in accounts_extra:
-            if not acc or acc == account:
-                continue
-            try:
-                pyRofex.order_report_subscription(account=acc)
-                suscriptas += 1
-                logger.info("WS suscripto a order_report adicional (cuenta=%s)", acc)
-            except Exception as e:
-                logger.error("Fallo al suscribir cuenta extra %s: %s", acc, e)
-        logger.info(
-            "Suscripciones extra: %d/%d cuentas adicionales OK",
-            suscriptas, len([a for a in accounts_extra if a and a != account]),
-        )
-
     return account, env
 
 

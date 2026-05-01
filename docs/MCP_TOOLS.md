@@ -1,10 +1,10 @@
 # MCP Tools Reference — TradingAV
 
-> Documento de referencia para LLMs que consumen las 30 tools del MCP server `https://api.acaquant.com/mcp`. Pensado para alimentar el contexto de Claude (Custom Connector / Project knowledge) y acelerar la decisión de qué tool usar para cada pregunta del usuario.
+> Documento de referencia para LLMs que consumen las 32 tools del MCP server `https://api.acaquant.com/mcp`. Pensado para alimentar el contexto de Claude (Custom Connector / Project knowledge) y acelerar la decisión de qué tool usar para cada pregunta del usuario.
 
 ## Qué expone este MCP
 
-Datos de mercado **argentino** en lectura: curvas de tasa fija (Lecaps/Boncaps), CER, soberanos hard-dollar (Globales/Bonares), TAMAR, dólar-linked, forwards entre tasas, breakevens de inflación, futuros DLR (Rofex), cauciones, MEP/CCL/canje, opciones GGAL, expectativas REM del BCRA, y series macro.
+Datos de mercado **argentino** en lectura: curvas de tasa fija (Lecaps/Boncaps), CER, soberanos hard-dollar (Globales/Bonares), TAMAR, dólar-linked, forwards entre tasas, breakevens de inflación, futuros DLR (Rofex), cauciones, MEP/CCL/canje, opciones GGAL, expectativas REM del BCRA, series macro, y **order book live (depth 5) de bonos**.
 
 ## Qué NO expone (y no hay que asumir que existe)
 
@@ -43,6 +43,8 @@ Si el usuario pide algo de esos rubros, el connector no puede ayudar — hay que
 | "¿Cuánto se opera el TX26 vs su promedio?" | `liquidez_secundario` | — |
 | "Trades del último mes del AL30" | `historico_trades` | — |
 | "Series de cierre de toda la curva tasa fija" | `historico_curva` | — |
+| "¿Cómo está el book del TX26 ahora?" / "Profundidad del AL30" | `order_book` | — |
+| "Books de toda la curva CER" / "Spread + depth de tasa fija" | `order_books_curva` | — |
 | "¿Qué Lecap convino comprar entre A y B?" (post-mortem) | `descomposicion_retorno` | `historico_trades` para contexto |
 | "¿Qué Lecer convino el último mes?" (post-mortem CER) | `descomposicion_retorno` (curva="cer") | — |
 | "¿Qué Lecap conviene a 30 días si la curva no se mueve?" | `rolldown_esperado` | — |
@@ -182,6 +184,65 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 - "Series de TEA diarias para Lecaps"
 
 **Gotchas:** Output puede ser **muy grande** (cientos de bonos × cientos de días). Considerar pedir `historico_trades` filtrado por instrumento si el usuario quiere uno solo.
+
+---
+
+### Order Book (LOB live, depth 5, sin histórico)
+
+#### `order_book`
+**Para qué:** Order book live de un ticker de renta fija ARG con profundidad 5. La fuente es `Trading.MarketSnapshot`, que el motor `MicrostructureEngine` (engines/valores.py) replica desde pyRofex WS cada 1s. **Sin histórico** — solo el último estado.
+
+**Params:** `ticker: str` — corto (`TX26`) o completo (`MERV - XMEV - TX26 - 24hs`).
+
+**Retorna:** `dict | None`
+```python
+{
+  "ticker":     "MERV - XMEV - TX26 - 24hs",
+  "updated_at": "2026-05-01T15:32:08Z",
+  "book": {
+    "bids":   [{"price": 1.234, "size": 100}, ...x5],   # nivel 1 = best bid
+    "offers": [{"price": 1.236, "size": 150}, ...x5],   # nivel 1 = best ask
+  },
+  "metrics": {
+    "last_price":    1.235,
+    "open_price":    1.230,
+    "high_price":    1.240,
+    "low_price":     1.225,
+    "closing_price": 1.232,   # del cierre anterior
+  },
+}
+```
+`None` si el ticker no está en el universo de `Trading.Curvas` o nunca recibió market data.
+
+**Prompts típicos:**
+- "¿Cómo está el book del TX26 ahora?"
+- "Profundidad bid/ask del AL30"
+- "¿Cuál es el spread top of book del S30A6?"
+
+**Gotchas:**
+- **Latencia real**: el motor escribe a Mongo cada 1s. El dato puede tener hasta 1 segundo de delay vs el mercado real. Para HFT no sirve; para análisis de microestructura sí.
+- **Listas pueden ser < 5**: si el ticker tiene poca profundidad de mercado, vienen 1, 2 o 3 niveles. No asumir longitud 5.
+- **Fuera de rueda**: durante feriados, fin de semana o pre-apertura, `updated_at` puede ser viejo (último tick conocido) y los precios stale. Validar con `updated_at`.
+- **Sin métricas analíticas**: esta tool intencionalmente NO trae TEA/duration/paridad. Para esas usar `listar_curva` o `serie_macro` con `<TICKER>.<CAMPO>`.
+
+---
+
+#### `order_books_curva`
+**Para qué:** Lo mismo que `order_book` pero para todos los tickers de una curva en una sola llamada. Útil para análisis comparativo de liquidez, microestructura o relative value batch.
+
+**Params:** `curva: str` — `tasa_fija | cer | soberanos | tamar | dolar_linked`.
+
+**Retorna:** `list[dict]` — array de docs con la misma forma que `order_book` (un elemento por ticker de la curva). Tickers que nunca recibieron market data NO aparecen.
+
+**Prompts típicos:**
+- "Books de toda la curva CER"
+- "Spread + depth de todas las Lecaps"
+- "¿Qué bonos de la curva soberanos tienen mejor liquidez en el book?"
+
+**Gotchas:**
+- **Tamaño**: una curva con 30 tickers ~15 KB. Es razonable, pero no llamar repetidamente — caches solo la lista de tickers (TTL 5 min), los books son fresh read.
+- **`updated_at` por ticker**: distintos tickers pueden tener distintos `updated_at` (operaron hace distinto tiempo). No es un timestamp global.
+- **Reasignación CER → tasa_fija**: a diferencia de `listar_curva`, esta tool NO reasigna. Si pedís `curva="cer"` vas a recibir TODOS los CER (incluso los ya fijados). Para distinguir, cruzar con `listar_curva`.
 
 ---
 

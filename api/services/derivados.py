@@ -11,6 +11,8 @@ Fuentes:
 """
 from __future__ import annotations
 
+from datetime import date
+
 from api.cache import cached
 from api.db import get_db_trading
 
@@ -21,10 +23,21 @@ from api.db import get_db_trading
 
 @cached(ttl=5)
 def get_futuros_dlr() -> list:
-    """Snapshot live de outrights DLR (Trading.FuturosDLRSnapshot).
-    Devuelve la curva entera ordenada por vencimiento ascendente."""
+    """Snapshot live de outrights DLR vigentes (Trading.FuturosDLRSnapshot).
+
+    Filtra contratos cuyo vencimiento ya pasó. El motor escribe con
+    ReplaceOne(upsert) y nunca borra; al vencer un contrato el doc queda
+    fantasma con la última info que tenía. Sin este filtro la API devuelve
+    contratos vencidos con TNAs sin sentido (jobs/cleanup_futuros_dlr.py
+    se encarga del housekeeping nocturno).
+    """
     db = get_db_trading()
-    return list(db["FuturosDLRSnapshot"].find({}, {"_id": 0}).sort("vencimiento", 1))
+    hoy = date.today().strftime("%Y%m%d")
+    return list(
+        db["FuturosDLRSnapshot"]
+        .find({"vencimiento": {"$gt": hoy}}, {"_id": 0})
+        .sort("vencimiento", 1)
+    )
 
 
 @cached(ttl=300)

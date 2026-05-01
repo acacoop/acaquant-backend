@@ -24,6 +24,7 @@ from api.services import descomposicion_retorno as svc_desc
 from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
 from api.services import opciones as svc_opt
+from api.services import order_book as svc_ob
 from api.services import rem as svc_rem
 from api.services import renta_fija as svc_rf
 from api.services import repo as svc_repo
@@ -142,6 +143,42 @@ def historico_trades(instrumento: str | None = None) -> list[dict]:
 )
 def historico_curva(curva: str) -> list[dict]:
     return svc_rf.get_historico_curva(curva=curva)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Order Book (LOB live, depth 5, sin histórico)
+# ─────────────────────────────────────────────────────────────────
+
+
+@mcp.tool(
+    description=(
+        "Order book live (depth 5) de un ticker de renta fija ARG. Devuelve "
+        "{ticker, updated_at, book: {bids[5], offers[5]}, metrics: "
+        "{last_price, open_price, high_price, low_price, closing_price}}. "
+        "Cada nivel del book es {price, size}. Refresh ~1s (lo escribe el "
+        "motor MicrostructureEngine sobre Trading.MarketSnapshot). Sin "
+        "histórico — siempre el último estado vivo. Acepta ticker corto "
+        "('TX26') o completo ('MERV - XMEV - TX26 - 24hs'). Retorna None si "
+        "el ticker no está en el universo de Trading.Curvas o nunca recibió "
+        "market data."
+    ),
+)
+def order_book(ticker: str) -> dict | None:
+    return svc_ob.get_order_book(ticker)
+
+
+@mcp.tool(
+    description=(
+        "Order books live (depth 5) de TODOS los tickers de una curva. Útil "
+        "para análisis comparativo de liquidez, microestructura o relative "
+        "value. curva ∈ {tasa_fija, cer, soberanos, tamar, dolar_linked}. "
+        "Cada elemento del array tiene la misma forma que order_book "
+        "(ticker, book.bids[5], book.offers[5], metrics, updated_at). "
+        "Refresh ~1s, sin histórico. Una sola query a Mongo internamente."
+    ),
+)
+def order_books_curva(curva: str) -> list[dict]:
+    return svc_ob.get_order_books_curva(curva=curva)
 
 
 # ─────────────────────────────────────────────────────────────────

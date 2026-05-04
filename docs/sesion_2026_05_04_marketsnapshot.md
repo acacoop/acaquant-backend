@@ -183,6 +183,45 @@ Cero find_one defensivo. Cero pisado entre motores. **Cada motor escribe lo suyo
 
 ---
 
+### 3.5 `curvas.py`: deja de enriquecer TimeSales, lee de MarketSnapshot
+
+**Antes:** `engines/curvas.py::run` cada 5s buscaba en TimeSales docs sin `duration` (los trades nuevos que metió valores.py), calculaba campos por trade, escribía `UpdateOne({"_id": doc["_id"]}, {"$set": campos})` sobre cada uno, y propagaba el último por ticker a MarketSnapshot.metrics.
+
+**Después:** Cada 2s lee `MarketSnapshot.metrics.last_price` por ticker, calcula campos a partir de ese precio + dependencias (CER, MEP, A3500, dias_habiles), y escribe **solo** a `MarketSnapshot.metrics.{TEA, TEM, duration, mod_duration, convexity, paridad}`. **TimeSales no se toca.**
+
+Cambios concretos en `engines/curvas.py`:
+1. `INTERVALO_SEGUNDOS`: 5 → 2 (sin escrituras a TimeSales se puede más rápido).
+2. `BATCH_SIZE = 200` removido (no hace falta limit cuando se lee 1 doc por ticker).
+3. Eliminadas las 2 `UpdateOne` sobre TimeSales (líneas viejas 686-690).
+4. Lectura cambia de TimeSales `find(... duration: $exists: false)` → MarketSnapshot `find({metrics.last_price: $gt: 0})`.
+5. Construye un "fake_doc" `{ticker, price, timestamp}` desde el doc del MarketSnapshot y lo pasa a `calcular_campos` igual que antes.
+6. Cache RAM `ultimo_calculado: dict[ticker → last_price]` — skipea recálculo si el ticker no se movió desde la iteración anterior. Se invalida completo cuando se recargan CER/MEP/A3500 (los outputs dependen de eso).
+
+**Por qué da el mismo TEA/duration que antes:**
+- `calcular_campos` solo consume `doc.price` y `doc.timestamp`. El precio que viene de MarketSnapshot es exactamente el mismo que se escribió desde el último trade en TimeSales.
+- CER, MEP, A3500, dias_habiles, instrumento — todos siguen viniendo del mismo lugar.
+
+**Performance:** sin lecturas a TimeSales con $exists/sort/limit y sin bulk_write a TimeSales, la carga del motor cae ~80% en tickers con poco volumen (cache hit) y ~50% en líquidos (cache miss pero sin escritura cara).
+
+**Lo que se rompe — los 4 consumers de "histórico real" sobre TimeSales:**
+
+| Consumer | Para fechas ≥ del cambio devuelve |
+|---|---|
+| `api/services/analitica.py::snapshot_curva_historico` | trades sin TEA/TEM/duration/paridad |
+| `api/services/renta_fija.py::get_historico_curva` | series diarias sin TEA |
+| `api/services/macro.py::obtener_serie_macro` (con `<TICKER>.<CAMPO>`) | serie vacía o nulls |
+| `api/services/descomposicion_retorno.py` (usa snapshot_curva_historico) | atribución parcial / null |
+
+Para fechas pasadas (< del cambio), siguen funcionando — los trades viejos en TimeSales mantienen sus campos enriquecidos.
+
+**El frontend NO se ve afectado** — la tabla de renta-fija lee de MarketSnapshot, el LibroPanel del LibroPanel ignora los campos enriquecidos. Lo que pierde son features de análisis avanzado vía MCP/asistente.
+
+**Mitigación pendiente:** migrar los 4 consumers a `Trading.SnapshotsCierre` (que ya tiene cierre diario por ticker con TEA/duration). Eso es la fase 3 — pendiente.
+
+**Cómo revertir:** `git revert <commit>` y reiniciar `motor_curvas.service`. Curvas vuelve a enriquecer TimeSales por trade.
+
+---
+
 ### 3.4 Migración de 5 consumers TimeSales → MarketSnapshot
 
 **Commit:** `4876f96` — `refactor(consumers): migrar lectura "última X por ticker" a MarketSnapshot`
@@ -211,15 +250,9 @@ Cero find_one defensivo. Cero pisado entre motores. **Cada motor escribe lo suyo
 
 ## Lo que NO se cambió (intencional)
 
-### TimeSales sigue enriquecido por curvas.py
+### Tests pre-existentes fallidos (no son regresión nuestra, ver abajo)
 
-`engines/curvas.py` sigue escribiendo `UpdateOne({"_id": doc["_id"]}, {"$set": campos})` sobre TimeSales (líneas 686-690). **No se tocó.** Las funciones de "histórico real" (descomposicion_retorno, historico_curva, serie_macro, snapshot_curva_historico) siguen leyendo de TimeSales.
-
-**Por qué:** un test empírico (commits `cee8b74`, `ecb5d7a`) confirmó que TS Collections de Mongo 8 NO permiten `update_one` ni `update by (ticker, timestamp)` — solo updates por metaField (`ticker`). Migrar TimeSales a TS rompe el patrón actual de curvas.py. Esa migración requiere:
-- Refactor de `engines/curvas.py` para mover el cálculo ANTES del insert.
-- O migrar consumers de "histórico" a leer de `Trading.SnapshotsCierre`.
-
-Ese trabajo quedó pendiente.
+(esta sección era sobre el enriquecimiento de TimeSales — ya está resuelto, ver 3.5)
 
 ### Tests pre-existentes fallidos (no son regresión)
 
@@ -271,8 +304,8 @@ Para volver al estado actual: `git checkout main` y restart.
 
 ## Pendientes que quedaron
 
-1. **Migración de "histórico real" a `SnapshotsCierre`** — los 4 consumers (descomposicion_retorno, historico_curva, serie_macro para tickers, snapshot_curva_historico) pueden refactorearse para leer de `Trading.SnapshotsCierre` en lugar de agregar TimeSales. Una vez hecho:
-   - Se puede dejar de enriquecer TimeSales por completo (sacar las 2 UpdateOne de `engines/curvas.py:686-690`).
-   - Se puede migrar TimeSales a TS Collection (append-only puro).
-2. **Endpoint `/api/cotizaciones/historico/trades` (LibroPanel)** — proyecta `duration/TEA/TEM/paridad` que el frontend ignora. Es payload muerto (~30% del JSON). Sacar del project es trivial cuando hagamos pasada de cleanup.
-3. **Tests pre-existentes rotos** — `test_pendiente_aplanamiento`, `test_pendiente_actual_largo_menos_corto`, `test_pendiente_con_fecha_comparacion_empinamiento`. No son regresión nuestra, pero conviene fixear.
+1. **Migración de "histórico real" a `SnapshotsCierre`** — los 4 consumers (descomposicion_retorno, historico_curva, serie_macro para tickers, snapshot_curva_historico) hoy leen TimeSales con `$group`. Para fechas ≥ del cambio en 3.5 devuelven null en TEA/duration porque los trades nuevos ya no se enriquecen. Refactorearlos a leer de `Trading.SnapshotsCierre` que tiene el cierre diario por ticker con todos los campos.
+2. **Extender `jobs/snapshot_cierre.py` a curvas V2** — hoy solo cubre `tasa_fija` y `cer`. Para que los consumers del punto 1 funcionen para `soberanos`/`tamar`/`dolar_linked`, hay que agregar esas curvas a `CURVAS_V1` (ahora ya no debería llamarse V1, pero el nombre queda).
+3. **Migrar TimeSales a TS Collection** — una vez hecho 1 y 2, TimeSales queda append-only puro (curvas ya no la actualiza). Ahí sí se puede crear `TimeSales_ts` con `timeField=timestamp, metaField=ticker, granularity=minutes`, copiar la data y swap. Compresión esperada ~60-80%.
+4. **Endpoint `/api/cotizaciones/historico/trades` (LibroPanel)** — proyecta `duration/TEA/TEM/paridad` que el frontend ignora. Es payload muerto (~30% del JSON). Sacar del project es trivial cuando hagamos pasada de cleanup.
+5. **Tests pre-existentes rotos** — `test_pendiente_aplanamiento`, `test_pendiente_actual_largo_menos_corto`, `test_pendiente_con_fecha_comparacion_empinamiento`. No son regresión nuestra, pero conviene fixear.

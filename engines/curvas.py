@@ -26,13 +26,13 @@ from engines._curvas_loader import cargar_indexado_por_ticker
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorCurvas")
 
-INTERVALO_SEGUNDOS = 5
+INTERVALO_SEGUNDOS = 2          # bajado de 5 a 2: sin escrituras a TimeSales,
+                                # podemos recalcular más rápido sin saturar.
 INTERVALO_RECARGA_CER = 3600    # recarga CER cada 1 hora
 INTERVALO_RECARGA_MEP = 60      # refresca MEP cada 1 min (para soberanos)
 # TC dolar-linked: mayorista dolarapi se actualiza cada 5 min en horario
 # rueda. Recargar cada 5 min para que paridad / TEA sigan al spot.
 INTERVALO_RECARGA_A3500 = 300
-BATCH_SIZE = 200
 
 
 # ─────────────────────────────────────────────
@@ -617,10 +617,13 @@ def calcular_campos(
 # Loop principal
 # ─────────────────────────────────────────────
 
+_CAMPOS_ANALITICOS = ("TEA", "TEM", "duration", "mod_duration", "convexity", "paridad")
+
+
 def run():
     logger.info("Motor Curvas iniciando...")
     client = get_mongo_client()
-    col_ts = client["Trading"]["TimeSales"]
+    col_ms = client["Trading"]["MarketSnapshot"]
 
     curvas = cargar_indexado_por_ticker()
     logger.info(f"Curvas cargadas: {len(curvas)} instrumentos")
@@ -634,92 +637,94 @@ def run():
     ultimo_reload_mep = time.time()
     ultimo_reload_a3500 = time.time()
 
+    # Cache RAM ticker → último last_price con el que YA calculamos.
+    # Si el last_price actual coincide, skipeamos (cero cambio en mercado).
+    # Cualquier recarga de CER/MEP/A3500 invalida el cache (porque los
+    # cálculos cambian aunque el precio no se haya movido).
+    ultimo_calculado: dict[str, float] = {}
+
     logger.info(
-        "Escuchando %d tickers. Loop cada %ds. MEP inicial: %s · A3500: %s",
+        "Escuchando %d tickers via MarketSnapshot. Loop cada %ds. MEP: %s · A3500: %s",
         len(tickers), INTERVALO_SEGUNDOS, mep_actual, tc_a3500_actual,
     )
 
     while True:
         try:
-            # Recargar CER cada hora (el dato se actualiza diariamente)
+            # Recargas periódicas. Cualquier cambio invalida el cache de
+            # cálculos (los outputs dependen de CER/MEP/A3500).
             if time.time() - ultimo_reload_cer > INTERVALO_RECARGA_CER:
                 cer_dict = cargar_cer(client)
                 ultimo_reload_cer = time.time()
+                ultimo_calculado.clear()
 
-            # Recargar MEP cada minuto (motor_dolares lo actualiza cada 5s).
             if time.time() - ultimo_reload_mep > INTERVALO_RECARGA_MEP:
                 mep_actual = cargar_mep_actual(client)
                 ultimo_reload_mep = time.time()
+                ultimo_calculado.clear()
 
-            # Recargar A3500 BCRA cada hora (jobs/bcra.py lo escribe 1×/día).
             if time.time() - ultimo_reload_a3500 > INTERVALO_RECARGA_A3500:
                 tc_a3500_actual = cargar_a3500_actual(client)
                 ultimo_reload_a3500 = time.time()
+                ultimo_calculado.clear()
 
-            # Buscar docs sin enriquecer — más recientes primero para no bloquear trades nuevos
-            docs = list(col_ts.find(
-                {"ticker": {"$in": tickers}, "duration": {"$exists": False}},
-                sort=[("timestamp", -1)],
-                limit=BATCH_SIZE
+            # Lectura del snapshot live: 1 doc por ticker. Sin agregaciones
+            # caras sobre TimeSales. valores.py escribe metrics.last_price
+            # cada 1s; tomamos el último.
+            ms_docs = list(col_ms.find(
+                {"ticker": {"$in": tickers}, "metrics.last_price": {"$gt": 0}},
+                {"_id": 0, "ticker": 1, "updated_at": 1, "metrics.last_price": 1},
             ))
 
-            if docs:
-                ops = []
-                # Para cada ticker, retenemos el enriquecimiento del trade
-                # más reciente para propagarlo al MarketSnapshot después.
-                por_ticker_reciente: dict[str, tuple[datetime, dict]] = {}
+            if not ms_docs:
+                time.sleep(INTERVALO_SEGUNDOS)
+                continue
 
-                for doc in docs:
-                    instrumento = curvas.get(doc["ticker"])
-                    if not instrumento:
-                        continue
-                    campos = calcular_campos(
-                        doc, instrumento, cer_dict, dias_habiles,
-                        mep_actual, tc_a3500_actual,
-                    )
-                    if not campos:
-                        # Marcamos el doc con duration: null para que el filtro
-                        # {duration: {$exists: false}} deje de devolverlo. Sin
-                        # esto el motor entra en loop infinito sobre docs que
-                        # no se pueden enriquecer (ej. ticker sin TEA derivable)
-                        # y nunca llega a procesar los más viejos.
-                        ops.append(UpdateOne(
-                            {"_id": doc["_id"]}, {"$set": {"duration": None}},
-                        ))
-                        continue
-                    ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": campos}))
+            ops_ms = []
+            for ms_doc in ms_docs:
+                ticker = ms_doc.get("ticker")
+                last_price = (ms_doc.get("metrics") or {}).get("last_price")
+                if not ticker or not last_price:
+                    continue
 
-                    # Guardar el más reciente por ticker (los docs vienen
-                    # ordenados desc por timestamp, pero dentro del batch
-                    # puede repetirse ticker).
-                    ts = doc.get("timestamp")
-                    if ts:
-                        prev = por_ticker_reciente.get(doc["ticker"])
-                        if prev is None or ts > prev[0]:
-                            por_ticker_reciente[doc["ticker"]] = (ts, campos)
+                # Skip si ya calculamos para este last_price (no hubo trade
+                # nuevo desde la última iteración, y CER/MEP/A3500 no se
+                # recargaron tampoco — sino el cache estaría limpio).
+                if ultimo_calculado.get(ticker) == last_price:
+                    continue
 
-                if ops:
-                    col_ts.bulk_write(ops, ordered=False)
-                    logger.info(f"{len(ops)} docs enriquecidos.")
+                instrumento = curvas.get(ticker)
+                if not instrumento:
+                    continue
 
-                # Propagar los campos analíticos al MarketSnapshot del
-                # ticker — así la tabla de renta fija y cualquier otro
-                # consumer del snapshot ven TEA/duration/paridad sin tener
-                # que hacer un join extra a TimeSales.
-                if por_ticker_reciente:
-                    col_ms = client["Trading"]["MarketSnapshot"]
-                    ops_ms = []
-                    for ticker, (_, campos) in por_ticker_reciente.items():
-                        updates = {}
-                        for field in ("TEA", "TEM", "duration", "mod_duration", "convexity", "paridad"):
-                            if field in campos:
-                                updates[f"metrics.{field}"] = campos[field]
-                        if updates:
-                            ops_ms.append(UpdateOne(
-                                {"ticker": ticker}, {"$set": updates},
-                            ))
-                    if ops_ms:
-                        col_ms.bulk_write(ops_ms, ordered=False)
+                # calcular_campos espera un "doc" con price y timestamp.
+                # Le armamos uno desde MarketSnapshot — semánticamente
+                # equivalente al trade que generó ese last_price.
+                fake_doc = {
+                    "ticker":    ticker,
+                    "price":     last_price,
+                    "timestamp": ms_doc.get("updated_at") or datetime.utcnow(),
+                }
+                campos = calcular_campos(
+                    fake_doc, instrumento, cer_dict, dias_habiles,
+                    mep_actual, tc_a3500_actual,
+                )
+                # Marcamos como visto aunque el cálculo falle, para no
+                # iterar el mismo ticker indefinidamente sin progreso.
+                ultimo_calculado[ticker] = last_price
+                if not campos:
+                    continue
+
+                updates = {
+                    f"metrics.{field}": campos[field]
+                    for field in _CAMPOS_ANALITICOS
+                    if field in campos
+                }
+                if updates:
+                    ops_ms.append(UpdateOne({"ticker": ticker}, {"$set": updates}))
+
+            if ops_ms:
+                col_ms.bulk_write(ops_ms, ordered=False)
+                logger.info(f"{len(ops_ms)} tickers enriquecidos en MarketSnapshot.")
 
         except Exception:
             logger.error(f"Error en loop:\n{traceback.format_exc()}")

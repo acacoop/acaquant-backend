@@ -223,21 +223,38 @@ def book_window(
     return list(cursor)
 
 
+def _to_naive_art(dt: datetime) -> datetime:
+    """UTC tz-aware (o naive UTC) → naive ART, formato que usa TimeSales."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return (dt.astimezone(UTC) - timedelta(hours=3)).replace(tzinfo=None)
+
+
+def _to_aware_utc(dt_naive_art: datetime) -> datetime:
+    """Naive ART → UTC tz-aware. Inverso de _to_naive_art."""
+    return (dt_naive_art + timedelta(hours=3)).replace(tzinfo=UTC)
+
+
 def trades_window(
     ticker: str, desde: datetime, hasta: datetime, dust: int = 0,
 ) -> list[dict]:
     """Trades del ticker en [desde, hasta], ordenados ascendente por timestamp.
 
-    El timestamp en TimeSales es naive ART (-3h vs UTC real). Para alinear
-    con OrderBookL2 (tz-aware UTC) lo normalizamos a UTC tz-aware sumando 3h.
+    `desde` y `hasta` se reciben en UTC tz-aware (o naive UTC) — internamente
+    se convierten a naive ART para queryar TimeSales (donde el timestamp se
+    guarda naive ART por motor_rofex). Los timestamps en el output se
+    devuelven como UTC tz-aware (alineados con OrderBookL2).
     """
+    desde_q = _to_naive_art(desde)
+    hasta_q = _to_naive_art(hasta)
+
     db = get_mongo_client_read()[DB_TRADING]
     cursor = (
         db[COL_TS]
         .find(
             {
                 "ticker":    ticker,
-                "timestamp": {"$gte": desde, "$lte": hasta},
+                "timestamp": {"$gte": desde_q, "$lte": hasta_q},
                 "size":      {"$gte": dust},
             },
             {"_id": 0, "timestamp": 1, "price": 1, "size": 1, "side": 1},
@@ -247,10 +264,8 @@ def trades_window(
     out = []
     for doc in cursor:
         ts = doc.get("timestamp")
-        # Si vino naive (caso TimeSales — naive ART), lo convertimos a UTC
-        # tz-aware sumando 3h. Si ya es tz-aware, lo dejamos.
         if isinstance(ts, datetime) and ts.tzinfo is None:
-            ts = (ts + timedelta(hours=3)).replace(tzinfo=UTC)
+            ts = _to_aware_utc(ts)
         out.append({
             "timestamp": ts,
             "price":     float(doc.get("price") or 0),
@@ -287,10 +302,11 @@ def get_live(ticker: str = DEFAULT_TICKER) -> dict[str, Any]:
     metrics = book_metrics(book)
 
     # Último trade de las últimas 24h (defensivo en caso de mercado cerrado).
+    # TimeSales guarda naive ART; queryamos en ese formato.
     db = get_mongo_client_read()[DB_TRADING]
-    desde_naive = (datetime.utcnow() - timedelta(hours=27))  # 24h + 3h ART
+    desde_q = _to_naive_art(datetime.now(UTC) - timedelta(hours=24))
     last_trade_doc = db[COL_TS].find_one(
-        {"ticker": ticker, "timestamp": {"$gte": desde_naive}},
+        {"ticker": ticker, "timestamp": {"$gte": desde_q}},
         {"_id": 0, "timestamp": 1, "price": 1, "size": 1, "side": 1},
         sort=[("timestamp", -1)],
     )
@@ -299,7 +315,7 @@ def get_live(ticker: str = DEFAULT_TICKER) -> dict[str, Any]:
     if last_trade_doc:
         ts_t = last_trade_doc.get("timestamp")
         if isinstance(ts_t, datetime) and ts_t.tzinfo is None:
-            ts_t = (ts_t + timedelta(hours=3)).replace(tzinfo=UTC)
+            ts_t = _to_aware_utc(ts_t)
         last_trade = enrich_trade(
             {
                 "timestamp": ts_t,
@@ -375,8 +391,12 @@ def get_intraday(
     if fecha_d is None:
         return {"ticker": ticker, "fecha": None, "bucket_min": bucket_min, "buckets": []}
 
-    desde_dt = datetime.combine(fecha_d, time.min, tzinfo=UTC)
-    hasta_dt = datetime.combine(fecha_d, time.max, tzinfo=UTC)
+    # `fecha` es la fecha de mercado ART. Convertimos los bordes a UTC
+    # tz-aware (que es lo que ambas queries esperan internamente).
+    desde_art = datetime.combine(fecha_d, time.min)
+    hasta_art = datetime.combine(fecha_d, time.max)
+    desde_dt = _to_aware_utc(desde_art)
+    hasta_dt = _to_aware_utc(hasta_art)
 
     trades = trades_window(ticker, desde_dt, hasta_dt)
     books = book_window(ticker, desde_dt, hasta_dt)
@@ -712,6 +732,7 @@ def _parse_date(s: str) -> date | None:
 
 
 def _last_trading_date(ticker: str) -> date | None:
+    """Última fecha (ART) con trades en TimeSales para `ticker`."""
     db = get_mongo_client_read()[DB_TRADING]
     doc = db[COL_TS].find_one(
         {"ticker": ticker}, {"_id": 0, "timestamp": 1}, sort=[("timestamp", -1)],
@@ -720,8 +741,7 @@ def _last_trading_date(ticker: str) -> date | None:
         return None
     ts = doc.get("timestamp")
     if isinstance(ts, datetime):
-        if ts.tzinfo is None:
-            ts = (ts + timedelta(hours=3)).replace(tzinfo=UTC)
+        # ts viene naive ART; .date() es la fecha de mercado ART.
         return ts.date()
     return None
 
@@ -745,11 +765,11 @@ def _resolve_dias(
             cur = cur + timedelta(days=1)
         return out
 
-    # Modo "últimos N días con actividad".
+    # Modo "últimos N días con actividad". TimeSales tiene timestamps naive ART.
     db = get_mongo_client_read()[DB_TRADING]
-    desde_dt = datetime.utcnow() - timedelta(days=max(dias * 3, 30))
+    desde_q = _to_naive_art(datetime.now(UTC) - timedelta(days=max(dias * 3, 30)))
     pipeline = [
-        {"$match": {"timestamp": {"$gte": desde_dt}}},
+        {"$match": {"timestamp": {"$gte": desde_q}}},
         {"$group": {
             "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
             "n":   {"$sum": 1},

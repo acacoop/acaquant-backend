@@ -1,10 +1,10 @@
 # MCP Tools Reference — TradingAV
 
-> Documento de referencia para LLMs que consumen las 32 tools del MCP server `https://api.acaquant.com/mcp`. Pensado para alimentar el contexto de Claude (Custom Connector / Project knowledge) y acelerar la decisión de qué tool usar para cada pregunta del usuario.
+> Documento de referencia para LLMs que consumen las 34 tools del MCP server `https://api.acaquant.com/mcp`. Pensado para alimentar el contexto de Claude (Custom Connector / Project knowledge) y acelerar la decisión de qué tool usar para cada pregunta del usuario.
 
 ## Qué expone este MCP
 
-Datos de mercado **argentino** en lectura: curvas de tasa fija (Lecaps/Boncaps), CER, soberanos hard-dollar (Globales/Bonares), TAMAR, dólar-linked, forwards entre tasas, breakevens de inflación, futuros DLR (Rofex), cauciones, MEP/CCL/canje, opciones GGAL, expectativas REM del BCRA, series macro, y **order book live (depth 5) de bonos**.
+Datos de mercado **argentino** en lectura: curvas de tasa fija (Lecaps/Boncaps), CER, soberanos hard-dollar (Globales/Bonares), TAMAR, dólar-linked, forwards entre tasas, breakevens de inflación, futuros DLR (Rofex), cauciones, MEP/CCL/canje, opciones GGAL, expectativas REM del BCRA, series macro, **order book live (depth 5) de bonos**, y **order book L2 histórico** (cada cambio del book persistido tick-a-tick para tickers seleccionados).
 
 ## Qué NO expone (y no hay que asumir que existe)
 
@@ -45,6 +45,8 @@ Si el usuario pide algo de esos rubros, el connector no puede ayudar — hay que
 | "Series de cierre de toda la curva tasa fija" | `historico_curva` | — |
 | "¿Cómo está el book del TX26 ahora?" / "Profundidad del AL30" | `order_book` | — |
 | "Books de toda la curva CER" / "Spread + depth de tasa fija" | `order_books_curva` | — |
+| "Cómo evolucionó el spread de AL30 CI entre 14:00 y 14:30" | `order_book_historico` | — |
+| "Qué tickers tienen captura L2 activa hoy" | `listar_tickers_orderbook_l2` | — |
 | "¿Qué Lecap convino comprar entre A y B?" (post-mortem) | `descomposicion_retorno` | `historico_trades` para contexto |
 | "¿Qué Lecer convino el último mes?" (post-mortem CER) | `descomposicion_retorno` (curva="cer") | — |
 | "¿Qué Lecap conviene a 30 días si la curva no se mueve?" | `rolldown_esperado` | — |
@@ -243,6 +245,54 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 - **Tamaño**: una curva con 30 tickers ~15 KB. Es razonable, pero no llamar repetidamente — caches solo la lista de tickers (TTL 5 min), los books son fresh read.
 - **`updated_at` por ticker**: distintos tickers pueden tener distintos `updated_at` (operaron hace distinto tiempo). No es un timestamp global.
 - **Reasignación CER → tasa_fija**: a diferencia de `listar_curva`, esta tool NO reasigna. Si pedís `curva="cer"` vas a recibir TODOS los CER (incluso los ya fijados). Para distinguir, cruzar con `listar_curva`.
+
+---
+
+#### `order_book_historico`
+**Para qué:** Series temporales del LOB L2 entre dos timestamps. A diferencia de `order_book` (último estado vivo), devuelve la serie completa de cambios del book — cada vez que bids u offers cambiaron en algún nivel se persistió como un doc nuevo. Útil para análisis de microestructura: evolución del spread, depth, imbalance, velocidad de updates, replay de eventos.
+
+**Cobertura:** Solo tickers en `config.TICKERS_BOOK_FULL` del backend (hoy: AL30 CI). Usar `listar_tickers_orderbook_l2` para confirmar qué hay disponible.
+
+**Params:**
+- `ticker: str` — **debe ser el ticker COMPLETO** (`MERV - XMEV - AL30 - CI`). El corto NO resuelve acá.
+- `desde: str | None` — ISO datetime (`2026-05-04T13:00:00Z`) o fecha (`2026-05-04`). Default: 1h atrás de `hasta`.
+- `hasta: str | None` — ISO datetime o fecha. Default: ahora UTC.
+- `limit: int = 1000` — max 10000.
+
+**Retorna:** `list[dict]` ordenado ascendente por `ts`:
+```python
+[
+  {
+    "ts":     "2026-05-04T13:30:01.234Z",
+    "ticker": "MERV - XMEV - AL30 - CI",
+    "bids":   [{"price": 1234.5, "size": 100}, ...x5],
+    "offers": [{"price": 1234.8, "size": 75}, ...x5],
+  },
+  ...
+]
+```
+
+**Prompts típicos:**
+- "Mostrame cómo evolucionó el spread del top of book de AL30 CI entre 14:00 y 14:30"
+- "Cuántos cambios de book tuvo AL30 CI hoy en la primera hora de rueda"
+- "Calculá el order imbalance promedio de AL30 CI durante la rueda"
+
+**Gotchas:**
+- Si la ventana excede `limit` docs, devuelve los **primeros `limit`** (no los últimos). Pedir ventana más chica si querés cobertura completa.
+- Cobertura limitada: solo tickers en whitelist. Para ampliar requiere agregar al config y reiniciar el motor `motor_order_book_l2`.
+- Persistencia es event-driven (cada cambio del book), no muestreada. Un ticker líquido puede tener miles de docs por minuto en horario activo.
+
+---
+
+#### `listar_tickers_orderbook_l2`
+**Para qué:** Lista de tickers que tienen captura L2 histórica activa en `Trading.OrderBookL2`. Útil para saber qué activos podés pasar a `order_book_historico` antes de pedir data.
+
+**Params:** ninguno.
+
+**Retorna:** `list[str]` con tickers completos.
+
+**Prompts típicos:**
+- "¿Qué tickers tienen captura L2 disponible para análisis histórico?"
 
 ---
 

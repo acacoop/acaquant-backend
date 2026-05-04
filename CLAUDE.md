@@ -86,7 +86,7 @@ X = [(1 + retorno_lecap) · (precio_cer · cer_emision) / (vn_cer · cer_actual)
 ```
 Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_cer` = vto − 10 hábiles. Filtro `mes_inflacion ≤ último IPC publicado`. Fallback Fisher si faltan datos.
 
-**Forwards**: `((1 + TEA_B)^t_B / (1 + TEA_A)^t_A)^(1/(t_B − t_A)) − 1`. Requiere TEA en TimeSales (la escribe `motor_curvas`).
+**Forwards**: `((1 + TEA_B)^t_B / (1 + TEA_A)^t_A)^(1/(t_B − t_A)) − 1`. Lee última TEA por ticker desde `MarketSnapshot.metrics.TEA` (escrita por `motor_curvas` en cada update). Igual patrón usan `breakevens.py` y los services de portfolio/renta-fija. **No leer TimeSales agregado** — es estrictamente más caro y devuelve el mismo valor que el snapshot live.
 
 **TC Breakeven** (`api/services/renta_fija.py::_tc_breakeven`, sólo tasa fija nativa o CER fijado): `TC_BE = MEP × (flujo_vencimiento / precio_actual)`. Lee `flujo_vencimiento` de `Trading.Curvas`, `last_price` del trade más reciente y MEP de `get_ultimo_mep` (live, TTL 5s). Se calcula on-the-fly en `get_renta_fija` y `listar_curva` — no se persiste.
 
@@ -100,7 +100,7 @@ Doc completo: `docs/ASISTENTE.md`. `api/agent/` + `POST /api/chat`. Provider Cla
 
 ## MCP server (Custom Connector)
 
-`api/mcp/` montado en `https://api.acaquant.com/mcp` — 27 tools de SOLO LECTURA sobre datos de mercado (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad). NO expone portfolio/operaciones/cuentas/AuM/manager (mismo policy que el asistente). Cada tool es thin wrapper sobre `api/services/*`. Cliente principal: Claude Desktop / claude.ai vía Custom Connector.
+`api/mcp/` montado en `https://api.acaquant.com/mcp` — 34 tools de SOLO LECTURA sobre datos de mercado (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad, order book L2 live + histórico). NO expone portfolio/operaciones/cuentas/AuM/manager (mismo policy que el asistente). Cada tool es thin wrapper sobre `api/services/*`. Cliente principal: Claude Desktop / claude.ai vía Custom Connector. Doc completo de cada tool: `docs/MCP_TOOLS.md`.
 
 **Auth**: OAuth 2.1 + PKCE + DCR (RFC 7591), Cloudflare Access como IdP. Flow: Claude hace DCR → `/oauth/authorize` (CF Access pide login al user) → handler lee `cf-access-jwt-assertion` → emite `code` → `/oauth/token` lo canjea por JWT (HS256, TTL 1h) → Claude usa el JWT en Bearer en `/mcp/`. Storage en Mongo db `MCP` (TTL automático en codes/tokens).
 
@@ -119,4 +119,16 @@ Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `syste
 
 **Frontend en repo hermano `../acaquant-web/`** (Next.js, deploy auto en Vercel). Cambios de API con impacto en UI se editan ahí con rutas absolutas — no es submodule, es checkout paralelo.
 
-Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.dolar_api` (*/5 13-20 L-V, `Valuaciones.DolarOficial`), `jobs.aum` (23 L-V).
+Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.dolar_api` (*/5 13-20 L-V, `Valuaciones.DolarOficial`), `jobs.aum` (23 L-V), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `MarketSnapshot` y persiste cierre por bono en `Trading.SnapshotsCierre`).
+
+## Patrón de escritura a `Trading.MarketSnapshot`
+
+Dos motores escriben a `MarketSnapshot` con `$set` parcial sin pisarse:
+- `engines/valores.py` (motor_rofex) → `book.bids/offers`, `metrics.{last_price, open_price, high_price, low_price, closing_price, vwap, total_nominals}`, `updated_at`. Refresh 1s.
+- `engines/curvas.py` (motor_curvas) → `metrics.{TEA, TEM, duration, mod_duration, convexity, paridad}`. Refresh 5s.
+
+Cada uno escribe SOLO sus campos via `UpdateOne($set: dot-notation, upsert=True)`. **No usar `ReplaceOne`** — pisa los campos del otro motor. El doc no tiene `top_trades` ni `recent_trades` (eran payload muerto, removidos).
+
+## Order book L2 (captura full)
+
+Motor dedicado `engines/order_book_l2.py` — sesión rofex separada del motor_rofex, suscribe solo entries `BIDS+OFFERS` con depth 5 para los tickers en `config.TICKERS_BOOK_FULL`. Cada cambio del book persistido como doc nuevo (append-only) en `Trading.OrderBookL2` (Time Series Collection). Sin pisado de TimeSales/MarketSnapshot. Cron L-V 13:00–20:05 UTC vía `motor_order_book_l2.service`. Setup one-shot: `python -m scripts.init_orderbook_l2_collection`.

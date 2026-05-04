@@ -285,9 +285,9 @@ Live and historical market data. All reads go directly against `Trading.*` / `Op
 | GET | `/historico/dolares` | Multi-USD type history (D, C, MEP, oficial, …) |
 | GET | `/historico/forwards` | Forward matrices by date |
 | GET | `/historico/breakevens` | Breakevens by date |
-| GET | `/historico/trades` | TimeSales, last 15 days, hard-limit 10 000 trades |
+| GET | `/historico/trades` | Raw trades (price/size/side) from `Trading.TimeSales`, last 15 days, hard-limit 10 000. Analytics (TEA/TEM/duration/paridad) populated only for trades **before 2026-05-04** (motor_curvas stopped enriching TimeSales after that). |
 | GET | `/historico/opciones` | Option trades, last 21 days, hard-limit 5 000 |
-| GET | `/historico/curva` | Daily close per ticker in a curve (`curva` required) |
+| GET | `/historico/curva` | Daily close per ticker in a curve (`curva` required). Source: `Trading.SnapshotsCierre` (cron 20:25 UTC L-V). If today has no persisted close yet, includes a live row per ticker from `Trading.MarketSnapshot.metrics`. |
 | GET | `/historico/caucion` | Daily TNA close by currency |
 | GET | `/historico/futuros-dlr` | Daily DLR futures close |
 
@@ -300,9 +300,14 @@ Live and historical market data. All reads go directly against `Trading.*` / `Op
 | `curva` | `enum` | `tasa_fija` \| `cer` \| `tamar` \| `soberanos` \| `dolar_linked` |
 | `tipo` | `enum` | `CALL` \| `PUT` (options) |
 
-#### Enriched TimeSales fields
+#### Bond analytics fields (TEA / duration / paridad / etc)
 
-`/historico/trades` and `/historico/curva` surface fields written by `engines/curvas.py` for instruments in `Trading.Curvas`:
+These fields are computed by `engines/curvas.py` (refresh ~2s) and persisted in two places:
+
+- **Live** — `Trading.MarketSnapshot.metrics`. Surfaced by `/listar-curva`, `/snapshot-curva-historico` (when `fecha=today` before the close cron), and the live row of `/historico/curva` for today.
+- **Historical** — `Trading.SnapshotsCierre` (one doc per `(curva, ts_cierre, ticker)`, populated by `jobs/snapshot_cierre.py` at 20:25 UTC and the `backfill_snapshots_cierre` script). Surfaced by `/historico/curva`, `/snapshot-curva-historico` (past dates), `/serie-macro` with `<TICKER>.<FIELD>`, etc.
+
+Field semantics:
 
 | Field | Instruments | Meaning |
 |---|---|---|
@@ -311,6 +316,8 @@ Live and historical market data. All reads go directly against `Trading.*` / `Op
 | `TEA` | `tasa_fija` + `cer` | Annual effective rate |
 | `TEM` | `tasa_fija` | Monthly effective rate |
 | `paridad` | `cer` + soberanos | `price / (VN × CER_trade / CER_emision) × 100` |
+
+**Note on `/historico/trades`:** before 2026-05-04 these fields were also stamped per-trade in `Trading.TimeSales` (motor_curvas wrote them on every tick). After that refactor TimeSales is append-only price/size/side; the analytics live exclusively in `MarketSnapshot` (live) and `SnapshotsCierre` (close). For "TEA history of bond X" prefer `/historico/curva` filtering by ticker on the client, or `/serie-macro?variable=<TICKER>.TEA`.
 
 ---
 
@@ -363,11 +370,11 @@ Cross-MEP arb monitor. Joins live AL30 (CI/24hs) with AL30D, computes implied ME
 
 #### `GET /carry-trade`
 
-Implied local carry vs forward-implied devaluation (ROFEX DLR). The frontend caches this aggressively — `next: { revalidate: ... }` settings live in acaquant-web.
+Implied local carry vs forward-implied devaluation (ROFEX DLR). Daily prices source: `Trading.SnapshotsCierre` (cron 20:25 UTC L-V). If the requested range includes today and the close cron has not run yet, a live point is appended from `Trading.MarketSnapshot.metrics.last_price` so the series always reaches "today" during market hours. MEP comes from `Valuaciones.Dolar` (cron `dolar_api` every 5 min L-V 13–20 UTC).
 
 #### `GET /descomposicion-retorno`
 
-Ex-post return decomposition between two dates. Modes: `realizado` (ex-post, requires both dates) and `proyectado` (live carry). CER curve supported. See the assistant tool `descomposicion_retorno` for the full formula breakdown.
+Ex-post return decomposition between two dates. Modes: `realizado` (ex-post, requires both dates) and `proyectado` (live carry). CER curve supported. Both endpoints read `Trading.SnapshotsCierre` via `snapshot_curva_historico`; if either bound is today and no close is persisted, the same live fallback to `MarketSnapshot.metrics` applies. See `api/services/descomposicion_retorno.py` for the full formula breakdown.
 
 #### `POST /estrategia-historico`
 
@@ -611,7 +618,7 @@ Every mutation invalidates the in-process cache (`core/roles.py::invalidate_cach
 
 | Path | Description |
 |---|---|
-| `GET /checks/curvas-pendientes` | TimeSales trades missing `duration`, grouped by ticker |
+| `GET /checks/curvas-pendientes` | TimeSales trades missing `duration`, grouped by ticker. **Obsoleto post 2026-05-04** — `motor_curvas` ya no enriquece TimeSales; todos los trades nuevos aparecen acá. Mantener sólo para auditar el universo histórico. |
 | `GET /checks/forwards` | Per-curve TEA availability vs `ForwardsLive.tickers` |
 | `GET /checks/cer` | CER used in the last enriched trade per CER bond |
 | `GET /checks/tasa-fija` | State of tasa-fija instruments in the latest AuM snapshot |
@@ -955,3 +962,7 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest on every push.
 | 2026-04-29 | **fix(rbac):** `/api/titulos/*` pasa de `_PORTFOLIOS` a `_PUBLIC` — sales no podía ver la curva de renta-fija ("MERCADO CERRADO") porque el catálogo no devolvía `flujos`. `titulos` es puro catálogo, no info de portfolio. |
 | 2026-04-29 | Add MM Workstation Manager **ASSETS tab** — selector CFI + selector underlying + tabla con todos los instruments del mercado (drill-down de discovery pyRofex). |
 | 2026-04-29 | Add `/api/derivados/agro` + `engines/motor_agro.py` — Pase Agro (Trigo/Maíz/Soja Rosario, CFI FXXXSX). Tabla con fila PIZARRA editable manual (admin only beta) + futuros live de `Trading.AgroSnapshot`. TNAV = `(pizarra/last)^(365/dias) − 1` validada contra planilla mesa. Motor NO escribe TimeSales (solo snapshot). |
+| 2026-05-04 | **refactor(MarketSnapshot):** `engines/valores.py` y `engines/curvas.py` ahora escriben con `UpdateOne $set` parcial sin pisarse. `motor_curvas` deja de enriquecer `Trading.TimeSales` por trade — sólo escribe a `MarketSnapshot.metrics.{TEA,TEM,duration,mod_duration,convexity,paridad}`. 5 consumers migrados de `aggregate $sort+$group` sobre TimeSales a `find` directo sobre `MarketSnapshot.metrics`. `top_trades`/`recent_trades` removidos (payload muerto). |
+| 2026-05-04 | Add **Order Book L2** — `engines/order_book_l2.py` (sesión rofex separada, append-only) + `Trading.OrderBookL2` (Time Series Collection). Endpoint `GET /api/cotizaciones/order-book-historico`. 4 tools nuevas en MCP (`order_book`, `order_books_curva`, `order_book_historico`, `listar_tickers_orderbook_l2`). Cron L-V 13:00–20:05 UTC. |
+| 2026-05-04 | **refactor(históricos):** `get_historico_curva` y `snapshot_curva_historico` migrados de `aggregate` sobre TimeSales a `find` sobre `Trading.SnapshotsCierre` (cierre diario pre-agregado por `jobs/snapshot_cierre`). Backfill a 5 curvas hasta 2026-04-30 vía `scripts/backfill_snapshots_cierre`. |
+| 2026-05-04 | **fix(retorno-total + carry-trade):** Live fallback a `MarketSnapshot.metrics` cuando la fecha pedida es hoy y el cron 20:25 UTC aún no corrió. Aplicado a `snapshot_curva_historico`, `_precios_diarios_curva` (carry) y `get_historico_curva`. Frontend Vercel: `/api/historico-curva` y `/api/analitica/[...path]` con `dynamic="force-dynamic"` + `Cache-Control: no-store` para que el CDN no sirva la respuesta vieja. |

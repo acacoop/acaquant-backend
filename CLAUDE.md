@@ -132,3 +132,16 @@ Cada uno escribe SOLO sus campos via `UpdateOne($set: dot-notation, upsert=True)
 ## Order book L2 (captura full)
 
 Motor dedicado `engines/order_book_l2.py` — sesión rofex separada del motor_rofex, suscribe solo entries `BIDS+OFFERS` con depth 5 para los tickers en `config.TICKERS_BOOK_FULL`. Cada cambio del book persistido como doc nuevo (append-only) en `Trading.OrderBookL2` (Time Series Collection). Sin pisado de TimeSales/MarketSnapshot. Cron L-V 13:00–20:05 UTC vía `motor_order_book_l2.service`. Setup one-shot: `python -m scripts.init_orderbook_l2_collection`.
+
+## Patrón "live fallback" (cierre persistido + live de hoy)
+
+Endpoints que sirven data agregada del cierre diario y aceptan `fecha` como input deben leer `Trading.SnapshotsCierre` primero y, si no hay doc para hoy (cron `jobs.snapshot_cierre` corre 20:25 UTC), caer a `Trading.MarketSnapshot.metrics`. Mismos campos, mismo shape.
+
+Sin esto, durante horario de mercado las vistas se quedan en el cierre del día anterior hábil hasta que el cron corra a las 17:25 ART. Con esto, `fecha=hoy` siempre devuelve datos vigentes.
+
+Aplicado hoy en (commits 2026-05-04):
+- `api/services/analitica.py::snapshot_curva_historico` — fallback A para `fecha=today`.
+- `api/services/renta_fija.py::get_historico_curva` — agrega fila por ticker desde MarketSnapshot si hoy no está en SnapshotsCierre.
+- `api/services/carry_trade.py::_precios_diarios_curva` — helper `_precios_live_curva` para el último punto.
+
+Si en el futuro se agregan endpoints similares (canje, breakevens, forwards diarios), aplicar el mismo patrón. **Frontend complementa**: las routes de Next que sirven estos endpoints necesitan `export const dynamic = "force-dynamic"` + `revalidate = 0` + `Cache-Control: no-store` para que el CDN de Vercel no cachee la respuesta y borre el "hoy" live.

@@ -210,7 +210,12 @@ def latest_book(ticker: str = DEFAULT_TICKER) -> dict | None:
 def book_window(
     ticker: str, desde: datetime, hasta: datetime,
 ) -> list[dict]:
-    """Snapshots del book en [desde, hasta], ordenados ascendente por ts."""
+    """Snapshots del book en [desde, hasta], ordenados ascendente por ts.
+
+    PyMongo deserializa BSON datetimes como naive por default. Normalizamos
+    a UTC tz-aware acá para que align_trades_to_book pueda comparar contra
+    los timestamps de los trades (que ya vienen tz-aware desde trades_window).
+    """
     db = get_mongo_client_read()[DB_TRADING]
     cursor = (
         db[COL_OB]
@@ -220,7 +225,13 @@ def book_window(
         )
         .sort("ts", 1)
     )
-    return list(cursor)
+    out = []
+    for doc in cursor:
+        ts = doc.get("ts")
+        if isinstance(ts, datetime) and ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        out.append({"ts": ts, "bids": doc.get("bids") or [], "offers": doc.get("offers") or []})
+    return out
 
 
 def _to_naive_art(dt: datetime) -> datetime:

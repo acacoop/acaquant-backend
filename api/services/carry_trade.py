@@ -13,7 +13,7 @@ el frontend.
 """
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from api.cache import cached
 from api.db import get_db_trading, get_db_valuaciones
@@ -69,7 +69,48 @@ def _serie_oficial_diaria(db_trd, desde: date, hasta: date) -> dict[date, float]
 
 
 def _precios_diarios_curva(db_trd, curva: str, desde: date, hasta: date) -> dict[str, dict[date, float]]:
-    """{ticker_corto: {fecha: ultimo_precio}} para todos los bonos de la curva."""
+    """{ticker_corto: {fecha: ultimo_precio}} para todos los bonos de la curva.
+
+    Lee Trading.SnapshotsCierre (1 doc por (curva, fecha, ticker)). Solo
+    días con cierre real persistido por jobs/snapshot_cierre — descarta
+    de raíz fines de semana y feriados (donde antes aparecían fechas
+    fantasma del aggregate sobre TimeSales).
+
+    Si el rango incluye el día de hoy y aún no hay cierre persistido (el
+    cron snapshot_cierre corre 20:25 UTC), agrega un punto live leyendo
+    Trading.MarketSnapshot — así el frontend siempre muestra "hasta hoy"
+    sin esperar al cron.
+    """
+    out: dict[str, dict[date, float]] = {}
+    cur = db_trd["SnapshotsCierre"].find(
+        {
+            "curva":         curva,
+            "ts_cierre":     {"$gte": desde.isoformat(), "$lte": hasta.isoformat()},
+            "ultimo_precio": {"$gt": 0},
+        },
+        {"_id": 0, "ts_cierre": 1, "ticker": 1, "ticker_corto": 1, "ultimo_precio": 1},
+    )
+    for r in cur:
+        try:
+            f = datetime.strptime(r["ts_cierre"], "%Y-%m-%d").date()
+        except (ValueError, KeyError):
+            continue
+        corto = r.get("ticker_corto") or r.get("ticker")
+        out.setdefault(corto, {})[f] = float(r["ultimo_precio"])
+
+    hoy = datetime.utcnow().date()
+    if desde <= hoy <= hasta and not any(hoy in serie for serie in out.values()):
+        live = _precios_live_curva(db_trd, curva)
+        for corto, price in live.items():
+            out.setdefault(corto, {})[hoy] = price
+    return out
+
+
+def _precios_live_curva(db_trd, curva: str) -> dict[str, float]:
+    """{ticker_corto: last_price} desde Trading.MarketSnapshot para los
+    tickers de la curva. Usado como punto live cuando el cron de cierre
+    aún no corrió.
+    """
     meta = {
         d["ticker"]: d.get("ticker_corto") or d["ticker"]
         for d in db_trd["Curvas"].find(
@@ -78,33 +119,15 @@ def _precios_diarios_curva(db_trd, curva: str, desde: date, hasta: date) -> dict
     }
     if not meta:
         return {}
-
-    inicio = datetime.combine(desde, datetime.min.time(), tzinfo=UTC)
-    fin = datetime.combine(hasta + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
-    pipeline = [
-        {"$match": {
-            "ticker":    {"$in": list(meta.keys())},
-            "price":     {"$gt": 0},
-            "timestamp": {"$gte": inicio, "$lt": fin},
-        }},
-        {"$addFields": {
-            "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
-        }},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {
-            "_id":   {"ticker": "$ticker", "fecha": "$fecha"},
-            "price": {"$first": "$price"},
-        }},
-    ]
-    out: dict[str, dict[date, float]] = {}
-    for r in db_trd["TimeSales"].aggregate(pipeline):
-        t_full = r["_id"]["ticker"]
-        try:
-            f = datetime.strptime(r["_id"]["fecha"], "%Y-%m-%d").date()
-        except ValueError:
+    out: dict[str, float] = {}
+    for r in db_trd["MarketSnapshot"].find(
+        {"ticker": {"$in": list(meta.keys())}, "metrics.last_price": {"$gt": 0}},
+        {"_id": 0, "ticker": 1, "metrics.last_price": 1},
+    ):
+        price = (r.get("metrics") or {}).get("last_price")
+        if price is None:
             continue
-        corto = meta[t_full]
-        out.setdefault(corto, {})[f] = float(r["price"])
+        out[meta[r["ticker"]]] = float(price)
     return out
 
 

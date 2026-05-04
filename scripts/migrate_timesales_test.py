@@ -32,7 +32,7 @@ import random
 import time
 from datetime import UTC, datetime
 
-from pymongo import UpdateOne
+from pymongo import UpdateMany
 
 from core.mongo import get_mongo_client
 
@@ -204,16 +204,19 @@ def mode_inject(count: int) -> int:
 
 
 def mode_test_enrich(batch_size: int = 1000) -> int:
-    """Simula el flow de engines/curvas.py:
+    """Simula el flow de engines/curvas.py adaptado a TS Collection:
     1. Find docs sin duration.
     2. Para cada uno, "enriquece" con campos ficticios pero realistas.
-    3. bulk_write con UpdateOne(filter=(ticker, timestamp), $set=campos).
+    3. bulk_write con UpdateMany(filter=(ticker, timestamp), $set=campos).
+       NOTA: TS Collections SOLO permiten multi-update. UpdateOne falla
+       con "Cannot perform a non-multi update on a time-series
+       collection" (Mongo 8). Por eso usamos UpdateMany; si el filtro
+       (ticker, timestamp) matchea 1 doc se comporta igual que UpdateOne.
     4. Verifica que después del update los docs ya tienen los campos.
 
     NO usa la lógica real de calcular_campos — eso es responsabilidad
     del motor curvas y depende de Trading.Curvas, CER, MEP, etc. Acá
-    solo validamos que el PATRÓN del UpdateOne con match (ticker, ts)
-    funciona en TS Collection.
+    solo validamos que el PATRÓN funciona en TS Collection.
     """
     client = get_mongo_client()
     db = client[DB_NAME]
@@ -247,8 +250,9 @@ def mode_test_enrich(batch_size: int = 1000) -> int:
             "paridad":      round(random.uniform(20, 100), 4),
             "convexity":    round(random.uniform(0.1, 2.0), 4),
         }
-        # PATRÓN NUEVO: match por (ticker, timestamp), NO por _id
-        ops.append(UpdateOne(
+        # PATRÓN PARA TS: UpdateMany (single-update no permitido) +
+        # filtro por (ticker, timestamp), NO por _id.
+        ops.append(UpdateMany(
             {"ticker": doc["ticker"], "timestamp": doc["timestamp"]},
             {"$set": campos_ficticios},
         ))

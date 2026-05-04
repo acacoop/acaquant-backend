@@ -23,6 +23,7 @@ from api.services import derivados as svc_der
 from api.services import descomposicion_retorno as svc_desc
 from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
+from api.services import mm_microstructure as svc_mm
 from api.services import opciones as svc_opt
 from api.services import order_book as svc_ob
 from api.services import order_book_historico as svc_obh
@@ -582,3 +583,134 @@ def opciones_historico(
     tipo: str | None = None,
 ) -> list[dict]:
     return svc_opt.get_historico_opciones(instrumento=instrumento, tipo=tipo)
+
+
+# ─────────────────────────────────────────────────────────────────
+# MM Microstructure (Cartea cap 1-4) — derivado de OrderBookL2 + TimeSales
+# Cobertura: solo tickers en config.TICKERS_BOOK_FULL (hoy AL30 - CI).
+# ─────────────────────────────────────────────────────────────────
+
+
+@mcp.tool(
+    description=(
+        "MM Microstructure cap 1 — snapshot LIVE del estado del ticker. "
+        "Devuelve {ticker, ts_book, book: {bids, offers}, metrics: {best_bid, "
+        "best_ask, mid, microprice, obi, quoted_spread, qs_bps}, last_trade}. "
+        "El microprice es el midprice ponderado por order book imbalance — "
+        "mejor predictor del próximo precio que el midprice simple. "
+        "OBI ∈ [-1, +1]: positivo = más volumen del lado bid (presión "
+        "compradora); negativo = más volumen ask (presión vendedora). "
+        "ticker default 'MERV - XMEV - AL30 - CI' (único capturado hoy)."
+    ),
+)
+def mm_live(ticker: str = svc_mm.DEFAULT_TICKER) -> dict:
+    return svc_mm.get_live(ticker=ticker)
+
+
+@mcp.tool(
+    description=(
+        "MM Microstructure cap 4 — tape de trades enriquecido. Cada trade "
+        "viene con: effective spread (es, en bps via es_bps), Lee-Ready side "
+        "(BUY/SELL/MID según pos vs mid), lee_ready_matches_side (cross-check "
+        "vs el side reportado por el motor pyRofex; false = mid stale al "
+        "momento del trade), walking flag (size > top_size del lado), mid del "
+        "momento. Default últimos 30 min. Hard cap limit trades. Útil para "
+        "ver costos efectivos, identificar trades agresivos (walking) y "
+        "validar Lee-Ready vs ground truth."
+    ),
+)
+def mm_tape(
+    ticker: str = svc_mm.DEFAULT_TICKER,
+    desde: str | None = None,
+    hasta: str | None = None,
+    ventana_min: int = 30,
+    limit: int = 500,
+) -> dict:
+    return svc_mm.get_tape(
+        ticker=ticker, desde=desde, hasta=hasta,
+        ventana_min=ventana_min, limit=limit,
+    )
+
+
+@mcp.tool(
+    description=(
+        "MM Microstructure cap 4 — buckets intradía (default 1-min) sobre un "
+        "día con métricas agregadas: NOF (net order flow Lee-Ready, signed VN), "
+        "qES (quantity-weighted effective spread), walking_pct (%, walking "
+        "incidence), realized_vol (en bps, stdev de retornos sobre mid del "
+        "bucket), volume, n_trades, mid_close. Output ordenado cronológicamente. "
+        "Útil para identificar momentos de toxicidad alta (qES alto), zonas "
+        "de presión direccional (NOF acumulado), patrones intradía."
+    ),
+)
+def mm_intraday(
+    ticker: str = svc_mm.DEFAULT_TICKER,
+    fecha: str | None = None,
+    bucket_min: int = 1,
+) -> dict:
+    return svc_mm.get_intraday(ticker=ticker, fecha=fecha, bucket_min=bucket_min)
+
+
+@mcp.tool(
+    description=(
+        "MM Microstructure cap 4 — estimación empírica de impacto de precio. "
+        "permanent_impact.b: ΔS_n = b · π_n + ε (Δmid del bucket vs NOF). "
+        "Es la versión multi-tick del λ de Kyle. Mayor b → mercado menos "
+        "líquido / más informacional. temporary_impact.k: |price - mid| = "
+        "k · Q + ε per trade. Es el costo de consumir liquidez. Mayor k → "
+        "menor profundidad. OLS sin intercepto + winsorización 1%; reporta "
+        "R² y n. Pendiente: Huber/RLM para robustez total."
+    ),
+)
+def mm_impact(
+    ticker: str = svc_mm.DEFAULT_TICKER,
+    desde: str | None = None,
+    hasta: str | None = None,
+    dias: int = 5,
+    bucket_min: int = 1,
+) -> dict:
+    return svc_mm.get_impact(
+        ticker=ticker, desde=desde, hasta=hasta, dias=dias, bucket_min=bucket_min,
+    )
+
+
+@mcp.tool(
+    description=(
+        "MM Microstructure cap 4 — smile intradiario (forma U). Para cada "
+        "bucket de bucket_min minutos del día, promedia volumen + vol "
+        "realizada (en bps) sobre los últimos `dias` con trades. El patrón "
+        "esperado es U: pico apertura, mínimo mediodía, pico mayor cierre. "
+        "Aparece universalmente en cualquier mercado. Base teórica de "
+        "algoritmos VWAP."
+    ),
+)
+def mm_smile(
+    ticker: str = svc_mm.DEFAULT_TICKER,
+    dias: int = 5,
+    bucket_min: int = 30,
+) -> dict:
+    return svc_mm.get_smile(ticker=ticker, dias=dias, bucket_min=bucket_min)
+
+
+@mcp.tool(
+    description=(
+        "MM Microstructure cap 3 — stylized facts de los retornos del activo: "
+        "kurtosis, skewness, ACF lag-1 sobre mid (≈0 esperado, eficiencia "
+        "direccional), ACF lag-1 sobre last (negativa esperada, bid-ask "
+        "bounce), persistencia de ACF de |r| sobre 20 lags (>5 lags > 0.05 "
+        "= volatility clustering), Jarque-Bera con p-value. Output incluye "
+        "`interpretacion` con lecturas en español de los números. Retornos "
+        "calculados sobre buckets de bucket_min sobre últimos `dias` con "
+        "actividad."
+    ),
+)
+def mm_stylized_facts(
+    ticker: str = svc_mm.DEFAULT_TICKER,
+    desde: str | None = None,
+    hasta: str | None = None,
+    dias: int = 5,
+    bucket_min: int = 1,
+) -> dict:
+    return svc_mm.get_stylized_facts(
+        ticker=ticker, desde=desde, hasta=hasta, dias=dias, bucket_min=bucket_min,
+    )

@@ -106,12 +106,28 @@ def main() -> int:
     print("    [OK] token recibido.")
 
     print(f"\n[2/5] GET ?tiposCuenta=Comitente&concertacionDesde={dia_str}&concertacionHasta={dia_str}")
+    print("    (puede tardar 1-2 min con días de mucha actividad)")
     params = {
         "tiposCuenta": "Comitente",
         "concertacionDesde": dia_str,
         "concertacionHasta": dia_str,
     }
-    resp = requests.get(OPS_URL, params=params, headers=headers, timeout=30)
+    resp = None
+    last_err: Exception | None = None
+    for intento in range(1, 4):
+        try:
+            resp = requests.get(OPS_URL, params=params, headers=headers, timeout=180)
+            break
+        except requests.exceptions.Timeout as e:
+            last_err = e
+            print(f"    [WARN] timeout en intento {intento}/3, reintentando…")
+            continue
+        except Exception as e:
+            last_err = e
+            break
+    if resp is None:
+        print(f"    [!! ] No se pudo conectar tras 3 intentos: {last_err}")
+        return 1
     if resp.status_code != 200:
         print(f"    [!! ] HTTP {resp.status_code}: {resp.text[:300]}")
         return 1

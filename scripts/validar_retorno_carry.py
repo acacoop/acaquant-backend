@@ -76,7 +76,7 @@ def main() -> None:
     # ── 5. /historico-curva — fechas que ve el selector del frontend ────
     print("\n[5] /historico-curva — última fecha que ve el selector del front")
     for curva in ("tasa_fija", "cer"):
-        rows = get_historico_curva(curva)
+        rows = get_historico_curva(curva=curva)
         fechas = sorted({r.get("fecha") for r in rows if r.get("fecha")})
         ult = fechas[-1] if fechas else None
         print(f"    {_mark(ult == hoy_s)} {curva:<14}  última: {ult}  ·  {len(fechas)} días en total")

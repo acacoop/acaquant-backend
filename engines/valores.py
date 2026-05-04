@@ -53,7 +53,6 @@ class MicrostructureEngine:
         self.market_state = {
             t: {
                 "book": {"bids": [], "offers": []},
-                "trades": deque(maxlen=100),
                 "last_nv": 0.0,
                 "last_price":    0.0,
                 "open_price":    0.0,
@@ -63,7 +62,6 @@ class MicrostructureEngine:
                 "closed_vpins": deque(maxlen=50),
                 "vpin_stats": {"current_buy_vol": 0, "current_sell_vol": 0, "last_vpin": 0.0},
                 "daily_financials": {"total_money": 0.0, "buy_money": 0.0, "sell_money": 0.0, "total_nominals": 0.0},
-                "top_trades": [],
                 "hourly_stats": {h: {"buy": 0.0, "sell": 0.0, "total": 0.0} for h in range(10, 18)}
             } for t in self.tickers
         }
@@ -140,13 +138,6 @@ class MicrostructureEngine:
                     st["hourly_stats"][h]["buy"] += cash
                 elif sd == "SELL":
                     st["hourly_stats"][h]["sell"] += cash
-            st["top_trades"].append(
-                {"timestamp": doc["timestamp"], "price": px, "size": sz, "side": sd, "money": cash})
-
-        # Sort top_trades una sola vez al final (antes se sortaba por ticker)
-        for ticker in self.tickers:
-            st = self.market_state[ticker]
-            st["top_trades"] = sorted(st["top_trades"], key=lambda x: x["money"], reverse=True)[:15]
 
     def update_price(self, ticker, data):
         self.tick_queue.put((ticker, data))
@@ -253,9 +244,6 @@ class MicrostructureEngine:
                         st["hourly_stats"][h]["sell"] += cash
 
                 trade = {"timestamp": dt, "price": px, "size": sz, "side": side, "money": cash}
-                st["top_trades"].append(trade)
-                st["top_trades"] = sorted(st["top_trades"], key=lambda x: x["size"], reverse=True)[:15]
-                st["trades"].appendleft(trade)
                 with self._buffer_lock:
                     self.trade_buffer.append({"ticker": ticker, **trade})
 
@@ -336,8 +324,6 @@ class MicrostructureEngine:
                             "offers": list(st["book"]["offers"]),
                         },
                         "metrics":       metricas,
-                        "top_trades":    list(st["top_trades"]),
-                        "recent_trades": list(st["trades"])[:30],
                     }
                     ops.append(ReplaceOne({"ticker": ticker}, doc, upsert=True))
 

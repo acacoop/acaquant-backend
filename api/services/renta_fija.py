@@ -112,7 +112,6 @@ def get_renta_fija(instrumento: str | None = None) -> list:
             "metrics.mod_duration": 1,
             "metrics.convexity": 1,
             "metrics.paridad": 1,
-            "recent_trades": 1,
         }},
     ]
     docs = list(db["MarketSnapshot"].aggregate(pipeline))

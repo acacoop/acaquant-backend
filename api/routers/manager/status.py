@@ -55,8 +55,8 @@ _JOBS_STATUS = [
 # solo_en_rueda=True → fuera de la ventana 10-17 ART no se espera data
 # nueva, último conocido se muestra como "fuera_ventana" (no stale).
 _APIS_EXTERNAS = [
-    ("Valuaciones", "DolarOficial",      "updated_at",        "datetime",
-     None,                          "dolarapi.com",           15,  "*/5 min 13-20 UTC L-V", True),
+    ("Valuaciones", "DolarOficialLive",  "updated_at",        "datetime",
+     None,                          "MAE UST$T (PC oficina)", 5,   "cada 30s en rueda",     True),
     ("Trading",     "RiesgoPais",        "fecha",              "iso",
      None,                          "argentinadatos (RP)",    36*60, "diario 12:00 UTC",     False),
     ("Trading",     "InflacionMensual",  "fecha",              "iso",

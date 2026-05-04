@@ -121,7 +121,7 @@ Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `syste
 
 Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.aum` (23 L-V), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `MarketSnapshot` y persiste cierre por bono en `Trading.SnapshotsCierre`).
 
-> **Apagado 2026-05-04:** `jobs.dolar_api` (dolarapi.com → `Valuaciones.DolarOficial`). Reemplazado por feed MAE mayorista (`Valuaciones.DolarOficialLive`, script local PC oficina) para live + `Trading.DOLAR` (BCRA A3500) para histórico. La serie `dolar_blue` queda sin fuente.
+Dólar oficial: única fuente es `Valuaciones.DolarOficialLive` (feed MAE mayorista UST$T plazo 000, script local en PC oficina). Histórico (anchors 7d/MTD/YTD del watchlist `/argy`) deshabilitado hasta que MAE acumule >30 días — antes venía de `Valuaciones.DolarOficial`/dolarapi.com, eliminado el 2026-05-04. Para series macro (`serie_macro` con `dolar_oficial`/`dolar_mayorista`) usar `Trading.DOLAR` (BCRA A3500 fixing diario).
 
 ## Patrón de escritura a `Trading.MarketSnapshot`
 

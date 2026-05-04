@@ -226,7 +226,6 @@ _BLOQUEADAS: dict[str, str] = {
     "ipim":         "IPIM INDEC no cargado — falta job jobs/inflacion.py",
     "repo":         "stock REPO BCRA no cargado — falta extensión de jobs/bcra.py",
     "rem_inflacion": "REM BCRA no cargado — falta job jobs/rem.py (tiene múltiples indicadores, requiere schema específico)",
-    "dolar_blue":   "Serie blue deprecada — el cron jobs/dolar_api se apagó el 2026-05-04. Sin fuente alternativa.",
 }
 
 _CAMPOS_TICKER_VALIDOS = ("TEA", "TEM", "paridad", "duration", "price")

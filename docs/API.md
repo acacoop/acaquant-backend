@@ -370,7 +370,7 @@ Cross-MEP arb monitor. Joins live AL30 (CI/24hs) with AL30D, computes implied ME
 
 #### `GET /carry-trade`
 
-Implied local carry vs forward-implied devaluation (ROFEX DLR). Daily prices source: `Trading.SnapshotsCierre` (cron 20:25 UTC L-V). If the requested range includes today and the close cron has not run yet, a live point is appended from `Trading.MarketSnapshot.metrics.last_price` so the series always reaches "today" during market hours. MEP comes from `Valuaciones.Dolar` (cron `dolar_api` every 5 min L-V 13–20 UTC).
+Implied local carry vs forward-implied devaluation (ROFEX DLR). Daily prices source: `Trading.SnapshotsCierre` (cron 20:25 UTC L-V). If the requested range includes today and the close cron has not run yet, a live point is appended from `Trading.MarketSnapshot.metrics.last_price` so the series always reaches "today" during market hours. MEP comes from `Valuaciones.Dolar` (written by `engines/dolar_mep` every 15 min L-V 13–20 UTC).
 
 #### `GET /descomposicion-retorno`
 

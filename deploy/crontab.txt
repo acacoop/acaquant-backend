@@ -50,16 +50,6 @@
 # Valuaciones.Dolar con campos {mep, ccl, canje, al30_offer, al30d_bid, al30c_bid}.
 */15 13-20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m engines.dolar_mep >> /root/TradingAV/logs/dolar_mep.log 2>&1
 
-# ─── Dólar oficial + mayorista + blue (dolarapi.com) — APAGADO 2026-05-04.
-# El feed MAE mayorista (Valuaciones.DolarOficialLive, escrito por script
-# local en PC oficina) cubre el live de oficial/mayorista; engines.curvas
-# (cargar_a3500_actual), engines.futuros_dlr (_spot_referencia), services
-# argy (live), derivados_agro y macro.py (dolar_oficial/mayorista) ya
-# apuntan ahí. La serie blue queda sin fuente — está marcada en
-# api/services/macro.py::_BLOQUEADAS. /argy 7d/MTD/YTD anclado a
-# DolarOficial puede mostrar valores stale del último día que el cron
-# escribió antes de apagarse.
-# */5 13-20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.dolar_api >> /root/TradingAV/logs/dolar_api.log 2>&1
 
 # ─── Indicadores macro argentinadatos.com (1x/día, 12:00 UTC = 09:00 ART)
 # Persiste Trading.RiesgoPais / InflacionMensual / InflacionInteranual.

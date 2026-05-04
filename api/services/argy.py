@@ -104,26 +104,6 @@ def _serie_caucion(moneda: str) -> list[tuple[date, float]]:
     return out
 
 
-def _serie_dolar_api(casa: str) -> list[tuple[date, float]]:
-    """Serie histórica del MID oficial por casa desde Valuaciones.DolarOficial.
-
-    Antes leía solo `venta`. Ahora usa el mid (compra+venta)/2 vía
-    core.dolar_oficial.serie_oficial_mid para que el watchlist quede
-    coherente con el TC que usan los futuros DLR (mismo concepto de
-    "dólar oficial").
-    """
-    from core.dolar_oficial import serie_oficial_mid
-
-    out: list[tuple[date, float]] = []
-    for f, v in serie_oficial_mid(casa):
-        try:
-            d = f if isinstance(f, date) else date.fromisoformat(str(f)[:10])
-            out.append((d, float(v)))
-        except (ValueError, TypeError):
-            continue
-    return out
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Live values
 # ─────────────────────────────────────────────────────────────────────────────
@@ -173,13 +153,11 @@ def _live_caucion(moneda: str) -> dict:
     }
 
 
-def _live_dolar_api(casa: str) -> dict:
-    """Último snapshot live del oficial — devuelve el MID (compra+venta)/2.
+def _live_oficial(casa: str) -> dict:
+    """Último snapshot live del oficial — feed MAE mayorista UST$T.
 
-    Antes devolvía `venta` directo, lo cual hacía que el watchlist
-    mostrara 1430 y los futuros DLR usaran 1405 como TC para calcular
-    directo/TNA — descoordinado entre vistas. La fuente única ahora vive
-    en core.dolar_oficial.mid_oficial_live.
+    Fuente única en `core.dolar_oficial.mid_oficial_live` (script local
+    en PC oficina). MAE devuelve precioUltimo + variación % del día.
     """
     from core.dolar_oficial import mid_oficial_live
 
@@ -238,38 +216,24 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
         })
 
     # ── Dólar oficial (MAE mayorista UST$T) ──
-    # Spot vivo desde Valuaciones.DolarOficialLive (script `mae_forex.py`
-    # corriendo en PC oficina, IP no bloqueada por MAE).
-    # %Día sale directo de `data.variacion` que ya devuelve MAE — no
-    # hace falta calcularlo contra anchor histórico.
-    # 7d/MTD/YTD siguen calculándose contra Valuaciones.DolarOficial
-    # (dolarapi.com) hasta que la nueva colección acumule history.
-    dolar_api_metas = [
-        ("DOLAR OFICIAL",   "oficial"),
-    ]
-    for label, casa in dolar_api_metas:
-        live = _live_dolar_api(casa)
-        actual = live.get("value")
-        s = _serie_dolar_api(casa)
-        # MAE entrega `variacion` ya en % — usamos ese valor directo para
-        # ret_day. Solo cae al cálculo de serie si MAE no envió variación
-        # (no debería pasar mientras el script esté vivo).
-        var_mae = live.get("variacion")
-        ret_day = (
-            round(var_mae, 2) if var_mae is not None
-            else _ret_pct(actual, _last_le(s, anchors["day"]))
-        )
-        out.append({
-            "label":   label,
-            "value":   actual,
-            "unit":    "$",
-            "ret_day": ret_day,
-            "ret_7d":  _ret_pct(actual, _last_le(s, anchors["7d"])),
-            "ret_mtd": _ret_pct(actual, _last_le(s, anchors["mtd"])),
-            "ret_ytd": _ret_pct(actual, _last_le(s, anchors["ytd"])),
-            "ts":      live.get("ts").isoformat() if isinstance(live.get("ts"), datetime) else None,
-            "source":  live.get("source"),
-        })
+    # Spot vivo + %Día desde Valuaciones.DolarOficialLive (script
+    # `mae_forex.py` corriendo en PC oficina, IP no bloqueada por MAE).
+    # 7d/MTD/YTD quedan en None — la fuente histórica anterior
+    # (Valuaciones.DolarOficial / dolarapi.com) se eliminó el 2026-05-04.
+    # Cuando DolarOficialLive acumule history se puede agregar la serie acá.
+    live_oficial = _live_oficial("oficial")
+    var_mae = live_oficial.get("variacion")
+    out.append({
+        "label":   "DOLAR OFICIAL",
+        "value":   live_oficial.get("value"),
+        "unit":    "$",
+        "ret_day": round(var_mae, 2) if var_mae is not None else None,
+        "ret_7d":  None,
+        "ret_mtd": None,
+        "ret_ytd": None,
+        "ts":      live_oficial.get("ts").isoformat() if isinstance(live_oficial.get("ts"), datetime) else None,
+        "source":  live_oficial.get("source"),
+    })
 
     # ── Riesgo país (bps, vía argentinadatos.com / jobs/argentina_datos.py) ──
     db_tr = get_db_trading()

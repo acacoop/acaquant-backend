@@ -30,8 +30,8 @@ INTERVALO_SEGUNDOS = 2          # bajado de 5 a 2: sin escrituras a TimeSales,
                                 # podemos recalcular más rápido sin saturar.
 INTERVALO_RECARGA_CER = 3600    # recarga CER cada 1 hora
 INTERVALO_RECARGA_MEP = 60      # refresca MEP cada 1 min (para soberanos)
-# TC dolar-linked: mayorista dolarapi se actualiza cada 5 min en horario
-# rueda. Recargar cada 5 min para que paridad / TEA sigan al spot.
+# TC dolar-linked: feed MAE mayorista (DolarOficialLive) se actualiza
+# cada ~30s. Recargar cada 5 min alcanza para que paridad/TEA sigan al spot.
 INTERVALO_RECARGA_A3500 = 300
 
 

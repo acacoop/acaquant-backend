@@ -26,18 +26,13 @@ Se persisten 3 tasas separadas — sobre bid, sobre last y sobre offer.
 La principal (`tasa_implicita_tna`) es la del last; las otras dos
 quedan en `_bid` y `_offer` para mostrar dispersión en la watchlist.
 
-Spot de referencia — mid del dólar oficial = (compra + venta) / 2:
-    1. Valuaciones.DolarOficial casa='oficial' (dolarapi.com, cron 5min).
-       Mid de las dos puntas del oficial. Es el spot que la mesa usa
-       para reportar TNA implícita.
-    2. Trading.DOLAR (BCRA A3500 fixing diario) — fallback si dolar_api
-       job falló o está stale (un solo valor, no hay mid).
-    3. Valuaciones.Dolar .mep — último fallback para que nunca quede None.
-
-NOTA: el spot anterior fue mayorista (más cercano al A3500 que liquidan
-los DLR), pero la mesa pidió oficial para que la TNA reportada coincida
-con la del resto del sistema. Cambia los niveles absolutos de TNA, no
-la forma de la curva.
+Spot de referencia — feed MAE mayorista UST$T plazo 000:
+    1. Valuaciones.DolarOficialLive (script local PC oficina) vía
+       core.dolar_oficial.mid_oficial_live. Es el spot que liquida los
+       DLR (mayorista A3500 contado).
+    2. Trading.DOLAR (BCRA A3500 fixing diario) — fallback si MAE está
+       caído (PC apagada).
+    3. Valuaciones.Dolar.mep — último fallback para que nunca quede None.
 
 Ejecutar:
     python -m engines.futuros_dlr

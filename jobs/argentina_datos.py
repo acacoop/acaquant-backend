@@ -90,8 +90,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("argentina_datos")
 
 # Sanity por serie — si algún punto viene fuera de rango lo descartamos.
-# Misma filosofía que jobs/dolar_api: defensa contra agregador corrompido
-# o cambio de schema.
+# Defensa contra agregador corrompido o cambio de schema.
 SANITY = {
     "RiesgoPais":          (50,  15_000),   # bps; típico 500-3000, tope amplio
     "InflacionMensual":    (-10, 100),      # %, permite deflación leve

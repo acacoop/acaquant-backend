@@ -1,16 +1,21 @@
 """snapshot_cierre.py — materializa el cierre diario por bono en Trading.SnapshotsCierre.
 
-Llama a `snapshot_curva_historico(curva, fecha=hoy)` (que ya existe y agrega
-TimeSales por ticker tomando el último trade del día) y le agrega:
-  - total_nominals_dia: viene de Trading.MarketSnapshot.metrics.total_nominals
-    (acumulado intra-día que el motor ya tenía en memoria al cierre).
-  - fecha_emision: viene de Trading.Curvas (metadata estática).
+Lee directamente de Trading.MarketSnapshot al cierre. Como el motor de
+mercado para a 17:05 ART y este cron corre 17:25 ART (20:25 UTC),
+MarketSnapshot ya no recibe más writes del día — su estado representa
+el cierre real (last_price, métricas analíticas, total_nominals).
 
-El motor de mercado para a 17:05 ART; este cron corre 17:25 ART (20:25 UTC),
-así que TimeSales y MarketSnapshot ya no reciben más writes del día.
+Esto desacopla SnapshotsCierre de TimeSales: ya no agregamos trades del
+día, leemos directo el último estado del MarketSnapshot. Los analíticos
+(tea, tem, duration, paridad, etc.) los escribió curvas.py durante la
+rueda; los de precio (last_price, total_nominals) los escribió valores.py.
 
-IDEMPOTENTE: re-correr el mismo día (con TimeSales ya quieto) produce los
-mismos docs. Upsert por (ts_cierre, curva, ticker).
+GUARD contra feriados / días sin trades: si metrics.total_nominals == 0
+o metrics.last_price == 0, skip — no persistir snapshot stale (los
+analíticos pueden quedar congelados de cierres anteriores).
+
+IDEMPOTENTE: re-correr el mismo día produce los mismos docs. Upsert por
+(ts_cierre, curva, ticker).
 
 Uso:
     python -m jobs.snapshot_cierre              # cierre del día UTC actual
@@ -24,7 +29,6 @@ import logging
 import sys
 from datetime import UTC, date, datetime
 
-from api.services.analitica import snapshot_curva_historico
 from core.mongo import get_mongo_client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -35,35 +39,33 @@ logger = logging.getLogger("SnapshotCierre")
 CURVAS_V1 = ("tasa_fija", "cer")
 
 
-def _volumen_por_ticker(client, tickers: list[str]) -> dict[str, float]:
-    """Lee total_nominals acumulado del día desde MarketSnapshot.
-
-    MarketSnapshot tiene 1 doc por ticker, escrito cada 1s por engines/valores.py.
-    El campo `metrics.total_nominals` es un contador acumulado intra-día del
-    motor (se reinicia a las 0 del día siguiente). Al correr post-cierre,
-    representa el volumen total del día.
-    """
-    out: dict[str, float] = {}
-    cur = client["Trading"]["MarketSnapshot"].find(
-        {"ticker": {"$in": tickers}},
-        {"_id": 0, "ticker": 1, "metrics.total_nominals": 1},
-    )
-    for d in cur:
-        v = (d.get("metrics") or {}).get("total_nominals")
-        if v is not None:
-            try:
-                out[d["ticker"]] = float(v)
-            except (TypeError, ValueError):
-                pass
-    return out
-
-
 def _meta_curvas(client, curva: str) -> dict[str, dict]:
-    """Lee metadata estática de Trading.Curvas: ticker → {ticker_corto, fecha_emision, cupon_anual}."""
+    """Lee metadata estática de Trading.Curvas por curva.
+    ticker → {ticker_corto, tipo, fecha_vencimiento, fecha_emision, cupon_anual}."""
     out: dict[str, dict] = {}
     cur = client["Trading"]["Curvas"].find(
         {"curva": curva},
-        {"_id": 0, "ticker": 1, "ticker_corto": 1, "fecha_emision": 1, "cupon_anual": 1},
+        {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
+         "fecha_vencimiento": 1, "fecha_emision": 1, "cupon_anual": 1},
+    )
+    for d in cur:
+        if d.get("ticker"):
+            out[d["ticker"]] = d
+    return out
+
+
+def _market_snapshots(client, tickers: list[str]) -> dict[str, dict]:
+    """Lee el estado del cierre desde Trading.MarketSnapshot.
+    ticker → {metrics: {last_price, total_nominals, TEA, TEM, duration,
+              mod_duration, convexity, paridad}}."""
+    out: dict[str, dict] = {}
+    cur = client["Trading"]["MarketSnapshot"].find(
+        {"ticker": {"$in": tickers}},
+        {"_id": 0, "ticker": 1,
+         "metrics.last_price": 1, "metrics.total_nominals": 1,
+         "metrics.TEA": 1, "metrics.TEM": 1,
+         "metrics.duration": 1, "metrics.mod_duration": 1,
+         "metrics.convexity": 1, "metrics.paridad": 1},
     )
     for d in cur:
         if d.get("ticker"):
@@ -81,39 +83,71 @@ def _norm_fecha(v) -> str | None:
     return s[:10] if len(s) >= 10 else None
 
 
+def _to_float(v) -> float | None:
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def procesar_curva(client, curva: str, fecha_str: str, dry: bool) -> int:
-    """Procesa una curva. Devuelve cantidad de docs upserteados."""
-    snap = snapshot_curva_historico(curva=curva, fecha=fecha_str)
-    if not snap:
-        logger.warning("[%s] snapshot vacío para %s — saltando", curva, fecha_str)
+    """Procesa una curva leyendo MarketSnapshot.
+    Skipea tickers sin trades del día (last_price == 0 o total_nominals == 0).
+    Devuelve cantidad de docs upserteados."""
+    metas = _meta_curvas(client, curva)
+    if not metas:
+        logger.warning("[%s] sin tickers en Trading.Curvas — saltando", curva)
         return 0
 
-    tickers = [r["ticker"] for r in snap]
-    volumenes = _volumen_por_ticker(client, tickers)
-    metas = _meta_curvas(client, curva)
+    tickers = list(metas.keys())
+    snaps = _market_snapshots(client, tickers)
+    if not snaps:
+        logger.warning("[%s %s] sin docs en MarketSnapshot — saltando", curva, fecha_str)
+        return 0
 
     col = client["Trading"]["SnapshotsCierre"]
     n_ok = 0
-    for r in snap:
-        ticker = r["ticker"]
-        meta = metas.get(ticker, {})
+    n_skip = 0
+    for ticker, meta in metas.items():
+        snap = snaps.get(ticker)
+        if not snap:
+            n_skip += 1
+            continue
+        metrics = snap.get("metrics") or {}
+        last_price = _to_float(metrics.get("last_price"))
+        total_nominals = _to_float(metrics.get("total_nominals"))
+
+        # GUARD: feriados / días sin trades — last_price == 0 o
+        # total_nominals == 0 indica que el motor arrancó pero no recibió
+        # ningún trade. Las analíticas (TEA/duration/etc) que están en el
+        # doc son del cierre anterior — NO persistir como cierre del día
+        # actual o ensuciamos la serie histórica.
+        if not last_price or not total_nominals:
+            n_skip += 1
+            continue
+
+        cupon = meta.get("cupon_anual")
+        is_zero_coupon = (cupon is None) or (_to_float(cupon) == 0.0)
+
         doc = {
-            "ts_cierre":        fecha_str,
-            "curva":            curva,
-            "ticker":           ticker,
-            "ticker_corto":     r.get("ticker_corto"),
-            "tipo":             r.get("tipo"),
-            "fecha_vencimiento": r.get("fecha_vencimiento"),
-            "fecha_emision":    _norm_fecha(meta.get("fecha_emision")),
-            "ultimo_precio":    r.get("ultimo_precio"),
-            "tea":              r.get("tea"),
-            "tem":              r.get("tem"),
-            "paridad":          r.get("paridad"),
-            "duration":         r.get("duration"),
-            "mod_duration":     r.get("mod_duration"),
-            "convexity":        r.get("convexity"),
-            "total_nominals_dia": volumenes.get(ticker),
-            "is_zero_coupon":   r.get("is_zero_coupon"),
+            "ts_cierre":         fecha_str,
+            "curva":             curva,
+            "ticker":            ticker,
+            "ticker_corto":      meta.get("ticker_corto"),
+            "tipo":              meta.get("tipo"),
+            "fecha_vencimiento": _norm_fecha(meta.get("fecha_vencimiento")),
+            "fecha_emision":     _norm_fecha(meta.get("fecha_emision")),
+            "ultimo_precio":     last_price,
+            "tea":               _to_float(metrics.get("TEA")),
+            "tem":               _to_float(metrics.get("TEM")),
+            "paridad":           _to_float(metrics.get("paridad")),
+            "duration":          _to_float(metrics.get("duration")),
+            "mod_duration":      _to_float(metrics.get("mod_duration")),
+            "convexity":         _to_float(metrics.get("convexity")),
+            "total_nominals_dia": total_nominals,
+            "is_zero_coupon":    is_zero_coupon if curva == "cer" else None,
         }
         if dry:
             n_ok += 1
@@ -125,7 +159,8 @@ def procesar_curva(client, curva: str, fecha_str: str, dry: bool) -> int:
         )
         n_ok += 1
 
-    logger.info("[%s %s] %d bonos persistidos", curva, fecha_str, n_ok)
+    logger.info("[%s %s] %d bonos persistidos (%d skipped)",
+                curva, fecha_str, n_ok, n_skip)
     return n_ok
 
 

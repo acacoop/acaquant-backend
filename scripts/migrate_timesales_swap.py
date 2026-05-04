@@ -143,37 +143,46 @@ def mode_swap(force: bool = False) -> int:
     admin = client.admin
 
     src_info = _coll_info(db, SRC)
-    if not src_info:
-        logger.error("%s.%s no existe.", DB_NAME, SRC)
-        return 1
-    if _is_ts(src_info):
+    bak_info = _coll_info(db, BACKUP)
+
+    # Caso A: TimeSales ya es TS → ya migrado, nada que hacer.
+    if src_info and _is_ts(src_info):
         logger.info("%s.%s ya es TS — nada que migrar.", DB_NAME, SRC)
         return 0
-    if _coll_info(db, BACKUP):
-        logger.error("%s.%s YA existe — el swap ya corrió antes. "
-                     "Corré --mode cleanup o --mode rollback primero.",
-                     DB_NAME, BACKUP)
+
+    # Caso B: estado limpio (TimeSales regular existe, TimeSales_old no).
+    # Hace el rename y sigue el flujo completo.
+    # Caso C: estado intermedio post intento fallido (TimeSales no existe,
+    # TimeSales_old regular existe). Skipea el rename y continúa.
+    if src_info and not _is_ts(src_info) and not bak_info:
+        # Caso B
+        total_src = db[SRC].count_documents({})
+        logger.info("[1/4] Renombrando %s.%s → %s.%s (regular, %s docs)",
+                    DB_NAME, SRC, DB_NAME, BACKUP, _fmt_size(total_src))
+        admin.command({
+            "renameCollection": f"{DB_NAME}.{SRC}",
+            "to":               f"{DB_NAME}.{BACKUP}",
+        })
+    elif not src_info and bak_info and not _is_ts(bak_info):
+        # Caso C
+        total_src = db[BACKUP].count_documents({})
+        logger.info("[1/4] Estado intermedio detectado: %s.%s ya está renombrada "
+                    "como %s (%s docs). Skipeo el rename.",
+                    DB_NAME, SRC, BACKUP, _fmt_size(total_src))
+    else:
+        logger.error("Estado inesperado: src_info=%s bak_info=%s. "
+                     "Inspeccioná manualmente con --mode precheck.",
+                     bool(src_info), bool(bak_info))
         return 1
 
-    # Limpiar TMP residual de un intento previo (TimeSales_ts huérfana).
+    # Limpiar TMP residual (puede haber quedado de un intento previo).
     if _coll_info(db, TMP):
         if not force:
-            logger.error("%s.%s YA existe (probablemente intento previo "
-                         "fallido). Corré con --force para borrarla y "
-                         "empezar de nuevo.", DB_NAME, TMP)
+            logger.error("%s.%s YA existe (intento previo fallido). "
+                         "Corré con --force para borrarla.", DB_NAME, TMP)
             return 1
         logger.info("--force: borrando %s.%s residual.", DB_NAME, TMP)
         db.drop_collection(TMP)
-
-    total_src = db[SRC].count_documents({})
-
-    # ── Paso 1: renombrar la original a backup ──
-    logger.info("[1/4] Renombrando %s.%s → %s.%s (regular, %s docs)",
-                DB_NAME, SRC, DB_NAME, BACKUP, _fmt_size(total_src))
-    admin.command({
-        "renameCollection": f"{DB_NAME}.{SRC}",
-        "to":               f"{DB_NAME}.{BACKUP}",
-    })
 
     # ── Paso 2: crear TS Collection con el nombre final ──
     try:

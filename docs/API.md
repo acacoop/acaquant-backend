@@ -730,29 +730,7 @@ PDF or pasted-text reports → Gemini JSON-mode extracts 12 macro variables → 
 
 ### 7.16 MM Workstation (`/api/mm/*`) · mm
 
-Backend del módulo MM Workstation: replay de trades históricos para timing-de-entrada training, paper trading vivo y backtest sweep multi-día sobre la lógica de quoting. Gate `_MM` (admin only por default; el admin puede tildar `mm` a un trader desde el panel de roles si quiere abrir el acceso).
-
-| Method | Path | Summary |
-|---|---|---|
-| GET | `/trades-dia` | Trades de UN día para alimentar el REPLAY del frontend. Param `instrumento` (corto o full) + `fecha` opcional (default: último día con ≥100 trades de los últimos 30). |
-| GET | `/fechas` | Fechas con actividad para un instrumento, ventana `dias_atras` (1..90, default 30). Pobla el dropdown de día del REPLAY. |
-| GET | `/live-snapshot` | Book top-5 + trades nuevos desde un cursor opaco `since_ts`. Pensado para polling 1Hz del paper trading. **Solo lectura**: no inserta nada en Mongo. Lee `Trading.MarketSnapshot` (book) + `Trading.TimeSales` (trades), poblados por `engines/valores.py`. |
-| POST | `/backtest` | Sweep multi-día sobre N spreads. Body `{instrumento, desde?, hasta?, dias_atras?, quote_size, skew_intensity, auto_skew, inv_cap, spreads?}`. Devuelve estadísticas agregadas (PnL medio/std, win rate, Sharpe, max DD) + detalle por día. ~7 spreads × 10 días × 5000 trades < 2 s típico. |
-
-`live-snapshot` response shape:
-
-```json
-{
-  "ts_now":            "2026-04-29T18:42:11+00:00",
-  "book":              { "bids": [[1234.5, 100], ...], "asks": [[1235.0, 80], ...] },
-  "last_price":        1234.75,
-  "book_updated_at":   "2026-04-29T18:42:10+00:00",
-  "new_trades":        [ { "ts": "...", "price": 1234.5, "size": 50, "side": "buy" } ],
-  "next_since_ts":     "2026-04-29T18:42:11+00:00"
-}
-```
-
-El frontend usa la respuesta para: calcular el mid, avanzar la cola de órdenes virtuales con cada trade que matchee price level, detectar fills (cola en 0 + trade en su precio) y actualizar PnL = `cash + inv × mid`.
+**En reconstrucción 2026-05-04.** El backend MM (replay + backtest + paper trading vivo) se eliminó completo el 2026-05-04 — la nueva vista MM se construye desde cero sobre `Trading.OrderBookL2` (motor `engines/order_book_l2.py`, hoy capturando `MERV - XMEV - AL30 - CI`) y `Trading.TimeSales`. Endpoints pendientes; el módulo `mm` (RBAC) y el prefix `/api/mm` (proxy Vercel) se mantienen para reusar.
 
 ---
 
@@ -847,7 +825,6 @@ api/
 │   ├── simulaciones.py      # CRUD + calcular (stateless)
 │   ├── portfolio.py / renta_fija.py / canje.py / carry_trade.py
 │   ├── derivados_agro.py    # PASE AGRO (pizarra manual + futuros live)
-│   ├── mm.py                # MM Workstation: replay + paper trading + backtest sweep
 │   ├── debug_curva.py       # Recompute paso-a-paso de TEA/duration (manager/checks)
 │   └── …
 ├── agent/                   # LLM assistant (docs/ASISTENTE.md is authoritative)
@@ -871,7 +848,6 @@ api/
     ├── manager_resources.py     # /api/manager/resources*(adm)
     ├── market.py                # /api/market/*          (pub)
     ├── me.py                    # /api/me                (own)
-    ├── mm.py                    # /api/mm/*              (mm — admin only por default)
     ├── news.py                  # /api/news*             (pub)
     ├── operaciones.py           # /api/operaciones/*     (op)
     ├── operativa.py             # /api/operativa/*       (opr)
@@ -966,3 +942,4 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest on every push.
 | 2026-05-04 | Add **Order Book L2** — `engines/order_book_l2.py` (sesión rofex separada, append-only) + `Trading.OrderBookL2` (Time Series Collection). Endpoint `GET /api/cotizaciones/order-book-historico`. 4 tools nuevas en MCP (`order_book`, `order_books_curva`, `order_book_historico`, `listar_tickers_orderbook_l2`). Cron L-V 13:00–20:05 UTC. |
 | 2026-05-04 | **refactor(históricos):** `get_historico_curva` y `snapshot_curva_historico` migrados de `aggregate` sobre TimeSales a `find` sobre `Trading.SnapshotsCierre` (cierre diario pre-agregado por `jobs/snapshot_cierre`). Backfill a 5 curvas hasta 2026-04-30 vía `scripts/backfill_snapshots_cierre`. |
 | 2026-05-04 | **fix(retorno-total + carry-trade):** Live fallback a `MarketSnapshot.metrics` cuando la fecha pedida es hoy y el cron 20:25 UTC aún no corrió. Aplicado a `snapshot_curva_historico`, `_precios_diarios_curva` (carry) y `get_historico_curva`. Frontend Vercel: `/api/historico-curva` y `/api/analitica/[...path]` con `dynamic="force-dynamic"` + `Cache-Control: no-store` para que el CDN no sirva la respuesta vieja. |
+| 2026-05-04 | **wipe(MM Workstation):** Borrón completo del backend MM (replay/backtest/live-snapshot) y del frontend MM (acaquant-web). Eliminados `api/services/mm.py`, `api/routers/mm.py`, `tests/unit/test_mm.py`, `docs/mm_workstation.jsx` y los componentes en `acaquant-web/src/{components,app}/mm`. Módulo `mm` (RBAC) y prefix `/api/mm` (proxy Vercel) se mantienen para reusar. La nueva vista MM se construye desde cero sobre `Trading.OrderBookL2` + `Trading.TimeSales`. |

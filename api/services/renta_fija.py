@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from api.cache import cached
 from api.db import get_db_trading
@@ -440,6 +440,10 @@ def get_historico_curva(curva: str) -> list:
     agregaba TimeSales con $group (caro: 750k+ docs). Ahora el cierre ya
     está pre-agregado por jobs/snapshot_cierre y backfill_snapshots_cierre.
 
+    Si hoy todavía no tiene cierre persistido (cron 20:25 UTC), agrega
+    una fila por ticker desde Trading.MarketSnapshot.metrics — así el
+    selector de fechas del frontend llega a hoy sin esperar al cron.
+
     Incluye `tipo` (globales / bonares / etc) para que el frontend pueda
     pintar curvas separadas dentro del mismo chart.
     """
@@ -452,7 +456,9 @@ def get_historico_curva(curva: str) -> list:
          "ultimo_precio": 1, "tea": 1, "tem": 1,
          "duration": 1, "paridad": 1},
     ).sort([("ts_cierre", 1), ("ticker", 1)])
+    fechas_persistidas: set[str] = set()
     for r in cur:
+        fechas_persistidas.add(r.get("ts_cierre") or "")
         out.append({
             "fecha":    r.get("ts_cierre"),
             "ticker":   r.get("ticker_corto") or r.get("ticker"),
@@ -463,4 +469,36 @@ def get_historico_curva(curva: str) -> list:
             "duration": r.get("duration"),
             "paridad":  r.get("paridad"),
         })
+
+    hoy_str = date.today().isoformat()
+    if hoy_str not in fechas_persistidas:
+        meta = {
+            d["ticker"]: d
+            for d in db["Curvas"].find(
+                {"curva": curva},
+                {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1},
+            )
+        }
+        if meta:
+            for r in db["MarketSnapshot"].find(
+                {
+                    "ticker":             {"$in": list(meta.keys())},
+                    "metrics.last_price": {"$gt": 0},
+                },
+                {"_id": 0, "ticker": 1,
+                 "metrics.last_price": 1, "metrics.TEA": 1, "metrics.TEM": 1,
+                 "metrics.duration": 1, "metrics.paridad": 1},
+            ):
+                m = meta.get(r.get("ticker"), {})
+                metrics = r.get("metrics") or {}
+                out.append({
+                    "fecha":    hoy_str,
+                    "ticker":   m.get("ticker_corto") or r.get("ticker"),
+                    "tipo":     m.get("tipo"),
+                    "price":    metrics.get("last_price"),
+                    "TEA":      metrics.get("TEA"),
+                    "TEM":      metrics.get("TEM"),
+                    "duration": metrics.get("duration"),
+                    "paridad":  metrics.get("paridad"),
+                })
     return out

@@ -10,6 +10,7 @@ from datetime import date, timedelta
 
 from api.services.carry_trade import serie_carry_trade
 from api.services.descomposicion_retorno import descomposicion_realizada
+from api.services.renta_fija import get_historico_curva
 
 
 def _mark(ok: bool) -> str:
@@ -72,13 +73,22 @@ def main() -> None:
             f"cer_accrual: {cer_acc}"
         )
 
+    # ── 5. /historico-curva — fechas que ve el selector del frontend ────
+    print("\n[5] /historico-curva — última fecha que ve el selector del front")
+    for curva in ("tasa_fija", "cer"):
+        rows = get_historico_curva(curva)
+        fechas = sorted({r.get("fecha") for r in rows if r.get("fecha")})
+        ult = fechas[-1] if fechas else None
+        print(f"    {_mark(ult == hoy_s)} {curva:<14}  última: {ult}  ·  {len(fechas)} días en total")
+
     print()
     print("=" * 64)
     print(" Lectura:")
-    print(f"   - [1][2] fecha_final = {hoy_s}  → live fallback funcionando")
-    print( "   - [3][4] bonos > 0    → snapshot de hoy disponible")
-    print( "   Si todo da [OK], los cambios funcionan. Si el frontend igual")
-    print( "   muestra fecha vieja, es cache de Vercel (acaquant-web).")
+    print(f"   - [1][2] fecha_final = {hoy_s}  → live fallback en carry-trade")
+    print( "   - [3][4] bonos > 0           → live fallback en descomposicion")
+    print(f"   - [5] última = {hoy_s}        → selector del frontend incluye hoy")
+    print( "   Si todo da [OK] y el frontend igual muestra fecha vieja,")
+    print( "   recién ahí es cache de browser (Ctrl+Shift+R).")
     print("=" * 64)
     print()
 

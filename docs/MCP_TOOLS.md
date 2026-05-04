@@ -111,11 +111,11 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 ---
 
 #### `snapshot_curva_historico`
-**Para qué:** Reconstruye la curva entera tal como cerró un día pasado.
+**Para qué:** Reconstruye la curva entera tal como cerró un día pasado. Fuente: `Trading.SnapshotsCierre` (cron 20:25 UTC L-V + backfill). Si la fecha pedida es **hoy** y el cron aún no corrió, devuelve un snapshot live de `Trading.MarketSnapshot.metrics` — los valores se actualizan al ritmo de los motores hasta el cierre formal.
 
 **Params:** `curva: str`, `fecha: str` (YYYY-MM-DD).
 
-**Retorna:** Mismo shape que `listar_curva` pero con el último trade de **ese día** (no hoy).
+**Retorna:** Mismo shape que `listar_curva` pero con el cierre persistido de **ese día** (o el live si la fecha es hoy y el cron aún no corrió).
 
 **Prompts típicos:**
 - "¿Cómo estaba la curva CER el 15 de octubre?"
@@ -160,32 +160,36 @@ Cada tool listada con: **descripción** · **params** · **retorno** · **ejempl
 ---
 
 #### `historico_trades`
-**Para qué:** Trades raw (tick-level) de un instrumento en los últimos 15 días.
+**Para qué:** Trades raw (tick-level) de un instrumento en los últimos 15 días. Datos de operaciones reales: precio, tamaño, lado.
 
 **Params:** `instrumento: str | None` — corto o completo. Omitir = todos los instrumentos.
 
-**Retorna:** `list[dict]` con `instrumento`, `timestamp`, `price`, `size`, `side` (buy/sell), `money` (ARS), `duration`, `TEA`, `TEM`, `paridad`. **Máx 10000 registros**, ventana fija de 15 días.
+**Retorna:** `list[dict]` con `instrumento`, `timestamp`, `price`, `size`, `side` (buy/sell), `money` (ARS). Para trades anteriores al 2026-05-04 también incluye `duration`, `TEA`, `TEM`, `paridad`; para trades posteriores estos campos vienen `null` (motor_curvas dejó de enriquecer TimeSales — las analíticas viven en MarketSnapshot/SnapshotsCierre). **Máx 10000 registros**, ventana fija de 15 días.
 
 **Prompts típicos:**
 - "Trades del TX28 esta semana"
 - "Últimas operaciones del AL30"
 
-**Gotchas:** Si pedís un instrumento sin filtro, podés volar el contexto. Filtrar siempre por `instrumento` para prompts del usuario.
+**Gotchas:**
+- Si pedís un instrumento sin filtro, podés volar el contexto. Filtrar siempre por `instrumento` para prompts del usuario.
+- Para "TEA / duration histórica de un bono" NO usar esta tool (devuelve `null` para fechas recientes). Usar `historico_curva` filtrando por ticker en el output, o `serie_macro` con `<TICKER>.<CAMPO>` (ej. `TX26.TEA`).
 
 ---
 
 #### `historico_curva`
-**Para qué:** Series diarias de cierre para todos los bonos de una curva. Una entrada por (fecha, ticker).
+**Para qué:** Series diarias de cierre para todos los bonos de una curva. Una entrada por (fecha, ticker). Fuente: `Trading.SnapshotsCierre` (poblada por job 20:25 UTC L-V + backfill).
 
 **Params:** `curva: str`.
 
-**Retorna:** `list[dict]` con `fecha`, `ticker`, `tipo`, `price`, `TEA`, `TEM`, `duration`, `paridad`. Solo días con trades.
+**Retorna:** `list[dict]` con `fecha`, `ticker`, `tipo`, `price`, `TEA`, `TEM`, `duration`, `paridad`. Solo días con cierre real persistido.
 
 **Prompts típicos:**
 - "Histórico de cierres de toda la curva CER"
 - "Series de TEA diarias para Lecaps"
 
-**Gotchas:** Output puede ser **muy grande** (cientos de bonos × cientos de días). Considerar pedir `historico_trades` filtrado por instrumento si el usuario quiere uno solo.
+**Gotchas:**
+- Output puede ser **muy grande** (cientos de bonos × cientos de días). Si el usuario quiere un único bono, filtrar el output del cliente por `ticker` o usar `serie_macro` con `<TICKER>.<CAMPO>`.
+- Si la fecha más reciente es **hoy** y el cron de cierre (20:25 UTC) aún no corrió, la fila viene del live (`Trading.MarketSnapshot.metrics`). Los valores se actualizan al ritmo de los motores (~5s) hasta el cierre formal. Llamadas sucesivas en horario de mercado pueden devolver valores diferentes para "hoy".
 
 ---
 
@@ -725,7 +729,10 @@ forward_a_b = doc["matrix"][ticker_b][ticker_a]
 3. **Tasas siempre decimales** en outputs salvo `rem_expectativas` (en %) y `carry_trade.tabla.carry_usd` (en %). Para presentar al usuario, multiplicar por 100 y agregar "%".
 4. **Si una tool devuelve `[]` o `{}`**, NO inferir que el dato no existe — puede ser ventana de Atlas pausa (04:00–11:20 UTC) o filtro demasiado restrictivo. Reintentar con menos filtros antes de concluir.
 5. **No combinar tools sin necesidad**. Si el usuario pide "Lecaps por TEA", `listar_curva(curva="tasa_fija", ordenar_por="tea")` alcanza — no llamar `historico_curva` también.
-6. **Histórico vs live**: la regla mental es "live = MarketSnapshot, histórico = TimeSales/Cierres". Live puede tener nulls si está fuera de rueda (L-V 13–20 UTC argentina).
+6. **Histórico vs live** (regla mental):
+   - **Live** (estado actual): `MarketSnapshot.metrics` → `listar_curva`, `order_book*`. Puede tener nulls fuera de rueda (L-V 13–20 UTC argentina).
+   - **Histórico de trades raw** (price/size/side, sin analíticas para fechas recientes): `TimeSales` → `historico_trades`.
+   - **Histórico de analíticas** (TEA/TEM/duration/paridad por día): `SnapshotsCierre` → `historico_curva`, `snapshot_curva_historico`, `serie_macro` con `<TICKER>.<CAMPO>`. Si la fecha es hoy y el cron 20:25 UTC aún no corrió, estas dos últimas hacen fallback a `MarketSnapshot` live — el valor puede cambiar entre llamadas hasta el cierre.
 7. **Errores con clave `error`**: cuando una tool devuelve `{"error": "..."}`, NO mostrar el error técnico al usuario; traducir a algo entendible ("no hay datos para esa curva en esa fecha").
 8. **Volumen del retorno**: `historico_curva` y `historico_trades` sin filtro pueden devolver muchos KB. Filtrar siempre que sea posible (por instrumento o ventana de fechas).
 9. **Composición temporal**: Lecap zero coupon → solo capital al vto. CER → cupones + amortización porcentual. Soberanos → cupones + amortización USD. Esto matters para `descomposicion_retorno` y `sensibilidad_retorno`.
@@ -739,7 +746,7 @@ forward_a_b = doc["matrix"][ticker_b][ticker_a]
 | `[]` vacío en `listar_curva` | Curva mal escrita o ventana Atlas pausa | Validar nombre de curva; reintentar entre 11:20 y 04:00 UTC |
 | `{"error": "curva invalida..."}` | String fuera del set válido | Usar exactamente `tasa_fija | cer | soberanos | tamar | dolar_linked` |
 | `{"error": "par desconocido"}` en `canje` | Solo soporta AL30/GD30 | Otros pares no están |
-| `null` en TEA / duration / mod_duration | Bono no operó hoy o falta enriquecimiento | Usar `historico_trades` o `snapshot_curva_historico` para datos previos |
+| `null` en TEA / duration / mod_duration | Bono no operó hoy o (en `historico_trades`) trade posterior al 2026-05-04 | Usar `historico_curva` o `snapshot_curva_historico` (vienen de SnapshotsCierre, sí tienen analíticas) |
 | `sensibilidad_retorno` skipea bonos en modo `relativa` | Bonos sin `tea_actual` no pueden tener shock | Usar modo `absoluta` o filtrar tipos |
 | Retornos enormes en `historico_*` sin filtro | No filtraste | Agregar `instrumento` o rango de fechas |
 | Conexión rechazada / timeout | Atlas pausado (04:00–11:20 UTC) | Esperar a la ventana operativa |

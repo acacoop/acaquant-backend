@@ -21,6 +21,7 @@ from api.services import derivados as svc_der
 from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
 from api.services import opciones as svc_opt
+from api.services import order_book_historico as svc_obh
 from api.services import rem as svc_rem
 from api.services import renta_fija as svc_rf
 from api.services import repo as svc_repo
@@ -337,3 +338,27 @@ def historico_curva(
     curva: str = Query(..., description="tasa_fija / cer"),
 ):
     return svc_rf.get_historico_curva(curva=curva)
+
+
+# ── Order Book L2 histórico (Trading.OrderBookL2) ──
+
+
+@router.get("/order-book-historico")
+def order_book_historico(
+    ticker: str = Query(..., description="Ticker completo (MERV - XMEV - AL30 - CI)"),
+    desde:  str | None = Query(None, description="ISO datetime; default: 1h atrás"),
+    hasta:  str | None = Query(None, description="ISO datetime; default: ahora"),
+    limit:  int = Query(1000, ge=1, le=10000),
+):
+    """Serie de estados del book L2 entre dos timestamps. Cada doc es un
+    cambio real del book (depth 5). Lo escribe engines/order_book_l2.py
+    y se persiste en Trading.OrderBookL2 (Time Series Collection)."""
+    return svc_obh.get_orderbook_historico(
+        ticker=ticker, desde=desde, hasta=hasta, limit=limit,
+    )
+
+
+@router.get("/order-book-historico/tickers")
+def order_book_historico_tickers():
+    """Tickers que actualmente tienen captura L2 activa."""
+    return svc_obh.listar_tickers_disponibles()

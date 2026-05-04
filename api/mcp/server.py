@@ -25,6 +25,7 @@ from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
 from api.services import opciones as svc_opt
 from api.services import order_book as svc_ob
+from api.services import order_book_historico as svc_obh
 from api.services import rem as svc_rem
 from api.services import renta_fija as svc_rf
 from api.services import repo as svc_repo
@@ -179,6 +180,42 @@ def order_book(ticker: str) -> dict | None:
 )
 def order_books_curva(curva: str) -> list[dict]:
     return svc_ob.get_order_books_curva(curva=curva)
+
+
+@mcp.tool(
+    description=(
+        "Order book L2 HISTÓRICO de un ticker entre dos timestamps. A "
+        "diferencia de order_book (último estado vivo), esta tool devuelve "
+        "la serie completa de cambios del book — cada vez que bids u offers "
+        "cambiaron en algún nivel. Útil para análisis de microestructura: "
+        "evolución del spread, depth, imbalance, velocidad de updates, etc. "
+        "Cobertura: solo tickers en config.TICKERS_BOOK_FULL (hoy: AL30 CI). "
+        "Usar listar_tickers_orderbook_l2 para confirmar qué hay disponible. "
+        "ticker debe ser COMPLETO ('MERV - XMEV - AL30 - CI'). desde/hasta "
+        "ISO datetime opcionales (defaults: última hora). limit max 10000 "
+        "docs ordenados ascendente por ts."
+    ),
+)
+def order_book_historico(
+    ticker: str,
+    desde: str | None = None,
+    hasta: str | None = None,
+    limit: int = 1000,
+) -> list[dict]:
+    return svc_obh.get_orderbook_historico(
+        ticker=ticker, desde=desde, hasta=hasta, limit=limit,
+    )
+
+
+@mcp.tool(
+    description=(
+        "Lista de tickers que tienen captura L2 del book histórico activa "
+        "en Trading.OrderBookL2. Útil para saber qué activos podés pasar "
+        "a order_book_historico antes de pedir data."
+    ),
+)
+def listar_tickers_orderbook_l2() -> list[str]:
+    return svc_obh.listar_tickers_disponibles()
 
 
 # ─────────────────────────────────────────────────────────────────

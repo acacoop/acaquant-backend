@@ -302,10 +302,47 @@ Para volver al estado actual: `git checkout main` y restart.
 
 ---
 
+## Eje 4 — Migración de consumers históricos a SnapshotsCierre
+
+### 4.1 Backfill de SnapshotsCierre para `soberanos`, `tamar`, `dolar_linked`
+
+**Antes:** SnapshotsCierre cubría solo `tasa_fija` y `cer` (25 días, desde 2026-03-25 hasta 2026-04-30). Las otras 3 curvas tenían 0 docs.
+
+**Después:** las 5 curvas con cobertura desde el primer día con trades en TimeSales hasta 2026-04-30:
+- soberanos: 931 docs (rango 2026-01-02 → 2026-04-30, ~80 días con trades).
+- tamar: 78 docs (rango 2026-03-23 → 2026-04-30, 26 días).
+- dolar_linked: 16 docs (rango 2026-04-27 → 2026-04-30, 4 días — curva nueva).
+
+**Script:** `scripts/backfill_snapshots_cierre.py` (idempotente, `--dry`/`--force`/`--curva`/`--desde`/`--hasta`). Usa la lógica vieja de `snapshot_curva_historico` (agregar TimeSales por ticker tomando el último trade del día) para llenar los días pasados antes de que se rompiera por el cambio en 3.5.
+
+**Verificación:** `scripts/audit_historicos.py` después del backfill mostró las 5 curvas en estado "✓ cobertura razonable".
+
+**Cómo revertir:** delete_many sobre SnapshotsCierre para las curvas backfilleadas. Pero los datos se regeneran corriendo el script de nuevo desde TimeSales mientras esté enriquecido.
+
+### 4.2 `get_historico_curva` y `snapshot_curva_historico` migrados a SnapshotsCierre
+
+**Antes:** Ambos hacían aggregate sobre TimeSales con `$group $first` por (ticker, día) o por ticker en un día. Caro (millones de docs scaneados) y depende del enriquecimiento histórico de TimeSales (que después del 3.5 dejó de existir para días nuevos).
+
+**Después:**
+
+`api/services/renta_fija.py::get_historico_curva` — lee directo `Trading.SnapshotsCierre` filtrado por curva. 1 find, sin aggregate. Mapea minúsculas → mayúsculas en TEA/TEM (el frontend usa MAYÚSCULAS, SnapshotsCierre las guarda en minúsculas).
+
+`api/services/analitica.py::snapshot_curva_historico` — primero busca en SnapshotsCierre `(ts_cierre=fecha, curva)`. Si encuentra → mapea al shape esperado. Si no → fallback al aggregate viejo sobre TimeSales (defensivo: fechas anteriores al backfill o gaps).
+
+**Beneficios:**
+- 1 find sobre colección chica (~1800 docs total) en lugar de aggregate sobre 750k+ docs de TimeSales.
+- Independiente del estado de enriquecimiento de TimeSales.
+- `descomposicion_retorno` viene gratis: ya llama a `snapshot_curva_historico`.
+
+**Lo que se rompe — nada visible al usuario.** Mismo shape de retorno. Frontend (vista `/retorno`, tabs Descomposición / curvas-chart) sigue funcionando idéntico.
+
+**Cómo revertir:** restaurar las versiones anteriores de las dos funciones. La data en SnapshotsCierre persiste sin uso.
+
+---
+
 ## Pendientes que quedaron
 
-1. **Migración de "histórico real" a `SnapshotsCierre`** — los 4 consumers (descomposicion_retorno, historico_curva, serie_macro para tickers, snapshot_curva_historico) hoy leen TimeSales con `$group`. Para fechas ≥ del cambio en 3.5 devuelven null en TEA/duration porque los trades nuevos ya no se enriquecen. Refactorearlos a leer de `Trading.SnapshotsCierre` que tiene el cierre diario por ticker con todos los campos.
-2. **Extender `jobs/snapshot_cierre.py` a curvas V2** — hoy solo cubre `tasa_fija` y `cer`. Para que los consumers del punto 1 funcionen para `soberanos`/`tamar`/`dolar_linked`, hay que agregar esas curvas a `CURVAS_V1` (ahora ya no debería llamarse V1, pero el nombre queda).
-3. **Migrar TimeSales a TS Collection** — una vez hecho 1 y 2, TimeSales queda append-only puro (curvas ya no la actualiza). Ahí sí se puede crear `TimeSales_ts` con `timeField=timestamp, metaField=ticker, granularity=minutes`, copiar la data y swap. Compresión esperada ~60-80%.
-4. **Endpoint `/api/cotizaciones/historico/trades` (LibroPanel)** — proyecta `duration/TEA/TEM/paridad` que el frontend ignora. Es payload muerto (~30% del JSON). Sacar del project es trivial cuando hagamos pasada de cleanup.
-5. **Tests pre-existentes rotos** — `test_pendiente_aplanamiento`, `test_pendiente_actual_largo_menos_corto`, `test_pendiente_con_fecha_comparacion_empinamiento`. No son regresión nuestra, pero conviene fixear.
+1. **Migrar `obtener_serie_macro` (con `<TICKER>.<CAMPO>`)** — sigue agregando TimeSales para series diarias de un campo de un ticker. Pasar a leer de SnapshotsCierre. Solo MCP, baja prioridad.
+2. **Endpoint `/api/cotizaciones/historico/trades` (LibroPanel)** — proyecta `duration/TEA/TEM/paridad` que el frontend ignora. Es payload muerto (~30% del JSON). Sacar del project es trivial.
+3. **Migrar TimeSales a TS Collection** — ahora TimeSales está cerca de ser append-only (sólo el bug 4.1 deja `obtener_serie_macro` y `historico_trades` como readers de campos enriquecidos). Una vez resueltos, se puede crear `TimeSales_ts` con `timeField=timestamp, metaField=ticker, granularity=minutes`, copiar la data y swap. Compresión esperada ~60-80%.
+4. **Tests pre-existentes rotos** — `test_pendiente_aplanamiento`, `test_pendiente_actual_largo_menos_corto`, `test_pendiente_con_fecha_comparacion_empinamiento`. No son regresión nuestra, pero conviene fixear.

@@ -20,21 +20,24 @@ from api.services.renta_fija import _CURVAS_VALIDAS, listar_curva, resolver_tick
 def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
     """Curva entera tal como cerró un día pasado.
 
-    Para cada bono de la curva, busca el último trade de ese día en
-    Trading.TimeSales y devuelve el mismo shape que listar_curva() (ticker,
-    ticker_corto, precio, TEA, TEM, paridad, duration, convexity).
+    Lee Trading.SnapshotsCierre (poblada por jobs/snapshot_cierre.py +
+    backfill_snapshots_cierre). Si la fecha no tiene snapshot, fallback
+    a agregar TimeSales con $group (lógica vieja, para fechas anteriores
+    al backfill).
 
-    Si un bono no operó ese día, no aparece en el resultado (vs invents).
+    Devuelve mismo shape que antes (ticker, ticker_corto, precio, TEA,
+    TEM, paridad, duration, etc.). Si un bono no operó ese día, no
+    aparece en el resultado.
     """
     if curva not in _CURVAS_VALIDAS:
         return []
 
     db = get_db_trading()
+    fecha_str = str(fecha)[:10]
 
-    # cupon_anual + cer_emision: necesarios para que la descomposición de
-    # retorno CER pueda distinguir Lecers (zero coupon) de Boncers cupón
-    # y des-indexar precios sucios a paridad real. Para el resto de las
-    # curvas son no-ops (los docs no traen esos campos).
+    # Metadata estática de Trading.Curvas (necesaria sea cual sea la fuente).
+    # cer_emision lo necesita descomposicion_retorno (curva CER) y NO está
+    # en SnapshotsCierre — siempre lo joineamos con Curvas.
     curva_docs = list(db["Curvas"].find(
         {"curva": curva},
         {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
@@ -43,16 +46,71 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
     ))
     if not curva_docs:
         return []
-
-    tickers = [d["ticker"] for d in curva_docs if d.get("ticker")]
     meta_by_ticker = {d["ticker"]: d for d in curva_docs if d.get("ticker")}
 
     try:
-        fecha_dt = datetime.fromisoformat(fecha[:10]).replace(tzinfo=UTC)
+        fecha_dt = datetime.fromisoformat(fecha_str).replace(tzinfo=UTC)
     except ValueError:
         return []
-    fin_dt = fecha_dt + timedelta(days=1)
 
+    # ── Camino primario: leer SnapshotsCierre del día ──
+    snap_rows = list(db["SnapshotsCierre"].find(
+        {"ts_cierre": fecha_str, "curva": curva},
+        {"_id": 0,
+         "ticker": 1, "ticker_corto": 1, "tipo": 1,
+         "fecha_vencimiento": 1, "ultimo_precio": 1,
+         "tea": 1, "tem": 1, "paridad": 1,
+         "duration": 1, "mod_duration": 1, "convexity": 1},
+    ))
+
+    if snap_rows:
+        out: list[dict] = []
+        for r in snap_rows:
+            ticker = r.get("ticker")
+            m = meta_by_ticker.get(ticker, {})
+            vto_raw = m.get("fecha_vencimiento") or r.get("fecha_vencimiento")
+            meses = None
+            try:
+                if isinstance(vto_raw, datetime):
+                    vto = vto_raw if vto_raw.tzinfo else vto_raw.replace(tzinfo=UTC)
+                else:
+                    vto = datetime.fromisoformat(str(vto_raw)[:10]).replace(tzinfo=UTC)
+                meses = round((vto - fecha_dt).days / 30.44, 1)
+            except Exception:
+                pass
+            entry = {
+                "ticker":             ticker,
+                "ticker_corto":       r.get("ticker_corto") or m.get("ticker_corto"),
+                "tipo":               r.get("tipo") or m.get("tipo"),
+                "fecha_vencimiento":  str(vto_raw)[:10] if vto_raw else None,
+                "meses_al_vto":       meses,
+                "ultimo_precio":      r.get("ultimo_precio"),
+                "tea":                r.get("tea"),
+                "tem":                r.get("tem"),
+                "paridad":            r.get("paridad"),
+                "duration":           r.get("duration"),
+                "mod_duration":       r.get("mod_duration"),
+                "convexity":          r.get("convexity"),
+                # SnapshotsCierre no guarda timestamp del último trade —
+                # ts_cierre es el día. Los consumers que usaban ts_ultimo_trade
+                # lo único que hacían era mostrar la fecha; ts_cierre alcanza.
+                "ts_ultimo_trade":    fecha_str,
+            }
+            if curva == "cer":
+                cupon = m.get("cupon_anual")
+                entry["is_zero_coupon"] = (cupon is None) or (float(cupon) == 0.0)
+                cer_em = m.get("cer_emision")
+                if cer_em:
+                    entry["cer_emision"] = float(cer_em)
+            out.append(entry)
+        out.sort(key=lambda x: x.get("fecha_vencimiento") or "9999")
+        return out
+
+    # ── Fallback: agregar TimeSales del día (fechas previas al backfill o
+    # gap). Mantiene el comportamiento histórico para no romper queries
+    # de fechas viejas mientras la cobertura de SnapshotsCierre crece.
+    fin_dt = fecha_dt + timedelta(days=1)
+    tickers = list(meta_by_ticker.keys())
     enrich: dict[str, dict] = {}
     for r in db["TimeSales"].aggregate([
         {"$match": {
@@ -75,8 +133,7 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
     ]):
         enrich[r["_id"]] = r
 
-    out: list[dict] = []
-    ahora = fecha_dt
+    out = []
     for ticker, m in meta_by_ticker.items():
         if ticker not in enrich:
             continue
@@ -88,7 +145,7 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
                 vto = vto_raw if vto_raw.tzinfo else vto_raw.replace(tzinfo=UTC)
             else:
                 vto = datetime.fromisoformat(str(vto_raw)[:10]).replace(tzinfo=UTC)
-            meses = round((vto - ahora).days / 30.44, 1)
+            meses = round((vto - fecha_dt).days / 30.44, 1)
         except Exception:
             pass
         ts_last = en.get("ts")
@@ -101,13 +158,12 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
             "ultimo_precio":      en.get("price"),
             "tea":                en.get("TEA"),
             "tem":                en.get("TEM"),
-            "paridad":             en.get("paridad"),
+            "paridad":            en.get("paridad"),
             "duration":           en.get("duration"),
             "mod_duration":       en.get("mod_duration"),
             "convexity":          en.get("convexity"),
             "ts_ultimo_trade":    ts_last.isoformat() if isinstance(ts_last, datetime) else ts_last,
         }
-        # Metadatos extra para curva CER (descomposición de retorno).
         if curva == "cer":
             cupon = m.get("cupon_anual")
             entry["is_zero_coupon"] = (cupon is None) or (float(cupon) == 0.0)

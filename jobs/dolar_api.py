@@ -1,4 +1,13 @@
-"""Cron: pega dolarapi.com y persiste oficial/mayorista/blue en Mongo.
+"""[DEPRECADO 2026-05-04] Cron: pega dolarapi.com y persiste oficial/mayorista/blue.
+
+Apagado en deploy/crontab.txt (línea comentada). El live de oficial/mayorista
+ya viene del feed MAE (`Valuaciones.DolarOficialLive`, script local en PC
+oficina) y la serie histórica del oficial migró a `Trading.DOLAR` (BCRA
+A3500). La serie blue quedó sin fuente.
+
+El código se mantiene por si querés reactivar el cron (ej. para que `/argy`
+vuelva a tener anchors 7d/MTD/YTD anclados a dolarapi). Para reactivarlo:
+descomentar la línea en deploy/crontab.txt y reinstalar el crontab.
 
 Escribe en `Valuaciones.DolarOficial` — 1 doc por (casa, fecha_snapshot).
 El snapshot es diario (`$set` on-upsert por clave compuesta), así no

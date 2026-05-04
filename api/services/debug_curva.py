@@ -321,8 +321,8 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
         elif curva == "dolar_linked":
             fecha_base_calc = fecha_settlement
             if not tc_a3500:
-                raise ValueError("Sin TC A3500 (mayorista_dolarapi).")
-            tc_info = {"fuente": "A3500_mayorista", "valor": tc_a3500}
+                raise ValueError("Sin TC A3500 (feed MAE mayorista offline).")
+            tc_info = {"fuente": "A3500_mayorista_mae", "valor": tc_a3500}
             precio_usd = precio / tc_a3500
             tc_info["precio_usd"] = round(precio_usd, 6)
 

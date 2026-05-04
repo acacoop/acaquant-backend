@@ -194,45 +194,35 @@ def cargar_mep_actual(client) -> float | None:
 def cargar_a3500_actual(client) -> float | None:
     """TC para valuar dolar-linked en tiempo real durante horas de mercado.
 
-    Fuente única: Valuaciones.DolarOficial casa="mayorista" — escrito por
-    jobs/dolar_api.py (cron cada 5 min en horario de rueda L-V 13-20 UTC).
+    Fuente única: feed MAE mayorista (UST$T plazo 000) vía
+    `core.dolar_oficial.mid_oficial_live("oficial")`. La data la persiste
+    `Valuaciones.DolarOficialLive` desde un script local en la PC oficina.
     Es el proxy intra-day del A3500.
 
     NO usamos Trading.DOLAR (A3500 BCRA fixing diario). Aunque ese sea
     el TC pactado en el prospecto, durante el día estaría 1 día stale
-    y daría paridades/TEAs erradas. Si dolar_api no tiene dato (cron
-    caído / fuera de rueda), devolvemos None: prefiero no enriquecer
-    a enriquecer con dato viejo del BCRA.
+    y daría paridades/TEAs erradas. Si MAE está caído (PC apagada,
+    Internet, etc.), devolvemos None: prefiero no enriquecer a
+    enriquecer con dato viejo del BCRA.
 
-    Mid (compra+venta)/2 si las dos puntas están; fallback a venta sola.
+    El parámetro `client` queda por compat con call sites — el feed lo
+    resuelve `core.dolar_oficial` con su propio cliente read.
     """
-    doc = client["Valuaciones"]["DolarOficial"].find_one(
-        {"casa": "mayorista", "venta": {"$gt": 0}},
-        {"_id": 0, "compra": 1, "venta": 1, "updated_at": 1, "fecha": 1},
-        sort=[("updated_at", -1)],
-    )
-    if doc:
-        compra = doc.get("compra")
-        venta = doc.get("venta")
-        if compra and compra > 0 and venta and venta > 0:
-            valor = (float(compra) + float(venta)) / 2.0
-            logger.info(
-                "TC dolar-linked: %.4f (mayorista_dolarapi mid, fecha=%s)",
-                valor, doc.get("fecha"),
-            )
-            return valor
-        if venta and venta > 0:
-            valor = float(venta)
-            logger.info(
-                "TC dolar-linked: %.4f (mayorista_dolarapi venta sola, fecha=%s)",
-                valor, doc.get("fecha"),
-            )
-            return valor
+    from core.dolar_oficial import mid_oficial_live
+
+    live = mid_oficial_live("oficial")
+    valor = live.get("value")
+    if valor and valor > 0:
+        logger.info(
+            "TC dolar-linked: %.4f (mae_mayorista, ts=%s)",
+            float(valor), live.get("ts"),
+        )
+        return float(valor)
 
     logger.warning(
-        "TC dolar-linked NO disponible — Valuaciones.DolarOficial casa='mayorista' "
-        "vacío. Bonos dolar-linked van a quedar sin TEA/paridad. "
-        "Corré: python -m jobs.dolar_api"
+        "TC dolar-linked NO disponible — feed MAE (DolarOficialLive) vacío. "
+        "Bonos dolar-linked van a quedar sin TEA/paridad. Verificar que el "
+        "script local de la oficina esté corriendo."
     )
     return None
 

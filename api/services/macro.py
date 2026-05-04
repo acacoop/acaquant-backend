@@ -213,10 +213,12 @@ _MACROS: dict[str, dict[str, Any]] = {
     "riesgo_pais":       {"db": "Trading", "col": "RiesgoPais",          "ts": "fecha", "val": "valor", "ts_tipo": "string"},
     "ipc":               {"db": "Trading", "col": "InflacionMensual",    "ts": "fecha", "val": "valor", "ts_tipo": "string"},
     "ipc_interanual":    {"db": "Trading", "col": "InflacionInteranual", "ts": "fecha", "val": "valor", "ts_tipo": "string"},
-    # Dólares agregados (dolarapi.com vía jobs/dolar_api.py).
-    "dolar_oficial":   {"db": "Valuaciones", "col": "DolarOficial", "ts": "fecha", "val": "venta", "ts_tipo": "string", "extra_filter": {"casa": "oficial"}},
-    "dolar_mayorista": {"db": "Valuaciones", "col": "DolarOficial", "ts": "fecha", "val": "venta", "ts_tipo": "string", "extra_filter": {"casa": "mayorista"}},
-    "dolar_blue":      {"db": "Valuaciones", "col": "DolarOficial", "ts": "fecha", "val": "venta", "ts_tipo": "string", "extra_filter": {"casa": "blue"}},
+    # Dólares agregados — antes venían de dolarapi.com (jobs/dolar_api.py),
+    # apagado el 2026-05-04. "oficial" y "mayorista" redirigen a la serie
+    # A3500 BCRA (que ES el oficial mayorista canónico). "blue" no tiene
+    # reemplazo y queda bloqueada.
+    "dolar_oficial":   {"db": "Trading", "col": "DOLAR", "ts": "fecha", "val": "valor", "ts_tipo": "string"},
+    "dolar_mayorista": {"db": "Trading", "col": "DOLAR", "ts": "fecha", "val": "valor", "ts_tipo": "string"},
 }
 
 # Variables conocidas pero bloqueadas por falta de data en Mongo.
@@ -224,6 +226,7 @@ _BLOQUEADAS: dict[str, str] = {
     "ipim":         "IPIM INDEC no cargado — falta job jobs/inflacion.py",
     "repo":         "stock REPO BCRA no cargado — falta extensión de jobs/bcra.py",
     "rem_inflacion": "REM BCRA no cargado — falta job jobs/rem.py (tiene múltiples indicadores, requiere schema específico)",
+    "dolar_blue":   "Serie blue deprecada — el cron jobs/dolar_api se apagó el 2026-05-04. Sin fuente alternativa.",
 }
 
 _CAMPOS_TICKER_VALIDOS = ("TEA", "TEM", "paridad", "duration", "price")

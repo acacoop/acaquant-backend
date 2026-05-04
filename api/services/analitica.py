@@ -9,7 +9,7 @@ Tres herramientas que operan encima de `renta_fija.listar_curva` y
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from api.cache import cached
 from api.db import get_db_trading
@@ -106,7 +106,66 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
         out.sort(key=lambda x: x.get("fecha_vencimiento") or "9999")
         return out
 
-    # ── Fallback: agregar TimeSales del día (fechas previas al backfill o
+    # ── Fallback A: día corriente sin cierre persistido todavía (cron
+    # snapshot_cierre corre 20:25 UTC). Leemos MarketSnapshot directo,
+    # que es la misma fuente que el cron usa al cierre — sólo que live.
+    if fecha_str == date.today().isoformat():
+        ms_rows = list(db["MarketSnapshot"].find(
+            {
+                "ticker":             {"$in": list(meta_by_ticker.keys())},
+                "metrics.last_price": {"$gt": 0},
+            },
+            {"_id": 0,
+             "ticker": 1, "updated_at": 1,
+             "metrics.last_price": 1, "metrics.TEA": 1, "metrics.TEM": 1,
+             "metrics.paridad": 1, "metrics.duration": 1,
+             "metrics.mod_duration": 1, "metrics.convexity": 1},
+        ))
+        if ms_rows:
+            out = []
+            for r in ms_rows:
+                ticker = r.get("ticker")
+                m = meta_by_ticker.get(ticker, {})
+                metrics = r.get("metrics") or {}
+                vto_raw = m.get("fecha_vencimiento")
+                meses = None
+                try:
+                    if isinstance(vto_raw, datetime):
+                        vto = vto_raw if vto_raw.tzinfo else vto_raw.replace(tzinfo=UTC)
+                    else:
+                        vto = datetime.fromisoformat(str(vto_raw)[:10]).replace(tzinfo=UTC)
+                    meses = round((vto - fecha_dt).days / 30.44, 1)
+                except Exception:
+                    pass
+                ts_last = r.get("updated_at")
+                entry = {
+                    "ticker":             ticker,
+                    "ticker_corto":       m.get("ticker_corto"),
+                    "tipo":               m.get("tipo"),
+                    "fecha_vencimiento":  str(vto_raw)[:10] if vto_raw else None,
+                    "meses_al_vto":       meses,
+                    "ultimo_precio":      metrics.get("last_price"),
+                    "tea":                metrics.get("TEA"),
+                    "tem":                metrics.get("TEM"),
+                    "paridad":            metrics.get("paridad"),
+                    "duration":           metrics.get("duration"),
+                    "mod_duration":       metrics.get("mod_duration"),
+                    "convexity":          metrics.get("convexity"),
+                    "ts_ultimo_trade":    (
+                        ts_last.isoformat() if isinstance(ts_last, datetime) else ts_last
+                    ),
+                }
+                if curva == "cer":
+                    cupon = m.get("cupon_anual")
+                    entry["is_zero_coupon"] = (cupon is None) or (float(cupon) == 0.0)
+                    cer_em = m.get("cer_emision")
+                    if cer_em:
+                        entry["cer_emision"] = float(cer_em)
+                out.append(entry)
+            out.sort(key=lambda x: x.get("fecha_vencimiento") or "9999")
+            return out
+
+    # ── Fallback B: agregar TimeSales del día (fechas previas al backfill o
     # gap). Mantiene el comportamiento histórico para no romper queries
     # de fechas viejas mientras la cobertura de SnapshotsCierre crece.
     fin_dt = fecha_dt + timedelta(days=1)

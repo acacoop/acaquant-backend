@@ -45,6 +45,13 @@ TIMESERIES_OPTIONS = {
     "granularity": "seconds",
 }
 
+# Solo copiamos los campos REALES del trade. Los campos enriquecidos viejos
+# (TEA, TEM, duration, mod_duration, paridad, convexity) son legacy: motor_curvas
+# dejó de escribirlos en TimeSales el 2026-05-04. La data analítica vive en
+# MarketSnapshot.metrics (live) y SnapshotsCierre (histórico). No tiene sentido
+# arrastrarlos a la TS Collection nueva.
+FIELDS_KEEP = ("timestamp", "ticker", "price", "size", "side", "money")
+
 COPY_BATCH = 5000
 
 
@@ -172,9 +179,15 @@ def mode_swap(force: bool = False) -> int:
     copied = 0
     batch: list[dict] = []
     last_progress = 0
-    for doc in src.find({}, sort=[("timestamp", 1)]):
-        doc.pop("_id", None)
-        batch.append(doc)
+    # Project solo los campos relevantes — descartamos _id y los analíticos
+    # legacy en una sola pasada del cursor (más eficiente que post-procesar).
+    projection = {k: 1 for k in FIELDS_KEEP}
+    projection["_id"] = 0
+    for doc in src.find({}, projection, sort=[("timestamp", 1)]):
+        # Defensivo: solo conservar los campos del whitelist (por si algún doc
+        # tiene un nombre raro que se cuela).
+        clean = {k: doc[k] for k in FIELDS_KEEP if k in doc}
+        batch.append(clean)
         if len(batch) >= COPY_BATCH:
             dst.insert_many(batch, ordered=False)
             copied += len(batch)

@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pyRofex
-from pymongo import ReplaceOne
+from pymongo import UpdateOne
 
 from core.mongo import get_mongo_client
 
@@ -297,35 +297,28 @@ class MicrostructureEngine:
                     if metricas.get("last_price") is None:
                         continue
 
-                    # NOTA: este ReplaceOne borraría los campos analíticos
-                    # (metrics.TEA, .TEM, .duration, .convexity, .paridad)
-                    # que escribe engines/curvas.py. Los preservamos leyendo
-                    # su valor actual de Mongo (si existe) y fusionándolo
-                    # antes del replace. Costo extra: 1 find por ticker/seg,
-                    # pero es local a Atlas y va con el read client.
-                    existing = self.col_snapshot.find_one(
+                    # UpdateOne $set parcial: solo los campos que este motor
+                    # gobierna (book + métricas de precio del día). Los
+                    # analíticos (metrics.TEA/TEM/duration/mod_duration/
+                    # convexity/paridad) los actualiza engines/curvas.py con
+                    # su propio $set y NO los tocamos acá. Cada motor escribe
+                    # lo suyo, sin guardas mutuas.
+                    ops.append(UpdateOne(
                         {"ticker": ticker},
-                        {"_id": 0, "metrics.TEA": 1, "metrics.TEM": 1,
-                         "metrics.duration": 1, "metrics.mod_duration": 1,
-                         "metrics.convexity": 1, "metrics.paridad": 1},
-                    )
-                    if existing and existing.get("metrics"):
-                        for k in ("TEA", "TEM", "duration", "mod_duration",
-                                  "convexity", "paridad"):
-                            v = existing["metrics"].get(k)
-                            if v is not None:
-                                metricas[k] = v
-
-                    doc = {
-                        "ticker":        ticker,
-                        "updated_at":    ts,
-                        "book": {
-                            "bids":   list(st["book"]["bids"]),
-                            "offers": list(st["book"]["offers"]),
-                        },
-                        "metrics":       metricas,
-                    }
-                    ops.append(ReplaceOne({"ticker": ticker}, doc, upsert=True))
+                        {"$set": {
+                            "updated_at":             ts,
+                            "book.bids":              list(st["book"]["bids"]),
+                            "book.offers":            list(st["book"]["offers"]),
+                            "metrics.last_price":     metricas.get("last_price"),
+                            "metrics.open_price":     metricas.get("open_price"),
+                            "metrics.high_price":     metricas.get("high_price"),
+                            "metrics.low_price":      metricas.get("low_price"),
+                            "metrics.closing_price":  metricas.get("closing_price"),
+                            "metrics.vwap":           metricas.get("vwap"),
+                            "metrics.total_nominals": metricas.get("total_nominals"),
+                        }},
+                        upsert=True,
+                    ))
 
                 if ops:
                     self.col_snapshot.bulk_write(ops, ordered=False)

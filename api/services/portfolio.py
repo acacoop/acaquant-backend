@@ -407,30 +407,27 @@ def cer_snapshot() -> dict:
         }
         if curvas_map:
             ticker_to_short = {v: k for k, v in curvas_map.items()}
-            pipeline = [
-                # Exigir también duration: hay docs con TEA stampeada pero sin
-                # duration (hueco de enriquecimiento). Sin este filtro, el
-                # $first podía devolver null en duration.
-                {"$match": {"ticker": {"$in": list(curvas_map.values())},
-                            "TEA": {"$exists": True},
-                            "duration": {"$exists": True}}},
-                {"$sort": {"timestamp": -1}},
-                {"$group": {
-                    "_id":       "$ticker",
-                    "TEA":       {"$first": "$TEA"},
-                    "paridad":   {"$first": "$paridad"},
-                    "duration":  {"$first": "$duration"},
-                    "timestamp": {"$first": "$timestamp"},
-                }},
-            ]
-            for row in db_tr["TimeSales"].aggregate(pipeline):
-                short = ticker_to_short.get(row["_id"])
-                if short:
-                    tea_paridad[short] = {
-                        "tea":      row.get("TEA"),
-                        "paridad":  row.get("paridad"),
-                        "duration": row.get("duration"),
-                    }
+            # Lee última TEA/paridad/duration desde MarketSnapshot.metrics.
+            # Antes agregaba TimeSales con $group/$first; este path lee
+            # 1 doc por ticker (find directo). El valor es idéntico:
+            # curvas.py escribe en MarketSnapshot la misma TEA/duration/
+            # paridad del último trade enriquecido.
+            for row in db_tr["MarketSnapshot"].find(
+                {"ticker": {"$in": list(curvas_map.values())},
+                 "metrics.TEA": {"$exists": True, "$ne": None},
+                 "metrics.duration": {"$exists": True, "$ne": None}},
+                {"_id": 0, "ticker": 1,
+                 "metrics.TEA": 1, "metrics.paridad": 1, "metrics.duration": 1},
+            ):
+                short = ticker_to_short.get(row["ticker"])
+                if not short:
+                    continue
+                m = row.get("metrics") or {}
+                tea_paridad[short] = {
+                    "tea":      m.get("TEA"),
+                    "paridad":  m.get("paridad"),
+                    "duration": m.get("duration"),
+                }
     except Exception:
         pass
 

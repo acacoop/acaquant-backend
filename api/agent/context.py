@@ -247,16 +247,18 @@ def _spread_hd_mandato_line(client) -> str:
     if not intra or not post or intra.get("ticker") == post.get("ticker"):
         return "Spread HD intra/post-mandato: no calculable hoy"
 
-    def _last_tea(instrumento: str) -> float | None:
-        doc = client["Trading"]["TimeSales"].find_one(
-            {"instrumento": instrumento, "TEA": {"$exists": True, "$ne": None}},
-            {"_id": 0, "TEA": 1},
-            sort=[("timestamp", -1)],
+    def _last_tea(ticker: str) -> float | None:
+        # Lee de MarketSnapshot.metrics (escrito por engines/curvas.py).
+        # Antes leía TimeSales pero filtraba por "instrumento" que no es
+        # campo real (TimeSales usa "ticker") — el find_one nunca matcheaba.
+        doc = client["Trading"]["MarketSnapshot"].find_one(
+            {"ticker": ticker, "metrics.TEA": {"$exists": True, "$ne": None}},
+            {"_id": 0, "metrics.TEA": 1},
         )
         if not doc:
             return None
         try:
-            return float(doc["TEA"])
+            return float((doc.get("metrics") or {}).get("TEA"))
         except (TypeError, ValueError):
             return None
 

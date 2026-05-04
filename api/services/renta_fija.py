@@ -327,22 +327,30 @@ def listar_curva(
     tickers = [d["ticker"] for d in filtrados]
 
     enrich_map: dict[str, dict] = {}
-    for r in db["TimeSales"].aggregate([
-        {"$match": {"ticker": {"$in": tickers}, "price": {"$gt": 0}}},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {
-            "_id": "$ticker",
-            "price":     {"$first": "$price"},
-            "TEA":       {"$first": "$TEA"},
-            "TEM":       {"$first": "$TEM"},
-            "paridad":   {"$first": "$paridad"},
-            "duration":     {"$first": "$duration"},
-            "mod_duration": {"$first": "$mod_duration"},
-            "convexity":    {"$first": "$convexity"},
-            "ts":           {"$first": "$timestamp"},
-        }},
-    ]):
-        enrich_map[r["_id"]] = r
+    # Lee último estado por ticker desde MarketSnapshot (last_price +
+    # analíticas TEA/TEM/duration/etc). Antes agregaba TimeSales con
+    # $group/$first; este path lee 1 doc por ticker (find directo) y es
+    # estrictamente más rápido. Los valores son idénticos: valores.py
+    # escribe last_price y curvas.py escribe los analíticos.
+    for r in db["MarketSnapshot"].find(
+        {"ticker": {"$in": tickers},
+         "metrics.last_price": {"$gt": 0}},
+        {"_id": 0, "ticker": 1, "updated_at": 1,
+         "metrics.last_price": 1, "metrics.TEA": 1, "metrics.TEM": 1,
+         "metrics.paridad": 1, "metrics.duration": 1,
+         "metrics.mod_duration": 1, "metrics.convexity": 1},
+    ):
+        m = r.get("metrics") or {}
+        enrich_map[r["ticker"]] = {
+            "price":        m.get("last_price"),
+            "TEA":          m.get("TEA"),
+            "TEM":          m.get("TEM"),
+            "paridad":      m.get("paridad"),
+            "duration":     m.get("duration"),
+            "mod_duration": m.get("mod_duration"),
+            "convexity":    m.get("convexity"),
+            "ts":           r.get("updated_at"),
+        }
 
     vol_map: dict[str, dict] = {}
     for r in db["MarketSnapshot"].find(

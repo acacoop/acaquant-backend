@@ -119,23 +119,29 @@ def cargar_pares():
 # ─────────────────────────────────────────────
 
 def obtener_tems(client, tickers):
-    """Última TEM por ticker Lecap."""
-    pipeline = [
-        {"$match": {"ticker": {"$in": tickers}, "TEM": {"$exists": True}}},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {"_id": "$ticker", "TEM": {"$first": "$TEM"}}},
-    ]
-    return {r["_id"]: r["TEM"] for r in client["Trading"]["TimeSales"].aggregate(pipeline)}
+    """Última TEM por ticker Lecap. Lee MarketSnapshot.metrics."""
+    return {
+        d["ticker"]: (d.get("metrics") or {}).get("TEM")
+        for d in client["Trading"]["MarketSnapshot"].find(
+            {"ticker": {"$in": tickers},
+             "metrics.TEM": {"$exists": True, "$ne": None}},
+            {"_id": 0, "ticker": 1, "metrics.TEM": 1},
+        )
+        if (d.get("metrics") or {}).get("TEM") is not None
+    }
 
 
 def obtener_paridades(client, tickers):
-    """Última paridad por ticker CER."""
-    pipeline = [
-        {"$match": {"ticker": {"$in": tickers}, "paridad": {"$exists": True}}},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {"_id": "$ticker", "paridad": {"$first": "$paridad"}}},
-    ]
-    return {r["_id"]: r["paridad"] for r in client["Trading"]["TimeSales"].aggregate(pipeline)}
+    """Última paridad por ticker CER. Lee MarketSnapshot.metrics."""
+    return {
+        d["ticker"]: (d.get("metrics") or {}).get("paridad")
+        for d in client["Trading"]["MarketSnapshot"].find(
+            {"ticker": {"$in": tickers},
+             "metrics.paridad": {"$exists": True, "$ne": None}},
+            {"_id": 0, "ticker": 1, "metrics.paridad": 1},
+        )
+        if (d.get("metrics") or {}).get("paridad") is not None
+    }
 
 
 def obtener_precios(client, tickers):
@@ -192,13 +198,17 @@ def ultimo_cer_publicado(client) -> str | None:
 
 
 def obtener_teas_cer(client, tickers):
-    """Última TEA por ticker CER (calculada por main_curvas.py)."""
-    pipeline = [
-        {"$match": {"ticker": {"$in": tickers}, "TEA": {"$exists": True}}},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {"_id": "$ticker", "TEA": {"$first": "$TEA"}}},
-    ]
-    return {r["_id"]: r["TEA"] for r in client["Trading"]["TimeSales"].aggregate(pipeline)}
+    """Última TEA por ticker CER (calculada por main_curvas.py).
+    Lee MarketSnapshot.metrics."""
+    return {
+        d["ticker"]: (d.get("metrics") or {}).get("TEA")
+        for d in client["Trading"]["MarketSnapshot"].find(
+            {"ticker": {"$in": tickers},
+             "metrics.TEA": {"$exists": True, "$ne": None}},
+            {"_id": 0, "ticker": 1, "metrics.TEA": 1},
+        )
+        if (d.get("metrics") or {}).get("TEA") is not None
+    }
 
 
 # ─────────────────────────────────────────────

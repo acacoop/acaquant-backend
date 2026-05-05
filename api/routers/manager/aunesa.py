@@ -78,6 +78,13 @@ PATTERN_SOLICITUD_FCI = re.compile(
     re.IGNORECASE,
 )
 
+# Patrón para acreencias (interest payment / cash dividend / partial redemption).
+# El ticker viene después de "s/" (sobre / referido a) cerca del final de la
+# descripción.
+# ej. "Interest payment (INTR) - DISN s/OTS3O"
+# ej. "Liquidación 658417 - Cash dividend (DVCA) - DISN s/JPM"
+PATTERN_ACREENCIA_TICKER = re.compile(r"\bs/(?P<ticker>[\w./-]+)", re.IGNORECASE)
+
 # Categorías que en realidad son operaciones bilaterales FCI (todas las
 # líneas vienen como ARS, distinguidas por estado DIF/DIS).
 SOLICITUD_FCI_CATS = ("solicitud_suscripcion_fci", "solicitud_rescate_fci")
@@ -171,6 +178,29 @@ def _parse_informacion(s: str) -> dict[str, Any] | None:
             "precio":   None,
             "moneda":   "ARS",   # bilaterales siempre ARS por default
             "plazo":    "Contado Inmediato",
+            "fase":     None,
+        }
+
+    # Acreencias (Interest payment / Cash dividend / Partial redemption).
+    # El ticker está después de "s/" en la descripción.
+    norm = _normalizar(s)
+    if any(k in norm for k in ACREENCIA_KEYS):
+        op = (
+            "Interest payment" if "interest payment" in norm
+            else "Cash dividend" if "cash dividend" in norm
+            else "Partial redemption"
+        )
+        ticker = None
+        m2 = PATTERN_ACREENCIA_TICKER.search(s)
+        if m2:
+            ticker = m2.group("ticker")
+        return {
+            "op":       op,
+            "ticker":   ticker,
+            "cantidad": None,
+            "precio":   None,
+            "moneda":   None,
+            "plazo":    None,
             "fase":     None,
         }
 
@@ -302,16 +332,26 @@ def _agrupar_boletos(movimientos: list[dict]) -> list[dict]:
         titulos = [m for m in lineas if not _es_linea_dinero(m)]
         dineros = [m for m in lineas if _es_linea_dinero(m)]
 
-        # ── Solicitudes FCI bilaterales: todas las líneas vienen ARS,
-        # con estados DIF (asset, contable) y DIS (plata real).
-        # Quedarnos sólo con DIS — esa es la plata efectiva del cliente.
-        if categoria in SOLICITUD_FCI_CATS and len(dineros) > 1:
-            dis = [m for m in dineros if str(m.get("estado") or "").upper() == "DIS"]
-            if dis:
-                dineros = dis
+        # ── Solicitudes FCI bilaterales: vienen con DIF + DIS, ya sea como
+        # líneas ARS (suscripción) o como líneas de cuotaparte (rescate).
+        # Quedarnos sólo con DIS en AMBOS lados.
+        if categoria in SOLICITUD_FCI_CATS:
+            titulos_dis = [m for m in titulos if str(m.get("estado") or "").upper() == "DIS"]
+            if titulos_dis:
+                titulos = titulos_dis
+            dineros_dis = [m for m in dineros if str(m.get("estado") or "").upper() == "DIS"]
+            if dineros_dis:
+                dineros = dineros_dis
+
+        # ── Acreencias multi-moneda (cash dividend en USD/USDC + comisión ARS):
+        # cuando hay líneas en moneda extranjera + ARS, ARS es comisión/IIBB.
+        # Priorizar la línea NON-ARS para el importe.
+        elif categoria == "acreencia" and len(dineros) > 1:
+            no_ars = [m for m in dineros if str(m.get("unidad") or "").upper() != "ARS"]
+            if no_ars:
+                dineros = no_ars
 
         # ── FCI supermercado: si hay múltiples dineros, conservar sólo uso=="GRAL".
-        # (no aplica a bilaterales, ya filtrado arriba)
         elif len(dineros) > 1:
             con_gral = [m for m in dineros if str(m.get("uso") or "").upper() == "GRAL"]
             if con_gral:

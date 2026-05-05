@@ -313,6 +313,10 @@ def negocio_serie(
         "todas",
         description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",
     ),
+    cuenta: str | None = Query(
+        None,
+        description="Match exacto sobre cuenta. Si se envía, override del cuenta_filter.",
+    ),
 ):
     """Serie diaria del importe absoluto por categoría, agregada server-side.
 
@@ -342,8 +346,12 @@ def negocio_serie(
         match_doc = {
             "moneda": moneda,
             "categoria": {"$in": list(_NEGOCIO_SERIE_BOLETO_CATS)},
-            **_match_cuenta_filter(cuenta_filter),
         }
+        if cuenta:
+            # Match exacto sobre cuenta — override total del cuenta_filter.
+            match_doc["cuenta"] = cuenta
+        else:
+            match_doc.update(_match_cuenta_filter(cuenta_filter))
         pipeline = [
             {"$match": match_doc},
             {"$group": {
@@ -367,13 +375,18 @@ def negocio_serie(
             }},
         ]
         serie = list(coll.aggregate(pipeline))
-        return {"moneda": moneda, "cuenta_filter": cuenta_filter, "serie": serie}
+        return {
+            "moneda":        moneda,
+            "cuenta_filter": cuenta_filter,
+            "cuenta":        cuenta,
+            "serie":         serie,
+        }
     except HTTPException:
         raise
     except Exception as e:
         logger.exception(
-            "negocio_serie failed for moneda=%s cuenta_filter=%s",
-            moneda, cuenta_filter,
+            "negocio_serie failed: moneda=%s cuenta_filter=%s cuenta=%s",
+            moneda, cuenta_filter, cuenta,
         )
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -386,6 +399,10 @@ def negocio_cuentas(
     categoria: str = Query(..., description="categoría UI: compra|venta|suscripciones|cauc_tom|cauc_col"),
     desde: str = Query(..., description="YYYY-MM-DD inclusive"),
     hasta: str = Query(..., description="YYYY-MM-DD inclusive"),
+    cuenta: str | None = Query(
+        None,
+        description="Match exacto sobre cuenta. Si se envía, override del cuenta_filter.",
+    ),
 ):
     """Totales acumulados por cuenta para una categoría UI sobre un rango.
 
@@ -423,8 +440,11 @@ def negocio_cuentas(
             "fecha":     {"$gte": desde, "$lte": hasta},
             "moneda":    moneda,
             "categoria": {"$in": boleto_cats},
-            **_match_cuenta_filter(cuenta_filter),
         }
+        if cuenta:
+            match_doc["cuenta"] = cuenta
+        else:
+            match_doc.update(_match_cuenta_filter(cuenta_filter))
         pipeline = [
             {"$match": match_doc},
             {"$group": {
@@ -447,6 +467,7 @@ def negocio_cuentas(
             "categoria":     categoria,
             "desde":         desde,
             "hasta":         hasta,
+            "cuenta":        cuenta,
             "cuentas":       rows,
             "total_abs":     round(sum(r["importe_abs"] for r in rows), 2),
             "n_total":       sum(r["n"] for r in rows),
@@ -455,9 +476,29 @@ def negocio_cuentas(
         raise
     except Exception as e:
         logger.exception(
-            "negocio_cuentas failed: moneda=%s cuenta_filter=%s categoria=%s desde=%s hasta=%s",
-            moneda, cuenta_filter, categoria, desde, hasta,
+            "negocio_cuentas failed: moneda=%s cuenta_filter=%s categoria=%s desde=%s hasta=%s cuenta=%s",
+            moneda, cuenta_filter, categoria, desde, hasta, cuenta,
         )
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/negocio/cuentas-list")
+@cached(ttl=3600)
+def negocio_cuentas_list():
+    """Lista de strings `cuenta` distintos en NegocioMovimientos. Sirve
+    como fuente del autocomplete de búsqueda de cuenta. Cacheado 1h —
+    el set cambia poco (cuentas nuevas son raras)."""
+    try:
+        coll = get_db_cashflow()["NegocioMovimientos"]
+        # distinct() es la operación más liviana para esto — Mongo lo
+        # resuelve scaneando el índice si existe (cuenta no tiene index
+        # standalone, pero el compuesto fecha_cuenta cubre el campo).
+        cuentas = sorted(
+            c for c in coll.distinct("cuenta") if c
+        )
+        return {"cuentas": cuentas, "n": len(cuentas)}
+    except Exception as e:
+        logger.exception("negocio_cuentas_list failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import ORJSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.requests import Request
@@ -101,7 +102,15 @@ async def lifespan(_app: FastAPI):
             await _shutdown_bg()
 
 
-app = FastAPI(title="TradingAV API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="TradingAV API",
+    version="0.1.0",
+    lifespan=lifespan,
+    # orjson es 2-3x más rápido que el stdlib json en payloads grandes
+    # (snapshots de portfolios, listas de boletos, series de TimeSales)
+    # y aloca proporcionalmente menos RAM durante la serialización.
+    default_response_class=ORJSONResponse,
+)
 
 # Rate limiter compartido — keying por email CF (ver api/ratelimit.py).
 app.state.limiter = limiter

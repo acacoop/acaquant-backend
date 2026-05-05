@@ -214,6 +214,26 @@ def flujo_vs_aum(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+@router.get("/negocio/fechas")
+def negocio_fechas():
+    """Lista de fechas distintas con boletos persistidos, ordenadas
+    descendente. Usado por el frontend para limitar el selector de fecha
+    a días con data real."""
+    try:
+        coll = get_db_cashflow()["NegocioMovimientos"]
+        pipeline = [
+            {"$group": {"_id": "$fecha", "n": {"$sum": 1}}},
+            {"$sort": {"_id": -1}},
+        ]
+        rows = list(coll.aggregate(pipeline))
+        return {
+            "fechas": [{"fecha": r["_id"], "n": r["n"]} for r in rows if r.get("_id")],
+        }
+    except Exception as e:
+        logger.exception("negocio_fechas failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/negocio")
 def negocio(
     fecha: str | None = Query(None, description="YYYY-MM-DD; default: hoy ART"),

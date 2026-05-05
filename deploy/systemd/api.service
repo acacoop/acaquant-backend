@@ -9,6 +9,12 @@ WorkingDirectory=/root/TradingAV
 ExecStart=/root/TradingAV/venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=10
+# Recicla el proceso cada 8h para acotar leaks (caches in-process,
+# fragmentación, cursores abandonados). systemd hace shutdown graceful:
+# uvicorn termina los requests in-flight (~1-3s de ventana) y arranca
+# uno nuevo. Si el restart cae dentro de la pause de Atlas (04:00-11:20
+# UTC) no es problema: la base estaría caída de todos modos.
+RuntimeMaxSec=8h
 
 [Install]
 WantedBy=multi-user.target

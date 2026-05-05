@@ -50,7 +50,9 @@ def get_mongo_client() -> pymongo.MongoClient:
                 _client = pymongo.MongoClient(
                     MONGO_URI,
                     serverSelectionTimeoutMS=30000,
-                    maxPoolSize=20,
+                    # Pool reducido: 1 droplet single-process, 7-8 usuarios.
+                    # 10 sockets idle alcanzan; cada slot extra come ~1MB.
+                    maxPoolSize=10,
                     compressors="zstd,snappy,zlib",
                 )
     return _client
@@ -77,7 +79,8 @@ def get_mongo_client_read() -> pymongo.MongoClient:
                 _client_read = pymongo.MongoClient(
                     uri,
                     serverSelectionTimeoutMS=30000,
-                    maxPoolSize=20,
+                    # Igual razonamiento que el cliente RW (ver arriba).
+                    maxPoolSize=10,
                     compressors="zstd,snappy,zlib",
                     read_preference=ReadPreference.SECONDARY_PREFERRED,
                 )

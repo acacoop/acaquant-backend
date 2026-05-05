@@ -69,6 +69,19 @@ PATTERN_CAUCION = re.compile(
     re.IGNORECASE,
 )
 
+# Patrón para solicitudes bilaterales FCI:
+#   Solicitud de <ACCIÓN> de FCI - [<ID>] <TICKER>
+#   ej. "Solicitud de suscripción de FCI - [5567] CAFCI1671-5567"
+PATTERN_SOLICITUD_FCI = re.compile(
+    r"^Solicitud\s+de\s+(?P<accion>suscripci[oó]n|rescate)\s+de\s+FCI\s*-?\s*"
+    r"\[(?P<id>\d+)\]\s*(?P<ticker>[\w./-]+)",
+    re.IGNORECASE,
+)
+
+# Categorías que en realidad son operaciones bilaterales FCI (todas las
+# líneas vienen como ARS, distinguidas por estado DIF/DIS).
+SOLICITUD_FCI_CATS = ("solicitud_suscripcion_fci", "solicitud_rescate_fci")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -145,6 +158,20 @@ def _parse_informacion(s: str) -> dict[str, Any] | None:
             "moneda":   g["moneda"],
             "plazo":    f"{g['dias']} días",
             "fase":     fase,
+        }
+
+    m = PATTERN_SOLICITUD_FCI.match(s)
+    if m:
+        g = m.groupdict()
+        accion = "suscripción" if "suscripci" in g["accion"].lower() else "rescate"
+        return {
+            "op":       f"Solicitud {accion} FCI",
+            "ticker":   g["ticker"],
+            "cantidad": None,    # se resuelve en _agrupar_boletos desde las líneas
+            "precio":   None,
+            "moneda":   "ARS",   # bilaterales siempre ARS por default
+            "plazo":    "Contado Inmediato",
+            "fase":     None,
         }
 
     return None
@@ -267,19 +294,28 @@ def _agrupar_boletos(movimientos: list[dict]) -> list[dict]:
     out: list[dict] = []
 
     for comp, lineas in by_comp.items():
-        titulos = [m for m in lineas if not _es_linea_dinero(m)]
-        dineros = [m for m in lineas if _es_linea_dinero(m)]
-
-        # Dedup FCI super: si hay múltiples dineros, conservar sólo uso=="GRAL".
-        if len(dineros) > 1:
-            con_gral = [m for m in dineros if str(m.get("uso") or "").upper() == "GRAL"]
-            if con_gral:
-                dineros = con_gral
-
-        # Tomar metadata del primer mov.
+        # Tomar metadata del primer mov para conocer la categoría.
         primer = lineas[0]
         parsed = primer.get("_parsed")
         categoria = primer.get("_categoria")
+
+        titulos = [m for m in lineas if not _es_linea_dinero(m)]
+        dineros = [m for m in lineas if _es_linea_dinero(m)]
+
+        # ── Solicitudes FCI bilaterales: todas las líneas vienen ARS,
+        # con estados DIF (asset, contable) y DIS (plata real).
+        # Quedarnos sólo con DIS — esa es la plata efectiva del cliente.
+        if categoria in SOLICITUD_FCI_CATS and len(dineros) > 1:
+            dis = [m for m in dineros if str(m.get("estado") or "").upper() == "DIS"]
+            if dis:
+                dineros = dis
+
+        # ── FCI supermercado: si hay múltiples dineros, conservar sólo uso=="GRAL".
+        # (no aplica a bilaterales, ya filtrado arriba)
+        elif len(dineros) > 1:
+            con_gral = [m for m in dineros if str(m.get("uso") or "").upper() == "GRAL"]
+            if con_gral:
+                dineros = con_gral
 
         # Totales en perspectiva cliente (suma neta).
         cantidad_titulo = sum(m.get("_total_cliente") or 0 for m in titulos)

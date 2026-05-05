@@ -574,6 +574,84 @@ def negocio_cuentas_matrix(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/negocio/boletos")
+@cached(ttl=60)
+def negocio_boletos(
+    fecha: str = Query(..., description="YYYY-MM-DD"),
+    cuenta: str = Query(..., description="Match exacto sobre cuenta"),
+    moneda: str = Query("ARS"),
+    categoria: str | None = Query(
+        None,
+        description="Si se envía, solo boletos de esa categoría UI (compra|venta|...)",
+    ),
+):
+    """Boletos individuales de una cuenta para un día específico.
+
+    Para el inline-expand del DETALLE en modo DIA: el user clickea una
+    cuenta en la tabla y ve los boletos que componen su total. Filtrable
+    opcionalmente por categoría UI (cuando hay drill-down activo).
+
+    Solo proyecta los campos que la UI muestra (compromiso entre payload
+    y utilidad para el operador).
+    """
+    if moneda not in _NEGOCIO_MONEDAS_VALIDAS:
+        raise HTTPException(400, f"moneda inválida: {moneda!r}")
+    try:
+        datetime.strptime(fecha, "%Y-%m-%d")
+    except ValueError as e:
+        raise HTTPException(400, f"fecha mal formada: {fecha!r}") from e
+
+    boleto_cats: list[str] | None = None
+    if categoria is not None:
+        if categoria not in _NEGOCIO_UI_CAT_MAP:
+            raise HTTPException(
+                400,
+                f"categoria inválida: {categoria!r} ∉ {list(_NEGOCIO_UI_CAT_MAP)}",
+            )
+        boleto_cats = _NEGOCIO_UI_CAT_MAP[categoria]
+
+    try:
+        coll = get_db_cashflow()["NegocioMovimientos"]
+        match_doc: dict = {
+            "fecha":  fecha,
+            "cuenta": cuenta,
+            "moneda": moneda,
+        }
+        if boleto_cats is not None:
+            match_doc["categoria"] = {"$in": boleto_cats}
+        proj = {
+            "_id":         0,
+            "comprobante": 1,
+            "categoria":   1,
+            "op":          1,
+            "ticker":      1,
+            "cantidad":    1,
+            "precio":      1,
+            "importe":     1,
+            "plazo":       1,
+            "lugar":       1,
+            "estado":      1,
+            "informacion": 1,
+        }
+        boletos = list(coll.find(match_doc, proj).sort("comprobante", 1))
+        return {
+            "fecha":     fecha,
+            "cuenta":    cuenta,
+            "moneda":    moneda,
+            "categoria": categoria,
+            "boletos":   boletos,
+            "n":         len(boletos),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "negocio_boletos failed: fecha=%s cuenta=%s moneda=%s categoria=%s",
+            fecha, cuenta, moneda, categoria,
+        )
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/negocio/cuentas-list")
 @cached(ttl=3600)
 def negocio_cuentas_list():

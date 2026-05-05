@@ -58,6 +58,17 @@ PATTERN_BOLETO = re.compile(
     r"\((?P<moneda>\w+)\s+(?P<plazo>[^)]+)\)"
 )
 
+# Patrón para cauciones:
+#   Caución <ROL> <MONEDA> <MONTO>@<TASA>% (<MONEDA> <DIAS> días) (<FASE>)
+#   ej. "Caución colocadora ARS 41.945.608,00@23% (ARS 1 días) (Apertura)"
+PATTERN_CAUCION = re.compile(
+    r"^Cauci[oó]n\s+(?P<rol>colocadora|tomadora)\s+"
+    r"(?P<mon1>\w+)\s+(?P<monto>[\d.,]+)@(?P<tasa>[\d.,]+)%\s+"
+    r"\((?P<moneda>\w+)\s+(?P<dias>\d+)\s+d[ií]as?\)\s+"
+    r"\((?P<fase>Apertura|Cierre)\)",
+    re.IGNORECASE,
+)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -98,26 +109,58 @@ def _parse_num_ar(x: str) -> float:
 
 
 def _parse_informacion(s: str) -> dict[str, Any] | None:
-    """Parsea el campo `informacion` con la regex de boletos. None si no matchea."""
+    """Parsea el campo `informacion`. Intenta:
+       1. patrón boleto (Compra/Venta/Susc/Rescate).
+       2. patrón caución (Caución colocadora/tomadora ... Apertura/Cierre).
+       Devuelve dict normalizado con `op`, `ticker`, `cantidad`, `precio`,
+       `moneda`, `plazo`. Para cauciones agrega `fase` (Apertura/Cierre).
+       None si no matchea ninguno.
+    """
     if not s:
         return None
+
     m = PATTERN_BOLETO.match(s)
-    if not m:
-        return None
-    g = m.groupdict()
-    return {
-        "op":       g["op"].strip(),
-        "ticker":   g["ticker"],
-        "cantidad": _parse_num_ar(g["cantidad"]),
-        "precio":   _parse_num_ar(g["precio"]),
-        "moneda":   g["moneda"],
-        "plazo":    g["plazo"].strip(),
-    }
+    if m:
+        g = m.groupdict()
+        return {
+            "op":       g["op"].strip(),
+            "ticker":   g["ticker"],
+            "cantidad": _parse_num_ar(g["cantidad"]),
+            "precio":   _parse_num_ar(g["precio"]),
+            "moneda":   g["moneda"],
+            "plazo":    g["plazo"].strip(),
+            "fase":     None,
+        }
+
+    m = PATTERN_CAUCION.match(s)
+    if m:
+        g = m.groupdict()
+        rol = g["rol"].lower()
+        fase = g["fase"].capitalize()
+        return {
+            "op":       f"Caución {rol} · {fase}",
+            "ticker":   None,
+            "cantidad": _parse_num_ar(g["monto"]),
+            "precio":   _parse_num_ar(g["tasa"]),    # acá precio = tasa (%)
+            "moneda":   g["moneda"],
+            "plazo":    f"{g['dias']} días",
+            "fase":     fase,
+        }
+
+    return None
 
 
 def _categorizar(informacion: str, parsed: dict | None) -> str:
     """Devuelve la categoría operativa del movimiento."""
     norm = _normalizar(informacion)
+
+    # Cauciones (4 sub-categorías por rol × fase).
+    if "caucion" in norm:
+        rol = "tom" if "tomadora" in norm else "col" if "colocadora" in norm else None
+        fase = "ap" if "apertura" in norm else "ci" if "cierre" in norm else None
+        if rol and fase:
+            return f"caucion_{rol}_{fase}"
+        return "caucion_otro"
 
     # Acreencias por palabra clave (no parsean con regex de boleto).
     if any(k in norm for k in ACREENCIA_KEYS):

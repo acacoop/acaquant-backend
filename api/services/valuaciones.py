@@ -23,7 +23,12 @@ import logging
 from typing import Any
 
 from api.cache import cached
-from api.db import get_db_cashflow, get_db_trading, get_db_valuaciones
+from api.db import (
+    get_db_cashflow,
+    get_db_titulos,
+    get_db_trading,
+    get_db_valuaciones,
+)
 
 logger = logging.getLogger("api.valuaciones")
 
@@ -471,6 +476,23 @@ def posiciones_actuales(id_cuenta: str) -> dict[str, Any]:
         # precio se sobrescribe — todos los lotes del mismo día tienen mismo precio.
         st["precio"] = precio
 
+    # Enriquecer con `cartera` desde TitulosAPI.AssetsAPI.
+    # AuM no persiste cartera en el doc — vive en master data, joineado
+    # por `unidad`. Sin esto la UI no puede separar ARS / DL / HD / FCI.
+    db_t = get_db_titulos()
+    unidades = list(by_unidad.keys())
+    cartera_by_unidad: dict[str, str] = {}
+    if unidades:
+        cur = db_t["AssetsAPI"].find(
+            {"unidad": {"$in": unidades}},
+            {"_id": 0, "unidad": 1, "cartera": 1},
+        )
+        for a in cur:
+            u = a.get("unidad")
+            c = a.get("cartera") or ""
+            if u:
+                cartera_by_unidad[u] = c
+
     rows = sorted(by_unidad.values(), key=lambda r: -abs(r["valuacion"]))
     total = sum(r["valuacion"] for r in rows)
     return {
@@ -480,6 +502,7 @@ def posiciones_actuales(id_cuenta: str) -> dict[str, Any]:
             {
                 "ticker":    r["ticker"],
                 "tipo":      str(r["tipo"]) if r["tipo"] not in (None, "") else None,
+                "cartera":   cartera_by_unidad.get(r["ticker"]) or "",
                 "cantidad":  round(r["cantidad"], 4),
                 "precio":    round(r["precio"], 4),
                 "valuacion": round(r["valuacion"], 2),

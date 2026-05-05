@@ -1,5 +1,5 @@
 """backfill_negocio_movimientos.py — corre jobs/negocio_movimientos para
-los últimos N días hábiles estrictamente anteriores a ayer (default 7).
+los últimos N días hábiles estrictamente anteriores a ayer (default 45).
 
 Llama secuencialmente a `jobs.negocio_movimientos.run(fecha_d=...)` día por
 día — espera a que termine uno antes de empezar el siguiente. El job ya es
@@ -10,8 +10,8 @@ sin error. Si un día falla por excepción, se loguea y se continúa con el
 siguiente; al final hay un resumen con éxitos y fallas.
 
 Uso:
-    python -m scripts.backfill_negocio_movimientos              # 7 días default
-    python -m scripts.backfill_negocio_movimientos --n 14       # más días
+    python -m scripts.backfill_negocio_movimientos              # 45 días default
+    python -m scripts.backfill_negocio_movimientos --n 7        # menos días
     python -m scripts.backfill_negocio_movimientos --desde 2026-04-15 --hasta 2026-04-30
     python -m scripts.backfill_negocio_movimientos --dry        # preview
 """
@@ -57,8 +57,8 @@ def main() -> int:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--n", type=int, default=7,
-                        help="Cantidad de días hábiles a backfillear (default 7)")
+    parser.add_argument("--n", type=int, default=45,
+                        help="Cantidad de días hábiles a backfillear (default 45)")
     parser.add_argument("--desde", help="YYYY-MM-DD (override del rango — requiere --hasta)")
     parser.add_argument("--hasta", help="YYYY-MM-DD (override del rango — requiere --desde)")
     parser.add_argument("--dry", action="store_true",

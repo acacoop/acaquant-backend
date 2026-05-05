@@ -462,15 +462,19 @@ def negocio_cuentas(
 
 
 @router.get("/negocio")
+@cached(ttl=60)
 def negocio(
     fecha: str | None = Query(None, description="YYYY-MM-DD; default: hoy ART"),
 ):
-    """Lee CashFlow.NegocioMovimientos del día y devuelve agregados por
-    segmento + lista completa de boletos.
+    """Metadata del día — solo n_boletos + ultima_ingesta + n_categorias.
 
-    NO pega a Aunesa — la data la pobla el cron del job. Si el día no
-    tiene data todavía (fuera de horario o cron caído), devuelve
-    estructuras vacías sin error.
+    Antes este endpoint devolvía el array completo de boletos del día
+    (~700-1500 docs) + agregados precomputados + top_tickers, pero el
+    rediseño de /operaciones/negocio dejó de usar todo eso: la vista lee
+    serie + cuentas vía /negocio/serie y /negocio/cuentas, y de acá solo
+    consume meta. Calcular el shape viejo costaba ~800ms con la base ya
+    grande post-backfill — ahora es un único $group cubierto por el index
+    en `fecha`.
     """
     if fecha:
         try:
@@ -484,87 +488,31 @@ def negocio(
 
     try:
         coll = get_db_cashflow()["NegocioMovimientos"]
-        boletos = list(coll.find(
-            {"fecha": fecha_iso},
-            {"_id": 0},
-        ).sort([("categoria", 1), ("cuenta", 1), ("comprobante", 1)]))
-
-        # Última hora de ingesta (para mostrar "última actualización" en UI).
-        ultima_ingesta = None
-        if boletos:
-            timestamps = [b.get("ingestado_en") for b in boletos if b.get("ingestado_en")]
-            if timestamps:
-                ultima_ingesta = max(timestamps)
-
-        # Agregados por categoría (para cards gerenciales).
-        agregados: dict[str, dict] = {}
-        for b in boletos:
-            cat = b.get("categoria") or "otro"
-            entry = agregados.setdefault(cat, {
-                "categoria":     cat,
-                "n":             0,
-                "importe_neto":  0.0,
-                "importe_abs":   0.0,
-                "n_cuentas":     set(),
-                "n_tickers":     set(),
-                "monedas":       set(),
-            })
-            entry["n"] += 1
-            imp = b.get("importe") or 0
-            try:
-                imp_f = float(imp)
-            except (TypeError, ValueError):
-                imp_f = 0.0
-            entry["importe_neto"] += imp_f
-            entry["importe_abs"]  += abs(imp_f)
-            if b.get("cuenta"):
-                entry["n_cuentas"].add(b["cuenta"])
-            if b.get("ticker"):
-                entry["n_tickers"].add(b["ticker"])
-            if b.get("moneda"):
-                entry["monedas"].add(b["moneda"])
-
-        # Convertir sets a listas/counts para JSON.
-        agregados_list = []
-        for e in agregados.values():
-            agregados_list.append({
-                "categoria":     e["categoria"],
-                "n":             e["n"],
-                "importe_neto":  round(e["importe_neto"], 2),
-                "importe_abs":   round(e["importe_abs"], 2),
-                "n_cuentas":     len(e["n_cuentas"]),
-                "n_tickers":     len(e["n_tickers"]),
-                "monedas":       sorted(e["monedas"]),
-            })
-        agregados_list.sort(key=lambda x: -x["importe_abs"])
-
-        # Top tickers por volumen abs.
-        ticker_vol: dict[str, dict] = {}
-        for b in boletos:
-            t = b.get("ticker")
-            if not t:
-                continue
-            entry = ticker_vol.setdefault(t, {"ticker": t, "n": 0, "importe_abs": 0.0})
-            entry["n"] += 1
-            entry["importe_abs"] += abs(float(b.get("importe") or 0))
-        top_tickers = sorted(
-            ticker_vol.values(),
-            key=lambda x: -x["importe_abs"],
-        )[:20]
-
+        pipeline = [
+            {"$match": {"fecha": fecha_iso}},
+            {"$group": {
+                "_id":             None,
+                "n_boletos":       {"$sum": 1},
+                "ultima_ingesta":  {"$max": "$ingestado_en"},
+                "categorias":      {"$addToSet": "$categoria"},
+            }},
+        ]
+        rows = list(coll.aggregate(pipeline))
+        if rows:
+            r = rows[0]
+            n_boletos = r.get("n_boletos") or 0
+            n_categorias = len(r.get("categorias") or [])
+            ts = r.get("ultima_ingesta")
+            ultima_ingesta = ts.isoformat() if isinstance(ts, datetime) else None
+        else:
+            n_boletos, n_categorias, ultima_ingesta = 0, 0, None
         return {
             "meta": {
-                "fecha":           fecha_iso,
-                "n_boletos":       len(boletos),
-                "n_categorias":    len(agregados_list),
-                "ultima_ingesta":  (
-                    ultima_ingesta.isoformat() if isinstance(ultima_ingesta, datetime)
-                    else None
-                ),
+                "fecha":          fecha_iso,
+                "n_boletos":      n_boletos,
+                "n_categorias":   n_categorias,
+                "ultima_ingesta": ultima_ingesta,
             },
-            "agregados":   agregados_list,
-            "top_tickers": top_tickers,
-            "boletos":     boletos,
         }
     except Exception as e:
         logger.exception("negocio failed for fecha=%s", fecha_iso)

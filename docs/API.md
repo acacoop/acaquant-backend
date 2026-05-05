@@ -397,7 +397,7 @@ Shared schema: `cuenta`, `id_cuenta`, `nombre`, `grupo`.
 
 ### 7.5 Operaciones (`/api/operaciones/*`) · op
 
-Mesa flow + cash movements (read-only, copies of `CashFlow.*`).
+Mesa flow + cash movements (read-only). **Bloqueado al asistente y al MCP por policy** (datos privados de la mesa).
 
 | Method | Path | Summary |
 |---|---|---|
@@ -405,8 +405,34 @@ Mesa flow + cash movements (read-only, copies of `CashFlow.*`).
 | GET | `/flujos` | Cash movements from `OperacionesAPI.FlujosAPI` |
 | GET | `/fondos` | Counterparties `grupo=Fondos` with at least one FCI asset |
 | GET | `/flujo-vs-aum` | Monthly flow (bars) vs AuM (line) for a fund |
+| GET | `/negocio` | Negocio del día consolidado por boleto desde `CashFlow.NegocioMovimientos` (param `fecha=YYYY-MM-DD`, default hoy ART). Devuelve `meta` + `agregados` por categoría + `top_tickers` + `boletos`. |
+| GET | `/negocio/fechas` | Lista de fechas con boletos persistidos en `NegocioMovimientos` ordenadas desc. Devuelve `[{fecha, n}]`. Usado por el frontend para limitar el selector. |
 
-Field schemas unchanged from v0.1 (see service module for full details).
+#### `/negocio` — schema del response
+
+`agregados[]` (uno por categoría presente en el día):
+
+```json
+{ "categoria": "compra", "n": 45, "importe_neto": 1200000.0, "importe_abs": 1200000.0, "n_cuentas": 12, "n_tickers": 8, "monedas": ["ARS"] }
+```
+
+`boletos[]` (un objeto por comprobante consolidado):
+
+```json
+{ "fecha": "2026-05-04", "comprobante": "BOL 2026069919", "cuenta": "[805] MOLLO ...",
+  "categoria": "compra", "op": "Compra", "ticker": "AL30",
+  "cantidad": -1.00, "precio": 91410.0, "importe": 91410.0,
+  "moneda": "ARS", "plazo": "Inm", "lugar": "Local", "estado": "DIS",
+  "informacion": "Compra [AL30] 1,00@91410,00 (ARS Inm)", "n_lineas": 2 }
+```
+
+Categorías posibles (16):
+
+`compra`, `venta`, `suscripcion_fci`, `rescate_fci`, `solicitud_suscripcion_fci`, `solicitud_rescate_fci`, `acreencia`, `caucion_col_ap`, `caucion_col_ci`, `caucion_tom_ap`, `caucion_tom_ci`, `caucion_otro`, `deposito`, `extraccion`, `transferencia`, `comision`, `impuesto`, `otro`.
+
+`importe` y `cantidad` están **siempre en perspectiva del cliente** (positivo = ingresa, negativo = egresa). Aunesa devuelve perspectiva broker; el service invierte el signo.
+
+La data la pobla `jobs/negocio_movimientos.py` cada hora 12-22 ART L-V. Detalle del flujo en `docs/sesion_2026_05_05_negocio.md`.
 
 ---
 
@@ -943,3 +969,7 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest on every push.
 | 2026-05-04 | **refactor(históricos):** `get_historico_curva` y `snapshot_curva_historico` migrados de `aggregate` sobre TimeSales a `find` sobre `Trading.SnapshotsCierre` (cierre diario pre-agregado por `jobs/snapshot_cierre`). Backfill a 5 curvas hasta 2026-04-30 vía `scripts/backfill_snapshots_cierre`. |
 | 2026-05-04 | **fix(retorno-total + carry-trade):** Live fallback a `MarketSnapshot.metrics` cuando la fecha pedida es hoy y el cron 20:25 UTC aún no corrió. Aplicado a `snapshot_curva_historico`, `_precios_diarios_curva` (carry) y `get_historico_curva`. Frontend Vercel: `/api/historico-curva` y `/api/analitica/[...path]` con `dynamic="force-dynamic"` + `Cache-Control: no-store` para que el CDN no sirva la respuesta vieja. |
 | 2026-05-04 | **wipe(MM Workstation):** Borrón completo del backend MM (replay/backtest/live-snapshot) y del frontend MM (acaquant-web). Eliminados `api/services/mm.py`, `api/routers/mm.py`, `tests/unit/test_mm.py`, `docs/mm_workstation.jsx` y los componentes en `acaquant-web/src/{components,app}/mm`. Módulo `mm` (RBAC) y prefix `/api/mm` (proxy Vercel) se mantienen para reusar. La nueva vista MM se construye desde cero sobre `Trading.OrderBookL2` + `Trading.TimeSales`. |
+| 2026-05-05 | **feat(MM Microstructure):** Nueva vista `/mm` en acaquant-web con 4 tabs (Intraday, Impact b/k, Smile U, Stylized Facts) + tooltips explicativos `?` en cada métrica. Backend `api/services/mm_microstructure.py` con cap 1-4 del libro Cartea/Jaimungal/Penalva sobre `OrderBookL2` + `TimeSales`. 6 endpoints en `/api/mm/*`. |
+| 2026-05-05 | **migrate:** `Trading.TimeSales` y `Opciones.Data` migradas a Time Series Collections (granularity=seconds, metaField=ticker/symbol). Compresión 74% y 98% on-disk respectivamente. Scripts en `scripts/migrate_timesales_swap.py` y `scripts/migrate_opciones_data_swap.py` con modos precheck/swap/validate/rollback/cleanup. |
+| 2026-05-05 | **wipe:** Borrado de todo el aparato dolarapi.com — `core/dolar_api.py`, `jobs/dolar_api.py`, `tests/unit/test_dolar_api.py`. Migrados `engines/curvas.py` (`cargar_a3500_actual`) y `serie_macro("dolar_oficial"/"mayorista")` al feed MAE / `Trading.DOLAR`. `dolar_blue` queda sin fuente. Cron `dolar_api` apagado. |
+| 2026-05-05 | **feat(operaciones-negocio):** MVP de la vista NEGOCIO en `/operaciones`. Service compartido `api/services/aunesa_negocio.py` con parseo + categorización (16 categorías: compra/venta/FCI super y bilateral/acreencia/4 sub-cauciones/depósito/extracción/etc) + dedup específico (DIF/DIS bilaterales, multi-moneda en dividendos, uso=GRAL en FCI super) + inversión de signo broker→cliente. Job `jobs/negocio_movimientos.py` (cron horario 15-22 UTC L-V) persiste boletos consolidados en `CashFlow.NegocioMovimientos` (idempotente por `(fecha, comprobante)`). 2 endpoints `/api/operaciones/negocio` y `/negocio/fechas`. Frontend tab NEGOCIO con cards por categoría, top 20 tickers y tabla detallada. **No expuesto al asistente ni al MCP** (policy datos privados de mesa). Detalle: `docs/sesion_2026_05_05_negocio.md`. |

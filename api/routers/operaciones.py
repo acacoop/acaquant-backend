@@ -234,6 +234,76 @@ def negocio_fechas():
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+# Categorías que entran al line chart de la vista gerencial.
+# Las claves del frontend (susc_fci, sol_susc_fci, cauc_tom_ap) se mapean
+# 1:1 al pipeline server-side abajo.
+_NEGOCIO_SERIE_CATS = (
+    "compra", "venta", "suscripcion_fci",
+    "solicitud_suscripcion_fci", "caucion_tom_ap",
+)
+_NEGOCIO_MONEDAS_VALIDAS = ("ARS", "USD")
+
+
+def _abs_si_categoria(target: str) -> dict:
+    """Helper para el pipeline: $abs(importe) si categoria == target, sino 0."""
+    return {"$cond": [
+        {"$eq": ["$categoria", target]},
+        {"$abs": {"$ifNull": ["$importe", 0]}},
+        0,
+    ]}
+
+
+@router.get("/negocio/serie")
+@cached(ttl=300)
+def negocio_serie(
+    moneda: str = Query("ARS", description="Filtra serie por moneda (ARS / USD)"),
+):
+    """Serie diaria del importe absoluto por categoría, agregada server-side.
+
+    Devuelve una fila por día en orden ascendente con los totales por
+    categoría (5 buckets) — el line chart de /operaciones/negocio consume
+    esto directo. Solo días con boletos en la moneda seleccionada aparecen.
+    """
+    if moneda not in _NEGOCIO_MONEDAS_VALIDAS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"moneda inválida: {moneda!r} ∉ {_NEGOCIO_MONEDAS_VALIDAS}",
+        )
+    try:
+        coll = get_db_cashflow()["NegocioMovimientos"]
+        pipeline = [
+            {"$match": {
+                "moneda": moneda,
+                "categoria": {"$in": list(_NEGOCIO_SERIE_CATS)},
+            }},
+            {"$group": {
+                "_id":          "$fecha",
+                "compra":       {"$sum": _abs_si_categoria("compra")},
+                "venta":        {"$sum": _abs_si_categoria("venta")},
+                "susc_fci":     {"$sum": _abs_si_categoria("suscripcion_fci")},
+                "sol_susc_fci": {"$sum": _abs_si_categoria("solicitud_suscripcion_fci")},
+                "cauc_tom_ap":  {"$sum": _abs_si_categoria("caucion_tom_ap")},
+            }},
+            {"$sort": {"_id": 1}},
+            {"$project": {
+                "_id":          0,
+                "fecha":        "$_id",
+                "compra":       {"$round": ["$compra", 2]},
+                "venta":        {"$round": ["$venta", 2]},
+                "susc_fci":     {"$round": ["$susc_fci", 2]},
+                "sol_susc_fci": {"$round": ["$sol_susc_fci", 2]},
+                "cauc_tom_ap":  {"$round": ["$cauc_tom_ap", 2]},
+            }},
+        ]
+        serie = list(coll.aggregate(pipeline))
+        return {"moneda": moneda, "serie": serie}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("negocio_serie failed for moneda=%s", moneda)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/negocio")
 def negocio(
     fecha: str | None = Query(None, description="YYYY-MM-DD; default: hoy ART"),

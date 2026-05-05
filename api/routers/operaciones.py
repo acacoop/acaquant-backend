@@ -1,11 +1,14 @@
-"""Router Operaciones: endpoints para MesaAPI (flujo contrapartes) y FlujosAPI (movimientos)."""
+"""Router Operaciones: endpoints para MesaAPI (flujo contrapartes), FlujosAPI
+(movimientos) y NegocioMovimientos (vista de negocio del día)."""
 import logging
 import threading
 import time
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
 
 from api.cache import cached
+from api.db import get_db_cashflow
 from api.deps import (
     get_db_cuentas,
     get_db_operaciones,
@@ -202,4 +205,120 @@ def flujo_vs_aum(
         }
     except Exception as e:
         logger.exception("flujo_vs_aum failed for contraparte=%s", contraparte)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEGOCIO — vista gerencial del día (lee de CashFlow.NegocioMovimientos,
+# poblado por jobs/negocio_movimientos.py cada hora 12-22 ART L-V)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/negocio")
+def negocio(
+    fecha: str | None = Query(None, description="YYYY-MM-DD; default: hoy ART"),
+):
+    """Lee CashFlow.NegocioMovimientos del día y devuelve agregados por
+    segmento + lista completa de boletos.
+
+    NO pega a Aunesa — la data la pobla el cron del job. Si el día no
+    tiene data todavía (fuera de horario o cron caído), devuelve
+    estructuras vacías sin error.
+    """
+    if fecha:
+        try:
+            d = datetime.strptime(fecha, "%Y-%m-%d").date()
+        except ValueError as e:
+            raise HTTPException(status_code=400,
+                                detail=f"fecha mal formada: {fecha}") from e
+    else:
+        d = (datetime.now(UTC) - timedelta(hours=3)).date()
+    fecha_iso = d.isoformat()
+
+    try:
+        coll = get_db_cashflow()["NegocioMovimientos"]
+        boletos = list(coll.find(
+            {"fecha": fecha_iso},
+            {"_id": 0},
+        ).sort([("categoria", 1), ("cuenta", 1), ("comprobante", 1)]))
+
+        # Última hora de ingesta (para mostrar "última actualización" en UI).
+        ultima_ingesta = None
+        if boletos:
+            timestamps = [b.get("ingestado_en") for b in boletos if b.get("ingestado_en")]
+            if timestamps:
+                ultima_ingesta = max(timestamps)
+
+        # Agregados por categoría (para cards gerenciales).
+        agregados: dict[str, dict] = {}
+        for b in boletos:
+            cat = b.get("categoria") or "otro"
+            entry = agregados.setdefault(cat, {
+                "categoria":     cat,
+                "n":             0,
+                "importe_neto":  0.0,
+                "importe_abs":   0.0,
+                "n_cuentas":     set(),
+                "n_tickers":     set(),
+                "monedas":       set(),
+            })
+            entry["n"] += 1
+            imp = b.get("importe") or 0
+            try:
+                imp_f = float(imp)
+            except (TypeError, ValueError):
+                imp_f = 0.0
+            entry["importe_neto"] += imp_f
+            entry["importe_abs"]  += abs(imp_f)
+            if b.get("cuenta"):
+                entry["n_cuentas"].add(b["cuenta"])
+            if b.get("ticker"):
+                entry["n_tickers"].add(b["ticker"])
+            if b.get("moneda"):
+                entry["monedas"].add(b["moneda"])
+
+        # Convertir sets a listas/counts para JSON.
+        agregados_list = []
+        for e in agregados.values():
+            agregados_list.append({
+                "categoria":     e["categoria"],
+                "n":             e["n"],
+                "importe_neto":  round(e["importe_neto"], 2),
+                "importe_abs":   round(e["importe_abs"], 2),
+                "n_cuentas":     len(e["n_cuentas"]),
+                "n_tickers":     len(e["n_tickers"]),
+                "monedas":       sorted(e["monedas"]),
+            })
+        agregados_list.sort(key=lambda x: -x["importe_abs"])
+
+        # Top tickers por volumen abs.
+        ticker_vol: dict[str, dict] = {}
+        for b in boletos:
+            t = b.get("ticker")
+            if not t:
+                continue
+            entry = ticker_vol.setdefault(t, {"ticker": t, "n": 0, "importe_abs": 0.0})
+            entry["n"] += 1
+            entry["importe_abs"] += abs(float(b.get("importe") or 0))
+        top_tickers = sorted(
+            ticker_vol.values(),
+            key=lambda x: -x["importe_abs"],
+        )[:20]
+
+        return {
+            "meta": {
+                "fecha":           fecha_iso,
+                "n_boletos":       len(boletos),
+                "n_categorias":    len(agregados_list),
+                "ultima_ingesta":  (
+                    ultima_ingesta.isoformat() if isinstance(ultima_ingesta, datetime)
+                    else None
+                ),
+            },
+            "agregados":   agregados_list,
+            "top_tickers": top_tickers,
+            "boletos":     boletos,
+        }
+    except Exception as e:
+        logger.exception("negocio failed for fecha=%s", fecha_iso)
         raise HTTPException(status_code=500, detail=str(e)) from e

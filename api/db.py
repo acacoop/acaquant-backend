@@ -32,3 +32,7 @@ def get_db_trading():
 
 def get_db_valuaciones():
     return get_mongo_client_read()["Valuaciones"]
+
+
+def get_db_cashflow():
+    return get_mongo_client_read()["CashFlow"]

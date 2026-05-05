@@ -63,6 +63,12 @@
 # Chainea sync a OperacionesAPI.MesaAPI.
 0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.flujo_contrapartes >> /root/TradingAV/logs/flujo_contrapartes.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --flujo >> /root/TradingAV/logs/sync_api.log 2>&1
 
+# ─── Negocio del día (cada hora 12-22 ART = 15-22 UTC L-V)
+# Pega a Aunesa /operaciones/consolidadosGenerales, consolida por boleto y
+# upsertea en CashFlow.NegocioMovimientos. Idempotente por (fecha, comprobante).
+# Alimenta la vista /operaciones → tab NEGOCIO.
+0 15-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.negocio_movimientos >> /root/TradingAV/logs/negocio_movimientos.log 2>&1
+
 # ─── BCRA (CER/TAMAR/DOLAR/BADLAR, 22:00 UTC L-V = 19:00 ART)
 # El CER se publica ~18 ART con 10 días hábiles de anticipación (forward).
 # Corremos DESPUÉS de la publicación para capturar los valores del día.

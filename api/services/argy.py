@@ -109,19 +109,33 @@ def _serie_caucion(moneda: str) -> list[tuple[date, float]]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# Si DolarSnapshot._id="current" tiene timestamp más viejo que esto, lo
+# consideramos stale y caemos al último doc cron-escrito de Valuaciones.Dolar.
+# El motor escribe cada 5s, así que 60s es generoso pero suficiente para
+# absorber jitter de WS/Mongo sin servir data podrida (incidente 2026-05-05:
+# motor wedged tras Atlas pause, snapshot quedó stuck con valores de ayer).
+_DOLAR_SNAPSHOT_MAX_AGE_S = 60
+
+
 def _live_dolar() -> dict:
     """Snapshot live de MEP/CCL/canje desde Valuaciones.DolarSnapshot,
-    fallback al último Valuaciones.Dolar si no hay snapshot."""
+    fallback al último Valuaciones.Dolar si el snapshot está ausente o stale."""
     db = get_db_valuaciones()
     snap = db["DolarSnapshot"].find_one({"_id": "current"})
     if snap and snap.get("mep") is not None:
-        return {
-            "mep":   snap.get("mep"),
-            "ccl":   snap.get("ccl"),
-            "canje": snap.get("canje"),
-            "ts":    snap.get("timestamp"),
-            "src":   "live",
-        }
+        ts = snap.get("timestamp")
+        is_fresh = (
+            isinstance(ts, datetime)
+            and (datetime.now(ts.tzinfo) - ts).total_seconds() <= _DOLAR_SNAPSHOT_MAX_AGE_S
+        )
+        if is_fresh:
+            return {
+                "mep":   snap.get("mep"),
+                "ccl":   snap.get("ccl"),
+                "canje": snap.get("canje"),
+                "ts":    ts,
+                "src":   "live",
+            }
     last = db["Dolar"].find_one(
         {"mep": {"$ne": None}},
         {"_id": 0, "mep": 1, "ccl": 1, "canje": 1, "timestamp": 1},

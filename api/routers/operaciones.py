@@ -242,6 +242,9 @@ _NEGOCIO_SERIE_BOLETO_CATS = (
     "caucion_tom_ap", "caucion_col_ap",
 )
 _NEGOCIO_MONEDAS_VALIDAS = ("ARS", "USD")
+_NEGOCIO_CUENTA_FILTROS = ("todas", "accionistas", "sin_accionistas", "cooperativas")
+# Mismo regex que cashflow-view.tsx (case-insensitive sobre el nombre de cuenta).
+_COOP_REGEX = r"\bcoop"
 
 
 def _abs_si_categoria(target: str) -> dict:
@@ -253,16 +256,59 @@ def _abs_si_categoria(target: str) -> dict:
     ]}
 
 
+def _cuentas_accionistas() -> list[str]:
+    """Lista de strings `cuenta` de Cuentas.AccionistasAPI. Cacheada via
+    `listar_accionistas` (ttl=3600), así que esta llamada es efectivamente
+    barata. Cada doc puede o no traer `cuenta` poblado."""
+    db = get_db_cuentas()
+    return [
+        d["cuenta"]
+        for d in db["AccionistasAPI"].find({}, {"_id": 0, "cuenta": 1})
+        if d.get("cuenta")
+    ]
+
+
+def _match_cuenta_filter(filtro: str) -> dict:
+    """Devuelve el sub-doc de $match que aplica el filtro de cuenta.
+
+    - todas: sin filtro extra.
+    - accionistas: cuenta IN lista de AccionistasAPI.
+    - sin_accionistas: cuenta NOT IN lista (incluye nulls).
+    - cooperativas: cuenta NOT IN lista AND match regex /\\bcoop/i.
+    """
+    if filtro == "todas":
+        return {}
+    accs = _cuentas_accionistas()
+    if filtro == "accionistas":
+        return {"cuenta": {"$in": accs}}
+    if filtro == "sin_accionistas":
+        return {"cuenta": {"$nin": accs}}
+    if filtro == "cooperativas":
+        return {
+            "cuenta": {
+                "$nin": accs,
+                "$regex": _COOP_REGEX,
+                "$options": "i",
+            },
+        }
+    return {}
+
+
 @router.get("/negocio/serie")
 @cached(ttl=300)
 def negocio_serie(
     moneda: str = Query("ARS", description="Filtra serie por moneda (ARS / USD)"),
+    cuenta_filter: str = Query(
+        "todas",
+        description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",
+    ),
 ):
     """Serie diaria del importe absoluto por categoría, agregada server-side.
 
     Devuelve una fila por día en orden ascendente con los totales por
     categoría (5 buckets) — el bar chart de /operaciones/negocio consume
-    esto directo. Solo días con boletos en la moneda seleccionada aparecen.
+    esto directo. Solo días con boletos en la moneda + filtro seleccionados
+    aparecen.
 
     Buckets devueltos:
       compra, venta — directos.
@@ -275,13 +321,20 @@ def negocio_serie(
             status_code=400,
             detail=f"moneda inválida: {moneda!r} ∉ {_NEGOCIO_MONEDAS_VALIDAS}",
         )
+    if cuenta_filter not in _NEGOCIO_CUENTA_FILTROS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"cuenta_filter inválido: {cuenta_filter!r} ∉ {_NEGOCIO_CUENTA_FILTROS}",
+        )
     try:
         coll = get_db_cashflow()["NegocioMovimientos"]
+        match_doc = {
+            "moneda": moneda,
+            "categoria": {"$in": list(_NEGOCIO_SERIE_BOLETO_CATS)},
+            **_match_cuenta_filter(cuenta_filter),
+        }
         pipeline = [
-            {"$match": {
-                "moneda": moneda,
-                "categoria": {"$in": list(_NEGOCIO_SERIE_BOLETO_CATS)},
-            }},
+            {"$match": match_doc},
             {"$group": {
                 "_id":         "$fecha",
                 "compra":      {"$sum": _abs_si_categoria("compra")},
@@ -303,11 +356,14 @@ def negocio_serie(
             }},
         ]
         serie = list(coll.aggregate(pipeline))
-        return {"moneda": moneda, "serie": serie}
+        return {"moneda": moneda, "cuenta_filter": cuenta_filter, "serie": serie}
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("negocio_serie failed for moneda=%s", moneda)
+        logger.exception(
+            "negocio_serie failed for moneda=%s cuenta_filter=%s",
+            moneda, cuenta_filter,
+        )
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

@@ -55,6 +55,20 @@ def get_mensual(id_cuenta: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/{id_cuenta}/posiciones-actuales")
+def get_posiciones_actuales(id_cuenta: str):
+    """Posiciones al último fecha_snapshot disponible — pure AuM read,
+    sin cost basis ni PnL. Para el panel derecho de /valuaciones."""
+    _validate_id_cuenta(id_cuenta)
+    try:
+        return svc.posiciones_actuales(id_cuenta=id_cuenta)
+    except Exception as e:
+        logger.exception(
+            "valuaciones posiciones-actuales failed: id_cuenta=%s", id_cuenta,
+        )
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/{id_cuenta}/posiciones")
 def get_posiciones(
     id_cuenta: str,

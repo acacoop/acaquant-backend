@@ -367,7 +367,12 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
         r["_id"]: r for r in db_cf["NegocioMovimientos"].aggregate(pipeline_flujos)
     }
 
-    # 3. Merge y compute deltas.
+    # 3. Merge y compute deltas REALES (excluyendo flujo neto).
+    # delta_bruto = cierre_t - cierre_{t-1}    (cambio observado en el saldo)
+    # delta_real  = delta_bruto - flujo_neto   (performance real de inversiones,
+    #                                            aislando depósitos y extracciones)
+    # Sin restar el flujo, un mes con un depósito grande aparece "ganando"
+    # mucho cuando en realidad el aumento del saldo fue solo cash externo.
     rows: list[dict[str, Any]] = []
     prev_val: float | None = None
     for c in cierres:
@@ -375,12 +380,15 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
         f = flujos_by_mes.get(mes, {})
         depositos = float(f.get("depositos") or 0)
         extracciones = float(f.get("extracciones") or 0)
-        flujo_neto = depositos + extracciones  # extracciones suelen venir negativas
-        # Si el sign de extracciones no viene negativo del feed, normalizamos:
+        flujo_neto = depositos + extracciones  # extracciones vienen negativas del feed
+        # Si el feed no normaliza el signo, fallback:
         if extracciones > 0:
             flujo_neto = depositos - extracciones
         cierre = float(c.get("valuacion_cierre") or 0)
-        delta = (cierre - prev_val) if prev_val is not None else None
+        delta_bruto = (cierre - prev_val) if prev_val is not None else None
+        delta_real = (
+            (delta_bruto - flujo_neto) if delta_bruto is not None else None
+        )
         rows.append({
             "mes":              mes,
             "ultimo_dia":       c.get("ultimo_dia"),
@@ -388,7 +396,8 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
             "depositos":        round(depositos, 2),
             "extracciones":     round(extracciones, 2),
             "flujo_neto":       round(flujo_neto, 2),
-            "delta_valuacion":  round(delta, 2) if delta is not None else None,
+            "delta_bruto":      round(delta_bruto, 2) if delta_bruto is not None else None,
+            "delta_real":       round(delta_real, 2) if delta_real is not None else None,
             "n_posiciones":     c.get("n_posiciones", 0),
         })
         prev_val = cierre
@@ -399,4 +408,88 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
         "id_cuenta": id_cuenta,
         "meses":     rows,
         "n_meses":   len(rows),
+    }
+
+
+@cached(ttl=60)
+def posiciones_actuales(id_cuenta: str) -> dict[str, Any]:
+    """Posiciones al último fecha_snapshot disponible para la cuenta.
+
+    Read directo de Valuaciones.AuM (sin cost basis ni boletos): para el
+    snapshot más reciente, devuelve la lista de unidades con cantidad,
+    precio, valuación y share del total. Sirve como "snapshot actual"
+    en el panel derecho de /valuaciones.
+    """
+    db_val = get_db_valuaciones()
+
+    # Latest fecha_snapshot para esta cuenta.
+    latest = list(
+        db_val["AuM"]
+        .find({"id_cuenta": id_cuenta}, {"_id": 0, "fecha_snapshot": 1})
+        .sort("fecha_snapshot", -1)
+        .limit(1)
+    )
+    if not latest:
+        return {
+            "id_cuenta": id_cuenta, "fecha": None,
+            "posiciones": [], "total": 0.0, "n": 0,
+        }
+    fecha = latest[0]["fecha_snapshot"]
+
+    docs = list(
+        db_val["AuM"]
+        .find(
+            {"id_cuenta": id_cuenta, "fecha_snapshot": fecha},
+            {"_id": 0, "unidad": 1, "cantidad": 1, "precio": 1,
+             "valuacion": 1, "tipoTitulo": 1},
+        )
+        .sort("valuacion", -1)
+    )
+
+    # Agregar por unidad — varios docs con la misma unidad pueden existir
+    # si la cuenta tiene múltiples lotes / movimientos del día.
+    by_unidad: dict[str, dict[str, Any]] = {}
+    for d in docs:
+        unidad = d.get("unidad")
+        if not unidad:
+            continue
+        try:
+            qty = float(d.get("cantidad") or 0)
+            precio = float(d.get("precio") or 0)
+            val = float(d.get("valuacion") or 0)
+        except (TypeError, ValueError):
+            continue
+        st = by_unidad.setdefault(unidad, {
+            "ticker":    unidad,
+            "cantidad":  0.0,
+            "precio":    precio,
+            "valuacion": 0.0,
+            "tipo":      d.get("tipoTitulo"),
+        })
+        st["cantidad"]  += qty
+        st["valuacion"] += val
+        # precio se sobrescribe — todos los lotes del mismo día tienen mismo precio.
+        st["precio"] = precio
+
+    rows = sorted(by_unidad.values(), key=lambda r: -abs(r["valuacion"]))
+    total = sum(r["valuacion"] for r in rows)
+    return {
+        "id_cuenta": id_cuenta,
+        "fecha":     fecha,
+        "posiciones": [
+            {
+                "ticker":    r["ticker"],
+                "tipo":      str(r["tipo"]) if r["tipo"] not in (None, "") else None,
+                "cantidad":  round(r["cantidad"], 4),
+                "precio":    round(r["precio"], 4),
+                "valuacion": round(r["valuacion"], 2),
+                "share":     (
+                    round((r["valuacion"] / total) * 100, 2)
+                    if total else None
+                ),
+            }
+            for r in rows
+        ],
+        "total": round(total, 2),
+        "n":     len(rows),
     }

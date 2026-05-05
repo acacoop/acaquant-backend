@@ -32,6 +32,11 @@ OPS_URL = "https://aca.aunesa.com/Irmo/api/operaciones/consolidadosGenerales"
 # Mismo filtro que jobs/cashflow.py — para reportar qué descartamos.
 PALABRAS_CLAVE_ACTUALES = ("deposito", "transferencia", "extraccion")
 
+# Movimientos que se excluyen ANTES del análisis (no nos interesan en absoluto).
+# Si `informacion` o `cuenta` contiene cualquiera de estas substrings (case-
+# insensitive, sin acentos), el movimiento se omite del response.
+EXCLUIR_SUBSTRINGS = ("otc",)
+
 
 def _autenticar() -> dict[str, str]:
     resp = requests.post(
@@ -61,6 +66,13 @@ def _normalizar(s: str) -> str:
 def _es_capturado(informacion: str) -> bool:
     norm = _normalizar(informacion)
     return any(p in norm for p in PALABRAS_CLAVE_ACTUALES)
+
+
+def _excluir(mov: dict) -> bool:
+    """True si el movimiento debe descartarse antes del análisis (ej. OTC)."""
+    info_norm = _normalizar(mov.get("informacion") or "")
+    cuenta_norm = _normalizar(mov.get("cuenta") or "")
+    return any(s in info_norm or s in cuenta_norm for s in EXCLUIR_SUBSTRINGS)
 
 
 @router.get("/aunesa/explorar")
@@ -133,6 +145,11 @@ def aunesa_explorar(
         raise HTTPException(status_code=502,
                             detail=f"Aunesa devolvió shape inesperado: {type(data).__name__}")
 
+    # Filtro pre-análisis: excluir movimientos no deseados (OTC, etc).
+    raw_total = len(data)
+    data = [r for r in data if not _excluir(r)]
+    excluidos_n = raw_total - len(data)
+
     # Análisis.
     total = len(data)
     counter: Counter[str] = Counter()
@@ -175,6 +192,9 @@ def aunesa_explorar(
             "pct_capturados": pct_cap,
             "pct_descartados": pct_desc,
             "palabras_clave_actuales": list(PALABRAS_CLAVE_ACTUALES),
+            "excluir_substrings": list(EXCLUIR_SUBSTRINGS),
+            "raw_total": raw_total,
+            "excluidos": excluidos_n,
         },
         "tipos":         tipos,
         "movimientos":   movimientos,

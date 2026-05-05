@@ -1,20 +1,21 @@
-"""Valuaciones — cost-basis PnL por cuenta.
+"""Valuaciones — performance e historia por cuenta.
 
-Construye el ledger de posiciones de una cuenta a partir de los boletos
-en CashFlow.NegocioMovimientos:
-- Cada COMPRA suma cantidad y costo (precio × qty).
-- Cada VENTA reduce posición usando weighted-average cost y acumula PnL
-  realizado.
+Dos enfoques convivientes:
 
-Cruza el remanente con prices vivos (Trading.MarketSnapshot) para obtener
-valor de mercado y PnL no realizado. Devuelve la lista de tickers
-ordenada desc por valor de mercado, más totales del portfolio.
+(A) AUM-BASED [usado por /serie y /mensual]
+    Lee `Valuaciones.AuM` directo — es el snapshot diario MTM canónico
+    armado por jobs/aum.py (con normalizaciones por tipo: /100 para
+    renta fija, etc). Para cada (id_cuenta, fecha_snapshot) sumamos
+    `valuacion` de todas las posiciones para obtener el portfolio total
+    en ARS de ese día. Combinado con flujos externos (depósitos /
+    extracciones de CashFlow.NegocioMovimientos) da la mensualización
+    "valor de cierre + flujo neto" que pide la vista.
 
-⚠ Caveat de cost basis incompleto: si la cuenta tenía posiciones antes
-del primer boleto que tenemos persistido, el cost basis será parcial.
-La fila se marca con `completeness="parcial"`. Hipótesis para tickers
-parciales: si qty_compras_observadas < qty_actual_en_aum, faltan
-compras anteriores al período de boletos disponible.
+(B) COST-BASIS LEDGER [usado por /posiciones]
+    Reconstruye lots de boletos compra/venta con weighted-average cost.
+    Útil para PnL realizado vs no realizado por ticker, pero limitado
+    cuando hay posiciones anteriores al primer boleto disponible. Se
+    mantiene para drill-down per-ticker en Phase 2.
 """
 from __future__ import annotations
 
@@ -22,9 +23,17 @@ import logging
 from typing import Any
 
 from api.cache import cached
-from api.db import get_db_cashflow, get_db_trading
+from api.db import get_db_cashflow, get_db_trading, get_db_valuaciones
 
 logger = logging.getLogger("api.valuaciones")
+
+# ── Constantes compartidas ───────────────────────────────────────────────
+
+# Categorías que cuentan como flujos externos (no son rebalanceo dentro
+# del portfolio — verdadero "money in / money out" de la cuenta).
+_FLUJO_EXTERNO_DEPOSITO = {"deposito", "transferencia"}
+_FLUJO_EXTERNO_EXTRACCION = {"extraccion"}
+_FLUJOS_EXTERNOS_ALL = _FLUJO_EXTERNO_DEPOSITO | _FLUJO_EXTERNO_EXTRACCION
 
 # Categorías de boleto que afectan cost basis. FCI super (suscripcion_fci)
 # se trata como una compra de un activo (la cuotaparte). Sus rescates,
@@ -230,4 +239,164 @@ def posiciones_cuenta(id_cuenta: str, hasta: str | None = None) -> dict[str, Any
         },
         "n_tickers":  len(rows),
         "n_boletos":  len(boletos),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# AUM-based: portfolio total diario + cierres mensuales + flujos externos.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@cached(ttl=300)
+def serie_valor_cuenta(
+    id_cuenta: str,
+    desde: str | None = None,
+    hasta: str | None = None,
+) -> dict[str, Any]:
+    """Serie diaria del portfolio total para una cuenta.
+
+    Suma `valuacion` (ya normalizada por jobs/aum.py — ARS) de todas las
+    posiciones por (id_cuenta, fecha_snapshot). Devuelve una fila por día
+    con valor total + n posiciones contribuyendo.
+
+    Args:
+        id_cuenta: id numérico, ej "805".
+        desde / hasta: YYYY-MM-DD inclusive. None = sin límite.
+    """
+    db_val = get_db_valuaciones()
+    match: dict[str, Any] = {"id_cuenta": id_cuenta}
+    rango: dict[str, str] = {}
+    if desde:
+        rango["$gte"] = desde
+    if hasta:
+        rango["$lte"] = hasta
+    if rango:
+        match["fecha_snapshot"] = rango
+
+    pipeline = [
+        {"$match": match},
+        {"$group": {
+            "_id":       "$fecha_snapshot",
+            "valuacion": {"$sum": "$valuacion"},
+            "n":         {"$sum": 1},
+        }},
+        {"$sort": {"_id": 1}},
+        {"$project": {
+            "_id":       0,
+            "fecha":     "$_id",
+            "valuacion": {"$round": ["$valuacion", 2]},
+            "n":         1,
+        }},
+    ]
+    serie = list(db_val["AuM"].aggregate(pipeline))
+    return {
+        "id_cuenta": id_cuenta,
+        "desde":     desde,
+        "hasta":     hasta,
+        "serie":     serie,
+        "ultimo": serie[-1] if serie else None,
+        "primero": serie[0] if serie else None,
+    }
+
+
+@cached(ttl=300)
+def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
+    """Tabla mensual: valor al cierre del mes + flujos externos del mes.
+
+    El "cierre" del mes es el valor del último fecha_snapshot disponible
+    en ese mes (puede ser el último día hábil — no necesariamente el
+    día 30). Los flujos externos suman depósitos/transferencias y restan
+    extracciones de CashFlow.NegocioMovimientos para los días del mes.
+
+    Returns:
+      [{
+        mes: "YYYY-MM",
+        ultimo_dia: "YYYY-MM-DD",
+        valuacion_cierre: float,
+        depositos: float,
+        extracciones: float,
+        flujo_neto: float,
+        delta_valuacion: float | None,  # cierre actual − cierre anterior
+        n_posiciones: int,
+      }, ...]
+    """
+    db_val = get_db_valuaciones()
+    db_cf = get_db_cashflow()
+
+    # 1. Valuación al cierre de cada mes (último fecha_snapshot del mes).
+    pipeline_aum = [
+        {"$match": {"id_cuenta": id_cuenta}},
+        {"$group": {
+            "_id":       "$fecha_snapshot",
+            "valuacion": {"$sum": "$valuacion"},
+            "n":         {"$sum": 1},
+        }},
+        {"$sort": {"_id": 1}},
+        # Re-group por mes: take last day's value.
+        {"$group": {
+            "_id":              {"$substr": ["$_id", 0, 7]},
+            "ultimo_dia":       {"$last": "$_id"},
+            "valuacion_cierre": {"$last": "$valuacion"},
+            "n_posiciones":     {"$last": "$n"},
+        }},
+        {"$sort": {"_id": 1}},  # ascendente para calcular delta
+    ]
+    cierres = list(db_val["AuM"].aggregate(pipeline_aum))
+
+    # 2. Flujos externos por mes (depositos / extracciones de la cuenta).
+    pipeline_flujos = [
+        {"$match": {
+            "cuenta":    {"$regex": f"^\[{id_cuenta}\]"},
+            "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
+        }},
+        {"$group": {
+            "_id": {"$substr": ["$fecha", 0, 7]},
+            "depositos": {"$sum": {"$cond": [
+                {"$in": ["$categoria", list(_FLUJO_EXTERNO_DEPOSITO)]},
+                {"$ifNull": ["$importe", 0]},
+                0,
+            ]}},
+            "extracciones": {"$sum": {"$cond": [
+                {"$in": ["$categoria", list(_FLUJO_EXTERNO_EXTRACCION)]},
+                {"$ifNull": ["$importe", 0]},
+                0,
+            ]}},
+        }},
+    ]
+    flujos_by_mes: dict[str, dict] = {
+        r["_id"]: r for r in db_cf["NegocioMovimientos"].aggregate(pipeline_flujos)
+    }
+
+    # 3. Merge y compute deltas.
+    rows: list[dict[str, Any]] = []
+    prev_val: float | None = None
+    for c in cierres:
+        mes = c["_id"]
+        f = flujos_by_mes.get(mes, {})
+        depositos = float(f.get("depositos") or 0)
+        extracciones = float(f.get("extracciones") or 0)
+        flujo_neto = depositos + extracciones  # extracciones suelen venir negativas
+        # Si el sign de extracciones no viene negativo del feed, normalizamos:
+        if extracciones > 0:
+            flujo_neto = depositos - extracciones
+        cierre = float(c.get("valuacion_cierre") or 0)
+        delta = (cierre - prev_val) if prev_val is not None else None
+        rows.append({
+            "mes":              mes,
+            "ultimo_dia":       c.get("ultimo_dia"),
+            "valuacion_cierre": round(cierre, 2),
+            "depositos":        round(depositos, 2),
+            "extracciones":     round(extracciones, 2),
+            "flujo_neto":       round(flujo_neto, 2),
+            "delta_valuacion":  round(delta, 2) if delta is not None else None,
+            "n_posiciones":     c.get("n_posiciones", 0),
+        })
+        prev_val = cierre
+
+    # Devolvemos en orden descendente (mes más reciente primero — para UI).
+    rows.reverse()
+    return {
+        "id_cuenta": id_cuenta,
+        "meses":     rows,
+        "n_meses":   len(rows),
     }

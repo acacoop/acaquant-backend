@@ -234,12 +234,12 @@ def negocio_fechas():
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-# Categorías que entran al line chart de la vista gerencial.
-# Las claves del frontend (susc_fci, sol_susc_fci, cauc_tom_ap) se mapean
-# 1:1 al pipeline server-side abajo.
-_NEGOCIO_SERIE_CATS = (
-    "compra", "venta", "suscripcion_fci",
-    "solicitud_suscripcion_fci", "caucion_tom_ap",
+# Categorías de boleto que entran al chart de la vista gerencial. Algunas
+# se combinan en una sola serie para el front (suscripciones = susc + sol_susc).
+_NEGOCIO_SERIE_BOLETO_CATS = (
+    "compra", "venta",
+    "suscripcion_fci", "solicitud_suscripcion_fci",
+    "caucion_tom_ap", "caucion_col_ap",
 )
 _NEGOCIO_MONEDAS_VALIDAS = ("ARS", "USD")
 
@@ -261,8 +261,14 @@ def negocio_serie(
     """Serie diaria del importe absoluto por categoría, agregada server-side.
 
     Devuelve una fila por día en orden ascendente con los totales por
-    categoría (5 buckets) — el line chart de /operaciones/negocio consume
+    categoría (5 buckets) — el bar chart de /operaciones/negocio consume
     esto directo. Solo días con boletos en la moneda seleccionada aparecen.
+
+    Buckets devueltos:
+      compra, venta — directos.
+      suscripciones — suma de suscripcion_fci + solicitud_suscripcion_fci.
+      cauc_tom — caucion_tom_ap (apertura).
+      cauc_col — caucion_col_ap (apertura).
     """
     if moneda not in _NEGOCIO_MONEDAS_VALIDAS:
         raise HTTPException(
@@ -274,15 +280,16 @@ def negocio_serie(
         pipeline = [
             {"$match": {
                 "moneda": moneda,
-                "categoria": {"$in": list(_NEGOCIO_SERIE_CATS)},
+                "categoria": {"$in": list(_NEGOCIO_SERIE_BOLETO_CATS)},
             }},
             {"$group": {
-                "_id":          "$fecha",
-                "compra":       {"$sum": _abs_si_categoria("compra")},
-                "venta":        {"$sum": _abs_si_categoria("venta")},
-                "susc_fci":     {"$sum": _abs_si_categoria("suscripcion_fci")},
-                "sol_susc_fci": {"$sum": _abs_si_categoria("solicitud_suscripcion_fci")},
-                "cauc_tom_ap":  {"$sum": _abs_si_categoria("caucion_tom_ap")},
+                "_id":         "$fecha",
+                "compra":      {"$sum": _abs_si_categoria("compra")},
+                "venta":       {"$sum": _abs_si_categoria("venta")},
+                "_susc":       {"$sum": _abs_si_categoria("suscripcion_fci")},
+                "_sol_susc":   {"$sum": _abs_si_categoria("solicitud_suscripcion_fci")},
+                "cauc_tom":    {"$sum": _abs_si_categoria("caucion_tom_ap")},
+                "cauc_col":    {"$sum": _abs_si_categoria("caucion_col_ap")},
             }},
             {"$sort": {"_id": 1}},
             {"$project": {
@@ -290,9 +297,9 @@ def negocio_serie(
                 "fecha":        "$_id",
                 "compra":       {"$round": ["$compra", 2]},
                 "venta":        {"$round": ["$venta", 2]},
-                "susc_fci":     {"$round": ["$susc_fci", 2]},
-                "sol_susc_fci": {"$round": ["$sol_susc_fci", 2]},
-                "cauc_tom_ap":  {"$round": ["$cauc_tom_ap", 2]},
+                "suscripciones": {"$round": [{"$add": ["$_susc", "$_sol_susc"]}, 2]},
+                "cauc_tom":     {"$round": ["$cauc_tom", 2]},
+                "cauc_col":     {"$round": ["$cauc_col", 2]},
             }},
         ]
         serie = list(coll.aggregate(pipeline))

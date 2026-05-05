@@ -166,12 +166,11 @@ def procesar(data, fecha_snapshot, timestamp):
     )
     df_g = df_g[~otc_mask].copy()
 
-    # 2. Eliminar cash (ARS/USD) con cantidad negativa
-    cash_neg = (
-        df_g["unidad"].isin(["ARS", "USD"]) &
-        (df_g["cantidad"] < 0)
-    )
-    df_g = df_g[~cash_neg].copy()
+    # NOTA (removido 2026-05-05): antes filtrábamos cash con cantidad
+    # negativa (ARS/USD < 0). Eso ocultaba posiciones short de cash —
+    # legítimas cuando la cuenta compró más bonos que el saldo en
+    # efectivo (margen / debt position). La vista /valuaciones necesita
+    # ver esas posiciones para que el cuadre AuM ↔ posiciones sea fiel.
 
     if df_g.empty:
         return []

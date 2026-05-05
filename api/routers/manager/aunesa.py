@@ -42,8 +42,9 @@ OPS_URL = "https://aca.aunesa.com/Irmo/api/operaciones/consolidadosGenerales"
 
 PALABRAS_CLAVE_ACTUALES = ("deposito", "transferencia", "extraccion")
 # Excluir entero el movimiento si alguno de estos substrings aparece en
-# `informacion` o `cuenta`. Usado para descartar ruido (OTC, USDL, etc).
-EXCLUIR_SUBSTRINGS = ("otc", "usdl")
+# `informacion` o `cuenta` (post-normalizar: lowercase + sin acentos).
+# Usado para descartar ruido que no aplica al análisis de mesa AR.
+EXCLUIR_SUBSTRINGS = ("otc", "usdl", "integracion de garantias")
 
 # Acreencias = ingresos por tenencia (cupón, amortización, dividendo).
 ACREENCIA_KEYS = ("partial redemption", "interest payment", "cash dividend")

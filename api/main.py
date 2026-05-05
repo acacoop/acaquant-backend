@@ -41,6 +41,7 @@ from api.routers import (
     ordenes,
     risk,
     titulos,
+    valuaciones,
 )
 from config import MCP_BEARER_TOKEN, MCP_JWT_SECRET
 from core.mongo import get_mongo_client, get_mongo_client_read
@@ -165,6 +166,7 @@ app.include_router(derivados_agro.router,    dependencies=_PUBLIC)
 
 # Restringidos a roles con el módulo respectivo:
 app.include_router(carteras.router,          dependencies=_PORTFOLIOS)
+app.include_router(valuaciones.router,        dependencies=_PORTFOLIOS)
 # titulos.router (assets + flujos) es PURO catálogo de instrumentos — sin
 # info de cuentas/posiciones. Lo necesita renta-fija/page.tsx para mapear
 # ticker → curva al pintar la tabla. Antes estaba bajo _PORTFOLIOS y para

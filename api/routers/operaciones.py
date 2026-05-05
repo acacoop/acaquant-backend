@@ -482,6 +482,98 @@ def negocio_cuentas(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/negocio/cuentas-matrix")
+@cached(ttl=300)
+def negocio_cuentas_matrix(
+    moneda: str = Query("ARS"),
+    cuenta_filter: str = Query("todas"),
+    desde: str = Query(...),
+    hasta: str = Query(...),
+    cuenta: str | None = Query(None, description="Match exacto sobre cuenta — override del cuenta_filter."),
+):
+    """Matrix por cuenta × las 5 categorías UI sobre un rango.
+
+    Para el panel DETALLE cuando NO hay categoría seleccionada: cada
+    cuenta tiene una fila con sus totales en compra / venta /
+    suscripciones / cauc_tom / cauc_col + total + n boletos. Ordenado
+    desc por total.
+
+    Mismo $match que /negocio/serie pero $group por cuenta en lugar de
+    por fecha. Una pasada en Mongo = todas las celdas.
+    """
+    if moneda not in _NEGOCIO_MONEDAS_VALIDAS:
+        raise HTTPException(400, f"moneda inválida: {moneda!r}")
+    if cuenta_filter not in _NEGOCIO_CUENTA_FILTROS:
+        raise HTTPException(400, f"cuenta_filter inválido: {cuenta_filter!r}")
+    for label, val in (("desde", desde), ("hasta", hasta)):
+        try:
+            datetime.strptime(val, "%Y-%m-%d")
+        except ValueError as e:
+            raise HTTPException(400, f"{label} mal formada: {val!r}") from e
+    if desde > hasta:
+        raise HTTPException(400, f"desde ({desde}) debe ser <= hasta ({hasta})")
+
+    try:
+        coll = get_db_cashflow()["NegocioMovimientos"]
+        match_doc = {
+            "fecha":     {"$gte": desde, "$lte": hasta},
+            "moneda":    moneda,
+            "categoria": {"$in": list(_NEGOCIO_SERIE_BOLETO_CATS)},
+        }
+        if cuenta:
+            match_doc["cuenta"] = cuenta
+        else:
+            match_doc.update(_match_cuenta_filter(cuenta_filter))
+        pipeline = [
+            {"$match": match_doc},
+            {"$group": {
+                "_id":        "$cuenta",
+                "compra":     {"$sum": _abs_si_categoria("compra")},
+                "venta":      {"$sum": _abs_si_categoria("venta")},
+                "_susc":      {"$sum": _abs_si_categoria("suscripcion_fci")},
+                "_sol_susc":  {"$sum": _abs_si_categoria("solicitud_suscripcion_fci")},
+                "cauc_tom":   {"$sum": _abs_si_categoria("caucion_tom_ap")},
+                "cauc_col":   {"$sum": _abs_si_categoria("caucion_col_ap")},
+                "n":          {"$sum": 1},
+            }},
+            {"$project": {
+                "_id":           0,
+                "cuenta":        {"$ifNull": ["$_id", "(sin cuenta)"]},
+                "compra":        {"$round": ["$compra", 2]},
+                "venta":         {"$round": ["$venta", 2]},
+                "suscripciones": {"$round": [{"$add": ["$_susc", "$_sol_susc"]}, 2]},
+                "cauc_tom":      {"$round": ["$cauc_tom", 2]},
+                "cauc_col":      {"$round": ["$cauc_col", 2]},
+                "n":             1,
+                "total": {"$round": [
+                    {"$add": ["$compra", "$venta", "$_susc", "$_sol_susc", "$cauc_tom", "$cauc_col"]},
+                    2,
+                ]},
+            }},
+            {"$sort": {"total": -1}},
+        ]
+        rows = list(coll.aggregate(pipeline))
+        return {
+            "moneda":        moneda,
+            "cuenta_filter": cuenta_filter,
+            "desde":         desde,
+            "hasta":         hasta,
+            "cuenta":        cuenta,
+            "cuentas":       rows,
+            "n_cuentas":     len(rows),
+            "total":         round(sum(r.get("total", 0) for r in rows), 2),
+            "n_total":       sum(r.get("n", 0) for r in rows),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "negocio_cuentas_matrix failed: moneda=%s cuenta_filter=%s desde=%s hasta=%s cuenta=%s",
+            moneda, cuenta_filter, desde, hasta, cuenta,
+        )
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/negocio/cuentas-list")
 @cached(ttl=3600)
 def negocio_cuentas_list():

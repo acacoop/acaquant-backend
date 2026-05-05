@@ -246,6 +246,17 @@ _NEGOCIO_CUENTA_FILTROS = ("todas", "accionistas", "sin_accionistas", "cooperati
 # Mismo regex que cashflow-view.tsx (case-insensitive sobre el nombre de cuenta).
 _COOP_REGEX = r"\bcoop"
 
+# Mapeo de categoría UI (lo que el frontend usa en NEGOCIO_CATS) a las
+# categorías persistidas en el boleto. Mantener en sync con CAT_BOLETO_KEYS
+# de acaquant-web/src/components/negocio-view.tsx.
+_NEGOCIO_UI_CAT_MAP: dict[str, list[str]] = {
+    "compra":        ["compra"],
+    "venta":         ["venta"],
+    "suscripciones": ["suscripcion_fci", "solicitud_suscripcion_fci"],
+    "cauc_tom":      ["caucion_tom_ap"],
+    "cauc_col":      ["caucion_col_ap"],
+}
+
 
 def _abs_si_categoria(target: str) -> dict:
     """Helper para el pipeline: $abs(importe) si categoria == target, sino 0."""
@@ -363,6 +374,89 @@ def negocio_serie(
         logger.exception(
             "negocio_serie failed for moneda=%s cuenta_filter=%s",
             moneda, cuenta_filter,
+        )
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/negocio/cuentas")
+@cached(ttl=300)
+def negocio_cuentas(
+    moneda: str = Query("ARS", description="ARS / USD"),
+    cuenta_filter: str = Query("todas", description="todas|accionistas|sin_accionistas|cooperativas"),
+    categoria: str = Query(..., description="categoría UI: compra|venta|suscripciones|cauc_tom|cauc_col"),
+    desde: str = Query(..., description="YYYY-MM-DD inclusive"),
+    hasta: str = Query(..., description="YYYY-MM-DD inclusive"),
+):
+    """Totales acumulados por cuenta para una categoría UI sobre un rango.
+
+    Para el panel DETALLE de /operaciones/negocio: cuando el usuario clickea
+    una categoría, este endpoint devuelve el desglose por cuenta sumando
+    todos los días en [desde, hasta] (inclusive), respetando moneda +
+    cuenta_filter. Ordenado desc por |importe| (mayor → menor).
+
+    Una categoría UI puede mapear a múltiples categorías de boleto (ej.
+    suscripciones = suscripcion_fci + solicitud_suscripcion_fci). Esto se
+    resuelve server-side via _NEGOCIO_UI_CAT_MAP.
+    """
+    if moneda not in _NEGOCIO_MONEDAS_VALIDAS:
+        raise HTTPException(400, f"moneda inválida: {moneda!r}")
+    if cuenta_filter not in _NEGOCIO_CUENTA_FILTROS:
+        raise HTTPException(400, f"cuenta_filter inválido: {cuenta_filter!r}")
+    if categoria not in _NEGOCIO_UI_CAT_MAP:
+        raise HTTPException(
+            400,
+            f"categoria inválida: {categoria!r} ∉ {list(_NEGOCIO_UI_CAT_MAP)}",
+        )
+    # Validación cheap del shape ISO (no tipo strict — Mongo compara strings).
+    for label, val in (("desde", desde), ("hasta", hasta)):
+        try:
+            datetime.strptime(val, "%Y-%m-%d")
+        except ValueError as e:
+            raise HTTPException(400, f"{label} mal formada: {val!r}") from e
+    if desde > hasta:
+        raise HTTPException(400, f"desde ({desde}) debe ser <= hasta ({hasta})")
+
+    boleto_cats = _NEGOCIO_UI_CAT_MAP[categoria]
+    try:
+        coll = get_db_cashflow()["NegocioMovimientos"]
+        match_doc = {
+            "fecha":     {"$gte": desde, "$lte": hasta},
+            "moneda":    moneda,
+            "categoria": {"$in": boleto_cats},
+            **_match_cuenta_filter(cuenta_filter),
+        }
+        pipeline = [
+            {"$match": match_doc},
+            {"$group": {
+                "_id":         "$cuenta",
+                "importe_abs": {"$sum": {"$abs": {"$ifNull": ["$importe", 0]}}},
+                "n":           {"$sum": 1},
+            }},
+            {"$sort": {"importe_abs": -1}},
+            {"$project": {
+                "_id":         0,
+                "cuenta":      {"$ifNull": ["$_id", "(sin cuenta)"]},
+                "importe_abs": {"$round": ["$importe_abs", 2]},
+                "n":           1,
+            }},
+        ]
+        rows = list(coll.aggregate(pipeline))
+        return {
+            "moneda":        moneda,
+            "cuenta_filter": cuenta_filter,
+            "categoria":     categoria,
+            "desde":         desde,
+            "hasta":         hasta,
+            "cuentas":       rows,
+            "total_abs":     round(sum(r["importe_abs"] for r in rows), 2),
+            "n_total":       sum(r["n"] for r in rows),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "negocio_cuentas failed: moneda=%s cuenta_filter=%s categoria=%s desde=%s hasta=%s",
+            moneda, cuenta_filter, categoria, desde, hasta,
         )
         raise HTTPException(status_code=500, detail=str(e)) from e
 

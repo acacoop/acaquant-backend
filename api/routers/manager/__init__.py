@@ -19,6 +19,7 @@ from fastapi import APIRouter
 
 from api.routers.manager import (
     asistente,
+    aunesa,
     checks,
     jobs,
     logs,
@@ -38,3 +39,4 @@ router.include_router(asistente.router)
 router.include_router(logs.router)
 router.include_router(users.router)
 router.include_router(roles.router)
+router.include_router(aunesa.router)

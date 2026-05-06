@@ -88,9 +88,13 @@ def total_serie(
         "todas",
         description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",
     ),
+    moneda: str = Query("ARS", description="ARS | USD — USD divide por MEP de cada fecha"),
 ):
     """Serie histórica del AuM total agrupado por CARTERA."""
-    return svc.total_serie(desde=desde, hasta=hasta, cuenta_filter=cuenta_filter)
+    return svc.total_serie(
+        desde=desde, hasta=hasta,
+        cuenta_filter=cuenta_filter, moneda=moneda,
+    )
 
 
 @router.get("/total-snapshot")
@@ -100,6 +104,9 @@ def total_snapshot(
         "todas",
         description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",
     ),
+    moneda: str = Query("ARS", description="ARS | USD — USD divide por MEP de la fecha"),
 ):
     """Snapshot del AuM total en una fecha (todas las unidades, by cartera)."""
-    return svc.total_snapshot(fecha=fecha, cuenta_filter=cuenta_filter)
+    return svc.total_snapshot(
+        fecha=fecha, cuenta_filter=cuenta_filter, moneda=moneda,
+    )

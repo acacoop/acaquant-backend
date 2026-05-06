@@ -19,6 +19,7 @@ from datetime import datetime
 from api.cache import cached
 from api.db import get_db_portfolio, get_db_titulos, get_db_trading, get_db_valuaciones
 from api.services._cuentas_filter import match_cuenta_filter
+from api.services._mep import get_mep_for_date
 
 _PROJ_CARTERAS = {
     "_id": 0, "id_cuenta": 1, "unidad": 1, "cantidad": 1,
@@ -639,12 +640,25 @@ def total_serie(
     desde: str | None = None,
     hasta: str | None = None,
     cuenta_filter: str = "todas",
-) -> list:
+    moneda: str = "ARS",
+) -> dict:
     """Serie histórica del AuM total agrupado por CARTERA.
 
-    Lee `Valuaciones.AuM` raw (sin pre-rollup) y enriquece cada unidad con
-    `cartera` desde `Valuaciones.Assets` UPPERCASE. Devuelve por fecha el
-    total + desglose por cartera.
+    Lee `Valuaciones.AuM` raw y enriquece cada unidad con `cartera` desde
+    `Valuaciones.Assets` UPPERCASE.
+
+    Si `moneda == "USD"`: convierte cada doc dividiendo por el MEP de la
+    fecha del snapshot (todo el AuM se persiste en ARS, incluso unidades
+    USD/USDC). Las fechas para las que no hay MEP se reportan en
+    `fechas_sin_mep` y conservan el valor en ARS sin convertir, para que
+    el caller pueda decidir cómo mostrarlas.
+
+    Returns:
+        {
+          serie: [{fecha, total, por_cartera, mep_used (si USD)}, ...],
+          moneda: "ARS" | "USD",
+          fechas_sin_mep: [<list>]  (siempre [], salvo moneda=USD)
+        }
     """
     db_v = get_db_valuaciones()
     enrich = _assets_enrich_map()
@@ -669,28 +683,57 @@ def total_serie(
     ]
 
     rows = list(db_v["AuM"].aggregate(pipeline))
+
+    # Cache MEP por fecha — varias unidades de la misma fecha lo comparten.
+    mep_cache: dict[str, float | None] = {}
+    fechas_sin_mep: set[str] = set()
+
+    def _mep(f: str) -> float | None:
+        if f not in mep_cache:
+            mep_cache[f] = get_mep_for_date(f)
+        return mep_cache[f]
+
     bucket: dict[str, dict] = {}
     for r in rows:
         fecha_str = str(r["_id"]["fecha"])[:10]
         unidad = r["_id"]["unidad"]
         val = float(r.get("valuacion_total") or 0)
-        cartera = (enrich.get(unidad, {}).get("cartera") or "OTROS")
+        if moneda == "USD":
+            mep = _mep(fecha_str)
+            if mep:
+                val = val / mep
+            else:
+                fechas_sin_mep.add(fecha_str)
+        cartera = enrich.get(unidad, {}).get("cartera") or "OTROS"
         b = bucket.setdefault(fecha_str, {"total": 0.0, "por_cartera": {}})
         b["total"] += val
         b["por_cartera"][cartera] = b["por_cartera"].get(cartera, 0.0) + val
 
-    return [
-        {"fecha": f, "total": v["total"], "por_cartera": v["por_cartera"]}
-        for f, v in sorted(bucket.items())
-    ]
+    serie = []
+    for f, v in sorted(bucket.items()):
+        row = {"fecha": f, "total": v["total"], "por_cartera": v["por_cartera"]}
+        if moneda == "USD":
+            row["mep_used"] = mep_cache.get(f)
+        serie.append(row)
+
+    return {
+        "serie": serie,
+        "moneda": moneda,
+        "fechas_sin_mep": sorted(fechas_sin_mep),
+    }
 
 
 @cached(ttl=300)
-def total_snapshot(fecha: str, cuenta_filter: str = "todas") -> list:
+def total_snapshot(
+    fecha: str,
+    cuenta_filter: str = "todas",
+    moneda: str = "ARS",
+) -> dict:
     """Snapshot del AuM total en una fecha: detalle por unidad/cartera/cuenta.
 
-    Lee `Valuaciones.AuM` (todas las unidades, no solo FCI) y agrega `cartera`
-    desde `Valuaciones.Assets` UPPERCASE. Es el "all-up" del AuM en esa fecha.
+    Si `moneda == "USD"`: divide cada `valuacion` por el MEP de `fecha`. Si
+    no hay MEP disponible para esa fecha, devuelve los valores en ARS y
+    setea `mep_missing=True` para que el frontend muestre un aviso.
     """
     db_v = get_db_valuaciones()
     enrich = _assets_enrich_map()
@@ -698,25 +741,40 @@ def total_snapshot(fecha: str, cuenta_filter: str = "todas") -> list:
     match: dict = {"fecha_snapshot": fecha}
     match.update(match_cuenta_filter(cuenta_filter))
 
-    docs = db_v["AuM"].find(
+    docs = list(db_v["AuM"].find(
         match,
         {"_id": 0, "unidad": 1, "cuenta": 1, "id_cuenta": 1,
          "valuacion": 1, "cantidad": 1, "tipoTitulo": 1},
-    )
+    ))
+
+    mep: float | None = None
+    mep_missing = False
+    if moneda == "USD":
+        mep = get_mep_for_date(fecha)
+        if mep is None:
+            mep_missing = True
 
     out = []
     for d in docs:
         unidad = d.get("unidad", "")
         meta = enrich.get(unidad, {})
         cartera = meta.get("cartera") or "OTROS"
+        val = float(d.get("valuacion") or 0)
+        if moneda == "USD" and mep:
+            val = val / mep
         out.append({
             "unidad": unidad,
             "cartera": cartera,
             "tipo": d.get("tipoTitulo") or "",
             "cuenta": d.get("cuenta", ""),
             "id_cuenta": d.get("id_cuenta", ""),
-            "valuacion": float(d.get("valuacion") or 0),
+            "valuacion": val,
             "cantidad": float(d.get("cantidad") or 0),
         })
 
-    return out
+    return {
+        "docs": out,
+        "moneda": moneda,
+        "mep_used": mep,
+        "mep_missing": mep_missing,
+    }

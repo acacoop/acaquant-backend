@@ -512,7 +512,10 @@ def posiciones_actuales(
             if u:
                 cartera_by_unidad[u] = c
 
-    rows = sorted(by_unidad.values(), key=lambda r: -abs(r["valuacion"]))
+    # Sort por valuación con SIGNO descendente — longs arriba, shorts/cash
+    # negativo abajo. Antes era por |valuacion| que mezclaba shorts grandes
+    # con longs grandes, confundiendo la lectura.
+    rows = sorted(by_unidad.values(), key=lambda r: -r["valuacion"])
     total = sum(r["valuacion"] for r in rows)
     return {
         "id_cuenta": id_cuenta,
@@ -534,4 +537,88 @@ def posiciones_actuales(
         ],
         "total": round(total, 2),
         "n":     len(rows),
+    }
+
+
+@cached(ttl=300)
+def movimientos_mes(id_cuenta: str, fecha_anchor: str) -> dict[str, Any]:
+    """Movimientos individuales (depósitos / extracciones / transferencias)
+    para una cuenta en el mes que contiene `fecha_anchor`.
+
+    Para el panel de auditoría en /valuaciones — al clickear un mes en la
+    tabla mensual, este endpoint devuelve cada boleto del mes con su
+    fecha real, importe y descripción para que el manager audite los
+    flujos uno por uno (vs solo ver el neto agregado del mes).
+
+    Args:
+        id_cuenta: numérico, ej "805".
+        fecha_anchor: YYYY-MM-DD — define el mes a consultar (mes y año).
+
+    Returns:
+        {
+          mes: "YYYY-MM",
+          movimientos: [{fecha, comprobante, categoria, importe, moneda,
+                         op, ticker, informacion, cuenta}, ...],
+          n, total_neto, total_depositos, total_extracciones
+        }
+    """
+    db_cf = get_db_cashflow()
+    mes = fecha_anchor[:7]  # YYYY-MM
+
+    # Match: cuenta por prefijo numérico, fecha contiene el mes target,
+    # categoria entre los flujos externos.
+    match = {
+        "cuenta":    {"$regex": f"^\[{id_cuenta}\]"},
+        "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
+        "fecha":     {"$regex": f"^{mes}"},
+    }
+    docs = list(
+        db_cf["NegocioMovimientos"]
+        .find(
+            match,
+            {"_id": 0, "fecha": 1, "comprobante": 1, "categoria": 1,
+             "importe": 1, "moneda": 1, "op": 1, "ticker": 1,
+             "informacion": 1, "cuenta": 1},
+        )
+        .sort([("fecha", 1), ("comprobante", 1)])
+    )
+
+    total_dep = 0.0
+    total_ext = 0.0
+    movimientos: list[dict[str, Any]] = []
+    for d in docs:
+        cat = d.get("categoria")
+        try:
+            imp = float(d.get("importe") or 0)
+        except (TypeError, ValueError):
+            imp = 0.0
+        if cat in _FLUJO_EXTERNO_DEPOSITO:
+            total_dep += imp
+        elif cat in _FLUJO_EXTERNO_EXTRACCION:
+            total_ext += imp
+        movimientos.append({
+            "fecha":       d.get("fecha"),
+            "comprobante": d.get("comprobante"),
+            "categoria":   cat,
+            "importe":     round(imp, 2),
+            "moneda":      d.get("moneda"),
+            "op":          d.get("op"),
+            "ticker":      d.get("ticker"),
+            "informacion": d.get("informacion"),
+            "cuenta":      d.get("cuenta"),
+        })
+
+    # Net flow: extracciones suelen venir negativas — si no, se normaliza.
+    total_neto = total_dep + total_ext
+    if total_ext > 0:
+        total_neto = total_dep - total_ext
+
+    return {
+        "id_cuenta":         id_cuenta,
+        "mes":               mes,
+        "movimientos":       movimientos,
+        "n":                 len(movimientos),
+        "total_depositos":   round(total_dep, 2),
+        "total_extracciones": round(total_ext, 2),
+        "total_neto":        round(total_neto, 2),
     }

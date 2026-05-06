@@ -55,6 +55,30 @@ def get_mensual(id_cuenta: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/{id_cuenta}/movimientos")
+def get_movimientos(
+    id_cuenta: str,
+    fecha: str = Query(..., description="YYYY-MM-DD — define el mes a consultar"),
+):
+    """Movimientos individuales (depósitos, extracciones, transferencias)
+    para la cuenta en el mes que contiene `fecha`. Para auditoría en
+    /valuaciones — al clickear un mes ves cada boleto con su fecha real."""
+    _validate_id_cuenta(id_cuenta)
+    try:
+        from datetime import datetime
+        datetime.strptime(fecha, "%Y-%m-%d")
+    except ValueError as e:
+        raise HTTPException(400, f"fecha mal formada: {fecha!r}") from e
+    try:
+        return svc.movimientos_mes(id_cuenta=id_cuenta, fecha_anchor=fecha)
+    except Exception as e:
+        logger.exception(
+            "valuaciones movimientos failed: id_cuenta=%s fecha=%s",
+            id_cuenta, fecha,
+        )
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/{id_cuenta}/posiciones-actuales")
 def get_posiciones_actuales(
     id_cuenta: str,

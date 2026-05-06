@@ -13,19 +13,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import config
 from core.mongo import get_mongo_client
-from jobs._aum_filters import is_excluded, load_contrapartes_cuentas
+from jobs._aum_filters import is_excluded, load_contrapartes_id_cuentas
 
 # Lazy singleton — se carga al primer pedido y se reusa por los workers del
 # ThreadPoolExecutor. La lista cambia con poca frecuencia (cuando alguien
 # edita ContrapartesAPI), así que no vale la pena refrescar cada llamada.
-_CONTRAPARTES_CACHE: frozenset[str] | None = None
+_CONTRAPARTES_IDS_CACHE: frozenset[str] | None = None
 
 
-def _contrapartes() -> frozenset[str]:
-    global _CONTRAPARTES_CACHE
-    if _CONTRAPARTES_CACHE is None:
-        _CONTRAPARTES_CACHE = load_contrapartes_cuentas()
-    return _CONTRAPARTES_CACHE
+def _contrapartes_ids() -> frozenset[str]:
+    global _CONTRAPARTES_IDS_CACHE
+    if _CONTRAPARTES_IDS_CACHE is None:
+        _CONTRAPARTES_IDS_CACHE = load_contrapartes_id_cuentas()
+    return _CONTRAPARTES_IDS_CACHE
 
 AUTH_URL     = "https://aca.aunesa.com/Irmo/api/login"
 LISTADO_URL  = "https://aca.aunesa.com/Irmo/api/cuentas/listadoCuentas"
@@ -184,13 +184,17 @@ def procesar(data, fecha_snapshot, timestamp):
     # ── Filtros de limpieza ──────────────────────────────────────────────────
     # Reglas centralizadas en `jobs._aum_filters` para que el backfill
     # one-shot (`scripts/cleanup_aum_excluidos`) use exactamente el mismo
-    # criterio. Hoy cubre: OTC en cuenta/unidad, unidad USDL, cuentas que
-    # aparecen en CuentasAPI.ContrapartesAPI (sociedades gerentes de FCI:
-    # SCHRODER, TORONTO, ALLARIA, etc. — editables desde el panel sin tocar
-    # código), y la tenencia ARS de [100]/[101].
-    contrapartes = _contrapartes()
+    # criterio. Match por `id_cuenta` (no por nombre) porque ContrapartesAPI
+    # tiene la denominación con formato distinto a Valuaciones.AuM (sin
+    # prefijo "[NN]" y con espacios en blanco). Hoy cubre: OTC, USDL,
+    # contrapartes (FCI, gerentes), y la tenencia ARS de [100]/[101].
+    contrapartes_ids = _contrapartes_ids()
     df_g = df_g[~df_g.apply(
-        lambda row: is_excluded(row.get("cuenta"), row.get("unidad"), contrapartes),
+        lambda row: is_excluded(
+            row.get("cuenta"), row.get("unidad"),
+            id_cuenta=row.get("id_cuenta"),
+            contrapartes_ids=contrapartes_ids,
+        ),
         axis=1,
     )].copy()
 

@@ -44,10 +44,32 @@ def main() -> None:
              "exacto y reporta cuántas matchean — para diagnosticar si los "
              "formatos coinciden.",
     )
+    ap.add_argument(
+        "--in-contrapartes", metavar="KEYWORD",
+        help="Busca KEYWORD (case-insensitive) en CuentasAPI.ContrapartesAPI "
+             "para ver si esa cuenta está dada de alta como contraparte.",
+    )
     args = ap.parse_args()
 
     c = get_mongo_client_read()
     aum = c["Valuaciones"]["AuM"]
+
+    if args.in_contrapartes:
+        col = c["CuentasAPI"]["ContrapartesAPI"]
+        kw = args.in_contrapartes
+        rx = {"$regex": re.escape(kw), "$options": "i"}
+        # Buscamos el match en cualquiera de los 3 campos string del doc.
+        matches = list(col.find(
+            {"$or": [{"cuenta": rx}, {"nombre": rx}, {"grupo": rx}]},
+            {"_id": 0, "cuenta": 1, "id_cuenta": 1, "nombre": 1, "grupo": 1},
+        ))
+        print(f"matches con {kw!r} en ContrapartesAPI: {len(matches)}")
+        for m in matches:
+            print(f"  cuenta={m.get('cuenta','')!r:60s}  "
+                  f"id={m.get('id_cuenta')}  "
+                  f"nombre={m.get('nombre','')!r}  "
+                  f"grupo={m.get('grupo','')!r}")
+        return
 
     if args.cuenta_contraparte:
         contrapartes = sorted({

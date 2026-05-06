@@ -18,10 +18,17 @@ AUTH_URL     = "https://aca.aunesa.com/Irmo/api/login"
 LISTADO_URL  = "https://aca.aunesa.com/Irmo/api/cuentas/listadoCuentas"
 POSICION_URL = "https://aca.aunesa.com/Irmo/api/cuentas/{}/posicionValuada"
 
+# Session compartida por TODAS las llamadas a Aunesa: TLS handshake +
+# TCP connect se hacen una sola vez, después se reusa la conexión via
+# HTTP keep-alive. Quita ~200-400ms de latencia por call después del
+# primer request. requests.Session es thread-safe (docs). Compartido
+# entre el ThreadPoolExecutor de 4 workers sin issues.
+_SESSION = requests.Session()
+
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 def autenticar():
-    resp = requests.post(
+    resp = _SESSION.post(
         AUTH_URL,
         json={
             "clientId": config.AUNESA_CLIENT_ID,
@@ -54,7 +61,7 @@ def fecha_t2():
 
 # ── Listado de cuentas activas ────────────────────────────────────────────────
 def obtener_cuentas(headers):
-    resp = requests.get(LISTADO_URL, headers=headers, timeout=60)
+    resp = _SESSION.get(LISTADO_URL, headers=headers, timeout=60)
     resp.raise_for_status()
     df = pd.DataFrame(resp.json())
     activas = df[
@@ -76,7 +83,7 @@ def consultar_posicion(cuenta_id, headers, desde):
     # Timeout=120 (subido de 60 el 2026-05-06): cuentas con muchas
     # posiciones tardan más de 60s del lado de Aunesa al computar la
     # valuación. Con 60s se observaba ~30% de timeouts en backfills.
-    resp = requests.get(
+    resp = _SESSION.get(
         POSICION_URL.format(cuenta_id),
         params=params,
         headers=headers,

@@ -309,8 +309,9 @@ def main() -> int:
                         help="Todas las fecha_snapshots únicas en AuM")
     parser.add_argument("--from-csv",
                         help="Path al CSV de audit_aum_corruption (cols: fecha_snapshot,id_cuenta,sources)")
-    parser.add_argument("--workers", type=int, default=8,
-                        help="Threads paralelos para llamadas a Aunesa (default 8)")
+    parser.add_argument("--workers", type=int, default=4,
+                        help="Threads paralelos para llamadas a Aunesa (default 4 — "
+                             "8 saturaba a Aunesa con ~30%% timeouts en backfill 2026-05-06)")
     parser.add_argument("--dry", action="store_true",
                         help="No escribe a Mongo, solo reporta")
     args = parser.parse_args()

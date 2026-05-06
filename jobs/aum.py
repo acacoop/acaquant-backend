@@ -73,11 +73,14 @@ def consultar_posicion(cuenta_id, headers, desde):
         "nivel":           "Especie x cuenta",
         "ocultarCerradas": "true",
     }
+    # Timeout=120 (subido de 60 el 2026-05-06): cuentas con muchas
+    # posiciones tardan más de 60s del lado de Aunesa al computar la
+    # valuación. Con 60s se observaba ~30% de timeouts en backfills.
     resp = requests.get(
         POSICION_URL.format(cuenta_id),
         params=params,
         headers=headers,
-        timeout=60,
+        timeout=120,
     )
     if resp.status_code == 401:
         return None, True   # señal de re-auth

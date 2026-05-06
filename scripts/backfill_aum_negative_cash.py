@@ -1,59 +1,69 @@
 """backfill_aum_negative_cash.py — re-corre jobs/aum.py para snapshots
-históricos y reemplaza los docs en Valuaciones.AuM con la nueva lógica
-(sin el filtro de cash negativo que ocultaba posiciones short de
-ARS/USD).
+históricos y reemplaza los docs en Valuaciones.AuM.
 
 Por qué: hasta el commit be8bedb (2026-05-05), procesar() en jobs/aum.py
-filtraba los rows con `unidad ∈ {ARS, USD}` y `cantidad < 0`, dropeando
-posiciones short de cash legítimas (margen / debt). Para cuentas
-leverageadas, esto hacía que el saldo total fuera artificialmente más
-alto y la valuación / PnL falsos.
+filtraba rows con `unidad ∈ {ARS, USD}` y `cantidad < 0`, dropeando
+posiciones short de cash legítimas. Para cuentas leverageadas, el saldo
+total quedaba inflado y la valuación / PnL falsos.
 
-Este script vuelve a pegarle a Aunesa con `desde` = T+2 de la
-fecha_snapshot histórica, procesa con la lógica actualizada (sin el
-filtro), y REEMPLAZA todos los docs de esa fecha en AuM.
+V2 (2026-05-05):
+- PER-CUENTA replace (no destructive bulk delete por fecha): cuentas
+  que timeoutean conservan sus rows existentes — no más data loss.
+- Retry-on-timeout: 3 intentos con backoff exponencial antes de fallar.
+- --from-csv: re-procesa solo los pares (fecha, id_cuenta) listados,
+  output del audit script. Quirúrgico y rápido.
+- Persistent audit log: cada intento se escribe a
+  Valuaciones.AumBackfillRuns con status / attempt / error / ts. Survive
+  tmux closes — toda la historia queda en Mongo.
 
 Uso:
     python -m scripts.backfill_aum_negative_cash --fecha 2025-09-15
     python -m scripts.backfill_aum_negative_cash --desde 2025-09-15 --hasta 2025-09-30
     python -m scripts.backfill_aum_negative_cash --all
+    python -m scripts.backfill_aum_negative_cash --from-csv /tmp/aum-corruption.csv
     python -m scripts.backfill_aum_negative_cash --all --dry      # preview
-
-⚠ Latencia: cada fecha hace ~50 calls a Aunesa en paralelo (8 workers).
-Una fecha tarda ~5-30s. --all sobre 8 meses puede tomar 30-60min. Usar
-tmux/screen para correrlo desconectado.
-
-⚠ Idempotente pero destructivo a nivel `fecha_snapshot`: borra TODOS los
-docs de esa fecha antes de insertar los nuevos. Si Aunesa devuelve vacío
-para una fecha, NO borra (skip silencioso para no zerificar el snapshot).
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import logging
 import sys
 import threading
-from collections.abc import Iterable
+import time
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 import holidays
+import requests
 from pymongo import UpdateOne
 
 sys.path.insert(0, ".")
 
 from core.mongo import get_mongo_client
-from jobs.aum import _consultar_cuenta, autenticar, obtener_cuentas
+from jobs.aum import (
+    autenticar,
+    consultar_posicion,
+    obtener_cuentas,
+    procesar,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("backfill_aum_neg_cash")
 
 DB_NAME = "Valuaciones"
-COL_NAME = "AuM"
+COL_AUM = "AuM"
+COL_RUNS = "AumBackfillRuns"
+
+# Retry parameters para timeouts.
+MAX_RETRIES = 3
+BACKOFF_BASE_S = 2  # 1° retry: 2s, 2°: 4s, 3°: 8s
 
 
 def _t2_de(d: date) -> str:
-    """T+2 hábil de la fecha dada, formato DD/MM/YYYY (Aunesa lo espera así)."""
+    """T+2 hábil (DD/MM/YYYY) — formato que espera Aunesa."""
     arg_holidays = holidays.Argentina()
 
     def proximo_habil(x: date) -> date:
@@ -65,60 +75,94 @@ def _t2_de(d: date) -> str:
     return proximo_habil(proximo_habil(d)).strftime("%d/%m/%Y")
 
 
-def _backfill_una_fecha(
-    fecha: date,
+def _consultar_con_retry(
+    cuenta_id: str,
     headers_ref: dict,
     headers_lock: threading.Lock,
-    cuentas,
-    dry: bool,
-) -> int:
-    """Backfillea una sola fecha. Devuelve cantidad de docs persistidos
-    (o que persistirían en --dry)."""
-    fecha_snapshot = fecha.isoformat()
-    desde = _t2_de(fecha)
-    # Timestamp = fin del día en UTC. Sirve como audit trail del re-run.
-    timestamp = datetime.combine(fecha, datetime.min.time().replace(hour=23))
+    desde: str,
+) -> tuple[list | None, str | None]:
+    """Llama consultar_posicion con retry-on-timeout y re-auth.
 
-    logger.info("──────────────────────────────────────────")
-    logger.info("📅 fecha_snapshot=%s · desde T+2=%s · cuentas=%d",
-                fecha_snapshot, desde, len(cuentas))
+    Returns:
+        (data, error_msg). Si todo OK: (json_response, None).
+        Si error agotó retries: (None, "msg").
+    """
+    last_err: str | None = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            with headers_lock:
+                h = dict(headers_ref)
+            data, necesita_reauth = consultar_posicion(cuenta_id, h, desde)
+            if necesita_reauth:
+                with headers_lock:
+                    nuevos = autenticar()
+                    headers_ref.clear()
+                    headers_ref.update(nuevos)
+                    h = dict(headers_ref)
+                data, _ = consultar_posicion(cuenta_id, h, desde)
+            # Aunesa puede devolver lista vacía legítimamente (cuenta sin
+            # posiciones) — eso NO es error.
+            return data, None
+        except requests.exceptions.Timeout as e:
+            last_err = f"timeout (attempt {attempt}/{MAX_RETRIES}): {e}"
+            if attempt < MAX_RETRIES:
+                wait = BACKOFF_BASE_S ** attempt
+                time.sleep(wait)
+                continue
+            return None, last_err
+        except requests.exceptions.RequestException as e:
+            last_err = f"http (attempt {attempt}/{MAX_RETRIES}): {e}"
+            if attempt < MAX_RETRIES:
+                time.sleep(BACKOFF_BASE_S ** attempt)
+                continue
+            return None, last_err
+        except Exception as e:
+            last_err = f"unexpected: {e}"
+            return None, last_err  # no retry on unexpected errors
+    return None, last_err
 
-    all_registros: list[dict] = []
-    futures_map = {}
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        for i, row in cuentas.iterrows():
-            cuenta_id = str(row["id"])
-            denominacion = row["denominacion"]
-            f = executor.submit(
-                _consultar_cuenta,
-                cuenta_id, denominacion, i + 1, len(cuentas),
-                desde, fecha_snapshot, timestamp,
-                headers_ref, headers_lock,
-            )
-            futures_map[f] = cuenta_id
 
-        for f in as_completed(futures_map):
-            registros = f.result()
-            if registros:
-                all_registros.extend(registros)
+def _persist_run_state(
+    col_runs,
+    fecha_snapshot: str,
+    cuenta_id: str,
+    status: str,
+    error_msg: str | None,
+    n_registros: int,
+) -> None:
+    """Append-only audit log de cada intento."""
+    col_runs.update_one(
+        {"fecha_snapshot": fecha_snapshot, "id_cuenta": cuenta_id},
+        {"$set": {
+            "fecha_snapshot": fecha_snapshot,
+            "id_cuenta":      cuenta_id,
+            "status":         status,
+            "error_msg":      error_msg,
+            "n_registros":    n_registros,
+            "ts":             datetime.now(UTC),
+        }},
+        upsert=True,
+    )
 
-    logger.info("   ✓ Aunesa devolvió %d registros", len(all_registros))
 
-    if not all_registros:
-        logger.warning("   ⚠ Sin datos para %s — NO se reemplaza el snapshot existente",
-                       fecha_snapshot)
-        return 0
+def _replace_cuenta_data(
+    col_aum,
+    fecha_snapshot: str,
+    cuenta_id: str,
+    registros: list[dict],
+) -> tuple[int, int]:
+    """Per-cuenta replace: borra rows previos de (fecha, cuenta) e
+    inserta los nuevos. Otras cuentas no son tocadas.
 
-    if dry:
-        logger.info("   [DRY] persistirían %d docs (replace por fecha_snapshot)",
-                    len(all_registros))
-        return len(all_registros)
-
-    client = get_mongo_client()
-    col = client[DB_NAME][COL_NAME]
-
-    # Reemplazo limpio: delete-then-insert dentro del scope de fecha_snapshot.
-    deleted = col.delete_many({"fecha_snapshot": fecha_snapshot}).deleted_count
+    Returns:
+        (deleted, inserted)
+    """
+    deleted = col_aum.delete_many({
+        "fecha_snapshot": fecha_snapshot,
+        "id_cuenta":      cuenta_id,
+    }).deleted_count
+    if not registros:
+        return deleted, 0
     ops = [
         UpdateOne(
             {
@@ -129,40 +173,128 @@ def _backfill_una_fecha(
             {"$set": r},
             upsert=True,
         )
-        for r in all_registros
+        for r in registros
     ]
-    if ops:
-        col.bulk_write(ops, ordered=False)
-    logger.info("   ✓ Replaced %d → %d docs en %s.%s",
-                deleted, len(all_registros), DB_NAME, COL_NAME)
-    return len(all_registros)
+    col_aum.bulk_write(ops, ordered=False)
+    return deleted, len(registros)
 
 
-def _fechas_objetivo(args: argparse.Namespace) -> Iterable[date]:
-    """Determina la lista de fechas a procesar según los flags."""
+def _procesar_cuenta(
+    cuenta_id: str,
+    fecha: date,
+    headers_ref: dict,
+    headers_lock: threading.Lock,
+    dry: bool,
+) -> dict:
+    """Procesa una sola (fecha, cuenta). Devuelve dict con métricas."""
+    fecha_snapshot = fecha.isoformat()
+    desde = _t2_de(fecha)
+    timestamp = datetime.combine(fecha, datetime.min.time().replace(hour=23))
+
+    data, error_msg = _consultar_con_retry(cuenta_id, headers_ref, headers_lock, desde)
+
+    client = get_mongo_client()
+    col_aum = client[DB_NAME][COL_AUM]
+    col_runs = client[DB_NAME][COL_RUNS]
+
+    if data is None:
+        # Falla — NO tocamos AuM, dejamos rows existentes intactos.
+        if not dry:
+            _persist_run_state(col_runs, fecha_snapshot, cuenta_id, "failed", error_msg, 0)
+        return {"cuenta_id": cuenta_id, "status": "failed", "error": error_msg, "n": 0}
+
+    registros = procesar(data, fecha_snapshot, timestamp)
+
+    if dry:
+        return {"cuenta_id": cuenta_id, "status": "dry", "n": len(registros)}
+
+    deleted, inserted = _replace_cuenta_data(col_aum, fecha_snapshot, cuenta_id, registros)
+    status = "ok" if inserted > 0 else "empty"
+    _persist_run_state(col_runs, fecha_snapshot, cuenta_id, status, None, inserted)
+    return {"cuenta_id": cuenta_id, "status": status, "deleted": deleted, "inserted": inserted}
+
+
+def _backfill_pairs(
+    pairs: list[tuple[date, str]],
+    headers_ref: dict,
+    headers_lock: threading.Lock,
+    dry: bool,
+    workers: int,
+) -> dict[str, int]:
+    """Procesa una lista de (fecha, id_cuenta) en paralelo. Persiste y
+    audita per-cuenta. Devuelve estadísticas agregadas."""
+    stats = defaultdict(int)
+    total = len(pairs)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(_procesar_cuenta, cuenta, fecha, headers_ref, headers_lock, dry): (fecha, cuenta)
+            for fecha, cuenta in pairs
+        }
+        for done, f in enumerate(as_completed(futures), 1):
+            try:
+                res = f.result()
+                stats[res["status"]] += 1
+                stats["total"] = total
+                if done % 50 == 0 or done == total:
+                    logger.info(
+                        "Progress %d/%d · ok=%d empty=%d failed=%d dry=%d",
+                        done, total,
+                        stats["ok"], stats["empty"], stats["failed"], stats["dry"],
+                    )
+                if res["status"] == "failed":
+                    logger.warning(
+                        "  ❌ cuenta %s: %s",
+                        res["cuenta_id"], res.get("error", "(no msg)"),
+                    )
+            except Exception as e:
+                logger.exception("Excepción procesando %s: %s", futures[f], e)
+                stats["failed"] += 1
+    return dict(stats)
+
+
+def _all_cuentas_for_fecha(cuentas) -> list[str]:
+    """Lista de id_cuenta del listado actual de Aunesa."""
+    return [str(row["id"]) for _, row in cuentas.iterrows()]
+
+
+def _pairs_from_args(args, cuentas_listado_ids: list[str]) -> list[tuple[date, str]]:
+    """Resuelve la lista (fecha, cuenta) según los flags."""
+    if args.from_csv:
+        path = Path(args.from_csv)
+        if not path.exists():
+            raise SystemExit(f"CSV no existe: {path}")
+        pairs: list[tuple[date, str]] = []
+        with path.open("r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                f_str = row.get("fecha_snapshot")
+                c_str = row.get("id_cuenta")
+                if not f_str or not c_str:
+                    continue
+                pairs.append((date.fromisoformat(f_str), c_str.strip()))
+        return pairs
+
+    # Resolve fechas
+    fechas: list[date] = []
     if args.fecha:
-        return [date.fromisoformat(args.fecha)]
-    if args.desde or args.hasta:
-        if not (args.desde and args.hasta):
-            raise SystemExit("--desde y --hasta deben ir juntos")
-        d_desde = date.fromisoformat(args.desde)
-        d_hasta = date.fromisoformat(args.hasta)
-        if d_desde > d_hasta:
-            raise SystemExit("--desde debe ser <= --hasta")
-        # Rango calendario — incluye fines de semana, pero Aunesa devolverá
-        # vacío y el script skipea sin borrar (validación es safe).
-        out = []
-        d = d_desde
-        while d <= d_hasta:
-            out.append(d)
+        fechas = [date.fromisoformat(args.fecha)]
+    elif args.desde and args.hasta:
+        d = date.fromisoformat(args.desde)
+        end = date.fromisoformat(args.hasta)
+        while d <= end:
+            fechas.append(d)
             d += timedelta(days=1)
-        return out
-    if args.all:
+    elif args.all:
         client = get_mongo_client()
-        col = client[DB_NAME][COL_NAME]
+        col = client[DB_NAME][COL_AUM]
         unique = sorted(col.distinct("fecha_snapshot"))
-        return [date.fromisoformat(f) for f in unique if f]
-    raise SystemExit("Especificá --fecha, --desde/--hasta, o --all")
+        fechas = [date.fromisoformat(f) for f in unique if f]
+    else:
+        raise SystemExit("Especificá --fecha, --desde/--hasta, --all, o --from-csv")
+
+    # Cross product con todas las cuentas activas.
+    return [(f, c) for f in fechas for c in cuentas_listado_ids]
 
 
 def main() -> int:
@@ -174,18 +306,14 @@ def main() -> int:
     parser.add_argument("--desde", help="YYYY-MM-DD inclusive (con --hasta)")
     parser.add_argument("--hasta", help="YYYY-MM-DD inclusive (con --desde)")
     parser.add_argument("--all", action="store_true",
-                        help="Re-procesa TODAS las fechas únicas en AuM")
+                        help="Todas las fecha_snapshots únicas en AuM")
+    parser.add_argument("--from-csv",
+                        help="Path al CSV de audit_aum_corruption (cols: fecha_snapshot,id_cuenta,sources)")
+    parser.add_argument("--workers", type=int, default=8,
+                        help="Threads paralelos para llamadas a Aunesa (default 8)")
     parser.add_argument("--dry", action="store_true",
                         help="No escribe a Mongo, solo reporta")
     args = parser.parse_args()
-
-    fechas = list(_fechas_objetivo(args))
-    if not fechas:
-        logger.warning("Nada para procesar.")
-        return 0
-
-    logger.info("🎯 %d fechas a procesar: %s → %s",
-                len(fechas), fechas[0].isoformat(), fechas[-1].isoformat())
 
     logger.info("🔑 Auth Aunesa…")
     headers_ref = autenticar()
@@ -193,24 +321,31 @@ def main() -> int:
 
     logger.info("📋 Listado de cuentas activas…")
     cuentas = obtener_cuentas(headers_ref)
-    logger.info("   %d cuentas activas", len(cuentas))
+    cuentas_listado_ids = _all_cuentas_for_fecha(cuentas)
+    logger.info("   %d cuentas activas en el listado actual", len(cuentas_listado_ids))
 
-    total_registros = 0
-    fallas = 0
-    for f in fechas:
-        try:
-            n = _backfill_una_fecha(f, headers_ref, headers_lock, cuentas, args.dry)
-            total_registros += n
-        except Exception as e:
-            fallas += 1
-            logger.exception("Falló fecha %s: %s", f.isoformat(), e)
-            continue
+    pairs = _pairs_from_args(args, cuentas_listado_ids)
+    if not pairs:
+        logger.warning("Nada para procesar.")
+        return 0
+
+    fechas_unicas = sorted({p[0] for p in pairs})
+    cuentas_unicas = sorted({p[1] for p in pairs})
+    logger.info("🎯 %d pares a procesar · %d fechas · %d cuentas%s",
+                len(pairs), len(fechas_unicas), len(cuentas_unicas),
+                "  (DRY)" if args.dry else "")
+
+    stats = _backfill_pairs(pairs, headers_ref, headers_lock, args.dry, args.workers)
 
     logger.info("══════════════════════════════════════════")
-    logger.info("🏁 %d fechas procesadas · %d registros · %d fallas%s",
-                len(fechas), total_registros, fallas,
-                "  (DRY: nada escrito)" if args.dry else "")
-    return 0 if fallas == 0 else 2
+    logger.info("🏁 %d pares procesados", stats.get("total", 0))
+    logger.info("   ok       = %d", stats.get("ok", 0))
+    logger.info("   empty    = %d  (cuenta sin posiciones legítimo)", stats.get("empty", 0))
+    logger.info("   failed   = %d  (timeouts/HTTP — AuM intacto, ver AumBackfillRuns)",
+                stats.get("failed", 0))
+    if args.dry:
+        logger.info("   dry      = %d  (nada escrito)", stats.get("dry", 0))
+    return 0 if stats.get("failed", 0) == 0 else 2
 
 
 if __name__ == "__main__":

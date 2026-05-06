@@ -8,6 +8,7 @@ se deriva de acá vía `scripts/api_migrate.py:assets`.
 Endpoints:
   GET   /api/manager/assets/gaps      → assets con CARTERA o EMISOR vacíos
                                         / "NO APLICA" / null
+  GET   /api/manager/assets/values    → valores únicos para autocomplete
   PATCH /api/manager/assets/{unidad}  → edita campos UPPERCASE
 """
 from __future__ import annotations
@@ -64,6 +65,26 @@ def get_assets_gaps() -> dict:
         if isinstance(ts, datetime):
             a["actualizado_at"] = ts.replace(tzinfo=UTC).isoformat() if ts.tzinfo is None else ts.isoformat()
     return {"assets": assets, "n": len(assets)}
+
+
+@router.get("/assets/values")
+def get_assets_values() -> dict:
+    """Valores únicos de CARTERA y EMISOR para autocomplete del input
+    en el form. Filtra cadenas vacías y "NO APLICA" — no tiene sentido
+    sugerir un valor que es lo que el usuario está intentando reemplazar.
+
+    Returns:
+        {carteras: [<sorted unique strings>], emisores: [<...>]}
+    """
+    col = get_mongo_client_read()["Valuaciones"]["Assets"]
+    placeholders = {"", "NO APLICA"}
+
+    raw_cart = col.distinct("CARTERA")
+    raw_emi = col.distinct("EMISOR")
+
+    carteras = sorted({c for c in raw_cart if c and c not in placeholders})
+    emisores = sorted({e for e in raw_emi if e and e not in placeholders})
+    return {"carteras": carteras, "emisores": emisores}
 
 
 class _AssetPatch(BaseModel):

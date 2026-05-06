@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import config
 from core.mongo import get_mongo_client
+from jobs._aum_filters import is_excluded
 
 AUTH_URL     = "https://aca.aunesa.com/Irmo/api/login"
 LISTADO_URL  = "https://aca.aunesa.com/Irmo/api/cuentas/listadoCuentas"
@@ -169,12 +170,14 @@ def procesar(data, fecha_snapshot, timestamp):
     df_g = df_g[df_g["cantidad"] != 0].copy()
 
     # ── Filtros de limpieza ──────────────────────────────────────────────────
-    # 1. Eliminar cualquier registro que contenga "OTC" en cuenta o unidad
-    otc_mask = (
-        df_g["cuenta"].str.contains("OTC", case=False, na=False) |
-        df_g["unidad"].str.contains("OTC", case=False, na=False)
-    )
-    df_g = df_g[~otc_mask].copy()
+    # Reglas centralizadas en `jobs._aum_filters` para que el backfill
+    # one-shot (`scripts/cleanup_aum_excluidos`) use exactamente el mismo
+    # criterio. Hoy cubre: OTC en cuenta/unidad, unidad USDL, cuentas con
+    # SCHRODER/TORONTO/ALLARIA, y la tenencia ARS de [100]/[101].
+    df_g = df_g[~df_g.apply(
+        lambda row: is_excluded(row.get("cuenta"), row.get("unidad")),
+        axis=1,
+    )].copy()
 
     # NOTA (removido 2026-05-05): antes filtrábamos cash con cantidad
     # negativa (ARS/USD < 0). Eso ocultaba posiciones short de cash —

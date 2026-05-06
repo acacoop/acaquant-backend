@@ -376,7 +376,20 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     db_cf = get_db_cashflow()
 
     # 1. Valuación al cierre de cada mes (último fecha_snapshot del mes).
-    pipeline_aum = [
+    #
+    # IMPORTANTE — bucket de cierre vs mes calendario:
+    # Los snapshots históricos pre-daily son del DÍA 1 del mes (ej. 2025-08-01).
+    # Ese snapshot representa la valuación al INICIO del mes, antes de
+    # cualquier movimiento de Agosto. Si lo usamos como "cierre de Agosto",
+    # los flujos del 8-19-20/8 quedan asignados a un cierre que no los
+    # incluye → delta_real falso (descuenta flujos sin cancelarlos contra
+    # el saldo correspondiente).
+    #
+    # Regla: si el snapshot es del día 1 Y es el único del mes (modo legacy
+    # mensual, no daily), reasignarlo al bucket del MES ANTERIOR — ese
+    # snapshot representa de facto el cierre del mes anterior. Para meses
+    # con daily (varios snapshots), mantener la lógica de "último del mes".
+    pipeline_fechas = [
         {"$match": {"id_cuenta": id_cuenta}},
         {"$group": {
             "_id":       "$fecha_snapshot",
@@ -384,16 +397,39 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
             "n":         {"$sum": 1},
         }},
         {"$sort": {"_id": 1}},
-        # Re-group por mes: take last day's value.
-        {"$group": {
-            "_id":              {"$substr": ["$_id", 0, 7]},
-            "ultimo_dia":       {"$last": "$_id"},
-            "valuacion_cierre": {"$last": "$valuacion"},
-            "n_posiciones":     {"$last": "$n"},
-        }},
-        {"$sort": {"_id": 1}},  # ascendente para calcular delta
     ]
-    cierres = list(db_val["AuM"].aggregate(pipeline_aum))
+    fechas_data = list(db_val["AuM"].aggregate(pipeline_fechas))
+
+    # Contar snapshots por mes calendario para distinguir legacy vs daily.
+    mes_count: dict[str, int] = {}
+    for f in fechas_data:
+        mes_count[str(f["_id"])[:7]] = mes_count.get(str(f["_id"])[:7], 0) + 1
+
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+
+    cierres_buckets: dict[str, dict] = {}
+    for f in fechas_data:  # sorted asc
+        fecha_str = str(f["_id"])
+        mes_calendar = fecha_str[:7]
+        # Reasignar al mes anterior si es snapshot legacy del día 1.
+        if fecha_str.endswith("-01") and mes_count.get(mes_calendar, 0) == 1:
+            try:
+                fdt = _dt.strptime(fecha_str, "%Y-%m-%d")
+                bucket = (fdt - _td(days=1)).strftime("%Y-%m")
+            except ValueError:
+                bucket = mes_calendar
+        else:
+            bucket = mes_calendar
+        # Sorted asc → último snapshot que cae en este bucket gana.
+        cierres_buckets[bucket] = {
+            "_id":              bucket,
+            "ultimo_dia":       fecha_str,
+            "valuacion_cierre": f.get("valuacion") or 0,
+            "n_posiciones":     f.get("n") or 0,
+        }
+
+    cierres = [cierres_buckets[k] for k in sorted(cierres_buckets.keys())]
 
     # 2. Flujos externos — pesificados al MEP de la fecha de cada movimiento.
     # Se hace en Python (no $group server-side) porque la tasa MEP es

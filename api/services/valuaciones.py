@@ -40,6 +40,53 @@ _FLUJO_EXTERNO_DEPOSITO = {"deposito", "transferencia"}
 _FLUJO_EXTERNO_EXTRACCION = {"extraccion"}
 _FLUJOS_EXTERNOS_ALL = _FLUJO_EXTERNO_DEPOSITO | _FLUJO_EXTERNO_EXTRACCION
 
+# Monedas que necesitan pesificación al MEP del día. ARS se queda como
+# está. Resto se asume valor en USD-equivalente y se multiplica por el
+# MEP de la fecha del movimiento.
+_MONEDAS_USD_EQUIV: set[str] = {"USD", "USDC", "USDL"}
+
+
+def _get_mep_for_date(fecha_iso: str, db_val) -> float | None:
+    """Devuelve el último MEP <= end-of-day(fecha_iso) desde
+    Valuaciones.Dolar. Si la fecha cae en finde/feriado o no hay doc
+    para esa fecha exacta, cae al último anterior — el MEP no se mueve
+    los días no hábiles, así que es la mejor proxy.
+
+    Returns None si no hay ningún MEP en la base.
+    """
+    from datetime import datetime as _dt
+    try:
+        target = _dt.fromisoformat(fecha_iso + "T23:59:59")
+    except ValueError:
+        return None
+    doc = db_val["Dolar"].find_one(
+        {"mep": {"$ne": None}, "timestamp": {"$lte": target}},
+        sort=[("timestamp", -1)],
+    )
+    if not doc:
+        return None
+    try:
+        return float(doc.get("mep") or 0) or None
+    except (TypeError, ValueError):
+        return None
+
+
+def _pesificar(importe: float, moneda: str | None, mep: float | None) -> float:
+    """Convierte importe a ARS según moneda + MEP. Si moneda es ARS o
+    None → devuelve igual. Si es USD/USDC/USDL → multiplica por MEP.
+    Si no hay MEP disponible (caso edge) → devuelve importe original
+    sin convertir (mejor que cero — al menos no se pierde el dato)."""
+    if not moneda or moneda == "ARS":
+        return importe
+    if moneda in _MONEDAS_USD_EQUIV and mep is not None:
+        return importe * mep
+    # Moneda desconocida o sin MEP → as-is con warning de log.
+    logger.warning(
+        "_pesificar: moneda=%r sin conversión, importe=%r quedó nominal",
+        moneda, importe,
+    )
+    return importe
+
 # Categorías de boleto que afectan cost basis. FCI super (suscripcion_fci)
 # se trata como una compra de un activo (la cuotaparte). Sus rescates,
 # como una venta. Cauciones / depositos / extracciones no entran al
@@ -348,36 +395,46 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     ]
     cierres = list(db_val["AuM"].aggregate(pipeline_aum))
 
-    # 2. Flujos externos por mes (depositos / extracciones de la cuenta).
-    pipeline_flujos = [
-        {"$match": {
-            "cuenta":    {"$regex": f"^\[{id_cuenta}\]"},
+    # 2. Flujos externos — pesificados al MEP de la fecha de cada movimiento.
+    # Se hace en Python (no $group server-side) porque la tasa MEP es
+    # per-fecha del MOVIMIENTO, no por mes. Cada doc se convierte a ARS
+    # antes de sumar al bucket de su mes.
+    movimientos_raw = list(db_cf["NegocioMovimientos"].find(
+        {
+            "cuenta":    {"$regex": f"^\\[{id_cuenta}\\]"},
             "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
-        }},
-        {"$group": {
-            "_id": {"$substr": ["$fecha", 0, 7]},
-            "depositos": {"$sum": {"$cond": [
-                {"$in": ["$categoria", list(_FLUJO_EXTERNO_DEPOSITO)]},
-                {"$ifNull": ["$importe", 0]},
-                0,
-            ]}},
-            "extracciones": {"$sum": {"$cond": [
-                {"$in": ["$categoria", list(_FLUJO_EXTERNO_EXTRACCION)]},
-                {"$ifNull": ["$importe", 0]},
-                0,
-            ]}},
-        }},
-    ]
-    flujos_by_mes: dict[str, dict] = {
-        r["_id"]: r for r in db_cf["NegocioMovimientos"].aggregate(pipeline_flujos)
-    }
+        },
+        {"_id": 0, "fecha": 1, "categoria": 1, "importe": 1, "moneda": 1},
+    ))
+    # Cache MEP por fecha — evita re-queries dentro del mismo mes.
+    mep_cache: dict[str, float | None] = {}
+    flujos_by_mes: dict[str, dict[str, float]] = {}
+    for m in movimientos_raw:
+        fecha = m.get("fecha")
+        if not fecha or not isinstance(fecha, str):
+            continue
+        try:
+            imp_orig = float(m.get("importe") or 0)
+        except (TypeError, ValueError):
+            continue
+        moneda = m.get("moneda") or "ARS"
+        if moneda != "ARS" and fecha not in mep_cache:
+            mep_cache[fecha] = _get_mep_for_date(fecha, db_val)
+        mep = mep_cache.get(fecha)
+        imp_ars = _pesificar(imp_orig, moneda, mep)
+        mes = fecha[:7]
+        bucket = flujos_by_mes.setdefault(mes, {"depositos": 0.0, "extracciones": 0.0})
+        cat = m.get("categoria")
+        if cat in _FLUJO_EXTERNO_DEPOSITO:
+            bucket["depositos"] += imp_ars
+        elif cat in _FLUJO_EXTERNO_EXTRACCION:
+            bucket["extracciones"] += imp_ars
 
-    # 3. Merge y compute deltas REALES (excluyendo flujo neto).
-    # delta_bruto = cierre_t - cierre_{t-1}    (cambio observado en el saldo)
+    # 3. Merge y compute deltas REALES (excluyendo flujo neto pesificado).
+    # delta_bruto = cierre_t - cierre_{t-1}    (cambio observado en el saldo, ARS)
     # delta_real  = delta_bruto - flujo_neto   (performance real de inversiones,
-    #                                            aislando depósitos y extracciones)
-    # Sin restar el flujo, un mes con un depósito grande aparece "ganando"
-    # mucho cuando en realidad el aumento del saldo fue solo cash externo.
+    #                                            aislando depósitos y extracciones
+    #                                            ya convertidos a ARS)
     rows: list[dict[str, Any]] = []
     prev_val: float | None = None
     for c in cierres:
@@ -385,7 +442,7 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
         f = flujos_by_mes.get(mes, {})
         depositos = float(f.get("depositos") or 0)
         extracciones = float(f.get("extracciones") or 0)
-        flujo_neto = depositos + extracciones  # extracciones vienen negativas del feed
+        flujo_neto = depositos + extracciones  # extracciones suelen venir negativas
         # Si el feed no normaliza el signo, fallback:
         if extracciones > 0:
             flujo_neto = depositos - extracciones
@@ -563,6 +620,7 @@ def movimientos_mes(id_cuenta: str, fecha_anchor: str) -> dict[str, Any]:
         }
     """
     db_cf = get_db_cashflow()
+    db_val = get_db_valuaciones()
     mes = fecha_anchor[:7]  # YYYY-MM
 
     # Match: cuenta por prefijo numérico, fecha contiene el mes target,
@@ -583,42 +641,56 @@ def movimientos_mes(id_cuenta: str, fecha_anchor: str) -> dict[str, Any]:
         .sort([("fecha", 1), ("comprobante", 1)])
     )
 
-    total_dep = 0.0
-    total_ext = 0.0
+    # Cache MEP por fecha (varios movimientos del mismo día comparten tasa).
+    mep_cache: dict[str, float | None] = {}
+    total_dep_ars = 0.0
+    total_ext_ars = 0.0
     movimientos: list[dict[str, Any]] = []
     for d in docs:
+        fecha = d.get("fecha") or ""
         cat = d.get("categoria")
         try:
-            imp = float(d.get("importe") or 0)
+            imp_orig = float(d.get("importe") or 0)
         except (TypeError, ValueError):
-            imp = 0.0
+            imp_orig = 0.0
+        moneda = d.get("moneda") or "ARS"
+        if moneda != "ARS" and fecha and fecha not in mep_cache:
+            mep_cache[fecha] = _get_mep_for_date(fecha, db_val)
+        mep = mep_cache.get(fecha)
+        imp_ars = _pesificar(imp_orig, moneda, mep)
+
         if cat in _FLUJO_EXTERNO_DEPOSITO:
-            total_dep += imp
+            total_dep_ars += imp_ars
         elif cat in _FLUJO_EXTERNO_EXTRACCION:
-            total_ext += imp
+            total_ext_ars += imp_ars
+
         movimientos.append({
-            "fecha":       d.get("fecha"),
+            "fecha":       fecha,
             "comprobante": d.get("comprobante"),
             "categoria":   cat,
-            "importe":     round(imp, 2),
-            "moneda":      d.get("moneda"),
+            "importe":     round(imp_orig, 2),
+            "importe_ars": round(imp_ars, 2),
+            "mep_rate":    round(mep, 2) if mep is not None else None,
+            "moneda":      moneda,
             "op":          d.get("op"),
             "ticker":      d.get("ticker"),
             "informacion": d.get("informacion"),
             "cuenta":      d.get("cuenta"),
         })
 
-    # Net flow: extracciones suelen venir negativas — si no, se normaliza.
-    total_neto = total_dep + total_ext
-    if total_ext > 0:
-        total_neto = total_dep - total_ext
+    # Net flow ARS: extracciones suelen venir negativas — si no, se normaliza.
+    total_neto_ars = total_dep_ars + total_ext_ars
+    if total_ext_ars > 0:
+        total_neto_ars = total_dep_ars - total_ext_ars
 
     return {
         "id_cuenta":         id_cuenta,
         "mes":               mes,
         "movimientos":       movimientos,
         "n":                 len(movimientos),
-        "total_depositos":   round(total_dep, 2),
-        "total_extracciones": round(total_ext, 2),
-        "total_neto":        round(total_neto, 2),
+        # Totales ya en ARS (cada movimiento USD/USDC/USDL se convierte
+        # con el MEP del día antes de sumar).
+        "total_depositos":   round(total_dep_ars, 2),
+        "total_extracciones": round(total_ext_ars, 2),
+        "total_neto":        round(total_neto_ars, 2),
     }

@@ -417,29 +417,48 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
 
 
 @cached(ttl=60)
-def posiciones_actuales(id_cuenta: str) -> dict[str, Any]:
-    """Posiciones al último fecha_snapshot disponible para la cuenta.
+def posiciones_actuales(
+    id_cuenta: str, fecha: str | None = None,
+) -> dict[str, Any]:
+    """Posiciones de un fecha_snapshot dado para la cuenta.
 
-    Read directo de Valuaciones.AuM (sin cost basis ni boletos): para el
-    snapshot más reciente, devuelve la lista de unidades con cantidad,
-    precio, valuación y share del total. Sirve como "snapshot actual"
-    en el panel derecho de /valuaciones.
+    Read directo de Valuaciones.AuM (sin cost basis ni boletos): si
+    `fecha` es None, usa el snapshot más reciente. Si se pasa una
+    fecha (YYYY-MM-DD), usa exactamente esa. Devuelve la lista de
+    unidades con cantidad, precio, valuación y share del total.
+
+    Sirve como "snapshot" en el panel derecho de /valuaciones, con
+    selector de fecha para ver posiciones históricas (clickear una
+    fila de la tabla mensual cambia la fecha mostrada).
     """
     db_val = get_db_valuaciones()
 
-    # Latest fecha_snapshot para esta cuenta.
-    latest = list(
-        db_val["AuM"]
-        .find({"id_cuenta": id_cuenta}, {"_id": 0, "fecha_snapshot": 1})
-        .sort("fecha_snapshot", -1)
-        .limit(1)
-    )
-    if not latest:
-        return {
-            "id_cuenta": id_cuenta, "fecha": None,
-            "posiciones": [], "total": 0.0, "n": 0,
-        }
-    fecha = latest[0]["fecha_snapshot"]
+    if fecha:
+        # Validar que efectivamente exista esa fecha para la cuenta.
+        # Si no existe, devolver vacío en lugar de mentir con la latest.
+        exists = db_val["AuM"].count_documents(
+            {"id_cuenta": id_cuenta, "fecha_snapshot": fecha},
+            limit=1,
+        )
+        if not exists:
+            return {
+                "id_cuenta": id_cuenta, "fecha": fecha,
+                "posiciones": [], "total": 0.0, "n": 0,
+            }
+    else:
+        # Default: latest fecha_snapshot para esta cuenta.
+        latest = list(
+            db_val["AuM"]
+            .find({"id_cuenta": id_cuenta}, {"_id": 0, "fecha_snapshot": 1})
+            .sort("fecha_snapshot", -1)
+            .limit(1)
+        )
+        if not latest:
+            return {
+                "id_cuenta": id_cuenta, "fecha": None,
+                "posiciones": [], "total": 0.0, "n": 0,
+            }
+        fecha = latest[0]["fecha_snapshot"]
 
     docs = list(
         db_val["AuM"]

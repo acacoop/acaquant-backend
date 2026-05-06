@@ -56,15 +56,33 @@ def get_mensual(id_cuenta: str):
 
 
 @router.get("/{id_cuenta}/posiciones-actuales")
-def get_posiciones_actuales(id_cuenta: str):
-    """Posiciones al último fecha_snapshot disponible — pure AuM read,
-    sin cost basis ni PnL. Para el panel derecho de /valuaciones."""
+def get_posiciones_actuales(
+    id_cuenta: str,
+    fecha: str | None = Query(
+        None,
+        description="YYYY-MM-DD. Si se omite, usa el último fecha_snapshot.",
+    ),
+):
+    """Posiciones de un fecha_snapshot dado — por default, el más
+    reciente. Pasar fecha=YYYY-MM-DD para ver una fecha histórica
+    (driven por el click en la tabla mensual de /valuaciones).
+
+    Pure AuM read, sin cost basis ni PnL.
+    """
     _validate_id_cuenta(id_cuenta)
+    if fecha:
+        # Cheap shape validation — Mongo stores fechas como strings.
+        try:
+            from datetime import datetime
+            datetime.strptime(fecha, "%Y-%m-%d")
+        except ValueError as e:
+            raise HTTPException(400, f"fecha mal formada: {fecha!r}") from e
     try:
-        return svc.posiciones_actuales(id_cuenta=id_cuenta)
+        return svc.posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha)
     except Exception as e:
         logger.exception(
-            "valuaciones posiciones-actuales failed: id_cuenta=%s", id_cuenta,
+            "valuaciones posiciones-actuales failed: id_cuenta=%s fecha=%s",
+            id_cuenta, fecha,
         )
         raise HTTPException(status_code=500, detail=str(e)) from e
 

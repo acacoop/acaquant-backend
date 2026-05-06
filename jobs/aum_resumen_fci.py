@@ -50,9 +50,15 @@ def sync_fecha(client, fecha_snapshot, unidades=None):
         print(f"  {fecha_snapshot}: sin unidades FCI en Assets")
         return 0
 
+    # Excluye cuentas de trading propias (255 = ACA Valores Intermediación)
+    # — las posiciones intra-día rompen los totales del AuM real. Mismo set
+    # que `_EXCLUDED_FROM_AUM_VIEW` en api/services/portfolio.py.
     pipeline = [
-        {"$match": {"fecha_snapshot": fecha_snapshot,
-                    "unidad": {"$in": unidades}}},
+        {"$match": {
+            "fecha_snapshot": fecha_snapshot,
+            "unidad":         {"$in": unidades},
+            "id_cuenta":      {"$nin": ["255"]},
+        }},
         {"$group": {
             "_id":             "$unidad",
             "valuacion_total": {"$sum": "$valuacion"},

@@ -30,6 +30,15 @@ _PROJ_AUM = {
     "cantidad": 1, "cuenta": 1, "precio": 1, "valuacion": 1,
 }
 
+# Cuentas que se EXCLUYEN de la vista AuM (chart, KPIs, leaderboard, FCI
+# breakdown) pero se siguen capturando en `Valuaciones.AuM` por
+# `jobs/aum.py`. Sirven para otras vistas como `/aum → VALUACIONES` que
+# pueden mostrarlas individualmente.
+#
+# 255 = ACA VALORES S.A. - INTERMEDIACION (cuenta de trading propia: las
+# posiciones se mueven mucho intra-día y rompen los totales del AuM real).
+_EXCLUDED_FROM_AUM_VIEW: frozenset[str] = frozenset({"255"})
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers internos
@@ -527,7 +536,10 @@ def fci_serie(
         unidades_fci = list(assets_map.keys())
         if not unidades_fci:
             return []
-        match: dict = {"unidad": {"$in": unidades_fci}}
+        match: dict = {
+            "unidad": {"$in": unidades_fci},
+            "id_cuenta": {"$nin": list(_EXCLUDED_FROM_AUM_VIEW)},
+        }
         match.update(match_cuenta_filter(cuenta_filter))
         if desde or hasta:
             rango: dict = {}
@@ -604,7 +616,11 @@ def fci_snapshot(fecha: str, cuenta_filter: str = "todas") -> list:
     if not unidades_fci:
         return []
 
-    match: dict = {"fecha_snapshot": fecha, "unidad": {"$in": unidades_fci}}
+    match: dict = {
+        "fecha_snapshot": fecha,
+        "unidad": {"$in": unidades_fci},
+        "id_cuenta": {"$nin": list(_EXCLUDED_FROM_AUM_VIEW)},
+    }
     match.update(match_cuenta_filter(cuenta_filter))
 
     docs = db_v["AuM"].find(
@@ -686,7 +702,7 @@ def total_serie(
     db_v = get_db_valuaciones()
     enrich = _assets_enrich_map()
 
-    match: dict = {}
+    match: dict = {"id_cuenta": {"$nin": list(_EXCLUDED_FROM_AUM_VIEW)}}
     match.update(match_cuenta_filter(cuenta_filter))
     if desde or hasta:
         rango: dict = {}
@@ -697,7 +713,7 @@ def total_serie(
         match["fecha_snapshot"] = rango
 
     pipeline = [
-        {"$match": match} if match else {"$match": {}},
+        {"$match": match},
         {"$group": {
             "_id": {"fecha": "$fecha_snapshot", "unidad": "$unidad"},
             "valuacion_total": {"$sum": "$valuacion"},
@@ -761,7 +777,10 @@ def total_snapshot(
     db_v = get_db_valuaciones()
     enrich = _assets_enrich_map()
 
-    match: dict = {"fecha_snapshot": fecha}
+    match: dict = {
+        "fecha_snapshot": fecha,
+        "id_cuenta": {"$nin": list(_EXCLUDED_FROM_AUM_VIEW)},
+    }
     match.update(match_cuenta_filter(cuenta_filter))
 
     docs = list(db_v["AuM"].find(

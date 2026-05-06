@@ -57,6 +57,12 @@ def cer_snapshot():
     return svc.cer_snapshot()
 
 
+@router.get("/cuentas")
+def listar_cuentas():
+    """Cuentas distintas del último snapshot AuM — para selectores."""
+    return svc.listar_cuentas()
+
+
 @router.get("/fci-serie")
 def fci_serie(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),

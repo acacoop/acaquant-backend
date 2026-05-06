@@ -636,6 +636,29 @@ def fci_snapshot(fecha: str, cuenta_filter: str = "todas") -> list:
 
 
 @cached(ttl=300)
+def listar_cuentas() -> list[dict]:
+    """Cuentas distintas presentes en el último snapshot de Valuaciones.AuM.
+
+    Devuelve `[{id_cuenta, cuenta}, ...]` ordenado por id_cuenta. Filtra por
+    el último `fecha_snapshot` para evitar arrastrar cuentas viejas que ya
+    no operan. Lo consume el selector de cuenta de la vista Valuaciones.
+    """
+    db_v = get_db_valuaciones()
+    last = db_v["AuM"].find_one(
+        {}, {"_id": 0, "fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)],
+    )
+    if not last:
+        return []
+    pipeline = [
+        {"$match": {"fecha_snapshot": last["fecha_snapshot"]}},
+        {"$group": {"_id": "$id_cuenta", "cuenta": {"$first": "$cuenta"}}},
+        {"$sort": {"_id": 1}},
+        {"$project": {"_id": 0, "id_cuenta": "$_id", "cuenta": 1}},
+    ]
+    return list(db_v["AuM"].aggregate(pipeline))
+
+
+@cached(ttl=300)
 def total_serie(
     desde: str | None = None,
     hasta: str | None = None,

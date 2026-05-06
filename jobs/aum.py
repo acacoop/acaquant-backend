@@ -73,9 +73,26 @@ def fecha_t2():
 
 
 # ── Listado de cuentas activas ────────────────────────────────────────────────
-def obtener_cuentas(headers):
-    resp = _SESSION.get(LISTADO_URL, headers=headers, timeout=60)
-    resp.raise_for_status()
+def obtener_cuentas(headers, timeout=120, retries=3):
+    """Trae el listado completo de cuentas (1 sola request, ~1800 docs).
+    Con retry+backoff: si Aunesa anda lenta, no abortar el backfill al primer
+    timeout — el listado es chico, vale la pena reintentar."""
+    import time as _time
+    last_err: Exception | None = None
+    for intento in range(1, retries + 1):
+        try:
+            resp = _SESSION.get(LISTADO_URL, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            break
+        except Exception as e:
+            last_err = e
+            if intento < retries:
+                backoff = 2 ** intento
+                print(f"⚠ obtener_cuentas intento {intento} falló ({type(e).__name__}); "
+                      f"reintentando en {backoff}s", flush=True)
+                _time.sleep(backoff)
+    else:
+        raise last_err  # type: ignore[misc]
     df = pd.DataFrame(resp.json())
     activas = df[
         df["tipo"].isin(["Comitente", "Propia"]) &

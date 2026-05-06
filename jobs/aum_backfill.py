@@ -102,7 +102,9 @@ def main():
     headers_lock = threading.Lock()
     print("✅ Auth OK\n", flush=True)
 
-    cuentas = obtener_cuentas(headers_ref)
+    # Pasamos los mismos timeout/retries del backfill al listado inicial —
+    # si Aunesa está lenta, no abortar antes de empezar el loop principal.
+    cuentas = obtener_cuentas(headers_ref, timeout=args.timeout, retries=args.retries)
 
     # Filtro --cuenta: backfilear solo las que pediste.
     if args.cuenta:

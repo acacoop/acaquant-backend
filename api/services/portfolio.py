@@ -18,6 +18,7 @@ from datetime import datetime
 
 from api.cache import cached
 from api.db import get_db_portfolio, get_db_titulos, get_db_trading, get_db_valuaciones
+from api.services._cuentas_filter import match_cuenta_filter
 
 _PROJ_CARTERAS = {
     "_id": 0, "id_cuenta": 1, "unidad": 1, "cantidad": 1,
@@ -38,29 +39,36 @@ _PROJ_AUM = {
 def _fci_assets_map() -> dict[str, dict]:
     """Mapea unidad → {emisor, ticker} para unidades con CARTERA=CARTERA FCI.
 
-    Cacheado 10 min — los assets FCI cambian como mucho mensualmente.
+    Lee `Valuaciones.Assets` UPPERCASE (fuente de verdad). Misma fuente que
+    `jobs/aum_resumen_fci.py::_fci_unidades` para que el set de unidades FCI
+    sea idéntico entre el rollup que alimenta el KPI "TOTAL FCI HOY" y el
+    snapshot panel — antes leíamos `TitulosAPI.AssetsAPI` (lowercase, copia
+    derivada) y se desincronizaban cuando se editaba el master sin correr
+    el sync. Cacheado 10 min — los assets FCI cambian como mucho mensualmente.
     """
-    db_t = get_db_titulos()
+    db_v = get_db_valuaciones()
     return {
-        d["unidad"]: {"emisor": d.get("emisor", ""), "ticker": d.get("ticker", "")}
-        for d in db_t["AssetsAPI"].find(
-            {"cartera": "CARTERA FCI"},
-            {"_id": 0, "unidad": 1, "emisor": 1, "ticker": 1},
+        d["unidad"]: {"emisor": d.get("EMISOR", ""), "ticker": d.get("TICKER", "")}
+        for d in db_v["Assets"].find(
+            {"CARTERA": "CARTERA FCI"},
+            {"_id": 0, "unidad": 1, "EMISOR": 1, "TICKER": 1},
         )
+        if d.get("unidad")
     }
 
 
 @cached(ttl=600)
 def _assets_enrich_map() -> dict[str, dict]:
-    """unidad → {cartera, clase_activo} desde TitulosAPI.AssetsAPI (cacheado 10 min)."""
-    db_t = get_db_titulos()
+    """unidad → {cartera, clase_activo} desde Valuaciones.Assets UPPERCASE
+    (fuente de verdad — ver `_fci_assets_map` para la motivación)."""
+    db_v = get_db_valuaciones()
     return {
         d["unidad"]: {
-            "cartera": d.get("cartera") or "OTROS",
-            "clase_activo": d.get("clase_activo") or "",
+            "cartera": d.get("CARTERA") or "OTROS",
+            "clase_activo": d.get("CLASE_ACTIVO") or "",
         }
-        for d in db_t["AssetsAPI"].find(
-            {}, {"_id": 0, "unidad": 1, "cartera": 1, "clase_activo": 1}
+        for d in db_v["Assets"].find(
+            {}, {"_id": 0, "unidad": 1, "CARTERA": 1, "CLASE_ACTIVO": 1}
         )
         if d.get("unidad")
     }
@@ -495,20 +503,65 @@ def cer_snapshot() -> dict:
 
 
 @cached(ttl=300)
-def fci_serie(desde: str | None = None, hasta: str | None = None) -> list:
+def fci_serie(
+    desde: str | None = None,
+    hasta: str | None = None,
+    cuenta_filter: str = "todas",
+) -> list:
     """Serie histórica FCI: total por fecha + desglose por emisor.
 
-    Lee Valuaciones.AuMResumenFCI (rollup 1 doc/fecha) y enriquece con EMISOR
-    desde TitulosAPI.AssetsAPI.
+    Sin filtro de cuenta (default "todas"): lee `Valuaciones.AuMResumenFCI`
+    (rollup 1 doc/fecha — barato, ya pre-agregado).
+
+    Con filtro de cuenta: el rollup no soporta breakdown por cuenta, así que
+    cae a `Valuaciones.AuM` raw + $match cuenta_filter + $group por
+    (fecha_snapshot, unidad). Mismo set de unidades FCI que el rollup
+    (definido por `_fci_assets_map`, fuente Valuaciones.Assets UPPERCASE).
     """
     db_v = get_db_valuaciones()
+    assets_map = _fci_assets_map()
 
-    # fecha_snapshot se almacena como string "YYYY-MM-DD" (jobs/aum_resumen_fci.py).
-    # Los strings ISO ordenan lexicográficamente, así que $gte/$lte sobre string
-    # funciona para rangos de fechas.
+    if cuenta_filter and cuenta_filter != "todas":
+        # Camino raw — paga la performance del filter.
+        unidades_fci = list(assets_map.keys())
+        if not unidades_fci:
+            return []
+        match: dict = {"unidad": {"$in": unidades_fci}}
+        match.update(match_cuenta_filter(cuenta_filter))
+        if desde or hasta:
+            rango: dict = {}
+            if desde:
+                rango["$gte"] = desde
+            if hasta:
+                rango["$lte"] = hasta
+            match["fecha_snapshot"] = rango
+        pipeline = [
+            {"$match": match},
+            {"$group": {
+                "_id": {"fecha": "$fecha_snapshot", "unidad": "$unidad"},
+                "valuacion_total": {"$sum": "$valuacion"},
+            }},
+            {"$sort": {"_id.fecha": 1}},
+        ]
+        rows = list(db_v["AuM"].aggregate(pipeline))
+        bucket: dict[str, dict] = {}
+        for r in rows:
+            fecha_str = str(r["_id"]["fecha"])[:10]
+            unidad = r["_id"]["unidad"]
+            val = float(r.get("valuacion_total") or 0)
+            emisor = assets_map.get(unidad, {}).get("emisor", "") or "SIN EMISOR"
+            b = bucket.setdefault(fecha_str, {"total": 0.0, "por_emisor": {}})
+            b["total"] += val
+            b["por_emisor"][emisor] = b["por_emisor"].get(emisor, 0.0) + val
+        return [
+            {"fecha": f, "total": v["total"], "por_emisor": v["por_emisor"]}
+            for f, v in sorted(bucket.items())
+        ]
+
+    # Camino default — rollup pre-agregado.
     filtro: dict = {}
     if desde or hasta:
-        rango: dict = {}
+        rango = {}
         if desde:
             rango["$gte"] = desde
         if hasta:
@@ -516,15 +569,11 @@ def fci_serie(desde: str | None = None, hasta: str | None = None) -> list:
         filtro["fecha_snapshot"] = rango
 
     cursor = db_v["AuMResumenFCI"].find(filtro, {"_id": 0}).sort("fecha_snapshot", 1).limit(730)
-    assets_map = _fci_assets_map()
 
     out = []
     for doc in cursor:
         fecha = doc.get("fecha_snapshot")
-        if isinstance(fecha, datetime):
-            fecha_str = fecha.strftime("%Y-%m-%d")
-        else:
-            fecha_str = str(fecha)[:10]
+        fecha_str = fecha.strftime("%Y-%m-%d") if isinstance(fecha, datetime) else str(fecha)[:10]
 
         por_emisor: dict[str, float] = {}
         total = 0.0
@@ -541,12 +590,11 @@ def fci_serie(desde: str | None = None, hasta: str | None = None) -> list:
 
 
 @cached(ttl=300)
-def fci_snapshot(fecha: str) -> list:
+def fci_snapshot(fecha: str, cuenta_filter: str = "todas") -> list:
     """Snapshot FCI en una fecha: detalle por unidad/emisor/cuenta.
 
-    Lee Valuaciones.AuM (fuente de verdad, actualizada diario por cron) con
-    fecha_snapshot string y unidades FCI. Enriquece con TICKER/EMISOR desde
-    TitulosAPI.AssetsAPI.
+    Lee `Valuaciones.AuM` (fuente de verdad). Mismo set de unidades FCI
+    que `fci_serie` (definido por `_fci_assets_map`).
     """
     db_v = get_db_valuaciones()
     assets_map = _fci_assets_map()
@@ -555,8 +603,11 @@ def fci_snapshot(fecha: str) -> list:
     if not unidades_fci:
         return []
 
+    match: dict = {"fecha_snapshot": fecha, "unidad": {"$in": unidades_fci}}
+    match.update(match_cuenta_filter(cuenta_filter))
+
     docs = db_v["AuM"].find(
-        {"fecha_snapshot": fecha, "unidad": {"$in": unidades_fci}},
+        match,
         {"_id": 0, "unidad": 1, "cuenta": 1, "id_cuenta": 1,
          "valuacion": 1, "cantidad": 1},
     )
@@ -569,6 +620,99 @@ def fci_snapshot(fecha: str) -> list:
             "unidad": unidad,
             "emisor": meta.get("emisor", "SIN EMISOR") or "SIN EMISOR",
             "ticker": meta.get("ticker", unidad),
+            "cuenta": d.get("cuenta", ""),
+            "id_cuenta": d.get("id_cuenta", ""),
+            "valuacion": float(d.get("valuacion") or 0),
+            "cantidad": float(d.get("cantidad") or 0),
+        })
+
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOTAL (/total-serie, /total-snapshot) — agregado por CARTERA, no por emisor.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@cached(ttl=300)
+def total_serie(
+    desde: str | None = None,
+    hasta: str | None = None,
+    cuenta_filter: str = "todas",
+) -> list:
+    """Serie histórica del AuM total agrupado por CARTERA.
+
+    Lee `Valuaciones.AuM` raw (sin pre-rollup) y enriquece cada unidad con
+    `cartera` desde `Valuaciones.Assets` UPPERCASE. Devuelve por fecha el
+    total + desglose por cartera.
+    """
+    db_v = get_db_valuaciones()
+    enrich = _assets_enrich_map()
+
+    match: dict = {}
+    match.update(match_cuenta_filter(cuenta_filter))
+    if desde or hasta:
+        rango: dict = {}
+        if desde:
+            rango["$gte"] = desde
+        if hasta:
+            rango["$lte"] = hasta
+        match["fecha_snapshot"] = rango
+
+    pipeline = [
+        {"$match": match} if match else {"$match": {}},
+        {"$group": {
+            "_id": {"fecha": "$fecha_snapshot", "unidad": "$unidad"},
+            "valuacion_total": {"$sum": "$valuacion"},
+        }},
+        {"$sort": {"_id.fecha": 1}},
+    ]
+
+    rows = list(db_v["AuM"].aggregate(pipeline))
+    bucket: dict[str, dict] = {}
+    for r in rows:
+        fecha_str = str(r["_id"]["fecha"])[:10]
+        unidad = r["_id"]["unidad"]
+        val = float(r.get("valuacion_total") or 0)
+        cartera = (enrich.get(unidad, {}).get("cartera") or "OTROS")
+        b = bucket.setdefault(fecha_str, {"total": 0.0, "por_cartera": {}})
+        b["total"] += val
+        b["por_cartera"][cartera] = b["por_cartera"].get(cartera, 0.0) + val
+
+    return [
+        {"fecha": f, "total": v["total"], "por_cartera": v["por_cartera"]}
+        for f, v in sorted(bucket.items())
+    ]
+
+
+@cached(ttl=300)
+def total_snapshot(fecha: str, cuenta_filter: str = "todas") -> list:
+    """Snapshot del AuM total en una fecha: detalle por unidad/cartera/cuenta.
+
+    Lee `Valuaciones.AuM` (todas las unidades, no solo FCI) y agrega `cartera`
+    desde `Valuaciones.Assets` UPPERCASE. Es el "all-up" del AuM en esa fecha.
+    """
+    db_v = get_db_valuaciones()
+    enrich = _assets_enrich_map()
+
+    match: dict = {"fecha_snapshot": fecha}
+    match.update(match_cuenta_filter(cuenta_filter))
+
+    docs = db_v["AuM"].find(
+        match,
+        {"_id": 0, "unidad": 1, "cuenta": 1, "id_cuenta": 1,
+         "valuacion": 1, "cantidad": 1, "tipoTitulo": 1},
+    )
+
+    out = []
+    for d in docs:
+        unidad = d.get("unidad", "")
+        meta = enrich.get(unidad, {})
+        cartera = meta.get("cartera") or "OTROS"
+        out.append({
+            "unidad": unidad,
+            "cartera": cartera,
+            "tipo": d.get("tipoTitulo") or "",
             "cuenta": d.get("cuenta", ""),
             "id_cuenta": d.get("id_cuenta", ""),
             "valuacion": float(d.get("valuacion") or 0),

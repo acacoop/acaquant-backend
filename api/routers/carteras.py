@@ -61,10 +61,45 @@ def cer_snapshot():
 def fci_serie(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    cuenta_filter: str = Query(
+        "todas",
+        description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",
+    ),
 ):
-    return svc.fci_serie(desde=desde, hasta=hasta)
+    return svc.fci_serie(desde=desde, hasta=hasta, cuenta_filter=cuenta_filter)
 
 
 @router.get("/fci-snapshot")
-def fci_snapshot(fecha: str = Query(..., description="Fecha snapshot (YYYY-MM-DD)")):
-    return svc.fci_snapshot(fecha=fecha)
+def fci_snapshot(
+    fecha: str = Query(..., description="Fecha snapshot (YYYY-MM-DD)"),
+    cuenta_filter: str = Query(
+        "todas",
+        description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",
+    ),
+):
+    return svc.fci_snapshot(fecha=fecha, cuenta_filter=cuenta_filter)
+
+
+@router.get("/total-serie")
+def total_serie(
+    desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    cuenta_filter: str = Query(
+        "todas",
+        description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",
+    ),
+):
+    """Serie histórica del AuM total agrupado por CARTERA."""
+    return svc.total_serie(desde=desde, hasta=hasta, cuenta_filter=cuenta_filter)
+
+
+@router.get("/total-snapshot")
+def total_snapshot(
+    fecha: str = Query(..., description="Fecha snapshot (YYYY-MM-DD)"),
+    cuenta_filter: str = Query(
+        "todas",
+        description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",
+    ),
+):
+    """Snapshot del AuM total en una fecha (todas las unidades, by cartera)."""
+    return svc.total_snapshot(fecha=fecha, cuenta_filter=cuenta_filter)

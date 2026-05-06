@@ -15,6 +15,7 @@ from api.deps import (
     get_db_portfolio,
     get_db_titulos,
 )
+from api.services._cuentas_filter import match_cuenta_filter as _match_cuenta_filter
 
 logger = logging.getLogger("api.operaciones")
 
@@ -243,8 +244,6 @@ _NEGOCIO_SERIE_BOLETO_CATS = (
 )
 _NEGOCIO_MONEDAS_VALIDAS = ("ARS", "USD")
 _NEGOCIO_CUENTA_FILTROS = ("todas", "accionistas", "sin_accionistas", "cooperativas")
-# Mismo regex que cashflow-view.tsx (case-insensitive sobre el nombre de cuenta).
-_COOP_REGEX = r"\bcoop"
 
 # Mapeo de categoría UI (lo que el frontend usa en NEGOCIO_CATS) a las
 # categorías persistidas en el boleto. Mantener en sync con CAT_BOLETO_KEYS
@@ -265,44 +264,6 @@ def _abs_si_categoria(target: str) -> dict:
         {"$abs": {"$ifNull": ["$importe", 0]}},
         0,
     ]}
-
-
-def _cuentas_accionistas() -> list[str]:
-    """Lista de strings `cuenta` de Cuentas.AccionistasAPI. Cacheada via
-    `listar_accionistas` (ttl=3600), así que esta llamada es efectivamente
-    barata. Cada doc puede o no traer `cuenta` poblado."""
-    db = get_db_cuentas()
-    return [
-        d["cuenta"]
-        for d in db["AccionistasAPI"].find({}, {"_id": 0, "cuenta": 1})
-        if d.get("cuenta")
-    ]
-
-
-def _match_cuenta_filter(filtro: str) -> dict:
-    """Devuelve el sub-doc de $match que aplica el filtro de cuenta.
-
-    - todas: sin filtro extra.
-    - accionistas: cuenta IN lista de AccionistasAPI.
-    - sin_accionistas: cuenta NOT IN lista (incluye nulls).
-    - cooperativas: cuenta NOT IN lista AND match regex /\\bcoop/i.
-    """
-    if filtro == "todas":
-        return {}
-    accs = _cuentas_accionistas()
-    if filtro == "accionistas":
-        return {"cuenta": {"$in": accs}}
-    if filtro == "sin_accionistas":
-        return {"cuenta": {"$nin": accs}}
-    if filtro == "cooperativas":
-        return {
-            "cuenta": {
-                "$nin": accs,
-                "$regex": _COOP_REGEX,
-                "$options": "i",
-            },
-        }
-    return {}
 
 
 @router.get("/negocio/serie")

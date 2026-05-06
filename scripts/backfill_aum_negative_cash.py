@@ -19,9 +19,18 @@ V2 (2026-05-05):
 Uso:
     python -m scripts.backfill_aum_negative_cash --fecha 2025-09-15
     python -m scripts.backfill_aum_negative_cash --desde 2025-09-15 --hasta 2025-09-30
-    python -m scripts.backfill_aum_negative_cash --all
+    python -m scripts.backfill_aum_negative_cash --cuenta 805
+    python -m scripts.backfill_aum_negative_cash --all-existing
     python -m scripts.backfill_aum_negative_cash --from-csv /tmp/aum-corruption.csv
-    python -m scripts.backfill_aum_negative_cash --all --dry      # preview
+    python -m scripts.backfill_aum_negative_cash --all-existing --dry   # preview
+
+Modos:
+    --cuenta X      → todas las fechas que la cuenta X tiene en AuM (~3min para 35 fechas).
+                      Para arreglar incompletos por cuenta — gap-detect-audit no detecta esto.
+    --all-existing  → brute-force toda (fecha, cuenta) que ya está en AuM (~36k pares, ~60-90min).
+                      Para re-popular la base tras cambios de lógica (ej. remover filtro cash_neg).
+    --all           → cross-product fechas × cuentas activas (~63k, mayoría no-ops). Legacy.
+    --from-csv      → solo los pares listados en el CSV de audit_aum_corruption.
 """
 from __future__ import annotations
 
@@ -275,6 +284,45 @@ def _pairs_from_args(args, cuentas_listado_ids: list[str]) -> list[tuple[date, s
                 pairs.append((date.fromisoformat(f_str), c_str.strip()))
         return pairs
 
+    if args.cuenta:
+        # Procesa TODAS las fechas que esa cuenta tiene en AuM. Útil para
+        # arreglar cuentas con snapshots incompletos (cuenta presente pero
+        # sin filas de cash negativo en algunos fechas) — el caso que el
+        # audit basado en gap-detection no detecta.
+        client = get_mongo_client()
+        col = client[DB_NAME][COL_AUM]
+        fechas_str = sorted(col.distinct("fecha_snapshot", {"id_cuenta": args.cuenta}))
+        if not fechas_str:
+            raise SystemExit(f"No hay fechas en AuM para id_cuenta={args.cuenta!r}")
+        fechas_dates = [date.fromisoformat(f) for f in fechas_str if f]
+        return [(f, args.cuenta) for f in fechas_dates]
+
+    if args.all_existing:
+        # Brute-force: TODA combinación (fecha, cuenta) que ya existe en
+        # AuM. Útil cuando hay cambios de lógica (ej. remover el filtro
+        # cash_neg) y se necesita re-popular toda la base con la versión
+        # actualizada de procesar(). Tipicamente ~36k pares — toma 1-2h.
+        client = get_mongo_client()
+        col = client[DB_NAME][COL_AUM]
+        pipeline = [
+            {"$group": {
+                "_id": {"fecha": "$fecha_snapshot", "cuenta": "$id_cuenta"},
+            }},
+        ]
+        pairs: list[tuple[date, str]] = []
+        for doc in col.aggregate(pipeline):
+            f_str = doc["_id"].get("fecha")
+            c_str = doc["_id"].get("cuenta")
+            if not f_str or not c_str:
+                continue
+            try:
+                pairs.append((date.fromisoformat(f_str), str(c_str)))
+            except ValueError:
+                continue
+        # Sort por fecha asc, cuenta asc — orden estable para retrying.
+        pairs.sort(key=lambda p: (p[0], p[1]))
+        return pairs
+
     # Resolve fechas
     fechas: list[date] = []
     if args.fecha:
@@ -291,7 +339,7 @@ def _pairs_from_args(args, cuentas_listado_ids: list[str]) -> list[tuple[date, s
         unique = sorted(col.distinct("fecha_snapshot"))
         fechas = [date.fromisoformat(f) for f in unique if f]
     else:
-        raise SystemExit("Especificá --fecha, --desde/--hasta, --all, o --from-csv")
+        raise SystemExit("Especificá --fecha, --desde/--hasta, --all, --all-existing, --cuenta, o --from-csv")
 
     # Cross product con todas las cuentas activas.
     return [(f, c) for f in fechas for c in cuentas_listado_ids]
@@ -306,7 +354,13 @@ def main() -> int:
     parser.add_argument("--desde", help="YYYY-MM-DD inclusive (con --hasta)")
     parser.add_argument("--hasta", help="YYYY-MM-DD inclusive (con --desde)")
     parser.add_argument("--all", action="store_true",
-                        help="Todas las fecha_snapshots únicas en AuM")
+                        help="Cross-product: todas las fechas únicas × todas las cuentas activas. ~63k pares.")
+    parser.add_argument("--all-existing", action="store_true",
+                        help="Brute-force: toda combinación (fecha, cuenta) que YA existe en AuM. "
+                             "~36k pares. Para re-popular la base entera tras cambios de lógica.")
+    parser.add_argument("--cuenta",
+                        help="Re-procesa una cuenta específica para todas las fechas que tiene en AuM. "
+                             "Ej: --cuenta 805")
     parser.add_argument("--from-csv",
                         help="Path al CSV de audit_aum_corruption (cols: fecha_snapshot,id_cuenta,sources)")
     parser.add_argument("--workers", type=int, default=4,

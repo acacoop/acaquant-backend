@@ -6,16 +6,20 @@ la fuente de verdad UPPERCASE — el resto del sistema (TitulosAPI.AssetsAPI)
 se deriva de acá vía `scripts/api_migrate.py:assets`.
 
 Endpoints:
-  GET   /api/manager/assets/gaps      → assets con CARTERA o EMISOR vacíos
-                                        / "NO APLICA" / null
-  GET   /api/manager/assets/values    → valores únicos para autocomplete
-  PATCH /api/manager/assets/{unidad}  → edita campos UPPERCASE
+  GET   /api/manager/assets             → lista filtrable (cartera, emisor,
+                                          solo_gaps). Default = solo gaps.
+  GET   /api/manager/assets/gaps        → alias de GET /assets (compat).
+  GET   /api/manager/assets/values      → valores únicos para autocomplete.
+  PATCH /api/manager/assets             → edita campos UPPERCASE. unidad
+                                          va en el body (no path) para evitar
+                                          problemas de URL-encoding con
+                                          caracteres especiales.
 """
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
@@ -32,38 +36,68 @@ _EDITABLE_FIELDS: tuple[str, ...] = (
     "CLASE_ACTIVO", "CALIFICACION", "TICKER", "VENCIMIENTO",
 )
 
+_PROJECTION = {
+    "_id": 0, "unidad": 1,
+    "CARTERA": 1, "EMISOR": 1, "INSTRUMENTO": 1, "CLASE_ACTIVO": 1,
+    "CALIFICACION": 1, "TICKER": 1, "VENCIMIENTO": 1,
+    "actualizado_por": 1, "actualizado_at": 1,
+}
 
-@router.get("/assets/gaps")
-def get_assets_gaps() -> dict:
-    """Lista assets en `Valuaciones.Assets` donde CARTERA o EMISOR están
-    vacíos / "NO APLICA" / null. Útil para que el manager complete metadata
-    faltante una unidad por vez.
 
-    Returns:
-        {
-          assets: [{unidad, CARTERA, EMISOR, INSTRUMENTO, CLASE_ACTIVO,
-                    CALIFICACION, TICKER, VENCIMIENTO,
-                    actualizado_por, actualizado_at}, ...],
-          n: int
-        }
-    """
-    col = get_mongo_client_read()["Valuaciones"]["Assets"]
-    cur = col.find(
-        {"$or": [
-            {"CARTERA": {"$in": _EMPTY_VALUES}},
-            {"EMISOR":  {"$in": _EMPTY_VALUES}},
-        ]},
-        {"_id": 0, "unidad": 1,
-         "CARTERA": 1, "EMISOR": 1, "INSTRUMENTO": 1, "CLASE_ACTIVO": 1,
-         "CALIFICACION": 1, "TICKER": 1, "VENCIMIENTO": 1,
-         "actualizado_por": 1, "actualizado_at": 1},
-    ).sort("unidad", 1)
-    assets = list(cur)
-    # Normalizar `actualizado_at` a ISO string si viene como datetime.
+def _normalize_assets(assets: list[dict]) -> list[dict]:
+    """Convierte `actualizado_at` (datetime) a ISO string."""
     for a in assets:
         ts = a.get("actualizado_at")
         if isinstance(ts, datetime):
-            a["actualizado_at"] = ts.replace(tzinfo=UTC).isoformat() if ts.tzinfo is None else ts.isoformat()
+            tz_aware = ts if ts.tzinfo else ts.replace(tzinfo=UTC)
+            a["actualizado_at"] = tz_aware.isoformat()
+    return assets
+
+
+def _list_assets(
+    cartera: str | None = None,
+    emisor: str | None = None,
+    solo_gaps: bool = True,
+) -> list[dict]:
+    """Query base reutilizada por GET /assets y GET /assets/gaps."""
+    col = get_mongo_client_read()["Valuaciones"]["Assets"]
+    filtros: list[dict] = []
+
+    if cartera:
+        filtros.append({"CARTERA": cartera})
+    if emisor:
+        filtros.append({"EMISOR": emisor})
+    if solo_gaps:
+        # Mismo criterio que antes: CARTERA o EMISOR vacío / "NO APLICA" / null.
+        filtros.append({"$or": [
+            {"CARTERA": {"$in": _EMPTY_VALUES}},
+            {"EMISOR":  {"$in": _EMPTY_VALUES}},
+        ]})
+
+    query: dict = {"$and": filtros} if filtros else {}
+    cur = col.find(query, _PROJECTION).sort("unidad", 1).limit(2000)
+    return _normalize_assets(list(cur))
+
+
+@router.get("/assets")
+def list_assets(
+    cartera:   str | None = Query(None, description="Filtrar por CARTERA exacta"),
+    emisor:    str | None = Query(None, description="Filtrar por EMISOR exacto"),
+    solo_gaps: bool = Query(
+        True,
+        description="Si True (default), solo devuelve assets con CARTERA "
+                    "o EMISOR vacíos / 'NO APLICA' / null.",
+    ),
+) -> dict:
+    """Lista assets de Valuaciones.Assets con filtros opcionales."""
+    assets = _list_assets(cartera=cartera, emisor=emisor, solo_gaps=solo_gaps)
+    return {"assets": assets, "n": len(assets)}
+
+
+@router.get("/assets/gaps")
+def get_assets_gaps() -> dict:
+    """Alias de GET /assets con solo_gaps=True (compat con clientes viejos)."""
+    assets = _list_assets(solo_gaps=True)
     return {"assets": assets, "n": len(assets)}
 
 
@@ -88,7 +122,10 @@ def get_assets_values() -> dict:
 
 
 class _AssetPatch(BaseModel):
-    """Todos los campos opcionales — solo se actualizan los que vengan en el body."""
+    """unidad va en el body — antes era path-param y rompía con caracteres
+    especiales (corchetes, espacios, slashes) tras URL-encoding.
+    El resto son opcionales — solo se actualizan los que vengan."""
+    unidad:       str = Field(..., min_length=1, max_length=512)
     CARTERA:      str | None = Field(None, max_length=128)
     EMISOR:       str | None = Field(None, max_length=128)
     INSTRUMENTO:  str | None = Field(None, max_length=256)
@@ -98,26 +135,21 @@ class _AssetPatch(BaseModel):
     VENCIMIENTO:  str | None = Field(None, max_length=64)
 
 
-@router.patch("/assets/{unidad}")
+@router.patch("/assets")
 def patch_asset(
-    unidad: str,
     req: _AssetPatch = Body(...),
     actor: str = Depends(get_user_email),
 ):
     """Update parcial de campos UPPERCASE. Setea `actualizado_por` y
-    `actualizado_at` para audit liviano.
-
-    Body: subset de {CARTERA, EMISOR, INSTRUMENTO, CLASE_ACTIVO,
-                     CALIFICACION, TICKER, VENCIMIENTO}.
-    """
+    `actualizado_at` para audit liviano. `unidad` va en el body."""
     payload = req.model_dump(exclude_none=True)
-    if not payload:
-        raise HTTPException(400, "body vacío — pasá al menos un campo a actualizar")
+    unidad = payload.pop("unidad")
 
-    # Whitelist defensivo (Pydantic ya filtra, pero por las dudas).
     set_fields = {k: v for k, v in payload.items() if k in _EDITABLE_FIELDS}
     if not set_fields:
-        raise HTTPException(400, "ningún campo válido en el body")
+        raise HTTPException(400, "body sin campos editables — pasá al "
+                                  "menos uno de CARTERA, EMISOR, INSTRUMENTO, "
+                                  "CLASE_ACTIVO, CALIFICACION, TICKER, VENCIMIENTO.")
 
     set_fields["actualizado_por"] = actor
     set_fields["actualizado_at"]  = datetime.now(UTC)
@@ -125,17 +157,21 @@ def patch_asset(
     col = get_mongo_client()["Valuaciones"]["Assets"]
     result = col.update_one({"unidad": unidad}, {"$set": set_fields})
     if result.matched_count == 0:
-        raise HTTPException(404, f"unidad no encontrada: {unidad!r}")
+        raise HTTPException(404, f"unidad no encontrada en Valuaciones.Assets: {unidad!r}")
 
-    # Devolvemos el doc actualizado para que el frontend refresque la fila.
-    doc = col.find_one(
-        {"unidad": unidad},
-        {"_id": 0, "unidad": 1,
-         "CARTERA": 1, "EMISOR": 1, "INSTRUMENTO": 1, "CLASE_ACTIVO": 1,
-         "CALIFICACION": 1, "TICKER": 1, "VENCIMIENTO": 1,
-         "actualizado_por": 1, "actualizado_at": 1},
-    ) or {}
-    ts = doc.get("actualizado_at")
-    if isinstance(ts, datetime):
-        doc["actualizado_at"] = ts.replace(tzinfo=UTC).isoformat() if ts.tzinfo is None else ts.isoformat()
-    return doc
+    doc = col.find_one({"unidad": unidad}, _PROJECTION) or {}
+    return _normalize_assets([doc])[0]
+
+
+# Compat: PATCH /assets/{unidad} sigue funcionando para clientes viejos
+# pero internamente delega al nuevo handler. Usar el body es preferible.
+@router.patch("/assets/{unidad}")
+def patch_asset_legacy(
+    unidad: str,
+    body: dict = Body(...),
+    actor: str = Depends(get_user_email),
+):
+    """DEPRECATED — use PATCH /api/manager/assets con unidad en body."""
+    body["unidad"] = unidad
+    req = _AssetPatch(**body)
+    return patch_asset(req=req, actor=actor)

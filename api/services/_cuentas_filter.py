@@ -1,26 +1,26 @@
 """Helpers compartidos para filtrar pipelines Mongo por tipo de cuenta.
 
-Single source of truth: la lista de "accionistas" vive en
-`Cuentas.AccionistasAPI` y los demás filtros se derivan de ahí. Este módulo
-lo usan tanto los endpoints de Operaciones (vista negocio) como los de
+Lo usan tanto los endpoints de Operaciones (vista negocio) como los de
 Portfolio (AuM por cartera, FCI, total) para que el comportamiento de los
 filtros sea idéntico en todas las vistas.
 
 Filtros soportados:
   - todas            → sin filtro extra
-  - accionistas      → cuenta IN AccionistasAPI
+  - accionistas      → cuenta IN Cuentas.AccionistasAPI
   - sin_accionistas  → cuenta NOT IN AccionistasAPI
   - cooperativas     → NOT IN AccionistasAPI AND nombre con "coop"
+  - productores      → cuenta IN CashFlow.Productores
 """
 from __future__ import annotations
 
 from api.cache import cached
+from api.db import get_db_cashflow
 from api.deps import get_db_cuentas
 
 _COOP_REGEX = r"\bcoop"
 
 VALID_FILTERS: tuple[str, ...] = (
-    "todas", "accionistas", "sin_accionistas", "cooperativas",
+    "todas", "accionistas", "sin_accionistas", "cooperativas", "productores",
 )
 
 
@@ -35,11 +35,27 @@ def _cuentas_accionistas() -> list[str]:
     ]
 
 
+@cached(ttl=600)
+def _cuentas_productores() -> list[str]:
+    """Lista de strings `cuenta` desde CashFlow.Productores. La colección la
+    edita manualmente el equipo (productor → accionista). Acá sólo usamos
+    `cuenta` para el filtro; el campo `accionista` es para reportes."""
+    db = get_db_cashflow()
+    return [
+        d["cuenta"]
+        for d in db["Productores"].find({}, {"_id": 0, "cuenta": 1})
+        if d.get("cuenta")
+    ]
+
+
 def match_cuenta_filter(filtro: str) -> dict:
     """Sub-doc de `$match` Mongo que aplica el filtro elegido sobre el campo
     `cuenta`. Si el filtro es desconocido o "todas", devuelve `{}` (no-op)."""
     if filtro == "todas" or not filtro:
         return {}
+    if filtro == "productores":
+        prods = _cuentas_productores()
+        return {"cuenta": {"$in": prods}}
     accs = _cuentas_accionistas()
     if filtro == "accionistas":
         return {"cuenta": {"$in": accs}}

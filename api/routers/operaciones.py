@@ -15,7 +15,12 @@ from api.deps import (
     get_db_portfolio,
     get_db_titulos,
 )
-from api.services._cuentas_filter import match_cuenta_filter as _match_cuenta_filter
+from api.services._cuentas_filter import (
+    VALID_FILTERS as _NEGOCIO_CUENTA_FILTROS_VALID,
+)
+from api.services._cuentas_filter import (
+    match_cuenta_filter as _match_cuenta_filter,
+)
 
 logger = logging.getLogger("api.operaciones")
 
@@ -243,7 +248,9 @@ _NEGOCIO_SERIE_BOLETO_CATS = (
     "caucion_tom_ap", "caucion_col_ap",
 )
 _NEGOCIO_MONEDAS_VALIDAS = ("ARS", "USD")
-_NEGOCIO_CUENTA_FILTROS = ("todas", "accionistas", "sin_accionistas", "cooperativas")
+# Reuso la tupla canónica del módulo de filtros compartido — se actualiza
+# sola cuando se suman tipos nuevos (ej. "productores").
+_NEGOCIO_CUENTA_FILTROS = _NEGOCIO_CUENTA_FILTROS_VALID
 
 # Mapeo de categoría UI (lo que el frontend usa en NEGOCIO_CATS) a las
 # categorías persistidas en el boleto. Mantener en sync con CAT_BOLETO_KEYS

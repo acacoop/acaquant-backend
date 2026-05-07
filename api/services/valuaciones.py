@@ -378,17 +378,18 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     # 1. Valuación al cierre de cada mes (último fecha_snapshot del mes).
     #
     # IMPORTANTE — bucket de cierre vs mes calendario:
-    # Los snapshots históricos pre-daily son del DÍA 1 del mes (ej. 2025-08-01).
-    # Ese snapshot representa la valuación al INICIO del mes, antes de
-    # cualquier movimiento de Agosto. Si lo usamos como "cierre de Agosto",
-    # los flujos del 8-19-20/8 quedan asignados a un cierre que no los
-    # incluye → delta_real falso (descuenta flujos sin cancelarlos contra
-    # el saldo correspondiente).
+    # El snapshot del día 1 de un mes (ej. 2026-03-01) representa la
+    # valuación al INICIO del mes corriente == el cierre del MES ANTERIOR.
+    # Por eso siempre lo reasignamos al bucket del mes anterior, tanto en
+    # modo legacy (1 snap del 1° por mes) como en modo daily (snap del 1°
+    # como primer punto del mes). Resultado: la fila "Feb" muestra el
+    # cierre del 2026-03-01 (que es el real cierre de Feb), aunque Marzo
+    # tenga sus propios daily.
     #
-    # Regla: si el snapshot es del día 1 Y es el único del mes (modo legacy
-    # mensual, no daily), reasignarlo al bucket del MES ANTERIOR — ese
-    # snapshot representa de facto el cierre del mes anterior. Para meses
-    # con daily (varios snapshots), mantener la lógica de "último del mes".
+    # Si el día NO es 1, va al bucket de su mes calendar.
+    # Sorted asc → el último snapshot que cae en el bucket gana → para
+    # meses con daily, gana el del último día hábil; para meses cubiertos
+    # solo por el snap del 1° del siguiente, gana ese.
     pipeline_fechas = [
         {"$match": {"id_cuenta": id_cuenta}},
         {"$group": {
@@ -400,28 +401,20 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     ]
     fechas_data = list(db_val["AuM"].aggregate(pipeline_fechas))
 
-    # Contar snapshots por mes calendario para distinguir legacy vs daily.
-    mes_count: dict[str, int] = {}
-    for f in fechas_data:
-        mes_count[str(f["_id"])[:7]] = mes_count.get(str(f["_id"])[:7], 0) + 1
-
     from datetime import datetime as _dt
     from datetime import timedelta as _td
 
     cierres_buckets: dict[str, dict] = {}
     for f in fechas_data:  # sorted asc
         fecha_str = str(f["_id"])
-        mes_calendar = fecha_str[:7]
-        # Reasignar al mes anterior si es snapshot legacy del día 1.
-        if fecha_str.endswith("-01") and mes_count.get(mes_calendar, 0) == 1:
+        if fecha_str.endswith("-01"):
             try:
                 fdt = _dt.strptime(fecha_str, "%Y-%m-%d")
                 bucket = (fdt - _td(days=1)).strftime("%Y-%m")
             except ValueError:
-                bucket = mes_calendar
+                bucket = fecha_str[:7]
         else:
-            bucket = mes_calendar
-        # Sorted asc → último snapshot que cae en este bucket gana.
+            bucket = fecha_str[:7]
         cierres_buckets[bucket] = {
             "_id":              bucket,
             "ultimo_dia":       fecha_str,

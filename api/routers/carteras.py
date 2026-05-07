@@ -5,6 +5,7 @@ declaramos endpoints FastAPI que parsean query params y delegan.
 """
 from fastapi import APIRouter, Query
 
+from api.services import pnl as pnl_svc
 from api.services import portfolio as svc
 
 router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
@@ -55,6 +56,13 @@ def tasa_fija_snapshot():
 @router.get("/cer")
 def cer_snapshot():
     return svc.cer_snapshot()
+
+
+@router.get("/pnl")
+def pnl(id_cuenta: str = Query(..., description="id_cuenta numérico (ej '255')")):
+    """PnL por (cuenta, ticker) basado en cash flows. Ver api.services.pnl
+    para la lógica completa."""
+    return pnl_svc.pnl_por_cuenta(id_cuenta=id_cuenta)
 
 
 @router.get("/cuentas")

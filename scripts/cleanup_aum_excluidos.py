@@ -18,7 +18,11 @@ from __future__ import annotations
 import argparse
 
 from core.mongo import get_mongo_client
-from jobs._aum_filters import load_contrapartes_id_cuentas, mongo_match_excluded
+from jobs._aum_filters import (
+    load_contrapartes_id_cuentas,
+    load_contrapartes_names,
+    mongo_match_excluded,
+)
 
 
 def main() -> None:
@@ -30,9 +34,10 @@ def main() -> None:
     client = get_mongo_client()
     col = client["Valuaciones"]["AuM"]
     contrapartes_ids = load_contrapartes_id_cuentas()
-    print(f"contrapartes a excluir (de CuentasAPI.ContrapartesAPI): "
-          f"{len(contrapartes_ids)} (matcheo por id_cuenta)")
-    match = mongo_match_excluded(contrapartes_ids)
+    contrapartes_names = load_contrapartes_names()
+    print(f"contrapartes (matcheo por id_cuenta):  {len(contrapartes_ids)}")
+    print(f"contrapartes (matcheo por nombre):     {len(contrapartes_names)}")
+    match = mongo_match_excluded(contrapartes_ids, contrapartes_names)
 
     total = col.count_documents(match)
     print(f"docs que matchean exclusión: {total}")

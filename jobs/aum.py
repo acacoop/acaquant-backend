@@ -13,12 +13,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import config
 from core.mongo import get_mongo_client
-from jobs._aum_filters import is_excluded, load_contrapartes_id_cuentas
+from jobs._aum_filters import (
+    is_excluded,
+    load_contrapartes_id_cuentas,
+    load_contrapartes_names,
+)
 
-# Lazy singleton — se carga al primer pedido y se reusa por los workers del
-# ThreadPoolExecutor. La lista cambia con poca frecuencia (cuando alguien
-# edita ContrapartesAPI), así que no vale la pena refrescar cada llamada.
+# Lazy singletons — se cargan al primer pedido y se reusan por los workers
+# del ThreadPoolExecutor. Las listas cambian con poca frecuencia (cuando
+# alguien edita Contrapartes), así que no vale la pena refrescar cada call.
 _CONTRAPARTES_IDS_CACHE: frozenset[str] | None = None
+_CONTRAPARTES_NAMES_CACHE: frozenset[str] | None = None
 
 
 def _contrapartes_ids() -> frozenset[str]:
@@ -26,6 +31,13 @@ def _contrapartes_ids() -> frozenset[str]:
     if _CONTRAPARTES_IDS_CACHE is None:
         _CONTRAPARTES_IDS_CACHE = load_contrapartes_id_cuentas()
     return _CONTRAPARTES_IDS_CACHE
+
+
+def _contrapartes_names() -> frozenset[str]:
+    global _CONTRAPARTES_NAMES_CACHE
+    if _CONTRAPARTES_NAMES_CACHE is None:
+        _CONTRAPARTES_NAMES_CACHE = load_contrapartes_names()
+    return _CONTRAPARTES_NAMES_CACHE
 
 AUTH_URL     = "https://aca.aunesa.com/Irmo/api/login"
 LISTADO_URL  = "https://aca.aunesa.com/Irmo/api/cuentas/listadoCuentas"
@@ -201,16 +213,17 @@ def procesar(data, fecha_snapshot, timestamp):
     # ── Filtros de limpieza ──────────────────────────────────────────────────
     # Reglas centralizadas en `jobs._aum_filters` para que el backfill
     # one-shot (`scripts/cleanup_aum_excluidos`) use exactamente el mismo
-    # criterio. Match por `id_cuenta` (no por nombre) porque ContrapartesAPI
-    # tiene la denominación con formato distinto a Valuaciones.AuM (sin
-    # prefijo "[NN]" y con espacios en blanco). Hoy cubre: OTC, USDL,
-    # contrapartes (FCI, gerentes), y la tenencia ARS de [100]/[101].
+    # criterio. Hoy cubre: OTC/CDC patterns, USDL, contrapartes por
+    # id_cuenta (CuentasAPI.ContrapartesAPI), contrapartes por nombre
+    # (CashFlow.Contrapartes.contraparte) y la tenencia ARS de [100]/[101].
     contrapartes_ids = _contrapartes_ids()
+    contrapartes_names = _contrapartes_names()
     df_g = df_g[~df_g.apply(
         lambda row: is_excluded(
             row.get("cuenta"), row.get("unidad"),
             id_cuenta=row.get("id_cuenta"),
             contrapartes_ids=contrapartes_ids,
+            contrapartes_names=contrapartes_names,
         ),
         axis=1,
     )].copy()

@@ -1,28 +1,42 @@
-"""Motor de PnL por (cuenta, ticker) basado en cash flows.
+"""Motor de PnL por (cuenta, ticker) con cost-basis weighted-average.
 
-Filosofía: comparar dinero PAGADO contra (valor ACTUAL + dinero COBRADO).
-Esto captura comisiones automáticamente porque el `importe` de cada boleto
-ya viene neto del lado de Aunesa.
+Para cada ticker se mantienen DOS canales de PnL:
 
-Para cada ticker:
-    cash_neto = Σ importe (con signo nativo) en categorías:
-                {compra, venta, suscripcion_fci, rescate_fci, acreencia}
-    valor_actual = cantidad × precio del último snapshot AuM
-    pnl_total    = valor_actual + cash_neto
-    pnl_pct      = pnl_total / cash_pagado
+  pnl_realizado   = Σ (precio_venta − precio_promedio) × qty_vendida
+                    para cada venta histórica (compras/ventas se cancelan
+                    en orden cronológico; la ganancia "queda" cerrada).
+  pnl_no_realizado = qty_actual_calc × precio_actual − costo_remanente
+                     (= valor de mercado del stock vivo − lo que pagaste
+                     por esas qty específicas).
 
-`acreencia.op` se desglosa en {Cash dividend, Interest payment,
-Partial redemption} — la UI los muestra por separado.
+Más:
+  pnl_pasivo  = Σ importes de `categoria=acreencia` (cupones, dividendos,
+                amortizaciones). NO afectan cantidad, solo aportan cash
+                cobrado independiente.
 
-Pesificación: cada importe USD/USDC se convierte al MEP de su fecha
-para sumar consistente en ARS. Si una fecha no tiene MEP, el importe
-queda en moneda original (fallback) y se reporta en `fechas_sin_mep`.
+  pnl_total   = pnl_realizado + pnl_no_realizado + pnl_pasivo
 
-Limitación conocida: si la cuenta tenía posiciones ANTES del primer
-boleto disponible (data más vieja que NegocioMovimientos), `cash_pagado`
-está subestimado y el pnl_pct va a estar inflado. Detectamos esto
-comparando cantidad neta de boletos vs cantidad actual del AuM y
-seteamos `completeness = "parcial"`.
+Cost-basis weighted-average:
+  Compra (precio P, cantidad Q):
+    costo_remanente += P × Q
+    qty_actual      += Q
+  Venta (precio P, cantidad Q):
+    avg_cost          = costo_remanente / qty_actual
+    pnl_realizado    += (precio_efectivo − avg_cost) × Q
+    costo_remanente  −= avg_cost × Q   ← descuenta solo la porción "viva"
+    qty_actual       −= Q
+
+Pesificación: cada importe USD/USDC se convierte al MEP de su fecha. Si
+falta MEP → fallback en moneda original (flag fechas_sin_mep).
+
+Limitación conocida (opción A): si la cuenta tenía posiciones ANTES del
+primer boleto disponible, qty_actual_calc < qty del AuM. En ese caso el
+costo_remanente está incompleto y pnl_no_realizado queda subestimado
+(la porción pre-data no aporta ganancia "papel"). Flag completeness =
+"parcial". Para tickers sin ningún boleto: "sin_boletos".
+
+`importe` viene neto de comisiones del lado de Aunesa, así que la suma
+con signo nativo cubre comisiones automáticamente.
 """
 from __future__ import annotations
 
@@ -34,33 +48,47 @@ from api.cache import cached
 from api.db import get_db_cashflow, get_db_valuaciones
 from api.services._mep import get_mep_for_date
 
-_CATS_PAGO        = {"compra", "suscripcion_fci"}
-_CATS_COBRO_VENTA = {"venta", "rescate_fci"}
+_CATS_PAGO         = {"compra", "suscripcion_fci"}
+_CATS_COBRO_VENTA  = {"venta", "rescate_fci"}
 _CATS_COBRO_PASIVO = {"acreencia"}
-_CATS_RELEVANTES  = _CATS_PAGO | _CATS_COBRO_VENTA | _CATS_COBRO_PASIVO
+_CATS_RELEVANTES   = _CATS_PAGO | _CATS_COBRO_VENTA | _CATS_COBRO_PASIVO
 
-# Tipos de op dentro de acreencia. Si Aunesa devuelve uno nuevo, va al
-# bucket "Otros" para que el total siga cuadrando.
 _OPS_PASIVOS = ("Cash dividend", "Interest payment", "Partial redemption")
 
-# Regex para extraer ticker corto de "[NN] TICKER" → "TICKER".
 _RE_TICKER_CORTO = re.compile(r"^\[\d+\]\s*(.+)$")
 
 
 def _ticker_corto(unidad: str) -> str:
-    """Convierte unidad de AuM ("[5921] AL30") al ticker que usa
-    NegocioMovimientos ("AL30")."""
+    """`[5921] AL30` → `AL30`. La unidad del AuM tiene prefijo numérico,
+    el ticker de NegocioMovimientos no — esto los aliñea."""
     m = _RE_TICKER_CORTO.match(unidad or "")
     return m.group(1).strip() if m else (unidad or "")
 
 
+def _new_state() -> dict:
+    return {
+        "qty_actual":       0.0,    # cantidad neta — running
+        "costo_remanente":  0.0,    # cost basis del stock vivo (en ARS)
+        "pnl_realizado":    0.0,    # ganancias/pérdidas de ventas pasadas
+        "pnl_pasivo":       0.0,    # cupones + divs + amorts
+        "breakdown_pasivo": {op: 0.0 for op in _OPS_PASIVOS},
+        "breakdown_otros":  0.0,    # acreencia con op desconocido
+        "qty_compras":      0.0,    # bruto, para detectar pre-data
+        "qty_ventas":       0.0,
+        "monedas":          set(),
+        "fechas_sin_mep":   set(),
+        "n_movimientos":    0,
+    }
+
+
 @cached(ttl=300)
 def pnl_por_cuenta(id_cuenta: str) -> dict:
-    """PnL por ticker para una cuenta. Ver docstring del módulo."""
+    """PnL por ticker para una cuenta — ver docstring del módulo."""
     db_cf = get_db_cashflow()
     db_v = get_db_valuaciones()
 
-    # ── 1. Boletos relevantes ────────────────────────────────────────
+    # ── 1. Boletos en orden cronológico ─────────────────────────────────
+    # Crítico: el cost-basis depende del orden de procesamiento.
     boletos = list(db_cf["NegocioMovimientos"].find(
         {
             "cuenta":    {"$regex": f"^\\[{id_cuenta}\\]"},
@@ -68,13 +96,14 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
             "ticker":    {"$ne": None},
         },
         {"_id": 0, "fecha": 1, "categoria": 1, "op": 1,
-         "ticker": 1, "cantidad": 1, "importe": 1, "moneda": 1},
-    ))
+         "ticker": 1, "cantidad": 1, "importe": 1, "moneda": 1,
+         "comprobante": 1},
+    ).sort([("fecha", 1), ("comprobante", 1)]))
 
-    # ── 2. Pesificación al MEP de cada fecha ─────────────────────────
+    # ── 2. Pesificación helper ──────────────────────────────────────────
     mep_cache: dict[str, float | None] = {}
 
-    def _importe_ars(importe: float, moneda: str, fecha: str) -> tuple[float, bool]:
+    def _pesificar(importe: float, moneda: str, fecha: str) -> tuple[float, bool]:
         if moneda == "ARS":
             return importe, False
         if fecha not in mep_cache:
@@ -84,21 +113,7 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
             return importe, True  # fallback: queda en USD/USDC
         return importe * mep, False
 
-    # ── 3. Acumular por ticker ───────────────────────────────────────
-    def _new_state() -> dict:
-        return {
-            "cash_pagado":         0.0,   # |Σ importes negativos|
-            "cash_cobrado_venta":  0.0,   # Σ importes ventas / rescates
-            "cash_cobrado_pasivo": 0.0,   # Σ importes acreencia
-            "breakdown_pasivo":    {op: 0.0 for op in _OPS_PASIVOS},
-            "breakdown_otros":     0.0,   # acreencia con op desconocido
-            "qty_compras":         0.0,
-            "qty_ventas":          0.0,
-            "monedas":             set(),
-            "fechas_sin_mep":      set(),
-            "n_movimientos":       0,
-        }
-
+    # ── 3. Procesar boletos en orden, mantener cost-basis running ───────
     state: dict[str, dict] = defaultdict(_new_state)
 
     for b in boletos:
@@ -107,42 +122,61 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
             continue
         try:
             importe = float(b.get("importe") or 0)
+            cantidad = abs(float(b.get("cantidad") or 0))
         except (TypeError, ValueError):
             continue
-        if importe == 0:
+        if importe == 0 and cantidad == 0:
             continue
 
         moneda = b.get("moneda") or "ARS"
         fecha  = b.get("fecha") or ""
-        imp_ars, mep_missing = _importe_ars(importe, moneda, fecha)
+        cat    = b.get("categoria")
+        op     = b.get("op") or ""
+        importe_ars, mep_missing = _pesificar(importe, moneda, fecha)
 
-        cat = b.get("categoria")
-        op  = b.get("op") or ""
-        st  = state[ticker]
+        st = state[ticker]
         st["monedas"].add(moneda)
         st["n_movimientos"] += 1
         if mep_missing:
             st["fechas_sin_mep"].add(fecha)
 
-        try:
-            qty = abs(float(b.get("cantidad") or 0))
-        except (TypeError, ValueError):
-            qty = 0.0
-
         if cat in _CATS_PAGO:
-            st["cash_pagado"]    += abs(imp_ars)
-            st["qty_compras"]    += qty
-        elif cat in _CATS_COBRO_VENTA:
-            st["cash_cobrado_venta"] += imp_ars
-            st["qty_ventas"]         += qty
-        elif cat in _CATS_COBRO_PASIVO:
-            st["cash_cobrado_pasivo"] += imp_ars
-            if op in st["breakdown_pasivo"]:
-                st["breakdown_pasivo"][op] += imp_ars
-            else:
-                st["breakdown_otros"] += imp_ars
+            # Compra: importe negativo → uso |importe| como costo invertido
+            costo_total = abs(importe_ars)
+            st["costo_remanente"] += costo_total
+            st["qty_actual"]      += cantidad
+            st["qty_compras"]     += cantidad
 
-    # ── 4. Posición actual desde Valuaciones.AuM (último snapshot) ──
+        elif cat in _CATS_COBRO_VENTA:
+            ingreso_total = importe_ars   # positivo
+            qty_a_vender  = min(cantidad, st["qty_actual"]) if st["qty_actual"] > 0 else 0
+            if qty_a_vender > 0 and st["qty_actual"] > 0:
+                avg_cost = st["costo_remanente"] / st["qty_actual"]
+                # Si la venta excede el stock conocido (puede pasar con
+                # boletos pre-data), proporcionalizamos el ingreso
+                # para no inflar el realizado.
+                ingreso_proporcional = (
+                    ingreso_total * (qty_a_vender / cantidad)
+                    if cantidad > 0 else 0
+                )
+                st["pnl_realizado"]   += ingreso_proporcional - (avg_cost * qty_a_vender)
+                st["costo_remanente"] -= avg_cost * qty_a_vender
+                st["qty_actual"]      -= qty_a_vender
+            # Si qty_a_vender == 0 (no había stock conocido), la venta
+            # queda como "fantasma" — no genera realizado en opción A.
+            # En opción B sumaríamos el ingreso directo. Acá conservador.
+            st["qty_ventas"] += cantidad
+
+        elif cat in _CATS_COBRO_PASIVO:
+            # Acreencia: cupón / dividendo / amortización. Cobro suelto
+            # que NO afecta cantidad ni cost basis.
+            st["pnl_pasivo"] += importe_ars
+            if op in st["breakdown_pasivo"]:
+                st["breakdown_pasivo"][op] += importe_ars
+            else:
+                st["breakdown_otros"] += importe_ars
+
+    # ── 4. Posición actual del AuM (último snapshot) ───────────────────
     last = db_v["AuM"].find_one(
         {"id_cuenta": id_cuenta},
         {"_id": 0, "fecha_snapshot": 1},
@@ -166,84 +200,109 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
                 "valuacion": float(d.get("valuacion") or 0),
             }
 
-    # ── 5. Armar rows + totales ──────────────────────────────────────
+    # ── 5. Construir filas y totales ────────────────────────────────────
     rows: list[dict[str, Any]] = []
     tot = {
-        "cash_pagado":         0.0,
-        "cash_cobrado_venta":  0.0,
-        "cash_cobrado_pasivo": 0.0,
-        "valor_actual":        0.0,
-        "pnl_total":           0.0,
+        "costo_remanente":  0.0,
+        "valor_actual":     0.0,    # del AuM (lo que físicamente tenés)
+        "pnl_realizado":    0.0,
+        "pnl_no_realizado": 0.0,
+        "pnl_pasivo":       0.0,
+        "pnl_total":        0.0,
     }
 
-    # Unión de tickers que aparecen en boletos OR en posición actual
-    # (un ticker puede estar en AuM sin boletos relevantes — pre-data,
-    # transferencia interna, etc.).
-    todos_tickers = set(state) | set(aum_por_ticker)
-
-    for ticker in todos_tickers:
-        st = state.get(ticker) or _new_state()
+    todos = set(state) | set(aum_por_ticker)
+    for ticker in todos:
+        st  = state.get(ticker) or _new_state()
         aum = aum_por_ticker.get(ticker, {})
-        valor_actual = float(aum.get("valuacion") or 0)
-        qty_actual   = float(aum.get("cantidad") or 0)
 
-        cash_neto = (
-            -st["cash_pagado"]
-            + st["cash_cobrado_venta"]
-            + st["cash_cobrado_pasivo"]
-        )
-        pnl_total = valor_actual + cash_neto
-        pnl_pct   = (pnl_total / st["cash_pagado"]) * 100 if st["cash_pagado"] > 0 else None
+        qty_aum       = float(aum.get("cantidad") or 0)
+        precio_actual = float(aum.get("precio") or 0)
+        valor_aum     = float(aum.get("valuacion") or 0)
+        qty_calc      = st["qty_actual"]
+        costo_rem     = st["costo_remanente"]
+        pnl_real      = st["pnl_realizado"]
+        pnl_pas       = st["pnl_pasivo"]
 
-        qty_neta = st["qty_compras"] - st["qty_ventas"]
-        if st["cash_pagado"] == 0 and st["cash_cobrado_venta"] == 0 and qty_actual > 0:
-            completeness = "sin_boletos"  # posición pre-data, no hay info de costo
-        elif abs(qty_neta - qty_actual) < 0.01:
+        # PnL no-realizado: solo del stock que el motor reconoce (qty_calc).
+        # Opción A: si qty_calc < qty_aum (pre-data), no inflamos — la
+        # diferencia es plata "ciega" que el motor no puede valuar contra
+        # un costo conocido.
+        if qty_calc > 0 and precio_actual > 0:
+            valor_calc       = qty_calc * precio_actual
+            pnl_no_real: float | None = valor_calc - costo_rem
+        elif qty_calc > 0 and valor_aum > 0:
+            # Tenemos qty_calc pero el precio del AuM es 0 — usar valuacion
+            # como fallback para no romper el cálculo.
+            valor_calc       = valor_aum * (qty_calc / qty_aum) if qty_aum > 0 else 0.0
+            pnl_no_real      = valor_calc - costo_rem
+        else:
+            valor_calc       = 0.0
+            pnl_no_real      = None  # no hay stock conocido — no se puede calcular
+
+        # Completeness: para entender qué tan confiable es el cálculo.
+        if st["n_movimientos"] == 0:
+            completeness = "sin_boletos"
+        elif abs(qty_calc - qty_aum) < 0.01:
             completeness = "completa"
         else:
             completeness = "parcial"
+
+        # Total = realizado + no-realizado + pasivo. Si no-realizado es
+        # None (sin boletos), no lo sumamos.
+        pnl_total = pnl_real + pnl_pas + (pnl_no_real or 0.0)
 
         breakdown = {k: round(v, 2) for k, v in st["breakdown_pasivo"].items() if v != 0}
         if st["breakdown_otros"] != 0:
             breakdown["Otros"] = round(st["breakdown_otros"], 2)
 
+        precio_promedio = (
+            costo_rem / qty_calc if qty_calc > 0 else None
+        )
+
         rows.append({
-            "ticker":              ticker,
-            "unidad":              aum.get("unidad", ""),
-            "cantidad_actual":     round(qty_actual, 4),
-            "valor_actual":        round(valor_actual, 2),
-            "cash_pagado":         round(st["cash_pagado"], 2),
-            "cash_cobrado_venta":  round(st["cash_cobrado_venta"], 2),
-            "cash_cobrado_pasivo": round(st["cash_cobrado_pasivo"], 2),
-            "breakdown_pasivo":    breakdown,
-            "pnl_total":           round(pnl_total, 2),
-            "pnl_pct":             round(pnl_pct, 2) if pnl_pct is not None else None,
-            "completeness":        completeness,
-            "moneda_mixta":        len(st["monedas"]) > 1,
-            "n_movimientos":       st["n_movimientos"],
-            "fechas_sin_mep":      sorted(st["fechas_sin_mep"]),
+            "ticker":            ticker,
+            "unidad":            aum.get("unidad", ""),
+            "qty_aum":           round(qty_aum, 4),
+            "qty_calc":          round(qty_calc, 4),
+            "qty_compras":       round(st["qty_compras"], 4),
+            "qty_ventas":        round(st["qty_ventas"], 4),
+            "precio_actual":     round(precio_actual, 4),
+            "precio_promedio":   round(precio_promedio, 4) if precio_promedio is not None else None,
+            "costo_remanente":   round(costo_rem, 2),
+            "valor_actual_aum":  round(valor_aum, 2),
+            "valor_actual_calc": round(valor_calc, 2),
+            "pnl_realizado":     round(pnl_real, 2),
+            "pnl_no_realizado":  round(pnl_no_real, 2) if pnl_no_real is not None else None,
+            "pnl_pasivo":        round(pnl_pas, 2),
+            "breakdown_pasivo":  breakdown,
+            "pnl_total":         round(pnl_total, 2),
+            "completeness":      completeness,
+            "moneda_mixta":      len(st["monedas"]) > 1,
+            "n_movimientos":     st["n_movimientos"],
+            "fechas_sin_mep":    sorted(st["fechas_sin_mep"]),
         })
 
-        tot["cash_pagado"]         += st["cash_pagado"]
-        tot["cash_cobrado_venta"]  += st["cash_cobrado_venta"]
-        tot["cash_cobrado_pasivo"] += st["cash_cobrado_pasivo"]
-        tot["valor_actual"]        += valor_actual
-        tot["pnl_total"]           += pnl_total
+        tot["costo_remanente"]  += costo_rem
+        tot["valor_actual"]     += valor_aum
+        tot["pnl_realizado"]    += pnl_real
+        tot["pnl_no_realizado"] += (pnl_no_real or 0.0)
+        tot["pnl_pasivo"]       += pnl_pas
+        tot["pnl_total"]        += pnl_total
 
     rows.sort(key=lambda r: -r["pnl_total"])
-    pnl_pct_total = (tot["pnl_total"] / tot["cash_pagado"]) * 100 if tot["cash_pagado"] > 0 else None
 
     return {
         "id_cuenta":    id_cuenta,
         "fecha_actual": fecha_actual,
         "rows":         rows,
         "totales": {
-            "cash_pagado":         round(tot["cash_pagado"], 2),
-            "cash_cobrado_venta":  round(tot["cash_cobrado_venta"], 2),
-            "cash_cobrado_pasivo": round(tot["cash_cobrado_pasivo"], 2),
-            "valor_actual":        round(tot["valor_actual"], 2),
-            "pnl_total":           round(tot["pnl_total"], 2),
-            "pnl_pct":             round(pnl_pct_total, 2) if pnl_pct_total is not None else None,
+            "costo_remanente":  round(tot["costo_remanente"], 2),
+            "valor_actual":     round(tot["valor_actual"], 2),
+            "pnl_realizado":    round(tot["pnl_realizado"], 2),
+            "pnl_no_realizado": round(tot["pnl_no_realizado"], 2),
+            "pnl_pasivo":       round(tot["pnl_pasivo"], 2),
+            "pnl_total":        round(tot["pnl_total"], 2),
         },
         "n_tickers": len(rows),
     }

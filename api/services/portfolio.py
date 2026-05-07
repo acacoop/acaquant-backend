@@ -762,6 +762,121 @@ def total_serie(
     }
 
 
+def _resolve_fecha_snapshot(db_v, fecha_pedida: str) -> str | None:
+    """Devuelve el último `fecha_snapshot` <= `fecha_pedida` que existe en
+    Valuaciones.AuM. None si no hay ninguno anterior. Permite que el caller
+    pase fechas convencionales (1° de mes, hoy, etc) sin requerir match
+    exacto — cae al snapshot disponible más cercano."""
+    doc = db_v["AuM"].find_one(
+        {"fecha_snapshot": {"$lte": fecha_pedida}},
+        {"_id": 0, "fecha_snapshot": 1},
+        sort=[("fecha_snapshot", -1)],
+    )
+    return doc.get("fecha_snapshot") if doc else None
+
+
+@cached(ttl=300)
+def total_diff(
+    fecha_actual: str,
+    fecha_anterior: str,
+    moneda: str = "ARS",
+    cuenta_filter: str = "todas",
+) -> dict:
+    """Diferencia de saldo por cuenta entre dos fechas snapshot.
+
+    Para cada cuenta computa `saldo_actual` (sum valuacion del fecha_actual),
+    `saldo_anterior` y `diff = actual - anterior`. Marca `es_nueva` (no
+    existía en `fecha_anterior`) y `es_cerrada` (no existe en `fecha_actual`).
+    Lista ordenada por |diff| desc por default.
+
+    Si `moneda=="USD"`: cada saldo se divide por el MEP de SU fecha. Si
+    falta MEP para alguna, se setea el flag correspondiente y el saldo
+    queda en ARS sin convertir.
+
+    Si las fechas pedidas no existen exactas en AuM, se cae al último
+    snapshot <= la fecha pedida (campos `fecha_actual_resuelta` /
+    `fecha_anterior_resuelta` reportan qué se usó realmente).
+    """
+    db_v = get_db_valuaciones()
+
+    fecha_act = _resolve_fecha_snapshot(db_v, fecha_actual) or fecha_actual
+    fecha_ant = _resolve_fecha_snapshot(db_v, fecha_anterior) or fecha_anterior
+
+    base_match: dict = {"id_cuenta": {"$nin": list(_EXCLUDED_FROM_AUM_VIEW)}}
+    base_match.update(match_cuenta_filter(cuenta_filter))
+
+    def _agg(fecha: str) -> dict[str, dict]:
+        match = {**base_match, "fecha_snapshot": fecha}
+        rows = list(db_v["AuM"].aggregate([
+            {"$match": match},
+            {"$group": {
+                "_id":    "$id_cuenta",
+                "cuenta": {"$first": "$cuenta"},
+                "saldo":  {"$sum": "$valuacion"},
+            }},
+        ]))
+        return {str(r["_id"]): r for r in rows}
+
+    map_act = _agg(fecha_act)
+    map_ant = _agg(fecha_ant)
+
+    # Conversión a USD: dividir cada saldo por el MEP de SU fecha.
+    mep_act: float | None = None
+    mep_ant: float | None = None
+    mep_missing_act = False
+    mep_missing_ant = False
+    if moneda == "USD":
+        mep_act = get_mep_for_date(fecha_act)
+        mep_ant = get_mep_for_date(fecha_ant)
+        if mep_act:
+            for r in map_act.values():
+                r["saldo"] = float(r["saldo"]) / mep_act
+        else:
+            mep_missing_act = True
+        if mep_ant:
+            for r in map_ant.values():
+                r["saldo"] = float(r["saldo"]) / mep_ant
+        else:
+            mep_missing_ant = True
+
+    all_ids = set(map_act) | set(map_ant)
+    filas: list[dict] = []
+    for cid in all_ids:
+        a = map_act.get(cid)
+        n = map_ant.get(cid)
+        saldo_act = float(a["saldo"]) if a else None
+        saldo_ant = float(n["saldo"]) if n else None
+        diff = (saldo_act or 0.0) - (saldo_ant or 0.0)
+        cuenta = (a or n or {}).get("cuenta", "") or ""
+        filas.append({
+            "id_cuenta":      cid,
+            "cuenta":         cuenta,
+            "saldo_actual":   saldo_act,
+            "saldo_anterior": saldo_ant,
+            "diff":           diff,
+            "es_nueva":       saldo_ant is None,
+            "es_cerrada":     saldo_act is None,
+        })
+    filas.sort(key=lambda r: abs(r["diff"]), reverse=True)
+
+    return {
+        "fecha_actual_pedida":    fecha_actual,
+        "fecha_anterior_pedida":  fecha_anterior,
+        "fecha_actual_resuelta":  fecha_act,
+        "fecha_anterior_resuelta": fecha_ant,
+        "moneda":                 moneda,
+        "mep_actual":             mep_act,
+        "mep_anterior":           mep_ant,
+        "mep_missing_actual":     mep_missing_act,
+        "mep_missing_anterior":   mep_missing_ant,
+        "filas":                  filas,
+        "total_diff":             sum(f["diff"] for f in filas),
+        "n_total":                len(filas),
+        "n_nuevas":               sum(1 for f in filas if f["es_nueva"]),
+        "n_cerradas":             sum(1 for f in filas if f["es_cerrada"]),
+    }
+
+
 @cached(ttl=300)
 def total_snapshot(
     fecha: str,

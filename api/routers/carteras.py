@@ -103,6 +103,23 @@ def total_serie(
     )
 
 
+@router.get("/diff")
+def diff(
+    fecha_actual:   str = Query(..., description="Fecha presente YYYY-MM-DD"),
+    fecha_anterior: str = Query(..., description="Fecha contra la cual comparar YYYY-MM-DD"),
+    moneda:         str = Query("ARS", description="ARS | USD"),
+    cuenta_filter:  str = Query("todas",
+                                description="todas | accionistas | sin_accionistas | cooperativas"),
+):
+    """Diferencia de saldo por cuenta entre dos fechas snapshot."""
+    return svc.total_diff(
+        fecha_actual=fecha_actual,
+        fecha_anterior=fecha_anterior,
+        moneda=moneda,
+        cuenta_filter=cuenta_filter,
+    )
+
+
 @router.get("/total-snapshot")
 def total_snapshot(
     fecha: str = Query(..., description="Fecha snapshot (YYYY-MM-DD)"),

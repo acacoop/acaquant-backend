@@ -69,6 +69,8 @@ def _new_state() -> dict:
     return {
         "qty_actual":       0.0,    # cantidad neta — running
         "costo_remanente":  0.0,    # cost basis del stock vivo (en ARS)
+        "importe_invertido": 0.0,   # Σ |importe| de TODAS las compras
+                                    # (incluye posiciones ya cerradas)
         "pnl_realizado":    0.0,    # ganancias/pérdidas de ventas pasadas
         "pnl_pasivo":       0.0,    # cupones + divs + amorts
         "breakdown_pasivo": {op: 0.0 for op in _OPS_PASIVOS},
@@ -89,6 +91,9 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
 
     # ── 1. Boletos en orden cronológico ─────────────────────────────────
     # Crítico: el cost-basis depende del orden de procesamiento.
+    # El campo `mep` viene en cada doc desde el job (snapshot inmutable
+    # del día del boleto). Solo caemos a `get_mep_for_date` si no está
+    # (boletos pre-fix sin reingestar, fechas anteriores al feed).
     boletos = list(db_cf["NegocioMovimientos"].find(
         {
             "cuenta":    {"$regex": f"^\\[{id_cuenta}\\]"},
@@ -97,20 +102,32 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         },
         {"_id": 0, "fecha": 1, "categoria": 1, "op": 1,
          "ticker": 1, "cantidad": 1, "importe": 1, "moneda": 1,
-         "comprobante": 1},
+         "comprobante": 1, "mep": 1},
     ).sort([("fecha", 1), ("comprobante", 1)]))
 
     # ── 2. Pesificación helper ──────────────────────────────────────────
-    mep_cache: dict[str, float | None] = {}
+    # Cache solo para fallback (fechas que no tenían mep en el doc).
+    mep_fallback_cache: dict[str, float | None] = {}
 
-    def _pesificar(importe: float, moneda: str, fecha: str) -> tuple[float, bool]:
+    def _pesificar(b: dict) -> tuple[float, bool]:
+        """Devuelve (importe_ars, mep_missing). Lee `mep` directo del doc;
+        si no está, fallback a Valuaciones.Dolar."""
+        try:
+            importe = float(b.get("importe") or 0)
+        except (TypeError, ValueError):
+            return 0.0, False
+        moneda = b.get("moneda") or "ARS"
         if moneda == "ARS":
             return importe, False
-        if fecha not in mep_cache:
-            mep_cache[fecha] = get_mep_for_date(fecha)
-        mep = mep_cache[fecha]
+
+        mep = b.get("mep")
+        if mep is None:
+            fecha = b.get("fecha") or ""
+            if fecha not in mep_fallback_cache:
+                mep_fallback_cache[fecha] = get_mep_for_date(fecha)
+            mep = mep_fallback_cache[fecha]
         if mep is None or mep <= 0:
-            return importe, True  # fallback: queda en USD/USDC
+            return importe, True  # fallback: queda en moneda original
         return importe * mep, False
 
     # ── 3. Procesar boletos en orden, mantener cost-basis running ───────
@@ -132,7 +149,7 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         fecha  = b.get("fecha") or ""
         cat    = b.get("categoria")
         op     = b.get("op") or ""
-        importe_ars, mep_missing = _pesificar(importe, moneda, fecha)
+        importe_ars, mep_missing = _pesificar(b)
 
         st = state[ticker]
         st["monedas"].add(moneda)

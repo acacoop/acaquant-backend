@@ -297,9 +297,25 @@ def agrupar_boletos(movimientos: list[dict]) -> list[dict]:
             if no_ars:
                 dineros = no_ars
         elif len(dineros) > 1:
-            con_gral = [m for m in dineros if str(m.get("uso") or "").upper() == "GRAL"]
-            if con_gral:
-                dineros = con_gral
+            # Cuando un boleto en USD trae varias líneas de dinero (cash en USD
+            # + comisión en ARS), nuestra suma "todo junto" produce un importe
+            # mezclado en monedas distintas. Priorizamos la línea cuya unidad
+            # matchea `_parsed.moneda` (la moneda del boleto, parseada del
+            # texto "Compra [...] (USD 24hs)"). Si no hay match, fallback a
+            # filtrar por uso=GRAL (la lógica vieja).
+            parsed_moneda = (parsed or {}).get("moneda")
+            if parsed_moneda:
+                match_mon = [
+                    m for m in dineros
+                    if str(m.get("unidad") or "").strip().upper()
+                       == parsed_moneda.upper()
+                ]
+                if match_mon:
+                    dineros = match_mon
+            if len(dineros) > 1:
+                con_gral = [m for m in dineros if str(m.get("uso") or "").upper() == "GRAL"]
+                if con_gral:
+                    dineros = con_gral
 
         cantidad_titulo = sum(m.get("_total_cliente") or 0 for m in titulos)
         importe_dinero = sum(m.get("_total_cliente") or 0 for m in dineros)

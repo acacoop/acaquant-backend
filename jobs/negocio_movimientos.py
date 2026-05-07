@@ -46,6 +46,7 @@ from pymongo import UpdateOne
 sys.path.insert(0, ".")
 
 from api.services import aunesa_negocio as svc
+from api.services._mep import get_mep_for_date
 from core.mongo import get_mongo_client
 
 DB_NAME = "CashFlow"
@@ -66,9 +67,13 @@ def _ensure_indexes(coll) -> None:
     coll.create_index([("fecha", -1), ("ticker", 1)], name="fecha_ticker")
 
 
-def _boleto_a_doc(b: dict, fecha_iso: str, ahora: datetime) -> dict:
+def _boleto_a_doc(b: dict, fecha_iso: str, ahora: datetime, mep: float | None) -> dict:
     """Convierte un boleto consolidado del service al doc de Mongo.
     Descarta `lineas` raw (audit puede agregarse después si hace falta).
+
+    `mep` es el MEP del día (puede ser None si no hay cotización para esa
+    fecha). Se guarda en cada boleto como snapshot inmutable — sirve para
+    pesificar/dolarizar después sin volver a `Valuaciones.Dolar`.
     """
     return {
         "fecha":        fecha_iso,
@@ -86,6 +91,7 @@ def _boleto_a_doc(b: dict, fecha_iso: str, ahora: datetime) -> dict:
         "estado":       b.get("estado"),
         "informacion":  b.get("informacion"),
         "n_lineas":     b.get("n_lineas"),
+        "mep":          mep,
         "ingestado_en": ahora,
     }
 
@@ -128,10 +134,15 @@ def run(fecha_d: date, dry: bool = False) -> dict:
     coll = client[DB_NAME][COL_NAME]
     _ensure_indexes(coll)
 
+    # MEP del día — una lookup, se reusa para todos los boletos de la fecha.
+    mep = get_mep_for_date(fecha_iso)
+    if mep is None:
+        logger.warning("Sin MEP para %s — boletos quedarán con mep=null.", fecha_iso)
+
     ahora = datetime.now(UTC)
     ops = []
     for b in persistibles:
-        doc = _boleto_a_doc(b, fecha_iso, ahora)
+        doc = _boleto_a_doc(b, fecha_iso, ahora, mep)
         ops.append(UpdateOne(
             {"fecha": fecha_iso, "comprobante": b["comprobante"]},
             {"$set": doc},

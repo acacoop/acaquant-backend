@@ -6,7 +6,7 @@ los que ya están en la colección (backfill one-shot).
 
 Reglas:
   1. `unidad == "USDL"` (cash USD link, no contabiliza).
-  2. `cuenta` o `unidad` contiene "OTC" (case-insensitive).
+  2. `cuenta` o `unidad` contiene "OTC" o "CDC" (case-insensitive).
   3. `id_cuenta` aparece en `CuentasAPI.ContrapartesAPI.id_cuenta` — son
      cuentas de fondos / sociedades gerentes (SCHRODER, TORONTO, LOMBARD,
      etc.) que operamos pero cuyas tenencias no son AuM real, son
@@ -25,8 +25,10 @@ import re
 
 # Sub-strings (case-insensitive) en `cuenta` o `unidad` que disparan exclusión
 # por patrón. Todo lo que no es patrón (sociedades gerentes específicas) sale
-# de Mongo via `load_contrapartes_cuentas()`.
-EXCLUDE_OTC_KEYWORDS: tuple[str, ...] = ("OTC",)
+# de Mongo via `load_contrapartes_id_cuentas()`.
+#   OTC → operaciones OTC, no contabilizan en AuM.
+#   CDC → cuentas CDC, mismo criterio.
+EXCLUDE_PATTERN_KEYWORDS: tuple[str, ...] = ("OTC", "CDC")
 
 # Match exacto en `unidad` — códigos cortos donde un substring matchearía
 # falsos positivos.
@@ -39,8 +41,8 @@ CUENTAS_SIN_ARS: frozenset[str] = frozenset({
     "[101] ASOCIACION DE COOPERATIVAS ARGENTINAS COOP LTDA",
 })
 
-_RE_OTC = re.compile(
-    "|".join(re.escape(k) for k in EXCLUDE_OTC_KEYWORDS),
+_RE_PATTERN = re.compile(
+    "|".join(re.escape(k) for k in EXCLUDE_PATTERN_KEYWORDS),
     re.IGNORECASE,
 )
 
@@ -77,7 +79,7 @@ def is_excluded(
     unidad = unidad or ""
     if unidad in EXCLUDE_UNIDAD_EXACT:
         return True
-    if _RE_OTC.search(unidad) or _RE_OTC.search(cuenta):
+    if _RE_PATTERN.search(unidad) or _RE_PATTERN.search(cuenta):
         return True
     if (
         contrapartes_ids
@@ -95,8 +97,8 @@ def mongo_match_excluded(
     `delete_many` / `count_documents` sobre la colección AuM."""
     or_clauses: list[dict] = [
         {"unidad": {"$in": list(EXCLUDE_UNIDAD_EXACT)}},
-        {"unidad": {"$regex": _RE_OTC.pattern, "$options": "i"}},
-        {"cuenta": {"$regex": _RE_OTC.pattern, "$options": "i"}},
+        {"unidad": {"$regex": _RE_PATTERN.pattern, "$options": "i"}},
+        {"cuenta": {"$regex": _RE_PATTERN.pattern, "$options": "i"}},
         {
             "$and": [
                 {"unidad": "ARS"},

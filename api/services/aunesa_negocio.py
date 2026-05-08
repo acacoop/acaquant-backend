@@ -324,6 +324,21 @@ def agrupar_boletos(movimientos: list[dict]) -> list[dict]:
         cantidad_titulo = sum(m.get("_total_cliente") or 0 for m in titulos)
         importe_dinero = sum(m.get("_total_cliente") or 0 for m in dineros)
 
+        # TRD = op genérica de trading (similar a licitación, pero sin texto
+        # "Compra"/"Venta" en `informacion`). Se categoriza por signo del
+        # importe ya pesificado al cliente: importe < 0 (pagamos) = compra,
+        # importe > 0 (recibimos) = venta. Sin esto cae en "otro" y el
+        # motor PnL la ignora — bug de YFCOO comprado por TRD.
+        if (
+            categoria == "otro"
+            and parsed
+            and _normalizar(parsed.get("op") or "") == "trd"
+        ):
+            if importe_dinero < 0:
+                categoria = "compra"
+            elif importe_dinero > 0:
+                categoria = "venta"
+
         ticker = (parsed or {}).get("ticker")
         if not ticker and titulos:
             unidad_str = str(titulos[0].get("unidad") or "")

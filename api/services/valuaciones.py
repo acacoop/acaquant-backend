@@ -581,22 +581,34 @@ def posiciones_actuales(
         # precio se sobrescribe — todos los lotes del mismo día tienen mismo precio.
         st["precio"] = precio
 
-    # Enriquecer con `cartera` desde TitulosAPI.AssetsAPI.
-    # AuM no persiste cartera en el doc — vive en master data, joineado
-    # por `unidad`. Sin esto la UI no puede separar ARS / DL / HD / FCI.
+    # Enriquecer con master data (mismo patrón que portfolio.detalle_portfolio):
+    # - cartera + clase_activo: Valuaciones.Assets UPPERCASE (fuente de verdad).
+    # - ticker + emisor + calificacion + vencimiento: TitulosAPI.AssetsAPI (lowercase).
     db_t = get_db_titulos()
     unidades = list(by_unidad.keys())
-    cartera_by_unidad: dict[str, str] = {}
+    enrich_by_unidad: dict[str, dict] = {}
+    full_by_unidad: dict[str, dict] = {}
     if unidades:
-        cur = db_t["AssetsAPI"].find(
+        cur_v = db_val["Assets"].find(
             {"unidad": {"$in": unidades}},
-            {"_id": 0, "unidad": 1, "cartera": 1},
+            {"_id": 0, "unidad": 1, "CARTERA": 1, "CLASE_ACTIVO": 1},
         )
-        for a in cur:
+        for a in cur_v:
             u = a.get("unidad")
-            c = a.get("cartera") or ""
             if u:
-                cartera_by_unidad[u] = c
+                enrich_by_unidad[u] = {
+                    "cartera":      a.get("CARTERA") or "OTROS",
+                    "clase_activo": a.get("CLASE_ACTIVO") or "",
+                }
+        cur_t = db_t["AssetsAPI"].find(
+            {"unidad": {"$in": unidades}},
+            {"_id": 0, "unidad": 1, "ticker": 1, "emisor": 1,
+             "calificacion": 1, "vencimiento": 1},
+        )
+        for a in cur_t:
+            u = a.get("unidad")
+            if u:
+                full_by_unidad[u] = a
 
     # Sort por valuación con SIGNO descendente — longs arriba, shorts/cash
     # negativo abajo. Antes era por |valuacion| que mezclaba shorts grandes
@@ -608,13 +620,18 @@ def posiciones_actuales(
         "fecha":     fecha,
         "posiciones": [
             {
-                "ticker":    r["ticker"],
-                "tipo":      str(r["tipo"]) if r["tipo"] not in (None, "") else None,
-                "cartera":   cartera_by_unidad.get(r["ticker"]) or "",
-                "cantidad":  round(r["cantidad"], 4),
-                "precio":    round(r["precio"], 4),
-                "valuacion": round(r["valuacion"], 2),
-                "share":     (
+                "unidad":       r["ticker"],
+                "ticker":       full_by_unidad.get(r["ticker"], {}).get("ticker") or r["ticker"],
+                "emisor":       full_by_unidad.get(r["ticker"], {}).get("emisor") or "-",
+                "clase_activo": enrich_by_unidad.get(r["ticker"], {}).get("clase_activo") or "-",
+                "cartera":      enrich_by_unidad.get(r["ticker"], {}).get("cartera") or "",
+                "calificacion": full_by_unidad.get(r["ticker"], {}).get("calificacion") or "-",
+                "vencimiento":  full_by_unidad.get(r["ticker"], {}).get("vencimiento"),
+                "tipo":         str(r["tipo"]) if r["tipo"] not in (None, "") else None,
+                "cantidad":     round(r["cantidad"], 4),
+                "precio":       round(r["precio"], 4),
+                "valuacion":    round(r["valuacion"], 2),
+                "share":        (
                     round((r["valuacion"] / total) * 100, 2)
                     if total else None
                 ),

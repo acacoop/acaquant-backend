@@ -5,8 +5,7 @@ Suscribe via pyRofex WS a los activos que la mesa tiene en posición HOY
 `last_price` y `closing_price` actualizado en Trading.PortfolioSnapshot.
 
 NO comparte estado con engines/valores.py:
-- Sesión pyRofex propia (segunda conexión, igual que motor_options /
-  motor_order_book_l2 hacían).
+- Sesión pyRofex propia (segunda conexión, igual que motor_options).
 - Suscripción reducida a entries [LAST, CLOSING_PRICE] — sin BIDS,
   OFFERS, OHLC, NV. Tráfico WS estrictamente mínimo.
 - NO popula Trading.TimeSales — los trades históricos los captura

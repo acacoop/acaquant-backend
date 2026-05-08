@@ -34,7 +34,6 @@ from api.routers import (
     manager_resources,
     market,
     me,
-    mm,
     news,
     operaciones,
     operativa,
@@ -151,7 +150,6 @@ _PORTFOLIOS   = [Depends(verify_api_key), Depends(require_module("portfolios"))]
 _OPERAR       = [Depends(verify_api_key), Depends(require_module("operar"))]
 _OPERACIONES  = [Depends(verify_api_key), Depends(require_module("operaciones"))]
 _ASISTENTE    = [Depends(verify_api_key), Depends(require_module("asistente"))]
-_MM           = [Depends(verify_api_key), Depends(require_module("mm"))]
 _MANAGER      = [Depends(verify_api_key), Depends(require_module("manager"))]
 
 # Públicos (todos los roles tienen home/renta-fija/derivados/estrategia):
@@ -181,8 +179,6 @@ app.include_router(risk.router,              dependencies=_OPERAR)
 app.include_router(operaciones.router,       dependencies=_OPERACIONES)
 app.include_router(cuentas.router,           dependencies=_OPERACIONES)
 app.include_router(chat.router,              dependencies=_ASISTENTE)
-# MM Microstructure (Cartea cap 1-4 sobre OrderBookL2 + TimeSales)
-app.include_router(mm.router,                dependencies=_MM)
 app.include_router(manager.router,           dependencies=_MANAGER)
 app.include_router(manager_resources.router, dependencies=_MANAGER)
 

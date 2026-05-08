@@ -76,17 +76,6 @@ TICKERS_EXTRA_PRECIOS: list[str] = [
     "MERV - XMEV - AL30D - 24hs",
 ]
 
-# --- TICKERS PARA CAPTURA L2 DEL BOOK (cada cambio persistido) ---
-# Whitelist consumida por engines/order_book_l2.py. Para los tickers acá:
-# cada update de bids/offers que difiera del último persistido se inserta
-# en Trading.OrderBookL2 (Time Series Collection). NO se mezcla con
-# TimeSales — los trades siguen capturándose en su flujo actual via
-# motor_rofex (engines/valores.py).
-TICKERS_BOOK_FULL: set[str] = {
-    "MERV - XMEV - AL30 - CI",
-}
-
-
 # --- ACCESO MANAGER ---
 # Emails con acceso a la vista Manager. Separados por coma en MANAGER_EMAILS o hardcodeados aquí.
 _manager_env = os.getenv("MANAGER_EMAILS", "")

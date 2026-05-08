@@ -30,7 +30,7 @@ _ALLOWED_SERVICES: set[str] = {
     "motor_futuros_dlr",
     "motor_dolares",
     "motor_agro",
-    "motor_order_book_l2",
+    "motor_portfolio_snapshot",
     "motor_ordenes",
     "api",
     "cloudflared",

@@ -67,20 +67,28 @@ def _ticker_corto_fallback(unidad: str) -> str:
     return m.group(1).strip() if m else (unidad or "")
 
 
-def _build_unidad_to_ticker_map(db_v) -> dict[str, str]:
-    """Lee Valuaciones.Assets (UPPERCASE, fuente de verdad) y devuelve
-    {unidad: ticker_match}. Precedencia:
+def _build_unidad_maps(db_v) -> tuple[dict[str, str], dict[str, str]]:
+    """Lee Valuaciones.Assets y devuelve dos maps:
 
-      1. `CAFCI` — para FCI (campo derivado de la unidad por
-         `_sincronizar_assets`). Match con `boleto.ticker` que viene del
-         parser como código CAFCI (ej `CAFCI3580-1199`).
-      2. `TICKER` — para acciones / bonos / ONs / etc, donde el TICKER
-         humano (ej `AL30`) coincide con `boleto.ticker`.
-      3. Fallback regex sobre la unidad si los dos anteriores son vacíos.
+      unidad_to_match: {unidad → match_key}    — para joinear boletos↔AuM.
+      match_to_display: {match_key → display}  — para mostrar en la UI.
 
-    Cacheado dentro del lifetime del request — Assets cambia poco.
+    Precedencia para `match_key`:
+      1. `CAFCI` — FCI. Coincide con `boleto.ticker` parseado del bracket.
+      2. `TICKER` — acciones / bonos / ONs.
+      3. Fallback regex sobre la unidad.
+
+    Precedencia para `display`:
+      1. `TICKER` humano de Assets — ej "AL30", "Consultatio Multimercado V".
+      2. el match_key (FCI sin TICKER cargado → muestra el código CAFCI).
+
+    Caso típico para FCI:
+      unidad = "[3580] CAFCI3580-1199 - Consultatio..."
+      match_key = "CAFCI3580-1199"  (matchea con boleto.ticker)
+      display = "Consultatio Multimercado V - Clase A"
     """
-    out: dict[str, str] = {}
+    unidad_to_match: dict[str, str] = {}
+    match_to_display: dict[str, str] = {}
     placeholders = {"", "NO APLICA"}
     for d in db_v["Assets"].find(
         {}, {"_id": 0, "unidad": 1, "TICKER": 1, "CAFCI": 1}
@@ -89,15 +97,28 @@ def _build_unidad_to_ticker_map(db_v) -> dict[str, str]:
         if not unidad:
             continue
         cafci = (d.get("CAFCI") or "").strip()
-        if cafci and cafci not in placeholders:
-            out[unidad] = cafci
-            continue
         ticker = (d.get("TICKER") or "").strip()
-        if ticker and ticker not in placeholders:
-            out[unidad] = ticker
+        ticker_clean = ticker if ticker and ticker not in placeholders else None
+        cafci_clean = cafci if cafci and cafci not in placeholders else None
+
+        if cafci_clean:
+            match_key = cafci_clean
+        elif ticker_clean:
+            match_key = ticker_clean
         else:
-            out[unidad] = _ticker_corto_fallback(unidad)
-    return out
+            match_key = _ticker_corto_fallback(unidad)
+        unidad_to_match[unidad] = match_key
+
+        # display: TICKER humano si hay (ej "Consultatio...") sino el
+        # match_key (que para no-FCI es el ticker; para FCI sin TICKER
+        # cargado, queda el código CAFCI — best effort).
+        match_to_display.setdefault(match_key, ticker_clean or match_key)
+    return unidad_to_match, match_to_display
+
+
+# Compat: el nombre viejo se sigue usando — devolvemos solo el primer map.
+def _build_unidad_to_ticker_map(db_v) -> dict[str, str]:
+    return _build_unidad_maps(db_v)[0]
 
 
 def _new_state() -> dict:
@@ -253,9 +274,10 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
                 st["breakdown_otros"] += importe_ars
 
     # ── 4. Posición actual del AuM (último snapshot) ───────────────────
-    # Map unidad → TICKER desde Valuaciones.Assets (fuente de verdad del
-    # mapeo). Si una unidad no tiene TICKER en Assets, cae al regex fallback.
-    unidad_to_ticker = _build_unidad_to_ticker_map(db_v)
+    # Maps: (1) unidad → match_key para joinear boletos ↔ AuM y
+    # (2) match_key → display name humano para la UI. Para FCI el
+    # match_key es el código CAFCI y el display es el nombre del fondo.
+    unidad_to_ticker, match_to_display = _build_unidad_maps(db_v)
 
     last = db_v["AuM"].find_one(
         {"id_cuenta": id_cuenta},
@@ -336,6 +358,7 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
 
         rows.append({
             "ticker":            ticker,
+            "display_name":      match_to_display.get(ticker, ticker),
             "unidad":            aum.get("unidad", ""),
             "qty_aum":           round(qty_aum, 4),
             "qty_calc":          round(qty_calc, 4),

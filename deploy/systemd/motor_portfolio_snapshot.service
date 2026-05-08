@@ -1,0 +1,14 @@
+[Unit]
+Description=Motor de captura del último precio para tickers de tenencia (Trading.PortfolioSnapshot)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/python -m engines.portfolio_snapshot
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

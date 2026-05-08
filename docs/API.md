@@ -30,11 +30,6 @@ It is the only consumption boundary of the platform: the production frontend (**
 pip install -r requirements.txt
 uvicorn api.main:app --reload --port 8000
 
-# Smoke tests
-python -m scripts.test_api                 # public endpoints
-python -m scripts.smoke_account_status     # broker (read-only) — needs ROFEX_ORDERS_ENV=live
-python -m scripts.mcp_smoke_oauth          # MCP server (auto-emits JWT)
-
 # Interactive exploration
 open http://localhost:8000/docs            # Swagger UI
 open http://localhost:8000/redoc           # ReDoc
@@ -676,7 +671,9 @@ Route ordering: `/jobs/history` and `/jobs/history/stats` are declared before th
 | GET | `/options/expiries` | `{disponibles, activos, auto_pick, actualizado, mapa_size}` from `Opciones.Metadata` |
 | PUT | `/options/expiries` | Body `{expiries: string[8]}`. Empty array → auto-pick mode. Engine reloads on next 5 min tick. |
 
-#### 7.14.6 Asistente observability
+#### 7.14.6 Asistente observability — *legacy, no en uso*
+
+Endpoints leen `Manager.AsistenteLogs`. El asistente (`/api/chat`) ya no se usa — se conserva el código (`api/agent/`) como referencia. Estos endpoints siguen vivos pero la colección no recibe escrituras nuevas.
 
 | Path | Description |
 |---|---|
@@ -716,7 +713,7 @@ PDF or pasted-text reports → Gemini JSON-mode extracts 12 macro variables → 
 
 ---
 
-### 7.15 Chat (`/api/chat`) · chat
+### 7.15 Chat (`/api/chat`) · chat — *legacy, no en uso*
 
 | Method | Path | Limit | Description |
 |---|---|---|---|
@@ -748,9 +745,11 @@ PDF or pasted-text reports → Gemini JSON-mode extracts 12 macro variables → 
 }
 ```
 
-`model_used` reports the model chosen by `decide_model()` (Haiku vs Sonnet). Errors follow the typed shape (§5). Every turn — success, truncation or error — is persisted to `Manager.AsistenteLogs` (`/api/manager/asistente/*`). Full architecture: `docs/ASISTENTE.md`.
+`model_used` reports the model chosen by `decide_model()` (Haiku vs Sonnet). Errors follow the typed shape (§5). Every turn — success, truncation or error — is persisted to `Manager.AsistenteLogs` (`/api/manager/asistente/*`).
 
 `BLOCKED_PATH_PREFIXES` (portfolio / operaciones / cuentas / manager) are blocked from being invoked through the assistant tools — read-only market data only. Same policy applies to the MCP server.
+
+> **Estado**: el asistente está desactivado a nivel producto. El código (`api/agent/`) y el endpoint se mantienen como referencia.
 
 ---
 
@@ -853,7 +852,7 @@ api/
 │   ├── derivados_agro.py    # PASE AGRO (pizarra manual + futuros live)
 │   ├── debug_curva.py       # Recompute paso-a-paso de TEA/duration (manager/checks)
 │   └── …
-├── agent/                   # LLM assistant (docs/ASISTENTE.md is authoritative)
+├── agent/                   # LLM assistant — legacy, no en uso
 ├── mcp/                     # MCP server (docs/MCP.md is authoritative)
 └── routers/
     ├── analitica.py             # /api/analitica/*       (pub)
@@ -920,9 +919,6 @@ pytest -ra                              # unit tests (no Mongo)
 pytest tests/unit/test_black_scholes.py # single file
 pytest -m integration                   # requires Mongo — excluded by default
 
-python -m scripts.test_api              # public endpoints smoke
-python -m scripts.smoke_account_status  # broker (read-only) — needs ROFEX_ORDERS_ENV=live
-python -m scripts.mcp_smoke_oauth       # MCP server (auto-emits JWT)
 python -m scripts.perf_scan             # static analysis for Mongo anti-patterns
 ```
 

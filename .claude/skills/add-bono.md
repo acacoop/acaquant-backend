@@ -39,7 +39,7 @@ El `unidad` (PK en Aunesa) + metadata: `CARTERA`, `EMISOR`, `TICKER == ticker_co
 Una vez insertado:
 
 1. Si los motores de mercado están corriendo (L-V 13:00-20:05 UTC), `engines/curvas.py` debería agarrar el bono en su próximo loop (≤ 5s) y enriquecer `Trading.TimeSales` con `TEA/Duration/Paridad` en cuanto haya trades.
-2. Chequeo: `python -m scripts.test_enrich_one` (si existe) o query directa a TimeSales.
+2. Chequeo: query directa a `Trading.TimeSales` filtrando por el ticker.
 3. `GET /api/analitica/listar-curva?curva=<curva>` — el bono tiene que aparecer.
 
 ## 5. Confirmar en frontend

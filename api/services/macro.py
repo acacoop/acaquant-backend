@@ -15,7 +15,6 @@ Variables soportadas:
 Variables bloqueadas por data faltante (devuelven stub con hint):
 - ccl, canje, ipc, ipim, riesgo_pais, repo, rem_inflacion
 
-Ver docs/asistente/tools_spec.md §2.2 para el contrato completo.
 """
 from __future__ import annotations
 
@@ -335,10 +334,7 @@ def _stub_bloqueada(variable: str) -> dict:
 
 @cached(ttl=120)
 def obtener_serie_macro(variable: str, ventana_dias: int = 90) -> dict:
-    """Devuelve actual + serie + stats completos para una variable.
-
-    Shape del return — ver docs/asistente/tools_spec.md §2.2.
-    """
+    """Devuelve actual + serie + stats completos para una variable."""
     var = (variable or "").strip().lower() if variable else ""
     if not var:
         return {"variable": "", "error": "variable vacía", "clasificacion": "sin_datos"}

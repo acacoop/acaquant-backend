@@ -10,9 +10,7 @@ Se invocan tipeando `/nombre` en el chat.
 
 | Comando | Qué hace |
 |---|---|
-| `/smoke` | Corre `scripts.test_api` + `scripts.test_chat` contra localhost y reporta pass/fail por endpoint. |
 | `/perf` | Corre `scripts.perf_scan --strict` y resume findings agrupados por código (PERF001…4). No aplica fixes. |
-| `/seed-roles` | Preview + apply del seed de `Manager.Users` / `RoleMatrix`. Con `--dry` primero, aplica con confirmación. |
 | `/motor-status` | Estado systemd + última actividad Mongo de los 8 motores de mercado. Respeta la ventana Atlas. |
 | `/deploy` | Push a main + pull + `systemctl restart api.service` en el Droplet. Cada paso destructivo pide confirmación. |
 

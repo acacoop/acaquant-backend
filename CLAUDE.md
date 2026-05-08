@@ -38,7 +38,6 @@ docs/        # API.md, ASISTENTE.md, API_MIGRATIONS.md
 uvicorn api.main:app --reload --port 8000
 python -m engines.<motor> | jobs.<job> | scripts.<cmd>
 python -m scripts.api_migrate <cmd>            # resync colecciones *API.*API
-python -m scripts.seed_roles [--dry]           # bootstrap RBAC
 ruff check . [--fix]                           # line-length=100, py312
 pytest -ra                                     # unit (pytest -m integration = requiere Atlas up)
 python -m scripts.perf_scan [--strict]         # anti-patterns Mongo
@@ -94,13 +93,13 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 
 **Enriquecimiento CER**: `motor_curvas` usa CER con settlement T-10 hábiles. Si un bono no opera un día, el último trade puede quedar con CER de ayer.
 
-## Asistente
+## Asistente (legacy, no en uso)
 
-Doc completo: `docs/ASISTENTE.md`. `api/agent/` + `POST /api/chat`. Provider Claude con router Haiku/Sonnet (`LLM_PROVIDER=claude`), Gemini fallback. Tools invocan `api/services/*` directamente. `BLOCKED_PATH_PREFIXES` = portfolio/operaciones/cuentas/manager (policy — no modificar sin coordinar). Editables sin deploy: `docs/asistente/estrategia.md` + `estrategias.md` (releen al cambiar mtime).
+`api/agent/` + `POST /api/chat` siguen en el repo como referencia (provider Claude con router Haiku/Sonnet, tools sobre `api/services/*`, `BLOCKED_PATH_PREFIXES` policy). **No se está usando** en producción — no modificar ni invertir tiempo sin coordinar primero. Ningún flow del producto lo invoca.
 
 ## MCP server (Custom Connector)
 
-`api/mcp/` montado en `https://api.acaquant.com/mcp` — 34 tools de SOLO LECTURA sobre datos de mercado (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad, order book L2 live + histórico). NO expone portfolio/operaciones/cuentas/AuM/manager (mismo policy que el asistente). Cada tool es thin wrapper sobre `api/services/*`. Cliente principal: Claude Desktop / claude.ai vía Custom Connector. Doc completo de cada tool: `docs/MCP_TOOLS.md`.
+`api/mcp/` montado en `https://api.acaquant.com/mcp` — 34 tools de SOLO LECTURA sobre datos de mercado (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad, order book L2 live + histórico). NO expone portfolio/operaciones/cuentas/AuM/manager (datos privados de la mesa). Cada tool es thin wrapper sobre `api/services/*`. Cliente principal: Claude Desktop / claude.ai vía Custom Connector. Doc completo de cada tool: `docs/MCP_TOOLS.md`.
 
 **Auth**: OAuth 2.1 + PKCE + DCR (RFC 7591), Cloudflare Access como IdP. Flow: Claude hace DCR → `/oauth/authorize` (CF Access pide login al user) → handler lee `cf-access-jwt-assertion` → emite `code` → `/oauth/token` lo canjea por JWT (HS256, TTL 1h) → Claude usa el JWT en Bearer en `/mcp/`. Storage en Mongo db `MCP` (TTL automático en codes/tokens).
 
@@ -110,8 +109,6 @@ Configurable: `MCP_BEARER_TOKEN` (static, fallback dev/curl), `MCP_JWT_SECRET` (
 
 1. **CF Access path scoping**. App `acaquant-mcp-bypass` (BYPASS + Everyone) cubre 5 paths: `/mcp`, `/oauth/token`, `/oauth/register`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`. Si CF Access tapa `/mcp`, el cliente recibe HTML de login en vez de 401 → muere silencioso. `/oauth/authorize` SÍ debe estar protegido (ahí logea el user). 5/5 destinations al tope.
 2. **`TransportSecuritySettings` en `api/mcp/server.py`** con `allowed_hosts` (`api.acaquant.com`) y `allowed_origins` (`https://claude.ai`, `https://claude.com`). El default del SDK MCP solo acepta localhost → 421 Misdirected Request. El smoke local NO replica esta condición.
-
-Smoke: `python -m scripts.mcp_smoke_oauth` (auto-emite JWT y pega a `/mcp/` local — valida middleware bearer + tools, no condiciones de prod).
 
 ## Deploy
 
@@ -133,7 +130,7 @@ Cada uno escribe SOLO sus campos via `UpdateOne($set: dot-notation, upsert=True)
 
 ## Order book L2 (captura full)
 
-Motor dedicado `engines/order_book_l2.py` — sesión rofex separada del motor_rofex, suscribe solo entries `BIDS+OFFERS` con depth 5 para los tickers en `config.TICKERS_BOOK_FULL`. Cada cambio del book persistido como doc nuevo (append-only) en `Trading.OrderBookL2` (Time Series Collection). Sin pisado de TimeSales/MarketSnapshot. Cron L-V 13:00–20:05 UTC vía `motor_order_book_l2.service`. Setup one-shot: `python -m scripts.init_orderbook_l2_collection`.
+Motor dedicado `engines/order_book_l2.py` — sesión rofex separada del motor_rofex, suscribe solo entries `BIDS+OFFERS` con depth 5 para los tickers en `config.TICKERS_BOOK_FULL`. Cada cambio del book persistido como doc nuevo (append-only) en `Trading.OrderBookL2` (Time Series Collection). Sin pisado de TimeSales/MarketSnapshot. Cron L-V 13:00–20:05 UTC vía `motor_order_book_l2.service`.
 
 ## Motor de Valuaciones (PnL Títulos)
 

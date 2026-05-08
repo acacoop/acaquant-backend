@@ -247,18 +247,6 @@ se llama a `get_mep_for_date(fecha)` que mira `Valuaciones.Dolar`.
 
 ---
 
-## Scripts soporte (todos en `scripts/`)
-
-- **`inspect_aum.py`** — explora `Valuaciones.AuM` por cuenta/unidad/fecha.
-- **`inspect_boleto_aunesa.py`** — pega a Aunesa y muestra líneas raw + boleto consolidado de un comprobante.
-- **`backfill_negocio_movimientos.py`** — reingestar boletos en un rango de fechas (idempotente).
-- **`match_mep_boletos.py`** — completar `mep=null` en boletos viejos.
-- **`check_mep_coverage.py`** — listar fechas del AuM sin cotización MEP.
-- **`fix_aum_valuacion_unidad.py`** — corregir bonos con `valuacion = P×Q` sin /100.
-- **`cleanup_aum_excluidos.py`** — borrar docs excluidos del AuM por las reglas de `jobs/_aum_filters.py`.
-
----
-
 ## Endpoints relevantes
 
 - `GET /api/portfolio/pnl?id_cuenta=805` — el motor en sí.

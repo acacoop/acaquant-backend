@@ -268,21 +268,15 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         pnl_real      = st["pnl_realizado"]
         pnl_pas       = st["pnl_pasivo"]
 
-        # PnL no-realizado: solo del stock que el motor reconoce (qty_calc).
-        # Opción A: si qty_calc < qty_aum (pre-data), no inflamos — la
-        # diferencia es plata "ciega" que el motor no puede valuar contra
-        # un costo conocido.
-        if qty_calc > 0 and precio_actual > 0:
-            valor_calc       = qty_calc * precio_actual
-            pnl_no_real: float | None = valor_calc - costo_rem
-        elif qty_calc > 0 and valor_aum > 0:
-            # Tenemos qty_calc pero el precio del AuM es 0 — usar valuacion
-            # como fallback para no romper el cálculo.
-            valor_calc       = valor_aum * (qty_calc / qty_aum) if qty_aum > 0 else 0.0
-            pnl_no_real      = valor_calc - costo_rem
+        # PnL no-realizado: siempre usamos `valor_aum` (la valuación del
+        # último snapshot, que YA tiene aplicado el divisor /100 para
+        # bonos y demás reglas). Multiplicar qty_calc * precio_actual da
+        # números irreales para bonos porque precio_actual viene en
+        # paridad cruda.
+        if qty_aum > 0 and qty_calc > 0:
+            pnl_no_real: float | None = valor_aum - costo_rem
         else:
-            valor_calc       = 0.0
-            pnl_no_real      = None  # no hay stock conocido — no se puede calcular
+            pnl_no_real = None  # cerrado o sin boletos — no calculamos
 
         # Completeness: para entender qué tan confiable es el cálculo.
         if st["n_movimientos"] == 0:
@@ -315,7 +309,6 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
             "precio_promedio":   round(precio_promedio, 4) if precio_promedio is not None else None,
             "costo_remanente":   round(costo_rem, 2),
             "valor_actual_aum":  round(valor_aum, 2),
-            "valor_actual_calc": round(valor_calc, 2),
             "pnl_realizado":     round(pnl_real, 2),
             "pnl_no_realizado":  round(pnl_no_real, 2) if pnl_no_real is not None else None,
             "pnl_pasivo":        round(pnl_pas, 2),

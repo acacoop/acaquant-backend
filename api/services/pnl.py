@@ -408,6 +408,24 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         aum = aum_por_ticker.get(ticker, {})
 
         qty_aum       = float(aum.get("cantidad") or 0)
+
+        # Filtro de visibilidad: solo posiciones reales HOY o actividad
+        # intraday. Si AuM dice qty=0 (no tenés) y no hay boletos del
+        # día (no operaste hoy) — sacar la fila. Cubre los dos casos
+        # de ruido:
+        #   - cerrados históricos sin actividad (Schroder Retorno, EWZ,
+        #     ARKK, GD30, etc).
+        #   - fantasmas con cost residual de boletos viejos no reconciliados
+        #     (TX26, GGAL, AL30, COME, TSLA, IBIT, PLTR — el motor cree
+        #     que tenés stock por compras viejas, AuM dice que no).
+        # Si qty_aum != 0 (long, short, palanca, futuros, USD/ARS),
+        # SIEMPRE mostrar — es la verdad contable oficial.
+        hay_actividad_post_aum = bool(
+            fecha_actual and st["boletos"]
+            and any((b.get("fecha") or "") > fecha_actual for b in st["boletos"])
+        )
+        if qty_aum == 0 and not hay_actividad_post_aum:
+            continue
         precio_actual = float(aum.get("precio") or 0)
         valor_aum     = float(aum.get("valuacion") or 0)
         tipoTitulo    = aum.get("tipoTitulo")

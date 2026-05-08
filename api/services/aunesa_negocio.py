@@ -73,6 +73,19 @@ PATTERN_SOLICITUD_FCI = re.compile(
     re.IGNORECASE,
 )
 
+# Liquidación de FCI bilateral — el paso 2 del flujo "Solicitud → Liquidación"
+# para fondos que no tienen suscripción/rescate provisional inmediato. Difiere
+# del PATTERN_BOLETO en que NO trae `(MONEDA PLAZO)` al final, así que la
+# moneda real se infiere de la línea de dinero del comprobante (igual que
+# acreencia). Op resultante: "Liquidación de suscripción" o "Liquidación
+# de rescate" → categorizador los mapea a suscripcion_fci / rescate_fci.
+PATTERN_LIQUIDACION_FCI = re.compile(
+    r"^Liquidaci[oó]n\s+de\s+(?P<accion>suscripci[oó]n|rescate)\s*-\s*"
+    r"\[(?P<ticker>[^\]]+)\]\s+"
+    r"(?P<cantidad>[\d.,]+)@(?P<precio>[\d.,]+)",
+    re.IGNORECASE,
+)
+
 PATTERN_ACREENCIA_TICKER = re.compile(r"\bs/(?P<ticker>[\w./-]+)", re.IGNORECASE)
 
 
@@ -113,8 +126,8 @@ def _parse_num_ar(x: str) -> float:
 
 def parse_informacion(s: str) -> dict[str, Any] | None:
     """Parsea el campo `informacion` con cascada de patrones:
-       boleto → caución → solicitud FCI bilateral → acreencia.
-       None si no matchea ninguno.
+       boleto → caución → solicitud FCI bilateral → liquidación FCI
+       bilateral → acreencia. None si no matchea ninguno.
     """
     if not s:
         return None
@@ -129,6 +142,22 @@ def parse_informacion(s: str) -> dict[str, Any] | None:
             "precio":   _parse_num_ar(g["precio"]),
             "moneda":   g["moneda"],
             "plazo":    g["plazo"].strip(),
+            "fase":     None,
+        }
+
+    m = PATTERN_LIQUIDACION_FCI.match(s)
+    if m:
+        g = m.groupdict()
+        accion = "suscripción" if "suscripci" in g["accion"].lower() else "rescate"
+        return {
+            "op":       f"Liquidación de {accion}",
+            "ticker":   g["ticker"],
+            "cantidad": _parse_num_ar(g["cantidad"]),
+            "precio":   _parse_num_ar(g["precio"]),
+            # Sin moneda — se infiere de la línea de dinero del comprobante
+            # en `agrupar_boletos`. Mismo patrón que acreencia.
+            "moneda":   None,
+            "plazo":    None,
             "fase":     None,
         }
 

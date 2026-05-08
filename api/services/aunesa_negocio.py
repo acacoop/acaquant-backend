@@ -215,16 +215,18 @@ def categorizar(informacion: str, parsed: dict | None) -> str:
         return "impuesto"
 
     if parsed:
-        op_low = parsed["op"].lower()
+        # _normalizar saca tildes + lowerea. Cubre "Licitación" / "Licitacion"
+        # / "LICITACIÓN" / etc. de manera uniforme.
+        op_norm = _normalizar(parsed["op"])
         # Compra primaria por licitación (BYMA / Tesoro): es funcionalmente
         # idéntica a una compra secundaria — entra en cost-basis igual.
-        if op_low.startswith("compra") or op_low.startswith("licitaci"):
+        if op_norm.startswith("compra") or op_norm.startswith("licitaci"):
             return "compra"
-        if op_low.startswith("venta"):
+        if op_norm.startswith("venta"):
             return "venta"
-        if "suscripci" in op_low:
+        if "suscripci" in op_norm:
             return "suscripcion_fci"
-        if "rescate" in op_low:
+        if "rescate" in op_norm:
             return "rescate_fci"
 
     return "otro"

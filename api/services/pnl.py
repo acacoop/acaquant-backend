@@ -55,21 +55,37 @@ _CATS_RELEVANTES   = _CATS_PAGO | _CATS_COBRO_VENTA | _CATS_COBRO_PASIVO
 
 _OPS_PASIVOS = ("Cash dividend", "Interest payment", "Partial redemption")
 
-# Captura el ticker corto, descartando la descripción larga separada por
-# " - " (espacio guión espacio). Preserva guiones internos sin espacios
-# (ej. "CAFCI707-1132" no se rompe).
-#   "[5921] AL30"                                  → "AL30"
-#   "[XXXX] AO28 - BONO TESORO NAC. 6% 31/10/28"   → "AO28"
-#   "[1132] CAFCI707-1132 - FCI Toronto Trust"     → "CAFCI707-1132"
-_RE_TICKER_CORTO = re.compile(r"^\[\d+\]\s*(.+?)(?=\s+-\s+|$)")
+# Fallback regex sólo si `Valuaciones.Assets.TICKER` no está set (gap de
+# metadata). Path principal: leer el TICKER del doc de Assets directo,
+# que es la tabla maestra del mapping unidad ↔ ticker corto.
+_RE_TICKER_FALLBACK = re.compile(r"^\[\d+\]\s*(.+?)(?=\s+-\s+|$)")
 
 
-def _ticker_corto(unidad: str) -> str:
-    """`[5921] AL30` → `AL30`. La unidad del AuM tiene prefijo numérico
-    + (a veces) descripción larga después de " - "; el ticker de
-    NegocioMovimientos solo trae el código corto. Esta función los aliñea."""
-    m = _RE_TICKER_CORTO.match(unidad or "")
+def _ticker_corto_fallback(unidad: str) -> str:
+    """Solo si Valuaciones.Assets no tiene TICKER para esta unidad."""
+    m = _RE_TICKER_FALLBACK.match(unidad or "")
     return m.group(1).strip() if m else (unidad or "")
+
+
+def _build_unidad_to_ticker_map(db_v) -> dict[str, str]:
+    """Lee Valuaciones.Assets (UPPERCASE, fuente de verdad) y devuelve
+    {unidad: TICKER}. Si TICKER está vacío / "NO APLICA" / null, cae al
+    fallback regex sobre la unidad. Cacheado dentro del lifetime del
+    request — Assets cambia poco."""
+    out: dict[str, str] = {}
+    placeholders = {"", "NO APLICA"}
+    for d in db_v["Assets"].find(
+        {}, {"_id": 0, "unidad": 1, "TICKER": 1}
+    ):
+        unidad = d.get("unidad")
+        if not unidad:
+            continue
+        ticker = (d.get("TICKER") or "").strip()
+        if ticker and ticker not in placeholders:
+            out[unidad] = ticker
+        else:
+            out[unidad] = _ticker_corto_fallback(unidad)
+    return out
 
 
 def _new_state() -> dict:
@@ -201,6 +217,10 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
                 st["breakdown_otros"] += importe_ars
 
     # ── 4. Posición actual del AuM (último snapshot) ───────────────────
+    # Map unidad → TICKER desde Valuaciones.Assets (fuente de verdad del
+    # mapeo). Si una unidad no tiene TICKER en Assets, cae al regex fallback.
+    unidad_to_ticker = _build_unidad_to_ticker_map(db_v)
+
     last = db_v["AuM"].find_one(
         {"id_cuenta": id_cuenta},
         {"_id": 0, "fecha_snapshot": 1},
@@ -214,7 +234,7 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
             {"_id": 0, "unidad": 1, "cantidad": 1, "precio": 1, "valuacion": 1},
         ):
             unidad = d.get("unidad", "")
-            ticker = _ticker_corto(unidad)
+            ticker = unidad_to_ticker.get(unidad) or _ticker_corto_fallback(unidad)
             if not ticker:
                 continue
             aum_por_ticker[ticker] = {

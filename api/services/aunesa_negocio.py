@@ -80,8 +80,9 @@ PATTERN_SOLICITUD_FCI = re.compile(
 # acreencia). Op resultante: "Liquidación de suscripción" o "Liquidación
 # de rescate" → categorizador los mapea a suscripcion_fci / rescate_fci.
 PATTERN_LIQUIDACION_FCI = re.compile(
-    r"^Liquidaci[oó]n\s+de\s+(?P<accion>suscripci[oó]n|rescate)\s*-\s*"
-    r"\[(?P<ticker>[^\]]+)\]\s+"
+    r"^Liquidaci[oó]n\s+de\s+(?P<accion>suscripci[oó]n|rescate)"
+    r"(?:\s+de\s+FCI)?"  # sufijo "de FCI" opcional (aparece en rescates)
+    r"\s*-\s*\[(?P<ticker>[^\]]+)\]\s+"
     r"(?P<cantidad>[\d.,]+)@(?P<precio>[\d.,]+)",
     re.IGNORECASE,
 )

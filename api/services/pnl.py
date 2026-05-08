@@ -45,8 +45,86 @@ from collections import defaultdict
 from typing import Any
 
 from api.cache import cached
-from api.db import get_db_cashflow, get_db_valuaciones
+from api.db import get_db_cashflow, get_db_trading, get_db_valuaciones
 from api.services._mep import get_mep_for_date
+
+# Reglas de normalización por tipo (mismas que jobs/aum.py::_calcular_valuacion).
+# Duplicadas acá para evitar que api/services/ dependa de jobs/. Si en el
+# futuro se centralizan, refactorizar ambos lados juntos.
+_TIPOS_DIVISOR_100 = {
+    "Títulos Públicos",
+    "Letras del Tesoro Capitalizables en Pesos",
+    "Letras del Tesoro Ajustables por CER en Pesos",
+    "Títulos de Deuda",
+    "Obligaciones Negociables",
+    "Fideicomisos Financieros",
+    "Cheques de Pago Diferido",
+}
+_TIPOS_FUTUROS = {"Futuros", "Forwards", "Derivados"}
+_PLACEHOLDERS_INSTRUMENTO = {"", "NO APLICA"}
+
+
+def _aplicar_normalizer(precio: float, qty: float, tipoTitulo: str | None) -> float:
+    """Mismo divisor/+1 que jobs/aum.py — para que valor_actual_live
+    sea homogéneo con valor_aum."""
+    tipo = str(tipoTitulo or "")
+    if any(f.lower() in tipo.lower() for f in _TIPOS_FUTUROS):
+        precio = precio + 1.0
+    if tipo in _TIPOS_DIVISOR_100:
+        return (precio * qty) / 100
+    return precio * qty
+
+
+def _valor_actual_live(
+    db_t, db_v, unidad: str, qty_efectiva: float,
+    tipoTitulo: str | None, valor_aum: float,
+) -> tuple[float, str]:
+    """Cadena de fallback para `valor_actual` durante la rueda.
+
+    Returns:
+        (valor, fuente) donde fuente ∈ {"live", "cierre", "aum"}.
+
+    1. PortfolioSnapshot.last_price (motor live de tenencia).
+    2. SnapshotsCierre.last_price (último cierre persistido).
+    3. valor_aum directo — fallback definitivo. Significa que si
+       qty_efectiva != qty_aum, se mantiene la inconsistencia
+       conocida (no reescribimos sin precio confiable).
+    """
+    if not unidad or qty_efectiva <= 0:
+        return valor_aum, "aum"
+
+    asset = db_v["Assets"].find_one({"unidad": unidad}, {"_id": 0, "INSTRUMENTO": 1})
+    instrumento = ((asset or {}).get("INSTRUMENTO") or "").strip()
+    if instrumento and instrumento not in _PLACEHOLDERS_INSTRUMENTO:
+        # 1. PortfolioSnapshot — motor live escribe acá.
+        snap = db_t["PortfolioSnapshot"].find_one(
+            {"ticker": instrumento},
+            {"_id": 0, "last_price": 1, "closing_price": 1},
+        )
+        if snap:
+            for campo in ("last_price", "closing_price"):
+                px = snap.get(campo)
+                try:
+                    px = float(px) if px is not None else None
+                except (TypeError, ValueError):
+                    px = None
+                if px is not None and px > 0:
+                    return _aplicar_normalizer(px, qty_efectiva, tipoTitulo), "live"
+        # 2. SnapshotsCierre — último cierre persistido.
+        snc = db_t["SnapshotsCierre"].find_one(
+            {"ticker": instrumento},
+            {"_id": 0, "last_price": 1, "fecha": 1},
+            sort=[("fecha", -1)],
+        )
+        if snc:
+            try:
+                px = float(snc.get("last_price")) if snc.get("last_price") is not None else None
+            except (TypeError, ValueError):
+                px = None
+            if px is not None and px > 0:
+                return _aplicar_normalizer(px, qty_efectiva, tipoTitulo), "cierre"
+    return valor_aum, "aum"
+
 
 _CATS_PAGO         = {"compra", "suscripcion_fci"}
 _CATS_COBRO_VENTA  = {"venta", "rescate_fci"}
@@ -289,18 +367,22 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
     if fecha_actual:
         for d in db_v["AuM"].find(
             {"id_cuenta": id_cuenta, "fecha_snapshot": fecha_actual},
-            {"_id": 0, "unidad": 1, "cantidad": 1, "precio": 1, "valuacion": 1},
+            {"_id": 0, "unidad": 1, "cantidad": 1, "precio": 1,
+             "valuacion": 1, "tipoTitulo": 1},
         ):
             unidad = d.get("unidad", "")
             ticker = unidad_to_ticker.get(unidad) or _ticker_corto_fallback(unidad)
             if not ticker:
                 continue
             aum_por_ticker[ticker] = {
-                "unidad":    unidad,
-                "cantidad":  float(d.get("cantidad") or 0),
-                "precio":    float(d.get("precio") or 0),
-                "valuacion": float(d.get("valuacion") or 0),
+                "unidad":     unidad,
+                "cantidad":   float(d.get("cantidad") or 0),
+                "precio":     float(d.get("precio") or 0),
+                "valuacion":  float(d.get("valuacion") or 0),
+                "tipoTitulo": d.get("tipoTitulo"),
             }
+
+    db_t = get_db_trading()
 
     # ── 5. Construir filas y totales ────────────────────────────────────
     rows: list[dict[str, Any]] = []
@@ -321,20 +403,39 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         qty_aum       = float(aum.get("cantidad") or 0)
         precio_actual = float(aum.get("precio") or 0)
         valor_aum     = float(aum.get("valuacion") or 0)
+        tipoTitulo    = aum.get("tipoTitulo")
+        unidad_actual = aum.get("unidad", "")
         qty_calc      = st["qty_actual"]
         costo_rem     = st["costo_remanente"]
         pnl_real      = st["pnl_realizado"]
         pnl_pas       = st["pnl_pasivo"]
 
-        # PnL no-realizado: siempre usamos `valor_aum` (la valuación del
-        # último snapshot, que YA tiene aplicado el divisor /100 para
-        # bonos y demás reglas). Multiplicar qty_calc * precio_actual da
-        # números irreales para bonos porque precio_actual viene en
-        # paridad cruda.
-        if qty_aum > 0 and qty_calc > 0:
-            pnl_no_real: float | None = valor_aum - costo_rem
+        # qty_efectiva: si tenemos boletos, qty_calc es la verdad operativa
+        # (refleja todo lo movido, incluido intraday del día). Si NO hay
+        # boletos, caemos al qty del AuM como única señal de tenencia.
+        if st["n_movimientos"] > 0:
+            qty_efectiva = qty_calc
         else:
-            pnl_no_real = None  # cerrado o sin boletos — no calculamos
+            qty_efectiva = qty_aum
+
+        # Valor actual: cadena live → cierre → AuM. Live arregla el
+        # descalce intraday del AuM (RKLB +433 hoy: AuM=25 stale,
+        # qty_calc=458 real) y ETHA vendido (qty_calc=0 → valor=0
+        # aunque AuM siga mostrando 650).
+        valor_actual_live, fuente_valor = _valor_actual_live(
+            db_t, db_v, unidad_actual, qty_efectiva, tipoTitulo, valor_aum,
+        )
+
+        # PnL no-realizado: usamos el valor live (qty_efectiva × precio
+        # vivo) contra el cost basis acumulado. Para tickers sin boletos
+        # pero con tenencia (sin_boletos), no podemos calcular pnl porque
+        # falta cost basis.
+        if qty_efectiva > 0 and st["n_movimientos"] > 0 and costo_rem > 0:
+            pnl_no_real: float | None = valor_actual_live - costo_rem
+        elif qty_efectiva == 0:
+            pnl_no_real = 0.0   # cerrado intraday: 0 no-realizado, todo en realizado
+        else:
+            pnl_no_real = None  # tenencia sin boletos — no calculable
 
         # Completeness: para entender qué tan confiable es el cálculo.
         if st["n_movimientos"] == 0:
@@ -357,31 +458,36 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         )
 
         rows.append({
-            "ticker":            ticker,
-            "display_name":      match_to_display.get(ticker, ticker),
-            "unidad":            aum.get("unidad", ""),
-            "qty_aum":           round(qty_aum, 4),
-            "qty_calc":          round(qty_calc, 4),
-            "qty_compras":       round(st["qty_compras"], 4),
-            "qty_ventas":        round(st["qty_ventas"], 4),
-            "precio_actual":     round(precio_actual, 4),
-            "precio_promedio":   round(precio_promedio, 4) if precio_promedio is not None else None,
-            "costo_remanente":   round(costo_rem, 2),
-            "valor_actual_aum":  round(valor_aum, 2),
-            "pnl_realizado":     round(pnl_real, 2),
-            "pnl_no_realizado":  round(pnl_no_real, 2) if pnl_no_real is not None else None,
-            "pnl_pasivo":        round(pnl_pas, 2),
-            "breakdown_pasivo":  breakdown,
-            "pnl_total":         round(pnl_total, 2),
-            "completeness":      completeness,
-            "moneda_mixta":      len(st["monedas"]) > 1,
-            "n_movimientos":     st["n_movimientos"],
-            "fechas_sin_mep":    sorted(st["fechas_sin_mep"]),
-            "boletos":           st["boletos"],
+            "ticker":             ticker,
+            "display_name":       match_to_display.get(ticker, ticker),
+            "unidad":             aum.get("unidad", ""),
+            "qty_aum":            round(qty_aum, 4),
+            "qty_calc":           round(qty_calc, 4),
+            "qty_efectiva":       round(qty_efectiva, 4),
+            "qty_compras":        round(st["qty_compras"], 4),
+            "qty_ventas":         round(st["qty_ventas"], 4),
+            "precio_actual":      round(precio_actual, 4),
+            "precio_promedio":    round(precio_promedio, 4) if precio_promedio is not None else None,
+            "costo_remanente":    round(costo_rem, 2),
+            "valor_actual_aum":   round(valor_aum, 2),
+            "valor_actual_live":  round(valor_actual_live, 2),
+            "valor_actual_source": fuente_valor,   # "live" | "cierre" | "aum"
+            "pnl_realizado":      round(pnl_real, 2),
+            "pnl_no_realizado":   round(pnl_no_real, 2) if pnl_no_real is not None else None,
+            "pnl_pasivo":         round(pnl_pas, 2),
+            "breakdown_pasivo":   breakdown,
+            "pnl_total":          round(pnl_total, 2),
+            "completeness":       completeness,
+            "moneda_mixta":       len(st["monedas"]) > 1,
+            "n_movimientos":      st["n_movimientos"],
+            "fechas_sin_mep":     sorted(st["fechas_sin_mep"]),
+            "boletos":            st["boletos"],
         })
 
         tot["costo_remanente"]  += costo_rem
-        tot["valor_actual"]     += valor_aum
+        # Total de valor_actual: usa valor_actual_live (que ya cae al
+        # AuM como fallback). Coherente con el valor por fila mostrado.
+        tot["valor_actual"]     += valor_actual_live
         tot["pnl_realizado"]    += pnl_real
         tot["pnl_no_realizado"] += (pnl_no_real or 0.0)
         tot["pnl_pasivo"]       += pnl_pas

@@ -55,12 +55,19 @@ _CATS_RELEVANTES   = _CATS_PAGO | _CATS_COBRO_VENTA | _CATS_COBRO_PASIVO
 
 _OPS_PASIVOS = ("Cash dividend", "Interest payment", "Partial redemption")
 
-_RE_TICKER_CORTO = re.compile(r"^\[\d+\]\s*(.+)$")
+# Captura el ticker corto, descartando la descripción larga separada por
+# " - " (espacio guión espacio). Preserva guiones internos sin espacios
+# (ej. "CAFCI707-1132" no se rompe).
+#   "[5921] AL30"                                  → "AL30"
+#   "[XXXX] AO28 - BONO TESORO NAC. 6% 31/10/28"   → "AO28"
+#   "[1132] CAFCI707-1132 - FCI Toronto Trust"     → "CAFCI707-1132"
+_RE_TICKER_CORTO = re.compile(r"^\[\d+\]\s*(.+?)(?=\s+-\s+|$)")
 
 
 def _ticker_corto(unidad: str) -> str:
-    """`[5921] AL30` → `AL30`. La unidad del AuM tiene prefijo numérico,
-    el ticker de NegocioMovimientos no — esto los aliñea."""
+    """`[5921] AL30` → `AL30`. La unidad del AuM tiene prefijo numérico
+    + (a veces) descripción larga después de " - "; el ticker de
+    NegocioMovimientos solo trae el código corto. Esta función los aliñea."""
     m = _RE_TICKER_CORTO.match(unidad or "")
     return m.group(1).strip() if m else (unidad or "")
 

@@ -477,7 +477,19 @@ def fetch_y_consolidar(
         raise requests.exceptions.Timeout(f"timeout tras {retries} intentos: {last_err}")
 
     resp.raise_for_status()
-    data = resp.json()
+    # Aunesa devuelve body vacío en feriados / días no hábiles → JSONDecodeError.
+    # Lo tratamos como día sin boletos en vez de explotar (consumer ve `data=[]`).
+    body = (resp.text or "").strip()
+    if not body:
+        logger.info("aunesa devolvió body vacío para %s — tratado como día sin boletos.", dia_str)
+        data = []
+    else:
+        try:
+            data = resp.json()
+        except ValueError as e:
+            logger.warning("aunesa devolvió no-JSON para %s (%d bytes) — tratado como día sin boletos. %s",
+                           dia_str, len(body), e)
+            data = []
     if not isinstance(data, list):
         raise RuntimeError(f"shape inesperada: {type(data).__name__}")
 

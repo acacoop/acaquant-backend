@@ -213,7 +213,10 @@ def _new_state() -> dict:
         "importe_invertido": 0.0,   # Σ |importe| de TODAS las compras
                                     # (incluye posiciones ya cerradas)
         "pnl_realizado":    0.0,    # ganancias/pérdidas de ventas pasadas
+        "pnl_realizado_dia": 0.0,   # solo de boletos > fecha_actual_aum
+                                    # (day-trades intraday)
         "pnl_pasivo":       0.0,    # cupones + divs + amorts
+        "pnl_pasivo_dia":   0.0,    # idem pero solo de los acreencia post-AuM
         "breakdown_pasivo": {op: 0.0 for op in _OPS_PASIVOS},
         "breakdown_otros":  0.0,    # acreencia con op desconocido
         "qty_compras":      0.0,    # bruto, para detectar pre-data
@@ -246,6 +249,20 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
          "ticker": 1, "cantidad": 1, "precio": 1, "importe": 1,
          "moneda": 1, "comprobante": 1, "mep": 1},
     ).sort([("fecha", 1), ("comprobante", 1)]))
+
+    # ── 1b. Última fecha del AuM — para distinguir movimientos intraday.
+    # Boletos con fecha > fecha_actual_aum son day-trades del período actual
+    # (post último cierre persistido). Su realizado se acumula aparte
+    # para que la UI lo pueda mostrar en tickers cerrados intraday
+    # (donde qty_efectiva=0 pero hubo trading hoy).
+    last_aum_doc = db_v["AuM"].find_one(
+        {"id_cuenta": id_cuenta},
+        {"_id": 0, "fecha_snapshot": 1},
+        sort=[("fecha_snapshot", -1)],
+    )
+    fecha_actual_aum: str | None = (
+        last_aum_doc["fecha_snapshot"] if last_aum_doc else None
+    )
 
     # ── 2. Pesificación helper ──────────────────────────────────────────
     # Cache solo para fallback (fechas que no tenían mep en el doc).
@@ -352,6 +369,9 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
             # trades, ROE) y permite que la compra contraparte las
             # cancele luego sin inflar el cost-basis. Resultado: qty
             # neto coincide con el AuM cuando los wash trades existen.
+            es_post_aum = bool(
+                fecha_actual_aum and (fecha or "") > fecha_actual_aum
+            )
             if st["qty_actual"] > 0:
                 avg_cost = st["costo_remanente"] / st["qty_actual"]
                 qty_a_vender = min(cantidad, st["qty_actual"])
@@ -363,7 +383,10 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
                     ingreso_total * (qty_a_vender / cantidad)
                     if cantidad > 0 else 0
                 )
-                st["pnl_realizado"]   += ingreso_proporcional - (avg_cost * qty_a_vender)
+                realizado_este = ingreso_proporcional - (avg_cost * qty_a_vender)
+                st["pnl_realizado"] += realizado_este
+                if es_post_aum:
+                    st["pnl_realizado_dia"] += realizado_este
                 st["costo_remanente"] -= avg_cost * qty_a_vender
             st["qty_actual"]  -= cantidad
             st["qty_ventas"]  += cantidad
@@ -371,7 +394,12 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         elif cat in _CATS_COBRO_PASIVO:
             # Acreencia: cupón / dividendo / amortización. Cobro suelto
             # que NO afecta cantidad ni cost basis.
+            es_post_aum = bool(
+                fecha_actual_aum and (fecha or "") > fecha_actual_aum
+            )
             st["pnl_pasivo"] += importe_ars
+            if es_post_aum:
+                st["pnl_pasivo_dia"] += importe_ars
             if op in st["breakdown_pasivo"]:
                 st["breakdown_pasivo"][op] += importe_ars
             else:
@@ -383,12 +411,9 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
     # match_key es el código CAFCI y el display es el nombre del fondo.
     unidad_to_ticker, match_to_display = _build_unidad_maps(db_v)
 
-    last = db_v["AuM"].find_one(
-        {"id_cuenta": id_cuenta},
-        {"_id": 0, "fecha_snapshot": 1},
-        sort=[("fecha_snapshot", -1)],
-    )
-    fecha_actual = last["fecha_snapshot"] if last else None
+    # fecha_actual se calculó al inicio de la función (fecha_actual_aum).
+    # Reusamos el mismo valor para la query del snapshot.
+    fecha_actual = fecha_actual_aum
     aum_por_ticker: dict[str, dict] = {}
     if fecha_actual:
         for d in db_v["AuM"].find(
@@ -413,12 +438,14 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
     # ── 5. Construir filas y totales ────────────────────────────────────
     rows: list[dict[str, Any]] = []
     tot = {
-        "costo_remanente":  0.0,
-        "valor_actual":     0.0,    # del AuM (lo que físicamente tenés)
-        "pnl_realizado":    0.0,
-        "pnl_no_realizado": 0.0,
-        "pnl_pasivo":       0.0,
-        "pnl_total":        0.0,
+        "costo_remanente":   0.0,
+        "valor_actual":      0.0,    # del AuM (lo que físicamente tenés)
+        "pnl_realizado":     0.0,
+        "pnl_realizado_dia": 0.0,    # day-trades intraday (post fecha_aum)
+        "pnl_no_realizado":  0.0,
+        "pnl_pasivo":        0.0,
+        "pnl_pasivo_dia":    0.0,
+        "pnl_total":         0.0,
     }
 
     todos = set(state) | set(aum_por_ticker)
@@ -525,8 +552,10 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
             "valor_actual_live":  round(valor_actual_live, 2),
             "valor_actual_source": fuente_valor,   # "live" | "cierre" | "aum"
             "pnl_realizado":      round(pnl_real, 2),
+            "pnl_realizado_dia":  round(st["pnl_realizado_dia"], 2),
             "pnl_no_realizado":   round(pnl_no_real, 2) if pnl_no_real is not None else None,
             "pnl_pasivo":         round(pnl_pas, 2),
+            "pnl_pasivo_dia":     round(st["pnl_pasivo_dia"], 2),
             "breakdown_pasivo":   breakdown,
             "pnl_total":          round(pnl_total, 2),
             "completeness":       completeness,
@@ -536,14 +565,16 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
             "boletos":            st["boletos"],
         })
 
-        tot["costo_remanente"]  += costo_rem
+        tot["costo_remanente"]   += costo_rem
         # Total de valor_actual: usa valor_actual_live (que ya cae al
         # AuM como fallback). Coherente con el valor por fila mostrado.
-        tot["valor_actual"]     += valor_actual_live
-        tot["pnl_realizado"]    += pnl_real
-        tot["pnl_no_realizado"] += (pnl_no_real or 0.0)
-        tot["pnl_pasivo"]       += pnl_pas
-        tot["pnl_total"]        += pnl_total
+        tot["valor_actual"]      += valor_actual_live
+        tot["pnl_realizado"]     += pnl_real
+        tot["pnl_realizado_dia"] += st["pnl_realizado_dia"]
+        tot["pnl_no_realizado"]  += (pnl_no_real or 0.0)
+        tot["pnl_pasivo"]        += pnl_pas
+        tot["pnl_pasivo_dia"]    += st["pnl_pasivo_dia"]
+        tot["pnl_total"]         += pnl_total
 
     rows.sort(key=lambda r: -r["pnl_total"])
 
@@ -552,12 +583,14 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         "fecha_actual": fecha_actual,
         "rows":         rows,
         "totales": {
-            "costo_remanente":  round(tot["costo_remanente"], 2),
-            "valor_actual":     round(tot["valor_actual"], 2),
-            "pnl_realizado":    round(tot["pnl_realizado"], 2),
-            "pnl_no_realizado": round(tot["pnl_no_realizado"], 2),
-            "pnl_pasivo":       round(tot["pnl_pasivo"], 2),
-            "pnl_total":        round(tot["pnl_total"], 2),
+            "costo_remanente":   round(tot["costo_remanente"], 2),
+            "valor_actual":      round(tot["valor_actual"], 2),
+            "pnl_realizado":     round(tot["pnl_realizado"], 2),
+            "pnl_realizado_dia": round(tot["pnl_realizado_dia"], 2),
+            "pnl_no_realizado":  round(tot["pnl_no_realizado"], 2),
+            "pnl_pasivo":        round(tot["pnl_pasivo"], 2),
+            "pnl_pasivo_dia":    round(tot["pnl_pasivo_dia"], 2),
+            "pnl_total":         round(tot["pnl_total"], 2),
         },
         "n_tickers": len(rows),
     }

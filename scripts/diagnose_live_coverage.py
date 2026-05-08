@@ -86,9 +86,11 @@ def main() -> int:
         else:
             con_instrumento.append((t, a, instrumento))
 
-    # 4) Lookup MarketSnapshot — ¿el INSTRUMENTO existe?
+    # 4) Lookup MarketSnapshot — ¿el INSTRUMENTO existe? El motor_rofex
+    # escribe via UpdateOne({"ticker": ticker}, ...) → la clave es el
+    # field `ticker`, NO `_id`.
     instrumentos = list({i for _, _, i in con_instrumento})
-    snaps_ids = set(db_t["MarketSnapshot"].distinct("_id", {"_id": {"$in": instrumentos}}))
+    snaps_ids = set(db_t["MarketSnapshot"].distinct("ticker", {"ticker": {"$in": instrumentos}}))
     con_live = [(t, a, i) for t, a, i in con_instrumento if i in snaps_ids]
     sin_live = [(t, a, i) for t, a, i in con_instrumento if i not in snaps_ids]
 

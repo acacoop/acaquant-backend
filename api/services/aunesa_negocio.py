@@ -81,7 +81,10 @@ PATTERN_SOLICITUD_FCI = re.compile(
 # de rescate" → categorizador los mapea a suscripcion_fci / rescate_fci.
 PATTERN_LIQUIDACION_FCI = re.compile(
     r"^Liquidaci[oó]n\s+de\s+(?P<accion>suscripci[oó]n|rescate)"
-    r"(?:\s+de\s+FCI)?"  # sufijo "de FCI" opcional (aparece en rescates)
+    # Sufijo "de FCI" opcional (aparece en rescates). A veces Aunesa
+    # concatena un número malformado contra "FCI" sin espacio
+    # (ej "de FCI523.814.348,34") — `[\d.,]*` lo absorbe y descarta.
+    r"(?:\s+de\s+FCI[\d.,]*)?"
     r"\s*-\s*\[(?P<ticker>[^\]]+)\]\s+"
     r"(?P<cantidad>[\d.,]+)@(?P<precio>[\d.,]+)",
     re.IGNORECASE,

@@ -323,31 +323,50 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         })
 
         if cat in _CATS_PAGO:
-            # Compra: importe negativo → uso |importe| como costo invertido
+            # Compra: importe negativo → |importe| es el costo invertido.
+            #
+            # Caso especial: wash trades / caución / ROE / trasvaso.
+            # Cuando previamente vino una venta que excedía el stock
+            # disponible (ej. caución colocadora -50M sin tener 50M),
+            # qty_actual quedó negativo. Si esta compra "cubre" ese
+            # short, NO sumamos al cost-basis — la operación neta es
+            # cero. Solo la parte que excede el short es compra real.
             costo_total = abs(importe_ars)
-            st["costo_remanente"] += costo_total
-            st["qty_actual"]      += cantidad
-            st["qty_compras"]     += cantidad
+            if st["qty_actual"] < 0 and cantidad > 0:
+                cubierto = min(cantidad, -st["qty_actual"])
+                nueva_compra = cantidad - cubierto
+                if nueva_compra > 0:
+                    # Solo lo que excede el short entra al costo,
+                    # proporcional al importe del boleto.
+                    st["costo_remanente"] += costo_total * (nueva_compra / cantidad)
+            else:
+                st["costo_remanente"] += costo_total
+            st["qty_actual"]  += cantidad
+            st["qty_compras"] += cantidad
 
         elif cat in _CATS_COBRO_VENTA:
             ingreso_total = importe_ars   # positivo
-            qty_a_vender  = min(cantidad, st["qty_actual"]) if st["qty_actual"] > 0 else 0
-            if qty_a_vender > 0 and st["qty_actual"] > 0:
+            #
+            # Sin clip — qty_actual puede ir a negativo. Esto refleja
+            # ventas que exceden el stock conocido (caución, wash
+            # trades, ROE) y permite que la compra contraparte las
+            # cancele luego sin inflar el cost-basis. Resultado: qty
+            # neto coincide con el AuM cuando los wash trades existen.
+            if st["qty_actual"] > 0:
                 avg_cost = st["costo_remanente"] / st["qty_actual"]
-                # Si la venta excede el stock conocido (puede pasar con
-                # boletos pre-data), proporcionalizamos el ingreso
-                # para no inflar el realizado.
+                qty_a_vender = min(cantidad, st["qty_actual"])
+                # Realizado proporcional a la porción que sí tenía
+                # cost-basis. La parte excedente (cantidad - qty_a_vender)
+                # NO genera realizado — su contraparte (compra futura)
+                # se compensa entera, generando un wash neutro.
                 ingreso_proporcional = (
                     ingreso_total * (qty_a_vender / cantidad)
                     if cantidad > 0 else 0
                 )
                 st["pnl_realizado"]   += ingreso_proporcional - (avg_cost * qty_a_vender)
                 st["costo_remanente"] -= avg_cost * qty_a_vender
-                st["qty_actual"]      -= qty_a_vender
-            # Si qty_a_vender == 0 (no había stock conocido), la venta
-            # queda como "fantasma" — no genera realizado en opción A.
-            # En opción B sumaríamos el ingreso directo. Acá conservador.
-            st["qty_ventas"] += cantidad
+            st["qty_actual"]  -= cantidad
+            st["qty_ventas"]  += cantidad
 
         elif cat in _CATS_COBRO_PASIVO:
             # Acreencia: cupón / dividendo / amortización. Cobro suelto

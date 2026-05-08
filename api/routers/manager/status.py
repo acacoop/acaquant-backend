@@ -31,11 +31,12 @@ def _es_rueda(ahora_ar: datetime) -> bool:
 
 
 _MOTORES = [
-    ("Trading",  "TimeSales",       "timestamp",  "TimeSales (rofex)",    300, _AR_TZ),
-    ("Trading",  "MarketSnapshot",  "updated_at", "MarketSnapshot",       120, UTC),
-    ("Trading",  "ForwardsLive",    "updated_at", "ForwardsLive",          60, UTC),
-    ("Trading",  "BreakevensLive",  "updated_at", "BreakevensLive",        60, UTC),
-    ("Opciones", "OptionsSnapshot", "updated_at", "OptionsSnapshot",      180, UTC),
+    ("Trading",  "TimeSales",         "timestamp",  "TimeSales (rofex)",        300, _AR_TZ),
+    ("Trading",  "MarketSnapshot",    "updated_at", "MarketSnapshot",           120, UTC),
+    ("Trading",  "PortfolioSnapshot", "updated_at", "PortfolioSnapshot (live tenencia)", 120, UTC),
+    ("Trading",  "ForwardsLive",      "updated_at", "ForwardsLive",              60, UTC),
+    ("Trading",  "BreakevensLive",    "updated_at", "BreakevensLive",            60, UTC),
+    ("Opciones", "OptionsSnapshot",   "updated_at", "OptionsSnapshot",          180, UTC),
 ]
 
 _JOBS_STATUS = [
@@ -55,18 +56,20 @@ _JOBS_STATUS = [
 # solo_en_rueda=True → fuera de la ventana 10-17 ART no se espera data
 # nueva, último conocido se muestra como "fuera_ventana" (no stale).
 _APIS_EXTERNAS = [
-    ("Valuaciones", "DolarOficialLive",  "updated_at",        "datetime",
-     None,                          "MAE UST$T (PC oficina)", 5,   "cada 30s en rueda",     True),
-    ("Trading",     "RiesgoPais",        "fecha",              "iso",
-     None,                          "argentinadatos (RP)",    36*60, "diario 12:00 UTC",     False),
-    ("Trading",     "InflacionMensual",  "fecha",              "iso",
-     None,                          "argentinadatos (IPC)",   36*60, "diario 12:00 UTC",     False),
-    ("Market",      "Quotes",            "updated_at",         "datetime",
-     None,                          "Yahoo (market_quotes)",  10,  "cada 1 min 13-21 UTC L-V", True),
-    ("News",        "Headlines",         "fecha_publicacion",  "datetime",
-     {"fuente": "finnhub"},         "Finnhub news",           60,  "*/30 min 12-23 UTC",   False),
-    ("News",        "Headlines",         "fecha_publicacion",  "datetime",
-     {"fuente": {"$ne": "finnhub"}},"RSS medios AR",          45,  "*/15 min 12-23 UTC",   False),
+    ("Valuaciones", "DolarOficialLive",     "updated_at",        "datetime",
+     None,                          "MAE UST$T (PC oficina)",   5,    "cada 30s en rueda",       True),
+    ("Trading",     "RiesgoPais",           "fecha",              "iso",
+     None,                          "argentinadatos (RP)",      36*60, "diario 12:00 UTC",       False),
+    ("Trading",     "InflacionMensual",     "fecha",              "iso",
+     None,                          "argentinadatos (IPC)",     36*60, "diario 12:00 UTC",       False),
+    ("CashFlow",    "NegocioMovimientos",   "ingestado_en",       "datetime",
+     None,                          "Aunesa (boletos)",         70,    "cada 60 min en rueda",   True),
+    ("Market",      "Quotes",               "updated_at",         "datetime",
+     None,                          "Yahoo (market_quotes)",    10,    "cada 1 min 13-21 UTC L-V", True),
+    ("News",        "Headlines",            "fecha_publicacion",  "datetime",
+     {"fuente": "finnhub"},         "Finnhub news",             60,    "*/30 min 12-23 UTC",     False),
+    ("News",        "Headlines",            "fecha_publicacion",  "datetime",
+     {"fuente": {"$ne": "finnhub"}},"RSS medios AR",            45,    "*/15 min 12-23 UTC",     False),
 ]
 
 

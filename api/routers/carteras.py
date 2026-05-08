@@ -34,20 +34,6 @@ def listar_aum(
     )
 
 
-@router.get("/resumen")
-def resumen_portfolio(
-    id_cuenta: str | None = Query(None, description="id_cuenta para breakdown por cartera"),
-):
-    return svc.resumen_portfolio(id_cuenta=id_cuenta)
-
-
-@router.get("/detalle")
-def detalle_portfolio(
-    id_cuenta: str = Query(..., description="id_cuenta de la cuenta a consultar"),
-):
-    return svc.detalle_portfolio(id_cuenta=id_cuenta)
-
-
 @router.get("/tasa-fija")
 def tasa_fija_snapshot():
     return svc.tasa_fija_snapshot()

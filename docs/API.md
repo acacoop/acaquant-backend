@@ -548,8 +548,6 @@ Reads from `PortfolioAPI.CarterasAPI`, `PortfolioAPI.AumAPI`, `TitulosAPI.Assets
 |---|---|---|
 | GET | `/carteras` | Raw positions (current) |
 | GET | `/aum` | AuM snapshots (historical) |
-| GET | `/resumen` | Executive summary + per-CARTERA breakdown |
-| GET | `/detalle` | Per-position detail with share % |
 | GET | `/tasa-fija` | Tasa-fija bucket from latest AuM snapshot |
 | GET | `/cer` | CER bucket from latest AuM snapshot |
 | GET | `/fci-serie` | FCI history (rollup + per-issuer split) |

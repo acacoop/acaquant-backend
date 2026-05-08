@@ -581,7 +581,7 @@ def posiciones_actuales(
         # precio se sobrescribe — todos los lotes del mismo día tienen mismo precio.
         st["precio"] = precio
 
-    # Enriquecer con master data (mismo patrón que portfolio.detalle_portfolio):
+    # Enriquecer con master data (mismo patrón que el detalle de portfolio legacy):
     # - cartera + clase_activo: Valuaciones.Assets UPPERCASE (fuente de verdad).
     # - ticker + emisor + calificacion + vencimiento: TitulosAPI.AssetsAPI (lowercase).
     db_t = get_db_titulos()

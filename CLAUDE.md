@@ -135,6 +135,40 @@ Cada uno escribe SOLO sus campos via `UpdateOne($set: dot-notation, upsert=True)
 
 Motor dedicado `engines/order_book_l2.py` — sesión rofex separada del motor_rofex, suscribe solo entries `BIDS+OFFERS` con depth 5 para los tickers en `config.TICKERS_BOOK_FULL`. Cada cambio del book persistido como doc nuevo (append-only) en `Trading.OrderBookL2` (Time Series Collection). Sin pisado de TimeSales/MarketSnapshot. Cron L-V 13:00–20:05 UTC vía `motor_order_book_l2.service`. Setup one-shot: `python -m scripts.init_orderbook_l2_collection`.
 
+## Motor de Valuaciones (PnL Títulos)
+
+Doc dedicado: **`docs/MOTOR_VALUACIONES.md`** — leer antes de tocar `api/services/pnl.py`.
+
+`/aum → VALUACIONES → PNL TÍTULOS` calcula PnL por (cuenta, ticker) con cost-basis weighted-average. Tres KPIs separados: realizado / no-realizado / pasivo (cupones+divs+amorts). Endpoint `GET /api/portfolio/pnl?id_cuenta=X`.
+
+**Reglas críticas:**
+- `pnl_no_realizado = valor_aum − costo_remanente`. NO usar `qty × precio_actual` — el precio del AuM viene en paridad cruda (sin /100 para bonos).
+- Mapping `unidad ↔ ticker` viene de `Valuaciones.Assets` UPPERCASE (campo `TICKER`), no de regex sobre la unidad.
+- Cada boleto en `NegocioMovimientos` tiene `mep` snapshot inmutable. Pesificación = `importe × b.mep`. Fallback a `_mep.get_mep_for_date()` solo si `mep=null`.
+- Categorías de boleto que entran al cost-basis: `compra, venta, suscripcion_fci, rescate_fci, acreencia`. `comision` (avales/custodia) se ignora — el `importe` ya viene neto.
+- "Licitación" del primario se categoriza como `compra` (`aunesa_negocio.py::categorizar` con `_normalizar` que saca tildes).
+
+## Filtros de exclusión del AuM
+
+`jobs/_aum_filters.py` define qué se excluye al persistir el snapshot diario:
+
+1. `unidad == "USDL"` (cash USD link).
+2. `cuenta` o `unidad` con `OTC` o `CDC` (case-insensitive substring).
+3. `id_cuenta` ∈ `CuentasAPI.ContrapartesAPI.id_cuenta` (FCI / sociedades gerentes — match por id no por nombre, formatos difieren).
+4. `cuenta` contiene como palabra completa un nombre de `CashFlow.Contrapartes.contraparte` (ADCAP, LOMBARD, etc. — `\bNOMBRE\b` case-insensitive). Cubre cuentas que se escapan de la regla 3.
+5. `unidad == "ARS"` para `[100]` y `[101]` (cash de cuentas propias).
+
+Aplica al cron diario (`jobs/aum.py`) y al cleanup retroactivo (`scripts/cleanup_aum_excluidos.py`). Las reglas 3 y 4 viven en BD — el equipo edita Contrapartes y se respeta solo en el próximo run.
+
+**Cuenta 255 (ACA Valores Intermediación)** además se excluye SOLO de la **vista** AuM (no de la persistencia) — `_EXCLUDED_FROM_AUM_VIEW = {"255"}` en `api/services/portfolio.py`. La cuenta sigue capturándose para verla individualmente en `/aum → VALUACIONES`.
+
+## Filtros de cuenta en endpoints
+
+`api/services/_cuentas_filter.py::match_cuenta_filter(filtro)` devuelve sub-doc `$match` para filtrar pipelines Mongo por tipo:
+- `todas`, `accionistas` (∈ `CuentasAPI.AccionistasAPI`), `sin_accionistas`, `cooperativas` (∉ accionistas + regex `\bcoop`), `productores` (∈ `CashFlow.Productores`).
+
+Lo usan operaciones (vista negocio) y portfolio (AuM por cartera, FCI, total, diff). VALID_FILTERS único — sumar tipos nuevos en un solo lugar.
+
 ## Patrón "live fallback" (cierre persistido + live de hoy)
 
 Endpoints que sirven data agregada del cierre diario y aceptan `fecha` como input deben leer `Trading.SnapshotsCierre` primero y, si no hay doc para hoy (cron `jobs.snapshot_cierre` corre 20:25 UTC), caer a `Trading.MarketSnapshot.metrics`. Mismos campos, mismo shape.

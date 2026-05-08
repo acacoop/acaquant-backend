@@ -51,6 +51,24 @@ def pnl(id_cuenta: str = Query(..., description="id_cuenta numérico (ej '255')"
     return pnl_svc.pnl_por_cuenta(id_cuenta=id_cuenta)
 
 
+@router.get("/pnl-todas")
+def pnl_todas(
+    filtro_cuenta: str = Query(
+        "todas",
+        description="todas | accionistas | sin_accionistas | cooperativas | productores",
+    ),
+):
+    """PnL agregado de TODAS las cuentas — una fila por (cuenta, ticker).
+
+    Útil para la sub-vista TOTALES en /aum → VALUACIONES. Itera sobre
+    todas las cuentas del último snapshot y aplana los rows con info
+    de cuenta (`cuenta`, `id_cuenta`).
+
+    Cacheada con TTL=60s.
+    """
+    return pnl_svc.pnl_todas_cuentas(filtro_cuenta=filtro_cuenta)
+
+
 @router.get("/cuentas")
 def listar_cuentas():
     """Cuentas distintas del último snapshot AuM — para selectores."""

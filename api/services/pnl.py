@@ -594,3 +594,135 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         },
         "n_tickers": len(rows),
     }
+
+
+# ─────────────────────────────────────────────────────────────────
+# Vista TOTALES — PnL agregado de TODAS las cuentas (mesa entera).
+# ─────────────────────────────────────────────────────────────────
+
+
+@cached(ttl=60)
+def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
+    """PnL agregado de todas las cuentas: una fila por (cuenta, ticker).
+
+    Itera sobre las cuentas distintas en el último snapshot de Valuaciones.AuM
+    (filtradas por `filtro_cuenta` — ver `_cuentas_filter.match_cuenta_filter`),
+    llama a `pnl_por_cuenta` (cacheada per-cuenta) y aplana los rows.
+
+    Para mesa entera (~100-200 cuentas) con cache caliente sirve <2s; cold
+    boot puede tardar ~30-60s. El cache propio de TTL=60 amortigua la
+    siguiente llamada.
+
+    Args:
+        filtro_cuenta: "todas" | "accionistas" | "sin_accionistas" |
+                       "cooperativas" | "productores".
+
+    Returns:
+        {
+          rows: [{cuenta, id_cuenta, ticker, display_name, ...}, ...],
+          totales: {n_cuentas, n_filas, costo_remanente, valor_actual,
+                    pnl_no_realizado, pnl_pasivo, pnl_total,
+                    pnl_realizado_dia},
+          filtro_cuenta,
+        }
+    """
+    from api.services._cuentas_filter import match_cuenta_filter
+    from api.services.portfolio import listar_cuentas
+
+    cuentas_all = listar_cuentas()
+    if not cuentas_all:
+        return {
+            "rows": [],
+            "totales": {
+                "n_cuentas":         0,
+                "n_filas":           0,
+                "costo_remanente":   0.0,
+                "valor_actual":      0.0,
+                "pnl_no_realizado":  0.0,
+                "pnl_pasivo":        0.0,
+                "pnl_realizado_dia": 0.0,
+                "pnl_total":         0.0,
+            },
+            "filtro_cuenta": filtro_cuenta,
+        }
+
+    # Si hay filtro != "todas", aplicamos el sub-match a la lista.
+    cuentas: list[dict]
+    if filtro_cuenta and filtro_cuenta != "todas":
+        sub_match = match_cuenta_filter(filtro_cuenta)
+        if sub_match:
+            db_v = get_db_valuaciones()
+            last = db_v["AuM"].find_one(
+                {}, {"_id": 0, "fecha_snapshot": 1},
+                sort=[("fecha_snapshot", -1)],
+            )
+            if not last:
+                cuentas = []
+            else:
+                ids_match = set(db_v["AuM"].distinct(
+                    "id_cuenta",
+                    {**sub_match, "fecha_snapshot": last["fecha_snapshot"]},
+                ))
+                cuentas = [c for c in cuentas_all if c.get("id_cuenta") in ids_match]
+        else:
+            cuentas = cuentas_all
+    else:
+        cuentas = cuentas_all
+
+    rows: list[dict] = []
+    totales = {
+        "costo_remanente":   0.0,
+        "valor_actual":      0.0,
+        "pnl_no_realizado":  0.0,
+        "pnl_pasivo":        0.0,
+        "pnl_realizado_dia": 0.0,
+        "pnl_total":         0.0,
+    }
+    for c in cuentas:
+        id_cta = c.get("id_cuenta")
+        cta_label = c.get("cuenta") or ""
+        if not id_cta:
+            continue
+        try:
+            r = pnl_por_cuenta(id_cuenta=str(id_cta))
+        except Exception:
+            continue
+        for row in r.get("rows", []):
+            # Enriquecer con info de cuenta para mostrar/filtrar en la UI.
+            r2 = dict(row)
+            r2["cuenta"]    = cta_label
+            r2["id_cuenta"] = id_cta
+            rows.append(r2)
+        t = r.get("totales", {}) or {}
+        totales["costo_remanente"]   += float(t.get("costo_remanente") or 0)
+        totales["valor_actual"]      += float(t.get("valor_actual") or 0)
+        totales["pnl_no_realizado"]  += float(t.get("pnl_no_realizado") or 0)
+        totales["pnl_pasivo"]        += float(t.get("pnl_pasivo") or 0)
+        totales["pnl_realizado_dia"] += float(t.get("pnl_realizado_dia") or 0)
+        totales["pnl_total"]         += float(t.get("pnl_total") or 0)
+
+    # Sort default: pnl_total descendente (las que mejor andan arriba).
+    # Para pnl_total visible usamos no_real + pasivo + real_dia (mismo
+    # cálculo que el frontend, evita inconsistencia).
+    def _total_view(row: dict) -> float:
+        return (
+            float(row.get("pnl_no_realizado") or 0)
+            + float(row.get("pnl_pasivo") or 0)
+            + float(row.get("pnl_realizado_dia") or 0)
+        )
+    rows.sort(key=lambda r: -_total_view(r))
+
+    return {
+        "rows": rows,
+        "totales": {
+            "n_cuentas":         len(cuentas),
+            "n_filas":           len(rows),
+            "costo_remanente":   round(totales["costo_remanente"], 2),
+            "valor_actual":      round(totales["valor_actual"], 2),
+            "pnl_no_realizado":  round(totales["pnl_no_realizado"], 2),
+            "pnl_pasivo":        round(totales["pnl_pasivo"], 2),
+            "pnl_realizado_dia": round(totales["pnl_realizado_dia"], 2),
+            "pnl_total":         round(totales["pnl_total"], 2),
+        },
+        "filtro_cuenta": filtro_cuenta,
+    }

@@ -44,7 +44,10 @@ def _extract_ticker_corto(unidad: str) -> str | None:
 
 
 def _es_skip(asset: dict) -> tuple[bool, str]:
-    """Devuelve (skip, motivo)."""
+    """Devuelve (skip, motivo). NO skipeamos por CARTERA vacía — varios
+    activos reales (ONs USD como VSCHO, MSSEO, PNZCO, MR38O) tienen el
+    ticker válido pero CARTERA sin cargar; perderíamos cobertura gratis.
+    """
     unidad = asset.get("unidad") or ""
     cartera = (asset.get("CARTERA") or "").strip()
     if extract_cafci(unidad):
@@ -53,8 +56,6 @@ def _es_skip(asset: dict) -> tuple[bool, str]:
         return True, "fci_cartera"
     if unidad.startswith("[#"):
         return True, "financiamiento"
-    if not cartera or cartera == "-":
-        return True, "sin_cartera"
     return False, ""
 
 
@@ -81,8 +82,7 @@ def main() -> int:
     print(f"Assets sin INSTRUMENTO: {len(docs)}")
 
     counters = {"set": 0, "fci_cafci": 0, "fci_cartera": 0,
-                "financiamiento": 0, "sin_cartera": 0,
-                "ticker_invalido": 0}
+                "financiamiento": 0, "ticker_invalido": 0}
     actualizar: list[tuple] = []
     ejemplos_set: list[tuple] = []
     ejemplos_skip: dict[str, list[str]] = {}
@@ -112,7 +112,6 @@ def main() -> int:
     print(f"  Skip — FCI (CAFCI en unidad):    {counters['fci_cafci']:>5}")
     print(f"  Skip — FCI (CARTERA contiene FCI): {counters['fci_cartera']:>5}")
     print(f"  Skip — Financiamiento ([#...):   {counters['financiamiento']:>5}")
-    print(f"  Skip — Sin CARTERA / '-':         {counters['sin_cartera']:>5}")
     print(f"  Skip — Ticker no alfanumérico:   {counters['ticker_invalido']:>5}")
     print()
 

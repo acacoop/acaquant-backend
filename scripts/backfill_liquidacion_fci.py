@@ -58,12 +58,16 @@ def main() -> int:
     n_parsed = 0
     n_skip = 0
     actualizar: list[tuple] = []
+    no_parseables: list[str] = []
     for d in docs:
-        parsed = parse_informacion(d.get("informacion") or "")
+        info = d.get("informacion") or ""
+        parsed = parse_informacion(info)
         if not parsed:
             n_skip += 1
+            if len(no_parseables) < 8:
+                no_parseables.append(info)
             continue
-        categoria = categorizar(d.get("informacion") or "", parsed)
+        categoria = categorizar(info, parsed)
         nuevo = {
             "ticker":    parsed.get("ticker"),
             "op":        parsed.get("op"),
@@ -82,9 +86,13 @@ def main() -> int:
     if args.dry:
         print("\n[DRY] no se modificó nada.")
         if actualizar[:3]:
-            print("\nMuestra de los primeros 3:")
+            print("\nMuestra de los primeros 3 PARSEABLES:")
             for _id, nuevo in actualizar[:3]:
                 print(f"  {_id} → {nuevo}")
+        if no_parseables:
+            print(f"\nMuestra de NO PARSEABLES ({len(no_parseables)}):")
+            for info in no_parseables:
+                print(f"  | {info}")
         return 0
 
     if not actualizar:

@@ -143,8 +143,15 @@ def _sincronizar_assets(col_assets, unidades):
     """
     Asegura que cada unidad exista en TitulosAPI.AssetsAPI con los campos requeridos.
     No pisa valores existentes — solo completa los que faltan ($ifNull).
+
+    `CAFCI` es la excepción: se deriva de `unidad` con `core.cafci.extract_cafci`
+    y se setea sin `$ifNull` — la unidad es la upsert key (inmutable para un
+    doc dado), así que el código CAFCI siempre refleja lo que está en la unidad.
+    Si no hay CAFCI en la unidad (no es FCI), queda null.
     """
+    from core.cafci import extract_cafci
     for unidad in unidades:
+        cafci = extract_cafci(unidad)
         col_assets.update_one(
             {"unidad": unidad},
             [{"$set": {
@@ -156,6 +163,7 @@ def _sincronizar_assets(col_assets, unidades):
                 "ticker":       {"$ifNull": ["$ticker",       ""]},
                 "vencimiento":  {"$ifNull": ["$vencimiento",  None]},
                 "instrumento":  {"$ifNull": ["$instrumento",  ""]},
+                "CAFCI":        cafci,
             }}],
             upsert=True,
         )

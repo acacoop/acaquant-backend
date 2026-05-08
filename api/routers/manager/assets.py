@@ -40,6 +40,9 @@ _PROJECTION = {
     "_id": 0, "unidad": 1,
     "CARTERA": 1, "EMISOR": 1, "INSTRUMENTO": 1, "CLASE_ACTIVO": 1,
     "CALIFICACION": 1, "TICKER": 1, "VENCIMIENTO": 1,
+    # CAFCI es read-only — derivado de `unidad` por jobs/aum.py.
+    # No está en _EDITABLE_FIELDS adrede.
+    "CAFCI": 1,
     "actualizado_por": 1, "actualizado_at": 1,
 }
 

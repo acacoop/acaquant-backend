@@ -69,16 +69,28 @@ def _ticker_corto_fallback(unidad: str) -> str:
 
 def _build_unidad_to_ticker_map(db_v) -> dict[str, str]:
     """Lee Valuaciones.Assets (UPPERCASE, fuente de verdad) y devuelve
-    {unidad: TICKER}. Si TICKER está vacío / "NO APLICA" / null, cae al
-    fallback regex sobre la unidad. Cacheado dentro del lifetime del
-    request — Assets cambia poco."""
+    {unidad: ticker_match}. Precedencia:
+
+      1. `CAFCI` — para FCI (campo derivado de la unidad por
+         `_sincronizar_assets`). Match con `boleto.ticker` que viene del
+         parser como código CAFCI (ej `CAFCI3580-1199`).
+      2. `TICKER` — para acciones / bonos / ONs / etc, donde el TICKER
+         humano (ej `AL30`) coincide con `boleto.ticker`.
+      3. Fallback regex sobre la unidad si los dos anteriores son vacíos.
+
+    Cacheado dentro del lifetime del request — Assets cambia poco.
+    """
     out: dict[str, str] = {}
     placeholders = {"", "NO APLICA"}
     for d in db_v["Assets"].find(
-        {}, {"_id": 0, "unidad": 1, "TICKER": 1}
+        {}, {"_id": 0, "unidad": 1, "TICKER": 1, "CAFCI": 1}
     ):
         unidad = d.get("unidad")
         if not unidad:
+            continue
+        cafci = (d.get("CAFCI") or "").strip()
+        if cafci and cafci not in placeholders:
+            out[unidad] = cafci
             continue
         ticker = (d.get("TICKER") or "").strip()
         if ticker and ticker not in placeholders:

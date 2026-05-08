@@ -190,15 +190,23 @@ se llama a `get_mep_for_date(fecha)` que mira `Valuaciones.Dolar`.
 `/aum → VALUACIONES → PNL TÍTULOS` (dentro del selector de cuenta tipeable):
 
 **4 KPIs arriba**:
-- PNL TOTAL (realizado + no_realizado + pasivo)
-- PNL REALIZADO
+- PNL TOTAL (no_realizado + pasivo — la posición actual; ver nota abajo)
 - PNL NO REALIZADO (papel)
 - PNL PASIVO (cupones/divs/amorts)
 - VALOR ACTUAL (con costo_remanente como sub)
 
 **Toolbar**: toggle `SOLO ACTIVOS (qty_aum > 0)` filtrado.
 
-**Tabla** (9 columnas): TICKER · CANTIDAD · COSTO · VALOR ACTUAL · REALIZADO · NO REALIZADO · COBROS · PNL TOTAL · FLAGS.
+**Tabla** (8 columnas): TICKER · CANTIDAD · COSTO · VALOR ACTUAL · NO REALIZADO · COBROS · PNL TOTAL · FLAGS.
+
+**Realizado fuera de la vista actual**: el motor backend sigue calculando
+`pnl_realizado` y lo expone en la respuesta del endpoint, pero el frontend
+lo oculta — confunde al lector porque mezcla performance histórica
+(ventas cerradas, todas las cuentas que pasaron por la cuenta) con
+la posición actual (lo que está vivo HOY). El plan es armar una vista
+**histórica de realizado** separada (con filtros por fecha/ticker/cuenta)
+cuando se priorice. Mientras tanto, la fórmula visible es:
+`PNL TOTAL = pnl_no_realizado + pnl_pasivo`.
 
 **Click en un row → expande** y muestra:
 - Flujo de boletos (compras / ventas / neto / Δ AuM).

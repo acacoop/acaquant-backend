@@ -626,7 +626,7 @@ def posiciones_actuales(
                 "clase_activo": enrich_by_unidad.get(r["ticker"], {}).get("clase_activo") or "-",
                 "cartera":      enrich_by_unidad.get(r["ticker"], {}).get("cartera") or "",
                 "calificacion": full_by_unidad.get(r["ticker"], {}).get("calificacion") or "-",
-                "vencimiento":  full_by_unidad.get(r["ticker"], {}).get("vencimiento"),
+                "vencimiento":  str(full_by_unidad.get(r["ticker"], {}).get("vencimiento") or "")[:10] or None,
                 "tipo":         str(r["tipo"]) if r["tipo"] not in (None, "") else None,
                 "cantidad":     round(r["cantidad"], 4),
                 "precio":       round(r["precio"], 4),

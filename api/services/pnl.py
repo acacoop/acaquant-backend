@@ -103,6 +103,7 @@ def _new_state() -> dict:
         "monedas":          set(),
         "fechas_sin_mep":   set(),
         "n_movimientos":    0,
+        "boletos":          [],     # detalle audit per ticker
     }
 
 
@@ -179,6 +180,29 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         st["n_movimientos"] += 1
         if mep_missing:
             st["fechas_sin_mep"].add(fecha)
+
+        # Detalle audit — guardamos cada boleto procesado para que el
+        # frontend pueda mostrarlos y vos puedas reconciliar contra los
+        # KPIs y totales del ticker.
+        try:
+            cant_signed = float(b.get("cantidad") or 0)
+        except (TypeError, ValueError):
+            cant_signed = 0.0
+        try:
+            precio_b = float(b.get("precio") or 0)
+        except (TypeError, ValueError):
+            precio_b = 0.0
+        st["boletos"].append({
+            "fecha":       fecha,
+            "categoria":   cat,
+            "op":          op,
+            "cantidad":    cant_signed,
+            "precio":      precio_b,
+            "importe":     importe,
+            "importe_ars": importe_ars,
+            "moneda":      moneda,
+            "mep":         b.get("mep"),
+        })
 
         if cat in _CATS_PAGO:
             # Compra: importe negativo → uso |importe| como costo invertido
@@ -318,6 +342,7 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
             "moneda_mixta":      len(st["monedas"]) > 1,
             "n_movimientos":     st["n_movimientos"],
             "fechas_sin_mep":    sorted(st["fechas_sin_mep"]),
+            "boletos":           st["boletos"],
         })
 
         tot["costo_remanente"]  += costo_rem

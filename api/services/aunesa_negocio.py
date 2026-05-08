@@ -216,7 +216,9 @@ def categorizar(informacion: str, parsed: dict | None) -> str:
 
     if parsed:
         op_low = parsed["op"].lower()
-        if op_low.startswith("compra"):
+        # Compra primaria por licitación (BYMA / Tesoro): es funcionalmente
+        # idéntica a una compra secundaria — entra en cost-basis igual.
+        if op_low.startswith("compra") or op_low.startswith("licitaci"):
             return "compra"
         if op_low.startswith("venta"):
             return "venta"

@@ -125,8 +125,8 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
             "ticker":    {"$ne": None},
         },
         {"_id": 0, "fecha": 1, "categoria": 1, "op": 1,
-         "ticker": 1, "cantidad": 1, "importe": 1, "moneda": 1,
-         "comprobante": 1, "mep": 1},
+         "ticker": 1, "cantidad": 1, "precio": 1, "importe": 1,
+         "moneda": 1, "comprobante": 1, "mep": 1},
     ).sort([("fecha", 1), ("comprobante", 1)]))
 
     # ── 2. Pesificación helper ──────────────────────────────────────────

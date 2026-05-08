@@ -84,13 +84,20 @@ def _valor_actual_live(
     Returns:
         (valor, fuente) donde fuente ∈ {"live", "cierre", "aum"}.
 
-    1. PortfolioSnapshot.last_price (motor live de tenencia).
-    2. SnapshotsCierre.last_price (último cierre persistido).
-    3. valor_aum directo — fallback definitivo. Significa que si
-       qty_efectiva != qty_aum, se mantiene la inconsistencia
-       conocida (no reescribimos sin precio confiable).
+    Casos especiales:
+      - qty_efectiva == 0 → posición cerrada (vendiste todo). Vale 0.
+      - qty_efectiva < 0 → short (palanca, futuros, USD/ARS). Calculamos
+        igual qty × precio (negativo = deuda mark-to-market).
+      - qty_efectiva > 0 → long. Camino normal.
+
+    Cadena de fallback:
+      1. PortfolioSnapshot.last_price (motor live de tenencia).
+      2. SnapshotsCierre.last_price (último cierre persistido).
+      3. valor_aum directo (fallback definitivo).
     """
-    if not unidad or qty_efectiva <= 0:
+    if qty_efectiva == 0:
+        return 0.0, "live"   # cerrado por operación — vale cero
+    if not unidad:
         return valor_aum, "aum"
 
     asset = db_v["Assets"].find_one({"unidad": unidad}, {"_id": 0, "INSTRUMENTO": 1})
@@ -410,10 +417,18 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         pnl_real      = st["pnl_realizado"]
         pnl_pas       = st["pnl_pasivo"]
 
-        # qty_efectiva: si tenemos boletos, qty_calc es la verdad operativa
-        # (refleja todo lo movido, incluido intraday del día). Si NO hay
-        # boletos, caemos al qty del AuM como única señal de tenencia.
-        if st["n_movimientos"] > 0:
+        # qty_efectiva — orden de precedencia:
+        #   1. Si qty_aum == 0: el AuM (contabilidad oficial) dice que NO
+        #      tenés. Forzamos 0 incluso si qty_calc > 0. Cubre el caso
+        #      "boletos viejos sin reconciliar" (compraste 100, vendiste
+        #      80 fuera del feed, AuM dice 0, motor calcula 20 fantasma)
+        #      que infla pnl_no_realizado con -costo_rem irreales.
+        #   2. Si hay boletos: qty_calc — verdad operativa (incluye
+        #      intraday del día).
+        #   3. Si NO hay boletos: qty_aum como única señal de tenencia.
+        if qty_aum == 0:
+            qty_efectiva = 0.0
+        elif st["n_movimientos"] > 0:
             qty_efectiva = qty_calc
         else:
             qty_efectiva = qty_aum

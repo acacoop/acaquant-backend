@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 # Diagnostico de /api/portfolio/pnl-todas pegando contra localhost (sin nginx ni CF)
-# Uso: bash scripts/diag_pnl_todas.sh
+# Lee API_KEY del .env del repo. Uso: bash scripts/diag_pnl_todas.sh
 
 URL="http://localhost:8000/api/portfolio/pnl-todas"
 RESP="/tmp/pnl_todas_resp.json"
 
-echo "[diag] hitting $URL (max 300s)"
+API_KEY=$(grep -E '^API_KEY=' .env 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+if [ -z "$API_KEY" ]; then
+  echo "[diag] WARNING: no encontré API_KEY en .env — el endpoint va a tirar 401"
+fi
+
+echo "[diag] hitting $URL (max 300s, con API key=${API_KEY:+SI}${API_KEY:-NO})"
 START=$(date +%s)
-HTTP_STATUS=$(curl -sS -o "$RESP" -m 300 -w "%{http_code}" "$URL" || echo "000")
+HTTP_STATUS=$(curl -sS -o "$RESP" -m 300 \
+  -H "Authorization: Bearer $API_KEY" \
+  -w "%{http_code}" "$URL" || echo "000")
 END=$(date +%s)
 DUR=$((END - START))
 
@@ -29,5 +36,5 @@ except Exception as e:
 "
 fi
 
-echo "[diag] --- last 80 lines of api.service log ---"
-journalctl -u api.service -n 80 --no-pager 2>/dev/null | tail -80
+echo "[diag] --- últimas líneas de api.service log con 'pnl-todas' o errores ---"
+journalctl -u api.service -n 500 --no-pager 2>/dev/null | grep -E "pnl-todas|ERROR|Traceback|Exception" | tail -30

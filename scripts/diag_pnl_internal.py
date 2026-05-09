@@ -107,13 +107,13 @@ def main():
     t_total = time.time() - t_total_start
 
     slow.sort(reverse=True)
-    print(f"\n[5] resumen")
+    print("\n[5] resumen")
     print(f"  total {t_total:.2f}s · ok={n_ok} err={n_err}")
-    print(f"  top-5 cuentas más lentas:")
+    print("  top-5 cuentas más lentas:")
     for dt, cta in slow[:5]:
         print(f"    [{cta}] {dt:.2f}s")
     if err_samples:
-        print(f"  top-5 errores:")
+        print("  top-5 errores:")
         for cta, e in err_samples[:5]:
             print(f"    [{cta}] {e}")
 

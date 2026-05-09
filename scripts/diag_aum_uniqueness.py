@@ -48,9 +48,11 @@ def main():
             rango["$lte"] = args.hasta
         match["fecha_snapshot"] = rango
 
-    # 2-step group: primero deduplica (fecha, timestamp), después cuenta
-    # timestamps únicos por fecha. Más eficiente que $addToSet (que puede
-    # romper el cap de 16MB con muchos timestamps).
+    # 2-step group: primero deduplica (fecha, timestamp), después junta
+    # los timestamps únicos por fecha en una lista. $addToSet en el outer
+    # group es seguro acá porque el inner group ya colapsó duplicados —
+    # la lista por fecha tiene N items con N = timestamps únicos del día
+    # (típicamente 1, raro pasar de 5).
     pipeline: list[dict] = []
     if match:
         pipeline.append({"$match": match})
@@ -61,7 +63,7 @@ def main():
         }},
         {"$group": {
             "_id":                  "$_id.fecha",
-            "n_unique_timestamps":  {"$sum": 1},
+            "timestamps":           {"$addToSet": "$_id.ts"},
             "n_docs_total":         {"$sum": "$docs_count"},
         }},
         {"$sort": {"_id": 1}},
@@ -75,7 +77,7 @@ def main():
     rows = list(coll.aggregate(pipeline, allowDiskUse=True))
 
     if args.solo_multi:
-        rows = [r for r in rows if r.get("n_unique_timestamps", 0) > 1]
+        rows = [r for r in rows if len(r.get("timestamps", [])) > 1]
 
     if not rows:
         print("  (sin resultados)")
@@ -83,17 +85,19 @@ def main():
 
     total_docs = 0
     n_multi = 0
-    print(f"  {'fecha_snapshot':<14} {'n_timestamps':>14} {'n_docs':>10}")
-    print(f"  {'-' * 14} {'-' * 14} {'-' * 10}")
+    print(f"  {'fecha_snapshot':<14} {'n_ts':>4} {'n_docs':>10}  timestamps")
+    print(f"  {'-' * 14} {'-' * 4} {'-' * 10}  {'-' * 40}")
     for r in rows:
         fecha = r["_id"]
-        n_ts = r["n_unique_timestamps"]
+        ts_list = sorted(str(t) for t in r.get("timestamps", []))
+        n_ts = len(ts_list)
         n_docs = r["n_docs_total"]
         total_docs += n_docs
         if n_ts > 1:
             n_multi += 1
         marker = "  ⚠" if n_ts > 1 else ""
-        print(f"  {fecha:<14} {n_ts:>14} {n_docs:>10}{marker}")
+        ts_str = ", ".join(ts_list)
+        print(f"  {fecha:<14} {n_ts:>4} {n_docs:>10}  {ts_str}{marker}")
     print()
     print(f"  total fechas: {len(rows)}")
     print(f"  total docs:   {total_docs}")

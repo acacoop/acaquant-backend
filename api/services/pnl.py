@@ -78,6 +78,10 @@ def _aplicar_normalizer(precio: float, qty: float, tipoTitulo: str | None) -> fl
 def _valor_actual_live(
     db_t, db_v, unidad: str, qty_efectiva: float,
     tipoTitulo: str | None, valor_aum: float,
+    *,
+    instrumentos_by_unidad: dict[str, str] | None = None,
+    portfolio_snap_by_ticker: dict[str, dict] | None = None,
+    snapshots_cierre_by_ticker: dict[str, dict] | None = None,
 ) -> tuple[float, str]:
     """Cadena de fallback para `valor_actual` durante la rueda.
 
@@ -94,20 +98,31 @@ def _valor_actual_live(
       1. PortfolioSnapshot.last_price (motor live de tenencia).
       2. SnapshotsCierre.last_price (último cierre persistido).
       3. valor_aum directo (fallback definitivo).
+
+    Si los kwargs `*_by_*` vienen pre-cargados (path bulk de
+    pnl_todas_cuentas), las 3 lookups se hacen contra los dicts en
+    memoria en vez de pegarle a Mongo. Sin ellos cae al find_one
+    original (path single-cuenta sigue funcionando).
     """
     if qty_efectiva == 0:
         return 0.0, "live"   # cerrado por operación — vale cero
     if not unidad:
         return valor_aum, "aum"
 
-    asset = db_v["Assets"].find_one({"unidad": unidad}, {"_id": 0, "INSTRUMENTO": 1})
-    instrumento = ((asset or {}).get("INSTRUMENTO") or "").strip()
+    if instrumentos_by_unidad is not None:
+        instrumento = instrumentos_by_unidad.get(unidad, "")
+    else:
+        asset = db_v["Assets"].find_one({"unidad": unidad}, {"_id": 0, "INSTRUMENTO": 1})
+        instrumento = ((asset or {}).get("INSTRUMENTO") or "").strip()
     if instrumento and instrumento not in _PLACEHOLDERS_INSTRUMENTO:
         # 1. PortfolioSnapshot — motor live escribe acá.
-        snap = db_t["PortfolioSnapshot"].find_one(
-            {"ticker": instrumento},
-            {"_id": 0, "last_price": 1, "closing_price": 1},
-        )
+        if portfolio_snap_by_ticker is not None:
+            snap = portfolio_snap_by_ticker.get(instrumento)
+        else:
+            snap = db_t["PortfolioSnapshot"].find_one(
+                {"ticker": instrumento},
+                {"_id": 0, "last_price": 1, "closing_price": 1},
+            )
         if snap:
             for campo in ("last_price", "closing_price"):
                 px = snap.get(campo)
@@ -118,11 +133,14 @@ def _valor_actual_live(
                 if px is not None and px > 0:
                     return _aplicar_normalizer(px, qty_efectiva, tipoTitulo), "live"
         # 2. SnapshotsCierre — último cierre persistido.
-        snc = db_t["SnapshotsCierre"].find_one(
-            {"ticker": instrumento},
-            {"_id": 0, "last_price": 1, "fecha": 1},
-            sort=[("fecha", -1)],
-        )
+        if snapshots_cierre_by_ticker is not None:
+            snc = snapshots_cierre_by_ticker.get(instrumento)
+        else:
+            snc = db_t["SnapshotsCierre"].find_one(
+                {"ticker": instrumento},
+                {"_id": 0, "last_price": 1, "fecha": 1},
+                sort=[("fecha", -1)],
+            )
         if snc:
             try:
                 px = float(snc.get("last_price")) if snc.get("last_price") is not None else None
@@ -152,7 +170,8 @@ def _ticker_corto_fallback(unidad: str) -> str:
     return m.group(1).strip() if m else (unidad or "")
 
 
-def _build_unidad_maps(db_v) -> tuple[dict[str, str], dict[str, str]]:
+@cached(ttl=300)
+def _build_unidad_maps() -> tuple[dict[str, str], dict[str, str]]:
     """Lee Valuaciones.Assets y devuelve dos maps:
 
       unidad_to_match: {unidad → match_key}    — para joinear boletos↔AuM.
@@ -171,7 +190,11 @@ def _build_unidad_maps(db_v) -> tuple[dict[str, str], dict[str, str]]:
       unidad = "[3580] CAFCI3580-1199 - Consultatio..."
       match_key = "CAFCI3580-1199"  (matchea con boleto.ticker)
       display = "Consultatio Multimercado V - Clase A"
+
+    Cacheado 5min: el mapping cambia mensualmente al alta de instrumentos.
+    Antes se rebuilda 1× por cuenta dentro de pnl_todas_cuentas → N+1.
     """
+    db_v = get_db_valuaciones()
     unidad_to_match: dict[str, str] = {}
     match_to_display: dict[str, str] = {}
     placeholders = {"", "NO APLICA"}
@@ -201,11 +224,6 @@ def _build_unidad_maps(db_v) -> tuple[dict[str, str], dict[str, str]]:
     return unidad_to_match, match_to_display
 
 
-# Compat: el nombre viejo se sigue usando — devolvemos solo el primer map.
-def _build_unidad_to_ticker_map(db_v) -> dict[str, str]:
-    return _build_unidad_maps(db_v)[0]
-
-
 def _new_state() -> dict:
     return {
         "qty_actual":       0.0,    # cantidad neta — running
@@ -230,10 +248,46 @@ def _new_state() -> dict:
 
 @cached(ttl=300)
 def pnl_por_cuenta(id_cuenta: str) -> dict:
-    """PnL por ticker para una cuenta — ver docstring del módulo."""
+    """PnL por ticker para una cuenta — ver docstring del módulo.
+
+    Wrapper público cacheado que arma las dependencias para una sola
+    cuenta y delega al core. La versión bulk (pnl_todas_cuentas) bypasa
+    este wrapper y llama a `_pnl_por_cuenta_core` directo con maps
+    pre-cargados, evitando el N+1 que disparaba 504 en /pnl-todas.
+    """
     db_cf = get_db_cashflow()
     db_v = get_db_valuaciones()
+    db_t = get_db_trading()
+    unidad_to_match, match_to_display = _build_unidad_maps()
+    return _pnl_por_cuenta_core(
+        id_cuenta=id_cuenta,
+        db_cf=db_cf, db_v=db_v, db_t=db_t,
+        unidad_to_match=unidad_to_match,
+        match_to_display=match_to_display,
+        # En el path single-cuenta no pre-cargamos pricing maps —
+        # `_valor_actual_live` cae a find_one por ticker. Para ~30 tickers
+        # de una cuenta, son 60-90 queries: barato.
+    )
 
+
+def _pnl_por_cuenta_core(
+    *,
+    id_cuenta: str,
+    db_cf, db_v, db_t,
+    unidad_to_match: dict[str, str],
+    match_to_display: dict[str, str],
+    instrumentos_by_unidad: dict[str, str] | None = None,
+    portfolio_snap_by_ticker: dict[str, dict] | None = None,
+    snapshots_cierre_by_ticker: dict[str, dict] | None = None,
+) -> dict:
+    """Cálculo del PnL por ticker — toma todas las deps por kwarg.
+
+    Cuando `pnl_todas_cuentas` precarga los pricing maps en bulk y los
+    pasa por kwargs, `_valor_actual_live` los consume y evita los
+    find_one per-ticker (3 por ticker × N cuentas era el N+1 que mataba
+    /pnl-todas). En el path single-cuenta los kwargs vienen None y se
+    cae al find_one tradicional (path original).
+    """
     # ── 1. Boletos en orden cronológico ─────────────────────────────────
     # Crítico: el cost-basis depende del orden de procesamiento.
     # El campo `mep` viene en cada doc desde el job (snapshot inmutable
@@ -406,13 +460,9 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
                 st["breakdown_otros"] += importe_ars
 
     # ── 4. Posición actual del AuM (último snapshot) ───────────────────
-    # Maps: (1) unidad → match_key para joinear boletos ↔ AuM y
-    # (2) match_key → display name humano para la UI. Para FCI el
-    # match_key es el código CAFCI y el display es el nombre del fondo.
-    unidad_to_ticker, match_to_display = _build_unidad_maps(db_v)
-
-    # fecha_actual se calculó al inicio de la función (fecha_actual_aum).
-    # Reusamos el mismo valor para la query del snapshot.
+    # Los maps unidad↔match y match↔display vienen pre-cargados (cacheados
+    # globalmente o construidos por el wrapper). Para FCI el match_key es
+    # el código CAFCI y el display es el nombre del fondo.
     fecha_actual = fecha_actual_aum
     aum_por_ticker: dict[str, dict] = {}
     if fecha_actual:
@@ -422,7 +472,7 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
              "valuacion": 1, "tipoTitulo": 1},
         ):
             unidad = d.get("unidad", "")
-            ticker = unidad_to_ticker.get(unidad) or _ticker_corto_fallback(unidad)
+            ticker = unidad_to_match.get(unidad) or _ticker_corto_fallback(unidad)
             if not ticker:
                 continue
             aum_por_ticker[ticker] = {
@@ -432,8 +482,6 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
                 "valuacion":  float(d.get("valuacion") or 0),
                 "tipoTitulo": d.get("tipoTitulo"),
             }
-
-    db_t = get_db_trading()
 
     # ── 5. Construir filas y totales ────────────────────────────────────
     rows: list[dict[str, Any]] = []
@@ -503,6 +551,9 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         # aunque AuM siga mostrando 650).
         valor_actual_live, fuente_valor = _valor_actual_live(
             db_t, db_v, unidad_actual, qty_efectiva, tipoTitulo, valor_aum,
+            instrumentos_by_unidad=instrumentos_by_unidad,
+            portfolio_snap_by_ticker=portfolio_snap_by_ticker,
+            snapshots_cierre_by_ticker=snapshots_cierre_by_ticker,
         )
 
         # PnL no-realizado: usamos el valor live (qty_efectiva × precio
@@ -601,17 +652,82 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
 # ─────────────────────────────────────────────────────────────────
 
 
+def _load_pnl_bulk_deps(db_v, db_t) -> dict:
+    """Pre-carga los maps globales que usa _pnl_por_cuenta_core, en bulk.
+
+    El path single-cuenta hace ~3 find_one por ticker (Assets.INSTRUMENTO,
+    PortfolioSnapshot, SnapshotsCierre). Con 200 cuentas × 20 tickers son
+    ~12k queries chicas → 504. Acá los cargamos en 3 queries y los pasamos
+    a `_pnl_por_cuenta_core` por kwargs para que haga lookup en memoria.
+
+    Returns:
+        dict con `unidad_to_match`, `match_to_display`,
+        `instrumentos_by_unidad`, `portfolio_snap_by_ticker`,
+        `snapshots_cierre_by_ticker`. Listo para `**deps` directo al core.
+    """
+    unidad_to_match, match_to_display = _build_unidad_maps()  # cacheado
+
+    instrumentos_by_unidad: dict[str, str] = {}
+    for d in db_v["Assets"].find(
+        {}, {"_id": 0, "unidad": 1, "INSTRUMENTO": 1}
+    ):
+        u = d.get("unidad")
+        instr = (d.get("INSTRUMENTO") or "").strip()
+        if u and instr and instr not in _PLACEHOLDERS_INSTRUMENTO:
+            instrumentos_by_unidad[u] = instr
+
+    portfolio_snap_by_ticker: dict[str, dict] = {}
+    for d in db_t["PortfolioSnapshot"].find(
+        {}, {"_id": 0, "ticker": 1, "last_price": 1, "closing_price": 1}
+    ):
+        t = d.get("ticker")
+        if t:
+            portfolio_snap_by_ticker[t] = d
+
+    # SnapshotsCierre: queremos el doc con fecha más reciente por ticker.
+    # Hacemos $sort + $group $first — 1 round-trip a Mongo en vez de
+    # ~N find_one(..., sort=[fecha,-1]).
+    snapshots_cierre_by_ticker: dict[str, dict] = {}
+    pipeline = [
+        {"$sort": {"ticker": 1, "fecha": -1}},
+        {"$group": {
+            "_id":        "$ticker",
+            "last_price": {"$first": "$last_price"},
+            "fecha":      {"$first": "$fecha"},
+        }},
+    ]
+    for d in db_t["SnapshotsCierre"].aggregate(pipeline):
+        t = d.get("_id")
+        if t:
+            snapshots_cierre_by_ticker[t] = {
+                "last_price": d.get("last_price"),
+                "fecha":      d.get("fecha"),
+            }
+
+    return {
+        "unidad_to_match":            unidad_to_match,
+        "match_to_display":           match_to_display,
+        "instrumentos_by_unidad":     instrumentos_by_unidad,
+        "portfolio_snap_by_ticker":   portfolio_snap_by_ticker,
+        "snapshots_cierre_by_ticker": snapshots_cierre_by_ticker,
+    }
+
+
 @cached(ttl=60)
 def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
     """PnL agregado de todas las cuentas: una fila por (cuenta, ticker).
 
     Itera sobre las cuentas distintas en el último snapshot de Valuaciones.AuM
     (filtradas por `filtro_cuenta` — ver `_cuentas_filter.match_cuenta_filter`),
-    llama a `pnl_por_cuenta` (cacheada per-cuenta) y aplana los rows.
+    llama a `_pnl_por_cuenta_core` con maps pre-cargados en bulk y aplana los
+    rows.
 
-    Para mesa entera (~100-200 cuentas) con cache caliente sirve <2s; cold
-    boot puede tardar ~30-60s. El cache propio de TTL=60 amortigua la
-    siguiente llamada.
+    Pre-load + DI: antes este endpoint llamaba a `pnl_por_cuenta` (cacheada
+    per-cuenta) que hacía 3 queries por ticker dentro de `_valor_actual_live`
+    + 1 full scan de Assets en `_build_unidad_maps`. Cold path con ~200
+    cuentas × ~20 tickers = ~12k queries chicas → 504 garantizado. Ahora
+    se cargan los pricing maps una sola vez con `_load_pnl_bulk_deps` y el
+    core los lee en memoria.
 
     Args:
         filtro_cuenta: "todas" | "accionistas" | "sin_accionistas" |
@@ -646,12 +762,15 @@ def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
             "filtro_cuenta": filtro_cuenta,
         }
 
+    db_cf = get_db_cashflow()
+    db_v  = get_db_valuaciones()
+    db_t  = get_db_trading()
+
     # Si hay filtro != "todas", aplicamos el sub-match a la lista.
     cuentas: list[dict]
     if filtro_cuenta and filtro_cuenta != "todas":
         sub_match = match_cuenta_filter(filtro_cuenta)
         if sub_match:
-            db_v = get_db_valuaciones()
             last = db_v["AuM"].find_one(
                 {}, {"_id": 0, "fecha_snapshot": 1},
                 sort=[("fecha_snapshot", -1)],
@@ -669,6 +788,9 @@ def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
     else:
         cuentas = cuentas_all
 
+    # Pre-load global pricing maps — 3 queries en lugar de N+1.
+    deps = _load_pnl_bulk_deps(db_v, db_t)
+
     rows: list[dict] = []
     totales = {
         "costo_remanente":   0.0,
@@ -684,7 +806,11 @@ def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
         if not id_cta:
             continue
         try:
-            r = pnl_por_cuenta(id_cuenta=str(id_cta))
+            r = _pnl_por_cuenta_core(
+                id_cuenta=str(id_cta),
+                db_cf=db_cf, db_v=db_v, db_t=db_t,
+                **deps,
+            )
         except Exception:
             continue
         for row in r.get("rows", []):

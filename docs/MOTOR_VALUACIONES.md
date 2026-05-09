@@ -1,7 +1,7 @@
 # Motor de Valuaciones (PnL Títulos)
 
-Doc-checkpoint del motor de PnL por (cuenta, ticker). Estado al 2026-05-08.
-Para retomar el desarrollo desde acá: leé esto + `api/services/pnl.py`.
+Doc-checkpoint del motor de PnL por (cuenta, ticker). **Estado al 2026-05-09**.
+Para retomar el desarrollo: leé esto + `api/services/pnl.py` + `engines/portfolio_snapshot.py`.
 
 ---
 
@@ -14,251 +14,524 @@ clásica de cash flows:
 PnL = (lo que vale ahora)  +  (todo lo cobrado)  −  (todo lo pagado)
 ```
 
-Tres componentes separados (cada uno tiene su KPI propio):
+Tres componentes separados:
 
 | Componente | Qué representa |
 |---|---|
-| **PNL REALIZADO** | Ganancias/pérdidas de ventas cerradas (operaciones que ya cerraron en cash) |
-| **PNL NO REALIZADO** | Diferencia papel del stock vivo (`valor_aum − costo_remanente`) |
-| **PNL PASIVO** | Cobros sueltos: cupones, dividendos, amortizaciones |
+| **PNL REALIZADO** | Ganancias/pérdidas de ventas cerradas históricamente (oculto en la UI actual). |
+| **PNL REALIZADO_DIA** | Solo ventas cerradas hoy (post último AuM) — visible para day-trades. |
+| **PNL NO REALIZADO** | Diferencia papel del stock vivo (`valor_actual_live − costo_remanente`). |
+| **PNL PASIVO** | Cobros sueltos: cupones, dividendos, amortizaciones. |
 
-`PNL TOTAL = realizado + no_realizado + pasivo`.
+**PNL TOTAL visible (UI)** = `pnl_no_realizado + pnl_pasivo + pnl_realizado_dia`.
+El `pnl_realizado` histórico se oculta — irá a una vista histórica separada (futuro).
 
 ---
 
 ## Arquitectura
 
 ```
-                ┌───────────────────────────────────┐
-                │  CashFlow.NegocioMovimientos      │  ← boletos (compra/venta/acreencia)
-                └──────────────┬────────────────────┘
-                               ↓
-                ┌──────────────┴────────────────────┐
-                │  Valuaciones.Assets               │  ← unidad → TICKER (mapping)
-                └──────────────┬────────────────────┘
-                               ↓
-                ┌──────────────┴────────────────────┐
-                │  Valuaciones.AuM                  │  ← posición actual (cantidad × precio)
-                └──────────────┬────────────────────┘
-                               ↓
-                ┌──────────────┴────────────────────┐
-                │  api/services/pnl.py              │  ← cost-basis weighted-average
-                └──────────────┬────────────────────┘
-                               ↓
-                ┌──────────────┴────────────────────┐
-                │  GET /api/portfolio/pnl?id_cuenta │
-                └──────────────┬────────────────────┘
-                               ↓
-                ┌──────────────┴────────────────────┐
-                │  /aum → VALUACIONES → PNL TÍTULOS │  (acaquant-web)
-                └───────────────────────────────────┘
+┌──────────────────────────┐    ┌──────────────────────────┐
+│  CashFlow                │    │  Valuaciones             │
+│  ├ NegocioMovimientos    │    │  ├ AuM (snapshot diario) │
+│  │  (boletos)            │    │  ├ Assets (mapping)      │
+│  └ ...                   │    │  │  • TICKER (humano)    │
+│                          │    │  │  • CAFCI (FCI)        │
+│                          │    │  │  • INSTRUMENTO (rofex)│
+│                          │    │  └ Dolar (MEP histórico) │
+└──────────┬───────────────┘    └──────────┬───────────────┘
+           │                                │
+           └────────────┬───────────────────┘
+                        ↓
+       ┌─────────────────────────────────────┐
+       │  api/services/pnl.py                │
+       │  • cost-basis weighted-average      │
+       │  • qty sin clip (wash trades)       │
+       │  • valor_actual chain: live→cierre  │
+       └────────────┬────────────────────────┘
+                    ↓
+   ┌────────────────────┐    ┌────────────────────────┐
+   │ Trading            │    │ Trading                │
+   │ ├ MarketSnapshot   │    │ └ PortfolioSnapshot    │
+   │   (analytics live) │    │   (live tenencia)      │
+   │   ← motor_rofex    │    │   ← portfolio_snapshot │
+   └────────────────────┘    └────────────────────────┘
+                    ↓
+       ┌─────────────────────────────────────┐
+       │  GET /api/portfolio/pnl?id_cuenta   │
+       │  GET /api/portfolio/pnl-todas       │
+       └────────────┬────────────────────────┘
+                    ↓
+   /aum → VALUACIONES (acaquant-web)
+       ├ PORTAFOLIO   (vista vieja)
+       ├ PNL TÍTULOS  (split posiciones | detalle, con day-trade banner)
+       └ TOTALES      (toda la mesa, agregada en una tabla)
 ```
 
 ### Archivos clave
 
-- **Backend**:
-  - `api/services/pnl.py` — el motor (cost-basis, pesificación, output).
-  - `api/routers/carteras.py` — endpoint `GET /api/portfolio/pnl`.
-  - `api/services/_mep.py` — helper MEP (con fallback a `Valuaciones.Dolar`).
-- **Frontend**:
-  - `acaquant-web/src/components/pnl-titulos-view.tsx` — vista PNL TÍTULOS.
-  - `acaquant-web/src/components/aum-view.tsx` — host (sub-tab dentro de Valuaciones).
-  - `acaquant-web/src/app/api/aum-pnl/route.ts` — proxy.
+**Backend (TRD-FX)**:
+- `api/services/pnl.py` — motor de cost-basis (corazón del sistema).
+- `api/services/_mep.py` — helper MEP con fallback a `Valuaciones.Dolar`.
+- `api/services/aunesa_negocio.py` — parser de boletos / categorización.
+- `api/services/valuaciones.py` — vista PORTAFOLIO (legacy AuM-based).
+- `api/routers/carteras.py` — endpoints `/portfolio/pnl`, `/portfolio/pnl-todas`.
+- `engines/portfolio_snapshot.py` — motor live de tenencia.
+- `engines/_universo_portfolio.py` — universo dinámico (cuáles tickers suscribir).
+- `core/cafci.py` — extracción de código CAFCI desde unidad.
+- `jobs/aum.py::_sincronizar_assets` — auto-fill de campos en `Assets` cuando aparece nueva unidad.
+- `jobs/negocio_movimientos.py` — ingesta hourly de boletos desde Aunesa.
+
+**Frontend (acaquant-web)**:
+- `src/components/aum-view.tsx` — host con sub-tabs PORTAFOLIO / PNL TÍTULOS / TOTALES.
+- `src/components/pnl-titulos-view.tsx` — vista por cuenta (split posiciones | detalle). Exporta tipos + helpers + `PosicionDetalle`.
+- `src/components/pnl-totales-view.tsx` — vista agregada de toda la mesa (split tabla | detalle).
+- `src/components/valuaciones-view.tsx` — vista PORTAFOLIO (chart evolución mensual + tabla).
+- `src/app/api/aum-pnl/route.ts` y `aum-pnl-todas/route.ts` — proxies.
+
+**Scripts** (en `scripts/`):
+- `backfill_trd_categorias.py` — TRD → compra/venta por signo.
+- `backfill_licitacion_compra.py` — Licitación → compra.
+- `backfill_liquidacion_fci.py` — Liquidación FCI bilateral (parser).
+- `backfill_assets_cafci.py` — auto-fill CAFCI desde unidad.
+- `backfill_assets_instrumento.py` — auto-fill INSTRUMENTO con validación contra pyRofex.
+- `audit_assets_instrumento.py` — read-only, reporta sospechosos.
+- `diagnose_live_coverage.py` — qué % de tenencia tiene cobertura live.
+- `match_mep_boletos.py` — completa MEP en boletos backfilleados.
+- `backfill_negocio_range.py` — corre `negocio_movimientos` por rango de fechas.
 
 ---
 
 ## Lógica del cost-basis (cómo se computa el PnL)
 
-Para cada ticker, en orden cronológico de boletos:
+Para cada (cuenta, ticker), en orden cronológico de boletos:
 
 ```python
 state[ticker] = {
-    qty_actual:       0,    # neta running
-    costo_remanente:  0,    # cost basis del stock vivo (en ARS)
-    pnl_realizado:    0,    # ganancias de ventas cerradas
-    pnl_pasivo:       0,    # cupones / divs / amorts
+    qty_actual:        0,    # neta running. SIN CLIP (ver wash trades).
+    costo_remanente:   0,    # cost basis del stock vivo (en ARS)
+    pnl_realizado:     0,    # ganancias de ventas pasadas (HISTÓRICO)
+    pnl_realizado_dia: 0,    # solo de boletos > fecha_actual_aum
+    pnl_pasivo:        0,    # cupones / divs / amorts
+    pnl_pasivo_dia:    0,    # solo intraday
+    qty_compras:       0,
+    qty_ventas:        0,
 }
 
 para cada boleto en orden cronológico:
     si COMPRA (P, Q):
-        costo_remanente += P × Q
-        qty_actual      += Q
+        # Caso especial: si qty_actual < 0 (short generado por venta
+        # excesiva tipo wash trade), la compra "cubre" el short. Solo
+        # la parte que excede el short entra al cost-basis.
+        if qty_actual < 0:
+            cubierto = min(Q, -qty_actual)
+            nueva_compra = Q - cubierto
+            costo_remanente += (P × Q) × (nueva_compra / Q)   # proporcional
+        else:
+            costo_remanente += P × Q
+        qty_actual += Q
 
     si VENTA (P, Q):
-        avg_cost          = costo_remanente / qty_actual
-        pnl_realizado    += (P − avg_cost) × Q
-        costo_remanente  -= avg_cost × Q   ← descuenta solo la porción "viva"
-        qty_actual       -= Q
+        # SIN CLIP — qty_actual puede ir a negativo. Esto refleja
+        # ventas que exceden el stock conocido (caución, ROE, wash
+        # trades) y permite que la compra contraparte las cancele.
+        if qty_actual > 0:
+            avg_cost = costo_remanente / qty_actual
+            qty_a_vender = min(Q, qty_actual)
+            ingreso_proporcional = (P × Q) × (qty_a_vender / Q)
+            realizado = ingreso_proporcional - (avg_cost * qty_a_vender)
+            pnl_realizado += realizado
+            if fecha > fecha_actual_aum:
+                pnl_realizado_dia += realizado
+            costo_remanente -= avg_cost * qty_a_vender
+        qty_actual -= Q
 
     si ACREENCIA:
-        pnl_pasivo += importe   # no afecta cantidad
+        pnl_pasivo += importe
+        if fecha > fecha_actual_aum:
+            pnl_pasivo_dia += importe
 ```
 
-**Cálculo final por ticker**:
-- `valor_aum`        = `Valuaciones.AuM` último snapshot (ya pesificado a ARS).
-- `pnl_no_realizado` = `valor_aum − costo_remanente` (si hay qty viva).
-- `pnl_total`        = `realizado + no_realizado + pasivo`.
+### Wash trades / caución / ROE / trasvaso (CRÍTICO)
 
-**Importante**: NO recalcular `valor_calc = qty × precio_actual` — el `precio_actual`
-del AuM viene en paridad cruda (sin /100 para bonos) y rompe el cálculo.
-Siempre usar `valor_aum` que ya viene correcto desde `jobs/aum.py`.
+Operaciones de **wash trade** (venta -50M + compra +50M mismo día) son
+comunes en cuentas que operan caución / ROE / trasvasos. **No toman
+posición económica real** — el AuM no las refleja.
+
+Si el motor clipeara las ventas excedentes (versión vieja del código),
+las compras posteriores inflaban qty_actual y costo_remanente con
+fantasmas que crecían acumulativamente. **Caso TZX26: AuM=500K pero
+motor calculaba 60.5M** por wash trades acumulados.
+
+Solución actual (commit `0c3c638`):
+- Ventas: SIN clip — qty_actual puede ir a negativo.
+- Compras: si qty_actual < 0, primero "cubre" el short — esa porción NO
+  entra al cost-basis. Solo lo que excede entra.
+- Resultado: los wash trades se neutralizan matemáticamente. qty_calc
+  final coincide con qty_aum cuando los boletos están completos.
 
 ---
 
-## Mapping `unidad ↔ ticker`
+## Cálculo del valor_actual (cadena de fallback)
 
-`NegocioMovimientos.ticker` ("AO28") y `Valuaciones.AuM.unidad` ("[5921] AO28 - BONO TESORO NAC.")
-no matchean directo. La fuente de verdad del mapping es `Valuaciones.Assets`:
+Función `_valor_actual_live(unidad, qty_efectiva, tipoTitulo, valor_aum)`
+en `pnl.py`:
 
-```js
-// Valuaciones.Assets ejemplo:
-{
-  unidad:   "[57108] OLC2O",        // ← cómo viene del AuM
-  TICKER:   "OLC2O",                 // ← cómo viene de NegocioMovimientos
-  CARTERA:  "CARTERA DL",
-  EMISOR:   "OLEODUCTOS",
-  ...
-}
+```
+1. Si qty_efectiva == 0 → return (0, "live")  # cerrado intraday
+2. Si no hay unidad → return (valor_aum, "aum")  # fallback final
+3. Lookup Assets.INSTRUMENTO de la unidad.
+4. Si INSTRUMENTO existe:
+   a. Lookup Trading.PortfolioSnapshot[ticker=INSTRUMENTO]
+      → si hay last_price o closing_price → 
+         return (qty_efectiva × precio × normalizer, "live")
+   b. Lookup Trading.SnapshotsCierre[ticker=INSTRUMENTO]
+      → si hay last_price → 
+         return (qty_efectiva × precio × normalizer, "cierre")
+5. Fallback: return (valor_aum, "aum")
 ```
 
-El motor llama a `_build_unidad_to_ticker_map(db_v)` que lee Assets y devuelve
-`{ unidad → TICKER }`. Si el `TICKER` está vacío (gap de metadata), cae al
-regex fallback `_ticker_corto_fallback`.
+**Normalizer por tipoTitulo** (idéntico a `jobs/aum.py::_calcular_valuacion`):
+- TIPOS_DIVISOR_100 (Títulos Públicos, Letras, ONs, Fideicomisos, CPD): `(precio × qty) / 100`.
+- TIPOS_FUTUROS (Futuros, Forwards, Derivados): `(precio + 1) × qty`.
+- Resto: `precio × qty`.
 
-**Para corregir matchings rotos**: completar el `TICKER` en
-`Valuaciones.Assets` desde la tab `/manager → ASSETS` (ya soporta filtros
-por CARTERA / EMISOR + edición inline).
+### qty_efectiva (qué cantidad usamos)
+
+| Caso | qty_efectiva |
+|---|---|
+| `qty_aum == 0` | 0 — AuM dice no tenés. Fuerza valor=0. Ignora qty_calc fantasma de boletos viejos no reconciliados. |
+| Hay boletos | `qty_calc` — refleja todo lo movido (incluye intraday del día). |
+| Sin boletos | `qty_aum` — única señal disponible. |
+
+---
+
+## Mapping unidad ↔ ticker
+
+`NegocioMovimientos.ticker` ("AO28", "CAFCI3580-1199") y `Valuaciones.AuM.unidad` 
+("[5921] AO28 - BONO TESORO NAC.") no matchean directo.
+
+`pnl._build_unidad_maps(db_v)` construye dos maps desde `Valuaciones.Assets`:
+
+| Tipo | match_key (interno, joinea boletos↔AuM) | display (UI) |
+|---|---|---|
+| FCI | `Assets.CAFCI` (ej "CAFCI3580-1199") | `Assets.TICKER` (ej "Consultatio Multimercado V") |
+| Acciones / bonos / ONs | `Assets.TICKER` (ej "AL30") | `Assets.TICKER` |
+| Sin metadata | regex fallback sobre unidad | match_key |
+
+`Assets.CAFCI` es derivado automáticamente de `unidad` por `_sincronizar_assets`
+con regex `\bCAFCI\d+-\d+\b`.
+
+`Assets.INSTRUMENTO` se completa con script:
+- `backfill_assets_instrumento.py` valida candidatos contra
+  `Manager.PyRofexInstruments` (lista canónica de pyRofex 24hs).
+- Solo setea si el INSTRUMENTO existe en pyRofex — los strings inválidos
+  quedan visibles via `audit_assets_instrumento.py`.
+
+---
+
+## Motor de portfolio snapshot (live)
+
+`engines/portfolio_snapshot.py` corre como systemd service paralelo a
+motor_rofex (sesión pyRofex propia). Cron L-V 13-20 UTC, igual que
+motor_rofex.
+
+**Universo dinámico**: `engines/_universo_portfolio.py::tickers_de_tenencia()`
+devuelve set de symbols pyRofex de:
+- Unidades con qty != 0 en último AuM.
+- Tickers operados hoy en NegocioMovimientos.
+- Filtrado contra `Manager.PyRofexInstruments` (validación canónica).
+
+**Refresh dinámico**: thread cada 60min revisa el universo. Si entró
+un ticker nuevo (compraste un activo que antes no estaba en cartera),
+se suscribe al WS via `WebSocketManager.agregar_suscripciones` (aditivo,
+no reabre conexión).
+
+**Suscripción reducida**: solo entries `[LAST, CLOSING_PRICE]`. NO
+escribe a `TimeSales`. NO contamina con cada tick. Solo `last_price`
+en `Trading.PortfolioSnapshot` cada 1s.
+
+**Logs de refresh**: `Manager.PortfolioSnapshotLog` con timestamp,
+nuevos tickers agregados, tickers de boletos sin INSTRUMENTO mappeable.
+
+### Coverage actual (al 2026-05-08)
+
+- ~358 tickers válidos de tenencia con INSTRUMENTO + cobertura en pyRofex.
+- ~89 sospechosos (vencidos / ilíquidos) con INSTRUMENTO seteado pero
+  sin feed activo en pyRofex — quedan con `valor_actual_source = "aum"`.
+- FCI inevitables — no se cotizan en mercado, su precio es VCP del
+  fondo (siempre fallback a AuM).
+
+---
+
+## Vista PNL TÍTULOS (acaquant-web)
+
+`/aum → VALUACIONES → PNL TÍTULOS` con selector de cuenta.
+
+**Layout: split 50/50.**
+
+### Panel izquierdo (50%)
+
+Tabla compacta de posiciones, filtrada en backend a posiciones reales:
+```
+TICKER · CANT · COSTO · VALOR · GAN % · PNL · FLAGS
+```
+
+**Filtro de visibilidad** (en `pnl.py`):
+- Si `qty_aum == 0` Y no hay boletos > fecha_aum → SKIP la fila
+  (cerrado histórico o fantasma de boletos no reconciliados).
+- Si `qty_aum != 0` (long, short, palanca, USD/ARS, futuros) → siempre
+  mostrar.
+- Si `qty_aum == 0` con boletos del día → mostrar (day-trade cerrado
+  hoy, ej. ETHA).
+
+**Click en fila** → highlight + carga detalle a la derecha.
+**Re-click** → deselecciona.
+
+**FLAGS** abreviados: `P` (parcial), `SB` (sin boletos), `$` (USD/ARS).
+
+### Panel derecho (50%)
+
+Componente `PosicionDetalle` (exportado, reusable). Contenido:
+
+1. **Header**: display name del ticker + ticker interno + unidad.
+2. **6 mini-KPIs**: COSTO · VALOR · PNL · NO REAL · COBROS · GAN %.
+3. **Banner azul "REALIZADO HOY"** (cuando `pnl_realizado_dia != 0`):
+   muestra el realizado del día — útil para day-trades cerrados intraday.
+4. **FLUJO (STOCK ACTUAL)**: compras / ventas / neto del **período activo**.
+5. **COBROS PASIVOS (PERÍODO)**: breakdown por op del período.
+6. **BOLETOS DEL STOCK ACTUAL**: tabla de boletos del período activo.
+   Históricos previos al último reset de qty=0 quedan ocultos (ver nota).
+
+### Filtro del período activo (frontend)
+
+`_filtrarPeriodoActual(boletos)` en `pnl-titulos-view.tsx`: walk forward,
+cuando qty pasa de >0 a ≤0 → reset. Devuelve solo boletos desde el
+último reset.
+
+**Caso RKLB** (al 2026-05-08, 26 boletos totales):
+- Compras/ventas históricas (Nov 2025 - Mar 2026) que netaron a 0
+  en varios momentos → "stock cerrado".
+- 2 compras de mayo 2026 (25 + 433) → único stock vivo de 458 nominales.
+- Detalle muestra solo esos 2 boletos. "24 históricos ocultos".
+
+---
+
+## Vista TOTALES (acaquant-web)
+
+`/aum → VALUACIONES → TOTALES`. Endpoint `GET /api/portfolio/pnl-todas`.
+
+**Sin selector de cuenta** — agrega TODAS las cuentas de la mesa.
+
+**Layout: split 60/40.**
+
+### Panel izquierdo (60%)
+
+Tabla agregada por (cuenta, ticker):
+```
+CUENTA · TICKER · CANT · COSTO · VALOR · GAN % · PNL · FLAGS
+```
+
+**Filtros encima**:
+- Tipo de cuenta: `TODAS / ACCIONISTAS / SIN ACCIONISTAS / COOPERATIVAS / PRODUCTORES`.
+- Búsqueda libre por cuenta (texto contiene).
+- Búsqueda libre por ticker.
+
+**Sortable** por todas las columnas. Default `PNL desc`.
+
+**5 KPIs agregados** sobre las filas filtradas: PNL TOTAL, NO REAL,
+PASIVO, VALOR, POSICIONES (con N cuentas).
+
+### Panel derecho (40%)
+
+Reusa `PosicionDetalle` con un header extra que indica a qué cuenta
+pertenece la posición seleccionada.
+
+### Performance
+
+- Cache backend TTL=60s en `pnl_todas_cuentas`.
+- Cache propio per-cuenta TTL=300s en `pnl_por_cuenta`.
+- Cold start ~30-60s (itera ~150 cuentas).
+- Cached <2s.
+
+### Casos de uso
+
+- Sortear por GAN % desc → ver qué (cuenta, ticker) está rindiendo mejor.
+- Buscar "AL30" → comparar cómo le va al ticker en todas las cuentas.
+- Filtrar `ACCIONISTAS` → ver solo cuentas propias.
+- Detectar inconsistencias (PARCIAL flag, NO REAL muy negativo, etc).
 
 ---
 
 ## Pesificación
 
-Cada boleto en USD/USDC se convierte a ARS para sumar consistente. El campo
-`mep` ya viene guardado en cada boleto desde `jobs/negocio_movimientos.py`
-(snapshot inmutable del día).
+Cada boleto USD/USDC se pesifica al MEP del día. El MEP se guarda
+inmutable en cada boleto al ingestarlo (`b.mep`).
 
-**Path principal**: `importe_ars = importe × b["mep"]`.
+**Path principal**: `importe_ars = importe × b.mep`.
 
-**Fallback**: si `b["mep"]` es `null` (boleto sin reingestar o fecha pre-feed),
-se llama a `get_mep_for_date(fecha)` que mira `Valuaciones.Dolar`.
+**Fallback**: si `b.mep == null` (boleto pre-fix sin reingestar o
+fecha pre-feed), se llama a `get_mep_for_date(fecha)` que mira
+`Valuaciones.Dolar`.
 
-**Si tampoco hay MEP** (fecha muy vieja, antes que el feed arrancara):
-- Importe queda en moneda original.
-- `fechas_sin_mep` en el output reporta esas fechas para que la UI muestre warning.
+**Si tampoco hay MEP**: importe queda en moneda original. Reportado
+en `fechas_sin_mep` per ticker (badge naranja en la UI).
+
+### Histórico cargado
+
+- 2024 H1 + H2 (`backfill_negocio_range`) — backfill completo.
+- 2023 H1 + H2 — backfill completo.
+- MEP histórico 2024 cargado a `Valuaciones.Dolar` por user.
+- `match_mep_boletos --desde 2024-01-01 --hasta 2024-12-31` — pendiente
+  de aplicar (script lo dejó listo, dry mostró 35.086 docs a actualizar
+  con 2 sin MEP en feriados).
 
 ---
 
-## Estado de los datos
+## Categorización de boletos (parser)
 
-### Lo que está limpio (al 2026-05-08)
+`api/services/aunesa_negocio.py::categorizar` mapea `op` a categoría:
 
-- `NegocioMovimientos`: backfilled desde 2025-01-01 hasta 2026-05-06 con el
-  parser corregido (commit `ef1e81d` + `ca20a44`). Cada boleto tiene `mep`
-  inmutable cuando aplica.
-- `Valuaciones.Assets`: campos lowercase duplicados removidos (commit `622ddd8`).
-  El UPPERCASE es la fuente de verdad.
-- `Valuaciones.AuM`: filtros de exclusión aplicados (USDL, OTC, CDC, contrapartes,
-  cuenta 255 — ver `jobs/_aum_filters.py`).
-
-### Bugs conocidos resueltos
-
-| Fecha | Bug | Fix |
+| Categoría | Disparador en `op` | Notas |
 |---|---|---|
-| 2026-05-07 | Boletos USD con `importe` y `moneda` mezclados (compra YM38O) | `aunesa_negocio.py` prioriza línea de dinero por `_parsed.moneda` (commit `ef1e81d`) |
-| 2026-05-07 | Boletos "Licitación" ignorados por motor PnL | `categorizar()` mapea a "compra" (commit `a06b918`) |
-| 2026-05-08 | PNL no realizado millonario absurdo en bonos | Usar `valor_aum` del AuM, no `qty × precio_actual` (commit `f9887df`) |
-| 2026-05-08 | AO28 duplicado en tabla (boletos vs AuM como tickers distintos) | Mapping desde Valuaciones.Assets en vez de regex inventado (commit `1363fea`) |
+| `compra` | empieza con "compra" o "licitaci" | Licitación primaria = compra. |
+| `venta` | empieza con "venta" |  |
+| `suscripcion_fci` | contiene "suscripci" | Cubre "Liquidación de suscripción" (bilateral). |
+| `rescate_fci` | contiene "rescate" | Cubre "Liquidación de rescate". |
+| `acreencia` | match en `informacion` (Cash dividend / Interest payment / Partial redemption) |  |
+| `solicitud_*_fci` | "Solicitud de suscripción/rescate de FCI" | Filtrado del motor PnL — no es la liquidación real. |
+| `caucion_*` | "Caución colocadora/tomadora ... Apertura/Cierre" |  |
+| `comision`, `impuesto`, `deposito`, etc. | substrings en `informacion` |  |
+| `otro` | fallback | Ignorado por motor PnL (excepto refinamiento TRD post-agrupación). |
 
-### Limitaciones conocidas (no son bugs, son data)
+### Patrones especiales
 
-1. **Posiciones pre-data**: cuentas con activos comprados antes de que arrancara el
-   feed `NegocioMovimientos` (~Jul 2025) → flag `PARCIAL` o `SIN BOLETOS`.
-   El cost basis está incompleto, el PnL no realizado queda subestimado.
+- **TRD** (op genérico de trading): refinado en `agrupar_boletos` por
+  signo del `importe_dinero`. Si `importe < 0` → compra; `> 0` → venta.
+- **Liquidación FCI bilateral**: nuevo regex `PATTERN_LIQUIDACION_FCI`
+  que captura "Liquidación de suscripción/rescate - [CAFCI...] cant@precio"
+  sin requerir `(MONEDA PLAZO)`. Tolera basura concatenada tipo
+  "de FCI<NUMS>" (commit `db3f022`).
 
-2. **Fechas sin MEP**: anteriores al 25/3/26 (cuando arrancó el feed `Valuaciones.Dolar`).
-   Boletos USD de esas fechas tienen `mep=null` → quedan en USD nominal sin pesificar.
-   Se reporta en `fechas_sin_mep`.
+### Backfills aplicados (al 2026-05-08)
 
-3. **Canjes / corporate actions**: si AL30 se canjea por AL30D, el motor los ve
-   como dos tickers distintos. No detecta que son la misma posición económica.
-   Hay que manejar manualmente (a futuro).
-
----
-
-## Cómo está la UI hoy
-
-`/aum → VALUACIONES → PNL TÍTULOS` (dentro del selector de cuenta tipeable):
-
-**4 KPIs arriba**:
-- PNL TOTAL (no_realizado + pasivo — la posición actual; ver nota abajo)
-- PNL NO REALIZADO (papel)
-- PNL PASIVO (cupones/divs/amorts)
-- VALOR ACTUAL (con costo_remanente como sub)
-
-**Toolbar**: toggle `SOLO ACTIVOS (qty_aum > 0)` filtrado.
-
-**Tabla** (8 columnas): TICKER · CANTIDAD · COSTO · VALOR ACTUAL · NO REALIZADO · COBROS · PNL TOTAL · FLAGS.
-
-**Realizado fuera de la vista actual**: el motor backend sigue calculando
-`pnl_realizado` y lo expone en la respuesta del endpoint, pero el frontend
-lo oculta — confunde al lector porque mezcla performance histórica
-(ventas cerradas, todas las cuentas que pasaron por la cuenta) con
-la posición actual (lo que está vivo HOY). El plan es armar una vista
-**histórica de realizado** separada (con filtros por fecha/ticker/cuenta)
-cuando se priorice. Mientras tanto, la fórmula visible es:
-`PNL TOTAL = pnl_no_realizado + pnl_pasivo`.
-
-**Click en un row → expande** y muestra:
-- Flujo de boletos (compras / ventas / neto / Δ AuM).
-- Breakdown de cobros pasivos por op (Cash dividend / Interest payment / Partial redemption).
-- **Tabla de boletos individuales** (FECHA, OP, CANT, PRECIO, IMPORTE, MON, MEP, IMPORTE ARS).
-  Sirve para auditar cada KPI contra los boletos reales.
-
-**Flags posibles** en cada fila:
-- `PARCIAL` — `qty_calc < qty_aum` (boletos pre-data).
-- `SIN BOLETOS` — posición visible en AuM sin ningún boleto matcheado.
-- `USD/ARS` — operó el ticker en monedas mixtas, pesificado fecha por fecha.
+| Backfill | Docs actualizados | Commit |
+|---|---|---|
+| TRD compra/venta por signo | 144 | `220566f` |
+| Licitación → compra | 136 | `4a84d0e` |
+| Liquidación FCI bilateral | 3.336 | `982906b`, `db3f022` |
+| Assets.CAFCI auto-fill | 184 | `11898cf` |
+| Assets.INSTRUMENTO (pyRofex 24hs) | 358 | `c358eaf` |
 
 ---
 
-## Para retomar mañana
+## Filtros aplicados al motor PnL
 
-### Issues abiertos a resolver
+### Filtro de visibilidad (backend)
 
-1. **PARCIAL es el caso más común con tu cuenta 805** — el motor solo ve boletos
-   desde Jul 2025. Estrategia futura: cargar histórico previo manualmente
-   (vía CSV importado a `NegocioMovimientos`) o aceptar la limitación.
+```python
+if qty_aum == 0 and not hay_actividad_post_aum:
+    continue   # cerrado histórico o fantasma — no llega al frontend
+```
 
-2. **Otros tipos de operación primaria** que pueden estar como `categoria=otro`:
-   - "Suscripción primaria"
-   - "Adjudicación"
-   - "Toma firme"
+Saca:
+- Cerrados históricos (Schroder Retorno, EWZ, ARKK, GD30, etc).
+- Fantasmas con cost residual de boletos viejos no reconciliados
+  (TX26, GGAL, AL30, COME, TSLA, IBIT, PLTR — boletos hablan de stock,
+  AuM dice cero).
 
-   Si aparecen, hay que sumarlos a `categorizar()` en `aunesa_negocio.py` y
-   reingestar.
+Mantiene:
+- Long, short, palanca, futuros, USD/ARS — qty_aum != 0.
+- Day-trades cerrados hoy — qty_aum=0 PERO con boletos > fecha_aum.
 
-3. **Comisiones**: hoy `categoria=comision` se IGNORA en el motor PnL — la
-   asunción es que el `importe` de cada boleto ya viene neto de comisión
-   (validado con boleto YM38O). Pero hay docs con `categoria=comision` por
-   "aval", "custodia" etc. que afectan el PnL global de la cuenta. Si en
-   algún momento queremos un PnL por cuenta total (no por activo), hay
-   que sumarlas.
+### Filtro del período activo (frontend, fila expandida)
 
-4. **Optimización**: el motor ahora trae todos los boletos de la cuenta y los
-   procesa en Python. Para cuentas con muchos boletos (ALYC con miles) puede
-   tardar. Si llegamos a tener problemas de performance, mover a aggregation
-   pipeline server-side.
+`_filtrarPeriodoActual` en `pnl-titulos-view.tsx` — solo muestra los
+boletos desde el último reset de qty=0. Las acreencias del período
+quedan incluidas (no fuerzan reset).
 
-5. **Nivel cuenta agregado**: el motor da PnL por ticker. Falta una vista
-   "PnL agregado por cartera" (FCI / Tasa Fija / CER / etc). Trivial
-   sumarizando `rows` por `cartera` (que viene del map).
+---
+
+## Pendientes / próximos frentes
+
+### Crítico
+
+- **Aplicar `match_mep_boletos`** sin --dry para 2024 (35.086 docs).
+- **Cargar MEP histórico 2023** + correr `match_mep_boletos --desde 2023-01-01`.
+
+### Mejora UX
+
+- **Vista histórica de PnL realizado** separada (filtros por fecha /
+  ticker / cuenta). El realizado histórico está calculado en backend
+  (`pnl_realizado`) pero oculto en UI actual.
+- **`AuM exclusion` para cuenta 255 desde el motor PnL** (hoy se
+  excluye solo de la vista AuM en `portfolio.py`, ver
+  `_EXCLUDED_FROM_AUM_VIEW`).
+
+### Performance
+
+- `pnl_todas_cuentas`: cold start 30-60s. Si se vuelve crítico,
+  refactor a aggregation Mongo en lugar de iterar por cuenta.
+
+### Edge cases conocidos
+
+- **Posiciones pre-data**: cuentas con activos comprados antes que
+  arrancara el feed `NegocioMovimientos` (~Jul 2025) → flag PARCIAL.
+  Cost basis incompleto, PnL no realizado subestimado.
+- **Canjes / corporate actions**: AL30 → AL30D no se detecta como
+  misma posición económica.
+- **FCI sin INSTRUMENTO mappeable**: quedan con `valor_actual_source = "aum"`,
+  mismo comportamiento que antes.
+
+---
+
+## Comandos útiles
+
+```bash
+# En el droplet, después de cambios al motor:
+git pull && sudo systemctl restart api.service
+
+# Si tocás motor portfolio_snapshot:
+sudo systemctl restart motor_portfolio_snapshot.service
+journalctl -u motor_portfolio_snapshot.service -f
+
+# Diagnóstico de cobertura live:
+python -m scripts.diagnose_live_coverage
+
+# Auditar Assets.INSTRUMENTO contra pyRofex:
+python -m scripts.audit_assets_instrumento --top 30
+
+# Ver motor en /manager → DIAGNÓSTICO (incluye PortfolioSnapshot
+# como motor + Aunesa como API externa).
+```
 
 ---
 
 ## Endpoints relevantes
 
-- `GET /api/portfolio/pnl?id_cuenta=805` — el motor en sí.
-- `GET /api/portfolio/cuentas` — lista cuentas para el dropdown.
-- `GET /api/manager/assets?cartera=X` — para corregir mapping de unidad ↔ ticker.
-- `GET /api/manager/assets/values` — autocomplete (carteras/emisores).
-- `PATCH /api/manager/assets` — editar UPPERCASE en Valuaciones.Assets (con audit).
+| Endpoint | Qué devuelve |
+|---|---|
+| `GET /api/portfolio/pnl?id_cuenta=X` | PnL por (ticker) de una cuenta. |
+| `GET /api/portfolio/pnl-todas?filtro_cuenta=Y` | PnL agregado de todas las cuentas (vista TOTALES). |
+| `GET /api/portfolio/cuentas` | Lista cuentas para selector. |
+| `GET /api/manager/assets?cartera=X` | Lista assets para corregir mapping. |
+| `GET /api/manager/assets/values` | Autocomplete (carteras/emisores). |
+| `PATCH /api/manager/assets` | Editar UPPERCASE en Valuaciones.Assets (con audit). |
+| `GET /api/manager/status` | Estado motores + jobs + APIs externas (incluye PortfolioSnapshot + Aunesa). |
+
+---
+
+## Refactor reciente — MM Cartea + order_book L2 deprecated
+
+Se eliminó completo el sistema de microestructura Cartea cap 1-4 (commit
+`3c32e7d`):
+- `engines/order_book_l2.py` reemplazado por `engines/portfolio_snapshot.py`.
+- `api/services/mm_microstructure.py`, `api/services/order_book_historico.py`,
+  `api/routers/mm.py` eliminados.
+- 8 tools MCP de microstructure removidas.
+- Vista `/mm` y proxy `/api/mm` removidos del frontend.
+- Trading.OrderBookL2 collection: exportada a CSV via
+  `scripts/export_order_book_l2.py` y dropeada.
+
+Fundamento: la mesa no usaba esas vistas y consumían RAM/sesiones
+pyRofex que ahora se aprovechan para el live de tenencia.

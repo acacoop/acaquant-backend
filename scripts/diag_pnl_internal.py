@@ -19,13 +19,13 @@ import time
 import traceback
 from typing import Any
 
+from api.db import get_db_cashflow, get_db_trading, get_db_valuaciones
 from api.services.pnl import (
     _build_unidad_maps,
     _load_pnl_bulk_deps,
     _pnl_por_cuenta_core,
 )
 from api.services.portfolio import listar_cuentas
-from api.db import get_db_cashflow, get_db_trading, get_db_valuaciones
 
 
 def _t(label: str, fn) -> tuple[Any, float]:

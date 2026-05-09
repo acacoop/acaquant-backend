@@ -163,6 +163,11 @@ _OPS_PASIVOS = ("Cash dividend", "Interest payment", "Partial redemption")
 # que es la tabla maestra del mapping unidad ↔ ticker corto.
 _RE_TICKER_FALLBACK = re.compile(r"^\[\d+\]\s*(.+?)(?=\s+-\s+|$)")
 
+# Para extraer id_cuenta del campo `cuenta` formato "[123] NOMBRE" cuando
+# se hace bulk-load de NegocioMovimientos en pnl_todas_cuentas. La
+# colección no tiene `id_cuenta` directo, sólo `cuenta` como string.
+_RE_TICKER_FALLBACK_ID_CUENTA = re.compile(r"^\[(\d+)\]")
+
 
 def _ticker_corto_fallback(unidad: str) -> str:
     """Solo si Valuaciones.Assets no tiene TICKER para esta unidad."""
@@ -279,44 +284,62 @@ def _pnl_por_cuenta_core(
     instrumentos_by_unidad: dict[str, str] | None = None,
     portfolio_snap_by_ticker: dict[str, dict] | None = None,
     snapshots_cierre_by_ticker: dict[str, dict] | None = None,
+    boletos_by_id_cuenta: dict[str, list] | None = None,
+    aum_rows_by_id_cuenta: dict[str, list] | None = None,
+    fecha_actual_aum_global: str | None = None,
 ) -> dict:
     """Cálculo del PnL por ticker — toma todas las deps por kwarg.
 
-    Cuando `pnl_todas_cuentas` precarga los pricing maps en bulk y los
-    pasa por kwargs, `_valor_actual_live` los consume y evita los
-    find_one per-ticker (3 por ticker × N cuentas era el N+1 que mataba
-    /pnl-todas). En el path single-cuenta los kwargs vienen None y se
-    cae al find_one tradicional (path original).
+    Cuando `pnl_todas_cuentas` precarga los maps + boletos + AuM en bulk
+    y los pasa por kwargs, las queries Mongo per-cuenta se eliminan: 6
+    queries totales independientes de N cuentas en lugar de ~5N. En el
+    path single-cuenta los kwargs vienen None y se cae a los find/find_one
+    tradicionales (mismo comportamiento de antes).
     """
     # ── 1. Boletos en orden cronológico ─────────────────────────────────
     # Crítico: el cost-basis depende del orden de procesamiento.
     # El campo `mep` viene en cada doc desde el job (snapshot inmutable
     # del día del boleto). Solo caemos a `get_mep_for_date` si no está
     # (boletos pre-fix sin reingestar, fechas anteriores al feed).
-    boletos = list(db_cf["NegocioMovimientos"].find(
-        {
-            "cuenta":    {"$regex": f"^\\[{id_cuenta}\\]"},
-            "categoria": {"$in": list(_CATS_RELEVANTES)},
-            "ticker":    {"$ne": None},
-        },
-        {"_id": 0, "fecha": 1, "categoria": 1, "op": 1,
-         "ticker": 1, "cantidad": 1, "precio": 1, "importe": 1,
-         "moneda": 1, "comprobante": 1, "mep": 1},
-    ).sort([("fecha", 1), ("comprobante", 1)]))
+    if boletos_by_id_cuenta is not None:
+        boletos = boletos_by_id_cuenta.get(id_cuenta, [])
+    else:
+        boletos = list(db_cf["NegocioMovimientos"].find(
+            {
+                "cuenta":    {"$regex": f"^\\[{id_cuenta}\\]"},
+                "categoria": {"$in": list(_CATS_RELEVANTES)},
+                "ticker":    {"$ne": None},
+            },
+            {"_id": 0, "fecha": 1, "categoria": 1, "op": 1,
+             "ticker": 1, "cantidad": 1, "precio": 1, "importe": 1,
+             "moneda": 1, "comprobante": 1, "mep": 1},
+        ).sort([("fecha", 1), ("comprobante", 1)]))
 
     # ── 1b. Última fecha del AuM — para distinguir movimientos intraday.
     # Boletos con fecha > fecha_actual_aum son day-trades del período actual
     # (post último cierre persistido). Su realizado se acumula aparte
     # para que la UI lo pueda mostrar en tickers cerrados intraday
     # (donde qty_efectiva=0 pero hubo trading hoy).
-    last_aum_doc = db_v["AuM"].find_one(
-        {"id_cuenta": id_cuenta},
-        {"_id": 0, "fecha_snapshot": 1},
-        sort=[("fecha_snapshot", -1)],
-    )
-    fecha_actual_aum: str | None = (
-        last_aum_doc["fecha_snapshot"] if last_aum_doc else None
-    )
+    fecha_actual_aum: str | None
+    if aum_rows_by_id_cuenta is not None:
+        # En path bulk: si la cuenta tiene rows en el global latest, su
+        # fecha_actual es ese global. Si no tiene rows (cuenta cerrada/
+        # sin posiciones hoy) fecha_actual=None — mismo resultado que
+        # find_one que devolvería None.
+        fecha_actual_aum = (
+            fecha_actual_aum_global
+            if id_cuenta in aum_rows_by_id_cuenta
+            else None
+        )
+    else:
+        last_aum_doc = db_v["AuM"].find_one(
+            {"id_cuenta": id_cuenta},
+            {"_id": 0, "fecha_snapshot": 1},
+            sort=[("fecha_snapshot", -1)],
+        )
+        fecha_actual_aum = (
+            last_aum_doc["fecha_snapshot"] if last_aum_doc else None
+        )
 
     # ── 2. Pesificación helper ──────────────────────────────────────────
     # Cache solo para fallback (fechas que no tenían mep en el doc).
@@ -466,11 +489,16 @@ def _pnl_por_cuenta_core(
     fecha_actual = fecha_actual_aum
     aum_por_ticker: dict[str, dict] = {}
     if fecha_actual:
-        for d in db_v["AuM"].find(
-            {"id_cuenta": id_cuenta, "fecha_snapshot": fecha_actual},
-            {"_id": 0, "unidad": 1, "cantidad": 1, "precio": 1,
-             "valuacion": 1, "tipoTitulo": 1},
-        ):
+        # En bulk path leemos rows del dict; en single-cuenta find directo.
+        if aum_rows_by_id_cuenta is not None:
+            aum_docs = aum_rows_by_id_cuenta.get(id_cuenta, [])
+        else:
+            aum_docs = db_v["AuM"].find(
+                {"id_cuenta": id_cuenta, "fecha_snapshot": fecha_actual},
+                {"_id": 0, "unidad": 1, "cantidad": 1, "precio": 1,
+                 "valuacion": 1, "tipoTitulo": 1},
+            )
+        for d in aum_docs:
             unidad = d.get("unidad", "")
             ticker = unidad_to_match.get(unidad) or _ticker_corto_fallback(unidad)
             if not ticker:
@@ -652,26 +680,32 @@ def _pnl_por_cuenta_core(
 # ─────────────────────────────────────────────────────────────────
 
 
-def _load_pnl_bulk_deps(db_v, db_t) -> dict:
-    """Pre-carga los maps globales que usa _pnl_por_cuenta_core, en bulk.
+def _load_pnl_bulk_deps(db_v, db_cf, db_t) -> dict:
+    """Pre-carga TODO lo que necesita _pnl_por_cuenta_core en bulk.
 
-    El path single-cuenta hace ~3 find_one por ticker (Assets.INSTRUMENTO,
-    PortfolioSnapshot, SnapshotsCierre). Con 200 cuentas × 20 tickers son
-    ~12k queries chicas → 504. Acá los cargamos en 3 queries y los pasamos
-    a `_pnl_por_cuenta_core` por kwargs para que haga lookup en memoria.
+    Sin esto, cada cuenta dispara ~5 round-trips a Atlas:
+      - 1 NegocioMovimientos.find con regex sobre `cuenta` (sin índice)
+      - 1 AuM.find_one(id_cuenta, sort=fecha_snapshot)
+      - 1 AuM.find(id_cuenta, fecha=last)
+      - 3 find_one por ticker en _valor_actual_live (Assets, PortfolioSnapshot,
+        SnapshotsCierre)
+    Con 883 cuentas × ~250ms RTT = ~750s. Vercel/CF cortan a 60s → 502.
 
-    Defensiva: cada uno de los 3 loads va con try/except. Si uno falla
-    (ej. SnapshotsCierre con sort sin índice → 16MB cap del aggregate)
-    el dict vuelve vacío y `_valor_actual_live` cae a su path find_one
-    para esa fuente. Mejor degradación parcial que reventar todo /pnl-todas.
+    Acá hacemos ~6 queries totales (independientes de N cuentas) y agrupamos
+    en memoria. Per-cuenta core solo procesa data ya en RAM.
 
-    Returns:
-        dict con `unidad_to_match`, `match_to_display`,
-        `instrumentos_by_unidad`, `portfolio_snap_by_ticker`,
-        `snapshots_cierre_by_ticker`. Listo para `**deps` directo al core.
+    Defensiva: cada load va con try/except. Si uno falla (típico:
+    aggregate sin índice → 16MB cap, o memoria) el dict queda vacío y
+    el core cae al path single-cuenta para esa fuente.
+
+    Returns dict con (todos opcionales, default {}):
+      unidad_to_match, match_to_display, instrumentos_by_unidad,
+      portfolio_snap_by_ticker, snapshots_cierre_by_ticker,
+      boletos_by_id_cuenta, aum_rows_by_id_cuenta, fecha_actual_aum_global.
     """
     unidad_to_match, match_to_display = _build_unidad_maps()  # cacheado
 
+    # Pricing maps (Assets / PortfolioSnapshot / SnapshotsCierre).
     instrumentos_by_unidad: dict[str, str] = {}
     try:
         for d in db_v["Assets"].find(
@@ -696,10 +730,7 @@ def _load_pnl_bulk_deps(db_v, db_t) -> dict:
         portfolio_snap_by_ticker = {}
 
     # SnapshotsCierre: doc con fecha más reciente por ticker. $sort+$group con
-    # allowDiskUse=True — la colección crece 1 doc/ticker/día, sin disk-use el
-    # cap de 16MB del aggregate revienta a partir de ~6 meses × 200 tickers.
-    # Si igual falla (índice ausente, etc) caemos a None → core hace find_one
-    # en `_valor_actual_live` (path original).
+    # allowDiskUse=True — la colección crece 1 doc/ticker/día.
     snapshots_cierre_by_ticker: dict[str, dict] = {}
     try:
         pipeline = [
@@ -720,12 +751,64 @@ def _load_pnl_bulk_deps(db_v, db_t) -> dict:
     except Exception:
         snapshots_cierre_by_ticker = {}
 
+    # NegocioMovimientos: 1 scan, agrupados por id_cuenta extraída de
+    # `cuenta` con regex (formato "[123] NOMBRE"). Antes era 1 regex query
+    # por cuenta → 883 queries × ~250ms = ~220s solo en boletos.
+    boletos_by_id_cuenta: dict[str, list] = {}
+    try:
+        cursor = db_cf["NegocioMovimientos"].find(
+            {
+                "categoria": {"$in": list(_CATS_RELEVANTES)},
+                "ticker":    {"$ne": None},
+            },
+            {"_id": 0, "cuenta": 1, "fecha": 1, "categoria": 1, "op": 1,
+             "ticker": 1, "cantidad": 1, "precio": 1, "importe": 1,
+             "moneda": 1, "comprobante": 1, "mep": 1},
+        ).sort([("fecha", 1), ("comprobante", 1)])
+        for b in cursor:
+            m = _RE_TICKER_FALLBACK_ID_CUENTA.match(b.get("cuenta") or "")
+            if not m:
+                continue
+            cid = m.group(1)
+            boletos_by_id_cuenta.setdefault(cid, []).append(b)
+    except Exception:
+        boletos_by_id_cuenta = {}
+
+    # AuM: el cron escribe el mismo `fecha_snapshot` para TODAS las cuentas
+    # en cada corrida. Asumimos que el global latest aplica a todas las que
+    # tengan rows en él. Cuentas inactivas (sin rows en el snapshot global)
+    # arrancan sin AuM en bulk → core las trata como sin posiciones (mismo
+    # comportamiento que cuando find_one no devolvía nada).
+    fecha_actual_aum_global: str | None = None
+    aum_rows_by_id_cuenta: dict[str, list] = {}
+    try:
+        last = db_v["AuM"].find_one(
+            {}, {"_id": 0, "fecha_snapshot": 1},
+            sort=[("fecha_snapshot", -1)],
+        )
+        if last:
+            fecha_actual_aum_global = last["fecha_snapshot"]
+            for d in db_v["AuM"].find(
+                {"fecha_snapshot": fecha_actual_aum_global},
+                {"_id": 0, "id_cuenta": 1, "unidad": 1, "cantidad": 1,
+                 "precio": 1, "valuacion": 1, "tipoTitulo": 1},
+            ):
+                cid = d.get("id_cuenta")
+                if cid is not None:
+                    aum_rows_by_id_cuenta.setdefault(str(cid), []).append(d)
+    except Exception:
+        fecha_actual_aum_global = None
+        aum_rows_by_id_cuenta = {}
+
     return {
         "unidad_to_match":            unidad_to_match,
         "match_to_display":           match_to_display,
         "instrumentos_by_unidad":     instrumentos_by_unidad,
         "portfolio_snap_by_ticker":   portfolio_snap_by_ticker,
         "snapshots_cierre_by_ticker": snapshots_cierre_by_ticker,
+        "boletos_by_id_cuenta":       boletos_by_id_cuenta,
+        "aum_rows_by_id_cuenta":      aum_rows_by_id_cuenta,
+        "fecha_actual_aum_global":    fecha_actual_aum_global,
     }
 
 
@@ -804,8 +887,9 @@ def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
     else:
         cuentas = cuentas_all
 
-    # Pre-load global pricing maps — 3 queries en lugar de N+1.
-    deps = _load_pnl_bulk_deps(db_v, db_t)
+    # Pre-load global maps + boletos + AuM — ~6 queries totales en lugar
+    # de ~5 × N cuentas. Mata el N+1 que pegaba 502 con 883 cuentas.
+    deps = _load_pnl_bulk_deps(db_v, db_cf, db_t)
 
     rows: list[dict] = []
     totales = {

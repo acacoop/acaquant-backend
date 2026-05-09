@@ -56,17 +56,20 @@ def main():
     print(f"  unidad_to_match: {len(unidad_to_match)} entries")
     print(f"  match_to_display: {len(match_to_display)} entries")
 
-    print("\n[2] _load_pnl_bulk_deps(db_v, db_t)")
-    deps, _ = _t("_load_pnl_bulk_deps", lambda: _load_pnl_bulk_deps(db_v, db_t))
+    print("\n[2] _load_pnl_bulk_deps(db_v, db_cf, db_t)")
+    deps, _ = _t("_load_pnl_bulk_deps", lambda: _load_pnl_bulk_deps(db_v, db_cf, db_t))
     if deps is None:
         return
     for k in (
         "instrumentos_by_unidad",
         "portfolio_snap_by_ticker",
         "snapshots_cierre_by_ticker",
+        "boletos_by_id_cuenta",
+        "aum_rows_by_id_cuenta",
     ):
         v = deps.get(k) or {}
         print(f"  {k}: {len(v)} entries")
+    print(f"  fecha_actual_aum_global: {deps.get('fecha_actual_aum_global')}")
 
     print("\n[3] listar_cuentas()")
     cuentas, _ = _t("listar_cuentas", lambda: listar_cuentas())

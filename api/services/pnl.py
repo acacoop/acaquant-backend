@@ -660,6 +660,11 @@ def _load_pnl_bulk_deps(db_v, db_t) -> dict:
     ~12k queries chicas → 504. Acá los cargamos en 3 queries y los pasamos
     a `_pnl_por_cuenta_core` por kwargs para que haga lookup en memoria.
 
+    Defensiva: cada uno de los 3 loads va con try/except. Si uno falla
+    (ej. SnapshotsCierre con sort sin índice → 16MB cap del aggregate)
+    el dict vuelve vacío y `_valor_actual_live` cae a su path find_one
+    para esa fuente. Mejor degradación parcial que reventar todo /pnl-todas.
+
     Returns:
         dict con `unidad_to_match`, `match_to_display`,
         `instrumentos_by_unidad`, `portfolio_snap_by_ticker`,
@@ -668,41 +673,52 @@ def _load_pnl_bulk_deps(db_v, db_t) -> dict:
     unidad_to_match, match_to_display = _build_unidad_maps()  # cacheado
 
     instrumentos_by_unidad: dict[str, str] = {}
-    for d in db_v["Assets"].find(
-        {}, {"_id": 0, "unidad": 1, "INSTRUMENTO": 1}
-    ):
-        u = d.get("unidad")
-        instr = (d.get("INSTRUMENTO") or "").strip()
-        if u and instr and instr not in _PLACEHOLDERS_INSTRUMENTO:
-            instrumentos_by_unidad[u] = instr
+    try:
+        for d in db_v["Assets"].find(
+            {}, {"_id": 0, "unidad": 1, "INSTRUMENTO": 1}
+        ):
+            u = d.get("unidad")
+            instr = (d.get("INSTRUMENTO") or "").strip()
+            if u and instr and instr not in _PLACEHOLDERS_INSTRUMENTO:
+                instrumentos_by_unidad[u] = instr
+    except Exception:
+        instrumentos_by_unidad = {}
 
     portfolio_snap_by_ticker: dict[str, dict] = {}
-    for d in db_t["PortfolioSnapshot"].find(
-        {}, {"_id": 0, "ticker": 1, "last_price": 1, "closing_price": 1}
-    ):
-        t = d.get("ticker")
-        if t:
-            portfolio_snap_by_ticker[t] = d
+    try:
+        for d in db_t["PortfolioSnapshot"].find(
+            {}, {"_id": 0, "ticker": 1, "last_price": 1, "closing_price": 1}
+        ):
+            t = d.get("ticker")
+            if t:
+                portfolio_snap_by_ticker[t] = d
+    except Exception:
+        portfolio_snap_by_ticker = {}
 
-    # SnapshotsCierre: queremos el doc con fecha más reciente por ticker.
-    # Hacemos $sort + $group $first — 1 round-trip a Mongo en vez de
-    # ~N find_one(..., sort=[fecha,-1]).
+    # SnapshotsCierre: doc con fecha más reciente por ticker. $sort+$group con
+    # allowDiskUse=True — la colección crece 1 doc/ticker/día, sin disk-use el
+    # cap de 16MB del aggregate revienta a partir de ~6 meses × 200 tickers.
+    # Si igual falla (índice ausente, etc) caemos a None → core hace find_one
+    # en `_valor_actual_live` (path original).
     snapshots_cierre_by_ticker: dict[str, dict] = {}
-    pipeline = [
-        {"$sort": {"ticker": 1, "fecha": -1}},
-        {"$group": {
-            "_id":        "$ticker",
-            "last_price": {"$first": "$last_price"},
-            "fecha":      {"$first": "$fecha"},
-        }},
-    ]
-    for d in db_t["SnapshotsCierre"].aggregate(pipeline):
-        t = d.get("_id")
-        if t:
-            snapshots_cierre_by_ticker[t] = {
-                "last_price": d.get("last_price"),
-                "fecha":      d.get("fecha"),
-            }
+    try:
+        pipeline = [
+            {"$sort": {"ticker": 1, "fecha": -1}},
+            {"$group": {
+                "_id":        "$ticker",
+                "last_price": {"$first": "$last_price"},
+                "fecha":      {"$first": "$fecha"},
+            }},
+        ]
+        for d in db_t["SnapshotsCierre"].aggregate(pipeline, allowDiskUse=True):
+            t = d.get("_id")
+            if t:
+                snapshots_cierre_by_ticker[t] = {
+                    "last_price": d.get("last_price"),
+                    "fecha":      d.get("fecha"),
+                }
+    except Exception:
+        snapshots_cierre_by_ticker = {}
 
     return {
         "unidad_to_match":            unidad_to_match,

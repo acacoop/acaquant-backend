@@ -6,14 +6,19 @@ URL="http://localhost:8000/api/portfolio/pnl-todas"
 RESP="/tmp/pnl_todas_resp.json"
 
 API_KEY=$(grep -E '^API_KEY=' .env 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+ADMIN_EMAIL=$(grep -E '^MANAGER_EMAILS=' .env 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" | cut -d',' -f1)
 if [ -z "$API_KEY" ]; then
   echo "[diag] WARNING: no encontré API_KEY en .env — el endpoint va a tirar 401"
 fi
+if [ -z "$ADMIN_EMAIL" ]; then
+  echo "[diag] WARNING: no encontré MANAGER_EMAILS en .env — el endpoint va a tirar 403 (anon)"
+fi
 
-echo "[diag] hitting $URL (max 300s, con API key=${API_KEY:+SI}${API_KEY:-NO})"
+echo "[diag] hitting $URL (max 300s, con API key=${API_KEY:+SI}${API_KEY:-NO}, user=$ADMIN_EMAIL)"
 START=$(date +%s)
 HTTP_STATUS=$(curl -sS -o "$RESP" -m 300 \
   -H "Authorization: Bearer $API_KEY" \
+  -H "x-acaquant-user-email: $ADMIN_EMAIL" \
   -w "%{http_code}" "$URL" || echo "000")
 END=$(date +%s)
 DUR=$((END - START))

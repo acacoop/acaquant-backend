@@ -28,8 +28,8 @@ api/agent/   # asistente tool-use (Claude/Gemini)
 api/mcp/     # MCP server (FastMCP) + OAuth 2.1 provider + discovery
 scripts/     # one-shot / migraciones / smoke
 deploy/      # systemd + crontab.txt (fuente de verdad)
-.claude/     # commands (/smoke /perf /seed-roles /deploy /motor-status) + skills (add-bono add-endpoint add-job debug-motor)
-docs/        # API.md, ASISTENTE.md, API_MIGRATIONS.md
+.claude/     # commands (/deploy /motor-status /perf) + skills (add-bono add-endpoint add-job debug-motor)
+docs/        # API.md, API_MIGRATIONS.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md
 ```
 
 ## Comandos
@@ -99,7 +99,7 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 
 ## MCP server (Custom Connector)
 
-`api/mcp/` montado en `https://api.acaquant.com/mcp` — 34 tools de SOLO LECTURA sobre datos de mercado (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad, order book L2 live + histórico). NO expone portfolio/operaciones/cuentas/AuM/manager (datos privados de la mesa). Cada tool es thin wrapper sobre `api/services/*`. Cliente principal: Claude Desktop / claude.ai vía Custom Connector. Doc completo de cada tool: `docs/MCP_TOOLS.md`.
+`api/mcp/` montado en `https://api.acaquant.com/mcp` — 32 tools de SOLO LECTURA sobre datos de mercado (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad, order book live). NO expone portfolio/operaciones/cuentas/AuM/manager (datos privados de la mesa). Cada tool es thin wrapper sobre `api/services/*`. Cliente principal: Claude Desktop / claude.ai vía Custom Connector. Doc completo de cada tool: `docs/MCP_TOOLS.md`.
 
 **Auth**: OAuth 2.1 + PKCE + DCR (RFC 7591), Cloudflare Access como IdP. Flow: Claude hace DCR → `/oauth/authorize` (CF Access pide login al user) → handler lee `cf-access-jwt-assertion` → emite `code` → `/oauth/token` lo canjea por JWT (HS256, TTL 1h) → Claude usa el JWT en Bearer en `/mcp/`. Storage en Mongo db `MCP` (TTL automático en codes/tokens).
 
@@ -127,10 +127,6 @@ Dos motores escriben a `MarketSnapshot` con `$set` parcial sin pisarse:
 - `engines/curvas.py` (motor_curvas) → `metrics.{TEA, TEM, duration, mod_duration, convexity, paridad}`. Refresh 5s.
 
 Cada uno escribe SOLO sus campos via `UpdateOne($set: dot-notation, upsert=True)`. **No usar `ReplaceOne`** — pisa los campos del otro motor. El doc no tiene `top_trades` ni `recent_trades` (eran payload muerto, removidos).
-
-## Order book L2 (captura full)
-
-Motor dedicado `engines/order_book_l2.py` — sesión rofex separada del motor_rofex, suscribe solo entries `BIDS+OFFERS` con depth 5 para los tickers en `config.TICKERS_BOOK_FULL`. Cada cambio del book persistido como doc nuevo (append-only) en `Trading.OrderBookL2` (Time Series Collection). Sin pisado de TimeSales/MarketSnapshot. Cron L-V 13:00–20:05 UTC vía `motor_order_book_l2.service`.
 
 ## Motor de Valuaciones (PnL Títulos)
 

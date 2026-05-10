@@ -401,20 +401,16 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     ]
     fechas_data = list(db_val["AuM"].aggregate(pipeline_fechas))
 
-    from datetime import datetime as _dt
-    from datetime import timedelta as _td
-
+    # Bucket = mes calendario del snapshot. Sorted asc → el último snapshot
+    # del mes gana en el dict overwrite. Para meses con backfill EOM
+    # (jobs/aum_backfill_historico) gana el snap del 31; para meses con
+    # daily completo gana el último día hábil. Los snaps históricos del
+    # 1° de mes (régimen viejo) quedan ignorados sin borrar — los pisa el
+    # snap del 31 del mismo mes calendario.
     cierres_buckets: dict[str, dict] = {}
     for f in fechas_data:  # sorted asc
         fecha_str = str(f["_id"])
-        if fecha_str.endswith("-01"):
-            try:
-                fdt = _dt.strptime(fecha_str, "%Y-%m-%d")
-                bucket = (fdt - _td(days=1)).strftime("%Y-%m")
-            except ValueError:
-                bucket = fecha_str[:7]
-        else:
-            bucket = fecha_str[:7]
+        bucket = fecha_str[:7]
         cierres_buckets[bucket] = {
             "_id":              bucket,
             "ultimo_dia":       fecha_str,

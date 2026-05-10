@@ -1,34 +1,42 @@
 """
 diag_boletos_recepcion.py — listar boletos de "Recepción" en
-CashFlow.NegocioMovimientos para diagnosticar cómo categorizarlos
-en el motor PnL.
+CashFlow.NegocioMovimientos agrupados por la FORMA del informacion
+(normalizando códigos únicos como *BIN161200039 o números largos).
 
-Hoy estos boletos quedan en `categoria='otro'` y el motor los ignora,
-inflando pnl_no_realizado en PNL TÍTULOS porque qty_aum sube pero
-costo_remanente no.
-
-Read-only. No toca nada. Reporta:
-  - Total de boletos que matchean.
-  - Agrupado por `op` distinto (count + categoria actual).
-  - 2 samples por cada op con todos los campos relevantes.
+Read-only. Reporta cuántos boletos hay de cada subtipo.
 
 Uso:
     python -m scripts.diag_boletos_recepcion
 """
 from __future__ import annotations
 
+import re
+
 from core.mongo import get_mongo_client
 
-# Captura "Recepción", "Recepcion" (sin tilde), "recepci..." en op.
-# El $regex es case-insensitive para no perder variantes.
 _PATTERN = "recepci"
+
+# Normalizadores: reemplazan ruido único para que cada subtipo agrupe.
+_RE_CODIGO_AST = re.compile(r"\*[A-Z0-9]+")     # *BIN161200039 → *XXX
+_RE_NUM_LARGO  = re.compile(r"\d{4,}")          # 161200039     → NNN
+_RE_FECHA      = re.compile(r"\d{1,2}/\d{1,2}/\d{2,4}")  # 25/06/2024 → DD/MM/YYYY
+_RE_WS         = re.compile(r"\s+")
+
+
+def _normalize(s: str | None) -> str:
+    if not s:
+        return "<null>"
+    s2 = _RE_CODIGO_AST.sub("*XXX", s)
+    s2 = _RE_FECHA.sub("DD/MM/YYYY", s2)
+    s2 = _RE_NUM_LARGO.sub("NNN", s2)
+    s2 = _RE_WS.sub(" ", s2).strip()
+    return s2
 
 
 def main():
     client = get_mongo_client()
     coll = client["CashFlow"]["NegocioMovimientos"]
 
-    # Match en op O en informacion — el patrón puede aparecer en cualquiera.
     match_filter = {
         "$or": [
             {"op": {"$regex": _PATTERN, "$options": "i"}},
@@ -36,62 +44,41 @@ def main():
         ]
     }
     total = coll.count_documents(match_filter)
-    print(f"\nTotal boletos con op O informacion matchea /{_PATTERN}/i: {total}")
-
+    print(f"\nTotal boletos con 'recepci' en op O informacion: {total}")
     if total == 0:
         return
 
-    # Agrupar por (op, informacion) distinto + categoria actual.
-    pipeline = [
-        {"$match": match_filter},
-        {"$group": {
-            "_id": {"op": "$op", "informacion": "$informacion",
-                    "categoria": "$categoria"},
-            "n":   {"$sum": 1},
-        }},
-        {"$sort": {"_id.op": 1, "_id.informacion": 1, "_id.categoria": 1}},
-    ]
-    grupos = list(coll.aggregate(pipeline, allowDiskUse=True))
+    # Pull mínimo (op, informacion, categoria) y normalizar en Python.
+    cursor = coll.find(
+        match_filter,
+        {"_id": 0, "op": 1, "informacion": 1, "categoria": 1},
+    )
+    bucket: dict[tuple[str, str], dict[str, int]] = {}
+    for d in cursor:
+        op_n   = _normalize(d.get("op"))
+        info_n = _normalize(d.get("informacion"))
+        cat    = d.get("categoria") or "<null>"
+        key = (op_n, info_n)
+        cats = bucket.setdefault(key, {})
+        cats[cat] = cats.get(cat, 0) + 1
 
-    # Re-agrupar por (op, informacion) para mostrar mejor.
-    por_clave: dict[tuple[str, str], list[tuple[str, int]]] = {}
-    for g in grupos:
-        op = g["_id"].get("op") or "<null>"
-        info = g["_id"].get("informacion") or "<null>"
-        cat = g["_id"].get("categoria") or "<null>"
-        n = g["n"]
-        por_clave.setdefault((op, info), []).append((cat, n))
+    # Ordenar por count desc.
+    filas = []
+    for (op, info), cats in bucket.items():
+        n_total = sum(cats.values())
+        cat_str = ", ".join(f"{c}={n}" for c, n in sorted(cats.items(),
+                                                           key=lambda x: -x[1]))
+        filas.append((n_total, op, info, cat_str))
+    filas.sort(key=lambda r: -r[0])
 
-    print(f"\n{len(por_clave)} (op, informacion) distintos:\n")
-
-    for (op, info), cats in por_clave.items():
-        total_grupo = sum(n for _, n in cats)
-        cat_str = ", ".join(f"{cat}={n}" for cat, n in cats)
-        print(f"  ── op={op!r}")
-        print(f"     informacion={info!r}")
-        print(f"     count={total_grupo}  ({cat_str})")
-
-        # 2 samples para inspección.
-        sample_filter: dict = {}
-        if op != "<null>":
-            sample_filter["op"] = op
-        if info != "<null>":
-            sample_filter["informacion"] = info
-        samples = list(coll.find(
-            sample_filter,
-            {"_id": 0, "fecha": 1, "cantidad": 1, "precio": 1, "importe": 1,
-             "moneda": 1, "ticker": 1, "categoria": 1, "informacion": 1,
-             "cuenta": 1, "comprobante": 1, "mep": 1},
-        ).limit(2))
-        for s in samples:
-            print("     sample:")
-            print(f"        fecha={s.get('fecha')}  ticker={s.get('ticker')}  "
-                  f"cuenta={s.get('cuenta')}")
-            print(f"        cantidad={s.get('cantidad')}  precio={s.get('precio')}  "
-                  f"importe={s.get('importe')}  moneda={s.get('moneda')}  "
-                  f"mep={s.get('mep')}")
-            print(f"        categoria={s.get('categoria')!r}")
-        print()
+    print(f"\n{len(filas)} grupos (después de normalizar códigos únicos):\n")
+    print(f"  {'count':>7}  {'op':<35}  informacion / categoria")
+    print(f"  {'-' * 7}  {'-' * 35}  {'-' * 60}")
+    for n, op, info, cat_str in filas:
+        op_disp = (op[:33] + "..") if len(op) > 35 else op
+        info_disp = (info[:60] + "..") if len(info) > 62 else info
+        print(f"  {n:>7}  {op_disp:<35}  {info_disp}")
+        print(f"  {'':>7}  {'':<35}  → {cat_str}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,14 @@
+[Unit]
+Description=Motor Opciones Agro - Trigo/Maiz/Soja Rosario (OCAFXS/OPAFXS)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/python -m engines.motor_agro_opciones
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

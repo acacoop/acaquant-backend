@@ -142,6 +142,58 @@ Una vez confirmadas las decisiones 1 y 2, el plan tentativo es:
 
 ---
 
+## Approach alternativo — colección de overrides manuales
+
+**Idea del user (2026-05-11):** dado que probablemente no son tantos
+casos únicos los que rompen (~150-200 boletos relevantes una vez que
+filtramos lo no-titulos y lo interno), tiene sentido una colección de
+"arreglo" donde el user completa a mano los precios/categoría para los
+boletos puntuales que rompen.
+
+**Pendiente investigar / decidir:**
+
+- **Vinculación al boleto original.** El field `comprobante` parece
+  ser el único candidato natural (id único por boleto en Aunesa).
+  Hay que confirmar:
+  - ¿Es realmente único en `NegocioMovimientos` o puede repetirse
+    (ej. una operación dividida en varios boletos)?
+  - ¿El `comprobante` es estable a lo largo del tiempo (no cambia si
+    el job re-ingesta el boleto)?
+
+- **Estructura tentativa de la colección** (ej. `CashFlow.NegocioMovimientosOverrides`):
+  ```
+  {
+    comprobante:       "...",         # FK al boleto original
+    categoria_override: "compra",      # opcional — tipificación manual
+    precio_override:    1234.56,       # opcional — para cost-basis
+    importe_override:   100000.0,      # opcional
+    nota:               "Canje OOO -> NNN, hereda cost de OOO",
+    creado_por:         "nico",
+    creado_at:          ISODate(...),
+  }
+  ```
+
+- **Integración con motor PnL.** En `_pnl_por_cuenta_core` o en el
+  loader de boletos: por cada boleto, hacer lookup en la colección de
+  overrides. Si hay match, mergear los campos override sobre el boleto
+  antes de procesarlo. Costo: una query extra. Mitigable con
+  pre-load bulk en `_load_pnl_bulk_deps`.
+
+- **UX para completar a mano.** Mongo Compass directo (más rápido para
+  empezar) vs endpoint Manager con UI (mejor a largo plazo, pero
+  scope-creep si lo hacemos ahora).
+
+- **Sincronización con re-ingesta.** Si el cron `negocio_movimientos`
+  re-procesa el mismo boleto, los overrides deberían persistir
+  (porque están en otra colección). Confirmar que el upsert del job
+  no toca cosas que invaliden la relación por `comprobante`.
+
+**El user dijo "tengo que investigar"** — no codear nada todavía.
+Cuando retomemos, primero confirmar las dos decisiones de arriba +
+las preguntas de investigación de este approach.
+
+---
+
 ## Archivos / commits relevantes de esta charla
 
 - `scripts/diag_boletos_recepcion.py` (commits `4d76bc3`, `f6e32a9`, `c84a8f7`)

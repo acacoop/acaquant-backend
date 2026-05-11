@@ -30,7 +30,7 @@ Si hay CSV BCBA o similar, proponé un script one-shot en `scripts/` (borrable p
 
 ## 3. Insertar doc en `Valuaciones.Assets`
 
-El `unidad` (PK en Aunesa) + metadata: `CARTERA`, `EMISOR`, `TICKER == ticker_corto`, `CLASE_ACTIVO`, `CALIFICACION`, `VENCIMIENTO`. Sin este doc, el bono no aparece en los joins de AuM Tasa Fija / CER / Portfolios.
+El `unidad` (PK en Aunesa) + metadata: `CARTERA`, `EMISOR`, `TICKER == ticker_corto`, `CLASE_ACTIVO`, `CALIFICACION`, `VENCIMIENTO`. Sin este doc, el bono no aparece en los joins de AuM Tasa Fija / CER ni en las vistas que cuelgan de `/aum`.
 
 Índice unique en `unidad` — ojo con duplicados si el bono ya existía en otra serie.
 

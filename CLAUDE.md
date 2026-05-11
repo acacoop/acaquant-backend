@@ -83,7 +83,7 @@ Colecciones `Manager.{Users, RoleMatrix, RoleAudit}`. Helpers: `get_user_role`, 
 
 ## Fórmulas no inferibles
 
-**AuM** (`jobs/aum.py`, `api/routers/carteras.py::_valuacion_api`):
+**AuM** (`jobs/aum.py`, `api/services/portfolio.py::_valuacion_api`):
 - Renta fija (`Títulos Públicos, Letras, ONs, Fideicomisos, CPD`) → `cantidad × precio / 100`
 - FCI / OTROS → `cantidad × precio`
 - Futuros → `(precio + 1) × cantidad`

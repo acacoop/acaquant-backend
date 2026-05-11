@@ -89,7 +89,7 @@ Si tu job escribe a una de las colecciones que tienen copia derivada `*API.*API`
 0 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> .../aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos >> .../sync_api.log 2>&1
 ```
 
-Flags de `sync_api_copies`: `--carteras`, `--aum`, `--titulos`, `--flujo`, `--movimientos`, `--all`. El `&&` garantiza que si el job fuente falla, el sync no corre (no ensucia data).
+Flags de `sync_api_copies`: `--aum`, `--titulos`, `--assets`, `--flujo`, `--movimientos`, `--all`. El `&&` garantiza que si el job fuente falla, el sync no corre (no ensucia data).
 
 ## 6. Índices
 

@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → MongoDB Atlas M10 → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO), venv en `/root/TradingAV/venv`.
 
+**DBs Mongo**: `Trading` (Curvas, MarketSnapshot, SnapshotsCierre, OrderBookL2, TimeSales, DOLAR), `Valuaciones` (Assets, AuM, DolarOficialLive), `CashFlow` (Contrapartes, Productores, NegocioMovimientos), `Manager` (Users, RoleMatrix, RoleAudit), `CuentasAPI` (AccionistasAPI, ContrapartesAPI — copias derivadas), `MCP` (OAuth codes/tokens, TTL automático).
+
 ## ⚠️ REGLA #0 — Cómo entregar trabajo al usuario (LEER PRIMERO)
 
 **Claude NO tiene ni va a tener acceso al Droplet.** Todo lo que tenga que correr en producción se entrega como código en el repo, no como comando para copiar.
@@ -24,6 +26,7 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → MongoDB Atlas M10 �
 - **Regla de capas**: `core/` no importa nada del proyecto. `engines/` y `jobs/` usan `core/` + `quant/`. `api/services/` es puro (sin FastAPI), `api/routers/` solo HTTP plumbing.
 - **RBAC**: código nuevo usa `require_module(m)`, no `require_manager` (alias legacy).
 - **Commits**: estilo `feat/fix/docs/refactor(scope): mensaje` en español, como el `git log`.
+- **Constantes globales y feature flags** viven en `config.py` (raíz): `TICKERS_EXTRA_PRECIOS`, `TICKERS_BOOK_FULL`, etc. Env vars en `.env` local / systemd unit files en el Droplet (`MANAGER_EMAILS`, `DEFAULT_ROLE`, `MCP_*`, `MONGO_URI`).
 
 ## Estructura
 
@@ -34,12 +37,12 @@ jobs/        # batch/cron
 quant/       # cálculo puro (black_scholes, stats)
 api/services # lógica pura (invocada por routers y por el agente)
 api/routers  # thin HTTP wrappers. manager/ es paquete de sub-routers
-api/agent/   # asistente tool-use (Claude/Gemini)
+api/agent/   # asistente tool-use (LEGACY, no en uso — ver sección "Asistente")
 api/mcp/     # MCP server (FastMCP) + OAuth 2.1 provider + discovery
 scripts/     # one-shot / migraciones / smoke
 deploy/      # systemd + crontab.txt (fuente de verdad)
 .claude/     # commands (/deploy /motor-status /perf) + skills (add-bono add-endpoint add-job debug-motor)
-docs/        # API.md, API_MIGRATIONS.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md
+docs/        # API.md, API_MIGRATIONS.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md (wip_*.md = scratch, no canónico)
 ```
 
 ## Comandos
@@ -49,11 +52,17 @@ uvicorn api.main:app --reload --port 8000
 python -m engines.<motor> | jobs.<job> | scripts.<cmd>
 python -m scripts.api_migrate <cmd>            # resync colecciones *API.*API
 ruff check . [--fix]                           # line-length=100, py312
-pytest -ra                                     # unit (pytest -m integration = requiere Atlas up)
+pytest -ra                                     # unit (default: -m 'not integration')
+pytest tests/<path>::<test_name>               # single test
+pytest -m integration                          # integration (requiere Atlas up)
 python -m scripts.perf_scan [--strict]         # anti-patterns Mongo
 ```
 
 CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest en cada push. Setup: Python 3.12, Node 20, Next 15.
+
+## Frontend en repo hermano
+
+`../acaquant-web/` (Next.js 15, deploy auto a Vercel sobre `main`). **No es submodule** — es checkout paralelo. Cambios de API con impacto en UI se editan ahí con rutas absolutas (`C:\...\acaquant-web\...`). Las routes de Next que consumen endpoints "live fallback" necesitan `dynamic = "force-dynamic"` + `revalidate = 0` + `Cache-Control: no-store` (ver sección "live fallback" más abajo).
 
 ## Trading.Curvas — shape de flujos (CRÍTICO, no inferible)
 
@@ -111,9 +120,7 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 
 `api/mcp/` montado en `https://api.acaquant.com/mcp` — 32 tools de SOLO LECTURA sobre datos de mercado (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad, order book live). NO expone portfolio/operaciones/cuentas/AuM/manager (datos privados de la mesa). Cada tool es thin wrapper sobre `api/services/*`. Cliente principal: Claude Desktop / claude.ai vía Custom Connector. Doc completo de cada tool: `docs/MCP_TOOLS.md`.
 
-**Auth**: OAuth 2.1 + PKCE + DCR (RFC 7591), Cloudflare Access como IdP. Flow: Claude hace DCR → `/oauth/authorize` (CF Access pide login al user) → handler lee `cf-access-jwt-assertion` → emite `code` → `/oauth/token` lo canjea por JWT (HS256, TTL 1h) → Claude usa el JWT en Bearer en `/mcp/`. Storage en Mongo db `MCP` (TTL automático en codes/tokens).
-
-Configurable: `MCP_BEARER_TOKEN` (static, fallback dev/curl), `MCP_JWT_SECRET` (firma JWTs OAuth), `MCP_OAUTH_ISSUER` (default `https://api.acaquant.com`). Sin ninguno de los dos, `/mcp` queda deshabilitado.
+**Auth**: OAuth 2.1 + PKCE + DCR (RFC 7591), Cloudflare Access como IdP. Flow completo en `docs/MCP.md`. Env vars: `MCP_BEARER_TOKEN` (static fallback dev/curl), `MCP_JWT_SECRET` (firma OAuth JWTs), `MCP_OAUTH_ISSUER` (default `https://api.acaquant.com`). Sin ninguno, `/mcp` queda deshabilitado.
 
 **Dos cosas críticas que rompen el connector** (se aprendieron a los golpes; doc completo en memoria `project_mcp_cf_access.md`):
 
@@ -124,11 +131,9 @@ Configurable: `MCP_BEARER_TOKEN` (static, fallback dev/curl), `MCP_JWT_SECRET` (
 
 Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `systemctl restart api.service` en el Droplet, o skill `/deploy`. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`. Colecciones `*API.*API` se re-sync via `jobs/sync_api_copies.py` encadenado post-job fuente; manual con `scripts.api_migrate <cmd>`.
 
-**Frontend en repo hermano `../acaquant-web/`** (Next.js, deploy auto en Vercel). Cambios de API con impacto en UI se editan ahí con rutas absolutas — no es submodule, es checkout paralelo.
-
 Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.aum` (23 L-V), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `MarketSnapshot` y persiste cierre por bono en `Trading.SnapshotsCierre`), `jobs.negocio_movimientos` (cada hora 15-22 UTC L-V, pega a Aunesa `consolidadosGenerales`, parsea/categoriza/agrupa por boleto y persiste idempotente en `CashFlow.NegocioMovimientos` para la vista `/operaciones/negocio`).
 
-Dólar oficial: única fuente es `Valuaciones.DolarOficialLive` (feed MAE mayorista UST$T plazo 000, script local en PC oficina). Histórico (anchors 7d/MTD/YTD del watchlist `/argy`) deshabilitado hasta que MAE acumule >30 días — antes venía de `Valuaciones.DolarOficial`/dolarapi.com, eliminado el 2026-05-04. Para series macro (`serie_macro` con `dolar_oficial`/`dolar_mayorista`) usar `Trading.DOLAR` (BCRA A3500 fixing diario).
+Dólar oficial: única fuente live es `Valuaciones.DolarOficialLive` (feed MAE mayorista UST$T plazo 000, script local en PC oficina). Histórico/anchors (7d/MTD/YTD del watchlist `/argy`) deshabilitado hasta que MAE acumule histórico suficiente. Para series macro (`serie_macro` con `dolar_oficial`/`dolar_mayorista`) usar `Trading.DOLAR` (BCRA A3500 fixing diario).
 
 ## Patrón de escritura a `Trading.MarketSnapshot`
 
@@ -178,8 +183,8 @@ Endpoints que sirven data agregada del cierre diario y aceptan `fecha` como inpu
 
 Sin esto, durante horario de mercado las vistas se quedan en el cierre del día anterior hábil hasta que el cron corra a las 17:25 ART. Con esto, `fecha=hoy` siempre devuelve datos vigentes.
 
-Aplicado hoy en (commits 2026-05-04):
-- `api/services/analitica.py::snapshot_curva_historico` — fallback A para `fecha=today`.
+Implementado en:
+- `api/services/analitica.py::snapshot_curva_historico` — fallback para `fecha=today`.
 - `api/services/renta_fija.py::get_historico_curva` — agrega fila por ticker desde MarketSnapshot si hoy no está en SnapshotsCierre.
 - `api/services/carry_trade.py::_precios_diarios_curva` — helper `_precios_live_curva` para el último punto.
 

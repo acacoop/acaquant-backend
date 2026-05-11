@@ -283,28 +283,35 @@ def _futuro_ticker_de_opcion(option_ticker: str) -> str:
 
 
 def get_panel_opciones(commodity: str) -> dict[str, Any]:
-    """Cadena de opciones agro para un commodity, agrupada por vencimiento.
+    """Cadena de opciones agro para un commodity, agrupada por **contrato futuro**.
+
+    Importante: las opciones agro vencen ~1 mes antes que el futuro al que están
+    escritas (convención estándar). `SOJ.ROS/JUL26 312 C` expira el 23/06/26
+    pero es una opción sobre el futuro SOJ.ROS/JUL26 (vto ~24/07/26). Por eso
+    el grupping y el join con `AgroSnapshot` se hace por **prefijo del ticker
+    del futuro** (`SOJ.ROS/JUL26`), NO por la fecha de vencimiento.
 
     Output:
         {
-          "commodity": "MAIZ",
+          "commodity": "SOJA",
           "ts": datetime,
           "vencimientos": [
             {
-              "vencimiento":   "20260824",
-              "futuro_ticker": "MAI.ROS/SEP26" | None,
-              "futuro_last":   190.50 | None,
-              "dias_a_vto":    149,
+              "vencimiento":     "20260623",         # expiry de las opciones del grupo
+              "futuro_ticker":   "SOJ.ROS/JUL26" | None,
+              "futuro_vto":      "20260724" | None,  # vto del futuro subyacente
+              "futuro_last":     330.50 | None,
+              "dias_a_vto":      43,                 # días hasta expiry de la opción
               "strikes": [
                 {
-                  "strike": 188,
+                  "strike": 312,
                   "call":   {"ticker":..., "bid":..., "offer":..., "last":..., "vol":..., "updated_at":...} | None,
                   "put":    {"ticker":..., "bid":..., "offer":..., "last":..., "vol":..., "updated_at":...} | None,
                 },
-                ...   # ordenado de menor a mayor strike
+                ...
               ]
             },
-            ...   # ordenado por vencimiento ascendente
+            ...
           ]
         }
 
@@ -319,23 +326,35 @@ def get_panel_opciones(commodity: str) -> dict[str, Any]:
     futuros = list(db_read["Trading"]["AgroSnapshot"].find(
         {"commodity": commodity}
     ))
-    futuros_by_vto = {f.get("vencimiento"): f for f in futuros if f.get("vencimiento")}
+    futuros_by_ticker = {f.get("ticker"): f for f in futuros if f.get("ticker")}
 
-    # Group by vencimiento
-    by_vto: dict[str, list[dict]] = {}
+    # Group by future-ticker-prefix (no por vencimiento de la opción).
+    by_future: dict[str, list[dict]] = {}
     for o in opciones:
-        vto = o.get("vencimiento")
-        if not vto:
+        ticker = o.get("ticker")
+        if not ticker:
             continue
-        by_vto.setdefault(vto, []).append(o)
+        prefix = _futuro_ticker_de_opcion(ticker)
+        by_future.setdefault(prefix, []).append(o)
+
+    # Orden de los grupos: por vencimiento del FUTURO si existe, sino por
+    # vencimiento de la opción. Así DIC26 viene después de NOV26 aunque
+    # algún futuro falte temporalmente.
+    def _sort_key(prefix: str) -> str:
+        opts = by_future[prefix]
+        fut = futuros_by_ticker.get(prefix)
+        if fut and fut.get("vencimiento"):
+            return fut["vencimiento"]
+        return opts[0].get("vencimiento") or "99999999"
 
     vencimientos = []
-    for vto in sorted(by_vto.keys()):
-        opts = by_vto[vto]
-        futuro = futuros_by_vto.get(vto)
-        dias_a_vto = opts[0].get("dias_a_vto") if opts else None
+    for prefix in sorted(by_future.keys(), key=_sort_key):
+        opts = by_future[prefix]
+        futuro = futuros_by_ticker.get(prefix)
+        opt_vto = opts[0].get("vencimiento")
+        dias_a_vto = opts[0].get("dias_a_vto")
 
-        # Merge call+put por strike
+        # Merge call+put por strike.
         by_strike: dict[float, dict[str, dict]] = {}
         for o in opts:
             strike = o.get("strike")
@@ -363,8 +382,9 @@ def get_panel_opciones(commodity: str) -> dict[str, Any]:
         ]
 
         vencimientos.append({
-            "vencimiento":   vto,
-            "futuro_ticker": futuro.get("ticker") if futuro else None,
+            "vencimiento":   opt_vto,
+            "futuro_ticker": prefix,
+            "futuro_vto":    futuro.get("vencimiento") if futuro else None,
             "futuro_last":   futuro.get("last_price") if futuro else None,
             "dias_a_vto":    dias_a_vto,
             "strikes":       strikes,
@@ -445,20 +465,13 @@ def simular_estrategia(
 
     db_read = get_mongo_client_read()
 
-    # Futuro del mismo vencimiento — fuente del F0.
-    futuro = db_read["Trading"]["AgroSnapshot"].find_one({
-        "commodity": commodity,
-        "vencimiento": vencimiento,
-    })
-    if not futuro or futuro.get("last_price") in (None, 0):
-        raise ValueError(
-            f"sin precio de futuro para {commodity} vto {vencimiento}"
-        )
-    futuro_F0 = float(futuro["last_price"])
-
     # Tipo de opción según estrategia: put sintético usa CALL, long put usa PUT.
     tipo_opcion = "C" if tipo == "put_sintetico" else "P"
 
+    # Primero buscamos la opción — el ticker nos da el prefijo del futuro.
+    # Las opciones agro vencen ~1 mes antes que el futuro al que están escritas
+    # (convención estándar), así que NO se puede joinear futuro↔opción por
+    # vencimiento — hay que joinear por ticker del futuro.
     opcion = db_read["Trading"]["AgroOpcionesSnapshot"].find_one({
         "commodity":   commodity,
         "vencimiento": vencimiento,
@@ -469,6 +482,18 @@ def simular_estrategia(
         raise ValueError(
             f"opción {tipo_opcion} K={strike} vto {vencimiento} no listada"
         )
+    future_ticker = _futuro_ticker_de_opcion(opcion.get("ticker") or "")
+    if not future_ticker:
+        raise ValueError(
+            f"no pude extraer ticker del futuro de la opción {opcion.get('ticker')!r}"
+        )
+
+    futuro = db_read["Trading"]["AgroSnapshot"].find_one({"ticker": future_ticker})
+    if not futuro or futuro.get("last_price") in (None, 0):
+        raise ValueError(
+            f"sin precio de futuro {future_ticker} (subyacente de la opción)"
+        )
+    futuro_F0 = float(futuro["last_price"])
 
     if prima_override is not None:
         if prima_override <= 0:

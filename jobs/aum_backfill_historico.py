@@ -54,7 +54,6 @@ from jobs.aum import (
     autenticar,
     consultar_posicion,
     procesar,
-    sync_carteras_ii,
 )
 
 # Lista fija de meses pendientes de cierre real. Ampliar manualmente si crece.
@@ -387,8 +386,6 @@ def main():
             if r["timeout"] + r["error"] > 0:
                 print(f"  python -m jobs.aum_backfill_historico --mes {r['yyyy_mm']} "
                       f"--solo-fallidas --workers 1 --timeout 360 --retries 5")
-
-    sync_carteras_ii()
 
 
 if __name__ == "__main__":

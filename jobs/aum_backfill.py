@@ -41,7 +41,6 @@ from jobs.aum import (
     consultar_posicion,
     obtener_cuentas,
     procesar,
-    sync_carteras_ii,
 )
 
 
@@ -193,8 +192,6 @@ def main():
     unidades = col.distinct("unidad", {"fecha_snapshot": fecha_snapshot})
     _sincronizar_assets(client["Valuaciones"]["Assets"], unidades)
     print(f"✅ Assets sincronizado: {len(unidades)} unidades.")
-
-    sync_carteras_ii()
 
     from jobs.aum_resumen_fci import sync_fecha as sync_resumen_fci
     sync_resumen_fci(client, fecha_snapshot)

@@ -538,7 +538,7 @@ Wrapper over `pyRofex.get_account_*`. Uncached — always fresh from the broker.
 
 ### 7.9 Portfolio (`/api/portfolio/*`) · port
 
-Reads from `PortfolioAPI.AumAPI`, `TitulosAPI.AssetsAPI`, `TitulosAPI.ValuacionesAPI` and `Valuaciones.CarterasII`. Valuation formula in `_valuacion_api(cantidad, precio, cartera, clase)`:
+Reads from `PortfolioAPI.AumAPI`, `TitulosAPI.AssetsAPI` and `TitulosAPI.ValuacionesAPI`. Valuation formula in `_valuacion_api(cantidad, precio, cartera, clase)`:
 
 - Fixed income (`Títulos Públicos`, `Letras`, `ONs`, `Fideicomisos`, `CPD`) → `cantidad × precio / 100`
 - Futures → `(precio + 1) × cantidad`

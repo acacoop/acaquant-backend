@@ -1,10 +1,13 @@
 """Drop de las colecciones legacy del cron de carteras (deprecation 2026-05-11).
 
-`jobs.carteras` quedó deprecated cuando la vista /portfolios dejó de
-usarse en acaquant-web. Esta cadena ya no tiene escritor ni consumidor:
+Tres colecciones quedaron sin escritor ni consumidor cuando la vista
+/portfolios dejó de usarse en acaquant-web:
 
     Valuaciones.Carteras       (escrita por jobs.carteras, ahora borrado)
     PortfolioAPI.CarterasAPI   (copia API derivada vía sync_api_copies)
+    Valuaciones.CarterasII     (snapshot del primer día hábil del mes
+                                anterior — escrito por jobs.aum.sync_carteras_ii,
+                                ahora también removido; nadie lo leía)
 
 Ejecutar UNA sola vez en el Droplet:
 
@@ -20,6 +23,7 @@ def main() -> None:
     targets = [
         ("Valuaciones",  "Carteras"),
         ("PortfolioAPI", "CarterasAPI"),
+        ("Valuaciones",  "CarterasII"),
     ]
     for db_name, col_name in targets:
         col = client[db_name][col_name]

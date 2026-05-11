@@ -12,11 +12,12 @@ Caching: cada lookup se persiste en `Smart.CusipCatalog`. Si el CUSIP/ticker
 ya está en cache no pegamos a OpenFIGI. Lookups fallidos (no match) también
 se cachean con ticker=null para no reintentar.
 
-Rate limit:
-    - Sin API key: 25 req/6s + max 10 items por request
-    - Con API key: 250 req/6s + max 100 items por request
+Rate limit (real, medido por OpenFIGI):
+    - Sin API key: 25 req **por 6 segundos** (ventana deslizante) + max 10 items/req
+    - Con API key: 250 req por 6s + max 100 items/req
 
-Throttle interno: 3 req/s sin key (= 18/6s, under 25). Con key bumpea a 30/s.
+Throttle interno: usa la misma ventana de 6s, con headroom (22/240) para
+absorber pequeños desfases de reloj sin disparar 429.
 """
 from __future__ import annotations
 
@@ -37,7 +38,10 @@ logger = logging.getLogger(__name__)
 API_KEY = os.getenv("OPENFIGI_API_KEY", "")
 BASE_URL = "https://api.openfigi.com/v3/mapping"
 
-MAX_REQ_PER_SEC = 30 if API_KEY else 3
+# Misma ventana que mide OpenFIGI server-side. Headroom: 22/25 sin key,
+# 240/250 con key. Evita 429 ante bursts iniciales.
+RATE_WINDOW_SECONDS = 6
+MAX_REQ_PER_WINDOW = 240 if API_KEY else 22
 MAX_BATCH_SIZE = 100 if API_KEY else 10
 
 _rate_lock = threading.Lock()
@@ -53,16 +57,16 @@ class OpenFIGIError(RuntimeError):
 
 
 def _wait_rate_limit() -> None:
-    """Sliding window de 1s con MAX_REQ_PER_SEC. Thread-safe."""
+    """Sliding window de RATE_WINDOW_SECONDS con MAX_REQ_PER_WINDOW. Thread-safe."""
     with _rate_lock:
         now = time.time()
-        _calls_ts[:] = [t for t in _calls_ts if now - t < 1.0]
-        if len(_calls_ts) >= MAX_REQ_PER_SEC:
-            sleep_s = 1.0 - (now - _calls_ts[0]) + 0.05
+        _calls_ts[:] = [t for t in _calls_ts if now - t < RATE_WINDOW_SECONDS]
+        if len(_calls_ts) >= MAX_REQ_PER_WINDOW:
+            sleep_s = RATE_WINDOW_SECONDS - (now - _calls_ts[0]) + 0.3
             if sleep_s > 0:
                 time.sleep(sleep_s)
                 now = time.time()
-                _calls_ts[:] = [t for t in _calls_ts if now - t < 1.0]
+                _calls_ts[:] = [t for t in _calls_ts if now - t < RATE_WINDOW_SECONDS]
         _calls_ts.append(now)
 
 

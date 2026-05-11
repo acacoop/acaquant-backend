@@ -1,22 +1,46 @@
 """Service puro — Pase Agro (Trigo / Maíz / Soja Rosario).
 
-Arma la tabla PASE AGRO replicando la planilla de la mesa: por cada
-commodity se rendea una fila PIZARRA (manual, editable), una fila DISPO
-(placeholder #N/A) y N filas de futuros (last live de Trading.AgroSnapshot).
+Dos capas:
 
-Cálculos puros (no se persisten):
-- ars      = us  × dolar_oficial_mid
-- pase     = us_pizarra − us_futuro
-- tnav_us  = (us_pizarra / us_futuro)^(365/dias_a_vto) − 1   (compuesta)
+1. **Pase Agro (PIZARRA)** — replica la planilla de la mesa: por cada
+   commodity se rendea una fila PIZARRA (manual, editable), una fila
+   DISPO (placeholder #N/A) y N filas de futuros (last live de
+   Trading.AgroSnapshot).
 
-La fórmula TNAV se validó contra la planilla:
-- TRI.ROS/DIC26 last=229.60, pizarra=202.79, dias≈236 → -17.41% (planilla -17.47%)
-- MAI.ROS/SEP26 last=191.90, pizarra=190.00, dias≈149 →  -2.41% (planilla -2.41%)
+   Cálculos puros (no se persisten):
+   - ars      = us  × dolar_oficial_mid
+   - pase     = us_pizarra − us_futuro
+   - tnav_us  = (us_pizarra / us_futuro)^(365/dias_a_vto) − 1  (compuesta)
+
+   La fórmula TNAV se validó contra la planilla:
+   - TRI.ROS/DIC26 last=229.60, pizarra=202.79, dias≈236 → -17.41% (planilla -17.47%)
+   - MAI.ROS/SEP26 last=191.90, pizarra=190.00, dias≈149 →  -2.41% (planilla -2.41%)
+
+2. **Panel de Opciones + Simulador de Estrategias** — alimenta la vista
+   ESTRATEGIAS. Lee Trading.AgroOpcionesSnapshot (motor_agro_opciones)
+   y arma una cadena tipo planilla (calls a la izquierda, puts a la
+   derecha, strikes en el medio) agrupada por vencimiento, con el
+   precio del futuro embebido.
+
+   Simulador de dos estrategias canónicas (PDF de cobertura agro):
+
+   - **Put sintético** = venta de futuro F0 + compra de call K (prima C):
+     - piso = F0 − C
+     - zona expuesta = (F0, K)  → margin calls proporcionales
+     - diferencia_max = K − F0  (constante una vez que el mercado supera K;
+       la prima ya se pagó upfront, no entra en "diferencias")
+     - precio_efectivo(F) = F0 − C + max(F − K, 0)
+     - diferencia(F)      = (F0 − F) + max(F − K, 0)
+
+   - **Long put** = compra de put K (prima P):
+     - piso = K − P
+     - sin diferencias (solo se pierde la prima)
+     - precio_efectivo(F) = max(K, F) − P
 """
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from core.dolar_oficial import mid_oficial_live
 from core.mongo import get_mongo_client, get_mongo_client_read
@@ -243,3 +267,252 @@ def set_pizarra(
         "updated_at": now,
     })
     return new
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PANEL DE OPCIONES + SIMULADOR (vista ESTRATEGIAS)
+# ─────────────────────────────────────────────────────────────────────────────
+
+TipoEstrategia = Literal["put_sintetico", "long_put"]
+
+
+def _futuro_ticker_de_opcion(option_ticker: str) -> str:
+    """`SOJ.ROS/JUL26 312 C` → `SOJ.ROS/JUL26`. Sirve para joinear con AgroSnapshot."""
+    # El symbol del futuro es el prefijo hasta el primer espacio.
+    return option_ticker.split(" ", 1)[0]
+
+
+def get_panel_opciones(commodity: str) -> dict[str, Any]:
+    """Cadena de opciones agro para un commodity, agrupada por vencimiento.
+
+    Output:
+        {
+          "commodity": "MAIZ",
+          "ts": datetime,
+          "vencimientos": [
+            {
+              "vencimiento":   "20260824",
+              "futuro_ticker": "MAI.ROS/SEP26" | None,
+              "futuro_last":   190.50 | None,
+              "dias_a_vto":    149,
+              "strikes": [
+                {
+                  "strike": 188,
+                  "call":   {"ticker":..., "bid":..., "offer":..., "last":..., "vol":..., "updated_at":...} | None,
+                  "put":    {"ticker":..., "bid":..., "offer":..., "last":..., "vol":..., "updated_at":...} | None,
+                },
+                ...   # ordenado de menor a mayor strike
+              ]
+            },
+            ...   # ordenado por vencimiento ascendente
+          ]
+        }
+
+    Sin docs en AgroOpcionesSnapshot → vencimientos = [] (no error).
+    """
+    commodity = _validate_commodity(commodity.upper())
+
+    db_read = get_mongo_client_read()
+    opciones = list(db_read["Trading"]["AgroOpcionesSnapshot"].find(
+        {"commodity": commodity}
+    ))
+    futuros = list(db_read["Trading"]["AgroSnapshot"].find(
+        {"commodity": commodity}
+    ))
+    futuros_by_vto = {f.get("vencimiento"): f for f in futuros if f.get("vencimiento")}
+
+    # Group by vencimiento
+    by_vto: dict[str, list[dict]] = {}
+    for o in opciones:
+        vto = o.get("vencimiento")
+        if not vto:
+            continue
+        by_vto.setdefault(vto, []).append(o)
+
+    vencimientos = []
+    for vto in sorted(by_vto.keys()):
+        opts = by_vto[vto]
+        futuro = futuros_by_vto.get(vto)
+        dias_a_vto = opts[0].get("dias_a_vto") if opts else None
+
+        # Merge call+put por strike
+        by_strike: dict[float, dict[str, dict]] = {}
+        for o in opts:
+            strike = o.get("strike")
+            tipo = o.get("tipo")
+            if strike is None or tipo not in ("C", "P"):
+                continue
+            row = by_strike.setdefault(float(strike), {})
+            slot = "call" if tipo == "C" else "put"
+            row[slot] = {
+                "ticker":     o.get("ticker"),
+                "bid":        o.get("bid_price"),
+                "offer":      o.get("offer_price"),
+                "last":       o.get("last_price"),
+                "vol":        o.get("vol_efectivo"),
+                "updated_at": o.get("updated_at"),
+            }
+
+        strikes = [
+            {
+                "strike": k,
+                "call":   v.get("call"),
+                "put":    v.get("put"),
+            }
+            for k, v in sorted(by_strike.items())
+        ]
+
+        vencimientos.append({
+            "vencimiento":   vto,
+            "futuro_ticker": futuro.get("ticker") if futuro else None,
+            "futuro_last":   futuro.get("last_price") if futuro else None,
+            "dias_a_vto":    dias_a_vto,
+            "strikes":       strikes,
+        })
+
+    return {
+        "commodity":    commodity,
+        "ts":           datetime.now(UTC),
+        "vencimientos": vencimientos,
+    }
+
+
+def _curva_estrategia_y_diferencias(
+    tipo: TipoEstrategia,
+    futuro_F0: float,
+    strike_K: float,
+    prima: float,
+    steps: int = 40,
+) -> tuple[list[dict], list[dict]]:
+    """Genera los puntos (precio_futuro_mkt, precio_efectivo_venta, diferencia) para los gráficos.
+
+    Rango del eje X: del 30% al 180% del strike (cubre la zona interesante
+    sin perderse en extremos). El front recorta visualmente lo que no usa.
+    """
+    x_low = max(0.0, strike_K * 0.3)
+    x_high = strike_K * 1.8
+    if x_high <= x_low:
+        x_high = x_low + strike_K
+
+    curva_e: list[dict] = []
+    curva_d: list[dict] = []
+    for i in range(steps + 1):
+        f = x_low + (x_high - x_low) * (i / steps)
+        if tipo == "put_sintetico":
+            precio_efectivo = futuro_F0 - prima + max(f - strike_K, 0.0)
+            diferencia = (futuro_F0 - f) + max(f - strike_K, 0.0)
+        else:  # long_put
+            precio_efectivo = max(strike_K, f) - prima
+            diferencia = 0.0
+        curva_e.append({
+            "x":          round(f, 2),
+            "estrategia": round(precio_efectivo, 2),
+            "futuro":     round(f, 2),
+        })
+        curva_d.append({
+            "x":          round(f, 2),
+            "diferencia": round(diferencia, 2),
+        })
+    return curva_e, curva_d
+
+
+def simular_estrategia(
+    commodity: str,
+    vencimiento: str,
+    tipo: TipoEstrategia,
+    strike: float,
+    prima_override: float | None = None,
+) -> dict[str, Any]:
+    """Simula put sintético o long put sobre el contrato (commodity, vencimiento).
+
+    Inputs:
+        commodity:        TRIGO | MAIZ | SOJA
+        vencimiento:      YYYYMMDD (del DB)
+        tipo:             put_sintetico | long_put
+        strike:           strike de la opción
+        prima_override:   si se pasa, se usa en lugar del last_price del libro;
+                          útil cuando el trader quiere usar otro nivel (bid/offer/mid)
+
+    Errors:
+        ValueError si commodity inválido, futuro inexistente, strike no listado,
+        o prima no disponible.
+    """
+    commodity = _validate_commodity(commodity.upper())
+    if tipo not in ("put_sintetico", "long_put"):
+        raise ValueError(f"tipo inválido: {tipo!r}")
+    if strike <= 0:
+        raise ValueError("strike debe ser > 0")
+
+    db_read = get_mongo_client_read()
+
+    # Futuro del mismo vencimiento — fuente del F0.
+    futuro = db_read["Trading"]["AgroSnapshot"].find_one({
+        "commodity": commodity,
+        "vencimiento": vencimiento,
+    })
+    if not futuro or futuro.get("last_price") in (None, 0):
+        raise ValueError(
+            f"sin precio de futuro para {commodity} vto {vencimiento}"
+        )
+    futuro_F0 = float(futuro["last_price"])
+
+    # Tipo de opción según estrategia: put sintético usa CALL, long put usa PUT.
+    tipo_opcion = "C" if tipo == "put_sintetico" else "P"
+
+    opcion = db_read["Trading"]["AgroOpcionesSnapshot"].find_one({
+        "commodity":   commodity,
+        "vencimiento": vencimiento,
+        "strike":      strike,
+        "tipo":        tipo_opcion,
+    })
+    if not opcion:
+        raise ValueError(
+            f"opción {tipo_opcion} K={strike} vto {vencimiento} no listada"
+        )
+
+    if prima_override is not None:
+        if prima_override <= 0:
+            raise ValueError("prima_override debe ser > 0")
+        prima = float(prima_override)
+    else:
+        last = opcion.get("last_price")
+        if last in (None, 0):
+            raise ValueError(
+                "sin last_price para la opción seleccionada — pasar prima_override"
+            )
+        prima = float(last)
+
+    # Métricas del payoff.
+    if tipo == "put_sintetico":
+        piso = round(futuro_F0 - prima, 4)
+        diferencia_max = round(strike - futuro_F0, 4)
+        zona_expuesta = {
+            "desde": round(min(futuro_F0, strike), 4),
+            "hasta": round(max(futuro_F0, strike), 4),
+        }
+    else:  # long_put
+        piso = round(strike - prima, 4)
+        diferencia_max = 0.0
+        zona_expuesta = None
+
+    curva_e, curva_d = _curva_estrategia_y_diferencias(
+        tipo=tipo, futuro_F0=futuro_F0, strike_K=strike, prima=prima,
+    )
+
+    return {
+        "tipo":               tipo,
+        "commodity":          commodity,
+        "vencimiento":        vencimiento,
+        "strike":             strike,
+        "prima":              prima,
+        "prima_override":     prima_override is not None,
+        "futuro_ticker":      futuro.get("ticker"),
+        "futuro_last":        futuro_F0,
+        "opcion_ticker":      opcion.get("ticker"),
+        "piso":               piso,
+        "diferencia_max":     diferencia_max,
+        "zona_expuesta":      zona_expuesta,
+        "curva_estrategia":   curva_e,
+        "curva_diferencias":  curva_d,
+        "ts":                 datetime.now(UTC),
+    }

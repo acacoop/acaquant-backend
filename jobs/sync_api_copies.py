@@ -9,7 +9,6 @@ que se actualice la colección fuente correspondiente. Cada flag invoca la
 migración respectiva:
 
     python -m jobs.sync_api_copies --aum           # Valuaciones.AuM        → PortfolioAPI.AumAPI
-    python -m jobs.sync_api_copies --carteras      # Valuaciones.Carteras   → PortfolioAPI.CarterasAPI
     python -m jobs.sync_api_copies --assets        # Valuaciones.Assets     → TitulosAPI.AssetsAPI
     python -m jobs.sync_api_copies --flujo         # CashFlow.Flujo         → OperacionesAPI.MesaAPI
     python -m jobs.sync_api_copies --movimientos   # CashFlow.Movimientos   → OperacionesAPI.FlujosAPI
@@ -24,7 +23,6 @@ import traceback
 from scripts.api_migrate import (
     migrate_assets,
     migrate_aum,
-    migrate_carteras,
     migrate_flujo,
     migrate_flujos_titulos,
     migrate_movimientos,
@@ -32,7 +30,6 @@ from scripts.api_migrate import (
 
 TASKS = {
     "aum":         ("Valuaciones.AuM → PortfolioAPI.AumAPI",            migrate_aum),
-    "carteras":    ("Valuaciones.Carteras → PortfolioAPI.CarterasAPI",  migrate_carteras),
     "flujo":       ("CashFlow.Flujo → OperacionesAPI.MesaAPI",          migrate_flujo),
     "movimientos": ("CashFlow.Movimientos → OperacionesAPI.FlujosAPI",  migrate_movimientos),
     "titulos":     ("Trading.Curvas+Bonds → TitulosAPI.ValuacionesAPI", migrate_flujos_titulos),

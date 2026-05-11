@@ -75,10 +75,6 @@ def main():
         (valuaciones["AuMResumen"], [("EMISOR", 1), ("fecha_snapshot", -1)],
             "AuMResumen: EMISOR + fecha_snapshot"),
 
-        # ── Valuaciones.Carteras ──────────────────────────────────────────
-        (valuaciones["Carteras"], [("id_cuenta", 1), ("unidad", 1)],
-            "Carteras: id_cuenta + unidad"),
-
         # ── Valuaciones.Dolar ─────────────────────────────────────────────
         (valuaciones["Dolar"], [("timestamp", -1)],
             "Dolar: timestamp"),
@@ -123,11 +119,6 @@ def main():
             "AumAPI: fecha"),
         (portfolio_api["AumAPI"], [("unidad", 1), ("fecha", -1)],
             "AumAPI: unidad + fecha"),
-        (portfolio_api["CarterasAPI"], [("id_cuenta", 1), ("unidad", 1)],
-            "CarterasAPI: id_cuenta + unidad"),
-        (portfolio_api["CarterasAPI"], [("unidad", 1)],
-            "CarterasAPI: unidad (queries sin id_cuenta)"),
-
         # ── TitulosAPI ────────────────────────────────────────────────────
         (titulos_api["AssetsAPI"], [("cartera", 1)],
             "AssetsAPI: cartera"),

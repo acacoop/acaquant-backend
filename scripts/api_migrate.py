@@ -5,7 +5,6 @@ Uso:
     python -m scripts.api_migrate contrapartes      → migra CashFlow.Contrapartes → CashFlow.ContrapartesAPI
     python -m scripts.api_migrate flujo             → copia CashFlow.Flujo → OperacionesAPI.MesaAPI
     python -m scripts.api_migrate movimientos       → copia CashFlow.Movimientos → OperacionesAPI.FlujosAPI
-    python -m scripts.api_migrate carteras          → copia Valuaciones.Carteras → PortfolioAPI.CarterasAPI
     python -m scripts.api_migrate aum               → copia Valuaciones.AuM → PortfolioAPI.AumAPI
     python -m scripts.api_migrate assets            → copia Valuaciones.Assets → TitulosAPI.AssetsAPI
     python -m scripts.api_migrate flujos-titulos    → merge Trading.Curvas + Trading.BondsMaster → TitulosAPI.ValuacionesAPI
@@ -223,50 +222,6 @@ def migrate_movimientos():
 
     for d in bulk[:3]:
         print(f"  boleto={d['boleto']!r}  cuenta={d['cuenta']!r}  concertacion={d['concertacion']!r}  bruto={d['bruto']}  unidad={d['unidad']!r}")
-    if len(bulk) > 3:
-        print(f"  ... y {len(bulk) - 3} más")
-
-
-def migrate_carteras():
-    """Copia Valuaciones.Carteras → PortfolioAPI.CarterasAPI con timestamp truncado a fecha.
-
-    Origen:  {id_cuenta, unidad, cantidad, precio, actualizado, timestamp}
-    Destino: {id_cuenta, unidad, cantidad, precio, timestamp (datetime solo fecha)}
-
-    No borra el origen.
-    """
-    client = get_mongo_client()
-    src = client["Valuaciones"]["Carteras"]
-    dst = client["PortfolioAPI"]["CarterasAPI"]
-
-    projection = {
-        "_id": 0, "id_cuenta": 1, "unidad": 1, "cantidad": 1,
-        "precio": 1, "timestamp": 1,
-    }
-    docs = list(src.find({}, projection))
-    if not docs:
-        print("No hay docs en Valuaciones.Carteras — nada que migrar.")
-        return
-
-    bulk = []
-    for doc in docs:
-        ts = doc.get("timestamp")
-        if isinstance(ts, datetime):
-            ts = datetime(ts.year, ts.month, ts.day)
-        bulk.append({
-            "id_cuenta": doc.get("id_cuenta", ""),
-            "unidad": doc.get("unidad", ""),
-            "cantidad": doc.get("cantidad"),
-            "precio": doc.get("precio"),
-            "timestamp": ts,
-        })
-
-    dst.drop()
-    dst.insert_many(bulk)
-    print(f"OK: {len(bulk)} docs copiados a PortfolioAPI.CarterasAPI")
-
-    for d in bulk[:3]:
-        print(f"  id_cuenta={d['id_cuenta']!r}  unidad={d['unidad']!r}  cantidad={d['cantidad']}  precio={d['precio']}  timestamp={d['timestamp']}")
     if len(bulk) > 3:
         print(f"  ... y {len(bulk) - 3} más")
 
@@ -520,7 +475,6 @@ COMMANDS = {
     "mover": mover_a_cuentasapi,
     "flujo": migrate_flujo,
     "movimientos": migrate_movimientos,
-    "carteras": migrate_carteras,
     "aum": migrate_aum,
     "assets": migrate_assets,
     "flujos-titulos": migrate_flujos_titulos,

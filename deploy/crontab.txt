@@ -36,12 +36,6 @@
 30 13 * * 1-5 systemctl start motor_ordenes.service
 5  20 * * 1-5 systemctl stop  motor_ordenes.service
 
-# ─── Sincronización Aunesa → MongoDB (3 veces por día hábil, todas post-resume del cluster)
-# Cada corrida re-sincroniza PortfolioAPI.CarterasAPI para mantener la API fresca.
-35 11 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --carteras >> /root/TradingAV/logs/sync_api.log 2>&1
-0  14 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --carteras >> /root/TradingAV/logs/sync_api.log 2>&1
-0  16 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.carteras >> /root/TradingAV/logs/carteras.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --carteras >> /root/TradingAV/logs/sync_api.log 2>&1
-
 # ─── Volatilidad GGAL (al cierre)
 0 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.volatilidad_ggal >> /root/TradingAV/logs/vr_ggal.log 2>&1
 

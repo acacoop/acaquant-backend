@@ -538,7 +538,7 @@ Wrapper over `pyRofex.get_account_*`. Uncached — always fresh from the broker.
 
 ### 7.9 Portfolio (`/api/portfolio/*`) · port
 
-Reads from `PortfolioAPI.CarterasAPI`, `PortfolioAPI.AumAPI`, `TitulosAPI.AssetsAPI`, `TitulosAPI.ValuacionesAPI` and `Valuaciones.CarterasII`. Valuation formula in `_valuacion_api(cantidad, precio, cartera, clase)`:
+Reads from `PortfolioAPI.AumAPI`, `TitulosAPI.AssetsAPI`, `TitulosAPI.ValuacionesAPI` and `Valuaciones.CarterasII`. Valuation formula in `_valuacion_api(cantidad, precio, cartera, clase)`:
 
 - Fixed income (`Títulos Públicos`, `Letras`, `ONs`, `Fideicomisos`, `CPD`) → `cantidad × precio / 100`
 - Futures → `(precio + 1) × cantidad`
@@ -546,7 +546,6 @@ Reads from `PortfolioAPI.CarterasAPI`, `PortfolioAPI.AumAPI`, `TitulosAPI.Assets
 
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/carteras` | Raw positions (current) |
 | GET | `/aum` | AuM snapshots (historical) |
 | GET | `/tasa-fija` | Tasa-fija bucket from latest AuM snapshot |
 | GET | `/cer` | CER bucket from latest AuM snapshot |
@@ -631,7 +630,7 @@ Every mutation invalidates the in-process cache (`core/roles.py::invalidate_cach
 
 #### 7.14.2 Status
 
-- `GET /status` — Unified state of motors (`TimeSales`, `MarketSnapshot`, `ForwardsLive`, `BreakevensLive`, `OptionsSnapshot`, `motor_ordenes`) and batch jobs (CER, DOLAR, AuM, Carteras, Movimientos, Flujo). Staleness thresholds vary per probe; `estado ∈ {ok, lento, critico, fuera_rueda, sin_datos, atrasado, error_parse}`. Market hours = weekdays 10:00–17:05 ART.
+- `GET /status` — Unified state of motors (`TimeSales`, `MarketSnapshot`, `ForwardsLive`, `BreakevensLive`, `OptionsSnapshot`, `motor_ordenes`) and batch jobs (CER, DOLAR, AuM, Movimientos, Flujo). Staleness thresholds vary per probe; `estado ∈ {ok, lento, critico, fuera_rueda, sin_datos, atrasado, error_parse}`. Market hours = weekdays 10:00–17:05 ART.
 
 #### 7.14.3 Checks
 
@@ -655,7 +654,7 @@ Every mutation invalidates the in-process cache (`core/roles.py::invalidate_cach
 
 | Method | Path | Limit | Description |
 |---|---|---|---|
-| POST | `/jobs/run` | 5/h, 20/d | Body `{tipo, args[]}`. Spawns a job (`tipo ∈ aum_backfill, aum_resumen_fci, carteras, cashflow, flujo, bcra, sync_api_copies, crear_indices, cleanup_curvas`). Worker is `subprocess.run` with 360 s timeout. |
+| POST | `/jobs/run` | 5/h, 20/d | Body `{tipo, args[]}`. Spawns a job (`tipo ∈ aum_backfill, aum_resumen_fci, cashflow, flujo, bcra, sync_api_copies, crear_indices, cleanup_curvas`). Worker is `subprocess.run` with 360 s timeout. |
 | GET | `/jobs/{job_id}` | — | `status ∈ {running, done, error}`, `rc`, last 1500 chars of stdout/stderr |
 | GET | `/jobs/history` | — | Runs from `Manager.JobRuns` (TTL 60 d). Filters: `tipo`, `status`, `desde`, `hasta`, `limit≤500` |
 | GET | `/jobs/history/stats` | — | Per-tipo aggregates since `desde` (default 7 d) |
@@ -794,7 +793,6 @@ Source collections are the system of record. API-facing collections are denormal
 | `CuentasAPI.ContrapartesAPI` | `CashFlow.Contrapartes` | `scripts.api_migrate contrapartes` |
 | `OperacionesAPI.MesaAPI` | `CashFlow.Flujo` | `scripts.api_migrate flujo` |
 | `OperacionesAPI.FlujosAPI` | `CashFlow.Movimientos` | `scripts.api_migrate movimientos` |
-| `PortfolioAPI.CarterasAPI` | `Valuaciones.Carteras` | `scripts.api_migrate carteras` |
 | `PortfolioAPI.AumAPI` | `Valuaciones.AuM` | `scripts.api_migrate aum` |
 | `TitulosAPI.AssetsAPI` | `Valuaciones.Assets` | `scripts.api_migrate assets` |
 | `TitulosAPI.ValuacionesAPI` | `Trading.Curvas` + `Trading.BondsMaster` | `scripts.api_migrate flujos-titulos` |

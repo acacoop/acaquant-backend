@@ -11,14 +11,6 @@ from api.services import portfolio as svc
 router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
 
 
-@router.get("/carteras")
-def listar_carteras(
-    id_cuenta: str | None = Query(None, description="Filtrar por id de cuenta"),
-    unidad: str | None = Query(None, description="Filtrar por unidad/instrumento"),
-):
-    return svc.listar_carteras(id_cuenta=id_cuenta, unidad=unidad)
-
-
 @router.get("/aum")
 def listar_aum(
     id_cuenta: str | None = Query(None, description="Filtrar por id de cuenta"),

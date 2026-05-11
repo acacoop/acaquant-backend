@@ -1,4 +1,4 @@
-"""Capa de servicio — portfolio / AuM / carteras / FCI.
+"""Capa de servicio — portfolio / AuM / FCI.
 
 Lógica pura (sin FastAPI) sobre las colecciones `PortfolioAPI`, `TitulosAPI`,
 `Valuaciones`. El router `api/routers/carteras.py` es un thin wrapper que
@@ -21,10 +21,6 @@ from api.db import get_db_portfolio, get_db_titulos, get_db_trading, get_db_valu
 from api.services._cuentas_filter import match_cuenta_filter
 from api.services._mep import get_mep_for_date
 
-_PROJ_CARTERAS = {
-    "_id": 0, "id_cuenta": 1, "unidad": 1, "cantidad": 1,
-    "precio": 1, "timestamp": 1,
-}
 _PROJ_AUM = {
     "_id": 0, "fecha": 1, "id_cuenta": 1, "unidad": 1,
     "cantidad": 1, "cuenta": 1, "precio": 1, "valuacion": 1,
@@ -92,23 +88,8 @@ def _valuacion_api(cant: float, px: float, cartera: str, clase_activo: str) -> f
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Endpoints raw: /carteras, /aum
+# Endpoints raw: /aum
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-@cached(ttl=300)
-def listar_carteras(
-    id_cuenta: str | None = None,
-    unidad: str | None = None,
-) -> list:
-    """Posiciones actuales desde PortfolioAPI.CarterasAPI."""
-    db = get_db_portfolio()
-    filtro: dict = {}
-    if id_cuenta:
-        filtro["id_cuenta"] = id_cuenta
-    if unidad:
-        filtro["unidad"] = unidad
-    return list(db["CarterasAPI"].find(filtro, _PROJ_CARTERAS))
 
 
 @cached(ttl=300)

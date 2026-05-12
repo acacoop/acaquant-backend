@@ -37,21 +37,21 @@ from core.mongo import get_mongo_client_read
 def _filing_date_to_report_date(filing_date: str | None) -> str | None:
     """Infiere el período reportado de un 13F-HR a partir de la filing_date.
 
-    13F deadline = 45 días después del cierre de quarter:
-      Q1 (Mar 31) deadline May 15  → filings Apr - mid May
-      Q2 (Jun 30) deadline Aug 14  → filings Jul - mid Aug
-      Q3 (Sep 30) deadline Nov 14  → filings Oct - mid Nov
-      Q4 (Dec 31) deadline Feb 14  → filings Jan - mid Feb del AÑO SIGUIENTE
+    Restricción clave: un 13F reporta un quarter que YA TERMINÓ. Una filing
+    en Feb 17 NO puede reportar Q1 (Mar 31) porque Q1 todavía no cerró —
+    sí puede reportar Q4 prev (Dec 31), que cerró 7 semanas antes.
 
-    Mapeo del calendar month al period reportado (dominant case):
-      Jan 1 - Feb 14   → Q4 prev year (Dec 31)
-      Feb 15 - May 15  → Q1 current year (Mar 31)
-      May 16 - Aug 14  → Q2 current year (Jun 30)
-      Aug 15 - Nov 14  → Q3 current year (Sep 30)
-      Nov 15 - Dec 31  → Q3 current year (Sep 30) — amendments tardíos
+    Mapeo por filing month:
+      Jan 1 - Apr 1   → Q4 prev year (Dec 31 prev) — deadline Feb 14 + amendments
+      Apr 2 - Jul 1   → Q1 current (Mar 31) — deadline May 15 + amendments
+      Jul 2 - Oct 1   → Q2 current (Jun 30) — deadline Aug 14 + amendments
+      Oct 2 - Dec 31  → Q3 current (Sep 30) — deadline Nov 14 + amendments
 
-    Aproximación >95% precisa. Amendments fuera de window pueden fallar
-    (bug cosmético, no rompe queries).
+    Caso de uso: Berkshire filed 2026-02-17 → Q4 2025 (Dec 31 2025).
+    Renaissance filed 2026-04-15 → Q1 2026 (Mar 31 2026).
+
+    Aproximación >95% precisa. Filings en el día-frontera (ej. Apr 1) van
+    al quarter anterior por convención.
     """
     if not filing_date:
         return None
@@ -61,15 +61,13 @@ def _filing_date_to_report_date(filing_date: str | None) -> str | None:
         return None
     md = d.month * 100 + d.day
     year = d.year
-    if md <= 214:
-        return f"{year - 1}-12-31"  # Jan 1 - Feb 14 → Q4 prev year
-    if md <= 515:
-        return f"{year}-03-31"      # Feb 15 - May 15 → Q1
-    if md <= 814:
-        return f"{year}-06-30"      # May 16 - Aug 14 → Q2
-    if md <= 1114:
-        return f"{year}-09-30"      # Aug 15 - Nov 14 → Q3
-    return f"{year}-09-30"          # Nov 15 - Dec 31 → Q3 amendments
+    if md <= 401:
+        return f"{year - 1}-12-31"  # Jan 1 - Apr 1 → Q4 prev year
+    if md <= 701:
+        return f"{year}-03-31"      # Apr 2 - Jul 1 → Q1
+    if md <= 1001:
+        return f"{year}-06-30"      # Jul 2 - Oct 1 → Q2
+    return f"{year}-09-30"          # Oct 2 - Dec 31 → Q3
 
 
 def _db():

@@ -18,6 +18,20 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → MongoDB Atlas M10 �
 - **Excepción mínima**: si es UNA sola línea trivial (`systemctl status x`, `tail logs`), se puede pasar inline — pero el default es siempre script.
 - **Cero "probá esto, si no andá probá esto otro"**. Una solución por vez, comiteada al repo.
 
+## ⚠️ REGLA #1 — VALIDAR IMPORTS antes de pushear router/service (LEER PRIMERO)
+
+**Bloqueante. No opcional.** Un import error en CUALQUIER router/service montado en `api/main.py` tumba **TODA** la API (no solo el módulo nuevo) porque `api.service` corre como un proceso único. Cuando el user hace `git pull && systemctl restart api.service` el proceso queda en `failed` state y toda la web devuelve 502 — renta-fija, derivados, operaciones, todo cae.
+
+**Antes de `git push` de cualquier cambio que toque `api/routers/*`, `api/services/*`, `api/main.py`, `api/deps.py`, `api/db.py`, `api/auth.py`, `core/roles.py` o cualquier import-chain de `api/main.py`**, ejecutar localmente:
+
+```bash
+python -c "from api.main import app; print(len(app.routes), 'routes OK')"
+```
+
+Si tira ImportError / AttributeError / NameError, NO pushear. Fixar primero.
+
+Ruff y typecheck NO capturan esto — son análisis estáticos. Solo importar realmente el módulo detecta `from X import Y` cuando Y vive en otro módulo (lo más común). Caso real (2026-05-12): pusheé `from core.roles import require_module` cuando vive en `api.auth` — caída total de la API por un solo símbolo mal importado.
+
 ## Reglas que rompen todo si se olvidan
 
 - **`python -m <módulo>` desde la raíz siempre**. `python engines/x.py` falla (`core` no es discoverable).

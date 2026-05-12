@@ -37,15 +37,21 @@ from core.mongo import get_mongo_client_read
 def _filing_date_to_report_date(filing_date: str | None) -> str | None:
     """Infiere el período reportado de un 13F-HR a partir de la filing_date.
 
-    13F deadline = 45 días después del cierre de quarter. Mapeo aprox:
-      Filed Jan 1 → Feb 14   → reports Q3 prev year (Sep 30)
-      Filed Feb 15 → May 14  → reports Q4 prev year (Dec 31)
-      Filed May 15 → Aug 14  → reports Q1 (Mar 31)
-      Filed Aug 15 → Nov 14  → reports Q2 (Jun 30)
-      Filed Nov 15 → Dec 31  → reports Q3 (Sep 30)
+    13F deadline = 45 días después del cierre de quarter:
+      Q1 (Mar 31) deadline May 15  → filings Apr - mid May
+      Q2 (Jun 30) deadline Aug 14  → filings Jul - mid Aug
+      Q3 (Sep 30) deadline Nov 14  → filings Oct - mid Nov
+      Q4 (Dec 31) deadline Feb 14  → filings Jan - mid Feb del AÑO SIGUIENTE
 
-    Aproximación >95% precisa. Amendments tardíos podrían fallar — bug
-    cosmético, no rompe queries.
+    Mapeo del calendar month al period reportado (dominant case):
+      Jan 1 - Feb 14   → Q4 prev year (Dec 31)
+      Feb 15 - May 15  → Q1 current year (Mar 31)
+      May 16 - Aug 14  → Q2 current year (Jun 30)
+      Aug 15 - Nov 14  → Q3 current year (Sep 30)
+      Nov 15 - Dec 31  → Q3 current year (Sep 30) — amendments tardíos
+
+    Aproximación >95% precisa. Amendments fuera de window pueden fallar
+    (bug cosmético, no rompe queries).
     """
     if not filing_date:
         return None
@@ -56,14 +62,14 @@ def _filing_date_to_report_date(filing_date: str | None) -> str | None:
     md = d.month * 100 + d.day
     year = d.year
     if md <= 214:
-        return f"{year - 1}-09-30"
-    if md <= 514:
-        return f"{year - 1}-12-31"
+        return f"{year - 1}-12-31"  # Jan 1 - Feb 14 → Q4 prev year
+    if md <= 515:
+        return f"{year}-03-31"      # Feb 15 - May 15 → Q1
     if md <= 814:
-        return f"{year}-03-31"
+        return f"{year}-06-30"      # May 16 - Aug 14 → Q2
     if md <= 1114:
-        return f"{year}-06-30"
-    return f"{year}-09-30"
+        return f"{year}-09-30"      # Aug 15 - Nov 14 → Q3
+    return f"{year}-09-30"          # Nov 15 - Dec 31 → Q3 amendments
 
 
 def _db():
@@ -553,7 +559,7 @@ def get_cohort_overview() -> dict[str, Any]:
             if t["buy_pct"] is not None and 45 <= t["buy_pct"] <= 55
             and (t["new"] + t["increased"] + t["reduced"] + t["exited"]) >= 20
         ],
-        key=lambda x: -(t["new"] + t["increased"] + t["reduced"] + t["exited"]),
+        key=lambda x: -(x["new"] + x["increased"] + x["reduced"] + x["exited"]),
     )[:10]
 
     return {

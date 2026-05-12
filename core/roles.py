@@ -67,14 +67,15 @@ MODULES: tuple[str, ...] = (
 DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "admin":  MODULES,  # todo
     "trader": (
-        "home", "renta-fija", "derivados", "renta-variable", "estrategia",
+        "home", "renta-fija", "derivados", "estrategia",
         "operar", "operaciones", "portfolios", "asistente",
     ),
     "sales":  (
-        "home", "renta-fija", "derivados", "renta-variable", "estrategia",
+        "home", "renta-fija", "derivados", "estrategia",
         "operar",  # sales puede operar pero NO ver la mesa de flujos
     ),
 }
+# renta-variable: solo admin por ahora (smart money 13F/Form 4 — vista en validación).
 
 # Role asignado a emails que pasaron Cloudflare pero no están seedeados
 # en Manager.Users. Preferimos "sales" (módulos públicos) para no dejar

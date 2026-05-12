@@ -16,9 +16,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from api.auth import require_module
 from api.deps import get_db_smart_read
 from api.services import smart_money as svc
-from core.roles import require_module
 
 router = APIRouter(
     prefix="/api/smart-money",

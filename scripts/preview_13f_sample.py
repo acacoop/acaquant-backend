@@ -158,7 +158,10 @@ def run(year: int, quarter: int, cik_filter: str) -> None:
     cedear_by_cusip = {c["cusip"]: c for c in cedear_docs}
     print(f"   Filtrando a los {len(cedear_by_cusip)} CUSIPs del CEDEAR catalog …\n")
 
-    # Agregamos por (cusip) — un mismo CUSIP puede aparecer en múltiples sub-entities
+    # Agregamos por (cusip) — un mismo CUSIP puede aparecer en múltiples sub-entities.
+    # NOTA: SEC cambió el formato de `value` en enero 2023. Antes era en MILES de USD;
+    # ahora viene en USD directos. Como nuestro cutoff es 2025-07-01, todos los filings
+    # son post-2023 → value ya está en USD, NO multiplicar por 1000.
     matched_raw: list[dict] = []
     by_cusip: dict[str, dict] = {}
     for h in holdings:
@@ -173,11 +176,11 @@ def run(year: int, quarter: int, cik_filter: str) -> None:
             "name_of_issuer":    h.get("nameOfIssuer", ""),
             "n_lines":           0,
             "shares_total":      0,
-            "value_total_usd":   0,  # value_usd_thousands × 1000
+            "value_total_usd":   0,
         })
         agg["n_lines"] += 1
         agg["shares_total"] += _int(h.get("sshPrnamt"))
-        agg["value_total_usd"] += _int(h.get("value")) * 1000
+        agg["value_total_usd"] += _int(h.get("value"))  # post-2023: USD directos
 
     print("=" * 80)
     print(f"  MATCHES CEDEAR: {len(matched_raw)} líneas raw, {len(by_cusip)} CUSIPs únicos")
@@ -218,8 +221,7 @@ def run(year: int, quarter: int, cik_filter: str) -> None:
             "title_of_class":     first.get("titleOfClass"),
             "shares":             _int(first.get("sshPrnamt")),
             "shares_type":        first.get("sshPrnamtType"),
-            "value_usd_thousands": _int(first.get("value")),
-            "value_usd":          _int(first.get("value")) * 1000,
+            "value_usd":          _int(first.get("value")),  # post-2023: USD directos
             "investment_discretion": first.get("investmentDiscretion"),
         }
         print(json.dumps(sample_doc, indent=2, default=_serialize))

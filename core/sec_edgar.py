@@ -199,42 +199,47 @@ def get_file(cik: str, accession: str, filename: str) -> bytes:
 
 _ACCESSION_RE = re.compile(r"(\d{10}-\d{2}-\d{6})")
 
+# Parser basado en regex en lugar de fixed-width — SEC cambia los anchos
+# de columna de tanto en tanto (ej. form_type expandido a 17 chars cuando
+# sumaron forms más largos como "SCHEDULE 13G/A"). Match por patrones
+# (CIK = dígitos, fecha = YYYY-MM-DD, file = edgar/) es estable.
+#
+# Captura:
+#   form     : desde el inicio hasta 2+ espacios (permite forms con espacios
+#              internos tipo "NT 10-K")
+#   company  : hasta 2+ espacios antes del CIK numérico
+#   cik      : 1-10 dígitos
+#   date     : YYYY-MM-DD
+#   file     : edgar/data/...
+_IDX_LINE_RE = re.compile(
+    r"^(\S.*?)\s{2,}"                        # form_type
+    r"(\S.*?)\s{2,}"                         # company_name
+    r"(\d{1,10})\s+"                         # cik
+    r"(\d{4}-\d{2}-\d{2})\s+"                # date_filed
+    r"(edgar/data/.+)$"                      # file_name
+)
+
 
 def _parse_idx_line(line: str) -> dict | None:
-    """Parsea UNA línea del form.idx.
+    """Parsea UNA línea del form.idx via regex.
 
-    Formato fijo (1-indexed, según SEC docs):
-      Form Type   : cols 1-12  (12 chars)
-      Company Name: cols 13-74 (62 chars)
-      CIK         : cols 75-86 (12 chars)
-      Date Filed  : cols 87-98 (12 chars)
-      File Name   : cols 99+
-
-    Devuelve None si la línea no parsea (header, separator, etc.).
+    Devuelve None para header, separators, líneas vacías o cualquier cosa
+    que no matchee el patrón canónico de un filing row.
     """
-    if len(line) < 98:
+    if not line or len(line) < 30:
         return None
-    form = line[0:12].strip()
-    company = line[12:74].strip()
-    cik = line[74:86].strip()
-    date_filed = line[86:98].strip()
-    file_name = line[98:].strip()
-    if not (form and cik and date_filed and file_name):
+    m = _IDX_LINE_RE.match(line)
+    if not m:
         return None
-    if not date_filed.startswith(("19", "20")):  # filtro de header / dashes
-        return None
-    if not file_name.startswith("edgar/"):
-        return None
-    # Extraemos el accession del file_name (formato 0001234567-26-001234).
-    m = _ACCESSION_RE.search(file_name)
-    accession = m.group(1) if m else None
+    form, company, cik, date_filed, file_name = m.groups()
+    acc_match = _ACCESSION_RE.search(file_name)
     return {
-        "form":        form,
-        "company":     company,
-        "cik":         cik.lstrip("0"),
+        "form":        form.strip(),
+        "company":     company.strip(),
+        "cik":         cik.lstrip("0") or "0",
         "date_filed":  date_filed,
         "file_name":   file_name,
-        "accession":   accession,
+        "accession":   acc_match.group(1) if acc_match else None,
     }
 
 

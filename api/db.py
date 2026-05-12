@@ -36,3 +36,8 @@ def get_db_valuaciones():
 
 def get_db_cashflow():
     return get_mongo_client_read()["CashFlow"]
+
+
+def get_db_smart_read():
+    """DB del módulo Renta Variable (smart money): 13F + Form 4 + catalog."""
+    return get_mongo_client_read()["Smart"]

@@ -11,6 +11,7 @@ from api.db import (  # noqa: F401 — reexport para compat
     get_db_opciones,
     get_db_operaciones,
     get_db_portfolio,
+    get_db_smart_read,
     get_db_titulos,
     get_db_trading,
     get_db_valuaciones,

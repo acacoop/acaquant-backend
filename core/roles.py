@@ -48,6 +48,7 @@ MODULES: tuple[str, ...] = (
     "home",           # / + market + news
     "renta-fija",     # /renta-fija + cotizaciones + curvas
     "derivados",      # /derivados + opciones
+    "renta-variable", # /renta-variable + smart money 13F/Form 4 sobre CEDEARs
     "estrategia",     # /retorno (sensibilidad, canje, carry)
     "operar",         # /operar (DOLAR MEP) + /api/ordenes + /api/operativa + /api/risk
     "operaciones",    # /operaciones (mesa, flujo) + /api/cuentas
@@ -66,11 +67,11 @@ MODULES: tuple[str, ...] = (
 DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "admin":  MODULES,  # todo
     "trader": (
-        "home", "renta-fija", "derivados", "estrategia",
+        "home", "renta-fija", "derivados", "renta-variable", "estrategia",
         "operar", "operaciones", "portfolios", "asistente",
     ),
     "sales":  (
-        "home", "renta-fija", "derivados", "estrategia",
+        "home", "renta-fija", "derivados", "renta-variable", "estrategia",
         "operar",  # sales puede operar pero NO ver la mesa de flujos
     ),
 }

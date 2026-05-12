@@ -24,15 +24,16 @@ import time
 import requests
 
 
-def _read_api_key() -> str | None:
-    k = os.environ.get("API_KEY")
-    if k:
-        return k
+def _read_env_var(name: str) -> str | None:
+    """Lee `name` de os.environ, .env files, o systemd Environment del api.service."""
+    v = os.environ.get(name)
+    if v:
+        return v
     for path in ("/root/TradingAV/.env", "/root/.env"):
         try:
             with open(path) as f:
                 for line in f:
-                    m = re.match(r"^\s*API_KEY\s*=\s*(.+?)\s*$", line)
+                    m = re.match(rf"^\s*{re.escape(name)}\s*=\s*(.+?)\s*$", line)
                     if m:
                         v = m.group(1).strip("'\"")
                         if v:
@@ -44,7 +45,7 @@ def _read_api_key() -> str | None:
             ["systemctl", "show", "api.service", "-p", "Environment"],
             capture_output=True, text=True, timeout=5,
         )
-        m = re.search(r"API_KEY=([^\s]+)", r.stdout)
+        m = re.search(rf"{re.escape(name)}=([^\s]+)", r.stdout)
         if m:
             return m.group(1)
     except Exception:
@@ -52,9 +53,34 @@ def _read_api_key() -> str | None:
     return None
 
 
-def _hit(label: str, path: str, api_key: str) -> None:
+def _read_api_key() -> str | None:
+    return _read_env_var("API_KEY")
+
+
+def _read_admin_email() -> str | None:
+    """Email admin para mandar como x-acaquant-user-email — sino el RBAC asume DEFAULT_ROLE (sales).
+
+    Prioridad: DIAG_ADMIN_EMAIL > primer email de MANAGER_EMAILS.
+    """
+    explicit = _read_env_var("DIAG_ADMIN_EMAIL")
+    if explicit:
+        return explicit.strip().lower()
+    managers = _read_env_var("MANAGER_EMAILS")
+    if managers:
+        first = managers.split(",")[0].strip().lower()
+        if first:
+            return first
+    return None
+
+
+def _hit(label: str, path: str, api_key: str, admin_email: str | None = None) -> None:
     url = f"http://127.0.0.1:8000{path}"
     headers = {"Authorization": f"Bearer {api_key}"}
+    if admin_email:
+        # Sin esto el RBAC asume DEFAULT_ROLE (sales) y módulos restringidos
+        # como renta-variable devuelven 403. El header propaga el email para
+        # que `get_user_role` resuelva el role real desde Manager.Users.
+        headers["x-acaquant-user-email"] = admin_email
     t0 = time.time()
     try:
         r = requests.get(url, headers=headers, timeout=30)
@@ -109,32 +135,40 @@ def run() -> None:
     if not api_key:
         print("✗ No encontré API_KEY (.env, systemd Environment).")
         return
-    print(f"API_KEY: ***{api_key[-4:]} (encontrada)\n")
+    print(f"API_KEY: ***{api_key[-4:]} (encontrada)")
+
+    admin_email = _read_admin_email()
+    if admin_email:
+        print(f"ADMIN_EMAIL: {admin_email} (header x-acaquant-user-email)")
+    else:
+        print("⚠ ADMIN_EMAIL: no encontrado — los endpoints renta-variable van a tirar 403.")
+        print("  Set DIAG_ADMIN_EMAIL=<tu_email_admin> o agregalo a MANAGER_EMAILS.")
+    print()
 
     print(f"  {'OK':<3}  {'HTTP':<4}  {'TIME':>8}  {'SIZE':>8}  ENDPOINT")
     print("  " + "─" * 100)
 
     # Endpoints sin parámetros
-    _hit("/api/smart-money/catalog",          "/api/smart-money/catalog", api_key)
-    _hit("/api/smart-money/managers",         "/api/smart-money/managers", api_key)
-    _hit("/api/smart-money/cohort-overview",  "/api/smart-money/cohort-overview", api_key)
-    _hit("/api/smart-money/recent-activity",  "/api/smart-money/recent-activity?days=7", api_key)
+    _hit("/api/smart-money/catalog",          "/api/smart-money/catalog", api_key, admin_email)
+    _hit("/api/smart-money/managers",         "/api/smart-money/managers", api_key, admin_email)
+    _hit("/api/smart-money/cohort-overview",  "/api/smart-money/cohort-overview", api_key, admin_email)
+    _hit("/api/smart-money/recent-activity",  "/api/smart-money/recent-activity?days=7", api_key, admin_email)
 
     # Endpoints con parámetros (probamos con Berkshire + AAPL)
     _hit(
         "/api/smart-money/manager/1067983  (Berkshire)",
         "/api/smart-money/manager/1067983",
-        api_key,
+        api_key, admin_email,
     )
     _hit(
         "/api/smart-money/ticker/AAPL",
         "/api/smart-money/ticker/AAPL",
-        api_key,
+        api_key, admin_email,
     )
     _hit(
         "/api/smart-money/ticker/NVDA",
         "/api/smart-money/ticker/NVDA",
-        api_key,
+        api_key, admin_email,
     )
 
     print("\nNotas:")

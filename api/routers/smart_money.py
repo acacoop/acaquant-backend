@@ -43,7 +43,7 @@ def manager_portfolio(cik: str):
 
     Cada holding viene con status (NEW/INCREASED/REDUCED/UNCHANGED) y delta %.
     """
-    res = svc.get_manager_portfolio(cik)
+    res = svc.get_manager_portfolio(cik=cik)
     if isinstance(res, dict) and res.get("error"):
         raise HTTPException(status_code=404, detail=res["error"])
     return res
@@ -58,7 +58,7 @@ def ticker_flow(ticker: str):
       - institutional_13f: top holders, Q-on-Q (new/increased/reduced/exited)
       - insiders_form4: top trades últimos 90 días + agregados (buy / sell / net)
     """
-    res = svc.get_ticker_flow(ticker)
+    res = svc.get_ticker_flow(ticker=ticker)
     if isinstance(res, dict) and res.get("error"):
         raise HTTPException(status_code=404, detail=res["error"])
     return res

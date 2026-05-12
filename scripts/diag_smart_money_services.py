@@ -19,9 +19,9 @@ CASES: list[tuple[str, callable]] = [
     ("get_managers_list()",            lambda: svc.get_managers_list()),
     ("get_cohort_overview()",          lambda: svc.get_cohort_overview()),
     ("get_recent_activity(days=7)",    lambda: svc.get_recent_activity(days=7)),
-    ("get_manager_portfolio('1067983') [Berkshire]", lambda: svc.get_manager_portfolio("1067983")),
-    ("get_ticker_flow('AAPL')",        lambda: svc.get_ticker_flow("AAPL")),
-    ("get_ticker_flow('NVDA')",        lambda: svc.get_ticker_flow("NVDA")),
+    ("get_manager_portfolio(cik='1067983') [Berkshire]", lambda: svc.get_manager_portfolio(cik="1067983")),
+    ("get_ticker_flow(ticker='AAPL')", lambda: svc.get_ticker_flow(ticker="AAPL")),
+    ("get_ticker_flow(ticker='NVDA')", lambda: svc.get_ticker_flow(ticker="NVDA")),
 ]
 
 

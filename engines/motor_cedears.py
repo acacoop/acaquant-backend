@@ -2,7 +2,8 @@
 
 Espejo conceptual de motor_rofex pero reducido al mínimo:
   - Universo: tickers ARS 24hs de Trading.Cedears (activo=True).
-  - Escribe a Cedears.Snapshot (DB nueva, NO toca Trading.MarketSnapshot).
+  - Escribe a Trading.CedearsSnapshot (misma DB que el master y el resto
+    del market data — sin crear DBs nuevas).
   - Shape estricto: {ticker, ticker_corto, open, high, low, close, last,
     updated_at}. SIN bid/offer/ev/book — si después se necesita una métrica
     derivada (spread puntas, vwap, vol), se agrega cuando se pida, no
@@ -102,7 +103,10 @@ class CedearsEngine:
         }
 
         self.client = get_mongo_client()
-        self.col_snapshot = self.client["Cedears"]["Snapshot"]
+        # Snapshot vive en la misma DB que el master (Trading.Cedears) y
+        # el resto del market data (Trading.MarketSnapshot, TimeSales, etc).
+        # Sin DB nueva — coherente con el "no migrar nada" del scope.
+        self.col_snapshot = self.client["Trading"]["CedearsSnapshot"]
 
         self._arranque_en_frio()
         threading.Thread(target=self._snapshot_loop, daemon=True).start()

@@ -107,51 +107,66 @@ def get_ccl_live() -> dict:
     }
 
 
-def _adr_metrics_para_todos(tickers: list[str]) -> dict[str, dict]:
+def _resolve_underlying(ticker_corto: str) -> str:
+    """Mapea ticker_corto (BYMA) → underlying (US ticker para
+    Trading.PreciosAcciones). Para la mayoría son iguales, pero algunos
+    Argentinos tienen CEDEAR con sufijo distinto (ej. YPFD CEDEAR → YPF
+    ADR). Si no encuentra el doc o el campo, fallback al ticker_corto.
+    """
+    db = get_db_trading()
+    doc = db["Cedears"].find_one(
+        {"ticker_corto": ticker_corto.upper()},
+        {"_id": 0, "underlying": 1},
+    )
+    return (doc.get("underlying") if doc else None) or ticker_corto.upper()
+
+
+def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
     """Calcula métricas ADR (USD del underlying) para todos los tickers
     en una sola query a Trading.PreciosAcciones.
 
-    Para cada ticker devuelve:
-      adr_last:        último close USD
-      adr_fecha:       ISO date del último close
-      adr_vs_1d_pct:   (last/prev_close − 1) × 100
-      adr_ret_7d_pct:  (last/close_~7d_atras − 1) × 100
-      adr_ret_mtd_pct: (last/close_1er_dia_mes − 1) × 100
-      adr_ret_ytd_pct: (last/close_1er_dia_anio − 1) × 100
+    Recibe la lista de docs master (con ticker_corto + underlying). El
+    dict de salida está keyed por ticker_corto (lo que ve el frontend),
+    pero los datos vienen de PreciosAcciones que indexa por underlying.
 
     None en cualquier campo si la serie es muy corta para ese anchor.
-    Cargo TODA la serie de los 27 tickers en una pasada (≈6.8k docs,
-    trivial) y opero en memoria — evita N+1 queries.
+    Cargo TODA la serie en una pasada y opero en memoria — N+1 queries
+    evitadas.
     """
-    if not tickers:
+    if not master:
         return {}
 
+    # Map ticker_corto → underlying. Default underlying = ticker_corto si
+    # el master no lo tiene (compat con docs viejos).
+    corto_to_underlying: dict[str, str] = {
+        m["ticker_corto"]: (m.get("underlying") or m["ticker_corto"])
+        for m in master
+    }
+    underlyings = sorted(set(corto_to_underlying.values()))
+
     db = get_db_trading()
-    docs_by_ticker: dict[str, list[dict]] = {}
-    # NOTA: Mongo Time Series guarda timeField como datetime NAIVE (sin
-    # tzinfo). Para evitar TypeError en comparaciones contra anchors
-    # aware, normalizamos todo a naive UTC desde la lectura.
+    docs_by_underlying: dict[str, list[dict]] = {}
+    # NOTA: Mongo Time Series guarda timeField como datetime NAIVE.
     for d in db["PreciosAcciones"].find(
-        {"ticker": {"$in": tickers}},
+        {"ticker": {"$in": underlyings}},
         projection={"_id": 0, "ticker": 1, "fecha": 1, "close": 1},
     ):
         fecha = d.get("fecha")
         if isinstance(fecha, datetime) and fecha.tzinfo is not None:
             d["fecha"] = fecha.replace(tzinfo=None)
-        docs_by_ticker.setdefault(d["ticker"], []).append(d)
+        docs_by_underlying.setdefault(d["ticker"], []).append(d)
 
-    # Anchors temporales — calculados una vez. Naive para matchear los
-    # docs de la time series (ver nota arriba).
+    # Anchors temporales — naive UTC para matchear la TS.
     hoy = datetime.now(timezone.utc).replace(tzinfo=None)
     anchor_7d  = hoy - timedelta(days=7)
     anchor_mtd = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     anchor_ytd = hoy.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
     out: dict[str, dict] = {}
-    for ticker in tickers:
-        docs = docs_by_ticker.get(ticker, [])
+    for ticker_corto, underlying in corto_to_underlying.items():
+        docs = docs_by_underlying.get(underlying, [])
         if not docs:
-            out[ticker] = {
+            out[ticker_corto] = {
                 "adr_last":         None,
                 "adr_fecha":        None,
                 "adr_vs_1d_pct":    None,
@@ -166,26 +181,24 @@ def _adr_metrics_para_todos(tickers: list[str]) -> dict[str, dict]:
         last_close = last_doc.get("close")
         last_fecha = last_doc.get("fecha")
 
-        # 1D = vs penúltimo doc
         vs_1d = None
         if len(docs) >= 2:
             prev_close = docs[-2].get("close")
             if last_close and prev_close:
                 vs_1d = ((last_close / prev_close) - 1) * 100
 
-        # Anchor returns — close más reciente con fecha ≤ anchor_target.
-        def _ret_vs(anchor_ts: datetime) -> float | None:
-            if last_close is None:
+        def _ret_vs(anchor_ts: datetime, _docs=docs, _last_close=last_close) -> float | None:
+            if _last_close is None:
                 return None
-            for d in reversed(docs):
+            for d in reversed(_docs):
                 if d["fecha"] <= anchor_ts:
                     base = d.get("close")
                     if base and base > 0:
-                        return ((last_close / base) - 1) * 100
+                        return ((_last_close / base) - 1) * 100
                     return None
-            return None  # toda la serie es posterior al anchor
+            return None
 
-        out[ticker] = {
+        out[ticker_corto] = {
             "adr_last":         last_close,
             "adr_fecha":        last_fecha.isoformat() if isinstance(last_fecha, datetime) else None,
             "adr_vs_1d_pct":    vs_1d,
@@ -201,22 +214,17 @@ def get_ticker_returns(ticker: str) -> dict:
     """Retornos diarios aritméticos del ticker (~252 últimos puntos)
     desde Trading.PreciosAcciones.
 
-    Usado para histograma del panel del Scanner. Cached 60s — los EOD
-    cambian 1×/día.
+    El `ticker` que llega del frontend es ticker_corto (BYMA). Resuelve
+    el underlying primero (caso YPFD → YPF) antes de queryar la serie.
 
-    Returns:
-        {
-          ticker,
-          returns: list[float],     # r_t = (close_t / close_{t-1}) − 1
-          last_return: float | None,
-          last_fecha: str | None,
-        }
+    Usado para histograma del panel del Scanner. Cached 60s.
     """
     from quant.rolling_stats import returns_from_prices
 
+    underlying = _resolve_underlying(ticker)
     db = get_db_trading()
     docs = list(db["PreciosAcciones"].find(
-        {"ticker": ticker.upper()},
+        {"ticker": underlying},
         projection={"_id": 0, "fecha": 1, "close": 1},
         sort=[("fecha", 1)],
     ))
@@ -267,6 +275,9 @@ def get_quant_stats(ticker: str, window: int = 60) -> dict:
         returns_from_prices,
     )
 
+    # ticker viene como ticker_corto del frontend; resolver underlying
+    # para queryar la serie de PreciosAcciones (caso YPFD → YPF).
+    underlying = _resolve_underlying(ticker)
     db = get_db_trading()
     col = db["PreciosAcciones"]
     needed = max(window, 60) + 1  # buffer para 60d returns
@@ -279,7 +290,7 @@ def get_quant_stats(ticker: str, window: int = 60) -> dict:
         ))
         return [d["close"] for d in docs if d.get("close") is not None]
 
-    closes_a = _serie(ticker.upper())
+    closes_a = _serie(underlying)
     closes_spy = _serie("SPY")
     closes_qqq = _serie("QQQ")
 
@@ -346,7 +357,9 @@ def get_cedears_scanner() -> list[dict]:
         for s in db["CedearsSnapshot"].find({}, {"_id": 0})
     }
     # ADR metrics — una sola pasada por Trading.PreciosAcciones.
-    adr_metrics = _adr_metrics_para_todos([m["ticker_corto"] for m in master])
+    # Le pasamos el master entero para que pueda resolver underlying ≠
+    # ticker_corto cuando aplica (caso YPFD CEDEAR → YPF ADR).
+    adr_metrics = _adr_metrics_para_todos(master)
 
     # CCL una sola vez por request — no por ticker. get_ccl_live está
     # cacheada también 5s, así que esta llamada es prácticamente gratis

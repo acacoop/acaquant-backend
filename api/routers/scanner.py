@@ -81,14 +81,9 @@ def pivot_points(ticker: str):
     el subyacente USD del CEDEAR. Lee de Trading.PreciosAcciones, que
     alimenta el cron jobs.precios_acciones_daily.
 
-    Returns:
-        {
-          ticker, last, last_fecha,
-          frames: {
-            diario:  {label, fecha_desde, fecha_hasta, n_velas, h, l, c, levels} | None,
-            semanal: ..., mensual: ..., anual: ...
-          }
-        }
+    El `ticker` que llega del frontend es ticker_corto (BYMA). Se
+    resuelve el underlying antes de queryar la serie (caso YPFD → YPF).
     """
     from quant.pivot_points import obtener_4_timeframes
-    return obtener_4_timeframes(ticker.upper())
+    underlying = svc._resolve_underlying(ticker)
+    return obtener_4_timeframes(underlying)

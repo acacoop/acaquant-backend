@@ -34,14 +34,17 @@ DIAS_COLCHON = 5  # cuántos días pedir hacia atrás para recuperar gaps
 
 
 def _tickers_activos(filter_ticker: str | None = None) -> list[str]:
+    """Devuelve UNDERLYINGS (símbolo US) — ver doc en
+    scripts/backfill_precios_acciones.py."""
     db = get_mongo_client()["Trading"]
-    q = {"activo": True}
+    q: dict = {"activo": True}
     if filter_ticker:
-        q["ticker_corto"] = filter_ticker.upper()
-    return sorted(
-        d["ticker_corto"]
-        for d in db["Cedears"].find(q, {"_id": 0, "ticker_corto": 1})
-    )
+        ft = filter_ticker.upper()
+        q = {"activo": True, "$or": [{"ticker_corto": ft}, {"underlying": ft}]}
+    underlyings = set()
+    for d in db["Cedears"].find(q, {"_id": 0, "ticker_corto": 1, "underlying": 1}):
+        underlyings.add(d.get("underlying") or d["ticker_corto"])
+    return sorted(underlyings)
 
 
 def upsert_ticker(col, ticker: str) -> tuple[int, int, str | None]:

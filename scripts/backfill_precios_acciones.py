@@ -37,14 +37,23 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 
 def _tickers_activos(filter_ticker: str | None = None) -> list[str]:
+    """Devuelve los UNDERLYINGS (símbolo US para yfinance) de los CEDEARs
+    activos. Para la mayoría coincide con ticker_corto, pero algunos
+    Argentinos tienen CEDEAR con sufijo distinto (ej. YPFD CEDEAR → YPF
+    ADR US). Se almacena en PreciosAcciones por underlying.
+
+    Si --ticker matchea contra ticker_corto O underlying, devuelve ese
+    underlying.
+    """
     db = get_mongo_client()["Trading"]
-    q = {"activo": True}
+    q: dict = {"activo": True}
     if filter_ticker:
-        q["ticker_corto"] = filter_ticker.upper()
-    return sorted(
-        d["ticker_corto"]
-        for d in db["Cedears"].find(q, {"_id": 0, "ticker_corto": 1})
-    )
+        ft = filter_ticker.upper()
+        q = {"activo": True, "$or": [{"ticker_corto": ft}, {"underlying": ft}]}
+    underlyings = set()
+    for d in db["Cedears"].find(q, {"_id": 0, "ticker_corto": 1, "underlying": 1}):
+        underlyings.add(d.get("underlying") or d["ticker_corto"])
+    return sorted(underlyings)
 
 
 def backfill_ticker(col, ticker: str, dias: int = 365) -> tuple[int, str | None]:

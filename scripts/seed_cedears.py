@@ -22,11 +22,22 @@ from datetime import datetime, timezone
 from core.mongo import get_mongo_client
 
 
-def _cedear(ticker_corto: str, sector: str, industria: str, region: str, pais: str) -> dict:
+def _cedear(
+    ticker_corto: str,
+    sector: str,
+    industria: str,
+    region: str,
+    pais: str,
+    underlying: str | None = None,
+) -> dict:
+    """`ticker_corto` = símbolo BYMA local (ej. YPFD para CEDEAR de YPF).
+    `underlying`     = símbolo del activo subyacente US (ej. YPF en NYSE).
+    Si no se pasa, defaultea a ticker_corto (caso común — para la mayoría
+    de los tickers BYMA y US tienen el mismo nombre)."""
     return {
         "ticker":       f"MERV - XMEV - {ticker_corto} - 24hs",
         "ticker_corto": ticker_corto,
-        "underlying":   ticker_corto,
+        "underlying":   underlying or ticker_corto,
         "ratio_cedear": None,  # vos lo completás post-seed
         "sector":       sector,
         "industria":    industria,
@@ -64,7 +75,9 @@ CEDEARS = [
     _cedear("RKLB",  "INDUSTRIALES",        "Aeroespacial",    "US",    "USA"),
 
     # Energía (Argentina + Brasil)
-    _cedear("YPF",   "ENERGIA",             "Oil & Gas",       "LATAM", "Argentina"),
+    # YPF: el CEDEAR BYMA se llama YPFD (sobre el ADR US YPF). Por eso
+    # ticker_corto difiere de underlying.
+    _cedear("YPFD",  "ENERGIA",             "Oil & Gas",       "LATAM", "Argentina", underlying="YPF"),
     _cedear("VIST",  "ENERGIA",             "Oil & Gas",       "LATAM", "Argentina"),
     _cedear("PBR",   "ENERGIA",             "Oil & Gas",       "LATAM", "Brasil"),
 
@@ -80,7 +93,8 @@ CEDEARS = [
 
     # Pendientes de identificar — TODO: confirmar
     _cedear("LAR",   "OTROS",               "TODO",            "TODO",  "TODO"),
-    _cedear("URAC",  "OTROS",               "TODO",            "TODO",  "TODO"),
+    # URA = Global X Uranium ETF.
+    _cedear("URA",   "ETF",                 "Uranio",          "US",    "USA"),
 
     # Migrados desde la watchlist (sección "Acciones" que se elimina, todo
     # se concentra en el Scanner). 2026-05-13.

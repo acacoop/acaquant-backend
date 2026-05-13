@@ -43,6 +43,11 @@
 # ─── Volatilidad GGAL (al cierre)
 0 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.volatilidad_ggal >> /root/TradingAV/logs/vr_ggal.log 2>&1
 
+# ─── Precios acciones daily (post cierre US, 22 UTC = 19 ART, L-V)
+# Yahoo Finance daily candle por cada CEDEAR activo → Trading.PreciosAcciones.
+# Idempotente — corre con colchón de 5 días por si se pierde alguno.
+0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.precios_acciones_daily >> /root/TradingAV/logs/precios_acciones.log 2>&1
+
 # ─── Dólar MEP + CCL (cada 15 min durante rueda, L-V 13:00-20:45 UTC = 10:00-17:45 ART)
 # Corre a :00, :15, :30, :45 — 32 snapshots/día por moneda. Persiste en
 # Valuaciones.Dolar con campos {mep, ccl, canje, al30_offer, al30d_bid, al30c_bid}.

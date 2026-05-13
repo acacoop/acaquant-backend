@@ -24,6 +24,7 @@ Salida esperada (sano, en horario de mercado):
 """
 from __future__ import annotations
 
+import sys
 import traceback
 from typing import Any
 
@@ -32,14 +33,9 @@ import pyRofex
 from core.rofex_session import inicializar_sesion
 
 
-TICKERS = [
-    "MERV - XMEV - AMD - 24hs",
-    "MERV - XMEV - NVDA - 24hs",
-]
-
-# Variantes para ver qué más existe en el padrón con prefijo similar.
-# Esperamos: AMD/AMDD/AMD - CI, NVDA/NVDAD/NVDA - CI.
-PADRON_PREFIJOS = ["AMD", "NVDA"]
+# Tickers a chequear desde argv (ej. `python -m scripts.diag_cedears_pyrofex DELL ORCL`).
+# Default si no se pasa nada: AMD + NVDA.
+DEFAULT_PREFIJOS = ["AMD", "NVDA"]
 
 
 def _summary_marketdata(md: dict[str, Any]) -> str:
@@ -69,9 +65,9 @@ def _summary_marketdata(md: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
-def run() -> None:
+def run(prefijos: list[str]) -> None:
     print("=" * 100)
-    print("DIAG CEDEARs pyRofex — verifica feed REST")
+    print(f"DIAG CEDEARs pyRofex — chequeo: {prefijos}")
     print("=" * 100)
 
     print("\n[1] Iniciando sesión Rofex…")
@@ -83,8 +79,11 @@ def run() -> None:
         traceback.print_exc()
         return
 
+    # Tickers a probar con get_market_data — el formato BYMA 24hs.
+    tickers = [f"MERV - XMEV - {p} - 24hs" for p in prefijos]
+
     # ── [2] get_market_data por ticker explícito ──
-    print("\n[2] get_market_data() para cada ticker piloto")
+    print("\n[2] get_market_data() para cada ticker")
     entries = [
         pyRofex.MarketDataEntry.OPENING_PRICE,
         pyRofex.MarketDataEntry.HIGH_PRICE,
@@ -95,7 +94,7 @@ def run() -> None:
         pyRofex.MarketDataEntry.OFFERS,
         pyRofex.MarketDataEntry.TRADE_EFFECTIVE_VOLUME,
     ]
-    for t in TICKERS:
+    for t in tickers:
         try:
             md = pyRofex.get_market_data(t, entries=entries)
             print(f"  · {t}")
@@ -104,7 +103,7 @@ def run() -> None:
             print(f"  ✗ {t} → exception: {type(e).__name__}: {e}")
 
     # ── [3] Inspección del padrón ──
-    print("\n[3] get_detailed_instruments — variantes con prefijos AMD/NVDA")
+    print(f"\n[3] get_detailed_instruments — variantes con prefijos {prefijos}")
     try:
         res = pyRofex.get_detailed_instruments()
         if not res or res.get("status") != "OK":
@@ -113,7 +112,7 @@ def run() -> None:
         instruments = res.get("instruments", [])
         print(f"    Padrón total: {len(instruments)} instrumentos")
 
-        for prefijo in PADRON_PREFIJOS:
+        for prefijo in prefijos:
             print(f"\n  · Variantes con '{prefijo}' en symbol:")
             matches = []
             for inst in instruments:
@@ -155,4 +154,5 @@ def run() -> None:
 
 
 if __name__ == "__main__":
-    run()
+    args = [a.upper() for a in sys.argv[1:]] or DEFAULT_PREFIJOS
+    run(prefijos=args)

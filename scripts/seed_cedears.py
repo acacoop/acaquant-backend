@@ -102,6 +102,59 @@ CEDEARS = [
     _cedear("TSLA",  "CONSUMO DISCRECIONAL", "Autos",          "US",    "USA"),
     _cedear("JPM",   "FINANCIERO",           "Bancos",         "US",    "USA"),
     _cedear("MELI",  "TECNOLOGIA",           "E-commerce",     "LATAM", "Argentina"),
+
+    # ── Expansión universo Scanner 2026-05-13 ──────────────────────────
+    # Semis adicionales
+    _cedear("QCOM",  "TECNOLOGIA",          "Semiconductores", "US",    "USA"),
+    _cedear("MU",    "TECNOLOGIA",          "Semiconductores", "US",    "USA"),
+    _cedear("ARM",   "TECNOLOGIA",          "Semiconductores", "US",    "USA"),  # Arm Holdings ADR
+    _cedear("ASML",  "TECNOLOGIA",          "Semiconductores", "EU",    "Netherlands"),
+
+    # Tech / cyber / cripto mining
+    _cedear("UBER",  "TECNOLOGIA",          "Transporte",      "US",    "USA"),
+    _cedear("PANW",  "TECNOLOGIA",          "Cybersecurity",   "US",    "USA"),
+    _cedear("RIOT",  "TECNOLOGIA",          "Cripto Mining",   "US",    "USA"),
+
+    # Financiero
+    _cedear("V",     "FINANCIERO",          "Pagos",           "US",    "USA"),
+    _cedear("MA",    "FINANCIERO",          "Pagos",           "US",    "USA"),
+    _cedear("C",     "FINANCIERO",          "Bancos",          "US",    "USA"),
+    _cedear("GS",    "FINANCIERO",          "Banca Inversión", "US",    "USA"),
+
+    # Salud / Pharma
+    _cedear("JNJ",   "SALUD",               "Pharma",          "US",    "USA"),
+    _cedear("PFE",   "SALUD",               "Pharma",          "US",    "USA"),
+
+    # Industriales / Defensa
+    _cedear("LMT",   "INDUSTRIALES",        "Defensa",         "US",    "USA"),
+    _cedear("GE",    "INDUSTRIALES",        "Aeroespacial",    "US",    "USA"),
+
+    # Consumo
+    _cedear("PEP",   "CONSUMO BASICO",      "Bebidas",         "US",    "USA"),
+    _cedear("WMT",   "CONSUMO BASICO",      "Retail",          "US",    "USA"),
+    _cedear("NKE",   "CONSUMO DISCRECIONAL","Apparel",         "US",    "USA"),
+    _cedear("DIS",   "COMUNICACIONES",      "Entretenimiento", "US",    "USA"),
+
+    # Energía
+    _cedear("XOM",   "ENERGIA",             "Oil & Gas",       "US",    "USA"),
+    _cedear("CVX",   "ENERGIA",             "Oil & Gas",       "US",    "USA"),
+
+    # ETFs (sector, country, theme)
+    _cedear("XLK",   "ETF",                 "Sector Tech",        "US", "USA"),
+    _cedear("XLF",   "ETF",                 "Sector Financiero",  "US", "USA"),
+    _cedear("XLV",   "ETF",                 "Sector Salud",       "US", "USA"),
+    _cedear("XLP",   "ETF",                 "Sector Cons. Básico","US", "USA"),
+    _cedear("XLC",   "ETF",                 "Sector Comunic.",    "US", "USA"),
+    _cedear("XLRE",  "ETF",                 "Sector Real Estate", "US", "USA"),
+    _cedear("ITA",   "ETF",                 "Aero & Defensa",     "US", "USA"),
+    _cedear("IBB",   "ETF",                 "Biotech",            "US", "USA"),
+    _cedear("IVW",   "ETF",                 "S&P 500 Growth",     "US", "USA"),
+    _cedear("FXI",   "ETF",                 "China Large-Cap",    "ASIA","China"),
+    _cedear("ILF",   "ETF",                 "LATAM 40",           "LATAM","USA"),
+    _cedear("GLD",   "ETF",                 "Oro",                "US", "USA"),
+    _cedear("USO",   "ETF",                 "Petróleo",           "US", "USA"),
+    _cedear("PSQ",   "ETF",                 "Nasdaq Inverso",     "US", "USA"),
+    _cedear("VXX",   "ETF",                 "VIX Volatilidad",    "US", "USA"),
 ]
 
 

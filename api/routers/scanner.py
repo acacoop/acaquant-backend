@@ -40,3 +40,22 @@ def ccl_live():
         {value: float|None, vs_1d_pct: float|None, ts: str|None}
     """
     return svc.get_ccl_live()
+
+
+@router.get("/pivot/{ticker}")
+def pivot_points(ticker: str):
+    """4 timeframes de pivot points (diario/semanal/mensual/anual) sobre
+    el subyacente USD del CEDEAR. Lee de Trading.PreciosAcciones, que
+    alimenta el cron jobs.precios_acciones_daily.
+
+    Returns:
+        {
+          ticker, last, last_fecha,
+          frames: {
+            diario:  {label, fecha_desde, fecha_hasta, n_velas, h, l, c, levels} | None,
+            semanal: ..., mensual: ..., anual: ...
+          }
+        }
+    """
+    from quant.pivot_points import obtener_4_timeframes
+    return obtener_4_timeframes(ticker.upper())

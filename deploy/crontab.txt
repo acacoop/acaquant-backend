@@ -26,6 +26,8 @@
 5 20 * * 1-5 systemctl stop  motor_dolares.service
 0 13 * * 1-5 systemctl start motor_agro.service
 5 20 * * 1-5 systemctl stop  motor_agro.service
+0 13 * * 1-5 systemctl start motor_cedears.service
+5 20 * * 1-5 systemctl stop  motor_cedears.service
 0 13 * * 1-5 systemctl start motor_agro_opciones.service
 5 20 * * 1-5 systemctl stop  motor_agro_opciones.service
 0 13 * * 1-5 systemctl start motor_portfolio_snapshot.service

@@ -42,6 +42,23 @@ def ccl_live():
     return svc.get_ccl_live()
 
 
+@router.get("/quant/{ticker}")
+def quant_stats(ticker: str):
+    """Stats rolling (beta/alpha/corr vs SPY y QQQ + vol realizada 30d/60d)
+    sobre el subyacente USD del CEDEAR. Lee de Trading.PreciosAcciones.
+
+    Returns:
+        {
+          ticker, last, n_observations,
+          beta:  {spy, qqq},
+          alpha: {spy, qqq},   # anualizada
+          corr:  {spy, qqq},
+          vol:   {d30, d60},
+        }
+    """
+    return svc.get_quant_stats(ticker=ticker)
+
+
 @router.get("/pivot/{ticker}")
 def pivot_points(ticker: str):
     """4 timeframes de pivot points (diario/semanal/mensual/anual) sobre

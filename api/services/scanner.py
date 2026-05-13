@@ -196,6 +196,91 @@ def _adr_metrics_para_todos(tickers: list[str]) -> dict[str, dict]:
     return out
 
 
+@cached(ttl=60)
+def get_quant_stats(ticker: str, window: int = 60) -> dict:
+    """Stats rolling sobre Trading.PreciosAcciones: beta/alpha/correlación
+    vs SPY y vs QQQ + volatilidad realizada anualizada (30d, 60d).
+
+    Args:
+        ticker: ticker_corto del activo (NVDA, AMD, etc.)
+        window: días para beta/alpha/corr (default 60d hábiles).
+
+    Returns:
+        {
+          ticker, last, last_fecha, n_observations,
+          beta:  {spy, qqq},
+          alpha: {spy, qqq},   # anualizada
+          corr:  {spy, qqq},
+          vol:   {d30, d60},
+        }
+        Cualquier campo puede ser None si la serie no alcanza al window.
+
+    Cache TTL 60s — los cierres EOD cambian 1×/día, no hay urgencia.
+    """
+    from quant.rolling_stats import (
+        beta_alpha,
+        correlation,
+        realized_vol,
+        returns_from_prices,
+    )
+
+    db = get_db_trading()
+    col = db["PreciosAcciones"]
+    needed = max(window, 60) + 1  # buffer para 60d returns
+
+    def _serie(t: str) -> list[float]:
+        docs = list(col.find(
+            {"ticker": t},
+            projection={"_id": 0, "fecha": 1, "close": 1},
+            sort=[("fecha", 1)],
+        ))
+        return [d["close"] for d in docs if d.get("close") is not None]
+
+    closes_a = _serie(ticker.upper())
+    closes_spy = _serie("SPY")
+    closes_qqq = _serie("QQQ")
+
+    if not closes_a:
+        return {
+            "ticker":          ticker.upper(),
+            "last":            None,
+            "n_observations":  0,
+            "beta":            {"spy": None, "qqq": None},
+            "alpha":           {"spy": None, "qqq": None},
+            "corr":            {"spy": None, "qqq": None},
+            "vol":             {"d30": None, "d60": None},
+        }
+
+    rets_a   = returns_from_prices(closes_a)
+    rets_spy = returns_from_prices(closes_spy)
+    rets_qqq = returns_from_prices(closes_qqq)
+
+    # Truncar al window — usar últimos N puntos comunes.
+    n = min(len(rets_a), len(rets_spy), len(rets_qqq), window)
+    a_w   = rets_a[-n:]
+    spy_w = rets_spy[-n:]
+    qqq_w = rets_qqq[-n:]
+
+    ba_spy = beta_alpha(a_w, spy_w)
+    ba_qqq = beta_alpha(a_w, qqq_w)
+    corr_spy = correlation(a_w, spy_w)
+    corr_qqq = correlation(a_w, qqq_w)
+
+    # Vol realizada 30d y 60d (ventana propia, sin truncar al benchmark).
+    vol_30 = realized_vol(rets_a[-30:]) if len(rets_a) >= 30 else None
+    vol_60 = realized_vol(rets_a[-60:]) if len(rets_a) >= 60 else None
+
+    return {
+        "ticker":         ticker.upper(),
+        "last":           closes_a[-1] if closes_a else None,
+        "n_observations": n,
+        "beta":  {"spy": ba_spy["beta"],  "qqq": ba_qqq["beta"]},
+        "alpha": {"spy": ba_spy["alpha"], "qqq": ba_qqq["alpha"]},
+        "corr":  {"spy": corr_spy,        "qqq": corr_qqq},
+        "vol":   {"d30": vol_30,          "d60": vol_60},
+    }
+
+
 @cached(ttl=5)
 def get_cedears_scanner() -> list[dict]:
     """Master + snapshot joined por ticker, con métricas operativas.

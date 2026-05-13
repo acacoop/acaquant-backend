@@ -34,46 +34,58 @@ from api.db import get_db_trading, get_db_valuaciones
 _DOLAR_SNAPSHOT_MAX_AGE_S = 60
 
 
-def _ccl_pct_vs_1d() -> float | None:
-    """% del CCL hoy vs cierre del día previo (en UTC).
+@cached(ttl=5)
+def get_ccl_live() -> dict:
+    """CCL live + variación 1D vs cierre día previo.
 
-    Lee live de Valuaciones.DolarSnapshot._id='current' (con fallback al
-    último Valuaciones.Dolar si stale) y el último doc con timestamp <
-    inicio de hoy UTC en Valuaciones.Dolar (= cierre día previo).
+    Compartido entre el endpoint `/api/scanner/ccl` (KPI del shell) y
+    `get_cedears_scanner()` (cálculo de retorno USD por ticker). Cacheado
+    5s para que ambos endpoints peguen una vez por ventana sin importar
+    cuántos requests entren.
 
-    None si falta alguno de los dos lados — el scanner muestra '--' y
-    sigue funcionando, no se rompe nada.
+    Returns:
+        {value, vs_1d_pct, ts}. Cualquier campo puede ser None si no hay
+        live (motor dolares caído / Atlas pause) o no hay cierre previo
+        (primer día del calendario / colección vacía).
+
+    Fuentes (mismo orden de prioridad que api/services/argy._live_dolar):
+      1. Valuaciones.DolarSnapshot._id='current' si timestamp ≤ 60s.
+      2. Fallback al último doc con ccl en Valuaciones.Dolar.
     """
     db = get_db_valuaciones()
 
-    # Live snapshot
-    ccl_live: float | None = None
+    # ── Live ────────────────────────────────────────────────────────
+    ccl_value: float | None = None
+    ts: datetime | None = None
+
     snap = db["DolarSnapshot"].find_one(
         {"_id": "current"}, {"ccl": 1, "timestamp": 1}
     )
     if snap:
-        ts = snap.get("timestamp")
-        if isinstance(ts, datetime):
-            age = (datetime.now(ts.tzinfo) - ts).total_seconds()
+        snap_ts = snap.get("timestamp")
+        if isinstance(snap_ts, datetime):
+            age = (datetime.now(snap_ts.tzinfo) - snap_ts).total_seconds()
             if age <= _DOLAR_SNAPSHOT_MAX_AGE_S and snap.get("ccl") is not None:
-                ccl_live = float(snap["ccl"])
+                ccl_value = float(snap["ccl"])
+                ts = snap_ts
 
-    if ccl_live is None:
-        # Fallback: último doc con ccl en Valuaciones.Dolar.
+    if ccl_value is None:
         latest = db["Dolar"].find_one(
             {"ccl": {"$ne": None}},
-            {"_id": 0, "ccl": 1},
+            {"_id": 0, "ccl": 1, "timestamp": 1},
             sort=[("timestamp", -1)],
         )
         if latest and latest.get("ccl"):
-            ccl_live = float(latest["ccl"])
+            ccl_value = float(latest["ccl"])
+            ts = latest.get("timestamp")
 
-    if not ccl_live or ccl_live <= 0:
-        return None
+    if not ccl_value or ccl_value <= 0:
+        return {"value": None, "vs_1d_pct": None, "ts": None}
 
-    # Cierre día previo: último doc con timestamp < hoy 00:00 UTC.
-    # Si ayer no hubo doc (feriado, weekend), el query devuelve el último
-    # día hábil — exactamente lo que queremos para "1D".
+    # ── Cierre día previo ──────────────────────────────────────────
+    # Último doc con timestamp < hoy 00:00 UTC. Si ayer no hubo doc
+    # (feriado, weekend), el query devuelve el último día hábil — es
+    # exactamente lo que queremos para "1D".
     today_start = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
@@ -82,13 +94,17 @@ def _ccl_pct_vs_1d() -> float | None:
         {"_id": 0, "ccl": 1},
         sort=[("timestamp", -1)],
     )
-    if not prev or not prev.get("ccl"):
-        return None
-    ccl_prev = float(prev["ccl"])
-    if ccl_prev <= 0:
-        return None
+    vs_1d_pct: float | None = None
+    if prev and prev.get("ccl"):
+        ccl_prev = float(prev["ccl"])
+        if ccl_prev > 0:
+            vs_1d_pct = (ccl_value / ccl_prev - 1) * 100
 
-    return (ccl_live / ccl_prev - 1) * 100
+    return {
+        "value":     ccl_value,
+        "vs_1d_pct": vs_1d_pct,
+        "ts":        ts.isoformat() if isinstance(ts, datetime) else None,
+    }
 
 
 @cached(ttl=5)
@@ -108,9 +124,11 @@ def get_cedears_scanner() -> list[dict]:
         for s in db["CedearsSnapshot"].find({}, {"_id": 0})
     }
 
-    # CCL una sola vez por request — no por ticker. Si es None, todas las
-    # columnas USD del scanner muestran '--' (no rompe nada).
-    ccl_1d = _ccl_pct_vs_1d()
+    # CCL una sola vez por request — no por ticker. get_ccl_live está
+    # cacheada también 5s, así que esta llamada es prácticamente gratis
+    # cuando viene del mismo cache window. Si es None, todas las columnas
+    # USD del scanner muestran '--' (no rompe nada).
+    ccl_1d = get_ccl_live().get("vs_1d_pct")
 
     out: list[dict] = []
     for m in master:

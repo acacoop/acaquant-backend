@@ -26,7 +26,17 @@ def cedears_scanner():
             ticker_corto, underlying, ratio_cedear,
             sector, industria, region, pais,
             last, open, high, low, close,
-            intraday_pct, vs_1d_pct,
+            intraday_pct, vs_1d_pct, vs_1d_usd_pct,
             updated_at
     """
     return svc.get_cedears_scanner()
+
+
+@router.get("/ccl")
+def ccl_live():
+    """CCL live + variación 1D — para el KPI del shell de Renta Variable.
+
+    Returns:
+        {value: float|None, vs_1d_pct: float|None, ts: str|None}
+    """
+    return svc.get_ccl_live()

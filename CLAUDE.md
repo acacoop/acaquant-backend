@@ -36,8 +36,9 @@ Ruff y typecheck NO capturan esto — son análisis estáticos. Solo importar re
 
 - **`python -m <módulo>` desde la raíz siempre**. `python engines/x.py` falla (`core` no es discoverable).
 - **Nunca `client.close()` sobre los Mongo singletons** — mata el pool. Son 2: `core.mongo.get_mongo_client()` (rw, motores/crons) y `get_mongo_client_read()` (ro, `SECONDARY_PREFERRED`, usado por la API).
-- **Atlas pausado 04:00–11:20 UTC diario** (ahorro). Durante la ventana la API devuelve error de conexión — no es bug.
+- **Atlas pausado 04:00–11:20 UTC diario** (ahorro). Durante la ventana la API devuelve error de conexión — no es bug. **Cuidado con deploys post-cierre**: motores que quedan corriendo a través de la pausa sirven snapshots stale al día siguiente. Triage rápido: `Active: since` en cada motor (skill `/motor-status`).
 - **Regla de capas**: `core/` no importa nada del proyecto. `engines/` y `jobs/` usan `core/` + `quant/`. `api/services/` es puro (sin FastAPI), `api/routers/` solo HTTP plumbing.
+- **Services con `@cached` siempre se invocan con kwargs desde routers**. El wrapper de cache genera el cache key por nombre de argumento → posicional revienta con `TypeError` en el wrapper. `await get_X(123)` ❌; `await get_X(id=123)` ✓. Incidente 2026-05-12 (commit `4e4428a`).
 - **RBAC**: código nuevo usa `require_module(m)`, no `require_manager` (alias legacy).
 - **Commits**: estilo `feat/fix/docs/refactor(scope): mensaje` en español, como el `git log`.
 - **Constantes globales y feature flags** viven en `config.py` (raíz): `TICKERS_EXTRA_PRECIOS`, `TICKERS_BOOK_FULL`, etc. Env vars en `.env` local / systemd unit files en el Droplet (`MANAGER_EMAILS`, `DEFAULT_ROLE`, `MCP_*`, `MONGO_URI`).
@@ -45,9 +46,9 @@ Ruff y typecheck NO capturan esto — son análisis estáticos. Solo importar re
 ## Estructura
 
 ```
-core/        # infra (mongo, websocket, rofex_session, roles, byma, mae)
+core/        # infra (mongo, websocket, rofex_session, roles, byma, mae, finnhub, yahoo)
 engines/     # motores WS → Mongo (always-on L-V 13-20 UTC)
-jobs/        # batch/cron
+jobs/        # batch/cron — incluye precios_acciones_daily (alimenta scanner via Trading.PreciosAcciones TS)
 quant/       # cálculo puro (black_scholes, stats)
 api/services # lógica pura (invocada por routers y por el agente)
 api/routers  # thin HTTP wrappers. manager/ es paquete de sub-routers
@@ -92,13 +93,15 @@ Agregar instrumento: doc en `Trading.Curvas` + doc en `Valuaciones.Assets` con `
 
 Cloudflare Access = quién entra. `core/roles.py` = qué ve.
 
-Módulos: `home, renta-fija, derivados, estrategia, operaciones, portfolios, asistente, manager`.
+Módulos canónicos (`core/roles.py::MODULES`): `home, renta-fija, derivados, renta-variable, estrategia, operar, operaciones, portfolios, asistente, manager`.
 
 | Módulo | admin | trader | sales |
 |---|---|---|---|
-| home / renta-fija / derivados / estrategia | ✓ | ✓ | ✓ |
+| home / renta-fija / derivados / estrategia / operar | ✓ | ✓ | ✓ |
 | operaciones / portfolios / asistente | ✓ | ✓ | – |
-| manager | ✓ | – | – |
+| renta-variable / manager | ✓ | – | – |
+
+`renta-variable` (scanner CEDEARs sobre `Trading.CedearsSnapshot` + `Trading.PreciosAcciones`) está restringido a admin desde 2026-05-12 — vista en validación. Agregar módulo nuevo requiere: (1) sumar el string a `MODULES`, (2) actualizar `ENDPOINT_MODULE_PREFIXES` en `api/auth.py`, (3) editar la matriz en `Manager.RoleMatrix` (o `DEFAULT_MATRIX`).
 
 Colecciones `Manager.{Users, RoleMatrix, RoleAudit}`. Helpers: `get_user_role`, `has_access`, `require_module(m)` (dependency). Cache TTL 60s → `invalidate_cache()` post-mutación. Matriz editable desde `/manager → ROLES Y PERMISOS`.
 

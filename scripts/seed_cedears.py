@@ -139,6 +139,14 @@ CEDEARS = [
     _cedear("XOM",   "ENERGIA",             "Oil & Gas",       "US",    "USA"),
     _cedear("CVX",   "ENERGIA",             "Oil & Gas",       "US",    "USA"),
 
+    # ADRs argentinos (2026-05-13). PAMP es el ticker BYMA, PAM el ADR US.
+    _cedear("PAMP",  "ENERGIA",             "Eléctrica",       "LATAM", "Argentina", underlying="PAM"),
+    _cedear("CEPU",  "ENERGIA",             "Eléctrica",       "LATAM", "Argentina"),
+    _cedear("EDN",   "ENERGIA",             "Eléctrica",       "LATAM", "Argentina"),
+    _cedear("TGS",   "ENERGIA",             "Gas",             "LATAM", "Argentina"),
+    _cedear("BMA",   "FINANCIERO",          "Bancos",          "LATAM", "Argentina"),
+    _cedear("SUPV",  "FINANCIERO",          "Bancos",          "LATAM", "Argentina"),
+
     # ETFs (sector, country, theme)
     _cedear("XLK",   "ETF",                 "Sector Tech",        "US", "USA"),
     _cedear("XLF",   "ETF",                 "Sector Financiero",  "US", "USA"),

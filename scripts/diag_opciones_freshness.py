@@ -30,9 +30,11 @@ from datetime import datetime, timedelta, timezone
 
 from api.db import get_db_opciones
 from api.services import opciones as svc_opt
+from api.services.renta_fija import _ticker_filter
 
-# Prefijos por subyacente (las opciones MERV usan estas 3-4 letras al principio
-# del symbol corto: GFG/GFGC para GGAL, PAMC/PAMV para PAMP, etc.).
+# Prefijos del symbol CORTO por subyacente — sirven para mostrar buckets,
+# pero el match real a Mongo se hace con _ticker_filter() porque los docs
+# guardan el symbol Rofex completo: 'MERV - XMEV - GFGCxxxxxA - 24hs'.
 PREFIJOS = {
     "GGAL": ("GFG",),
     "PAMP": ("PAM",),
@@ -76,16 +78,24 @@ def run(underlying: str) -> None:
 
     # ── [A] Mongo crudo ──────────────────────────────────────────
     print("\n[A] Estado actual de Opciones.OptionsSnapshot")
-    regex = "^(" + "|".join(prefijos) + ")"
+    # El symbol en Mongo está en formato Rofex completo
+    # ('MERV - XMEV - GFGCxxxxxA - 24hs'), así que usamos el mismo regex
+    # que el service: _ticker_filter(underlying).
+    filtro_mongo = _ticker_filter(underlying)
     docs_a = list(col.find(
-        {"symbol": {"$regex": regex}},
+        {"symbol": filtro_mongo},
         {"_id": 0, "symbol": 1, "strike": 1, "tipo": 1, "vence": 1, "updated_at": 1, "last": 1},
     ))
-    print(f"    Total docs con prefijo {prefijos}: {len(docs_a)}")
+    print(f"    Total docs (match _ticker_filter='{underlying}'): {len(docs_a)}")
+    # Mostrar también un total global de la colección para dar contexto.
+    total_global = col.estimated_document_count()
+    print(f"    (referencia: OptionsSnapshot tiene {total_global} docs en total)")
 
     if not docs_a:
-        print("    ✗ Colección vacía para ese prefijo. Motor de opciones probablemente caído.")
-        print("      Chequear: systemctl status motor_options (o como se llame el engine).")
+        print(f"    ✗ Sin docs en Mongo para underlying={underlying}.")
+        print("      Si total_global > 0, hay opciones de otros subyacentes pero no este.")
+        print("      Si total_global == 0, el motor de opciones está caído.")
+        print("      Chequear: systemctl status motor_options (o como se llame).")
         return
 
     # Bucketing por edad
@@ -127,18 +137,9 @@ def run(underlying: str) -> None:
             marker = " ← stale" if k in (">24h", "sin_updated_at") and v > 0 else ""
             print(f"      {k:>14s}: {v}{marker}")
 
-    # ── [C] Diff de symbols entre [A] (con _ticker_filter aplicado) y [B] ──
+    # ── [C] Diff de symbols entre [A] y [B] ──
     print("\n[C] Diff de symbols entre Mongo y service")
-    # Replicar el filtro que usa el service: _ticker_filter genera un regex
-    # case-insensitive. Para comparar manzana-con-manzana, contamos lo que
-    # entra al match real.
-    from api.services.renta_fija import _ticker_filter
-    filtro_simulado = _ticker_filter(underlying)
-    docs_a_filtrados = list(col.find(
-        {"symbol": filtro_simulado},
-        {"_id": 0, "symbol": 1},
-    ))
-    syms_a = {d["symbol"] for d in docs_a_filtrados}
+    syms_a = {d["symbol"] for d in docs_a}
     syms_b = {d["instrumento"] for d in docs_b}
 
     print(f"    Symbols en Mongo (match _ticker_filter='{underlying}'): {len(syms_a)}")

@@ -388,6 +388,7 @@ def get_cedears_scanner() -> list[dict]:
         adr = adr_metrics.get(m["ticker_corto"], {})
         out.append({
             "ticker_corto":     m["ticker_corto"],
+            "nombre":           m.get("nombre"),
             "underlying":       m.get("underlying"),
             "ratio_cedear":     m.get("ratio_cedear"),
             "sector":           m.get("sector"),

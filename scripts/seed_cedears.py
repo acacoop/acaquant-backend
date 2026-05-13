@@ -22,6 +22,91 @@ from datetime import datetime, timezone
 from core.mongo import get_mongo_client
 
 
+NOMBRES: dict[str, str] = {
+    # US Tech mega-caps
+    "AAPL":  "Apple",
+    "MSFT":  "Microsoft",
+    "GOOGL": "Alphabet (Google)",
+    "META":  "Meta Platforms",
+    "AMZN":  "Amazon",
+    "NFLX":  "Netflix",
+    "ORCL":  "Oracle",
+    "PLTR":  "Palantir Technologies",
+    "UBER":  "Uber Technologies",
+    "PANW":  "Palo Alto Networks",
+    "RIOT":  "Riot Platforms",
+    # Semis
+    "NVDA":  "NVIDIA",
+    "AMD":   "Advanced Micro Devices",
+    "INTC":  "Intel",
+    "TSM":   "Taiwan Semiconductor",
+    "QCOM":  "Qualcomm",
+    "MU":    "Micron Technology",
+    "ARM":   "Arm Holdings",
+    "ASML":  "ASML Holding",
+    # Financiero
+    "JPM":   "JPMorgan Chase",
+    "V":     "Visa",
+    "MA":    "Mastercard",
+    "C":     "Citigroup",
+    "GS":    "Goldman Sachs",
+    # Salud
+    "JNJ":   "Johnson & Johnson",
+    "PFE":   "Pfizer",
+    # Industriales / Aero & Defensa
+    "LMT":   "Lockheed Martin",
+    "GE":    "GE Aerospace",
+    "RKLB":  "Rocket Lab",
+    # Consumo
+    "KO":    "Coca-Cola",
+    "PEP":   "PepsiCo",
+    "WMT":   "Walmart",
+    "NKE":   "Nike",
+    "DIS":   "Walt Disney",
+    "BABA":  "Alibaba",
+    "MELI":  "Mercado Libre",
+    "TSLA":  "Tesla",
+    # Energía
+    "XOM":   "ExxonMobil",
+    "CVX":   "Chevron",
+    "YPFD":  "YPF",
+    "VIST":  "Vista Energy",
+    "PBR":   "Petrobras",
+    "PAMP":  "Pampa Energía",
+    "CEPU":  "Central Puerto",
+    "EDN":   "Edenor",
+    "TGS":   "Transportadora de Gas del Sur",
+    # Bancos argentinos
+    "GGAL":  "Grupo Financiero Galicia",
+    "BMA":   "Banco Macro",
+    "SUPV":  "Grupo Supervielle",
+    # ETFs
+    "SPY":   "S&P 500",
+    "QQQ":   "Nasdaq 100",
+    "IWM":   "Russell 2000",
+    "IBIT":  "Bitcoin ETF",
+    "ETHA":  "Ether ETF",
+    "URA":   "Uranium ETF",
+    "USO":   "US Oil Fund",
+    "GLD":   "Gold Trust (Oro)",
+    "XLK":   "Sector Tech SPDR",
+    "XLF":   "Sector Financiero SPDR",
+    "XLV":   "Sector Salud SPDR",
+    "XLP":   "Sector Consumo Básico SPDR",
+    "XLC":   "Sector Comunicaciones SPDR",
+    "XLRE":  "Sector Real Estate SPDR",
+    "ITA":   "Aero & Defensa (iShares)",
+    "IBB":   "Biotech (iShares)",
+    "IVW":   "S&P 500 Growth (iShares)",
+    "FXI":   "China Large-Cap (iShares)",
+    "ILF":   "LATAM 40 (iShares)",
+    "PSQ":   "Nasdaq Short (ProShares)",
+    "VXX":   "VIX Short-Term Futures",
+    # Sin clasificar todavía
+    "LAR":   "LAR (TODO)",
+}
+
+
 def _cedear(
     ticker_corto: str,
     sector: str,
@@ -33,11 +118,14 @@ def _cedear(
     """`ticker_corto` = símbolo BYMA local (ej. YPFD para CEDEAR de YPF).
     `underlying`     = símbolo del activo subyacente US (ej. YPF en NYSE).
     Si no se pasa, defaultea a ticker_corto (caso común — para la mayoría
-    de los tickers BYMA y US tienen el mismo nombre)."""
+    de los tickers BYMA y US tienen el mismo nombre).
+    `nombre`         = nombre humano-friendly de la empresa/ETF, sale del
+    dict NOMBRES por ticker_corto. Fallback al ticker si no está mapeado."""
     return {
         "ticker":       f"MERV - XMEV - {ticker_corto} - 24hs",
         "ticker_corto": ticker_corto,
         "underlying":   underlying or ticker_corto,
+        "nombre":       NOMBRES.get(ticker_corto, ticker_corto),
         "ratio_cedear": None,  # vos lo completás post-seed
         "sector":       sector,
         "industria":    industria,

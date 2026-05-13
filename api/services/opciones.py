@@ -20,7 +20,12 @@ from core.mongo import get_mongo_client
 @cached(ttl=60)
 def get_opciones(instrumento: str | None = None, tipo: str | None = None) -> list:
     db = get_db_opciones()
-    filtro: dict = {}
+    # Solo opciones con tick HOY. Las ilíquidas conservan updated_at de la
+    # última rueda que tuvieron precio (dirty-check del engine las saltea
+    # cuando bid=offer=last=0). Sin este filtro la tabla muestra strikes
+    # con vol/last de días anteriores mezclados con los de hoy.
+    inicio_hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    filtro: dict = {"updated_at": {"$gte": inicio_hoy}}
     if instrumento:
         filtro["symbol"] = _ticker_filter(instrumento)
     if tipo:

@@ -36,6 +36,34 @@ def returns_from_prices(prices: Sequence[float]) -> list[float]:
     return out
 
 
+def zscore_last(returns: Sequence[float]) -> float | None:
+    """Z-score del ÚLTIMO retorno vs la distribución de los anteriores.
+
+    z = (r_last − μ) / σ, donde μ y σ son sobre returns[:-1].
+
+    Interpretación: cuán "raro" es el movimiento de hoy vs los días previos.
+    |z| > 2 es estadísticamente atípico (~5% de probabilidad asumiendo
+    normalidad); |z| > 3 es extremo (~0.3%).
+
+    Devuelve None si la serie es muy corta o σ degenerado.
+    """
+    rets = [r for r in returns if r is not None]
+    if len(rets) < 5:
+        return None
+    last = rets[-1]
+    prev = rets[:-1]
+    if len(prev) < 2:
+        return None
+    try:
+        mu = statistics.fmean(prev)
+        sigma = statistics.stdev(prev)
+    except statistics.StatisticsError:
+        return None
+    if sigma <= 0:
+        return None
+    return (last - mu) / sigma
+
+
 def realized_vol(returns: Sequence[float]) -> float | None:
     """Volatilidad anualizada = stdev(returns) × √252.
 

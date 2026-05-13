@@ -273,6 +273,7 @@ def get_quant_stats(ticker: str, window: int = 60) -> dict:
         correlation,
         realized_vol,
         returns_from_prices,
+        zscore_last,
     )
 
     # ticker viene como ticker_corto del frontend; resolver underlying
@@ -324,14 +325,19 @@ def get_quant_stats(ticker: str, window: int = 60) -> dict:
     vol_30 = realized_vol(rets_a[-30:]) if len(rets_a) >= 30 else None
     vol_60 = realized_vol(rets_a[-60:]) if len(rets_a) >= 60 else None
 
+    # Z-score del retorno de hoy vs los días previos en la ventana.
+    z_30 = zscore_last(rets_a[-30:]) if len(rets_a) >= 30 else None
+    z_60 = zscore_last(rets_a[-60:]) if len(rets_a) >= 60 else None
+
     return {
         "ticker":         ticker.upper(),
         "last":           closes_a[-1] if closes_a else None,
         "n_observations": n,
-        "beta":  {"spy": ba_spy["beta"],  "qqq": ba_qqq["beta"]},
-        "alpha": {"spy": ba_spy["alpha"], "qqq": ba_qqq["alpha"]},
-        "corr":  {"spy": corr_spy,        "qqq": corr_qqq},
-        "vol":   {"d30": vol_30,          "d60": vol_60},
+        "beta":   {"spy": ba_spy["beta"],  "qqq": ba_qqq["beta"]},
+        "alpha":  {"spy": ba_spy["alpha"], "qqq": ba_qqq["alpha"]},
+        "corr":   {"spy": corr_spy,        "qqq": corr_qqq},
+        "vol":    {"d30": vol_30,          "d60": vol_60},
+        "zscore": {"d30": z_30,            "d60": z_60},
     }
 
 

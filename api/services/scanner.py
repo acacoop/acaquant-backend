@@ -128,14 +128,21 @@ def _adr_metrics_para_todos(tickers: list[str]) -> dict[str, dict]:
 
     db = get_db_trading()
     docs_by_ticker: dict[str, list[dict]] = {}
+    # NOTA: Mongo Time Series guarda timeField como datetime NAIVE (sin
+    # tzinfo). Para evitar TypeError en comparaciones contra anchors
+    # aware, normalizamos todo a naive UTC desde la lectura.
     for d in db["PreciosAcciones"].find(
         {"ticker": {"$in": tickers}},
         projection={"_id": 0, "ticker": 1, "fecha": 1, "close": 1},
     ):
+        fecha = d.get("fecha")
+        if isinstance(fecha, datetime) and fecha.tzinfo is not None:
+            d["fecha"] = fecha.replace(tzinfo=None)
         docs_by_ticker.setdefault(d["ticker"], []).append(d)
 
-    # Anchors temporales — calculados una sola vez para todos los tickers.
-    hoy = datetime.now(timezone.utc)
+    # Anchors temporales — calculados una vez. Naive para matchear los
+    # docs de la time series (ver nota arriba).
+    hoy = datetime.now(timezone.utc).replace(tzinfo=None)
     anchor_7d  = hoy - timedelta(days=7)
     anchor_mtd = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     anchor_ytd = hoy.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)

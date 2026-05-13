@@ -197,6 +197,49 @@ def _adr_metrics_para_todos(tickers: list[str]) -> dict[str, dict]:
 
 
 @cached(ttl=60)
+def get_ticker_returns(ticker: str) -> dict:
+    """Retornos diarios aritméticos del ticker (~252 últimos puntos)
+    desde Trading.PreciosAcciones.
+
+    Usado para histograma del panel del Scanner. Cached 60s — los EOD
+    cambian 1×/día.
+
+    Returns:
+        {
+          ticker,
+          returns: list[float],     # r_t = (close_t / close_{t-1}) − 1
+          last_return: float | None,
+          last_fecha: str | None,
+        }
+    """
+    from quant.rolling_stats import returns_from_prices
+
+    db = get_db_trading()
+    docs = list(db["PreciosAcciones"].find(
+        {"ticker": ticker.upper()},
+        projection={"_id": 0, "fecha": 1, "close": 1},
+        sort=[("fecha", 1)],
+    ))
+    if not docs:
+        return {
+            "ticker":      ticker.upper(),
+            "returns":     [],
+            "last_return": None,
+            "last_fecha":  None,
+        }
+
+    closes = [d["close"] for d in docs if d.get("close") is not None]
+    rets = returns_from_prices(closes)
+    last_fecha = docs[-1].get("fecha")
+    return {
+        "ticker":      ticker.upper(),
+        "returns":     rets,
+        "last_return": rets[-1] if rets else None,
+        "last_fecha":  last_fecha.isoformat() if hasattr(last_fecha, "isoformat") else None,
+    }
+
+
+@cached(ttl=60)
 def get_quant_stats(ticker: str, window: int = 60) -> dict:
     """Stats rolling sobre Trading.PreciosAcciones: beta/alpha/correlación
     vs SPY y vs QQQ + volatilidad realizada anualizada (30d, 60d).

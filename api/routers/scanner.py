@@ -42,6 +42,22 @@ def ccl_live():
     return svc.get_ccl_live()
 
 
+@router.get("/returns/{ticker}")
+def returns(ticker: str):
+    """Serie de retornos diarios del último año (~252 puntos) desde
+    Trading.PreciosAcciones. Para el histograma del Scanner.
+
+    Returns:
+        {
+          ticker,
+          returns: [r1, r2, ...],   # aritméticos diarios
+          last_return: float | None,
+          last_fecha: str | None,
+        }
+    """
+    return svc.get_ticker_returns(ticker=ticker)
+
+
 @router.get("/quant/{ticker}")
 def quant_stats(ticker: str):
     """Stats rolling (beta/alpha/corr vs SPY y QQQ + vol realizada 30d/60d)

@@ -16,7 +16,7 @@ from core.mongo import get_mongo_client
 
 
 # Tickers obsoletos a borrar. Los nuevos se crean en seed_cedears.py.
-A_BORRAR = ["YPF", "URAC"]
+A_BORRAR = ["YPF", "URAC", "DELL"]
 
 
 def run(dry_run: bool = False) -> None:

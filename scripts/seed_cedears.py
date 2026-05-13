@@ -62,7 +62,8 @@ CEDEARS = [
     _cedear("AMZN",  "TECNOLOGIA",          "E-commerce",      "US",    "USA"),
     _cedear("ORCL",  "TECNOLOGIA",          "Software",        "US",    "USA"),
     _cedear("PLTR",  "TECNOLOGIA",          "Software",        "US",    "USA"),
-    _cedear("DELL",  "TECNOLOGIA",          "Hardware",        "US",    "USA"),
+    # DELL: BYMA no tiene CEDEAR de Dell (confirmado por user 2026-05-13).
+    # Removido del scanner; la data ADR queda huérfana en PreciosAcciones.
 
     # Comunicaciones / streaming
     _cedear("NFLX",  "COMUNICACIONES",      "Streaming",       "US",    "USA"),

@@ -81,6 +81,12 @@ CEDEARS = [
     # Pendientes de identificar — TODO: confirmar
     _cedear("LAR",   "OTROS",               "TODO",            "TODO",  "TODO"),
     _cedear("URAC",  "OTROS",               "TODO",            "TODO",  "TODO"),
+
+    # Migrados desde la watchlist (sección "Acciones" que se elimina, todo
+    # se concentra en el Scanner). 2026-05-13.
+    _cedear("TSLA",  "CONSUMO DISCRECIONAL", "Autos",          "US",    "USA"),
+    _cedear("JPM",   "FINANCIERO",           "Bancos",         "US",    "USA"),
+    _cedear("MELI",  "TECNOLOGIA",           "E-commerce",     "LATAM", "Argentina"),
 ]
 
 

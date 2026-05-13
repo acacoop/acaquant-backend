@@ -36,31 +36,14 @@ logger = logging.getLogger(__name__)
 # (Regiones/Monedas/Big Tech viejos quedaron afuera por pedido.)
 HOME_STOCKS: list[tuple[str, str]] = [
     # (símbolo, grupo)
+    # 2026-05-13: sección "Acciones" eliminada del watchlist — toda esa
+    # data se concentró en /renta-variable (Scanner). Quedan solo los
+    # ETFs/índices que el watchlist sigue mostrando.
     ("SPY",  "Índices"),
     ("QQQ",  "Índices"),
     ("DIA",  "Índices"),
     ("IWM",  "Índices"),
     ("EWZ",  "Índices"),
-    # Acciones — ordenadas por sector aprox para legibilidad.
-    ("NVDA",  "Acciones"),
-    ("TSLA",  "Acciones"),
-    ("AAPL",  "Acciones"),
-    ("MSFT",  "Acciones"),
-    ("META",  "Acciones"),
-    ("GOOGL", "Acciones"),
-    ("AMZN",  "Acciones"),
-    ("AMD",   "Acciones"),
-    ("INTC",  "Acciones"),
-    ("DELL",  "Acciones"),
-    ("PLTR",  "Acciones"),
-    ("RKLB",  "Acciones"),
-    ("JPM",   "Acciones"),
-    ("KO",    "Acciones"),
-    ("MELI",  "Acciones"),
-    # ADRs argentinos
-    ("YPF",   "Acciones"),
-    ("VIST",  "Acciones"),
-    ("GGAL",  "Acciones"),
 ]
 
 # ── Futuros CME / CBOT / COMEX / NYMEX / ICE + cripto spot vía Yahoo.

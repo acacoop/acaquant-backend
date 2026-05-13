@@ -67,15 +67,16 @@ MODULES: tuple[str, ...] = (
 DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "admin":  MODULES,  # todo
     "trader": (
-        "home", "renta-fija", "derivados", "estrategia",
+        "home", "renta-fija", "derivados", "renta-variable", "estrategia",
         "operar", "operaciones", "portfolios", "asistente",
     ),
     "sales":  (
-        "home", "renta-fija", "derivados", "estrategia",
+        "home", "renta-fija", "derivados", "renta-variable", "estrategia",
         "operar",  # sales puede operar pero NO ver la mesa de flujos
     ),
 }
-# renta-variable: solo admin por ahora (smart money 13F/Form 4 — vista en validación).
+# renta-variable: habilitado para todos los roles (2026-05-13). Smart Money
+# se eliminó del producto, el módulo ahora hospeda el Scanner de CEDEARs.
 
 # Role asignado a emails que pasaron Cloudflare pero no están seedeados
 # en Manager.Users. Preferimos "sales" (módulos públicos) para no dejar

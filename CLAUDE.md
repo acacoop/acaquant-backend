@@ -97,11 +97,11 @@ Módulos canónicos (`core/roles.py::MODULES`): `home, renta-fija, derivados, re
 
 | Módulo | admin | trader | sales |
 |---|---|---|---|
-| home / renta-fija / derivados / estrategia / operar | ✓ | ✓ | ✓ |
+| home / renta-fija / derivados / renta-variable / estrategia / operar | ✓ | ✓ | ✓ |
 | operaciones / portfolios / asistente | ✓ | ✓ | – |
-| renta-variable / manager | ✓ | – | – |
+| manager | ✓ | – | – |
 
-`renta-variable` (scanner CEDEARs sobre `Trading.CedearsSnapshot` + `Trading.PreciosAcciones`) está restringido a admin desde 2026-05-12 — vista en validación. Agregar módulo nuevo requiere: (1) sumar el string a `MODULES`, (2) actualizar `ENDPOINT_MODULE_PREFIXES` en `api/auth.py`, (3) editar la matriz en `Manager.RoleMatrix` (o `DEFAULT_MATRIX`).
+`renta-variable` (Scanner CEDEARs sobre `Trading.CedearsSnapshot` + `Trading.PreciosAcciones`) está abierto a los 3 roles desde 2026-05-13 (Smart Money deprecated; el módulo solo expone el Scanner que es read-only y operativo para la mesa). Agregar módulo nuevo requiere: (1) sumar el string a `MODULES`, (2) actualizar `ENDPOINT_MODULE_PREFIXES` en `api/auth.py`, (3) editar la matriz en `Manager.RoleMatrix` (o `DEFAULT_MATRIX`).
 
 Colecciones `Manager.{Users, RoleMatrix, RoleAudit}`. Helpers: `get_user_role`, `has_access`, `require_module(m)` (dependency). Cache TTL 60s → `invalidate_cache()` post-mutación. Matriz editable desde `/manager → ROLES Y PERMISOS`.
 

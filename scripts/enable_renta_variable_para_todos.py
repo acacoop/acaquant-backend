@@ -1,16 +1,15 @@
-"""Quita el módulo 'renta-variable' de los roles 'trader' y 'sales' en Manager.RoleMatrix.
+"""Agrega el módulo 'renta-variable' a los roles 'trader' y 'sales' en
+Manager.RoleMatrix. Después de este script, los tres roles ven la vista.
 
-Después de este script, solo 'admin' ve la vista /renta-variable.
+Por qué este script existe: cambiar `DEFAULT_MATRIX` en `core/roles.py`
+no se propaga a `Manager.RoleMatrix` cuando esa colección ya está
+poblada (caso producción). El admin tendría que editar la matriz desde
+/manager → ROLES Y PERMISOS, o correr este script.
 
-Por qué este script existe: cambiar `DEFAULT_MATRIX` en `core/roles.py` no se
-propaga a `Manager.RoleMatrix` cuando esa colección ya está poblada (caso
-producción). El admin tendría que editar la matriz desde /manager → ROLES Y
-PERMISOS, o correr este script.
-
-Idempotente: si el módulo no está en el role, no hace nada.
+Idempotente: si el módulo ya está en el role, no hace nada.
 
 Uso:
-    python -m scripts.restrict_renta_variable_admin
+    python -m scripts.enable_renta_variable_para_todos
 """
 from __future__ import annotations
 
@@ -19,7 +18,7 @@ from datetime import UTC, datetime
 from core.mongo import get_mongo_client
 
 MODULE = "renta-variable"
-ROLES_TO_REMOVE_FROM = ("trader", "sales")
+ROLES_TO_ADD_TO = ("trader", "sales")
 
 
 def run() -> None:
@@ -27,37 +26,37 @@ def run() -> None:
     col = db["Manager"]["RoleMatrix"]
     ts = datetime.now(UTC)
 
-    print(f"Quitando módulo '{MODULE}' de roles: {ROLES_TO_REMOVE_FROM}\n")
+    print(f"Agregando módulo '{MODULE}' a roles: {ROLES_TO_ADD_TO}\n")
     changed = 0
 
-    for role in ROLES_TO_REMOVE_FROM:
+    for role in ROLES_TO_ADD_TO:
         doc = col.find_one({"role": role})
         if not doc:
             print(f"   ⚠ role {role!r} NO existe en Manager.RoleMatrix — salteo")
             continue
         modules = list(doc.get("modules") or [])
-        if MODULE not in modules:
-            print(f"   ✓ {role:<7}: '{MODULE}' no estaba (nada que hacer)")
+        if MODULE in modules:
+            print(f"   ✓ {role:<7}: ya tenía '{MODULE}' (nada que hacer)")
             continue
-        new_modules = [m for m in modules if m != MODULE]
+        new_modules = modules + [MODULE]
         col.update_one(
             {"role": role},
             {"$set": {
                 "modules":    new_modules,
                 "updated_at": ts,
-                "updated_by": "system:restrict_renta_variable_admin",
+                "updated_by": "system:enable_renta_variable_para_todos",
             }},
         )
         db["Manager"]["RoleAudit"].insert_one({
             "ts":     ts,
             "actor":  "system",
-            "action": "remove_module",
+            "action": "add_module",
             "target": role,
             "before": {"modules": modules},
             "after":  {"modules": new_modules},
-            "note":   f"quitado {MODULE} via restrict script",
+            "note":   f"agregado {MODULE} via enable script (Smart Money deprecated, módulo ahora hospeda Scanner)",
         })
-        print(f"   ✓ {role:<7}: quitado '{MODULE}'  ({len(new_modules)} módulos restantes)")
+        print(f"   ✓ {role:<7}: agregado '{MODULE}'  ({len(new_modules)} módulos totales)")
         changed += 1
 
     try:

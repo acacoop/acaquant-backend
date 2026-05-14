@@ -173,6 +173,7 @@ TIPOS_DIVISOR_100 = {
     "Títulos Públicos",
     "Letras del Tesoro Capitalizables en Pesos",
     "Letras del Tesoro Ajustables por CER en Pesos",
+    "LETES",                      # Letras del Tesoro en USD (cotizan paridad)
     "Títulos de Deuda",
     "Obligaciones Negociables",
     "Fideicomisos Financieros",

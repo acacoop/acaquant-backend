@@ -62,7 +62,7 @@ NOMBRES: dict[str, str] = {
     "PEP":   "PepsiCo",
     "WMT":   "Walmart",
     "NKE":   "Nike",
-    "DIS":   "Walt Disney",
+    "DISN":  "Walt Disney",
     "BABA":  "Alibaba",
     "MELI":  "Mercado Libre",
     "TSLA":  "Tesla",
@@ -75,7 +75,7 @@ NOMBRES: dict[str, str] = {
     "PAMP":  "Pampa Energía",
     "CEPU":  "Central Puerto",
     "EDN":   "Edenor",
-    "TGS":   "Transportadora de Gas del Sur",
+    "TGSU2": "Transportadora de Gas del Sur",
     # Bancos argentinos
     "GGAL":  "Grupo Financiero Galicia",
     "BMA":   "Banco Macro",
@@ -221,7 +221,8 @@ CEDEARS = [
     _cedear("PEP",   "CONSUMO BASICO",      "Bebidas",         "US",    "USA"),
     _cedear("WMT",   "CONSUMO BASICO",      "Retail",          "US",    "USA"),
     _cedear("NKE",   "CONSUMO DISCRECIONAL","Apparel",         "US",    "USA"),
-    _cedear("DIS",   "COMUNICACIONES",      "Entretenimiento", "US",    "USA"),
+    # Disney: CEDEAR BYMA = DISN, ADR US = DIS.
+    _cedear("DISN",  "COMUNICACIONES",      "Entretenimiento", "US",    "USA", underlying="DIS"),
 
     # Energía
     _cedear("XOM",   "ENERGIA",             "Oil & Gas",       "US",    "USA"),
@@ -231,7 +232,8 @@ CEDEARS = [
     _cedear("PAMP",  "ENERGIA",             "Eléctrica",       "LATAM", "Argentina", underlying="PAM"),
     _cedear("CEPU",  "ENERGIA",             "Eléctrica",       "LATAM", "Argentina"),
     _cedear("EDN",   "ENERGIA",             "Eléctrica",       "LATAM", "Argentina"),
-    _cedear("TGS",   "ENERGIA",             "Gas",             "LATAM", "Argentina"),
+    # TGS: BYMA local = TGSU2, ADR US = TGS.
+    _cedear("TGSU2", "ENERGIA",             "Gas",             "LATAM", "Argentina", underlying="TGS"),
     _cedear("BMA",   "FINANCIERO",          "Bancos",          "LATAM", "Argentina"),
     _cedear("SUPV",  "FINANCIERO",          "Bancos",          "LATAM", "Argentina"),
 

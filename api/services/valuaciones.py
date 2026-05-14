@@ -572,6 +572,224 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     }
 
 
+def valuacion_mensual_debug(id_cuenta: str) -> dict[str, Any]:
+    """Versión expandida de `valuacion_mensual` para auditoría desde
+    /manager. **No cacheada** — devuelve siempre los datos actuales.
+
+    Por cada mes muestra **paso por paso** cómo se llega a la TEA y la
+    base 100:
+
+      - fecha_inicio / fecha_cierre del período (último día con snapshot)
+      - valor_inicio / valor_cierre (saldo del portfolio)
+      - flujos_individuales: cada doc de NegocioMovimientos del mes con
+          fecha, categoria, op, ticker, moneda, importe_original, MEP
+          aplicado e importe_ars resultante.
+      - cashflow_xirr: lista exacta de (fecha, monto) que recibe la
+          función xirr() — útil para reproducir el cálculo en Excel
+          con TIR.NO.PER.
+      - tea_mensual: resultado de XIRR (TEA anualizada).
+      - dias_periodo, tem_periodo: TEA des-anualizada al período del mes.
+      - twr_base100_acum: base 100 cumulada al cierre del mes.
+      - delta_bruto, delta_real, flujo_neto, depositos, extracciones.
+
+    Args:
+        id_cuenta: id numérico, ej "805".
+
+    Returns:
+        {
+          id_cuenta, meses: [{...mes_detallado}, ...], n_meses,
+          resumen: {primer_mes, ultimo_mes, twr_final, ganancia_pct}
+        }
+    """
+    db_val = get_db_valuaciones()
+    db_cf = get_db_cashflow()
+
+    # 1. Cierres por mes (mismo pipeline que valuacion_mensual).
+    pipeline_fechas = [
+        {"$match": {"id_cuenta": id_cuenta}},
+        {"$group": {
+            "_id":       "$fecha_snapshot",
+            "valuacion": {"$sum": "$valuacion"},
+            "n":         {"$sum": 1},
+        }},
+        {"$sort": {"_id": 1}},
+    ]
+    fechas_data = list(db_val["AuM"].aggregate(pipeline_fechas))
+    cierres_buckets: dict[str, dict] = {}
+    for f in fechas_data:
+        fecha_str = str(f["_id"])
+        bucket = fecha_str[:7]
+        cierres_buckets[bucket] = {
+            "_id":              bucket,
+            "ultimo_dia":       fecha_str,
+            "valuacion_cierre": f.get("valuacion") or 0,
+            "n_posiciones":     f.get("n") or 0,
+        }
+    cierres = [cierres_buckets[k] for k in sorted(cierres_buckets.keys())]
+
+    # 2. Flujos externos pesificados — guardamos el doc completo para
+    # poder mostrarlo en la UI de debug.
+    movimientos_raw = list(db_cf["NegocioMovimientos"].find(
+        {
+            "cuenta":    {"$regex": f"^\\[{id_cuenta}\\]"},
+            "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
+        },
+        {"_id": 0, "fecha": 1, "categoria": 1, "importe": 1, "moneda": 1,
+         "op": 1, "ticker": 1, "comprobante": 1, "informacion": 1},
+    ))
+
+    mep_cache: dict[str, float | None] = {}
+    flujos_by_mes: dict[str, dict[str, Any]] = {}
+    for m in movimientos_raw:
+        fecha = m.get("fecha")
+        if not fecha or not isinstance(fecha, str):
+            continue
+        try:
+            imp_orig = float(m.get("importe") or 0)
+        except (TypeError, ValueError):
+            continue
+        moneda = m.get("moneda") or "ARS"
+        if moneda != "ARS" and fecha not in mep_cache:
+            mep_cache[fecha] = _get_mep_for_date(fecha, db_val)
+        mep = mep_cache.get(fecha)
+        imp_ars = _pesificar(imp_orig, moneda, mep)
+        mes = fecha[:7]
+        bucket = flujos_by_mes.setdefault(
+            mes, {"depositos": 0.0, "extracciones": 0.0, "items": [], "flujos_detalle": []}
+        )
+        if imp_ars != 0:
+            bucket["items"].append((fecha, imp_ars))
+        bucket["flujos_detalle"].append({
+            "fecha":            fecha,
+            "categoria":        m.get("categoria"),
+            "op":               m.get("op"),
+            "ticker":           m.get("ticker"),
+            "comprobante":      m.get("comprobante"),
+            "moneda":           moneda,
+            "importe_original": round(imp_orig, 2),
+            "mep_aplicado":     round(mep, 2) if mep is not None else None,
+            "importe_ars":      round(imp_ars, 2),
+            "informacion":      m.get("informacion"),
+        })
+        cat = m.get("categoria")
+        if cat in _FLUJO_EXTERNO_DEPOSITO:
+            bucket["depositos"] += imp_ars
+        elif cat in _FLUJO_EXTERNO_EXTRACCION:
+            bucket["extracciones"] += imp_ars
+
+    # 3. Loop principal — armando el cashflow XIRR explícito por mes.
+    rows: list[dict[str, Any]] = []
+    prev_val: float | None = None
+    prev_fecha: str | None = None
+    twr_acum: float = 100.0
+    twr_iniciado = False
+    for c in cierres:
+        mes = c["_id"]
+        f = flujos_by_mes.get(mes, {})
+        depositos = float(f.get("depositos") or 0)
+        extracciones = float(f.get("extracciones") or 0)
+        flujo_neto = depositos + extracciones
+        if extracciones > 0:
+            flujo_neto = depositos - extracciones
+        cierre = float(c.get("valuacion_cierre") or 0)
+        ultimo_dia = c.get("ultimo_dia")
+        delta_bruto = (cierre - prev_val) if prev_val is not None else None
+        delta_real = (
+            (delta_bruto - flujo_neto) if delta_bruto is not None else None
+        )
+
+        # Armar cashflow XIRR explícito + calcular TEA.
+        cashflow_xirr: list[dict[str, Any]] = []
+        tea_mensual: float | None = None
+        dias_periodo: int | None = None
+        if (
+            prev_val is not None and prev_val > 0
+            and cierre > 0
+            and prev_fecha and ultimo_dia
+        ):
+            try:
+                d_inicio = _date.fromisoformat(prev_fecha)
+                d_cierre = _date.fromisoformat(ultimo_dia)
+                dias_periodo = (d_cierre - d_inicio).days
+                cashflows: list[tuple[_date, float]] = [(d_inicio, +prev_val)]
+                cashflow_xirr.append({
+                    "fecha": prev_fecha, "monto": round(prev_val, 2),
+                    "tipo": "valor_inicio",
+                })
+                for fecha_iso, imp_ars in (f.get("items") or []):
+                    try:
+                        cashflows.append((_date.fromisoformat(fecha_iso), float(imp_ars)))
+                        cashflow_xirr.append({
+                            "fecha": fecha_iso, "monto": round(float(imp_ars), 2),
+                            "tipo": "flujo",
+                        })
+                    except (ValueError, TypeError):
+                        continue
+                cashflows.append((d_cierre, -cierre))
+                cashflow_xirr.append({
+                    "fecha": ultimo_dia, "monto": round(-cierre, 2),
+                    "tipo": "valor_cierre",
+                })
+                tea_mensual = _xirr(cashflows)
+            except ValueError:
+                tea_mensual = None
+
+        # TEM des-anualizada al período exacto entre los dos cierres.
+        tem_periodo: float | None = None
+        if tea_mensual is not None and dias_periodo and dias_periodo > 0:
+            tem_periodo = (1 + tea_mensual) ** (dias_periodo / 365) - 1
+
+        if not twr_iniciado:
+            twr_acum = 100.0
+            twr_iniciado = True
+        elif tem_periodo is not None:
+            twr_acum = twr_acum * (1 + tem_periodo)
+
+        rows.append({
+            "mes":                  mes,
+            "fecha_inicio":         prev_fecha,
+            "fecha_cierre":         ultimo_dia,
+            "dias_periodo":         dias_periodo,
+            "valor_inicio":         round(prev_val, 2) if prev_val is not None else None,
+            "valor_cierre":         round(cierre, 2),
+            "depositos":            round(depositos, 2),
+            "extracciones":         round(extracciones, 2),
+            "flujo_neto":           round(flujo_neto, 2),
+            "delta_bruto":          round(delta_bruto, 2) if delta_bruto is not None else None,
+            "delta_real":           round(delta_real, 2) if delta_real is not None else None,
+            "flujos_individuales":  f.get("flujos_detalle") or [],
+            "cashflow_xirr":        cashflow_xirr,
+            "tea_mensual":          round(tea_mensual, 6) if tea_mensual is not None else None,
+            "tem_periodo":          round(tem_periodo, 6) if tem_periodo is not None else None,
+            "twr_base100_acum":     round(twr_acum, 4),
+            "n_posiciones":         c.get("n_posiciones", 0),
+        })
+        prev_val = cierre
+        prev_fecha = ultimo_dia
+
+    # Mes más reciente primero — coherente con valuacion_mensual.
+    rows.reverse()
+
+    resumen: dict[str, Any] = {
+        "primer_mes":   rows[-1]["mes"] if rows else None,
+        "ultimo_mes":   rows[0]["mes"]  if rows else None,
+        "n_meses":      len(rows),
+        "twr_final":    rows[0]["twr_base100_acum"] if rows else None,
+        "ganancia_pct": (
+            round(rows[0]["twr_base100_acum"] - 100, 2)
+            if rows and rows[0].get("twr_base100_acum") is not None
+            else None
+        ),
+    }
+
+    return {
+        "id_cuenta": id_cuenta,
+        "meses":     rows,
+        "n_meses":   len(rows),
+        "resumen":   resumen,
+    }
+
+
 @cached(ttl=60)
 def posiciones_actuales(
     id_cuenta: str, fecha: str | None = None,

@@ -29,6 +29,7 @@ from api.routers.manager import (
     roles,
     status,
     users,
+    valuaciones,
 )
 
 router = APIRouter(prefix="/api/manager", tags=["Manager"])
@@ -43,3 +44,4 @@ router.include_router(users.router)
 router.include_router(roles.router)
 router.include_router(aunesa.router)
 router.include_router(assets.router)
+router.include_router(valuaciones.router)

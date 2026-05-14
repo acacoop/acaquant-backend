@@ -37,12 +37,18 @@ from datetime import date
 from typing import Sequence
 
 DAYS_PER_YEAR = 365.0
-_MAX_ITER_NEWTON = 100
+_MAX_ITER_NEWTON = 200
 _TOL_NPV = 1e-7
 _TOL_RATE = 1e-9
-_MAX_ITER_BISECT = 200
+_MAX_ITER_BISECT = 1000
 _RATE_MIN = -0.9999
-_RATE_MAX = 10.0
+# Rango amplio para cuentas con alta rotación + inflación argentina:
+# TEA hasta 1.000.000% cubre casos donde la cuenta rota varias veces su
+# capital en un mes (típico en cuentas de tesorería corporativa).
+_RATE_MAX = 10_000.0
+# Damping de Newton-Raphson: limita el step por iteración para evitar
+# overshoots que mandan la rate a infinito y matan la convergencia.
+_NEWTON_MAX_STEP = 0.5
 
 
 def _npv(rate: float, flows: list[tuple[float, float]]) -> float:
@@ -115,8 +121,11 @@ def xirr(cashflows: Sequence[tuple[date, float]], guess: float = 0.10) -> float 
         ((d - t0).days / DAYS_PER_YEAR, a) for d, a in nonzero
     ]
 
-    # Newton-Raphson.
-    rate = guess
+    # Newton-Raphson con damping. El damping limita el step por iteración
+    # para evitar overshoots cuando NPV es muy empinado (típico con
+    # cashflows grandes mezclados). El clamp mantiene la rate dentro del
+    # rango razonable en vez de abortar.
+    rate = max(min(guess, _RATE_MAX), _RATE_MIN + 1e-6)
     for _ in range(_MAX_ITER_NEWTON):
         f = _npv(rate, flows)
         if abs(f) < _TOL_NPV:
@@ -124,10 +133,18 @@ def xirr(cashflows: Sequence[tuple[date, float]], guess: float = 0.10) -> float 
         df = _dnpv_drate(rate, flows)
         if df == 0:
             break
-        new_rate = rate - f / df
-        # Si Newton intenta saltar fuera del rango razonable, abortamos.
-        if new_rate <= _RATE_MIN or new_rate > _RATE_MAX:
-            break
+        step = -f / df
+        # Damping: no saltar más de _NEWTON_MAX_STEP por iter.
+        if step > _NEWTON_MAX_STEP:
+            step = _NEWTON_MAX_STEP
+        elif step < -_NEWTON_MAX_STEP:
+            step = -_NEWTON_MAX_STEP
+        new_rate = rate + step
+        # Clamp al rango razonable.
+        if new_rate <= _RATE_MIN:
+            new_rate = _RATE_MIN + 1e-6
+        elif new_rate > _RATE_MAX:
+            new_rate = _RATE_MAX
         if abs(new_rate - rate) < _TOL_RATE:
             return new_rate
         rate = new_rate

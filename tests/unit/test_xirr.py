@@ -128,3 +128,54 @@ def test_orden_de_input_no_importa():
     r1 = xirr(cf)
     r2 = xirr(list(reversed(cf)))
     assert r1 == pytest.approx(r2, abs=1e-9)
+
+
+# ─── Cuenta argentina con TEA muy alta (regression test) ──────────────
+#
+# Cuenta arranca el mes con $100, termina con $150. Sin flujos, eso es
+# (1.5)^12 - 1 ≈ 12676% TEA. Este caso ANTES no convergía porque el
+# rango original era TEA ≤ 1000%. Ahora con _RATE_MAX = 10000 y guess
+# decente debe converger sí o sí.
+
+def test_tea_extrema_un_mes():
+    cf = [
+        (date(2025, 1,  1), +100.0),    # V_inicio
+        (date(2025, 1, 31), -150.0),    # V_cierre +50% en 30 días
+    ]
+    guess = (150 / 100) ** (365 / 30) - 1   # ~126.7
+    r = xirr(cf, guess=guess)
+    assert r is not None
+    # TEA real ≈ 12676% — confirmamos que está en el ballpark
+    esperado = (150 / 100) ** (365 / 30) - 1
+    assert r == pytest.approx(esperado, rel=1e-3)
+
+
+def test_tea_extrema_con_flujos_netos_cero():
+    """Cuenta con flujos que se cancelan entre sí: misma TEA que el caso
+    sin flujos. Valida que XIRR maneja flujos grandes mid-month."""
+    cf = [
+        (date(2025, 1,  1), +100.0),     # V_inicio
+        (date(2025, 1, 10),  +50.0),     # depósito
+        (date(2025, 1, 20),  -50.0),     # extracción que cancela
+        (date(2025, 1, 31), -150.0),     # V_cierre
+    ]
+    guess = (150 / 100) ** (365 / 30) - 1
+    r = xirr(cf, guess=guess)
+    assert r is not None
+    # Con flujos netos cero la TEA debería ser similar al caso sin flujos.
+    assert 50 < r < 200    # ballpark amplio — basta con que converja
+
+
+def test_tea_negativa_extrema():
+    """Cuenta que pierde 70% en un mes: TEA muy negativa pero finita.
+    Antes el bisect cortaba en -99.99% lo cual igual cubre, pero
+    Newton con damping debería llegar antes."""
+    cf = [
+        (date(2025, 1,  1), +100.0),
+        (date(2025, 1, 31),  -30.0),    # perdió 70% en 30 días
+    ]
+    guess = (30 / 100) ** (365 / 30) - 1
+    r = xirr(cf, guess=guess)
+    assert r is not None
+    # TEA = (0.3)^(365/30) - 1 ≈ -0.99999998
+    assert -1.0 < r < -0.99

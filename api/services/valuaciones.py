@@ -507,6 +507,10 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
         # ── TEA del mes vía XIRR ──
         # Requiere prev_val (no es el primer mes), valores > 0 (cuenta con
         # capital), y fechas válidas. Si XIRR no converge → None.
+        # Guess inicial: la rate "sin flujos" = (V_cierre/V_inicio)^(365/días)-1.
+        # Cuentas argentinas con alta rotación tienen TEAs muy alejadas del
+        # default 10% → Newton-Raphson tarda en converger o no llega. Con un
+        # guess basado en los dos cierres arranca cerca de la solución real.
         tea_mensual: float | None = None
         if (
             prev_val is not None and prev_val > 0
@@ -516,6 +520,11 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
             try:
                 d_inicio = _date.fromisoformat(prev_fecha)
                 d_cierre = _date.fromisoformat(ultimo_dia)
+                dias_per = max((d_cierre - d_inicio).days, 1)
+                guess = (cierre / prev_val) ** (365.0 / dias_per) - 1
+                # Clamp a un rango razonable por si V_cierre/V_inicio es
+                # absurdo en algún caso edge (división por casi-cero, etc.).
+                guess = max(min(guess, 50.0), -0.99)
                 cashflows: list[tuple[_date, float]] = [(d_inicio, +prev_val)]
                 for fecha_iso, imp_ars in (f.get("items") or []):
                     try:
@@ -523,7 +532,7 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
                     except (ValueError, TypeError):
                         continue
                 cashflows.append((d_cierre, -cierre))
-                tea_mensual = _xirr(cashflows)
+                tea_mensual = _xirr(cashflows, guess=guess)
             except ValueError:
                 tea_mensual = None
 
@@ -711,6 +720,11 @@ def valuacion_mensual_debug(id_cuenta: str) -> dict[str, Any]:
                 d_inicio = _date.fromisoformat(prev_fecha)
                 d_cierre = _date.fromisoformat(ultimo_dia)
                 dias_periodo = (d_cierre - d_inicio).days
+                # Guess inicial: rate "sin flujos" → cuenta de alta
+                # rotación arranca cerca del óptimo y Newton converge.
+                dias_per = max(dias_periodo, 1)
+                guess = (cierre / prev_val) ** (365.0 / dias_per) - 1
+                guess = max(min(guess, 50.0), -0.99)
                 cashflows: list[tuple[_date, float]] = [(d_inicio, +prev_val)]
                 cashflow_xirr.append({
                     "fecha": prev_fecha, "monto": round(prev_val, 2),
@@ -730,7 +744,7 @@ def valuacion_mensual_debug(id_cuenta: str) -> dict[str, Any]:
                     "fecha": ultimo_dia, "monto": round(-cierre, 2),
                     "tipo": "valor_cierre",
                 })
-                tea_mensual = _xirr(cashflows)
+                tea_mensual = _xirr(cashflows, guess=guess)
             except ValueError:
                 tea_mensual = None
 

@@ -85,9 +85,20 @@
 # CER de liquidación ya es conocido.
 0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bcra --today >> /root/TradingAV/logs/bcra.log 2>&1
 
-# ─── AuM snapshot al cierre (23:00 UTC = 20:00 ART, L-V)
-# Chainea sync a PortfolioAPI.AumAPI + TitulosAPI.ValuacionesAPI (residual cambia con fecha) +
-# TitulosAPI.AssetsAPI (refleja CARTERA/EMISOR editados en Valuaciones.Assets durante el día).
+# ─── AuM snapshot — corre 2 veces L-V para evitar desfasaje vs el cron
+# de flujos (negocio_movimientos cada hora 15-22 UTC). Sin esta corrida
+# intra-day, la vista Mensual mostraba Δ valor con error (cierre stale
+# vs flujo fresh).
+#
+#   17:00 UTC = 14:00 ART → snapshot mediodía rueda.
+#   23:00 UTC = 20:00 ART → snapshot post-cierre BYMA.
+#
+# El cron es idempotente: por cuenta hace delete_many({fecha_snapshot:
+# hoy}) antes del bulk_write, así re-correr no deja fantasmas.
+#
+# Chainea sync a PortfolioAPI.AumAPI + TitulosAPI.ValuacionesAPI +
+# TitulosAPI.AssetsAPI (refleja CARTERA/EMISOR editados en Valuaciones.Assets).
+0 17 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets >> /root/TradingAV/logs/sync_api.log 2>&1
 0 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets >> /root/TradingAV/logs/sync_api.log 2>&1
 
 # ─── Rollup diario de opciones (20:15 UTC = 17:15 ART, L-V)

@@ -320,7 +320,21 @@ def run():
             futures_map[f] = cuenta_id
 
         for f in as_completed(futures_map):
+            cuenta_id = futures_map[f]
             registros = f.result()
+
+            # Idempotencia cuando el cron corre N veces por día (intra-day):
+            # antes de reinsertar las posiciones de esta cuenta, borrar los
+            # docs viejos de la cuenta para HOY. Sin esto, posiciones que
+            # se cerraron entre dos corridas del cron quedan como
+            # fantasmas (la upsert key (id_cuenta, unidad, fecha_snapshot)
+            # no detecta filas "que ya no vienen").
+            # Gap de <1s entre delete y bulk_write — aceptable.
+            col.delete_many({
+                "id_cuenta":      cuenta_id,
+                "fecha_snapshot": fecha_snapshot,
+            })
+
             if not registros:
                 continue
 

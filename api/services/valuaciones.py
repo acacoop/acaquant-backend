@@ -460,8 +460,17 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     # delta_real  = delta_bruto - flujo_neto   (performance real de inversiones,
     #                                            aislando depósitos y extracciones
     #                                            ya convertidos a ARS)
+    #
+    # Adicionales para el chart de rendimiento (TWR base 100):
+    #   r_mes        = delta_real / (cierre_anterior + flujo_neto)
+    #                   start-of-period flow approx — capital "invertido" durante el mes
+    #   tea_mensual  = (1 + r_mes)^12 - 1
+    #   twr_base100  = 100 × Π(1 + r_t) — serie cumulada que arranca en 100 el primer
+    #                  mes con datos. Aísla performance pura, no cambia con flujos.
     rows: list[dict[str, Any]] = []
     prev_val: float | None = None
+    twr_acum: float = 100.0
+    twr_iniciado = False
     for c in cierres:
         mes = c["_id"]
         f = flujos_by_mes.get(mes, {})
@@ -476,6 +485,36 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
         delta_real = (
             (delta_bruto - flujo_neto) if delta_bruto is not None else None
         )
+
+        # ── TWR + TEA del mes ──
+        # r_mes solo se puede calcular si tenemos prev_val (no es el primer
+        # mes), delta_real no es None, y el denominador (capital invertido)
+        # es positivo. Si r ≤ -1 (capital perdido completo) consideramos
+        # degenerado y no compounding.
+        r_mes: float | None = None
+        if (
+            delta_real is not None
+            and prev_val is not None
+            and (prev_val + flujo_neto) > 0
+        ):
+            denom = prev_val + flujo_neto
+            r_candidate = delta_real / denom
+            if r_candidate > -1:
+                r_mes = r_candidate
+
+        tea_mensual: float | None = (
+            (1 + r_mes) ** 12 - 1 if r_mes is not None else None
+        )
+
+        # Anchor del TWR en el primer mes con datos = 100. Después
+        # compone con (1 + r_t). Si un mes es degenerado (r_mes None),
+        # twr_acum mantiene su último valor (no rompe la serie visual).
+        if not twr_iniciado:
+            twr_acum = 100.0
+            twr_iniciado = True
+        elif r_mes is not None:
+            twr_acum = twr_acum * (1 + r_mes)
+
         rows.append({
             "mes":              mes,
             "ultimo_dia":       c.get("ultimo_dia"),
@@ -485,6 +524,8 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
             "flujo_neto":       round(flujo_neto, 2),
             "delta_bruto":      round(delta_bruto, 2) if delta_bruto is not None else None,
             "delta_real":       round(delta_real, 2) if delta_real is not None else None,
+            "tea_mensual":      round(tea_mensual, 6) if tea_mensual is not None else None,
+            "twr_base100":      round(twr_acum, 4),
             "n_posiciones":     c.get("n_posiciones", 0),
         })
         prev_val = cierre

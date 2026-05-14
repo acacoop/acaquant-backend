@@ -914,6 +914,14 @@ def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
         except Exception:
             continue
         for row in r.get("rows", []):
+            # TOTALES muestra posiciones abiertas — qty_aum != 0. Los
+            # rows con qty_aum=0 son posiciones cerradas intraday (todo
+            # vendido hoy). Su realizado del día ya está en el agregado
+            # `pnl_realizado_dia` del totales por cuenta, así que filtrar
+            # aquí NO sesga ningún número agregado, solo limpia el row
+            # listing. (En PNL TÍTULOS por cuenta sola sí se preservan.)
+            if float(row.get("qty_aum") or 0) == 0:
+                continue
             # Enriquecer con info de cuenta para mostrar/filtrar en la UI.
             r2 = dict(row)
             r2["cuenta"]    = cta_label

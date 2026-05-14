@@ -20,6 +20,7 @@ Dos enfoques convivientes:
 from __future__ import annotations
 
 import logging
+from datetime import date as _date
 from typing import Any
 
 from api.cache import cached
@@ -29,6 +30,7 @@ from api.db import (
     get_db_trading,
     get_db_valuaciones,
 )
+from quant.xirr import xirr as _xirr
 
 logger = logging.getLogger("api.valuaciones")
 
@@ -433,7 +435,9 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     ))
     # Cache MEP por fecha — evita re-queries dentro del mismo mes.
     mep_cache: dict[str, float | None] = {}
-    flujos_by_mes: dict[str, dict[str, float]] = {}
+    # Cada mes guarda agregados (depositos/extracciones) + `items` = lista
+    # de (fecha_iso, importe_ars_signado) que XIRR consume directo.
+    flujos_by_mes: dict[str, dict[str, Any]] = {}
     for m in movimientos_raw:
         fecha = m.get("fecha")
         if not fecha or not isinstance(fecha, str):
@@ -448,7 +452,14 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
         mep = mep_cache.get(fecha)
         imp_ars = _pesificar(imp_orig, moneda, mep)
         mes = fecha[:7]
-        bucket = flujos_by_mes.setdefault(mes, {"depositos": 0.0, "extracciones": 0.0})
+        bucket = flujos_by_mes.setdefault(
+            mes, {"depositos": 0.0, "extracciones": 0.0, "items": []}
+        )
+        # Importes con signo cliente correcto (+ depósito, - extracción)
+        # ya vienen de aunesa_negocio.py. Ignoramos importes nulos para no
+        # ensuciar XIRR con flujos = 0 (no aportan info y multiplican iter).
+        if imp_ars != 0:
+            bucket["items"].append((fecha, imp_ars))
         cat = m.get("categoria")
         if cat in _FLUJO_EXTERNO_DEPOSITO:
             bucket["depositos"] += imp_ars
@@ -461,14 +472,20 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     #                                            aislando depósitos y extracciones
     #                                            ya convertidos a ARS)
     #
-    # Adicionales para el chart de rendimiento (TWR base 100):
-    #   r_mes        = delta_real / (cierre_anterior + flujo_neto)
-    #                   start-of-period flow approx — capital "invertido" durante el mes
-    #   tea_mensual  = (1 + r_mes)^12 - 1
-    #   twr_base100  = 100 × Π(1 + r_t) — serie cumulada que arranca en 100 el primer
-    #                  mes con datos. Aísla performance pura, no cambia con flujos.
+    # TEA del mes vía XIRR (TIR.NO.PER de Excel):
+    #   Cashflow del mes M:
+    #     (ultimo_dia_mes_M-1, +V_cierre_M-1)       valor inicio (positivo)
+    #     (fecha_flujo_1,       ±importe_1)         flujos con signo cliente
+    #     ...
+    #     (ultimo_dia_mes_M,   -V_cierre_M)         valor cierre (negativo)
+    #   tea_mensual = xirr(cashflow)               anualizada según convención TIR.NO.PER
+    #
+    # Base 100:
+    #   TEM = (1 + tea_mensual)^(días_mes / 365) − 1   des-anualizada al período
+    #   twr_base100 = 100 × Π(1 + TEM_t)                cumulada multiplicativa
     rows: list[dict[str, Any]] = []
     prev_val: float | None = None
+    prev_fecha: str | None = None
     twr_acum: float = 100.0
     twr_iniciado = False
     for c in cierres:
@@ -481,33 +498,48 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
         if extracciones > 0:
             flujo_neto = depositos - extracciones
         cierre = float(c.get("valuacion_cierre") or 0)
+        ultimo_dia = c.get("ultimo_dia")
         delta_bruto = (cierre - prev_val) if prev_val is not None else None
         delta_real = (
             (delta_bruto - flujo_neto) if delta_bruto is not None else None
         )
 
-        # ── TWR + TEA del mes ──
-        # r_mes solo se puede calcular si tenemos prev_val (no es el primer
-        # mes), delta_real no es None, y el denominador (capital invertido)
-        # es positivo. Si r ≤ -1 (capital perdido completo) consideramos
-        # degenerado y no compounding.
-        r_mes: float | None = None
+        # ── TEA del mes vía XIRR ──
+        # Requiere prev_val (no es el primer mes), valores > 0 (cuenta con
+        # capital), y fechas válidas. Si XIRR no converge → None.
+        tea_mensual: float | None = None
         if (
-            delta_real is not None
-            and prev_val is not None
-            and (prev_val + flujo_neto) > 0
+            prev_val is not None and prev_val > 0
+            and cierre > 0
+            and prev_fecha and ultimo_dia
         ):
-            denom = prev_val + flujo_neto
-            r_candidate = delta_real / denom
-            if r_candidate > -1:
-                r_mes = r_candidate
+            try:
+                d_inicio = _date.fromisoformat(prev_fecha)
+                d_cierre = _date.fromisoformat(ultimo_dia)
+                cashflows: list[tuple[_date, float]] = [(d_inicio, +prev_val)]
+                for fecha_iso, imp_ars in (f.get("items") or []):
+                    try:
+                        cashflows.append((_date.fromisoformat(fecha_iso), float(imp_ars)))
+                    except (ValueError, TypeError):
+                        continue
+                cashflows.append((d_cierre, -cierre))
+                tea_mensual = _xirr(cashflows)
+            except ValueError:
+                tea_mensual = None
 
-        tea_mensual: float | None = (
-            (1 + r_mes) ** 12 - 1 if r_mes is not None else None
-        )
+        # r_mes = TEM des-anualizada al período exacto entre los dos cierres.
+        r_mes: float | None = None
+        if tea_mensual is not None and prev_fecha and ultimo_dia:
+            try:
+                dias_periodo = (_date.fromisoformat(ultimo_dia)
+                                - _date.fromisoformat(prev_fecha)).days
+                if dias_periodo > 0:
+                    r_mes = (1 + tea_mensual) ** (dias_periodo / 365) - 1
+            except ValueError:
+                pass
 
         # Anchor del TWR en el primer mes con datos = 100. Después
-        # compone con (1 + r_t). Si un mes es degenerado (r_mes None),
+        # compone con (1 + TEM_t). Si un mes no converge (r_mes None),
         # twr_acum mantiene su último valor (no rompe la serie visual).
         if not twr_iniciado:
             twr_acum = 100.0
@@ -529,6 +561,7 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
             "n_posiciones":     c.get("n_posiciones", 0),
         })
         prev_val = cierre
+        prev_fecha = ultimo_dia
 
     # Devolvemos en orden descendente (mes más reciente primero — para UI).
     rows.reverse()

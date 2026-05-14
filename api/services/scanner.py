@@ -156,6 +156,16 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
             d["fecha"] = fecha.replace(tzinfo=None)
         docs_by_underlying.setdefault(d["ticker"], []).append(d)
 
+    # Live USD por underlying (Trading.AdrSnapshot, populado por
+    # jobs/adr_live.py cada 15 min en hs US). Si no hay snapshot todavía
+    # (motor recién empezando) → fallback al cierre EOD.
+    live_by_underlying: dict[str, dict] = {}
+    for d in db["AdrSnapshot"].find(
+        {"ticker": {"$in": underlyings}},
+        projection={"_id": 0, "ticker": 1, "c": 1, "pc": 1, "updated_at": 1},
+    ):
+        live_by_underlying[d["ticker"]] = d
+
     # Anchors temporales — naive UTC para matchear la TS.
     hoy = datetime.now(timezone.utc).replace(tzinfo=None)
     anchor_7d  = hoy - timedelta(days=7)
@@ -165,7 +175,10 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for ticker_corto, underlying in corto_to_underlying.items():
         docs = docs_by_underlying.get(underlying, [])
-        if not docs:
+        live = live_by_underlying.get(underlying)
+
+        # Si no hay ni serie histórica ni live → todo None.
+        if not docs and not live:
             out[ticker_corto] = {
                 "adr_last":         None,
                 "adr_fecha":        None,
@@ -176,16 +189,37 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
             }
             continue
 
-        docs.sort(key=lambda x: x["fecha"])
-        last_doc   = docs[-1]
-        last_close = last_doc.get("close")
-        last_fecha = last_doc.get("fecha")
+        # Precio "actual": preferimos live de Finnhub si está; sino el
+        # último close EOD.
+        last_close: float | None = None
+        last_fecha: datetime | None = None
+        if live and live.get("c"):
+            last_close = float(live["c"])
+            last_fecha = live.get("updated_at")
+        elif docs:
+            docs.sort(key=lambda x: x["fecha"])
+            last_doc = docs[-1]
+            last_close = last_doc.get("close")
+            last_fecha = last_doc.get("fecha")
+        else:
+            docs.sort(key=lambda x: x["fecha"])  # noqa: protect for next blocks
 
+        # 1D: si tenemos live, usamos su `pc` (previous close de Finnhub
+        # — el cierre EOD más reciente). Sino, comparamos último vs
+        # penúltimo doc EOD.
         vs_1d = None
-        if len(docs) >= 2:
-            prev_close = docs[-2].get("close")
-            if last_close and prev_close:
+        if live and last_close and live.get("pc"):
+            prev_close = float(live["pc"])
+            if prev_close > 0:
                 vs_1d = ((last_close / prev_close) - 1) * 100
+        elif len(docs) >= 2 and last_close:
+            prev_close = docs[-2].get("close")
+            if prev_close:
+                vs_1d = ((last_close / prev_close) - 1) * 100
+
+        # Anchor returns 7D/MTD/YTD: numerador = last_close (live o EOD),
+        # denominador = doc EOD más reciente con fecha ≤ anchor.
+        docs.sort(key=lambda x: x["fecha"])  # idempotente
 
         def _ret_vs(anchor_ts: datetime, _docs=docs, _last_close=last_close) -> float | None:
             if _last_close is None:

@@ -1,33 +1,33 @@
-"""backfill_precios_acciones.py — baja 365 ruedas daily de cada activo
-de Trading.Cedears y las guarda en Trading.PreciosAcciones (time series).
+"""backfill_precios_acciones.py — historia daily de cada activo de
+Trading.Cedears en Trading.PreciosAcciones (time series).
 
 IMPORTANTE: guarda el precio del **UNDERLYING US** (NVDA, AMD, AAPL, etc.)
-en USD, NO del CEDEAR BYMA en ARS. El CEDEAR local sigue en
-Trading.CedearsSnapshot (escrito por motor_cedears). Esta colección es la
-serie histórica del activo "real" para cálculos quant.
+en USD, NO del CEDEAR BYMA en ARS. El CEDEAR local vive en
+Trading.CedearsSnapshot (motor_cedears). Esta colección es la serie
+histórica del activo "real" para cálculos quant (pivots, etc.).
 
-Fuente: core/yahoo.stock_candle (yfinance bajo el capó). Resolution "D"
-(diaria), rango = hoy − 365d → hoy.
+Fuente: core/yahoo.stock_candle (yfinance bajo el capó). Resolution "D".
 
-Idempotencia: para cada (ticker, fecha) NO upsertea (time series Mongo
-no permite update sobre timeField). En su lugar:
-  - Si --reset: borra todos los docs del ticker primero y reinserta.
-  - Si NO --reset: chequea si ya existe doc para ese ticker en cualquier
-    fecha; si sí, skip (asume backfill ya corrió). Para refrescar usar
-    --reset.
+Modo por default = FILL: baja `[--desde, hoy]` e inserta SOLO las fechas
+que faltan. NO borra nada — es idempotente, se puede correr las veces que
+haga falta. Sirve para rellenar huecos viejos (ej. la historia previa a
+mayo 2025, que el backfill original de "365 días" nunca trajo).
+
+Con --reset borra todos los docs del ticker y reinserta el rango entero.
 
 Uso:
-    python -m scripts.backfill_precios_acciones --dry-run    # solo lista
-    python -m scripts.backfill_precios_acciones              # backfill 365d
-    python -m scripts.backfill_precios_acciones --reset      # borra y rehace
-    python -m scripts.backfill_precios_acciones --ticker NVDA  # uno solo
+    python -m scripts.backfill_precios_acciones --dry-run
+    python -m scripts.backfill_precios_acciones                    # fill desde 2024-01-01
+    python -m scripts.backfill_precios_acciones --desde 2025-01-01  # fill desde fecha
+    python -m scripts.backfill_precios_acciones --reset            # borra y rehace
+    python -m scripts.backfill_precios_acciones --ticker NVDA      # uno solo
 """
 from __future__ import annotations
 
 import argparse
 import logging
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from core.mongo import get_mongo_client
 from core.yahoo import YahooError, stock_candle
@@ -35,15 +35,15 @@ from core.yahoo import YahooError, stock_candle
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+_DESDE_DEFAULT = "2024-01-01"
+
 
 def _tickers_activos(filter_ticker: str | None = None) -> list[str]:
-    """Devuelve los UNDERLYINGS (símbolo US para yfinance) de los CEDEARs
-    activos. Para la mayoría coincide con ticker_corto, pero algunos
-    Argentinos tienen CEDEAR con sufijo distinto (ej. YPFD CEDEAR → YPF
-    ADR US). Se almacena en PreciosAcciones por underlying.
+    """UNDERLYINGS (símbolo US para yfinance) de los CEDEARs activos.
 
-    Si --ticker matchea contra ticker_corto O underlying, devuelve ese
-    underlying.
+    Para la mayoría coincide con ticker_corto; algunos argentinos tienen
+    CEDEAR con sufijo distinto (YPFD CEDEAR → YPF ADR US). Se almacena en
+    PreciosAcciones por underlying.
     """
     db = get_mongo_client()["Trading"]
     q: dict = {"activo": True}
@@ -56,100 +56,120 @@ def _tickers_activos(filter_ticker: str | None = None) -> list[str]:
     return sorted(underlyings)
 
 
-def backfill_ticker(col, ticker: str, dias: int = 365) -> tuple[int, str | None]:
-    """Returns (n_docs_insertados, error_msg)."""
-    end_dt = datetime.now(UTC)
-    start_dt = end_dt - timedelta(days=dias)
-
+def _bajar_velas(ticker: str, start_dt: datetime, end_dt: datetime) -> tuple[list[dict], str | None]:
+    """Baja velas daily de Yahoo en el rango. Returns (docs, error_msg)."""
     try:
         res = stock_candle(ticker, "D", int(start_dt.timestamp()), int(end_dt.timestamp()))
     except YahooError as e:
-        return 0, f"yahoo: {e}"
-
+        return [], f"yahoo: {e}"
     if res.get("s") != "ok":
-        return 0, f"status={res.get('s')}"
+        return [], f"status={res.get('s')}"
 
-    times = res.get("t") or []
-    opens = res.get("o") or []
-    highs = res.get("h") or []
-    lows  = res.get("l") or []
+    times  = res.get("t") or []
+    opens  = res.get("o") or []
+    highs  = res.get("h") or []
+    lows   = res.get("l") or []
     closes = res.get("c") or []
-    vols  = res.get("v") or []
+    vols   = res.get("v") or []
 
-    n = len(times)
-    if n == 0:
-        return 0, "sin velas"
-
-    docs = []
-    for i in range(n):
+    docs: list[dict] = []
+    for i in range(len(times)):
         # Yahoo manda fechas en epoch a las 00:00 del día → preservamos.
-        fecha = datetime.fromtimestamp(times[i], tz=UTC)
         docs.append({
-            "fecha":  fecha,
+            "fecha":  datetime.fromtimestamp(times[i], tz=UTC),
             "ticker": ticker,
-            "open":   opens[i] if i < len(opens) else None,
-            "high":   highs[i] if i < len(highs) else None,
-            "low":    lows[i]  if i < len(lows)  else None,
+            "open":   opens[i]  if i < len(opens)  else None,
+            "high":   highs[i]  if i < len(highs)  else None,
+            "low":    lows[i]   if i < len(lows)   else None,
             "close":  closes[i] if i < len(closes) else None,
-            "volume": vols[i] if i < len(vols) else None,
+            "volume": vols[i]   if i < len(vols)   else None,
         })
-
-    col.insert_many(docs, ordered=False)
-    return len(docs), None
+    return docs, None
 
 
-def run(reset: bool = False, dry_run: bool = False, filter_ticker: str | None = None) -> None:
+def procesar_ticker(
+    col, ticker: str, start_dt: datetime, end_dt: datetime, reset: bool,
+) -> tuple[int, int, str | None]:
+    """Returns (n_insertados, n_ya_estaban, error_msg)."""
+    docs, err = _bajar_velas(ticker, start_dt, end_dt)
+    if err:
+        return 0, 0, err
+    if not docs:
+        return 0, 0, "sin velas"
+
+    if reset:
+        col.delete_many({"ticker": ticker})
+        col.insert_many(docs, ordered=False)
+        return len(docs), 0, None
+
+    # FILL — inserta solo las fechas que no están. Time series Mongo no
+    # soporta upsert por (ticker, fecha), así que chequeamos con find_one
+    # (deja que Mongo resuelva la igualdad de datetime — evita el lío de
+    # naive vs aware al comparar sets en memoria).
+    nuevos: list[dict] = []
+    existentes = 0
+    for d in docs:
+        ya = col.find_one({"ticker": ticker, "fecha": d["fecha"]}, {"_id": 1}) is not None
+        if ya:
+            existentes += 1
+        else:
+            nuevos.append(d)
+    if nuevos:
+        col.insert_many(nuevos, ordered=False)
+    return len(nuevos), existentes, None
+
+
+def run(
+    desde: str = _DESDE_DEFAULT,
+    reset: bool = False,
+    dry_run: bool = False,
+    filter_ticker: str | None = None,
+) -> None:
     tickers = _tickers_activos(filter_ticker)
+    start_dt = datetime.fromisoformat(desde).replace(tzinfo=UTC)
+    end_dt = datetime.now(UTC)
+
     print("=" * 80)
     print(f"BACKFILL Trading.PreciosAcciones — {len(tickers)} tickers")
-    print(f"Modo: {'DRY-RUN' if dry_run else ('RESET' if reset else 'INSERT IF EMPTY')}")
+    print(f"Rango: {start_dt.date()} → {end_dt.date()}")
+    print(f"Modo: {'DRY-RUN' if dry_run else ('RESET (borra y rehace)' if reset else 'FILL (inserta faltantes)')}")
     print("=" * 80)
 
     if dry_run:
         for t in tickers:
-            print(f"  [DRY] backfill {t} (365 días)")
+            print(f"  [DRY] {t}")
         return
 
-    client = get_mongo_client()
-    db = client["Trading"]
+    db = get_mongo_client()["Trading"]
     if "PreciosAcciones" not in db.list_collection_names():
         print("  ✗ Trading.PreciosAcciones no existe. Correr scripts/setup_precios_acciones.py")
         return
     col = db["PreciosAcciones"]
 
-    total_inserted = 0
+    total_ins = 0
+    total_exist = 0
     errors = 0
     for ticker in tickers:
-        # Chequear si ya hay data para este ticker.
-        # NOTA: time series no soporta count_documents con $exists eficiente,
-        # pero find_one con limit=1 sí.
-        ya_existe = col.find_one({"ticker": ticker}, {"_id": 1}) is not None
-
-        if ya_existe and not reset:
-            print(f"  · {ticker:6s} ya tiene data — skip (usar --reset para rehacer)")
-            continue
-
-        if ya_existe and reset:
-            res = col.delete_many({"ticker": ticker})
-            print(f"  ↻ {ticker:6s} reset: borrados {res.deleted_count} docs")
-
-        n, err = backfill_ticker(col, ticker, dias=365)
+        ins, exist, err = procesar_ticker(col, ticker, start_dt, end_dt, reset)
         if err:
             print(f"  ✗ {ticker:6s} FAIL: {err}")
             errors += 1
         else:
-            print(f"  ✓ {ticker:6s} {n} velas insertadas")
-            total_inserted += n
+            print(f"  ✓ {ticker:6s} +{ins} nuevos, {exist} ya estaban")
+            total_ins += ins
+            total_exist += exist
         # Anti rate-limit yfinance (Yahoo throttle ~2000 req/h por IP).
         time.sleep(0.3)
 
-    print(f"\nResumen: {total_inserted:,} docs insertados · {errors} con error")
+    print(f"\nResumen: {total_ins:,} insertados · {total_exist:,} ya estaban · {errors} con error")
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--desde", default=_DESDE_DEFAULT,
+                    help=f"YYYY-MM-DD inicio del backfill (default {_DESDE_DEFAULT})")
     ap.add_argument("--reset", action="store_true", help="Borra y rehace cada ticker")
+    ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--ticker", help="Backfill solo un ticker (debug)")
     args = ap.parse_args()
-    run(reset=args.reset, dry_run=args.dry_run, filter_ticker=args.ticker)
+    run(desde=args.desde, reset=args.reset, dry_run=args.dry_run, filter_ticker=args.ticker)

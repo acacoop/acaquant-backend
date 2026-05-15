@@ -107,9 +107,20 @@ def main():
     print("✅ Auth OK\n", flush=True)
 
     # Lista de cuentas a procesar.
-    if args.solo_aum:
+    if args.cuenta:
+        # IDs explícitos — no hace falta pedir el listado de Aunesa
+        # (listadoCuentas a veces devuelve 400; con --cuenta lo esquivamos).
+        ids = [c.strip() for c in args.cuenta.split(",") if c.strip()]
+        if args.solo_aum:
+            en_aum = {
+                str(x)
+                for x in get_mongo_client()["Valuaciones"]["AuM"].distinct("id_cuenta")
+            }
+            ids = [i for i in ids if i in en_aum]
+        cuentas = pd.DataFrame({"id": ids, "denominacion": [""] * len(ids)})
+        print(f"📋 {len(cuentas)} cuentas (--cuenta {args.cuenta})\n", flush=True)
+    elif args.solo_aum:
         # Directo de Valuaciones.AuM — NO se pide el listado de Aunesa.
-        # Solo backfilea las cuentas que ya tenés con snapshots.
         ids_aum = sorted(
             str(x)
             for x in get_mongo_client()["Valuaciones"]["AuM"].distinct("id_cuenta")
@@ -119,16 +130,8 @@ def main():
         print(f"📋 --solo-aum: {len(cuentas)} cuentas (id_cuenta únicos de Valuaciones.AuM)\n",
               flush=True)
     else:
-        # Pasamos los mismos timeout/retries — si Aunesa está lenta, no
-        # abortar antes de empezar el loop principal.
+        # Listado completo de Aunesa — solo cuando no se especificó nada.
         cuentas = obtener_cuentas(headers_ref, timeout=args.timeout, retries=args.retries)
-
-    # Filtro --cuenta: backfilear solo las que pediste.
-    if args.cuenta:
-        wanted = {c.strip() for c in args.cuenta.split(",") if c.strip()}
-        cuentas = cuentas[cuentas["id"].astype(str).isin(wanted)].reset_index(drop=True)
-        print(f"📋 {len(cuentas)} cuentas filtradas (--cuenta {args.cuenta})\n", flush=True)
-    elif not args.solo_aum:
         print(f"📋 {len(cuentas)} cuentas activas\n", flush=True)
 
     total = len(cuentas)

@@ -31,6 +31,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 import holidays
+import pandas as pd
 from pymongo import UpdateOne
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -105,21 +106,22 @@ def main():
     headers_lock = threading.Lock()
     print("✅ Auth OK\n", flush=True)
 
-    # Pasamos los mismos timeout/retries del backfill al listado inicial —
-    # si Aunesa está lenta, no abortar antes de empezar el loop principal.
-    cuentas = obtener_cuentas(headers_ref, timeout=args.timeout, retries=args.retries)
-
-    # Filtro --solo-aum: solo las cuentas que ya tienen snapshots en
-    # Valuaciones.AuM — evita pegarle a las ~1800 cuentas de Aunesa cuando
-    # solo interesan las que ya están en uso.
+    # Lista de cuentas a procesar.
     if args.solo_aum:
-        ids_aum = {
+        # Directo de Valuaciones.AuM — NO se pide el listado de Aunesa.
+        # Solo backfilea las cuentas que ya tenés con snapshots.
+        ids_aum = sorted(
             str(x)
             for x in get_mongo_client()["Valuaciones"]["AuM"].distinct("id_cuenta")
-        }
-        antes = len(cuentas)
-        cuentas = cuentas[cuentas["id"].astype(str).isin(ids_aum)].reset_index(drop=True)
-        print(f"📋 --solo-aum: {len(cuentas)}/{antes} cuentas (ya en Valuaciones.AuM)\n", flush=True)
+            if x
+        )
+        cuentas = pd.DataFrame({"id": ids_aum, "denominacion": [""] * len(ids_aum)})
+        print(f"📋 --solo-aum: {len(cuentas)} cuentas (id_cuenta únicos de Valuaciones.AuM)\n",
+              flush=True)
+    else:
+        # Pasamos los mismos timeout/retries — si Aunesa está lenta, no
+        # abortar antes de empezar el loop principal.
+        cuentas = obtener_cuentas(headers_ref, timeout=args.timeout, retries=args.retries)
 
     # Filtro --cuenta: backfilear solo las que pediste.
     if args.cuenta:

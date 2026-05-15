@@ -29,22 +29,25 @@ from core.mongo import get_mongo_client
 from jobs.aum import _calcular_valuacion
 
 _SNAPSHOT_DEFAULT = "2025-08-31"
-_PRECIOS_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "docs", "precios_3108.json",
-)
+_PRECIOS_DEFAULT = "docs/precios_3108.json"
+_REPO_ROOT = os.path.join(os.path.dirname(__file__), "..")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--snapshot", default=_SNAPSHOT_DEFAULT,
                     help=f"fecha_snapshot a corregir (default {_SNAPSHOT_DEFAULT})")
+    ap.add_argument("--precios", default=_PRECIOS_DEFAULT,
+                    help=f"JSON de precios {{unidad: precio}}, ruta desde la "
+                         f"raíz del repo (default {_PRECIOS_DEFAULT})")
     ap.add_argument("--apply", action="store_true", help="escribe los cambios")
     args = ap.parse_args()
 
-    with open(_PRECIOS_PATH, encoding="utf-8") as f:
+    precios_path = os.path.join(_REPO_ROOT, args.precios)
+    with open(precios_path, encoding="utf-8") as f:
         precios: dict[str, float] = json.load(f)
 
-    print(f"Precios cargados: {len(precios)} unidades (docs/precios_3108.json)")
+    print(f"Precios cargados: {len(precios)} unidades ({args.precios})")
     print(f"Snapshot:         {args.snapshot}")
     print(f"Modo:             {'APPLY (escribe)' if args.apply else 'DRY-RUN'}")
     print("=" * 88)
@@ -102,6 +105,26 @@ def main() -> None:
             print(f"  - {u}")
         if len(sin_precio) > 30:
             print(f"  ... y {len(sin_precio) - 30} mas")
+
+    # Acumular las unidades faltantes en docs/precios_faltantes.json — para
+    # ir juntando, mes a mes, qué precios falta conseguir. La key es el
+    # snapshot; cada corrida pisa la entrada de SU snapshot (refleja el
+    # estado actual de ese mes). Se escribe en dry-run y en apply.
+    faltantes_path = os.path.join(_REPO_ROOT, "docs", "precios_faltantes.json")
+    faltantes_data: dict = {}
+    if os.path.exists(faltantes_path):
+        try:
+            with open(faltantes_path, encoding="utf-8") as f:
+                faltantes_data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            faltantes_data = {}
+    faltantes_data[args.snapshot] = sorted(
+        u for u in sin_precio if u and u != "None"
+    )
+    with open(faltantes_path, "w", encoding="utf-8") as f:
+        json.dump(faltantes_data, f, ensure_ascii=False, indent=1, sort_keys=True)
+    print(f"Faltantes guardadas en docs/precios_faltantes.json "
+          f"(snapshot {args.snapshot}: {len(faltantes_data[args.snapshot])} unidades).")
 
     if not args.apply:
         print("=" * 88)

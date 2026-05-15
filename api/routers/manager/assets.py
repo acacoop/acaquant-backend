@@ -31,6 +31,7 @@ router = APIRouter()
 _EMPTY_VALUES: list[str | None] = ["", "NO APLICA", None]
 
 # Campos UPPERCASE editables. Espejan el shape del doc en Valuaciones.Assets.
+# También son los campos válidos para el filtro `campo_vacio`.
 _EDITABLE_FIELDS: tuple[str, ...] = (
     "CARTERA", "EMISOR", "INSTRUMENTO",
     "CLASE_ACTIVO", "CALIFICACION", "TICKER", "VENCIMIENTO",
@@ -60,9 +61,13 @@ def _normalize_assets(assets: list[dict]) -> list[dict]:
 def _list_assets(
     cartera: str | None = None,
     emisor: str | None = None,
-    solo_gaps: bool = True,
+    campo_vacio: str | None = None,
 ) -> list[dict]:
-    """Query base reutilizada por GET /assets y GET /assets/gaps."""
+    """Query base. Sin filtros devuelve TODO Valuaciones.Assets.
+
+    `campo_vacio`: si es uno de los campos UPPERCASE editables, filtra
+    solo los assets donde ese campo está vacío / "NO APLICA" / null.
+    """
     col = get_mongo_client_read()["Valuaciones"]["Assets"]
     filtros: list[dict] = []
 
@@ -70,37 +75,41 @@ def _list_assets(
         filtros.append({"CARTERA": cartera})
     if emisor:
         filtros.append({"EMISOR": emisor})
-    if solo_gaps:
-        # Mismo criterio que antes: CARTERA o EMISOR vacío / "NO APLICA" / null.
-        filtros.append({"$or": [
-            {"CARTERA": {"$in": _EMPTY_VALUES}},
-            {"EMISOR":  {"$in": _EMPTY_VALUES}},
-        ]})
+    if campo_vacio and campo_vacio in _EDITABLE_FIELDS:
+        filtros.append({campo_vacio: {"$in": _EMPTY_VALUES}})
 
     query: dict = {"$and": filtros} if filtros else {}
-    cur = col.find(query, _PROJECTION).sort("unidad", 1).limit(2000)
+    cur = col.find(query, _PROJECTION).sort("unidad", 1).limit(5000)
     return _normalize_assets(list(cur))
 
 
 @router.get("/assets")
 def list_assets(
-    cartera:   str | None = Query(None, description="Filtrar por CARTERA exacta"),
-    emisor:    str | None = Query(None, description="Filtrar por EMISOR exacto"),
-    solo_gaps: bool = Query(
-        True,
-        description="Si True (default), solo devuelve assets con CARTERA "
-                    "o EMISOR vacíos / 'NO APLICA' / null.",
+    cartera:     str | None = Query(None, description="Filtrar por CARTERA exacta"),
+    emisor:      str | None = Query(None, description="Filtrar por EMISOR exacto"),
+    campo_vacio: str | None = Query(
+        None,
+        description="Filtra assets con ese campo UPPERCASE vacío / 'NO "
+                    "APLICA' / null. Uno de: CARTERA, EMISOR, INSTRUMENTO, "
+                    "CLASE_ACTIVO, CALIFICACION, TICKER, VENCIMIENTO. "
+                    "Sin este parámetro devuelve todos los assets.",
     ),
 ) -> dict:
-    """Lista assets de Valuaciones.Assets con filtros opcionales."""
-    assets = _list_assets(cartera=cartera, emisor=emisor, solo_gaps=solo_gaps)
+    """Lista assets de Valuaciones.Assets. Sin filtros: todo el catálogo."""
+    assets = _list_assets(cartera=cartera, emisor=emisor, campo_vacio=campo_vacio)
     return {"assets": assets, "n": len(assets)}
 
 
 @router.get("/assets/gaps")
 def get_assets_gaps() -> dict:
-    """Alias de GET /assets con solo_gaps=True (compat con clientes viejos)."""
-    assets = _list_assets(solo_gaps=True)
+    """Compat: assets con CARTERA o EMISOR vacíos (clientes viejos)."""
+    col = get_mongo_client_read()["Valuaciones"]["Assets"]
+    query = {"$or": [
+        {"CARTERA": {"$in": _EMPTY_VALUES}},
+        {"EMISOR":  {"$in": _EMPTY_VALUES}},
+    ]}
+    cur = col.find(query, _PROJECTION).sort("unidad", 1).limit(5000)
+    assets = _normalize_assets(list(cur))
     return {"assets": assets, "n": len(assets)}
 
 

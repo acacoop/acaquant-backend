@@ -169,6 +169,39 @@ def _sincronizar_assets(col_assets, unidades):
         )
 
 
+def _sincronizar_assets_valuaciones(col_assets, unidades):
+    """Garantiza que cada unidad del snapshot exista en Valuaciones.Assets
+    — la fuente de verdad UPPERCASE que edita el panel Manager → Assets.
+
+    No pisa metadata ya cargada: usa `$ifNull` sobre los 7 campos
+    UPPERCASE. Una unidad nueva queda con todos vacíos ("") y aparece en
+    Manager lista para categorizar. CAFCI se deriva de la unidad.
+
+    Antes el job solo sincronizaba TitulosAPI.AssetsAPI (la copia
+    derivada), que `api_migrate.py` reconstruye desde Valuaciones.Assets
+    — así las unidades nuevas nunca llegaban al origen y Manager no las
+    veía.
+    """
+    from core.cafci import extract_cafci
+    for unidad in unidades:
+        cafci = extract_cafci(unidad)
+        col_assets.update_one(
+            {"unidad": unidad},
+            [{"$set": {
+                "unidad":       unidad,
+                "CARTERA":      {"$ifNull": ["$CARTERA",      ""]},
+                "EMISOR":       {"$ifNull": ["$EMISOR",       ""]},
+                "CLASE_ACTIVO": {"$ifNull": ["$CLASE_ACTIVO", ""]},
+                "CALIFICACION": {"$ifNull": ["$CALIFICACION", ""]},
+                "TICKER":       {"$ifNull": ["$TICKER",       ""]},
+                "VENCIMIENTO":  {"$ifNull": ["$VENCIMIENTO",  ""]},
+                "INSTRUMENTO":  {"$ifNull": ["$INSTRUMENTO",  ""]},
+                "CAFCI":        cafci,
+            }}],
+            upsert=True,
+        )
+
+
 TIPOS_DIVISOR_100 = {
     "Títulos Públicos",
     "Letras del Tesoro Capitalizables en Pesos",
@@ -355,8 +388,12 @@ def run():
 
     print(f"\n🏁 Proceso finalizado. Total registros insertados: {registros_total}")
 
-    # Sincronizar unidades nuevas hacia TitulosAPI.AssetsAPI (fuente de verdad de la API)
+    # Sincronizar unidades del snapshot hacia los dos lados de Assets.
     unidades_snapshot = col.distinct("unidad", {"fecha_snapshot": fecha_snapshot})
+    # 1) Origen de verdad: Valuaciones.Assets (lo que edita Manager → Assets).
+    _sincronizar_assets_valuaciones(client["Valuaciones"]["Assets"], unidades_snapshot)
+    print(f"✅ Valuaciones.Assets sincronizado: {len(unidades_snapshot)} unidades.")
+    # 2) Copia derivada para la API.
     col_assets = client["TitulosAPI"]["AssetsAPI"]
     _sincronizar_assets(col_assets, unidades_snapshot)
     print(f"✅ AssetsAPI sincronizado: {len(unidades_snapshot)} unidades revisadas.")

@@ -40,6 +40,9 @@ def main() -> None:
     ap.add_argument("--precios", default=_PRECIOS_DEFAULT,
                     help=f"JSON de precios {{unidad: precio}}, ruta desde la "
                          f"raíz del repo (default {_PRECIOS_DEFAULT})")
+    ap.add_argument("--cuenta",
+                    help="CSV de id_cuenta — corrige solo esas cuentas del "
+                         "snapshot (default: todas).")
     ap.add_argument("--apply", action="store_true", help="escribe los cambios")
     args = ap.parse_args()
 
@@ -53,7 +56,12 @@ def main() -> None:
     print("=" * 88)
 
     col = get_mongo_client()["Valuaciones"]["AuM"]
-    docs = list(col.find({"fecha_snapshot": args.snapshot}))
+    match: dict = {"fecha_snapshot": args.snapshot}
+    if args.cuenta:
+        ids = [c.strip() for c in args.cuenta.split(",") if c.strip()]
+        match["id_cuenta"] = {"$in": ids}
+        print(f"Cuentas:          {ids}")
+    docs = list(col.find(match))
     print(f"Docs de AuM en el snapshot: {len(docs)}")
 
     cambios: list[dict] = []
@@ -108,32 +116,31 @@ def main() -> None:
 
     # Acumular las unidades faltantes en docs/precios_faltantes.json — una
     # lista plana [{fecha_snapshot, unidad}, ...] que va creciendo corrida
-    # tras corrida. Al terminar de correr todos los meses queda la tabla
-    # completa de precios a conseguir. Se escribe en dry-run y en apply.
-    #
-    # Cada corrida REEMPLAZA las filas de SU snapshot (las recalcula) y
-    # deja intactas las de los otros — así, si se re-corre un mes después
-    # de completar precios, las ya resueltas salen del doc y no duplica.
-    faltantes_path = os.path.join(_REPO_ROOT, "docs", "precios_faltantes.json")
-    faltantes: list[dict] = []
-    if os.path.exists(faltantes_path):
-        try:
-            with open(faltantes_path, encoding="utf-8") as f:
-                cargado = json.load(f)
-            if isinstance(cargado, list):
-                faltantes = [r for r in cargado if isinstance(r, dict)]
-        except (json.JSONDecodeError, OSError):
-            faltantes = []
-    # Sacar las filas de este snapshot (se recalculan) y dejar las demás.
-    faltantes = [r for r in faltantes if r.get("fecha_snapshot") != args.snapshot]
-    for u in sorted(x for x in sin_precio if x and x != "None"):
-        faltantes.append({"fecha_snapshot": args.snapshot, "unidad": u})
-    faltantes.sort(key=lambda r: (r.get("fecha_snapshot", ""), r.get("unidad", "")))
-    with open(faltantes_path, "w", encoding="utf-8") as f:
-        json.dump(faltantes, f, ensure_ascii=False, indent=1)
-    n_este = sum(1 for r in faltantes if r.get("fecha_snapshot") == args.snapshot)
-    print(f"Faltantes acumuladas en docs/precios_faltantes.json "
-          f"(total {len(faltantes)} filas; este snapshot: {n_este}).")
+    # tras corrida. SOLO en corridas de snapshot completo: con --cuenta el
+    # set de faltantes es parcial y no debe pisar el doc global.
+    if args.cuenta:
+        print("(--cuenta: corrida parcial — no se toca docs/precios_faltantes.json)")
+    else:
+        faltantes_path = os.path.join(_REPO_ROOT, "docs", "precios_faltantes.json")
+        faltantes: list[dict] = []
+        if os.path.exists(faltantes_path):
+            try:
+                with open(faltantes_path, encoding="utf-8") as f:
+                    cargado = json.load(f)
+                if isinstance(cargado, list):
+                    faltantes = [r for r in cargado if isinstance(r, dict)]
+            except (json.JSONDecodeError, OSError):
+                faltantes = []
+        # Saca las filas de este snapshot (se recalculan) y deja las demás.
+        faltantes = [r for r in faltantes if r.get("fecha_snapshot") != args.snapshot]
+        for u in sorted(x for x in sin_precio if x and x != "None"):
+            faltantes.append({"fecha_snapshot": args.snapshot, "unidad": u})
+        faltantes.sort(key=lambda r: (r.get("fecha_snapshot", ""), r.get("unidad", "")))
+        with open(faltantes_path, "w", encoding="utf-8") as f:
+            json.dump(faltantes, f, ensure_ascii=False, indent=1)
+        n_este = sum(1 for r in faltantes if r.get("fecha_snapshot") == args.snapshot)
+        print(f"Faltantes acumuladas en docs/precios_faltantes.json "
+              f"(total {len(faltantes)} filas; este snapshot: {n_este}).")
 
     if not args.apply:
         print("=" * 88)

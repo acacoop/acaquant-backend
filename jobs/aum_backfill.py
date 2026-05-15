@@ -72,6 +72,10 @@ def _parse_args():
                     help="Reintentos por cuenta antes de marcar como fallida (default 3)")
     ap.add_argument("--cuenta",
                     help="CSV de id_cuenta a backfilear (default: todas las activas)")
+    ap.add_argument("--solo-aum", action="store_true",
+                    help="Backfilea SOLO las cuentas que ya tienen snapshots en "
+                         "Valuaciones.AuM — mucho mas rapido que pegarle a las "
+                         "~1800 cuentas activas de Aunesa.")
     return ap.parse_args()
 
 
@@ -105,12 +109,24 @@ def main():
     # si Aunesa está lenta, no abortar antes de empezar el loop principal.
     cuentas = obtener_cuentas(headers_ref, timeout=args.timeout, retries=args.retries)
 
+    # Filtro --solo-aum: solo las cuentas que ya tienen snapshots en
+    # Valuaciones.AuM — evita pegarle a las ~1800 cuentas de Aunesa cuando
+    # solo interesan las que ya están en uso.
+    if args.solo_aum:
+        ids_aum = {
+            str(x)
+            for x in get_mongo_client()["Valuaciones"]["AuM"].distinct("id_cuenta")
+        }
+        antes = len(cuentas)
+        cuentas = cuentas[cuentas["id"].astype(str).isin(ids_aum)].reset_index(drop=True)
+        print(f"📋 --solo-aum: {len(cuentas)}/{antes} cuentas (ya en Valuaciones.AuM)\n", flush=True)
+
     # Filtro --cuenta: backfilear solo las que pediste.
     if args.cuenta:
         wanted = {c.strip() for c in args.cuenta.split(",") if c.strip()}
         cuentas = cuentas[cuentas["id"].astype(str).isin(wanted)].reset_index(drop=True)
         print(f"📋 {len(cuentas)} cuentas filtradas (--cuenta {args.cuenta})\n", flush=True)
-    else:
+    elif not args.solo_aum:
         print(f"📋 {len(cuentas)} cuentas activas\n", flush=True)
 
     total = len(cuentas)

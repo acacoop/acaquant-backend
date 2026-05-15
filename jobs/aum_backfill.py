@@ -97,8 +97,13 @@ def main():
         desde = args.desde
         print(f"📅 fecha_snapshot: {fecha_snapshot} | desde (manual): {desde}")
     else:
-        desde = t2_para_fecha(fecha_dt)
-        print(f"📅 fecha_snapshot: {fecha_snapshot} | desde (T+2): {desde}")
+        # Aunesa con desde=X devuelve la posición al cierre del día PREVIO
+        # a X. Para el cierre real de `fecha` hay que pedir fecha + 1 día.
+        # El T+2 que se usaba antes traía la posición proyectada a
+        # liquidación — distinta del cierre del día y distorsionada a fin
+        # de mes (depósitos de sueldos que aún no liquidaron).
+        desde = (fecha_dt + timedelta(days=1)).strftime("%d/%m/%Y")
+        print(f"📅 fecha_snapshot: {fecha_snapshot} | desde (día+1): {desde}")
 
     print(f"⚙  workers={args.workers}  timeout={args.timeout}s  retries={args.retries}")
     print("\n🔑 Autenticando...", flush=True)

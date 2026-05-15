@@ -169,6 +169,19 @@ def carry_trade(
     )
 
 
+@router.get("/retorno-total")
+def retorno_total(
+    curva: str = Query(..., description="cer | tasa_fija | soberanos"),
+):
+    """Datos consolidados para la vista Retorno Total.
+
+    Precios diarios de la curva + series MEP/oficial (para dolarizar
+    curvas en pesos). El frontend calcula retornos ARS y USD con
+    carry-forward. Para `soberanos` los precios ya están en USD.
+    """
+    return svc_rf.get_retorno_total_data(curva=curva)
+
+
 class _EstrategiaLeg(BaseModel):
     offset: int = 0
     tipo: str  # CALL | PUT

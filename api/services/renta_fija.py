@@ -502,3 +502,46 @@ def get_historico_curva(curva: str) -> list:
                     "paridad":  metrics.get("paridad"),
                 })
     return out
+
+
+def get_retorno_total_data(curva: str) -> dict:
+    """Datos para la vista 'Retorno Total' consolidada.
+
+    Junta en un solo payload todo lo que el frontend necesita para
+    calcular retornos en ARS y en USD con carry-forward:
+
+      - `rows`: precios diarios por (fecha, ticker) — `get_historico_curva`.
+      - `mep` / `oficial`: serie diaria del dólar (último valor del día),
+        SOLO para curvas en pesos (`tasa_fija`, `cer`). Para `soberanos`
+        los precios ya están en USD → ambas series vuelven vacías.
+
+    El cálculo de retornos se hace 100% en el frontend (una sola fuente
+    de la lógica, antes duplicada entre retorno-total y carry-trade).
+
+    Los helpers de serie de dólar se importan de `carry_trade` adentro de
+    la función a propósito: si ese import fallara, solo se cae este
+    endpoint — no el resto de la API.
+    """
+    rows = get_historico_curva(curva)
+    out: dict = {"curva": curva, "rows": rows, "mep": {}, "oficial": {}}
+    if curva in ("tasa_fija", "cer") and rows:
+        from api.db import get_db_valuaciones
+        from api.services.carry_trade import (
+            _serie_mep_diaria,
+            _serie_oficial_diaria,
+        )
+        fechas = sorted({r["fecha"] for r in rows if r.get("fecha")})
+        if fechas:
+            desde = date.fromisoformat(fechas[0])
+            hasta = date.fromisoformat(fechas[-1])
+            db_val = get_db_valuaciones()
+            db_trd = get_db_trading()
+            out["mep"] = {
+                f.isoformat(): round(v, 4)
+                for f, v in _serie_mep_diaria(db_val, desde, hasta).items()
+            }
+            out["oficial"] = {
+                f.isoformat(): round(v, 4)
+                for f, v in _serie_oficial_diaria(db_trd, desde, hasta).items()
+            }
+    return out

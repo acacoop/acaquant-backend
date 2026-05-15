@@ -49,3 +49,64 @@ def aunesa_explorar(
     except Exception as e:
         logger.exception("aunesa explorar failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/aunesa/posicion")
+def aunesa_posicion(
+    id_cuenta: str = Query(..., description="ID de cuenta Aunesa, ej '805'"),
+    desde: str | None = Query(
+        None,
+        description="Fecha de liquidación DD/MM/YYYY. Default: T+2 hábil "
+                    "(igual que el job jobs/aum.py).",
+    ),
+) -> dict[str, Any]:
+    """Pega a Aunesa LIVE y devuelve la posición valuada CRUDA de una cuenta.
+
+    NO pasa por Valuaciones.AuM — es la respuesta directa del endpoint
+    `posicionValuada` de Aunesa. Sirve para comparar lo que Aunesa manda
+    (precio, cantidad por unidad) contra lo que el job terminó persistiendo
+    en la base. `cantidad` viene con el signo nativo de Aunesa (el job la
+    invierte al procesar).
+
+    Devuelve solo los items con `informacion == "Acumulado"` (las
+    posiciones; el resto de la respuesta son detalles intermedios).
+    """
+    # Import adentro: el cliente Aunesa vive en jobs/aum.py. Si fallara el
+    # import, solo se cae este endpoint — no el resto de la API.
+    try:
+        from jobs.aum import autenticar, consultar_posicion, fecha_t2
+    except Exception as e:
+        logger.exception("no se pudo importar el cliente Aunesa de jobs.aum")
+        raise HTTPException(status_code=500,
+                            detail=f"import cliente Aunesa: {e}") from e
+
+    desde_q = desde or fecha_t2()
+    try:
+        headers = autenticar()
+        data, necesita_reauth = consultar_posicion(id_cuenta, headers, desde_q)
+        if necesita_reauth:
+            headers = autenticar()
+            data, _ = consultar_posicion(id_cuenta, headers, desde_q)
+    except requests.exceptions.Timeout as e:
+        raise HTTPException(status_code=504, detail=f"Aunesa timeout: {e}") from e
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 502
+        body = e.response.text[:300] if e.response is not None else str(e)
+        raise HTTPException(status_code=status, detail=f"Aunesa: {body}") from e
+    except Exception as e:
+        logger.exception("aunesa_posicion failed para %s", id_cuenta)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    if data is None:
+        raise HTTPException(status_code=502,
+                            detail="Aunesa devolvió respuesta vacía / no-200")
+
+    items = data if isinstance(data, list) else []
+    acumulado = [r for r in items if r.get("informacion") == "Acumulado"]
+    return {
+        "id_cuenta":   id_cuenta,
+        "desde":       desde_q,
+        "n_total":     len(items),
+        "n_acumulado": len(acumulado),
+        "posiciones":  acumulado,
+    }

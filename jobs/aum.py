@@ -206,6 +206,7 @@ TIPOS_DIVISOR_100 = {
     "Títulos Públicos",
     "Letras del Tesoro Capitalizables en Pesos",
     "Letras del Tesoro Ajustables por CER en Pesos",
+    "Letras de Liquidez del Banco Central",   # LELIQ/LEFI — cotizan en paridad
     "LETES",                      # Letras del Tesoro en USD (cotizan paridad)
     "Títulos de Deuda",
     "Obligaciones Negociables",

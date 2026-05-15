@@ -56,7 +56,7 @@ def aunesa_posicion(
     id_cuenta: str = Query(..., description="ID de cuenta Aunesa, ej '805'"),
     desde: str | None = Query(
         None,
-        description="Fecha de liquidación DD/MM/YYYY. Default: T+2 hábil "
+        description="Fecha de liquidación YYYY-MM-DD. Default: T+2 hábil "
                     "(igual que el job jobs/aum.py).",
     ),
 ) -> dict[str, Any]:
@@ -80,7 +80,17 @@ def aunesa_posicion(
         raise HTTPException(status_code=500,
                             detail=f"import cliente Aunesa: {e}") from e
 
-    desde_q = desde or fecha_t2()
+    # Aunesa espera la fecha en DD/MM/YYYY. El frontend manda YYYY-MM-DD.
+    if desde:
+        try:
+            desde_q = datetime.strptime(desde, "%Y-%m-%d").strftime("%d/%m/%Y")
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"fecha mal formada: {desde} (esperado YYYY-MM-DD)",
+            ) from e
+    else:
+        desde_q = fecha_t2()
     try:
         headers = autenticar()
         data, necesita_reauth = consultar_posicion(id_cuenta, headers, desde_q)

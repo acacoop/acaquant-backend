@@ -106,25 +106,34 @@ def main() -> None:
         if len(sin_precio) > 30:
             print(f"  ... y {len(sin_precio) - 30} mas")
 
-    # Acumular las unidades faltantes en docs/precios_faltantes.json — para
-    # ir juntando, mes a mes, qué precios falta conseguir. La key es el
-    # snapshot; cada corrida pisa la entrada de SU snapshot (refleja el
-    # estado actual de ese mes). Se escribe en dry-run y en apply.
+    # Acumular las unidades faltantes en docs/precios_faltantes.json — una
+    # lista plana [{fecha_snapshot, unidad}, ...] que va creciendo corrida
+    # tras corrida. Al terminar de correr todos los meses queda la tabla
+    # completa de precios a conseguir. Se escribe en dry-run y en apply.
+    #
+    # Cada corrida REEMPLAZA las filas de SU snapshot (las recalcula) y
+    # deja intactas las de los otros — así, si se re-corre un mes después
+    # de completar precios, las ya resueltas salen del doc y no duplica.
     faltantes_path = os.path.join(_REPO_ROOT, "docs", "precios_faltantes.json")
-    faltantes_data: dict = {}
+    faltantes: list[dict] = []
     if os.path.exists(faltantes_path):
         try:
             with open(faltantes_path, encoding="utf-8") as f:
-                faltantes_data = json.load(f)
+                cargado = json.load(f)
+            if isinstance(cargado, list):
+                faltantes = [r for r in cargado if isinstance(r, dict)]
         except (json.JSONDecodeError, OSError):
-            faltantes_data = {}
-    faltantes_data[args.snapshot] = sorted(
-        u for u in sin_precio if u and u != "None"
-    )
+            faltantes = []
+    # Sacar las filas de este snapshot (se recalculan) y dejar las demás.
+    faltantes = [r for r in faltantes if r.get("fecha_snapshot") != args.snapshot]
+    for u in sorted(x for x in sin_precio if x and x != "None"):
+        faltantes.append({"fecha_snapshot": args.snapshot, "unidad": u})
+    faltantes.sort(key=lambda r: (r.get("fecha_snapshot", ""), r.get("unidad", "")))
     with open(faltantes_path, "w", encoding="utf-8") as f:
-        json.dump(faltantes_data, f, ensure_ascii=False, indent=1, sort_keys=True)
-    print(f"Faltantes guardadas en docs/precios_faltantes.json "
-          f"(snapshot {args.snapshot}: {len(faltantes_data[args.snapshot])} unidades).")
+        json.dump(faltantes, f, ensure_ascii=False, indent=1)
+    n_este = sum(1 for r in faltantes if r.get("fecha_snapshot") == args.snapshot)
+    print(f"Faltantes acumuladas en docs/precios_faltantes.json "
+          f"(total {len(faltantes)} filas; este snapshot: {n_este}).")
 
     if not args.apply:
         print("=" * 88)

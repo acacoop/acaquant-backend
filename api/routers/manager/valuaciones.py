@@ -51,3 +51,25 @@ def valuaciones_debug(
     except Exception as e:
         logger.exception("valuaciones_debug failed para %s", id_cuenta)
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/aum")
+def get_aum(
+    id_cuenta: str = Query(..., description="ID numérico de cuenta, ej '805'"),
+    fecha: str | None = Query(
+        None,
+        description="fecha_snapshot YYYY-MM-DD. Si se omite, el último disponible.",
+    ),
+) -> dict[str, Any]:
+    """Docs crudos de Valuaciones.AuM para una (cuenta, fecha).
+
+    Devuelve cada posición tal cual está en la colección — unidad,
+    cantidad, precio, valuacion — más `valuacion_esperada` (cantidad ×
+    precio) y `desvio` para detectar a ojo precios mal traídos. Incluye
+    `fechas_disponibles` para poblar el selector de fecha del frontend.
+    """
+    try:
+        return svc.aum_raw(id_cuenta=id_cuenta, fecha=fecha)
+    except Exception as e:
+        logger.exception("get_aum failed para %s / %s", id_cuenta, fecha)
+        raise HTTPException(status_code=500, detail=str(e)) from e

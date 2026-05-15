@@ -1132,6 +1132,89 @@ def posiciones_actuales(
     }
 
 
+def aum_raw(id_cuenta: str, fecha: str | None = None) -> dict[str, Any]:
+    """Docs CRUDOS de Valuaciones.AuM para una (cuenta, fecha_snapshot).
+
+    Sin agrupar ni enriquecer — devuelve cada doc tal cual está en Mongo
+    (unidad, cantidad, precio, valuacion, tipoTitulo). Pensado para
+    validar a ojo si los precios y las valuaciones están bien:
+    `valuacion` deberí­a ser `cantidad × precio` (con el divisor /100 que
+    aplique según tipo — ese cálculo lo hace jobs/aum.py al persistir).
+
+    No cacheado — siempre muestra el estado actual de la colección.
+
+    Args:
+        id_cuenta: id numérico, ej "805".
+        fecha: fecha_snapshot YYYY-MM-DD. Si None o inexistente, usa el
+            último snapshot disponible para la cuenta.
+
+    Returns:
+        {
+          id_cuenta, fecha, fechas_disponibles: [...],
+          posiciones: [{unidad, cuenta, tipo, moneda, cantidad, precio,
+                        valuacion, valuacion_esperada, desvio}, ...],
+          total, n,
+        }
+    """
+    db_val = get_db_valuaciones()
+
+    fechas = sorted(
+        str(f) for f in db_val["AuM"].distinct("fecha_snapshot", {"id_cuenta": id_cuenta})
+    )
+    if not fechas:
+        return {
+            "id_cuenta": id_cuenta, "fecha": None, "fechas_disponibles": [],
+            "posiciones": [], "total": 0.0, "n": 0,
+        }
+    if not fecha or fecha not in fechas:
+        fecha = fechas[-1]
+
+    docs = list(
+        db_val["AuM"]
+        .find(
+            {"id_cuenta": id_cuenta, "fecha_snapshot": fecha},
+            {"_id": 0, "unidad": 1, "cuenta": 1, "cantidad": 1, "precio": 1,
+             "valuacion": 1, "tipoTitulo": 1, "moneda": 1},
+        )
+        .sort("valuacion", -1)
+    )
+
+    posiciones: list[dict[str, Any]] = []
+    total = 0.0
+    for d in docs:
+        try:
+            qty = float(d.get("cantidad") or 0)
+            precio = float(d.get("precio") or 0)
+            val = float(d.get("valuacion") or 0)
+        except (TypeError, ValueError):
+            qty = precio = val = 0.0
+        # valuacion_esperada = cantidad × precio crudo (sin el /100 por tipo).
+        # `desvio` ayuda a detectar precios mal traídos: si valuacion no es
+        # ni qty×precio ni qty×precio/100, algo está roto en el dato.
+        esperada = qty * precio
+        total += val
+        posiciones.append({
+            "unidad":             d.get("unidad"),
+            "cuenta":             d.get("cuenta"),
+            "tipo":               d.get("tipoTitulo"),
+            "moneda":             d.get("moneda"),
+            "cantidad":           round(qty, 6),
+            "precio":             round(precio, 6),
+            "valuacion":          round(val, 2),
+            "valuacion_esperada": round(esperada, 2),
+            "desvio":             round(val - esperada, 2),
+        })
+
+    return {
+        "id_cuenta":          id_cuenta,
+        "fecha":              fecha,
+        "fechas_disponibles": fechas,
+        "posiciones":         posiciones,
+        "total":              round(total, 2),
+        "n":                  len(posiciones),
+    }
+
+
 @cached(ttl=300)
 def movimientos_mes(id_cuenta: str, fecha_anchor: str) -> dict[str, Any]:
     """Movimientos individuales (depósitos / extracciones / transferencias)

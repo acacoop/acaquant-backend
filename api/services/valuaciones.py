@@ -1263,10 +1263,27 @@ def variacion_titulos(id_cuenta: str, fecha: str) -> dict[str, Any]:
             "filas": [], "otros": None, "totales": None}
     if fecha not in fechas:
         return {**base, "error": "fecha sin snapshot para la cuenta"}
-    idx = fechas.index(fecha)
-    if idx == 0:
-        return {**base, "error": "no hay snapshot anterior — es el primer mes"}
-    fecha_prev = fechas[idx - 1]
+
+    # Comparamos contra el CIERRE DEL MES ANTERIOR — no contra el snapshot
+    # anterior cronológico. Desde marzo 2026 hay snapshots diarios, así que
+    # el snapshot previo sería el día anterior y la "variación mensual"
+    # quedaría mal. El cierre de cada mes calendario = último snapshot del
+    # mes (mismo criterio que valuacion_mensual).
+    cierres: dict[str, str] = {}
+    for f in fechas:  # asc → el último snapshot del mes gana
+        cierres[f[:7]] = f
+    cierres_ord = [cierres[m] for m in sorted(cierres)]
+    if fecha in cierres_ord:
+        idx = cierres_ord.index(fecha)
+        if idx == 0:
+            return {**base, "error": "no hay mes anterior — es el primer mes"}
+        fecha_prev = cierres_ord[idx - 1]
+    else:
+        # fecha no es un cierre de mes (caso raro) → snapshot anterior directo.
+        idx = fechas.index(fecha)
+        if idx == 0:
+            return {**base, "error": "no hay snapshot anterior"}
+        fecha_prev = fechas[idx - 1]
 
     def _cargar(f: str) -> dict[str, dict]:
         agg: dict[str, dict] = {}

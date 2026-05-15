@@ -23,6 +23,7 @@ Flags útiles cuando Aunesa anda lenta para data histórica:
 """
 
 import argparse
+import json
 import os
 import sys
 import threading
@@ -214,6 +215,31 @@ def main():
         ids = ",".join(c[0] for c in fallidas)
         print("\nReintento sugerido (solo las fallidas, sin paralelismo y timeout largo):")
         print(f"  python -m jobs.aum_backfill {fecha_snapshot} --cuenta {ids} --workers 1 --timeout 360 --retries 5")
+
+    # Registrar las cuentas fallidas en docs/cuentas_con_error.json — lista
+    # acumulativa [{fecha_snapshot, id_cuenta, error}]. Cada corrida
+    # reemplaza las filas de SU snapshot (si no falla nada, las saca).
+    err_path = os.path.join(os.path.dirname(__file__), "..", "docs",
+                            "cuentas_con_error.json")
+    registros: list[dict] = []
+    if os.path.exists(err_path):
+        try:
+            with open(err_path, encoding="utf-8") as f:
+                cargado = json.load(f)
+            if isinstance(cargado, list):
+                registros = [r for r in cargado if isinstance(r, dict)]
+        except (json.JSONDecodeError, OSError):
+            registros = []
+    registros = [r for r in registros if r.get("fecha_snapshot") != fecha_snapshot]
+    for cid, den, err in fallidas:
+        registros.append({"fecha_snapshot": fecha_snapshot,
+                           "id_cuenta": cid, "error": err})
+    registros.sort(key=lambda r: (r.get("fecha_snapshot", ""),
+                                  str(r.get("id_cuenta", ""))))
+    with open(err_path, "w", encoding="utf-8") as f:
+        json.dump(registros, f, ensure_ascii=False, indent=1)
+    print(f"📝 docs/cuentas_con_error.json: {len(fallidas)} cuentas con error "
+          f"en {fecha_snapshot}.")
 
     unidades = col.distinct("unidad", {"fecha_snapshot": fecha_snapshot})
     _sincronizar_assets(client["Valuaciones"]["Assets"], unidades)

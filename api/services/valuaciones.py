@@ -1215,6 +1215,152 @@ def aum_raw(id_cuenta: str, fecha: str | None = None) -> dict[str, Any]:
     }
 
 
+# Unidades / tipos que tratamos como efectivo → van al cajón "OTROS" de
+# la descomposición de variación (no son "un título que se movió").
+_CASH_UNIDADES = {"ARS", "USD", "USDC", "USDL"}
+
+
+def _es_cash(unidad: str | None, tipo: str | None) -> bool:
+    u = (unidad or "").strip().upper()
+    if u in _CASH_UNIDADES:
+        return True
+    if (tipo or "").strip().lower() == "moneda":
+        return True
+    return "DEPOSITO" in u or "DEPÓSITO" in u
+
+
+def variacion_titulos(id_cuenta: str, fecha: str) -> dict[str, Any]:
+    """Descompone la variación del portfolio entre `fecha` y el snapshot
+    anterior, por título — separando efecto MERCADO vs efecto OPERADO.
+
+    Por cada unidad con valuación en alguno de los dos snapshots:
+        precio_efectivo = valuacion / cantidad   (ya incluye /100 o +1)
+        delta_mercado = (pe_actual − pe_previo) × cantidad_previa
+        delta_operado = (cantidad_actual − cantidad_previa) × pe_actual
+        delta_total   = valuacion_actual − valuacion_previa
+                      = delta_mercado + delta_operado   (cierra exacto)
+
+    Unidad nueva → todo a `operado` (la compraste). Cerrada → todo a
+    `operado` negativo (la vendiste). El efectivo (ARS/USD/…) se agrega
+    en `otros` — no es "un título que rindió".
+
+    No cacheado — para validar siempre muestra el estado actual.
+
+    Returns:
+        {id_cuenta, fecha, fecha_anterior,
+         filas: [{unidad, tipo, val_anterior, val_actual, delta_mercado,
+                  delta_operado, delta_total, estado}, ...],
+         otros: {delta_mercado, delta_operado, delta_total, val_anterior,
+                 val_actual, n},
+         totales: {val_anterior, val_actual, delta_mercado, delta_operado,
+                   delta_total}}
+    """
+    db_val = get_db_valuaciones()
+    fechas = sorted(
+        str(f) for f in db_val["AuM"].distinct("fecha_snapshot", {"id_cuenta": id_cuenta})
+    )
+    base = {"id_cuenta": id_cuenta, "fecha": fecha, "fecha_anterior": None,
+            "filas": [], "otros": None, "totales": None}
+    if fecha not in fechas:
+        return {**base, "error": "fecha sin snapshot para la cuenta"}
+    idx = fechas.index(fecha)
+    if idx == 0:
+        return {**base, "error": "no hay snapshot anterior — es el primer mes"}
+    fecha_prev = fechas[idx - 1]
+
+    def _cargar(f: str) -> dict[str, dict]:
+        agg: dict[str, dict] = {}
+        for d in db_val["AuM"].find(
+            {"id_cuenta": id_cuenta, "fecha_snapshot": f},
+            {"_id": 0, "unidad": 1, "tipoTitulo": 1, "cantidad": 1, "valuacion": 1},
+        ):
+            u = d.get("unidad")
+            if not u:
+                continue
+            try:
+                cant = float(d.get("cantidad") or 0)
+                val = float(d.get("valuacion") or 0)
+            except (TypeError, ValueError):
+                continue
+            e = agg.setdefault(u, {"tipo": d.get("tipoTitulo"),
+                                   "cantidad": 0.0, "valuacion": 0.0})
+            e["cantidad"] += cant
+            e["valuacion"] += val
+        return agg
+
+    prev = _cargar(fecha_prev)
+    act = _cargar(fecha)
+
+    filas: list[dict] = []
+    otros = {"delta_mercado": 0.0, "delta_operado": 0.0, "delta_total": 0.0,
+             "val_anterior": 0.0, "val_actual": 0.0, "n": 0}
+
+    for u in set(prev) | set(act):
+        p = prev.get(u)
+        a = act.get(u)
+        cant_prev = p["cantidad"] if p else 0.0
+        cant_act = a["cantidad"] if a else 0.0
+        val_prev = p["valuacion"] if p else 0.0
+        val_act = a["valuacion"] if a else 0.0
+        tipo = (a or p)["tipo"]
+        delta_total = val_act - val_prev
+        if cant_prev != 0 and cant_act != 0:
+            pe_prev = val_prev / cant_prev
+            pe_act = val_act / cant_act
+            delta_mercado = (pe_act - pe_prev) * cant_prev
+            delta_operado = (cant_act - cant_prev) * pe_act
+        else:
+            # Unidad nueva o cerrada → todo el cambio es operatoria.
+            delta_mercado = 0.0
+            delta_operado = delta_total
+
+        if _es_cash(u, tipo):
+            otros["delta_mercado"] += delta_mercado
+            otros["delta_operado"] += delta_operado
+            otros["delta_total"] += delta_total
+            otros["val_anterior"] += val_prev
+            otros["val_actual"] += val_act
+            otros["n"] += 1
+        else:
+            estado = "ambos" if (p and a) else ("nuevo" if a else "cerrado")
+            filas.append({
+                "unidad":        u,
+                "tipo":          tipo,
+                "val_anterior":  round(val_prev, 2),
+                "val_actual":    round(val_act, 2),
+                "delta_mercado": round(delta_mercado, 2),
+                "delta_operado": round(delta_operado, 2),
+                "delta_total":   round(delta_total, 2),
+                "estado":        estado,
+            })
+
+    filas.sort(key=lambda r: -abs(r["delta_total"]))
+
+    tot_merc = sum(r["delta_mercado"] for r in filas) + otros["delta_mercado"]
+    tot_oper = sum(r["delta_operado"] for r in filas) + otros["delta_operado"]
+    tot_delta = sum(r["delta_total"] for r in filas) + otros["delta_total"]
+    tot_prev = sum(r["val_anterior"] for r in filas) + otros["val_anterior"]
+    tot_act = sum(r["val_actual"] for r in filas) + otros["val_actual"]
+
+    return {
+        "id_cuenta":      id_cuenta,
+        "fecha":          fecha,
+        "fecha_anterior": fecha_prev,
+        "filas":          filas,
+        "otros":          {
+            k: (round(v, 2) if isinstance(v, float) else v)
+            for k, v in otros.items()
+        },
+        "totales": {
+            "val_anterior":  round(tot_prev, 2),
+            "val_actual":    round(tot_act, 2),
+            "delta_mercado": round(tot_merc, 2),
+            "delta_operado": round(tot_oper, 2),
+            "delta_total":   round(tot_delta, 2),
+        },
+    }
+
+
 @cached(ttl=300)
 def movimientos_mes(id_cuenta: str, fecha_anchor: str) -> dict[str, Any]:
     """Movimientos individuales (depósitos / extracciones / transferencias)

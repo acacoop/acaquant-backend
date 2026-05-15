@@ -79,6 +79,34 @@ def get_movimientos(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/{id_cuenta}/variacion")
+def get_variacion(
+    id_cuenta: str,
+    fecha: str = Query(
+        ...,
+        description="YYYY-MM-DD — fecha_snapshot del mes; se compara contra "
+                    "el snapshot anterior.",
+    ),
+):
+    """Descompone la variación del portfolio vs el snapshot anterior, por
+    título, separando efecto mercado (precio) de efecto operado (cantidad).
+    El efectivo se agrupa en 'otros'."""
+    _validate_id_cuenta(id_cuenta)
+    try:
+        from datetime import datetime
+        datetime.strptime(fecha, "%Y-%m-%d")
+    except ValueError as e:
+        raise HTTPException(400, f"fecha mal formada: {fecha!r}") from e
+    try:
+        return svc.variacion_titulos(id_cuenta=id_cuenta, fecha=fecha)
+    except Exception as e:
+        logger.exception(
+            "valuaciones variacion failed: id_cuenta=%s fecha=%s",
+            id_cuenta, fecha,
+        )
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/{id_cuenta}/posiciones-actuales")
 def get_posiciones_actuales(
     id_cuenta: str,

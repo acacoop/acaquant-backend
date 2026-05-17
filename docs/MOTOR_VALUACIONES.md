@@ -1,6 +1,6 @@
 # Motor de Valuaciones (PnL Títulos)
 
-Doc-checkpoint del motor de PnL por (cuenta, ticker). **Estado al 2026-05-09**.
+Doc-checkpoint del motor de PnL por (cuenta, ticker). **Estado al 2026-05-16**.
 Para retomar el desarrollo: leé esto + `api/services/pnl.py` + `engines/portfolio_snapshot.py`.
 
 ---
@@ -72,6 +72,10 @@ El `pnl_realizado` histórico se oculta — irá a una vista histórica separada
 
 **Backend (TRD-FX)**:
 - `api/services/pnl.py` — motor de cost-basis (corazón del sistema).
+  Funciones: `pnl_por_cuenta` (single-cuenta, `@cached(ttl=300)`),
+  `pnl_todas_cuentas` (agregado mesa, `@cached(ttl=60)`),
+  `_pnl_por_cuenta_core` (cálculo puro, toma todas las deps por kwarg),
+  `_load_pnl_bulk_deps` (pre-carga bulk de maps + boletos + AuM para TOTALES).
 - `api/services/_mep.py` — helper MEP con fallback a `Valuaciones.Dolar`.
 - `api/services/aunesa_negocio.py` — parser de boletos / categorización.
 - `api/services/valuaciones.py` — vista PORTAFOLIO (legacy AuM-based).
@@ -174,19 +178,23 @@ Solución actual (commit `0c3c638`):
 
 ## Cálculo del valor_actual (cadena de fallback)
 
-Función `_valor_actual_live(unidad, qty_efectiva, tipoTitulo, valor_aum)`
-en `pnl.py`:
+Función `_valor_actual_live(db_t, db_v, unidad, qty_efectiva, tipoTitulo,
+valor_aum, *, instrumentos_by_unidad, portfolio_snap_by_ticker,
+snapshots_cierre_by_ticker)` en `pnl.py`. Los tres kwargs `*_by_*` son
+opcionales: si vienen pre-cargados (path bulk de `pnl_todas_cuentas`) las
+lookups se resuelven contra dicts en memoria; sin ellos cae al `find_one`
+por ticker (path single-cuenta de PNL TÍTULOS).
 
 ```
 1. Si qty_efectiva == 0 → return (0, "live")  # cerrado intraday
 2. Si no hay unidad → return (valor_aum, "aum")  # fallback final
 3. Lookup Assets.INSTRUMENTO de la unidad.
-4. Si INSTRUMENTO existe:
+4. Si INSTRUMENTO existe y no es placeholder ("" / "NO APLICA"):
    a. Lookup Trading.PortfolioSnapshot[ticker=INSTRUMENTO]
-      → si hay last_price o closing_price → 
+      → si hay last_price o closing_price > 0 →
          return (qty_efectiva × precio × normalizer, "live")
    b. Lookup Trading.SnapshotsCierre[ticker=INSTRUMENTO]
-      → si hay last_price → 
+      → si hay last_price > 0 →
          return (qty_efectiva × precio × normalizer, "cierre")
 5. Fallback: return (valor_aum, "aum")
 ```
@@ -211,7 +219,8 @@ en `pnl.py`:
 `NegocioMovimientos.ticker` ("AO28", "CAFCI3580-1199") y `Valuaciones.AuM.unidad` 
 ("[5921] AO28 - BONO TESORO NAC.") no matchean directo.
 
-`pnl._build_unidad_maps(db_v)` construye dos maps desde `Valuaciones.Assets`:
+`pnl._build_unidad_maps()` (sin args, `@cached(ttl=300)`) construye dos maps
+desde `Valuaciones.Assets`:
 
 | Tipo | match_key (interno, joinea boletos↔AuM) | display (UI) |
 |---|---|---|
@@ -332,6 +341,13 @@ Tabla agregada por (cuenta, ticker):
 CUENTA · TICKER · CANT · COSTO · VALOR · GAN % · PNL · FLAGS
 ```
 
+**Solo posiciones abiertas**: `pnl_todas_cuentas` descarta del listado los
+rows con `qty_aum == 0` (cerrados intraday — todo vendido hoy). Su
+`pnl_realizado_dia` SÍ queda contado en el agregado `totales` por cuenta,
+así que el filtro solo limpia el row listing, no sesga ningún KPI. (En PNL
+TÍTULOS por cuenta sola esas filas SÍ se preservan, con el banner
+"REALIZADO HOY".)
+
 **Filtros encima**:
 - Tipo de cuenta: `TODAS / ACCIONISTAS / SIN ACCIONISTAS / COOPERATIVAS / PRODUCTORES`.
 - Búsqueda libre por cuenta (texto contiene).
@@ -349,10 +365,22 @@ pertenece la posición seleccionada.
 
 ### Performance
 
-- Cache backend TTL=60s en `pnl_todas_cuentas`.
-- Cache propio per-cuenta TTL=300s en `pnl_por_cuenta`.
-- Cold start ~30-60s (itera ~150 cuentas).
-- Cached <2s.
+`pnl_todas_cuentas` **NO reusa** la cacheada `pnl_por_cuenta` — hacerlo
+disparaba un N+1 (cada cuenta × ~20 tickers × 3 `find_one` en
+`_valor_actual_live` + 1 regex query de boletos) que pegaba 502/504 con
+883 cuentas. Arquitectura actual:
+
+- `_load_pnl_bulk_deps` hace **~6 queries totales** (Assets,
+  PortfolioSnapshot, SnapshotsCierre vía `aggregate`, NegocioMovimientos
+  full-scan agrupado por `id_cuenta`, AuM del último snapshot global) —
+  independiente de N cuentas.
+- `_pnl_por_cuenta_core` recibe esos dicts por kwarg y procesa en RAM, sin
+  pegarle a Mongo per-cuenta.
+- Cada bulk load va con `try/except`: si uno falla, el dict queda vacío y
+  el core cae al path single-cuenta para esa fuente (degradación, no caída).
+- Cache backend `@cached(ttl=60)` en `pnl_todas_cuentas`.
+- `pnl_por_cuenta` (`@cached(ttl=300)`) sigue vigente solo para el path
+  single-cuenta (PNL TÍTULOS).
 
 ### Casos de uso
 

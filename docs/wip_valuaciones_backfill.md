@@ -26,7 +26,8 @@ se genera `docs/precios_<MMDD>.json` (`{unidad: precio}`), y
 
 JSONs generados y pusheados en `docs/` (los `.xlsx` NO se pushean):
 `precios_3006` (jun), `3107` (jul), `3108` (ago), `3009` (sep),
-`3110` (oct), `3011` (nov), `3112` (dic), `3101` (ene-26), `2802` (feb-26).
+`3110` (oct), `3011` (nov), `3112` (dic), `3101` (ene-26), `2802` (feb-26),
+`3103` (mar-26 — 761 claves, generado del Excel 2026-05-16, commit `a90c35b`).
 
 - `Max Dinamico II` (`[4318]`, `[4319]`): el precio correcto es el del
   Excel (~1,46 A / ~1,49 B). Hubo idas y vueltas (1400, sacarlo) — quedó
@@ -51,8 +52,9 @@ sospechosos — `Fideicomisos`, `ECHEQ`, `Pagarés` (12k docs), `Cupones`.
 - `delete_snapshot_aum.py` — borra un snapshot de `Valuaciones.AuM`.
 - `backfill_2025.py` — rehace snapshots jul-dic 2025: delete + backfill
   (`--solo-aum`) + fix de precios, en orden.
-- `backfill_2026.py` — ene, feb (con fix) + marzo (`2026-03-31`, SIN fix
-  de precios — no hay Excel).
+- `backfill_2026.py` — ene, feb (con fix) + marzo (`2026-03-31`, sin fix
+  en su corrida — ya hay Excel; el fix de marzo se corre aparte con
+  `fix_precios_aum --precios docs/precios_3103.json --snapshot 2026-03-31`).
 - `backfill_meses_cuenta.py` — backfill + fix por cuenta(s) puntual(es).
 - `diag_*.py` — `diag_descalce_flujo_aum`, `diag_unidad_aum`,
   `diag_aunesa_posicion_cruda` (pide a Aunesa sin T+2), `diag_retorno_total`,
@@ -69,7 +71,9 @@ directo), `--cuenta` no pega a `listadoCuentas` (daba 400),
   precios de junio con `precios_3006.json` (ya corregido).
 - **backfill_2025** (jul-dic): lanzado con `nohup`. Verificar
   `backfill_2025.log`.
-- **backfill_2026** (ene-feb-mar): lanzado. Verificar `backfill_2026.log`.
+- **backfill_2026** (ene-feb-mar): ✅ verificado OK 2026-05-16
+  (`OK: ['2026-01-31','2026-02-28','2026-03-31']`, 0 cuentas con error
+  en marzo). FALTA correr el fix de precios de marzo (`precios_3103.json`).
 
 ## PENDIENTE para retomar
 

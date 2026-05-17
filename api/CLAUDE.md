@@ -7,6 +7,10 @@ Se carga al trabajar en `api/`. El `CLAUDE.md` raíz tiene lo project-wide
 agente. `api/routers/` es solo HTTP plumbing — `manager/` es un paquete de
 sub-routers. `api/agent/` es legacy (no en uso). `api/mcp/` es el MCP server.
 
+> **Postura de seguridad de la API consolidada: `docs/SECURITY.md`** —
+> capas (CF Access → API_KEY → JWT → RBAC → rate limit), secretos, y el
+> checklist al tocar la API.
+
 ## ⚠️ REGLA #1 — VALIDAR IMPORTS antes de pushear router/service
 
 **Bloqueante. No opcional.** Un import error en CUALQUIER router/service

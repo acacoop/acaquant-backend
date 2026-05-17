@@ -27,6 +27,7 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 | `add-job` | Crear un job batch/cron (`JobRunLogger`, crontab, índices). |
 | `debug-motor` | Troubleshooting de cualquier motor (systemd, journalctl, Mongo). |
 | `backfill-mes` | Rehacer el snapshot de AuM de un mes (delete + backfill + fix precios). |
+| `audit-obsoleto` | Auditar scripts/tests/docs obsoletos → listas BORRAR/REVISAR/MANTENER. On-demand. |
 
 ## Agents (subagentes — corren en contexto limpio)
 

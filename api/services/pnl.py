@@ -812,21 +812,69 @@ def _load_pnl_bulk_deps(db_v, db_cf, db_t) -> dict:
     }
 
 
+def pnl_todas_cuentas_compute() -> list[dict]:
+    """Cómputo PESADO del PnL de TODAS las cuentas — lo corre el cron.
+
+    Recorre las cuentas del último snapshot de AuM, pre-carga los maps en
+    bulk (`_load_pnl_bulk_deps`) y llama a `_pnl_por_cuenta_core` por cada
+    una. Devuelve una entrada por cuenta:
+
+        {id_cuenta, cuenta, rows, totales}
+
+    `rows` y `totales` salen tal cual del core — los `rows` incluyen el
+    detalle de boletos (lo que el frontend muestra en el panel derecho).
+
+    Lo corre `jobs.pnl_totales_precompute`, que persiste el resultado en
+    `Valuaciones.PnLTotalesCache`. El endpoint `pnl_todas_cuentas` SOLO lee
+    esa colección — nunca recalcula en vivo (recorrer 883 cuentas en una
+    request HTTP se pasaba del timeout → 502).
+    """
+    from api.services.portfolio import listar_cuentas
+
+    cuentas = listar_cuentas()
+    if not cuentas:
+        return []
+
+    db_cf = get_db_cashflow()
+    db_v  = get_db_valuaciones()
+    db_t  = get_db_trading()
+
+    # Pre-load global maps + boletos + AuM — ~6 queries totales en lugar
+    # de ~5 × N cuentas.
+    deps = _load_pnl_bulk_deps(db_v, db_cf, db_t)
+
+    out: list[dict] = []
+    for c in cuentas:
+        id_cta = c.get("id_cuenta")
+        if not id_cta:
+            continue
+        try:
+            r = _pnl_por_cuenta_core(
+                id_cuenta=str(id_cta),
+                db_cf=db_cf, db_v=db_v, db_t=db_t,
+                **deps,
+            )
+        except Exception:
+            continue
+        out.append({
+            "id_cuenta": id_cta,
+            "cuenta":    c.get("cuenta") or "",
+            "rows":      r.get("rows", []),
+            "totales":   r.get("totales", {}) or {},
+        })
+    return out
+
+
 @cached(ttl=60)
 def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
     """PnL agregado de todas las cuentas: una fila por (cuenta, ticker).
 
-    Itera sobre las cuentas distintas en el último snapshot de Valuaciones.AuM
-    (filtradas por `filtro_cuenta` — ver `_cuentas_filter.match_cuenta_filter`),
-    llama a `_pnl_por_cuenta_core` con maps pre-cargados en bulk y aplana los
-    rows.
-
-    Pre-load + DI: antes este endpoint llamaba a `pnl_por_cuenta` (cacheada
-    per-cuenta) que hacía 3 queries por ticker dentro de `_valor_actual_live`
-    + 1 full scan de Assets en `_build_unidad_maps`. Cold path con ~200
-    cuentas × ~20 tickers = ~12k queries chicas → 504 garantizado. Ahora
-    se cargan los pricing maps una sola vez con `_load_pnl_bulk_deps` y el
-    core los lee en memoria.
+    LECTURA LIVIANA: lee `Valuaciones.PnLTotalesCache`, precalculada por el
+    cron `jobs.pnl_totales_precompute` (cada 30 min en la rueda). El
+    endpoint NUNCA recalcula en vivo — recorrer 883 cuentas en una request
+    HTTP se pasaba del timeout (502) y no escalaba con la cantidad de
+    usuarios. Acá solo se lee la colección y se aplica el filtro de tipo
+    de cuenta en memoria.
 
     Args:
         filtro_cuenta: "todas" | "accionistas" | "sin_accionistas" |
@@ -840,33 +888,14 @@ def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
                     pnl_realizado_dia},
           filtro_cuenta,
         }
+        Si la colección está vacía → rows: [] (falta correr el cron).
     """
     from api.services._cuentas_filter import match_cuenta_filter
-    from api.services.portfolio import listar_cuentas
 
-    cuentas_all = listar_cuentas()
-    if not cuentas_all:
-        return {
-            "rows": [],
-            "totales": {
-                "n_cuentas":         0,
-                "n_filas":           0,
-                "costo_remanente":   0.0,
-                "valor_actual":      0.0,
-                "pnl_no_realizado":  0.0,
-                "pnl_pasivo":        0.0,
-                "pnl_realizado_dia": 0.0,
-                "pnl_total":         0.0,
-            },
-            "filtro_cuenta": filtro_cuenta,
-        }
+    db_v = get_db_valuaciones()
+    docs = list(db_v["PnLTotalesCache"].find({}, {"_id": 0, "computed_at": 0}))
 
-    db_cf = get_db_cashflow()
-    db_v  = get_db_valuaciones()
-    db_t  = get_db_trading()
-
-    # Si hay filtro != "todas", aplicamos el sub-match a la lista.
-    cuentas: list[dict]
+    # Filtro de tipo de cuenta — subset de las cuentas ya calculadas.
     if filtro_cuenta and filtro_cuenta != "todas":
         sub_match = match_cuenta_filter(filtro_cuenta)
         if sub_match:
@@ -874,22 +903,13 @@ def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
                 {}, {"_id": 0, "fecha_snapshot": 1},
                 sort=[("fecha_snapshot", -1)],
             )
-            if not last:
-                cuentas = []
-            else:
+            ids_match: set = set()
+            if last:
                 ids_match = set(db_v["AuM"].distinct(
                     "id_cuenta",
                     {**sub_match, "fecha_snapshot": last["fecha_snapshot"]},
                 ))
-                cuentas = [c for c in cuentas_all if c.get("id_cuenta") in ids_match]
-        else:
-            cuentas = cuentas_all
-    else:
-        cuentas = cuentas_all
-
-    # Pre-load global maps + boletos + AuM — ~6 queries totales en lugar
-    # de ~5 × N cuentas. Mata el N+1 que pegaba 502 con 883 cuentas.
-    deps = _load_pnl_bulk_deps(db_v, db_cf, db_t)
+            docs = [d for d in docs if d.get("id_cuenta") in ids_match]
 
     rows: list[dict] = []
     totales = {
@@ -900,34 +920,20 @@ def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
         "pnl_realizado_dia": 0.0,
         "pnl_total":         0.0,
     }
-    for c in cuentas:
-        id_cta = c.get("id_cuenta")
-        cta_label = c.get("cuenta") or ""
-        if not id_cta:
-            continue
-        try:
-            r = _pnl_por_cuenta_core(
-                id_cuenta=str(id_cta),
-                db_cf=db_cf, db_v=db_v, db_t=db_t,
-                **deps,
-            )
-        except Exception:
-            continue
-        for row in r.get("rows", []):
-            # TOTALES muestra posiciones abiertas — qty_aum != 0. Los
-            # rows con qty_aum=0 son posiciones cerradas intraday (todo
-            # vendido hoy). Su realizado del día ya está en el agregado
-            # `pnl_realizado_dia` del totales por cuenta, así que filtrar
-            # aquí NO sesga ningún número agregado, solo limpia el row
-            # listing. (En PNL TÍTULOS por cuenta sola sí se preservan.)
+    for d in docs:
+        id_cta = d.get("id_cuenta")
+        cta_label = d.get("cuenta") or ""
+        for row in d.get("rows", []):
+            # TOTALES lista posiciones abiertas — qty_aum != 0. Los rows
+            # con qty_aum=0 (cerrados intraday) se omiten del listado; su
+            # realizado del día ya está sumado en el `totales` por cuenta.
             if float(row.get("qty_aum") or 0) == 0:
                 continue
-            # Enriquecer con info de cuenta para mostrar/filtrar en la UI.
             r2 = dict(row)
             r2["cuenta"]    = cta_label
             r2["id_cuenta"] = id_cta
             rows.append(r2)
-        t = r.get("totales", {}) or {}
+        t = d.get("totales", {}) or {}
         totales["costo_remanente"]   += float(t.get("costo_remanente") or 0)
         totales["valor_actual"]      += float(t.get("valor_actual") or 0)
         totales["pnl_no_realizado"]  += float(t.get("pnl_no_realizado") or 0)
@@ -949,7 +955,7 @@ def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
     return {
         "rows": rows,
         "totales": {
-            "n_cuentas":         len(cuentas),
+            "n_cuentas":         len(docs),
             "n_filas":           len(rows),
             "costo_remanente":   round(totales["costo_remanente"], 2),
             "valor_actual":      round(totales["valor_actual"], 2),

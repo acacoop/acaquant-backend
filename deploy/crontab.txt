@@ -113,6 +113,13 @@
 # desde el endpoint se pasa del timeout HTTP (502) → se precalcula offline.
 30 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.consolidado_cuentas >> /root/TradingAV/logs/consolidado_cuentas.log 2>&1
 
+# ─── PnL TOTALES precompute (cada 30 min en la rueda — :05 y :35, 15-22 UTC L-V)
+# El endpoint /pnl-todas pasó a SOLO leer Valuaciones.PnLTotalesCache; este job
+# hace el cálculo pesado de las ~883 cuentas offline. El run de :05 va 5 min
+# después de negocio_movimientos (:00) → toma los boletos frescos sin descalce;
+# el de :35 refresca los precios live a mitad de hora.
+5,35 15-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.pnl_totales_precompute >> /root/TradingAV/logs/pnl_totales_precompute.log 2>&1
+
 # ─── Rollup diario de opciones (20:15 UTC = 17:15 ART, L-V)
 15 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.options_rollup >> /root/TradingAV/logs/options_rollup.log 2>&1
 

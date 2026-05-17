@@ -110,18 +110,29 @@ def run(desde, hasta):
                 if "total" in r:
                     r["total"] = float(r["total"]) * -1
 
+            # Filtrar movimientos sin `comprobante`: sin esa clave el
+            # UpdateOne (y el índice único) revientan y el bulk_write se
+            # cae ENTERO → se pierde el día. Mismo patrón defensivo que
+            # negocio_movimientos.py.
+            con_comp = [r for r in movimientos if r.get("comprobante")]
+            sin_comp = len(movimientos) - len(con_comp)
+            if sin_comp:
+                print(f"⚠ {sin_comp} movimientos sin comprobante — salteados")
+            if not con_comp:
+                print("0 con comprobante")
+                continue
             ops = [
                 UpdateOne(
                     {"comprobante": r["comprobante"]},
                     {"$setOnInsert": r},
                     upsert=True,
                 )
-                for r in movimientos
+                for r in con_comp
             ]
             result = col.bulk_write(ops, ordered=False)
             nuevos = result.upserted_count
             insertados_total += nuevos
-            print(f"{len(movimientos)} filtrados  →  {nuevos} nuevos en Mongo")
+            print(f"{len(con_comp)} con comprobante  →  {nuevos} nuevos en Mongo")
 
         except Exception as e:
             print(f"❌ Error: {e}")

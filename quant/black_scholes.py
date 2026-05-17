@@ -44,7 +44,7 @@ def calcular_hv_40_ruedas(ticker="GGAL.BA"):
 
 # --- MODELO BLACK-SCHOLES ---
 def bs_price(S, K, T, r, sigma, option_type='CALL'):
-    if T <= 0 or sigma <= 0: return max(0, S - K) if option_type == 'CALL' else max(0, K - S)
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0: return max(0, S - K) if option_type == 'CALL' else max(0, K - S)
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
     if option_type == 'CALL':
@@ -54,18 +54,19 @@ def bs_price(S, K, T, r, sigma, option_type='CALL'):
 
 
 def bs_gamma(S, K, T, r, sigma):
-    if T <= 0 or sigma <= 0: return 0.0
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0: return 0.0
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     return norm.pdf(d1) / (S * sigma * np.sqrt(T))
 
 
 def bs_vega(S, K, T, r, sigma):
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0: return 0.0
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     return S * np.sqrt(T) * norm.pdf(d1)
 
 
 def bs_theta(S, K, T, r, sigma, option_type='CALL'):
-    if T <= 0 or sigma <= 0: return 0.0
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0: return 0.0
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
     term1 = -(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T))
@@ -78,7 +79,7 @@ def bs_theta(S, K, T, r, sigma, option_type='CALL'):
 
 
 def bs_delta(S, K, T, r, sigma, option_type='CALL'):
-    if T <= 0 or sigma <= 0:
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
         return 1.0 if (option_type == 'CALL' and S > K) else -1.0 if (option_type == 'PUT' and S < K) else 0.0
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     return norm.cdf(d1) if option_type == 'CALL' else norm.cdf(d1) - 1.0

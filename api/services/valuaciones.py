@@ -517,10 +517,14 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
         f = flujos_by_mes.get(mes, {})
         depositos = float(f.get("depositos") or 0)
         extracciones = float(f.get("extracciones") or 0)
-        flujo_neto = depositos + extracciones  # extracciones suelen venir negativas
-        # Si el feed no normaliza el signo, fallback:
-        if extracciones > 0:
-            flujo_neto = depositos - extracciones
+        # `imp_ars` ya trae el signo cliente correcto (+ depósito,
+        # - extracción) desde aunesa_negocio.py → `depositos` y
+        # `extracciones` son sumas SIGNADAS y el neto es la suma directa.
+        # NO hay fallback por signo: `if extracciones > 0: depositos -
+        # extracciones` rompía cuando una serie tenía extracciones que
+        # netaban positivo (reversas/refunds) → contaminaba delta_real,
+        # tea_mensual (XIRR) y twr_base100.
+        flujo_neto = depositos + extracciones
         cierre = float(c.get("valuacion_cierre") or 0)
         ultimo_dia = c.get("ultimo_dia")
 
@@ -796,9 +800,9 @@ def valuacion_mensual_debug(id_cuenta: str) -> dict[str, Any]:
         f = flujos_by_mes.get(mes, {})
         depositos = float(f.get("depositos") or 0)
         extracciones = float(f.get("extracciones") or 0)
+        # Suma signada directa (ver nota en valuacion_mensual) — sin
+        # fallback por signo, que rompía con extracciones netas positivas.
         flujo_neto = depositos + extracciones
-        if extracciones > 0:
-            flujo_neto = depositos - extracciones
         cierre = float(c.get("valuacion_cierre") or 0)
         ultimo_dia = c.get("ultimo_dia")
 

@@ -221,6 +221,15 @@ async def authorize(
     if code_challenge_method != "S256":
         raise HTTPException(400, "Solo se soporta code_challenge_method=S256")
 
+    # El `scope` lo manda el cliente y se persiste en el code → se firma en
+    # el access token. Sin validarlo, un cliente inyecta scopes arbitrarios
+    # en el JWT emitido. Lo normalizamos a la intersección con
+    # SUPPORTED_SCOPES (hoy `mcp:read`) — si no pide ninguno válido, se le
+    # da el set soportado por defecto.
+    pedidos = {s for s in (scope or "").split() if s}
+    validos = pedidos & set(SUPPORTED_SCOPES)
+    scope = " ".join(sorted(validos)) if validos else " ".join(SUPPORTED_SCOPES)
+
     client = _get_client(client_id)
     if not client:
         raise HTTPException(400, f"client_id desconocido: {client_id}")

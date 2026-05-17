@@ -15,6 +15,8 @@ Si NINGUNO de los dos está configurado, el sub-app MCP no se monta
 """
 from __future__ import annotations
 
+import secrets
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -43,8 +45,10 @@ class MCPBearerMiddleware(BaseHTTPMiddleware):
             )
         token = auth[len("Bearer "):].strip()
 
-        # 1. Static bearer (fallback dev/curl).
-        if MCP_BEARER_TOKEN and token == MCP_BEARER_TOKEN:
+        # 1. Static bearer (fallback dev/curl). `compare_digest` =
+        # comparación de tiempo constante — evita el timing attack que
+        # permitiría extraer MCP_BEARER_TOKEN byte a byte con `==`.
+        if MCP_BEARER_TOKEN and secrets.compare_digest(token, MCP_BEARER_TOKEN):
             return await call_next(request)
 
         # 2. JWT OAuth-issued (path principal Claude clients).

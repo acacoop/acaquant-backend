@@ -1,37 +1,57 @@
 # .claude/ — índice
 
-Este directorio contiene **commands** (slash) y **skills** (procedimientos) que Claude Code usa durante una sesión. Todo lo que vive acá se versiona en el repo y se comparte con quien abra el proyecto.
+Todo lo que vive acá se versiona en el repo y se comparte con quien abra el
+proyecto (excepto `settings.local.json`). Claude descubre
+commands/skills/agents/hooks automáticamente; este índice es para vos (humano).
 
-Claude descubre commands/skills automáticamente, pero vos (humano) necesitás este índice.
+## Contexto (CLAUDE.md)
 
-## Slash commands
+- `CLAUDE.md` (raíz) — contexto project-wide.
+- `api/CLAUDE.md`, `engines/CLAUDE.md`, `jobs/CLAUDE.md`, `scripts/CLAUDE.md`
+  — contexto por subdirectorio; se carga solo al trabajar en esa carpeta.
 
-Se invocan tipeando `/nombre` en el chat.
+## Slash commands (`/nombre`)
 
 | Comando | Qué hace |
 |---|---|
-| `/perf` | Corre `scripts.perf_scan --strict` y resume findings agrupados por código (PERF001…4). No aplica fixes. |
-| `/motor-status` | Estado systemd + última actividad Mongo de los 8 motores de mercado. Respeta la ventana Atlas. |
-| `/deploy` | Push a main + pull + `systemctl restart api.service` en el Droplet. Cada paso destructivo pide confirmación. |
+| `/perf` | `scripts.perf_scan --strict` + resumen de findings por código PERF001…4. |
+| `/motor-status` | Estado systemd + última actividad Mongo de los motores. |
+| `/deploy` | Push a main + pull + `systemctl restart api.service` en el Droplet. |
 
-## Skills (procedimientos estructurados)
-
-Claude los aplica automáticamente cuando la tarea matchea la descripción del skill.
+## Skills (procedimientos — Claude los aplica cuando la tarea matchea)
 
 | Skill | Cuándo |
 |---|---|
-| `add-bono` | Agregar un instrumento nuevo (tasa_fija / CER / soberano) al sistema. Cubre seed en `Trading.Curvas` + registro en `Valuaciones.Assets` + validación en motor + frontend. |
-| `add-endpoint` | Crear un endpoint REST end-to-end: service puro → router thin → proxy Next + RBAC + registro en el agente si corresponde. |
-| `add-job` | Crear un job batch/cron: patrón `JobRunLogger`, entrada en crontab, encadenamiento con `sync_api_copies`, índices. |
-| `debug-motor` | Playbook de troubleshooting para cualquier motor: status systemd, journalctl, queries a Mongo, recovery. |
+| `add-bono` | Agregar un instrumento nuevo (tasa_fija / CER / soberano). |
+| `add-endpoint` | Crear un endpoint REST end-to-end (service → router → proxy + RBAC). |
+| `add-job` | Crear un job batch/cron (`JobRunLogger`, crontab, índices). |
+| `debug-motor` | Troubleshooting de cualquier motor (systemd, journalctl, Mongo). |
+| `backfill-mes` | Rehacer el snapshot de AuM de un mes (delete + backfill + fix precios). |
+
+## Agents (subagentes — corren en contexto limpio)
+
+| Agent | Cuándo |
+|---|---|
+| `pre-deploy-check` | Validaciones pre-deploy (imports + ruff + perf_scan + tests) → veredicto GO / NO-GO. |
+
+## Hooks (definidos en `.claude/settings.json`, scripts en `.claude/hooks/`)
+
+| Hook | Qué hace |
+|---|---|
+| PreToolUse · `git push` | `check_imports.sh` — corre `from api.main import app` y **BLOQUEA** el push si no importa (enforcement de la REGLA #1). |
+| PostToolUse · `Write\|Edit` | `ruff_check.sh` — `ruff check` sobre el `.py` editado, informativo (no bloquea). |
+
+## settings
+
+- `settings.json` — **versionado** (team-wide): permisos durables y seguros + los hooks.
+- `settings.local.json` — config personal por máquina (permisos auto-aprobados). Gitignoreado.
 
 ## Agregar nuevos
 
-- **Commands**: `.claude/commands/<nombre>.md` con frontmatter `description`. El cuerpo es el prompt que Claude ejecuta al invocar `/nombre`.
-- **Skills**: `.claude/skills/<nombre>.md` con frontmatter `name` + `description`. Cuerpo = instrucciones paso a paso que Claude sigue.
+- **Command**: `.claude/commands/<n>.md`, frontmatter `description`. Cuerpo = prompt.
+- **Skill**: `.claude/skills/<n>.md`, frontmatter `name` + `description`. Cuerpo = pasos.
+- **Agent**: `.claude/agents/<n>.md`, frontmatter `name` + `description` (+ `tools`, `model`).
+- **Hook**: editar `.claude/settings.json` → `hooks`; el script va en `.claude/hooks/`.
 
-Criterio para sumar: **solo si la fricción de no tenerlo es real** (workflows repetitivos con pasos fáciles de olvidar). 3-4 skills bien mantenidos > 10 mediocres.
-
-## No tracked
-
-`settings.local.json` tiene config personal por máquina (permisos auto-aprobados) y está en `.gitignore`.
+Criterio para sumar: **solo si la fricción de no tenerlo es real**. Pocos y
+bien mantenidos > muchos mediocres.

@@ -6,7 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → MongoDB Atlas M10 → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO), venv en `/root/TradingAV/venv`.
 
-**DBs Mongo**: `Trading` (Curvas, MarketSnapshot, SnapshotsCierre, OrderBookL2, TimeSales, DOLAR), `Valuaciones` (Assets, AuM, DolarOficialLive), `CashFlow` (Contrapartes, Productores, NegocioMovimientos), `Manager` (Users, RoleMatrix, RoleAudit), `CuentasAPI` (AccionistasAPI, ContrapartesAPI — copias derivadas), `MCP` (OAuth codes/tokens, TTL automático).
+**DBs Mongo**: `Trading` (Curvas, MarketSnapshot, SnapshotsCierre, OrderBookL2, TimeSales, DOLAR), `Valuaciones` (Assets, AuM, DolarOficialLive, PnLTotalesCache, ConsolidadoCuentas), `CashFlow` (Contrapartes, Productores, NegocioMovimientos), `Manager` (Users, RoleMatrix, RoleAudit), `CuentasAPI` (AccionistasAPI, ContrapartesAPI — copias derivadas), `MCP` (OAuth codes/tokens, TTL automático).
+
+## Contexto por subdirectorio
+
+Cada carpeta grande tiene su propio `CLAUDE.md` con lo que aplica SOLO ahí —
+se carga automáticamente al trabajar en esa carpeta. Este archivo (raíz)
+tiene lo que aplica a todo el repo.
+
+- **`api/CLAUDE.md`** — ⚠️ REGLA #1 (validar imports), RBAC, services `@cached`, filtros de cuenta, live fallback, motor de PnL.
+- **`engines/CLAUDE.md`** — patrón de escritura a `MarketSnapshot`, Atlas / motores stale.
+- **`jobs/CLAUDE.md`** — filtros de exclusión del AuM, encadenado `sync_api_copies`.
+- **`scripts/CLAUDE.md`** — REGLA #0 aplicada, patrón de backfill multi-mes.
 
 ## ⚠️ REGLA #0 — Cómo entregar trabajo al usuario (LEER PRIMERO)
 
@@ -18,30 +29,16 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → MongoDB Atlas M10 �
 - **Excepción mínima**: si es UNA sola línea trivial (`systemctl status x`, `tail logs`), se puede pasar inline — pero el default es siempre script.
 - **Cero "probá esto, si no andá probá esto otro"**. Una solución por vez, comiteada al repo.
 
-## ⚠️ REGLA #1 — VALIDAR IMPORTS antes de pushear router/service (LEER PRIMERO)
-
-**Bloqueante. No opcional.** Un import error en CUALQUIER router/service montado en `api/main.py` tumba **TODA** la API (no solo el módulo nuevo) porque `api.service` corre como un proceso único. Cuando el user hace `git pull && systemctl restart api.service` el proceso queda en `failed` state y toda la web devuelve 502 — renta-fija, derivados, operaciones, todo cae.
-
-**Antes de `git push` de cualquier cambio que toque `api/routers/*`, `api/services/*`, `api/main.py`, `api/deps.py`, `api/db.py`, `api/auth.py`, `core/roles.py` o cualquier import-chain de `api/main.py`**, ejecutar localmente:
-
-```bash
-python -c "from api.main import app; print(len(app.routes), 'routes OK')"
-```
-
-Si tira ImportError / AttributeError / NameError, NO pushear. Fixar primero.
-
-Ruff y typecheck NO capturan esto — son análisis estáticos. Solo importar realmente el módulo detecta `from X import Y` cuando Y vive en otro módulo (lo más común). Caso real (2026-05-12): pusheé `from core.roles import require_module` cuando vive en `api.auth` — caída total de la API por un solo símbolo mal importado.
-
 ## Reglas que rompen todo si se olvidan
 
 - **`python -m <módulo>` desde la raíz siempre**. `python engines/x.py` falla (`core` no es discoverable).
 - **Nunca `client.close()` sobre los Mongo singletons** — mata el pool. Son 2: `core.mongo.get_mongo_client()` (rw, motores/crons) y `get_mongo_client_read()` (ro, `SECONDARY_PREFERRED`, usado por la API).
-- **Atlas pausado 04:00–11:20 UTC diario** (ahorro). Durante la ventana la API devuelve error de conexión — no es bug. **Cuidado con deploys post-cierre**: motores que quedan corriendo a través de la pausa sirven snapshots stale al día siguiente. Triage rápido: `Active: since` en cada motor (skill `/motor-status`).
 - **Regla de capas**: `core/` no importa nada del proyecto. `engines/` y `jobs/` usan `core/` + `quant/`. `api/services/` es puro (sin FastAPI), `api/routers/` solo HTTP plumbing.
-- **Services con `@cached` siempre se invocan con kwargs desde routers**. El wrapper de cache genera el cache key por nombre de argumento → posicional revienta con `TypeError` en el wrapper. `await get_X(123)` ❌; `await get_X(id=123)` ✓. Incidente 2026-05-12 (commit `4e4428a`).
-- **RBAC**: código nuevo usa `require_module(m)`, no `require_manager` (alias legacy).
 - **Commits**: estilo `feat/fix/docs/refactor(scope): mensaje` en español, como el `git log`.
 - **Constantes globales y feature flags** viven en `config.py` (raíz): `TICKERS_EXTRA_PRECIOS`, `TICKERS_BOOK_FULL`, etc. Env vars en `.env` local / systemd unit files en el Droplet (`MANAGER_EMAILS`, `DEFAULT_ROLE`, `MCP_*`, `MONGO_URI`).
+
+> Validar imports antes de pushear router/service (REGLA #1) y la regla de
+> services `@cached` → ver `api/CLAUDE.md`.
 
 ## Estructura
 
@@ -56,7 +53,7 @@ api/agent/   # asistente tool-use (LEGACY, no en uso — ver sección "Asistente
 api/mcp/     # MCP server (FastMCP) + OAuth 2.1 provider + discovery
 scripts/     # one-shot / migraciones / smoke
 deploy/      # systemd + crontab.txt (fuente de verdad)
-.claude/     # commands (/deploy /motor-status /perf) + skills (add-bono add-endpoint add-job debug-motor)
+.claude/     # settings.json + hooks + commands + skills + agents (ver .claude/INDEX.md)
 docs/        # API.md, API_MIGRATIONS.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md (wip_*.md = scratch, no canónico)
 ```
 
@@ -77,7 +74,7 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest en cada push. Setup: 
 
 ## Frontend en repo hermano
 
-`../acaquant-web/` (Next.js 15, deploy auto a Vercel sobre `main`). **No es submodule** — es checkout paralelo. Cambios de API con impacto en UI se editan ahí con rutas absolutas (`C:\...\acaquant-web\...`). Las routes de Next que consumen endpoints "live fallback" necesitan `dynamic = "force-dynamic"` + `revalidate = 0` + `Cache-Control: no-store` (ver sección "live fallback" más abajo).
+`../acaquant-web/` (Next.js 15, deploy auto a Vercel sobre `main`). **No es submodule** — es checkout paralelo. Cambios de API con impacto en UI se editan ahí con rutas absolutas (`C:\...\acaquant-web\...`). Las routes de Next que consumen endpoints "live fallback" necesitan `dynamic = "force-dynamic"` + `revalidate = 0` + `Cache-Control: no-store` (ver `api/CLAUDE.md`).
 
 ## Trading.Curvas — shape de flujos (CRÍTICO, no inferible)
 
@@ -88,24 +85,6 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest en cada push. Setup: 
 Agregar instrumento: doc en `Trading.Curvas` + doc en `Valuaciones.Assets` con `TICKER == ticker_corto`. Sin el segundo no aparece en AuM/Portfolios.
 
 `config.TICKERS_EXTRA_PRECIOS`: tickers que `motor_rofex` suscribe pero `motor_curvas` ignora. Default `['MERV - XMEV - AL30C - 24hs']` para `/api/analitica/canje`.
-
-## RBAC
-
-Cloudflare Access = quién entra. `core/roles.py` = qué ve.
-
-Módulos canónicos (`core/roles.py::MODULES`): `home, renta-fija, derivados, renta-variable, estrategia, operar, operaciones, portfolios, asistente, manager`.
-
-| Módulo | admin | trader | sales |
-|---|---|---|---|
-| home / renta-fija / derivados / renta-variable / estrategia / operar | ✓ | ✓ | ✓ |
-| operaciones / portfolios / asistente | ✓ | ✓ | – |
-| manager | ✓ | – | – |
-
-`renta-variable` (Scanner CEDEARs sobre `Trading.CedearsSnapshot` + `Trading.PreciosAcciones`) está abierto a los 3 roles desde 2026-05-13 (Smart Money deprecated; el módulo solo expone el Scanner que es read-only y operativo para la mesa). Agregar módulo nuevo requiere: (1) sumar el string a `MODULES`, (2) actualizar `ENDPOINT_MODULE_PREFIXES` en `api/auth.py`, (3) editar la matriz en `Manager.RoleMatrix` (o `DEFAULT_MATRIX`).
-
-Colecciones `Manager.{Users, RoleMatrix, RoleAudit}`. Helpers: `get_user_role`, `has_access`, `require_module(m)` (dependency). Cache TTL 60s → `invalidate_cache()` post-mutación. Matriz editable desde `/manager → ROLES Y PERMISOS`.
-
-`GET /api/me` → `{email, role, modules, is_admin}`. Lo consume el frontend para filtrar nav + `src/proxy.ts` para redirects. Fallback: `MANAGER_EMAILS` env (legacy) → `DEFAULT_ROLE="sales"`.
 
 ## Fórmulas no inferibles
 
@@ -151,58 +130,3 @@ Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `syste
 Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.aum` (23 L-V), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `MarketSnapshot` y persiste cierre por bono en `Trading.SnapshotsCierre`), `jobs.negocio_movimientos` (cada hora 15-22 UTC L-V, pega a Aunesa `consolidadosGenerales`, parsea/categoriza/agrupa por boleto y persiste idempotente en `CashFlow.NegocioMovimientos` para la vista `/operaciones/negocio`).
 
 Dólar oficial: única fuente live es `Valuaciones.DolarOficialLive` (feed MAE mayorista UST$T plazo 000, script local en PC oficina). Histórico/anchors (7d/MTD/YTD del watchlist `/argy`) deshabilitado hasta que MAE acumule histórico suficiente. Para series macro (`serie_macro` con `dolar_oficial`/`dolar_mayorista`) usar `Trading.DOLAR` (BCRA A3500 fixing diario).
-
-## Patrón de escritura a `Trading.MarketSnapshot`
-
-Dos motores escriben a `MarketSnapshot` con `$set` parcial sin pisarse:
-- `engines/valores.py` (motor_rofex) → `book.bids/offers`, `metrics.{last_price, open_price, high_price, low_price, closing_price, vwap, total_nominals}`, `updated_at`. Refresh 1s.
-- `engines/curvas.py` (motor_curvas) → `metrics.{TEA, TEM, duration, mod_duration, convexity, paridad}`. Refresh 5s.
-
-Cada uno escribe SOLO sus campos via `UpdateOne($set: dot-notation, upsert=True)`. **No usar `ReplaceOne`** — pisa los campos del otro motor. El doc no tiene `top_trades` ni `recent_trades` (eran payload muerto, removidos).
-
-## Motor de Valuaciones (PnL Títulos)
-
-Doc dedicado: **`docs/MOTOR_VALUACIONES.md`** — leer antes de tocar `api/services/pnl.py`.
-
-`/aum → VALUACIONES → PNL TÍTULOS` calcula PnL por (cuenta, ticker) con cost-basis weighted-average. Tres KPIs separados: realizado / no-realizado / pasivo (cupones+divs+amorts). Endpoint `GET /api/portfolio/pnl?id_cuenta=X`.
-
-**Reglas críticas:**
-- `pnl_no_realizado = valor_aum − costo_remanente`. NO usar `qty × precio_actual` — el precio del AuM viene en paridad cruda (sin /100 para bonos).
-- Mapping `unidad ↔ ticker` viene de `Valuaciones.Assets` UPPERCASE (campo `TICKER`), no de regex sobre la unidad.
-- Cada boleto en `NegocioMovimientos` tiene `mep` snapshot inmutable. Pesificación = `importe × b.mep`. Fallback a `_mep.get_mep_for_date()` solo si `mep=null`.
-- Categorías de boleto que entran al cost-basis: `compra, venta, suscripcion_fci, rescate_fci, acreencia`. `comision` (avales/custodia) se ignora — el `importe` ya viene neto.
-- "Licitación" del primario se categoriza como `compra` (`aunesa_negocio.py::categorizar` con `_normalizar` que saca tildes).
-
-## Filtros de exclusión del AuM
-
-`jobs/_aum_filters.py` define qué se excluye al persistir el snapshot diario:
-
-1. `unidad == "USDL"` (cash USD link).
-2. `cuenta` o `unidad` con `OTC` o `CDC` (case-insensitive substring).
-3. `id_cuenta` ∈ `CuentasAPI.ContrapartesAPI.id_cuenta` (FCI / sociedades gerentes — match por id no por nombre, formatos difieren).
-4. `cuenta` contiene como palabra completa un nombre de `CashFlow.Contrapartes.contraparte` (ADCAP, LOMBARD, etc. — `\bNOMBRE\b` case-insensitive). Cubre cuentas que se escapan de la regla 3.
-5. `unidad == "ARS"` para `[100]` y `[101]` (cash de cuentas propias).
-
-Aplica al cron diario (`jobs/aum.py`) y al cleanup retroactivo (`scripts/cleanup_aum_excluidos.py`). Las reglas 3 y 4 viven en BD — el equipo edita Contrapartes y se respeta solo en el próximo run.
-
-**Cuenta 255 (ACA Valores Intermediación)** además se excluye SOLO de la **vista** AuM (no de la persistencia) — `_EXCLUDED_FROM_AUM_VIEW = {"255"}` en `api/services/portfolio.py`. La cuenta sigue capturándose para verla individualmente en `/aum → VALUACIONES`.
-
-## Filtros de cuenta en endpoints
-
-`api/services/_cuentas_filter.py::match_cuenta_filter(filtro)` devuelve sub-doc `$match` para filtrar pipelines Mongo por tipo:
-- `todas`, `accionistas` (∈ `CuentasAPI.AccionistasAPI`), `sin_accionistas`, `cooperativas` (∉ accionistas + regex `\bcoop`), `productores` (∈ `CashFlow.Productores`).
-
-Lo usan operaciones (vista negocio) y portfolio (AuM por cartera, FCI, total, diff). VALID_FILTERS único — sumar tipos nuevos en un solo lugar.
-
-## Patrón "live fallback" (cierre persistido + live de hoy)
-
-Endpoints que sirven data agregada del cierre diario y aceptan `fecha` como input deben leer `Trading.SnapshotsCierre` primero y, si no hay doc para hoy (cron `jobs.snapshot_cierre` corre 20:25 UTC), caer a `Trading.MarketSnapshot.metrics`. Mismos campos, mismo shape.
-
-Sin esto, durante horario de mercado las vistas se quedan en el cierre del día anterior hábil hasta que el cron corra a las 17:25 ART. Con esto, `fecha=hoy` siempre devuelve datos vigentes.
-
-Implementado en:
-- `api/services/analitica.py::snapshot_curva_historico` — fallback para `fecha=today`.
-- `api/services/renta_fija.py::get_historico_curva` — agrega fila por ticker desde MarketSnapshot si hoy no está en SnapshotsCierre.
-- `api/services/carry_trade.py::_precios_diarios_curva` — helper `_precios_live_curva` para el último punto.
-
-Si en el futuro se agregan endpoints similares (canje, breakevens, forwards diarios), aplicar el mismo patrón. **Frontend complementa**: las routes de Next que sirven estos endpoints necesitan `export const dynamic = "force-dynamic"` + `revalidate = 0` + `Cache-Control: no-store` para que el CDN de Vercel no cachee la respuesta y borre el "hoy" live.

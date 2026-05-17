@@ -514,6 +514,10 @@ def get_retorno_total_data(curva: str) -> dict:
       - `mep` / `oficial`: serie diaria del dólar (último valor del día),
         SOLO para curvas en pesos (`tasa_fija`, `cer`). Para `soberanos`
         los precios ya están en USD → ambas series vuelven vacías.
+      - `flujos`: calendario de cupones/amortizaciones por ticker, en cash
+        real por 100 de VN — para que el frontend calcule RETORNO TOTAL
+        (precio + cobros), no solo variación de precio. Ver
+        `_calendario_flujos`.
 
     El cálculo de retornos se hace 100% en el frontend (una sola fuente
     de la lógica, antes duplicada entre retorno-total y carry-trade).
@@ -523,7 +527,7 @@ def get_retorno_total_data(curva: str) -> dict:
     endpoint — no el resto de la API.
     """
     rows = get_historico_curva(curva=curva)
-    out: dict = {"curva": curva, "rows": rows, "mep": {}, "oficial": {}}
+    out: dict = {"curva": curva, "rows": rows, "mep": {}, "oficial": {}, "flujos": {}}
     if curva in ("tasa_fija", "cer") and rows:
         from api.db import get_db_valuaciones
         from api.services.carry_trade import (
@@ -544,4 +548,75 @@ def get_retorno_total_data(curva: str) -> dict:
                 f.isoformat(): round(v, 4)
                 for f, v in _serie_oficial_diaria(db_trd, desde, hasta).items()
             }
+    if rows:
+        out["flujos"] = _calendario_flujos(curva)
+    return out
+
+
+def _calendario_flujos(curva: str) -> dict[str, list[dict]]:
+    """Calendario de flujos por ticker: `{ticker_corto: [{fecha, monto}]}`.
+
+    `monto` = cash real cobrado por cada 100 de VN, en la MISMA escala que
+    el precio de mercado de la vista:
+      - `tasa_fija`: amortización + interés (absolutos).
+      - `cer`: (amort% + cupón) CER-ajustado a la fecha de pago — se
+        multiplica por `CER_liquidación / cer_emisión`. El precio de
+        mercado de un bono CER ya viene CER-ajustado, así que el cobro
+        también tiene que estarlo (sin esto un bono que amortiza muestra
+        una "pérdida" fake porque el precio cae al devolver capital).
+      - `soberanos`: amortización + cupón en USD.
+
+    Flujos CER sin CER de liquidación disponible (futuros, o más viejos
+    que la ventana de `Trading.DiasHabiles`) se omiten — no entran a
+    ningún rango comparable de la vista.
+    """
+    from engines.curvas import (
+        cargar_cer,
+        cargar_dias_habiles,
+        fecha_flujo,
+        get_cer_liquidacion,
+        monto_flujo,
+        monto_flujo_cer,
+        monto_flujo_soberano,
+    )
+
+    db = get_db_trading()
+    docs = list(db["Curvas"].find(
+        {"curva": curva},
+        {"_id": 0, "ticker_corto": 1, "ticker": 1, "flujos": 1, "cer_emision": 1},
+    ))
+
+    cer_dict: dict = {}
+    dias_habiles: list = []
+    if curva == "cer":
+        cer_dict = cargar_cer(db.client, dias=1200)
+        dias_habiles = cargar_dias_habiles(db.client)
+
+    out: dict[str, list[dict]] = {}
+    for d in docs:
+        tk = d.get("ticker_corto") or d.get("ticker")
+        if not tk:
+            continue
+        cer_emision = d.get("cer_emision")
+        cal: list[dict] = []
+        for f in d.get("flujos") or []:
+            fd = fecha_flujo(f)
+            if not fd:
+                continue
+            if curva == "tasa_fija":
+                monto = monto_flujo(f)
+            elif curva == "soberanos":
+                monto = monto_flujo_soberano(f, 100)
+            else:  # cer
+                if not cer_emision:
+                    continue
+                cer_liq = get_cer_liquidacion(cer_dict, dias_habiles, fd.isoformat())
+                if not cer_liq:
+                    continue
+                monto = monto_flujo_cer(f, 100) * cer_liq / float(cer_emision)
+            if monto and monto > 0:
+                cal.append({"fecha": fd.isoformat(), "monto": round(monto, 6)})
+        if cal:
+            cal.sort(key=lambda x: x["fecha"])
+            out[tk] = cal
     return out

@@ -69,19 +69,23 @@ directo), `--cuenta` no pega a `listadoCuentas` (daba 400),
 - **Junio 2025**: backfilleado (3395 registros), 9 cuentas timeout
   (`101,106,108,110,163,170,176,194,255`). FALTA re-correr el fix de
   precios de junio con `precios_3006.json` (ya corregido).
-- **backfill_2025** (jul-dic): lanzado con `nohup`. Verificar
-  `backfill_2025.log`.
+- **backfill_2025** (jul-dic): ✅ verificado OK.
 - **backfill_2026** (ene-feb-mar): ✅ verificado OK 2026-05-16
-  (`OK: ['2026-01-31','2026-02-28','2026-03-31']`, 0 cuentas con error
-  en marzo). FALTA correr el fix de precios de marzo (`precios_3103.json`).
+  (`OK: ['2026-01-31','2026-02-28','2026-03-31']`). FALTA correr el fix
+  de precios de marzo (`precios_3103.json`).
+- **Retry cuentas timeout** (`retry_cuentas_error.py`, jul-oct 2025):
+  ✅ corrido 2026-05-17 — los 4 meses con `backfill rc=0, fix rc=0`,
+  cuenta 106 entró. `docs/cuentas_con_error.json` quedó vacío → **0
+  cuentas con error en todo el rango jul/2025 → mar/2026**.
+  Nota: el fix de precios de cuenta 106 (oct) no corrigió nada — sus 10
+  posiciones son futuros ROFEX agro (`MAI/SOJ/TRI .ROS`) que no están en
+  `precios_3110.json`. Pendiente decidir si los futuros ROFEX van al fix.
 
 ## PENDIENTE para retomar
 
-1. Verificar que `backfill_2025` y `backfill_2026` terminaron OK
-   (`backfill_*.log` → línea `OK: [...]`).
-2. Reintentar las cuentas de `docs/cuentas_con_error.json` (timeouts):
-   `aum_backfill <fecha> --cuenta <ids> --workers 1 --timeout 360 --retries 5`
-   y después `fix_precios_aum --cuenta <ids>`.
+1. ✅ HECHO (2026-05-17) — `backfill_2025` y `backfill_2026` verificados OK.
+2. ✅ HECHO (2026-05-17) — cuentas timeout reintentadas con
+   `retry_cuentas_error.py`; `docs/cuentas_con_error.json` quedó vacío.
 3. Re-correr el fix de precios de junio (`precios_3006.json` corregido).
 4. **Marzo / abril / mayo**: revisar el descalce y los precios. Marzo
    tiene snapshots DIARIOS (no mensual puro).

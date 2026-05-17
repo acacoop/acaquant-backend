@@ -20,6 +20,7 @@ Dos enfoques convivientes:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date as _date
 from typing import Any
 
@@ -135,7 +136,7 @@ def posiciones_cuenta(id_cuenta: str, hasta: str | None = None) -> dict[str, Any
 
     # 1. Boletos relevantes — solo categorías que mueven cost basis.
     match: dict[str, Any] = {
-        "cuenta":    {"$regex": f"^\\[{id_cuenta}\\]"},
+        "cuenta":    {"$regex": f"^\\[{re.escape(str(id_cuenta))}\\]"},
         "categoria": {"$in": _CAT_ALL},
         "ticker":    {"$ne": None},
     }
@@ -444,7 +445,7 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     # antes de sumar al bucket de su mes.
     movimientos_raw = list(db_cf["NegocioMovimientos"].find(
         {
-            "cuenta":    {"$regex": f"^\\[{id_cuenta}\\]"},
+            "cuenta":    {"$regex": f"^\\[{re.escape(str(id_cuenta))}\\]"},
             "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
         },
         {"_id": 0, "fecha": 1, "categoria": 1, "importe": 1, "moneda": 1},
@@ -739,7 +740,7 @@ def valuacion_mensual_debug(id_cuenta: str) -> dict[str, Any]:
     # poder mostrarlo en la UI de debug.
     movimientos_raw = list(db_cf["NegocioMovimientos"].find(
         {
-            "cuenta":    {"$regex": f"^\\[{id_cuenta}\\]"},
+            "cuenta":    {"$regex": f"^\\[{re.escape(str(id_cuenta))}\\]"},
             "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
         },
         {"_id": 0, "fecha": 1, "categoria": 1, "importe": 1, "moneda": 1,
@@ -1411,7 +1412,7 @@ def movimientos_mes(id_cuenta: str, fecha_anchor: str) -> dict[str, Any]:
     # Match: cuenta por prefijo numérico, fecha contiene el mes target,
     # categoria entre los flujos externos.
     match = {
-        "cuenta":    {"$regex": f"^\[{id_cuenta}\]"},
+        "cuenta":    {"$regex": f"^\\[{re.escape(str(id_cuenta))}\\]"},
         "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
         "fecha":     {"$regex": f"^{mes}"},
     }

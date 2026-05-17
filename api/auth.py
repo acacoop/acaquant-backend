@@ -141,11 +141,16 @@ def get_user_email(
                 )
 
             # Rama 3: JWT válido pero no user ni service conocido.
-            if forwarded_email or cf_email:
-                logger.info("JWT válido sin email claim, usando header (cn=%s)", common_name)
-                return str(forwarded_email or cf_email).lower().strip()
-
-            logger.warning("JWT válido pero sin email claim ni header fallback")
+            # Rama 3: JWT válido pero sin email claim y sin service token
+            # conocido. NO se confía en forwarded_email/cf_email acá: la
+            # identidad del JWT no se verificó como user ni como service
+            # registrado, así que el header de email es spoofeable — un
+            # JWT válido cualquiera del AUD + `x-acaquant-user-email`
+            # forjado escalaría a la identidad que quiera. Fail-closed → anon.
+            logger.warning(
+                "JWT válido sin email claim ni service conocido (cn=%r) — anon",
+                common_name,
+            )
             return "anon"
 
     # Sin JWT: modo dev o request sin CF Access activo

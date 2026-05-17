@@ -306,7 +306,7 @@ def _pnl_por_cuenta_core(
     else:
         boletos = list(db_cf["NegocioMovimientos"].find(
             {
-                "cuenta":    {"$regex": f"^\\[{id_cuenta}\\]"},
+                "cuenta":    {"$regex": f"^\\[{re.escape(str(id_cuenta))}\\]"},
                 "categoria": {"$in": list(_CATS_RELEVANTES)},
                 "ticker":    {"$ne": None},
             },

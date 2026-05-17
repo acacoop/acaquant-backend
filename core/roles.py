@@ -83,6 +83,11 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
 # a nadie sin vista; el admin puede reasignar desde el panel.
 DEFAULT_ROLE = "sales"
 
+# Role para identidades NO autenticadas (anon / token de máquina sin user).
+# No está en ninguna matriz → `has_access` lo trata fail-closed (0 módulos).
+# NO usar DEFAULT_ROLE para esto: `sales` incluye `operar`.
+_NO_ACCESS_ROLE = "none"
+
 
 # ─────────────────────────────────────────────────────────────
 # Cache in-memory (TTL 60s)
@@ -286,11 +291,16 @@ def get_user_role(email: str) -> str:
       frontend), 2281cf5 (rollback temporal mientras Vercel deployaba).
     """
     if not email:
-        return DEFAULT_ROLE
+        return _NO_ACCESS_ROLE
     email_norm = email.lower().strip()
 
+    # Identidad NO autenticada (anon / vacío / token de máquina sin user):
+    # role SIN módulos — fail-closed real. DEFAULT_ROLE (sales) NO va acá:
+    # incluye `operar` (envío de órdenes), y dárselo a una identidad no
+    # autenticada es escalada de privilegios. Una integración de máquina
+    # que necesite acceso se registra explícita en Manager.Users.
     if email_norm in ("anon", "") or email_norm.startswith("service:"):
-        return DEFAULT_ROLE
+        return _NO_ACCESS_ROLE
 
     now = time.time()
     with _cache_lock:

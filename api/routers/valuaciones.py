@@ -25,6 +25,25 @@ def _validate_id_cuenta(id_cuenta: str) -> None:
         raise HTTPException(400, f"id_cuenta inválida: {id_cuenta!r}")
 
 
+@router.get("/consolidado")
+def get_consolidado(
+    filtro_cuenta: str = Query(
+        "todas",
+        description="todas | accionistas | sin_accionistas | cooperativas | productores",
+    ),
+):
+    """Una fila por cuenta: valor, base 100, PnL acum, TEM, TEA (ARS y USD).
+
+    Reusa el cálculo de la tabla MENSUAL de PORTAFOLIO, consolidado para
+    comparar carteras entre sí. Cacheado — el primer load puede tardar.
+    """
+    try:
+        return svc.valuacion_consolidada(filtro_cuenta=filtro_cuenta)
+    except Exception as e:
+        logger.exception("valuaciones consolidado failed: filtro=%s", filtro_cuenta)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/{id_cuenta}/serie")
 def get_serie(
     id_cuenta: str,

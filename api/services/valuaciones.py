@@ -1475,3 +1475,72 @@ def movimientos_mes(id_cuenta: str, fecha_anchor: str) -> dict[str, Any]:
         "total_extracciones": round(total_ext_ars, 2),
         "total_neto":        round(total_neto_ars, 2),
     }
+
+
+@cached(ttl=600)
+def valuacion_consolidada(filtro_cuenta: str = "todas") -> dict[str, Any]:
+    """Una fila por cuenta con su estado de valuación más reciente.
+
+    REUSA `valuacion_mensual` sin modificarla: por cada cuenta del último
+    snapshot de AuM toma el mes más reciente (valor de cierre, twr_base100,
+    TEM, TEA) y el PnL acumulado (Σ delta_real de TODOS los meses) — en ARS
+    y en USD. Es exactamente la data de la tabla MENSUAL de la vista
+    PORTAFOLIO, consolidada en una fila por cuenta para comparar carteras.
+
+    `filtro_cuenta`: "todas" | "accionistas" | "sin_accionistas" |
+    "cooperativas" | "productores" (ver `_cuentas_filter`).
+
+    Cacheado 10 min: recorre N cuentas llamando `valuacion_mensual` (pesado),
+    y los datos de AuM se actualizan 1×/día por el cron de todos modos.
+    """
+    from api.services._cuentas_filter import match_cuenta_filter
+    from api.services.portfolio import listar_cuentas
+
+    cuentas = listar_cuentas()
+    if filtro_cuenta and filtro_cuenta != "todas":
+        sub = match_cuenta_filter(filtro_cuenta)
+        if sub:
+            db_val = get_db_valuaciones()
+            last = db_val["AuM"].find_one(
+                {}, {"_id": 0, "fecha_snapshot": 1},
+                sort=[("fecha_snapshot", -1)],
+            )
+            ids = set()
+            if last:
+                ids = set(db_val["AuM"].distinct(
+                    "id_cuenta",
+                    {**sub, "fecha_snapshot": last["fecha_snapshot"]},
+                ))
+            cuentas = [c for c in cuentas if c.get("id_cuenta") in ids]
+
+    rows: list[dict[str, Any]] = []
+    for c in cuentas:
+        id_cta = c.get("id_cuenta")
+        if id_cta is None:
+            continue
+        try:
+            m = valuacion_mensual(id_cuenta=str(id_cta))
+        except Exception:
+            continue
+        meses = m.get("meses") or []
+        if not meses:
+            continue
+        ult = meses[0]   # `meses` viene descendente → [0] es el más reciente
+        pnl_ars = sum(float(x.get("delta_real") or 0) for x in meses)
+        pnl_usd = sum(float(x.get("delta_real_usd") or 0) for x in meses)
+        rows.append({
+            "cuenta":       c.get("cuenta") or "",
+            "id_cuenta":    id_cta,
+            "ultimo_dia":   ult.get("ultimo_dia"),
+            "valor_ars":    round(float(ult.get("valuacion_cierre") or 0), 2),
+            "valor_usd":    round(float(ult.get("valuacion_cierre_usd") or 0), 2),
+            "base100_ars":  ult.get("twr_base100"),
+            "base100_usd":  ult.get("twr_base100_usd"),
+            "pnl_acum_ars": round(pnl_ars, 2),
+            "pnl_acum_usd": round(pnl_usd, 2),
+            "tem_ars":      ult.get("tem_periodo"),
+            "tem_usd":      ult.get("tem_periodo_usd"),
+            "tea_ars":      ult.get("tea_mensual"),
+            "tea_usd":      ult.get("tea_mensual_usd"),
+        })
+    return {"rows": rows, "n": len(rows), "filtro_cuenta": filtro_cuenta}

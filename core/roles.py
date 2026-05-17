@@ -68,13 +68,16 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "admin":  MODULES,  # todo
     "trader": (
         "home", "renta-fija", "derivados", "renta-variable", "estrategia",
-        "operar", "operaciones", "portfolios", "asistente",
+        "operaciones", "portfolios", "asistente",
     ),
     "sales":  (
         "home", "renta-fija", "derivados", "renta-variable", "estrategia",
-        "operar",  # sales puede operar pero NO ver la mesa de flujos
     ),
 }
+# `operar` (DOLAR MEP + envío de órdenes) queda SOLO para admin de momento
+# — decisión 2026-05-17. Si Manager.RoleMatrix ya está poblada, además hay
+# que sacarlo de trader/sales desde /manager → ROLES Y PERMISOS (la DB pisa
+# este default).
 # renta-variable: habilitado para todos los roles (2026-05-13). Smart Money
 # se eliminó del producto, el módulo ahora hospeda el Scanner de CEDEARs.
 

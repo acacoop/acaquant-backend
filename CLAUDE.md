@@ -46,10 +46,10 @@ Ruff y typecheck NO capturan esto — son análisis estáticos. Solo importar re
 ## Estructura
 
 ```
-core/        # infra (mongo, websocket, rofex_session, roles, byma, mae, finnhub, yahoo)
-engines/     # motores WS → Mongo (always-on L-V 13-20 UTC)
+core/        # infra (mongo, mongo_monitor, websocket, rofex_session, rofex_orders_session, roles, snapshot_writer, job_runs, profiler, byma, mae, cafci, finnhub, yahoo, openfigi, argentina_datos, dolar_oficial)
+engines/     # motores WS → Mongo (always-on L-V 13-20 UTC) — incluye motor_cedears (alimenta Scanner CEDEARs)
 jobs/        # batch/cron — incluye precios_acciones_daily (alimenta scanner via Trading.PreciosAcciones TS)
-quant/       # cálculo puro (black_scholes, stats)
+quant/       # cálculo puro (black_scholes, stats, curve_fit, pivot_points, rolling_stats)
 api/services # lógica pura (invocada por routers y por el agente)
 api/routers  # thin HTTP wrappers. manager/ es paquete de sub-routers
 api/agent/   # asistente tool-use (LEGACY, no en uso — ver sección "Asistente")
@@ -67,7 +67,7 @@ uvicorn api.main:app --reload --port 8000
 python -m engines.<motor> | jobs.<job> | scripts.<cmd>
 python -m scripts.api_migrate <cmd>            # resync colecciones *API.*API
 ruff check . [--fix]                           # line-length=100, py312
-pytest -ra                                     # unit (default: -m 'not integration')
+pytest -ra                                     # unit (pyproject ya excluye integration via addopts)
 pytest tests/<path>::<test_name>               # single test
 pytest -m integration                          # integration (requiere Atlas up)
 python -m scripts.perf_scan [--strict]         # anti-patterns Mongo

@@ -23,9 +23,15 @@ def main() -> None:
             rows = r.get("rows", [])
             mep = r.get("mep", {})
             ofi = r.get("oficial", {})
+            flujos = r.get("flujos", {})
+            n_cobros = sum(len(v) for v in flujos.values())
             print(f"  OK — rows={len(rows)}  mep={len(mep)}  oficial={len(ofi)}")
+            print(f"  flujos: {len(flujos)} tickers, {n_cobros} cobros totales")
             if rows:
                 print(f"  primera fila: {rows[0]}")
+            for tk in ("TX26", "TX28"):
+                if tk in flujos:
+                    print(f"  flujos[{tk}] = {flujos[tk]}")
         except Exception:
             print("  >>> EXCEPCION:")
             traceback.print_exc()

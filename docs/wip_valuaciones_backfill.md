@@ -93,8 +93,9 @@ directo), `--cuenta` no pega a `listadoCuentas` (daba 400),
 6. Revisar "precios de hygirus" (instrumento mencionado por el usuario —
    confirmar cuál es y si su precio está mal).
 7. Decidir si el cron diario `jobs/aum.py` también pasa a `desde=fecha+1`.
-8. Bug abierto: 500 en Estrategia → Retorno Total — correr
-   `scripts.diag_retorno_total` y ver el traceback.
+8. ✅ HECHO (2026-05-17) — el 500 de Retorno Total era
+   `get_historico_curva(curva)` llamado posicional sobre un service
+   `@cached` (wrapper keyword-only). Fix: `curva=curva` (commit `746d8b6`).
 9. El `timestamp` de los docs de AuM es ficticio (derivado de la fecha
    del snapshot, no el real de Aunesa) — el usuario lo marcó como
    problema a revisar.

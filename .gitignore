@@ -22,3 +22,9 @@ exports/
 # CSVs en docs/ — usados para data sensible (backfill manual de AuM, etc.)
 # Nunca van al repo. Si querés versionar uno específico, forzar con `git add -f`.
 docs/*.csv
+
+# Excels de precios manuales (docs/<MMDD>.xlsx) — input local de fix_precios_aum.
+docs/*.xlsx
+
+# Material de lectura / PDFs sueltos — no van al repo.
+*.pdf

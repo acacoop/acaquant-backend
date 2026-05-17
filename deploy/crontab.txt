@@ -107,6 +107,12 @@
 0  21 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets >> /root/TradingAV/logs/sync_api.log 2>&1
 0  23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets >> /root/TradingAV/logs/sync_api.log 2>&1
 
+# ─── Consolidado por cuenta (23:30 UTC = 20:30 ART, L-V — post AuM final 23:00)
+# Precalcula TOTALES > POR CUENTA (valor + base 100 + PnL acum por cuenta,
+# ARS y USD) en Valuaciones.ConsolidadoCuentas. Recorrer las cuentas en vivo
+# desde el endpoint se pasa del timeout HTTP (502) → se precalcula offline.
+30 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.consolidado_cuentas >> /root/TradingAV/logs/consolidado_cuentas.log 2>&1
+
 # ─── Rollup diario de opciones (20:15 UTC = 17:15 ART, L-V)
 15 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.options_rollup >> /root/TradingAV/logs/options_rollup.log 2>&1
 

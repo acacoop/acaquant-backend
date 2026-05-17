@@ -1477,44 +1477,22 @@ def movimientos_mes(id_cuenta: str, fecha_anchor: str) -> dict[str, Any]:
     }
 
 
-@cached(ttl=600)
-def valuacion_consolidada(filtro_cuenta: str = "todas") -> dict[str, Any]:
-    """Una fila por cuenta con su estado de valuación más reciente.
+def construir_consolidado() -> list[dict[str, Any]]:
+    """Calcula la fila consolidada de CADA cuenta — operación pesada.
 
-    REUSA `valuacion_mensual` sin modificarla: por cada cuenta del último
-    snapshot de AuM toma el mes más reciente (valor de cierre, twr_base100,
-    TEM, TEA) y el PnL acumulado (Σ delta_real de TODOS los meses) — en ARS
-    y en USD. Es exactamente la data de la tabla MENSUAL de la vista
-    PORTAFOLIO, consolidada en una fila por cuenta para comparar carteras.
+    Recorre todas las cuentas del último snapshot de AuM llamando
+    `valuacion_mensual` (sin modificarla): toma el mes más reciente
+    (valor de cierre, twr_base100, TEM, TEA) y el PnL acumulado
+    (Σ delta_real de todos los meses), en ARS y USD.
 
-    `filtro_cuenta`: "todas" | "accionistas" | "sin_accionistas" |
-    "cooperativas" | "productores" (ver `_cuentas_filter`).
-
-    Cacheado 10 min: recorre N cuentas llamando `valuacion_mensual` (pesado),
-    y los datos de AuM se actualizan 1×/día por el cron de todos modos.
+    Lo corre el cron `jobs.consolidado_cuentas`, NO el endpoint — iterar
+    N cuentas en vivo se pasa del timeout HTTP (502). El job persiste el
+    resultado en `Valuaciones.ConsolidadoCuentas`.
     """
-    from api.services._cuentas_filter import match_cuenta_filter
     from api.services.portfolio import listar_cuentas
 
-    cuentas = listar_cuentas()
-    if filtro_cuenta and filtro_cuenta != "todas":
-        sub = match_cuenta_filter(filtro_cuenta)
-        if sub:
-            db_val = get_db_valuaciones()
-            last = db_val["AuM"].find_one(
-                {}, {"_id": 0, "fecha_snapshot": 1},
-                sort=[("fecha_snapshot", -1)],
-            )
-            ids = set()
-            if last:
-                ids = set(db_val["AuM"].distinct(
-                    "id_cuenta",
-                    {**sub, "fecha_snapshot": last["fecha_snapshot"]},
-                ))
-            cuentas = [c for c in cuentas if c.get("id_cuenta") in ids]
-
     rows: list[dict[str, Any]] = []
-    for c in cuentas:
+    for c in listar_cuentas():
         id_cta = c.get("id_cuenta")
         if id_cta is None:
             continue
@@ -1543,4 +1521,43 @@ def valuacion_consolidada(filtro_cuenta: str = "todas") -> dict[str, Any]:
             "tea_ars":      ult.get("tea_mensual"),
             "tea_usd":      ult.get("tea_mensual_usd"),
         })
-    return {"rows": rows, "n": len(rows), "filtro_cuenta": filtro_cuenta}
+    return rows
+
+
+@cached(ttl=300)
+def valuacion_consolidada(filtro_cuenta: str = "todas") -> dict[str, Any]:
+    """Una fila por cuenta: valor, base 100, PnL acum (ARS y USD).
+
+    LECTURA LIVIANA: lee `Valuaciones.ConsolidadoCuentas`, precalculada
+    offline por el cron `jobs.consolidado_cuentas` (el cálculo recorre N
+    cuentas → no entra en el timeout HTTP). Sólo aplica el filtro de tipo
+    de cuenta sobre lo ya calculado.
+
+    `filtro_cuenta`: "todas" | "accionistas" | "sin_accionistas" |
+    "cooperativas" | "productores" (ver `_cuentas_filter`).
+
+    Si la colección está vacía → `rows: []` (falta correr el job una vez).
+    """
+    from api.services._cuentas_filter import match_cuenta_filter
+
+    db_val = get_db_valuaciones()
+    docs = list(db_val["ConsolidadoCuentas"].find(
+        {}, {"_id": 0, "computed_at": 0},
+    ))
+
+    if filtro_cuenta and filtro_cuenta != "todas":
+        sub = match_cuenta_filter(filtro_cuenta)
+        if sub:
+            last = db_val["AuM"].find_one(
+                {}, {"_id": 0, "fecha_snapshot": 1},
+                sort=[("fecha_snapshot", -1)],
+            )
+            ids: set = set()
+            if last:
+                ids = set(db_val["AuM"].distinct(
+                    "id_cuenta",
+                    {**sub, "fecha_snapshot": last["fecha_snapshot"]},
+                ))
+            docs = [d for d in docs if d.get("id_cuenta") in ids]
+
+    return {"rows": docs, "n": len(docs), "filtro_cuenta": filtro_cuenta}

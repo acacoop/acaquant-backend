@@ -522,7 +522,7 @@ def get_retorno_total_data(curva: str) -> dict:
     la función a propósito: si ese import fallara, solo se cae este
     endpoint — no el resto de la API.
     """
-    rows = get_historico_curva(curva)
+    rows = get_historico_curva(curva=curva)
     out: dict = {"curva": curva, "rows": rows, "mep": {}, "oficial": {}}
     if curva in ("tasa_fija", "cer") and rows:
         from api.db import get_db_valuaciones

@@ -18,7 +18,7 @@ def fetch_y_guardar(nombre, id_variable, desde, hasta):
     params = {"desde": desde, "hasta": hasta}
 
     try:
-        res = requests.get(url, params=params)
+        res = requests.get(url, params=params, timeout=30)
         res.raise_for_status()
 
         resultados = res.json().get('results', [])

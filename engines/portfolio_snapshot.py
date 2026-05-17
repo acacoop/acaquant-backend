@@ -114,21 +114,25 @@ class PortfolioSnapshotEngine:
                 self.state[ticker] = s
                 self.tickers.add(ticker)
 
-        try:
-            last = data.get("LA")
-            if last:
-                px = _to_float(last)
-                if px is not None and px != s["last_price"]:
-                    s["last_price"] = px
-                    s["dirty"] = True
-            cl = data.get("CL")
-            if cl is not None:
-                px = _to_float(cl)
-                if px is not None and px != s["closing_price"]:
-                    s["closing_price"] = px
-                    s["dirty"] = True
-        except Exception:
-            logger.error("update_price error %s:\n%s", ticker, traceback.format_exc())
+            # Mutar s["last_price"/"closing_price"/"dirty"] DENTRO del lock:
+            # `_snapshot_loop` lee y resetea `dirty` desde otro thread — sin
+            # el lock se pierden ticks (lee dirty=True, lo resetea, mientras
+            # acá se está escribiendo un precio nuevo).
+            try:
+                last = data.get("LA")
+                if last:
+                    px = _to_float(last)
+                    if px is not None and px != s["last_price"]:
+                        s["last_price"] = px
+                        s["dirty"] = True
+                cl = data.get("CL")
+                if cl is not None:
+                    px = _to_float(cl)
+                    if px is not None and px != s["closing_price"]:
+                        s["closing_price"] = px
+                        s["dirty"] = True
+            except Exception:
+                logger.error("update_price error %s:\n%s", ticker, traceback.format_exc())
 
     # ── Suscripción de tickers nuevos ──────────────────────────────────
     def agregar_tickers(self, nuevos: list[str]) -> list[str]:

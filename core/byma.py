@@ -127,8 +127,11 @@ def _fetch_new_token() -> dict[str, Any]:
         raise BymaAuthError(f"no pude contactar token endpoint: {e}") from e
 
     if r.status_code != 200:
+        # No volcar r.text: el body de error del token endpoint puede
+        # reflejar credenciales, y esta excepción se persiste en
+        # Manager.JobRuns. Status code + endpoint alcanzan para diagnosticar.
         raise BymaAuthError(
-            f"token endpoint devolvió {r.status_code}: {r.text[:400]}"
+            f"token endpoint devolvió {r.status_code}"
         )
     try:
         data = r.json()
@@ -216,9 +219,9 @@ def _get_json(path: str, params: dict[str, Any] | None = None,
         invalidate_token()
         return _get_json(path, params=params, _retry_on_401=False)
     if r.status_code == 429:
-        raise BymaRateLimitError(f"429 en {path}: {r.text[:200]}")
+        raise BymaRateLimitError(f"429 en {path}")
     if r.status_code != 200:
-        raise BymaError(f"{r.status_code} en {path}: {r.text[:400]}")
+        raise BymaError(f"{r.status_code} en {path}")
 
     try:
         return r.json()
@@ -244,7 +247,7 @@ def _get_raw(path: str, params: dict[str, Any] | None = None,
         invalidate_token()
         return _get_raw(path, params=params, _retry_on_401=False)
     if r.status_code != 200:
-        raise BymaError(f"{r.status_code} en {path}: {r.text[:400]}")
+        raise BymaError(f"{r.status_code} en {path}")
     return r.content
 
 

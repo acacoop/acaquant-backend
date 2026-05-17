@@ -5,8 +5,9 @@ import socket
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
+from api.ratelimit import limiter
 from core.mongo import get_mongo_client_read
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,9 @@ def _is_safe_external_url(url: str) -> tuple[bool, str]:
 # Cache simple en memoria para articles extraídos (1 hora TTL).
 _ARTICLE_CACHE: dict[str, tuple[float, dict]] = {}
 _ARTICLE_CACHE_TTL = 3600.0
+# Cota dura del cache: sin esto cada URL distinta deja una entrada
+# permanente (el TTL decide frescura, no evicción) → DoS de memoria.
+_ARTICLE_CACHE_MAX = 200
 
 
 def _db():
@@ -121,7 +125,11 @@ def list_headlines(
 
 
 @router.get("/article")
-def article(url: str = Query(..., description="URL original de la nota a leer inline.")):
+@limiter.limit("20/minute;200/hour")
+def article(
+    request: Request,
+    url: str = Query(..., description="URL original de la nota a leer inline."),
+):
     """Fetcha la URL y extrae el artículo limpio con trafilatura (reader mode).
 
     Cachea 1h en memoria para no hammerear la fuente en recargas.
@@ -187,6 +195,14 @@ def article(url: str = Query(..., description="URL original de la nota a leer in
         logger.exception("extracción falló para %s", url)
         out = {"ok": False, "error": f"extracción falló: {e}"}
 
+    # Cota: purgar expirados y, si sigue lleno, el más viejo. Mantiene
+    # _ARTICLE_CACHE acotado (ver _ARTICLE_CACHE_MAX).
+    if len(_ARTICLE_CACHE) >= _ARTICLE_CACHE_MAX:
+        for k in [k for k, (ts, _) in _ARTICLE_CACHE.items()
+                  if now - ts >= _ARTICLE_CACHE_TTL]:
+            del _ARTICLE_CACHE[k]
+        if len(_ARTICLE_CACHE) >= _ARTICLE_CACHE_MAX:
+            del _ARTICLE_CACHE[min(_ARTICLE_CACHE, key=lambda k: _ARTICLE_CACHE[k][0])]
     _ARTICLE_CACHE[url] = (now, out)
     return out
 

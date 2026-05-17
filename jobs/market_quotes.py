@@ -326,8 +326,12 @@ def ingesta(include_extra: bool = True) -> int:
 
     # Limpieza: eliminar docs cuyo grupo ya no existe (ej. los ETFs viejos
     # de "Commodities" que migraron a "Futuros"). Idempotente.
+    # Incluye SIEMPRE los grupos de EXTRA_STOCKS (ADR Argentina/LATAM)
+    # aunque la corrida sea --no-extra: si no, la purga borra esos docs en
+    # cada corrida sin --extra y la watchlist ADR queda vacía intermitente.
     grupos_validos = (
         {g for _, g in HOME_STOCKS}
+        | {g for _, g in EXTRA_STOCKS}
         | {g for _, _, _, g in HOME_FX}
         | {g for _, _, g in HOME_INDICES_YAHOO}
         | {"Futuros", "US Treasury"}

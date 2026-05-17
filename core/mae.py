@@ -137,11 +137,11 @@ def _get(
         raise MaeError(f"red falló en GET {path}: {e}") from e
 
     if r.status_code in (401, 403):
-        raise MaeAuthError(f"{r.status_code} en {path}: {r.text[:400]}")
+        raise MaeAuthError(f"{r.status_code} en {path}")
     if r.status_code == 429:
-        raise MaeRateLimitError(f"429 en {path}: {r.text[:200]}")
+        raise MaeRateLimitError(f"429 en {path}")
     if r.status_code != 200:
-        raise MaeError(f"{r.status_code} en {path}: {r.text[:400]}")
+        raise MaeError(f"{r.status_code} en {path}")
 
     try:
         return r.json()

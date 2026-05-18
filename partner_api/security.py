@@ -1,7 +1,7 @@
 """Hashing de passwords + emisión/validación de JWT para partner_api.
 
 Password: PBKDF2-HMAC-SHA256 (stdlib `hashlib`, sin dependencias extra).
-El hash se guarda como "salt_hex$hash_hex" en `Partner.ApiUsers`. El
+El hash se guarda como "salt_hex$hash_hex" en `ACAPortfolio.ApiUsers`. El
 password en texto plano NO se persiste en ningún lado.
 
 Token: JWT HS256 firmado con `PARTNER_JWT_SECRET`, de vida corta.

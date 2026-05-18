@@ -76,7 +76,7 @@ TICKERS_EXTRA_PRECIOS: list[str] = [
     "MERV - XMEV - AL30D - 24hs",
 ]
 
-# --- EXPORT API PROVEEDOR (Partner.PortfolioExport) ---
+# --- EXPORT API PROVEEDOR (ACAPortfolio.Cartera) ---
 # id_cuenta de las cuentas cuyo AuM se expone a la API externa del
 # proveedor (jobs/partner_export.py). SOLO estas cuentas salen — el job
 # aborta si la lista está vacía (fail-safe: nunca exporta todo por error).

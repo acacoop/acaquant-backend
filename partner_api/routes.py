@@ -1,4 +1,4 @@
-"""Endpoints de datos del partner_api — SOLO lectura de Partner.PortfolioExport.
+"""Endpoints de datos del partner_api — SOLO lectura de ACAPortfolio.Cartera.
 
 Todos requieren un Bearer token válido (`Depends(usuario_actual)`).
 La colección sólo contiene las cuentas de `config.PARTNER_EXPORT_CUENTAS`,
@@ -22,7 +22,7 @@ _HIDE = {"_id": 0, "exported_at": 0}
 @limiter.limit("60/hour")
 def fechas(request: Request, _user: str = Depends(usuario_actual)) -> dict:
     """Fechas disponibles en el export, de la más reciente a la más vieja."""
-    col = get_db()["PortfolioExport"]
+    col = get_db()["Cartera"]
     valores = sorted((f for f in col.distinct("fecha") if f), reverse=True)
     return {"fechas": valores, "n": len(valores)}
 
@@ -43,7 +43,7 @@ def portfolio(
 
     Una fila por (cuenta, instrumento) con cantidad, precio y valuación.
     """
-    col = get_db()["PortfolioExport"]
+    col = get_db()["Cartera"]
 
     if not fecha:
         last = col.find_one(

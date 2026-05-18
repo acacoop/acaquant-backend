@@ -5,7 +5,7 @@ y se mantiene mínimo. Las variables van en el `.env` del Droplet.
 
 Env vars:
   PARTNER_MONGO_URI      Connection string Mongo del usuario READ-ONLY
-                         scopeado a la base `Partner`. Distinto del
+                         scopeado a la base `ACAPortfolio`. Distinto del
                          MONGO_URI de la mesa (que tiene acceso full).
   PARTNER_JWT_SECRET     Secreto para firmar los JWT de los proveedores.
                          String largo y random. Sin esto el servicio no
@@ -25,4 +25,4 @@ PARTNER_MONGO_URI: str = os.getenv("PARTNER_MONGO_URI", "").strip()
 PARTNER_JWT_SECRET: str = os.getenv("PARTNER_JWT_SECRET", "").strip()
 PARTNER_TOKEN_TTL_MIN: int = int(os.getenv("PARTNER_TOKEN_TTL_MIN", "60"))
 
-DB_NAME = "Partner"
+DB_NAME = "ACAPortfolio"

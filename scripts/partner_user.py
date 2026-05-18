@@ -1,6 +1,6 @@
 """scripts/partner_user.py — gestión de usuarios de la Partner API.
 
-Los usuarios viven en `Partner.ApiUsers` y los consume `partner_api/auth.py`.
+Los usuarios viven en `ACAPortfolio.ApiUsers` y los consume `partner_api/auth.py`.
 Este script corre con el Mongo rw de la mesa (`core.mongo`) — el servicio
 `partner_api` es read-only y NO puede crear ni modificar usuarios.
 
@@ -27,7 +27,7 @@ from partner_api.security import hash_password
 
 
 def _col():
-    return get_mongo_client()["Partner"]["ApiUsers"]
+    return get_mongo_client()["ACAPortfolio"]["ApiUsers"]
 
 
 def _gen_password() -> str:
@@ -88,7 +88,7 @@ def set_enabled(username: str, enabled: bool) -> None:
 def listar() -> None:
     rows = list(_col().find({}, {"_id": 0, "password_hash": 0}))
     if not rows:
-        print("(sin usuarios en Partner.ApiUsers)")
+        print("(sin usuarios en ACAPortfolio.ApiUsers)")
         return
     for r in rows:
         print(f"  {r.get('username')!s:24} enabled={r.get('enabled')}  "

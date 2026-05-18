@@ -10,27 +10,27 @@ aislada, auth propia.
   jobs.aum ──► Valuaciones.AuM ──► jobs.partner_export (cron 23:45 UTC)
                                          │ SOLO config.PARTNER_EXPORT_CUENTAS
                                          ▼
-                                 Partner.PortfolioExport
-                                         │  (Mongo user read-only en `Partner`)
+                                 ACAPortfolio.Cartera
+                                         │  (Mongo user read-only en `ACAPortfolio`)
   Proveedor ──HTTPS──► data.acaquant.com ─┴─► partner_api  (uvicorn :8100)
               Bearer JWT                       proceso systemd aparte
 ```
 
 - **`jobs/partner_export.py`** — cron diario (23:45 UTC, post-AuM). Vuelca a
-  `Partner.PortfolioExport` SOLO las cuentas de `config.PARTNER_EXPORT_CUENTAS`
+  `ACAPortfolio.Cartera` SOLO las cuentas de `config.PARTNER_EXPORT_CUENTAS`
   y SOLO los campos `{fecha, id_cuenta, cuenta, unidad, cantidad, precio,
   valuacion}`. Idempotente por fecha, mantiene histórico.
 - **`partner_api/`** — servicio FastAPI aparte (puerto 8100). Lee
-  `Partner.PortfolioExport`. No comparte proceso ni conexión Mongo con la mesa.
+  `ACAPortfolio.Cartera`. No comparte proceso ni conexión Mongo con la mesa.
 
 ## Seguridad — capas
 
 1. **Aislamiento de datos (lo más fuerte).** El servicio se conecta a Mongo
-   con un usuario **read-only scopeado a la base `Partner`**. No puede leer
-   `Valuaciones`/`Manager`/`CashFlow` ni escribir nada. Y `Partner.PortfolioExport`
+   con un usuario **read-only scopeado a la base `ACAPortfolio`**. No puede leer
+   `Valuaciones`/`Manager`/`CashFlow` ni escribir nada. Y `ACAPortfolio.Cartera`
    sólo contiene las cuentas habilitadas — no existe forma de pedir otra.
 2. **Auth.** Usuario/password → JWT de vida corta (60 min). Sin token válido
-   no se devuelve nada. Passwords hasheados con PBKDF2 (`Partner.ApiUsers`) —
+   no se devuelve nada. Passwords hasheados con PBKDF2 (`ACAPortfolio.ApiUsers`) —
    nunca en texto plano.
 3. **Transporte.** Sólo HTTPS. Detrás del proxy de Cloudflare (WAF + DDoS).
 4. **Rate limiting.** `/v1/token` 10/min (anti fuerza bruta), datos 60/h.
@@ -49,11 +49,11 @@ allowlist (a nivel Cloudflare o nginx) — es la defensa más fuerte.
 
 ## Deploy (Droplet)
 
-1. **Atlas** — crear un DB user nuevo, ej. `partner_ro`, con rol **`read`
-   sobre la base `Partner`** únicamente. Copiar su connection string.
+1. **Atlas** — crear un DB user nuevo, `aca_1`, con rol **`read`
+   sobre la base `ACAPortfolio`** únicamente. Copiar su connection string.
 2. **`.env`** del Droplet — agregar:
    ```
-   PARTNER_MONGO_URI=mongodb+srv://partner_ro:...@.../Partner
+   PARTNER_MONGO_URI=mongodb+srv://aca_1:...@.../ACAPortfolio
    PARTNER_JWT_SECRET=<string random largo>
    # opcional: PARTNER_TOKEN_TTL_MIN=60
    ```

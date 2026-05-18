@@ -5,7 +5,7 @@ Flujo: el proveedor hace `POST /v1/token` con usuario+password y recibe un
 JWT de vida corta. Después manda `Authorization: Bearer <jwt>` en cada
 request de datos.
 
-Los usuarios viven en `Partner.ApiUsers`:
+Los usuarios viven en `ACAPortfolio.ApiUsers`:
   {username, password_hash, enabled, created_at}
 y se crean con `scripts/partner_user.py` (corre con el Mongo rw de la mesa
 — este servicio es read-only y NO puede crear ni modificar usuarios).
@@ -65,7 +65,7 @@ def usuario_actual(token: str = Depends(_oauth2)) -> str:
     """Dependency: valida el Bearer token y devuelve el username.
 
     Re-chequea contra la DB que el usuario siga existiendo y habilitado —
-    así, deshabilitar un proveedor en `Partner.ApiUsers` lo deja afuera al
+    así, deshabilitar un proveedor en `ACAPortfolio.ApiUsers` lo deja afuera al
     instante, sin esperar a que venza su token.
     """
     username = validar_token(token)

@@ -1,4 +1,4 @@
-"""partner_export.py — exporta el AuM de cuentas puntuales a Partner.PortfolioExport.
+"""partner_export.py — exporta el AuM de cuentas puntuales a ACAPortfolio.Cartera.
 
 La API externa del proveedor (servicio `partner-api`, aparte) NO lee
 `Valuaciones.AuM` directo: lee esta colección dedicada, que contiene SOLO
@@ -6,7 +6,7 @@ las cuentas de `config.PARTNER_EXPORT_CUENTAS` y SOLO los campos que el
 proveedor necesita. Así el export controla exactamente qué sale y la API
 del proveedor nunca toca la base real.
 
-Schema de `Partner.PortfolioExport` (1 doc por (fecha, id_cuenta, unidad)):
+Schema de `ACAPortfolio.Cartera` (1 doc por (fecha, id_cuenta, unidad)):
   {
     fecha:       "YYYY-MM-DD",   # = fecha_snapshot del AuM
     id_cuenta:   "805",
@@ -31,8 +31,8 @@ from datetime import UTC, datetime
 from config import PARTNER_EXPORT_CUENTAS
 from core.mongo import get_mongo_client
 
-_DB_NAME = "Partner"
-_COL_NAME = "PortfolioExport"
+_DB_NAME = "ACAPortfolio"
+_COL_NAME = "Cartera"
 
 # Campos del doc AuM que se exponen al proveedor. Cualquier campo fuera de
 # esta lista NO sale — el export es la frontera de qué ve el proveedor.

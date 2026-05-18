@@ -10,25 +10,25 @@
 
 ## Paso 1 — Atlas: usuario Mongo read-only
 
-Crear un usuario de base de datos **de solo lectura, limitado a la base `Partner`**.
+Crear un usuario de base de datos **de solo lectura, limitado a la base `ACAPortfolio`**.
 
 - Atlas → **Database Access** → **Add New Database User**.
-- Authentication: **Password**. Username: `partner_ro`. Generar password.
+- Authentication: **Password**. Username: `aca_1`. Generar password.
 - **Database User Privileges** → **Specific Privileges**:
-  - Role: `read` · Database: `Partner` (Collection vacío = toda la base).
+  - Role: `read` · Database: `ACAPortfolio` (Collection vacío = toda la base).
 - Add User.
 - Guardar el connection string (Atlas → Connect → Drivers), reemplazando
-  usuario/password por los de `partner_ro`.
+  usuario/password por los de `aca_1`.
 
 ⚠️ Chequear también que el usuario **principal** (`MONGO_URI`) tenga
-**escritura** sobre la base nueva `Partner` — la necesitan `jobs.partner_export`
+**escritura** sobre la base nueva `ACAPortfolio` — la necesitan `jobs.partner_export`
 y `scripts.partner_user`. Si es `readWriteAnyDatabase`/`atlasAdmin`, ya está.
 
 ## Paso 2 — `.env` del Droplet
 
 Agregar dos líneas:
 ```
-PARTNER_MONGO_URI=<connection string del partner_ro, con /Partner al final>
+PARTNER_MONGO_URI=<connection string del aca_1, con /ACAPortfolio al final>
 PARTNER_JWT_SECRET=<pegar el resultado del comando de abajo>
 ```
 Generar el secret:
@@ -60,7 +60,7 @@ Tiene que quedar `active (running)`. La API queda escuchando en
 
 ```
 python -m scripts.partner_user crear <username>   # imprime el password 1 vez
-python -m jobs.partner_export                      # carga Partner.PortfolioExport
+python -m jobs.partner_export                      # carga ACAPortfolio.Cartera
 crontab /root/TradingAV/deploy/crontab.txt         # aplica el cron 23:45 UTC
 ```
 

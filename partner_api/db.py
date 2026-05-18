@@ -1,7 +1,7 @@
-"""Conexión Mongo del partner_api — singleton read-only a la base `Partner`.
+"""Conexión Mongo del partner_api — singleton read-only a la base `ACAPortfolio`.
 
 Usa `PARTNER_MONGO_URI`, que DEBE apuntar a un usuario Mongo con permiso
-`read` SOLO sobre la base `Partner`. Así, aunque este proceso se
+`read` SOLO sobre la base `ACAPortfolio`. Así, aunque este proceso se
 comprometa por completo, no hay forma de leer otras bases ni de escribir.
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ _lock = threading.Lock()
 
 
 def get_db():
-    """Devuelve el handle a la base `Partner` (singleton thread-safe)."""
+    """Devuelve el handle a la base `ACAPortfolio` (singleton thread-safe)."""
     global _client
     if not PARTNER_MONGO_URI:
         raise RuntimeError("Falta PARTNER_MONGO_URI en el entorno")

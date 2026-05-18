@@ -1,4 +1,4 @@
-# Acaquant — API de Datos de Portfolio
+# ACA VALORES — API de Datos de Portfolio
 
 Documento funcional de la API que expone, a un proveedor externo autorizado,
 las posiciones de portfolio de un conjunto acotado de cuentas.
@@ -11,11 +11,11 @@ La API permite consultar, vía HTTPS, las **posiciones de portfolio** de las
 cuentas habilitadas para el proveedor. Es de **solo lectura**: no se puede
 crear, modificar ni borrar nada.
 
-- Los datos se actualizan **una vez por día hábil** (lunes a viernes), luego
-  del cierre de mercado.
+- Los datos se actualizan **dos veces por día hábil** (lunes a viernes): a
+  las **18:30** y a las **23:00** hs (hora de Argentina).
 - Cada consulta requiere un **token de acceso** que se obtiene con usuario y
   contraseña.
-- Las credenciales (usuario y contraseña) las entrega Acaquant por un canal
+- Las credenciales (usuario y contraseña) las entrega ACA VALORES por un canal
   seguro.
 
 ---
@@ -191,8 +191,8 @@ Para proteger el servicio hay límites de cantidad de solicitudes:
 | `GET /v1/portfolio` | 60 por hora                   |
 | `GET /v1/fechas`  | 60 por hora                     |
 
-Superar un límite devuelve `429`. Como los datos cambian una vez por día,
-no hace falta consultar seguido: con **una consulta diaria alcanza**.
+Superar un límite devuelve `429`. Como los datos se actualizan dos veces
+por día (18:30 y 23:00 hs Argentina), no hace falta consultar seguido.
 
 ---
 
@@ -222,9 +222,9 @@ curl "https://data.acaquant.com/v1/portfolio?fecha=2026-05-18&id_cuenta=101" \
 
 ## 9. Resumen del flujo de integración
 
-1. Acaquant entrega al proveedor un **usuario** y una **contraseña**.
+1. ACA VALORES entrega al proveedor un **usuario** y una **contraseña**.
 2. El proveedor obtiene un **token** con `POST /v1/token`.
 3. Con ese token consulta `GET /v1/portfolio` (y opcionalmente `/v1/fechas`).
 4. El token se renueva cuando vence (cada 60 minutos).
-5. Los datos se refrescan una vez por día hábil — alcanza con una consulta
-   diaria.
+5. Los datos se refrescan dos veces por día hábil — a las **18:30** y a las
+   **23:00** hs (hora de Argentina).

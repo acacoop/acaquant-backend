@@ -28,11 +28,17 @@ docs de esa cuenta para esa fecha; el histórico de otras fechas queda
 intacto. Una cuenta sin posiciones en Aunesa se saltea sin error — es un
 caso normal, no una falla.
 
-Corre como cron 1×/día. Uso:  python -m jobs.partner_export
+`fecha` es el día hábil de Argentina, NO el día UTC — así las dos corridas
+diarias (18:30 y 23:00 hora Argentina) caen en la misma `fecha`, aunque la
+de las 23:00 ART corra ya en el día UTC siguiente.
+
+Corre como cron 2×/día (18:30 y 23:00 hora Argentina, L-V).
+Uso:  python -m jobs.partner_export
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import holidays
 import pandas as pd
@@ -43,6 +49,9 @@ from core.mongo import get_mongo_client
 
 _DB_NAME = "ACAPortfolio"
 _COL_NAME = "Cartera"
+
+# Zona horaria de Argentina — define el día de `fecha` del snapshot.
+_AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
 # ── Aunesa — endpoints y sesión propia (independiente de jobs/aum.py) ────────
 _AUTH_URL = "https://aca.aunesa.com/Irmo/api/login"
@@ -81,17 +90,17 @@ def _autenticar() -> dict:
     return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
 
 
-def _fecha_desde() -> str:
-    """`desde` para Aunesa = T+2 hábil desde hoy (mismo criterio que jobs/aum.py)."""
+def _fecha_desde(hoy: date) -> str:
+    """`desde` para Aunesa = T+2 hábil desde `hoy` (mismo criterio que jobs/aum.py)."""
     feriados = holidays.Argentina()
 
-    def proximo_habil(d: datetime) -> datetime:
+    def proximo_habil(d: date) -> date:
         d += timedelta(days=1)
         while d.weekday() >= 5 or d in feriados:
             d += timedelta(days=1)
         return d
 
-    t1 = proximo_habil(datetime.now())
+    t1 = proximo_habil(hoy)
     t2 = proximo_habil(t1)
     return t2.strftime("%d/%m/%Y")
 
@@ -166,8 +175,11 @@ def main() -> None:
         print("⚠ config.PARTNER_EXPORT_CUENTAS está vacío — abortando.")
         return
 
-    fecha = datetime.now(UTC).strftime("%Y-%m-%d")
-    desde = _fecha_desde()
+    # `fecha` = día hábil de Argentina (no UTC) para que las dos corridas
+    # diarias (18:30 y 23:00 ART) caigan en el mismo snapshot.
+    hoy_ar = datetime.now(_AR_TZ).date()
+    fecha = hoy_ar.isoformat()
+    desde = _fecha_desde(hoy_ar)
     print(f"fecha={fecha}  desde(Aunesa)={desde}  cuentas={cuentas}", flush=True)
 
     print("Autenticando con Aunesa...", flush=True)

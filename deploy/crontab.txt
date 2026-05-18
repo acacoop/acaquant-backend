@@ -113,12 +113,15 @@
 # desde el endpoint se pasa del timeout HTTP (502) → se precalcula offline.
 30 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.consolidado_cuentas >> /root/TradingAV/logs/consolidado_cuentas.log 2>&1
 
-# ─── Export proveedor (23:45 UTC = 20:45 ART, L-V)
+# ─── Export proveedor — 2 corridas diarias (18:30 y 23:00 hora Argentina, L-V)
 # Job autónomo: pega directo a Aunesa por las cuentas de
 # config.PARTNER_EXPORT_CUENTAS y vuelca su posición a ACAPortfolio.Cartera
 # (lo que lee la API externa del proveedor). No depende de Valuaciones.AuM.
-# Aborta si la lista está vacía.
-45 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.partner_export >> /root/TradingAV/logs/partner_export.log 2>&1
+# Aborta si la lista está vacía. La 2ª corrida reemplaza a la 1ª (misma fecha).
+# Corrida 1 — 18:30 ART = 21:30 UTC.
+30 21 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.partner_export >> /root/TradingAV/logs/partner_export.log 2>&1
+# Corrida 2 — 23:00 ART = 02:00 UTC del día siguiente (2-6 = mar-sáb UTC = lun-vie ART).
+0 2 * * 2-6 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.partner_export >> /root/TradingAV/logs/partner_export.log 2>&1
 
 # ─── PnL TOTALES precompute (cada 30 min en la rueda — :05 y :35, 15-22 UTC L-V)
 # El endpoint /pnl-todas pasó a SOLO leer Valuaciones.PnLTotalesCache; este job

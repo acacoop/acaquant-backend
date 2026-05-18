@@ -113,6 +113,11 @@
 # desde el endpoint se pasa del timeout HTTP (502) → se precalcula offline.
 30 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.consolidado_cuentas >> /root/TradingAV/logs/consolidado_cuentas.log 2>&1
 
+# ─── Export AuM proveedor (23:45 UTC = 20:45 ART, L-V — post AuM final + consolidado)
+# Vuelca SOLO las cuentas de config.PARTNER_EXPORT_CUENTAS a Partner.PortfolioExport,
+# que es lo que lee la API externa del proveedor. Aborta si la lista está vacía.
+45 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.partner_export >> /root/TradingAV/logs/partner_export.log 2>&1
+
 # ─── PnL TOTALES precompute (cada 30 min en la rueda — :05 y :35, 15-22 UTC L-V)
 # El endpoint /pnl-todas pasó a SOLO leer Valuaciones.PnLTotalesCache; este job
 # hace el cálculo pesado de las ~883 cuentas offline. El run de :05 va 5 min

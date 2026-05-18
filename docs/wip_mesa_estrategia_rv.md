@@ -1,8 +1,8 @@
 # WIP — Mesa de Estrategia (Renta Variable)
 
 > **Doc de diseño + estado.** Spec funcional de la feature. Estado al
-> 2026-05-18: motor de correlación y backend del Módulo 1 construidos
-> (commits `fa9e572`, `88f0eb3`); falta el frontend y los Módulos 2-4.
+> 2026-05-18: motor de correlación + Módulo 1 completo (backend + tab
+> frontend `ESTRATEGIA`) construidos; faltan los Módulos 2-4.
 
 ## Objetivo
 
@@ -60,9 +60,9 @@ por su **decaimiento**, que sí se mide de la propia serie del ETF.
 
 Input: **ticker + monto + dirección** (long/short).
 
-> **Backend HECHO** (`rv_motor.get_trade_analysis`, `GET /api/scanner/trade-analysis`):
-> caracterización + hedge-finder + hedge por beta. Falta el frontend y los
-> puntos marcados ⏳.
+> **HECHO** — backend (`rv_motor.get_trade_analysis`, `GET /api/scanner/trade-analysis`)
+> + tab `ESTRATEGIA` en acaquant-web (`estrategia-view.tsx`): caracterización +
+> hedge-finder + hedge por beta. Falta solo lo marcado ⏳.
 
 - **Caracterización** ✅: vol 30/60d, beta vs SPY/QQQ, VaR 1 día, peor mes,
   z-score (caro/barato), exposición de mercado equivalente.
@@ -134,7 +134,8 @@ Scanner → tira idea → Trade Individual (caracterizar + hedgear)
 ## Orden de construcción
 
 1. **Motor**: endpoint de matriz de correlación. ✅ HECHO.
-2. **Módulo 1** (Trade Individual) — backend ✅ hecho; falta el **frontend**.
+2. **Módulo 1** (Trade Individual) — ✅ hecho (backend + tab frontend);
+   faltan los puntos ⏳ (escenarios, niveles, residual, sizing).
 3. **Módulo 2** (Monitor de Book) — reusa el motor + conecta AuM.
 4. **Módulo 4** (Constructor) — optimización sobre el mismo motor.
 5. **Módulo 3** (Scanner) — al final, se nutre de todo lo anterior.

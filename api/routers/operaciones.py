@@ -5,7 +5,7 @@ import threading
 import time
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.cache import cached
 from api.db import get_db_cashflow
@@ -20,6 +20,12 @@ from api.services._cuentas_filter import (
 )
 from api.services._cuentas_filter import (
     match_cuenta_filter as _match_cuenta_filter,
+)
+from api.services._grupos_scope import (
+    aplicar_scope_cuenta,
+    filtrar_cuentas_str,
+    scope_cuentas,
+    verificar_cuenta_str,
 )
 
 logger = logging.getLogger("api.operaciones")
@@ -80,11 +86,15 @@ def listar_flujos(
     unidad: str | None = Query(None, description="Filtrar por moneda (ARS/USD)"),
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     db = get_db_operaciones()
-    filtro = {}
+    filtro: dict = {}
     if cuenta:
+        verificar_cuenta_str(cuenta, scope)
         filtro["cuenta"] = cuenta
+    else:
+        aplicar_scope_cuenta(filtro, scope)
     if unidad:
         filtro["unidad"] = unidad
     if desde or hasta:
@@ -285,6 +295,7 @@ def negocio_serie(
         None,
         description="Match exacto sobre cuenta. Si se envía, override del cuenta_filter.",
     ),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Serie diaria del importe absoluto por categoría, agregada server-side.
 
@@ -311,15 +322,17 @@ def negocio_serie(
         )
     try:
         coll = get_db_cashflow()["NegocioMovimientos"]
-        match_doc = {
+        match_doc: dict = {
             "moneda": moneda,
             "categoria": {"$in": list(_NEGOCIO_SERIE_BOLETO_CATS)},
         }
         if cuenta:
             # Match exacto sobre cuenta — override total del cuenta_filter.
+            verificar_cuenta_str(cuenta, scope)
             match_doc["cuenta"] = cuenta
         else:
             match_doc.update(_match_cuenta_filter(cuenta_filter))
+        aplicar_scope_cuenta(match_doc, scope)
         pipeline = [
             {"$match": match_doc},
             {"$group": {
@@ -371,6 +384,7 @@ def negocio_cuentas(
         None,
         description="Match exacto sobre cuenta. Si se envía, override del cuenta_filter.",
     ),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Totales acumulados por cuenta para una categoría UI sobre un rango.
 
@@ -410,9 +424,11 @@ def negocio_cuentas(
             "categoria": {"$in": boleto_cats},
         }
         if cuenta:
+            verificar_cuenta_str(cuenta, scope)
             match_doc["cuenta"] = cuenta
         else:
             match_doc.update(_match_cuenta_filter(cuenta_filter))
+        aplicar_scope_cuenta(match_doc, scope)
         pipeline = [
             {"$match": match_doc},
             {"$group": {
@@ -458,6 +474,7 @@ def negocio_cuentas_matrix(
     desde: str = Query(...),
     hasta: str = Query(...),
     cuenta: str | None = Query(None, description="Match exacto sobre cuenta — override del cuenta_filter."),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Matrix por cuenta × las 5 categorías UI sobre un rango.
 
@@ -489,9 +506,11 @@ def negocio_cuentas_matrix(
             "categoria": {"$in": list(_NEGOCIO_SERIE_BOLETO_CATS)},
         }
         if cuenta:
+            verificar_cuenta_str(cuenta, scope)
             match_doc["cuenta"] = cuenta
         else:
             match_doc.update(_match_cuenta_filter(cuenta_filter))
+        aplicar_scope_cuenta(match_doc, scope)
         pipeline = [
             {"$match": match_doc},
             {"$group": {
@@ -552,6 +571,7 @@ def negocio_boletos(
         None,
         description="Si se envía, solo boletos de esa categoría UI (compra|venta|...)",
     ),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Boletos individuales de una cuenta para un día específico.
 
@@ -568,6 +588,8 @@ def negocio_boletos(
         datetime.strptime(fecha, "%Y-%m-%d")
     except ValueError as e:
         raise HTTPException(400, f"fecha mal formada: {fecha!r}") from e
+    # Scoping de grupos — 403 si la cuenta pedida no está en el alcance.
+    verificar_cuenta_str(cuenta, scope)
 
     boleto_cats: list[str] | None = None
     if categoria is not None:
@@ -622,10 +644,11 @@ def negocio_boletos(
 
 @router.get("/negocio/cuentas-list")
 @cached(ttl=3600)
-def negocio_cuentas_list():
+def negocio_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas)):
     """Lista de strings `cuenta` distintos en NegocioMovimientos. Sirve
     como fuente del autocomplete de búsqueda de cuenta. Cacheado 1h —
-    el set cambia poco (cuentas nuevas son raras)."""
+    el set cambia poco (cuentas nuevas son raras). Limitado al scope de
+    grupos del usuario."""
     try:
         coll = get_db_cashflow()["NegocioMovimientos"]
         # distinct() es la operación más liviana para esto — Mongo lo
@@ -634,6 +657,7 @@ def negocio_cuentas_list():
         cuentas = sorted(
             c for c in coll.distinct("cuenta") if c
         )
+        cuentas = filtrar_cuentas_str(cuentas, scope)
         return {"cuentas": cuentas, "n": len(cuentas)}
     except Exception as e:
         logger.exception("negocio_cuentas_list failed")

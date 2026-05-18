@@ -19,10 +19,17 @@ un grupo sin cuentas → no ve nada.
 """
 from __future__ import annotations
 
+import re
+
 from fastapi import Depends, HTTPException
 
 from api.auth import get_user_email
 from core.grupos import cuentas_visibles
+
+# Las colecciones de operaciones (FlujosAPI, NegocioMovimientos) NO tienen
+# `id_cuenta`: sólo el string `cuenta` con formato "[<id>] NOMBRE". Para
+# scopearlas extraemos el id bracketed y lo matcheamos contra el scope.
+_RE_ID_BRACKET = re.compile(r"^\[(\d+)\]")
 
 
 def scope_cuentas(email: str = Depends(get_user_email)) -> tuple[str, ...] | None:
@@ -56,3 +63,54 @@ def filtrar_rows(
         return rows
     permitidas = set(scope)
     return [r for r in rows if str(r.get(campo, "")) in permitidas]
+
+
+# ── Namespace `cuenta` ("[<id>] NOMBRE") — operaciones / negocio ──────────
+
+
+def scope_cuenta_match(scope: tuple[str, ...] | None) -> dict | None:
+    """Sub-doc `$match` Mongo que restringe el campo string `cuenta` al
+    scope, matcheando el id bracketed. `None` si `scope` es None (sin
+    restricción). Tuple vacío → `{$in: []}` (no matchea nada).
+
+    Pensado para agregarse vía `$and` al `match_doc` del endpoint, así no
+    colisiona con un filtro `cuenta` ya presente (`cuenta_filter`)."""
+    if scope is None:
+        return None
+    if not scope:
+        return {"cuenta": {"$in": []}}
+    alternation = "|".join(re.escape(s) for s in scope)
+    return {"cuenta": {"$regex": rf"^\[({alternation})\]"}}
+
+
+def aplicar_scope_cuenta(match_doc: dict, scope: tuple[str, ...] | None) -> None:
+    """Agrega la restricción de scope sobre `cuenta` al `match_doc` vía
+    `$and` (no pisa un filtro `cuenta` previo). No-op si `scope` es None."""
+    sub = scope_cuenta_match(scope)
+    if sub is not None:
+        match_doc.setdefault("$and", []).append(sub)
+
+
+def verificar_cuenta_str(cuenta_str: str, scope: tuple[str, ...] | None) -> None:
+    """403 si el id bracketed de `cuenta_str` no está en el scope. Para
+    endpoints con match exacto sobre `cuenta`. No-op si `scope` es None."""
+    if scope is None:
+        return
+    m = _RE_ID_BRACKET.match(cuenta_str or "")
+    if not m or m.group(1) not in set(scope):
+        raise HTTPException(status_code=403, detail="no tenés acceso a esa cuenta")
+
+
+def filtrar_cuentas_str(
+    cuentas: list[str],
+    scope: tuple[str, ...] | None,
+) -> list[str]:
+    """Filtra una lista de strings `cuenta` al scope (por id bracketed).
+    Sin cambios si `scope` es None."""
+    if scope is None:
+        return cuentas
+    permitidas = set(scope)
+    return [
+        c for c in cuentas
+        if (m := _RE_ID_BRACKET.match(c or "")) and m.group(1) in permitidas
+    ]

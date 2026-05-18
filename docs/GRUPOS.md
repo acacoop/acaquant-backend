@@ -56,9 +56,14 @@ deben tumbar la app; el peor caso es "ve de más", igual al estado actual.
   - Routers `carteras.py` y `valuaciones.py` resuelven el scope y lo
     pasan; los endpoints `/{id_cuenta}/*` quedan gateados.
   - El cron (`pnl_todas_cuentas_compute`) corre sin scope.
-  - **Pendiente Fase 2b**: el namespace `cuenta` (string "[N] NOMBRE")
-    de `operaciones/negocio` — necesita mapear `id_cuenta → cuenta`.
-    `operar` ya es admin-only, así que no urge.
+
+- **Fase 2b (HECHA)** — enforcement del namespace `cuenta`
+  (string "[<id>] NOMBRE") que usan `FlujosAPI` y `NegocioMovimientos`
+  (no tienen `id_cuenta` directo). Helpers `scope_cuenta_match` /
+  `aplicar_scope_cuenta` (regex sobre el id bracketed, vía `$and`) +
+  `verificar_cuenta_str` + `filtrar_cuentas_str` en `_grupos_scope.py`.
+  Aplicado en `/flujos` y `/negocio/{serie,cuentas,cuentas-matrix,
+  boletos,cuentas-list}`. `operar` sigue admin-only.
 
 - **Fase 3 (pendiente / casi cubierta)** — frontend. Los selectores de
   cuenta salen de `/api/portfolio/cuentas` y `listar_cuentas`, que ya

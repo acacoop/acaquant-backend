@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.services import valuaciones as svc
+from api.services._grupos_scope import scope_cuentas, verificar_id_cuenta
 
 logger = logging.getLogger("api.valuaciones")
 
@@ -31,20 +32,22 @@ def get_consolidado(
         "todas",
         description="todas | accionistas | sin_accionistas | cooperativas | productores",
     ),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Una fila por cuenta: valor, base 100, PnL acum, TEM, TEA (ARS y USD).
 
     Reusa el cálculo de la tabla MENSUAL de PORTAFOLIO, consolidado para
     comparar carteras entre sí. Cacheado — el primer load puede tardar.
+    El `scope` de grupos limita las filas a las cuentas visibles del user.
     """
     try:
-        return svc.valuacion_consolidada(filtro_cuenta=filtro_cuenta)
+        return svc.valuacion_consolidada(filtro_cuenta=filtro_cuenta, scope=scope)
     except Exception as e:
         logger.exception("valuaciones consolidado failed: filtro=%s", filtro_cuenta)
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/{id_cuenta}/serie")
+@router.get("/{id_cuenta}/serie", dependencies=[Depends(verificar_id_cuenta)])
 def get_serie(
     id_cuenta: str,
     desde: str | None = Query(None, description="YYYY-MM-DD inclusive"),
@@ -62,7 +65,7 @@ def get_serie(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/{id_cuenta}/mensual")
+@router.get("/{id_cuenta}/mensual", dependencies=[Depends(verificar_id_cuenta)])
 def get_mensual(id_cuenta: str):
     """Tabla mensual: cierre del mes (último fecha_snapshot) +
     flujos externos del mes (depósitos − extracciones)."""
@@ -74,7 +77,7 @@ def get_mensual(id_cuenta: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/{id_cuenta}/movimientos")
+@router.get("/{id_cuenta}/movimientos", dependencies=[Depends(verificar_id_cuenta)])
 def get_movimientos(
     id_cuenta: str,
     fecha: str = Query(..., description="YYYY-MM-DD — define el mes a consultar"),
@@ -98,7 +101,7 @@ def get_movimientos(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/{id_cuenta}/variacion")
+@router.get("/{id_cuenta}/variacion", dependencies=[Depends(verificar_id_cuenta)])
 def get_variacion(
     id_cuenta: str,
     fecha: str = Query(
@@ -126,7 +129,7 @@ def get_variacion(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/{id_cuenta}/posiciones-actuales")
+@router.get("/{id_cuenta}/posiciones-actuales", dependencies=[Depends(verificar_id_cuenta)])
 def get_posiciones_actuales(
     id_cuenta: str,
     fecha: str | None = Query(
@@ -158,7 +161,7 @@ def get_posiciones_actuales(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/{id_cuenta}/posiciones")
+@router.get("/{id_cuenta}/posiciones", dependencies=[Depends(verificar_id_cuenta)])
 def get_posiciones(
     id_cuenta: str,
     hasta: str | None = Query(

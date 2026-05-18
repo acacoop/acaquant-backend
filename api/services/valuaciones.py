@@ -1530,7 +1530,10 @@ def construir_consolidado() -> list[dict[str, Any]]:
 
 
 @cached(ttl=300)
-def valuacion_consolidada(filtro_cuenta: str = "todas") -> dict[str, Any]:
+def valuacion_consolidada(
+    filtro_cuenta: str = "todas",
+    scope: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
     """Una fila por cuenta: valor, base 100, PnL acum (ARS y USD).
 
     LECTURA LIVIANA: lee `Valuaciones.ConsolidadoCuentas`, precalculada
@@ -1541,6 +1544,9 @@ def valuacion_consolidada(filtro_cuenta: str = "todas") -> dict[str, Any]:
     `filtro_cuenta`: "todas" | "accionistas" | "sin_accionistas" |
     "cooperativas" | "productores" (ver `_cuentas_filter`).
 
+    `scope` restringe a las cuentas del grupo del usuario (None = sin
+    restricción: admin o usuario sin grupo).
+
     Si la colección está vacía → `rows: []` (falta correr el job una vez).
     """
     from api.services._cuentas_filter import match_cuenta_filter
@@ -1549,6 +1555,11 @@ def valuacion_consolidada(filtro_cuenta: str = "todas") -> dict[str, Any]:
     docs = list(db_val["ConsolidadoCuentas"].find(
         {}, {"_id": 0, "computed_at": 0},
     ))
+
+    # Scoping de grupos — subset de cuentas visibles para el usuario.
+    if scope is not None:
+        permitidas = set(scope)
+        docs = [d for d in docs if str(d.get("id_cuenta", "")) in permitidas]
 
     if filtro_cuenta and filtro_cuenta != "todas":
         sub = match_cuenta_filter(filtro_cuenta)

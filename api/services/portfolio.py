@@ -87,6 +87,28 @@ def _valuacion_api(cant: float, px: float, cartera: str, clase_activo: str) -> f
     return cant * px / 100
 
 
+def _scope_match(scope: tuple[str, ...] | None) -> dict:
+    """Sub-doc `$match` Mongo que restringe `id_cuenta` al scope de grupos
+    (ver `api/services/_grupos_scope.py`). `{}` si `scope` es None (sin
+    restricción). Tuple vacío → `{$in: []}` → no matchea nada (correcto:
+    usuario en un grupo sin cuentas no ve nada). Para campos `id_cuenta`
+    que YA tienen un filtro (ej. `$nin`), usar `_apply_scope`."""
+    return {} if scope is None else {"id_cuenta": {"$in": list(scope)}}
+
+
+def _apply_scope(match: dict, scope: tuple[str, ...] | None) -> None:
+    """Agrega la restricción de scope a un `$match` que puede ya tener un
+    filtro sobre `id_cuenta` (ej. el `$nin` de cuentas excluidas del AuM).
+    Mongo combina `$in` y `$nin` sobre el mismo campo."""
+    if scope is None:
+        return
+    cond = match.get("id_cuenta")
+    if isinstance(cond, dict):
+        cond["$in"] = list(scope)
+    else:
+        match["id_cuenta"] = {"$in": list(scope)}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Endpoints raw: /aum
 # ─────────────────────────────────────────────────────────────────────────────
@@ -100,8 +122,13 @@ def listar_aum(
     desde: str | None = None,
     hasta: str | None = None,
     ultimo: bool = False,
+    scope: tuple[str, ...] | None = None,
 ) -> list:
-    """Snapshots AuM filtrables por cuenta/unidad/rango. `ultimo=True` ignora rango."""
+    """Snapshots AuM filtrables por cuenta/unidad/rango. `ultimo=True` ignora rango.
+
+    `scope` restringe a las cuentas del grupo del usuario (None = sin
+    restricción). Si se pasa `id_cuenta` explícito el router ya verificó
+    que esté dentro del scope."""
     db = get_db_portfolio()
     filtro: dict = {}
 
@@ -115,6 +142,8 @@ def listar_aum(
 
     if id_cuenta:
         filtro["id_cuenta"] = id_cuenta
+    elif scope is not None:
+        filtro["id_cuenta"] = {"$in": list(scope)}
     if unidad:
         filtro["unidad"] = unidad
     if cuenta:
@@ -141,11 +170,13 @@ def listar_aum(
 
 
 @cached(ttl=300)
-def tasa_fija_snapshot() -> dict:
+def tasa_fija_snapshot(scope: tuple[str, ...] | None = None) -> dict:
     """Posiciones de Tasa Fija del último snapshot AuM.
 
     Join: AumAPI (último) → AssetsAPI (clase_activo=FIJA) → ValuacionesAPI (curva=tasa_fija).
     Devuelve tickers con valuacion total, cobro proyectado y detalle por cuenta.
+
+    `scope` restringe a las cuentas del grupo del usuario (None = sin restricción).
     """
     db_p = get_db_portfolio()
     db_t = get_db_titulos()
@@ -181,7 +212,7 @@ def tasa_fija_snapshot() -> dict:
     unidades_fija = list(assets_fija.keys())
 
     docs = list(db_p["AumAPI"].find(
-        {"fecha": fecha, "unidad": {"$in": unidades_fija}},
+        {"fecha": fecha, "unidad": {"$in": unidades_fija}, **_scope_match(scope)},
         {"_id": 0, "unidad": 1, "cuenta": 1, "id_cuenta": 1, "valuacion": 1, "cantidad": 1},
     ))
 
@@ -239,7 +270,7 @@ def tasa_fija_snapshot() -> dict:
 
 
 @cached(ttl=300)
-def cer_snapshot() -> dict:
+def cer_snapshot(scope: tuple[str, ...] | None = None) -> dict:
     """Posiciones CER del último snapshot AuM.
 
     Join: ValuacionesAPI (curva=cer) → AssetsAPI (por ticker) → AumAPI (último).
@@ -328,7 +359,7 @@ def cer_snapshot() -> dict:
     unidades = list(unidad_to_ticker.keys())
 
     docs = list(db_p["AumAPI"].find(
-        {"fecha": fecha, "unidad": {"$in": unidades}},
+        {"fecha": fecha, "unidad": {"$in": unidades}, **_scope_match(scope)},
         {"_id": 0, "unidad": 1, "cuenta": 1, "id_cuenta": 1, "valuacion": 1, "cantidad": 1},
     ))
 
@@ -388,21 +419,22 @@ def fci_serie(
     desde: str | None = None,
     hasta: str | None = None,
     cuenta_filter: str = "todas",
+    scope: tuple[str, ...] | None = None,
 ) -> list:
     """Serie histórica FCI: total por fecha + desglose por emisor.
 
-    Sin filtro de cuenta (default "todas"): lee `Valuaciones.AuMResumenFCI`
-    (rollup 1 doc/fecha — barato, ya pre-agregado).
+    Sin filtro de cuenta (default "todas") ni scope: lee
+    `Valuaciones.AuMResumenFCI` (rollup 1 doc/fecha — barato, ya pre-agregado).
 
-    Con filtro de cuenta: el rollup no soporta breakdown por cuenta, así que
-    cae a `Valuaciones.AuM` raw + $match cuenta_filter + $group por
-    (fecha_snapshot, unidad). Mismo set de unidades FCI que el rollup
-    (definido por `_fci_assets_map`, fuente Valuaciones.Assets UPPERCASE).
+    Con filtro de cuenta o con `scope` de grupos: el rollup no soporta
+    breakdown por cuenta, así que cae a `Valuaciones.AuM` raw + $match +
+    $group por (fecha_snapshot, unidad). Mismo set de unidades FCI que el
+    rollup (definido por `_fci_assets_map`, fuente Valuaciones.Assets).
     """
     db_v = get_db_valuaciones()
     assets_map = _fci_assets_map()
 
-    if cuenta_filter and cuenta_filter != "todas":
+    if (cuenta_filter and cuenta_filter != "todas") or scope is not None:
         # Camino raw — paga la performance del filter.
         unidades_fci = list(assets_map.keys())
         if not unidades_fci:
@@ -412,6 +444,7 @@ def fci_serie(
             "id_cuenta": {"$nin": list(_EXCLUDED_FROM_AUM_VIEW)},
         }
         match.update(match_cuenta_filter(cuenta_filter))
+        _apply_scope(match, scope)
         if desde or hasta:
             rango: dict = {}
             if desde:
@@ -474,11 +507,16 @@ def fci_serie(
 
 
 @cached(ttl=300)
-def fci_snapshot(fecha: str, cuenta_filter: str = "todas") -> list:
+def fci_snapshot(
+    fecha: str,
+    cuenta_filter: str = "todas",
+    scope: tuple[str, ...] | None = None,
+) -> list:
     """Snapshot FCI en una fecha: detalle por unidad/emisor/cuenta.
 
     Lee `Valuaciones.AuM` (fuente de verdad). Mismo set de unidades FCI
-    que `fci_serie` (definido por `_fci_assets_map`).
+    que `fci_serie` (definido por `_fci_assets_map`). `scope` restringe a
+    las cuentas del grupo del usuario (None = sin restricción).
     """
     db_v = get_db_valuaciones()
     assets_map = _fci_assets_map()
@@ -493,6 +531,7 @@ def fci_snapshot(fecha: str, cuenta_filter: str = "todas") -> list:
         "id_cuenta": {"$nin": list(_EXCLUDED_FROM_AUM_VIEW)},
     }
     match.update(match_cuenta_filter(cuenta_filter))
+    _apply_scope(match, scope)
 
     docs = db_v["AuM"].find(
         match,
@@ -523,12 +562,15 @@ def fci_snapshot(fecha: str, cuenta_filter: str = "todas") -> list:
 
 
 @cached(ttl=300)
-def listar_cuentas() -> list[dict]:
+def listar_cuentas(scope: tuple[str, ...] | None = None) -> list[dict]:
     """Cuentas distintas presentes en el último snapshot de Valuaciones.AuM.
 
     Devuelve `[{id_cuenta, cuenta}, ...]` ordenado por id_cuenta. Filtra por
     el último `fecha_snapshot` para evitar arrastrar cuentas viejas que ya
     no operan. Lo consume el selector de cuenta de la vista Valuaciones.
+
+    `scope` restringe a las cuentas del grupo del usuario (None = sin
+    restricción). El cron (`pnl_todas_cuentas_compute`) lo llama sin scope.
     """
     db_v = get_db_valuaciones()
     last = db_v["AuM"].find_one(
@@ -537,7 +579,7 @@ def listar_cuentas() -> list[dict]:
     if not last:
         return []
     pipeline = [
-        {"$match": {"fecha_snapshot": last["fecha_snapshot"]}},
+        {"$match": {"fecha_snapshot": last["fecha_snapshot"], **_scope_match(scope)}},
         {"$group": {"_id": "$id_cuenta", "cuenta": {"$first": "$cuenta"}}},
         {"$sort": {"_id": 1}},
         {"$project": {"_id": 0, "id_cuenta": "$_id", "cuenta": 1}},
@@ -551,6 +593,7 @@ def total_serie(
     hasta: str | None = None,
     cuenta_filter: str = "todas",
     moneda: str = "ARS",
+    scope: tuple[str, ...] | None = None,
 ) -> dict:
     """Serie histórica del AuM total agrupado por CARTERA.
 
@@ -575,6 +618,7 @@ def total_serie(
 
     match: dict = {"id_cuenta": {"$nin": list(_EXCLUDED_FROM_AUM_VIEW)}}
     match.update(match_cuenta_filter(cuenta_filter))
+    _apply_scope(match, scope)
     if desde or hasta:
         rango: dict = {}
         if desde:
@@ -652,6 +696,7 @@ def total_diff(
     fecha_anterior: str,
     moneda: str = "ARS",
     cuenta_filter: str = "todas",
+    scope: tuple[str, ...] | None = None,
 ) -> dict:
     """Diferencia de saldo por cuenta entre dos fechas snapshot.
 
@@ -675,6 +720,7 @@ def total_diff(
 
     base_match: dict = {"id_cuenta": {"$nin": list(_EXCLUDED_FROM_AUM_VIEW)}}
     base_match.update(match_cuenta_filter(cuenta_filter))
+    _apply_scope(base_match, scope)
 
     def _agg(fecha: str) -> dict[str, dict]:
         match = {**base_match, "fecha_snapshot": fecha}
@@ -753,6 +799,7 @@ def total_snapshot(
     fecha: str,
     cuenta_filter: str = "todas",
     moneda: str = "ARS",
+    scope: tuple[str, ...] | None = None,
 ) -> dict:
     """Snapshot del AuM total en una fecha: detalle por unidad/cartera/cuenta.
 
@@ -768,6 +815,7 @@ def total_snapshot(
         "id_cuenta": {"$nin": list(_EXCLUDED_FROM_AUM_VIEW)},
     }
     match.update(match_cuenta_filter(cuenta_filter))
+    _apply_scope(match, scope)
 
     docs = list(db_v["AuM"].find(
         match,

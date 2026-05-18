@@ -866,7 +866,10 @@ def pnl_todas_cuentas_compute() -> list[dict]:
 
 
 @cached(ttl=60)
-def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
+def pnl_todas_cuentas(
+    filtro_cuenta: str = "todas",
+    scope: tuple[str, ...] | None = None,
+) -> dict:
     """PnL agregado de todas las cuentas: una fila por (cuenta, ticker).
 
     LECTURA LIVIANA: lee `Valuaciones.PnLTotalesCache`, precalculada por el
@@ -894,6 +897,13 @@ def pnl_todas_cuentas(filtro_cuenta: str = "todas") -> dict:
 
     db_v = get_db_valuaciones()
     docs = list(db_v["PnLTotalesCache"].find({}, {"_id": 0, "computed_at": 0}))
+
+    # Scoping de grupos: subset de cuentas visibles para el usuario. None =
+    # sin restricción (admin o usuario sin grupo). Se aplica ANTES de sumar
+    # los totales para que el agregado refleje sólo lo que el usuario ve.
+    if scope is not None:
+        permitidas = set(scope)
+        docs = [d for d in docs if str(d.get("id_cuenta", "")) in permitidas]
 
     # Filtro de tipo de cuenta — subset de las cuentas ya calculadas.
     if filtro_cuenta and filtro_cuenta != "todas":

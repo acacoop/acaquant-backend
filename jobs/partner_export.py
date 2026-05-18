@@ -1,16 +1,21 @@
-"""partner_export.py — exporta el AuM de cuentas puntuales a ACAPortfolio.Cartera.
+"""partner_export.py — exporta posiciones de cuentas puntuales a ACAPortfolio.Cartera.
 
-La API externa del proveedor (servicio `partner-api`, aparte) NO lee
-`Valuaciones.AuM` directo: lee esta colección dedicada, que contiene SOLO
-las cuentas de `config.PARTNER_EXPORT_CUENTAS` y SOLO los campos que el
-proveedor necesita. Así el export controla exactamente qué sale y la API
-del proveedor nunca toca la base real.
+Job AUTÓNOMO para la API externa del proveedor. Pega DIRECTO a Aunesa por
+las cuentas de `config.PARTNER_EXPORT_CUENTAS` y vuelca su posición a
+`ACAPortfolio.Cartera`.
+
+NO depende de `Valuaciones.AuM` ni de `jobs/aum.py`, y NO aplica los filtros
+de exclusión del AuM (`jobs/_aum_filters.py`) — el proveedor ve todas las
+posiciones de sus cuentas. Replica de `jobs/aum.py` solo las manipulaciones
+de datos legítimas: quedarse con las filas "Acumulado", el signo de
+`cantidad`, el agrupado por especie, el descarte de posiciones netas en 0
+y el cálculo de valuación.
 
 Schema de `ACAPortfolio.Cartera` (1 doc por (fecha, id_cuenta, unidad)):
   {
-    fecha:       "YYYY-MM-DD",   # = fecha_snapshot del AuM
-    id_cuenta:   "805",
-    cuenta:      "[805] NOMBRE",
+    fecha:       "YYYY-MM-DD",
+    id_cuenta:   "463",
+    cuenta:      "[463] NOMBRE",
     unidad:      "...",
     cantidad:    float,
     precio:      float,
@@ -18,116 +23,203 @@ Schema de `ACAPortfolio.Cartera` (1 doc por (fecha, id_cuenta, unidad)):
     exported_at: datetime UTC,
   }
 
-Mantiene histórico (no borra fechas viejas). Idempotente: re-correr una
-fecha reemplaza solo los docs de esa fecha.
+Idempotente por (fecha, id_cuenta): re-correr el mismo día reemplaza los
+docs de esa cuenta para esa fecha; el histórico de otras fechas queda
+intacto. Una cuenta sin posiciones en Aunesa se saltea sin error — es un
+caso normal, no una falla.
 
-Uso:
-  python -m jobs.partner_export          # exporta solo la última fecha (uso del cron diario)
-  python -m jobs.partner_export --all    # backfill: exporta TODAS las fechas de Valuaciones.AuM
-
-Corre como cron 1×/día sin flag, encadenado después del AuM final (jobs.aum, 23 UTC).
+Corre como cron 1×/día. Uso:  python -m jobs.partner_export
 """
 from __future__ import annotations
 
-import argparse
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from config import PARTNER_EXPORT_CUENTAS
+import holidays
+import pandas as pd
+import requests
+
+import config
 from core.mongo import get_mongo_client
 
 _DB_NAME = "ACAPortfolio"
 _COL_NAME = "Cartera"
 
-# Campos del doc AuM que se exponen al proveedor. Cualquier campo fuera de
-# esta lista NO sale — el export es la frontera de qué ve el proveedor.
-_PROJ_AUM = {
-    "_id": 0, "id_cuenta": 1, "cuenta": 1, "unidad": 1,
-    "cantidad": 1, "precio": 1, "valuacion": 1,
+# ── Aunesa — endpoints y sesión propia (independiente de jobs/aum.py) ────────
+_AUTH_URL = "https://aca.aunesa.com/Irmo/api/login"
+_POSICION_URL = "https://aca.aunesa.com/Irmo/api/cuentas/{}/posicionValuada"
+_SESSION = requests.Session()
+
+# Tipos de título para el cálculo de valuación — idéntico a jobs/aum.py.
+_TIPOS_DIVISOR_100 = {
+    "Títulos Públicos",
+    "Letras del Tesoro Capitalizables en Pesos",
+    "Letras del Tesoro Ajustables por CER en Pesos",
+    "Letras de Liquidez del Banco Central",
+    "LETES",
+    "Títulos de Deuda",
+    "Obligaciones Negociables",
+    "Fideicomisos Financieros",
+    "Cheques de Pago Diferido",
 }
+_TIPOS_FUTUROS = {"Futuros", "Forwards", "Derivados"}
 
 
-def _export_fecha(col, aum, cuentas: list[str], fecha_snapshot) -> int:
-    """Exporta una `fecha_snapshot` puntual. Idempotente: borra y reinserta
-    los docs de esa fecha. Devuelve cuántas posiciones insertó."""
-    fecha = str(fecha_snapshot)[:10]
-    docs = list(aum.find(
-        {"fecha_snapshot": fecha_snapshot, "id_cuenta": {"$in": cuentas}},
-        _PROJ_AUM,
-    ))
-    if not docs:
-        print(f"⚠ {fecha}: sin posiciones para {cuentas} — se saltea.")
-        return 0
-
-    ahora = datetime.now(UTC)
-    export_docs = [
-        {
-            "fecha":       fecha,
-            "id_cuenta":   d.get("id_cuenta"),
-            "cuenta":      d.get("cuenta"),
-            "unidad":      d.get("unidad"),
-            "cantidad":    d.get("cantidad"),
-            "precio":      d.get("precio"),
-            "valuacion":   d.get("valuacion"),
-            "exported_at": ahora,
-        }
-        for d in docs
-    ]
-    # Idempotente: reemplaza solo los docs de ESTA fecha.
-    col.delete_many({"fecha": fecha})
-    col.insert_many(export_docs)
-
-    n_ctas = len({d["id_cuenta"] for d in export_docs})
-    print(f"✅ {fecha}: {len(export_docs)} posiciones de {n_ctas} cuenta(s).")
-    return len(export_docs)
+def _autenticar() -> dict:
+    """Login contra Aunesa → headers con el Bearer token."""
+    resp = _SESSION.post(
+        _AUTH_URL,
+        json={
+            "clientId": config.AUNESA_CLIENT_ID,
+            "username": config.AUNESA_USERNAME,
+            "password": config.AUNESA_PASSWORD,
+        },
+        headers={"Content-Type": "application/json"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    token = resp.json().get("token")
+    return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
 
 
-def main(todas: bool = False) -> None:
-    cuentas = [str(c).strip() for c in PARTNER_EXPORT_CUENTAS if str(c).strip()]
+def _fecha_desde() -> str:
+    """`desde` para Aunesa = T+2 hábil desde hoy (mismo criterio que jobs/aum.py)."""
+    feriados = holidays.Argentina()
+
+    def proximo_habil(d: datetime) -> datetime:
+        d += timedelta(days=1)
+        while d.weekday() >= 5 or d in feriados:
+            d += timedelta(days=1)
+        return d
+
+    t1 = proximo_habil(datetime.now())
+    t2 = proximo_habil(t1)
+    return t2.strftime("%d/%m/%Y")
+
+
+def _consultar_posicion(
+    cuenta_id: str, headers: dict, desde: str, timeout: int = 240,
+) -> tuple[list | None, bool]:
+    """Posición valuada de una cuenta. Devuelve (data, necesita_reauth)."""
+    resp = _SESSION.get(
+        _POSICION_URL.format(cuenta_id),
+        params={
+            "desde":           desde,
+            "hasta":           "",
+            "tipoCuenta":      "Comitentes y propias",
+            "nivel":           "Especie x cuenta",
+            "ocultarCerradas": "true",
+        },
+        headers=headers,
+        timeout=timeout,
+    )
+    if resp.status_code == 401:
+        return None, True
+    if resp.status_code != 200:
+        return None, False
+    return resp.json(), False
+
+
+def _calcular_valuacion(row) -> float:
+    """Valuación de una posición — idéntico a jobs/aum.py._calcular_valuacion."""
+    precio = row["precio"]
+    cantidad = row["cantidad"]
+    tipo = str(row.get("tipoTitulo") or "")
+    if pd.isna(precio):
+        precio = 1.0
+    if any(f.lower() in tipo.lower() for f in _TIPOS_FUTUROS):
+        precio = precio + 1.0
+    if tipo in _TIPOS_DIVISOR_100:
+        return round((precio * cantidad) / 100, 6)
+    return round(precio * cantidad, 6)
+
+
+def _posiciones(data: list, cuenta_id: str) -> list[dict]:
+    """Misma lógica que jobs/aum.py.procesar PERO sin los filtros de
+    exclusión. Mantiene: solo filas 'Acumulado', signo de cantidad,
+    agrupado por especie, descarte de cantidad neta 0 y valuación."""
+    items = [r for r in data if r.get("informacion") == "Acumulado"]
+    if not items:
+        return []
+
+    df = pd.DataFrame(items)
+    df["id_cuenta"] = cuenta_id
+    df["cantidad"] = pd.to_numeric(df["cantidad"], errors="coerce") * -1
+    df["precio"] = pd.to_numeric(df["precio"], errors="coerce")
+
+    df_g = df.groupby(
+        ["id_cuenta", "unidad", "tipoTitulo", "cuenta"],
+        as_index=False, dropna=False,
+    ).agg({"cantidad": "sum", "precio": "max"})
+
+    df_g = df_g[df_g["cantidad"] != 0].copy()
+    if df_g.empty:
+        return []
+
+    df_g["valuacion"] = df_g.apply(_calcular_valuacion, axis=1)
+    return df_g.to_dict(orient="records")
+
+
+def main() -> None:
+    cuentas = [str(c).strip() for c in config.PARTNER_EXPORT_CUENTAS if str(c).strip()]
     if not cuentas:
-        # Fail-safe: sin cuentas configuradas NO exportamos nada. Evita que
-        # un config vacío termine volcando todo el AuM al proveedor.
-        print("⚠ config.PARTNER_EXPORT_CUENTAS está vacío — abortando, "
-              "no se exportó nada.")
+        # Fail-safe: sin cuentas configuradas NO exportamos nada.
+        print("⚠ config.PARTNER_EXPORT_CUENTAS está vacío — abortando.")
         return
+
+    fecha = datetime.now(UTC).strftime("%Y-%m-%d")
+    desde = _fecha_desde()
+    print(f"fecha={fecha}  desde(Aunesa)={desde}  cuentas={cuentas}", flush=True)
+
+    print("Autenticando con Aunesa...", flush=True)
+    headers = _autenticar()
+    print("Auth OK", flush=True)
 
     client = get_mongo_client()
-    aum = client["Valuaciones"]["AuM"]
     col = client[_DB_NAME][_COL_NAME]
-    # Índice para el patrón de query de la API del proveedor (por cuenta /
-    # por fecha). create_index es idempotente.
     col.create_index([("id_cuenta", 1), ("fecha", -1)])
 
-    if todas:
-        fechas = sorted(f for f in aum.distinct("fecha_snapshot") if f)
-        if not fechas:
-            print("⚠ Valuaciones.AuM no tiene snapshots — abortando.")
-            return
-        print(f"Backfill — {len(fechas)} fecha(s) de snapshot en Valuaciones.AuM.")
-        total = sum(_export_fecha(col, aum, cuentas, f) for f in fechas)
-        print(f"✅ Backfill completo — {total} posiciones exportadas a "
-              f"{_DB_NAME}.{_COL_NAME} ({datetime.now(UTC).isoformat()}).")
-        return
+    ahora = datetime.now(UTC)
+    total_pos = 0
+    con_datos = 0
+    for cid in cuentas:
+        data, reauth = _consultar_posicion(cid, dict(headers), desde)
+        if reauth:
+            headers = _autenticar()
+            data, _ = _consultar_posicion(cid, dict(headers), desde)
 
-    # Modo cron: solo la última fecha de snapshot.
-    last = aum.find_one(
-        {}, {"_id": 0, "fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)],
-    )
-    if not last or not last.get("fecha_snapshot"):
-        print("⚠ Valuaciones.AuM no tiene snapshots — abortando.")
-        return
-    total = _export_fecha(col, aum, cuentas, last["fecha_snapshot"])
-    if total:
-        print(f"✅ Export de la última fecha completo — {total} posiciones a "
-              f"{_DB_NAME}.{_COL_NAME} ({datetime.now(UTC).isoformat()}).")
+        registros = _posiciones(data, cid) if isinstance(data, list) and data else []
+
+        # Idempotente: borra los docs de ESTA cuenta para ESTA fecha antes de
+        # reinsertar. El histórico de otras fechas queda intacto.
+        col.delete_many({"id_cuenta": cid, "fecha": fecha})
+
+        if not registros:
+            print(f"  [{cid}] sin posiciones — se saltea "
+                  f"(cuenta vacía o sin datos en Aunesa).", flush=True)
+            continue
+
+        docs = [
+            {
+                "fecha":       fecha,
+                "id_cuenta":   cid,
+                "cuenta":      r.get("cuenta"),
+                "unidad":      r.get("unidad"),
+                "cantidad":    r.get("cantidad"),
+                "precio":      r.get("precio"),
+                "valuacion":   r.get("valuacion"),
+                "exported_at": ahora,
+            }
+            for r in registros
+        ]
+        col.insert_many(docs)
+        total_pos += len(docs)
+        con_datos += 1
+        print(f"  [{cid}] {len(docs)} posiciones exportadas.", flush=True)
+
+    print(f"✅ {total_pos} posiciones de {con_datos}/{len(cuentas)} cuenta(s) "
+          f"exportadas a {_DB_NAME}.{_COL_NAME} para {fecha} "
+          f"({ahora.isoformat()}).")
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(
-        description="Exporta el AuM de cuentas puntuales a ACAPortfolio.Cartera.",
-    )
-    p.add_argument(
-        "--all", action="store_true", dest="todas",
-        help="Backfill: exporta TODAS las fechas de snapshot, no solo la última.",
-    )
-    args = p.parse_args()
-    main(todas=args.todas)
+    main()

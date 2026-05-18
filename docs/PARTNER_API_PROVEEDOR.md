@@ -196,26 +196,135 @@ por día (18:30 y 23:00 hs Argentina), no hace falta consultar seguido.
 
 ---
 
-## 8. Ejemplo completo (`curl`)
+## 8. Ejemplos de consultas
 
-**1. Obtener el token:**
+### 8.1 Paso 1 — Obtener el token
+
+**Solicitud:**
 ```
 curl -X POST https://data.acaquant.com/v1/token \
   -d "username=USUARIO" \
   -d "password=CONTRASEÑA"
 ```
-De la respuesta se copia el valor de `access_token`.
 
-**2. Consultar el portfolio:**
+**Respuesta:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c3Vhcmlv...",
+  "token_type": "bearer",
+  "expires_in": 3600
+}
+```
+Se copia el valor de `access_token` para usarlo en las consultas siguientes.
+
+### 8.2 Consultar el portfolio completo
+
+Trae todas las posiciones de todas las cuentas habilitadas, para la fecha
+más reciente (no se pasa `fecha`).
+
+**Solicitud:**
 ```
 curl https://data.acaquant.com/v1/portfolio \
   -H "Authorization: Bearer ACCESS_TOKEN"
 ```
 
-**3. Consultar una fecha y una cuenta puntuales:**
+**Respuesta:**
+```json
+{
+  "fecha": "2026-05-18",
+  "posiciones": [
+    {
+      "fecha": "2026-05-18",
+      "id_cuenta": "101",
+      "cuenta": "[101] ASOCIACION DE COOPERATIVAS ARGENTINAS COOP LTDA",
+      "unidad": "ARS",
+      "cantidad": 994712575.11,
+      "precio": 1.0,
+      "valuacion": 994712575.11
+    },
+    {
+      "fecha": "2026-05-18",
+      "id_cuenta": "101",
+      "cuenta": "[101] ASOCIACION DE COOPERATIVAS ARGENTINAS COOP LTDA",
+      "unidad": "AL30",
+      "cantidad": 2500000.0,
+      "precio": 98.45,
+      "valuacion": 2461250.0
+    },
+    {
+      "fecha": "2026-05-18",
+      "id_cuenta": "463",
+      "cuenta": "[463] NOMBRE DE LA CUENTA",
+      "unidad": "FCI ADCAP RENTA FIJA",
+      "cantidad": 45000.0,
+      "precio": 1320.55,
+      "valuacion": 59424750.0
+    }
+  ],
+  "n": 3
+}
+```
+
+### 8.3 Consultar una fecha puntual
+
+**Solicitud:**
+```
+curl "https://data.acaquant.com/v1/portfolio?fecha=2026-05-16" \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+Devuelve el portfolio de esa fecha. Si no hay datos, `posiciones` viene
+vacía y `n` es `0`.
+
+### 8.4 Consultar una sola cuenta
+
+**Solicitud:**
+```
+curl "https://data.acaquant.com/v1/portfolio?id_cuenta=101" \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+Devuelve solo las posiciones de la cuenta `101`. Se puede combinar con
+`fecha`:
 ```
 curl "https://data.acaquant.com/v1/portfolio?fecha=2026-05-18&id_cuenta=101" \
   -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+### 8.5 Ver las fechas disponibles
+
+**Solicitud:**
+```
+curl https://data.acaquant.com/v1/fechas \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+**Respuesta:**
+```json
+{"fechas": ["2026-05-18", "2026-05-16", "2026-05-15"], "n": 3}
+```
+
+### 8.6 Ejemplo de integración en Python
+
+```python
+import requests
+
+BASE = "https://data.acaquant.com"
+
+# 1. Login → token
+r = requests.post(f"{BASE}/v1/token",
+                   data={"username": "USUARIO", "password": "CONTRASEÑA"})
+r.raise_for_status()
+token = r.json()["access_token"]
+headers = {"Authorization": f"Bearer {token}"}
+
+# 2. Consultar el portfolio
+r = requests.get(f"{BASE}/v1/portfolio", headers=headers)
+r.raise_for_status()
+data = r.json()
+
+print(f"Portfolio al {data['fecha']} — {data['n']} posiciones")
+for p in data["posiciones"]:
+    print(f"  {p['id_cuenta']:>6}  {p['unidad']:<20}  "
+          f"cant={p['cantidad']:>16,.2f}  valuacion={p['valuacion']:>18,.2f}")
 ```
 
 ---

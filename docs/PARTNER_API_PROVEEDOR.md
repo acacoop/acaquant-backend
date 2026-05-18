@@ -250,18 +250,9 @@ curl https://data.acaquant.com/v1/portfolio \
       "cantidad": 2500000.0,
       "precio": 98.45,
       "valuacion": 2461250.0
-    },
-    {
-      "fecha": "2026-05-18",
-      "id_cuenta": "463",
-      "cuenta": "[463] NOMBRE DE LA CUENTA",
-      "unidad": "FCI ADCAP RENTA FIJA",
-      "cantidad": 45000.0,
-      "precio": 1320.55,
-      "valuacion": 59424750.0
     }
   ],
-  "n": 3
+  "n": 2
 }
 ```
 

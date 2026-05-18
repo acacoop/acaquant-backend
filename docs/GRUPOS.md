@@ -47,14 +47,24 @@ deben tumbar la app; el peor caso es "ve de más", igual al estado actual.
   - Frontend: tab GRUPOS en el panel Manager (`grupos-panel.tsx`).
   - **Todavía NO enforcea** — solo se pueden crear/editar grupos.
 
-- **Fase 2 (pendiente)** — enforcement backend. Aplicar
-  `cuentas_visibles(email)` en los endpoints que listan/exponen cuentas
-  (portfolio/AuM, operaciones, valuaciones, PnL). Patrón: si devuelve un
-  `set`, filtrar el `$match` Mongo por `id_cuenta ∈ set`; si `None`, no
-  filtrar. Candidato a vivir junto a `_cuentas_filter.py`.
+- **Fase 2 (HECHA)** — enforcement backend para el namespace `id_cuenta`
+  (valuaciones + portfolio/AuM + PnL).
+  - `api/services/_grupos_scope.py`: dependencies `scope_cuentas`
+    (inyecta `tuple[str,...] | None`) y `verificar_id_cuenta` (403).
+  - Los services de `portfolio.py`, `pnl.py` y `valuaciones.py` aceptan
+    `scope` y lo aplican al `$match` Mongo / al filtro de docs.
+  - Routers `carteras.py` y `valuaciones.py` resuelven el scope y lo
+    pasan; los endpoints `/{id_cuenta}/*` quedan gateados.
+  - El cron (`pnl_todas_cuentas_compute`) corre sin scope.
+  - **Pendiente Fase 2b**: el namespace `cuenta` (string "[N] NOMBRE")
+    de `operaciones/negocio` — necesita mapear `id_cuenta → cuenta`.
+    `operar` ya es admin-only, así que no urge.
 
-- **Fase 3 (pendiente)** — frontend. Los selectores de cuenta de cada
-  vista se limitan a las cuentas visibles del usuario.
+- **Fase 3 (pendiente / casi cubierta)** — frontend. Los selectores de
+  cuenta salen de `/api/portfolio/cuentas` y `listar_cuentas`, que ya
+  vienen scopeados por Fase 2 → un usuario scopeado solo ve sus cuentas
+  en los selectores sin cambios de UI. Queda revisar selectores que no
+  consuman ese endpoint.
 
 ## Notas
 

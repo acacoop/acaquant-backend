@@ -1,10 +1,10 @@
 # MCP Tools Reference — TradingAV
 
-> Documento de referencia para LLMs que consumen las 34 tools del MCP server `https://api.acaquant.com/mcp`. Pensado para alimentar el contexto de Claude (Custom Connector / Project knowledge) y acelerar la decisión de qué tool usar para cada pregunta del usuario.
+> Documento de referencia para LLMs que consumen las 37 tools del MCP server `https://api.acaquant.com/mcp`. Pensado para alimentar el contexto de Claude (Custom Connector / Project knowledge) y acelerar la decisión de qué tool usar para cada pregunta del usuario.
 
 ## Qué expone este MCP
 
-Datos de mercado **argentino** en lectura: curvas de tasa fija (Lecaps/Boncaps), CER, soberanos hard-dollar (Globales/Bonares), TAMAR, dólar-linked, forwards entre tasas, breakevens de inflación, futuros DLR (Rofex), cauciones, MEP/CCL/canje, opciones GGAL, expectativas REM del BCRA, series macro, **order book live (depth 5) de bonos**, y **order book L2 histórico** (cada cambio del book persistido tick-a-tick para tickers seleccionados).
+Datos de mercado **argentino** en lectura: curvas de tasa fija (Lecaps/Boncaps), CER, soberanos hard-dollar (Globales/Bonares), TAMAR, dólar-linked, forwards entre tasas, breakevens de inflación, futuros DLR (Rofex), cauciones, MEP/CCL/canje, opciones GGAL, expectativas REM del BCRA, series macro, **order book live (depth 5) de bonos**, **order book L2 histórico** (cada cambio del book persistido tick-a-tick para tickers seleccionados), y **renta variable**: scanner de CEDEARs (precios live + categorías), retornos diarios, stats quant (beta/alpha/correlación vs SPY/QQQ, volatilidad) y pivot points.
 
 ## Qué NO expone (y no hay que asumir que existe)
 
@@ -677,6 +677,62 @@ forward_a_b = doc["matrix"][ticker_b][ticker_a]
 
 ---
 
+### Renta variable — Scanner CEDEARs
+
+> Módulo Renta Variable: CEDEARs argentinos (`Trading.Cedears` master + `Trading.CedearsSnapshot` live) y precios diarios del subyacente USD (`Trading.PreciosAcciones`).
+
+#### `cedears_scanner`
+**Para qué:** Lista de CEDEARs activos con master categórico + snapshot live.
+
+**Retorna:** `list[dict]` por CEDEAR: `ticker_corto`, `underlying`, `ratio_cedear`, `sector`, `industria`, `region`, `pais`, `last`, `open`, `high`, `low`, `close`, `intraday_pct`, `vs_1d_pct`, `vs_1d_usd_pct` (retorno del subyacente descontando el CCL), `updated_at`.
+
+**Prompts típicos:**
+- "CEDEARs de tecnología y su variación hoy"
+- "Qué CEDEAR rindió más en USD"
+
+---
+
+#### `ccl_live`
+**Para qué:** Dólar CCL live + variación vs el cierre previo.
+
+**Retorna:** `dict` con `value`, `vs_1d_pct`, `ts`.
+
+---
+
+#### `acciones_retornos`
+**Para qué:** Serie de retornos diarios aritméticos del último año (~252 puntos) de un activo.
+
+**Params:** `ticker` — ticker_corto BYMA (se resuelve el underlying: YPFD → YPF).
+
+**Retorna:** `dict` con `ticker`, `returns: list[float]`, `last_return`, `last_fecha`.
+
+---
+
+#### `acciones_quant_stats`
+**Para qué:** Stats rolling de un activo sobre el subyacente USD.
+
+**Params:** `ticker` — ticker_corto BYMA.
+
+**Retorna:** `dict` con `ticker`, `last`, `n_observations`, `beta: {spy, qqq}`, `alpha: {spy, qqq}` (anualizada), `corr: {spy, qqq}`, `vol: {d30, d60}` (volatilidad realizada anualizada).
+
+**Prompts típicos:**
+- "Beta de AMD contra el S&P"
+
+---
+
+#### `pivot_points`
+**Para qué:** Pivot points Floor Trader en 4 timeframes del subyacente USD de un CEDEAR.
+
+**Params:** `ticker` — ticker_corto BYMA.
+
+**Retorna:** `dict` con `ticker`, `last`, `last_fecha`, `frames: {diario, semanal, mensual, anual}` — cada frame trae `fecha_desde`, `fecha_hasta`, `n_velas`, `h/l/c` y `levels: {pp, r1, r2, r3, s1, s2, s3}`. El diario usa solo el día previo; semanal/mensual/anual agregan toda la ventana.
+
+**Prompts típicos:**
+- "Pivots semanales de NVDA"
+- "Soportes y resistencias de KO"
+
+---
+
 ## Patrones combinados (recetas)
 
 ### "¿Qué Lecap me conviene comprar este mes y por qué?"
@@ -759,8 +815,7 @@ El connector NO tiene datos sobre:
 - Posiciones, AuM, portfolio del usuario.
 - Operaciones / órdenes.
 - Datos de management / RBAC / usuarios.
-- Datos no argentinos (sólo MERVAL/ROFEX/BCRA/INDEC).
-- Acciones (solo bonos, futuros, opciones GGAL, macro).
-- Análisis fundamental de empresas.
+- Datos no argentinos (sólo MERVAL/ROFEX/BCRA/INDEC — los CEDEARs son instrumentos argentinos).
+- Análisis fundamental de empresas (sí hay scanner de CEDEARs con precios y stats quant, pero no fundamentals).
 
 Si el usuario pide algo de esto, decirlo explícito — no intentar fabricarlo combinando tools.

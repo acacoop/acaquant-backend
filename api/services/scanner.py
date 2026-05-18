@@ -281,6 +281,18 @@ def get_ticker_returns(ticker: str) -> dict:
     }
 
 
+def get_pivot_points(ticker: str) -> dict:
+    """Pivot points Floor Trader en 4 timeframes (diario/semanal/mensual/
+    anual) del subyacente USD del CEDEAR.
+
+    El `ticker` que llega es ticker_corto (BYMA). Resuelve el underlying
+    primero (caso YPFD → YPF) antes de calcular sobre Trading.PreciosAcciones.
+    """
+    from quant.pivot_points import obtener_4_timeframes
+
+    return obtener_4_timeframes(_resolve_underlying(ticker))
+
+
 @cached(ttl=60)
 def get_quant_stats(ticker: str, window: int = 60) -> dict:
     """Stats rolling sobre Trading.PreciosAcciones: beta/alpha/correlación

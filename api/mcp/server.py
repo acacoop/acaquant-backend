@@ -28,6 +28,7 @@ from api.services import order_book as svc_ob
 from api.services import rem as svc_rem
 from api.services import renta_fija as svc_rf
 from api.services import repo as svc_repo
+from api.services import scanner as svc_scanner
 from api.services import sensibilidad as svc_sens
 
 # Stateless HTTP: cada request se procesa independiente, sin sesión
@@ -545,5 +546,67 @@ def opciones_historico(
     tipo: str | None = None,
 ) -> list[dict]:
     return svc_opt.get_historico_opciones(instrumento=instrumento, tipo=tipo)
+
+
+# ─────────────────────────────────────────────────────────────────
+# Renta variable — Scanner CEDEARs
+# ─────────────────────────────────────────────────────────────────
+
+
+@mcp.tool(
+    description=(
+        "Lista de CEDEARs argentinos activos con su master categórico "
+        "(sector, industria, región, país) y el snapshot live: last, open, "
+        "high, low, close, variación intradía, vs 1 día en ARS y en USD "
+        "(descontando el CCL), ratio del CEDEAR y timestamp."
+    ),
+)
+def cedears_scanner() -> list[dict]:
+    return svc_scanner.get_cedears_scanner()
+
+
+@mcp.tool(
+    description=(
+        "Dólar CCL live con su variación vs el cierre del día previo. "
+        "Devuelve value, vs_1d_pct y timestamp."
+    ),
+)
+def ccl_live() -> dict:
+    return svc_scanner.get_ccl_live()
+
+
+@mcp.tool(
+    description=(
+        "Serie de retornos diarios aritméticos del último año (~252 puntos) "
+        "de un activo, desde Trading.PreciosAcciones. ticker es el "
+        "ticker_corto BYMA (se resuelve el underlying: YPFD → YPF). Para "
+        "histogramas de distribución de retornos."
+    ),
+)
+def acciones_retornos(ticker: str) -> dict:
+    return svc_scanner.get_ticker_returns(ticker=ticker)
+
+
+@mcp.tool(
+    description=(
+        "Stats rolling de un activo sobre el subyacente USD: beta, alpha "
+        "anualizada y correlación vs SPY y vs QQQ, más volatilidad realizada "
+        "anualizada a 30 y 60 días. ticker es ticker_corto BYMA."
+    ),
+)
+def acciones_quant_stats(ticker: str) -> dict:
+    return svc_scanner.get_quant_stats(ticker=ticker)
+
+
+@mcp.tool(
+    description=(
+        "Pivot points Floor Trader en 4 timeframes (diario/semanal/mensual/"
+        "anual) del subyacente USD de un CEDEAR: PP, R1-R3, S1-S3 con el "
+        "OHLC del período previo. El diario usa solo el día previo; semanal/"
+        "mensual/anual agregan toda la ventana. ticker es ticker_corto BYMA."
+    ),
+)
+def pivot_points(ticker: str) -> dict:
+    return svc_scanner.get_pivot_points(ticker=ticker)
 
 

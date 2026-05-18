@@ -84,6 +84,4 @@ def pivot_points(ticker: str):
     El `ticker` que llega del frontend es ticker_corto (BYMA). Se
     resuelve el underlying antes de queryar la serie (caso YPFD → YPF).
     """
-    from quant.pivot_points import obtener_4_timeframes
-    underlying = svc._resolve_underlying(ticker)
-    return obtener_4_timeframes(underlying)
+    return svc.get_pivot_points(ticker=ticker)

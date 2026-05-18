@@ -81,7 +81,9 @@ TICKERS_EXTRA_PRECIOS: list[str] = [
 # proveedor (jobs/partner_export.py). SOLO estas cuentas salen — el job
 # aborta si la lista está vacía (fail-safe: nunca exporta todo por error).
 PARTNER_EXPORT_CUENTAS: list[str] = [
-    # TODO: completar con los 3 id_cuenta reales.
+    "101",
+    "175",
+    # 3ª cuenta: agregar el id_cuenta acá cuando esté definido.
 ]
 
 # --- ACCESO MANAGER ---

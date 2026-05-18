@@ -1,0 +1,16 @@
+[Unit]
+Description=Acaquant Partner API (servicio externo de datos de portfolio)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TradingAV
+ExecStart=/root/TradingAV/venv/bin/uvicorn partner_api.main:app --host 127.0.0.1 --port 8100
+Restart=always
+RestartSec=10
+# Mismo reciclado que api.service — acota leaks de caches in-process.
+RuntimeMaxSec=8h
+
+[Install]
+WantedBy=multi-user.target

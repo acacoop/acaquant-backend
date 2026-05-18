@@ -72,9 +72,11 @@ def _hoy_utc_00() -> datetime:
 
 
 def _rango_diario_previo() -> tuple[datetime, datetime]:
-    """Día hábil previo: cualquier fecha < hoy. La query toma sort desc
-    limit 1, así que el rango exacto no importa mientras incluya el último
-    día hábil disponible."""
+    """Ventana para encontrar el día hábil previo. El pivot diario usa SOLO
+    la última vela de esta ventana (flag `solo_ultima`): el H/L/C tiene que
+    salir todo del MISMO día previo para proyectar los pivots de mañana. El
+    rango sólo necesita ser lo bastante ancho para incluir el último día
+    hábil (10 días cubre fines de semana largos y feriados)."""
     hoy = _hoy_utc_00()
     return (hoy - timedelta(days=10), hoy)
 
@@ -115,12 +117,19 @@ def _rango_anual_previo() -> tuple[datetime, datetime]:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def _ohlc_en_rango(ticker: str, fecha_desde: datetime, fecha_hasta: datetime) -> dict | None:
+def _ohlc_en_rango(
+    ticker: str, fecha_desde: datetime, fecha_hasta: datetime,
+    solo_ultima: bool = False,
+) -> dict | None:
     """Lee Trading.PreciosAcciones y agrega H/L/C del rango [desde, hasta).
 
     H = max de todos los high del rango.
     L = min de todos los low del rango.
     C = close del último doc cronológicamente del rango.
+
+    Si `solo_ultima` es True usa SOLO la última vela del rango (el día
+    previo): el H/L/C sale todo del MISMO día. Lo usa el timeframe diario —
+    sus pivots se proyectan del día anterior, NO se agregan varios días.
 
     Returns None si no hay docs en el rango.
 
@@ -137,6 +146,8 @@ def _ohlc_en_rango(ticker: str, fecha_desde: datetime, fecha_hasta: datetime) ->
     ))
     if not docs:
         return None
+    if solo_ultima:
+        docs = docs[-1:]
 
     highs  = [d["high"]  for d in docs if d.get("high")  is not None]
     lows   = [d["low"]   for d in docs if d.get("low")   is not None]
@@ -154,9 +165,12 @@ def _ohlc_en_rango(ticker: str, fecha_desde: datetime, fecha_hasta: datetime) ->
     }
 
 
-def _frame(label: str, ticker: str, fecha_desde: datetime, fecha_hasta: datetime) -> dict | None:
+def _frame(
+    label: str, ticker: str, fecha_desde: datetime, fecha_hasta: datetime,
+    solo_ultima: bool = False,
+) -> dict | None:
     """Construye un frame (timeframe) con OHLC + levels. None si no hay data."""
-    ohlc = _ohlc_en_rango(ticker, fecha_desde, fecha_hasta)
+    ohlc = _ohlc_en_rango(ticker, fecha_desde, fecha_hasta, solo_ultima=solo_ultima)
     if not ohlc:
         return None
     return {
@@ -216,7 +230,7 @@ def obtener_4_timeframes(ticker: str) -> dict:
         "last":       last,
         "last_fecha": last_fecha,
         "frames": {
-            "diario":  _frame("Diario",  ticker, diario_desde,  diario_hasta),
+            "diario":  _frame("Diario",  ticker, diario_desde,  diario_hasta, solo_ultima=True),
             "semanal": _frame("Semanal", ticker, semanal_desde, semanal_hasta),
             "mensual": _frame("Mensual", ticker, mensual_desde, mensual_hasta),
             "anual":   _frame("Anual",   ticker, anual_desde,   anual_hasta),
@@ -249,12 +263,18 @@ def obtener_para_ticker(ticker: str) -> dict | None:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def _debug_frame(label: str, ticker: str, fecha_desde: datetime, fecha_hasta: datetime) -> dict:
+def _debug_frame(
+    label: str, ticker: str, fecha_desde: datetime, fecha_hasta: datetime,
+    solo_ultima: bool = False,
+) -> dict:
     """Versión verbosa de `_frame` para el panel de debug.
 
     Devuelve la ventana de fechas consultada, TODAS las velas usadas, de qué
     vela sale cada H/L/C, la fórmula Floor Trader con los números reales y
     los niveles. No cambia el cálculo — solo lo expone paso a paso.
+
+    Con `solo_ultima` (timeframe diario) deja únicamente la última vela: el
+    pivot diario se proyecta del día previo, no agrega varios días.
     """
     from core.mongo import get_mongo_client
 
@@ -264,6 +284,8 @@ def _debug_frame(label: str, ticker: str, fecha_desde: datetime, fecha_hasta: da
         projection={"_id": 0, "fecha": 1, "high": 1, "low": 1, "close": 1},
         sort=[("fecha", 1)],
     ))
+    if solo_ultima and docs:
+        docs = docs[-1:]
     base = {
         "label":       label,
         "rango_desde": fecha_desde,
@@ -328,7 +350,7 @@ def debug_4_timeframes(ticker: str) -> dict:
         "last":       last_doc.get("close") if last_doc else None,
         "last_fecha": last_doc.get("fecha") if last_doc else None,
         "frames": {
-            "diario":  _debug_frame("Diario",  ticker, diario_desde,  diario_hasta),
+            "diario":  _debug_frame("Diario",  ticker, diario_desde,  diario_hasta, solo_ultima=True),
             "semanal": _debug_frame("Semanal", ticker, semanal_desde, semanal_hasta),
             "mensual": _debug_frame("Mensual", ticker, mensual_desde, mensual_hasta),
             "anual":   _debug_frame("Anual",   ticker, anual_desde,   anual_hasta),

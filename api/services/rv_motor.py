@@ -244,3 +244,176 @@ def get_trade_analysis(ticker: str, monto: float, direccion: str = "long") -> di
             "pendientes — ver docs/wip_mesa_estrategia_rv.md."
         ),
     }
+
+
+# ── Módulo 2 — análisis de book / exposición ────────────────────────────────
+
+
+def _master_info() -> dict[str, dict]:
+    """{ticker_corto: {underlying, sector, region, pais}} de Trading.Cedears."""
+    db = get_db_trading()
+    out: dict[str, dict] = {}
+    for d in db["Cedears"].find(
+        {}, {"_id": 0, "ticker_corto": 1, "underlying": 1,
+             "sector": 1, "region": 1, "pais": 1},
+    ):
+        tc = d.get("ticker_corto")
+        if tc:
+            out[tc.upper()] = {
+                "underlying": (d.get("underlying") or tc).upper(),
+                "sector":     d.get("sector") or "—",
+                "region":     d.get("region") or "—",
+                "pais":       d.get("pais") or "—",
+            }
+    return out
+
+
+def get_book_analysis(posiciones: tuple[tuple[str, float], ...]) -> dict:
+    """Analiza un book entero — Módulo 2 de la Mesa de Estrategia.
+
+    Args:
+        posiciones: tuple de (ticker_corto, notional_usd). notional > 0 = long,
+            notional < 0 = short. Se consolida por ticker.
+
+    Returns:
+        book (gross/net/posiciones), exposición por sector y región,
+        concentración (top, %top5, HHI), riesgo agregado (vol del book, VaR
+        1d, beta en USD = exposición de mercado equivalente) y la
+        contribución de riesgo de cada posición.
+
+    Pendiente (ver doc): stress test, alertas, rebalanceo, conexión a AuM.
+    """
+    from api.services.scanner import get_quant_stats
+
+    consol: dict[str, float] = {}
+    for tk, notional in posiciones:
+        t = str(tk).strip().upper()
+        if t:
+            consol[t] = consol.get(t, 0.0) + float(notional)
+    consol = {t: n for t, n in consol.items() if n}
+
+    if not consol:
+        return {
+            "book": {"posiciones": [], "gross": 0, "net": 0, "n": 0},
+            "exposicion": {"por_sector": [], "por_region": []},
+            "concentracion": {}, "riesgo": {}, "contribucion_riesgo": [],
+            "excluidos": [], "nota": "Book vacío.",
+        }
+
+    master = _master_info()
+    gross = sum(abs(n) for n in consol.values())
+    net = sum(consol.values())
+
+    posiciones_out = sorted(
+        [
+            {
+                "ticker":    t,
+                "notional":  round(n, 0),
+                "direccion": "long" if n > 0 else "short",
+                "sector":    master.get(t, {}).get("sector", "—"),
+                "region":    master.get(t, {}).get("region", "—"),
+            }
+            for t, n in consol.items()
+        ],
+        key=lambda p: abs(p["notional"]), reverse=True,
+    )
+
+    # Exposición agregada por campo categórico.
+    def _agg(campo: str) -> list[dict]:
+        g: dict[str, dict] = {}
+        for p in posiciones_out:
+            d = g.setdefault(p[campo], {"grupo": p[campo], "neto": 0.0, "bruto": 0.0})
+            d["neto"] += p["notional"]
+            d["bruto"] += abs(p["notional"])
+        filas = sorted(g.values(), key=lambda d: d["bruto"], reverse=True)
+        for d in filas:
+            d["neto"] = round(d["neto"], 0)
+            d["bruto"] = round(d["bruto"], 0)
+            d["pct_bruto"] = round(d["bruto"] / gross * 100, 1) if gross else 0
+        return filas
+
+    concentracion = {
+        "pct_top5": round(
+            sum(abs(p["notional"]) for p in posiciones_out[:5]) / gross * 100, 1,
+        ) if gross else 0,
+        "hhi": round(
+            sum((abs(p["notional"]) / gross) ** 2 for p in posiciones_out) * 100, 1,
+        ) if gross else 0,
+    }
+
+    # Riesgo agregado — necesita la matriz de correlación del book.
+    m = get_correlation_matrix(tickers=tuple(sorted(consol.keys())))
+    idx = {t: i for i, t in enumerate(m["tickers"])}
+    riesgo_tk = [t for t in consol if t in idx]
+    excluidos = sorted(t for t in consol if t not in idx)
+
+    riesgo: dict = {}
+    contribucion: list[dict] = []
+    if riesgo_tk:
+        sd = {t: (m["vol_anual"].get(t) or 0.0) / _SQRT252 for t in riesgo_tk}
+        # Var diaria del P&L = ΣΣ n_i n_j corr_ij σd_i σd_j.
+        # Contribución_i = n_i × Σ_j n_j corr_ij σd_i σd_j  (suma = var).
+        contrib_raw: dict[str, float] = {}
+        var_pl = 0.0
+        for ti in riesgo_tk:
+            fila = m["matriz"][idx[ti]]
+            s_i = 0.0
+            for tj in riesgo_tk:
+                rho = fila[idx[tj]]
+                if rho is not None:
+                    s_i += consol[tj] * rho * sd[ti] * sd[tj]
+            contrib_raw[ti] = consol[ti] * s_i
+            var_pl += consol[ti] * s_i
+
+        sigma_pl_d = var_pl ** 0.5 if var_pl > 0 else 0.0
+
+        # Beta en USD: Σ n_i × β_i = exposición de mercado equivalente.
+        beta_usd_spy = beta_usd_qqq = 0.0
+        for t in riesgo_tk:
+            qs = get_quant_stats(ticker=t)
+            if qs["beta"]["spy"] is not None:
+                beta_usd_spy += consol[t] * qs["beta"]["spy"]
+            if qs["beta"]["qqq"] is not None:
+                beta_usd_qqq += consol[t] * qs["beta"]["qqq"]
+
+        riesgo = {
+            "vol_anual_book_pct": (
+                round(sigma_pl_d * _SQRT252 / gross * 100, 1) if gross else None
+            ),
+            "var_1d_95": round(_Z95 * sigma_pl_d, 0),
+            "exposicion_mercado_usd": {
+                "spy": round(beta_usd_spy, 0),
+                "qqq": round(beta_usd_qqq, 0),
+            },
+            "n_obs": m["n_obs"],
+        }
+        if var_pl > 0:
+            contribucion = sorted(
+                [
+                    {
+                        "ticker":       t,
+                        "notional":     round(consol[t], 0),
+                        "contrib_pct":  round(contrib_raw[t] / var_pl * 100, 1),
+                    }
+                    for t in riesgo_tk
+                ],
+                key=lambda c: c["contrib_pct"], reverse=True,
+            )
+
+    return {
+        "book": {
+            "posiciones": posiciones_out,
+            "gross": round(gross, 0),
+            "net":   round(net, 0),
+            "n":     len(posiciones_out),
+        },
+        "exposicion": {"por_sector": _agg("sector"), "por_region": _agg("region")},
+        "concentracion": concentracion,
+        "riesgo": riesgo,
+        "contribucion_riesgo": contribucion,
+        "excluidos": excluidos,
+        "nota": (
+            "Stress test, alertas, rebalanceo y conexión a AuM pendientes "
+            "— ver docs/wip_mesa_estrategia_rv.md."
+        ),
+    }

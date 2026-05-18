@@ -8,7 +8,11 @@ Uso:  python -m scripts.smoke_rv_motor
 """
 from __future__ import annotations
 
-from api.services.rv_motor import get_correlation_matrix, get_trade_analysis
+from api.services.rv_motor import (
+    get_book_analysis,
+    get_correlation_matrix,
+    get_trade_analysis,
+)
 
 
 def _resumen(r: dict) -> None:
@@ -47,6 +51,22 @@ def main() -> None:
         print(f"    {h['ticker']:6} corr={h['correlacion']:+.2f}  "
               f"{h['accion']:5}  ratio={h['hedge_ratio']}  "
               f"reduc_vol={h['reduccion_vol_pct']}%")
+
+    print("\n== book-analysis (NVDA +1M, AMD +0.5M, KO +0.3M, QQQ -0.8M) ==")
+    ba = get_book_analysis(posiciones=(
+        ("NVDA", 1_000_000), ("AMD", 500_000),
+        ("KO", 300_000), ("QQQ", -800_000),
+    ))
+    b, r = ba["book"], ba["riesgo"]
+    print(f"  posiciones={b['n']}  gross={b['gross']}  net={b['net']}")
+    print(f"  vol book={r.get('vol_anual_book_pct')}%  VaR 1d 95%={r.get('var_1d_95')}  "
+          f"expo mkt QQQ={r.get('exposicion_mercado_usd', {}).get('qqq')}")
+    print("  exposición por sector:")
+    for s in ba["exposicion"]["por_sector"]:
+        print(f"    {s['grupo']:24} bruto={s['bruto']:>13,.0f}  ({s['pct_bruto']}%)")
+    print("  contribución de riesgo:")
+    for c in ba["contribucion_riesgo"]:
+        print(f"    {c['ticker']:6} {c['contrib_pct']:>6}%")
 
 
 if __name__ == "__main__":

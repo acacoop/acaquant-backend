@@ -113,3 +113,25 @@ def trade_analysis(ticker: str, monto: float = 1_000_000, direccion: str = "long
     return rv_motor.get_trade_analysis(
         ticker=ticker, monto=monto, direccion=direccion,
     )
+
+
+@router.get("/book-analysis")
+def book_analysis(posiciones: str = ""):
+    """Análisis de un book entero — Módulo 2 de la Mesa de Estrategia
+    (ver docs/wip_mesa_estrategia_rv.md).
+
+    `posiciones` es un CSV de `ticker:notional` (notional en USD, negativo =
+    short). Ej: `NVDA:1000000,AMD:-500000`. Devuelve exposición, concentración,
+    riesgo agregado y contribución de riesgo.
+    """
+    items: list[tuple[str, float]] = []
+    for parte in posiciones.split(","):
+        parte = parte.strip()
+        if not parte or ":" not in parte:
+            continue
+        tk, _, monto = parte.partition(":")
+        try:
+            items.append((tk.strip().upper(), float(monto)))
+        except ValueError:
+            continue
+    return rv_motor.get_book_analysis(posiciones=tuple(items))

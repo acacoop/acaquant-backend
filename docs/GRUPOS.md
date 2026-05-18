@@ -65,11 +65,15 @@ deben tumbar la app; el peor caso es "ve de más", igual al estado actual.
   Aplicado en `/flujos` y `/negocio/{serie,cuentas,cuentas-matrix,
   boletos,cuentas-list}`. `operar` sigue admin-only.
 
-- **Fase 3 (pendiente / casi cubierta)** — frontend. Los selectores de
-  cuenta salen de `/api/portfolio/cuentas` y `listar_cuentas`, que ya
-  vienen scopeados por Fase 2 → un usuario scopeado solo ve sus cuentas
-  en los selectores sin cambios de UI. Queda revisar selectores que no
-  consuman ese endpoint.
+- **Fase 3 (HECHA — sin cambios de código)** — frontend. Se revisaron
+  todos los selectores de cuenta de `acaquant-web`: todos sourcean de
+  endpoints ya scopeados por Fase 2/2b.
+  - `/aum` (+ VALUACIONES, PNL TÍTULOS): `aum-view` → `/api/portfolio-cuentas`.
+    `valuaciones-view` / `pnl-titulos-view` reciben `idCuenta` como prop.
+  - POR CUENTA / TOTALES: tablas de `consolidado` / `pnl-todas`.
+  - `/operaciones/negocio`: `negocio-view` → `/negocio/cuentas-list`.
+  - Manager (AUNESA, debug XIRR, GRUPOS): admin-only → scope None.
+  - Caso borde: URL bookmarkeada con `?cuenta=<ajena>` → backend 403.
 
 ## Notas
 

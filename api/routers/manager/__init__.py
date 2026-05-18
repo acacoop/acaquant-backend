@@ -14,6 +14,7 @@ Sub-dominios:
 - `logs`       — GET /logs?servicio=&lines= (journalctl de services)
 - `users`      — CRUD Manager.Users (admin panel)
 - `roles`      — matriz Manager.RoleMatrix + audit log
+- `grupos`     — CRUD Manager.Grupos (scoping de cuentas por usuario)
 - `assets`     — control de Valuaciones.Assets (gaps + edición UPPERCASE)
 """
 from fastapi import APIRouter
@@ -23,6 +24,7 @@ from api.routers.manager import (
     assets,
     aunesa,
     checks,
+    grupos,
     jobs,
     logs,
     options,
@@ -42,6 +44,7 @@ router.include_router(asistente.router)
 router.include_router(logs.router)
 router.include_router(users.router)
 router.include_router(roles.router)
+router.include_router(grupos.router)
 router.include_router(aunesa.router)
 router.include_router(assets.router)
 router.include_router(valuaciones.router)

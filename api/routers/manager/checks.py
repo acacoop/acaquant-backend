@@ -756,3 +756,18 @@ def check_discovery_pyrofex():
         "generated_at":      generated_at.isoformat() if isinstance(generated_at, datetime) else None,
         "stale_h":           stale_h,
     }
+
+
+@router.get("/checks/debug-pivot")
+def check_debug_pivot(
+    ticker: str = Query(..., description="Ticker de Trading.PreciosAcciones (ej. NVDA)"),
+):
+    """Debug paso-a-paso de los pivot points de un ticker.
+
+    Para los 4 timeframes (diario/semanal/mensual/anual) devuelve la ventana
+    de fechas consultada, TODAS las velas usadas, de qué vela sale cada
+    H/L/C, la fórmula Floor Trader con los números reales y los niveles
+    resultantes. Lee `Trading.PreciosAcciones`.
+    """
+    from quant.pivot_points import debug_4_timeframes
+    return debug_4_timeframes(ticker.strip().upper())

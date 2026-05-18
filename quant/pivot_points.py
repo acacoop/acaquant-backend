@@ -242,3 +242,95 @@ def obtener_para_ticker(ticker: str) -> dict | None:
         "close":     diario["c"],
         "levels":    diario["levels"],
     }
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Debug — detalle paso a paso del cálculo (panel Manager → Validaciones)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _debug_frame(label: str, ticker: str, fecha_desde: datetime, fecha_hasta: datetime) -> dict:
+    """Versión verbosa de `_frame` para el panel de debug.
+
+    Devuelve la ventana de fechas consultada, TODAS las velas usadas, de qué
+    vela sale cada H/L/C, la fórmula Floor Trader con los números reales y
+    los niveles. No cambia el cálculo — solo lo expone paso a paso.
+    """
+    from core.mongo import get_mongo_client
+
+    col = get_mongo_client()["Trading"]["PreciosAcciones"]
+    docs = list(col.find(
+        {"ticker": ticker, "fecha": {"$gte": fecha_desde, "$lt": fecha_hasta}},
+        projection={"_id": 0, "fecha": 1, "high": 1, "low": 1, "close": 1},
+        sort=[("fecha", 1)],
+    ))
+    base = {
+        "label":       label,
+        "rango_desde": fecha_desde,
+        "rango_hasta": fecha_hasta,
+        "n_velas":     len(docs),
+        "velas":       docs,
+    }
+    velas_h = [d for d in docs if d.get("high") is not None]
+    velas_l = [d for d in docs if d.get("low") is not None]
+    velas_c = [d for d in docs if d.get("close") is not None]
+    if not velas_h or not velas_l or not velas_c:
+        return {**base, "ok": False, "motivo": "Sin velas con high/low/close en el rango."}
+
+    vela_h = max(velas_h, key=lambda d: d["high"])
+    vela_l = min(velas_l, key=lambda d: d["low"])
+    vela_c = velas_c[-1]            # docs ya vienen ordenados por fecha asc
+    h, l, c = vela_h["high"], vela_l["low"], vela_c["close"]
+
+    levels = calcular(high=h, low=l, close=c)
+    pp = levels["pp"]
+    rango = h - l
+    formula = [
+        {"paso": "PP = (H + L + C) / 3", "valor": f"({h:.4f} + {l:.4f} + {c:.4f}) / 3 = {pp:.4f}"},
+        {"paso": "R1 = 2·PP − L",        "valor": f"2·{pp:.4f} − {l:.4f} = {levels['r1']:.4f}"},
+        {"paso": "S1 = 2·PP − H",        "valor": f"2·{pp:.4f} − {h:.4f} = {levels['s1']:.4f}"},
+        {"paso": "R2 = PP + (H − L)",    "valor": f"{pp:.4f} + {rango:.4f} = {levels['r2']:.4f}"},
+        {"paso": "S2 = PP − (H − L)",    "valor": f"{pp:.4f} − {rango:.4f} = {levels['s2']:.4f}"},
+        {"paso": "R3 = H + 2·(PP − L)",  "valor": f"{h:.4f} + 2·({pp:.4f} − {l:.4f}) = {levels['r3']:.4f}"},
+        {"paso": "S3 = L − 2·(H − PP)",  "valor": f"{l:.4f} − 2·({h:.4f} − {pp:.4f}) = {levels['s3']:.4f}"},
+    ]
+    return {
+        **base,
+        "ok":      True,
+        "h":       {"valor": h, "fecha": vela_h["fecha"]},
+        "l":       {"valor": l, "fecha": vela_l["fecha"]},
+        "c":       {"valor": c, "fecha": vela_c["fecha"]},
+        "formula": formula,
+        "levels":  levels,
+    }
+
+
+def debug_4_timeframes(ticker: str) -> dict:
+    """Como `obtener_4_timeframes` pero con el detalle COMPLETO del cálculo:
+    ventana consultada, velas usadas, de qué vela sale cada H/L/C, fórmula
+    con números y niveles. Alimenta el panel de Manager → Validaciones."""
+    from core.mongo import get_mongo_client
+
+    col = get_mongo_client()["Trading"]["PreciosAcciones"]
+    last_doc = col.find_one(
+        {"ticker": ticker},
+        projection={"_id": 0, "fecha": 1, "close": 1},
+        sort=[("fecha", -1)],
+    )
+
+    diario_desde, diario_hasta   = _rango_diario_previo()
+    semanal_desde, semanal_hasta = _rango_semanal_previo()
+    mensual_desde, mensual_hasta = _rango_mensual_previo()
+    anual_desde, anual_hasta     = _rango_anual_previo()
+
+    return {
+        "ticker":     ticker,
+        "last":       last_doc.get("close") if last_doc else None,
+        "last_fecha": last_doc.get("fecha") if last_doc else None,
+        "frames": {
+            "diario":  _debug_frame("Diario",  ticker, diario_desde,  diario_hasta),
+            "semanal": _debug_frame("Semanal", ticker, semanal_desde, semanal_hasta),
+            "mensual": _debug_frame("Mensual", ticker, mensual_desde, mensual_hasta),
+            "anual":   _debug_frame("Anual",   ticker, anual_desde,   anual_hasta),
+        },
+    }

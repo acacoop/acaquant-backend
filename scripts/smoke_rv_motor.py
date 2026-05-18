@@ -8,7 +8,7 @@ Uso:  python -m scripts.smoke_rv_motor
 """
 from __future__ import annotations
 
-from api.services.rv_motor import get_correlation_matrix
+from api.services.rv_motor import get_correlation_matrix, get_trade_analysis
 
 
 def _resumen(r: dict) -> None:
@@ -33,6 +33,20 @@ def main() -> None:
     _resumen(full)
     n = len(full["matriz"])
     print(f"  matriz {n}x{n}")
+
+    print("\n== trade-analysis (IBIT, 1.000.000 USD, long) ==")
+    ta = get_trade_analysis(ticker="IBIT", monto=1_000_000, direccion="long")
+    c = ta["caracterizacion"]
+    print(f"  last={c['last']}  vol60={c['vol_anual']['d60']}  "
+          f"beta_qqq={c['beta']['qqq']}")
+    print(f"  VaR 1d 95%: {c['var_1d_95']}  ({c['var_1d_95_pct']}%)  "
+          f"peor mes 1σ: {c['peor_mes_1sigma']}")
+    print(f"  hedge beta: {ta['hedge_beta']}")
+    print("  top 5 hedge-finder (por |correlación|):")
+    for h in ta["hedge_finder"][:5]:
+        print(f"    {h['ticker']:6} corr={h['correlacion']:+.2f}  "
+              f"{h['accion']:5}  ratio={h['hedge_ratio']}  "
+              f"reduc_vol={h['reduccion_vol_pct']}%")
 
 
 if __name__ == "__main__":

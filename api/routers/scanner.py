@@ -102,3 +102,14 @@ def correlaciones(ventana: int = 252, tickers: str | None = None):
         if tickers else None
     )
     return rv_motor.get_correlation_matrix(tickers=tks, ventana_dias=ventana)
+
+
+@router.get("/trade-analysis")
+def trade_analysis(ticker: str, monto: float = 1_000_000, direccion: str = "long"):
+    """Análisis de un trade individual — caracterización de riesgo +
+    hedge-finder. Módulo 1 de la Mesa de Estrategia
+    (ver docs/wip_mesa_estrategia_rv.md). `monto` en USD, `direccion` long|short.
+    """
+    return rv_motor.get_trade_analysis(
+        ticker=ticker, monto=monto, direccion=direccion,
+    )

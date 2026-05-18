@@ -127,3 +127,120 @@ def get_correlation_matrix(
         "matriz": matriz,
         "vol_anual": {t: realized_vol(rets[t]) for t in incluidos},
     }
+
+
+# ── Módulo 1 — análisis de trade individual + hedge-finder ──────────────────
+
+_SQRT252 = 252 ** 0.5
+_SQRT12 = 12 ** 0.5
+_Z95 = 1.645   # cuantil 95% normal — para el VaR 1 día
+
+
+def get_trade_analysis(ticker: str, monto: float, direccion: str = "long") -> dict:
+    """Analiza un trade individual: caracterización de riesgo + hedge-finder.
+
+    Módulo 1 de la Mesa de Estrategia (docs/wip_mesa_estrategia_rv.md).
+
+    Args:
+        ticker: ticker_corto del activo.
+        monto: tamaño del trade en USD.
+        direccion: "long" | "short".
+
+    Returns:
+        {
+          trade:            {ticker, monto, direccion, last},
+          caracterizacion:  vol, beta, zscore, VaR 1d, peor mes,
+                            exposición de mercado equivalente,
+          hedge_beta:       hedge directo vs SPY/QQQ (notional + acción),
+          hedge_finder:     universo rankeado por |correlación| con el ticker
+                            — ratio de cobertura, notional y acción por candidato,
+          nota:             qué falta (costo del short, escenarios).
+        }
+
+    Pendiente (ver doc): escenarios de stress y niveles de entrada/salida.
+    """
+    from api.services.scanner import get_quant_stats
+
+    tk = ticker.strip().upper()
+    es_long = direccion.strip().lower() != "short"
+
+    qs = get_quant_stats(ticker=tk)
+    vol30, vol60 = qs["vol"]["d30"], qs["vol"]["d60"]
+    beta_spy, beta_qqq = qs["beta"]["spy"], qs["beta"]["qqq"]
+
+    var_1d = monto * _Z95 * vol60 / _SQRT252 if vol60 else None
+    peor_mes = monto * vol60 / _SQRT12 if vol60 else None
+
+    caracterizacion = {
+        "last":      qs.get("last"),
+        "vol_anual": {"d30": vol30, "d60": vol60},
+        "beta":      {"spy": beta_spy, "qqq": beta_qqq},
+        "zscore":    qs.get("zscore"),
+        "var_1d_95":      round(var_1d, 0) if var_1d is not None else None,
+        "var_1d_95_pct":  round(_Z95 * vol60 / _SQRT252 * 100, 2) if vol60 else None,
+        "peor_mes_1sigma": round(peor_mes, 0) if peor_mes is not None else None,
+        "exposicion_mercado_equiv": {
+            "spy": round(monto * beta_spy, 0) if beta_spy is not None else None,
+            "qqq": round(monto * beta_qqq, 0) if beta_qqq is not None else None,
+        },
+    }
+
+    # Hedge directo por beta (vs SPY/QQQ): neutraliza el riesgo de mercado.
+    hedge_beta = []
+    for bench, b in (("SPY", beta_spy), ("QQQ", beta_qqq)):
+        if b is None:
+            continue
+        hedge_beta.append({
+            "benchmark": bench,
+            "beta":      round(b, 3),
+            "accion":    "short" if es_long else "long",
+            "notional":  round(monto * b, 0),
+        })
+
+    # Hedge-finder: universo rankeado por correlación con el ticker.
+    # Ratio de mínima varianza: h = ρ × σ_ticker / σ_otro.
+    # Reducción de vol de la cobertura óptima ∝ 1 − √(1 − ρ²).
+    m = get_correlation_matrix()
+    hedge_finder: list[dict] = []
+    if tk in m["tickers"]:
+        idx = m["tickers"].index(tk)
+        fila = m["matriz"][idx]
+        vols = m["vol_anual"]
+        sigma_t = vols.get(tk)
+        for j, otro in enumerate(m["tickers"]):
+            if otro == tk:
+                continue
+            rho = fila[j]
+            if rho is None:
+                continue
+            sigma_o = vols.get(otro)
+            hr = rho * sigma_t / sigma_o if (sigma_t and sigma_o) else None
+            # Long trade: se cubre shorteando lo +corr / longueando lo −corr.
+            # Para un short, al revés.
+            cubre_shorteando = rho > 0
+            if not es_long:
+                cubre_shorteando = not cubre_shorteando
+            hedge_finder.append({
+                "ticker":            otro,
+                "correlacion":       round(rho, 3),
+                "hedge_ratio":       round(hr, 3) if hr is not None else None,
+                "notional_hedge":    round(monto * abs(hr), 0) if hr is not None else None,
+                "accion":            "short" if cubre_shorteando else "long",
+                "reduccion_vol_pct": round((1 - (1 - rho ** 2) ** 0.5) * 100, 1),
+            })
+        hedge_finder.sort(key=lambda c: abs(c["correlacion"]), reverse=True)
+
+    return {
+        "trade": {
+            "ticker":    tk,
+            "monto":     monto,
+            "direccion": "long" if es_long else "short",
+        },
+        "caracterizacion": caracterizacion,
+        "hedge_beta":      hedge_beta,
+        "hedge_finder":    hedge_finder,
+        "nota": (
+            "Escenarios de stress y niveles de entrada/salida (pivots) "
+            "pendientes — ver docs/wip_mesa_estrategia_rv.md."
+        ),
+    }

@@ -1,8 +1,8 @@
 # WIP — Mesa de Estrategia (Renta Variable)
 
 > **Doc de diseño + estado.** Spec funcional de la feature. Estado al
-> 2026-05-18: motor de correlación + Módulo 1 completo (backend + tab
-> frontend `ESTRATEGIA`) construidos; faltan los Módulos 2-4.
+> 2026-05-18: motor + Módulos 1 y 2 completos (backend + tabs `ESTRATEGIA`
+> y `MONITOR`); faltan los Módulos 3 y 4.
 
 ## Objetivo
 
@@ -81,7 +81,12 @@ Input: **ticker + monto + dirección** (long/short).
 
 Input: un book — **prop** (lo del Módulo 1) o **cliente** (de AuM, sleeve equity).
 
-- **Exposición**: bruta, neta (long − short), por sector / región / país.
+> **HECHO** — backend (`rv_motor.get_book_analysis`, `GET /api/scanner/book-analysis`)
+> + tab `MONITOR` en acaquant-web (`monitor-view.tsx`): exposición por
+> sector/región, concentración (top 5, HHI), riesgo agregado (vol del book,
+> VaR 1d, exposición de mercado) y contribución de riesgo. Falta lo marcado ⏳.
+
+- **Exposición** ✅: bruta, neta (long − short), por sector / región / país.
 - **Concentración**: top posiciones, % en top 5, índice HHI.
 - **Riesgo**: vol del book, VaR/CVaR, beta, drawdown simulado.
 - **Contribución de riesgo**: quién aporta el RIESGO (no la plata) — una
@@ -136,7 +141,8 @@ Scanner → tira idea → Trade Individual (caracterizar + hedgear)
 1. **Motor**: endpoint de matriz de correlación. ✅ HECHO.
 2. **Módulo 1** (Trade Individual) — ✅ hecho (backend + tab frontend);
    faltan los puntos ⏳ (escenarios, niveles, residual, sizing).
-3. **Módulo 2** (Monitor de Book) — reusa el motor + conecta AuM.
+3. **Módulo 2** (Monitor de Book) — ✅ hecho (backend + tab frontend);
+   faltan ⏳ el conector a AuM, stress test, alertas y rebalanceo.
 4. **Módulo 4** (Constructor) — optimización sobre el mismo motor.
 5. **Módulo 3** (Scanner) — al final, se nutre de todo lo anterior.
 

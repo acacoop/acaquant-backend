@@ -83,7 +83,7 @@ TICKERS_EXTRA_PRECIOS: list[str] = [
 PARTNER_EXPORT_CUENTAS: list[str] = [
     "101",
     "175",
-    # 3ª cuenta: agregar el id_cuenta acá cuando esté definido.
+    "463",
 ]
 
 # --- ACCESO MANAGER ---

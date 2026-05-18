@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from api.auth import require_module
+from api.services import rv_motor
 from api.services import scanner as svc
 
 router = APIRouter(
@@ -85,3 +86,19 @@ def pivot_points(ticker: str):
     resuelve el underlying antes de queryar la serie (caso YPFD → YPF).
     """
     return svc.get_pivot_points(ticker=ticker)
+
+
+@router.get("/correlaciones")
+def correlaciones(ventana: int = 252, tickers: str | None = None):
+    """Matriz de correlación de retornos diarios — motor de la Mesa de
+    Estrategia (ver docs/wip_mesa_estrategia_rv.md).
+
+    Sin `tickers` usa todo el universo de Renta Variable. `tickers` opcional
+    es un CSV de ticker_corto. `ventana` = días hábiles comunes (default 252).
+    Base del hedge-finder y de la optimización de carteras.
+    """
+    tks = (
+        tuple(t.strip().upper() for t in tickers.split(",") if t.strip())
+        if tickers else None
+    )
+    return rv_motor.get_correlation_matrix(tickers=tks, ventana_dias=ventana)

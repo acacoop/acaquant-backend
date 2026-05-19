@@ -51,6 +51,7 @@ api/services # lógica pura (invocada por routers y por el agente)
 api/routers  # thin HTTP wrappers. manager/ es paquete de sub-routers
 api/agent/   # asistente tool-use (LEGACY, no en uso — ver sección "Asistente")
 api/mcp/     # MCP server (FastMCP) + OAuth 2.1 provider + discovery
+partner_api/ # app FastAPI SEPARADA (no monta en api/main) — datos para proveedor externo
 scripts/     # one-shot / migraciones / smoke
 deploy/      # systemd + crontab.txt (fuente de verdad)
 .claude/     # settings.json + hooks + commands + skills + agents (ver .claude/INDEX.md)
@@ -70,7 +71,11 @@ pytest -m integration                          # integration (requiere Atlas up)
 python -m scripts.perf_scan [--strict]         # anti-patterns Mongo
 ```
 
-CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest en cada push. Setup: Python 3.12, Node 20, Next 15.
+CI (`.github/workflows/ci.yml`): en cada push/PR a `main` corre `ruff check .` (bloqueante) + `perf_scan` (informativo, `continue-on-error`) + `pytest -ra` (solo unit). Python 3.12. No buildea el frontend.
+
+```bash
+uvicorn partner_api.main:app --port 8100   # Partner API (servicio externo, ver Estructura)
+```
 
 ## Frontend en repo hermano
 
@@ -122,6 +127,14 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 
 1. **CF Access path scoping**. App `acaquant-mcp-bypass` (BYPASS + Everyone) cubre 5 paths: `/mcp`, `/oauth/token`, `/oauth/register`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`. Si CF Access tapa `/mcp`, el cliente recibe HTML de login en vez de 401 → muere silencioso. `/oauth/authorize` SÍ debe estar protegido (ahí logea el user). 5/5 destinations al tope.
 2. **`TransportSecuritySettings` en `api/mcp/server.py`** con `allowed_hosts` (`api.acaquant.com`) y `allowed_origins` (`https://claude.ai`, `https://claude.com`). El default del SDK MCP solo acepta localhost → 421 Misdirected Request. El smoke local NO replica esta condición.
+
+## Partner API (servicio externo)
+
+`partner_api/` es una **app FastAPI independiente** — NO se monta en `api/main`. Sirve datos de portfolio a un proveedor externo. En el Droplet corre como systemd `partner_api.service`, bindeado a `127.0.0.1:8100`, expuesto vía nginx en `data.acaquant.com`. Sin Swagger/OpenAPI público (`docs_url=None`); la doc va por escrito al proveedor (`docs/PARTNER_API.md`, `docs/PARTNER_API_PROVEEDOR.md`).
+
+- Endpoints: `POST /v1/token` (login user/pass → JWT), `GET /v1/fechas`, `GET /v1/portfolio`, `GET /health`.
+- DB propia: `ACAPortfolio.Cartera`. Env vars `PARTNER_MONGO_URI`, `PARTNER_JWT_SECRET` (chequeadas al importar `main.py`).
+- Auth + rate limit propios (`partner_api/auth.py`, `security.py`, `ratelimit.py`) — no comparte código con `api/auth.py`.
 
 ## Deploy
 

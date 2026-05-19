@@ -59,6 +59,26 @@ DISPO_LABELS = {
     "SOJA":  "SOJ.ROS.P/DISPO",
 }
 
+# Frescura. El motor escribe `updated_at` cada 5s mientras corre (haya tick
+# o no). Si el último snapshot tiene más de STALE_SNAPSHOT_S, el motor está
+# caído o fuera de horario → la data NO es live y hay que avisarlo en la UI.
+STALE_SNAPSHOT_S = 30
+# El dólar oficial (feed MAE, script en la PC de la oficina) refresca más
+# lento y de forma menos predecible — umbral más holgado.
+STALE_OFICIAL_S = 600
+
+
+def _age_s(dt: datetime | None, now: datetime) -> float | None:
+    """Segundos transcurridos desde `dt` hasta `now`. None si falta `dt`.
+
+    pymongo puede devolver datetimes naive (asumidos UTC) — los normalizamos.
+    """
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return max(0.0, (now - dt).total_seconds())
+
 
 def _dias_entre(mat_str: str, hoy: date) -> int:
     """Días calendario hoy→maturity (formato YYYYMMDD del snapshot)."""
@@ -128,14 +148,32 @@ def get_pase_agro() -> dict[str, Any]:
             commodity, pizarras.get(commodity, {}), snapshots, oficial_value, hoy,
         ))
 
+    # Frescura. Todos los snapshots de un ciclo comparten `updated_at` (el
+    # motor los vuelca en batch con un único `ts`), así que el más reciente
+    # entre los futuros alcanza como señal global de motor-vivo.
+    now = datetime.now(UTC)
+    snap_updates = [
+        r["updated_at"]
+        for b in bloques for r in b["rows"]
+        if r.get("tipo") == "futuro" and r.get("updated_at")
+    ]
+    last_snap = max(snap_updates) if snap_updates else None
+    snap_age = _age_s(last_snap, now)
+    oficial_age = _age_s(oficial.get("ts"), now)
+
     return {
         "oficial": {
             "value":  oficial_value,
             "ts":     oficial.get("ts"),
             "source": oficial.get("source"),
+            "age_s":  round(oficial_age) if oficial_age is not None else None,
+            "stale":  oficial_age is None or oficial_age > STALE_OFICIAL_S,
         },
-        "ts":      datetime.now(UTC),
-        "bloques": bloques,
+        "ts":               now,
+        "data_fresh":       snap_age is not None and snap_age <= STALE_SNAPSHOT_S,
+        "last_snapshot_at": last_snap,
+        "snapshot_age_s":   round(snap_age) if snap_age is not None else None,
+        "bloques":          bloques,
     }
 
 
@@ -213,7 +251,8 @@ def _build_bloque(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# WRITES — solo trader+admin (gate en el router)
+# WRITES — gate en el router (admin-only mientras la vista está en beta;
+# cuando la mesa valide pasa a trader+admin)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -390,10 +429,17 @@ def get_panel_opciones(commodity: str) -> dict[str, Any]:
             "strikes":       strikes,
         })
 
+    now = datetime.now(UTC)
+    opt_updates = [o.get("updated_at") for o in opciones if o.get("updated_at")]
+    last_opt = max(opt_updates) if opt_updates else None
+    opt_age = _age_s(last_opt, now)
+
     return {
-        "commodity":    commodity,
-        "ts":           datetime.now(UTC),
-        "vencimientos": vencimientos,
+        "commodity":        commodity,
+        "ts":               now,
+        "data_fresh":       opt_age is not None and opt_age <= STALE_SNAPSHOT_S,
+        "last_snapshot_at": last_opt,
+        "vencimientos":     vencimientos,
     }
 
 
@@ -524,6 +570,12 @@ def simular_estrategia(
         tipo=tipo, futuro_F0=futuro_F0, strike_K=strike, prima=prima,
     )
 
+    # Frescura del input: si el futuro o la opción están stale, el `piso` y la
+    # `prima` calculados no son live — el front lo avisa antes de operar.
+    now = datetime.now(UTC)
+    fut_age = _age_s(futuro.get("updated_at"), now)
+    opt_age = _age_s(opcion.get("updated_at"), now)
+
     return {
         "tipo":               tipo,
         "commodity":          commodity,
@@ -533,11 +585,14 @@ def simular_estrategia(
         "prima_override":     prima_override is not None,
         "futuro_ticker":      futuro.get("ticker"),
         "futuro_last":        futuro_F0,
+        "futuro_age_s":       round(fut_age) if fut_age is not None else None,
         "opcion_ticker":      opcion.get("ticker"),
+        "opcion_age_s":       round(opt_age) if opt_age is not None else None,
+        "stale":              (fut_age is None or fut_age > STALE_SNAPSHOT_S),
         "piso":               piso,
         "diferencia_max":     diferencia_max,
         "zona_expuesta":      zona_expuesta,
         "curva_estrategia":   curva_e,
         "curva_diferencias":  curva_d,
-        "ts":                 datetime.now(UTC),
+        "ts":                 now,
     }

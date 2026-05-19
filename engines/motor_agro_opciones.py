@@ -139,6 +139,7 @@ def descubrir_opciones_agro() -> list[dict]:
 
     hoy_str = datetime.now().strftime("%Y%m%d")
     out: list[dict] = []
+    descartados_parse = 0
     for inst in res.get("instruments") or []:
         cfi = inst.get("cficode")
         if cfi not in (CFICODE_CALL, CFICODE_PUT):
@@ -157,6 +158,9 @@ def descubrir_opciones_agro() -> list[dict]:
         if not parsed:
             # Symbol no matchea el patrón canónico — variantes raras se
             # ignoran defensivamente (la mesa opera el outright canonical).
+            # Lo contamos: un salto brusco delata un cambio de formato de
+            # Primary (que dejaría el universo en 0 → RuntimeError).
+            descartados_parse += 1
             continue
         strike, tipo_from_ticker = parsed
         tipo_from_cfi = "C" if cfi == CFICODE_CALL else "P"
@@ -174,6 +178,12 @@ def descubrir_opciones_agro() -> list[dict]:
             "strike":     strike,
             "tipo":       tipo_from_cfi,
         })
+    if descartados_parse:
+        logger.info(
+            "Discovery: %d símbolos agro (CFI call/put) descartados por no "
+            "matchear el patrón de ticker — revisar si Primary cambió el formato.",
+            descartados_parse,
+        )
     out.sort(key=lambda x: (x["commodity"], x["maturity"], x["tipo"], x["strike"]))
     return out
 

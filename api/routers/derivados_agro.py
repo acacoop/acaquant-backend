@@ -1,16 +1,14 @@
 """Router /api/derivados/agro — Pase Agro + Estrategias de Cobertura.
 
-Pase Agro (vista PIZARRA, lo que ya estaba):
-    GET    /api/derivados/agro                       (admin only por ahora)
-    PATCH  /api/derivados/agro/pizarra/{commodity}   (admin only por ahora)
+    GET    /api/derivados/agro                       (todos los roles)
+    PATCH  /api/derivados/agro/pizarra/{commodity}   (todos los roles)
+    GET    /api/derivados/agro/opciones/{commodity}  (todos los roles)
+    POST   /api/derivados/agro/estrategia/simular    (todos los roles)
 
-Estrategias de Cobertura (vista ESTRATEGIAS, nueva):
-    GET    /api/derivados/agro/opciones/{commodity}      (admin only)
-    POST   /api/derivados/agro/estrategia/simular        (admin only)
-
-Todos los endpoints están restringidos a admin mientras la vista está
-en beta — cuando la mesa valide, abrimos a sales/trader y dejamos los
-PATCH/POST de mutación solo a trader+admin.
+Acceso abierto a admin / trader / sales — el gate de módulo
+(`/api/derivados/*` está en la RoleMatrix para los 3 roles) ya hace
+de barrera; el endpoint se queda con `get_user_email` solo para el
+audit de la edición de pizarra.
 """
 from __future__ import annotations
 
@@ -28,24 +26,13 @@ from api.services.derivados_agro import (
     set_pizarra,
     simular_estrategia,
 )
-from core.roles import get_user_role
 
 router = APIRouter(prefix="/api/derivados", tags=["DerivadosAgro"])
 
 
-def _require_admin(email: str) -> None:
-    role = get_user_role(email)
-    if role != "admin":
-        raise HTTPException(
-            status_code=403,
-            detail=f"role {role!r} no autorizado (solo admin)",
-        )
-
-
 @router.get("/agro")
-def pase_agro(email: str = Depends(get_user_email)):
-    """Tabla PASE AGRO completa (3 bloques: TRIGO/MAIZ/SOJA) — admin only."""
-    _require_admin(email)
+def pase_agro(_email: str = Depends(get_user_email)):
+    """Tabla PASE AGRO completa (3 bloques: TRIGO/MAIZ/SOJA)."""
     return get_pase_agro()
 
 
@@ -64,9 +51,7 @@ def patch_pizarra(
     payload: PizarraIn,
     email: str = Depends(get_user_email),
 ):
-    """Upsert de la fila PIZARRA — admin only (beta)."""
-    _require_admin(email)
-
+    """Upsert de la fila PIZARRA — email queda en el audit."""
     commodity = commodity.upper()
     if commodity not in COMMODITY_ORDER:
         raise HTTPException(
@@ -103,14 +88,12 @@ def patch_pizarra(
 
 
 @router.get("/agro/opciones/{commodity}")
-def panel_opciones(commodity: str, email: str = Depends(get_user_email)):
+def panel_opciones(commodity: str, _email: str = Depends(get_user_email)):
     """Cadena de opciones agro para un commodity, agrupada por vencimiento.
 
     Lee `Trading.AgroOpcionesSnapshot` (poblado por motor_agro_opciones) +
     embebe `futuro_last` del mismo vencimiento desde `Trading.AgroSnapshot`.
-    Admin only.
     """
-    _require_admin(email)
     commodity = commodity.upper()
     if commodity not in COMMODITY_ORDER:
         raise HTTPException(
@@ -137,14 +120,13 @@ class SimulacionIn(BaseModel):
 @router.post("/agro/estrategia/simular")
 def post_simular_estrategia(
     payload: SimulacionIn,
-    email: str = Depends(get_user_email),
+    _email: str = Depends(get_user_email),
 ):
     """Simula put sintético o long put sobre el contrato (commodity, vencimiento, strike).
 
     Devuelve piso, diferencia máxima, zona expuesta y las dos curvas
-    (estrategia_vs_futuro y diferencias) listas para graficar. Admin only.
+    (estrategia_vs_futuro y diferencias) listas para graficar.
     """
-    _require_admin(email)
     try:
         return simular_estrategia(
             commodity=payload.commodity,

@@ -239,6 +239,10 @@ def _build_bloque(
             "tnav_us":       tnav,
             "bid":           s.get("bid_price"),
             "offer":         s.get("offer_price"),
+            # open / closing: para que la tabla de futuros (vista detalle)
+            # calcule la variación intradía y vs. cierre del día anterior.
+            "open":          s.get("open"),
+            "closing":       s.get("closing"),
             "vol_efectivo":  s.get("vol_efectivo"),
             "dias_a_vto":    dias,
             "updated_at":    s.get("updated_at"),

@@ -30,6 +30,7 @@ from api.routers import (
     cotizaciones,
     cuentas,
     derivados_agro,
+    derivados_sinteticos,
     manager,
     manager_resources,
     market,
@@ -162,6 +163,7 @@ app.include_router(market.router,            dependencies=_PUBLIC)
 # Derivados Agro: GET público (todos los roles ven derivados); el PATCH
 # tiene su propio gate inline trader+admin.
 app.include_router(derivados_agro.router,    dependencies=_PUBLIC)
+app.include_router(derivados_sinteticos.router, dependencies=_PUBLIC)
 app.include_router(scanner.router,            dependencies=_PUBLIC)
 
 # Restringidos a roles con el módulo respectivo:

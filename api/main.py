@@ -38,6 +38,7 @@ from api.routers import (
     me,
     news,
     operaciones,
+    operar,
     operativa,
     ordenes,
     risk,
@@ -180,6 +181,7 @@ app.include_router(titulos.router,           dependencies=_PUBLIC)
 # Acción de operar (DOLAR MEP, órdenes vivas, saldo): puede ser para sales también
 app.include_router(ordenes.router,           dependencies=_OPERAR)
 app.include_router(operativa.router,         dependencies=_OPERAR)
+app.include_router(operar.router,            dependencies=_OPERAR)
 app.include_router(risk.router,              dependencies=_OPERAR)
 # Mesa / flujo / contrapartes: solo trader y admin
 app.include_router(operaciones.router,       dependencies=_OPERACIONES)

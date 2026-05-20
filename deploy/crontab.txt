@@ -26,14 +26,12 @@
 5 20 * * 1-5 systemctl stop  motor_dolares.service
 0 13 * * 1-5 systemctl start motor_cedears.service
 5 20 * * 1-5 systemctl stop  motor_cedears.service
+0 13 * * 1-5 systemctl start motor_agro.service
+5 20 * * 1-5 systemctl stop  motor_agro.service
+0 13 * * 1-5 systemctl start motor_agro_opciones.service
+5 20 * * 1-5 systemctl stop  motor_agro_opciones.service
 0 13 * * 1-5 systemctl start motor_portfolio_snapshot.service
 5 20 * * 1-5 systemctl stop  motor_portfolio_snapshot.service
-
-# ─── Motores agro (MATBA abre 10:30 ART = 13:30 UTC, no 10:00 como el resto)
-30 13 * * 1-5 systemctl start motor_agro.service
-5  20 * * 1-5 systemctl stop  motor_agro.service
-30 13 * * 1-5 systemctl start motor_agro_opciones.service
-5  20 * * 1-5 systemctl stop  motor_agro_opciones.service
 
 # ─── Motor de órdenes (10:30 ART → 17:05 ART = 13:30 UTC → 20:05 UTC)
 # Escucha order_report y persiste el ciclo de vida de cada orden en

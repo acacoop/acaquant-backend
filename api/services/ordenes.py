@@ -320,9 +320,9 @@ def _broker_report_to_local(rep: dict[str, Any]) -> dict[str, Any]:
     acc_field = rep.get("accountId")
     account = acc_field.get("id") if isinstance(acc_field, dict) else acc_field
 
-    # Timestamps: el broker manda transactTime en ms o ISO. Si ms,
-    # convertimos a datetime UTC para que el ordenamiento del front
-    # funcione consistente con los docs de Mongo.
+    # Timestamps: pyRofex devuelve transactTime en formato propio
+    # "20260520-15:11:26.794-0300" (FIX-like, no ISO 8601). Lo parseamos
+    # custom para que el ordenamiento del front sea correcto.
     tt = rep.get("transactTime")
     created_at = None
     if isinstance(tt, (int, float)):
@@ -330,12 +330,31 @@ def _broker_report_to_local(rep: dict[str, Any]) -> dict[str, Any]:
             created_at = datetime.fromtimestamp(tt / 1000, tz=UTC)
         except (OverflowError, ValueError):
             created_at = None
-    elif isinstance(tt, str):
-        # Algunos brokers mandan ISO o "YYYYMMDD-HH:MM:SS" — intentamos parsear.
+    elif isinstance(tt, str) and tt:
+        # Caso 1: ISO 8601.
         try:
             created_at = datetime.fromisoformat(tt.replace("Z", "+00:00"))
         except ValueError:
             created_at = None
+        # Caso 2: formato pyRofex "YYYYMMDD-HH:MM:SS.fff±ZZZZ".
+        if created_at is None and "-" in tt and len(tt) >= 17:
+            try:
+                # Separar la parte de fecha-hora del offset final.
+                # Buscamos el último '+' o '-' que sea offset (después del '.fff').
+                base = tt[:18]  # "20260520-15:11:26."
+                ms_and_tz = tt[18:]  # "794-0300"
+                # Reformatear base a "YYYY-MM-DD HH:MM:SS."
+                fmt_base = (
+                    f"{base[0:4]}-{base[4:6]}-{base[6:8]} {base[9:17]}."
+                )
+                # ms (3 chars) + tz "+HHMM" o "-HHMM"
+                ms = ms_and_tz[:3]
+                tz_part = ms_and_tz[3:]  # "+0300" / "-0300"
+                if len(tz_part) == 5 and tz_part[0] in ("+", "-"):
+                    iso = f"{fmt_base}{ms}{tz_part[:3]}:{tz_part[3:]}"
+                    created_at = datetime.fromisoformat(iso)
+            except (ValueError, IndexError):
+                created_at = None
 
     return {
         "cl_ord_id":     rep.get("clOrdId"),
@@ -393,31 +412,58 @@ def list_orders_dia(account: str | None = None, fecha: datetime | None = None) -
     # Pegada al broker. Si falla, devolvemos solo lo local (degradación
     # graceful — no rompemos la vista si pyRofex está flaky).
     #
-    # IMPORTANTE: get_all_orders_status devuelve UN ER por cada cambio de
-    # estado, no una entry por orden. Para una orden con 5 transiciones
-    # (NEW → PARTIAL → CANCELED_REQ → PENDING_CANCEL → ...), aparecen 5
-    # entries con el mismo clOrdId. Dedupamos quedándonos con el ER de
-    # mayor transactTime — el más actual.
+    # CLAVE: pyRofex devuelve UNA entry por cada cambio de estado. Cada
+    # cancel request genera una entry NUEVA con su propio clOrdId que
+    # apunta al original via `origClOrdId`. Si la orden original ya fue
+    # cancelada/rejeada y alguien insiste con cancels, se acumulan N
+    # entries PENDING_CANCEL (caso GD41D — 17 cancel requests sobre 1
+    # sola orden REJECTED).
+    #
+    # Solución: resolver cadena origClOrdId → raíz, y por cada raíz
+    # quedarnos con el ER de mayor transactTime. El frontend ve UNA fila
+    # por orden con el estado actual.
     try:
         resp = pyRofex.get_all_orders_status(account=acc)
         if resp and resp.get("status") == "OK":
-            seen_tt: dict[str, int] = {}
+            reports = []
             for o in resp.get("orders", []) or []:
                 rep = o.get("orderReport", o)
-                cid = rep.get("clOrdId")
-                if not cid:
-                    continue
-                tt_raw = rep.get("transactTime") or 0
-                tt = int(tt_raw) if isinstance(tt_raw, (int, float)) else 0
-                if cid in seen_tt and seen_tt[cid] >= tt:
-                    continue
-                seen_tt[cid] = tt
+                if rep.get("clOrdId"):
+                    reports.append(rep)
 
+            # Mapa clOrdId → orig (si tiene). Para resolver raíz.
+            parent_of = {
+                r["clOrdId"]: r.get("origClOrdId")
+                for r in reports
+            }
+
+            def _root(cid: str, depth: int = 0) -> str:
+                """Sigue origClOrdId hasta que se acabe. Cap profundidad
+                para evitar ciclos teóricos."""
+                if depth > 20:
+                    return cid
+                parent = parent_of.get(cid)
+                if not parent or parent == cid:
+                    return cid
+                return _root(parent, depth + 1)
+
+            # Agrupar por raíz: ER con mayor transactTime gana.
+            by_root: dict[str, tuple[str, dict]] = {}  # root → (transactTime, rep)
+            for rep in reports:
+                cid = rep["clOrdId"]
+                root = _root(cid)
+                tt = str(rep.get("transactTime") or "")
+                if root in by_root and by_root[root][0] >= tt:
+                    continue
+                by_root[root] = (tt, rep)
+
+            for root, (_tt, rep) in by_root.items():
                 mapped = _broker_report_to_local(rep)
-                if cid in by_cl_ord and not by_cl_ord[cid].get("external", True) is True:
-                    # Hay match en local: refrescamos estado del broker pero
-                    # preservamos actor_email y proprietary del doc local.
-                    existing = by_cl_ord[cid]
+                # El cl_ord_id efectivo es el root (la orden original);
+                # el cancel request se "absorbe" en su estado actual.
+                mapped["cl_ord_id"] = root
+                if root in by_cl_ord:
+                    existing = by_cl_ord[root]
                     mapped["external"] = False
                     if existing.get("actor_email"):
                         mapped["actor_email"] = existing["actor_email"]
@@ -425,9 +471,9 @@ def list_orders_dia(account: str | None = None, fecha: datetime | None = None) -
                         mapped["proprietary"] = existing["proprietary"]
                     if existing.get("created_at") and not mapped.get("created_at"):
                         mapped["created_at"] = existing["created_at"]
-                    by_cl_ord[cid] = {**existing, **mapped}
+                    by_cl_ord[root] = {**existing, **mapped}
                 else:
-                    by_cl_ord[cid] = mapped
+                    by_cl_ord[root] = mapped
     except Exception as e:
         logger.warning("list_orders_dia: merge broker falló (acc=%s): %s", acc, e)
 

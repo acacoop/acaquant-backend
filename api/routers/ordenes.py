@@ -77,12 +77,16 @@ def enviar(
 @router.delete("/{cl_ord_id}")
 def cancelar(
     cl_ord_id: str,
+    proprietary: str | None = Query(
+        None,
+        description="Opcional — para cancelar órdenes external (vinieron solo del broker, no de nuestra app)",
+    ),
     email: str = Depends(get_user_email),
 ) -> dict[str, Any]:
     """Pide cancelación al broker. El estado real llega vía order_report
     al motor de órdenes — acá solo registramos el intento."""
     try:
-        return cancel_order(cl_ord_id, actor_email=email)
+        return cancel_order(cl_ord_id, actor_email=email, proprietary=proprietary)
     except Exception as e:
         logger.exception("cancel_order failed (email=%s cl_ord_id=%s)", email, cl_ord_id)
         raise HTTPException(status_code=500, detail=str(e)) from e

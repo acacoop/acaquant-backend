@@ -253,30 +253,40 @@ def send_order(
             "proprietary": proprietary, "broker_response": resp}
 
 
-def cancel_order(cl_ord_id: str, *, actor_email: str | None = None) -> dict[str, Any]:
+def cancel_order(
+    cl_ord_id: str,
+    *,
+    actor_email: str | None = None,
+    proprietary: str | None = None,
+) -> dict[str, Any]:
     """Cancela una orden por clOrdId. El estado real llega por order_report
     al motor — acá solo registramos el intento.
 
-    pyRofex.cancel_order pide (client_order_id, proprietary). Sacamos el
-    proprietary del doc en Mongo (lo guardamos al enviar).
+    pyRofex.cancel_order pide (client_order_id, proprietary). Resolución
+    del proprietary, en orden:
+      1. El que viene en `proprietary` (frontend lo envía cuando lo tiene
+         del payload de /api/ordenes/dia — funciona para órdenes external).
+      2. El persistido en OrdenesLive (lo guardamos al enviar desde acá).
     """
     acc = _ensure_session()
     _audit("CANCEL_REQUEST", cl_ord_id=cl_ord_id, account=acc,
-           actor_email=actor_email, payload={"cl_ord_id": cl_ord_id})
+           actor_email=actor_email,
+           payload={"cl_ord_id": cl_ord_id, "proprietary_in": proprietary})
 
-    db = get_mongo_client()[DB_NAME]
-    doc = db[COL_LIVE].find_one({"cl_ord_id": cl_ord_id}, {"proprietary": 1})
-    if not doc:
-        _audit("CANCEL_ERROR", cl_ord_id=cl_ord_id, account=acc,
-               actor_email=actor_email,
-               payload={"reason": "cl_ord_id no existe en OrdenesLive"})
-        return {"ok": False, "error": f"cl_ord_id {cl_ord_id!r} no encontrado en OrdenesLive"}
-    proprietary = doc.get("proprietary")
+    if not proprietary:
+        db = get_mongo_client()[DB_NAME]
+        doc = db[COL_LIVE].find_one({"cl_ord_id": cl_ord_id}, {"proprietary": 1})
+        if doc:
+            proprietary = doc.get("proprietary")
+
     if not proprietary:
         _audit("CANCEL_ERROR", cl_ord_id=cl_ord_id, account=acc,
                actor_email=actor_email,
-               payload={"reason": "proprietary faltante en doc"})
-        return {"ok": False, "error": "doc en OrdenesLive sin proprietary — no se puede cancelar"}
+               payload={"reason": "proprietary no encontrado (ni en query ni en Mongo)"})
+        return {"ok": False, "error": (
+            "proprietary no disponible para cancelar. Si la orden vino de "
+            "otra plataforma, abrila desde la web del broker para cancelar."
+        )}
 
     try:
         resp = pyRofex.cancel_order(cl_ord_id, proprietary)
@@ -382,17 +392,30 @@ def list_orders_dia(account: str | None = None, fecha: datetime | None = None) -
 
     # Pegada al broker. Si falla, devolvemos solo lo local (degradación
     # graceful — no rompemos la vista si pyRofex está flaky).
+    #
+    # IMPORTANTE: get_all_orders_status devuelve UN ER por cada cambio de
+    # estado, no una entry por orden. Para una orden con 5 transiciones
+    # (NEW → PARTIAL → CANCELED_REQ → PENDING_CANCEL → ...), aparecen 5
+    # entries con el mismo clOrdId. Dedupamos quedándonos con el ER de
+    # mayor transactTime — el más actual.
     try:
         resp = pyRofex.get_all_orders_status(account=acc)
         if resp and resp.get("status") == "OK":
+            seen_tt: dict[str, int] = {}
             for o in resp.get("orders", []) or []:
                 rep = o.get("orderReport", o)
                 cid = rep.get("clOrdId")
                 if not cid:
                     continue
+                tt_raw = rep.get("transactTime") or 0
+                tt = int(tt_raw) if isinstance(tt_raw, (int, float)) else 0
+                if cid in seen_tt and seen_tt[cid] >= tt:
+                    continue
+                seen_tt[cid] = tt
+
                 mapped = _broker_report_to_local(rep)
-                if cid in by_cl_ord:
-                    # Local + broker: refrescamos estado del broker pero
+                if cid in by_cl_ord and not by_cl_ord[cid].get("external", True) is True:
+                    # Hay match en local: refrescamos estado del broker pero
                     # preservamos actor_email y proprietary del doc local.
                     existing = by_cl_ord[cid]
                     mapped["external"] = False

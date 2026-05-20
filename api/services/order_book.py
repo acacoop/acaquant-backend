@@ -1,18 +1,23 @@
-"""Capa de servicio — Order Book (LOB) live de activos de curvas.
+"""Capa de servicio — Order Book (LOB) live.
 
 Lee Trading.MarketSnapshot, que popula engines/valores.py
 (MicrostructureEngine) cada 1s con depth=5 desde pyRofex WS. Sin histórico
-— solo el último estado vivo. Cobertura: tickers de Trading.Curvas.
+— solo el último estado vivo. Cobertura: TODOS los tickers que el motor
+suscribe (Curvas + TICKERS_EXTRA_PRECIOS + lo que vaya sumando).
+
+`get_order_book` acepta ticker full ('MERV - XMEV - AL30 - 24hs') o
+corto + plazo ('AL30' + '24hs'). NO depende de Trading.Curvas — eso es
+solo la lista de bonos con curva calculada, no el universo operable.
 
 Latencia: ~10-50ms (read Mongo con índice por ticker). El delay vs mercado
-real está dominado por el sleep(1) del snapshot_loop del motor — esta capa
-NO cachea para minimizar latencia adicional.
+real está dominado por el sleep(1) del snapshot_loop del motor.
 """
 from __future__ import annotations
 
+import re
+
 from api.cache import cached
 from api.db import get_db_trading
-from api.services.renta_fija import resolver_ticker_exacto
 
 _CURVAS_VALIDAS = ("cer", "tasa_fija", "tamar", "soberanos", "dolar_linked")
 
@@ -32,6 +37,8 @@ _PROJ = {
     "metrics.closing_price":     1,
 }
 
+_PLAZOS_VALIDOS = ("CI", "24hs", "48hs")
+
 
 @cached(ttl=300)
 def _tickers_de_curva(curva: str) -> list[str]:
@@ -47,17 +54,39 @@ def _tickers_de_curva(curva: str) -> list[str]:
     ]
 
 
-def get_order_book(instrumento: str) -> dict | None:
-    """LOB live (depth 5) de un ticker.
+def get_order_book(instrumento: str, plazo: str = "24hs") -> dict | None:
+    """LOB live (depth 5) de un ticker arbitrario.
 
-    Acepta corto ('TX26') o completo ('MERV - XMEV - TX26 - 24hs'). Devuelve
-    None si el ticker no está en Trading.Curvas o nunca recibió market data.
-    Sin cache — fresh read en cada llamada.
+    Acepta:
+      - Full ROFEX ('MERV - XMEV - AL30 - 24hs') → match exacto.
+      - Corto ('AL30') + plazo ('CI'|'24hs'|'48hs') → substring match
+        sobre MarketSnapshot.ticker.
+
+    Resuelve directo contra MarketSnapshot (no pasa por Curvas) — así
+    cubre cualquier instrumento que el motor esté suscribiendo, no solo
+    los de la curva. Devuelve None si el motor no lo escribió todavía.
+
+    Si hay múltiples matches con el mismo corto (raro: distinto plazo),
+    devuelve el más recientemente actualizado.
     """
-    ticker = resolver_ticker_exacto(instrumento)
-    if not ticker:
+    instr = (instrumento or "").strip()
+    if not instr:
         return None
-    return get_db_trading()["MarketSnapshot"].find_one({"ticker": ticker}, _PROJ)
+    coll = get_db_trading()["MarketSnapshot"]
+
+    if " - " in instr:
+        return coll.find_one({"ticker": instr}, _PROJ)
+
+    plazo_eff = plazo if plazo in _PLAZOS_VALIDOS else "24hs"
+    # Regex anclada por separadores ' - ' a ambos lados del corto y del
+    # plazo, así "AL30" no matchea "AL30D".
+    pattern = rf" - {re.escape(instr)} - {re.escape(plazo_eff)}$"
+    docs = list(
+        coll.find({"ticker": {"$regex": pattern, "$options": "i"}}, _PROJ)
+        .sort("updated_at", -1)
+        .limit(1)
+    )
+    return docs[0] if docs else None
 
 
 def get_order_books_curva(curva: str) -> list[dict]:

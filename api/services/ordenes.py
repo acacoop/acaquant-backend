@@ -299,18 +299,118 @@ def get_order_status(cl_ord_id: str) -> dict[str, Any] | None:
     return doc
 
 
+def _broker_report_to_local(rep: dict[str, Any]) -> dict[str, Any]:
+    """Mapea un orderReport del broker al shape de OrdenesLive.
+
+    No persiste — esto es para devolver al frontend órdenes que viven solo
+    en el broker (operadas desde otra plataforma, ej. la web del broker).
+    """
+    instrument = rep.get("instrumentId") or {}
+    ticker = instrument.get("symbol") or rep.get("symbol") or ""
+    acc_field = rep.get("accountId")
+    account = acc_field.get("id") if isinstance(acc_field, dict) else acc_field
+
+    # Timestamps: el broker manda transactTime en ms o ISO. Si ms,
+    # convertimos a datetime UTC para que el ordenamiento del front
+    # funcione consistente con los docs de Mongo.
+    tt = rep.get("transactTime")
+    created_at = None
+    if isinstance(tt, (int, float)):
+        try:
+            created_at = datetime.fromtimestamp(tt / 1000, tz=UTC)
+        except (OverflowError, ValueError):
+            created_at = None
+    elif isinstance(tt, str):
+        # Algunos brokers mandan ISO o "YYYYMMDD-HH:MM:SS" — intentamos parsear.
+        try:
+            created_at = datetime.fromisoformat(tt.replace("Z", "+00:00"))
+        except ValueError:
+            created_at = None
+
+    return {
+        "cl_ord_id":     rep.get("clOrdId"),
+        "ws_cl_ord_id":  rep.get("wsClOrdId"),
+        "account":       account,
+        "ticker":        ticker,
+        "side":          rep.get("side"),
+        "order_type":    rep.get("ordType"),
+        "tif":           rep.get("timeInForce"),
+        "size":          rep.get("orderQty"),
+        "price":         rep.get("price"),
+        "status":        rep.get("status"),
+        "cum_qty":       rep.get("cumQty"),
+        "leaves_qty":    rep.get("leavesQty"),
+        "avg_px":        rep.get("avgPx"),
+        "last_px":       rep.get("lastPx"),
+        "last_qty":      rep.get("lastQty"),
+        "reject_reason": rep.get("text"),
+        "proprietary":   rep.get("proprietary"),
+        "created_at":    created_at,
+        "external":      True,  # marca: vino solo del broker, no de nuestra API
+    }
+
+
 def list_orders_dia(account: str | None = None, fecha: datetime | None = None) -> list[dict]:
-    """Lista órdenes del día (UTC) para una cuenta."""
+    """Lista órdenes del día — merge live de Mongo + broker.
+
+    Combina:
+      1. `Operaciones.OrdenesLive` (lo que pasó por nuestra API, con
+         actor_email + audit log + el clOrdId que motor_ordenes actualiza).
+      2. `pyRofex.get_all_orders_status(account=X)` (lo que el broker ve
+         hoy en esa cuenta, sin importar desde dónde se mandó — la web del
+         broker, otra plataforma, etc).
+
+    Join por clOrdId. Las que están en local + broker → broker pisa estado
+    (más fresco). Las que están solo en broker → se devuelven marcadas como
+    `external=true`. No persistimos nada nuevo — solo merge en memoria para
+    la respuesta del endpoint. Cancelar una external requiere también
+    `proprietary` que va en el payload.
+    """
     acc = account or cuenta_default()
     if fecha is None:
         fecha = datetime.now(UTC)
     inicio = fecha.replace(hour=0, minute=0, second=0, microsecond=0)
+
     db = get_mongo_client()[DB_NAME]
-    cursor = db[COL_LIVE].find(
+    local = list(db[COL_LIVE].find(
         {"account": acc, "created_at": {"$gte": inicio}},
         {"_id": 0},
-    ).sort("created_at", -1)
-    return list(cursor)
+    ))
+    by_cl_ord: dict[str, dict[str, Any]] = {
+        o["cl_ord_id"]: o for o in local if o.get("cl_ord_id")
+    }
+
+    # Pegada al broker. Si falla, devolvemos solo lo local (degradación
+    # graceful — no rompemos la vista si pyRofex está flaky).
+    try:
+        resp = pyRofex.get_all_orders_status(account=acc)
+        if resp and resp.get("status") == "OK":
+            for o in resp.get("orders", []) or []:
+                rep = o.get("orderReport", o)
+                cid = rep.get("clOrdId")
+                if not cid:
+                    continue
+                mapped = _broker_report_to_local(rep)
+                if cid in by_cl_ord:
+                    # Local + broker: refrescamos estado del broker pero
+                    # preservamos actor_email y proprietary del doc local.
+                    existing = by_cl_ord[cid]
+                    mapped["external"] = False
+                    if existing.get("actor_email"):
+                        mapped["actor_email"] = existing["actor_email"]
+                    if existing.get("proprietary") and not mapped.get("proprietary"):
+                        mapped["proprietary"] = existing["proprietary"]
+                    if existing.get("created_at") and not mapped.get("created_at"):
+                        mapped["created_at"] = existing["created_at"]
+                    by_cl_ord[cid] = {**existing, **mapped}
+                else:
+                    by_cl_ord[cid] = mapped
+    except Exception as e:
+        logger.warning("list_orders_dia: merge broker falló (acc=%s): %s", acc, e)
+
+    out = list(by_cl_ord.values())
+    out.sort(key=lambda x: x.get("created_at") or datetime.min.replace(tzinfo=UTC), reverse=True)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────

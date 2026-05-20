@@ -66,12 +66,17 @@ logger = logging.getLogger("MotorOrdenes")
 DB_NAME = "Operaciones"
 COL_LIVE = "OrdenesLive"
 COL_AUDIT = "OrdenesAudit"
+COL_HEARTBEAT = "MotorOrdenesHeartbeat"
 
 # Estados que consideramos terminales — no hace falta re-fetchearlos.
 ESTADOS_FINALES = {"FILLED", "CANCELLED", "REJECTED", "EXPIRED"}
 
 # Heartbeat del loop principal (no afecta latencia de ER).
 HEARTBEAT_S = 5
+# Escritura de heartbeat para que /manager → DIAG vea que el motor está vivo.
+# Sin esto, motor_ordenes no figura porque solo escribe cuando llega un ER
+# (puede pasar horas sin actividad).
+HEARTBEAT_DB_S = 30
 
 _running = True
 _lock = threading.Lock()
@@ -254,6 +259,27 @@ def _recovery(db, account: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _heartbeat_loop(db, account: str) -> None:
+    """Thread daemon: cada HEARTBEAT_DB_S segundos escribe Operaciones.
+    MotorOrdenesHeartbeat para que /manager → DIAG sepa que el motor
+    está vivo. A diferencia de los otros motores, este no escribe
+    snapshots periódicos (solo ERs reactivos), por eso necesita el
+    heartbeat explícito."""
+    while _running:
+        try:
+            db[COL_HEARTBEAT].update_one(
+                {"_id": "singleton"},
+                {"$set": {
+                    "updated_at": datetime.now(UTC),
+                    "account":    account,
+                }},
+                upsert=True,
+            )
+        except Exception as e:
+            logger.warning("heartbeat write falló: %s", e)
+        time.sleep(HEARTBEAT_DB_S)
+
+
 def main() -> None:
     db = get_mongo_client()[DB_NAME]
     _ensure_indexes(db)
@@ -266,6 +292,13 @@ def main() -> None:
     # operativas de mesa (operativa_mep) ya no dependen del WS — confirman
     # los fills vía REST `pyRofex.get_order_status` directo al broker.
     _recovery(db, account)
+
+    # Heartbeat para monitoreo desde /manager → DIAG.
+    threading.Thread(
+        target=_heartbeat_loop,
+        args=(db, account),
+        daemon=True,
+    ).start()
 
     while _running:
         time.sleep(HEARTBEAT_S)

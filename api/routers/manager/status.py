@@ -48,6 +48,10 @@ _MOTORES = [
     ("Trading",     "FuturosDLRSnapshot",   "updated_at", "FuturosDLRSnapshot",                  60, UTC,    _APERTURA_DEFAULT),
     ("Trading",     "AgroSnapshot",         "updated_at", "AgroSnapshot",                        60, UTC,    _APERTURA_AGRO),
     ("Trading",     "AgroOpcionesSnapshot", "updated_at", "AgroOpcionesSnapshot",                60, UTC,    _APERTURA_AGRO),
+    # motor_ordenes solo escribe ER cuando hay actividad — sin heartbeat
+    # propio no podemos saber si está vivo. Lee Operaciones.MotorOrdenes
+    # Heartbeat que el motor refresca cada 30s. Arranca 10:30 ART (cron).
+    ("Operaciones", "MotorOrdenesHeartbeat","updated_at", "MotorOrdenes (ER WS)",                90, UTC,    _APERTURA_AGRO),
 ]
 
 _JOBS_STATUS = [

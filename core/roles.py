@@ -55,6 +55,7 @@ MODULES: tuple[str, ...] = (
     "operar",         # /operar (DOLAR MEP) + /api/ordenes + /api/operativa + /api/risk
     "operaciones",    # /operaciones (mesa, flujo) + /api/cuentas
     "portfolios",     # /portfolios + /aum + carteras + AuM + titulos
+    "back-office",    # /back-office (títulos a enviar/recibir al mercado, conciliación)
     "asistente",      # /asistente + /api/chat
     "manager",        # /manager + intel + jobs + logs
 )
@@ -71,11 +72,12 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "trader": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
-        "operaciones", "portfolios", "asistente",
+        "operaciones", "portfolios", "back-office", "asistente",
     ),
     "sales":  (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
+        "back-office",
     ),
 }
 # `operar` (DOLAR MEP + envío de órdenes) queda SOLO para admin de momento

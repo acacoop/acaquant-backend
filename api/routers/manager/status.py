@@ -26,23 +26,28 @@ def _fetch_last(db_name: str, coll: str, field: str, filtro: dict):
     return client[db_name][coll].find_one(filtro, {field: 1, "_id": 0}, sort=[(field, -1)])
 
 
-def _es_rueda(ahora_ar: datetime) -> bool:
-    return ahora_ar.weekday() < 5 and time(10, 0) <= ahora_ar.time() <= time(17, 5)
+_APERTURA_DEFAULT = time(10, 0)
+_APERTURA_AGRO    = time(10, 30)   # MATBA abre 10:30 ART
 
 
+def _es_rueda(ahora_ar: datetime, apertura: time = _APERTURA_DEFAULT) -> bool:
+    return ahora_ar.weekday() < 5 and apertura <= ahora_ar.time() <= time(17, 5)
+
+
+# Tupla: (db, coll, field, nombre, umbral_s, tz_fallback, apertura_ar)
 _MOTORES = [
-    ("Trading",     "TimeSales",            "timestamp",  "TimeSales (rofex)",                  300, _AR_TZ),
-    ("Trading",     "MarketSnapshot",       "updated_at", "MarketSnapshot",                     120, UTC),
-    ("Trading",     "PortfolioSnapshot",    "updated_at", "PortfolioSnapshot (live tenencia)",  120, UTC),
-    ("Trading",     "ForwardsLive",         "updated_at", "ForwardsLive",                        60, UTC),
-    ("Trading",     "BreakevensLive",       "updated_at", "BreakevensLive",                      60, UTC),
-    ("Opciones",    "OptionsSnapshot",      "updated_at", "OptionsSnapshot",                    180, UTC),
-    ("Trading",     "CedearsSnapshot",      "updated_at", "CedearsSnapshot",                     60, UTC),
-    ("Trading",     "CaucionSnapshot",      "updated_at", "CaucionSnapshot",                     60, UTC),
-    ("Valuaciones", "DolarSnapshot",        "updated_at", "DolarSnapshot",                       60, UTC),
-    ("Trading",     "FuturosDLRSnapshot",   "updated_at", "FuturosDLRSnapshot",                  60, UTC),
-    ("Trading",     "AgroSnapshot",         "updated_at", "AgroSnapshot",                        60, UTC),
-    ("Trading",     "AgroOpcionesSnapshot", "updated_at", "AgroOpcionesSnapshot",                60, UTC),
+    ("Trading",     "TimeSales",            "timestamp",  "TimeSales (rofex)",                  300, _AR_TZ, _APERTURA_DEFAULT),
+    ("Trading",     "MarketSnapshot",       "updated_at", "MarketSnapshot",                     120, UTC,    _APERTURA_DEFAULT),
+    ("Trading",     "PortfolioSnapshot",    "updated_at", "PortfolioSnapshot (live tenencia)",  120, UTC,    _APERTURA_DEFAULT),
+    ("Trading",     "ForwardsLive",         "updated_at", "ForwardsLive",                        60, UTC,    _APERTURA_DEFAULT),
+    ("Trading",     "BreakevensLive",       "updated_at", "BreakevensLive",                      60, UTC,    _APERTURA_DEFAULT),
+    ("Opciones",    "OptionsSnapshot",      "updated_at", "OptionsSnapshot",                    180, UTC,    _APERTURA_DEFAULT),
+    ("Trading",     "CedearsSnapshot",      "updated_at", "CedearsSnapshot",                     60, UTC,    _APERTURA_DEFAULT),
+    ("Trading",     "CaucionSnapshot",      "updated_at", "CaucionSnapshot",                     60, UTC,    _APERTURA_DEFAULT),
+    ("Valuaciones", "DolarSnapshot",        "updated_at", "DolarSnapshot",                       60, UTC,    _APERTURA_DEFAULT),
+    ("Trading",     "FuturosDLRSnapshot",   "updated_at", "FuturosDLRSnapshot",                  60, UTC,    _APERTURA_DEFAULT),
+    ("Trading",     "AgroSnapshot",         "updated_at", "AgroSnapshot",                        60, UTC,    _APERTURA_AGRO),
+    ("Trading",     "AgroOpcionesSnapshot", "updated_at", "AgroOpcionesSnapshot",                60, UTC,    _APERTURA_AGRO),
 ]
 
 _JOBS_STATUS = [
@@ -98,7 +103,7 @@ def get_status():
     rueda = _es_rueda(ahora)
 
     def check_motor(s):
-        db_n, coll, field, nombre, umbral, tz_naive = s
+        db_n, coll, field, nombre, umbral, tz_naive, apertura = s
         doc = _fetch_last(db_n, coll, field, {field: {"$exists": True}})
         if not doc or not doc.get(field):
             return {"nombre": nombre, "ultima": None, "hace": "—", "umbral": umbral, "estado": "sin_datos"}
@@ -106,10 +111,11 @@ def get_status():
         if isinstance(ts, datetime) and ts.tzinfo is None:
             ts = ts.replace(tzinfo=tz_naive)
         delta = (ahora.astimezone(UTC) - ts.astimezone(UTC)).total_seconds()
-        if not rueda:       estado = "fuera_rueda"
-        elif delta > umbral * 3: estado = "critico"
-        elif delta > umbral:     estado = "lento"
-        else:                    estado = "ok"
+        rueda_motor = _es_rueda(ahora, apertura)
+        if not rueda_motor:       estado = "fuera_rueda"
+        elif delta > umbral * 3:  estado = "critico"
+        elif delta > umbral:      estado = "lento"
+        else:                     estado = "ok"
         return {
             "nombre": nombre,
             "ultima": ts.astimezone(_AR_TZ).strftime("%H:%M:%S"),

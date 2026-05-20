@@ -136,6 +136,10 @@ def get_pase_agro() -> dict[str, Any]:
     db_read = get_mongo_client_read()
     pizarras_raw = list(db_read["Derivados"]["AgroPizarra"].find({}))
     pizarras = {p["_id"]: p for p in pizarras_raw}
+    # Cámara Arbitral: única fuente de verdad del precio en US$ de cada
+    # cereal. La pizarra ya no edita el US$ directamente — lo lee de acá.
+    camara_raw = list(db_read["Derivados"]["CamaraCereales"].find({}))
+    camara = {c["_id"]: c for c in camara_raw}
     snapshots = list(db_read["Trading"]["AgroSnapshot"].find({}))
 
     oficial = mid_oficial_live("oficial")
@@ -145,7 +149,12 @@ def get_pase_agro() -> dict[str, Any]:
     bloques = []
     for commodity in COMMODITY_ORDER:
         bloques.append(_build_bloque(
-            commodity, pizarras.get(commodity, {}), snapshots, oficial_value, hoy,
+            commodity,
+            pizarras.get(commodity, {}),
+            camara.get(commodity, {}),
+            snapshots,
+            oficial_value,
+            hoy,
         ))
 
     # Frescura. Todos los snapshots de un ciclo comparten `updated_at` (el
@@ -180,12 +189,16 @@ def get_pase_agro() -> dict[str, Any]:
 def _build_bloque(
     commodity: str,
     pizarra: dict,
+    camara: dict,
     snapshots: list[dict],
     oficial_value: float | None,
     hoy: date,
 ) -> dict[str, Any]:
     vto_p = pizarra.get("vencimiento_pizarra")
-    us_p = pizarra.get("us_pizarra")
+    # US$ pizarra = Cámara.precio_usd (única fuente de verdad). Fallback al
+    # `us_pizarra` viejo solo si Cámara no tiene cargado el cereal todavía
+    # (transición: hasta que el trader cargue Cámara, mostramos lo legacy).
+    us_p = camara.get("precio_usd") or pizarra.get("us_pizarra")
     ars_p = (us_p * oficial_value) if (us_p and oficial_value) else None
 
     pizarra_row = {

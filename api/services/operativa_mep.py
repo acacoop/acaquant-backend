@@ -493,6 +493,66 @@ def crear_operativa_venta(
     return _persistir_resultado_operativa(operativa_id, nominales, res, db_ops)
 
 
+def crear_operativa_venta(
+    *,
+    monto_usd: float,
+    comision_pct: float = 0.62,
+    rueda: str = "CI",
+    account: str | None = None,
+    actor_email: str | None = None,
+) -> dict[str, Any]:
+    """Wrapper "venta MEP" análogo a `crear_operativa` (compra).
+
+    Recibe `monto_usd` que el user quiere convertir a pesos, calcula los
+    nominales de AL30D a operar (= ese monto neto / precio AL30D por VN)
+    y delega en `operativa_venta_mep`. La operativa inversa:
+        BUY AL30D (recompra los AL30D, paga en USD)
+        SELL AL30 (vende AL30, recibe ARS)
+
+    Si nominales=0 (monto < precio mínimo), persiste FAIL_VALIDACION.
+    """
+    if rueda not in RUEDAS_VALIDAS:
+        raise ValueError(f"rueda inválida: {rueda!r} (esperado: {sorted(RUEDAS_VALIDAS)})")
+    if monto_usd <= 0:
+        raise ValueError("monto_usd debe ser > 0")
+    if comision_pct < 0 or comision_pct > 5:
+        raise ValueError("comision_pct fuera de rango (esperado [0, 5])")
+
+    cot = get_cotizaciones(rueda)
+    if not cot["al30"] or not cot["al30d"]:
+        raise ValueError(
+            "Sin cotización live para AL30/AL30D en rueda "
+            f"{rueda} — el motor de market data no tiene trades recientes."
+        )
+    precio_al30d = float(cot["al30d"]["price"])
+    if precio_al30d <= 0:
+        raise ValueError("precio AL30D <= 0, no se puede operar")
+
+    # Precio por VN (no por 100 VN como cotiza pantalla).
+    precio_al30d_vn = precio_al30d * PRICE_FACTOR_BONOS
+    usd_neto = monto_usd * (1.0 - comision_pct / 100.0)
+    nominales = math.floor(usd_neto / precio_al30d_vn) if precio_al30d_vn > 0 else 0
+
+    if nominales <= 0:
+        motivo = (
+            f"nominales=0 (usd_neto=US${usd_neto:.2f} / precio_VN=US${precio_al30d_vn:.4f}). "
+            "Subí el monto o bajá la comisión."
+        )
+        return {
+            "ok": False,
+            "status": "FAIL_VALIDACION",
+            "stage": "validacion",
+            "error": motivo,
+        }
+
+    return operativa_venta_mep(
+        nominales=nominales,
+        rueda=rueda,
+        account=account,
+        actor_email=actor_email,
+    )
+
+
 def _persistir_resultado_operativa(
     operativa_id: str,
     nominales: int,

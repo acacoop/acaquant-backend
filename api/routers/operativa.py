@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from api.auth import get_user_email
 from api.services.operativa_mep import (
     crear_operativa,
+    crear_operativa_venta,
     get_cotizaciones,
     listar_operativas_dia,
     obtener_detalle_operativa,
@@ -34,6 +35,13 @@ logger = logging.getLogger("api.operativa")
 
 class MepIn(BaseModel):
     monto_ars: float = Field(..., gt=0, description="ARS brutos a operar")
+    comision_pct: float = Field(0.62, ge=0, le=5, description="Comisión total %")
+    rueda: Literal["CI", "24hs"] = "CI"
+    account: str | None = None
+
+
+class MepVentaIn(BaseModel):
+    monto_usd: float = Field(..., gt=0, description="USD brutos a vender (vuelven a ARS)")
     comision_pct: float = Field(0.62, ge=0, le=5, description="Comisión total %")
     rueda: Literal["CI", "24hs"] = "CI"
     account: str | None = None
@@ -85,6 +93,29 @@ def crear_mep(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("crear_mep failed (email=%s)", email)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/mep/venta")
+def crear_mep_venta(
+    data: MepVentaIn,
+    email: str = Depends(get_user_email),
+) -> dict[str, Any]:
+    """Inverso de POST /mep: USD → ARS. Lanza BUY AL30D + SELL AL30
+    MARKET para recomprar el AL30D que estaba short y vender el AL30
+    largo, recibiendo pesos."""
+    try:
+        return crear_operativa_venta(
+            monto_usd=data.monto_usd,
+            comision_pct=data.comision_pct,
+            rueda=data.rueda,
+            account=data.account,
+            actor_email=email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("crear_mep_venta failed (email=%s)", email)
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

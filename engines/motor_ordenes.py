@@ -198,45 +198,71 @@ def _make_er_handler(db):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _recovery(db, account: str) -> None:
-    """Reconcilia OrdenesLive contra `get_all_orders_status` del broker.
+def _recovery(db, _account_master: str) -> None:
+    """Reconcilia OrdenesLive contra el broker, agrupando por cuenta REAL
+    de la orden (no la del master).
 
-    Para cada orden local en estado != FINAL:
-      - si el broker la trae: aplicamos su estado actual.
-      - si el broker NO la trae: la marcamos UNKNOWN_LOCAL (intervención manual).
+    BUG histórico: antes filtraba `{"account": account_master}` y pedía
+    `get_all_orders_status(account=master)`. Pero el master nunca opera
+    — opera con cuentas 100/255/805/etc. autorizadas. Resultado: las
+    órdenes en esas cuentas quedaban PENDING_NEW para siempre porque
+    el recovery no las miraba.
+
+    Ahora:
+      1. Lee TODAS las órdenes locales en estado no-final (sin filtrar
+         por cuenta).
+      2. Agrupa por `account`.
+      3. Para cada cuenta, pega `get_all_orders_status(account=X)` y
+         reconcilia las que matchean por clOrdId.
+      4. Las locales que el broker no conoce → UNKNOWN_LOCAL.
     """
     pendientes = list(db[COL_LIVE].find(
-        {"account": account, "status": {"$nin": list(ESTADOS_FINALES) + [None]}},
-        {"cl_ord_id": 1},
+        {"status": {"$nin": list(ESTADOS_FINALES) + [None]}},
+        {"cl_ord_id": 1, "account": 1},
     ))
     if not pendientes:
         logger.info("Recovery: sin órdenes pendientes locales — nada que reconciliar.")
         return
 
-    cl_ord_locales = {p["cl_ord_id"] for p in pendientes if p.get("cl_ord_id")}
-    logger.info("Recovery: %d orden(es) local(es) en estado no-final", len(cl_ord_locales))
+    # Agrupar por cuenta. Las que no tienen `account` (caso raro) van a un
+    # bucket especial que igual intentamos contra el master por compat.
+    por_cuenta: dict[str, set[str]] = {}
+    for p in pendientes:
+        cid = p.get("cl_ord_id")
+        if not cid:
+            continue
+        acc = str(p.get("account") or _account_master)
+        por_cuenta.setdefault(acc, set()).add(cid)
 
-    try:
-        resp = pyRofex.get_all_orders_status(account=account)
-    except Exception as e:
-        logger.error("Recovery: get_all_orders_status falló: %s", e)
-        return
-
-    if not resp or resp.get("status") != "OK":
-        logger.warning("Recovery: respuesta no-OK del broker: %s", resp)
-        return
+    total = sum(len(v) for v in por_cuenta.values())
+    logger.info(
+        "Recovery: %d orden(es) pendientes en %d cuenta(s): %s",
+        total, len(por_cuenta), list(por_cuenta.keys()),
+    )
 
     vistos: set[str] = set()
-    for o in resp.get("orders", []):
-        rep = o.get("orderReport", o)
-        cid = rep.get("clOrdId", "")
-        if cid in cl_ord_locales:
-            with _lock:
-                _upsert_live_from_er(db, rep)
-                _audit(db, "RECOVERY", cl_ord_id=cid, account=account, payload=rep)
-            vistos.add(cid)
+    for acc, cl_ord_locales in por_cuenta.items():
+        try:
+            resp = pyRofex.get_all_orders_status(account=acc)
+        except Exception as e:
+            logger.error("Recovery acc=%s: get_all_orders_status falló: %s", acc, e)
+            continue
 
-    huerfanas = cl_ord_locales - vistos
+        if not resp or resp.get("status") != "OK":
+            logger.warning("Recovery acc=%s: respuesta no-OK del broker: %s", acc, resp)
+            continue
+
+        for o in resp.get("orders", []):
+            rep = o.get("orderReport", o)
+            cid = rep.get("clOrdId", "")
+            if cid in cl_ord_locales:
+                with _lock:
+                    _upsert_live_from_er(db, rep)
+                    _audit(db, "RECOVERY", cl_ord_id=cid, account=acc, payload=rep)
+                vistos.add(cid)
+
+    todas_locales = set().union(*por_cuenta.values()) if por_cuenta else set()
+    huerfanas = todas_locales - vistos
     if huerfanas:
         logger.warning(
             "Recovery: %d orden(es) local(es) que el broker no conoce — marcando UNKNOWN_LOCAL: %s",
@@ -248,7 +274,7 @@ def _recovery(db, account: str) -> None:
             {"$set": {"status": "UNKNOWN_LOCAL", "updated_at": now}},
         )
         for cid in huerfanas:
-            _audit(db, "RECOVERY", cl_ord_id=cid, account=account,
+            _audit(db, "RECOVERY", cl_ord_id=cid,
                    payload={"reason": "no encontrada en broker"})
 
     logger.info("Recovery: reconciliadas=%d, huérfanas=%d", len(vistos), len(huerfanas))

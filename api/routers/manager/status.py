@@ -31,12 +31,18 @@ def _es_rueda(ahora_ar: datetime) -> bool:
 
 
 _MOTORES = [
-    ("Trading",  "TimeSales",         "timestamp",  "TimeSales (rofex)",        300, _AR_TZ),
-    ("Trading",  "MarketSnapshot",    "updated_at", "MarketSnapshot",           120, UTC),
-    ("Trading",  "PortfolioSnapshot", "updated_at", "PortfolioSnapshot (live tenencia)", 120, UTC),
-    ("Trading",  "ForwardsLive",      "updated_at", "ForwardsLive",              60, UTC),
-    ("Trading",  "BreakevensLive",    "updated_at", "BreakevensLive",            60, UTC),
-    ("Opciones", "OptionsSnapshot",   "updated_at", "OptionsSnapshot",          180, UTC),
+    ("Trading",     "TimeSales",            "timestamp",  "TimeSales (rofex)",                  300, _AR_TZ),
+    ("Trading",     "MarketSnapshot",       "updated_at", "MarketSnapshot",                     120, UTC),
+    ("Trading",     "PortfolioSnapshot",    "updated_at", "PortfolioSnapshot (live tenencia)",  120, UTC),
+    ("Trading",     "ForwardsLive",         "updated_at", "ForwardsLive",                        60, UTC),
+    ("Trading",     "BreakevensLive",       "updated_at", "BreakevensLive",                      60, UTC),
+    ("Opciones",    "OptionsSnapshot",      "updated_at", "OptionsSnapshot",                    180, UTC),
+    ("Trading",     "CedearsSnapshot",      "updated_at", "CedearsSnapshot",                     60, UTC),
+    ("Trading",     "CaucionSnapshot",      "updated_at", "CaucionSnapshot",                     60, UTC),
+    ("Valuaciones", "DolarSnapshot",        "updated_at", "DolarSnapshot",                       60, UTC),
+    ("Trading",     "FuturosDLRSnapshot",   "updated_at", "FuturosDLRSnapshot",                  60, UTC),
+    ("Trading",     "AgroSnapshot",         "updated_at", "AgroSnapshot",                        60, UTC),
+    ("Trading",     "AgroOpcionesSnapshot", "updated_at", "AgroOpcionesSnapshot",                60, UTC),
 ]
 
 _JOBS_STATUS = [

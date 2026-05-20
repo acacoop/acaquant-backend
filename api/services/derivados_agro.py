@@ -194,7 +194,10 @@ def _build_bloque(
     oficial_value: float | None,
     hoy: date,
 ) -> dict[str, Any]:
-    vto_p = pizarra.get("vencimiento_pizarra")
+    # Vto pizarra = HOY siempre. No se lee de Mongo (campo legacy editable
+    # quedó sin uso). Formato ISO YYYY-MM-DD para que el front lo formatee
+    # con su helper de fecha como cualquier otro vencimiento.
+    vto_p = hoy.isoformat()
     # US$ pizarra = Cámara.precio_usd (única fuente de verdad). Fallback al
     # `us_pizarra` viejo solo si Cámara no tiene cargado el cereal todavía
     # (transición: hasta que el trader cargue Cámara, mostramos lo legacy).

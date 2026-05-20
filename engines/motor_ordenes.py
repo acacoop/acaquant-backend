@@ -188,9 +188,138 @@ def _make_er_handler(db):
                 rep.get("lastPx"),
                 rep.get("lastQty"),
             )
+
+            # Hook de brackets: si esta orden es la entrada de un bracket
+            # PENDING_ENTRY y llegó a FILLED, disparamos la salida.
+            _maybe_dispatch_bracket_exit(db, rep)
         except Exception as e:
             logger.error("Error procesando ER: %s", e, exc_info=True)
     return _handler
+
+
+def _maybe_dispatch_bracket_exit(db, rep: dict[str, Any]) -> None:
+    """Si el ER recibido corresponde a la entrada de un bracket en PENDING_ENTRY,
+    actúa según el status:
+
+      - FILLED              → manda la salida LIMIT (side opuesto al de la entrada)
+                              y marca el bracket EXIT_SENT.
+      - REJECTED/CANCELLED/EXPIRED → marca ENTRY_CANCELLED, no hay salida.
+      - otros               → no-op, esperamos el próximo ER.
+
+    También maneja el lado de la salida: si llega FILLED para el exit_cl_ord_id
+    del bracket, marcamos COMPLETED.
+    """
+    from core import brackets
+
+    cl_ord_id = rep.get("clOrdId")
+    status = rep.get("status")
+    if not cl_ord_id or not status:
+        return
+
+    # Caso 1: esto es la SALIDA de un bracket → solo actualizamos estado final.
+    try:
+        bracket_exit = brackets.find_by_exit(cl_ord_id)
+    except Exception as e:
+        logger.warning("brackets.find_by_exit falló: %s", e)
+        bracket_exit = None
+    if bracket_exit:
+        if status == "FILLED":
+            brackets.mark_completed(cl_ord_id)
+            logger.info(
+                "Bracket %s COMPLETADO (salida %s FILLED)",
+                bracket_exit.get("entry_cl_ord_id"), cl_ord_id,
+            )
+        elif status in brackets.ENTRY_DEAD:
+            brackets.mark_exit_rejected(
+                bracket_exit.get("entry_cl_ord_id", ""),
+                rep.get("text") or status,
+            )
+            logger.warning(
+                "Bracket %s SALIDA %s terminó %s — intervención manual",
+                bracket_exit.get("entry_cl_ord_id"), cl_ord_id, status,
+            )
+        return
+
+    # Caso 2: esto es la ENTRADA de un bracket pendiente.
+    try:
+        bracket = brackets.find_pending_by_entry(cl_ord_id)
+    except Exception as e:
+        logger.warning("brackets.find_pending_by_entry falló: %s", e)
+        return
+    if not bracket:
+        return
+
+    if status in brackets.ENTRY_DEAD:
+        brackets.mark_entry_dead(cl_ord_id, status)
+        logger.info(
+            "Bracket %s ENTRY %s terminó %s — no se manda salida",
+            cl_ord_id, bracket.get("ticker"), status,
+        )
+        return
+
+    if status not in brackets.ENTRY_FILLED:
+        return  # PARTIALLY_FILLED, NEW, PENDING_NEW, etc. — esperamos más.
+
+    # ── FILLED: disparar la salida ──
+    side_exit = "SELL" if bracket["side_entry"] == "BUY" else "BUY"
+    logger.info(
+        "Bracket %s entrada FILLED — disparando salida %s LIMIT %s x %s @ %s",
+        cl_ord_id, side_exit, bracket["ticker"], bracket["size"], bracket["price_exit"],
+    )
+
+    try:
+        exit_resp = pyRofex.send_order(
+            ticker=bracket["ticker"],
+            side=pyRofex.Side.SELL if side_exit == "SELL" else pyRofex.Side.BUY,
+            size=int(bracket["size"]),
+            price=float(bracket["price_exit"]),
+            order_type=pyRofex.OrderType.LIMIT,
+            time_in_force=getattr(
+                pyRofex.TimeInForce, bracket.get("tif", "DAY"), pyRofex.TimeInForce.DAY,
+            ),
+            account=bracket["account"],
+            cancel_previous=False,
+        )
+    except Exception as e:
+        logger.error("Bracket %s falló al enviar salida: %s", cl_ord_id, e, exc_info=True)
+        brackets.mark_exit_rejected(cl_ord_id, str(e))
+        return
+
+    if not exit_resp or exit_resp.get("status") != "OK":
+        reason = (exit_resp or {}).get("description", "broker rechazó la salida")
+        logger.error("Bracket %s salida rechazada: %s", cl_ord_id, reason)
+        brackets.mark_exit_rejected(cl_ord_id, reason)
+        return
+
+    order_blk = exit_resp.get("order") or {}
+    exit_cl_ord_id = order_blk.get("clientId") or order_blk.get("clOrdId")
+    exit_proprietary = order_blk.get("proprietary")
+    if not exit_cl_ord_id:
+        brackets.mark_exit_rejected(cl_ord_id, "broker OK pero sin clientId")
+        return
+
+    brackets.mark_exit_sent(
+        cl_ord_id,
+        exit_cl_ord_id=exit_cl_ord_id,
+        exit_proprietary=exit_proprietary,
+    )
+    _audit(
+        db, "BRACKET_EXIT_SENT",
+        cl_ord_id=exit_cl_ord_id,
+        account=bracket["account"],
+        actor_email=bracket.get("actor_email"),
+        payload={
+            "entry_cl_ord_id": cl_ord_id,
+            "exit_cl_ord_id":  exit_cl_ord_id,
+            "side_exit":       side_exit,
+            "price_exit":      bracket["price_exit"],
+            "size":            bracket["size"],
+        },
+    )
+    logger.info(
+        "Bracket %s salida ENVIADA (exit_cl_ord_id=%s)",
+        cl_ord_id, exit_cl_ord_id,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -309,6 +438,12 @@ def _heartbeat_loop(db, account: str) -> None:
 def main() -> None:
     db = get_mongo_client()[DB_NAME]
     _ensure_indexes(db)
+    try:
+        from core.brackets import ensure_indexes as ensure_brackets_indexes
+        ensure_brackets_indexes()
+        logger.info("Brackets: índices listos en Operaciones.BracketsLive")
+    except Exception as e:
+        logger.warning("Brackets ensure_indexes falló (no bloqueante): %s", e)
 
     handler = _make_er_handler(db)
     account, env = inicializar_para_motor(handler)

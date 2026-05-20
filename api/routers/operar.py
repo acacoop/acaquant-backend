@@ -5,21 +5,34 @@ order book y datos live de instrumentos arbitrarios (no solo dólar MEP).
 El envío real de órdenes sigue yendo por `/api/ordenes` (no se duplica).
 
 Endpoints:
-  GET /api/operar/order-book?ticker=X  → top 5 niveles bid/ask + meta.
+  GET  /api/operar/order-book?ticker=X  → top 5 niveles bid/ask + meta.
     Si el motor ya lo suscribe → 200 con book.
     Si no, y el ticker existe en pyRofex → registra en AdhocSubscriptions
     y devuelve 202 (motor lo suscribe al próximo poll, ~5s).
+  POST /api/operar/bracket               → manda orden LIMIT de entrada
+    y persiste un bracket; el motor_ordenes dispara la salida automática
+    cuando la entrada llega a FILLED.
+  GET  /api/operar/brackets/dia          → brackets activos/históricos del día.
 
 Gate RBAC se aplica en api/main.py vía `_OPERAR`.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import JSONResponse
+import logging
+from typing import Any, Literal
 
-from core.adhoc_subscriptions import bump_last_used, subscribe
-from core.mongo import get_mongo_client_read
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
+from api.auth import get_user_email
 from api.services.order_book import get_order_book
+from api.services.ordenes import send_order
+from core.adhoc_subscriptions import bump_last_used, subscribe
+from core.brackets import create_bracket, ensure_indexes, list_dia as list_brackets_dia
+from core.mongo import get_mongo_client_read
+
+logger = logging.getLogger("api.operar")
 
 router = APIRouter(prefix="/api/operar", tags=["operar"])
 
@@ -97,3 +110,102 @@ def get_book(
             "message":      "Motor suscribiendo. Reintentá en ~5s.",
         },
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Brackets — entrada LIMIT + salida automática al fill
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class BracketIn(BaseModel):
+    ticker: str = Field(..., description="Ticker full ROFEX")
+    side: Literal["BUY", "SELL"] = Field(..., description="Side de la ENTRADA")
+    size: int = Field(..., gt=0)
+    price_entry: float = Field(..., gt=0, description="Precio LIMIT de la entrada")
+    price_exit: float = Field(..., gt=0, description="Precio LIMIT de la salida automática")
+    tif: Literal["DAY", "IOC", "FOK", "GTC"] = "DAY"
+    account: str = Field(..., description="Cuenta operativa")
+
+
+@router.post("/bracket", status_code=201)
+def crear_bracket(
+    data: BracketIn,
+    email: str = Depends(get_user_email),
+) -> dict[str, Any]:
+    """Manda la orden de ENTRADA al broker; si la acepta, persiste el
+    bracket. El motor_ordenes, al recibir el ER de FILL de la entrada,
+    dispara la SALIDA con side opuesto al `price_exit` definido.
+
+    Si la entrada se rechaza al envío, no se persiste bracket y se
+    devuelve el error tal cual lo devolvió send_order.
+    """
+    try:
+        ensure_indexes()
+    except Exception as e:
+        logger.warning("brackets: ensure_indexes falló (continúo): %s", e)
+
+    # 1. Mandar la entrada al broker.
+    res = send_order(
+        ticker=data.ticker,
+        side=data.side,
+        size=data.size,
+        order_type="LIMIT",
+        price=data.price_entry,
+        tif=data.tif,
+        account=data.account,
+        actor_email=email,
+    )
+    if not res.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail=res.get("error", "broker rechazó la entrada"),
+        )
+
+    entry_cl_ord_id = res["cl_ord_id"]
+    entry_proprietary = res.get("proprietary")
+
+    # 2. Persistir el bracket. Si esto falla, la entrada YA está mandada —
+    # el frontend va a verla como una orden normal en la tabla del día,
+    # solo que sin salida automática (queda manual). No es bloqueante.
+    try:
+        doc = create_bracket(
+            entry_cl_ord_id=entry_cl_ord_id,
+            entry_proprietary=entry_proprietary,
+            ticker=data.ticker,
+            side_entry=data.side,
+            price_entry=data.price_entry,
+            size=data.size,
+            price_exit=data.price_exit,
+            tif=data.tif,
+            account=data.account,
+            actor_email=email,
+        )
+    except Exception as e:
+        logger.exception("brackets: persist falló — entrada %s queda manual", entry_cl_ord_id)
+        return {
+            "ok":              True,
+            "warning":         f"entrada mandada pero bracket no persistido: {e}",
+            "entry_cl_ord_id": entry_cl_ord_id,
+        }
+
+    return {
+        "ok":              True,
+        "entry_cl_ord_id": entry_cl_ord_id,
+        "bracket":         {
+            "status":      doc["status"],
+            "ticker":      doc["ticker"],
+            "side_entry":  doc["side_entry"],
+            "price_entry": doc["price_entry"],
+            "price_exit":  doc["price_exit"],
+            "size":        doc["size"],
+        },
+    }
+
+
+@router.get("/brackets/dia")
+def brackets_dia(
+    account: str | None = Query(None),
+    _email: str = Depends(get_user_email),
+) -> list[dict[str, Any]]:
+    """Lista de brackets — todos los estados, ordenados por created_at desc."""
+    return list_brackets_dia(account=account)

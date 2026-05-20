@@ -13,12 +13,16 @@ Dos tablas, ambas con lógica automática (matcheo por año-mes de vencimiento):
        TNA = TE × 365 / días     (anualización lineal)
 
 2. **SHORT ROFEX + LONG DLK** (sintético en pesos / lock de tasa):
-   - Pagás `Px_DLK` (ARS) por el bono dólar linked; al vto cobrás
-     `face × DLR_oficial` (ARS).
+   - Pagás `Px_DLK` (ARS) por 100 VN del bono dólar linked; al vto cobrás
+     `100 × DLR_ajuste_vto / DLR_emision` (ARS) por cada 100 VN.
    - Vendés futuro DLR a `Px_Futuro` → fijás el DLR de salida.
-   - El cobro queda fijo en ARS y la TE comparado con el precio pagado:
-       TE  = Px_Futuro / Px_DLK − 1
-       TNA = TE × 365 / días
+   - Al vto: cobrás del bono `100 × DLR_final / DLR_emision` y el short
+     del futuro paga `(Px_Futuro − DLR_final)`. Neto:
+       Net = 100 × Px_Futuro / DLR_emision  (independiente del DLR final)
+   - TE  = (100 × Px_Futuro / DLR_emision) / Px_DLK − 1
+       (con `DLR_emision=1` para bonos modernos cuya cotización ya viene
+        normalizada por el dolar de emisión)
+   - TNA = TE × 365 / días
 
 El match LECAP/DLK ↔ futuro DLR se hace por (año, mes) de vencimiento — el
 sistema agarra cualquier ticker nuevo que aparezca en `Trading.Curvas` o en
@@ -134,7 +138,10 @@ def get_sinteticos() -> dict[str, Any]:
         )
     )
 
-    # Dollar linked.
+    # Dollar linked. `dolar_emision` se incluye por defensa: si el bono
+    # tiene un DLR de emisión != 1, hay que normalizar el cobro
+    # (100 × DLR_final / DLR_emision por 100 VN). Para bonos modernos
+    # cuya paridad ya viene ajustada, queda en 1.
     dlks = list(
         db["Curvas"].find(
             {"curva": "dolar_linked"},
@@ -143,6 +150,7 @@ def get_sinteticos() -> dict[str, Any]:
                 "ticker": 1,
                 "ticker_corto": 1,
                 "fecha_vencimiento": 1,
+                "dolar_emision": 1,
             },
         )
     )
@@ -245,7 +253,15 @@ def _build_short_dlk(
         plazo = (vto - today).days
         descalce = (fvto - vto).days if fvto else None
 
-        te = (px_fut / px_dlk - 1) if (px_dlk and px_fut) else None
+        # DLK BYMA cotiza paridad por 100 VN. Al vto paga
+        # `100 × DLR_final / DLR_emision` por 100 VN. Combinado con futuro
+        # short, neto al vto = 100 × Px_Futuro / DLR_emision por 100 VN.
+        # Sin DLR_emision en el doc, asumimos 1 (convención bonos modernos).
+        dlr_emision = c.get("dolar_emision") or 1.0
+        if px_dlk and px_fut and dlr_emision > 0:
+            te = (100.0 * px_fut / dlr_emision) / px_dlk - 1
+        else:
+            te = None
         tna = _annualize_lin(te, plazo)
 
         rows.append({
@@ -255,6 +271,7 @@ def _build_short_dlk(
             "px_dlk":         px_dlk,
             "px_futuro":      px_fut,
             "dlr_ajuste":     spot,
+            "dolar_emision":  dlr_emision,
             "vto_dlk":        vto.isoformat(),
             "vto_futuro":     fvto.isoformat() if fvto else None,
             "plazo_normal":   plazo,

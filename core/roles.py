@@ -47,7 +47,9 @@ logger = logging.getLogger(__name__)
 MODULES: tuple[str, ...] = (
     "home",           # / + market + news
     "renta-fija",     # /renta-fija + cotizaciones + curvas
-    "derivados",      # /derivados + opciones
+    "derivados",      # /derivados (solo opciones — agro y sintéticos son módulos aparte)
+    "agro",           # /agro (pizarra + mejoras precio dispo + datos cámara cereales)
+    "sinteticos",     # /sinteticos (long ROFEX + LECAP, short ROFEX + DLK)
     "renta-variable", # /renta-variable + smart money 13F/Form 4 sobre CEDEARs
     "estrategia",     # /retorno (sensibilidad, canje, carry)
     "operar",         # /operar (DOLAR MEP) + /api/ordenes + /api/operativa + /api/risk
@@ -67,11 +69,13 @@ MODULES: tuple[str, ...] = (
 DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "admin":  MODULES,  # todo
     "trader": (
-        "home", "renta-fija", "derivados", "renta-variable", "estrategia",
+        "home", "renta-fija", "derivados", "agro", "sinteticos",
+        "renta-variable", "estrategia",
         "operaciones", "portfolios", "asistente",
     ),
     "sales":  (
-        "home", "renta-fija", "derivados", "renta-variable", "estrategia",
+        "home", "renta-fija", "derivados", "agro", "sinteticos",
+        "renta-variable", "estrategia",
     ),
 }
 # `operar` (DOLAR MEP + envío de órdenes) queda SOLO para admin de momento

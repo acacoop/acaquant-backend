@@ -1,14 +1,19 @@
-"""Router /api/derivados/agro — Pase Agro + Estrategias de Cobertura.
+"""Router /api/derivados/agro — Pase Agro + Estrategias + Cámara + Mejoras Dispo.
 
     GET    /api/derivados/agro                       (todos los roles)
     PATCH  /api/derivados/agro/pizarra/{commodity}   (todos los roles)
     GET    /api/derivados/agro/opciones/{commodity}  (todos los roles)
     POST   /api/derivados/agro/estrategia/simular    (todos los roles)
+    GET    /api/derivados/agro/camara                (todos los roles)
+    PATCH  /api/derivados/agro/camara/{cereal}       (todos los roles)
+    GET    /api/derivados/agro/mejoras-dispo         (todos los roles)
 
-Acceso abierto a admin / trader / sales — el gate de módulo
-(`/api/derivados/*` está en la RoleMatrix para los 3 roles) ya hace
-de barrera; el endpoint se queda con `get_user_email` solo para el
-audit de la edición de pizarra.
+Acceso abierto a admin / trader / sales — el módulo `agro` está en la
+RoleMatrix para los 3 roles; `get_user_email` se mantiene para audit.
+
+La URL del router se mantiene en `/api/derivados/agro/*` por compatibilidad
+con la frontend deployada — la separación de Agro como módulo top-level es
+puramente lógica (en `core/roles.py::MODULES`).
 """
 from __future__ import annotations
 
@@ -19,6 +24,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
+from api.services.camara_cereales import (
+    CEREALES,
+    get_camara_cereales,
+    set_camara_cereal,
+)
 from api.services.derivados_agro import (
     COMMODITY_ORDER,
     get_panel_opciones,
@@ -26,6 +36,7 @@ from api.services.derivados_agro import (
     set_pizarra,
     simular_estrategia,
 )
+from api.services.mejoras_dispo import get_mejoras_dispo
 
 router = APIRouter(prefix="/api/derivados", tags=["DerivadosAgro"])
 
@@ -137,3 +148,62 @@ def post_simular_estrategia(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CÁMARA ARBITRAL DE CEREALES (input manual, 5 cereales)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/agro/camara")
+def camara_cereales(_email: str = Depends(get_user_email)):
+    """Lista los 5 cereales de la Cámara — siempre los 5, vacíos si no cargados."""
+    return get_camara_cereales()
+
+
+class CamaraCerealIn(BaseModel):
+    precio_ars: float | None = Field(
+        default=None, gt=0,
+        description="Precio en ARS (Pizarra Rosario); null = no tocar",
+    )
+    precio_usd: float | None = Field(
+        default=None, gt=0,
+        description="Precio en USD (oficial Cámara); null = no tocar",
+    )
+
+
+@router.patch("/agro/camara/{cereal}")
+def patch_camara_cereal(
+    cereal: str,
+    payload: CamaraCerealIn,
+    email: str = Depends(get_user_email),
+):
+    """Upsert de un cereal (precio_ars / precio_usd). Audit en CamaraCerealesAudit."""
+    cereal = cereal.upper()
+    if cereal not in CEREALES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"cereal inválido. Válidos: {CEREALES}",
+        )
+    try:
+        return set_camara_cereal(
+            cereal=cereal,
+            precio_ars=payload.precio_ars,
+            precio_usd=payload.precio_usd,
+            email=email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MEJORAS PRECIO DISPONIBLE (Soja / Maíz / Trigo + LECAP)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/agro/mejoras-dispo")
+def mejoras_dispo(_email: str = Depends(get_user_email)):
+    """3 bloques (Soja/Maíz/Trigo). Combina Cámara.precio_ars + TNA LECAPs +
+    futuros DLR para mostrarle al productor cuánto cobra si se queda en
+    LECAP + se cubre con futuro."""
+    return get_mejoras_dispo()

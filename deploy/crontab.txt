@@ -40,6 +40,14 @@
 30 13 * * 1-5 systemctl start motor_ordenes.service
 5  20 * * 1-5 systemctl stop  motor_ordenes.service
 
+# ─── Discovery de cuentas autorizadas (1x/día, 11:30 UTC = 08:30 ART, L-V)
+# Itera 1-12000 contra el broker (pyRofex get_account_report) y upsertea
+# las cuentas válidas en Operaciones.AccountsDescubiertas. Sin este job
+# el dropdown de cuentas en /operar queda vacío. Primera corrida ~40min;
+# las siguientes son incrementales y rápidas (mismas cuentas, refresca
+# saldos). Read-only contra el broker.
+30 11 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.descubrir_cuentas >> /root/TradingAV/logs/descubrir_cuentas.log 2>&1
+
 # ─── Volatilidad GGAL (al cierre)
 0 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.volatilidad_ggal >> /root/TradingAV/logs/vr_ggal.log 2>&1
 

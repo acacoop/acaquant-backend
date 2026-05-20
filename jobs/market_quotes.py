@@ -91,28 +91,10 @@ FRANKFURTER_DATE   = "https://api.frankfurter.app"  # + /YYYY-MM-DD
 # Watchlist ampliada para /renta-variable.
 # IMPORTANTE: el upsert de _upsert_stock usa `{symbol}` como key — si un
 # ticker está acá Y en HOME_STOCKS, el último que carga pisa al primero.
-# YPF/GGAL/VIST se movieron a HOME_STOCKS grupo "Acciones" y se sacaron
-# de "ADR Argentina" para no pisarlos. El bloque entero "Big Tech" tampoco
-# está acá por la misma razón (todos los Big Tech ya están en "Acciones"
-# en HOME_STOCKS).
-EXTRA_STOCKS: list[tuple[str, str]] = [
-    ("BMA",   "ADR Argentina"),
-    ("BBAR",  "ADR Argentina"),
-    ("TGS",   "ADR Argentina"),
-    ("PAM",   "ADR Argentina"),
-    ("LOMA",  "ADR Argentina"),
-    ("CRESY", "ADR Argentina"),
-    ("IRS",   "ADR Argentina"),
-    ("EDN",   "ADR Argentina"),
-    ("CEPU",  "ADR Argentina"),
-    ("TEO",   "ADR Argentina"),
-    ("SUPV",  "ADR Argentina"),
-    # LATAM referencia
-    ("VALE", "ADR LATAM"),
-    ("ITUB", "ADR LATAM"),
-    ("PBR",  "ADR LATAM"),
-    ("AMX",  "ADR LATAM"),
-]
+# YPF/GGAL/VIST viven en HOME_STOCKS grupo "Acciones". Big Tech idem.
+# Los bloques "ADR Argentina" y "ADR LATAM" se sacaron 2026-05-20 — la mesa
+# no los miraba en la watchlist del home.
+EXTRA_STOCKS: list[tuple[str, str]] = []
 
 
 def _upsert_stock(coll, sym: str, grupo: str, q: dict, now: datetime) -> bool:

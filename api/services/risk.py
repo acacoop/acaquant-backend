@@ -21,6 +21,7 @@ from typing import Any
 
 import pyRofex
 
+from api.cache import cached
 from core.rofex_orders_session import cuenta_default, ensure_session_envio
 
 logger = logging.getLogger("api.services.risk")
@@ -171,18 +172,45 @@ DB_OPS = "Operaciones"
 COL_ACCOUNTS = "AccountsDescubiertas"
 
 
+@cached(ttl=600)
+def _nombres_por_id_cuenta() -> dict[str, str]:
+    """Mapa id_cuenta (str) → nombre del titular. Cache TTL 10min porque
+    CuentasAPI cambia poco (alta de cliente, normalmente 1x/sem).
+
+    AccionistasAPI tiene los clientes de la mesa (~1800 docs).
+    ContrapartesAPI cubre las contrapartes externas. Si un id_cuenta vive
+    en ambas, prevalece AccionistasAPI (es la fuente canónica).
+    """
+    from core.mongo import get_mongo_client_read
+    db = get_mongo_client_read()["CuentasAPI"]
+    out: dict[str, str] = {}
+    for d in db["AccionistasAPI"].find({}, {"_id": 0, "id_cuenta": 1, "nombre": 1}):
+        idc = d.get("id_cuenta")
+        nom = d.get("nombre")
+        if idc and nom:
+            out[str(idc)] = str(nom)
+    for d in db["ContrapartesAPI"].find({}, {"_id": 0, "id_cuenta": 1, "nombre": 1}):
+        idc = d.get("id_cuenta")
+        nom = d.get("nombre")
+        if idc and nom:
+            out.setdefault(str(idc), str(nom))
+    return out
+
+
 def listado_cuentas(solo_activas: bool = False) -> list[dict[str, Any]]:
     """Lee Operaciones.AccountsDescubiertas y devuelve la lista para el
     dropdown del frontend.
 
     NO pega al broker — la colección la mantiene `jobs.descubrir_cuentas`
     (un backfill que corre 1 vez/día por cron). Ordenadas por ARS
-    disponible descendente (las gordas arriba).
+    disponible descendente (las gordas arriba). El nombre del titular se
+    joinea de CuentasAPI.AccionistasAPI / ContrapartesAPI.
 
     Returns:
         [
           {
             "account_id": "100",
+            "nombre": "Acme S.A.",          # del join con CuentasAPI
             "ars_disponible": 3007793886.49,
             "usd_d_disponible": 4237.87,
             "n_posiciones": 8,
@@ -201,13 +229,16 @@ def listado_cuentas(solo_activas: bool = False) -> list[dict[str, Any]]:
     col = get_mongo_client_read()[DB_OPS][COL_ACCOUNTS]
     cursor = col.find(filtro, {"_id": 0})
     docs = list(cursor)
+    nombres = _nombres_por_id_cuenta()
 
     out: list[dict[str, Any]] = []
     for d in docs:
         snap = d.get("last_snapshot") or {}
         ts = d.get("last_discovered_at")
+        acc = d.get("account_id")
         out.append({
-            "account_id":         d.get("account_id"),
+            "account_id":         acc,
+            "nombre":             nombres.get(str(acc)) if acc else None,
             "ars_disponible":     snap.get("ars_disponible"),
             "usd_d_disponible":   snap.get("usd_d_disponible"),
             "n_posiciones":       snap.get("n_posiciones") or 0,

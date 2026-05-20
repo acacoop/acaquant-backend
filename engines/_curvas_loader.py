@@ -52,9 +52,11 @@ def cargar_tickers_ordenados() -> list[str]:
     Docs sin `fecha_vencimiento` ordenan primero (string vacío). Ignora
     docs sin `ticker`. Usa projection para minimizar payload.
 
-    Incluye al final los tickers de `config.TICKERS_EXTRA_PRECIOS` (que
-    no están en Trading.Curvas) para que motor_rofex se suscriba live.
-    motor_curvas no los toca porque sigue indexando solo desde Curvas.
+    Incluye al final, en este orden:
+      1. `config.TICKERS_EXTRA_PRECIOS` (tickers fijos editados a mano).
+      2. `Trading.AdhocSubscriptions` (tickers pedidos en runtime desde
+         el Dashboard de Operar, TTL 7d). motor_rofex los suscribe live;
+         motor_curvas los ignora (no están en Trading.Curvas).
     """
     docs = list(_coll().find(
         {"ticker": {"$exists": True}},
@@ -73,4 +75,16 @@ def cargar_tickers_ordenados() -> list[str]:
         if tk and tk not in base_set:
             base.append(tk)
             base_set.add(tk)
+
+    # AdhocSubscriptions — tickers que el motor adoptó dinámicamente.
+    try:
+        from core.adhoc_subscriptions import list_active_tickers
+        for tk in list_active_tickers():
+            if tk and tk not in base_set:
+                base.append(tk)
+                base_set.add(tk)
+    except Exception:
+        # Si la colección no existe aún (primer deploy), seguimos.
+        pass
+
     return base

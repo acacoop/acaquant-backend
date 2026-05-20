@@ -139,6 +139,37 @@ class MicrostructureEngine:
                 elif sd == "SELL":
                     st["hourly_stats"][h]["sell"] += cash
 
+    def add_ticker(self, ticker):
+        """Agrega un ticker en runtime (adhoc subscriptions).
+
+        Inicializa la entrada en `market_state` con el mismo shape que el
+        constructor, y lo suma a `self.tickers`. Idempotente — si ya
+        estaba, devuelve False sin tocar nada. El llamador (adhoc
+        watcher) hace después la suscripción pyRofex en el WS abierto.
+        """
+        if ticker in self.market_state:
+            return False
+        self.market_state[ticker] = {
+            "book": {"bids": [], "offers": []},
+            "last_nv": 0.0,
+            "last_price":    0.0,
+            "open_price":    0.0,
+            "high_price":    0.0,
+            "low_price":     0.0,
+            "closing_price": 0.0,
+            "closed_vpins": deque(maxlen=50),
+            "vpin_stats": {"current_buy_vol": 0, "current_sell_vol": 0, "last_vpin": 0.0},
+            "daily_financials": {"total_money": 0.0, "buy_money": 0.0, "sell_money": 0.0, "total_nominals": 0.0},
+            "hourly_stats": {h: {"buy": 0.0, "sell": 0.0, "total": 0.0} for h in range(10, 18)},
+        }
+        if ticker not in self.tickers:
+            # self.tickers puede ser list o set según cómo lo armó el caller.
+            try:
+                self.tickers.append(ticker)
+            except AttributeError:
+                self.tickers.add(ticker)
+        return True
+
     def update_price(self, ticker, data):
         self.tick_queue.put((ticker, data))
 
@@ -168,7 +199,12 @@ class MicrostructureEngine:
                 print(f"Error flush trades: {e}")
 
     def _procesar_tick_logica(self, ticker, data):
-        st = self.market_state[ticker]
+        # Defensivo: race entre WS push y add_ticker (adhoc). Si llega un
+        # tick antes de que la entrada exista, lo dropeamos — el próximo
+        # tick ya tendrá el state listo.
+        st = self.market_state.get(ticker)
+        if st is None:
+            return
         if "BI" in data: st["book"]["bids"] = data["BI"][:5]
         if "OF" in data: st["book"]["offers"] = data["OF"][:5]
         if "EV" in data and data["EV"] is not None: st["daily_financials"]["total_money"] = float(data["EV"])
@@ -285,7 +321,9 @@ class MicrostructureEngine:
             try:
                 ts = datetime.now(UTC)
                 ops = []
-                for ticker in self.tickers:
+                # Copia defensiva — el adhoc_watcher puede agregar tickers
+                # concurrentemente con este loop.
+                for ticker in list(self.tickers):
                     st = self.market_state[ticker]
                     metricas = self._calcular_metricas(ticker)
 
@@ -328,14 +366,51 @@ class MicrostructureEngine:
 
 
 # ==========================================
-# 2. EL BUCLE PRINCIPAL (MODO MOTOR CIEGO)
+# 2. ADHOC WATCHER — suscripciones dinámicas en runtime
+# ==========================================
+
+def _adhoc_watcher(engine, ws_manager, poll_s: int = 5):
+    """Thread daemon: cada `poll_s` segundos, lee Trading.AdhocSubscriptions
+    y suscribe vía pyRofex los tickers que NO están en `engine.tickers`.
+
+    Las suscripciones pyRofex son aditivas (no rompen las existentes), así
+    que se puede llamar `agregar_suscripciones` cuantas veces haga falta.
+    """
+    from core.adhoc_subscriptions import ensure_indexes, list_active_tickers
+
+    try:
+        ensure_indexes()
+        logger.info("adhoc_watcher: índices TTL listos en Trading.AdhocSubscriptions")
+    except Exception as e:
+        logger.warning(f"adhoc_watcher: ensure_indexes falló: {e}")
+
+    while True:
+        try:
+            time.sleep(poll_s)
+            actuales = set(engine.tickers)
+            adhoc = set(list_active_tickers())
+            nuevos = [t for t in adhoc if t and t not in actuales]
+            if not nuevos:
+                continue
+            logger.info(
+                f"adhoc_watcher: suscribiendo {len(nuevos)} tickers nuevos: {nuevos}"
+            )
+            for t in nuevos:
+                engine.add_ticker(t)
+            ws_manager.agregar_suscripciones(nuevos, depth=5)
+        except Exception:
+            logger.error(f"adhoc_watcher loop error:\n{traceback.format_exc()}")
+
+
+# ==========================================
+# 3. EL BUCLE PRINCIPAL (MODO MOTOR CIEGO)
 # ==========================================
 def run():
     print("🚀 Iniciando Motor de Escritura (Modo Headless / Sin Interfaz)...")
     if not inicializar_sesion(): return
 
     tickers = cargar_tickers_ordenados()
-    print(f"📋 Tickers cargados desde Trading.Curvas: {len(tickers)}")
+    print(f"📋 Tickers cargados desde Trading.Curvas + Extra + Adhoc: {len(tickers)}")
     if not tickers:
         print("❌ Sin tickers en Trading.Curvas. Abortando.")
         return
@@ -347,6 +422,14 @@ def run():
         # Iniciamos el WebSocket
         if ws_manager.iniciar_ws(tickers, depth=5):
             print("✅ Conectado a Rofex. Escuchando y guardando datos...")
+            # Thread daemon que polea Trading.AdhocSubscriptions y suma
+            # tickers dinámicamente (el user agrega un panel en el
+            # Dashboard de Operar y el motor lo suscribe en ≤5s).
+            threading.Thread(
+                target=_adhoc_watcher,
+                args=(engine, ws_manager),
+                daemon=True,
+            ).start()
             # Como borramos la app visual, necesitamos este bucle infinito
             # para que el script no se cierre y el thread de Rofex siga vivo.
             while True:

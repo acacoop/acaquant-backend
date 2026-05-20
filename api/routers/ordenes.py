@@ -90,10 +90,16 @@ def cancelar(
 
 @router.get("/dia")
 def listar_dia(
+    account: str | None = Query(
+        None,
+        description="ID de cuenta a filtrar; si se omite usa la cuenta default del .env",
+    ),
     _email: str = Depends(get_user_email),
 ) -> list[dict]:
-    """Órdenes del día UTC actual para la cuenta default."""
-    return list_orders_dia()
+    """Órdenes del día UTC actual. Filtrable por cuenta — el Dashboard
+    de Operar manda la cuenta seleccionada en el toolbar, así no muestra
+    las del default cuando estás operando en otra."""
+    return list_orders_dia(account=account)
 
 
 @router.get("/symbols")

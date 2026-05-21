@@ -19,7 +19,8 @@ from __future__ import annotations
 import logging
 
 from api.cache import cached
-from api.services.renta_fija import _calendario_flujos, listar_curva
+from api.db import get_db_trading
+from api.services.renta_fija import listar_curva
 
 logger = logging.getLogger(__name__)
 
@@ -90,12 +91,62 @@ def _find_bono(ticker_corto: str) -> dict | None:
     return None
 
 
-def _flujos_de(curva: str, ticker_corto: str) -> list[dict]:
-    """Flujos del bono por cada 100 VN. Reusa `_calendario_flujos(curva)`
-    y filtra por ticker. No carga otras curvas — es lectura única.
+def _flujos_de(curva: str, ticker_corto: str) -> tuple[list[dict], bool]:
+    """Devuelve TODOS los flujos del bono en VN 100, normalizados a la
+    misma escala que el precio. No filtra futuros — para CER proyecta con
+    `cer_actual / cer_emision` constante (último CER publicado), así el
+    cliente ve todos los pagos del bono y no solo los con CER de liquidación.
+
+    Retorna `(flujos, cer_proyectado)`. `cer_proyectado=True` señala que
+    los flujos CER usan factor constante (no proyección de inflación).
     """
-    cal = _calendario_flujos(curva)
-    return cal.get(ticker_corto, [])
+    from engines.curvas import (
+        cargar_cer,
+        fecha_flujo,
+        monto_flujo,
+        monto_flujo_cer,
+        monto_flujo_soberano,
+    )
+
+    db = get_db_trading()
+    doc = db["Curvas"].find_one(
+        {"curva": curva, "ticker_corto": ticker_corto},
+        {"_id": 0, "flujos": 1, "cer_emision": 1},
+    )
+    if not doc:
+        return [], False
+    flujos_doc = doc.get("flujos") or []
+
+    cer_factor: float | None = None
+    cer_proyectado = False
+    if curva == "cer":
+        cer_emision = doc.get("cer_emision")
+        if cer_emision:
+            cer_dict = cargar_cer(db.client, dias=15)
+            if cer_dict:
+                ultimo = cer_dict[max(cer_dict.keys())]
+                cer_factor = float(ultimo) / float(cer_emision)
+                cer_proyectado = True
+
+    out: list[dict] = []
+    for f in flujos_doc:
+        fd = fecha_flujo(f)
+        if not fd:
+            continue
+        if curva == "tasa_fija":
+            monto = monto_flujo(f)
+        elif curva == "soberanos":
+            monto = monto_flujo_soberano(f, 100)
+        elif curva == "cer":
+            if cer_factor is None:
+                continue
+            monto = monto_flujo_cer(f, 100) * cer_factor
+        else:
+            continue
+        if monto and monto > 0:
+            out.append({"fecha": fd.isoformat(), "monto": round(monto, 6)})
+    out.sort(key=lambda x: x["fecha"])
+    return out, cer_proyectado
 
 
 def _convertir_mep(monto: float, desde: str, hasta: str, mep: float | None) -> float | None:
@@ -217,8 +268,8 @@ def comparar(a_id: str, b_id: str, monto: float, moneda_input: str = "ARS") -> d
         faltantes = [tk for tk, b in ((ticker_a, bono_a), (ticker_b, bono_b)) if not b]
         return {"error": "bono_no_encontrado", "tickers": faltantes}
 
-    flujos_a = _flujos_de(bono_a["_curva"], ticker_a)
-    flujos_b = _flujos_de(bono_b["_curva"], ticker_b)
+    flujos_a, cer_proy_a = _flujos_de(bono_a["_curva"], ticker_a)
+    flujos_b, cer_proy_b = _flujos_de(bono_b["_curva"], ticker_b)
 
     # MEP solo se carga si lo necesitamos (alguna moneda difiere de la input).
     mep: float | None = None
@@ -237,11 +288,9 @@ def comparar(a_id: str, b_id: str, monto: float, moneda_input: str = "ARS") -> d
     warnings = set(w_a) | set(w_b)
     if moneda_a != moneda_b:
         warnings.add("cross_moneda")
-    # CER variable: lo señalamos para que el cliente aclare proyección.
-    if (bono_a["_curva"] == "cer" and not bono_a.get("cer_fijado")) or (
-        bono_b["_curva"] == "cer" and not bono_b.get("cer_fijado")
-    ):
-        warnings.add("flujos_cer_sin_proyectar")
+    # CER: si proyectamos con CER constante avisamos al cliente.
+    if cer_proy_a or cer_proy_b:
+        warnings.add("cer_proyectado_constante")
 
     return {
         "a": payload_a,

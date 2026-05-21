@@ -8,6 +8,7 @@ Uso:
 from __future__ import annotations
 
 import sys
+from datetime import date
 
 from api.db import get_db_trading
 from api.services.comparar_inversion import (
@@ -31,7 +32,7 @@ def diag_uno(ticker_corto: str) -> None:
          "cer_emision": 1, "cupon_anual": 1, "flujos": 1},
     )
     if not doc:
-        print(f"NO ENCONTRADO en Trading.Curvas")
+        print("NO ENCONTRADO en Trading.Curvas")
         return
 
     print(f"ticker:          {doc.get('ticker')}")
@@ -67,6 +68,17 @@ def diag_uno(ticker_corto: str) -> None:
         if len(flujos_svc) != len(flujos_doc):
             print(f"\n⚠ DIFERENCIA: doc tiene {len(flujos_doc)} flujos, "
                   f"service devuelve {len(flujos_svc)}")
+
+        # Veredicto del fix: NINGÚN flujo puede tener fecha pasada (la
+        # inversión se hace hoy → solo cuentan los cupones futuros).
+        hoy = date.today().isoformat()
+        pasados = [f["fecha"] for f in flujos_svc if f["fecha"][:10] < hoy]
+        if pasados:
+            print(f"\n❌ FAIL: {len(pasados)} flujo(s) con fecha < hoy ({hoy}): "
+                  f"{pasados[:5]}{'…' if len(pasados) > 5 else ''}")
+        else:
+            primera = flujos_svc[0]["fecha"][:10] if flujos_svc else "—"
+            print(f"\n✓ OK: todos los flujos son ≥ hoy ({hoy}). Primer flujo: {primera}")
 
 
 def diag_universo() -> None:

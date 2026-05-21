@@ -17,6 +17,7 @@ Reusa:
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from api.cache import cached
 from api.db import get_db_trading
@@ -92,10 +93,11 @@ def _find_bono(ticker_corto: str) -> dict | None:
 
 
 def _flujos_de(curva: str, ticker_corto: str) -> tuple[list[dict], bool]:
-    """Devuelve TODOS los flujos del bono en VN 100, normalizados a la
-    misma escala que el precio. No filtra futuros — para CER proyecta con
-    `cer_actual / cer_emision` constante (último CER publicado), así el
-    cliente ve todos los pagos del bono y no solo los con CER de liquidación.
+    """Devuelve los flujos FUTUROS del bono (fecha ≥ hoy) en VN 100,
+    normalizados a la misma escala que el precio. Los cupones ya pagados se
+    descartan: la comparación es de una inversión hecha hoy. Para CER proyecta
+    con `cer_actual / cer_emision` constante (último CER publicado), así el
+    cliente ve todos los pagos pendientes y no solo los con CER de liquidación.
 
     Retorna `(flujos, cer_proyectado)`. `cer_proyectado=True` señala que
     los flujos CER usan factor constante (no proyección de inflación).
@@ -126,10 +128,17 @@ def _flujos_de(curva: str, ticker_corto: str) -> tuple[list[dict], bool]:
                 cer_factor = float(ultimo) / float(cer_emision)
                 cer_proyectado = True
 
+    # Inversión que se hace HOY: solo cuentan los flujos futuros. Los cupones
+    # ya pagados no se cobran al comprar hoy, así que se descartan (el eje del
+    # gráfico arranca en el presente, n_flujos refleja lo que falta cobrar).
+    hoy = date.today()
+
     out: list[dict] = []
     for f in flujos_doc:
         fd = fecha_flujo(f)
         if not fd:
+            continue
+        if fd < hoy:
             continue
         if curva == "cer" and cer_factor is None:
             continue

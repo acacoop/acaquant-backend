@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from datetime import date
 from typing import Any
 
 from api.cache import cached
@@ -233,6 +234,15 @@ def _new_state() -> dict:
     return {
         "qty_actual":       0.0,    # cantidad neta — running
         "costo_remanente":  0.0,    # cost basis del stock vivo (en ARS)
+        # Acumuladores USD paralelos — mismo algoritmo que los ARS pero con
+        # el importe en USD nativo de cada boleto (USD/USDC crudo; ARS ÷ MEP
+        # de su fecha). El COSTO en USD queda anclado al MEP histórico de
+        # cada compra; el VALOR actual se convierte aparte al MEP de hoy.
+        "costo_remanente_usd":  0.0,
+        "pnl_realizado_usd":    0.0,
+        "pnl_realizado_dia_usd": 0.0,
+        "pnl_pasivo_usd":       0.0,
+        "pnl_pasivo_dia_usd":   0.0,
         "importe_invertido": 0.0,   # Σ |importe| de TODAS las compras
                                     # (incluye posiciones ya cerradas)
         "pnl_realizado":    0.0,    # ganancias/pérdidas de ventas pasadas
@@ -269,6 +279,7 @@ def pnl_por_cuenta(id_cuenta: str) -> dict:
         db_cf=db_cf, db_v=db_v, db_t=db_t,
         unidad_to_match=unidad_to_match,
         match_to_display=match_to_display,
+        mep_hoy=get_mep_for_date(date.today().isoformat()),
         # En el path single-cuenta no pre-cargamos pricing maps —
         # `_valor_actual_live` cae a find_one por ticker. Para ~30 tickers
         # de una cuenta, son 60-90 queries: barato.
@@ -287,6 +298,7 @@ def _pnl_por_cuenta_core(
     boletos_by_id_cuenta: dict[str, list] | None = None,
     aum_rows_by_id_cuenta: dict[str, list] | None = None,
     fecha_actual_aum_global: str | None = None,
+    mep_hoy: float | None = None,
 ) -> dict:
     """Cálculo del PnL por ticker — toma todas las deps por kwarg.
 
@@ -366,6 +378,28 @@ def _pnl_por_cuenta_core(
             return importe, True  # fallback: queda en moneda original
         return importe * mep, False
 
+    def _usdificar(b: dict, importe_ars: float) -> float | None:
+        """USD nativo del boleto. USD/USDC → importe crudo (ya está en USD).
+        ARS → importe_ars ÷ MEP de su fecha. None si no se puede convertir
+        (ARS sin MEP) — corrompería el cost-basis USD, así que la fila se
+        flagea vía `fechas_sin_mep` igual que en la pesificación."""
+        moneda = b.get("moneda") or "ARS"
+        try:
+            importe = float(b.get("importe") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        if moneda != "ARS":
+            return importe  # ya está en USD
+        mep = b.get("mep")
+        if mep is None:
+            fecha = b.get("fecha") or ""
+            if fecha not in mep_fallback_cache:
+                mep_fallback_cache[fecha] = get_mep_for_date(fecha)
+            mep = mep_fallback_cache[fecha]
+        if mep is None or mep <= 0:
+            return None
+        return importe_ars / mep
+
     # ── 3. Procesar boletos en orden, mantener cost-basis running ───────
     state: dict[str, dict] = defaultdict(_new_state)
 
@@ -386,12 +420,17 @@ def _pnl_por_cuenta_core(
         cat    = b.get("categoria")
         op     = b.get("op") or ""
         importe_ars, mep_missing = _pesificar(b)
+        importe_usd = _usdificar(b, importe_ars)
 
         st = state[ticker]
         st["monedas"].add(moneda)
         st["n_movimientos"] += 1
-        if mep_missing:
+        if mep_missing or importe_usd is None:
             st["fechas_sin_mep"].add(fecha)
+        # Si no se pudo convertir a USD, no movemos el acumulador USD (deja
+        # el cost-basis USD intacto en vez de corromperlo); la fila queda
+        # flageada en fechas_sin_mep.
+        usd_ok = importe_usd is not None
 
         # Detalle audit — guardamos cada boleto procesado para que el
         # frontend pueda mostrarlos y vos puedas reconciliar contra los
@@ -426,15 +465,21 @@ def _pnl_por_cuenta_core(
             # short, NO sumamos al cost-basis — la operación neta es
             # cero. Solo la parte que excede el short es compra real.
             costo_total = abs(importe_ars)
+            costo_total_usd = abs(importe_usd) if usd_ok else 0.0
             if st["qty_actual"] < 0 and cantidad > 0:
                 cubierto = min(cantidad, -st["qty_actual"])
                 nueva_compra = cantidad - cubierto
                 if nueva_compra > 0:
                     # Solo lo que excede el short entra al costo,
                     # proporcional al importe del boleto.
-                    st["costo_remanente"] += costo_total * (nueva_compra / cantidad)
+                    frac = nueva_compra / cantidad
+                    st["costo_remanente"] += costo_total * frac
+                    if usd_ok:
+                        st["costo_remanente_usd"] += costo_total_usd * frac
             else:
                 st["costo_remanente"] += costo_total
+                if usd_ok:
+                    st["costo_remanente_usd"] += costo_total_usd
             st["qty_actual"]  += cantidad
             st["qty_compras"] += cantidad
 
@@ -451,20 +496,28 @@ def _pnl_por_cuenta_core(
             )
             if st["qty_actual"] > 0:
                 avg_cost = st["costo_remanente"] / st["qty_actual"]
+                avg_cost_usd = st["costo_remanente_usd"] / st["qty_actual"]
                 qty_a_vender = min(cantidad, st["qty_actual"])
                 # Realizado proporcional a la porción que sí tenía
                 # cost-basis. La parte excedente (cantidad - qty_a_vender)
                 # NO genera realizado — su contraparte (compra futura)
                 # se compensa entera, generando un wash neutro.
-                ingreso_proporcional = (
-                    ingreso_total * (qty_a_vender / cantidad)
-                    if cantidad > 0 else 0
-                )
+                frac_vend = (qty_a_vender / cantidad) if cantidad > 0 else 0
+                ingreso_proporcional = ingreso_total * frac_vend
                 realizado_este = ingreso_proporcional - (avg_cost * qty_a_vender)
                 st["pnl_realizado"] += realizado_este
                 if es_post_aum:
                     st["pnl_realizado_dia"] += realizado_este
                 st["costo_remanente"] -= avg_cost * qty_a_vender
+                # Espejo USD: ingreso de la venta en USD nativo (ARS ÷ MEP
+                # de la fecha de venta), costo al MEP histórico de la compra.
+                if usd_ok:
+                    ingreso_prop_usd = importe_usd * frac_vend
+                    realizado_usd = ingreso_prop_usd - (avg_cost_usd * qty_a_vender)
+                    st["pnl_realizado_usd"] += realizado_usd
+                    if es_post_aum:
+                        st["pnl_realizado_dia_usd"] += realizado_usd
+                st["costo_remanente_usd"] -= avg_cost_usd * qty_a_vender
             st["qty_actual"]  -= cantidad
             st["qty_ventas"]  += cantidad
 
@@ -475,6 +528,10 @@ def _pnl_por_cuenta_core(
                 fecha_actual_aum and (fecha or "") > fecha_actual_aum
             )
             st["pnl_pasivo"] += importe_ars
+            if usd_ok:
+                st["pnl_pasivo_usd"] += importe_usd
+                if es_post_aum:
+                    st["pnl_pasivo_dia_usd"] += importe_usd
             if es_post_aum:
                 st["pnl_pasivo_dia"] += importe_ars
             if op in st["breakdown_pasivo"]:
@@ -522,6 +579,15 @@ def _pnl_por_cuenta_core(
         "pnl_pasivo":        0.0,
         "pnl_pasivo_dia":    0.0,
         "pnl_total":         0.0,
+        # Espejo USD
+        "costo_remanente_usd":   0.0,
+        "valor_actual_usd":      0.0,
+        "pnl_realizado_usd":     0.0,
+        "pnl_realizado_dia_usd": 0.0,
+        "pnl_no_realizado_usd":  0.0,
+        "pnl_pasivo_usd":        0.0,
+        "pnl_pasivo_dia_usd":    0.0,
+        "pnl_total_usd":         0.0,
     }
 
     todos = set(state) | set(aum_por_ticker)
@@ -554,8 +620,11 @@ def _pnl_por_cuenta_core(
         unidad_actual = aum.get("unidad", "")
         qty_calc      = st["qty_actual"]
         costo_rem     = st["costo_remanente"]
+        costo_rem_usd = st["costo_remanente_usd"]
         pnl_real      = st["pnl_realizado"]
+        pnl_real_usd  = st["pnl_realizado_usd"]
         pnl_pas       = st["pnl_pasivo"]
+        pnl_pas_usd   = st["pnl_pasivo_usd"]
 
         # qty_efectiva — orden de precedencia:
         #   1. Si qty_aum == 0: el AuM (contabilidad oficial) dice que NO
@@ -588,12 +657,28 @@ def _pnl_por_cuenta_core(
         # vivo) contra el cost basis acumulado. Para tickers sin boletos
         # pero con tenencia (sin_boletos), no podemos calcular pnl porque
         # falta cost basis.
+        # Valor actual en USD: el VALOR (no el costo) se convierte al MEP de
+        # HOY, igual que Portfolio (valuacion ARS ÷ MEP del día). El costo
+        # ya está anclado a los MEP históricos de cada compra.
+        valor_actual_usd = (
+            valor_actual_live / mep_hoy if (mep_hoy and mep_hoy > 0) else None
+        )
+
         if qty_efectiva > 0 and st["n_movimientos"] > 0 and costo_rem > 0:
             pnl_no_real: float | None = valor_actual_live - costo_rem
         elif qty_efectiva == 0:
             pnl_no_real = 0.0   # cerrado intraday: 0 no-realizado, todo en realizado
         else:
             pnl_no_real = None  # tenencia sin boletos — no calculable
+
+        # No-realizado USD = valor(hoy) − costo(histórico). Captura el efecto
+        # cambiario. Mismo criterio de calculabilidad que el ARS.
+        if pnl_no_real is None or valor_actual_usd is None:
+            pnl_no_real_usd: float | None = None if pnl_no_real is None else 0.0
+        elif qty_efectiva == 0:
+            pnl_no_real_usd = 0.0
+        else:
+            pnl_no_real_usd = valor_actual_usd - costo_rem_usd
 
         # Completeness: para entender qué tan confiable es el cálculo.
         if st["n_movimientos"] == 0:
@@ -606,6 +691,7 @@ def _pnl_por_cuenta_core(
         # Total = realizado + no-realizado + pasivo. Si no-realizado es
         # None (sin boletos), no lo sumamos.
         pnl_total = pnl_real + pnl_pas + (pnl_no_real or 0.0)
+        pnl_total_usd = pnl_real_usd + pnl_pas_usd + (pnl_no_real_usd or 0.0)
 
         breakdown = {k: round(v, 2) for k, v in st["breakdown_pasivo"].items() if v != 0}
         if st["breakdown_otros"] != 0:
@@ -637,6 +723,15 @@ def _pnl_por_cuenta_core(
             "pnl_pasivo_dia":     round(st["pnl_pasivo_dia"], 2),
             "breakdown_pasivo":   breakdown,
             "pnl_total":          round(pnl_total, 2),
+            # ── Espejo USD (costo a MEP histórico, valor a MEP de hoy) ──
+            "costo_remanente_usd":   round(costo_rem_usd, 2),
+            "valor_actual_usd":      round(valor_actual_usd, 2) if valor_actual_usd is not None else None,
+            "pnl_realizado_usd":     round(pnl_real_usd, 2),
+            "pnl_realizado_dia_usd": round(st["pnl_realizado_dia_usd"], 2),
+            "pnl_no_realizado_usd":  round(pnl_no_real_usd, 2) if pnl_no_real_usd is not None else None,
+            "pnl_pasivo_usd":        round(pnl_pas_usd, 2),
+            "pnl_pasivo_dia_usd":    round(st["pnl_pasivo_dia_usd"], 2),
+            "pnl_total_usd":         round(pnl_total_usd, 2),
             "completeness":       completeness,
             "moneda_mixta":       len(st["monedas"]) > 1,
             "n_movimientos":      st["n_movimientos"],
@@ -654,6 +749,16 @@ def _pnl_por_cuenta_core(
         tot["pnl_pasivo"]        += pnl_pas
         tot["pnl_pasivo_dia"]    += st["pnl_pasivo_dia"]
         tot["pnl_total"]         += pnl_total
+        # Espejo USD. valor_actual_usd cae al ARS÷mep_hoy; si no hay mep_hoy
+        # los _usd quedan en 0 y el frontend muestra el toggle deshabilitado.
+        tot["costo_remanente_usd"]   += costo_rem_usd
+        tot["valor_actual_usd"]      += (valor_actual_usd or 0.0)
+        tot["pnl_realizado_usd"]     += pnl_real_usd
+        tot["pnl_realizado_dia_usd"] += st["pnl_realizado_dia_usd"]
+        tot["pnl_no_realizado_usd"]  += (pnl_no_real_usd or 0.0)
+        tot["pnl_pasivo_usd"]        += pnl_pas_usd
+        tot["pnl_pasivo_dia_usd"]    += st["pnl_pasivo_dia_usd"]
+        tot["pnl_total_usd"]         += pnl_total_usd
 
     rows.sort(key=lambda r: -r["pnl_total"])
 
@@ -842,6 +947,9 @@ def pnl_todas_cuentas_compute() -> list[dict]:
     # Pre-load global maps + boletos + AuM — ~6 queries totales en lugar
     # de ~5 × N cuentas.
     deps = _load_pnl_bulk_deps(db_v, db_cf, db_t)
+    # MEP de hoy: una sola lectura para convertir el VALOR actual a USD en
+    # todas las cuentas (el costo va al MEP histórico por boleto).
+    mep_hoy = get_mep_for_date(date.today().isoformat())
 
     out: list[dict] = []
     for c in cuentas:
@@ -852,6 +960,7 @@ def pnl_todas_cuentas_compute() -> list[dict]:
             r = _pnl_por_cuenta_core(
                 id_cuenta=str(id_cta),
                 db_cf=db_cf, db_v=db_v, db_t=db_t,
+                mep_hoy=mep_hoy,
                 **deps,
             )
         except Exception:
@@ -929,6 +1038,12 @@ def pnl_todas_cuentas(
         "pnl_pasivo":        0.0,
         "pnl_realizado_dia": 0.0,
         "pnl_total":         0.0,
+        "costo_remanente_usd":   0.0,
+        "valor_actual_usd":      0.0,
+        "pnl_no_realizado_usd":  0.0,
+        "pnl_pasivo_usd":        0.0,
+        "pnl_realizado_dia_usd": 0.0,
+        "pnl_total_usd":         0.0,
     }
     for d in docs:
         id_cta = d.get("id_cuenta")
@@ -944,12 +1059,8 @@ def pnl_todas_cuentas(
             r2["id_cuenta"] = id_cta
             rows.append(r2)
         t = d.get("totales", {}) or {}
-        totales["costo_remanente"]   += float(t.get("costo_remanente") or 0)
-        totales["valor_actual"]      += float(t.get("valor_actual") or 0)
-        totales["pnl_no_realizado"]  += float(t.get("pnl_no_realizado") or 0)
-        totales["pnl_pasivo"]        += float(t.get("pnl_pasivo") or 0)
-        totales["pnl_realizado_dia"] += float(t.get("pnl_realizado_dia") or 0)
-        totales["pnl_total"]         += float(t.get("pnl_total") or 0)
+        for k in totales:
+            totales[k] += float(t.get(k) or 0)
 
     # Sort default: pnl_total descendente (las que mejor andan arriba).
     # Para pnl_total visible usamos no_real + pasivo + real_dia (mismo
@@ -973,6 +1084,12 @@ def pnl_todas_cuentas(
             "pnl_pasivo":        round(totales["pnl_pasivo"], 2),
             "pnl_realizado_dia": round(totales["pnl_realizado_dia"], 2),
             "pnl_total":         round(totales["pnl_total"], 2),
+            "costo_remanente_usd":   round(totales["costo_remanente_usd"], 2),
+            "valor_actual_usd":      round(totales["valor_actual_usd"], 2),
+            "pnl_no_realizado_usd":  round(totales["pnl_no_realizado_usd"], 2),
+            "pnl_pasivo_usd":        round(totales["pnl_pasivo_usd"], 2),
+            "pnl_realizado_dia_usd": round(totales["pnl_realizado_dia_usd"], 2),
+            "pnl_total_usd":         round(totales["pnl_total_usd"], 2),
         },
         "filtro_cuenta": filtro_cuenta,
     }

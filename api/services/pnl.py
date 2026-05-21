@@ -775,6 +775,15 @@ def _pnl_por_cuenta_core(
             "pnl_pasivo":        round(tot["pnl_pasivo"], 2),
             "pnl_pasivo_dia":    round(tot["pnl_pasivo_dia"], 2),
             "pnl_total":         round(tot["pnl_total"], 2),
+            # Espejo USD (costo a MEP histórico, valor a MEP de hoy).
+            "costo_remanente_usd":   round(tot["costo_remanente_usd"], 2),
+            "valor_actual_usd":      round(tot["valor_actual_usd"], 2),
+            "pnl_realizado_usd":     round(tot["pnl_realizado_usd"], 2),
+            "pnl_realizado_dia_usd": round(tot["pnl_realizado_dia_usd"], 2),
+            "pnl_no_realizado_usd":  round(tot["pnl_no_realizado_usd"], 2),
+            "pnl_pasivo_usd":        round(tot["pnl_pasivo_usd"], 2),
+            "pnl_pasivo_dia_usd":    round(tot["pnl_pasivo_dia_usd"], 2),
+            "pnl_total_usd":         round(tot["pnl_total_usd"], 2),
         },
         "n_tickers": len(rows),
     }

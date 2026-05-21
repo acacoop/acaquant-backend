@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from api.services import analitica as svc_ana
 from api.services import canje as svc_canje
 from api.services import carry_trade as svc_carry
+from api.services import comparar_inversion as svc_cmp
 from api.services import descomposicion_retorno as svc_desc
 from api.services import macro as svc_macro
 from api.services import opciones as svc_opc
@@ -257,3 +258,23 @@ def estrategia_historico(req: _EstrategiaHistoricoReq = Body(...)):
         desde=req.desde,
         hasta=req.hasta,
     )
+
+
+@router.get("/comparar/bonos")
+def comparar_listar_bonos():
+    """Universo para el selector de la tab 'Comparar Inversión'.
+
+    Fase 1: solo Trading.Curvas (cer, tasa_fija, soberanos). BondsMaster
+    pendiente para Fase 2.
+    """
+    return svc_cmp.listar_bonos_seleccionables()
+
+
+@router.get("/comparar")
+def comparar_inversion(
+    a: str = Query(..., description="id del bono A (ej. 'curvas:TX26')"),
+    b: str = Query(..., description="id del bono B"),
+    monto: float = Query(..., gt=0, description="Monto a invertir"),
+    moneda: str = Query("ARS", description="Moneda del monto: ARS o USD"),
+):
+    return svc_cmp.comparar(a_id=a, b_id=b, monto=monto, moneda_input=moneda)

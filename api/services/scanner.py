@@ -21,7 +21,7 @@ polling del frontend.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from api.cache import cached
 from api.db import get_db_trading, get_db_valuaciones
@@ -162,7 +162,7 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
     live_by_underlying: dict[str, dict] = {}
     for d in db["AdrSnapshot"].find(
         {"ticker": {"$in": underlyings}},
-        projection={"_id": 0, "ticker": 1, "c": 1, "pc": 1, "updated_at": 1},
+        projection={"_id": 0, "ticker": 1, "c": 1, "pc": 1, "t": 1, "updated_at": 1},
     ):
         live_by_underlying[d["ticker"]] = d
 
@@ -182,6 +182,7 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
             out[ticker_corto] = {
                 "adr_last":         None,
                 "adr_fecha":        None,
+                "adr_intraday":     None,
                 "adr_vs_1d_pct":    None,
                 "adr_ret_7d_pct":   None,
                 "adr_ret_mtd_pct":  None,
@@ -193,14 +194,25 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
         # último close EOD.
         last_close: float | None = None
         last_fecha: datetime | None = None
+        # ¿El precio es de HOY (intradía) o es un cierre previo? Pre-market el
+        # quote de Finnhub devuelve el cierre de ayer (t = ayer); al abrir y
+        # operar, t pasa a hoy. Esto es lo que el frontend usa para marcar las
+        # filas que NO son live (badge "CIERRE") y que no parezca un desalce.
+        adr_intraday: bool | None = None
         if live and live.get("c"):
             last_close = float(live["c"])
             last_fecha = live.get("updated_at")
+            t = live.get("t")
+            if isinstance(t, (int, float)) and t > 0:
+                adr_intraday = (
+                    datetime.fromtimestamp(t, tz=UTC).date() >= hoy.date()
+                )
         elif docs:
             docs.sort(key=lambda x: x["fecha"])
             last_doc = docs[-1]
             last_close = last_doc.get("close")
             last_fecha = last_doc.get("fecha")
+            adr_intraday = False  # cierre EOD — no es precio intradía
         else:
             docs.sort(key=lambda x: x["fecha"])  # noqa: protect for next blocks
 
@@ -235,6 +247,7 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
         out[ticker_corto] = {
             "adr_last":         last_close,
             "adr_fecha":        last_fecha.isoformat() if isinstance(last_fecha, datetime) else None,
+            "adr_intraday":     adr_intraday,
             "adr_vs_1d_pct":    vs_1d,
             "adr_ret_7d_pct":   _ret_vs(anchor_7d),
             "adr_ret_mtd_pct":  _ret_vs(anchor_mtd),
@@ -483,6 +496,7 @@ def get_cedears_scanner() -> list[dict]:
             # ADR (USD EOD del underlying)
             "adr_last":         adr.get("adr_last"),
             "adr_fecha":        adr.get("adr_fecha"),
+            "adr_intraday":     adr.get("adr_intraday"),
             "adr_vs_1d_pct":    adr.get("adr_vs_1d_pct"),
             "adr_ret_7d_pct":   adr.get("adr_ret_7d_pct"),
             "adr_ret_mtd_pct":  adr.get("adr_ret_mtd_pct"),

@@ -27,7 +27,6 @@ from typing import Any
 from api.cache import cached
 from api.db import (
     get_db_cashflow,
-    get_db_titulos,
     get_db_trading,
     get_db_valuaciones,
 )
@@ -1075,17 +1074,19 @@ def posiciones_actuales(
         # precio se sobrescribe — todos los lotes del mismo día tienen mismo precio.
         st["precio"] = precio
 
-    # Enriquecer con master data (mismo patrón que el detalle de portfolio legacy):
-    # - cartera + clase_activo: Valuaciones.Assets UPPERCASE (fuente de verdad).
-    # - ticker + emisor + calificacion + vencimiento: TitulosAPI.AssetsAPI (lowercase).
-    db_t = get_db_titulos()
+    # Enriquecer con master data desde Valuaciones.Assets (UPPERCASE) — la
+    # fuente de verdad que edita Manager → Assets y que jobs/aum.py sincroniza
+    # con cada unidad del snapshot. Trae ticker/emisor/calificación/vencimiento
+    # + cartera/clase en una sola query. Antes esto joinaba contra
+    # TitulosAPI.AssetsAPI (copia derivada) y los bonos sin match ahí caían al
+    # `unidad` crudo largo ("[9396] AO28 - BONO TESORO NAC...").
     unidades = list(by_unidad.keys())
     enrich_by_unidad: dict[str, dict] = {}
-    full_by_unidad: dict[str, dict] = {}
     if unidades:
         cur_v = db_val["Assets"].find(
             {"unidad": {"$in": unidades}},
-            {"_id": 0, "unidad": 1, "CARTERA": 1, "CLASE_ACTIVO": 1},
+            {"_id": 0, "unidad": 1, "CARTERA": 1, "CLASE_ACTIVO": 1,
+             "TICKER": 1, "EMISOR": 1, "CALIFICACION": 1, "VENCIMIENTO": 1},
         )
         for a in cur_v:
             u = a.get("unidad")
@@ -1093,16 +1094,11 @@ def posiciones_actuales(
                 enrich_by_unidad[u] = {
                     "cartera":      a.get("CARTERA") or "OTROS",
                     "clase_activo": a.get("CLASE_ACTIVO") or "",
+                    "ticker":       a.get("TICKER") or "",
+                    "emisor":       a.get("EMISOR") or "",
+                    "calificacion": a.get("CALIFICACION") or "",
+                    "vencimiento":  a.get("VENCIMIENTO") or "",
                 }
-        cur_t = db_t["AssetsAPI"].find(
-            {"unidad": {"$in": unidades}},
-            {"_id": 0, "unidad": 1, "ticker": 1, "emisor": 1,
-             "calificacion": 1, "vencimiento": 1},
-        )
-        for a in cur_t:
-            u = a.get("unidad")
-            if u:
-                full_by_unidad[u] = a
 
     # Sort por valuación con SIGNO descendente — longs arriba, shorts/cash
     # negativo abajo. Antes era por |valuacion| que mezclaba shorts grandes
@@ -1115,12 +1111,12 @@ def posiciones_actuales(
         "posiciones": [
             {
                 "unidad":       r["ticker"],
-                "ticker":       full_by_unidad.get(r["ticker"], {}).get("ticker") or r["ticker"],
-                "emisor":       full_by_unidad.get(r["ticker"], {}).get("emisor") or "-",
+                "ticker":       enrich_by_unidad.get(r["ticker"], {}).get("ticker") or r["ticker"],
+                "emisor":       enrich_by_unidad.get(r["ticker"], {}).get("emisor") or "-",
                 "clase_activo": enrich_by_unidad.get(r["ticker"], {}).get("clase_activo") or "-",
                 "cartera":      enrich_by_unidad.get(r["ticker"], {}).get("cartera") or "",
-                "calificacion": full_by_unidad.get(r["ticker"], {}).get("calificacion") or "-",
-                "vencimiento":  str(full_by_unidad.get(r["ticker"], {}).get("vencimiento") or "")[:10] or None,
+                "calificacion": enrich_by_unidad.get(r["ticker"], {}).get("calificacion") or "-",
+                "vencimiento":  str(enrich_by_unidad.get(r["ticker"], {}).get("vencimiento") or "")[:10] or None,
                 "tipo":         str(r["tipo"]) if r["tipo"] not in (None, "") else None,
                 "cantidad":     round(r["cantidad"], 4),
                 "precio":       round(r["precio"], 4),

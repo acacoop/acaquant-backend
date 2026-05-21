@@ -99,14 +99,12 @@ def _flujos_de(curva: str, ticker_corto: str) -> tuple[list[dict], bool]:
 
     Retorna `(flujos, cer_proyectado)`. `cer_proyectado=True` señala que
     los flujos CER usan factor constante (no proyección de inflación).
+    Cada flujo trae el desglose `cupon` (renta) y `amort` (devolución de
+    capital) por separado, además del `monto` total. El cliente lo usa para
+    graficar solo la renta — si no, el bullet de amortización al vto (≈100)
+    aplasta los cupones (≈0.5) y los hace invisibles.
     """
-    from engines.curvas import (
-        cargar_cer,
-        fecha_flujo,
-        monto_flujo,
-        monto_flujo_cer,
-        monto_flujo_soberano,
-    )
+    from engines.curvas import cargar_cer, fecha_flujo
 
     db = get_db_trading()
     doc = db["Curvas"].find_one(
@@ -133,20 +131,52 @@ def _flujos_de(curva: str, ticker_corto: str) -> tuple[list[dict], bool]:
         fd = fecha_flujo(f)
         if not fd:
             continue
-        if curva == "tasa_fija":
-            monto = monto_flujo(f)
-        elif curva == "soberanos":
-            monto = monto_flujo_soberano(f, 100)
-        elif curva == "cer":
-            if cer_factor is None:
-                continue
-            monto = monto_flujo_cer(f, 100) * cer_factor
-        else:
+        if curva == "cer" and cer_factor is None:
             continue
+        cupon, amort = _desglose_flujo(curva, f)
+        if curva == "cer":
+            cupon *= cer_factor
+            amort *= cer_factor
+        monto = cupon + amort
         if monto and monto > 0:
-            out.append({"fecha": fd.isoformat(), "monto": round(monto, 6)})
+            out.append({
+                "fecha": fd.isoformat(),
+                "cupon": round(cupon, 6),
+                "amort": round(amort, 6),
+                "monto": round(monto, 6),
+            })
     out.sort(key=lambda x: x["fecha"])
     return out, cer_proyectado
+
+
+def _desglose_flujo(curva: str, f: dict) -> tuple[float, float]:
+    """Devuelve `(cupon, amort)` por cada 100 VN para un flujo.
+
+    - tasa_fija: `interes` / `amortizacion`. Zero coupon (Lecap) trae solo
+      `monto` → todo capital al vto (cupon=0).
+    - soberanos: `cupon_sobre_residual` ya viene en monto USD por 100 VN
+      (ver monto_flujo_soberano); amortización = `amortizacion_pct`.
+    - cer: % sobre VN; el factor CER lo aplica el caller.
+    """
+    if curva == "tasa_fija":
+        if "monto" in f and "interes" not in f and "amortizacion" not in f:
+            return 0.0, float(f["monto"])
+        return float(f.get("interes", 0)), float(f.get("amortizacion", 0))
+    if curva == "soberanos":
+        cupon = float(f.get("cupon_sobre_residual", 0)) / 100 * 100
+        amort = float(f.get("amortizacion_pct", 0)) / 100 * 100
+        return cupon, amort
+    if curva == "cer":
+        amort = float(f.get("amortizacion_pct", 0)) / 100 * 100
+        if "cupon_sobre_residual" in f:
+            cupon = (
+                float(f.get("cupon_sobre_residual", 0))
+                * float(f.get("residual_previo_pct", 0)) / 100 * 100
+            )
+        else:
+            cupon = float(f.get("cupon_anual", 0)) * 100
+        return cupon, amort
+    return 0.0, 0.0
 
 
 def _convertir_mep(monto: float, desde: str, hasta: str, mep: float | None) -> float | None:
@@ -192,19 +222,27 @@ def _bono_payload(
     flujos_escalados: list[dict] = []
     if precio and precio > 0 and monto_en_moneda_bono:
         vn_nominal = monto_en_moneda_bono * 100.0 / precio
+        factor = vn_nominal / 100.0
         for f in flujos:
-            monto_por_100 = f.get("monto") or 0
             flujos_escalados.append({
                 "fecha": f["fecha"],
-                "monto": round(monto_por_100 * vn_nominal / 100.0, 2),
-                "monto_por_100": monto_por_100,
+                "monto": round((f.get("monto") or 0) * factor, 2),
+                "cupon": round((f.get("cupon") or 0) * factor, 2),
+                "amort": round((f.get("amort") or 0) * factor, 2),
+                "monto_por_100": f.get("monto"),
             })
     else:
         warnings.append("sin_precio_live")
         # Sin precio live no podemos escalar — devolvemos los flujos en VN 100
         # para que el cliente al menos los grafique relativos.
         flujos_escalados = [
-            {"fecha": f["fecha"], "monto": None, "monto_por_100": f.get("monto")}
+            {
+                "fecha": f["fecha"],
+                "monto": f.get("monto"),
+                "cupon": f.get("cupon"),
+                "amort": f.get("amort"),
+                "monto_por_100": f.get("monto"),
+            }
             for f in flujos
         ]
 

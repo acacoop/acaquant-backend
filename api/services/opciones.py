@@ -153,6 +153,52 @@ def get_historico_opciones(
     return list(db["Data"].aggregate(pipeline))
 
 
+@cached(ttl=300)
+def get_vr_ggal_serie() -> list:
+    """Serie diaria de GGAL (local ARS + ADR USD) — Opciones.VR-GGal (~40 ruedas).
+
+    Para el 2º eje del chart de costo histórico (spot del subyacente, con switch
+    ARS↔ADR). Excluye el doc resumen `SUMMARY_METRICS`. Devuelve asc por fecha.
+    """
+    db = get_db_opciones()
+    docs = list(db["VR-GGal"].find(
+        {"type": {"$ne": "SUMMARY_METRICS"}},
+        {"_id": 0, "Date": 1, "LOCAL_Close": 1, "ADR_Close": 1},
+    ))
+    out: list[dict] = []
+    for d in docs:
+        fecha = d.get("Date")
+        if isinstance(fecha, datetime):
+            fecha = fecha.date().isoformat()
+        elif isinstance(fecha, str):
+            fecha = fecha[:10]
+        else:
+            continue
+        out.append({
+            "fecha": fecha,
+            "local": d.get("LOCAL_Close"),
+            "adr":   d.get("ADR_Close"),
+        })
+    out.sort(key=lambda x: x["fecha"])
+    return out
+
+
+@cached(ttl=120)
+def get_griegas_historico(instrumento: str) -> list:
+    """Serie diaria de griegas de un contrato — Opciones.DataHistorica.
+
+    Una fila por fecha (rollup del último tick del día) con delta/gamma/vega/
+    theta/iv + last/spot. Alimenta el chart de evolución de griegas por
+    contrato. `instrumento` acepta forma corta o completa.
+    """
+    db = get_db_opciones()
+    return list(db["DataHistorica"].find(
+        {"symbol": _ticker_filter(instrumento)},
+        {"_id": 0, "fecha": 1, "delta": 1, "gamma": 1, "vega": 1,
+         "theta": 1, "iv": 1, "last": 1, "spot": 1, "tipo": 1, "strike": 1},
+    ).sort("fecha", 1))
+
+
 def update_opciones_tasa(valor: float) -> dict:
     """Actualiza la tasa libre de riesgo en Opciones.Metadata.config.
     Post-update hace clear_cache() (no decorator — es mutación)."""

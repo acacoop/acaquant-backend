@@ -322,6 +322,23 @@ def historico_opciones(
     return svc_opt.get_historico_opciones(instrumento=instrumento, tipo=tipo)
 
 
+@router.get("/vr-ggal")
+def vr_ggal():
+    """Serie diaria GGAL local (ARS) + ADR (USD) de Opciones.VR-GGal.
+
+    Para el 2º eje del chart de costo histórico (spot del subyacente).
+    """
+    return svc_opt.get_vr_ggal_serie()
+
+
+@router.get("/griegas/opciones")
+def griegas_opciones(
+    instrumento: str = Query(..., description="Instrumento (symbol) del contrato"),
+):
+    """Evolución diaria de griegas de un contrato (Opciones.DataHistorica)."""
+    return svc_opt.get_griegas_historico(instrumento=instrumento)
+
+
 # ── Históricos TimeSales ──
 
 

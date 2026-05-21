@@ -281,16 +281,40 @@ def get_ticker_returns(ticker: str) -> dict:
     }
 
 
+@cached(ttl=60)
 def get_pivot_points(ticker: str) -> dict:
     """Pivot points Floor Trader en 4 timeframes (diario/semanal/mensual/
     anual) del subyacente USD del CEDEAR.
 
     El `ticker` que llega es ticker_corto (BYMA). Resuelve el underlying
     primero (caso YPFD → YPF) antes de calcular sobre Trading.PreciosAcciones.
+
+    Los NIVELES de pivot salen del período previo cerrado (estáticos por
+    diseño). El `last` que devuelve `obtener_4_timeframes` es el cierre EOD
+    (cambia 1×/día) — acá lo pisamos con el precio live del ADR
+    (`Trading.AdrSnapshot.c`, refrescado cada 15 min por `jobs/adr_live.py`)
+    para que el "vs LAST" del panel se mueva durante la rueda. Si no hay
+    snapshot, cae al cierre EOD. Cache 60s: el frontend pollea y el feed ADR
+    solo cambia cada 15 min, así que no hace falta recalcular más seguido.
     """
     from quant.pivot_points import obtener_4_timeframes
 
-    return obtener_4_timeframes(_resolve_underlying(ticker))
+    underlying = _resolve_underlying(ticker)
+    res = obtener_4_timeframes(underlying)
+
+    db = get_db_trading()
+    snap = db["AdrSnapshot"].find_one(
+        {"ticker": underlying}, {"_id": 0, "c": 1, "updated_at": 1}
+    )
+    if snap and snap.get("c"):
+        res["last"] = float(snap["c"])
+        res["last_source"] = "live"
+        ua = snap.get("updated_at")
+        if isinstance(ua, datetime):
+            res["last_fecha"] = ua.isoformat()
+    else:
+        res["last_source"] = "eod"
+    return res
 
 
 @cached(ttl=60)

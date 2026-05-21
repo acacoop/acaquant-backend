@@ -82,10 +82,17 @@ def get_historico_opciones(
     instrumento: str | None = None,
     tipo: str | None = None,
 ) -> list:
-    """Trades de opciones de los últimos 21 días (Opciones.Data).
+    """Serie de opciones de los últimos 21 días (Opciones.Data), agregada por
+    bucket de 15 min — un punto por bucket (el último tick de cada franja).
 
     `instrumento` acepta forma corta ('GFGC10950A') o completa
     ('MERV - XMEV - GFGC10950A - 24hs') — ambas matchean.
+
+    Por qué se bucketea: `Opciones.Data` es tick-level. Antes se traían ticks
+    crudos (sort desc + limit 5000) y en opciones muy operadas los 5000 docs
+    cubrían solo los últimos días → el histórico viejo de los 21 días se
+    perdía. Agrupando por bucket ANTES de limitar, los 21 días entran siempre
+    (~26 buckets/día) sin importar el volumen, y la respuesta es más liviana.
     """
     db = get_db_opciones()
     corte = datetime.now() - timedelta(days=21)
@@ -95,13 +102,39 @@ def get_historico_opciones(
     if tipo:
         filtro["tipo"] = tipo.upper()
 
+    bucket_ms = 15 * 60 * 1000
+    # Floor del timestamp a la franja de 15 min via aritmética de epoch (más
+    # portable que $dateTrunc). `$toLong` de una fecha = ms desde epoch.
+    bucket_expr = {"$toDate": {"$subtract": [
+        {"$toLong": "$timestamp"},
+        {"$mod": [{"$toLong": "$timestamp"}, bucket_ms]},
+    ]}}
+
     pipeline = [
         {"$match": filtro},
-        {"$sort": {"timestamp": -1}},
-        {"$limit": 5000},
+        {"$sort": {"timestamp": 1}},  # asc → $last = el tick más reciente del bucket
+        {"$group": {
+            "_id": {"symbol": "$symbol", "bucket": bucket_expr},
+            "instrumento":    {"$last": "$symbol"},
+            "timestamp":      {"$last": "$timestamp"},
+            "last_timestamp": {"$last": "$last_timestamp"},
+            "bid":    {"$last": "$bid"},
+            "offer":  {"$last": "$offer"},
+            "last":   {"$last": "$last"},
+            "spot":   {"$last": "$spot"},
+            "strike": {"$last": "$strike"},
+            "tipo":   {"$last": "$tipo"},
+            "iv":     {"$last": "$iv"},
+            "delta":  {"$last": "$delta"},
+            "gamma":  {"$last": "$gamma"},
+            "vega":   {"$last": "$vega"},
+            "theta":  {"$last": "$theta"},
+        }},
+        {"$sort": {"timestamp": -1}},   # desc — mismo contrato que antes (el cliente revierte)
+        {"$limit": 20000},              # safety para queries sin instrumento
         {"$project": {
             "_id": 0,
-            "instrumento": "$symbol",
+            "instrumento": 1,
             "timestamp": 1,
             "last_timestamp": 1,
             "bid": 1,

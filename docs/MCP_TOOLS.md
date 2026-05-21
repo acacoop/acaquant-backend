@@ -1,6 +1,6 @@
 # MCP Tools Reference — TradingAV
 
-> Documento de referencia para LLMs que consumen las 37 tools del MCP server `https://api.acaquant.com/mcp`. Pensado para alimentar el contexto de Claude (Custom Connector / Project knowledge) y acelerar la decisión de qué tool usar para cada pregunta del usuario.
+> Documento de referencia para LLMs que consumen las 39 tools del MCP server `https://api.acaquant.com/mcp`. Pensado para alimentar el contexto de Claude (Custom Connector / Project knowledge) y acelerar la decisión de qué tool usar para cada pregunta del usuario.
 
 ## Qué expone este MCP
 
@@ -669,11 +669,31 @@ forward_a_b = doc["matrix"][ticker_b][ticker_a]
 ---
 
 #### `opciones_historico`
-**Para qué:** Histórico tick-level del OPEX en curso para una opción específica.
+**Para qué:** Histórico de una opción específica del OPEX en curso, agregado por bucket de 15 min (un punto por franja).
 
 **Params:** `instrumento` (acepta corto `GFGC10950A` o completo `MERV - XMEV - GFGC10950A - 24hs`), `tipo` (`CALL | PUT`).
 
-**Retorna:** `list[dict]` de hasta 5000 trades, últimos 21 días.
+**Retorna:** `list[dict]` de los últimos 21 días, ~26 puntos por día (bucket 15 min, último tick de cada franja). Bucketea antes de limitar, así los 21 días entran completos sin importar el volumen.
+
+---
+
+#### `opciones_griegas_historico`
+**Para qué:** Evolución diaria de las griegas de un contrato de opción (cómo varió delta/gamma/vega/theta/iv en el tiempo).
+
+**Params:** `instrumento` (corto o completo).
+
+**Retorna:** `list[dict]`, una fila por fecha (rollup diario, `Opciones.DataHistorica`): `fecha`, `delta`, `gamma`, `vega`, `theta`, `iv`, `last`, `spot`, `tipo`, `strike`.
+
+**Cuándo usar:** Para analizar cómo evolucionó el riesgo/sensibilidad de un contrato (ej. "cómo cambió el delta de la GFGC6974 en la última semana").
+
+---
+
+#### `opciones_spot_ggal`
+**Para qué:** Serie diaria del subyacente GGAL (local ARS + ADR USD), ~40 ruedas. Contexto del spot para análisis de opciones.
+
+**Retorna:** `list[dict]` por fecha: `fecha`, `local` (LOCAL_Close, ARS), `adr` (ADR_Close, USD).
+
+**Cuándo usar:** Para contextualizar dónde estuvo el subyacente al analizar precios/griegas de opciones (ej. correlacionar el movimiento del spot con el de una prima).
 
 ---
 

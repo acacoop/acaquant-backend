@@ -548,6 +548,28 @@ def opciones_historico(
     return svc_opt.get_historico_opciones(instrumento=instrumento, tipo=tipo)
 
 
+@mcp.tool(
+    description=(
+        "Evolución diaria de las griegas de un contrato de opción "
+        "(delta, gamma, vega, theta, iv) más last/spot — rollup diario de los "
+        "últimos ~21 días. Una fila por fecha. Requiere `instrumento` (symbol)."
+    ),
+)
+def opciones_griegas_historico(instrumento: str) -> list[dict]:
+    return svc_opt.get_griegas_historico(instrumento=instrumento)
+
+
+@mcp.tool(
+    description=(
+        "Serie diaria del subyacente GGAL (~40 ruedas): precio local en ARS "
+        "(LOCAL_Close) y ADR en USD (ADR_Close) por fecha. Para contextualizar "
+        "el spot en el análisis de opciones."
+    ),
+)
+def opciones_spot_ggal() -> list[dict]:
+    return svc_opt.get_vr_ggal_serie()
+
+
 # ─────────────────────────────────────────────────────────────────
 # Renta variable — Scanner CEDEARs
 # ─────────────────────────────────────────────────────────────────

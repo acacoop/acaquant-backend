@@ -119,7 +119,7 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 
 ## MCP server (Custom Connector)
 
-`api/mcp/` montado en `https://api.acaquant.com/mcp` — 37 tools de SOLO LECTURA sobre datos de mercado (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad, order book live, renta variable / scanner CEDEARs). NO expone portfolio/operaciones/cuentas/AuM/manager (datos privados de la mesa). Cada tool es thin wrapper sobre `api/services/*`. Cliente principal: Claude Desktop / claude.ai vía Custom Connector. Doc completo de cada tool: `docs/MCP_TOOLS.md`.
+`api/mcp/` montado en `https://api.acaquant.com/mcp` — 39 tools de SOLO LECTURA sobre datos de mercado (curvas, forwards, breakevens, opciones, REM, macro, descomposición, sensibilidad, order book live, renta variable / scanner CEDEARs). NO expone portfolio/operaciones/cuentas/AuM/manager (datos privados de la mesa). Cada tool es thin wrapper sobre `api/services/*`. Cliente principal: Claude Desktop / claude.ai vía Custom Connector. Doc completo de cada tool: `docs/MCP_TOOLS.md`.
 
 **Auth**: OAuth 2.1 + PKCE + DCR (RFC 7591), Cloudflare Access como IdP. Flow completo en `docs/MCP.md`. Env vars: `MCP_BEARER_TOKEN` (static fallback dev/curl), `MCP_JWT_SECRET` (firma OAuth JWTs), `MCP_OAUTH_ISSUER` (default `https://api.acaquant.com`). Sin ninguno, `/mcp` queda deshabilitado.
 

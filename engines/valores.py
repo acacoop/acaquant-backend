@@ -205,8 +205,8 @@ class MicrostructureEngine:
         st = self.market_state.get(ticker)
         if st is None:
             return
-        if "BI" in data: st["book"]["bids"] = data["BI"][:5]
-        if "OF" in data: st["book"]["offers"] = data["OF"][:5]
+        if "BI" in data: st["book"]["bids"] = (data["BI"] or [])[:5]
+        if "OF" in data: st["book"]["offers"] = (data["OF"] or [])[:5]
         if "EV" in data and data["EV"] is not None: st["daily_financials"]["total_money"] = float(data["EV"])
         if "NV" in data and data["NV"] is not None: st["daily_financials"]["total_nominals"] = float(data["NV"])
         def _to_float(v):

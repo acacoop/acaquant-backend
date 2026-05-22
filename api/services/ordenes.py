@@ -492,27 +492,28 @@ def search_symbols(q: str, limit: int = 20) -> list[dict[str, Any]]:
     o underlying. Lee Manager.PyRofexInstruments — la colección que pobla
     scripts.discovery_pyrofex con todos los instruments del broker.
 
-    Excluye FCI (no son operables vía pyRofex; el dropdown del frontend
-    no debe sugerirlos). Devuelve top `limit` resultados con los campos
-    mínimos que el combobox necesita.
+    Excluye FCI por CFI code (cuotapartes de fondos = cficode "CIO…"; ISO
+    10962, 1ª letra C = Collective Investment Vehicles). El `_id` del doc en
+    PyRofexInstruments ES el cficode, así que cortamos en la raíz: si el
+    fondo no aparece acá no se puede pickear → no entra a AdhocSubscriptions
+    → el motor nunca lo suscribe. Filtrar por nombre no servía: hay fondos
+    sin "FCI" en el nombre (ej. "Toronto Trust Ahorro - Clase A").
+    Devuelve top `limit` resultados con los campos mínimos del combobox.
     """
     if not q or len(q.strip()) < 2:
         return []
     db = get_mongo_client_read()["Manager"]
     pattern = re.escape(q.strip())
     regex = {"$regex": pattern, "$options": "i"}
-    fci_neg = {"$not": {"$regex": "FCI", "$options": "i"}}
 
     pipeline: list[dict[str, Any]] = [
+        # Excluir fondos por cficode antes de abrir el array (más barato).
+        {"$match": {"_id": {"$not": {"$regex": "^CIO"}}}},
         {"$unwind": "$instruments"},
         {"$match": {
-            "$and": [
-                {"$or": [
-                    {"instruments.ticker":     regex},
-                    {"instruments.underlying": regex},
-                ]},
-                {"instruments.ticker":     fci_neg},
-                {"instruments.underlying": fci_neg},
+            "$or": [
+                {"instruments.ticker":     regex},
+                {"instruments.underlying": regex},
             ],
         }},
         {"$limit": limit},

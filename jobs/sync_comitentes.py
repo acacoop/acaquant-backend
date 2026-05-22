@@ -38,8 +38,13 @@ DB = "Clientes"
 COL = "Comitentes"
 
 # Campos de segmentación manual — se crean en null al insertar y el sync no
-# los toca nunca más (los edita la mesa desde la UI).
-MANUAL_FIELDS = ("segmento", "sub_segmento", "sub_sub_segmento", "sucursal", "referido")
+# los toca nunca más (los edita la mesa desde la UI). nivel_1..5 = árbol de
+# segmentación; el resto, atributos comerciales / compliance.
+MANUAL_FIELDS = (
+    "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5",
+    "primer_contacto_comercial", "riesgo_la_ft", "division",
+    "adc", "dma", "observaciones", "sucursal", "referido",
+)
 
 
 def _auth() -> dict[str, str]:

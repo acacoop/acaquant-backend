@@ -29,21 +29,35 @@ from core.mongo import get_mongo_client
 
 DB = "Clientes"
 COL = "Comitentes"
-MANUAL_FIELDS = ("segmento", "sub_segmento", "sub_sub_segmento", "sucursal", "referido")
+MANUAL_FIELDS = (
+    "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5",
+    "primer_contacto_comercial", "riesgo_la_ft", "division",
+    "adc", "dma", "observaciones", "sucursal", "referido",
+)
 
-# Aliases de header → campo canónico (tolerante a mayúsculas/espacios/guiones).
+# Aliases de header → campo canónico (tolerante a mayúsculas/espacios/guiones/barras).
 _ALIASES = {
     "id_cuenta": "id_cuenta", "idcuenta": "id_cuenta", "cuenta": "id_cuenta", "id": "id_cuenta",
-    "segmento": "segmento",
-    "sub_segmento": "sub_segmento", "subsegmento": "sub_segmento",
-    "sub_sub_segmento": "sub_sub_segmento", "subsubsegmento": "sub_sub_segmento",
+    "nivel_1": "nivel_1", "nivel1": "nivel_1",
+    "nivel_2": "nivel_2", "nivel2": "nivel_2",
+    "nivel_3": "nivel_3", "nivel3": "nivel_3",
+    "nivel_4": "nivel_4", "nivel4": "nivel_4",
+    "nivel_5": "nivel_5", "nivel5": "nivel_5",
+    "primer_contacto_comercial": "primer_contacto_comercial",
+    "1er_contacto_comercial": "primer_contacto_comercial",
+    "contacto_comercial": "primer_contacto_comercial",
+    "riesgo_la_ft": "riesgo_la_ft", "riesgo_laft": "riesgo_la_ft", "riesgo": "riesgo_la_ft",
+    "division": "division",
+    "adc": "adc",
+    "dma": "dma",
+    "observaciones": "observaciones", "obs": "observaciones", "notas": "observaciones",
     "sucursal": "sucursal",
     "referido": "referido",
 }
 
 
 def _norm(h: str) -> str:
-    return (h or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return (h or "").strip().lower().replace("-", "_").replace(" ", "_").replace("/", "_")
 
 
 def main() -> None:

@@ -58,7 +58,9 @@ Mapeo desde `GET /api/cuentas/listadoCuentas`:
   "operador_nombre": "Justo Ramirez",
   "email": "...", "telefono": "...", "provincia": "...", "ciudad": "...",
   // ── Segmentación MANUAL (mesa, editable — el sync NO la pisa) ──
-  "segmento": null, "sub_segmento": null, "sub_sub_segmento": null,
+  "nivel_1": null, "nivel_2": null, "nivel_3": null, "nivel_4": null, "nivel_5": null,
+  "primer_contacto_comercial": null, "riesgo_la_ft": null, "division": null,
+  "adc": null, "dma": null, "observaciones": null,
   "sucursal": null, "referido": null,
   // ── meta ──
   "origen": "aunesa", "created_at": "...", "updated_at": "..."
@@ -136,7 +138,7 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
 
 - **`jobs/sync_comitentes.py`** (creado): trae comitentes de
   `listadoCuentas` → upsert en `Clientes.Comitentes` por `id_cuenta`.
-  Idempotente, pensado para cron 1×/día. Campos auto via `$set`; los 5
+  Idempotente, pensado para cron 1×/día. Campos auto via `$set`; los 13
   manuales via `$setOnInsert` (no se pisan). Filtra Comitente+Activa
   (`--include-all` para todos). `--dry-run` para probar sin escribir.
 - Campos auto (12): id_cuenta, denominacion, tipo_titular, tipo, estado,
@@ -173,8 +175,10 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
 - [x] **Campos auto** (12): id_cuenta, denominacion, tipo_titular, tipo,
   estado, clase, fecha_alta_legajo, tipo_cliente, perfil_inversion,
   operador_email, operador_nombre, provincia.
-- [x] **Campos de segmentación manual** (5): segmento, sub_segmento,
-  sub_sub_segmento, sucursal, referido.
+- [x] **Campos de segmentación manual** (13): nivel_1, nivel_2, nivel_3,
+  nivel_4, nivel_5, primer_contacto_comercial, riesgo_la_ft, division, adc,
+  dma, observaciones, sucursal, referido. (nivel_1..5 = árbol de segmentación;
+  reemplazan a los viejos segmento/sub_segmento/sub_sub_segmento.)
 - [x] **Filtro del sync**: Comitente + Activa (default; `--include-all` todo).
 - [x] **Operador**: campo en la cuenta (`operador_email`), viene en el response.
 - [ ] ¿Copia derivada `*API` para el frontend?
@@ -213,3 +217,10 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
   actualiza solo manuales, no crea cuentas). Pendiente: aplicar cron en el
   Droplet (`crontab deploy/crontab.txt`) y cargar el CSV de segmentación.
   Próximo: vista/tablero comercial.
+- **2026-05-22** — Revisión de campos manuales (de 5 a 13): segmento/
+  sub_segmento/sub_sub_segmento → nivel_1/2/3; +nivel_4, nivel_5,
+  primer_contacto_comercial, riesgo_la_ft, division, adc, dma, observaciones
+  (sucursal y referido quedan). Actualizados job + backfill. Como el master
+  ya estaba poblado (manuales en null), migrar docs existentes con `$rename`
+  + `$set null` (Mongo Shell, ver pasos). Backfill por CSV EN PAUSA hasta que
+  el usuario tenga el archivo.

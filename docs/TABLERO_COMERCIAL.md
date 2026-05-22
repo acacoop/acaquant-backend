@@ -57,8 +57,9 @@ Mapeo desde `GET /api/cuentas/listadoCuentas`:
   "operador_email": "justo.ramirez@acavalores.com.ar",  // → Manager.Users
   "operador_nombre": "Justo Ramirez",
   "email": "...", "telefono": "...", "provincia": "...", "ciudad": "...",
-  // ── Segmentación MANUAL (mesa, editable — el sync NO la pisa, patrón $ifNull) ──
-  "segmento": null,                         // TBD: el usuario define los campos
+  // ── Segmentación MANUAL (mesa, editable — el sync NO la pisa) ──
+  "segmento": null, "sub_segmento": null, "sub_sub_segmento": null,
+  "sucursal": null, "referido": null,
   // ── meta ──
   "origen": "aunesa", "created_at": "...", "updated_at": "..."
 }
@@ -131,12 +132,18 @@ ideal para el job diario: traer solo las altas del día).
 (domicilios, patrimonio, declaraciones PEP/UIF/FATCA, accionistas, grupos
 económicos). Sirve para enriquecer un cliente puntual, no para el listado.
 
-## [2] Master de clientes + alta automática
+## [2] Master de clientes + alta automática — ✅ job creado
 
-- Job (ej. `jobs/sync_comitentes.py`) que corre **1×/día** (cron, como
-  `descubrir_cuentas`): trae comitentes de Aunesa → upsert en
-  `Clientes.Comitentes` por `id_cuenta`. Cuentas nuevas se agregan solas;
-  las que desaparecen no se borran (quedan con `updated_at` viejo).
+- **`jobs/sync_comitentes.py`** (creado): trae comitentes de
+  `listadoCuentas` → upsert en `Clientes.Comitentes` por `id_cuenta`.
+  Idempotente, pensado para cron 1×/día. Campos auto via `$set`; los 5
+  manuales via `$setOnInsert` (no se pisan). Filtra Comitente+Activa
+  (`--include-all` para todos). `--dry-run` para probar sin escribir.
+- Campos auto (12): id_cuenta, denominacion, tipo_titular, tipo, estado,
+  clase, fecha_alta_legajo, tipo_cliente, perfil_inversion, operador_email,
+  operador_nombre, provincia.
+- Pendiente: validar con `--dry-run` en el Droplet → agregar línea al cron
+  (`deploy/crontab.txt`).
 
 ## [3] Segmentación
 
@@ -163,9 +170,12 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
 - [ ] Nombre definitivo DB + colección (propuesto: `Clientes.Comitentes`).
 - [x] **APIs Aunesa**: `GET /api/cuentas/listadoCuentas` (master) +
   `GET /api/personas/datosPersona` (enriquecimiento, fase posterior).
-- [ ] Campos de segmentación definitivos (candidatos ya vienen en el response:
-  `tipo`, `cartera`, `categoria`, `clase`, `tipoCliente`, `perfilInversion`,
-  `horizonteInversion`, `actividadEsperada`). El usuario confirma cuáles.
+- [x] **Campos auto** (12): id_cuenta, denominacion, tipo_titular, tipo,
+  estado, clase, fecha_alta_legajo, tipo_cliente, perfil_inversion,
+  operador_email, operador_nombre, provincia.
+- [x] **Campos de segmentación manual** (5): segmento, sub_segmento,
+  sub_sub_segmento, sucursal, referido.
+- [x] **Filtro del sync**: Comitente + Activa (default; `--include-all` todo).
 - [x] **Operador**: campo en la cuenta (`operador_email`), viene en el response.
 - [ ] ¿Copia derivada `*API` para el frontend?
 - [ ] Módulo RBAC del tablero + quién lo ve.
@@ -191,3 +201,8 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
   fecha es `fechaAltaLegajo` (no `fechaAlta`). Definido el mapeo del master.
   Pendiente del usuario: (1) campos de segmentación manual a agregar; (2) si
   el sync filtra Comitente+Activa o trae todo. Con eso, codear `jobs/sync_comitentes.py`.
+- **2026-05-22** — Usuario definió campos: 12 auto + 5 manuales (segmento,
+  sub_segmento, sub_sub_segmento, sucursal, referido). Creado
+  **`jobs/sync_comitentes.py`** (upsert idempotente, manuales preservados via
+  `$setOnInsert`, filtro Comitente+Activa, `--dry-run`/`--include-all`).
+  Pendiente: correr `--dry-run` en el Droplet, después agregar al cron.

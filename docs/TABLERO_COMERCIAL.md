@@ -155,8 +155,11 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
   `GET /clientes/values` (datalists), `PATCH /clientes` (edita los 13
   manuales por `id_cuenta`). Frontend `TabClientes` en `manager-view.tsx`.
 - Campos de Aunesa = read-only (contexto); se editan solo los 13 manuales.
-- Reemplaza al backfill por CSV como vía principal de carga (el CSV queda
-  como opción de carga masiva inicial si hace falta).
+- **Carga masiva por archivo** desde la misma tab: botón "Importar archivo"
+  (.csv/.xlsx, parse SheetJS client-side) → valida que las columnas sean
+  `id_cuenta` + campos manuales (mismo nombre que la base; columna no
+  reconocida = error) → `POST /clientes/bulk` rellena solo esas columnas.
+  Reemplaza al `scripts/backfill_*` (que queda como fallback CLI).
 
 ## [4] Operadores ↔ usuarios
 

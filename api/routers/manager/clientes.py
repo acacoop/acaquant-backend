@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from pymongo import UpdateOne
 
 from api.auth import get_user_email
 from core.mongo import get_mongo_client, get_mongo_client_read
@@ -154,3 +155,56 @@ def patch_cliente(
 
     doc = col.find_one({"id_cuenta": id_cuenta}, _PROJECTION) or {}
     return _normalize([doc])[0]
+
+
+class _BulkReq(BaseModel):
+    """Filas parseadas de un archivo (csv/xlsx) en el frontend. Cada row es
+    {id_cuenta, <campo_manual>: valor, ...}. Solo se aplican los campos
+    manuales reconocidos; el resto se ignora."""
+    rows: list[dict] = Field(..., max_length=20000)
+
+
+@router.post("/clientes/bulk")
+def bulk_clientes(req: _BulkReq, actor: str = Depends(get_user_email)):
+    """Carga masiva de campos manuales desde archivo. Update por id_cuenta de
+    SOLO los campos manuales presentes (no vacíos). No crea cuentas."""
+    now = datetime.now(UTC)
+    ops: list[UpdateOne] = []
+    ids: list[str] = []
+    sin_id = sin_campos = 0
+
+    for row in req.rows:
+        id_cuenta = str(row.get("id_cuenta") or "").strip()
+        if not id_cuenta:
+            sin_id += 1
+            continue
+        set_fields: dict = {}
+        for k, v in row.items():
+            if k in _EDITABLE_FIELDS:
+                val = ("" if v is None else str(v)).strip()
+                if val != "":
+                    set_fields[k] = val
+        if not set_fields:
+            sin_campos += 1
+            continue
+        set_fields["actualizado_por"] = actor
+        set_fields["actualizado_at"] = now
+        ops.append(UpdateOne({"id_cuenta": id_cuenta}, {"$set": set_fields}))
+        ids.append(id_cuenta)
+
+    if not ops:
+        raise HTTPException(400, "no hay filas válidas (falta id_cuenta o columnas con datos)")
+
+    col = get_mongo_client()[DB][COL]
+    res = col.bulk_write(ops, ordered=False)
+    existentes = set(col.distinct("id_cuenta", {"id_cuenta": {"$in": ids}}))
+    no_encontradas = sorted(set(ids) - existentes)
+    return {
+        "actualizadas":     res.modified_count,
+        "matched":          res.matched_count,
+        "filas_validas":    len(ops),
+        "sin_id":           sin_id,
+        "sin_campos":       sin_campos,
+        "n_no_encontradas": len(no_encontradas),
+        "no_encontradas":   no_encontradas[:50],
+    }

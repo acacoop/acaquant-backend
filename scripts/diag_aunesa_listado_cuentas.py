@@ -14,6 +14,7 @@ leen id/denominacion. Acá traemos el doc COMPLETO para ver:
 Uso:
     python -m scripts.diag_aunesa_listado_cuentas
     python -m scripts.diag_aunesa_listado_cuentas --tipo Comitente --samples 3
+    python -m scripts.diag_aunesa_listado_cuentas --cuenta 805   # campos exactos de una cuenta
 """
 from __future__ import annotations
 
@@ -66,15 +67,20 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tipo", default=None, help="tipoCuenta (ej. Comitente)")
     ap.add_argument("--estado", default=None, help="estado (alta/prealta/baja)")
+    ap.add_argument("--cuenta", action="append", default=None,
+                    help="idCuenta específica (repetible). Ej: --cuenta 805")
     ap.add_argument("--samples", type=int, default=2, help="docs completos a imprimir")
     args = ap.parse_args()
 
     headers = _auth()
-    params: dict[str, str] = {}
+    params: dict[str, object] = {}
     if args.tipo:
         params["tipoCuenta"] = args.tipo
     if args.estado:
         params["estado"] = args.estado
+    if args.cuenta:
+        # requests serializa la lista como idCuenta=805&idCuenta=... (formato del doc)
+        params["idCuenta"] = args.cuenta
 
     r = requests.get(LISTADO_URL, headers=headers, params=params, timeout=120)
     print(f"GET listadoCuentas {params} → HTTP {r.status_code}")
@@ -108,11 +114,19 @@ def main() -> None:
         print(f"   {n:>5}  {em}")
     print()
 
+    # Si pediste cuenta(s) puntual(es), dumpeamos TODO sin truncar (es el
+    # objetivo: ver los campos exactos). Si no, una muestra acotada.
     print("=" * 72)
-    print(f"MUESTRAS COMPLETAS (primeras {args.samples}):")
-    for d in data[: args.samples]:
-        print("-" * 72)
-        print(json.dumps(d, ensure_ascii=False, indent=2)[:3500])
+    if args.cuenta:
+        print(f"CAMPOS EXACTOS de cuenta(s) {args.cuenta}:")
+        for d in data:
+            print("-" * 72)
+            print(json.dumps(d, ensure_ascii=False, indent=2))
+    else:
+        print(f"MUESTRAS COMPLETAS (primeras {args.samples}):")
+        for d in data[: args.samples]:
+            print("-" * 72)
+            print(json.dumps(d, ensure_ascii=False, indent=2)[:3500])
 
 
 if __name__ == "__main__":

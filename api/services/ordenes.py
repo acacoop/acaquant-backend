@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -527,3 +528,248 @@ def search_symbols(q: str, limit: int = 20) -> list[dict[str, Any]]:
         }},
     ]
     return list(db["PyRofexInstruments"].aggregate(pipeline))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FCI — suscripción / rescate
+# ─────────────────────────────────────────────────────────────────────────────
+# Universo y flujo SEPARADOS de los assets (send_order) para no romper nada.
+# Los FCI (cficode "CIO…") se operan como LIMIT al precio de la cuota del día.
+# Dato no obvio: el precio operable NO es el `last`, es la banda del día
+# (lowLimitPrice == highLimitPrice == cuota oficial). El `last` es indicativo
+# y suele diferir → mandar al last rebota fuera de banda. La orden va SIEMPRE
+# por cantidad de cuotapartes (fraccionarias, según instrumentSizePrecision).
+
+_FCI_CFI_PREFIX = "CIO"
+_FCI_TTL_S = 300.0
+# Cache process-wide del universo FCI. La cuota/banda cambia ~diario, así que
+# 5 min es de sobra y evita traer los ~8600 instruments en cada request.
+_fci_cache: dict[str, Any] = {"ts": 0.0, "by_ticker": {}}
+
+
+def _fci_sym(inst: dict) -> str | None:
+    sym = inst.get("symbol")
+    if isinstance(sym, str) and sym:
+        return sym
+    iid = inst.get("instrumentId") or {}
+    s = iid.get("symbol")
+    return s if isinstance(s, str) and s else None
+
+
+def _fci_universe() -> dict[str, dict[str, Any]]:
+    """Universo de FCI (cficode CIO…) cacheado desde get_detailed_instruments.
+
+    Fuente de verdad del precio operable: lowLimitPrice == highLimitPrice ==
+    cuota del día. No depende de Mongo ni de discovery → siempre fresco.
+    """
+    now = time.time()
+    cached = _fci_cache["by_ticker"]
+    if cached and (now - _fci_cache["ts"]) < _FCI_TTL_S:
+        return cached
+    _ensure_session()
+    res = pyRofex.get_detailed_instruments()
+    by: dict[str, dict[str, Any]] = {}
+    if res and res.get("status") == "OK":
+        for inst in res.get("instruments") or []:
+            if not (inst.get("cficode") or "").startswith(_FCI_CFI_PREFIX):
+                continue
+            sym = _fci_sym(inst)
+            if not sym:
+                continue
+            by[sym] = {
+                "ticker": sym,
+                "underlying": inst.get("underlying"),
+                "currency": inst.get("currency"),
+                "size_precision": inst.get("instrumentSizePrecision"),
+                "settl_type": inst.get("settlType"),
+                "low_limit": inst.get("lowLimitPrice"),
+                "high_limit": inst.get("highLimitPrice"),
+                "min_trade_vol": inst.get("minTradeVol"),
+            }
+    if by:
+        _fci_cache["by_ticker"] = by
+        _fci_cache["ts"] = now
+    return by
+
+
+def _fci_cuota(ticker: str, meta: dict[str, Any]) -> float | None:
+    """Precio operable del FCI = banda (low==high). Fallback a market data
+    LAST/CLOSE si la banda viene vacía (raro)."""
+    for k in ("low_limit", "high_limit"):
+        v = meta.get(k)
+        if v:
+            return float(v)
+    try:
+        md = pyRofex.get_market_data(
+            ticker,
+            entries=[pyRofex.MarketDataEntry.LAST, pyRofex.MarketDataEntry.CLOSING_PRICE],
+        )
+        data = (md or {}).get("marketData", {}) or {}
+        la = data.get("LA") or {}
+        if la.get("price"):
+            return float(la["price"])
+        cl = data.get("CL")
+        if isinstance(cl, dict) and cl.get("price"):
+            return float(cl["price"])
+        if isinstance(cl, (int, float)) and cl:
+            return float(cl)
+    except Exception as e:
+        logger.warning("FCI cuota market-data fallback falló (%s): %s", ticker, e)
+    return None
+
+
+def _settl_label(settl_type) -> str:
+    return {1: "T+0", 2: "T+1", 3: "T+2",
+            "1": "T+0", "2": "T+1", "3": "T+2"}.get(settl_type, f"settl {settl_type}")
+
+
+def search_fci(q: str, limit: int = 30) -> list[dict[str, Any]]:
+    """Busca FCI (cficode CIO…) por substring de ticker o underlying.
+
+    Universo OPUESTO a search_symbols (que excluye CIO). Lee el universo live
+    cacheado — no toca el flujo de assets.
+    """
+    if not q or len(q.strip()) < 2:
+        return []
+    ql = q.strip().lower()
+    out: list[dict[str, Any]] = []
+    for meta in _fci_universe().values():
+        tk = meta.get("ticker") or ""
+        und = meta.get("underlying") or ""
+        if ql in tk.lower() or ql in und.lower():
+            out.append({
+                "ticker": tk,
+                "underlying": meta.get("underlying"),
+                "currency": meta.get("currency"),
+                "settl_type": meta.get("settl_type"),
+                "plazo": _settl_label(meta.get("settl_type")),
+            })
+            if len(out) >= limit:
+                break
+    out.sort(key=lambda d: d["ticker"])
+    return out
+
+
+def get_fci_quote(ticker: str) -> dict[str, Any]:
+    """Cuota + metadata operable de un FCI — alimenta la conversión
+    importe ↔ cuotapartes en la UI."""
+    meta = _fci_universe().get(ticker)
+    if not meta:
+        raise ValueError(f"FCI no encontrado: {ticker!r}")
+    cuota = _fci_cuota(ticker, meta)
+    return {
+        "ticker": ticker,
+        "underlying": meta.get("underlying"),
+        "currency": meta.get("currency"),
+        "cuota": cuota,
+        "size_precision": meta.get("size_precision"),
+        "min_trade_vol": meta.get("min_trade_vol"),
+        "settl_type": meta.get("settl_type"),
+        "plazo": _settl_label(meta.get("settl_type")),
+    }
+
+
+def send_fci_order(
+    *,
+    ticker: str,
+    side: str,
+    amount: float,
+    amount_mode: str = "cuotapartes",
+    account: str | None = None,
+    actor_email: str | None = None,
+) -> dict[str, Any]:
+    """Suscripción (BUY) / rescate (SELL) de un FCI.
+
+    La orden va SIEMPRE por cantidad de cuotapartes, como LIMIT al precio de
+    la cuota del día (banda low==high). Si `amount_mode='importe'`, convierte
+    importe → cuotapartes con la cuota live (autoritativa, server-side).
+    """
+    s = (side or "").strip().upper()
+    if s not in ("BUY", "SELL"):
+        raise ValueError("side debe ser BUY (suscripción) o SELL (rescate)")
+    if amount is None or amount <= 0:
+        raise ValueError("amount debe ser > 0")
+    mode = (amount_mode or "cuotapartes").strip().lower()
+    if mode not in ("cuotapartes", "importe"):
+        raise ValueError("amount_mode debe ser 'cuotapartes' o 'importe'")
+
+    meta = _fci_universe().get(ticker)
+    if not meta:
+        raise ValueError(f"FCI no encontrado: {ticker!r}")
+    cuota = _fci_cuota(ticker, meta)
+    if not cuota or cuota <= 0:
+        raise ValueError(f"Sin cuota operable para {ticker} (¿mercado cerrado?)")
+
+    sp = meta.get("size_precision")
+    ndig = int(sp) if isinstance(sp, (int, float)) else 4
+    cuotapartes = round(amount / cuota, ndig) if mode == "importe" else round(amount, ndig)
+    if cuotapartes <= 0:
+        raise ValueError("la cantidad de cuotapartes resultó 0 — subí el importe")
+
+    _ensure_session()
+    acc = account or cuenta_default()
+    op = "SUSCRIPCION" if s == "BUY" else "RESCATE"
+    request_payload = {
+        "ticker": ticker, "side": s, "op": op, "kind": "FCI",
+        "amount": amount, "amount_mode": mode,
+        "cuota": cuota, "cuotapartes": cuotapartes, "account": acc,
+    }
+    _audit("FCI_SEND_REQUEST", account=acc, actor_email=actor_email, payload=request_payload)
+
+    try:
+        resp = pyRofex.send_order(
+            ticker=ticker,
+            side=_side_enum(s),
+            size=cuotapartes,
+            price=cuota,
+            order_type=pyRofex.OrderType.LIMIT,
+            time_in_force=_tif_enum("DAY"),
+            account=acc,
+            cancel_previous=False,
+        )
+    except Exception as e:
+        logger.error("send_fci_order falló: %s", e, exc_info=True)
+        _audit("FCI_SEND_ERROR", account=acc, actor_email=actor_email,
+               payload={"request": request_payload, "exception": str(e)})
+        return {"ok": False, "cl_ord_id": None, "status": "REJECTED_LOCAL", "error": str(e)}
+
+    if not resp or resp.get("status") != "OK":
+        _audit("FCI_SEND_ERROR", account=acc, actor_email=actor_email,
+               payload={"request": request_payload, "response": resp})
+        return {"ok": False, "cl_ord_id": None, "status": "REJECTED_BROKER",
+                "error": (resp or {}).get("description", "broker rechazó la orden"),
+                "broker_response": resp}
+
+    order_blk = resp.get("order") or {}
+    cl_ord_id = order_blk.get("clientId") or order_blk.get("clOrdId")
+    proprietary = order_blk.get("proprietary")
+    if not cl_ord_id:
+        _audit("FCI_SEND_ERROR", account=acc, actor_email=actor_email,
+               payload={"request": request_payload, "response": resp, "note": "OK sin clientId"})
+        return {"ok": False, "cl_ord_id": None, "status": "REJECTED_BROKER",
+                "error": "broker no devolvió clientId", "broker_response": resp}
+
+    now = datetime.now(UTC)
+    db = get_mongo_client()[DB_NAME]
+    db[COL_LIVE].update_one(
+        {"cl_ord_id": cl_ord_id},
+        {
+            "$set": {
+                "account": acc, "ticker": ticker, "side": s,
+                "order_type": "LIMIT", "tif": "DAY",
+                "size": cuotapartes, "price": cuota,
+                "kind": "FCI", "op": op,
+                "proprietary": proprietary, "actor_email": actor_email, "updated_at": now,
+            },
+            "$setOnInsert": {
+                "cl_ord_id": cl_ord_id, "status": "PENDING_NEW",
+                "created_at": now, "cum_qty": 0, "leaves_qty": cuotapartes,
+            },
+        },
+        upsert=True,
+    )
+    _audit("FCI_SEND_OK", cl_ord_id=cl_ord_id, account=acc, actor_email=actor_email,
+           payload={"request": request_payload, "response": resp})
+    return {"ok": True, "cl_ord_id": cl_ord_id, "status": "PENDING_NEW",
+            "op": op, "cuotapartes": cuotapartes, "cuota": cuota,
+            "proprietary": proprietary, "broker_response": resp}

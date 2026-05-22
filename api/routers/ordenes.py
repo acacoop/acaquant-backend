@@ -25,9 +25,12 @@ from pydantic import BaseModel, Field
 from api.auth import get_user_email
 from api.services.ordenes import (
     cancel_order,
+    get_fci_quote,
     get_order_status,
     list_orders_dia,
+    search_fci,
     search_symbols,
+    send_fci_order,
     send_order,
 )
 
@@ -116,6 +119,61 @@ def buscar_symbols(
     `limit` instruments que matcheen `q` en ticker o underlying. Excluye
     FCI (no operables vía pyRofex)."""
     return search_symbols(q, limit=limit)
+
+
+# ─── FCI: suscripción / rescate (flujo separado de assets) ───────────────────
+
+class FciOrdenIn(BaseModel):
+    ticker: str = Field(..., description="Ticker del FCI (cficode CIO…)")
+    side: Literal["BUY", "SELL"] = Field(..., description="BUY=suscripción, SELL=rescate")
+    amount: float = Field(..., gt=0, description="Importe o cuotapartes según amount_mode")
+    amount_mode: Literal["cuotapartes", "importe"] = "cuotapartes"
+    account: str | None = Field(None, description="Si None, usa la del .env")
+
+
+@router.get("/fci/search")
+def buscar_fci(
+    q: str = Query(..., min_length=2, description="Substring de ticker o underlying del FCI"),
+    limit: int = Query(30, ge=1, le=50),
+    _email: str = Depends(get_user_email),
+) -> list[dict]:
+    """Buscador de FCI (solo cficode CIO…) — universo opuesto a /symbols."""
+    return search_fci(q, limit=limit)
+
+
+@router.get("/fci/quote")
+def cotizar_fci(
+    ticker: str = Query(..., description="Ticker del FCI"),
+    _email: str = Depends(get_user_email),
+) -> dict[str, Any]:
+    """Cuota + metadata operable de un FCI (conversión importe↔cuotapartes)."""
+    try:
+        return get_fci_quote(ticker)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post("/fci", status_code=201)
+def enviar_fci(
+    data: FciOrdenIn,
+    email: str = Depends(get_user_email),
+) -> dict[str, Any]:
+    """Suscripción (BUY) / rescate (SELL) de un FCI. Orden LIMIT @ cuota del
+    día, cantidad en cuotapartes (convertida desde importe si corresponde)."""
+    try:
+        return send_fci_order(
+            ticker=data.ticker,
+            side=data.side,
+            amount=data.amount,
+            amount_mode=data.amount_mode,
+            account=data.account,
+            actor_email=email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("send_fci_order failed (email=%s ticker=%s)", email, data.ticker)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/{cl_ord_id}")

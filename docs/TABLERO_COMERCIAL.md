@@ -38,28 +38,38 @@ de **cuentas comitentes** con campos propios de segmentación.
 - Database y colección **propias** (no metemos esto en Valuaciones/Manager).
 - Los campos de segmentación los **define el usuario** (TBD — ver abajo).
 
-## Modelo de datos (propuesto — TBD confirmar nombres)
+## Modelo de datos (confirmado con cuenta 805 — TBD nombres finales)
 
-**DB nueva: `Clientes`** · colección master: **`Clientes.Comitentes`**
+**DB nueva: `Clientes`** · colección master: **`Clientes.Comitentes`**.
+Mapeo desde `GET /api/cuentas/listadoCuentas`:
 
 ```jsonc
 {
-  "id_cuenta": "1114",            // clave, mismo formato que AuM/movimientos
-  "nombre": "…",                  // razón social / titular
-  // ── Segmentación (campos propios, los define el usuario) ──
-  "segmento": "…",                // TBD
-  "operador": "…",                // TBD — ver Operadores
-  // … más campos categóricos a definir (análogo a emisor/vto en Assets)
-  "activo": true,
-  "origen": "aunesa",
-  "created_at": "…",
-  "updated_at": "…"
+  "id_cuenta": "805",                       // = response.id
+  // ── Aunesa (auto, lo refresca el job; NO editar a mano) ──
+  "denominacion": "MOLLO NICOLAS EZEQUIEL",
+  "titular": "[DNI 93698623] MOLLO, NICOLAS EZEQUIEL",
+  "tipo_titular": "Físico", "tipo": "Comitente", "estado": "Activa",
+  "clase": "DMA", "cartera": null, "categoria": null,
+  "fecha_alta_legajo": "2023-12-26",        // de fechaAltaLegajo (¡no fechaAlta!)
+  "tipo_cliente": "Persona", "perfil_inversion": "Moderado",
+  "horizonte_inversion": "Entre uno y tres años",
+  "operador_email": "justo.ramirez@acavalores.com.ar",  // → Manager.Users
+  "operador_nombre": "Justo Ramirez",
+  "email": "...", "telefono": "...", "provincia": "...", "ciudad": "...",
+  // ── Segmentación MANUAL (mesa, editable — el sync NO la pisa, patrón $ifNull) ──
+  "segmento": null,                         // TBD: el usuario define los campos
+  // ── meta ──
+  "origen": "aunesa", "created_at": "...", "updated_at": "..."
 }
 ```
 
-- **Idempotente por `id_cuenta`** (upsert), igual que `descubrir_cuentas`.
-- Si más adelante el frontend la consume con RBAC, evaluar copia derivada
-  `*API.*API` (patrón `jobs/sync_api_copies.py`, como `CuentasAPI`).
+- **Idempotente por `id_cuenta`** (upsert). El sync solo `$set` los campos de
+  Aunesa; los de segmentación manual se preservan (igual que
+  `aum.py::_sincronizar_assets` con `$ifNull`).
+- `estado` real = `"Activa"` (confirmado; el doc decía alta/prealta/baja).
+- Si el frontend la consume con RBAC, evaluar copia derivada `*API.*API`
+  (patrón `jobs/sync_api_copies.py`).
 
 ## Piezas existentes que reusamos (no reinventar)
 
@@ -176,3 +186,8 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
   read-only `scripts/diag_aunesa_listado_cuentas.py`. Pendiente: correr el
   diag en el Droplet y, con el shape confirmado, definir campos de
   segmentación + codear el job de poblado de `Clientes.Comitentes`.
+- **2026-05-22** — Test con cuenta 805 (`--cuenta 805`): shape confirmado.
+  `estado="Activa"`, `operador.email` poblado (@acavalores.com.ar), campo
+  fecha es `fechaAltaLegajo` (no `fechaAlta`). Definido el mapeo del master.
+  Pendiente del usuario: (1) campos de segmentación manual a agregar; (2) si
+  el sync filtra Comitente+Activa o trae todo. Con eso, codear `jobs/sync_comitentes.py`.

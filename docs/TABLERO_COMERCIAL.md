@@ -206,3 +206,10 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
   **`jobs/sync_comitentes.py`** (upsert idempotente, manuales preservados via
   `$setOnInsert`, filtro Comitente+Activa, `--dry-run`/`--include-all`).
   Pendiente: correr `--dry-run` en el Droplet, después agregar al cron.
+- **2026-05-22** — Job validado en prod (poblado OK). Agregadas 3 corridas
+  diarias al cron (`deploy/crontab.txt`): 14/17/21 UTC = 11/14/18 ART, L-V.
+  Creado `scripts/backfill_comitentes_segmentacion.py` para cargar los campos
+  manuales (segmento/…) en bloque desde un CSV (`id_cuenta` + columnas;
+  actualiza solo manuales, no crea cuentas). Pendiente: aplicar cron en el
+  Droplet (`crontab deploy/crontab.txt`) y cargar el CSV de segmentación.
+  Próximo: vista/tablero comercial.

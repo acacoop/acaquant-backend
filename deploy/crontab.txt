@@ -176,3 +176,12 @@
 
 # ─── Market anchors (retornos 7d/MTD/YTD/1Y) — 1x/día post-cierre US (22:00 UTC = 19:00 ART, L-V)
 0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_anchors >> /root/TradingAV/logs/market_anchors.log 2>&1
+
+# ─── Sync comitentes (master de clientes — Tablero Comercial) — 3x/día L-V
+# 14:00 UTC = 11:00 ART · 17:00 UTC = 14:00 ART · 21:00 UTC = 18:00 ART.
+# Trae Comitente+Activa de Aunesa listadoCuentas → upsert Clientes.Comitentes.
+# Idempotente: cuentas nuevas se agregan solas; los campos de segmentación
+# manual (segmento, sub_segmento, sub_sub_segmento, sucursal, referido) NO se pisan.
+0 14 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes >> /root/TradingAV/logs/sync_comitentes.log 2>&1
+0 17 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes >> /root/TradingAV/logs/sync_comitentes.log 2>&1
+0 21 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes >> /root/TradingAV/logs/sync_comitentes.log 2>&1

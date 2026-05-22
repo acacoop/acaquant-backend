@@ -73,13 +73,53 @@ de **cuentas comitentes** con campos propios de segmentación.
 | Operadores = usuarios | usuarios + roles de la página | `Manager.Users`, `core/roles.py` |
 | Copia derivada para frontend | sync de colecciones `*API` | `jobs/sync_api_copies.py` |
 
-## [1] Integración Aunesa (arrancamos por acá)
+## [1] Integración Aunesa — endpoint identificado: `GET /api/cuentas/listadoCuentas`
 
-- El usuario pasa las **nuevas APIs de Aunesa** (endpoints de cuentas
-  comitentes / altas). Las sumamos como métodos en `AunesaApiManager`
-  (`jobs/aunesa_client.py`) — ya tiene el patrón de auth con token.
-- Primero un **script de prueba** (`scripts/diag_aunesa_comitentes.py`,
-  read-only) para ver el shape real de la respuesta antes de codear el job.
+**Ya está integrado a nivel HTTP**: `jobs/aum.py::obtener_cuentas` llama a
+`https://aca.aunesa.com/Irmo/api/cuentas/listadoCuentas` (auth Bearer con
+`config.AUNESA_*`). El AuM solo usa `id`/`denominacion` y filtra activas,
+pero el endpoint **devuelve el doc completo** de cada cuenta.
+
+> Descartado `POST /api/cuentas` (apertura/alta de cuentas) — es escritura,
+> no sirve para poblar el master. El que usamos es el **GET listadoCuentas**.
+
+**Params (todos opcionales)**: `idCuenta` (repetible), `tipoCuenta`
+(Comitente/Agente…), `estado`, `fechaDesde`/`fechaHasta` (alta de legajo →
+ideal para el job diario: traer solo las altas del día).
+
+**Response (campos relevantes para el master):**
+
+```jsonc
+{
+  "id": "1114",                 // → id_cuenta (clave master)
+  "tipo": "...", "cartera": "...", "categoria": "...", "clase": "...",
+  "tipoTitular": "...", "estado": "...", "fechaAlta": "...",
+  "denominacion": "...", "alias": "...", "titular": "...", "nota": "...",
+  "disposicionesGenerales": {   // ← campos de segmentación listos
+    "tipoCliente": "...", "perfilInversion": "...",
+    "horizonteInversion": "...", "actividadEsperada": "...", ...
+  },
+  "domicilios": [...], "personasRelacionadas": [...],
+  "mediosComunicacion": [...], "cuentasBancarias": [...],
+  "administrador": {
+    "agente":   { "codigo", "denominacion", "email" },
+    "operador": { "nombre", "nombreReal", "idExterno", "email" }, // ← OPERADOR
+    "sucursal": { "codigo", "denominacion" }
+  }
+}
+```
+
+- **El operador viene en el mismo endpoint** (`administrador.operador.email`)
+  → resuelve gran parte de la Fase 4 sin un endpoint extra. El `email`
+  matchea contra `Manager.Users`.
+- Test read-only: `scripts/diag_aunesa_listado_cuentas.py` (no escribe nada)
+  para confirmar valores reales de `tipo`/`estado` y que `operador` viene
+  poblado, antes de codear el job.
+
+**Endpoint complementario** (para después, no v1): `GET
+/api/personas/datosPersona?tipoId=&id=` → KYC detallado de una persona
+(domicilios, patrimonio, declaraciones PEP/UIF/FATCA, accionistas, grupos
+económicos). Sirve para enriquecer un cliente puntual, no para el listado.
 
 ## [2] Master de clientes + alta automática
 
@@ -96,10 +136,11 @@ de **cuentas comitentes** con campos propios de segmentación.
 
 ## [4] Operadores ↔ usuarios
 
-- Cada cuenta tiene un **operador**. El operador es un **usuario de la página**
-  (`Manager.Users`). Definir: ¿el operador se guarda como campo en la cuenta
-  (`operador` = email/id del user) o en una colección de relación aparte?
-- Esto habilita filtrar el tablero por operador (cada uno ve su cartera).
+- **El operador ya viene en `listadoCuentas`** (`administrador.operador` con
+  `email`). Lo guardamos como campo en el doc de la cuenta (`operador_email`,
+  `operador_nombre`) — no hace falta colección de relación aparte.
+- El `operador.email` matchea contra `Manager.Users.email` → cada operador
+  (usuario de la página) ve su cartera filtrando por ese campo.
 
 ## [5] Tablero de control comercial (vista) — ÚLTIMO
 
@@ -110,15 +151,28 @@ de **cuentas comitentes** con campos propios de segmentación.
 ## Decisiones abiertas (las vamos cerrando)
 
 - [ ] Nombre definitivo DB + colección (propuesto: `Clientes.Comitentes`).
-- [ ] APIs Aunesa concretas (las pasa el usuario).
-- [ ] Campos de segmentación (los define el usuario).
-- [ ] Operador: campo en la cuenta vs colección de relación.
+- [x] **APIs Aunesa**: `GET /api/cuentas/listadoCuentas` (master) +
+  `GET /api/personas/datosPersona` (enriquecimiento, fase posterior).
+- [ ] Campos de segmentación definitivos (candidatos ya vienen en el response:
+  `tipo`, `cartera`, `categoria`, `clase`, `tipoCliente`, `perfilInversion`,
+  `horizonteInversion`, `actividadEsperada`). El usuario confirma cuáles.
+- [x] **Operador**: campo en la cuenta (`operador_email`), viene en el response.
 - [ ] ¿Copia derivada `*API` para el frontend?
 - [ ] Módulo RBAC del tablero + quién lo ve.
 - [ ] Métricas/columnas del tablero comercial.
+- [ ] Confirmar valores reales de `estado` (doc: alta/prealta/baja; aum.py
+  filtra `"Activa"`) → lo resuelve el diag.
 
 ## LOG DE AVANCES
 
 - **2026-05-22** — Creado este documento. Definida la arquitectura (cadena de
   dependencias, patrón Assets para clientes, piezas a reusar). Pendiente: el
   usuario pasa las APIs de Aunesa para arrancar por la integración [1].
+- **2026-05-22** — Analizadas 3 APIs Aunesa (docs/*.pdf): descartado
+  `POST /api/cuentas` (apertura, escritura). Confirmado **`GET
+  /api/cuentas/listadoCuentas`** como fuente del master — ya integrado a
+  nivel HTTP en `jobs/aum.py`. El response trae `id`, campos de segmentación
+  y `administrador.operador.email` (resuelve operadores). Creado test
+  read-only `scripts/diag_aunesa_listado_cuentas.py`. Pendiente: correr el
+  diag en el Droplet y, con el shape confirmado, definir campos de
+  segmentación + codear el job de poblado de `Clientes.Comitentes`.

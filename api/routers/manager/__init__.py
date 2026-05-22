@@ -24,6 +24,7 @@ from api.routers.manager import (
     assets,
     aunesa,
     checks,
+    clientes,
     grupos,
     jobs,
     logs,
@@ -47,4 +48,5 @@ router.include_router(roles.router)
 router.include_router(grupos.router)
 router.include_router(aunesa.router)
 router.include_router(assets.router)
+router.include_router(clientes.router)
 router.include_router(valuaciones.router)

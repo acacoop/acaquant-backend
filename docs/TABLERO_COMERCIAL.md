@@ -147,11 +147,16 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
 - Pendiente: validar con `--dry-run` en el Droplet → agregar línea al cron
   (`deploy/crontab.txt`).
 
-## [3] Segmentación
+## [3] Segmentación — ✅ editor en Manager → CLIENTES
 
-- Campos categóricos propios (los define el usuario), editables — análogo a
-  cómo se editan los Assets desde `/manager`. Definir si la segmentación es
-  manual (editás el campo) o por reglas (como `segmento_contrapartes`).
+- **Editor in-place tipo Assets**: tab **CLIENTES** en `/manager` (admin).
+  Backend `api/routers/manager/clientes.py` (espejo de `assets.py`):
+  `GET /clientes` (filtrable por operador/nivel_1/campo_vacio/q),
+  `GET /clientes/values` (datalists), `PATCH /clientes` (edita los 13
+  manuales por `id_cuenta`). Frontend `TabClientes` en `manager-view.tsx`.
+- Campos de Aunesa = read-only (contexto); se editan solo los 13 manuales.
+- Reemplaza al backfill por CSV como vía principal de carga (el CSV queda
+  como opción de carga masiva inicial si hace falta).
 
 ## [4] Operadores ↔ usuarios
 
@@ -217,6 +222,12 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
   actualiza solo manuales, no crea cuentas). Pendiente: aplicar cron en el
   Droplet (`crontab deploy/crontab.txt`) y cargar el CSV de segmentación.
   Próximo: vista/tablero comercial.
+- **2026-05-22** — Migración aplicada en prod (1770 cuentas → nivel_1..5 +
+  nuevos en null). Creado **editor CLIENTES en Manager** (espejo de Assets):
+  `api/routers/manager/clientes.py` + `TabClientes` en manager-view.tsx →
+  editar los 13 manuales por pantalla (datalists, filtro por operador/nivel_1,
+  búsqueda). Es la vía principal de carga de segmentación; el CSV queda como
+  opción de carga masiva. Pendiente: aplicar cron + (después) tablero comercial.
 - **2026-05-22** — Revisión de campos manuales (de 5 a 13): segmento/
   sub_segmento/sub_sub_segmento → nivel_1/2/3; +nivel_4, nivel_5,
   primer_contacto_comercial, riesgo_la_ft, division, adc, dma, observaciones

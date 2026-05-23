@@ -142,6 +142,49 @@ def send_order(
     tif: str | None = "DAY",
     account: str | None = None,
     actor_email: str | None = None,
+    client_order_id: str | None = None,
+) -> dict[str, Any]:
+    """Envía una orden con idempotencia opcional.
+
+    Si `client_order_id` viene seteado, deduplica: un reenvío con la MISMA
+    clave NO manda otra orden — devuelve el resultado del primer envío
+    (anti doble-click / reintento). Una orden distinta lleva otra clave, así
+    que nunca se bloquea una orden real. Sin `client_order_id` → llama al
+    impl directo, comportamiento IDÉNTICO al de siempre (retrocompatible).
+    """
+    if not client_order_id:
+        return _send_order_impl(
+            ticker=ticker, side=side, size=size, order_type=order_type,
+            price=price, tif=tif, account=account, actor_email=actor_email,
+        )
+
+    from api.services import _idempotencia as idem
+
+    if not idem.reservar(client_order_id):
+        # Clave ya vista → duplicado: devolvemos el resultado del 1er envío.
+        return idem.esperar_resultado(client_order_id)
+    try:
+        result = _send_order_impl(
+            ticker=ticker, side=side, size=size, order_type=order_type,
+            price=price, tif=tif, account=account, actor_email=actor_email,
+        )
+    except Exception as e:
+        idem.guardar_error(client_order_id, str(e))
+        raise
+    idem.guardar_resultado(client_order_id, result)
+    return result
+
+
+def _send_order_impl(
+    *,
+    ticker: str,
+    side: str,
+    size: int,
+    order_type: str = "LIMIT",
+    price: float | None = None,
+    tif: str | None = "DAY",
+    account: str | None = None,
+    actor_email: str | None = None,
 ) -> dict[str, Any]:
     """Envía una orden via REST y persiste el request + respuesta.
 

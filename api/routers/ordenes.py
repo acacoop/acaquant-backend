@@ -50,6 +50,11 @@ class OrdenIn(BaseModel):
     price: float | None = Field(None, description="Requerido si order_type=LIMIT")
     tif: Literal["DAY", "IOC", "FOK", "GTC"] = "DAY"
     account: str | None = Field(None, description="Si None, usa la del .env")
+    client_order_id: str | None = Field(
+        None,
+        description="Clave de idempotencia opcional — un reenvío con la misma "
+        "clave no genera otra orden. Si se omite, comportamiento de siempre.",
+    )
 
 
 @router.post("", status_code=201)
@@ -75,6 +80,7 @@ def enviar(
             tif=data.tif,
             account=data.account,
             actor_email=email,
+            client_order_id=data.client_order_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

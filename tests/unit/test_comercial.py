@@ -1,0 +1,29 @@
+"""Tests del estado comercial (api/services/comercial.py).
+
+Congela el semáforo de actividad: NUEVA / ACTIVA / ENFRIANDOSE / DORMIDA
+según días sin operar (umbrales 30/90 por default).
+"""
+from __future__ import annotations
+
+from api.services.comercial import estado_comercial
+
+
+def test_nunca_opero_es_nueva():
+    assert estado_comercial(None, opero_alguna_vez=False, dias_activa=30, dias_dormida=90) == "NUEVA"
+
+
+def test_opero_pero_fuera_de_ventana_es_dormida():
+    # dias=None (no está en la ventana reciente) + operó alguna vez → DORMIDA.
+    assert estado_comercial(None, opero_alguna_vez=True, dias_activa=30, dias_dormida=90) == "DORMIDA"
+
+
+def test_opero_reciente_es_activa():
+    assert estado_comercial(10, opero_alguna_vez=True, dias_activa=30, dias_dormida=90) == "ACTIVA"
+
+
+def test_borde_activa_inclusive():
+    assert estado_comercial(30, opero_alguna_vez=True, dias_activa=30, dias_dormida=90) == "ACTIVA"
+
+
+def test_entre_umbrales_es_enfriandose():
+    assert estado_comercial(60, opero_alguna_vez=True, dias_activa=30, dias_dormida=90) == "ENFRIANDOSE"

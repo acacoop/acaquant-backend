@@ -38,3 +38,11 @@ def get_db_cashflow():
     return get_mongo_client_read()["CashFlow"]
 
 
+def get_db_clientes():
+    return get_mongo_client_read()["Clientes"]
+
+
+def get_db_manager():
+    return get_mongo_client_read()["Manager"]
+
+

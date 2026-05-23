@@ -325,3 +325,12 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   `Clientes.ComercialCache`, módulo RBAC `comercial`, scope por operador.
   Pendiente del usuario: cerrar decisiones abiertas + elegir MVP (lente operador
   vs tabla clientes).
+- **2026-05-23** — MVP construido (lente por OPERADOR, umbrales 30/90, decididos
+  por el user). Backend: `api/services/comercial.py::resumen_por_operador` (cruce
+  Comitentes × NegocioMovimientos × AuM × Users, on-the-fly cacheado TTL 300) +
+  `GET /api/manager/comercial/operadores` (gate _MANAGER) + getters
+  `get_db_clientes`/`get_db_manager`. Frontend: tab **COMERCIAL** en Manager
+  (`comercial-panel.tsx`) con KPIs + tabla por operador (activas/dormidas/AuM/
+  flag huérfana). Test del estado comercial. v1 = solo manager (admin); on-the-fly
+  (no precompute todavía). Pendiente: restart api.service en el Droplet; validar
+  números reales; después evaluar precompute si pesa + lente por cliente + ficha.

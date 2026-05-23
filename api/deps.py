@@ -24,6 +24,10 @@ def verify_api_key(authorization: str | None = Header(default=None)) -> None:
     Si API_KEY no está configurada en .env, deja pasar todo (modo dev) —
     el header es opcional en ese caso. Si API_KEY está seteada, el header
     es obligatorio y debe matchear.
+
+    Nota (EXT-AUTH1): en prod este "deja pasar todo" no se alcanza — el
+    boot aborta si `ENV=prod` y falta `API_KEY` (ver
+    `api.main._validar_postura_auth`). El fail-open queda solo para dev.
     """
     if not API_KEY:
         return

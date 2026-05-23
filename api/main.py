@@ -46,10 +46,52 @@ from api.routers import (
     titulos,
     valuaciones,
 )
-from config import MCP_BEARER_TOKEN, MCP_JWT_SECRET
+from config import (
+    API_KEY,
+    CF_ACCESS_AUD,
+    CF_ACCESS_TEAM,
+    ENV,
+    MCP_BEARER_TOKEN,
+    MCP_JWT_SECRET,
+)
 from core.mongo import get_mongo_client, get_mongo_client_read
 
 logger = logging.getLogger("api")
+
+
+def _validar_postura_auth() -> None:
+    """Chequea la config de auth al boot (EXT-AUTH1).
+
+    Fail-closed en prod: si `ENV=prod` y falta `API_KEY`, abortamos el
+    arranque — preferimos una caída ruidosa (systemd `failed`, 502 visible)
+    a que la API quede abierta sin bearer en silencio. En dev solo logueamos
+    un warning. Siempre dejamos un log con las capas de auth activas para
+    poder auditar la postura sin tener que adivinar.
+    """
+    capas = []
+    if API_KEY:
+        capas.append("API_KEY")
+    if CF_ACCESS_TEAM and CF_ACCESS_AUD:
+        capas.append("CF-JWT")
+
+    if ENV == "prod":
+        if not API_KEY:
+            raise RuntimeError(
+                "EXT-AUTH1: ENV=prod pero API_KEY está vacía → fail-closed. "
+                "Configurá API_KEY en el unit de systemd (o poné ENV=dev si es local)."
+            )
+        if not (CF_ACCESS_TEAM and CF_ACCESS_AUD):
+            logger.error(
+                "EXT-AUTH1: ENV=prod sin CF_ACCESS_TEAM/AUD — el JWT de CF NO se "
+                "valida criptográficamente; la identidad cae al header forwardeado."
+            )
+    elif not API_KEY:
+        logger.warning(
+            "auth: API_KEY vacía (ENV=%s) — la API acepta requests sin bearer. "
+            "OK en dev; en prod seteá API_KEY y ENV=prod.", ENV,
+        )
+
+    logger.info("auth posture: capas=%s ENV=%s", capas or ["NINGUNA"], ENV)
 
 
 @asynccontextmanager
@@ -62,6 +104,8 @@ async def lifespan(_app: FastAPI):
     Sampler: task background que toma snapshot de CPU/RAM/procesos cada
     60s para alimentar /api/manager/resources/history.
     """
+    _validar_postura_auth()
+
     for nombre, getter in (("rw", get_mongo_client), ("read", get_mongo_client_read)):
         try:
             getter().admin.command("ping")

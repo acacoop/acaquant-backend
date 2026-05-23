@@ -20,6 +20,12 @@ AUNESA_PASSWORD = os.getenv("AUNESA_PASSWORD")
 # --- API KEY ---
 API_KEY = os.getenv("API_KEY", "")
 
+# Entorno de ejecución. `prod` activa el fail-closed de auth (EXT-AUTH1):
+# si ENV=prod y falta API_KEY, la API NO arranca (mejor caída ruidosa que
+# quedar abierta en silencio). Default `dev` → comportamiento permisivo
+# (no rompe local). Setear ENV=prod en el systemd unit del Droplet.
+ENV = os.getenv("ENV", "dev").strip().lower()
+
 # --- MCP server (Model Context Protocol) ---
 # Auth en /mcp tiene 2 caminos:
 #   1) OAuth (para Claude Desktop / claude.ai / Claude Code via Custom

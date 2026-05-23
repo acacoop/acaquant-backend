@@ -54,6 +54,23 @@ def test_clave_duplicada_no_manda_devuelve_primero(monkeypatch):
     assert r["duplicate"] is True
 
 
+def test_ejecutar_idempotente_sin_clave_corre_fn(monkeypatch):
+    def _no_reservar(_k):
+        raise AssertionError("no debía reservar sin clave")
+    monkeypatch.setattr(idem, "reservar", _no_reservar)
+    assert idem.ejecutar_idempotente(None, lambda: {"ok": True}) == {"ok": True}
+
+
+def test_ejecutar_idempotente_dup_no_corre_fn(monkeypatch):
+    monkeypatch.setattr(idem, "reservar", lambda _k: False)
+    monkeypatch.setattr(idem, "esperar_resultado", lambda _k: {"ok": True, "duplicate": True})
+
+    def _no_correr():
+        raise AssertionError("un duplicado NO debe ejecutar la operación")
+    r = idem.ejecutar_idempotente("k1", _no_correr)
+    assert r["duplicate"] is True
+
+
 def test_error_en_envio_se_registra_y_relanza(monkeypatch):
     def _boom(**kw):
         raise RuntimeError("broker caído")

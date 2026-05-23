@@ -85,6 +85,25 @@ def guardar_error(key: str, msg: str) -> None:
         logger.warning("idempotencia: guardar_error falló: %s", e)
 
 
+def ejecutar_idempotente(key: str | None, fn):
+    """Ejecuta `fn()` UNA sola vez por `key`. Reenvío con la misma clave →
+    devuelve el resultado del primero sin re-ejecutar. `key` falsy → ejecuta
+    directo (sin dedup), comportamiento idéntico al de siempre.
+
+    Genérico: lo usan el envío directo, el dólar MEP y los brackets."""
+    if not key:
+        return fn()
+    if not reservar(key):
+        return esperar_resultado(key)
+    try:
+        result = fn()
+    except Exception as e:
+        guardar_error(key, str(e))
+        raise
+    guardar_resultado(key, result)
+    return result
+
+
 def esperar_resultado(key: str) -> dict[str, Any]:
     """Para una clave DUPLICADA: devuelve el resultado del 1er envío. Si el
     primero sigue en vuelo, espera hasta _WAIT_S (cubre el doble-click casi

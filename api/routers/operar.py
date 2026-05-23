@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.services._grupos_scope import scope_cuentas, verificar_account
+from api.services._idempotencia import ejecutar_idempotente
 from api.services.ordenes import send_order
 from api.services.order_book import get_order_book
 from core.adhoc_subscriptions import bump_last_used, subscribe
@@ -127,6 +128,9 @@ class BracketIn(BaseModel):
     price_exit: float = Field(..., gt=0, description="Precio LIMIT de la salida automática")
     tif: Literal["DAY", "IOC", "FOK", "GTC"] = "DAY"
     account: str = Field(..., description="Cuenta operativa")
+    client_order_id: str | None = Field(
+        None, description="Clave de idempotencia opcional (anti doble bracket).",
+    )
 
 
 @router.post("/bracket", status_code=201)
@@ -143,67 +147,71 @@ def crear_bracket(
     devuelve el error tal cual lo devolvió send_order.
     """
     verificar_account(data.account, scope)
-    try:
-        ensure_indexes()
-    except Exception as e:
-        logger.warning("brackets: ensure_indexes falló (continúo): %s", e)
 
-    # 1. Mandar la entrada al broker.
-    res = send_order(
-        ticker=data.ticker,
-        side=data.side,
-        size=data.size,
-        order_type="LIMIT",
-        price=data.price_entry,
-        tif=data.tif,
-        account=data.account,
-        actor_email=email,
-    )
-    if not res.get("ok"):
-        raise HTTPException(
-            status_code=400,
-            detail=res.get("error", "broker rechazó la entrada"),
-        )
+    def _do():
+        try:
+            ensure_indexes()
+        except Exception as e:
+            logger.warning("brackets: ensure_indexes falló (continúo): %s", e)
 
-    entry_cl_ord_id = res["cl_ord_id"]
-    entry_proprietary = res.get("proprietary")
-
-    # 2. Persistir el bracket. Si esto falla, la entrada YA está mandada —
-    # el frontend va a verla como una orden normal en la tabla del día,
-    # solo que sin salida automática (queda manual). No es bloqueante.
-    try:
-        doc = create_bracket(
-            entry_cl_ord_id=entry_cl_ord_id,
-            entry_proprietary=entry_proprietary,
+        # 1. Mandar la entrada al broker.
+        res = send_order(
             ticker=data.ticker,
-            side_entry=data.side,
-            price_entry=data.price_entry,
+            side=data.side,
             size=data.size,
-            price_exit=data.price_exit,
+            order_type="LIMIT",
+            price=data.price_entry,
             tif=data.tif,
             account=data.account,
             actor_email=email,
         )
-    except Exception as e:
-        logger.exception("brackets: persist falló — entrada %s queda manual", entry_cl_ord_id)
+        if not res.get("ok"):
+            raise HTTPException(
+                status_code=400,
+                detail=res.get("error", "broker rechazó la entrada"),
+            )
+
+        entry_cl_ord_id = res["cl_ord_id"]
+        entry_proprietary = res.get("proprietary")
+
+        # 2. Persistir el bracket. Si esto falla, la entrada YA está mandada —
+        # el frontend va a verla como una orden normal en la tabla del día,
+        # solo que sin salida automática (queda manual). No es bloqueante.
+        try:
+            doc = create_bracket(
+                entry_cl_ord_id=entry_cl_ord_id,
+                entry_proprietary=entry_proprietary,
+                ticker=data.ticker,
+                side_entry=data.side,
+                price_entry=data.price_entry,
+                size=data.size,
+                price_exit=data.price_exit,
+                tif=data.tif,
+                account=data.account,
+                actor_email=email,
+            )
+        except Exception as e:
+            logger.exception("brackets: persist falló — entrada %s queda manual", entry_cl_ord_id)
+            return {
+                "ok":              True,
+                "warning":         f"entrada mandada pero bracket no persistido: {e}",
+                "entry_cl_ord_id": entry_cl_ord_id,
+            }
+
         return {
             "ok":              True,
-            "warning":         f"entrada mandada pero bracket no persistido: {e}",
             "entry_cl_ord_id": entry_cl_ord_id,
+            "bracket":         {
+                "status":      doc["status"],
+                "ticker":      doc["ticker"],
+                "side_entry":  doc["side_entry"],
+                "price_entry": doc["price_entry"],
+                "price_exit":  doc["price_exit"],
+                "size":        doc["size"],
+            },
         }
 
-    return {
-        "ok":              True,
-        "entry_cl_ord_id": entry_cl_ord_id,
-        "bracket":         {
-            "status":      doc["status"],
-            "ticker":      doc["ticker"],
-            "side_entry":  doc["side_entry"],
-            "price_entry": doc["price_entry"],
-            "price_exit":  doc["price_exit"],
-            "size":        doc["size"],
-        },
-    }
+    return ejecutar_idempotente(data.client_order_id, _do)
 
 
 @router.get("/brackets/dia")

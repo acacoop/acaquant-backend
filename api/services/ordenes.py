@@ -152,27 +152,15 @@ def send_order(
     que nunca se bloquea una orden real. Sin `client_order_id` → llama al
     impl directo, comportamiento IDÉNTICO al de siempre (retrocompatible).
     """
-    if not client_order_id:
-        return _send_order_impl(
+    from api.services._idempotencia import ejecutar_idempotente
+
+    return ejecutar_idempotente(
+        client_order_id,
+        lambda: _send_order_impl(
             ticker=ticker, side=side, size=size, order_type=order_type,
             price=price, tif=tif, account=account, actor_email=actor_email,
-        )
-
-    from api.services import _idempotencia as idem
-
-    if not idem.reservar(client_order_id):
-        # Clave ya vista → duplicado: devolvemos el resultado del 1er envío.
-        return idem.esperar_resultado(client_order_id)
-    try:
-        result = _send_order_impl(
-            ticker=ticker, side=side, size=size, order_type=order_type,
-            price=price, tif=tif, account=account, actor_email=actor_email,
-        )
-    except Exception as e:
-        idem.guardar_error(client_order_id, str(e))
-        raise
-    idem.guardar_resultado(client_order_id, result)
-    return result
+        ),
+    )
 
 
 def _send_order_impl(

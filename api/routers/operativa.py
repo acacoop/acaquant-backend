@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.services._grupos_scope import scope_cuentas, verificar_account
+from api.services._idempotencia import ejecutar_idempotente
 from api.services.operativa_mep import (
     crear_operativa,
     crear_operativa_venta,
@@ -34,6 +35,9 @@ class MepIn(BaseModel):
     comision_pct: float = Field(0.62, ge=0, le=5, description="Comisión total %")
     rueda: Literal["CI", "24hs"] = "CI"
     account: str | None = None
+    client_order_id: str | None = Field(
+        None, description="Clave de idempotencia opcional (anti doble operativa).",
+    )
 
 
 class MepVentaIn(BaseModel):
@@ -41,6 +45,9 @@ class MepVentaIn(BaseModel):
     comision_pct: float = Field(0.62, ge=0, le=5, description="Comisión total %")
     rueda: Literal["CI", "24hs"] = "CI"
     account: str | None = None
+    client_order_id: str | None = Field(
+        None, description="Clave de idempotencia opcional (anti doble operativa).",
+    )
 
 
 @router.get("/mep/cotizacion")
@@ -79,19 +86,25 @@ def crear_mep(
     """Lanza BUY AL30 + SELL AL30D MARKET y persiste el wrapper en
     Operaciones.OperativasMep. Si la BUY rechaza, no se manda la SELL."""
     verificar_account(data.account, scope)
-    try:
-        return crear_operativa(
-            monto_ars=data.monto_ars,
-            comision_pct=data.comision_pct,
-            rueda=data.rueda,
-            account=data.account,
-            actor_email=email,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:
-        logger.exception("crear_mep failed (email=%s)", email)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    def _do():
+        try:
+            return crear_operativa(
+                monto_ars=data.monto_ars,
+                comision_pct=data.comision_pct,
+                rueda=data.rueda,
+                account=data.account,
+                actor_email=email,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception("crear_mep failed (email=%s)", email)
+            raise HTTPException(status_code=500, detail=str(e)) from e
+
+    return ejecutar_idempotente(data.client_order_id, _do)
 
 
 @router.post("/mep/venta")
@@ -104,19 +117,25 @@ def crear_mep_venta(
     MARKET para recomprar el AL30D que estaba short y vender el AL30
     largo, recibiendo pesos."""
     verificar_account(data.account, scope)
-    try:
-        return crear_operativa_venta(
-            monto_usd=data.monto_usd,
-            comision_pct=data.comision_pct,
-            rueda=data.rueda,
-            account=data.account,
-            actor_email=email,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:
-        logger.exception("crear_mep_venta failed (email=%s)", email)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    def _do():
+        try:
+            return crear_operativa_venta(
+                monto_usd=data.monto_usd,
+                comision_pct=data.comision_pct,
+                rueda=data.rueda,
+                account=data.account,
+                actor_email=email,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception("crear_mep_venta failed (email=%s)", email)
+            raise HTTPException(status_code=500, detail=str(e)) from e
+
+    return ejecutar_idempotente(data.client_order_id, _do)
 
 
 @router.get("/mep/dia")

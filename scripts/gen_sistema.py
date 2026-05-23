@@ -63,15 +63,27 @@ def parse_services() -> dict[str, dict]:
     return out
 
 
-def parse_crontab() -> tuple[dict[str, dict], list[dict]]:
-    """Devuelve (windows, jobs).
+def _clean_cmd(cmd: str) -> str:
+    """Limpia un comando de cron para mostrar: saca el `cd ... &&`, la
+    redirección de logs y el prefijo absoluto del repo."""
+    cmd = re.sub(r"^cd\s+\S+\s+&&\s+", "", cmd)
+    cmd = re.sub(r"\s*>>?\s*\S+\s*2>&1\s*$", "", cmd)
+    cmd = cmd.replace("/root/TradingAV/", "")
+    return cmd.strip()
+
+
+def parse_crontab() -> tuple[dict[str, dict], list[dict], list[dict]]:
+    """Devuelve (windows, jobs, otros).
 
     windows: {service: {start, stop}} — servicios prendidos/apagados por cron.
-    jobs: [{schedule, modules}] — invocaciones `python -m jobs/engines`.
+    jobs:    [{schedule, modules}]     — invocaciones `python -m jobs/engines`.
+    otros:   [{schedule, cmd}]         — CUALQUIER otra línea de cron (scripts
+             shell, etc.) — para no perder nada que no sea systemctl ni python.
     """
     starts: dict[str, str] = {}
     stops: dict[str, str] = {}
     jobs: list[dict] = []
+    otros: list[dict] = []
     for raw in CRONTAB.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -88,11 +100,13 @@ def parse_crontab() -> tuple[dict[str, dict], list[dict]]:
         mods = re.findall(r"-m\s+(jobs\.\S+|engines\.\S+)", cmd)
         if mods:
             jobs.append({"schedule": sched, "modules": mods})
+        else:
+            otros.append({"schedule": sched, "cmd": _clean_cmd(cmd)})
     windows = {
         svc: {"start": starts.get(svc), "stop": stops.get(svc)}
         for svc in set(starts) | set(stops)
     }
-    return windows, jobs
+    return windows, jobs, otros
 
 
 # ── Humanización de expresiones cron ─────────────────────────────────────────
@@ -126,7 +140,7 @@ def _ventana(w: dict) -> str:
 
 def build_blocks() -> dict[str, str]:
     services = parse_services()
-    windows, jobs = parse_crontab()
+    windows, jobs, otros = parse_crontab()
     cron_services = set(windows)
 
     # 1) Always-on (no los toca el cron)
@@ -152,7 +166,18 @@ def build_blocks() -> dict[str, str]:
         rows.append(f"| {_humano(j['schedule'])} | {mods} |")
     crons = "\n".join(rows)
 
-    return {"servicios": always_on, "motores": motores, "crons": crons}
+    # 4) Otros crons (scripts shell, etc.) — todo lo que NO es python ni systemctl
+    rows = ["| Horario | Comando |", "|---|---|"]
+    for o in sorted(otros, key=lambda x: x["schedule"]):
+        rows.append(f"| {_humano(o['schedule'])} | `{o['cmd']}` |")
+    otros_tbl = "\n".join(rows)
+
+    return {
+        "servicios": always_on,
+        "motores": motores,
+        "crons": crons,
+        "otros": otros_tbl,
+    }
 
 
 # ── Inyección entre marcadores ────────────────────────────────────────────────
@@ -179,24 +204,21 @@ def _template(blocks: dict[str, str]) -> str:
 ## Topología — cómo se conecta todo
 
 ```
-                       pyRofex (broker ROFEX/MAE)
-                          │  WS market data         ▲ envío/cancel órdenes
-                          ▼                         │
-   ┌──────────── motores de mercado ───────────┐    │
-   │ rofex, options, curvas, forwards, …        │    │
-   │  (L-V 13–20 UTC, escriben a Mongo)         │    │
-   └───────────────────┬────────────────────────┘    │
-                        ▼                             │
-                 MongoDB Atlas (M10) ◄── crons (jobs.*: aum, bcra, …)
-                        ▲                             │
-                        │ lee                         │
-                  api.service (:8000) ────────────────┘
-                        ▲   (FastAPI, internet-facing vía Cloudflare)
-                        │ HTTP
-                acaquant-web (Vercel) ── trading.acaquant.com
-
-  motor_ordenes (:WS) escucha order_report → persiste OrdenesLive
-  partner_api (:8100) → ACAPortfolio.Cartera → data.acaquant.com
+   PC oficina                pyRofex (broker ROFEX/MAE)
+   mae_forex.py ─┐            │ WS market data    ▲ envío/cancel órdenes
+   (dólar MAE)   │            ▼                   │
+                 │  ┌──── motores de mercado ───┐ │
+                 │  │ rofex, options, curvas, … │ │   (motor_ordenes escucha
+                 ▼  │  (L-V 13–20 UTC → Mongo)  │ │    order_report → OrdenesLive)
+              MongoDB Atlas (M10) ◄── crons (aum, bcra, negocio, …)
+                 ▲  ▲                            │
+            lee  │  │ atlas_cluster.sh pause 04h / resume 11:20
+   api.service (:8000) ──────────────────────────┘   + /mcp (Custom Connector Claude)
+   partner_api (:8100)
+        ▲  nginx → Cloudflare Access (gate de identidad)
+        │ HTTPS
+   acaquant-web (Vercel) ── trading.acaquant.com
+   proveedor externo ────── data.acaquant.com (partner_api → ACAPortfolio.Cartera)
 ```
 
 ## Servicios always-on
@@ -214,21 +236,43 @@ def _template(blocks: dict[str, str]) -> str:
 {blocks['crons']}
 <!-- /AUTOGEN:crons -->
 
+## Otros crons (scripts / shell)
+<!-- AUTOGEN:otros -->
+{blocks['otros']}
+<!-- /AUTOGEN:otros -->
+
+> Las tablas de arriba solo listan lo **agendado** en `crontab.txt`. Jobs
+> manuales / on-demand (backfills, archival: `jobs.*backfill*`,
+> `jobs.aum_resumen_fci`, etc.) se corren a mano y NO aparecen. Helpers
+> (`jobs._*`, `aunesa_client`, `dias_habiles`) son librerías, no procesos.
+
+## Componentes FUERA del Droplet (no en systemd/cron)
+- **PC oficina — `mae_forex.py`**: feed live del dólar mayorista MAE (UST$T
+  plazo 000) → escribe `Valuaciones.DolarOficialLive`. **No corre en el
+  Droplet.** Si se cae, el TC dólar-linked (`motor_curvas`, `futuros_dlr`,
+  `/argy`, `macro`) se queda sin spot.
+- **acaquant-web (Vercel)**: frontend Next.js, deploy auto sobre `main`. Sin crons propios.
+- **MongoDB Atlas (M10)**: la base. Se pausa 04:00 / resume 11:20 UTC (cron `atlas_cluster.sh`).
+- **Cloudflare Access**: gate de identidad (quién entra). **nginx** (Droplet): reverse proxy `api`→:8000, `partner_api`→:8100.
+
+## Integraciones externas (fuentes de datos)
+- **pyRofex** (ROFEX/MAE) — market data WS + envío de órdenes.
+- **Aunesa** — movimientos/posiciones (`jobs.cashflow`, `negocio_movimientos`, `descubrir_cuentas`).
+- **BYMA Primarias** (licitaciones) · **MAE** (repos/cauciones) · **Finnhub** (data externa) · **BCRA / argentina_datos** (macro).
+
 ## Bases de datos (quién escribe qué)
-*(narrativa a mano — completar/ajustar según evolucione)*
 - **`Trading`** — motores de mercado (MarketSnapshot, Curvas, TimeSales, OrderBookL2, DOLAR, SnapshotsCierre, CedearsSnapshot, PreciosAcciones).
-- **`Valuaciones`** — `jobs.aum` (AuM, Assets), PnL precompute, DolarOficialLive.
+- **`Valuaciones`** — `jobs.aum` (AuM, Assets), PnL precompute, DolarOficialLive (PC oficina).
 - **`CashFlow`** — `jobs.cashflow`, `jobs.flujo_contrapartes`, `jobs.negocio_movimientos`.
 - **`Manager`** — Users, RoleMatrix, Grupos, JobRuns, OrdenesIdempotency.
 - **`Operaciones`** — `motor_ordenes` (OrdenesLive/Audit), OperativasMep.
 - **`CuentasAPI` / `*API`** — copias derivadas (`jobs.sync_api_copies`).
-- **`ACAPortfolio`** — `partner_api` (Cartera).
+- **`ACAPortfolio`** — `partner_api` (Cartera) · **`MCP`** — tokens OAuth (TTL).
 
 ## Cómo se opera
 - Servicios: `systemctl {{start|stop|restart|status}} <servicio>`; logs `journalctl -u <servicio>`.
 - Los motores los prende/apaga el **cron** (fuente: `deploy/crontab.txt`); no arrancarlos a mano fuera de horario (ver RUNBOOK: pausa de Atlas).
 - Deploy backend: `git pull` + `systemctl restart api.service`. Frontend: push → Vercel.
-- Atlas resume diario ~11:20 UTC (`deploy/atlas_cluster.sh`).
 
 > Diagnóstico de incidentes: `docs/RUNBOOK.md` · Secretos: `docs/SECRETS.md`.
 """

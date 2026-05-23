@@ -8,24 +8,21 @@
 ## Topología — cómo se conecta todo
 
 ```
-                       pyRofex (broker ROFEX/MAE)
-                          │  WS market data         ▲ envío/cancel órdenes
-                          ▼                         │
-   ┌──────────── motores de mercado ───────────┐    │
-   │ rofex, options, curvas, forwards, …        │    │
-   │  (L-V 13–20 UTC, escriben a Mongo)         │    │
-   └───────────────────┬────────────────────────┘    │
-                        ▼                             │
-                 MongoDB Atlas (M10) ◄── crons (jobs.*: aum, bcra, …)
-                        ▲                             │
-                        │ lee                         │
-                  api.service (:8000) ────────────────┘
-                        ▲   (FastAPI, internet-facing vía Cloudflare)
-                        │ HTTP
-                acaquant-web (Vercel) ── trading.acaquant.com
-
-  motor_ordenes (:WS) escucha order_report → persiste OrdenesLive
-  partner_api (:8100) → ACAPortfolio.Cartera → data.acaquant.com
+   PC oficina                pyRofex (broker ROFEX/MAE)
+   mae_forex.py ─┐            │ WS market data    ▲ envío/cancel órdenes
+   (dólar MAE)   │            ▼                   │
+                 │  ┌──── motores de mercado ───┐ │
+                 │  │ rofex, options, curvas, … │ │   (motor_ordenes escucha
+                 ▼  │  (L-V 13–20 UTC → Mongo)  │ │    order_report → OrdenesLive)
+              MongoDB Atlas (M10) ◄── crons (aum, bcra, negocio, …)
+                 ▲  ▲                            │
+            lee  │  │ atlas_cluster.sh pause 04h / resume 11:20
+   api.service (:8000) ──────────────────────────┘   + /mcp (Custom Connector Claude)
+   partner_api (:8100)
+        ▲  nginx → Cloudflare Access (gate de identidad)
+        │ HTTPS
+   acaquant-web (Vercel) ── trading.acaquant.com
+   proveedor externo ────── data.acaquant.com (partner_api → ACAPortfolio.Cartera)
 ```
 
 ## Servicios always-on
@@ -95,25 +92,45 @@
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute` |
 <!-- /AUTOGEN:crons -->
 
-> Solo lista lo que está **agendado** en `crontab.txt`. Los jobs manuales /
-> on-demand (backfills, archival, `jobs.*backfill*`, `jobs.aum_resumen_fci`,
-> etc.) NO aparecen acá — se corren a mano. Helpers (`jobs._*`, `aunesa_client`,
-> `dias_habiles`) tampoco: son librerías, no procesos.
+## Otros crons (scripts / shell)
+<!-- AUTOGEN:otros -->
+| Horario | Comando |
+|---|---|
+| 04:00 · diario | `deploy/atlas_cluster.sh pause` |
+| 11:20 · diario | `deploy/atlas_cluster.sh resume` |
+<!-- /AUTOGEN:otros -->
+
+> Las tablas de arriba solo listan lo **agendado** en `crontab.txt`. Jobs
+> manuales / on-demand (backfills, archival: `jobs.*backfill*`,
+> `jobs.aum_resumen_fci`, etc.) se corren a mano y NO aparecen. Helpers
+> (`jobs._*`, `aunesa_client`, `dias_habiles`) son librerías, no procesos.
+
+## Componentes FUERA del Droplet (no en systemd/cron)
+- **PC oficina — `mae_forex.py`**: feed live del dólar mayorista MAE (UST$T
+  plazo 000) → escribe `Valuaciones.DolarOficialLive`. **No corre en el
+  Droplet.** Si se cae, el TC dólar-linked (`motor_curvas`, `futuros_dlr`,
+  `/argy`, `macro`) se queda sin spot.
+- **acaquant-web (Vercel)**: frontend Next.js, deploy auto sobre `main`. Sin crons propios.
+- **MongoDB Atlas (M10)**: la base. Se pausa 04:00 / resume 11:20 UTC (cron `atlas_cluster.sh`).
+- **Cloudflare Access**: gate de identidad (quién entra). **nginx** (Droplet): reverse proxy `api`→:8000, `partner_api`→:8100.
+
+## Integraciones externas (fuentes de datos)
+- **pyRofex** (ROFEX/MAE) — market data WS + envío de órdenes.
+- **Aunesa** — movimientos/posiciones (`jobs.cashflow`, `negocio_movimientos`, `descubrir_cuentas`).
+- **BYMA Primarias** (licitaciones) · **MAE** (repos/cauciones) · **Finnhub** (data externa) · **BCRA / argentina_datos** (macro).
 
 ## Bases de datos (quién escribe qué)
-*(narrativa a mano — completar/ajustar según evolucione)*
 - **`Trading`** — motores de mercado (MarketSnapshot, Curvas, TimeSales, OrderBookL2, DOLAR, SnapshotsCierre, CedearsSnapshot, PreciosAcciones).
-- **`Valuaciones`** — `jobs.aum` (AuM, Assets), PnL precompute, DolarOficialLive.
+- **`Valuaciones`** — `jobs.aum` (AuM, Assets), PnL precompute, DolarOficialLive (PC oficina).
 - **`CashFlow`** — `jobs.cashflow`, `jobs.flujo_contrapartes`, `jobs.negocio_movimientos`.
 - **`Manager`** — Users, RoleMatrix, Grupos, JobRuns, OrdenesIdempotency.
 - **`Operaciones`** — `motor_ordenes` (OrdenesLive/Audit), OperativasMep.
 - **`CuentasAPI` / `*API`** — copias derivadas (`jobs.sync_api_copies`).
-- **`ACAPortfolio`** — `partner_api` (Cartera).
+- **`ACAPortfolio`** — `partner_api` (Cartera) · **`MCP`** — tokens OAuth (TTL).
 
 ## Cómo se opera
 - Servicios: `systemctl {start|stop|restart|status} <servicio>`; logs `journalctl -u <servicio>`.
 - Los motores los prende/apaga el **cron** (fuente: `deploy/crontab.txt`); no arrancarlos a mano fuera de horario (ver RUNBOOK: pausa de Atlas).
 - Deploy backend: `git pull` + `systemctl restart api.service`. Frontend: push → Vercel.
-- Atlas resume diario ~11:20 UTC (`deploy/atlas_cluster.sh`).
 
 > Diagnóstico de incidentes: `docs/RUNBOOK.md` · Secretos: `docs/SECRETS.md`.

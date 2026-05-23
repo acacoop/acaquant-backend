@@ -26,6 +26,13 @@ API_KEY = os.getenv("API_KEY", "")
 # (no rompe local). Setear ENV=prod en el systemd unit del Droplet.
 ENV = os.getenv("ENV", "dev").strip().lower()
 
+# --- Alertas (Telegram) ---
+# Bot creado con @BotFather. Si falta cualquiera de los dos, las alertas
+# quedan deshabilitadas (no-op silencioso, ver core/notify.py). El token es
+# un SECRETO → va en env (.env / systemd unit), nunca en el repo.
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
+
 # --- MCP server (Model Context Protocol) ---
 # Auth en /mcp tiene 2 caminos:
 #   1) OAuth (para Claude Desktop / claude.ai / Claude Code via Custom

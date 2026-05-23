@@ -87,14 +87,15 @@ que sobrevivió a la verificación** — los puntos refutados están al final.
   Hallado por `npm audit` durante EXT-XLSX1, NO estaba en ninguna auditoría previa.
 
 ### 🟡 MEDIO (nuevos, válidos)
-- [~] **EXT-MONEY1 · Dinero en `float`, no `Decimal`.** 🔬 MEDIR PRIMERO.
-  El float acumula en el motor de cost-basis (`pnl.py:476-538`) y en la
-  valuación por-posición (`aum.py`), no en una suma final redondeable.
-  Convertir a Decimal es refactor del motor financiero (inputs ya vienen float
-  de Mongo) → riesgo de mover el PnL de todos los clientes. `scripts/diag_decimal_drift.py`
-  (commit `b0a2528`) cuantifica el drift real sobre datos de prod. **Decisión
-  con dato**: si < $0.01, no vale el riesgo; si hay pesos, justifica el refactor
-  con golden values de cuentas conocidas.
+- [x] **EXT-MONEY1 · Dinero en `float`, no `Decimal`.** ✅ CERRADO 2026-05-23 —
+  NO-GO con evidencia. `scripts/diag_decimal_drift.py` (commit `b0a2528`) corrido
+  sobre el último snapshot de prod: **drift total $0.000000, 0 cuentas con drift
+  ≥ $0.01**. La acumulación float en los totales de AuM es contablemente nula →
+  migrar el motor a Decimal (refactor riesgoso de `pnl.py`/`aum.py`) no se
+  justifica. Alcance medido: totales de AuM (el número que preocupaba al audit);
+  el cost-basis de `pnl.py` no se midió aparte pero es float64 de magnitudes
+  similares → drift esperado igual de despreciable. Re-evaluar solo si aparece
+  un descuadre real vs contabilidad.
 - [~] **EXT-ERR1 · `send_order` marca REJECTED_LOCAL ante CUALQUIER excepción**
   (`api/services/ordenes.py:192`). 📝 DOCUMENTADO, fix pendiente de diseño.
   El "226 excepts" del audit es engañoso: la mayoría son catch-all deliberados

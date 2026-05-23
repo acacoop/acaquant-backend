@@ -16,6 +16,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import get_user_email
+from api.services._grupos_scope import scope_cuentas, verificar_account
 from api.services.risk import (
     account_detailed_position,
     account_positions,
@@ -33,12 +34,14 @@ def saldo(
     rueda: Literal["CI", "24hs"] = Query("CI"),
     account: str | None = None,
     _email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Saldo ARS + USD MEP (USD D) disponible para operar en la rueda elegida.
 
     Lo consume la UI DOLAR MEP para mostrar saldo en vivo. Cache 3s en el
     service — pegale a este endpoint todo lo que quieras, no satura al broker.
     """
+    verificar_account(account, scope)
     try:
         return saldo_para_rueda(rueda=rueda, account=account)
     except ValueError as e:
@@ -52,9 +55,11 @@ def saldo(
 def report(
     account: str | None = None,
     _email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Reporte crudo de pyRofex. Útil para vistas tipo cartera con todos los
     bloques (collateral, margin, portfolio, monedas múltiples)."""
+    verificar_account(account, scope)
     try:
         return account_report(account=account)
     except Exception as e:
@@ -66,8 +71,10 @@ def report(
 def positions(
     account: str | None = None,
     _email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Posiciones agregadas: ticker, buySize, buyPrice, sellSize, sellPrice."""
+    verificar_account(account, scope)
     try:
         return account_positions(account=account)
     except Exception as e:
@@ -79,9 +86,11 @@ def positions(
 def detailed(
     account: str | None = None,
     _email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Posiciones detalladas por tipo de instrumento (BOND / NEG_OBLIG / etc.)
     con valuación a market."""
+    verificar_account(account, scope)
     try:
         return account_detailed_position(account=account)
     except Exception as e:
@@ -93,6 +102,7 @@ def detailed(
 def listado(
     solo_activas: bool = False,
     _email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> list[dict[str, Any]]:
     """Listado de cuentas asociadas al user master, leídas de Mongo
     (las pobla `jobs.descubrir_cuentas` con un backfill diario).
@@ -104,5 +114,12 @@ def listado(
     Si la colección está vacía (job nunca corrió) devuelve `[]` y el
     frontend tiene que mostrar un mensaje "no hay cuentas descubiertas
     todavía — corré jobs.descubrir_cuentas".
+
+    Filtrado por scope de grupos: un user scopeado solo ve sus cuentas en el
+    dropdown (admin / sin-grupo ven todas).
     """
-    return listado_cuentas(solo_activas=solo_activas)
+    rows = listado_cuentas(solo_activas=solo_activas)
+    if scope is not None:
+        permitidas = set(scope)
+        rows = [r for r in rows if str(r.get("account_id")) in permitidas]
+    return rows

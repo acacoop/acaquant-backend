@@ -430,7 +430,7 @@ def crear_operativa(
     return _persistir_resultado_operativa(operativa_id, nominales, res, db_ops)
 
 
-def crear_operativa_venta(
+def operativa_venta_mep(
     *,
     nominales: int,
     rueda: str = "CI",

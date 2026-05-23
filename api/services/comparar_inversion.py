@@ -178,10 +178,9 @@ def _desglose_flujo(curva: str, f: dict) -> tuple[float, float]:
     if curva == "cer":
         amort = float(f.get("amortizacion_pct", 0)) / 100 * 100
         if "cupon_sobre_residual" in f:
-            cupon = (
-                float(f.get("cupon_sobre_residual", 0))
-                * float(f.get("residual_previo_pct", 0)) / 100 * 100
-            )
+            # cupon_sobre_residual YA está resuelto (CLAUDE.md: NO re-multiplicar
+            # por residual_previo_pct). Mismo criterio que la rama soberanos.
+            cupon = float(f.get("cupon_sobre_residual", 0)) / 100 * 100
         else:
             cupon = float(f.get("cupon_anual", 0)) * 100
         return cupon, amort

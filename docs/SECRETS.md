@@ -70,4 +70,5 @@ higiene periódica para las críticas (broker, Mongo) — al menos 1 vez al año
 - El `.env` **nunca** se commitea (verificar que esté en `.gitignore`).
 - No pegar secretos en logs, chats, ni URLs (ej. la URL de `getUpdates` de
   Telegram lleva el token — no compartirla).
-- Revisión de accesos de usuarios: `scripts/usuarios_inactivos.py` (ver `docs/RUNBOOK.md`).
+- Revisión de accesos de usuarios: `/manager → USUARIOS` (último acceso + badge
+  INACTIVO; ver `docs/RUNBOOK.md`).

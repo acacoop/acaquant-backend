@@ -138,8 +138,9 @@ Si quedó pausado, resumir manualmente desde el panel de Atlas.
 
 ## Rutina (no es incidente, es prevención)
 
-- **Revisión de accesos (trimestral):** `venv/bin/python -m scripts.usuarios_inactivos`
-  → deshabilitar en `/manager` los que no entran hace >90 días. Ver `docs/SECRETS.md`
-  para rotación de credenciales.
+- **Revisión de accesos (trimestral):** `/manager → USUARIOS`. La tabla muestra
+  el último acceso de cada usuario, marca "(nunca entró)" y un badge **INACTIVO**
+  para los que no se ven hace >90 días → deshabilitarlos con el toggle ENABLED.
+  Ver `docs/SECRETS.md` para rotación de credenciales.
 - **Backups:** verificar que Atlas tenga backups activos + hacer una restauración
   de prueba periódica (documentar RPO/RTO). *(pendiente de implementar)*

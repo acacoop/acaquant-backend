@@ -68,38 +68,62 @@ Numeración `EXT-*` para no chocar con C1/A2/A3 de arriba. Lo que sigue es **lo
 que sobrevivió a la verificación** — los puntos refutados están al final.
 
 ### 🟠 ALTO (nuevos, válidos)
-- [ ] **EXT-DEP1 · `requirements.txt` sin pins.** Cero `==` en ~28 deps → un
-  release upstream incompatible rompe el boot al `restart` sin que toquemos nada
-  (ya pasó: 502). Pinear exacto + lockfile.
-- [ ] **EXT-TEST1 · Cero tests sobre paths críticos.** 169 tests existen, pero
-  ninguno cubre RBAC (`require_module`/`has_access`/scope de cuenta), PnL
-  (`api/services/pnl.py`), AuM (`jobs/aum.py`) ni órdenes. Un cambio rompe el
-  cálculo de un cliente y nada lo detecta. Golden tests que congelen los números.
-- [ ] **EXT-XLSX1 · `xlsx ^0.18.5` (acaquant-web) con CVEs.** Prototype pollution
-  (CVE-2023-30533) + ReDoS (CVE-2024-22363), sin fix en la versión de npm.
-  **Mitigado hoy**: solo se usa para exportar, no para leer uploads. Migrar a
-  build oficial de SheetJS o `exceljs` ANTES de agregar import de Excel.
+- [x] **EXT-DEP1 · `requirements.txt` sin pins.** ✅ RESUELTO 2026-05-23.
+  `scripts/lock_deps.py` fotografía el venv y pinea exacto; corrido en el
+  Droplet (commit `cb943cc`). Próximas `pip install` deterministas.
+- [x] **EXT-TEST1 · Cero tests sobre paths críticos.** ✅ PARCIAL 2026-05-23.
+  `tests/unit/test_grupos_scope.py` (scope/C1), `test_rbac.py` (matriz +
+  has_access fail-closed), `test_aum_valuacion.py` (fórmula AuM),
+  `test_auth_posture.py` (EXT-AUTH1) — 30 tests. **Falta PnL** (cost-basis,
+  necesita fixtures de Mongo) — pendiente.
+- [x] **EXT-XLSX1 · `xlsx 0.18.5` (acaquant-web) con CVEs.** ✅ RESUELTO 2026-05-23.
+  Migrado al tarball oficial de SheetJS 0.20.3 (commit acaquant-web `08a9eb1`).
+  Corrección al audit original: NO era solo export — `manager-view.tsx` hace
+  `XLSX.read` sobre archivo subido (carga de segmentación), así que el
+  prototype-pollution era alcanzable. API idéntica → cero cambios de código.
+- [x] **EXT-NEXT1 · `next 16.2.4` bypass de middleware (HIGH).** ✅ RESUELTO
+  2026-05-23. GHSA-26hh-7cqf-hhc6 — `proxy.ts` (gate de auth) ES middleware de
+  Next → el CVE lo saltea. Bump a 16.2.6 (commit acaquant-web `9c97583`).
+  Hallado por `npm audit` durante EXT-XLSX1, NO estaba en ninguna auditoría previa.
 
 ### 🟡 MEDIO (nuevos, válidos)
-- [ ] **EXT-MONEY1 · Dinero en `float`, no `Decimal`.** 0 usos de `Decimal` en
-  `aum.py`/`pnl.py`/`portfolio.py`; 35 casts a `float()`. Drift de redondeo
-  sub-centavo acumulable en miles de boletos. Migrar a `Decimal` los TOTALES
-  (no necesariamente cada cálculo intermedio).
-- [ ] **EXT-ERR1 · 226 `except Exception` amplios** (0 bare `except:`; ~74 con
-  `pass`/`continue`). Mezclan transitorio vs error real. Acotar a excepciones
-  concretas en los paths de órdenes/escritura a Mongo; dejar el catch-all solo
-  donde es deliberado, con log.
+- [~] **EXT-MONEY1 · Dinero en `float`, no `Decimal`.** 🔬 MEDIR PRIMERO.
+  El float acumula en el motor de cost-basis (`pnl.py:476-538`) y en la
+  valuación por-posición (`aum.py`), no en una suma final redondeable.
+  Convertir a Decimal es refactor del motor financiero (inputs ya vienen float
+  de Mongo) → riesgo de mover el PnL de todos los clientes. `scripts/diag_decimal_drift.py`
+  (commit `b0a2528`) cuantifica el drift real sobre datos de prod. **Decisión
+  con dato**: si < $0.01, no vale el riesgo; si hay pesos, justifica el refactor
+  con golden values de cuentas conocidas.
+- [~] **EXT-ERR1 · `send_order` marca REJECTED_LOCAL ante CUALQUIER excepción**
+  (`api/services/ordenes.py:192`). 📝 DOCUMENTADO, fix pendiente de diseño.
+  El "226 excepts" del audit es engañoso: la mayoría son catch-all deliberados
+  y benignos (TTL, cache, logging). El riesgo REAL es uno solo: si el corte de
+  red ocurre *después* de que el broker recibió la orden (timeout leyendo la
+  respuesta), la marcamos "rechazada" cuando puede estar VIVA → el user la
+  re-manda → **doble orden**. Mismo patrón en `crear_operativa`/`crear_bracket`.
+  **Fix propuesto** (necesita diseño + tests sobre código de órdenes vivas):
+  distinguir excepción "pre-network" (validación, seguro REJECTED) de
+  timeout/ConnectionError post-envío (ambiguo → estado `INDETERMINADO`, NO
+  rejected; la UI pide chequear órdenes del día en vez de re-mandar; el motor
+  reconcilia por order_report). Requiere mapear los tipos de excepción de
+  pyRofex (usa `requests` por debajo).
 - [ ] **EXT-TEST2 · Frontend sin tests + archivos gigantes.** acaquant-web: 0
   tests, `manager-view.tsx` 2329 líneas, `aum-view.tsx` 1780. Tocar esos
   componentes es alto riesgo. Tests mínimos sobre `proxy.ts` + exportaciones.
+  Pendiente: necesita levantar infra de test (vitest) — esfuerzo aparte.
 
 ### 🟢 BAJO (nuevos)
-- [ ] **EXT-AUTH1 · Fail-open de `verify_api_key`** (`api/deps.py:28`): `if not
-  API_KEY: return`. Igual que el BAJO de arriba. Fail-closed si `ENV=prod`.
-- [ ] **EXT-MATCHER1 · `proxy.ts` matcher cubre 12/55 rutas** (acaquant-web).
-  Falta valuaciones/contrapartes/scanner/aum-*/cashflow. **No es agujero**: el
-  backend gatea con `require_module` (`api/main.py:174,188`). Es defensa-en-
-  profundidad faltante — sumar al matcher por consistencia.
+- [x] **EXT-AUTH1 · Fail-open de `verify_api_key`** (`api/deps.py:28`). ✅ RESUELTO
+  2026-05-23 (commit `afbf1e2`). Nueva env `ENV`; `_validar_postura_auth()` en el
+  boot aborta si `ENV=prod` + `API_KEY` vacía. **Opt-in**: activar con `ENV=prod`
+  en el systemd unit (chequear antes que API_KEY esté seteada — sale en el log
+  `auth posture: capas=[...]`).
+- [~] **EXT-MATCHER1 · `proxy.ts` matcher cubre 12/55 rutas** (acaquant-web).
+  ❌ NO HACER (recomendación). El backend ya gatea esas rutas con
+  `require_module` (`api/main.py:174,188`); mapear mal una ruta en el matcher
+  LOCKEARÍA usuarios legítimos. Riesgo > beneficio. El agujero real del gate
+  frontend era EXT-NEXT1 (ya resuelto), no el matcher.
 
 ### Refutados (NO re-abrir)
 - **SSRF en proxies** — FALSO. `api/routers/news.py:18 _is_safe_external_url`

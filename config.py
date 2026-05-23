@@ -46,6 +46,12 @@ MCP_BEARER_TOKEN = os.getenv("MCP_BEARER_TOKEN", "")
 MCP_JWT_SECRET   = os.getenv("MCP_JWT_SECRET", "")
 # Issuer que va en los JWTs OAuth-issued. Default: la URL pública del API.
 MCP_OAUTH_ISSUER = os.getenv("MCP_OAUTH_ISSUER", "https://api.acaquant.com")
+# Hosts permitidos en redirect_uris del DCR (anti open-redirect / robo de token).
+# Suffix match sobre el host. Default: dominios de Claude. Coma-separado.
+_mcp_redirect_env = os.getenv("MCP_ALLOWED_REDIRECT_HOSTS", "claude.ai,claude.com")
+MCP_ALLOWED_REDIRECT_HOSTS: set[str] = {
+    h.strip().lower() for h in _mcp_redirect_env.split(",") if h.strip()
+}
 
 # --- LLM / IA GENERATIVA ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")

@@ -20,7 +20,7 @@ import hashlib
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import jwt
 from fastapi import APIRouter, Form, HTTPException, Query, Request
@@ -28,7 +28,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
-from config import MCP_JWT_SECRET, MCP_OAUTH_ISSUER
+from config import MCP_ALLOWED_REDIRECT_HOSTS, MCP_JWT_SECRET, MCP_OAUTH_ISSUER
 from core.mongo import get_mongo_client
 
 logger = logging.getLogger(__name__)
@@ -188,10 +188,32 @@ class _RegisterResponse(BaseModel):
     response_types: list[str] = ["code"]
 
 
+def _redirect_uri_permitido(uri: str) -> bool:
+    """True si el host del redirect_uri está en la allowlist (suffix match).
+
+    Anti open-redirect: sin esto, un cliente DCR podría registrar un
+    redirect_uri propio y robar el token tras el login. El perímetro CF Access
+    NO alcanza — el robo es post-autenticación."""
+    try:
+        host = (urlparse(uri).hostname or "").lower()
+    except ValueError:
+        return False
+    if not host:
+        return False
+    return any(host == h or host.endswith("." + h) for h in MCP_ALLOWED_REDIRECT_HOSTS)
+
+
 @router.post("/oauth/register", response_model=_RegisterResponse)
 async def register_client(body: _RegisterRequest):
     """RFC 7591: Dynamic Client Registration para clientes públicos (PKCE)."""
     _ensure_indexes()
+    invalidos = [u for u in body.redirect_uris if not _redirect_uri_permitido(u)]
+    if invalidos:
+        logger.warning("DCR rechazado: redirect_uris fuera de allowlist: %s", invalidos)
+        raise HTTPException(
+            400,
+            f"redirect_uri no permitido (hosts válidos: {sorted(MCP_ALLOWED_REDIRECT_HOSTS)})",
+        )
     client_id = "mcp_" + secrets.token_urlsafe(16)
     name = body.client_name or "unnamed"
     _save_client(client_id=client_id, redirect_uris=body.redirect_uris, client_name=name)
@@ -294,7 +316,7 @@ async def token_endpoint(
     expected = base64.urlsafe_b64encode(
         hashlib.sha256(code_verifier.encode("ascii")).digest(),
     ).rstrip(b"=").decode("ascii")
-    if expected != auth_code_doc["code_challenge"]:
+    if not secrets.compare_digest(expected, auth_code_doc["code_challenge"]):
         return JSONResponse({"error": "invalid_grant"}, status_code=400)
 
     access_token, ttl = issue_access_token(

@@ -138,6 +138,42 @@ que sobrevivió a la verificación** — los puntos refutados están al final.
 - **Gate frontend "fail-open si falta config"** — DESACTUALIZADO. El fail-open por
   error de red ya es fail-closed (`proxy.ts:86-107`); solo pasa en dev local.
 
+## Backlog v3 — auditoría externa exhaustiva (2026-05-23)
+
+Auditoría completa de ambos repos (backend + frontend, 100% de archivos leídos).
+
+### ✅ Resuelto en esta tanda
+- **Venta MEP rota** (doble def `crear_operativa_venta` → `operativa_venta_mep`). CRÍTICO.
+- **`/api/risk` sin scope** → `verificar_account` + filtro de listado.
+- **Fórmula CER** en `comparar_inversion.py` (re-multiplicaba) → directa.
+- **WS motores**: log + alerta Telegram + reconexión con backoff (validar reconexión en Droplet).
+- **MCP DCR**: allowlist de redirect_uris + PKCE timing-safe.
+- **#9 precio orden truncado a 2 dec** (frontend, `pickFromBook`) → precisión real. CRÍTICO de plata.
+
+### 🟠 Abierto — backend
+- [ ] **#2 bracket manda salida DUPLICADA** (motor_ordenes): falta claim atómico PENDING→EXIT_SENDING. Confianza media — verificar secuencia de ERs.
+- [ ] **#6 delete_many+insert sin transacción** (pnl_totales_precompute, consolidado_cuentas, aum): si muere entre delete e insert, la vista queda en cero. → tmp collection + rename, o sesión txn.
+- [ ] **#7 scripts destructivos sin dry-run** (api_migrate drop+insert, fix_aum_valuacion no idempotente, partner_cartera_reset delete_many({})). → --dry-run/--apply + confirmación.
+- [ ] **Tope de monto en MEP** (idempotencia ya está; falta límite máximo configurable).
+- [ ] **Race sin lock en options.py/valores.py** (snapshot-loop itera mientras el WS muta el dict).
+- [ ] AuM tz-naive (`utcnow`) — no mis-fecha con el cron actual; arreglar solo si se mueve el cron a madrugada ART.
+
+### 🟠 Abierto — frontend
+- [ ] **#11 `use-poll.ts` pisa data fresca con SSR viejo** (compara `initial` por referencia; se dispara de más). TRANSVERSAL — el de más impacto. → comparar por contenido / resetear solo al cambiar endpoint.
+- [ ] **#10 `key={Math.random()}`** en filas de órdenes (operar-dashboard:1100) → parpadeo/pérdida de foco cada poll. → id estable.
+- [ ] **Race polling ↔ ejecutar()** (operar-dashboard): pausar polling mientras `sending`.
+- [ ] **Stale closure** en derivados-agro-estrategias (pisa el vencimiento elegido cada 5s).
+- [ ] **TZ en aum-view** (`toISOString().slice(0,10)` sobre Date local → presets resuelven snapshot corrido).
+- [ ] **#12 link activo** mal resaltado (header.tsx `startsWith` → match exacto / `+ "/"`).
+
+### 🟡 Abierto — frontend (menores)
+- [ ] `fetch().then(r=>r.json())` sin `r.ok` (jobs-runs-panel, news-reader) → parse rompe con 500 HTML.
+- [ ] `setTimeout` sin cleanup al desmontar (derivados-operar, news-panel, agro-datos) → set-state post-unmount.
+- [ ] `key={i}` en listas recargables; `alert()` bloqueante en cancelOrder; un solo `setError` para 4 effects (valuaciones-view); recompute O(n²) sin useMemo; trade display `toFixed(2)` (operar-dashboard:430, cosmético).
+
+### ✅ Bien defendido (confirmado leyendo todo)
+Sin XSS (cero `dangerouslySetInnerHTML`); sumas client-side solo display (no se reenvían); NoSQL inj cubierta (`re.escape`); partner_api sólido; RBAC server-side consistente; scope de grupos OK en portfolio/valuaciones/operaciones (+ ahora órdenes/risk).
+
 ## Orden de remediación sugerido
 1. Definir **C1** (modelo de scope) → implementar.
 2. **A2** (gate agro) — 2 líneas.

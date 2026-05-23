@@ -169,11 +169,86 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
 - El `operador.email` matchea contra `Manager.Users.email` → cada operador
   (usuario de la página) ve su cartera filtrando por ese campo.
 
-## [5] Tablero de control comercial (vista) — ÚLTIMO
+## [5] Vista COMERCIAL — diseño (en curso, 2026-05-23)
 
-- Vista nueva en acaquant-web. Probable **módulo RBAC nuevo** (sumar a
-  `core/roles.py::MODULES` + `ENDPOINT_MODULE_PREFIXES` + matriz). Definir
-  quién lo ve (¿rol comercial nuevo? ¿admin/operador?).
+> Empieza **solo para manager (admin)**. Después se abre a operadores con scope.
+
+### La idea central: cruzar QUIÉN + ACTIVIDAD + TAMAÑO
+Todo joinea por `id_cuenta` (la misma clave de siempre):
+
+| Fuente | Qué aporta | Join |
+|---|---|---|
+| `Clientes.Comitentes` | QUIÉN: operador, segmentación (nivel_1..5), estado legal, clase, perfil, fecha_alta | `id_cuenta` (master) |
+| `CashFlow.NegocioMovimientos` | ACTIVIDAD: última operación, # ops, volumen, por categoría/ticker | campo `cuenta` `[id] NOMBRE` → extraer id (`_RE_ID_BRACKET`) |
+| `Valuaciones.AuM` / `ConsolidadoCuentas` | TAMAÑO: AuM por cuenta | `id_cuenta` |
+| `Manager.Users` | operador = usuario (nombre, scoping) | `operador_email` = `email` |
+
+### Dos "estados" que NO son lo mismo (distinción clave)
+- **Estado legal** (`estado` de Aunesa: Activa/baja) — administrativo.
+- **Estado comercial** (derivado de `NegocioMovimientos`) — ¿opera o no?
+  Propuesta de ciclo de vida:
+  `NUEVA` (alta reciente, nunca operó) → `ACTIVA` (operó hace ≤ N días) →
+  `ENFRIÁNDOSE` (operaba, hace N–M sin operar) → `DORMIDA` (hace > M sin operar)
+  → `BAJA` (estado legal). Umbral N/M configurable (default tentativo 30/90 días).
+  **Esto es el corazón del pedido: "saber qué cuentas están activas y cuáles no".**
+
+### Las dos lentes (lo que pediste)
+**A) Por CLIENTE** — tabla, fila = cuenta. Columnas: id · denominación · operador ·
+segmento (nivel_1) · AuM · última op · estado comercial · flujo neto del período ·
+perfil. Filtros: operador, segmento, estado comercial, clase, con/sin segmentar.
+Click → **ficha del cliente** (drill-down, abajo).
+
+**B) Por OPERADOR** — tabla, fila = operador. Columnas: # cuentas · # activas /
+dormidas · AuM total de su cartera · flujo neto captado · # operaciones del período ·
+antigüedad promedio · % cartera segmentada. Click → lente A filtrada por ese operador.
+
+### KPIs (header, responden de un vistazo)
+AuM total · cuentas activas / total · flujo neto del período · # operadores ·
+⚠️ cuentas sin operador · ⚠️ cuentas sin segmentar.
+
+### Accionables / alertas — IDEAS NUEVAS (lo que NO dijiste, valor agregado)
+- **Riesgo de churn:** cuentas que estaban activas y se enfriaron, priorizadas por
+  AuM alto → "llamá a estos antes de perderlos".
+- **Grandes sin contacto:** AuM alto + `primer_contacto_comercial` viejo/null.
+- **Onboarding incompleto:** cuentas nuevas sin segmentar (`nivel_1` null) o sin operador.
+- **Cuentas huérfanas:** AuM > 0 pero `operador_email` no existe en `Manager.Users`
+  (operador que se fue) → hay que reasignarlas.
+- **Concentración:** top cuentas que son X% del AuM de un operador (riesgo si se va una).
+
+### Comparativas / tendencia — IDEAS NUEVAS
+- **Ranking de operadores** por AuM, por activas, por flujo neto captado, por altas nuevas.
+- **Cross-tab operador × segmento** (heatmap de AuM o de # cuentas).
+- **Cohortes por `fecha_alta`** (retención: % que sigue activa según antigüedad).
+- **Tendencia de AuM por operador** (AuM ya tiene snapshots históricos → serie temporal).
+
+### Salud del master (data quality) — IDEA NUEVA
+% segmentadas · % con operador · huecos por campo. Doble función: mide la calidad
+del dato Y empuja a la mesa a completar la segmentación (que el editor CLIENTES ya permite).
+
+### Drill-down: FICHA DEL CLIENTE (combina todo)
+Header (denominación, operador, segmento, perfil, alta) · AuM actual + mini-serie
+histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto · link KYC
+(`/api/personas/datosPersona`, fase posterior). Es "el lugar donde ver al cliente".
+
+### Arquitectura propuesta
+- **Precompute (cron) `comercial_rollup`** que cruza Comitentes + última-op/volumen de
+  `NegocioMovimientos` + AuM por cuenta → colección **`Clientes.ComercialCache`**
+  (patrón `PnLTotalesCache` / `ConsolidadoCuentas`). El frontend lee eso (rápido).
+  Agregar 1770 cuentas × movimientos en cada request sería caro → precompute 1×/día
+  (o más seguido si hace falta). El estado comercial se recalcula contra "hoy".
+- **Backend:** `api/services/comercial.py` (puro) + `api/routers/comercial.py` (patrón add-endpoint).
+- **RBAC:** módulo nuevo **`comercial`** (`core/roles.py::MODULES` + `ENDPOINT_MODULE_PREFIXES` + matriz).
+  v1 = admin only. Después: rol/acceso comercial + **scope por operador** (un operador ve
+  solo su cartera filtrando `operador_email` = su email — reusar idea de `_grupos_scope`).
+- **Frontend:** vista nueva en acaquant-web (nav item "Comercial"). v1 puede vivir
+  como tab/grupo, o vista propia.
+
+### Decisiones abiertas de la vista
+- [ ] Umbrales de estado comercial (N/M días). ¿Fijos o configurables por la mesa?
+- [ ] Precompute vs on-the-fly (recomiendo precompute → `ComercialCache`).
+- [ ] Módulo RBAC `comercial` + quién lo ve en v1 (admin) y después (rol comercial / operadores con scope).
+- [ ] "Período" de los KPIs de flujo/actividad: mes corriente, 30d móvil, configurable.
+- [ ] MVP: ¿arrancamos por la **lente por operador** (resumen) o por la **tabla de clientes**?
 
 ## Decisiones abiertas (las vamos cerrando)
 
@@ -238,3 +313,15 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
   ya estaba poblado (manuales en null), migrar docs existentes con `$rename`
   + `$set null` (Mongo Shell, ver pasos). Backfill por CSV EN PAUSA hasta que
   el usuario tenga el archivo.
+- **2026-05-23** — Arranca el diseño de **[5] la vista COMERCIAL** (solo manager
+  por ahora). Idea central: cruzar QUIÉN (`Clientes.Comitentes`: operador +
+  segmentación) + ACTIVIDAD (`NegocioMovimientos`: última op, volumen) + TAMAÑO
+  (`AuM`), todo por `id_cuenta`. Definido el concepto de **estado comercial**
+  (distinto del legal): NUEVA→ACTIVA→ENFRIÁNDOSE→DORMIDA→BAJA por umbral de días
+  sin operar — el corazón del "qué cuentas están activas". Dos lentes: por cliente
+  y por operador. Documentadas ideas nuevas (churn, grandes sin contacto, cuentas
+  huérfanas, concentración, ranking de operadores, cohortes, salud del master,
+  ficha de cliente). Arquitectura propuesta: precompute `comercial_rollup` →
+  `Clientes.ComercialCache`, módulo RBAC `comercial`, scope por operador.
+  Pendiente del usuario: cerrar decisiones abiertas + elegir MVP (lente operador
+  vs tabla clientes).

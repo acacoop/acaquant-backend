@@ -8,8 +8,8 @@
 ## Topología — cómo se conecta todo
 
 ```
-   PC oficina                pyRofex (broker ROFEX/MAE)
-   mae_forex.py ─┐            │ WS market data    ▲ envío/cancel órdenes
+   mae_forex.py              pyRofex (broker ROFEX/MAE)
+   ⚠️ MANUAL ────┐            │ WS market data    ▲ envío/cancel órdenes
    (dólar MAE)   │            ▼                   │
                  │  ┌──── motores de mercado ───┐ │
                  │  │ rofex, options, curvas, … │ │   (motor_ordenes escucha
@@ -105,11 +105,12 @@
 > `jobs.aum_resumen_fci`, etc.) se corren a mano y NO aparecen. Helpers
 > (`jobs._*`, `aunesa_client`, `dias_habiles`) son librerías, no procesos.
 
-## Componentes FUERA del Droplet (no en systemd/cron)
-- **PC oficina — `mae_forex.py`**: feed live del dólar mayorista MAE (UST$T
-  plazo 000) → escribe `Valuaciones.DolarOficialLive`. **No corre en el
-  Droplet.** Si se cae, el TC dólar-linked (`motor_curvas`, `futuros_dlr`,
-  `/argy`, `macro`) se queda sin spot.
+## Componentes que NO están en systemd/cron
+- **`mae_forex.py` — ⚠️ MANUAL (alguien le tiene que dar play):** feed live del
+  dólar mayorista MAE (UST$T plazo 000) → escribe `Valuaciones.DolarOficialLive`.
+  **No está automatizado** (ni systemd ni cron). Si nadie lo arranca, el TC
+  dólar-linked (`motor_curvas`, `futuros_dlr`, `/argy`, `macro`) se queda con el
+  dólar viejo. Es el único proceso del sistema que depende de que un humano lo prenda.
 - **acaquant-web (Vercel)**: frontend Next.js, deploy auto sobre `main`. Sin crons propios.
 - **MongoDB Atlas (M10)**: la base. Se pausa 04:00 / resume 11:20 UTC (cron `atlas_cluster.sh`).
 - **Cloudflare Access**: gate de identidad (quién entra). **nginx** (Droplet): reverse proxy `api`→:8000, `partner_api`→:8100.

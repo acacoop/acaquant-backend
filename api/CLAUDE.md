@@ -55,9 +55,17 @@ manager`.
 
 | Módulo | admin | trader | sales |
 |---|---|---|---|
-| home / renta-fija / derivados / renta-variable / estrategia / operar | ✓ | ✓ | ✓ |
+| home / renta-fija / derivados / renta-variable / estrategia | ✓ | ✓ | ✓ |
 | operaciones / portfolios / asistente | ✓ | ✓ | – |
+| operar (envío/cancel de órdenes) | ✓ | – | – |
 | manager | ✓ | – | – |
+
+`operar` es admin-only en `DEFAULT_MATRIX` (decisión 2026-05-17) y `sales` se
+sacó de la matriz viva el 2026-05-23 (`scripts/quitar_operar_sales.py`).
+**OJO**: `Manager.RoleMatrix` (Mongo) PISA el default — el enforcement real
+es lo que esté ahí, editable desde `/manager → ROLES Y PERMISOS`. Además del
+gate de módulo, los endpoints de órdenes aplican scope de cuenta por grupo
+(`verificar_account`, ver `api/services/_grupos_scope.py`).
 
 `renta-variable` (Scanner CEDEARs sobre `Trading.CedearsSnapshot` +
 `Trading.PreciosAcciones`) está abierto a los 3 roles desde 2026-05-13.

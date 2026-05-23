@@ -26,10 +26,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
-from api.services.order_book import get_order_book
+from api.services._grupos_scope import scope_cuentas, verificar_account
 from api.services.ordenes import send_order
+from api.services.order_book import get_order_book
 from core.adhoc_subscriptions import bump_last_used, subscribe
-from core.brackets import create_bracket, ensure_indexes, list_dia as list_brackets_dia
+from core.brackets import create_bracket, ensure_indexes
+from core.brackets import list_dia as list_brackets_dia
 from core.mongo import get_mongo_client_read
 
 logger = logging.getLogger("api.operar")
@@ -131,6 +133,7 @@ class BracketIn(BaseModel):
 def crear_bracket(
     data: BracketIn,
     email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Manda la orden de ENTRADA al broker; si la acepta, persiste el
     bracket. El motor_ordenes, al recibir el ER de FILL de la entrada,
@@ -139,6 +142,7 @@ def crear_bracket(
     Si la entrada se rechaza al envío, no se persiste bracket y se
     devuelve el error tal cual lo devolvió send_order.
     """
+    verificar_account(data.account, scope)
     try:
         ensure_indexes()
     except Exception as e:
@@ -206,6 +210,8 @@ def crear_bracket(
 def brackets_dia(
     account: str | None = Query(None),
     _email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> list[dict[str, Any]]:
     """Lista de brackets — todos los estados, ordenados por created_at desc."""
+    verificar_account(account, scope)
     return list_brackets_dia(account=account)

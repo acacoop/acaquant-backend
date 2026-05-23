@@ -52,6 +52,25 @@ def verificar_id_cuenta(
     return id_cuenta
 
 
+def verificar_account(account: str | None, scope: tuple[str, ...] | None) -> None:
+    """403/400 si `account` no está en el scope. No-op si `scope` es None.
+
+    Para endpoints de ÓRdenes (`/api/ordenes*`), donde `account` es el id
+    comitente crudo (mismo espacio que `Grupos.id_cuentas`), no el string
+    bracketed de operaciones. Un user scopeado DEBE pasar su cuenta explícita
+    (no puede caer al default del .env, que puede no ser suya) → 400 si la
+    omite. Admin / sin-grupo (`scope=None`) no se ve afectado."""
+    if scope is None:
+        return
+    if account is None:
+        raise HTTPException(
+            status_code=400,
+            detail="especificá la cuenta: tu usuario está scopeado a cuentas concretas",
+        )
+    if str(account) not in set(scope):
+        raise HTTPException(status_code=403, detail="no tenés acceso a esa cuenta")
+
+
 def filtrar_rows(
     rows: list[dict],
     scope: tuple[str, ...] | None,

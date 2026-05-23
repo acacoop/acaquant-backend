@@ -160,6 +160,16 @@ def crear_trigger(
     return {"ok": True, "trigger_id": trigger_id, "estado": "ACTIVE"}
 
 
+def get_trigger(trigger_id: str) -> dict[str, Any] | None:
+    """Lee un trigger por id (doc completo, sin `_id`). None si no existe.
+
+    Pensado para que el router pueda verificar el `account` del trigger
+    contra el scope del usuario antes de cancelarlo, sin tocar Mongo desde
+    la capa HTTP."""
+    db = get_mongo_client()[DB_OPS]
+    return db[COL_TRIGGERS].find_one({"trigger_id": trigger_id}, {"_id": 0})
+
+
 def cancelar_trigger(trigger_id: str, *, actor_email: str | None = None) -> dict[str, Any]:
     """Cancela un trigger en estado ACTIVE o WAITING_EXIT.
 

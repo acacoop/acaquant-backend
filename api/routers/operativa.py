@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
+from api.services._grupos_scope import scope_cuentas, verificar_account
 from api.services.operativa_mep import (
     crear_operativa,
     crear_operativa_venta,
@@ -26,6 +27,7 @@ from api.services.operativa_mep import (
 from api.services.triggers_mep import (
     cancelar_trigger,
     crear_trigger,
+    get_trigger,
     listar_triggers_dia,
 )
 
@@ -78,9 +80,11 @@ def timesales_mep(
 def crear_mep(
     data: MepIn,
     email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Lanza BUY AL30 + SELL AL30D MARKET y persiste el wrapper en
     Operaciones.OperativasMep. Si la BUY rechaza, no se manda la SELL."""
+    verificar_account(data.account, scope)
     try:
         return crear_operativa(
             monto_ars=data.monto_ars,
@@ -100,10 +104,12 @@ def crear_mep(
 def crear_mep_venta(
     data: MepVentaIn,
     email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Inverso de POST /mep: USD → ARS. Lanza BUY AL30D + SELL AL30
     MARKET para recomprar el AL30D que estaba short y vender el AL30
     largo, recibiendo pesos."""
+    verificar_account(data.account, scope)
     try:
         return crear_operativa_venta(
             monto_usd=data.monto_usd,
@@ -123,8 +129,10 @@ def crear_mep_venta(
 def listar_dia(
     account: str | None = None,
     _email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> list[dict]:
     """Operativas MEP del día UTC, con join a OrdenesLive + USD/MEP efectivo."""
+    verificar_account(account, scope)
     return listar_operativas_dia(account=account)
 
 
@@ -132,12 +140,14 @@ def listar_dia(
 def detalle_operativa(
     operativa_id: str,
     _email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Drilldown de una operativa MEP: doc completo + 2 patas con sus
     OrdenesLive y timeline de execution reports + REST snapshots."""
     detalle = obtener_detalle_operativa(operativa_id)
     if detalle is None:
         raise HTTPException(status_code=404, detail=f"operativa {operativa_id!r} no existe")
+    verificar_account(detalle.get("account"), scope)
     return detalle
 
 
@@ -161,11 +171,13 @@ class TriggerIn(BaseModel):
 def crear_trigger_mep(
     data: TriggerIn,
     email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Crea un trigger ACTIVE. El scanner lo monitorea cada 1s y dispara
     la operativa cuando se cumple tc_objetivo. Si hay tp/sl, después de
     la entry pasa a WAITING_EXIT y monitorea esos precios. Auto-cancela
     todo trigger vivo (ACTIVE o WAITING_EXIT) a las 19:50 UTC."""
+    verificar_account(data.account, scope)
     try:
         return crear_trigger(
             monto_ars=data.monto_ars,
@@ -188,8 +200,14 @@ def crear_trigger_mep(
 def cancelar_trigger_mep(
     trigger_id: str,
     email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Cancela un trigger ACTIVE. No-op si ya disparó / fue cancelado."""
+    if scope is not None:
+        trig = get_trigger(trigger_id)
+        if trig is None:
+            raise HTTPException(status_code=404, detail="trigger no encontrado")
+        verificar_account(trig.get("account"), scope)
     try:
         return cancelar_trigger(trigger_id, actor_email=email)
     except Exception as e:
@@ -201,6 +219,8 @@ def cancelar_trigger_mep(
 def listar_triggers(
     account: str | None = None,
     _email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> list[dict]:
     """Triggers creados hoy (UTC), todos los estados."""
+    verificar_account(account, scope)
     return listar_triggers_dia(account=account)

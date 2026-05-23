@@ -1,8 +1,11 @@
 """Router /api/ordenes — envío/cancel/listado de órdenes contra ROFEX (LIVE).
 
-El gate RBAC se aplica en `api/main.py` vía `_OPERACIONES` (admin+trader).
-Acá solo agregamos `Depends(get_user_email)` por endpoint para registrar
-el actor en el audit log de Mongo.
+El gate RBAC de MÓDULO se aplica en `api/main.py` vía `_OPERAR` (admin/
+trader/sales tienen `operar`). Además, cada endpoint que toca una cuenta
+aplica SCOPE de grupos (`verificar_account`): un user scopeado solo opera/
+cancela/ve órdenes de sus cuentas; admin / sin-grupo (`scope=None`) opera
+todo. El scope es no-op hasta que el admin cree grupos en /manager.
+`Depends(get_user_email)` registra el actor en el audit log de Mongo.
 
 Endpoints:
   POST   /api/ordenes              → envía (LIMIT|MARKET, BUY|SELL, DAY|IOC|FOK|GTC)
@@ -23,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
+from api.services._grupos_scope import scope_cuentas, verificar_account
 from api.services.ordenes import (
     cancel_order,
     get_fci_quote,
@@ -52,6 +56,7 @@ class OrdenIn(BaseModel):
 def enviar(
     data: OrdenIn,
     email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Envía la orden via REST y persiste request + respuesta en Mongo.
 
@@ -59,6 +64,7 @@ def enviar(
     broker rechaza, `ok=False` y status indica si fue local (validación)
     o broker (rechazo del broker).
     """
+    verificar_account(data.account, scope)
     try:
         return send_order(
             ticker=data.ticker,
@@ -85,9 +91,18 @@ def cancelar(
         description="Opcional — para cancelar órdenes external (vinieron solo del broker, no de nuestra app)",
     ),
     email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Pide cancelación al broker. El estado real llega vía order_report
     al motor de órdenes — acá solo registramos el intento."""
+    if scope is not None:
+        # Resolver la cuenta de la orden y verificar que sea del scope antes
+        # de cancelar (no alcanza el cl_ord_id: un user scopeado no puede
+        # cancelar órdenes de cuentas ajenas).
+        doc = get_order_status(cl_ord_id)
+        if doc is None:
+            raise HTTPException(status_code=404, detail="orden no encontrada")
+        verificar_account(doc.get("account"), scope)
     try:
         return cancel_order(cl_ord_id, actor_email=email, proprietary=proprietary)
     except Exception as e:
@@ -102,10 +117,12 @@ def listar_dia(
         description="ID de cuenta a filtrar; si se omite usa la cuenta default del .env",
     ),
     _email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> list[dict]:
     """Órdenes del día UTC actual. Filtrable por cuenta — el Dashboard
     de Operar manda la cuenta seleccionada en el toolbar, así no muestra
     las del default cuando estás operando en otra."""
+    verificar_account(account, scope)
     return list_orders_dia(account=account)
 
 
@@ -157,9 +174,11 @@ def cotizar_fci(
 def enviar_fci(
     data: FciOrdenIn,
     email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Suscripción (BUY) / rescate (SELL) de un FCI. Orden LIMIT @ cuota del
     día, cantidad en cuotapartes (convertida desde importe si corresponde)."""
+    verificar_account(data.account, scope)
     try:
         return send_fci_order(
             ticker=data.ticker,
@@ -180,9 +199,11 @@ def enviar_fci(
 def status(
     cl_ord_id: str,
     _email: str = Depends(get_user_email),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Estado actual de una orden (lo mantiene el motor con cada ER)."""
     doc = get_order_status(cl_ord_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="orden no encontrada")
+    verificar_account(doc.get("account"), scope)
     return doc

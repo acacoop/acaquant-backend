@@ -24,12 +24,6 @@ from api.services.operativa_mep import (
     obtener_detalle_operativa,
     serie_mep_minuto,
 )
-from api.services.triggers_mep import (
-    cancelar_trigger,
-    crear_trigger,
-    get_trigger,
-    listar_triggers_dia,
-)
 
 router = APIRouter(prefix="/api/operativa", tags=["operativa"])
 logger = logging.getLogger("api.operativa")
@@ -149,78 +143,3 @@ def detalle_operativa(
         raise HTTPException(status_code=404, detail=f"operativa {operativa_id!r} no existe")
     verificar_account(detalle.get("account"), scope)
     return detalle
-
-
-# ── Triggers (operativas condicionales que esperan MEP <= objetivo) ──
-
-
-class TriggerIn(BaseModel):
-    monto_ars: float = Field(..., gt=0)
-    comision_pct: float = Field(0.62, ge=0, le=5)
-    rueda: Literal["CI", "24hs"] = "CI"
-    tc_objetivo: float = Field(..., gt=0,
-                               description="Disparar compra cuando MEP <= este valor")
-    tp_objetivo: float | None = Field(None, gt=0,
-                                      description="Take profit: vender cuando MEP >= esto. Opcional.")
-    sl_objetivo: float | None = Field(None, gt=0,
-                                      description="Stop loss: vender cuando MEP <= esto. Opcional.")
-    account: str | None = None
-
-
-@router.post("/mep/trigger")
-def crear_trigger_mep(
-    data: TriggerIn,
-    email: str = Depends(get_user_email),
-    scope: tuple[str, ...] | None = Depends(scope_cuentas),
-) -> dict[str, Any]:
-    """Crea un trigger ACTIVE. El scanner lo monitorea cada 1s y dispara
-    la operativa cuando se cumple tc_objetivo. Si hay tp/sl, después de
-    la entry pasa a WAITING_EXIT y monitorea esos precios. Auto-cancela
-    todo trigger vivo (ACTIVE o WAITING_EXIT) a las 19:50 UTC."""
-    verificar_account(data.account, scope)
-    try:
-        return crear_trigger(
-            monto_ars=data.monto_ars,
-            comision_pct=data.comision_pct,
-            rueda=data.rueda,
-            tc_objetivo=data.tc_objetivo,
-            tp_objetivo=data.tp_objetivo,
-            sl_objetivo=data.sl_objetivo,
-            account=data.account,
-            actor_email=email,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:
-        logger.exception("crear_trigger_mep failed (email=%s)", email)
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.delete("/mep/trigger/{trigger_id}")
-def cancelar_trigger_mep(
-    trigger_id: str,
-    email: str = Depends(get_user_email),
-    scope: tuple[str, ...] | None = Depends(scope_cuentas),
-) -> dict[str, Any]:
-    """Cancela un trigger ACTIVE. No-op si ya disparó / fue cancelado."""
-    if scope is not None:
-        trig = get_trigger(trigger_id)
-        if trig is None:
-            raise HTTPException(status_code=404, detail="trigger no encontrado")
-        verificar_account(trig.get("account"), scope)
-    try:
-        return cancelar_trigger(trigger_id, actor_email=email)
-    except Exception as e:
-        logger.exception("cancelar_trigger_mep failed (id=%s)", trigger_id)
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.get("/mep/triggers/dia")
-def listar_triggers(
-    account: str | None = None,
-    _email: str = Depends(get_user_email),
-    scope: tuple[str, ...] | None = Depends(scope_cuentas),
-) -> list[dict]:
-    """Triggers creados hoy (UTC), todos los estados."""
-    verificar_account(account, scope)
-    return listar_triggers_dia(account=account)

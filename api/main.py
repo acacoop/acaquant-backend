@@ -115,14 +115,7 @@ async def lifespan(_app: FastAPI):
 
     sampler_task = asyncio.create_task(manager_resources.resources_sampler_loop(interval_s=60))
 
-    # Scanner de triggers MEP — evalúa cada 1s los triggers ACTIVE en
-    # Operaciones.TriggersMep y dispara crear_operativa cuando se cumple
-    # la condición tc_objetivo. Auto-cancela todo trigger vivo a las
-    # 19:50 UTC (16:50 ART, 10 min antes del cierre).
-    from api.services.triggers_mep import scanner_loop as _triggers_scanner
-    triggers_task = asyncio.create_task(_triggers_scanner(interval_s=1.0))
-
-    background_tasks = [sampler_task, triggers_task]
+    background_tasks = [sampler_task]
 
     async def _shutdown_bg():
         for t in background_tasks:

@@ -1,0 +1,119 @@
+# SISTEMA — plano único de TradingAV
+
+> **Fuente de verdad del sistema corriendo.** Las tablas de inventario se
+> AUTO-GENERAN desde `deploy/systemd/*.service` + `deploy/crontab.txt` con
+> `python -m scripts.gen_sistema` (no editar a mano entre los marcadores
+> AUTOGEN). La narrativa (topología, flujo, bases) se mantiene a mano.
+
+## Topología — cómo se conecta todo
+
+```
+                       pyRofex (broker ROFEX/MAE)
+                          │  WS market data         ▲ envío/cancel órdenes
+                          ▼                         │
+   ┌──────────── motores de mercado ───────────┐    │
+   │ rofex, options, curvas, forwards, …        │    │
+   │  (L-V 13–20 UTC, escriben a Mongo)         │    │
+   └───────────────────┬────────────────────────┘    │
+                        ▼                             │
+                 MongoDB Atlas (M10) ◄── crons (jobs.*: aum, bcra, …)
+                        ▲                             │
+                        │ lee                         │
+                  api.service (:8000) ────────────────┘
+                        ▲   (FastAPI, internet-facing vía Cloudflare)
+                        │ HTTP
+                acaquant-web (Vercel) ── trading.acaquant.com
+
+  motor_ordenes (:WS) escucha order_report → persiste OrdenesLive
+  partner_api (:8100) → ACAPortfolio.Cartera → data.acaquant.com
+```
+
+## Servicios always-on
+<!-- AUTOGEN:servicios -->
+| Servicio | Puerto | Target | Qué hace |
+|---|---|---|---|
+| `api` | 8000 | `api.main:app` (uvicorn) | TradingAV API (FastAPI + uvicorn) |
+| `partner_api` | 8100 | `partner_api.main:app` (uvicorn) | Acaquant Partner API (servicio externo de datos de portfolio) |
+<!-- /AUTOGEN:servicios -->
+
+## Motores de mercado (cron start/stop L-V)
+<!-- AUTOGEN:motores -->
+| Servicio | Horario | Target | Qué hace |
+|---|---|---|---|
+| `motor_agro` | 13:00–20:05 L-V | `engines.motor_agro` | Motor Futuros Agro - Trigo/Maiz/Soja Rosario (FXXXSX) |
+| `motor_agro_opciones` | 13:00–20:05 L-V | `engines.motor_agro_opciones` | Motor Opciones Agro - Trigo/Maiz/Soja Rosario (OCAFXS/OPAFXS) |
+| `motor_breakevens` | 13:00–20:05 L-V | `engines.breakevens` | Motor Breakevens - Inflacion implicita CER/Lecap en tiempo real |
+| `motor_caucion` | 13:00–20:05 L-V | `engines.caucion` | Motor Caucion - TNA caucion ARS y USD a corto plazo (1D, viernes 3D) |
+| `motor_cedears` | 13:00–20:05 L-V | `engines.motor_cedears` | Motor CEDEARs - TradingAV |
+| `motor_curvas` | 13:00–20:05 L-V | `engines.curvas` | Motor Curvas - Enriquecimiento TEA/Duration TimeSales |
+| `motor_dolares` | 13:00–20:05 L-V | `engines.dolares` | Motor Dolares - MEP/CCL/canje en tiempo real (WS) |
+| `motor_forwards` | 13:00–20:05 L-V | `engines.forwards` | Motor Forwards - Tasas forward en tiempo real |
+| `motor_futuros_dlr` | 13:00–20:05 L-V | `engines.futuros_dlr` | Motor Futuros DLR - Curva outright Dolar A3500 con tasa implicita |
+| `motor_options` | 13:00–20:05 L-V | `engines.options` | Motor Opciones GGAL - TradingAV |
+| `motor_ordenes` | 13:30–20:05 L-V | `engines.motor_ordenes` | Motor Ordenes - escucha order_report y persiste OrdenesLive/Audit |
+| `motor_portfolio_snapshot` | 13:00–20:05 L-V | `engines.portfolio_snapshot` | Motor de captura del último precio para tickers de tenencia (Trading.PortfolioSnapshot) |
+| `motor_rofex` | 13:00–20:05 L-V | `engines.valores` | Motor de Captura Rofex a MongoDB (main_valores) |
+<!-- /AUTOGEN:motores -->
+
+## Jobs / crons (batch)
+<!-- AUTOGEN:crons -->
+| Horario | Módulo(s) |
+|---|---|
+| cada hora · 13-21h · L-V | `jobs.market_quotes` |
+| cada 15min · 12-23h · diario | `jobs.news_ingesta` |
+| cada 15min · 13-20h · L-V | `jobs.adr_live` |
+| cada 15min · 13-20h · L-V | `engines.dolar_mep` |
+| cada 30min · 12-23h · diario | `jobs.news_finnhub` |
+| 12:00 · diario | `jobs.argentina_datos` |
+| 14:00 · L-V | `jobs.sync_comitentes` |
+| 15:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
+| cada hora · 15-22h · L-V | `jobs.negocio_movimientos` |
+| 17:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
+| 17:00 · L-V | `jobs.sync_comitentes` |
+| 02:00 · Mar-Sáb | `jobs.cashflow` + `jobs.sync_api_copies` |
+| 02:00 · Mar-Sáb | `jobs.partner_export` |
+| 20:00 · L-V | `jobs.volatilidad_ggal` |
+| 21:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
+| 21:00 · L-V | `jobs.sync_comitentes` |
+| 22:00 · L-V | `jobs.precios_acciones_daily` |
+| 22:00 · L-V | `jobs.flujo_contrapartes` + `jobs.sync_api_copies` |
+| 22:00 · L-V | `jobs.bcra` |
+| 22:00 · L-V | `jobs.market_anchors` |
+| 23:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
+| 20:15 · L-V | `jobs.options_rollup` |
+| 11:25 · diario | `jobs.news_ingesta` |
+| 11:25 · diario | `jobs.news_finnhub` |
+| 20:25 · L-V | `jobs.snapshot_cierre` + `jobs.fair_value` |
+| 11:30 · diario | `jobs.economic_calendar` |
+| 11:30 · L-V | `jobs.descubrir_cuentas` |
+| 12:30 · L-V | `jobs.cleanup_curvas` |
+| 12:30 · L-V | `jobs.cleanup_futuros_dlr` |
+| 18:30 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
+| 20:30 · L-V | `jobs.forwards_zscore` |
+| 21:30 · L-V | `jobs.partner_export` |
+| 23:30 · L-V | `jobs.consolidado_cuentas` |
+| cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute` |
+<!-- /AUTOGEN:crons -->
+
+> Solo lista lo que está **agendado** en `crontab.txt`. Los jobs manuales /
+> on-demand (backfills, archival, `jobs.*backfill*`, `jobs.aum_resumen_fci`,
+> etc.) NO aparecen acá — se corren a mano. Helpers (`jobs._*`, `aunesa_client`,
+> `dias_habiles`) tampoco: son librerías, no procesos.
+
+## Bases de datos (quién escribe qué)
+*(narrativa a mano — completar/ajustar según evolucione)*
+- **`Trading`** — motores de mercado (MarketSnapshot, Curvas, TimeSales, OrderBookL2, DOLAR, SnapshotsCierre, CedearsSnapshot, PreciosAcciones).
+- **`Valuaciones`** — `jobs.aum` (AuM, Assets), PnL precompute, DolarOficialLive.
+- **`CashFlow`** — `jobs.cashflow`, `jobs.flujo_contrapartes`, `jobs.negocio_movimientos`.
+- **`Manager`** — Users, RoleMatrix, Grupos, JobRuns, OrdenesIdempotency.
+- **`Operaciones`** — `motor_ordenes` (OrdenesLive/Audit), OperativasMep.
+- **`CuentasAPI` / `*API`** — copias derivadas (`jobs.sync_api_copies`).
+- **`ACAPortfolio`** — `partner_api` (Cartera).
+
+## Cómo se opera
+- Servicios: `systemctl {start|stop|restart|status} <servicio>`; logs `journalctl -u <servicio>`.
+- Los motores los prende/apaga el **cron** (fuente: `deploy/crontab.txt`); no arrancarlos a mano fuera de horario (ver RUNBOOK: pausa de Atlas).
+- Deploy backend: `git pull` + `systemctl restart api.service`. Frontend: push → Vercel.
+- Atlas resume diario ~11:20 UTC (`deploy/atlas_cluster.sh`).
+
+> Diagnóstico de incidentes: `docs/RUNBOOK.md` · Secretos: `docs/SECRETS.md`.

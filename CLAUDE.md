@@ -58,6 +58,23 @@ deploy/      # systemd + crontab.txt (fuente de verdad)
 docs/        # API.md, API_MIGRATIONS.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md (wip_*.md = scratch, no canónico)
 ```
 
+## Plano del sistema — `deploy/SISTEMA.md`
+
+Fuente de verdad de TODO lo que corre: servicios systemd, motores, crons y
+cómo se conectan. **Si agregás / quitás / modificás un servicio systemd o un
+cron** (tocás `deploy/systemd/*.service` o `deploy/crontab.txt`), en el MISMO
+cambio regenerá el plano:
+
+```bash
+python -m scripts.gen_sistema          # regenera las tablas (no editar a mano entre marcadores AUTOGEN)
+python -m scripts.gen_sistema --check  # falla si SISTEMA.md quedó desincronizado
+```
+
+El inventario (servicios/motores/crons) es auto-generado desde la fuente
+real → no puede mentir. La narrativa (topología, flujo de datos, bases) se
+mantiene a mano. Si cambió cómo se conectan los servicios, actualizá esa
+parte también. Skill: `/sistema`.
+
 ## Comandos
 
 ```bash

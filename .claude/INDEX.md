@@ -17,6 +17,7 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 | `/perf` | `scripts.perf_scan --strict` + resumen de findings por código PERF001…4. |
 | `/motor-status` | Estado systemd + última actividad Mongo de los motores. |
 | `/deploy` | Push a main + pull + `systemctl restart api.service` en el Droplet. |
+| `/sistema` | Regenera + muestra el plano único del sistema (`deploy/SISTEMA.md`) desde systemd + crontab. |
 
 ## Skills (procedimientos — Claude los aplica cuando la tarea matchea)
 
@@ -41,6 +42,7 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 |---|---|
 | PreToolUse · `git push` | `check_imports.sh` — corre `from api.main import app` y **BLOQUEA** el push si no importa (enforcement de la REGLA #1). |
 | PostToolUse · `Write\|Edit` | `ruff_check.sh` — `ruff check` sobre el `.py` editado, informativo (no bloquea). |
+| PostToolUse · `Write\|Edit` | `sistema_drift.sh` — si tocaste `deploy/systemd/*` o `crontab.txt`, avisa si `deploy/SISTEMA.md` quedó desincronizado (corré `/sistema`). |
 
 ## settings
 

@@ -35,6 +35,11 @@
             "type": "command",
             "command": "bash .claude/hooks/ruff_check.sh",
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/sistema_drift.sh",
+            "timeout": 20
           }
         ]
       }

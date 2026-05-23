@@ -708,6 +708,29 @@ def send_fci_order(
     amount_mode: str = "cuotapartes",
     account: str | None = None,
     actor_email: str | None = None,
+    client_order_id: str | None = None,
+) -> dict[str, Any]:
+    """Suscripción/rescate de FCI con idempotencia opcional. Mismo patrón que
+    send_order: clave repetida → no manda otra; sin clave → idéntico."""
+    from api.services._idempotencia import ejecutar_idempotente
+
+    return ejecutar_idempotente(
+        client_order_id,
+        lambda: _send_fci_order_impl(
+            ticker=ticker, side=side, amount=amount, amount_mode=amount_mode,
+            account=account, actor_email=actor_email,
+        ),
+    )
+
+
+def _send_fci_order_impl(
+    *,
+    ticker: str,
+    side: str,
+    amount: float,
+    amount_mode: str = "cuotapartes",
+    account: str | None = None,
+    actor_email: str | None = None,
 ) -> dict[str, Any]:
     """Suscripción (BUY) / rescate (SELL) de un FCI.
 

@@ -152,6 +152,9 @@ class FciOrdenIn(BaseModel):
     amount: float = Field(..., gt=0, description="Importe o cuotapartes según amount_mode")
     amount_mode: Literal["cuotapartes", "importe"] = "cuotapartes"
     account: str | None = Field(None, description="Si None, usa la del .env")
+    client_order_id: str | None = Field(
+        None, description="Clave de idempotencia opcional (anti doble suscripción/rescate).",
+    )
 
 
 @router.get("/fci/search")
@@ -193,6 +196,7 @@ def enviar_fci(
             amount_mode=data.amount_mode,
             account=data.account,
             actor_email=email,
+            client_order_id=data.client_order_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

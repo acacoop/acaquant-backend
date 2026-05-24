@@ -761,3 +761,13 @@ def comercial_portafolio(
     """Tenencia del cliente (posiciones de AuM, último snapshot)."""
     from api.services.comercial import portafolio_cliente
     return portafolio_cliente(id_cuenta=id_cuenta)
+
+
+@router.get("/comercial/operaciones")
+def comercial_operaciones(
+    id_cuenta: str = Query(..., description="id de la cuenta comitente"),
+    limite: int = Query(300, ge=1, le=1000),
+) -> dict:
+    """Operaciones recientes del cliente (boletos operativos, fecha desc)."""
+    from api.services.comercial import operaciones_cliente
+    return operaciones_cliente(id_cuenta=id_cuenta, limite=limite)

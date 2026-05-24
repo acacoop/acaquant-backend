@@ -80,6 +80,13 @@ _CATS_VOLUMEN = (
     "caucion_tom_ap", "caucion_col_ap",
 )
 
+# Categorías "operativas" para la tab Operaciones del cliente (lo que operó):
+# = volumen + rescates de FCI. Excluye comisiones/acreencias/administrativos.
+_CATS_OPERACIONES = (
+    *_CATS_VOLUMEN,
+    "rescate_fci", "solicitud_rescate_fci",
+)
+
 
 def _hoy_art() -> date:
     """Fecha de hoy en horario Argentina (UTC-3) para MTD/YTD calendario."""
@@ -295,6 +302,34 @@ def portafolio_cliente(*, id_cuenta: str) -> dict[str, Any]:
         "total": round(total, 2),
         "posiciones": posiciones,
     }
+
+
+_OP_PROJ = {
+    "_id": 0, "fecha": 1, "comprobante": 1, "categoria": 1, "op": 1,
+    "ticker": 1, "cantidad": 1, "precio": 1, "importe": 1, "moneda": 1, "plazo": 1,
+}
+
+
+@cached(ttl=300)
+def operaciones_cliente(*, id_cuenta: str, limite: int = 300) -> dict[str, Any]:
+    """Operaciones del cliente (boletos operativos), recientes primero.
+
+    Misma fuente que el volumen (`CashFlow.NegocioMovimientos`), scopeada a la
+    cuenta por el id bracketed. Solo categorías de `_CATS_OPERACIONES`
+    (compra/venta/FCI/cauciones). Límite por defecto 300, orden fecha desc.
+    """
+    from api.services._grupos_scope import scope_cuenta_match
+    match: dict[str, Any] = {"categoria": {"$in": list(_CATS_OPERACIONES)}}
+    sub = scope_cuenta_match((str(id_cuenta),))
+    if sub:
+        match.update(sub)
+    rows = list(
+        get_db_cashflow()["NegocioMovimientos"]
+        .find(match, _OP_PROJ)
+        .sort([("fecha", -1), ("comprobante", -1)])
+        .limit(int(limite))
+    )
+    return {"id_cuenta": str(id_cuenta), "n": len(rows), "operaciones": rows}
 
 
 @cached(ttl=300)

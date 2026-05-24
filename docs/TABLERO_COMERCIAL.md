@@ -375,3 +375,12 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   de rango 1W/1M/3M/6M/YTD/1A/ALL con pan ◀▶. Todo client-side (la serie ya viene
   completa). Agregación metric-aware: volumen suma por bucket, AuM toma el último
   del bucket. Sin "Foco día" (es de las barras de NEGOCIO, no aplica a la línea).
+- **2026-05-24 (v4)** — Selector de operador movido a la **barra de tabs** de
+  OPERACIONES (margen sup. derecho, solo en COMERCIAL): estado sube a
+  `operaciones-view.tsx`, llega a la vista como prop `operador`. El panel de
+  **Portafolio** pasa a tener **tabs Tenencia / Operaciones**: nueva
+  `operaciones_cliente(id_cuenta, limite=300)` → boletos operativos del cliente
+  (`_CATS_OPERACIONES` = volumen + rescates FCI), recientes primero, desde
+  `CashFlow.NegocioMovimientos` scopeado por id bracketed. Endpoint
+  `/comercial/operaciones`. Columnas: fecha · categoría · ticker · cant · precio ·
+  importe (u$s si USD). Así el operador ve qué operó el cliente.

@@ -355,23 +355,17 @@ def analisis_comercial(
     aum = _aum_por_cuenta(ids)
     mov = get_db_cashflow()["NegocioMovimientos"]
     cats = list(_CATS_OPERACIONES)
-    desde = (hoy - timedelta(days=dias_dormida)).isoformat()
+    year_start = date(hoy.year, 1, 1).isoformat()
 
-    # Última op (operativa) por cuenta dentro de la ventana reciente.
+    # Última operación (operativa) EVER por cuenta — sin ventana. De acá salen:
+    # estado comercial, días reales sin operar y si operó en el año en curso.
     ult_op: dict[str, str] = {}
     for d in mov.aggregate([
-        {"$match": {"id_cuenta": {"$in": list(ids)}, "categoria": {"$in": cats},
-                    "fecha": {"$gte": desde}}},
+        {"$match": {"id_cuenta": {"$in": list(ids)}, "categoria": {"$in": cats}}},
         {"$group": {"_id": "$id_cuenta", "ult": {"$max": "$fecha"}}},
     ]):
         if d.get("_id") and d.get("ult"):
             ult_op[str(d["_id"])] = d["ult"][:10]
-
-    # ¿Operó alguna vez? (operativa, sin ventana).
-    opero = {
-        str(c) for c in mov.distinct("id_cuenta", {"id_cuenta": {"$in": list(ids)}, "categoria": {"$in": cats}})
-        if c
-    }
 
     detalle: dict[str, dict[str, Any]] = {
         str(d["id_cuenta"]): d
@@ -385,7 +379,9 @@ def analisis_comercial(
     for idc in ids:
         ult = ult_op.get(idc)
         dias = (hoy - date.fromisoformat(ult)).days if ult else None
-        est = estado_comercial(dias, idc in opero, dias_activa, dias_dormida)
+        # estado usa la ventana: días si entra en dias_dormida, si no None (→ DORMIDA).
+        dias_win = dias if (dias is not None and dias <= dias_dormida) else None
+        est = estado_comercial(dias_win, ult is not None, dias_activa, dias_dormida)
         f = detalle.get(idc, {})
         clientes.append({
             "id_cuenta": idc,
@@ -394,6 +390,7 @@ def analisis_comercial(
             "ultima_op": ult,
             "dias_sin_operar": dias,
             "estado": est,
+            "opero_ytd": bool(ult) and ult >= year_start,
             **{n: f.get(n) for n in _ANALISIS_FIELDS if n != "denominacion"},
         })
     clientes.sort(key=lambda x: x["aum"], reverse=True)

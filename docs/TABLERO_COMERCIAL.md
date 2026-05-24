@@ -357,3 +357,14 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   opcional. Endpoints: `/comercial/operador` (reemplaza /resumen + /clientes) y
   `/comercial/serie?...&id_cuenta=`. Diag: `scripts/diag_comercial.py`. Pendiente:
   restart api.service; validar números (correr el diag).
+- **2026-05-24 (v2 layout)** — Reacomodo de espacio. **KPIs + selector** pasan a un
+  **header slim** arriba (métricas generales, no interactivas, ya no bloque grande).
+  Izq: gráfico de evolución **más chico** (flex-2) + **ficha con tabs** (flex-3);
+  tab "Datos" muestra SOLO `nivel_1..5`, `primer_contacto_comercial`, `riesgo_la_ft`,
+  `division`, `adc`, `dma` en grilla 3-4 col (se sacó tipo_cliente/tipo_titular y el
+  AuM/Vol de la ficha — se repetían). `_FICHA_FIELDS` recortado a ese set.
+  Der: tabla de clientes 60% + **PORTAFOLIO/tenencia del cliente 40%** (master-detail
+  estilo AUM): nuevo `portafolio_cliente(id_cuenta)` → posiciones de `Valuaciones.AuM`
+  (último snapshot) `{unidad, valuacion, pct}`, endpoint `/comercial/portafolio`.
+  La ficha queda preparada para más tabs (hoy solo "Datos"). Pendiente: restart +
+  validar en pantalla.

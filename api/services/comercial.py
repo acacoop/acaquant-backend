@@ -153,16 +153,14 @@ def listar_operadores_comercial() -> list[dict[str, Any]]:
     ]
 
 
-# Campos de `Clientes.Comitentes` que enriquecen la FICHA del cliente (panel
-# derecho). Viajan embebidos en cada fila → el front los lee del array ya
-# cargado, sin pegar otra query al seleccionar un cliente.
+# Campos de `Clientes.Comitentes` que enriquecen la FICHA del cliente (tab
+# "Datos" del panel izquierdo). Viajan embebidos en cada fila → el front los
+# lee del array ya cargado, sin pegar otra query al seleccionar un cliente.
+# `denominacion` solo para el header; el resto se renderiza en grilla.
 _FICHA_FIELDS = (
-    "denominacion", "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5",
-    "provincia", "ciudad", "sucursal", "referido", "tipo_cliente",
-    "tipo_titular", "perfil_inversion", "horizonte_inversion", "clase",
-    "estado", "fecha_alta_legajo", "primer_contacto_comercial",
-    "riesgo_la_ft", "division", "adc", "dma", "observaciones",
-    "email", "telefono", "operador_nombre",
+    "denominacion",
+    "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5",
+    "primer_contacto_comercial", "riesgo_la_ft", "division", "adc", "dma",
 )
 
 
@@ -263,6 +261,39 @@ def serie_comercial(
     return {
         "operador": operador, "id_cuenta": id_cuenta,
         "metric": metric, "moneda": moneda, "serie": serie,
+    }
+
+
+@cached(ttl=300)
+def portafolio_cliente(*, id_cuenta: str) -> dict[str, Any]:
+    """Tenencia del cliente: posiciones de `Valuaciones.AuM` (último snapshot).
+
+    Master-detail estilo AUM: cada posición es una `unidad` con su valuación
+    (ARS) y su % sobre el total del cliente. Ordenadas por valuación desc.
+    """
+    col = get_db_valuaciones()["AuM"]
+    snap = col.find_one({}, {"_id": 0, "fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)])
+    if not snap:
+        return {"id_cuenta": str(id_cuenta), "fecha_snapshot": None, "total": 0.0, "posiciones": []}
+    rows = list(col.aggregate([
+        {"$match": {"fecha_snapshot": snap["fecha_snapshot"], "id_cuenta": str(id_cuenta)}},
+        {"$group": {"_id": "$unidad", "valuacion": {"$sum": "$valuacion"}}},
+        {"$sort": {"valuacion": -1}},
+    ]))
+    total = sum(float(r.get("valuacion") or 0.0) for r in rows)
+    posiciones = [
+        {
+            "unidad": r["_id"],
+            "valuacion": round(float(r.get("valuacion") or 0.0), 2),
+            "pct": round(100.0 * float(r.get("valuacion") or 0.0) / total, 2) if total else 0.0,
+        }
+        for r in rows
+    ]
+    return {
+        "id_cuenta": str(id_cuenta),
+        "fecha_snapshot": snap["fecha_snapshot"],
+        "total": round(total, 2),
+        "posiciones": posiciones,
     }
 
 

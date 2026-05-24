@@ -752,3 +752,12 @@ def comercial_serie(
     """Serie para el gráfico. Sin id_cuenta → operador; con id_cuenta → cliente."""
     from api.services.comercial import serie_comercial
     return serie_comercial(operador=operador, metric=metric, moneda=moneda, id_cuenta=id_cuenta)
+
+
+@router.get("/comercial/portafolio")
+def comercial_portafolio(
+    id_cuenta: str = Query(..., description="id de la cuenta comitente"),
+) -> dict:
+    """Tenencia del cliente (posiciones de AuM, último snapshot)."""
+    from api.services.comercial import portafolio_cliente
+    return portafolio_cliente(id_cuenta=id_cuenta)

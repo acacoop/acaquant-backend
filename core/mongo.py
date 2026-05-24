@@ -50,9 +50,10 @@ def get_mongo_client() -> pymongo.MongoClient:
                 _client = pymongo.MongoClient(
                     MONGO_URI,
                     serverSelectionTimeoutMS=30000,
-                    # Pool reducido: 1 droplet single-process, 7-8 usuarios.
-                    # 10 sockets idle alcanzan; cada slot extra come ~1MB.
-                    maxPoolSize=10,
+                    # RW: motores/crons. Pool moderado — varios procesos jobs
+                    # pueden correr en paralelo. minPoolSize=0 → solo abre lo
+                    # que usa (cada socket ~1MB). M10 aguanta ~1500 conexiones.
+                    maxPoolSize=20,
                     compressors="zstd,snappy,zlib",
                 )
     return _client
@@ -79,8 +80,11 @@ def get_mongo_client_read() -> pymongo.MongoClient:
                 _client_read = pymongo.MongoClient(
                     uri,
                     serverSelectionTimeoutMS=30000,
-                    # Igual razonamiento que el cliente RW (ver arriba).
-                    maxPoolSize=10,
+                    # READ: lo usa la API (proceso único, async). El pool = techo
+                    # de queries a Atlas en vuelo a la vez → es el lever de
+                    # concurrencia de una app I/O-bound. 50 deja a varios
+                    # operadores pegar en paralelo sin encolar. Holgado en M10.
+                    maxPoolSize=50,
                     compressors="zstd,snappy,zlib",
                     read_preference=ReadPreference.SECONDARY_PREFERRED,
                 )

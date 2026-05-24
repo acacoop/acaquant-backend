@@ -61,6 +61,7 @@
 | cada 15min · 13-20h · L-V | `jobs.adr_live` |
 | cada 15min · 13-20h · L-V | `engines.dolar_mep` |
 | cada 30min · 12-23h · diario | `jobs.news_finnhub` |
+| cada 4min · 13-20h · L-V | `jobs.comercial_warm` |
 | 12:00 · diario | `jobs.argentina_datos` |
 | 14:00 · L-V | `jobs.sync_comitentes` |
 | 15:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |

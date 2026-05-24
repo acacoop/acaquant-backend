@@ -407,3 +407,13 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   valuacion)` en `crear_indices.py` → el `$group` lee del índice sin FETCH. Diag
   ahora muestra la cadena de stages (PROJECTION_COVERED→IXSCAN = covered).
   Correr `python -m scripts.crear_indices` en el Droplet y re-diag para confirmar.
+- **2026-05-24 (v6 infra)** — Post-resize del Droplet (2 vCPU / 4GB AMD). 3 optimizaciones
+  de tipo I/O-bound (no workers — romperían cache/rate-limit in-process):
+  (1) **pool Mongo**: `core/mongo.py` read 10→**50** (techo de queries a Atlas en vuelo
+  de la API), rw 10→20. (2) **zstd**: pymongo 4.16 importa `backports.zstd` (no el
+  paquete `zstandard`, que quedó muerto) → reemplazado en requirements; comprime más el
+  wire. (3) **cache-warming**: `jobs/comercial_warm.py` pega al uvicorn LOCAL
+  (127.0.0.1:8000) cada 4 min en horario de mercado para calentar la cache in-process
+  (un cron común no la calienta: otro proceso). Cron en `deploy/crontab.txt` + SISTEMA.md
+  regenerado. Deploy: git pull → `pip install -r requirements.txt` → `crontab deploy/crontab.txt`
+  → restart api.service.

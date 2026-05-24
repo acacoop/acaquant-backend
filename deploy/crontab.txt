@@ -85,6 +85,12 @@
 # Alimenta la vista /operaciones → tab NEGOCIO.
 0 15-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.negocio_movimientos >> /root/TradingAV/logs/negocio_movimientos.log 2>&1
 
+# ─── Cache-warming vista COMERCIAL (cada 4 min en horario de mercado L-V)
+# Pega al uvicorn LOCAL (127.0.0.1:8000) para calentar la cache in-process de
+# la API (operador + serie por operador). TTL de la cache = 300s → */4 la
+# mantiene caliente. Sin esto, cada operador se come el primer hit en frío.
+*/4 13-20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.comercial_warm >> /root/TradingAV/logs/comercial_warm.log 2>&1
+
 # ─── BCRA (CER/TAMAR/DOLAR/BADLAR, 22:00 UTC L-V = 19:00 ART)
 # El CER se publica ~18 ART con 10 días hábiles de anticipación (forward).
 # Corremos DESPUÉS de la publicación para capturar los valores del día.

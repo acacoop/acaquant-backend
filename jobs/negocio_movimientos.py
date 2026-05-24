@@ -17,6 +17,7 @@ Schema doc en CashFlow.NegocioMovimientos:
   fecha          : "2026-05-04",            # ISO YYYY-MM-DD ART
   comprobante    : "BOL 2026069919",        # ID único del boleto en Aunesa
   cuenta         : "[805] MOLLO ...",
+  id_cuenta      : "805",                    # derivado de cuenta (índice; vista COMERCIAL)
   categoria      : "compra",                 # 16 categorías posibles
   op             : "Compra",                 # Compra/Venta/Susc FCI/...
   ticker         : "AL30",                   # short ticker o null
@@ -38,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 from datetime import UTC, date, datetime, timedelta
 
@@ -52,6 +54,16 @@ from core.mongo import get_mongo_client
 DB_NAME = "CashFlow"
 COL_NAME = "NegocioMovimientos"
 
+# `cuenta` viene "[805] NOMBRE" → id de la cuenta comitente. Denormalizado en
+# el doc para que las queries por cuenta usen índice (en vez de regex). Lo
+# consume la vista COMERCIAL (api/services/comercial.py).
+_RE_ID_CUENTA = re.compile(r"^\[(\d+)\]")
+
+
+def _extract_id_cuenta(cuenta: str | None) -> str | None:
+    m = _RE_ID_CUENTA.match(cuenta or "")
+    return m.group(1) if m else None
+
 
 def _ensure_indexes(coll) -> None:
     """Índice único (fecha, comprobante). Idempotente."""
@@ -65,6 +77,12 @@ def _ensure_indexes(coll) -> None:
     coll.create_index([("fecha", -1), ("categoria", 1)], name="fecha_categoria")
     coll.create_index([("fecha", -1), ("cuenta", 1)], name="fecha_cuenta")
     coll.create_index([("fecha", -1), ("ticker", 1)], name="fecha_ticker")
+    # Vista COMERCIAL: queries por cuenta vía id_cuenta (sin regex).
+    coll.create_index([("id_cuenta", 1), ("fecha", -1)], name="idcuenta_fecha")
+    coll.create_index(
+        [("id_cuenta", 1), ("categoria", 1), ("fecha", -1)],
+        name="idcuenta_categoria_fecha",
+    )
 
 
 def _boleto_a_doc(b: dict, fecha_iso: str, ahora: datetime, mep: float | None) -> dict:
@@ -79,6 +97,7 @@ def _boleto_a_doc(b: dict, fecha_iso: str, ahora: datetime, mep: float | None) -
         "fecha":        fecha_iso,
         "comprobante":  b.get("comprobante"),
         "cuenta":       b.get("cuenta"),
+        "id_cuenta":    _extract_id_cuenta(b.get("cuenta")),
         "categoria":    b.get("categoria"),
         "op":           b.get("op"),
         "ticker":       b.get("ticker"),

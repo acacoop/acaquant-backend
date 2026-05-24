@@ -12,7 +12,6 @@ Diseño completo: docs/TABLERO_COMERCIAL.md [5].
 """
 from __future__ import annotations
 
-import re
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -24,8 +23,9 @@ from api.db import (
     get_db_valuaciones,
 )
 
-# `cuenta` en NegocioMovimientos viene "[805] NOMBRE" → extraer el id.
-_RE_ID_BRACKET = re.compile(r"^\[(\d+)\]")
+# Las queries por cuenta filtran `id_cuenta` (denormalizado en la ingesta de
+# NegocioMovimientos, indexado) — sin regex sobre `cuenta`. Backfill de docs
+# viejos: scripts/backfill_id_cuenta_negocio.py.
 
 _BUCKET = {
     "ACTIVA": "n_activas",
@@ -120,12 +120,13 @@ def _aum_por_cuenta(ids: tuple[str, ...]) -> dict[str, float]:
 
 
 def _match_volumen(ids: tuple[str, ...], moneda: str, fecha_desde: str | None) -> dict:
-    """$match de NegocioMovimientos por cuentas del operador + categorías + moneda."""
-    from api.services._grupos_scope import scope_cuenta_match
-    m: dict[str, Any] = {"moneda": moneda, "categoria": {"$in": list(_CATS_VOLUMEN)}}
-    sub = scope_cuenta_match(ids)  # {"cuenta": {"$regex": "^\\[(id|...)\\]"}} (o $in:[] si vacío)
-    if sub:
-        m.update(sub)
+    """$match de NegocioMovimientos por cuentas del operador + categorías + moneda.
+    Filtra `id_cuenta` (índice idcuenta_categoria_fecha) — sin regex."""
+    m: dict[str, Any] = {
+        "moneda": moneda,
+        "categoria": {"$in": list(_CATS_VOLUMEN)},
+        "id_cuenta": {"$in": list(ids)},
+    }
     if fecha_desde:
         m["fecha"] = {"$gte": fecha_desde}
     return m
@@ -192,11 +193,10 @@ def operador_comercial(*, operador: str, moneda: str = "ARS") -> dict[str, Any]:
     if ids:
         for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
             {"$match": _match_volumen(ids, moneda, ytd_desde)},
-            {"$group": {"_id": "$cuenta", "v": {"$sum": {"$abs": "$importe"}}}},
+            {"$group": {"_id": "$id_cuenta", "v": {"$sum": {"$abs": "$importe"}}}},
         ]):
-            m = _RE_ID_BRACKET.match(d.get("_id") or "")
-            if m:
-                vol_ytd[m.group(1)] = round(float(d.get("v") or 0.0), 2)
+            if d.get("_id"):
+                vol_ytd[str(d["_id"])] = round(float(d.get("v") or 0.0), 2)
 
     # Ficha (segmentación) por cuenta — proyección extendida de Comitentes.
     detalle: dict[str, dict[str, Any]] = {
@@ -314,15 +314,14 @@ _OP_PROJ = {
 def operaciones_cliente(*, id_cuenta: str, limite: int = 300) -> dict[str, Any]:
     """Operaciones del cliente (boletos operativos), recientes primero.
 
-    Misma fuente que el volumen (`CashFlow.NegocioMovimientos`), scopeada a la
-    cuenta por el id bracketed. Solo categorías de `_CATS_OPERACIONES`
+    Misma fuente que el volumen (`CashFlow.NegocioMovimientos`), filtrada por
+    `id_cuenta` (índice). Solo categorías de `_CATS_OPERACIONES`
     (compra/venta/FCI/cauciones). Límite por defecto 300, orden fecha desc.
     """
-    from api.services._grupos_scope import scope_cuenta_match
-    match: dict[str, Any] = {"categoria": {"$in": list(_CATS_OPERACIONES)}}
-    sub = scope_cuenta_match((str(id_cuenta),))
-    if sub:
-        match.update(sub)
+    match: dict[str, Any] = {
+        "id_cuenta": str(id_cuenta),
+        "categoria": {"$in": list(_CATS_OPERACIONES)},
+    }
     rows = list(
         get_db_cashflow()["NegocioMovimientos"]
         .find(match, _OP_PROJ)
@@ -362,21 +361,17 @@ def resumen_por_operador(*, dias_activa: int = 30, dias_dormida: int = 90) -> di
     desde = (hoy - timedelta(days=dias_dormida)).isoformat()
     dias_ult_op: dict[str, int] = {}
     for d in mov.aggregate([
-        {"$match": {"fecha": {"$gte": desde}}},
-        {"$group": {"_id": "$cuenta", "ult": {"$max": "$fecha"}}},
+        {"$match": {"fecha": {"$gte": desde}, "id_cuenta": {"$ne": None}}},
+        {"$group": {"_id": "$id_cuenta", "ult": {"$max": "$fecha"}}},
     ]):
-        m = _RE_ID_BRACKET.match(d.get("_id") or "")
-        if not m or not d.get("ult"):
+        idc = d.get("_id")
+        if not idc or not d.get("ult"):
             continue
         try:
-            dias_ult_op[m.group(1)] = (hoy - date.fromisoformat(d["ult"][:10])).days
+            dias_ult_op[str(idc)] = (hoy - date.fromisoformat(d["ult"][:10])).days
         except ValueError:
             continue
-    opero_alguna_vez: set[str] = set()
-    for c in mov.distinct("cuenta"):
-        m = _RE_ID_BRACKET.match(c or "")
-        if m:
-            opero_alguna_vez.add(m.group(1))
+    opero_alguna_vez: set[str] = {str(c) for c in mov.distinct("id_cuenta") if c}
 
     # 4) Emails de usuarios reales (para flag de cuentas huérfanas).
     emails_users = {

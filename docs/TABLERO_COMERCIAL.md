@@ -384,3 +384,19 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   `CashFlow.NegocioMovimientos` scopeado por id bracketed. Endpoint
   `/comercial/operaciones`. Columnas: fecha · categoría · ticker · cant · precio ·
   importe (u$s si USD). Así el operador ve qué operó el cliente.
+- **2026-05-24 (v5 perf/QA)** — Optimización de queries + QA, pensando en escala.
+  Cuello de botella detectado: el volumen por operador filtraba `NegocioMovimientos`
+  con un **regex de alternación** sobre `cuenta` (`^\[(id1|id2|…)\]`) → no usa índice,
+  escanea. **Fix estructural**: se denormaliza **`id_cuenta`** en cada boleto (ingesta
+  `negocio_movimientos.py` lo extrae de `cuenta`) + índices `(id_cuenta, fecha)` y
+  `(id_cuenta, categoria, fecha)`. Todo `comercial.py` (incl. `resumen_por_operador`
+  del MVP) pasa de regex a `{id_cuenta: {$in: ...}}` / `{id_cuenta: id}` → IXSCAN.
+  Backfill de docs viejos: `scripts/backfill_id_cuenta_negocio.py` (update_many con
+  pipeline `$regexFind`, server-side). AuM y Comitentes ya estaban bien indexados.
+  **QA**: `scripts/diag_comercial.py` (timings + explain IXSCAN/COLLSCAN + invariante
+  Σ=total); tests unit (`_extract_id_cuenta`, `_match_volumen` sin regex); tests de
+  integración `tests/integration/test_comercial_integration.py` (`-m integration`:
+  invariantes + índice + 0 docs sin id_cuenta). Precompute (`ComercialCache`) NO se
+  hizo — queda para Fase 2 solo si el diag muestra que pesa.
+  **Orden de deploy**: git pull → `python -m scripts.backfill_id_cuenta_negocio`
+  → restart api.service → `python -m scripts.diag_comercial` para validar.

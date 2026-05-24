@@ -70,6 +70,173 @@ def _nuevo_operador(email: str | None, nombre: str | None) -> dict[str, Any]:
     }
 
 
+# ── Vista COMERCIAL en OPERACIONES (lente por operador, estilo NEGOCIO) ──────
+# "Volumen operado" = mismo criterio que NEGOCIO: sum(abs(importe)) sobre estas
+# categorías de boleto. AuM = Valuaciones.AuM (ARS). Todo por cuenta del operador.
+
+_CATS_VOLUMEN = (
+    "compra", "venta",
+    "suscripcion_fci", "solicitud_suscripcion_fci",
+    "caucion_tom_ap", "caucion_col_ap",
+)
+
+
+def _hoy_art() -> date:
+    """Fecha de hoy en horario Argentina (UTC-3) para MTD/YTD calendario."""
+    return (datetime.now(UTC) - timedelta(hours=3)).date()
+
+
+def _cuentas_de_operador(operador_email: str) -> tuple[str, ...]:
+    """ids de cuenta (Comitentes activas) asignadas a un operador."""
+    docs = get_db_clientes()["Comitentes"].find(
+        {"operador_email": operador_email, "estado": "Activa"},
+        {"_id": 0, "id_cuenta": 1},
+    )
+    return tuple(sorted(str(d["id_cuenta"]) for d in docs if d.get("id_cuenta")))
+
+
+def _aum_por_cuenta(ids: tuple[str, ...]) -> dict[str, float]:
+    """AuM (último snapshot) por id_cuenta, restringido a `ids`."""
+    if not ids:
+        return {}
+    col = get_db_valuaciones()["AuM"]
+    snap = col.find_one({}, {"_id": 0, "fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)])
+    if not snap:
+        return {}
+    out: dict[str, float] = {}
+    for d in col.aggregate([
+        {"$match": {"fecha_snapshot": snap["fecha_snapshot"], "id_cuenta": {"$in": list(ids)}}},
+        {"$group": {"_id": "$id_cuenta", "aum": {"$sum": "$valuacion"}}},
+    ]):
+        out[str(d["_id"])] = float(d.get("aum") or 0.0)
+    return out
+
+
+def _match_volumen(ids: tuple[str, ...], moneda: str, fecha_desde: str | None) -> dict:
+    """$match de NegocioMovimientos por cuentas del operador + categorías + moneda."""
+    from api.services._grupos_scope import scope_cuenta_match
+    m: dict[str, Any] = {"moneda": moneda, "categoria": {"$in": list(_CATS_VOLUMEN)}}
+    sub = scope_cuenta_match(ids)  # {"cuenta": {"$regex": "^\\[(id|...)\\]"}} (o $in:[] si vacío)
+    if sub:
+        m.update(sub)
+    if fecha_desde:
+        m["fecha"] = {"$gte": fecha_desde}
+    return m
+
+
+def _volumen_total(ids: tuple[str, ...], moneda: str, fecha_desde: str | None) -> float:
+    if not ids:
+        return 0.0
+    coll = get_db_cashflow()["NegocioMovimientos"]
+    res = list(coll.aggregate([
+        {"$match": _match_volumen(ids, moneda, fecha_desde)},
+        {"$group": {"_id": None, "v": {"$sum": {"$abs": "$importe"}}}},
+    ]))
+    return round(float(res[0]["v"]), 2) if res else 0.0
+
+
+@cached(ttl=300)
+def listar_operadores_comercial() -> list[dict[str, Any]]:
+    """Operadores para el selector: email, nombre, # cuentas activas."""
+    pipeline = [
+        {"$match": {"estado": "Activa", "operador_email": {"$ne": None}}},
+        {"$group": {
+            "_id": "$operador_email",
+            "nombre": {"$first": "$operador_nombre"},
+            "n_cuentas": {"$sum": 1},
+        }},
+        {"$sort": {"n_cuentas": -1}},
+    ]
+    return [
+        {"operador_email": d["_id"], "operador_nombre": d.get("nombre"), "n_cuentas": d["n_cuentas"]}
+        for d in get_db_clientes()["Comitentes"].aggregate(pipeline)
+    ]
+
+
+@cached(ttl=300)
+def resumen_comercial(*, operador: str, moneda: str = "ARS") -> dict[str, Any]:
+    """KPIs del operador: AuM gestionado, # clientes, Volumen MTD, Volumen YTD."""
+    ids = _cuentas_de_operador(operador)
+    hoy = _hoy_art()
+    aum = _aum_por_cuenta(ids)
+    return {
+        "operador": operador,
+        "moneda": moneda,
+        "aum_gestionado": round(sum(aum.values()), 2),
+        "n_clientes": len(ids),
+        "volumen_mtd": _volumen_total(ids, moneda, hoy.replace(day=1).isoformat()),
+        "volumen_ytd": _volumen_total(ids, moneda, hoy.replace(month=1, day=1).isoformat()),
+    }
+
+
+@cached(ttl=300)
+def clientes_comercial(*, operador: str, moneda: str = "ARS") -> list[dict[str, Any]]:
+    """Tabla de clientes del operador: cuenta+nombre, AuM, Volumen YTD."""
+    ids = _cuentas_de_operador(operador)
+    if not ids:
+        return []
+    aum = _aum_por_cuenta(ids)
+    nombres = {
+        str(d["id_cuenta"]): d.get("denominacion")
+        for d in get_db_clientes()["Comitentes"].find(
+            {"operador_email": operador, "estado": "Activa"},
+            {"_id": 0, "id_cuenta": 1, "denominacion": 1},
+        )
+    }
+    # Volumen YTD por cuenta (un solo group, mapeo por id bracketed).
+    ytd_desde = _hoy_art().replace(month=1, day=1).isoformat()
+    vol: dict[str, float] = {}
+    for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
+        {"$match": _match_volumen(ids, moneda, ytd_desde)},
+        {"$group": {"_id": "$cuenta", "v": {"$sum": {"$abs": "$importe"}}}},
+    ]):
+        m = _RE_ID_BRACKET.match(d.get("_id") or "")
+        if m:
+            vol[m.group(1)] = round(float(d.get("v") or 0.0), 2)
+    filas = [
+        {
+            "id_cuenta": idc,
+            "denominacion": nombres.get(idc) or "—",
+            "aum": round(aum.get(idc, 0.0), 2),
+            "volumen_ytd": vol.get(idc, 0.0),
+        }
+        for idc in ids
+    ]
+    filas.sort(key=lambda x: x["aum"], reverse=True)
+    return filas
+
+
+@cached(ttl=300)
+def serie_comercial(*, operador: str, metric: str = "volumen", moneda: str = "ARS") -> dict[str, Any]:
+    """Serie temporal del operador para el gráfico de líneas.
+
+    metric='volumen' → sum(abs(importe)) diario (NegocioMovimientos).
+    metric='aum'     → AuM por fecha_snapshot (Valuaciones.AuM, ARS)."""
+    ids = _cuentas_de_operador(operador)
+    if not ids:
+        return {"operador": operador, "metric": metric, "serie": []}
+
+    if metric == "aum":
+        serie = [
+            {"fecha": d["_id"], "valor": round(float(d.get("v") or 0.0), 2)}
+            for d in get_db_valuaciones()["AuM"].aggregate([
+                {"$match": {"id_cuenta": {"$in": list(ids)}}},
+                {"$group": {"_id": "$fecha_snapshot", "v": {"$sum": "$valuacion"}}},
+                {"$sort": {"_id": 1}},
+            ])
+        ]
+    else:
+        serie = [
+            {"fecha": d["_id"], "valor": round(float(d.get("v") or 0.0), 2)}
+            for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
+                {"$match": _match_volumen(ids, moneda, None)},
+                {"$group": {"_id": "$fecha", "v": {"$sum": {"$abs": "$importe"}}}},
+                {"$sort": {"_id": 1}},
+            ])
+        ]
+    return {"operador": operador, "metric": metric, "moneda": moneda, "serie": serie}
+
+
 @cached(ttl=300)
 def resumen_por_operador(*, dias_activa: int = 30, dias_dormida: int = 90) -> dict[str, Any]:
     """Resumen comercial agrupado por operador. Ver módulo."""

@@ -720,3 +720,44 @@ def negocio(
     except Exception as e:
         logger.exception("negocio failed for fecha=%s", fecha_iso)
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# ── COMERCIAL (lente por operador, estilo NEGOCIO) ───────────────────────────
+# Vista nueva en OPERACIONES. Lógica en api/services/comercial.py.
+
+@router.get("/comercial/operadores")
+def comercial_operadores() -> list[dict]:
+    """Operadores para el selector (email, nombre, # cuentas)."""
+    from api.services.comercial import listar_operadores_comercial
+    return listar_operadores_comercial()
+
+
+@router.get("/comercial/resumen")
+def comercial_resumen(
+    operador: str = Query(..., description="operador_email"),
+    moneda: str = Query("ARS"),
+) -> dict:
+    """KPIs del operador: AuM gestionado, # clientes, Volumen MTD/YTD."""
+    from api.services.comercial import resumen_comercial
+    return resumen_comercial(operador=operador, moneda=moneda)
+
+
+@router.get("/comercial/clientes")
+def comercial_clientes(
+    operador: str = Query(..., description="operador_email"),
+    moneda: str = Query("ARS"),
+) -> list[dict]:
+    """Clientes del operador: cuenta+nombre, AuM, Volumen YTD."""
+    from api.services.comercial import clientes_comercial
+    return clientes_comercial(operador=operador, moneda=moneda)
+
+
+@router.get("/comercial/serie")
+def comercial_serie(
+    operador: str = Query(..., description="operador_email"),
+    metric: str = Query("volumen", description="volumen | aum"),
+    moneda: str = Query("ARS"),
+) -> dict:
+    """Serie temporal para el gráfico de líneas (volumen diario o AuM por snapshot)."""
+    from api.services.comercial import serie_comercial
+    return serie_comercial(operador=operador, metric=metric, moneda=moneda)

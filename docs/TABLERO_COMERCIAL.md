@@ -334,3 +334,12 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   flag huérfana). Test del estado comercial. v1 = solo manager (admin); on-the-fly
   (no precompute todavía). Pendiente: restart api.service en el Droplet; validar
   números reales; después evaluar precompute si pesa + lente por cliente + ficha.
+- **2026-05-23** — Vista COMERCIAL **en OPERACIONES** (distinta del MVP de Manager;
+  la ven admin+trader). Calcada de NEGOCIO: selector de operador + KPIs (AuM
+  gestionado, # clientes, Volumen MTD/YTD) + tabla de clientes (cuenta+nombre /
+  AuM / Vol YTD) + gráfico de líneas con toggle Volumen/AuM. Backend:
+  comercial.py (listar_operadores_comercial, resumen_comercial, clientes_comercial,
+  serie_comercial) + 4 endpoints /api/operaciones/comercial/*. Volumen =
+  sum(abs(importe)) mismas categorías que NEGOCIO; MTD/YTD calendario ART.
+  Frontend comercial-operaciones-view.tsx. v1 — iterar con datos reales.
+  Pendiente: restart api.service; validar números.

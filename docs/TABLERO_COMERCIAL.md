@@ -407,6 +407,16 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   valuacion)` en `crear_indices.py` → el `$group` lee del índice sin FETCH. Diag
   ahora muestra la cadena de stages (PROJECTION_COVERED→IXSCAN = covered).
   Correr `python -m scripts.crear_indices` en el Droplet y re-diag para confirmar.
+- **2026-05-24 (v7 sub-nav + Análisis)** — COMERCIAL pasa a tener **sub-nav arriba-izq**
+  (botones) + KPIs movidos a la derecha. Opción 1 = **Portfolio & Operaciones** (la vista
+  de siempre). Opción 2 = **Análisis** (nueva). Backend: `analisis_comercial(operador)` —
+  un set de queries → una fila por cliente del operador con AuM + última op + días sin
+  operar + estado comercial + nivel_1..5. Endpoint `/comercial/analisis`. De ese dataset
+  el front arma 3 tablas: (a) **Estado comercial** (todos, ordenable AuM/días, badges
+  ACTIVA/ENFRIANDOSE/DORMIDA/NUEVA), (b) **Riesgo de churn** (enfriándose+dormidas con
+  AuM>0, por AuM desc), (c) **Distribución por nivel_1** (AuM + # + %). Todo client-side
+  desde el mismo fetch. Próximas ideas para Análisis: salud del dato, grandes sin contacto,
+  cohortes (ver lista [5]).
 - **2026-05-24 (v6 infra)** — Post-resize del Droplet (2 vCPU / 4GB AMD). 3 optimizaciones
   de tipo I/O-bound (no workers — romperían cache/rate-limit in-process):
   (1) **pool Mongo**: `core/mongo.py` read 10→**50** (techo de queries a Atlas en vuelo

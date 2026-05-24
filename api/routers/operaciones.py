@@ -771,3 +771,13 @@ def comercial_operaciones(
     """Operaciones recientes del cliente (boletos operativos, fecha desc)."""
     from api.services.comercial import operaciones_cliente
     return operaciones_cliente(id_cuenta=id_cuenta, limite=limite)
+
+
+@router.get("/comercial/analisis")
+def comercial_analisis(
+    operador: str = Query(..., description="operador_email"),
+) -> dict:
+    """Dataset de la vista ANÁLISIS: clientes del operador con estado comercial,
+    AuM, última op y niveles de segmentación (estado / churn / distribución)."""
+    from api.services.comercial import analisis_comercial
+    return analisis_comercial(operador=operador)

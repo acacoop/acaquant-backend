@@ -331,6 +331,80 @@ def operaciones_cliente(*, id_cuenta: str, limite: int = 300) -> dict[str, Any]:
     return {"id_cuenta": str(id_cuenta), "n": len(rows), "operaciones": rows}
 
 
+_ANALISIS_FIELDS = ("denominacion", "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5")
+
+
+@cached(ttl=300)
+def analisis_comercial(
+    *, operador: str, dias_activa: int = 30, dias_dormida: int = 90,
+) -> dict[str, Any]:
+    """Dataset para la vista ANÁLISIS de un operador (un set de queries).
+
+    Una fila por cliente con: AuM + última operación + días sin operar +
+    estado comercial (NUEVA/ACTIVA/ENFRIANDOSE/DORMIDA) + niveles de
+    segmentación. Alimenta a la vez: estado comercial, riesgo de churn
+    (filtrar enfriándose/dormido por AuM desc) y distribución por nivel
+    (agrupar client-side). "Operó" = categorías operativas (_CATS_OPERACIONES).
+    """
+    ids = _cuentas_de_operador(operador)
+    if not ids:
+        return {"operador": operador, "dias_activa": dias_activa,
+                "dias_dormida": dias_dormida, "clientes": []}
+
+    hoy = _hoy_art()
+    aum = _aum_por_cuenta(ids)
+    mov = get_db_cashflow()["NegocioMovimientos"]
+    cats = list(_CATS_OPERACIONES)
+    desde = (hoy - timedelta(days=dias_dormida)).isoformat()
+
+    # Última op (operativa) por cuenta dentro de la ventana reciente.
+    ult_op: dict[str, str] = {}
+    for d in mov.aggregate([
+        {"$match": {"id_cuenta": {"$in": list(ids)}, "categoria": {"$in": cats},
+                    "fecha": {"$gte": desde}}},
+        {"$group": {"_id": "$id_cuenta", "ult": {"$max": "$fecha"}}},
+    ]):
+        if d.get("_id") and d.get("ult"):
+            ult_op[str(d["_id"])] = d["ult"][:10]
+
+    # ¿Operó alguna vez? (operativa, sin ventana).
+    opero = {
+        str(c) for c in mov.distinct("id_cuenta", {"id_cuenta": {"$in": list(ids)}, "categoria": {"$in": cats}})
+        if c
+    }
+
+    detalle: dict[str, dict[str, Any]] = {
+        str(d["id_cuenta"]): d
+        for d in get_db_clientes()["Comitentes"].find(
+            {"operador_email": operador, "estado": "Activa"},
+            {"_id": 0, "id_cuenta": 1, **{f: 1 for f in _ANALISIS_FIELDS}},
+        )
+    }
+
+    clientes = []
+    for idc in ids:
+        ult = ult_op.get(idc)
+        dias = (hoy - date.fromisoformat(ult)).days if ult else None
+        est = estado_comercial(dias, idc in opero, dias_activa, dias_dormida)
+        f = detalle.get(idc, {})
+        clientes.append({
+            "id_cuenta": idc,
+            "denominacion": f.get("denominacion") or "—",
+            "aum": round(aum.get(idc, 0.0), 2),
+            "ultima_op": ult,
+            "dias_sin_operar": dias,
+            "estado": est,
+            **{n: f.get(n) for n in _ANALISIS_FIELDS if n != "denominacion"},
+        })
+    clientes.sort(key=lambda x: x["aum"], reverse=True)
+    return {
+        "operador": operador,
+        "dias_activa": dias_activa,
+        "dias_dormida": dias_dormida,
+        "clientes": clientes,
+    }
+
+
 @cached(ttl=300)
 def resumen_por_operador(*, dias_activa: int = 30, dias_dormida: int = 90) -> dict[str, Any]:
     """Resumen comercial agrupado por operador. Ver módulo."""

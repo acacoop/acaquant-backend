@@ -368,3 +368,10 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   (último snapshot) `{unidad, valuacion, pct}`, endpoint `/comercial/portafolio`.
   La ficha queda preparada para más tabs (hoy solo "Datos"). Pendiente: restart +
   validar en pantalla.
+- **2026-05-24 (v3 gráfico)** — Solo frontend. Ficha alineada con el portafolio
+  (ambas 40%) → el gráfico crece a 60%. Header de gráfico estilo NEGOCIO/AUM:
+  título (Volumen operado / AUM · ARS), rango de fechas visible, Total período
+  (volumen=suma) / Último (aum=stock), toggle DIARIO/SEMANAL/MENSUAL y selector
+  de rango 1W/1M/3M/6M/YTD/1A/ALL con pan ◀▶. Todo client-side (la serie ya viene
+  completa). Agregación metric-aware: volumen suma por bucket, AuM toma el último
+  del bucket. Sin "Foco día" (es de las barras de NEGOCIO, no aplica a la línea).

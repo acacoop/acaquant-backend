@@ -153,68 +153,94 @@ def listar_operadores_comercial() -> list[dict[str, Any]]:
     ]
 
 
+# Campos de `Clientes.Comitentes` que enriquecen la FICHA del cliente (panel
+# derecho). Viajan embebidos en cada fila → el front los lee del array ya
+# cargado, sin pegar otra query al seleccionar un cliente.
+_FICHA_FIELDS = (
+    "denominacion", "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5",
+    "provincia", "ciudad", "sucursal", "referido", "tipo_cliente",
+    "tipo_titular", "perfil_inversion", "horizonte_inversion", "clase",
+    "estado", "fecha_alta_legajo", "primer_contacto_comercial",
+    "riesgo_la_ft", "division", "adc", "dma", "observaciones",
+    "email", "telefono", "operador_nombre",
+)
+
+
 @cached(ttl=300)
-def resumen_comercial(*, operador: str, moneda: str = "ARS") -> dict[str, Any]:
-    """KPIs del operador: AuM gestionado, # clientes, Volumen MTD, Volumen YTD."""
+def operador_comercial(*, operador: str, moneda: str = "ARS") -> dict[str, Any]:
+    """Resumen (KPIs) + clientes (tabla + ficha) del operador en UNA pasada.
+
+    Optimización: el lookup de cuentas y el AuM se resuelven 1 vez c/u (antes
+    `resumen_comercial` y `clientes_comercial` los repetían). El Volumen YTD
+    por cuenta y el total salen del mismo `$group`; MTD total es el único
+    agregado extra. La FICHA (segmentación de Comitentes) viaja embebida en
+    cada fila → seleccionar un cliente no dispara otra query.
+    """
     ids = _cuentas_de_operador(operador)
     hoy = _hoy_art()
     aum = _aum_por_cuenta(ids)
-    return {
-        "operador": operador,
-        "moneda": moneda,
-        "aum_gestionado": round(sum(aum.values()), 2),
-        "n_clientes": len(ids),
-        "volumen_mtd": _volumen_total(ids, moneda, hoy.replace(day=1).isoformat()),
-        "volumen_ytd": _volumen_total(ids, moneda, hoy.replace(month=1, day=1).isoformat()),
-    }
+    mtd_desde = hoy.replace(day=1).isoformat()
+    ytd_desde = hoy.replace(month=1, day=1).isoformat()
 
+    # Volumen YTD por cuenta (un group); el total YTD = suma de las cuentas.
+    vol_ytd: dict[str, float] = {}
+    if ids:
+        for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
+            {"$match": _match_volumen(ids, moneda, ytd_desde)},
+            {"$group": {"_id": "$cuenta", "v": {"$sum": {"$abs": "$importe"}}}},
+        ]):
+            m = _RE_ID_BRACKET.match(d.get("_id") or "")
+            if m:
+                vol_ytd[m.group(1)] = round(float(d.get("v") or 0.0), 2)
 
-@cached(ttl=300)
-def clientes_comercial(*, operador: str, moneda: str = "ARS") -> list[dict[str, Any]]:
-    """Tabla de clientes del operador: cuenta+nombre, AuM, Volumen YTD."""
-    ids = _cuentas_de_operador(operador)
-    if not ids:
-        return []
-    aum = _aum_por_cuenta(ids)
-    nombres = {
-        str(d["id_cuenta"]): d.get("denominacion")
+    # Ficha (segmentación) por cuenta — proyección extendida de Comitentes.
+    detalle: dict[str, dict[str, Any]] = {
+        str(d["id_cuenta"]): d
         for d in get_db_clientes()["Comitentes"].find(
             {"operador_email": operador, "estado": "Activa"},
-            {"_id": 0, "id_cuenta": 1, "denominacion": 1},
+            {"_id": 0, "id_cuenta": 1, **{f: 1 for f in _FICHA_FIELDS}},
         )
     }
-    # Volumen YTD por cuenta (un solo group, mapeo por id bracketed).
-    ytd_desde = _hoy_art().replace(month=1, day=1).isoformat()
-    vol: dict[str, float] = {}
-    for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
-        {"$match": _match_volumen(ids, moneda, ytd_desde)},
-        {"$group": {"_id": "$cuenta", "v": {"$sum": {"$abs": "$importe"}}}},
-    ]):
-        m = _RE_ID_BRACKET.match(d.get("_id") or "")
-        if m:
-            vol[m.group(1)] = round(float(d.get("v") or 0.0), 2)
-    filas = [
+
+    clientes = [
         {
             "id_cuenta": idc,
-            "denominacion": nombres.get(idc) or "—",
+            "denominacion": detalle.get(idc, {}).get("denominacion") or "—",
             "aum": round(aum.get(idc, 0.0), 2),
-            "volumen_ytd": vol.get(idc, 0.0),
+            "volumen_ytd": vol_ytd.get(idc, 0.0),
+            "ficha": {k: detalle.get(idc, {}).get(k) for k in _FICHA_FIELDS},
         }
         for idc in ids
     ]
-    filas.sort(key=lambda x: x["aum"], reverse=True)
-    return filas
+    clientes.sort(key=lambda x: x["aum"], reverse=True)
+
+    return {
+        "operador": operador,
+        "moneda": moneda,
+        "resumen": {
+            "aum_gestionado": round(sum(aum.values()), 2),
+            "n_clientes": len(ids),
+            "volumen_mtd": _volumen_total(ids, moneda, mtd_desde),
+            "volumen_ytd": round(sum(vol_ytd.values()), 2),
+        },
+        "clientes": clientes,
+    }
 
 
 @cached(ttl=300)
-def serie_comercial(*, operador: str, metric: str = "volumen", moneda: str = "ARS") -> dict[str, Any]:
-    """Serie temporal del operador para el gráfico de líneas.
+def serie_comercial(
+    *, operador: str, metric: str = "volumen", moneda: str = "ARS",
+    id_cuenta: str | None = None,
+) -> dict[str, Any]:
+    """Serie temporal para el gráfico de líneas.
 
+    Sin `id_cuenta` → toda la cartera del operador. Con `id_cuenta` → esa sola
+    cuenta (la vista se vuelve interactiva al seleccionar un cliente).
     metric='volumen' → sum(abs(importe)) diario (NegocioMovimientos).
     metric='aum'     → AuM por fecha_snapshot (Valuaciones.AuM, ARS)."""
-    ids = _cuentas_de_operador(operador)
+    ids: tuple[str, ...] = (str(id_cuenta),) if id_cuenta else _cuentas_de_operador(operador)
     if not ids:
-        return {"operador": operador, "metric": metric, "serie": []}
+        return {"operador": operador, "id_cuenta": id_cuenta, "metric": metric, "serie": []}
 
     if metric == "aum":
         serie = [
@@ -234,7 +260,10 @@ def serie_comercial(*, operador: str, metric: str = "volumen", moneda: str = "AR
                 {"$sort": {"_id": 1}},
             ])
         ]
-    return {"operador": operador, "metric": metric, "moneda": moneda, "serie": serie}
+    return {
+        "operador": operador, "id_cuenta": id_cuenta,
+        "metric": metric, "moneda": moneda, "serie": serie,
+    }
 
 
 @cached(ttl=300)

@@ -343,3 +343,17 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   sum(abs(importe)) mismas categorías que NEGOCIO; MTD/YTD calendario ART.
   Frontend comercial-operaciones-view.tsx. v1 — iterar con datos reales.
   Pendiente: restart api.service; validar números.
+- **2026-05-24** — **Rediseño layout + interactividad + optimización** (es de las
+  vistas más usadas). Layout estilo NEGOCIO: izq = bloque compacto "Resumen
+  operador" (selector + 4 KPIs juntos, ya no cards grandes) sobre el gráfico de
+  evolución (más chico); der = tabla de clientes 60% + **ficha del cliente 40%**.
+  Interactivo: clickear un cliente re-scopea el gráfico a esa cuenta (toggle ×
+  vuelve al operador) y llena la ficha. **Backend optimizado**: fusionados
+  `resumen_comercial`+`clientes_comercial` → **`operador_comercial`** (una pasada:
+  1 lookup de cuentas + 1 AuM + 2 aggregates vs 3; Vol YTD total = suma del group
+  por cuenta). La **ficha** (nivel_1..5, provincia, sucursal, perfil, riesgo_la_ft,
+  etc. — `_FICHA_FIELDS` de `Clientes.Comitentes`) viaja **embebida** en cada fila
+  → seleccionar un cliente NO pega otra query. `serie_comercial` acepta `id_cuenta`
+  opcional. Endpoints: `/comercial/operador` (reemplaza /resumen + /clientes) y
+  `/comercial/serie?...&id_cuenta=`. Diag: `scripts/diag_comercial.py`. Pendiente:
+  restart api.service; validar números (correr el diag).

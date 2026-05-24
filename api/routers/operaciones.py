@@ -732,24 +732,14 @@ def comercial_operadores() -> list[dict]:
     return listar_operadores_comercial()
 
 
-@router.get("/comercial/resumen")
-def comercial_resumen(
+@router.get("/comercial/operador")
+def comercial_operador(
     operador: str = Query(..., description="operador_email"),
     moneda: str = Query("ARS"),
 ) -> dict:
-    """KPIs del operador: AuM gestionado, # clientes, Volumen MTD/YTD."""
-    from api.services.comercial import resumen_comercial
-    return resumen_comercial(operador=operador, moneda=moneda)
-
-
-@router.get("/comercial/clientes")
-def comercial_clientes(
-    operador: str = Query(..., description="operador_email"),
-    moneda: str = Query("ARS"),
-) -> list[dict]:
-    """Clientes del operador: cuenta+nombre, AuM, Volumen YTD."""
-    from api.services.comercial import clientes_comercial
-    return clientes_comercial(operador=operador, moneda=moneda)
+    """Resumen (KPIs) + clientes (tabla + ficha) del operador, en una pasada."""
+    from api.services.comercial import operador_comercial
+    return operador_comercial(operador=operador, moneda=moneda)
 
 
 @router.get("/comercial/serie")
@@ -757,7 +747,8 @@ def comercial_serie(
     operador: str = Query(..., description="operador_email"),
     metric: str = Query("volumen", description="volumen | aum"),
     moneda: str = Query("ARS"),
+    id_cuenta: str | None = Query(None, description="scope a una sola cuenta (interactivo)"),
 ) -> dict:
-    """Serie temporal para el gráfico de líneas (volumen diario o AuM por snapshot)."""
+    """Serie para el gráfico. Sin id_cuenta → operador; con id_cuenta → cliente."""
     from api.services.comercial import serie_comercial
-    return serie_comercial(operador=operador, metric=metric, moneda=moneda)
+    return serie_comercial(operador=operador, metric=metric, moneda=moneda, id_cuenta=id_cuenta)

@@ -336,7 +336,7 @@ _ANALISIS_FIELDS = ("denominacion", "nivel_1", "nivel_2", "nivel_3", "nivel_4", 
 
 @cached(ttl=300)
 def analisis_comercial(
-    *, operador: str, dias_activa: int = 30, dias_dormida: int = 90,
+    *, operador: str, dias_activa: int = 45, dias_dormida: int = 90,
 ) -> dict[str, Any]:
     """Dataset para la vista ANÁLISIS de un operador (un set de queries).
 
@@ -403,7 +403,7 @@ def analisis_comercial(
 
 
 @cached(ttl=300)
-def resumen_por_operador(*, dias_activa: int = 30, dias_dormida: int = 90) -> dict[str, Any]:
+def resumen_por_operador(*, dias_activa: int = 45, dias_dormida: int = 90) -> dict[str, Any]:
     """Resumen comercial agrupado por operador. Ver módulo."""
     hoy = datetime.now(UTC).date()
 

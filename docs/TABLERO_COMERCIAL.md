@@ -400,3 +400,10 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   hizo — queda para Fase 2 solo si el diag muestra que pesa.
   **Orden de deploy**: git pull → `python -m scripts.backfill_id_cuenta_negocio`
   → restart api.service → `python -m scripts.diag_comercial` para validar.
+- **2026-05-24 (v5.1)** — Diag en prod: todo IXSCAN, 0 sin id_cuenta. Único outlier
+  `serie_comercial(metric=aum)` ~504ms — la query suma `valuacion` sobre toda la
+  historia de AuM del operador y el índice `(id_cuenta, fecha_snapshot)` no incluía
+  `valuacion` → FETCH por doc. Fix: **índice covering** `(id_cuenta, fecha_snapshot,
+  valuacion)` en `crear_indices.py` → el `$group` lee del índice sin FETCH. Diag
+  ahora muestra la cadena de stages (PROJECTION_COVERED→IXSCAN = covered).
+  Correr `python -m scripts.crear_indices` en el Droplet y re-diag para confirmar.

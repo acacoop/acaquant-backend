@@ -66,6 +66,11 @@ def main():
             "AuM: id_cuenta + fecha_snapshot"),
         (valuaciones["AuM"], [("cuenta", 1), ("fecha_snapshot", -1)],
             "AuM: cuenta + fecha_snapshot"),
+        # Covering para la serie AuM por operador (vista COMERCIAL): incluye
+        # valuacion → el $group lee del índice sin FETCH del doc. Acelera
+        # serie_comercial(metric=aum) y _aum_por_cuenta.
+        (valuaciones["AuM"], [("id_cuenta", 1), ("fecha_snapshot", 1), ("valuacion", 1)],
+            "AuM: id_cuenta + fecha_snapshot + valuacion (covering)"),
 
         # ── Valuaciones.AuMResumen ────────────────────────────────────────
         (valuaciones["AuMResumen"], [("id_cuenta", 1), ("unidad", 1), ("fecha_snapshot", -1)],

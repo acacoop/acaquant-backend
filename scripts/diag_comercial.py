@@ -36,20 +36,22 @@ def _timed(label, fn, *a, **k):
 
 
 def _stage(plan: dict) -> str:
-    """Recorre el winningPlan buscando IXSCAN/COLLSCAN."""
+    """Cadena de stages del winningPlan (FETCH→IXSCAN = no covered;
+    PROJECTION_COVERED→IXSCAN = covered; COLLSCAN = sin índice)."""
+    out = []
     cur = plan
     while cur:
         st = cur.get("stage")
-        if st == "IXSCAN":
-            return f"IXSCAN [{cur.get('indexName')}]"
         if st == "COLLSCAN":
             return "⚠️ COLLSCAN (sin índice)"
+        if st:
+            out.append(st + (f"[{cur['indexName']}]" if cur.get("indexName") else ""))
         cur = cur.get("inputStage")
-    return "?"
+    return " → ".join(out) or "?"
 
 
-def _explain(coll, filtro, sort=None) -> str:
-    q = coll.find(filtro)
+def _explain(coll, filtro, sort=None, proj=None) -> str:
+    q = coll.find(filtro, proj) if proj else coll.find(filtro)
     if sort:
         q = q.sort(sort)
     plan = q.explain().get("queryPlanner", {}).get("winningPlan", {})
@@ -95,6 +97,9 @@ def main() -> None:
     aum = db["Valuaciones"]["AuM"]
     ids = [c["id_cuenta"] for c in cli]
     print(f"  volumen operador : {_explain(nm, {'id_cuenta': {'$in': ids}, 'categoria': {'$in': list(_CATS_VOLUMEN)}, 'moneda': 'ARS'})}")
+    # Serie AuM: la query pesada. Con el índice covering debe dar
+    # PROJECTION_COVERED → IXSCAN (sin FETCH).
+    print(f"  serie aum (oper) : {_explain(aum, {'id_cuenta': {'$in': ids}}, proj={'_id': 0, 'id_cuenta': 1, 'fecha_snapshot': 1, 'valuacion': 1})}")
     if idc:
         print(f"  operaciones cli  : {_explain(nm, {'id_cuenta': idc, 'categoria': {'$in': list(_CATS_OPERACIONES)}}, sort=[('fecha', -1)])}")
         snap = aum.find_one({}, {"fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)])

@@ -17,11 +17,11 @@ Reusa:
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import UTC, date, datetime
 
 from api.cache import cached
 from api.db import get_db_trading
-from api.services.renta_fija import listar_curva
+from api.services.renta_fija import _bonos_cer_fijados, listar_curva
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,39 @@ def _moneda_de(curva: str) -> str:
     return _CURVAS_SOPORTADAS.get(curva, "ARS")
 
 
+def _meses_al_vto(vto_raw, ahora: datetime) -> float | None:
+    """Meses al vencimiento (misma fórmula que listar_curva). None si no parsea."""
+    if not vto_raw:
+        return None
+    try:
+        if isinstance(vto_raw, datetime):
+            vto = vto_raw if vto_raw.tzinfo else vto_raw.replace(tzinfo=UTC)
+        else:
+            vto = datetime.fromisoformat(str(vto_raw)[:10]).replace(tzinfo=UTC)
+    except Exception:
+        return None
+    return round((vto - ahora).days / 30.44, 1)
+
+
+def _docs_seleccionables(db, curva: str, fijados: set[str]) -> list[dict]:
+    """Metadata cruda de Curvas para el selector, con la MISMA reasignación
+    CER↔tasa_fija que listar_curva: curva='cer' excluye los fijados; éstos
+    aparecen bajo 'tasa_fija' (se distinguen por su campo `curva` original)."""
+    proj = {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
+            "fecha_vencimiento": 1, "curva": 1}
+    if curva == "cer":
+        filtro: dict = {"curva": "cer"}
+        if fijados:
+            filtro["ticker"] = {"$nin": list(fijados)}
+    elif curva == "tasa_fija":
+        filtro = ({"$or": [{"curva": "tasa_fija"},
+                           {"curva": "cer", "ticker": {"$in": list(fijados)}}]}
+                  if fijados else {"curva": "tasa_fija"})
+    else:
+        filtro = {"curva": curva}
+    return list(db["Curvas"].find(filtro, proj))
+
+
 @cached(ttl=30)
 def listar_bonos_seleccionables() -> list[dict]:
     """Universo del selector. Una entrada por bono.
@@ -45,26 +78,36 @@ def listar_bonos_seleccionables() -> list[dict]:
     Tickers que no tienen precio live se devuelven igual (el cliente los
     muestra deshabilitados); las métricas viven en `metricas` y pueden
     ser None.
+
+    Lee metadata de Curvas directo (NO usa listar_curva): el selector solo
+    necesita ticker/vto/tipo/moneda/cer_fijado, y listar_curva enriquece cada
+    bono con precio/TEA/duration/tc_breakeven desde MarketSnapshot — cómputo
+    caro (~90% del tiempo) que acá se descartaba. Equivalencia verificada con
+    scripts/diag_comparar_seleccionables (868ms→24ms, output idéntico).
     """
+    db = get_db_trading()
+    fijados = _bonos_cer_fijados()
+    ahora = datetime.now(UTC)
     out: list[dict] = []
     for curva in _CURVAS_SOPORTADAS:
-        # Para curva='cer' listar_curva ya filtra los fijados; quedan los
-        # nativos CER. Los fijados se incluyen al pedir curva='tasa_fija'
-        # con badge cer_fijado=true → del lado del cliente se ven en el
-        # mismo dropdown con label "(CER fijado)".
-        for b in listar_curva(curva=curva):
-            ticker_corto = b.get("ticker_corto") or b.get("ticker")
+        for d in _docs_seleccionables(db, curva, fijados):
+            vto = d.get("fecha_vencimiento")
+            meses = _meses_al_vto(vto, ahora)
+            if meses is None:  # sin vto / no parseable → listar_curva también lo excluía
+                continue
+            ticker_corto = d.get("ticker_corto") or d.get("ticker")
             out.append({
                 "id": f"curvas:{ticker_corto}",
-                "ticker": b.get("ticker"),
+                "ticker": d.get("ticker"),
                 "ticker_corto": ticker_corto,
                 "label": ticker_corto,
                 "curva": curva,
-                "tipo": b.get("tipo"),
+                "tipo": d.get("tipo"),
                 "moneda": _moneda_de(curva),
-                "vencimiento": b.get("fecha_vencimiento"),
-                "meses_al_vto": b.get("meses_al_vto"),
-                "cer_fijado": b.get("cer_fijado", False),
+                "vencimiento": str(vto)[:10] if vto else None,
+                "meses_al_vto": meses,
+                # cer_fijado: en la pasada 'tasa_fija', los nativos CER (ya fijados).
+                "cer_fijado": (curva == "tasa_fija" and d.get("curva") == "cer"),
             })
     # Ordenamos por moneda y luego vencimiento para que el dropdown agrupe
     # naturalmente ARS arriba, USD abajo, cronológico.

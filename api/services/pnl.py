@@ -318,7 +318,11 @@ def _pnl_por_cuenta_core(
     else:
         boletos = list(db_cf["NegocioMovimientos"].find(
             {
-                "cuenta":    {"$regex": f"^\\[{re.escape(str(id_cuenta))}\\]"},
+                # id_cuenta denormalizado + indexado (idcuenta_categoria_fecha).
+                # Antes regex sobre `cuenta` → COLLSCAN de 348k docs (709ms);
+                # ahora IXSCAN de los ~600 boletos de la cuenta (8ms). Cobertura
+                # 100% y equivalencia verificadas (scripts/diag_pnl_cuenta).
+                "id_cuenta": str(id_cuenta),
                 "categoria": {"$in": list(_CATS_RELEVANTES)},
                 "ticker":    {"$ne": None},
             },

@@ -32,6 +32,7 @@ mcp==1.27.0  # Model Context Protocol — server expuesto en /mcp para Claude De
 orjson==3.11.8  # serializer JSON nativo de FastAPI — más rápido + menos RAM que stdlib
 ruff==0.15.11
 pytest==9.0.3
+pyinstrument==5.1.2  # profiling opt-in de requests (api/profiling.py, activado por API_PROFILING=1)
 
 # --- transitivas (pineadas automáticamente) ---
 altair==4.2.2

@@ -22,6 +22,7 @@ from starlette.responses import JSONResponse
 
 from api.auth import require_module
 from api.deps import verify_api_key
+from api.profiling import maybe_add_profiler
 from api.ratelimit import limiter
 from api.routers import (
     analitica,
@@ -178,6 +179,11 @@ app.add_middleware(SlowAPIMiddleware)
 # GZip: /historico/trades puede devolver hasta 10K trades JSON (~1-3 MB).
 # Compresión ~80% en JSON. minimum_size=1024 evita overhead en responses chicas.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+# Profiling opt-in (pyinstrument): solo se monta si API_PROFILING=1. Con `?profile=1`
+# en cualquier request devuelve el árbol de llamadas. OFF por default → cero overhead.
+if maybe_add_profiler(app):
+    logger.warning("profiling ON — requests con ?profile=1 devuelven el perfil, no la data")
 
 # Dependencies por router (RBAC por módulo):
 #   verify_api_key           → bearer token (común a todos).

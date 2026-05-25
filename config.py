@@ -26,6 +26,15 @@ API_KEY = os.getenv("API_KEY", "")
 # (no rompe local). Setear ENV=prod en el systemd unit del Droplet.
 ENV = os.getenv("ENV", "dev").strip().lower()
 
+# --- Profiling de requests (pyinstrument) ---
+# OFF por default. Si se setea a "1"/"true", se monta el middleware que, ante
+# `?profile=1` en cualquier request, devuelve el árbol de llamadas (HTML) o el
+# JSON speedscope (`?profile=speedscope`) en vez de la respuesta normal.
+# Pensado para prender temporalmente y diagnosticar un endpoint lento; dejarlo
+# OFF en prod salvo durante una sesión de medición (el output expone la
+# estructura interna). Cero overhead cuando está OFF: el middleware ni se monta.
+API_PROFILING = os.getenv("API_PROFILING", "").strip().lower() in ("1", "true", "yes")
+
 # --- Alertas (Telegram) ---
 # Bot creado con @BotFather. Si falta cualquiera de los dos, las alertas
 # quedan deshabilitadas (no-op silencioso, ver core/notify.py). El token es

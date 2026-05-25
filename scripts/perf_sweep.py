@@ -222,8 +222,25 @@ def _io_cpu_split(session) -> tuple[float, float]:
     return io, cpu
 
 
-def measure(thunk) -> dict:
+try:
     from pyinstrument import Profiler
+    HAS_PYINSTRUMENT = True
+except ImportError:
+    HAS_PYINSTRUMENT = False
+
+
+def measure(thunk) -> dict:
+    if not HAS_PYINSTRUMENT:
+        # Modo degradado: sin pyinstrument igual medimos timing (cold/warm) —
+        # es el 80% del valor (el ranking). El split Mongo/CPU queda en None.
+        t0 = time.perf_counter()
+        thunk()
+        cold_ms = (time.perf_counter() - t0) * 1000.0
+        t1 = time.perf_counter()
+        thunk()
+        warm_ms = (time.perf_counter() - t1) * 1000.0
+        return {"cold_ms": cold_ms, "warm_ms": warm_ms,
+                "pct_io": None, "pct_cpu": None, "html": None}
 
     # 1) cold + profilado (caché frío → acá pega a Mongo de verdad)
     prof = Profiler(interval=0.001)
@@ -264,6 +281,9 @@ def main() -> int:
     targets = build_targets(ctx)
     if args.only:
         targets = [(lbl, fn) for lbl, fn in targets if args.only.lower() in lbl.lower()]
+    if not HAS_PYINSTRUMENT:
+        print("  (pyinstrument no instalado → modo timing: cold/warm sí, split Mongo/CPU no.")
+        print("   Para el split completo: venv/bin/pip install pyinstrument)")
     print(f"Corriendo {len(targets)} targets…\n")
 
     rows: list[dict] = []
@@ -285,8 +305,9 @@ def main() -> int:
     print(f"{'target':<48}{'cold_ms':>10}{'warm_ms':>10}{'%mongo/red':>12}{'%cpu':>8}")
     print("-" * 92)
     for r in ok:
-        print(f"{r['label']:<48}{r['cold_ms']:>10.1f}{r['warm_ms']:>10.1f}"
-              f"{r['pct_io']:>11.0f}%{r['pct_cpu']:>7.0f}%")
+        io = f"{r['pct_io']:>10.0f}%" if r["pct_io"] is not None else f"{'—':>11}"
+        cpu = f"{r['pct_cpu']:>6.0f}%" if r["pct_cpu"] is not None else f"{'—':>8}"
+        print(f"{r['label']:<48}{r['cold_ms']:>10.1f}{r['warm_ms']:>10.1f}{io}{cpu}")
     print("=" * 92)
 
     errs = [r for r in rows if r.get("cold_ms", 0) < 0]
@@ -294,15 +315,16 @@ def main() -> int:
         print(f"\n{len(errs)} targets salteados (args no derivables / firma): "
               + ", ".join(r["label"].split("(")[0].strip() for r in errs[:12]))
 
-    # Guardar HTML de los más lentos
-    if ok:
+    # Guardar HTML de los más lentos (solo si hubo profiling)
+    con_html = [r for r in ok if r.get("html")]
+    if con_html:
         ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         outdir = LOGS_DIR / f"perf_sweep_{ts}"
         outdir.mkdir(parents=True, exist_ok=True)
-        for r in ok[: args.top]:
+        for r in con_html[: args.top]:
             safe = "".join(c if c.isalnum() else "_" for c in r["label"])[:50]
             (outdir / f"{r['cold_ms']:07.0f}ms_{safe}.html").write_text(r["html"])
-        print(f"\nÁrbol de llamadas de los {min(args.top, len(ok))} más lentos → {outdir}")
+        print(f"\nÁrbol de llamadas de los {min(args.top, len(con_html))} más lentos → {outdir}")
         print("Abrí los .html en el browser: ancho/% = tiempo; mirá si arriba hay pymongo (I/O) o código tuyo (CPU).")
 
     return 0

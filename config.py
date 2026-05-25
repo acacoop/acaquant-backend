@@ -104,6 +104,23 @@ TICKERS_EXTRA_PRECIOS: list[str] = [
     "MERV - XMEV - AL30D - 24hs",
 ]
 
+# --- Canje (par CCL/MEP por bono) ---
+# Tickers C (CCL) y D (MEP) de cada par para la vista /analitica/canje. Vive en
+# config (no en el service) para que jobs/cierre_canje.py lo comparta sin que
+# jobs/ importe api/services (regla de capas). El cron materializa el cierre
+# diario de estos tickers en Trading.CanjeCierre → serie_canje lee ~365 docs en
+# vez de agregar ~540k ticks de TimeSales.
+PARES_CANJE: dict[str, dict[str, str]] = {
+    "AL30": {
+        "c": "MERV - XMEV - AL30C - 24hs",  # CCL
+        "d": "MERV - XMEV - AL30D - 24hs",  # MEP
+    },
+    "GD30": {
+        "c": "MERV - XMEV - GD30C - 24hs",
+        "d": "MERV - XMEV - GD30D - 24hs",
+    },
+}
+
 # --- EXPORT API PROVEEDOR (ACAPortfolio.Cartera) ---
 # id_cuenta de las cuentas cuyo AuM se expone a la API externa del
 # proveedor (jobs/partner_export.py). SOLO estas cuentas salen — el job

@@ -90,6 +90,7 @@
 | 20:30 · L-V | `jobs.forwards_zscore` |
 | 21:30 · L-V | `jobs.partner_export` |
 | 23:30 · L-V | `jobs.consolidado_cuentas` |
+| 20:35 · L-V | `jobs.cierre_canje` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute` |
 <!-- /AUTOGEN:crons -->
 

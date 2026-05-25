@@ -8,11 +8,13 @@ NO confundir con "spread legislación" (GD30 vs AL30, bonos distintos al
 mismo plazo, mide riesgo crediticio diferencial entre jurisdicciones NY
 y Arg). Esto NO es eso.
 
-Toma precios diarios de los dos tickers desde Trading.TimeSales y arma
-una serie por día con: precio_c, precio_d, canje. Sin enrichment ni
-flujos — solo necesitamos el último precio del día por ticker.
+Toma el cierre diario de los dos tickers desde Trading.CanjeCierre (1 doc por
+(ticker, fecha), materializado por jobs/cierre_canje.py) y arma una serie por
+día con: precio_c, precio_d, canje. Para el día de hoy, si el cron de cierre aún
+no corrió, agrega un punto live con el último trade del día (TimeSales).
 
-El cálculo NO se hace en el frontend: queda acá para que la UI solo
+Antes agregaba ~540k ticks de TimeSales por request (2.6s cold); ahora lee ~365
+docs (<50ms). El cálculo NO se hace en el frontend: queda acá para que la UI solo
 renderice una serie ya cocinada.
 """
 from __future__ import annotations
@@ -22,52 +24,51 @@ from datetime import UTC, date, datetime, timedelta
 from api.cache import cached
 from api.db import get_db_trading
 
-# Pares predefinidos. La key 'par' del endpoint matchea acá. Si el
-# usuario quiere un par custom, puede pasar tickers manualmente vía el
-# router (no implementado por ahora).
-PARES_CANJE: dict[str, dict[str, str]] = {
-    "AL30": {
-        "c": "MERV - XMEV - AL30C - 24hs",  # CCL
-        "d": "MERV - XMEV - AL30D - 24hs",  # MEP
-    },
-    "GD30": {
-        "c": "MERV - XMEV - GD30C - 24hs",
-        "d": "MERV - XMEV - GD30D - 24hs",
-    },
-}
+# Pares predefinidos viven en config.PARES_CANJE (compartidos con el cron de
+# cierre, regla de capas). La key 'par' del endpoint matchea ahí.
+from config import PARES_CANJE
 
 
-def _ultimos_precios_diarios(db, tickers: list[str], desde: date, hasta: date) -> dict[str, dict[date, float]]:
-    """Devuelve {ticker: {fecha: ultimo_precio}} para el rango.
+def _ultimo_trade_dia(db, ticker: str, dia: date) -> float | None:
+    """Último trade (price>0) de `ticker` en `dia`. Usa el índice
+    (ticker, timestamp) → 1 doc, O(1). Compartido entre el fallback live de
+    hoy y referencia del cron (jobs/cierre_canje usa la misma lógica)."""
+    inicio = datetime.combine(dia, datetime.min.time(), tzinfo=UTC)
+    fin = inicio + timedelta(days=1)
+    doc = db["TimeSales"].find_one(
+        {"ticker": ticker, "price": {"$gt": 0},
+         "timestamp": {"$gte": inicio, "$lt": fin}},
+        sort=[("timestamp", -1)],
+        projection={"_id": 0, "price": 1},
+    )
+    return float(doc["price"]) if doc else None
 
-    Toma el ÚLTIMO trade del día (orden DESC + $first). Saltea trades
-    con price <= 0.
-    """
-    inicio = datetime.combine(desde, datetime.min.time(), tzinfo=UTC)
-    fin = datetime.combine(hasta + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
-    pipeline = [
-        {"$match": {
-            "ticker":    {"$in": tickers},
-            "price":     {"$gt": 0},
-            "timestamp": {"$gte": inicio, "$lt": fin},
-        }},
-        {"$addFields": {
-            "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
-        }},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {
-            "_id":   {"ticker": "$ticker", "fecha": "$fecha"},
-            "price": {"$first": "$price"},
-        }},
-    ]
+
+def _precios_cierre(db, tickers: list[str], desde: date, hasta: date) -> dict[str, dict[date, float]]:
+    """{ticker: {fecha: precio_cierre}} leyendo Trading.CanjeCierre (1 doc por
+    (ticker, fecha), materializado por el cron). Si el rango incluye hoy y el
+    cron aún no corrió, agrega el punto live (último trade del día)."""
     out: dict[str, dict[date, float]] = {tk: {} for tk in tickers}
-    for r in db["TimeSales"].aggregate(pipeline):
-        tk = r["_id"]["ticker"]
+    cur = db["CanjeCierre"].find(
+        {"ticker": {"$in": tickers},
+         "fecha": {"$gte": desde.isoformat(), "$lte": hasta.isoformat()},
+         "price": {"$gt": 0}},
+        {"_id": 0, "ticker": 1, "fecha": 1, "price": 1},
+    )
+    for r in cur:
         try:
-            f = datetime.strptime(r["_id"]["fecha"], "%Y-%m-%d").date()
-        except ValueError:
+            f = datetime.strptime(r["fecha"], "%Y-%m-%d").date()
+        except (ValueError, KeyError):
             continue
-        out.setdefault(tk, {})[f] = float(r["price"])
+        out.setdefault(r["ticker"], {})[f] = float(r["price"])
+
+    hoy = datetime.now(UTC).date()
+    if desde <= hoy <= hasta:
+        for tk in tickers:
+            if hoy not in out.get(tk, {}):
+                p = _ultimo_trade_dia(db, tk, hoy)
+                if p:
+                    out.setdefault(tk, {})[hoy] = p
     return out
 
 
@@ -112,7 +113,7 @@ def serie_canje(par: str = "AL30", desde: str | None = None, hasta: str | None =
     db = get_db_trading()
     tk_c = par_def["c"]
     tk_d = par_def["d"]
-    precios = _ultimos_precios_diarios(db, [tk_c, tk_d], desde_d, hasta_d)
+    precios = _precios_cierre(db, [tk_c, tk_d], desde_d, hasta_d)
     map_c = precios.get(tk_c, {})
     map_d = precios.get(tk_d, {})
 

@@ -229,7 +229,7 @@ except ImportError:
     HAS_PYINSTRUMENT = False
 
 
-def measure(thunk) -> dict:
+def measure(thunk, want_text: bool = False) -> dict:
     if not HAS_PYINSTRUMENT:
         # Modo degradado: sin pyinstrument igual medimos timing (cold/warm) —
         # es el 80% del valor (el ranking). El split Mongo/CPU queda en None.
@@ -240,7 +240,7 @@ def measure(thunk) -> dict:
         thunk()
         warm_ms = (time.perf_counter() - t1) * 1000.0
         return {"cold_ms": cold_ms, "warm_ms": warm_ms,
-                "pct_io": None, "pct_cpu": None, "html": None}
+                "pct_io": None, "pct_cpu": None, "html": None, "text": None}
 
     # 1) cold + profilado (caché frío → acá pega a Mongo de verdad)
     prof = Profiler(interval=0.001)
@@ -265,6 +265,8 @@ def measure(thunk) -> dict:
         "cold_ms": cold_ms, "warm_ms": warm_ms,
         "pct_io": pct_io, "pct_cpu": pct_cpu,
         "html": prof.output_html(),
+        # Árbol en texto para leer en la terminal (sin browser). Solo si se pidió.
+        "text": prof.output_text(unicode=True, color=False) if want_text else None,
     }
 
 
@@ -272,6 +274,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Barrido de performance de services (read-only)")
     ap.add_argument("--top", type=int, default=8, help="cuántos HTML (los más lentos) guardar")
     ap.add_argument("--only", type=str, default=None, help="filtrar targets que contengan este texto")
+    ap.add_argument("--text", action="store_true",
+                    help="imprime el árbol de llamadas en la terminal (sin browser)")
     args = ap.parse_args()
 
     print("Derivando contexto desde Mongo…")
@@ -289,7 +293,7 @@ def main() -> int:
     rows: list[dict] = []
     for lbl, thunk in targets:
         try:
-            r = measure(thunk)
+            r = measure(thunk, want_text=args.text)
             r["label"] = lbl
             rows.append(r)
             print(f"  ✓ {lbl:<48} {r['cold_ms']:8.1f} ms")
@@ -326,6 +330,15 @@ def main() -> int:
             (outdir / f"{r['cold_ms']:07.0f}ms_{safe}.html").write_text(r["html"])
         print(f"\nÁrbol de llamadas de los {min(args.top, len(con_html))} más lentos → {outdir}")
         print("Abrí los .html en el browser: ancho/% = tiempo; mirá si arriba hay pymongo (I/O) o código tuyo (CPU).")
+
+    # Árbol en TEXTO en la terminal (sin browser) — para los más lentos.
+    if args.text:
+        con_text = [r for r in ok if r.get("text")]
+        for r in con_text[: args.top]:
+            print("\n" + "█" * 92)
+            print(f"  {r['label']}   ({r['cold_ms']:.1f} ms, {r['pct_io']:.0f}% Mongo/red)")
+            print("█" * 92)
+            print(r["text"])
 
     return 0
 

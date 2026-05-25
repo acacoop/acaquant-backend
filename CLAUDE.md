@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → MongoDB Atlas M10 → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO), venv en `/root/TradingAV/venv`.
 
-**DBs Mongo**: `Trading` (Curvas, MarketSnapshot, SnapshotsCierre, OrderBookL2, TimeSales, DOLAR), `Valuaciones` (Assets, AuM, DolarOficialLive, PnLTotalesCache, ConsolidadoCuentas), `CashFlow` (Contrapartes, Productores, NegocioMovimientos), `Manager` (Users, RoleMatrix, RoleAudit), `CuentasAPI` (AccionistasAPI, ContrapartesAPI — copias derivadas), `MCP` (OAuth codes/tokens, TTL automático).
+**DBs Mongo**: `Trading` (Curvas, MarketSnapshot, SnapshotsCierre, OrderBookL2, TimeSales, DOLAR), `Valuaciones` (Assets, AuM, DolarOficialLive, PnLTotalesCache, ConsolidadoCuentas), `CashFlow` (Contrapartes, Productores, NegocioMovimientos), `Manager` (Users, RoleMatrix, RoleAudit), `Clientes` (Comitentes, ComercialCache — segmentación/operador asignado), `CuentasAPI` (AccionistasAPI, ContrapartesAPI — copias derivadas), `MCP` (OAuth codes/tokens, TTL automático).
 
 ## Contexto por subdirectorio
 
@@ -97,6 +97,10 @@ uvicorn partner_api.main:app --port 8100   # Partner API (servicio externo, ver 
 ## Frontend en repo hermano
 
 `../acaquant-web/` (Next.js 15, deploy auto a Vercel sobre `main`). **No es submodule** — es checkout paralelo. Cambios de API con impacto en UI se editan ahí con rutas absolutas (`C:\...\acaquant-web\...`). Las routes de Next que consumen endpoints "live fallback" necesitan `dynamic = "force-dynamic"` + `revalidate = 0` + `Cache-Control: no-store` (ver `api/CLAUDE.md`).
+
+## Tablero Comercial (lente por operador)
+
+`api/services/comercial.py` + `api/routers/manager/comercial.py` (solo manager). Cruza todo por `id_cuenta` (denormalizado e indexado en `NegocioMovimientos` — **nunca regex sobre `cuenta`**; backfill viejo: `scripts/backfill_id_cuenta_negocio.py`): QUIÉN (`Clientes.Comitentes` → operador + `nivel_1`), ACTIVIDAD (`CashFlow.NegocioMovimientos` → última op), TAMAÑO (`Valuaciones.AuM`), operador↔usuario (`Manager.Users`, para cuentas huérfanas). Estado comercial por días desde última op: ACTIVA ≤45 / ENFRIANDOSE 45-90 / DORMIDA / NUEVA. Cacheado on-the-fly (TTL); si pesa, mover a precompute `Clientes.ComercialCache`. Diseño: `docs/TABLERO_COMERCIAL.md`.
 
 ## Trading.Curvas — shape de flujos (CRÍTICO, no inferible)
 

@@ -7,8 +7,13 @@ Resiliencia (2026-05-23): antes, si el broker cortaba el WS, el motor seguía
 "vivo" sin recibir nada y servía precios viejos en silencio (`except: pass`).
 Ahora:
   - el handler de mercado loguea sus errores (no los traga).
-  - hay handlers de error/excepción que avisan (log + Telegram) y disparan
-    una reconexión con backoff.
+  - los handlers de error/excepción LOGUEAN y disparan reconexión con backoff.
+
+Política de alertas (2026-05-25): los cortes transitorios y las reconexiones
+van SOLO al log. A Telegram va únicamente el **agotamiento** de reconexión
+(motor sin datos), y throttleado a 1×/30min por motor — antes se mandaba un
+mensaje por cada excepción y cada "reconectado", lo que floodeaba el canal con
+el mercado cerrado / flapping (ej. al bootear los motores fuera de horario).
 
 ⚠️ La reconexión NO se pudo testear contra el broker en dev — validar en el
 Droplet con el primer corte real (confirmar que reconecta y los datos vuelven
@@ -25,6 +30,11 @@ logger = logging.getLogger("core.websocket")
 
 
 class WebSocketManager:
+    # Anti-flood: un mismo motor no manda Telegram más de 1×/30min. Los
+    # eventos transitorios (excepción, reintento, reconectado) van SOLO al log;
+    # a Telegram va únicamente el agotamiento de reconexión (motor sin datos).
+    _ALERT_COOLDOWN_S: ClassVar[int] = 1800
+
     def __init__(self, market_manager):
         """market_manager: instancia del cerebro que guarda los precios."""
         self.mm = market_manager
@@ -32,6 +42,7 @@ class WebSocketManager:
         self._sub: tuple | None = None          # (tickers, depth, entries) para reconectar
         self._handler_registrado = False
         self._reconectando = False
+        self._last_telegram = 0.0
 
     def _handler_mercado(self, message):
         """Traduce el mensaje de Rofex para el MarketManager.
@@ -102,8 +113,16 @@ class WebSocketManager:
     # ── Resiliencia ──────────────────────────────────────────────────────────
 
     def _alertar(self, texto: str) -> None:
-        """Log fuerte + alerta Telegram (no-op si no está configurada)."""
+        """Log fuerte + alerta Telegram THROTTLEADA (1×/30min por motor).
+
+        Reservada para eventos accionables (agotamiento de reconexión). Los
+        cortes transitorios NO pasan por acá — van solo al log, para no
+        floodear el canal cuando el mercado está cerrado o hay flapping."""
         logger.error("WS %s: %s", self._nombre, texto)
+        now = time.time()
+        if now - self._last_telegram < self._ALERT_COOLDOWN_S:
+            return
+        self._last_telegram = now
         try:
             from core.notify import send_telegram
             send_telegram(f"🔌 WS motor {self._nombre}: {texto[:150]}")
@@ -111,12 +130,13 @@ class WebSocketManager:
             logger.warning("WS %s: no pude alertar: %s", self._nombre, e)
 
     def _on_error(self, message):
-        self._alertar(f"error de WS: {message}")
+        # Transitorio → solo log (no Telegram). El loop de reconexión avisa
+        # únicamente si se agota.
+        logger.error("WS %s: error de WS: %s", self._nombre, message)
         self._reconectar()
 
     def _on_exception(self, e):
-        logger.error("WS %s: excepción: %s", self._nombre, e, exc_info=True)
-        self._alertar(f"excepción de WS: {e}")
+        logger.error("WS %s: excepción de WS: %s", self._nombre, e, exc_info=True)
         self._reconectar()
 
     def _reconectar(self) -> None:
@@ -143,8 +163,8 @@ class WebSocketManager:
                         exception_handler=self._on_exception,
                     )
                     self.agregar_suscripciones(tickers, depth=depth, entries=entries)
+                    # Recuperación transitoria → solo log (se auto-sanó; no spamear Telegram).
                     logger.info("WS %s: reconectado OK (intento %d)", self._nombre, intento)
-                    self._alertar("✅ reconectado")
                     return
                 except Exception as e:
                     logger.error("WS %s: reconexión intento %d falló: %s", self._nombre, intento, e)

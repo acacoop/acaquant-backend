@@ -167,6 +167,7 @@ def listar_operadores_comercial() -> list[dict[str, Any]]:
 # `denominacion` solo para el header; el resto se renderiza en grilla.
 _FICHA_FIELDS = (
     "denominacion",
+    "telefono", "email",
     "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5",
     "primer_contacto_comercial", "riesgo_la_ft", "division", "adc", "dma",
 )
@@ -331,7 +332,7 @@ def operaciones_cliente(*, id_cuenta: str, limite: int = 300) -> dict[str, Any]:
     return {"id_cuenta": str(id_cuenta), "n": len(rows), "operaciones": rows}
 
 
-_ANALISIS_FIELDS = ("denominacion", "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5")
+_ANALISIS_FIELDS = ("denominacion", "telefono", "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5")
 
 
 @cached(ttl=300)

@@ -80,6 +80,25 @@ def _provincia(cuenta: dict) -> str | None:
     return d.get("provincia")
 
 
+def _medio(cuenta: dict, tipos: tuple[str, ...]) -> str | None:
+    """Valor (`medio`) del medio de comunicación cuyo `tipo` matchea alguno de
+    `tipos` (substring, case-insensitive). Prioriza vigentes (sin
+    `vigenciaHasta`) y `principal`. Aunesa usa tipo='Movil'/'Telefono'/'Fijo'
+    para teléfono y 'E-Mail' para mail; el valor va en el campo `medio`."""
+    cand = [
+        m for m in (cuenta.get("mediosComunicacion") or [])
+        if isinstance(m, dict) and m.get("medio")
+        and any(t in (m.get("tipo") or "").lower() for t in tipos)
+    ]
+    if not cand:
+        return None
+    cand.sort(key=lambda m: (
+        bool(m.get("vigenciaHasta")),                  # vigentes primero
+        (m.get("principal") or "").lower() != "true",  # principal primero
+    ))
+    return str(cand[0]["medio"]).strip() or None
+
+
 def _map_cuenta(c: dict) -> dict:
     """Doc del master a partir del item de listadoCuentas. Solo los campos
     pedidos (auto). Los manuales NO van acá — se inicializan en el upsert."""
@@ -98,6 +117,8 @@ def _map_cuenta(c: dict) -> dict:
         "operador_email":    op.get("email"),
         "operador_nombre":   op.get("nombreReal") or op.get("nombre"),
         "provincia":         _provincia(c),
+        "telefono":          _medio(c, ("movil", "cel", "tel", "fij")),
+        "email":             _medio(c, ("mail", "correo")),
     }
 
 

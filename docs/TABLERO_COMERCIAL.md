@@ -141,9 +141,11 @@ económicos). Sirve para enriquecer un cliente puntual, no para el listado.
   Idempotente, pensado para cron 1×/día. Campos auto via `$set`; los 13
   manuales via `$setOnInsert` (no se pisan). Filtra Comitente+Activa
   (`--include-all` para todos). `--dry-run` para probar sin escribir.
-- Campos auto (12): id_cuenta, denominacion, tipo_titular, tipo, estado,
+- Campos auto (14): id_cuenta, denominacion, tipo_titular, tipo, estado,
   clase, fecha_alta_legajo, tipo_cliente, perfil_inversion, operador_email,
-  operador_nombre, provincia.
+  operador_nombre, provincia, **telefono**, **email** (estos dos del array
+  `mediosComunicacion`: tipo Movil/Telefono/Fijo → telefono, E-Mail → email;
+  valor en el campo `medio`, prioriza vigente + principal).
 - Pendiente: validar con `--dry-run` en el Droplet → agregar línea al cron
   (`deploy/crontab.txt`).
 
@@ -255,9 +257,9 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
 - [ ] Nombre definitivo DB + colección (propuesto: `Clientes.Comitentes`).
 - [x] **APIs Aunesa**: `GET /api/cuentas/listadoCuentas` (master) +
   `GET /api/personas/datosPersona` (enriquecimiento, fase posterior).
-- [x] **Campos auto** (12): id_cuenta, denominacion, tipo_titular, tipo,
+- [x] **Campos auto** (14): id_cuenta, denominacion, tipo_titular, tipo,
   estado, clase, fecha_alta_legajo, tipo_cliente, perfil_inversion,
-  operador_email, operador_nombre, provincia.
+  operador_email, operador_nombre, provincia, telefono, email.
 - [x] **Campos de segmentación manual** (13): nivel_1, nivel_2, nivel_3,
   nivel_4, nivel_5, primer_contacto_comercial, riesgo_la_ft, division, adc,
   dma, observaciones, sucursal, referido. (nivel_1..5 = árbol de segmentación;
@@ -417,6 +419,16 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   AuM>0, por AuM desc), (c) **Distribución por nivel_1** (AuM + # + %). Todo client-side
   desde el mismo fetch. Próximas ideas para Análisis: salud del dato, grandes sin contacto,
   cohortes (ver lista [5]).
+- **2026-05-26** — **Teléfono + email del cliente** (del array `mediosComunicacion`
+  de `listadoCuentas`, confirmado con cuenta 805: tipo `Movil`/`E-Mail`, valor en
+  `medio`). `sync_comitentes._medio()` extrae por substring de tipo, prioriza
+  vigente + principal → 2 campos auto nuevos (`telefono`, `email`); como son `$set`
+  el próximo sync llena las 1770 sin backfill. Service: `telefono`/`email` en
+  `_FICHA_FIELDS` (viajan en la ficha) y `telefono` en `_ANALISIS_FIELDS`. Frontend:
+  Teléfono/Email en la tab "Datos" de la ficha + columna `☎` en la tabla **Riesgo
+  de churn** (para llamar al cliente antes de perderlo). Deploy: git pull + restart
+  api.service + `python -m jobs.sync_comitentes` (poblar ya) en el Droplet; push
+  acaquant-web → Vercel.
 - **2026-05-24 (v6 infra)** — Post-resize del Droplet (2 vCPU / 4GB AMD). 3 optimizaciones
   de tipo I/O-bound (no workers — romperían cache/rate-limit in-process):
   (1) **pool Mongo**: `core/mongo.py` read 10→**50** (techo de queries a Atlas en vuelo

@@ -483,3 +483,134 @@ def resumen_por_operador(*, dias_activa: int = 45, dias_dormida: int = 90) -> di
         "total_cuentas": sum(o["n_cuentas"] for o in operadores),
         "total_aum": sum(o["aum_total"] for o in operadores),
     }
+
+
+# ── Vista INFORME (global, transversal a toda la mesa, no por operador) ───────
+# Reporte de la mesa: cuentas por segmento (acumulado por fecha de alta),
+# volumen + aranceles por comercial (ranking) y aranceles por segmento.
+# Ver docs/TABLERO_COMERCIAL.md [5].
+
+
+def _fin_de_mes(anio: int, mes: int) -> datetime:
+    """Último instante del mes (naive, como se guardan los fecha_alta_legajo)."""
+    ini_sig = datetime(anio + 1, 1, 1) if mes == 12 else datetime(anio, mes + 1, 1)
+    return ini_sig - timedelta(seconds=1)
+
+
+@cached(ttl=600)
+def informe_cuentas_por_segmento(*, hasta: str | None = None) -> dict[str, Any]:
+    """Tabla 1: # cuentas (Activas) por nivel_1, ACUMULADO a fin del mes `hasta`
+    (YYYY-MM; default mes actual), por `fecha_alta_legajo`. Incluye `mes_min`
+    para acotar el selector del frontend."""
+    col = get_db_clientes()["Comitentes"]
+    hoy = _hoy_art()
+    anio, mes = (int(hasta[:4]), int(hasta[5:7])) if hasta else (hoy.year, hoy.month)
+    corte = _fin_de_mes(anio, mes)
+
+    segmentos = [
+        {"segmento": d["_id"], "n": d["n"]}
+        for d in col.aggregate([
+            {"$match": {"estado": "Activa", "fecha_alta_legajo": {"$lte": corte}}},
+            {"$group": {"_id": {"$ifNull": ["$nivel_1", "(sin segmentar)"]}, "n": {"$sum": 1}}},
+            {"$sort": {"n": -1}},
+        ])
+    ]
+    primera = col.find_one(
+        {"fecha_alta_legajo": {"$ne": None}},
+        {"_id": 0, "fecha_alta_legajo": 1},
+        sort=[("fecha_alta_legajo", 1)],
+    )
+    fa = (primera or {}).get("fecha_alta_legajo")
+    mes_min = f"{fa.year:04d}-{fa.month:02d}" if fa else f"{hoy.year:04d}-{hoy.month:02d}"
+    return {
+        "mes": f"{anio:04d}-{mes:02d}",
+        "mes_min": mes_min,
+        "mes_actual": f"{hoy.year:04d}-{hoy.month:02d}",
+        "total": sum(s["n"] for s in segmentos),
+        "segmentos": segmentos,
+    }
+
+
+@cached(ttl=600)
+def informe_comercial() -> dict[str, Any]:
+    """Tablas 2 y 3 del Informe (global). Una pasada por NegocioMovimientos
+    (volumen ARS + arancel, total histórico y mes actual), con roll-up por
+    operador (tabla 2, ranking por volumen) y por nivel_1 (tabla 3)."""
+    hoy = _hoy_art()
+    mes_start = hoy.replace(day=1).isoformat()
+    cats = list(_CATS_VOLUMEN)
+
+    por_cuenta: dict[str, dict] = {}
+    for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
+        {"$match": {"$or": [{"categoria": {"$in": cats}}, {"arancel": {"$gt": 0}}]}},
+        {"$group": {
+            "_id": "$id_cuenta",
+            "vol_total": {"$sum": {"$cond": [
+                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]}]},
+                {"$abs": "$importe"}, 0]}},
+            "vol_mes": {"$sum": {"$cond": [
+                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]},
+                          {"$gte": ["$fecha", mes_start]}]},
+                {"$abs": "$importe"}, 0]}},
+            "ar_total": {"$sum": {"$ifNull": ["$arancel", 0]}},
+            "ar_mes": {"$sum": {"$cond": [
+                {"$gte": ["$fecha", mes_start]}, {"$ifNull": ["$arancel", 0]}, 0]}},
+        }},
+    ]):
+        if d.get("_id"):
+            por_cuenta[str(d["_id"])] = d
+
+    detalle = {
+        str(c["id_cuenta"]): c
+        for c in get_db_clientes()["Comitentes"].find(
+            {"estado": "Activa"},
+            {"_id": 0, "id_cuenta": 1, "operador_email": 1, "operador_nombre": 1, "nivel_1": 1},
+        )
+    }
+
+    ops: dict[str, dict] = {}
+    segs: dict[str, dict] = {}
+    for idc, agg in por_cuenta.items():
+        info = detalle.get(idc, {})
+        key = (info.get("operador_email") or "").strip().lower() or "(sin operador)"
+        o = ops.get(key)
+        if o is None:
+            o = ops[key] = {
+                "operador_email": info.get("operador_email"),
+                "operador_nombre": info.get("operador_nombre") or info.get("operador_email") or "(sin operador)",
+                "vol_total": 0.0, "vol_mes": 0.0, "ar_total": 0.0, "ar_mes": 0.0,
+            }
+        o["vol_total"] += agg["vol_total"]
+        o["vol_mes"] += agg["vol_mes"]
+        o["ar_total"] += agg["ar_total"]
+        o["ar_mes"] += agg["ar_mes"]
+
+        seg = info.get("nivel_1") or "(sin segmentar)"
+        s = segs.get(seg)
+        if s is None:
+            s = segs[seg] = {"segmento": seg, "ar_total": 0.0, "ar_mes": 0.0, "n_cuentas": 0}
+        s["ar_total"] += agg["ar_total"]
+        s["ar_mes"] += agg["ar_mes"]
+        if agg["ar_total"] > 0:
+            s["n_cuentas"] += 1
+
+    def _r(d: dict, keys: tuple[str, ...]) -> dict:
+        for k in keys:
+            d[k] = round(d[k], 2)
+        return d
+
+    comerciales = sorted(
+        (_r(o, ("vol_total", "vol_mes", "ar_total", "ar_mes")) for o in ops.values()),
+        key=lambda x: x["vol_total"], reverse=True,
+    )
+    for i, o in enumerate(comerciales, 1):
+        o["rank"] = i
+    segmentos = sorted(
+        (_r(s, ("ar_total", "ar_mes")) for s in segs.values()),
+        key=lambda x: x["ar_total"], reverse=True,
+    )
+    return {
+        "mes_actual": f"{hoy.year:04d}-{hoy.month:02d}",
+        "comerciales": comerciales,
+        "aranceles_segmento": segmentos,
+    }

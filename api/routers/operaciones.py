@@ -781,3 +781,23 @@ def comercial_analisis(
     AuM, última op y niveles de segmentación (estado / churn / distribución)."""
     from api.services.comercial import analisis_comercial
     return analisis_comercial(operador=operador)
+
+
+# ── INFORME (global, transversal a toda la mesa — no por operador) ───────────
+
+@router.get("/comercial/informe")
+def comercial_informe() -> dict:
+    """Tablas 2 y 3 del Informe: volumen + aranceles por comercial (ranking) y
+    aranceles por segmento. Global (toda la mesa)."""
+    from api.services.comercial import informe_comercial
+    return informe_comercial()
+
+
+@router.get("/comercial/informe-segmento")
+def comercial_informe_segmento(
+    hasta: str | None = Query(None, description="mes YYYY-MM (default actual); acumulado a fin de mes"),
+) -> dict:
+    """Tabla 1 del Informe: # cuentas por segmento (nivel_1), acumulado a fin del
+    mes `hasta` por fecha de alta."""
+    from api.services.comercial import informe_cuentas_por_segmento
+    return informe_cuentas_por_segmento(hasta=hasta)

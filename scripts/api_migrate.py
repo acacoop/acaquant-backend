@@ -271,7 +271,12 @@ def migrate_aum():
 
     dst.drop()
     dst.insert_many(bulk)
-    print(f"OK: {len(bulk)} docs copiados a PortfolioAPI.AumAPI")
+    # Recrear índice tras el rebuild: drop() borra los índices, y AumAPI se
+    # consulta por (fecha, id_cuenta) (último snapshot + filtro por cuenta).
+    # Sin esto quedan 248k docs en COLLSCAN. (fecha desc cubre el find_one del
+    # último; +id_cuenta cubre el filtro por cuenta del mismo snapshot.)
+    dst.create_index([("fecha", -1), ("id_cuenta", 1)], name="fecha_idcuenta")
+    print(f"OK: {len(bulk)} docs copiados a PortfolioAPI.AumAPI (+ índice fecha_idcuenta)")
 
     for d in bulk[:3]:
         print(f"  fecha={d['fecha']}  id_cuenta={d['id_cuenta']!r}  unidad={d['unidad']!r}  valuacion={d['valuacion']}")

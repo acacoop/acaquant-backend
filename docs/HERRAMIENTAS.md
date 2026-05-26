@@ -10,7 +10,7 @@ invocan con `python -m scripts.<nombre>` desde la raíz.
 
 <!-- AUTOGEN:START — generado por scripts.gen_herramientas, no editar a mano -->
 
-*10 herramientas en 3 categorías.*
+*11 herramientas en 4 categorías.*
 
 ### DBA / base de datos
 
@@ -36,5 +36,11 @@ invocan con `python -m scripts.<nombre>` desde la raíz.
 | `python -m scripts.api_migrate` | Re-sincroniza las colecciones *API derivadas (drop+insert por contrato de API). |
 | `python -m scripts.gen_herramientas` | Regenera docs/HERRAMIENTAS.md (catálogo de herramientas) desde los docstrings. |
 | `python -m scripts.gen_sistema` | Regenera deploy/SISTEMA.md (plano de servicios/crons) desde systemd + crontab. |
+
+### seguridad
+
+| herramienta | qué hace |
+|---|---|
+| `python -m scripts.security_audit` | Escaneo de secretos filtrados, deps con CVE (pip-audit) y código inseguro (bandit). |
 
 <!-- AUTOGEN:END -->

@@ -19,8 +19,23 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 import requests
+
+# Si existe .env.smoke en la raíz (gitignoreado), cargarlo → así NO hay que
+# exportar las credenciales a mano ni pegarlas en ningún lado. Poné ahí las 4
+# líneas KEY=valor con un editor.
+_ENVF = Path(__file__).resolve().parent.parent / ".env.smoke"
+if _ENVF.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_ENVF)
+    except ImportError:
+        for ln in _ENVF.read_text().splitlines():
+            if "=" in ln and not ln.lstrip().startswith("#"):
+                k, v = ln.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip())
 
 API = os.environ.get("ACAQUANT_API_URL", "https://api.acaquant.com").rstrip("/")
 ENDPOINT = f"{API}/api/ingest/dolar-oficial"

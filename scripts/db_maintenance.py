@@ -40,18 +40,19 @@ _DROP = [
     ("Manager", "AumBackfillLog", "run_id_1"),
     ("Market", "EconomicCalendar", "time_1"),
 ]
-# (db, coll, días de retención)
+# (db, coll, días de retención, campo|None). campo=None → autodetectar el único
+# campo datetime; explícito cuando hay varios (ej. started_at/finished_at).
 _TTL = [
-    ("Manager", "AumBackfillLog", 90),
-    ("Manager", "AsistenteLogs", 90),
-    ("Manager", "RoleAudit", 90),
-    ("Manager", "ChangeLog", 90),
-    ("Manager", "PortfolioSnapshotLog", 90),
-    ("Operaciones", "OrdenesAudit", 90),
-    ("Derivados", "AgroPizarraAudit", 90),
-    ("Derivados", "CamaraCerealesAudit", 90),
-    ("Opciones", "Data", 90),       # time-series
-    ("Trading", "TimeSales", 90),   # time-series
+    ("Manager", "AumBackfillLog", 90, "started_at"),
+    ("Manager", "AsistenteLogs", 90, None),
+    ("Manager", "RoleAudit", 90, None),
+    ("Manager", "ChangeLog", 90, None),
+    ("Manager", "PortfolioSnapshotLog", 90, None),
+    ("Operaciones", "OrdenesAudit", 90, None),
+    ("Derivados", "AgroPizarraAudit", 90, None),
+    ("Derivados", "CamaraCerealesAudit", 90, None),
+    ("Opciones", "Data", 90, None),       # time-series
+    ("Trading", "TimeSales", 90, None),   # time-series
 ]
 
 
@@ -106,45 +107,74 @@ def _fase_indices(cli, dry: bool) -> None:
             print(f"  ✔ DROPEADO {dbn}.{coll} [{name}]")
 
 
+def _indice_sobre_campo(info: dict, campo: str) -> tuple[str, dict] | None:
+    """Índice cuya key sea exactamente {campo: 1/-1}. Devuelve (nombre, spec)."""
+    for nm, spec in info.items():
+        keys = list(spec.get("key", []))
+        if len(keys) == 1 and keys[0][0] == campo:
+            return nm, spec
+    return None
+
+
 def _fase_ttl(cli, dry: bool) -> None:
     print("\n" + "=" * 66)
     print("FASE 2 — retención (TTL)")
     print("=" * 66)
-    for dbn, coll, dias in _TTL:
-        db = cli[dbn]
-        c = db[coll]
-        secs = dias * 86400
-        es_ts, actual = _ts_info(db, coll)
+    for dbn, coll, dias, campo_fijo in _TTL:
+        try:
+            db = cli[dbn]
+            c = db[coll]
+            secs = dias * 86400
+            es_ts, actual = _ts_info(db, coll)
 
-        if es_ts:
-            if actual == secs:
-                print(f"  ✓ {dbn}.{coll} (TS) ya tiene TTL {dias}d — skip")
+            # --- time-series: expireAfterSeconds vía collMod ---
+            if es_ts:
+                if actual == secs:
+                    print(f"  ✓ {dbn}.{coll} (TS) ya tiene TTL {dias}d — skip")
+                    continue
+                if dry:
+                    print(f"  [dry] collMod {dbn}.{coll} (TS) expireAfterSeconds={secs} ({dias}d)")
+                else:
+                    try:
+                        db.command("collMod", coll, expireAfterSeconds=secs)
+                        print(f"  ✔ TTL {dias}d en {dbn}.{coll} (time-series)")
+                    except Exception as e:
+                        print(f"  ✗ {dbn}.{coll}: collMod falló ({str(e)[:45]}) — hacelo en Atlas UI")
                 continue
-            if dry:
-                print(f"  [dry] collMod {dbn}.{coll} (time-series) expireAfterSeconds={secs} ({dias}d)")
-            else:
-                try:
-                    db.command("collMod", coll, expireAfterSeconds=secs)
-                    print(f"  ✔ TTL {dias}d en {dbn}.{coll} (time-series)")
-                except Exception as e:
-                    print(f"  ✗ {dbn}.{coll}: collMod falló ({str(e)[:50]}) — hacelo en Atlas UI")
-            continue
 
-        # Colección normal: TTL index sobre el único campo datetime.
-        if any("expireAfterSeconds" in s for s in c.index_information().values()):
-            print(f"  ✓ {dbn}.{coll} ya tiene un TTL index — skip")
-            continue
-        campos = _campos_fecha(c)
-        if len(campos) != 1:
-            print(f"  ⚠ {dbn}.{coll}: campo de fecha {'ambiguo' if campos else 'no detectado'} "
-                  f"{campos or ''} — REVISAR a mano, no aplico TTL")
-            continue
-        campo = campos[0]
-        if dry:
-            print(f"  [dry] CREATE TTL {dbn}.{coll} sobre '{campo}' expireAfterSeconds={secs} ({dias}d)")
-        else:
-            c.create_index([(campo, 1)], expireAfterSeconds=secs, name=f"ttl_{campo}")
-            print(f"  ✔ TTL {dias}d en {dbn}.{coll} sobre '{campo}'")
+            # --- colección normal: TTL index sobre el campo datetime ---
+            campo = campo_fijo
+            if campo is None:
+                campos = _campos_fecha(c)
+                if len(campos) != 1:
+                    print(f"  ⚠ {dbn}.{coll}: campo de fecha {'ambiguo' if campos else 'no detectado'} "
+                          f"{campos or ''} — especificar a mano, no aplico TTL")
+                    continue
+                campo = campos[0]
+
+            info = c.index_information()
+            existente = _indice_sobre_campo(info, campo)
+            if existente and "expireAfterSeconds" in existente[1]:
+                print(f"  ✓ {dbn}.{coll} ya tiene TTL sobre '{campo}' — skip")
+                continue
+            if existente:
+                # Ya hay un índice no-TTL sobre el campo → reemplazarlo por uno TTL
+                # (Mongo no permite dos índices con la misma key). Mantiene el nombre.
+                nm = existente[0]
+                if dry:
+                    print(f"  [dry] REEMPLAZAR {dbn}.{coll} [{nm}] sobre '{campo}' por TTL {dias}d")
+                else:
+                    c.drop_index(nm)
+                    c.create_index([(campo, 1)], expireAfterSeconds=secs, name=nm)
+                    print(f"  ✔ {dbn}.{coll} [{nm}] convertido a TTL {dias}d sobre '{campo}'")
+            else:
+                if dry:
+                    print(f"  [dry] CREATE TTL {dbn}.{coll} sobre '{campo}' ({dias}d)")
+                else:
+                    c.create_index([(campo, 1)], expireAfterSeconds=secs, name=f"ttl_{campo}")
+                    print(f"  ✔ TTL {dias}d en {dbn}.{coll} sobre '{campo}'")
+        except Exception as e:
+            print(f"  ✗ {dbn}.{coll}: {type(e).__name__}: {str(e)[:55]} — sigo con el resto")
 
 
 def main() -> None:

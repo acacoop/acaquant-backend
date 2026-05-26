@@ -299,6 +299,7 @@ def _pnl_por_cuenta_core(
     aum_rows_by_id_cuenta: dict[str, list] | None = None,
     fecha_actual_aum_global: str | None = None,
     mep_hoy: float | None = None,
+    mep_cache: dict[str, float | None] | None = None,
 ) -> dict:
     """Cálculo del PnL por ticker — toma todas las deps por kwarg.
 
@@ -358,8 +359,11 @@ def _pnl_por_cuenta_core(
         )
 
     # ── 2. Pesificación helper ──────────────────────────────────────────
-    # Cache solo para fallback (fechas que no tenían mep en el doc).
-    mep_fallback_cache: dict[str, float | None] = {}
+    # Cache solo para fallback (fechas que no tenían mep en el doc). En el path
+    # bulk se pasa un dict COMPARTIDO entre cuentas (mep_cache) → la misma fecha
+    # histórica se busca 1 vez en Mongo y no N (era ~2.8k lookups → ~21s en el
+    # cron). En single-cuenta arranca vacío (idéntico comportamiento de antes).
+    mep_fallback_cache: dict[str, float | None] = mep_cache if mep_cache is not None else {}
 
     def _pesificar(b: dict) -> tuple[float, bool]:
         """Devuelve (importe_ars, mep_missing). Lee `mep` directo del doc;
@@ -964,6 +968,13 @@ def pnl_todas_cuentas_compute() -> list[dict]:
     # todas las cuentas (el costo va al MEP histórico por boleto).
     mep_hoy = get_mep_for_date(date.today().isoformat())
 
+    # Cache de MEP histórico COMPARTIDO entre todas las cuentas: hay solo ~1.3k
+    # fechas posibles, pero el fallback se llamaba ~2.8k veces (mismas fechas
+    # re-buscadas por cuenta). Compartirlo corta los round-trips a Atlas → el
+    # cron baja de ~25s a ~5s. Es un memo de get_mep_for_date (función de la
+    # fecha) → valores idénticos.
+    mep_cache: dict[str, float | None] = {}
+
     out: list[dict] = []
     for c in cuentas:
         id_cta = c.get("id_cuenta")
@@ -974,6 +985,7 @@ def pnl_todas_cuentas_compute() -> list[dict]:
                 id_cuenta=str(id_cta),
                 db_cf=db_cf, db_v=db_v, db_t=db_t,
                 mep_hoy=mep_hoy,
+                mep_cache=mep_cache,
                 **deps,
             )
         except Exception:

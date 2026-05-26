@@ -64,6 +64,8 @@ def main() -> None:
         stat["n"] = 0
         stat["t"] = 0.0
 
+        # Mismo cache compartido que usa pnl_todas_cuentas_compute (refleja el fix).
+        mep_cache: dict = {}
         t1 = time.perf_counter()
         procesadas = 0
         for c in cuentas:
@@ -74,7 +76,7 @@ def main() -> None:
                 pnl._pnl_por_cuenta_core(
                     id_cuenta=str(id_cta),
                     db_cf=db_cf, db_v=db_v, db_t=db_t,
-                    mep_hoy=mep_hoy, **deps,
+                    mep_hoy=mep_hoy, mep_cache=mep_cache, **deps,
                 )
                 procesadas += 1
             except Exception:

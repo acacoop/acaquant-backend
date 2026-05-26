@@ -115,7 +115,9 @@ def main() -> None:
 
     for dbname in dbs:
         db = cli[dbname]
-        colls = sorted(db.list_collection_names())
+        # Saltear colecciones de sistema (system.views/buckets/profile): no
+        # permiten listIndexes y son internas de time-series / vistas.
+        colls = sorted(c for c in db.list_collection_names() if not c.startswith("system."))
         if not colls:
             continue
         print("\n" + "█" * 84)
@@ -124,9 +126,13 @@ def main() -> None:
         print(f"{'colección':<30}{'#docs':>11}{'datos':>10}{'índices':>10}{'#idx':>6}{'avg':>8}  TTL")
         print("-" * 84)
         for coll in colls:
-            st = _collstats(db, coll)
-            idxs = db[coll].index_information()
-            usage = _index_usage(db, coll)
+            try:
+                st = _collstats(db, coll)
+                idxs = db[coll].index_information()
+                usage = _index_usage(db, coll)
+            except Exception as e:
+                print(f"{coll:<30}  ⚠ no auditable: {str(e)[:40]}")
+                continue
             ttl = _ttl(idxs)
             n_idx = len(idxs)
             print(f"{coll:<30}{st['count']:>11,}{_h(st['size']):>10}{_h(st['idx_size']):>10}"

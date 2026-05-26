@@ -20,7 +20,7 @@ requests==2.32.5
 yfinance==1.2.0  # Yahoo Finance histórico OHLC (Finnhub free bloqueó candles)
 fastapi==0.135.1
 uvicorn[standard]==0.41.0
-python-multipart==0.0.26  # file upload en /api/manager/intel/*
+python-multipart==0.0.27  # file upload en /api/manager/intel/* (0.0.27 fixea CVE-2026-42561)
 pypdf==6.10.2  # parser de PDFs para ingesta de reportes
 feedparser==6.0.12  # ingesta de RSS para jobs/news_ingesta.py
 trafilatura==2.0.0  # extracción de texto limpio de artículos (reader mode)

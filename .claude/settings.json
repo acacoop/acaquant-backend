@@ -10,6 +10,20 @@
       "Bash(.venv/bin/pip:*)",
       "Bash(ruff check:*)",
       "Bash(pytest:*)"
+    ],
+    "ask": [
+      "Bash(rm -rf:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(./.env)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/secrets/**)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)"
     ]
   },
   "hooks": {

@@ -42,7 +42,7 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 |---|---|
 | PreToolUse · `git push` | `check_imports.sh` — corre `from api.main import app` y **BLOQUEA** el push si no importa (enforcement de la REGLA #1). |
 | PostToolUse · `Write\|Edit` | `ruff_check.sh` — `ruff check` sobre el `.py` editado, informativo (no bloquea). |
-| PostToolUse · `Write\|Edit` | `sistema_drift.sh` — si tocaste `deploy/systemd/*` o `crontab.txt`, avisa si `deploy/SISTEMA.md` quedó desincronizado (corré `/sistema`). |
+| PostToolUse · `Write\|Edit` | `sistema_drift.sh` — drift de docs autogenerados: `deploy/systemd/*`/`crontab.txt` → `SISTEMA.md`; `scripts/*.py` → `docs/HERRAMIENTAS.md`. Avisa si quedaron desincronizados (no bloquea). |
 
 ## settings
 

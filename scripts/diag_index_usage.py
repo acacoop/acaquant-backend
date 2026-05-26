@@ -73,7 +73,7 @@ def main() -> None:
             keys = {n: tuple(s["key"]) for n, s in info.items() if n != "_id_"}
             red = _redundantes(keys)
             print(f"\n{dbname}.{coll}")
-            for name, spec in info.items():
+            for name in info:
                 if name == "_id_":
                     continue
                 ops = stats.get(name, {}).get("accesses", {}).get("ops", "?")
@@ -86,7 +86,7 @@ def main() -> None:
                     flags.append("redundante")
                     redund.append(f"{dbname}.{coll}.{name}")
                 tag = ("  ← " + ", ".join(flags)) if flags else ""
-                print(f"    {name:<42} ops={str(ops):>9}  {sz:>8}{tag}")
+                print(f"    {name:<42} ops={ops!s:>9}  {sz:>8}{tag}")
 
     print("\n" + "=" * 64)
     print(f"MUERTOS (0 ops): {len(muertos)}")

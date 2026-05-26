@@ -419,6 +419,19 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   AuM>0, por AuM desc), (c) **Distribución por nivel_1** (AuM + # + %). Todo client-side
   desde el mismo fetch. Próximas ideas para Análisis: salud del dato, grandes sin contacto,
   cohortes (ver lista [5]).
+- **2026-05-26** — **Aranceles por boleto + sub-vista INFORME.** (1) Aranceles:
+  `consolidadosGenerales` (fuente del negocio) no trae el arancel; `/operaciones/informes`
+  sí (boleto-level, multi-fila, arancel idéntico por fila → se toma 1 vez). Nuevo
+  `core/aunesa.py` (cliente único: auth+token+GET con re-auth) + `api/services/aunesa_informes.py`
+  (`aranceles_por_boleto` → {boleto:{moneda:arancel}}, parser tolera "1102.80" y "1.338,07")
+  + `scripts/backfill_aranceles.py` (enriquece NM por boleto==comprobante: `aranceles{moneda}`
+  + `arancel` ARS; dry-run default; cuentas tomadas de NM). Join confirmado 1:1 con diag.
+  (2) Sub-vista **INFORME** (global, no por operador): `informe_cuentas_por_segmento(hasta)`
+  (# cuentas por nivel_1 acumulado por fecha_alta, selector mensual) + `informe_comercial()`
+  (1 pasada por NM → volumen+aranceles por comercial con ranking, y aranceles por segmento).
+  Endpoints `/comercial/informe[-segmento]`. Frontend `comercial-informe-view.tsx` (4 cuadrantes;
+  Q4 reservado). PENDIENTE: día a día del arancel (que `negocio_movimientos` lo setee en el
+  upsert horario) + migrar el resto de callers a `core/aunesa` (aum, negocio, sync_comitentes, diags).
 - **2026-05-26** — **Teléfono + email del cliente** (del array `mediosComunicacion`
   de `listadoCuentas`, confirmado con cuenta 805: tipo `Movil`/`E-Mail`, valor en
   `medio`). `sync_comitentes._medio()` extrae por substring de tipo, prioriza

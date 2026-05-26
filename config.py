@@ -20,6 +20,12 @@ AUNESA_PASSWORD = os.getenv("AUNESA_PASSWORD")
 # --- API KEY ---
 API_KEY = os.getenv("API_KEY", "")
 
+# Token dedicado del endpoint de ingesta del dólar oficial (POST /api/ingest/
+# dolar-oficial). La PC de oficina (mae_forex) lo manda en el header X-Ingest-Token.
+# Acotado a propósito: si se filtra, solo permite escribir DolarOficialLive — NO da
+# acceso a Mongo. Sin él seteado, el endpoint responde 503 (ingesta deshabilitada).
+DOLAR_INGEST_TOKEN = os.getenv("DOLAR_INGEST_TOKEN", "")
+
 # Entorno de ejecución. `prod` activa el fail-closed de auth (EXT-AUTH1):
 # si ENV=prod y falta API_KEY, la API NO arranca (mejor caída ruidosa que
 # quedar abierta en silencio). Default `dev` → comportamiento permisivo

@@ -33,6 +33,7 @@ from api.routers import (
     cuentas,
     derivados_agro,
     derivados_sinteticos,
+    ingest,
     manager,
     manager_resources,
     market,
@@ -201,6 +202,7 @@ _MANAGER      = [Depends(verify_api_key), Depends(require_module("manager"))]
 
 # Públicos (todos los roles tienen home/renta-fija/derivados/estrategia):
 app.include_router(me.router)                                      # /api/me — sin gate (identidad propia)
+app.include_router(ingest.router)                                  # /api/ingest — auth propia (X-Ingest-Token), no _PUBLIC
 app.include_router(analitica.router,         dependencies=_PUBLIC)
 app.include_router(cotizaciones.router,      dependencies=_PUBLIC)
 app.include_router(news.router,              dependencies=_PUBLIC)

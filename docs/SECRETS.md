@@ -31,6 +31,7 @@ run es un proceso nuevo).
 | `TELEGRAM_BOT_TOKEN` | Bot de alertas (@acaquantbot). | @BotFather → /mybots → Revoke token → actualizar `.env`. |
 | `BYMA_CLIENT_ID` / `BYMA_CLIENT_SECRET` | OAuth2 para licitaciones primarias BYMA. | Portal BYMA Developer. |
 | `MAE_API_KEY` | MarketData MAE (repos/cauciones wholesale). | Coordinar con MAE. |
+| `DOLAR_INGEST_TOKEN` | Token de `POST /api/ingest/dolar-oficial` (la PC de oficina lo manda en `X-Ingest-Token`). Va en el `.env` del Droplet **y** en la oficina (deben coincidir). Si se filtra: solo permite escribir DolarOficialLive, no da acceso a Mongo. | Random nuevo → `.env` Droplet + oficina → restart API. |
 | `FINNHUB_API_KEY` | Data de mercado externa. | Dashboard de Finnhub. |
 | `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | LLM del asistente (legacy, no en uso hoy). | Consola Anthropic / Google. |
 

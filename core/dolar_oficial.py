@@ -14,12 +14,43 @@ eliminó el 2026-05-04.
 """
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
-from core.mongo import get_mongo_client_read
+from core.mongo import get_mongo_client, get_mongo_client_read
 
 DB = "Valuaciones"
 COL_LIVE = "DolarOficialLive"   # MAE (script local oficina)
+
+
+def upsert_oficial(docs: list[dict]) -> int:
+    """Escribe instrumentos MAE en DolarOficialLive (lo usa el endpoint de
+    ingesta `POST /api/ingest/dolar-oficial`, alimentado por la PC de oficina).
+
+    Upsert por (ticker, codigoSegmento, codigoPlazo) → 1 doc por instrumento (no
+    acumula histórico; la lectura toma el más reciente por `updated_at`). Acepta
+    cada item como el instrumento crudo de MAE o ya envuelto en `{data: {...}}`.
+    `updated_at` lo pone el server (no se confía en el reloj del cliente).
+    Devuelve cuántos se escribieron.
+    """
+    if not docs:
+        return 0
+    col = get_mongo_client()[DB][COL_LIVE]
+    now = datetime.now(UTC)
+    n = 0
+    for item in docs:
+        data = item.get("data") if isinstance(item.get("data"), dict) else item
+        if not isinstance(data, dict) or not data.get("ticker"):
+            continue
+        col.update_one(
+            {"data.ticker": data.get("ticker"),
+             "data.codigoSegmento": data.get("codigoSegmento"),
+             "data.codigoPlazo": data.get("codigoPlazo")},
+            {"$set": {"data": data, "updated_at": now}},
+            upsert=True,
+        )
+        n += 1
+    return n
 
 # Filtro EXACTO del dólar oficial mayorista spot (= A3500 / liquidación T+0).
 # MAE devuelve muchos instrumentos con `ticker == "UST$T"` (mayorista,

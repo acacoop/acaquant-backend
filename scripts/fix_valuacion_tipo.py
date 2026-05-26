@@ -66,7 +66,7 @@ def main() -> None:
     print("-" * 88)
     for c in cambios[:80]:
         u = str(c["unidad"])[:34]
-        print(f"  {c['fecha']}  [{str(c['id_cuenta']):>6}] {u:34}  "
+        print(f"  {c['fecha']}  [{c['id_cuenta']!s:>6}] {u:34}  "
               f"val {c['val_vieja']:>22,.2f} -> {c['val_nueva']:>20,.2f}")
     if len(cambios) > 80:
         print(f"  ... y {len(cambios) - 80} mas")

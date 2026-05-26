@@ -1,5 +1,7 @@
 """perf_sweep.py — Barrido de performance de los services (foto real de una).
 
+Herramienta: perf · Barrido de latencia de los services (cold/warm + split Mongo vs CPU); --text para consola.
+
 Corre EN EL DROPLET, contra Atlas real, una lista CURADA y SOLO-LECTURA de los
 services que alimentan las vistas, y para cada uno mide:
 

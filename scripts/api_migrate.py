@@ -1,5 +1,7 @@
 """Script para crear y migrar colecciones API desde las colecciones existentes.
 
+Herramienta: infra · Re-sincroniza las colecciones *API derivadas (drop+insert por contrato de API).
+
 Uso:
     python -m scripts.api_migrate accionistas       → migra CashFlow.Accionistas → CashFlow.AccionistasAPI
     python -m scripts.api_migrate contrapartes      → migra CashFlow.Contrapartes → CashFlow.ContrapartesAPI

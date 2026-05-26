@@ -129,7 +129,7 @@ def main() -> int:
 
     if sin_live[:args.top]:
         print(f"-- TOP {args.top} CON INSTRUMENTO PERO SIN FEED --")
-        for t, a, i in sin_live[:args.top]:
+        for t, _a, i in sin_live[:args.top]:
             print(f"  ${t['valuacion_total']:>15,.0f}  "
                   f"inst={i:35.35s}  {t['_id']}")
         print()

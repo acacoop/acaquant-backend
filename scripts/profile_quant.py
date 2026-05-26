@@ -1,5 +1,7 @@
 """profile_quant.py — Microbenchmark del cálculo PURO de quant/.
 
+Herramienta: perf · Microbenchmark del cálculo puro de quant/ — ¿vale optimizar/reescribir en C++/Rust?
+
 Objetivo: responder con números (no intuición) si el cómputo de quant/ es un
 cuello de botella que justifique vectorizar / numba / C++ / Rust. Mide cada
 función pura con `timeit` sobre datasets del tamaño REAL que maneja la mesa, y

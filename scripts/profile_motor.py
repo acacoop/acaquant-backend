@@ -1,5 +1,7 @@
 """profile_motor.py — Perfilar un motor always-on en vivo con py-spy.
 
+Herramienta: perf · Perfila un motor always-on en vivo con py-spy (top/record/dump), sin reiniciarlo.
+
 py-spy se "cuelga" del proceso de un motor por su PID y muestra en qué gasta
 CPU SIN reiniciarlo ni instrumentar el código. Ideal para `engines/` (procesos
 largos). Este wrapper resuelve el PID del servicio systemd y dispara py-spy.

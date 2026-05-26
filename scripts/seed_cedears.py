@@ -17,10 +17,9 @@ Uso:
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from core.mongo import get_mongo_client
-
 
 NOMBRES: dict[str, str] = {
     # US Tech mega-caps
@@ -269,7 +268,7 @@ def run(dry_run: bool = False) -> None:
 
     client = get_mongo_client()
     col = client["Trading"]["Cedears"]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     inserted = updated = unchanged = 0
     for doc in CEDEARS:

@@ -99,7 +99,7 @@ def main() -> None:
     print("-" * 88)
     for c in cambios[:80]:
         u = c["unidad"][:46]
-        print(f"  [{str(c['id_cuenta']):>6}] {u:46}  "
+        print(f"  [{c['id_cuenta']!s:>6}] {u:46}  "
               f"precio {c['precio_viejo']:>14,.4f} -> {c['precio_nuevo']:>14,.4f}  "
               f"val {c['val_vieja']:>16,.2f} -> {c['val_nueva']:>16,.2f}")
     if len(cambios) > 80:
@@ -108,7 +108,7 @@ def main() -> None:
     if sin_precio:
         muestra = sorted(u for u in sin_precio if u and u != "None")[:30]
         print("-" * 88)
-        print(f"Unidades del snapshot que NO estan en el doc (NO se tocan), muestra:")
+        print("Unidades del snapshot que NO estan en el doc (NO se tocan), muestra:")
         for u in muestra:
             print(f"  - {u}")
         if len(sin_precio) > 30:

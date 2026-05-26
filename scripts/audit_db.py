@@ -1,5 +1,7 @@
 """audit_db.py — auditoría DBA del cluster Mongo (read-only).
 
+Herramienta: dba · Auditoría read-only del cluster Mongo: inventario + índices + TTL + FINDINGS.
+
 Recorre TODAS las bases/colecciones del cluster y produce un reporte accionable:
 inventario (tamaño datos/índices, #docs), salud de índices (muertos / redundantes),
 retención (TTL) y, opcional, consistencia de schema por muestreo.

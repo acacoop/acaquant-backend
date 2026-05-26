@@ -1,5 +1,7 @@
 """diag_index_usage.py — uso real de cada índice ($indexStats), read-only.
 
+Herramienta: dba · Uso real de índices ($indexStats): marca MUERTOS (0 ops) y redundantes.
+
 Complementa audit_db: por cada colección con índices propios (más allá de _id),
 lista cada índice con sus `ops` (cuántas veces lo eligió el planner desde el
 último restart del nodo), su tamaño y su key. Marca:

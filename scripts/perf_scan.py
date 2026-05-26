@@ -1,5 +1,7 @@
 """perf_scan.py — Static analysis para anti-patterns de queries Mongo.
 
+Herramienta: perf · Anti-patterns de queries Mongo (PERF001-4); modo --strict para CI / pre-deploy.
+
 Scanea api/, engines/, jobs/ y reporta:
   PERF001  list(col.find(...)) sin projection      → carga docs completos
   PERF002  find/find_one/aggregate dentro de un for → posible N+1

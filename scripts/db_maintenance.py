@@ -1,5 +1,7 @@
 """db_maintenance.py — cambios de optimización DBA. Idempotente, dry-run por default.
 
+Herramienta: dba · Aplica optimizaciones DBA (crear/dropear índices + TTL). Idempotente, dry-run por default.
+
 De la auditoría (scripts/audit_db + diag_index_usage):
 
 FASE 1 — índices

@@ -1,5 +1,7 @@
 """gen_sistema.py — genera/actualiza deploy/SISTEMA.md desde la fuente real.
 
+Herramienta: infra · Regenera deploy/SISTEMA.md (plano de servicios/crons) desde systemd + crontab.
+
 El plano del sistema (`deploy/SISTEMA.md`) tiene dos partes:
   - NARRATIVA (topología, flujo de datos, bases) → escrita a mano.
   - INVENTARIO (servicios, motores, crons) → AUTO-GENERADO desde

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from datetime import date, timedelta
 
 import requests
@@ -34,6 +35,21 @@ INFORMES_URL = "https://aca.aunesa.com/Irmo/api/operaciones/informes"
 # Campos de costo que son el motivo de evaluar este endpoint.
 _COSTO_FIELDS = ("aranceles", "arancelesA", "arancelesP", "gastos",
                  "impuestos", "otros", "otrosA", "otrosP", "neto", "bruto", "nocional")
+
+# Subconjunto que nos importa de verdad (lo que el usuario necesita capturar).
+# Excluye neto/bruto/nocional, que siempre vienen poblados.
+_FEE_FIELDS = ("aranceles", "arancelesA", "arancelesP", "gastos",
+               "impuestos", "otros", "otrosA", "otrosP")
+
+
+def _tiene_fee(item: dict) -> bool:
+    """True si el boleto trae ALGÚN arancel/gasto/impuesto con monto real."""
+    for k in _FEE_FIELDS:
+        for row in (item.get(k) or []):
+            monto = str((row or {}).get("Monto") or "").strip()
+            if monto not in ("", "0", "0.0"):
+                return True
+    return False
 
 
 def _auth() -> dict[str, str]:
@@ -113,16 +129,31 @@ def main() -> int:
         flag = "  ⬅️ COSTO" if k in _COSTO_FIELDS else ""
         print(f"   {k:<20} ({claves[k]}){flag}")
 
-    # Foco: ¿los campos de costo vienen poblados o vacíos?
+    # Distribución por tipo de operación — para ver que NO son solo cauciones
+    # (las cauciones no pagan arancel; necesitamos ver compras/ventas).
+    tipos: Counter = Counter(str(it.get("tipoOperacion") or "—") for it in data)
     print("\n" + "═" * 72)
-    print("CAMPOS DE COSTO (¿vienen con monto?):")
-    primero = data[0]
-    for k in _COSTO_FIELDS:
-        if k in primero:
-            print(f"   {k:<14} = {json.dumps(primero.get(k), ensure_ascii=False)}")
+    print("tipoOperacion (top 15):")
+    for t, n in tipos.most_common(15):
+        print(f"   {n:>5}  {t}")
 
+    # LA PREGUNTA CLAVE: ¿algún boleto de los 506 trae arancel/gasto/impuesto?
+    con_fee = [it for it in data if _tiene_fee(it)]
     print("\n" + "═" * 72)
-    print(f"BOLETOS COMPLETOS (primeros {args.samples}):")
+    print(f"BOLETOS CON ARANCEL/GASTO/IMPUESTO POBLADO: {len(con_fee)} de {len(data)}")
+    if not con_fee:
+        print("❌ NINGUNO trae costos con monto en este rango/cuenta.")
+        print("   → O esta cuenta no paga aranceles (ej. DMA/propia), o el endpoint")
+        print("     no los expone para este cliente. Probá otra cuenta con compras/ventas.")
+    else:
+        print(f"✅ SÍ vienen poblados. Dumpeo los primeros {args.samples}:")
+        for it in con_fee[: args.samples]:
+            print("-" * 72)
+            print(json.dumps(it, ensure_ascii=False, indent=2))
+
+    # Además, una muestra general (cualquier boleto) por si querés ver el shape.
+    print("\n" + "═" * 72)
+    print(f"MUESTRA GENERAL (primeros {args.samples}, sin filtrar):")
     for it in data[: args.samples]:
         print("-" * 72)
         print(json.dumps(it, ensure_ascii=False, indent=2))

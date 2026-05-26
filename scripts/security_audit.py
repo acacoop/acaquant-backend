@@ -50,8 +50,9 @@ def _walk_files():
             yield p
 
 
-def scan_secretos() -> list[str]:
-    hits = []
+def scan_secretos() -> list[tuple[str, str]]:
+    """Devuelve [(ruta_rel, descripción)] de líneas con patrón de secreto."""
+    hits: list[tuple[str, str]] = []
     for p in _walk_files():
         try:
             for i, line in enumerate(p.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
@@ -59,11 +60,16 @@ def scan_secretos() -> list[str]:
                     continue
                 for nombre, rx in _SECRET_PATTERNS:
                     if rx.search(line):
-                        rel = p.relative_to(ROOT)
-                        hits.append(f"{nombre} → {rel}:{i}")
+                        hits.append((str(p.relative_to(ROOT)), f"{nombre}:{i}"))
         except Exception:
             continue
     return hits
+
+
+def _ignorado(rel: str) -> bool:
+    """True si git ya ignora el archivo (= es un .env legítimo, no un leak)."""
+    rc, _ = _run(["git", "check-ignore", "-q", rel])
+    return rc == 0
 
 
 def _run(cmd: list[str]) -> tuple[int, str]:
@@ -106,15 +112,22 @@ def main() -> None:
     print("AUDITORÍA DE SEGURIDAD — TradingAV")
     print("=" * 70)
 
-    # 1. Secretos
+    # 1. Secretos — distinguir archivos VERSIONABLES (leak real) de IGNORADOS (.env, OK).
     print("\n[1] SECRETOS en el código (working tree)")
-    sec = scan_secretos()
-    if sec:
-        print("  🔴 POSIBLES SECRETOS FILTRADOS (revisá c/u; si es real, ROTALO ya):")
-        for h in sec:
-            print(f"     • {h}")
-    else:
-        print("  🟢 Sin credenciales reales en el working tree.")
+    versionables: dict[str, list[str]] = {}
+    ignorados: dict[str, list[str]] = {}
+    for rel, desc in scan_secretos():
+        (ignorados if _ignorado(rel) else versionables).setdefault(rel, []).append(desc)
+    if versionables:
+        print("  🔴 SECRETOS EN ARCHIVOS VERSIONABLES (se pueden commitear → LEAK real):")
+        for arch, descs in versionables.items():
+            print(f"     • {arch} — {', '.join(descs)}")
+        print("     → Agregá el archivo al .gitignore Y ROTÁ esos secretos (asumí que se vieron).")
+    if ignorados:
+        print(f"  ℹ️  Secretos en archivos YA gitignoreados (esperado, ej. .env): "
+              f"{', '.join(ignorados)} — OK, no se commitean.")
+    if not versionables and not ignorados:
+        print("  🟢 Sin credenciales en el working tree.")
 
     # 2. Deps con CVE
     print("\n[2] DEPENDENCIAS con CVE conocido")

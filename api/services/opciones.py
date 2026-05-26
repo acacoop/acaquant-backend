@@ -226,7 +226,8 @@ def _leg_key(legs: list[dict]) -> str:
          "qty": int(leg.get("qty", 1))}
         for leg in legs
     ]
-    return sha1(json.dumps(canon, sort_keys=True).encode()).hexdigest()[:12]
+    # Hash de cache-key (no criptográfico) → usedforsecurity=False.
+    return sha1(json.dumps(canon, sort_keys=True).encode(), usedforsecurity=False).hexdigest()[:12]
 
 
 def _pick_px(bid: float, offer: float, last: float, side: str) -> float:

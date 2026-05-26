@@ -53,7 +53,8 @@ class SnapshotWriter:
                 data = self.data_fn()
                 if data:
                     serialized = json.dumps(data, default=str, sort_keys=True)
-                    current_hash = hashlib.md5(serialized.encode()).hexdigest()
+                    # Hash para detectar cambios (no criptográfico) → usedforsecurity=False.
+                    current_hash = hashlib.md5(serialized.encode(), usedforsecurity=False).hexdigest()
 
                     if current_hash != self._last_hash:
                         ts = datetime.now()

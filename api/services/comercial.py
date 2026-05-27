@@ -614,3 +614,65 @@ def informe_comercial() -> dict[str, Any]:
         "comerciales": comerciales,
         "aranceles_segmento": segmentos,
     }
+
+
+@cached(ttl=300)
+def informe_segmento_detalle(*, segmento: str) -> dict[str, Any]:
+    """Detalle de un segmento (nivel_1) para la Q4 dinámica del Informe.
+
+    Dos vistas del mismo segmento:
+      - `clientes`: cuentas del segmento con su arancel (total + mes), desc.
+      - `operaciones`: boletos con arancel > 0 de esas cuentas (los que generaron
+        el arancel), por arancel desc, acotado.
+    `segmento == "(sin segmentar)"` → nivel_1 == null.
+    """
+    hoy = _hoy_art()
+    mes_start = hoy.replace(day=1).isoformat()
+    match_seg = {"nivel_1": None} if segmento == "(sin segmentar)" else {"nivel_1": segmento}
+
+    detalle = {
+        str(c["id_cuenta"]): c.get("denominacion")
+        for c in get_db_clientes()["Comitentes"].find(
+            {"estado": "Activa", **match_seg},
+            {"_id": 0, "id_cuenta": 1, "denominacion": 1},
+        )
+    }
+    ids = list(detalle.keys())
+    if not ids:
+        return {"segmento": segmento, "n_clientes": 0, "clientes": [], "operaciones": []}
+
+    mov = get_db_cashflow()["NegocioMovimientos"]
+
+    clientes = []
+    for d in mov.aggregate([
+        {"$match": {"id_cuenta": {"$in": ids}, "arancel": {"$gt": 0}}},
+        {"$group": {
+            "_id": "$id_cuenta",
+            "ar_total": {"$sum": "$arancel"},
+            "ar_mes": {"$sum": {"$cond": [{"$gte": ["$fecha", mes_start]}, "$arancel", 0]}},
+        }},
+    ]):
+        idc = str(d["_id"])
+        clientes.append({
+            "id_cuenta": idc,
+            "denominacion": detalle.get(idc) or "—",
+            "arancel_total": round(float(d.get("ar_total") or 0.0), 2),
+            "arancel_mes": round(float(d.get("ar_mes") or 0.0), 2),
+        })
+    clientes.sort(key=lambda x: x["arancel_total"], reverse=True)
+
+    operaciones = []
+    for d in mov.find(
+        {"id_cuenta": {"$in": ids}, "arancel": {"$gt": 0}},
+        {"_id": 0, "fecha": 1, "id_cuenta": 1, "comprobante": 1, "ticker": 1,
+         "categoria": 1, "op": 1, "importe": 1, "moneda": 1, "arancel": 1},
+    ).sort([("arancel", -1)]).limit(500):
+        d["denominacion"] = detalle.get(str(d.get("id_cuenta"))) or "—"
+        operaciones.append(d)
+
+    return {
+        "segmento": segmento,
+        "n_clientes": len(clientes),
+        "clientes": clientes,
+        "operaciones": operaciones,
+    }

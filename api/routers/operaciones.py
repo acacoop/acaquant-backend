@@ -801,3 +801,13 @@ def comercial_informe_segmento(
     mes `hasta` por fecha de alta."""
     from api.services.comercial import informe_cuentas_por_segmento
     return informe_cuentas_por_segmento(hasta=hasta)
+
+
+@router.get("/comercial/informe-segmento-detalle")
+def comercial_informe_segmento_detalle(
+    segmento: str = Query(..., description="nivel_1 a desglosar"),
+) -> dict:
+    """Detalle de un segmento (Q4 dinámica): clientes con su arancel +
+    operaciones (boletos con arancel) que lo generaron."""
+    from api.services.comercial import informe_segmento_detalle
+    return informe_segmento_detalle(segmento=segmento)

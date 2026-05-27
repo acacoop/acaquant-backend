@@ -89,6 +89,7 @@
 | 18:30 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
 | 20:30 · L-V | `jobs.forwards_zscore` |
 | 21:30 · L-V | `jobs.partner_export` |
+| 22:30 · L-V | `jobs.actividad_mensual` |
 | 23:30 · L-V | `jobs.consolidado_cuentas` |
 | 20:35 · L-V | `jobs.cierre_canje` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute` |

@@ -784,6 +784,20 @@ def comercial_analisis(
     return analisis_comercial(operador=operador, moneda=moneda)
 
 
+@router.get("/comercial/actividad-historica")
+def comercial_actividad_historica(
+    operador: str = Query(..., description="operador_email o '__todos__' (toda la mesa)"),
+    desde: str | None = Query(None, description="mes YYYY-MM inclusive"),
+    hasta: str | None = Query(None, description="mes YYYY-MM inclusive"),
+    moneda: str = Query("ARS", description="ARS | USD"),
+) -> dict:
+    """Serie mensual de cuentas activas (operaron en el mes calendario) +
+    volumen, desde el snapshot `Clientes.ActividadMensual`. Scopeable por
+    operador o toda la mesa."""
+    from api.services.comercial import actividad_historica
+    return actividad_historica(operador=operador, desde=desde, hasta=hasta, moneda=moneda)
+
+
 # ── INFORME (global, transversal a toda la mesa — no por operador) ───────────
 
 @router.get("/comercial/informe")

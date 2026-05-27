@@ -91,6 +91,12 @@
 # mantiene caliente. Sin esto, cada operador se come el primer hit en frío.
 */4 13-20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.comercial_warm >> /root/TradingAV/logs/comercial_warm.log 2>&1
 
+# ─── Snapshot mensual de cuentas activas (22:30 UTC = 19:30 ART, L-V)
+# Corre el MES CORRIENTE después del último negocio_movimientos (22:00 UTC) →
+# refresca Clientes.ActividadMensual con las activas del mes hasta hoy.
+# Idempotente (reemplaza el mes). Backfill inicial: python -m jobs.actividad_mensual --backfill.
+30 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.actividad_mensual >> /root/TradingAV/logs/actividad_mensual.log 2>&1
+
 # ─── BCRA (CER/TAMAR/DOLAR/BADLAR, 22:00 UTC L-V = 19:00 ART)
 # El CER se publica ~18 ART con 10 días hábiles de anticipación (forward).
 # Corremos DESPUÉS de la publicación para capturar los valores del día.

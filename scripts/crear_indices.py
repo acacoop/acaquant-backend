@@ -23,6 +23,7 @@ def main():
     portfolio_api   = client["PortfolioAPI"]
     titulos_api     = client["TitulosAPI"]
     manager_db      = client["Manager"]
+    clientes        = client["Clientes"]
 
     indices = [
         # ── Trading.TimeSales ─────────────────────────────────────────────
@@ -133,6 +134,13 @@ def main():
             "ValuacionesAPI: curva"),
         (titulos_api["ValuacionesAPI"], [("ticker", 1)],
             "ValuacionesAPI: ticker"),
+
+        # ── Clientes.ActividadMensual (snapshot mensual de cuentas activas) ─
+        # Clave única mes×cuenta; serie por operador filtra (operador, mes).
+        (clientes["ActividadMensual"], [("year_month", 1), ("id_cuenta", 1)],
+            "ActividadMensual: year_month + id_cuenta (unique)", {"unique": True}),
+        (clientes["ActividadMensual"], [("operador_email", 1), ("year_month", 1)],
+            "ActividadMensual: operador_email + year_month"),
 
         # ── Manager.JobRuns (historial de runs de cron) ──────────────────
         # TTL: expira 60 días después de started_at.

@@ -419,6 +419,13 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   AuM>0, por AuM desc), (c) **Distribución por nivel_1** (AuM + # + %). Todo client-side
   desde el mismo fetch. Próximas ideas para Análisis: salud del dato, grandes sin contacto,
   cohortes (ver lista [5]).
+- **2026-05-27** — **ARS/USD + más UX.** Se sacó el filtro `moneda==ARS` del volumen:
+  ahora **incluye los boletos USD pesificados** con el `mep` de cada boleto (`_PESIF`),
+  ya no se descartan. **Toggle ARS/USD** en la barra de COMERCIAL → dolariza al MEP
+  actual (÷mep) en Portfolio/Análisis/Informe + debug. Además: Ticket Prom. pasó a 2da
+  col; en Análisis se reemplazó Riesgo de churn por **Niveles 2 y 3** (dinámico al tocar
+  un nivel_1); fix del eje Y del gráfico de AuM (domain auto). PENDIENTE menor: el panel
+  Portafolio/Operaciones del cliente (detalle) sigue en ARS — extender a USD si se pide.
 - **2026-05-26 (lote UX/Informe)** — 7 mejoras: (1) chips de estado clickeables en
   Análisis (filtran la tabla). (2) **"Todos los operadores"** en el selector (global,
   vista del jefe) — `operador_comercial`/`analisis_comercial`/`serie_comercial` agregan

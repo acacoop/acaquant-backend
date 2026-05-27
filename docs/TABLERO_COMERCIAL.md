@@ -419,6 +419,16 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
   AuM>0, por AuM desc), (c) **Distribución por nivel_1** (AuM + # + %). Todo client-side
   desde el mismo fetch. Próximas ideas para Análisis: salud del dato, grandes sin contacto,
   cohortes (ver lista [5]).
+- **2026-05-26 (lote UX/Informe)** — 7 mejoras: (1) chips de estado clickeables en
+  Análisis (filtran la tabla). (2) **"Todos los operadores"** en el selector (global,
+  vista del jefe) — `operador_comercial`/`analisis_comercial`/`serie_comercial` agregan
+  SIN `$in` de ids cuando es `TODOS`. (3) **Ticket Promedio** (vol_total/# ops) en Q2 y Q3
+  del Informe + (3c) panel **Debug Comercial** en Manager/Diagnóstico (operador/segmento →
+  # ops + volúmenes + ticket, desglose por cuenta) vía `/api/manager/checks/debug-comercial`.
+  (3b) sacada la col # ctas. (4) operaciones del detalle por fecha desc. (6) buscador por
+  cuenta en Portfolio. (7) **Informe interactivo**: click en un comercial re-scopea Q1
+  (gráfico), Q3 (aranceles x segmento) y Q4 (detalle) a ese comercial. Backfill de
+  aranceles optimizado (concurrente + 1 query NM/cuenta + registro de errores).
 - **2026-05-26** — **Aranceles por boleto + sub-vista INFORME.** (1) Aranceles:
   `consolidadosGenerales` (fuente del negocio) no trae el arancel; `/operaciones/informes`
   sí (boleto-level, multi-fila, arancel idéntico por fila → se toma 1 vez). Nuevo

@@ -820,11 +820,12 @@ def comercial_informe_aranceles_segmento(
 
 @router.get("/comercial/informe-segmento-detalle")
 def comercial_informe_segmento_detalle(
-    segmento: str = Query(..., description="nivel_1 a desglosar"),
+    segmento: str = Query("todos", description="nivel_1 a desglosar; 'todos' = todos los segmentos"),
     operador: str | None = Query(None, description="opcional: solo cuentas de ese comercial"),
     moneda: str = Query("ARS", description="ARS | USD"),
 ) -> dict:
     """Detalle de un segmento (Q4 dinámica): clientes con su arancel +
-    operaciones (boletos con arancel) que lo generaron. `operador` opcional."""
+    operaciones (boletos con arancel) que lo generaron. `segmento='todos'` →
+    todos los segmentos (vista por defecto). `operador` opcional."""
     from api.services.comercial import informe_segmento_detalle
     return informe_segmento_detalle(segmento=segmento, operador=operador, moneda=moneda)

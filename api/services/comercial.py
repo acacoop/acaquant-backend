@@ -701,7 +701,7 @@ def debug_comercial(
     }
     ids = list(cuentas.keys())
     if not ids:
-        return {"operador": operador, "segmento": segmento, "n_cuentas_filtradas": 0,
+        return {"operador": operador, "segmento": segmento or "todos", "n_cuentas_filtradas": 0,
                 "n_cuentas_con_actividad": 0, "totales": {}, "cuentas": []}
 
     filas = []
@@ -730,7 +730,7 @@ def debug_comercial(
     n_ops = sum(f["n_ops"] for f in filas)
     vol_total = round(sum(f["vol_total"] for f in filas), 2)
     return {
-        "operador": operador, "segmento": segmento,
+        "operador": operador, "segmento": segmento or "todos",
         "n_cuentas_filtradas": len(ids),
         "n_cuentas_con_actividad": len(filas),
         "totales": {
@@ -799,7 +799,7 @@ def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS") -> dict[st
 
 @cached(ttl=300)
 def informe_segmento_detalle(
-    *, segmento: str, operador: str | None = None, moneda: str = "ARS",
+    *, segmento: str | None = None, operador: str | None = None, moneda: str = "ARS",
 ) -> dict[str, Any]:
     """Detalle de un segmento (nivel_1) para la Q4 dinámica del Informe.
 
@@ -807,13 +807,19 @@ def informe_segmento_detalle(
       - `clientes`: cuentas del segmento con su arancel (total + mes), desc.
       - `operaciones`: boletos con arancel > 0 de esas cuentas (los que generaron
         el arancel), por fecha desc, acotado.
-    `segmento == "(sin segmentar)"` → nivel_1 == null. `operador` opcional → solo
-    las cuentas de ese comercial dentro del segmento.
+    `segmento` None / "" / "todos" → TODOS los segmentos (sin filtro de nivel_1,
+    vista por defecto). `"(sin segmentar)"` → nivel_1 == null. `operador` opcional
+    → solo las cuentas de ese comercial.
     """
     hoy = _hoy_art()
     factor = _factor_usd(moneda)
     mes_start = hoy.replace(day=1).isoformat()
-    match_seg = {"nivel_1": None} if segmento == "(sin segmentar)" else {"nivel_1": segmento}
+    if not segmento or segmento == "todos":
+        match_seg: dict[str, Any] = {}
+    elif segmento == "(sin segmentar)":
+        match_seg = {"nivel_1": None}
+    else:
+        match_seg = {"nivel_1": segmento}
     match_cli: dict[str, Any] = {"estado": "Activa", **match_seg}
     if operador:
         match_cli["operador_email"] = operador
@@ -827,7 +833,7 @@ def informe_segmento_detalle(
     }
     ids = list(detalle.keys())
     if not ids:
-        return {"segmento": segmento, "n_clientes": 0, "clientes": [], "operaciones": []}
+        return {"segmento": segmento or "todos", "n_clientes": 0, "clientes": [], "operaciones": []}
 
     mov = get_db_cashflow()["NegocioMovimientos"]
 
@@ -860,7 +866,7 @@ def informe_segmento_detalle(
         operaciones.append(d)
 
     return {
-        "segmento": segmento,
+        "segmento": segmento or "todos",
         "n_clientes": len(clientes),
         "clientes": clientes,
         "operaciones": operaciones,

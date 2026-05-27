@@ -44,9 +44,11 @@ def test_extract_id_cuenta():
 # ── _match_volumen filtra por id_cuenta indexado (no regex) ─────────────────
 
 def test_match_volumen_usa_id_cuenta():
-    m = _match_volumen(("805", "112"), "ARS", "2026-01-01")
+    m = _match_volumen(("805", "112"), "2026-01-01")
     assert m["id_cuenta"] == {"$in": ["805", "112"]}
-    assert m["moneda"] == "ARS"
+    # NO filtra por moneda: el volumen pesifica ARS+USD (× mep del boleto) y
+    # luego suma, así que el $match deja entrar ambas monedas.
+    assert "moneda" not in m
     assert "$in" in m["categoria"]
     assert m["fecha"] == {"$gte": "2026-01-01"}
     # NO debe filtrar por regex sobre `cuenta` (eso es lo que no escalaba).
@@ -54,6 +56,14 @@ def test_match_volumen_usa_id_cuenta():
 
 
 def test_match_volumen_sin_fecha():
-    m = _match_volumen(("805",), "USD", None)
+    m = _match_volumen(("805",), None)
     assert "fecha" not in m
+    assert "moneda" not in m
     assert m["id_cuenta"] == {"$in": ["805"]}
+
+
+def test_match_volumen_todos_no_filtra_cuenta():
+    # `todos=True` (vista "Todos los operadores") → sin $in de id_cuenta.
+    m = _match_volumen((), None, todos=True)
+    assert "id_cuenta" not in m
+    assert "$in" in m["categoria"]

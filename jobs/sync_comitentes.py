@@ -6,11 +6,17 @@ para correr 1×/día por cron: las cuentas nuevas se agregan solas (upsert por
 `id_cuenta`), idempotente.
 
 Reglas (mismo criterio que el master de Assets en aum.py):
-  - Solo `$set` los campos que vienen de Aunesa.
-  - Los campos de SEGMENTACIÓN MANUAL (segmento, sub_segmento,
-    sub_sub_segmento, sucursal, referido) se inicializan en null SOLO al
-    insertar (`$setOnInsert`) y NUNCA se pisan en re-syncs → preservan lo que
-    la mesa cargó a mano.
+  - `$set` de los campos de Aunesa (denominación, estado, teléfono, etc.),
+    EXCEPTO el operador.
+  - El OPERADOR (operador_email/operador_nombre, `INSERT_ONLY_FIELDS`) se escribe
+    SOLO al insertar la cuenta y NUNCA se pisa en re-syncs: el de Aunesa no es
+    confiable y lo gestiona la mesa a mano (override desde /manager → CLIENTES).
+  - Los campos de SEGMENTACIÓN MANUAL (`MANUAL_FIELDS`) se inicializan en null
+    SOLO al insertar (`$setOnInsert`) y NUNCA se pisan → preservan lo que la
+    mesa cargó a mano.
+  - `nivel_3` (persona humana/jurídica) es DERIVADO de `tipo_cliente`
+    (clasificar_nivel_3): se calcula al insertar y tampoco se pisa en re-syncs.
+    Backfill de cuentas existentes: scripts/backfill_nivel3.py.
   - Filtra tipo=Comitente + estado=Activa (igual que el AuM). `--include-all`
     trae todos los tipos/estados.
 
@@ -40,11 +46,33 @@ COL = "Comitentes"
 # Campos de segmentación manual — se crean en null al insertar y el sync no
 # los toca nunca más (los edita la mesa desde la UI). nivel_1..5 = árbol de
 # segmentación; el resto, atributos comerciales / compliance.
+# Campos de segmentación manual que se inicializan en null al insertar. nivel_3
+# NO está acá: es DERIVADO de tipo_cliente (ver clasificar_nivel_3), se calcula
+# al crear la cuenta.
 MANUAL_FIELDS = (
-    "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5",
+    "nivel_1", "nivel_2", "nivel_4", "nivel_5",
     "primer_contacto_comercial", "riesgo_la_ft", "division",
     "adc", "dma", "observaciones", "sucursal", "referido",
 )
+
+# Campos de Aunesa que se escriben SOLO al crear la cuenta y luego NO se pisan
+# en re-syncs (a diferencia de MANUAL_FIELDS, se inicializan con el valor de
+# Aunesa, no en null). El operador de Aunesa no es confiable → la mesa lo
+# corrige a mano y esa corrección debe sobrevivir el cron nocturno.
+INSERT_ONLY_FIELDS = ("operador_email", "operador_nombre")
+
+
+def clasificar_nivel_3(tipo_cliente: str | None) -> str | None:
+    """nivel_3 = persona humana / jurídica, derivado de `tipo_cliente` (Aunesa).
+
+    'Persona' → 'Persona Humana'; cualquier otro valor con dato (Empresa, Fondo
+    Común de Inversión, Compañía de seguros, …) → 'Persona Jurídica'. Sin dato
+    (None/vacío) → None: no se clasifica (queda vacío para revisar). Misma regla
+    en el sync (al insertar) y en scripts/backfill_nivel3.py."""
+    t = (tipo_cliente or "").strip()
+    if not t:
+        return None
+    return "Persona Humana" if t.lower() == "persona" else "Persona Jurídica"
 
 
 def _auth() -> dict[str, str]:
@@ -149,12 +177,21 @@ def run(*, include_all: bool = False, dry_run: bool = False) -> None:
             if not doc["id_cuenta"]:
                 saltadas += 1
                 continue
-            set_fields = {k: v for k, v in doc.items() if k != "id_cuenta"}
+            set_fields = {
+                k: v for k, v in doc.items()
+                if k != "id_cuenta" and k not in INSERT_ONLY_FIELDS
+            }
             set_fields["origen"] = "aunesa"
             set_fields["updated_at"] = now
             on_insert: dict = {"created_at": now}
             for mf in MANUAL_FIELDS:
                 on_insert[mf] = None
+            # Operador: valor de Aunesa SOLO al crear; en re-syncs no se toca
+            # (un campo no puede estar en $set y $setOnInsert a la vez).
+            for f in INSERT_ONLY_FIELDS:
+                on_insert[f] = doc.get(f)
+            # nivel_3 (humana/jurídica): derivado de tipo_cliente al crear.
+            on_insert["nivel_3"] = clasificar_nivel_3(doc.get("tipo_cliente"))
             ops.append(
                 UpdateOne(
                     {"id_cuenta": doc["id_cuenta"]},

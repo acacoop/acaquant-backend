@@ -45,6 +45,13 @@ _READONLY_FIELDS: tuple[str, ...] = (
     "operador_nombre", "operador_email",
 )
 
+# Operador (campos de Aunesa) que la CARGA MASIVA puede sobrescribir desde el
+# Excel — corrección manual de la mesa. A propósito NO están en _EDITABLE_FIELDS:
+# en la edición fila-por-fila siguen read-only; solo se corrigen por bulk. El
+# sync nocturno ya no los pisa (INSERT_ONLY_FIELDS en jobs/sync_comitentes.py),
+# así que la corrección sobrevive el cron.
+_BULK_OPERADOR_FIELDS: tuple[str, ...] = ("operador_email", "operador_nombre")
+
 _PROJECTION = {
     "_id": 0, "id_cuenta": 1,
     **{f: 1 for f in _READONLY_FIELDS},
@@ -166,12 +173,14 @@ class _BulkReq(BaseModel):
 
 @router.post("/clientes/bulk")
 def bulk_clientes(req: _BulkReq, actor: str = Depends(get_user_email)):
-    """Carga masiva de campos manuales desde archivo. Update por id_cuenta de
-    SOLO los campos manuales presentes (no vacíos). No crea cuentas."""
+    """Carga masiva desde archivo. Update por id_cuenta de SOLO los campos
+    manuales (_EDITABLE_FIELDS) + el operador (_BULK_OPERADOR_FIELDS) presentes y
+    no vacíos. No crea cuentas."""
     now = datetime.now(UTC)
     ops: list[UpdateOne] = []
     ids: list[str] = []
     sin_id = sin_campos = 0
+    bulk_cols = set(_EDITABLE_FIELDS) | set(_BULK_OPERADOR_FIELDS)
 
     for row in req.rows:
         id_cuenta = str(row.get("id_cuenta") or "").strip()
@@ -180,7 +189,7 @@ def bulk_clientes(req: _BulkReq, actor: str = Depends(get_user_email)):
             continue
         set_fields: dict = {}
         for k, v in row.items():
-            if k in _EDITABLE_FIELDS:
+            if k in bulk_cols:
                 val = ("" if v is None else str(v)).strip()
                 if val != "":
                     set_fields[k] = val

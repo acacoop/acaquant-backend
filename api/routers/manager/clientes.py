@@ -119,9 +119,11 @@ def get_clientes_values() -> dict:
 
 
 class _ClientePatch(BaseModel):
-    """id_cuenta en el body. El resto son los manuales — solo se actualizan
-    los que vengan (los `None` se ignoran)."""
+    """id_cuenta en el body. El resto son los manuales + operador — solo se
+    actualizan los que vengan (los `None` se ignoran)."""
     id_cuenta:                 str = Field(..., min_length=1, max_length=64)
+    operador_email:            str | None = Field(None, max_length=256)
+    operador_nombre:           str | None = Field(None, max_length=256)
     nivel_1:                   str | None = Field(None, max_length=128)
     nivel_2:                   str | None = Field(None, max_length=128)
     nivel_3:                   str | None = Field(None, max_length=128)
@@ -142,15 +144,16 @@ def patch_cliente(
     req: _ClientePatch = Body(...),
     actor: str = Depends(get_user_email),
 ):
-    """Update parcial de campos manuales. id_cuenta en el body. No crea
-    cuentas (la cuenta tiene que existir — la pobla jobs.sync_comitentes)."""
+    """Update parcial de campos manuales + operador (edición inline). id_cuenta
+    en el body. No crea cuentas (la cuenta existe — la pobla jobs.sync_comitentes)."""
     payload = req.model_dump(exclude_none=True)
     id_cuenta = payload.pop("id_cuenta")
 
-    set_fields = {k: v for k, v in payload.items() if k in _EDITABLE_FIELDS}
+    allowed = set(_EDITABLE_FIELDS) | set(_BULK_OPERADOR_FIELDS)
+    set_fields = {k: v for k, v in payload.items() if k in allowed}
     if not set_fields:
         raise HTTPException(400, "body sin campos editables — pasá al menos uno de "
-                                 + ", ".join(_EDITABLE_FIELDS))
+                                 + ", ".join((*_EDITABLE_FIELDS, *_BULK_OPERADOR_FIELDS)))
 
     set_fields["actualizado_por"] = actor
     set_fields["actualizado_at"] = datetime.now(UTC)

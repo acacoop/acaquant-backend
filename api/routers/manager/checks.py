@@ -12,11 +12,12 @@ router = APIRouter()
 def check_debug_comercial(
     operador: str | None = Query(None, description="operador_email a auditar"),
     segmento: str | None = Query(None, description="nivel_1 a auditar"),
+    moneda: str = Query("ARS", description="ARS | USD"),
 ):
     """Auditoría del Informe comercial: desglose por cuenta (# ops, volumen,
     arancel) + totales + ticket promedio, para un operador o un segmento."""
     from api.services.comercial import debug_comercial
-    return debug_comercial(operador=operador, segmento=segmento)
+    return debug_comercial(operador=operador, segmento=segmento, moneda=moneda)
 
 
 @router.get("/checks/curvas-pendientes")

@@ -776,21 +776,24 @@ def comercial_operaciones(
 @router.get("/comercial/analisis")
 def comercial_analisis(
     operador: str = Query(..., description="operador_email"),
+    moneda: str = Query("ARS", description="ARS | USD"),
 ) -> dict:
     """Dataset de la vista ANÁLISIS: clientes del operador con estado comercial,
     AuM, última op y niveles de segmentación (estado / churn / distribución)."""
     from api.services.comercial import analisis_comercial
-    return analisis_comercial(operador=operador)
+    return analisis_comercial(operador=operador, moneda=moneda)
 
 
 # ── INFORME (global, transversal a toda la mesa — no por operador) ───────────
 
 @router.get("/comercial/informe")
-def comercial_informe() -> dict:
+def comercial_informe(
+    moneda: str = Query("ARS", description="ARS | USD"),
+) -> dict:
     """Tablas 2 y 3 del Informe: volumen + aranceles por comercial (ranking) y
     aranceles por segmento. Global (toda la mesa)."""
     from api.services.comercial import informe_comercial
-    return informe_comercial()
+    return informe_comercial(moneda=moneda)
 
 
 @router.get("/comercial/informe-segmento")
@@ -807,19 +810,21 @@ def comercial_informe_segmento(
 @router.get("/comercial/informe-aranceles-segmento")
 def comercial_informe_aranceles_segmento(
     operador: str = Query(..., description="operador_email a desglosar"),
+    moneda: str = Query("ARS", description="ARS | USD"),
 ) -> dict:
     """Q3 re-scopeada a un comercial: aranceles + ticket por segmento, solo de
     sus cuentas."""
     from api.services.comercial import informe_aranceles_segmento
-    return informe_aranceles_segmento(operador=operador)
+    return informe_aranceles_segmento(operador=operador, moneda=moneda)
 
 
 @router.get("/comercial/informe-segmento-detalle")
 def comercial_informe_segmento_detalle(
     segmento: str = Query(..., description="nivel_1 a desglosar"),
     operador: str | None = Query(None, description="opcional: solo cuentas de ese comercial"),
+    moneda: str = Query("ARS", description="ARS | USD"),
 ) -> dict:
     """Detalle de un segmento (Q4 dinámica): clientes con su arancel +
     operaciones (boletos con arancel) que lo generaron. `operador` opcional."""
     from api.services.comercial import informe_segmento_detalle
-    return informe_segmento_detalle(segmento=segmento, operador=operador)
+    return informe_segmento_detalle(segmento=segmento, operador=operador, moneda=moneda)

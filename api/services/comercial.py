@@ -97,6 +97,34 @@ def _hoy_art() -> date:
     return (datetime.now(UTC) - timedelta(hours=3)).date()
 
 
+# ── Unificación de monedas (ARS/USD) ─────────────────────────────────────────
+# Valor PESIFICADO (ARS) de un boleto: ARS → |importe|; USD → |importe| × mep
+# (el `mep` snapshot del propio boleto). Así el volumen incluye los boletos USD
+# (antes se descartaban por el filtro moneda==ARS). En vista USD se divide el
+# total ARS por el MEP actual (ver `_factor_usd`).
+_PESIF = {
+    "$cond": [
+        {"$eq": ["$moneda", "ARS"]},
+        {"$abs": "$importe"},
+        {"$multiply": [{"$abs": "$importe"}, {"$ifNull": ["$mep", 0]}]},
+    ],
+}
+
+
+def _factor_usd(moneda: str) -> float | None:
+    """Factor de conversión a USD (MEP actual) o None si la vista es ARS / no hay MEP."""
+    if (moneda or "ARS").upper() != "USD":
+        return None
+    from api.services.macro import get_ultimo_mep
+    mep = get_ultimo_mep().get("mep")
+    return float(mep) if mep else None
+
+
+def _cv(x: float, factor: float | None) -> float:
+    """ARS→USD si hay factor (divide por MEP); redondea a 2."""
+    return round(x / factor, 2) if factor else round(float(x), 2)
+
+
 def _cuentas_de_operador(operador_email: str) -> tuple[str, ...]:
     """ids de cuenta (Comitentes activas) de un operador. `TODOS` → todas."""
     q = {"estado": "Activa"} if operador_email == TODOS else {
@@ -126,15 +154,13 @@ def _aum_por_cuenta(ids: tuple[str, ...], *, todos: bool = False) -> dict[str, f
     return out
 
 
-def _match_volumen(ids: tuple[str, ...], moneda: str, fecha_desde: str | None,
+def _match_volumen(ids: tuple[str, ...], fecha_desde: str | None,
                    *, todos: bool = False) -> dict:
-    """$match de NegocioMovimientos por cuentas del operador + categorías + moneda.
-    Filtra `id_cuenta` (índice idcuenta_categoria_fecha) — sin regex. `todos` →
-    no filtra por id_cuenta (toda la mesa)."""
-    m: dict[str, Any] = {
-        "moneda": moneda,
-        "categoria": {"$in": list(_CATS_VOLUMEN)},
-    }
+    """$match de NegocioMovimientos por cuentas del operador + categorías
+    operativas. NO filtra por moneda → entran ARS y USD (el valor se pesifica con
+    `_PESIF`). Filtra `id_cuenta` (índice idcuenta_categoria_fecha); `todos` → toda
+    la mesa, sin filtro de cuenta."""
+    m: dict[str, Any] = {"categoria": {"$in": list(_CATS_VOLUMEN)}}
     if not todos:
         m["id_cuenta"] = {"$in": list(ids)}
     if fecha_desde:
@@ -142,14 +168,15 @@ def _match_volumen(ids: tuple[str, ...], moneda: str, fecha_desde: str | None,
     return m
 
 
-def _volumen_total(ids: tuple[str, ...], moneda: str, fecha_desde: str | None,
+def _volumen_total(ids: tuple[str, ...], fecha_desde: str | None,
                    *, todos: bool = False) -> float:
+    """Volumen pesificado (ARS), incluye boletos USD (× mep del boleto)."""
     if not todos and not ids:
         return 0.0
     coll = get_db_cashflow()["NegocioMovimientos"]
     res = list(coll.aggregate([
-        {"$match": _match_volumen(ids, moneda, fecha_desde, todos=todos)},
-        {"$group": {"_id": None, "v": {"$sum": {"$abs": "$importe"}}}},
+        {"$match": _match_volumen(ids, fecha_desde, todos=todos)},
+        {"$group": {"_id": None, "v": {"$sum": _PESIF}}},
     ]))
     return round(float(res[0]["v"]), 2) if res else 0.0
 
@@ -197,19 +224,20 @@ def operador_comercial(*, operador: str, moneda: str = "ARS") -> dict[str, Any]:
     es_todos = operador == TODOS
     ids = _cuentas_de_operador(operador)
     hoy = _hoy_art()
+    factor = _factor_usd(moneda)
     aum = _aum_por_cuenta(ids, todos=es_todos)
     mtd_desde = hoy.replace(day=1).isoformat()
     ytd_desde = hoy.replace(month=1, day=1).isoformat()
 
-    # Volumen YTD por cuenta (un group); el total YTD = suma de las cuentas.
+    # Volumen YTD por cuenta (pesificado, incluye USD); total = suma de cuentas.
     vol_ytd: dict[str, float] = {}
     if ids or es_todos:
         for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
-            {"$match": _match_volumen(ids, moneda, ytd_desde, todos=es_todos)},
-            {"$group": {"_id": "$id_cuenta", "v": {"$sum": {"$abs": "$importe"}}}},
+            {"$match": _match_volumen(ids, ytd_desde, todos=es_todos)},
+            {"$group": {"_id": "$id_cuenta", "v": {"$sum": _PESIF}}},
         ]):
             if d.get("_id"):
-                vol_ytd[str(d["_id"])] = round(float(d.get("v") or 0.0), 2)
+                vol_ytd[str(d["_id"])] = float(d.get("v") or 0.0)
 
     # Ficha (segmentación) por cuenta — proyección extendida de Comitentes.
     cuentas_q = {"estado": "Activa"} if es_todos else {"operador_email": operador, "estado": "Activa"}
@@ -225,8 +253,8 @@ def operador_comercial(*, operador: str, moneda: str = "ARS") -> dict[str, Any]:
         {
             "id_cuenta": idc,
             "denominacion": detalle.get(idc, {}).get("denominacion") or "—",
-            "aum": round(aum.get(idc, 0.0), 2),
-            "volumen_ytd": vol_ytd.get(idc, 0.0),
+            "aum": _cv(aum.get(idc, 0.0), factor),
+            "volumen_ytd": _cv(vol_ytd.get(idc, 0.0), factor),
             "ficha": {k: detalle.get(idc, {}).get(k) for k in _FICHA_FIELDS},
         }
         for idc in ids
@@ -237,10 +265,10 @@ def operador_comercial(*, operador: str, moneda: str = "ARS") -> dict[str, Any]:
         "operador": operador,
         "moneda": moneda,
         "resumen": {
-            "aum_gestionado": round(sum(aum.get(idc, 0.0) for idc in ids), 2),
+            "aum_gestionado": _cv(sum(aum.get(idc, 0.0) for idc in ids), factor),
             "n_clientes": len(ids),
-            "volumen_mtd": _volumen_total(ids, moneda, mtd_desde, todos=es_todos),
-            "volumen_ytd": round(sum(vol_ytd.values()), 2),
+            "volumen_mtd": _cv(_volumen_total(ids, mtd_desde, todos=es_todos), factor),
+            "volumen_ytd": _cv(sum(vol_ytd.values()), factor),
         },
         "clientes": clientes,
     }
@@ -258,6 +286,7 @@ def serie_comercial(
     metric='volumen' → sum(abs(importe)) diario (NegocioMovimientos).
     metric='aum'     → AuM por fecha_snapshot (Valuaciones.AuM, ARS)."""
     es_todos = (operador == TODOS) and not id_cuenta
+    factor = _factor_usd(moneda)
     ids: tuple[str, ...] = (str(id_cuenta),) if id_cuenta else _cuentas_de_operador(operador)
     if not ids and not es_todos:
         return {"operador": operador, "id_cuenta": id_cuenta, "metric": metric, "serie": []}
@@ -265,7 +294,7 @@ def serie_comercial(
     if metric == "aum":
         aum_match: dict[str, Any] = {} if es_todos else {"id_cuenta": {"$in": list(ids)}}
         serie = [
-            {"fecha": d["_id"], "valor": round(float(d.get("v") or 0.0), 2)}
+            {"fecha": d["_id"], "valor": _cv(float(d.get("v") or 0.0), factor)}
             for d in get_db_valuaciones()["AuM"].aggregate([
                 {"$match": aum_match},
                 {"$group": {"_id": "$fecha_snapshot", "v": {"$sum": "$valuacion"}}},
@@ -274,10 +303,10 @@ def serie_comercial(
         ]
     else:
         serie = [
-            {"fecha": d["_id"], "valor": round(float(d.get("v") or 0.0), 2)}
+            {"fecha": d["_id"], "valor": _cv(float(d.get("v") or 0.0), factor)}
             for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
-                {"$match": _match_volumen(ids, moneda, None, todos=es_todos)},
-                {"$group": {"_id": "$fecha", "v": {"$sum": {"$abs": "$importe"}}}},
+                {"$match": _match_volumen(ids, None, todos=es_todos)},
+                {"$group": {"_id": "$fecha", "v": {"$sum": _PESIF}}},
                 {"$sort": {"_id": 1}},
             ])
         ]
@@ -352,7 +381,7 @@ _ANALISIS_FIELDS = ("denominacion", "telefono", "nivel_1", "nivel_2", "nivel_3",
 
 @cached(ttl=300)
 def analisis_comercial(
-    *, operador: str, dias_activa: int = 45, dias_dormida: int = 90,
+    *, operador: str, dias_activa: int = 45, dias_dormida: int = 90, moneda: str = "ARS",
 ) -> dict[str, Any]:
     """Dataset para la vista ANÁLISIS de un operador (un set de queries).
 
@@ -369,6 +398,7 @@ def analisis_comercial(
                 "dias_dormida": dias_dormida, "clientes": []}
 
     hoy = _hoy_art()
+    factor = _factor_usd(moneda)
     aum = _aum_por_cuenta(ids, todos=es_todos)
     mov = get_db_cashflow()["NegocioMovimientos"]
     cats = list(_CATS_OPERACIONES)
@@ -407,7 +437,7 @@ def analisis_comercial(
         clientes.append({
             "id_cuenta": idc,
             "denominacion": f.get("denominacion") or "—",
-            "aum": round(aum.get(idc, 0.0), 2),
+            "aum": _cv(aum.get(idc, 0.0), factor),
             "ultima_op": ult,
             "dias_sin_operar": dias,
             "estado": est,
@@ -555,11 +585,13 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None, operador: str | No
 
 
 @cached(ttl=600)
-def informe_comercial() -> dict[str, Any]:
+def informe_comercial(*, moneda: str = "ARS") -> dict[str, Any]:
     """Tablas 2 y 3 del Informe (global). Una pasada por NegocioMovimientos
-    (volumen ARS + arancel, total histórico y mes actual), con roll-up por
-    operador (tabla 2, ranking por volumen) y por nivel_1 (tabla 3)."""
+    (volumen pesificado incluyendo USD + arancel, total histórico y mes actual),
+    con roll-up por operador (tabla 2, ranking por volumen) y por nivel_1 (tabla 3).
+    `moneda='USD'` dolariza al MEP actual."""
     hoy = _hoy_art()
+    factor = _factor_usd(moneda)
     mes_start = hoy.replace(day=1).isoformat()
     cats = list(_CATS_VOLUMEN)
 
@@ -568,19 +600,15 @@ def informe_comercial() -> dict[str, Any]:
         {"$match": {"$or": [{"categoria": {"$in": cats}}, {"arancel": {"$gt": 0}}]}},
         {"$group": {
             "_id": "$id_cuenta",
-            "vol_total": {"$sum": {"$cond": [
-                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]}]},
-                {"$abs": "$importe"}, 0]}},
+            "vol_total": {"$sum": {"$cond": [{"$in": ["$categoria", cats]}, _PESIF, 0]}},
             "vol_mes": {"$sum": {"$cond": [
-                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]},
-                          {"$gte": ["$fecha", mes_start]}]},
-                {"$abs": "$importe"}, 0]}},
+                {"$and": [{"$in": ["$categoria", cats]}, {"$gte": ["$fecha", mes_start]}]},
+                _PESIF, 0]}},
             "ar_total": {"$sum": {"$ifNull": ["$arancel", 0]}},
             "ar_mes": {"$sum": {"$cond": [
                 {"$gte": ["$fecha", mes_start]}, {"$ifNull": ["$arancel", 0]}, 0]}},
-            # # operaciones (las mismas que cuentan para volumen) → ticket promedio.
-            "n_ops": {"$sum": {"$cond": [
-                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]}]}, 1, 0]}},
+            # # operaciones operativas (cualquier moneda) → ticket promedio.
+            "n_ops": {"$sum": {"$cond": [{"$in": ["$categoria", cats]}, 1, 0]}},
         }},
     ]):
         if d.get("_id"):
@@ -624,25 +652,21 @@ def informe_comercial() -> dict[str, Any]:
         if agg["ar_total"] > 0:
             s["n_cuentas"] += 1
 
-    def _r(d: dict, keys: tuple[str, ...]) -> dict:
-        for k in keys:
-            d[k] = round(d[k], 2)
-        return d
-
     def _ticket(vol: float, n: int) -> float:
         return round(vol / n, 2) if n else 0.0
 
-    comerciales = sorted(
-        (_r(o, ("vol_total", "vol_mes", "ar_total", "ar_mes")) for o in ops.values()),
-        key=lambda x: x["vol_total"], reverse=True,
-    )
+    # Dolarización (÷ MEP si USD) al cerrar los totales.
+    for o in ops.values():
+        for k in ("vol_total", "vol_mes", "ar_total", "ar_mes"):
+            o[k] = _cv(o[k], factor)
+    comerciales = sorted(ops.values(), key=lambda x: x["vol_total"], reverse=True)
     for i, o in enumerate(comerciales, 1):
         o["rank"] = i
         o["ticket_promedio"] = _ticket(o["vol_total"], o["n_ops"])
-    segmentos = sorted(
-        (_r(s, ("ar_total", "ar_mes", "vol_total")) for s in segs.values()),
-        key=lambda x: x["ar_total"], reverse=True,
-    )
+    for s in segs.values():
+        for k in ("ar_total", "ar_mes", "vol_total"):
+            s[k] = _cv(s[k], factor)
+    segmentos = sorted(segs.values(), key=lambda x: x["ar_total"], reverse=True)
     for s in segmentos:
         s["ticket_promedio"] = _ticket(s["vol_total"], s["n_ops"])
     return {
@@ -653,12 +677,15 @@ def informe_comercial() -> dict[str, Any]:
 
 
 @cached(ttl=120)
-def debug_comercial(*, operador: str | None = None, segmento: str | None = None) -> dict[str, Any]:
+def debug_comercial(
+    *, operador: str | None = None, segmento: str | None = None, moneda: str = "ARS",
+) -> dict[str, Any]:
     """Auditoría del cálculo del Informe (Manager → Diagnóstico): para un operador
     O un segmento, devuelve el desglose POR CUENTA (# ops, volumen total/mes,
-    arancel) + totales + ticket promedio. Responde "cuántas operaciones reconoce
-    y qué volúmenes" para verificar los números del tablero."""
+    arancel) + totales + ticket promedio. Volumen pesificado (incluye USD);
+    `moneda='USD'` dolariza. Responde "cuántas operaciones reconoce y qué volúmenes"."""
     hoy = _hoy_art()
+    factor = _factor_usd(moneda)
     mes_start = hoy.replace(day=1).isoformat()
     cats = list(_CATS_VOLUMEN)
 
@@ -683,14 +710,11 @@ def debug_comercial(*, operador: str | None = None, segmento: str | None = None)
                     "$or": [{"categoria": {"$in": cats}}, {"arancel": {"$gt": 0}}]}},
         {"$group": {
             "_id": "$id_cuenta",
-            "n_ops": {"$sum": {"$cond": [
-                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]}]}, 1, 0]}},
-            "vol_total": {"$sum": {"$cond": [
-                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]}]},
-                {"$abs": "$importe"}, 0]}},
+            "n_ops": {"$sum": {"$cond": [{"$in": ["$categoria", cats]}, 1, 0]}},
+            "vol_total": {"$sum": {"$cond": [{"$in": ["$categoria", cats]}, _PESIF, 0]}},
             "vol_mes": {"$sum": {"$cond": [
-                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]},
-                          {"$gte": ["$fecha", mes_start]}]}, {"$abs": "$importe"}, 0]}},
+                {"$and": [{"$in": ["$categoria", cats]}, {"$gte": ["$fecha", mes_start]}]},
+                _PESIF, 0]}},
             "ar_total": {"$sum": {"$ifNull": ["$arancel", 0]}},
         }},
     ]):
@@ -698,9 +722,9 @@ def debug_comercial(*, operador: str | None = None, segmento: str | None = None)
         filas.append({
             "id_cuenta": idc, "denominacion": cuentas.get(idc, "—"),
             "n_ops": int(d.get("n_ops", 0)),
-            "vol_total": round(float(d.get("vol_total") or 0.0), 2),
-            "vol_mes": round(float(d.get("vol_mes") or 0.0), 2),
-            "ar_total": round(float(d.get("ar_total") or 0.0), 2),
+            "vol_total": _cv(float(d.get("vol_total") or 0.0), factor),
+            "vol_mes": _cv(float(d.get("vol_mes") or 0.0), factor),
+            "ar_total": _cv(float(d.get("ar_total") or 0.0), factor),
         })
     filas.sort(key=lambda x: x["vol_total"], reverse=True)
     n_ops = sum(f["n_ops"] for f in filas)
@@ -721,11 +745,12 @@ def debug_comercial(*, operador: str | None = None, segmento: str | None = None)
 
 
 @cached(ttl=300)
-def informe_aranceles_segmento(*, operador: str) -> dict[str, Any]:
+def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS") -> dict[str, Any]:
     """Aranceles + ticket promedio por segmento, SOLO de las cuentas del operador
     (re-scope de la Q3 al tocar un comercial). Mismo shape que `aranceles_segmento`
     de `informe_comercial`. El `$in` es por las cuentas del operador (set chico)."""
     hoy = _hoy_art()
+    factor = _factor_usd(moneda)
     mes_start = hoy.replace(day=1).isoformat()
     cats = list(_CATS_VOLUMEN)
     cuentas = {
@@ -745,14 +770,11 @@ def informe_aranceles_segmento(*, operador: str) -> dict[str, Any]:
                     "$or": [{"categoria": {"$in": cats}}, {"arancel": {"$gt": 0}}]}},
         {"$group": {
             "_id": "$id_cuenta",
-            "vol_total": {"$sum": {"$cond": [
-                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]}]},
-                {"$abs": "$importe"}, 0]}},
+            "vol_total": {"$sum": {"$cond": [{"$in": ["$categoria", cats]}, _PESIF, 0]}},
             "ar_total": {"$sum": {"$ifNull": ["$arancel", 0]}},
             "ar_mes": {"$sum": {"$cond": [
                 {"$gte": ["$fecha", mes_start]}, {"$ifNull": ["$arancel", 0]}, 0]}},
-            "n_ops": {"$sum": {"$cond": [
-                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]}]}, 1, 0]}},
+            "n_ops": {"$sum": {"$cond": [{"$in": ["$categoria", cats]}, 1, 0]}},
         }},
     ]):
         seg = cuentas.get(str(d["_id"]), "(sin segmentar)")
@@ -770,13 +792,15 @@ def informe_aranceles_segmento(*, operador: str) -> dict[str, Any]:
     out = sorted(segs.values(), key=lambda x: x["ar_total"], reverse=True)
     for s in out:
         for k in ("ar_total", "ar_mes", "vol_total"):
-            s[k] = round(s[k], 2)
+            s[k] = _cv(s[k], factor)
         s["ticket_promedio"] = round(s["vol_total"] / s["n_ops"], 2) if s["n_ops"] else 0.0
     return {"operador": operador, "aranceles_segmento": out}
 
 
 @cached(ttl=300)
-def informe_segmento_detalle(*, segmento: str, operador: str | None = None) -> dict[str, Any]:
+def informe_segmento_detalle(
+    *, segmento: str, operador: str | None = None, moneda: str = "ARS",
+) -> dict[str, Any]:
     """Detalle de un segmento (nivel_1) para la Q4 dinámica del Informe.
 
     Dos vistas del mismo segmento:
@@ -787,6 +811,7 @@ def informe_segmento_detalle(*, segmento: str, operador: str | None = None) -> d
     las cuentas de ese comercial dentro del segmento.
     """
     hoy = _hoy_art()
+    factor = _factor_usd(moneda)
     mes_start = hoy.replace(day=1).isoformat()
     match_seg = {"nivel_1": None} if segmento == "(sin segmentar)" else {"nivel_1": segmento}
     match_cli: dict[str, Any] = {"estado": "Activa", **match_seg}
@@ -819,8 +844,8 @@ def informe_segmento_detalle(*, segmento: str, operador: str | None = None) -> d
         clientes.append({
             "id_cuenta": idc,
             "denominacion": detalle.get(idc) or "—",
-            "arancel_total": round(float(d.get("ar_total") or 0.0), 2),
-            "arancel_mes": round(float(d.get("ar_mes") or 0.0), 2),
+            "arancel_total": _cv(float(d.get("ar_total") or 0.0), factor),
+            "arancel_mes": _cv(float(d.get("ar_mes") or 0.0), factor),
         })
     clientes.sort(key=lambda x: x["arancel_total"], reverse=True)
 
@@ -831,6 +856,7 @@ def informe_segmento_detalle(*, segmento: str, operador: str | None = None) -> d
          "categoria": 1, "op": 1, "importe": 1, "moneda": 1, "arancel": 1},
     ).sort([("fecha", -1), ("comprobante", -1)]).limit(500):
         d["denominacion"] = detalle.get(str(d.get("id_cuenta"))) or "—"
+        d["arancel"] = _cv(float(d.get("arancel") or 0.0), factor)
         operaciones.append(d)
 
     return {

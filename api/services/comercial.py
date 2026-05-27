@@ -27,6 +27,10 @@ from api.db import (
 # NegocioMovimientos, indexado) — sin regex sobre `cuenta`. Backfill de docs
 # viejos: scripts/backfill_id_cuenta_negocio.py.
 
+# Sentinel del selector: "Todos los operadores" (vista del jefe). Cuando llega
+# esto, las agregaciones NO filtran por id_cuenta (evita un $in de ~1770 ids).
+TODOS = "__todos__"
+
 _BUCKET = {
     "ACTIVA": "n_activas",
     "ENFRIANDOSE": "n_enfriandose",
@@ -94,50 +98,57 @@ def _hoy_art() -> date:
 
 
 def _cuentas_de_operador(operador_email: str) -> tuple[str, ...]:
-    """ids de cuenta (Comitentes activas) asignadas a un operador."""
-    docs = get_db_clientes()["Comitentes"].find(
-        {"operador_email": operador_email, "estado": "Activa"},
-        {"_id": 0, "id_cuenta": 1},
-    )
+    """ids de cuenta (Comitentes activas) de un operador. `TODOS` → todas."""
+    q = {"estado": "Activa"} if operador_email == TODOS else {
+        "operador_email": operador_email, "estado": "Activa"}
+    docs = get_db_clientes()["Comitentes"].find(q, {"_id": 0, "id_cuenta": 1})
     return tuple(sorted(str(d["id_cuenta"]) for d in docs if d.get("id_cuenta")))
 
 
-def _aum_por_cuenta(ids: tuple[str, ...]) -> dict[str, float]:
-    """AuM (último snapshot) por id_cuenta, restringido a `ids`."""
-    if not ids:
+def _aum_por_cuenta(ids: tuple[str, ...], *, todos: bool = False) -> dict[str, float]:
+    """AuM (último snapshot) por id_cuenta. `todos` → no filtra por ids (agrega
+    todas las cuentas del snapshot, sin `$in`)."""
+    if not todos and not ids:
         return {}
     col = get_db_valuaciones()["AuM"]
     snap = col.find_one({}, {"_id": 0, "fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)])
     if not snap:
         return {}
+    match: dict[str, Any] = {"fecha_snapshot": snap["fecha_snapshot"]}
+    if not todos:
+        match["id_cuenta"] = {"$in": list(ids)}
     out: dict[str, float] = {}
     for d in col.aggregate([
-        {"$match": {"fecha_snapshot": snap["fecha_snapshot"], "id_cuenta": {"$in": list(ids)}}},
+        {"$match": match},
         {"$group": {"_id": "$id_cuenta", "aum": {"$sum": "$valuacion"}}},
     ]):
         out[str(d["_id"])] = float(d.get("aum") or 0.0)
     return out
 
 
-def _match_volumen(ids: tuple[str, ...], moneda: str, fecha_desde: str | None) -> dict:
+def _match_volumen(ids: tuple[str, ...], moneda: str, fecha_desde: str | None,
+                   *, todos: bool = False) -> dict:
     """$match de NegocioMovimientos por cuentas del operador + categorías + moneda.
-    Filtra `id_cuenta` (índice idcuenta_categoria_fecha) — sin regex."""
+    Filtra `id_cuenta` (índice idcuenta_categoria_fecha) — sin regex. `todos` →
+    no filtra por id_cuenta (toda la mesa)."""
     m: dict[str, Any] = {
         "moneda": moneda,
         "categoria": {"$in": list(_CATS_VOLUMEN)},
-        "id_cuenta": {"$in": list(ids)},
     }
+    if not todos:
+        m["id_cuenta"] = {"$in": list(ids)}
     if fecha_desde:
         m["fecha"] = {"$gte": fecha_desde}
     return m
 
 
-def _volumen_total(ids: tuple[str, ...], moneda: str, fecha_desde: str | None) -> float:
-    if not ids:
+def _volumen_total(ids: tuple[str, ...], moneda: str, fecha_desde: str | None,
+                   *, todos: bool = False) -> float:
+    if not todos and not ids:
         return 0.0
     coll = get_db_cashflow()["NegocioMovimientos"]
     res = list(coll.aggregate([
-        {"$match": _match_volumen(ids, moneda, fecha_desde)},
+        {"$match": _match_volumen(ids, moneda, fecha_desde, todos=todos)},
         {"$group": {"_id": None, "v": {"$sum": {"$abs": "$importe"}}}},
     ]))
     return round(float(res[0]["v"]), 2) if res else 0.0
@@ -183,27 +194,29 @@ def operador_comercial(*, operador: str, moneda: str = "ARS") -> dict[str, Any]:
     agregado extra. La FICHA (segmentación de Comitentes) viaja embebida en
     cada fila → seleccionar un cliente no dispara otra query.
     """
+    es_todos = operador == TODOS
     ids = _cuentas_de_operador(operador)
     hoy = _hoy_art()
-    aum = _aum_por_cuenta(ids)
+    aum = _aum_por_cuenta(ids, todos=es_todos)
     mtd_desde = hoy.replace(day=1).isoformat()
     ytd_desde = hoy.replace(month=1, day=1).isoformat()
 
     # Volumen YTD por cuenta (un group); el total YTD = suma de las cuentas.
     vol_ytd: dict[str, float] = {}
-    if ids:
+    if ids or es_todos:
         for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
-            {"$match": _match_volumen(ids, moneda, ytd_desde)},
+            {"$match": _match_volumen(ids, moneda, ytd_desde, todos=es_todos)},
             {"$group": {"_id": "$id_cuenta", "v": {"$sum": {"$abs": "$importe"}}}},
         ]):
             if d.get("_id"):
                 vol_ytd[str(d["_id"])] = round(float(d.get("v") or 0.0), 2)
 
     # Ficha (segmentación) por cuenta — proyección extendida de Comitentes.
+    cuentas_q = {"estado": "Activa"} if es_todos else {"operador_email": operador, "estado": "Activa"}
     detalle: dict[str, dict[str, Any]] = {
         str(d["id_cuenta"]): d
         for d in get_db_clientes()["Comitentes"].find(
-            {"operador_email": operador, "estado": "Activa"},
+            cuentas_q,
             {"_id": 0, "id_cuenta": 1, **{f: 1 for f in _FICHA_FIELDS}},
         )
     }
@@ -224,9 +237,9 @@ def operador_comercial(*, operador: str, moneda: str = "ARS") -> dict[str, Any]:
         "operador": operador,
         "moneda": moneda,
         "resumen": {
-            "aum_gestionado": round(sum(aum.values()), 2),
+            "aum_gestionado": round(sum(aum.get(idc, 0.0) for idc in ids), 2),
             "n_clientes": len(ids),
-            "volumen_mtd": _volumen_total(ids, moneda, mtd_desde),
+            "volumen_mtd": _volumen_total(ids, moneda, mtd_desde, todos=es_todos),
             "volumen_ytd": round(sum(vol_ytd.values()), 2),
         },
         "clientes": clientes,
@@ -244,15 +257,17 @@ def serie_comercial(
     cuenta (la vista se vuelve interactiva al seleccionar un cliente).
     metric='volumen' → sum(abs(importe)) diario (NegocioMovimientos).
     metric='aum'     → AuM por fecha_snapshot (Valuaciones.AuM, ARS)."""
+    es_todos = (operador == TODOS) and not id_cuenta
     ids: tuple[str, ...] = (str(id_cuenta),) if id_cuenta else _cuentas_de_operador(operador)
-    if not ids:
+    if not ids and not es_todos:
         return {"operador": operador, "id_cuenta": id_cuenta, "metric": metric, "serie": []}
 
     if metric == "aum":
+        aum_match: dict[str, Any] = {} if es_todos else {"id_cuenta": {"$in": list(ids)}}
         serie = [
             {"fecha": d["_id"], "valor": round(float(d.get("v") or 0.0), 2)}
             for d in get_db_valuaciones()["AuM"].aggregate([
-                {"$match": {"id_cuenta": {"$in": list(ids)}}},
+                {"$match": aum_match},
                 {"$group": {"_id": "$fecha_snapshot", "v": {"$sum": "$valuacion"}}},
                 {"$sort": {"_id": 1}},
             ])
@@ -261,7 +276,7 @@ def serie_comercial(
         serie = [
             {"fecha": d["_id"], "valor": round(float(d.get("v") or 0.0), 2)}
             for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
-                {"$match": _match_volumen(ids, moneda, None)},
+                {"$match": _match_volumen(ids, moneda, None, todos=es_todos)},
                 {"$group": {"_id": "$fecha", "v": {"$sum": {"$abs": "$importe"}}}},
                 {"$sort": {"_id": 1}},
             ])
@@ -347,31 +362,36 @@ def analisis_comercial(
     (filtrar enfriándose/dormido por AuM desc) y distribución por nivel
     (agrupar client-side). "Operó" = categorías operativas (_CATS_OPERACIONES).
     """
+    es_todos = operador == TODOS
     ids = _cuentas_de_operador(operador)
-    if not ids:
+    if not ids and not es_todos:
         return {"operador": operador, "dias_activa": dias_activa,
                 "dias_dormida": dias_dormida, "clientes": []}
 
     hoy = _hoy_art()
-    aum = _aum_por_cuenta(ids)
+    aum = _aum_por_cuenta(ids, todos=es_todos)
     mov = get_db_cashflow()["NegocioMovimientos"]
     cats = list(_CATS_OPERACIONES)
     year_start = date(hoy.year, 1, 1).isoformat()
 
     # Última operación (operativa) EVER por cuenta — sin ventana. De acá salen:
     # estado comercial, días reales sin operar y si operó en el año en curso.
+    ult_match: dict[str, Any] = {"categoria": {"$in": cats}}
+    if not es_todos:
+        ult_match["id_cuenta"] = {"$in": list(ids)}
     ult_op: dict[str, str] = {}
     for d in mov.aggregate([
-        {"$match": {"id_cuenta": {"$in": list(ids)}, "categoria": {"$in": cats}}},
+        {"$match": ult_match},
         {"$group": {"_id": "$id_cuenta", "ult": {"$max": "$fecha"}}},
     ]):
         if d.get("_id") and d.get("ult"):
             ult_op[str(d["_id"])] = d["ult"][:10]
 
+    cuentas_q = {"estado": "Activa"} if es_todos else {"operador_email": operador, "estado": "Activa"}
     detalle: dict[str, dict[str, Any]] = {
         str(d["id_cuenta"]): d
         for d in get_db_clientes()["Comitentes"].find(
-            {"operador_email": operador, "estado": "Activa"},
+            cuentas_q,
             {"_id": 0, "id_cuenta": 1, **{f: 1 for f in _ANALISIS_FIELDS}},
         )
     }

@@ -666,7 +666,7 @@ def informe_segmento_detalle(*, segmento: str) -> dict[str, Any]:
         {"id_cuenta": {"$in": ids}, "arancel": {"$gt": 0}},
         {"_id": 0, "fecha": 1, "id_cuenta": 1, "comprobante": 1, "ticker": 1,
          "categoria": 1, "op": 1, "importe": 1, "moneda": 1, "arancel": 1},
-    ).sort([("arancel", -1)]).limit(500):
+    ).sort([("fecha", -1), ("comprobante", -1)]).limit(500):
         d["denominacion"] = detalle.get(str(d.get("id_cuenta"))) or "—"
         operaciones.append(d)
 

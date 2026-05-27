@@ -796,18 +796,30 @@ def comercial_informe() -> dict:
 @router.get("/comercial/informe-segmento")
 def comercial_informe_segmento(
     hasta: str | None = Query(None, description="mes YYYY-MM (default actual); acumulado a fin de mes"),
+    operador: str | None = Query(None, description="opcional: solo cuentas de ese comercial"),
 ) -> dict:
     """Tabla 1 del Informe: # cuentas por segmento (nivel_1), acumulado a fin del
-    mes `hasta` por fecha de alta."""
+    mes `hasta` por fecha de alta. `operador` opcional re-scopea a ese comercial."""
     from api.services.comercial import informe_cuentas_por_segmento
-    return informe_cuentas_por_segmento(hasta=hasta)
+    return informe_cuentas_por_segmento(hasta=hasta, operador=operador)
+
+
+@router.get("/comercial/informe-aranceles-segmento")
+def comercial_informe_aranceles_segmento(
+    operador: str = Query(..., description="operador_email a desglosar"),
+) -> dict:
+    """Q3 re-scopeada a un comercial: aranceles + ticket por segmento, solo de
+    sus cuentas."""
+    from api.services.comercial import informe_aranceles_segmento
+    return informe_aranceles_segmento(operador=operador)
 
 
 @router.get("/comercial/informe-segmento-detalle")
 def comercial_informe_segmento_detalle(
     segmento: str = Query(..., description="nivel_1 a desglosar"),
+    operador: str | None = Query(None, description="opcional: solo cuentas de ese comercial"),
 ) -> dict:
     """Detalle de un segmento (Q4 dinámica): clientes con su arancel +
-    operaciones (boletos con arancel) que lo generaron."""
+    operaciones (boletos con arancel) que lo generaron. `operador` opcional."""
     from api.services.comercial import informe_segmento_detalle
-    return informe_segmento_detalle(segmento=segmento)
+    return informe_segmento_detalle(segmento=segmento, operador=operador)

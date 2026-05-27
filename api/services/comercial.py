@@ -498,19 +498,22 @@ def _fin_de_mes(anio: int, mes: int) -> datetime:
 
 
 @cached(ttl=600)
-def informe_cuentas_por_segmento(*, hasta: str | None = None) -> dict[str, Any]:
+def informe_cuentas_por_segmento(*, hasta: str | None = None, operador: str | None = None) -> dict[str, Any]:
     """Tabla 1: # cuentas (Activas) por nivel_1, ACUMULADO a fin del mes `hasta`
     (YYYY-MM; default mes actual), por `fecha_alta_legajo`. Incluye `mes_min`
-    para acotar el selector del frontend."""
+    para acotar el selector del frontend. `operador` opcional → solo sus cuentas."""
     col = get_db_clientes()["Comitentes"]
     hoy = _hoy_art()
     anio, mes = (int(hasta[:4]), int(hasta[5:7])) if hasta else (hoy.year, hoy.month)
     corte = _fin_de_mes(anio, mes)
 
+    match: dict[str, Any] = {"estado": "Activa", "fecha_alta_legajo": {"$lte": corte}}
+    if operador:
+        match["operador_email"] = operador
     segmentos = [
         {"segmento": d["_id"], "n": d["n"]}
         for d in col.aggregate([
-            {"$match": {"estado": "Activa", "fecha_alta_legajo": {"$lte": corte}}},
+            {"$match": match},
             {"$group": {"_id": {"$ifNull": ["$nivel_1", "(sin segmentar)"]}, "n": {"$sum": 1}}},
             {"$sort": {"n": -1}},
         ])
@@ -630,23 +633,82 @@ def informe_comercial() -> dict[str, Any]:
 
 
 @cached(ttl=300)
-def informe_segmento_detalle(*, segmento: str) -> dict[str, Any]:
+def informe_aranceles_segmento(*, operador: str) -> dict[str, Any]:
+    """Aranceles + ticket promedio por segmento, SOLO de las cuentas del operador
+    (re-scope de la Q3 al tocar un comercial). Mismo shape que `aranceles_segmento`
+    de `informe_comercial`. El `$in` es por las cuentas del operador (set chico)."""
+    hoy = _hoy_art()
+    mes_start = hoy.replace(day=1).isoformat()
+    cats = list(_CATS_VOLUMEN)
+    cuentas = {
+        str(c["id_cuenta"]): (c.get("nivel_1") or "(sin segmentar)")
+        for c in get_db_clientes()["Comitentes"].find(
+            {"operador_email": operador, "estado": "Activa"},
+            {"_id": 0, "id_cuenta": 1, "nivel_1": 1},
+        )
+    }
+    ids = list(cuentas.keys())
+    if not ids:
+        return {"operador": operador, "aranceles_segmento": []}
+
+    segs: dict[str, dict] = {}
+    for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
+        {"$match": {"id_cuenta": {"$in": ids},
+                    "$or": [{"categoria": {"$in": cats}}, {"arancel": {"$gt": 0}}]}},
+        {"$group": {
+            "_id": "$id_cuenta",
+            "vol_total": {"$sum": {"$cond": [
+                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]}]},
+                {"$abs": "$importe"}, 0]}},
+            "ar_total": {"$sum": {"$ifNull": ["$arancel", 0]}},
+            "ar_mes": {"$sum": {"$cond": [
+                {"$gte": ["$fecha", mes_start]}, {"$ifNull": ["$arancel", 0]}, 0]}},
+            "n_ops": {"$sum": {"$cond": [
+                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]}]}, 1, 0]}},
+        }},
+    ]):
+        seg = cuentas.get(str(d["_id"]), "(sin segmentar)")
+        s = segs.get(seg)
+        if s is None:
+            s = segs[seg] = {"segmento": seg, "ar_total": 0.0, "ar_mes": 0.0,
+                             "vol_total": 0.0, "n_ops": 0, "n_cuentas": 0}
+        s["ar_total"] += d.get("ar_total", 0.0)
+        s["ar_mes"] += d.get("ar_mes", 0.0)
+        s["vol_total"] += d.get("vol_total", 0.0)
+        s["n_ops"] += d.get("n_ops", 0)
+        if d.get("ar_total", 0.0) > 0:
+            s["n_cuentas"] += 1
+
+    out = sorted(segs.values(), key=lambda x: x["ar_total"], reverse=True)
+    for s in out:
+        for k in ("ar_total", "ar_mes", "vol_total"):
+            s[k] = round(s[k], 2)
+        s["ticket_promedio"] = round(s["vol_total"] / s["n_ops"], 2) if s["n_ops"] else 0.0
+    return {"operador": operador, "aranceles_segmento": out}
+
+
+@cached(ttl=300)
+def informe_segmento_detalle(*, segmento: str, operador: str | None = None) -> dict[str, Any]:
     """Detalle de un segmento (nivel_1) para la Q4 dinámica del Informe.
 
     Dos vistas del mismo segmento:
       - `clientes`: cuentas del segmento con su arancel (total + mes), desc.
       - `operaciones`: boletos con arancel > 0 de esas cuentas (los que generaron
-        el arancel), por arancel desc, acotado.
-    `segmento == "(sin segmentar)"` → nivel_1 == null.
+        el arancel), por fecha desc, acotado.
+    `segmento == "(sin segmentar)"` → nivel_1 == null. `operador` opcional → solo
+    las cuentas de ese comercial dentro del segmento.
     """
     hoy = _hoy_art()
     mes_start = hoy.replace(day=1).isoformat()
     match_seg = {"nivel_1": None} if segmento == "(sin segmentar)" else {"nivel_1": segmento}
+    match_cli: dict[str, Any] = {"estado": "Activa", **match_seg}
+    if operador:
+        match_cli["operador_email"] = operador
 
     detalle = {
         str(c["id_cuenta"]): c.get("denominacion")
         for c in get_db_clientes()["Comitentes"].find(
-            {"estado": "Activa", **match_seg},
+            match_cli,
             {"_id": 0, "id_cuenta": 1, "denominacion": 1},
         )
     }

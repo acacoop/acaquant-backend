@@ -555,6 +555,9 @@ def informe_comercial() -> dict[str, Any]:
             "ar_total": {"$sum": {"$ifNull": ["$arancel", 0]}},
             "ar_mes": {"$sum": {"$cond": [
                 {"$gte": ["$fecha", mes_start]}, {"$ifNull": ["$arancel", 0]}, 0]}},
+            # # operaciones (las mismas que cuentan para volumen) → ticket promedio.
+            "n_ops": {"$sum": {"$cond": [
+                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]}]}, 1, 0]}},
         }},
     ]):
         if d.get("_id"):
@@ -578,19 +581,23 @@ def informe_comercial() -> dict[str, Any]:
             o = ops[key] = {
                 "operador_email": info.get("operador_email"),
                 "operador_nombre": info.get("operador_nombre") or info.get("operador_email") or "(sin operador)",
-                "vol_total": 0.0, "vol_mes": 0.0, "ar_total": 0.0, "ar_mes": 0.0,
+                "vol_total": 0.0, "vol_mes": 0.0, "ar_total": 0.0, "ar_mes": 0.0, "n_ops": 0,
             }
         o["vol_total"] += agg["vol_total"]
         o["vol_mes"] += agg["vol_mes"]
         o["ar_total"] += agg["ar_total"]
         o["ar_mes"] += agg["ar_mes"]
+        o["n_ops"] += agg.get("n_ops", 0)
 
         seg = info.get("nivel_1") or "(sin segmentar)"
         s = segs.get(seg)
         if s is None:
-            s = segs[seg] = {"segmento": seg, "ar_total": 0.0, "ar_mes": 0.0, "n_cuentas": 0}
+            s = segs[seg] = {"segmento": seg, "ar_total": 0.0, "ar_mes": 0.0,
+                             "vol_total": 0.0, "n_ops": 0, "n_cuentas": 0}
         s["ar_total"] += agg["ar_total"]
         s["ar_mes"] += agg["ar_mes"]
+        s["vol_total"] += agg["vol_total"]
+        s["n_ops"] += agg.get("n_ops", 0)
         if agg["ar_total"] > 0:
             s["n_cuentas"] += 1
 
@@ -599,16 +606,22 @@ def informe_comercial() -> dict[str, Any]:
             d[k] = round(d[k], 2)
         return d
 
+    def _ticket(vol: float, n: int) -> float:
+        return round(vol / n, 2) if n else 0.0
+
     comerciales = sorted(
         (_r(o, ("vol_total", "vol_mes", "ar_total", "ar_mes")) for o in ops.values()),
         key=lambda x: x["vol_total"], reverse=True,
     )
     for i, o in enumerate(comerciales, 1):
         o["rank"] = i
+        o["ticket_promedio"] = _ticket(o["vol_total"], o["n_ops"])
     segmentos = sorted(
-        (_r(s, ("ar_total", "ar_mes")) for s in segs.values()),
+        (_r(s, ("ar_total", "ar_mes", "vol_total")) for s in segs.values()),
         key=lambda x: x["ar_total"], reverse=True,
     )
+    for s in segmentos:
+        s["ticket_promedio"] = _ticket(s["vol_total"], s["n_ops"])
     return {
         "mes_actual": f"{hoy.year:04d}-{hoy.month:02d}",
         "comerciales": comerciales,

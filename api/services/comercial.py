@@ -652,6 +652,74 @@ def informe_comercial() -> dict[str, Any]:
     }
 
 
+@cached(ttl=120)
+def debug_comercial(*, operador: str | None = None, segmento: str | None = None) -> dict[str, Any]:
+    """Auditoría del cálculo del Informe (Manager → Diagnóstico): para un operador
+    O un segmento, devuelve el desglose POR CUENTA (# ops, volumen total/mes,
+    arancel) + totales + ticket promedio. Responde "cuántas operaciones reconoce
+    y qué volúmenes" para verificar los números del tablero."""
+    hoy = _hoy_art()
+    mes_start = hoy.replace(day=1).isoformat()
+    cats = list(_CATS_VOLUMEN)
+
+    q: dict[str, Any] = {"estado": "Activa"}
+    if operador:
+        q["operador_email"] = operador
+    if segmento:
+        q["nivel_1"] = None if segmento == "(sin segmentar)" else segmento
+    cuentas = {
+        str(c["id_cuenta"]): c.get("denominacion") or "—"
+        for c in get_db_clientes()["Comitentes"].find(
+            q, {"_id": 0, "id_cuenta": 1, "denominacion": 1})
+    }
+    ids = list(cuentas.keys())
+    if not ids:
+        return {"operador": operador, "segmento": segmento, "n_cuentas_filtradas": 0,
+                "n_cuentas_con_actividad": 0, "totales": {}, "cuentas": []}
+
+    filas = []
+    for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
+        {"$match": {"id_cuenta": {"$in": ids},
+                    "$or": [{"categoria": {"$in": cats}}, {"arancel": {"$gt": 0}}]}},
+        {"$group": {
+            "_id": "$id_cuenta",
+            "n_ops": {"$sum": {"$cond": [
+                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]}]}, 1, 0]}},
+            "vol_total": {"$sum": {"$cond": [
+                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]}]},
+                {"$abs": "$importe"}, 0]}},
+            "vol_mes": {"$sum": {"$cond": [
+                {"$and": [{"$in": ["$categoria", cats]}, {"$eq": ["$moneda", "ARS"]},
+                          {"$gte": ["$fecha", mes_start]}]}, {"$abs": "$importe"}, 0]}},
+            "ar_total": {"$sum": {"$ifNull": ["$arancel", 0]}},
+        }},
+    ]):
+        idc = str(d["_id"])
+        filas.append({
+            "id_cuenta": idc, "denominacion": cuentas.get(idc, "—"),
+            "n_ops": int(d.get("n_ops", 0)),
+            "vol_total": round(float(d.get("vol_total") or 0.0), 2),
+            "vol_mes": round(float(d.get("vol_mes") or 0.0), 2),
+            "ar_total": round(float(d.get("ar_total") or 0.0), 2),
+        })
+    filas.sort(key=lambda x: x["vol_total"], reverse=True)
+    n_ops = sum(f["n_ops"] for f in filas)
+    vol_total = round(sum(f["vol_total"] for f in filas), 2)
+    return {
+        "operador": operador, "segmento": segmento,
+        "n_cuentas_filtradas": len(ids),
+        "n_cuentas_con_actividad": len(filas),
+        "totales": {
+            "n_ops": n_ops,
+            "vol_total": vol_total,
+            "vol_mes": round(sum(f["vol_mes"] for f in filas), 2),
+            "ar_total": round(sum(f["ar_total"] for f in filas), 2),
+            "ticket_promedio": round(vol_total / n_ops, 2) if n_ops else 0.0,
+        },
+        "cuentas": filas[:300],
+    }
+
+
 @cached(ttl=300)
 def informe_aranceles_segmento(*, operador: str) -> dict[str, Any]:
     """Aranceles + ticket promedio por segmento, SOLO de las cuentas del operador

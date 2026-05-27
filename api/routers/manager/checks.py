@@ -8,6 +8,17 @@ from core.mongo import get_mongo_client_read
 router = APIRouter()
 
 
+@router.get("/checks/debug-comercial")
+def check_debug_comercial(
+    operador: str | None = Query(None, description="operador_email a auditar"),
+    segmento: str | None = Query(None, description="nivel_1 a auditar"),
+):
+    """Auditoría del Informe comercial: desglose por cuenta (# ops, volumen,
+    arancel) + totales + ticket promedio, para un operador o un segmento."""
+    from api.services.comercial import debug_comercial
+    return debug_comercial(operador=operador, segmento=segmento)
+
+
 @router.get("/checks/curvas-pendientes")
 def check_curvas_pendientes():
     """Docs sin duration en TimeSales agrupados por ticker."""

@@ -56,11 +56,30 @@ moneda/unidad correspondiente.
 
 ### Distinguir PH vs PJ
 
-Orden de precedencia:
-1. Campo `tipo_cliente` de `Comitentes` si está poblado y es claro
-   ("Persona Humana" / "Persona Jurídica" o equivalente).
-2. Fallback: derivar del prefijo del CUIT — `20/23/24/27` ⇒ PH,
-   `30/33/34` ⇒ PJ.
+Source of truth: campo **`tipo_cliente`** de `Comitentes`. Mapping confirmado
+contra los valores reales (ver `scripts/diag_tipo_cliente.py`, corrida
+2026-05-28 sobre 1773 cuentas):
+
+| `tipo_cliente`              | Clasificación | n    |
+|-----------------------------|---------------|------|
+| `Persona`                   | **PH**        | 900  |
+| `Empleado`                  | **PH**        | 3    |
+| `Empresa`                   | **PJ**        | 495  |
+| `Fondo Común de Inversión`  | **PJ**        | 309  |
+| `Compañía de seguros`       | **PJ**        | 8    |
+| `Fideicomiso`               | **PJ**        | 3    |
+| `Institucional`             | **PJ**        | 2    |
+| *null*                      | sin clasificar (53 cuentas, se ignoran) | 53 |
+
+Regla en código:
+- `tipo_cliente ∈ {"Persona", "Empleado"}` → PH.
+- `tipo_cliente` en el resto de valores no-null → PJ.
+- `tipo_cliente` null → `segmento_patrimonial = null` (no se clasifica; queda
+  el límite cargado sin segmento).
+
+Si a futuro aparecen valores nuevos en `tipo_cliente` (Aunesa los puede
+agregar), el motor los loguea como "sin mapear" y no asigna segmento — hay
+que actualizar el mapping a mano. El diag detecta eso re-corriéndolo.
 
 ## Conversiones de moneda/unidad
 
@@ -279,9 +298,6 @@ qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
       a otra colección existente. Cron de ingesta (probablemente 12 UTC L-V,
       como `argentina_datos`). (Bloquea Fase 4 para PJ.)
 - [ ] **Periodicidad del motor**: post-carga + cron semanal vs mensual.
-- [ ] **`tipo_cliente` en `Comitentes`** — confirmar nombre exacto del campo
-      y valores que toma para poder detectar PH/PJ con confiabilidad antes
-      del fallback a CUIT.
 - [ ] **Estado inicial post-carga**: ¿qué hacemos con cuentas Activas sin
       límite cargado? Opciones: `segmento_patrimonial = null`, o
       `"SIN_DATOS"` explícito.
@@ -316,3 +332,10 @@ qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
   Fase 2 = tab "Fondeos" en acaquant-web. UVA/motor/vista se corren a
   Fases 3-5. Script CLI baja a Fase 7 opcional (fallback). Sumadas decisiones
   abiertas: endpoint dedicado vs extender, UX de la tab.
+- **2026-05-28** — **Mapping PH/PJ confirmado contra datos reales.** Diag
+  `scripts/diag_tipo_cliente.py` corrido sobre 1773 cuentas reveló 7 valores
+  de `tipo_cliente` + 53 nulls. Mapping fijado: PH = `{Persona, Empleado}`,
+  PJ = `{Empresa, Fondo Común de Inversión, Compañía de seguros, Fideicomiso,
+  Institucional}`, null = sin clasificar. Se cerró la decisión abierta de
+  cómo distinguir PH/PJ — no hace falta fallback al CUIT. Tabla con counts
+  documentada en "Distinguir PH vs PJ".

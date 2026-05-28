@@ -50,12 +50,11 @@ MANUAL_FIELDS = (
 )
 
 # Subdocumentos manuales — se inicializan como dict vacío (no null) para que
-# los $set con dot-notation (ej. `limite_fondeo.disponible_ars`) funcionen
-# desde el primer write. Igual que MANUAL_FIELDS: el sync no los toca nunca.
-# Lo escribe `POST /api/manager/clientes/bulk-fondeo` (carga del límite del
-# custodio) y el motor de segmentación patrimonial. Ver
-# docs/SEGMENTACION_PATRIMONIAL.md.
-MANUAL_SUBDOCS = ("limite_fondeo",)
+# los $set con dot-notation (ej. `cupo.transaccional_ars`) funcionen desde el
+# primer write. Igual que MANUAL_FIELDS: el sync no los toca nunca. Lo escribe
+# `POST /api/manager/clientes/bulk-fondeo` (carga del cupo del custodio) y el
+# motor de segmentación patrimonial. Ver docs/SEGMENTACION_PATRIMONIAL.md.
+MANUAL_SUBDOCS = ("cupo",)
 
 # Campos derivados que el motor escribe — no se inicializan acá (el motor los
 # crea con $set cuando corre). Listados para documentar el contrato: el sync

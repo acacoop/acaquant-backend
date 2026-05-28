@@ -56,7 +56,7 @@ _PROJECTION = {
     "_id": 0, "id_cuenta": 1,
     **{f: 1 for f in _READONLY_FIELDS},
     **{f: 1 for f in _EDITABLE_FIELDS},
-    "limite_fondeo": 1,   # subdoc; viene {} si nunca se cargó (ver MANUAL_SUBDOCS)
+    "cupo": 1,            # subdoc; viene {} si nunca se cargó (ver MANUAL_SUBDOCS)
     "actualizado_por": 1, "actualizado_at": 1,
 }
 
@@ -223,9 +223,10 @@ def bulk_clientes(req: _BulkReq, actor: str = Depends(get_user_email)):
     }
 
 
-# ── Carga masiva de LÍMITES DE FONDEO ─────────────────────────────────────
-# Subdoc `limite_fondeo` en Clientes.Comitentes. Lo consume el motor de
-# segmentación patrimonial. Ver docs/SEGMENTACION_PATRIMONIAL.md.
+# ── Carga masiva de CUPOS DE FONDEO ───────────────────────────────────────
+# Subdoc `cupo` en Clientes.Comitentes (cupo_transaccional / cupo_usado del
+# custodio). Lo consume el motor de segmentación patrimonial. Ver
+# docs/SEGMENTACION_PATRIMONIAL.md.
 
 def _parse_num(v) -> float | None:
     """Tolera number, '1234.56', '1.234.567,89' (formato AR) y vacío.
@@ -250,7 +251,7 @@ def _parse_num(v) -> float | None:
 
 class _BulkFondeoReq(BaseModel):
     """Filas de un CSV/XLSX parseado en el frontend. Cada row es
-    {id_cuenta, limite_disponible, limite_utilizado}. `fuente` es una etiqueta
+    {id_cuenta, cupo_transaccional, cupo_usado}. `fuente` es una etiqueta
     libre para trazar de dónde vino (ej. nombre del archivo)."""
     rows: list[dict] = Field(..., max_length=20000)
     fuente: str | None = Field(None, max_length=128)
@@ -258,7 +259,7 @@ class _BulkFondeoReq(BaseModel):
 
 @router.post("/clientes/bulk-fondeo")
 def bulk_clientes_fondeo(req: _BulkFondeoReq, actor: str = Depends(get_user_email)):
-    """Carga masiva del límite de fondeo del custodio (ARS).
+    """Carga masiva del cupo de fondeo del custodio (ARS).
 
     Semántica idéntica al bulk de segmentación: itera fila por fila, no crea
     cuentas, NO toca cuentas ausentes del payload (subir 10 filas toca solo
@@ -278,39 +279,39 @@ def bulk_clientes_fondeo(req: _BulkFondeoReq, actor: str = Depends(get_user_emai
             sin_id += 1
             continue
 
-        raw_disp = row.get("limite_disponible")
-        raw_util = row.get("limite_utilizado")
-        disp = _parse_num(raw_disp)
-        util = _parse_num(raw_util)
+        raw_trans = row.get("cupo_transaccional")
+        raw_usado = row.get("cupo_usado")
+        trans = _parse_num(raw_trans)
+        usado = _parse_num(raw_usado)
 
         # id pero ambos vacíos → no escribir (sin_campos).
-        if raw_disp in (None, "") and raw_util in (None, ""):
+        if raw_trans in (None, "") and raw_usado in (None, ""):
             sin_campos += 1
             continue
         # Algún valor venía pero no es parseable → no escribir (sin_numeros).
-        if (raw_disp not in (None, "") and disp is None) or (
-            raw_util not in (None, "") and util is None
+        if (raw_trans not in (None, "") and trans is None) or (
+            raw_usado not in (None, "") and usado is None
         ):
             sin_numeros += 1
             continue
 
         set_fields: dict = {
-            "limite_fondeo.cargado_en": now,
-            "limite_fondeo.fuente":     fuente,
-            "actualizado_por":          actor,
-            "actualizado_at":           now,
+            "cupo.cargado_en": now,
+            "cupo.fuente":     fuente,
+            "actualizado_por": actor,
+            "actualizado_at":  now,
         }
         unset_fields: dict = {}
 
-        if disp is not None:
-            set_fields["limite_fondeo.disponible_ars"] = disp
-        if util is not None:
-            set_fields["limite_fondeo.utilizado_ars"] = util
-        if disp is not None and util is not None and disp > 0:
-            set_fields["limite_fondeo.utilizacion_pct"] = round(util / disp * 100, 2)
+        if trans is not None:
+            set_fields["cupo.transaccional_ars"] = trans
+        if usado is not None:
+            set_fields["cupo.usado_ars"] = usado
+        if trans is not None and usado is not None and trans > 0:
+            set_fields["cupo.utilizacion_pct"] = round(usado / trans * 100, 2)
         else:
-            # Vino solo uno (o disp=0) → pct queda stale; mejor borrarlo.
-            unset_fields["limite_fondeo.utilizacion_pct"] = ""
+            # Vino solo uno (o trans=0) → pct queda stale; mejor borrarlo.
+            unset_fields["cupo.utilizacion_pct"] = ""
 
         update: dict = {"$set": set_fields}
         if unset_fields:
@@ -322,7 +323,7 @@ def bulk_clientes_fondeo(req: _BulkFondeoReq, actor: str = Depends(get_user_emai
     if not ops:
         raise HTTPException(
             400,
-            "no hay filas válidas (falta id_cuenta o ambos límites vacíos/no numéricos)",
+            "no hay filas válidas (falta id_cuenta o ambos cupos vacíos/no numéricos)",
         )
 
     col = get_mongo_client()[DB][COL]

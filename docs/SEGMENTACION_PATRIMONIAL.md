@@ -118,12 +118,12 @@ Todo vive en **`Clientes.Comitentes`** (la colección ya existente) como
   // ... campos existentes (id_cuenta, denominacion, operador, nivel_1..5, etc.) ...
 
   // ── Input de la carga masiva (Excel) ────────────────────────────────
-  "limite_fondeo": {
-    "disponible_ars": 12345678.90,
-    "utilizado_ars":   2345678.90,
-    "utilizacion_pct": 19.01,             // derivado, persistido para indexar
+  "cupo": {
+    "transaccional_ars": 12345678.90,
+    "usado_ars":          2345678.90,
+    "utilizacion_pct":   19.01,             // derivado, persistido para indexar
     "cargado_en":  "2026-05-28T13:00:00Z",
-    "fuente":      "excel:carga_2026-05"  // nombre del archivo o etiqueta
+    "fuente":      "excel:carga_2026-05"    // nombre del archivo o etiqueta
   },
 
   // ── Output del motor de segmentación ────────────────────────────────
@@ -170,10 +170,10 @@ vía `$set` (idempotente).
 **Backend** — dos opciones (TBD):
 
 - **(a) Extender `/clientes/bulk` existente** para que reconozca dos columnas
-  más (`limite_fondeo_disponible_ars`, `limite_fondeo_utilizado_ars`). Si
-  vienen, las escribe en el subdoc via dot-notation
-  (`"limite_fondeo.disponible_ars": ...`) + computa `utilizacion_pct` +
-  setea `cargado_en` y `fuente`. Pro: un solo endpoint, un solo grid.
+  más (`cupo_transaccional`, `cupo_usado`). Si vienen, las escribe en el
+  subdoc via dot-notation (`"cupo.transaccional_ars": ...`) + computa
+  `utilizacion_pct` + setea `cargado_en` y `fuente`. Pro: un solo endpoint,
+  un solo grid.
 - **(b) Endpoint hermano `POST /api/manager/clientes/bulk-fondeo`** dedicado.
   Pro: separación clara, validación numérica propia, libra de complicar el
   bulk de segmentación. **Recomendado** — el subdoc + los cómputos derivados
@@ -182,7 +182,7 @@ vía `$set` (idempotente).
 En ambos casos, contrato **idéntico al bulk existente**:
 - Recibe `rows: list[dict]` parseadas en el frontend desde CSV/XLSX.
 - Filas sin `id_cuenta` → contadas en `sin_id`, no escriben.
-- Filas con `id_cuenta` pero sin ninguna columna de límite → `sin_campos`.
+- Filas con `id_cuenta` pero sin ninguna columna de cupo → `sin_campos`.
 - `update_one` por `id_cuenta` (NO upsert; no se crean cuentas — vienen del
   sync diario).
 - Devuelve `{actualizadas, matched, filas_validas, sin_id, sin_campos,
@@ -192,14 +192,14 @@ En ambos casos, contrato **idéntico al bulk existente**:
 **Frontend** (`acaquant-web/`) — tab nueva **"Fondeos"** dentro de
 `/manager → CLIENTES` (sub-tabs internas, junto al editor de segmentación
 que ya está). Misma UX que el bulk de segmentación:
-- Grid con 3 columnas: `id_cuenta`, `limite_disponible`, `limite_utilizado`.
+- Grid con 3 columnas: `id_cuenta`, `cupo_transaccional`, `cupo_usado`.
 - Botón "Cargar archivo" (CSV/XLSX) → parsea en cliente, muestra preview
   de N filas, valida tipos, envía al endpoint.
 - Soporte de **paste** desde Excel directo a la grilla (el patrón actual ya
   lo soporta) para cargar 5-10 filas a mano sin armar archivo.
 - Tras el POST: toast con `{actualizadas, no_encontradas}` y refresh.
 
-**Bulk script como fallback** (`scripts/cargar_limites_fondeo.py`) — queda
+**Bulk script como fallback** (`scripts/cargar_cupos_fondeo.py`) — queda
 disponible solo para una **carga inicial masiva** de un archivo histórico
 muy grande, o para batch ad-hoc desde el Droplet. **No es el flujo
 principal**. Internamente reusa el mismo helper que el endpoint para que la
@@ -207,7 +207,7 @@ lógica viva en un solo lugar (en `api/services/`, no duplicada).
 
 ### 2. Motor de segmentación — `jobs/segmentar_patrimonial.py`
 
-- Toma todas las `Comitentes` con `limite_fondeo.disponible_ars` poblado.
+- Toma todas las `Comitentes` con `cupo.transaccional_ars` poblado.
 - Para cada cuenta: detecta PH/PJ, obtiene TC (MEP) o UVA según corresponda,
   convierte el límite, aplica las reglas → escribe `segmento_patrimonial` +
   `segmento_patrimonial_calc`.
@@ -228,8 +228,8 @@ lógica viva en un solo lugar (en `api/services/`, no duplicada).
 ### 4. Diagnóstico — `scripts/diag_segmentacion_patrimonial.py`
 
 Read-only. Imprime la distribución actual por segmento, qué cuentas tienen
-`limite_fondeo` pero no `segmento_patrimonial` (debería estar vacío post-motor),
-qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
+`cupo` pero no `segmento_patrimonial` (debería estar vacío post-motor),
+qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
 
 ## Plan de implementación (orden sugerido)
 
@@ -239,8 +239,9 @@ qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
      según decisión).
    - Service en `api/services/` con la lógica del upsert (reusable desde el
      script fallback).
-   - Agregar `limite_fondeo` y `segmento_patrimonial*` a `MANUAL_FIELDS` en
-     `jobs/sync_comitentes.py` para que el sync diario NO los pise.
+   - Agregar `cupo` y `segmento_patrimonial*` a `MANUAL_FIELDS` (o
+     `MANUAL_SUBDOCS` para el subdoc) en `jobs/sync_comitentes.py` para que
+     el sync diario NO los pise.
    - Validar imports antes de pushear (REGLA #1 en `api/CLAUDE.md`).
 2. **Fase 2 — Tab "Fondeos" en `/manager → CLIENTES` (`acaquant-web`).**
    - Sub-tab nueva con grid de 3 columnas + paste + upload CSV/XLSX.
@@ -279,8 +280,9 @@ qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
   existe. Garantiza la semántica pedida: cargar 10 filas toca solo esas 10,
   re-subir reemplaza, las 990 restantes intactas. Script CLI queda como
   fallback opcional para bulk inicial.
-- **`limite_fondeo` y `segmento_patrimonial*` van a `MANUAL_FIELDS`** en
-  `jobs/sync_comitentes.py` → el sync diario de Aunesa NO los pisa.
+- **`cupo` (subdoc) y `segmento_patrimonial*` van a `MANUAL_SUBDOCS` /
+  `MANUAL_FIELDS`** en `jobs/sync_comitentes.py` → el sync diario de Aunesa
+  NO los pisa.
 - **Sin histórico en el MVP**; modelo deja la puerta abierta para fase 2.
 
 ## Decisiones abiertas
@@ -363,3 +365,19 @@ qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
   Institucional}`, null = sin clasificar. Se cerró la decisión abierta de
   cómo distinguir PH/PJ — no hace falta fallback al CUIT. Tabla con counts
   documentada en "Distinguir PH vs PJ".
+- **2026-05-28** — **Rename vocabulario: `limite_fondeo` → `cupo`.** Los
+  headers del Excel y el modelo Mongo se renombraron para alinearse con el
+  vocabulario del custodio (cupo transaccional / cupo usado, no
+  límite disponible / utilizado). Cambios:
+  - Excel headers: `limite_disponible`/`limite_utilizado` →
+    `cupo_transaccional`/`cupo_usado`.
+  - Mongo subdoc: `limite_fondeo.{disponible_ars, utilizado_ars}` →
+    `cupo.{transaccional_ars, usado_ars}` (otros campos del subdoc —
+    `utilizacion_pct`, `cargado_en`, `fuente` — conservan nombre).
+  - `MANUAL_SUBDOCS = ("cupo",)` en `jobs/sync_comitentes.py`.
+  - TS type `LimiteFondeo` → `Cupo` en `acaquant-web/manager-view.tsx`.
+  - Endpoint URL `POST /api/manager/clientes/bulk-fondeo` se mantiene
+    (la sub-tab se sigue llamando "FONDEOS" como concepto general).
+  - Migración: `scripts/rename_limite_fondeo_a_cupo.py` con `$rename`
+    idempotente (subdoc + inner fields). Default `--dry-run`; correr con
+    `--apply` ANTES del deploy del backend nuevo para no romper la sub-tab.

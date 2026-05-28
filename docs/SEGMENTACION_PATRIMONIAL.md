@@ -307,7 +307,7 @@ qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
 - [x] Diseño documentado.
 - [ ] Confirmar decisiones abiertas con la mesa.
 - [x] Fase 1 — Backend de carga (endpoint manager + `MANUAL_SUBDOCS`).
-- [ ] Fase 2 — Tab "Fondeos" en `/manager → CLIENTES` (acaquant-web).
+- [x] Fase 2 — Tab "Fondeos" en `/manager → CLIENTES` (acaquant-web).
 - [ ] Fase 3 — Ingesta UVA (`Trading.UVA`).
 - [ ] Fase 4 — Motor de segmentación.
 - [ ] Fase 5 — Vista de segmentación en `/comercial`.
@@ -332,6 +332,17 @@ qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
   Fase 2 = tab "Fondeos" en acaquant-web. UVA/motor/vista se corren a
   Fases 3-5. Script CLI baja a Fase 7 opcional (fallback). Sumadas decisiones
   abiertas: endpoint dedicado vs extender, UX de la tab.
+- **2026-05-28** — **Fase 2 deployada (frontend).** Sub-tab "FONDEOS"
+  agregada dentro de `/manager → CLIENTES` en acaquant-web (commit
+  `635614c` en repo hermano). Patrón espejo del bulk de segmentación:
+  tabla read-only con `limite_fondeo` (disponible/usado/% util/fecha) +
+  botón "📁 Importar archivo" que parsea CSV/XLSX con headers
+  `id_cuenta`, `limite_disponible`, `limite_utilizado` y pega al endpoint
+  `bulk-fondeo`. Toggle "solo con fondeo cargado" para focalizar la
+  vista. Refactor mínimo: `TabClientes` original → `TabClientesSegmentacion`;
+  nuevo `TabClientes` es wrapper con switch de sub-tabs. Cero cambios
+  funcionales en segmentación. Endpoint `GET /api/manager/clientes` ya
+  incluye el subdoc `limite_fondeo` en la proyección (commit `6dd2e51`).
 - **2026-05-28** — **Fase 1 deployada (backend).** Endpoint
   `POST /api/manager/clientes/bulk-fondeo` en `api/routers/manager/clientes.py`:
   recibe `rows = [{id_cuenta, limite_disponible, limite_utilizado}, ...]` +

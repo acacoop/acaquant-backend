@@ -306,7 +306,7 @@ qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
 
 - [x] Diseño documentado.
 - [ ] Confirmar decisiones abiertas con la mesa.
-- [ ] Fase 1 — Backend de carga (endpoint manager + `MANUAL_FIELDS`).
+- [x] Fase 1 — Backend de carga (endpoint manager + `MANUAL_SUBDOCS`).
 - [ ] Fase 2 — Tab "Fondeos" en `/manager → CLIENTES` (acaquant-web).
 - [ ] Fase 3 — Ingesta UVA (`Trading.UVA`).
 - [ ] Fase 4 — Motor de segmentación.
@@ -332,6 +332,19 @@ qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
   Fase 2 = tab "Fondeos" en acaquant-web. UVA/motor/vista se corren a
   Fases 3-5. Script CLI baja a Fase 7 opcional (fallback). Sumadas decisiones
   abiertas: endpoint dedicado vs extender, UX de la tab.
+- **2026-05-28** — **Fase 1 deployada (backend).** Endpoint
+  `POST /api/manager/clientes/bulk-fondeo` en `api/routers/manager/clientes.py`:
+  recibe `rows = [{id_cuenta, limite_disponible, limite_utilizado}, ...]` +
+  `fuente` opcional. Parser numérico tolerante (AR `1.234.567,89` o US
+  `1234567.89`). Escribe `limite_fondeo.{disponible_ars, utilizado_ars,
+  utilizacion_pct, cargado_en, fuente}` via dot-notation. Si vienen los dos
+  montos computa pct; si viene uno solo lo `$unset` (mejor stale-removed que
+  stale-confuso). Devuelve `{actualizadas, matched, sin_id, sin_campos,
+  sin_numeros, n_no_encontradas, no_encontradas[:50]}`. NO crea cuentas
+  (matched-only). `jobs/sync_comitentes.py` actualizado: nuevo tuple
+  `MANUAL_SUBDOCS = ("limite_fondeo",)` que se inicializa como `{}` en
+  `$setOnInsert` para que dot-notation funcione desde el primer write.
+  Imports validados (REGLA #1) — 205 routes OK.
 - **2026-05-28** — **Mapping PH/PJ confirmado contra datos reales.** Diag
   `scripts/diag_tipo_cliente.py` corrido sobre 1773 cuentas reveló 7 valores
   de `tipo_cliente` + 53 nulls. Mapping fijado: PH = `{Persona, Empleado}`,

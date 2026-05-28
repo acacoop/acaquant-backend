@@ -220,3 +220,121 @@ def bulk_clientes(req: _BulkReq, actor: str = Depends(get_user_email)):
         "n_no_encontradas": len(no_encontradas),
         "no_encontradas":   no_encontradas[:50],
     }
+
+
+# ── Carga masiva de LÍMITES DE FONDEO ─────────────────────────────────────
+# Subdoc `limite_fondeo` en Clientes.Comitentes. Lo consume el motor de
+# segmentación patrimonial. Ver docs/SEGMENTACION_PATRIMONIAL.md.
+
+def _parse_num(v) -> float | None:
+    """Tolera number, '1234.56', '1.234.567,89' (formato AR) y vacío.
+    Devuelve None si no es numérico parseable o si está vacío."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).strip()
+    if not s:
+        return None
+    # "1.234.567,89" (AR) → "1234567.89". Si tiene coma decimal: quitar puntos
+    # de miles y reemplazar la coma por punto. Si solo hay puntos, asumir
+    # punto decimal estándar.
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+class _BulkFondeoReq(BaseModel):
+    """Filas de un CSV/XLSX parseado en el frontend. Cada row es
+    {id_cuenta, limite_disponible, limite_utilizado}. `fuente` es una etiqueta
+    libre para trazar de dónde vino (ej. nombre del archivo)."""
+    rows: list[dict] = Field(..., max_length=20000)
+    fuente: str | None = Field(None, max_length=128)
+
+
+@router.post("/clientes/bulk-fondeo")
+def bulk_clientes_fondeo(req: _BulkFondeoReq, actor: str = Depends(get_user_email)):
+    """Carga masiva del límite de fondeo del custodio (ARS).
+
+    Semántica idéntica al bulk de segmentación: itera fila por fila, no crea
+    cuentas, NO toca cuentas ausentes del payload (subir 10 filas toca solo
+    esas 10), idempotente al re-subir (reemplaza vía $set). Si vienen los dos
+    montos en la misma fila se computa `utilizacion_pct`; si viene solo uno,
+    se escribe solo ese y el pct se borra (queda inconsistente hasta la
+    próxima carga completa)."""
+    now = datetime.now(UTC)
+    fuente = (req.fuente or "manager_bulk").strip()[:128]
+    ops: list[UpdateOne] = []
+    ids: list[str] = []
+    sin_id = sin_campos = sin_numeros = 0
+
+    for row in req.rows:
+        id_cuenta = str(row.get("id_cuenta") or "").strip()
+        if not id_cuenta:
+            sin_id += 1
+            continue
+
+        raw_disp = row.get("limite_disponible")
+        raw_util = row.get("limite_utilizado")
+        disp = _parse_num(raw_disp)
+        util = _parse_num(raw_util)
+
+        # id pero ambos vacíos → no escribir (sin_campos).
+        if raw_disp in (None, "") and raw_util in (None, ""):
+            sin_campos += 1
+            continue
+        # Algún valor venía pero no es parseable → no escribir (sin_numeros).
+        if (raw_disp not in (None, "") and disp is None) or (
+            raw_util not in (None, "") and util is None
+        ):
+            sin_numeros += 1
+            continue
+
+        set_fields: dict = {
+            "limite_fondeo.cargado_en": now,
+            "limite_fondeo.fuente":     fuente,
+            "actualizado_por":          actor,
+            "actualizado_at":           now,
+        }
+        unset_fields: dict = {}
+
+        if disp is not None:
+            set_fields["limite_fondeo.disponible_ars"] = disp
+        if util is not None:
+            set_fields["limite_fondeo.utilizado_ars"] = util
+        if disp is not None and util is not None and disp > 0:
+            set_fields["limite_fondeo.utilizacion_pct"] = round(util / disp * 100, 2)
+        else:
+            # Vino solo uno (o disp=0) → pct queda stale; mejor borrarlo.
+            unset_fields["limite_fondeo.utilizacion_pct"] = ""
+
+        update: dict = {"$set": set_fields}
+        if unset_fields:
+            update["$unset"] = unset_fields
+
+        ops.append(UpdateOne({"id_cuenta": id_cuenta}, update))
+        ids.append(id_cuenta)
+
+    if not ops:
+        raise HTTPException(
+            400,
+            "no hay filas válidas (falta id_cuenta o ambos límites vacíos/no numéricos)",
+        )
+
+    col = get_mongo_client()[DB][COL]
+    res = col.bulk_write(ops, ordered=False)
+    existentes = set(col.distinct("id_cuenta", {"id_cuenta": {"$in": ids}}))
+    no_encontradas = sorted(set(ids) - existentes)
+    return {
+        "actualizadas":     res.modified_count,
+        "matched":          res.matched_count,
+        "filas_validas":    len(ops),
+        "sin_id":           sin_id,
+        "sin_campos":       sin_campos,
+        "sin_numeros":      sin_numeros,
+        "n_no_encontradas": len(no_encontradas),
+        "no_encontradas":   no_encontradas[:50],
+    }

@@ -43,14 +43,25 @@ COL = "Comitentes"
 # Campos de segmentación manual — se crean en null al insertar y el sync no
 # los toca nunca más (los edita la mesa desde la UI). nivel_1..5 = árbol de
 # segmentación; el resto, atributos comerciales / compliance.
-# Campos de segmentación manual — se crean en null al insertar y el sync no
-# los toca nunca más (los edita la mesa desde la UI). nivel_1..5 = árbol de
-# segmentación; el resto, atributos comerciales / compliance.
 MANUAL_FIELDS = (
     "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5",
     "primer_contacto_comercial", "riesgo_la_ft", "division",
     "adc", "dma", "observaciones", "sucursal", "referido",
 )
+
+# Subdocumentos manuales — se inicializan como dict vacío (no null) para que
+# los $set con dot-notation (ej. `limite_fondeo.disponible_ars`) funcionen
+# desde el primer write. Igual que MANUAL_FIELDS: el sync no los toca nunca.
+# Lo escribe `POST /api/manager/clientes/bulk-fondeo` (carga del límite del
+# custodio) y el motor de segmentación patrimonial. Ver
+# docs/SEGMENTACION_PATRIMONIAL.md.
+MANUAL_SUBDOCS = ("limite_fondeo",)
+
+# Campos derivados que el motor escribe — no se inicializan acá (el motor los
+# crea con $set cuando corre). Listados para documentar el contrato: el sync
+# tampoco los toca porque _map_cuenta no los devuelve.
+# - segmento_patrimonial          (string: PH_RETAIL | ... | PJ_GRANDE | null)
+# - segmento_patrimonial_calc     (subdoc: auditabilidad del cálculo)
 
 # Campos de Aunesa que se escriben SOLO al crear la cuenta y luego NO se pisan
 # en re-syncs (a diferencia de MANUAL_FIELDS, se inicializan con el valor de
@@ -170,6 +181,10 @@ def run(*, include_all: bool = False, dry_run: bool = False) -> None:
             on_insert: dict = {"created_at": now}
             for mf in MANUAL_FIELDS:
                 on_insert[mf] = None
+            # Subdocs manuales: dict vacío, NO null, así dot-notation funciona
+            # desde el primer write del endpoint/motor (ver MANUAL_SUBDOCS).
+            for sd in MANUAL_SUBDOCS:
+                on_insert[sd] = {}
             # Operador: valor de Aunesa SOLO al crear; en re-syncs no se toca
             # (un campo no puede estar en $set y $setOnInsert a la vez).
             for f in INSERT_ONLY_FIELDS:

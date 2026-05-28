@@ -229,8 +229,9 @@ def bulk_clientes(req: _BulkReq, actor: str = Depends(get_user_email)):
 # docs/SEGMENTACION_PATRIMONIAL.md.
 
 def _parse_num(v) -> float | None:
-    """Tolera number, '1234.56', '1.234.567,89' (formato AR) y vacío.
-    Devuelve None si no es numérico parseable o si está vacío."""
+    """Tolera number, '1234.56', '1.234.567,89' (formato AR), '-' (= 0,
+    convención contable AR) y vacío. Devuelve None si no es numérico
+    parseable o si está vacío."""
     if v is None or v == "":
         return None
     if isinstance(v, (int, float)):
@@ -238,6 +239,11 @@ def _parse_num(v) -> float | None:
     s = str(v).strip()
     if not s:
         return None
+    # Convención contable AR: "-", "$ -", "- " (con o sin signo $) significan
+    # cero. Cubre el formato de Excel "Contabilidad" que renderiza 0 como "-".
+    s_no_currency = s.replace("$", "").replace("ARS", "").strip()
+    if s_no_currency in ("-", "−"):  # ascii hyphen + unicode minus
+        return 0.0
     # "1.234.567,89" (AR) → "1234567.89". Si tiene coma decimal: quitar puntos
     # de miles y reemplazar la coma por punto. Si solo hay puntos, asumir
     # punto decimal estándar.

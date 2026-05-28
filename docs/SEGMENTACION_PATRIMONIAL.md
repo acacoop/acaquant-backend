@@ -139,18 +139,52 @@ el modelo actual. No se construye ahora; se deja la puerta abierta.
 
 ## Componentes a construir
 
-### 1. Carga masiva — `scripts/cargar_limites_fondeo.py`
+### 1. Carga desde Manager — endpoint bulk + tab "Fondeos"
 
-- Lee el Excel/CSV (formato a confirmar; ver "Decisiones abiertas").
-- Por cada fila: upsert del subdoc `limite_fondeo` en `Comitentes` matcheando
-  por `id_cuenta`.
-- **No clasifica** acá — sólo persiste el input. El motor corre después.
-- Resumen al final: cuántas cuentas matchearon, cuáles del Excel no existen
-  en `Comitentes`, cuántos límites cambiaron vs. la carga anterior, dry-run
-  por default.
-- Encadena al final una llamada al motor (`python -m jobs.segmentar_patrimonial`).
-- Per [REGLA #0](../CLAUDE.md): el script vive en el repo, el usuario lo
-  corre en el Droplet con `python -m scripts.cargar_limites_fondeo`.
+**No es un script suelto, es parte del manager** (mismo patrón que la carga
+de segmentación de Clientes hoy). Espejo de `POST /api/manager/clientes/bulk`
+(`api/routers/manager/clientes.py:177`) que ya implementa exactamente la
+semántica que pidió el usuario: itera fila por fila, solo setea los campos
+no vacíos, **no toca las cuentas ausentes del payload**, re-subir reemplaza
+vía `$set` (idempotente).
+
+**Backend** — dos opciones (TBD):
+
+- **(a) Extender `/clientes/bulk` existente** para que reconozca dos columnas
+  más (`limite_fondeo_disponible_ars`, `limite_fondeo_utilizado_ars`). Si
+  vienen, las escribe en el subdoc via dot-notation
+  (`"limite_fondeo.disponible_ars": ...`) + computa `utilizacion_pct` +
+  setea `cargado_en` y `fuente`. Pro: un solo endpoint, un solo grid.
+- **(b) Endpoint hermano `POST /api/manager/clientes/bulk-fondeo`** dedicado.
+  Pro: separación clara, validación numérica propia, libra de complicar el
+  bulk de segmentación. **Recomendado** — el subdoc + los cómputos derivados
+  justifican un endpoint propio.
+
+En ambos casos, contrato **idéntico al bulk existente**:
+- Recibe `rows: list[dict]` parseadas en el frontend desde CSV/XLSX.
+- Filas sin `id_cuenta` → contadas en `sin_id`, no escriben.
+- Filas con `id_cuenta` pero sin ninguna columna de límite → `sin_campos`.
+- `update_one` por `id_cuenta` (NO upsert; no se crean cuentas — vienen del
+  sync diario).
+- Devuelve `{actualizadas, matched, filas_validas, sin_id, sin_campos,
+  n_no_encontradas, no_encontradas[:50]}`.
+- Stamp de `actualizado_por` (email del actor) + `actualizado_at`.
+
+**Frontend** (`acaquant-web/`) — tab nueva **"Fondeos"** dentro de
+`/manager → CLIENTES` (sub-tabs internas, junto al editor de segmentación
+que ya está). Misma UX que el bulk de segmentación:
+- Grid con 3 columnas: `id_cuenta`, `limite_disponible`, `limite_utilizado`.
+- Botón "Cargar archivo" (CSV/XLSX) → parsea en cliente, muestra preview
+  de N filas, valida tipos, envía al endpoint.
+- Soporte de **paste** desde Excel directo a la grilla (el patrón actual ya
+  lo soporta) para cargar 5-10 filas a mano sin armar archivo.
+- Tras el POST: toast con `{actualizadas, no_encontradas}` y refresh.
+
+**Bulk script como fallback** (`scripts/cargar_limites_fondeo.py`) — queda
+disponible solo para una **carga inicial masiva** de un archivo histórico
+muy grande, o para batch ad-hoc desde el Droplet. **No es el flujo
+principal**. Internamente reusa el mismo helper que el endpoint para que la
+lógica viva en un solo lugar (en `api/services/`, no duplicada).
 
 ### 2. Motor de segmentación — `jobs/segmentar_patrimonial.py`
 
@@ -180,22 +214,40 @@ qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
 
 ## Plan de implementación (orden sugerido)
 
-1. **Fase 1 — Ingesta UVA al repo** (bloqueante para PJ).
+1. **Fase 1 — Backend de carga (endpoint manager + protección del subdoc).**
+   - `POST /api/manager/clientes/bulk-fondeo` en
+     `api/routers/manager/clientes.py` (o ampliación del bulk existente
+     según decisión).
+   - Service en `api/services/` con la lógica del upsert (reusable desde el
+     script fallback).
+   - Agregar `limite_fondeo` y `segmento_patrimonial*` a `MANUAL_FIELDS` en
+     `jobs/sync_comitentes.py` para que el sync diario NO los pise.
+   - Validar imports antes de pushear (REGLA #1 en `api/CLAUDE.md`).
+2. **Fase 2 — Tab "Fondeos" en `/manager → CLIENTES` (`acaquant-web`).**
+   - Sub-tab nueva con grid de 3 columnas + paste + upload CSV/XLSX.
+   - Reusar el componente de bulk de segmentación (mismo patrón).
+3. **Fase 3 — Ingesta UVA al repo** (bloqueante para clasificar PJ, pero NO
+   para cargar los límites).
    - Sumar serie UVA a `jobs/bcra.py` o crear `jobs/uva.py`.
    - Persistir en `Trading.UVA` (TBD shape exacto).
-2. **Fase 2 — Carga masiva**.
-   - `scripts/cargar_limites_fondeo.py` + tests unit del parser y el upsert.
-   - Agregar `limite_fondeo` y `segmento_patrimonial*` a `MANUAL_FIELDS` en
-     `sync_comitentes.py`.
-3. **Fase 3 — Motor**.
-   - `jobs/segmentar_patrimonial.py`.
+4. **Fase 4 — Motor de segmentación**.
+   - `jobs/segmentar_patrimonial.py`. Idempotente.
    - Cron en `deploy/crontab.txt` + regenerar `deploy/SISTEMA.md`
      (`python -m scripts.gen_sistema`).
-4. **Fase 4 — API + vista**.
-   - Service + endpoint manager-only.
+5. **Fase 5 — Vista de segmentación en `/comercial`**.
+   - Service + endpoint manager-only en `api/services/comercial.py` /
+     `api/routers/manager/comercial.py`.
    - Frontend en `acaquant-web/`.
-5. **Fase 5 (opcional)** — Histórico (`LimitesFondeoHistorico`) si la mesa
+6. **Fase 6 (opcional)** — Histórico (`LimitesFondeoHistorico`) si la mesa
    quiere ver evolución mes a mes.
+7. **Fase 7 (opcional)** — Script fallback `scripts/cargar_limites_fondeo.py`
+   para una carga inicial masiva desde el Droplet, si llega un Excel
+   histórico muy grande. Reusa el service de Fase 1.
+
+> **Por qué este orden**: las Fases 1 y 2 permiten al usuario empezar a
+> cargar fondeos hoy desde la UI sin esperar nada más. Las Fases 3 y 4
+> habilitan la clasificación automática. La Fase 5 es la vista. Carga UVA
+> y motor pueden ir en paralelo con la UI si se quiere paralelizar.
 
 ## Decisiones tomadas
 
@@ -203,36 +255,48 @@ qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
 - **`segmento_patrimonial` convive con `nivel_3` manual** (no lo pisa).
 - **`PH_RETAIL` / `PH_MEDIO_RETAIL` / `PH_ALTO_PATRIMONIO` / `PJ_PEQUENA` / `PJ_MEDIANA` / `PJ_GRANDE`** como enum de string (snake_case mayúscula, sin acentos para evitar bugs en queries).
 - **Inputs en ARS, segmentación en USD (PH) o UVAs (PJ)**.
-- **Carga masiva por script, no por endpoint de upload** — patrón TradingAV
-  (REGLA #0). Endpoint de upload puede venir después si la frecuencia justifica.
+- **Carga principal desde Manager → CLIENTES → Fondeos** (endpoint bulk +
+  UI tab nueva en `acaquant-web`), espejo del bulk de segmentación que ya
+  existe. Garantiza la semántica pedida: cargar 10 filas toca solo esas 10,
+  re-subir reemplaza, las 990 restantes intactas. Script CLI queda como
+  fallback opcional para bulk inicial.
+- **`limite_fondeo` y `segmento_patrimonial*` van a `MANUAL_FIELDS`** en
+  `jobs/sync_comitentes.py` → el sync diario de Aunesa NO los pisa.
 - **Sin histórico en el MVP**; modelo deja la puerta abierta para fase 2.
 
 ## Decisiones abiertas
 
-- [ ] **Formato exacto del Excel** de carga masiva. Headers, encoding, si
-      viene como `.xlsx`, `.csv`, o ambos. (Bloquea Fase 2.)
+- [ ] **Endpoint dedicado vs extender el bulk existente**: opción (a)
+      extender `POST /api/manager/clientes/bulk` con dos columnas más, o (b)
+      crear `POST /api/manager/clientes/bulk-fondeo` (recomendado por
+      separación de validación numérica y subdoc). (Bloquea Fase 1.)
+- [ ] **UX de la tab**: ¿sub-tab "Fondeos" dentro del editor existente de
+      CLIENTES, o tab nueva al mismo nivel "FONDEOS"? Recomendado: sub-tab
+      interna, mismo URL, menos ruido en el nav. (Bloquea Fase 2.)
 - [ ] **TC a usar para PH**: MEP (recomendado) vs oficial A3500 vs mayorista
-      MAE. (Bloquea Fase 3.)
+      MAE. (Bloquea Fase 4.)
 - [ ] **Dónde persistir UVA**: nueva `Trading.UVA` (recomendado) vs sumarla
       a otra colección existente. Cron de ingesta (probablemente 12 UTC L-V,
-      como `argentina_datos`). (Bloquea Fase 3 para PJ.)
+      como `argentina_datos`). (Bloquea Fase 4 para PJ.)
 - [ ] **Periodicidad del motor**: post-carga + cron semanal vs mensual.
 - [ ] **`tipo_cliente` en `Comitentes`** — confirmar nombre exacto del campo
       y valores que toma para poder detectar PH/PJ con confiabilidad antes
       del fallback a CUIT.
-- [ ] **Estado inicial post-carga**: ¿qué hacemos con cuentas Activas que
-      el Excel del custodio NO incluye (cliente sin límite cargado)? Opciones:
-      `segmento_patrimonial = null`, o `"SIN_DATOS"` explícito.
+- [ ] **Estado inicial post-carga**: ¿qué hacemos con cuentas Activas sin
+      límite cargado? Opciones: `segmento_patrimonial = null`, o
+      `"SIN_DATOS"` explícito.
 
 ## Estado / TODO
 
 - [x] Diseño documentado.
 - [ ] Confirmar decisiones abiertas con la mesa.
-- [ ] Fase 1 — Ingesta UVA.
-- [ ] Fase 2 — Carga masiva.
-- [ ] Fase 3 — Motor de segmentación.
-- [ ] Fase 4 — API + vista.
-- [ ] Fase 5 — Histórico (opcional).
+- [ ] Fase 1 — Backend de carga (endpoint manager + `MANUAL_FIELDS`).
+- [ ] Fase 2 — Tab "Fondeos" en `/manager → CLIENTES` (acaquant-web).
+- [ ] Fase 3 — Ingesta UVA (`Trading.UVA`).
+- [ ] Fase 4 — Motor de segmentación.
+- [ ] Fase 5 — Vista de segmentación en `/comercial`.
+- [ ] Fase 6 — Histórico (opcional).
+- [ ] Fase 7 — Script CLI fallback (opcional).
 
 ---
 
@@ -241,6 +305,14 @@ qué cuentas con AuM > 0 no tienen límite cargado (gap del Excel), etc.
 - **2026-05-28** — **Doc inicial.** Se definió el modelo (subdoc en
   `Clientes.Comitentes`, separado de `nivel_3` manual), los 6 segmentos con
   umbrales (3 PH en USD: 50k/100k; 3 PJ en UVAs: 350k/700k), las conversiones
-  (input ARS → USD/UVAs), y el plan en 5 fases. Bloqueantes para arrancar:
-  formato del Excel de carga, TC a usar para PH, y agregar serie UVA al repo
-  (no está). Ver "Decisiones abiertas".
+  (input ARS → USD/UVAs), y el plan inicial. Ver "Decisiones abiertas".
+- **2026-05-28** — **Cambio de approach en la carga.** El usuario pidió que
+  el insert sea desde Manager → CLIENTES (no script desde Droplet), espejo
+  del bulk de segmentación que ya existe en
+  `POST /api/manager/clientes/bulk` (`api/routers/manager/clientes.py:177`).
+  Ese endpoint ya implementa exactamente la semántica pedida: itera fila
+  por fila, solo setea los campos no vacíos, no toca cuentas ausentes del
+  payload, idempotente al re-subir. Plan reordenado: ahora Fase 1 = endpoint,
+  Fase 2 = tab "Fondeos" en acaquant-web. UVA/motor/vista se corren a
+  Fases 3-5. Script CLI baja a Fase 7 opcional (fallback). Sumadas decisiones
+  abiertas: endpoint dedicado vs extender, UX de la tab.

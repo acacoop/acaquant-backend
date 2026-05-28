@@ -8,14 +8,19 @@ cuentas tocadas al subir el Excel).
 Reglas (ver docs/SEGMENTACION_PATRIMONIAL.md):
 
 - Personas Humanas (PH) — umbral en **USD** vía MEP del día:
-  - `< 50.000`              → `Retail`
-  - `≥ 50.000 ≤ 100.000`    → `Medio Retail`
-  - `> 100.000`             → `Alto Patrimonio`
+  - `< 50.000`              → `RETAIL`
+  - `≥ 50.000 ≤ 100.000`    → `MEDIO RETAIL`
+  - `> 100.000`             → `ALTO PATRIMONIO`
 
 - Personas Jurídicas (PJ) — umbral en **UVAs**:
-  - `≤ 350.000`             → `Pequeña`
-  - `> 350.000 ≤ 700.000`   → `Mediana`
-  - `> 700.000`             → `Grande`
+  - `≤ 350.000`             → `PEQUEÑA`
+  - `> 350.000 ≤ 700.000`   → `MEDIANA`
+  - `> 700.000`             → `GRANDE`
+
+Los labels van en MAYÚSCULAS — convención del sistema para todos los
+nivel_1..5 (evita duplicados por capitalización: "Productores" vs
+"PRODUCTORES"). Bulk y PATCH del manager también `.upper()` antes de
+persistir.
 
 PH/PJ se distingue por `tipo_cliente` (mapping confirmado contra 1773 cuentas
 reales, ver `scripts/diag_tipo_cliente.py`).
@@ -62,20 +67,20 @@ def clasificar_nivel_3(
             return None
         cupo_usd = cupo_transaccional_ars / mep
         if cupo_usd < _UMBRAL_PH_RETAIL_USD:
-            return "Retail"
+            return "RETAIL"
         if cupo_usd <= _UMBRAL_PH_MEDIO_USD:
-            return "Medio Retail"
-        return "Alto Patrimonio"
+            return "MEDIO RETAIL"
+        return "ALTO PATRIMONIO"
 
     if tipo_cliente in _TIPOS_PJ:
         if not uva or uva <= 0:
             return None
         cupo_uva = cupo_transaccional_ars / uva
         if cupo_uva <= _UMBRAL_PJ_PEQUENA_UVA:
-            return "Pequeña"
+            return "PEQUEÑA"
         if cupo_uva <= _UMBRAL_PJ_MEDIANA_UVA:
-            return "Mediana"
-        return "Grande"
+            return "MEDIANA"
+        return "GRANDE"
 
     # tipo_cliente desconocido (Aunesa agregó algo nuevo) → sin clasificar.
     return None

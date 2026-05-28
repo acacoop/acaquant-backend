@@ -365,6 +365,19 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
   Institucional}`, null = sin clasificar. Se cerró la decisión abierta de
   cómo distinguir PH/PJ — no hace falta fallback al CUIT. Tabla con counts
   documentada en "Distinguir PH vs PJ".
+- **2026-05-28** — **Convención de MAYÚSCULAS para nivel_1..5.** El usuario
+  reportó duplicados en la distribución por nivel ("Productores" + "PRODUCTORES"
+  como dos categorías distintas). Decisión: TODOS los segmentos viven en
+  MAYÚSCULAS. Cambios:
+  - Labels del motor de segmentación pasados a uppercase: `RETAIL`,
+    `MEDIO RETAIL`, `ALTO PATRIMONIO`, `PEQUEÑA`, `MEDIANA`, `GRANDE`.
+  - `scripts/backfill_segmentos_upper.py` — normaliza los 5 niveles en
+    `Clientes.Comitentes` vía aggregation pipeline + `$toUpper`. Idempotente.
+  - `api/routers/manager/clientes.py` — bulk y PATCH aplican `.upper()` a
+    nivel_1..5 antes de escribir (`_UPPERCASE_FIELDS` + `_normalize_value`).
+    Otros campos (observaciones, operador_email) no se normalizan.
+  Orden de despliegue: deploy backend → correr backfill → re-correr motor de
+  segmentación (re-clasifica los que cambiaron de label).
 - **2026-05-28** — **Fase A deployada: motor de segmentación PH + escribe a `nivel_3`.**
   Decisión del usuario: el campo target NO es `segmento_patrimonial` sino el
   ya existente `nivel_3` (queda derivado, no manual). Labels en español:

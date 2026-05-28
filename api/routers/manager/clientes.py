@@ -52,6 +52,20 @@ _READONLY_FIELDS: tuple[str, ...] = (
 # así que la corrección sobrevive el cron.
 _BULK_OPERADOR_FIELDS: tuple[str, ...] = ("operador_email", "operador_nombre")
 
+# Convención: TODOS los segmentos (nivel_1..5) se persisten en MAYÚSCULAS para
+# evitar duplicados por capitalización ("Productores" vs "PRODUCTORES"). Tanto
+# el bulk como el PATCH normalizan antes de escribir. El backfill inicial se
+# hizo con `scripts/backfill_segmentos_upper.py`. Otros campos editables
+# (observaciones, email del operador, etc.) NO se normalizan.
+_UPPERCASE_FIELDS: frozenset[str] = frozenset({
+    "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5",
+})
+
+
+def _normalize_value(field: str, value: str) -> str:
+    """Aplica la convención de uppercase a los segmentos. No-op para el resto."""
+    return value.upper() if field in _UPPERCASE_FIELDS else value
+
 _PROJECTION = {
     "_id": 0, "id_cuenta": 1,
     **{f: 1 for f in _READONLY_FIELDS},
@@ -151,7 +165,10 @@ def patch_cliente(
     id_cuenta = payload.pop("id_cuenta")
 
     allowed = set(_EDITABLE_FIELDS) | set(_BULK_OPERADOR_FIELDS)
-    set_fields = {k: v for k, v in payload.items() if k in allowed}
+    set_fields = {
+        k: (_normalize_value(k, v) if isinstance(v, str) else v)
+        for k, v in payload.items() if k in allowed
+    }
     if not set_fields:
         raise HTTPException(400, "body sin campos editables — pasá al menos uno de "
                                  + ", ".join((*_EDITABLE_FIELDS, *_BULK_OPERADOR_FIELDS)))
@@ -196,7 +213,7 @@ def bulk_clientes(req: _BulkReq, actor: str = Depends(get_user_email)):
             if k in bulk_cols:
                 val = ("" if v is None else str(v)).strip()
                 if val != "":
-                    set_fields[k] = val
+                    set_fields[k] = _normalize_value(k, val)
         if not set_fields:
             sin_campos += 1
             continue

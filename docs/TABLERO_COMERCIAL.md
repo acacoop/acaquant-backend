@@ -272,6 +272,13 @@ histórica · **timeline de movimientos** (`NegocioMovimientos`) · flujo neto �
 - [ ] Confirmar valores reales de `estado` (doc: alta/prealta/baja; aum.py
   filtra `"Activa"`) → lo resuelve el diag.
 
+## Sub-features (docs propios)
+
+- **[SEGMENTACION_PATRIMONIAL.md](SEGMENTACION_PATRIMONIAL.md)** — clasificación
+  automática en 6 segmentos (PH retail/medio/alto en USD; PJ pequeña/mediana/grande
+  en UVAs) a partir del límite de fondeo del custodio. Convive con `nivel_3`
+  manual, no lo pisa.
+
 ## LOG DE AVANCES
 
 - **2026-05-22** — Creado este documento. Definida la arquitectura (cadena de

@@ -40,12 +40,10 @@ def _get_mep() -> float | None:
 
 
 def _get_uva() -> float | None:
-    """Último valor UVA. Hoy `Trading.UVA` no existe → siempre None.
-
-    Cuando se sume el job de ingesta UVA, leer acá el último doc de la
-    colección y devolver el valor. Mientras tanto, las PJ quedan en `nivel_3 = null`.
-    """
-    return None
+    """Último UVA cargado manualmente en `Trading.UVA` (ver
+    `api.services.macro.get_ultimo_uva`)."""
+    from api.services.macro import get_ultimo_uva
+    return get_ultimo_uva()
 
 
 def main() -> None:

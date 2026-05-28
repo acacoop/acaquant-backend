@@ -102,6 +102,25 @@ def get_ultimo_mep() -> dict:
 
 
 @cached(ttl=300)
+def get_ultimo_uva() -> float | None:
+    """Último UVA cargado MANUALMENTE en `Trading.UVA`.
+
+    Cada doc tiene `{valor_uva: <float>}` (más lo que sea — el resto se ignora).
+    Toma el más reciente por `_id` (ObjectId time-based). Cuando UVA cambia,
+    se inserta un doc nuevo desde Compass o `scripts/insertar_uva.py` — el
+    cron diario / motor lo levanta solo (vía cache TTL 5min).
+    """
+    doc = get_db_trading()["UVA"].find_one(sort=[("_id", -1)])
+    if not doc:
+        return None
+    v = doc.get("valor_uva")
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+@cached(ttl=300)
 def get_historico_mep(desde: str | None = None, hasta: str | None = None) -> list:
     """Serie histórica del dólar MEP (Valuaciones.Dolar)."""
     db = get_db_valuaciones()

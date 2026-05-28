@@ -389,10 +389,10 @@ def _reclasificar_nivel_3(col, ids_cuenta: list[str], actor: str) -> int:
     """
     if not ids_cuenta:
         return 0
-    from api.services.macro import get_ultimo_mep
+    from api.services.macro import get_ultimo_mep, get_ultimo_uva
     from api.services.segmentacion import clasificar_nivel_3
     mep = float(get_ultimo_mep().get("mep") or 0) or None
-    uva: float | None = None  # `Trading.UVA` aún no ingestado.
+    uva = get_ultimo_uva()
 
     cur = col.find(
         {"id_cuenta": {"$in": ids_cuenta}},

@@ -56,6 +56,7 @@ _PROJECTION = {
     "_id": 0, "id_cuenta": 1,
     **{f: 1 for f in _READONLY_FIELDS},
     **{f: 1 for f in _EDITABLE_FIELDS},
+    "limite_fondeo": 1,   # subdoc; viene {} si nunca se cargó (ver MANUAL_SUBDOCS)
     "actualizado_por": 1, "actualizado_at": 1,
 }
 

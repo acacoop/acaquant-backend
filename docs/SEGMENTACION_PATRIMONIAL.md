@@ -365,6 +365,21 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
   Institucional}`, null = sin clasificar. Se cerró la decisión abierta de
   cómo distinguir PH/PJ — no hace falta fallback al CUIT. Tabla con counts
   documentada en "Distinguir PH vs PJ".
+- **2026-05-28** — **Labels con prefijo PH/PJ + UVA manual + endpoint debug.**
+  - Labels finales del motor: `PH RETAIL` / `PH MEDIO RETAIL` /
+    `PH ALTO PATRIMONIO` / `PJ PEQUEÑA` / `PJ MEDIANA` / `PJ GRANDE`. El
+    prefijo aclara la lente PH vs PJ sin tener que cruzar con tipo_cliente.
+    Migración: re-correr `jobs.segmentar_patrimonial --apply` actualiza
+    los nivel_3 viejos (sin prefijo) a los nuevos.
+  - `Trading.UVA` minimal: doc `{valor_uva: <float>}`, se inserta manual
+    desde Compass. `api/services/macro.py::get_ultimo_uva()` toma el más
+    reciente por `_id` desc (cache TTL 5min). Habilita la clasificación PJ
+    (antes quedaban en `null` por falta de fuente UVA).
+  - `GET /api/manager/comercial/debug-segmento?id_cuenta=X` — audit endpoint:
+    devuelve cupo raw + tc usado (MEP/UVA) + cálculo + nivel_3 actual vs
+    recalculado + umbrales. Lo consume `/manager → VALIDACIONES → DEBUG
+    SEGMENTO` para que la mesa pueda ver paso a paso cómo se segmentó una
+    cuenta.
 - **2026-05-28** — **Convención de MAYÚSCULAS para nivel_1..5.** El usuario
   reportó duplicados en la distribución por nivel ("Productores" + "PRODUCTORES"
   como dos categorías distintas). Decisión: TODOS los segmentos viven en

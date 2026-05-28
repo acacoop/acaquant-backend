@@ -365,6 +365,23 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
   Institucional}`, null = sin clasificar. Se cerró la decisión abierta de
   cómo distinguir PH/PJ — no hace falta fallback al CUIT. Tabla con counts
   documentada en "Distinguir PH vs PJ".
+- **2026-05-28** — **Fase A deployada: motor de segmentación PH + escribe a `nivel_3`.**
+  Decisión del usuario: el campo target NO es `segmento_patrimonial` sino el
+  ya existente `nivel_3` (queda derivado, no manual). Labels en español:
+  `Retail` / `Medio Retail` / `Alto Patrimonio` (PH) y `Pequeña` / `Mediana`
+  / `Grande` (PJ).
+  - `api/services/segmentacion.py::clasificar_nivel_3()` — función pura,
+    PH umbrales USD 50k/100k vía MEP, PJ umbrales UVAs 350k/700k. Devuelve
+    `None` si falta input (cupo / tipo_cliente / TC).
+  - `jobs/segmentar_patrimonial.py` — re-clasifica todas las Comitentes
+    activas. `--dry-run` default + `--apply` + `--ids` para batch parcial.
+    Idempotente (solo escribe cuando el label cambia).
+  - `api/routers/manager/clientes.py::bulk_clientes_fondeo` — encadena la
+    re-clasificación de las cuentas tocadas en el mismo request (visible
+    al instante en la UI). Si falla la clasificación (ej. sin MEP), el
+    cupo igual queda cargado y el cron lo arregla.
+  - PJ queda en `nivel_3 = null` hasta sumar `Trading.UVA` (Fase B).
+  REGLA #1: imports OK (205 routes). Cron post-deploy a definir.
 - **2026-05-28** — **Rename vocabulario: `limite_fondeo` → `cupo`.** Los
   headers del Excel y el modelo Mongo se renombraron para alinearse con el
   vocabulario del custodio (cupo transaccional / cupo usado, no

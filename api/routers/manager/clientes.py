@@ -336,13 +336,66 @@ def bulk_clientes_fondeo(req: _BulkFondeoReq, actor: str = Depends(get_user_emai
     res = col.bulk_write(ops, ordered=False)
     existentes = set(col.distinct("id_cuenta", {"id_cuenta": {"$in": ids}}))
     no_encontradas = sorted(set(ids) - existentes)
+
+    # Encadenado: re-clasificar `nivel_3` (segmento patrimonial) solo de las
+    # cuentas tocadas, en el mismo request. Así el usuario ve la nueva
+    # clasificación al instante en la tabla del manager, sin esperar el cron.
+    # No interrumpe la respuesta si falla (los datos de cupo ya quedaron OK).
+    n_reclasificadas = 0
+    try:
+        n_reclasificadas = _reclasificar_nivel_3(col, list(existentes), actor)
+    except Exception as e:  # noqa: BLE001
+        # Si la clasificación falla (ej. sin MEP momentáneo), el cupo ya está
+        # cargado igual — el cron diario / próxima carga lo arregla.
+        import logging
+        logging.getLogger(__name__).warning("Re-clasificación post-bulk falló: %s", e)
+
     return {
-        "actualizadas":     res.modified_count,
-        "matched":          res.matched_count,
-        "filas_validas":    len(ops),
-        "sin_id":           sin_id,
-        "sin_campos":       sin_campos,
-        "sin_numeros":      sin_numeros,
-        "n_no_encontradas": len(no_encontradas),
-        "no_encontradas":   no_encontradas[:50],
+        "actualizadas":      res.modified_count,
+        "matched":           res.matched_count,
+        "filas_validas":     len(ops),
+        "sin_id":            sin_id,
+        "sin_campos":        sin_campos,
+        "sin_numeros":       sin_numeros,
+        "n_no_encontradas":  len(no_encontradas),
+        "no_encontradas":    no_encontradas[:50],
+        "n_reclasificadas":  n_reclasificadas,
     }
+
+
+def _reclasificar_nivel_3(col, ids_cuenta: list[str], actor: str) -> int:
+    """Re-clasifica nivel_3 (segmento patrimonial) para un conjunto de cuentas.
+
+    Usado como step post-bulk-fondeo. Lee tipo_cliente + cupo del subset,
+    pide MEP (y UVA cuando esté), aplica `clasificar_nivel_3` y persiste
+    los que cambian. Devuelve cuántos se cambiaron.
+    """
+    if not ids_cuenta:
+        return 0
+    from api.services.macro import get_ultimo_mep
+    from api.services.segmentacion import clasificar_nivel_3
+    mep = float(get_ultimo_mep().get("mep") or 0) or None
+    uva: float | None = None  # `Trading.UVA` aún no ingestado.
+
+    cur = col.find(
+        {"id_cuenta": {"$in": ids_cuenta}},
+        {"_id": 0, "id_cuenta": 1, "tipo_cliente": 1, "nivel_3": 1, "cupo.transaccional_ars": 1},
+    )
+    now = datetime.now(UTC)
+    ops: list[UpdateOne] = []
+    for r in cur:
+        cupo_ars = (r.get("cupo") or {}).get("transaccional_ars")
+        nuevo = clasificar_nivel_3(
+            r.get("tipo_cliente"),
+            float(cupo_ars) if cupo_ars is not None else None,
+            mep=mep,
+            uva=uva,
+        )
+        if nuevo != r.get("nivel_3"):
+            ops.append(UpdateOne(
+                {"id_cuenta": r["id_cuenta"]},
+                {"$set": {"nivel_3": nuevo, "actualizado_at": now, "actualizado_por": actor}},
+            ))
+    if not ops:
+        return 0
+    return col.bulk_write(ops, ordered=False).modified_count

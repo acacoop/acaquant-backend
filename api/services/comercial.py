@@ -399,6 +399,10 @@ def analisis_comercial(
 
     hoy = _hoy_art()
     factor = _factor_usd(moneda)
+    # Cupo se reporta SIEMPRE en USD al MEP del día (decisión de producto), sin
+    # importar el toggle ARS/USD global. Si no hay MEP, queda en None y el
+    # frontend muestra "—".
+    factor_cupo = _factor_usd("USD")
     aum = _aum_por_cuenta(ids, todos=es_todos)
     mov = get_db_cashflow()["NegocioMovimientos"]
     cats = list(_CATS_OPERACIONES)
@@ -423,7 +427,11 @@ def analisis_comercial(
         str(d["id_cuenta"]): d
         for d in get_db_clientes()["Comitentes"].find(
             cuentas_q,
-            {"_id": 0, "id_cuenta": 1, **{f: 1 for f in _ANALISIS_FIELDS}},
+            {
+                "_id": 0, "id_cuenta": 1,
+                **{f: 1 for f in _ANALISIS_FIELDS},
+                "cupo.transaccional_ars": 1, "cupo.usado_ars": 1,
+            },
         )
     }
 
@@ -435,6 +443,9 @@ def analisis_comercial(
         dias_win = dias if (dias is not None and dias <= dias_dormida) else None
         est = estado_comercial(dias_win, ult is not None, dias_activa, dias_dormida)
         f = detalle.get(idc, {})
+        cupo = f.get("cupo") or {}
+        trans_ars = cupo.get("transaccional_ars")
+        usado_ars = cupo.get("usado_ars")
         clientes.append({
             "id_cuenta": idc,
             "denominacion": f.get("denominacion") or "—",
@@ -444,6 +455,14 @@ def analisis_comercial(
             "estado": est,
             "opero_ytd": bool(ult) and ult >= year_start,
             "opero_mtd": bool(ult) and ult >= month_start,
+            "cupo_transaccional_usd": (
+                _cv(float(trans_ars), factor_cupo)
+                if trans_ars is not None and factor_cupo else None
+            ),
+            "cupo_usado_usd": (
+                _cv(float(usado_ars), factor_cupo)
+                if usado_ars is not None and factor_cupo else None
+            ),
             **{n: f.get(n) for n in _ANALISIS_FIELDS if n != "denominacion"},
         })
     clientes.sort(key=lambda x: x["aum"], reverse=True)

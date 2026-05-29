@@ -198,6 +198,10 @@ _PORTFOLIOS   = [Depends(verify_api_key), Depends(require_module("portfolios"))]
 _OPERAR       = [Depends(verify_api_key), Depends(require_module("operar"))]
 _OPERACIONES  = [Depends(verify_api_key), Depends(require_module("operaciones"))]
 _ASISTENTE    = [Depends(verify_api_key), Depends(require_module("asistente"))]
+# `manager.router` ya NO va con _MANAGER global: gatear todo /api/manager/*
+# con el módulo `manager` excluye a `asistente_comercial` (que solo tiene
+# `manager_comercial` y `manager_clientes`). El gate ahora vive POR sub-router
+# en `api/routers/manager/__init__.py`. Acá dejamos solo el bearer base.
 _MANAGER      = [Depends(verify_api_key), Depends(require_module("manager"))]
 
 # Públicos (todos los roles tienen home/renta-fija/derivados/estrategia):
@@ -232,7 +236,11 @@ app.include_router(risk.router,              dependencies=_OPERAR)
 app.include_router(operaciones.router,       dependencies=_OPERACIONES)
 app.include_router(cuentas.router,           dependencies=_OPERACIONES)
 app.include_router(chat.router,              dependencies=_ASISTENTE)
-app.include_router(manager.router,           dependencies=_MANAGER)
+# manager.router: gate por sub-router (ver api/routers/manager/__init__.py).
+# Acá solo bearer base — sin require_module global para no excluir a
+# `asistente_comercial` de las tabs Comercial y Clientes.
+app.include_router(manager.router,           dependencies=_PUBLIC)
+# manager_resources (system monitoring): admin-only, mantiene gate `manager`.
 app.include_router(manager_resources.router, dependencies=_MANAGER)
 
 

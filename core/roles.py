@@ -57,7 +57,13 @@ MODULES: tuple[str, ...] = (
     "portfolios",     # /portfolios + /aum + carteras + AuM + titulos
     "back-office",    # /back-office (títulos a enviar/recibir al mercado, conciliación)
     "asistente",      # /asistente + /api/chat
-    "manager",        # /manager + intel + jobs + logs
+    "manager",        # /manager + intel + jobs + logs (umbrella — tabs admin)
+    # Sub-módulos de Manager: cobertura granular para el rol `asistente_comercial`
+    # (acceso SOLO a las tabs Comercial + Clientes, sin ver el resto). El sub-router
+    # respectivo lleva su propio require_module() en api/routers/manager/__init__.py.
+    "manager_comercial",      # /api/manager/comercial/* (read-only: tablero por operador)
+    "manager_clientes",       # /api/manager/clientes + /clientes/values + PATCH (edición fila)
+    "manager_clientes_bulk",  # /api/manager/clientes/bulk + /bulk-fondeo (carga masiva — admin)
 )
 
 
@@ -68,7 +74,7 @@ MODULES: tuple[str, ...] = (
 # matriz desde el panel para asignar el módulo nuevo a los roles que
 # correspondan. Default es el bootstrap inicial.
 DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
-    "admin":  MODULES,  # todo
+    "admin":  MODULES,  # todo (incluye los 3 sub-módulos de manager)
     "trader": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
@@ -78,6 +84,16 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
         "back-office",
+    ),
+    # Asistente comercial: mismas vistas que trader + entra a Manager pero SOLO a
+    # las tabs Comercial y Clientes (edición fila a fila, sin acceso a los bulks).
+    # Sin `manager` umbrella → no ve las tabs admin (Jobs, Usuarios, Roles, etc.).
+    # Sin `manager_clientes_bulk` → no puede ejecutar carga masiva.
+    "asistente_comercial": (
+        "home", "renta-fija", "derivados", "agro", "sinteticos",
+        "renta-variable", "estrategia",
+        "operaciones", "portfolios", "back-office", "asistente",
+        "manager_comercial", "manager_clientes",
     ),
 }
 # `operar` (DOLAR MEP + envío de órdenes) queda SOLO para admin de momento

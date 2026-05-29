@@ -190,6 +190,14 @@ def require_manager(email: str = Depends(get_user_email)) -> str:
 # require_module).
 ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/api/manager",     "manager"),
+    # Sub-módulos de manager: el match longest-prefix-first los hace ganar
+    # sobre el umbrella `/api/manager` → `manager`. Los bulks son más
+    # específicos que `/api/manager/clientes` y por eso van listados (también
+    # ganan por longitud).
+    ("/api/manager/comercial",         "manager_comercial"),
+    ("/api/manager/clientes",          "manager_clientes"),
+    ("/api/manager/clientes/bulk",     "manager_clientes_bulk"),
+    ("/api/manager/clientes/bulk-fondeo", "manager_clientes_bulk"),
     ("/api/chat",        "asistente"),
     ("/api/portfolio",   "portfolios"),
     ("/api/titulos",     "portfolios"),

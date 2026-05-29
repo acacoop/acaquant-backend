@@ -24,7 +24,14 @@ from pymongo import UpdateOne
 from api.auth import get_user_email
 from core.mongo import get_mongo_client, get_mongo_client_read
 
+# Dos routers separados para que el paquete `manager` les aplique distintos
+# require_module():
+#   router       → GETs + PATCH  → módulo `manager_clientes`        (asistente_comercial OK)
+#   bulk_router  → POST /bulk*   → módulo `manager_clientes_bulk`   (admin only)
+# El split es a nivel de gate, no de path — ambos siguen viviendo bajo
+# /api/manager/clientes/*.
 router = APIRouter()
+bulk_router = APIRouter()
 
 DB = "Clientes"
 COL = "Comitentes"
@@ -192,7 +199,7 @@ class _BulkReq(BaseModel):
     rows: list[dict] = Field(..., max_length=20000)
 
 
-@router.post("/clientes/bulk")
+@bulk_router.post("/clientes/bulk")
 def bulk_clientes(req: _BulkReq, actor: str = Depends(get_user_email)):
     """Carga masiva desde archivo. Update por id_cuenta de SOLO los campos
     manuales (_EDITABLE_FIELDS) + el operador (_BULK_OPERADOR_FIELDS) presentes y
@@ -280,7 +287,7 @@ class _BulkFondeoReq(BaseModel):
     fuente: str | None = Field(None, max_length=128)
 
 
-@router.post("/clientes/bulk-fondeo")
+@bulk_router.post("/clientes/bulk-fondeo")
 def bulk_clientes_fondeo(req: _BulkFondeoReq, actor: str = Depends(get_user_email)):
     """Carga masiva del cupo de fondeo del custodio (ARS).
 

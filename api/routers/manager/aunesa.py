@@ -8,18 +8,26 @@ debugging desde el panel /manager. La vista de producción
 from __future__ import annotations
 
 import logging
+import threading
+import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import requests
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
+from api.auth import get_user_email
 from api.services import aunesa_negocio as svc
 from api.services._negocio_futuros import match_no_futuros
-from core.mongo import get_mongo_client_read
+from api.services.aunesa_aranceles import resolver_cuentas, run_backfill
+from core.mongo import get_mongo_client, get_mongo_client_read
 
 router = APIRouter()
 logger = logging.getLogger("api.manager.aunesa")
+
+_JOBS_COL = "AranceelesJobRuns"
+_STALE_S = 300  # 5 min sin update → marca el job como `stale` (proceso reiniciado).
 
 
 @router.get("/aunesa/explorar")
@@ -201,3 +209,159 @@ def aunesa_boletos_faltantes(
         ],
         "boletos": boletos,
     }
+
+
+# ── BOLETOS → tab BACKFILL ────────────────────────────────────────────────────
+# Dispara el matching contra Aunesa /informes desde la UI. El job corre en un
+# thread daemon del proceso `api.service` y persiste progreso en Mongo cada
+# cuenta procesada. Si el proceso se reinicia, el doc queda con `updated_at`
+# viejo → el GET de status lo marca como `stale` (5 min sin update) y el front
+# permite re-disparar. NO usa systemd unit aparte: si en algún momento el
+# volumen lo requiere, mover a `jobs/aranceles.py` + cron es 30 min más.
+
+
+class BackfillReq(BaseModel):
+    desde:   str        = Field(..., description="Concertación desde YYYY-MM-DD")
+    hasta:   str        = Field(..., description="Concertación hasta YYYY-MM-DD")
+    cuentas: list[str] | None = Field(
+        default=None,
+        description="Restringir a estas cuentas (id_cuenta). None = todas las del rango.",
+    )
+    workers: int        = Field(6, ge=1, le=20, description="Threads paralelos contra Aunesa.")
+    apply:   bool       = Field(True, description="True = escribe; False = dry-run.")
+
+
+def _jobs_col():
+    return get_mongo_client()["Manager"][_JOBS_COL]
+
+
+def _serialize_job(doc: dict | None) -> dict | None:
+    """Lo devolvemos sin _id (es UUID, ya está en `job_id`) y con datetimes ISO."""
+    if doc is None:
+        return None
+    out = {k: v for k, v in doc.items() if k != "_id"}
+    for k in ("started_at", "updated_at", "finished_at"):
+        if isinstance(out.get(k), datetime):
+            out[k] = out[k].isoformat()
+    return out
+
+
+def _run_job(job_id: str, req: BackfillReq, desde_d: date, hasta_d: date) -> None:
+    """Cuerpo del thread daemon. Actualiza progreso en Mongo a cada cuenta."""
+    col = _jobs_col()
+
+    def on_progress(state: dict[str, Any]) -> None:
+        col.update_one(
+            {"_id": job_id},
+            {"$set": {
+                "updated_at":    datetime.now(UTC),
+                "cuentas_total": state["cuentas_total"],
+                "cuentas_done":  state["cuentas_done"],
+                "stats": {
+                    "inf":       state["inf"],
+                    "match":     state["match"],
+                    "sin_match": state["sin_match"],
+                    "escritos":  state["escritos"],
+                },
+                "ejemplos": state["ejemplos"],
+                "errores":  state["errores"],
+            }},
+        )
+
+    try:
+        run_backfill(
+            desde=desde_d, hasta=hasta_d, cuentas=req.cuentas,
+            workers=req.workers, apply=req.apply,
+            on_progress=on_progress, progress_every=1,
+        )
+        col.update_one(
+            {"_id": job_id},
+            {"$set": {"status": "done", "finished_at": datetime.now(UTC)}},
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("backfill aranceles job %s falló", job_id)
+        col.update_one(
+            {"_id": job_id},
+            {"$set": {
+                "status":     "error",
+                "error":      str(e),
+                "finished_at": datetime.now(UTC),
+            }},
+        )
+
+
+@router.post("/aunesa/boletos/backfill")
+def boletos_backfill_start(
+    req: BackfillReq = Body(...),
+    actor: str = Depends(get_user_email),
+) -> dict[str, Any]:
+    """Arranca el backfill de aranceles en background. Devuelve `job_id`.
+
+    El frontend hace polling de `GET /aunesa/boletos/backfill/{job_id}` para
+    ver el progreso. El job vive en un thread del proceso api.service — si la
+    API se reinicia mid-job, el doc queda en `running` sin updates y el GET lo
+    marca `stale` (5 min sin update).
+    """
+    try:
+        desde_d = date.fromisoformat(req.desde)
+        hasta_d = date.fromisoformat(req.hasta)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"fecha mal formada: {e}") from e
+    if desde_d > hasta_d:
+        raise HTTPException(status_code=400, detail="desde > hasta")
+
+    job_id = str(uuid.uuid4())
+    now = datetime.now(UTC)
+    _jobs_col().insert_one({
+        "_id":           job_id,
+        "status":        "running",
+        "actor":         actor,
+        "desde":         req.desde,
+        "hasta":         req.hasta,
+        "cuentas":       req.cuentas,
+        "workers":       req.workers,
+        "apply":         req.apply,
+        "started_at":    now,
+        "updated_at":    now,
+        "finished_at":   None,
+        "cuentas_total": 0,
+        "cuentas_done":  0,
+        "stats":         {"inf": 0, "match": 0, "sin_match": 0, "escritos": 0},
+        "ejemplos":      [],
+        "errores":       [],
+        "error":         None,
+    })
+
+    threading.Thread(
+        target=_run_job, args=(job_id, req, desde_d, hasta_d), daemon=True,
+        name=f"aranceles-{job_id[:8]}",
+    ).start()
+
+    return {"job_id": job_id, "status": "running"}
+
+
+@router.get("/aunesa/boletos/backfill/{job_id}")
+def boletos_backfill_status(job_id: str) -> dict[str, Any]:
+    """Estado actual del job. Marca `stale` si lleva > 5 min sin update."""
+    doc = _jobs_col().find_one({"_id": job_id})
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"job_id desconocido: {job_id}")
+    if doc.get("status") == "running":
+        updated = doc.get("updated_at")
+        if isinstance(updated, datetime) and (
+            datetime.now(UTC) - updated.replace(tzinfo=UTC) > timedelta(seconds=_STALE_S)
+        ):
+            doc["status"] = "stale"
+    return _serialize_job(doc) or {}
+
+
+@router.get("/aunesa/boletos/backfill")
+def boletos_backfill_historial(limit: int = Query(20, ge=1, le=100)) -> list[dict[str, Any]]:
+    """Últimos N jobs (más reciente primero). Para mostrar historial en UI."""
+    docs = list(
+        _jobs_col()
+        .find({}, {"ejemplos": 0, "errores": 0})
+        .sort("started_at", -1)
+        .limit(limit)
+    )
+    return [d for d in (_serialize_job(d) for d in docs) if d]

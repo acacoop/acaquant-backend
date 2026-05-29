@@ -30,6 +30,7 @@ from typing import Any
 
 from pymongo import UpdateOne
 
+from api.services._negocio_arancelables import match_solo_arancelables
 from api.services._negocio_futuros import match_no_futuros
 from api.services.aunesa_informes import aranceles_por_boleto
 from core.mongo import get_mongo_client
@@ -132,11 +133,16 @@ def run_backfill(
             return
         state["inf"] += len(mapa)
         # 1 sola query: comprobante → _id de los boletos de esta cuenta.
-        # Excluye futuros DLR (unidad=USDL): no tienen arancel del proyecto.
+        # Excluye:
+        #   - futuros DLR (unidad=USDL) — no arancelables del proyecto.
+        #   - ops no arancelables (Interest payment, Cash dividend, cauciones,
+        #     suscripciones FCI, etc) — el _id ni siquiera entra al lookup, así
+        #     que cuando Aunesa no los devuelve no inflan el contador sin_match
+        #     con false positives.
         nm_map = {
             d["comprobante"]: d["_id"]
             for d in col.find(
-                {"id_cuenta": cuenta, **match_no_futuros()},
+                {"id_cuenta": cuenta, **match_no_futuros(), **match_solo_arancelables()},
                 {"_id": 1, "comprobante": 1},
             )
         }

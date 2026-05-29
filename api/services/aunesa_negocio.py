@@ -37,6 +37,7 @@ from typing import Any
 import requests
 
 import config
+from api.services._negocio_informacion_filter import es_excluido as _es_info_excluida
 
 logger = logging.getLogger("api.services.aunesa_negocio")
 
@@ -271,6 +272,12 @@ def es_capturado_filtro_actual(informacion: str) -> bool:
 
 
 def _excluir(mov: dict) -> bool:
+    # Filtro canónico de `informacion` (case-sensitive, substrings confirmados
+    # por el user — bonificación, gestión de cobranza, etc). Fuente única en
+    # api/services/_negocio_informacion_filter.py para que ingesta y cleanup
+    # apliquen exactamente las mismas reglas.
+    if _es_info_excluida(mov.get("informacion")):
+        return True
     info_norm = _normalizar(mov.get("informacion") or "")
     cuenta_norm = _normalizar(mov.get("cuenta") or "")
     return any(s in info_norm or s in cuenta_norm for s in EXCLUIR_SUBSTRINGS)

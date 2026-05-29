@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.services import aunesa_negocio as svc
+from api.services._negocio_arancelables import match_solo_arancelables
 from api.services._negocio_futuros import match_no_futuros
 from api.services.aunesa_aranceles import resolver_cuentas, run_backfill
 from core.mongo import get_mongo_client, get_mongo_client_read
@@ -167,10 +168,16 @@ def aunesa_boletos_faltantes(
         raise HTTPException(status_code=400, detail="desde > hasta")
 
     coll = get_mongo_client_read()["CashFlow"]["NegocioMovimientos"]
+    # Excluye:
+    #   - futuros DLR (unidad=USDL) — no arancelables del proyecto.
+    #   - ops no arancelables (Cash dividend, Interest payment, cauciones
+    #     apertura, suscripciones/rescates FCI, etc) — los confirmó el user
+    #     como "tratamiento sin arancel".
     match: dict[str, Any] = {
         "fecha": {"$gte": desde, "$lte": hasta},
         "$or": [{"arancel": {"$exists": False}}, {"arancel": {"$lte": 0}}, {"arancel": None}],
         **match_no_futuros(),
+        **match_solo_arancelables(),
     }
     if id_cuenta:
         match["id_cuenta"] = str(id_cuenta)

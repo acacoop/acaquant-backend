@@ -8,13 +8,15 @@ debugging desde el panel /manager. La vista de producción
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import requests
 from fastapi import APIRouter, HTTPException, Query
 
 from api.services import aunesa_negocio as svc
+from api.services._negocio_futuros import match_no_futuros
+from core.mongo import get_mongo_client_read
 
 router = APIRouter()
 logger = logging.getLogger("api.manager.aunesa")
@@ -119,4 +121,83 @@ def aunesa_posicion(
         "n_total":     len(items),
         "n_acumulado": len(acumulado),
         "posiciones":  acumulado,
+    }
+
+
+# ── BOLETOS → tab FALTANTES ───────────────────────────────────────────────────
+# Lista los boletos en CashFlow.NegocioMovimientos del rango pedido que NO
+# tienen arancel (campo `arancel` ausente o ≤ 0). Sirve para detectar GAPs
+# antes/después de correr el backfill. Filtra futuros DLR (unidad=USDL) —
+# no tienen arancel propio y no entrarían igual.
+
+_FALTANTES_PROJ = {
+    "_id": 0, "comprobante": 1, "id_cuenta": 1, "cuenta": 1, "denominacion": 1,
+    "fecha": 1, "categoria": 1, "moneda": 1, "ticker": 1, "unidad": 1,
+    "importe": 1, "arancel": 1,
+}
+
+
+@router.get("/aunesa/boletos/faltantes")
+def aunesa_boletos_faltantes(
+    desde:    str        = Query(..., description="Concertación desde YYYY-MM-DD"),
+    hasta:    str        = Query(..., description="Concertación hasta YYYY-MM-DD"),
+    id_cuenta: str | None = Query(None, description="Restringir a una cuenta (id)"),
+    limit:    int        = Query(2000, ge=1, le=20000, description="Tope filas devueltas"),
+) -> dict[str, Any]:
+    """Boletos sin arancel en el rango. Devuelve filas + agregado por cuenta+día.
+
+    Considera "sin arancel": `arancel` no existe, es null, o ≤ 0. Match por
+    `fecha` (string YYYY-MM-DD, índice). Excluye futuros DLR (USDL)
+    automáticamente — los futuros no llevan arancel del proyecto.
+    """
+    try:
+        date.fromisoformat(desde)
+        date.fromisoformat(hasta)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"fecha mal formada: {e}") from e
+    if desde > hasta:
+        raise HTTPException(status_code=400, detail="desde > hasta")
+
+    coll = get_mongo_client_read()["CashFlow"]["NegocioMovimientos"]
+    match: dict[str, Any] = {
+        "fecha": {"$gte": desde, "$lte": hasta},
+        "$or": [{"arancel": {"$exists": False}}, {"arancel": {"$lte": 0}}, {"arancel": None}],
+        **match_no_futuros(),
+    }
+    if id_cuenta:
+        match["id_cuenta"] = str(id_cuenta)
+
+    # Boletos detallados (capped).
+    boletos = list(coll.find(match, _FALTANTES_PROJ).sort([("fecha", -1)]).limit(limit))
+
+    # Agregado por (id_cuenta, fecha) sobre TODO el rango — sin cap, para que
+    # el resumen sea fiel aunque la tabla detallada esté truncada.
+    por_cuenta_fecha = list(coll.aggregate([
+        {"$match": match},
+        {"$group": {
+            "_id":          {"id_cuenta": "$id_cuenta", "fecha": "$fecha"},
+            "n":            {"$sum": 1},
+            "denominacion": {"$first": "$denominacion"},
+            "importe_abs":  {"$sum": {"$abs": {"$ifNull": ["$importe", 0]}}},
+        }},
+        {"$sort": {"_id.fecha": -1, "_id.id_cuenta": 1}},
+    ]))
+
+    n_total = sum(int(r["n"]) for r in por_cuenta_fecha)
+    return {
+        "desde": desde, "hasta": hasta, "id_cuenta": id_cuenta,
+        "n_total":   n_total,
+        "truncado":  len(boletos) >= limit,
+        "limit":     limit,
+        "resumen": [
+            {
+                "id_cuenta":    r["_id"]["id_cuenta"],
+                "fecha":        r["_id"]["fecha"],
+                "denominacion": r.get("denominacion"),
+                "n":            int(r["n"]),
+                "importe_abs":  float(r.get("importe_abs") or 0.0),
+            }
+            for r in por_cuenta_fecha
+        ],
+        "boletos": boletos,
     }

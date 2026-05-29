@@ -4,6 +4,8 @@ La capa de servicios (`api/services/*`) importa los helpers de DB desde
 `api/db.py` directo para no depender de fastapi. Los routers pueden seguir
 importándolos desde acá por compat.
 """
+import secrets
+
 from fastapi import Header, HTTPException
 
 from api.db import (  # noqa: F401 — reexport para compat
@@ -31,5 +33,7 @@ def verify_api_key(authorization: str | None = Header(default=None)) -> None:
     """
     if not API_KEY:
         return
-    if authorization is None or authorization != f"Bearer {API_KEY}":
+    if authorization is None or not secrets.compare_digest(
+        authorization, f"Bearer {API_KEY}"
+    ):
         raise HTTPException(status_code=401, detail="API key inválida")

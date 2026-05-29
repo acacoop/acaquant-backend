@@ -264,3 +264,32 @@ def require_module(module: str):
     # Para que FastAPI diferencie cada instancia en la cache de deps
     _dep.__name__ = f"require_module_{module.replace('-', '_')}"
     return _dep
+
+
+def require_any_module(modules: tuple[str, ...]):
+    """Dependency factory: pasa si el user tiene CUALQUIERA de los módulos.
+
+    Útil para sub-routers donde el umbrella (`manager`) Y el sub-módulo
+    (`manager_comercial`) ambos deben dar acceso. Ej: admin tiene `manager`
+    en Mongo y entra a todo `/api/manager/*`; `asistente_comercial` tiene
+    solo `manager_comercial` y entra a `/api/manager/comercial/*`.
+
+    NO requiere migración de la matriz Mongo existente — los roles que
+    ya tenían el umbrella siguen funcionando sin tocar nada.
+    """
+    from core.roles import has_access
+
+    def _dep(email: str = Depends(get_user_email)) -> str:
+        for m in modules:
+            if has_access(email, m):
+                return email
+        logger.warning(
+            "require_any_module(%s): rechazado email=%r", list(modules), email,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=f"acceso requerido a alguno de: {', '.join(modules)}",
+        )
+
+    _dep.__name__ = "require_any_module_" + "_".join(m.replace("-", "_") for m in modules)
+    return _dep

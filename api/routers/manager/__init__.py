@@ -21,7 +21,7 @@ paquete sin deps globales).
 """
 from fastapi import APIRouter, Depends
 
-from api.auth import require_module
+from api.auth import require_any_module, require_module
 from api.deps import verify_api_key
 from api.routers.manager import (
     asistente,
@@ -42,10 +42,14 @@ from api.routers.manager import (
 
 router = APIRouter(prefix="/api/manager", tags=["Manager"])
 
+# Gates con OR (manager umbrella ∨ sub-módulo): admin (con `manager` en Mongo)
+# entra a todo SIN necesidad de migrar la matriz; `asistente_comercial` (con
+# `manager_comercial` y `manager_clientes` pero SIN `manager`) entra a sus 2
+# tabs. Las tabs admin (status/jobs/etc) siguen requiriendo `manager`.
 _MGR             = [Depends(verify_api_key), Depends(require_module("manager"))]
-_COMERCIAL       = [Depends(verify_api_key), Depends(require_module("manager_comercial"))]
-_CLIENTES        = [Depends(verify_api_key), Depends(require_module("manager_clientes"))]
-_CLIENTES_BULK   = [Depends(verify_api_key), Depends(require_module("manager_clientes_bulk"))]
+_COMERCIAL       = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_comercial")))]
+_CLIENTES        = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_clientes")))]
+_CLIENTES_BULK   = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_clientes_bulk")))]
 
 # Tabs admin (umbrella `manager`):
 router.include_router(status.router,      dependencies=_MGR)

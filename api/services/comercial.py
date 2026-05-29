@@ -22,6 +22,7 @@ from api.db import (
     get_db_manager,
     get_db_valuaciones,
 )
+from api.services._negocio_futuros import match_no_futuros
 
 # Las queries por cuenta filtran `id_cuenta` (denormalizado en la ingesta de
 # NegocioMovimientos, indexado) — sin regex sobre `cuenta`. Backfill de docs
@@ -160,7 +161,12 @@ def _match_volumen(ids: tuple[str, ...], fecha_desde: str | None,
     operativas. NO filtra por moneda → entran ARS y USD (el valor se pesifica con
     `_PESIF`). Filtra `id_cuenta` (índice idcuenta_categoria_fecha); `todos` → toda
     la mesa, sin filtro de cuenta."""
-    m: dict[str, Any] = {"categoria": {"$in": list(_CATS_VOLUMEN)}}
+    # Futuros DLR (unidad="USDL") no son arancelables → no entran al volumen
+    # comercial. Se filtran acá una vez para todos los consumidores del helper.
+    m: dict[str, Any] = {
+        "categoria": {"$in": list(_CATS_VOLUMEN)},
+        **match_no_futuros(),
+    }
     if not todos:
         m["id_cuenta"] = {"$in": list(ids)}
     if fecha_desde:
@@ -366,6 +372,7 @@ def operaciones_cliente(*, id_cuenta: str, limite: int = 300) -> dict[str, Any]:
     match: dict[str, Any] = {
         "id_cuenta": str(id_cuenta),
         "categoria": {"$in": list(_CATS_OPERACIONES)},
+        **match_no_futuros(),
     }
     rows = list(
         get_db_cashflow()["NegocioMovimientos"]
@@ -411,7 +418,7 @@ def analisis_comercial(
 
     # Última operación (operativa) EVER por cuenta — sin ventana. De acá salen:
     # estado comercial, días reales sin operar y si operó en el año en curso.
-    ult_match: dict[str, Any] = {"categoria": {"$in": cats}}
+    ult_match: dict[str, Any] = {"categoria": {"$in": cats}, **match_no_futuros()}
     if not es_todos:
         ult_match["id_cuenta"] = {"$in": list(ids)}
     ult_op: dict[str, str] = {}
@@ -663,7 +670,8 @@ def informe_comercial(*, moneda: str = "ARS") -> dict[str, Any]:
 
     por_cuenta: dict[str, dict] = {}
     for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
-        {"$match": {"$or": [{"categoria": {"$in": cats}}, {"arancel": {"$gt": 0}}]}},
+        {"$match": {**match_no_futuros(),
+                    "$or": [{"categoria": {"$in": cats}}, {"arancel": {"$gt": 0}}]}},
         {"$group": {
             "_id": "$id_cuenta",
             "vol_total": {"$sum": {"$cond": [{"$in": ["$categoria", cats]}, _PESIF, 0]}},
@@ -772,7 +780,7 @@ def debug_comercial(
 
     filas = []
     for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
-        {"$match": {"id_cuenta": {"$in": ids},
+        {"$match": {"id_cuenta": {"$in": ids}, **match_no_futuros(),
                     "$or": [{"categoria": {"$in": cats}}, {"arancel": {"$gt": 0}}]}},
         {"$group": {
             "_id": "$id_cuenta",
@@ -832,7 +840,7 @@ def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS") -> dict[st
 
     segs: dict[str, dict] = {}
     for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
-        {"$match": {"id_cuenta": {"$in": ids},
+        {"$match": {"id_cuenta": {"$in": ids}, **match_no_futuros(),
                     "$or": [{"categoria": {"$in": cats}}, {"arancel": {"$gt": 0}}]}},
         {"$group": {
             "_id": "$id_cuenta",

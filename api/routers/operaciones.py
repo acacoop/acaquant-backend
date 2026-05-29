@@ -27,6 +27,7 @@ from api.services._grupos_scope import (
     scope_cuentas,
     verificar_cuenta_str,
 )
+from api.services._negocio_futuros import match_no_futuros
 
 logger = logging.getLogger("api.operaciones")
 
@@ -325,6 +326,8 @@ def negocio_serie(
         match_doc: dict = {
             "moneda": moneda,
             "categoria": {"$in": list(_NEGOCIO_SERIE_BOLETO_CATS)},
+            # Futuros DLR (unidad="USDL"): no entran al gráfico de NEGOCIO.
+            **match_no_futuros(),
         }
         if cuenta:
             # Match exacto sobre cuenta — override total del cuenta_filter.
@@ -422,6 +425,7 @@ def negocio_cuentas(
             "fecha":     {"$gte": desde, "$lte": hasta},
             "moneda":    moneda,
             "categoria": {"$in": boleto_cats},
+            **match_no_futuros(),
         }
         if cuenta:
             verificar_cuenta_str(cuenta, scope)
@@ -504,6 +508,7 @@ def negocio_cuentas_matrix(
             "fecha":     {"$gte": desde, "$lte": hasta},
             "moneda":    moneda,
             "categoria": {"$in": list(_NEGOCIO_SERIE_BOLETO_CATS)},
+            **match_no_futuros(),
         }
         if cuenta:
             verificar_cuenta_str(cuenta, scope)
@@ -606,6 +611,7 @@ def negocio_boletos(
             "fecha":  fecha,
             "cuenta": cuenta,
             "moneda": moneda,
+            **match_no_futuros(),
         }
         if boleto_cats is not None:
             match_doc["categoria"] = {"$in": boleto_cats}

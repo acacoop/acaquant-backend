@@ -103,9 +103,16 @@ def main() -> int:
             return
         stats["inf"] += len(mapa)
         # 1 sola query: comprobante → _id de los boletos de esta cuenta.
+        # Excluye futuros DLR (unidad="USDL"): no tienen arancel del proyecto —
+        # si no se filtran, /informes nunca los devuelve y el boleto queda como
+        # "sin match" falso (inflaba el contador sin_match).
+        from api.services._negocio_futuros import match_no_futuros
         nm_map = {
             d["comprobante"]: d["_id"]
-            for d in col.find({"id_cuenta": cuenta}, {"_id": 1, "comprobante": 1})
+            for d in col.find(
+                {"id_cuenta": cuenta, **match_no_futuros()},
+                {"_id": 1, "comprobante": 1},
+            )
         }
         for boleto, aranceles in mapa.items():
             _id = nm_map.get(boleto)

@@ -140,8 +140,9 @@ def aunesa_posicion(
 # no tienen arancel propio y no entrarían igual.
 
 _FALTANTES_PROJ = {
-    "_id": 0, "comprobante": 1, "id_cuenta": 1, "cuenta": 1, "denominacion": 1,
-    "fecha": 1, "categoria": 1, "moneda": 1, "ticker": 1, "unidad": 1,
+    "_id": 0, "comprobante": 1, "id_cuenta": 1, "cuenta": 1,
+    "fecha": 1, "categoria": 1, "op": 1, "informacion": 1,
+    "moneda": 1, "ticker": 1, "unidad": 1,
     "importe": 1, "arancel": 1,
 }
 
@@ -185,20 +186,23 @@ def aunesa_boletos_faltantes(
     # Boletos detallados (capped).
     boletos = list(coll.find(match, _FALTANTES_PROJ).sort([("fecha", -1)]).limit(limit))
 
-    # Agregado por (id_cuenta, fecha) sobre TODO el rango — sin cap, para que
-    # el resumen sea fiel aunque la tabla detallada esté truncada.
-    por_cuenta_fecha = list(coll.aggregate([
+    # Agregado por (categoria, op) sobre TODO el rango — sin cap, para que
+    # el resumen sea fiel aunque la tabla detallada esté truncada. Da el
+    # mapa "qué tipos de mov" están rebotando el match, con cuántas cuentas
+    # únicas (= ámbito del agujero, sirve para decidir si es un caso global
+    # o de una cuenta puntual).
+    por_categoria_op = list(coll.aggregate([
         {"$match": match},
         {"$group": {
-            "_id":          {"id_cuenta": "$id_cuenta", "fecha": "$fecha"},
-            "n":            {"$sum": 1},
-            "denominacion": {"$first": "$denominacion"},
-            "importe_abs":  {"$sum": {"$abs": {"$ifNull": ["$importe", 0]}}},
+            "_id":         {"categoria": "$categoria", "op": "$op"},
+            "n":           {"$sum": 1},
+            "importe_abs": {"$sum": {"$abs": {"$ifNull": ["$importe", 0]}}},
+            "cuentas":     {"$addToSet": "$id_cuenta"},
         }},
-        {"$sort": {"_id.fecha": -1, "_id.id_cuenta": 1}},
+        {"$sort": {"n": -1}},
     ]))
 
-    n_total = sum(int(r["n"]) for r in por_cuenta_fecha)
+    n_total = sum(int(r["n"]) for r in por_categoria_op)
     return {
         "desde": desde, "hasta": hasta, "id_cuenta": id_cuenta,
         "n_total":   n_total,
@@ -206,13 +210,13 @@ def aunesa_boletos_faltantes(
         "limit":     limit,
         "resumen": [
             {
-                "id_cuenta":    r["_id"]["id_cuenta"],
-                "fecha":        r["_id"]["fecha"],
-                "denominacion": r.get("denominacion"),
-                "n":            int(r["n"]),
-                "importe_abs":  float(r.get("importe_abs") or 0.0),
+                "categoria":   r["_id"].get("categoria"),
+                "op":          r["_id"].get("op"),
+                "n":           int(r["n"]),
+                "importe_abs": float(r.get("importe_abs") or 0.0),
+                "n_cuentas":   len(r.get("cuentas") or []),
             }
-            for r in por_cuenta_fecha
+            for r in por_categoria_op
         ],
         "boletos": boletos,
     }

@@ -83,7 +83,9 @@
 # Pega a Aunesa /operaciones/consolidadosGenerales, consolida por boleto y
 # upsertea en CashFlow.NegocioMovimientos. Idempotente por (fecha, comprobante).
 # Alimenta la vista /operaciones → tab NEGOCIO.
-0 15-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.negocio_movimientos >> /root/TradingAV/logs/negocio_movimientos.log 2>&1
+# Chainea jobs.aranceles: rellena el `arancel` de los boletos recién insertados
+# (Aunesa /informes, ventana de 7 días para cubrir liquidación T+2 + retroactivos).
+0 15-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.negocio_movimientos >> /root/TradingAV/logs/negocio_movimientos.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.aranceles >> /root/TradingAV/logs/aranceles.log 2>&1
 
 # ─── Cache-warming vista COMERCIAL (cada 4 min en horario de mercado L-V)
 # Pega al uvicorn LOCAL (127.0.0.1:8000) para calentar la cache in-process de

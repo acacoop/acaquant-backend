@@ -136,7 +136,7 @@ def _fondos_emisores() -> list[str]:
         emisores_fci = {
             d["emisor"]
             for d in db_t["AssetsAPI"].find(
-                {"cartera": "CARTERA FCI"}, {"_id": 0, "emisor": 1}
+                {"cartera": {"$in": ["FCI", "CARTERA FCI"]}}, {"_id": 0, "emisor": 1}
             )
             if d.get("emisor")
         }
@@ -174,7 +174,7 @@ def flujo_vs_aum(
         unidades = [
             d["unidad"]
             for d in db_t["AssetsAPI"].find(
-                {"cartera": "CARTERA FCI", "emisor": contraparte},
+                {"cartera": {"$in": ["FCI", "CARTERA FCI"]}, "emisor": contraparte},
                 {"_id": 0, "unidad": 1},
             )
             if d.get("unidad")

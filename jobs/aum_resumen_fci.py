@@ -32,8 +32,9 @@ from core.mongo import get_mongo_client
 def _fci_unidades(client):
     return [
         a["unidad"]
+        # $in tolera el rename de cartera (sin prefijo 'CARTERA '): nuevo + legacy.
         for a in client["Valuaciones"]["Assets"].find(
-            {"CARTERA": "CARTERA FCI"}, {"unidad": 1, "_id": 0}
+            {"CARTERA": {"$in": ["FCI", "CARTERA FCI"]}}, {"unidad": 1, "_id": 0}
         )
         if a.get("unidad")
     ]

@@ -1,0 +1,18 @@
+# Vigía automático de dependencias: abre PRs cuando una lib queda vieja o
+# tiene un CVE. Agrupa los updates menores/patch para no inundar de PRs.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

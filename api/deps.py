@@ -33,7 +33,10 @@ def verify_api_key(authorization: str | None = Header(default=None)) -> None:
     """
     if not API_KEY:
         return
-    if authorization is None or not secrets.compare_digest(
-        authorization, f"Bearer {API_KEY}"
-    ):
+    # compare_digest sobre bytes: con str, un header con cualquier byte no-ASCII
+    # lanza TypeError → 500 sin manejar desde un path no autenticado. En bytes
+    # devuelve False limpio (falla cerrado → 401).
+    expected = f"Bearer {API_KEY}".encode()
+    received = authorization.encode("utf-8", "ignore") if authorization else b""
+    if not secrets.compare_digest(received, expected):
         raise HTTPException(status_code=401, detail="API key inválida")

@@ -23,7 +23,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.auth import get_user_email
+from api.auth import get_user_email, require_module
 from api.services.camara_cereales import (
     CEREALES,
     get_camara_cereales,
@@ -61,6 +61,7 @@ def patch_pizarra(
     commodity: str,
     payload: PizarraIn,
     email: str = Depends(get_user_email),
+    _mod: None = Depends(require_module("agro")),
 ):
     """Upsert de la fila PIZARRA — email queda en el audit."""
     commodity = commodity.upper()
@@ -177,6 +178,7 @@ def patch_camara_cereal(
     cereal: str,
     payload: CamaraCerealIn,
     email: str = Depends(get_user_email),
+    _mod: None = Depends(require_module("agro")),
 ):
     """Upsert de un cereal (precio_ars / precio_usd). Audit en CamaraCerealesAudit."""
     cereal = cereal.upper()

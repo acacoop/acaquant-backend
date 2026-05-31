@@ -48,7 +48,9 @@ class MCPBearerMiddleware(BaseHTTPMiddleware):
         # 1. Static bearer (fallback dev/curl). `compare_digest` =
         # comparación de tiempo constante — evita el timing attack que
         # permitiría extraer MCP_BEARER_TOKEN byte a byte con `==`.
-        if MCP_BEARER_TOKEN and secrets.compare_digest(token, MCP_BEARER_TOKEN):
+        if MCP_BEARER_TOKEN and secrets.compare_digest(
+            token.encode("utf-8", "ignore"), MCP_BEARER_TOKEN.encode("utf-8")
+        ):
             return await call_next(request)
 
         # 2. JWT OAuth-issued (path principal Claude clients).

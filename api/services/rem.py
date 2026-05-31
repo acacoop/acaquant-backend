@@ -45,7 +45,7 @@ def _fin_de_mes(yyyy_mm: str) -> date | None:
 def debug_info() -> dict:
     """Diagnóstico rápido de Trading.REM."""
     db = get_db_trading()
-    total = db["REM"].count_documents({})
+    total = db["REM"].estimated_document_count()  # O(1) por metadata, no COLLSCAN
     informes = sorted(db["REM"].distinct("informe"), reverse=True)
     ultimo = informes[0] if informes else None
     sample_periodos: list[str] = []

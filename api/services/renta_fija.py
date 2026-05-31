@@ -327,41 +327,35 @@ def listar_curva(
     tickers = [d["ticker"] for d in filtrados]
 
     enrich_map: dict[str, dict] = {}
-    # Lee último estado por ticker desde MarketSnapshot (last_price +
-    # analíticas TEA/TEM/duration/etc). Antes agregaba TimeSales con
-    # $group/$first; este path lee 1 doc por ticker (find directo) y es
-    # estrictamente más rápido. Los valores son idénticos: valores.py
-    # escribe last_price y curvas.py escribe los analíticos.
+    vol_map: dict[str, dict] = {}
+    # UNA sola query a MarketSnapshot por todos los tickers (antes eran dos
+    # sobre la misma colección/filtro): trae analíticas + volumen juntos.
+    # enrich_map solo para los que tienen precio (>0); vol_map para todos.
+    # Valores idénticos: valores.py escribe last_price y curvas.py los analíticos.
     for r in db["MarketSnapshot"].find(
-        {"ticker": {"$in": tickers},
-         "metrics.last_price": {"$gt": 0}},
+        {"ticker": {"$in": tickers}},
         {"_id": 0, "ticker": 1, "updated_at": 1,
          "metrics.last_price": 1, "metrics.TEA": 1, "metrics.TEM": 1,
          "metrics.paridad": 1, "metrics.duration": 1,
-         "metrics.mod_duration": 1, "metrics.convexity": 1},
-    ):
-        m = r.get("metrics") or {}
-        enrich_map[r["ticker"]] = {
-            "price":        m.get("last_price"),
-            "TEA":          m.get("TEA"),
-            "TEM":          m.get("TEM"),
-            "paridad":      m.get("paridad"),
-            "duration":     m.get("duration"),
-            "mod_duration": m.get("mod_duration"),
-            "convexity":    m.get("convexity"),
-            "ts":           r.get("updated_at"),
-        }
-
-    vol_map: dict[str, dict] = {}
-    for r in db["MarketSnapshot"].find(
-        {"ticker": {"$in": tickers}},
-        {"_id": 0, "ticker": 1, "metrics.total_money": 1, "metrics.total_nominals": 1},
+         "metrics.mod_duration": 1, "metrics.convexity": 1,
+         "metrics.total_money": 1, "metrics.total_nominals": 1},
     ):
         m = r.get("metrics") or {}
         vol_map[r["ticker"]] = {
             "total_money": m.get("total_money") or 0,
             "total_nominals": m.get("total_nominals") or 0,
         }
+        if (m.get("last_price") or 0) > 0:
+            enrich_map[r["ticker"]] = {
+                "price":        m.get("last_price"),
+                "TEA":          m.get("TEA"),
+                "TEM":          m.get("TEM"),
+                "paridad":      m.get("paridad"),
+                "duration":     m.get("duration"),
+                "mod_duration": m.get("mod_duration"),
+                "convexity":    m.get("convexity"),
+                "ts":           r.get("updated_at"),
+            }
 
     # MEP live para TC breakeven (sólo aplica a curva='tasa_fija' acá).
     mep_actual: float | None = None

@@ -127,6 +127,18 @@ def sensibilidad_retorno_total(
     hoy = date.today()
     horizonte = hoy + timedelta(days=max(horizonte_dias, 0))
 
+    # Pre-carga de MarketSnapshot por TODOS los tickers en UNA query (antes
+    # eran 2 find_one por bono → 2N round-trips a Atlas). last_price + TEA +
+    # duration + paridad de una.
+    tickers_full = [b.get("ticker") for b in bonos if b.get("ticker")]
+    snap_map: dict[str, dict] = {}
+    for r in db["MarketSnapshot"].find(
+        {"ticker": {"$in": tickers_full}},
+        {"_id": 0, "ticker": 1, "metrics.last_price": 1, "metrics.TEA": 1,
+         "metrics.duration": 1, "metrics.paridad": 1},
+    ):
+        snap_map[r["ticker"]] = r.get("metrics") or {}
+
     out: list[dict] = []
     for bono in bonos:
         ticker_full = bono.get("ticker")
@@ -137,7 +149,8 @@ def sensibilidad_retorno_total(
         if not flujos:
             continue
 
-        precio_actual = _precio_actual_usd(db, ticker_full)
+        _lp = snap_map.get(ticker_full, {}).get("last_price")
+        precio_actual = float(_lp) if _lp else None
         if precio_actual is None or precio_actual <= 0:
             continue
 
@@ -152,14 +165,9 @@ def sensibilidad_retorno_total(
             # Bono que vence antes del horizonte → no hay precio proyectado.
             continue
 
-        # TEA / duration / paridad del MarketSnapshot (escritos por motor_curvas).
-        # Se necesita ANTES del cálculo de escenarios porque el modo relativo
-        # los aplica como shock sobre tea_actual.
-        snap = db["MarketSnapshot"].find_one(
-            {"ticker": ticker_full},
-            {"_id": 0, "metrics.TEA": 1, "metrics.duration": 1, "metrics.paridad": 1},
-        )
-        ms = (snap or {}).get("metrics") or {}
+        # TEA / duration / paridad del MarketSnapshot (escritos por motor_curvas),
+        # ya pre-cargados en snap_map (sin query por bono).
+        ms = snap_map.get(ticker_full, {})
         tea_actual = ms.get("TEA")
 
         # Construir las TIRs reales según el modo.

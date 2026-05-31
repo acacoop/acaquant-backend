@@ -22,10 +22,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
+from api.ratelimit import limiter
 from api.services._grupos_scope import scope_cuentas, verificar_account
 from api.services.ordenes import (
     cancel_order,
@@ -58,7 +59,9 @@ class OrdenIn(BaseModel):
 
 
 @router.post("", status_code=201)
+@limiter.limit("30/minute;400/hour")
 def enviar(
+    request: Request,
     data: OrdenIn,
     email: str = Depends(get_user_email),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
@@ -90,7 +93,9 @@ def enviar(
 
 
 @router.delete("/{cl_ord_id}")
+@limiter.limit("60/minute;600/hour")
 def cancelar(
+    request: Request,
     cl_ord_id: str,
     proprietary: str | None = Query(
         None,

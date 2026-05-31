@@ -49,6 +49,49 @@ def _is_safe_external_url(url: str) -> tuple[bool, str]:
         return False, f"IP bloqueada por policy (privada/loopback/link-local): {resolved}"
     return True, ""
 
+
+def _fetch_html_safe(url: str, max_redirects: int = 4) -> tuple[str | None, str]:
+    """GET siguiendo redirects A MANO, re-validando CADA hop con
+    `_is_safe_external_url`. El guard inicial no alcanza: un `302 →
+    http://169.254.169.254/...` saltearía la validación si dejáramos que el
+    cliente HTTP siga el redirect solo (SSRF). Devuelve (html | None, reason).
+    """
+    import urllib.error
+    import urllib.request
+    from urllib.parse import urljoin
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        # Devolver None → urllib NO sigue el redirect y levanta HTTPError,
+        # que capturamos abajo para re-validar el destino a mano.
+        def redirect_request(self, *args, **kwargs):
+            return None
+
+    opener = urllib.request.build_opener(_NoRedirect)
+    current = url
+    for _ in range(max_redirects + 1):
+        safe, reason = _is_safe_external_url(current)
+        if not safe:
+            return None, reason
+        req = urllib.request.Request(
+            current, headers={"User-Agent": "Mozilla/5.0 (compatible; acaquant-reader)"}
+        )
+        try:
+            resp = opener.open(req, timeout=10)
+        except urllib.error.HTTPError as e:
+            if e.code in (301, 302, 303, 307, 308):
+                loc = e.headers.get("Location")
+                if not loc:
+                    return None, "redirect sin Location"
+                current = urljoin(current, loc)
+                continue
+            return None, f"HTTP {e.code}"
+        except Exception as e:  # cualquier error de red = no leer
+            return None, f"fetch error: {e}"
+        raw = resp.read(8_000_000)  # cota 8MB
+        charset = resp.headers.get_content_charset() or "utf-8"
+        return raw.decode(charset, "replace"), ""
+    return None, "demasiados redirects"
+
 # Cache simple en memoria para articles extraídos (1 hora TTL).
 _ARTICLE_CACHE: dict[str, tuple[float, dict]] = {}
 _ARTICLE_CACHE_TTL = 3600.0
@@ -163,9 +206,13 @@ def article(
         ) from e
 
     try:
-        downloaded = trafilatura.fetch_url(url, no_ssl=False)
+        # Fetch propio con re-validación de cada redirect (anti-SSRF). NO usamos
+        # trafilatura.fetch_url porque sigue redirects sin re-chequear el destino.
+        downloaded, fetch_reason = _fetch_html_safe(url)
         if not downloaded:
-            return {"ok": False, "error": "no pude descargar la URL"}
+            if "bloqueada" in fetch_reason or "IP inválida" in fetch_reason:
+                logger.warning("SSRF block (redirect/fetch): url=%s reason=%s", url[:100], fetch_reason)
+            return {"ok": False, "error": f"no pude descargar la URL ({fetch_reason})"}
         data = trafilatura.extract(
             downloaded,
             output_format="json",

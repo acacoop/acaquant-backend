@@ -20,7 +20,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from api.auth import require_module
+from api.auth import require_any_module, require_module
 from api.deps import verify_api_key
 from api.profiling import maybe_add_profiler
 from api.ratelimit import limiter
@@ -237,10 +237,19 @@ app.include_router(risk.router,              dependencies=_OPERAR)
 app.include_router(operaciones.router,       dependencies=_OPERACIONES)
 app.include_router(cuentas.router,           dependencies=_OPERACIONES)
 app.include_router(chat.router,              dependencies=_ASISTENTE)
-# manager.router: gate por sub-router (ver api/routers/manager/__init__.py).
-# Acá solo bearer base — sin require_module global para no excluir a
-# `asistente_comercial` de las tabs Comercial y Clientes.
-app.include_router(manager.router,           dependencies=_PUBLIC)
+# manager.router: gate FINO por sub-router (ver api/routers/manager/__init__.py).
+# Acá ponemos una base FAIL-CLOSED: exige al menos UN módulo manager. Así un
+# sub-router nuevo que se agregue sin su dependency NO queda abierto a cualquier
+# autenticado (antes el default era _PUBLIC = abierto). admin (manager) y
+# asistente_comercial (manager_comercial/clientes) pasan la base; el gate fino
+# de cada sub-router sigue restringiendo lo suyo.
+_MANAGER_BASE = [
+    Depends(verify_api_key),
+    Depends(require_any_module(
+        ("manager", "manager_comercial", "manager_clientes", "manager_clientes_bulk")
+    )),
+]
+app.include_router(manager.router,           dependencies=_MANAGER_BASE)
 # manager_resources (system monitoring): admin-only, mantiene gate `manager`.
 app.include_router(manager_resources.router, dependencies=_MANAGER)
 

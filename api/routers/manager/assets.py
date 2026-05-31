@@ -115,22 +115,35 @@ def get_assets_gaps() -> dict:
 
 @router.get("/assets/values")
 def get_assets_values() -> dict:
-    """Valores únicos de CARTERA y EMISOR para autocomplete del input
-    en el form. Filtra cadenas vacías y "NO APLICA" — no tiene sentido
-    sugerir un valor que es lo que el usuario está intentando reemplazar.
+    """Valores únicos por campo UPPERCASE editable para los inputs del form.
+    Filtra cadenas vacías y "NO APLICA" — no tiene sentido sugerir un valor
+    que es lo que el usuario está intentando reemplazar.
+
+    El frontend usa `values[CARTERA]` y `values[CLASE_ACTIVO]` como dropdown
+    cerrado (no se ingresan valores nuevos) y el resto como datalist editable.
 
     Returns:
-        {carteras: [<sorted unique strings>], emisores: [<...>]}
+        {
+          values: {CARTERA: [...], EMISOR: [...], INSTRUMENTO: [...], ...},
+          carteras: [...], emisores: [...],   # alias compat de los filtros
+        }
     """
     col = get_mongo_client_read()["Valuaciones"]["Assets"]
     placeholders = {"", "NO APLICA"}
 
-    raw_cart = col.distinct("CARTERA")
-    raw_emi = col.distinct("EMISOR")
+    values: dict[str, list[str]] = {}
+    for campo in _EDITABLE_FIELDS:
+        raw = col.distinct(campo)
+        values[campo] = sorted(
+            {v for v in raw if isinstance(v, str) and v and v not in placeholders}
+        )
 
-    carteras = sorted({c for c in raw_cart if c and c not in placeholders})
-    emisores = sorted({e for e in raw_emi if e and e not in placeholders})
-    return {"carteras": carteras, "emisores": emisores}
+    return {
+        "values": values,
+        # Alias compat — los selects de filtro de arriba los consumen directo.
+        "carteras": values.get("CARTERA", []),
+        "emisores": values.get("EMISOR", []),
+    }
 
 
 class _AssetPatch(BaseModel):

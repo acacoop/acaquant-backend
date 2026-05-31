@@ -31,7 +31,7 @@ _ACTOR = "backfill_vencimiento_placeholder"
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--apply", action="store_true", help="Escribe (default: dry-run)")
-    ap.add_argument("--cartera", default="RENTA VARIABLE",
+    ap.add_argument("--cartera", default="CARTERA RENTA VARIABLE",
                     help="CARTERA a la que sumar '-' en VENCIMIENTO vacío")
     args = ap.parse_args()
 

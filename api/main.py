@@ -195,6 +195,7 @@ if maybe_add_profiler(app):
 # en Manager.RoleMatrix.
 _PUBLIC       = [Depends(verify_api_key)]
 _PORTFOLIOS   = [Depends(verify_api_key), Depends(require_module("portfolios"))]
+_BACK_OFFICE  = [Depends(verify_api_key), Depends(require_module("back-office"))]
 _OPERAR       = [Depends(verify_api_key), Depends(require_module("operar"))]
 _OPERACIONES  = [Depends(verify_api_key), Depends(require_module("operaciones"))]
 _ASISTENTE    = [Depends(verify_api_key), Depends(require_module("asistente"))]
@@ -215,7 +216,7 @@ app.include_router(market.router,            dependencies=_PUBLIC)
 # tiene su propio gate inline trader+admin.
 app.include_router(derivados_agro.router,    dependencies=_PUBLIC)
 app.include_router(derivados_sinteticos.router, dependencies=_PUBLIC)
-app.include_router(back_office.router,        dependencies=_PUBLIC)
+app.include_router(back_office.router,        dependencies=_BACK_OFFICE)
 app.include_router(scanner.router,            dependencies=_PUBLIC)
 
 # Restringidos a roles con el módulo respectivo:

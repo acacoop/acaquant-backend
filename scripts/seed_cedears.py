@@ -248,6 +248,7 @@ CEDEARS = [
     _cedear("IVW",   "ETF",                 "S&P 500 Growth",     "US", "USA"),
     _cedear("FXI",   "ETF",                 "China Large-Cap",    "ASIA","China"),
     _cedear("ILF",   "ETF",                 "LATAM 40",           "LATAM","USA"),
+    _cedear("EWZ",   "ETF",                 "Brasil Large-Cap",   "LATAM","Brasil"),
     _cedear("GLD",   "ETF",                 "Oro",                "US", "USA"),
     _cedear("USO",   "ETF",                 "Petróleo",           "US", "USA"),
     _cedear("PSQ",   "ETF",                 "Nasdaq Inverso",     "US", "USA"),

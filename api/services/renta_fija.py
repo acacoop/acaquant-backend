@@ -133,14 +133,18 @@ def get_renta_fija(instrumento: str | None = None) -> list:
         from api.services.macro import get_ultimo_mep  # lazy: evita ciclo
         mep_doc = get_ultimo_mep()
         mep = mep_doc.get("mep") if mep_doc else None
-        if mep:
-            for d in docs:
-                fv = flujo_por_ticker.get(d.get("instrumento") or "")
-                if fv is None:
-                    continue
-                m = d.setdefault("metrics", {})
-                last = m.get("last_price")
-                m["tc_breakeven"] = _tc_breakeven(last, fv, mep)
+        for d in docs:
+            fv = flujo_por_ticker.get(d.get("instrumento") or "")
+            if fv is None:
+                continue
+            m = d.setdefault("metrics", {})
+            # Pago final = bullet al vto por 100 VN. Lo consume la columna
+            # "Pago Final" de tasa fija en el front. Se expone siempre que el
+            # bono sea tasa fija (nativa o CER fijado); el TC BE además
+            # necesita MEP, por eso queda condicionado a que haya MEP.
+            m["flujo_vencimiento"] = fv
+            if mep:
+                m["tc_breakeven"] = _tc_breakeven(m.get("last_price"), fv, mep)
 
     return docs
 

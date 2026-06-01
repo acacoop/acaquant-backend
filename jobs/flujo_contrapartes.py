@@ -1,6 +1,6 @@
 import os
 import sys
-from datetime import date
+from datetime import date, timedelta
 
 import requests
 from pymongo import InsertOne, UpdateOne
@@ -21,6 +21,12 @@ TIPOS_EXCLUIR = {
 
 CAMPOS = {"boleto", "concertacion", "tipoOperacion", "cuenta", "denominacion",
           "instrumento", "condiciones", "bruto", "segmento", "contraparte"}
+
+# Ventana de re-chequeo: en vez de SOLO HOY, re-trae los últimos N días. Así, si
+# se agrega/cambia una contraparte y se "olvida" un día, el job se pone al día
+# solo en el próximo run (cubre fin de semana largo). El re-fetch es idempotente:
+# borra esos días y re-inserta.
+N_DIAS_LOOKBACK = 7
 
 
 def autenticar():
@@ -58,8 +64,16 @@ def normalizar_cuenta(cuenta_str):
 
 
 def main():
-    hoy = date.today().strftime("%d/%m/%Y")
-    print(f"Fecha: {hoy}\n")
+    hoy_d = date.today()
+    desde_d = hoy_d - timedelta(days=N_DIAS_LOOKBACK)
+    hoy = hoy_d.strftime("%d/%m/%Y")
+    desde = desde_d.strftime("%d/%m/%Y")
+    # Strings DD/MM/YYYY de cada día del rango — para el delete idempotente.
+    fechas_rango = [
+        (desde_d + timedelta(days=i)).strftime("%d/%m/%Y")
+        for i in range(N_DIAS_LOOKBACK + 1)
+    ]
+    print(f"Rango: {desde} → {hoy}  ({N_DIAS_LOOKBACK + 1} días)\n")
 
     client = get_mongo_client()
     col_contrapartes = client["CashFlow"]["Contrapartes"]
@@ -90,7 +104,7 @@ def main():
 
         params = {
             "cuenta":         cuenta_id,
-            "fechaConcDesde": hoy,
+            "fechaConcDesde": desde,
             "fechaConcHasta": hoy,
         }
 
@@ -140,8 +154,8 @@ def main():
     # El delete se hace AQUÍ (después del fetch exitoso) para evitar pérdida de datos
     # si el fetch de Aunesa falla: si no hay registros, los docs existentes se preservan.
     if registros:
-        del_result = col_flujo.delete_many({"concertacion": hoy})
-        print(f"🗑️  {del_result.deleted_count} docs de hoy eliminados")
+        del_result = col_flujo.delete_many({"concertacion": {"$in": fechas_rango}})
+        print(f"🗑️  {del_result.deleted_count} docs de los últimos {N_DIAS_LOOKBACK + 1} días eliminados")
         ops = []
         for r in registros.values():
             boleto = r.get("boleto")

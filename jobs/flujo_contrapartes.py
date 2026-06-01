@@ -63,17 +63,17 @@ def normalizar_cuenta(cuenta_str):
         return None
 
 
-def main():
+def main(dias: int = N_DIAS_LOOKBACK):
     hoy_d = date.today()
-    desde_d = hoy_d - timedelta(days=N_DIAS_LOOKBACK)
+    desde_d = hoy_d - timedelta(days=dias)
     hoy = hoy_d.strftime("%d/%m/%Y")
     desde = desde_d.strftime("%d/%m/%Y")
     # Strings DD/MM/YYYY de cada día del rango — para el delete idempotente.
     fechas_rango = [
         (desde_d + timedelta(days=i)).strftime("%d/%m/%Y")
-        for i in range(N_DIAS_LOOKBACK + 1)
+        for i in range(dias + 1)
     ]
-    print(f"Rango: {desde} → {hoy}  ({N_DIAS_LOOKBACK + 1} días)\n")
+    print(f"Rango: {desde} → {hoy}  ({dias + 1} días)\n")
 
     client = get_mongo_client()
     col_contrapartes = client["CashFlow"]["Contrapartes"]
@@ -155,7 +155,7 @@ def main():
     # si el fetch de Aunesa falla: si no hay registros, los docs existentes se preservan.
     if registros:
         del_result = col_flujo.delete_many({"concertacion": {"$in": fechas_rango}})
-        print(f"🗑️  {del_result.deleted_count} docs de los últimos {N_DIAS_LOOKBACK + 1} días eliminados")
+        print(f"🗑️  {del_result.deleted_count} docs de los últimos {len(fechas_rango)} días eliminados")
         ops = []
         for r in registros.values():
             boleto = r.get("boleto")
@@ -171,4 +171,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--dias", type=int, default=N_DIAS_LOOKBACK,
+        help=f"días hacia atrás a re-chequear (default {N_DIAS_LOOKBACK}; usá --dias 60 para backfill de 2 meses)",
+    )
+    main(dias=ap.parse_args().dias)

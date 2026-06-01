@@ -9,12 +9,12 @@ Filtros soportados:
   - accionistas      → cuenta IN Cuentas.AccionistasAPI
   - sin_accionistas  → cuenta NOT IN AccionistasAPI
   - cooperativas     → NOT IN AccionistasAPI AND nombre con "coop"
-  - productores      → cuenta IN CashFlow.Productores
+  - productores      → cuenta cuyo nivel_1 (Clientes.Comitentes) == PRODUCTORES
 """
 from __future__ import annotations
 
 from api.cache import cached
-from api.db import get_db_cashflow
+from api.db import get_db_clientes
 from api.deps import get_db_cuentas
 
 _COOP_REGEX = r"\bcoop"
@@ -37,13 +37,17 @@ def _cuentas_accionistas() -> list[str]:
 
 @cached(ttl=600)
 def _cuentas_productores() -> list[str]:
-    """Lista de strings `cuenta` desde CashFlow.Productores. La colección la
-    edita manualmente el equipo (productor → accionista). Acá sólo usamos
-    `cuenta` para el filtro; el campo `accionista` es para reportes."""
-    db = get_db_cashflow()
+    """Cuentas cuya segmentación `nivel_1` es PRODUCTORES (Clientes.Comitentes).
+
+    Antes la fuente era CashFlow.Productores (lista a mano); ahora un productor
+    es un comitente con `nivel_1 == 'PRODUCTORES'`. Los valores de nivel se
+    guardan en MAYÚSCULAS (ver segmentacion.py), por eso el match es exacto."""
+    db = get_db_clientes()
     return [
         d["cuenta"]
-        for d in db["Productores"].find({}, {"_id": 0, "cuenta": 1})
+        for d in db["Comitentes"].find(
+            {"nivel_1": "PRODUCTORES"}, {"_id": 0, "cuenta": 1}
+        )
         if d.get("cuenta")
     ]
 

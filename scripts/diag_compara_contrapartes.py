@@ -82,7 +82,7 @@ def main() -> None:
     rows.sort(key=lambda r: -r[3])
 
     print("=" * 96)
-    print(f"COMPARA Contrapartes — VIEJA (MesaAPI) vs NUEVA (NegocioMovimientos por id_cuenta)")
+    print("COMPARA Contrapartes — VIEJA (MesaAPI) vs NUEVA (NegocioMovimientos por id_cuenta)")
     print(f"{len(rows)} contrapartes con cuenta asignada")
     print("=" * 96)
     print(f"{'CONTRAPARTE':<26} {'IDs (fondos)':<22} {'VIEJA':>8} {'NUEVA':>8}  {'Δ':>8}")
@@ -109,7 +109,7 @@ def main() -> None:
         print("\n" + "=" * 96)
         print("DESGLOSE por categoría del feed NUEVO (qué trae de más la vista nueva)")
         print("=" * 96)
-        for cp, ids, old_n, new_n in rows:
+        for cp, _ids, _old_n, new_n in rows:
             if new_n == 0:
                 continue
             cats = ", ".join(f"{k}={v}" for k, v in cat_by_cp[cp].most_common())

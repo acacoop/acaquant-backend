@@ -9,7 +9,7 @@ Filtros soportados:
   - accionistas      → cuenta IN Cuentas.AccionistasAPI
   - sin_accionistas  → cuenta NOT IN AccionistasAPI
   - cooperativas     → NOT IN AccionistasAPI AND nombre con "coop"
-  - productores      → cuenta cuyo nivel_1 (Clientes.Comitentes) == PRODUCTORES
+  - productores      → id_cuenta de Comitentes con nivel_1 == PRODUCTORES
 """
 from __future__ import annotations
 
@@ -36,19 +36,21 @@ def _cuentas_accionistas() -> list[str]:
 
 
 @cached(ttl=600)
-def _cuentas_productores() -> list[str]:
-    """Cuentas cuya segmentación `nivel_1` es PRODUCTORES (Clientes.Comitentes).
+def _ids_cuenta_productores() -> list[str]:
+    """`id_cuenta` de los comitentes con nivel_1 == PRODUCTORES (Clientes.Comitentes).
 
-    Antes la fuente era CashFlow.Productores (lista a mano); ahora un productor
-    es un comitente con `nivel_1 == 'PRODUCTORES'`. Los valores de nivel se
-    guardan en MAYÚSCULAS (ver segmentacion.py), por eso el match es exacto."""
+    Un productor es un comitente cuya segmentación nivel_1 es 'PRODUCTORES' (los
+    niveles se guardan en MAYÚSCULAS, ver segmentacion.py). El match contra los
+    movimientos / AuM va por `id_cuenta`, NO por el string `cuenta`
+    ('[534] EGUREN, NE'): ese formato vive en los movs, pero Comitentes relaciona
+    por id_cuenta — igual que todo el tablero comercial."""
     db = get_db_clientes()
     return [
-        d["cuenta"]
+        str(d["id_cuenta"])
         for d in db["Comitentes"].find(
-            {"nivel_1": "PRODUCTORES"}, {"_id": 0, "cuenta": 1}
+            {"nivel_1": "PRODUCTORES"}, {"_id": 0, "id_cuenta": 1}
         )
-        if d.get("cuenta")
+        if d.get("id_cuenta") is not None
     ]
 
 
@@ -58,8 +60,9 @@ def match_cuenta_filter(filtro: str) -> dict:
     if filtro == "todas" or not filtro:
         return {}
     if filtro == "productores":
-        prods = _cuentas_productores()
-        return {"cuenta": {"$in": prods}}
+        # Único filtro que matchea por `id_cuenta` (la relación de Comitentes);
+        # el resto va por el string `cuenta`.
+        return {"id_cuenta": {"$in": _ids_cuenta_productores()}}
     accs = _cuentas_accionistas()
     if filtro == "accionistas":
         return {"cuenta": {"$in": accs}}

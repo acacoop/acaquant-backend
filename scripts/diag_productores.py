@@ -1,11 +1,14 @@
-"""diag_productores.py — lista el contenido de CashFlow.Productores.
+"""diag_productores.py — lista los PRODUCTORES (Clientes.Comitentes.nivel_1).
 
 Read-only. El filtro "Solo productores" de la vista Negocio → Movimientos
-(api/services/_cuentas_filter.py::_cuentas_productores) toma las cuentas que
-están en esta colección. La colección se mantiene A MANO — NO la escribe
-ningún código del repo (ni job ni endpoint). Este diag muestra QUIÉNES son:
-por cada cuenta, el `accionista` asociado + el nombre del titular
-(`denominacion`), operador y `nivel_1` cruzados desde Clientes.Comitentes.
+(api/services/_cuentas_filter.py::_ids_cuenta_productores) toma los comitentes
+cuya segmentación `nivel_1` es 'PRODUCTORES' y los cruza con los movimientos /
+AuM por `id_cuenta` (NO por el string `cuenta` '[534] EGUREN, NE', que solo vive
+en los movs). Este diag muestra QUIÉNES son: id_cuenta, titular (`denominacion`),
+operador y nivel_2.
+
+(Antes la fuente era la colección CashFlow.Productores, mantenida a mano; se
+migró a la segmentación nivel_1 == PRODUCTORES de Comitentes.)
 
 Uso (desde la raíz del repo en el Droplet):
     venv/bin/python -m scripts.diag_productores
@@ -17,54 +20,42 @@ from core.mongo import get_mongo_client_read
 
 def main() -> None:
     client = get_mongo_client_read()
-    productores = list(client["CashFlow"]["Productores"].find({}, {"_id": 0}))
+    comit = client["Clientes"]["Comitentes"]
+    prods = list(
+        comit.find(
+            {"nivel_1": "PRODUCTORES"},
+            {"_id": 0, "id_cuenta": 1, "denominacion": 1,
+             "operador_nombre": 1, "nivel_2": 1},
+        )
+    )
 
-    print("=" * 110)
-    print(f"CashFlow.Productores — {len(productores)} cuenta(s) en la lista")
-    print("Esta colección se mantiene A MANO; es la que usa el filtro 'Solo productores'.")
-    print("=" * 110)
+    print("=" * 100)
+    print(f"PRODUCTORES (Comitentes.nivel_1 == 'PRODUCTORES') — {len(prods)} cuenta(s)")
+    print("Fuente del filtro 'Solo productores'. La relación con los movimientos es por id_cuenta.")
+    print("=" * 100)
 
-    if not productores:
-        print("VACÍA — no hay ninguna cuenta cargada como productor.")
+    if not prods:
+        print("NINGUNA — no hay comitentes con nivel_1 = 'PRODUCTORES'.")
+        print("(Chequeá el casing: los niveles se guardan en MAYÚSCULAS.)")
+        valores = comit.distinct("nivel_1")
+        print(f"Valores de nivel_1 presentes: {sorted(str(v) for v in valores if v)}")
         return
 
-    # Cruce con Comitentes por `cuenta` para traer nombre / operador / segmento.
-    comit = client["Clientes"]["Comitentes"]
-    cuentas = [str(p.get("cuenta")) for p in productores if p.get("cuenta")]
-    info: dict[str, dict] = {}
-    for d in comit.find(
-        {"cuenta": {"$in": cuentas}},
-        {"_id": 0, "cuenta": 1, "denominacion": 1, "operador_nombre": 1, "nivel_1": 1},
-    ):
-        info[str(d.get("cuenta"))] = d
+    print(f"\n{'ID_CUENTA':<12} {'TITULAR (denominación)':<45} {'OPERADOR':<20} NIVEL_2")
+    print("-" * 100)
+    sin_id = 0
+    for p in sorted(prods, key=lambda x: str(x.get("denominacion") or "")):
+        idc = p.get("id_cuenta")
+        if idc is None:
+            sin_id += 1
+        idc_s = str(idc) if idc is not None else "—"
+        titular = str(p.get("denominacion") or "—")
+        operador = str(p.get("operador_nombre") or "—")
+        nivel2 = str(p.get("nivel_2") or "—")
+        print(f"{idc_s:<12} {titular[:44]:<45} {operador[:19]:<20} {nivel2}")
 
-    print(
-        f"\n{'CUENTA':<12} {'TITULAR (denominación)':<40} "
-        f"{'ACCIONISTA':<20} {'OPERADOR':<18} NIVEL_1"
-    )
-    print("-" * 110)
-    for p in sorted(productores, key=lambda x: str(x.get("cuenta") or "")):
-        cuenta = str(p.get("cuenta") or "—")
-        accionista = str(p.get("accionista") or "—")
-        c = info.get(cuenta, {})
-        titular = str(c.get("denominacion") or "(no está en Comitentes)")
-        operador = str(c.get("operador_nombre") or "—")
-        nivel1 = str(c.get("nivel_1") or "—")
-        print(
-            f"{cuenta:<12} {titular[:39]:<40} {accionista[:19]:<20} "
-            f"{operador[:17]:<18} {nivel1}"
-        )
-
-    sin_match = sum(
-        1 for p in productores if str(p.get("cuenta") or "") not in info
-    )
-    print("-" * 110)
-    print(
-        f"Total: {len(productores)} · con datos en Comitentes: "
-        f"{len(productores) - sin_match} · sin match: {sin_match}"
-    )
-    campos = sorted({k for p in productores for k in p.keys()})
-    print(f"Campos presentes en los docs de Productores: {', '.join(campos)}")
+    print("-" * 100)
+    print(f"Total: {len(prods)} · sin `id_cuenta` (no entran al filtro): {sin_id}")
 
 
 if __name__ == "__main__":

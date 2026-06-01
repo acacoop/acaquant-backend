@@ -275,13 +275,30 @@ _NEGOCIO_UI_CAT_MAP: dict[str, list[str]] = {
 }
 
 
-def _abs_si_categoria(target: str) -> dict:
-    """Helper para el pipeline: $abs(importe) si categoria == target, sino 0."""
+def _importe_convertido(moneda: str) -> dict:
+    """|importe| convertido a la moneda destino con el `mep` snapshot de CADA
+    boleto (conversión histórica exacta — NO al MEP de hoy). Misma moneda →
+    directo; ARS→USD → /mep; USD→ARS → ×mep. Si a un boleto de otra moneda le
+    falta `mep`, aporta 0 (no se puede convertir sin su mep del día)."""
+    abs_imp = {"$abs": {"$ifNull": ["$importe", 0]}}
+    mep = {"$ifNull": ["$mep", 0]}
+    if (moneda or "ARS").upper() == "USD":
+        return {"$cond": [
+            {"$eq": ["$moneda", "USD"]},
+            abs_imp,
+            {"$cond": [{"$gt": [mep, 0]}, {"$divide": [abs_imp, "$mep"]}, 0]},
+        ]}
     return {"$cond": [
-        {"$eq": ["$categoria", target]},
-        {"$abs": {"$ifNull": ["$importe", 0]}},
-        0,
+        {"$eq": ["$moneda", "ARS"]},
+        abs_imp,
+        {"$multiply": [abs_imp, mep]},
     ]}
+
+
+def _valor_si_categoria(target: str, conv: dict) -> dict:
+    """`conv` (importe ya convertido a la moneda destino) si categoria ==
+    target, sino 0. Para los $group por categoría de la serie / matrix."""
+    return {"$cond": [{"$eq": ["$categoria", target]}, conv, 0]}
 
 
 @router.get("/negocio/serie")
@@ -323,8 +340,10 @@ def negocio_serie(
         )
     try:
         coll = get_db_cashflow()["NegocioMovimientos"]
+        # NO filtra por moneda: entran ARS y USD, y cada boleto se convierte a
+        # la moneda destino con su propio mep (ver _importe_convertido). Así el
+        # "volumen operado" es el total dolarizado/pesificado, no solo una moneda.
         match_doc: dict = {
-            "moneda": moneda,
             "categoria": {"$in": list(_NEGOCIO_SERIE_BOLETO_CATS)},
             # Futuros DLR (unidad="USDL"): no entran al gráfico de NEGOCIO.
             **match_no_futuros(),
@@ -336,16 +355,17 @@ def negocio_serie(
         else:
             match_doc.update(_match_cuenta_filter(cuenta_filter))
         aplicar_scope_cuenta(match_doc, scope)
+        conv = _importe_convertido(moneda)
         pipeline = [
             {"$match": match_doc},
             {"$group": {
                 "_id":         "$fecha",
-                "compra":      {"$sum": _abs_si_categoria("compra")},
-                "venta":       {"$sum": _abs_si_categoria("venta")},
-                "_susc":       {"$sum": _abs_si_categoria("suscripcion_fci")},
-                "_sol_susc":   {"$sum": _abs_si_categoria("solicitud_suscripcion_fci")},
-                "cauc_tom":    {"$sum": _abs_si_categoria("caucion_tom_ap")},
-                "cauc_col":    {"$sum": _abs_si_categoria("caucion_col_ap")},
+                "compra":      {"$sum": _valor_si_categoria("compra", conv)},
+                "venta":       {"$sum": _valor_si_categoria("venta", conv)},
+                "_susc":       {"$sum": _valor_si_categoria("suscripcion_fci", conv)},
+                "_sol_susc":   {"$sum": _valor_si_categoria("solicitud_suscripcion_fci", conv)},
+                "cauc_tom":    {"$sum": _valor_si_categoria("caucion_tom_ap", conv)},
+                "cauc_col":    {"$sum": _valor_si_categoria("caucion_col_ap", conv)},
             }},
             {"$sort": {"_id": 1}},
             {"$project": {
@@ -423,7 +443,6 @@ def negocio_cuentas(
         coll = get_db_cashflow()["NegocioMovimientos"]
         match_doc = {
             "fecha":     {"$gte": desde, "$lte": hasta},
-            "moneda":    moneda,
             "categoria": {"$in": boleto_cats},
             **match_no_futuros(),
         }
@@ -437,7 +456,7 @@ def negocio_cuentas(
             {"$match": match_doc},
             {"$group": {
                 "_id":         "$cuenta",
-                "importe_abs": {"$sum": {"$abs": {"$ifNull": ["$importe", 0]}}},
+                "importe_abs": {"$sum": _importe_convertido(moneda)},
                 "n":           {"$sum": 1},
             }},
             {"$sort": {"importe_abs": -1}},
@@ -506,7 +525,6 @@ def negocio_cuentas_matrix(
         coll = get_db_cashflow()["NegocioMovimientos"]
         match_doc = {
             "fecha":     {"$gte": desde, "$lte": hasta},
-            "moneda":    moneda,
             "categoria": {"$in": list(_NEGOCIO_SERIE_BOLETO_CATS)},
             **match_no_futuros(),
         }
@@ -516,16 +534,17 @@ def negocio_cuentas_matrix(
         else:
             match_doc.update(_match_cuenta_filter(cuenta_filter))
         aplicar_scope_cuenta(match_doc, scope)
+        conv = _importe_convertido(moneda)
         pipeline = [
             {"$match": match_doc},
             {"$group": {
                 "_id":        "$cuenta",
-                "compra":     {"$sum": _abs_si_categoria("compra")},
-                "venta":      {"$sum": _abs_si_categoria("venta")},
-                "_susc":      {"$sum": _abs_si_categoria("suscripcion_fci")},
-                "_sol_susc":  {"$sum": _abs_si_categoria("solicitud_suscripcion_fci")},
-                "cauc_tom":   {"$sum": _abs_si_categoria("caucion_tom_ap")},
-                "cauc_col":   {"$sum": _abs_si_categoria("caucion_col_ap")},
+                "compra":     {"$sum": _valor_si_categoria("compra", conv)},
+                "venta":      {"$sum": _valor_si_categoria("venta", conv)},
+                "_susc":      {"$sum": _valor_si_categoria("suscripcion_fci", conv)},
+                "_sol_susc":  {"$sum": _valor_si_categoria("solicitud_suscripcion_fci", conv)},
+                "cauc_tom":   {"$sum": _valor_si_categoria("caucion_tom_ap", conv)},
+                "cauc_col":   {"$sum": _valor_si_categoria("caucion_col_ap", conv)},
                 "n":          {"$sum": 1},
             }},
             {"$project": {
@@ -607,10 +626,11 @@ def negocio_boletos(
 
     try:
         coll = get_db_cashflow()["NegocioMovimientos"]
+        # NO filtra por moneda: trae ARS y USD, y cada boleto se convierte abajo
+        # a la moneda destino con su propio mep (consistente con los totales).
         match_doc: dict = {
             "fecha":  fecha,
             "cuenta": cuenta,
-            "moneda": moneda,
             **match_no_futuros(),
         }
         if boleto_cats is not None:
@@ -624,12 +644,27 @@ def negocio_boletos(
             "cantidad":    1,
             "precio":      1,
             "importe":     1,
+            "moneda":      1,
+            "mep":         1,
             "plazo":       1,
             "lugar":       1,
             "estado":      1,
             "informacion": 1,
         }
         boletos = list(coll.find(match_doc, proj).sort("comprobante", 1))
+        # Convertir cada importe a la moneda destino con el mep histórico del
+        # boleto (mantiene el signo). `moneda` queda como la moneda ORIGINAL del
+        # boleto. Si falta mep en un cross-moneda, importe → None (sin convertir).
+        tgt_usd = moneda.upper() == "USD"
+        for b in boletos:
+            imp = b.get("importe")
+            mep = b.get("mep") or 0
+            if imp is not None and b.get("moneda") != moneda:
+                if tgt_usd:
+                    b["importe"] = (imp / mep) if mep else None
+                else:
+                    b["importe"] = imp * mep
+            b.pop("mep", None)
         return {
             "fecha":     fecha,
             "cuenta":    cuenta,

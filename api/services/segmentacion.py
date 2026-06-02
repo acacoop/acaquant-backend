@@ -17,6 +17,9 @@ Reglas (ver docs/SEGMENTACION_PATRIMONIAL.md):
   - `> 350.000 ≤ 700.000`   → `PJ MEDIANA`
   - `> 700.000`             → `PJ GRANDE`
 
+- **Excepción**: si el `id_cuenta` está en `CashFlow.Contrapartes` (FCI / sociedades
+  gerentes / etc.) → SIEMPRE `PJ GRANDE` (vía `es_contraparte`, no depende de cupo/UVA).
+
 Los labels llevan prefijo PH/PJ y van en MAYÚSCULAS — convención del
 sistema para todos los nivel_1..5 (evita duplicados por capitalización:
 "Productores" vs "PRODUCTORES"). Bulk y PATCH del manager también
@@ -57,8 +60,13 @@ def clasificar_nivel_3(
     *,
     mep: float | None,
     uva: float | None = None,
+    es_contraparte: bool = False,
 ) -> str | None:
     """Devuelve el label de segmento patrimonial para una cuenta, o None."""
+    # Contraparte (id ∈ CashFlow.Contrapartes — FCI / sociedades gerentes / etc.)
+    # → SIEMPRE PJ GRANDE, sin importar cupo/UVA. Va ANTES del check de cupo.
+    if es_contraparte:
+        return "PJ GRANDE"
     if not tipo_cliente or cupo_transaccional_ars is None or cupo_transaccional_ars <= 0:
         return None
 
@@ -84,3 +92,14 @@ def clasificar_nivel_3(
 
     # tipo_cliente desconocido (Aunesa agregó algo nuevo) → sin clasificar.
     return None
+
+
+def cargar_ids_contrapartes(db_cashflow) -> set[str]:
+    """Set de `id_cuenta` que son contrapartes (`CashFlow.Contrapartes.cuenta`) →
+    PJ GRANDE por regla de negocio. `db_cashflow` = handle de la DB CashFlow.
+    NO es puro (lee Mongo) — separado a propósito de `clasificar_nivel_3`."""
+    return {
+        str(c).strip()
+        for c in db_cashflow["Contrapartes"].distinct("cuenta")
+        if c not in (None, "")
+    }

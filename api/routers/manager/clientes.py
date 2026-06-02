@@ -368,7 +368,7 @@ def bulk_clientes_fondeo(req: _BulkFondeoReq, actor: str = Depends(get_user_emai
     n_reclasificadas = 0
     try:
         n_reclasificadas = _reclasificar_nivel_3(col, list(existentes), actor)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         # Si la clasificación falla (ej. sin MEP momentáneo), el cupo ya está
         # cargado igual — el cron diario / próxima carga lo arregla.
         import logging
@@ -397,9 +397,10 @@ def _reclasificar_nivel_3(col, ids_cuenta: list[str], actor: str) -> int:
     if not ids_cuenta:
         return 0
     from api.services.macro import get_ultimo_mep, get_ultimo_uva
-    from api.services.segmentacion import clasificar_nivel_3
+    from api.services.segmentacion import cargar_ids_contrapartes, clasificar_nivel_3
     mep = float(get_ultimo_mep().get("mep") or 0) or None
     uva = get_ultimo_uva()
+    contrapartes = cargar_ids_contrapartes(col.database.client["CashFlow"])
 
     cur = col.find(
         {"id_cuenta": {"$in": ids_cuenta}},
@@ -414,6 +415,7 @@ def _reclasificar_nivel_3(col, ids_cuenta: list[str], actor: str) -> int:
             float(cupo_ars) if cupo_ars is not None else None,
             mep=mep,
             uva=uva,
+            es_contraparte=str(r.get("id_cuenta") or "").strip() in contrapartes,
         )
         if nuevo != r.get("nivel_3"):
             ops.append(UpdateOne(

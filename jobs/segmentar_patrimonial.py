@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 
 from pymongo import UpdateOne
 
-from api.services.segmentacion import clasificar_nivel_3
+from api.services.segmentacion import cargar_ids_contrapartes, clasificar_nivel_3
 from core.mongo import get_mongo_client
 
 DB = "Clientes"
@@ -64,7 +64,10 @@ def main() -> None:
     if not uva:
         print("⚠ Sin UVA (Trading.UVA no ingestado todavía) → ninguna PJ se va a clasificar.")
 
-    col = get_mongo_client()[DB][COL]
+    client = get_mongo_client()
+    col = client[DB][COL]
+    contrapartes = cargar_ids_contrapartes(client["CashFlow"])
+    print(f"Contrapartes (→ PJ GRANDE): {len(contrapartes)} ids")
     q: dict = {"estado": "Activa"}
     if args.ids:
         ids = [s.strip() for s in args.ids.split(",") if s.strip()]
@@ -100,6 +103,7 @@ def main() -> None:
             float(cupo_ars) if cupo_ars is not None else None,
             mep=mep,
             uva=uva,
+            es_contraparte=idc in contrapartes,
         )
         nuevos[idc] = seg
         actuales[idc] = r.get("nivel_3")

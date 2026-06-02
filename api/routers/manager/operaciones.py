@@ -10,13 +10,14 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from api.db import get_db_cashflow
 from api.services import operaciones_informes as svc
+from core.mongo import get_mongo_client, get_mongo_client_read
 
 logger = logging.getLogger("api.manager.operaciones")
 
 router = APIRouter()
 
+_DB = "CashFlow"
 _COL = "Operaciones"
 
 
@@ -33,7 +34,8 @@ def operaciones_backfill(req: _BackfillReq):
     if not req.rows:
         raise HTTPException(status_code=400, detail="Lote vacío.")
     try:
-        coll = get_db_cashflow()[_COL]
+        # Cliente RW (PRIMARY): el read-only no puede escribir ni crear índices.
+        coll = get_mongo_client()[_DB][_COL]
         return svc.ingestar_filas(coll, req.rows, crear_indice=req.crear_indice)
     except Exception as e:
         logger.exception("operaciones_backfill failed")
@@ -44,7 +46,7 @@ def operaciones_backfill(req: _BackfillReq):
 def operaciones_stats():
     """Estado actual de CashFlow.Operaciones (para mostrar en la UI)."""
     try:
-        return svc.stats(get_db_cashflow()[_COL])
+        return svc.stats(get_mongo_client_read()[_DB][_COL])
     except Exception as e:
         logger.exception("operaciones_stats failed")
         raise HTTPException(status_code=500, detail=str(e)) from e

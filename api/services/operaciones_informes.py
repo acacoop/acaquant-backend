@@ -20,6 +20,7 @@ import unicodedata
 from datetime import UTC, datetime
 
 from pymongo import UpdateOne
+from pymongo.errors import BulkWriteError
 
 # Header (normalizado: lower, sin acentos, sin separadores) → campo canónico.
 # Cubre los nombres de la API informes y los del histórico (Excel en español).
@@ -186,12 +187,24 @@ def ingestar_filas(coll, rows: list[dict], crear_indice: bool = False) -> dict:
         for d in por_boleto.values()
     ]
 
-    res = coll.bulk_write(ops, ordered=False)
+    try:
+        res = coll.bulk_write(ops, ordered=False)
+        upserted, modified = res.upserted_count, res.modified_count
+    except BulkWriteError as bwe:
+        # ordered=False → las ops sin conflicto SÍ se aplican. Los errores de
+        # clave duplicada (11000) son inofensivos (el boleto ya está). Solo se
+        # re-lanza si hay errores que NO son duplicados. Nunca 500 por un dup.
+        det = bwe.details or {}
+        otros = [e for e in det.get("writeErrors", []) if e.get("code") != 11000]
+        if otros:
+            raise
+        upserted = det.get("nUpserted", 0)
+        modified = det.get("nModified", 0)
     return {
         "recibidas":   len(rows),
         "sin_boleto":  sin_boleto,
-        "upsertadas":  res.upserted_count,
-        "modificadas": res.modified_count,
+        "upsertadas":  upserted,
+        "modificadas": modified,
     }
 
 

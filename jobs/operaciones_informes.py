@@ -65,10 +65,9 @@ def _item_to_row(it: dict) -> dict:
 
 
 def _fetch_cuenta(cuenta: str, conc_desde: str, conc_hasta: str,
-                  liq_desde: str, liq_hasta: str) -> list[dict]:
-    """Informes de una cuenta → filas crudas. Filtra por concertación (lo que
-    importa); manda liquidación amplia porque el endpoint la exige. Silencioso
-    ante error/204."""
+                  liq_desde: str, liq_hasta: str) -> tuple[list[dict], bool]:
+    """Informes de una cuenta → (filas, ok). ok=False si hubo error/timeout
+    (para observabilidad: contamos cuántas cuentas fallaron). 204 = ok sin ops."""
     try:
         resp = aunesa.get(
             _INFORMES,
@@ -79,17 +78,19 @@ def _fetch_cuenta(cuenta: str, conc_desde: str, conc_hasta: str,
                 "fechaConcDesde": conc_desde,  # concertación (el filtro que nos interesa)
                 "fechaConcHasta": conc_hasta,
             },
-            timeout=60,
+            timeout=90,
         )
+        if resp.status_code == 204:
+            return [], True   # sin operaciones — OK
         if resp.status_code != 200:
-            return []
+            return [], False  # error de la API
         body = (resp.text or "").strip()
         data = resp.json() if body else []
         if not isinstance(data, list):
-            return []
-        return [_item_to_row(it) for it in data if isinstance(it, dict) and it.get("boleto")]
+            return [], False
+        return [_item_to_row(it) for it in data if isinstance(it, dict) and it.get("boleto")], True
     except Exception:
-        return []
+        return [], False  # timeout u otra falla
 
 
 def run(desde_d: date, hasta_d: date, workers: int) -> dict:
@@ -99,35 +100,45 @@ def run(desde_d: date, hasta_d: date, workers: int) -> dict:
         coll = db["Operaciones"]
         maps = svc.cargar_maps_enrich(db)
 
-        cuentas = sorted({
-            str(c).strip()
-            for c in client["Clientes"]["Comitentes"].distinct("id_cuenta")
-            if c not in (None, "")
-        })
+        # Fuente de cuentas: TODAS las que ya operan (en Operaciones) + comitentes.
+        # Comitentes solo NO alcanza: los FCI/sociedades gerentes y la cuenta
+        # propia de la empresa no son comitentes y se perdían.
+        cuentas_comit = {str(c).strip() for c in client["Clientes"]["Comitentes"].distinct("id_cuenta")
+                         if c not in (None, "")}
+        cuentas_ops = {str(c).strip() for c in coll.distinct("cuenta") if c not in (None, "")}
+        cuentas = sorted(cuentas_comit | cuentas_ops)
         # Ventana de concertación (lo que filtramos) + liquidación amplia (requerida).
         conc_desde, conc_hasta = _ddmmyyyy(desde_d), _ddmmyyyy(hasta_d)
         liq_desde = _ddmmyyyy(desde_d)
         liq_hasta = _ddmmyyyy(hasta_d + timedelta(days=_BUFFER_LIQ))
-        jr.log(f"Concertación {conc_desde}..{conc_hasta} | {len(cuentas)} cuentas | workers={workers}")
+        jr.log(f"Concertación {conc_desde}..{conc_hasta} | {len(cuentas)} cuentas "
+               f"({len(cuentas_ops)} de Operaciones + {len(cuentas_comit)} comitentes) | workers={workers}")
 
         rows: list[dict] = []
         con_ops = 0
+        fallidas: list[str] = []
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            futs = [ex.submit(_fetch_cuenta, c, conc_desde, conc_hasta, liq_desde, liq_hasta)
-                    for c in cuentas]
+            futs = {ex.submit(_fetch_cuenta, c, conc_desde, conc_hasta, liq_desde, liq_hasta): c
+                    for c in cuentas}
             for fut in as_completed(futs):
-                r = fut.result()
-                if r:
+                rows_c, ok = fut.result()
+                if not ok:
+                    fallidas.append(futs[fut])
+                if rows_c:
                     con_ops += 1
-                    rows.extend(r)
+                    rows.extend(rows_c)
 
         res = svc.ingestar_filas(coll, rows, enrich_maps=maps)
         jr.set_stat("cuentas", len(cuentas))
         jr.set_stat("cuentas_con_ops", con_ops)
+        jr.set_stat("cuentas_fallidas", len(fallidas))
         jr.set_stat("filas", len(rows))
         jr.set_stat("upsertadas", res["upsertadas"])
         jr.set_stat("modificadas", res["modificadas"])
-        jr.log(f"OK: {len(rows)} filas → {res['upsertadas']} nuevas / {res['modificadas']} act")
+        if fallidas:
+            jr.log(f"⚠ {len(fallidas)} cuentas fallaron (timeout/error). Ej: {fallidas[:15]}")
+        jr.log(f"OK: {len(rows)} filas → {res['upsertadas']} nuevas / {res['modificadas']} act "
+               f"· {con_ops} cuentas con ops · {len(fallidas)} fallidas")
         return res
 
 

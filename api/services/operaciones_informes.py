@@ -157,8 +157,46 @@ def ensure_indexes(coll) -> None:
     coll.create_index([("concertacion", -1)], name="concertacion")
 
 
-def ingestar_filas(coll, rows: list[dict], crear_indice: bool = False) -> dict:
+def cargar_maps_enrich(db) -> tuple[dict, dict]:
+    """Carga (catálogo tipo→{mercado,operacion}, id_cuenta→nivel_1) — para
+    enriquecer inline en la ingesta diaria sin scan completo de la colección."""
+    cat = {
+        d["tipo_operacion"]: d
+        for d in db["TiposOperacion"].find(
+            {}, {"_id": 0, "tipo_operacion": 1, "mercado": 1, "operacion": 1}
+        )
+        if d.get("tipo_operacion")
+    }
+    nivel1 = {
+        str(d.get("id_cuenta")).strip(): (d.get("nivel_1") or "")
+        for d in db.client["Clientes"]["Comitentes"].find(
+            {"id_cuenta": {"$exists": True, "$ne": ""}}, {"_id": 0, "id_cuenta": 1, "nivel_1": 1}
+        )
+        if d.get("id_cuenta") not in (None, "")
+    }
+    return cat, nivel1
+
+
+def _aplicar_enrich(doc: dict, maps: tuple[dict, dict] | None) -> None:
+    """Setea mercado/operacion/segmento en el doc (moneda ya viene del normalizador)."""
+    if not maps:
+        return
+    cat, nivel1 = maps
+    c = cat.get(doc.get("tipo_operacion") or "")
+    doc["mercado"] = (c or {}).get("mercado", "")
+    doc["operacion"] = (c or {}).get("operacion", "otro")
+    doc["segmento"] = nivel1.get(str(doc.get("cuenta") or "").strip(), "")
+
+
+def ingestar_filas(
+    coll, rows: list[dict], crear_indice: bool = False,
+    enrich_maps: tuple[dict, dict] | None = None,
+) -> dict:
     """Normaliza filas crudas y las upsertea por boleto (idempotente).
+
+    Si `enrich_maps` se pasa (catálogo, nivel1), enriquece inline
+    (mercado/operacion/segmento) — así la ingesta diaria no necesita el scan
+    completo de `enriquecer`.
 
     Devuelve un resumen: recibidas / sin_boleto / upsertadas / modificadas.
     """
@@ -176,6 +214,7 @@ def ingestar_filas(coll, rows: list[dict], crear_indice: bool = False) -> dict:
             sin_boleto += 1
             continue
         doc["ingestado_en"] = ahora
+        _aplicar_enrich(doc, enrich_maps)
         por_boleto[doc["boleto"]] = doc
 
     if not por_boleto:

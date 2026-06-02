@@ -87,6 +87,13 @@
 # (Aunesa /informes, ventana de 7 días para cubrir liquidación T+2 + retroactivos).
 0 15-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.negocio_movimientos >> /root/TradingAV/logs/negocio_movimientos.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.aranceles >> /root/TradingAV/logs/aranceles.log 2>&1
 
+# ─── Operaciones desde /informes (cada 30 min, 10:30-19:00 ART = 13:30-22:00 UTC L-V)
+# Fuente de verdad de operaciones (por CONCERTACIÓN). Consulta /informes por
+# cuenta (Clientes.Comitentes) en paralelo, upsertea por boleto en
+# CashFlow.Operaciones (idempotente) + enrich inline. Alimenta /ops (Operaciones ✦).
+30 13-21 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes >> /root/TradingAV/logs/operaciones_informes.log 2>&1
+0  14-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes >> /root/TradingAV/logs/operaciones_informes.log 2>&1
+
 # ─── Cache-warming vista COMERCIAL (cada 4 min en horario de mercado L-V)
 # Pega al uvicorn LOCAL (127.0.0.1:8000) para calentar la cache in-process de
 # la API (operador + serie por operador). TTL de la cache = 300s → */4 la

@@ -78,9 +78,11 @@ def listar_flujo(
         )
         if d.get("cuenta") not in (None, "")
     }
+    # Excluye Futuros/Opciones y las Caución COLOCADORA (apertura+cierre): vienen
+    # en pares y duplican/ensucian la vista. La caución tomadora se mantiene.
     match: dict = {
         "cuenta": {"$in": list(cp_map)},
-        "tipo_operacion": {"$not": {"$regex": "Futuros|Opciones", "$options": "i"}},
+        "tipo_operacion": {"$not": {"$regex": "Futuros|Opciones|colocadora", "$options": "i"}},
     }
     if moneda:
         match["moneda"] = moneda

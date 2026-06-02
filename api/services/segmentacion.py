@@ -17,8 +17,8 @@ Reglas (ver docs/SEGMENTACION_PATRIMONIAL.md):
   - `> 350.000 ≤ 700.000`   → `PJ MEDIANA`
   - `> 700.000`             → `PJ GRANDE`
 
-- **Excepción**: si el `id_cuenta` está en `CashFlow.Contrapartes` (FCI / sociedades
-  gerentes / etc.) → SIEMPRE `PJ GRANDE` (vía `es_contraparte`, no depende de cupo/UVA).
+- **Excepción**: `tipo_cliente == "Fondo Común de Inversión"` (señal fresca de Aunesa)
+  o `id_cuenta` ∈ `CashFlow.Contrapartes` → SIEMPRE `PJ GRANDE` (no depende de cupo/UVA).
 
 Los labels llevan prefijo PH/PJ y van en MAYÚSCULAS — convención del
 sistema para todos los nivel_1..5 (evita duplicados por capitalización:
@@ -47,6 +47,10 @@ _TIPOS_PJ: frozenset[str] = frozenset({
     "Institucional",
 })
 
+# Un FCI es SIEMPRE PJ GRANDE (regla de negocio). Señal fresca del sync de Aunesa
+# — más confiable que CashFlow.Contrapartes, que puede quedar desactualizado.
+_TIPO_FCI = "Fondo Común de Inversión"
+
 # Umbrales — orden de las tablas del doc (PH en USD, PJ en UVAs).
 _UMBRAL_PH_RETAIL_USD = 50_000.0
 _UMBRAL_PH_MEDIO_USD  = 100_000.0
@@ -63,9 +67,10 @@ def clasificar_nivel_3(
     es_contraparte: bool = False,
 ) -> str | None:
     """Devuelve el label de segmento patrimonial para una cuenta, o None."""
-    # Contraparte (id ∈ CashFlow.Contrapartes — FCI / sociedades gerentes / etc.)
-    # → SIEMPRE PJ GRANDE, sin importar cupo/UVA. Va ANTES del check de cupo.
-    if es_contraparte:
+    # FCI (tipo_cliente) o contraparte (id ∈ CashFlow.Contrapartes — sociedades
+    # gerentes, etc.) → SIEMPRE PJ GRANDE, sin importar cupo/UVA. Va ANTES del
+    # check de cupo.
+    if tipo_cliente == _TIPO_FCI or es_contraparte:
         return "PJ GRANDE"
     if not tipo_cliente or cupo_transaccional_ars is None or cupo_transaccional_ars <= 0:
         return None

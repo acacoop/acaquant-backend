@@ -9,8 +9,8 @@ PJ (Empresa / FCI / Cía. seguros / etc.) requiere la serie UVA del BCRA que
 `nivel_3 = null`. Cuando se sume `Trading.UVA`, este job los empieza a
 clasificar también sin cambios de código (solo se completa `uva` acá).
 
-Idempotente: solo escribe cuando el label nuevo difiere del actual. Soporta
-`--dry-run` (default) para ver la distribución antes de aplicar.
+Idempotente: solo escribe cuando el label nuevo difiere del actual. Dry-run por
+default (sin `--apply`) para ver la distribución antes de aplicar.
 
 Uso:
     python -m jobs.segmentar_patrimonial                  # dry-run
@@ -84,12 +84,17 @@ def main() -> None:
     nuevos: dict[str, str | None] = {}
     actuales: dict[str, str | None] = {}
     n_total = 0
+    con_cupo = 0
+    tipos: Counter = Counter()
     for r in cur:
         n_total += 1
         idc = str(r.get("id_cuenta") or "")
         if not idc:
             continue
         cupo_ars = (r.get("cupo") or {}).get("transaccional_ars")
+        if cupo_ars is not None and float(cupo_ars) > 0:
+            con_cupo += 1
+        tipos[r.get("tipo_cliente") or "(null)"] += 1
         seg = clasificar_nivel_3(
             r.get("tipo_cliente"),
             float(cupo_ars) if cupo_ars is not None else None,
@@ -104,10 +109,11 @@ def main() -> None:
     cambios = [(idc, actuales[idc], nuevos[idc]) for idc in nuevos if nuevos[idc] != actuales[idc]]
 
     print(f"\nCuentas activas evaluadas: {n_total}")
-    print(f"Distribución resultante:")
-    for k in ("Retail", "Medio Retail", "Alto Patrimonio",
-              "Pequeña", "Mediana", "Grande", "(sin clasificar)"):
-        print(f"  {k:<20s} {dist.get(k, 0):>5d}")
+    print(f"  con cupo.transaccional_ars > 0: {con_cupo}")
+    print(f"  tipo_cliente: {dict(tipos.most_common())}")
+    print("Distribución resultante (nivel_3) — labels reales:")
+    for k, v in sorted(dist.items(), key=lambda kv: (kv[0] == "(sin clasificar)", -kv[1])):
+        print(f"  {k:<22s} {v:>5d}")
     print(f"\nCambios a aplicar: {len(cambios)}  (cuentas con label distinto al actual)")
 
     if not args.apply:
@@ -115,7 +121,7 @@ def main() -> None:
         if cambios:
             print("\nPrimeros cambios (id_cuenta: actual → nuevo):")
             for idc, vieja, nueva in cambios[:20]:
-                print(f"  {idc:<8s}  {str(vieja):<20s} → {nueva}")
+                print(f"  {idc:<8s}  {vieja!s:<20s} → {nueva}")
         print("\n(dry-run) — pasar --apply para ejecutar.")
         return
 

@@ -2,7 +2,9 @@
 
 Cruza, todo por `id_cuenta`:
   - QUIÉN   → `Clientes.Comitentes` (operador asignado, segmentación nivel_1).
-  - ACTIVIDAD → `CashFlow.NegocioMovimientos` (última operación).
+  - ACTIVIDAD (operó/última op/estado) → `CashFlow.Operaciones` (fuente de
+    verdad de operaciones de mercado; join por `cuenta` == id_cuenta).
+  - VOLUMEN / ARANCEL → `CashFlow.NegocioMovimientos` (pendiente migrar a Operaciones).
   - TAMAÑO  → `Valuaciones.AuM` (último snapshot).
   - operador ↔ usuario → `Manager.Users` (para detectar cuentas huérfanas).
 
@@ -50,7 +52,7 @@ def estado_comercial(
 
     `dias_desde_ult_op`: días desde la última op SI está dentro de la ventana
     reciente (`dias_dormida`), si no → None. `opero_alguna_vez`: si la cuenta
-    aparece alguna vez en NegocioMovimientos.
+    aparece alguna vez en CashFlow.Operaciones.
 
     NUEVA (nunca operó) · ACTIVA (≤ dias_activa) · ENFRIANDOSE (dias_activa..
     dias_dormida) · DORMIDA (operó alguna vez pero hace > dias_dormida).
@@ -411,23 +413,26 @@ def analisis_comercial(
     # frontend muestra "—".
     factor_cupo = _factor_usd("USD")
     aum = _aum_por_cuenta(ids, todos=es_todos)
-    mov = get_db_cashflow()["NegocioMovimientos"]
-    cats = list(_CATS_OPERACIONES)
     year_start = date(hoy.year, 1, 1).isoformat()
     month_start = hoy.replace(day=1).isoformat()  # "activa del mes" = operó en el mes calendario
 
-    # Última operación (operativa) EVER por cuenta — sin ventana. De acá salen:
-    # estado comercial, días reales sin operar y si operó en el año en curso.
-    ult_match: dict[str, Any] = {"categoria": {"$in": cats}, **match_no_futuros()}
+    # ACTIVIDAD: última operación EVER por cuenta desde CashFlow.Operaciones
+    # (fuente de verdad de operaciones de mercado, MÁS COMPLETA que
+    # NegocioMovimientos —que filtraba por categoría y dejaba operaciones afuera—).
+    # "Operó" = existe ≥1 boleto en Operaciones para esa cuenta; join por `cuenta`
+    # (== id_cuenta); fecha = `concertacion` (YYYY-MM-DD). Índice cuenta_concertacion
+    # cubre el group. De acá salen: estado comercial, días reales sin operar y YTD/MTD.
+    ops_coll = get_db_cashflow()["Operaciones"]
+    ult_match: dict[str, Any] = {}
     if not es_todos:
-        ult_match["id_cuenta"] = {"$in": list(ids)}
+        ult_match["cuenta"] = {"$in": list(ids)}
     ult_op: dict[str, str] = {}
-    for d in mov.aggregate([
+    for d in ops_coll.aggregate([
         {"$match": ult_match},
-        {"$group": {"_id": "$id_cuenta", "ult": {"$max": "$fecha"}}},
+        {"$group": {"_id": "$cuenta", "ult": {"$max": "$concertacion"}}},
     ]):
         if d.get("_id") and d.get("ult"):
-            ult_op[str(d["_id"])] = d["ult"][:10]
+            ult_op[str(d["_id"])] = str(d["ult"])[:10]
 
     cuentas_q = {"estado": "Activa"} if es_todos else {"operador_email": operador, "estado": "Activa"}
     detalle: dict[str, dict[str, Any]] = {
@@ -552,21 +557,23 @@ def resumen_por_operador(*, dias_activa: int = 45, dias_dormida: int = 90) -> di
             aum_por_cuenta[str(d["_id"])] = float(d.get("aum") or 0.0)
 
     # 3) Actividad: última op por cuenta dentro de la ventana + set "operó alguna vez".
-    mov = get_db_cashflow()["NegocioMovimientos"]
+    # Fuente: CashFlow.Operaciones (operaciones de mercado reales, MÁS COMPLETA que
+    # NegocioMovimientos). Join por `cuenta` (== id_cuenta); fecha = `concertacion`.
+    ops_coll = get_db_cashflow()["Operaciones"]
     desde = (hoy - timedelta(days=dias_dormida)).isoformat()
     dias_ult_op: dict[str, int] = {}
-    for d in mov.aggregate([
-        {"$match": {"fecha": {"$gte": desde}, "id_cuenta": {"$ne": None}}},
-        {"$group": {"_id": "$id_cuenta", "ult": {"$max": "$fecha"}}},
+    for d in ops_coll.aggregate([
+        {"$match": {"concertacion": {"$gte": desde}, "cuenta": {"$ne": None}}},
+        {"$group": {"_id": "$cuenta", "ult": {"$max": "$concertacion"}}},
     ]):
         idc = d.get("_id")
         if not idc or not d.get("ult"):
             continue
         try:
-            dias_ult_op[str(idc)] = (hoy - date.fromisoformat(d["ult"][:10])).days
+            dias_ult_op[str(idc)] = (hoy - date.fromisoformat(str(d["ult"])[:10])).days
         except ValueError:
             continue
-    opero_alguna_vez: set[str] = {str(c) for c in mov.distinct("id_cuenta") if c}
+    opero_alguna_vez: set[str] = {str(c) for c in ops_coll.distinct("cuenta") if c}
 
     # 4) Emails de usuarios reales (para flag de cuentas huérfanas).
     emails_users = {

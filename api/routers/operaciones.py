@@ -1004,22 +1004,23 @@ def ops_agro(
         ]},
         "periodo": {"$substr": ["$concertacion", 0, plen]},
     }
-    # commodity/cuenta se filtran DESPUÉS del addFields (commodity es derivado).
-    post: dict = {"commodity": commodity if commodity else {"$ne": "OTRO"}}
-    if cuenta:
-        post["denominacion"] = cuenta
+    # Cross-filter ASIMÉTRICO (como Operaciones): la selección filtra SOLO la
+    # tabla opuesta; el gráfico (serie) y la tabla de la propia dimensión quedan
+    # FIJOS. Así no se mueve todo al elegir un commodity/cuenta.
+    f_comm = [{"$match": {"denominacion": cuenta}}] if cuenta else []  # cuenta → filtra commodities
+    f_cta = [{"$match": {"commodity": commodity}}] if commodity else []  # commodity → filtra cuentas
     facet = list(db.aggregate([
         {"$match": match},
         {"$addFields": addf},
-        {"$match": post},
+        {"$match": {"commodity": {"$ne": "OTRO"}}},
         {"$facet": {
             "serie": [{"$group": {"_id": {"p": "$periodo", "c": "$commodity"},
                                   "ton": {"$sum": "$toneladas"}}}],
-            "por_commodity": [{"$group": {"_id": "$commodity", "ton": {"$sum": "$toneladas"}}}],
-            "por_cuenta": [
-                {"$group": {"_id": "$denominacion", "ton": {"$sum": "$toneladas"}, "n": {"$sum": 1}}},
-                {"$sort": {"ton": -1}},
-            ],
+            "por_commodity": [*f_comm,
+                              {"$group": {"_id": "$commodity", "ton": {"$sum": "$toneladas"}}}],
+            "por_cuenta": [*f_cta,
+                           {"$group": {"_id": "$denominacion", "ton": {"$sum": "$toneladas"}, "n": {"$sum": 1}}},
+                           {"$sort": {"ton": -1}}],
         }},
     ]))
     f = facet[0] if facet else {}
@@ -1059,12 +1060,12 @@ def ops_aranceles(
     plen = 7 if agg.upper() == "MENSUAL" else 10
     match = _ops_match(moneda, None, segmento=segmento)
     match["concertacion"] = {"$gte": desde, "$lte": hasta}
-    if nivel3:
-        match["nivel_3"] = nivel3
-    if cuenta:
-        match["denominacion"] = cuenta
     aplicar_scope_cuenta(match, scope)
     arancel = {"$abs": {"$ifNull": ["$arancel", 0]}}
+    # Cross-filter ASIMÉTRICO: la selección filtra SOLO la tabla opuesta; el
+    # gráfico y la tabla de la propia dimensión quedan FIJOS.
+    f_n3 = [{"$match": {"denominacion": cuenta}}] if cuenta else []  # cuenta → filtra nivel3
+    f_cta = [{"$match": {"nivel_3": nivel3}}] if nivel3 else []      # nivel3 → filtra cuentas
     facet = list(db.aggregate([
         {"$match": match},
         {"$facet": {
@@ -1074,6 +1075,7 @@ def ops_aranceles(
                 {"$project": {"_id": 0, "periodo": "$_id", "arancel": {"$round": ["$ar", 2]}}},
             ],
             "por_nivel3": [
+                *f_n3,
                 {"$group": {"_id": "$nivel_3", "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
                 {"$match": {"ar": {"$gt": 0}}},
                 {"$sort": {"ar": -1}},
@@ -1081,6 +1083,7 @@ def ops_aranceles(
                               "arancel": {"$round": ["$ar", 2]}, "n": 1}},
             ],
             "por_cuenta": [
+                *f_cta,
                 {"$group": {"_id": "$denominacion", "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
                 {"$match": {"ar": {"$gt": 0}}},
                 {"$sort": {"ar": -1}},

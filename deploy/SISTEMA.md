@@ -99,8 +99,8 @@
 <!-- AUTOGEN:otros -->
 | Horario | Comando |
 |---|---|
-| 04:00 · diario | `deploy/atlas_cluster.sh pause` |
 | 11:20 · diario | `deploy/atlas_cluster.sh resume` |
+| 04:30 · diario | `deploy/atlas_cluster.sh pause` |
 <!-- /AUTOGEN:otros -->
 
 > Las tablas de arriba solo listan lo **agendado** en `crontab.txt`. Jobs

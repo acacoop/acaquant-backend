@@ -4,7 +4,9 @@ Cruza, todo por `id_cuenta`:
   - QUIÉN   → `Clientes.Comitentes` (operador asignado, segmentación nivel_1).
   - ACTIVIDAD (operó/última op/estado) → `CashFlow.Operaciones` (fuente de
     verdad de operaciones de mercado; join por `cuenta` == id_cuenta).
-  - VOLUMEN / ARANCEL → `CashFlow.NegocioMovimientos` (pendiente migrar a Operaciones).
+  - ARANCEL → `CashFlow.Operaciones` (fuente completa; join por `cuenta` == id_cuenta).
+  - VOLUMEN → `CashFlow.NegocioMovimientos` (pendiente migrar a Operaciones: falta
+    estampar el `mep` del día en Operaciones para pesificar igual que hoy).
   - TAMAÑO  → `Valuaciones.AuM` (último snapshot).
   - operador ↔ usuario → `Manager.Users` (para detectar cuentas huérfanas).
 
@@ -187,6 +189,38 @@ def _volumen_total(ids: tuple[str, ...], fecha_desde: str | None,
         {"$group": {"_id": None, "v": {"$sum": _PESIF}}},
     ]))
     return round(float(res[0]["v"]), 2) if res else 0.0
+
+
+# ── ARANCEL desde CashFlow.Operaciones (fuente completa) ─────────────────────
+# El arancel migró a Operaciones: incluye futuros y demás tipos que
+# NegocioMovimientos dejaba afuera. Join por `cuenta` (== id_cuenta). Excluye
+# Cierre (duplicaría) y etapa="solicitud" (FCI pedido; la liquidación ya cuenta).
+# El VOLUMEN sigue en NegocioMov hasta estampar el `mep` del día en Operaciones.
+_OPS_NO_CIERRE = {"$not": {"$regex": "Cierre", "$options": "i"}}
+
+
+def _aranceles_por_cuenta(
+    ids: tuple[str, ...] | list[str] | None, fecha_mes: str,
+) -> dict[str, dict[str, float]]:
+    """{cuenta: {ar_total, ar_mes}} desde Operaciones. `ids=None` → todas las cuentas."""
+    match: dict[str, Any] = {
+        "arancel": {"$gt": 0}, "tipo_operacion": _OPS_NO_CIERRE, "etapa": {"$ne": "solicitud"},
+    }
+    if ids is not None:
+        match["cuenta"] = {"$in": list(ids)}
+    out: dict[str, dict[str, float]] = {}
+    for d in get_db_cashflow()["Operaciones"].aggregate([
+        {"$match": match},
+        {"$group": {
+            "_id": "$cuenta",
+            "ar_total": {"$sum": "$arancel"},
+            "ar_mes": {"$sum": {"$cond": [{"$gte": ["$concertacion", fecha_mes]}, "$arancel", 0]}},
+        }},
+    ]):
+        if d.get("_id"):
+            out[str(d["_id"])] = {"ar_total": float(d.get("ar_total") or 0.0),
+                                  "ar_mes": float(d.get("ar_mes") or 0.0)}
+    return out
 
 
 @cached(ttl=300)
@@ -695,6 +729,20 @@ def informe_comercial(*, moneda: str = "ARS") -> dict[str, Any]:
         if d.get("_id"):
             por_cuenta[str(d["_id"])] = d
 
+    # Arancel desde Operaciones (completo): pisa el de NegocioMov y agrega las
+    # cuentas que tienen arancel en Operaciones pero sin volumen en NegocioMov.
+    ar_ops = _aranceles_por_cuenta(None, mes_start)
+    for d in por_cuenta.values():
+        d["ar_total"] = 0.0
+        d["ar_mes"] = 0.0
+    for idc, a in ar_ops.items():
+        d = por_cuenta.get(idc)
+        if d is None:
+            d = por_cuenta[idc] = {"_id": idc, "vol_total": 0.0, "vol_mes": 0.0,
+                                   "ar_total": 0.0, "ar_mes": 0.0, "n_ops": 0}
+        d["ar_total"] = a["ar_total"]
+        d["ar_mes"] = a["ar_mes"]
+
     detalle = {
         str(c["id_cuenta"]): c
         for c in get_db_clientes()["Comitentes"].find(
@@ -785,7 +833,9 @@ def debug_comercial(
         return {"operador": operador, "segmento": segmento or "todos", "n_cuentas_filtradas": 0,
                 "n_cuentas_con_actividad": 0, "totales": {}, "cuentas": []}
 
+    ar_ops = _aranceles_por_cuenta(ids, mes_start)  # arancel completo (Operaciones)
     filas = []
+    vistos: set[str] = set()
     for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
         {"$match": {"id_cuenta": {"$in": ids}, **match_no_futuros(),
                     "$or": [{"categoria": {"$in": cats}}, {"arancel": {"$gt": 0}}]}},
@@ -796,17 +846,25 @@ def debug_comercial(
             "vol_mes": {"$sum": {"$cond": [
                 {"$and": [{"$in": ["$categoria", cats]}, {"$gte": ["$fecha", mes_start]}]},
                 _PESIF, 0]}},
-            "ar_total": {"$sum": {"$ifNull": ["$arancel", 0]}},
         }},
     ]):
         idc = str(d["_id"])
+        vistos.add(idc)
         filas.append({
             "id_cuenta": idc, "denominacion": cuentas.get(idc, "—"),
             "n_ops": int(d.get("n_ops", 0)),
             "vol_total": _cv(float(d.get("vol_total") or 0.0), factor),
             "vol_mes": _cv(float(d.get("vol_mes") or 0.0), factor),
-            "ar_total": _cv(float(d.get("ar_total") or 0.0), factor),
+            "ar_total": _cv(ar_ops.get(idc, {}).get("ar_total", 0.0), factor),
         })
+    # cuentas con arancel en Operaciones pero sin volumen en NegocioMov.
+    for idc, a in ar_ops.items():
+        if idc not in vistos:
+            filas.append({
+                "id_cuenta": idc, "denominacion": cuentas.get(idc, "—"),
+                "n_ops": 0, "vol_total": 0.0, "vol_mes": 0.0,
+                "ar_total": _cv(a["ar_total"], factor),
+            })
     filas.sort(key=lambda x: x["vol_total"], reverse=True)
     n_ops = sum(f["n_ops"] for f in filas)
     vol_total = round(sum(f["vol_total"] for f in filas), 2)
@@ -845,29 +903,29 @@ def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS") -> dict[st
     if not ids:
         return {"operador": operador, "aranceles_segmento": []}
 
-    segs: dict[str, dict] = {}
+    ar_ops = _aranceles_por_cuenta(ids, mes_start)  # arancel completo (Operaciones)
+    # vol/n_ops por cuenta desde NegocioMov (categorías operativas).
+    vol_cuenta: dict[str, dict] = {}
     for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
-        {"$match": {"id_cuenta": {"$in": ids}, **match_no_futuros(),
-                    "$or": [{"categoria": {"$in": cats}}, {"arancel": {"$gt": 0}}]}},
-        {"$group": {
-            "_id": "$id_cuenta",
-            "vol_total": {"$sum": {"$cond": [{"$in": ["$categoria", cats]}, _PESIF, 0]}},
-            "ar_total": {"$sum": {"$ifNull": ["$arancel", 0]}},
-            "ar_mes": {"$sum": {"$cond": [
-                {"$gte": ["$fecha", mes_start]}, {"$ifNull": ["$arancel", 0]}, 0]}},
-            "n_ops": {"$sum": {"$cond": [{"$in": ["$categoria", cats]}, 1, 0]}},
-        }},
+        {"$match": {"id_cuenta": {"$in": ids}, **match_no_futuros(), "categoria": {"$in": cats}}},
+        {"$group": {"_id": "$id_cuenta", "vol_total": {"$sum": _PESIF}, "n_ops": {"$sum": 1}}},
     ]):
-        seg = cuentas.get(str(d["_id"]), "(sin segmentar)")
+        vol_cuenta[str(d["_id"])] = d
+
+    segs: dict[str, dict] = {}
+    for idc in set(vol_cuenta) | set(ar_ops):
+        seg = cuentas.get(idc, "(sin segmentar)")
         s = segs.get(seg)
         if s is None:
             s = segs[seg] = {"segmento": seg, "ar_total": 0.0, "ar_mes": 0.0,
                              "vol_total": 0.0, "n_ops": 0, "n_cuentas": 0}
-        s["ar_total"] += d.get("ar_total", 0.0)
-        s["ar_mes"] += d.get("ar_mes", 0.0)
-        s["vol_total"] += d.get("vol_total", 0.0)
-        s["n_ops"] += d.get("n_ops", 0)
-        if d.get("ar_total", 0.0) > 0:
+        v = vol_cuenta.get(idc, {})
+        a = ar_ops.get(idc, {})
+        s["vol_total"] += float(v.get("vol_total", 0.0) or 0.0)
+        s["n_ops"] += int(v.get("n_ops", 0) or 0)
+        s["ar_total"] += a.get("ar_total", 0.0)
+        s["ar_mes"] += a.get("ar_mes", 0.0)
+        if a.get("ar_total", 0.0) > 0:
             s["n_cuentas"] += 1
 
     out = sorted(segs.values(), key=lambda x: x["ar_total"], reverse=True)
@@ -916,15 +974,19 @@ def informe_segmento_detalle(
     if not ids:
         return {"segmento": segmento or "todos", "n_clientes": 0, "clientes": [], "operaciones": []}
 
-    mov = get_db_cashflow()["NegocioMovimientos"]
+    ops_coll = get_db_cashflow()["Operaciones"]
+    ops_match: dict[str, Any] = {
+        "cuenta": {"$in": ids}, "arancel": {"$gt": 0},
+        "tipo_operacion": _OPS_NO_CIERRE, "etapa": {"$ne": "solicitud"},
+    }
 
     clientes = []
-    for d in mov.aggregate([
-        {"$match": {"id_cuenta": {"$in": ids}, "arancel": {"$gt": 0}}},
+    for d in ops_coll.aggregate([
+        {"$match": ops_match},
         {"$group": {
-            "_id": "$id_cuenta",
+            "_id": "$cuenta",
             "ar_total": {"$sum": "$arancel"},
-            "ar_mes": {"$sum": {"$cond": [{"$gte": ["$fecha", mes_start]}, "$arancel", 0]}},
+            "ar_mes": {"$sum": {"$cond": [{"$gte": ["$concertacion", mes_start]}, "$arancel", 0]}},
         }},
     ]):
         idc = str(d["_id"])
@@ -936,15 +998,27 @@ def informe_segmento_detalle(
         })
     clientes.sort(key=lambda x: x["arancel_total"], reverse=True)
 
+    # Boletos con arancel (Operaciones), mapeados a los keys que espera el front
+    # (fecha←concertacion, comprobante←boleto, ticker←instrumento, op←tipo_operacion…).
     operaciones = []
-    for d in mov.find(
-        {"id_cuenta": {"$in": ids}, "arancel": {"$gt": 0}},
-        {"_id": 0, "fecha": 1, "id_cuenta": 1, "comprobante": 1, "ticker": 1,
-         "categoria": 1, "op": 1, "importe": 1, "moneda": 1, "arancel": 1},
-    ).sort([("fecha", -1), ("comprobante", -1)]).limit(500):
-        d["denominacion"] = detalle.get(str(d.get("id_cuenta"))) or "—"
-        d["arancel"] = _cv(float(d.get("arancel") or 0.0), factor)
-        operaciones.append(d)
+    for d in ops_coll.find(
+        ops_match,
+        {"_id": 0, "concertacion": 1, "cuenta": 1, "boleto": 1, "instrumento": 1,
+         "operacion": 1, "tipo_operacion": 1, "bruto": 1, "moneda": 1, "arancel": 1},
+    ).sort([("concertacion", -1), ("boleto", -1)]).limit(500):
+        idc = str(d.get("cuenta"))
+        operaciones.append({
+            "fecha":        d.get("concertacion"),
+            "id_cuenta":    idc,
+            "denominacion": detalle.get(idc) or "—",
+            "comprobante":  d.get("boleto"),
+            "ticker":       d.get("instrumento"),
+            "categoria":    d.get("operacion"),
+            "op":           d.get("tipo_operacion"),
+            "importe":      d.get("bruto"),
+            "moneda":       d.get("moneda"),
+            "arancel":      _cv(float(d.get("arancel") or 0.0), factor),
+        })
 
     return {
         "segmento": segmento or "todos",

@@ -57,27 +57,66 @@ _PROJ_MOVIMIENTOS = {
 def listar_flujo(
     contraparte: str | None = Query(None, description="Filtrar por contraparte"),
     moneda: str | None = Query(None, description="Filtrar por moneda (ARS/USD)"),
-    segmento: str | None = Query(None, description="Filtrar por segmento"),
+    segmento: str | None = Query(None, description="Filtrar por segmento (sesión de mercado)"),
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
 ):
-    db = get_db_operaciones()
-    filtro = {}
-    if contraparte:
-        filtro["contraparte"] = contraparte
+    """Flujo de contrapartes — DIRECTO desde CashFlow.Operaciones (match por
+    `cuenta` con CashFlow.Contrapartes). Reemplaza la copia intermedia MesaAPI:
+    trae `tipoOperacion` y `cuenta` reales (que MesaAPI no tenía) y el `segmento`
+    (sesión de mercado) se deriva del tipo_operacion. Excluye Futuros/Opciones."""
+    dbc = get_db_cashflow()
+    # cuenta (id) → {contraparte, grupo}. La cuenta es la CLAVE de match.
+    cp_map = {
+        str(d.get("cuenta")).strip(): {
+            "contraparte": d.get("contraparte") or "",
+            "grupo": d.get("segmento") or "",
+        }
+        for d in dbc["Contrapartes"].find(
+            {"cuenta": {"$exists": True, "$ne": ""}},
+            {"_id": 0, "cuenta": 1, "contraparte": 1, "segmento": 1},
+        )
+        if d.get("cuenta") not in (None, "")
+    }
+    match: dict = {
+        "cuenta": {"$in": list(cp_map)},
+        "tipo_operacion": {"$not": {"$regex": "Futuros|Opciones", "$options": "i"}},
+    }
     if moneda:
-        filtro["moneda"] = moneda
-    if segmento:
-        filtro["segmento"] = segmento
+        match["moneda"] = moneda
     if desde or hasta:
         rango = {}
         if desde:
             rango["$gte"] = desde
         if hasta:
             rango["$lte"] = hasta
-        filtro["concertacion"] = rango
+        match["concertacion"] = rango
 
-    return list(db["MesaAPI"].find(filtro, _PROJ_FLUJO).sort("concertacion", 1))
+    proj = {"_id": 0, "boleto": 1, "concertacion": 1, "tipo_operacion": 1, "cuenta": 1,
+            "denominacion": 1, "instrumento": 1, "bruto": 1, "moneda": 1}
+    out = []
+    for d in dbc["Operaciones"].find(match, proj).sort("concertacion", 1):
+        cuenta = str(d.get("cuenta") or "").strip()
+        cp = cp_map.get(cuenta, {})
+        tipo = d.get("tipo_operacion") or ""
+        seg = tipo.split()[0] if tipo else ""  # sesión de mercado (Concurrencia/SENEBI/…)
+        if contraparte and cp.get("contraparte") != contraparte:
+            continue
+        if segmento and seg != segmento:
+            continue
+        out.append({
+            "boleto":        d.get("boleto"),
+            "concertacion":  d.get("concertacion"),
+            "tipoOperacion": tipo,
+            "cuenta":        cuenta,
+            "denominacion":  d.get("denominacion"),
+            "unidad":        d.get("instrumento"),
+            "bruto":         d.get("bruto"),
+            "segmento":      seg,
+            "contraparte":   cp.get("contraparte"),
+            "moneda":        d.get("moneda"),
+        })
+    return out
 
 
 @router.get("/flujos")

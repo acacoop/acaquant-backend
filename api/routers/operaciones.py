@@ -974,6 +974,8 @@ def ops_agro(
     desde: str = Query(..., description="YYYY-MM-DD"),
     hasta: str = Query(..., description="YYYY-MM-DD"),
     agg: str = Query("MENSUAL", description="MENSUAL | DIARIO"),
+    commodity: str | None = Query(None, description="SOJA/TRIGO/MAIZ (cross-filter)"),
+    cuenta: str | None = Query(None, description="Filtra a una cuenta (denominación exacta)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Futuros agropecuarios: Σ TONELADAS por periodo (mes/día) y commodity
@@ -990,34 +992,51 @@ def ops_agro(
         {"concertacion": {"$gte": desde, "$lte": hasta}},
     ]}
     aplicar_scope_cuenta(match, scope)
-    rows = list(db.aggregate([
+    addf = {
+        "commodity": {"$switch": {"branches": [
+            {"case": {"$regexMatch": {"input": inst, "regex": "SOJ", "options": "i"}}, "then": "SOJA"},
+            {"case": {"$regexMatch": {"input": inst, "regex": "TRI", "options": "i"}}, "then": "TRIGO"},
+            {"case": {"$regexMatch": {"input": inst, "regex": "MAI", "options": "i"}}, "then": "MAIZ"},
+        ], "default": "OTRO"}},
+        "toneladas": {"$multiply": [
+            {"$abs": {"$ifNull": ["$cantidad", 0]}},
+            {"$cond": [{"$regexMatch": {"input": inst, "regex": "MIN", "options": "i"}}, 10, 100]},
+        ]},
+        "periodo": {"$substr": ["$concertacion", 0, plen]},
+    }
+    # commodity/cuenta se filtran DESPUÉS del addFields (commodity es derivado).
+    post: dict = {"commodity": commodity if commodity else {"$ne": "OTRO"}}
+    if cuenta:
+        post["denominacion"] = cuenta
+    facet = list(db.aggregate([
         {"$match": match},
-        {"$addFields": {
-            "commodity": {"$switch": {"branches": [
-                {"case": {"$regexMatch": {"input": inst, "regex": "SOJ", "options": "i"}}, "then": "SOJA"},
-                {"case": {"$regexMatch": {"input": inst, "regex": "TRI", "options": "i"}}, "then": "TRIGO"},
-                {"case": {"$regexMatch": {"input": inst, "regex": "MAI", "options": "i"}}, "then": "MAIZ"},
-            ], "default": "OTRO"}},
-            "toneladas": {"$multiply": [
-                {"$abs": {"$ifNull": ["$cantidad", 0]}},
-                {"$cond": [{"$regexMatch": {"input": inst, "regex": "MIN", "options": "i"}}, 10, 100]},
-            ]},
-            "periodo": {"$substr": ["$concertacion", 0, plen]},
+        {"$addFields": addf},
+        {"$match": post},
+        {"$facet": {
+            "serie": [{"$group": {"_id": {"p": "$periodo", "c": "$commodity"},
+                                  "ton": {"$sum": "$toneladas"}}}],
+            "por_commodity": [{"$group": {"_id": "$commodity", "ton": {"$sum": "$toneladas"}}}],
+            "por_cuenta": [
+                {"$group": {"_id": "$denominacion", "ton": {"$sum": "$toneladas"}, "n": {"$sum": 1}}},
+                {"$sort": {"ton": -1}},
+            ],
         }},
-        {"$match": {"commodity": {"$ne": "OTRO"}}},
-        {"$group": {"_id": {"p": "$periodo", "c": "$commodity"}, "ton": {"$sum": "$toneladas"}}},
     ]))
+    f = facet[0] if facet else {}
     por_periodo: dict[str, dict] = {}
-    tot = {"SOJA": 0.0, "TRIGO": 0.0, "MAIZ": 0.0}
-    for r in rows:
+    for r in f.get("serie", []):
         p, c = r["_id"]["p"], r["_id"]["c"]
         d = por_periodo.setdefault(p, {"periodo": p, "SOJA": 0.0, "TRIGO": 0.0, "MAIZ": 0.0})
         d[c] = round(r["ton"], 0)
-        tot[c] = round(tot.get(c, 0) + r["ton"], 0)
+    tot = {"SOJA": 0.0, "TRIGO": 0.0, "MAIZ": 0.0}
+    for r in f.get("por_commodity", []):
+        tot[r["_id"]] = round(r["ton"], 0)
+    por_cuenta = [{"denominacion": r["_id"] or "(sin)", "toneladas": round(r["ton"], 0), "n": r["n"]}
+                  for r in f.get("por_cuenta", [])]
     return {
         "desde": desde, "hasta": hasta, "agg": agg,
         "serie": [por_periodo[p] for p in sorted(por_periodo)],
-        "totales": tot,
+        "totales": tot, "por_cuenta": por_cuenta,
     }
 
 

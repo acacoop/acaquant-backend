@@ -19,7 +19,7 @@ def main() -> None:
     cuentas = [str(d.get("cuenta")).strip() for d in cps if d.get("cuenta") not in (None, "")]
     print(f"CashFlow.Contrapartes con cuenta: {len(cuentas)}")
     print(f"  muestra cuenta (formato): {[d.get('cuenta') for d in cps[:5]]}")
-    print(f"  muestra segmento: {sorted({d.get('segmento') for d in cps})[:10]}")
+    print(f"  muestra segmento: {sorted({(d.get('segmento') or '') for d in cps})[:10]}")
 
     op = db["Operaciones"]
     print(f"\nOperaciones total: {op.estimated_document_count():,}")

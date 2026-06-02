@@ -772,11 +772,24 @@ def negocio(
 
 _OPS_MONEDAS = ("ARS", "USD")
 
+# Tipos de operación que NO entran a ninguna sumatoria (el cierre de caución
+# duplicaría el volumen: la apertura ya lo cuenta). Match por tipo_operacion.
+_OPS_EXCLUIR_RE = {"$regex": "Cierre", "$options": "i"}
 
-def _ops_match(moneda: str, mercado: str | None) -> dict:
-    m: dict = {"moneda": moneda}
+
+def _ops_match(
+    moneda: str,
+    mercado: str | None,
+    operacion: str | None = None,
+    denominacion: str | None = None,
+) -> dict:
+    m: dict = {"moneda": moneda, "tipo_operacion": {"$not": _OPS_EXCLUIR_RE}}
     if mercado and mercado.lower() != "todos":
         m["mercado"] = mercado
+    if operacion:
+        m["operacion"] = operacion
+    if denominacion:
+        m["denominacion"] = denominacion
     return m
 
 
@@ -827,13 +840,15 @@ def ops_meta(fecha: str = Query(..., description="YYYY-MM-DD")):
 def ops_serie(
     moneda: str = Query("ARS"),
     mercado: str | None = Query(None, description="Filtra por mercado (vacío = todos)"),
+    operacion: str | None = Query(None, description="Filtra el gráfico a una operacion"),
+    denominacion: str | None = Query(None, description="Filtra el gráfico a una denominacion"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Serie diaria: Σ bruto por fecha (las barras del gráfico)."""
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     db = get_db_cashflow()["Operaciones"]
-    match = _ops_match(moneda, mercado)
+    match = _ops_match(moneda, mercado, operacion, denominacion)
     aplicar_scope_cuenta(match, scope)
     serie = list(db.aggregate([
         {"$match": match},
@@ -851,19 +866,30 @@ def ops_resumen(
     mercado: str | None = Query(None),
     desde: str = Query(..., description="YYYY-MM-DD"),
     hasta: str = Query(..., description="YYYY-MM-DD"),
+    operacion: str | None = Query(None, description="Selección de operacion (cross-filter)"),
+    denominacion: str | None = Query(None, description="Selección de denominacion (cross-filter)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
-    """Scope [desde,hasta]: Σ bruto por operacion (≠0) y por denominacion."""
+    """Scope [desde,hasta]: Σ bruto por operacion y por denominacion.
+
+    Cross-filter: si hay `denominacion` seleccionada, la tabla de operaciones se
+    filtra a esa denominacion; si hay `operacion` seleccionada, la de
+    denominaciones se filtra a esa operacion. Cada tabla queda completa respecto
+    de su propia selección (la otra dimensión la filtra).
+    """
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     db = get_db_cashflow()["Operaciones"]
-    match = _ops_match(moneda, mercado)
-    match["concertacion"] = {"$gte": desde, "$lte": hasta}
-    aplicar_scope_cuenta(match, scope)
+    base = _ops_match(moneda, mercado)
+    base["concertacion"] = {"$gte": desde, "$lte": hasta}
+    aplicar_scope_cuenta(base, scope)
+    filtro_op = {"denominacion": denominacion} if denominacion else {}
+    filtro_denom = {"operacion": operacion} if operacion else {}
     facet = list(db.aggregate([
-        {"$match": match},
+        {"$match": base},
         {"$facet": {
             "por_operacion": [
+                {"$match": filtro_op} if filtro_op else {"$match": {}},
                 {"$group": {"_id": "$operacion", "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}},
                             "n": {"$sum": 1}}},
                 {"$match": {"bruto": {"$ne": 0}}},
@@ -872,6 +898,7 @@ def ops_resumen(
                               "bruto": {"$round": ["$bruto", 2]}, "n": 1}},
             ],
             "por_denominacion": [
+                {"$match": filtro_denom} if filtro_denom else {"$match": {}},
                 {"$group": {"_id": "$denominacion", "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}},
                             "n": {"$sum": 1}}},
                 {"$sort": {"bruto": -1}},
@@ -882,11 +909,12 @@ def ops_resumen(
     ]))
     f = facet[0] if facet else {}
     por_op = f.get("por_operacion", [])
+    por_denom = f.get("por_denominacion", [])
+    # Total = el de la dimensión filtrada (si hay selección) o el global.
+    total = round(sum(r["bruto"] for r in (por_denom if denominacion else por_op)), 2)
     return {
         "moneda": moneda, "mercado": mercado, "desde": desde, "hasta": hasta,
-        "por_operacion": por_op,
-        "por_denominacion": f.get("por_denominacion", []),
-        "total": round(sum(r["bruto"] for r in por_op), 2),
+        "por_operacion": por_op, "por_denominacion": por_denom, "total": total,
     }
 
 

@@ -80,6 +80,21 @@ def _to_iso(raw) -> str | None:
     return None
 
 
+def _to_moneda(condiciones) -> str | None:
+    """Moneda de la operación, derivada de `condiciones` ('ARS Inm', 'USD 24hs')."""
+    if not condiciones:
+        return None
+    tok = str(condiciones).strip().upper().split()
+    if not tok:
+        return None
+    m = tok[0]
+    if m.startswith("USD"):
+        return "USD"
+    if m.startswith("ARS"):
+        return "ARS"
+    return m or None
+
+
 def _to_float(raw) -> float | None:
     """Parsea número tolerando: prefijo de moneda ('ARS 248.90'), separadores
     AR ('82965,6' → 82965.6; '1.234.567,89' → 1234567.89) y punto decimal."""
@@ -127,6 +142,7 @@ def normalizar_fila(row: dict) -> dict | None:
         "cantidad":       _to_float(canon.get("cantidad")),
         "bruto":          _to_float(canon.get("bruto")),
         "arancel":        _to_float(canon.get("arancel")),
+        "moneda":         _to_moneda(canon.get("condiciones")),
     }
 
 
@@ -149,18 +165,26 @@ def ingestar_filas(coll, rows: list[dict], crear_indice: bool = False) -> dict:
         ensure_indexes(coll)
 
     ahora = datetime.now(UTC)
-    ops, sin_boleto = [], 0
+    # Dedup por boleto DENTRO del lote (última fila gana): con el índice único,
+    # dos filas del mismo boleto que aún no existe harían dos inserts → E11000.
+    por_boleto: dict[str, dict] = {}
+    sin_boleto = 0
     for row in rows:
         doc = normalizar_fila(row)
         if doc is None:
             sin_boleto += 1
             continue
         doc["ingestado_en"] = ahora
-        ops.append(UpdateOne({"boleto": doc["boleto"]}, {"$set": doc}, upsert=True))
+        por_boleto[doc["boleto"]] = doc
 
-    if not ops:
+    if not por_boleto:
         return {"recibidas": len(rows), "sin_boleto": sin_boleto,
                 "upsertadas": 0, "modificadas": 0}
+
+    ops = [
+        UpdateOne({"boleto": d["boleto"]}, {"$set": d}, upsert=True)
+        for d in por_boleto.values()
+    ]
 
     res = coll.bulk_write(ops, ordered=False)
     return {
@@ -169,6 +193,45 @@ def ingestar_filas(coll, rows: list[dict], crear_indice: bool = False) -> dict:
         "upsertadas":  res.upserted_count,
         "modificadas": res.modified_count,
     }
+
+
+def enriquecer(db, batch: int = 2000) -> dict:
+    """Denormaliza sobre cada doc de CashFlow.Operaciones: `moneda` (de
+    condiciones) + `mercado` y `operacion` (join a CashFlow.TiposOperacion por
+    tipo_operacion). Re-correr tras editar el catálogo. Crea índices de la vista.
+    """
+    cat = {
+        d["tipo_operacion"]: d
+        for d in db["TiposOperacion"].find(
+            {}, {"_id": 0, "tipo_operacion": 1, "mercado": 1, "operacion": 1}
+        )
+        if d.get("tipo_operacion")
+    }
+    coll = db["Operaciones"]
+    coll.create_index([("concertacion", -1), ("mercado", 1)], name="concertacion_mercado")
+    coll.create_index([("concertacion", -1), ("operacion", 1)], name="concertacion_operacion")
+
+    ops, total, sin_cat = [], 0, 0
+    for d in coll.find({}, {"_id": 1, "tipo_operacion": 1, "condiciones": 1}):
+        c = cat.get(d.get("tipo_operacion") or "")
+        if c is None:
+            sin_cat += 1
+        ops.append(UpdateOne(
+            {"_id": d["_id"]},
+            {"$set": {
+                "moneda":    _to_moneda(d.get("condiciones")),
+                "mercado":   (c or {}).get("mercado", ""),
+                "operacion": (c or {}).get("operacion", "otro"),
+            }},
+        ))
+        if len(ops) >= batch:
+            coll.bulk_write(ops, ordered=False)
+            total += len(ops)
+            ops = []
+    if ops:
+        coll.bulk_write(ops, ordered=False)
+        total += len(ops)
+    return {"actualizados": total, "sin_catalogo": sin_cat, "tipos_catalogo": len(cat)}
 
 
 def stats(coll) -> dict:

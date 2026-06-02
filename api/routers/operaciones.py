@@ -763,6 +763,152 @@ def negocio(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# OPERACIONES (vista MOVIMIENTOS) — lee CashFlow.Operaciones (fuente: API
+# informes), enriquecida con moneda/mercado/operacion por
+# scripts/enrich_operaciones.py. Reemplaza a NEGOCIO (consolidados) para
+# operaciones de mercado. Importe = |bruto|, agrupado por `operacion`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_OPS_CATS = ("compra", "venta", "caucion_tomadora", "caucion_colocadora",
+             "suscripcion", "rescate", "licitacion", "emision", "subasta", "otro")
+_OPS_MONEDAS = ("ARS", "USD")
+
+
+def _ops_imp(op: str) -> dict:
+    return {"$cond": [{"$eq": ["$operacion", op]}, {"$abs": {"$ifNull": ["$bruto", 0]}}, 0]}
+
+
+def _ops_match(moneda: str, mercado: str | None) -> dict:
+    m: dict = {"moneda": moneda}
+    if mercado and mercado.lower() != "todos":
+        m["mercado"] = mercado
+    return m
+
+
+@router.get("/ops/mercados")
+@cached(ttl=300)
+def ops_mercados():
+    """Mercados distintos (para el selector). Cacheado."""
+    db = get_db_cashflow()["Operaciones"]
+    return {"mercados": sorted(x for x in db.distinct("mercado") if x)}
+
+
+@router.get("/ops/fechas")
+@cached(ttl=120)
+def ops_fechas():
+    """Fechas con operaciones (desc) + count, para el selector de fecha."""
+    db = get_db_cashflow()["Operaciones"]
+    rows = list(db.aggregate([
+        {"$group": {"_id": "$concertacion", "n": {"$sum": 1}}},
+        {"$sort": {"_id": -1}},
+    ]))
+    return {"fechas": [{"fecha": r["_id"], "n": r["n"]} for r in rows if r.get("_id")]}
+
+
+@router.get("/ops/meta")
+@cached(ttl=120)
+def ops_meta(fecha: str = Query(..., description="YYYY-MM-DD")):
+    """Metadata del día: # boletos + última ingesta + # mercados."""
+    db = get_db_cashflow()["Operaciones"]
+    rows = list(db.aggregate([
+        {"$match": {"concertacion": fecha}},
+        {"$group": {"_id": None, "n": {"$sum": 1}, "ultima": {"$max": "$ingestado_en"},
+                    "mercados": {"$addToSet": "$mercado"}}},
+    ]))
+    if not rows:
+        return {"fecha": fecha, "n_boletos": 0, "n_mercados": 0, "ultima_ingesta": None}
+    r = rows[0]
+    ts = r.get("ultima")
+    return {
+        "fecha":          fecha,
+        "n_boletos":      r.get("n", 0),
+        "n_mercados":     len([m for m in (r.get("mercados") or []) if m]),
+        "ultima_ingesta": ts.isoformat() if isinstance(ts, datetime) else None,
+    }
+
+
+@router.get("/ops/serie")
+@cached(ttl=300)
+def ops_serie(
+    moneda: str = Query("ARS"),
+    mercado: str | None = Query(None, description="Filtra por mercado (vacío/'todos' = todos)"),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+):
+    """Serie diaria de |bruto| por operación (las barras del gráfico)."""
+    if moneda not in _OPS_MONEDAS:
+        raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
+    db = get_db_cashflow()["Operaciones"]
+    match = _ops_match(moneda, mercado)
+    aplicar_scope_cuenta(match, scope)
+    group: dict = {"_id": "$concertacion"}
+    for op in _OPS_CATS:
+        group[op] = {"$sum": _ops_imp(op)}
+    proj = {"_id": 0, "fecha": "$_id"}
+    for op in _OPS_CATS:
+        proj[op] = {"$round": [f"${op}", 2]}
+    serie = list(db.aggregate([
+        {"$match": match}, {"$group": group}, {"$sort": {"_id": 1}}, {"$project": proj},
+    ]))
+    return {"moneda": moneda, "mercado": mercado, "serie": serie}
+
+
+@router.get("/ops/cuentas-matrix")
+@cached(ttl=300)
+def ops_cuentas_matrix(
+    moneda: str = Query("ARS"),
+    mercado: str | None = Query(None),
+    desde: str = Query(..., description="YYYY-MM-DD"),
+    hasta: str = Query(..., description="YYYY-MM-DD"),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+):
+    """Por cuenta × operación sobre [desde, hasta]: el listado de cuentas que operaron."""
+    if moneda not in _OPS_MONEDAS:
+        raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
+    db = get_db_cashflow()["Operaciones"]
+    match = _ops_match(moneda, mercado)
+    match["concertacion"] = {"$gte": desde, "$lte": hasta}
+    aplicar_scope_cuenta(match, scope)
+    group: dict = {"_id": "$cuenta", "n": {"$sum": 1}}
+    for op in _OPS_CATS:
+        group[op] = {"$sum": _ops_imp(op)}
+    proj = {"_id": 0, "cuenta": {"$ifNull": ["$_id", "(sin cuenta)"]}, "n": 1,
+            "total": {"$round": [{"$add": [f"${op}" for op in _OPS_CATS]}, 2]}}
+    for op in _OPS_CATS:
+        proj[op] = {"$round": [f"${op}", 2]}
+    rows = list(db.aggregate([
+        {"$match": match}, {"$group": group}, {"$project": proj}, {"$sort": {"total": -1}},
+    ]))
+    return {
+        "moneda": moneda, "mercado": mercado, "desde": desde, "hasta": hasta,
+        "cuentas": rows, "n_cuentas": len(rows),
+        "total": round(sum(r.get("total", 0) for r in rows), 2),
+    }
+
+
+@router.get("/ops/boletos")
+@cached(ttl=60)
+def ops_boletos(
+    fecha: str = Query(..., description="YYYY-MM-DD"),
+    cuenta: str = Query(...),
+    moneda: str = Query("ARS"),
+    mercado: str | None = Query(None),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+):
+    """Boletos individuales de una cuenta en un día (drill-down)."""
+    verificar_cuenta_str(cuenta, scope)
+    db = get_db_cashflow()["Operaciones"]
+    match = _ops_match(moneda, mercado)
+    match["concertacion"] = fecha
+    match["cuenta"] = cuenta
+    proj = {"_id": 0, "boleto": 1, "tipo_operacion": 1, "operacion": 1, "mercado": 1,
+            "instrumento": 1, "condiciones": 1, "cantidad": 1, "bruto": 1,
+            "arancel": 1, "moneda": 1}
+    boletos = list(db.find(match, proj).sort("boleto", 1))
+    return {"fecha": fecha, "cuenta": cuenta, "moneda": moneda, "mercado": mercado,
+            "boletos": boletos, "n": len(boletos)}
+
+
 # ── COMERCIAL (lente por operador, estilo NEGOCIO) ───────────────────────────
 # Vista nueva en OPERACIONES. Lógica en api/services/comercial.py.
 

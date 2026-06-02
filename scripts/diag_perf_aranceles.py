@@ -27,11 +27,15 @@ _CIERRE = {"$regex": "Cierre", "$options": "i"}
 _FUTUROS = {"$regex": "Futuros", "$options": "i"}
 
 
-def _serie_pipeline(moneda: str, plen: int, segmento: str | None) -> list[dict]:
-    """Sub-pipeline de la SERIE, idéntico al de ops_aranceles (router)."""
+def _serie_pipeline(moneda: str, plen: int, segmento: str | None,
+                    desde: str | None = None) -> list[dict]:
+    """Sub-pipeline de la SERIE, idéntico al de ops_aranceles (router). Si `desde`
+    se pasa, acota la serie a concertacion >= desde (opción 'ventana acotada')."""
     match: dict = {"moneda": moneda, "tipo_operacion": {"$not": _CIERRE}}
     if segmento:
         match["segmento"] = segmento
+    if desde:
+        match["concertacion"] = {"$gte": desde}
     arancel = {"$abs": {"$ifNull": ["$arancel", 0]}}
     return [
         {"$match": match},
@@ -158,6 +162,25 @@ def main() -> None:
             import json
             print("   [estructura cruda del explain, top keys]:", list(ex.keys()))
             print("   " + json.dumps(ex, default=str)[:1500])
+
+    # ── 4) Potencial de ACOTAR LA VENTANA (opción C, sin infra) ──
+    # Mide cuánto baja el wall-clock de la serie si solo se agregan los últimos
+    # N meses (en vez de toda la historia). Así decidimos ventana vs rollup CON dato.
+    print("\n── Serie acotada a últimos N meses (potencial opción 'ventana') ──")
+
+    def _cutoff(hasta_iso: str, days: int) -> str:
+        from datetime import date, timedelta
+        y, m, d = (int(x) for x in hasta_iso.split("-"))
+        return (date(y, m, d) - timedelta(days=days)).isoformat()
+
+    for moneda in ("ARS", "USD"):
+        full = _time_aggregate(coll, _serie_pipeline(moneda, plen, None), args.runs)
+        line = f"  {moneda}: historia completa min {min(full):.0f}ms"
+        for label, days in (("12m", 365), ("18m", 545)):
+            cut = _cutoff(hasta, days)
+            w = _time_aggregate(coll, _serie_pipeline(moneda, plen, None, desde=cut), args.runs)
+            line += f" | {label} min {min(w):.0f}ms"
+        print(line)
 
     print("\n(read-only: no se escribió nada)")
 

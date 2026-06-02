@@ -813,6 +813,13 @@ def negocio(
 
 _OPS_MONEDAS = ("ARS", "USD")
 
+# La serie del gráfico de aranceles se acota por defecto a esta ventana (cubre
+# de sobra los botones 1W…1A). El aggregate sobre toda la historia escanea
+# ~180k-300k docs (~1-1.5s, medido scripts/diag_perf_aranceles) y aggregation
+# NO cubre el $group → el FETCH es inevitable. El botón ALL del front pide
+# serie_full=True para traer la historia completa bajo demanda.
+_SERIE_VENTANA_DIAS = 550  # ~18 meses
+
 # Tipos de operación que NO entran a ninguna sumatoria (el cierre de caución
 # duplicaría el volumen: la apertura ya lo cuenta). Match por tipo_operacion.
 _OPS_EXCLUIR_RE = {"$regex": "Cierre", "$options": "i"}
@@ -1046,6 +1053,7 @@ def ops_aranceles(
     nivel3: str | None = Query(None, description="Filtra a un nivel_3 (cross-filter)"),
     cuenta: str | None = Query(None, description="Filtra a una denominación (cross-filter)"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
+    serie_full: bool = Query(False, description="True = serie histórica completa (botón ALL); default ~18m"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Σ aranceles por periodo (gráfico), por nivel_3 (izq) y por cliente (der)."""
@@ -1057,6 +1065,13 @@ def ops_aranceles(
     aplicar_scope_cuenta(match, scope)
     date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
     arancel = {"$abs": {"$ifNull": ["$arancel", 0]}}
+    # Acota la serie a la ventana (default ~18m) salvo serie_full → historia completa.
+    if serie_full:
+        serie_ventana: list[dict] = []
+    else:
+        hoy = (datetime.now(UTC) - timedelta(hours=3)).date()
+        cutoff = (hoy - timedelta(days=_SERIE_VENTANA_DIAS)).isoformat()
+        serie_ventana = [{"$match": {"concertacion": {"$gte": cutoff}}}]
     # Cross-filter ASIMÉTRICO: la selección filtra SOLO la tabla opuesta; el
     # gráfico (histórico) y la tabla de la propia dimensión quedan FIJOS.
     f_n3 = [{"$match": {"denominacion": cuenta}}] if cuenta else []  # cuenta → filtra nivel3
@@ -1065,6 +1080,7 @@ def ops_aranceles(
         {"$match": match},
         {"$facet": {
             "serie": [
+                *serie_ventana,
                 {"$group": {"_id": {"$substr": ["$concertacion", 0, plen]}, "ar": {"$sum": arancel}}},
                 {"$sort": {"_id": 1}},
                 {"$project": {"_id": 0, "periodo": "$_id", "arancel": {"$round": ["$ar", 2]}}},

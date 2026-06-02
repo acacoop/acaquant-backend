@@ -155,6 +155,8 @@ def ensure_indexes(coll) -> None:
     )
     coll.create_index([("cuenta", 1), ("concertacion", -1)], name="cuenta_concertacion")
     coll.create_index([("concertacion", -1)], name="concertacion")
+    # /ops/serie filtra por moneda sin fecha → este índice evita el full scan.
+    coll.create_index([("moneda", 1), ("concertacion", -1)], name="moneda_concertacion")
 
 
 def cargar_maps_enrich(db) -> tuple[dict, dict]:
@@ -279,6 +281,7 @@ def enriquecer(db, batch: int = 2000) -> dict:
     coll.create_index([("concertacion", -1), ("operacion", 1)], name="concertacion_operacion")
     coll.create_index([("concertacion", -1), ("segmento", 1)], name="concertacion_segmento")
     coll.create_index([("concertacion", -1), ("nivel_3", 1)], name="concertacion_nivel3")
+    coll.create_index([("moneda", 1), ("concertacion", -1)], name="moneda_concertacion")
 
     ops, total, sin_cat = [], 0, 0
     for d in coll.find({}, {"_id": 1, "tipo_operacion": 1, "condiciones": 1, "cuenta": 1}):

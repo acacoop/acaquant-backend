@@ -984,14 +984,16 @@ def ops_agro(
     db = get_db_cashflow()["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10
     inst = {"$ifNull": ["$instrumento", ""]}
+    # SIN concertacion en el match base → el gráfico (serie) es HISTÓRICO completo.
+    # Las tablas se acotan al rango [desde,hasta] dentro de sus facets.
     match: dict = {"$and": [
         {"tipo_operacion": {"$regex": "Futuros", "$options": "i"}},
         {"tipo_operacion": {"$not": {"$regex": "Financieros", "$options": "i"}}},
         {"denominacion": {"$not": {"$regex": "OTC", "$options": "i"}}},
         {"instrumento": {"$not": {"$regex": "OTC", "$options": "i"}}},
-        {"concertacion": {"$gte": desde, "$lte": hasta}},
     ]}
     aplicar_scope_cuenta(match, scope)
+    date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
     addf = {
         "commodity": {"$switch": {"branches": [
             {"case": {"$regexMatch": {"input": inst, "regex": "SOJ", "options": "i"}}, "then": "SOJA"},
@@ -1016,9 +1018,9 @@ def ops_agro(
         {"$facet": {
             "serie": [{"$group": {"_id": {"p": "$periodo", "c": "$commodity"},
                                   "ton": {"$sum": "$toneladas"}}}],
-            "por_commodity": [*f_comm,
+            "por_commodity": [date_m, *f_comm,
                               {"$group": {"_id": "$commodity", "ton": {"$sum": "$toneladas"}}}],
-            "por_cuenta": [*f_cta,
+            "por_cuenta": [date_m, *f_cta,
                            {"$group": {"_id": "$denominacion", "ton": {"$sum": "$toneladas"}, "n": {"$sum": 1}}},
                            {"$sort": {"ton": -1}}],
         }},
@@ -1058,12 +1060,12 @@ def ops_aranceles(
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     db = get_db_cashflow()["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10
-    match = _ops_match(moneda, None, segmento=segmento)
-    match["concertacion"] = {"$gte": desde, "$lte": hasta}
+    match = _ops_match(moneda, None, segmento=segmento)  # SIN concertacion → serie histórica
     aplicar_scope_cuenta(match, scope)
+    date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
     arancel = {"$abs": {"$ifNull": ["$arancel", 0]}}
     # Cross-filter ASIMÉTRICO: la selección filtra SOLO la tabla opuesta; el
-    # gráfico y la tabla de la propia dimensión quedan FIJOS.
+    # gráfico (histórico) y la tabla de la propia dimensión quedan FIJOS.
     f_n3 = [{"$match": {"denominacion": cuenta}}] if cuenta else []  # cuenta → filtra nivel3
     f_cta = [{"$match": {"nivel_3": nivel3}}] if nivel3 else []      # nivel3 → filtra cuentas
     facet = list(db.aggregate([
@@ -1075,7 +1077,7 @@ def ops_aranceles(
                 {"$project": {"_id": 0, "periodo": "$_id", "arancel": {"$round": ["$ar", 2]}}},
             ],
             "por_nivel3": [
-                *f_n3,
+                date_m, *f_n3,
                 {"$group": {"_id": "$nivel_3", "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
                 {"$match": {"ar": {"$gt": 0}}},
                 {"$sort": {"ar": -1}},
@@ -1083,7 +1085,7 @@ def ops_aranceles(
                               "arancel": {"$round": ["$ar", 2]}, "n": 1}},
             ],
             "por_cuenta": [
-                *f_cta,
+                date_m, *f_cta,
                 {"$group": {"_id": "$denominacion", "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
                 {"$match": {"ar": {"$gt": 0}}},
                 {"$sort": {"ar": -1}},

@@ -770,13 +770,7 @@ def negocio(
 # operaciones de mercado. Importe = |bruto|, agrupado por `operacion`.
 # ─────────────────────────────────────────────────────────────────────────────
 
-_OPS_CATS = ("compra", "venta", "caucion_tomadora", "caucion_colocadora",
-             "suscripcion", "rescate", "licitacion", "emision", "subasta", "otro")
 _OPS_MONEDAS = ("ARS", "USD")
-
-
-def _ops_imp(op: str) -> dict:
-    return {"$cond": [{"$eq": ["$operacion", op]}, {"$abs": {"$ifNull": ["$bruto", 0]}}, 0]}
 
 
 def _ops_match(moneda: str, mercado: str | None) -> dict:
@@ -832,104 +826,68 @@ def ops_meta(fecha: str = Query(..., description="YYYY-MM-DD")):
 @cached(ttl=300)
 def ops_serie(
     moneda: str = Query("ARS"),
-    mercado: str | None = Query(None, description="Filtra por mercado (vacío/'todos' = todos)"),
-    cuenta_filter: str = Query("todas"),
-    cuenta: str | None = Query(None, description="Match exacto sobre cuenta (override del filtro)."),
+    mercado: str | None = Query(None, description="Filtra por mercado (vacío = todos)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
-    """Serie diaria de |bruto| por operación (las barras del gráfico)."""
+    """Serie diaria: Σ bruto por fecha (las barras del gráfico)."""
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     db = get_db_cashflow()["Operaciones"]
     match = _ops_match(moneda, mercado)
-    if cuenta:
-        verificar_cuenta_str(cuenta, scope)
-        match["cuenta"] = cuenta
-    elif cuenta_filter in _NEGOCIO_CUENTA_FILTROS_VALID:
-        match.update(_match_cuenta_filter(cuenta_filter))
     aplicar_scope_cuenta(match, scope)
-    group: dict = {"_id": "$concertacion"}
-    for op in _OPS_CATS:
-        group[op] = {"$sum": _ops_imp(op)}
-    proj = {"_id": 0, "fecha": "$_id"}
-    for op in _OPS_CATS:
-        proj[op] = {"$round": [f"${op}", 2]}
     serie = list(db.aggregate([
-        {"$match": match}, {"$group": group}, {"$sort": {"_id": 1}}, {"$project": proj},
+        {"$match": match},
+        {"$group": {"_id": "$concertacion", "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}}}},
+        {"$sort": {"_id": 1}},
+        {"$project": {"_id": 0, "fecha": "$_id", "bruto": {"$round": ["$bruto", 2]}}},
     ]))
     return {"moneda": moneda, "mercado": mercado, "serie": serie}
 
 
-@router.get("/ops/cuentas-matrix")
+@router.get("/ops/resumen")
 @cached(ttl=300)
-def ops_cuentas_matrix(
+def ops_resumen(
     moneda: str = Query("ARS"),
     mercado: str | None = Query(None),
     desde: str = Query(..., description="YYYY-MM-DD"),
     hasta: str = Query(..., description="YYYY-MM-DD"),
-    cuenta_filter: str = Query("todas"),
-    cuenta: str | None = Query(None, description="Match exacto sobre cuenta (override del filtro)."),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
-    """Por cuenta × operación sobre [desde, hasta]: el listado de cuentas que operaron."""
+    """Scope [desde,hasta]: Σ bruto por operacion (≠0) y por denominacion."""
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     db = get_db_cashflow()["Operaciones"]
     match = _ops_match(moneda, mercado)
     match["concertacion"] = {"$gte": desde, "$lte": hasta}
-    if cuenta:
-        verificar_cuenta_str(cuenta, scope)
-        match["cuenta"] = cuenta
-    elif cuenta_filter in _NEGOCIO_CUENTA_FILTROS_VALID:
-        match.update(_match_cuenta_filter(cuenta_filter))
     aplicar_scope_cuenta(match, scope)
-    group: dict = {"_id": "$cuenta", "n": {"$sum": 1}}
-    for op in _OPS_CATS:
-        group[op] = {"$sum": _ops_imp(op)}
-    proj = {"_id": 0, "cuenta": {"$ifNull": ["$_id", "(sin cuenta)"]}, "n": 1,
-            "total": {"$round": [{"$add": [f"${op}" for op in _OPS_CATS]}, 2]}}
-    for op in _OPS_CATS:
-        proj[op] = {"$round": [f"${op}", 2]}
-    rows = list(db.aggregate([
-        {"$match": match}, {"$group": group}, {"$project": proj}, {"$sort": {"total": -1}},
+    facet = list(db.aggregate([
+        {"$match": match},
+        {"$facet": {
+            "por_operacion": [
+                {"$group": {"_id": "$operacion", "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}},
+                            "n": {"$sum": 1}}},
+                {"$match": {"bruto": {"$ne": 0}}},
+                {"$sort": {"bruto": -1}},
+                {"$project": {"_id": 0, "operacion": {"$ifNull": ["$_id", "(sin)"]},
+                              "bruto": {"$round": ["$bruto", 2]}, "n": 1}},
+            ],
+            "por_denominacion": [
+                {"$group": {"_id": "$denominacion", "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}},
+                            "n": {"$sum": 1}}},
+                {"$sort": {"bruto": -1}},
+                {"$project": {"_id": 0, "denominacion": {"$ifNull": ["$_id", "(sin)"]},
+                              "bruto": {"$round": ["$bruto", 2]}, "n": 1}},
+            ],
+        }},
     ]))
+    f = facet[0] if facet else {}
+    por_op = f.get("por_operacion", [])
     return {
         "moneda": moneda, "mercado": mercado, "desde": desde, "hasta": hasta,
-        "cuentas": rows, "n_cuentas": len(rows),
-        "total": round(sum(r.get("total", 0) for r in rows), 2),
+        "por_operacion": por_op,
+        "por_denominacion": f.get("por_denominacion", []),
+        "total": round(sum(r["bruto"] for r in por_op), 2),
     }
-
-
-@router.get("/ops/boletos")
-@cached(ttl=60)
-def ops_boletos(
-    fecha: str = Query(..., description="YYYY-MM-DD"),
-    cuenta: str = Query(...),
-    moneda: str = Query("ARS"),
-    mercado: str | None = Query(None),
-    scope: tuple[str, ...] | None = Depends(scope_cuentas),
-):
-    """Boletos individuales de una cuenta en un día (drill-down)."""
-    verificar_cuenta_str(cuenta, scope)
-    db = get_db_cashflow()["Operaciones"]
-    match = _ops_match(moneda, mercado)
-    match["concertacion"] = fecha
-    match["cuenta"] = cuenta
-    proj = {"_id": 0, "boleto": 1, "tipo_operacion": 1, "operacion": 1, "mercado": 1,
-            "instrumento": 1, "condiciones": 1, "cantidad": 1, "bruto": 1,
-            "arancel": 1, "moneda": 1}
-    boletos = list(db.find(match, proj).sort("boleto", 1))
-    return {"fecha": fecha, "cuenta": cuenta, "moneda": moneda, "mercado": mercado,
-            "boletos": boletos, "n": len(boletos)}
-
-
-@router.get("/ops/cuentas-list")
-@cached(ttl=3600)
-def ops_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas)):
-    """Cuentas distintas en Operaciones (fuente del autocomplete de búsqueda)."""
-    db = get_db_cashflow()["Operaciones"]
-    cuentas = sorted(c for c in db.distinct("cuenta") if c)
-    return {"cuentas": filtrar_cuentas_str(cuentas, scope)}
 
 
 # ── COMERCIAL (lente por operador, estilo NEGOCIO) ───────────────────────────

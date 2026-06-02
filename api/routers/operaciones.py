@@ -782,6 +782,8 @@ def _ops_match(
     mercado: str | None,
     operacion: str | None = None,
     denominacion: str | None = None,
+    cuenta: str | None = None,
+    segmento: str | None = None,
 ) -> dict:
     m: dict = {"moneda": moneda, "tipo_operacion": {"$not": _OPS_EXCLUIR_RE}}
     if mercado and mercado.lower() != "todos":
@@ -790,6 +792,10 @@ def _ops_match(
         m["operacion"] = operacion
     if denominacion:
         m["denominacion"] = denominacion
+    if cuenta:
+        m["cuenta"] = cuenta
+    if segmento and segmento.lower() != "todos":
+        m["segmento"] = segmento
     return m
 
 
@@ -842,13 +848,15 @@ def ops_serie(
     mercado: str | None = Query(None, description="Filtra por mercado (vacío = todos)"),
     operacion: str | None = Query(None, description="Filtra el gráfico a una operacion"),
     denominacion: str | None = Query(None, description="Filtra el gráfico a una denominacion"),
+    cuenta: str | None = Query(None, description="Filtra a una cuenta (búsqueda)"),
+    segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Serie diaria: Σ bruto por fecha (las barras del gráfico)."""
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     db = get_db_cashflow()["Operaciones"]
-    match = _ops_match(moneda, mercado, operacion, denominacion)
+    match = _ops_match(moneda, mercado, operacion, denominacion, cuenta, segmento)
     aplicar_scope_cuenta(match, scope)
     serie = list(db.aggregate([
         {"$match": match},
@@ -868,19 +876,20 @@ def ops_resumen(
     hasta: str = Query(..., description="YYYY-MM-DD"),
     operacion: str | None = Query(None, description="Selección de operacion (cross-filter)"),
     denominacion: str | None = Query(None, description="Selección de denominacion (cross-filter)"),
+    cuenta: str | None = Query(None, description="Filtra a una cuenta (búsqueda)"),
+    segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Scope [desde,hasta]: Σ bruto por operacion y por denominacion.
 
     Cross-filter: si hay `denominacion` seleccionada, la tabla de operaciones se
     filtra a esa denominacion; si hay `operacion` seleccionada, la de
-    denominaciones se filtra a esa operacion. Cada tabla queda completa respecto
-    de su propia selección (la otra dimensión la filtra).
+    denominaciones se filtra a esa operacion. `cuenta`/`segmento` filtran ambas.
     """
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     db = get_db_cashflow()["Operaciones"]
-    base = _ops_match(moneda, mercado)
+    base = _ops_match(moneda, mercado, cuenta=cuenta, segmento=segmento)
     base["concertacion"] = {"$gte": desde, "$lte": hasta}
     aplicar_scope_cuenta(base, scope)
     filtro_op = {"denominacion": denominacion} if denominacion else {}
@@ -916,6 +925,52 @@ def ops_resumen(
         "moneda": moneda, "mercado": mercado, "desde": desde, "hasta": hasta,
         "por_operacion": por_op, "por_denominacion": por_denom, "total": total,
     }
+
+
+@router.get("/ops/cuentas-list")
+@cached(ttl=3600)
+def ops_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas)):
+    """Denominaciones (+ cuenta) distintas — fuente del buscador."""
+    db = get_db_cashflow()["Operaciones"]
+    rows = list(db.aggregate([
+        {"$group": {"_id": "$cuenta", "denom": {"$first": "$denominacion"}}},
+        {"$sort": {"denom": 1}},
+    ]))
+    return {"cuentas": [{"cuenta": r["_id"], "denominacion": r.get("denom")}
+                        for r in rows if r.get("_id")]}
+
+
+@router.get("/ops/segmentos")
+@cached(ttl=600)
+def ops_segmentos():
+    """Segmentos (nivel_1) distintos, para el filtro."""
+    db = get_db_cashflow()["Operaciones"]
+    return {"segmentos": sorted(s for s in db.distinct("segmento") if s)}
+
+
+@router.get("/ops/boletos")
+@cached(ttl=60)
+def ops_boletos(
+    desde: str = Query(..., description="YYYY-MM-DD"),
+    hasta: str = Query(..., description="YYYY-MM-DD"),
+    moneda: str = Query("ARS"),
+    denominacion: str | None = Query(None),
+    cuenta: str | None = Query(None),
+    operacion: str | None = Query(None),
+    mercado: str | None = Query(None),
+    segmento: str | None = Query(None),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+):
+    """Boletos individuales (drill-down al tocar una cuenta/denominación)."""
+    db = get_db_cashflow()["Operaciones"]
+    match = _ops_match(moneda, mercado, operacion, denominacion, cuenta, segmento)
+    match["concertacion"] = {"$gte": desde, "$lte": hasta}
+    aplicar_scope_cuenta(match, scope)
+    proj = {"_id": 0, "boleto": 1, "concertacion": 1, "cuenta": 1, "denominacion": 1,
+            "tipo_operacion": 1, "operacion": 1, "mercado": 1, "instrumento": 1,
+            "condiciones": 1, "cantidad": 1, "bruto": 1, "moneda": 1}
+    boletos = list(db.find(match, proj).sort("bruto", -1).limit(500))
+    return {"boletos": boletos, "n": len(boletos)}
 
 
 # ── COMERCIAL (lente por operador, estilo NEGOCIO) ───────────────────────────

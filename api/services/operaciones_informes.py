@@ -210,8 +210,10 @@ def ingestar_filas(coll, rows: list[dict], crear_indice: bool = False) -> dict:
 
 def enriquecer(db, batch: int = 2000) -> dict:
     """Denormaliza sobre cada doc de CashFlow.Operaciones: `moneda` (de
-    condiciones) + `mercado` y `operacion` (join a CashFlow.TiposOperacion por
-    tipo_operacion). Re-correr tras editar el catálogo. Crea índices de la vista.
+    condiciones), `mercado` y `operacion` (join a CashFlow.TiposOperacion por
+    tipo_operacion), y `grupo` + `es_contraparte` (join a CashFlow.Contrapartes
+    por cuenta — grupo = su `segmento`). Re-correr tras editar catálogo o
+    contrapartes. Crea índices de la vista.
     """
     cat = {
         d["tipo_operacion"]: d
@@ -220,21 +222,33 @@ def enriquecer(db, batch: int = 2000) -> dict:
         )
         if d.get("tipo_operacion")
     }
+    # id_cuenta → nivel_1 (segmento comercial) de Clientes.Comitentes.
+    comit = db.client["Clientes"]["Comitentes"]
+    nivel1 = {
+        str(d.get("id_cuenta")).strip(): (d.get("nivel_1") or "")
+        for d in comit.find(
+            {"id_cuenta": {"$exists": True, "$ne": ""}}, {"_id": 0, "id_cuenta": 1, "nivel_1": 1}
+        )
+        if d.get("id_cuenta") not in (None, "")
+    }
     coll = db["Operaciones"]
     coll.create_index([("concertacion", -1), ("mercado", 1)], name="concertacion_mercado")
     coll.create_index([("concertacion", -1), ("operacion", 1)], name="concertacion_operacion")
+    coll.create_index([("concertacion", -1), ("segmento", 1)], name="concertacion_segmento")
 
     ops, total, sin_cat = [], 0, 0
-    for d in coll.find({}, {"_id": 1, "tipo_operacion": 1, "condiciones": 1}):
+    for d in coll.find({}, {"_id": 1, "tipo_operacion": 1, "condiciones": 1, "cuenta": 1}):
         c = cat.get(d.get("tipo_operacion") or "")
         if c is None:
             sin_cat += 1
+        cuenta = str(d.get("cuenta") or "").strip()
         ops.append(UpdateOne(
             {"_id": d["_id"]},
             {"$set": {
                 "moneda":    _to_moneda(d.get("condiciones")),
                 "mercado":   (c or {}).get("mercado", ""),
                 "operacion": (c or {}).get("operacion", "otro"),
+                "segmento":  nivel1.get(cuenta, ""),
             }},
         ))
         if len(ops) >= batch:

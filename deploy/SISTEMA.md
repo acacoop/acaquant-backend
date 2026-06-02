@@ -66,7 +66,7 @@
 | 14:00 · L-V | `jobs.sync_comitentes` |
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes` |
 | 15:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
-| cada hora · 15-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` |
+| cada hora · 15-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral` |
 | 17:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
 | 17:00 · L-V | `jobs.sync_comitentes` |
 | 02:00 · Mar-Sáb | `jobs.cashflow` + `jobs.sync_api_copies` |

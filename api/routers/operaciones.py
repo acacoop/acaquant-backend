@@ -833,7 +833,12 @@ def _ops_match(
     cuenta: str | None = None,
     segmento: str | None = None,
 ) -> dict:
-    m: dict = {"moneda": moneda, "tipo_operacion": {"$not": _OPS_EXCLUIR_RE}}
+    # etapa=solicitud (pedido FCI bilateral, comprobante DOC) NO suma: la
+    # liquidación (CL) ya cuenta esa operación → evita doble conteo. $ne también
+    # matchea los docs SIN etapa (boletos normales y liquidaciones). El "flujo del
+    # día" (solicitudes) se consultará aparte cuando se exponga.
+    m: dict = {"moneda": moneda, "tipo_operacion": {"$not": _OPS_EXCLUIR_RE},
+               "etapa": {"$ne": "solicitud"}}
     if mercado and mercado.lower() != "todos":
         m["mercado"] = mercado
     if operacion:

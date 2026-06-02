@@ -85,7 +85,9 @@
 # Alimenta la vista /operaciones → tab NEGOCIO.
 # Chainea jobs.aranceles: rellena el `arancel` de los boletos recién insertados
 # (Aunesa /informes, ventana de 7 días para cubrir liquidación T+2 + retroactivos).
-0 15-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.negocio_movimientos >> /root/TradingAV/logs/negocio_movimientos.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.aranceles >> /root/TradingAV/logs/aranceles.log 2>&1
+# Chainea jobs.fci_bilateral: lleva el FCI bilateral (solicitudes DOC + liquidaciones
+# CL) de NegocioMovimientos a CashFlow.Operaciones con `etapa` (idempotente).
+0 15-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.negocio_movimientos >> /root/TradingAV/logs/negocio_movimientos.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.aranceles >> /root/TradingAV/logs/aranceles.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.fci_bilateral >> /root/TradingAV/logs/fci_bilateral.log 2>&1
 
 # ─── Operaciones desde /informes (cada 30 min, 10:30-19:00 ART = 13:30-22:00 UTC L-V)
 # Fuente de verdad de operaciones (por CONCERTACIÓN). Consulta /informes por

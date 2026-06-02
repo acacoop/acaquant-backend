@@ -817,15 +817,15 @@ def ops_meta(fecha: str = Query(..., description="YYYY-MM-DD")):
                     "mercados": {"$addToSet": "$mercado"}}},
     ]))
     if not rows:
-        return {"fecha": fecha, "n_boletos": 0, "n_mercados": 0, "ultima_ingesta": None}
+        return {"meta": {"fecha": fecha, "n_boletos": 0, "n_categorias": 0, "ultima_ingesta": None}}
     r = rows[0]
     ts = r.get("ultima")
-    return {
+    return {"meta": {
         "fecha":          fecha,
         "n_boletos":      r.get("n", 0),
-        "n_mercados":     len([m for m in (r.get("mercados") or []) if m]),
+        "n_categorias":   len([m for m in (r.get("mercados") or []) if m]),
         "ultima_ingesta": ts.isoformat() if isinstance(ts, datetime) else None,
-    }
+    }}
 
 
 @router.get("/ops/serie")
@@ -833,6 +833,8 @@ def ops_meta(fecha: str = Query(..., description="YYYY-MM-DD")):
 def ops_serie(
     moneda: str = Query("ARS"),
     mercado: str | None = Query(None, description="Filtra por mercado (vacío/'todos' = todos)"),
+    cuenta_filter: str = Query("todas"),
+    cuenta: str | None = Query(None, description="Match exacto sobre cuenta (override del filtro)."),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Serie diaria de |bruto| por operación (las barras del gráfico)."""
@@ -840,6 +842,11 @@ def ops_serie(
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     db = get_db_cashflow()["Operaciones"]
     match = _ops_match(moneda, mercado)
+    if cuenta:
+        verificar_cuenta_str(cuenta, scope)
+        match["cuenta"] = cuenta
+    elif cuenta_filter in _NEGOCIO_CUENTA_FILTROS_VALID:
+        match.update(_match_cuenta_filter(cuenta_filter))
     aplicar_scope_cuenta(match, scope)
     group: dict = {"_id": "$concertacion"}
     for op in _OPS_CATS:
@@ -860,6 +867,8 @@ def ops_cuentas_matrix(
     mercado: str | None = Query(None),
     desde: str = Query(..., description="YYYY-MM-DD"),
     hasta: str = Query(..., description="YYYY-MM-DD"),
+    cuenta_filter: str = Query("todas"),
+    cuenta: str | None = Query(None, description="Match exacto sobre cuenta (override del filtro)."),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
     """Por cuenta × operación sobre [desde, hasta]: el listado de cuentas que operaron."""
@@ -868,6 +877,11 @@ def ops_cuentas_matrix(
     db = get_db_cashflow()["Operaciones"]
     match = _ops_match(moneda, mercado)
     match["concertacion"] = {"$gte": desde, "$lte": hasta}
+    if cuenta:
+        verificar_cuenta_str(cuenta, scope)
+        match["cuenta"] = cuenta
+    elif cuenta_filter in _NEGOCIO_CUENTA_FILTROS_VALID:
+        match.update(_match_cuenta_filter(cuenta_filter))
     aplicar_scope_cuenta(match, scope)
     group: dict = {"_id": "$cuenta", "n": {"$sum": 1}}
     for op in _OPS_CATS:
@@ -907,6 +921,15 @@ def ops_boletos(
     boletos = list(db.find(match, proj).sort("boleto", 1))
     return {"fecha": fecha, "cuenta": cuenta, "moneda": moneda, "mercado": mercado,
             "boletos": boletos, "n": len(boletos)}
+
+
+@router.get("/ops/cuentas-list")
+@cached(ttl=3600)
+def ops_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas)):
+    """Cuentas distintas en Operaciones (fuente del autocomplete de búsqueda)."""
+    db = get_db_cashflow()["Operaciones"]
+    cuentas = sorted(c for c in db.distinct("cuenta") if c)
+    return {"cuentas": filtrar_cuentas_str(cuentas, scope)}
 
 
 # ── COMERCIAL (lente por operador, estilo NEGOCIO) ───────────────────────────

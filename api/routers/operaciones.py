@@ -1040,6 +1040,66 @@ def ops_agro(
     }
 
 
+@router.get("/ops/aranceles")
+@cached(ttl=300)
+def ops_aranceles(
+    moneda: str = Query("ARS"),
+    desde: str = Query(..., description="YYYY-MM-DD"),
+    hasta: str = Query(..., description="YYYY-MM-DD"),
+    agg: str = Query("MENSUAL", description="MENSUAL | DIARIO"),
+    nivel3: str | None = Query(None, description="Filtra a un nivel_3 (cross-filter)"),
+    cuenta: str | None = Query(None, description="Filtra a una denominación (cross-filter)"),
+    segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+):
+    """Σ aranceles por periodo (gráfico), por nivel_3 (izq) y por cliente (der)."""
+    if moneda not in _OPS_MONEDAS:
+        raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
+    db = get_db_cashflow()["Operaciones"]
+    plen = 7 if agg.upper() == "MENSUAL" else 10
+    match = _ops_match(moneda, None, segmento=segmento)
+    match["concertacion"] = {"$gte": desde, "$lte": hasta}
+    if nivel3:
+        match["nivel_3"] = nivel3
+    if cuenta:
+        match["denominacion"] = cuenta
+    aplicar_scope_cuenta(match, scope)
+    arancel = {"$abs": {"$ifNull": ["$arancel", 0]}}
+    facet = list(db.aggregate([
+        {"$match": match},
+        {"$facet": {
+            "serie": [
+                {"$group": {"_id": {"$substr": ["$concertacion", 0, plen]}, "ar": {"$sum": arancel}}},
+                {"$sort": {"_id": 1}},
+                {"$project": {"_id": 0, "periodo": "$_id", "arancel": {"$round": ["$ar", 2]}}},
+            ],
+            "por_nivel3": [
+                {"$group": {"_id": "$nivel_3", "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
+                {"$match": {"ar": {"$gt": 0}}},
+                {"$sort": {"ar": -1}},
+                {"$project": {"_id": 0, "nivel_3": {"$ifNull": ["$_id", "(sin)"]},
+                              "arancel": {"$round": ["$ar", 2]}, "n": 1}},
+            ],
+            "por_cuenta": [
+                {"$group": {"_id": "$denominacion", "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
+                {"$match": {"ar": {"$gt": 0}}},
+                {"$sort": {"ar": -1}},
+                {"$project": {"_id": 0, "denominacion": {"$ifNull": ["$_id", "(sin)"]},
+                              "arancel": {"$round": ["$ar", 2]}, "n": 1}},
+            ],
+        }},
+    ]))
+    f = facet[0] if facet else {}
+    por_n3 = f.get("por_nivel3", [])
+    return {
+        "moneda": moneda, "desde": desde, "hasta": hasta, "agg": agg,
+        "serie": f.get("serie", []),
+        "por_nivel3": por_n3,
+        "por_cuenta": f.get("por_cuenta", []),
+        "total": round(sum(r["arancel"] for r in por_n3), 2),
+    }
+
+
 @router.get("/ops/cuentas-list")
 @cached(ttl=3600)
 def ops_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas)):

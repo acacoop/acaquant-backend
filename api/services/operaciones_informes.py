@@ -167,25 +167,28 @@ def cargar_maps_enrich(db) -> tuple[dict, dict]:
         )
         if d.get("tipo_operacion")
     }
-    nivel1 = {
-        str(d.get("id_cuenta")).strip(): (d.get("nivel_1") or "")
+    niveles = {
+        str(d.get("id_cuenta")).strip(): {"n1": d.get("nivel_1") or "", "n3": d.get("nivel_3") or ""}
         for d in db.client["Clientes"]["Comitentes"].find(
-            {"id_cuenta": {"$exists": True, "$ne": ""}}, {"_id": 0, "id_cuenta": 1, "nivel_1": 1}
+            {"id_cuenta": {"$exists": True, "$ne": ""}},
+            {"_id": 0, "id_cuenta": 1, "nivel_1": 1, "nivel_3": 1},
         )
         if d.get("id_cuenta") not in (None, "")
     }
-    return cat, nivel1
+    return cat, niveles
 
 
 def _aplicar_enrich(doc: dict, maps: tuple[dict, dict] | None) -> None:
-    """Setea mercado/operacion/segmento en el doc (moneda ya viene del normalizador)."""
+    """Setea mercado/operacion/segmento(=nivel_1)/nivel_3 (moneda ya viene del normalizador)."""
     if not maps:
         return
-    cat, nivel1 = maps
+    cat, niveles = maps
     c = cat.get(doc.get("tipo_operacion") or "")
     doc["mercado"] = (c or {}).get("mercado", "")
     doc["operacion"] = (c or {}).get("operacion", "otro")
-    doc["segmento"] = nivel1.get(str(doc.get("cuenta") or "").strip(), "")
+    nv = niveles.get(str(doc.get("cuenta") or "").strip(), {})
+    doc["segmento"] = nv.get("n1", "")
+    doc["nivel_3"] = nv.get("n3", "")
 
 
 def ingestar_filas(
@@ -261,12 +264,13 @@ def enriquecer(db, batch: int = 2000) -> dict:
         )
         if d.get("tipo_operacion")
     }
-    # id_cuenta → nivel_1 (segmento comercial) de Clientes.Comitentes.
+    # id_cuenta → {nivel_1 (segmento comercial), nivel_3 (dimensión aranceles)}.
     comit = db.client["Clientes"]["Comitentes"]
-    nivel1 = {
-        str(d.get("id_cuenta")).strip(): (d.get("nivel_1") or "")
+    niveles = {
+        str(d.get("id_cuenta")).strip(): {"n1": d.get("nivel_1") or "", "n3": d.get("nivel_3") or ""}
         for d in comit.find(
-            {"id_cuenta": {"$exists": True, "$ne": ""}}, {"_id": 0, "id_cuenta": 1, "nivel_1": 1}
+            {"id_cuenta": {"$exists": True, "$ne": ""}},
+            {"_id": 0, "id_cuenta": 1, "nivel_1": 1, "nivel_3": 1},
         )
         if d.get("id_cuenta") not in (None, "")
     }
@@ -274,20 +278,22 @@ def enriquecer(db, batch: int = 2000) -> dict:
     coll.create_index([("concertacion", -1), ("mercado", 1)], name="concertacion_mercado")
     coll.create_index([("concertacion", -1), ("operacion", 1)], name="concertacion_operacion")
     coll.create_index([("concertacion", -1), ("segmento", 1)], name="concertacion_segmento")
+    coll.create_index([("concertacion", -1), ("nivel_3", 1)], name="concertacion_nivel3")
 
     ops, total, sin_cat = [], 0, 0
     for d in coll.find({}, {"_id": 1, "tipo_operacion": 1, "condiciones": 1, "cuenta": 1}):
         c = cat.get(d.get("tipo_operacion") or "")
         if c is None:
             sin_cat += 1
-        cuenta = str(d.get("cuenta") or "").strip()
+        nv = niveles.get(str(d.get("cuenta") or "").strip(), {})
         ops.append(UpdateOne(
             {"_id": d["_id"]},
             {"$set": {
                 "moneda":    _to_moneda(d.get("condiciones")),
                 "mercado":   (c or {}).get("mercado", ""),
                 "operacion": (c or {}).get("operacion", "otro"),
-                "segmento":  nivel1.get(cuenta, ""),
+                "segmento":  nv.get("n1", ""),
+                "nivel_3":   nv.get("n3", ""),
             }},
         ))
         if len(ops) >= batch:

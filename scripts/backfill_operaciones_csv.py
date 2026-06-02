@@ -42,6 +42,19 @@ def cargar_fresh(coll, csv_path: str) -> None:
     for i in range(0, len(unicos), CHUNK):
         coll.insert_many(unicos[i:i + CHUNK], ordered=False)
         print(f"  insertados {min(i + CHUNK, len(unicos)):,}/{len(unicos):,}")
+
+    # Red de seguridad: si un escritor concurrente (ej. el upload del navegador)
+    # metió duplicados, los limpiamos antes de crear el índice único.
+    dups = list(coll.aggregate([
+        {"$match": {"boleto": {"$type": "string"}}},
+        {"$group": {"_id": "$boleto", "ids": {"$push": "$_id"}, "n": {"$sum": 1}}},
+        {"$match": {"n": {"$gt": 1}}},
+    ], allowDiskUse=True))
+    sobrantes = [_id for d in dups for _id in d["ids"][1:]]
+    if sobrantes:
+        coll.delete_many({"_id": {"$in": sobrantes}})
+        print(f"  ⚠ {len(sobrantes)} duplicados removidos (¿navegador abierto?) antes de indexar")
+
     svc.ensure_indexes(coll)  # índice único al final (rápido sobre data ya limpia)
     print(f"\n✅ FRESH listo: {len(unicos):,} operaciones · {leidas - len(unicos):,} duplicados descartados.")
     print("Después corré:  python -m scripts.enrich_operaciones")

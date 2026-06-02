@@ -1,33 +1,64 @@
 """Backfill del campo `commodity` (SOJA/TRIGO/MAIZ/None) en CashFlow.Operaciones.
 
-`commodity` ahora se materializa en la ingesta (operaciones_informes.
-clasificar_commodity) para que /ops/agro matchee por índice parcial en vez de
-escanear la colección con regex. Este script lo setea en los docs YA existentes
-y crea el índice `commodity_concertacion`.
+`commodity` se materializa en la ingesta (operaciones_informes.clasificar_commodity)
+para que /ops/agro matchee por índice parcial en vez de escanear con regex. Este
+script lo setea en los docs YA existentes y crea el índice `commodity_concertacion`.
 
-Idempotente: sólo escribe los docs cuyo `commodity` calculado difiere del
-guardado. Corré con --dry-run primero para ver el conteo sin tocar nada.
+Lo hace SERVER-SIDE con un solo `update_many` + pipeline (Mongo clasifica sin
+traer docs al cliente) → robusto: no usa cursor (la versión anterior se moría con
+CursorNotFound al iterar 481k docs mientras escribía). Idempotente: re-correrlo no
+cambia nada si ya está aplicado. La lógica del pipeline replica EXACTAMENTE a
+operaciones_informes.clasificar_commodity.
 
 Uso (desde la raíz del repo, en el Droplet):
     python -m scripts.backfill_commodity_operaciones --dry-run
     python -m scripts.backfill_commodity_operaciones
 
-ORDEN de deploy recomendado: git pull → este backfill → restart api.service
-(el endpoint nuevo necesita el campo materializado; ingestas nuevas ya lo setean).
+ORDEN de deploy: git pull → este backfill (a fondo) → restart api.service
+(el endpoint /ops/agro nuevo necesita el campo; ingestas nuevas ya lo setean).
 """
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 
-from pymongo import UpdateOne
-
-from api.services.operaciones_informes import clasificar_commodity, ensure_indexes
+from api.services.operaciones_informes import ensure_indexes
 from core.mongo import get_mongo_client
 
-_PROJ = {"_id": 0, "boleto": 1, "tipo_operacion": 1, "denominacion": 1,
-         "instrumento": 1, "commodity": 1}
-_BATCH = 1000
+# Candidatos: solo boletos de futuros (los demás nunca son agro → commodity
+# ausente, que el índice parcial ignora). Reduce la escritura a ~1/3.
+_FILTRO = {"tipo_operacion": {"$regex": "Futuros", "$options": "i"}}
+
+# Filtro del set agro completo (para el dry-run: cuántos clasifican como agro).
+_AGRO = {"$and": [
+    {"tipo_operacion": {"$regex": "Futuros", "$options": "i"}},
+    {"tipo_operacion": {"$not": {"$regex": "Financieros", "$options": "i"}}},
+    {"denominacion": {"$not": {"$regex": "OTC", "$options": "i"}}},
+    {"instrumento": {"$not": {"$regex": "OTC", "$options": "i"}}},
+    {"instrumento": {"$regex": "SOJ|TRI|MAI", "$options": "i"}},
+]}
+
+# Pipeline $set que replica clasificar_commodity, evaluado server-side por doc.
+_PIPELINE = [{"$set": {"commodity": {"$let": {
+    "vars": {
+        "t": {"$toUpper": {"$ifNull": ["$tipo_operacion", ""]}},
+        "i": {"$toUpper": {"$ifNull": ["$instrumento", ""]}},
+        "d": {"$toUpper": {"$ifNull": ["$denominacion", ""]}},
+    },
+    "in": {"$cond": [
+        {"$and": [
+            {"$gte": [{"$indexOfCP": ["$$t", "FUTUROS"]}, 0]},
+            {"$lt": [{"$indexOfCP": ["$$t", "FINANCIEROS"]}, 0]},
+            {"$lt": [{"$indexOfCP": ["$$i", "OTC"]}, 0]},
+            {"$lt": [{"$indexOfCP": ["$$d", "OTC"]}, 0]},
+        ]},
+        {"$switch": {"branches": [
+            {"case": {"$gte": [{"$indexOfCP": ["$$i", "SOJ"]}, 0]}, "then": "SOJA"},
+            {"case": {"$gte": [{"$indexOfCP": ["$$i", "TRI"]}, 0]}, "then": "TRIGO"},
+            {"case": {"$gte": [{"$indexOfCP": ["$$i", "MAI"]}, 0]}, "then": "MAIZ"},
+        ], "default": None}},
+        None,
+    ]},
+}}}}]
 
 
 def main() -> None:
@@ -36,54 +67,25 @@ def main() -> None:
     args = ap.parse_args()
 
     coll = get_mongo_client()["CashFlow"]["Operaciones"]
-    total = coll.estimated_document_count()
-    print(f"Operaciones: ~{total} docs | dry_run={args.dry_run}")
+    n_fut = coll.count_documents(_FILTRO)
+    n_agro = coll.count_documents(_AGRO)
+    print(f"Futuros (candidatos a escribir): {n_fut} | de esos, agro (SOJA/TRIGO/MAIZ): {n_agro}")
 
-    dist: Counter[str] = Counter()      # distribución final de commodity
-    cambios: Counter[str] = Counter()   # de qué→a qué cambia (sólo los que cambian)
-    pend: list[UpdateOne] = []
-    n_cambios = 0
-    n_sin_boleto = 0
+    if args.dry_run:
+        ya = coll.count_documents({"commodity": {"$in": ["SOJA", "TRIGO", "MAIZ"]}})
+        print(f"Ya marcados como agro hoy: {ya}")
+        print("(dry-run: no se escribió ni se creó el índice)")
+        return
 
-    for d in coll.find({}, _PROJ):
-        boleto = d.get("boleto")
-        actual = d.get("commodity", "__ausente__")
-        nuevo = clasificar_commodity(
-            d.get("tipo_operacion"), d.get("denominacion"), d.get("instrumento"),
-        )
-        dist[nuevo or "None"] += 1
-        if actual == nuevo:
-            continue
-        if boleto is None:
-            n_sin_boleto += 1
-            continue
-        n_cambios += 1
-        cambios[f"{actual if actual != '__ausente__' else '(ausente)'} → {nuevo or 'None'}"] += 1
-        if not args.dry_run:
-            pend.append(UpdateOne({"boleto": boleto}, {"$set": {"commodity": nuevo}}))
-            if len(pend) >= _BATCH:
-                coll.bulk_write(pend, ordered=False)
-                pend.clear()
+    print("Aplicando update_many server-side (sin cursor)…")
+    res = coll.update_many(_FILTRO, _PIPELINE)
+    print(f"  matched={res.matched_count} modified={res.modified_count}")
+    marcados = coll.count_documents({"commodity": {"$in": ["SOJA", "TRIGO", "MAIZ"]}})
+    print(f"  docs con commodity agro ahora: {marcados} (esperado ≈ {n_agro})")
 
-    if pend and not args.dry_run:
-        coll.bulk_write(pend, ordered=False)
-
-    print("\nDistribución de commodity (calculada):")
-    for k in ("SOJA", "TRIGO", "MAIZ", "None"):
-        if dist.get(k):
-            print(f"  {k:<6} {dist[k]}")
-    print(f"\nDocs que {'cambiarían' if args.dry_run else 'cambiaron'}: {n_cambios}")
-    for k, v in cambios.most_common():
-        print(f"  {k:<24} {v}")
-    if n_sin_boleto:
-        print(f"Docs sin boleto (no actualizables): {n_sin_boleto}")
-
-    if not args.dry_run:
-        print("\nCreando índices (incluye commodity_concertacion)…")
-        ensure_indexes(coll)
-        print("✅ Backfill + índices OK.")
-    else:
-        print("\n(dry-run: no se escribió ni se creó el índice)")
+    print("Creando índices (incluye commodity_concertacion)…")
+    ensure_indexes(coll)
+    print("✅ Backfill + índices OK.")
 
 
 if __name__ == "__main__":

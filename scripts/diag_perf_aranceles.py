@@ -70,6 +70,31 @@ def _facet_pipeline(moneda: str, plen: int, desde: str, hasta: str, segmento: st
     ]
 
 
+def _extract_explain(ex: dict) -> tuple[dict, dict]:
+    """En un aggregate explain los stats viven en stages[0].$cursor (mongod) o
+    al tope (algunos topologies/mongos). Devuelve (queryPlanner, executionStats)."""
+    stages = ex.get("stages")
+    if isinstance(stages, list) and stages:
+        cur = stages[0].get("$cursor", {})
+        if cur:
+            return cur.get("queryPlanner", {}), cur.get("executionStats", {})
+    return ex.get("queryPlanner", {}), ex.get("executionStats", {})
+
+
+def _index_name(plan: dict) -> str | None:
+    """Busca el indexName en el árbol del winningPlan (IXSCAN anidado)."""
+    if not isinstance(plan, dict):
+        return None
+    if plan.get("indexName"):
+        return plan["indexName"]
+    for v in plan.values():
+        if isinstance(v, dict):
+            r = _index_name(v)
+            if r:
+                return r
+    return None
+
+
 def _time_aggregate(coll, pipeline: list[dict], runs: int) -> list[float]:
     """Corre el aggregate `runs` veces y devuelve los ms de pared de cada corrida."""
     out = []
@@ -124,12 +149,12 @@ def main() -> None:
         serie = _serie_pipeline(moneda, plen, None)
         ex = db.command("explain", {"aggregate": "Operaciones", "pipeline": serie, "cursor": {}},
                         verbosity="executionStats")
-        stats = ex.get("executionStats", {})
-        # El plan ganador puede estar anidado según la versión de Mongo.
-        stage = ex.get("queryPlanner", {}).get("winningPlan", {})
-        plan = str(stage)
+        qp, stats = _extract_explain(ex)
+        plan = str(qp.get("winningPlan", qp))
         kind = "COLLSCAN" if "COLLSCAN" in plan else ("IXSCAN" if "IXSCAN" in plan else "?")
-        print(f"  {moneda}: plan={kind} | docsExaminados={stats.get('totalDocsExamined')} "
+        idx = _index_name(qp.get("winningPlan", {}))
+        print(f"  {moneda}: plan={kind}{f' ({idx})' if idx else ''} "
+              f"| docsExaminados={stats.get('totalDocsExamined')} "
               f"| keysExaminadas={stats.get('totalKeysExamined')} "
               f"| nReturned={stats.get('nReturned')} | server={stats.get('executionTimeMillis')}ms")
 

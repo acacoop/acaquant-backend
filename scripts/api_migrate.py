@@ -169,6 +169,18 @@ def migrate_flujo():
 
     dst.drop()
     dst.insert_many(bulk)
+    # LEY #1: un boleto = un documento. Índice único parcial (solo boletos
+    # reales; los sin boleto = None quedan permitidos). Se recrea acá porque el
+    # drop() de arriba se lleva los índices. El origen (CashFlow.Flujo) ya viene
+    # deduplicado por su propio índice único, así que esto no debería fallar.
+    try:
+        dst.create_index(
+            [("boleto", 1)], name="uq_boleto", unique=True,
+            partialFilterExpression={"boleto": {"$type": ["string", "int", "long", "double"]}},
+        )
+        print("OK: índice único 'uq_boleto' creado en OperacionesAPI.MesaAPI")
+    except Exception as e:
+        print(f"⚠ No se pudo crear el índice único en MesaAPI (¿duplicados en Flujo?): {e}")
     print(f"OK: {len(bulk)} docs copiados a OperacionesAPI.MesaAPI")
 
     for d in bulk[:3]:

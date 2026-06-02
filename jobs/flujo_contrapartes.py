@@ -159,8 +159,14 @@ def main(dias: int = N_DIAS_LOOKBACK):
         ops = []
         for r in registros.values():
             boleto = r.get("boleto")
-            if isinstance(boleto, int):
-                ops.append(UpdateOne({"boleto": boleto}, {"$setOnInsert": r}, upsert=True))
+            # LEY: un boleto = un documento. Upsert por boleto (idempotente) para
+            # CUALQUIER tipo de boleto (string 'BOL ...' o int) — antes solo
+            # deduplicaba ints, y como los boletos son strings, nunca dedup-eaba
+            # → se acumulaban copias. Los docs sin boleto (None) no se pueden
+            # linkear por boleto: se insertan tal cual (el índice único es parcial
+            # y no los toca).
+            if boleto is not None:
+                ops.append(UpdateOne({"boleto": boleto}, {"$set": r}, upsert=True))
             else:
                 ops.append(InsertOne(r))
         col_flujo.bulk_write(ops, ordered=False)

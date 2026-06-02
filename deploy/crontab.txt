@@ -179,9 +179,9 @@
 # Backfill histórico inicial: python -m scripts.backfill_cierre_canje.
 35 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cierre_canje >> /root/TradingAV/logs/cierre_canje.log 2>&1
 
-# ─── Atlas cluster pause diaria (05:30 UTC = 02:30 ART)
+# ─── Atlas cluster pause diaria (06:00 UTC = 03:00 ART)
 # ─── Atlas cluster resume diaria (11:20 UTC = 08:20 ART — 10 min de buffer para que esté up a las 08:30 ART)
-30 5  * * * /root/TradingAV/deploy/atlas_cluster.sh pause  >> /root/TradingAV/logs/atlas_cluster.log 2>&1
+0  6  * * * /root/TradingAV/deploy/atlas_cluster.sh pause  >> /root/TradingAV/logs/atlas_cluster.log 2>&1
 20 11 * * * /root/TradingAV/deploy/atlas_cluster.sh resume >> /root/TradingAV/logs/atlas_cluster.log 2>&1
 
 # ─── News RSS medios AR (Ámbito, Cronista, Infobae, iProfesional, La Nación, Clarín)

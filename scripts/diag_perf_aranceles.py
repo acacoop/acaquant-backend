@@ -70,27 +70,21 @@ def _facet_pipeline(moneda: str, plen: int, desde: str, hasta: str, segmento: st
     ]
 
 
-def _extract_explain(ex: dict) -> tuple[dict, dict]:
-    """En un aggregate explain los stats viven en stages[0].$cursor (mongod) o
-    al tope (algunos topologies/mongos). Devuelve (queryPlanner, executionStats)."""
-    stages = ex.get("stages")
-    if isinstance(stages, list) and stages:
-        cur = stages[0].get("$cursor", {})
-        if cur:
-            return cur.get("queryPlanner", {}), cur.get("executionStats", {})
-    return ex.get("queryPlanner", {}), ex.get("executionStats", {})
-
-
-def _index_name(plan: dict) -> str | None:
-    """Busca el indexName en el árbol del winningPlan (IXSCAN anidado)."""
-    if not isinstance(plan, dict):
-        return None
-    if plan.get("indexName"):
-        return plan["indexName"]
-    for v in plan.values():
-        if isinstance(v, dict):
-            r = _index_name(v)
-            if r:
+def _find_key(obj, key):
+    """Primer valor de `key` en cualquier nivel del árbol (dict/list). La forma
+    del explain de un aggregate varía por versión/topología → buscar recursivo
+    es robusto en vez de asumir dónde viven executionStats/winningPlan."""
+    if isinstance(obj, dict):
+        if key in obj:
+            return obj[key]
+        for v in obj.values():
+            r = _find_key(v, key)
+            if r is not None:
+                return r
+    elif isinstance(obj, list):
+        for v in obj:
+            r = _find_key(v, key)
+            if r is not None:
                 return r
     return None
 
@@ -149,14 +143,21 @@ def main() -> None:
         serie = _serie_pipeline(moneda, plen, None)
         ex = db.command("explain", {"aggregate": "Operaciones", "pipeline": serie, "cursor": {}},
                         verbosity="executionStats")
-        qp, stats = _extract_explain(ex)
-        plan = str(qp.get("winningPlan", qp))
+        win = _find_key(ex, "winningPlan") or {}
+        docs_ex = _find_key(ex, "totalDocsExamined")
+        keys_ex = _find_key(ex, "totalKeysExamined")
+        n_ret = _find_key(ex, "nReturned")
+        ms = _find_key(ex, "executionTimeMillis")
+        idx = _find_key(win, "indexName")
+        plan = str(win)
         kind = "COLLSCAN" if "COLLSCAN" in plan else ("IXSCAN" if "IXSCAN" in plan else "?")
-        idx = _index_name(qp.get("winningPlan", {}))
         print(f"  {moneda}: plan={kind}{f' ({idx})' if idx else ''} "
-              f"| docsExaminados={stats.get('totalDocsExamined')} "
-              f"| keysExaminadas={stats.get('totalKeysExamined')} "
-              f"| nReturned={stats.get('nReturned')} | server={stats.get('executionTimeMillis')}ms")
+              f"| docsExaminados={docs_ex} | keysExaminadas={keys_ex} "
+              f"| nReturned={n_ret} | server={ms}ms")
+        if docs_ex is None:
+            import json
+            print("   [estructura cruda del explain, top keys]:", list(ex.keys()))
+            print("   " + json.dumps(ex, default=str)[:1500])
 
     print("\n(read-only: no se escribió nada)")
 

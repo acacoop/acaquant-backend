@@ -157,6 +157,13 @@ def ensure_indexes(coll) -> None:
     coll.create_index([("concertacion", -1)], name="concertacion")
     # /ops/serie filtra por moneda sin fecha → este índice evita el full scan.
     coll.create_index([("moneda", 1), ("concertacion", -1)], name="moneda_concertacion")
+    # /ops/agro: la serie es histórica (sin fecha) y los futuros agro son una
+    # MINORÍA de los boletos → índice PARCIAL sobre el `commodity` materializado
+    # (ver _clasificar_commodity) para que el match no escanee toda la colección.
+    coll.create_index(
+        [("commodity", 1), ("concertacion", -1)], name="commodity_concertacion",
+        partialFilterExpression={"commodity": {"$in": ["SOJA", "TRIGO", "MAIZ"]}},
+    )
 
 
 def cargar_maps_enrich(db) -> tuple[dict, dict]:
@@ -180,8 +187,39 @@ def cargar_maps_enrich(db) -> tuple[dict, dict]:
     return cat, niveles
 
 
+def clasificar_commodity(
+    tipo_operacion: str | None, denominacion: str | None, instrumento: str | None,
+) -> str | None:
+    """Clasifica un boleto como futuro agro (SOJA/TRIGO/MAIZ) o None.
+
+    MISMA lógica que usaba `/ops/agro` en runtime, materializada en la ingesta:
+    es agro sólo si tipo_operacion contiene 'Futuros' y NO 'Financieros', ni
+    denominación ni instrumento contienen 'OTC', y el instrumento matchea
+    SOJ/TRI/MAI. Indexado vía índice parcial (ver ensure_indexes) → el endpoint
+    matchea por índice en vez de escanear con regex toda la colección.
+    """
+    t = tipo_operacion or ""
+    if "FUTUROS" not in t.upper() or "FINANCIEROS" in t.upper():
+        return None
+    inst = (instrumento or "").upper()
+    if "OTC" in inst or "OTC" in (denominacion or "").upper():
+        return None
+    if "SOJ" in inst:
+        return "SOJA"
+    if "TRI" in inst:
+        return "TRIGO"
+    if "MAI" in inst:
+        return "MAIZ"
+    return None
+
+
 def _aplicar_enrich(doc: dict, maps: tuple[dict, dict] | None) -> None:
-    """Setea mercado/operacion/segmento(=nivel_1)/nivel_3 (moneda ya viene del normalizador)."""
+    """Setea mercado/operacion/segmento(=nivel_1)/nivel_3/commodity (moneda ya
+    viene del normalizador). `commodity` se materializa SIEMPRE (incluso sin
+    `maps`) porque sólo depende de campos del propio boleto."""
+    doc["commodity"] = clasificar_commodity(
+        doc.get("tipo_operacion"), doc.get("denominacion"), doc.get("instrumento"),
+    )
     if not maps:
         return
     cat, niveles = maps

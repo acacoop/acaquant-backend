@@ -984,22 +984,16 @@ def ops_agro(
     db = get_db_cashflow()["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10
     inst = {"$ifNull": ["$instrumento", ""]}
+    # `commodity` (SOJA/TRIGO/MAIZ) se materializa en la ingesta — ver
+    # operaciones_informes.clasificar_commodity. Match indexado (índice parcial
+    # commodity_concertacion) → no escanea la colección con regex. Backfill de
+    # docs viejos: scripts/backfill_commodity_operaciones.py.
     # SIN concertacion en el match base → el gráfico (serie) es HISTÓRICO completo.
     # Las tablas se acotan al rango [desde,hasta] dentro de sus facets.
-    match: dict = {"$and": [
-        {"tipo_operacion": {"$regex": "Futuros", "$options": "i"}},
-        {"tipo_operacion": {"$not": {"$regex": "Financieros", "$options": "i"}}},
-        {"denominacion": {"$not": {"$regex": "OTC", "$options": "i"}}},
-        {"instrumento": {"$not": {"$regex": "OTC", "$options": "i"}}},
-    ]}
+    match: dict = {"commodity": {"$in": ["SOJA", "TRIGO", "MAIZ"]}}
     aplicar_scope_cuenta(match, scope)
     date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
     addf = {
-        "commodity": {"$switch": {"branches": [
-            {"case": {"$regexMatch": {"input": inst, "regex": "SOJ", "options": "i"}}, "then": "SOJA"},
-            {"case": {"$regexMatch": {"input": inst, "regex": "TRI", "options": "i"}}, "then": "TRIGO"},
-            {"case": {"$regexMatch": {"input": inst, "regex": "MAI", "options": "i"}}, "then": "MAIZ"},
-        ], "default": "OTRO"}},
         "toneladas": {"$multiply": [
             {"$abs": {"$ifNull": ["$cantidad", 0]}},
             {"$cond": [{"$regexMatch": {"input": inst, "regex": "MIN", "options": "i"}}, 10, 100]},
@@ -1014,7 +1008,6 @@ def ops_agro(
     facet = list(db.aggregate([
         {"$match": match},
         {"$addFields": addf},
-        {"$match": {"commodity": {"$ne": "OTRO"}}},
         {"$facet": {
             "serie": [{"$group": {"_id": {"p": "$periodo", "c": "$commodity"},
                                   "ton": {"$sum": "$toneladas"}}}],

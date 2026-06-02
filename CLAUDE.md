@@ -29,6 +29,28 @@ tiene lo que aplica a todo el repo.
 - **Excepción mínima**: si es UNA sola línea trivial (`systemctl status x`, `tail logs`), se puede pasar inline — pero el default es siempre script.
 - **Cero "probá esto, si no andá probá esto otro"**. Una solución por vez, comiteada al repo.
 
+## ⚠️ REGLA #2 — NUNCA ASUMIR: verificar antes de afirmar o codear
+
+**Bloqueante. Es la causa #1 de romper cosas.** Claude NO tiene acceso al
+Droplet ni a Atlas → no puede inferir nada sobre los datos reales. Afirmar
+hechos sobre prod sin medir (proporciones, volúmenes, esquema, qué campos
+existen, qué valores tienen, cómo se comporta algo) y después escribir código
+en función de eso es lo que rompe todo.
+
+- **Prohibido afirmar hechos no verificados sobre los datos/prod.** Nada de
+  "X es una minoría", "esto normalmente trae…", "probablemente el campo…",
+  "la mayoría de los docs…". Si no lo mediste, no es un hecho.
+- **Distinguir SIEMPRE hipótesis de hecho verificado**, explícito y en voz alta.
+  "Hipótesis (sin medir): …" vs "Verificado (corriste el diag): …".
+- **NUNCA escribir código cuya CORRECTITUD dependa de una suposición no
+  verificada.** Si la decisión necesita un dato de prod, primero conseguirlo.
+- **Para conseguir un dato de prod**: escribir un diag read-only
+  (`scripts/diag_*.py`, REGLA #0), el user lo corre y devuelve el número. Recién
+  ahí se decide/codea. Si no se puede medir, decir explícito "no puedo verificar
+  esto" y esperar confirmación — no avanzar a ciegas.
+- **Optimizar = medir primero** (`explain()` / timing), después tocar. Nada de
+  optimizaciones justificadas por una corazonada sobre cómo lucen los datos.
+
 ## Reglas que rompen todo si se olvidan
 
 - **`python -m <módulo>` desde la raíz siempre**. `python engines/x.py` falla (`core` no es discoverable).
@@ -55,7 +77,7 @@ partner_api/ # app FastAPI SEPARADA (no monta en api/main) — datos para provee
 scripts/     # one-shot / migraciones / smoke
 deploy/      # systemd + crontab.txt (fuente de verdad)
 .claude/     # settings.json + hooks + commands + skills + agents (ver .claude/INDEX.md)
-docs/        # API.md, API_MIGRATIONS.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md (wip_*.md = scratch, no canónico)
+docs/        # API.md, API_MIGRATIONS.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md, RUNBOOK.md (operación/incidentes), SECRETS.md + SECURITY.md (manejo de secretos/seguridad), INGEST_DOLAR.md (feed MAE dólar) (wip_*.md = scratch, no canónico)
 ```
 
 ## Plano del sistema — `deploy/SISTEMA.md`
@@ -163,4 +185,4 @@ Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `syste
 
 Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.aum` (23 L-V), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `MarketSnapshot` y persiste cierre por bono en `Trading.SnapshotsCierre`), `jobs.negocio_movimientos` (cada hora 15-22 UTC L-V, pega a Aunesa `consolidadosGenerales`, parsea/categoriza/agrupa por boleto y persiste idempotente en `CashFlow.NegocioMovimientos` para la vista `/operaciones/negocio`).
 
-Dólar oficial: única fuente live es `Valuaciones.DolarOficialLive` (feed MAE mayorista UST$T plazo 000, script local en PC oficina). Histórico/anchors (7d/MTD/YTD del watchlist `/argy`) deshabilitado hasta que MAE acumule histórico suficiente. Para series macro (`serie_macro` con `dolar_oficial`/`dolar_mayorista`) usar `Trading.DOLAR` (BCRA A3500 fixing diario).
+Dólar oficial: única fuente live es `Valuaciones.DolarOficialLive` (feed MAE mayorista UST$T plazo 000, script local en PC oficina; ingest documentado en `docs/INGEST_DOLAR.md`). Histórico/anchors (7d/MTD/YTD del watchlist `/argy`) deshabilitado hasta que MAE acumule histórico suficiente. Para series macro (`serie_macro` con `dolar_oficial`/`dolar_mayorista`) usar `Trading.DOLAR` (BCRA A3500 fixing diario).

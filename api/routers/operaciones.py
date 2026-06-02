@@ -968,6 +968,59 @@ def ops_resumen(
     }
 
 
+@router.get("/ops/agro")
+@cached(ttl=300)
+def ops_agro(
+    desde: str = Query(..., description="YYYY-MM-DD"),
+    hasta: str = Query(..., description="YYYY-MM-DD"),
+    agg: str = Query("MENSUAL", description="MENSUAL | DIARIO"),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+):
+    """Futuros agropecuarios: Σ TONELADAS por periodo (mes/día) y commodity
+    (SOJA/TRIGO/MAIZ). Lógica: tipo 'Futuros' sin 'Financieros', sin OTC;
+    toneladas = |cantidad| × (10 si 'MIN' en instrumento, sino 100)."""
+    db = get_db_cashflow()["Operaciones"]
+    plen = 7 if agg.upper() == "MENSUAL" else 10
+    inst = {"$ifNull": ["$instrumento", ""]}
+    match: dict = {"$and": [
+        {"tipo_operacion": {"$regex": "Futuros", "$options": "i"}},
+        {"tipo_operacion": {"$not": {"$regex": "Financieros", "$options": "i"}}},
+        {"denominacion": {"$not": {"$regex": "OTC", "$options": "i"}}},
+        {"instrumento": {"$not": {"$regex": "OTC", "$options": "i"}}},
+        {"concertacion": {"$gte": desde, "$lte": hasta}},
+    ]}
+    aplicar_scope_cuenta(match, scope)
+    rows = list(db.aggregate([
+        {"$match": match},
+        {"$addFields": {
+            "commodity": {"$switch": {"branches": [
+                {"case": {"$regexMatch": {"input": inst, "regex": "SOJ", "options": "i"}}, "then": "SOJA"},
+                {"case": {"$regexMatch": {"input": inst, "regex": "TRI", "options": "i"}}, "then": "TRIGO"},
+                {"case": {"$regexMatch": {"input": inst, "regex": "MAI", "options": "i"}}, "then": "MAIZ"},
+            ], "default": "OTRO"}},
+            "toneladas": {"$multiply": [
+                {"$abs": {"$ifNull": ["$cantidad", 0]}},
+                {"$cond": [{"$regexMatch": {"input": inst, "regex": "MIN", "options": "i"}}, 10, 100]},
+            ]},
+            "periodo": {"$substr": ["$concertacion", 0, plen]},
+        }},
+        {"$match": {"commodity": {"$ne": "OTRO"}}},
+        {"$group": {"_id": {"p": "$periodo", "c": "$commodity"}, "ton": {"$sum": "$toneladas"}}},
+    ]))
+    por_periodo: dict[str, dict] = {}
+    tot = {"SOJA": 0.0, "TRIGO": 0.0, "MAIZ": 0.0}
+    for r in rows:
+        p, c = r["_id"]["p"], r["_id"]["c"]
+        d = por_periodo.setdefault(p, {"periodo": p, "SOJA": 0.0, "TRIGO": 0.0, "MAIZ": 0.0})
+        d[c] = round(r["ton"], 0)
+        tot[c] = round(tot.get(c, 0) + r["ton"], 0)
+    return {
+        "desde": desde, "hasta": hasta, "agg": agg,
+        "serie": [por_periodo[p] for p in sorted(por_periodo)],
+        "totales": tot,
+    }
+
+
 @router.get("/ops/cuentas-list")
 @cached(ttl=3600)
 def ops_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas)):

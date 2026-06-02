@@ -425,3 +425,58 @@ def _reclasificar_nivel_3(col, ids_cuenta: list[str], actor: str) -> int:
     if not ops:
         return 0
     return col.bulk_write(ops, ordered=False).modified_count
+
+
+class _RecalcReq(BaseModel):
+    apply: bool = False  # False = preview (no escribe); True = aplica.
+
+
+@bulk_router.post("/clientes/recalcular-niveles")
+def recalcular_niveles(req: _RecalcReq, actor: str = Depends(get_user_email)):
+    """Recalcula `nivel_3` (segmento patrimonial) de TODAS las Comitentes activas.
+
+    Reglas: FCI/contraparte → PJ GRANDE; PH por cupo→USD/MEP; PJ por cupo→UVA
+    (ver api/services/segmentacion.py). NO destructivo: solo SETea cuando hay un
+    label calculado; nunca borra un nivel_3 existente (no pisa la segmentación
+    manual de las que el motor no puede derivar). `apply=False` → preview."""
+    from api.services.macro import get_ultimo_mep, get_ultimo_uva
+    from api.services.segmentacion import cargar_ids_contrapartes, clasificar_nivel_3
+    client = get_mongo_client()
+    col = client[DB][COL]
+    mep = float(get_ultimo_mep().get("mep") or 0) or None
+    uva = get_ultimo_uva()
+    contrapartes = cargar_ids_contrapartes(client["CashFlow"])
+
+    proj = {"_id": 0, "id_cuenta": 1, "tipo_cliente": 1, "nivel_3": 1, "cupo.transaccional_ars": 1}
+    dist: dict[str, int] = {}
+    cambios: list[dict] = []
+    ops: list[UpdateOne] = []
+    now = datetime.now(UTC)
+    n = 0
+    for r in col.find({"estado": "Activa"}, proj):
+        n += 1
+        idc = str(r.get("id_cuenta") or "").strip()
+        if not idc:
+            continue
+        cupo = (r.get("cupo") or {}).get("transaccional_ars")
+        nuevo = clasificar_nivel_3(
+            r.get("tipo_cliente"),
+            float(cupo) if cupo is not None else None,
+            mep=mep, uva=uva, es_contraparte=idc in contrapartes,
+        )
+        dist[nuevo or "(sin clasificar)"] = dist.get(nuevo or "(sin clasificar)", 0) + 1
+        # NO destructivo: solo si HAY label nuevo y difiere. Nunca borra (nuevo=None se ignora).
+        if nuevo is not None and nuevo != r.get("nivel_3"):
+            cambios.append({"id_cuenta": idc, "de": r.get("nivel_3"), "a": nuevo})
+            if req.apply:
+                ops.append(UpdateOne(
+                    {"id_cuenta": idc},
+                    {"$set": {"nivel_3": nuevo, "actualizado_at": now,
+                              "actualizado_por": f"recalcular:{actor}"}},
+                ))
+    modificadas = col.bulk_write(ops, ordered=False).modified_count if (req.apply and ops) else 0
+    return {
+        "evaluadas": n, "cambios": len(cambios), "modificadas": modificadas,
+        "aplicado": req.apply, "distribucion": dist, "ejemplos": cambios[:30],
+        "mep": mep, "uva": uva, "sin_mep": mep is None, "sin_uva": uva is None,
+    }

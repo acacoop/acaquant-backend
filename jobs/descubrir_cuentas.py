@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import socket
 import sys
 import time
 from datetime import UTC, datetime
@@ -42,6 +43,14 @@ logger = logging.getLogger("jobs.descubrir_cuentas")
 
 DB = "Operaciones"
 COL = "AccountsDescubiertas"
+
+# Timeout de socket por llamada al broker: una conexión colgada del broker es lo
+# que dejó este job corriendo 5h el 2026-06-03. pyRofex no expone timeout, así que
+# lo imponemos a nivel socket (afecta cada request HTTP que hace por debajo).
+_SOCKET_TIMEOUT_S = 20
+# Cota de tiempo TOTAL del job (red de seguridad independiente del timeout de
+# run_job.sh): si el barrido no termina en este tiempo, persiste lo hecho y corta.
+_MAX_MIN_DEFAULT = 60
 
 
 def _read(name: str) -> str | None:
@@ -142,10 +151,15 @@ def main() -> int:
     parser.add_argument("--sleep", type=float, default=0.2)
     parser.add_argument("--batch", type=int, default=200,
                         help="Cuántas cuentas acumular antes de persistir (default 200)")
+    parser.add_argument("--max-min", type=int, default=_MAX_MIN_DEFAULT,
+                        help=f"Cota de tiempo total en minutos (default {_MAX_MIN_DEFAULT})")
     args = parser.parse_args()
 
     if args.hasta < args.desde:
         parser.error("--hasta debe ser >= --desde")
+
+    # Acota CADA llamada de red (broker + Mongo) → ninguna puede colgar el job.
+    socket.setdefaulttimeout(_SOCKET_TIMEOUT_S)
 
     _ensure_indexes()
     _login()
@@ -160,9 +174,17 @@ def main() -> int:
     n_activas = 0
     pendientes: list[tuple[str, dict]] = []
     t0 = time.monotonic()
+    max_s = args.max_min * 60
+    cortado = False
 
     try:
         for acc_int in range(args.desde, args.hasta + 1):
+            # Cota de tiempo: si nos pasamos, persistimos lo pendiente (abajo) y cortamos.
+            if time.monotonic() - t0 > max_s:
+                logger.warning("cota de tiempo (%d min) alcanzada en acc=%d — corto y persisto",
+                               args.max_min, acc_int)
+                cortado = True
+                break
             acc = str(acc_int)
             snap = _probe_account(acc)
             if snap is not None:
@@ -196,7 +218,8 @@ def main() -> int:
 
     elapsed = time.monotonic() - t0
     logger.info(
-        "Listo. Rango %d..%d procesado en %.0fs. Autorizadas=%d, activas=%d.",
+        "Listo%s. Rango %d..%d en %.0fs. Autorizadas=%d, activas=%d.",
+        " (CORTADO por cota de tiempo)" if cortado else "",
         args.desde, args.hasta, elapsed, n_autorizadas, n_activas,
     )
     return 0

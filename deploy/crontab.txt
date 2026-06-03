@@ -1,223 +1,158 @@
 # Crontab de producción — TradingAV
 # Fuente de verdad. Aplicar con:   crontab /root/TradingAV/deploy/crontab.txt
 #
-# Todos los módulos se invocan con -m desde /root/TradingAV (requiere cd previo).
+# Todos los jobs Python se invocan vía deploy/run_job.sh <nombre> <timeout> '<cmd>'
+# que agrega LOCK (no se apila si ya corre) + TIMEOUT (lo mata si se cuelga) + LOG.
+# Esto previene el incidente de CPU del 2026-06-03 (jobs colgados/duplicados).
+# El redirect al log lo hace run_job.sh → el comando interno NO lleva >> log 2>&1.
 
 # ─── Limpieza de instrumentos vencidos (12:30 UTC = 09:30 ART, L-V, antes de abrir motores)
-30 12 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_curvas >> /root/TradingAV/logs/cleanup_curvas.log 2>&1
-30 12 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_futuros_dlr >> /root/TradingAV/logs/cleanup_futuros_dlr.log 2>&1
+30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_curvas 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_curvas'
+30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_futuros_dlr 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_futuros_dlr'
 
 # ─── Motores de mercado (Lunes a Viernes, 13:00 UTC → 20:05 UTC = 10:00 → 17:05 ART)
-0 13 * * 1-5 systemctl start motor_rofex.service
-5 20 * * 1-5 systemctl stop  motor_rofex.service
-0 13 * * 1-5 systemctl start motor_options.service
-5 20 * * 1-5 systemctl stop  motor_options.service
-0 13 * * 1-5 systemctl start motor_curvas.service
-5 20 * * 1-5 systemctl stop  motor_curvas.service
-0 13 * * 1-5 systemctl start motor_forwards.service
-5 20 * * 1-5 systemctl stop  motor_forwards.service
-0 13 * * 1-5 systemctl start motor_breakevens.service
-5 20 * * 1-5 systemctl stop  motor_breakevens.service
-0 13 * * 1-5 systemctl start motor_caucion.service
-5 20 * * 1-5 systemctl stop  motor_caucion.service
-0 13 * * 1-5 systemctl start motor_futuros_dlr.service
-5 20 * * 1-5 systemctl stop  motor_futuros_dlr.service
-0 13 * * 1-5 systemctl start motor_dolares.service
-5 20 * * 1-5 systemctl stop  motor_dolares.service
-0 13 * * 1-5 systemctl start motor_cedears.service
-5 20 * * 1-5 systemctl stop  motor_cedears.service
-0 13 * * 1-5 systemctl start motor_agro.service
-5 20 * * 1-5 systemctl stop  motor_agro.service
-0 13 * * 1-5 systemctl start motor_agro_opciones.service
-5 20 * * 1-5 systemctl stop  motor_agro_opciones.service
-0 13 * * 1-5 systemctl start motor_portfolio_snapshot.service
-5 20 * * 1-5 systemctl stop  motor_portfolio_snapshot.service
+# Nota: `restart` (no `start`) → mata cualquier instancia zombie heredada (WS muerto
+# pero proceso "active"). Ver memoria project_motors_overnight_atlas_pause.
+0 13 * * 1-5 systemctl restart motor_rofex.service
+5 20 * * 1-5 systemctl stop    motor_rofex.service
+0 13 * * 1-5 systemctl restart motor_options.service
+5 20 * * 1-5 systemctl stop    motor_options.service
+0 13 * * 1-5 systemctl restart motor_curvas.service
+5 20 * * 1-5 systemctl stop    motor_curvas.service
+0 13 * * 1-5 systemctl restart motor_forwards.service
+5 20 * * 1-5 systemctl stop    motor_forwards.service
+0 13 * * 1-5 systemctl restart motor_breakevens.service
+5 20 * * 1-5 systemctl stop    motor_breakevens.service
+0 13 * * 1-5 systemctl restart motor_caucion.service
+5 20 * * 1-5 systemctl stop    motor_caucion.service
+0 13 * * 1-5 systemctl restart motor_futuros_dlr.service
+5 20 * * 1-5 systemctl stop    motor_futuros_dlr.service
+0 13 * * 1-5 systemctl restart motor_dolares.service
+5 20 * * 1-5 systemctl stop    motor_dolares.service
+0 13 * * 1-5 systemctl restart motor_cedears.service
+5 20 * * 1-5 systemctl stop    motor_cedears.service
+0 13 * * 1-5 systemctl restart motor_agro.service
+5 20 * * 1-5 systemctl stop    motor_agro.service
+0 13 * * 1-5 systemctl restart motor_agro_opciones.service
+5 20 * * 1-5 systemctl stop    motor_agro_opciones.service
+0 13 * * 1-5 systemctl restart motor_portfolio_snapshot.service
+5 20 * * 1-5 systemctl stop    motor_portfolio_snapshot.service
 
 # ─── Motor de órdenes (10:30 ART → 17:05 ART = 13:30 UTC → 20:05 UTC)
-# Escucha order_report y persiste el ciclo de vida de cada orden en
-# Operaciones.OrdenesLive / OrdenesAudit. El API tiene su propia sesión
-# pyRofex liviana (REST) y manda al broker; este motor solo escucha.
-30 13 * * 1-5 systemctl start motor_ordenes.service
-5  20 * * 1-5 systemctl stop  motor_ordenes.service
+30 13 * * 1-5 systemctl restart motor_ordenes.service
+5  20 * * 1-5 systemctl stop    motor_ordenes.service
 
 # ─── Discovery de cuentas autorizadas (1x/día, 11:30 UTC = 08:30 ART, L-V)
-# Itera 1-12000 contra el broker (pyRofex get_account_report) y upsertea
-# las cuentas válidas en Operaciones.AccountsDescubiertas. Sin este job
-# el dropdown de cuentas en /operar queda vacío. Primera corrida ~40min;
-# las siguientes son incrementales y rápidas (mismas cuentas, refresca
-# saldos). Read-only contra el broker.
-30 11 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.descubrir_cuentas >> /root/TradingAV/logs/descubrir_cuentas.log 2>&1
+# Itera 1-12000 contra el broker (pyRofex). Timeout 90m: el 2026-06-03 quedó
+# colgado 5h. El lock evita que el cron del día siguiente arranque una 2ª
+# instancia encima si la anterior sigue viva.
+30 11 * * 1-5 /root/TradingAV/deploy/run_job.sh descubrir_cuentas 90m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.descubrir_cuentas'
 
 # ─── Volatilidad GGAL (al cierre)
-0 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.volatilidad_ggal >> /root/TradingAV/logs/vr_ggal.log 2>&1
+0 20 * * 1-5 /root/TradingAV/deploy/run_job.sh volatilidad_ggal 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.volatilidad_ggal'
 
 # ─── Precios acciones daily (post cierre US, 22 UTC = 19 ART, L-V)
-# Yahoo Finance daily candle por cada CEDEAR activo → Trading.PreciosAcciones.
-# Idempotente — corre con colchón de 5 días por si se pierde alguno.
-0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.precios_acciones_daily >> /root/TradingAV/logs/precios_acciones.log 2>&1
+0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh precios_acciones_daily 30m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.precios_acciones_daily'
 
-# ─── ADR live (Finnhub /quote, cada 15 min en hs US, L-V)
-# 13:30-20:00 UTC = 10:30-17:00 ART. Llena Trading.AdrSnapshot para que
-# la vista ADR del Scanner muestre precios USD intra (no solo EOD).
-*/15 13-20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.adr_live >> /root/TradingAV/logs/adr_live.log 2>&1
+# ─── ADR live (Finnhub /quote, cada 15 min en hs US, L-V) 13:30-20:00 UTC
+*/15 13-20 * * 1-5 /root/TradingAV/deploy/run_job.sh adr_live 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.adr_live'
 
-# ─── Dólar MEP + CCL (cada 15 min durante rueda, L-V 13:00-20:45 UTC = 10:00-17:45 ART)
-# Corre a :00, :15, :30, :45 — 32 snapshots/día por moneda. Persiste en
-# Valuaciones.Dolar con campos {mep, ccl, canje, al30_offer, al30d_bid, al30c_bid}.
-*/15 13-20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m engines.dolar_mep >> /root/TradingAV/logs/dolar_mep.log 2>&1
-
+# ─── Dólar MEP + CCL (cada 15 min durante rueda, L-V 13:00-20:45 UTC)
+*/15 13-20 * * 1-5 /root/TradingAV/deploy/run_job.sh dolar_mep 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m engines.dolar_mep'
 
 # ─── Indicadores macro argentinadatos.com (1x/día, 12:00 UTC = 09:00 ART)
-# Persiste Trading.RiesgoPais / InflacionMensual / InflacionInteranual.
-0 12 * * * cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.argentina_datos >> /root/TradingAV/logs/argentina_datos.log 2>&1
+0 12 * * * /root/TradingAV/deploy/run_job.sh argentina_datos 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.argentina_datos'
 
-# ─── CashFlow (martes a sábado 02:00 UTC = lunes-viernes 23:00 ART)
-# Chainea sync a OperacionesAPI.FlujosAPI.
-0 2 * * 2-6 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cashflow --today >> /root/TradingAV/logs/cashflow.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --movimientos >> /root/TradingAV/logs/sync_api.log 2>&1
+# ─── CashFlow (martes a sábado 02:00 UTC = lunes-viernes 23:00 ART) → chainea sync.
+0 2 * * 2-6 /root/TradingAV/deploy/run_job.sh cashflow_chain 30m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cashflow --today && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --movimientos'
 
-# ─── Flujo Contrapartes (lunes-viernes 22:00 UTC = 19:00 ART)
-# Chainea sync a OperacionesAPI.MesaAPI.
-0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.flujo_contrapartes >> /root/TradingAV/logs/flujo_contrapartes.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --flujo >> /root/TradingAV/logs/sync_api.log 2>&1
+# ─── Flujo Contrapartes (lunes-viernes 22:00 UTC = 19:00 ART) → chainea sync.
+0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh flujo_chain 30m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.flujo_contrapartes && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --flujo'
 
-# ─── Negocio del día (cada hora 12-22 ART = 15-22 UTC L-V)
-# Pega a Aunesa /operaciones/consolidadosGenerales, consolida por boleto y
-# upsertea en CashFlow.NegocioMovimientos. Idempotente por (fecha, comprobante).
-# Alimenta la vista /operaciones → tab NEGOCIO.
-# Chainea jobs.aranceles: rellena el `arancel` de los boletos recién insertados
-# (Aunesa /informes, ventana de 7 días para cubrir liquidación T+2 + retroactivos).
-# Chainea jobs.fci_bilateral: lleva el FCI bilateral (solicitudes DOC + liquidaciones
-# CL) de NegocioMovimientos a CashFlow.Operaciones con `etapa` (idempotente).
-0 15-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.negocio_movimientos >> /root/TradingAV/logs/negocio_movimientos.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.aranceles >> /root/TradingAV/logs/aranceles.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.fci_bilateral >> /root/TradingAV/logs/fci_bilateral.log 2>&1
-
-# ─── Operaciones desde /informes (cada 30 min, 10:30-19:00 ART = 13:30-22:00 UTC L-V)
-# Fuente de verdad de operaciones (por CONCERTACIÓN). Consulta /informes por
-# cuenta (Clientes.Comitentes) en paralelo, upsertea por boleto en
-# CashFlow.Operaciones (idempotente) + enrich inline. Alimenta /ops (Operaciones ✦).
+# ─── Negocio del día (cada hora 15-22 UTC L-V) → negocio_movimientos + aranceles + fci_bilateral
+# Pega a Aunesa consolidadosGenerales → CashFlow.NegocioMovimientos (idempotente);
+# aranceles rellena `arancel`; fci_bilateral lleva el FCI bilateral a Operaciones.
 #
-# PAUSADO 2026-06-03 — incidente CPU 100% en Atlas (M10). Se pausa la ingesta
-# intra-día para sacar carga de escritura mientras se implementan los rollups
-# de Operaciones (ver plan de arquitectura). Idempotente + lookback → al
-# reactivar recupera lo que falte. Para recuperar el día manualmente:
+# PAUSADO 2026-06-03 — `fci_bilateral` tiene una query COLLSCAN ($or+regex sobre
+# NegocioMovimientos) que colgaba y disparaba el CPU al 100% cada hora. REACTIVAR
+# (descomentar) recién cuando esté arreglada esa query (ver AUDITORIA_DATOS, P0).
+# El wrapper ya tiene timeout=25m de red por si se cuelga igual.
+#0 15-22 * * 1-5 /root/TradingAV/deploy/run_job.sh negocio_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.negocio_movimientos && /root/TradingAV/venv/bin/python -m jobs.aranceles && /root/TradingAV/venv/bin/python -m jobs.fci_bilateral'
+
+# ─── Operaciones desde /informes (cada 30 min, 13:30-22:00 UTC L-V)
+# Fuente de verdad de operaciones (por CONCERTACIÓN). Idempotente + lookback.
+#
+# PAUSADO 2026-06-03 — incidente CPU 100% (M10). Reactivar cuando estén los
+# rollups de Operaciones (ver AUDITORIA_DATOS, P1). Recuperar el día a mano:
 #   python -m jobs.operaciones_informes --desde <YYYY-MM-DD> --hasta <YYYY-MM-DD>
-# REACTIVAR descomentando las 2 líneas de abajo cuando estén los rollups.
-#30 13-21 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes >> /root/TradingAV/logs/operaciones_informes.log 2>&1
-#0  14-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes >> /root/TradingAV/logs/operaciones_informes.log 2>&1
+#30 13-21 * * 1-5 /root/TradingAV/deploy/run_job.sh operaciones_informes 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes'
+#0  14-22 * * 1-5 /root/TradingAV/deploy/run_job.sh operaciones_informes 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes'
 
 # ─── Cache-warming vista COMERCIAL (cada 4 min en horario de mercado L-V)
-# Pega al uvicorn LOCAL (127.0.0.1:8000) para calentar la cache in-process de
-# la API (operador + serie por operador). TTL de la cache = 300s → */4 la
-# mantiene caliente. Sin esto, cada operador se come el primer hit en frío.
-*/4 13-20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.comercial_warm >> /root/TradingAV/logs/comercial_warm.log 2>&1
+# Timeout 3m (< intervalo de 4m) + lock → no se apila si la API está lenta.
+*/4 13-20 * * 1-5 /root/TradingAV/deploy/run_job.sh comercial_warm 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.comercial_warm'
 
 # ─── Snapshot mensual de cuentas activas (22:30 UTC = 19:30 ART, L-V)
-# Corre el MES CORRIENTE después del último negocio_movimientos (22:00 UTC) →
-# refresca Clientes.ActividadMensual con las activas del mes hasta hoy.
-# Idempotente (reemplaza el mes). Backfill inicial: python -m jobs.actividad_mensual --backfill.
-30 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.actividad_mensual >> /root/TradingAV/logs/actividad_mensual.log 2>&1
+30 22 * * 1-5 /root/TradingAV/deploy/run_job.sh actividad_mensual 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.actividad_mensual'
 
 # ─── BCRA (CER/TAMAR/DOLAR/BADLAR, 22:00 UTC L-V = 19:00 ART)
-# El CER se publica ~18 ART con 10 días hábiles de anticipación (forward).
-# Corremos DESPUÉS de la publicación para capturar los valores del día.
-# El job pide hasta hoy+21 días corridos, así los forward quedan en Mongo
-# y motor_curvas puede marcar los bonos CER con cer_fijado=true cuando su
-# CER de liquidación ya es conocido.
-0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bcra --today >> /root/TradingAV/logs/bcra.log 2>&1
+0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh bcra 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bcra --today'
 
-# ─── AuM snapshot — corre 5 veces L-V para evitar desfasaje vs el cron
-# de flujos (negocio_movimientos cada hora 15-22 UTC). Sin estas
-# corridas intra-day, la vista Mensual mostraba Δ valor con error
-# (cierre stale vs flujo fresh).
-#
-#   15:00 UTC = 12:00 ART → snapshot mediodía.
-#   17:00 UTC = 14:00 ART → snapshot tarde temprano.
-#   18:30 UTC = 15:30 ART → snapshot mid-rueda.
-#   21:00 UTC = 18:00 ART → snapshot post-cierre BYMA.
-#   23:00 UTC = 20:00 ART → snapshot cierre del día (final).
-#
-# El cron es idempotente: por cuenta hace delete_many({fecha_snapshot:
-# hoy}) antes del bulk_write, así re-correr no deja fantasmas.
-#
-# Chainea sync a PortfolioAPI.AumAPI + TitulosAPI.ValuacionesAPI +
-# TitulosAPI.AssetsAPI (refleja CARTERA/EMISOR editados en Valuaciones.Assets).
-0  15 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets >> /root/TradingAV/logs/sync_api.log 2>&1
-0  17 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets >> /root/TradingAV/logs/sync_api.log 2>&1
-30 18 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets >> /root/TradingAV/logs/sync_api.log 2>&1
-0  21 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets >> /root/TradingAV/logs/sync_api.log 2>&1
-0  23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> /root/TradingAV/logs/aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets >> /root/TradingAV/logs/sync_api.log 2>&1
+# ─── AuM snapshot — 5 corridas L-V (15/17/18:30/21/23 UTC) → chainea sync.
+# Idempotente: por cuenta delete_many({fecha_snapshot: hoy}) antes del bulk_write.
+0  15 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets'
+0  17 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets'
+30 18 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets'
+0  21 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets'
+0  23 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets'
 
 # ─── Consolidado por cuenta (23:30 UTC = 20:30 ART, L-V — post AuM final 23:00)
-# Precalcula TOTALES > POR CUENTA (valor + base 100 + PnL acum por cuenta,
-# ARS y USD) en Valuaciones.ConsolidadoCuentas. Recorrer las cuentas en vivo
-# desde el endpoint se pasa del timeout HTTP (502) → se precalcula offline.
-30 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.consolidado_cuentas >> /root/TradingAV/logs/consolidado_cuentas.log 2>&1
+30 23 * * 1-5 /root/TradingAV/deploy/run_job.sh consolidado_cuentas 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.consolidado_cuentas'
 
-# ─── Export proveedor — 2 corridas diarias (18:30 y 23:00 hora Argentina, L-V)
-# Job autónomo: pega directo a Aunesa por las cuentas de
-# config.PARTNER_EXPORT_CUENTAS y vuelca su posición a ACAPortfolio.Cartera
-# (lo que lee la API externa del proveedor). No depende de Valuaciones.AuM.
-# Aborta si la lista está vacía. La 2ª corrida reemplaza a la 1ª (misma fecha).
-# Corrida 1 — 18:30 ART = 21:30 UTC.
-30 21 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.partner_export >> /root/TradingAV/logs/partner_export.log 2>&1
-# Corrida 2 — 23:00 ART = 02:00 UTC del día siguiente (2-6 = mar-sáb UTC = lun-vie ART).
-0 2 * * 2-6 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.partner_export >> /root/TradingAV/logs/partner_export.log 2>&1
+# ─── Export proveedor — 2 corridas diarias (21:30 UTC y 02:00 UTC del día sig.)
+30 21 * * 1-5 /root/TradingAV/deploy/run_job.sh partner_export 20m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.partner_export'
+0 2 * * 2-6 /root/TradingAV/deploy/run_job.sh partner_export 20m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.partner_export'
 
 # ─── PnL TOTALES precompute (cada 30 min en la rueda — :05 y :35, 15-22 UTC L-V)
-# El endpoint /pnl-todas pasó a SOLO leer Valuaciones.PnLTotalesCache; este job
-# hace el cálculo pesado de las ~883 cuentas offline. El run de :05 va 5 min
-# después de negocio_movimientos (:00) → toma los boletos frescos sin descalce;
-# el de :35 refresca los precios live a mitad de hora.
-5,35 15-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.pnl_totales_precompute >> /root/TradingAV/logs/pnl_totales_precompute.log 2>&1
+# Timeout 25m (< intervalo 30m) + lock → no se apila el cómputo pesado de ~883 cuentas.
+5,35 15-22 * * 1-5 /root/TradingAV/deploy/run_job.sh pnl_totales_precompute 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.pnl_totales_precompute'
 
 # ─── Rollup diario de opciones (20:15 UTC = 17:15 ART, L-V)
-15 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.options_rollup >> /root/TradingAV/logs/options_rollup.log 2>&1
+15 20 * * 1-5 /root/TradingAV/deploy/run_job.sh options_rollup 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.options_rollup'
 
 # ─── Z-score de forwards (20:30 UTC = 17:30 ART, L-V — post-cierre motor)
-# Lee últimos 30 días de Trading.ForwardsHistorico y persiste media+desvío
-# por par en Trading.ForwardsZscore. El front computa z en cada tick live.
-30 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.forwards_zscore >> /root/TradingAV/logs/forwards_zscore.log 2>&1
+30 20 * * 1-5 /root/TradingAV/deploy/run_job.sh forwards_zscore 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.forwards_zscore'
 
-# ─── Fair Value cierre + fit + residuos (20:25 UTC = 17:25 ART, L-V)
-# Encadenado: snapshot_cierre materializa Trading.SnapshotsCierre del día,
-# fair_value ajusta cuadrática por curva y persiste β + residuos + z-scores
-# en Trading.FitParams y Trading.FairValueResiduos. Curvas V1: tasa_fija + cer.
-25 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.snapshot_cierre >> /root/TradingAV/logs/snapshot_cierre.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.fair_value >> /root/TradingAV/logs/fair_value.log 2>&1
+# ─── Fair Value cierre + fit + residuos (20:25 UTC = 17:25 ART, L-V) → snapshot_cierre + fair_value
+25 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cierre_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.snapshot_cierre && /root/TradingAV/venv/bin/python -m jobs.fair_value'
 
 # ─── Cierre diario de canje (20:35 UTC = 17:35 ART, L-V — post-cierre motor)
-# Materializa el último precio del día de AL30C/D y GD30C/D en Trading.CanjeCierre
-# → serie_canje lee ~365 docs en vez de agregar ~540k ticks de TimeSales (2.6s→<50ms).
-# Backfill histórico inicial: python -m scripts.backfill_cierre_canje.
-35 20 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cierre_canje >> /root/TradingAV/logs/cierre_canje.log 2>&1
+35 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cierre_canje 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cierre_canje'
 
-# ─── Atlas cluster pause diaria (06:00 UTC = 03:00 ART)
-# ─── Atlas cluster resume diaria (11:20 UTC = 08:20 ART — 10 min de buffer para que esté up a las 08:30 ART)
+# ─── Atlas cluster pause/resume diaria (06:00 / 11:20 UTC = 03:00 / 08:20 ART)
 0  6  * * * /root/TradingAV/deploy/atlas_cluster.sh pause  >> /root/TradingAV/logs/atlas_cluster.log 2>&1
 20 11 * * * /root/TradingAV/deploy/atlas_cluster.sh resume >> /root/TradingAV/logs/atlas_cluster.log 2>&1
 
-# ─── News RSS medios AR (Ámbito, Cronista, Infobae, iProfesional, La Nación, Clarín)
-# Primer disparo a las 11:25 UTC (5 min post-resume de Atlas) para tener noticias frescas a la mañana.
-# Updates cada 15 min en ventana activa (12-23 UTC = 09-20 ART), todos los días (las noticias no paran fin de semana).
-25 11    * * *   cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_ingesta >> /root/TradingAV/logs/news_ingesta.log 2>&1
-*/15 12-23 * * * cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_ingesta >> /root/TradingAV/logs/news_ingesta.log 2>&1
+# ─── News RSS medios AR — 1er tiro 11:25 UTC (post-resume) + cada 15 min 12-23 UTC (todos los días)
+25 11    * * *   /root/TradingAV/deploy/run_job.sh news_ingesta 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_ingesta'
+*/15 12-23 * * * /root/TradingAV/deploy/run_job.sh news_ingesta 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_ingesta'
 
-# ─── News Finnhub (globales + ADRs AR/LATAM, sentiment skip)
-# Mismo patrón: 1er tiro post-resume + updates cada 30 min en ventana activa.
-25 11    * * *   cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_finnhub >> /root/TradingAV/logs/news_finnhub.log 2>&1
-*/30 12-23 * * * cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_finnhub >> /root/TradingAV/logs/news_finnhub.log 2>&1
+# ─── News Finnhub (globales + ADRs AR/LATAM) — 1er tiro post-resume + cada 30 min 12-23 UTC
+25 11    * * *   /root/TradingAV/deploy/run_job.sh news_finnhub 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_finnhub'
+*/30 12-23 * * * /root/TradingAV/deploy/run_job.sh news_finnhub 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_finnhub'
 
 # ─── Calendario económico global (Finnhub) — 1x/día post-resume
-30 11 * * * cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.economic_calendar >> /root/TradingAV/logs/economic_calendar.log 2>&1
+30 11 * * * /root/TradingAV/deploy/run_job.sh economic_calendar 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.economic_calendar'
 
-# ─── Market quotes (watchlist HOME: índices, commodities, FX, treasuries) — cada 1 min en horario US (L-V)
-*    13-21 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_quotes >> /root/TradingAV/logs/market_quotes.log 2>&1
+# ─── Market quotes (watchlist HOME) — cada 1 min en horario US (L-V)
+# Timeout 50s (< intervalo 60s) — yfinance NO tiene timeout propio; sin esto un
+# Yahoo lento apilaba procesos colgados cada minuto.
+*    13-21 * * 1-5 /root/TradingAV/deploy/run_job.sh market_quotes 50s 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_quotes'
 
-# ─── Market anchors (retornos 7d/MTD/YTD/1Y) — 1x/día post-cierre US (22:00 UTC = 19:00 ART, L-V)
-0 22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_anchors >> /root/TradingAV/logs/market_anchors.log 2>&1
+# ─── Market anchors (retornos 7d/MTD/YTD/1Y) — 1x/día post-cierre US (22:00 UTC, L-V)
+0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh market_anchors 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_anchors'
 
-# ─── Sync comitentes (master de clientes — Tablero Comercial) — 3x/día L-V
-# 14:00 UTC = 11:00 ART · 17:00 UTC = 14:00 ART · 21:00 UTC = 18:00 ART.
-# Trae Comitente+Activa de Aunesa listadoCuentas → upsert Clientes.Comitentes.
-# Idempotente: cuentas nuevas se agregan solas; los campos de segmentación
-# manual (segmento, sub_segmento, sub_sub_segmento, sucursal, referido) NO se pisan.
-0 14 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes >> /root/TradingAV/logs/sync_comitentes.log 2>&1
-0 17 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes >> /root/TradingAV/logs/sync_comitentes.log 2>&1
-0 21 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes >> /root/TradingAV/logs/sync_comitentes.log 2>&1
+# ─── Sync comitentes (master de clientes) — 3x/día L-V (14/17/21 UTC)
+0 14 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_comitentes 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes'
+0 17 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_comitentes 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes'
+0 21 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_comitentes 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes'

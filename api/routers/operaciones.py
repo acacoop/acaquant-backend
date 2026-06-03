@@ -996,9 +996,11 @@ def ops_agro(
 
     Devuelve: `serie` (histórica global, chart de la izq), `serie_cuenta`
     (histórica SOLO de la cuenta elegida, chart de la der; vacía sin `cuenta`),
-    `totales` (Σ por commodity), `por_cuenta` y `por_instrumento` (acotados al
-    rango [desde,hasta])."""
-    db = get_db_cashflow()["Operaciones"]
+    `serie_share` (% mensual nuestro/mercado por commodity, tab "Share de
+    mercado"; lee CashFlow.VolumenMercadoAgro), `totales` (Σ por commodity),
+    `por_cuenta` y `por_instrumento` (acotados al rango [desde,hasta])."""
+    dbcf = get_db_cashflow()
+    db = dbcf["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10
     inst = {"$ifNull": ["$instrumento", ""]}
     # `commodity` (SOJA/TRIGO/MAIZ) se materializa en la ingesta — ver
@@ -1033,6 +1035,10 @@ def ops_agro(
         "por_instrumento": [date_m, *f_comm, *f_cta,
                             {"$group": {"_id": "$instrumento", "ton": {"$sum": "$toneladas"}, "n": {"$sum": 1}}},
                             {"$sort": {"ton": -1}}],
+        # Nuestro volumen agregado a MES (histórico) → numerador del market share.
+        "nuestro_mensual": [{"$group": {
+            "_id": {"p": {"$substr": ["$concertacion", 0, 7]}, "c": "$commodity"},
+            "ton": {"$sum": "$toneladas"}}}],
     }
     if cuenta:
         facet_spec["serie_cuenta"] = [{"$match": {"denominacion": cuenta}}, serie_grp]
@@ -1058,10 +1064,35 @@ def ops_agro(
                   for r in f.get("por_cuenta", [])]
     por_instrumento = [{"instrumento": r["_id"] or "(sin)", "toneladas": round(r["ton"], 0), "n": r["n"]}
                        for r in f.get("por_instrumento", [])]
+
+    # Market share MENSUAL: nuestro_mensual / volumen de mercado. Sólo para los
+    # meses con dato de mercado cargado (CashFlow.VolumenMercadoAgro, manual).
+    # share = None si falta el mercado de ese commodity → el front lo muestra como —.
+    nuestro_m: dict[str, dict] = {}
+    for r in f.get("nuestro_mensual", []):
+        nuestro_m.setdefault(r["_id"]["p"], {})[r["_id"]["c"]] = r["ton"]
+    mercado: dict[str, dict] = {}
+    for d in dbcf["VolumenMercadoAgro"].find(
+        {}, {"_id": 0, "periodo": 1, "commodity": 1, "toneladas": 1}
+    ):
+        mercado.setdefault(d["periodo"], {})[d["commodity"]] = d.get("toneladas") or 0
+    serie_share = []
+    for p in sorted(mercado):
+        nm = mercado[p]
+        ours = nuestro_m.get(p, {})
+        row: dict = {"periodo": p}
+        for c in ("SOJA", "TRIGO", "MAIZ"):
+            mkt = nm.get(c) or 0
+            row[c] = round(100 * (ours.get(c) or 0) / mkt, 2) if mkt else None
+            row[f"{c}_nuestro"] = round(ours.get(c) or 0, 0)
+            row[f"{c}_mercado"] = round(mkt, 0)
+        serie_share.append(row)
+
     return {
         "desde": desde, "hasta": hasta, "agg": agg,
         "serie": _serie(f.get("serie", [])),
         "serie_cuenta": _serie(f.get("serie_cuenta", [])),
+        "serie_share": serie_share,
         "totales": tot, "por_cuenta": por_cuenta, "por_instrumento": por_instrumento,
     }
 

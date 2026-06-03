@@ -52,7 +52,9 @@ def _agregar(ops, desde: str | None) -> list[dict]:
         {"$group": {
             "_id": grupo,
             "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}},
-            "arancel": {"$sum": {"$ifNull": ["$arancel", 0]}},
+            # arancel en valor ABSOLUTO: la serie de /ops/aranceles usa $abs
+            # (los aranceles negativos —reintegros— se cuentan en magnitud).
+            "arancel": {"$sum": {"$abs": {"$ifNull": ["$arancel", 0]}}},
             "n": {"$sum": 1},
         }},
     ], allowDiskUse=True)

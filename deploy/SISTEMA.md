@@ -65,6 +65,7 @@
 | cada 5min · *h · diario | `jobs.watchdog'` |
 | 12:00 · diario | `jobs.argentina_datos'` |
 | 14:00 · L-V | `jobs.sync_comitentes'` |
+| cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |
 | 15:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
 | cada hora · 15-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral'` |
 | 17:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
@@ -87,6 +88,7 @@
 | 11:30 · L-V | `jobs.descubrir_cuentas'` |
 | 12:30 · L-V | `jobs.cleanup_curvas'` |
 | 12:30 · L-V | `jobs.cleanup_futuros_dlr'` |
+| cada hora · 13-21h · L-V | `jobs.operaciones_informes'` |
 | 18:30 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
 | 20:30 · L-V | `jobs.forwards_zscore'` |
 | 21:30 · L-V | `jobs.partner_export'` |

@@ -1140,6 +1140,38 @@ def ops_agro(
     }
 
 
+def _serie_arancel_rollup(cf, moneda, segmento, plen, serie_full) -> list[dict] | None:
+    """Serie Σ arancel por periodo desde OpsSerieDiaria (histórico < hoy) + hoy en
+    vivo. None si el rollup está vacío → live. El rollup ya guarda abs(arancel).
+    plen=7 mensual / 10 diario. serie_full=False acota a la ventana (~18m)."""
+    hoy = (datetime.now(UTC) - timedelta(hours=3)).date().isoformat()  # ART
+    m: dict = {"moneda": moneda, "fecha": {"$lt": hoy}}
+    if segmento and segmento.lower() != "todos":
+        m["segmento"] = segmento
+    if not serie_full:
+        cutoff = (datetime.now(UTC) - timedelta(hours=3)
+                  - timedelta(days=_SERIE_VENTANA_DIAS)).date().isoformat()
+        m["fecha"] = {"$gte": cutoff, "$lt": hoy}
+    rollup = list(cf["OpsSerieDiaria"].aggregate([
+        {"$match": m},
+        {"$group": {"_id": {"$substr": ["$fecha", 0, plen]}, "ar": {"$sum": "$arancel"}}},
+    ]))
+    if not rollup:
+        return None
+    serie = {r["_id"]: r["ar"] for r in rollup}
+    # Hoy en vivo (un día → índice concertacion). abs(arancel), moneda+segmento.
+    hoy_match = _ops_match(moneda, None, segmento=segmento)
+    hoy_match["concertacion"] = hoy
+    hoy_doc = next(iter(cf["Operaciones"].aggregate([
+        {"$match": hoy_match},
+        {"$group": {"_id": None, "ar": {"$sum": {"$abs": {"$ifNull": ["$arancel", 0]}}}}},
+    ])), None)
+    if hoy_doc and hoy_doc.get("ar"):
+        p = hoy[:plen]
+        serie[p] = serie.get(p, 0) + hoy_doc["ar"]
+    return [{"periodo": p, "arancel": round(serie[p], 2)} for p in sorted(serie)]
+
+
 @router.get("/ops/aranceles")
 @cached(ttl=300)
 def ops_aranceles(
@@ -1153,35 +1185,49 @@ def ops_aranceles(
     serie_full: bool = Query(False, description="True = serie histórica completa (botón ALL); default ~18m"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
-    """Σ aranceles por periodo (gráfico), por nivel_3 (izq) y por cliente (der)."""
+    """Σ aranceles por periodo (gráfico), por nivel_3 (izq) y por cliente (der).
+
+    La SERIE (histórica, antes escaneaba todo) sale del rollup OpsSerieDiaria
+    cuando no hay scope; las TABLAS por_nivel3/por_cuenta son date-bounded → live
+    (ya usan índice)."""
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
-    db = get_db_cashflow()["Operaciones"]
+    cf = get_db_cashflow()
+    db = cf["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10
-    match = _ops_match(moneda, None, segmento=segmento)  # SIN concertacion → serie histórica
-    aplicar_scope_cuenta(match, scope, campo="cuenta")
-    date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
     arancel = {"$abs": {"$ifNull": ["$arancel", 0]}}
-    # Acota la serie a la ventana (default ~18m) salvo serie_full → historia completa.
-    if serie_full:
-        serie_ventana: list[dict] = []
-    else:
-        hoy = (datetime.now(UTC) - timedelta(hours=3)).date()
-        cutoff = (hoy - timedelta(days=_SERIE_VENTANA_DIAS)).isoformat()
-        serie_ventana = [{"$match": {"concertacion": {"$gte": cutoff}}}]
-    # Cross-filter ASIMÉTRICO: la selección filtra SOLO la tabla opuesta; el
-    # gráfico (histórico) y la tabla de la propia dimensión quedan FIJOS.
+
+    # SERIE: rollup (sin scope) + hoy live; fallback a live si vacío o scoped.
+    serie: list[dict] | None = None
+    if scope is None:
+        serie = _serie_arancel_rollup(cf, moneda, segmento, plen, serie_full)
+    if serie is None:
+        match_s = _ops_match(moneda, None, segmento=segmento)
+        aplicar_scope_cuenta(match_s, scope, campo="cuenta")
+        if serie_full:
+            serie_ventana: list[dict] = []
+        else:
+            cutoff = (datetime.now(UTC) - timedelta(hours=3)
+                      - timedelta(days=_SERIE_VENTANA_DIAS)).date().isoformat()
+            serie_ventana = [{"$match": {"concertacion": {"$gte": cutoff}}}]
+        serie = list(db.aggregate([
+            {"$match": match_s},
+            *serie_ventana,
+            {"$group": {"_id": {"$substr": ["$concertacion", 0, plen]}, "ar": {"$sum": arancel}}},
+            {"$sort": {"_id": 1}},
+            {"$project": {"_id": 0, "periodo": "$_id", "arancel": {"$round": ["$ar", 2]}}},
+        ]))
+
+    # TABLAS (acotadas a [desde,hasta] → rápidas por índice). Cross-filter
+    # ASIMÉTRICO: la selección filtra SOLO la tabla opuesta.
+    match_t = _ops_match(moneda, None, segmento=segmento)
+    aplicar_scope_cuenta(match_t, scope, campo="cuenta")
+    date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
     f_n3 = [{"$match": {"denominacion": cuenta}}] if cuenta else []  # cuenta → filtra nivel3
     f_cta = [{"$match": {"nivel_3": nivel3}}] if nivel3 else []      # nivel3 → filtra cuentas
     facet = list(db.aggregate([
-        {"$match": match},
+        {"$match": match_t},
         {"$facet": {
-            "serie": [
-                *serie_ventana,
-                {"$group": {"_id": {"$substr": ["$concertacion", 0, plen]}, "ar": {"$sum": arancel}}},
-                {"$sort": {"_id": 1}},
-                {"$project": {"_id": 0, "periodo": "$_id", "arancel": {"$round": ["$ar", 2]}}},
-            ],
             "por_nivel3": [
                 date_m, *f_n3,
                 {"$group": {"_id": "$nivel_3", "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
@@ -1204,7 +1250,7 @@ def ops_aranceles(
     por_n3 = f.get("por_nivel3", [])
     return {
         "moneda": moneda, "desde": desde, "hasta": hasta, "agg": agg,
-        "serie": f.get("serie", []),
+        "serie": serie,
         "por_nivel3": por_n3,
         "por_cuenta": f.get("por_cuenta", []),
         "total": round(sum(r["arancel"] for r in por_n3), 2),

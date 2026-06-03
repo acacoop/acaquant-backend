@@ -87,11 +87,12 @@
 # ─── Operaciones desde /informes (cada 30 min, 13:30-22:00 UTC L-V)
 # Fuente de verdad de operaciones (por CONCERTACIÓN). Idempotente + lookback.
 #
-# PAUSADO 2026-06-03 — incidente CPU 100% (M10). Reactivar cuando estén los
-# rollups de Operaciones (ver AUDITORIA_DATOS, P1). Recuperar el día a mano:
-#   python -m jobs.operaciones_informes --desde <YYYY-MM-DD> --hasta <YYYY-MM-DD>
-#30 13-21 * * 1-5 /root/TradingAV/deploy/run_job.sh operaciones_informes 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes'
-#0  14-22 * * 1-5 /root/TradingAV/deploy/run_job.sh operaciones_informes 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes'
+# REACTIVADO 2026-06-03 — ya con run_job.sh (lock+timeout 25m) + los rollups
+# puestos, la ingesta intra-día es segura. Estuvo pausada unas horas por el
+# incidente de CPU; al reactivar recupera (idempotente + lookback). Recuperar un
+# día puntual a mano: python -m jobs.operaciones_informes --desde Y-M-D --hasta Y-M-D
+30 13-21 * * 1-5 /root/TradingAV/deploy/run_job.sh operaciones_informes 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes'
+0  14-22 * * 1-5 /root/TradingAV/deploy/run_job.sh operaciones_informes 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes'
 
 # ─── Cache-warming vista COMERCIAL (cada 4 min en horario de mercado L-V)
 # Timeout 3m (< intervalo de 4m) + lock → no se apila si la API está lenta.

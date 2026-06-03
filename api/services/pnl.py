@@ -873,9 +873,10 @@ def _load_pnl_bulk_deps(db_v, db_cf, db_t) -> dict:
     except Exception:
         snapshots_cierre_by_ticker = {}
 
-    # NegocioMovimientos: 1 scan, agrupados por id_cuenta extraída de
-    # `cuenta` con regex (formato "[123] NOMBRE"). Antes era 1 regex query
-    # por cuenta → 883 queries × ~250ms = ~220s solo en boletos.
+    # NegocioMovimientos: 1 scan, agrupados por `id_cuenta` (denormalizado en la
+    # ingesta). Usa el campo directo; fallback al regex sobre `cuenta`
+    # ("[123] NOMBRE") solo si faltara id_cuenta (docs viejos sin backfill) — así
+    # no se pierde ningún boleto. Antes era 1 regex query por cuenta → ~883 queries.
     boletos_by_id_cuenta: dict[str, list] = {}
     try:
         cursor = db_cf["NegocioMovimientos"].find(
@@ -883,15 +884,17 @@ def _load_pnl_bulk_deps(db_v, db_cf, db_t) -> dict:
                 "categoria": {"$in": list(_CATS_RELEVANTES)},
                 "ticker":    {"$ne": None},
             },
-            {"_id": 0, "cuenta": 1, "fecha": 1, "categoria": 1, "op": 1,
+            {"_id": 0, "id_cuenta": 1, "cuenta": 1, "fecha": 1, "categoria": 1, "op": 1,
              "ticker": 1, "cantidad": 1, "precio": 1, "importe": 1,
              "moneda": 1, "comprobante": 1, "mep": 1},
         ).sort([("fecha", 1), ("comprobante", 1)])
         for b in cursor:
-            m = _RE_TICKER_FALLBACK_ID_CUENTA.match(b.get("cuenta") or "")
-            if not m:
-                continue
-            cid = m.group(1)
+            cid = str(b.get("id_cuenta") or "").strip()
+            if not cid:
+                m = _RE_TICKER_FALLBACK_ID_CUENTA.match(b.get("cuenta") or "")
+                if not m:
+                    continue
+                cid = m.group(1)
             boletos_by_id_cuenta.setdefault(cid, []).append(b)
     except Exception:
         boletos_by_id_cuenta = {}

@@ -196,7 +196,8 @@ def _volumen_total(ids: tuple[str, ...], fecha_desde: str | None,
 # NegocioMovimientos dejaba afuera. Join por `cuenta` (== id_cuenta). Excluye
 # Cierre (duplicaría) y etapa="solicitud" (FCI pedido; la liquidación ya cuenta).
 # El VOLUMEN sigue en NegocioMov hasta estampar el `mep` del día en Operaciones.
-_OPS_NO_CIERRE = {"$not": {"$regex": "Cierre", "$options": "i"}}
+# Cierre se filtra por el campo materializado `es_cierre` (indexable) en vez de
+# `$not /Cierre/` (regex negada = COLLSCAN). Ver operaciones_informes._aplicar_enrich.
 
 
 def _aranceles_por_cuenta(
@@ -204,7 +205,7 @@ def _aranceles_por_cuenta(
 ) -> dict[str, dict[str, float]]:
     """{cuenta: {ar_total, ar_mes}} desde Operaciones. `ids=None` → todas las cuentas."""
     match: dict[str, Any] = {
-        "arancel": {"$gt": 0}, "tipo_operacion": _OPS_NO_CIERRE, "etapa": {"$ne": "solicitud"},
+        "arancel": {"$gt": 0}, "es_cierre": False, "etapa": {"$ne": "solicitud"},
     }
     if ids is not None:
         match["cuenta"] = {"$in": list(ids)}
@@ -977,7 +978,7 @@ def informe_segmento_detalle(
     ops_coll = get_db_cashflow()["Operaciones"]
     ops_match: dict[str, Any] = {
         "cuenta": {"$in": ids}, "arancel": {"$gt": 0},
-        "tipo_operacion": _OPS_NO_CIERRE, "etapa": {"$ne": "solicitud"},
+        "es_cierre": False, "etapa": {"$ne": "solicitud"},
     }
 
     clientes = []

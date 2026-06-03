@@ -24,7 +24,7 @@ def _dump(app, nombre: str) -> None:
     spec = app.openapi()
     (path := _OUT / nombre).write_text(
         json.dumps(spec, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"   {path}  →  {len(spec.get('paths', {}))} paths")
+    print(f"   {path}  ->  {len(spec.get('paths', {}))} paths")
 
 
 def main() -> int:
@@ -33,7 +33,7 @@ def main() -> int:
     _dump(api_app, "openapi_main.json")
     from partner_api.main import app as partner_app
     _dump(partner_app, "openapi_partner.json")
-    print("Listo. En Postman: Import → File → elegí estos .json.")
+    print("Listo. En Postman: Import -> File -> elegi estos .json.")
     return 0
 
 

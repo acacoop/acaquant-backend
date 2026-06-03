@@ -895,6 +895,40 @@ def ops_meta(fecha: str = Query(..., description="YYYY-MM-DD")):
     }}
 
 
+def _serie_bruto_rollup(cf, moneda, mercado, operacion, segmento) -> list[dict] | None:
+    """Serie Σ bruto por fecha desde el rollup CashFlow.OpsSerieDiaria (histórico
+    CERRADO, fecha < hoy) + el día de HOY en vivo (live-fallback). Devuelve None si
+    el rollup está vacío (no construido) → el caller cae a la query live completa.
+
+    Solo para el caso común (sin filtro de alta cardinalidad ni scope). El rollup
+    ya pre-filtra es_cierre/solicitud igual que _ops_match → equivalente."""
+    hoy = (datetime.now(UTC) - timedelta(hours=3)).date().isoformat()  # ART
+    m: dict = {"moneda": moneda, "fecha": {"$lt": hoy}}
+    if mercado and mercado.lower() != "todos":
+        m["mercado"] = mercado
+    if operacion:
+        m["operacion"] = operacion
+    if segmento and segmento.lower() != "todos":
+        m["segmento"] = segmento
+    rollup = list(cf["OpsSerieDiaria"].aggregate([
+        {"$match": m},
+        {"$group": {"_id": "$fecha", "bruto": {"$sum": "$bruto"}}},
+    ]))
+    if not rollup:
+        return None  # rollup no construido para esta moneda → live
+    serie = {r["_id"]: r["bruto"] for r in rollup}
+    # Hoy en vivo (un solo día → índice concertacion, barato). El rollup llega a ayer.
+    hoy_match = _ops_match(moneda, mercado, operacion, None, None, segmento)
+    hoy_match["concertacion"] = hoy
+    hoy_doc = next(iter(cf["Operaciones"].aggregate([
+        {"$match": hoy_match},
+        {"$group": {"_id": None, "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}}}},
+    ])), None)
+    if hoy_doc and hoy_doc.get("bruto"):
+        serie[hoy] = hoy_doc["bruto"]
+    return [{"fecha": f, "bruto": round(serie[f], 2)} for f in sorted(serie)]
+
+
 @router.get("/ops/serie")
 @cached(ttl=300)
 def ops_serie(
@@ -906,18 +940,26 @@ def ops_serie(
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
-    """Serie diaria: Σ bruto por fecha (las barras del gráfico)."""
+    """Serie diaria: Σ bruto por fecha (las barras del gráfico).
+
+    Caso común (sin filtro de alta cardinalidad ni scope) → lee el rollup
+    OpsSerieDiaria (jobs/ops_rollup) en vez de escanear toda Operaciones. Con
+    denominacion/cuenta/scoped → live (ya filtra por índice, no escanea todo)."""
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
-    db = get_db_cashflow()["Operaciones"]
-    match = _ops_match(moneda, mercado, operacion, denominacion, cuenta, segmento)
-    aplicar_scope_cuenta(match, scope, campo="cuenta")
-    serie = list(db.aggregate([
-        {"$match": match},
-        {"$group": {"_id": "$concertacion", "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}}}},
-        {"$sort": {"_id": 1}},
-        {"$project": {"_id": 0, "fecha": "$_id", "bruto": {"$round": ["$bruto", 2]}}},
-    ]))
+    cf = get_db_cashflow()
+    serie: list[dict] | None = None
+    if not denominacion and not cuenta and scope is None:
+        serie = _serie_bruto_rollup(cf, moneda, mercado, operacion, segmento)
+    if serie is None:
+        match = _ops_match(moneda, mercado, operacion, denominacion, cuenta, segmento)
+        aplicar_scope_cuenta(match, scope, campo="cuenta")
+        serie = list(cf["Operaciones"].aggregate([
+            {"$match": match},
+            {"$group": {"_id": "$concertacion", "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}}}},
+            {"$sort": {"_id": 1}},
+            {"$project": {"_id": 0, "fecha": "$_id", "bruto": {"$round": ["$bruto", 2]}}},
+        ]))
     return {"moneda": moneda, "mercado": mercado, "serie": serie}
 
 

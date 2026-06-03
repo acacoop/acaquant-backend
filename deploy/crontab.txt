@@ -122,6 +122,11 @@
 # Timeout 25m (< intervalo 30m) + lock → no se apila el cómputo pesado de ~883 cuentas.
 5,35 15-22 * * 1-5 /root/TradingAV/deploy/run_job.sh pnl_totales_precompute 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.pnl_totales_precompute'
 
+# ─── Rollup de series de Operaciones (incremental, cada hora :40 en rueda L-V)
+# Pre-agrega CashFlow.OpsSerieDiaria → /ops/serie+aranceles leen esto en vez de
+# escanear las 487k de Operaciones. Backfill inicial: python -m jobs.ops_rollup --full
+40 13-22 * * 1-5 /root/TradingAV/deploy/run_job.sh ops_rollup 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.ops_rollup'
+
 # ─── Rollup diario de opciones (20:15 UTC = 17:15 ART, L-V)
 15 20 * * 1-5 /root/TradingAV/deploy/run_job.sh options_rollup 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.options_rollup'
 

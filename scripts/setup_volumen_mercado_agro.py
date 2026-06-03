@@ -41,8 +41,11 @@ _COMMS = {"SOJA", "TRIGO", "MAIZ"}
 #   el script lo convierte a toneladas igual que nosotros.
 # Dejar la lista vacía sólo crea la colección + el índice (sin cargar nada).
 DATOS: list[dict] = [
-    # {"periodo": "2026-05", "commodity": "SOJA", "toneladas": 1_500_000, "fuente": "MATBA-ROFEX"},
-    # {"periodo": "2026-05", "commodity": "TRIGO", "contratos": 12_000, "unidad": "full", "fuente": "MATBA-ROFEX"},
+    {"periodo": "2025-07", "commodity": "SOJA", "toneladas": 3_342_900},
+    {"periodo": "2025-07", "commodity": "TRIGO", "toneladas": 626_000},
+    {"periodo": "2025-07", "commodity": "MAIZ", "toneladas": 2_210_925},
+    # Agregá más meses así (toneladas, o contratos+unidad full/mini):
+    # {"periodo": "2025-08", "commodity": "SOJA", "contratos": 30_000, "unidad": "full"},
 ]
 
 _FACTOR = {"full": 100, "mini": 10}

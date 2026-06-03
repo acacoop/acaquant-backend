@@ -155,8 +155,12 @@ def ensure_indexes(coll) -> None:
     )
     coll.create_index([("cuenta", 1), ("concertacion", -1)], name="cuenta_concertacion")
     coll.create_index([("concertacion", -1)], name="concertacion")
-    # /ops/serie filtra por moneda sin fecha → este índice evita el full scan.
-    coll.create_index([("moneda", 1), ("concertacion", -1)], name="moneda_concertacion")
+    # /ops/serie + /ops/aranceles + /ops/resumen filtran por moneda excluyendo
+    # cierres de caución. Con `es_cierre` materializado, este índice deja que el
+    # match (moneda + es_cierre) + group/sort por concertacion corran por índice
+    # en vez de escanear la colección (antes: `$not /Cierre/` = COLLSCAN).
+    coll.create_index([("moneda", 1), ("es_cierre", 1), ("concertacion", -1)],
+                      name="moneda_escierre_concertacion")
     # /ops/agro: la serie es histórica (sin fecha) y los futuros agro son una
     # MINORÍA de los boletos → índice PARCIAL sobre el `commodity` materializado
     # (ver _clasificar_commodity) para que el match no escanee toda la colección.
@@ -228,6 +232,10 @@ def _aplicar_enrich(doc: dict, maps: tuple[dict, dict] | None) -> None:
     doc["commodity"] = clasificar_commodity(
         doc.get("tipo_operacion"), doc.get("denominacion"), doc.get("instrumento"),
     )
+    # es_cierre: cierre de caución (la apertura ya cuenta el volumen → no suma).
+    # Materializado para que /ops/* filtre por índice en vez de un `$not /Cierre/`
+    # (regex negada = scan completo). Replicado en backfill_es_cierre_operaciones.
+    doc["es_cierre"] = "CIERRE" in (doc.get("tipo_operacion") or "").upper()
     if not maps:
         return
     cat, niveles = maps

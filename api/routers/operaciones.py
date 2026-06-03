@@ -820,9 +820,10 @@ _OPS_MONEDAS = ("ARS", "USD")
 # serie_full=True para traer la historia completa bajo demanda.
 _SERIE_VENTANA_DIAS = 550  # ~18 meses
 
-# Tipos de operación que NO entran a ninguna sumatoria (el cierre de caución
-# duplicaría el volumen: la apertura ya lo cuenta). Match por tipo_operacion.
-_OPS_EXCLUIR_RE = {"$regex": "Cierre", "$options": "i"}
+# El cierre de caución NO entra a ninguna sumatoria (la apertura ya cuenta el
+# volumen). Se filtra por el campo materializado `es_cierre` (ver
+# operaciones_informes._aplicar_enrich) → indexable, en vez de `$not /Cierre/`
+# que forzaba un COLLSCAN. Requiere el backfill de es_cierre en los docs viejos.
 
 
 def _ops_match(
@@ -837,7 +838,7 @@ def _ops_match(
     # liquidación (CL) ya cuenta esa operación → evita doble conteo. $ne también
     # matchea los docs SIN etapa (boletos normales y liquidaciones). El "flujo del
     # día" (solicitudes) se consultará aparte cuando se exponga.
-    m: dict = {"moneda": moneda, "tipo_operacion": {"$not": _OPS_EXCLUIR_RE},
+    m: dict = {"moneda": moneda, "es_cierre": False,
                "etapa": {"$ne": "solicitud"}}
     if mercado and mercado.lower() != "todos":
         m["mercado"] = mercado

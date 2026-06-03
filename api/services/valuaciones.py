@@ -135,7 +135,9 @@ def posiciones_cuenta(id_cuenta: str, hasta: str | None = None) -> dict[str, Any
 
     # 1. Boletos relevantes — solo categorías que mueven cost basis.
     match: dict[str, Any] = {
-        "cuenta":    {"$regex": f"^\\[{re.escape(str(id_cuenta))}\\]"},
+        # id_cuenta (denormalizado + indexado: id_cuenta+categoria+fecha) en vez
+        # de regex sobre `cuenta` → usa índice, no escanea la colección entera.
+        "id_cuenta": str(id_cuenta),
         "categoria": {"$in": _CAT_ALL},
         "ticker":    {"$ne": None},
     }
@@ -444,7 +446,8 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     # antes de sumar al bucket de su mes.
     movimientos_raw = list(db_cf["NegocioMovimientos"].find(
         {
-            "cuenta":    {"$regex": f"^\\[{re.escape(str(id_cuenta))}\\]"},
+            # id_cuenta indexado (id_cuenta+categoria+fecha) en vez de regex sobre cuenta.
+            "id_cuenta": str(id_cuenta),
             "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
         },
         {"_id": 0, "fecha": 1, "categoria": 1, "importe": 1, "moneda": 1},
@@ -739,7 +742,8 @@ def valuacion_mensual_debug(id_cuenta: str) -> dict[str, Any]:
     # poder mostrarlo en la UI de debug.
     movimientos_raw = list(db_cf["NegocioMovimientos"].find(
         {
-            "cuenta":    {"$regex": f"^\\[{re.escape(str(id_cuenta))}\\]"},
+            # id_cuenta indexado (id_cuenta+categoria+fecha) en vez de regex sobre cuenta.
+            "id_cuenta": str(id_cuenta),
             "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
         },
         {"_id": 0, "fecha": 1, "categoria": 1, "importe": 1, "moneda": 1,

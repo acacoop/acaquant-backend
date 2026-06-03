@@ -25,9 +25,10 @@ Uso:
 """
 from __future__ import annotations
 
+import argparse
 import re
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 sys.path.insert(0, ".")
 
@@ -38,6 +39,10 @@ from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
 
 _MERCADO = "FCI Bilateral"
+# El FCI bilateral se liquida en T+1/T+2 → solo hace falta mirar lo reciente.
+# Acota la lectura de NegocioMovimientos a esta ventana (usa índice fecha_categoria)
+# en vez de escanear toda la colección cada hora. `--full` ignora la ventana.
+_LOOKBACK_DIAS = 10
 _CATS_LIQ = ("suscripcion_fci", "rescate_fci")                       # comprobante CL
 _CATS_SOL = ("solicitud_suscripcion_fci", "solicitud_rescate_fci")  # comprobante DOC
 
@@ -105,7 +110,7 @@ def _map_doc(d: dict, niveles: dict, assets: dict, now: datetime) -> tuple[str, 
     return etapa, base
 
 
-def run() -> dict:
+def run(full: bool = False) -> dict:
     with JobRunLogger("fci_bilateral") as jr:
         client = get_mongo_client()
         db = client["CashFlow"]
@@ -119,24 +124,34 @@ def run() -> dict:
                 {"tipo_operacion": c["tipo_operacion"]}, {"$set": c}, upsert=True)
 
         # 2) Taggear los CL históricos ya en Operaciones (carga manual) que no
-        #    están en NegocioMovimientos → no se pisarían en el paso 5.
-        tag = ops.update_many(
-            {"mercado": _MERCADO,
-             "tipo_operacion": {"$regex": "Liquidaci", "$options": "i"},
-             "etapa": {"$exists": False}},
-            {"$set": {"etapa": "liquidacion"}},
-        )
+        #    están en NegocioMovimientos → no se pisarían en el paso 5. Es un
+        #    backfill de una vez y escanea el subconjunto FCI Bilateral de
+        #    Operaciones (mercado sin índice) → solo con --full, no cada hora.
+        tag_mod = 0
+        if full:
+            tag = ops.update_many(
+                {"mercado": _MERCADO,
+                 "tipo_operacion": {"$regex": "Liquidaci", "$options": "i"},
+                 "etapa": {"$exists": False}},
+                {"$set": {"etapa": "liquidacion"}},
+            )
+            tag_mod = tag.modified_count
 
         # 3) Maps de enriquecimiento (segmento/nivel_3 por cuenta) + Assets (instrumento).
         _, niveles = svc.cargar_maps_enrich(db)
         assets = _assets_cafci_map(client)
 
         # 4) Leer FCI bilateral: liquidaciones SOLO CL (las BOL ya son boletos),
-        #    solicitudes todas (son DOC).
-        q = {"$or": [
+        #    solicitudes todas (son DOC). Acotado a los últimos _LOOKBACK_DIAS
+        #    (usa índice fecha_categoria; el regex ^CL queda como filtro residual
+        #    barato sobre la ventana chica). --full mira toda la historia.
+        q: dict = {"$or": [
             {"categoria": {"$in": list(_CATS_LIQ)}, "comprobante": {"$regex": "^CL", "$options": "i"}},
             {"categoria": {"$in": list(_CATS_SOL)}},
         ]}
+        if not full:
+            hoy = (now - timedelta(hours=3)).date()   # ART
+            q = {"fecha": {"$gte": (hoy - timedelta(days=_LOOKBACK_DIAS)).isoformat()}, **q}
         proj = {"_id": 0, "comprobante": 1, "categoria": 1, "fecha": 1, "cuenta": 1,
                 "id_cuenta": 1, "ticker": 1, "importe": 1, "cantidad": 1, "moneda": 1}
         por_boleto: dict[str, tuple[str, dict]] = {}
@@ -161,18 +176,23 @@ def run() -> dict:
             res = ops.bulk_write(bulk, ordered=False)
             up, mod = res.upserted_count, res.modified_count
 
-        jr.set_stat("cl_tag_etapa", tag.modified_count)
+        jr.set_stat("cl_tag_etapa", tag_mod)
         jr.set_stat("fci_comprobantes", len(por_boleto))
         jr.set_stat("insertados", up)
         jr.set_stat("actualizados", mod)
         jr.log(f"FCI bilateral: {len(por_boleto)} comprobantes · {up} nuevos · {mod} act · "
-               f"{tag.modified_count} CL históricos taggeados")
+               f"{tag_mod} CL históricos taggeados · {'FULL' if full else f'últ {_LOOKBACK_DIAS}d'}")
         return {"leidos": len(por_boleto), "insertados": up, "actualizados": mod,
-                "cl_tag": tag.modified_count}
+                "cl_tag": tag_mod}
 
 
 def main() -> int:
-    res = run()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--full", action="store_true",
+                    help="procesa TODA la historia (default: últimos "
+                         f"{_LOOKBACK_DIAS} días + sin re-tag de CL históricos)")
+    args = ap.parse_args()
+    res = run(full=args.full)
     print(f"→ {res}")
     return 0
 

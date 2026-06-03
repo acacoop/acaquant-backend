@@ -20,14 +20,14 @@ a medir* — REGLA #2: hay que correr los diags antes de tocar.
 - ✅ **P0 #4** — `descubrir_cuentas` socket-timeout + cota de tiempo. Deployado.
 - ✅ **C4** — `comercial.py`: `$not /Cierre/` → `es_cierre:False` indexable.
 - ✅ **C6** — `pnl.py`: `id_cuenta` directo (con fallback) en el scan de NegocioMovimientos.
-- ✅ **C5 (valuaciones)** — regex sobre `cuenta` → `id_cuenta` en `valuaciones.py` (parte del C5).
+- ✅ **C5** — scope de grupos arreglado (verificado con `diag_scope_cuenta`):
+  `aplicar_scope_cuenta(campo)` por igualdad indexable — `cuenta` en Operaciones
+  (estaba ROTO: regex bracketed nunca matcheaba el id pelado), `id_cuenta` en
+  NegocioMovimientos. + en `valuaciones.py`. FlujosAPI sigue con regex.
 - ✅ **Q1** — asistente IA legacy ELIMINADO completo (api/agent, /api/chat, módulo
   `asistente`, config LLM, frontend) → sacó superficie de import-chain.
 
 **Pendiente:**
-- 🟡 **C5 (resto)** — el scope de grupos (`_grupos_scope.py`) por regex sobre `cuenta`.
-  Es control de acceso + los formatos difieren entre colecciones → correr
-  `scripts/diag_scope_cuenta.py` primero, recién después tocar.
 - 🔵 **P1 — rollups de Operaciones + `ComercialCache`** (C1/C2): el gran win de CPU.
   Pieza dedicada (colección + backfill + migración de endpoints). Medir con
   `scripts/audit_db` antes.

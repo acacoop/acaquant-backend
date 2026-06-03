@@ -6,6 +6,12 @@
 # Esto previene el incidente de CPU del 2026-06-03 (jobs colgados/duplicados).
 # El redirect al log lo hace run_job.sh → el comando interno NO lleva >> log 2>&1.
 
+# ─── WATCHDOG: detecta jobs colgados y alerta por Telegram (cada 5 min, todos los días)
+# Escanea `ps` por jobs python que lleven más que su presupuesto y avisa. Es la
+# visibilidad que faltó el 2026-06-03. Solo alerta; matar lo hace el timeout de
+# run_job.sh. Timeout propio 2m (es liviano).
+*/5 * * * * /root/TradingAV/deploy/run_job.sh watchdog 2m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.watchdog'
+
 # ─── Limpieza de instrumentos vencidos (12:30 UTC = 09:30 ART, L-V, antes de abrir motores)
 30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_curvas 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_curvas'
 30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_futuros_dlr 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_futuros_dlr'

@@ -93,8 +93,15 @@
 # Fuente de verdad de operaciones (por CONCERTACIÓN). Consulta /informes por
 # cuenta (Clientes.Comitentes) en paralelo, upsertea por boleto en
 # CashFlow.Operaciones (idempotente) + enrich inline. Alimenta /ops (Operaciones ✦).
-30 13-21 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes >> /root/TradingAV/logs/operaciones_informes.log 2>&1
-0  14-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes >> /root/TradingAV/logs/operaciones_informes.log 2>&1
+#
+# PAUSADO 2026-06-03 — incidente CPU 100% en Atlas (M10). Se pausa la ingesta
+# intra-día para sacar carga de escritura mientras se implementan los rollups
+# de Operaciones (ver plan de arquitectura). Idempotente + lookback → al
+# reactivar recupera lo que falte. Para recuperar el día manualmente:
+#   python -m jobs.operaciones_informes --desde <YYYY-MM-DD> --hasta <YYYY-MM-DD>
+# REACTIVAR descomentando las 2 líneas de abajo cuando estén los rollups.
+#30 13-21 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes >> /root/TradingAV/logs/operaciones_informes.log 2>&1
+#0  14-22 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.operaciones_informes >> /root/TradingAV/logs/operaciones_informes.log 2>&1
 
 # ─── Cache-warming vista COMERCIAL (cada 4 min en horario de mercado L-V)
 # Pega al uvicorn LOCAL (127.0.0.1:8000) para calentar la cache in-process de

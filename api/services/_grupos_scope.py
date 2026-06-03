@@ -87,25 +87,40 @@ def filtrar_rows(
 # ── Namespace `cuenta` ("[<id>] NOMBRE") — operaciones / negocio ──────────
 
 
-def scope_cuenta_match(scope: tuple[str, ...] | None) -> dict | None:
-    """Sub-doc `$match` Mongo que restringe el campo string `cuenta` al
-    scope, matcheando el id bracketed. `None` si `scope` es None (sin
-    restricción). Tuple vacío → `{$in: []}` (no matchea nada).
+def scope_cuenta_match(
+    scope: tuple[str, ...] | None, campo: str | None = None,
+) -> dict | None:
+    """Sub-doc `$match` Mongo que restringe al scope. `None` si `scope` es None
+    (sin restricción). Tuple vacío → `{$in: []}` (no matchea nada).
 
-    Pensado para agregarse vía `$and` al `match_doc` del endpoint, así no
-    colisiona con un filtro `cuenta` ya presente (`cuenta_filter`)."""
+    El formato del campo DIFIERE por colección (verificado 2026-06-03,
+    scripts/diag_scope_cuenta):
+      - `campo` dado → igualdad INDEXABLE `{campo: {$in: scope}}`. Usar para
+        `campo="cuenta"` en Operaciones (cuenta == id pelado "100", índice
+        cuenta_concertacion) y `campo="id_cuenta"` en NegocioMovimientos
+        (id_cuenta poblado 100%, índice idcuenta_*).
+      - `campo=None` (default) → regex sobre el `cuenta` bracketed "[id] NOMBRE"
+        (FlujosAPI y otras que NO tienen id_cuenta).
+
+    OJO: el regex bracketed NUNCA matchea en Operaciones (cuenta es id pelado) —
+    por eso ahí va `campo="cuenta"`. Agregarse vía `$and` (no pisa un filtro previo)."""
     if scope is None:
         return None
     if not scope:
-        return {"cuenta": {"$in": []}}
+        return {(campo or "cuenta"): {"$in": []}}
+    if campo:
+        return {campo: {"$in": list(scope)}}
     alternation = "|".join(re.escape(s) for s in scope)
     return {"cuenta": {"$regex": rf"^\[({alternation})\]"}}
 
 
-def aplicar_scope_cuenta(match_doc: dict, scope: tuple[str, ...] | None) -> None:
-    """Agrega la restricción de scope sobre `cuenta` al `match_doc` vía
-    `$and` (no pisa un filtro `cuenta` previo). No-op si `scope` es None."""
-    sub = scope_cuenta_match(scope)
+def aplicar_scope_cuenta(
+    match_doc: dict, scope: tuple[str, ...] | None, campo: str | None = None,
+) -> None:
+    """Agrega la restricción de scope al `match_doc` vía `$and` (no pisa un
+    filtro previo). `campo` selecciona igualdad indexable por colección (ver
+    `scope_cuenta_match`). No-op si `scope` es None."""
+    sub = scope_cuenta_match(scope, campo)
     if sub is not None:
         match_doc.setdefault("$and", []).append(sub)
 

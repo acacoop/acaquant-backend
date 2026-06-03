@@ -10,11 +10,48 @@ import pytest
 from fastapi import HTTPException
 
 from api.services._grupos_scope import (
+    aplicar_scope_cuenta,
     filtrar_cuentas_str,
     filtrar_rows,
+    scope_cuenta_match,
     verificar_account,
     verificar_cuenta_str,
 )
+
+
+# ── scope_cuenta_match: igualdad por campo vs regex bracketed ────────────────
+def test_scope_match_none_sin_restriccion():
+    assert scope_cuenta_match(None) is None
+    assert scope_cuenta_match(None, campo="cuenta") is None
+
+
+def test_scope_match_campo_cuenta_igualdad_indexable():
+    # Operaciones: cuenta == id pelado → igualdad $in (NO regex bracketed).
+    assert scope_cuenta_match(("100", "201"), campo="cuenta") == {
+        "cuenta": {"$in": ["100", "201"]}
+    }
+
+
+def test_scope_match_campo_id_cuenta():
+    # NegocioMovimientos: id_cuenta poblado → igualdad $in indexable.
+    assert scope_cuenta_match(("100",), campo="id_cuenta") == {"id_cuenta": {"$in": ["100"]}}
+
+
+def test_scope_match_default_regex_bracketed():
+    # Sin campo (FlujosAPI): regex sobre el cuenta bracketed "[id] NOMBRE".
+    m = scope_cuenta_match(("100", "201"))
+    assert "$regex" in m["cuenta"] and m["cuenta"]["$regex"].startswith("^\\[")
+
+
+def test_scope_match_vacio_no_matchea_nada():
+    assert scope_cuenta_match((), campo="cuenta") == {"cuenta": {"$in": []}}
+
+
+def test_aplicar_scope_cuenta_agrega_via_and_sin_pisar():
+    match = {"moneda": "ARS"}
+    aplicar_scope_cuenta(match, ("100",), campo="cuenta")
+    assert match["moneda"] == "ARS"  # no pisó el filtro previo
+    assert {"cuenta": {"$in": ["100"]}} in match["$and"]
 
 # ── verificar_account: el guard de los endpoints de órdenes ──────────────────
 

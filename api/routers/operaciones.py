@@ -395,7 +395,7 @@ def negocio_serie(
             match_doc["cuenta"] = cuenta
         else:
             match_doc.update(_match_cuenta_filter(cuenta_filter))
-        aplicar_scope_cuenta(match_doc, scope)
+        aplicar_scope_cuenta(match_doc, scope, campo="id_cuenta")
         conv = _importe_convertido(moneda)
         pipeline = [
             {"$match": match_doc},
@@ -492,7 +492,7 @@ def negocio_cuentas(
             match_doc["cuenta"] = cuenta
         else:
             match_doc.update(_match_cuenta_filter(cuenta_filter))
-        aplicar_scope_cuenta(match_doc, scope)
+        aplicar_scope_cuenta(match_doc, scope, campo="id_cuenta")
         pipeline = [
             {"$match": match_doc},
             {"$group": {
@@ -574,7 +574,7 @@ def negocio_cuentas_matrix(
             match_doc["cuenta"] = cuenta
         else:
             match_doc.update(_match_cuenta_filter(cuenta_filter))
-        aplicar_scope_cuenta(match_doc, scope)
+        aplicar_scope_cuenta(match_doc, scope, campo="id_cuenta")
         conv = _importe_convertido(moneda)
         pipeline = [
             {"$match": match_doc},
@@ -911,7 +911,7 @@ def ops_serie(
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     db = get_db_cashflow()["Operaciones"]
     match = _ops_match(moneda, mercado, operacion, denominacion, cuenta, segmento)
-    aplicar_scope_cuenta(match, scope)
+    aplicar_scope_cuenta(match, scope, campo="cuenta")
     serie = list(db.aggregate([
         {"$match": match},
         {"$group": {"_id": "$concertacion", "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}}}},
@@ -945,7 +945,7 @@ def ops_resumen(
     db = get_db_cashflow()["Operaciones"]
     base = _ops_match(moneda, mercado, cuenta=cuenta, segmento=segmento)
     base["concertacion"] = {"$gte": desde, "$lte": hasta}
-    aplicar_scope_cuenta(base, scope)
+    aplicar_scope_cuenta(base, scope, campo="cuenta")
     filtro_op = {"denominacion": denominacion} if denominacion else {}
     filtro_denom = {"operacion": operacion} if operacion else {}
     facet = list(db.aggregate([
@@ -1011,7 +1011,7 @@ def ops_agro(
     # SIN concertacion en el match base → los gráficos (serie/serie_cuenta) son
     # HISTÓRICOS completos. Las tablas se acotan al rango [desde,hasta] adentro.
     match: dict = {"commodity": {"$in": ["SOJA", "TRIGO", "MAIZ"]}}
-    aplicar_scope_cuenta(match, scope)
+    aplicar_scope_cuenta(match, scope, campo="cuenta")
     date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
     addf = {
         "toneladas": {"$multiply": [
@@ -1117,7 +1117,7 @@ def ops_aranceles(
     db = get_db_cashflow()["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10
     match = _ops_match(moneda, None, segmento=segmento)  # SIN concertacion → serie histórica
-    aplicar_scope_cuenta(match, scope)
+    aplicar_scope_cuenta(match, scope, campo="cuenta")
     date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
     arancel = {"$abs": {"$ifNull": ["$arancel", 0]}}
     # Acota la serie a la ventana (default ~18m) salvo serie_full → historia completa.
@@ -1207,7 +1207,7 @@ def ops_boletos(
     db = get_db_cashflow()["Operaciones"]
     match = _ops_match(moneda, mercado, operacion, denominacion, cuenta, segmento)
     match["concertacion"] = {"$gte": desde, "$lte": hasta}
-    aplicar_scope_cuenta(match, scope)
+    aplicar_scope_cuenta(match, scope, campo="cuenta")
     proj = {"_id": 0, "boleto": 1, "concertacion": 1, "cuenta": 1, "denominacion": 1,
             "tipo_operacion": 1, "operacion": 1, "mercado": 1, "instrumento": 1,
             "condiciones": 1, "cantidad": 1, "bruto": 1, "moneda": 1}

@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from api.services.pnl import pnl_todas_cuentas_compute
-from core.mongo import get_mongo_client
+from core.mongo import get_mongo_client, reemplazar_coleccion_atomico
 
 
 def main() -> None:
@@ -29,12 +29,13 @@ def main() -> None:
     for d in cuentas:
         d["computed_at"] = ahora
 
-    col = get_mongo_client()["Valuaciones"]["PnLTotalesCache"]
-    if cuentas:
-        col.delete_many({})
-        col.insert_many(cuentas)
+    # Swap atómico (sin ventana de vacío): /pnl-todas lee find({}) → si borráramos
+    # y reinsertáramos, un request en el medio vería cero. Ver core.mongo.
+    db_v = get_mongo_client()["Valuaciones"]
+    n = reemplazar_coleccion_atomico(db_v, "PnLTotalesCache", cuentas)
+    if n > 0:
         n_filas = sum(len(d.get("rows", [])) for d in cuentas)
-        print(f"✅ {len(cuentas)} cuentas ({n_filas} filas) persistidas en "
+        print(f"✅ {n} cuentas ({n_filas} filas) persistidas en "
               f"Valuaciones.PnLTotalesCache ({ahora.isoformat()})")
     else:
         print("⚠ pnl_todas_cuentas_compute devolvió 0 cuentas — "

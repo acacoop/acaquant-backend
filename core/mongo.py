@@ -91,3 +91,26 @@ def get_mongo_client_read() -> pymongo.MongoClient:
     return _client_read
 
 
+def reemplazar_coleccion_atomico(db, nombre: str, docs: list[dict]) -> int:
+    """Reemplaza TODO el contenido de `db[nombre]` por `docs` SIN ventana de vacío.
+
+    En vez de `delete_many({})` + `insert_many` (que deja la colección vacía unos
+    segundos — un lector en ese momento ve cero), escribe a una colección temporal
+    y la renombra ENCIMA de la original (atómico, dropTarget=True). Los lectores
+    siempre ven la versión vieja COMPLETA o la nueva COMPLETA, nunca a medias.
+
+    Pensado para los precomputes que se re-arman entero (PnLTotalesCache,
+    ConsolidadoCuentas). Las colecciones se leen con `find({})` → solo necesitan
+    el índice `_id` (que la temporal trae). Si `docs` está vacío, NO toca nada y
+    devuelve -1 (el caller decide loguear el warning). Devuelve len(docs) si OK.
+    """
+    if not docs:
+        return -1
+    tmp_name = f"{nombre}__swap"
+    tmp = db[tmp_name]
+    tmp.drop()                                  # limpia restos de un run abortado
+    tmp.insert_many(docs)
+    tmp.rename(nombre, dropTarget=True)         # swap atómico
+    return len(docs)
+
+

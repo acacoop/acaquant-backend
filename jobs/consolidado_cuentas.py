@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from api.services.valuaciones import construir_consolidado
-from core.mongo import get_mongo_client
+from core.mongo import get_mongo_client, reemplazar_coleccion_atomico
 
 
 def main() -> None:
@@ -26,11 +26,11 @@ def main() -> None:
     for f in filas:
         f["computed_at"] = ahora
 
-    col = get_mongo_client()["Valuaciones"]["ConsolidadoCuentas"]
-    if filas:
-        col.delete_many({})
-        col.insert_many(filas)
-        print(f"✅ {len(filas)} cuentas persistidas en "
+    # Swap atómico (sin ventana de vacío): /consolidado lee find({}). Ver core.mongo.
+    db_v = get_mongo_client()["Valuaciones"]
+    n = reemplazar_coleccion_atomico(db_v, "ConsolidadoCuentas", filas)
+    if n > 0:
+        print(f"✅ {n} cuentas persistidas en "
               f"Valuaciones.ConsolidadoCuentas ({ahora.isoformat()})")
     else:
         print("⚠ construir_consolidado devolvió 0 filas — "

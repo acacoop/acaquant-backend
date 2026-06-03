@@ -11,6 +11,31 @@ a medir* — REGLA #2: hay que correr los diags antes de tocar.
 
 ---
 
+## ✅ ESTADO (actualizado 2026-06-03 — qué ya se hizo)
+
+**Implementado y en `main`** (P0 + algunos fixes seguros):
+- ✅ **P0 #1** — `deploy/run_job.sh` (flock + timeout) + crontab.txt envuelto. Deployado.
+- ✅ **P0 #2** — `jobs/watchdog.py` (alerta Telegram jobs colgados). Deployado.
+- ✅ **P0 #3** — `fci_bilateral` acotado a 10 días (mató el COLLSCAN horario). Deployado.
+- ✅ **P0 #4** — `descubrir_cuentas` socket-timeout + cota de tiempo. Deployado.
+- ✅ **C4** — `comercial.py`: `$not /Cierre/` → `es_cierre:False` indexable.
+- ✅ **C6** — `pnl.py`: `id_cuenta` directo (con fallback) en el scan de NegocioMovimientos.
+- ✅ **C5 (valuaciones)** — regex sobre `cuenta` → `id_cuenta` en `valuaciones.py` (parte del C5).
+- ✅ **Q1** — asistente IA legacy ELIMINADO completo (api/agent, /api/chat, módulo
+  `asistente`, config LLM, frontend) → sacó superficie de import-chain.
+
+**Pendiente:**
+- 🟡 **C5 (resto)** — el scope de grupos (`_grupos_scope.py`) por regex sobre `cuenta`.
+  Es control de acceso + los formatos difieren entre colecciones → correr
+  `scripts/diag_scope_cuenta.py` primero, recién después tocar.
+- 🔵 **P1 — rollups de Operaciones + `ComercialCache`** (C1/C2): el gran win de CPU.
+  Pieza dedicada (colección + backfill + migración de endpoints). Medir con
+  `scripts/audit_db` antes.
+- 🟡 **J4/J5** — swap atómico en `pnl_totales_precompute` / `consolidado_cuentas`.
+- 🟢 **P2** — índices muertos (medir), refactors de capas, helpers.
+
+---
+
 ## 0. Resumen ejecutivo
 
 **Qué pasó hoy, y por qué no fue mala suerte:** dos jobs que escriben en

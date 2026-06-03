@@ -992,7 +992,12 @@ def ops_agro(
 ):
     """Futuros agropecuarios: Σ TONELADAS por periodo (mes/día) y commodity
     (SOJA/TRIGO/MAIZ). Lógica: tipo 'Futuros' sin 'Financieros', sin OTC;
-    toneladas = |cantidad| × (10 si 'MIN' en instrumento, sino 100)."""
+    toneladas = |cantidad| × (10 si 'MIN' en instrumento, sino 100).
+
+    Devuelve: `serie` (histórica global, chart de la izq), `serie_cuenta`
+    (histórica SOLO de la cuenta elegida, chart de la der; vacía sin `cuenta`),
+    `totales` (Σ por commodity), `por_cuenta` y `por_instrumento` (acotados al
+    rango [desde,hasta])."""
     db = get_db_cashflow()["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10
     inst = {"$ifNull": ["$instrumento", ""]}
@@ -1000,8 +1005,8 @@ def ops_agro(
     # operaciones_informes.clasificar_commodity. Match indexado (índice parcial
     # commodity_concertacion) → no escanea la colección con regex. Backfill de
     # docs viejos: scripts/backfill_commodity_operaciones.py.
-    # SIN concertacion en el match base → el gráfico (serie) es HISTÓRICO completo.
-    # Las tablas se acotan al rango [desde,hasta] dentro de sus facets.
+    # SIN concertacion en el match base → los gráficos (serie/serie_cuenta) son
+    # HISTÓRICOS completos. Las tablas se acotan al rango [desde,hasta] adentro.
     match: dict = {"commodity": {"$in": ["SOJA", "TRIGO", "MAIZ"]}}
     aplicar_scope_cuenta(match, scope)
     date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
@@ -1012,39 +1017,52 @@ def ops_agro(
         ]},
         "periodo": {"$substr": ["$concertacion", 0, plen]},
     }
-    # Cross-filter ASIMÉTRICO (como Operaciones): la selección filtra SOLO la
-    # tabla opuesta; el gráfico (serie) y la tabla de la propia dimensión quedan
-    # FIJOS. Así no se mueve todo al elegir un commodity/cuenta.
-    f_comm = [{"$match": {"denominacion": cuenta}}] if cuenta else []  # cuenta → filtra commodities
+    # Cross-filter independiente: `cuenta` filtra commodities + instrumentos;
+    # `commodity` filtra cuentas + instrumentos. El gráfico global queda FIJO; el
+    # de cuenta sólo existe cuando hay `cuenta` elegida.
+    f_comm = [{"$match": {"denominacion": cuenta}}] if cuenta else []   # cuenta → filtra commodities
     f_cta = [{"$match": {"commodity": commodity}}] if commodity else []  # commodity → filtra cuentas
+    serie_grp = {"$group": {"_id": {"p": "$periodo", "c": "$commodity"}, "ton": {"$sum": "$toneladas"}}}
+    facet_spec: dict = {
+        "serie": [serie_grp],
+        "por_commodity": [date_m, *f_comm,
+                          {"$group": {"_id": "$commodity", "ton": {"$sum": "$toneladas"}}}],
+        "por_cuenta": [date_m, *f_cta,
+                       {"$group": {"_id": "$denominacion", "ton": {"$sum": "$toneladas"}, "n": {"$sum": 1}}},
+                       {"$sort": {"ton": -1}}],
+        "por_instrumento": [date_m, *f_comm, *f_cta,
+                            {"$group": {"_id": "$instrumento", "ton": {"$sum": "$toneladas"}, "n": {"$sum": 1}}},
+                            {"$sort": {"ton": -1}}],
+    }
+    if cuenta:
+        facet_spec["serie_cuenta"] = [{"$match": {"denominacion": cuenta}}, serie_grp]
     facet = list(db.aggregate([
         {"$match": match},
         {"$addFields": addf},
-        {"$facet": {
-            "serie": [{"$group": {"_id": {"p": "$periodo", "c": "$commodity"},
-                                  "ton": {"$sum": "$toneladas"}}}],
-            "por_commodity": [date_m, *f_comm,
-                              {"$group": {"_id": "$commodity", "ton": {"$sum": "$toneladas"}}}],
-            "por_cuenta": [date_m, *f_cta,
-                           {"$group": {"_id": "$denominacion", "ton": {"$sum": "$toneladas"}, "n": {"$sum": 1}}},
-                           {"$sort": {"ton": -1}}],
-        }},
+        {"$facet": facet_spec},
     ]))
     f = facet[0] if facet else {}
-    por_periodo: dict[str, dict] = {}
-    for r in f.get("serie", []):
-        p, c = r["_id"]["p"], r["_id"]["c"]
-        d = por_periodo.setdefault(p, {"periodo": p, "SOJA": 0.0, "TRIGO": 0.0, "MAIZ": 0.0})
-        d[c] = round(r["ton"], 0)
+
+    def _serie(rows) -> list[dict]:
+        out: dict[str, dict] = {}
+        for r in rows:
+            p, c = r["_id"]["p"], r["_id"]["c"]
+            d = out.setdefault(p, {"periodo": p, "SOJA": 0.0, "TRIGO": 0.0, "MAIZ": 0.0})
+            d[c] = round(r["ton"], 0)
+        return [out[p] for p in sorted(out)]
+
     tot = {"SOJA": 0.0, "TRIGO": 0.0, "MAIZ": 0.0}
     for r in f.get("por_commodity", []):
         tot[r["_id"]] = round(r["ton"], 0)
     por_cuenta = [{"denominacion": r["_id"] or "(sin)", "toneladas": round(r["ton"], 0), "n": r["n"]}
                   for r in f.get("por_cuenta", [])]
+    por_instrumento = [{"instrumento": r["_id"] or "(sin)", "toneladas": round(r["ton"], 0), "n": r["n"]}
+                       for r in f.get("por_instrumento", [])]
     return {
         "desde": desde, "hasta": hasta, "agg": agg,
-        "serie": [por_periodo[p] for p in sorted(por_periodo)],
-        "totales": tot, "por_cuenta": por_cuenta,
+        "serie": _serie(f.get("serie", [])),
+        "serie_cuenta": _serie(f.get("serie_cuenta", [])),
+        "totales": tot, "por_cuenta": por_cuenta, "por_instrumento": por_instrumento,
     }
 
 

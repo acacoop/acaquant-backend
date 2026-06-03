@@ -28,7 +28,6 @@ from api.routers import (
     analitica,
     back_office,
     carteras,
-    chat,
     cotizaciones,
     cuentas,
     derivados_agro,
@@ -198,7 +197,6 @@ _PORTFOLIOS   = [Depends(verify_api_key), Depends(require_module("portfolios"))]
 _BACK_OFFICE  = [Depends(verify_api_key), Depends(require_module("back-office"))]
 _OPERAR       = [Depends(verify_api_key), Depends(require_module("operar"))]
 _OPERACIONES  = [Depends(verify_api_key), Depends(require_module("operaciones"))]
-_ASISTENTE    = [Depends(verify_api_key), Depends(require_module("asistente"))]
 # `manager.router` ya NO va con _MANAGER global: gatear todo /api/manager/*
 # con el módulo `manager` excluye a `asistente_comercial` (que solo tiene
 # `manager_comercial` y `manager_clientes`). El gate ahora vive POR sub-router
@@ -236,7 +234,6 @@ app.include_router(risk.router,              dependencies=_OPERAR)
 # Mesa / flujo / contrapartes: solo trader y admin
 app.include_router(operaciones.router,       dependencies=_OPERACIONES)
 app.include_router(cuentas.router,           dependencies=_OPERACIONES)
-app.include_router(chat.router,              dependencies=_ASISTENTE)
 # manager.router: gate FINO por sub-router (ver api/routers/manager/__init__.py).
 # Acá ponemos una base FAIL-CLOSED: exige al menos UN módulo manager. Así un
 # sub-router nuevo que se agregue sin su dependency NO queda abierto a cualquier

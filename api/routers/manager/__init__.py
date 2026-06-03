@@ -24,7 +24,6 @@ from fastapi import APIRouter, Depends
 from api.auth import require_any_module, require_module
 from api.deps import verify_api_key
 from api.routers.manager import (
-    asistente,
     assets,
     aunesa,
     checks,
@@ -57,7 +56,6 @@ router.include_router(status.router,      dependencies=_MGR)
 router.include_router(checks.router,      dependencies=_MGR)
 router.include_router(jobs.router,        dependencies=_MGR)
 router.include_router(options.router,     dependencies=_MGR)
-router.include_router(asistente.router,   dependencies=_MGR)
 router.include_router(logs.router,        dependencies=_MGR)
 router.include_router(users.router,       dependencies=_MGR)
 router.include_router(roles.router,       dependencies=_MGR)

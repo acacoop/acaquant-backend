@@ -68,12 +68,6 @@ MCP_ALLOWED_REDIRECT_HOSTS: set[str] = {
     h.strip().lower() for h in _mcp_redirect_env.split(",") if h.strip()
 }
 
-# --- LLM / IA GENERATIVA ---
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-# 'claude' (default) usa router haiku/sonnet; 'gemini' usa Flash legacy.
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "claude").lower()
-
 # --- DATA DE MERCADO EXTERNA ---
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
 

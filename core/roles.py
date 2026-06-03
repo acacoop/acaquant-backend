@@ -56,7 +56,6 @@ MODULES: tuple[str, ...] = (
     "operaciones",    # /operaciones (mesa, flujo) + /api/cuentas
     "portfolios",     # /portfolios + /aum + carteras + AuM + titulos
     "back-office",    # /back-office (títulos a enviar/recibir al mercado, conciliación)
-    "asistente",      # /asistente + /api/chat
     "manager",        # /manager + intel + jobs + logs (umbrella — tabs admin)
     # Sub-módulos de Manager: cobertura granular para el rol `asistente_comercial`
     # (acceso SOLO a las tabs Comercial + Clientes, sin ver el resto). El sub-router
@@ -78,7 +77,7 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "trader": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
-        "operaciones", "portfolios", "back-office", "asistente",
+        "operaciones", "portfolios", "back-office",
     ),
     "sales":  (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
@@ -92,7 +91,7 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "asistente_comercial": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
-        "operaciones", "portfolios", "back-office", "asistente",
+        "operaciones", "portfolios", "back-office",
         "manager_comercial", "manager_clientes",
     ),
 }

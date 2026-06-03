@@ -28,36 +28,84 @@ from core.mongo import get_mongo_client
 # ausente, que el índice parcial ignora). Reduce la escritura a ~1/3.
 _FILTRO = {"tipo_operacion": {"$regex": "Futuros", "$options": "i"}}
 
+# Excepción OTC: 'Futuros Agropecuarios - Compra/Venta' SON agro aunque tengan OTC.
+_AGRO_CV = {"$and": [
+    {"tipo_operacion": {"$regex": "Agropecuario", "$options": "i"}},
+    {"tipo_operacion": {"$regex": "Compra|Venta", "$options": "i"}},
+]}
+
 # Filtro del set agro completo (para el dry-run: cuántos clasifican como agro).
 _AGRO = {"$and": [
     {"tipo_operacion": {"$regex": "Futuros", "$options": "i"}},
     {"tipo_operacion": {"$not": {"$regex": "Financieros", "$options": "i"}}},
-    {"denominacion": {"$not": {"$regex": "OTC", "$options": "i"}}},
-    {"instrumento": {"$not": {"$regex": "OTC", "$options": "i"}}},
     {"instrumento": {"$regex": "SOJ|TRI|MAI", "$options": "i"}},
+    {"$or": [
+        _AGRO_CV,  # agro compra/venta → entra aunque tenga OTC
+        {"$and": [  # o no-OTC (la regla histórica)
+            {"denominacion": {"$not": {"$regex": "OTC", "$options": "i"}}},
+            {"instrumento": {"$not": {"$regex": "OTC", "$options": "i"}}},
+        ]},
+    ]},
 ]}
 
+# Boletos OTC agro que HOY no están clasificados y se van a sumar con el fix.
+_NUEVOS_OTC = {"$and": [
+    _AGRO_CV,
+    {"instrumento": {"$regex": "SOJ|TRI|MAI", "$options": "i"}},
+    {"$or": [
+        {"denominacion": {"$regex": "OTC", "$options": "i"}},
+        {"instrumento": {"$regex": "OTC", "$options": "i"}},
+    ]},
+    {"commodity": {"$nin": ["SOJA", "TRIGO", "MAIZ"]}},
+]}
+
+# Toneladas que aportarían esos nuevos: |cantidad| × (10 si 'MIN' en inst, sino 100).
+_TON_NUEVOS = [
+    {"$match": _NUEVOS_OTC},
+    {"$group": {"_id": None, "ton": {"$sum": {"$multiply": [
+        {"$abs": {"$ifNull": ["$cantidad", 0]}},
+        {"$cond": [{"$regexMatch": {"input": {"$ifNull": ["$instrumento", ""]},
+                                    "regex": "MIN", "options": "i"}}, 10, 100]},
+    ]}}}},
+]
+
 # Pipeline $set que replica clasificar_commodity, evaluado server-side por doc.
+# DEBE quedar idéntico a operaciones_informes.clasificar_commodity.
 _PIPELINE = [{"$set": {"commodity": {"$let": {
     "vars": {
         "t": {"$toUpper": {"$ifNull": ["$tipo_operacion", ""]}},
         "i": {"$toUpper": {"$ifNull": ["$instrumento", ""]}},
         "d": {"$toUpper": {"$ifNull": ["$denominacion", ""]}},
     },
-    "in": {"$cond": [
-        {"$and": [
-            {"$gte": [{"$indexOfCP": ["$$t", "FUTUROS"]}, 0]},
-            {"$lt": [{"$indexOfCP": ["$$t", "FINANCIEROS"]}, 0]},
-            {"$lt": [{"$indexOfCP": ["$$i", "OTC"]}, 0]},
-            {"$lt": [{"$indexOfCP": ["$$d", "OTC"]}, 0]},
+    "in": {"$let": {
+        # agro_cv: 'Futuros Agropecuarios - Compra/Venta' (excepción OTC)
+        "vars": {"agro_cv": {"$and": [
+            {"$gte": [{"$indexOfCP": ["$$t", "AGROPECUARIO"]}, 0]},
+            {"$or": [
+                {"$gte": [{"$indexOfCP": ["$$t", "COMPRA"]}, 0]},
+                {"$gte": [{"$indexOfCP": ["$$t", "VENTA"]}, 0]},
+            ]},
+        ]}},
+        "in": {"$cond": [
+            {"$and": [
+                {"$gte": [{"$indexOfCP": ["$$t", "FUTUROS"]}, 0]},
+                {"$lt": [{"$indexOfCP": ["$$t", "FINANCIEROS"]}, 0]},
+                {"$or": [
+                    "$$agro_cv",
+                    {"$and": [
+                        {"$lt": [{"$indexOfCP": ["$$i", "OTC"]}, 0]},
+                        {"$lt": [{"$indexOfCP": ["$$d", "OTC"]}, 0]},
+                    ]},
+                ]},
+            ]},
+            {"$switch": {"branches": [
+                {"case": {"$gte": [{"$indexOfCP": ["$$i", "SOJ"]}, 0]}, "then": "SOJA"},
+                {"case": {"$gte": [{"$indexOfCP": ["$$i", "TRI"]}, 0]}, "then": "TRIGO"},
+                {"case": {"$gte": [{"$indexOfCP": ["$$i", "MAI"]}, 0]}, "then": "MAIZ"},
+            ], "default": None}},
+            None,
         ]},
-        {"$switch": {"branches": [
-            {"case": {"$gte": [{"$indexOfCP": ["$$i", "SOJ"]}, 0]}, "then": "SOJA"},
-            {"case": {"$gte": [{"$indexOfCP": ["$$i", "TRI"]}, 0]}, "then": "TRIGO"},
-            {"case": {"$gte": [{"$indexOfCP": ["$$i", "MAI"]}, 0]}, "then": "MAIZ"},
-        ], "default": None}},
-        None,
-    ]},
+    }},
 }}}}]
 
 
@@ -73,7 +121,12 @@ def main() -> None:
 
     if args.dry_run:
         ya = coll.count_documents({"commodity": {"$in": ["SOJA", "TRIGO", "MAIZ"]}})
+        nuevos_otc = coll.count_documents(_NUEVOS_OTC)
+        ton = next(iter(coll.aggregate(_TON_NUEVOS)), {}).get("ton", 0)
         print(f"Ya marcados como agro hoy: {ya}")
+        print(f"➤ NUEVOS por el fix OTC (agro compra/venta hoy sin clasificar): "
+              f"{nuevos_otc:,} boletos · {ton:,.0f} toneladas")
+        print(f"  (al aplicar, el set agro pasaría de ~{ya:,} a ~{n_agro:,} boletos)")
         print("(dry-run: no se escribió ni se creó el índice)")
         return
 

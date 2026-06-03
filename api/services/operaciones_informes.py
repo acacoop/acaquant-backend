@@ -192,17 +192,25 @@ def clasificar_commodity(
 ) -> str | None:
     """Clasifica un boleto como futuro agro (SOJA/TRIGO/MAIZ) o None.
 
-    MISMA lógica que usaba `/ops/agro` en runtime, materializada en la ingesta:
-    es agro sólo si tipo_operacion contiene 'Futuros' y NO 'Financieros', ni
-    denominación ni instrumento contienen 'OTC', y el instrumento matchea
-    SOJ/TRI/MAI. Indexado vía índice parcial (ver ensure_indexes) → el endpoint
-    matchea por índice en vez de escanear con regex toda la colección.
+    Es agro si tipo_operacion contiene 'Futuros' y NO 'Financieros', y el
+    instrumento matchea SOJ/TRI/MAI.
+
+    OTC: por defecto excluye (ni denominación ni instrumento deben contener
+    'OTC'). EXCEPCIÓN (2026-06-03): los 'Futuros Agropecuarios - Compra/Venta'
+    SON agro aunque la cuenta o el instrumento tengan 'OTC' — ese tipo es la
+    señal autoritativa de futuro agro, así que no los excluimos por OTC.
+
+    Materializado en la ingesta + replicado server-side en
+    scripts/backfill_commodity_operaciones.py (mantener ambos en sync). Indexado
+    vía índice parcial (ver ensure_indexes).
     """
-    t = tipo_operacion or ""
-    if "FUTUROS" not in t.upper() or "FINANCIEROS" in t.upper():
+    t = (tipo_operacion or "").upper()
+    if "FUTUROS" not in t or "FINANCIEROS" in t:
         return None
     inst = (instrumento or "").upper()
-    if "OTC" in inst or "OTC" in (denominacion or "").upper():
+    # Excepción agro: 'Futuros Agropecuarios - Compra/Venta' no se excluyen por OTC.
+    agro_cv = "AGROPECUARIO" in t and ("COMPRA" in t or "VENTA" in t)
+    if not agro_cv and ("OTC" in inst or "OTC" in (denominacion or "").upper()):
         return None
     if "SOJ" in inst:
         return "SOJA"

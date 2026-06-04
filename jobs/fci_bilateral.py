@@ -16,6 +16,13 @@ para no duplicar.
 Las vistas suman por defecto excluyendo `etapa: "solicitud"` (ver _ops_match en
 api/routers/operaciones.py) → el volumen no se dobla.
 
+ADEMÁS corrige el bruto de las suscripciones FCI normales (comprobante BOL): el
+API de informes las trae con `bruto=0`, pero el monto correcto está en
+NegocioMovimientos. Se pisa por boleto SOLO donde está en 0/None (los rescates ya
+vienen bien → intactos). Es un UPDATE puro (sin upsert) → NUNCA inserta, así que
+no puede crear duplicados. Garantía estructural extra: índices únicos
+`Operaciones.uq_boleto` (boleto) y `NegocioMovimientos.uq_fecha_comprobante`.
+
 Idempotente: el primer run hace el backfill (taggea los CL históricos cargados a
 mano + trae los DOC); upsert NO destructivo (`$setOnInsert` preserva la carga
 manual, solo agrega `etapa`). Encadenado a negocio_movimientos en crontab.
@@ -176,14 +183,35 @@ def run(full: bool = False) -> dict:
             res = ops.bulk_write(bulk, ordered=False)
             up, mod = res.upserted_count, res.modified_count
 
+        # 6) Corregir bruto=0 de las suscripciones FCI normales (comprobante BOL):
+        #    el API de informes las trae con bruto=0, pero el monto correcto está
+        #    en NegocioMovimientos (verificado: diag_fci_match_boleto, match 1:1).
+        #    UPDATE PURO por boleto (el doc YA existe vía API) — `upsert` ausente →
+        #    NUNCA inserta → cero riesgo de duplicado. Solo pisa donde bruto está
+        #    en 0/None: los rescates (bruto correcto) no matchean → intactos.
+        q_bol: dict = {"categoria": {"$in": list(_CATS_LIQ)},
+                       "comprobante": {"$regex": "^BOL", "$options": "i"}}
+        if not full:
+            hoy = (now - timedelta(hours=3)).date()  # ART
+            q_bol["fecha"] = {"$gte": (hoy - timedelta(days=_LOOKBACK_DIAS)).isoformat()}
+        corr_bulk = [
+            UpdateOne({"boleto": str(d["comprobante"]).strip(), "bruto": {"$in": [0, None]}},
+                      {"$set": {"bruto": abs(d["importe"])}})
+            for d in mov.find(q_bol, {"_id": 0, "comprobante": 1, "importe": 1})
+            if d.get("comprobante") and d.get("importe") is not None
+        ]
+        corr = ops.bulk_write(corr_bulk, ordered=False).modified_count if corr_bulk else 0
+
         jr.set_stat("cl_tag_etapa", tag_mod)
         jr.set_stat("fci_comprobantes", len(por_boleto))
         jr.set_stat("insertados", up)
         jr.set_stat("actualizados", mod)
+        jr.set_stat("bruto_corregidos", corr)
         jr.log(f"FCI bilateral: {len(por_boleto)} comprobantes · {up} nuevos · {mod} act · "
-               f"{tag_mod} CL históricos taggeados · {'FULL' if full else f'últ {_LOOKBACK_DIAS}d'}")
+               f"{corr} bruto suscripción corregidos · {tag_mod} CL históricos taggeados · "
+               f"{'FULL' if full else f'últ {_LOOKBACK_DIAS}d'}")
         return {"leidos": len(por_boleto), "insertados": up, "actualizados": mod,
-                "cl_tag": tag_mod}
+                "cl_tag": tag_mod, "bruto_corr": corr}
 
 
 def main() -> int:

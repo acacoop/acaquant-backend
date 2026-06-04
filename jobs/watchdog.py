@@ -31,10 +31,12 @@ from core.notify import send_telegram
 
 load_dotenv()  # ATLAS_* / ATLAS_RO_* del .env, para leer slow queries (best-effort)
 
-# docsExamined a partir del cual una query COLLSCAN es un problema (el de hoy
-# escaneaba 488k). Esto es lo que Atlas NO te manda por mail: CUÁL query y de qué
-# app. El "CPU alto" a secas ya lo alerta Atlas → no lo duplicamos.
-_SCAN_ALERTA = 100_000
+# "Query targeting": una query es problema si EXAMINA mucho y DEVUELVE poco —
+# COLLSCAN o IXSCAN poco selectivo da igual (el de boleto era COLLSCAN 488k:1; el
+# de commodity es IXSCAN 174k:1). Alertamos si examina ≥ _EXAMINED_MIN docs Y la
+# relación examinados/devueltos ≥ _RATIO. Esto es lo que Atlas NO te manda por mail.
+_EXAMINED_MIN = 50_000
+_RATIO_ALERTA = 100
 
 # Presupuesto en SEGUNDOS por job = TIMEOUT de run_job.sh (deploy/crontab.txt) +
 # margen. FILOSOFÍA (decisión 2026-06-04): el watchdog NO es un aviso temprano —
@@ -133,10 +135,12 @@ def _check_db_queries(col, ahora: datetime, dry_run: bool) -> list[str]:
             continue  # 401 sin permiso de Performance Advisor → se omite
         for m in metas:
             dex = m.get("docsExamined") or 0
-            if m.get("planSummary") == "COLLSCAN" and dex >= _SCAN_ALERTA:
-                ns = m.get("ns", "?")
-                if dex > (peores.get(ns, {}).get("docsExamined") or 0):
-                    peores[ns] = m
+            ret = m.get("nreturned", m.get("nReturned")) or 0
+            if dex < _EXAMINED_MIN or (dex / max(ret, 1)) < _RATIO_ALERTA:
+                continue  # devuelve casi todo lo que examina → selectivo, no es el problema
+            ns = m.get("ns", "?")
+            if dex > (peores.get(ns, {}).get("docsExamined") or 0):
+                peores[ns] = m
     if not peores:
         return []
     prev = col.find_one({"_id": "db_scan"})
@@ -145,11 +149,14 @@ def _check_db_queries(col, ahora: datetime, dry_run: bool) -> list[str]:
         return []
     lineas = []
     for ns, m in sorted(peores.items(), key=lambda kv: -(kv[1].get("docsExamined") or 0))[:5]:
+        dex = m.get("docsExamined") or 0
+        ret = m.get("nreturned", m.get("nReturned")) or 0
+        plan = m.get("planSummary", "?")
         app = f"  [{m['appName']}]" if m.get("appName") else ""
-        lineas.append(f"• {ns} · COLLSCAN · examinó {m.get('docsExamined'):,}{app}")
-    msg = ("🔴 Watchdog DB: query(s) escaneando de más (COLLSCAN) — lo que Atlas NO "
-           "te avisa por mail:\n" + "\n".join(lineas) +
-           "\n_falta un índice usable en esa colección (skill index-health)._")
+        lineas.append(f"• {ns} · {plan} · examinó {dex:,} para devolver {ret}{app}")
+    msg = ("🔴 Watchdog DB: query(s) que examinan mucho y devuelven poco — lo que "
+           "Atlas NO te avisa por mail:\n" + "\n".join(lineas) +
+           "\n_falta un índice usable / la query no es selectiva (skill index-health)._")
     if not dry_run:
         send_telegram(msg)
         col.update_one({"_id": "db_scan"}, {"$set": {"last_alert_at": ahora}}, upsert=True)

@@ -25,13 +25,16 @@ _TIMEOUT = 30
 
 
 def _cfg() -> tuple[str, str, str]:
-    pub = (os.getenv("ATLAS_PUBLIC_KEY") or "").strip()
-    priv = (os.getenv("ATLAS_PRIVATE_KEY") or "").strip()
+    # Preferimos la key READ-ONLY dedicada (ATLAS_RO_*) por mínimo privilegio; si
+    # no está, caemos a la de gestión (ATLAS_*). Así el watchdog usa una key que
+    # SOLO lee, sin tocar atlas_cluster.sh (que sigue con ATLAS_*, que pausa/prende).
+    pub = (os.getenv("ATLAS_RO_PUBLIC_KEY") or os.getenv("ATLAS_PUBLIC_KEY") or "").strip()
+    priv = (os.getenv("ATLAS_RO_PRIVATE_KEY") or os.getenv("ATLAS_PRIVATE_KEY") or "").strip()
     proj = (os.getenv("ATLAS_PROJECT_ID") or "").strip()
     if not (pub and priv and proj):
         raise RuntimeError(
-            "Faltan env vars de Atlas: ATLAS_PUBLIC_KEY / ATLAS_PRIVATE_KEY / "
-            "ATLAS_PROJECT_ID (las mismas que usa deploy/atlas_cluster.sh)."
+            "Faltan env vars de Atlas: (ATLAS_RO_PUBLIC_KEY/ATLAS_RO_PRIVATE_KEY o "
+            "ATLAS_PUBLIC_KEY/ATLAS_PRIVATE_KEY) + ATLAS_PROJECT_ID."
         )
     return pub, priv, proj
 

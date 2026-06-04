@@ -176,14 +176,44 @@ def run(full: bool = False) -> dict:
             res = ops.bulk_write(bulk, ordered=False)
             up, mod = res.upserted_count, res.modified_count
 
+        # 6) Corregir bruto=0 de las suscripciones FCI normales (comprobante BOL):
+        #    el API de informes las trae con bruto=0; el monto correcto está en
+        #    NegocioMovimientos. SEGURO en horario de rueda desde el fix del índice
+        #    uq_boleto plano (incidente 2026-06-04): cada update por boleto es un
+        #    lookup instantáneo, no el COLLSCAN de 488k que lo hacía explotar.
+        #    SCOPEADO: primero busca los REALMENTE rotos (bruto 0/null) y solo pisa
+        #    esos → escrituras mínimas. UPDATE puro (sin upsert) → no duplica.
+        q_bol: dict = {"categoria": {"$in": list(_CATS_LIQ)},
+                       "comprobante": {"$regex": "^BOL", "$options": "i"}}
+        if not full:
+            hoy = (now - timedelta(hours=3)).date()  # ART
+            q_bol["fecha"] = {"$gte": (hoy - timedelta(days=_LOOKBACK_DIAS)).isoformat()}
+        imp_por_boleto = {
+            str(d["comprobante"]).strip(): abs(d["importe"])
+            for d in mov.find(q_bol, {"_id": 0, "comprobante": 1, "importe": 1})
+            if d.get("comprobante") and d.get("importe") is not None
+        }
+        corr = 0
+        if imp_por_boleto:
+            rotos = [str(o["boleto"]).strip() for o in ops.find(
+                {"boleto": {"$in": list(imp_por_boleto)}, "bruto": {"$in": [0, None]}},
+                {"_id": 0, "boleto": 1})]
+            if rotos:
+                corr = ops.bulk_write(
+                    [UpdateOne({"boleto": b, "bruto": {"$in": [0, None]}},
+                               {"$set": {"bruto": imp_por_boleto[b]}}) for b in rotos],
+                    ordered=False).modified_count
+
         jr.set_stat("cl_tag_etapa", tag_mod)
         jr.set_stat("fci_comprobantes", len(por_boleto))
         jr.set_stat("insertados", up)
         jr.set_stat("actualizados", mod)
+        jr.set_stat("bruto_corregidos", corr)
         jr.log(f"FCI bilateral: {len(por_boleto)} comprobantes · {up} nuevos · {mod} act · "
-               f"{tag_mod} CL históricos taggeados · {'FULL' if full else f'últ {_LOOKBACK_DIAS}d'}")
+               f"{corr} bruto suscripción corregidos · {tag_mod} CL taggeados · "
+               f"{'FULL' if full else f'últ {_LOOKBACK_DIAS}d'}")
         return {"leidos": len(por_boleto), "insertados": up, "actualizados": mod,
-                "cl_tag": tag_mod}
+                "cl_tag": tag_mod, "bruto_corr": corr}
 
 
 def main() -> int:

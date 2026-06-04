@@ -16,7 +16,11 @@ import argparse
 import json
 import time
 
+from dotenv import load_dotenv
+
 from core import atlas_api
+
+load_dotenv()  # carga ATLAS_* del .env (mismo patrón que los jobs)
 
 
 def _resumen_query(item: dict) -> str:

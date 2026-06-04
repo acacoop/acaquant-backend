@@ -22,6 +22,8 @@ from datetime import UTC, datetime
 from pymongo import UpdateOne
 from pymongo.errors import BulkWriteError
 
+from api.services._mep import get_mep_for_date
+
 # Header (normalizado: lower, sin acentos, sin separadores) → campo canónico.
 # Cubre los nombres de la API informes y los del histórico (Excel en español).
 _ALIASES: dict[str, str] = {
@@ -225,10 +227,24 @@ def clasificar_commodity(
     return None
 
 
-def _aplicar_enrich(doc: dict, maps: tuple[dict, dict] | None) -> None:
-    """Setea mercado/operacion/segmento(=nivel_1)/nivel_3/commodity (moneda ya
+def _mep_para_fecha(fecha_iso: str | None, cache: dict[str, float | None] | None) -> float | None:
+    """MEP de la fecha (último de Valuaciones.Dolar <= fin del día), memoizado por
+    fecha en `cache` → una sola lookup por día aunque haya miles de docs. `cache`
+    None desactiva el estampado (no toca el campo)."""
+    if cache is None or not fecha_iso:
+        return None
+    if fecha_iso not in cache:
+        cache[fecha_iso] = get_mep_for_date(fecha_iso)
+    return cache[fecha_iso]
+
+
+def _aplicar_enrich(doc: dict, maps: tuple[dict, dict] | None,
+                    mep_cache: dict[str, float | None] | None = None) -> None:
+    """Setea mercado/operacion/segmento(=nivel_1)/nivel_3/commodity/mep (moneda ya
     viene del normalizador). `commodity` se materializa SIEMPRE (incluso sin
-    `maps`) porque sólo depende de campos del propio boleto."""
+    `maps`) porque sólo depende de campos del propio boleto. `mep` (dólar de la
+    `concertacion`) se estampa si se pasa `mep_cache` — igual snapshot que
+    NegocioMovimientos, para dolarizar la vista MOVIMIENTOS."""
     doc["commodity"] = clasificar_commodity(
         doc.get("tipo_operacion"), doc.get("denominacion"), doc.get("instrumento"),
     )
@@ -236,6 +252,8 @@ def _aplicar_enrich(doc: dict, maps: tuple[dict, dict] | None) -> None:
     # Materializado para que /ops/* filtre por índice en vez de un `$not /Cierre/`
     # (regex negada = scan completo). Replicado en backfill_es_cierre_operaciones.
     doc["es_cierre"] = "CIERRE" in (doc.get("tipo_operacion") or "").upper()
+    if mep_cache is not None:
+        doc["mep"] = _mep_para_fecha(doc.get("concertacion"), mep_cache)
     if not maps:
         return
     cat, niveles = maps
@@ -263,6 +281,7 @@ def ingestar_filas(
         ensure_indexes(coll)
 
     ahora = datetime.now(UTC)
+    mep_cache: dict[str, float | None] = {}  # memoiza MEP por concertacion
     # Dedup por boleto DENTRO del lote (última fila gana): con el índice único,
     # dos filas del mismo boleto que aún no existe harían dos inserts → E11000.
     por_boleto: dict[str, dict] = {}
@@ -273,7 +292,7 @@ def ingestar_filas(
             sin_boleto += 1
             continue
         doc["ingestado_en"] = ahora
-        _aplicar_enrich(doc, enrich_maps)
+        _aplicar_enrich(doc, enrich_maps, mep_cache)
         por_boleto[doc["boleto"]] = doc
 
     if not por_boleto:
@@ -337,8 +356,10 @@ def enriquecer(db, batch: int = 2000) -> dict:
     coll.create_index([("concertacion", -1), ("nivel_3", 1)], name="concertacion_nivel3")
     coll.create_index([("moneda", 1), ("concertacion", -1)], name="moneda_concertacion")
 
+    mep_cache: dict[str, float | None] = {}  # memoiza MEP por concertacion
     ops, total, sin_cat = [], 0, 0
-    for d in coll.find({}, {"_id": 1, "tipo_operacion": 1, "condiciones": 1, "cuenta": 1}):
+    for d in coll.find({}, {"_id": 1, "tipo_operacion": 1, "condiciones": 1,
+                            "cuenta": 1, "concertacion": 1}):
         c = cat.get(d.get("tipo_operacion") or "")
         if c is None:
             sin_cat += 1
@@ -351,6 +372,7 @@ def enriquecer(db, batch: int = 2000) -> dict:
                 "operacion": (c or {}).get("operacion", "otro"),
                 "segmento":  nv.get("n1", ""),
                 "nivel_3":   nv.get("n3", ""),
+                "mep":       _mep_para_fecha(d.get("concertacion"), mep_cache),
             }},
         ))
         if len(ops) >= batch:

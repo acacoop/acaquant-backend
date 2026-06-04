@@ -29,6 +29,9 @@ commands/skills/agents/hooks automáticamente; este índice es para vos (humano)
 | `debug-motor` | Troubleshooting de cualquier motor (systemd, journalctl, Mongo). |
 | `backfill-mes` | Rehacer el snapshot de AuM de un mes (delete + backfill + fix precios). |
 | `audit-obsoleto` | Auditar scripts/tests/docs obsoletos → listas BORRAR/REVISAR/MANTENER. On-demand. |
+| `safe-backfill` | Backfill/migración/`--full` que NO tira el CPU: medir → scopear → batchear+throttle → run_job → fuera de rueda (REGLA #4, post-incidente 2026-06-04). |
+| `index-health` | Auditar que los índices REALMENTE se usen (explain, no index_information). Caza el trap partial→COLLSCAN. |
+| `security-review` | Checklist de seguridad antes de exponer endpoint/auth/MCP: RBAC, secretos, CF Access. |
 
 ## Agents (subagentes — corren en contexto limpio)
 

@@ -11,6 +11,7 @@ core/ no importa nada del proyecto (regla de capas) → solo os + requests.
 """
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -82,13 +83,41 @@ def cpu_por_nodo(period: str = "PT10M", granularity: str = "PT1M") -> list[dict]
     return out
 
 
-def slow_queries(process_id: str, since_ms: int | None = None,
-                 n_logs: int = 200) -> list[dict]:
-    """Slow query logs (Performance Advisor) de un nodo. Cada item suele traer una
-    `line` (log JSON de Mongo con docsExamined/planSummary/etc.). Defensivo: devuelve
-    lo que venga en `slowQueries`."""
+def _slow_queries_raw(process_id: str, since_ms: int | None, n_logs: int) -> list[dict]:
+    """Respuesta cruda del Performance Advisor. PRIVADA: el crudo puede contener
+    el comando con VALORES (montos, nombres). NUNCA exponerlo fuera de este módulo
+    ni mandarlo a logs/Telegram. Solo lo consume `slow_queries_meta` para redactar."""
     params: dict[str, Any] = {"nLogs": n_logs}
     if since_ms is not None:
         params["since"] = since_ms
     data = get(f"/processes/{process_id}/performanceAdvisor/slowQueryLogs", params)
     return data.get("slowQueries") or []
+
+
+# Whitelist de campos SEGUROS de un slow query log: metadatos, sin valores de datos.
+# Todo lo que no esté acá (command, q, u, filter, originatingCommand, el doc, etc.)
+# se DESCARTA — garantía de que el monitoreo nunca filtra data financiera.
+_SAFE_KEYS = (
+    "ns", "planSummary", "docsExamined", "keysExamined", "nreturned",
+    "nReturned", "durationMillis", "millis", "queryHash", "appName", "op",
+)
+
+
+def slow_queries_meta(process_id: str, since_ms: int | None = None,
+                      n_logs: int = 200) -> list[dict]:
+    """Slow queries REDACTADAS: solo metadatos (ns, planSummary, docsExamined, etc.),
+    NUNCA el comando ni valores. Es la ÚNICA interfaz pública de slow queries — el
+    crudo no sale de este módulo. `appName` se incluye para atribuir (qué app/job)."""
+    out: list[dict] = []
+    for item in _slow_queries_raw(process_id, since_ms, n_logs):
+        line = item.get("line")
+        if isinstance(line, str):
+            try:
+                line = json.loads(line)
+            except (ValueError, TypeError):
+                continue
+        attr = (line or {}).get("attr") or (line if isinstance(line, dict) else {})
+        meta = {k: attr[k] for k in _SAFE_KEYS if k in attr}
+        if meta:
+            out.append(meta)
+    return out

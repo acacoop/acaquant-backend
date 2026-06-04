@@ -23,8 +23,16 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 
+from dotenv import load_dotenv
+
+from core import atlas_api
 from core.mongo import get_mongo_client
 from core.notify import send_telegram
+
+load_dotenv()  # ATLAS_* del .env, para el chequeo de CPU del cluster (best-effort)
+
+# CPU normalizado (%) a partir del cual el watchdog alerta por el M10.
+_CPU_ALERTA = 85
 
 # Presupuesto en SEGUNDOS por job = TIMEOUT de run_job.sh (deploy/crontab.txt) +
 # margen. FILOSOFÍA (decisión 2026-06-04): el watchdog NO es un aviso temprano —
@@ -103,6 +111,50 @@ def _jobs_corriendo() -> list[tuple[str, int, int]]:
     return _parse_ps(res.stdout)
 
 
+def _peor_slow_query(process_id: str) -> str | None:
+    """Metadato de la slow query con más docsExamined — SOLO metadatos (ns,
+    planSummary, docsExamined), nunca valores. None si no hay permiso/datos."""
+    try:
+        metas = atlas_api.slow_queries_meta(process_id, n_logs=100)
+    except Exception:
+        return None  # 401 (sin permiso de Performance Advisor) u otro → se omite
+    peor, peor_dex = None, 0
+    for m in metas:
+        dex = m.get("docsExamined") or 0
+        if dex > peor_dex:
+            peor_dex, peor = dex, m
+    if not peor:
+        return None
+    return f"{peor.get('ns', '?')} · {peor.get('planSummary', '?')} · examinados={peor_dex:,}"
+
+
+def _check_db_cpu(col, ahora: datetime, dry_run: bool) -> bool:
+    """Alerta por Telegram si el CPU del M10 supera _CPU_ALERTA. BEST-EFFORT: si las
+    ATLAS_* no están o la API falla, se omite SIN romper el watchdog de procesos.
+    El mensaje solo lleva METADATOS (nunca valores) — privacidad por diseño."""
+    try:
+        nodos = atlas_api.cpu_por_nodo()
+    except Exception:
+        return False  # ATLAS_* sin configurar / API caída → no es crítico
+    altos = [n for n in nodos if (n.get("cpu_pct") or 0) >= _CPU_ALERTA]
+    if not altos:
+        return False
+    prev = col.find_one({"_id": "db_cpu"})
+    if prev and prev.get("last_alert_at") and \
+            (ahora - prev["last_alert_at"]) < timedelta(seconds=_COOLDOWN_S):
+        return False
+    detalle = " · ".join(f"{n['alias'].split('.')[0]}={n['cpu_pct']}%" for n in altos)
+    primario = next((n for n in altos if n.get("tipo") == "REPLICA_PRIMARY"), altos[0])
+    sq = _peor_slow_query(primario["id"])
+    msg = (f"🔴 Watchdog DB: CPU alto en el M10 → {detalle}.\n"
+           + (f"Query más pesada: {sq}\n" if sq else "")
+           + "_revisá qué escanea de más: Atlas Profiler o `python -m scripts.atlas_health`._")
+    if not dry_run:
+        send_telegram(msg)
+        col.update_one({"_id": "db_cpu"}, {"$set": {"last_alert_at": ahora}}, upsert=True)
+    return True
+
+
 def run(dry_run: bool = False) -> dict:
     ahora = datetime.now(UTC)
     col = get_mongo_client()["Manager"]["WatchdogAlertas"]
@@ -132,11 +184,15 @@ def run(dry_run: bool = False) -> dict:
                            upsert=True)
         alertados.append((nombre, mins, bmins))
 
+    # Chequeo de CPU del cluster (best-effort; no rompe si ATLAS_* falta).
+    db_alerta = _check_db_cpu(col, ahora, dry_run)
+
     if dry_run:
         print(f"[DRY] jobs corriendo: {revisados}")
-        print(f"[DRY] alertaría: {alertados}")
+        print(f"[DRY] alertaría jobs: {alertados}")
+        print(f"[DRY] alertaría DB CPU: {db_alerta}")
     return {"corriendo": len(corriendo), "alertados": len(alertados),
-            "jobs": [a[0] for a in alertados]}
+            "jobs": [a[0] for a in alertados], "db_cpu_alerta": db_alerta}
 
 
 def main() -> int:

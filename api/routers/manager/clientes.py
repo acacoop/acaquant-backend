@@ -101,7 +101,11 @@ def list_clientes(
     col = get_mongo_client_read()[DB][COL]
     filtros: list[dict] = []
     if operador == "__vacio__":
-        filtros.append({"operador_email": {"$in": _EMPTY_VALUES}})
+        # "sin operador" = vacío REAL: null / ausente / string en blanco. Alineado
+        # con comercial.py (usa `(operador_email or "").strip()` → trata whitespace
+        # como vacío). `$in:["",None]` se quedaba corto: no agarraba " " → daba 0
+        # cuando comercial mostraba N. `$not $regex \S` = sin ningún char no-blanco.
+        filtros.append({"operador_email": {"$not": {"$regex": r"\S"}}})
     elif operador:
         filtros.append({"operador_email": operador})
     if nivel_1:

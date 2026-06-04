@@ -143,7 +143,17 @@ def get_clientes_values() -> dict:
         {"email": d["_id"], "nombre": d.get("nombre") or d["_id"]}
         for d in col.aggregate(pipeline)
     ]
-    return {"values": values, "operadores": operadores}
+
+    # Jerarquía de segmentación: combos DISTINTOS de nivel_1..5 (para datalists en
+    # cascada en el editor — nivel_N sugiere SOLO lo que co-ocurre con los niveles
+    # padre ya elegidos, sin cruzarse con otros nivel_1). El front filtra con esto.
+    niveles_f = ("nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5")
+    niveles = [
+        {n: (r["_id"].get(n) or "") for n in niveles_f}
+        for r in col.aggregate([{"$group": {"_id": {n: f"${n}" for n in niveles_f}}}])
+    ]
+    niveles = [c for c in niveles if any(c.values())]  # descarta el combo todo-vacío
+    return {"values": values, "operadores": operadores, "niveles": niveles}
 
 
 class _ClientePatch(BaseModel):

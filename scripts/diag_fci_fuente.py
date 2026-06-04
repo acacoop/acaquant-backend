@@ -16,9 +16,9 @@ Tres bloques:
   C. Reconciliación (últimos N días): de los comprobantes FCI que fci_bilateral
      DEBERÍA inyectar (CL + DOC), cuántos faltan en Operaciones (hueco real).
 
-Read-only. Correr en el Droplet:
+Read-only. Por default mide SOLO HOY (igualdad exacta de fecha). Correr en el Droplet:
     python -m scripts.diag_fci_fuente
-    python -m scripts.diag_fci_fuente --dias 30
+    python -m scripts.diag_fci_fuente --fecha 2026-06-03
 """
 from __future__ import annotations
 
@@ -39,10 +39,10 @@ def _prefijo(comp: str | None) -> str:
     return "(otro)"
 
 
-def _bloque_a(mov, desde: str) -> None:
+def _bloque_a(mov, fecha: str) -> None:
     print("══ A. NegocioMovimientos (fuente cruda) — FCI por categoria × comprobante ══")
     rows = list(mov.aggregate([
-        {"$match": {"categoria": {"$in": list(_FCI_CATS)}, "fecha": {"$gte": desde}}},
+        {"$match": {"categoria": {"$in": list(_FCI_CATS)}, "fecha": fecha}},
         {"$group": {
             "_id": {"cat": "$categoria", "comp": "$comprobante"},
             "n": {"$sum": 1}, "imp": {"$sum": {"$abs": {"$ifNull": ["$importe", 0]}}},
@@ -63,12 +63,12 @@ def _bloque_a(mov, desde: str) -> None:
         print(f"  {cat:28} {pref:6} {a['n']:>7,} {a['imp']:>18,.0f}  {a['min']}…{a['max']}")
 
 
-def _bloque_b(ops, desde: str) -> None:
+def _bloque_b(ops, fecha: str) -> None:
     print("\n══ B. Operaciones (lo que ve la vista) — FCI auto-descubierto ══")
     # Bilateral inyectado: mercado = "FCI Bilateral", por operacion × etapa.
     print("  ── inyectado (mercado='FCI Bilateral') por operacion × etapa ──")
     for r in ops.aggregate([
-        {"$match": {"mercado": "FCI Bilateral", "concertacion": {"$gte": desde}}},
+        {"$match": {"mercado": "FCI Bilateral", "concertacion": fecha}},
         {"$group": {"_id": {"op": "$operacion", "etapa": "$etapa"},
                     "n": {"$sum": 1}, "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}}}},
         {"$sort": {"n": -1}},
@@ -79,7 +79,7 @@ def _bloque_b(ops, desde: str) -> None:
     print("  ── FCI normal (operacion Suscripción/Rescate, mercado ≠ FCI Bilateral) ──")
     rows = list(ops.aggregate([
         {"$match": {"operacion": {"$in": ["Suscripción", "Rescate"]},
-                    "mercado": {"$ne": "FCI Bilateral"}, "concertacion": {"$gte": desde}}},
+                    "mercado": {"$ne": "FCI Bilateral"}, "concertacion": fecha}},
         {"$group": {"_id": {"op": "$operacion", "mercado": "$mercado"},
                     "n": {"$sum": 1}, "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}}}},
         {"$sort": {"n": -1}},
@@ -91,11 +91,11 @@ def _bloque_b(ops, desde: str) -> None:
         print(f"    {op:14} {mer:24} n={r['n']:>6,}  Σbruto={r['bruto']:>16,.0f}")
 
 
-def _bloque_c(mov, ops, desde: str) -> None:
-    print(f"\n══ C. Reconciliación (desde {desde}) — comprobantes que fci_bilateral DEBE inyectar ══")
+def _bloque_c(mov, ops, fecha: str) -> None:
+    print(f"\n══ C. Reconciliación ({fecha}) — comprobantes que fci_bilateral DEBE inyectar ══")
     # Lo que el job inyecta: CL (liquidación) + DOC (solicitud). Las BOL ya entran
     # por el API → no las cuenta acá.
-    q = {"fecha": {"$gte": desde}, "$or": [
+    q = {"fecha": fecha, "$or": [
         {"categoria": {"$in": ["suscripcion_fci", "rescate_fci"]},
          "comprobante": {"$regex": "^CL", "$options": "i"}},
         {"categoria": {"$in": ["solicitud_suscripcion_fci", "solicitud_rescate_fci"]}},
@@ -123,16 +123,16 @@ def _bloque_c(mov, ops, desde: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dias", type=int, default=60, help="ventana hacia atrás (default 60)")
+    ap.add_argument("--fecha", help="día exacto YYYY-MM-DD (default: HOY ART)")
     args = ap.parse_args()
     hoy = (datetime.now(UTC) - timedelta(hours=3)).date()
-    desde = (hoy - timedelta(days=args.dias)).isoformat()
+    fecha = args.fecha or hoy.isoformat()
     db = get_mongo_client_read()["CashFlow"]
     mov, ops = db["NegocioMovimientos"], db["Operaciones"]
-    print(f"Ventana: últimos {args.dias} días (desde {desde})\n")
-    _bloque_a(mov, desde)
-    _bloque_b(ops, desde)
-    _bloque_c(mov, ops, desde)
+    print(f"Día (exacto): {fecha}\n")
+    _bloque_a(mov, fecha)
+    _bloque_b(ops, fecha)
+    _bloque_c(mov, ops, fecha)
     return 0
 
 

@@ -26,24 +26,39 @@ from datetime import UTC, datetime, timedelta
 from core.mongo import get_mongo_client
 from core.notify import send_telegram
 
-# Presupuesto en SEGUNDOS por job. Si un proceso `python -m jobs.<nombre>` lleva
-# corriendo más que esto, se alerta. Default para los no listados. El watchdog
-# corre cada 5 min → no sirve para jobs < ~5 min (esos los cubre el timeout de
-# run_job.sh); acá van los que pueden correr largo.
+# Presupuesto en SEGUNDOS por job = TIMEOUT de run_job.sh (deploy/crontab.txt) +
+# margen. FILOSOFÍA (decisión 2026-06-04): el watchdog NO es un aviso temprano —
+# solo alerta si el job sigue VIVO DESPUÉS del momento en que run_job.sh debería
+# haberlo matado (SIGTERM al llegar al <timeout>, SIGKILL a +30s). O sea: una
+# alerta significa "el mecanismo de kill FALLÓ" → anomalía real que requiere mano,
+# NO una corrida lenta-pero-normal. Antes el presupuesto era < timeout → avisaba
+# en cada corrida normal (falsa alarma; ver descubrir_cuentas, que se autolimita
+# a 60 min y avisaba justo ahí). Para un job dentro de un chain, el timeout es el
+# del CHAIN (lo comparten todos los del chain).
+_GRACE_S = 5 * 60
 _BUDGETS_S: dict[str, int] = {
-    "descubrir_cuentas":       60 * 60,   # 1h (el 2026-06-03 corrió 5h)
-    "operaciones_informes":    20 * 60,
-    "negocio_movimientos":     15 * 60,
-    "aranceles":               15 * 60,
-    "fci_bilateral":           10 * 60,   # su COLLSCAN lo colgaba
-    "pnl_totales_precompute":  20 * 60,
-    "consolidado_cuentas":     20 * 60,
-    "aum":                     20 * 60,
-    "cashflow":                25 * 60,
-    "flujo_contrapartes":      25 * 60,
-    "precios_acciones_daily":  25 * 60,
+    # ── standalone ──
+    "descubrir_cuentas":       90 * 60 + _GRACE_S,   # run_job 90m (autocap propio 60m)
+    "operaciones_informes":    25 * 60 + _GRACE_S,   # run_job 25m
+    "consolidado_cuentas":     25 * 60 + _GRACE_S,   # run_job 25m
+    "pnl_totales_precompute":  25 * 60 + _GRACE_S,   # run_job 25m
+    "precios_acciones_daily":  30 * 60 + _GRACE_S,   # run_job 30m
+    # ── negocio_chain (25m): negocio_movimientos → aranceles → fci_bilateral ──
+    "negocio_movimientos":     25 * 60 + _GRACE_S,
+    "aranceles":               25 * 60 + _GRACE_S,
+    "fci_bilateral":           25 * 60 + _GRACE_S,
+    # ── aum_chain (25m): aum → sync_api_copies ──
+    "aum":                     25 * 60 + _GRACE_S,
+    # ── cashflow_chain (30m): cashflow → sync_api_copies ──
+    "cashflow":                30 * 60 + _GRACE_S,
+    # ── flujo_chain (30m): flujo_contrapartes → sync_api_copies ──
+    "flujo_contrapartes":      30 * 60 + _GRACE_S,
+    # ── cierre_chain (25m): snapshot_cierre → fair_value ──
+    "snapshot_cierre":         25 * 60 + _GRACE_S,
+    "fair_value":              25 * 60 + _GRACE_S,
 }
-_DEFAULT_BUDGET_S = 20 * 60
+# Jobs no listados (todos de timeout ≤30m) → cubiertos con margen.
+_DEFAULT_BUDGET_S = 30 * 60 + _GRACE_S
 _COOLDOWN_S = 30 * 60   # no re-alertar el mismo job dentro de esta ventana
 
 # El propio watchdog y los jobs sub-minuto no tiene sentido vigilarlos acá.
@@ -106,10 +121,10 @@ def run(dry_run: bool = False) -> dict:
             continue
         mins = etimes // 60
         bmins = budget // 60
-        msg = (f"🔴 Watchdog: job `{nombre}` corriendo hace *{mins} min* "
-               f"(presupuesto {bmins} min, PID {pid}).\n"
-               f"run_job.sh debería matarlo solo; si no, `kill {pid}`.\n"
-               f"_revisar AUDITORIA_DATOS / por qué se cuelga_")
+        msg = (f"🔴 Watchdog: `{nombre}` SIGUE VIVO hace *{mins} min* (PID {pid}).\n"
+               f"Ya superó su timeout de run_job.sh + margen ({bmins} min) → "
+               f"el kill automático NO funcionó (anomalía real).\n"
+               f"Matar a mano: `kill {pid}`.  _revisar AUDITORIA_DATOS / por qué no murió_")
         if not dry_run:
             send_telegram(msg)
             col.update_one({"_id": nombre},

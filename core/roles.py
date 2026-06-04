@@ -63,6 +63,7 @@ MODULES: tuple[str, ...] = (
     "manager_comercial",      # /api/manager/comercial/* (read-only: tablero por operador)
     "manager_clientes",       # /api/manager/clientes + /clientes/values + PATCH (edición fila)
     "manager_clientes_bulk",  # /api/manager/clientes/bulk + /bulk-fondeo (carga masiva — admin)
+    "manager_compliance",     # /api/manager/compliance/* (read-only: operador nuestro vs Aunesa)
 )
 
 
@@ -93,6 +94,14 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
         "renta-variable", "estrategia",
         "operaciones", "portfolios", "back-office",
         "manager_comercial", "manager_clientes",
+    ),
+    # Compliance: HOME + todos los mercados + Manager SOLO Clientes + Compliance
+    # (sin `manager` umbrella → no ve las tabs de admin). Detecta diferencias de
+    # operador (nuestro vs Aunesa). Mismo patrón de gate fino que asistente_comercial.
+    "compliance": (
+        "home", "renta-fija", "derivados", "agro", "sinteticos",
+        "renta-variable", "estrategia",
+        "manager_clientes", "manager_compliance",
     ),
 }
 # `operar` (DOLAR MEP + envío de órdenes) queda SOLO para admin de momento

@@ -29,6 +29,7 @@ from api.routers.manager import (
     checks,
     clientes,
     comercial,
+    compliance,
     grupos,
     jobs,
     logs,
@@ -50,6 +51,7 @@ _MGR             = [Depends(verify_api_key), Depends(require_module("manager"))]
 _COMERCIAL       = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_comercial")))]
 _CLIENTES        = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_clientes")))]
 _CLIENTES_BULK   = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_clientes_bulk")))]
+_COMPLIANCE      = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_compliance")))]
 
 # Tabs admin (umbrella `manager`):
 router.include_router(status.router,      dependencies=_MGR)
@@ -69,3 +71,4 @@ router.include_router(operaciones.router, dependencies=_MGR)
 router.include_router(comercial.router,       dependencies=_COMERCIAL)
 router.include_router(clientes.router,        dependencies=_CLIENTES)
 router.include_router(clientes.bulk_router,   dependencies=_CLIENTES_BULK)
+router.include_router(compliance.router,      dependencies=_COMPLIANCE)

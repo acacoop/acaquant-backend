@@ -100,7 +100,9 @@ def list_clientes(
     """Lista clientes de Clientes.Comitentes. Sin filtros: todo el master."""
     col = get_mongo_client_read()[DB][COL]
     filtros: list[dict] = []
-    if operador:
+    if operador == "__vacio__":
+        filtros.append({"operador_email": {"$in": _EMPTY_VALUES}})
+    elif operador:
         filtros.append({"operador_email": operador})
     if nivel_1:
         filtros.append({"nivel_1": nivel_1})

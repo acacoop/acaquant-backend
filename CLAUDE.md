@@ -74,6 +74,24 @@ El user opera solo un proyecto enorme y necesita entender el "qué" y el "para
 qué" de cada cambio sin leer el diff. Un cambio sin esta explicación está
 INCOMPLETO. Aplica también a los diags y a los cambios de doc.
 
+## ⚠️ REGLA #4 — Backfills/migraciones JAMÁS escanean prod a ciegas
+
+**Causó dos veces el CPU 100% en el M10. Bloqueante.** Ningún backfill,
+migración o `--full` se corre sin cumplir TODO esto:
+
+- **Scopeado**: apuntar SOLO a los docs que realmente cambian (ej. `bruto=0`),
+  nunca un scan de toda la colección si se puede filtrar por índice.
+- **Batcheado + throttle**: procesar en lotes con `sleep` entre lotes para no
+  starvar a los motores. Nada de un `bulk_write` gigante de una.
+- **Medir el costo ANTES** (REGLA #2): `explain()` / contar docs afectados. Si
+  toca un scan grande, decirlo explícito y decidir.
+- **Vía `run_job.sh`** (lock + timeout) y, salvo que sea liviano y scopeado,
+  **fuera de rueda** (no 13-20 UTC L-V, cuando corren los motores).
+- **Idempotente**: cortarlo a la mitad y re-correrlo no rompe nada.
+
+Un `--full` a ciegas en horario de mercado es exactamente el anti-patrón del
+incidente 2026-06-03. Si dudás del volumen, NO lo corras: medí primero.
+
 ## Reglas que rompen todo si se olvidan
 
 - **`python -m <módulo>` desde la raíz siempre**. `python engines/x.py` falla (`core` no es discoverable).

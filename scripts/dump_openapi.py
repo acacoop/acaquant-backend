@@ -21,6 +21,11 @@ _OUT = Path("docs/postman")
 
 def _dump(app, nombre: str) -> None:
     _OUT.mkdir(parents=True, exist_ok=True)
+    # FastAPI emite OpenAPI 3.1 por default; muchas versiones de Postman solo
+    # importan 3.0 ("Incorrect format"). Forzamos 3.0.3 (limpiando la cache del
+    # schema para regenerar con esa versión).
+    app.openapi_version = "3.0.3"
+    app.openapi_schema = None
     spec = app.openapi()
     (path := _OUT / nombre).write_text(
         json.dumps(spec, ensure_ascii=False, indent=2), encoding="utf-8")

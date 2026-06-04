@@ -54,14 +54,26 @@ def run(dry: bool, ventana: int, sleep_s: float) -> dict:
         q = {"fecha": {"$gte": w_ini.isoformat(), "$lte": cur.isoformat()},
              "categoria": {"$in": list(_CATS)},
              "comprobante": {"$regex": "^BOL", "$options": "i"}}
-        bulk = [
-            UpdateOne({"boleto": str(d["comprobante"]).strip(), "bruto": {"$in": [0, None]}},
-                      {"$set": {"bruto": abs(d["importe"])}})  # sin upsert → jamás inserta
+        imp_por_boleto = {
+            str(d["comprobante"]).strip(): abs(d["importe"])
             for d in mov.find(q, {"_id": 0, "comprobante": 1, "importe": 1})
             if d.get("comprobante") and d.get("importe") is not None
-        ]
-        if bulk:
-            corr = len(bulk) if dry else ops.bulk_write(bulk, ordered=False).modified_count
+        }
+        if imp_por_boleto:
+            # SOLO los REALMENTE rotos en Operaciones (bruto 0/null) → el dry-run no
+            # cuenta de más (los rescates ya vienen con bruto OK y no matchean).
+            rotos = [
+                str(o["boleto"]).strip()
+                for o in ops.find(
+                    {"boleto": {"$in": list(imp_por_boleto)}, "bruto": {"$in": [0, None]}},
+                    {"_id": 0, "boleto": 1})
+            ]
+            corr = len(rotos)
+            if rotos and not dry:
+                bulk = [UpdateOne({"boleto": b, "bruto": {"$in": [0, None]}},
+                                  {"$set": {"bruto": imp_por_boleto[b]}})  # sin upsert
+                        for b in rotos]
+                corr = ops.bulk_write(bulk, ordered=False).modified_count
             total_corr += corr
             if corr:
                 print(f"  {w_ini}…{cur}: {corr} corregidos")

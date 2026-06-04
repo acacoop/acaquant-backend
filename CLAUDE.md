@@ -51,6 +51,29 @@ en función de eso es lo que rompe todo.
 - **Optimizar = medir primero** (`explain()` / timing), después tocar. Nada de
   optimizaciones justificadas por una corazonada sobre cómo lucen los datos.
 
+## ⚠️ REGLA #3 — TODO cambio lleva EXPLICACIÓN EJECUTIVA (a raja tabla)
+
+**Obligatorio, sin excepción.** Cada cambio que se entrega (commit, script,
+endpoint, fix, refactor, config) va acompañado de una explicación ejecutiva
+breve, en lenguaje claro (no técnico-críptico), con DOS partes:
+
+- **Qué soluciona** — el problema concreto que resuelve / la pregunta que
+  responde. Por qué se hizo.
+- **Qué genera / qué impacto tiene** — qué cambia en el sistema a partir de
+  ahora: comportamiento nuevo, efectos colaterales, qué hay que correr/deployar,
+  qué se gana (perf, plata, visibilidad), qué riesgo introduce si lo hay.
+
+Formato sugerido (corto, va en el mensaje al user, no necesariamente en el código):
+
+```
+📋 Qué soluciona: …
+📋 Qué genera:    …
+```
+
+El user opera solo un proyecto enorme y necesita entender el "qué" y el "para
+qué" de cada cambio sin leer el diff. Un cambio sin esta explicación está
+INCOMPLETO. Aplica también a los diags y a los cambios de doc.
+
 ## Reglas que rompen todo si se olvidan
 
 - **`python -m <módulo>` desde la raíz siempre**. `python engines/x.py` falla (`core` no es discoverable).
@@ -123,6 +146,19 @@ uvicorn partner_api.main:app --port 8100   # Partner API (servicio externo, ver 
 ## Tablero Comercial (lente por operador)
 
 `api/services/comercial.py` + `api/routers/manager/comercial.py` (solo manager). Cruza todo por `id_cuenta` (denormalizado e indexado en `NegocioMovimientos` — **nunca regex sobre `cuenta`**; backfill viejo: `scripts/backfill_id_cuenta_negocio.py`): QUIÉN (`Clientes.Comitentes` → operador + `nivel_1`), ACTIVIDAD (`CashFlow.NegocioMovimientos` → última op), TAMAÑO (`Valuaciones.AuM`), operador↔usuario (`Manager.Users`, para cuentas huérfanas). Estado comercial por días desde última op: ACTIVA ≤45 / ENFRIANDOSE 45-90 / DORMIDA / NUEVA. Cacheado on-the-fly (TTL); si pesa, mover a precompute `Clientes.ComercialCache`. Diseño: `docs/TABLERO_COMERCIAL.md`.
+
+## Operaciones — rollup, NO escanear (CRÍTICO, no inferible)
+
+`CashFlow.Operaciones` (~487k docs / ~213MB) es la fuente de la vista MOVIMIENTOS (`api/routers/operaciones.py`, `/api/operaciones/ops/*`). Origen: `jobs.operaciones_informes` (API informes), enriquecida con `moneda`/`mercado`/`operacion`/`nivel_3`/`segmento` por `scripts/enrich_operaciones.py` (+ backfills `backfill_nivel3_operaciones.py`, `backfill_es_cierre_operaciones.py`, `backfill_commodity_operaciones.py`).
+
+**Regla de oro: NUNCA re-agregar toda la historia de Operaciones por request.** Las series (`/ops/serie`, `/ops/aranceles`) escaneaban ~200k docs SIN filtro de fecha → desalojaban el cache del M10 → CPU. Ahora leen el rollup pre-agregado `CashFlow.OpsSerieDiaria` (`jobs/ops_rollup.py`, cron `40 13-22 * * 1-5`).
+
+- **Grano del rollup** (1 doc por combo): `{fecha, moneda, mercado, operacion, segmento, nivel_3} → {bruto, arancel, n}`. Solo el subconjunto **countable**: `es_cierre=False` + `etapa≠solicitud` (mismo filtro que `_ops_match` → equivalente). `arancel` se guarda en valor **absoluto** (`$abs` — reintegros cuentan en magnitud).
+- **NO incluye `denominacion`/`cuenta`** (alta cardinalidad). Esos filtros + el scope de cuenta caen a query **live** en el endpoint (ya usan índice).
+- **Live-fallback**: el rollup cubre hasta AYER; el día de HOY se agrega en vivo (1 día → índice `concertacion`, barato) y se mergea. Si el rollup está vacío para esa moneda (no construido), el helper devuelve `None` → el caller cae a la query live completa. Ver `_serie_bruto_rollup` en `operaciones.py`.
+- **Cierre de caución** se excluye por el campo materializado `es_cierre` (indexable), NO por `$not /Cierre/` (forzaba COLLSCAN). `etapa=solicitud` tampoco suma (la liquidación CL ya cuenta) — evita doble conteo.
+- **Modos del job**: incremental (recalcula últimos 7 días — boletos retro) por default; `--full` rebuild completo con swap atómico (`reemplazar_coleccion_atomico`, sin ventana de vacío). Backfill inicial: `python -m jobs.ops_rollup --full`.
+- Mismo patrón rollup-no-escanear para opciones: `jobs/options_rollup.py`.
 
 ## Trading.Curvas — shape de flujos (CRÍTICO, no inferible)
 

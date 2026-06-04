@@ -1037,8 +1037,8 @@ def ops_agro(
     (SOJA/TRIGO/MAIZ). Lógica: tipo 'Futuros' sin 'Financieros', sin OTC;
     toneladas = |cantidad| × (10 si 'MIN' en instrumento, sino 100).
 
-    Devuelve: `serie` (histórica global, chart de la izq), `serie_cuenta`
-    (histórica SOLO de la cuenta elegida, chart de la der; vacía sin `cuenta`),
+    Devuelve: `serie` (Σ por periodo en [desde,hasta], chart de la izq),
+    `serie_cuenta` (idem SOLO de la cuenta elegida, chart de la der; vacía sin `cuenta`),
     `serie_share` (% mensual nuestro/mercado por commodity, tab "Share de
     mercado"; lee CashFlow.VolumenMercadoAgro), `totales` (Σ por commodity),
     `por_cuenta` y `por_instrumento` (acotados al rango [desde,hasta])."""
@@ -1050,8 +1050,9 @@ def ops_agro(
     # operaciones_informes.clasificar_commodity. Match indexado (índice parcial
     # commodity_concertacion) → no escanea la colección con regex. Backfill de
     # docs viejos: scripts/backfill_commodity_operaciones.py.
-    # SIN concertacion en el match base → los gráficos (serie/serie_cuenta) son
-    # HISTÓRICOS completos. Las tablas se acotan al rango [desde,hasta] adentro.
+    # serie/serie_cuenta (gráficos de VOLUMEN) y las tablas se acotan al rango
+    # [desde,hasta] (date_m) → el toolbar Desde/Hasta maneja el gráfico (su "ALL"
+    # = el rango elegido). El share mensual (nuestro_mensual) SÍ sigue histórico.
     match: dict = {"commodity": {"$in": ["SOJA", "TRIGO", "MAIZ"]}}
     aplicar_scope_cuenta(match, scope, campo="cuenta")
     date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
@@ -1069,7 +1070,7 @@ def ops_agro(
     f_cta = [{"$match": {"commodity": commodity}}] if commodity else []  # commodity → filtra cuentas
     serie_grp = {"$group": {"_id": {"p": "$periodo", "c": "$commodity"}, "ton": {"$sum": "$toneladas"}}}
     facet_spec: dict = {
-        "serie": [serie_grp],
+        "serie": [date_m, serie_grp],
         "por_commodity": [date_m, *f_comm,
                           {"$group": {"_id": "$commodity", "ton": {"$sum": "$toneladas"}}}],
         "por_cuenta": [date_m, *f_cta,
@@ -1084,7 +1085,7 @@ def ops_agro(
             "ton": {"$sum": "$toneladas"}}}],
     }
     if cuenta:
-        facet_spec["serie_cuenta"] = [{"$match": {"denominacion": cuenta}}, serie_grp]
+        facet_spec["serie_cuenta"] = [{"$match": {"denominacion": cuenta}}, date_m, serie_grp]
     facet = list(db.aggregate([
         {"$match": match},
         {"$addFields": addf},

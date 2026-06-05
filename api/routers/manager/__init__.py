@@ -30,6 +30,7 @@ from api.routers.manager import (
     clientes,
     comercial,
     compliance,
+    control_automatico,
     diagnostico,
     grupos,
     jobs,
@@ -71,7 +72,8 @@ router.include_router(operaciones.router, dependencies=_MGR)
 
 # Tabs accesibles a `asistente_comercial`:
 router.include_router(comercial.router,       dependencies=_COMERCIAL)
-router.include_router(clientes.router,        dependencies=_CLIENTES)
-router.include_router(clientes.bulk_router,   dependencies=_CLIENTES_BULK)
+router.include_router(clientes.router,            dependencies=_CLIENTES)
+router.include_router(control_automatico.router,  dependencies=_CLIENTES)
+router.include_router(clientes.bulk_router,       dependencies=_CLIENTES_BULK)
 router.include_router(compliance.router,      dependencies=_COMPLIANCE)
 router.include_router(assets.router,          dependencies=_TITULOS)

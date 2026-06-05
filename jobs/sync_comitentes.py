@@ -31,6 +31,7 @@ import requests
 from pymongo import ASCENDING, UpdateOne
 
 import config
+from core.doc_fiscal import parse_titular
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
 
@@ -126,9 +127,14 @@ def _map_cuenta(c: dict) -> dict:
     pedidos (auto). Los manuales NO van acá — se inicializan en el upsert."""
     dg = c.get("disposicionesGenerales") or {}
     op = (c.get("administrador") or {}).get("operador") or {}
+    # Documento fiscal: del `titular` de Aunesa ('[DNI 93698623] NOMBRE'). Lo
+    # persistimos para el cruce del Control Automático (Excel de CUITs ↔ cuentas).
+    tipo_doc, nro_doc = parse_titular(c.get("titular"))
     return {
         "id_cuenta":         str(c.get("id")) if c.get("id") is not None else None,
         "denominacion":      c.get("denominacion"),
+        "tipo_doc":          tipo_doc,
+        "nro_doc":           nro_doc,
         "tipo_titular":      c.get("tipoTitular"),
         "tipo":              c.get("tipo"),
         "estado":            c.get("estado"),

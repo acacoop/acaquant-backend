@@ -96,6 +96,7 @@
 | 23:30 · L-V | `jobs.consolidado_cuentas'` |
 | 20:35 · L-V | `jobs.cierre_canje'` |
 | cada hora · 13-22h · L-V | `jobs.ops_rollup'` |
+| cada hora · 14-22h · L-V | `jobs.comercial_rollup'` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
 <!-- /AUTOGEN:crons -->
 

@@ -699,17 +699,29 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None, operador: str | No
     }
 
 
-@cached(ttl=600)
-def informe_comercial(*, moneda: str = "ARS") -> dict[str, Any]:
-    """Tablas 2 y 3 del Informe (global). Una pasada por NegocioMovimientos
-    (volumen pesificado incluyendo USD + arancel, total histórico y mes actual),
-    con roll-up por operador (tabla 2, ranking por volumen) y por nivel_1 (tabla 3).
-    `moneda='USD'` dolariza al MEP actual."""
-    hoy = _hoy_art()
-    factor = _factor_usd(moneda)
-    mes_start = hoy.replace(day=1).isoformat()
-    cats = list(_CATS_VOLUMEN)
+def _por_cuenta_cache(mes_start: str) -> dict[str, dict] | None:
+    """Roll-up {id_cuenta: {vol_total, vol_mes, ar_total, ar_mes, n_ops}} desde el
+    precompute Clientes.ComercialCache (jobs/comercial_rollup). ~58k filas indexadas
+    → barato. None si el cache está vacío (no construido) → el caller cae a live."""
+    por: dict[str, dict] = {}
+    for d in get_db_clientes()["ComercialCache"].aggregate([
+        {"$group": {
+            "_id": "$id_cuenta",
+            "vol_total": {"$sum": "$vol"},
+            "vol_mes": {"$sum": {"$cond": [{"$gte": ["$fecha", mes_start]}, "$vol", 0]}},
+            "ar_total": {"$sum": "$arancel"},
+            "ar_mes": {"$sum": {"$cond": [{"$gte": ["$fecha", mes_start]}, "$arancel", 0]}},
+            "n_ops": {"$sum": "$n_ops"},
+        }},
+    ], allowDiskUse=True):
+        if d.get("_id"):
+            por[str(d["_id"])] = d
+    return por or None
 
+
+def _por_cuenta_live(mes_start: str, cats: list[str]) -> dict[str, dict]:
+    """Fallback LIVE (C1/C4): pasada por NegocioMovimientos (vol) + arancel de
+    Operaciones. Caro (COLLSCAN) — sólo si ComercialCache está vacío."""
     por_cuenta: dict[str, dict] = {}
     for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
         {"$match": {**match_no_futuros(),
@@ -723,15 +735,12 @@ def informe_comercial(*, moneda: str = "ARS") -> dict[str, Any]:
             "ar_total": {"$sum": {"$ifNull": ["$arancel", 0]}},
             "ar_mes": {"$sum": {"$cond": [
                 {"$gte": ["$fecha", mes_start]}, {"$ifNull": ["$arancel", 0]}, 0]}},
-            # # operaciones operativas (cualquier moneda) → ticket promedio.
             "n_ops": {"$sum": {"$cond": [{"$in": ["$categoria", cats]}, 1, 0]}},
         }},
     ]):
         if d.get("_id"):
             por_cuenta[str(d["_id"])] = d
-
-    # Arancel desde Operaciones (completo): pisa el de NegocioMov y agrega las
-    # cuentas que tienen arancel en Operaciones pero sin volumen en NegocioMov.
+    # Arancel desde Operaciones (completo): pisa el de NegocioMov.
     ar_ops = _aranceles_por_cuenta(None, mes_start)
     for d in por_cuenta.values():
         d["ar_total"] = 0.0
@@ -743,6 +752,21 @@ def informe_comercial(*, moneda: str = "ARS") -> dict[str, Any]:
                                    "ar_total": 0.0, "ar_mes": 0.0, "n_ops": 0}
         d["ar_total"] = a["ar_total"]
         d["ar_mes"] = a["ar_mes"]
+    return por_cuenta
+
+
+@cached(ttl=600)
+def informe_comercial(*, moneda: str = "ARS") -> dict[str, Any]:
+    """Tablas 2 y 3 del Informe (global). Roll-up por operador (ranking) y por
+    nivel_1 (segmento), de volumen pesificado + arancel (total histórico y mes).
+    Lee el precompute Clientes.ComercialCache (rápido); fallback a live si vacío.
+    `moneda='USD'` dolariza al MEP actual."""
+    hoy = _hoy_art()
+    factor = _factor_usd(moneda)
+    mes_start = hoy.replace(day=1).isoformat()
+    cats = list(_CATS_VOLUMEN)
+
+    por_cuenta = _por_cuenta_cache(mes_start) or _por_cuenta_live(mes_start, cats)
 
     detalle = {
         str(c["id_cuenta"]): c

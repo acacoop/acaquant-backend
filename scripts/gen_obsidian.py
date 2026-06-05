@@ -32,7 +32,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT.parent / "acaquant-web"
 VAULT = ROOT / "docs" / "vault"
-PROSE = VAULT / "_prose"   # prosa de IA por nodo (sobrevive a la regeneración)
+PROSE = VAULT / ".prose"   # prosa de IA por nodo (sobrevive a la regeneración).
+# Carpeta con punto: Obsidian la ignora (como .obsidian/.git) → no ensucia el grafo
+# con sidecars sueltos. El texto se inyecta igual dentro de cada nota de nodes/.
 
 # Paquetes top-level del backend que cuentan como "nodos" del grafo de imports.
 # El cerebro = la ARQUITECTURA VIVA del sistema, NO los one-shots ni los tests:

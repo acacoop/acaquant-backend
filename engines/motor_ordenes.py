@@ -50,6 +50,7 @@ from typing import Any
 import pyRofex
 from dotenv import load_dotenv
 from pymongo import ASCENDING
+from pymongo.errors import OperationFailure
 
 # Cargar .env antes que core/rofex_orders_session lea ROFEX_ORDERS_ENV y demás.
 load_dotenv()
@@ -98,13 +99,40 @@ signal.signal(signal.SIGINT, _handle_signal)
 
 
 def _ensure_indexes(db) -> None:
-    """Idempotente — pymongo no recrea índices ya existentes."""
-    db[COL_LIVE].create_index([("cl_ord_id", ASCENDING)], unique=True, sparse=True)
-    db[COL_LIVE].create_index([("ws_cl_ord_id", ASCENDING)], sparse=True)
-    db[COL_LIVE].create_index([("account", ASCENDING), ("status", ASCENDING)])
-    db[COL_LIVE].create_index([("updated_at", ASCENDING)])
-    db[COL_AUDIT].create_index([("ts", ASCENDING)])
-    db[COL_AUDIT].create_index([("cl_ord_id", ASCENDING)])
+    """Crea los índices del motor — idempotente y TOLERANTE a conflictos de opciones.
+
+    pymongo NO es idempotente cuando ya existe un índice con el mismo nombre
+    pero opciones distintas: tira `OperationFailure` code 85 (IndexOptionsConflict).
+    Eso pasó cuando al `ts_1` de OrdenesAudit se le agregó un TTL fuera de banda en
+    Atlas: el `create_index([("ts", ...)])` plano del código chocaba con el TTL
+    existente y el motor moría al arrancar (status=1/FAILURE) → systemd en
+    'activating' eterno → OPERAR sin datos (incidente 2026-06-05).
+
+    El índice existente sirve igual para las queries del motor (es un btree sobre
+    `ts`, con o sin TTL), así que ante un conflicto de opciones LO CONSERVAMOS y
+    seguimos en vez de crashear. No borramos ni recreamos nada (cero mutación).
+    """
+    specs: list[tuple[str, list[tuple[str, int]], dict[str, Any]]] = [
+        (COL_LIVE,  [("cl_ord_id", ASCENDING)], {"unique": True, "sparse": True}),
+        (COL_LIVE,  [("ws_cl_ord_id", ASCENDING)], {"sparse": True}),
+        (COL_LIVE,  [("account", ASCENDING), ("status", ASCENDING)], {}),
+        (COL_LIVE,  [("updated_at", ASCENDING)], {}),
+        (COL_AUDIT, [("ts", ASCENDING)], {}),
+        (COL_AUDIT, [("cl_ord_id", ASCENDING)], {}),
+    ]
+    for col, keys, opts in specs:
+        try:
+            db[col].create_index(keys, **opts)
+        except OperationFailure as e:
+            # 85 IndexOptionsConflict / 86 IndexKeySpecsConflict: ya existe un
+            # índice equivalente con opciones distintas → se conserva, sirve igual.
+            if e.code in (85, 86):
+                logger.warning(
+                    "Índice %s en %s ya existe con opciones distintas (code=%s) — "
+                    "se conserva el existente, no se recrea.", keys, col, e.code,
+                )
+            else:
+                raise
 
 
 def _audit(db, kind: str, *, cl_ord_id: str | None = None,

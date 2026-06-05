@@ -1163,12 +1163,12 @@ def ops_agro(
     }
 
 
-def _serie_arancel_rollup(cf, moneda, segmento, plen, serie_full) -> list[dict] | None:
-    """Serie Σ arancel por periodo desde OpsSerieDiaria (histórico < hoy) + hoy en
-    vivo. None si el rollup está vacío → live. El rollup ya guarda abs(arancel).
-    plen=7 mensual / 10 diario. serie_full=False acota a la ventana (~18m)."""
+def _serie_arancel_rollup(cf, segmento, plen, serie_full) -> list[dict] | None:
+    """Serie Σ arancel (PESOS, todas las monedas) por periodo desde OpsSerieDiaria
+    (histórico < hoy) + hoy en vivo. El arancel es siempre en pesos → NO se filtra
+    por moneda. None si el rollup está vacío → live. plen=7 mensual / 10 diario."""
     hoy = (datetime.now(UTC) - timedelta(hours=3)).date().isoformat()  # ART
-    m: dict = {"moneda": moneda, "fecha": {"$lt": hoy}}
+    m: dict = {"fecha": {"$lt": hoy}}
     if segmento and segmento.lower() != "todos":
         m["segmento"] = segmento
     if not serie_full:
@@ -1182,9 +1182,10 @@ def _serie_arancel_rollup(cf, moneda, segmento, plen, serie_full) -> list[dict] 
     if not rollup:
         return None
     serie = {r["_id"]: r["ar"] for r in rollup}
-    # Hoy en vivo (un día → índice concertacion). abs(arancel), moneda+segmento.
+    # Hoy en vivo (un día → índice concertacion). abs(arancel), sin filtro de moneda.
     # _arancel_match: incluye los cierres de caución (es donde está el arancel).
-    hoy_match = _arancel_match(moneda, segmento=segmento)
+    hoy_match = _arancel_match("ARS", segmento=segmento)
+    hoy_match.pop("moneda", None)
     hoy_match["concertacion"] = hoy
     hoy_doc = next(iter(cf["Operaciones"].aggregate([
         {"$match": hoy_match},
@@ -1221,24 +1222,18 @@ def ops_aranceles(
     cf = get_db_cashflow()
     db = cf["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10
-    # El arancel SIEMPRE está en ARS (aunesa_aranceles guarda aranceles["ARS"]).
-    # Para mostrarlo en USD se divide por el MEP de CADA boleto (igual que el
-    # volumen) — antes se sumaba crudo en ARS y se veía ×MEP.
-    if moneda == "USD":
-        _mep = {"$ifNull": ["$mep", 0]}
-        arancel = {"$cond": [{"$gt": [_mep, 0]},
-                             {"$divide": [{"$abs": {"$ifNull": ["$arancel", 0]}}, _mep]}, 0]}
-    else:
-        arancel = {"$abs": {"$ifNull": ["$arancel", 0]}}
+    # El arancel es SIEMPRE en pesos y hay UN solo valor (aunesa_aranceles guarda
+    # aranceles["ARS"]). NO existe "arancel en USD" → no se filtra ni convierte por
+    # moneda; el toggle de moneda no aplica a esta vista.
+    arancel = {"$abs": {"$ifNull": ["$arancel", 0]}}
 
-    # SERIE: rollup (sin scope) + hoy live; fallback a live si vacío o scoped.
-    # USD NO sale del rollup: OpsSerieDiaria guarda el arancel en ARS (sin MEP por
-    # boleto) → se computa live, dolarizado por boleto. ARS sí usa el rollup.
+    # SERIE: rollup (sumando TODAS las monedas) + hoy live; fallback a live si scoped.
     serie: list[dict] | None = None
-    if scope is None and moneda != "USD":
-        serie = _serie_arancel_rollup(cf, moneda, segmento, plen, serie_full)
+    if scope is None:
+        serie = _serie_arancel_rollup(cf, segmento, plen, serie_full)
     if serie is None:
-        match_s = _arancel_match(moneda, segmento=segmento)
+        match_s = _arancel_match("ARS", segmento=segmento)
+        match_s.pop("moneda", None)
         aplicar_scope_cuenta(match_s, scope, campo="cuenta")
         if serie_full:
             serie_ventana: list[dict] = []
@@ -1257,7 +1252,8 @@ def ops_aranceles(
     # TABLAS (acotadas a [desde,hasta] → rápidas por índice). CROSS-FILTER COMPLETO:
     # las 3 tablas (dim izq · cuentas · instrumentos) se filtran entre sí — cada una
     # aplica las selecciones de las OTRAS dos, no la propia.
-    match_t = _arancel_match(moneda, segmento=segmento)
+    match_t = _arancel_match("ARS", segmento=segmento)
+    match_t.pop("moneda", None)   # un solo arancel en pesos → sin filtro de moneda
     aplicar_scope_cuenta(match_t, scope, campo="cuenta")
     date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
 

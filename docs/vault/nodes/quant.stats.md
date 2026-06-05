@@ -20,3 +20,4 @@ Conecta con: lo importa `api/services/macro.py` (`compute_stats`, `cambio_pct`) 
 
 ## Lo usan (backlinks) ←
 - [[api.services.macro]]  ·  _module_
+- [[scripts.profile_quant]]  ·  _module_

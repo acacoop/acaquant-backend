@@ -24,3 +24,7 @@ Conecta con: lo importan `api.services.comercial`, `api.services.aunesa_arancele
 - [[api.services.aunesa_aranceles]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
 - [[jobs.comercial_rollup]]  ·  _module_
+- [[scripts.diag_aranceles_operadores_migracion]]  ·  _module_
+- [[scripts.diag_comercial_rollup]]  ·  _module_
+- [[scripts.diag_operadores_actividad]]  ·  _module_
+- [[scripts.diag_sin_operador]]  ·  _module_

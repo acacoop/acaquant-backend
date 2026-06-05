@@ -1,0 +1,3 @@
+Tests de integración del Tablero Comercial contra Atlas real (skipea si Mongo no está disponible). Valida invariantes de consistencia (que `n_clientes`, Σ AuM y Σ volumen YTD del resumen coincidan con las filas de clientes) y que tras el backfill ningún movimiento quede sin `id_cuenta`. También verifica que las queries calientes de volumen y operaciones resuelvan por índice (IXSCAN), no por escaneo total (COLLSCAN).
+
+Conecta con: blinda `api/services/comercial.py` y la colección `CashFlow.NegocioMovimientos` (índices + `id_cuenta` denormalizado); depende del backfill `scripts.backfill_id_cuenta_negocio`.

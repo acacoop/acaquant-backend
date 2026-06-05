@@ -25,3 +25,6 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[engines.motor_ordenes]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.watchdog]]  ·  _module_
+- [[scripts.atlas_health]]  ·  _module_
+- [[scripts.diag_aranceles_sin_match]]  ·  _module_
+- [[scripts.diag_persona_datos]]  ·  _module_

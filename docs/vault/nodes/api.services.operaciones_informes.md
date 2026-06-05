@@ -27,3 +27,7 @@ Conecta con: escribe en `CashFlow.Operaciones`; usa `api.services._mep` para pes
 - [[api.routers.manager.operaciones]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
+- [[scripts.backfill_commodity_operaciones]]  ·  _module_
+- [[scripts.backfill_es_cierre_operaciones]]  ·  _module_
+- [[scripts.backfill_operaciones_csv]]  ·  _module_
+- [[scripts.enrich_operaciones]]  ·  _module_

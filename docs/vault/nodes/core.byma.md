@@ -20,3 +20,6 @@ Conecta con: lee credenciales de `config` (BYMA_*); pega al API REST de BYMA; lo
 
 ## Usa / conecta con →
 - [[config]]  ·  _module_
+
+## Lo usan (backlinks) ←
+- [[tests.unit.test_byma_client]]  ·  _module_

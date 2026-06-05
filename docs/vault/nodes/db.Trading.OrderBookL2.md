@@ -15,4 +15,5 @@ Order book de profundidad nivel 2 (LOB) por instrumento, en la base `Trading`. G
 
 Conecta con: la alimentan los motores de mercado vía el feed WS de pyRofex; la sirve `api/services/order_book.py`. (Nombre citado en la documentación del repo como colección de `Trading`.)
 
-_Sin conexiones detectadas mecánicamente._
+## Lo usan (backlinks) ←
+- [[scripts.gen_obsidian]]  ·  _module_

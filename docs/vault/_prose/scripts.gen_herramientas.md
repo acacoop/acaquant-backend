@@ -1,0 +1,2 @@
+Generador auto-mantenible que regenera la tabla de docs/HERRAMIENTAS.md (el catálogo de scripts reusables del repo) escaneando los docstrings de scripts/*.py: cada script reusable se auto-declara con una línea `Herramienta: <categoría> · <descripción>`. Reescribe solo entre los marcadores AUTOGEN; la narrativa se mantiene a mano. Con `--check` falla si quedó desincronizado (uso en CI). Se corre con `python -m scripts.gen_herramientas [--check]`.
+Conecta con: escanea scripts/; genera docs/HERRAMIENTAS.md (hermano de gen_sistema / gen_obsidian).

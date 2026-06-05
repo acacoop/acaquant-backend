@@ -25,3 +25,4 @@ Conecta con: lee `Trading.CaucionSnapshot` (live) y `Trading.Caucion` (cierre), 
 ## Lo usan (backlinks) ←
 - [[api.mcp.server]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

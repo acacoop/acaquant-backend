@@ -26,3 +26,4 @@ Conecta con: lee las TEA de `Trading.MarketSnapshot.metrics` (escritas por `engi
 ## Lo usan (backlinks) ←
 - [[jobs.backfill_forwards]]  ·  _module_
 - [[svc.motor_forwards]]  ·  _service_
+- [[tests.unit.test_forwards]]  ·  _module_

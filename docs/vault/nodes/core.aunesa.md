@@ -25,3 +25,5 @@ Conecta con: lee credenciales de `config` (AUNESA_*); pega a `aca.aunesa.com/Irm
 - [[api.services.aunesa_informes]]  ·  _module_
 - [[api.services.compliance]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
+- [[scripts.diag_aranceles_sin_match]]  ·  _module_
+- [[scripts.diag_persona_datos]]  ·  _module_

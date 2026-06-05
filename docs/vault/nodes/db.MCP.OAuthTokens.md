@@ -17,3 +17,4 @@ Conecta con: la escribe y valida `api/mcp/oauth.py`; los JWTs se firman con `MCP
 
 ## Lo usan (backlinks) ←
 - [[api.mcp.oauth]]  ·  _module_
+- [[scripts.gen_obsidian]]  ·  _module_

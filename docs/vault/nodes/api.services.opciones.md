@@ -28,3 +28,4 @@ Conecta con: lee la DB `Opciones` (poblada por `engines.options` vía WS y `jobs
 - [[api.mcp.server]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

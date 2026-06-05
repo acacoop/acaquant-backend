@@ -1,0 +1,23 @@
+---
+id: scripts.backfill_nivel3_operaciones
+type: module
+layer: scripts
+repo: backend
+tags: [module, scripts, backend]
+path: scripts/backfill_nivel3_operaciones.py
+---
+
+# scripts/backfill_nivel3_operaciones
+
+> scripts/backfill_nivel3_operaciones.py — rellena nivel_3 / segmento en Operaciones.
+
+**Archivo:** `scripts/backfill_nivel3_operaciones.py`
+
+## Qué hace
+Backfill que rellena los campos `nivel_3` y `segmento` faltantes en CashFlow.Operaciones cruzando cada `cuenta` con el Comitente correspondiente. Resuelve el caso (confirmado por diag) en que el cliente ya tiene nivel cargado pero el doc de operación nunca se re-enriqueció. Trabaja server-side con un UpdateMany por cuenta indexada (no itera 487k docs), es idempotente y deja a propósito vacías las cuentas propias/FCI sin Comitente. Se corre `python -m scripts.backfill_nivel3_operaciones` (`--dry-run` para reportar candidatos).
+Conecta con: CashFlow.Operaciones (escribe), Clientes.Comitentes (lee nivel_1/nivel_3), core.mongo.
+
+## Usa / conecta con →
+- [[core.mongo]]  ·  _module_
+- [[db.CashFlow.Operaciones]]  ·  _collection_
+- [[db.Clientes.Comitentes]]  ·  _collection_

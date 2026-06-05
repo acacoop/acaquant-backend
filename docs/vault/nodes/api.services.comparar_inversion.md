@@ -28,3 +28,4 @@ Conecta con: lee `Trading.Curvas` y `MarketSnapshot.metrics` vía `api.services.
 
 ## Lo usan (backlinks) ←
 - [[api.routers.analitica]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

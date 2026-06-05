@@ -28,3 +28,4 @@ Conecta con: persiste clients/codes/tokens en la DB Mongo `MCP` (TTL automático
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
 - [[api.mcp.auth]]  ·  _module_
+- [[tests.unit.test_mcp_redirect]]  ·  _module_

@@ -25,3 +25,6 @@ Conecta con: incluye `partner_api.auth` (`/v1/token`) y `partner_api.routes` (`/
 - [[partner_api.routes]]  ·  _module_
 - [[partner_api.security]]  ·  _module_
 - [[partner_api.settings]]  ·  _module_
+
+## Lo usan (backlinks) ←
+- [[scripts.dump_openapi]]  ·  _module_

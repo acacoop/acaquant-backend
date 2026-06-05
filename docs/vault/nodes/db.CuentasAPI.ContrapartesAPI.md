@@ -19,3 +19,8 @@ Conecta con: la re-sincroniza `jobs/sync_api_copies.py` post-job fuente; la leen
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
 - [[jobs._aum_filters]]  ·  _module_
+- [[scripts.api_migrate]]  ·  _module_
+- [[scripts.crear_indices]]  ·  _module_
+- [[scripts.diag_contraparte_fondo]]  ·  _module_
+- [[scripts.diag_contrapartes_ids]]  ·  _module_
+- [[scripts.gen_obsidian]]  ·  _module_

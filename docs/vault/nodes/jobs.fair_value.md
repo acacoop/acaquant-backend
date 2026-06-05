@@ -24,3 +24,6 @@ Conecta con: lee `Trading.SnapshotsCierre`, usa `quant.curve_fit.fit_quadratic`,
 - [[core.mongo]]  ·  _module_
 - [[db.Trading.SnapshotsCierre]]  ·  _collection_
 - [[quant.curve_fit]]  ·  _module_
+
+## Lo usan (backlinks) ←
+- [[tests.unit.test_fair_value_filtros]]  ·  _module_

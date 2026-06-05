@@ -1,0 +1,2 @@
+Paquete `scripts/` — one-shots, migraciones, backfills, smoke y diagnósticos read-only. Es el mecanismo de la REGLA #0: como Claude no tiene acceso al Droplet, todo lo que tenga que correr en producción se entrega como archivo acá, se commitea, y el usuario hace `git pull` + `python -m scripts.<x>`. El `__init__.py` está vacío (solo marca el paquete).
+Conecta con: usa `core.mongo` (rw para los que escriben, ro para diags), `api.services.*` y `jobs.*`; ejecutado a mano desde la raíz del repo.

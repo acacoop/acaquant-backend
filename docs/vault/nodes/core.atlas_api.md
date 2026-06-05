@@ -22,3 +22,4 @@ Conecta con: base del watchdog de DB y de informes de salud; pega a la Atlas Adm
 
 ## Lo usan (backlinks) ←
 - [[jobs.watchdog]]  ·  _module_
+- [[scripts.atlas_health]]  ·  _module_

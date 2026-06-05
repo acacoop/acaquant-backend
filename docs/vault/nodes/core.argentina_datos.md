@@ -20,3 +20,4 @@ Conecta con: lo consume `jobs/argentina_datos.py` (cron 12 UTC) que persiste Rie
 
 ## Lo usan (backlinks) ←
 - [[jobs.argentina_datos]]  ·  _module_
+- [[tests.unit.test_argentina_datos]]  ·  _module_

@@ -3068,7 +3068,9 @@
 "repo": "backend",
 "path": "jobs/sync_api_copies.py",
 "summary": "sync_api_copies.py — re-sincroniza colecciones API derivadas.",
-"links": []
+"links": [
+"scripts.api_migrate"
+]
 },
 {
 "id": "jobs.sync_comitentes",
@@ -3271,6 +3273,1377 @@
 "links": []
 },
 {
+"id": "scripts",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/__init__.py",
+"summary": "",
+"links": []
+},
+{
+"id": "scripts.api_migrate",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/api_migrate.py",
+"summary": "Script para crear y migrar colecciones API desde las colecciones existentes.",
+"links": [
+"core.mongo",
+"db.CashFlow.Accionistas",
+"db.CashFlow.AccionistasAPI",
+"db.CashFlow.Contrapartes",
+"db.CashFlow.ContrapartesAPI",
+"db.CashFlow.Flujo",
+"db.CashFlow.Movimientos",
+"db.CuentasAPI.AccionistasAPI",
+"db.CuentasAPI.ContrapartesAPI",
+"db.Trading.BondsMaster",
+"db.Trading.Curvas",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM"
+]
+},
+{
+"id": "scripts.atlas_health",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/atlas_health.py",
+"summary": "scripts/atlas_health.py — salud del M10 desde la Atlas Admin API (read-only).",
+"links": [
+"core",
+"core.atlas_api"
+]
+},
+{
+"id": "scripts.audit_assets_instrumento",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/audit_assets_instrumento.py",
+"summary": "audit_assets_instrumento.py — read-only.",
+"links": [
+"core.mongo",
+"db.Manager.PyRofexInstruments",
+"db.Valuaciones.Assets"
+]
+},
+{
+"id": "scripts.audit_db",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/audit_db.py",
+"summary": "audit_db.py — auditoría DBA del cluster Mongo (read-only).",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "scripts.audit_operaciones",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/audit_operaciones.py",
+"summary": "scripts/audit_operaciones.py — auditoría READ-ONLY de CashFlow.Operaciones.",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.backfill_2025",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_2025.py",
+"summary": "backfill_2025.py — rehace los snapshots de AuM de 2025 (jul..dic).",
+"links": []
+},
+{
+"id": "scripts.backfill_aranceles",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_aranceles.py",
+"summary": "backfill_aranceles.py — CLI manual del backfill de aranceles.",
+"links": [
+"api.services.aunesa_aranceles"
+]
+},
+{
+"id": "scripts.backfill_assets_cafci",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_assets_cafci.py",
+"summary": "backfill_assets_cafci.py — auto-fill del campo CAFCI en",
+"links": [
+"core.cafci",
+"core.mongo",
+"db.Valuaciones.Assets"
+]
+},
+{
+"id": "scripts.backfill_cierre_canje",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_cierre_canje.py",
+"summary": "backfill_cierre_canje.py — puebla Trading.CanjeCierre con el histórico.",
+"links": [
+"config",
+"core.mongo",
+"db.Trading.CanjeCierre",
+"db.Trading.TimeSales"
+]
+},
+{
+"id": "scripts.backfill_comitentes_segmentacion",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_comitentes_segmentacion.py",
+"summary": "Backfill de los campos de segmentación MANUAL de Clientes.Comitentes desde CSV.",
+"links": [
+"core.mongo",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.backfill_commodity_operaciones",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_commodity_operaciones.py",
+"summary": "Backfill del campo `commodity` (SOJA/TRIGO/MAIZ/None) en CashFlow.Operaciones.",
+"links": [
+"api.services.operaciones_informes",
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.backfill_contrapartes_pj_grande",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_contrapartes_pj_grande.py",
+"summary": "Backfill: nivel_3 = \"PJ GRANDE\" para las Comitentes activas cuyo id_cuenta",
+"links": [
+"api.services.segmentacion",
+"core.mongo",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.backfill_cupo_cero_fci",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_cupo_cero_fci.py",
+"summary": "Backfill: cupo en 0 (transaccional + usado) para los Fondo Común de Inversión.",
+"links": [
+"core.mongo",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.backfill_es_cierre_operaciones",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_es_cierre_operaciones.py",
+"summary": "Backfill del campo `es_cierre` (bool) en CashFlow.Operaciones.",
+"links": [
+"api.services.operaciones_informes",
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.backfill_fci_bruto",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_fci_bruto.py",
+"summary": "scripts/backfill_fci_bruto.py — repara el bruto de TODAS las suscripciones FCI",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.backfill_fci_pj_grande",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_fci_pj_grande.py",
+"summary": "Backfill: nivel_3 = \"PJ GRANDE\" para los Fondo Común de Inversión.",
+"links": [
+"core.mongo",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.backfill_id_cuenta_negocio",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_id_cuenta_negocio.py",
+"summary": "scripts/backfill_id_cuenta_negocio.py — rellena id_cuenta en NegocioMovimientos.",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos"
+]
+},
+{
+"id": "scripts.backfill_mep_operaciones",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_mep_operaciones.py",
+"summary": "scripts/backfill_mep_operaciones.py — estampa `mep` (dólar de la fecha) en",
+"links": [
+"api.services._mep",
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.backfill_nivel3_operaciones",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_nivel3_operaciones.py",
+"summary": "scripts/backfill_nivel3_operaciones.py — rellena nivel_3 / segmento en Operaciones.",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.backfill_operaciones_csv",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_operaciones_csv.py",
+"summary": "backfill_operaciones_csv.py — carga un CSV a CashFlow.Operaciones, directo",
+"links": [
+"api.services",
+"api.services.operaciones_informes",
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.backfill_precios_acciones",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_precios_acciones.py",
+"summary": "backfill_precios_acciones.py — historia daily de cada activo de",
+"links": [
+"core.mongo",
+"core.yahoo",
+"db.Trading.PreciosAcciones"
+]
+},
+{
+"id": "scripts.backfill_segmentos_upper",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/backfill_segmentos_upper.py",
+"summary": "backfill_segmentos_upper.py — normaliza nivel_1..5 a MAYÚSCULAS en Comitentes.",
+"links": [
+"core.mongo",
+"db.CashFlow.Productores",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.cleanup_assets_lowercase",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/cleanup_assets_lowercase.py",
+"summary": "cleanup_assets_lowercase.py — quita campos lowercase huérfanos de Valuaciones.Assets.",
+"links": [
+"core.mongo",
+"db.Valuaciones.Assets"
+]
+},
+{
+"id": "scripts.cleanup_dolar_oficial_live",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/cleanup_dolar_oficial_live.py",
+"summary": "cleanup_dolar_oficial_live.py — deja en Valuaciones.DolarOficialLive SOLO el dólar oficial.",
+"links": [
+"core.mongo",
+"db.Valuaciones.DolarOficialLive"
+]
+},
+{
+"id": "scripts.cleanup_negocio_informacion",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/cleanup_negocio_informacion.py",
+"summary": "cleanup_negocio_informacion.py — borra docs ruido de CashFlow.NegocioMovimientos.",
+"links": [
+"api.services._negocio_informacion_filter",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos"
+]
+},
+{
+"id": "scripts.clear_cupo_cuenta",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/clear_cupo_cuenta.py",
+"summary": "Borra el `cupo` (subdoc completo) de UNA cuenta — para corregir una carga",
+"links": [
+"core.mongo",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.crear_indice_serie_aranceles",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/crear_indice_serie_aranceles.py",
+"summary": "Crea un índice que CUBRE la serie de /ops/aranceles → consulta sin FETCH.",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.crear_indices",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/crear_indices.py",
+"summary": "crear_indices.py — Crea índices en MongoDB para mejorar performance.",
+"links": [
+"core.mongo",
+"db.CuentasAPI.ContrapartesAPI",
+"db.Trading.Curvas",
+"db.Trading.MarketSnapshot",
+"db.Trading.TimeSales",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM",
+"db.Valuaciones.Dolar"
+]
+},
+{
+"id": "scripts.db_maintenance",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/db_maintenance.py",
+"summary": "db_maintenance.py — cambios de optimización DBA. Idempotente, dry-run por default.",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones",
+"db.Manager.RoleAudit",
+"db.Trading.TimeSales"
+]
+},
+{
+"id": "scripts.delete_snapshot_aum",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/delete_snapshot_aum.py",
+"summary": "delete_snapshot_aum.py — borra un snapshot completo de Valuaciones.AuM.",
+"links": [
+"core.mongo",
+"db.Valuaciones.AuM"
+]
+},
+{
+"id": "scripts.diag_actividad_mensual",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_actividad_mensual.py",
+"summary": "diag_actividad_mensual.py — read-only: rango y volumen del histórico de",
+"links": [
+"api.services.comercial",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos"
+]
+},
+{
+"id": "scripts.diag_agro_otc",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_agro_otc.py",
+"summary": "scripts/diag_agro_otc.py — READ-ONLY: por qué se pierden futuros agro del volumen.",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_aranceles_breakdown",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_aranceles_breakdown.py",
+"summary": "Diag READ-ONLY: de dónde sale el arancel en cada fuente (para entender el delta",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_aranceles_operadores_migracion",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_aranceles_operadores_migracion.py",
+"summary": "Diag READ-ONLY: impacto de migrar los ARANCELES de operadores de",
+"links": [
+"api.services._negocio_futuros",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.diag_aranceles_sin_match",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_aranceles_sin_match.py",
+"summary": "diag_aranceles_sin_match.py — inspecciona boletos de Aunesa /informes que NO",
+"links": [
+"core",
+"core.aunesa",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos"
+]
+},
+{
+"id": "scripts.diag_aum_backfill_log",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_aum_backfill_log.py",
+"summary": "diag_aum_backfill_log.py — inspeccionar Manager.AumBackfillLog.",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "scripts.diag_aunesa_consolidados",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_aunesa_consolidados.py",
+"summary": "Diag read-only de Aunesa GET /operaciones/consolidadosGenerales.",
+"links": [
+"config"
+]
+},
+{
+"id": "scripts.diag_aunesa_informes",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_aunesa_informes.py",
+"summary": "Diag read-only de Aunesa GET /api/operaciones/informes (\"Informe de operaciones\").",
+"links": [
+"config"
+]
+},
+{
+"id": "scripts.diag_aunesa_listado_cuentas",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_aunesa_listado_cuentas.py",
+"summary": "Diag read-only de Aunesa GET /api/cuentas/listadoCuentas.",
+"links": [
+"config"
+]
+},
+{
+"id": "scripts.diag_categoria_otro",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_categoria_otro.py",
+"summary": "diag_categoria_otro.py — distinct `informacion` con categoria='otro' o null.",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos"
+]
+},
+{
+"id": "scripts.diag_check_cupo",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_check_cupo.py",
+"summary": "Diag READ-ONLY: verifica que el `cupo` de las Comitentes está intacto.",
+"links": [
+"core.mongo",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.diag_comercial",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_comercial.py",
+"summary": "scripts/diag_comercial.py — QA de la vista COMERCIAL (OPERACIONES).",
+"links": [
+"api.services.comercial",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.Valuaciones.AuM"
+]
+},
+{
+"id": "scripts.diag_comercial_cache_check",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_comercial_cache_check.py",
+"summary": "scripts/diag_comercial_cache_check.py — VERIFICA que el rollup == camino viejo.",
+"links": [
+"api.services.comercial",
+"core.mongo",
+"db.Clientes.ComercialCache"
+]
+},
+{
+"id": "scripts.diag_comercial_rollup",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_comercial_rollup.py",
+"summary": "scripts/diag_comercial_rollup.py — MEDIR antes de diseñar ComercialCache (C1/C2).",
+"links": [
+"api.services._negocio_futuros",
+"api.services.comercial",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_contraparte_fondo",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_contraparte_fondo.py",
+"summary": "diag_contraparte_fondo.py — por qué una contraparte (Fondo) aparece o no en",
+"links": [
+"core.mongo",
+"db.CashFlow.Contrapartes",
+"db.CashFlow.ContrapartesAPI",
+"db.CuentasAPI.ContrapartesAPI"
+]
+},
+{
+"id": "scripts.diag_contrapartes_ids",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_contrapartes_ids.py",
+"summary": "Diag READ-ONLY: qué colección de Contrapartes usar para \"id_cuenta en",
+"links": [
+"core.mongo",
+"db.CashFlow.Contrapartes",
+"db.Clientes.Comitentes",
+"db.CuentasAPI.ContrapartesAPI"
+]
+},
+{
+"id": "scripts.diag_cuentas_faltantes",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_cuentas_faltantes.py",
+"summary": "diag_cuentas_faltantes.py — detecta cuentas que faltan en snapshots de AuM.",
+"links": [
+"core.mongo",
+"db.Valuaciones.AuM"
+]
+},
+{
+"id": "scripts.diag_db_load",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_db_load.py",
+"summary": "scripts/diag_db_load.py — READ-ONLY: qué está exigiendo a Mongo AHORA.",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "scripts.diag_decimal_drift",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_decimal_drift.py",
+"summary": "Mide el drift de redondeo float vs Decimal en los totales de AuM.",
+"links": [
+"core.mongo",
+"db.Valuaciones.AuM"
+]
+},
+{
+"id": "scripts.diag_dups_check",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_dups_check.py",
+"summary": "scripts/diag_dups_check.py — GARANTÍA de no-duplicados (regla dura del usuario).",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_fci_bilateral",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_fci_bilateral.py",
+"summary": "Diag READ-ONLY para diseñar la unificación de las SOLICITUDES FCI bilateral",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_fci_fuente",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_fci_fuente.py",
+"summary": "scripts/diag_fci_fuente.py — ¿El FCI de Operaciones es confiable, o debería",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_fci_historico",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_fci_historico.py",
+"summary": "scripts/diag_fci_historico.py — estado HISTÓRICO de las suscripciones FCI en",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_fci_job_perf",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_fci_job_perf.py",
+"summary": "Diag READ-ONLY: por qué jobs.fci_bilateral tarda tanto.",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos"
+]
+},
+{
+"id": "scripts.diag_fci_match_boleto",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_fci_match_boleto.py",
+"summary": "scripts/diag_fci_match_boleto.py — verifica el MATCH por boleto antes de codear",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_fci_shape",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_fci_shape.py",
+"summary": "Diag READ-ONLY: shape exacto de los FCI bilateral ya cargados en Operaciones,",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_flujo_contraparte",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_flujo_contraparte.py",
+"summary": "diag_flujo_contraparte.py — por qué una contraparte con operaciones no",
+"links": [
+"core.mongo",
+"db.CashFlow.Flujo"
+]
+},
+{
+"id": "scripts.diag_index_usage",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_index_usage.py",
+"summary": "diag_index_usage.py — uso real de cada índice ($indexStats), read-only.",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "scripts.diag_indice_boleto",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_indice_boleto.py",
+"summary": "scripts/diag_indice_boleto.py — por qué el upsert por `boleto` en Operaciones",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_indices_partial",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_indices_partial.py",
+"summary": "scripts/diag_indices_partial.py — busca OTROS índices partial que puedan causar",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "scripts.diag_mongo_connections",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_mongo_connections.py",
+"summary": "diag_mongo_connections.py — lista las IPs conectadas a Atlas AHORA.",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "scripts.diag_mongo_users",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_mongo_users.py",
+"summary": "diag_mongo_users.py — qué usuario de Mongo usa cada URI del proyecto.",
+"links": []
+},
+{
+"id": "scripts.diag_negocio_ruido",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_negocio_ruido.py",
+"summary": "diag_negocio_ruido.py — exploración de CashFlow.NegocioMovimientos para",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos"
+]
+},
+{
+"id": "scripts.diag_nivel3",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_nivel3.py",
+"summary": "scripts/diag_nivel3.py — READ-ONLY: por qué `nivel_3` está vacío en Operaciones.",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.diag_operadores_actividad",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_operadores_actividad.py",
+"summary": "Diagnóstico read-only: actividad comercial (última op / estado) comparando",
+"links": [
+"api.db",
+"api.services._negocio_futuros",
+"api.services.comercial",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.diag_perf_aranceles",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_perf_aranceles.py",
+"summary": "Diag READ-ONLY de performance del endpoint /ops/aranceles.",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_persona_datos",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_persona_datos.py",
+"summary": "diag_persona_datos.py — read-only de Aunesa GET /api/personas/datosPersona.",
+"links": [
+"core",
+"core.aunesa"
+]
+},
+{
+"id": "scripts.diag_productores",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_productores.py",
+"summary": "diag_productores.py — lista los PRODUCTORES (Clientes.Comitentes.nivel_1).",
+"links": [
+"core.mongo",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.diag_scope_cuenta",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_scope_cuenta.py",
+"summary": "scripts/diag_scope_cuenta.py — READ-ONLY: formato de `cuenta` / `id_cuenta`.",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_sin_operador",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_sin_operador.py",
+"summary": "scripts/diag_sin_operador.py — ¿Qué cuentas son el bucket \"(sin operador)\" del",
+"links": [
+"api.services._negocio_futuros",
+"api.services.comercial",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.Clientes.Comitentes",
+"jobs._aum_filters"
+]
+},
+{
+"id": "scripts.diag_telegram",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_telegram.py",
+"summary": "Diagnóstico del bot de Telegram — separa problema de TOKEN vs CHAT_ID.",
+"links": [
+"config"
+]
+},
+{
+"id": "scripts.diag_tipo_cliente",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_tipo_cliente.py",
+"summary": "diag_tipo_cliente.py — read-only de Clientes.Comitentes.tipo_cliente.",
+"links": [
+"core.mongo",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.diag_volumen_bruto_cero",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_volumen_bruto_cero.py",
+"summary": "Diag READ-ONLY — ¿qué son los docs con bruto=0 en Operaciones y cuál es el gap",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.diag_volumen_operadores_migracion",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diag_volumen_operadores_migracion.py",
+"summary": "Diag READ-ONLY — verifica los supuestos de la fase 2 (migrar VOLUMEN de",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.diagnose_live_coverage",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/diagnose_live_coverage.py",
+"summary": "diagnose_live_coverage.py — diagnóstico de cobertura live para",
+"links": [
+"core.mongo",
+"db.Trading.MarketSnapshot",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM"
+]
+},
+{
+"id": "scripts.discovery_pyrofex",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/discovery_pyrofex.py",
+"summary": "Discovery one-shot de pyRofex.get_detailed_instruments().",
+"links": [
+"core.mongo",
+"core.rofex_session",
+"db.Manager.PyRofexDiscovery",
+"db.Manager.PyRofexInstruments"
+]
+},
+{
+"id": "scripts.drop_indice_serie_aranceles",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/drop_indice_serie_aranceles.py",
+"summary": "Borra el índice serie_aranceles_cov — NO sirvió (medido).",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.drop_indices_redundantes_operaciones",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/drop_indices_redundantes_operaciones.py",
+"summary": "scripts/drop_indices_redundantes_operaciones.py — dropea índices redundantes.",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.dump_openapi",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/dump_openapi.py",
+"summary": "scripts/dump_openapi.py — exporta los specs OpenAPI de las dos APIs.",
+"links": [
+"api.main",
+"partner_api.main"
+]
+},
+{
+"id": "scripts.enrich_operaciones",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/enrich_operaciones.py",
+"summary": "enrich_operaciones.py — denormaliza moneda + mercado + operacion sobre",
+"links": [
+"api.services",
+"api.services.operaciones_informes",
+"core.mongo"
+]
+},
+{
+"id": "scripts.fix_indice_boleto",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/fix_indice_boleto.py",
+"summary": "scripts/fix_indice_boleto.py — recrea el índice de boleto para que el upsert lo USE.",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "scripts.fix_precios_aum",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/fix_precios_aum.py",
+"summary": "fix_precios_aum.py — corrige precios mal valuados en Valuaciones.AuM.",
+"links": [
+"core.mongo",
+"db.Valuaciones.AuM",
+"jobs.aum"
+]
+},
+{
+"id": "scripts.fix_valuacion_tipo",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/fix_valuacion_tipo.py",
+"summary": "fix_valuacion_tipo.py — recalcula la valuacion de Valuaciones.AuM para",
+"links": [
+"core.mongo",
+"db.Valuaciones.AuM",
+"jobs.aum"
+]
+},
+{
+"id": "scripts.gen_herramientas",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/gen_herramientas.py",
+"summary": "gen_herramientas.py — genera/actualiza docs/HERRAMIENTAS.md desde scripts/.",
+"links": []
+},
+{
+"id": "scripts.gen_obsidian",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/gen_obsidian.py",
+"summary": "Genera el vault de Obsidian (docs/vault/) — el cerebro vivo de TODO el sistema.",
+"links": [
+"db.ACAPortfolio.Cartera",
+"db.CashFlow.Contrapartes",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones",
+"db.CashFlow.Productores",
+"db.Clientes.ComercialCache",
+"db.Clientes.Comitentes",
+"db.CuentasAPI.AccionistasAPI",
+"db.CuentasAPI.ContrapartesAPI",
+"db.MCP.OAuthCodes",
+"db.MCP.OAuthTokens",
+"db.Manager.RoleAudit",
+"db.Manager.RoleMatrix",
+"db.Manager.Users",
+"db.Trading.CanjeCierre",
+"db.Trading.Curvas",
+"db.Trading.DOLAR",
+"db.Trading.MarketSnapshot",
+"db.Trading.OrderBookL2",
+"db.Trading.PreciosAcciones",
+"db.Trading.SnapshotsCierre",
+"db.Trading.TimeSales",
+"db.Trading.UVA",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM",
+"db.Valuaciones.ConsolidadoCuentas",
+"db.Valuaciones.Dolar",
+"db.Valuaciones.DolarOficialLive",
+"db.Valuaciones.PnLTotalesCache"
+]
+},
+{
+"id": "scripts.gen_sistema",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/gen_sistema.py",
+"summary": "gen_sistema.py — genera/actualiza deploy/SISTEMA.md desde la fuente real.",
+"links": []
+},
+{
+"id": "scripts.healthcheck_mongo",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/healthcheck_mongo.py",
+"summary": "healthcheck_mongo.py — ping rápido a las 3 conexiones Mongo del proyecto.",
+"links": []
+},
+{
+"id": "scripts.lock_deps",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/lock_deps.py",
+"summary": "Genera un requirements.txt pineado a las versiones EXACTAS instaladas.",
+"links": []
+},
+{
+"id": "scripts.mae_forex_client",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/mae_forex_client.py",
+"summary": "mae_forex_client.py — feed de dólar oficial PARA TU NOTEBOOK (Anaconda).",
+"links": []
+},
+{
+"id": "scripts.normalizar_vencimiento_sin_hora",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/normalizar_vencimiento_sin_hora.py",
+"summary": "Saca la hora ' 00:00:00' de VENCIMIENTO en Valuaciones.Assets → deja 'YYYY-MM-DD'.",
+"links": [
+"core.mongo",
+"db.Valuaciones.Assets"
+]
+},
+{
+"id": "scripts.partner_user",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/partner_user.py",
+"summary": "scripts/partner_user.py — gestión de usuarios de la Partner API.",
+"links": [
+"core.mongo",
+"db.ACAPortfolio.ApiUsers",
+"partner_api.security"
+]
+},
+{
+"id": "scripts.perf_scan",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/perf_scan.py",
+"summary": "perf_scan.py — Static analysis para anti-patterns de queries Mongo.",
+"links": []
+},
+{
+"id": "scripts.perf_sweep",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/perf_sweep.py",
+"summary": "perf_sweep.py — Barrido de performance de los services (foto real de una).",
+"links": [
+"api.services",
+"api.services.analitica",
+"api.services.argy",
+"api.services.back_office_titulos",
+"api.services.camara_cereales",
+"api.services.canje",
+"api.services.comercial",
+"api.services.comparar_inversion",
+"api.services.derivados",
+"api.services.derivados_agro",
+"api.services.fair_value",
+"api.services.macro",
+"api.services.mejoras_dispo",
+"api.services.opciones",
+"api.services.order_book",
+"api.services.pnl",
+"api.services.portfolio",
+"api.services.rem",
+"api.services.renta_fija",
+"api.services.repo",
+"api.services.scanner",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.Trading.CedearsSnapshot",
+"db.Trading.Curvas",
+"db.Valuaciones.AuM"
+]
+},
+{
+"id": "scripts.profile_motor",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/profile_motor.py",
+"summary": "profile_motor.py — Perfilar un motor always-on en vivo con py-spy.",
+"links": []
+},
+{
+"id": "scripts.profile_quant",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/profile_quant.py",
+"summary": "profile_quant.py — Microbenchmark del cálculo PURO de quant/.",
+"links": [
+"quant",
+"quant.black_scholes",
+"quant.curve_fit",
+"quant.pivot_points",
+"quant.rolling_stats",
+"quant.stats",
+"quant.xirr"
+]
+},
+{
+"id": "scripts.quitar_operar_sales",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/quitar_operar_sales.py",
+"summary": "Saca el módulo `operar` del role `sales` en la matriz viva (Mongo).",
+"links": [
+"core.roles"
+]
+},
+{
+"id": "scripts.rename_limite_fondeo_a_cupo",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/rename_limite_fondeo_a_cupo.py",
+"summary": "rename_limite_fondeo_a_cupo.py — migración del rename del subdoc en Clientes.Comitentes.",
+"links": [
+"core.mongo",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.rename_nivel_valor",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/rename_nivel_valor.py",
+"summary": "rename_nivel_valor.py — renombra un valor puntual de nivel_1..5 en Comitentes.",
+"links": [
+"core.mongo",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "scripts.security_audit",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/security_audit.py",
+"summary": "security_audit.py — chequeo de seguridad defensiva del repo (read-only).",
+"links": []
+},
+{
+"id": "scripts.seed_asistente_comercial",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/seed_asistente_comercial.py",
+"summary": "seed_asistente_comercial.py — alta del rol `asistente_comercial` + sub-módulos de Manager.",
+"links": [
+"core.mongo",
+"core.roles",
+"db.Manager.RoleAudit",
+"db.Manager.RoleMatrix"
+]
+},
+{
+"id": "scripts.seed_cedears",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/seed_cedears.py",
+"summary": "seed_cedears.py — upsert de CEDEARs en Trading.Cedears.",
+"links": [
+"core.mongo",
+"db.Trading.Cedears"
+]
+},
+{
+"id": "scripts.seed_rol_compliance",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/seed_rol_compliance.py",
+"summary": "scripts/seed_rol_compliance.py — crea el rol `compliance` en Manager.RoleMatrix.",
+"links": [
+"core.roles"
+]
+},
+{
+"id": "scripts.seed_tipos_operacion",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/seed_tipos_operacion.py",
+"summary": "seed_tipos_operacion.py — catálogo CashFlow.TiposOperacion (tipo → mercado).",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones",
+"db.CashFlow.TiposOperacion"
+]
+},
+{
+"id": "scripts.setup_volumen_mercado_agro",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/setup_volumen_mercado_agro.py",
+"summary": "scripts/setup_volumen_mercado_agro.py — crea/mantiene CashFlow.VolumenMercadoAgro.",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "scripts.smoke_ingest_dolar",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/smoke_ingest_dolar.py",
+"summary": "smoke_ingest_dolar.py — valida el camino de ingesta del dólar SIN romper nada.",
+"links": []
+},
+{
+"id": "scripts.watch_db",
+"type": "module",
+"layer": "scripts",
+"repo": "backend",
+"path": "scripts/watch_db.py",
+"summary": "scripts/watch_db.py — feed EN VIVO de todo lo que se ESCRIBE en Mongo.",
+"links": [
+"core.mongo"
+]
+},
+{
 "id": "svc.api",
 "type": "service",
 "layer": "deploy",
@@ -3430,6 +4803,292 @@
 "path": "deploy/systemd/partner_api.service",
 "summary": "Servicio systemd.",
 "links": []
+},
+{
+"id": "tests",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/__init__.py",
+"summary": "",
+"links": []
+},
+{
+"id": "tests.conftest",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/conftest.py",
+"summary": "Configuración compartida de pytest.",
+"links": []
+},
+{
+"id": "tests.integration",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/integration/__init__.py",
+"summary": "",
+"links": []
+},
+{
+"id": "tests.integration.test_comercial_integration",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/integration/test_comercial_integration.py",
+"summary": "Tests de integración de la vista COMERCIAL — contra Atlas.",
+"links": [
+"api.services.comercial",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos"
+]
+},
+{
+"id": "tests.unit",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/__init__.py",
+"summary": "",
+"links": []
+},
+{
+"id": "tests.unit.test_argentina_datos",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_argentina_datos.py",
+"summary": "Tests del cliente argentinadatos + job de persistencia.",
+"links": [
+"core.argentina_datos",
+"jobs.argentina_datos"
+]
+},
+{
+"id": "tests.unit.test_aum_valuacion",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_aum_valuacion.py",
+"summary": "Golden tests de la fórmula de valuación AuM (api/services/portfolio.py).",
+"links": [
+"api.services.portfolio"
+]
+},
+{
+"id": "tests.unit.test_auth_posture",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_auth_posture.py",
+"summary": "Test del fail-closed de auth al boot (EXT-AUTH1, api/main.py).",
+"links": [
+"api.main"
+]
+},
+{
+"id": "tests.unit.test_black_scholes",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_black_scholes.py",
+"summary": "Tests de quant/black_scholes.py — pricing, Greeks, IV.",
+"links": [
+"quant.black_scholes"
+]
+},
+{
+"id": "tests.unit.test_breakevens",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_breakevens.py",
+"summary": "Tests de engines/breakevens.py — cálculo de breakeven CER/Lecap.",
+"links": [
+"engines.breakevens"
+]
+},
+{
+"id": "tests.unit.test_byma_client",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_byma_client.py",
+"summary": "Tests unitarios del cliente BYMA (sin red real).",
+"links": [
+"core.byma"
+]
+},
+{
+"id": "tests.unit.test_comercial",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_comercial.py",
+"summary": "Tests del estado comercial (api/services/comercial.py).",
+"links": [
+"api.services.comercial",
+"jobs.negocio_movimientos"
+]
+},
+{
+"id": "tests.unit.test_cotizaciones_tier2",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_cotizaciones_tier2.py",
+"summary": "Tests unitarios de las tools Tier 2 (snapshot_historico, pendiente, liquidez).",
+"links": [
+"api.cache",
+"api.services.analitica",
+"db.Trading.Curvas",
+"db.Trading.TimeSales"
+]
+},
+{
+"id": "tests.unit.test_curvas_math",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_curvas_math.py",
+"summary": "Tests de funciones cuantitativas en engines/curvas.py.",
+"links": [
+"engines.curvas"
+]
+},
+{
+"id": "tests.unit.test_curve_fit",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_curve_fit.py",
+"summary": "Tests del fit cuadrático puro (sin Mongo).",
+"links": [
+"quant.curve_fit"
+]
+},
+{
+"id": "tests.unit.test_descomposicion",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_descomposicion.py",
+"summary": "Tests del cálculo de descomposición de retorno (Lecap / Boncap / Lecer).",
+"links": [
+"api.services.descomposicion_retorno"
+]
+},
+{
+"id": "tests.unit.test_dias_habiles",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_dias_habiles.py",
+"summary": "Tests de jobs/dias_habiles.py — generación de calendario hábil argentino.",
+"links": [
+"jobs.dias_habiles"
+]
+},
+{
+"id": "tests.unit.test_fair_value_filtros",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_fair_value_filtros.py",
+"summary": "Tests de los filtros del universo del fit (sin Mongo).",
+"links": [
+"jobs.fair_value"
+]
+},
+{
+"id": "tests.unit.test_forwards",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_forwards.py",
+"summary": "Tests de la matriz de tasas forward en engines/forwards.py.",
+"links": [
+"engines.forwards"
+]
+},
+{
+"id": "tests.unit.test_grupos_scope",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_grupos_scope.py",
+"summary": "Golden tests del scope de cuentas por grupo (api/services/_grupos_scope.py).",
+"links": [
+"api.services._grupos_scope"
+]
+},
+{
+"id": "tests.unit.test_idempotencia",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_idempotencia.py",
+"summary": "Tests de la idempotencia de envío de órdenes (anti doble-orden).",
+"links": [
+"api.services._idempotencia",
+"api.services.ordenes"
+]
+},
+{
+"id": "tests.unit.test_mae_client",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_mae_client.py",
+"summary": "Tests unitarios del cliente MAE (sin red real).",
+"links": [
+"core.mae"
+]
+},
+{
+"id": "tests.unit.test_mcp_redirect",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_mcp_redirect.py",
+"summary": "Test del allowlist de redirect_uri del DCR del MCP (anti open-redirect).",
+"links": [
+"api.mcp.oauth"
+]
+},
+{
+"id": "tests.unit.test_notify",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_notify.py",
+"summary": "Tests del notificador de alertas (core/notify.py).",
+"links": [
+"core.notify"
+]
+},
+{
+"id": "tests.unit.test_rbac",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_rbac.py",
+"summary": "Golden tests de RBAC (core/roles.py).",
+"links": [
+"core.roles"
+]
+},
+{
+"id": "tests.unit.test_xirr",
+"type": "module",
+"layer": "tests",
+"repo": "backend",
+"path": "tests/unit/test_xirr.py",
+"summary": "Tests de quant/xirr — validado contra TIR.NO.PER de Excel.",
+"links": [
+"quant.xirr"
+]
 },
 {
 "id": "web.api.api.analitica.[...path]",
@@ -5045,6 +6704,26 @@
 "links": []
 },
 {
+"id": "web.lib.proxy",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/proxy.ts",
+"summary": "",
+"links": [
+"api.routers.cuentas",
+"api.routers.manager",
+"api.routers.operaciones",
+"api.routers.operar",
+"api.routers.operativa",
+"api.routers.ordenes",
+"api.routers.risk",
+"api.routers.scanner",
+"api.routers.titulos",
+"web.lib.cf-access"
+]
+},
+{
 "id": "web.lib.proxy-backend",
 "type": "lib",
 "layer": "web-lib",
@@ -5104,6 +6783,15 @@
 "layer": "web-lib",
 "repo": "frontend",
 "path": "src/lib/xlsx-export.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.view.(home).error",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/error.tsx",
 "summary": "",
 "links": []
 },

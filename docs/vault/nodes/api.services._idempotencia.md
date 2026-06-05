@@ -26,3 +26,4 @@ Conecta con: usa `Operaciones.OrdenesIdempotency` (índice único en `key` para 
 - [[api.routers.operar]]  ·  _module_
 - [[api.routers.operativa]]  ·  _module_
 - [[api.services.ordenes]]  ·  _module_
+- [[tests.unit.test_idempotencia]]  ·  _module_

@@ -26,3 +26,4 @@ Conecta con: delega en `api.services.operativa_mep`; aplica scope de grupos + id
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
+- [[web.lib.proxy]]  ·  _lib_

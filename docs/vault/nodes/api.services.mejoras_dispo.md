@@ -27,3 +27,4 @@ Conecta con: lee el precio ARS manual de `Derivados.CamaraCereales`, la TNA (TIR
 
 ## Lo usan (backlinks) ←
 - [[api.routers.derivados_agro]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

@@ -26,4 +26,5 @@ Conecta con: lee las colecciones derivadas `AssetsAPI`/`FlujosAPI` (vía `get_db
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
+- [[web.lib.proxy]]  ·  _lib_
 - [[web.view.renta-fija.view]]  ·  _view_

@@ -1,0 +1,23 @@
+---
+id: scripts.diag_fci_historico
+type: module
+layer: scripts
+repo: backend
+tags: [module, scripts, backend]
+path: scripts/diag_fci_historico.py
+---
+
+# scripts/diag_fci_historico
+
+> scripts/diag_fci_historico.py — estado HISTÓRICO de las suscripciones FCI en
+
+**Archivo:** `scripts/diag_fci_historico.py`
+
+## Qué hace
+Diagnóstico read-only que reporta, por año, el estado histórico de las suscripciones FCI normales (categoria suscripcion_fci, comprobante BOL) en Operaciones: presentes y OK (bruto>0), presentes pero ROTAS (bruto 0/null, las arregla el backfill), o FALTANTES (no están, problema distinto que requiere inyectarlas). Distingue si la historia vieja ya quedó corregida o si directamente nunca entró a Operaciones. Se corre con python -m scripts.diag_fci_historico.
+Conecta con: CashFlow.NegocioMovimientos, CashFlow.Operaciones, core.mongo. Audita la salud histórica del FCI tras los backfills.
+
+## Usa / conecta con →
+- [[core.mongo]]  ·  _module_
+- [[db.CashFlow.NegocioMovimientos]]  ·  _collection_
+- [[db.CashFlow.Operaciones]]  ·  _collection_

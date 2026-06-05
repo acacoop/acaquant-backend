@@ -29,3 +29,4 @@ Conecta con: usa `api.services.aunesa_negocio` (pega a Aunesa) y `api.services._
 
 ## Lo usan (backlinks) ←
 - [[cron.jobs.negocio_movimientos]]  ·  _cron_
+- [[tests.unit.test_comercial]]  ·  _module_

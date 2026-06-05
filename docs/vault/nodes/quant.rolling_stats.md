@@ -21,3 +21,4 @@ Conecta con: lo importan `api/services/rv_motor.py` (Mesa de Estrategia RV) y `a
 ## Lo usan (backlinks) ←
 - [[api.services.rv_motor]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
+- [[scripts.profile_quant]]  ·  _module_

@@ -1,0 +1,3 @@
+Diagnóstico read-only que lista y categoriza las cuentas del bucket "(sin operador)" del ranking comercial, antes de tocar ese ranking. Replica el criterio de informe_comercial (operador_email vacío o cuenta ausente de Comitentes) y, para las que no están en Comitentes, las clasifica con la lógica de jobs/_aum_filters (propia [100]/[101] / contraparte / FCI / OTC) para confirmar que son no-clientes; las "SIN CLASIFICAR" serían clientes reales faltantes del master. No escribe nada. Se corre con python -m scripts.diag_sin_operador [--top N].
+
+Conecta con: CashFlow (movimientos), Clientes.Comitentes; reutiliza api.services.comercial y jobs._aum_filters. Soporte al ranking de volumen por operador.

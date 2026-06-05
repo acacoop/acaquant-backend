@@ -50,3 +50,4 @@ Conecta con: usa el singleton `core.mongo.get_mongo_client_read()`; lo consumen 
 - [[api.services.scanner]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
+- [[scripts.diag_operadores_actividad]]  ·  _module_

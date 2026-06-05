@@ -20,3 +20,4 @@ Conecta con: lo usa `api.services.aunesa_negocio` (descarta antes del upsert que
 
 ## Lo usan (backlinks) ←
 - [[api.services.aunesa_negocio]]  ·  _module_
+- [[scripts.cleanup_negocio_informacion]]  ·  _module_

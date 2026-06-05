@@ -16,4 +16,5 @@ Paquete de cálculo puro de la plataforma: matemática financiera y estadística
 
 Conecta con: lo consumen las capas superiores (`engines/`, `jobs/`, `api/services/`) que le pasan series ya leídas de Mongo y reciben los números calculados. No importa nada del proyecto (capa base de la regla de capas).
 
-_Sin conexiones detectadas mecánicamente._
+## Lo usan (backlinks) ←
+- [[scripts.profile_quant]]  ·  _module_

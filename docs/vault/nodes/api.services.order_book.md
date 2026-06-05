@@ -27,3 +27,4 @@ Conecta con: lee `Trading.MarketSnapshot` (lo popula `engines/valores.py` cada 1
 ## Lo usan (backlinks) ←
 - [[api.mcp.server]]  ·  _module_
 - [[api.routers.operar]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

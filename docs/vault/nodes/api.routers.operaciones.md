@@ -36,3 +36,4 @@ Conecta con: lee `CashFlow.NegocioMovimientos` + colecciones `*API` (Mesa/Flujos
 - [[web.api.api.cashflow]]  ·  _route_
 - [[web.api.api.contrapartes]]  ·  _route_
 - [[web.api.api.flujo-vs-aum]]  ·  _route_
+- [[web.lib.proxy]]  ·  _lib_

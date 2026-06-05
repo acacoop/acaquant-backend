@@ -26,3 +26,4 @@ Conecta con: el label se escribe en `Clientes.Comitentes.nivel_3`; lee umbrales 
 - [[api.routers.manager.clientes]]  ·  _module_
 - [[api.routers.manager.comercial]]  ·  _module_
 - [[jobs.segmentar_patrimonial]]  ·  _module_
+- [[scripts.backfill_contrapartes_pj_grande]]  ·  _module_

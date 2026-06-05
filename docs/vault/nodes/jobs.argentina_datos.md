@@ -25,3 +25,4 @@ Conecta con: usa `core.argentina_datos`, escribe `Trading.RiesgoPais`, `Trading.
 
 ## Lo usan (backlinks) ←
 - [[cron.jobs.argentina_datos]]  ·  _cron_
+- [[tests.unit.test_argentina_datos]]  ·  _module_

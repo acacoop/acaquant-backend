@@ -1,0 +1,2 @@
+Diagnóstico one-shot del bot de Telegram: separa si el problema es el TOKEN o el CHAT_ID. Inspecciona el token cargado (enmascarado), llama getMe para validar solo el token, y si pasa prueba sendMessage para validar el chat. Sirve cuando las notificaciones operativas dejan de llegar (un 401 casi siempre es token mal copiado). Se corre con `python -m scripts.diag_telegram` en el Droplet.
+Conecta con: lee config.TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID; valida el canal que usa core.notify para alertas.

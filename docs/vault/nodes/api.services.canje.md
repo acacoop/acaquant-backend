@@ -28,3 +28,4 @@ Conecta con: lee `Trading.CanjeCierre` (materializada por `jobs.cierre_canje`) y
 ## Lo usan (backlinks) ←
 - [[api.mcp.server]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

@@ -39,3 +39,4 @@ Conecta con: lee `Trading.MarketSnapshot`, `Trading.TimeSales` y `Trading.Curvas
 - [[api.services.descomposicion_retorno]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.opciones]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

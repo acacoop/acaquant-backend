@@ -23,3 +23,4 @@ Conecta con: la API pública de Yahoo Finance (yfinance). Lo invocan jobs de pre
 - [[jobs.market_anchors]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_
 - [[jobs.precios_acciones_daily]]  ·  _module_
+- [[scripts.backfill_precios_acciones]]  ·  _module_

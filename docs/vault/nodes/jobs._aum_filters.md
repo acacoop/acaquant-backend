@@ -25,3 +25,4 @@ Conecta con: lee `CuentasAPI.ContrapartesAPI` y `CashFlow.Contrapartes`; lo usan
 
 ## Lo usan (backlinks) ←
 - [[jobs.aum]]  ·  _module_
+- [[scripts.diag_sin_operador]]  ·  _module_

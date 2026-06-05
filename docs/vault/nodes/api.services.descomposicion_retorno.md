@@ -28,3 +28,4 @@ Conecta con: usa `api.services.analitica` para snapshots de curva, lee la serie 
 ## Lo usan (backlinks) ←
 - [[api.mcp.server]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
+- [[tests.unit.test_descomposicion]]  ·  _module_

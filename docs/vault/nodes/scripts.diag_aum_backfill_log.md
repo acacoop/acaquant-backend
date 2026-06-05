@@ -1,0 +1,21 @@
+---
+id: scripts.diag_aum_backfill_log
+type: module
+layer: scripts
+repo: backend
+tags: [module, scripts, backend]
+path: scripts/diag_aum_backfill_log.py
+---
+
+# scripts/diag_aum_backfill_log
+
+> diag_aum_backfill_log.py — inspeccionar Manager.AumBackfillLog.
+
+**Archivo:** `scripts/diag_aum_backfill_log.py`
+
+## Qué hace
+Herramienta de diagnóstico read-only para inspeccionar el log de backfills de AuM en Manager.AumBackfillLog. Muestra un resumen por corrida (run_id, fecha) con conteos por status (ok/timeout/error/sin_datos), o el detalle por cuenta de una fecha, o el histórico de una cuenta puntual. Sirve para ver qué corridas de backfill hubo y cómo les fue (qué cuentas fallaron). No escribe nada. Se corre con python -m scripts.diag_aum_backfill_log [--fecha YYYY-MM-DD] [--status ...] [--id-cuenta N].
+Conecta con: Manager.AumBackfillLog, core.mongo. Lo invoca un operador a mano para auditar el backfill de Valuaciones.AuM.
+
+## Usa / conecta con →
+- [[core.mongo]]  ·  _module_

@@ -31,3 +31,5 @@ Conecta con: lee `Trading.SnapshotsCierre`, `Trading.Curvas` y `Trading.TimeSale
 - [[api.mcp.server]]  ·  _module_
 - [[api.routers.analitica]]  ·  _module_
 - [[api.services.descomposicion_retorno]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_
+- [[tests.unit.test_cotizaciones_tier2]]  ·  _module_

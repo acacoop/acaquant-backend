@@ -18,3 +18,4 @@ Conecta con: la escribe `jobs/partner_export.py` (exporta posiciones); la lee `p
 ## Lo usan (backlinks) ←
 - [[jobs.partner_export]]  ·  _module_
 - [[partner_api.routes]]  ·  _module_
+- [[scripts.gen_obsidian]]  ·  _module_

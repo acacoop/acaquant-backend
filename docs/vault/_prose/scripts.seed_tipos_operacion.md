@@ -1,0 +1,3 @@
+Seed idempotente del catálogo CashFlow.TiposOperacion: la tabla MERCADOS que mapea cada `tipo_operacion` a un `mercado` (BYMA, SENEBI, MAV, Primario, FCI, etc.) para poder filtrar operaciones por mercado; el `operacion` (compra/venta/caución) se deriva solo. Junta los DISTINCT reales de CashFlow.Operaciones con una lista base conocida. Upsert por tipo_operacion: refresca el derivado pero nunca pisa el `mercado` que cargaste a mano ($setOnInsert). Uso: `python -m scripts.seed_tipos_operacion [--dry]`.
+
+Conecta con: CashFlow.TiposOperacion (escribe), CashFlow.Operaciones (lee tipos), core.mongo (rw).

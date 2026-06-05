@@ -1,0 +1,22 @@
+---
+id: scripts.setup_volumen_mercado_agro
+type: module
+layer: scripts
+repo: backend
+tags: [module, scripts, backend]
+path: scripts/setup_volumen_mercado_agro.py
+---
+
+# scripts/setup_volumen_mercado_agro
+
+> scripts/setup_volumen_mercado_agro.py — crea/mantiene CashFlow.VolumenMercadoAgro.
+
+**Archivo:** `scripts/setup_volumen_mercado_agro.py`
+
+## Qué hace
+Crea y mantiene la colección CashFlow.VolumenMercadoAgro: volumen TOTAL del mercado de futuros agropecuarios (SOJA/TRIGO/MAIZ) por mes, cargado a mano porque no está apificado. Sirve para calcular market share (nuestras toneladas / toneladas del mercado, por mes y commodity); nuestras toneladas salen de CashFlow.Operaciones. Guarda 1 doc plano por (periodo, commodity) con índice único → upsert idempotente. Para cargar datos se pegan los meses en la lista MESES del script. Uso: `python -m scripts.setup_volumen_mercado_agro [--dry-run]`.
+
+Conecta con: CashFlow.VolumenMercadoAgro (crea/escribe), CashFlow.Operaciones (denominador del share), endpoint /ops/agro que lo consume.
+
+## Usa / conecta con →
+- [[core.mongo]]  ·  _module_

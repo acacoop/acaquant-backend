@@ -30,3 +30,5 @@ Conecta con: pega a Aunesa, escribe `Valuaciones.AuM`; sincroniza `Valuaciones.A
 - [[cron.jobs.aum]]  ·  _cron_
 - [[jobs.aum_backfill]]  ·  _module_
 - [[jobs.aum_backfill_historico]]  ·  _module_
+- [[scripts.fix_precios_aum]]  ·  _module_
+- [[scripts.fix_valuacion_tipo]]  ·  _module_

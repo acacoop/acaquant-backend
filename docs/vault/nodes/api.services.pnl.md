@@ -33,3 +33,4 @@ Conecta con: lee boletos de `CashFlow`, precios de `Trading` y AuM/precio actual
 ## Lo usan (backlinks) ←
 - [[api.routers.carteras]]  ·  _module_
 - [[jobs.pnl_totales_precompute]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

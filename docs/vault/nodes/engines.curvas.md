@@ -33,3 +33,4 @@ Conecta con: escribe SOLO los campos `metrics.{TEA,TEM,duration,...}` a `Trading
 - [[api.services.sensibilidad]]  ·  _module_
 - [[engines.breakevens]]  ·  _module_
 - [[svc.motor_curvas]]  ·  _service_
+- [[tests.unit.test_curvas_math]]  ·  _module_

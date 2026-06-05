@@ -1,0 +1,2 @@
+Utilidad puntual para borrar un snapshot diario completo de Valuaciones.AuM cuando corrió incompleto y hay que rehacerlo desde cero (borrar + re-correr jobs.aum_backfill para esa fecha). Dry-run por default (solo cuenta los docs del snapshot), `--apply` borra. Se corre `python -m scripts.delete_snapshot_aum --snapshot 2026-05-05 [--apply]`.
+Conecta con: Valuaciones.AuM (borra por fecha_snapshot), se rehace con jobs.aum_backfill, core.mongo.

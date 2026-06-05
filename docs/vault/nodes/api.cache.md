@@ -50,3 +50,4 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.sensibilidad]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
+- [[tests.unit.test_cotizaciones_tier2]]  ·  _module_

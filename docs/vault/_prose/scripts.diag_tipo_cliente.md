@@ -1,0 +1,2 @@
+Diagnóstico read-only que imprime los valores únicos del campo `tipo_cliente` de Clientes.Comitentes con su count, ordenados de mayor a menor. Sirve para entender qué valores reales toma hoy (PH/PJ, null, vacío) antes de apoyar en él la lógica de segmentación patrimonial. No escribe nada. Se corre con `python -m scripts.diag_tipo_cliente`.
+Conecta con: lee Clientes.Comitentes; apoya el diseño de api.services.segmentacion (docs/SEGMENTACION_PATRIMONIAL.md).

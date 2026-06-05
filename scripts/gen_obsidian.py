@@ -35,7 +35,9 @@ VAULT = ROOT / "docs" / "vault"
 PROSE = VAULT / "_prose"   # prosa de IA por nodo (sobrevive a la regeneración)
 
 # Paquetes top-level del backend que cuentan como "nodos" del grafo de imports.
-BACKEND_PKGS = {"core", "engines", "jobs", "quant", "api", "partner_api", "config"}
+# El cerebro cubre TODO lo funcional — incluido scripts/ y tests/ (nada afuera).
+BACKEND_PKGS = {"core", "engines", "jobs", "quant", "api", "partner_api", "config",
+                "scripts", "tests"}
 
 # Colecciones Mongo conocidas por DB (seed; el scanner igual auto-descubre más).
 KNOWN_COLLECTIONS: dict[str, list[str]] = {
@@ -301,27 +303,39 @@ def scan_frontend(nodes: dict[str, Node]) -> None:
             nodes[lid] = Node(lid, f"web/lib/{stem}", "lib", "web-lib",
                               "frontend", str(f.relative_to(WEB)))
 
-    # vistas (page/layout) y rutas API (route.ts)
+    # vistas (page/layout/loading/error/...), rutas API (route.ts) y colocados
     if app.is_dir():
         for f in app.rglob("*"):
-            if f.name not in ("page.tsx", "layout.tsx", "route.ts"):
+            if f.suffix not in (".ts", ".tsx"):
                 continue
             rel = f.relative_to(app).parent
             route = "/".join(rel.parts) if rel.parts else "(home)"
             is_api = "api" in rel.parts
             if f.name == "route.ts":
                 nid = f"web.api.{route.replace('/', '.')}"
-                title = f"web /{route}  (proxy)"
-                ntype, layer = "route", "web-api"
+                n = nodes.get(nid) or Node(nid, f"web /{route}  (proxy)", "route",
+                                           "web-api", "frontend", str(f.relative_to(WEB)))
             else:
-                tag = "layout" if f.name == "layout.tsx" else "view"
+                # page→view, layout→layout (IDs estables); el resto, por su nombre.
+                tag = {"page": "view", "layout": "layout"}.get(f.stem, f.stem)
                 nid = f"web.view.{route.replace('/', '.')}.{tag}"
-                title = f"web /{route}  ({tag})"
-                ntype, layer = "view", "web-view"
-            n = nodes.get(nid) or Node(nid, title, ntype, layer, "frontend",
-                                       str(f.relative_to(WEB)))
+                n = nodes.get(nid) or Node(nid, f"web /{route}  ({tag})", "view",
+                                           "web-view", "frontend", str(f.relative_to(WEB)))
             nodes[nid] = n
             _wire_frontend(f, n, comp_ids, lib_ids, nodes, is_api)
+
+    # archivos sueltos en src/ (ej. proxy.ts) — nada queda afuera
+    srcroot = WEB / "src"
+    if srcroot.is_dir():
+        for f in sorted(srcroot.iterdir()):
+            if not (f.is_file() and f.suffix in (".ts", ".tsx")):
+                continue
+            lid = f"web.lib.{f.stem}"
+            if lid not in nodes:
+                lib_ids[f.stem] = lid
+                nodes[lid] = Node(lid, f"web/{f.stem}", "lib", "web-lib",
+                                  "frontend", str(f.relative_to(WEB)))
+                _wire_frontend(f, nodes[lid], comp_ids, lib_ids, nodes, False)
 
 
 def _wire_frontend(f: Path, n: Node, comp_ids, lib_ids, nodes, is_api: bool) -> None:
@@ -369,6 +383,8 @@ LAYER_ORDER = [
     ("api", "🌐 api — services · routers · mcp"),
     ("partner_api", "🤝 partner_api"),
     ("config", "⚙️ config"),
+    ("scripts", "🔧 scripts — one-shot · migraciones · diag"),
+    ("tests", "🧪 tests — red de seguridad"),
     ("db", "🗄️ base — colecciones Mongo"),
     ("deploy", "🚀 deploy — servicios + crons"),
     ("web-view", "🖥️ web — vistas"),
@@ -525,15 +541,17 @@ def main() -> int:
                     help="No escribe; falla (exit 1) si el vault quedó desincronizado.")
     args = ap.parse_args()
 
+    web_present = WEB.is_dir()
     nodes = build()
     files = emit(nodes)
 
-    if args.check:
+    if args.check and web_present:
+        # Check COMPLETO (ambos repos): igualdad byte a byte → el vault commiteado
+        # refleja exactamente el código.
         stale = []
         for path, content in files.items():
             if not path.exists() or path.read_text(encoding="utf-8") != content:
                 stale.append(path.relative_to(ROOT))
-        # archivos .md generados que ya no corresponden (excluye sidecars de prosa)
         existing = {p for p in VAULT.rglob("*.md") if PROSE not in p.parents}
         extra = existing - set(files)
         if stale or extra:
@@ -543,13 +561,39 @@ def main() -> int:
             for p in sorted(extra)[:20]:
                 print(f"  extra: {p.relative_to(ROOT)}")
             return 1
-        print(f"Vault OK ({len(files)} archivos).")
+        print(f"Vault OK ({len(files)} archivos · check completo).")
+        return 0
+
+    if args.check:
+        # Check de COBERTURA (CI sin el repo del front): el contenido de las notas
+        # de backend depende de backlinks del front → no se puede comparar byte a
+        # byte. Verificamos lo que importa para "nada afuera": que cada nodo
+        # backend/infra tenga su nota, y que no sobren notas backend (archivo borrado).
+        ndir = VAULT / "nodes"
+        missing = [n.id for n in nodes.values()
+                   if not (ndir / f"{n.id}.md").exists()]
+        extra = [p.stem for p in ndir.glob("*.md")
+                 if not p.stem.startswith("web.") and p.stem not in nodes]
+        if missing or extra:
+            print("Vault SIN COBERTURA. Corré: python -m scripts.gen_obsidian")
+            for i in sorted(missing)[:20]:
+                print(f"  falta nota: {i}")
+            for i in sorted(extra)[:20]:
+                print(f"  nota huérfana: {i}")
+            return 1
+        print(f"Vault OK (cobertura backend: {len(nodes)} nodos presentes).")
         return 0
 
     # Regenera estructura SIN tocar _prose/ (la prosa de IA persiste).
     for old in VAULT.rglob("*.md"):
         if PROSE not in old.parents:
             old.unlink()
+    # Limpia sidecars huérfanos (nodos que dejaron de existir, ej. scripts borrados).
+    if web_present and PROSE.is_dir():
+        valid = set(nodes)
+        for sc in PROSE.glob("*.md"):
+            if sc.stem not in valid:
+                sc.unlink()
     for path, content in files.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")

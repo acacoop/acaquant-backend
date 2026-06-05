@@ -22,3 +22,6 @@ Conecta con: escribe `Trading.DiasHabiles`. Lo consumen `jobs.cleanup_curvas` y 
 
 ## Usa / conecta con →
 - [[core.mongo]]  ·  _module_
+
+## Lo usan (backlinks) ←
+- [[tests.unit.test_dias_habiles]]  ·  _module_

@@ -18,3 +18,5 @@ Conecta con: lo ingesta `api/routers/ingest.py` (endpoint de escritura), central
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.status]]  ·  _module_
 - [[core.dolar_oficial]]  ·  _module_
+- [[scripts.cleanup_dolar_oficial_live]]  ·  _module_
+- [[scripts.gen_obsidian]]  ·  _module_

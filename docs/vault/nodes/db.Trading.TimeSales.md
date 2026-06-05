@@ -29,3 +29,8 @@ Conecta con: la escribe/enriquece `engines/curvas.py` (motor de enriquecimiento 
 - [[jobs.backfill_breakevens]]  ·  _module_
 - [[jobs.backfill_forwards]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_
+- [[scripts.backfill_cierre_canje]]  ·  _module_
+- [[scripts.crear_indices]]  ·  _module_
+- [[scripts.db_maintenance]]  ·  _module_
+- [[scripts.gen_obsidian]]  ·  _module_
+- [[tests.unit.test_cotizaciones_tier2]]  ·  _module_

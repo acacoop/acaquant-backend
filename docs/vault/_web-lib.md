@@ -1,12 +1,13 @@
 # 📚 web — lib
 
-12 notas.
+13 notas.
 
 - [[web.lib.api]]
 - [[web.lib.cf-access]]
 - [[web.lib.estrategias]]
 - [[web.lib.fmt-money]]
 - [[web.lib.me]]
+- [[web.lib.proxy]]
 - [[web.lib.proxy-backend]]
 - [[web.lib.types]]
 - [[web.lib.types-scanner]]

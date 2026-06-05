@@ -30,3 +30,4 @@ Conecta con: la plataforma ROFEX/Primary vía pyRofex; lee `Config.USER/PASSWORD
 - [[engines.options]]  ·  _module_
 - [[engines.portfolio_snapshot]]  ·  _module_
 - [[engines.valores]]  ·  _module_
+- [[scripts.discovery_pyrofex]]  ·  _module_

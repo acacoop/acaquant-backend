@@ -52,3 +52,7 @@ Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, t
 - [[api.routers.valuaciones]]  ·  _module_
 - [[config]]  ·  _module_
 - [[core.mongo]]  ·  _module_
+
+## Lo usan (backlinks) ←
+- [[scripts.dump_openapi]]  ·  _module_
+- [[tests.unit.test_auth_posture]]  ·  _module_

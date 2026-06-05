@@ -25,3 +25,4 @@ Conecta con: lee `CashFlow.NegocioMovimientos` (vía `core.mongo` read); usa el 
 
 ## Lo usan (backlinks) ←
 - [[api.routers.back_office]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

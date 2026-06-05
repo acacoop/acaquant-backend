@@ -1,0 +1,2 @@
+Herramienta de mantenimiento que dropea índices redundantes en CashFlow.Operaciones detectados por audit_db: el índice single `concertacion` ya está cubierto por el compuesto `concertacion_mercado` (es su prefijo), así que borrarlo libera RAM del working set del M10 sin afectar performance. Por defecto solo lista (dry-run); con `--apply` los borra. Se corre con `python -m scripts.drop_indices_redundantes_operaciones [--apply]`.
+Conecta con: opera sobre CashFlow.Operaciones; ejecuta hallazgos de la auditoría de índices (audit_db / db_maintenance).

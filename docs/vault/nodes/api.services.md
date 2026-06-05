@@ -30,3 +30,6 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
+- [[scripts.backfill_operaciones_csv]]  ·  _module_
+- [[scripts.enrich_operaciones]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

@@ -25,3 +25,4 @@ Conecta con: lee snapshots escritos por `engines.futuros_dlr`, `engines.forwards
 ## Lo usan (backlinks) ←
 - [[api.mcp.server]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

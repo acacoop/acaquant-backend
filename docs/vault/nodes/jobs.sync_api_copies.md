@@ -18,4 +18,5 @@ Job orquestador que re-sincroniza las colecciones derivadas `*API.*API` (copias 
 
 Conecta con: invoca las funciones migrate_* de `scripts.api_migrate`; lee `Valuaciones.AuM/Assets`, `CashFlow.Flujo/Movimientos`, `Trading.Curvas+Bonds` y escribe las copias `PortfolioAPI/TitulosAPI/OperacionesAPI`. Lo encadenan los crons de aum/cashflow/flujo.
 
-_Sin conexiones detectadas mecánicamente._
+## Usa / conecta con →
+- [[scripts.api_migrate]]  ·  _module_

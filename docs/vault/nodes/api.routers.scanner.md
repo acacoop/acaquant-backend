@@ -27,4 +27,5 @@ Conecta con: delega en `api.services.scanner` y `api.services.rv_motor` (leen `T
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
 - [[web.api.api.scanner.[...path]]]  ·  _route_
+- [[web.lib.proxy]]  ·  _lib_
 - [[web.view.renta-variable.view]]  ·  _view_

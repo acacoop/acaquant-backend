@@ -33,3 +33,5 @@ Conecta con: lee `Valuaciones.Assets`/`AuM`, `PortfolioAPI`, `TitulosAPI` y `Tra
 - [[api.routers.manager.grupos]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_
+- [[tests.unit.test_aum_valuacion]]  ·  _module_

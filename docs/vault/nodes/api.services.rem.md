@@ -26,3 +26,4 @@ Conecta con: lee `Trading.REM` (poblada por `jobs.argentina_datos._ingestar_rem`
 - [[api.mcp.server]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
 - [[api.services.descomposicion_retorno]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

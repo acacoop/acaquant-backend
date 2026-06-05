@@ -29,3 +29,4 @@ Conecta con: lee TEM de Lecap y paridad de CER vía `engines._curvas_loader` (`T
 - [[api.routers.manager.checks]]  ·  _module_
 - [[jobs.backfill_breakevens]]  ·  _module_
 - [[svc.motor_breakevens]]  ·  _service_
+- [[tests.unit.test_breakevens]]  ·  _module_

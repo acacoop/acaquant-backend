@@ -18,3 +18,5 @@ Conecta con: lo usan `api/services/segmentacion.py` y `api/routers/manager/clien
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.clientes]]  ·  _module_
 - [[api.services.segmentacion]]  ·  _module_
+- [[scripts.backfill_segmentos_upper]]  ·  _module_
+- [[scripts.gen_obsidian]]  ·  _module_

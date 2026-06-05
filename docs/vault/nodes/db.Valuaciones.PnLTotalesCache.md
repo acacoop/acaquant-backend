@@ -18,3 +18,4 @@ Conecta con: la escribe el cron `jobs/pnl_totales_precompute.py`; la lee `api/se
 ## Lo usan (backlinks) ←
 - [[api.services.pnl]]  ·  _module_
 - [[jobs.pnl_totales_precompute]]  ·  _module_
+- [[scripts.gen_obsidian]]  ·  _module_

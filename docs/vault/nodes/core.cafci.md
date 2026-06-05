@@ -20,3 +20,4 @@ Conecta con: lo usan `jobs/aum.py` (auto-fill al sincronizar `Valuaciones.Assets
 
 ## Lo usan (backlinks) ←
 - [[jobs.aum]]  ·  _module_
+- [[scripts.backfill_assets_cafci]]  ·  _module_

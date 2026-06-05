@@ -41,3 +41,4 @@ Conecta con: lee `Trading.<BADLAR/CER/…>` y `Trading.MarketSnapshot.metrics`, 
 - [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
 - [[jobs.segmentar_patrimonial]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

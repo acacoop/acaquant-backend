@@ -28,3 +28,4 @@ Conecta con: usa la sesión REST liviana de `core.rofex_orders_session` (compart
 - [[api.routers.operar]]  ·  _module_
 - [[api.routers.ordenes]]  ·  _module_
 - [[api.services.operativa_mep]]  ·  _module_
+- [[tests.unit.test_idempotencia]]  ·  _module_

@@ -1,7 +1,8 @@
 # 🖥️ web — vistas
 
-16 notas.
+17 notas.
 
+- [[web.view.(home).error]]
 - [[web.view.(home).layout]]
 - [[web.view.(home).view]]
 - [[web.view.agro.view]]

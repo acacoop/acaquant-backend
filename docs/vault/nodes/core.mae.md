@@ -20,3 +20,6 @@ Conecta con: la API REST de MAE (`api.mae.com.ar`); lee `MAE_API_KEY` y `MAE_ENV
 
 ## Usa / conecta con →
 - [[config]]  ·  _module_
+
+## Lo usan (backlinks) ←
+- [[tests.unit.test_mae_client]]  ·  _module_

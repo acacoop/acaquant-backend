@@ -1,0 +1,2 @@
+Diagnóstico read-only que compara las dos colecciones candidatas de contrapartes (CashFlow.Contrapartes vs CuentasAPI.ContrapartesAPI) para decidir cuál usar en la regla "id_cuenta en Contrapartes → PJ GRANDE" de la segmentación. Inspecciona campos, cantidad de ids distintos y overlap con las Comitentes activas, para no asumir cuál es la buena. No escribe nada. Se corre con python -m scripts.diag_contrapartes_ids.
+Conecta con: CashFlow.Contrapartes, CuentasAPI.ContrapartesAPI, Clientes.Comitentes, core.mongo. Insumo de diseño de api.services.segmentacion.

@@ -24,3 +24,4 @@ Conecta con: lee `PARTNER_JWT_SECRET` y `PARTNER_TOKEN_TTL_MIN` de `partner_api.
 ## Lo usan (backlinks) ←
 - [[partner_api.auth]]  ·  _module_
 - [[partner_api.main]]  ·  _module_
+- [[scripts.partner_user]]  ·  _module_

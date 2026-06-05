@@ -20,3 +20,5 @@ Conecta con: lo importa `jobs/fair_value.py`, que le pasa la curva de bonos del 
 
 ## Lo usan (backlinks) ←
 - [[jobs.fair_value]]  ·  _module_
+- [[scripts.profile_quant]]  ·  _module_
+- [[tests.unit.test_curve_fit]]  ·  _module_

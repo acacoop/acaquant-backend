@@ -39,3 +39,4 @@ Conecta con: `api.auth::require_module` / `require_any_module` + `api.deps::veri
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
+- [[web.lib.proxy]]  ·  _lib_

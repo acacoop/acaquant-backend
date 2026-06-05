@@ -36,3 +36,12 @@ Conecta con: lee `Clientes.Comitentes`, `CashFlow.Operaciones`, `CashFlow.Negoci
 - [[api.routers.operaciones]]  ·  _module_
 - [[jobs.actividad_mensual]]  ·  _module_
 - [[jobs.comercial_rollup]]  ·  _module_
+- [[scripts.diag_actividad_mensual]]  ·  _module_
+- [[scripts.diag_comercial]]  ·  _module_
+- [[scripts.diag_comercial_cache_check]]  ·  _module_
+- [[scripts.diag_comercial_rollup]]  ·  _module_
+- [[scripts.diag_operadores_actividad]]  ·  _module_
+- [[scripts.diag_sin_operador]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_
+- [[tests.integration.test_comercial_integration]]  ·  _module_
+- [[tests.unit.test_comercial]]  ·  _module_

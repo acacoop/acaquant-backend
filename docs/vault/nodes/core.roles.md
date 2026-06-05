@@ -31,3 +31,7 @@ Conecta con: lee/escribe `Manager.Users`, `Manager.RoleMatrix`, `Manager.RoleAud
 - [[api.routers.manager.users]]  ·  _module_
 - [[api.routers.me]]  ·  _module_
 - [[core.grupos]]  ·  _module_
+- [[scripts.quitar_operar_sales]]  ·  _module_
+- [[scripts.seed_asistente_comercial]]  ·  _module_
+- [[scripts.seed_rol_compliance]]  ·  _module_
+- [[tests.unit.test_rbac]]  ·  _module_

@@ -30,3 +30,4 @@ Conecta con: resuelve las cuentas con `core.grupos.cuentas_visibles` (lee la con
 - [[api.routers.ordenes]]  ·  _module_
 - [[api.routers.risk]]  ·  _module_
 - [[api.routers.valuaciones]]  ·  _module_
+- [[tests.unit.test_grupos_scope]]  ·  _module_

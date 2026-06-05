@@ -18,3 +18,5 @@ Conecta con: la escribe `jobs/cierre_canje.py` (post-cierre); la lee `api/servic
 ## Lo usan (backlinks) ←
 - [[api.services.canje]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_
+- [[scripts.backfill_cierre_canje]]  ·  _module_
+- [[scripts.gen_obsidian]]  ·  _module_

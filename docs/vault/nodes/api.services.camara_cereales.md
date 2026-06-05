@@ -23,3 +23,4 @@ Conecta con: lee/escribe `Derivados.CamaraCereales` (5 docs, _id = cereal) con a
 
 ## Lo usan (backlinks) ←
 - [[api.routers.derivados_agro]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

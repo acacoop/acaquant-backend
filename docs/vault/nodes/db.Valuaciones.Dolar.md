@@ -25,3 +25,5 @@ Conecta con: la lee el helper `api/services/_mep.py` (MEP histórico por fecha) 
 - [[engines.curvas]]  ·  _module_
 - [[engines.dolar_mep]]  ·  _module_
 - [[engines.futuros_dlr]]  ·  _module_
+- [[scripts.crear_indices]]  ·  _module_
+- [[scripts.gen_obsidian]]  ·  _module_

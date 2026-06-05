@@ -27,3 +27,11 @@ Conecta con: une `Trading.Curvas.ticker_corto` → `Assets.TICKER` → `AuM.unid
 - [[jobs.aum_backfill_historico]]  ·  _module_
 - [[jobs.aum_resumen_fci]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
+- [[scripts.api_migrate]]  ·  _module_
+- [[scripts.audit_assets_instrumento]]  ·  _module_
+- [[scripts.backfill_assets_cafci]]  ·  _module_
+- [[scripts.cleanup_assets_lowercase]]  ·  _module_
+- [[scripts.crear_indices]]  ·  _module_
+- [[scripts.diagnose_live_coverage]]  ·  _module_
+- [[scripts.gen_obsidian]]  ·  _module_
+- [[scripts.normalizar_vencimiento_sin_hora]]  ·  _module_

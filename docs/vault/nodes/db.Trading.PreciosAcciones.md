@@ -20,3 +20,5 @@ Conecta con: la escribe `jobs/precios_acciones_daily.py`; la leen `api/services/
 - [[api.services.scanner]]  ·  _module_
 - [[jobs.precios_acciones_daily]]  ·  _module_
 - [[quant.pivot_points]]  ·  _module_
+- [[scripts.backfill_precios_acciones]]  ·  _module_
+- [[scripts.gen_obsidian]]  ·  _module_

@@ -30,3 +30,4 @@ Conecta con: joina `Trading.Cedears` (master categórico) con `Trading.CedearsSn
 - [[api.mcp.server]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
 - [[api.services.rv_motor]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

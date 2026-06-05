@@ -25,3 +25,4 @@ Conecta con: la API de Telegram; lee `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` de 
 - [[core.job_runs]]  ·  _module_
 - [[core.websocket]]  ·  _module_
 - [[jobs.watchdog]]  ·  _module_
+- [[tests.unit.test_notify]]  ·  _module_

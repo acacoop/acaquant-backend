@@ -27,3 +27,4 @@ Conecta con: lee `Trading.FitParams` (β del cierre), `Trading.FairValueResiduos
 ## Lo usan (backlinks) ←
 - [[api.mcp.server]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
+- [[scripts.perf_sweep]]  ·  _module_

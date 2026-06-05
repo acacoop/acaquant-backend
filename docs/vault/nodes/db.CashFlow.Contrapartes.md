@@ -22,3 +22,7 @@ Conecta con: la pueblan/usan `jobs/flujo_contrapartes.py` y `api/services/segmen
 - [[jobs._aum_filters]]  ·  _module_
 - [[jobs.flujo_contrapartes]]  ·  _module_
 - [[jobs.segmento_contrapartes]]  ·  _module_
+- [[scripts.api_migrate]]  ·  _module_
+- [[scripts.diag_contraparte_fondo]]  ·  _module_
+- [[scripts.diag_contrapartes_ids]]  ·  _module_
+- [[scripts.gen_obsidian]]  ·  _module_

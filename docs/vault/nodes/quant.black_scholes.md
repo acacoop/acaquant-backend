@@ -21,3 +21,5 @@ Conecta con: `calcular_hv_40_ruedas` lee `Opciones.VR-GGal` en Mongo. Lo importa
 
 ## Lo usan (backlinks) ←
 - [[engines.options]]  ·  _module_
+- [[scripts.profile_quant]]  ·  _module_
+- [[tests.unit.test_black_scholes]]  ·  _module_

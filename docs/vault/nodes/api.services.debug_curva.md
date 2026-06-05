@@ -1,0 +1,28 @@
+---
+id: api.services.debug_curva
+type: module
+layer: api
+repo: backend
+tags: [module, api, backend]
+path: api/services/debug_curva.py
+---
+
+# api/services/debug_curva
+
+> Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.
+
+**Archivo:** `api/services/debug_curva.py`
+
+## Qué hace
+Herramienta de debug que, para un ticker dado, replica paso a paso el cálculo de TEA/TNA/Duration que hace el motor de curvas y devuelve todos los inputs intermedios (qué flujos, qué CER, qué TC, qué settlement) más el resultado recalculado, comparándolo contra lo persistido en TimeSales. Soporta las 4 curvas (tasa_fija, cer, soberanos, dolar_linked). No toca el motor: reusa sus mismos helpers leyendo data fresca de Mongo.
+
+Conecta con: importa helpers de `engines.curvas`; lee `Trading.TimeSales`, `Trading.Curvas`, CER y días hábiles vía `core.mongo` read; lo consume un endpoint de debug/diagnóstico de la curva.
+
+## Usa / conecta con →
+- [[core.mongo]]  ·  _module_
+- [[db.Trading.Curvas]]  ·  _collection_
+- [[db.Trading.TimeSales]]  ·  _collection_
+- [[engines.curvas]]  ·  _module_
+
+## Lo usan (backlinks) ←
+- [[api.routers.manager.checks]]  ·  _module_

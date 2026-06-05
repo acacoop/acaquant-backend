@@ -1,0 +1,3 @@
+Endpoints de datos del servicio, todos de solo lectura y con Bearer token obligatorio. `GET /v1/fechas` devuelve las fechas disponibles en el export (más reciente primero); `GET /v1/portfolio` devuelve las posiciones por (cuenta, instrumento) con cantidad/precio/valuación, filtrables por fecha e `id_cuenta`. Oculta campos internos (`_id`, `exported_at`) y, como la colección solo trae cuentas habilitadas, no se puede pedir una que no esté.
+
+Conecta con: lee `ACAPortfolio.Cartera` vía `partner_api.db.get_db`; protegido por `Depends(usuario_actual)` de `partner_api.auth` y limitado por `partner_api.ratelimit`. Montado por `partner_api.main`.

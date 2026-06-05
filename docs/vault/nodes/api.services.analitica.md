@@ -1,0 +1,33 @@
+---
+id: api.services.analitica
+type: module
+layer: api
+repo: backend
+tags: [module, api, backend]
+path: api/services/analitica.py
+---
+
+# api/services/analitica
+
+> Capa de servicio — analítica Tier 2 sobre data existente.
+
+**Archivo:** `api/services/analitica.py`
+
+## Qué hace
+Capa de analítica "Tier 2" sobre la renta fija ya calculada. Tres herramientas: `snapshot_curva_historico` (la curva entera tal como cerró un día pasado), `calcular_pendiente_curva` (slope en bps de una métrica, con comparación contra otra fecha) y `liquidez_secundario` (volumen del día vs promedio de N ruedas). Aplica el patrón live-fallback: lee `Trading.SnapshotsCierre` y, si falta el día, agrega `TimeSales`. Resultados cacheados (TTL 300s).
+
+Conecta con: lee `Trading.SnapshotsCierre`, `Trading.Curvas` y `Trading.TimeSales`; reusa `api.services.renta_fija`; lo invocan el router de analítica/MCP y `api.services.descomposicion_retorno`.
+
+## Usa / conecta con →
+- [[api.cache]]  ·  _module_
+- [[api.db]]  ·  _module_
+- [[api.services.renta_fija]]  ·  _module_
+- [[db.Trading.Curvas]]  ·  _collection_
+- [[db.Trading.MarketSnapshot]]  ·  _collection_
+- [[db.Trading.SnapshotsCierre]]  ·  _collection_
+- [[db.Trading.TimeSales]]  ·  _collection_
+
+## Lo usan (backlinks) ←
+- [[api.mcp.server]]  ·  _module_
+- [[api.routers.analitica]]  ·  _module_
+- [[api.services.descomposicion_retorno]]  ·  _module_

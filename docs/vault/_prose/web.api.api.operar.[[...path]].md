@@ -1,0 +1,2 @@
+Proxy catch-all (GET/POST/DELETE) hacia /api/operar/* del backend, soporte de la vista Operar Dashboard. Reenvía body JSON, auth de service token e identidad del usuario.
+- Conecta con: backend /api/operar/* (api.routers.operar); usado por el dashboard de operación.

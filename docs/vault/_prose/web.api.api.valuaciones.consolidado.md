@@ -1,0 +1,2 @@
+Route handler que proxea la valuación consolidada por cuenta a /api/valuaciones/consolidado, con ?filtro_cuenta (default "todas"). force-dynamic + no-store.
+- Conecta con: backend /api/valuaciones/consolidado (api.routers.valuaciones, sobre Valuaciones.ConsolidadoCuentas); usado por la vista consolidada de patrimonio.

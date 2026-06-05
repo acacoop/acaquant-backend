@@ -1,0 +1,2 @@
+Route handler que proxea la tenencia de bonos CER consolidada a /api/portfolio/cer, con filtro opcional ?operador. Sin cache.
+- Conecta con: backend /api/portfolio/cer (api.routers.carteras / api.services.portfolio); usado por la pestaña CER de la vista AuM.

@@ -1,0 +1,3 @@
+Job que es la fuente de verdad de operaciones por CONCERTACIÓN. Cada 30 min (horario de mercado L-V) consulta el endpoint Aunesa /operaciones/informes por cuenta en paralelo (ThreadPool), normaliza cada boleto, suma sus aranceles y upsertea idempotente (índice único por boleto) enriqueciendo inline moneda/mercado/operación/segmento. El universo de cuentas son las que ya operan más las comitentes.
+
+Conecta con: lee de Aunesa vía `core.aunesa` y de `Clientes.Comitentes`; escribe en `CashFlow.Operaciones` usando `api.services.operaciones_informes` (ingestar_filas + cargar_maps_enrich). Registra el run en `Manager.JobRuns` vía `JobRunLogger`. Alimenta las series de `jobs.ops_rollup` y los endpoints `/ops/*`.

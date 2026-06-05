@@ -1,0 +1,3 @@
+El conector central a MongoDB Atlas. Expone dos singletons thread-safe: `get_mongo_client()` (read-write, pool 20, para motores y crons) y `get_mongo_client_read()` (read-only, `SECONDARY_PREFERRED`, pool 50, para la API). Lee `MONGO_URI`/`MONGO_URI_READ` del `.env`, comparte un único connection pool por proceso y deja que el driver reconecte solo (sin ping por llamada, que costaba ~180ms). Incluye `reemplazar_coleccion_atomico()` para reescribir colecciones precompute enteras sin ventana de vacío (swap por rename atómico).
+
+Conecta con: TODO el backend (`engines/`, `jobs/`, `api/services/`) pasa por acá para hablar con Atlas. Registra el `core.mongo_monitor` antes de crear el cliente. Nunca cerrar estos singletons — mata el pool.

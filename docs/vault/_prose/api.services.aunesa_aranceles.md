@@ -1,0 +1,3 @@
+Lógica core del backfill de aranceles: por cada cuenta pide a Aunesa `/operaciones/informes` (en paralelo), matchea cada arancel contra los boletos de `CashFlow.NegocioMovimientos` por comprobante y arma `UpdateOne` que setea `aranceles` (y el atajo `arancel` en ARS). Idempotente (solo `$set`ea), flushea en lotes de 2000 para no perder progreso, filtra futuros DLR y reintenta cuentas que fallan por timeout.
+
+Conecta con: pega a Aunesa vía `api.services.aunesa_informes`; escribe `CashFlow.NegocioMovimientos`; persiste progreso en `Manager.AranceelesJobRuns`; lo invocan `scripts/backfill_aranceles.py` y `POST /api/manager/aunesa/boletos/backfill`.

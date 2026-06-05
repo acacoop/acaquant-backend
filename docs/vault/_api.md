@@ -1,0 +1,99 @@
+# 🌐 api — services · routers · mcp
+
+95 notas.
+
+- [[api]]
+- [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
+- [[api.cache]] — Cache in-process para endpoints FastAPI.
+- [[api.db]] — Helpers de acceso a las bases Mongo (sin dependencia de FastAPI).
+- [[api.deps]] — Dependencias de FastAPI (auth) + re-export de helpers de DB.
+- [[api.main]] — TradingAV API — FastAPI entrypoint.
+- [[api.mcp]] — MCP server — expone data 100% de mercado al Claude Desktop / Claude Code.
+- [[api.mcp.auth]] — Middleware de auth para el sub-app MCP.
+- [[api.mcp.discovery]] — Discovery endpoints OAuth: lo que Claude Desktop busca primero.
+- [[api.mcp.oauth]] — OAuth 2.1 provider para el MCP server — login delegado a Cloudflare Access.
+- [[api.mcp.server]] — FastMCP server para TradingAV.
+- [[api.profiling]] — api/profiling.py — Middleware opt-in de profiling de requests (pyinstrument).
+- [[api.ratelimit]] — Rate limiter compartido — instancia única de slowapi.
+- [[api.routers]]
+- [[api.routers.analitica]] — Router Analítica — Tier 1 + Tier 2 tools del asistente expuestas como HTTP.
+- [[api.routers.back_office]] — Router /api/back-office — sección Back Office.
+- [[api.routers.carteras]] — Router Portfolio — thin wrappers sobre `api.services.portfolio`.
+- [[api.routers.cotizaciones]] — Router Cotizaciones — thin wrappers sobre la capa de servicio.
+- [[api.routers.cuentas]] — Router Cuentas: endpoints para AccionistasAPI y Contrapartes.
+- [[api.routers.derivados_agro]] — Router /api/derivados/agro — Pase Agro + Estrategias + Cámara + Mejoras Dispo.
+- [[api.routers.derivados_sinteticos]] — Router /api/derivados/sinteticos — sintéticos LECAP / DLK + futuro DLR.
+- [[api.routers.ingest]] — Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet.
+- [[api.routers.manager]] — Manager API — paquete con sub-routers por sub-dominio.
+- [[api.routers.manager._common]] — Constantes y helpers compartidos entre los sub-módulos de manager/.
+- [[api.routers.manager.assets]] — Manager sub-router — control de Valuaciones.Assets.
+- [[api.routers.manager.aunesa]] — Manager · Aunesa — endpoint exploratorio en vivo.
+- [[api.routers.manager.checks]] — GET /api/manager/checks/* — validaciones de consistencia sobre Mongo.
+- [[api.routers.manager.clientes]] — Manager sub-router — edición de Clientes.Comitentes (segmentación comercial).
+- [[api.routers.manager.comercial]] — Sub-router Manager → /api/manager/comercial — Tablero Comercial.
+- [[api.routers.manager.compliance]] — Manager sub-router — COMPLIANCE: operador nuestro vs Aunesa.
+- [[api.routers.manager.grupos]] — Manager sub-router — grupos de acceso por cuenta.
+- [[api.routers.manager.jobs]] — POST /jobs/run + GET /jobs/history, /jobs/history/stats, /jobs/{id}.
+- [[api.routers.manager.logs]] — GET /api/manager/logs — últimos N logs de un servicio systemd.
+- [[api.routers.manager.operaciones]] — Manager · Operaciones — backfill de CashFlow.Operaciones por CSV.
+- [[api.routers.manager.options]] — GET/PUT /api/manager/options/expiries — config del engine de opciones.
+- [[api.routers.manager.roles]] — Manager sub-router — matriz de roles + audit log.
+- [[api.routers.manager.status]] — GET /api/manager/status — estado unificado de motores y jobs batch.
+- [[api.routers.manager.users]] — Manager sub-router — CRUD de usuarios.
+- [[api.routers.manager.valuaciones]] — Manager · Valuaciones — debug XIRR mensual.
+- [[api.routers.manager_resources]] — Endpoints de recursos del servidor para el Manager.
+- [[api.routers.market]] — Router Market: watchlist quotes, economic calendar, candles históricos.
+- [[api.routers.me]] — Router /api/me — identidad del caller.
+- [[api.routers.news]] — Router News: headlines agregados de RSS (News.Headlines) + reader mode.
+- [[api.routers.operaciones]] — Router Operaciones: endpoints para MesaAPI (flujo contrapartes), FlujosAPI
+- [[api.routers.operar]] — Router /api/operar — soporte para la vista "Operar Dashboard".
+- [[api.routers.operativa]] — Router /api/operativa — wrappers operativos sobre /api/ordenes.
+- [[api.routers.ordenes]] — Router /api/ordenes — envío/cancel/listado de órdenes contra ROFEX (LIVE).
+- [[api.routers.risk]] — Router /api/risk — datos de cuenta del broker (saldos, posiciones, márgenes).
+- [[api.routers.scanner]] — Router /api/scanner — vista Scanner del módulo Renta Variable.
+- [[api.routers.titulos]] — Router Titulos: endpoints para AssetsAPI y FlujosAPI.
+- [[api.routers.valuaciones]] — Router /api/valuaciones — performance e historia por cuenta.
+- [[api.services]]
+- [[api.services._cuentas_filter]] — Helpers compartidos para filtrar pipelines Mongo por tipo de cuenta.
+- [[api.services._grupos_scope]] — Enforcement de grupos — scoping de cuentas por usuario (Fase 2).
+- [[api.services._idempotencia]] — Idempotencia de envío de órdenes — anti doble-orden (reintento / doble-click).
+- [[api.services._mep]] — Helper compartido — devuelve el MEP histórico para una fecha dada.
+- [[api.services._negocio_arancelables]] — Filtro de `op` no arancelables para CashFlow.NegocioMovimientos.
+- [[api.services._negocio_futuros]] — Filtro de exclusión de futuros para queries sobre CashFlow.NegocioMovimientos.
+- [[api.services._negocio_informacion_filter]] — Filtro de exclusión por `informacion` para CashFlow.NegocioMovimientos.
+- [[api.services.analitica]] — Capa de servicio — analítica Tier 2 sobre data existente.
+- [[api.services.argy]] — Capa de servicio — métricas argentinas con returns calculados.
+- [[api.services.aunesa_aranceles]] — Backfill de aranceles desde Aunesa /operaciones/informes a CashFlow.NegocioMovimientos.
+- [[api.services.aunesa_informes]] — api/services/aunesa_informes.py — aranceles por boleto desde Aunesa /operaciones/informes.
+- [[api.services.aunesa_negocio]] — aunesa_negocio.py — service compartido para análisis del endpoint
+- [[api.services.back_office_titulos]] — Service — Títulos / Mercado (Back Office).
+- [[api.services.camara_cereales]] — Service — Cámara Arbitral de Cereales de Rosario.
+- [[api.services.canje]] — Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).
+- [[api.services.carry_trade]] — Serie de carry trade en USD para una curva (tasa_fija / cer).
+- [[api.services.comercial]] — api/services/comercial.py — Tablero Comercial (lente por operador).
+- [[api.services.comparar_inversion]] — Comparar Inversión — service que compara 2 bonos de Trading.Curvas lado a lado.
+- [[api.services.compliance]] — Compliance — compara el operador asignado por la mesa vs el que reporta Aunesa.
+- [[api.services.debug_curva]] — Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.
+- [[api.services.derivados]] — Capa de servicio — derivados (futuros DLR, forwards, breakevens).
+- [[api.services.derivados_agro]] — Service puro — Pase Agro (Trigo / Maíz / Soja Rosario).
+- [[api.services.descomposicion_retorno]] — descomposicion_retorno.py — Atribución carry / rolldown / cambio_tasa.
+- [[api.services.fair_value]] — fair_value.py — service del módulo Fair Value relativo intra-curva.
+- [[api.services.macro]] — Capa de servicio — series macro y clasificación.
+- [[api.services.mejoras_dispo]] — Service — Mejoras Precio Disponible (Agro).
+- [[api.services.opciones]] — Capa de servicio — opciones (chain + meta + trades históricos + update tasa).
+- [[api.services.operaciones_informes]] — operaciones_informes.py — normalización + ingesta a CashFlow.Operaciones.
+- [[api.services.operativa_mep]] — Operativa Dólar MEP — wrapper de 2 órdenes MARKET (BUY AL30 + SELL AL30D).
+- [[api.services.ordenes]] — Servicio de órdenes — funciones puras invocables desde routers o scripts.
+- [[api.services.order_book]] — Capa de servicio — Order Book (LOB) live.
+- [[api.services.pnl]] — Motor de PnL por (cuenta, ticker) con cost-basis weighted-average.
+- [[api.services.portfolio]] — Capa de servicio — portfolio / AuM / FCI.
+- [[api.services.rem]] — Expectativas REM (Relevamiento de Expectativas de Mercado, BCRA).
+- [[api.services.renta_fija]] — Capa de servicio — renta fija (MarketSnapshot + TimeSales + Curvas).
+- [[api.services.repo]] — Capa de servicio — mercado repo (caución).
+- [[api.services.risk]] — Servicio RISK — datos de cuenta del broker (saldos, posiciones, márgenes).
+- [[api.services.rv_motor]] — api/services/rv_motor.py — motor de la Mesa de Estrategia (Renta Variable).
+- [[api.services.scanner]] — api/services/scanner.py — vista Scanner del módulo Renta Variable.
+- [[api.services.segmentacion]] — Clasificación patrimonial de clientes (escribe a `Clientes.Comitentes.nivel_3`).
+- [[api.services.sensibilidad]] — Análisis de sensibilidad de retorno total a escenarios de TIR.
+- [[api.services.sinteticos]] — Sintéticos — combinaciones LECAP/DLK + futuro DLR.
+- [[api.services.valuaciones]] — Valuaciones — performance e historia por cuenta.

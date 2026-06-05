@@ -1,0 +1,3 @@
+Job diario que pobla/actualiza el master de clientes del Tablero Comercial desde el listado de cuentas de Aunesa. Upsert idempotente por `id_cuenta`: hace `$set` de los datos de Aunesa (denominación, estado, teléfono, etc.) PERO preserva el operador (se escribe solo al insertar, lo gestiona la mesa) y los campos de segmentación manual (nivel_1..5, cupo — solo `$setOnInsert`, nunca se pisan). Filtra tipo=Comitente + estado=Activa.
+
+Conecta con: lee el listado de Aunesa (HTTP directo), escribe `Clientes.Comitentes` (índice único id_cuenta). Registra el run en `Manager.JobRuns`. Alimenta el Tablero Comercial y la segmentación patrimonial. Doc: `docs/TABLERO_COMERCIAL.md`.

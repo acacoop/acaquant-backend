@@ -1,0 +1,3 @@
+Cron diario que baja indicadores macro argentinos públicos de argentinadatos.com y los persiste: riesgo país, inflación mensual e interanual (shape `{fecha, valor}` con sanity-check por rango) y el REM del BCRA filtrado a un solo indicador (IPC nivel general INDEC) con estadísticos de consenso. El REM normaliza el período a YYYY-MM y es idempotente por (informe, periodo, periodo_tipo).
+
+Conecta con: usa `core.argentina_datos`, escribe `Trading.RiesgoPais`, `Trading.InflacionMensual`, `Trading.InflacionInteranual` y `Trading.REM`; registra el run en `Manager.JobRuns`. Lo consumen los services macro/argy/REM de la API.

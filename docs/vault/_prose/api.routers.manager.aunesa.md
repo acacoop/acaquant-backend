@@ -1,0 +1,3 @@
+Sub-router `/api/manager/aunesa` — tab exploratoria/operativa contra el custodio Aunesa. Permite pegar EN VIVO a Aunesa (consolidado de boletos, posición valuada cruda de una cuenta), listar boletos sin arancel en un rango (tab FALTANTES) y disparar el backfill de aranceles en background (thread daemon del proceso api, progreso persistido por cuenta, marca `stale` si el proceso se reinicia). Admin-only; uso de discovery/debug — la vista de producción no usa estos endpoints.
+
+Conecta con: services `aunesa_negocio` (fetch live), `aunesa_aranceles::run_backfill`, y el cliente Aunesa de `jobs.aum` (import diferido); lee `CashFlow.NegocioMovimientos` y persiste el estado del job en `Manager.AraneelesJobRuns`. Lo consume la manager-view.

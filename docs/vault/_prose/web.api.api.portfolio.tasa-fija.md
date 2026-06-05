@@ -1,0 +1,2 @@
+Route handler que proxea la tenencia de bonos de tasa fija consolidada a /api/portfolio/tasa-fija, con filtro opcional ?operador. Sin cache.
+- Conecta con: backend /api/portfolio/tasa-fija (api.routers.carteras / api.services.portfolio); usado por la pestaña tasa fija de la vista AuM.

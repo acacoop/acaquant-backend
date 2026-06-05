@@ -1,0 +1,3 @@
+Lista canónica de substrings de `informacion` que NO deben entrar a `CashFlow.NegocioMovimientos` por ser movimientos administrativos/regulatorios (Bonificación, recuperos devengados, Gestión de cobranza, Márgenes MtR, Diferencias - Comit) que ensucian el control comercial. Expone `es_excluido(informacion)` para la ingesta y `match_excluir_informacion()` (regex Mongo) para el cleanup. Es la fuente de verdad única — editar acá propaga a todos los consumidores.
+
+Conecta con: lo usa `api.services.aunesa_negocio` (descarta antes del upsert que hace `jobs.negocio_movimientos`) y `scripts/cleanup_negocio_informacion.py` (borra lo ya persistido en `CashFlow.NegocioMovimientos`).

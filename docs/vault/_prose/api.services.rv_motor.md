@@ -1,0 +1,3 @@
+Motor de la Mesa de Estrategia (Renta Variable): primera pieza del feature, calcula la matriz de correlación de retornos diarios del universo de activos USD. Es la base del hedge-finder (correlación de un activo vs el resto) y de la optimización de carteras. Trabaja sobre el precio del subyacente USD (no el CEDEAR en ARS), alineando las series por fecha sobre una ventana común. Cacheado.
+
+Conecta con: lee `Trading.Cedears` (master de tickers/underlying) y `Trading.PreciosAcciones` (precios del subyacente USD); usa `quant.rolling_stats`. Lo invoca el router/tab de Renta Variable.

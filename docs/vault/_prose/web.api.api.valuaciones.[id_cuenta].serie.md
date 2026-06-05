@@ -1,0 +1,2 @@
+Route handler que proxea la serie temporal de valuación de una cuenta (rango ?desde/?hasta opcional) a /api/valuaciones/{id_cuenta}/serie. force-dynamic + no-store.
+- Conecta con: backend /api/valuaciones/{id}/serie (api.routers.valuaciones); usado por el gráfico de evolución patrimonial de la cuenta.

@@ -1,0 +1,3 @@
+Hook `usePersistedState` — un `useState` que sobrevive a la navegación entre rutas y a un F5 durante la sesión del tab, respaldado en `sessionStorage`. Resuelve que el App Router desmonta la vista al navegar y pierde los filtros/selección; con esto el usuario retoma donde dejó. Usa `sessionStorage` (no `localStorage`) a propósito: arranca limpio al reabrir la app. SSR-safe (primer render con `initial`, rehidrata al montar). Solo para estado serializable a JSON y que sea elección del usuario, no data fetcheada.
+
+Conecta con: hook de cliente puro, sin red ni Mongo; lo usan las vistas del frontend con filtros persistentes (ej. clave `"ops.moneda"`).

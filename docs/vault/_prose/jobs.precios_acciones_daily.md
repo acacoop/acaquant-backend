@@ -1,0 +1,3 @@
+Job que agrega 1 vela daily (OHLCV) por activo para alimentar el Scanner de Renta Variable. Para cada CEDEAR activo pide a Yahoo los últimos 5 días e inserta solo las fechas que aún no están en la colección (idempotente; la time series Mongo no soporta upsert por (ticker, fecha)). El colchón de 5 días recupera gaps de días/festivos sin lógica extra. Corre 1×/día post-cierre US (22 UTC L-V).
+
+Conecta con: lee underlyings de `Trading.Cedears`, baja precios de Yahoo vía `core.yahoo.stock_candle`, escribe en la time series `Trading.PreciosAcciones`. Esa serie alimenta el Scanner CEDEARs y `quant.pivot_points`.

@@ -1,0 +1,3 @@
+Capa de analítica "Tier 2" sobre la renta fija ya calculada. Tres herramientas: `snapshot_curva_historico` (la curva entera tal como cerró un día pasado), `calcular_pendiente_curva` (slope en bps de una métrica, con comparación contra otra fecha) y `liquidez_secundario` (volumen del día vs promedio de N ruedas). Aplica el patrón live-fallback: lee `Trading.SnapshotsCierre` y, si falta el día, agrega `TimeSales`. Resultados cacheados (TTL 300s).
+
+Conecta con: lee `Trading.SnapshotsCierre`, `Trading.Curvas` y `Trading.TimeSales`; reusa `api.services.renta_fija`; lo invocan el router de analítica/MCP y `api.services.descomposicion_retorno`.

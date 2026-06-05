@@ -1,0 +1,3 @@
+Sub-router `/api/manager/status` — un GET que devuelve el estado unificado de salud del sistema: por cada motor de mercado, job batch y API externa, lee el último dato escrito en su colección y lo clasifica (ok / lento / crítico / fuera_rueda / sin_datos) según un umbral de antigüedad y si estamos en rueda. Corre los chequeos en paralelo con un ThreadPoolExecutor.
+
+Conecta con: lee el timestamp más reciente de muchas colecciones (`Trading.TimeSales/MarketSnapshot/ForwardsLive/BreakevensLive/CedearsSnapshot/...`, `Opciones.OptionsSnapshot`, `Valuaciones.AuM/DolarOficialLive`, `CashFlow.NegocioMovimientos`, `News.Headlines`, etc.). Solo lectura, no recalcula. Lo consume la tab STATUS de la manager-view.

@@ -1,0 +1,50 @@
+# 🚀 deploy — servicios + crons
+
+46 notas.
+
+- [[cron.engines.dolar_mep]] — Tarea programada (cron).
+- [[cron.jobs.actividad_mensual]] — Tarea programada (cron).
+- [[cron.jobs.adr_live]] — Tarea programada (cron).
+- [[cron.jobs.argentina_datos]] — Tarea programada (cron).
+- [[cron.jobs.aum]] — Tarea programada (cron).
+- [[cron.jobs.bcra]] — Tarea programada (cron).
+- [[cron.jobs.cashflow]] — Tarea programada (cron).
+- [[cron.jobs.cierre_canje]] — Tarea programada (cron).
+- [[cron.jobs.cleanup_curvas]] — Tarea programada (cron).
+- [[cron.jobs.cleanup_futuros_dlr]] — Tarea programada (cron).
+- [[cron.jobs.comercial_warm]] — Tarea programada (cron).
+- [[cron.jobs.consolidado_cuentas]] — Tarea programada (cron).
+- [[cron.jobs.descubrir_cuentas]] — Tarea programada (cron).
+- [[cron.jobs.economic_calendar]] — Tarea programada (cron).
+- [[cron.jobs.flujo_contrapartes]] — Tarea programada (cron).
+- [[cron.jobs.forwards_zscore]] — Tarea programada (cron).
+- [[cron.jobs.market_anchors]] — Tarea programada (cron).
+- [[cron.jobs.market_quotes]] — Tarea programada (cron).
+- [[cron.jobs.negocio_movimientos]] — Tarea programada (cron).
+- [[cron.jobs.news_finnhub]] — Tarea programada (cron).
+- [[cron.jobs.news_ingesta]] — Tarea programada (cron).
+- [[cron.jobs.operaciones_informes]] — Tarea programada (cron).
+- [[cron.jobs.ops_rollup]] — Tarea programada (cron).
+- [[cron.jobs.options_rollup]] — Tarea programada (cron).
+- [[cron.jobs.partner_export]] — Tarea programada (cron).
+- [[cron.jobs.pnl_totales_precompute]] — Tarea programada (cron).
+- [[cron.jobs.precios_acciones_daily]] — Tarea programada (cron).
+- [[cron.jobs.snapshot_cierre]] — Tarea programada (cron).
+- [[cron.jobs.sync_comitentes]] — Tarea programada (cron).
+- [[cron.jobs.volatilidad_ggal]] — Tarea programada (cron).
+- [[cron.jobs.watchdog]] — Tarea programada (cron).
+- [[svc.api]] — Servicio systemd.
+- [[svc.motor_agro]] — Servicio systemd.
+- [[svc.motor_agro_opciones]] — Servicio systemd.
+- [[svc.motor_breakevens]] — Servicio systemd.
+- [[svc.motor_caucion]] — Servicio systemd.
+- [[svc.motor_cedears]] — Servicio systemd.
+- [[svc.motor_curvas]] — Servicio systemd.
+- [[svc.motor_dolares]] — Servicio systemd.
+- [[svc.motor_forwards]] — Servicio systemd.
+- [[svc.motor_futuros_dlr]] — Servicio systemd.
+- [[svc.motor_options]] — Servicio systemd.
+- [[svc.motor_ordenes]] — Servicio systemd.
+- [[svc.motor_portfolio_snapshot]] — Servicio systemd.
+- [[svc.motor_rofex]] — Servicio systemd.
+- [[svc.partner_api]] — Servicio systemd.

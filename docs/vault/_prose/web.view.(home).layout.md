@@ -1,0 +1,5 @@
+Layout raíz de la app Next.js (acaquant-web): define el `<html>`, la fuente JetBrains Mono self-hosted, el tema claro/oscuro anti-parpadeo, y arma el chrome común (Header con nav, PauseBanner, footer). Es `force-dynamic` por RBAC: re-renderea por usuario para no servir el HTML de un admin (con MANAGER en el nav) a un trader.
+
+- Llama a `getMe()` y pasa `me.modules` al Header; fail-closed en prod (modules=[] = solo públicos si el backend no responde).
+
+Conecta con: `getMe()` → backend `/api/me`; componentes `Header`, `PauseBanner`, `ThemeToggle`. Envuelve todas las views.

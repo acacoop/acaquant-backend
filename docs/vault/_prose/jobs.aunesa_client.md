@@ -1,0 +1,3 @@
+Cliente legacy de la API del custodio Aunesa: la clase `AunesaApiManager` maneja login (Bearer token con re-auth ante 401) y consulta posiciones valuadas de varias cuentas, devolviendo un DataFrame consolidado más un dict de status por cuenta (ok/empty/error/auth_failed) para que el caller sepa qué cuentas trajeron datos frescos. No escribe a Mongo: es solo la capa de acceso a Aunesa.
+
+Conecta con: lee credenciales de `config` (AUNESA_*), pega a Aunesa (login + posicionValuada). El cliente "oficial" centralizado es `core.aunesa`; los jobs de AuM modernos (`jobs.aum`) traen sus propios helpers de Aunesa en vez de este.

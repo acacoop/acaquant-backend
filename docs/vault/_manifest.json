@@ -1,0 +1,5302 @@
+[
+{
+"id": "api",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/__init__.py",
+"summary": "",
+"links": []
+},
+{
+"id": "api.auth",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/auth.py",
+"summary": "Autenticación de identidad — validación JWT de Cloudflare Access.",
+"links": [
+"config",
+"core.roles"
+]
+},
+{
+"id": "api.cache",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/cache.py",
+"summary": "Cache in-process para endpoints FastAPI.",
+"links": []
+},
+{
+"id": "api.db",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/db.py",
+"summary": "Helpers de acceso a las bases Mongo (sin dependencia de FastAPI).",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "api.deps",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/deps.py",
+"summary": "Dependencias de FastAPI (auth) + re-export de helpers de DB.",
+"links": [
+"api.db",
+"config"
+]
+},
+{
+"id": "api.main",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/main.py",
+"summary": "TradingAV API — FastAPI entrypoint.",
+"links": [
+"api.auth",
+"api.deps",
+"api.mcp",
+"api.mcp.auth",
+"api.mcp.discovery",
+"api.mcp.oauth",
+"api.mcp.server",
+"api.profiling",
+"api.ratelimit",
+"api.routers",
+"api.routers.analitica",
+"api.routers.back_office",
+"api.routers.carteras",
+"api.routers.cotizaciones",
+"api.routers.cuentas",
+"api.routers.derivados_agro",
+"api.routers.derivados_sinteticos",
+"api.routers.ingest",
+"api.routers.manager",
+"api.routers.manager_resources",
+"api.routers.market",
+"api.routers.me",
+"api.routers.news",
+"api.routers.operaciones",
+"api.routers.operar",
+"api.routers.operativa",
+"api.routers.ordenes",
+"api.routers.risk",
+"api.routers.scanner",
+"api.routers.titulos",
+"api.routers.valuaciones",
+"config",
+"core.mongo"
+]
+},
+{
+"id": "api.mcp",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/mcp/__init__.py",
+"summary": "MCP server — expone data 100% de mercado al Claude Desktop / Claude Code.",
+"links": []
+},
+{
+"id": "api.mcp.auth",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/mcp/auth.py",
+"summary": "Middleware de auth para el sub-app MCP.",
+"links": [
+"api.mcp.oauth",
+"config"
+]
+},
+{
+"id": "api.mcp.discovery",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/mcp/discovery.py",
+"summary": "Discovery endpoints OAuth: lo que Claude Desktop busca primero.",
+"links": [
+"config"
+]
+},
+{
+"id": "api.mcp.oauth",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/mcp/oauth.py",
+"summary": "OAuth 2.1 provider para el MCP server — login delegado a Cloudflare Access.",
+"links": [
+"api.auth",
+"config",
+"core.mongo",
+"db.MCP.OAuthCodes",
+"db.MCP.OAuthTokens"
+]
+},
+{
+"id": "api.mcp.server",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/mcp/server.py",
+"summary": "FastMCP server para TradingAV.",
+"links": [
+"api.services",
+"api.services.analitica",
+"api.services.canje",
+"api.services.carry_trade",
+"api.services.derivados",
+"api.services.descomposicion_retorno",
+"api.services.fair_value",
+"api.services.macro",
+"api.services.opciones",
+"api.services.order_book",
+"api.services.rem",
+"api.services.renta_fija",
+"api.services.repo",
+"api.services.scanner",
+"api.services.sensibilidad"
+]
+},
+{
+"id": "api.profiling",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/profiling.py",
+"summary": "api/profiling.py — Middleware opt-in de profiling de requests (pyinstrument).",
+"links": [
+"config"
+]
+},
+{
+"id": "api.ratelimit",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/ratelimit.py",
+"summary": "Rate limiter compartido — instancia única de slowapi.",
+"links": []
+},
+{
+"id": "api.routers",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/__init__.py",
+"summary": "",
+"links": []
+},
+{
+"id": "api.routers.analitica",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/analitica.py",
+"summary": "Router Analítica — Tier 1 + Tier 2 tools del asistente expuestas como HTTP.",
+"links": [
+"api.services",
+"api.services.analitica",
+"api.services.canje",
+"api.services.carry_trade",
+"api.services.comparar_inversion",
+"api.services.descomposicion_retorno",
+"api.services.macro",
+"api.services.opciones",
+"api.services.renta_fija",
+"api.services.sensibilidad"
+]
+},
+{
+"id": "api.routers.back_office",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/back_office.py",
+"summary": "Router /api/back-office — sección Back Office.",
+"links": [
+"api.auth",
+"api.services.back_office_titulos"
+]
+},
+{
+"id": "api.routers.carteras",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/carteras.py",
+"summary": "Router Portfolio — thin wrappers sobre `api.services.portfolio`.",
+"links": [
+"api.services",
+"api.services._grupos_scope",
+"api.services.comercial",
+"api.services.pnl",
+"api.services.portfolio"
+]
+},
+{
+"id": "api.routers.cotizaciones",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/cotizaciones.py",
+"summary": "Router Cotizaciones — thin wrappers sobre la capa de servicio.",
+"links": [
+"api.auth",
+"api.services",
+"api.services.argy",
+"api.services.derivados",
+"api.services.fair_value",
+"api.services.macro",
+"api.services.opciones",
+"api.services.rem",
+"api.services.renta_fija",
+"api.services.repo"
+]
+},
+{
+"id": "api.routers.cuentas",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/cuentas.py",
+"summary": "Router Cuentas: endpoints para AccionistasAPI y Contrapartes.",
+"links": [
+"api.cache",
+"api.db",
+"api.deps",
+"db.CashFlow.Contrapartes",
+"db.CuentasAPI.AccionistasAPI"
+]
+},
+{
+"id": "api.routers.derivados_agro",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/derivados_agro.py",
+"summary": "Router /api/derivados/agro — Pase Agro + Estrategias + Cámara + Mejoras Dispo.",
+"links": [
+"api.auth",
+"api.services.camara_cereales",
+"api.services.derivados_agro",
+"api.services.mejoras_dispo"
+]
+},
+{
+"id": "api.routers.derivados_sinteticos",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/derivados_sinteticos.py",
+"summary": "Router /api/derivados/sinteticos — sintéticos LECAP / DLK + futuro DLR.",
+"links": [
+"api.auth",
+"api.services.sinteticos"
+]
+},
+{
+"id": "api.routers.ingest",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/ingest.py",
+"summary": "Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet.",
+"links": [
+"config",
+"core.dolar_oficial"
+]
+},
+{
+"id": "api.routers.manager",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/__init__.py",
+"summary": "Manager API — paquete con sub-routers por sub-dominio.",
+"links": [
+"api.auth",
+"api.deps",
+"api.routers.manager.assets",
+"api.routers.manager.aunesa",
+"api.routers.manager.checks",
+"api.routers.manager.clientes",
+"api.routers.manager.comercial",
+"api.routers.manager.compliance",
+"api.routers.manager.grupos",
+"api.routers.manager.jobs",
+"api.routers.manager.logs",
+"api.routers.manager.operaciones",
+"api.routers.manager.options",
+"api.routers.manager.roles",
+"api.routers.manager.status",
+"api.routers.manager.users",
+"api.routers.manager.valuaciones"
+]
+},
+{
+"id": "api.routers.manager._common",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/_common.py",
+"summary": "Constantes y helpers compartidos entre los sub-módulos de manager/.",
+"links": []
+},
+{
+"id": "api.routers.manager.assets",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/assets.py",
+"summary": "Manager sub-router — control de Valuaciones.Assets.",
+"links": [
+"api.auth",
+"core.mongo",
+"db.Valuaciones.Assets"
+]
+},
+{
+"id": "api.routers.manager.aunesa",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/aunesa.py",
+"summary": "Manager · Aunesa — endpoint exploratorio en vivo.",
+"links": [
+"api.auth",
+"api.services",
+"api.services._negocio_arancelables",
+"api.services._negocio_futuros",
+"api.services.aunesa_aranceles",
+"api.services.aunesa_negocio",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"jobs.aum"
+]
+},
+{
+"id": "api.routers.manager.checks",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/checks.py",
+"summary": "GET /api/manager/checks/* — validaciones de consistencia sobre Mongo.",
+"links": [
+"api.services.comercial",
+"api.services.debug_curva",
+"core.mongo",
+"db.Manager.PyRofexDiscovery",
+"db.Manager.PyRofexInstruments",
+"db.Trading.Curvas",
+"db.Trading.FuturosDLRSnapshot",
+"db.Trading.TimeSales",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM",
+"engines.breakevens",
+"engines.curvas",
+"quant.pivot_points"
+]
+},
+{
+"id": "api.routers.manager.clientes",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/clientes.py",
+"summary": "Manager sub-router — edición de Clientes.Comitentes (segmentación comercial).",
+"links": [
+"api.auth",
+"api.services.macro",
+"api.services.segmentacion",
+"core.mongo",
+"db.CashFlow.Productores",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "api.routers.manager.comercial",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/comercial.py",
+"summary": "Sub-router Manager → /api/manager/comercial — Tablero Comercial.",
+"links": [
+"api.db",
+"api.services.comercial",
+"api.services.macro",
+"api.services.segmentacion",
+"db.Clientes.Comitentes",
+"db.Trading.UVA"
+]
+},
+{
+"id": "api.routers.manager.compliance",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/compliance.py",
+"summary": "Manager sub-router — COMPLIANCE: operador nuestro vs Aunesa.",
+"links": [
+"api.services",
+"api.services.compliance"
+]
+},
+{
+"id": "api.routers.manager.grupos",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/grupos.py",
+"summary": "Manager sub-router — grupos de acceso por cuenta.",
+"links": [
+"api.auth",
+"api.services.portfolio",
+"core.grupos"
+]
+},
+{
+"id": "api.routers.manager.jobs",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/jobs.py",
+"summary": "POST /jobs/run + GET /jobs/history, /jobs/history/stats, /jobs/{id}.",
+"links": [
+"api.ratelimit",
+"api.routers.manager._common",
+"core.mongo",
+"db.Manager.JobRuns"
+]
+},
+{
+"id": "api.routers.manager.logs",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/logs.py",
+"summary": "GET /api/manager/logs — últimos N logs de un servicio systemd.",
+"links": [
+"api.cache"
+]
+},
+{
+"id": "api.routers.manager.operaciones",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/operaciones.py",
+"summary": "Manager · Operaciones — backfill de CashFlow.Operaciones por CSV.",
+"links": [
+"api.services",
+"api.services.operaciones_informes",
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "api.routers.manager.options",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/options.py",
+"summary": "GET/PUT /api/manager/options/expiries — config del engine de opciones.",
+"links": [
+"api.routers.manager._common",
+"core.mongo"
+]
+},
+{
+"id": "api.routers.manager.roles",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/roles.py",
+"summary": "Manager sub-router — matriz de roles + audit log.",
+"links": [
+"api.auth",
+"core.roles"
+]
+},
+{
+"id": "api.routers.manager.status",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/status.py",
+"summary": "GET /api/manager/status — estado unificado de motores y jobs batch.",
+"links": [
+"api.routers.manager._common",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones",
+"db.Trading.DOLAR",
+"db.Trading.MarketSnapshot",
+"db.Trading.TimeSales",
+"db.Valuaciones.AuM",
+"db.Valuaciones.DolarOficialLive"
+]
+},
+{
+"id": "api.routers.manager.users",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/users.py",
+"summary": "Manager sub-router — CRUD de usuarios.",
+"links": [
+"api.auth",
+"core.roles"
+]
+},
+{
+"id": "api.routers.manager.valuaciones",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/valuaciones.py",
+"summary": "Manager · Valuaciones — debug XIRR mensual.",
+"links": [
+"api.services",
+"api.services.valuaciones"
+]
+},
+{
+"id": "api.routers.manager_resources",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager_resources.py",
+"summary": "Endpoints de recursos del servidor para el Manager.",
+"links": []
+},
+{
+"id": "api.routers.market",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/market.py",
+"summary": "Router Market: watchlist quotes, economic calendar, candles históricos.",
+"links": [
+"core.finnhub",
+"core.mongo",
+"core.yahoo"
+]
+},
+{
+"id": "api.routers.me",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/me.py",
+"summary": "Router /api/me — identidad del caller.",
+"links": [
+"api.auth",
+"core.roles"
+]
+},
+{
+"id": "api.routers.news",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/news.py",
+"summary": "Router News: headlines agregados de RSS (News.Headlines) + reader mode.",
+"links": [
+"api.ratelimit",
+"core.mongo"
+]
+},
+{
+"id": "api.routers.operaciones",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/operaciones.py",
+"summary": "Router Operaciones: endpoints para MesaAPI (flujo contrapartes), FlujosAPI",
+"links": [
+"api.cache",
+"api.db",
+"api.deps",
+"api.services._cuentas_filter",
+"api.services._grupos_scope",
+"api.services._negocio_futuros",
+"api.services.comercial",
+"db.CashFlow.Contrapartes",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones",
+"db.CuentasAPI.ContrapartesAPI"
+]
+},
+{
+"id": "api.routers.operar",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/operar.py",
+"summary": "Router /api/operar — soporte para la vista \"Operar Dashboard\".",
+"links": [
+"api.auth",
+"api.services._grupos_scope",
+"api.services._idempotencia",
+"api.services.ordenes",
+"api.services.order_book",
+"core.adhoc_subscriptions",
+"core.brackets",
+"core.mongo"
+]
+},
+{
+"id": "api.routers.operativa",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/operativa.py",
+"summary": "Router /api/operativa — wrappers operativos sobre /api/ordenes.",
+"links": [
+"api.auth",
+"api.services._grupos_scope",
+"api.services._idempotencia",
+"api.services.operativa_mep"
+]
+},
+{
+"id": "api.routers.ordenes",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/ordenes.py",
+"summary": "Router /api/ordenes — envío/cancel/listado de órdenes contra ROFEX (LIVE).",
+"links": [
+"api.auth",
+"api.ratelimit",
+"api.services._grupos_scope",
+"api.services.ordenes"
+]
+},
+{
+"id": "api.routers.risk",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/risk.py",
+"summary": "Router /api/risk — datos de cuenta del broker (saldos, posiciones, márgenes).",
+"links": [
+"api.auth",
+"api.services._grupos_scope",
+"api.services.risk"
+]
+},
+{
+"id": "api.routers.scanner",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/scanner.py",
+"summary": "Router /api/scanner — vista Scanner del módulo Renta Variable.",
+"links": [
+"api.auth",
+"api.services",
+"api.services.rv_motor",
+"api.services.scanner"
+]
+},
+{
+"id": "api.routers.titulos",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/titulos.py",
+"summary": "Router Titulos: endpoints para AssetsAPI y FlujosAPI.",
+"links": [
+"api.cache",
+"api.deps",
+"api.services.renta_fija",
+"db.Trading.Curvas"
+]
+},
+{
+"id": "api.routers.valuaciones",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/valuaciones.py",
+"summary": "Router /api/valuaciones — performance e historia por cuenta.",
+"links": [
+"api.services",
+"api.services._grupos_scope",
+"api.services.valuaciones"
+]
+},
+{
+"id": "api.services",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/__init__.py",
+"summary": "",
+"links": []
+},
+{
+"id": "api.services._cuentas_filter",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/_cuentas_filter.py",
+"summary": "Helpers compartidos para filtrar pipelines Mongo por tipo de cuenta.",
+"links": [
+"api.cache",
+"api.db",
+"api.deps",
+"db.Clientes.Comitentes",
+"db.CuentasAPI.AccionistasAPI"
+]
+},
+{
+"id": "api.services._grupos_scope",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/_grupos_scope.py",
+"summary": "Enforcement de grupos — scoping de cuentas por usuario (Fase 2).",
+"links": [
+"api.auth",
+"core.grupos"
+]
+},
+{
+"id": "api.services._idempotencia",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/_idempotencia.py",
+"summary": "Idempotencia de envío de órdenes — anti doble-orden (reintento / doble-click).",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "api.services._mep",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/_mep.py",
+"summary": "Helper compartido — devuelve el MEP histórico para una fecha dada.",
+"links": [
+"api.db",
+"db.Valuaciones.Dolar"
+]
+},
+{
+"id": "api.services._negocio_arancelables",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/_negocio_arancelables.py",
+"summary": "Filtro de `op` no arancelables para CashFlow.NegocioMovimientos.",
+"links": []
+},
+{
+"id": "api.services._negocio_futuros",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/_negocio_futuros.py",
+"summary": "Filtro de exclusión de futuros para queries sobre CashFlow.NegocioMovimientos.",
+"links": []
+},
+{
+"id": "api.services._negocio_informacion_filter",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/_negocio_informacion_filter.py",
+"summary": "Filtro de exclusión por `informacion` para CashFlow.NegocioMovimientos.",
+"links": []
+},
+{
+"id": "api.services.analitica",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/analitica.py",
+"summary": "Capa de servicio — analítica Tier 2 sobre data existente.",
+"links": [
+"api.cache",
+"api.db",
+"api.services.renta_fija",
+"db.Trading.Curvas",
+"db.Trading.MarketSnapshot",
+"db.Trading.SnapshotsCierre",
+"db.Trading.TimeSales"
+]
+},
+{
+"id": "api.services.argy",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/argy.py",
+"summary": "Capa de servicio — métricas argentinas con returns calculados.",
+"links": [
+"api.cache",
+"api.db",
+"core.dolar_oficial",
+"db.Valuaciones.Dolar"
+]
+},
+{
+"id": "api.services.aunesa_aranceles",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/aunesa_aranceles.py",
+"summary": "Backfill de aranceles desde Aunesa /operaciones/informes a CashFlow.NegocioMovimientos.",
+"links": [
+"api.services._negocio_arancelables",
+"api.services._negocio_futuros",
+"api.services.aunesa_informes",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos"
+]
+},
+{
+"id": "api.services.aunesa_informes",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/aunesa_informes.py",
+"summary": "api/services/aunesa_informes.py — aranceles por boleto desde Aunesa /operaciones/informes.",
+"links": [
+"core",
+"core.aunesa"
+]
+},
+{
+"id": "api.services.aunesa_negocio",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/aunesa_negocio.py",
+"summary": "aunesa_negocio.py — service compartido para análisis del endpoint",
+"links": [
+"api.services._negocio_informacion_filter",
+"config"
+]
+},
+{
+"id": "api.services.back_office_titulos",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/back_office_titulos.py",
+"summary": "Service — Títulos / Mercado (Back Office).",
+"links": [
+"api.cache",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos"
+]
+},
+{
+"id": "api.services.camara_cereales",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/camara_cereales.py",
+"summary": "Service — Cámara Arbitral de Cereales de Rosario.",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "api.services.canje",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/canje.py",
+"summary": "Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).",
+"links": [
+"api.cache",
+"api.db",
+"config",
+"db.Trading.CanjeCierre",
+"db.Trading.TimeSales"
+]
+},
+{
+"id": "api.services.carry_trade",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/carry_trade.py",
+"summary": "Serie de carry trade en USD para una curva (tasa_fija / cer).",
+"links": [
+"api.cache",
+"api.db",
+"db.Trading.Curvas",
+"db.Trading.DOLAR",
+"db.Trading.MarketSnapshot",
+"db.Trading.SnapshotsCierre",
+"db.Valuaciones.Dolar"
+]
+},
+{
+"id": "api.services.comercial",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/comercial.py",
+"summary": "api/services/comercial.py — Tablero Comercial (lente por operador).",
+"links": [
+"api.cache",
+"api.db",
+"api.services._negocio_futuros",
+"api.services.macro",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones",
+"db.Clientes.Comitentes",
+"db.Manager.Users",
+"db.Valuaciones.AuM"
+]
+},
+{
+"id": "api.services.comparar_inversion",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/comparar_inversion.py",
+"summary": "Comparar Inversión — service que compara 2 bonos de Trading.Curvas lado a lado.",
+"links": [
+"api.cache",
+"api.db",
+"api.services.macro",
+"api.services.renta_fija",
+"db.Trading.Curvas",
+"engines.curvas"
+]
+},
+{
+"id": "api.services.compliance",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/compliance.py",
+"summary": "Compliance — compara el operador asignado por la mesa vs el que reporta Aunesa.",
+"links": [
+"api.cache",
+"api.db",
+"core",
+"core.aunesa",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "api.services.debug_curva",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/debug_curva.py",
+"summary": "Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.",
+"links": [
+"core.mongo",
+"db.Trading.Curvas",
+"db.Trading.TimeSales",
+"engines.curvas"
+]
+},
+{
+"id": "api.services.derivados",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/derivados.py",
+"summary": "Capa de servicio — derivados (futuros DLR, forwards, breakevens).",
+"links": [
+"api.cache",
+"api.db"
+]
+},
+{
+"id": "api.services.derivados_agro",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/derivados_agro.py",
+"summary": "Service puro — Pase Agro (Trigo / Maíz / Soja Rosario).",
+"links": [
+"core.dolar_oficial",
+"core.mongo",
+"db.Trading.AgroOpcionesSnapshot",
+"db.Trading.AgroSnapshot"
+]
+},
+{
+"id": "api.services.descomposicion_retorno",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/descomposicion_retorno.py",
+"summary": "descomposicion_retorno.py — Atribución carry / rolldown / cambio_tasa.",
+"links": [
+"api.cache",
+"api.db",
+"api.services.analitica",
+"api.services.rem",
+"api.services.renta_fija"
+]
+},
+{
+"id": "api.services.fair_value",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/fair_value.py",
+"summary": "fair_value.py — service del módulo Fair Value relativo intra-curva.",
+"links": [
+"api.cache",
+"api.db",
+"db.Trading.Curvas",
+"db.Trading.MarketSnapshot"
+]
+},
+{
+"id": "api.services.macro",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/macro.py",
+"summary": "Capa de servicio — series macro y clasificación.",
+"links": [
+"api.cache",
+"api.db",
+"api.services.renta_fija",
+"core.dolar_oficial",
+"db.Trading.DOLAR",
+"db.Trading.TimeSales",
+"db.Trading.UVA",
+"db.Valuaciones.Dolar",
+"quant.stats"
+]
+},
+{
+"id": "api.services.mejoras_dispo",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/mejoras_dispo.py",
+"summary": "Service — Mejoras Precio Disponible (Agro).",
+"links": [
+"api.cache",
+"core.dolar_oficial",
+"core.mongo",
+"db.Trading.Curvas",
+"db.Trading.MarketSnapshot"
+]
+},
+{
+"id": "api.services.opciones",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/opciones.py",
+"summary": "Capa de servicio — opciones (chain + meta + trades históricos + update tasa).",
+"links": [
+"api.cache",
+"api.db",
+"api.services.renta_fija",
+"core.mongo"
+]
+},
+{
+"id": "api.services.operaciones_informes",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/operaciones_informes.py",
+"summary": "operaciones_informes.py — normalización + ingesta a CashFlow.Operaciones.",
+"links": [
+"api.services._mep",
+"db.CashFlow.Operaciones",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "api.services.operativa_mep",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/operativa_mep.py",
+"summary": "Operativa Dólar MEP — wrapper de 2 órdenes MARKET (BUY AL30 + SELL AL30D).",
+"links": [
+"api.services.ordenes",
+"core.mongo",
+"db.CashFlow.Operaciones",
+"db.Trading.TimeSales"
+]
+},
+{
+"id": "api.services.ordenes",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/ordenes.py",
+"summary": "Servicio de órdenes — funciones puras invocables desde routers o scripts.",
+"links": [
+"api.services._idempotencia",
+"core.mongo",
+"core.rofex_orders_session",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "api.services.order_book",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/order_book.py",
+"summary": "Capa de servicio — Order Book (LOB) live.",
+"links": [
+"api.cache",
+"api.db",
+"db.Trading.Curvas",
+"db.Trading.MarketSnapshot"
+]
+},
+{
+"id": "api.services.pnl",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/pnl.py",
+"summary": "Motor de PnL por (cuenta, ticker) con cost-basis weighted-average.",
+"links": [
+"api.cache",
+"api.db",
+"api.services._cuentas_filter",
+"api.services._mep",
+"api.services.portfolio",
+"db.CashFlow.NegocioMovimientos",
+"db.Trading.SnapshotsCierre",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM",
+"db.Valuaciones.PnLTotalesCache"
+]
+},
+{
+"id": "api.services.portfolio",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/portfolio.py",
+"summary": "Capa de servicio — portfolio / AuM / FCI.",
+"links": [
+"api.cache",
+"api.db",
+"api.services._cuentas_filter",
+"api.services._mep",
+"db.Trading.Curvas",
+"db.Trading.MarketSnapshot",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM"
+]
+},
+{
+"id": "api.services.rem",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/rem.py",
+"summary": "Expectativas REM (Relevamiento de Expectativas de Mercado, BCRA).",
+"links": [
+"api.cache",
+"api.db"
+]
+},
+{
+"id": "api.services.renta_fija",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/renta_fija.py",
+"summary": "Capa de servicio — renta fija (MarketSnapshot + TimeSales + Curvas).",
+"links": [
+"api.cache",
+"api.db",
+"api.services.carry_trade",
+"api.services.macro",
+"db.Trading.Curvas",
+"db.Trading.MarketSnapshot",
+"db.Trading.SnapshotsCierre",
+"db.Trading.TimeSales",
+"engines.curvas"
+]
+},
+{
+"id": "api.services.repo",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/repo.py",
+"summary": "Capa de servicio — mercado repo (caución).",
+"links": [
+"api.cache",
+"api.db"
+]
+},
+{
+"id": "api.services.risk",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/risk.py",
+"summary": "Servicio RISK — datos de cuenta del broker (saldos, posiciones, márgenes).",
+"links": [
+"api.cache",
+"core.mongo",
+"core.rofex_orders_session",
+"db.CashFlow.Operaciones",
+"db.CuentasAPI.AccionistasAPI",
+"db.CuentasAPI.ContrapartesAPI"
+]
+},
+{
+"id": "api.services.rv_motor",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/rv_motor.py",
+"summary": "api/services/rv_motor.py — motor de la Mesa de Estrategia (Renta Variable).",
+"links": [
+"api.cache",
+"api.db",
+"api.services.scanner",
+"db.Trading.PreciosAcciones",
+"quant.rolling_stats"
+]
+},
+{
+"id": "api.services.scanner",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/scanner.py",
+"summary": "api/services/scanner.py — vista Scanner del módulo Renta Variable.",
+"links": [
+"api.cache",
+"api.db",
+"db.Trading.PreciosAcciones",
+"db.Valuaciones.Dolar",
+"quant.pivot_points",
+"quant.rolling_stats"
+]
+},
+{
+"id": "api.services.segmentacion",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/segmentacion.py",
+"summary": "Clasificación patrimonial de clientes (escribe a `Clientes.Comitentes.nivel_3`).",
+"links": [
+"db.CashFlow.Contrapartes",
+"db.CashFlow.Productores"
+]
+},
+{
+"id": "api.services.sensibilidad",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/sensibilidad.py",
+"summary": "Análisis de sensibilidad de retorno total a escenarios de TIR.",
+"links": [
+"api.cache",
+"api.db",
+"db.Trading.Curvas",
+"db.Trading.MarketSnapshot",
+"engines.curvas"
+]
+},
+{
+"id": "api.services.sinteticos",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/sinteticos.py",
+"summary": "Sintéticos — combinaciones LECAP/DLK + futuro DLR.",
+"links": [
+"api.cache",
+"core.dolar_oficial",
+"core.mongo",
+"db.Trading.Curvas",
+"db.Trading.MarketSnapshot"
+]
+},
+{
+"id": "api.services.valuaciones",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/valuaciones.py",
+"summary": "Valuaciones — performance e historia por cuenta.",
+"links": [
+"api.cache",
+"api.db",
+"api.services._cuentas_filter",
+"api.services.portfolio",
+"db.CashFlow.NegocioMovimientos",
+"db.Trading.Curvas",
+"db.Trading.MarketSnapshot",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM",
+"db.Valuaciones.ConsolidadoCuentas",
+"db.Valuaciones.Dolar",
+"quant.xirr"
+]
+},
+{
+"id": "config",
+"type": "module",
+"layer": "config",
+"repo": "backend",
+"path": "config.py",
+"summary": "",
+"links": []
+},
+{
+"id": "core",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/__init__.py",
+"summary": "",
+"links": []
+},
+{
+"id": "core.adhoc_subscriptions",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/adhoc_subscriptions.py",
+"summary": "Helpers para Trading.AdhocSubscriptions — suscripciones live efímeras.",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "core.argentina_datos",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/argentina_datos.py",
+"summary": "Cliente de argentinadatos.com — indicadores macro AR públicos.",
+"links": []
+},
+{
+"id": "core.atlas_api",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/atlas_api.py",
+"summary": "core/atlas_api.py — lector de la Atlas Admin API (REST de gestión).",
+"links": []
+},
+{
+"id": "core.aunesa",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/aunesa.py",
+"summary": "core/aunesa.py — cliente único de la API del custodio Aunesa.",
+"links": [
+"config"
+]
+},
+{
+"id": "core.brackets",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/brackets.py",
+"summary": "Brackets — entrada LIMIT + salida automática cuando la entrada se llena.",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "core.byma",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/byma.py",
+"summary": "Cliente BYMA Primarias Placements.",
+"links": [
+"config"
+]
+},
+{
+"id": "core.cafci",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/cafci.py",
+"summary": "Extracción del código CAFCI desde un string `unidad`.",
+"links": []
+},
+{
+"id": "core.dolar_oficial",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/dolar_oficial.py",
+"summary": "Fuente única para el \"dólar oficial\" mayorista.",
+"links": [
+"core.mongo",
+"db.Valuaciones.DolarOficialLive"
+]
+},
+{
+"id": "core.finnhub",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/finnhub.py",
+"summary": "Cliente Finnhub con rate limiting interno.",
+"links": [
+"config"
+]
+},
+{
+"id": "core.grupos",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/grupos.py",
+"summary": "core/grupos.py — grupos de acceso por cuenta (scoping multi-tenant).",
+"links": [
+"core.mongo",
+"core.roles"
+]
+},
+{
+"id": "core.job_runs",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/job_runs.py",
+"summary": "Context manager para registrar runs de jobs automáticos en Manager.JobRuns.",
+"links": [
+"core.mongo",
+"core.notify",
+"db.Manager.JobRuns"
+]
+},
+{
+"id": "core.mae",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/mae.py",
+"summary": "Cliente MAE MarketData.",
+"links": [
+"config"
+]
+},
+{
+"id": "core.mongo",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/mongo.py",
+"summary": "",
+"links": [
+"core",
+"core.mongo_monitor"
+]
+},
+{
+"id": "core.mongo_monitor",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/mongo_monitor.py",
+"summary": "mongo_monitor.py — listener de pymongo para grabar queries de la API.",
+"links": []
+},
+{
+"id": "core.notify",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/notify.py",
+"summary": "Notificaciones operativas (Telegram).",
+"links": [
+"config"
+]
+},
+{
+"id": "core.openfigi",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/openfigi.py",
+"summary": "Cliente OpenFIGI con caching en Mongo (Smart.CusipCatalog).",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "core.profiler",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/profiler.py",
+"summary": "Stopwatch mínimo para instrumentar pasos dentro de una función.",
+"links": []
+},
+{
+"id": "core.rofex_orders_session",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/rofex_orders_session.py",
+"summary": "Sesión pyRofex dedicada a envío/seguimiento de órdenes.",
+"links": []
+},
+{
+"id": "core.rofex_session",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/rofex_session.py",
+"summary": "",
+"links": [
+"config"
+]
+},
+{
+"id": "core.roles",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/roles.py",
+"summary": "Roles y matriz de permisos por módulo.",
+"links": [
+"config",
+"core.mongo",
+"db.Manager.RoleAudit",
+"db.Manager.RoleMatrix",
+"db.Manager.Users"
+]
+},
+{
+"id": "core.snapshot_writer",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/snapshot_writer.py",
+"summary": "",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "core.websocket",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/websocket.py",
+"summary": "WebSocketManager — conexión WS a pyRofex para los motores de mercado.",
+"links": [
+"core.notify"
+]
+},
+{
+"id": "core.yahoo",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/yahoo.py",
+"summary": "Cliente Yahoo Finance vía yfinance (gratis, sin API key).",
+"links": []
+},
+{
+"id": "cron.engines.dolar_mep",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"engines.dolar_mep"
+]
+},
+{
+"id": "cron.jobs.actividad_mensual",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.actividad_mensual"
+]
+},
+{
+"id": "cron.jobs.adr_live",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.adr_live"
+]
+},
+{
+"id": "cron.jobs.argentina_datos",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.argentina_datos"
+]
+},
+{
+"id": "cron.jobs.aum",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.aum"
+]
+},
+{
+"id": "cron.jobs.bcra",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.bcra"
+]
+},
+{
+"id": "cron.jobs.cashflow",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.cashflow"
+]
+},
+{
+"id": "cron.jobs.cierre_canje",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.cierre_canje"
+]
+},
+{
+"id": "cron.jobs.cleanup_curvas",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.cleanup_curvas"
+]
+},
+{
+"id": "cron.jobs.cleanup_futuros_dlr",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.cleanup_futuros_dlr"
+]
+},
+{
+"id": "cron.jobs.comercial_warm",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.comercial_warm"
+]
+},
+{
+"id": "cron.jobs.consolidado_cuentas",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.consolidado_cuentas"
+]
+},
+{
+"id": "cron.jobs.descubrir_cuentas",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.descubrir_cuentas"
+]
+},
+{
+"id": "cron.jobs.economic_calendar",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.economic_calendar"
+]
+},
+{
+"id": "cron.jobs.flujo_contrapartes",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.flujo_contrapartes"
+]
+},
+{
+"id": "cron.jobs.forwards_zscore",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.forwards_zscore"
+]
+},
+{
+"id": "cron.jobs.market_anchors",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.market_anchors"
+]
+},
+{
+"id": "cron.jobs.market_quotes",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.market_quotes"
+]
+},
+{
+"id": "cron.jobs.negocio_movimientos",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.negocio_movimientos"
+]
+},
+{
+"id": "cron.jobs.news_finnhub",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.news_finnhub"
+]
+},
+{
+"id": "cron.jobs.news_ingesta",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.news_ingesta"
+]
+},
+{
+"id": "cron.jobs.operaciones_informes",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.operaciones_informes"
+]
+},
+{
+"id": "cron.jobs.ops_rollup",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.ops_rollup"
+]
+},
+{
+"id": "cron.jobs.options_rollup",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.options_rollup"
+]
+},
+{
+"id": "cron.jobs.partner_export",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.partner_export"
+]
+},
+{
+"id": "cron.jobs.pnl_totales_precompute",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.pnl_totales_precompute"
+]
+},
+{
+"id": "cron.jobs.precios_acciones_daily",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.precios_acciones_daily"
+]
+},
+{
+"id": "cron.jobs.snapshot_cierre",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.snapshot_cierre"
+]
+},
+{
+"id": "cron.jobs.sync_comitentes",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.sync_comitentes"
+]
+},
+{
+"id": "cron.jobs.volatilidad_ggal",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.volatilidad_ggal"
+]
+},
+{
+"id": "cron.jobs.watchdog",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.watchdog"
+]
+},
+{
+"id": "db.ACAPortfolio.Cartera",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB ACAPortfolio.",
+"links": []
+},
+{
+"id": "db.CashFlow.Contrapartes",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB CashFlow.",
+"links": []
+},
+{
+"id": "db.CashFlow.NegocioMovimientos",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB CashFlow.",
+"links": []
+},
+{
+"id": "db.CashFlow.Operaciones",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB CashFlow.",
+"links": []
+},
+{
+"id": "db.CashFlow.Productores",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB CashFlow.",
+"links": []
+},
+{
+"id": "db.Clientes.ComercialCache",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Clientes.",
+"links": []
+},
+{
+"id": "db.Clientes.Comitentes",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Clientes.",
+"links": []
+},
+{
+"id": "db.CuentasAPI.AccionistasAPI",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB CuentasAPI.",
+"links": []
+},
+{
+"id": "db.CuentasAPI.ContrapartesAPI",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB CuentasAPI.",
+"links": []
+},
+{
+"id": "db.MCP.OAuthCodes",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB MCP.",
+"links": []
+},
+{
+"id": "db.MCP.OAuthTokens",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB MCP.",
+"links": []
+},
+{
+"id": "db.Manager.RoleAudit",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Manager.",
+"links": []
+},
+{
+"id": "db.Manager.RoleMatrix",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Manager.",
+"links": []
+},
+{
+"id": "db.Manager.Users",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Manager.",
+"links": []
+},
+{
+"id": "db.Trading.CanjeCierre",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Trading.",
+"links": []
+},
+{
+"id": "db.Trading.Curvas",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Trading.",
+"links": []
+},
+{
+"id": "db.Trading.DOLAR",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Trading.",
+"links": []
+},
+{
+"id": "db.Trading.MarketSnapshot",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Trading.",
+"links": []
+},
+{
+"id": "db.Trading.OrderBookL2",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Trading.",
+"links": []
+},
+{
+"id": "db.Trading.PreciosAcciones",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Trading.",
+"links": []
+},
+{
+"id": "db.Trading.SnapshotsCierre",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Trading.",
+"links": []
+},
+{
+"id": "db.Trading.TimeSales",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Trading.",
+"links": []
+},
+{
+"id": "db.Trading.UVA",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Trading.",
+"links": []
+},
+{
+"id": "db.Valuaciones.Assets",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Valuaciones.",
+"links": []
+},
+{
+"id": "db.Valuaciones.AuM",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Valuaciones.",
+"links": []
+},
+{
+"id": "db.Valuaciones.ConsolidadoCuentas",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Valuaciones.",
+"links": []
+},
+{
+"id": "db.Valuaciones.Dolar",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Valuaciones.",
+"links": []
+},
+{
+"id": "db.Valuaciones.DolarOficialLive",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Valuaciones.",
+"links": []
+},
+{
+"id": "db.Valuaciones.PnLTotalesCache",
+"type": "collection",
+"layer": "db",
+"repo": "infra",
+"path": "",
+"summary": "Colección Mongo en DB Valuaciones.",
+"links": []
+},
+{
+"id": "engines",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/__init__.py",
+"summary": "",
+"links": []
+},
+{
+"id": "engines._curvas_loader",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/_curvas_loader.py",
+"summary": "Carga común de Trading.Curvas para todos los motores.",
+"links": [
+"config",
+"core.adhoc_subscriptions",
+"core.mongo",
+"db.Trading.Curvas"
+]
+},
+{
+"id": "engines._universo_portfolio",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/_universo_portfolio.py",
+"summary": "Universo dinámico para motor_portfolio_snapshot.",
+"links": [
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.Manager.PyRofexInstruments",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM"
+]
+},
+{
+"id": "engines.breakevens",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/breakevens.py",
+"summary": "main_breakevens.py — Motor de breakevens CER/Lecap en tiempo real.",
+"links": [
+"core.mongo",
+"db.Trading.BreakevensHistorico",
+"db.Trading.BreakevensLive",
+"db.Trading.CER",
+"db.Trading.DiasHabiles",
+"db.Trading.InflacionMensual",
+"db.Trading.MarketSnapshot",
+"db.Trading.TimeSales",
+"engines._curvas_loader",
+"engines.curvas"
+]
+},
+{
+"id": "engines.caucion",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/caucion.py",
+"summary": "Motor de caución ARS y USD a corto plazo.",
+"links": [
+"core.mongo",
+"core.rofex_session",
+"core.websocket",
+"db.Trading.Caucion",
+"db.Trading.CaucionSnapshot",
+"db.Trading.DiasHabiles"
+]
+},
+{
+"id": "engines.curvas",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/curvas.py",
+"summary": "main_curvas.py — Motor de enriquecimiento en tiempo real para Trading.TimeSales.",
+"links": [
+"core.dolar_oficial",
+"core.mongo",
+"db.Trading.CER",
+"db.Trading.DiasHabiles",
+"db.Trading.MarketSnapshot",
+"db.Valuaciones.Dolar",
+"db.Valuaciones.DolarSnapshot",
+"engines._curvas_loader"
+]
+},
+{
+"id": "engines.dolar_mep",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/dolar_mep.py",
+"summary": "",
+"links": [
+"core.mongo",
+"core.rofex_session",
+"db.Valuaciones.Dolar"
+]
+},
+{
+"id": "engines.dolares",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/dolares.py",
+"summary": "Motor de dólares MEP/CCL/canje en tiempo real (WebSocket).",
+"links": [
+"core.mongo",
+"core.rofex_session",
+"core.websocket",
+"db.Valuaciones.DolarSnapshot"
+]
+},
+{
+"id": "engines.forwards",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/forwards.py",
+"summary": "main_forwards.py — Motor de tasas forward en tiempo real.",
+"links": [
+"core.mongo",
+"db.Trading.ForwardsHistorico",
+"db.Trading.ForwardsLive",
+"db.Trading.MarketSnapshot",
+"engines._curvas_loader"
+]
+},
+{
+"id": "engines.futuros_dlr",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/futuros_dlr.py",
+"summary": "Motor de futuros DLR (Dólar A3500) — outrights single-leg.",
+"links": [
+"core.dolar_oficial",
+"core.mongo",
+"core.rofex_session",
+"core.websocket",
+"db.Trading.DOLAR",
+"db.Trading.FuturosDLR",
+"db.Trading.FuturosDLRSnapshot",
+"db.Valuaciones.Dolar"
+]
+},
+{
+"id": "engines.motor_agro",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/motor_agro.py",
+"summary": "Motor de Futuros Agro Rosario — Trigo / Maíz / Soja.",
+"links": [
+"core.mongo",
+"core.rofex_session",
+"core.websocket",
+"db.Trading.AgroSnapshot"
+]
+},
+{
+"id": "engines.motor_agro_opciones",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/motor_agro_opciones.py",
+"summary": "Motor de Opciones Agro Rosario — Trigo / Maíz / Soja.",
+"links": [
+"core.mongo",
+"core.rofex_session",
+"core.websocket",
+"db.Trading.AgroOpcionesSnapshot"
+]
+},
+{
+"id": "engines.motor_cedears",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/motor_cedears.py",
+"summary": "motor_cedears.py — feed live de CEDEARs vía pyRofex WS.",
+"links": [
+"core.mongo",
+"core.rofex_session",
+"core.websocket",
+"db.Trading.Cedears",
+"db.Trading.CedearsSnapshot"
+]
+},
+{
+"id": "engines.motor_ordenes",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/motor_ordenes.py",
+"summary": "Motor de órdenes — escucha execution reports y persiste el ciclo de vida.",
+"links": [
+"core",
+"core.brackets",
+"core.mongo",
+"core.rofex_orders_session",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "engines.options",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/options.py",
+"summary": "Motor de Opciones GGAL - Servicio Headless",
+"links": [
+"core.mongo",
+"core.rofex_session",
+"core.websocket",
+"quant.black_scholes"
+]
+},
+{
+"id": "engines.portfolio_snapshot",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/portfolio_snapshot.py",
+"summary": "Motor dedicado a captura del último precio para tickers de tenencia.",
+"links": [
+"core.mongo",
+"core.rofex_session",
+"core.websocket",
+"engines._universo_portfolio"
+]
+},
+{
+"id": "engines.valores",
+"type": "module",
+"layer": "engines",
+"repo": "backend",
+"path": "engines/valores.py",
+"summary": "",
+"links": [
+"core.adhoc_subscriptions",
+"core.mongo",
+"core.rofex_session",
+"core.websocket",
+"db.Trading.MarketSnapshot",
+"db.Trading.TimeSales",
+"engines._curvas_loader"
+]
+},
+{
+"id": "jobs",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/__init__.py",
+"summary": "",
+"links": []
+},
+{
+"id": "jobs._aum_filters",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/_aum_filters.py",
+"summary": "Reglas de exclusión aplicadas a `Valuaciones.AuM`.",
+"links": [
+"core.mongo",
+"db.CashFlow.Contrapartes",
+"db.CuentasAPI.ContrapartesAPI"
+]
+},
+{
+"id": "jobs.actividad_mensual",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/actividad_mensual.py",
+"summary": "actividad_mensual.py — snapshot mensual de CUENTAS ACTIVAS.",
+"links": [
+"api.services.comercial",
+"core.job_runs",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.Clientes.ActividadMensual",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "jobs.adr_live",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/adr_live.py",
+"summary": "adr_live.py — pull live USD prices del subyacente de cada CEDEAR.",
+"links": [
+"core.finnhub",
+"core.mongo",
+"db.Trading.AdrSnapshot"
+]
+},
+{
+"id": "jobs.aranceles",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/aranceles.py",
+"summary": "Job de aranceles — pega a Aunesa /informes y completa los boletos sin arancel.",
+"links": [
+"api.services.aunesa_aranceles",
+"core.job_runs",
+"core.mongo"
+]
+},
+{
+"id": "jobs.archive_options_data",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/archive_options_data.py",
+"summary": "archive_options_data.py — backup + purga de Opciones.Data.",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "jobs.argentina_datos",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/argentina_datos.py",
+"summary": "Cron: pega argentinadatos.com y persiste riesgo país / IPC / REM en Mongo.",
+"links": [
+"core.argentina_datos",
+"core.job_runs",
+"core.mongo"
+]
+},
+{
+"id": "jobs.aum",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/aum.py",
+"summary": "",
+"links": [
+"config",
+"core.cafci",
+"core.mongo",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM",
+"jobs._aum_filters",
+"jobs.aum_resumen_fci"
+]
+},
+{
+"id": "jobs.aum_backfill",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/aum_backfill.py",
+"summary": "aum_backfill.py — Corre el snapshot de AuM para una fecha pasada.",
+"links": [
+"core.mongo",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM",
+"jobs.aum",
+"jobs.aum_resumen_fci"
+]
+},
+{
+"id": "jobs.aum_backfill_historico",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/aum_backfill_historico.py",
+"summary": "aum_backfill_historico.py — backfill de cierres de mes (jul-2025 → feb-2026).",
+"links": [
+"core.mongo",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM",
+"jobs.aum"
+]
+},
+{
+"id": "jobs.aum_resumen_fci",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/aum_resumen_fci.py",
+"summary": "aum_resumen_fci.py — pre-materializa Valuaciones.AuMResumenFCI.",
+"links": [
+"core.mongo",
+"db.Valuaciones.Assets",
+"db.Valuaciones.AuM",
+"db.Valuaciones.AuMResumenFCI"
+]
+},
+{
+"id": "jobs.aunesa_client",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/aunesa_client.py",
+"summary": "",
+"links": [
+"config"
+]
+},
+{
+"id": "jobs.backfill_breakevens",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/backfill_breakevens.py",
+"summary": "Backfill histórico de Trading.BreakevensHistorico.",
+"links": [
+"core.mongo",
+"db.Trading.BreakevensHistorico",
+"db.Trading.CER",
+"db.Trading.TimeSales",
+"engines.breakevens"
+]
+},
+{
+"id": "jobs.backfill_forwards",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/backfill_forwards.py",
+"summary": "Backfill histórico de Trading.ForwardsHistorico.",
+"links": [
+"core.mongo",
+"db.Trading.ForwardsHistorico",
+"db.Trading.TimeSales",
+"engines._curvas_loader",
+"engines.forwards"
+]
+},
+{
+"id": "jobs.bcra",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/bcra.py",
+"summary": "",
+"links": [
+"core.mongo",
+"db.Trading.DOLAR"
+]
+},
+{
+"id": "jobs.cashflow",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/cashflow.py",
+"summary": "",
+"links": [
+"config",
+"core.mongo",
+"db.CashFlow.Movimientos"
+]
+},
+{
+"id": "jobs.cierre_canje",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/cierre_canje.py",
+"summary": "cierre_canje.py — materializa el cierre diario de los tickers de canje.",
+"links": [
+"config",
+"core.mongo",
+"db.Trading.CanjeCierre",
+"db.Trading.TimeSales"
+]
+},
+{
+"id": "jobs.cleanup_curvas",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/cleanup_curvas.py",
+"summary": "Limpieza de instrumentos vencidos en Trading.Curvas.",
+"links": [
+"core.mongo",
+"db.Trading.Curvas"
+]
+},
+{
+"id": "jobs.cleanup_futuros_dlr",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/cleanup_futuros_dlr.py",
+"summary": "Limpieza de contratos DLR vencidos en Trading.FuturosDLRSnapshot.",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "jobs.comercial_rollup",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/comercial_rollup.py",
+"summary": "jobs/comercial_rollup.py — precompute Clientes.ComercialCache (rollup comercial).",
+"links": [
+"api.services._negocio_futuros",
+"api.services.comercial",
+"core.job_runs",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones",
+"db.Clientes.ComercialCache"
+]
+},
+{
+"id": "jobs.comercial_warm",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/comercial_warm.py",
+"summary": "jobs/comercial_warm.py — precalienta la cache in-process de la vista COMERCIAL.",
+"links": [
+"config"
+]
+},
+{
+"id": "jobs.consolidado_cuentas",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/consolidado_cuentas.py",
+"summary": "consolidado_cuentas.py — precalcula la valuación consolidada por cuenta.",
+"links": [
+"api.services.valuaciones",
+"core.mongo",
+"db.Valuaciones.ConsolidadoCuentas"
+]
+},
+{
+"id": "jobs.descubrir_cuentas",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/descubrir_cuentas.py",
+"summary": "Descubre cuentas autorizadas para el user master del broker.",
+"links": [
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "jobs.dias_habiles",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/dias_habiles.py",
+"summary": "data_diashabiles.py — Carga días hábiles del calendario argentino a Trading.DiasHabiles.",
+"links": [
+"core.mongo",
+"db.Trading.DiasHabiles"
+]
+},
+{
+"id": "jobs.economic_calendar",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/economic_calendar.py",
+"summary": "economic_calendar.py — ingesta diaria del calendario económico global.",
+"links": [
+"core.finnhub",
+"core.mongo"
+]
+},
+{
+"id": "jobs.fair_value",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/fair_value.py",
+"summary": "fair_value.py — fit cuadrático + residuos + z-scores diarios.",
+"links": [
+"core.mongo",
+"db.Trading.FairValueResiduos",
+"db.Trading.FitParams",
+"db.Trading.SnapshotsCierre",
+"quant.curve_fit"
+]
+},
+{
+"id": "jobs.fci_bilateral",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/fci_bilateral.py",
+"summary": "jobs/fci_bilateral.py — lleva el FCI bilateral de CashFlow.NegocioMovimientos a",
+"links": [
+"api.services",
+"api.services.operaciones_informes",
+"core.job_runs",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones",
+"db.Valuaciones.Assets"
+]
+},
+{
+"id": "jobs.flujo_contrapartes",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/flujo_contrapartes.py",
+"summary": "",
+"links": [
+"config",
+"core.mongo",
+"db.CashFlow.Contrapartes",
+"db.CashFlow.Flujo"
+]
+},
+{
+"id": "jobs.forwards_zscore",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/forwards_zscore.py",
+"summary": "forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.",
+"links": [
+"core.mongo",
+"db.Trading.ForwardsHistorico",
+"db.Trading.ForwardsZscore"
+]
+},
+{
+"id": "jobs.market_anchors",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/market_anchors.py",
+"summary": "market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).",
+"links": [
+"core.mongo",
+"core.yahoo",
+"jobs.market_quotes"
+]
+},
+{
+"id": "jobs.market_quotes",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/market_quotes.py",
+"summary": "market_quotes.py — cotizaciones equity + forex para watchlists.",
+"links": [
+"core.finnhub",
+"core.mongo",
+"core.yahoo"
+]
+},
+{
+"id": "jobs.negocio_movimientos",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/negocio_movimientos.py",
+"summary": "negocio_movimientos.py — pega a Aunesa, consolida y persiste boletos",
+"links": [
+"api.services",
+"api.services._mep",
+"api.services.aunesa_negocio",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos"
+]
+},
+{
+"id": "jobs.news_finnhub",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/news_finnhub.py",
+"summary": "news_finnhub.py — ingesta de noticias desde Finnhub.",
+"links": [
+"core.finnhub",
+"core.mongo"
+]
+},
+{
+"id": "jobs.news_ingesta",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/news_ingesta.py",
+"summary": "news_ingesta.py — Ingesta de RSS de medios económicos argentinos.",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "jobs.operaciones_informes",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/operaciones_informes.py",
+"summary": "operaciones_informes.py — ingesta de operaciones desde Aunesa /informes a",
+"links": [
+"api.services",
+"api.services.aunesa_informes",
+"api.services.operaciones_informes",
+"core",
+"core.aunesa",
+"core.job_runs",
+"core.mongo",
+"db.CashFlow.Operaciones",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "jobs.ops_rollup",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/ops_rollup.py",
+"summary": "jobs/ops_rollup.py — precompute CashFlow.OpsSerieDiaria (rollup de las series).",
+"links": [
+"core.job_runs",
+"core.mongo",
+"db.CashFlow.Operaciones"
+]
+},
+{
+"id": "jobs.options_rollup",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/options_rollup.py",
+"summary": "options_rollup.py — rollup diario de Opciones.Data → Opciones.DataHistorica.",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "jobs.partner_export",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/partner_export.py",
+"summary": "partner_export.py — exporta posiciones de cuentas puntuales a ACAPortfolio.Cartera.",
+"links": [
+"config",
+"core.mongo",
+"db.ACAPortfolio.Cartera"
+]
+},
+{
+"id": "jobs.pnl_totales_precompute",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/pnl_totales_precompute.py",
+"summary": "pnl_totales_precompute.py — precalcula el PnL de TODAS las cuentas.",
+"links": [
+"api.services.pnl",
+"core.mongo",
+"db.Valuaciones.PnLTotalesCache"
+]
+},
+{
+"id": "jobs.precios_acciones_daily",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/precios_acciones_daily.py",
+"summary": "precios_acciones_daily.py — agrega 1 vela daily por activo a",
+"links": [
+"core.mongo",
+"core.yahoo",
+"db.Trading.PreciosAcciones"
+]
+},
+{
+"id": "jobs.segmentar_patrimonial",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/segmentar_patrimonial.py",
+"summary": "segmentar_patrimonial.py — re-clasifica `nivel_3` de todas las Comitentes activas.",
+"links": [
+"api.services.macro",
+"api.services.segmentacion",
+"core.mongo",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "jobs.segmento_contrapartes",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/segmento_contrapartes.py",
+"summary": "set_segmento_contrapartes.py",
+"links": [
+"core.mongo",
+"db.CashFlow.Contrapartes"
+]
+},
+{
+"id": "jobs.snapshot_cierre",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/snapshot_cierre.py",
+"summary": "snapshot_cierre.py — materializa el cierre diario por bono en Trading.SnapshotsCierre.",
+"links": [
+"core.mongo",
+"db.Trading.Curvas",
+"db.Trading.MarketSnapshot",
+"db.Trading.SnapshotsCierre"
+]
+},
+{
+"id": "jobs.sync_api_copies",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/sync_api_copies.py",
+"summary": "sync_api_copies.py — re-sincroniza colecciones API derivadas.",
+"links": []
+},
+{
+"id": "jobs.sync_comitentes",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/sync_comitentes.py",
+"summary": "Sync de cuentas comitentes desde Aunesa → master `Clientes.Comitentes`.",
+"links": [
+"config",
+"core.job_runs",
+"core.mongo",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "jobs.volatilidad_ggal",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/volatilidad_ggal.py",
+"summary": "",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "jobs.watchdog",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/watchdog.py",
+"summary": "jobs/watchdog.py — \"el agente que evalúa solo\": detecta jobs colgados y alerta.",
+"links": [
+"core",
+"core.atlas_api",
+"core.mongo",
+"core.notify",
+"db.Manager.WatchdogAlertas"
+]
+},
+{
+"id": "partner_api",
+"type": "module",
+"layer": "partner_api",
+"repo": "backend",
+"path": "partner_api/__init__.py",
+"summary": "partner_api — API externa de datos de portfolio para un proveedor.",
+"links": []
+},
+{
+"id": "partner_api.auth",
+"type": "module",
+"layer": "partner_api",
+"repo": "backend",
+"path": "partner_api/auth.py",
+"summary": "Auth del partner_api — login usuario/password → JWT, y el guard de los",
+"links": [
+"partner_api.db",
+"partner_api.ratelimit",
+"partner_api.security"
+]
+},
+{
+"id": "partner_api.db",
+"type": "module",
+"layer": "partner_api",
+"repo": "backend",
+"path": "partner_api/db.py",
+"summary": "Conexión Mongo del partner_api — singleton read-only a la base `ACAPortfolio`.",
+"links": [
+"partner_api.settings"
+]
+},
+{
+"id": "partner_api.main",
+"type": "module",
+"layer": "partner_api",
+"repo": "backend",
+"path": "partner_api/main.py",
+"summary": "partner_api — app FastAPI del servicio externo de datos para el proveedor.",
+"links": [
+"partner_api",
+"partner_api.auth",
+"partner_api.ratelimit",
+"partner_api.routes",
+"partner_api.security",
+"partner_api.settings"
+]
+},
+{
+"id": "partner_api.ratelimit",
+"type": "module",
+"layer": "partner_api",
+"repo": "backend",
+"path": "partner_api/ratelimit.py",
+"summary": "Rate limiter del partner_api — slowapi, keyeado por IP del cliente.",
+"links": []
+},
+{
+"id": "partner_api.routes",
+"type": "module",
+"layer": "partner_api",
+"repo": "backend",
+"path": "partner_api/routes.py",
+"summary": "Endpoints de datos del partner_api — SOLO lectura de ACAPortfolio.Cartera.",
+"links": [
+"db.ACAPortfolio.Cartera",
+"partner_api.auth",
+"partner_api.db",
+"partner_api.ratelimit"
+]
+},
+{
+"id": "partner_api.security",
+"type": "module",
+"layer": "partner_api",
+"repo": "backend",
+"path": "partner_api/security.py",
+"summary": "Hashing de passwords + emisión/validación de JWT para partner_api.",
+"links": [
+"partner_api.settings"
+]
+},
+{
+"id": "partner_api.settings",
+"type": "module",
+"layer": "partner_api",
+"repo": "backend",
+"path": "partner_api/settings.py",
+"summary": "Configuración del servicio partner_api — lee su propio set de env vars.",
+"links": []
+},
+{
+"id": "quant",
+"type": "module",
+"layer": "quant",
+"repo": "backend",
+"path": "quant/__init__.py",
+"summary": "",
+"links": []
+},
+{
+"id": "quant.black_scholes",
+"type": "module",
+"layer": "quant",
+"repo": "backend",
+"path": "quant/black_scholes.py",
+"summary": "",
+"links": [
+"core.mongo"
+]
+},
+{
+"id": "quant.curve_fit",
+"type": "module",
+"layer": "quant",
+"repo": "backend",
+"path": "quant/curve_fit.py",
+"summary": "curve_fit.py — Ajuste de curva por mínimos cuadrados.",
+"links": []
+},
+{
+"id": "quant.pivot_points",
+"type": "module",
+"layer": "quant",
+"repo": "backend",
+"path": "quant/pivot_points.py",
+"summary": "pivot_points.py — Floor Trader Pivot Points sobre Trading.PreciosAcciones.",
+"links": [
+"core.mongo",
+"db.Trading.PreciosAcciones"
+]
+},
+{
+"id": "quant.rolling_stats",
+"type": "module",
+"layer": "quant",
+"repo": "backend",
+"path": "quant/rolling_stats.py",
+"summary": "rolling_stats.py — beta / alpha / correlación / vol realizada",
+"links": []
+},
+{
+"id": "quant.stats",
+"type": "module",
+"layer": "quant",
+"repo": "backend",
+"path": "quant/stats.py",
+"summary": "Helpers estadísticos sobre series numéricas.",
+"links": []
+},
+{
+"id": "quant.xirr",
+"type": "module",
+"layer": "quant",
+"repo": "backend",
+"path": "quant/xirr.py",
+"summary": "xirr.py — TIR.NO.PER de Excel (XIRR / IRR para flujos en fechas",
+"links": []
+},
+{
+"id": "svc.api",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/api.service",
+"summary": "Servicio systemd.",
+"links": []
+},
+{
+"id": "svc.motor_agro",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_agro.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.motor_agro"
+]
+},
+{
+"id": "svc.motor_agro_opciones",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_agro_opciones.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.motor_agro_opciones"
+]
+},
+{
+"id": "svc.motor_breakevens",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_breakevens.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.breakevens"
+]
+},
+{
+"id": "svc.motor_caucion",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_caucion.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.caucion"
+]
+},
+{
+"id": "svc.motor_cedears",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_cedears.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.motor_cedears"
+]
+},
+{
+"id": "svc.motor_curvas",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_curvas.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.curvas"
+]
+},
+{
+"id": "svc.motor_dolares",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_dolares.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.dolares"
+]
+},
+{
+"id": "svc.motor_forwards",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_forwards.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.forwards"
+]
+},
+{
+"id": "svc.motor_futuros_dlr",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_futuros_dlr.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.futuros_dlr"
+]
+},
+{
+"id": "svc.motor_options",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_options.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.options"
+]
+},
+{
+"id": "svc.motor_ordenes",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_ordenes.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.motor_ordenes"
+]
+},
+{
+"id": "svc.motor_portfolio_snapshot",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_portfolio_snapshot.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.portfolio_snapshot"
+]
+},
+{
+"id": "svc.motor_rofex",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/motor_rofex.service",
+"summary": "Servicio systemd.",
+"links": [
+"engines.valores"
+]
+},
+{
+"id": "svc.partner_api",
+"type": "service",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/systemd/partner_api.service",
+"summary": "Servicio systemd.",
+"links": []
+},
+{
+"id": "web.api.api.analitica.[...path]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/analitica/[...path]/route.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.api.api.argy",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/argy/route.ts",
+"summary": "",
+"links": [
+"api.routers.cotizaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.aum-diff",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/aum-diff/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.aum-fci.serie",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/aum-fci/serie/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.aum-fci.snapshot",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/aum-fci/snapshot/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.aum-pnl",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/aum-pnl/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.aum-pnl-todas",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/aum-pnl-todas/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.aum-total.serie",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/aum-total/serie/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.aum-total.snapshot",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/aum-total/snapshot/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.back-office.titulos-mercado",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/back-office/titulos-mercado/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.cashflow",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/cashflow/route.ts",
+"summary": "",
+"links": [
+"api.routers.cuentas",
+"api.routers.operaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.caucion",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/caucion/route.ts",
+"summary": "",
+"links": [
+"api.routers.cotizaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.comparar",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/comparar/route.ts",
+"summary": "",
+"links": [
+"api.routers.analitica",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.comparar.bonos",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/comparar/bonos/route.ts",
+"summary": "",
+"links": [
+"api.routers.analitica",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.contrapartes",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/contrapartes/route.ts",
+"summary": "",
+"links": [
+"api.routers.cuentas",
+"api.routers.operaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.cotizaciones.[...path]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/cotizaciones/[...path]/route.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.api.api.derivados-agro",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/derivados-agro/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.derivados-agro.camara",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/derivados-agro/camara/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.derivados-agro.camara.[cereal]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/derivados-agro/camara/[cereal]/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.derivados-agro.estrategia.simular",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/derivados-agro/estrategia/simular/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.derivados-agro.mejoras-dispo",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/derivados-agro/mejoras-dispo/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.derivados-agro.opciones.[commodity]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/derivados-agro/opciones/[commodity]/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.derivados-agro.pizarra.[commodity]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/derivados-agro/pizarra/[commodity]/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.derivados-sinteticos",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/derivados-sinteticos/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.dolares-historico",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/dolares-historico/route.ts",
+"summary": "",
+"links": [
+"api.routers.cotizaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.flujo-vs-aum",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/flujo-vs-aum/route.ts",
+"summary": "",
+"links": [
+"api.routers.operaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.futuros-dlr",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/futuros-dlr/route.ts",
+"summary": "",
+"links": [
+"api.routers.cotizaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.historico-curva",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/historico-curva/route.ts",
+"summary": "",
+"links": [
+"api.routers.cotizaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.manager.[...path]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/manager/[...path]/route.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.api.api.market.calendar",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/market/calendar/route.ts",
+"summary": "",
+"links": [
+"api.routers.market",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.market.quotes",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/market/quotes/route.ts",
+"summary": "",
+"links": [
+"api.routers.market",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.me",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/me/route.ts",
+"summary": "",
+"links": [
+"web.lib.cf-access"
+]
+},
+{
+"id": "web.api.api.mep",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/mep/route.ts",
+"summary": "",
+"links": [
+"api.routers.cotizaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.news",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/news/route.ts",
+"summary": "",
+"links": [
+"api.routers.news",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.news.article",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/news/article/route.ts",
+"summary": "",
+"links": [
+"api.routers.news",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.opciones-meta",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/opciones-meta/route.ts",
+"summary": "",
+"links": [
+"api.routers.cotizaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.operaciones.[[...path]]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/operaciones/[[...path]]/route.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.api.api.operar.[[...path]]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/operar/[[...path]]/route.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.api.api.operativa.[[...path]]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/operativa/[[...path]]/route.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.api.api.ordenes.[[...path]]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/ordenes/[[...path]]/route.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.api.api.portfolio-cuentas",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/portfolio-cuentas/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.portfolio.cer",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/portfolio/cer/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.portfolio.operadores",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/portfolio/operadores/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.portfolio.tasa-fija",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/portfolio/tasa-fija/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.risk.[[...path]]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/risk/[[...path]]/route.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.api.api.scanner.[...path]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/scanner/[...path]/route.ts",
+"summary": "",
+"links": [
+"api.routers.scanner",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.trades",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/trades/route.ts",
+"summary": "",
+"links": [
+"api.routers.cotizaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.valuaciones.[id_cuenta].mensual",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/valuaciones/[id_cuenta]/mensual/route.ts",
+"summary": "",
+"links": [
+"api.routers.valuaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.valuaciones.[id_cuenta].movimientos",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/valuaciones/[id_cuenta]/movimientos/route.ts",
+"summary": "",
+"links": [
+"api.routers.valuaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.valuaciones.[id_cuenta].posiciones",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/valuaciones/[id_cuenta]/posiciones/route.ts",
+"summary": "",
+"links": [
+"api.routers.valuaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.valuaciones.[id_cuenta].posiciones-actuales",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/valuaciones/[id_cuenta]/posiciones-actuales/route.ts",
+"summary": "",
+"links": [
+"api.routers.valuaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.valuaciones.[id_cuenta].serie",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/valuaciones/[id_cuenta]/serie/route.ts",
+"summary": "",
+"links": [
+"api.routers.valuaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.valuaciones.[id_cuenta].variacion",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/valuaciones/[id_cuenta]/variacion/route.ts",
+"summary": "",
+"links": [
+"api.routers.valuaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.valuaciones.consolidado",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/valuaciones/consolidado/route.ts",
+"summary": "",
+"links": [
+"api.routers.valuaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.cmp.account-picker",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/account-picker.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.agro-datos",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/agro-datos.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.agro-mejoras-dispo",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/agro-mejoras-dispo.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.agro-shell",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/agro-shell.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.agro-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/agro-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.aranceles-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/aranceles-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.aum-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/aum-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.aunesa-aum-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/aunesa-aum-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.aunesa-boletos-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/aunesa-boletos-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.aunesa-explorar-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/aunesa-explorar-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.aunesa-posicion-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/aunesa-posicion-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.auto-refresh",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/auto-refresh.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.back-office-shell",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/back-office-shell.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.breakeven-chart",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/breakeven-chart.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.breakevens-block",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/breakevens-block.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.canje-tab",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/canje-tab.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.cashflow-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/cashflow-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.cedears-scanner-table",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/cedears-scanner-table.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.comercial-informe-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/comercial-informe-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.comercial-operaciones-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/comercial-operaciones-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.comercial-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/comercial-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.comparar-inversion-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/comparar-inversion-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.contrapartes-shell",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/contrapartes-shell.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.contrapartes-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/contrapartes-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.costo-historico-chart",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/costo-historico-chart.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.curvas-chart",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/curvas-chart.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.date-picker",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/date-picker.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.derivados-agro-estrategias",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/derivados-agro-estrategias.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.derivados-agro-futuros",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/derivados-agro-futuros.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.derivados-agro-opciones",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/derivados-agro-opciones.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.derivados-agro-pizarra",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/derivados-agro-pizarra.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.derivados-agro-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/derivados-agro-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.derivados-operar",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/derivados-operar.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.derivados-shell",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/derivados-shell.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.derivados-sinteticos-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/derivados-sinteticos-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.derivados-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/derivados-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.descomposicion-tab",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/descomposicion-tab.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.dolar-mep-board",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/dolar-mep-board.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.dolar-mep-compra-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/dolar-mep-compra-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.dolar-mep-detalle-drawer",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/dolar-mep-detalle-drawer.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.dolar-mep-shared",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/dolar-mep-shared.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.dolar-mep-shell",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/dolar-mep-shell.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.dolar-mep-timesales-chart",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/dolar-mep-timesales-chart.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.dolar-mep-venta-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/dolar-mep-venta-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.download-button",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/download-button.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.dual-range",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/dual-range.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.escenarios-tabla",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/escenarios-tabla.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.estrategia-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/estrategia-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.estrategias-tabla",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/estrategias-tabla.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.fair-value-modal",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/fair-value-modal.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.fair-value-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/fair-value-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.flujo-vs-aum-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/flujo-vs-aum-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.forward-matrix",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/forward-matrix.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.forward-matrix-zscore",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/forward-matrix-zscore.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.forwards-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/forwards-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.futuros-dlr-curve-chart",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/futuros-dlr-curve-chart.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.griegas-historico-chart",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/griegas-historico-chart.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.grupos-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/grupos-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.header",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/header.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.help-tooltip",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/help-tooltip.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.home-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/home-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.info-icon",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/info-icon.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.intraday-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/intraday-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.jobs-runs-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/jobs-runs-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.libro-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/libro-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.logs-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/logs-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.manager-debug-comercial",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/manager-debug-comercial.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.manager-debug-segmento",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/manager-debug-segmento.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.manager-debug-xirr",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/manager-debug-xirr.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.manager-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/manager-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.monitor-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/monitor-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.news-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/news-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.news-reader",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/news-reader.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.opcion-historico-chart",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/opcion-historico-chart.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.opciones-table-compact",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/opciones-table-compact.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.operaciones-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/operaciones-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.operadores-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/operadores-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.operar-dashboard-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/operar-dashboard-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.operar-fci-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/operar-fci-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.operar-shell",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/operar-shell.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.ops-bar-chart",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/ops-bar-chart.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.ops-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/ops-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.pause-banner",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/pause-banner.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.payoff-chart",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/payoff-chart.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.pivot-points-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/pivot-points-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.pnl-titulos-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/pnl-titulos-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.pnl-totales-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/pnl-totales-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.por-cuenta-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/por-cuenta-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.post-trade-lab",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/post-trade-lab.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.recursos-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/recursos-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.renta-fija-live",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/renta-fija-live.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.renta-fija-table",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/renta-fija-table.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.renta-variable-shell",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/renta-variable-shell.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.retorno-total-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/retorno-total-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.roles-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/roles-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.scanner-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/scanner-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.sensibilidad-table",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/sensibilidad-table.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.theme-toggle",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/theme-toggle.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.ticker-chart-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/ticker-chart-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.titulos-mercado-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/titulos-mercado-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.tradingview-chart",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/tradingview-chart.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.ui",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/ui.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.usuarios-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/usuarios-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.valuaciones-shell",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/valuaciones-shell.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.valuaciones-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/valuaciones-view.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.watchlist-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/watchlist-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.api",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/api.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.cf-access",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/cf-access.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.estrategias",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/estrategias.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.fmt-money",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/fmt-money.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.me",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/me.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.proxy-backend",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/proxy-backend.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.types",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/types.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.types-scanner",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/types-scanner.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.use-persisted-state",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/use-persisted-state.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.use-poll",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/use-poll.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.use-viewport-key",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/use-viewport-key.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.xlsx-export",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/xlsx-export.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.view.(home).layout",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/layout.tsx",
+"summary": "",
+"links": [
+"web.cmp.header",
+"web.cmp.pause-banner",
+"web.cmp.theme-toggle",
+"web.lib.me"
+]
+},
+{
+"id": "web.view.(home).view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.home-view"
+]
+},
+{
+"id": "web.view.agro.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/agro/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.agro-shell",
+"web.lib.api"
+]
+},
+{
+"id": "web.view.aum.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/aum/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.aum-view"
+]
+},
+{
+"id": "web.view.back-office.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/back-office/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.back-office-shell"
+]
+},
+{
+"id": "web.view.contrapartes.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/contrapartes/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.contrapartes-shell"
+]
+},
+{
+"id": "web.view.derivados.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/derivados/page.tsx",
+"summary": "",
+"links": [
+"api.routers.cotizaciones",
+"web.cmp.derivados-shell",
+"web.lib.api",
+"web.lib.estrategias",
+"web.lib.me"
+]
+},
+{
+"id": "web.view.manager.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/manager/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.manager-view",
+"web.lib.me"
+]
+},
+{
+"id": "web.view.operaciones.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/operaciones/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.operaciones-view"
+]
+},
+{
+"id": "web.view.operadores.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/operadores/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.operadores-view"
+]
+},
+{
+"id": "web.view.operar.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/operar/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.operar-shell"
+]
+},
+{
+"id": "web.view.renta-fija.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/renta-fija/page.tsx",
+"summary": "",
+"links": [
+"api.routers.cotizaciones",
+"api.routers.titulos",
+"web.cmp.renta-fija-live",
+"web.lib.api",
+"web.lib.types"
+]
+},
+{
+"id": "web.view.renta-variable.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/renta-variable/page.tsx",
+"summary": "",
+"links": [
+"api.routers.scanner",
+"web.cmp.renta-variable-shell",
+"web.lib.api",
+"web.lib.types-scanner"
+]
+},
+{
+"id": "web.view.retorno.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/retorno/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.retorno-total-view"
+]
+},
+{
+"id": "web.view.sinteticos.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/sinteticos/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.derivados-sinteticos-view"
+]
+},
+{
+"id": "web.view.valuaciones.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/valuaciones/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.valuaciones-shell"
+]
+}
+]

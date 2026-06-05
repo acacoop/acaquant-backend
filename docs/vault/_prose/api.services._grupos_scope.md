@@ -1,0 +1,3 @@
+Cara "router" del feature de grupos: aplica en la capa HTTP el scoping de cuentas por usuario. Provee dependencies FastAPI (`scope_cuentas` inyecta el tuple de id_cuenta visibles o `None` sin restricción; `verificar_id_cuenta`/`verificar_account` tiran 403 si la cuenta queda fuera) y helpers para filtrar listas ya materializadas. `None` = sin restricción (admin); tuple vacío = no ve nada.
+
+Conecta con: resuelve las cuentas con `core.grupos.cuentas_visibles` (lee la config de grupos en Mongo); lo importan los routers de ordenes, operar, risk, valuaciones, operaciones; los services reciben el scope como parámetro hashable (cache key).

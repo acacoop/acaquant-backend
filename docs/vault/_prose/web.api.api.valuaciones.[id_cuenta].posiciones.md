@@ -1,0 +1,2 @@
+Route handler que proxea las posiciones de una cuenta (valuadas a precio de mercado, con ?hasta opcional) a /api/valuaciones/{id_cuenta}/posiciones. Live (lee MarketSnapshot), force-dynamic + no-store.
+- Conecta con: backend /api/valuaciones/{id}/posiciones (api.routers.valuaciones); usado por la tabla de tenencia de la vista de valuaciones.

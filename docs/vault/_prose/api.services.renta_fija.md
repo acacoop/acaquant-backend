@@ -1,0 +1,3 @@
+Capa de servicio de renta fija: snapshot de libro/trades, histórico de trades por ticker, serie diaria por curva, y el tool maestro `listar_curva` que enriquece cada bono con TEA/TEM/paridad/duration/convexity. Define los helpers compartidos de tickers/curvas (`resolver_ticker_exacto`, `_ticker_filter`, `_CURVAS_VALIDAS`) que el resto de services importa. Resuelve ticker corto→completo vía índice para evitar table-scans.
+
+Conecta con: lee `Trading.MarketSnapshot`, `Trading.TimeSales` y `Trading.Curvas`. Lo invocan los routers de cotizaciones/renta fija, varias tools MCP y otros services (opciones, sensibilidad) que reusan sus helpers.

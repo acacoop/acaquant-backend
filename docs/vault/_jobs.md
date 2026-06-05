@@ -1,0 +1,51 @@
+# ⏱️ jobs — batch / cron
+
+47 notas.
+
+- [[jobs]]
+- [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
+- [[jobs.actividad_mensual]] — actividad_mensual.py — snapshot mensual de CUENTAS ACTIVAS.
+- [[jobs.adr_live]] — adr_live.py — pull live USD prices del subyacente de cada CEDEAR.
+- [[jobs.aranceles]] — Job de aranceles — pega a Aunesa /informes y completa los boletos sin arancel.
+- [[jobs.archive_options_data]] — archive_options_data.py — backup + purga de Opciones.Data.
+- [[jobs.argentina_datos]] — Cron: pega argentinadatos.com y persiste riesgo país / IPC / REM en Mongo.
+- [[jobs.aum]]
+- [[jobs.aum_backfill]] — aum_backfill.py — Corre el snapshot de AuM para una fecha pasada.
+- [[jobs.aum_backfill_historico]] — aum_backfill_historico.py — backfill de cierres de mes (jul-2025 → feb-2026).
+- [[jobs.aum_resumen_fci]] — aum_resumen_fci.py — pre-materializa Valuaciones.AuMResumenFCI.
+- [[jobs.aunesa_client]]
+- [[jobs.backfill_breakevens]] — Backfill histórico de Trading.BreakevensHistorico.
+- [[jobs.backfill_forwards]] — Backfill histórico de Trading.ForwardsHistorico.
+- [[jobs.bcra]]
+- [[jobs.cashflow]]
+- [[jobs.cierre_canje]] — cierre_canje.py — materializa el cierre diario de los tickers de canje.
+- [[jobs.cleanup_curvas]] — Limpieza de instrumentos vencidos en Trading.Curvas.
+- [[jobs.cleanup_futuros_dlr]] — Limpieza de contratos DLR vencidos en Trading.FuturosDLRSnapshot.
+- [[jobs.comercial_rollup]] — jobs/comercial_rollup.py — precompute Clientes.ComercialCache (rollup comercial).
+- [[jobs.comercial_warm]] — jobs/comercial_warm.py — precalienta la cache in-process de la vista COMERCIAL.
+- [[jobs.consolidado_cuentas]] — consolidado_cuentas.py — precalcula la valuación consolidada por cuenta.
+- [[jobs.descubrir_cuentas]] — Descubre cuentas autorizadas para el user master del broker.
+- [[jobs.dias_habiles]] — data_diashabiles.py — Carga días hábiles del calendario argentino a Trading.DiasHabiles.
+- [[jobs.economic_calendar]] — economic_calendar.py — ingesta diaria del calendario económico global.
+- [[jobs.fair_value]] — fair_value.py — fit cuadrático + residuos + z-scores diarios.
+- [[jobs.fci_bilateral]] — jobs/fci_bilateral.py — lleva el FCI bilateral de CashFlow.NegocioMovimientos a
+- [[jobs.flujo_contrapartes]]
+- [[jobs.forwards_zscore]] — forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.
+- [[jobs.market_anchors]] — market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).
+- [[jobs.market_quotes]] — market_quotes.py — cotizaciones equity + forex para watchlists.
+- [[jobs.negocio_movimientos]] — negocio_movimientos.py — pega a Aunesa, consolida y persiste boletos
+- [[jobs.news_finnhub]] — news_finnhub.py — ingesta de noticias desde Finnhub.
+- [[jobs.news_ingesta]] — news_ingesta.py — Ingesta de RSS de medios económicos argentinos.
+- [[jobs.operaciones_informes]] — operaciones_informes.py — ingesta de operaciones desde Aunesa /informes a
+- [[jobs.ops_rollup]] — jobs/ops_rollup.py — precompute CashFlow.OpsSerieDiaria (rollup de las series).
+- [[jobs.options_rollup]] — options_rollup.py — rollup diario de Opciones.Data → Opciones.DataHistorica.
+- [[jobs.partner_export]] — partner_export.py — exporta posiciones de cuentas puntuales a ACAPortfolio.Cartera.
+- [[jobs.pnl_totales_precompute]] — pnl_totales_precompute.py — precalcula el PnL de TODAS las cuentas.
+- [[jobs.precios_acciones_daily]] — precios_acciones_daily.py — agrega 1 vela daily por activo a
+- [[jobs.segmentar_patrimonial]] — segmentar_patrimonial.py — re-clasifica `nivel_3` de todas las Comitentes activas.
+- [[jobs.segmento_contrapartes]] — set_segmento_contrapartes.py
+- [[jobs.snapshot_cierre]] — snapshot_cierre.py — materializa el cierre diario por bono en Trading.SnapshotsCierre.
+- [[jobs.sync_api_copies]] — sync_api_copies.py — re-sincroniza colecciones API derivadas.
+- [[jobs.sync_comitentes]] — Sync de cuentas comitentes desde Aunesa → master `Clientes.Comitentes`.
+- [[jobs.volatilidad_ggal]]
+- [[jobs.watchdog]] — jobs/watchdog.py — "el agente que evalúa solo": detecta jobs colgados y alerta.

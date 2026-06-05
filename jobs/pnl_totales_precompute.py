@@ -18,28 +18,30 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from api.services.pnl import pnl_todas_cuentas_compute
+from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client, reemplazar_coleccion_atomico
 
 
 def main() -> None:
-    print("pnl_totales_precompute — calculando PnL de todas las cuentas…",
-          flush=True)
-    cuentas = pnl_todas_cuentas_compute()
-    ahora = datetime.now(UTC)
-    for d in cuentas:
-        d["computed_at"] = ahora
+    with JobRunLogger("pnl_totales_precompute") as jr:
+        jr.log("calculando PnL de todas las cuentas…")
+        cuentas = pnl_todas_cuentas_compute()
+        ahora = datetime.now(UTC)
+        for d in cuentas:
+            d["computed_at"] = ahora
 
-    # Swap atómico (sin ventana de vacío): /pnl-todas lee find({}) → si borráramos
-    # y reinsertáramos, un request en el medio vería cero. Ver core.mongo.
-    db_v = get_mongo_client()["Valuaciones"]
-    n = reemplazar_coleccion_atomico(db_v, "PnLTotalesCache", cuentas)
-    if n > 0:
-        n_filas = sum(len(d.get("rows", [])) for d in cuentas)
-        print(f"✅ {n} cuentas ({n_filas} filas) persistidas en "
-              f"Valuaciones.PnLTotalesCache ({ahora.isoformat()})")
-    else:
-        print("⚠ pnl_todas_cuentas_compute devolvió 0 cuentas — "
-              "la colección NO se tocó.")
+        # Swap atómico (sin ventana de vacío): /pnl-todas lee find({}) → si
+        # borráramos y reinsertáramos, un request en el medio vería cero.
+        db_v = get_mongo_client()["Valuaciones"]
+        n = reemplazar_coleccion_atomico(db_v, "PnLTotalesCache", cuentas)
+        if n > 0:
+            n_filas = sum(len(d.get("rows", [])) for d in cuentas)
+            jr.set_stat("cuentas", n)
+            jr.set_stat("filas", n_filas)
+            jr.log(f"✅ {n} cuentas ({n_filas} filas) persistidas en "
+                   f"Valuaciones.PnLTotalesCache")
+        else:
+            jr.error("pnl_todas_cuentas_compute devolvió 0 cuentas — colección NO tocada")
 
 
 if __name__ == "__main__":

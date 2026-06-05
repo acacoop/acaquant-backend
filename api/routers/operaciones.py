@@ -1221,11 +1221,21 @@ def ops_aranceles(
     cf = get_db_cashflow()
     db = cf["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10
-    arancel = {"$abs": {"$ifNull": ["$arancel", 0]}}
+    # El arancel SIEMPRE está en ARS (aunesa_aranceles guarda aranceles["ARS"]).
+    # Para mostrarlo en USD se divide por el MEP de CADA boleto (igual que el
+    # volumen) — antes se sumaba crudo en ARS y se veía ×MEP.
+    if moneda == "USD":
+        _mep = {"$ifNull": ["$mep", 0]}
+        arancel = {"$cond": [{"$gt": [_mep, 0]},
+                             {"$divide": [{"$abs": {"$ifNull": ["$arancel", 0]}}, _mep]}, 0]}
+    else:
+        arancel = {"$abs": {"$ifNull": ["$arancel", 0]}}
 
     # SERIE: rollup (sin scope) + hoy live; fallback a live si vacío o scoped.
+    # USD NO sale del rollup: OpsSerieDiaria guarda el arancel en ARS (sin MEP por
+    # boleto) → se computa live, dolarizado por boleto. ARS sí usa el rollup.
     serie: list[dict] | None = None
-    if scope is None:
+    if scope is None and moneda != "USD":
         serie = _serie_arancel_rollup(cf, moneda, segmento, plen, serie_full)
     if serie is None:
         match_s = _arancel_match(moneda, segmento=segmento)

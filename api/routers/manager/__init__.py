@@ -30,6 +30,7 @@ from api.routers.manager import (
     clientes,
     comercial,
     compliance,
+    diagnostico,
     grupos,
     jobs,
     logs,
@@ -55,6 +56,7 @@ _COMPLIANCE      = [Depends(verify_api_key), Depends(require_any_module(("manage
 
 # Tabs admin (umbrella `manager`):
 router.include_router(status.router,      dependencies=_MGR)
+router.include_router(diagnostico.router, dependencies=_MGR)
 router.include_router(checks.router,      dependencies=_MGR)
 router.include_router(jobs.router,        dependencies=_MGR)
 router.include_router(options.router,     dependencies=_MGR)

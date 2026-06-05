@@ -32,6 +32,3 @@ Conecta con: la escriben `motor_curvas` y demás motores vía `core/snapshot_wri
 - [[engines.forwards]]  ·  _module_
 - [[engines.valores]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
-- [[scripts.crear_indices]]  ·  _module_
-- [[scripts.diagnose_live_coverage]]  ·  _module_
-- [[scripts.gen_obsidian]]  ·  _module_

@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/job_runs.py
+path: core\job_runs.py
 ---
 
 # core/job_runs
 
 > Context manager para registrar runs de jobs automáticos en Manager.JobRuns.
 
-**Archivo:** `core/job_runs.py`
+**Archivo:** `core\job_runs.py`
 
 ## Qué hace
 Context manager `JobRunLogger("tipo")` para instrumentar los cron jobs: captura stdout, contadores estructurados (`set_stat`), errores non-fatal, duración y estado (ok/partial/error), y al salir persiste un doc resumen en `Manager.JobRuns` sin perder los logs de archivo. Guarda las últimas ~200 líneas de log.

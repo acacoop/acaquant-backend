@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/derivados_agro.py
+path: api\services\derivados_agro.py
 ---
 
 # api/services/derivados_agro
 
 > Service puro — Pase Agro (Trigo / Maíz / Soja Rosario).
 
-**Archivo:** `api/services/derivados_agro.py`
+**Archivo:** `api\services\derivados_agro.py`
 
 ## Qué hace
 Service puro del Pase Agro (Trigo/Maíz/Soja Rosario). Dos capas: (1) la PIZARRA replica la planilla de la mesa con filas PIZARRA (manual), DISPO y N futuros live, calculando ars, pase y TNAV compuesta (validada contra la planilla); (2) el panel de opciones + simulador de estrategias que arma la cadena calls/puts por vencimiento y simula put sintético y long put (piso, zona expuesta, precio efectivo, diferencias). Nada se persiste.
@@ -24,4 +24,3 @@ Conecta con: lee `Trading.AgroSnapshot` (futuros) y `Trading.AgroOpcionesSnapsho
 
 ## Lo usan (backlinks) ←
 - [[api.routers.derivados_agro]]  ·  _module_
-- [[scripts.perf_sweep]]  ·  _module_

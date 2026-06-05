@@ -1,3 +1,0 @@
-Seed idempotente de RBAC: da de alta el rol `asistente_comercial` en Manager.RoleMatrix con la lista canónica de core.roles.DEFAULT_MATRIX, y suma los sub-módulos nuevos (manager_comercial, manager_clientes, manager_clientes_bulk) al rol admin sin pisar lo que ya tiene. Cada cambio queda en Manager.RoleAudit con actor del script. El cache RBAC tiene TTL 60s, así que toma efecto sin restart en ≤1 minuto. Por defecto --dry-run; con --apply escribe. Uso: `python -m scripts.seed_asistente_comercial [--apply]`.
-
-Conecta con: core.roles (DEFAULT_MATRIX/MODULES, set_role_modules), Manager.RoleMatrix, Manager.RoleAudit.

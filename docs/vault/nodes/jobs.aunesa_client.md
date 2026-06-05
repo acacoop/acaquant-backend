@@ -4,12 +4,12 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/aunesa_client.py
+path: jobs\aunesa_client.py
 ---
 
 # jobs/aunesa_client
 
-**Archivo:** `jobs/aunesa_client.py`
+**Archivo:** `jobs\aunesa_client.py`
 
 ## Qué hace
 Cliente legacy de la API del custodio Aunesa: la clase `AunesaApiManager` maneja login (Bearer token con re-auth ante 401) y consulta posiciones valuadas de varias cuentas, devolviendo un DataFrame consolidado más un dict de status por cuenta (ok/empty/error/auth_failed) para que el caller sepa qué cuentas trajeron datos frescos. No escribe a Mongo: es solo la capa de acceso a Aunesa.

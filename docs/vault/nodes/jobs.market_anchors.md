@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/market_anchors.py
+path: jobs\market_anchors.py
 ---
 
 # jobs/market_anchors
 
 > market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).
 
-**Archivo:** `jobs/market_anchors.py`
+**Archivo:** `jobs\market_anchors.py`
 
 ## Qué hace
 Calcula los "anchors" de retorno (cierres de referencia a 7 días, inicio de mes, inicio de año y 1 año atrás) para cada símbolo del watchlist HOME. Fetchea ~13 meses de candle diario (Yahoo para equities/treasuries/índices, frankfurter.app para FX) y guarda el cierre más cercano a cada anchor en el mismo doc de `Market.Quotes`. Luego la API computa los retornos on-the-fly contra el last price.

@@ -1,2 +1,0 @@
-Herramienta reusable que crea de un saque todos los índices de performance de las colecciones del sistema (TimeSales, MarketSnapshot, Curvas, AuM, Assets, Flujo, Opciones, las copias *API, ActividadMensual, JobRuns con TTL, etc.). Seguro: no modifica datos, solo agrega índices; idempotente (si ya existen, no hace nada). Se corre `python -m scripts.crear_indices` típicamente al setup o tras agregar colecciones.
-Conecta con: índices sobre Trading, Valuaciones, CashFlow, Opciones, CuentasAPI, OperacionesAPI, PortfolioAPI, TitulosAPI, Manager, Clientes; core.mongo.

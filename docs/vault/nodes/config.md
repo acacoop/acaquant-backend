@@ -48,8 +48,3 @@ Conecta con: lo importa medio repo. Los motores (`engines/`) y `core/rofex_sessi
 - [[jobs.flujo_contrapartes]]  ·  _module_
 - [[jobs.partner_export]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_
-- [[scripts.backfill_cierre_canje]]  ·  _module_
-- [[scripts.diag_aunesa_consolidados]]  ·  _module_
-- [[scripts.diag_aunesa_informes]]  ·  _module_
-- [[scripts.diag_aunesa_listado_cuentas]]  ·  _module_
-- [[scripts.diag_telegram]]  ·  _module_

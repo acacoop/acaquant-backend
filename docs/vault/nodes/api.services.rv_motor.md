@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/rv_motor.py
+path: api\services\rv_motor.py
 ---
 
 # api/services/rv_motor
 
 > api/services/rv_motor.py — motor de la Mesa de Estrategia (Renta Variable).
 
-**Archivo:** `api/services/rv_motor.py`
+**Archivo:** `api\services\rv_motor.py`
 
 ## Qué hace
 Motor de la Mesa de Estrategia (Renta Variable): primera pieza del feature, calcula la matriz de correlación de retornos diarios del universo de activos USD. Es la base del hedge-finder (correlación de un activo vs el resto) y de la optimización de carteras. Trabaja sobre el precio del subyacente USD (no el CEDEAR en ARS), alineando las series por fecha sobre una ventana común. Cacheado.

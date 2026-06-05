@@ -35,9 +35,10 @@ VAULT = ROOT / "docs" / "vault"
 PROSE = VAULT / "_prose"   # prosa de IA por nodo (sobrevive a la regeneración)
 
 # Paquetes top-level del backend que cuentan como "nodos" del grafo de imports.
-# El cerebro cubre TODO lo funcional — incluido scripts/ y tests/ (nada afuera).
-BACKEND_PKGS = {"core", "engines", "jobs", "quant", "api", "partner_api", "config",
-                "scripts", "tests"}
+# El cerebro = la ARQUITECTURA VIVA del sistema, NO los one-shots ni los tests:
+# scripts/ (migraciones/diag de una sola vez) y tests/ se dejan fuera a propósito
+# para que el grafo muestre cómo conecta lo que corre en prod, sin ruido.
+BACKEND_PKGS = {"core", "engines", "jobs", "quant", "api", "partner_api", "config"}
 
 # Colecciones Mongo conocidas por DB (seed; el scanner igual auto-descubre más).
 KNOWN_COLLECTIONS: dict[str, list[str]] = {
@@ -324,6 +325,21 @@ def scan_frontend(nodes: dict[str, Node]) -> None:
             nodes[nid] = n
             _wire_frontend(f, n, comp_ids, lib_ids, nodes, is_api)
 
+    # wirear los PROPIOS componentes y libs (sus imports componente→componente,
+    # componente→lib, componente→/api). Sin esto un componente que no es usado
+    # directo por una vista pero sí por otro componente quedaba orphan. Los
+    # comp_ids/lib_ids ya están todos poblados → los imports resuelven.
+    if comps.is_dir():
+        for f in comps.rglob("*.tsx"):
+            cid = comp_ids.get(f.stem)
+            if cid:
+                _wire_frontend(f, nodes[cid], comp_ids, lib_ids, nodes, is_api=False)
+    if lib.is_dir():
+        for f in lib.rglob("*.ts"):
+            lid = lib_ids.get(f.stem)
+            if lid:
+                _wire_frontend(f, nodes[lid], comp_ids, lib_ids, nodes, is_api=False)
+
     # archivos sueltos en src/ (ej. proxy.ts) — nada queda afuera
     srcroot = WEB / "src"
     if srcroot.is_dir():
@@ -383,8 +399,6 @@ LAYER_ORDER = [
     ("api", "🌐 api — services · routers · mcp"),
     ("partner_api", "🤝 partner_api"),
     ("config", "⚙️ config"),
-    ("scripts", "🔧 scripts — one-shot · migraciones · diag"),
-    ("tests", "🧪 tests — red de seguridad"),
     ("db", "🗄️ base — colecciones Mongo"),
     ("deploy", "🚀 deploy — servicios + crons"),
     ("web-view", "🖥️ web — vistas"),
@@ -532,7 +546,33 @@ def build() -> dict[str, Node]:
     seed_collections(nodes)
     scan_deploy(nodes)
     scan_frontend(nodes)
+    _prune_orphan_front(nodes)
     return nodes
+
+
+# Sólo se podan estos tipos del front (component/lib). El backend, db, deploy,
+# view y route forman el esqueleto del cerebro aunque queden sueltos → no se tocan.
+_PRUNABLE_TYPES = {"component", "lib"}
+
+
+def _prune_orphan_front(nodes: dict[str, Node]) -> None:
+    """Elimina componentes/libs del front sin NINGUNA conexión (minimalismo).
+
+    Un component/lib que no apunta a nada existente ni es apuntado por nadie es
+    ruido flotante. Se quitan tras armar todo el grafo. No hace falta limpiar los
+    links salientes de otros nodos: el render filtra con `if t in nodes`.
+    """
+    back = _backlinks(nodes)
+    to_drop = []
+    for n in nodes.values():
+        if n.ntype not in _PRUNABLE_TYPES:
+            continue
+        fwd = [t for t in n.links if t in nodes]
+        rev = [b for b in back.get(n.id, ()) if b in nodes]
+        if not fwd and not rev:
+            to_drop.append(n.id)
+    for nid in to_drop:
+        del nodes[nid]
 
 
 def main() -> int:

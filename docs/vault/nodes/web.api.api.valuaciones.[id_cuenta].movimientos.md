@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/valuaciones/[id_cuenta]/movimientos/route.ts
+path: src\app\api\valuaciones\[id_cuenta]\movimientos\route.ts
 ---
 
 # web /api/valuaciones/[id_cuenta]/movimientos  (proxy)
 
-**Archivo:** `src/app/api/valuaciones/[id_cuenta]/movimientos/route.ts`
+**Archivo:** `src\app\api\valuaciones\[id_cuenta]\movimientos\route.ts`
 
 ## Qué hace
 Route handler que proxea los movimientos de una cuenta para una fecha dada (?fecha requerido) a /api/valuaciones/{id_cuenta}/movimientos. force-dynamic + no-store.

@@ -4,14 +4,14 @@ type: module
 layer: engines
 repo: backend
 tags: [module, engines, backend]
-path: engines/breakevens.py
+path: engines\breakevens.py
 ---
 
 # engines/breakevens
 
 > main_breakevens.py — Motor de breakevens CER/Lecap en tiempo real.
 
-**Archivo:** `engines/breakevens.py`
+**Archivo:** `engines\breakevens.py`
 
 ## Qué hace
 Motor de breakevens de inflación CER/Lecap en tiempo real. Cada 30s empareja cada bono tasa fija (Lecap/Boncap) con el bono CER de vencimiento más cercano y calcula la inflación mensual implícita que pricea el mercado entre hoy y ese vto. Cada par trae el `mes_inflacion` (IPC al que refiere, por el rezago del CER).
@@ -29,4 +29,3 @@ Conecta con: lee TEM de Lecap y paridad de CER vía `engines._curvas_loader` (`T
 - [[api.routers.manager.checks]]  ·  _module_
 - [[jobs.backfill_breakevens]]  ·  _module_
 - [[svc.motor_breakevens]]  ·  _service_
-- [[tests.unit.test_breakevens]]  ·  _module_

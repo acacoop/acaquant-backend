@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/negocio_movimientos.py
+path: jobs\negocio_movimientos.py
 ---
 
 # jobs/negocio_movimientos
 
 > negocio_movimientos.py — pega a Aunesa, consolida y persiste boletos
 
-**Archivo:** `jobs/negocio_movimientos.py`
+**Archivo:** `jobs\negocio_movimientos.py`
 
 ## Qué hace
 Pega a Aunesa (consolidados generales), parsea y categoriza las líneas raw de cada boleto del día, las agrupa por comprobante y persiste cada boleto consolidado en `CashFlow.NegocioMovimientos` (con cuenta, id_cuenta, categoría, ticker, importe, moneda, plazo, etc.). Denormaliza `id_cuenta` (extraído de "[805] NOMBRE") para que las queries comerciales usen índice en vez de regex.
@@ -29,4 +29,3 @@ Conecta con: usa `api.services.aunesa_negocio` (pega a Aunesa) y `api.services._
 
 ## Lo usan (backlinks) ←
 - [[cron.jobs.negocio_movimientos]]  ·  _cron_
-- [[tests.unit.test_comercial]]  ·  _module_

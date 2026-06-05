@@ -1,2 +1,0 @@
-Diagnóstico read-only que valida los supuestos para migrar el volumen por operador desde NegocioMovimientos a CashFlow.Operaciones. Chequea tres cosas: que el MEP sea consistente por fecha (un valor por día), el signo del campo `bruto`, y el delta de volumen viejo vs nuevo por operador pesificando USD con el mapa {fecha: mep}. No escribe nada. Se corre con `python -m scripts.diag_volumen_operadores_migracion`.
-Conecta con: lee CashFlow.NegocioMovimientos y CashFlow.Operaciones; respalda el cambio de fuente de volumen de api.services.comercial.

@@ -4,14 +4,14 @@ type: module
 layer: engines
 repo: backend
 tags: [module, engines, backend]
-path: engines/dolares.py
+path: engines\dolares.py
 ---
 
 # engines/dolares
 
 > Motor de dólares MEP/CCL/canje en tiempo real (WebSocket).
 
-**Archivo:** `engines/dolares.py`
+**Archivo:** `engines\dolares.py`
 
 ## Qué hace
 Motor live de dólar MEP/CCL/canje. Suscribe por WS los 3 tramos de AL30 (AL30 pesos, AL30D MEP, AL30C Cable) y en cada snapshot calcula MEP = AL30_offer/AL30D_bid, CCL = AL30_offer/AL30C_bid y el canje entre ambos. Es la fuente intradiaria; el histórico lo escribe el cron `engines.dolar_mep`.

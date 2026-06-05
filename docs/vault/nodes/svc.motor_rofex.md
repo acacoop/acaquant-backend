@@ -4,14 +4,14 @@ type: service
 layer: deploy
 repo: infra
 tags: [service, deploy, infra]
-path: deploy/systemd/motor_rofex.service
+path: deploy\systemd\motor_rofex.service
 ---
 
 # systemd: motor_rofex
 
 > Servicio systemd.
 
-**Archivo:** `deploy/systemd/motor_rofex.service`
+**Archivo:** `deploy\systemd\motor_rofex.service`
 
 ## Qué hace
 Servicio systemd del motor de captura ROFEX/BYMA — corre `engines.valores` (main_valores), el feed crudo de market data vía pyRofex WebSocket. Es la fuente base de precios que alimenta a todos los demás motores. Vive solo en rueda: el cron lo reinicia a 13:00 UTC y lo frena a 20:05 UTC (L-V).

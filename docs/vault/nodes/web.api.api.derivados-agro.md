@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/derivados-agro/route.ts
+path: src\app\api\derivados-agro\route.ts
 ---
 
 # web /api/derivados-agro  (proxy)
 
-**Archivo:** `src/app/api/derivados-agro/route.ts`
+**Archivo:** `src\app\api\derivados-agro\route.ts`
 
 ## Qué hace
 Proxy live de la tabla PASE AGRO (Trigo/Maíz/Soja Rosario): pega a `/api/derivados/agro` y devuelve sin cache para que el polling vea cambios en tiempo real (last_price, oficial, pizarra editada).

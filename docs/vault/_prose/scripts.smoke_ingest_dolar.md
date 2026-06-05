@@ -1,3 +1,0 @@
-Smoke test del camino de ingesta del dólar oficial: se corre DESDE LA NOTEBOOK (donde están las credenciales) para confirmar el flujo completo CF Access (service token) → endpoint → escritura en Atlas, antes de tocar el mae_forex real y antes de cerrar Atlas. Manda un doc con ticker de prueba ("SMOKE_TEST"), no el oficial, para no contaminar el dólar real (la lectura filtra UST$T/M/000 exacto e ignora éste). Lee credenciales de .env.smoke (gitignoreado) o de env vars. Uso: `python -m scripts.smoke_ingest_dolar`.
-
-Conecta con: endpoint api.routers.ingest (POST /api/ingest/dolar-oficial), Cloudflare Access, Valuaciones.DolarOficialLive; valida el camino que usa scripts.mae_forex_client.

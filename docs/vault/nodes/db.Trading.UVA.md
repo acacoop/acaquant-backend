@@ -18,4 +18,3 @@ Conecta con: la lee `jobs/segmentar_patrimonial.py`, `api/services/macro.py` y `
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.comercial]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
-- [[scripts.gen_obsidian]]  ·  _module_

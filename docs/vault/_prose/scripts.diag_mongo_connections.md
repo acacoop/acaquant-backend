@@ -1,3 +1,0 @@
-Herramienta de auditoría read-only que lista las IPs conectadas a Atlas en el momento, vía $currentOp con idleConnections (ve también las conexiones idle). Sirve para validar, antes de sacar el 0.0.0.0/0 de la whitelist de Atlas, que nada se conecte desde afuera del Droplet. Conviene correrla varias veces a lo largo de un día hábil para no perder conexiones esporádicas (un cron que corre una vez). Requiere privilegio de monitoreo. Se corre con python -m scripts.diag_mongo_connections.
-
-Conecta con: cliente Mongo RW (core.mongo.get_mongo_client) sobre admin.$currentOp. Parte del cierre de seguridad de la whitelist de Atlas.

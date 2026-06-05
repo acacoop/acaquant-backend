@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/manager/clientes.py
+path: api\routers\manager\clientes.py
 ---
 
 # api/routers/manager/clientes
 
 > Manager sub-router — edición de Clientes.Comitentes (segmentación comercial).
 
-**Archivo:** `api/routers/manager/clientes.py`
+**Archivo:** `api\routers\manager\clientes.py`
 
 ## Qué hace
 Sub-router `/api/manager/clientes` — tab CLIENTES, editor del master de clientes del Tablero Comercial (`Clientes.Comitentes`). Los campos de Aunesa son read-only; se editan solo los manuales de segmentación (nivel_1..5 en MAYÚSCULAS, riesgo, división, observaciones, operador). Soporta edición fila a fila (PATCH), carga masiva de segmentación (`/bulk`) y carga masiva de cupos de fondeo (`/bulk-fondeo`, que tras escribir re-clasifica el `nivel_3`/segmento patrimonial de las cuentas tocadas en el mismo request). Gates finos: GET/PATCH para `asistente_comercial`, los bulk solo admin.
@@ -28,3 +28,5 @@ Conecta con: lee/escribe `Clientes.Comitentes` (cupo + segmentación); para recl
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_
+- [[web.cmp.manager-debug-segmento]]  ·  _component_
+- [[web.cmp.manager-view]]  ·  _component_

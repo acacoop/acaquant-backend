@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/finnhub.py
+path: core\finnhub.py
 ---
 
 # core/finnhub
 
 > Cliente Finnhub con rate limiting interno.
 
-**Archivo:** `core/finnhub.py`
+**Archivo:** `core\finnhub.py`
 
 ## Qué hace
 Cliente del API Finnhub con rate-limit interno thread-safe (40 req/min, bajo el tope real de 60 del free tier, para no ir a 429). Expone wrappers de alto nivel para los endpoints usados: noticias generales y por empresa, quotes, velas de equity y forex, calendario económico y profile de compañía. Excepciones tipadas (FinnhubError); el caller decide reintento/log.

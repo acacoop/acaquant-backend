@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/cierre_canje.py
+path: jobs\cierre_canje.py
 ---
 
 # jobs/cierre_canje
 
 > cierre_canje.py — materializa el cierre diario de los tickers de canje.
 
-**Archivo:** `jobs/cierre_canje.py`
+**Archivo:** `jobs\cierre_canje.py`
 
 ## Qué hace
 Materializa el cierre diario de los tickers de canje (pares C/D de `config.PARES_CANJE`, ej. AL30C/AL30D, GD30C/GD30D): por cada ticker toma el último trade del día y lo guarda como cierre. Así la serie del canje se arma leyendo ~1 doc por día en vez de agregar cientos de miles de ticks de TimeSales.

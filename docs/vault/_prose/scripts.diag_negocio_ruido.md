@@ -1,3 +1,0 @@
-Diagnóstico read-only que explora CashFlow.NegocioMovimientos para identificar movimientos "ruido" (no arancelables, administrativos, USDL). Lista valores distintos con conteos por campo, la calidad del arancel en cada grupo y cruces útiles para decidir qué filtrar o borrar. Sin argumentos da el panorama completo; --top acota listas largas y --desde/--hasta restringen el rango de concertación. Se corre con python -m scripts.diag_negocio_ruido [--top N] [--desde fecha].
-
-Conecta con: CashFlow.NegocioMovimientos, cliente Mongo de solo lectura. Apoyo al diseño de los filtros de exclusión (_negocio_arancelables / _negocio_futuros).

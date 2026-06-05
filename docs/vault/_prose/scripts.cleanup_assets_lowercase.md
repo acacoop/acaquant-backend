@@ -1,2 +1,0 @@
-Limpieza one-shot que borra (via $unset) las 7 keys lowercase huérfanas de Valuaciones.Assets, sobrantes de una migración vieja lowercase → UPPERCASE. La fuente de verdad hoy son las keys en MAYÚSCULAS que escriben jobs/aum.py y el PATCH de manager/assets; las lowercase son ruido que nadie lee ni actualiza. Riesgo cero, idempotente. Se corre `python -m scripts.cleanup_assets_lowercase` (dry-run) y `--apply` para ejecutar.
-Conecta con: Valuaciones.Assets (escribe $unset), core.mongo.

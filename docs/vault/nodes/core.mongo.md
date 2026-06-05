@@ -4,12 +4,12 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/mongo.py
+path: core\mongo.py
 ---
 
 # core/mongo
 
-**Archivo:** `core/mongo.py`
+**Archivo:** `core\mongo.py`
 
 ## Qué hace
 El conector central a MongoDB Atlas. Expone dos singletons thread-safe: `get_mongo_client()` (read-write, pool 20, para motores y crons) y `get_mongo_client_read()` (read-only, `SECONDARY_PREFERRED`, pool 50, para la API). Lee `MONGO_URI`/`MONGO_URI_READ` del `.env`, comparte un único connection pool por proceso y deja que el driver reconecte solo (sin ping por llamada, que costaba ~180ms). Incluye `reemplazar_coleccion_atomico()` para reescribir colecciones precompute enteras sin ventana de vacío (swap por rename atómico).
@@ -116,86 +116,3 @@ Conecta con: TODO el backend (`engines/`, `jobs/`, `api/services/`) pasa por ac�
 - [[jobs.watchdog]]  ·  _module_
 - [[quant.black_scholes]]  ·  _module_
 - [[quant.pivot_points]]  ·  _module_
-- [[scripts.api_migrate]]  ·  _module_
-- [[scripts.audit_assets_instrumento]]  ·  _module_
-- [[scripts.audit_db]]  ·  _module_
-- [[scripts.audit_operaciones]]  ·  _module_
-- [[scripts.backfill_assets_cafci]]  ·  _module_
-- [[scripts.backfill_cierre_canje]]  ·  _module_
-- [[scripts.backfill_comitentes_segmentacion]]  ·  _module_
-- [[scripts.backfill_commodity_operaciones]]  ·  _module_
-- [[scripts.backfill_contrapartes_pj_grande]]  ·  _module_
-- [[scripts.backfill_cupo_cero_fci]]  ·  _module_
-- [[scripts.backfill_es_cierre_operaciones]]  ·  _module_
-- [[scripts.backfill_fci_bruto]]  ·  _module_
-- [[scripts.backfill_fci_pj_grande]]  ·  _module_
-- [[scripts.backfill_id_cuenta_negocio]]  ·  _module_
-- [[scripts.backfill_mep_operaciones]]  ·  _module_
-- [[scripts.backfill_nivel3_operaciones]]  ·  _module_
-- [[scripts.backfill_operaciones_csv]]  ·  _module_
-- [[scripts.backfill_precios_acciones]]  ·  _module_
-- [[scripts.backfill_segmentos_upper]]  ·  _module_
-- [[scripts.cleanup_assets_lowercase]]  ·  _module_
-- [[scripts.cleanup_dolar_oficial_live]]  ·  _module_
-- [[scripts.cleanup_negocio_informacion]]  ·  _module_
-- [[scripts.clear_cupo_cuenta]]  ·  _module_
-- [[scripts.crear_indice_serie_aranceles]]  ·  _module_
-- [[scripts.crear_indices]]  ·  _module_
-- [[scripts.db_maintenance]]  ·  _module_
-- [[scripts.delete_snapshot_aum]]  ·  _module_
-- [[scripts.diag_actividad_mensual]]  ·  _module_
-- [[scripts.diag_agro_otc]]  ·  _module_
-- [[scripts.diag_aranceles_breakdown]]  ·  _module_
-- [[scripts.diag_aranceles_operadores_migracion]]  ·  _module_
-- [[scripts.diag_aranceles_sin_match]]  ·  _module_
-- [[scripts.diag_aum_backfill_log]]  ·  _module_
-- [[scripts.diag_categoria_otro]]  ·  _module_
-- [[scripts.diag_check_cupo]]  ·  _module_
-- [[scripts.diag_comercial]]  ·  _module_
-- [[scripts.diag_comercial_cache_check]]  ·  _module_
-- [[scripts.diag_comercial_rollup]]  ·  _module_
-- [[scripts.diag_contraparte_fondo]]  ·  _module_
-- [[scripts.diag_contrapartes_ids]]  ·  _module_
-- [[scripts.diag_cuentas_faltantes]]  ·  _module_
-- [[scripts.diag_db_load]]  ·  _module_
-- [[scripts.diag_decimal_drift]]  ·  _module_
-- [[scripts.diag_dups_check]]  ·  _module_
-- [[scripts.diag_fci_bilateral]]  ·  _module_
-- [[scripts.diag_fci_fuente]]  ·  _module_
-- [[scripts.diag_fci_historico]]  ·  _module_
-- [[scripts.diag_fci_job_perf]]  ·  _module_
-- [[scripts.diag_fci_match_boleto]]  ·  _module_
-- [[scripts.diag_fci_shape]]  ·  _module_
-- [[scripts.diag_flujo_contraparte]]  ·  _module_
-- [[scripts.diag_index_usage]]  ·  _module_
-- [[scripts.diag_indice_boleto]]  ·  _module_
-- [[scripts.diag_indices_partial]]  ·  _module_
-- [[scripts.diag_mongo_connections]]  ·  _module_
-- [[scripts.diag_negocio_ruido]]  ·  _module_
-- [[scripts.diag_nivel3]]  ·  _module_
-- [[scripts.diag_perf_aranceles]]  ·  _module_
-- [[scripts.diag_productores]]  ·  _module_
-- [[scripts.diag_scope_cuenta]]  ·  _module_
-- [[scripts.diag_sin_operador]]  ·  _module_
-- [[scripts.diag_tipo_cliente]]  ·  _module_
-- [[scripts.diag_volumen_bruto_cero]]  ·  _module_
-- [[scripts.diag_volumen_operadores_migracion]]  ·  _module_
-- [[scripts.diagnose_live_coverage]]  ·  _module_
-- [[scripts.discovery_pyrofex]]  ·  _module_
-- [[scripts.drop_indice_serie_aranceles]]  ·  _module_
-- [[scripts.drop_indices_redundantes_operaciones]]  ·  _module_
-- [[scripts.enrich_operaciones]]  ·  _module_
-- [[scripts.fix_indice_boleto]]  ·  _module_
-- [[scripts.fix_precios_aum]]  ·  _module_
-- [[scripts.fix_valuacion_tipo]]  ·  _module_
-- [[scripts.normalizar_vencimiento_sin_hora]]  ·  _module_
-- [[scripts.partner_user]]  ·  _module_
-- [[scripts.perf_sweep]]  ·  _module_
-- [[scripts.rename_limite_fondeo_a_cupo]]  ·  _module_
-- [[scripts.rename_nivel_valor]]  ·  _module_
-- [[scripts.seed_asistente_comercial]]  ·  _module_
-- [[scripts.seed_cedears]]  ·  _module_
-- [[scripts.seed_tipos_operacion]]  ·  _module_
-- [[scripts.setup_volumen_mercado_agro]]  ·  _module_
-- [[scripts.watch_db]]  ·  _module_
-- [[tests.integration.test_comercial_integration]]  ·  _module_

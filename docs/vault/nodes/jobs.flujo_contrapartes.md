@@ -4,12 +4,12 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/flujo_contrapartes.py
+path: jobs\flujo_contrapartes.py
 ---
 
 # jobs/flujo_contrapartes
 
-**Archivo:** `jobs/flujo_contrapartes.py`
+**Archivo:** `jobs\flujo_contrapartes.py`
 
 ## Qué hace
 Trae de Aunesa (endpoint /operaciones/informes) los boletos de las contrapartes con cuenta asignada y los persiste en `CashFlow.Flujo`. Excluye cauciones colocadoras y futuros financieros, infiere moneda de las condiciones y deduplica por boleto. Re-chequea una ventana de los últimos 7 días (idempotente: borra esos días y re-inserta) para cubrir cambios tardíos / fines de semana largos.

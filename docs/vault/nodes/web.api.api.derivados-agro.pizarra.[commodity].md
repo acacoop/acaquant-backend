@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/derivados-agro/pizarra/[commodity]/route.ts
+path: src\app\api\derivados-agro\pizarra\[commodity]\route.ts
 ---
 
 # web /api/derivados-agro/pizarra/[commodity]  (proxy)
 
-**Archivo:** `src/app/api/derivados-agro/pizarra/[commodity]/route.ts`
+**Archivo:** `src\app\api\derivados-agro\pizarra\[commodity]\route.ts`
 
 ## Qué hace
 PATCH proxy de la pizarra (precios manuales) de un commodity agro: valida el body como JSON y lo reenvía al backend. El gate trader+admin lo aplica el backend.

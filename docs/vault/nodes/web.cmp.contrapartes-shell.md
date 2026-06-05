@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/contrapartes-shell.tsx
+path: src\components\contrapartes-shell.tsx
 ---
 
 # web/components/contrapartes-shell
 
-**Archivo:** `src/components/contrapartes-shell.tsx`
+**Archivo:** `src\components\contrapartes-shell.tsx`
 
 ## Qué hace
 Contenedor de la vista /contrapartes que junta en dos tabs lo que antes eran vistas sueltas de /operaciones: CONTRAPARTES (flujo por contraparte) y FLUJO vs AUM. Solo arma la navegación entre ambas.

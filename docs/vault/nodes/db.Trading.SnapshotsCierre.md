@@ -22,4 +22,3 @@ Conecta con: la escribe el cron `jobs/snapshot_cierre.py` (lee `MarketSnapshot` 
 - [[api.services.renta_fija]]  ·  _module_
 - [[jobs.fair_value]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
-- [[scripts.gen_obsidian]]  ·  _module_

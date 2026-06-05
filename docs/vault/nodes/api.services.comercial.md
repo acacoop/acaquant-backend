@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/comercial.py
+path: api\services\comercial.py
 ---
 
 # api/services/comercial
 
 > api/services/comercial.py — Tablero Comercial (lente por operador).
 
-**Archivo:** `api/services/comercial.py`
+**Archivo:** `api\services\comercial.py`
 
 ## Qué hace
 Motor del Tablero Comercial (lente por operador, solo manager). Cruza todo por `id_cuenta`: QUIÉN (operador asignado + segmentación), ACTIVIDAD y ARANCEL (operaciones de mercado), VOLUMEN (boletos pesificados), TAMAÑO (último AuM) y el join operador↔usuario para detectar cuentas huérfanas. Devuelve el resumen por operador con buckets de estado comercial (ACTIVA/ENFRIANDOSE/DORMIDA/NUEVA). Cacheado on-the-fly.
@@ -36,12 +36,3 @@ Conecta con: lee `Clientes.Comitentes`, `CashFlow.Operaciones`, `CashFlow.Negoci
 - [[api.routers.operaciones]]  ·  _module_
 - [[jobs.actividad_mensual]]  ·  _module_
 - [[jobs.comercial_rollup]]  ·  _module_
-- [[scripts.diag_actividad_mensual]]  ·  _module_
-- [[scripts.diag_comercial]]  ·  _module_
-- [[scripts.diag_comercial_cache_check]]  ·  _module_
-- [[scripts.diag_comercial_rollup]]  ·  _module_
-- [[scripts.diag_operadores_actividad]]  ·  _module_
-- [[scripts.diag_sin_operador]]  ·  _module_
-- [[scripts.perf_sweep]]  ·  _module_
-- [[tests.integration.test_comercial_integration]]  ·  _module_
-- [[tests.unit.test_comercial]]  ·  _module_

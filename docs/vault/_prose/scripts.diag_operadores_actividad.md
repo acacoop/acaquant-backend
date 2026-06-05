@@ -1,3 +1,0 @@
-Diagnóstico read-only que compara la actividad comercial (última operación / estado por cuenta) usando la fuente vieja (CashFlow.NegocioMovimientos) vs la nueva (CashFlow.Operaciones). Sirve para medir el impacto de migrar la fuente en comercial.py antes de confiar en el cambio: cuántas cuentas pasan de DORMIDA/NUEVA a ACTIVA/ENFRIANDOSE al usar la fuente más completa. Filtra por operador y permite ajustar los umbrales de días. No escribe nada. Se corre con python -m scripts.diag_operadores_actividad [--operador x] [--dias-activa N].
-
-Conecta con: CashFlow.Operaciones, CashFlow.NegocioMovimientos, Clientes.Comitentes vía api.db; reutiliza estado_comercial y match_no_futuros de api.services. Valida la migración de fuente del Tablero Comercial.

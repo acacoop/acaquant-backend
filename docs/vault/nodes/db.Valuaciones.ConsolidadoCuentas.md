@@ -18,4 +18,3 @@ Conecta con: la escribe el cron `jobs/consolidado_cuentas.py` (lee `SnapshotsCie
 ## Lo usan (backlinks) ←
 - [[api.services.valuaciones]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_
-- [[scripts.gen_obsidian]]  ·  _module_

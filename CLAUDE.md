@@ -118,7 +118,7 @@ partner_api/ # app FastAPI SEPARADA (no monta en api/main) — datos para provee
 scripts/     # one-shot / migraciones / smoke
 deploy/      # systemd + crontab.txt (fuente de verdad)
 .claude/     # settings.json + hooks + commands + skills + agents (ver .claude/INDEX.md)
-docs/        # API.md, API_MIGRATIONS.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md, RUNBOOK.md (operación/incidentes), SECRETS.md + SECURITY.md (manejo de secretos/seguridad), INGEST_DOLAR.md (feed MAE dólar) (wip_*.md = scratch, no canónico)
+docs/        # API.md, API_MIGRATIONS.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md, RUNBOOK.md (operación/incidentes), SECRETS.md + SECURITY.md (manejo de secretos/seguridad), INGEST_DOLAR.md (feed MAE dólar), vault/ (cerebro Obsidian, auto-generado) (wip_*.md = scratch, no canónico)
 ```
 
 ## Plano del sistema — `deploy/SISTEMA.md`
@@ -137,6 +137,23 @@ El inventario (servicios/motores/crons) es auto-generado desde la fuente
 real → no puede mentir. La narrativa (topología, flujo de datos, bases) se
 mantiene a mano. Si cambió cómo se conectan los servicios, actualizá esa
 parte también. Skill: `/sistema`.
+
+## Cerebro Obsidian — `docs/vault/`
+
+Grafo navegable de TODO el sistema (módulos, componentes, rutas, crons,
+colecciones, vistas, services, libs) como vault de Obsidian. El generador
+`scripts/gen_obsidian.py` es **determinista**: parsea el código y reconstruye
+archivos, links y backlinks de cada nota. La sección _Qué hace_ se completa con
+una pasada de enriquecimiento con IA; el resto NO se edita a mano.
+
+```bash
+python -m scripts.gen_obsidian          # regenera las notas
+python -m scripts.gen_obsidian --check  # CI: falla si el vault quedó stale
+```
+
+Mismo contrato que `gen_sistema`: tras un cambio estructural (router/cron/
+colección/componente nuevo) el vault queda desincronizado → regenerar en el
+mismo cambio. Cómo abrirlo: `docs/vault/README.md`.
 
 ## Comandos
 

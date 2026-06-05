@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/cotizaciones.py
+path: api\routers\cotizaciones.py
 ---
 
 # api/routers/cotizaciones
 
 > Router Cotizaciones — thin wrappers sobre la capa de servicio.
 
-**Archivo:** `api/routers/cotizaciones.py`
+**Archivo:** `api\routers\cotizaciones.py`
 
 ## Qué hace
 Router `/api/cotizaciones`: thin wrappers sobre la capa de servicio para cotizaciones de mercado, organizados por dominio — macro (series BCRA BADLAR/CER/DOLAR + dólar MEP), repo/caución, derivados (futuros DLR, forwards, breakevens), renta fija, opciones, fair value, REM y el panel `argy` con returns calculados.
@@ -40,5 +40,14 @@ Conecta con: delega en services `macro`, `repo`, `derivados`, `renta_fija`, `opc
 - [[web.api.api.mep]]  ·  _route_
 - [[web.api.api.opciones-meta]]  ·  _route_
 - [[web.api.api.trades]]  ·  _route_
+- [[web.cmp.breakevens-block]]  ·  _component_
+- [[web.cmp.costo-historico-chart]]  ·  _component_
+- [[web.cmp.derivados-view]]  ·  _component_
+- [[web.cmp.fair-value-modal]]  ·  _component_
+- [[web.cmp.fair-value-view]]  ·  _component_
+- [[web.cmp.forwards-panel]]  ·  _component_
+- [[web.cmp.griegas-historico-chart]]  ·  _component_
+- [[web.cmp.opcion-historico-chart]]  ·  _component_
+- [[web.cmp.renta-fija-live]]  ·  _component_
 - [[web.view.derivados.view]]  ·  _view_
 - [[web.view.renta-fija.view]]  ·  _view_

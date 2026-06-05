@@ -4,14 +4,14 @@ type: module
 layer: quant
 repo: backend
 tags: [module, quant, backend]
-path: quant/stats.py
+path: quant\stats.py
 ---
 
 # quant/stats
 
 > Helpers estadísticos sobre series numéricas.
 
-**Archivo:** `quant/stats.py`
+**Archivo:** `quant\stats.py`
 
 ## Qué hace
 Helpers estadísticos de propósito general para contextualizar un valor contra su propia historia ("benchmarks dinámicos"): percentil, z-score, detección de tendencia (primer vs último tercio) y `classify_level`, que etiqueta el valor actual como minimo/bajo/medio/alto/maximo o tendencia alcista/bajista. `compute_stats` arma el paquete completo (min/max/media/desvío/percentil/clasificación) tolerante a nulls.
@@ -20,4 +20,3 @@ Conecta con: lo importa `api/services/macro.py` (`compute_stats`, `cambio_pct`) 
 
 ## Lo usan (backlinks) ←
 - [[api.services.macro]]  ·  _module_
-- [[scripts.profile_quant]]  ·  _module_

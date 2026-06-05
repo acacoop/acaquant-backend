@@ -4,14 +4,14 @@ type: service
 layer: deploy
 repo: infra
 tags: [service, deploy, infra]
-path: deploy/systemd/motor_breakevens.service
+path: deploy\systemd\motor_breakevens.service
 ---
 
 # systemd: motor_breakevens
 
 > Servicio systemd.
 
-**Archivo:** `deploy/systemd/motor_breakevens.service`
+**Archivo:** `deploy\systemd\motor_breakevens.service`
 
 ## Qué hace
 Servicio systemd del motor de breakevens — corre `engines.breakevens`, que calcula la inflación implícita CER/Lecap en tiempo real (método Buscar Objetivo, match mismo vto Lecap↔CER). Vive solo en rueda (cron restart 13:00 UTC / stop 20:05 UTC, L-V).

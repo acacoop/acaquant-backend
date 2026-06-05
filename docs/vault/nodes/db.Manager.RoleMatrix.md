@@ -17,5 +17,3 @@ Conecta con: la lee `core/roles.py` (motor RBAC) que consultan `api/main.py` y l
 
 ## Lo usan (backlinks) ←
 - [[core.roles]]  ·  _module_
-- [[scripts.gen_obsidian]]  ·  _module_
-- [[scripts.seed_asistente_comercial]]  ·  _module_

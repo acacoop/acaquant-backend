@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/manager/comercial.py
+path: api\routers\manager\comercial.py
 ---
 
 # api/routers/manager/comercial
 
 > Sub-router Manager → /api/manager/comercial — Tablero Comercial.
 
-**Archivo:** `api/routers/manager/comercial.py`
+**Archivo:** `api\routers\manager\comercial.py`
 
 ## Qué hace
 Sub-router `/api/manager/comercial` — Tablero Comercial (lente por operador). Devuelve el resumen comercial por operador (# cuentas, activas/dormidas según días sin operar, AuM, etc.) y un debug auditable del cálculo de `nivel_3`/segmento patrimonial para una cuenta puntual (cupo crudo + MEP/UVA usado + cálculo paso a paso + actual vs recalculado, con los umbrales PH/PJ). Gateado por `manager_comercial` (accesible a `asistente_comercial`).
@@ -28,3 +28,5 @@ Conecta con: services `comercial::resumen_por_operador`, `segmentacion::clasific
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_
+- [[web.cmp.comercial-panel]]  ·  _component_
+- [[web.cmp.manager-debug-segmento]]  ·  _component_

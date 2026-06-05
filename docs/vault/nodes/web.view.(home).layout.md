@@ -4,12 +4,12 @@ type: view
 layer: web-view
 repo: frontend
 tags: [view, web-view, frontend]
-path: src/app/layout.tsx
+path: src\app\layout.tsx
 ---
 
 # web /(home)  (layout)
 
-**Archivo:** `src/app/layout.tsx`
+**Archivo:** `src\app\layout.tsx`
 
 ## Qué hace
 Layout raíz de la app Next.js (acaquant-web): define el `<html>`, la fuente JetBrains Mono self-hosted, el tema claro/oscuro anti-parpadeo, y arma el chrome común (Header con nav, PauseBanner, footer). Es `force-dynamic` por RBAC: re-renderea por usuario para no servir el HTML de un admin (con MANAGER en el nav) a un trader.

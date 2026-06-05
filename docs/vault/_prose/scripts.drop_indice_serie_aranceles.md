@@ -1,2 +1,0 @@
-One-shot de mantenimiento que borra el índice `serie_aranceles_cov` de CashFlow.Operaciones. Se había creado para cubrir la serie de /ops/aranceles, pero el explain mostró que el $group seguía haciendo FETCH por documento (no cubría) y no mejoraba el wall-clock, así que se elimina para no gastar RAM/disco en un índice grande inútil. Se corre con `python -m scripts.drop_indice_serie_aranceles`.
-Conecta con: opera sobre CashFlow.Operaciones; revierte un intento de optimización del endpoint /ops/aranceles.

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/comparar_inversion.py
+path: api\services\comparar_inversion.py
 ---
 
 # api/services/comparar_inversion
 
 > Comparar Inversión — service que compara 2 bonos de Trading.Curvas lado a lado.
 
-**Archivo:** `api/services/comparar_inversion.py`
+**Archivo:** `api\services\comparar_inversion.py`
 
 ## Qué hace
 Compara dos bonos de `Trading.Curvas` lado a lado para el tab "Comparar Inversión". Fase 1: universo restringido a curvas con flujos modelados (cer, tasa_fija, soberanos); tamar y dolar_linked quedan fuera hasta tener calendario. Reusa metadata + métricas live, el calendario de flujos por 100 VN y el MEP para conversión cross-moneda ARS↔USD. Fase 2 (pendiente): sumar `Trading.BondsMaster`.
@@ -28,4 +28,3 @@ Conecta con: lee `Trading.Curvas` y `MarketSnapshot.metrics` vía `api.services.
 
 ## Lo usan (backlinks) ←
 - [[api.routers.analitica]]  ·  _module_
-- [[scripts.perf_sweep]]  ·  _module_

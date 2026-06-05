@@ -17,5 +17,3 @@ Conecta con: la escribe `jobs/comercial_rollup.py` (precompute); la lee `api/ser
 
 ## Lo usan (backlinks) ←
 - [[jobs.comercial_rollup]]  ·  _module_
-- [[scripts.diag_comercial_cache_check]]  ·  _module_
-- [[scripts.gen_obsidian]]  ·  _module_

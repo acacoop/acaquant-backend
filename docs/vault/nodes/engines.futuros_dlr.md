@@ -4,14 +4,14 @@ type: module
 layer: engines
 repo: backend
 tags: [module, engines, backend]
-path: engines/futuros_dlr.py
+path: engines\futuros_dlr.py
 ---
 
 # engines/futuros_dlr
 
 > Motor de futuros DLR (Dólar A3500) — outrights single-leg.
 
-**Archivo:** `engines/futuros_dlr.py`
+**Archivo:** `engines\futuros_dlr.py`
 
 ## Qué hace
 Motor de futuros de dólar (DLR / Dólar A3500). Descubre dinámicamente los outrights single-leg vigentes (cficode FXXXSX, excluye spreads y variantes "M"), los suscribe por WS y calcula la tasa implícita TNA lineal de cada vencimiento contra el spot mayorista. Al apagado (cierre 20:05 UTC) vuelca un cierre diario como serie histórica.

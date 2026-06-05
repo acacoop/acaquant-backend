@@ -1,3 +1,0 @@
-Herramienta reusable de profiling que corre EN EL DROPLET contra Atlas real una lista curada y solo-lectura de services que alimentan las vistas. Por cada uno mide cold_ms (primer hit, caché frío), warm_ms (segundo, muestra el ahorro de @cached) y el split %mongo (I/O) vs %cpu de la corrida fría — el dato que decide dónde atacar. Guarda el árbol de llamadas (HTML pyinstrument) de los más lentos en logs/. La lista de targets es un allowlist explícito de funciones de lectura, nunca escritura/órdenes. Se corre con `python -m scripts.perf_sweep [--top N] [--only <patrón>]`.
-
-Conecta con: api.services.* (targets), core.mongo (read), pyinstrument; complementa scripts.profile_quant (CPU) y scripts.profile_motor (motores).

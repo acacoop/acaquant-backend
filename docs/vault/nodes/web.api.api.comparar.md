@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/comparar/route.ts
+path: src\app\api\comparar\route.ts
 ---
 
 # web /api/comparar  (proxy)
 
-**Archivo:** `src/app/api/comparar/route.ts`
+**Archivo:** `src\app\api\comparar\route.ts`
 
 ## Qué hace
 Proxy del comparador de inversiones: propaga la querystring a `/api/analitica/comparar` del backend y devuelve sin cache (precios y MEP se mueven cada ~10s).

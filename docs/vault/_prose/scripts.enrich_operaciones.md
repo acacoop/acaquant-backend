@@ -1,2 +1,0 @@
-Herramienta reusable que denormaliza moneda + mercado + operacion sobre CashFlow.Operaciones haciendo join al catálogo CashFlow.TiposOperacion, y crea los índices de la vista. Hay que correrlo después del backfill y cada vez que se editan los `mercado` del catálogo; es idempotente. Si quedan ops sin match en catálogo, avisa para sembrar los tipos y reintentar. Se corre con `python -m scripts.enrich_operaciones`.
-Conecta con: invoca api.services.operaciones_informes.enriquecer; escribe CashFlow.Operaciones.

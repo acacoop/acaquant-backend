@@ -19,5 +19,3 @@ Conecta con: la re-sincroniza `jobs/sync_api_copies.py` / `scripts.api_migrate`;
 - [[api.routers.cuentas]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
-- [[scripts.api_migrate]]  ·  _module_
-- [[scripts.gen_obsidian]]  ·  _module_

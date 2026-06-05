@@ -33,8 +33,3 @@ Conecta con: la consumen los motores (`engines/curvas.py`, breakevens, forwards)
 - [[engines._curvas_loader]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
-- [[scripts.api_migrate]]  ·  _module_
-- [[scripts.crear_indices]]  ·  _module_
-- [[scripts.gen_obsidian]]  ·  _module_
-- [[scripts.perf_sweep]]  ·  _module_
-- [[tests.unit.test_cotizaciones_tier2]]  ·  _module_

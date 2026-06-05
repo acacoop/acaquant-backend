@@ -1,2 +1,0 @@
-Discovery one-shot de pyRofex: lista todos los instrumentos que expone ROFEX (futuros, opciones, spreads, ETFs) y los agrupa por código CFI, con count, underlyings únicos y samples. Sirve para identificar qué CFI usar antes de extender un motor a productos nuevos (agro, opciones) sin filtrar a ciegas. Persiste idempotente a Manager.PyRofexDiscovery con _id="current". Requiere sesión pyRofex. Se corre con `python -m scripts.discovery_pyrofex`.
-Conecta con: usa core.rofex_session; escribe Manager.PyRofexDiscovery (consultada por api.routers.manager.checks).

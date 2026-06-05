@@ -17,6 +17,3 @@ Conecta con: la escriben `core/roles.py` y `api/routers/manager/users.py` ante c
 
 ## Lo usan (backlinks) ←
 - [[core.roles]]  ·  _module_
-- [[scripts.db_maintenance]]  ·  _module_
-- [[scripts.gen_obsidian]]  ·  _module_
-- [[scripts.seed_asistente_comercial]]  ·  _module_

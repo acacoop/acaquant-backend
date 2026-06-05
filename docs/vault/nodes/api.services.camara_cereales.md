@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/camara_cereales.py
+path: api\services\camara_cereales.py
 ---
 
 # api/services/camara_cereales
 
 > Service — Cámara Arbitral de Cereales de Rosario.
 
-**Archivo:** `api/services/camara_cereales.py`
+**Archivo:** `api\services\camara_cereales.py`
 
 ## Qué hace
 Single source of truth de los precios disponibles de granos (5 cereales: TRIGO, MAIZ, GIRASOL, SOJA, SORGO) que reporta la Cámara Arbitral de Cereales de Rosario. El trader los carga a mano en ARS y USD por separado (no hay fórmula entre uno y otro) y la app los reutiliza en varias vistas. No confundir con la pizarra de pase del agro.
@@ -23,4 +23,3 @@ Conecta con: lee/escribe `Derivados.CamaraCereales` (5 docs, _id = cereal) con a
 
 ## Lo usan (backlinks) ←
 - [[api.routers.derivados_agro]]  ·  _module_
-- [[scripts.perf_sweep]]  ·  _module_

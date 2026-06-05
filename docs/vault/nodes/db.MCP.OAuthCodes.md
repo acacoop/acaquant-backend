@@ -17,4 +17,3 @@ Conecta con: la escribe y consume `api/mcp/oauth.py` (provider OAuth del MCP). E
 
 ## Lo usan (backlinks) ←
 - [[api.mcp.oauth]]  ·  _module_
-- [[scripts.gen_obsidian]]  ·  _module_

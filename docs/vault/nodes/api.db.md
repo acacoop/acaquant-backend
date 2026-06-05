@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/db.py
+path: api\db.py
 ---
 
 # api/db
 
 > Helpers de acceso a las bases Mongo (sin dependencia de FastAPI).
 
-**Archivo:** `api/db.py`
+**Archivo:** `api\db.py`
 
 ## Qué hace
 Helpers de acceso a las bases Mongo sin dependencia de FastAPI (`get_db_trading`, `get_db_valuaciones`, `get_db_cashflow`, `get_db_clientes`, `get_db_manager`, etc.). Existe separado de `api/deps.py` para que la capa de servicios (`api/services/*`) pueda importarlo sin arrastrar fastapi. Todos resuelven sobre el cliente read-only (`SECONDARY_PREFERRED`).
@@ -50,4 +50,3 @@ Conecta con: usa el singleton `core.mongo.get_mongo_client_read()`; lo consumen 
 - [[api.services.scanner]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
-- [[scripts.diag_operadores_actividad]]  ·  _module_

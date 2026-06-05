@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/ops_rollup.py
+path: jobs\ops_rollup.py
 ---
 
 # jobs/ops_rollup
 
 > jobs/ops_rollup.py — precompute CashFlow.OpsSerieDiaria (rollup de las series).
 
-**Archivo:** `jobs/ops_rollup.py`
+**Archivo:** `jobs\ops_rollup.py`
 
 ## Qué hace
 Job de precompute que pre-agrega `CashFlow.Operaciones` por día × dimensiones de baja cardinalidad (moneda, mercado, operación, segmento, nivel_3) sumando bruto, arancel (en valor absoluto) y conteo. Resuelve el problema de que las series /ops/serie y /ops/aranceles escaneaban los ~200k docs completos en cada request. Modo incremental (últimos 7 días) o `--full` con swap atómico.

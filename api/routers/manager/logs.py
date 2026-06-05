@@ -15,33 +15,33 @@ import subprocess
 from fastapi import APIRouter, HTTPException, Query
 
 from api.cache import cached
+from api.services.diagnostico_registry import unidades_motores
 
 router = APIRouter()
 
-# Whitelist de servicios. El handler rechaza cualquier otro nombre para
-# evitar que alguien pase "motor_rofex; rm -rf /" o similar.
-_ALLOWED_SERVICES: set[str] = {
-    "motor_rofex",
-    "motor_options",
-    "motor_curvas",
-    "motor_forwards",
-    "motor_breakevens",
-    "motor_caucion",
-    "motor_futuros_dlr",
-    "motor_dolares",
-    "motor_agro",
-    "motor_agro_opciones",
-    "motor_portfolio_snapshot",
-    "motor_ordenes",
-    "api",
-    "cloudflared",
-}
+# Whitelist de servicios. El handler rechaza cualquier otro nombre para evitar
+# que alguien pase "motor_rofex; rm -rf /" o similar.
+#
+# Los motores se DERIVAN del registro del Diagnóstico (`unidades_motores`) → si
+# se agrega/saca un motor, esta whitelist se sincroniza sola (anti-drift). Solo
+# los servicios de infra (no-motor) van listados a mano.
+_INFRA_SERVICES: set[str] = {"api", "partner_api", "cloudflared"}
+_ALLOWED_SERVICES: set[str] = unidades_motores() | _INFRA_SERVICES
 
 # PRIORITY de syslog → label human-friendly
 _PRIO_LABEL: dict[int, str] = {
     0: "emerg", 1: "alert", 2: "crit", 3: "error",
     4: "warn",  5: "notice", 6: "info", 7: "debug",
 }
+
+
+@router.get("/logs/services")
+def list_services() -> list[str]:
+    """Servicios disponibles para ver logs (motores derivados del registro + infra).
+
+    El front lo consume para armar el dropdown → no se desfasa al agregar un motor.
+    """
+    return sorted(_ALLOWED_SERVICES)
 
 
 @cached(ttl=2)

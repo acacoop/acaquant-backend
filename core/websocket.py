@@ -20,6 +20,7 @@ Droplet con el primer corte real (confirmar que reconecta y los datos vuelven
 a fluir; el diagnóstico de motores lo muestra).
 """
 import logging
+import re
 import threading
 import time
 from typing import ClassVar
@@ -129,9 +130,58 @@ class WebSocketManager:
         except Exception as e:
             logger.warning("WS %s: no pude alertar: %s", self._nombre, e)
 
+    # ROFEX, ante un símbolo inválido en la suscripción, devuelve un msg de
+    # error con `description: "Product <symbol>:<market> don't exist"`. Capturamos
+    # el símbolo para purgarlo (no es un corte de conexión).
+    _BAD_PRODUCT_RE: ClassVar = re.compile(r"Product\s+(.+?):[A-Za-z]+\s+don'?t exist", re.I)
+
+    def _simbolos_inexistentes(self, message) -> list[str]:
+        """Símbolos que ROFEX reporta como inexistentes en un mensaje de error.
+
+        Sólo miramos `description` (nombra EL símbolo malo); el campo `message`
+        ecoa toda la request (todos los símbolos) y no sirve para discriminar."""
+        if isinstance(message, dict):
+            desc = str(message.get("description") or "")
+        else:
+            desc = str(message)
+        return [m.strip() for m in self._BAD_PRODUCT_RE.findall(desc)]
+
+    def _purgar_simbolos(self, bad: list[str]) -> None:
+        """Saca símbolos inválidos de la suscripción guardada (`self._sub`) y del
+        engine, para que las reconexiones NO los vuelvan a mandar."""
+        if not bad or self._sub is None:
+            return
+        bad_set = set(bad)
+        tickers, depth, entries = self._sub
+        self._sub = ([t for t in tickers if t not in bad_set], depth, entries)
+        # Best-effort: sacarlo también del set/list de tickers del engine.
+        try:
+            tk = getattr(self.mm, "tickers", None)
+            if isinstance(tk, set):
+                tk.difference_update(bad_set)
+            elif isinstance(tk, list):
+                self.mm.tickers = [t for t in tk if t not in bad_set]
+        except Exception:
+            logger.debug("WS %s: no pude purgar símbolos del engine", self._nombre)
+
     def _on_error(self, message):
-        # Transitorio → solo log (no Telegram). El loop de reconexión avisa
-        # únicamente si se agota.
+        # Caso especial: ROFEX rechazó la suscripción por un símbolo INEXISTENTE
+        # (delisted/typo). NO es un corte de conexión: reconectar re-manda el
+        # símbolo malo → loop infinito que impide que fluya CUALQUIER dato
+        # (incidente order book vacío 2026-06-05, ej. "MERV - XMEV - PESOS - 1D").
+        # Lo purgamos de la suscripción y reconectamos con la lista limpia → corta
+        # el loop y el resto de los tickers vuelve a recibir datos.
+        bad = self._simbolos_inexistentes(message)
+        if bad:
+            logger.error(
+                "WS %s: símbolo(s) inexistente(s) en ROFEX, purgo y resuscribo sin ellos: %s",
+                self._nombre, bad,
+            )
+            self._purgar_simbolos(bad)
+            self._reconectar()
+            return
+        # Resto de errores: transitorio → solo log (no Telegram). El loop de
+        # reconexión avisa únicamente si se agota.
         logger.error("WS %s: error de WS: %s", self._nombre, message)
         self._reconectar()
 

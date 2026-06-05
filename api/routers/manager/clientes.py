@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from pymongo import UpdateOne
 
 from api.auth import get_user_email
+from api.services.sin_operador import cuentas_sin_operador
 from core.mongo import get_mongo_client, get_mongo_client_read
 
 # Dos routers separados para que el paquete `manager` les aplique distintos
@@ -175,6 +176,13 @@ class _ClientePatch(BaseModel):
     observaciones:             str | None = Field(None, max_length=2000)
     sucursal:                  str | None = Field(None, max_length=128)
     referido:                  str | None = Field(None, max_length=256)
+
+
+@router.get("/clientes/sin-operador")
+def clientes_sin_operador() -> dict:
+    """Cuentas con volumen que caen en '(sin operador)' del ranking comercial,
+    separadas en clientes reales (asignar operador) y no-clientes categorizados."""
+    return cuentas_sin_operador()
 
 
 @router.patch("/clientes")

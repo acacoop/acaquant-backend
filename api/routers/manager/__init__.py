@@ -53,6 +53,7 @@ _COMERCIAL       = [Depends(verify_api_key), Depends(require_any_module(("manage
 _CLIENTES        = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_clientes")))]
 _CLIENTES_BULK   = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_clientes_bulk")))]
 _COMPLIANCE      = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_compliance")))]
+_TITULOS         = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_titulos")))]
 
 # Tabs admin (umbrella `manager`):
 router.include_router(status.router,      dependencies=_MGR)
@@ -65,7 +66,6 @@ router.include_router(users.router,       dependencies=_MGR)
 router.include_router(roles.router,       dependencies=_MGR)
 router.include_router(grupos.router,      dependencies=_MGR)
 router.include_router(aunesa.router,      dependencies=_MGR)
-router.include_router(assets.router,      dependencies=_MGR)
 router.include_router(valuaciones.router, dependencies=_MGR)
 router.include_router(operaciones.router, dependencies=_MGR)
 
@@ -74,3 +74,4 @@ router.include_router(comercial.router,       dependencies=_COMERCIAL)
 router.include_router(clientes.router,        dependencies=_CLIENTES)
 router.include_router(clientes.bulk_router,   dependencies=_CLIENTES_BULK)
 router.include_router(compliance.router,      dependencies=_COMPLIANCE)
+router.include_router(assets.router,          dependencies=_TITULOS)

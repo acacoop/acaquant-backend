@@ -64,6 +64,7 @@ MODULES: tuple[str, ...] = (
     "manager_clientes",       # /api/manager/clientes + /clientes/values + PATCH (edición fila)
     "manager_clientes_bulk",  # /api/manager/clientes/bulk + /bulk-fondeo (carga masiva — admin)
     "manager_compliance",     # /api/manager/compliance/* (read-only: operador nuestro vs Aunesa)
+    "manager_titulos",        # /api/manager/assets (Títulos: Instrumentos + Assets, edición)
 )
 
 
@@ -86,14 +87,14 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
         "back-office",
     ),
     # Asistente comercial: mismas vistas que trader + entra a Manager pero SOLO a
-    # las tabs Comercial y Clientes (edición fila a fila, sin acceso a los bulks).
-    # Sin `manager` umbrella → no ve las tabs admin (Jobs, Usuarios, Roles, etc.).
-    # Sin `manager_clientes_bulk` → no puede ejecutar carga masiva.
+    # las tabs Comercial, Clientes y Títulos (edición fila a fila, sin acceso a
+    # los bulks). Sin `manager` umbrella → no ve las tabs admin (Jobs, Usuarios,
+    # Roles, etc.). Sin `manager_clientes_bulk` → no puede ejecutar carga masiva.
     "asistente_comercial": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
         "operaciones", "portfolios", "back-office",
-        "manager_comercial", "manager_clientes",
+        "manager_comercial", "manager_clientes", "manager_titulos",
     ),
     # Compliance: HOME + todos los mercados + Manager SOLO Clientes + Compliance
     # (sin `manager` umbrella → no ve las tabs de admin). Detecta diferencias de

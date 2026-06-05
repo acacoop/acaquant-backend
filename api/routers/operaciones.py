@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.cache import cached
-from api.db import get_db_cashflow
+from api.db import get_db_cashflow, get_db_clientes
 from api.deps import (
     get_db_cuentas,
     get_db_operaciones,
@@ -1206,6 +1206,7 @@ def ops_aranceles(
     nivel3: str | None = Query(None, description="Filtra a un nivel_3 (cross-filter)"),
     cuenta: str | None = Query(None, description="Filtra a una denominación (cross-filter)"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
+    dim: str = Query("nivel3", description="Dimensión de la tabla izquierda: nivel3 | operacion | operador"),
     serie_full: bool = Query(False, description="True = serie histórica completa (botón ALL); default ~18m"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
@@ -1247,37 +1248,56 @@ def ops_aranceles(
     match_t = _arancel_match(moneda, segmento=segmento)
     aplicar_scope_cuenta(match_t, scope, campo="cuenta")
     date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
-    f_n3 = [{"$match": {"denominacion": cuenta}}] if cuenta else []  # cuenta → filtra nivel3
+    f_n3 = [{"$match": {"denominacion": cuenta}}] if cuenta else []  # cuenta → filtra tabla izq
     f_cta = [{"$match": {"nivel_3": nivel3}}] if nivel3 else []      # nivel3 → filtra cuentas
-    facet = list(db.aggregate([
-        {"$match": match_t},
-        {"$facet": {
-            "por_nivel3": [
-                date_m, *f_n3,
-                {"$group": {"_id": "$nivel_3", "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
-                {"$match": {"ar": {"$gt": 0}}},
-                {"$sort": {"ar": -1}},
-                {"$project": {"_id": 0, "nivel_3": {"$ifNull": ["$_id", "(sin)"]},
-                              "arancel": {"$round": ["$ar", 2]}, "n": 1}},
-            ],
-            "por_cuenta": [
-                date_m, *f_cta,
-                {"$group": {"_id": "$denominacion", "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
-                {"$match": {"ar": {"$gt": 0}}},
-                {"$sort": {"ar": -1}},
-                {"$project": {"_id": 0, "denominacion": {"$ifNull": ["$_id", "(sin)"]},
-                              "arancel": {"$round": ["$ar", 2]}, "n": 1}},
-            ],
-        }},
+    left_pipe = [{"$match": match_t}, date_m, *f_n3]
+
+    # TABLA IZQUIERDA (por_dim): nivel3 | operacion | operador (switch del front).
+    # operacion/nivel_3 son campos del boleto → $group directo. operador NO viene
+    # en la operación → se agrega por cuenta (==id_cuenta) y se mapea a Comitentes.
+    if dim == "operador":
+        det = {
+            str(c["id_cuenta"]): (c.get("operador_nombre") or c.get("operador_email") or "(sin operador)")
+            for c in get_db_clientes()["Comitentes"].find(
+                {}, {"_id": 0, "id_cuenta": 1, "operador_email": 1, "operador_nombre": 1})
+        }
+        acc: dict[str, dict] = {}
+        for r in db.aggregate([*left_pipe,
+                {"$group": {"_id": "$cuenta", "ar": {"$sum": arancel}, "n": {"$sum": 1}}}]):
+            op = det.get(str(r["_id"]), "(sin operador)")
+            a = acc.setdefault(op, {"ar": 0.0, "n": 0})
+            a["ar"] += r["ar"]
+            a["n"] += r["n"]
+        por_dim = sorted(
+            ({"clave": k, "arancel": round(v["ar"], 2), "n": v["n"]}
+             for k, v in acc.items() if v["ar"] > 0),
+            key=lambda x: x["arancel"], reverse=True,
+        )
+    else:
+        field = "$operacion" if dim == "operacion" else "$nivel_3"
+        por_dim = list(db.aggregate([*left_pipe,
+            {"$group": {"_id": field, "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
+            {"$match": {"ar": {"$gt": 0}}},
+            {"$sort": {"ar": -1}},
+            {"$project": {"_id": 0, "clave": {"$ifNull": ["$_id", "(sin)"]},
+                          "arancel": {"$round": ["$ar", 2]}, "n": 1}},
+        ]))
+
+    # TABLA DERECHA (por_cuenta): siempre por denominación.
+    por_cuenta = list(db.aggregate([{"$match": match_t}, date_m, *f_cta,
+        {"$group": {"_id": "$denominacion", "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
+        {"$match": {"ar": {"$gt": 0}}},
+        {"$sort": {"ar": -1}},
+        {"$project": {"_id": 0, "denominacion": {"$ifNull": ["$_id", "(sin)"]},
+                      "arancel": {"$round": ["$ar", 2]}, "n": 1}},
     ]))
-    f = facet[0] if facet else {}
-    por_n3 = f.get("por_nivel3", [])
     return {
-        "moneda": moneda, "desde": desde, "hasta": hasta, "agg": agg,
+        "moneda": moneda, "desde": desde, "hasta": hasta, "agg": agg, "dim": dim,
         "serie": serie,
-        "por_nivel3": por_n3,
-        "por_cuenta": f.get("por_cuenta", []),
-        "total": round(sum(r["arancel"] for r in por_n3), 2),
+        "por_dim": por_dim,
+        "por_nivel3": por_dim,   # alias backward-compat (front viejo)
+        "por_cuenta": por_cuenta,
+        "total": round(sum(r["arancel"] for r in por_dim), 2),
     }
 
 

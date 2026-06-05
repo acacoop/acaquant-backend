@@ -7,7 +7,7 @@ screenshots.
 
 ## Qué expone
 
-Tools de SOLO LECTURA, ~27 en total. Cada una es thin wrapper sobre un
+Tools de SOLO LECTURA, 39 en total. Cada una es thin wrapper sobre un
 servicio puro de `api/services/*`.
 
 | Categoría | Tools |
@@ -116,7 +116,7 @@ loguea).
 4. Sin OAuth Client ID ni Client Secret — los detecta solo via DCR.
 5. Apretá **Conectar**. Se abre browser → CF Access te pide email + OTP →
    logueás → vuelve a Claude → conectado.
-6. En el chat, las 27 tools deberían aparecer al toque.
+6. En el chat, las 39 tools deberían aparecer al toque.
 
 ### Claude Code
 

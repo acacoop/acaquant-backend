@@ -14,12 +14,15 @@ Regla de valuación centralizada en `_valuacion_api`. Fórmulas — ver
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from api.cache import cached
 from api.db import get_db_portfolio, get_db_titulos, get_db_trading, get_db_valuaciones
 from api.services._cuentas_filter import match_cuenta_filter
 from api.services._mep import get_mep_for_date
+
+logger = logging.getLogger("api.portfolio")
 
 _PROJ_AUM = {
     "_id": 0, "fecha": 1, "id_cuenta": 1, "unidad": 1,
@@ -351,7 +354,7 @@ def cer_snapshot(scope: tuple[str, ...] | None = None) -> dict:
                     "duration": m.get("duration"),
                 }
     except Exception:
-        pass
+        logger.warning("enriquecimiento TEA/paridad/duration falló (AuM sin métricas)", exc_info=True)
 
     last = db_p["AumAPI"].find_one({}, {"fecha": 1, "_id": 0}, sort=[("fecha", -1)])
     if not last:

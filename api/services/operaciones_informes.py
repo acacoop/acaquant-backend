@@ -387,7 +387,7 @@ def enriquecer(db, batch: int = 2000) -> dict:
 
 def stats(coll) -> dict:
     """Resumen del estado de la colección para la UI."""
-    n = coll.count_documents({})
+    n = coll.estimated_document_count()  # O(1) (metadata) vs count_documents({}) que escanea ~487k
     if not n:
         return {"n": 0, "n_cuentas": 0, "min_concertacion": None, "max_concertacion": None}
     rango = list(coll.aggregate([

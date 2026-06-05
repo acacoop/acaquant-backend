@@ -21,11 +21,10 @@ polling del frontend.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from api.cache import cached
 from api.db import get_db_trading, get_db_valuaciones
-
 
 # Si Valuaciones.DolarSnapshot._id="current" tiene timestamp más viejo que
 # esto, lo consideramos stale y caemos al último Valuaciones.Dolar.
@@ -86,7 +85,7 @@ def get_ccl_live() -> dict:
     # Último doc con timestamp < hoy 00:00 UTC. Si ayer no hubo doc
     # (feriado, weekend), el query devuelve el último día hábil — es
     # exactamente lo que queremos para "1D".
-    today_start = datetime.now(timezone.utc).replace(
+    today_start = datetime.now(UTC).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
     prev = db["Dolar"].find_one(
@@ -167,7 +166,7 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
         live_by_underlying[d["ticker"]] = d
 
     # Anchors temporales — naive UTC para matchear la TS.
-    hoy = datetime.now(timezone.utc).replace(tzinfo=None)
+    hoy = datetime.now(UTC).replace(tzinfo=None)
     anchor_7d  = hoy - timedelta(days=7)
     anchor_mtd = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     anchor_ytd = hoy.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -214,7 +213,7 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
             last_fecha = last_doc.get("fecha")
             adr_intraday = False  # cierre EOD — no es precio intradía
         else:
-            docs.sort(key=lambda x: x["fecha"])  # noqa: protect for next blocks
+            docs.sort(key=lambda x: x["fecha"])
 
         # 1D: si tenemos live, usamos su `pc` (previous close de Finnhub
         # — el cierre EOD más reciente). Sino, comparamos último vs
@@ -364,7 +363,6 @@ def get_quant_stats(ticker: str, window: int = 60) -> dict:
     underlying = _resolve_underlying(ticker)
     db = get_db_trading()
     col = db["PreciosAcciones"]
-    needed = max(window, 60) + 1  # buffer para 60d returns
 
     def _serie(t: str) -> list[float]:
         docs = list(col.find(

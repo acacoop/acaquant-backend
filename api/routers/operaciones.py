@@ -1203,8 +1203,9 @@ def ops_aranceles(
     desde: str = Query(..., description="YYYY-MM-DD"),
     hasta: str = Query(..., description="YYYY-MM-DD"),
     agg: str = Query("MENSUAL", description="MENSUAL | DIARIO"),
-    nivel3: str | None = Query(None, description="Filtra a un nivel_3 (cross-filter)"),
-    cuenta: str | None = Query(None, description="Filtra a una denominación (cross-filter)"),
+    cuenta: str | None = Query(None, description="Cross-filter: denominación seleccionada"),
+    instrumento: str | None = Query(None, description="Cross-filter: instrumento seleccionado"),
+    sel_dim: str | None = Query(None, description="Cross-filter: valor seleccionado de la dim izquierda"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
     dim: str = Query("nivel3", description="Dimensión de la tabla izquierda: nivel3 | operacion | operador"),
     serie_full: bool = Query(False, description="True = serie histórica completa (botón ALL); default ~18m"),
@@ -1243,26 +1244,60 @@ def ops_aranceles(
             {"$project": {"_id": 0, "periodo": "$_id", "arancel": {"$round": ["$ar", 2]}}},
         ]))
 
-    # TABLAS (acotadas a [desde,hasta] → rápidas por índice). Cross-filter
-    # ASIMÉTRICO: la selección filtra SOLO la tabla opuesta.
+    # TABLAS (acotadas a [desde,hasta] → rápidas por índice). CROSS-FILTER COMPLETO:
+    # las 3 tablas (dim izq · cuentas · instrumentos) se filtran entre sí — cada una
+    # aplica las selecciones de las OTRAS dos, no la propia.
     match_t = _arancel_match(moneda, segmento=segmento)
     aplicar_scope_cuenta(match_t, scope, campo="cuenta")
     date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
-    f_n3 = [{"$match": {"denominacion": cuenta}}] if cuenta else []  # cuenta → filtra tabla izq
-    f_cta = [{"$match": {"nivel_3": nivel3}}] if nivel3 else []      # nivel3 → filtra cuentas
-    left_pipe = [{"$match": match_t}, date_m, *f_n3]
 
-    # TABLA IZQUIERDA (por_dim): nivel3 | operacion | operador (switch del front).
-    # operacion/nivel_3 son campos del boleto → $group directo. operador NO viene
-    # en la operación → se agrega por cuenta (==id_cuenta) y se mapea a Comitentes.
+    # Mapa operador (lazy): id_cuenta → operador (nombre/email/"(sin operador)").
+    _op_map: dict[str, str] = {}
+
+    def _operador_map() -> dict[str, str]:
+        if not _op_map:
+            _op_map.update({
+                str(c["id_cuenta"]): (c.get("operador_nombre") or c.get("operador_email") or "(sin operador)")
+                for c in get_db_clientes()["Comitentes"].find(
+                    {}, {"_id": 0, "id_cuenta": 1, "operador_email": 1, "operador_nombre": 1})
+            })
+        return _op_map
+
+    def _match_operador(valor: str) -> dict:
+        m = _operador_map()
+        if valor == "(sin operador)":
+            return {"cuenta": {"$nin": [k for k, v in m.items() if v != "(sin operador)"]}}
+        return {"cuenta": {"$in": [k for k, v in m.items() if v == valor]}}
+
+    # Sub-match de cada selección (None si no hay).
+    if sel_dim and dim == "operador":
+        m_dim: dict | None = _match_operador(sel_dim)
+    elif sel_dim and dim == "operacion":
+        m_dim = {"operacion": sel_dim}
+    elif sel_dim:
+        m_dim = {"nivel_3": sel_dim}
+    else:
+        m_dim = None
+    m_cuenta = {"denominacion": cuenta} if cuenta else None
+    m_instr = {"instrumento": instrumento} if instrumento else None
+
+    def _tabla(campo: str, key: str, *subs: dict | None) -> list[dict]:
+        etapas = [{"$match": s} for s in subs if s]
+        return list(db.aggregate([
+            {"$match": match_t}, date_m, *etapas,
+            {"$group": {"_id": campo, "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
+            {"$match": {"ar": {"$gt": 0}}},
+            {"$sort": {"ar": -1}},
+            {"$project": {"_id": 0, key: {"$ifNull": ["$_id", "(sin)"]},
+                          "arancel": {"$round": ["$ar", 2]}, "n": 1}},
+        ]))
+
+    # IZQUIERDA (por_dim): filtrada por cuenta + instrumento (no por sí misma).
     if dim == "operador":
-        det = {
-            str(c["id_cuenta"]): (c.get("operador_nombre") or c.get("operador_email") or "(sin operador)")
-            for c in get_db_clientes()["Comitentes"].find(
-                {}, {"_id": 0, "id_cuenta": 1, "operador_email": 1, "operador_nombre": 1})
-        }
+        det = _operador_map()
         acc: dict[str, dict] = {}
-        for r in db.aggregate([*left_pipe,
+        etapas = [{"$match": s} for s in (m_cuenta, m_instr) if s]
+        for r in db.aggregate([{"$match": match_t}, date_m, *etapas,
                 {"$group": {"_id": "$cuenta", "ar": {"$sum": arancel}, "n": {"$sum": 1}}}]):
             op = det.get(str(r["_id"]), "(sin operador)")
             a = acc.setdefault(op, {"ar": 0.0, "n": 0})
@@ -1275,28 +1310,19 @@ def ops_aranceles(
         )
     else:
         field = "$operacion" if dim == "operacion" else "$nivel_3"
-        por_dim = list(db.aggregate([*left_pipe,
-            {"$group": {"_id": field, "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
-            {"$match": {"ar": {"$gt": 0}}},
-            {"$sort": {"ar": -1}},
-            {"$project": {"_id": 0, "clave": {"$ifNull": ["$_id", "(sin)"]},
-                          "arancel": {"$round": ["$ar", 2]}, "n": 1}},
-        ]))
+        por_dim = _tabla(field, "clave", m_cuenta, m_instr)
 
-    # TABLA DERECHA (por_cuenta): siempre por denominación.
-    por_cuenta = list(db.aggregate([{"$match": match_t}, date_m, *f_cta,
-        {"$group": {"_id": "$denominacion", "ar": {"$sum": arancel}, "n": {"$sum": 1}}},
-        {"$match": {"ar": {"$gt": 0}}},
-        {"$sort": {"ar": -1}},
-        {"$project": {"_id": 0, "denominacion": {"$ifNull": ["$_id", "(sin)"]},
-                      "arancel": {"$round": ["$ar", 2]}, "n": 1}},
-    ]))
+    # DERECHA ARRIBA (por_cuenta): filtrada por dim + instrumento.
+    por_cuenta = _tabla("$denominacion", "denominacion", m_dim, m_instr)
+    # DERECHA ABAJO (por_instrumento): filtrada por dim + cuenta.
+    por_instrumento = _tabla("$instrumento", "instrumento", m_dim, m_cuenta)
+
     return {
         "moneda": moneda, "desde": desde, "hasta": hasta, "agg": agg, "dim": dim,
         "serie": serie,
         "por_dim": por_dim,
-        "por_nivel3": por_dim,   # alias backward-compat (front viejo)
         "por_cuenta": por_cuenta,
+        "por_instrumento": por_instrumento,
         "total": round(sum(r["arancel"] for r in por_dim), 2),
     }
 

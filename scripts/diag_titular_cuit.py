@@ -23,7 +23,12 @@ _BRACKET = re.compile(r"^\[\s*([A-Za-z./]+)\s+([0-9.\-]+)\s*\]")
 def main() -> int:
     resp = aunesa.get("cuentas/listadoCuentas", params={"tipoCuenta": "Comitente"})
     data = resp.json()
-    cuentas = data.get("cuentas") or data.get("data") or (data if isinstance(data, list) else [])
+    if isinstance(data, list):
+        cuentas = data
+    elif isinstance(data, dict):
+        cuentas = data.get("cuentas") or data.get("data") or []
+    else:
+        cuentas = []
     print(f"cuentas Comitente: {len(cuentas)}")
 
     tipos: Counter = Counter()

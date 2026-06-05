@@ -193,11 +193,11 @@ def _volumen_total(ids: tuple[str, ...], fecha_desde: str | None,
 
 # ── ARANCEL desde CashFlow.Operaciones (fuente completa) ─────────────────────
 # El arancel migró a Operaciones: incluye futuros y demás tipos que
-# NegocioMovimientos dejaba afuera. Join por `cuenta` (== id_cuenta). Excluye
-# Cierre (duplicaría) y etapa="solicitud" (FCI pedido; la liquidación ya cuenta).
-# El VOLUMEN sigue en NegocioMov hasta estampar el `mep` del día en Operaciones.
-# Cierre se filtra por el campo materializado `es_cierre` (indexable) en vez de
-# `$not /Cierre/` (regex negada = COLLSCAN). Ver operaciones_informes._aplicar_enrich.
+# NegocioMovimientos dejaba afuera. Join por `cuenta` (== id_cuenta). Filtra
+# etapa="solicitud" (FCI pedido; la liquidación ya cuenta). NO filtra es_cierre:
+# el arancel de caución vive SOLO en el cierre (es_cierre=True) y el filtro
+# `arancel>0` ya descarta los cierres no-caución (que no tienen fee). Ver
+# diag_aranceles_caucion. El VOLUMEN sigue en NegocioMov hasta estampar el `mep`.
 
 
 def _aranceles_por_cuenta(
@@ -205,7 +205,7 @@ def _aranceles_por_cuenta(
 ) -> dict[str, dict[str, float]]:
     """{cuenta: {ar_total, ar_mes}} desde Operaciones. `ids=None` → todas las cuentas."""
     match: dict[str, Any] = {
-        "arancel": {"$gt": 0}, "es_cierre": False, "etapa": {"$ne": "solicitud"},
+        "arancel": {"$gt": 0}, "etapa": {"$ne": "solicitud"},
     }
     if ids is not None:
         match["cuenta"] = {"$in": list(ids)}
@@ -978,7 +978,7 @@ def informe_segmento_detalle(
     ops_coll = get_db_cashflow()["Operaciones"]
     ops_match: dict[str, Any] = {
         "cuenta": {"$in": ids}, "arancel": {"$gt": 0},
-        "es_cierre": False, "etapa": {"$ne": "solicitud"},
+        "etapa": {"$ne": "solicitud"},   # sin es_cierre: incluye el cierre de caución (donde está el fee)
     }
 
     clientes = []

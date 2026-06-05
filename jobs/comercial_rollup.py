@@ -9,7 +9,7 @@ Este job pre-agrega al grano {fecha, id_cuenta}, COMBINANDO las dos fuentes que 
 informe usa hoy (mismas categorías / mismo $match → equivalente por construcción):
     - VOLUMEN: CashFlow.NegocioMovimientos — categorías de volumen, pesificado ARS
       (_PESIF: ARS=|importe|, USD=|importe|×mep del boleto). Campo de fecha: `fecha`.
-    - ARANCEL: CashFlow.Operaciones — arancel>0, es_cierre=False, etapa≠solicitud.
+    - ARANCEL: CashFlow.Operaciones — arancel>0, etapa≠solicitud (incl. cierre de caución).
       Join cuenta==id_cuenta. Campo de fecha: `concertacion` (→ se guarda como `fecha`).
 Grano (1 doc por combo): {fecha, id_cuenta} → {vol, n_ops, arancel}. El informe y la
 serie pasan a leer ~40k filas indexadas en vez de escanear 338k+488k. La dolarización
@@ -59,8 +59,10 @@ def _agg_volumen(nm, desde: str | None):
 
 
 def _agg_arancel(ops, desde: str | None):
-    """{concertacion, cuenta} → arancel (Σ). Mismo match que _aranceles_por_cuenta."""
-    match: dict = {"arancel": {"$gt": 0}, "es_cierre": False, "etapa": {"$ne": "solicitud"}}
+    """{concertacion, cuenta} → arancel (Σ). Mismo match que _aranceles_por_cuenta.
+    SIN es_cierre: el arancel de caución vive en el cierre (arancel>0 ya descarta
+    los cierres no-caución)."""
+    match: dict = {"arancel": {"$gt": 0}, "etapa": {"$ne": "solicitud"}}
     if desde:
         match["concertacion"] = {"$gte": desde}
     return ops.aggregate([

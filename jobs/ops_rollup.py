@@ -42,7 +42,12 @@ def _ensure_indexes(col) -> None:
 def _agregar(ops, desde: str | None) -> list[dict]:
     """Agrega Operaciones (subconjunto countable) al grano del rollup. Si `desde`,
     solo desde esa fecha de concertación."""
-    match: dict = {"es_cierre": False, "etapa": {"$ne": "solicitud"}}
+    # Incluimos los CIERRES con arancel (cauciones: el arancel vive SOLO en el
+    # cierre — ver diag_aranceles_caucion). Su `bruto` NO cuenta como volumen
+    # (repetiría el nocional) → se fuerza a 0; sólo aporta arancel. Los cierres
+    # SIN arancel (no-caución) quedan afuera del $or.
+    match: dict = {"etapa": {"$ne": "solicitud"},
+                   "$or": [{"es_cierre": False}, {"es_cierre": True, "arancel": {"$ne": 0}}]}
     if desde:
         match["concertacion"] = {"$gte": desde}
     grupo: dict = {d: f"${d}" for d in _DIMS}
@@ -51,7 +56,9 @@ def _agregar(ops, desde: str | None) -> list[dict]:
         {"$match": match},
         {"$group": {
             "_id": grupo,
-            "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}},
+            # bruto del cierre = 0 (no es volumen nuevo); el resto suma normal.
+            "bruto": {"$sum": {"$cond": [{"$eq": ["$es_cierre", True]},
+                                         0, {"$ifNull": ["$bruto", 0]}]}},
             # arancel en valor ABSOLUTO: la serie de /ops/aranceles usa $abs
             # (los aranceles negativos —reintegros— se cuentan en magnitud).
             "arancel": {"$sum": {"$abs": {"$ifNull": ["$arancel", 0]}}},

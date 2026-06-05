@@ -853,6 +853,28 @@ def _ops_match(
     return m
 
 
+def _arancel_match(
+    moneda: str,
+    mercado: str | None = None,
+    *,
+    segmento: str | None = None,
+    denominacion: str | None = None,
+    cuenta: str | None = None,
+) -> dict:
+    """Como `_ops_match` pero para sumar ARANCEL: incluye los CIERRES con arancel.
+
+    El arancel de caución vive SOLO en el cierre (es_cierre=True); las aperturas
+    NO traen arancel (verificado con scripts/diag_aranceles_caucion: $121,6M en el
+    cierre, 0 en la apertura). El filtro de volumen (_ops_match → es_cierre=False)
+    los excluía y los PERDÍA. Acá los incluimos sin arrastrar compras/ventas: los
+    cierres que NO son caución no tienen arancel, así que el `$or` sólo suma fees.
+    """
+    m = _ops_match(moneda, mercado, denominacion=denominacion, cuenta=cuenta, segmento=segmento)
+    del m["es_cierre"]
+    m["$or"] = [{"es_cierre": False}, {"es_cierre": True, "arancel": {"$ne": 0}}]
+    return m
+
+
 @router.get("/ops/mercados")
 @cached(ttl=300)
 def ops_mercados():
@@ -1161,7 +1183,8 @@ def _serie_arancel_rollup(cf, moneda, segmento, plen, serie_full) -> list[dict] 
         return None
     serie = {r["_id"]: r["ar"] for r in rollup}
     # Hoy en vivo (un día → índice concertacion). abs(arancel), moneda+segmento.
-    hoy_match = _ops_match(moneda, None, segmento=segmento)
+    # _arancel_match: incluye los cierres de caución (es donde está el arancel).
+    hoy_match = _arancel_match(moneda, segmento=segmento)
     hoy_match["concertacion"] = hoy
     hoy_doc = next(iter(cf["Operaciones"].aggregate([
         {"$match": hoy_match},
@@ -1203,7 +1226,7 @@ def ops_aranceles(
     if scope is None:
         serie = _serie_arancel_rollup(cf, moneda, segmento, plen, serie_full)
     if serie is None:
-        match_s = _ops_match(moneda, None, segmento=segmento)
+        match_s = _arancel_match(moneda, segmento=segmento)
         aplicar_scope_cuenta(match_s, scope, campo="cuenta")
         if serie_full:
             serie_ventana: list[dict] = []
@@ -1221,7 +1244,7 @@ def ops_aranceles(
 
     # TABLAS (acotadas a [desde,hasta] → rápidas por índice). Cross-filter
     # ASIMÉTRICO: la selección filtra SOLO la tabla opuesta.
-    match_t = _ops_match(moneda, None, segmento=segmento)
+    match_t = _arancel_match(moneda, segmento=segmento)
     aplicar_scope_cuenta(match_t, scope, campo="cuenta")
     date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
     f_n3 = [{"$match": {"denominacion": cuenta}}] if cuenta else []  # cuenta → filtra nivel3

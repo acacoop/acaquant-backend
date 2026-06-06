@@ -181,10 +181,14 @@ def sync_operaciones(mdb, conn, dry, desde: datetime | None) -> tuple[int, int]:
         "boleto": 1, "concertacion": 1, "cuenta": 1, "denominacion": 1, "moneda": 1,
         "mercado": 1, "operacion": 1, "segmento": 1, "nivel_3": 1, "commodity": 1,
         "es_cierre": 1, "etapa": 1, "bruto": 1, "arancel": 1,
+        # Campos de la vista OPERACIONES (migración a SQL):
+        "cantidad": 1, "instrumento": 1, "tipo_operacion": 1, "condiciones": 1,
+        "ingestado_en": 1,
     }
     cols = ["boleto", "concertacion", "id_cuenta", "denominacion", "moneda", "mercado",
             "operacion", "segmento", "nivel_3", "commodity", "es_cierre", "etapa",
-            "bruto", "arancel"]
+            "bruto", "arancel",
+            "cantidad", "instrumento", "tipo_operacion", "condiciones", "ingestado_en"]
     total, sin_boleto = 0, 0
     cur = mdb["CashFlow"]["Operaciones"].find(q, proj, batch_size=BATCH)
     for batch in _iter_batches(cur):
@@ -200,6 +204,8 @@ def sync_operaciones(mdb, conn, dry, desde: datetime | None) -> tuple[int, int]:
                 _s(d.get("operacion")), _s(d.get("segmento")), _s(d.get("nivel_3")),
                 _s(d.get("commodity")), d.get("es_cierre"), _s(d.get("etapa")),
                 d.get("bruto"), d.get("arancel"),
+                d.get("cantidad"), _s(d.get("instrumento")), _s(d.get("tipo_operacion")),
+                _s(d.get("condiciones")), d.get("ingestado_en"),
             ))
         total += _upsert(conn, "operaciones", cols, ["boleto"], _dedup(rows, [0]), dry)
         time.sleep(THROTTLE)

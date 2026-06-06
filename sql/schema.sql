@@ -58,25 +58,45 @@ CREATE INDEX IF NOT EXISTS ix_contrapartes_segmento ON contrapartes(segmento);
 -- CashFlow.Operaciones (~490k). boleto es único (uq_boleto_full) pero hay docs
 -- sin boleto → PK surrogate + boleto unique-nullable.
 CREATE TABLE IF NOT EXISTS operaciones (
-    id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    boleto        text UNIQUE,
-    concertacion  date,                      -- TODO:validar (Mongo guarda 'YYYY-MM-DD' string)
-    id_cuenta     text,                      -- soft ref (puede ser huérfano)
-    denominacion  text,
-    moneda        text,
-    mercado       text,
-    operacion     text,
-    segmento      text,
-    nivel_3       text,
-    commodity     text,
-    es_cierre     boolean,
-    etapa         text,
-    bruto         numeric,                   -- TODO:validar escala/decimales
-    arancel       numeric                    -- siempre en ARS
+    id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    boleto         text UNIQUE,
+    concertacion   date,                      -- Mongo guarda 'YYYY-MM-DD' string → casteado a date
+    id_cuenta      text,                      -- soft ref (puede ser huérfano). Mongo: campo `cuenta`
+    denominacion   text,
+    moneda         text,
+    mercado        text,
+    operacion      text,
+    segmento       text,
+    nivel_3        text,
+    commodity      text,
+    es_cierre      boolean,
+    etapa          text,
+    bruto          numeric,
+    arancel        numeric,                   -- siempre en ARS
+    -- Agregados en la migración de la vista OPERACIONES a SQL (ver docs/SQL.md):
+    cantidad       numeric,                   -- toneladas agro, drill-down boletos
+    instrumento    text,                      -- agro (regex MIN), por_instrumento, boletos
+    tipo_operacion text,                      -- output de /ops/boletos
+    condiciones    text,                      -- output de /ops/boletos
+    ingestado_en   timestamptz                -- /ops/meta (max ingesta del día)
 );
+-- La tabla ya estaba creada en Supabase → CREATE IF NOT EXISTS NO agrega columnas.
+-- Estos ALTER son idempotentes y SÍ las agregan a la tabla existente.
+ALTER TABLE operaciones ADD COLUMN IF NOT EXISTS cantidad       numeric;
+ALTER TABLE operaciones ADD COLUMN IF NOT EXISTS instrumento    text;
+ALTER TABLE operaciones ADD COLUMN IF NOT EXISTS tipo_operacion text;
+ALTER TABLE operaciones ADD COLUMN IF NOT EXISTS condiciones    text;
+ALTER TABLE operaciones ADD COLUMN IF NOT EXISTS ingestado_en   timestamptz;
+
 CREATE INDEX IF NOT EXISTS ix_ops_concertacion ON operaciones(concertacion);
 CREATE INDEX IF NOT EXISTS ix_ops_id_cuenta    ON operaciones(id_cuenta);
 CREATE INDEX IF NOT EXISTS ix_ops_moneda_cierre ON operaciones(moneda, es_cierre);
+-- Patrones de la vista OPERACIONES en SQL (agregar live, sin rollup):
+CREATE INDEX IF NOT EXISTS ix_ops_moneda_concert ON operaciones(moneda, concertacion);
+CREATE INDEX IF NOT EXISTS ix_ops_segmento_concert ON operaciones(segmento, concertacion);
+CREATE INDEX IF NOT EXISTS ix_ops_ingestado ON operaciones(ingestado_en);
+CREATE INDEX IF NOT EXISTS ix_ops_commodity_concert ON operaciones(commodity, concertacion)
+    WHERE commodity IN ('SOJA', 'TRIGO', 'MAIZ');
 
 -- Valuaciones.AuM (~291k). Grano único (fecha_snapshot, id_cuenta, unidad).
 CREATE TABLE IF NOT EXISTS aum (

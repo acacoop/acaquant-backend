@@ -272,7 +272,13 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 
 ## Deploy
 
-Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `systemctl restart api.service` en el Droplet, o skill `/deploy`. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`. Colecciones `*API.*API` se re-sync via `jobs/sync_api_copies.py` encadenado post-job fuente; manual con `scripts.api_migrate <cmd>`.
+Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `systemctl restart api.service` en el Droplet, o skill `/deploy`. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`.
+
+> **Las colecciones espejo `*API` fueron ELIMINADAS (2026-06-06).** La API lee
+> las fuentes directo (`CashFlow.*`, `Valuaciones.AuM/Assets`) y, para el join
+> Curvas+BondsMaster y la normalización de Assets, usa el servicio
+> `api/services/titulos_flujos.py`. Ya NO existen `jobs/sync_api_copies.py` ni
+> `scripts/api_migrate.py`. Ver memoria `project_api_migrations` (obsoleta).
 
 Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.aum` (23 L-V), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `MarketSnapshot` y persiste cierre por bono en `Trading.SnapshotsCierre`), `jobs.negocio_movimientos` (cada hora 15-22 UTC L-V, pega a Aunesa `consolidadosGenerales`, parsea/categoriza/agrupa por boleto y persiste idempotente en `CashFlow.NegocioMovimientos` para la vista `/operaciones/negocio`).
 

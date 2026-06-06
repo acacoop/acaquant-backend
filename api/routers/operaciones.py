@@ -1,6 +1,7 @@
 """Router Operaciones: endpoints para MesaAPI (flujo contrapartes), FlujosAPI
 (movimientos) y NegocioMovimientos (vista de negocio del día)."""
 import logging
+import os
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -9,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.cache import cached
 from api.db import get_db_cashflow, get_db_clientes, get_db_valuaciones
+from api.services import operaciones_sql as _ops_sql
 from api.services._cuentas_filter import (
     VALID_FILTERS as _NEGOCIO_CUENTA_FILTROS_VALID,
 )
@@ -821,6 +823,16 @@ def negocio(
 
 _OPS_MONEDAS = ("ARS", "USD")
 
+
+def _motor(req: str | None) -> str:
+    """Motor de datos para la vista OPERACIONES. Override por request `?_engine=sql|mongo`
+    (para A/B en prod); si no, el global env `OPERACIONES_SQL=1` → 'sql', sino 'mongo'.
+    Mongo es el default hasta el cutover. La salida SQL == Mongo (validado por
+    scripts/compare_ops_sql_vs_mongo). El scope se aplica en ambos motores."""
+    if req in ("sql", "mongo"):
+        return req
+    return "sql" if os.getenv("OPERACIONES_SQL") == "1" else "mongo"
+
 # La serie del gráfico de aranceles se acota por defecto a esta ventana (cubre
 # de sobra los botones 1W…1A). El aggregate sobre toda la historia escanea
 # ~180k-300k docs (~1-1.5s, medido scripts/diag_perf_aranceles) y aggregation
@@ -885,16 +897,20 @@ def _arancel_match(
 
 @router.get("/ops/mercados")
 @cached(ttl=300)
-def ops_mercados():
+def ops_mercados(_engine: str | None = Query(None, include_in_schema=False)):
     """Mercados distintos (para el selector). Cacheado."""
+    if _motor(_engine) == "sql":
+        return _ops_sql.ops_mercados()
     db = get_db_cashflow()["Operaciones"]
     return {"mercados": sorted(x for x in db.distinct("mercado") if x)}
 
 
 @router.get("/ops/fechas")
 @cached(ttl=120)
-def ops_fechas():
+def ops_fechas(_engine: str | None = Query(None, include_in_schema=False)):
     """Fechas con operaciones (desc) + count, para el selector de fecha."""
+    if _motor(_engine) == "sql":
+        return _ops_sql.ops_fechas()
     db = get_db_cashflow()["Operaciones"]
     rows = list(db.aggregate([
         {"$group": {"_id": "$concertacion", "n": {"$sum": 1}}},
@@ -905,8 +921,11 @@ def ops_fechas():
 
 @router.get("/ops/meta")
 @cached(ttl=120)
-def ops_meta(fecha: str = Query(..., description="YYYY-MM-DD")):
+def ops_meta(fecha: str = Query(..., description="YYYY-MM-DD"),
+             _engine: str | None = Query(None, include_in_schema=False)):
     """Metadata del día: # boletos + última ingesta + # mercados."""
+    if _motor(_engine) == "sql":
+        return _ops_sql.ops_meta(fecha=fecha)
     db = get_db_cashflow()["Operaciones"]
     rows = list(db.aggregate([
         {"$match": {"concertacion": fecha}},
@@ -969,6 +988,7 @@ def ops_serie(
     cuenta: str | None = Query(None, description="Filtra a una cuenta (búsqueda)"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Serie diaria: Σ bruto por fecha (las barras del gráfico).
 
@@ -977,6 +997,10 @@ def ops_serie(
     denominacion/cuenta/scoped → live (ya filtra por índice, no escanea todo)."""
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
+    if _motor(_engine) == "sql":
+        return _ops_sql.ops_serie(moneda=moneda, mercado=mercado, operacion=operacion,
+                                  denominacion=denominacion, cuenta=cuenta, segmento=segmento,
+                                  scope=scope)
     cf = get_db_cashflow()
     serie: list[dict] | None = None
     if not denominacion and not cuenta and scope is None:
@@ -1005,6 +1029,7 @@ def ops_resumen(
     cuenta: str | None = Query(None, description="Filtra a una cuenta (búsqueda)"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Scope [desde,hasta]: Σ bruto por operacion y por denominacion.
 
@@ -1014,6 +1039,10 @@ def ops_resumen(
     """
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
+    if _motor(_engine) == "sql":
+        return _ops_sql.ops_resumen(moneda=moneda, mercado=mercado, desde=desde, hasta=hasta,
+                                    operacion=operacion, denominacion=denominacion, cuenta=cuenta,
+                                    segmento=segmento, scope=scope)
     db = get_db_cashflow()["Operaciones"]
     base = _ops_match(moneda, mercado, cuenta=cuenta, segmento=segmento)
     base["concertacion"] = {"$gte": desde, "$lte": hasta}
@@ -1062,6 +1091,7 @@ def ops_agro(
     commodity: str | None = Query(None, description="SOJA/TRIGO/MAIZ (cross-filter)"),
     cuenta: str | None = Query(None, description="Filtra a una cuenta (denominación exacta)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Futuros agropecuarios: Σ TONELADAS por periodo (mes/día) y commodity
     (SOJA/TRIGO/MAIZ). Lógica: tipo 'Futuros' sin 'Financieros', sin OTC;
@@ -1072,6 +1102,9 @@ def ops_agro(
     `serie_share` (% mensual nuestro/mercado por commodity, tab "Share de
     mercado"; lee CashFlow.VolumenMercadoAgro), `totales` (Σ por commodity),
     `por_cuenta` y `por_instrumento` (acotados al rango [desde,hasta])."""
+    if _motor(_engine) == "sql":
+        return _ops_sql.ops_agro(desde=desde, hasta=hasta, agg=agg, commodity=commodity,
+                                 cuenta=cuenta, scope=scope)
     dbcf = get_db_cashflow()
     db = dbcf["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10
@@ -1219,6 +1252,7 @@ def ops_aranceles(
     dim: str = Query("nivel3", description="Dimensión de la tabla izquierda: nivel3 | operacion | operador"),
     serie_full: bool = Query(False, description="True = serie histórica completa (botón ALL); default ~18m"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Σ aranceles por periodo (gráfico), por nivel_3 (izq) y por cliente (der).
 
@@ -1227,6 +1261,11 @@ def ops_aranceles(
     (ya usan índice)."""
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
+    if _motor(_engine) == "sql":
+        return _ops_sql.ops_aranceles(moneda=moneda, desde=desde, hasta=hasta, agg=agg,
+                                      cuenta=cuenta, instrumento=instrumento, sel_dim=sel_dim,
+                                      segmento=segmento, dim=dim, serie_full=serie_full,
+                                      scope=scope)
     cf = get_db_cashflow()
     db = cf["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10
@@ -1343,8 +1382,11 @@ def ops_aranceles(
 
 @router.get("/ops/cuentas-list")
 @cached(ttl=3600)
-def ops_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas)):
+def ops_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas),
+                     _engine: str | None = Query(None, include_in_schema=False)):
     """Denominaciones (+ cuenta) distintas — fuente del buscador."""
+    if _motor(_engine) == "sql":
+        return _ops_sql.ops_cuentas_list(scope=scope)
     db = get_db_cashflow()["Operaciones"]
     rows = list(db.aggregate([
         {"$group": {"_id": "$cuenta", "denom": {"$first": "$denominacion"}}},
@@ -1356,8 +1398,10 @@ def ops_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas)):
 
 @router.get("/ops/segmentos")
 @cached(ttl=600)
-def ops_segmentos():
+def ops_segmentos(_engine: str | None = Query(None, include_in_schema=False)):
     """Segmentos (nivel_1) distintos, para el filtro."""
+    if _motor(_engine) == "sql":
+        return _ops_sql.ops_segmentos()
     db = get_db_cashflow()["Operaciones"]
     return {"segmentos": sorted(s for s in db.distinct("segmento") if s)}
 
@@ -1374,8 +1418,13 @@ def ops_boletos(
     mercado: str | None = Query(None),
     segmento: str | None = Query(None),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Boletos individuales (drill-down al tocar una cuenta/denominación)."""
+    if _motor(_engine) == "sql":
+        return _ops_sql.ops_boletos(desde=desde, hasta=hasta, moneda=moneda,
+                                    denominacion=denominacion, cuenta=cuenta, operacion=operacion,
+                                    mercado=mercado, segmento=segmento, scope=scope)
     db = get_db_cashflow()["Operaciones"]
     match = _ops_match(moneda, mercado, operacion, denominacion, cuenta, segmento)
     match["concertacion"] = {"$gte": desde, "$lte": hasta}

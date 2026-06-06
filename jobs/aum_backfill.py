@@ -231,7 +231,7 @@ def main():
         except (json.JSONDecodeError, OSError):
             registros = []
     registros = [r for r in registros if r.get("fecha_snapshot") != fecha_snapshot]
-    for cid, den, err in fallidas:
+    for cid, _den, err in fallidas:
         registros.append({"fecha_snapshot": fecha_snapshot,
                            "id_cuenta": cid, "error": err})
     registros.sort(key=lambda r: (r.get("fecha_snapshot", ""),

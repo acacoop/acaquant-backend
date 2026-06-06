@@ -7,7 +7,6 @@ import pytest
 
 from quant.xirr import xirr
 
-
 # ─── Caso canónico Excel ─────────────────────────────────────────────
 #
 # =TIR.NO.PER({-10000, 2750, 4250, 3250, 2750}, {01/01/08, 01/03/08,

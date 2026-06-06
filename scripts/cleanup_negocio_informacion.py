@@ -72,7 +72,7 @@ def main() -> int:
         print(f"   {r['n']:>10,}".replace(",", ".") + f"   {val}")
 
     if not args.apply:
-        print(f"\n[DRY-RUN] no se borró nada. Re-correr con --apply.")
+        print("\n[DRY-RUN] no se borró nada. Re-correr con --apply.")
         return 0
 
     print(f"\n⚠️  Borrando {n_total:,} docs…".replace(",", "."))

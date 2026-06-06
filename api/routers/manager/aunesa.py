@@ -21,7 +21,7 @@ from api.auth import get_user_email
 from api.services import aunesa_negocio as svc
 from api.services._negocio_arancelables import match_solo_arancelables
 from api.services._negocio_futuros import match_no_futuros
-from api.services.aunesa_aranceles import resolver_cuentas, run_backfill
+from api.services.aunesa_aranceles import run_backfill
 from core.mongo import get_mongo_client, get_mongo_client_read
 
 router = APIRouter()
@@ -289,7 +289,7 @@ def _run_job(job_id: str, req: BackfillReq, desde_d: date, hasta_d: date) -> Non
             {"_id": job_id},
             {"$set": {"status": "done", "finished_at": datetime.now(UTC)}},
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.exception("backfill aranceles job %s falló", job_id)
         col.update_one(
             {"_id": job_id},

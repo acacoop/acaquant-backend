@@ -5,7 +5,6 @@ from datetime import date
 
 from jobs.fair_value import _en_universo_fit
 
-
 HOY = date(2026, 4, 27)
 VOL_MIN = 50_000_000
 

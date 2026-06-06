@@ -41,10 +41,7 @@ def es_excluido(informacion: str | None) -> bool:
     """True si `informacion` contiene cualquiera de los substrings canónicos."""
     if not informacion:
         return False
-    for s in EXCLUIR_INFORMACION_CONTAINS:
-        if s in informacion:
-            return True
-    return False
+    return any(s in informacion for s in EXCLUIR_INFORMACION_CONTAINS)
 
 
 def match_excluir_informacion() -> dict:

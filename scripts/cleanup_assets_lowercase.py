@@ -70,7 +70,7 @@ def main() -> int:
         return 0
 
     if not args.apply:
-        print(f"\n[DRY-RUN] no se modificó nada. Re-correr con --apply.")
+        print("\n[DRY-RUN] no se modificó nada. Re-correr con --apply.")
         return 0
 
     print(f"\n⚠️  Limpiando {n_total:,} docs…".replace(",", "."))

@@ -27,7 +27,8 @@ import os
 import threading
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import ClassVar
 
 import pyRofex
 from pymongo import UpdateOne
@@ -70,7 +71,7 @@ class CedearsEngine:
 
     # Entries que pedimos a pyRofex — solo lo que persiste el snapshot
     # (sin BIDS/OFFERS/EV/NV porque no escribimos esos campos hoy).
-    _ENTRIES = [
+    _ENTRIES: ClassVar[list] = [
         pyRofex.MarketDataEntry.LAST,
         pyRofex.MarketDataEntry.OPENING_PRICE,
         pyRofex.MarketDataEntry.HIGH_PRICE,
@@ -180,7 +181,7 @@ class CedearsEngine:
         while True:
             time.sleep(1)
             try:
-                ts = datetime.now(timezone.utc)
+                ts = datetime.now(UTC)
                 ops = []
                 for ticker in self.tickers:
                     st = self.market_state[ticker]

@@ -44,7 +44,7 @@ def ping(var: str) -> None:
         dt = (time.perf_counter() - t0) * 1000
         print(f"  {var:<22s}  ✓ OK   user={user}   {dt:.0f} ms")
         c.close()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         dt = (time.perf_counter() - t0) * 1000
         # Truncamos el error largo (Atlas tira mucho ruido).
         msg = str(e).splitlines()[0][:140]

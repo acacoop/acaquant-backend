@@ -15,8 +15,7 @@ from __future__ import annotations
 
 import math
 import statistics
-from typing import Sequence
-
+from collections.abc import Sequence
 
 # Días hábiles por año — base para anualizar vol y alpha.
 TRADING_DAYS_PER_YEAR = 252

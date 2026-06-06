@@ -31,7 +31,7 @@ Uso manual:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from core.finnhub import FinnhubError, quote
 from core.mongo import get_mongo_client
@@ -60,7 +60,7 @@ def run() -> None:
 
     client = get_mongo_client()
     col = client["Trading"]["AdrSnapshot"]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     ok = 0
     fail = 0

@@ -18,7 +18,7 @@ Read-only sobre Mongo. Excepciones se capturan en el caller.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from core.mongo import get_mongo_client_read
 
@@ -27,7 +27,7 @@ _PLACEHOLDERS = {"", "NO APLICA"}
 
 
 def _hoy_art_iso() -> str:
-    return (datetime.now(timezone.utc) + ART_OFFSET).strftime("%Y-%m-%d")
+    return (datetime.now(UTC) + ART_OFFSET).strftime("%Y-%m-%d")
 
 
 def _set_pyrofex_24hs() -> set[str]:

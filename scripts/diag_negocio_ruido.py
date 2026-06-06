@@ -82,7 +82,7 @@ def _cross_match(col, label: str, match: dict[str, Any]) -> None:
     _print_header(f"CRUCE: {label}")
     n_total = col.count_documents(match)
     if n_total == 0:
-        print(f"   0 docs matchean — no hay nada que mostrar.")
+        print("   0 docs matchean — no hay nada que mostrar.")
         return
 
     rows = list(col.aggregate([

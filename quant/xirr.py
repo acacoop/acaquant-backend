@@ -33,8 +33,8 @@ Validado contra Excel TIR.NO.PER con casos canónicos (ver tests).
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
-from typing import Sequence
 
 DAYS_PER_YEAR = 365.0
 _MAX_ITER_NEWTON = 200

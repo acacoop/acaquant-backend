@@ -9,6 +9,7 @@ Env var: POSTGRES_URI (connection string de Supabase; va en el .env, NUNCA en el
 from __future__ import annotations
 
 import os
+import threading
 
 import psycopg
 from dotenv import load_dotenv
@@ -17,6 +18,9 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
 
 POSTGRES_URI = os.getenv("POSTGRES_URI")
+
+_pool = None
+_pool_lock = threading.Lock()
 
 
 def get_postgres_uri() -> str:
@@ -29,7 +33,28 @@ def get_postgres_uri() -> str:
 
 
 def connect() -> psycopg.Connection:
-    """Nueva conexión psycopg. El caller la cierra — usar como context manager:
-    `with connect() as conn: ...`. Para el sync/smoke (batch) alcanza una conexión
-    por corrida; el pool para la API (lecturas concurrentes) se agrega en Fase C."""
+    """Nueva conexión psycopg standalone. El caller la cierra — usar como context
+    manager: `with connect() as conn: ...`. Para batch (sync/smoke/scripts) alcanza
+    una conexión por corrida. La API usa el pool (`get_pool`), no esto."""
     return psycopg.connect(get_postgres_uri())
+
+
+def get_pool():
+    """Pool de conexiones para la API (lecturas concurrentes de la capa SQL).
+
+    Singleton lazy (igual patrón que los singletons de Mongo): se abre una vez y se
+    reusa — NUNCA cerrarlo por request. Usar como:
+        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            ...
+    `psycopg_pool` se importa adentro para no pagarlo en procesos batch que solo
+    usan `connect()`."""
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                from psycopg_pool import ConnectionPool
+                _pool = ConnectionPool(
+                    get_postgres_uri(), min_size=1, max_size=8, open=True,
+                    kwargs={"options": "-c statement_timeout=15000"},
+                )
+    return _pool

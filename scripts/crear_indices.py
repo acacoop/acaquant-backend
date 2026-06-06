@@ -112,10 +112,6 @@ def main():
             "AssetsAPI: cartera"),
         (titulos_api["AssetsAPI"], [("emisor", 1), ("cartera", 1)],
             "AssetsAPI: emisor + cartera"),
-        (titulos_api["ValuacionesAPI"], [("curva", 1)],
-            "ValuacionesAPI: curva"),
-        (titulos_api["ValuacionesAPI"], [("ticker", 1)],
-            "ValuacionesAPI: ticker"),
 
         # ── Clientes.ActividadMensual (snapshot mensual de cuentas activas) ─
         # Clave única mes×cuenta; serie por operador filtra (operador, mes).

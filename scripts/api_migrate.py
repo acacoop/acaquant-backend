@@ -4,10 +4,11 @@ Herramienta: infra · Re-sincroniza las colecciones *API derivadas (drop+insert 
 
 Uso:
     python -m scripts.api_migrate assets            → copia Valuaciones.Assets → TitulosAPI.AssetsAPI
-    python -m scripts.api_migrate flujos-titulos    → merge Trading.Curvas + Trading.BondsMaster → TitulosAPI.ValuacionesAPI
 
-Nota: CuentasAPI, OperacionesAPI y PortfolioAPI.AumAPI fueron ELIMINADAS — la API
-lee directo de CashFlow.* y Valuaciones.AuM. Quedan solo las de TitulosAPI.
+Nota: CuentasAPI, OperacionesAPI, PortfolioAPI.AumAPI y TitulosAPI.ValuacionesAPI
+fueron ELIMINADAS — la API lee directo de las fuentes (CashFlow.*, Valuaciones.AuM
+y Trading.Curvas+BondsMaster vía el servicio api/services/titulos_flujos.py).
+Queda solo AssetsAPI (TitulosAPI), un rename UPPER→lower de Valuaciones.Assets.
 """
 import sys
 from datetime import datetime
@@ -33,9 +34,7 @@ def migrate_assets():
     Destino: {unidad, calificacion, cartera, clase_activo, emisor, ticker, vencimiento (datetime), instrumento}
 
     VENCIMIENTO se convierte de string 'YYYY-MM-DD HH:MM:SS' a datetime (solo fecha).
-    'NO APLICA' se convierte a null.
-
-    No borra el origen.
+    'NO APLICA' se convierte a null. No borra el origen.
     """
     client = get_mongo_client()
     src = client["Valuaciones"]["Assets"]
@@ -48,8 +47,6 @@ def migrate_assets():
 
     bulk = []
     for doc in docs:
-        venc_raw = doc.get("VENCIMIENTO", "")
-        venc = _parse_vencimiento(venc_raw)
         bulk.append({
             "unidad": doc.get("unidad", ""),
             "calificacion": doc.get("CALIFICACION", ""),
@@ -57,7 +54,7 @@ def migrate_assets():
             "clase_activo": doc.get("CLASE_ACTIVO", ""),
             "emisor": doc.get("EMISOR", ""),
             "ticker": doc.get("TICKER", ""),
-            "vencimiento": venc,
+            "vencimiento": _parse_vencimiento(doc.get("VENCIMIENTO", "")),
             "instrumento": doc.get("INSTRUMENTO", ""),
         })
 
@@ -71,143 +68,8 @@ def migrate_assets():
         print(f"  ... y {len(bulk) - 3} más")
 
 
-def _fecha_to_datetime(raw) -> datetime | None:
-    """Convierte string 'YYYY-MM-DD' o datetime a datetime solo fecha. None si falla."""
-    if isinstance(raw, datetime):
-        return datetime(raw.year, raw.month, raw.day)
-    if not raw or not isinstance(raw, str):
-        return None
-    try:
-        dt = datetime.strptime(raw.strip()[:10], "%Y-%m-%d")
-        return datetime(dt.year, dt.month, dt.day)
-    except (ValueError, AttributeError):
-        return None
-
-
-def _build_from_curvas(doc: dict) -> dict:
-    """Construye un doc FlujosAPI desde un doc de Trading.Curvas."""
-    flujos_raw = doc.get("flujos", []) or []
-    flujos = []
-    for f in flujos_raw:
-        flujos.append({
-            "fecha": _fecha_to_datetime(f.get("fecha")),
-            "amortizacion": f.get("amortizacion_pct", f.get("amortizacion")),
-            "interes": f.get("cupon_sobre_residual", f.get("interes")),
-            "residual": f.get("residual_previo_pct", f.get("valor_residual")),
-        })
-
-    return {
-        "ticker": doc.get("ticker_corto", ""),
-        "instrumento": doc.get("ticker", ""),
-        "curva": doc.get("curva", ""),
-        "moneda_flujo": "",
-        "fecha_emision": _fecha_to_datetime(doc.get("fecha_emision")),
-        "fecha_vencimiento": _fecha_to_datetime(doc.get("fecha_vencimiento")),
-        "valor_nominal": doc.get("valor_nominal"),
-        "cupon_anual": doc.get("cupon_anual"),
-        "cer_emision": doc.get("cer_emision"),
-        "tasa_cupon": None,
-        "flujo_vencimiento": doc.get("flujo_vencimiento"),
-        "valor_residual_actual_pct": doc.get("valor_residual_actual_pct"),
-        "flujos": flujos,
-    }
-
-
-def _calcular_residual_actual(flujos: list[dict]) -> float | None:
-    """Calcula el residual actual: residual del último flujo cuya fecha ya pasó.
-
-    Si no hay flujos pasados, devuelve 100 (no amortizó nada aún).
-    Si no hay flujos, devuelve None.
-    """
-    if not flujos:
-        return None
-    hoy = datetime.now()
-    ultimo_residual = 100.0
-    for f in flujos:
-        fecha = f.get("fecha")
-        if fecha and fecha <= hoy:
-            residual = f.get("residual")
-            if residual is not None:
-                ultimo_residual = residual
-    return ultimo_residual
-
-
-def _build_from_bondmaster(doc: dict) -> dict:
-    """Construye un doc FlujosAPI desde un doc de Trading.BondsMaster."""
-    flujos_raw = doc.get("flujos", []) or []
-    flujos = []
-    for f in flujos_raw:
-        flujos.append({
-            "fecha": _fecha_to_datetime(f.get("fecha")),
-            "amortizacion": f.get("amortizacion"),
-            "interes": f.get("interes"),
-            "residual": f.get("valor_residual"),
-        })
-
-    tickers = doc.get("tickers", {}) or {}
-    instrumento = tickers.get("ARS") or tickers.get("USD") or ""
-
-    return {
-        "ticker": doc.get("asset", ""),
-        "instrumento": instrumento,
-        "curva": "",
-        "moneda_flujo": doc.get("moneda_flujo", ""),
-        "fecha_emision": None,
-        "fecha_vencimiento": _fecha_to_datetime(doc.get("vencimiento")),
-        "valor_nominal": 100,
-        "cupon_anual": None,
-        "cer_emision": None,
-        "tasa_cupon": doc.get("tasa_cupon"),
-        "flujo_vencimiento": None,
-        "valor_residual_actual_pct": _calcular_residual_actual(flujos),
-        "flujos": flujos,
-    }
-
-
-def migrate_flujos_titulos():
-    """Merge Trading.Curvas + Trading.BondsMaster → TitulosAPI.ValuacionesAPI.
-
-    Un doc por instrumento con flujos normalizados.
-    Join key con AssetsAPI: ticker.
-
-    No borra los orígenes.
-    """
-    client = get_mongo_client()
-    dst = client["TitulosAPI"]["ValuacionesAPI"]
-
-    # --- Trading.Curvas ---
-    curvas_docs = list(client["Trading"]["Curvas"].find({}, {"_id": 0}))
-    bulk = [_build_from_curvas(d) for d in curvas_docs]
-    n_curvas = len(bulk)
-
-    # --- Trading.BondsMaster ---
-    bond_docs = list(client["Trading"]["BondsMaster"].find({}, {"_id": 0}))
-    # Evitar duplicados: si un ticker ya vino de Curvas, no lo pisamos
-    tickers_curvas = {d["ticker"] for d in bulk}
-    for d in bond_docs:
-        doc = _build_from_bondmaster(d)
-        if doc["ticker"] not in tickers_curvas:
-            bulk.append(doc)
-    n_bonds = len(bulk) - n_curvas
-
-    if not bulk:
-        print("No hay docs en Trading.Curvas ni Trading.BondsMaster — nada que migrar.")
-        return
-
-    dst.drop()
-    dst.insert_many(bulk)
-    print(f"OK: {len(bulk)} docs copiados a TitulosAPI.ValuacionesAPI ({n_curvas} de Curvas, {n_bonds} de BondsMaster)")
-
-    for d in bulk[:3]:
-        n_flujos = len(d["flujos"])
-        print(f"  ticker={d['ticker']!r}  curva={d['curva']!r}  venc={d['fecha_vencimiento']}  flujos={n_flujos}")
-    if len(bulk) > 3:
-        print(f"  ... y {len(bulk) - 3} más")
-
-
 COMMANDS = {
     "assets": migrate_assets,
-    "flujos-titulos": migrate_flujos_titulos,
 }
 
 

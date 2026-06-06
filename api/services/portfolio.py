@@ -21,6 +21,7 @@ from api.cache import cached
 from api.db import get_db_titulos, get_db_trading, get_db_valuaciones
 from api.services._cuentas_filter import match_cuenta_filter
 from api.services._mep import get_mep_for_date
+from api.services.titulos_flujos import flujos_instrumentos
 
 logger = logging.getLogger("api.portfolio")
 
@@ -213,10 +214,9 @@ def tasa_fija_snapshot(scope: tuple[str, ...] | None = None) -> dict:
         return {"fecha": None, "total_valuacion": 0, "total_cobro": 0, "tickers": []}
 
     flujos_map: dict[str, dict] = {}
-    for d in db_t["ValuacionesAPI"].find(
-        {"curva": "tasa_fija"},
-        {"_id": 0, "ticker": 1, "flujo_vencimiento": 1, "fecha_vencimiento": 1},
-    ):
+    for d in flujos_instrumentos():
+        if d.get("curva") != "tasa_fija":
+            continue
         t = d.get("ticker")
         if t:
             flujos_map[t] = {
@@ -306,10 +306,9 @@ def cer_snapshot(scope: tuple[str, ...] | None = None) -> dict:
     db_tr = get_db_trading()
 
     tickers_cer: dict[str, dict] = {}
-    for d in db_t["ValuacionesAPI"].find(
-        {"curva": "cer"},
-        {"_id": 0, "ticker": 1, "fecha_vencimiento": 1},
-    ):
+    for d in flujos_instrumentos():
+        if d.get("curva") != "cer":
+            continue
         t = d.get("ticker")
         if t:
             fv = d.get("fecha_vencimiento")

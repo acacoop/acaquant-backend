@@ -9,23 +9,19 @@ que se actualice la colección fuente correspondiente. Cada flag invoca la
 migración respectiva:
 
     python -m jobs.sync_api_copies --assets        # Valuaciones.Assets     → TitulosAPI.AssetsAPI
-    python -m jobs.sync_api_copies --titulos       # Trading.Curvas+Bonds   → TitulosAPI.ValuacionesAPI
     python -m jobs.sync_api_copies --all           # todas (modo backfill)
 
-Nota: --flujo/--movimientos (OperacionesAPI) y --aum (PortfolioAPI) fueron
-ELIMINADOS — la API lee directo de CashFlow.* y Valuaciones.AuM.
+Nota: --flujo/--movimientos (OperacionesAPI), --aum (PortfolioAPI) y --titulos
+(ValuacionesAPI) fueron ELIMINADOS — la API lee directo de las fuentes (Trading.
+Curvas+BondsMaster vía servicio titulos_flujos). Queda solo --assets (TitulosAPI).
 """
 import argparse
 import time
 import traceback
 
-from scripts.api_migrate import (
-    migrate_assets,
-    migrate_flujos_titulos,
-)
+from scripts.api_migrate import migrate_assets
 
 TASKS = {
-    "titulos":     ("Trading.Curvas+Bonds → TitulosAPI.ValuacionesAPI", migrate_flujos_titulos),
     # `assets` rebuildea TitulosAPI.AssetsAPI desde Valuaciones.Assets (UPPERCASE
     # → lowercase via drop+insert). Encadenar al cron de aum mantiene la copia
     # API en sync con la fuente de verdad cuando el usuario edita CARTERA/EMISOR

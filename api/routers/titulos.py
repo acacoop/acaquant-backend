@@ -4,6 +4,7 @@ from fastapi import APIRouter, Query
 from api.cache import cached
 from api.deps import get_db_titulos
 from api.services.renta_fija import _bonos_cer_fijados
+from api.services.titulos_flujos import flujos_instrumentos
 
 router = APIRouter(prefix="/api/titulos", tags=["Titulos"])
 
@@ -45,7 +46,8 @@ def listar_flujos_titulos(
     curva: str | None = Query(None, description="Filtrar por curva (tasa_fija/cer)"),
     moneda_flujo: str | None = Query(None, description="Filtrar por moneda de flujo (ARS/USD)"),
 ):
-    """Flujos de los instrumentos de Trading.Curvas (vía copia ValuacionesAPI).
+    """Flujos de los instrumentos — DIRECTO desde Trading.Curvas+BondsMaster
+    (servicio `titulos_flujos`, sin el espejo materializado ValuacionesAPI).
 
     Devuelve cada doc tal cual + dos campos derivados que el frontend usa
     para filtrar la pantalla /renta-fija:
@@ -58,16 +60,12 @@ def listar_flujos_titulos(
     al publicarse el CER del día. 10 min de cache hacía que un bono recién
     fijado tardara hasta 10 min en migrar a tasa fija después del job BCRA.
     """
-    db = get_db_titulos()
-    filtro = {}
-    if ticker:
-        filtro["ticker"] = ticker
-    if curva:
-        filtro["curva"] = curva
-    if moneda_flujo:
-        filtro["moneda_flujo"] = moneda_flujo
-
-    docs = list(db["ValuacionesAPI"].find(filtro, {"_id": 0}))
+    docs = [
+        d for d in flujos_instrumentos()
+        if (not ticker or d.get("ticker") == ticker)
+        and (not curva or d.get("curva") == curva)
+        and (not moneda_flujo or d.get("moneda_flujo") == moneda_flujo)
+    ]
     fijados = _bonos_cer_fijados_set_corto()
     for d in docs:
         is_fijado = (d.get("curva") == "cer") and (d.get("ticker") in fijados)

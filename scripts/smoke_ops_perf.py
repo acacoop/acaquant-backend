@@ -39,9 +39,11 @@ def main() -> int:
     f0d = date.fromisoformat(f0)
     mes0 = f"{f0[:7]}-01"
     ano0 = (f0d - timedelta(days=365)).isoformat()
-    # denominacion real (fuerza el path live en Mongo).
+    # denominacion real (fuerza el path live en Mongo). Hay que pasar TODOS los params:
+    # llamando __wrapped__ directo, los no-pasados quedan como objetos Query, no None.
     den0 = M.ops_resumen.__wrapped__(
-        _engine="sql", moneda="ARS", desde=ano0, hasta=f0,
+        _engine="sql", moneda="ARS", mercado=None, desde=ano0, hasta=f0, operacion=None,
+        denominacion=None, cuenta=None, segmento=None, scope=None,
     )["por_denominacion"][0]["denominacion"]
 
     print(f"Latencia Mongo vs SQL — vista OPERACIONES (mejor de {_N}, sin cache)\n")

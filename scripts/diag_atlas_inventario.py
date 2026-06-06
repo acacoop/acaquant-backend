@@ -11,13 +11,18 @@ barato, pero $indexStats agrega un poco).
 
 Uso:
     python -m scripts.diag_atlas_inventario
-    python -m scripts.diag_atlas_inventario --idx   # incluye uso de cada índice
+    python -m scripts.diag_atlas_inventario --idx          # uso de cada índice
+    python -m scripts.diag_atlas_inventario --idx --rw     # con credencial rw (MONGO_URI)
+
+`$indexStats` necesita un privilegio que el usuario read-only (MONGO_URI_READ)
+NO tiene → con --rw usa la "llave maestra" MONGO_URI (la de motores/crons), que
+sí lo tiene. Sigue siendo 100% lectura: solo corre collStats + $indexStats.
 """
 from __future__ import annotations
 
 import argparse
 
-from core.mongo import get_mongo_client_read
+from core.mongo import get_mongo_client, get_mongo_client_read
 
 # DBs internas de Mongo que no son de la app.
 _SKIP_DB = {"admin", "local", "config"}
@@ -34,9 +39,12 @@ def _fmt_bytes(n: float) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--idx", action="store_true", help="incluye uso real de cada índice ($indexStats)")
+    ap.add_argument("--rw", action="store_true",
+                    help="usa MONGO_URI (rw) en vez de MONGO_URI_READ — necesario para $indexStats")
     args = ap.parse_args()
 
-    cli = get_mongo_client_read()
+    cli = get_mongo_client() if args.rw else get_mongo_client_read()
+    print(f"(conexión: {'MONGO_URI rw' if args.rw else 'MONGO_URI_READ ro'})\n")
     dbs = sorted(d for d in cli.list_database_names() if d not in _SKIP_DB)
     print(f"== Cluster Atlas — {len(dbs)} bases de datos de la app ==\n")
 

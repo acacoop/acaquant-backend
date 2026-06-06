@@ -148,9 +148,11 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    if args.today:
-        # El cron corre a las 02:00 UTC = 23:00 ART del día anterior
-        hoy_art = (datetime.now(UTC) - timedelta(hours=3)).date()
-        run(desde=hoy_art, hasta=hoy_art)
-    else:
-        run(desde=date(2025, 7, 1), hasta=date.today())
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("cashflow"):
+        if args.today:
+            # El cron corre a las 02:00 UTC = 23:00 ART del día anterior
+            hoy_art = (datetime.now(UTC) - timedelta(hours=3)).date()
+            run(desde=hoy_art, hasta=hoy_art)
+        else:
+            run(desde=date(2025, 7, 1), hasta=date.today())

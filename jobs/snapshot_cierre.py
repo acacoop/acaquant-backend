@@ -188,11 +188,15 @@ def main() -> int:
         name="uq_ts_curva_ticker",
     )
 
-    total = 0
-    for curva in CURVAS_V1:
-        total += procesar_curva(client, curva, fecha_str, args.dry)
-
-    logger.info("Total: %d docs en %s", total, fecha_str)
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("snapshot_cierre") as jr:
+        total = 0
+        for curva in CURVAS_V1:
+            total += procesar_curva(client, curva, fecha_str, args.dry)
+        jr.set_stat("docs", total)
+        jr.set_stat("fecha", fecha_str)
+        jr.set_stat("dry", args.dry)
+        logger.info("Total: %d docs en %s", total, fecha_str)
     if args.dry:
         logger.info("(--dry: no se escribió en Mongo)")
     return 0

@@ -78,4 +78,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--today", action="store_true", help="Fetch solo el dia de hoy para todas las variables")
     args = parser.parse_args()
-    run(today=args.today)
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("bcra"):
+        run(today=args.today)

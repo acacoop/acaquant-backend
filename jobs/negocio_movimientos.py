@@ -202,7 +202,12 @@ def main() -> int:
     else:
         d = (datetime.now(UTC) - timedelta(hours=3)).date()
 
-    res = run(fecha_d=d, dry=args.dry)
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("negocio_movimientos") as jr:
+        res = run(fecha_d=d, dry=args.dry)
+        if isinstance(res, dict):
+            for k, v in res.items():
+                jr.set_stat(k, v)
     print(f"\n→ {res}")
     return 0
 

@@ -64,6 +64,27 @@ def _print_drop(data: dict) -> int:
     return total
 
 
+def _probe_schema(data, prefijo: str = "  ") -> None:
+    """Imprime la FORMA de la respuesta (claves + tipos) sin volcar valores largos.
+    Sirve para descubrir el schema real cuando el parser no matchea, sin pegar
+    miles de líneas. Para listas, muestra las claves del primer elemento."""
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if isinstance(v, list):
+                print(f"{prefijo}{k}: lista[{len(v)}]")
+                if v and isinstance(v[0], dict):
+                    print(f"{prefijo}  └ claves del [0]: {sorted(v[0].keys())}")
+            elif isinstance(v, dict):
+                print(f"{prefijo}{k}: dict {sorted(v.keys())}")
+            else:
+                val = str(v)
+                print(f"{prefijo}{k}: {type(v).__name__} = {val[:60]}")
+    elif isinstance(data, list):
+        print(f"{prefijo}(raíz es lista[{len(data)}])")
+        if data and isinstance(data[0], dict):
+            print(f"{prefijo}  └ claves del [0]: {sorted(data[0].keys())}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--raw", action="store_true", help="vuelca el JSON crudo de cada endpoint")
@@ -77,8 +98,11 @@ def main() -> int:
             print(json.dumps(drop, indent=2, default=str))
         n = _print_drop(drop)
         if n == 0:
-            print("  (Atlas no sugiere dropear ningún índice — o falta el permiso "
-                  "'Data Access Read Only'. Probá --raw para ver la respuesta.)")
+            if drop:
+                print("  (parser no matcheó el schema — sonda de la respuesta:)")
+                _probe_schema(drop, prefijo="    ")
+            else:
+                print("  (Atlas no sugiere dropear ningún índice — respuesta vacía.)")
     except Exception as e:
         print(f"  ⚠ no disponible: {str(e)[:200]}")
         print("  (revisá ATLAS_CLUSTER_NAME y que la key tenga 'Data Access Read Only')")

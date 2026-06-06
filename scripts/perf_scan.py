@@ -12,7 +12,8 @@ Uso:
     python -m scripts.perf_scan            # informativo (exit 0)
     python -m scripts.perf_scan --strict   # exit 1 si hay findings
 
-Escape: agregar `# noqa: PERF00X` al final de la línea suprime ese finding.
+Escape: agregar `# perf-ok: PERF00X` al final de la línea suprime ese finding
+(token propio, NO `# noqa` — eso colisiona con ruff, que lo marca como inválido).
 """
 
 import ast
@@ -92,13 +93,16 @@ def _enclosing_func(node, pmap):
     return None
 
 
+_PERF_OK = "# perf-ok"
+
+
 def _noqa(lines, lineno, rule):
     if lineno <= 0 or lineno > len(lines):
         return False
     line = lines[lineno - 1]
-    if "# noqa" not in line:
+    if _PERF_OK not in line:
         return False
-    tail = line.split("# noqa", 1)[1].strip(": \t")
+    tail = line.split(_PERF_OK, 1)[1].strip(": \t")
     return tail == "" or rule in tail
 
 

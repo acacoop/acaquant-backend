@@ -134,13 +134,13 @@ def get_pase_agro() -> dict[str, Any]:
         }
     """
     db_read = get_mongo_client_read()
-    pizarras_raw = list(db_read["Derivados"]["AgroPizarra"].find({}))
+    pizarras_raw = list(db_read["Derivados"]["AgroPizarra"].find({}))  # perf-ok: PERF001 — 3 docs, doc completo
     pizarras = {p["_id"]: p for p in pizarras_raw}
     # Cámara Arbitral: única fuente de verdad del precio en US$ de cada
     # cereal. La pizarra ya no edita el US$ directamente — lo lee de acá.
-    camara_raw = list(db_read["Derivados"]["CamaraCereales"].find({}))
+    camara_raw = list(db_read["Derivados"]["CamaraCereales"].find({}))  # perf-ok: PERF001 — 5 docs, doc completo
     camara = {c["_id"]: c for c in camara_raw}
-    snapshots = list(db_read["Trading"]["AgroSnapshot"].find({}))
+    snapshots = list(db_read["Trading"]["AgroSnapshot"].find({}))  # perf-ok: PERF001 — 24 docs, doc completo
 
     oficial = mid_oficial_live("oficial")
     oficial_value = oficial.get("value")
@@ -379,10 +379,10 @@ def get_panel_opciones(commodity: str) -> dict[str, Any]:
     commodity = _validate_commodity(commodity.upper())
 
     db_read = get_mongo_client_read()
-    opciones = list(db_read["Trading"]["AgroOpcionesSnapshot"].find(
+    opciones = list(db_read["Trading"]["AgroOpcionesSnapshot"].find(  # perf-ok: PERF001 — snapshot chico por commodity, doc completo
         {"commodity": commodity}
     ))
-    futuros = list(db_read["Trading"]["AgroSnapshot"].find(
+    futuros = list(db_read["Trading"]["AgroSnapshot"].find(  # perf-ok: PERF001 — snapshot chico por commodity, doc completo
         {"commodity": commodity}
     ))
     futuros_by_ticker = {f.get("ticker"): f for f in futuros if f.get("ticker")}

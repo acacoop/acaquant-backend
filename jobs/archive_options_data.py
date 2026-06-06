@@ -46,7 +46,7 @@ def run(apply: bool) -> int:
     client = get_mongo_client()
     col = client["Opciones"]["Data"]
 
-    total = col.count_documents({})
+    total = col.count_documents({})  # perf-ok: PERF003,PERF004 — conteo EXACTO: es el guard de seguridad pre-delete
     hoy_ar  = datetime.now(AR_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
     hoy_utc = hoy_ar.astimezone(UTC)
     a_borrar = col.count_documents({"timestamp": {"$lt": hoy_utc}})
@@ -95,7 +95,7 @@ def run(apply: bool) -> int:
     resultado = col.delete_many({"timestamp": {"$lt": hoy_utc}})
     logger.info("🗑️  Borrados: %d docs", resultado.deleted_count)
 
-    restantes = col.count_documents({})
+    restantes = col.count_documents({})  # perf-ok: PERF003 — verificación post-delete (conteo exacto)
     logger.info("Quedan en la colección: %d docs", restantes)
     return 0
 

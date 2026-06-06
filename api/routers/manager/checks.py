@@ -68,7 +68,7 @@ def check_forwards():
                 "ultimo":   datos["ts"].strftime("%d/%m %H:%M") if datos and datos.get("ts") else None,
                 "ok":       datos is not None,
             })
-        live = db["ForwardsLive"].find_one({"curva": curva}, {"tickers": 1})
+        live = db["ForwardsLive"].find_one({"curva": curva}, {"tickers": 1})  # perf-ok: PERF002 — endpoint admin, N = curvas (~5), indexado
         live_tickers = live.get("tickers", []) if live else []
         expected = [i.get("ticker_corto") for i in insts if teas_all.get(i.get("ticker"))]
         resultado.append({"curva": curva, "tickers": tickers_curva,
@@ -115,7 +115,7 @@ def check_cer():
 
     rows = []
     for inst in curvas_cer:
-        doc = db["TimeSales"].find_one(
+        doc = db["TimeSales"].find_one(  # perf-ok: PERF002 — endpoint admin, N = bonos CER (~20), idx ticker+timestamp
             {"ticker": inst["ticker"], "duration": {"$exists": True}}, sort=[("timestamp", -1)]
         )
         if not doc:

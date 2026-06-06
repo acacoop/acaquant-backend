@@ -22,7 +22,7 @@ def _coll():
 
 def cargar_todos() -> list[dict]:
     """Todos los docs de Trading.Curvas sin filtros ni projection."""
-    return list(_coll().find({}))
+    return list(_coll().find({}))  # perf-ok: PERF001 — Curvas (~57 docs), se necesitan los flujos completos
 
 
 def cargar_por_curva() -> dict[str, list[dict]]:

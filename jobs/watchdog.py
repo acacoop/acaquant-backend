@@ -175,7 +175,7 @@ def run(dry_run: bool = False) -> dict:
         if etimes <= budget:
             continue
         # Cooldown: ¿ya alertamos este job hace poco?
-        prev = col.find_one({"_id": nombre})
+        prev = col.find_one({"_id": nombre})  # perf-ok: PERF002 — N = jobs vivos (~10), lookup por _id
         if prev and prev.get("last_alert_at") and \
                 (ahora - prev["last_alert_at"]) < timedelta(seconds=_COOLDOWN_S):
             continue

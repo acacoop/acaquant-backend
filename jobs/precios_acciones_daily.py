@@ -70,17 +70,21 @@ def upsert_ticker(col, ticker: str) -> tuple[int, int, str | None]:
     if n == 0:
         return 0, 0, "sin velas"
 
-    insertados = 0
-    existentes = 0
-    for i in range(n):
-        fecha = datetime.fromtimestamp(times[i], tz=UTC)
-        # Chequear si existe — time series usa _id interno, no podemos
-        # upsertear por (ticker, fecha). Aceptamos la latencia del find.
-        already = col.find_one({"ticker": ticker, "fecha": fecha}, {"_id": 1}) is not None
-        if already:
-            existentes += 1
+    # Existencia en UNA query (no un find_one por vela = N+1): traemos las fechas
+    # ya guardadas de este ticker y chequeamos en memoria. Después un solo
+    # insert_many con las nuevas (en vez de N insert_one).
+    fechas = [datetime.fromtimestamp(t, tz=UTC) for t in times]
+    ya_guardadas = {
+        d["fecha"]
+        for d in col.find(
+            {"ticker": ticker, "fecha": {"$in": fechas}}, {"_id": 0, "fecha": 1}
+        )
+    }
+    nuevos = []
+    for i, fecha in enumerate(fechas):
+        if fecha in ya_guardadas:
             continue
-        col.insert_one({
+        nuevos.append({
             "fecha":  fecha,
             "ticker": ticker,
             "open":   opens[i] if i < len(opens) else None,
@@ -89,9 +93,10 @@ def upsert_ticker(col, ticker: str) -> tuple[int, int, str | None]:
             "close":  closes[i] if i < len(closes) else None,
             "volume": vols[i] if i < len(vols) else None,
         })
-        insertados += 1
+    if nuevos:
+        col.insert_many(nuevos)
 
-    return insertados, existentes, None
+    return len(nuevos), n - len(nuevos), None
 
 
 def run(filter_ticker: str | None = None) -> None:

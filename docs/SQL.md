@@ -15,9 +15,13 @@ intacta. Proveedor elegido: **Supabase**.
 
 ## Mapeos no obvios (verificados con `scripts/diag_shapes_sync`, REGLA #2)
 - **`operaciones.id_cuenta` ← Mongo `cuenta`** (Operaciones NO tiene `id_cuenta`).
-- **`operadores.nombre`**: `Manager.Users` no tiene nombre → sale de
-  `Clientes.Comitentes.operador_nombre`. `operadores` se carga como UNIÓN de Users +
-  los `operador_email` distintos de Comitentes (si no, el FK de `comitentes` rechaza filas).
+- **`operadores` = SOLO los `operador_email` que aparecen en `Clientes.Comitentes`**
+  (los que realmente manejan cartera), con `nombre` ← `operador_nombre`. NO se mezcla con
+  `Manager.Users`: esos son *usuarios de la app* (otra entidad). Mezclarlos metía ruido en
+  los reportes (filas con 0 cuentas). Si algún reporte necesita usuarios-app, va tabla aparte.
+- **Limpieza de huérfanos**: el sync borra de las dimensiones las filas cuya PK ya no está
+  en Mongo (el UPSERT nunca borra). PG es espejo descartable → bajo riesgo. Orden FK-safe:
+  comitentes → cuentas/operadores; contrapartes aparte.
 - **`comitentes.estado_comercial`** es DERIVADO (`comercial.py`) → NULL en la capa SQL.
 - **`contrapartes.id_cuenta` ← Mongo `cuenta`**.
 - **Fechas** (`concertacion`, `fecha`, `fecha_snapshot`) llegan como string `'YYYY-MM-DD'`

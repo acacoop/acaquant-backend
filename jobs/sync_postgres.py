@@ -95,50 +95,64 @@ def _upsert(conn, table, cols, conflict_cols, rows, dry):
 
 
 # ── DIMENSIONES (siempre completas, son chicas) ──────────────────────────────
-def sync_operadores(mdb, conn, dry) -> int:
-    """operadores = unión de Manager.Users (emails) + Clientes.Comitentes
-    (operador_email + operador_nombre). El nombre vive en Comitentes, no en Users."""
-    nombres: dict[str, str | None] = {}
-    for d in mdb["Manager"]["Users"].find({}, {"email": 1}):
-        em = _s(d.get("email"))
-        if em:
-            nombres.setdefault(em, None)
-    for d in mdb["Clientes"]["Comitentes"].find(
-        {}, {"operador_email": 1, "operador_nombre": 1}
-    ):
-        em = _s(d.get("operador_email"))
-        if em:
-            nombres[em] = _s(d.get("operador_nombre")) or nombres.get(em)
-    rows = [(em, nm) for em, nm in nombres.items()]
-    return _upsert(conn, "operadores", ["email", "nombre"], ["email"], rows, dry)
+def _delete_not_in(conn, table, pk_col, keep, dry) -> int:
+    """Borra de `table` las filas cuya PK no está en `keep` (limpieza de huérfanos: el
+    UPSERT nunca borra). PG es un espejo descartable → bajo riesgo. El caller respeta el
+    orden de FK (hijos antes que padres)."""
+    if dry:
+        return 0
+    keep = set(keep)
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT {pk_col} FROM {table}")
+        muertas = [r[0] for r in cur.fetchall() if r[0] not in keep]
+        if muertas:
+            cur.execute(f"DELETE FROM {table} WHERE {pk_col} = ANY(%s)", (muertas,))
+    conn.commit()
+    return len(muertas)
 
 
-def sync_cuentas_y_comitentes(mdb, conn, dry) -> tuple[int, int]:
-    """cuentas (id_cuenta, denominacion) y comitentes salen de Clientes.Comitentes.
-    estado_comercial es DERIVADO (comercial.py) → NULL en v1."""
+def sync_dims_clientes(mdb, conn, dry) -> tuple[int, int, int]:
+    """operadores + cuentas + comitentes salen TODOS de Clientes.Comitentes (1 sola lectura).
+
+    operadores = SOLO los operador_email que aparecen en Comitentes (= los que realmente
+    manejan cartera). NO se mezcla con Manager.Users (esos son usuarios de la app, otra
+    entidad). estado_comercial es DERIVADO (comercial.py) → NULL en la capa SQL.
+    Borra huérfanos en orden FK-safe: comitentes (hijo) → cuentas / operadores (padres)."""
     proj = {
-        "id_cuenta": 1, "denominacion": 1, "operador_email": 1, "tipo_doc": 1,
-        "nro_doc": 1, "nivel_1": 1, "nivel_2": 1, "nivel_3": 1,
+        "id_cuenta": 1, "denominacion": 1, "operador_email": 1, "operador_nombre": 1,
+        "tipo_doc": 1, "nro_doc": 1, "nivel_1": 1, "nivel_2": 1, "nivel_3": 1,
     }
+    operadores: dict[str, str | None] = {}
     cuentas, comitentes = [], []
     for d in mdb["Clientes"]["Comitentes"].find({}, proj):
         idc = _s(d.get("id_cuenta"))
         if not idc:
             continue
+        em = _s(d.get("operador_email"))
+        if em:
+            operadores[em] = _s(d.get("operador_nombre")) or operadores.get(em)
         cuentas.append((idc, _s(d.get("denominacion"))))
         comitentes.append((
-            idc, _s(d.get("operador_email")), _s(d.get("tipo_doc")), _s(d.get("nro_doc")),
+            idc, em, _s(d.get("tipo_doc")), _s(d.get("nro_doc")),
             _s(d.get("nivel_1")), _s(d.get("nivel_2")), _s(d.get("nivel_3")), None,
         ))
-    n_c = _upsert(conn, "cuentas", ["id_cuenta", "denominacion"], ["id_cuenta"],
-                  _dedup(cuentas, [0]), dry)
+    cuentas, comitentes = _dedup(cuentas, [0]), _dedup(comitentes, [0])
+
+    # Padres antes que el hijo en el UPSERT (FK), hijo antes que padres en el DELETE.
+    n_op = _upsert(conn, "operadores", ["email", "nombre"], ["email"],
+                   list(operadores.items()), dry)
+    n_cu = _upsert(conn, "cuentas", ["id_cuenta", "denominacion"], ["id_cuenta"], cuentas, dry)
     n_co = _upsert(
         conn, "comitentes",
         ["id_cuenta", "operador_email", "tipo_doc", "nro_doc",
          "nivel_1", "nivel_2", "nivel_3", "estado_comercial"],
-        ["id_cuenta"], _dedup(comitentes, [0]), dry,
+        ["id_cuenta"], comitentes, dry,
     )
-    return n_c, n_co
+    ids = {r[0] for r in comitentes}
+    _delete_not_in(conn, "comitentes", "id_cuenta", ids, dry)
+    _delete_not_in(conn, "cuentas", "id_cuenta", ids, dry)
+    _delete_not_in(conn, "operadores", "email", operadores.keys(), dry)
+    return n_op, n_cu, n_co
 
 
 def sync_contrapartes(mdb, conn, dry) -> int:
@@ -151,8 +165,11 @@ def sync_contrapartes(mdb, conn, dry) -> int:
         if not idc:
             continue
         rows.append((idc, _s(d.get("contraparte")), _s(d.get("segmento"))))
-    return _upsert(conn, "contrapartes", ["id_cuenta", "contraparte", "segmento"],
-                   ["id_cuenta"], _dedup(rows, [0]), dry)
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "contrapartes", ["id_cuenta", "contraparte", "segmento"],
+                ["id_cuenta"], rows, dry)
+    _delete_not_in(conn, "contrapartes", "id_cuenta", {r[0] for r in rows}, dry)
+    return n
 
 
 # ── HECHOS (batcheados + throttle; incremental por campo de ingesta) ──────────
@@ -279,8 +296,7 @@ def main() -> int:
 
     mdb = get_mongo_client_read()
     with connect() as conn:
-        n_op = sync_operadores(mdb, conn, args.dry_run)
-        n_cu, n_co = sync_cuentas_y_comitentes(mdb, conn, args.dry_run)
+        n_op, n_cu, n_co = sync_dims_clientes(mdb, conn, args.dry_run)
         n_cp = sync_contrapartes(mdb, conn, args.dry_run)
         print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  "
               f"comitentes={n_co}  contrapartes={n_cp}")

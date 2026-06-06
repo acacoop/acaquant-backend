@@ -81,15 +81,11 @@ Consideraciones:
 - **No pisar otros jobs**: si el job necesita data de otro job que corre a las 23:00 UTC, arrancar ≥ 23:05 UTC.
 - Aplicar el crontab en server: `crontab /root/TradingAV/deploy/crontab.txt`.
 
-## 5. Sync API (si escribe colecciones originales)
+## 5. (Sin copias `*API`)
 
-Si tu job escribe a una de las colecciones que tienen copia derivada `*API.*API` (ver `docs/API_MIGRATIONS.md`), **encadenar el sync post-job** en el crontab:
-
-```cron
-0 23 * * 1-5 cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum >> .../aum.log 2>&1 && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos >> .../sync_api.log 2>&1
-```
-
-Flags de `sync_api_copies`: `--aum`, `--titulos`, `--assets`, `--flujo`, `--movimientos`, `--all`. El `&&` garantiza que si el job fuente falla, el sync no corre (no ensucia data).
+Los espejos `*API` y `jobs.sync_api_copies` fueron ELIMINADOS (2026-06): la API lee
+las colecciones fuente directo. Si tu job escribe a una colección que la API
+consume, no hay que encadenar ningún sync — la API ya la lee. Ver `docs/ARQUITECTURA.md`.
 
 ## 6. Índices
 
@@ -105,4 +101,3 @@ Sumar al bloque "Jobs batch" de `CLAUDE.md` si es un job crítico (cadencia + qu
 - ✓ `python -m jobs.<nombre>` escribe a Mongo y el segundo run no duplica.
 - ✓ Aparece en `Manager.JobRuns` si usaste `JobRunLogger`.
 - ✓ Crontab aplicado y primer run fue verde (revisar `logs/<nombre>.log`).
-- ✓ Si corresponde, `jobs.sync_api_copies` corrió después y la colección API tiene la data nueva.

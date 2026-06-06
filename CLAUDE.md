@@ -92,16 +92,18 @@ migración o `--full` se corre sin cumplir TODO esto:
 Un `--full` a ciegas en horario de mercado es exactamente el anti-patrón del
 incidente 2026-06-03. Si dudás del volumen, NO lo corras: medí primero.
 
-## ⚠️ REGLA #5 — Scripts de prueba/diag se BORRAN al confirmar
+## ⚠️ REGLA #5 — Minimalismo en `scripts/` Y `docs/`: se BORRA lo cumplido
 
-**Minimalismo, no cementerio.** Cada `scripts/diag_*` u otro one-shot de
-prueba, **una vez que el user confirma que el tema quedó resuelto, se elimina**
-(en el commit del fix o en uno de limpieza). La carpeta `scripts/` se llenó de
-cientos de scripts que ensucian el código.
+**Minimalismo, no cementerio.** Aplica a código Y documentación.
 
-- Lo que SÍ queda: migraciones reutilizables y diagnósticos **recurrentes**
-  (monitoreo). Esos van documentados en `scripts/CLAUDE.md`.
-- Lo que se borra: todo diag puntual que ya cumplió su función.
+- **`scripts/`:** cada `diag_*`/`fix_*`/`backfill_*`/`seed_*` one-shot, una vez que
+  el user confirma que el tema cerró, **se elimina**. Queda solo lo recurrente
+  (generadores, monitoreo, perf, audit, feeds) + lo referenciado por skills/CI/cron.
+- **`docs/`:** las auditorías/análisis point-in-time, los `wip_*`, las imágenes
+  scratch y todo lo superseded **se borran o se consolidan**. La arquitectura/
+  datos/estrategia/roadmap viven en **UN doc madre: `docs/ARQUITECTURA.md`** — no
+  esparcidos en N archivos. El resto de `docs/` es referencia operativa viva (API,
+  RUNBOOK, MCP, seguridad, etc.) + el `vault/` auto-generado.
 - Ante la duda, preguntar "¿lo borro?" — no acumular por las dudas.
 
 ## ⚠️ REGLA #6 — Credencial/acceso faltante: se pide UNA vez, no se insiste
@@ -156,7 +158,7 @@ partner_api/ # app FastAPI SEPARADA (no monta en api/main) — datos para provee
 scripts/     # one-shot / migraciones / smoke
 deploy/      # systemd + crontab.txt (fuente de verdad)
 .claude/     # settings.json + hooks + commands + skills + agents (ver .claude/INDEX.md)
-docs/        # API.md, API_MIGRATIONS.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md, RUNBOOK.md (operación/incidentes), SECRETS.md + SECURITY.md (manejo de secretos/seguridad), INGEST_DOLAR.md (feed MAE dólar), vault/ (cerebro Obsidian, auto-generado) (wip_*.md = scratch, no canónico)
+docs/        # ARQUITECTURA.md (DOC MADRE: arquitectura/datos/estrategia/roadmap/plan SQL). Referencia operativa: API.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md, RUNBOOK.md (operación/incidentes), SECRETS.md + SECURITY.md (seguridad), INGEST_DOLAR.md (feed MAE dólar), PARTNER_API*.md, TABLERO_COMERCIAL.md, GRUPOS.md, SEGMENTACION_PATRIMONIAL.md, HERRAMIENTAS.md (auto-gen). vault/ (cerebro Obsidian, auto-generado)
 ```
 
 ## Plano del sistema — `deploy/SISTEMA.md`

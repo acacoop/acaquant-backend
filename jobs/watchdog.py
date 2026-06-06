@@ -184,7 +184,7 @@ def run(dry_run: bool = False) -> dict:
         msg = (f"🔴 Watchdog: `{nombre}` SIGUE VIVO hace *{mins} min* (PID {pid}).\n"
                f"Ya superó su timeout de run_job.sh + margen ({bmins} min) → "
                f"el kill automático NO funcionó (anomalía real).\n"
-               f"Matar a mano: `kill {pid}`.  _revisar AUDITORIA_DATOS / por qué no murió_")
+               f"Matar a mano: `kill {pid}`.  _revisar RUNBOOK / por qué no murió_")
         if not dry_run:
             send_telegram(msg)
             col.update_one({"_id": nombre},

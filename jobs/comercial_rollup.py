@@ -2,8 +2,7 @@
 
 Las vistas comerciales re-agregaban TODA la historia sin filtro de fecha ni cuenta
 → COLLSCAN de las ~338k de NegocioMovimientos en cada apertura del INFORME (2.4s
-medido en diag_comercial_rollup) → desalojaba el cache del M10. Causas C1/C2 de
-docs/AUDITORIA_DATOS_2026-06.md.
+medido) → desalojaba el cache del M10.
 
 Este job pre-agrega al grano {fecha, id_cuenta}, COMBINANDO las dos fuentes que el
 informe usa hoy (mismas categorías / mismo $match → equivalente por construcción):

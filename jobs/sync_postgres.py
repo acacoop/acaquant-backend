@@ -287,6 +287,32 @@ def reconciliar(mdb, conn):
                 print(f"  {tabla:22} PG={pg:>9,}")
 
 
+def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict:
+    """Corre el sync y devuelve los conteos. Lo invoca main() (CLI) y el cron (vía JobRunLogger)."""
+    desde = None if full else (datetime.now(UTC) - timedelta(days=days))
+    modo = "FULL" if full else f"incremental (últimos {days}d)"
+    print(f"sync_postgres — modo {modo}{'  [DRY-RUN]' if dry else ''}")
+
+    mdb = get_mongo_client_read()
+    with connect() as conn:
+        n_op, n_cu, n_co = sync_dims_clientes(mdb, conn, dry)
+        n_cp = sync_contrapartes(mdb, conn, dry)
+        print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  "
+              f"comitentes={n_co}  contrapartes={n_cp}")
+
+        n_ops, sin_bol = sync_operaciones(mdb, conn, dry, desde)
+        n_aum = sync_aum(mdb, conn, dry, desde)
+        n_nm = sync_negocio(mdb, conn, dry, desde)
+        print(f"  hechos: operaciones={n_ops:,} (sin boleto, salteadas={sin_bol:,})  "
+              f"aum={n_aum:,}  negocio={n_nm:,}")
+
+        if not dry:
+            reconciliar(mdb, conn)
+    print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
+    return {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co, "contrapartes": n_cp,
+            "operaciones": n_ops, "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--full", action="store_true", help="backfill completo (sin filtro de fecha)")
@@ -294,28 +320,15 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="cuenta, NO escribe en PG")
     args = ap.parse_args()
 
-    desde = None if args.full else (
-        datetime.now(UTC) - timedelta(days=args.days)
-    )
-    modo = "FULL" if args.full else f"incremental (últimos {args.days}d)"
-    print(f"sync_postgres — modo {modo}{'  [DRY-RUN]' if args.dry_run else ''}")
-
-    mdb = get_mongo_client_read()
-    with connect() as conn:
-        n_op, n_cu, n_co = sync_dims_clientes(mdb, conn, args.dry_run)
-        n_cp = sync_contrapartes(mdb, conn, args.dry_run)
-        print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  "
-              f"comitentes={n_co}  contrapartes={n_cp}")
-
-        n_ops, sin_bol = sync_operaciones(mdb, conn, args.dry_run, desde)
-        n_aum = sync_aum(mdb, conn, args.dry_run, desde)
-        n_nm = sync_negocio(mdb, conn, args.dry_run, desde)
-        print(f"  hechos: operaciones={n_ops:,} (sin boleto, salteadas={sin_bol:,})  "
-              f"aum={n_aum:,}  negocio={n_nm:,}")
-
-        if not args.dry_run:
-            reconciliar(mdb, conn)
-    print("\nOK." if not args.dry_run else "\nDRY-RUN OK (nada escrito).")
+    if args.dry_run:
+        run(full=args.full, days=args.days, dry=True)
+        return 0
+    # Cron / corrida real: envuelta en JobRunLogger (alerta Telegram si falla).
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("sync_postgres") as jr:
+        stats = run(full=args.full, days=args.days, dry=False)
+        for k, v in stats.items():
+            jr.set_stat(k, v)
     return 0
 
 

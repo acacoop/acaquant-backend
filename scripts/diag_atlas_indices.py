@@ -45,6 +45,10 @@ def _key_repr(weights) -> str:
 def _print_drop(data: dict) -> int:
     """Imprime las sugerencias de DROP. Tolerante al schema: prueba las claves
     conocidas (hiddenIndexes, redundantIndexes) y cae a un dump si no matchea."""
+    # La respuesta viene envuelta: {content: {hiddenIndexes, redundantIndexes,
+    # unusedIndexes}, status: 200}. Desenvolvemos.
+    if isinstance(data, dict) and "content" in data and isinstance(data["content"], dict):
+        data = data["content"]
     total = 0
     for clave, etiqueta in (("hiddenIndexes", "OCULTO"),
                             ("redundantIndexes", "REDUNDANTE"),
@@ -75,7 +79,8 @@ def _probe_schema(data, prefijo: str = "  ") -> None:
                 if v and isinstance(v[0], dict):
                     print(f"{prefijo}  └ claves del [0]: {sorted(v[0].keys())}")
             elif isinstance(v, dict):
-                print(f"{prefijo}{k}: dict {sorted(v.keys())}")
+                print(f"{prefijo}{k}: dict")
+                _probe_schema(v, prefijo + "  ")
             else:
                 val = str(v)
                 print(f"{prefijo}{k}: {type(v).__name__} = {val[:60]}")

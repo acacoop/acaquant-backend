@@ -112,6 +112,24 @@ dice **una vez**, claro, y se marca como PENDIENTE. **No repetir el pedido cada
 turno ni bloquear todo en eso** — seguir con lo que sí se puede hacer. El user
 lo provee cuando puede.
 
+## ⚠️ REGLA #7 — IR MÁS ALLÁ: enseñar y proponer, no solo ejecutar
+
+El user es PM (no dev) y depende de Claude para crecer técnicamente: *"no tengo
+manera de capacitarme y aprendo si no es con vos"*. En CADA trabajo, además de
+resolver lo pedido:
+
+- **Detectar lo que él no sabe pedir**: joins innecesarios, queries ineficientes,
+  colecciones mal modeladas, código que se puede simplificar, deuda técnica,
+  riesgos de datos. Traerlo proactivamente aunque no lo haya pedido.
+- **Enseñar el porqué**: explicar el concepto nuevo en lenguaje claro (gerencial
+  + técnico), no solo aplicarlo. Que aprenda algo en cada interacción.
+- **Proponer estructura nueva**, no solo optimizar lo existente al máximo. Leer
+  como arquitecto SR: cuestionar el diseño de base.
+- Esto NO reemplaza la REGLA #2 (no asumir, medir primero) ni el formato ejecutivo
+  (REGLA #3). Va arriba de eso: hacer el trabajo Y dejar conocimiento.
+
+Ver memorias [[feedback_proactive_architect]] y [[feedback_autonomy_lanes]].
+
 ## Reglas que rompen todo si se olvidan
 
 - **`python -m <módulo>` desde la raíz siempre**. `python engines/x.py` falla (`core` no es discoverable).

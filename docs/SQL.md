@@ -13,6 +13,23 @@ intacta. Proveedor elegido: **Supabase**.
 - **Fase C — reportería sobre PG:** endpoints de reporting leen SQL. ⏳ después.
 - **Fase D — PG fuente de verdad de lo relacional:** solo si C demuestra valor. RED.
 
+## Vista OPERACIONES en SQL (primer feature de producto migrado)
+
+`/api/operaciones/ops/*` (pestañas MOVIMIENTOS/ARANCELES/AGRO) corre dual-run Mongo↔SQL.
+- **Servicio:** `api/services/operaciones_sql.py` (puro, lee del pool `core.postgres.get_pool`).
+  Agrega EN VIVO (sin rollup): Postgres hace el GROUP BY de 490k filas en ms con índices.
+- **Flag:** `api/routers/operaciones.py::_motor()`. Override por request `?_engine=sql|mongo`;
+  si no, global env **`OPERACIONES_SQL=1`** → SQL, sino Mongo (default). El path Mongo queda
+  intacto → rollback = sacar la env + restart.
+- **Validación:** `scripts/compare_ops_sql_vs_mongo.py` corrió 32/32 (SQL == Mongo en toda la
+  grilla: monedas, rangos, cross-filters, dim aranceles incl. operador, agro). Es el GATE.
+- **Cutover:** agregar `OPERACIONES_SQL=1` al `.env` del Droplet (lo lee `load_dotenv` de
+  core.postgres) + `systemctl restart api.service`. El restart limpia el cache in-process.
+- `VolumenMercadoAgro` (share agro) sigue leyéndose de Mongo (chica, manual) → híbrido.
+- Reglas de traducción blindadas: `etapa IS DISTINCT FROM 'solicitud'` (98% NULL), `es_cierre=false`,
+  `to_char` (substr 0-based), `COALESCE`/`ABS`, `ultima_ingesta` ISO naive, label `'(sin)'` donde
+  Mongo dejaba `''` (el sync hace `''→NULL`), `denominacion` de cuentas-list no-determinística.
+
 ## Mapeos no obvios (verificados con `scripts/diag_shapes_sync`, REGLA #2)
 - **`operaciones.id_cuenta` ← Mongo `cuenta`** (Operaciones NO tiene `id_cuenta`).
 - **`operadores` = SOLO los `operador_email` que aparecen en `Clientes.Comitentes`**

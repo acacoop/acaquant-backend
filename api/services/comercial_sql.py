@@ -17,7 +17,7 @@ Estado: Chunk 1 (selector + portafolio + operaciones + serie). Resto en progreso
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from psycopg.rows import dict_row
 
@@ -263,3 +263,236 @@ def analisis_comercial(*, operador: str, dias_activa: int = 45, dias_dormida: in
     clientes.sort(key=lambda x: x["aum"], reverse=True)
     return {"operador": operador, "dias_activa": dias_activa,
             "dias_dormida": dias_dormida, "clientes": clientes}
+
+
+def actividad_historica(*, operador: str, desde: str | None = None,
+                        hasta: str | None = None, moneda: str = "ARS") -> dict:
+    """Serie mensual de cuentas activas desde la tabla actividad_mensual (snapshot
+    point-in-time, ya espejado). operador == __todos__ → toda la mesa."""
+    factor = _factor_usd(moneda)
+    where = "1=1"
+    p: dict = {}
+    if operador != "__todos__":
+        where += " AND operador_email = %(op)s"
+        p["op"] = operador
+    if desde:
+        where += " AND year_month >= %(desde)s"
+        p["desde"] = desde
+    if hasta:
+        where += " AND year_month <= %(hasta)s"
+        p["hasta"] = hasta
+    serie = [{
+        "year_month": r["year_month"], "n_activas": r["n_activas"],
+        "volumen": _cv(_f(r["volumen_ars"]), factor),
+    } for r in _q(
+        f"SELECT year_month, count(*) AS n_activas, SUM(volumen_ars) AS volumen_ars "
+        f"FROM actividad_mensual WHERE {where} GROUP BY year_month ORDER BY year_month", p)]
+    return {"operador": operador, "serie": serie}
+
+
+# ── INFORME (global, transversal a la mesa) ──────────────────────────────────
+def _fin_de_mes(anio: int, mes: int) -> date:
+    """Último día del mes (date). fecha_alta_legajo es date en SQL → comparación por día."""
+    ini_sig = date(anio + 1, 1, 1) if mes == 12 else date(anio, mes + 1, 1)
+    return ini_sig - timedelta(days=1)
+
+
+def informe_cuentas_por_segmento(*, hasta: str | None = None,
+                                 operador: str | None = None) -> dict:
+    hoy = _hoy_art()
+    anio, mes = (int(hasta[:4]), int(hasta[5:7])) if hasta else (hoy.year, hoy.month)
+    corte = _fin_de_mes(anio, mes)
+    where = "estado = 'Activa' AND fecha_alta_legajo <= %(corte)s"
+    p: dict = {"corte": corte}
+    if operador:
+        where += " AND operador_email = %(op)s"
+        p["op"] = operador
+    segmentos = [{"segmento": r["segmento"], "n": r["n"]} for r in _q(
+        f"SELECT COALESCE(nivel_1, '(sin segmentar)') AS segmento, count(*) AS n "
+        f"FROM comitentes WHERE {where} GROUP BY COALESCE(nivel_1, '(sin segmentar)') "
+        f"ORDER BY n DESC", p)]
+    fa = _q("SELECT min(fecha_alta_legajo) AS f FROM comitentes "
+            "WHERE fecha_alta_legajo IS NOT NULL")[0]["f"]
+    mes_min = f"{fa.year:04d}-{fa.month:02d}" if fa else f"{hoy.year:04d}-{hoy.month:02d}"
+    return {
+        "mes": f"{anio:04d}-{mes:02d}", "mes_min": mes_min,
+        "mes_actual": f"{hoy.year:04d}-{hoy.month:02d}",
+        "total": sum(s["n"] for s in segmentos), "segmentos": segmentos,
+    }
+
+
+def _rollup_por_cuenta(mes_start: str, scope: str | None, p: dict) -> dict[str, dict]:
+    """{id_cuenta: {vol_total, vol_mes, n_ops, ar_total, ar_mes}} en vivo (reemplaza
+    ComercialCache). vol/n_ops de negocio_movimientos (cats), arancel de operaciones."""
+    p["cats"] = list(_CATS_VOLUMEN)
+    p["mes"] = mes_start
+    w_vol = "unidad IS DISTINCT FROM 'USDL' AND categoria = ANY(%(cats)s)"
+    w_ar = "arancel > 0 AND etapa IS DISTINCT FROM 'solicitud'"
+    if scope:
+        w_vol += f" AND {scope}"
+        w_ar += f" AND {scope}"
+    rows = _q(
+        f"WITH vol AS (SELECT id_cuenta, "
+        f"  SUM({_PESIF}) AS vol_total, "
+        f"  SUM(CASE WHEN fecha >= %(mes)s THEN {_PESIF} ELSE 0 END) AS vol_mes, "
+        f"  count(*) AS n_ops FROM negocio_movimientos WHERE {w_vol} GROUP BY id_cuenta), "
+        f"ar AS (SELECT id_cuenta, SUM(arancel) AS ar_total, "
+        f"  SUM(CASE WHEN concertacion >= %(mes)s THEN arancel ELSE 0 END) AS ar_mes "
+        f"  FROM operaciones WHERE {w_ar} GROUP BY id_cuenta) "
+        f"SELECT COALESCE(v.id_cuenta, a.id_cuenta) AS id_cuenta, "
+        f"  COALESCE(v.vol_total,0) AS vol_total, COALESCE(v.vol_mes,0) AS vol_mes, "
+        f"  COALESCE(v.n_ops,0) AS n_ops, COALESCE(a.ar_total,0) AS ar_total, "
+        f"  COALESCE(a.ar_mes,0) AS ar_mes "
+        f"FROM vol FULL OUTER JOIN ar ON v.id_cuenta = a.id_cuenta", p)
+    return {r["id_cuenta"]: r for r in rows if r["id_cuenta"]}
+
+
+def _ticket(vol: float, n: int) -> float:
+    return round(vol / n, 2) if n else 0.0
+
+
+def informe_comercial(*, moneda: str = "ARS") -> dict:
+    hoy = _hoy_art()
+    factor = _factor_usd(moneda)
+    mes_start = hoy.replace(day=1).isoformat()
+    por_cuenta = _rollup_por_cuenta(mes_start, None, {})
+
+    detalle = {r["id_cuenta"]: r for r in _q(
+        "SELECT c.id_cuenta, c.operador_email, o.nombre AS operador_nombre, c.nivel_1 "
+        "FROM comitentes c LEFT JOIN operadores o ON o.email = c.operador_email "
+        "WHERE c.estado = 'Activa'")}
+
+    ops: dict[str, dict] = {}
+    segs: dict[str, dict] = {}
+    for idc, agg in por_cuenta.items():
+        info = detalle.get(idc, {})
+        key = (info.get("operador_email") or "").strip().lower() or "(sin operador)"
+        o = ops.get(key)
+        if o is None:
+            o = ops[key] = {
+                "operador_email": info.get("operador_email"),
+                "operador_nombre": (info.get("operador_nombre") or info.get("operador_email")
+                                    or "(sin operador)"),
+                "vol_total": 0.0, "vol_mes": 0.0, "ar_total": 0.0, "ar_mes": 0.0, "n_ops": 0,
+            }
+        for k in ("vol_total", "vol_mes", "ar_total", "ar_mes"):
+            o[k] += _f(agg[k])
+        o["n_ops"] += int(agg["n_ops"] or 0)
+
+        seg = info.get("nivel_1") or "(sin segmentar)"
+        s = segs.get(seg)
+        if s is None:
+            s = segs[seg] = {"segmento": seg, "ar_total": 0.0, "ar_mes": 0.0,
+                             "vol_total": 0.0, "n_ops": 0, "n_cuentas": 0}
+        s["ar_total"] += _f(agg["ar_total"])
+        s["ar_mes"] += _f(agg["ar_mes"])
+        s["vol_total"] += _f(agg["vol_total"])
+        s["n_ops"] += int(agg["n_ops"] or 0)
+        if _f(agg["ar_total"]) > 0:
+            s["n_cuentas"] += 1
+
+    for o in ops.values():
+        for k in ("vol_total", "vol_mes", "ar_total", "ar_mes"):
+            o[k] = _cv(o[k], factor)
+    comerciales = sorted(ops.values(), key=lambda x: x["vol_total"], reverse=True)
+    for i, o in enumerate(comerciales, 1):
+        o["rank"] = i
+        o["ticket_promedio"] = _ticket(o["vol_total"], o["n_ops"])
+    for s in segs.values():
+        for k in ("ar_total", "ar_mes", "vol_total"):
+            s[k] = _cv(s[k], factor)
+    segmentos = sorted(segs.values(), key=lambda x: x["ar_total"], reverse=True)
+    for s in segmentos:
+        s["ticket_promedio"] = _ticket(s["vol_total"], s["n_ops"])
+    return {"mes_actual": f"{hoy.year:04d}-{hoy.month:02d}",
+            "comerciales": comerciales, "aranceles_segmento": segmentos}
+
+
+def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS") -> dict:
+    hoy = _hoy_art()
+    factor = _factor_usd(moneda)
+    mes_start = hoy.replace(day=1).isoformat()
+    cuentas = {r["id_cuenta"]: (r["nivel_1"] or "(sin segmentar)") for r in _q(
+        "SELECT id_cuenta, nivel_1 FROM comitentes WHERE operador_email = %(op)s "
+        "AND estado = 'Activa'", {"op": operador})}
+    if not cuentas:
+        return {"operador": operador, "aranceles_segmento": []}
+    scope = "id_cuenta = ANY(%(ids)s)"
+    por_cuenta = _rollup_por_cuenta(mes_start, scope, {"ids": list(cuentas)})
+    segs: dict[str, dict] = {}
+    for idc, agg in por_cuenta.items():
+        seg = cuentas.get(idc, "(sin segmentar)")
+        s = segs.get(seg)
+        if s is None:
+            s = segs[seg] = {"segmento": seg, "ar_total": 0.0, "ar_mes": 0.0,
+                             "vol_total": 0.0, "n_ops": 0, "n_cuentas": 0}
+        s["vol_total"] += _f(agg["vol_total"])
+        s["n_ops"] += int(agg["n_ops"] or 0)
+        s["ar_total"] += _f(agg["ar_total"])
+        s["ar_mes"] += _f(agg["ar_mes"])
+        if _f(agg["ar_total"]) > 0:
+            s["n_cuentas"] += 1
+    out = sorted(segs.values(), key=lambda x: x["ar_total"], reverse=True)
+    for s in out:
+        for k in ("ar_total", "ar_mes", "vol_total"):
+            s[k] = _cv(s[k], factor)
+        s["ticket_promedio"] = _ticket(s["vol_total"], s["n_ops"])
+    return {"operador": operador, "aranceles_segmento": out}
+
+
+def informe_segmento_detalle(*, segmento: str | None = None, operador: str | None = None,
+                             moneda: str = "ARS") -> dict:
+    hoy = _hoy_art()
+    factor = _factor_usd(moneda)
+    mes_start = hoy.replace(day=1).isoformat()
+    where = "c.estado = 'Activa'"
+    p: dict = {}
+    if not segmento or segmento == "todos":
+        pass
+    elif segmento == "(sin segmentar)":
+        where += " AND c.nivel_1 IS NULL"
+    else:
+        where += " AND c.nivel_1 = %(seg)s"
+        p["seg"] = segmento
+    if operador:
+        where += " AND c.operador_email = %(op)s"
+        p["op"] = operador
+    detalle = {r["id_cuenta"]: r["denominacion"] for r in _q(
+        f"SELECT c.id_cuenta, u.denominacion FROM comitentes c "
+        f"LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta WHERE {where}", p)}
+    ids = list(detalle)
+    if not ids:
+        return {"segmento": segmento or "todos", "n_clientes": 0,
+                "clientes": [], "operaciones": []}
+
+    pa = {"ids": ids, "mes": mes_start}
+    clientes = []
+    for r in _q("SELECT id_cuenta, SUM(arancel) AS ar_total, "
+                "SUM(CASE WHEN concertacion >= %(mes)s THEN arancel ELSE 0 END) AS ar_mes "
+                "FROM operaciones WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 "
+                "AND etapa IS DISTINCT FROM 'solicitud' GROUP BY id_cuenta", pa):
+        idc = r["id_cuenta"]
+        clientes.append({
+            "id_cuenta": idc, "denominacion": detalle.get(idc) or "—",
+            "arancel_total": _cv(_f(r["ar_total"]), factor),
+            "arancel_mes": _cv(_f(r["ar_mes"]), factor),
+        })
+    clientes.sort(key=lambda x: x["arancel_total"], reverse=True)
+
+    operaciones = []
+    for r in _q("SELECT concertacion, id_cuenta, boleto, instrumento, operacion, "
+                "tipo_operacion, bruto, moneda, arancel FROM operaciones "
+                "WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 "
+                "AND etapa IS DISTINCT FROM 'solicitud' "
+                "ORDER BY concertacion DESC, boleto DESC LIMIT 500", {"ids": ids}):
+        idc = r["id_cuenta"]
+        operaciones.append({
+            "fecha": _iso(r["concertacion"]), "id_cuenta": idc,
+            "denominacion": detalle.get(idc) or "—", "comprobante": r["boleto"],
+            "ticker": r["instrumento"], "categoria": r["operacion"],
+            "op": r["tipo_operacion"],
+            "importe": _f(r["bruto"]) if r["bruto"] is not None else None,
+            "moneda": r["moneda"], "arancel": _cv(_f(r["arancel"]), factor),
+        })
+    return {"segmento": segmento or "todos", "n_clientes": len(clientes),
+            "clientes": clientes, "operaciones": operaciones}

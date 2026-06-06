@@ -3,75 +3,16 @@
 Herramienta: infra · Re-sincroniza las colecciones *API derivadas (drop+insert por contrato de API).
 
 Uso:
-    python -m scripts.api_migrate aum               → copia Valuaciones.AuM → PortfolioAPI.AumAPI
     python -m scripts.api_migrate assets            → copia Valuaciones.Assets → TitulosAPI.AssetsAPI
     python -m scripts.api_migrate flujos-titulos    → merge Trading.Curvas + Trading.BondsMaster → TitulosAPI.ValuacionesAPI
 
-Nota: CuentasAPI y OperacionesAPI (MesaAPI/FlujosAPI) fueron ELIMINADAS — la API
-lee directo de CashFlow.Accionistas/Contrapartes/Flujo/Movimientos.
+Nota: CuentasAPI, OperacionesAPI y PortfolioAPI.AumAPI fueron ELIMINADAS — la API
+lee directo de CashFlow.* y Valuaciones.AuM. Quedan solo las de TitulosAPI.
 """
 import sys
 from datetime import datetime
 
 from core.mongo import get_mongo_client
-
-
-def _fecha_str_to_datetime(raw: str) -> datetime | None:
-    """Convierte '2026-03-28' (YYYY-MM-DD) → datetime(2026, 3, 28)."""
-    try:
-        return datetime.strptime(raw.strip(), "%Y-%m-%d")
-    except (ValueError, AttributeError):
-        return None
-
-
-def migrate_aum():
-    """Copia Valuaciones.AuM → PortfolioAPI.AumAPI con campos seleccionados.
-
-    Origen:  {fecha_snapshot, id_cuenta, unidad, cantidad, cuenta, precio, valuacion, timestamp, tipoTitulo, ...}
-    Destino: {fecha, id_cuenta, unidad, cantidad, cuenta, precio, valuacion}
-
-    fecha_snapshot (string YYYY-MM-DD) se convierte a datetime.
-    No borra el origen.
-    """
-    client = get_mongo_client()
-    src = client["Valuaciones"]["AuM"]
-    dst = client["PortfolioAPI"]["AumAPI"]
-
-    projection = {
-        "_id": 0, "fecha_snapshot": 1, "id_cuenta": 1, "unidad": 1,
-        "cantidad": 1, "cuenta": 1, "precio": 1, "valuacion": 1,
-    }
-    docs = list(src.find({}, projection))
-    if not docs:
-        print("No hay docs en Valuaciones.AuM — nada que migrar.")
-        return
-
-    bulk = []
-    for doc in docs:
-        fecha = _fecha_str_to_datetime(doc.get("fecha_snapshot", ""))
-        bulk.append({
-            "fecha": fecha,
-            "id_cuenta": doc.get("id_cuenta", ""),
-            "unidad": doc.get("unidad", ""),
-            "cantidad": doc.get("cantidad"),
-            "cuenta": doc.get("cuenta", ""),
-            "precio": doc.get("precio"),
-            "valuacion": doc.get("valuacion"),
-        })
-
-    dst.drop()
-    dst.insert_many(bulk)
-    # Recrear índice tras el rebuild: drop() borra los índices, y AumAPI se
-    # consulta por (fecha, id_cuenta) (último snapshot + filtro por cuenta).
-    # Sin esto quedan 248k docs en COLLSCAN. (fecha desc cubre el find_one del
-    # último; +id_cuenta cubre el filtro por cuenta del mismo snapshot.)
-    dst.create_index([("fecha", -1), ("id_cuenta", 1)], name="fecha_idcuenta")
-    print(f"OK: {len(bulk)} docs copiados a PortfolioAPI.AumAPI (+ índice fecha_idcuenta)")
-
-    for d in bulk[:3]:
-        print(f"  fecha={d['fecha']}  id_cuenta={d['id_cuenta']!r}  unidad={d['unidad']!r}  valuacion={d['valuacion']}")
-    if len(bulk) > 3:
-        print(f"  ... y {len(bulk) - 3} más")
 
 
 def _parse_vencimiento(raw: str) -> datetime | None:
@@ -265,7 +206,6 @@ def migrate_flujos_titulos():
 
 
 COMMANDS = {
-    "aum": migrate_aum,
     "assets": migrate_assets,
     "flujos-titulos": migrate_flujos_titulos,
 }

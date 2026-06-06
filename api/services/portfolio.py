@@ -1,7 +1,7 @@
 """Capa de servicio — portfolio / AuM / FCI.
 
-Lógica pura (sin FastAPI) sobre las colecciones `PortfolioAPI`, `TitulosAPI`,
-`Valuaciones`. El router `api/routers/carteras.py` es un thin wrapper que
+Lógica pura (sin FastAPI) sobre `Valuaciones.AuM` (directo, sin espejo) y
+`TitulosAPI`. El router `api/routers/carteras.py` es un thin wrapper que
 parsea query params y delega acá. Beneficios del corte:
 
 - Tests deterministas sin levantar uvicorn.
@@ -18,16 +18,26 @@ import logging
 from datetime import datetime
 
 from api.cache import cached
-from api.db import get_db_portfolio, get_db_titulos, get_db_trading, get_db_valuaciones
+from api.db import get_db_titulos, get_db_trading, get_db_valuaciones
 from api.services._cuentas_filter import match_cuenta_filter
 from api.services._mep import get_mep_for_date
 
 logger = logging.getLogger("api.portfolio")
 
+# Se lee DIRECTO de Valuaciones.AuM (sin el espejo PortfolioAPI.AumAPI). La fuente
+# guarda la fecha como `fecha_snapshot` (string 'YYYY-MM-DD'); el espejo la servía
+# como `fecha` (datetime). _fecha_dt preserva ese contrato en listar_aum.
 _PROJ_AUM = {
-    "_id": 0, "fecha": 1, "id_cuenta": 1, "unidad": 1,
+    "_id": 0, "fecha_snapshot": 1, "id_cuenta": 1, "unidad": 1,
     "cantidad": 1, "cuenta": 1, "precio": 1, "valuacion": 1,
 }
+
+
+def _fecha_dt(s: str | None) -> datetime | None:
+    try:
+        return datetime.strptime(s, "%Y-%m-%d") if s else None
+    except (ValueError, TypeError):
+        return None
 
 # Cuentas que se EXCLUYEN de la vista AuM (chart, KPIs, leaderboard, FCI
 # breakdown) pero se siguen capturando en `Valuaciones.AuM` por
@@ -134,16 +144,16 @@ def listar_aum(
     `scope` restringe a las cuentas del grupo del usuario (None = sin
     restricción). Si se pasa `id_cuenta` explícito el router ya verificó
     que esté dentro del scope."""
-    db = get_db_portfolio()
+    db = get_db_valuaciones()
     filtro: dict = {}
 
     if ultimo:
-        last = db["AumAPI"].find_one(
-            {}, {"fecha": 1, "_id": 0}, sort=[("fecha", -1)],
+        last = db["AuM"].find_one(
+            {}, {"fecha_snapshot": 1, "_id": 0}, sort=[("fecha_snapshot", -1)],
         )
         if not last:
             return []
-        filtro["fecha"] = last["fecha"]
+        filtro["fecha_snapshot"] = last["fecha_snapshot"]
 
     if id_cuenta:
         filtro["id_cuenta"] = id_cuenta
@@ -154,14 +164,19 @@ def listar_aum(
     if cuenta:
         filtro["cuenta"] = cuenta
     if not ultimo and (desde or hasta):
+        # fecha_snapshot es string ISO 'YYYY-MM-DD' → compara como string (sin strptime).
         rango: dict = {}
         if desde:
-            rango["$gte"] = datetime.strptime(desde, "%Y-%m-%d")
+            rango["$gte"] = desde
         if hasta:
-            rango["$lte"] = datetime.strptime(hasta, "%Y-%m-%d")
-        filtro["fecha"] = rango
+            rango["$lte"] = hasta
+        filtro["fecha_snapshot"] = rango
 
-    return list(db["AumAPI"].find(filtro, _PROJ_AUM))
+    # fecha_snapshot (string) → fecha (datetime): mismo shape que servía AumAPI.
+    return [
+        {"fecha": _fecha_dt(d.pop("fecha_snapshot", None)), **d}
+        for d in db["AuM"].find(filtro, _PROJ_AUM)
+    ]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -178,12 +193,12 @@ def listar_aum(
 def tasa_fija_snapshot(scope: tuple[str, ...] | None = None) -> dict:
     """Posiciones de Tasa Fija del último snapshot AuM.
 
-    Join: AumAPI (último) → AssetsAPI (clase_activo=FIJA) → ValuacionesAPI (curva=tasa_fija).
+    Join: Valuaciones.AuM (último) → AssetsAPI (clase_activo=FIJA) → ValuacionesAPI (curva=tasa_fija).
     Devuelve tickers con valuacion total, cobro proyectado y detalle por cuenta.
 
     `scope` restringe a las cuentas del grupo del usuario (None = sin restricción).
     """
-    db_p = get_db_portfolio()
+    db_p = get_db_valuaciones()
     db_t = get_db_titulos()
 
     assets_fija: dict[str, str] = {}
@@ -209,15 +224,15 @@ def tasa_fija_snapshot(scope: tuple[str, ...] | None = None) -> dict:
                 "fecha_vencimiento": d.get("fecha_vencimiento"),
             }
 
-    last = db_p["AumAPI"].find_one({}, {"fecha": 1, "_id": 0}, sort=[("fecha", -1)])
+    last = db_p["AuM"].find_one({}, {"fecha_snapshot": 1, "_id": 0}, sort=[("fecha_snapshot", -1)])
     if not last:
         return {"fecha": None, "total_valuacion": 0, "total_cobro": 0, "tickers": []}
 
-    fecha = last["fecha"]
+    fecha = last["fecha_snapshot"]
     unidades_fija = list(assets_fija.keys())
 
-    docs = list(db_p["AumAPI"].find(
-        {"fecha": fecha, "unidad": {"$in": unidades_fija}, **_scope_match(scope)},
+    docs = list(db_p["AuM"].find(
+        {"fecha_snapshot": fecha, "unidad": {"$in": unidades_fija}, **_scope_match(scope)},
         {"_id": 0, "unidad": 1, "cuenta": 1, "id_cuenta": 1, "valuacion": 1, "cantidad": 1},
     ))
 
@@ -278,7 +293,7 @@ def tasa_fija_snapshot(scope: tuple[str, ...] | None = None) -> dict:
 def cer_snapshot(scope: tuple[str, ...] | None = None) -> dict:
     """Posiciones CER del último snapshot AuM.
 
-    Join: ValuacionesAPI (curva=cer) → AssetsAPI (por ticker) → AumAPI (último).
+    Join: ValuacionesAPI (curva=cer) → AssetsAPI (por ticker) → Valuaciones.AuM (último).
     Devuelve tickers con valuacion total, cantidad (VN) y detalle por cuenta.
 
     A diferencia de tasa_fija_snapshot NO se calcula "cobro proyectado" porque el
@@ -286,7 +301,7 @@ def cer_snapshot(scope: tuple[str, ...] | None = None) -> dict:
     determinísticamente). Se agrega `paridad` y `tea` del último trade enriquecido
     en Trading.TimeSales si están disponibles.
     """
-    db_p = get_db_portfolio()
+    db_p = get_db_valuaciones()
     db_t = get_db_titulos()
     db_tr = get_db_trading()
 
@@ -356,15 +371,15 @@ def cer_snapshot(scope: tuple[str, ...] | None = None) -> dict:
     except Exception:
         logger.warning("enriquecimiento TEA/paridad/duration falló (AuM sin métricas)", exc_info=True)
 
-    last = db_p["AumAPI"].find_one({}, {"fecha": 1, "_id": 0}, sort=[("fecha", -1)])
+    last = db_p["AuM"].find_one({}, {"fecha_snapshot": 1, "_id": 0}, sort=[("fecha_snapshot", -1)])
     if not last:
         return {"fecha": None, "total_valuacion": 0, "tickers": []}
 
-    fecha = last["fecha"]
+    fecha = last["fecha_snapshot"]
     unidades = list(unidad_to_ticker.keys())
 
-    docs = list(db_p["AumAPI"].find(
-        {"fecha": fecha, "unidad": {"$in": unidades}, **_scope_match(scope)},
+    docs = list(db_p["AuM"].find(
+        {"fecha_snapshot": fecha, "unidad": {"$in": unidades}, **_scope_match(scope)},
         {"_id": 0, "unidad": 1, "cuenta": 1, "id_cuenta": 1, "valuacion": 1, "cantidad": 1},
     ))
 

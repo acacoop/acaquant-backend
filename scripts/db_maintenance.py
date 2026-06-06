@@ -5,9 +5,6 @@ Herramienta: dba · Aplica optimizaciones DBA (crear/dropear índices + TTL). Id
 De la auditoría (scripts/audit_db + diag_index_usage):
 
 FASE 1 — índices
-  • CREATE PortfolioAPI.AumAPI (fecha desc, id_cuenta) — 248k docs SIN índice propio
-    → COLLSCAN en cada vista de AuM. (api_migrate.migrate_aum lo recrea en cada sync;
-    esto lo aplica YA sin rebuildear.)
   • DROP redundantes (cubiertos por un compuesto):
       - Manager.AumBackfillLog.run_id_1   (⊂ run_id_1_fecha_snapshot_1_id_cuenta_1)
       - Market.EconomicCalendar.time_1    (⊂ time_1_country_1_event_1)
@@ -35,9 +32,7 @@ from datetime import datetime
 
 from core.mongo import get_mongo_client
 
-_CREATE = [
-    ("PortfolioAPI", "AumAPI", [("fecha", -1), ("id_cuenta", 1)], "fecha_idcuenta"),
-]
+_CREATE: list = []  # PortfolioAPI.AumAPI eliminada — la API lee Valuaciones.AuM directo.
 _DROP = [
     ("Manager", "AumBackfillLog", "run_id_1"),
     ("Market", "EconomicCalendar", "time_1"),

@@ -18,9 +18,6 @@ def main():
     valuaciones     = client["Valuaciones"]
     cashflow        = client["CashFlow"]
     opciones        = client["Opciones"]
-    cuentas_api     = client["CuentasAPI"]
-    operaciones_api = client["OperacionesAPI"]
-    portfolio_api   = client["PortfolioAPI"]
     titulos_api     = client["TitulosAPI"]
     manager_db      = client["Manager"]
     clientes        = client["Clientes"]
@@ -110,21 +107,6 @@ def main():
         (opciones["DataHistorica"], [("symbol", 1), ("fecha", -1)],
             "DataHistorica: symbol + fecha"),
 
-        # ── CuentasAPI (colecciones derivadas consumidas por la API REST) ─
-        (cuentas_api["ContrapartesAPI"], [("grupo", 1)],
-            "ContrapartesAPI: grupo"),
-
-        # ── OperacionesAPI ────────────────────────────────────────────────
-        (operaciones_api["MesaAPI"], [("contraparte", 1), ("moneda", 1)],
-            "MesaAPI: contraparte + moneda"),
-        (operaciones_api["MesaAPI"], [("concertacion", -1)],
-            "MesaAPI: concertacion"),
-
-        # ── PortfolioAPI ──────────────────────────────────────────────────
-        (portfolio_api["AumAPI"], [("fecha", -1)],
-            "AumAPI: fecha"),
-        (portfolio_api["AumAPI"], [("unidad", 1), ("fecha", -1)],
-            "AumAPI: unidad + fecha"),
         # ── TitulosAPI ────────────────────────────────────────────────────
         (titulos_api["AssetsAPI"], [("cartera", 1)],
             "AssetsAPI: cartera"),

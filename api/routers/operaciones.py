@@ -8,9 +8,8 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.cache import cached
-from api.db import get_db_cashflow, get_db_clientes
+from api.db import get_db_cashflow, get_db_clientes, get_db_valuaciones
 from api.deps import (
-    get_db_portfolio,
     get_db_titulos,
 )
 from api.services._cuentas_filter import (
@@ -235,20 +234,21 @@ def flujo_vs_aum(
 
         aum: list[dict] = []
         if unidades:
-            db_p = get_db_portfolio()
-            # Agrupación server-side: suma por fecha → toma la más reciente por mes
+            # DIRECTO desde Valuaciones.AuM (sin el espejo PortfolioAPI.AumAPI):
+            # fecha_snapshot es string 'YYYY-MM-DD' → mes = substr(0,7).
+            db_v = get_db_valuaciones()
             pipeline_aum = [
                 {"$match": {"unidad": {"$in": unidades}, "valuacion": {"$ne": None}}},
-                {"$group": {"_id": "$fecha", "total": {"$sum": "$valuacion"}}},
+                {"$group": {"_id": "$fecha_snapshot", "total": {"$sum": "$valuacion"}}},
                 {"$sort": {"_id": 1}},
                 {"$group": {
-                    "_id": {"$dateToString": {"format": "%Y-%m", "date": "$_id"}},
+                    "_id": {"$substr": ["$_id", 0, 7]},
                     "total": {"$last": "$total"},
                 }},
                 {"$sort": {"_id": 1}},
                 {"$project": {"_id": 0, "mes": "$_id", "total": 1}},
             ]
-            aum = list(db_p["AumAPI"].aggregate(pipeline_aum))
+            aum = list(db_v["AuM"].aggregate(pipeline_aum))
 
         # DIRECTO desde CashFlow.Flujo (sin el espejo OperacionesAPI.MesaAPI):
         # contraparte/moneda/concertacion/bruto existen idénticos en la fuente.

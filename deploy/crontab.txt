@@ -106,11 +106,11 @@
 
 # ─── AuM snapshot — 5 corridas L-V (15/17/18:30/21/23 UTC) → chainea sync.
 # Idempotente: por cuenta delete_many({fecha_snapshot: hoy}) antes del bulk_write.
-0  15 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets'
-0  17 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets'
-30 18 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets'
-0  21 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets'
-0  23 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --aum --titulos --assets'
+0  15 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --titulos --assets'
+0  17 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --titulos --assets'
+30 18 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --titulos --assets'
+0  21 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --titulos --assets'
+0  23 * * 1-5 /root/TradingAV/deploy/run_job.sh aum_chain 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --titulos --assets'
 
 # ─── Consolidado por cuenta (23:30 UTC = 20:30 ART, L-V — post AuM final 23:00)
 30 23 * * 1-5 /root/TradingAV/deploy/run_job.sh consolidado_cuentas 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.consolidado_cuentas'

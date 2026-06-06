@@ -8,13 +8,12 @@ Este job permite re-sincronizarlas desde cron, inmediatamente después de
 que se actualice la colección fuente correspondiente. Cada flag invoca la
 migración respectiva:
 
-    python -m jobs.sync_api_copies --aum           # Valuaciones.AuM        → PortfolioAPI.AumAPI
     python -m jobs.sync_api_copies --assets        # Valuaciones.Assets     → TitulosAPI.AssetsAPI
     python -m jobs.sync_api_copies --titulos       # Trading.Curvas+Bonds   → TitulosAPI.ValuacionesAPI
     python -m jobs.sync_api_copies --all           # todas (modo backfill)
 
-Nota: --flujo / --movimientos (OperacionesAPI) fueron ELIMINADOS — la API lee
-directo de CashFlow.Flujo / CashFlow.Movimientos.
+Nota: --flujo/--movimientos (OperacionesAPI) y --aum (PortfolioAPI) fueron
+ELIMINADOS — la API lee directo de CashFlow.* y Valuaciones.AuM.
 """
 import argparse
 import time
@@ -22,12 +21,10 @@ import traceback
 
 from scripts.api_migrate import (
     migrate_assets,
-    migrate_aum,
     migrate_flujos_titulos,
 )
 
 TASKS = {
-    "aum":         ("Valuaciones.AuM → PortfolioAPI.AumAPI",            migrate_aum),
     "titulos":     ("Trading.Curvas+Bonds → TitulosAPI.ValuacionesAPI", migrate_flujos_titulos),
     # `assets` rebuildea TitulosAPI.AssetsAPI desde Valuaciones.Assets (UPPERCASE
     # → lowercase via drop+insert). Encadenar al cron de aum mantiene la copia

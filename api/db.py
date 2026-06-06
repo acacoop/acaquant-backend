@@ -6,10 +6,6 @@ no importe fastapi. `api/deps.py` sigue reexportándolos para compat.
 from core.mongo import get_mongo_client_read
 
 
-def get_db_portfolio():
-    return get_mongo_client_read()["PortfolioAPI"]
-
-
 def get_db_titulos():
     return get_mongo_client_read()["TitulosAPI"]
 

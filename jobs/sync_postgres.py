@@ -243,9 +243,12 @@ def sync_negocio(mdb, conn, dry, desde: datetime | None) -> int:
     proj = {
         "fecha": 1, "comprobante": 1, "id_cuenta": 1, "categoria": 1, "op": 1,
         "ticker": 1, "cantidad": 1, "precio": 1, "importe": 1, "moneda": 1, "mep": 1,
+        # Campos de la vista NEGOCIO:
+        "cuenta": 1, "plazo": 1, "lugar": 1, "estado": 1, "informacion": 1,
     }
     cols = ["fecha", "comprobante", "id_cuenta", "categoria", "op", "ticker",
-            "cantidad", "precio", "importe", "moneda", "mep"]
+            "cantidad", "precio", "importe", "moneda", "mep",
+            "cuenta", "plazo", "lugar", "estado", "informacion"]
     total = 0
     cur = mdb["CashFlow"]["NegocioMovimientos"].find(q, proj, batch_size=BATCH)
     for batch in _iter_batches(cur):
@@ -256,11 +259,27 @@ def sync_negocio(mdb, conn, dry, desde: datetime | None) -> int:
                 continue
             rows.append((f, comp, _s(d.get("id_cuenta")), _s(d.get("categoria")),
                          _s(d.get("op")), _s(d.get("ticker")), d.get("cantidad"),
-                         d.get("precio"), d.get("importe"), _s(d.get("moneda")), d.get("mep")))
+                         d.get("precio"), d.get("importe"), _s(d.get("moneda")), d.get("mep"),
+                         _s(d.get("cuenta")), _s(d.get("plazo")), _s(d.get("lugar")),
+                         _s(d.get("estado")), _s(d.get("informacion"))))
         total += _upsert(conn, "negocio_movimientos", cols, ["fecha", "comprobante"],
                          _dedup(rows, [0, 1]), dry)
         time.sleep(THROTTLE)
     return total
+
+
+def sync_accionistas(mdb, conn, dry) -> int:
+    """CashFlow.Accionistas → tabla accionistas (solo el string `cuenta`). Para el filtro
+    de cuenta (accionistas/sin_accionistas/cooperativas) de NEGOCIO y portfolio."""
+    rows = []
+    for d in mdb["CashFlow"]["Accionistas"].find({}, {"cuenta": 1}):
+        c = _s(d.get("cuenta"))
+        if c:
+            rows.append((c,))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "accionistas", ["cuenta"], ["cuenta"], rows, dry)
+    _delete_not_in(conn, "accionistas", "cuenta", {r[0] for r in rows}, dry)
+    return n
 
 
 # ── reconciliación (no confiar a ciegas) ─────────────────────────────────────
@@ -297,8 +316,9 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     with connect() as conn:
         n_op, n_cu, n_co = sync_dims_clientes(mdb, conn, dry)
         n_cp = sync_contrapartes(mdb, conn, dry)
-        print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  "
-              f"comitentes={n_co}  contrapartes={n_cp}")
+        n_ac = sync_accionistas(mdb, conn, dry)
+        print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  comitentes={n_co}  "
+              f"contrapartes={n_cp}  accionistas={n_ac}")
 
         n_ops, sin_bol = sync_operaciones(mdb, conn, dry, desde)
         n_aum = sync_aum(mdb, conn, dry, desde)
@@ -310,7 +330,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
             reconciliar(mdb, conn)
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
     return {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co, "contrapartes": n_cp,
-            "operaciones": n_ops, "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol}
+            "accionistas": n_ac, "operaciones": n_ops, "aum": n_aum, "negocio": n_nm,
+            "sin_boleto": sin_bol}
 
 
 def main() -> int:

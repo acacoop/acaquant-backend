@@ -69,11 +69,11 @@
 # ─── Indicadores macro argentinadatos.com (1x/día, 12:00 UTC = 09:00 ART)
 0 12 * * * /root/TradingAV/deploy/run_job.sh argentina_datos 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.argentina_datos'
 
-# ─── CashFlow (martes a sábado 02:00 UTC = lunes-viernes 23:00 ART) → chainea sync.
-0 2 * * 2-6 /root/TradingAV/deploy/run_job.sh cashflow_chain 30m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cashflow --today && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --movimientos'
+# ─── CashFlow (martes a sábado 02:00 UTC = lunes-viernes 23:00 ART).
+0 2 * * 2-6 /root/TradingAV/deploy/run_job.sh cashflow 30m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cashflow --today'
 
-# ─── Flujo Contrapartes (lunes-viernes 22:00 UTC = 19:00 ART) → chainea sync.
-0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh flujo_chain 30m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.flujo_contrapartes && /root/TradingAV/venv/bin/python -m jobs.sync_api_copies --flujo'
+# ─── Flujo Contrapartes (lunes-viernes 22:00 UTC = 19:00 ART).
+0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh flujo_contrapartes 30m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.flujo_contrapartes'
 
 # ─── Negocio del día (cada hora 15-22 UTC L-V) → negocio_movimientos + aranceles + fci_bilateral
 # Pega a Aunesa consolidadosGenerales → CashFlow.NegocioMovimientos (idempotente);

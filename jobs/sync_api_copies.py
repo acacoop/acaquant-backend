@@ -10,11 +10,11 @@ migración respectiva:
 
     python -m jobs.sync_api_copies --aum           # Valuaciones.AuM        → PortfolioAPI.AumAPI
     python -m jobs.sync_api_copies --assets        # Valuaciones.Assets     → TitulosAPI.AssetsAPI
-    python -m jobs.sync_api_copies --flujo         # CashFlow.Flujo         → OperacionesAPI.MesaAPI
-    python -m jobs.sync_api_copies --movimientos   # CashFlow.Movimientos   → OperacionesAPI.FlujosAPI
     python -m jobs.sync_api_copies --titulos       # Trading.Curvas+Bonds   → TitulosAPI.ValuacionesAPI
     python -m jobs.sync_api_copies --all           # todas (modo backfill)
-    python -m jobs.sync_api_copies --all-dashboard # las 6 que consume el dashboard
+
+Nota: --flujo / --movimientos (OperacionesAPI) fueron ELIMINADOS — la API lee
+directo de CashFlow.Flujo / CashFlow.Movimientos.
 """
 import argparse
 import time
@@ -23,15 +23,11 @@ import traceback
 from scripts.api_migrate import (
     migrate_assets,
     migrate_aum,
-    migrate_flujo,
     migrate_flujos_titulos,
-    migrate_movimientos,
 )
 
 TASKS = {
     "aum":         ("Valuaciones.AuM → PortfolioAPI.AumAPI",            migrate_aum),
-    "flujo":       ("CashFlow.Flujo → OperacionesAPI.MesaAPI",          migrate_flujo),
-    "movimientos": ("CashFlow.Movimientos → OperacionesAPI.FlujosAPI",  migrate_movimientos),
     "titulos":     ("Trading.Curvas+Bonds → TitulosAPI.ValuacionesAPI", migrate_flujos_titulos),
     # `assets` rebuildea TitulosAPI.AssetsAPI desde Valuaciones.Assets (UPPERCASE
     # → lowercase via drop+insert). Encadenar al cron de aum mantiene la copia

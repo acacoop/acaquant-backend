@@ -3,126 +3,17 @@
 Herramienta: infra · Re-sincroniza las colecciones *API derivadas (drop+insert por contrato de API).
 
 Uso:
-    python -m scripts.api_migrate flujo             → copia CashFlow.Flujo → OperacionesAPI.MesaAPI
-    python -m scripts.api_migrate movimientos       → copia CashFlow.Movimientos → OperacionesAPI.FlujosAPI
     python -m scripts.api_migrate aum               → copia Valuaciones.AuM → PortfolioAPI.AumAPI
     python -m scripts.api_migrate assets            → copia Valuaciones.Assets → TitulosAPI.AssetsAPI
     python -m scripts.api_migrate flujos-titulos    → merge Trading.Curvas + Trading.BondsMaster → TitulosAPI.ValuacionesAPI
 
-Nota: CuentasAPI (Accionistas/Contrapartes) fue ELIMINADA — la API lee directo
-de las fuentes CashFlow.Accionistas / CashFlow.Contrapartes.
+Nota: CuentasAPI y OperacionesAPI (MesaAPI/FlujosAPI) fueron ELIMINADAS — la API
+lee directo de CashFlow.Accionistas/Contrapartes/Flujo/Movimientos.
 """
 import sys
 from datetime import datetime
 
 from core.mongo import get_mongo_client
-
-
-def migrate_flujo():
-    """Copia CashFlow.Flujo → OperacionesAPI.MesaAPI con campos renombrados.
-
-    Origen:  {instrumento, bruto, contraparte, concertacion, boleto, cuenta, segmento, moneda, ...}
-    Destino: {unidad, bruto, contraparte, concertacion, boleto, id_cuenta, segmento, moneda}
-
-    No borra el origen.
-    """
-    client = get_mongo_client()
-    src = client["CashFlow"]["Flujo"]
-    dst = client["OperacionesAPI"]["MesaAPI"]
-
-    projection = {
-        "_id": 0, "instrumento": 1, "bruto": 1, "contraparte": 1,
-        "concertacion": 1, "boleto": 1, "cuenta": 1, "segmento": 1, "moneda": 1,
-    }
-    docs = list(src.find({}, projection))
-    if not docs:
-        print("No hay docs en CashFlow.Flujo — nada que migrar.")
-        return
-
-    bulk = []
-    for doc in docs:
-        bulk.append({
-            "unidad": doc.get("instrumento", ""),
-            "bruto": doc.get("bruto"),
-            "contraparte": doc.get("contraparte", ""),
-            "concertacion": doc.get("concertacion", ""),
-            "boleto": doc.get("boleto"),
-            "id_cuenta": doc.get("cuenta"),
-            "segmento": doc.get("segmento", ""),
-            "moneda": doc.get("moneda", ""),
-        })
-
-    dst.drop()
-    dst.insert_many(bulk)
-    # LEY #1: un boleto = un documento. Índice único parcial (solo boletos
-    # reales; los sin boleto = None quedan permitidos). Se recrea acá porque el
-    # drop() de arriba se lleva los índices. El origen (CashFlow.Flujo) ya viene
-    # deduplicado por su propio índice único, así que esto no debería fallar.
-    try:
-        dst.create_index(
-            [("boleto", 1)], name="uq_boleto", unique=True,
-            partialFilterExpression={"boleto": {"$type": ["string", "int", "long", "double"]}},
-        )
-        print("OK: índice único 'uq_boleto' creado en OperacionesAPI.MesaAPI")
-    except Exception as e:
-        print(f"⚠ No se pudo crear el índice único en MesaAPI (¿duplicados en Flujo?): {e}")
-    print(f"OK: {len(bulk)} docs copiados a OperacionesAPI.MesaAPI")
-
-    for d in bulk[:3]:
-        print(f"  unidad={d['unidad']!r}  contraparte={d['contraparte']!r}  bruto={d['bruto']}  concertacion={d['concertacion']!r}")
-    if len(bulk) > 3:
-        print(f"  ... y {len(bulk) - 3} más")
-
-
-def _fecha_ddmmyyyy_to_iso(raw: str) -> str:
-    """Convierte '02/07/2025' (dd/mm/yyyy) → '2025-07-02' (YYYY-MM-DD)."""
-    try:
-        return datetime.strptime(raw.strip(), "%d/%m/%Y").strftime("%Y-%m-%d")
-    except (ValueError, AttributeError):
-        return raw
-
-
-def migrate_movimientos():
-    """Copia CashFlow.Movimientos → OperacionesAPI.FlujosAPI con campos renombrados.
-
-    Origen:  {comprobante, cuenta, fecha, informacion, total, unidad, ...}
-    Destino: {boleto, cuenta, concertacion, informacion, bruto, unidad}
-
-    fecha se convierte de dd/mm/yyyy a YYYY-MM-DD.
-    No borra el origen.
-    """
-    client = get_mongo_client()
-    src = client["CashFlow"]["Movimientos"]
-    dst = client["OperacionesAPI"]["FlujosAPI"]
-
-    projection = {
-        "_id": 0, "comprobante": 1, "cuenta": 1, "fecha": 1,
-        "informacion": 1, "total": 1, "unidad": 1,
-    }
-    docs = list(src.find({}, projection))
-    if not docs:
-        print("No hay docs en CashFlow.Movimientos — nada que migrar.")
-        return
-
-    bulk = []
-    for doc in docs:
-        bulk.append({
-            "boleto": doc.get("comprobante", ""),
-            "cuenta": doc.get("cuenta", ""),
-            "concertacion": _fecha_ddmmyyyy_to_iso(doc.get("fecha", "")),
-            "informacion": doc.get("informacion", ""),
-            "bruto": doc.get("total"),
-            "unidad": doc.get("unidad", ""),
-        })
-
-    dst.drop()
-    dst.insert_many(bulk)
-    print(f"OK: {len(bulk)} docs copiados a OperacionesAPI.FlujosAPI")
-
-    for d in bulk[:3]:
-        print(f"  boleto={d['boleto']!r}  cuenta={d['cuenta']!r}  concertacion={d['concertacion']!r}  bruto={d['bruto']}  unidad={d['unidad']!r}")
-    if len(bulk) > 3:
-        print(f"  ... y {len(bulk) - 3} más")
 
 
 def _fecha_str_to_datetime(raw: str) -> datetime | None:
@@ -374,8 +265,6 @@ def migrate_flujos_titulos():
 
 
 COMMANDS = {
-    "flujo": migrate_flujo,
-    "movimientos": migrate_movimientos,
     "aum": migrate_aum,
     "assets": migrate_assets,
     "flujos-titulos": migrate_flujos_titulos,

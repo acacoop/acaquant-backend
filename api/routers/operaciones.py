@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api.cache import cached
 from api.db import get_db_cashflow, get_db_clientes
 from api.deps import (
-    get_db_operaciones,
     get_db_portfolio,
     get_db_titulos,
 )
@@ -38,17 +37,13 @@ _FONDOS_TTL = 600
 
 router = APIRouter(prefix="/api/operaciones", tags=["Operaciones"])
 
-# Proyección de MesaAPI — solo los campos que consume el frontend.
-_PROJ_FLUJO = {
-    "_id": 0, "boleto": 1, "concertacion": 1, "tipoOperacion": 1,
-    "cuenta": 1, "denominacion": 1, "unidad": 1, "bruto": 1,
-    "segmento": 1, "contraparte": 1, "moneda": 1,
-}
-
-_PROJ_MOVIMIENTOS = {
-    "_id": 0, "boleto": 1, "concertacion": 1, "cuenta": 1,
-    "informacion": 1, "bruto": 1, "unidad": 1,
-}
+def _ddmmyyyy_a_iso(raw: str | None) -> str | None:
+    """'02/07/2025' (dd/mm/yyyy) → '2025-07-02'. None si no parsea.
+    CashFlow.Movimientos guarda la fecha en dd/mm/yyyy; la API la sirve en ISO."""
+    try:
+        return datetime.strptime((raw or "").strip(), "%d/%m/%Y").strftime("%Y-%m-%d")
+    except ValueError:
+        return None
 
 
 @router.get("/flujo")
@@ -129,7 +124,12 @@ def listar_flujos(
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
-    db = get_db_operaciones()
+    # DIRECTO desde CashFlow.Movimientos (sin el espejo OperacionesAPI.FlujosAPI):
+    # comprobante→boleto, total→bruto, fecha(dd/mm/yyyy)→concertacion(iso). El
+    # rango de fechas y el orden se resuelven en Python porque la fecha está en
+    # dd/mm/yyyy (no ordenable como string en Mongo). El set es chico (~12k docs,
+    # casi siempre filtrado por cuenta).
+    db = get_db_cashflow()
     filtro: dict = {}
     if cuenta:
         verificar_cuenta_str(cuenta, scope)
@@ -138,15 +138,26 @@ def listar_flujos(
         aplicar_scope_cuenta(filtro, scope)
     if unidad:
         filtro["unidad"] = unidad
-    if desde or hasta:
-        rango = {}
-        if desde:
-            rango["$gte"] = desde
-        if hasta:
-            rango["$lte"] = hasta
-        filtro["concertacion"] = rango
 
-    return list(db["FlujosAPI"].find(filtro, _PROJ_MOVIMIENTOS).sort("concertacion", 1))
+    proj = {"_id": 0, "comprobante": 1, "cuenta": 1, "fecha": 1,
+            "informacion": 1, "total": 1, "unidad": 1}
+    out = []
+    for d in db["Movimientos"].find(filtro, proj):
+        iso = _ddmmyyyy_a_iso(d.get("fecha"))
+        if desde and (iso is None or iso < desde):
+            continue
+        if hasta and (iso is None or iso > hasta):
+            continue
+        out.append({
+            "boleto":       d.get("comprobante"),
+            "concertacion": iso,
+            "cuenta":       d.get("cuenta"),
+            "informacion":  d.get("informacion"),
+            "bruto":        d.get("total"),
+            "unidad":       d.get("unidad"),
+        })
+    out.sort(key=lambda r: r["concertacion"] or "")
+    return out
 
 
 # ── Flujo vs AUM (solo Fondos) ──
@@ -239,7 +250,9 @@ def flujo_vs_aum(
             ]
             aum = list(db_p["AumAPI"].aggregate(pipeline_aum))
 
-        db_o = get_db_operaciones()
+        # DIRECTO desde CashFlow.Flujo (sin el espejo OperacionesAPI.MesaAPI):
+        # contraparte/moneda/concertacion/bruto existen idénticos en la fuente.
+        db_cf = get_db_cashflow()
         pipeline_flujo = [
             {"$match": {
                 "contraparte": contraparte,
@@ -253,7 +266,7 @@ def flujo_vs_aum(
             {"$sort": {"_id": 1}},
             {"$project": {"_id": 0, "mes": "$_id", "bruto": 1}},
         ]
-        flujo = list(db_o["MesaAPI"].aggregate(pipeline_flujo))
+        flujo = list(db_cf["Flujo"].aggregate(pipeline_flujo))
 
         return {
             "contraparte": contraparte,

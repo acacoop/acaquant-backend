@@ -109,10 +109,28 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
 
 ---
 
+### Migración vista COMERCIAL (`/api/operaciones/comercial/*`) — código listo ⏳ validar
+- **Qué:** la vista por operador (selector, KPIs, clientes, análisis/churn, series, informes
+  globales por comercial y por segmento) lee de SQL.
+- **Cómo:**
+  - Chunk 0 (data layer): `comitentes` ganó `estado` (legal Activa), `fecha_alta_legajo`, ficha
+    (telefono/email/niveles 4-5/etc.) y `cupo_*`. Tablas nuevas `manager_users` y
+    `actividad_mensual` (snapshot point-in-time). Sync ampliado.
+  - `api/services/comercial_sql.py`: replica las 11 funciones. Lo DERIVADO (`ComercialCache`)
+    se computa EN VIVO (CTE vol+arancel) — no se sincroniza (sería derivar de un derivado).
+    Reglas: `estado='Activa'`, `etapa IS DISTINCT FROM 'solicitud'`, AuM último snapshot global,
+    pesificación por mep, dolarización al MEP actual (`_cv`/`_factor_usd` reusados de Mongo).
+  - `api/routers/operaciones.py`: flag `COMERCIAL_SQL` (vía `_com_motor`).
+  - `scripts/compare_comercial_sql_vs_mongo.py`: GATE.
+- **Pendiente del user:** ALTER+tablas en Supabase (Chunk 0, ya entregado) + `sync --full` +
+  harness (→ 0 diffs) + `COMERCIAL_SQL=1`. Nota: `informe_comercial` Mongo puede leer
+  ComercialCache (cache) vs SQL en vivo → posible diff chico de frescura (evaluar, no es bug).
+
 ## 5. Plan por dominios (orden)
 
 1. ✅ OPERACIONES (negocio/operaciones)
-2. 🔵 NEGOCIO (código listo; falta ALTER+sync+harness+flag del user)
+2. ✅ NEGOCIO (validado 26/26; cutover con NEGOCIO_SQL=1)
+2b. 🔵 COMERCIAL (código completo; falta sync+harness+flag del user)
 3. ⏳ COMERCIAL / operadores (1053 líneas; +tablas `actividad_mensual`; derivados→vistas)
 4. ⏳ PORTFOLIO / AuM / PnL (fórmulas AuM; PnLTotalesCache/Consolidado → vistas materializadas)
 5. ⏳ MERCADO (curvas, snapshots, timesales — medir shapes; real-time al final)

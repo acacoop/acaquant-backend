@@ -84,9 +84,11 @@ def _upsert(conn, table, cols, conflict_cols, rows, dry):
         return len(rows)
     ph = "(" + ",".join(["%s"] * len(cols)) + ")"
     sets = ",".join(f"{c}=EXCLUDED.{c}" for c in cols if c not in conflict_cols)
+    # Si todas las columnas son la PK (ej. accionistas) no hay nada que actualizar → DO NOTHING.
+    on_conflict = (f"DO UPDATE SET {sets}" if sets else "DO NOTHING")
     sql = (
         f'INSERT INTO {table} ({",".join(cols)}) VALUES {ph} '
-        f'ON CONFLICT ({",".join(conflict_cols)}) DO UPDATE SET {sets}'
+        f'ON CONFLICT ({",".join(conflict_cols)}) {on_conflict}'
     )
     with conn.cursor() as cur:
         cur.executemany(sql, rows)

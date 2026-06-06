@@ -10,6 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.cache import cached
 from api.db import get_db_cashflow, get_db_clientes, get_db_valuaciones
+from api.services import comercial as _com
+from api.services import comercial_sql as _com_sql
 from api.services import negocio_sql as _neg_sql
 from api.services import operaciones_sql as _ops_sql
 from api.services._cuentas_filter import (
@@ -1466,21 +1468,25 @@ def ops_boletos(
 # ── COMERCIAL (lente por operador, estilo NEGOCIO) ───────────────────────────
 # Vista nueva en OPERACIONES. Lógica en api/services/comercial.py.
 
+def _com_motor(_engine: str | None):
+    """Devuelve el módulo de servicio (SQL o Mongo) según el flag COMERCIAL_SQL / ?_engine."""
+    return _com_sql if _motor(_engine, "COMERCIAL_SQL") == "sql" else _com
+
+
 @router.get("/comercial/operadores")
-def comercial_operadores() -> list[dict]:
+def comercial_operadores(_engine: str | None = Query(None, include_in_schema=False)) -> list[dict]:
     """Operadores para el selector (email, nombre, # cuentas)."""
-    from api.services.comercial import listar_operadores_comercial
-    return listar_operadores_comercial()
+    return _com_motor(_engine).listar_operadores_comercial()
 
 
 @router.get("/comercial/operador")
 def comercial_operador(
     operador: str = Query(..., description="operador_email"),
     moneda: str = Query("ARS"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Resumen (KPIs) + clientes (tabla + ficha) del operador, en una pasada."""
-    from api.services.comercial import operador_comercial
-    return operador_comercial(operador=operador, moneda=moneda)
+    return _com_motor(_engine).operador_comercial(operador=operador, moneda=moneda)
 
 
 @router.get("/comercial/serie")
@@ -1489,40 +1495,41 @@ def comercial_serie(
     metric: str = Query("volumen", description="volumen | aum"),
     moneda: str = Query("ARS"),
     id_cuenta: str | None = Query(None, description="scope a una sola cuenta (interactivo)"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Serie para el gráfico. Sin id_cuenta → operador; con id_cuenta → cliente."""
-    from api.services.comercial import serie_comercial
-    return serie_comercial(operador=operador, metric=metric, moneda=moneda, id_cuenta=id_cuenta)
+    return _com_motor(_engine).serie_comercial(
+        operador=operador, metric=metric, moneda=moneda, id_cuenta=id_cuenta)
 
 
 @router.get("/comercial/portafolio")
 def comercial_portafolio(
     id_cuenta: str = Query(..., description="id de la cuenta comitente"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Tenencia del cliente (posiciones de AuM, último snapshot)."""
-    from api.services.comercial import portafolio_cliente
-    return portafolio_cliente(id_cuenta=id_cuenta)
+    return _com_motor(_engine).portafolio_cliente(id_cuenta=id_cuenta)
 
 
 @router.get("/comercial/operaciones")
 def comercial_operaciones(
     id_cuenta: str = Query(..., description="id de la cuenta comitente"),
     limite: int = Query(300, ge=1, le=1000),
+    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Operaciones recientes del cliente (boletos operativos, fecha desc)."""
-    from api.services.comercial import operaciones_cliente
-    return operaciones_cliente(id_cuenta=id_cuenta, limite=limite)
+    return _com_motor(_engine).operaciones_cliente(id_cuenta=id_cuenta, limite=limite)
 
 
 @router.get("/comercial/analisis")
 def comercial_analisis(
     operador: str = Query(..., description="operador_email"),
     moneda: str = Query("ARS", description="ARS | USD"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Dataset de la vista ANÁLISIS: clientes del operador con estado comercial,
     AuM, última op y niveles de segmentación (estado / churn / distribución)."""
-    from api.services.comercial import analisis_comercial
-    return analisis_comercial(operador=operador, moneda=moneda)
+    return _com_motor(_engine).analisis_comercial(operador=operador, moneda=moneda)
 
 
 @router.get("/comercial/actividad-historica")
@@ -1531,12 +1538,13 @@ def comercial_actividad_historica(
     desde: str | None = Query(None, description="mes YYYY-MM inclusive"),
     hasta: str | None = Query(None, description="mes YYYY-MM inclusive"),
     moneda: str = Query("ARS", description="ARS | USD"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Serie mensual de cuentas activas (operaron en el mes calendario) +
     volumen, desde el snapshot `Clientes.ActividadMensual`. Scopeable por
     operador o toda la mesa."""
-    from api.services.comercial import actividad_historica
-    return actividad_historica(operador=operador, desde=desde, hasta=hasta, moneda=moneda)
+    return _com_motor(_engine).actividad_historica(
+        operador=operador, desde=desde, hasta=hasta, moneda=moneda)
 
 
 # ── INFORME (global, transversal a toda la mesa — no por operador) ───────────
@@ -1544,33 +1552,33 @@ def comercial_actividad_historica(
 @router.get("/comercial/informe")
 def comercial_informe(
     moneda: str = Query("ARS", description="ARS | USD"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Tablas 2 y 3 del Informe: volumen + aranceles por comercial (ranking) y
     aranceles por segmento. Global (toda la mesa)."""
-    from api.services.comercial import informe_comercial
-    return informe_comercial(moneda=moneda)
+    return _com_motor(_engine).informe_comercial(moneda=moneda)
 
 
 @router.get("/comercial/informe-segmento")
 def comercial_informe_segmento(
     hasta: str | None = Query(None, description="mes YYYY-MM (default actual); acumulado a fin de mes"),
     operador: str | None = Query(None, description="opcional: solo cuentas de ese comercial"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Tabla 1 del Informe: # cuentas por segmento (nivel_1), acumulado a fin del
     mes `hasta` por fecha de alta. `operador` opcional re-scopea a ese comercial."""
-    from api.services.comercial import informe_cuentas_por_segmento
-    return informe_cuentas_por_segmento(hasta=hasta, operador=operador)
+    return _com_motor(_engine).informe_cuentas_por_segmento(hasta=hasta, operador=operador)
 
 
 @router.get("/comercial/informe-aranceles-segmento")
 def comercial_informe_aranceles_segmento(
     operador: str = Query(..., description="operador_email a desglosar"),
     moneda: str = Query("ARS", description="ARS | USD"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Q3 re-scopeada a un comercial: aranceles + ticket por segmento, solo de
     sus cuentas."""
-    from api.services.comercial import informe_aranceles_segmento
-    return informe_aranceles_segmento(operador=operador, moneda=moneda)
+    return _com_motor(_engine).informe_aranceles_segmento(operador=operador, moneda=moneda)
 
 
 @router.get("/comercial/informe-segmento-detalle")
@@ -1578,9 +1586,10 @@ def comercial_informe_segmento_detalle(
     segmento: str = Query("todos", description="nivel_1 a desglosar; 'todos' = todos los segmentos"),
     operador: str | None = Query(None, description="opcional: solo cuentas de ese comercial"),
     moneda: str = Query("ARS", description="ARS | USD"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Detalle de un segmento (Q4 dinámica): clientes con su arancel +
     operaciones (boletos con arancel) que lo generaron. `segmento='todos'` →
     todos los segmentos (vista por defecto). `operador` opcional."""
-    from api.services.comercial import informe_segmento_detalle
-    return informe_segmento_detalle(segmento=segmento, operador=operador, moneda=moneda)
+    return _com_motor(_engine).informe_segmento_detalle(
+        segmento=segmento, operador=operador, moneda=moneda)

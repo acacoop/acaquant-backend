@@ -18,10 +18,13 @@ Conecta con: la sincroniza desde Aunesa `jobs/sync_comitentes.py`; escribe segme
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.clientes]]  ·  _module_
 - [[api.routers.manager.comercial]]  ·  _module_
+- [[api.routers.operaciones]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.compliance]]  ·  _module_
+- [[api.services.control_automatico]]  ·  _module_
 - [[api.services.operaciones_informes]]  ·  _module_
+- [[api.services.sin_operador]]  ·  _module_
 - [[jobs.actividad_mensual]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.segmentar_patrimonial]]  ·  _module_

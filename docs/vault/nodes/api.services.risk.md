@@ -22,9 +22,8 @@ Conecta con: usa la sesión pyRofex compartida de `core.rofex_orders_session` (m
 - [[api.cache]]  ·  _module_
 - [[core.mongo]]  ·  _module_
 - [[core.rofex_orders_session]]  ·  _module_
+- [[db.CashFlow.Contrapartes]]  ·  _collection_
 - [[db.CashFlow.Operaciones]]  ·  _collection_
-- [[db.CuentasAPI.AccionistasAPI]]  ·  _collection_
-- [[db.CuentasAPI.ContrapartesAPI]]  ·  _collection_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.risk]]  ·  _module_

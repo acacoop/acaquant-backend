@@ -48,5 +48,6 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.rv_motor]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
+- [[api.services.sin_operador]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_

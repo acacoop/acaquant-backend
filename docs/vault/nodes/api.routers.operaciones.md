@@ -21,15 +21,16 @@ Conecta con: lee `CashFlow.NegocioMovimientos` + colecciones `*API` (Mesa/Flujos
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
 - [[api.db]]  ·  _module_
-- [[api.deps]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
 - [[api.services._grupos_scope]]  ·  _module_
 - [[api.services._negocio_futuros]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
+- [[api.services.titulos_flujos]]  ·  _module_
 - [[db.CashFlow.Contrapartes]]  ·  _collection_
 - [[db.CashFlow.NegocioMovimientos]]  ·  _collection_
 - [[db.CashFlow.Operaciones]]  ·  _collection_
-- [[db.CuentasAPI.ContrapartesAPI]]  ·  _collection_
+- [[db.Clientes.Comitentes]]  ·  _collection_
+- [[db.Valuaciones.AuM]]  ·  _collection_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

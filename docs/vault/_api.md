@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-95 notas.
+102 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -20,7 +20,7 @@
 - [[api.routers.back_office]] — Router /api/back-office — sección Back Office.
 - [[api.routers.carteras]] — Router Portfolio — thin wrappers sobre `api.services.portfolio`.
 - [[api.routers.cotizaciones]] — Router Cotizaciones — thin wrappers sobre la capa de servicio.
-- [[api.routers.cuentas]] — Router Cuentas: endpoints para AccionistasAPI y Contrapartes.
+- [[api.routers.cuentas]] — Router Cuentas: accionistas y contrapartes, DIRECTO desde las colecciones
 - [[api.routers.derivados_agro]] — Router /api/derivados/agro — Pase Agro + Estrategias + Cámara + Mejoras Dispo.
 - [[api.routers.derivados_sinteticos]] — Router /api/derivados/sinteticos — sintéticos LECAP / DLK + futuro DLR.
 - [[api.routers.ingest]] — Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet.
@@ -32,6 +32,8 @@
 - [[api.routers.manager.clientes]] — Manager sub-router — edición de Clientes.Comitentes (segmentación comercial).
 - [[api.routers.manager.comercial]] — Sub-router Manager → /api/manager/comercial — Tablero Comercial.
 - [[api.routers.manager.compliance]] — Manager sub-router — COMPLIANCE: operador nuestro vs Aunesa.
+- [[api.routers.manager.control_automatico]] — POST /api/manager/control-automatico/* — conciliación Excel↔cuentas + segmentar.
+- [[api.routers.manager.diagnostico]] — GET /api/manager/diagnostico — árbol de salud por vista (motores/jobs/apis).
 - [[api.routers.manager.grupos]] — Manager sub-router — grupos de acceso por cuenta.
 - [[api.routers.manager.jobs]] — POST /jobs/run + GET /jobs/history, /jobs/history/stats, /jobs/{id}.
 - [[api.routers.manager.logs]] — GET /api/manager/logs — últimos N logs de un servicio systemd.
@@ -51,7 +53,7 @@
 - [[api.routers.ordenes]] — Router /api/ordenes — envío/cancel/listado de órdenes contra ROFEX (LIVE).
 - [[api.routers.risk]] — Router /api/risk — datos de cuenta del broker (saldos, posiciones, márgenes).
 - [[api.routers.scanner]] — Router /api/scanner — vista Scanner del módulo Renta Variable.
-- [[api.routers.titulos]] — Router Titulos: endpoints para AssetsAPI y FlujosAPI.
+- [[api.routers.titulos]] — Router Titulos: assets + flujos, DIRECTO desde las fuentes (Valuaciones.Assets
 - [[api.routers.valuaciones]] — Router /api/valuaciones — performance e historia por cuenta.
 - [[api.services]]
 - [[api.services._cuentas_filter]] — Helpers compartidos para filtrar pipelines Mongo por tipo de cuenta.
@@ -73,10 +75,13 @@
 - [[api.services.comercial]] — api/services/comercial.py — Tablero Comercial (lente por operador).
 - [[api.services.comparar_inversion]] — Comparar Inversión — service que compara 2 bonos de Trading.Curvas lado a lado.
 - [[api.services.compliance]] — Compliance — compara el operador asignado por la mesa vs el que reporta Aunesa.
+- [[api.services.control_automatico]] — Control Automático (Clientes): concilia un Excel de CUITs contra nuestras cuentas.
 - [[api.services.debug_curva]] — Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.
 - [[api.services.derivados]] — Capa de servicio — derivados (futuros DLR, forwards, breakevens).
 - [[api.services.derivados_agro]] — Service puro — Pase Agro (Trigo / Maíz / Soja Rosario).
 - [[api.services.descomposicion_retorno]] — descomposicion_retorno.py — Atribución carry / rolldown / cambio_tasa.
+- [[api.services.diagnostico]] — Motor del Diagnóstico — arma el árbol vista→piezas con status, desde el registro.
+- [[api.services.diagnostico_registry]] — Registro ÚNICO del Diagnóstico: vista → motores / jobs / APIs que la alimentan.
 - [[api.services.fair_value]] — fair_value.py — service del módulo Fair Value relativo intra-curva.
 - [[api.services.macro]] — Capa de servicio — series macro y clasificación.
 - [[api.services.mejoras_dispo]] — Service — Mejoras Precio Disponible (Agro).
@@ -95,5 +100,7 @@
 - [[api.services.scanner]] — api/services/scanner.py — vista Scanner del módulo Renta Variable.
 - [[api.services.segmentacion]] — Clasificación patrimonial de clientes (escribe a `Clientes.Comitentes.nivel_3`).
 - [[api.services.sensibilidad]] — Análisis de sensibilidad de retorno total a escenarios de TIR.
+- [[api.services.sin_operador]] — Cuentas sin operador asignado — el bucket "(sin operador)" del ranking comercial.
 - [[api.services.sinteticos]] — Sintéticos — combinaciones LECAP/DLK + futuro DLR.
+- [[api.services.titulos_flujos]] — api/services/titulos_flujos.py — flujos normalizados por instrumento.
 - [[api.services.valuaciones]] — Valuaciones — performance e historia por cuenta.

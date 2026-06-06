@@ -26,8 +26,15 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.actividad_mensual]]  ·  _module_
 - [[jobs.aranceles]]  ·  _module_
 - [[jobs.argentina_datos]]  ·  _module_
+- [[jobs.aum]]  ·  _module_
+- [[jobs.bcra]]  ·  _module_
+- [[jobs.cashflow]]  ·  _module_
 - [[jobs.comercial_rollup]]  ·  _module_
+- [[jobs.consolidado_cuentas]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
+- [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.ops_rollup]]  ·  _module_
+- [[jobs.pnl_totales_precompute]]  ·  _module_
+- [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_

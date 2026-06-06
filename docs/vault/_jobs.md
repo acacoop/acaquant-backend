@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-47 notas.
+46 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -45,7 +45,6 @@
 - [[jobs.segmentar_patrimonial]] — segmentar_patrimonial.py — re-clasifica `nivel_3` de todas las Comitentes activas.
 - [[jobs.segmento_contrapartes]] — set_segmento_contrapartes.py
 - [[jobs.snapshot_cierre]] — snapshot_cierre.py — materializa el cierre diario por bono en Trading.SnapshotsCierre.
-- [[jobs.sync_api_copies]] — sync_api_copies.py — re-sincroniza colecciones API derivadas.
 - [[jobs.sync_comitentes]] — Sync de cuentas comitentes desde Aunesa → master `Clientes.Comitentes`.
 - [[jobs.volatilidad_ggal]]
 - [[jobs.watchdog]] — jobs/watchdog.py — "el agente que evalúa solo": detecta jobs colgados y alerta.

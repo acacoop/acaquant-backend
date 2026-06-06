@@ -9,7 +9,7 @@ path: api\routers\cuentas.py
 
 # api/routers/cuentas
 
-> Router Cuentas: endpoints para AccionistasAPI y Contrapartes.
+> Router Cuentas: accionistas y contrapartes, DIRECTO desde las colecciones
 
 **Archivo:** `api\routers\cuentas.py`
 
@@ -21,9 +21,7 @@ Conecta con: lee `CuentasAPI.AccionistasAPI` (vía `api.db.get_db_cuentas`) y `C
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
 - [[api.db]]  ·  _module_
-- [[api.deps]]  ·  _module_
 - [[db.CashFlow.Contrapartes]]  ·  _collection_
-- [[db.CuentasAPI.AccionistasAPI]]  ·  _collection_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

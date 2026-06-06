@@ -21,6 +21,7 @@ Conecta con: la escribe/enriquece `engines/curvas.py` (motor de enriquecimiento 
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.canje]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
+- [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.operativa_mep]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_

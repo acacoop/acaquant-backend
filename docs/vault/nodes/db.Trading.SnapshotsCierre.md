@@ -18,6 +18,7 @@ Conecta con: la escribe el cron `jobs/snapshot_cierre.py` (lee `MarketSnapshot` 
 ## Lo usan (backlinks) ←
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
+- [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
 - [[jobs.fair_value]]  ·  _module_

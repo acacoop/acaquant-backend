@@ -17,13 +17,14 @@ Vista contenedora del módulo Manager (/manager, admin-only). Organiza en tabs t
 Conecta con: no hace fetch propio relevante — orquesta los sub-paneles, cada uno con su endpoint `/api/manager/*`. Gateada por el módulo `manager` en `header`.
 
 ## Usa / conecta con →
+- [[api.routers.manager]]  ·  _module_
 - [[api.routers.manager.assets]]  ·  _module_
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.routers.manager.clientes]]  ·  _module_
 - [[api.routers.manager.compliance]]  ·  _module_
+- [[api.routers.manager.diagnostico]]  ·  _module_
 - [[api.routers.manager.operaciones]]  ·  _module_
 - [[api.routers.manager.options]]  ·  _module_
-- [[api.routers.manager.status]]  ·  _module_
 - [[web.lib.use-persisted-state]]  ·  _lib_
 
 ## Lo usan (backlinks) ←

@@ -17,6 +17,7 @@ Baja series monetarias del BCRA (CER, TAMAR, DOLAR A3500, BADLAR) vía su API de
 Conecta con: pega a `api.bcra.gob.ar`, escribe `Trading.CER`, `Trading.TAMAR`, `Trading.DOLAR`, `Trading.BADLAR`. El CER forward alimenta a `motor_curvas`/breakevens; corre 22 UTC L-V.
 
 ## Usa / conecta con →
+- [[core.job_runs]]  ·  _module_
 - [[core.mongo]]  ·  _module_
 - [[db.Trading.DOLAR]]  ·  _collection_
 

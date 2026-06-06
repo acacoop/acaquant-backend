@@ -15,7 +15,4 @@ Copia derivada (read-friendly para la API) del maestro `CashFlow.Contrapartes`, 
 
 Conecta con: la re-sincroniza `jobs/sync_api_copies.py` post-job fuente; la leen `api/routers/cuentas.py`, `api/routers/operaciones.py`, `api/services/risk.py`, `jobs/aum.py` y `jobs/_aum_filters.py` (filtros de exclusión del AuM).
 
-## Lo usan (backlinks) ←
-- [[api.routers.operaciones]]  ·  _module_
-- [[api.services.risk]]  ·  _module_
-- [[jobs._aum_filters]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

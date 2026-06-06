@@ -20,6 +20,7 @@ Conecta con: lee el listado de Aunesa (HTTP directo), escribe `Clientes.Comitent
 
 ## Usa / conecta con →
 - [[config]]  ·  _module_
+- [[core.doc_fiscal]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
 - [[core.mongo]]  ·  _module_
 - [[db.Clientes.Comitentes]]  ·  _collection_

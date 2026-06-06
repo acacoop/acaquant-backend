@@ -24,8 +24,5 @@ Conecta con: lee `config.API_KEY`; re-exporta `api.db`; `verify_api_key` se mont
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
-- [[api.routers.cuentas]]  ·  _module_
 - [[api.routers.manager]]  ·  _module_
-- [[api.routers.operaciones]]  ·  _module_
 - [[api.routers.titulos]]  ·  _module_
-- [[api.services._cuentas_filter]]  ·  _module_

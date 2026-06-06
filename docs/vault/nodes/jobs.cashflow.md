@@ -18,6 +18,7 @@ Conecta con: pega a Aunesa, escribe `CashFlow.Movimientos`. Cron diario en `depl
 
 ## Usa / conecta con →
 - [[config]]  ·  _module_
+- [[core.job_runs]]  ·  _module_
 - [[core.mongo]]  ·  _module_
 
 ## Lo usan (backlinks) ←

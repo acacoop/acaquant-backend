@@ -39,13 +39,16 @@ Conecta con: TODO el backend (`engines/`, `jobs/`, `api/services/`) pasa por ac�
 - [[api.services.aunesa_aranceles]]  ·  _module_
 - [[api.services.back_office_titulos]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
+- [[api.services.control_automatico]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
+- [[api.services.diagnostico]]  ·  _module_
 - [[api.services.mejoras_dispo]]  ·  _module_
 - [[api.services.opciones]]  ·  _module_
 - [[api.services.operativa_mep]]  ·  _module_
 - [[api.services.ordenes]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
+- [[api.services.sin_operador]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
 - [[core.adhoc_subscriptions]]  ·  _module_
 - [[core.brackets]]  ·  _module_

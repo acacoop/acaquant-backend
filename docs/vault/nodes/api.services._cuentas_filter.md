@@ -21,9 +21,7 @@ Conecta con: lee `CuentasAPI.AccionistasAPI` y `Clientes.Comitentes` (con `@cach
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
 - [[api.db]]  ·  _module_
-- [[api.deps]]  ·  _module_
 - [[db.Clientes.Comitentes]]  ·  _collection_
-- [[db.CuentasAPI.AccionistasAPI]]  ·  _collection_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.operaciones]]  ·  _module_

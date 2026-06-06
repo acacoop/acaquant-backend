@@ -18,7 +18,9 @@ Conecta con: la escribe el cron `jobs/aum.py` (23 UTC L-V) con reglas de `jobs/_
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.routers.manager.status]]  ·  _module_
+- [[api.routers.operaciones]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
+- [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
 - [[api.services.portfolio]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_

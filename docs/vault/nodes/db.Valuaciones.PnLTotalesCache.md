@@ -16,5 +16,6 @@ Cache del PnL total por cuenta en la base `Valuaciones`. Precalcula el PnL (cost
 Conecta con: la escribe el cron `jobs/pnl_totales_precompute.py`; la lee `api/services/pnl.py`. Referenciada como singleton-friendly en `core/mongo.py`.
 
 ## Lo usan (backlinks) ←
+- [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
 - [[jobs.pnl_totales_precompute]]  ·  _module_

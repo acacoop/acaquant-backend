@@ -22,6 +22,7 @@ Conecta con: llama `api.services.valuaciones::construir_consolidado`, escribe `V
 
 ## Usa / conecta con →
 - [[api.services.valuaciones]]  ·  _module_
+- [[core.job_runs]]  ·  _module_
 - [[core.mongo]]  ·  _module_
 - [[db.Valuaciones.ConsolidadoCuentas]]  ·  _collection_
 

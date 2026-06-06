@@ -9,7 +9,7 @@ path: api\routers\titulos.py
 
 # api/routers/titulos
 
-> Router Titulos: endpoints para AssetsAPI y FlujosAPI.
+> Router Titulos: assets + flujos, DIRECTO desde las fuentes (Valuaciones.Assets
 
 **Archivo:** `api\routers\titulos.py`
 
@@ -22,6 +22,7 @@ Conecta con: lee las colecciones derivadas `AssetsAPI`/`FlujosAPI` (vía `get_db
 - [[api.cache]]  ·  _module_
 - [[api.deps]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
+- [[api.services.titulos_flujos]]  ·  _module_
 - [[db.Trading.Curvas]]  ·  _collection_
 
 ## Lo usan (backlinks) ←

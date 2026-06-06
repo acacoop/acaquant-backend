@@ -19,6 +19,7 @@ Conecta con: pega a Aunesa, escribe `Valuaciones.AuM`; sincroniza `Valuaciones.A
 ## Usa / conecta con →
 - [[config]]  ·  _module_
 - [[core.cafci]]  ·  _module_
+- [[core.job_runs]]  ·  _module_
 - [[core.mongo]]  ·  _module_
 - [[db.Valuaciones.Assets]]  ·  _collection_
 - [[db.Valuaciones.AuM]]  ·  _collection_

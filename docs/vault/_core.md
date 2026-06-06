@@ -1,6 +1,6 @@
 # 🧱 core — infraestructura
 
-24 notas.
+26 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para Trading.AdhocSubscriptions — suscripciones live efímeras.
@@ -10,6 +10,7 @@
 - [[core.brackets]] — Brackets — entrada LIMIT + salida automática cuando la entrada se llena.
 - [[core.byma]] — Cliente BYMA Primarias Placements.
 - [[core.cafci]] — Extracción del código CAFCI desde un string `unidad`.
+- [[core.doc_fiscal]] — Documento fiscal (DNI/CUIT/CUIL) — parseo y claves de cruce. Lógica PURA.
 - [[core.dolar_oficial]] — Fuente única para el "dólar oficial" mayorista.
 - [[core.finnhub]] — Cliente Finnhub con rate limiting interno.
 - [[core.grupos]] — core/grupos.py — grupos de acceso por cuenta (scoping multi-tenant).
@@ -24,5 +25,6 @@
 - [[core.rofex_session]]
 - [[core.roles]] — Roles y matriz de permisos por módulo.
 - [[core.snapshot_writer]]
+- [[core.tz]] — Zona horaria Argentina — ÚNICO lugar para now / tz / cálculo de frescura.
 - [[core.websocket]] — WebSocketManager — conexión WS a pyRofex para los motores de mercado.
 - [[core.yahoo]] — Cliente Yahoo Finance vía yfinance (gratis, sin API key).

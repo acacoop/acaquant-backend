@@ -27,6 +27,8 @@ Conecta con: `api.auth::require_module` / `require_any_module` + `api.deps::veri
 - [[api.routers.manager.clientes]]  ·  _module_
 - [[api.routers.manager.comercial]]  ·  _module_
 - [[api.routers.manager.compliance]]  ·  _module_
+- [[api.routers.manager.control_automatico]]  ·  _module_
+- [[api.routers.manager.diagnostico]]  ·  _module_
 - [[api.routers.manager.grupos]]  ·  _module_
 - [[api.routers.manager.jobs]]  ·  _module_
 - [[api.routers.manager.logs]]  ·  _module_
@@ -40,5 +42,6 @@ Conecta con: `api.auth::require_module` / `require_any_module` + `api.deps::veri
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
 - [[web.cmp.aunesa-aum-panel]]  ·  _component_
+- [[web.cmp.manager-view]]  ·  _component_
 - [[web.cmp.recursos-panel]]  ·  _component_
 - [[web.lib.proxy]]  ·  _lib_

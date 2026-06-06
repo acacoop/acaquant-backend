@@ -24,6 +24,7 @@ Conecta con: usa `api.services.aunesa_negocio` (pega a Aunesa) y `api.services._
 - [[api.services]]  ·  _module_
 - [[api.services._mep]]  ·  _module_
 - [[api.services.aunesa_negocio]]  ·  _module_
+- [[core.job_runs]]  ·  _module_
 - [[core.mongo]]  ·  _module_
 - [[db.CashFlow.NegocioMovimientos]]  ·  _collection_
 

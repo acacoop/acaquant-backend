@@ -20,6 +20,7 @@ Conecta con: ejecuta `journalctl` en el host del Droplet; usa `api.cache::cached
 
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
+- [[api.services.diagnostico_registry]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_

@@ -33,6 +33,7 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 - [[api.routers.manager.assets]]  ·  _module_
 - [[api.routers.manager.aunesa]]  ·  _module_
 - [[api.routers.manager.clientes]]  ·  _module_
+- [[api.routers.manager.control_automatico]]  ·  _module_
 - [[api.routers.manager.grupos]]  ·  _module_
 - [[api.routers.manager.roles]]  ·  _module_
 - [[api.routers.manager.users]]  ·  _module_

@@ -25,6 +25,7 @@ Conecta con: lee `Clientes.Comitentes`, `CashFlow.Operaciones`, `CashFlow.Negoci
 - [[api.services.macro]]  ·  _module_
 - [[db.CashFlow.NegocioMovimientos]]  ·  _collection_
 - [[db.CashFlow.Operaciones]]  ·  _collection_
+- [[db.Clientes.ComercialCache]]  ·  _collection_
 - [[db.Clientes.Comitentes]]  ·  _collection_
 - [[db.Manager.Users]]  ·  _collection_
 - [[db.Valuaciones.AuM]]  ·  _collection_
@@ -34,5 +35,6 @@ Conecta con: lee `Clientes.Comitentes`, `CashFlow.Operaciones`, `CashFlow.Negoci
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.routers.manager.comercial]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
+- [[api.services.sin_operador]]  ·  _module_
 - [[jobs.actividad_mensual]]  ·  _module_
 - [[jobs.comercial_rollup]]  ·  _module_

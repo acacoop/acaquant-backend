@@ -19,6 +19,7 @@ Conecta con: la escriben `motor_curvas` y demás motores vía `core/snapshot_wri
 - [[api.routers.manager.status]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
+- [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
 - [[api.services.mejoras_dispo]]  ·  _module_
 - [[api.services.order_book]]  ·  _module_

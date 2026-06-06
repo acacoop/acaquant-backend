@@ -23,6 +23,7 @@ Conecta con: lee `Valuaciones.Assets`/`AuM`, `PortfolioAPI`, `TitulosAPI` y `Tra
 - [[api.db]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
 - [[api.services._mep]]  ·  _module_
+- [[api.services.titulos_flujos]]  ·  _module_
 - [[db.Trading.Curvas]]  ·  _collection_
 - [[db.Trading.MarketSnapshot]]  ·  _collection_
 - [[db.Valuaciones.Assets]]  ·  _collection_

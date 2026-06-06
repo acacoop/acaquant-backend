@@ -66,20 +66,20 @@
 | 12:00 · diario | `jobs.argentina_datos'` |
 | 14:00 · L-V | `jobs.sync_comitentes'` |
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |
-| 15:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
+| 15:00 · L-V | `jobs.aum'` |
 | cada hora · 15-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral'` |
-| 17:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
+| 17:00 · L-V | `jobs.aum'` |
 | 17:00 · L-V | `jobs.sync_comitentes'` |
-| 02:00 · Mar-Sáb | `jobs.cashflow` + `jobs.sync_api_copies` |
+| 02:00 · Mar-Sáb | `jobs.cashflow` |
 | 02:00 · Mar-Sáb | `jobs.partner_export'` |
 | 20:00 · L-V | `jobs.volatilidad_ggal'` |
-| 21:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
+| 21:00 · L-V | `jobs.aum'` |
 | 21:00 · L-V | `jobs.sync_comitentes'` |
 | 22:00 · L-V | `jobs.precios_acciones_daily'` |
-| 22:00 · L-V | `jobs.flujo_contrapartes` + `jobs.sync_api_copies` |
+| 22:00 · L-V | `jobs.flujo_contrapartes'` |
 | 22:00 · L-V | `jobs.bcra` |
 | 22:00 · L-V | `jobs.market_anchors'` |
-| 23:00 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
+| 23:00 · L-V | `jobs.aum'` |
 | 20:15 · L-V | `jobs.options_rollup'` |
 | 11:25 · diario | `jobs.news_ingesta'` |
 | 11:25 · diario | `jobs.news_finnhub'` |
@@ -89,7 +89,7 @@
 | 12:30 · L-V | `jobs.cleanup_curvas'` |
 | 12:30 · L-V | `jobs.cleanup_futuros_dlr'` |
 | cada hora · 13-21h · L-V | `jobs.operaciones_informes'` |
-| 18:30 · L-V | `jobs.aum` + `jobs.sync_api_copies` |
+| 18:30 · L-V | `jobs.aum'` |
 | 20:30 · L-V | `jobs.forwards_zscore'` |
 | 21:30 · L-V | `jobs.partner_export'` |
 | 22:30 · L-V | `jobs.actividad_mensual'` |

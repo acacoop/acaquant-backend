@@ -29,6 +29,7 @@ Conecta con: la consumen los motores (`engines/curvas.py`, breakevens, forwards)
 - [[api.services.renta_fija]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
+- [[api.services.titulos_flujos]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
 - [[engines._curvas_loader]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_

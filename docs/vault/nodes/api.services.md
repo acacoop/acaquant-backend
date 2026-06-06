@@ -23,6 +23,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.cotizaciones]]  ·  _module_
 - [[api.routers.manager.aunesa]]  ·  _module_
 - [[api.routers.manager.compliance]]  ·  _module_
+- [[api.routers.manager.control_automatico]]  ·  _module_
 - [[api.routers.manager.operaciones]]  ·  _module_
 - [[api.routers.manager.valuaciones]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_

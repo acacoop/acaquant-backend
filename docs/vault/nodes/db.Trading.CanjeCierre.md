@@ -17,4 +17,5 @@ Conecta con: la escribe `jobs/cierre_canje.py` (post-cierre); la lee `api/servic
 
 ## Lo usan (backlinks) ←
 - [[api.services.canje]]  ·  _module_
+- [[api.services.diagnostico_registry]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_

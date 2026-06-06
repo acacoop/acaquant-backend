@@ -20,6 +20,7 @@ Conecta con: une `Trading.Curvas.ticker_corto` → `Assets.TICKER` → `AuM.unid
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
 - [[api.services.portfolio]]  ·  _module_
+- [[api.services.titulos_flujos]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
 - [[engines._universo_portfolio]]  ·  _module_
 - [[jobs.aum]]  ·  _module_

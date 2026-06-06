@@ -28,3 +28,6 @@ Conecta con: lee `CashFlow.NegocioMovimientos` + `CashFlow.Operaciones`, escribe
 - [[db.CashFlow.NegocioMovimientos]]  ·  _collection_
 - [[db.CashFlow.Operaciones]]  ·  _collection_
 - [[db.Clientes.ComercialCache]]  ·  _collection_
+
+## Lo usan (backlinks) ←
+- [[cron.jobs.comercial_rollup]]  ·  _cron_

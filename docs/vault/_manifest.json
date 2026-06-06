@@ -269,13 +269,11 @@
 "layer": "api",
 "repo": "backend",
 "path": "api\\routers\\cuentas.py",
-"summary": "Router Cuentas: endpoints para AccionistasAPI y Contrapartes.",
+"summary": "Router Cuentas: accionistas y contrapartes, DIRECTO desde las colecciones",
 "links": [
 "api.cache",
 "api.db",
-"api.deps",
-"db.CashFlow.Contrapartes",
-"db.CuentasAPI.AccionistasAPI"
+"db.CashFlow.Contrapartes"
 ]
 },
 {
@@ -332,6 +330,8 @@
 "api.routers.manager.clientes",
 "api.routers.manager.comercial",
 "api.routers.manager.compliance",
+"api.routers.manager.control_automatico",
+"api.routers.manager.diagnostico",
 "api.routers.manager.grupos",
 "api.routers.manager.jobs",
 "api.routers.manager.logs",
@@ -418,6 +418,7 @@
 "api.auth",
 "api.services.macro",
 "api.services.segmentacion",
+"api.services.sin_operador",
 "core.mongo",
 "db.CashFlow.Productores",
 "db.Clientes.Comitentes"
@@ -449,6 +450,30 @@
 "links": [
 "api.services",
 "api.services.compliance"
+]
+},
+{
+"id": "api.routers.manager.control_automatico",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\routers\\manager\\control_automatico.py",
+"summary": "POST /api/manager/control-automatico/* — conciliación Excel↔cuentas + segmentar.",
+"links": [
+"api.auth",
+"api.services",
+"api.services.control_automatico"
+]
+},
+{
+"id": "api.routers.manager.diagnostico",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\routers\\manager\\diagnostico.py",
+"summary": "GET /api/manager/diagnostico — árbol de salud por vista (motores/jobs/apis).",
+"links": [
+"api.services.diagnostico"
 ]
 },
 {
@@ -486,7 +511,8 @@
 "path": "api\\routers\\manager\\logs.py",
 "summary": "GET /api/manager/logs — últimos N logs de un servicio systemd.",
 "links": [
-"api.cache"
+"api.cache",
+"api.services.diagnostico_registry"
 ]
 },
 {
@@ -626,15 +652,16 @@
 "links": [
 "api.cache",
 "api.db",
-"api.deps",
 "api.services._cuentas_filter",
 "api.services._grupos_scope",
 "api.services._negocio_futuros",
 "api.services.comercial",
+"api.services.titulos_flujos",
 "db.CashFlow.Contrapartes",
 "db.CashFlow.NegocioMovimientos",
 "db.CashFlow.Operaciones",
-"db.CuentasAPI.ContrapartesAPI"
+"db.Clientes.Comitentes",
+"db.Valuaciones.AuM"
 ]
 },
 {
@@ -716,11 +743,12 @@
 "layer": "api",
 "repo": "backend",
 "path": "api\\routers\\titulos.py",
-"summary": "Router Titulos: endpoints para AssetsAPI y FlujosAPI.",
+"summary": "Router Titulos: assets + flujos, DIRECTO desde las fuentes (Valuaciones.Assets",
 "links": [
 "api.cache",
 "api.deps",
 "api.services.renta_fija",
+"api.services.titulos_flujos",
 "db.Trading.Curvas"
 ]
 },
@@ -756,9 +784,7 @@
 "links": [
 "api.cache",
 "api.db",
-"api.deps",
-"db.Clientes.Comitentes",
-"db.CuentasAPI.AccionistasAPI"
+"db.Clientes.Comitentes"
 ]
 },
 {
@@ -964,6 +990,7 @@
 "api.services.macro",
 "db.CashFlow.NegocioMovimientos",
 "db.CashFlow.Operaciones",
+"db.Clientes.ComercialCache",
 "db.Clientes.Comitentes",
 "db.Manager.Users",
 "db.Valuaciones.AuM"
@@ -997,6 +1024,19 @@
 "api.db",
 "core",
 "core.aunesa",
+"db.Clientes.Comitentes"
+]
+},
+{
+"id": "api.services.control_automatico",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\control_automatico.py",
+"summary": "Control Automático (Clientes): concilia un Excel de CUITs contra nuestras cuentas.",
+"links": [
+"core.doc_fiscal",
+"core.mongo",
 "db.Clientes.Comitentes"
 ]
 },
@@ -1053,6 +1093,41 @@
 "api.services.analitica",
 "api.services.rem",
 "api.services.renta_fija"
+]
+},
+{
+"id": "api.services.diagnostico",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\diagnostico.py",
+"summary": "Motor del Diagnóstico — arma el árbol vista→piezas con status, desde el registro.",
+"links": [
+"api.services.diagnostico_registry",
+"core.mongo",
+"core.tz",
+"db.Manager.JobRuns"
+]
+},
+{
+"id": "api.services.diagnostico_registry",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\diagnostico_registry.py",
+"summary": "Registro ÚNICO del Diagnóstico: vista → motores / jobs / APIs que la alimentan.",
+"links": [
+"db.CashFlow.NegocioMovimientos",
+"db.CashFlow.Operaciones",
+"db.Trading.CanjeCierre",
+"db.Trading.MarketSnapshot",
+"db.Trading.SnapshotsCierre",
+"db.Trading.TimeSales",
+"db.Valuaciones.AuM",
+"db.Valuaciones.ConsolidadoCuentas",
+"db.Valuaciones.Dolar",
+"db.Valuaciones.DolarOficialLive",
+"db.Valuaciones.PnLTotalesCache"
 ]
 },
 {
@@ -1204,6 +1279,7 @@
 "api.db",
 "api.services._cuentas_filter",
 "api.services._mep",
+"api.services.titulos_flujos",
 "db.Trading.Curvas",
 "db.Trading.MarketSnapshot",
 "db.Valuaciones.Assets",
@@ -1264,9 +1340,8 @@
 "api.cache",
 "core.mongo",
 "core.rofex_orders_session",
-"db.CashFlow.Operaciones",
-"db.CuentasAPI.AccionistasAPI",
-"db.CuentasAPI.ContrapartesAPI"
+"db.CashFlow.Contrapartes",
+"db.CashFlow.Operaciones"
 ]
 },
 {
@@ -1328,6 +1403,23 @@
 ]
 },
 {
+"id": "api.services.sin_operador",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\sin_operador.py",
+"summary": "Cuentas sin operador asignado — el bucket \"(sin operador)\" del ranking comercial.",
+"links": [
+"api.cache",
+"api.services._negocio_futuros",
+"api.services.comercial",
+"core.mongo",
+"db.CashFlow.NegocioMovimientos",
+"db.Clientes.Comitentes",
+"jobs._aum_filters"
+]
+},
+{
 "id": "api.services.sinteticos",
 "type": "module",
 "layer": "api",
@@ -1340,6 +1432,19 @@
 "core.mongo",
 "db.Trading.Curvas",
 "db.Trading.MarketSnapshot"
+]
+},
+{
+"id": "api.services.titulos_flujos",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\titulos_flujos.py",
+"summary": "api/services/titulos_flujos.py — flujos normalizados por instrumento.",
+"links": [
+"api.db",
+"db.Trading.Curvas",
+"db.Valuaciones.Assets"
 ]
 },
 {
@@ -1452,6 +1557,15 @@
 "repo": "backend",
 "path": "core\\cafci.py",
 "summary": "Extracción del código CAFCI desde un string `unidad`.",
+"links": []
+},
+{
+"id": "core.doc_fiscal",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core\\doc_fiscal.py",
+"summary": "Documento fiscal (DNI/CUIT/CUIL) — parseo y claves de cruce. Lógica PURA.",
 "links": []
 },
 {
@@ -1612,6 +1726,15 @@
 ]
 },
 {
+"id": "core.tz",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core\\tz.py",
+"summary": "Zona horaria Argentina — ÚNICO lugar para now / tz / cálculo de frescura.",
+"links": []
+},
+{
 "id": "core.websocket",
 "type": "module",
 "layer": "core",
@@ -1739,6 +1862,17 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.cleanup_futuros_dlr"
+]
+},
+{
+"id": "cron.jobs.comercial_rollup",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.comercial_rollup"
 ]
 },
 {
@@ -2506,8 +2640,7 @@
 "summary": "Reglas de exclusión aplicadas a `Valuaciones.AuM`.",
 "links": [
 "core.mongo",
-"db.CashFlow.Contrapartes",
-"db.CuentasAPI.ContrapartesAPI"
+"db.CashFlow.Contrapartes"
 ]
 },
 {
@@ -2586,6 +2719,7 @@
 "links": [
 "config",
 "core.cafci",
+"core.job_runs",
 "core.mongo",
 "db.Valuaciones.Assets",
 "db.Valuaciones.AuM",
@@ -2685,6 +2819,7 @@
 "path": "jobs\\bcra.py",
 "summary": "",
 "links": [
+"core.job_runs",
 "core.mongo",
 "db.Trading.DOLAR"
 ]
@@ -2698,6 +2833,7 @@
 "summary": "",
 "links": [
 "config",
+"core.job_runs",
 "core.mongo",
 "db.CashFlow.Movimientos"
 ]
@@ -2776,6 +2912,7 @@
 "summary": "consolidado_cuentas.py — precalcula la valuación consolidada por cuenta.",
 "links": [
 "api.services.valuaciones",
+"core.job_runs",
 "core.mongo",
 "db.Valuaciones.ConsolidadoCuentas"
 ]
@@ -2912,6 +3049,7 @@
 "api.services",
 "api.services._mep",
 "api.services.aunesa_negocio",
+"core.job_runs",
 "core.mongo",
 "db.CashFlow.NegocioMovimientos"
 ]
@@ -3004,6 +3142,7 @@
 "summary": "pnl_totales_precompute.py — precalcula el PnL de TODAS las cuentas.",
 "links": [
 "api.services.pnl",
+"core.job_runs",
 "core.mongo",
 "db.Valuaciones.PnLTotalesCache"
 ]
@@ -3055,20 +3194,12 @@
 "path": "jobs\\snapshot_cierre.py",
 "summary": "snapshot_cierre.py — materializa el cierre diario por bono en Trading.SnapshotsCierre.",
 "links": [
+"core.job_runs",
 "core.mongo",
 "db.Trading.Curvas",
 "db.Trading.MarketSnapshot",
 "db.Trading.SnapshotsCierre"
 ]
-},
-{
-"id": "jobs.sync_api_copies",
-"type": "module",
-"layer": "jobs",
-"repo": "backend",
-"path": "jobs\\sync_api_copies.py",
-"summary": "sync_api_copies.py — re-sincroniza colecciones API derivadas.",
-"links": []
 },
 {
 "id": "jobs.sync_comitentes",
@@ -3079,6 +3210,7 @@
 "summary": "Sync de cuentas comitentes desde Aunesa → master `Clientes.Comitentes`.",
 "links": [
 "config",
+"core.doc_fiscal",
 "core.job_runs",
 "core.mongo",
 "db.Clientes.Comitentes"
@@ -4636,13 +4768,14 @@
 "path": "src\\components\\manager-view.tsx",
 "summary": "",
 "links": [
+"api.routers.manager",
 "api.routers.manager.assets",
 "api.routers.manager.checks",
 "api.routers.manager.clientes",
 "api.routers.manager.compliance",
+"api.routers.manager.diagnostico",
 "api.routers.manager.operaciones",
 "api.routers.manager.options",
-"api.routers.manager.status",
 "web.lib.use-persisted-state"
 ]
 },

@@ -49,4 +49,5 @@ Conecta con: usa el singleton `core.mongo.get_mongo_client_read()`; lo consumen 
 - [[api.services.rv_motor]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
+- [[api.services.titulos_flujos]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_

@@ -21,7 +21,7 @@ Conecta con: lee `CuentasAPI.ContrapartesAPI` y `CashFlow.Contrapartes`; lo usan
 ## Usa / conecta con →
 - [[core.mongo]]  ·  _module_
 - [[db.CashFlow.Contrapartes]]  ·  _collection_
-- [[db.CuentasAPI.ContrapartesAPI]]  ·  _collection_
 
 ## Lo usan (backlinks) ←
+- [[api.services.sin_operador]]  ·  _module_
 - [[jobs.aum]]  ·  _module_

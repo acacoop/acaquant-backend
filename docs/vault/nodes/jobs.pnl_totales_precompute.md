@@ -20,6 +20,7 @@ Conecta con: invoca `api.services.pnl.pnl_todas_cuentas_compute` (motor de PnL c
 
 ## Usa / conecta con →
 - [[api.services.pnl]]  ·  _module_
+- [[core.job_runs]]  ·  _module_
 - [[core.mongo]]  ·  _module_
 - [[db.Valuaciones.PnLTotalesCache]]  ·  _collection_
 

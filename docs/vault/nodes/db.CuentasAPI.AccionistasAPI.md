@@ -15,7 +15,4 @@ Copia derivada (read-friendly para la API) del maestro de accionistas/titulares,
 
 Conecta con: la re-sincroniza `jobs/sync_api_copies.py` / `scripts.api_migrate`; la leen `api/routers/cuentas.py`, `api/services/risk.py` y `_cuentas_filter.py`.
 
-## Lo usan (backlinks) ←
-- [[api.routers.cuentas]]  ·  _module_
-- [[api.services._cuentas_filter]]  ·  _module_
-- [[api.services.risk]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

@@ -22,7 +22,9 @@ Conecta con: la escribe el cron `jobs/negocio_movimientos.py` (cada hora, pega a
 - [[api.services.aunesa_aranceles]]  ·  _module_
 - [[api.services.back_office_titulos]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
+- [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
+- [[api.services.sin_operador]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
 - [[engines._universo_portfolio]]  ·  _module_
 - [[jobs.actividad_mensual]]  ·  _module_

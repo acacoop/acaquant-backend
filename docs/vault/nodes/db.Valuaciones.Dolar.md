@@ -19,6 +19,7 @@ Conecta con: la lee el helper `api/services/_mep.py` (MEP histórico por fecha) 
 - [[api.services._mep]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
+- [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_

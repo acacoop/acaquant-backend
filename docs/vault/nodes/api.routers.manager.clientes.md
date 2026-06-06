@@ -22,6 +22,7 @@ Conecta con: lee/escribe `Clientes.Comitentes` (cupo + segmentación); para recl
 - [[api.auth]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.segmentacion]]  ·  _module_
+- [[api.services.sin_operador]]  ·  _module_
 - [[core.mongo]]  ·  _module_
 - [[db.CashFlow.Productores]]  ·  _collection_
 - [[db.Clientes.Comitentes]]  ·  _collection_

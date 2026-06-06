@@ -31,4 +31,3 @@ Conecta con: lee el timestamp más reciente de muchas colecciones (`Trading.Time
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_
-- [[web.cmp.manager-view]]  ·  _component_

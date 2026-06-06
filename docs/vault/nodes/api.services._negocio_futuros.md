@@ -23,4 +23,5 @@ Conecta con: lo importan `api.services.comercial`, `api.services.aunesa_arancele
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.services.aunesa_aranceles]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
+- [[api.services.sin_operador]]  ·  _module_
 - [[jobs.comercial_rollup]]  ·  _module_

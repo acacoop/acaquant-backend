@@ -39,10 +39,59 @@ CREATE TABLE IF NOT EXISTS comitentes (
     nivel_1         text,                    -- segmentación (MAYÚSCULAS): PRODUCTORES, etc.
     nivel_2         text,
     nivel_3         text,
-    estado_comercial text                    -- ACTIVA / ENFRIANDOSE / DORMIDA / NUEVA (derivado)
+    estado_comercial text,                   -- ACTIVA / ENFRIANDOSE / DORMIDA / NUEVA (derivado)
+    -- Agregados para la vista COMERCIAL:
+    estado            text,                   -- legal Aunesa ("Activa") — distinto de estado_comercial
+    fecha_alta_legajo date,                   -- alta del legajo (informe por segmento)
+    telefono          text,
+    email             text,
+    nivel_4           text,
+    nivel_5           text,
+    primer_contacto_comercial text,
+    riesgo_la_ft      text,
+    division          text,
+    adc               text,
+    dma               text,
+    cupo_transaccional_ars numeric,           -- cupo.transaccional_ars (subdoc Mongo)
+    cupo_usado_ars         numeric            -- cupo.usado_ars
 );
+-- La tabla ya existe en Supabase → ALTER idempotente agrega las columnas nuevas.
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS estado                    text;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS fecha_alta_legajo         date;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS telefono                  text;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS email                     text;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS nivel_4                   text;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS nivel_5                   text;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS primer_contacto_comercial text;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS riesgo_la_ft              text;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS division                  text;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS adc                       text;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS dma                       text;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS cupo_transaccional_ars    numeric;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS cupo_usado_ars            numeric;
 CREATE INDEX IF NOT EXISTS ix_comitentes_operador ON comitentes(operador_email);
 CREATE INDEX IF NOT EXISTS ix_comitentes_nivel1   ON comitentes(nivel_1);
+CREATE INDEX IF NOT EXISTS ix_comitentes_estado   ON comitentes(estado);
+CREATE INDEX IF NOT EXISTS ix_comitentes_alta     ON comitentes(fecha_alta_legajo);
+
+-- Manager.Users — set de emails reales (flag de cuentas huérfanas en COMERCIAL).
+CREATE TABLE IF NOT EXISTS manager_users (
+    email text PRIMARY KEY
+);
+
+-- Clientes.ActividadMensual — snapshot point-in-time (operador/segmento CONGELADOS al
+-- correr el job). NO derivar en vivo (rompería el congelado). Se espeja tal cual.
+CREATE TABLE IF NOT EXISTS actividad_mensual (
+    year_month      text NOT NULL,            -- "YYYY-MM" (comparación lexicográfica = Mongo)
+    id_cuenta       text NOT NULL,
+    operador_email  text,
+    operador_nombre text,
+    nivel_1         text,
+    n_ops           integer,
+    volumen_ars     numeric,
+    PRIMARY KEY (year_month, id_cuenta)
+);
+CREATE INDEX IF NOT EXISTS ix_am_operador ON actividad_mensual(operador_email, year_month);
 
 CREATE TABLE IF NOT EXISTS contrapartes (
     id_cuenta    text PRIMARY KEY,           -- en Mongo: CashFlow.Contrapartes.cuenta

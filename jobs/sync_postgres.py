@@ -123,6 +123,10 @@ def sync_dims_clientes(mdb, conn, dry) -> tuple[int, int, int]:
     proj = {
         "id_cuenta": 1, "denominacion": 1, "operador_email": 1, "operador_nombre": 1,
         "tipo_doc": 1, "nro_doc": 1, "nivel_1": 1, "nivel_2": 1, "nivel_3": 1,
+        # Campos de la vista COMERCIAL:
+        "estado": 1, "fecha_alta_legajo": 1, "telefono": 1, "email": 1, "nivel_4": 1,
+        "nivel_5": 1, "primer_contacto_comercial": 1, "riesgo_la_ft": 1, "division": 1,
+        "adc": 1, "dma": 1, "cupo": 1,
     }
     operadores: dict[str, str | None] = {}
     cuentas, comitentes = [], []
@@ -134,9 +138,15 @@ def sync_dims_clientes(mdb, conn, dry) -> tuple[int, int, int]:
         if em:
             operadores[em] = _s(d.get("operador_nombre")) or operadores.get(em)
         cuentas.append((idc, _s(d.get("denominacion"))))
+        cupo = d.get("cupo") or {}
         comitentes.append((
             idc, em, _s(d.get("tipo_doc")), _s(d.get("nro_doc")),
             _s(d.get("nivel_1")), _s(d.get("nivel_2")), _s(d.get("nivel_3")), None,
+            _s(d.get("estado")), _d(d.get("fecha_alta_legajo")), _s(d.get("telefono")),
+            _s(d.get("email")), _s(d.get("nivel_4")), _s(d.get("nivel_5")),
+            _s(d.get("primer_contacto_comercial")), _s(d.get("riesgo_la_ft")),
+            _s(d.get("division")), _s(d.get("adc")), _s(d.get("dma")),
+            cupo.get("transaccional_ars"), cupo.get("usado_ars"),
         ))
     cuentas, comitentes = _dedup(cuentas, [0]), _dedup(comitentes, [0])
 
@@ -147,7 +157,10 @@ def sync_dims_clientes(mdb, conn, dry) -> tuple[int, int, int]:
     n_co = _upsert(
         conn, "comitentes",
         ["id_cuenta", "operador_email", "tipo_doc", "nro_doc",
-         "nivel_1", "nivel_2", "nivel_3", "estado_comercial"],
+         "nivel_1", "nivel_2", "nivel_3", "estado_comercial",
+         "estado", "fecha_alta_legajo", "telefono", "email", "nivel_4", "nivel_5",
+         "primer_contacto_comercial", "riesgo_la_ft", "division", "adc", "dma",
+         "cupo_transaccional_ars", "cupo_usado_ars"],
         ["id_cuenta"], comitentes, dry,
     )
     ids = {r[0] for r in comitentes}
@@ -286,6 +299,39 @@ def sync_accionistas(mdb, conn, dry) -> int:
     return n
 
 
+def sync_manager_users(mdb, conn, dry) -> int:
+    """Manager.Users → tabla manager_users (solo email, lowercased). Flag de huérfanas en COMERCIAL."""
+    rows = []
+    for d in mdb["Manager"]["Users"].find({}, {"email": 1}):
+        em = _s(d.get("email"))
+        if em:
+            rows.append((em.lower(),))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "manager_users", ["email"], ["email"], rows, dry)
+    _delete_not_in(conn, "manager_users", "email", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_actividad_mensual(mdb, conn, dry) -> int:
+    """Clientes.ActividadMensual → tabla actividad_mensual (snapshot point-in-time, se espeja
+    tal cual; operador/segmento están CONGELADOS al correr el job — NO recomputar en vivo)."""
+    cols = ["year_month", "id_cuenta", "operador_email", "operador_nombre", "nivel_1",
+            "n_ops", "volumen_ars"]
+    rows = []
+    for d in mdb["Clientes"]["ActividadMensual"].find({}, {
+        "year_month": 1, "id_cuenta": 1, "operador_email": 1, "operador_nombre": 1,
+        "nivel_1": 1, "n_ops": 1, "volumen_ars": 1,
+    }):
+        ym, idc = _s(d.get("year_month")), _s(d.get("id_cuenta"))
+        if not (ym and idc):
+            continue
+        rows.append((ym, idc, _s(d.get("operador_email")), _s(d.get("operador_nombre")),
+                     _s(d.get("nivel_1")), d.get("n_ops"), d.get("volumen_ars")))
+    rows = _dedup(rows, [0, 1])
+    # Snapshot point-in-time: solo upsert (no se borran meses históricos).
+    return _upsert(conn, "actividad_mensual", cols, ["year_month", "id_cuenta"], rows, dry)
+
+
 # ── reconciliación (no confiar a ciegas) ─────────────────────────────────────
 def reconciliar(mdb, conn):
     pares = [
@@ -321,8 +367,11 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_op, n_cu, n_co = sync_dims_clientes(mdb, conn, dry)
         n_cp = sync_contrapartes(mdb, conn, dry)
         n_ac = sync_accionistas(mdb, conn, dry)
+        n_mu = sync_manager_users(mdb, conn, dry)
+        n_am = sync_actividad_mensual(mdb, conn, dry)
         print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  comitentes={n_co}  "
-              f"contrapartes={n_cp}  accionistas={n_ac}")
+              f"contrapartes={n_cp}  accionistas={n_ac}  manager_users={n_mu}  "
+              f"actividad_mensual={n_am}")
 
         n_ops, sin_bol = sync_operaciones(mdb, conn, dry, desde)
         n_aum = sync_aum(mdb, conn, dry, desde)
@@ -334,8 +383,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
             reconciliar(mdb, conn)
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
     return {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co, "contrapartes": n_cp,
-            "accionistas": n_ac, "operaciones": n_ops, "aum": n_aum, "negocio": n_nm,
-            "sin_boleto": sin_bol}
+            "accionistas": n_ac, "manager_users": n_mu, "actividad_mensual": n_am,
+            "operaciones": n_ops, "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol}
 
 
 def main() -> int:

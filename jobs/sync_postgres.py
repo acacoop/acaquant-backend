@@ -244,11 +244,12 @@ def sync_negocio(mdb, conn, dry, desde: datetime | None) -> int:
         "fecha": 1, "comprobante": 1, "id_cuenta": 1, "categoria": 1, "op": 1,
         "ticker": 1, "cantidad": 1, "precio": 1, "importe": 1, "moneda": 1, "mep": 1,
         # Campos de la vista NEGOCIO:
-        "cuenta": 1, "plazo": 1, "lugar": 1, "estado": 1, "informacion": 1,
+        "cuenta": 1, "unidad": 1, "plazo": 1, "lugar": 1, "estado": 1, "informacion": 1,
+        "ingestado_en": 1,
     }
     cols = ["fecha", "comprobante", "id_cuenta", "categoria", "op", "ticker",
             "cantidad", "precio", "importe", "moneda", "mep",
-            "cuenta", "plazo", "lugar", "estado", "informacion"]
+            "cuenta", "unidad", "plazo", "lugar", "estado", "informacion", "ingestado_en"]
     total = 0
     cur = mdb["CashFlow"]["NegocioMovimientos"].find(q, proj, batch_size=BATCH)
     for batch in _iter_batches(cur):
@@ -260,8 +261,9 @@ def sync_negocio(mdb, conn, dry, desde: datetime | None) -> int:
             rows.append((f, comp, _s(d.get("id_cuenta")), _s(d.get("categoria")),
                          _s(d.get("op")), _s(d.get("ticker")), d.get("cantidad"),
                          d.get("precio"), d.get("importe"), _s(d.get("moneda")), d.get("mep"),
-                         _s(d.get("cuenta")), _s(d.get("plazo")), _s(d.get("lugar")),
-                         _s(d.get("estado")), _s(d.get("informacion"))))
+                         _s(d.get("cuenta")), _s(d.get("unidad")), _s(d.get("plazo")),
+                         _s(d.get("lugar")), _s(d.get("estado")), _s(d.get("informacion")),
+                         d.get("ingestado_en")))
         total += _upsert(conn, "negocio_movimientos", cols, ["fecha", "comprobante"],
                          _dedup(rows, [0, 1]), dry)
         time.sleep(THROTTLE)

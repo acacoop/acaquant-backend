@@ -127,18 +127,22 @@ CREATE TABLE IF NOT EXISTS negocio_movimientos (
     mep          numeric,                    -- snapshot del MEP del día (pesificación)
     -- Agregados para la migración de la vista NEGOCIO:
     cuenta       text,                       -- string "[id] NOMBRE" (clave de la vista + filtros)
+    unidad       text,                       -- marker de futuros DLR ("USDL") → se excluyen
     plazo        text,
     lugar        text,
     estado       text,
     informacion  text,
+    ingestado_en timestamptz,                -- meta de NEGOCIO (última ingesta del día)
     PRIMARY KEY (fecha, comprobante)
 );
 -- La tabla ya existe en Supabase → ALTER idempotente agrega las columnas nuevas.
-ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS cuenta      text;
-ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS plazo       text;
-ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS lugar       text;
-ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS estado      text;
-ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS informacion text;
+ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS cuenta       text;
+ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS unidad       text;
+ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS plazo        text;
+ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS lugar        text;
+ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS estado       text;
+ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS informacion  text;
+ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS ingestado_en timestamptz;
 
 CREATE INDEX IF NOT EXISTS ix_nm_id_cuenta ON negocio_movimientos(id_cuenta, fecha);
 CREATE INDEX IF NOT EXISTS ix_nm_categoria ON negocio_movimientos(categoria, fecha);

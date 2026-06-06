@@ -7,12 +7,11 @@ los que ya están en la colección (backfill one-shot).
 Reglas:
   1. `unidad == "USDL"` (cash USD link, no contabiliza).
   2. `cuenta` o `unidad` contiene "OTC" o "CDC" (case-insensitive).
-  3. `id_cuenta` aparece en `CuentasAPI.ContrapartesAPI.id_cuenta` — son
+  3. `id_cuenta` aparece en `CashFlow.Contrapartes.cuenta` (el id) — son
      cuentas de fondos / sociedades gerentes (SCHRODER, TORONTO, LOMBARD,
      etc.) que operamos pero cuyas tenencias no son AuM real, son
-     cuotapartes. Match por `id_cuenta` (no por `cuenta`) porque la
-     denominación difiere de formato entre las dos colecciones —
-     Valuaciones.AuM tiene prefijo "[NN] " y ContrapartesAPI no.
+     cuotapartes. Match por id (no por la denominación) porque el formato
+     difiere entre colecciones — Valuaciones.AuM tiene prefijo "[NN] ".
   4. `cuenta` contiene como palabra completa un nombre de contraparte —
      `\bNOMBRE\b` case-insensitive sobre los valores únicos de
      `CashFlow.Contrapartes.contraparte` (ADCAP, ALLARIA, BALANZ, ...).
@@ -93,18 +92,18 @@ def _build_contrapartes_regex(names: frozenset[str] | set[str]) -> str | None:
 
 
 def load_contrapartes_id_cuentas() -> frozenset[str]:
-    """Lee `CuentasAPI.ContrapartesAPI.id_cuenta` y devuelve el set como
-    strings normalizados. Match por `id_cuenta` (no por `cuenta`) porque la
-    denominación de cuenta difiere de formato entre Valuaciones.AuM y
-    ContrapartesAPI (prefijo "[NN] ", espacios en blanco, etc.). El
-    `id_cuenta` numérico es la única clave estable."""
+    """Lee `CashFlow.Contrapartes.cuenta` (el id_cuenta) DIRECTO de la fuente
+    (sin el espejo CuentasAPI.ContrapartesAPI) y devuelve el set como strings.
+    Match por id (no por la denominación) porque el formato de cuenta difiere
+    entre Valuaciones.AuM (prefijo "[NN] ") y Contrapartes — el id numérico es
+    la única clave estable. En Contrapartes el campo `cuenta` ES el id."""
     from core.mongo import get_mongo_client_read
 
-    col = get_mongo_client_read()["CuentasAPI"]["ContrapartesAPI"]
+    col = get_mongo_client_read()["CashFlow"]["Contrapartes"]
     return frozenset(
-        str(d["id_cuenta"])
-        for d in col.find({}, {"_id": 0, "id_cuenta": 1})
-        if d.get("id_cuenta") is not None
+        str(d["cuenta"])
+        for d in col.find({}, {"_id": 0, "cuenta": 1})
+        if d.get("cuenta") is not None
     )
 
 

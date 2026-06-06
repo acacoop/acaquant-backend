@@ -27,12 +27,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "nodes/web.cmp.agro-datos.md",
+                "file": "nodes/core.mongo.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "web.cmp.agro-datos"
+              "title": "core.mongo"
             }
           }
         ],
@@ -200,7 +200,13 @@
   },
   "active": "56bb8e47099f9ff4",
   "lastOpenFiles": [
+    "_api.md",
     "_web-component.md",
+    "nodes/web.api.api.manager.[...path].md",
+    "nodes/web.api.api.derivados-agro.opciones.[commodity].md",
+    "nodes/api.routers.cotizaciones.md",
+    "nodes/api.services.aunesa_negocio.md",
+    "nodes/web.cmp.agro-datos.md",
     "_web-lib.md",
     "_web-view.md",
     "nodes/web.api.api.valuaciones.consolidado.md",
@@ -221,12 +227,6 @@
     "_prose/scripts.diag_sin_operador.md",
     "_prose/scripts.diag_sin_operador.md.tmp.1479.b248ef2ea1b2",
     "_web-api.md",
-    "_prose/scripts.seed_tipos_operacion.md",
-    "_prose/scripts.diag_scope_cuenta.md",
-    "_prose/scripts.gen_herramientas.md",
-    "_tests.md",
-    "_prose/scripts.seed_rol_compliance.md",
-    "_prose/scripts.fix_valuacion_tipo.md",
     "_prose/scripts.fix_precios_aum.md.tmp.1479.11741d635493",
     "_prose/web.view.(home).error.md.tmp.1479.f65fc12ffd4b",
     "_prose/scripts.crear_indice_serie_aranceles.md.tmp.1479.51cdd1863209",

@@ -3,134 +3,19 @@
 Herramienta: infra · Re-sincroniza las colecciones *API derivadas (drop+insert por contrato de API).
 
 Uso:
-    python -m scripts.api_migrate accionistas       → migra CashFlow.Accionistas → CashFlow.AccionistasAPI
-    python -m scripts.api_migrate contrapartes      → migra CashFlow.Contrapartes → CashFlow.ContrapartesAPI
     python -m scripts.api_migrate flujo             → copia CashFlow.Flujo → OperacionesAPI.MesaAPI
     python -m scripts.api_migrate movimientos       → copia CashFlow.Movimientos → OperacionesAPI.FlujosAPI
     python -m scripts.api_migrate aum               → copia Valuaciones.AuM → PortfolioAPI.AumAPI
     python -m scripts.api_migrate assets            → copia Valuaciones.Assets → TitulosAPI.AssetsAPI
     python -m scripts.api_migrate flujos-titulos    → merge Trading.Curvas + Trading.BondsMaster → TitulosAPI.ValuacionesAPI
+
+Nota: CuentasAPI (Accionistas/Contrapartes) fue ELIMINADA — la API lee directo
+de las fuentes CashFlow.Accionistas / CashFlow.Contrapartes.
 """
-import re
 import sys
 from datetime import datetime
 
 from core.mongo import get_mongo_client
-
-_CUENTA_RE = re.compile(r"^\[(\d+)\]\s+(.+)$")
-
-
-def _parse_cuenta(raw: str) -> tuple[str | None, str]:
-    """Extrae (id_cuenta, nombre) de '[139] LA SEGUNDA SEGUROS DE RETIRO SA RVP'."""
-    m = _CUENTA_RE.match(raw.strip())
-    if m:
-        return m.group(1), m.group(2).strip()
-    return None, raw.strip()
-
-
-def migrate_accionistas():
-    """Lee CashFlow.Accionistas y crea CashFlow.AccionistasAPI con campos normalizados.
-
-    Origen:  {cuenta, accionista}
-    Destino: {cuenta, id_cuenta, nombre, grupo}
-    """
-    client = get_mongo_client()
-    src = client["CashFlow"]["Accionistas"]
-    dst = client["CashFlow"]["AccionistasAPI"]
-
-    docs = list(src.find({}, {"_id": 0}))
-    if not docs:
-        print("No hay docs en CashFlow.Accionistas — nada que migrar.")
-        return
-
-    bulk = []
-    errores = []
-    for doc in docs:
-        cuenta_raw = doc.get("cuenta", "")
-        grupo = doc.get("accionista", "")
-
-        id_cuenta, nombre = _parse_cuenta(cuenta_raw)
-        if id_cuenta is None:
-            errores.append(cuenta_raw)
-
-        bulk.append({
-            "cuenta": cuenta_raw,
-            "id_cuenta": id_cuenta,
-            "nombre": nombre,
-            "grupo": grupo,
-        })
-
-    if errores:
-        print(f"WARN: {len(errores)} docs no matchearon el patrón [N] NOMBRE:")
-        for e in errores:
-            print(f"  → {e!r}")
-
-    dst.drop()
-    dst.insert_many(bulk)
-    print(f"OK: {len(bulk)} docs migrados a CashFlow.AccionistasAPI")
-
-    for d in bulk[:3]:
-        print(f"  cuenta={d['cuenta']!r}  id_cuenta={d['id_cuenta']}  nombre={d['nombre']!r}  grupo={d['grupo']!r}")
-    if len(bulk) > 3:
-        print(f"  ... y {len(bulk) - 3} más")
-
-
-def migrate_contrapartes():
-    """Lee CashFlow.Contrapartes y crea CashFlow.ContrapartesAPI con campos normalizados.
-
-    Origen:  {denominacion, cuenta, contraparte, segmento}
-    Destino: {cuenta, id_cuenta, nombre, grupo}
-    """
-    client = get_mongo_client()
-    src = client["CashFlow"]["Contrapartes"]
-    dst = client["CashFlow"]["ContrapartesAPI"]
-
-    docs = list(src.find({}, {"_id": 0}))
-    if not docs:
-        print("No hay docs en CashFlow.Contrapartes — nada que migrar.")
-        return
-
-    bulk = []
-    for doc in docs:
-        bulk.append({
-            "cuenta": doc.get("denominacion", ""),
-            "id_cuenta": doc.get("cuenta"),
-            "nombre": doc.get("contraparte", ""),
-            "grupo": doc.get("segmento", ""),
-        })
-
-    dst.drop()
-    dst.insert_many(bulk)
-    print(f"OK: {len(bulk)} docs migrados a CashFlow.ContrapartesAPI")
-
-    for d in bulk[:3]:
-        print(f"  cuenta={d['cuenta']!r}  id_cuenta={d['id_cuenta']}  nombre={d['nombre']!r}  grupo={d['grupo']!r}")
-    if len(bulk) > 3:
-        print(f"  ... y {len(bulk) - 3} más")
-
-
-def mover_a_cuentasapi():
-    """Mueve AccionistasAPI y ContrapartesAPI de CashFlow → CuentasAPI, y borra las de CashFlow."""
-    client = get_mongo_client()
-    src_db = client["CashFlow"]
-    dst_db = client["CuentasAPI"]
-
-    colecciones = ["AccionistasAPI", "ContrapartesAPI"]
-    for col_name in colecciones:
-        src_col = src_db[col_name]
-        dst_col = dst_db[col_name]
-
-        docs = list(src_col.find({}, {"_id": 0}))
-        if not docs:
-            print(f"SKIP: CashFlow.{col_name} está vacía o no existe.")
-            continue
-
-        dst_col.drop()
-        dst_col.insert_many(docs)
-        print(f"OK: {len(docs)} docs copiados a CuentasAPI.{col_name}")
-
-        src_col.drop()
-        print(f"OK: CashFlow.{col_name} eliminada")
 
 
 def migrate_flujo():
@@ -489,9 +374,6 @@ def migrate_flujos_titulos():
 
 
 COMMANDS = {
-    "accionistas": migrate_accionistas,
-    "contrapartes": migrate_contrapartes,
-    "mover": mover_a_cuentasapi,
     "flujo": migrate_flujo,
     "movimientos": migrate_movimientos,
     "aum": migrate_aum,

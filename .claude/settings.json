@@ -3,13 +3,17 @@
   "permissions": {
     "allow": [
       "Bash(git:*)",
+      "Bash(git -C:*)",
       "Bash(ls:*)",
       "Bash(grep:*)",
       "Bash(.venv/bin/python:*)",
       "Bash(.venv/bin/ruff:*)",
       "Bash(.venv/bin/pip:*)",
+      "Bash(./.venv/Scripts/python.exe:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
       "Bash(ruff check:*)",
-      "Bash(pytest:*)"
+      "Bash(pytest:*)",
+      "Bash(npx tsc:*)"
     ],
     "ask": [
       "Bash(rm -rf:*)",

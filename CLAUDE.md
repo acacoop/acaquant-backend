@@ -92,6 +92,26 @@ migración o `--full` se corre sin cumplir TODO esto:
 Un `--full` a ciegas en horario de mercado es exactamente el anti-patrón del
 incidente 2026-06-03. Si dudás del volumen, NO lo corras: medí primero.
 
+## ⚠️ REGLA #5 — Scripts de prueba/diag se BORRAN al confirmar
+
+**Minimalismo, no cementerio.** Cada `scripts/diag_*` u otro one-shot de
+prueba, **una vez que el user confirma que el tema quedó resuelto, se elimina**
+(en el commit del fix o en uno de limpieza). La carpeta `scripts/` se llenó de
+cientos de scripts que ensucian el código.
+
+- Lo que SÍ queda: migraciones reutilizables y diagnósticos **recurrentes**
+  (monitoreo). Esos van documentados en `scripts/CLAUDE.md`.
+- Lo que se borra: todo diag puntual que ya cumplió su función.
+- Ante la duda, preguntar "¿lo borro?" — no acumular por las dudas.
+
+## ⚠️ REGLA #6 — Credencial/acceso faltante: se pide UNA vez, no se insiste
+
+Si para avanzar hace falta una credencial/usuario/permiso que **solo el user
+puede crear** (ej. usuario Atlas con `clusterMonitor` para `$indexStats`), se
+dice **una vez**, claro, y se marca como PENDIENTE. **No repetir el pedido cada
+turno ni bloquear todo en eso** — seguir con lo que sí se puede hacer. El user
+lo provee cuando puede.
+
 ## Reglas que rompen todo si se olvidan
 
 - **`python -m <módulo>` desde la raíz siempre**. `python engines/x.py` falla (`core` no es discoverable).

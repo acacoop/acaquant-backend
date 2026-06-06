@@ -174,24 +174,27 @@ COL_ACCOUNTS = "AccountsDescubiertas"
 
 @cached(ttl=600)
 def _nombres_por_id_cuenta() -> dict[str, str]:
-    """Mapa id_cuenta (str) → nombre del titular. Cache TTL 10min porque
-    CuentasAPI cambia poco (alta de cliente, normalmente 1x/sem).
+    """Mapa id_cuenta (str) → nombre del titular. DIRECTO desde las fuentes
+    CashFlow.Accionistas / CashFlow.Contrapartes (sin los espejos CuentasAPI.*).
+    Cache TTL 10min porque cambian poco (alta de cliente ~1x/sem).
 
-    AccionistasAPI tiene los clientes de la mesa (~1800 docs).
-    ContrapartesAPI cubre las contrapartes externas. Si un id_cuenta vive
-    en ambas, prevalece AccionistasAPI (es la fuente canónica).
+    Accionistas: `cuenta` = '[N] NOMBRE' → id_cuenta y nombre se derivan.
+    Contrapartes: `cuenta` = id, `contraparte` = nombre. Si un id vive en
+    ambas, prevalece Accionistas (fuente canónica).
     """
+    import re
+
     from core.mongo import get_mongo_client_read
-    db = get_mongo_client_read()["CuentasAPI"]
+    cf = get_mongo_client_read()["CashFlow"]
     out: dict[str, str] = {}
-    for d in db["AccionistasAPI"].find({}, {"_id": 0, "id_cuenta": 1, "nombre": 1}):
-        idc = d.get("id_cuenta")
-        nom = d.get("nombre")
-        if idc and nom:
-            out[str(idc)] = str(nom)
-    for d in db["ContrapartesAPI"].find({}, {"_id": 0, "id_cuenta": 1, "nombre": 1}):
-        idc = d.get("id_cuenta")
-        nom = d.get("nombre")
+    _re_cta = re.compile(r"^\[(\d+)\]\s*(.*)$")
+    for d in cf["Accionistas"].find({}, {"_id": 0, "cuenta": 1}):
+        m = _re_cta.match(str(d.get("cuenta") or "").strip())
+        if m and m.group(2).strip():
+            out[m.group(1)] = m.group(2).strip()
+    for d in cf["Contrapartes"].find({}, {"_id": 0, "cuenta": 1, "contraparte": 1}):
+        idc = d.get("cuenta")
+        nom = d.get("contraparte")
         if idc and nom:
             out.setdefault(str(idc), str(nom))
     return out

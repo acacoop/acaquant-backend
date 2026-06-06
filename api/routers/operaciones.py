@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from api.cache import cached
 from api.db import get_db_cashflow, get_db_clientes
 from api.deps import (
-    get_db_cuentas,
     get_db_operaciones,
     get_db_portfolio,
     get_db_titulos,
@@ -163,13 +162,15 @@ def _fondos_emisores() -> list[str]:
         if _fondos_cache_data is not None and now < _fondos_cache_ts:
             return _fondos_cache_data
 
-    db_cu = get_db_cuentas()
+    # DIRECTO desde CashFlow.Contrapartes (sin el espejo CuentasAPI.ContrapartesAPI):
+    # grupo=segmento, nombre=contraparte.
+    db_cf = get_db_cashflow()
     fondos_cu = {
-        d["nombre"]
-        for d in db_cu["ContrapartesAPI"].find(
-            {"grupo": "Fondos"}, {"_id": 0, "nombre": 1}
+        d["contraparte"]
+        for d in db_cf["Contrapartes"].find(
+            {"segmento": "Fondos"}, {"_id": 0, "contraparte": 1}
         )
-        if d.get("nombre")
+        if d.get("contraparte")
     }
     result: list[str] = []
     if fondos_cu:

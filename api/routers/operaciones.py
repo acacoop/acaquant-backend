@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.cache import cached
 from api.db import get_db_cashflow, get_db_clientes, get_db_valuaciones
+from api.services import negocio_sql as _neg_sql
 from api.services import operaciones_sql as _ops_sql
 from api.services._cuentas_filter import (
     VALID_FILTERS as _NEGOCIO_CUENTA_FILTROS_VALID,
@@ -283,10 +284,12 @@ def flujo_vs_aum(
 
 
 @router.get("/negocio/fechas")
-def negocio_fechas():
+def negocio_fechas(_engine: str | None = Query(None, include_in_schema=False)):
     """Lista de fechas distintas con boletos persistidos, ordenadas
     descendente. Usado por el frontend para limitar el selector de fecha
     a días con data real."""
+    if _motor(_engine, "NEGOCIO_SQL") == "sql":
+        return _neg_sql.negocio_fechas()
     try:
         coll = get_db_cashflow()["NegocioMovimientos"]
         pipeline = [
@@ -365,6 +368,7 @@ def negocio_serie(
         description="Match exacto sobre cuenta. Si se envía, override del cuenta_filter.",
     ),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Serie diaria del importe absoluto por categoría, agregada server-side.
 
@@ -389,6 +393,9 @@ def negocio_serie(
             status_code=400,
             detail=f"cuenta_filter inválido: {cuenta_filter!r} ∉ {_NEGOCIO_CUENTA_FILTROS}",
         )
+    if _motor(_engine, "NEGOCIO_SQL") == "sql":
+        return _neg_sql.negocio_serie(moneda=moneda, cuenta_filter=cuenta_filter,
+                                      cuenta=cuenta, scope=scope)
     try:
         coll = get_db_cashflow()["NegocioMovimientos"]
         # NO filtra por moneda: entran ARS y USD, y cada boleto se convierte a
@@ -459,6 +466,7 @@ def negocio_cuentas(
         description="Match exacto sobre cuenta. Si se envía, override del cuenta_filter.",
     ),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Totales acumulados por cuenta para una categoría UI sobre un rango.
 
@@ -488,6 +496,10 @@ def negocio_cuentas(
             raise HTTPException(400, f"{label} mal formada: {val!r}") from e
     if desde > hasta:
         raise HTTPException(400, f"desde ({desde}) debe ser <= hasta ({hasta})")
+    if _motor(_engine, "NEGOCIO_SQL") == "sql":
+        return _neg_sql.negocio_cuentas(moneda=moneda, cuenta_filter=cuenta_filter,
+                                        categoria=categoria, desde=desde, hasta=hasta,
+                                        cuenta=cuenta, scope=scope)
 
     boleto_cats = _NEGOCIO_UI_CAT_MAP[categoria]
     try:
@@ -549,6 +561,7 @@ def negocio_cuentas_matrix(
     hasta: str = Query(...),
     cuenta: str | None = Query(None, description="Match exacto sobre cuenta — override del cuenta_filter."),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Matrix por cuenta × las 5 categorías UI sobre un rango.
 
@@ -571,6 +584,10 @@ def negocio_cuentas_matrix(
             raise HTTPException(400, f"{label} mal formada: {val!r}") from e
     if desde > hasta:
         raise HTTPException(400, f"desde ({desde}) debe ser <= hasta ({hasta})")
+    if _motor(_engine, "NEGOCIO_SQL") == "sql":
+        return _neg_sql.negocio_cuentas_matrix(moneda=moneda, cuenta_filter=cuenta_filter,
+                                               desde=desde, hasta=hasta, cuenta=cuenta,
+                                               scope=scope)
 
     try:
         coll = get_db_cashflow()["NegocioMovimientos"]
@@ -647,6 +664,7 @@ def negocio_boletos(
         description="Si se envía, solo boletos de esa categoría UI (compra|venta|...)",
     ),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Boletos individuales de una cuenta para un día específico.
 
@@ -675,6 +693,9 @@ def negocio_boletos(
             )
         boleto_cats = _NEGOCIO_UI_CAT_MAP[categoria]
 
+    if _motor(_engine, "NEGOCIO_SQL") == "sql":
+        return _neg_sql.negocio_boletos(fecha=fecha, cuenta=cuenta, moneda=moneda,
+                                        categoria=categoria, scope=scope)
     try:
         coll = get_db_cashflow()["NegocioMovimientos"]
         # NO filtra por moneda: trae ARS y USD, y cada boleto se convierte abajo
@@ -736,11 +757,14 @@ def negocio_boletos(
 
 @router.get("/negocio/cuentas-list")
 @cached(ttl=3600)
-def negocio_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas)):
+def negocio_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas),
+                         _engine: str | None = Query(None, include_in_schema=False)):
     """Lista de strings `cuenta` distintos en NegocioMovimientos. Sirve
     como fuente del autocomplete de búsqueda de cuenta. Cacheado 1h —
     el set cambia poco (cuentas nuevas son raras). Limitado al scope de
     grupos del usuario."""
+    if _motor(_engine, "NEGOCIO_SQL") == "sql":
+        return _neg_sql.negocio_cuentas_list(scope=scope)
     try:
         coll = get_db_cashflow()["NegocioMovimientos"]
         # distinct() es la operación más liviana para esto — Mongo lo
@@ -760,6 +784,7 @@ def negocio_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas))
 @cached(ttl=60)
 def negocio(
     fecha: str | None = Query(None, description="YYYY-MM-DD; default: hoy ART"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Metadata del día — solo n_boletos + ultima_ingesta + n_categorias.
 
@@ -781,6 +806,8 @@ def negocio(
         d = (datetime.now(UTC) - timedelta(hours=3)).date()
     fecha_iso = d.isoformat()
 
+    if _motor(_engine, "NEGOCIO_SQL") == "sql":
+        return _neg_sql.negocio(fecha=fecha_iso)
     try:
         coll = get_db_cashflow()["NegocioMovimientos"]
         pipeline = [
@@ -824,14 +851,14 @@ def negocio(
 _OPS_MONEDAS = ("ARS", "USD")
 
 
-def _motor(req: str | None) -> str:
-    """Motor de datos para la vista OPERACIONES. Override por request `?_engine=sql|mongo`
-    (para A/B en prod); si no, el global env `OPERACIONES_SQL=1` → 'sql', sino 'mongo'.
-    Mongo es el default hasta el cutover. La salida SQL == Mongo (validado por
-    scripts/compare_ops_sql_vs_mongo). El scope se aplica en ambos motores."""
+def _motor(req: str | None, env: str = "OPERACIONES_SQL") -> str:
+    """Motor de datos para una vista. Override por request `?_engine=sql|mongo` (A/B en prod);
+    si no, el global `env`=1 → 'sql', sino 'mongo'. Mongo es el default hasta el cutover. Cada
+    vista tiene su flag (OPERACIONES_SQL, NEGOCIO_SQL, …) → cutover independiente. La salida
+    SQL == Mongo (validado por scripts/compare_*). El scope se aplica en ambos motores."""
     if req in ("sql", "mongo"):
         return req
-    return "sql" if os.getenv("OPERACIONES_SQL") == "1" else "mongo"
+    return "sql" if os.getenv(env) == "1" else "mongo"
 
 # La serie del gráfico de aranceles se acota por defecto a esta ventana (cubre
 # de sobra los botones 1W…1A). El aggregate sobre toda la historia escanea

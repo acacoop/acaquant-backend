@@ -343,7 +343,7 @@ def _rollup_por_cuenta(mes_start: str, scope: str | None, p: dict) -> dict[str, 
         f"  COALESCE(v.vol_total,0) AS vol_total, COALESCE(v.vol_mes,0) AS vol_mes, "
         f"  COALESCE(v.n_ops,0) AS n_ops, COALESCE(a.ar_total,0) AS ar_total, "
         f"  COALESCE(a.ar_mes,0) AS ar_mes "
-        f"FROM vol FULL OUTER JOIN ar ON v.id_cuenta = a.id_cuenta", p)
+        f"FROM vol v FULL OUTER JOIN ar a ON v.id_cuenta = a.id_cuenta", p)
     return {r["id_cuenta"]: r for r in rows if r["id_cuenta"]}
 
 

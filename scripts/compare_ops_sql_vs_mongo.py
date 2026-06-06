@@ -38,6 +38,33 @@ def _canon(x):
     return json.dumps(x, sort_keys=True, default=str)
 
 
+# Campos identidad para alinear filas entre las dos listas (NO ordenar por el JSON
+# completo: el arancel/bruto difiere por sub-centavos de redondeo rollup-vs-live y
+# desalinea las filas → falsos positivos).
+_IDF = ("fecha", "periodo", "clave", "operacion", "denominacion", "instrumento",
+        "cuenta", "boleto", "comprobante", "c", "d", "i", "p")
+
+
+def _norm(x):
+    """'' → '(sin)' (el sync normaliza ''→NULL y COALESCE lo muestra '(sin)'; Mongo deja
+    '' vía $ifNull). Cosmético, los montos no cambian. Aplica a ambos lados."""
+    if x == "":
+        return "(sin)"
+    if isinstance(x, dict):
+        return {k: _norm(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [_norm(v) for v in x]
+    return x
+
+
+def _skey(d) -> str:
+    if isinstance(d, dict):
+        for k in _IDF:
+            if k in d:
+                return str(d[k])
+    return _canon(d)
+
+
 def diff(a, b, path: str = "") -> list[str]:
     out: list[str] = []
     if _isnum(a) and _isnum(b):
@@ -52,8 +79,8 @@ def diff(a, b, path: str = "") -> list[str]:
             else:
                 out += diff(a[k], b[k], f"{path}.{k}")
     elif isinstance(a, list) and isinstance(b, list):
-        sa = sorted(a, key=_canon)
-        sb = sorted(b, key=_canon)
+        sa = sorted(a, key=_skey)
+        sb = sorted(b, key=_skey)
         if len(sa) != len(sb):
             out.append(f"{path}: len mongo={len(sa)} sql={len(sb)}")
         else:
@@ -70,7 +97,12 @@ _RESULTS: list[tuple[str, list[str]]] = []
 def chk(label: str, mfn, sfn, **kw) -> None:
     m = mfn.__wrapped__(**kw) if hasattr(mfn, "__wrapped__") else mfn(**kw)
     s = sfn(**kw)
-    _RESULTS.append((label, diff(m, s)))
+    if label == "cuentas-list":
+        # denominacion es no-determinística (Mongo $first arbitrario vs SQL max): la misma
+        # cuenta tiene varias grafías en distintos boletos. Comparamos solo el set de ids.
+        m = sorted(r["cuenta"] for r in m["cuentas"])
+        s = sorted(r["cuenta"] for r in s["cuentas"])
+    _RESULTS.append((label, diff(_norm(m), _norm(s))))
 
 
 def main() -> int:

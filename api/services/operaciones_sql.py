@@ -46,8 +46,14 @@ def _iso(d):
     return d.isoformat() if d is not None else None
 
 
-def _hoy_art() -> str:
-    return (datetime.now(UTC) - timedelta(hours=3)).date().isoformat()
+def _iso_naive(d):
+    """datetime tz-aware (timestamptz de PG) → ISO naive en UTC, igual que Mongo
+    (que guarda el datetime sin tz). Mismo instante, sin el sufijo '+00:00'."""
+    if d is None:
+        return None
+    if d.tzinfo is not None:
+        d = d.astimezone(UTC).replace(tzinfo=None)
+    return d.isoformat()
 
 
 # ── WHERE compartido (equivale a _ops_match / _arancel_match) ─────────────────
@@ -128,7 +134,7 @@ def ops_meta(fecha: str) -> dict:
         "fecha": fecha,
         "n_boletos": r["n"] or 0,
         "n_categorias": r["ncat"] or 0,
-        "ultima_ingesta": _iso(r["ultima"]),
+        "ultima_ingesta": _iso_naive(r["ultima"]),
     }}
 
 

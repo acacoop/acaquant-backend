@@ -41,8 +41,8 @@ def _canon(x):
 # Campos identidad para alinear filas entre las dos listas (NO ordenar por el JSON
 # completo: el arancel/bruto difiere por sub-centavos de redondeo rollup-vs-live y
 # desalinea las filas → falsos positivos).
-_IDF = ("fecha", "periodo", "clave", "operacion", "denominacion", "instrumento",
-        "cuenta", "boleto", "comprobante", "c", "d", "i", "p")
+_IDF = ("boleto", "comprobante", "fecha", "periodo", "clave", "operacion",
+        "denominacion", "instrumento", "cuenta", "c", "d", "i", "p")
 
 
 def _norm(x):
@@ -94,9 +94,35 @@ def diff(a, b, path: str = "") -> list[str]:
 _RESULTS: list[tuple[str, list[str]]] = []
 
 
+def _chk_boletos(label: str, m: dict, s: dict) -> None:
+    """boletos = top 500 por bruto DESC. El corte del LIMIT con EMPATES de bruto es
+    no-determinístico en ambos motores → el borde puede traer boletos distintos. Validamos
+    que los boletos COMUNES coincidan campo a campo y que la única diferencia sea el empate
+    en el bruto de corte (mismo umbral en los dos)."""
+    mb = {b["boleto"]: _norm(b) for b in m["boletos"]}
+    sb = {b["boleto"]: _norm(b) for b in s["boletos"]}
+    ds: list[str] = []
+    for k in sorted(set(mb) & set(sb)):
+        ds += diff(mb[k], sb[k], f"{label}[{k}]")
+    only_m, only_s = set(mb) - set(sb), set(sb) - set(mb)
+    if only_m or only_s:
+        bm = [b["bruto"] for b in m["boletos"] if b["bruto"] is not None]
+        bs = [b["bruto"] for b in s["boletos"] if b["bruto"] is not None]
+        min_m, min_s = (min(bm) if bm else 0), (min(bs) if bs else 0)
+        if abs(min_m - min_s) > _TOL_ABS:
+            ds.append(f"corte del LIMIT difiere: min bruto mongo={min_m} sql={min_s}")
+        else:
+            print(f"   ℹ {label}: {len(only_m)}/{len(only_s)} boletos distintos al borde "
+                  f"del LIMIT (empate bruto≈{min_m:.2f}) — esperado, no es fail")
+    _RESULTS.append((label, ds))
+
+
 def chk(label: str, mfn, sfn, **kw) -> None:
     m = mfn.__wrapped__(**kw) if hasattr(mfn, "__wrapped__") else mfn(**kw)
     s = sfn(**kw)
+    if label.startswith("boletos"):
+        _chk_boletos(label, m, s)
+        return
     if label == "cuentas-list":
         # denominacion es no-determinística (Mongo $first arbitrario vs SQL max): la misma
         # cuenta tiene varias grafías en distintos boletos. Comparamos solo el set de ids.

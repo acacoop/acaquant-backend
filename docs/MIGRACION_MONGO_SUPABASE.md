@@ -130,7 +130,8 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
 
 1. ✅ OPERACIONES (negocio/operaciones)
 2. ✅ NEGOCIO (validado 26/26; cutover con NEGOCIO_SQL=1)
-2b. 🔵 COMERCIAL (código completo; falta sync+harness+flag del user)
+2b. 🟡 COMERCIAL (código completo, harness 19/23; 4 diffs menores PENDIENTES de revisar
+    —probable cache-vs-live de informe_comercial / redondeo—; queda en Mongo hasta eyeballear)
 3. ⏳ COMERCIAL / operadores (1053 líneas; +tablas `actividad_mensual`; derivados→vistas)
 4. ⏳ PORTFOLIO / AuM / PnL (fórmulas AuM; PnLTotalesCache/Consolidado → vistas materializadas)
 5. ⏳ MERCADO (curvas, snapshots, timesales — medir shapes; real-time al final)

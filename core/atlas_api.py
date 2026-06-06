@@ -54,6 +54,27 @@ def processes() -> list[dict]:
     return get("/processes").get("results", [])
 
 
+def _cluster_name() -> str:
+    name = (os.getenv("ATLAS_CLUSTER_NAME") or "").strip()
+    if not name:
+        raise RuntimeError("Falta ATLAS_CLUSTER_NAME en el entorno.")
+    return name
+
+
+def suggested_indexes(process_id: str) -> dict[str, Any]:
+    """Performance Advisor: índices que Atlas sugiere CREAR para el nodo, según el
+    shape de las queries lentas. Solo metadatos estructurales (namespace, campos),
+    sin valores de datos → se puede mostrar tal cual."""
+    return get(f"/processes/{process_id}/performanceAdvisor/suggestedIndexes")
+
+
+def drop_index_suggestions() -> dict[str, Any]:
+    """Performance Advisor: índices que Atlas sugiere DROPEAR a nivel cluster —
+    ocultos / redundantes / sin uso. Es el análisis que Atlas computa solo, sin
+    necesidad de $indexStats. Solo metadatos estructurales, sin valores."""
+    return get(f"/clusters/{_cluster_name()}/performanceAdvisor/dropIndexSuggestions")
+
+
 def _ultimo_valor(measurements: list[dict], nombre: str) -> float | None:
     """Último dataPoint NO nulo de la métrica `nombre`."""
     for m in measurements:

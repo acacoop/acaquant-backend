@@ -6,10 +6,25 @@ cruces baratos y, a futuro, BI/ML. Si Postgres se cae, la operación (Mongo) sig
 intacta. Proveedor elegido: **Supabase**.
 
 ## Estado
-- **Fase A — esquema:** `sql/schema.sql` (v1). ✅ escrito (este commit).
-- **Fase B — sync Mongo→PG:** `jobs/sync_postgres.py` + reconciliación. ⏳ siguiente.
+- **Fase A — esquema:** `sql/schema.sql` (v1). ✅ aplicado en Supabase (smoke OK).
+- **Fase B — sync Mongo→PG:** `jobs/sync_postgres.py` + reconciliación. ✅ escrito.
+  Pendiente: backfill inicial (`--full`, fuera de rueda) + cronear (B.2: `JobRunLogger`
+  + `crontab.txt` + índice `ingestado_en` para el incremental).
 - **Fase C — reportería sobre PG:** endpoints de reporting leen SQL. ⏳ después.
 - **Fase D — PG fuente de verdad de lo relacional:** solo si C demuestra valor. RED.
+
+## Mapeos no obvios (verificados con `scripts/diag_shapes_sync`, REGLA #2)
+- **`operaciones.id_cuenta` ← Mongo `cuenta`** (Operaciones NO tiene `id_cuenta`).
+- **`operadores.nombre`**: `Manager.Users` no tiene nombre → sale de
+  `Clientes.Comitentes.operador_nombre`. `operadores` se carga como UNIÓN de Users +
+  los `operador_email` distintos de Comitentes (si no, el FK de `comitentes` rechaza filas).
+- **`comitentes.estado_comercial`** es DERIVADO (`comercial.py`) → NULL en la capa SQL.
+- **`contrapartes.id_cuenta` ← Mongo `cuenta`**.
+- **Fechas** (`concertacion`, `fecha`, `fecha_snapshot`) llegan como string `'YYYY-MM-DD'`
+  → se castean a `date` en el sync.
+- **Operaciones sin `boleto`** se saltean (boleto es la PK natural del upsert) y se cuentan.
+- **`operaciones.etapa`** no apareció en la muestra de 200 docs → se mapea defensivo
+  (puede quedar NULL).
 
 ## El esquema (`sql/schema.sql`)
 - **Dimensiones** (PK natural): `operadores`, `cuentas`, `comitentes`, `contrapartes`.

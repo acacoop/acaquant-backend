@@ -232,10 +232,10 @@ def sync_aum(mdb, conn, dry, desde: datetime | None) -> int:
     q = {"timestamp": {"$gte": desde}} if desde else {}
     proj = {
         "fecha_snapshot": 1, "id_cuenta": 1, "unidad": 1, "cuenta": 1,
-        "cantidad": 1, "precio": 1, "valuacion": 1,
+        "cantidad": 1, "precio": 1, "valuacion": 1, "tipoTitulo": 1,
     }
     cols = ["fecha_snapshot", "id_cuenta", "unidad", "cuenta",
-            "cantidad", "precio", "valuacion"]
+            "cantidad", "precio", "valuacion", "tipo_titulo"]
     total = 0
     cur = mdb["Valuaciones"]["AuM"].find(q, proj, batch_size=BATCH)
     for batch in _iter_batches(cur):
@@ -245,7 +245,8 @@ def sync_aum(mdb, conn, dry, desde: datetime | None) -> int:
             if not (f and idc and u):
                 continue
             rows.append((f, idc, u, _s(d.get("cuenta")),
-                         d.get("cantidad"), d.get("precio"), d.get("valuacion")))
+                         d.get("cantidad"), d.get("precio"), d.get("valuacion"),
+                         _s(d.get("tipoTitulo"))))
         total += _upsert(conn, "aum", cols, ["fecha_snapshot", "id_cuenta", "unidad"],
                          _dedup(rows, [0, 1, 2]), dry)
         time.sleep(THROTTLE)
@@ -332,6 +333,41 @@ def sync_actividad_mensual(mdb, conn, dry) -> int:
     return _upsert(conn, "actividad_mensual", cols, ["year_month", "id_cuenta"], rows, dry)
 
 
+def sync_assets(mdb, conn, dry) -> int:
+    """Valuaciones.Assets (UPPERCASE) → tabla assets (lowercase). Join por `unidad` con aum.
+    Master de instrumentos para carteras/FCI/renta fija/PnL. Chica (~1630), completa."""
+    cols = ["unidad", "cartera", "clase_activo", "emisor", "ticker", "instrumento",
+            "calificacion", "cafci"]
+    rows = []
+    for d in mdb["Valuaciones"]["Assets"].find({}, {
+        "_id": 0, "unidad": 1, "CARTERA": 1, "CLASE_ACTIVO": 1, "EMISOR": 1, "TICKER": 1,
+        "INSTRUMENTO": 1, "CALIFICACION": 1, "CAFCI": 1,
+    }):
+        u = _s(d.get("unidad"))
+        if not u:
+            continue
+        rows.append((u, _s(d.get("CARTERA")), _s(d.get("CLASE_ACTIVO")), _s(d.get("EMISOR")),
+                     _s(d.get("TICKER")), _s(d.get("INSTRUMENTO")), _s(d.get("CALIFICACION")),
+                     _s(d.get("CAFCI"))))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "assets", cols, ["unidad"], rows, dry)
+    _delete_not_in(conn, "assets", "unidad", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_dolar(mdb, conn, dry, desde: datetime | None) -> int:
+    """Valuaciones.Dolar (timestamp, mep) → tabla dolar. Para get_mep_for_date (MEP histórico).
+    Incremental por timestamp."""
+    q = {"timestamp": {"$gte": desde}} if desde else {}
+    rows = []
+    for d in mdb["Valuaciones"]["Dolar"].find(q, {"_id": 0, "timestamp": 1, "mep": 1}):
+        ts = d.get("timestamp")
+        if ts is None:
+            continue
+        rows.append((ts, d.get("mep")))
+    return _upsert(conn, "dolar", ["timestamp", "mep"], ["timestamp"], _dedup(rows, [0]), dry)
+
+
 # ── reconciliación (no confiar a ciegas) ─────────────────────────────────────
 def reconciliar(mdb, conn):
     pares = [
@@ -369,9 +405,11 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_ac = sync_accionistas(mdb, conn, dry)
         n_mu = sync_manager_users(mdb, conn, dry)
         n_am = sync_actividad_mensual(mdb, conn, dry)
+        n_as = sync_assets(mdb, conn, dry)
+        n_dl = sync_dolar(mdb, conn, dry, desde)
         print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  comitentes={n_co}  "
               f"contrapartes={n_cp}  accionistas={n_ac}  manager_users={n_mu}  "
-              f"actividad_mensual={n_am}")
+              f"actividad_mensual={n_am}  assets={n_as}  dolar={n_dl}")
 
         n_ops, sin_bol = sync_operaciones(mdb, conn, dry, desde)
         n_aum = sync_aum(mdb, conn, dry, desde)
@@ -384,7 +422,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
     return {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co, "contrapartes": n_cp,
             "accionistas": n_ac, "manager_users": n_mu, "actividad_mensual": n_am,
-            "operaciones": n_ops, "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol}
+            "assets": n_as, "dolar": n_dl, "operaciones": n_ops, "aum": n_aum,
+            "negocio": n_nm, "sin_boleto": sin_bol}
 
 
 def main() -> int:

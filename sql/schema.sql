@@ -156,10 +156,36 @@ CREATE TABLE IF NOT EXISTS aum (
     cantidad       numeric,
     precio         numeric,
     valuacion      numeric,
+    tipo_titulo    text,                     -- Mongo tipoTitulo (total_snapshot + normalizer PnL)
     PRIMARY KEY (fecha_snapshot, id_cuenta, unidad)
 );
+ALTER TABLE aum ADD COLUMN IF NOT EXISTS tipo_titulo text;
 CREATE INDEX IF NOT EXISTS ix_aum_id_cuenta ON aum(id_cuenta, fecha_snapshot);
 CREATE INDEX IF NOT EXISTS ix_aum_unidad    ON aum(unidad, fecha_snapshot);
+
+-- Valuaciones.Assets — master de instrumentos (UPPERCASE en Mongo → lowercase acá).
+-- Join por `unidad` con aum. Alimenta carteras (cartera), FCI (cartera/emisor),
+-- renta fija (clase_activo) y el normalizer del PnL (ticker/instrumento/cafci).
+CREATE TABLE IF NOT EXISTS assets (
+    unidad       text PRIMARY KEY,
+    cartera      text,
+    clase_activo text,
+    emisor       text,
+    ticker       text,
+    instrumento  text,
+    calificacion text,
+    cafci        text
+);
+CREATE INDEX IF NOT EXISTS ix_assets_cartera ON assets(cartera);
+CREATE INDEX IF NOT EXISTS ix_assets_clase   ON assets(clase_activo);
+CREATE INDEX IF NOT EXISTS ix_assets_ticker  ON assets(ticker);
+
+-- Valuaciones.Dolar — feed MEP (timestamp, mep). get_mep_for_date: último mep <= eod(fecha).
+CREATE TABLE IF NOT EXISTS dolar (
+    timestamp timestamptz PRIMARY KEY,
+    mep       numeric
+);
+CREATE INDEX IF NOT EXISTS ix_dolar_ts ON dolar(timestamp DESC) WHERE mep IS NOT NULL;
 
 -- CashFlow.NegocioMovimientos (~339k). Grano único (fecha, comprobante).
 CREATE TABLE IF NOT EXISTS negocio_movimientos (

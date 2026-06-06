@@ -71,6 +71,23 @@ cero. Mongo queda como plan B hasta verificar. Manda el gate, no el calendario.
   SQL (aranceles 1.6s→0.55s, agro 1.3s→0.66s) y, sobre todo, **dejan de pegarle al M10**.
   Las livianas empatan.
 
+### Migración vista NEGOCIO (`/api/operaciones/negocio/*`) — código listo ⏳ validar
+- **Qué:** la vista de negocio del día (serie por categoría, detalle por cuenta, matrix,
+  boletos, meta) lee de SQL.
+- **Cómo:**
+  - `negocio_movimientos` ganó columnas: `cuenta` (string "[id] NOMBRE"), `unidad` (excluir
+    futuros DLR), `plazo/lugar/estado/informacion` (drill-down), `ingestado_en` (meta) +
+    índice por `cuenta`. Nueva tabla `accionistas` (filtro de cuenta). Sync actualizado
+    (`sync_negocio` + `sync_accionistas`).
+  - `api/services/negocio_sql.py`: replica los 7 endpoints. Reglas: conversión por `mep` del
+    boleto, `unidad IS DISTINCT FROM 'USDL'` (excluir futuros), filtros de cuenta
+    (accionistas/sin_accionistas/cooperativas vía subquery + `~* '\ycoop'`, productores vía
+    `comitentes.nivel_1`), scope por `id_cuenta`.
+  - `api/routers/operaciones.py`: flag `NEGOCIO_SQL` (independiente de OPERACIONES_SQL).
+  - `scripts/compare_negocio_sql_vs_mongo.py`: GATE de validación.
+- **Pendiente del user:** ALTER en Supabase + `sync --full` + correr el harness (→ 0 diffs) +
+  prender `NEGOCIO_SQL=1`.
+
 ### Hallazgos / deuda de datos detectada
 - Cuentas con el **mismo id_cuenta y distinta grafía** de denominación entre boletos (Mongo
   `$first` arbitrario). En el modelo SQL limpio el nombre vive una vez en `core.cuentas`.
@@ -95,7 +112,7 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
 ## 5. Plan por dominios (orden)
 
 1. ✅ OPERACIONES (negocio/operaciones)
-2. ⏳ NEGOCIO (negocio/movimientos — `NegocioMovimientos`, ya espejado)
+2. 🔵 NEGOCIO (código listo; falta ALTER+sync+harness+flag del user)
 3. ⏳ COMERCIAL / operadores (1053 líneas; +tablas `actividad_mensual`; derivados→vistas)
 4. ⏳ PORTFOLIO / AuM / PnL (fórmulas AuM; PnLTotalesCache/Consolidado → vistas materializadas)
 5. ⏳ MERCADO (curvas, snapshots, timesales — medir shapes; real-time al final)

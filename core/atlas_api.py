@@ -39,14 +39,46 @@ def _cfg() -> tuple[str, str, str]:
     return pub, priv, proj
 
 
-def get(path: str, params: dict | None = None) -> dict[str, Any]:
-    """GET contra la Atlas Admin API (relativo a /groups/{PROJECT_ID}). Digest auth."""
+def get(path: str, params: dict | None = None,
+        accept_version: str | None = None) -> dict[str, Any]:
+    """GET contra la Atlas Admin API (relativo a /groups/{PROJECT_ID}). Digest auth.
+
+    `accept_version` permite forzar otra fecha de versión de la API v2 (algunos
+    endpoints exigen una distinta y devuelven 406 con la default)."""
     pub, priv, proj = _cfg()
     url = f"{_BASE}/groups/{proj}{path}"
+    accept = (f"application/vnd.atlas.{accept_version}+json"
+              if accept_version else _ACCEPT)
     r = requests.get(url, auth=HTTPDigestAuth(pub, priv),
-                     headers={"Accept": _ACCEPT}, params=params, timeout=_TIMEOUT)
+                     headers={"Accept": accept}, params=params, timeout=_TIMEOUT)
     r.raise_for_status()
     return r.json()
+
+
+# Versiones de la API v2 a probar para endpoints que rechazan la default con 406.
+# Se intentan de más nueva a más vieja; la primera que no dé 406 gana.
+_VERSIONES_FALLBACK = (
+    "2025-03-12", "2024-11-13", "2024-08-05", "2024-05-30",
+    "2023-11-15", "2023-02-01", "2023-01-01",
+)
+
+
+def get_multi_version(path: str, params: dict | None = None) -> dict[str, Any]:
+    """Como get(), pero si el endpoint devuelve 406 (versión no aceptable) reintenta
+    con otras fechas de versión hasta que una funcione. Para endpoints del
+    Performance Advisor que no aceptan la versión default."""
+    ultimo_err: Exception | None = None
+    for v in _VERSIONES_FALLBACK:
+        try:
+            return get(path, params=params, accept_version=v)
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 406:
+                ultimo_err = e
+                continue
+            raise
+    if ultimo_err:
+        raise ultimo_err
+    raise RuntimeError(f"get_multi_version sin versiones para {path}")
 
 
 def processes() -> list[dict]:
@@ -71,8 +103,11 @@ def suggested_indexes(process_id: str) -> dict[str, Any]:
 def drop_index_suggestions() -> dict[str, Any]:
     """Performance Advisor: índices que Atlas sugiere DROPEAR a nivel cluster —
     ocultos / redundantes / sin uso. Es el análisis que Atlas computa solo, sin
-    necesidad de $indexStats. Solo metadatos estructurales, sin valores."""
-    return get(f"/clusters/{_cluster_name()}/performanceAdvisor/dropIndexSuggestions")
+    necesidad de $indexStats. Solo metadatos estructurales, sin valores.
+
+    Usa get_multi_version: este endpoint rechaza la versión default con 406."""
+    return get_multi_version(
+        f"/clusters/{_cluster_name()}/performanceAdvisor/dropIndexSuggestions")
 
 
 def _ultimo_valor(measurements: list[dict], nombre: str) -> float | None:

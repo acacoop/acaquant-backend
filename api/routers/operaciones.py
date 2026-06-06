@@ -9,9 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.cache import cached
 from api.db import get_db_cashflow, get_db_clientes, get_db_valuaciones
-from api.deps import (
-    get_db_titulos,
-)
 from api.services._cuentas_filter import (
     VALID_FILTERS as _NEGOCIO_CUENTA_FILTROS_VALID,
 )
@@ -25,6 +22,7 @@ from api.services._grupos_scope import (
     verificar_cuenta_str,
 )
 from api.services._negocio_futuros import match_no_futuros
+from api.services.titulos_flujos import assets_normalizados
 
 logger = logging.getLogger("api.operaciones")
 
@@ -184,13 +182,11 @@ def _fondos_emisores() -> list[str]:
     }
     result: list[str] = []
     if fondos_cu:
-        db_t = get_db_titulos()
+        # DIRECTO desde Valuaciones.Assets (vía servicio): emisores con cartera FCI.
         emisores_fci = {
             d["emisor"]
-            for d in db_t["AssetsAPI"].find(
-                {"cartera": {"$in": ["FCI", "CARTERA FCI"]}}, {"_id": 0, "emisor": 1}
-            )
-            if d.get("emisor")
+            for d in assets_normalizados()
+            if d.get("cartera") in ("FCI", "CARTERA FCI") and d.get("emisor")
         }
         result = sorted(fondos_cu & emisores_fci)
 
@@ -222,14 +218,12 @@ def flujo_vs_aum(
     Agrupación server-side via $group pipeline para evitar traer docs en bulk.
     """
     try:
-        db_t = get_db_titulos()
+        # DIRECTO desde Valuaciones.Assets (vía servicio): unidades FCI del emisor.
         unidades = [
             d["unidad"]
-            for d in db_t["AssetsAPI"].find(
-                {"cartera": {"$in": ["FCI", "CARTERA FCI"]}, "emisor": contraparte},
-                {"_id": 0, "unidad": 1},
-            )
-            if d.get("unidad")
+            for d in assets_normalizados()
+            if d.get("cartera") in ("FCI", "CARTERA FCI")
+            and d.get("emisor") == contraparte and d.get("unidad")
         ]
 
         aum: list[dict] = []

@@ -24,7 +24,6 @@ _CRONS_IGNORADOS = {
     "jobs.cleanup_futuros_dlr", # limpieza
     "jobs.descubrir_cuentas",   # discovery interno
     "jobs.volatilidad_ggal",    # cálculo secundario GGAL
-    "jobs.sync_api_copies",     # copia derivada *API
     "jobs.aranceles",           # sub-paso del chain de negocio
     "jobs.fci_bilateral",       # sub-paso del chain de negocio
     "jobs.comercial_warm",      # cache-warming

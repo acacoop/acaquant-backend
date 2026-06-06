@@ -1,17 +1,16 @@
-"""Router Titulos: endpoints para AssetsAPI y FlujosAPI."""
+"""Router Titulos: assets + flujos, DIRECTO desde las fuentes (Valuaciones.Assets
+y Trading.Curvas+BondsMaster vía servicio titulos_flujos) — sin espejos *API."""
 from fastapi import APIRouter, Query
 
 from api.cache import cached
-from api.deps import get_db_titulos
 from api.services.renta_fija import _bonos_cer_fijados
-from api.services.titulos_flujos import flujos_instrumentos
+from api.services.titulos_flujos import assets_normalizados, flujos_instrumentos
 
 router = APIRouter(prefix="/api/titulos", tags=["Titulos"])
 
-_PROJ_ASSETS = {
-    "_id": 0, "unidad": 1, "ticker": 1, "emisor": 1,
-    "cartera": 1, "clase_activo": 1, "calificacion": 1, "vencimiento": 1,
-}
+# Campos que expone el endpoint (subset del doc normalizado).
+_PROJ_ASSETS = ("unidad", "ticker", "emisor", "cartera",
+                "clase_activo", "calificacion", "vencimiento")
 
 
 @router.get("/assets")
@@ -23,20 +22,20 @@ def listar_assets(
     emisor: str | None = Query(None, description="Filtrar por emisor"),
     clase_activo: str | None = Query(None, description="Filtrar por clase de activo"),
 ):
-    db = get_db_titulos()
-    filtro = {}
-    if unidad:
-        filtro["unidad"] = unidad
-    if ticker:
-        filtro["ticker"] = ticker
-    if cartera:
-        filtro["cartera"] = cartera
-    if emisor:
-        filtro["emisor"] = emisor
-    if clase_activo:
-        filtro["clase_activo"] = clase_activo
+    def ok(d: dict) -> bool:
+        return (
+            (not unidad or d.get("unidad") == unidad)
+            and (not ticker or d.get("ticker") == ticker)
+            and (not cartera or d.get("cartera") == cartera)
+            and (not emisor or d.get("emisor") == emisor)
+            and (not clase_activo or d.get("clase_activo") == clase_activo)
+        )
 
-    return list(db["AssetsAPI"].find(filtro, _PROJ_ASSETS))
+    return [
+        {k: d.get(k) for k in _PROJ_ASSETS}
+        for d in assets_normalizados()
+        if ok(d)
+    ]
 
 
 @router.get("/flujos")

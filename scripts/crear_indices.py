@@ -18,7 +18,6 @@ def main():
     valuaciones     = client["Valuaciones"]
     cashflow        = client["CashFlow"]
     opciones        = client["Opciones"]
-    titulos_api     = client["TitulosAPI"]
     manager_db      = client["Manager"]
     clientes        = client["Clientes"]
 
@@ -106,12 +105,6 @@ def main():
             "DataHistorica: fecha"),
         (opciones["DataHistorica"], [("symbol", 1), ("fecha", -1)],
             "DataHistorica: symbol + fecha"),
-
-        # ── TitulosAPI ────────────────────────────────────────────────────
-        (titulos_api["AssetsAPI"], [("cartera", 1)],
-            "AssetsAPI: cartera"),
-        (titulos_api["AssetsAPI"], [("emisor", 1), ("cartera", 1)],
-            "AssetsAPI: emisor + cartera"),
 
         # ── Clientes.ActividadMensual (snapshot mensual de cuentas activas) ─
         # Clave única mes×cuenta; serie por operador filtra (operador, mes).

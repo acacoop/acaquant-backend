@@ -139,36 +139,6 @@ def consultar_posicion(cuenta_id, headers, desde, timeout=120):
 
 
 # ── Reglas de valuación ──────────────────────────────────────────────────────
-def _sincronizar_assets(col_assets, unidades):
-    """
-    Asegura que cada unidad exista en TitulosAPI.AssetsAPI con los campos requeridos.
-    No pisa valores existentes — solo completa los que faltan ($ifNull).
-
-    `CAFCI` es la excepción: se deriva de `unidad` con `core.cafci.extract_cafci`
-    y se setea sin `$ifNull` — la unidad es la upsert key (inmutable para un
-    doc dado), así que el código CAFCI siempre refleja lo que está en la unidad.
-    Si no hay CAFCI en la unidad (no es FCI), queda null.
-    """
-    from core.cafci import extract_cafci
-    for unidad in unidades:
-        cafci = extract_cafci(unidad)
-        col_assets.update_one(
-            {"unidad": unidad},
-            [{"$set": {
-                "unidad":       unidad,
-                "calificacion": {"$ifNull": ["$calificacion", ""]},
-                "cartera":      {"$ifNull": ["$cartera",      ""]},
-                "clase_activo": {"$ifNull": ["$clase_activo", ""]},
-                "emisor":       {"$ifNull": ["$emisor",       ""]},
-                "ticker":       {"$ifNull": ["$ticker",       ""]},
-                "vencimiento":  {"$ifNull": ["$vencimiento",  None]},
-                "instrumento":  {"$ifNull": ["$instrumento",  ""]},
-                "CAFCI":        cafci,
-            }}],
-            upsert=True,
-        )
-
-
 def _sincronizar_assets_valuaciones(col_assets, unidades):
     """Garantiza que cada unidad del snapshot exista en Valuaciones.Assets
     — la fuente de verdad UPPERCASE que edita el panel Manager → Assets.
@@ -177,10 +147,8 @@ def _sincronizar_assets_valuaciones(col_assets, unidades):
     UPPERCASE. Una unidad nueva queda con todos vacíos ("") y aparece en
     Manager lista para categorizar. CAFCI se deriva de la unidad.
 
-    Antes el job solo sincronizaba TitulosAPI.AssetsAPI (la copia
-    derivada), que `api_migrate.py` reconstruye desde Valuaciones.Assets
-    — así las unidades nuevas nunca llegaban al origen y Manager no las
-    veía.
+    Es el ÚNICO destino de assets: la API lee Valuaciones.Assets directo
+    (servicio api/services/titulos_flujos), ya no hay copia derivada AssetsAPI.
     """
     from core.cafci import extract_cafci
     for unidad in unidades:
@@ -391,13 +359,10 @@ def run():
 
     # Sincronizar unidades del snapshot hacia los dos lados de Assets.
     unidades_snapshot = col.distinct("unidad", {"fecha_snapshot": fecha_snapshot})
-    # 1) Origen de verdad: Valuaciones.Assets (lo que edita Manager → Assets).
+    # Origen de verdad: Valuaciones.Assets (lo que edita Manager → Assets). La API
+    # lee de acá directo (servicio titulos_flujos), ya no hay copia derivada AssetsAPI.
     _sincronizar_assets_valuaciones(client["Valuaciones"]["Assets"], unidades_snapshot)
     print(f"✅ Valuaciones.Assets sincronizado: {len(unidades_snapshot)} unidades.")
-    # 2) Copia derivada para la API.
-    col_assets = client["TitulosAPI"]["AssetsAPI"]
-    _sincronizar_assets(col_assets, unidades_snapshot)
-    print(f"✅ AssetsAPI sincronizado: {len(unidades_snapshot)} unidades revisadas.")
 
     # Pre-materializar resumen FCI por (fecha_snapshot, unidad)
     from jobs.aum_resumen_fci import sync_fecha as sync_resumen_fci

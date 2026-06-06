@@ -37,7 +37,6 @@ _CMDS: dict[str, list[str]] = {
     "cashflow":        ["jobs.cashflow", "--today"],
     "flujo":           ["jobs.flujo_contrapartes"],
     "bcra":            ["jobs.bcra", "--today"],
-    "sync_api_copies": ["jobs.sync_api_copies", "--all"],
     "crear_indices":   ["scripts.crear_indices"],
     "cleanup_curvas":  ["jobs.cleanup_curvas", "--dry"],
 }

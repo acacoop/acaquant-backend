@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from api.db import get_db_trading
+from api.db import get_db_trading, get_db_valuaciones
 
 
 def _fecha_to_datetime(raw) -> datetime | None:
@@ -109,4 +109,26 @@ def flujos_instrumentos() -> list[dict]:
         doc = _build_from_bondmaster(d)
         if doc["ticker"] not in tickers_curvas:
             out.append(doc)
+    return out
+
+
+# unidad NO se renombra (ya está en minúscula en la fuente); el resto es UPPER→lower.
+_ASSETS_MAP = {
+    "calificacion": "CALIFICACION", "cartera": "CARTERA", "clase_activo": "CLASE_ACTIVO",
+    "emisor": "EMISOR", "ticker": "TICKER", "instrumento": "INSTRUMENTO",
+}
+
+
+def assets_normalizados() -> list[dict]:
+    """Valuaciones.Assets (UPPERCASE, fuente que edita Manager → Assets) → docs en
+    minúscula, mismo shape que servía el ex-espejo TitulosAPI.AssetsAPI. Set chico
+    (~1630 docs); los callers cachean. VENCIMIENTO ('YYYY-MM-DD HH:MM:SS' o
+    'NO APLICA') → datetime solo-fecha o None."""
+    out = []
+    for d in get_db_valuaciones()["Assets"].find({}, {"_id": 0}):
+        row = {"unidad": d.get("unidad", "")}
+        for lo, up in _ASSETS_MAP.items():
+            row[lo] = d.get(up, "")
+        row["vencimiento"] = _fecha_to_datetime(d.get("VENCIMIENTO"))
+        out.append(row)
     return out

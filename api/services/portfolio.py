@@ -18,10 +18,10 @@ import logging
 from datetime import datetime
 
 from api.cache import cached
-from api.db import get_db_titulos, get_db_trading, get_db_valuaciones
+from api.db import get_db_trading, get_db_valuaciones
 from api.services._cuentas_filter import match_cuenta_filter
 from api.services._mep import get_mep_for_date
-from api.services.titulos_flujos import flujos_instrumentos
+from api.services.titulos_flujos import assets_normalizados, flujos_instrumentos
 
 logger = logging.getLogger("api.portfolio")
 
@@ -194,20 +194,15 @@ def listar_aum(
 def tasa_fija_snapshot(scope: tuple[str, ...] | None = None) -> dict:
     """Posiciones de Tasa Fija del último snapshot AuM.
 
-    Join: Valuaciones.AuM (último) → AssetsAPI (clase_activo=FIJA) → ValuacionesAPI (curva=tasa_fija).
+    Join: Valuaciones.AuM (último) → Valuaciones.Assets (clase_activo=FIJA) → flujos (curva=tasa_fija).
     Devuelve tickers con valuacion total, cobro proyectado y detalle por cuenta.
 
     `scope` restringe a las cuentas del grupo del usuario (None = sin restricción).
     """
     db_p = get_db_valuaciones()
-    db_t = get_db_titulos()
-
     assets_fija: dict[str, str] = {}
-    for d in db_t["AssetsAPI"].find(
-        {"clase_activo": {"$in": ["FIJA", "fija"]}},
-        {"_id": 0, "unidad": 1, "ticker": 1},
-    ):
-        if d.get("unidad") and d.get("ticker"):
+    for d in assets_normalizados():
+        if d.get("clase_activo") in ("FIJA", "fija") and d.get("unidad") and d.get("ticker"):
             assets_fija[d["unidad"]] = d["ticker"]
 
     if not assets_fija:
@@ -293,7 +288,7 @@ def tasa_fija_snapshot(scope: tuple[str, ...] | None = None) -> dict:
 def cer_snapshot(scope: tuple[str, ...] | None = None) -> dict:
     """Posiciones CER del último snapshot AuM.
 
-    Join: ValuacionesAPI (curva=cer) → AssetsAPI (por ticker) → Valuaciones.AuM (último).
+    Join: flujos (curva=cer) → Valuaciones.Assets (por ticker) → Valuaciones.AuM (último).
     Devuelve tickers con valuacion total, cantidad (VN) y detalle por cuenta.
 
     A diferencia de tasa_fija_snapshot NO se calcula "cobro proyectado" porque el
@@ -302,7 +297,6 @@ def cer_snapshot(scope: tuple[str, ...] | None = None) -> dict:
     en Trading.TimeSales si están disponibles.
     """
     db_p = get_db_valuaciones()
-    db_t = get_db_titulos()
     db_tr = get_db_trading()
 
     tickers_cer: dict[str, dict] = {}
@@ -321,13 +315,11 @@ def cer_snapshot(scope: tuple[str, ...] | None = None) -> dict:
 
     ticker_to_unidades: dict[str, list[str]] = {}
     unidad_to_ticker: dict[str, str] = {}
-    for d in db_t["AssetsAPI"].find(
-        {"ticker": {"$in": list(tickers_cer.keys())}},
-        {"_id": 0, "unidad": 1, "ticker": 1},
-    ):
+    _cer_tickers = set(tickers_cer.keys())
+    for d in assets_normalizados():
         u = d.get("unidad")
         t = d.get("ticker")
-        if u and t:
+        if u and t and t in _cer_tickers:
             ticker_to_unidades.setdefault(t, []).append(u)
             unidad_to_ticker[u] = t
 

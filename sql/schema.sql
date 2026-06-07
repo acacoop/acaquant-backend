@@ -216,6 +216,20 @@ CREATE TABLE IF NOT EXISTS dolar (
 );
 CREATE INDEX IF NOT EXISTS ix_dolar_ts ON dolar(timestamp DESC) WHERE mep IS NOT NULL;
 
+-- Trading.PortfolioSnapshot — precio live por ticker (motor de tenencia). Para PnL no-realizado.
+CREATE TABLE IF NOT EXISTS portfolio_snapshot (
+    ticker        text PRIMARY KEY,
+    last_price    numeric,
+    closing_price numeric
+);
+
+-- Trading.SnapshotsCierre — último cierre por ticker (fallback de precio del PnL).
+CREATE TABLE IF NOT EXISTS snapshots_cierre (
+    ticker     text PRIMARY KEY,
+    last_price numeric,
+    fecha      date
+);
+
 -- CashFlow.NegocioMovimientos (~339k). Grano único (fecha, comprobante).
 CREATE TABLE IF NOT EXISTS negocio_movimientos (
     fecha        date NOT NULL,

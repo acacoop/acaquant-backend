@@ -414,6 +414,40 @@ def sync_dolar(mdb, conn, dry, desde: datetime | None) -> int:
     return _upsert(conn, "dolar", ["timestamp", "mep"], ["timestamp"], _dedup(rows, [0]), dry)
 
 
+def sync_portfolio_snapshot(mdb, conn, dry) -> int:
+    """Trading.PortfolioSnapshot (precio live por ticker) → portfolio_snapshot. PnL no-realizado."""
+    cols = ["ticker", "last_price", "closing_price"]
+    rows = []
+    for d in mdb["Trading"]["PortfolioSnapshot"].find(
+        {}, {"_id": 0, "ticker": 1, "last_price": 1, "closing_price": 1}
+    ):
+        t = _s(d.get("ticker"))
+        if t:
+            rows.append((t, d.get("last_price"), d.get("closing_price")))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "portfolio_snapshot", cols, ["ticker"], rows, dry)
+    _delete_not_in(conn, "portfolio_snapshot", "ticker", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_snapshots_cierre(mdb, conn, dry) -> int:
+    """Trading.SnapshotsCierre → snapshots_cierre, último por ticker (el PnL usa el más reciente)."""
+    cols = ["ticker", "last_price", "fecha"]
+    rows = []
+    for d in mdb["Trading"]["SnapshotsCierre"].aggregate([
+        {"$sort": {"fecha": -1}},
+        {"$group": {"_id": "$ticker", "last_price": {"$first": "$last_price"},
+                    "fecha": {"$first": "$fecha"}}},
+    ]):
+        t = _s(d.get("_id"))
+        if t:
+            rows.append((t, d.get("last_price"), _d(d.get("fecha"))))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "snapshots_cierre", cols, ["ticker"], rows, dry)
+    _delete_not_in(conn, "snapshots_cierre", "ticker", {r[0] for r in rows}, dry)
+    return n
+
+
 # ── reconciliación (no confiar a ciegas) ─────────────────────────────────────
 def reconciliar(mdb, conn):
     pares = [
@@ -455,10 +489,12 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_am = sync_actividad_mensual(mdb, conn, dry)
         n_as = sync_assets(mdb, conn, dry)
         n_dl = sync_dolar(mdb, conn, dry, desde)
+        n_ps = sync_portfolio_snapshot(mdb, conn, dry)
+        n_sc = sync_snapshots_cierre(mdb, conn, dry)
         print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  comitentes={n_co}  "
               f"contrapartes={n_cp}  accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
-              f"assets={n_as}  dolar={n_dl}")
+              f"assets={n_as}  dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
 
         n_ops, sin_bol = sync_operaciones(mdb, conn, dry, desde)
         n_aum = sync_aum(mdb, conn, dry, desde)
@@ -471,7 +507,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
     return {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co, "contrapartes": n_cp,
             "accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
-            "actividad_mensual": n_am, "assets": n_as, "dolar": n_dl, "operaciones": n_ops,
+            "actividad_mensual": n_am, "assets": n_as, "dolar": n_dl,
+            "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc, "operaciones": n_ops,
             "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol}
 
 

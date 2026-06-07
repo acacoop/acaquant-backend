@@ -24,6 +24,7 @@ usuarios o la matriz, `invalidate_cache()` purga todo.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -33,6 +34,13 @@ from config import MANAGER_EMAILS
 from core.mongo import get_mongo_client
 
 logger = logging.getLogger(__name__)
+
+
+def _auth_sql() -> bool:
+    """True si las lecturas de AUTH leen de Postgres (flag AUTH_SQL=1). Default OFF = Mongo.
+    Se lee por-llamada para poder prender/apagar sin restart. El fallback (try SQL → except →
+    Mongo) garantiza que prenderlo NUNCA puede lockear: ante cualquier error SQL, cae a Mongo."""
+    return os.getenv("AUTH_SQL") == "1"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -193,6 +201,20 @@ def _load_matrix_from_db() -> dict[str, tuple[str, ...]]:
     return out
 
 
+def _load_matrix() -> dict[str, tuple[str, ...]]:
+    """Matriz con FALLBACK: si AUTH_SQL y SQL trae datos → SQL; vacío o error → Mongo
+    (que a su vez cae a DEFAULT_MATRIX). Nunca devuelve matriz vacía."""
+    if _auth_sql():
+        try:
+            from core import roles_sql
+            m = roles_sql.load_matrix_sql()
+            if m:
+                return m
+        except Exception as e:
+            logger.warning("AUTH_SQL: RoleMatrix SQL falló (%s) → fallback Mongo", e)
+    return _load_matrix_from_db()
+
+
 def get_matrix() -> dict[str, tuple[str, ...]]:
     """Devuelve la matriz role → modules, con cache TTL 60s."""
     global _matrix_cache
@@ -200,7 +222,7 @@ def get_matrix() -> dict[str, tuple[str, ...]]:
     with _cache_lock:
         if _matrix_cache and now - _matrix_cache[0] < _CACHE_TTL:
             return _matrix_cache[1]
-        m = _load_matrix_from_db()
+        m = _load_matrix()
         _matrix_cache = (now, m)
         return m
 
@@ -256,6 +278,18 @@ def _lookup_role_db(email: str) -> str | None:
         return None
     role = doc.get("role")
     return str(role) if role else None
+
+
+def _lookup_role(email: str) -> str | None:
+    """Role con FALLBACK: si AUTH_SQL → SQL; ante CUALQUIER error SQL → Mongo. El resultado
+    SQL es autoritativo (None = no existe / deshabilitado → el caller auto-registra)."""
+    if _auth_sql():
+        try:
+            from core import roles_sql
+            return roles_sql.lookup_role_sql(email)
+        except Exception as e:
+            logger.warning("AUTH_SQL: lookup_role SQL falló (%s) → fallback Mongo", e)
+    return _lookup_role_db(email)
 
 
 def _auto_register(email_norm: str) -> str:
@@ -348,8 +382,8 @@ def get_user_role(email: str) -> str:
             cached = hit[1]
             return cached if cached is not None else DEFAULT_ROLE
 
-    # Rama 2: lookup en Manager.Users
-    role = _lookup_role_db(email_norm)
+    # Rama 2: lookup en Manager.Users (SQL con fallback a Mongo si AUTH_SQL)
+    role = _lookup_role(email_norm)
 
     # Rama 3: primera visita → auto-registrar
     if role is None:

@@ -14,6 +14,7 @@ real (aplicar `cuentas_visibles` en los endpoints de cuentas) es Fase 2.
 """
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from datetime import UTC, datetime
@@ -23,7 +24,9 @@ from bson import ObjectId
 from bson.errors import InvalidId
 
 from core.mongo import get_mongo_client
-from core.roles import get_user_role
+from core.roles import _auth_sql, get_user_role
+
+logger = logging.getLogger(__name__)
 
 _DB_NAME = "Manager"
 _COL_NAME = "Grupos"
@@ -74,19 +77,31 @@ def cuentas_visibles(email: str) -> set[str] | None:
         if get_user_role(email_norm) == "admin":
             res = None
         else:
-            cuentas: set[str] = set()
-            en_grupo = False
-            for g in _col().find({"emails": email_norm}, {"_id": 0, "id_cuentas": 1}):
-                en_grupo = True
-                for c in g.get("id_cuentas") or []:
-                    cuentas.add(str(c))
-            res = cuentas if en_grupo else None
+            res = _cuentas_de_grupos(email_norm)
     except Exception:
-        res = None
+        res = None  # fail-open (ve de más, nunca lockea)
 
     with _cache_lock:
         _cuentas_by_email[email_norm] = (now, res)
     return res
+
+
+def _cuentas_de_grupos(email_norm: str) -> set[str] | None:
+    """Cuentas de los grupos del email, con FALLBACK: AUTH_SQL → SQL; ante error → Mongo.
+    None = no está en ningún grupo (ve todo)."""
+    if _auth_sql():
+        try:
+            from core import grupos_sql
+            return grupos_sql.cuentas_de_grupos_sql(email_norm)
+        except Exception as e:
+            logger.warning("AUTH_SQL: grupos SQL falló (%s) → fallback Mongo", e)
+    cuentas: set[str] = set()
+    en_grupo = False
+    for g in _col().find({"emails": email_norm}, {"_id": 0, "id_cuentas": 1}):
+        en_grupo = True
+        for c in g.get("id_cuentas") or []:
+            cuentas.add(str(c))
+    return cuentas if en_grupo else None
 
 
 def listar_grupos() -> list[dict[str, Any]]:

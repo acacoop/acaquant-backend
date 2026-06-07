@@ -1,0 +1,42 @@
+"""scripts/estado_sql.py — qué dominio LEE de SQL vs Mongo (según los flags del .env).
+
+Lee los flags del .env del Droplet y muestra, por dominio, si está sirviendo desde Postgres
+(SQL) o todavía de Mongo. Default de cada flag = Mongo. Las ESCRITURAS siguen casi todas en
+Mongo hasta la Fase 2 (motores/jobs) — esto refleja las LECTURAS.
+
+    python -m scripts.estado_sql
+"""
+from __future__ import annotations
+
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv("/root/TradingAV/.env")
+load_dotenv()  # fallback (.env local)
+
+_FLAGS = [
+    ("OPERACIONES_SQL", "OPERACIONES — /ops/* (movimientos, aranceles, agro)"),
+    ("NEGOCIO_SQL",     "NEGOCIO — /negocio/* (serie, cuentas, boletos)"),
+    ("COMERCIAL_SQL",   "COMERCIAL — /comercial/* (operadores, informes)"),
+    ("PORTFOLIO_SQL",   "PORTFOLIO AuM — /aum, /fci-*, /total-*, /diff"),
+    ("PNL_SQL",         "PnL Títulos — /pnl"),
+    ("AUTH_SQL",        "AUTH (lecturas) — roles, matriz, scope de cuentas"),
+    ("SNAPSHOT_SQL",    "MOTORES → SnapshotWriter (dual-write a SQL)"),
+]
+
+
+def main() -> int:
+    print("Estado de lectura por dominio (flags del .env):\n")
+    for env, desc in _FLAGS:
+        on = os.getenv(env) == "1"
+        marca = "🟢 SQL  " if on else "⚪ MONGO"
+        print(f"  {marca}  {env:16} → {desc}")
+    print("\n⚪ MONGO = sigue leyendo Mongo (default). 🟢 SQL = lee Postgres (con fallback a Mongo en auth).")
+    print("Nota: las ESCRITURAS (motores, jobs, edición de roles/grupos/segmentación) siguen")
+    print("en Mongo hasta la Fase 2. Esto refleja de dónde se LEE cada vista.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -145,8 +145,18 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
    - Chunk 3 (renta fija/CER → tablas `curvas`/`bonds_master`/`market_snapshot`) ⏳
    - Chunk 4 (PnL por cuenta — motor cost-basis copiado verbatim; `portfolio_snapshot`/`snapshots_cierre`) ⏳
    - Chunk 5 (PnL TOTALES + consolidado → tablas jsonb sincronizadas desde los crons) ⏳
-5. ⏳ MERCADO (curvas, snapshots, timesales — medir shapes; real-time al final)
-6. ⏳ Dual-write de los jobs/motores + check de dependencias → apagar Mongo (FASE 2)
+5. 🔵 AUTH / permisos (keystone para apagar Mongo) — EN CURSO:
+   - Chunk 0 (schema + sync: `manager_users` full, `role_matrix`, `grupos`) ✅ riesgo CERO (no toca lectura)
+   - Chunk 1 (lecturas SQL puras: `core/roles_sql.py`, `core/grupos_sql.py`) ⏳
+   - Chunk 2 (orquestador con **FALLBACK** en core/roles.py + core/grupos.py: try SQL → except →
+     Mongo → DEFAULT; flag `AUTH_SQL` default OFF; nunca puede lockear) ⏳ ← lo delicado
+   - Chunk 3-4 (prender flags escalonado: matriz → users → grupos) ⏳
+   - Chunk 5 (dual-write de los writes de roles/grupos) ⏳
+   **Patrón de seguridad:** el fallback vive DENTRO de core (no en el router), porque auth corre
+   en CADA request; ante cualquier error SQL cae a Mongo → prender AUTH_SQL nunca tumba la app.
+   Vistas tasa-fija/CER de portfolio: ELIMINADAS (sin uso). PnL Títulos: pendiente (task aparte).
+6. ⏳ MERCADO (curvas, snapshots, timesales — medir shapes; real-time al final)
+7. ⏳ FASE 2: writes a SQL (incl. auth dual-write) + check de dependencias → apagar Mongo
 
 ---
 

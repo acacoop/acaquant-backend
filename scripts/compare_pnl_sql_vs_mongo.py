@@ -41,6 +41,8 @@ def _skey(d) -> str:
 def diff(a, b, path: str = "") -> list[str]:
     out: list[str] = []
     if _isnum(a) and _isnum(b):
+        if a != a and b != b:  # ambos NaN → iguales (nan != nan en Python)
+            return out
         if not _close(a, b):
             out.append(f"{path}: mongo={a} sql={b}")
     elif isinstance(a, dict) and isinstance(b, dict):

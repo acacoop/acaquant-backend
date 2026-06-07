@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import os
 import threading
 import time
 from datetime import datetime
@@ -31,12 +32,17 @@ class SnapshotWriter:
         ).start()
     """
 
-    def __init__(self, db_name, collection_name, data_fn, key_field, interval=0.5):
+    def __init__(self, db_name, collection_name, data_fn, key_field, interval=0.5,
+                 sql_table=None):
         self.db_name = db_name
         self.collection_name = collection_name
         self.data_fn = data_fn
         self.key_field = key_field
         self.interval = interval
+        # Dual-write opcional a Postgres (Fase 2 — migración de mercado). Espeja cada fila
+        # como jsonb en `sql_table(k text PK, data jsonb, updated_at)`. Solo si el motor
+        # pasa sql_table Y el flag global SNAPSHOT_SQL=1 → default OFF, cero cambio.
+        self.sql_table = sql_table
         self._last_hash = None
         self._collection = None
         self._running = False
@@ -69,12 +75,34 @@ class SnapshotWriter:
                         if ops:
                             self._get_collection().bulk_write(ops, ordered=False)
                             self._last_hash = current_hash
+                            self._mirror_sql(data, ts)
 
             except Exception as e:
                 logger.error(f"SnapshotWriter [{self.collection_name}] error: {e}")
                 self._collection = None  # fuerza reconexión en la próxima iteración
 
             time.sleep(self.interval)
+
+    def _mirror_sql(self, data, ts):
+        """Dual-write a Postgres (best-effort, NO bloquea el motor si falla). Cada fila →
+        jsonb en sql_table. Solo si sql_table seteado + SNAPSHOT_SQL=1."""
+        if not self.sql_table or os.getenv("SNAPSHOT_SQL") != "1":
+            return
+        try:
+            from psycopg.types.json import Jsonb
+
+            from core.postgres import get_pool
+            rows = [(row[self.key_field], Jsonb(row), ts)
+                    for row in data if self.key_field in row]
+            if not rows:
+                return
+            sql = (f"INSERT INTO {self.sql_table} (k, data, updated_at) VALUES (%s, %s, %s) "
+                   f"ON CONFLICT (k) DO UPDATE SET data = EXCLUDED.data, "
+                   f"updated_at = EXCLUDED.updated_at")
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.executemany(sql, rows)
+        except Exception as e:
+            logger.error(f"SnapshotWriter SQL mirror [{self.sql_table}]: {e}")
 
     def start(self):
         self._running = True

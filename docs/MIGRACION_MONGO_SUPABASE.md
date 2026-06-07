@@ -147,10 +147,12 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
    - Chunk 5 (PnL TOTALES + consolidado → tablas jsonb sincronizadas desde los crons) ⏳
 5. 🔵 AUTH / permisos (keystone para apagar Mongo) — EN CURSO:
    - Chunk 0 (schema + sync: `manager_users` full, `role_matrix`, `grupos`) ✅ riesgo CERO (no toca lectura)
-   - Chunk 1 (lecturas SQL puras: `core/roles_sql.py`, `core/grupos_sql.py`) ⏳
+   - Chunk 1 (lecturas SQL puras: `core/roles_sql.py`, `core/grupos_sql.py`) ✅
    - Chunk 2 (orquestador con **FALLBACK** en core/roles.py + core/grupos.py: try SQL → except →
-     Mongo → DEFAULT; flag `AUTH_SQL` default OFF; nunca puede lockear) ⏳ ← lo delicado
-   - Chunk 3-4 (prender flags escalonado: matriz → users → grupos) ⏳
+     Mongo → DEFAULT; flag `AUTH_SQL` default OFF; nunca puede lockear) ✅ + harness
+     `compare_auth_sql_vs_mongo`. Flag OFF = comportamiento idéntico. Pendiente del user:
+     sync auth + harness (0 diffs) + AUTH_SQL=1.
+   - Chunk 3 (prender `AUTH_SQL=1` tras harness verde) ⏳
    - Chunk 5 (dual-write de los writes de roles/grupos) ⏳
    **Patrón de seguridad:** el fallback vive DENTRO de core (no en el router), porque auth corre
    en CADA request; ante cualquier error SQL cae a Mongo → prender AUTH_SQL nunca tumba la app.

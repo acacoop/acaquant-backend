@@ -151,8 +151,6 @@ def build_targets(ctx: dict) -> list[tuple[str, Callable]]:
         ("canje.serie_canje (AL30)", lambda: canje.serie_canje()),
         # --- portfolio (sin scope = todas) ---
         ("portfolio.listar_cuentas", lambda: portfolio.listar_cuentas()),
-        ("portfolio.tasa_fija_snapshot", lambda: portfolio.tasa_fija_snapshot()),
-        ("portfolio.cer_snapshot", lambda: portfolio.cer_snapshot()),
         ("portfolio.fci_snapshot", lambda: portfolio.fci_snapshot()),
         ("portfolio.total_snapshot", lambda: portfolio.total_snapshot()),
         # --- PNL: cache vs compute (el compute es el peor caso real) ---

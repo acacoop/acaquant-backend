@@ -77,16 +77,6 @@ def listar_aum(
     )
 
 
-@router.get("/tasa-fija")
-def tasa_fija_snapshot(scope: tuple[str, ...] | None = Depends(scope_aum)):
-    return svc.tasa_fija_snapshot(scope=scope)
-
-
-@router.get("/cer")
-def cer_snapshot(scope: tuple[str, ...] | None = Depends(scope_aum)):
-    return svc.cer_snapshot(scope=scope)
-
-
 @router.get("/pnl", dependencies=[Depends(verificar_id_cuenta)])
 def pnl(id_cuenta: str = Query(..., description="id_cuenta numérico (ej '255')")):
     """PnL por (cuenta, ticker) basado en cash flows. Ver api.services.pnl

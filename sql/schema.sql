@@ -74,10 +74,39 @@ CREATE INDEX IF NOT EXISTS ix_comitentes_nivel1   ON comitentes(nivel_1);
 CREATE INDEX IF NOT EXISTS ix_comitentes_estado   ON comitentes(estado);
 CREATE INDEX IF NOT EXISTS ix_comitentes_alta     ON comitentes(fecha_alta_legajo);
 
--- Manager.Users — set de emails reales (flag de cuentas huérfanas en COMERCIAL).
+-- Manager.Users — usuarios de la app (RBAC). email lowercased. Antes solo `email` (flag
+-- huérfanas comercial); ahora con role/enabled/etc. para la migración de AUTH a SQL.
 CREATE TABLE IF NOT EXISTS manager_users (
     email text PRIMARY KEY
 );
+ALTER TABLE manager_users ADD COLUMN IF NOT EXISTS role            text;
+ALTER TABLE manager_users ADD COLUMN IF NOT EXISTS enabled         boolean;
+ALTER TABLE manager_users ADD COLUMN IF NOT EXISTS auto_registered boolean;
+ALTER TABLE manager_users ADD COLUMN IF NOT EXISTS notes           text;
+ALTER TABLE manager_users ADD COLUMN IF NOT EXISTS last_seen_at    timestamptz;
+ALTER TABLE manager_users ADD COLUMN IF NOT EXISTS created_at      timestamptz;
+ALTER TABLE manager_users ADD COLUMN IF NOT EXISTS updated_at      timestamptz;
+
+-- Manager.RoleMatrix — qué módulos ve cada rol. Filas-largas (role, module). En Mongo es
+-- 1 doc por rol con un array modules. Vacío → DEFAULT_MATRIX (en core/roles.py).
+CREATE TABLE IF NOT EXISTS role_matrix (
+    role   text NOT NULL,
+    module text NOT NULL,
+    PRIMARY KEY (role, module)
+);
+
+-- Manager.Grupos — scope de cuentas por usuario. emails/id_cuentas son arrays (lowercased
+-- los emails). cuentas_visibles: 0 grupos → None (ve todo); ≥1 → unión de id_cuentas.
+CREATE TABLE IF NOT EXISTS grupos (
+    id         text PRIMARY KEY,        -- str(ObjectId) de Mongo
+    nombre     text,
+    emails     text[] NOT NULL DEFAULT '{}',
+    id_cuentas text[] NOT NULL DEFAULT '{}',
+    creado_por text,
+    creado_at  timestamptz,
+    updated_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS ix_grupos_emails ON grupos USING gin(emails);
 
 -- Clientes.ActividadMensual — snapshot point-in-time (operador/segmento CONGELADOS al
 -- correr el job). NO derivar en vivo (rompería el congelado). Se espeja tal cual.

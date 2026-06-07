@@ -303,15 +303,59 @@ def sync_accionistas(mdb, conn, dry) -> int:
 
 
 def sync_manager_users(mdb, conn, dry) -> int:
-    """Manager.Users → tabla manager_users (solo email, lowercased). Flag de huérfanas en COMERCIAL."""
+    """Manager.Users → manager_users (email lowercased + role/enabled/etc para AUTH SQL)."""
+    cols = ["email", "role", "enabled", "auto_registered", "notes",
+            "last_seen_at", "created_at", "updated_at"]
     rows = []
-    for d in mdb["Manager"]["Users"].find({}, {"email": 1}):
+    for d in mdb["Manager"]["Users"].find({}, {
+        "email": 1, "role": 1, "enabled": 1, "auto_registered": 1, "notes": 1,
+        "last_seen_at": 1, "created_at": 1, "updated_at": 1,
+    }):
         em = _s(d.get("email"))
-        if em:
-            rows.append((em.lower(),))
+        if not em:
+            continue
+        rows.append((em.lower(), _s(d.get("role")), d.get("enabled"),
+                     d.get("auto_registered"), _s(d.get("notes")), d.get("last_seen_at"),
+                     d.get("created_at"), d.get("updated_at")))
     rows = _dedup(rows, [0])
-    n = _upsert(conn, "manager_users", ["email"], ["email"], rows, dry)
+    n = _upsert(conn, "manager_users", cols, ["email"], rows, dry)
     _delete_not_in(conn, "manager_users", "email", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_role_matrix(mdb, conn, dry) -> int:
+    """Manager.RoleMatrix (1 doc/rol, array modules) → role_matrix (filas role,module)."""
+    rows = []
+    for d in mdb["Manager"]["RoleMatrix"].find({}, {"role": 1, "modules": 1}):
+        role = _s(d.get("role"))
+        if not role:
+            continue
+        for m in (d.get("modules") or []):
+            ms = _s(m)
+            if ms:
+                rows.append((role, ms))
+    rows = _dedup(rows, [0, 1])
+    n = _upsert(conn, "role_matrix", ["role", "module"], ["role", "module"], rows, dry)
+    if not dry:  # borra (role,module) que ya no están (PK compuesta → delete propio)
+        keep = [f"{r}|{m}" for r, m in rows] or [""]
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM role_matrix WHERE role || '|' || module <> ALL(%s)", (keep,))
+        conn.commit()
+    return n
+
+
+def sync_grupos(mdb, conn, dry) -> int:
+    """Manager.Grupos → grupos (emails lowercased, id_cuentas como text[]). Scope de cuentas."""
+    cols = ["id", "nombre", "emails", "id_cuentas", "creado_por", "creado_at", "updated_at"]
+    rows = []
+    for d in mdb["Manager"]["Grupos"].find({}):
+        emails = [str(e).strip().lower() for e in (d.get("emails") or []) if e]
+        idc = [str(c) for c in (d.get("id_cuentas") or []) if c is not None]
+        rows.append((str(d.get("_id")), _s(d.get("nombre")), emails, idc,
+                     _s(d.get("creado_por")), d.get("creado_at"), d.get("updated_at")))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "grupos", cols, ["id"], rows, dry)
+    _delete_not_in(conn, "grupos", "id", {r[0] for r in rows}, dry)
     return n
 
 
@@ -406,12 +450,15 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_cp = sync_contrapartes(mdb, conn, dry)
         n_ac = sync_accionistas(mdb, conn, dry)
         n_mu = sync_manager_users(mdb, conn, dry)
+        n_rm = sync_role_matrix(mdb, conn, dry)
+        n_gr = sync_grupos(mdb, conn, dry)
         n_am = sync_actividad_mensual(mdb, conn, dry)
         n_as = sync_assets(mdb, conn, dry)
         n_dl = sync_dolar(mdb, conn, dry, desde)
         print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  comitentes={n_co}  "
               f"contrapartes={n_cp}  accionistas={n_ac}  manager_users={n_mu}  "
-              f"actividad_mensual={n_am}  assets={n_as}  dolar={n_dl}")
+              f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
+              f"assets={n_as}  dolar={n_dl}")
 
         n_ops, sin_bol = sync_operaciones(mdb, conn, dry, desde)
         n_aum = sync_aum(mdb, conn, dry, desde)
@@ -423,9 +470,9 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
             reconciliar(mdb, conn)
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
     return {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co, "contrapartes": n_cp,
-            "accionistas": n_ac, "manager_users": n_mu, "actividad_mensual": n_am,
-            "assets": n_as, "dolar": n_dl, "operaciones": n_ops, "aum": n_aum,
-            "negocio": n_nm, "sin_boleto": sin_bol}
+            "accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
+            "actividad_mensual": n_am, "assets": n_as, "dolar": n_dl, "operaciones": n_ops,
+            "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol}
 
 
 def main() -> int:

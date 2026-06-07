@@ -139,6 +139,9 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
    - Chunk 2 (agregados `total_serie/snapshot/diff`, `fci_serie/snapshot`) ✅ + flag `PORTFOLIO_SQL`
      + harness `compare_portfolio_sql_vs_mongo` → **cutover PARCIAL de AuM** (tasa-fija/cer/pnl
      siguen en Mongo hasta chunks 3-5). Servicio `api/services/portfolio_sql.py`, router `carteras.py`.
+     Harness 18/19: único diff `fci_serie len 70 vs 62` = cache-vs-live (Mongo lee
+     AuMResumenFCI con 8 fechas viejas; SQL agrega en vivo, más correcto; cruzado con
+     total_serie que sí coincide → aum NO está stale). ACEPTADO. Flag PORTFOLIO_SQL listo.
    - Chunk 3 (renta fija/CER → tablas `curvas`/`bonds_master`/`market_snapshot`) ⏳
    - Chunk 4 (PnL por cuenta — motor cost-basis copiado verbatim; `portfolio_snapshot`/`snapshots_cierre`) ⏳
    - Chunk 5 (PnL TOTALES + consolidado → tablas jsonb sincronizadas desde los crons) ⏳

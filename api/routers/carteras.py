@@ -7,13 +7,24 @@ Scoping de grupos (Fase 2): cada endpoint resuelve el `scope` de cuentas
 visibles del usuario (`scope_cuentas`) y lo pasa al service. `scope=None`
 = sin restricción (admin o usuario sin grupo). Ver `docs/GRUPOS.md`.
 """
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.services import pnl as pnl_svc
 from api.services import portfolio as svc
+from api.services import portfolio_sql as svc_sql
 from api.services._grupos_scope import scope_cuentas, verificar_id_cuenta
 
 router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
+
+
+def _psvc(engine: str | None):
+    """Módulo de servicio de AuM: SQL o Mongo, por `?_engine=sql|mongo` o el flag
+    global PORTFOLIO_SQL=1. Default Mongo. Solo aplica a las funciones ya migradas
+    (listar_aum/cuentas, fci_*, total_*); tasa-fija/cer/pnl siguen en Mongo."""
+    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("PORTFOLIO_SQL") == "1")
+    return svc_sql if use_sql else svc
 
 
 def scope_aum(
@@ -55,11 +66,12 @@ def listar_aum(
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     ultimo: bool = Query(False, description="Si true, devuelve solo el último snapshot"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     # Si se pide una cuenta puntual, verificar que esté dentro del scope.
     if id_cuenta and scope is not None and str(id_cuenta) not in scope:
         raise HTTPException(status_code=403, detail="no tenés acceso a esa cuenta")
-    return svc.listar_aum(
+    return _psvc(_engine).listar_aum(
         id_cuenta=id_cuenta, unidad=unidad, cuenta=cuenta,
         desde=desde, hasta=hasta, ultimo=ultimo, scope=scope,
     )
@@ -104,10 +116,11 @@ def pnl_todas(
 
 
 @router.get("/cuentas")
-def listar_cuentas(scope: tuple[str, ...] | None = Depends(scope_cuentas)):
+def listar_cuentas(scope: tuple[str, ...] | None = Depends(scope_cuentas),
+                   _engine: str | None = Query(None, include_in_schema=False)):
     """Cuentas distintas del último snapshot AuM — para selectores. Limitado
     al scope de grupos del usuario."""
-    return svc.listar_cuentas(scope=scope)
+    return _psvc(_engine).listar_cuentas(scope=scope)
 
 
 @router.get("/fci-serie")
@@ -119,8 +132,10 @@ def fci_serie(
         description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",
     ),
     scope: tuple[str, ...] | None = Depends(scope_aum),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc.fci_serie(desde=desde, hasta=hasta, cuenta_filter=cuenta_filter, scope=scope)
+    return _psvc(_engine).fci_serie(desde=desde, hasta=hasta, cuenta_filter=cuenta_filter,
+                                    scope=scope)
 
 
 @router.get("/fci-snapshot")
@@ -131,8 +146,9 @@ def fci_snapshot(
         description="Filtro de cuenta: todas | accionistas | sin_accionistas | cooperativas",
     ),
     scope: tuple[str, ...] | None = Depends(scope_aum),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc.fci_snapshot(fecha=fecha, cuenta_filter=cuenta_filter, scope=scope)
+    return _psvc(_engine).fci_snapshot(fecha=fecha, cuenta_filter=cuenta_filter, scope=scope)
 
 
 @router.get("/total-serie")
@@ -145,9 +161,10 @@ def total_serie(
     ),
     moneda: str = Query("ARS", description="ARS | USD — USD divide por MEP de cada fecha"),
     scope: tuple[str, ...] | None = Depends(scope_aum),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Serie histórica del AuM total agrupado por CARTERA."""
-    return svc.total_serie(
+    return _psvc(_engine).total_serie(
         desde=desde, hasta=hasta,
         cuenta_filter=cuenta_filter, moneda=moneda, scope=scope,
     )
@@ -161,9 +178,10 @@ def diff(
     cuenta_filter:  str = Query("todas",
                                 description="todas | accionistas | sin_accionistas | cooperativas"),
     scope: tuple[str, ...] | None = Depends(scope_aum),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Diferencia de saldo por cuenta entre dos fechas snapshot."""
-    return svc.total_diff(
+    return _psvc(_engine).total_diff(
         fecha_actual=fecha_actual,
         fecha_anterior=fecha_anterior,
         moneda=moneda,
@@ -181,8 +199,9 @@ def total_snapshot(
     ),
     moneda: str = Query("ARS", description="ARS | USD — USD divide por MEP de la fecha"),
     scope: tuple[str, ...] | None = Depends(scope_aum),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Snapshot del AuM total en una fecha (todas las unidades, by cartera)."""
-    return svc.total_snapshot(
+    return _psvc(_engine).total_snapshot(
         fecha=fecha, cuenta_filter=cuenta_filter, moneda=moneda, scope=scope,
     )

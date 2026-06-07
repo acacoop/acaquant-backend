@@ -162,6 +162,36 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
 
 ---
 
+## 5b. INVENTARIO COMPLETO de lo que FALTA (mapa real, para no esconder scope)
+
+### ✅ Migrado (lee SQL, con harness + flag): operaciones, negocio, comercial, portfolio-AuM, PnL, auth(lecturas).
+
+### ⏳ Migrable SIN mercado (datos diarios/Aunesa) — pendiente:
+- **Home/News**: `/api/news/*` (News.Headlines, key=url) + `/api/market/quotes` (Market.Quotes) +
+  `/api/market/calendar/economic` (Market.EconomicCalendar). (candle/profile son APIs externas, no Mongo.)
+- **Watchlist/anchors**: jobs.market_quotes / market_anchors → colecciones de home.
+- **Manager** (6 tabs): intel, jobs/logs (JobRuns), **clientes/Comitentes (lectura + EDICIÓN/segmentación)**,
+  compliance, assets/títulos. (roles/users/grupos: lecturas ✅ por auth; falta su edición.)
+- **back-office**.
+
+### ⏳ Necesita MERCADO ABIERTO (real-time, motores):
+- Vistas: renta-fija, derivados, agro, sintéticos, renta-variable/scanner, estrategia (curvas/forwards/
+  breakevens/carry), operar, MCP.
+- **~12 motores** pyRofex → Trading.* (MarketSnapshot/TimeSales/Curvas/OrderBookL2/…). Base lista:
+  dual-write de SnapshotWriter (flag SNAPSHOT_SQL). Falta: tablas snapshot + `sql_table=` por motor +
+  migrar motores que NO usan SnapshotWriter (motor_rofex/options/caución).
+
+### ⏳ ESCRITURAS (para apagar Mongo) — TODO sigue en Mongo:
+- **~40 jobs cron** (bcra, argentina_datos, market_quotes, news, snapshot_cierre, fair_value, aum,
+  negocio, operaciones, aranceles, actividad_mensual, pnl_totales_precompute, consolidado, …) → cada uno
+  debe escribir SQL (o dual-write).
+- **Auth writes**: upsert_user, delete_user, set_role_modules, auto_register, last_seen, grupos CRUD, RoleAudit.
+- **Segmentación writes**: edición de Comitentes (niveles/operador) desde /manager.
+- **Caches**: PnLTotalesCache, ConsolidadoCuentas (cron → tabla jsonb).
+
+### Realidad: estamos ~35-40%. Lo hecho es la parte analítica pesada + auth + PnL. El resto es un
+### programa de varias corridas (la capa de mercado se valida con mercado abierto).
+
 ## 6. Operación: prender / apagar / rollback
 
 - **Prender SQL en una vista:** `OPERACIONES_SQL=1` (y equivalentes por vista) en el `.env`

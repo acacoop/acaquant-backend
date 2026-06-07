@@ -136,7 +136,9 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
 4. 🔵 PORTFOLIO / AuM / PnL — EN CURSO:
    - Chunk 0 (data layer: `assets`, `dolar`, `aum.tipo_titulo`) ✅
    - Chunk 1 (raw: `listar_aum`, `listar_cuentas`) ✅
-   - Chunk 2 (agregados `total_serie/snapshot/diff`, `fci_serie/snapshot`) ⏳
+   - Chunk 2 (agregados `total_serie/snapshot/diff`, `fci_serie/snapshot`) ✅ + flag `PORTFOLIO_SQL`
+     + harness `compare_portfolio_sql_vs_mongo` → **cutover PARCIAL de AuM** (tasa-fija/cer/pnl
+     siguen en Mongo hasta chunks 3-5). Servicio `api/services/portfolio_sql.py`, router `carteras.py`.
    - Chunk 3 (renta fija/CER → tablas `curvas`/`bonds_master`/`market_snapshot`) ⏳
    - Chunk 4 (PnL por cuenta — motor cost-basis copiado verbatim; `portfolio_snapshot`/`snapshots_cierre`) ⏳
    - Chunk 5 (PnL TOTALES + consolidado → tablas jsonb sincronizadas desde los crons) ⏳

@@ -50,8 +50,10 @@ def _d(v):
 
 
 def _s(v):
-    """'' → None; resto str | None."""
+    """'' / NaN → None; resto str | None. (NaN aparece en campos sucios como tipoTitulo)."""
     if v is None:
+        return None
+    if isinstance(v, float) and v != v:  # NaN
         return None
     v = str(v)
     return v if v != "" else None

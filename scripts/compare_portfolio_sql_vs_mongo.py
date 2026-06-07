@@ -30,7 +30,9 @@ def _close(a, b) -> bool:
 
 
 def _norm(x):
-    if x == "":
+    if isinstance(x, float) and x != x:   # NaN (tipoTitulo sucio en Mongo)
+        return "(sin)"
+    if x == "" or x == "nan":             # '' o el string 'nan' que dejó el sync viejo
         return "(sin)"
     if hasattr(x, "isoformat"):  # datetime/date → ISO (listar_aum devuelve datetime)
         return x.isoformat()[:10]
@@ -42,10 +44,12 @@ def _norm(x):
 
 
 def _skey(d) -> str:
+    # Clave COMPUESTA: una fila de aum/fci/total tiene varias unidades por id_cuenta →
+    # alinear por id_cuenta+unidad+fecha (no por el primer campo, que se repite).
     if isinstance(d, dict):
-        for k in _IDF:
-            if k in d:
-                return str(d[k])
+        parts = [f"{k}={d[k]}" for k in _IDF if k in d]
+        if parts:
+            return "|".join(parts)
     return json.dumps(d, sort_keys=True, default=str)
 
 

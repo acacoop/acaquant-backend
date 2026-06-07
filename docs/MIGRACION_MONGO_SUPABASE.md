@@ -132,10 +132,16 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
 2. ✅ NEGOCIO (validado 26/26; cutover con NEGOCIO_SQL=1)
 2b. 🟡 COMERCIAL (código completo, harness 19/23; 4 diffs menores PENDIENTES de revisar
     —probable cache-vs-live de informe_comercial / redondeo—; queda en Mongo hasta eyeballear)
-3. ⏳ COMERCIAL / operadores (1053 líneas; +tablas `actividad_mensual`; derivados→vistas)
-4. ⏳ PORTFOLIO / AuM / PnL (fórmulas AuM; PnLTotalesCache/Consolidado → vistas materializadas)
+3. ✅ COMERCIAL (código completo; 4 diffs menores aceptados; flag COMERCIAL_SQL)
+4. 🔵 PORTFOLIO / AuM / PnL — EN CURSO:
+   - Chunk 0 (data layer: `assets`, `dolar`, `aum.tipo_titulo`) ✅
+   - Chunk 1 (raw: `listar_aum`, `listar_cuentas`) ✅
+   - Chunk 2 (agregados `total_serie/snapshot/diff`, `fci_serie/snapshot`) ⏳
+   - Chunk 3 (renta fija/CER → tablas `curvas`/`bonds_master`/`market_snapshot`) ⏳
+   - Chunk 4 (PnL por cuenta — motor cost-basis copiado verbatim; `portfolio_snapshot`/`snapshots_cierre`) ⏳
+   - Chunk 5 (PnL TOTALES + consolidado → tablas jsonb sincronizadas desde los crons) ⏳
 5. ⏳ MERCADO (curvas, snapshots, timesales — medir shapes; real-time al final)
-6. ⏳ Dual-write de los jobs/motores + check de dependencias → apagar Mongo
+6. ⏳ Dual-write de los jobs/motores + check de dependencias → apagar Mongo (FASE 2)
 
 ---
 

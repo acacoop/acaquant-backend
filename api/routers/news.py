@@ -1,6 +1,7 @@
 """Router News: headlines agregados de RSS (News.Headlines) + reader mode."""
 import ipaddress
 import logging
+import os
 import socket
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
@@ -8,6 +9,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from api.ratelimit import limiter
+from api.services import news_sql
 from core.mongo import get_mongo_client_read
 
 logger = logging.getLogger(__name__)
@@ -132,6 +134,10 @@ def list_headlines(
     endpoint cada 60s con `limit` chico; la vista de noticias (si se arma)
     puede paginar con `skip`.
     """
+    if os.getenv("NEWS_SQL") == "1":
+        return news_sql.list_headlines(
+            desde=_parse_date(desde), hasta=_parse_date(hasta), fuente=fuente,
+            categoria=categoria, keyword=keyword, limit=limit, skip=skip)
     filtro: dict = {}
 
     d_desde = _parse_date(desde)
@@ -257,6 +263,8 @@ def article(
 @router.get("/stats")
 def stats(horas: int = Query(24, ge=1, le=720)):
     """Stats agregados por fuente en las últimas N horas (útil para debugging)."""
+    if os.getenv("NEWS_SQL") == "1":
+        return news_sql.stats(horas)
     desde = datetime.now(UTC) - timedelta(hours=horas)
     pipeline = [
         {"$match": {"fecha_publicacion": {"$gte": desde}}},

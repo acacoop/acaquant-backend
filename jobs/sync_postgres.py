@@ -430,6 +430,26 @@ def sync_portfolio_snapshot(mdb, conn, dry) -> int:
     return n
 
 
+def sync_news(mdb, conn, dry) -> int:
+    """News.Headlines (RSS/Finnhub) → news_headlines. data jsonb = doc con fechas a ISO."""
+    from datetime import datetime as _dt
+
+    from psycopg.types.json import Jsonb
+    cols = ["url", "fecha_publicacion", "fuente", "categoria", "titulo", "data"]
+    rows = []
+    for d in mdb["News"]["Headlines"].find({}, {"_id": 0}):
+        url = _s(d.get("url"))
+        if not url:
+            continue
+        doc = {k: (v.isoformat() if isinstance(v, _dt) else v) for k, v in d.items()}
+        rows.append((url, d.get("fecha_publicacion"), _s(d.get("fuente")),
+                     _s(d.get("categoria")), _s(d.get("titulo")), Jsonb(doc)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "news_headlines", cols, ["url"], rows, dry)
+    _delete_not_in(conn, "news_headlines", "url", {r[0] for r in rows}, dry)
+    return n
+
+
 def sync_snapshots_cierre(mdb, conn, dry) -> int:
     """Trading.SnapshotsCierre → snapshots_cierre, último por ticker (el PnL usa el más reciente)."""
     cols = ["ticker", "last_price", "fecha"]
@@ -491,6 +511,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_dl = sync_dolar(mdb, conn, dry, desde)
         n_ps = sync_portfolio_snapshot(mdb, conn, dry)
         n_sc = sync_snapshots_cierre(mdb, conn, dry)
+        n_nw = sync_news(mdb, conn, dry)
+        print(f"  news={n_nw}")
         print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  comitentes={n_co}  "
               f"contrapartes={n_cp}  accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
@@ -508,7 +530,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     return {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co, "contrapartes": n_cp,
             "accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
             "actividad_mensual": n_am, "assets": n_as, "dolar": n_dl,
-            "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc, "operaciones": n_ops,
+            "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc, "news": n_nw,
+            "operaciones": n_ops,
             "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol}
 
 

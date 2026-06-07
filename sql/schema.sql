@@ -230,6 +230,17 @@ CREATE TABLE IF NOT EXISTS snapshots_cierre (
     fecha      date
 );
 
+-- News.Headlines — RSS/Finnhub (home). key=url. data jsonb = doc completo (fechas a ISO).
+CREATE TABLE IF NOT EXISTS news_headlines (
+    url               text PRIMARY KEY,
+    fecha_publicacion timestamptz,
+    fuente            text,
+    categoria         text,
+    titulo            text,
+    data              jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_news_fecha ON news_headlines(fecha_publicacion DESC);
+
 -- CashFlow.NegocioMovimientos (~339k). Grano único (fecha, comprobante).
 CREATE TABLE IF NOT EXISTS negocio_movimientos (
     fecha        date NOT NULL,

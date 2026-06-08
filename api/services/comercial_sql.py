@@ -394,7 +394,12 @@ def informe_comercial(*, moneda: str = "ARS") -> dict:
     ops: dict[str, dict] = {}
     segs: dict[str, dict] = {}
     for idc, agg in por_cuenta.items():
-        info = detalle.get(idc, {})
+        info = detalle.get(idc)
+        # Cuenta que NO figura en Comitentes Activa (no-cliente: propia/inactiva/
+        # cancelada) → fuera del informe. Mismo criterio que la versión Mongo
+        # (comercial.informe_comercial). `detalle` ya está en memoria → skip gratis.
+        if info is None:
+            continue
         key = (info.get("operador_email") or "").strip().lower() or "(sin operador)"
         o = ops.get(key)
         if o is None:

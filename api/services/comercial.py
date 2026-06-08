@@ -818,7 +818,13 @@ def informe_comercial(*, moneda: str = "ARS") -> dict[str, Any]:
     ops: dict[str, dict] = {}
     segs: dict[str, dict] = {}
     for idc, agg in por_cuenta.items():
-        info = detalle.get(idc, {})
+        info = detalle.get(idc)
+        # Cuenta que NO figura en Comitentes Activa (no-cliente: propia/inactiva/
+        # cancelada) → fuera del informe. No tiene operador real para rankear y
+        # ensuciaba el ranking con un bucket "(sin operador)" gigante. `detalle`
+        # ya está en memoria → el skip es gratis (incluso hace menos trabajo).
+        if info is None:
+            continue
         key = (info.get("operador_email") or "").strip().lower() or "(sin operador)"
         o = ops.get(key)
         if o is None:

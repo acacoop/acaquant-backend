@@ -29,9 +29,10 @@ def listar_contrapartes(*, segmento: str | None = None, contraparte: str | None 
     if contraparte:
         where.append("cp.contraparte = %(cp)s")
         p["cp"] = contraparte
-    if q:
-        where.append("(u.denominacion ILIKE %(q)s OR cp.id_cuenta ILIKE %(q)s)")
-        p["q"] = f"%{q}%"
+    # Cada palabra de `q` debe estar en denominacion o cuenta (AND, sin orden).
+    for i, tok in enumerate((q or "").split()):
+        where.append(f"(u.denominacion ILIKE %(t{i})s OR cp.id_cuenta ILIKE %(t{i})s)")
+        p[f"t{i}"] = f"%{tok}%"
     rows = _q(
         f"SELECT cp.id_cuenta AS cuenta, u.denominacion, cp.contraparte, cp.segmento "
         f"FROM contrapartes cp LEFT JOIN cuentas u ON u.id_cuenta = cp.id_cuenta "

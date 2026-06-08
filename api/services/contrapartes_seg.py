@@ -85,14 +85,18 @@ def listar_contrapartes(*, segmento: str | None = None, contraparte: str | None 
                         q: str | None = None) -> dict:
     """Lista las contrapartes (panel izquierdo). Filtros opcionales por segmento /
     contraparte exactos y `q` (substring sobre denominacion o cuenta)."""
-    filtro: dict[str, Any] = {"cuenta": {"$nin": [None, ""]}}
+    # AND de condiciones: base (cuenta no vacía) + filtros + cada palabra de `q`.
+    # Cada token debe estar en denominacion o cuenta (sin importar el orden) → "NICOLAS
+    # MOLLO" matchea "MOLLO, NICOLAS". Substring por token (case-insensitive).
+    and_clauses: list[dict[str, Any]] = [{"cuenta": {"$nin": [None, ""]}}]
     if segmento:
-        filtro["segmento"] = segmento
+        and_clauses.append({"segmento": segmento})
     if contraparte:
-        filtro["contraparte"] = contraparte
-    if q:
-        rgx = {"$regex": re.escape(q), "$options": "i"}
-        filtro["$or"] = [{"denominacion": rgx}, {"cuenta": rgx}]
+        and_clauses.append({"contraparte": contraparte})
+    for tok in (q or "").split():
+        rgx = {"$regex": re.escape(tok), "$options": "i"}
+        and_clauses.append({"$or": [{"denominacion": rgx}, {"cuenta": rgx}]})
+    filtro: dict[str, Any] = {"$and": and_clauses}
     rows = [
         {"cuenta": str(d.get("cuenta")), "denominacion": d.get("denominacion"),
          "contraparte": d.get("contraparte"), "segmento": d.get("segmento")}

@@ -35,6 +35,14 @@ BATCH = 5000          # docs por upsert
 THROTTLE = 0.15       # segundos de pausa entre upserts (no starvar la DB)
 DEFAULT_DIAS = 7      # ventana del incremental para los hechos (cubre retro-boletos)
 
+# Fases cuyo fallo SÍ dispara alerta (datos que consumen las vistas). Las demás
+# (news/quotes/calendar = mirror de Market, aún sin consumidores core) se loguean
+# pero no alertan → evitan spam mientras se termina de cablear ese feature.
+_FASES_CRITICAS = frozenset({
+    "dims_clientes", "contrapartes", "accionistas", "manager_users", "role_matrix",
+    "grupos", "actividad_mensual", "assets", "dolar", "operaciones", "aum", "negocio",
+})
+
 
 # ── helpers de tipado ────────────────────────────────────────────────────────
 def _d(v):
@@ -484,7 +492,9 @@ def sync_calendar(mdb, conn, dry) -> int:
     for d in mdb["Market"]["EconomicCalendar"].find({}, {"_id": 0}):
         doc = _doc_iso(d)
         hkey = hashlib.md5(_json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()
-        rows.append((hkey, d.get("time"), int(d.get("impact") or 0),
+        evt = d.get("time")  # puede venir datetime o string → text seguro
+        evt_s = evt.isoformat() if hasattr(evt, "isoformat") else (str(evt) if evt is not None else None)
+        rows.append((hkey, evt_s, int(d.get("impact") or 0),
                      _s(d.get("country")), Jsonb(doc)))
     rows = _dedup(rows, [0])
     n = _upsert(conn, "market_calendar", cols, ["hkey"], rows, dry)
@@ -541,17 +551,29 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     print(f"sync_postgres — modo {modo}{'  [DRY-RUN]' if dry else ''}")
 
     tempos: dict[str, float] = {}
-
-    def _t(label, fn):
-        """Cronometra una fase (REGLA #2: medir antes de optimizar). Devuelve lo que devuelve fn."""
-        t0 = time.perf_counter()
-        r = fn()
-        tempos[label] = time.perf_counter() - t0
-        return r
+    fallos: list[tuple[str, str]] = []
 
     mdb = get_mongo_client_read()
     with connect() as conn:
-        n_op, n_cu, n_co = _t("dims_clientes", lambda: sync_dims_clientes(mdb, conn, dry))
+        def _t(label, fn, default=0):
+            """Cronometra y AÍSLA cada fase: si falla, rollback (limpia la transacción
+            abortada del pool), registra el fallo y sigue con las demás. Así una tabla
+            rota (ej. market_quotes inexistente) ya NO tumba todo el sync — operaciones
+            SIEMPRE intenta correr. Al final se re-lanza un resumen para que el alert
+            avise QUÉ falló, pero lo que sí pudo sincronizar ya quedó commiteado."""
+            t0 = time.perf_counter()
+            try:
+                r = fn()
+            except Exception as e:
+                conn.rollback()
+                msg = str(e).splitlines()[0][:200]
+                fallos.append((label, f"{type(e).__name__}: {msg}"))
+                print(f"  ⚠ {label} FALLÓ → se saltea: {type(e).__name__}: {msg}")
+                r = default
+            tempos[label] = time.perf_counter() - t0
+            return r
+
+        n_op, n_cu, n_co = _t("dims_clientes", lambda: sync_dims_clientes(mdb, conn, dry), (0, 0, 0))
         n_cp = _t("contrapartes", lambda: sync_contrapartes(mdb, conn, dry))
         n_ac = _t("accionistas", lambda: sync_accionistas(mdb, conn, dry))
         n_mu = _t("manager_users", lambda: sync_manager_users(mdb, conn, dry))
@@ -571,7 +593,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
               f"assets={n_as}  dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
 
-        n_ops, sin_bol = _t("operaciones", lambda: sync_operaciones(mdb, conn, dry, desde))
+        n_ops, sin_bol = _t("operaciones", lambda: sync_operaciones(mdb, conn, dry, desde), (0, 0))
         n_aum = _t("aum", lambda: sync_aum(mdb, conn, dry, desde))
         n_nm = _t("negocio", lambda: sync_negocio(mdb, conn, dry, desde))
         print(f"  hechos: operaciones={n_ops:,} (sin boleto, salteadas={sin_bol:,})  "
@@ -585,14 +607,27 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     for label, seg in sorted(tempos.items(), key=lambda kv: kv[1], reverse=True):
         print(f"  {label:<22}{seg:>8.2f}")
     print(f"  {'─' * 30}\n  {'TOTAL':<22}{sum(tempos.values()):>8.2f}")
+
+    if fallos:
+        print(f"\n⚠ {len(fallos)} fase(s) FALLARON (se saltearon; el resto SÍ sincronizó):")
+        for label, err in fallos:
+            print(f"  - {label}: {err}")
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
-    return {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co, "contrapartes": n_cp,
-            "accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
-            "actividad_mensual": n_am, "assets": n_as, "dolar": n_dl,
-            "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc, "news": n_nw,
-            "quotes": n_qt, "calendar": n_cal,
-            "operaciones": n_ops,
-            "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol}
+    stats = {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co, "contrapartes": n_cp,
+             "accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
+             "actividad_mensual": n_am, "assets": n_as, "dolar": n_dl,
+             "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc, "news": n_nw,
+             "quotes": n_qt, "calendar": n_cal,
+             "operaciones": n_ops,
+             "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol,
+             "fases_fallidas": len(fallos)}
+    # Re-lanza SOLO si falló una fase crítica (las vistas la consumen). El mirror de
+    # Market que falle no alerta. Lo que sí sincronizó ya quedó commiteado por fase.
+    criticas = [lbl for lbl, _ in fallos if lbl in _FASES_CRITICAS]
+    if criticas and not dry:
+        raise RuntimeError(f"sync_postgres: fallaron fases críticas: {', '.join(criticas)} "
+                           f"({len(fallos)} fallos en total — ver log)")
+    return stats
 
 
 def main() -> int:

@@ -244,6 +244,24 @@ CREATE TABLE IF NOT EXISTS news_headlines (
 );
 CREATE INDEX IF NOT EXISTS ix_news_fecha ON news_headlines(fecha_publicacion DESC);
 
+-- Market.Quotes — watchlist /argy (key=symbol). data jsonb = doc completo (anchors).
+CREATE TABLE IF NOT EXISTS market_quotes (
+    symbol text PRIMARY KEY,
+    grupo  text,
+    data   jsonb
+);
+
+-- Market.EconomicCalendar — eventos macro. PK = hash de contenido (no hay id natural).
+-- evt_time es text (la fecha del evento puede venir string o datetime → se coacciona).
+CREATE TABLE IF NOT EXISTS market_calendar (
+    hkey     text PRIMARY KEY,
+    evt_time text,
+    impact   integer,
+    country  text,
+    data     jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_market_calendar_time ON market_calendar(evt_time);
+
 -- CashFlow.NegocioMovimientos (~339k). Grano único (fecha, comprobante).
 CREATE TABLE IF NOT EXISTS negocio_movimientos (
     fecha        date NOT NULL,

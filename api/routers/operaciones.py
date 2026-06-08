@@ -1502,6 +1502,19 @@ def comercial_serie(
         operador=operador, metric=metric, moneda=moneda, id_cuenta=id_cuenta)
 
 
+@router.get("/comercial/clientes-por-fecha")
+def comercial_clientes_por_fecha(
+    operador: str = Query(..., description="operador_email"),
+    desde: str = Query(..., description="ISO YYYY-MM-DD (inicio del período del bar)"),
+    hasta: str = Query(..., description="ISO YYYY-MM-DD (fin del período del bar)"),
+    moneda: str = Query("ARS"),
+    _engine: str | None = Query(None, include_in_schema=False),
+) -> dict:
+    """Clientes que operaron en el rango (click en una barra del chart de volumen)."""
+    return _com_motor(_engine).clientes_por_fecha(
+        operador=operador, desde=desde, hasta=hasta, moneda=moneda)
+
+
 @router.get("/comercial/portafolio")
 def comercial_portafolio(
     id_cuenta: str = Query(..., description="id de la cuenta comitente"),

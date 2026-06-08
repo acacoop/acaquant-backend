@@ -317,6 +317,45 @@ def operador_comercial(*, operador: str, moneda: str = "ARS") -> dict[str, Any]:
     }
 
 
+def clientes_por_fecha(*, operador: str, desde: str, hasta: str,
+                       moneda: str = "ARS") -> dict[str, Any]:
+    """Clientes que OPERARON en [desde, hasta] con su volumen del período.
+    Alimenta la interactividad del chart (click en barra → tabla del día/semana/mes)."""
+    es_todos = operador == TODOS
+    ids = _cuentas_de_operador(operador)
+    factor = _factor_usd(moneda)
+    aum = _aum_por_cuenta(ids, todos=es_todos)
+    match = _match_volumen(ids, None, todos=es_todos)
+    match["fecha"] = {"$gte": desde, "$lte": hasta}
+
+    vol: dict[str, float] = {}
+    if ids or es_todos:
+        for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
+            {"$match": match},
+            {"$group": {"_id": "$id_cuenta", "v": {"$sum": _PESIF}}},
+        ]):
+            if d.get("_id"):
+                vol[str(d["_id"])] = float(d.get("v") or 0.0)
+
+    cuentas_q = {"estado": "Activa"} if es_todos else {"operador_email": operador, "estado": "Activa"}
+    detalle = {
+        str(d["id_cuenta"]): d
+        for d in get_db_clientes()["Comitentes"].find(
+            cuentas_q, {"_id": 0, "id_cuenta": 1, **{f: 1 for f in _FICHA_FIELDS}})
+    }
+    clientes = [{
+        "id_cuenta": idc,
+        "denominacion": detalle.get(idc, {}).get("denominacion") or "—",
+        "aum": _cv(aum.get(idc, 0.0), factor),
+        "volumen_periodo": _cv(v, factor),
+        "ficha": {k: detalle.get(idc, {}).get(k) for k in _FICHA_FIELDS},
+    } for idc, v in vol.items() if v]
+    clientes.sort(key=lambda x: x["volumen_periodo"], reverse=True)
+    return {"operador": operador, "moneda": moneda, "desde": desde, "hasta": hasta,
+            "total_volumen": _cv(sum(vol.values()), factor),
+            "n_clientes": len(clientes), "clientes": clientes}
+
+
 @cached(ttl=300)
 def serie_comercial(
     *, operador: str, metric: str = "volumen", moneda: str = "ARS",

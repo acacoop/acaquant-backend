@@ -157,6 +157,35 @@ def serie_comercial(*, operador: str, metric: str = "volumen", moneda: str = "AR
             "moneda": moneda, "serie": serie}
 
 
+def clientes_por_fecha(*, operador: str, desde: str, hasta: str,
+                       moneda: str = "ARS") -> dict:
+    """Clientes que OPERARON en el rango [desde, hasta] con su volumen del período.
+    Alimenta la interactividad del chart de volumen (click en barra → tabla del día/semana/mes)."""
+    factor = _factor_usd(moneda)
+    aum = _aum_por_cuenta_sql(operador)
+    p: dict = {"desde": desde, "hasta": hasta, "cats": list(_CATS_VOLUMEN)}
+    scope = _scope_cuentas(operador, p)
+    vol: dict[str, float] = {}
+    for r in _q(
+        f"SELECT id_cuenta, SUM({_PESIF}) AS v FROM negocio_movimientos "
+        f"WHERE {scope} AND categoria = ANY(%(cats)s) AND unidad IS DISTINCT FROM 'USDL' "
+        f"AND fecha >= %(desde)s AND fecha <= %(hasta)s GROUP BY id_cuenta", p,
+    ):
+        vol[r["id_cuenta"]] = _f(r["v"])
+    ficha = _ficha_por_cuenta(operador, _FICHA)
+    clientes = [{
+        "id_cuenta": idc,
+        "denominacion": (ficha.get(idc, {}).get("denominacion") or "—"),
+        "aum": _cv(aum.get(idc, 0.0), factor),
+        "volumen_periodo": _cv(v, factor),
+        "ficha": {k: ficha.get(idc, {}).get(k) for k in _FICHA},
+    } for idc, v in vol.items() if v]
+    clientes.sort(key=lambda x: x["volumen_periodo"], reverse=True)
+    return {"operador": operador, "moneda": moneda, "desde": desde, "hasta": hasta,
+            "total_volumen": _cv(sum(vol.values()), factor),
+            "n_clientes": len(clientes), "clientes": clientes}
+
+
 def _ficha_por_cuenta(operador: str, campos: tuple[str, ...]) -> dict[str, dict]:
     """{id_cuenta: {campos}} de comitentes activas (+ denominacion de cuentas) del operador."""
     cols = ", ".join(f"c.{c}" if c != "denominacion" else "u.denominacion" for c in campos)

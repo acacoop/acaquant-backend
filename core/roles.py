@@ -506,6 +506,17 @@ def set_role_modules(role: str, modules: list[str], actor: str = "system") -> di
     )
     after = col.find_one({"role": role}, {"_id": 0})
 
+    # Si las LECTURAS van por SQL (AUTH_SQL), espejá la escritura a SQL YA — sino el
+    # reload del panel lee role_matrix stale y la edición "no se guarda" (la sync recién
+    # corre cada 20 min). Mongo es la fuente de verdad; si SQL falla, el sync lo alinea.
+    if _auth_sql():
+        try:
+            from core import roles_sql
+            roles_sql.set_role_modules_sql(role, mods_norm)
+        except Exception as e:
+            logger.warning("set_role_modules: espejo SQL falló (%s) — Mongo ya persistió, "
+                           "SQL se alinea en el próximo sync", e)
+
     _audit_col().insert_one({
         "ts": now,
         "actor": actor,

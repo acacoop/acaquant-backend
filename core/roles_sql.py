@@ -29,6 +29,24 @@ def load_matrix_sql() -> dict[str, tuple[str, ...]]:
     return {k: tuple(v) for k, v in out.items()}
 
 
+def set_role_modules_sql(role: str, modules: list[str]) -> None:
+    """Reemplaza los módulos de un role en `role_matrix` (DELETE + INSERT). Espeja la
+    escritura a Mongo (fuente de verdad) para que la LECTURA SQL quede consistente al
+    instante — sin esto, con AUTH_SQL prendido el panel lee SQL stale y "no guarda"
+    (la sync recién corre cada 20 min). Filtra a MODULES canónicos. Si falla, el caller
+    lo ignora: Mongo ya persistió y el próximo sync_postgres alinea SQL."""
+    from core.roles import MODULES
+    mods = [m for m in modules if m in MODULES]
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM role_matrix WHERE role = %s", (role,))
+        if mods:
+            cur.executemany(
+                "INSERT INTO role_matrix (role, module) VALUES (%s, %s)",
+                [(role, m) for m in mods],
+            )
+        conn.commit()
+
+
 def lookup_role_sql(email: str) -> str | None:
     """role de manager_users. None si no existe o enabled=False (NULL = habilitado, igual que
     Mongo: solo el False explícito bloquea)."""

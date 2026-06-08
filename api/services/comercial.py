@@ -131,10 +131,10 @@ def _cv(x: float, factor: float | None) -> float:
 
 
 def _comitentes_match(operador_email: str, nivel_1: str | None = None,
-                      nivel_3: str | None = None) -> dict[str, Any]:
+                      nivel_3: str | None = None, referido: str | None = None) -> dict[str, Any]:
     """$match de Comitentes activas para el scope comercial: operador (o TODOS) +
-    filtros opcionales nivel_1 / nivel_3. Los tres se CRUZAN (intersección) — es
-    el comportamiento de los 3 filtros madre de la vista OPERADORES."""
+    filtros opcionales nivel_1 / nivel_3 / referido. Todos se CRUZAN (intersección)
+    — es el comportamiento de los filtros madre de la vista OPERADORES."""
     q: dict[str, Any] = {"estado": "Activa"}
     if operador_email != TODOS:
         q["operador_email"] = operador_email
@@ -142,26 +142,30 @@ def _comitentes_match(operador_email: str, nivel_1: str | None = None,
         q["nivel_1"] = nivel_1
     if nivel_3:
         q["nivel_3"] = nivel_3
+    if referido:
+        q["referido"] = referido
     return q
 
 
 def _cuentas_de_operador(operador_email: str, nivel_1: str | None = None,
-                         nivel_3: str | None = None) -> tuple[str, ...]:
-    """ids de cuenta (Comitentes activas) del scope. `TODOS` sin niveles → todas."""
+                         nivel_3: str | None = None, referido: str | None = None) -> tuple[str, ...]:
+    """ids de cuenta (Comitentes activas) del scope. `TODOS` sin filtros → todas."""
     docs = get_db_clientes()["Comitentes"].find(
-        _comitentes_match(operador_email, nivel_1, nivel_3), {"_id": 0, "id_cuenta": 1})
+        _comitentes_match(operador_email, nivel_1, nivel_3, referido), {"_id": 0, "id_cuenta": 1})
     return tuple(sorted(str(d["id_cuenta"]) for d in docs if d.get("id_cuenta")))
 
 
 def dimensiones_comercial() -> dict[str, Any]:
-    """Combos distintos (operador, nivel_1, nivel_3) de las cuentas activas — para
-    poblar y CRUZAR los 3 filtros madre en el frontend (cada uno achica los otros)."""
+    """Combos distintos (operador, nivel_1, nivel_3, referido) de las cuentas activas —
+    para poblar y CRUZAR los filtros madre en el frontend (cada uno achica los otros)."""
     combos = [
         {"operador_email": d["_id"]["op"], "operador_nombre": d.get("nombre"),
-         "nivel_1": d["_id"].get("n1"), "nivel_3": d["_id"].get("n3"), "n_cuentas": d["n"]}
+         "nivel_1": d["_id"].get("n1"), "nivel_3": d["_id"].get("n3"),
+         "referido": d["_id"].get("ref"), "n_cuentas": d["n"]}
         for d in get_db_clientes()["Comitentes"].aggregate([
             {"$match": {"estado": "Activa", "operador_email": {"$ne": None}}},
-            {"$group": {"_id": {"op": "$operador_email", "n1": "$nivel_1", "n3": "$nivel_3"},
+            {"$group": {"_id": {"op": "$operador_email", "n1": "$nivel_1",
+                                "n3": "$nivel_3", "ref": "$referido"},
                         "nombre": {"$first": "$operador_nombre"}, "n": {"$sum": 1}}},
         ])
     ]
@@ -280,13 +284,13 @@ _FICHA_FIELDS = (
     "denominacion",
     "telefono", "email",
     "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5",
-    "primer_contacto_comercial", "riesgo_la_ft", "division", "adc", "dma",
+    "primer_contacto_comercial", "riesgo_la_ft", "division", "adc", "dma", "referido",
 )
 
 
 @cached(ttl=300)
-def operador_comercial(*, operador: str, moneda: str = "ARS",
-                       nivel_1: str | None = None, nivel_3: str | None = None) -> dict[str, Any]:
+def operador_comercial(*, operador: str, moneda: str = "ARS", nivel_1: str | None = None,
+                       nivel_3: str | None = None, referido: str | None = None) -> dict[str, Any]:
     """Resumen (KPIs) + clientes (tabla + ficha) del operador en UNA pasada.
 
     Optimización: el lookup de cuentas y el AuM se resuelven 1 vez c/u (antes
@@ -300,8 +304,8 @@ def operador_comercial(*, operador: str, moneda: str = "ARS",
     """
     # Con filtro de nivel ya NO es "toda la mesa" aunque operador==TODOS: hay un
     # set concreto de ids → se usa el $in (no el atajo `todos`).
-    es_todos = operador == TODOS and not nivel_1 and not nivel_3
-    ids = _cuentas_de_operador(operador, nivel_1, nivel_3)
+    es_todos = operador == TODOS and not nivel_1 and not nivel_3 and not referido
+    ids = _cuentas_de_operador(operador, nivel_1, nivel_3, referido)
     hoy = _hoy_art()
     factor = _factor_usd(moneda)
     aum = _aum_por_cuenta(ids, todos=es_todos)
@@ -322,7 +326,7 @@ def operador_comercial(*, operador: str, moneda: str = "ARS",
     detalle: dict[str, dict[str, Any]] = {
         str(d["id_cuenta"]): d
         for d in get_db_clientes()["Comitentes"].find(
-            _comitentes_match(operador, nivel_1, nivel_3),
+            _comitentes_match(operador, nivel_1, nivel_3, referido),
             {"_id": 0, "id_cuenta": 1, **{f: 1 for f in _FICHA_FIELDS}},
         )
     }
@@ -354,11 +358,11 @@ def operador_comercial(*, operador: str, moneda: str = "ARS",
 
 def clientes_por_fecha(*, operador: str, desde: str, hasta: str,
                        moneda: str = "ARS", nivel_1: str | None = None,
-                       nivel_3: str | None = None) -> dict[str, Any]:
+                       nivel_3: str | None = None, referido: str | None = None) -> dict[str, Any]:
     """Clientes que OPERARON en [desde, hasta] con su volumen del período.
     Alimenta la interactividad del chart (click en barra → tabla del día/semana/mes)."""
-    es_todos = operador == TODOS and not nivel_1 and not nivel_3
-    ids = _cuentas_de_operador(operador, nivel_1, nivel_3)
+    es_todos = operador == TODOS and not nivel_1 and not nivel_3 and not referido
+    ids = _cuentas_de_operador(operador, nivel_1, nivel_3, referido)
     factor = _factor_usd(moneda)
     aum = _aum_por_cuenta(ids, todos=es_todos)
     match = _match_volumen(ids, None, todos=es_todos)
@@ -376,7 +380,7 @@ def clientes_por_fecha(*, operador: str, desde: str, hasta: str,
     detalle = {
         str(d["id_cuenta"]): d
         for d in get_db_clientes()["Comitentes"].find(
-            _comitentes_match(operador, nivel_1, nivel_3),
+            _comitentes_match(operador, nivel_1, nivel_3, referido),
             {"_id": 0, "id_cuenta": 1, **{f: 1 for f in _FICHA_FIELDS}})
     }
     clientes = [{
@@ -396,6 +400,7 @@ def clientes_por_fecha(*, operador: str, desde: str, hasta: str,
 def serie_comercial(
     *, operador: str, metric: str = "volumen", moneda: str = "ARS",
     id_cuenta: str | None = None, nivel_1: str | None = None, nivel_3: str | None = None,
+    referido: str | None = None,
 ) -> dict[str, Any]:
     """Serie temporal para el gráfico de líneas.
 
@@ -403,10 +408,10 @@ def serie_comercial(
     si se pasan). Con `id_cuenta` → esa sola cuenta (los niveles se ignoran).
     metric='volumen' → sum(abs(importe)) diario (NegocioMovimientos).
     metric='aum'     → AuM por fecha_snapshot (Valuaciones.AuM, ARS)."""
-    es_todos = (operador == TODOS) and not id_cuenta and not nivel_1 and not nivel_3
+    es_todos = (operador == TODOS) and not id_cuenta and not nivel_1 and not nivel_3 and not referido
     factor = _factor_usd(moneda)
     ids: tuple[str, ...] = (str(id_cuenta),) if id_cuenta else _cuentas_de_operador(
-        operador, nivel_1, nivel_3)
+        operador, nivel_1, nivel_3, referido)
     if not ids and not es_todos:
         return {"operador": operador, "id_cuenta": id_cuenta, "metric": metric, "serie": []}
 
@@ -502,7 +507,7 @@ _ANALISIS_FIELDS = ("denominacion", "telefono", "nivel_1", "nivel_2", "nivel_3",
 @cached(ttl=300)
 def analisis_comercial(
     *, operador: str, dias_activa: int = 45, dias_dormida: int = 90, moneda: str = "ARS",
-    nivel_1: str | None = None, nivel_3: str | None = None,
+    nivel_1: str | None = None, nivel_3: str | None = None, referido: str | None = None,
 ) -> dict[str, Any]:
     """Dataset para la vista ANÁLISIS de un operador (un set de queries).
 
@@ -514,8 +519,8 @@ def analisis_comercial(
 
     `nivel_1`/`nivel_3` cruzan con el operador (intersección de cuentas).
     """
-    es_todos = operador == TODOS and not nivel_1 and not nivel_3
-    ids = _cuentas_de_operador(operador, nivel_1, nivel_3)
+    es_todos = operador == TODOS and not nivel_1 and not nivel_3 and not referido
+    ids = _cuentas_de_operador(operador, nivel_1, nivel_3, referido)
     if not ids and not es_todos:
         return {"operador": operador, "dias_activa": dias_activa,
                 "dias_dormida": dias_dormida, "clientes": []}
@@ -551,7 +556,7 @@ def analisis_comercial(
     detalle: dict[str, dict[str, Any]] = {
         str(d["id_cuenta"]): d
         for d in get_db_clientes()["Comitentes"].find(
-            _comitentes_match(operador, nivel_1, nivel_3),
+            _comitentes_match(operador, nivel_1, nivel_3, referido),
             {
                 "_id": 0, "id_cuenta": 1,
                 **{f: 1 for f in _ANALISIS_FIELDS},

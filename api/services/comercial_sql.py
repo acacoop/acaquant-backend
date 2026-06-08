@@ -34,7 +34,8 @@ from core.postgres import get_pool
 # Ficha embebida en cada cliente (= _FICHA_FIELDS de comercial.py). denominacion sale de
 # `cuentas` (no de comitentes); el resto de `comitentes`.
 _FICHA = ("denominacion", "telefono", "email", "nivel_1", "nivel_2", "nivel_3", "nivel_4",
-          "nivel_5", "primer_contacto_comercial", "riesgo_la_ft", "division", "adc", "dma")
+          "nivel_5", "primer_contacto_comercial", "riesgo_la_ft", "division", "adc", "dma",
+          "referido")
 _ANALISIS = ("denominacion", "telefono", "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5")
 
 # Pesificación de un boleto (ARS directo; USD × mep del boleto). = _PESIF de comercial.py.
@@ -57,10 +58,11 @@ def _iso(d):
 
 
 def _comitentes_where(operador: str, p: dict, nivel_1: str | None = None,
-                      nivel_3: str | None = None, alias: str = "") -> str:
-    """WHERE de comitentes activas: operador (o __todos__) + nivel_1/nivel_3 opcionales
-    (los 3 se CRUZAN). Muta `p` con los params. `alias` para prefijar las columnas
-    (ej. 'c.') cuando hay JOIN."""
+                      nivel_3: str | None = None, referido: str | None = None,
+                      alias: str = "") -> str:
+    """WHERE de comitentes activas: operador (o __todos__) + nivel_1/nivel_3/referido
+    opcionales (todos se CRUZAN). Muta `p` con los params. `alias` para prefijar las
+    columnas (ej. 'c.') cuando hay JOIN."""
     a = f"{alias}." if alias else ""
     conds = [f"{a}estado = 'Activa'"]
     if operador != "__todos__":
@@ -72,51 +74,56 @@ def _comitentes_where(operador: str, p: dict, nivel_1: str | None = None,
     if nivel_3:
         p["n3"] = nivel_3
         conds.append(f"{a}nivel_3 = %(n3)s")
+    if referido:
+        p["ref"] = referido
+        conds.append(f"{a}referido = %(ref)s")
     return " AND ".join(conds)
 
 
 def _scope_cuentas(operador: str, p: dict, nivel_1: str | None = None,
-                   nivel_3: str | None = None) -> str:
+                   nivel_3: str | None = None, referido: str | None = None) -> str:
     """Fragmento `id_cuenta IN (SELECT ... FROM comitentes WHERE ...)` scopeado al
-    operador + nivel_1/nivel_3 (intersección). Muta `p` con los params."""
+    operador + nivel_1/nivel_3/referido (intersección). Muta `p` con los params."""
     return (f"id_cuenta IN (SELECT id_cuenta FROM comitentes "
-            f"WHERE {_comitentes_where(operador, p, nivel_1, nivel_3)})")
+            f"WHERE {_comitentes_where(operador, p, nivel_1, nivel_3, referido)})")
 
 
-def _ids_operador(operador: str, nivel_1: str | None = None,
-                  nivel_3: str | None = None) -> list[str]:
-    """ids de cuenta activas del scope (operador + niveles), = _cuentas_de_operador."""
+def _ids_operador(operador: str, nivel_1: str | None = None, nivel_3: str | None = None,
+                  referido: str | None = None) -> list[str]:
+    """ids de cuenta activas del scope (operador + niveles + referido)."""
     p: dict = {}
-    where = _comitentes_where(operador, p, nivel_1, nivel_3)
+    where = _comitentes_where(operador, p, nivel_1, nivel_3, referido)
     return sorted(r["id_cuenta"] for r in _q(
         f"SELECT id_cuenta FROM comitentes WHERE {where}", p))
 
 
 def _aum_por_cuenta_sql(operador: str, nivel_1: str | None = None,
-                        nivel_3: str | None = None) -> dict[str, float]:
-    """AuM (último snapshot GLOBAL) por id_cuenta, scopeado al operador + niveles."""
+                        nivel_3: str | None = None, referido: str | None = None) -> dict[str, float]:
+    """AuM (último snapshot GLOBAL) por id_cuenta, scopeado al operador + filtros."""
     snap = _q("SELECT max(fecha_snapshot) AS f FROM aum")[0]["f"]
     if snap is None:
         return {}
     p: dict = {"f": snap}
-    scope = _scope_cuentas(operador, p, nivel_1, nivel_3)
+    scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido)
     return {r["id_cuenta"]: _f(r["aum"]) for r in _q(
         f"SELECT id_cuenta, SUM(valuacion) AS aum FROM aum "
         f"WHERE fecha_snapshot = %(f)s AND {scope} GROUP BY id_cuenta", p)}
 
 
 def dimensiones_comercial() -> dict:
-    """Combos distintos (operador, nivel_1, nivel_3) de cuentas activas — para poblar
-    y CRUZAR los 3 filtros madre en el frontend."""
+    """Combos distintos (operador, nivel_1, nivel_3, referido) de cuentas activas —
+    para poblar y CRUZAR los filtros madre en el frontend."""
     rows = _q(
         "SELECT c.operador_email, o.nombre AS operador_nombre, c.nivel_1, c.nivel_3, "
-        "count(*) AS n FROM comitentes c LEFT JOIN operadores o ON o.email = c.operador_email "
+        "c.referido, count(*) AS n FROM comitentes c "
+        "LEFT JOIN operadores o ON o.email = c.operador_email "
         "WHERE c.estado = 'Activa' AND c.operador_email IS NOT NULL "
-        "GROUP BY c.operador_email, o.nombre, c.nivel_1, c.nivel_3"
+        "GROUP BY c.operador_email, o.nombre, c.nivel_1, c.nivel_3, c.referido"
     )
     return {"combos": [
         {"operador_email": r["operador_email"], "operador_nombre": r["operador_nombre"],
-         "nivel_1": r["nivel_1"], "nivel_3": r["nivel_3"], "n_cuentas": r["n"]} for r in rows]}
+         "nivel_1": r["nivel_1"], "nivel_3": r["nivel_3"], "referido": r["referido"],
+         "n_cuentas": r["n"]} for r in rows]}
 
 
 def listar_operadores_comercial() -> list[dict]:
@@ -167,14 +174,14 @@ def operaciones_cliente(*, id_cuenta: str, limite: int = 300) -> dict:
 
 def serie_comercial(*, operador: str, metric: str = "volumen", moneda: str = "ARS",
                     id_cuenta: str | None = None, nivel_1: str | None = None,
-                    nivel_3: str | None = None) -> dict:
+                    nivel_3: str | None = None, referido: str | None = None) -> dict:
     factor = _factor_usd(moneda)
     p: dict = {}
     if id_cuenta:
         scope = "id_cuenta = %(idc)s"
         p["idc"] = str(id_cuenta)
     else:
-        scope = _scope_cuentas(operador, p, nivel_1, nivel_3)
+        scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido)
 
     if metric == "aum":
         rows = _q(f"SELECT fecha_snapshot AS fecha, SUM(valuacion) AS v FROM aum "
@@ -191,13 +198,13 @@ def serie_comercial(*, operador: str, metric: str = "volumen", moneda: str = "AR
 
 def clientes_por_fecha(*, operador: str, desde: str, hasta: str,
                        moneda: str = "ARS", nivel_1: str | None = None,
-                       nivel_3: str | None = None) -> dict:
+                       nivel_3: str | None = None, referido: str | None = None) -> dict:
     """Clientes que OPERARON en el rango [desde, hasta] con su volumen del período.
     Alimenta la interactividad del chart de volumen (click en barra → tabla del día/semana/mes)."""
     factor = _factor_usd(moneda)
-    aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3)
+    aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3, referido)
     p: dict = {"desde": desde, "hasta": hasta, "cats": list(_CATS_VOLUMEN)}
-    scope = _scope_cuentas(operador, p, nivel_1, nivel_3)
+    scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido)
     vol: dict[str, float] = {}
     for r in _q(
         f"SELECT id_cuenta, SUM({_PESIF}) AS v FROM negocio_movimientos "
@@ -205,7 +212,7 @@ def clientes_por_fecha(*, operador: str, desde: str, hasta: str,
         f"AND fecha >= %(desde)s AND fecha <= %(hasta)s GROUP BY id_cuenta", p,
     ):
         vol[r["id_cuenta"]] = _f(r["v"])
-    ficha = _ficha_por_cuenta(operador, _FICHA, nivel_1, nivel_3)
+    ficha = _ficha_por_cuenta(operador, _FICHA, nivel_1, nivel_3, referido)
     clientes = [{
         "id_cuenta": idc,
         "denominacion": (ficha.get(idc, {}).get("denominacion") or "—"),
@@ -220,27 +227,27 @@ def clientes_por_fecha(*, operador: str, desde: str, hasta: str,
 
 
 def _ficha_por_cuenta(operador: str, campos: tuple[str, ...], nivel_1: str | None = None,
-                      nivel_3: str | None = None) -> dict[str, dict]:
+                      nivel_3: str | None = None, referido: str | None = None) -> dict[str, dict]:
     """{id_cuenta: {campos}} de comitentes activas (+ denominacion de cuentas) del scope."""
     cols = ", ".join(f"c.{c}" if c != "denominacion" else "u.denominacion" for c in campos)
     p: dict = {}
-    where = _comitentes_where(operador, p, nivel_1, nivel_3, alias="c")
+    where = _comitentes_where(operador, p, nivel_1, nivel_3, referido, alias="c")
     rows = _q(f"SELECT c.id_cuenta, {cols} FROM comitentes c "
               f"LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta WHERE {where}", p)
     return {r["id_cuenta"]: r for r in rows}
 
 
-def operador_comercial(*, operador: str, moneda: str = "ARS",
-                       nivel_1: str | None = None, nivel_3: str | None = None) -> dict:
+def operador_comercial(*, operador: str, moneda: str = "ARS", nivel_1: str | None = None,
+                       nivel_3: str | None = None, referido: str | None = None) -> dict:
     factor = _factor_usd(moneda)
     hoy = _hoy_art()
     mtd, ytd = hoy.replace(day=1).isoformat(), hoy.replace(month=1, day=1).isoformat()
-    ids = _ids_operador(operador, nivel_1, nivel_3)
-    aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3)
+    ids = _ids_operador(operador, nivel_1, nivel_3, referido)
+    aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3, referido)
 
     # Volumen YTD y MTD por cuenta en una pasada.
     p: dict = {"ytd": ytd, "mtd": mtd, "cats": list(_CATS_VOLUMEN)}
-    scope = _scope_cuentas(operador, p, nivel_1, nivel_3)
+    scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido)
     vol_ytd: dict[str, float] = {}
     vol_mtd: dict[str, float] = {}
     for r in _q(
@@ -253,7 +260,7 @@ def operador_comercial(*, operador: str, moneda: str = "ARS",
         vol_ytd[r["id_cuenta"]] = _f(r["vy"])
         vol_mtd[r["id_cuenta"]] = _f(r["vm"])
 
-    ficha = _ficha_por_cuenta(operador, _FICHA, nivel_1, nivel_3)
+    ficha = _ficha_por_cuenta(operador, _FICHA, nivel_1, nivel_3, referido)
     clientes = [{
         "id_cuenta": idc,
         "denominacion": (ficha.get(idc, {}).get("denominacion") or "—"),
@@ -276,30 +283,30 @@ def operador_comercial(*, operador: str, moneda: str = "ARS",
 
 def analisis_comercial(*, operador: str, dias_activa: int = 45, dias_dormida: int = 90,
                        moneda: str = "ARS", nivel_1: str | None = None,
-                       nivel_3: str | None = None) -> dict:
-    ids = _ids_operador(operador, nivel_1, nivel_3)
+                       nivel_3: str | None = None, referido: str | None = None) -> dict:
+    ids = _ids_operador(operador, nivel_1, nivel_3, referido)
     if not ids and operador != "__todos__":
         return {"operador": operador, "dias_activa": dias_activa,
                 "dias_dormida": dias_dormida, "clientes": []}
     hoy = _hoy_art()
     factor = _factor_usd(moneda)
     factor_cupo = _factor_usd("USD")  # cupo SIEMPRE en USD al MEP del día
-    aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3)
+    aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3, referido)
     year_start = date(hoy.year, 1, 1).isoformat()
     month_start = hoy.replace(day=1).isoformat()
 
     # Última operación EVER por cuenta (Operaciones, fuente de verdad).
     p: dict = {}
-    scope = _scope_cuentas(operador, p, nivel_1, nivel_3)
+    scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido)
     ult_op = {r["id_cuenta"]: _iso(r["ult"]) for r in _q(
         f"SELECT id_cuenta, max(concertacion) AS ult FROM operaciones WHERE {scope} "
         f"GROUP BY id_cuenta", p) if r["ult"] is not None}
 
-    ficha = _ficha_por_cuenta(operador, _ANALISIS, nivel_1, nivel_3)
+    ficha = _ficha_por_cuenta(operador, _ANALISIS, nivel_1, nivel_3, referido)
     p_cupo: dict = {}
     cupos = {r["id_cuenta"]: r for r in _q(
         "SELECT id_cuenta, cupo_transaccional_ars, cupo_usado_ars FROM comitentes "
-        f"WHERE {_comitentes_where(operador, p_cupo, nivel_1, nivel_3)}", p_cupo)}
+        f"WHERE {_comitentes_where(operador, p_cupo, nivel_1, nivel_3, referido)}", p_cupo)}
 
     clientes = []
     for idc in ids:

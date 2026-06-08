@@ -1495,11 +1495,12 @@ def comercial_operador(
     moneda: str = Query("ARS"),
     nivel_1: str | None = Query(None, description="filtro madre nivel_1 (cruza con operador/nivel_3)"),
     nivel_3: str | None = Query(None, description="filtro madre nivel_3 (cruza con operador/nivel_1)"),
+    referido: str | None = Query(None, description="filtro madre referido (cruza con los demás)"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Resumen (KPIs) + clientes (tabla + ficha) del operador, en una pasada."""
     return _com_motor(_engine).operador_comercial(
-        operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3)
+        operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido)
 
 
 @router.get("/comercial/serie")
@@ -1510,12 +1511,13 @@ def comercial_serie(
     id_cuenta: str | None = Query(None, description="scope a una sola cuenta (interactivo)"),
     nivel_1: str | None = Query(None, description="filtro madre nivel_1"),
     nivel_3: str | None = Query(None, description="filtro madre nivel_3"),
+    referido: str | None = Query(None, description="filtro madre referido"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Serie para el gráfico. Sin id_cuenta → operador; con id_cuenta → cliente."""
     return _com_motor(_engine).serie_comercial(
         operador=operador, metric=metric, moneda=moneda, id_cuenta=id_cuenta,
-        nivel_1=nivel_1, nivel_3=nivel_3)
+        nivel_1=nivel_1, nivel_3=nivel_3, referido=referido)
 
 
 @router.get("/comercial/clientes-por-fecha")
@@ -1526,12 +1528,13 @@ def comercial_clientes_por_fecha(
     moneda: str = Query("ARS"),
     nivel_1: str | None = Query(None, description="filtro madre nivel_1"),
     nivel_3: str | None = Query(None, description="filtro madre nivel_3"),
+    referido: str | None = Query(None, description="filtro madre referido"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Clientes que operaron en el rango (click en una barra del chart de volumen)."""
     return _com_motor(_engine).clientes_por_fecha(
         operador=operador, desde=desde, hasta=hasta, moneda=moneda,
-        nivel_1=nivel_1, nivel_3=nivel_3)
+        nivel_1=nivel_1, nivel_3=nivel_3, referido=referido)
 
 
 @router.get("/comercial/portafolio")
@@ -1559,12 +1562,13 @@ def comercial_analisis(
     moneda: str = Query("ARS", description="ARS | USD"),
     nivel_1: str | None = Query(None, description="filtro madre nivel_1"),
     nivel_3: str | None = Query(None, description="filtro madre nivel_3"),
+    referido: str | None = Query(None, description="filtro madre referido"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Dataset de la vista ANÁLISIS: clientes del operador con estado comercial,
     AuM, última op y niveles de segmentación (estado / churn / distribución)."""
     return _com_motor(_engine).analisis_comercial(
-        operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3)
+        operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido)
 
 
 @router.get("/comercial/actividad-historica")

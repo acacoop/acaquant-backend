@@ -128,7 +128,7 @@ def sync_dims_clientes(mdb, conn, dry) -> tuple[int, int, int]:
         # Campos de la vista COMERCIAL:
         "estado": 1, "fecha_alta_legajo": 1, "telefono": 1, "email": 1, "nivel_4": 1,
         "nivel_5": 1, "primer_contacto_comercial": 1, "riesgo_la_ft": 1, "division": 1,
-        "adc": 1, "dma": 1, "cupo": 1,
+        "adc": 1, "dma": 1, "cupo": 1, "referido": 1,
     }
     operadores: dict[str, str | None] = {}
     cuentas, comitentes = [], []
@@ -148,7 +148,7 @@ def sync_dims_clientes(mdb, conn, dry) -> tuple[int, int, int]:
             _s(d.get("email")), _s(d.get("nivel_4")), _s(d.get("nivel_5")),
             _s(d.get("primer_contacto_comercial")), _s(d.get("riesgo_la_ft")),
             _s(d.get("division")), _s(d.get("adc")), _s(d.get("dma")),
-            cupo.get("transaccional_ars"), cupo.get("usado_ars"),
+            cupo.get("transaccional_ars"), cupo.get("usado_ars"), _s(d.get("referido")),
         ))
     cuentas, comitentes = _dedup(cuentas, [0]), _dedup(comitentes, [0])
 
@@ -162,7 +162,7 @@ def sync_dims_clientes(mdb, conn, dry) -> tuple[int, int, int]:
          "nivel_1", "nivel_2", "nivel_3", "estado_comercial",
          "estado", "fecha_alta_legajo", "telefono", "email", "nivel_4", "nivel_5",
          "primer_contacto_comercial", "riesgo_la_ft", "division", "adc", "dma",
-         "cupo_transaccional_ars", "cupo_usado_ars"],
+         "cupo_transaccional_ars", "cupo_usado_ars", "referido"],
         ["id_cuenta"], comitentes, dry,
     )
     ids = {r[0] for r in comitentes}

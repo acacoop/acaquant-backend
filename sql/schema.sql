@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS comitentes (
     adc               text,
     dma               text,
     cupo_transaccional_ars numeric,           -- cupo.transaccional_ars (subdoc Mongo)
-    cupo_usado_ars         numeric            -- cupo.usado_ars
+    cupo_usado_ars         numeric,           -- cupo.usado_ars
+    referido               text               -- quién refirió al cliente (ficha + filtro comercial)
 );
 -- La tabla ya existe en Supabase → ALTER idempotente agrega las columnas nuevas.
 ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS estado                    text;
@@ -69,6 +70,7 @@ ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS adc                       text;
 ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS dma                       text;
 ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS cupo_transaccional_ars    numeric;
 ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS cupo_usado_ars            numeric;
+ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS referido                  text;
 CREATE INDEX IF NOT EXISTS ix_comitentes_operador ON comitentes(operador_email);
 CREATE INDEX IF NOT EXISTS ix_comitentes_nivel1   ON comitentes(nivel_1);
 CREATE INDEX IF NOT EXISTS ix_comitentes_estado   ON comitentes(estado);

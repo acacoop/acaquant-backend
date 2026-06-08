@@ -119,3 +119,44 @@ al proveedor por un canal seguro.
 >   "n": 1
 > }
 > ```
+
+## Acceso OData v2 (SAP Datasphere y herramientas SAP)
+
+Para herramientas que NO consumen REST nativo (ej. **SAP Datasphere**, que se
+conecta vía OData), el servicio expone los **mismos datos** como un **servicio
+OData v2 estándar**, en paralelo a la REST (no la reemplaza). Implementado en
+`partner_api/odata.py`.
+
+- **Service URL:** `https://data.acaquant.com/odata/`
+- **Tipo de conexión en Datasphere:** *Generic OData* (OData **V2**).
+- **Auth:** **HTTP Basic** con el **mismo usuario/password** del proveedor
+  (los de `ACAPortfolio.ApiUsers`) — no usa el flow del JWT.
+- **Entidad:** `Portfolio` (una fila por posición). Propiedades: `ID` (key
+  sintética `fecha|id_cuenta|unidad`), `fecha`, `id_cuenta`, `cuenta`, `unidad`,
+  `cantidad`, `precio`, `valuacion`.
+
+Endpoints:
+
+| Endpoint | Auth | Qué es |
+|---|---|---|
+| `GET /odata/` | abierto | service document (lista las entidades) |
+| `GET /odata/$metadata` | abierto | esquema EDMX (Datasphere lo descubre solo) |
+| `GET /odata/Portfolio` | Basic | los datos (posiciones) |
+| `GET /odata/Portfolio/$count` | Basic | conteo de filas |
+
+Query options soportadas en `/odata/Portfolio`:
+`$filter` (igualdades: `fecha eq '2026-05-16'`, `id_cuenta eq '101'`, unidas por
+`and`), `$top`, `$skip`, `$select`, `$inlinecount=allpages` (devuelve `__count`).
+
+> **Instrucciones para el proveedor (Datasphere):**
+> 1. Crear una conexión **Generic OData**, versión **V2**.
+> 2. URL del servicio: `https://data.acaquant.com/odata/`
+> 3. Autenticación: **Basic**, con el usuario/password ya entregados.
+> 4. Importar la entidad **`Portfolio`**.
+> 5. Ejemplo — posiciones de una fecha:
+>    `https://data.acaquant.com/odata/Portfolio?$filter=fecha eq '2026-05-16'`
+
+**Nota técnica:** es OData **v2** (máxima compatibilidad SAP). Los números van
+tipados `Edm.Double` → salen como número en el JSON. Si la herramienta del
+proveedor exigiera OData **v4**, el cambio es chico (las funciones de formato
+están aisladas en `odata.py`) — pedir confirmación de la versión.

@@ -11,6 +11,7 @@ Endpoints:
     GET  /v1/fechas      fechas disponibles    (requiere token)
     GET  /v1/portfolio   posiciones            (requiere token)
     GET  /health         liveness, sin auth
+    GET  /odata/*        servicio OData v2 (SAP Datasphere) — Basic Auth, ver odata.py
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from fastapi import FastAPI, Request
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from partner_api import auth, routes
+from partner_api import auth, odata, routes
 from partner_api.ratelimit import client_ip, limiter
 from partner_api.security import validar_token
 from partner_api.settings import PARTNER_JWT_SECRET, PARTNER_MONGO_URI
@@ -55,6 +56,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.include_router(auth.router)
 app.include_router(routes.router)
+app.include_router(odata.router)  # capa OData v2 (SAP Datasphere) — additiva
 
 
 @app.middleware("http")

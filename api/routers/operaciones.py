@@ -850,7 +850,10 @@ def negocio(
 # operaciones de mercado. Importe = |bruto|, agrupado por `operacion`.
 # ─────────────────────────────────────────────────────────────────────────────
 
-_OPS_MONEDAS = ("ARS", "USD")
+# ARS/USD = volumen en moneda nativa. USD_DOL = volumen DOLARIZADO (ARS+USD
+# convertidos a USD con el mep de cada boleto). USD_DOL vive SOLO en SQL (el
+# rollup de Mongo no trae el bruto en USD) → se fuerza el motor SQL para esa opción.
+_OPS_MONEDAS = ("ARS", "USD", "USD_DOL")
 
 
 def _motor(req: str | None, env: str = "OPERACIONES_SQL") -> str:
@@ -1026,7 +1029,7 @@ def ops_serie(
     denominacion/cuenta/scoped → live (ya filtra por índice, no escanea todo)."""
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
-    if _motor(_engine) == "sql":
+    if moneda == "USD_DOL" or _motor(_engine) == "sql":  # dolarizado → SQL siempre
         return _ops_sql.ops_serie(moneda=moneda, mercado=mercado, operacion=operacion,
                                   denominacion=denominacion, cuenta=cuenta, segmento=segmento,
                                   scope=scope)
@@ -1068,7 +1071,7 @@ def ops_resumen(
     """
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
-    if _motor(_engine) == "sql":
+    if moneda == "USD_DOL" or _motor(_engine) == "sql":  # dolarizado → SQL siempre
         return _ops_sql.ops_resumen(moneda=moneda, mercado=mercado, desde=desde, hasta=hasta,
                                     operacion=operacion, denominacion=denominacion, cuenta=cuenta,
                                     segmento=segmento, scope=scope)
@@ -1450,7 +1453,7 @@ def ops_boletos(
     _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Boletos individuales (drill-down al tocar una cuenta/denominación)."""
-    if _motor(_engine) == "sql":
+    if moneda == "USD_DOL" or _motor(_engine) == "sql":  # dolarizado → SQL (trae ARS+USD)
         return _ops_sql.ops_boletos(desde=desde, hasta=hasta, moneda=moneda,
                                     denominacion=denominacion, cuenta=cuenta, operacion=operacion,
                                     mercado=mercado, segmento=segmento, scope=scope)

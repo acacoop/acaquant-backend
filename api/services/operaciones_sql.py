@@ -56,6 +56,12 @@ def _iso_naive(d):
     return d.isoformat()
 
 
+# Valor de `moneda` que pide el VOLUMEN DOLARIZADO (todo → USD con el mep del
+# boleto). Opción EXTRA del selector, además de ARS/USD nativos. Solo SQL (el
+# rollup de Mongo no trae el bruto en USD).
+_DOLARIZAR = "USD_DOL"
+
+
 # ── WHERE compartido (equivale a _ops_match / _arancel_match) ─────────────────
 def _ops_where(
     moneda: str | None = None, mercado: str | None = None, operacion: str | None = None,
@@ -68,6 +74,10 @@ def _ops_where(
     p: dict = {}
     if arancel:
         conds.append("(es_cierre = false OR (es_cierre = true AND arancel <> 0))")
+    elif moneda == _DOLARIZAR:
+        # Dolarizado: entran ARS y USD (sin filtro de moneda); cada boleto se
+        # convierte a USD con su mep en la suma del volumen (ver _bruto_expr).
+        conds.append("es_cierre = false")
     else:
         conds.append("moneda = %(moneda)s")
         conds.append("es_cierre = false")
@@ -139,6 +149,17 @@ def ops_meta(fecha: str) -> dict:
 
 
 # ── serie / resumen / boletos (VOLUMEN, _ops_match) ──────────────────────────
+def _bruto_expr(moneda: str) -> str:
+    """Expr SQL agregada del volumen. 'USD_DOL' → suma cada boleto convertido a USD
+    con su mep (USD directo; ARS / mep; sin mep → 0, se descarta en silencio). ARS/USD
+    nativos → bruto tal cual (el filtro de moneda lo pone _ops_where)."""
+    if moneda == _DOLARIZAR:
+        return ("SUM(CASE WHEN moneda = 'USD' THEN COALESCE(bruto, 0) "
+                "WHEN moneda = 'ARS' AND COALESCE(mep, 0) > 0 THEN COALESCE(bruto, 0) / mep "
+                "ELSE 0 END)")
+    return "SUM(COALESCE(bruto, 0))"
+
+
 def ops_serie(
     moneda: str = "ARS", mercado: str | None = None, operacion: str | None = None,
     denominacion: str | None = None, cuenta: str | None = None, segmento: str | None = None,
@@ -146,7 +167,7 @@ def ops_serie(
 ) -> dict:
     where, p = _ops_where(moneda, mercado, operacion, denominacion, cuenta, segmento, scope)
     rows = _q(
-        f"SELECT concertacion AS fecha, SUM(COALESCE(bruto, 0)) AS bruto "
+        f"SELECT concertacion AS fecha, {_bruto_expr(moneda)} AS bruto "
         f"FROM operaciones WHERE {where} GROUP BY concertacion ORDER BY concertacion",
         p,
     )
@@ -163,6 +184,7 @@ def ops_resumen(
     p.update({"desde": desde, "hasta": hasta})
     base = f"{base} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
 
+    bexpr = _bruto_expr(moneda)
     # por_operacion: filtrada por denominacion (cross-filter), HAVING bruto<>0.
     w_op, p_op = base, dict(p)
     if denominacion:
@@ -171,9 +193,9 @@ def ops_resumen(
     por_operacion = [
         {"operacion": r["operacion"] or "(sin)", "bruto": round(_f(r["bruto"]), 2), "n": r["n"]}
         for r in _q(
-            f"SELECT operacion, SUM(COALESCE(bruto,0)) AS bruto, count(*) AS n "
+            f"SELECT operacion, {bexpr} AS bruto, count(*) AS n "
             f"FROM operaciones WHERE {w_op} GROUP BY operacion "
-            f"HAVING SUM(COALESCE(bruto,0)) <> 0 ORDER BY bruto DESC", p_op,
+            f"HAVING {bexpr} <> 0 ORDER BY bruto DESC", p_op,
         )
     ]
     # por_denominacion: filtrada por operacion (cross-filter), sin HAVING.
@@ -185,7 +207,7 @@ def ops_resumen(
         {"denominacion": r["denominacion"] or "(sin)",
          "bruto": round(_f(r["bruto"]), 2), "n": r["n"]}
         for r in _q(
-            f"SELECT denominacion, SUM(COALESCE(bruto,0)) AS bruto, count(*) AS n "
+            f"SELECT denominacion, {bexpr} AS bruto, count(*) AS n "
             f"FROM operaciones WHERE {w_dn} GROUP BY denominacion ORDER BY bruto DESC", p_dn,
         )
     ]

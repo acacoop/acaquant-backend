@@ -173,7 +173,10 @@ def reconciliar(*, limit: int = 500) -> dict:
         k = _norm_keyword(r)
         if k:
             keywords[k] = r.strip()
-    kw_sorted = sorted(keywords, key=len, reverse=True)  # matchea el nombre más largo primero
+    # Match por PALABRA COMPLETA (\bKW\b), no substring → "MAX" no matchea dentro
+    # de "MAXIMILIANO". Longest-first (regex greedy elige el nombre más largo).
+    kw_sorted = sorted(keywords, key=lambda x: (-len(x), x))
+    kw_re = re.compile(r"\b(" + "|".join(re.escape(k) for k in kw_sorted) + r")\b") if kw_sorted else None
 
     resp = aunesa.get("cuentas/listadoCuentas")
     if resp.status_code != 200:
@@ -199,10 +202,10 @@ def reconciliar(*, limit: int = 500) -> dict:
         if cid in existentes:
             continue
         den = c.get("denominacion") or ""
-        den_up = den.upper()
-        match = next((k for k in kw_sorted if k in den_up), None)
-        if not match:
+        m = kw_re.search(den.upper()) if kw_re else None
+        if not m:
             continue
+        match = m.group(1)
         candidatos.append({
             "cuenta": cid,
             "denominacion": den,

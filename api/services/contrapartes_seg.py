@@ -97,9 +97,12 @@ def listar_contrapartes(*, segmento: str | None = None, contraparte: str | None 
         rgx = {"$regex": re.escape(tok), "$options": "i"}
         and_clauses.append({"$or": [{"denominacion": rgx}, {"cuenta": rgx}]})
     filtro: dict[str, Any] = {"$and": and_clauses}
+    # Coercionar a string SIEMPRE: hay docs sucios con `contraparte`/`cuenta` numéricos
+    # (ej. CUIT de sociedades gerentes). Si el front recibe un número y lo reescribe,
+    # lo manda como número → Pydantic (str) lo rechaza con 422 → "da error al guardar".
     rows = [
-        {"cuenta": str(d.get("cuenta")), "denominacion": d.get("denominacion"),
-         "contraparte": d.get("contraparte"), "segmento": d.get("segmento")}
+        {"cuenta": _s(d.get("cuenta")), "denominacion": _s(d.get("denominacion")),
+         "contraparte": _s(d.get("contraparte")), "segmento": _s(d.get("segmento"))}
         for d in _col_ro().find(filtro, _PROJ).sort("denominacion", 1).limit(5000)
     ]
     return {"contrapartes": rows, "n": len(rows)}

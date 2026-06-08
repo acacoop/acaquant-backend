@@ -22,7 +22,7 @@ import logging
 import os
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.auth import get_user_email
 from api.services import contrapartes_seg as _mongo
@@ -57,10 +57,13 @@ def contrapartes_segmentos(_engine: str | None = Query(None, include_in_schema=F
 
 
 class _ContrapartePatch(BaseModel):
-    """cuenta va en el body (evita URL-encoding); contraparte/segmento opcionales."""
-    cuenta:      str = Field(..., min_length=1, max_length=64)
-    contraparte: str | None = Field(None, max_length=256)
-    segmento:    str | None = Field(None, max_length=128)
+    """cuenta va en el body (evita URL-encoding); contraparte/segmento opcionales.
+    coerce_numbers_to_str: hay docs sucios con cuenta/contraparte numéricos (CUIT) →
+    si el front los reenvía como número, se coercen a string en vez de tirar 422."""
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+    cuenta:      str = Field(..., min_length=1, max_length=128)
+    contraparte: str | None = Field(None, max_length=512)
+    segmento:    str | None = Field(None, max_length=256)
 
 
 @router.patch("/contrapartes")
@@ -77,10 +80,11 @@ def patch_contraparte(req: _ContrapartePatch = Body(...), actor: str = Depends(g
 
 
 class _ContraparteNew(BaseModel):
-    cuenta:       str = Field(..., min_length=1, max_length=64)
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+    cuenta:       str = Field(..., min_length=1, max_length=128)
     denominacion: str | None = Field(None, max_length=512)
-    contraparte:  str | None = Field(None, max_length=256)
-    segmento:     str | None = Field(None, max_length=128)
+    contraparte:  str | None = Field(None, max_length=512)
+    segmento:     str | None = Field(None, max_length=256)
 
 
 @router.post("/contrapartes")

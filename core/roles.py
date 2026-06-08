@@ -73,6 +73,7 @@ MODULES: tuple[str, ...] = (
     "manager_clientes_bulk",  # /api/manager/clientes/bulk + /bulk-fondeo (carga masiva — admin)
     "manager_compliance",     # /api/manager/compliance/* (read-only: operador nuestro vs Aunesa)
     "manager_titulos",        # /api/manager/assets (Títulos: Instrumentos + Assets, edición)
+    "manager_contrapartes",   # /api/manager/contrapartes/* (segmentación + conciliador Aunesa)
 )
 
 
@@ -103,6 +104,7 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
         "renta-variable", "estrategia",
         "operaciones", "portfolios", "back-office",
         "manager_comercial", "manager_clientes", "manager_titulos",
+        "manager_contrapartes",
     ),
     # Compliance: HOME + todos los mercados + Manager SOLO Clientes + Compliance
     # (sin `manager` umbrella → no ve las tabs de admin). Detecta diferencias de

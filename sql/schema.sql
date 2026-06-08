@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS operaciones (
     etapa          text,
     bruto          numeric,
     arancel        numeric,                   -- siempre en ARS
+    mep            numeric,                   -- TC snapshot del boleto (concertacion) → dolarizar volumen
     -- Agregados en la migración de la vista OPERACIONES a SQL (ver docs/SQL.md):
     cantidad       numeric,                   -- toneladas agro, drill-down boletos
     instrumento    text,                      -- agro (regex MIN), por_instrumento, boletos

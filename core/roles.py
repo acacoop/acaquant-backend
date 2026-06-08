@@ -114,6 +114,16 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
         "renta-variable", "estrategia",
         "manager_clientes", "manager_compliance",
     ),
+    # Invitado / cliente externo del portal www.acaquant.com: SOLO vistas de
+    # mercado (read-only). NADA privado de la mesa — sin operaciones, portfolios,
+    # back-office, operar ni manager. Las restricciones finas (ocultar AGRO→DATOS,
+    # tasa R read-only en derivados) las aplica el frontend del portal guest, no
+    # el gate de módulo. Se asigna por venir de www (no por email) — ver el
+    # forzado de rol en api/auth.py, no por Manager.Users.
+    "invitado": (
+        "home", "renta-fija", "derivados", "agro", "sinteticos",
+        "renta-variable", "estrategia",
+    ),
 }
 # `operar` (DOLAR MEP + envío de órdenes) queda SOLO para admin de momento
 # — decisión 2026-05-17. Si Manager.RoleMatrix ya está poblada, además hay

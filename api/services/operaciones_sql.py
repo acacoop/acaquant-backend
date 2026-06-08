@@ -267,10 +267,16 @@ def ops_aranceles(
     moneda: str = "ARS", desde: str = "", hasta: str = "", agg: str = "MENSUAL",
     cuenta: str | None = None, instrumento: str | None = None, sel_dim: str | None = None,
     segmento: str | None = None, dim: str = "nivel3", serie_full: bool = False,
-    scope: tuple[str, ...] | None = None,
+    scope: tuple[str, ...] | None = None, operador: str | None = None,
 ) -> dict:
     fmt = "YYYY-MM" if agg.upper() == "MENSUAL" else "YYYY-MM-DD"
     base, bp = _ops_where(segmento=segmento, scope=scope, arancel=True)
+    # Filtro madre por operador: scopea TODO (serie + tablas) a las cuentas de ese
+    # operador (subquery a comitentes). Se mete en `base` → aplica uniforme.
+    if operador:
+        base = (f"{base} AND id_cuenta IN "
+                f"(SELECT id_cuenta FROM comitentes WHERE operador_email = %(f_op)s)")
+        bp["f_op"] = operador
 
     # SERIE (histórica, ventana ~18m salvo serie_full). En vivo, sin rollup.
     sp = dict(bp)

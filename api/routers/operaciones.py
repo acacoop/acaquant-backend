@@ -1281,6 +1281,7 @@ def ops_aranceles(
     instrumento: str | None = Query(None, description="Cross-filter: instrumento seleccionado"),
     sel_dim: str | None = Query(None, description="Cross-filter: valor seleccionado de la dim izquierda"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
+    operador: str | None = Query(None, description="Filtra madre por operador (operador_email)"),
     dim: str = Query("nivel3", description="Dimensión de la tabla izquierda: nivel3 | operacion | operador"),
     serie_full: bool = Query(False, description="True = serie histórica completa (botón ALL); default ~18m"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
@@ -1289,15 +1290,15 @@ def ops_aranceles(
     """Σ aranceles por periodo (gráfico), por nivel_3 (izq) y por cliente (der).
 
     La SERIE (histórica, antes escaneaba todo) sale del rollup OpsSerieDiaria
-    cuando no hay scope; las TABLAS por_nivel3/por_cuenta son date-bounded → live
-    (ya usan índice)."""
+    cuando no hay scope ni operador; las TABLAS por_nivel3/por_cuenta son
+    date-bounded → live (ya usan índice)."""
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     if _motor(_engine) == "sql":
         return _ops_sql.ops_aranceles(moneda=moneda, desde=desde, hasta=hasta, agg=agg,
                                       cuenta=cuenta, instrumento=instrumento, sel_dim=sel_dim,
                                       segmento=segmento, dim=dim, serie_full=serie_full,
-                                      scope=scope)
+                                      scope=scope, operador=operador)
     cf = get_db_cashflow()
     db = cf["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10
@@ -1306,14 +1307,26 @@ def ops_aranceles(
     # moneda; el toggle de moneda no aplica a esta vista.
     arancel = {"$abs": {"$ifNull": ["$arancel", 0]}}
 
-    # SERIE: rollup (sumando TODAS las monedas) + hoy live; fallback a live si scoped.
+    # Filtro madre por operador → cuentas de ese operador (intersecta con scope si lo hay).
+    op_cuentas: list[str] | None = None
+    if operador:
+        op_cuentas = [str(c["id_cuenta"]) for c in get_db_clientes()["Comitentes"].find(
+            {"operador_email": operador}, {"_id": 0, "id_cuenta": 1}) if c.get("id_cuenta")]
+        if scope is not None:
+            scope_set = set(scope)
+            op_cuentas = [c for c in op_cuentas if c in scope_set]
+
+    # SERIE: rollup (sumando TODAS las monedas) + hoy live; live si scoped o por operador
+    # (el rollup no tiene operador → cae a live con el filtro de cuentas).
     serie: list[dict] | None = None
-    if scope is None:
+    if scope is None and op_cuentas is None:
         serie = _serie_arancel_rollup(cf, segmento, plen, serie_full)
     if serie is None:
         match_s = _arancel_match("ARS", segmento=segmento)
         match_s.pop("moneda", None)
         aplicar_scope_cuenta(match_s, scope, campo="cuenta")
+        if op_cuentas is not None:
+            match_s["cuenta"] = {"$in": op_cuentas}
         if serie_full:
             serie_ventana: list[dict] = []
         else:
@@ -1334,6 +1347,8 @@ def ops_aranceles(
     match_t = _arancel_match("ARS", segmento=segmento)
     match_t.pop("moneda", None)   # un solo arancel en pesos → sin filtro de moneda
     aplicar_scope_cuenta(match_t, scope, campo="cuenta")
+    if op_cuentas is not None:
+        match_t["cuenta"] = {"$in": op_cuentas}
     date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
 
     # Mapa operador (lazy): id_cuenta → operador (nombre/email/"(sin operador)").

@@ -53,7 +53,7 @@ def main() -> int:
         if nm:
             con_importe += 1
         flag = f"importe={nm['importe']}" if nm else "SIN importe en NegocioMov"
-        print(f"    {b:14} {r.get('concertacion')}  {str(r.get('operacion')):12} {flag}")
+        print(f"    {b:14} {r.get('concertacion')}  {r.get('operacion')!s:12} {flag}")
     print(f"\n  → {con_importe}/{len(rotos)} muestreados TIENEN importe en NegocioMov "
           "(deberían estar corregidos por el parche).")
 

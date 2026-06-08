@@ -63,8 +63,8 @@ Una fila por posición.
 
 ## 5. Actualización de los datos
 
-- Se actualizan **una vez por día hábil** (lunes a viernes), tras el cierre del mercado.
-- El dato definitivo de cada jornada queda disponible **a partir de las 02:00 UTC** (≈ 23:00 hora Argentina).
+- Se actualizan **una vez por día hábil** (lunes a viernes), **durante la noche**.
+- El dato de cada jornada queda disponible **a partir de las 02:00 UTC** (≈ 23:00 hora Argentina).
 - Se mantiene **histórico por fecha** (las fechas anteriores quedan disponibles).
 
 ---

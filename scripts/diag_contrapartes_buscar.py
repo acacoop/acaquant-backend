@@ -21,7 +21,7 @@ def main() -> int:
     res = m.listar_contrapartes(q=q)
     print(f"query={q!r}  →  {res['n']} resultado(s)\n")
     for c in res["contrapartes"][:40]:
-        print(f"  {str(c['cuenta']):>7}  {c['denominacion']}")
+        print(f"  {c['cuenta']!s:>7}  {c['denominacion']}")
     if res["n"] > 40:
         print(f"  … y {res['n'] - 40} más")
     print("\nLISTO (read-only). Si esto trae lo correcto, el bug es cache/deploy del front.")

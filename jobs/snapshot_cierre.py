@@ -34,9 +34,11 @@ from core.mongo import get_mongo_client
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("SnapshotCierre")
 
-# Para V1 valuamos solo tasa fija + CER. Soberanos quedan para V2 (requieren
-# splittear globales/bonares por jurisdicción, fuera de scope acá).
-CURVAS_V1 = ("tasa_fija", "cer")
+# Curvas cuyo cierre persistimos cada día leyendo MarketSnapshot. Soberanos
+# (Hard Dólar) entró acá para alimentar la serie de Retorno Total: sin esto su
+# histórico en SnapshotsCierre se cortaba y la vista quedaba con <2 puntos. No
+# necesita el split globales/bonares por jurisdicción — `tipo` ya viene por ticker.
+CURVAS_V1 = ("tasa_fija", "cer", "soberanos")
 
 
 def _meta_curvas(client, curva: str) -> dict[str, dict]:

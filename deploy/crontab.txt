@@ -48,11 +48,11 @@
 30 13 * * 1-5 systemctl restart motor_ordenes.service
 5  20 * * 1-5 systemctl stop    motor_ordenes.service
 
-# ─── Discovery de cuentas autorizadas (1x/día, 11:30 UTC = 08:30 ART, L-V)
-# Itera 1-12000 contra el broker (pyRofex). Timeout 90m: el 2026-06-03 quedó
-# colgado 5h. El lock evita que el cron del día siguiente arranque una 2ª
-# instancia encima si la anterior sigue viva.
-30 11 * * 1-5 /root/TradingAV/deploy/run_job.sh descubrir_cuentas 90m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.descubrir_cuentas'
+# ─── Discovery de cuentas autorizadas (1x/día, 11:40 UTC = 08:40 ART, L-V — post-resume 11:30)
+# Itera 1-12000 contra el broker (pyRofex) y escribe a Mongo → necesita Atlas arriba.
+# Timeout 90m: el 2026-06-03 quedó colgado 5h. El lock evita que el cron del día
+# siguiente arranque una 2ª instancia encima si la anterior sigue viva.
+40 11 * * 1-5 /root/TradingAV/deploy/run_job.sh descubrir_cuentas 90m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.descubrir_cuentas'
 
 # ─── Volatilidad GGAL (al cierre)
 0 20 * * 1-5 /root/TradingAV/deploy/run_job.sh volatilidad_ggal 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.volatilidad_ggal'
@@ -146,20 +146,20 @@
 # ─── Cierre diario de canje (20:35 UTC = 17:35 ART, L-V — post-cierre motor)
 35 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cierre_canje 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cierre_canje'
 
-# ─── Atlas cluster pause/resume diaria (06:00 / 11:20 UTC = 03:00 / 08:20 ART)
-0  6  * * * /root/TradingAV/deploy/atlas_cluster.sh pause  >> /root/TradingAV/logs/atlas_cluster.log 2>&1
-20 11 * * * /root/TradingAV/deploy/atlas_cluster.sh resume >> /root/TradingAV/logs/atlas_cluster.log 2>&1
+# ─── Atlas cluster pause/resume diaria (03:30 / 11:30 UTC = 00:30 / 08:30 ART)
+30 3  * * * /root/TradingAV/deploy/atlas_cluster.sh pause  >> /root/TradingAV/logs/atlas_cluster.log 2>&1
+30 11 * * * /root/TradingAV/deploy/atlas_cluster.sh resume >> /root/TradingAV/logs/atlas_cluster.log 2>&1
 
-# ─── News RSS medios AR — 1er tiro 11:25 UTC (post-resume) + cada 15 min 12-23 UTC (todos los días)
-25 11    * * *   /root/TradingAV/deploy/run_job.sh news_ingesta 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_ingesta'
+# ─── News RSS medios AR — 1er tiro 11:35 UTC (post-resume 11:30) + cada 15 min 12-23 UTC (todos los días)
+35 11    * * *   /root/TradingAV/deploy/run_job.sh news_ingesta 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_ingesta'
 */15 12-23 * * * /root/TradingAV/deploy/run_job.sh news_ingesta 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_ingesta'
 
-# ─── News Finnhub (globales + ADRs AR/LATAM) — 1er tiro post-resume + cada 30 min 12-23 UTC
-25 11    * * *   /root/TradingAV/deploy/run_job.sh news_finnhub 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_finnhub'
+# ─── News Finnhub (globales + ADRs AR/LATAM) — 1er tiro post-resume 11:30 + cada 30 min 12-23 UTC
+35 11    * * *   /root/TradingAV/deploy/run_job.sh news_finnhub 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_finnhub'
 */30 12-23 * * * /root/TradingAV/deploy/run_job.sh news_finnhub 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_finnhub'
 
-# ─── Calendario económico global (Finnhub) — 1x/día post-resume
-30 11 * * * /root/TradingAV/deploy/run_job.sh economic_calendar 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.economic_calendar'
+# ─── Calendario económico global (Finnhub) — 1x/día post-resume 11:30
+40 11 * * * /root/TradingAV/deploy/run_job.sh economic_calendar 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.economic_calendar'
 
 # ─── Market quotes (watchlist HOME) — cada 1 min en horario US (L-V)
 # Timeout 50s (< intervalo 60s) — yfinance NO tiene timeout propio; sin esto un
@@ -171,7 +171,7 @@
 
 # ─── Sync Mongo→Postgres (espejo SQL analítico / Supabase). Incremental cada hora
 # :50, 15-23 UTC L-V (después de operaciones/negocio/aum). Lee del SECONDARY, batcheado
-# + throttle, upsert idempotente + borra huérfanos en dims. Atlas pausado 06-11:20 UTC →
+# + throttle, upsert idempotente + borra huérfanos en dims. Atlas pausado 03:30-11:30 UTC →
 # no corre ahí. --full semanal (domingo 12 UTC, Atlas ya resumido) para re-baseline.
 50 15-23 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_postgres 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_postgres'
 0 12 * * 0 /root/TradingAV/deploy/run_job.sh sync_postgres_full 40m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_postgres --full'

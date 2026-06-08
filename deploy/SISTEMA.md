@@ -16,7 +16,7 @@
                  ▼  │  (L-V 13–20 UTC → Mongo)  │ │    order_report → OrdenesLive)
               MongoDB Atlas (M10) ◄── crons (aum, bcra, negocio, …)
                  ▲  ▲                            │
-            lee  │  │ atlas_cluster.sh pause 04h / resume 11:20
+            lee  │  │ atlas_cluster.sh pause 03:30 / resume 11:30 UTC
    api.service (:8000) ──────────────────────────┘   + /mcp (Custom Connector Claude)
    partner_api (:8100)
         ▲  nginx → Cloudflare Access (gate de identidad)
@@ -64,6 +64,7 @@
 | cada 4min · 13-20h · L-V | `jobs.comercial_warm'` |
 | cada 5min · *h · diario | `jobs.watchdog'` |
 | 12:00 · diario | `jobs.argentina_datos'` |
+| 12:00 · Dom | `jobs.sync_postgres` |
 | 14:00 · L-V | `jobs.sync_comitentes'` |
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |
 | 15:00 · L-V | `jobs.aum'` |
@@ -81,11 +82,7 @@
 | 22:00 · L-V | `jobs.market_anchors'` |
 | 23:00 · L-V | `jobs.aum'` |
 | 20:15 · L-V | `jobs.options_rollup'` |
-| 11:25 · diario | `jobs.news_ingesta'` |
-| 11:25 · diario | `jobs.news_finnhub'` |
 | 20:25 · L-V | `jobs.snapshot_cierre` + `jobs.fair_value'` |
-| 11:30 · diario | `jobs.economic_calendar'` |
-| 11:30 · L-V | `jobs.descubrir_cuentas'` |
 | 12:30 · L-V | `jobs.cleanup_curvas'` |
 | 12:30 · L-V | `jobs.cleanup_futuros_dlr'` |
 | cada hora · 13-21h · L-V | `jobs.operaciones_informes'` |
@@ -94,10 +91,15 @@
 | 21:30 · L-V | `jobs.partner_export'` |
 | 22:30 · L-V | `jobs.actividad_mensual'` |
 | 23:30 · L-V | `jobs.consolidado_cuentas'` |
+| 11:35 · diario | `jobs.news_ingesta'` |
+| 11:35 · diario | `jobs.news_finnhub'` |
 | 20:35 · L-V | `jobs.cierre_canje'` |
+| 11:40 · diario | `jobs.economic_calendar'` |
+| 11:40 · L-V | `jobs.descubrir_cuentas'` |
 | cada hora · 13-22h · L-V | `jobs.ops_rollup'` |
 | cada hora · 14-22h · L-V | `jobs.comercial_rollup'` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
+| cada hora · 15-23h · L-V | `jobs.sync_postgres'` |
 <!-- /AUTOGEN:crons -->
 
 ## Otros crons (scripts / shell)
@@ -116,9 +118,9 @@
 | 13:00 · L-V | `systemctl restart motor_agro.service` |
 | 13:00 · L-V | `systemctl restart motor_agro_opciones.service` |
 | 13:00 · L-V | `systemctl restart motor_portfolio_snapshot.service` |
-| 06:00 · diario | `deploy/atlas_cluster.sh pause` |
-| 11:20 · diario | `deploy/atlas_cluster.sh resume` |
+| 11:30 · diario | `deploy/atlas_cluster.sh resume` |
 | 13:30 · L-V | `systemctl restart motor_ordenes.service` |
+| 03:30 · diario | `deploy/atlas_cluster.sh pause` |
 <!-- /AUTOGEN:otros -->
 
 > Las tablas de arriba solo listan lo **agendado** en `crontab.txt`. Jobs
@@ -133,7 +135,7 @@
   dólar-linked (`motor_curvas`, `futuros_dlr`, `/argy`, `macro`) se queda con el
   dólar viejo. Es el único proceso del sistema que depende de que un humano lo prenda.
 - **acaquant-web (Vercel)**: frontend Next.js, deploy auto sobre `main`. Sin crons propios.
-- **MongoDB Atlas (M10)**: la base. Se pausa 04:00 / resume 11:20 UTC (cron `atlas_cluster.sh`).
+- **MongoDB Atlas (M10)**: la base. Se pausa 03:30 / resume 11:30 UTC = 00:30 / 08:30 ART (cron `atlas_cluster.sh`).
 - **Cloudflare Access**: gate de identidad (quién entra). **nginx** (Droplet): reverse proxy `api`→:8000, `partner_api`→:8100.
 
 ## Integraciones externas (fuentes de datos)

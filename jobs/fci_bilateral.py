@@ -166,9 +166,15 @@ def run(full: bool = False) -> dict:
 
         # 5) Upsert NO destructivo: campos mapeados solo on-insert (preserva la
         #    carga manual histórica); `etapa` siempre seteada.
+        # `ingestado_en` va en $set (NO en $setOnInsert) → se bumpea SIEMPRE, también
+        # cuando solo cambia `etapa`. Sin esto, una modificación no re-dispara el sync
+        # incremental (que filtra por ingestado_en) y SQL queda con el valor viejo.
         bulk = [
-            UpdateOne({"boleto": base["boleto"]},
-                      {"$setOnInsert": base, "$set": {"etapa": etapa}}, upsert=True)
+            UpdateOne(
+                {"boleto": base["boleto"]},
+                {"$setOnInsert": {k: v for k, v in base.items() if k != "ingestado_en"},
+                 "$set": {"etapa": etapa, "ingestado_en": now}},
+                upsert=True)
             for etapa, base in por_boleto.values()
         ]
         up = mod = 0

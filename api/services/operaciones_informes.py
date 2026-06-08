@@ -48,6 +48,21 @@ def _norm_header(h: str) -> str:
     return re.sub(r"[^a-z0-9]", "", s.lower())
 
 
+# Boletos OTC que NO se ingestan (decisión 2026-06-08). Los `tipo_operacion`
+# "Rueda OTC NDF OTC - Compra/Venta" y "Rueda OTC Opciones OTC - Compra/Venta"
+# eran ~22% de la colección (107k docs, ~49 MB) bajo operacion="otro",
+# mercado=None y volumen despreciable (~7,9M USD en 3,5 años) → ruido para la
+# vista OPERACIONES. Se purgaron (scripts/delete_otc_ndf_opciones.py) y se
+# bloquean acá para que no vuelvan a entrar. OJO: NO excluye "Concurrencia OTC".
+_OTC_EXCLUIR_RE = re.compile(r"NDF\s*OTC|Opciones\s*OTC", re.IGNORECASE)
+
+
+def es_otc_excluido(tipo_operacion: str | None) -> bool:
+    """True si el boleto es NDF OTC / Opciones OTC (no se ingesta). Misma regla
+    que usa el script de purga → mantener en sync si cambia el criterio."""
+    return bool(tipo_operacion and _OTC_EXCLUIR_RE.search(tipo_operacion))
+
+
 def _to_str(v) -> str | None:
     if v is None:
         return None
@@ -286,10 +301,14 @@ def ingestar_filas(
     # dos filas del mismo boleto que aún no existe harían dos inserts → E11000.
     por_boleto: dict[str, dict] = {}
     sin_boleto = 0
+    otc_excluidas = 0
     for row in rows:
         doc = normalizar_fila(row)
         if doc is None:
             sin_boleto += 1
+            continue
+        if es_otc_excluido(doc.get("tipo_operacion")):
+            otc_excluidas += 1
             continue
         doc["ingestado_en"] = ahora
         _aplicar_enrich(doc, enrich_maps, mep_cache)
@@ -297,7 +316,7 @@ def ingestar_filas(
 
     if not por_boleto:
         return {"recibidas": len(rows), "sin_boleto": sin_boleto,
-                "upsertadas": 0, "modificadas": 0}
+                "otc_excluidas": otc_excluidas, "upsertadas": 0, "modificadas": 0}
 
     ops = [
         UpdateOne({"boleto": d["boleto"]}, {"$set": d}, upsert=True)
@@ -318,10 +337,11 @@ def ingestar_filas(
         upserted = det.get("nUpserted", 0)
         modified = det.get("nModified", 0)
     return {
-        "recibidas":   len(rows),
-        "sin_boleto":  sin_boleto,
-        "upsertadas":  upserted,
-        "modificadas": modified,
+        "recibidas":     len(rows),
+        "sin_boleto":    sin_boleto,
+        "otc_excluidas": otc_excluidas,
+        "upsertadas":    upserted,
+        "modificadas":   modified,
     }
 
 

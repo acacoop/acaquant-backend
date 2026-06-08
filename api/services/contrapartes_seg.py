@@ -22,6 +22,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from api.services.segmentacion import _TIPOS_PH  # tipo_cliente de persona física (Persona/Empleado)
 from core import aunesa
 from core.mongo import get_mongo_client, get_mongo_client_read
 
@@ -185,6 +186,12 @@ def reconciliar(*, limit: int = 500) -> dict:
     for c in data:
         if not isinstance(c, dict) or (c.get("estado") or "") != "Activa":
             continue
+        # Una contraparte NUNCA es persona física → se excluyen los tipo_cliente PH
+        # (Persona / Empleado). Mismo criterio que la clasificación patrimonial
+        # (segmentacion._TIPOS_PH). Acelera el conciliador y deja solo PJ/institucionales.
+        tipo_cli = (c.get("disposicionesGenerales") or {}).get("tipoCliente")
+        if tipo_cli in _TIPOS_PH:
+            continue
         cid = c.get("id")
         if cid is None:
             continue
@@ -202,6 +209,7 @@ def reconciliar(*, limit: int = 500) -> dict:
             "contraparte_sugerida": keywords[match],
             "segmento_sugerido": inferir_segmento(den, keywords[match]),
             "keyword": keywords[match],
+            "tipo_cliente": tipo_cli,
         })
         if len(candidatos) >= limit:
             break

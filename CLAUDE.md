@@ -146,7 +146,7 @@ Ver memorias [[feedback_proactive_architect]] y [[feedback_autonomy_lanes]].
 ## Estructura
 
 ```
-core/        # infra (mongo, mongo_monitor, websocket, rofex_session, rofex_orders_session, roles, snapshot_writer, job_runs, profiler, byma, mae, cafci, finnhub, yahoo, openfigi, argentina_datos, dolar_oficial)
+core/        # infra (mongo, mongo_monitor, postgres, grupos_sql, roles_sql, websocket, rofex_session, rofex_orders_session, roles, snapshot_writer, job_runs, profiler, byma, mae, cafci, finnhub, yahoo, openfigi, argentina_datos, dolar_oficial)
 engines/     # motores WS → Mongo (always-on L-V 13-20 UTC) — incluye motor_cedears (alimenta Scanner CEDEARs)
 jobs/        # batch/cron — incluye precios_acciones_daily (alimenta scanner via Trading.PreciosAcciones TS)
 quant/       # cálculo puro (black_scholes, stats, curve_fit, pivot_points, rolling_stats)
@@ -156,9 +156,10 @@ api/agent/   # asistente tool-use (LEGACY, no en uso — ver sección "Asistente
 api/mcp/     # MCP server (FastMCP) + OAuth 2.1 provider + discovery
 partner_api/ # app FastAPI SEPARADA (no monta en api/main) — datos para proveedor externo
 scripts/     # one-shot / migraciones / smoke
+sql/         # schema.sql — espejo relacional Postgres/Supabase (ver "Capa SQL")
 deploy/      # systemd + crontab.txt (fuente de verdad)
 .claude/     # settings.json + hooks + commands + skills + agents (ver .claude/INDEX.md)
-docs/        # ARQUITECTURA.md (DOC MADRE: arquitectura/datos/estrategia/roadmap/plan SQL). Referencia operativa: API.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md, RUNBOOK.md (operación/incidentes), SECRETS.md + SECURITY.md (seguridad), INGEST_DOLAR.md (feed MAE dólar), PARTNER_API*.md, TABLERO_COMERCIAL.md, GRUPOS.md, SEGMENTACION_PATRIMONIAL.md, HERRAMIENTAS.md (auto-gen). vault/ (cerebro Obsidian, auto-generado)
+docs/        # ARQUITECTURA.md (DOC MADRE: arquitectura/datos/estrategia/roadmap/plan SQL). Referencia operativa: API.md, MCP.md, MCP_TOOLS.md, MOTOR_VALUACIONES.md, RUNBOOK.md (operación/incidentes), SECRETS.md + SECURITY.md (seguridad), PARTNER_API*.md, TABLERO_COMERCIAL.md, GRUPOS.md, SEGMENTACION_PATRIMONIAL.md, HERRAMIENTAS.md (auto-gen). vault/ (cerebro Obsidian, auto-generado)
 ```
 
 ## Plano del sistema — `deploy/SISTEMA.md`
@@ -200,7 +201,6 @@ mismo cambio. Cómo abrirlo: `docs/vault/README.md`.
 ```bash
 uvicorn api.main:app --reload --port 8000
 python -m engines.<motor> | jobs.<job> | scripts.<cmd>
-python -m scripts.api_migrate <cmd>            # resync colecciones *API.*API
 ruff check . [--fix]                           # line-length=100, py312
 pytest -ra                                     # unit (pyproject ya excluye integration via addopts)
 pytest tests/<path>::<test_name>               # single test
@@ -290,6 +290,26 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 - DB propia: `ACAPortfolio.Cartera`. Env vars `PARTNER_MONGO_URI`, `PARTNER_JWT_SECRET` (chequeadas al importar `main.py`).
 - Auth + rate limit propios (`partner_api/auth.py`, `security.py`, `ratelimit.py`) — no comparte código con `api/auth.py`.
 
+## Capa SQL — Postgres/Supabase (migración Mongo→PG en curso)
+
+**Postgres NO reemplaza Mongo: es un espejo relacional de solo-lectura** del
+núcleo de negocio (reportería con SQL real, cruces baratos). Si PG se cae, la
+operación (Mongo) sigue. Doc completo y estado por fase: **`docs/SQL.md`** +
+`docs/MIGRACION_MONGO_SUPABASE.md`. Esquema: `sql/schema.sql`. Pool/conn:
+`core.postgres.get_pool` (lee `.env` propia). Sync: `jobs/sync_postgres.py`.
+
+- **Patrón dual-run (no inferible)**: los endpoints migrados leen SQL **o** Mongo
+  según un flag, con el path Mongo intacto → rollback = sacar la env + restart.
+  Primer feature migrado: vista OPERACIONES (`/api/operaciones/ops/*`) vía
+  `api/services/operaciones_sql.py`, flag global `OPERACIONES_SQL=1` (override por
+  request `?_engine=sql|mongo`), selector en `operaciones.py::_motor()`.
+- **GATE antes de cutover**: correr el comparador SQL↔Mongo (ej.
+  `scripts/compare_ops_sql_vs_mongo.py`) y exigir paridad total. NO migrar lecturas
+  a ciegas — las reglas de traducción Mongo→SQL son sutiles (NULL vs `''`, `es_cierre`,
+  `etapa`, `ABS`/`COALESCE`); están documentadas en `docs/SQL.md`.
+- Otros módulos SQL ya escritos: `core/grupos_sql.py`, `core/roles_sql.py`. Estado de
+  qué dominio lee SQL vs Mongo: `python -m scripts.estado_sql`.
+
 ## Deploy
 
 Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `systemctl restart api.service` en el Droplet, o skill `/deploy`. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`.
@@ -302,4 +322,4 @@ Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `syste
 
 Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.aum` (23 L-V), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `MarketSnapshot` y persiste cierre por bono en `Trading.SnapshotsCierre`), `jobs.negocio_movimientos` (cada hora 15-22 UTC L-V, pega a Aunesa `consolidadosGenerales`, parsea/categoriza/agrupa por boleto y persiste idempotente en `CashFlow.NegocioMovimientos` para la vista `/operaciones/negocio`).
 
-Dólar oficial: única fuente live es `Valuaciones.DolarOficialLive` (feed MAE mayorista UST$T plazo 000, script local en PC oficina; ingest documentado en `docs/INGEST_DOLAR.md`). Histórico/anchors (7d/MTD/YTD del watchlist `/argy`) deshabilitado hasta que MAE acumule histórico suficiente. Para series macro (`serie_macro` con `dolar_oficial`/`dolar_mayorista`) usar `Trading.DOLAR` (BCRA A3500 fixing diario).
+Dólar oficial: única fuente live es `Valuaciones.DolarOficialLive` (feed MAE mayorista UST$T plazo 000, script local en PC oficina). Histórico/anchors (7d/MTD/YTD del watchlist `/argy`) deshabilitado hasta que MAE acumule histórico suficiente. Para series macro (`serie_macro` con `dolar_oficial`/`dolar_mayorista`) usar `Trading.DOLAR` (BCRA A3500 fixing diario).

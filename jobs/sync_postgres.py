@@ -450,6 +450,48 @@ def sync_news(mdb, conn, dry) -> int:
     return n
 
 
+def _doc_iso(d):
+    """Copia el doc con todos los datetime → ISO (para guardarlo en jsonb sin ruido de tipos)."""
+    from datetime import datetime as _dt
+    return {k: (v.isoformat() if isinstance(v, _dt) else v) for k, v in d.items()}
+
+
+def sync_quotes(mdb, conn, dry) -> int:
+    """Market.Quotes → market_quotes (key symbol). data jsonb = doc completo (anchors incluidos)."""
+    from psycopg.types.json import Jsonb
+    cols = ["symbol", "grupo", "data"]
+    rows = []
+    for d in mdb["Market"]["Quotes"].find({}, {"_id": 0}):
+        sym = _s(d.get("symbol"))
+        if not sym:
+            continue
+        rows.append((sym, _s(d.get("grupo")), Jsonb(_doc_iso(d))))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "market_quotes", cols, ["symbol"], rows, dry)
+    _delete_not_in(conn, "market_quotes", "symbol", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_calendar(mdb, conn, dry) -> int:
+    """Market.EconomicCalendar → market_calendar. PK = hash de contenido (no asume id natural).
+    Cols filtrables (time/impact/country) materializadas; el doc entero va en data jsonb."""
+    import hashlib
+    import json as _json
+
+    from psycopg.types.json import Jsonb
+    cols = ["hkey", "evt_time", "impact", "country", "data"]
+    rows = []
+    for d in mdb["Market"]["EconomicCalendar"].find({}, {"_id": 0}):
+        doc = _doc_iso(d)
+        hkey = hashlib.md5(_json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()
+        rows.append((hkey, d.get("time"), int(d.get("impact") or 0),
+                     _s(d.get("country")), Jsonb(doc)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "market_calendar", cols, ["hkey"], rows, dry)
+    _delete_not_in(conn, "market_calendar", "hkey", {r[0] for r in rows}, dry)
+    return n
+
+
 def sync_snapshots_cierre(mdb, conn, dry) -> int:
     """Trading.SnapshotsCierre → snapshots_cierre, último por ticker (el PnL usa el más reciente)."""
     cols = ["ticker", "last_price", "fecha"]
@@ -498,39 +540,57 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     modo = "FULL" if full else f"incremental (últimos {days}d)"
     print(f"sync_postgres — modo {modo}{'  [DRY-RUN]' if dry else ''}")
 
+    tempos: dict[str, float] = {}
+
+    def _t(label, fn):
+        """Cronometra una fase (REGLA #2: medir antes de optimizar). Devuelve lo que devuelve fn."""
+        t0 = time.perf_counter()
+        r = fn()
+        tempos[label] = time.perf_counter() - t0
+        return r
+
     mdb = get_mongo_client_read()
     with connect() as conn:
-        n_op, n_cu, n_co = sync_dims_clientes(mdb, conn, dry)
-        n_cp = sync_contrapartes(mdb, conn, dry)
-        n_ac = sync_accionistas(mdb, conn, dry)
-        n_mu = sync_manager_users(mdb, conn, dry)
-        n_rm = sync_role_matrix(mdb, conn, dry)
-        n_gr = sync_grupos(mdb, conn, dry)
-        n_am = sync_actividad_mensual(mdb, conn, dry)
-        n_as = sync_assets(mdb, conn, dry)
-        n_dl = sync_dolar(mdb, conn, dry, desde)
-        n_ps = sync_portfolio_snapshot(mdb, conn, dry)
-        n_sc = sync_snapshots_cierre(mdb, conn, dry)
-        n_nw = sync_news(mdb, conn, dry)
-        print(f"  news={n_nw}")
+        n_op, n_cu, n_co = _t("dims_clientes", lambda: sync_dims_clientes(mdb, conn, dry))
+        n_cp = _t("contrapartes", lambda: sync_contrapartes(mdb, conn, dry))
+        n_ac = _t("accionistas", lambda: sync_accionistas(mdb, conn, dry))
+        n_mu = _t("manager_users", lambda: sync_manager_users(mdb, conn, dry))
+        n_rm = _t("role_matrix", lambda: sync_role_matrix(mdb, conn, dry))
+        n_gr = _t("grupos", lambda: sync_grupos(mdb, conn, dry))
+        n_am = _t("actividad_mensual", lambda: sync_actividad_mensual(mdb, conn, dry))
+        n_as = _t("assets", lambda: sync_assets(mdb, conn, dry))
+        n_dl = _t("dolar", lambda: sync_dolar(mdb, conn, dry, desde))
+        n_ps = _t("portfolio_snapshot", lambda: sync_portfolio_snapshot(mdb, conn, dry))
+        n_sc = _t("snapshots_cierre", lambda: sync_snapshots_cierre(mdb, conn, dry))
+        n_nw = _t("news", lambda: sync_news(mdb, conn, dry))
+        n_qt = _t("quotes", lambda: sync_quotes(mdb, conn, dry))
+        n_cal = _t("calendar", lambda: sync_calendar(mdb, conn, dry))
+        print(f"  news={n_nw}  quotes={n_qt}  calendar={n_cal}")
         print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  comitentes={n_co}  "
               f"contrapartes={n_cp}  accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
               f"assets={n_as}  dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
 
-        n_ops, sin_bol = sync_operaciones(mdb, conn, dry, desde)
-        n_aum = sync_aum(mdb, conn, dry, desde)
-        n_nm = sync_negocio(mdb, conn, dry, desde)
+        n_ops, sin_bol = _t("operaciones", lambda: sync_operaciones(mdb, conn, dry, desde))
+        n_aum = _t("aum", lambda: sync_aum(mdb, conn, dry, desde))
+        n_nm = _t("negocio", lambda: sync_negocio(mdb, conn, dry, desde))
         print(f"  hechos: operaciones={n_ops:,} (sin boleto, salteadas={sin_bol:,})  "
               f"aum={n_aum:,}  negocio={n_nm:,}")
 
         if not dry:
-            reconciliar(mdb, conn)
+            _t("reconciliar", lambda: reconciliar(mdb, conn))
+
+    # Breakdown de tiempos (desc) — para saber QUÉ optimizar, no adivinar.
+    print("\n── Tiempos por fase (seg, desc) ──")
+    for label, seg in sorted(tempos.items(), key=lambda kv: kv[1], reverse=True):
+        print(f"  {label:<22}{seg:>8.2f}")
+    print(f"  {'─' * 30}\n  {'TOTAL':<22}{sum(tempos.values()):>8.2f}")
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
     return {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co, "contrapartes": n_cp,
             "accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
             "actividad_mensual": n_am, "assets": n_as, "dolar": n_dl,
             "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc, "news": n_nw,
+            "quotes": n_qt, "calendar": n_cal,
             "operaciones": n_ops,
             "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol}
 

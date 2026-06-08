@@ -60,6 +60,7 @@
 | cada 15min · 12-23h · diario | `jobs.news_ingesta'` |
 | cada 15min · 13-20h · L-V | `jobs.adr_live'` |
 | cada 15min · 13-20h · L-V | `engines.dolar_mep'` |
+| cada 20min · 15-23h · L-V | `jobs.sync_postgres'` |
 | cada 30min · 12-23h · diario | `jobs.news_finnhub'` |
 | cada 4min · 13-20h · L-V | `jobs.comercial_warm'` |
 | cada 5min · *h · diario | `jobs.watchdog'` |
@@ -99,7 +100,6 @@
 | cada hora · 13-22h · L-V | `jobs.ops_rollup'` |
 | cada hora · 14-22h · L-V | `jobs.comercial_rollup'` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
-| cada hora · 15-23h · L-V | `jobs.sync_postgres'` |
 <!-- /AUTOGEN:crons -->
 
 ## Otros crons (scripts / shell)

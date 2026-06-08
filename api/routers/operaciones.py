@@ -1058,59 +1058,70 @@ def ops_resumen(
     hasta: str = Query(..., description="YYYY-MM-DD"),
     operacion: str | None = Query(None, description="Selección de operacion (cross-filter)"),
     denominacion: str | None = Query(None, description="Selección de denominacion (cross-filter)"),
+    instrumento: str | None = Query(None, description="Selección de instrumento/título (cross-filter)"),
     cuenta: str | None = Query(None, description="Filtra a una cuenta (búsqueda)"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
     _engine: str | None = Query(None, include_in_schema=False),
 ):
-    """Scope [desde,hasta]: Σ bruto por operacion y por denominacion.
+    """Scope [desde,hasta]: Σ bruto por operacion, por denominacion (cuentas) y por
+    instrumento (títulos).
 
-    Cross-filter: si hay `denominacion` seleccionada, la tabla de operaciones se
-    filtra a esa denominacion; si hay `operacion` seleccionada, la de
-    denominaciones se filtra a esa operacion. `cuenta`/`segmento` filtran ambas.
+    Cross-filter 3-way: cada tabla aplica las selecciones de las OTRAS dos
+    (operacion ↔ denominacion ↔ instrumento). `cuenta`/`segmento` filtran las tres.
     """
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     if moneda == "USD_DOL" or _motor(_engine) == "sql":  # dolarizado → SQL siempre
         return _ops_sql.ops_resumen(moneda=moneda, mercado=mercado, desde=desde, hasta=hasta,
                                     operacion=operacion, denominacion=denominacion, cuenta=cuenta,
-                                    segmento=segmento, scope=scope)
+                                    segmento=segmento, scope=scope, instrumento=instrumento)
     db = get_db_cashflow()["Operaciones"]
     base = _ops_match(moneda, mercado, cuenta=cuenta, segmento=segmento)
     base["concertacion"] = {"$gte": desde, "$lte": hasta}
     aplicar_scope_cuenta(base, scope, campo="cuenta")
-    filtro_op = {"denominacion": denominacion} if denominacion else {}
-    filtro_denom = {"operacion": operacion} if operacion else {}
+    # Cross-filter 3-way: cada faceta aplica las selecciones de las OTRAS dos dims.
+    def _xf(*, denom=False, op=False, instr=False) -> list[dict]:
+        m: dict = {}
+        if denom and denominacion:
+            m["denominacion"] = denominacion
+        if op and operacion:
+            m["operacion"] = operacion
+        if instr and instrumento:
+            m["instrumento"] = instrumento
+        return [{"$match": m}] if m else [{"$match": {}}]
+
+    def _grupo(campo: str, key: str, having_nz: bool) -> list[dict]:
+        etapas = [
+            {"$group": {"_id": campo, "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}}, "n": {"$sum": 1}}},
+        ]
+        if having_nz:
+            etapas.append({"$match": {"bruto": {"$ne": 0}}})
+        etapas += [
+            {"$sort": {"bruto": -1}},
+            {"$project": {"_id": 0, key: {"$ifNull": ["$_id", "(sin)"]},
+                          "bruto": {"$round": ["$bruto", 2]}, "n": 1}},
+        ]
+        return etapas
+
     facet = list(db.aggregate([
         {"$match": base},
         {"$facet": {
-            "por_operacion": [
-                {"$match": filtro_op} if filtro_op else {"$match": {}},
-                {"$group": {"_id": "$operacion", "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}},
-                            "n": {"$sum": 1}}},
-                {"$match": {"bruto": {"$ne": 0}}},
-                {"$sort": {"bruto": -1}},
-                {"$project": {"_id": 0, "operacion": {"$ifNull": ["$_id", "(sin)"]},
-                              "bruto": {"$round": ["$bruto", 2]}, "n": 1}},
-            ],
-            "por_denominacion": [
-                {"$match": filtro_denom} if filtro_denom else {"$match": {}},
-                {"$group": {"_id": "$denominacion", "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}},
-                            "n": {"$sum": 1}}},
-                {"$sort": {"bruto": -1}},
-                {"$project": {"_id": 0, "denominacion": {"$ifNull": ["$_id", "(sin)"]},
-                              "bruto": {"$round": ["$bruto", 2]}, "n": 1}},
-            ],
+            "por_operacion":    [*_xf(denom=True, instr=True), *_grupo("$operacion", "operacion", True)],
+            "por_denominacion": [*_xf(op=True, instr=True), *_grupo("$denominacion", "denominacion", False)],
+            "por_instrumento":  [*_xf(op=True, denom=True), *_grupo("$instrumento", "instrumento", True)],
         }},
     ]))
     f = facet[0] if facet else {}
     por_op = f.get("por_operacion", [])
     por_denom = f.get("por_denominacion", [])
+    por_instr = f.get("por_instrumento", [])
     # Total = el de la dimensión filtrada (si hay selección) o el global.
     total = round(sum(r["bruto"] for r in (por_denom if denominacion else por_op)), 2)
     return {
         "moneda": moneda, "mercado": mercado, "desde": desde, "hasta": hasta,
-        "por_operacion": por_op, "por_denominacion": por_denom, "total": total,
+        "por_operacion": por_op, "por_denominacion": por_denom,
+        "por_instrumento": por_instr, "total": total,
     }
 
 

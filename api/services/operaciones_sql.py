@@ -179,42 +179,50 @@ def ops_resumen(
     moneda: str = "ARS", mercado: str | None = None, desde: str = "", hasta: str = "",
     operacion: str | None = None, denominacion: str | None = None, cuenta: str | None = None,
     segmento: str | None = None, scope: tuple[str, ...] | None = None,
+    instrumento: str | None = None,
 ) -> dict:
     base, p = _ops_where(moneda, mercado, cuenta=cuenta, segmento=segmento, scope=scope)
     p.update({"desde": desde, "hasta": hasta})
     base = f"{base} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
-
     bexpr = _bruto_expr(moneda)
-    # por_operacion: filtrada por denominacion (cross-filter), HAVING bruto<>0.
-    w_op, p_op = base, dict(p)
-    if denominacion:
-        w_op += " AND denominacion = %(f_denom)s"
-        p_op["f_denom"] = denominacion
+
+    def _xf(*, denom=False, op=False, instr=False) -> tuple[str, dict]:
+        """WHERE base + las selecciones cruzadas pedidas (cada tabla aplica las de las otras)."""
+        w, pp = base, dict(p)
+        if denom and denominacion:
+            w += " AND denominacion = %(f_denom)s"; pp["f_denom"] = denominacion
+        if op and operacion:
+            w += " AND operacion = %(f_op)s"; pp["f_op"] = operacion
+        if instr and instrumento:
+            w += " AND instrumento = %(f_instr)s"; pp["f_instr"] = instrumento
+        return w, pp
+
+    # por_operacion: cruzada por denominacion + instrumento, HAVING bruto<>0.
+    w_op, p_op = _xf(denom=True, instr=True)
     por_operacion = [
         {"operacion": r["operacion"] or "(sin)", "bruto": round(_f(r["bruto"]), 2), "n": r["n"]}
-        for r in _q(
-            f"SELECT operacion, {bexpr} AS bruto, count(*) AS n "
-            f"FROM operaciones WHERE {w_op} GROUP BY operacion "
-            f"HAVING {bexpr} <> 0 ORDER BY bruto DESC", p_op,
-        )
+        for r in _q(f"SELECT operacion, {bexpr} AS bruto, count(*) AS n FROM operaciones "
+                    f"WHERE {w_op} GROUP BY operacion HAVING {bexpr} <> 0 ORDER BY bruto DESC", p_op)
     ]
-    # por_denominacion: filtrada por operacion (cross-filter), sin HAVING.
-    w_dn, p_dn = base, dict(p)
-    if operacion:
-        w_dn += " AND operacion = %(f_op)s"
-        p_dn["f_op"] = operacion
+    # por_denominacion: cruzada por operacion + instrumento.
+    w_dn, p_dn = _xf(op=True, instr=True)
     por_denominacion = [
-        {"denominacion": r["denominacion"] or "(sin)",
-         "bruto": round(_f(r["bruto"]), 2), "n": r["n"]}
-        for r in _q(
-            f"SELECT denominacion, {bexpr} AS bruto, count(*) AS n "
-            f"FROM operaciones WHERE {w_dn} GROUP BY denominacion ORDER BY bruto DESC", p_dn,
-        )
+        {"denominacion": r["denominacion"] or "(sin)", "bruto": round(_f(r["bruto"]), 2), "n": r["n"]}
+        for r in _q(f"SELECT denominacion, {bexpr} AS bruto, count(*) AS n FROM operaciones "
+                    f"WHERE {w_dn} GROUP BY denominacion ORDER BY bruto DESC", p_dn)
+    ]
+    # por_instrumento (títulos): cruzada por operacion + denominacion, HAVING bruto<>0.
+    w_in, p_in = _xf(op=True, denom=True)
+    por_instrumento = [
+        {"instrumento": r["instrumento"] or "(sin)", "bruto": round(_f(r["bruto"]), 2), "n": r["n"]}
+        for r in _q(f"SELECT instrumento, {bexpr} AS bruto, count(*) AS n FROM operaciones "
+                    f"WHERE {w_in} GROUP BY instrumento HAVING {bexpr} <> 0 ORDER BY bruto DESC", p_in)
     ]
     total = round(sum(r["bruto"] for r in (por_denominacion if denominacion else por_operacion)), 2)
     return {
         "moneda": moneda, "mercado": mercado, "desde": desde, "hasta": hasta,
-        "por_operacion": por_operacion, "por_denominacion": por_denominacion, "total": total,
+        "por_operacion": por_operacion, "por_denominacion": por_denominacion,
+        "por_instrumento": por_instrumento, "total": total,
     }
 
 

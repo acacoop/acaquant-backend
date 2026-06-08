@@ -21,6 +21,7 @@ _FLAGS = [
     ("COMERCIAL_SQL",   "COMERCIAL — /comercial/* (operadores, informes)"),
     ("PORTFOLIO_SQL",   "PORTFOLIO AuM — /aum, /fci-*, /total-*, /diff"),
     ("PNL_SQL",         "PnL Títulos — /pnl"),
+    ("NEWS_SQL",        "HOME/NEWS — /api/news/* (headlines, stats)"),
     ("AUTH_SQL",        "AUTH (lecturas) — roles, matriz, scope de cuentas"),
     ("SNAPSHOT_SQL",    "MOTORES → SnapshotWriter (dual-write a SQL)"),
 ]

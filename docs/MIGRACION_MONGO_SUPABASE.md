@@ -88,6 +88,43 @@ cero. Mongo queda como plan B hasta verificar. Manda el gate, no el calendario.
 - **Pendiente del user:** ALTER en Supabase + `sync --full` + correr el harness (→ 0 diffs) +
   prender `NEGOCIO_SQL=1`.
 
+### Migración HOME/NEWS (`/api/news/*`) — código listo ⏳ validar
+- **Qué:** el panel de noticias de la home (lista + stats por fuente) lee de SQL.
+- **Cómo:**
+  - Tabla nueva `news_headlines` (`url` PK, `fecha_publicacion`, `fuente`, `categoria`, `titulo`,
+    **`data jsonb` = doc completo con fechas a ISO**) + índice `ix_news_fecha`. Es el patrón
+    "doc entero en jsonb" — sirve para colecciones semi-estructuradas sin arrastrar el esquema.
+  - `sync_news` en `jobs/sync_postgres.py` (espeja `News.Headlines`, key `url`, delete-orphans).
+  - `api/services/news_sql.py`: `list_headlines` (filtros desde/hasta/fuente/categoria/keyword
+    ILIKE + orden fecha desc + paginado) y `stats` (group by fuente últimas N horas).
+  - `api/routers/news.py`: flag `NEWS_SQL` en ambos endpoints (Mongo intacto como fallback).
+  - `scripts/compare_news_sql_vs_mongo.py`: GATE.
+- **Pendiente del user:** `CREATE TABLE news_headlines` + índice en Supabase + `sync --full` +
+  harness (→ 0 diffs) + `NEWS_SQL=1`.
+
+### Migración MARKET quotes/calendar (`/api/market/*`) — PARCIAL ⏳
+- **Qué:** cotizaciones del watchlist (`/quotes`) y calendario económico (`/calendar/economic`).
+  (`/candle` y `/profile` son APIs externas — Yahoo/Finnhub — NO tocan Mongo, no migran.)
+- **Hecho:** tablas `market_quotes` (`symbol` PK, `grupo`, `data jsonb`) y `market_calendar`
+  (`hkey` = md5 del doc como PK — no asume id natural; `evt_time`/`impact`/`country` materializados
+  + `data jsonb`) en `sql/schema.sql`; `sync_quotes`/`sync_calendar` en `jobs/sync_postgres.py`.
+- **FALTA (no construido):** `api/services/market_sql.py` (leer jsonb + reusar `_serialize`),
+  flag `MARKET_SQL` en `api/routers/market.py`, harness `compare_market_sql_vs_mongo.py`.
+  → **Este es el primer pendiente concreto si se retoma "migrable sin mercado".**
+
+### Feature: chart de volumen interactivo (Operadores) — NO es migración, va sobre SQL
+- **Qué:** click en una barra del chart (día/semana/mes) → la tabla de clientes muestra quiénes
+  operaron en ESE período con su volumen (antes la tabla era siempre YTD y la barra inerte).
+- **Cómo:** endpoint nuevo `/api/operaciones/comercial/clientes-por-fecha` (`desde`/`hasta`/`moneda`),
+  implementado en **`comercial_sql.py` Y `comercial.py`** (dual-run, respeta `COMERCIAL_SQL`).
+  Frontend `comercial-operaciones-view.tsx`: `onClick` en `<Bar>` + estado `selBar`/`periodo`,
+  resaltado de barra y chip para limpiar.
+
+### Feature: eliminadas sub-tabs TASA FIJA y CER de VALUACIONES (frontend)
+- Backend ya había borrado `/api/portfolio/tasa-fija` y `/cer`. Se sacaron del front
+  (`aum-view.tsx`: componentes, tipos, tabs) + las routes proxy muertas. Quedan TOTAL/FCI/ANÁLISIS.
+  El módulo **Renta Fija (curvas)** NO se tocó (es otra cosa).
+
 ### Hallazgos / deuda de datos detectada
 - Cuentas con el **mismo id_cuenta y distinta grafía** de denominación entre boletos (Mongo
   `$first` arbitrario). En el modelo SQL limpio el nombre vive una vez en `core.cuentas`.
@@ -157,8 +194,12 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
    **Patrón de seguridad:** el fallback vive DENTRO de core (no en el router), porque auth corre
    en CADA request; ante cualquier error SQL cae a Mongo → prender AUTH_SQL nunca tumba la app.
    Vistas tasa-fija/CER de portfolio: ELIMINADAS (sin uso). PnL Títulos: pendiente (task aparte).
+5c. ✅ HOME/NEWS (código listo; flag `NEWS_SQL`; harness) — pendiente user: CREATE TABLE + sync + flag.
+5d. 🟡 MARKET quotes/calendar (tablas + sync hechos; falta service+flag+harness `MARKET_SQL`).
 6. ⏳ MERCADO (curvas, snapshots, timesales — medir shapes; real-time al final)
-7. ⏳ FASE 2: writes a SQL (incl. auth dual-write) + check de dependencias → apagar Mongo
+7. ⏳ FASE 2 — ESCRITURAS → apagar Mongo. Ver §5b "Aunesa/Negocio — las dos capas":
+   Capa A (lecturas, listo, validar+prender 5 flags) + Capa B (dual-write de 6 ingestas, PAUSADA
+   2026-06-07 a pedido del user). Incluye también auth writes + caches + ~40 jobs cron.
 
 ---
 
@@ -167,9 +208,12 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
 ### ✅ Migrado (lee SQL, con harness + flag): operaciones, negocio, comercial, portfolio-AuM, PnL, auth(lecturas).
 
 ### ⏳ Migrable SIN mercado (datos diarios/Aunesa) — pendiente:
-- **Home/News**: `/api/news/*` (News.Headlines, key=url) + `/api/market/quotes` (Market.Quotes) +
-  `/api/market/calendar/economic` (Market.EconomicCalendar). (candle/profile son APIs externas, no Mongo.)
-- **Watchlist/anchors**: jobs.market_quotes / market_anchors → colecciones de home.
+- **Home/News**: `/api/news/*` → **código listo ⏳ validar** (tabla `news_headlines` jsonb + sync +
+  `news_sql.py` + flag `NEWS_SQL` + harness). Pendiente user: CREATE TABLE + sync --full + harness + flag.
+- **Market quotes/calendar**: `/api/market/quotes` + `/calendar/economic` → **PARCIAL**: tablas
+  (`market_quotes`, `market_calendar`) + sync HECHOS; falta `market_sql.py` + flag `MARKET_SQL` +
+  harness. (candle/profile = APIs externas, no migran.) **← primer pendiente concreto si se retoma.**
+- **Watchlist/anchors**: jobs.market_quotes / market_anchors → colecciones de home (escritura, Fase 2).
 - **Manager** (6 tabs): intel, jobs/logs (JobRuns), **clientes/Comitentes (lectura + EDICIÓN/segmentación)**,
   compliance, assets/títulos. (roles/users/grupos: lecturas ✅ por auth; falta su edición.)
 - **back-office**.
@@ -188,6 +232,25 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
 - **Auth writes**: upsert_user, delete_user, set_role_modules, auto_register, last_seen, grupos CRUD, RoleAudit.
 - **Segmentación writes**: edición de Comitentes (niveles/operador) desde /manager.
 - **Caches**: PnLTotalesCache, ConsolidadoCuentas (cron → tabla jsonb).
+
+### 🅰️🅱️ Aunesa/Negocio — las dos capas (decisión 2026-06-07: Capa B PAUSADA por el user)
+El dominio Aunesa/Negocio (lo que más interesa apagar de Mongo) se cierra en dos capas:
+
+- **Capa A — LECTURAS (código 100% listo, falta validar+prender):** los 5 dominios
+  (`OPERACIONES_SQL`, `NEGOCIO_SQL`, `COMERCIAL_SQL`, `PORTFOLIO_SQL`, `PNL_SQL`) ya tienen servicio
+  SQL + harness + flag. Runbook: `git pull` → `sync --full` → correr los 5 `compare_*_sql_vs_mongo`
+  → si 0 diffs, agregar los 5 flags al `.env` + `restart`. **100% testeable sin mercado.** Reversible.
+- **Capa B — ESCRITURAS (PAUSADA hoy a pedido del user):** mientras Aunesa escriba Mongo y `sync_postgres`
+  copie a SQL, Mongo NO se puede apagar. Para apagarlo hay que pasar a SQL la escritura de **6 ingestas**,
+  vía **dual-write** (escribir SQL *además de* Mongo → validar → quitar write Mongo + sync de esa tabla):
+  1. `jobs/negocio_movimientos.py` → `CashFlow.NegocioMovimientos`
+  2. `jobs/operaciones_informes.py` (+`scripts/enrich_operaciones.py`) → `CashFlow.Operaciones`
+  3. `jobs/aum.py` → `Valuaciones.AuM`
+  4. ingesta Comitentes (Aunesa) → `Clientes.Comitentes`
+  5. `actividad_mensual` → snapshot
+  6. `pnl_totales_precompute` / `consolidado_cuentas` → caches (→ tablas jsonb)
+  Cuando las 6 estén en SQL-only → nadie usa Mongo de Aunesa/Negocio → **apagar Mongo** del dominio.
+  **Próximo paso cuando se retome:** dual-write de (1) `negocio_movimientos` de a uno, con harness.
 
 ### Realidad: estamos ~35-40%. Lo hecho es la parte analítica pesada + auth + PnL. El resto es un
 ### programa de varias corridas (la capa de mercado se valida con mercado abierto).

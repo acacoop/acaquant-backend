@@ -1010,6 +1010,20 @@ def _serie_bruto_rollup(cf, moneda, mercado, operacion, segmento) -> list[dict] 
     return [{"fecha": f, "bruto": round(serie[f], 2)} for f in sorted(serie)]
 
 
+def _op_cuentas(operador: str | None, scope: tuple[str, ...] | None) -> list[str] | None:
+    """operador_email → id_cuentas de ese operador (intersecta con scope si lo
+    hay). None si no se filtra por operador. En Operaciones el campo `cuenta`
+    guarda el id_cuenta, así que se aplica como `match['cuenta'] = {$in: ...}`."""
+    if not operador:
+        return None
+    cuentas = [str(c["id_cuenta"]) for c in get_db_clientes()["Comitentes"].find(
+        {"operador_email": operador}, {"_id": 0, "id_cuenta": 1}) if c.get("id_cuenta")]
+    if scope is not None:
+        scope_set = set(scope)
+        cuentas = [c for c in cuentas if c in scope_set]
+    return cuentas
+
+
 @router.get("/ops/serie")
 @cached(ttl=300)
 def ops_serie(
@@ -1019,6 +1033,7 @@ def ops_serie(
     denominacion: str | None = Query(None, description="Filtra el gráfico a una denominacion"),
     cuenta: str | None = Query(None, description="Filtra a una cuenta (búsqueda)"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
+    operador: str | None = Query(None, description="Filtra por operador (operador_email)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
     _engine: str | None = Query(None, include_in_schema=False),
 ):
@@ -1026,20 +1041,23 @@ def ops_serie(
 
     Caso común (sin filtro de alta cardinalidad ni scope) → lee el rollup
     OpsSerieDiaria (jobs/ops_rollup) en vez de escanear toda Operaciones. Con
-    denominacion/cuenta/scoped → live (ya filtra por índice, no escanea todo)."""
+    denominacion/cuenta/scoped/operador → live (ya filtra por índice, no escanea)."""
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     if moneda == "USD_DOL" or _motor(_engine) == "sql":  # dolarizado → SQL siempre
         return _ops_sql.ops_serie(moneda=moneda, mercado=mercado, operacion=operacion,
                                   denominacion=denominacion, cuenta=cuenta, segmento=segmento,
                                   scope=scope)
+    op_cuentas = _op_cuentas(operador, scope)
     cf = get_db_cashflow()
     serie: list[dict] | None = None
-    if not denominacion and not cuenta and scope is None:
+    if not denominacion and not cuenta and scope is None and op_cuentas is None:
         serie = _serie_bruto_rollup(cf, moneda, mercado, operacion, segmento)
     if serie is None:
         match = _ops_match(moneda, mercado, operacion, denominacion, cuenta, segmento)
         aplicar_scope_cuenta(match, scope, campo="cuenta")
+        if op_cuentas is not None:
+            match["cuenta"] = {"$in": op_cuentas}
         serie = list(cf["Operaciones"].aggregate([
             {"$match": match},
             {"$group": {"_id": "$concertacion", "bruto": {"$sum": {"$ifNull": ["$bruto", 0]}}}},
@@ -1061,6 +1079,7 @@ def ops_resumen(
     instrumento: str | None = Query(None, description="Selección de instrumento/título (cross-filter)"),
     cuenta: str | None = Query(None, description="Filtra a una cuenta (búsqueda)"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
+    operador: str | None = Query(None, description="Filtra por operador (operador_email)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
     _engine: str | None = Query(None, include_in_schema=False),
 ):
@@ -1068,7 +1087,7 @@ def ops_resumen(
     instrumento (títulos).
 
     Cross-filter 3-way: cada tabla aplica las selecciones de las OTRAS dos
-    (operacion ↔ denominacion ↔ instrumento). `cuenta`/`segmento` filtran las tres.
+    (operacion ↔ denominacion ↔ instrumento). `cuenta`/`segmento`/`operador` filtran las tres.
     """
     if moneda not in _OPS_MONEDAS:
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
@@ -1076,10 +1095,13 @@ def ops_resumen(
         return _ops_sql.ops_resumen(moneda=moneda, mercado=mercado, desde=desde, hasta=hasta,
                                     operacion=operacion, denominacion=denominacion, cuenta=cuenta,
                                     segmento=segmento, scope=scope, instrumento=instrumento)
+    op_cuentas = _op_cuentas(operador, scope)
     db = get_db_cashflow()["Operaciones"]
     base = _ops_match(moneda, mercado, cuenta=cuenta, segmento=segmento)
     base["concertacion"] = {"$gte": desde, "$lte": hasta}
     aplicar_scope_cuenta(base, scope, campo="cuenta")
+    if op_cuentas is not None:
+        base["cuenta"] = {"$in": op_cuentas}
     # Cross-filter 3-way: cada faceta aplica las selecciones de las OTRAS dos dims.
     def _xf(*, denom=False, op=False, instr=False) -> list[dict]:
         m: dict = {}

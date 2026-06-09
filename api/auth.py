@@ -22,11 +22,30 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 
 from config import CF_ACCESS_AUD, CF_ACCESS_TEAM, CF_TRUSTED_SERVICE_TOKENS
 
 logger = logging.getLogger(__name__)
+
+
+def is_guest_portal(request: Request) -> bool:
+    """True si el request entra por el portal de invitados (www.acaquant.com).
+
+    El frontend de www agrega el header `x-acaquant-portal: guest` (server-side,
+    según el hostname) en CADA llamada al backend. El browser del cliente NO
+    controla ese header (lo pone el proxy de Next, no el JS del cliente), y un
+    invitado no puede llegar a `trading` (CF Access lo frena por su email) → queda
+    siempre tagueado guest y no puede destagearse.
+
+    Sirve para forzar al invitado a SOLO los módulos de mercado: en los routers
+    gated (`require_module`/`require_any_module`) cualquier módulo que NO esté en
+    `INVITADO_MODULES` devuelve 403, sin importar el rol del email. Default-deny.
+
+    Capa estricta adicional (service token dedicado de www, no spoofeable ni con
+    el API key) se suma encima en un segundo paso.
+    """
+    return request.headers.get("x-acaquant-portal", "").strip().lower() == "guest"
 
 
 @lru_cache(maxsize=1)
@@ -250,9 +269,16 @@ def require_module(module: str):
     restringidos (manager/portfolios/etc) tiran 403.
     """
     # Import lazy para evitar ciclos core ↔ api en el arranque
-    from core.roles import has_access
+    from core.roles import INVITADO_MODULES, has_access
 
-    def _dep(email: str = Depends(get_user_email)) -> str:
+    def _dep(request: Request, email: str = Depends(get_user_email)) -> str:
+        # Portal invitado (www): default-deny → solo los módulos de mercado.
+        # No mira el rol del email; el invitado se define por venir de www.
+        if is_guest_portal(request):
+            if module in INVITADO_MODULES:
+                return email
+            logger.warning("guest portal: módulo %r bloqueado para invitado", module)
+            raise HTTPException(status_code=403, detail=f"módulo {module} no disponible para invitado")
         # Dev: sin whitelist ni DB de roles, el código de abajo igual
         # funciona porque get_user_role cae a DEFAULT_ROLE.
         if has_access(email, module):
@@ -278,9 +304,17 @@ def require_any_module(modules: tuple[str, ...]):
     NO requiere migración de la matriz Mongo existente — los roles que
     ya tenían el umbrella siguen funcionando sin tocar nada.
     """
-    from core.roles import has_access
+    from core.roles import INVITADO_MODULES, has_access
 
-    def _dep(email: str = Depends(get_user_email)) -> str:
+    def _dep(request: Request, email: str = Depends(get_user_email)) -> str:
+        # Portal invitado (www): pasa solo si ALGUNO de los módulos es de mercado.
+        # Los sub-routers de manager piden ("manager", "manager_*") → ninguno está
+        # en INVITADO_MODULES → 403 (el invitado nunca entra a manager).
+        if is_guest_portal(request):
+            if any(m in INVITADO_MODULES for m in modules):
+                return email
+            logger.warning("guest portal: %r bloqueado para invitado", list(modules))
+            raise HTTPException(status_code=403, detail="no disponible para invitado")
         for m in modules:
             if has_access(email, m):
                 return email

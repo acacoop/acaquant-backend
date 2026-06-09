@@ -142,6 +142,12 @@ DEFAULT_ROLE = "sales"
 # NO usar DEFAULT_ROLE para esto: `sales` incluye `operar`.
 _NO_ACCESS_ROLE = "none"
 
+# Módulos del rol invitado (portal www.acaquant.com). Fuente única para el gate
+# del backend (api/auth.py::require_module) y para /api/me. NO depende de la
+# RoleMatrix viva: el invitado se fuerza por venir de www, no por su email, así
+# que su set de módulos tiene que ser estable y no editable desde el panel.
+INVITADO_MODULES: tuple[str, ...] = DEFAULT_MATRIX["invitado"]
+
 
 # ─────────────────────────────────────────────────────────────
 # Cache in-memory (TTL 60s)

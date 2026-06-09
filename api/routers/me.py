@@ -4,16 +4,16 @@ Devuelve email + role + módulos permitidos para que el frontend sepa
 qué vistas mostrar y a dónde redirigir. Sin gate de módulo (cualquier
 user autenticado debe poder consultar su propia identidad).
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
-from api.auth import get_user_email
-from core.roles import get_user_modules, get_user_role
+from api.auth import get_user_email, is_guest_portal
+from core.roles import INVITADO_MODULES, get_user_modules, get_user_role
 
 router = APIRouter(tags=["Auth"])
 
 
 @router.get("/api/me")
-def me(email: str = Depends(get_user_email)) -> dict:
+def me(request: Request, email: str = Depends(get_user_email)) -> dict:
     """Identidad + role + módulos del caller.
 
     Cualquier user autenticado por Cloudflare Access (que pasó verify_api_key)
@@ -21,7 +21,18 @@ def me(email: str = Depends(get_user_email)) -> dict:
       - Mostrar / esconder links del nav según los módulos.
       - Redirigir a /403 si pide una ruta que no tiene en modules.
       - Renderizar la sección admin del Manager solo si is_admin.
+
+    Portal invitado (www): el rol se fuerza a `invitado` con SOLO los módulos de
+    mercado, sin importar el email — así el nav del portal muestra únicamente lo
+    público. El gate real de cada endpoint vive en require_module (default-deny).
     """
+    if is_guest_portal(request):
+        return {
+            "email":    email,
+            "role":     "invitado",
+            "modules":  list(INVITADO_MODULES),
+            "is_admin": False,
+        }
     role = get_user_role(email)
     modules = list(get_user_modules(email))
     return {

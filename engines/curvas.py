@@ -596,6 +596,72 @@ def calcular_campos(
         except Exception:
             resultado["duration"] = round(dias_a_vto / 365, 4)
 
+    # ── ONs (obligaciones negociables corporativas) ───────────────
+    elif curva == "on":
+        # USD → math hard-dollar (igual que soberanos): precio a USD (sufijo
+        # D as-is, pesos ÷MEP) y YTM en USD. ARS → precio peso directo (math
+        # tasa_fija en pesos). Los flujos vienen en shape nativo BondsMaster
+        # (montos absolutos por 100 VN) → monto_flujo = amortizacion + interes.
+        settlement_str = siguiente_dia_habil(dias_habiles, fecha_trade)
+        fecha_settlement = (
+            date.fromisoformat(settlement_str) if settlement_str else fecha_trade
+        )
+        dias_a_vto_s = (fecha_vto - fecha_settlement).days
+        if dias_a_vto_s <= 0:
+            return None
+
+        moneda = (instrumento.get("moneda_flujo") or "USD").upper()
+        ticker_completo = instrumento.get("ticker") or ""
+        if moneda == "USD":
+            precio_calc = precio_soberano_a_usd(precio, ticker_completo, mep)
+            if precio_calc is None:
+                resultado["duration"] = round(dias_a_vto / 365, 4)
+                return resultado
+        else:
+            precio_calc = precio  # ARS: precio y flujos en pesos
+
+        flujos_futuros = [
+            (fecha_flujo(f), monto_flujo(f), f)
+            for f in flujos_raw
+            if fecha_flujo(f) and fecha_flujo(f) > fecha_settlement and monto_flujo(f) > 0
+        ]
+        if not flujos_futuros:
+            resultado["duration"] = round(dias_a_vto_s / 365, 4)
+            return resultado
+
+        # Paridad = precio / residual vivo (valor_residual del primer flujo).
+        residual_vivo = float(flujos_futuros[0][2].get("valor_residual", 100) or 100)
+        if residual_vivo > 0:
+            resultado["paridad"] = round(precio_calc / residual_vivo * 100, 4)
+
+        try:
+            fechas_dt = [datetime.combine(fecha_settlement, datetime.min.time())] + \
+                        [datetime.combine(fd, datetime.min.time()) for fd, _, _ in flujos_futuros]
+            cf = [-precio_calc] + [m for _, m, _ in flujos_futuros]
+            tea = xirr(fechas_dt, cf)
+
+            if tea is None or not (-0.5 < tea < 50):
+                resultado["duration"] = round(dias_a_vto_s / 365, 4)
+                return resultado
+
+            fechas_flujos_dt = [datetime.combine(fd, datetime.min.time()) for fd, _, _ in flujos_futuros]
+            montos_flujos    = [m for _, m, _ in flujos_futuros]
+            fecha_base_dt    = datetime.combine(fecha_settlement, datetime.min.time())
+
+            dur  = macaulay_duration(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
+            conv = convexity(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
+
+            resultado["TEA"] = round(tea, 6)
+            resultado["TEM"] = round((1 + tea) ** (1 / 12) - 1, 6)
+            resultado["duration"] = dur if dur is not None else round(dias_a_vto_s / 365, 4)
+            if dur is not None and tea > -1:
+                resultado["mod_duration"] = round(dur / (1 + tea), 4)
+            if conv is not None:
+                resultado["convexity"] = conv
+
+        except Exception:
+            resultado["duration"] = round(dias_a_vto_s / 365, 4)
+
     # ── TAMAR / DUAL / otros ──────────────────────────────────────
     else:
         resultado["duration"] = round(dias_a_vto / 365, 4)

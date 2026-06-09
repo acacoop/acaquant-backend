@@ -207,6 +207,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--commit", action="store_true", help="escribe a Trading.Curvas")
     ap.add_argument("--force", action="store_true", help="permite --commit en rueda")
+    ap.add_argument("--include-ars", action="store_true",
+                    help="incluye en el commit las ONs ARS (default: solo USD — "
+                         "las ARS necesitan definir convención de precio, fase 2)")
     args = ap.parse_args()
 
     read_cli = get_mongo_client_read()
@@ -231,8 +234,13 @@ def main() -> None:
 
         sum_amort = sum(f["amortizacion"] for f in doc["flujos"])
         flag_amort = "" if 95 <= sum_amort <= 105 else " ⚠"
-        # precio de referencia: por ticker full, luego por asset, luego TEST
-        precio = precios_ref.get(doc["ticker"]) or precios_ref.get(doc["ticker_corto"])
+        # Precio de referencia SOLO por el ticker de la pata canónica (no por
+        # asset → el asset es el código O/pesos y metía precio peso-escala en
+        # el cálculo USD). Para USD, banda de sanidad [10,300]: ONSnapshot
+        # (abril) mezcla precios peso y USD; fuera de banda → TEST.
+        precio = precios_ref.get(doc["ticker"])
+        if doc["moneda_flujo"] == "USD" and precio is not None and not (10 <= precio <= 300):
+            precio = None
         src = "real" if precio else "TEST"
         if not precio:
             precio = PRECIO_TEST
@@ -249,8 +257,17 @@ def main() -> None:
         if tea is None:
             problemas.append(f"{doc['ticker_corto']}: TIR no convergió a precio {precio:.1f}")
 
+    # Scope del commit: por default solo USD (las ARS van a fase 2).
+    docs_usd = [d for d in docs if d["moneda_flujo"] == "USD"]
+    docs_ars = [d for d in docs if d["moneda_flujo"] != "USD"]
+    docs_commit = docs if args.include_ars else docs_usd
+
     print("\n" + "=" * 60)
-    print(f"OK para escribir: {len(docs)} docs curva='on'")
+    print(f"Total transformadas: {len(docs)}  ·  USD: {len(docs_usd)}  ·  ARS: {len(docs_ars)}")
+    print(f"A escribir (scope actual): {len(docs_commit)} docs curva='on'")
+    if docs_ars and not args.include_ars:
+        print(f"⏸  {len(docs_ars)} ARS DIFERIDAS (fase 2): "
+              f"{[d['ticker_corto'] for d in docs_ars]}")
     if problemas:
         print(f"⚠️  {len(problemas)} con observaciones:")
         for p in problemas:
@@ -258,7 +275,7 @@ def main() -> None:
 
     if not args.commit:
         print("\n(DRY-RUN — no se escribió nada. Validá las TEA y corré con "
-              "--commit cuando estés conforme.)")
+              "--commit cuando estés conforme. --include-ars para sumar las ARS.)")
         return
 
     # --- COMMIT ---------------------------------------------------------------
@@ -271,11 +288,11 @@ def main() -> None:
 
     curvas = get_mongo_client()["Trading"]["Curvas"]
     from pymongo import UpdateOne
-    ops = [UpdateOne({"ticker": d["ticker"]}, {"$set": d}, upsert=True) for d in docs]
-    tickers_ok = {d["ticker"] for d in docs}
+    ops = [UpdateOne({"ticker": d["ticker"]}, {"$set": d}, upsert=True) for d in docs_commit]
+    tickers_ok = {d["ticker"] for d in docs_commit}
     if ops:
         curvas.bulk_write(ops, ordered=False)
-    # Limpieza: borrar curva='on' que ya no estén en BondsMaster.
+    # Limpieza: borrar curva='on' que ya no estén en el scope (sync limpio).
     borrados = curvas.delete_many(
         {"curva": "on", "ticker": {"$nin": list(tickers_ok)}}).deleted_count
     print(f"\n✅ COMMIT: {len(ops)} upserts, {borrados} stale borrados en Trading.Curvas.")

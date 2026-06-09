@@ -132,6 +132,33 @@ resolver lo pedido:
 
 Ver memorias [[feedback_proactive_architect]] y [[feedback_autonomy_lanes]].
 
+## ⚠️ REGLA #8 — Portal INVITADO (www.acaquant.com): SOLO mercado, nunca filtrar datos privados
+
+**Bloqueante. Es exposición de datos a gente externa a la empresa.** Conviven
+dos portales:
+
+- **trading.acaquant.com** — app interna de la mesa. Usuarios de la empresa
+  (admin/trader/sales/etc.), ven todo según su rol.
+- **www.acaquant.com** — **portal INVITADO**, lo usan **personas AJENAS a la
+  empresa**. Es **EXCLUSIVO para datos de MERCADO** (home + módulos de mercado,
+  read-only).
+
+En CADA desarrollo, JAMÁS pasar por alto: cualquier cosa de trading que **no sea
+home o mercados** (portfolios, operaciones, manager, back-office, acreencias,
+gestión de ONs, clientes, AuM, P&L, contrapartes, segmentación, etc.) **NUNCA**
+puede quedar accesible al invitado. Si un desarrollo nuevo no es de mercado, no
+se mete en el portal www — punto.
+
+- El backend fuerza rol `invitado` (default-deny) cuando ve el header
+  `x-acaquant-portal: guest` (`api/auth.py::is_guest_portal` + check contra
+  `core.roles.INVITADO_MODULES`). Agregar algo a `INVITADO_MODULES` es una
+  decisión de SEGURIDAD — solo mercado.
+- El frontend `acaquant-web` filtra nav/vistas por módulo; el invitado no debe
+  ver ni el link de algo que no sea mercado.
+- **Default-deny**: ante la duda, NO exponer al invitado.
+
+Ver memoria [[feedback_portal_invitado_www]].
+
 ## Reglas que rompen todo si se olvidan
 
 - **`python -m <módulo>` desde la raíz siempre**. `python engines/x.py` falla (`core` no es discoverable).

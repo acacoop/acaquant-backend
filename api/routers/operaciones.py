@@ -1155,6 +1155,7 @@ def ops_agro(
     agg: str = Query("MENSUAL", description="MENSUAL | DIARIO"),
     commodity: str | None = Query(None, description="SOJA/TRIGO/MAIZ (cross-filter)"),
     cuenta: str | None = Query(None, description="Filtra a una cuenta (denominación exacta)"),
+    nivel5: str | None = Query(None, description="Filtra por nivel_5 de Clientes.Comitentes"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
     _engine: str | None = Query(None, include_in_schema=False),
 ):
@@ -1183,6 +1184,13 @@ def ops_agro(
     # = el rango elegido). El share mensual (nuestro_mensual) SÍ sigue histórico.
     match: dict = {"commodity": {"$in": ["SOJA", "TRIGO", "MAIZ"]}}
     aplicar_scope_cuenta(match, scope, campo="cuenta")
+    # Filtro por nivel_5 (Comitentes) → cuentas de ese nivel_5 (intersecta scope).
+    if nivel5:
+        n5_cuentas = [str(c["id_cuenta"]) for c in get_db_clientes()["Comitentes"].find(
+            {"nivel_5": nivel5}, {"_id": 0, "id_cuenta": 1}) if c.get("id_cuenta")]
+        if scope is not None:
+            n5_cuentas = [c for c in n5_cuentas if c in set(scope)]
+        match["cuenta"] = {"$in": n5_cuentas}
     date_m = {"$match": {"concertacion": {"$gte": desde, "$lte": hasta}}}
     addf = {
         "toneladas": {"$multiply": [
@@ -1484,6 +1492,14 @@ def ops_segmentos(_engine: str | None = Query(None, include_in_schema=False)):
         return _ops_sql.ops_segmentos()
     db = get_db_cashflow()["Operaciones"]
     return {"segmentos": sorted(s for s in db.distinct("segmento") if s)}
+
+
+@router.get("/ops/niveles5")
+@cached(ttl=600)
+def ops_niveles5():
+    """Valores distintos de nivel_5 (Clientes.Comitentes), para el filtro AGRO."""
+    vals = get_db_clientes()["Comitentes"].distinct("nivel_5", {"nivel_5": {"$nin": [None, ""]}})
+    return {"niveles5": sorted(str(v) for v in vals if v)}
 
 
 @router.get("/ops/boletos")

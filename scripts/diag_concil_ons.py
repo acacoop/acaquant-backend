@@ -107,7 +107,8 @@ def main() -> None:
     por_cartera: Counter = Counter()
     sin_asset = []
     match_modo: Counter = Counter()
-    gap = []  # tenencias renta-fija-ish que NO están en Curvas
+    fci_excluidos = 0
+    gap = []  # tenencias renta-fija-ish (NO FCI) que NO están en Curvas
     for unidad, t in tenencias.items():
         a = by_unidad.get(unidad) or by_ticker.get(unidad)
         if not a:
@@ -115,6 +116,10 @@ def main() -> None:
             continue
         clase = (a.get("CLASE_ACTIVO") or "").strip()
         cartera = (a.get("CARTERA") or "").strip()
+        # Filtro principal: los FCI NO entran a la conciliación de ONs.
+        if "fci" in cartera.lower():
+            fci_excluidos += 1
+            continue
         por_clase[clase or "(vacío)"] += 1
         por_cartera[cartera or "(vacío)"] += 1
         ticker = a.get("TICKER")
@@ -127,8 +132,9 @@ def main() -> None:
             })
 
     print("\n" + "=" * 72)
-    print(f"B. Match Assets.TICKER ↔ Curvas: {dict(match_modo)}")
+    print(f"B. Match Assets.TICKER ↔ Curvas (sin FCI): {dict(match_modo)}")
     print("   (exacto = string idéntico · base = mismo bono distinta pata O/D · no = falta)")
+    print(f"   FCI excluidos de la conciliación: {fci_excluidos}")
     if sin_asset:
         print(f"   {len(sin_asset)} unidades sin doc en Assets (ej: {sin_asset[:10]})")
 

@@ -1047,7 +1047,7 @@ def ops_serie(
     if moneda == "USD_DOL" or _motor(_engine) == "sql":  # dolarizado → SQL siempre
         return _ops_sql.ops_serie(moneda=moneda, mercado=mercado, operacion=operacion,
                                   denominacion=denominacion, cuenta=cuenta, segmento=segmento,
-                                  scope=scope)
+                                  scope=scope, operador=operador)
     op_cuentas = _op_cuentas(operador, scope)
     cf = get_db_cashflow()
     serie: list[dict] | None = None
@@ -1094,7 +1094,8 @@ def ops_resumen(
     if moneda == "USD_DOL" or _motor(_engine) == "sql":  # dolarizado → SQL siempre
         return _ops_sql.ops_resumen(moneda=moneda, mercado=mercado, desde=desde, hasta=hasta,
                                     operacion=operacion, denominacion=denominacion, cuenta=cuenta,
-                                    segmento=segmento, scope=scope, instrumento=instrumento)
+                                    segmento=segmento, scope=scope, instrumento=instrumento,
+                                    operador=operador)
     op_cuentas = _op_cuentas(operador, scope)
     db = get_db_cashflow()["Operaciones"]
     base = _ops_match(moneda, mercado, cuenta=cuenta, segmento=segmento)
@@ -1170,7 +1171,7 @@ def ops_agro(
     `por_cuenta` y `por_instrumento` (acotados al rango [desde,hasta])."""
     if _motor(_engine) == "sql":
         return _ops_sql.ops_agro(desde=desde, hasta=hasta, agg=agg, commodity=commodity,
-                                 cuenta=cuenta, scope=scope)
+                                 cuenta=cuenta, scope=scope, nivel5=nivel5)
     dbcf = get_db_cashflow()
     db = dbcf["Operaciones"]
     plen = 7 if agg.upper() == "MENSUAL" else 10

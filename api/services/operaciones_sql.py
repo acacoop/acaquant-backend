@@ -66,7 +66,7 @@ _DOLARIZAR = "USD_DOL"
 def _ops_where(
     moneda: str | None = None, mercado: str | None = None, operacion: str | None = None,
     denominacion: str | None = None, cuenta: str | None = None, segmento: str | None = None,
-    scope: tuple[str, ...] | None = None, *, arancel: bool = False,
+    scope: tuple[str, ...] | None = None, *, arancel: bool = False, operador: str | None = None,
 ) -> tuple[str, dict]:
     """Devuelve (where_sql, params). `arancel=True` → sin filtro de moneda, incluye los
     cierres con arancel (caución), igual que _arancel_match."""
@@ -98,6 +98,9 @@ def _ops_where(
     if segmento and segmento.lower() != "todos":
         conds.append("segmento = %(segmento)s")
         p["segmento"] = segmento
+    if operador:
+        conds.append("id_cuenta IN (SELECT id_cuenta FROM comitentes WHERE operador_email = %(operador)s)")
+        p["operador"] = operador
     if scope is not None:
         conds.append("id_cuenta = ANY(%(scope)s)")
         p["scope"] = list(scope)
@@ -163,9 +166,9 @@ def _bruto_expr(moneda: str) -> str:
 def ops_serie(
     moneda: str = "ARS", mercado: str | None = None, operacion: str | None = None,
     denominacion: str | None = None, cuenta: str | None = None, segmento: str | None = None,
-    scope: tuple[str, ...] | None = None,
+    scope: tuple[str, ...] | None = None, operador: str | None = None,
 ) -> dict:
-    where, p = _ops_where(moneda, mercado, operacion, denominacion, cuenta, segmento, scope)
+    where, p = _ops_where(moneda, mercado, operacion, denominacion, cuenta, segmento, scope, operador=operador)
     rows = _q(
         f"SELECT concertacion AS fecha, {_bruto_expr(moneda)} AS bruto "
         f"FROM operaciones WHERE {where} GROUP BY concertacion ORDER BY concertacion",
@@ -179,9 +182,9 @@ def ops_resumen(
     moneda: str = "ARS", mercado: str | None = None, desde: str = "", hasta: str = "",
     operacion: str | None = None, denominacion: str | None = None, cuenta: str | None = None,
     segmento: str | None = None, scope: tuple[str, ...] | None = None,
-    instrumento: str | None = None,
+    instrumento: str | None = None, operador: str | None = None,
 ) -> dict:
-    base, p = _ops_where(moneda, mercado, cuenta=cuenta, segmento=segmento, scope=scope)
+    base, p = _ops_where(moneda, mercado, cuenta=cuenta, segmento=segmento, scope=scope, operador=operador)
     p.update({"desde": desde, "hasta": hasta})
     base = f"{base} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
     bexpr = _bruto_expr(moneda)
@@ -383,7 +386,7 @@ def _agro_serie(rows: list[dict]) -> list[dict]:
 
 def ops_agro(
     desde: str = "", hasta: str = "", agg: str = "MENSUAL", commodity: str | None = None,
-    cuenta: str | None = None, scope: tuple[str, ...] | None = None,
+    cuenta: str | None = None, scope: tuple[str, ...] | None = None, nivel5: str | None = None,
 ) -> dict:
     fmt = "YYYY-MM" if agg.upper() == "MENSUAL" else "YYYY-MM-DD"
     base = "commodity IN ('SOJA', 'TRIGO', 'MAIZ')"
@@ -391,6 +394,9 @@ def ops_agro(
     if scope is not None:
         base += " AND id_cuenta = ANY(%(scope)s)"
         bp["scope"] = list(scope)
+    if nivel5:
+        base += " AND id_cuenta IN (SELECT id_cuenta FROM comitentes WHERE nivel_5 = %(nivel5)s)"
+        bp["nivel5"] = nivel5
     date_w = f"{base} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
     dp = {**bp, "desde": desde, "hasta": hasta}
 

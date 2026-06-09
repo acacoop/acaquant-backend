@@ -56,6 +56,14 @@ class _SectorPatch(BaseModel):
     sector: str = Field(..., min_length=1, max_length=64)
 
 
+class _ParseFlujos(BaseModel):
+    texto: str = Field(..., max_length=100_000)
+
+
+class _Ignorar(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=64)
+
+
 @router.get("/ons")
 def list_ons(
     sector: str | None = Query(None),
@@ -100,3 +108,29 @@ def sync_ons() -> dict:
     """Re-sincroniza BondsMaster → Curvas manualmente (normalmente no hace falta:
     cada alta/edición ya sincroniza)."""
     return svc.sync_ons_to_curvas()
+
+
+@router.post("/ons/parse-flujos")
+def parse_flujos(req: _ParseFlujos = Body(...)) -> dict:
+    """Parsea flujos pegados de Excel (formato oficial BYMA/IAMC o simple) →
+    {flujos, tasa_cupon, vencimiento, formato} para previsualizar en el form."""
+    return svc.parse_flujos_texto(req.texto)
+
+
+@router.get("/ons/conciliar")
+def conciliar() -> dict:
+    """Gap de cobertura: HD/DL que tienen los clientes y faltan en Curvas."""
+    return svc.conciliar()
+
+
+@router.post("/ons/ignorar")
+def ignorar(req: _Ignorar = Body(...), actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return svc.ignorar_concil(req.ticker, actor=actor or "")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.delete("/ons/ignorar")
+def quitar_ignorar(ticker: str = Query(..., min_length=1)) -> dict:
+    return svc.quitar_ignorar(ticker)

@@ -14,11 +14,16 @@ DB-driven (campo BondsMaster.sector). Ver `api/services/renta_fija.py`.
 """
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 
 from pymongo import UpdateOne
 
 from core.mongo import get_mongo_client, get_mongo_client_read
+
+# Carteras (Valuaciones.Assets.CARTERA) que entran a la conciliación de ONs:
+# HD (hard dollar) / DL (dollar linked).
+CARTERAS_ON = {"HD", "DL"}
 
 # Campos editables del maestro (lo que el form de Manager puede setear).
 EDITABLES = ("emisor", "moneda_flujo", "tasa_cupon", "vencimiento", "sector", "tickers", "flujos")
@@ -185,3 +190,182 @@ def set_sector(asset: str, sector: str, actor: str = "") -> dict:
     sync = sync_ons_to_curvas()
     saved = col.find_one({"asset": asset}, {"_id": 0}) or {}
     return {"on": saved, "sync": sync}
+
+
+# ─────────────────────────────────────────────
+# Parser de flujos (pegado de Excel / descarga oficial)
+# ─────────────────────────────────────────────
+
+def _on_num(s) -> float:
+    """'4.75%' → 4.75 · '100.00' → 100 · '1.234,56' → 1234.56 (es-AR) · '' → 0."""
+    if s is None:
+        return 0.0
+    t = str(s).replace("%", "").replace("$", "").replace(" ", "").strip()
+    if "," in t and "." in t:        # 1.234,56 → 1234.56
+        t = t.replace(".", "").replace(",", ".")
+    elif "," in t:                   # 1,89 → 1.89
+        t = t.replace(",", ".")
+    try:
+        return float(t)
+    except ValueError:
+        return 0.0
+
+
+def _on_fecha(s) -> str | None:
+    """'2026-08-06T00:00:00.000Z' → '2026-08-06' · '06/08/2026' → '2026-08-06'."""
+    t = str(s or "").strip()
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", t)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    m = re.match(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})", t)
+    if m:
+        d, mo, y = m.group(1), m.group(2), m.group(3)
+        if len(y) == 2:
+            y = "20" + y
+        return f"{y}-{mo.zfill(2)}-{d.zfill(2)}"
+    return None
+
+
+def parse_flujos_texto(text: str) -> dict:
+    """Parsea flujos pegados de Excel a {flujos, tasa_cupon, vencimiento, formato}.
+
+    Detecta dos formatos:
+      - OFICIAL (descarga BYMA/IAMC): doble header con 'Flujo de fondos c/100 vn'.
+        Usa la fecha 'Efectiva', los montos ABSOLUTOS de 'Flujo de fondos c/100
+        vn' (Amortización col 6, Interés col 7), el 'Valor residual' (col 3) y
+        la 'Tasa de interés' anual (col 4 → tasa_cupon).
+      - SIMPLE: 4 columnas fecha · amortización · interés · residual.
+
+    Delimitador: tab (pegado de Excel) o coma (CSV crudo). Saltea headers/filas
+    sin fecha válida. `vencimiento` = fecha del último flujo."""
+    lines = [ln for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return {"flujos": [], "tasa_cupon": None, "vencimiento": None, "formato": "vacio"}
+
+    def cols(ln: str) -> list[str]:
+        parts = ln.split("\t") if "\t" in ln else ln.split(",")
+        return [c.strip() for c in parts]
+
+    oficial = any("flujo de fondos" in ln.lower() for ln in lines[:3])
+    flujos: list[dict] = []
+    tasa: float | None = None
+
+    for ln in lines:
+        c = cols(ln)
+        if oficial:
+            if len(c) < 8:
+                continue
+            fecha = _on_fecha(c[1])
+            if not fecha:               # filas de header
+                continue
+            flujos.append({
+                "fecha": fecha,
+                "amortizacion": _on_num(c[6]),
+                "interes": _on_num(c[7]),
+                "valor_residual": _on_num(c[3]) or 100.0,
+            })
+            if tasa is None:
+                t = _on_num(c[4])
+                tasa = round(t / 100.0, 6) if t else None
+        else:
+            fecha = _on_fecha(c[0]) if c else None
+            if not fecha:
+                continue
+            flujos.append({
+                "fecha": fecha,
+                "amortizacion": _on_num(c[1]) if len(c) > 1 else 0.0,
+                "interes": _on_num(c[2]) if len(c) > 2 else 0.0,
+                "valor_residual": (_on_num(c[3]) if len(c) > 3 and c[3] else 100.0) or 100.0,
+            })
+
+    venc = flujos[-1]["fecha"] if flujos else None
+    return {"flujos": flujos, "tasa_cupon": tasa, "vencimiento": venc,
+            "formato": "oficial" if oficial else "simple"}
+
+
+# ─────────────────────────────────────────────
+# Conciliador de cobertura (AuM HD/DL vs Curvas)
+# ─────────────────────────────────────────────
+
+def _base_ticker(code: str | None) -> str:
+    """'YM40D' → 'YM40' (saca la pata O/D/C). Deja igual lo que no aplica."""
+    if not code or len(code) < 3:
+        return code or ""
+    return code[:-1] if code[-1] in ("O", "D", "C") else code
+
+
+def conciliar() -> dict:
+    """Gap de cobertura: instrumentos HD/DL que tienen los clientes (último AuM)
+    y NO están en Trading.Curvas. Excluye los marcados como ignorados.
+
+    Relación: AuM.unidad → Assets (CARTERA ∈ {HD,DL}) → ticker ↔ Curvas
+    (match exacto o por base, para no marcar como faltante la otra pata O/D)."""
+    read = get_mongo_client_read()
+    val = read["Valuaciones"]
+    trading = read["Trading"]
+
+    ultimo = val["AuM"].find_one(sort=[("fecha_snapshot", -1)], projection={"fecha_snapshot": 1})
+    if not ultimo:
+        return {"gap": [], "resumen": {"total": 0, "cubiertas": 0, "faltan": 0, "ignoradas": 0, "snapshot": None}}
+    fsnap = ultimo["fecha_snapshot"]
+    unidades = [u for u in val["AuM"].distinct("unidad", {"fecha_snapshot": fsnap}) if u]
+
+    assets = list(val["Assets"].find({}, {"_id": 0, "unidad": 1, "TICKER": 1, "EMISOR": 1, "CARTERA": 1}))
+    by_unidad = {a.get("unidad"): a for a in assets if a.get("unidad")}
+    by_ticker = {a.get("TICKER"): a for a in assets if a.get("TICKER")}
+
+    curvas = list(trading["Curvas"].find({}, {"_id": 0, "ticker": 1, "ticker_corto": 1}))
+    set_full = {c.get("ticker") for c in curvas if c.get("ticker")}
+    set_corto = {c.get("ticker_corto") for c in curvas if c.get("ticker_corto")}
+    set_base = {_base_ticker(c) for c in set_corto}
+    ignoradas = {d.get("ticker") for d in trading["OnsIgnoradas"].find({}, {"_id": 0, "ticker": 1})}
+
+    def cubierto(ticker, unidad) -> bool:
+        for cand in (ticker, unidad):
+            if cand and (cand in set_corto or cand in set_full or _base_ticker(cand) in set_base):
+                return True
+        return False
+
+    total = cubiertas = 0
+    gap = []
+    for u in unidades:
+        a = by_unidad.get(u) or by_ticker.get(u)
+        if not a:
+            continue
+        cartera = (a.get("CARTERA") or "").strip().upper()
+        if cartera not in CARTERAS_ON:
+            continue
+        total += 1
+        ticker = a.get("TICKER")
+        if cubierto(ticker, u):
+            cubiertas += 1
+            continue
+        if ticker in ignoradas or u in ignoradas:
+            continue
+        gap.append({"unidad": u, "ticker": ticker, "emisor": a.get("EMISOR"), "cartera": cartera})
+
+    gap.sort(key=lambda g: ((g["emisor"] or "").lower(), g["ticker"] or ""))
+    return {
+        "gap": gap,
+        "resumen": {"total": total, "cubiertas": cubiertas, "faltan": len(gap),
+                    "ignoradas": len(ignoradas), "snapshot": fsnap},
+    }
+
+
+def ignorar_concil(ticker: str, actor: str = "") -> dict:
+    """Marca un ticker como 'no es ON' → no vuelve a aparecer en el gap."""
+    ticker = (ticker or "").strip()
+    if not ticker:
+        raise ValueError("falta 'ticker'")
+    get_mongo_client()["Trading"]["OnsIgnoradas"].update_one(
+        {"ticker": ticker},
+        {"$set": {"ticker": ticker, "ignorado_por": actor, "at": datetime.now(UTC)}},
+        upsert=True)
+    return {"ignorada": ticker}
+
+
+def quitar_ignorar(ticker: str) -> dict:
+    """Saca un ticker de la lista de ignorados → vuelve a conciliar."""
+    deleted = get_mongo_client()["Trading"]["OnsIgnoradas"].delete_one(
+        {"ticker": (ticker or "").strip()}).deleted_count
+    return {"restauradas": deleted}

@@ -145,7 +145,7 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
     cer_dict = cargar_cer(client) if curva == "cer" else {}
     _es_on = curva == "on" or curva.startswith("on_")
     mep = cargar_mep_actual(client) if (curva == "soberanos" or _es_on) else None
-    tc_a3500 = cargar_a3500_actual(client) if curva == "dolar_linked" else None
+    tc_a3500 = cargar_a3500_actual(client) if (curva == "dolar_linked" or _es_on) else None
 
     # ── 4. Settlement ───────────────────────────────────────────────────
     settlement_str = siguiente_dia_habil(dias_habiles, fecha_trade)
@@ -370,6 +370,12 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
                 if precio_calc is None:
                     raise ValueError("Precio_USD = None (sin MEP o ticker no convertible).")
                 tc_info = {"fuente": "MEP", "valor": mep, "precio_usd": round(precio_calc, 6)}
+            elif moneda == "DL":
+                if not tc_a3500 or tc_a3500 <= 0:
+                    raise ValueError("Sin TC A3500 (feed MAE mayorista offline) para dólar-linked.")
+                precio_calc = precio / tc_a3500
+                tc_info = {"fuente": "A3500_mayorista_mae (dólar-linked)", "valor": tc_a3500,
+                           "precio_usd": round(precio_calc, 6)}
             else:
                 precio_calc = precio
                 tc_info = {"fuente": "ARS (peso directo)", "valor": None, "precio_calc": round(precio_calc, 6)}

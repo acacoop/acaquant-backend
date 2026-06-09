@@ -46,6 +46,7 @@ from core.mongo import get_mongo_client_read
 
 # Reuso de la matemática EXACTA del motor (sin copiar → sin divergencia).
 from engines.curvas import (
+    cargar_a3500_actual,
     cargar_dias_habiles,
     cargar_mep_actual,
     convexity,
@@ -65,11 +66,10 @@ PRECIO_TEST = 100.0  # fallback si no hay precio de referencia (USD o ARS)
 construir_doc_on = bondmaster_to_curva_doc
 
 
-def calcular_on(doc: dict, precio: float, dias_habiles, mep) -> dict | None:
-    """Réplica EXACTA de lo que será la rama 'on' del motor (usando los
-    helpers reales). USD → precio a USD (D as-is / O ÷MEP) y math soberano;
-    ARS → precio peso directo. Devuelve {TEA, duration, mod_duration,
-    convexity, paridad} o None."""
+def calcular_on(doc: dict, precio: float, dias_habiles, mep, tc_a3500=None) -> dict | None:
+    """Réplica EXACTA de la rama 'on' del motor. USD → precio a USD (D as-is /
+    O ÷MEP); DL (dólar-linked) → precio peso ÷ A3500; ARS → peso directo.
+    Devuelve {TEA, duration, mod_duration, convexity, paridad} o None."""
     if not precio or precio <= 0:
         return None
     fecha_vto_str = doc.get("fecha_vencimiento")
@@ -94,8 +94,12 @@ def calcular_on(doc: dict, precio: float, dias_habiles, mep) -> dict | None:
         precio_calc = precio_soberano_a_usd(precio, doc.get("ticker") or "", mep)
         if precio_calc is None:
             return None
+    elif moneda == "DL":
+        if not tc_a3500 or tc_a3500 <= 0:
+            return None
+        precio_calc = precio / tc_a3500
     else:
-        precio_calc = precio  # ARS: precio y flujos en pesos
+        precio_calc = precio  # ARS peso nativo
 
     flujos_raw = doc.get("flujos") or []
     flujos_futuros = [
@@ -167,8 +171,9 @@ def main() -> None:
 
     dias_habiles = cargar_dias_habiles(read_cli)
     mep = cargar_mep_actual(read_cli)
+    tc_a3500 = cargar_a3500_actual(read_cli)
     precios_ref = _precios_referencia(read_cli)
-    print(f"MEP actual: {mep} · precios de referencia (ONSnapshot): {len(precios_ref)}\n")
+    print(f"MEP: {mep} · A3500: {tc_a3500} · precios ref (ONSnapshot): {len(precios_ref)}\n")
 
     docs, problemas = [], []
     print(f"{'asset':<8}{'emisor':<20}{'mon':<5}{'curva(sector)':<16}{'Σamort':>8}"
@@ -194,7 +199,7 @@ def main() -> None:
         if not precio:
             precio = PRECIO_TEST
 
-        calc = calcular_on(doc, precio, dias_habiles, mep) or {}
+        calc = calcular_on(doc, precio, dias_habiles, mep, tc_a3500) or {}
         tea = calc.get("TEA")
         tea_s = f"{tea*100:.2f}" if isinstance(tea, (int, float)) else "—"
         dur_s = f"{calc.get('duration'):.2f}" if calc.get("duration") else "—"

@@ -619,8 +619,16 @@ def calcular_campos(
             if precio_calc is None:
                 resultado["duration"] = round(dias_a_vto / 365, 4)
                 return resultado
+        elif moneda == "DL":
+            # Dólar-linked: cotiza/paga en pesos al TC A3500, pero los flujos
+            # están por 100 VN en escala USD → llevamos el precio peso a USD
+            # dividiéndolo por el A3500 (igual que la curva dolar_linked).
+            if not tc_a3500 or tc_a3500 <= 0:
+                resultado["duration"] = round(dias_a_vto / 365, 4)
+                return resultado
+            precio_calc = precio / tc_a3500
         else:
-            precio_calc = precio  # ARS: precio y flujos en pesos
+            precio_calc = precio  # ARS peso nativo
 
         flujos_futuros = [
             (fecha_flujo(f), monto_flujo(f), f)

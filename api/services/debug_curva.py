@@ -2,8 +2,10 @@
 
 Para un ticker dado, replica la lógica de `calcular_campos()` y devuelve
 TODOS los inputs intermedios + el resultado recalculado, comparándolo
-contra lo que está persistido en TimeSales. Sirve para entender qué
-flujos, qué CER, qué TC y qué settlement se usaron.
+contra lo que está persistido en MarketSnapshot.metrics (la fuente que usan
+el motor y la vista). Sirve para entender qué flujos, qué CER, qué TC y qué
+settlement se usaron. El precio sale de MarketSnapshot.last_price (precio de
+pantalla del market data), NO de un trade — un bono puede cotizar sin operar.
 
 NO toca el motor — usa los mismos helpers (`xirr`, `macaulay_duration`,
 `monto_flujo_*`, etc.) y reproduce el flow leyendo data fresca de Mongo.
@@ -37,23 +39,25 @@ from engines.curvas import (
 
 
 def _last_trade(client, ticker_full: str) -> dict | None:
-    """Último trade de TimeSales para el ticker, con campos enriquecidos."""
-    return client["Trading"]["TimeSales"].find_one(
-        {"ticker": ticker_full},
-        {
-            "_id":          0,
-            "timestamp":    1,
-            "price":        1,
-            "size":         1,
-            "TEA":          1,
-            "TEM":          1,
-            "duration":     1,
-            "mod_duration": 1,
-            "convexity":    1,
-            "paridad":      1,
-        },
-        sort=[("timestamp", -1)],
-    )
+    """Precio + métricas del MarketSnapshot — la MISMA fuente que usan el motor
+    (engines/curvas.py) y la vista (renta_fija.listar_curva). NO TimeSales: un
+    bono puede tener precio de pantalla (market data) sin haber operado, así que
+    leer TimeSales daba 'sin trades' aunque la vista muestre precio."""
+    doc = client["Trading"]["MarketSnapshot"].find_one(
+        {"ticker": ticker_full}, {"_id": 0, "updated_at": 1, "metrics": 1})
+    if not doc:
+        return None
+    m = doc.get("metrics") or {}
+    return {
+        "timestamp":    doc.get("updated_at"),
+        "price":        m.get("last_price"),
+        "TEA":          m.get("TEA"),
+        "TEM":          m.get("TEM"),
+        "duration":     m.get("duration"),
+        "mod_duration": m.get("mod_duration"),
+        "convexity":    m.get("convexity"),
+        "paridad":      m.get("paridad"),
+    }
 
 
 def _norm_diff(actual: float | None, esperado: float | None, tol: float = 1e-3) -> str:
@@ -105,12 +109,13 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
         "n_flujos":          len(flujos_raw),
     }
 
-    # ── 2. Último trade ─────────────────────────────────────────────────
+    # ── 2. Precio del MarketSnapshot (market data — puede no haber operado) ──
     trade = _last_trade(client, ticker_full)
-    if not trade:
+    if not trade or trade.get("price") in (None, 0):
         return {
             "ok":           False,
-            "message":      f"Sin trades en TimeSales para ticker '{ticker_full}'.",
+            "message":      f"Sin precio (last_price) en MarketSnapshot para '{ticker_full}'. "
+                            "El bono no tiene precio de pantalla todavía (¿motor sin suscribirlo?).",
             "instrumento":  instrumento_resp,
         }
 

@@ -28,20 +28,21 @@ MODOS:
       Imprime una tabla para que la mesa valide.
 
   (escribe)  python -m scripts.seed_curvas_ons --commit
-      Upsert de los docs curva="on" en Trading.Curvas + borra los curva="on"
-      que ya no estén en BondsMaster (sync limpio). BLOQUEADO en horario de
-      rueda (13-20 UTC L-V, REGLA #4) salvo --force.
+      Llama a api.services.ons.sync_ons_to_curvas() → upsert de TODAS las ONs
+      como curva="on_<sector>" + borra las stale (sync limpio). Mismo sync que
+      usa el panel Manager. BLOQUEADO en rueda (13-20 UTC L-V) salvo --force.
 
-REGLA #2: el dry-run no asume — mide. La TIR sale de la misma función que el
-motor (sin divergencia). REGLA #5: borrar una vez que el sync se estabilice
-(o promover a jobs/ moviendo la math a quant/).
+NOTA: el transform y el sync viven en api/services/ons.py (compartidos con
+Manager). Este CLI es respaldo + validación (la tabla dry-run con la math real
+del motor). REGLA #2: el dry-run no asume, mide.
 """
 from __future__ import annotations
 
 import argparse
 from datetime import datetime
 
-from core.mongo import get_mongo_client, get_mongo_client_read
+from api.services.ons import bondmaster_to_curva_doc, sync_ons_to_curvas
+from core.mongo import get_mongo_client_read
 
 # Reuso de la matemática EXACTA del motor (sin copiar → sin divergencia).
 from engines.curvas import (
@@ -58,73 +59,10 @@ from engines.curvas import (
 
 PRECIO_TEST = 100.0  # fallback si no hay precio de referencia (USD o ARS)
 
-
-def _short_from_full(full: str) -> str:
-    """'MERV - XMEV - YM40D - 24hs' → 'YM40D'."""
-    if not full or not isinstance(full, str):
-        return ""
-    parts = [p.strip() for p in full.split(" - ")]
-    return parts[2] if len(parts) >= 3 else ""
-
-
-def _slug_sector(raw) -> str:
-    """Normaliza el sector que cargás en BondsMaster.sector a un slug para la
-    curva: 'Energía' → 'energia', 'ON Finanzas' → 'finanzas'. Vacío → 'otros'."""
-    s = (raw or "otros").strip().lower()
-    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u")):
-        s = s.replace(a, b)
-    s = s.replace("on ", "").replace(" ", "_").strip("_")
-    return s or "otros"
-
-
-def _fecha_iso(raw) -> str | None:
-    if isinstance(raw, datetime):
-        return raw.date().isoformat()
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()[:10]
-    return None
-
-
-def construir_doc_on(bm: dict) -> dict | None:
-    """BondsMaster doc → Trading.Curvas doc (curva='on'). None si no se puede."""
-    asset = bm.get("asset")
-    moneda = (bm.get("moneda_flujo") or "USD").upper()
-    tickers = bm.get("tickers") or {}
-    # Pata canónica según moneda de pago.
-    ticker_full = tickers.get("USD") if moneda == "USD" else tickers.get("ARS")
-    if not ticker_full:
-        # sin la pata de su moneda, probamos la otra (mejor algo que nada)
-        ticker_full = tickers.get("ARS") or tickers.get("USD")
-    if not asset or not ticker_full:
-        return None
-
-    flujos = []
-    for f in bm.get("flujos") or []:
-        fd = fecha_flujo(f)
-        if not fd:
-            continue
-        flujos.append({
-            "fecha": fd.isoformat(),
-            "amortizacion": float(f.get("amortizacion", 0) or 0),
-            "interes": float(f.get("interes", 0) or 0),
-            "valor_residual": float(f.get("valor_residual", 100) or 100),
-        })
-
-    # Sector codificado en la curva: "on_<sector>". La FUENTE del sector es el
-    # campo `sector` del propio doc de BondsMaster (lo manejás vos en la DB).
-    # Sin sector → "otros". Buckets esperados: energia / finanzas / otros.
-    return {
-        "ticker": ticker_full,
-        "ticker_corto": asset,
-        "curva": f"on_{_slug_sector(bm.get('sector'))}",
-        "moneda_flujo": moneda,
-        "emisor": bm.get("emisor"),
-        "sector": bm.get("sector") or "otros",
-        "tasa_cupon": bm.get("tasa_cupon"),
-        "valor_nominal": 100,
-        "fecha_vencimiento": _fecha_iso(bm.get("vencimiento")),
-        "flujos": flujos,
-    }
+# El transform BondsMaster→Curvas y el sync viven en api/services/ons.py
+# (compartidos con el panel Manager → sin divergencia ni conflicto de scope).
+# Acá solo VALIDAMOS (dry-run con la math real del motor) y disparamos el sync.
+construir_doc_on = bondmaster_to_curva_doc
 
 
 def calcular_on(doc: dict, precio: float, dias_habiles, mep) -> dict | None:
@@ -219,11 +157,8 @@ def _precios_referencia(read_db) -> dict[str, float]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--commit", action="store_true", help="escribe a Trading.Curvas")
+    ap.add_argument("--commit", action="store_true", help="sincroniza a Trading.Curvas")
     ap.add_argument("--force", action="store_true", help="permite --commit en rueda")
-    ap.add_argument("--include-ars", action="store_true",
-                    help="incluye en el commit las ONs ARS (default: solo USD — "
-                         "las ARS necesitan definir convención de precio, fase 2)")
     args = ap.parse_args()
 
     read_cli = get_mongo_client_read()
@@ -270,17 +205,8 @@ def main() -> None:
         if tea is None:
             problemas.append(f"{doc['ticker_corto']}: TIR no convergió a precio {precio:.1f}")
 
-    # Scope del commit: por default solo USD (las ARS van a fase 2).
-    docs_usd = [d for d in docs if d["moneda_flujo"] == "USD"]
-    docs_ars = [d for d in docs if d["moneda_flujo"] != "USD"]
-    docs_commit = docs if args.include_ars else docs_usd
-
     print("\n" + "=" * 60)
-    print(f"Total transformadas: {len(docs)}  ·  USD: {len(docs_usd)}  ·  ARS: {len(docs_ars)}")
-    print(f"A escribir (scope actual): {len(docs_commit)} docs curva='on'")
-    if docs_ars and not args.include_ars:
-        print(f"⏸  {len(docs_ars)} ARS DIFERIDAS (fase 2): "
-              f"{[d['ticker_corto'] for d in docs_ars]}")
+    print(f"Transformadas OK: {len(docs)} ONs")
     if problemas:
         print(f"⚠️  {len(problemas)} con observaciones:")
         for p in problemas:
@@ -288,10 +214,10 @@ def main() -> None:
 
     if not args.commit:
         print("\n(DRY-RUN — no se escribió nada. Validá las TEA y corré con "
-              "--commit cuando estés conforme. --include-ars para sumar las ARS.)")
+              "--commit cuando estés conforme.)")
         return
 
-    # --- COMMIT ---------------------------------------------------------------
+    # --- COMMIT: sincroniza TODAS las ONs (vía el servicio compartido) --------
     ahora = datetime.utcnow()
     en_rueda = ahora.weekday() < 5 and 13 <= ahora.hour < 20
     if en_rueda and not args.force:
@@ -299,16 +225,9 @@ def main() -> None:
               "o con --force (REGLA #4).")
         return
 
-    curvas = get_mongo_client()["Trading"]["Curvas"]
-    from pymongo import UpdateOne
-    ops = [UpdateOne({"ticker": d["ticker"]}, {"$set": d}, upsert=True) for d in docs_commit]
-    tickers_ok = {d["ticker"] for d in docs_commit}
-    if ops:
-        curvas.bulk_write(ops, ordered=False)
-    # Limpieza: borrar cualquier ON (curva ^on) que ya no esté en el scope.
-    borrados = curvas.delete_many(
-        {"curva": {"$regex": "^on"}, "ticker": {"$nin": list(tickers_ok)}}).deleted_count
-    print(f"\n✅ COMMIT: {len(ops)} upserts, {borrados} stale borrados en Trading.Curvas.")
+    res = sync_ons_to_curvas()
+    print(f"\n✅ COMMIT: {res['sincronizadas']} sincronizadas, "
+          f"{res['borradas']} stale borradas en Trading.Curvas.")
 
 
 if __name__ == "__main__":

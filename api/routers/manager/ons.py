@@ -1,0 +1,102 @@
+"""Manager sub-router — gestión de ONs (Trading.BondsMaster).
+
+Tab `/manager → TÍTULOS → ONs`. Dos cosas:
+  - SEGMENTAR: setear el sector de cada ON (energia/finanzas/otros). Live: se
+    refleja en la vista /ons sin reiniciar motores.
+  - ALTA/EDICIÓN: crear/editar una ON con sus flujos (cronograma de pagos).
+
+Cada mutación escribe el maestro BondsMaster y RE-SINCRONIZA Trading.Curvas
+(vía api.services.ons), así el bono aparece en la vista al instante. La lógica
+pura vive en `api/services/ons.py` (compartida con el seed CLI).
+
+Endpoints (gate `manager_titulos`, igual que assets):
+  GET    /api/manager/ons              → lista filtrable (sector, emisor)
+  GET    /api/manager/ons/values       → valores únicos (emisores/sectores/monedas)
+  POST   /api/manager/ons              → alta/edición (upsert por `asset`)
+  PATCH  /api/manager/ons/sector       → segmentar (setear sector)
+  DELETE /api/manager/ons?asset=X      → baja
+  POST   /api/manager/ons/sync         → re-sincronizar BondsMaster → Curvas
+"""
+from __future__ import annotations
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from api.auth import get_user_email
+from api.services import ons as svc
+
+router = APIRouter()
+
+
+class _Tickers(BaseModel):
+    ARS: str | None = Field(None, max_length=64)
+    USD: str | None = Field(None, max_length=64)
+
+
+class _Flujo(BaseModel):
+    fecha: str = Field(..., max_length=10)          # YYYY-MM-DD
+    amortizacion: float = 0.0
+    interes: float = 0.0
+    valor_residual: float = 100.0
+
+
+class _ONUpsert(BaseModel):
+    asset: str = Field(..., min_length=1, max_length=64)
+    emisor: str | None = Field(None, max_length=128)
+    moneda_flujo: str | None = Field(None, max_length=8)
+    tasa_cupon: float | None = None
+    vencimiento: str | None = Field(None, max_length=10)
+    sector: str | None = Field(None, max_length=64)
+    tickers: _Tickers | None = None
+    flujos: list[_Flujo] | None = None
+
+
+class _SectorPatch(BaseModel):
+    asset: str = Field(..., min_length=1, max_length=64)
+    sector: str = Field(..., min_length=1, max_length=64)
+
+
+@router.get("/ons")
+def list_ons(
+    sector: str | None = Query(None),
+    emisor: str | None = Query(None),
+) -> dict:
+    ons = svc.list_ons(sector=sector, emisor=emisor)
+    return {"ons": ons, "n": len(ons)}
+
+
+@router.get("/ons/values")
+def ons_values() -> dict:
+    return svc.ons_values()
+
+
+@router.post("/ons")
+def upsert_on(req: _ONUpsert = Body(...), actor: str = Depends(get_user_email)) -> dict:
+    payload = req.model_dump(exclude_none=True)
+    try:
+        return svc.upsert_on(payload, actor=actor or "")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.patch("/ons/sector")
+def set_sector(req: _SectorPatch = Body(...), actor: str = Depends(get_user_email)) -> dict:
+    try:
+        return svc.set_sector(req.asset, req.sector, actor=actor or "")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.delete("/ons")
+def delete_on(asset: str = Query(..., min_length=1)) -> dict:
+    try:
+        return svc.delete_on(asset)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/ons/sync")
+def sync_ons() -> dict:
+    """Re-sincroniza BondsMaster → Curvas manualmente (normalmente no hace falta:
+    cada alta/edición ya sincroniza)."""
+    return svc.sync_ons_to_curvas()

@@ -114,13 +114,19 @@ def sync_ons_to_curvas() -> dict:
     Lo llaman el panel Manager (tras cada mutación) y el seed CLI --commit."""
     read = get_mongo_client_read()["Trading"]["BondsMaster"]
     docs = [d for d in (bondmaster_to_curva_doc(b) for b in read.find({}, {"_id": 0})) if d]
+    # Dedup por ticker_corto (la unique index de Curvas). El último gana.
+    por_corto = {d["ticker_corto"]: d for d in docs if d.get("ticker_corto")}
     curvas = get_mongo_client()["Trading"]["Curvas"]
-    ops = [UpdateOne({"ticker": d["ticker"]}, {"$set": d}, upsert=True) for d in docs]
+    # Upsert por TICKER_CORTO (no por ticker): si un bono cambia la pata canónica
+    # (ej. de la pata O a la D), actualiza el MISMO doc en vez de intentar
+    # insertar uno nuevo y chocar la unique index ticker_corto. El filtro acota a
+    # curva ^on para no pisar nunca un doc no-ON con el mismo corto.
+    ops = [UpdateOne({"ticker_corto": tc, "curva": {"$regex": "^on"}}, {"$set": d}, upsert=True)
+           for tc, d in por_corto.items()]
     if ops:
         curvas.bulk_write(ops, ordered=False)
-    tickers_ok = [d["ticker"] for d in docs]
     borradas = curvas.delete_many(
-        {"curva": {"$regex": "^on"}, "ticker": {"$nin": tickers_ok}}).deleted_count
+        {"curva": {"$regex": "^on"}, "ticker_corto": {"$nin": list(por_corto)}}).deleted_count
     return {"sincronizadas": len(ops), "borradas": borradas}
 
 

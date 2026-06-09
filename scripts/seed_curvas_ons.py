@@ -67,6 +67,16 @@ def _short_from_full(full: str) -> str:
     return parts[2] if len(parts) >= 3 else ""
 
 
+def _slug_sector(raw) -> str:
+    """Normaliza el sector que cargás en BondsMaster.sector a un slug para la
+    curva: 'Energía' → 'energia', 'ON Finanzas' → 'finanzas'. Vacío → 'otros'."""
+    s = (raw or "otros").strip().lower()
+    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u")):
+        s = s.replace(a, b)
+    s = s.replace("on ", "").replace(" ", "_").strip("_")
+    return s or "otros"
+
+
 def _fecha_iso(raw) -> str | None:
     if isinstance(raw, datetime):
         return raw.date().isoformat()
@@ -100,12 +110,16 @@ def construir_doc_on(bm: dict) -> dict | None:
             "valor_residual": float(f.get("valor_residual", 100) or 100),
         })
 
+    # Sector codificado en la curva: "on_<sector>". La FUENTE del sector es el
+    # campo `sector` del propio doc de BondsMaster (lo manejás vos en la DB).
+    # Sin sector → "otros". Buckets esperados: energia / finanzas / otros.
     return {
         "ticker": ticker_full,
         "ticker_corto": asset,
-        "curva": "on",
+        "curva": f"on_{_slug_sector(bm.get('sector'))}",
         "moneda_flujo": moneda,
         "emisor": bm.get("emisor"),
+        "sector": bm.get("sector") or "otros",
         "tasa_cupon": bm.get("tasa_cupon"),
         "valor_nominal": 100,
         "fecha_vencimiento": _fecha_iso(bm.get("vencimiento")),
@@ -222,9 +236,9 @@ def main() -> None:
     print(f"MEP actual: {mep} · precios de referencia (ONSnapshot): {len(precios_ref)}\n")
 
     docs, problemas = [], []
-    print(f"{'asset':<8}{'emisor':<20}{'mon':<5}{'pata':<22}{'Σamort':>8}"
+    print(f"{'asset':<8}{'emisor':<20}{'mon':<5}{'curva(sector)':<16}{'Σamort':>8}"
           f"{'precio':>10}{'src':>6}{'TEA%':>8}{'dur':>7}{'parid':>8}")
-    print("-" * 110)
+    print("-" * 104)
     for bm in bonds:
         doc = construir_doc_on(bm)
         if not doc:
@@ -250,9 +264,8 @@ def main() -> None:
         tea_s = f"{tea*100:.2f}" if isinstance(tea, (int, float)) else "—"
         dur_s = f"{calc.get('duration'):.2f}" if calc.get("duration") else "—"
         par_s = f"{calc.get('paridad'):.1f}" if calc.get("paridad") else "—"
-        pata = _short_from_full(doc["ticker"])
         print(f"{doc['ticker_corto']:<8}{(doc.get('emisor') or '')[:18]:<20}"
-              f"{doc['moneda_flujo']:<5}{pata:<22}{sum_amort:>7.0f}{flag_amort:<1}"
+              f"{doc['moneda_flujo']:<5}{doc['curva']:<16}{sum_amort:>7.0f}{flag_amort:<1}"
               f"{precio:>10.2f}{src:>6}{tea_s:>8}{dur_s:>7}{par_s:>8}")
         if tea is None:
             problemas.append(f"{doc['ticker_corto']}: TIR no convergió a precio {precio:.1f}")
@@ -292,9 +305,9 @@ def main() -> None:
     tickers_ok = {d["ticker"] for d in docs_commit}
     if ops:
         curvas.bulk_write(ops, ordered=False)
-    # Limpieza: borrar curva='on' que ya no estén en el scope (sync limpio).
+    # Limpieza: borrar cualquier ON (curva ^on) que ya no esté en el scope.
     borrados = curvas.delete_many(
-        {"curva": "on", "ticker": {"$nin": list(tickers_ok)}}).deleted_count
+        {"curva": {"$regex": "^on"}, "ticker": {"$nin": list(tickers_ok)}}).deleted_count
     print(f"\n✅ COMMIT: {len(ops)} upserts, {borrados} stale borrados en Trading.Curvas.")
 
 

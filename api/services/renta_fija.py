@@ -24,6 +24,12 @@ _CURVAS_VALIDAS = ("cer", "tasa_fija", "tamar", "soberanos", "dolar_linked")
 _ORDENES_VALIDOS = ("vencimiento", "volumen_dia", "tea", "duration")
 
 
+def _es_curva_on(curva: str) -> bool:
+    """Familia ONs: 'on' (todas) o 'on_<sector>' (energia/financiera/...).
+    El sector va codificado en la curva, igual que cer/tasa_fija."""
+    return curva == "on" or curva.startswith("on_")
+
+
 def _ticker_filter(instrumento: str) -> dict:
     """Regex substring escape — compat con ticker corto o completo."""
     return {"$regex": re.escape(instrumento), "$options": "i"}
@@ -255,7 +261,7 @@ def listar_curva(
     vencimiento (default), volumen, TEA o duration. Filtrable por horizonte
     (vencimiento_min/max_meses).
     """
-    if curva not in _CURVAS_VALIDAS:
+    if curva not in _CURVAS_VALIDAS and not _es_curva_on(curva):
         return []
     if ordenar_por not in _ORDENES_VALIDOS:
         ordenar_por = "vencimiento"
@@ -294,6 +300,16 @@ def listar_curva(
             {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
              "curva": 1, "fecha_vencimiento": 1, "fecha_emision": 1,
              "flujo_vencimiento": 1},
+        ))
+    elif _es_curva_on(curva):
+        # ONs: el sector va en la curva. curva="on" → todas; "on_x" → ese sector.
+        # Trae emisor + curva(=sector) + moneda para los tabs y el coloreo.
+        filtro_on = {"curva": {"$regex": "^on"}} if curva == "on" else {"curva": curva}
+        curva_docs = list(db["Curvas"].find(
+            filtro_on,
+            {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
+             "fecha_vencimiento": 1, "fecha_emision": 1,
+             "curva": 1, "emisor": 1, "moneda_flujo": 1},
         ))
     else:
         curva_docs = list(db["Curvas"].find(
@@ -413,6 +429,12 @@ def listar_curva(
             cer_em = d.get("cer_emision")
             if cer_em:
                 entry["cer_emision"] = float(cer_em)
+        # ONs: emisor + sector (= la curva, ej "on_energia") + moneda → tabs
+        # y coloreo de la curva por sector en el frontend.
+        if _es_curva_on(str(d.get("curva", ""))):
+            entry["emisor"] = d.get("emisor")
+            entry["sector"] = d.get("curva")
+            entry["moneda"] = d.get("moneda_flujo")
         out.append(entry)
 
     if ordenar_por == "vencimiento":
@@ -427,6 +449,54 @@ def listar_curva(
     if limit and limit > 0:
         out = out[:limit]
 
+    return out
+
+
+@cached(ttl=300)
+def calendario_ons(meses: int = 12) -> list[dict]:
+    """Próximos pagos (cupón + amortización) de TODAS las ONs, plano y ordenado
+    por fecha — para el panel Calendario de la vista ONs.
+
+    Lee Trading.Curvas (curva ^on); flujos en shape nativo BondsMaster
+    {fecha, amortizacion, interes, valor_residual}. `monto` = amortizacion +
+    interes (por 100 VN). Incluye `tasa_cupon` (la tasa de cupón del bono) y
+    `cupon` (el monto del cupón de ese pago)."""
+    db = get_db_trading()
+    hoy = datetime.now(UTC).date()
+    try:
+        meses = max(1, min(int(meses), 120))
+    except (TypeError, ValueError):
+        meses = 12
+    hasta = hoy + timedelta(days=meses * 31)
+
+    out: list[dict] = []
+    for d in db["Curvas"].find(
+        {"curva": {"$regex": "^on"}},
+        {"_id": 0, "ticker_corto": 1, "emisor": 1, "curva": 1,
+         "moneda_flujo": 1, "tasa_cupon": 1, "flujos": 1},
+    ):
+        for f in d.get("flujos") or []:
+            raw = f.get("fecha")
+            try:
+                fd = raw.date() if isinstance(raw, datetime) else date.fromisoformat(str(raw)[:10])
+            except Exception:
+                continue
+            if not (hoy < fd <= hasta):
+                continue
+            amort = float(f.get("amortizacion") or 0)
+            cupon = float(f.get("interes") or 0)
+            out.append({
+                "fecha": fd.isoformat(),
+                "ticker": d.get("ticker_corto"),
+                "emisor": d.get("emisor"),
+                "sector": d.get("curva"),
+                "moneda": d.get("moneda_flujo"),
+                "tasa_cupon": d.get("tasa_cupon"),
+                "cupon": round(cupon, 4),
+                "amortizacion": round(amort, 4),
+                "monto": round(amort + cupon, 4),
+            })
+    out.sort(key=lambda x: (x["fecha"], x["ticker"] or ""))
     return out
 
 

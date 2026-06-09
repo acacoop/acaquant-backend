@@ -597,7 +597,9 @@ def calcular_campos(
             resultado["duration"] = round(dias_a_vto / 365, 4)
 
     # ── ONs (obligaciones negociables corporativas) ───────────────
-    elif curva == "on":
+    # El sector va codificado en la curva: "on", "on_energia", "on_financiera",
+    # etc. Todas comparten la misma matemática (dispatch por moneda_flujo).
+    elif curva == "on" or curva.startswith("on_"):
         # USD → math hard-dollar (igual que soberanos): precio a USD (sufijo
         # D as-is, pesos ÷MEP) y YTM en USD. ARS → precio peso directo (math
         # tasa_fija en pesos). Los flujos vienen en shape nativo BondsMaster

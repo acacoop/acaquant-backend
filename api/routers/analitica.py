@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/analitica", tags=["Analítica"])
 
 @router.get("/listar-curva")
 def listar_curva(
-    curva: str = Query(..., description="cer | tasa_fija | tamar | soberanos | dolar_linked"),
+    curva: str = Query(..., description="cer | tasa_fija | tamar | soberanos | dolar_linked | on | on_<sector>"),
     ordenar_por: str = Query("vencimiento", description="vencimiento | volumen_dia | tea | duration"),
     vencimiento_min_meses: float | None = Query(None, description="Filtrar ≥ N meses"),
     vencimiento_max_meses: float | None = Query(None, description="Filtrar ≤ N meses"),
@@ -35,6 +35,14 @@ def listar_curva(
         vencimiento_max_meses=vencimiento_max_meses,
         limit=limit,
     )
+
+
+@router.get("/ons-calendario")
+def ons_calendario(
+    meses: int = Query(12, description="Horizonte en meses (1-120)"),
+):
+    """Calendario de pagos de las ONs: próximos cupones/amortizaciones."""
+    return svc_rf.calendario_ons(meses=meses)
 
 
 @router.get("/serie-macro")

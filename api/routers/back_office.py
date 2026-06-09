@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 
 from api.auth import get_user_email
+from api.services import acreencias as svc_acr
 from api.services.back_office_titulos import get_titulos_mercado
 
 router = APIRouter(prefix="/api/back-office", tags=["BackOffice"])
@@ -26,3 +27,33 @@ def titulos_mercado(
     estructura vacía con `mercado_cerrado: true`.
     """
     return get_titulos_mercado(fecha=fecha)
+
+
+# ── Acreencias clientes (cobros futuros, precompute CashFlow.Acreencias) ──
+@router.get("/acreencias/por-dia")
+def acreencias_por_dia(
+    desde: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
+    hasta: str | None = Query(None, description="ISO YYYY-MM-DD"),
+    _email: str = Depends(get_user_email),
+):
+    """Por día: total a cobrar (por moneda) + #clientes + #pagos."""
+    return svc_acr.por_dia(desde=desde, hasta=hasta)
+
+
+@router.get("/acreencias/dia")
+def acreencias_dia(
+    fecha: str = Query(..., description="ISO YYYY-MM-DD"),
+    _email: str = Depends(get_user_email),
+):
+    """Quién cobra en una fecha y cuánto (por cliente·ticker)."""
+    return svc_acr.del_dia(fecha)
+
+
+@router.get("/acreencias/cliente")
+def acreencias_cliente(
+    id_cuenta: str = Query(..., description="id_cuenta del cliente"),
+    desde: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
+    _email: str = Depends(get_user_email),
+):
+    """Próximos cobros de un cliente."""
+    return svc_acr.del_cliente(id_cuenta, desde=desde)

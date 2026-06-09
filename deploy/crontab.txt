@@ -115,6 +115,10 @@
 # ─── Consolidado por cuenta (23:30 UTC = 20:30 ART, L-V — post AuM final 23:00)
 30 23 * * 1-5 /root/TradingAV/deploy/run_job.sh consolidado_cuentas 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.consolidado_cuentas'
 
+# ─── Acreencias clientes (23:45 UTC L-V — post AuM final) → CashFlow.Acreencias.
+# Proyecta cobros futuros por cliente (tenencias × calendario contractual). Liviano.
+45 23 * * 1-5 /root/TradingAV/deploy/run_job.sh acreencias 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.acreencias --commit'
+
 # ─── Export proveedor — 2 corridas diarias (21:30 UTC y 02:00 UTC del día sig.)
 30 21 * * 1-5 /root/TradingAV/deploy/run_job.sh partner_export 20m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.partner_export'
 0 2 * * 2-6 /root/TradingAV/deploy/run_job.sh partner_export 20m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.partner_export'

@@ -99,6 +99,7 @@
 | 11:40 · L-V | `jobs.descubrir_cuentas'` |
 | cada hora · 13-22h · L-V | `jobs.ops_rollup'` |
 | cada hora · 14-22h · L-V | `jobs.comercial_rollup'` |
+| 23:45 · L-V | `jobs.acreencias` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
 <!-- /AUTOGEN:crons -->
 

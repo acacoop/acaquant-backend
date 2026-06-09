@@ -72,7 +72,8 @@ MODULES: tuple[str, ...] = (
     "manager_clientes",       # /api/manager/clientes + /clientes/values + PATCH (edición fila)
     "manager_clientes_bulk",  # /api/manager/clientes/bulk + /bulk-fondeo (carga masiva — admin)
     "manager_compliance",     # /api/manager/compliance/* (read-only: operador nuestro vs Aunesa)
-    "manager_titulos",        # /api/manager/assets (Títulos: Instrumentos + Assets, edición)
+    "manager_titulos",        # /api/manager/assets + /ons (Títulos: Assets + ONs, edición maestro)
+    "manager_instrumentos",   # /api/manager/checks/{discovery-pyrofex,instruments-by-cfi} (Títulos→Instrumentos, SOLO lectura)
     "manager_contrapartes",   # /api/manager/contrapartes/* (segmentación + conciliador Aunesa)
 )
 
@@ -103,7 +104,7 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
         "operaciones", "portfolios", "back-office",
-        "manager_comercial", "manager_clientes", "manager_titulos",
+        "manager_comercial", "manager_clientes", "manager_instrumentos",
         "manager_contrapartes",
     ),
     # Compliance: HOME + todos los mercados + Manager SOLO Clientes + Compliance

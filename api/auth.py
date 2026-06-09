@@ -219,6 +219,9 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/api/manager/clientes/bulk-fondeo", "manager_clientes_bulk"),
     ("/api/manager/assets",            "manager_titulos"),
     ("/api/manager/ons",               "manager_titulos"),
+    # Títulos → Instrumentos (solo lectura): gate fino para asistente_comercial.
+    ("/api/manager/checks/instruments-by-cfi", "manager_instrumentos"),
+    ("/api/manager/checks/discovery-pyrofex",  "manager_instrumentos"),
     ("/api/manager/contrapartes",      "manager_contrapartes"),
     ("/api/portfolio",   "portfolios"),
     ("/api/titulos",     "portfolios"),

@@ -8,11 +8,9 @@ flujos, qué CER, qué TC y qué settlement se usaron.
 NO toca el motor — usa los mismos helpers (`xirr`, `macaulay_duration`,
 `monto_flujo_*`, etc.) y reproduce el flow leyendo data fresca de Mongo.
 
-Soporta las 4 curvas:
-  - tasa_fija
-  - cer
-  - soberanos
-  - dolar_linked
+Soporta: tasa_fija, cer, soberanos, dolar_linked y ONs (on / on_<sector>).
+Para ONs explica por qué NO hay TEA (XIRR no convergió o fuera del rango del
+motor) mostrando el cashflow — útil para los ARS con escala de precio rara.
 """
 from __future__ import annotations
 
@@ -145,7 +143,8 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
     # ── 3. Cargar dependencias según curva ──────────────────────────────
     dias_habiles = cargar_dias_habiles(client)
     cer_dict = cargar_cer(client) if curva == "cer" else {}
-    mep = cargar_mep_actual(client) if curva == "soberanos" else None
+    _es_on = curva == "on" or curva.startswith("on_")
+    mep = cargar_mep_actual(client) if (curva == "soberanos" or _es_on) else None
     tc_a3500 = cargar_a3500_actual(client) if curva == "dolar_linked" else None
 
     # ── 4. Settlement ───────────────────────────────────────────────────
@@ -347,6 +346,73 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
             cashflow += [{"fecha": fd.isoformat(), "monto": round(m, 4), "concepto": "FLUJO_USD"} for fd, m, _ in futuros]
 
             if tea is not None:
+                calculado["TEA"] = round(tea, 6)
+                calculado["TEM"] = round((1 + tea) ** (1 / 12) - 1, 6)
+                fechas_flujos_dt = [datetime.combine(fd, datetime.min.time()) for fd, _, _ in futuros]
+                montos_flujos = [m for _, m, _ in futuros]
+                fecha_base_dt = datetime.combine(fecha_base_calc, datetime.min.time())
+                dur = macaulay_duration(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
+                conv = convexity(fechas_flujos_dt, montos_flujos, tea, fecha_base_dt)
+                if dur is not None:
+                    calculado["duration"] = dur
+                    calculado["mod_duration"] = round(dur / (1 + tea), 4)
+                if conv is not None:
+                    calculado["convexity"] = conv
+
+        elif _es_on:
+            # ONs: USD → precio a USD (igual que soberanos); ARS → precio peso
+            # directo. Flujos en shape nativo BondsMaster (montos absolutos):
+            # monto = amortizacion + interes.
+            fecha_base_calc = fecha_settlement
+            moneda = (inst.get("moneda_flujo") or "USD").upper()
+            if moneda == "USD":
+                precio_calc = precio_soberano_a_usd(precio, ticker_full, mep)
+                if precio_calc is None:
+                    raise ValueError("Precio_USD = None (sin MEP o ticker no convertible).")
+                tc_info = {"fuente": "MEP", "valor": mep, "precio_usd": round(precio_calc, 6)}
+            else:
+                precio_calc = precio
+                tc_info = {"fuente": "ARS (peso directo)", "valor": None, "precio_calc": round(precio_calc, 6)}
+
+            futuros = [
+                (fecha_flujo(f), monto_flujo(f), f)
+                for f in flujos_raw
+                if fecha_flujo(f) and fecha_flujo(f) > fecha_settlement and monto_flujo(f) > 0
+            ]
+            flujos_futuros = [
+                {"fecha": fd.isoformat(), "monto": round(m, 4), "raw": f}
+                for fd, m, f in futuros
+            ]
+            if not futuros:
+                raise ValueError(
+                    f"Sin flujos futuros > settlement {fecha_settlement.isoformat()} "
+                    f"con monto>0 (de {len(flujos_raw)} flujos del instrumento)."
+                )
+
+            residual_vivo = float(futuros[0][2].get("valor_residual", 100) or 100)
+            if residual_vivo > 0:
+                calculado["paridad"] = round(precio_calc / residual_vivo * 100, 4)
+
+            fechas_dt = [datetime.combine(fecha_base_calc, datetime.min.time())] + [
+                datetime.combine(fd, datetime.min.time()) for fd, _, _ in futuros
+            ]
+            cf = [-precio_calc] + [m for _, m, _ in futuros]
+            tea = xirr(fechas_dt, cf)
+            cashflow = [{"fecha": fecha_base_calc.isoformat(), "monto": -round(precio_calc, 4),
+                         "concepto": f"PRECIO ({moneda}) (-)"}]
+            cashflow += [{"fecha": fd.isoformat(), "monto": round(m, 4), "concepto": "FLUJO"}
+                         for fd, m, _ in futuros]
+
+            # El motor solo PERSISTE la TEA si entra en (-0.5, 50). Si XIRR dio un
+            # número fuera de ese rango (o None), por eso no se ve TEA en la vista.
+            if tea is None:
+                error_calc = ("XIRR no convergió → el motor cae a duration naïve y NO "
+                              "persiste TEA. Mirá el cashflow: precio vs montos de flujo "
+                              "(típico en ARS: escala del precio ≠ escala del flujo por 100 VN).")
+            elif not (-0.5 < tea < 50):
+                error_calc = (f"XIRR dio tea={tea:.4f} FUERA del rango del motor (-0.5, 50) "
+                              f"→ NO persiste TEA. Revisá el cashflow (escala precio vs flujo).")
+            else:
                 calculado["TEA"] = round(tea, 6)
                 calculado["TEM"] = round((1 + tea) ** (1 / 12) - 1, 6)
                 fechas_flujos_dt = [datetime.combine(fd, datetime.min.time()) for fd, _, _ in futuros]

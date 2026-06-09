@@ -687,7 +687,8 @@ def check_debug_curva_tea(ticker: str):
     flujos futuros, cashflow del XIRR) + el resultado recalculado vs
     el persistido en TimeSales.
 
-    Soporta las 4 curvas: tasa_fija, cer, soberanos, dolar_linked.
+    Soporta tasa_fija, cer, soberanos, dolar_linked y ONs (on / on_<sector>).
+    Para ONs sin TEA, explica el motivo (XIRR no convergió / fuera de rango).
     """
     from api.services.debug_curva import debug_calculo_tea
     return debug_calculo_tea(ticker)

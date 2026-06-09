@@ -18,6 +18,7 @@ import re
 from datetime import UTC, datetime
 
 from pymongo import UpdateOne
+from pymongo.errors import BulkWriteError
 
 from core.mongo import get_mongo_client, get_mongo_client_read
 
@@ -117,17 +118,26 @@ def sync_ons_to_curvas() -> dict:
     # Dedup por ticker_corto (la unique index de Curvas). El último gana.
     por_corto = {d["ticker_corto"]: d for d in docs if d.get("ticker_corto")}
     curvas = get_mongo_client()["Trading"]["Curvas"]
-    # Upsert por TICKER_CORTO (no por ticker): si un bono cambia la pata canónica
-    # (ej. de la pata O a la D), actualiza el MISMO doc en vez de intentar
-    # insertar uno nuevo y chocar la unique index ticker_corto. El filtro acota a
-    # curva ^on para no pisar nunca un doc no-ON con el mismo corto.
-    ops = [UpdateOne({"ticker_corto": tc, "curva": {"$regex": "^on"}}, {"$set": d}, upsert=True)
-           for tc, d in por_corto.items()]
+    # Upsert SOLO por ticker_corto (la clave única): siempre matchea el doc
+    # existente del bono → actualiza en vez de insertar → NUNCA choca la unique
+    # index (aunque cambie la pata canónica O↔D). Sin filtro de curva — ese
+    # filtro causaba que no matcheara y terminara insertando + chocando (E11000).
+    ops = [UpdateOne({"ticker_corto": tc}, {"$set": d}, upsert=True) for tc, d in por_corto.items()]
+    sincronizadas = 0
     if ops:
-        curvas.bulk_write(ops, ordered=False)
+        try:
+            res = curvas.bulk_write(ops, ordered=False)
+            sincronizadas = (res.upserted_count or 0) + (res.modified_count or 0)
+        except BulkWriteError as e:
+            # Por las dudas: ignoramos choques de unique key (11000) residuales;
+            # el resto se aplica igual (ordered=False). Cualquier otro error sí sube.
+            otros = [w for w in e.details.get("writeErrors", []) if w.get("code") != 11000]
+            if otros:
+                raise
+            sincronizadas = e.details.get("nModified", 0) + e.details.get("nUpserted", 0)
     borradas = curvas.delete_many(
         {"curva": {"$regex": "^on"}, "ticker_corto": {"$nin": list(por_corto)}}).deleted_count
-    return {"sincronizadas": len(ops), "borradas": borradas}
+    return {"sincronizadas": sincronizadas, "borradas": borradas}
 
 
 # ─────────────────────────────────────────────

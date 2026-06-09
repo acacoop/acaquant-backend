@@ -47,6 +47,14 @@ def _fecha_iso(raw) -> str | None:
     return None
 
 
+def _f(x, default: float = 0.0) -> float:
+    """float() tolerante: None / '' / texto raro → default (no explota el sync)."""
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
+
 def _fecha_flujo_iso(raw) -> str | None:
     """Fecha de un flujo → ISO 'YYYY-MM-DD'. Acepta datetime o string."""
     if isinstance(raw, datetime):
@@ -80,9 +88,9 @@ def bondmaster_to_curva_doc(bm: dict) -> dict | None:
             continue
         flujos.append({
             "fecha": fi,
-            "amortizacion": float(f.get("amortizacion", 0) or 0),
-            "interes": float(f.get("interes", 0) or 0),
-            "valor_residual": float(f.get("valor_residual", 100) or 100),
+            "amortizacion": _f(f.get("amortizacion"), 0.0),
+            "interes": _f(f.get("interes"), 0.0),
+            "valor_residual": _f(f.get("valor_residual"), 100.0) or 100.0,
         })
 
     return {

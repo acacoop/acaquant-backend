@@ -85,6 +85,8 @@ def upsert_on(req: _ONUpsert = Body(...), actor: str = Depends(get_user_email)) 
         return svc.upsert_on(payload, actor=actor or "")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:  # error real en JSON (no 500 opaco) para diagnosticar
+        raise HTTPException(status_code=500, detail=f"upsert_on falló: {e}") from e
 
 
 @router.patch("/ons/sector")
@@ -114,7 +116,11 @@ def sync_ons() -> dict:
 def parse_flujos(req: _ParseFlujos = Body(...)) -> dict:
     """Parsea flujos pegados de Excel (formato oficial BYMA/IAMC o simple) →
     {flujos, tasa_cupon, vencimiento, formato} para previsualizar en el form."""
-    return svc.parse_flujos_texto(req.texto)
+    try:
+        return svc.parse_flujos_texto(req.texto)
+    except Exception as e:
+        return {"flujos": [], "tasa_cupon": None, "vencimiento": None,
+                "formato": "error", "error": str(e)}
 
 
 @router.get("/ons/conciliar")

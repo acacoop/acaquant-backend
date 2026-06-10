@@ -120,8 +120,8 @@
 | 13:20 · L-V | `systemctl restart motor_agro_opciones.service` |
 | 13:20 · L-V | `systemctl restart motor_portfolio_snapshot.service` |
 | 11:30 · diario | `deploy/atlas_cluster.sh resume` |
+| 13:30 · L-V | `systemctl restart motor_ordenes.service` |
 | 03:30 · diario | `deploy/atlas_cluster.sh pause` |
-| 13:320 · L-V | `systemctl restart motor_ordenes.service` |
 <!-- /AUTOGEN:otros -->
 
 > Las tablas de arriba solo listan lo **agendado** en `crontab.txt`. Jobs

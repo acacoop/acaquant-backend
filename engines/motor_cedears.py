@@ -109,6 +109,8 @@ class CedearsEngine:
                 "offer": 0.0,  # mejor punta vendedora
                 "nv":    0.0,  # NOMINAL_VOLUME acumulado del día (VOL)
                 "ev":    0.0,  # TRADE_EFFECTIVE_VOLUME acumulado (cash) → VWAP
+                "last_nv":  0.0,  # NV del tick anterior → inferir size del trade
+                "prev_px":  0.0,  # precio anterior → inferir side por dirección
             } for t in self.tickers
         }
 
@@ -117,9 +119,17 @@ class CedearsEngine:
         # el resto del market data (Trading.MarketSnapshot, TimeSales, etc).
         # Sin DB nueva — coherente con el "no migrar nada" del scope.
         self.col_snapshot = self.client["Trading"]["CedearsSnapshot"]
+        # Time & Sales INTRADÍA: tape de trades inferidos por salto de NV.
+        # Se vacía al cierre (cron jobs.cleanup_cedears_timesales). Índice
+        # idempotente para el endpoint (ticker, timestamp desc).
+        self.col_trades = self.client["Trading"]["CedearsTimeSales"]
+        self.col_trades.create_index([("ticker_corto", 1), ("timestamp", -1)], name="tickercorto_ts")
+        self.trade_buffer: list[dict] = []
+        self._buffer_lock = threading.Lock()
 
         self._arranque_en_frio()
         threading.Thread(target=self._snapshot_loop, daemon=True).start()
+        threading.Thread(target=self._flush_loop, daemon=True).start()
 
     # ──────────────────────────────────────────────────────────────
     # Arranque en frío — REST seed
@@ -151,6 +161,10 @@ class CedearsEngine:
                 st["offer"] = _to_float(data.get("OF"))
                 st["nv"]    = _to_float(data.get("NV"))
                 st["ev"]    = _to_float(data.get("EV"))
+                # Seed para la inferencia de trades: arrancar con el NV/precio
+                # del REST evita emitir un trade falso gigante en el 1er tick WS.
+                st["last_nv"] = st["nv"]
+                st["prev_px"] = st["last"]
             except Exception as e:
                 logger.warning(f"  · {ticker}: REST exception {type(e).__name__}: {e}")
         logger.info("Arranque en frío completado")
@@ -189,6 +203,50 @@ class CedearsEngine:
             st["nv"]    = _to_float(data["NV"])
         if data.get("EV") is not None:
             st["ev"]    = _to_float(data["EV"])
+
+        # ── Inferencia de Time & Sales: cada salto de NV = trade(s) agregados
+        # desde el último tick. Side por puntas (cruza el offer→BUY, el bid→SELL)
+        # y, en el medio, por dirección del precio. Igual que valores.py pero sin
+        # VPIN. cash = px·sz (CEDEAR cotiza por acción, NO se divide por 100).
+        la = data.get("LA")
+        nv_raw = data.get("NV")
+        if la is not None and nv_raw is not None:
+            px = _to_float(la)
+            nv = _to_float(nv_raw)
+            if px > 0 and st["last_nv"] > 0 and nv > st["last_nv"]:
+                sz = nv - st["last_nv"]
+                st["last_nv"] = nv
+                b1, o1 = st["bid"], st["offer"]
+                if o1 > 0 and px >= o1:
+                    side = "BUY"
+                elif b1 > 0 and px <= b1:
+                    side = "SELL"
+                elif px > st["prev_px"]:
+                    side = "BUY"
+                elif px < st["prev_px"]:
+                    side = "SELL"
+                else:
+                    side = "MID"
+                st["prev_px"] = px
+                ts_ms = la.get("date") if isinstance(la, dict) else None
+                try:
+                    dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=UTC) if ts_ms else datetime.now(UTC)
+                except (TypeError, ValueError, OSError):
+                    dt = datetime.now(UTC)
+                with self._buffer_lock:
+                    self.trade_buffer.append({
+                        "ticker":       ticker,
+                        "ticker_corto": self._ticker_corto_map[ticker],
+                        "timestamp":    dt,
+                        "price":        px,
+                        "size":         sz,
+                        "side":         side,
+                        "money":        px * sz,
+                    })
+            elif px > 0 and st["last_nv"] <= 0:
+                # Primer NV visto por WS sin seed (no debería pasar tras el REST):
+                # registrar el baseline sin emitir trade.
+                st["last_nv"], st["prev_px"] = nv, px
 
     # ──────────────────────────────────────────────────────────────
     # Snapshot loop — 1s, bulk_write a Cedears.Snapshot
@@ -237,6 +295,22 @@ class CedearsEngine:
                     self.col_snapshot.bulk_write(ops, ordered=False)
             except Exception as e:
                 logger.error(f"Error en _snapshot_loop: {e}")
+
+    def _flush_loop(self):
+        """Cada 1s vuelca el buffer de trades inferidos a Trading.CedearsTimeSales.
+        Thread aparte para no bloquear el WS handler. La colección es intradía
+        (se vacía al cierre vía cron jobs.cleanup_cedears_timesales)."""
+        while True:
+            time.sleep(1.0)
+            if not self.trade_buffer:
+                continue
+            with self._buffer_lock:
+                batch = self.trade_buffer[:]
+                self.trade_buffer = []
+            try:
+                self.col_trades.insert_many(batch, ordered=False)
+            except Exception as e:
+                logger.error(f"Error flush trades CEDEARs: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────

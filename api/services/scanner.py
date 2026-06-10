@@ -515,3 +515,32 @@ def get_cedears_scanner() -> list[dict]:
             "updated_at":       s.get("updated_at"),
         })
     return out
+
+
+def get_cedears_trades(*, ticker: str, limite: int = 200) -> list[dict]:
+    """Time & Sales intradía de un CEDEAR (tape). Lee Trading.CedearsTimeSales
+    (trades inferidos por el motor, se vacía al cierre), filtrado a la sesión de
+    hoy, desc por timestamp. `ticker` = ticker_corto. NO cacheado: el tape tiene
+    que ir live con el poll del frontend."""
+    db = get_db_trading()
+    inicio_hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    cur = (
+        db["CedearsTimeSales"]
+        .find(
+            {"ticker_corto": ticker.upper(), "timestamp": {"$gte": inicio_hoy}},
+            {"_id": 0, "timestamp": 1, "price": 1, "size": 1, "side": 1, "money": 1},
+        )
+        .sort("timestamp", -1)
+        .limit(max(1, min(limite, 1000)))
+    )
+    out: list[dict] = []
+    for d in cur:
+        ts = d.get("timestamp")
+        out.append({
+            "timestamp": ts.isoformat() if isinstance(ts, datetime) else ts,
+            "price":     d.get("price"),
+            "size":      d.get("size"),
+            "side":      d.get("side"),
+            "money":     d.get("money"),
+        })
+    return out

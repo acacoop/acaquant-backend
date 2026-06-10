@@ -82,6 +82,7 @@
 | 22:00 · L-V | `jobs.bcra` |
 | 22:00 · L-V | `jobs.market_anchors'` |
 | 23:00 · L-V | `jobs.aum'` |
+| 20:10 · L-V | `jobs.cleanup_cedears_timesales'` |
 | 20:15 · L-V | `jobs.options_rollup'` |
 | 20:25 · L-V | `jobs.snapshot_cierre` + `jobs.fair_value'` |
 | 12:30 · L-V | `jobs.cleanup_curvas'` |

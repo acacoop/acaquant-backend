@@ -159,6 +159,10 @@
 # para acumular serie histórica. Lee get_sinteticos() del último estado del día.
 40 20 * * 1-5 /root/TradingAV/deploy/run_job.sh snapshot_sinteticos 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.snapshot_sinteticos'
 
+# ─── Vaciado del Time & Sales intradía de CEDEARs (20:10 UTC = 17:10 ART, L-V)
+# Trading.CedearsTimeSales es intradía (tape del scanner); se borra al cierre.
+10 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_cedears_timesales 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_cedears_timesales'
+
 # ─── Atlas cluster pause/resume diaria (03:30 / 11:30 UTC = 00:30 / 08:30 ART)
 30 3  * * * /root/TradingAV/deploy/atlas_cluster.sh pause  >> /root/TradingAV/logs/atlas_cluster.log 2>&1
 30 11 * * * /root/TradingAV/deploy/atlas_cluster.sh resume >> /root/TradingAV/logs/atlas_cluster.log 2>&1

@@ -27,7 +27,7 @@ from pymongo import UpdateOne
 from core.mongo import get_mongo_client
 
 # CARTERA → moneda_flujo que espera el motor.
-CARTERA_A_MONEDA = {"HD": "USD", "DL": "DL"}
+CARTERA_A_MONEDA = {"HD": "USD", "DL": "DL", "ARS": "ARS"}
 
 
 def main() -> None:

@@ -107,21 +107,21 @@
 <!-- AUTOGEN:otros -->
 | Horario | Comando |
 |---|---|
-| 13:00 · L-V | `systemctl restart motor_rofex.service` |
-| 13:00 · L-V | `systemctl restart motor_options.service` |
-| 13:00 · L-V | `systemctl restart motor_curvas.service` |
-| 13:00 · L-V | `systemctl restart motor_forwards.service` |
-| 13:00 · L-V | `systemctl restart motor_breakevens.service` |
-| 13:00 · L-V | `systemctl restart motor_caucion.service` |
-| 13:00 · L-V | `systemctl restart motor_futuros_dlr.service` |
-| 13:00 · L-V | `systemctl restart motor_dolares.service` |
-| 13:00 · L-V | `systemctl restart motor_cedears.service` |
-| 13:00 · L-V | `systemctl restart motor_agro.service` |
-| 13:00 · L-V | `systemctl restart motor_agro_opciones.service` |
-| 13:00 · L-V | `systemctl restart motor_portfolio_snapshot.service` |
+| 13:20 · L-V | `systemctl restart motor_rofex.service` |
+| 13:20 · L-V | `systemctl restart motor_options.service` |
+| 13:20 · L-V | `systemctl restart motor_curvas.service` |
+| 13:20 · L-V | `systemctl restart motor_forwards.service` |
+| 13:20 · L-V | `systemctl restart motor_breakevens.service` |
+| 13:20 · L-V | `systemctl restart motor_caucion.service` |
+| 13:20 · L-V | `systemctl restart motor_futuros_dlr.service` |
+| 13:20 · L-V | `systemctl restart motor_dolares.service` |
+| 13:20 · L-V | `systemctl restart motor_cedears.service` |
+| 13:20 · L-V | `systemctl restart motor_agro.service` |
+| 13:20 · L-V | `systemctl restart motor_agro_opciones.service` |
+| 13:20 · L-V | `systemctl restart motor_portfolio_snapshot.service` |
 | 11:30 · diario | `deploy/atlas_cluster.sh resume` |
-| 13:30 · L-V | `systemctl restart motor_ordenes.service` |
 | 03:30 · diario | `deploy/atlas_cluster.sh pause` |
+| 13:320 · L-V | `systemctl restart motor_ordenes.service` |
 <!-- /AUTOGEN:otros -->
 
 > Las tablas de arriba solo listan lo **agendado** en `crontab.txt`. Jobs

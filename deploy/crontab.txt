@@ -16,36 +16,40 @@
 30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_curvas 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_curvas'
 30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_futuros_dlr 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_futuros_dlr'
 
-# ─── Motores de mercado (Lunes a Viernes, 13:00 UTC → 20:05 UTC = 10:00 → 17:05 ART)
+# ─── Motores de mercado (Lunes a Viernes, 13:20 UTC → 20:05 UTC = 10:20 → 17:05 ART)
+# Arrancan 10 min antes de la apertura (10:30 ART). Antes arrancaban 13:00 UTC y
+# durante 30 min pre-apertura pisaban la foto de ayer con last=0 → tablas de mercado
+# vacías a la mañana ("SIN DATOS — MERCADO CERRADO"). Con 13:20 la foto del cierre
+# anterior sobrevive hasta casi la apertura. Ver memoria project_motores_arranque_preapertura.
 # Nota: `restart` (no `start`) → mata cualquier instancia zombie heredada (WS muerto
 # pero proceso "active"). Ver memoria project_motors_overnight_atlas_pause.
-0 13 * * 1-5 systemctl restart motor_rofex.service
+20 13 * * 1-5 systemctl restart motor_rofex.service
 5 20 * * 1-5 systemctl stop    motor_rofex.service
-0 13 * * 1-5 systemctl restart motor_options.service
+20 13 * * 1-5 systemctl restart motor_options.service
 5 20 * * 1-5 systemctl stop    motor_options.service
-0 13 * * 1-5 systemctl restart motor_curvas.service
+20 13 * * 1-5 systemctl restart motor_curvas.service
 5 20 * * 1-5 systemctl stop    motor_curvas.service
-0 13 * * 1-5 systemctl restart motor_forwards.service
+20 13 * * 1-5 systemctl restart motor_forwards.service
 5 20 * * 1-5 systemctl stop    motor_forwards.service
-0 13 * * 1-5 systemctl restart motor_breakevens.service
+20 13 * * 1-5 systemctl restart motor_breakevens.service
 5 20 * * 1-5 systemctl stop    motor_breakevens.service
-0 13 * * 1-5 systemctl restart motor_caucion.service
+20 13 * * 1-5 systemctl restart motor_caucion.service
 5 20 * * 1-5 systemctl stop    motor_caucion.service
-0 13 * * 1-5 systemctl restart motor_futuros_dlr.service
+20 13 * * 1-5 systemctl restart motor_futuros_dlr.service
 5 20 * * 1-5 systemctl stop    motor_futuros_dlr.service
-0 13 * * 1-5 systemctl restart motor_dolares.service
+20 13 * * 1-5 systemctl restart motor_dolares.service
 5 20 * * 1-5 systemctl stop    motor_dolares.service
-0 13 * * 1-5 systemctl restart motor_cedears.service
+20 13 * * 1-5 systemctl restart motor_cedears.service
 5 20 * * 1-5 systemctl stop    motor_cedears.service
-0 13 * * 1-5 systemctl restart motor_agro.service
+20 13 * * 1-5 systemctl restart motor_agro.service
 5 20 * * 1-5 systemctl stop    motor_agro.service
-0 13 * * 1-5 systemctl restart motor_agro_opciones.service
+20 13 * * 1-5 systemctl restart motor_agro_opciones.service
 5 20 * * 1-5 systemctl stop    motor_agro_opciones.service
-0 13 * * 1-5 systemctl restart motor_portfolio_snapshot.service
+20 13 * * 1-5 systemctl restart motor_portfolio_snapshot.service
 5 20 * * 1-5 systemctl stop    motor_portfolio_snapshot.service
 
 # ─── Motor de órdenes (10:30 ART → 17:05 ART = 13:30 UTC → 20:05 UTC)
-30 13 * * 1-5 systemctl restart motor_ordenes.service
+320 13 * * 1-5 systemctl restart motor_ordenes.service
 5  20 * * 1-5 systemctl stop    motor_ordenes.service
 
 # ─── Discovery de cuentas autorizadas (1x/día, 11:40 UTC = 08:40 ART, L-V — post-resume 11:30)

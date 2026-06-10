@@ -885,13 +885,26 @@ def _ops_match(
     denominacion: str | None = None,
     cuenta: str | None = None,
     segmento: str | None = None,
+    *,
+    incluir_sol_susc: bool = False,
 ) -> dict:
-    # etapa=solicitud (pedido FCI bilateral, comprobante DOC) NO suma: la
+    # etapa=solicitud (pedido FCI bilateral, comprobante DOC) NO suma en VOLUMEN: la
     # liquidación (CL) ya cuenta esa operación → evita doble conteo. $ne también
-    # matchea los docs SIN etapa (boletos normales y liquidaciones). El "flujo del
-    # día" (solicitudes) se consultará aparte cuando se exponga.
-    m: dict = {"moneda": moneda, "es_cierre": False,
-               "etapa": {"$ne": "solicitud"}}
+    # matchea los docs SIN etapa (boletos normales y liquidaciones).
+    #
+    # `incluir_sol_susc=True` (solo la LISTA /ops/boletos): ADITIVO — además de lo
+    # countable, muestra las SOLICITUDES de SUSCRIPCIÓN FCI (flujo del día, así se
+    # ven el día del pedido y no recién al liquidar). NO afecta el volumen: las
+    # series/resumen/rollup/SQL siguen con el filtro estricto. Los rescates quedan
+    # como están (su solicitud viene en 0 → no aporta).
+    m: dict = {"moneda": moneda, "es_cierre": False}
+    if incluir_sol_susc:
+        m["$or"] = [
+            {"etapa": {"$ne": "solicitud"}},
+            {"etapa": "solicitud", "operacion": "Suscripción"},
+        ]
+    else:
+        m["etapa"] = {"$ne": "solicitud"}
     if mercado and mercado.lower() != "todos":
         m["mercado"] = mercado
     if operacion:
@@ -1523,12 +1536,15 @@ def ops_boletos(
                                     denominacion=denominacion, cuenta=cuenta, operacion=operacion,
                                     mercado=mercado, segmento=segmento, scope=scope)
     db = get_db_cashflow()["Operaciones"]
-    match = _ops_match(moneda, mercado, operacion, denominacion, cuenta, segmento)
+    # La LISTA incluye las solicitudes de suscripción FCI (flujo del día); el
+    # volumen (series/resumen) NO — ver _ops_match.
+    match = _ops_match(moneda, mercado, operacion, denominacion, cuenta, segmento,
+                       incluir_sol_susc=True)
     match["concertacion"] = {"$gte": desde, "$lte": hasta}
     aplicar_scope_cuenta(match, scope, campo="cuenta")
     proj = {"_id": 0, "boleto": 1, "concertacion": 1, "cuenta": 1, "denominacion": 1,
             "tipo_operacion": 1, "operacion": 1, "mercado": 1, "instrumento": 1,
-            "condiciones": 1, "cantidad": 1, "bruto": 1, "moneda": 1}
+            "condiciones": 1, "cantidad": 1, "bruto": 1, "moneda": 1, "etapa": 1}
     boletos = list(db.find(match, proj).sort("bruto", -1).limit(500))
     return {"boletos": boletos, "n": len(boletos)}
 

@@ -41,8 +41,6 @@
 5 20 * * 1-5 systemctl stop    motor_breakevens.service
 20 13 * * 1-5 systemctl restart motor_caucion.service
 5 20 * * 1-5 systemctl stop    motor_caucion.service
-20 13 * * 1-5 systemctl restart motor_futuros_dlr.service
-5 20 * * 1-5 systemctl stop    motor_futuros_dlr.service
 20 13 * * 1-5 systemctl restart motor_dolares.service
 5 20 * * 1-5 systemctl stop    motor_dolares.service
 20 13 * * 1-5 systemctl restart motor_cedears.service
@@ -57,6 +55,14 @@
 # ─── Motor de órdenes (10:30 ART → 17:05 ART = 13:30 UTC → 20:05 UTC)
 30 13 * * 1-5 systemctl restart motor_ordenes.service
 5  20 * * 1-5 systemctl stop    motor_ordenes.service
+
+# ─── Motor FUTUROS DLR — EXTENDIDO (no solo rueda): la curva DLR muestra datos en
+# vivo el mayor tiempo posible. Arranca post-resume de Atlas (11:35 UTC) y para antes
+# del pause (03:25 UTC), L-V → cubre toda la ventana de Atlas prendido. `restart`
+# diario mata WS zombies. (Si ROFEX no cotiza fuera de hs, el snapshot igual conserva
+# el último valor; esto captura cualquier sesión extendida.)
+35 11 * * 1-5 systemctl restart motor_futuros_dlr.service
+25 3  * * 2-6 systemctl stop    motor_futuros_dlr.service
 
 # ─── Discovery de cuentas autorizadas (1x/día, 11:40 UTC = 08:40 ART, L-V — post-resume 11:30)
 # Itera 1-12000 contra el broker (pyRofex) y escribe a Mongo → necesita Atlas arriba.

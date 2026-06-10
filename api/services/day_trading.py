@@ -270,6 +270,9 @@ def get_day_trading(objetivo_pct: float = 0.5) -> dict:
 
         rows.append({
             "ticker":           tk_corto,
+            # Ticker BYMA completo — lo necesita la boleta de operar del
+            # TRADE LAB (book L2 + /api/ordenes usan el símbolo full).
+            "ticker_full":      m.get("ticker"),
             "nombre":           m.get("nombre"),
             "sector":           m.get("sector"),
             "last":             last,

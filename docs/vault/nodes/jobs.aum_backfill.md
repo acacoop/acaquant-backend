@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\aum_backfill.py
+path: jobs/aum_backfill.py
 ---
 
 # jobs/aum_backfill
 
 > aum_backfill.py — Corre el snapshot de AuM para una fecha pasada.
 
-**Archivo:** `jobs\aum_backfill.py`
+**Archivo:** `jobs/aum_backfill.py`
 
 ## Qué hace
 Corre el snapshot de AuM para una fecha pasada puntual (no el día corriente). Reusa los helpers de `jobs.aum` (auth, consulta, procesado, valuación) pero pidiendo a Aunesa el `desde` correcto para reconstruir el cierre de esa fecha. Soporta acotar a cuentas explícitas o solo a las ya presentes en AuM, con workers/timeout/retries configurables; pisa por (id_cuenta, unidad, fecha_snapshot) y deja las cuentas fallidas en `docs/cuentas_con_error.json` con comando de reintento sugerido.

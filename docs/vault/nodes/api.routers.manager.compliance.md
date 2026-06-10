@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\manager\compliance.py
+path: api/routers/manager/compliance.py
 ---
 
 # api/routers/manager/compliance
 
 > Manager sub-router — COMPLIANCE: operador nuestro vs Aunesa.
 
-**Archivo:** `api\routers\manager\compliance.py`
+**Archivo:** `api/routers/manager/compliance.py`
 
 ## Qué hace
 Sub-router `/api/manager/compliance` — tab COMPLIANCE. Un único GET de solo lectura que cruza EN VIVO el operador que reporta Aunesa contra el operador asignado en `Clientes.Comitentes` y marca las cuentas donde difieren. No persiste nada. Gateado por `manager_compliance` (rol compliance + admin).

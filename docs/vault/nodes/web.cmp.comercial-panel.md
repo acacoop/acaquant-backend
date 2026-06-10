@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\comercial-panel.tsx
+path: src/components/comercial-panel.tsx
 ---
 
 # web/components/comercial-panel
 
-**Archivo:** `src\components\comercial-panel.tsx`
+**Archivo:** `src/components/comercial-panel.tsx`
 
 ## Qué hace
 Tablero Comercial v1 (solo manager): tabla por operador con el conteo de cuentas según estado comercial (activas / enfriándose / dormidas / nuevas / sin segmentar) y el AuM total de cada operador, marcando las cuentas huérfanas. Es la vista de supervisión de la cartera por comercial.

@@ -4,14 +4,14 @@ type: module
 layer: engines
 repo: backend
 tags: [module, engines, backend]
-path: engines\portfolio_snapshot.py
+path: engines/portfolio_snapshot.py
 ---
 
 # engines/portfolio_snapshot
 
 > Motor dedicado a captura del último precio para tickers de tenencia.
 
-**Archivo:** `engines\portfolio_snapshot.py`
+**Archivo:** `engines/portfolio_snapshot.py`
 
 ## Qué hace
 Motor dedicado a tener el `last_price`/`closing_price` live de SOLO los tickers que la mesa tiene en posición hoy. Sesión pyRofex propia y suscripción mínima (entries LAST + CLOSING_PRICE, sin book), bulk_write cada 1s con dirty-flag. Un thread cada 60 min recalcula el universo de tenencia y agrega tickers nuevos sin reabrir el WS.

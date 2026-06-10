@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\descubrir_cuentas.py
+path: jobs/descubrir_cuentas.py
 ---
 
 # jobs/descubrir_cuentas
 
 > Descubre cuentas autorizadas para el user master del broker.
 
-**Archivo:** `jobs\descubrir_cuentas.py`
+**Archivo:** `jobs/descubrir_cuentas.py`
 
 ## Qué hace
 Descubre qué cuentas autoriza el broker para el user master: barre un rango de IDs (default 1-12000) llamando a pyRofex `get_account_report` por cada una y guarda las autorizadas con su snapshot de saldos (ARS/USD disponible, n° posiciones, flag activa). Las no autorizadas se ignoran en silencio.

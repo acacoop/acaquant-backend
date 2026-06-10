@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\cleanup_curvas.py
+path: jobs/cleanup_curvas.py
 ---
 
 # jobs/cleanup_curvas
 
 > Limpieza de instrumentos vencidos en Trading.Curvas.
 
-**Archivo:** `jobs\cleanup_curvas.py`
+**Archivo:** `jobs/cleanup_curvas.py`
 
 ## Qué hace
 Borra de `Trading.Curvas` los instrumentos que vencen a menos de 2 días hábiles, usando el calendario hábil argentino. Evita que bonos/letras ya vencidos sigan apareciendo en las curvas y motores. Tiene modo `--dry` que solo lista lo que borraría.

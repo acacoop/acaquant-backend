@@ -1,3 +1,0 @@
-Vista MONITOR (Módulo 2 de la Mesa de Estrategia, Renta Variable). El usuario carga un book (lista de posiciones ticker/notional/dirección) y devuelve exposición por sector/región, concentración (top5, HHI), riesgo agregado (vol anual, VaR 1d 95%, exposición a SPY/QQQ) y contribución de riesgo por activo.
-
-Conecta con: fetch a `/api/scanner/book-analysis` (respaldado por `api.services.rv_motor` / scanner). Vive en el tab Renta Variable.

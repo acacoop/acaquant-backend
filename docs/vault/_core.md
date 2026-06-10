@@ -1,6 +1,6 @@
 # 🧱 core — infraestructura
 
-26 notas.
+29 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para Trading.AdhocSubscriptions — suscripciones live efímeras.
@@ -14,16 +14,19 @@
 - [[core.dolar_oficial]] — Fuente única para el "dólar oficial" mayorista.
 - [[core.finnhub]] — Cliente Finnhub con rate limiting interno.
 - [[core.grupos]] — core/grupos.py — grupos de acceso por cuenta (scoping multi-tenant).
+- [[core.grupos_sql]] — core/grupos_sql.py — lectura del scope de cuentas (grupos) desde Postgres.
 - [[core.job_runs]] — Context manager para registrar runs de jobs automáticos en Manager.JobRuns.
 - [[core.mae]] — Cliente MAE MarketData.
 - [[core.mongo]]
 - [[core.mongo_monitor]] — mongo_monitor.py — listener de pymongo para grabar queries de la API.
 - [[core.notify]] — Notificaciones operativas (Telegram).
 - [[core.openfigi]] — Cliente OpenFIGI con caching en Mongo (Smart.CusipCatalog).
+- [[core.postgres]] — core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.
 - [[core.profiler]] — Stopwatch mínimo para instrumentar pasos dentro de una función.
 - [[core.rofex_orders_session]] — Sesión pyRofex dedicada a envío/seguimiento de órdenes.
 - [[core.rofex_session]]
 - [[core.roles]] — Roles y matriz de permisos por módulo.
+- [[core.roles_sql]] — core/roles_sql.py — lecturas de AUTH (roles/matriz) desde Postgres.
 - [[core.snapshot_writer]]
 - [[core.tz]] — Zona horaria Argentina — ÚNICO lugar para now / tz / cálculo de frescura.
 - [[core.websocket]] — WebSocketManager — conexión WS a pyRofex para los motores de mercado.

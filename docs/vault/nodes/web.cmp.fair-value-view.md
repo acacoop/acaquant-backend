@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\fair-value-view.tsx
+path: src/components/fair-value-view.tsx
 ---
 
 # web/components/fair-value-view
 
-**Archivo:** `src\components\fair-value-view.tsx`
+**Archivo:** `src/components/fair-value-view.tsx`
 
 ## Qué hace
 Tabla del módulo Fair Value relativo intra-curva (tasa_fija / CER): lista bonos con su TEA observada, residuo en bps y z-scores (temporal vs su historia y estático vs la curva), coloreados barato/caro. Ordenable y polleada cada 90 s.

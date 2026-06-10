@@ -4,12 +4,12 @@ type: view
 layer: web-view
 repo: frontend
 tags: [view, web-view, frontend]
-path: src\app\aum\page.tsx
+path: src/app/aum/page.tsx
 ---
 
 # web /aum  (view)
 
-**Archivo:** `src\app\aum\page.tsx`
+**Archivo:** `src/app/aum/page.tsx`
 
 ## Qué hace
 Vista `/aum` — Activos bajo Administración (AuM). Wrapper `force-dynamic` que delega todo al componente `AumView`, que hace sus propios fetches client-side.

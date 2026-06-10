@@ -4,12 +4,12 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\rofex_session.py
+path: core/rofex_session.py
 ---
 
 # core/rofex_session
 
-**Archivo:** `core\rofex_session.py`
+**Archivo:** `core/rofex_session.py`
 
 ## Qué hace
 Inicialización básica de la sesión pyRofex en entorno LIVE para los motores de market data: setea URL/WS y llama a `pyRofex.initialize()` con las credenciales de `Config`. Es la sesión "de lectura de mercado", distinta de `core.rofex_orders_session` (que es para operar).

@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\comercial_rollup.py
+path: jobs/comercial_rollup.py
 ---
 
 # jobs/comercial_rollup
 
 > jobs/comercial_rollup.py — precompute Clientes.ComercialCache (rollup comercial).
 
-**Archivo:** `jobs\comercial_rollup.py`
+**Archivo:** `jobs/comercial_rollup.py`
 
 ## Qué hace
 Pre-agrega la data del Tablero Comercial al grano {fecha, id_cuenta} → {volumen pesificado ARS, n_ops, arancel}, combinando volumen de `CashFlow.NegocioMovimientos` con aranceles de `CashFlow.Operaciones`. Resuelve el problema de que el informe comercial escaneaba toda la historia sin filtro (~338k+488k docs, 2.4s, desalojaba el cache del M10): pasa a leer ~40k filas indexadas.

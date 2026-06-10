@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src\app\api\valuaciones\[id_cuenta]\posiciones\route.ts
+path: src/app/api/valuaciones/[id_cuenta]/posiciones/route.ts
 ---
 
 # web /api/valuaciones/[id_cuenta]/posiciones  (proxy)
 
-**Archivo:** `src\app\api\valuaciones\[id_cuenta]\posiciones\route.ts`
+**Archivo:** `src/app/api/valuaciones/[id_cuenta]/posiciones/route.ts`
 
 ## Qué hace
 Route handler que proxea las posiciones de una cuenta (valuadas a precio de mercado, con ?hasta opcional) a /api/valuaciones/{id_cuenta}/posiciones. Live (lee MarketSnapshot), force-dynamic + no-store.

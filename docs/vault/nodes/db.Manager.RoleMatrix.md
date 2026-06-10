@@ -17,3 +17,4 @@ Conecta con: la lee `core/roles.py` (motor RBAC) que consultan `api/main.py` y l
 
 ## Lo usan (backlinks) ←
 - [[core.roles]]  ·  _module_
+- [[jobs.sync_postgres]]  ·  _module_

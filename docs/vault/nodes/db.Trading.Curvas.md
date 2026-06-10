@@ -18,14 +18,15 @@ Conecta con: la consumen los motores (`engines/curvas.py`, breakevens, forwards)
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.routers.titulos]]  ·  _module_
+- [[api.services.acreencias]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
 - [[api.services.mejoras_dispo]]  ·  _module_
+- [[api.services.ons]]  ·  _module_
 - [[api.services.order_book]]  ·  _module_
-- [[api.services.portfolio]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_

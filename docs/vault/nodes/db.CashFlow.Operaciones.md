@@ -31,5 +31,7 @@ Conecta con: la escriben `jobs/operaciones_informes.py` y `api/services/operacio
 - [[jobs.comercial_rollup]]  ·  _module_
 - [[jobs.descubrir_cuentas]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
+- [[jobs.informe_salud]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.ops_rollup]]  ·  _module_
+- [[jobs.sync_postgres]]  ·  _module_

@@ -1,9 +1,10 @@
 # ⏱️ jobs — batch / cron
 
-46 notas.
+51 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
+- [[jobs.acreencias]] — jobs/acreencias.py — precompute diario del MOTOR DE ACREENCIAS.
 - [[jobs.actividad_mensual]] — actividad_mensual.py — snapshot mensual de CUENTAS ACTIVAS.
 - [[jobs.adr_live]] — adr_live.py — pull live USD prices del subyacente de cada CEDEAR.
 - [[jobs.aranceles]] — Job de aranceles — pega a Aunesa /informes y completa los boletos sin arancel.
@@ -19,6 +20,7 @@
 - [[jobs.bcra]]
 - [[jobs.cashflow]]
 - [[jobs.cierre_canje]] — cierre_canje.py — materializa el cierre diario de los tickers de canje.
+- [[jobs.cleanup_cedears_timesales]] — cleanup_cedears_timesales.py — vacía el Time & Sales intradía de CEDEARs.
 - [[jobs.cleanup_curvas]] — Limpieza de instrumentos vencidos en Trading.Curvas.
 - [[jobs.cleanup_futuros_dlr]] — Limpieza de contratos DLR vencidos en Trading.FuturosDLRSnapshot.
 - [[jobs.comercial_rollup]] — jobs/comercial_rollup.py — precompute Clientes.ComercialCache (rollup comercial).
@@ -31,6 +33,7 @@
 - [[jobs.fci_bilateral]] — jobs/fci_bilateral.py — lleva el FCI bilateral de CashFlow.NegocioMovimientos a
 - [[jobs.flujo_contrapartes]]
 - [[jobs.forwards_zscore]] — forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.
+- [[jobs.informe_salud]] — informe_salud.py — Informe de salud de ACAQuant (health report a Telegram).
 - [[jobs.market_anchors]] — market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).
 - [[jobs.market_quotes]] — market_quotes.py — cotizaciones equity + forex para watchlists.
 - [[jobs.negocio_movimientos]] — negocio_movimientos.py — pega a Aunesa, consolida y persiste boletos
@@ -45,6 +48,8 @@
 - [[jobs.segmentar_patrimonial]] — segmentar_patrimonial.py — re-clasifica `nivel_3` de todas las Comitentes activas.
 - [[jobs.segmento_contrapartes]] — set_segmento_contrapartes.py
 - [[jobs.snapshot_cierre]] — snapshot_cierre.py — materializa el cierre diario por bono en Trading.SnapshotsCierre.
+- [[jobs.snapshot_sinteticos]] — snapshot_sinteticos.py — materializa el cierre diario de sintéticos en Trading.SnapshotsSinteticos.
 - [[jobs.sync_comitentes]] — Sync de cuentas comitentes desde Aunesa → master `Clientes.Comitentes`.
+- [[jobs.sync_postgres]] — jobs/sync_postgres.py — sync Mongo → Postgres (Supabase). Fase B.
 - [[jobs.volatilidad_ggal]]
 - [[jobs.watchdog]] — jobs/watchdog.py — "el agente que evalúa solo": detecta jobs colgados y alerta.

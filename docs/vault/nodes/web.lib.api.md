@@ -4,12 +4,12 @@ type: lib
 layer: web-lib
 repo: frontend
 tags: [lib, web-lib, frontend]
-path: src\lib\api.ts
+path: src/lib/api.ts
 ---
 
 # web/lib/api
 
-**Archivo:** `src\lib\api.ts`
+**Archivo:** `src/lib/api.ts`
 
 ## Qué hace
 Cliente HTTP server-side del frontend para pegarle a la API de TradingAV (`api.acaquant.com`). Su función `apiFetch` arma cada request con el Bearer (`API_KEY`), el service token de Cloudflare Access (CF-Access-Client-Id/Secret) y, sobre todo, propaga la identidad del usuario (`x-acaquant-user-email` + `cf-access-authenticated-user-email`) para que el backend aplique RBAC. Maneja timeout (15s default), revalidate de Next y extrae el `detail` de los errores de FastAPI.
@@ -25,6 +25,7 @@ Conecta con: lee la identidad verificada vía `web.lib.cf-access` (`trustedEmail
 - [[web.api.api.aum-pnl-todas]]  ·  _route_
 - [[web.api.api.aum-total.serie]]  ·  _route_
 - [[web.api.api.aum-total.snapshot]]  ·  _route_
+- [[web.api.api.back-office.acreencias.[...path]]]  ·  _route_
 - [[web.api.api.back-office.titulos-mercado]]  ·  _route_
 - [[web.api.api.cashflow]]  ·  _route_
 - [[web.api.api.caucion]]  ·  _route_
@@ -50,9 +51,7 @@ Conecta con: lee la identidad verificada vía `web.lib.cf-access` (`trustedEmail
 - [[web.api.api.news.article]]  ·  _route_
 - [[web.api.api.opciones-meta]]  ·  _route_
 - [[web.api.api.portfolio-cuentas]]  ·  _route_
-- [[web.api.api.portfolio.cer]]  ·  _route_
 - [[web.api.api.portfolio.operadores]]  ·  _route_
-- [[web.api.api.portfolio.tasa-fija]]  ·  _route_
 - [[web.api.api.scanner.[...path]]]  ·  _route_
 - [[web.api.api.trades]]  ·  _route_
 - [[web.api.api.valuaciones.[id_cuenta].mensual]]  ·  _route_
@@ -64,5 +63,6 @@ Conecta con: lee la identidad verificada vía `web.lib.cf-access` (`trustedEmail
 - [[web.api.api.valuaciones.consolidado]]  ·  _route_
 - [[web.view.agro.view]]  ·  _view_
 - [[web.view.derivados.view]]  ·  _view_
+- [[web.view.ons.view]]  ·  _view_
 - [[web.view.renta-fija.view]]  ·  _view_
 - [[web.view.renta-variable.view]]  ·  _view_

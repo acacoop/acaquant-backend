@@ -1,0 +1,26 @@
+---
+id: api.services.pnl_sql
+type: module
+layer: api
+repo: backend
+tags: [module, api, backend]
+path: api/services/pnl_sql.py
+---
+
+# api/services/pnl_sql
+
+> api/services/pnl_sql.py — PnL Títulos leyendo de Postgres, REUSANDO el motor de pnl.py.
+
+**Archivo:** `api/services/pnl_sql.py`
+
+## Qué hace
+_(pendiente de enriquecimiento)_
+
+## Usa / conecta con →
+- [[api.db]]  ·  _module_
+- [[api.services._mep]]  ·  _module_
+- [[api.services.pnl]]  ·  _module_
+- [[core.postgres]]  ·  _module_
+
+## Lo usan (backlinks) ←
+- [[api.routers.carteras]]  ·  _module_

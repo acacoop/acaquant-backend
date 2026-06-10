@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\titulos_flujos.py
+path: api/services/titulos_flujos.py
 ---
 
 # api/services/titulos_flujos
 
 > api/services/titulos_flujos.py — flujos normalizados por instrumento.
 
-**Archivo:** `api\services\titulos_flujos.py`
+**Archivo:** `api/services/titulos_flujos.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -24,4 +24,3 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.routers.titulos]]  ·  _module_
-- [[api.services.portfolio]]  ·  _module_

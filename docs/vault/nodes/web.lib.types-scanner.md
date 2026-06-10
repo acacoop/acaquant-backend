@@ -4,12 +4,12 @@ type: lib
 layer: web-lib
 repo: frontend
 tags: [lib, web-lib, frontend]
-path: src\lib\types-scanner.ts
+path: src/lib/types-scanner.ts
 ---
 
 # web/lib/types-scanner
 
-**Archivo:** `src\lib\types-scanner.ts`
+**Archivo:** `src/lib/types-scanner.ts`
 
 ## Qué hace
 Tipos TypeScript del módulo Scanner (Renta Variable). Define los contratos de las respuestas del backend: `CclLive` (KPI live de CCL para el shell), `PivotData`/`PivotFrame`/`PivotLevels` (pivot points en 4 timeframes sobre el subyacente USD) y los docs del scanner de CEDEARs (join de master categórico + snapshot live).
@@ -18,6 +18,8 @@ Conecta con: refleja lo que sirven `GET /api/scanner/*` (`api.routers.scanner` +
 
 ## Lo usan (backlinks) ←
 - [[web.cmp.cedears-scanner-table]]  ·  _component_
+- [[web.cmp.estrategia-shared]]  ·  _component_
+- [[web.cmp.metricas-panel]]  ·  _component_
 - [[web.cmp.pivot-points-panel]]  ·  _component_
 - [[web.cmp.renta-variable-shell]]  ·  _component_
 - [[web.cmp.scanner-view]]  ·  _component_

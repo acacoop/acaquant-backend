@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\renta-variable-shell.tsx
+path: src/components/renta-variable-shell.tsx
 ---
 
 # web/components/renta-variable-shell
 
-**Archivo:** `src\components\renta-variable-shell.tsx`
+**Archivo:** `src/components/renta-variable-shell.tsx`
 
 ## Qué hace
 Shell (contenedor con tabs) de la pantalla /renta-variable. Tres pestañas: SCANNER (CEDEARs: master + snapshot live), ESTRATEGIA (Mesa de Estrategia: análisis de un trade individual + hedging) y MONITOR (análisis de book / exposición). Recibe los datos iniciales del scanner y el CCL para hidratar la vista sin esperar el primer fetch.

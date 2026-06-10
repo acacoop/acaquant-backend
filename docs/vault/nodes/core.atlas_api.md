@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\atlas_api.py
+path: core/atlas_api.py
 ---
 
 # core/atlas_api
 
 > core/atlas_api.py — lector de la Atlas Admin API (REST de gestión).
 
-**Archivo:** `core\atlas_api.py`
+**Archivo:** `core/atlas_api.py`
 
 ## Qué hace
 Lector de la Atlas Admin API (REST de gestión de MongoDB en cloud.mongodb.com), separada del cluster: lee CPU por nodo y slow queries del M10 sin agregarle carga de queries a la DB. Autentica con HTTP Digest y prefiere la key read-only (`ATLAS_RO_*`) por mínimo privilegio.

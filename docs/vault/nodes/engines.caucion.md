@@ -4,14 +4,14 @@ type: module
 layer: engines
 repo: backend
 tags: [module, engines, backend]
-path: engines\caucion.py
+path: engines/caucion.py
 ---
 
 # engines/caucion
 
 > Motor de caución ARS y USD a corto plazo.
 
-**Archivo:** `engines\caucion.py`
+**Archivo:** `engines/caucion.py`
 
 ## Qué hace
 Motor de caución a corto plazo en pesos y dólares. Suscribe por WS los 2 tickers de caución cuyo plazo coincide con "días al próximo día hábil" (lun-jue 1D, vie 3D, etc.), re-evaluando el plazo cada hora y re-suscribiéndose si cambia. Persiste la TNA live y, al apagado (cierre 20:05 UTC), vuelca un cierre diario como serie histórica.

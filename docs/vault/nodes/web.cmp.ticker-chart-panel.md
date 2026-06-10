@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\ticker-chart-panel.tsx
+path: src/components/ticker-chart-panel.tsx
 ---
 
 # web/components/ticker-chart-panel
 
-**Archivo:** `src\components\ticker-chart-panel.tsx`
+**Archivo:** `src/components/ticker-chart-panel.tsx`
 
 ## Qué hace
 Panel "Chart & Retornos" del cuadrante inferior derecho del Scanner. Dos tabs: CHART (gráfico de TradingView embebido, bloqueado al ticker seleccionado) y RETORNOS DIARIOS (histograma SVG de los retornos del último año, ~252 puntos, marcando el retorno de hoy y la media/σ). Re-monta al cambiar el ticker; los retornos se piden lazy.

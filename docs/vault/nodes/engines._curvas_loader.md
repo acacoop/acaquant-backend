@@ -4,14 +4,14 @@ type: module
 layer: engines
 repo: backend
 tags: [module, engines, backend]
-path: engines\_curvas_loader.py
+path: engines/_curvas_loader.py
 ---
 
 # engines/_curvas_loader
 
 > Carga común de Trading.Curvas para todos los motores.
 
-**Archivo:** `engines\_curvas_loader.py`
+**Archivo:** `engines/_curvas_loader.py`
 
 ## Qué hace
 Loader común que centraliza la lectura de `Trading.Curvas` (definición estática de instrumentos) para todos los motores de renta fija. Unifica lo que antes eran 4 funciones de carga casi idénticas: expone `cargar_todos`, `cargar_por_curva` (agrupado por campo `curva`), `cargar_indexado_por_ticker` y `cargar_tickers_ordenados`. Usa el singleton de Mongo directamente (los motores ya lo tienen inicializado).

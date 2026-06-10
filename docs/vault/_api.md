@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-102 notas.
+117 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -32,11 +32,14 @@
 - [[api.routers.manager.clientes]] — Manager sub-router — edición de Clientes.Comitentes (segmentación comercial).
 - [[api.routers.manager.comercial]] — Sub-router Manager → /api/manager/comercial — Tablero Comercial.
 - [[api.routers.manager.compliance]] — Manager sub-router — COMPLIANCE: operador nuestro vs Aunesa.
+- [[api.routers.manager.contrapartes]] — Manager sub-router — vista CONTRAPARTES (módulo `manager_contrapartes`).
 - [[api.routers.manager.control_automatico]] — POST /api/manager/control-automatico/* — conciliación Excel↔cuentas + segmentar.
 - [[api.routers.manager.diagnostico]] — GET /api/manager/diagnostico — árbol de salud por vista (motores/jobs/apis).
 - [[api.routers.manager.grupos]] — Manager sub-router — grupos de acceso por cuenta.
+- [[api.routers.manager.instrumentos]] — Manager sub-router — Títulos → Instrumentos (solo lectura).
 - [[api.routers.manager.jobs]] — POST /jobs/run + GET /jobs/history, /jobs/history/stats, /jobs/{id}.
 - [[api.routers.manager.logs]] — GET /api/manager/logs — últimos N logs de un servicio systemd.
+- [[api.routers.manager.ons]] — Manager sub-router — gestión de ONs (Trading.BondsMaster).
 - [[api.routers.manager.operaciones]] — Manager · Operaciones — backfill de CashFlow.Operaciones por CSV.
 - [[api.routers.manager.options]] — GET/PUT /api/manager/options/expiries — config del engine de opciones.
 - [[api.routers.manager.roles]] — Manager sub-router — matriz de roles + audit log.
@@ -63,6 +66,7 @@
 - [[api.services._negocio_arancelables]] — Filtro de `op` no arancelables para CashFlow.NegocioMovimientos.
 - [[api.services._negocio_futuros]] — Filtro de exclusión de futuros para queries sobre CashFlow.NegocioMovimientos.
 - [[api.services._negocio_informacion_filter]] — Filtro de exclusión por `informacion` para CashFlow.NegocioMovimientos.
+- [[api.services.acreencias]] — api/services/acreencias.py — motor de acreencias (cobros futuros por cliente).
 - [[api.services.analitica]] — Capa de servicio — analítica Tier 2 sobre data existente.
 - [[api.services.argy]] — Capa de servicio — métricas argentinas con returns calculados.
 - [[api.services.aunesa_aranceles]] — Backfill de aranceles desde Aunesa /operaciones/informes a CashFlow.NegocioMovimientos.
@@ -73,9 +77,13 @@
 - [[api.services.canje]] — Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).
 - [[api.services.carry_trade]] — Serie de carry trade en USD para una curva (tasa_fija / cer).
 - [[api.services.comercial]] — api/services/comercial.py — Tablero Comercial (lente por operador).
+- [[api.services.comercial_sql]] — api/services/comercial_sql.py — vista COMERCIAL leyendo de Postgres (Supabase).
 - [[api.services.comparar_inversion]] — Comparar Inversión — service que compara 2 bonos de Trading.Curvas lado a lado.
 - [[api.services.compliance]] — Compliance — compara el operador asignado por la mesa vs el que reporta Aunesa.
+- [[api.services.contrapartes_seg]] — api/services/contrapartes_seg.py — segmentación + conciliador de CashFlow.Contrapartes.
+- [[api.services.contrapartes_seg_sql]] — api/services/contrapartes_seg_sql.py — espejo SQL (solo LECTURAS) de
 - [[api.services.control_automatico]] — Control Automático (Clientes): concilia un Excel de CUITs contra nuestras cuentas.
+- [[api.services.day_trading]] — day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).
 - [[api.services.debug_curva]] — Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.
 - [[api.services.derivados]] — Capa de servicio — derivados (futuros DLR, forwards, breakevens).
 - [[api.services.derivados_agro]] — Service puro — Pase Agro (Trigo / Maíz / Soja Rosario).
@@ -85,16 +93,23 @@
 - [[api.services.fair_value]] — fair_value.py — service del módulo Fair Value relativo intra-curva.
 - [[api.services.macro]] — Capa de servicio — series macro y clasificación.
 - [[api.services.mejoras_dispo]] — Service — Mejoras Precio Disponible (Agro).
+- [[api.services.negocio_sql]] — api/services/negocio_sql.py — vista NEGOCIO leyendo de Postgres (Supabase).
+- [[api.services.news_sql]] — api/services/news_sql.py — News (home) leyendo de Postgres. Espejo de los endpoints
+- [[api.services.ons]] — api/services/ons.py — maestro de ONs (Trading.BondsMaster) + sync a Curvas.
 - [[api.services.opciones]] — Capa de servicio — opciones (chain + meta + trades históricos + update tasa).
 - [[api.services.operaciones_informes]] — operaciones_informes.py — normalización + ingesta a CashFlow.Operaciones.
+- [[api.services.operaciones_sql]] — api/services/operaciones_sql.py — vista OPERACIONES leyendo de Postgres (Supabase).
 - [[api.services.operativa_mep]] — Operativa Dólar MEP — wrapper de 2 órdenes MARKET (BUY AL30 + SELL AL30D).
 - [[api.services.ordenes]] — Servicio de órdenes — funciones puras invocables desde routers o scripts.
 - [[api.services.order_book]] — Capa de servicio — Order Book (LOB) live.
 - [[api.services.pnl]] — Motor de PnL por (cuenta, ticker) con cost-basis weighted-average.
+- [[api.services.pnl_sql]] — api/services/pnl_sql.py — PnL Títulos leyendo de Postgres, REUSANDO el motor de pnl.py.
 - [[api.services.portfolio]] — Capa de servicio — portfolio / AuM / FCI.
+- [[api.services.portfolio_sql]] — api/services/portfolio_sql.py — vista PORTFOLIO / AuM leyendo de Postgres (Supabase).
 - [[api.services.rem]] — Expectativas REM (Relevamiento de Expectativas de Mercado, BCRA).
 - [[api.services.renta_fija]] — Capa de servicio — renta fija (MarketSnapshot + TimeSales + Curvas).
 - [[api.services.repo]] — Capa de servicio — mercado repo (caución).
+- [[api.services.reporting]] — api/services/reporting.py — reportería que lee de la capa SQL (Postgres/Supabase).
 - [[api.services.risk]] — Servicio RISK — datos de cuenta del broker (saldos, posiciones, márgenes).
 - [[api.services.rv_motor]] — api/services/rv_motor.py — motor de la Mesa de Estrategia (Renta Variable).
 - [[api.services.scanner]] — api/services/scanner.py — vista Scanner del módulo Renta Variable.

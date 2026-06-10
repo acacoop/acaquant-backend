@@ -4,12 +4,12 @@ type: view
 layer: web-view
 repo: frontend
 tags: [view, web-view, frontend]
-path: src\app\back-office\page.tsx
+path: src/app/back-office/page.tsx
 ---
 
 # web /back-office  (view)
 
-**Archivo:** `src\app\back-office\page.tsx`
+**Archivo:** `src/app/back-office/page.tsx`
 
 ## Qué hace
 Vista `/back-office` — sección Back Office. Hoy tiene una sola sub-tab (Títulos/Mercado) pero el shell deja lugar para más. Wrapper `force-dynamic` que renderiza `BackOfficeShell`.

@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\pnl-titulos-view.tsx
+path: src/components/pnl-titulos-view.tsx
 ---
 
 # web/components/pnl-titulos-view
 
-**Archivo:** `src\components\pnl-titulos-view.tsx`
+**Archivo:** `src/components/pnl-titulos-view.tsx`
 
 ## Qué hace
 Vista de PnL por título de una cuenta: tabla por ticker con cantidad, precio promedio, costo remanente, valor actual (live/cierre/AuM), PnL realizado / no realizado / pasivo y total, con espejo en USD (costo a MEP histórico, valor a MEP de hoy). Cada fila se puede desplegar al detalle de boletos que componen la posición. Exporta tipos y formateadores que reusa pnl-totales-view.

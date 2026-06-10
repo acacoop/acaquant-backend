@@ -4,14 +4,14 @@ type: module
 layer: engines
 repo: backend
 tags: [module, engines, backend]
-path: engines\curvas.py
+path: engines/curvas.py
 ---
 
 # engines/curvas
 
 > main_curvas.py — Motor de enriquecimiento en tiempo real para Trading.TimeSales.
 
-**Archivo:** `engines\curvas.py`
+**Archivo:** `engines/curvas.py`
 
 ## Qué hace
 Motor de enriquecimiento de curva (motor_curvas). Cada 2s recalcula, para cada bono de `Trading.Curvas`, las métricas analíticas (TEA, TEM, duration, mod_duration, convexidad, paridad) según el tipo de instrumento (CER/tasa fija/soberano) usando el último precio. Recarga CER cada 1h, MEP cada 1 min y el dólar mayorista A3500 cada 5 min para mantener paridad/TEA pegadas al spot.
@@ -27,6 +27,7 @@ Conecta con: escribe SOLO los campos `metrics.{TEA,TEM,duration,...}` a `Trading
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.checks]]  ·  _module_
+- [[api.services.acreencias]]  ·  _module_
 - [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_

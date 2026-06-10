@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\manager\_common.py
+path: api/routers/manager/_common.py
 ---
 
 # api/routers/manager/_common
 
 > Constantes y helpers compartidos entre los sub-módulos de manager/.
 
-**Archivo:** `api\routers\manager\_common.py`
+**Archivo:** `api/routers/manager/_common.py`
 
 ## Qué hace
 Módulo de constantes/helpers compartidos entre los sub-routers de `manager/`. Define `_AR_TZ` (timezone America/Argentina/Buenos_Aires, para formatear timestamps en hora local) y `PROJECT_ROOT` (raíz del repo, usado como cwd del subprocess que dispara `jobs/run`).

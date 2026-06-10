@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\operaciones.py
+path: api/routers/operaciones.py
 ---
 
 # api/routers/operaciones
 
 > Router Operaciones: endpoints para MesaAPI (flujo contrapartes), FlujosAPI
 
-**Archivo:** `api\routers\operaciones.py`
+**Archivo:** `api/routers/operaciones.py`
 
 ## Qué hace
 Router de la vista Operaciones (back-office de la mesa). Sirve el flujo de contrapartes (MesaAPI), los movimientos (FlujosAPI) y la "vista de negocio del día" sobre NegocioMovimientos, con filtros por contraparte/moneda/segmento y por tipo de cuenta. Aplica scope de grupos para que cada usuario vea solo sus cuentas y excluye futuros del agregado de negocio.
@@ -21,10 +21,14 @@ Conecta con: lee `CashFlow.NegocioMovimientos` + colecciones `*API` (Mesa/Flujos
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
 - [[api.db]]  ·  _module_
+- [[api.services]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
 - [[api.services._grupos_scope]]  ·  _module_
 - [[api.services._negocio_futuros]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
+- [[api.services.comercial_sql]]  ·  _module_
+- [[api.services.negocio_sql]]  ·  _module_
+- [[api.services.operaciones_sql]]  ·  _module_
 - [[api.services.titulos_flujos]]  ·  _module_
 - [[db.CashFlow.Contrapartes]]  ·  _collection_
 - [[db.CashFlow.NegocioMovimientos]]  ·  _collection_
@@ -39,6 +43,7 @@ Conecta con: lee `CashFlow.NegocioMovimientos` + colecciones `*API` (Mesa/Flujos
 - [[web.api.api.flujo-vs-aum]]  ·  _route_
 - [[web.cmp.agro-view]]  ·  _component_
 - [[web.cmp.aranceles-view]]  ·  _component_
+- [[web.cmp.cobros-futuros-view]]  ·  _component_
 - [[web.cmp.comercial-informe-view]]  ·  _component_
 - [[web.cmp.comercial-operaciones-view]]  ·  _component_
 - [[web.cmp.manager-debug-comercial]]  ·  _component_

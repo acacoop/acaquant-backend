@@ -20,6 +20,7 @@ Conecta con: la sincroniza desde Aunesa `jobs/sync_comitentes.py`; escribe segme
 - [[api.routers.manager.comercial]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
+- [[api.services.acreencias]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.compliance]]  ·  _module_
 - [[api.services.control_automatico]]  ·  _module_
@@ -29,3 +30,4 @@ Conecta con: la sincroniza desde Aunesa `jobs/sync_comitentes.py`; escribe segme
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.segmentar_patrimonial]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_
+- [[jobs.sync_postgres]]  ·  _module_

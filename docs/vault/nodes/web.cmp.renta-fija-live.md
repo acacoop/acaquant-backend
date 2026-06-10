@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\renta-fija-live.tsx
+path: src/components/renta-fija-live.tsx
 ---
 
 # web/components/renta-fija-live
 
-**Archivo:** `src\components\renta-fija-live.tsx`
+**Archivo:** `src/components/renta-fija-live.tsx`
 
 ## Qué hace
 Contenedor live de la pantalla de Renta Fija. Hace un único poll cada 5s al endpoint /snapshot-live (devuelve renta_fija + forwards + breakevens, cada bloque con su propio TTL de cache server-side) y reparte los datos a sus sub-bloques: tabla de renta fija, panel de forwards, curvas y breakevens. Unificar a un solo poll bajó ~70% la carga al backend.

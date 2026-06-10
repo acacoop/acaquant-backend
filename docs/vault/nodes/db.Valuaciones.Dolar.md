@@ -26,3 +26,4 @@ Conecta con: la lee el helper `api/services/_mep.py` (MEP histórico por fecha) 
 - [[engines.curvas]]  ·  _module_
 - [[engines.dolar_mep]]  ·  _module_
 - [[engines.futuros_dlr]]  ·  _module_
+- [[jobs.sync_postgres]]  ·  _module_

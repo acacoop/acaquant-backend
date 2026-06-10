@@ -30,4 +30,6 @@ Conecta con: la escribe el cron `jobs/negocio_movimientos.py` (cada hora, pega a
 - [[jobs.actividad_mensual]]  ·  _module_
 - [[jobs.comercial_rollup]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
+- [[jobs.informe_salud]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_
+- [[jobs.sync_postgres]]  ·  _module_

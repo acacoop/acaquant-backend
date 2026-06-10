@@ -18,3 +18,4 @@ Conecta con: la lee `api/auth.py` (resuelve rol del caller tras validar el JWT d
 ## Lo usan (backlinks) ←
 - [[api.services.comercial]]  ·  _module_
 - [[core.roles]]  ·  _module_
+- [[jobs.sync_postgres]]  ·  _module_

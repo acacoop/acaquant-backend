@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src\app\api\portfolio-cuentas\route.ts
+path: src/app/api/portfolio-cuentas/route.ts
 ---
 
 # web /api/portfolio-cuentas  (proxy)
 
-**Archivo:** `src\app\api\portfolio-cuentas\route.ts`
+**Archivo:** `src/app/api/portfolio-cuentas/route.ts`
 
 ## Qué hace
 Route handler que trae la lista de cuentas (id_cuenta + nombre) para los selectores de la vista AuM/Portfolio. Pega a /api/portfolio/cuentas y envuelve la respuesta en {cuentas}. force-dynamic + no-store.

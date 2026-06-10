@@ -20,7 +20,6 @@ Conecta con: la escribe/enriquece `engines/curvas.py` (motor de enriquecimiento 
 - [[api.routers.manager.status]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.canje]]  ·  _module_
-- [[api.services.debug_curva]]  ·  _module_
 - [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.operativa_mep]]  ·  _module_
@@ -30,3 +29,4 @@ Conecta con: la escribe/enriquece `engines/curvas.py` (motor de enriquecimiento 
 - [[jobs.backfill_breakevens]]  ·  _module_
 - [[jobs.backfill_forwards]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_
+- [[jobs.informe_salud]]  ·  _module_

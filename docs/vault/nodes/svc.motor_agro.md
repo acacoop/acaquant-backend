@@ -4,14 +4,14 @@ type: service
 layer: deploy
 repo: infra
 tags: [service, deploy, infra]
-path: deploy\systemd\motor_agro.service
+path: deploy/systemd/motor_agro.service
 ---
 
 # systemd: motor_agro
 
 > Servicio systemd.
 
-**Archivo:** `deploy\systemd\motor_agro.service`
+**Archivo:** `deploy/systemd/motor_agro.service`
 
 ## Qué hace
 Servicio systemd del motor de futuros agro — corre `engines.motor_agro`, el feed live de futuros de Trigo / Maíz / Soja en Rosario (contratos FXXXSX). Vive solo en rueda (cron restart 13:00 UTC / stop 20:05 UTC, L-V).

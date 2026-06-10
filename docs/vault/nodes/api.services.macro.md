@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\macro.py
+path: api/services/macro.py
 ---
 
 # api/services/macro
 
 > Capa de servicio — series macro y clasificación.
 
-**Archivo:** `api\services\macro.py`
+**Archivo:** `api/services/macro.py`
 
 ## Qué hace
 Capa de servicio de series macro: devuelve cada variable (tamar, cer, dólar, badlar, mep, o `<TICKER>.<CAMPO>`) como valor actual + serie histórica + estadísticos + una clasificación textual ("alto/bajo/normal"). Algunas variables están bloqueadas por falta de data y devuelven un stub con hint. Funciones cacheadas (`@cached`).

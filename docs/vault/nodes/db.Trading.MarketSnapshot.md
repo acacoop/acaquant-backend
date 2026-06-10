@@ -19,11 +19,11 @@ Conecta con: la escriben `motor_curvas` y demás motores vía `core/snapshot_wri
 - [[api.routers.manager.status]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
+- [[api.services.debug_curva]]  ·  _module_
 - [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
 - [[api.services.mejoras_dispo]]  ·  _module_
 - [[api.services.order_book]]  ·  _module_
-- [[api.services.portfolio]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
@@ -32,4 +32,5 @@ Conecta con: la escriben `motor_curvas` y demás motores vía `core/snapshot_wri
 - [[engines.curvas]]  ·  _module_
 - [[engines.forwards]]  ·  _module_
 - [[engines.valores]]  ·  _module_
+- [[jobs.informe_salud]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_

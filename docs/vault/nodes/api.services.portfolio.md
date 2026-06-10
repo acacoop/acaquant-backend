@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\portfolio.py
+path: api/services/portfolio.py
 ---
 
 # api/services/portfolio
 
 > Capa de servicio — portfolio / AuM / FCI.
 
-**Archivo:** `api\services\portfolio.py`
+**Archivo:** `api/services/portfolio.py`
 
 ## Qué hace
 Capa de servicio de portfolio / AuM / FCI: lógica pura de valuación por cuenta sobre las copias `PortfolioAPI`/`TitulosAPI` y `Valuaciones`. Centraliza la regla de valuación en `_valuacion_api` (renta fija ÷100, FCI/otros directo, futuros (precio+1)×cant). Excluye de la vista AuM ciertas cuentas (ej. 255 trading propia) aunque se sigan capturando. Funciones cacheadas.
@@ -23,9 +23,6 @@ Conecta con: lee `Valuaciones.Assets`/`AuM`, `PortfolioAPI`, `TitulosAPI` y `Tra
 - [[api.db]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
 - [[api.services._mep]]  ·  _module_
-- [[api.services.titulos_flujos]]  ·  _module_
-- [[db.Trading.Curvas]]  ·  _collection_
-- [[db.Trading.MarketSnapshot]]  ·  _collection_
 - [[db.Valuaciones.Assets]]  ·  _collection_
 - [[db.Valuaciones.AuM]]  ·  _collection_
 

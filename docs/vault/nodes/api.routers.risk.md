@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\risk.py
+path: api/routers/risk.py
 ---
 
 # api/routers/risk
 
 > Router /api/risk — datos de cuenta del broker (saldos, posiciones, márgenes).
 
-**Archivo:** `api\routers\risk.py`
+**Archivo:** `api/routers/risk.py`
 
 ## Qué hace
 Router de datos de cuenta del broker (información sensible). Expone saldo ARS+USD disponible por rueda (`/account/saldo`), el report crudo del broker, y posiciones —simples y detalladas por tipo de instrumento—. Cada endpoint resuelve la cuenta con scope de grupos antes de consultar.

@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\manager-debug-segmento.tsx
+path: src/components/manager-debug-segmento.tsx
 ---
 
 # web/components/manager-debug-segmento
 
-**Archivo:** `src\components\manager-debug-segmento.tsx`
+**Archivo:** `src/components/manager-debug-segmento.tsx`
 
 ## Qué hace
 Panel "DEBUG SEGMENTO" (Manager → Validaciones): auditoría paso a paso del cálculo de `nivel_3` (segmento patrimonial) de una cuenta puntual — muestra cupo crudo, tipo de cambio usado (MEP o UVA), la conversión, y compara el nivel_3 guardado en Mongo vs el recalculado ahora, sin entrar a Mongo.

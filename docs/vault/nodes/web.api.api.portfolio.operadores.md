@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src\app\api\portfolio\operadores\route.ts
+path: src/app/api/portfolio/operadores/route.ts
 ---
 
 # web /api/portfolio/operadores  (proxy)
 
-**Archivo:** `src\app\api\portfolio\operadores\route.ts`
+**Archivo:** `src/app/api/portfolio/operadores/route.ts`
 
 ## Qué hace
 Route handler que trae la lista de operadores para el filtro madre de la vista AuM, desde /api/portfolio/operadores. force-dynamic + no-store.

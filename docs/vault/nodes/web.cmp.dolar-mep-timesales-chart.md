@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\dolar-mep-timesales-chart.tsx
+path: src/components/dolar-mep-timesales-chart.tsx
 ---
 
 # web/components/dolar-mep-timesales-chart
 
-**Archivo:** `src\components\dolar-mep-timesales-chart.tsx`
+**Archivo:** `src/components/dolar-mep-timesales-chart.tsx`
 
 ## Qué hace
 Gráfico de la serie intradía del MEP por minuto (last close) para la rueda elegida (CI/24hs). Toda la lógica de agregación vive en el backend; el componente solo dibuja con recharts y pollea cada 5 s.

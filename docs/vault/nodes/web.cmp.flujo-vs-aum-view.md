@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\flujo-vs-aum-view.tsx
+path: src/components/flujo-vs-aum-view.tsx
 ---
 
 # web/components/flujo-vs-aum-view
 
-**Archivo:** `src\components\flujo-vs-aum-view.tsx`
+**Archivo:** `src/components/flujo-vs-aum-view.tsx`
 
 ## Qué hace
 Vista que cruza, por contraparte y mes, el AuM (línea) contra el flujo de negocio bruto (barras pos/neg) para ver si los movimientos acompañan o no la evolución del patrimonio. Filtra el rango temporal con un dual-range y grafica con recharts.

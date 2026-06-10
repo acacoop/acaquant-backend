@@ -1,6 +1,6 @@
 # 🔌 web — rutas API (proxy)
 
-54 notas.
+53 notas.
 
 - [[web.api.api.analitica.[...path]]]
 - [[web.api.api.argy]]
@@ -11,6 +11,7 @@
 - [[web.api.api.aum-pnl-todas]]
 - [[web.api.api.aum-total.serie]]
 - [[web.api.api.aum-total.snapshot]]
+- [[web.api.api.back-office.acreencias.[...path]]]
 - [[web.api.api.back-office.titulos-mercado]]
 - [[web.api.api.cashflow]]
 - [[web.api.api.caucion]]
@@ -43,9 +44,7 @@
 - [[web.api.api.operativa.[[...path]]]]
 - [[web.api.api.ordenes.[[...path]]]]
 - [[web.api.api.portfolio-cuentas]]
-- [[web.api.api.portfolio.cer]]
 - [[web.api.api.portfolio.operadores]]
-- [[web.api.api.portfolio.tasa-fija]]
 - [[web.api.api.risk.[[...path]]]]
 - [[web.api.api.scanner.[...path]]]
 - [[web.api.api.trades]]

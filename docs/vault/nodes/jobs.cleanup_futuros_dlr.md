@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\cleanup_futuros_dlr.py
+path: jobs/cleanup_futuros_dlr.py
 ---
 
 # jobs/cleanup_futuros_dlr
 
 > Limpieza de contratos DLR vencidos en Trading.FuturosDLRSnapshot.
 
-**Archivo:** `jobs\cleanup_futuros_dlr.py`
+**Archivo:** `jobs/cleanup_futuros_dlr.py`
 
 ## Qué hace
 Borra de `Trading.FuturosDLRSnapshot` los contratos DLR (Dólar A3500) ya vencidos. El motor `engines/futuros_dlr.py` hace upsert por ticker y nunca borra, así que al vencer un contrato el doc queda fantasma con su última info: este job lo limpia. Tiene `--dry` que solo lista.

@@ -22,7 +22,7 @@ real que ve el usuario que entra a la mañana.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from core.mongo import get_mongo_client_read
 
@@ -60,7 +60,7 @@ def _age_horas(ts) -> str:
     if not isinstance(ts, datetime):
         return "—"
     # updated_at lo escribe el motor con datetime.now() (naive == UTC en el Droplet).
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     base = ts.replace(tzinfo=None) if ts.tzinfo else ts
     delta_h = (now - base).total_seconds() / 3600
     return f"{delta_h:.1f}h"
@@ -68,7 +68,7 @@ def _age_horas(ts) -> str:
 
 def main() -> None:
     client = get_mongo_client_read()
-    ahora = datetime.now(timezone.utc).replace(tzinfo=None)
+    ahora = datetime.now(UTC).replace(tzinfo=None)
     print(f"=== Frescura de snapshots — ahora (UTC) = {ahora.isoformat(sep=' ', timespec='seconds')} ===\n")
 
     # Catálogo real de colecciones por DB (para detectar nombres mal escritos)

@@ -55,7 +55,7 @@ def _reporte_coleccion(coll, nombre: str) -> None:
         flag = "  <-- ARS sin mep = volumen perdido al dolarizar" if (
             str(moneda).upper() == "ARS" and sin > 0
         ) else ""
-        print(f"  {str(moneda):<14}{total:>10,}{ok:>10,}{sin:>10,}{pct:>7.1f}%{flag}")
+        print(f"  {moneda!s:<14}{total:>10,}{ok:>10,}{sin:>10,}{pct:>7.1f}%{flag}")
     print()
 
 

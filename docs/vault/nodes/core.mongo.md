@@ -99,6 +99,7 @@ Conecta con: TODO el backend (`engines/`, `jobs/`, `api/services/`) pasa por ac�
 - [[jobs.cleanup_futuros_dlr]]  ·  _module_
 - [[jobs.comercial_rollup]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_
+- [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.descubrir_cuentas]]  ·  _module_
 - [[jobs.dias_habiles]]  ·  _module_
 - [[jobs.economic_calendar]]  ·  _module_

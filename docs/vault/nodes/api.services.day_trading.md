@@ -24,3 +24,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.scanner]]  ·  _module_
+- [[jobs.day_trading_stats]]  ·  _module_

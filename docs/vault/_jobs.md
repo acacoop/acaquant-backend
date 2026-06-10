@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-51 notas.
+52 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -26,6 +26,7 @@
 - [[jobs.comercial_rollup]] — jobs/comercial_rollup.py — precompute Clientes.ComercialCache (rollup comercial).
 - [[jobs.comercial_warm]] — jobs/comercial_warm.py — precalienta la cache in-process de la vista COMERCIAL.
 - [[jobs.consolidado_cuentas]] — consolidado_cuentas.py — precalcula la valuación consolidada por cuenta.
+- [[jobs.day_trading_stats]] — day_trading_stats.py — resumen diario de scalping por CEDEAR.
 - [[jobs.descubrir_cuentas]] — Descubre cuentas autorizadas para el user master del broker.
 - [[jobs.dias_habiles]] — data_diashabiles.py — Carga días hábiles del calendario argentino a Trading.DiasHabiles.
 - [[jobs.economic_calendar]] — economic_calendar.py — ingesta diaria del calendario económico global.

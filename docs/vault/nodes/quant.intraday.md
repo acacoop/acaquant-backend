@@ -18,3 +18,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.services.day_trading]]  ·  _module_
+- [[jobs.day_trading_stats]]  ·  _module_

@@ -2161,6 +2161,17 @@
 ]
 },
 {
+"id": "cron.jobs.day_trading_stats",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.day_trading_stats"
+]
+},
+{
 "id": "cron.jobs.descubrir_cuentas",
 "type": "cron",
 "layer": "deploy",
@@ -3237,6 +3248,19 @@
 "core.job_runs",
 "core.mongo",
 "db.Valuaciones.ConsolidadoCuentas"
+]
+},
+{
+"id": "jobs.day_trading_stats",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/day_trading_stats.py",
+"summary": "day_trading_stats.py — resumen diario de scalping por CEDEAR.",
+"links": [
+"api.services.day_trading",
+"core.mongo",
+"quant.intraday"
 ]
 },
 {

@@ -13,23 +13,30 @@ y short valen igual).
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 
-def contar_vueltas(closes: list[float], umbral_pct: float) -> tuple[int, float]:
-    """Cuenta las patas zigzag ≥ umbral_pct sobre la serie de cierres.
+
+def analizar_vueltas(closes: list[float], umbral_pct: float) -> dict:
+    """Patas zigzag ≥ umbral_pct sobre la serie de cierres + la pata EN CURSO.
 
     Args:
         closes: cierres por minuto (orden cronológico). Se ignoran None/<=0.
         umbral_pct: tamaño mínimo de la pata en % (ej. 0.5).
 
     Returns:
-        (n_vueltas, mejor_pct):
-            n_vueltas — patas completadas ≥ umbral (la última pata en curso
-                cuenta si ya superó el umbral, aunque no haya revertido).
-            mejor_pct — la pata más grande del día en % (0.0 si no hubo).
+        {
+          vueltas:   patas completadas ≥ umbral (la última pata en curso
+                     cuenta si ya superó el umbral, aunque no haya revertido),
+          mejor_pct: la pata más grande del día en % (0.0 si no hubo),
+          pata_dir:  +1 si la pata actual va subiendo, -1 bajando, 0 si la
+                     serie todavía no definió dirección,
+          pata_pct:  tamaño de la pata actual en % (pivote → último precio,
+                     no al extremo — es lo que "lleva recorrido" AHORA),
+        }
     """
     serie = [c for c in closes if c is not None and c > 0]
     if len(serie) < 2 or umbral_pct <= 0:
-        return 0, 0.0
+        return {"vueltas": 0, "mejor_pct": 0.0, "pata_dir": 0, "pata_pct": 0.0}
 
     n = 0
     mejor = 0.0
@@ -69,7 +76,56 @@ def contar_vueltas(closes: list[float], umbral_pct: float) -> tuple[int, float]:
             n += 1
             mejor = max(mejor, pata)
 
-    return n, round(mejor, 2)
+    pata_actual = (serie[-1] - pivote) / pivote * 100 if dir_ != 0 else 0.0
+    return {
+        "vueltas":   n,
+        "mejor_pct": round(mejor, 2),
+        "pata_dir":  dir_,
+        "pata_pct":  round(pata_actual, 2),
+    }
+
+
+def contar_vueltas(closes: list[float], umbral_pct: float) -> tuple[int, float]:
+    """Atajo histórico: (n_vueltas, mejor_pct). Ver analizar_vueltas."""
+    r = analizar_vueltas(closes, umbral_pct)
+    return r["vueltas"], r["mejor_pct"]
+
+
+def momentum_por_tiempo(
+    minutos_cierres: list[tuple[str, float]], ventana_min: int,
+) -> float | None:
+    """Retorno % del último cierre vs el cierre de hace `ventana_min` minutos
+    de RELOJ (no de barras): en papeles que operan salteado, contar barras
+    estira la ventana — acá se busca el cierre cuyo minuto sea ≤ último − N'.
+
+    Args:
+        minutos_cierres: [(minuto ISO 'YYYY-MM-DDTHH:MM:00Z', close)] asc.
+        ventana_min: ventana en minutos de reloj.
+    """
+    pares = [(m, c) for m, c in minutos_cierres if c is not None and c > 0 and m]
+    if len(pares) < 2 or ventana_min <= 0:
+        return None
+    ult_min, ult_close = pares[-1]
+    try:
+        ult = datetime.fromisoformat(ult_min.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    corte = ult - timedelta(minutes=ventana_min)
+    base = None
+    for m, c in pares:
+        try:
+            t = datetime.fromisoformat(m.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if t <= corte:
+            base = c
+        else:
+            break
+    if base is None:
+        base = pares[0][1]  # serie más corta que la ventana: primer punto
+    if base <= 0:
+        return None
+    return round((ult_close / base - 1) * 100, 2)
 
 
 def momentum_pct(closes: list[float], minutos: int) -> float | None:

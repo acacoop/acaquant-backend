@@ -105,6 +105,7 @@
 | cada hora · 14-22h · L-V | `jobs.comercial_rollup'` |
 | 23:45 · L-V | `jobs.acreencias` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
+| 20:06 · L-V | `jobs.day_trading_stats'` |
 <!-- /AUTOGEN:crons -->
 
 ## Otros crons (scripts / shell)

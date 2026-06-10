@@ -165,6 +165,12 @@
 # para acumular serie histórica. Lee get_sinteticos() del último estado del día.
 40 20 * * 1-5 /root/TradingAV/deploy/run_job.sh snapshot_sinteticos 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.snapshot_sinteticos'
 
+# ─── Stats diarias de scalping por CEDEAR (20:06 UTC, L-V) — ANTES del cleanup
+# Persiste vueltas/rango/flujo del día en Trading.DayTradingStats (la
+# "costumbre" del papel para el TRADE LAB). Debe correr con el tape aún vivo:
+# motor para 20:05, cleanup borra 20:10 — no mover sin mover los tres.
+6 20 * * 1-5 /root/TradingAV/deploy/run_job.sh day_trading_stats 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.day_trading_stats'
+
 # ─── Vaciado del Time & Sales intradía de CEDEARs (20:10 UTC = 17:10 ART, L-V)
 # Trading.CedearsTimeSales es intradía (tape del scanner); se borra al cierre.
 10 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_cedears_timesales 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_cedears_timesales'

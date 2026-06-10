@@ -6,7 +6,13 @@ corazón del TRADE LAB intradía, así que se fija el comportamiento exacto
 """
 from __future__ import annotations
 
-from quant.intraday import contar_vueltas, momentum_pct, posicion_en_rango
+from quant.intraday import (
+    analizar_vueltas,
+    contar_vueltas,
+    momentum_pct,
+    momentum_por_tiempo,
+    posicion_en_rango,
+)
 
 
 def test_vueltas_serie_corta_o_umbral_invalido():
@@ -59,6 +65,51 @@ def test_momentum_basico_y_ventana_corta():
     # Serie más corta que la ventana: usa el primer punto.
     assert momentum_pct([100.0, 101.0], 15) == 1.0
     assert momentum_pct([100.0], 15) is None
+
+
+def test_pata_en_curso_subiendo():
+    # Subió 1% y está en el máximo: pata viva long de ~1%.
+    r = analizar_vueltas([100.0, 100.5, 101.0], 0.5)
+    assert r["pata_dir"] == 1
+    assert r["pata_pct"] == 1.0
+
+
+def test_pata_en_curso_tras_reversion():
+    # Subió a 101 y revirtió a 100.4: pata nueva SHORT desde el pivote 101.
+    r = analizar_vueltas([100.0, 101.0, 100.4], 0.5)
+    assert r["vueltas"] >= 1
+    assert r["pata_dir"] == -1
+    assert r["pata_pct"] < 0
+
+
+def test_pata_sin_direccion_definida():
+    r = analizar_vueltas([100.0, 100.1, 100.05], 0.5)
+    assert r["pata_dir"] == 0
+    assert r["pata_pct"] == 0.0
+
+
+def test_momentum_por_tiempo_usa_reloj_no_barras():
+    # Dos barras separadas por 60': ventana de 15' debe medir contra la barra
+    # vieja (≤ corte), no devolver 0 por "faltan barras".
+    pares = [
+        ("2026-06-10T14:00:00Z", 100.0),
+        ("2026-06-10T15:00:00Z", 101.0),
+    ]
+    assert momentum_por_tiempo(pares, 15) == 1.0
+    # Barras dentro de la ventana: base = primer punto.
+    pares2 = [
+        ("2026-06-10T14:50:00Z", 100.0),
+        ("2026-06-10T14:55:00Z", 100.5),
+        ("2026-06-10T15:00:00Z", 101.0),
+    ]
+    assert momentum_por_tiempo(pares2, 15) == 1.0
+    # Con historia suficiente toma el cierre ≤ último − 15'.
+    pares3 = [
+        ("2026-06-10T14:00:00Z", 90.0),
+        ("2026-06-10T14:45:00Z", 100.0),
+        ("2026-06-10T15:00:00Z", 101.0),
+    ]
+    assert momentum_por_tiempo(pares3, 15) == 1.0
 
 
 def test_posicion_en_rango():

@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from api.auth import require_module
+from api.services import day_trading as svc_dt
 from api.services import rv_motor
 from api.services import scanner as svc
 
@@ -109,6 +110,26 @@ def pivot_points(ticker: str):
     resuelve el underlying antes de queryar la serie (caso YPFD → YPF).
     """
     return svc.get_pivot_points(ticker=ticker)
+
+
+@router.get("/day-trading")
+def day_trading(objetivo: float = 0.5):
+    """Ranking intradía de CEDEARs para scalping — TRADE LAB (UI: acaquant-web
+    /retorno → TRADE LAB). `objetivo` = tamaño del movimiento buscado en %
+    (0.1–5). Por papel: vueltas zigzag ≥ objetivo hechas HOY (tape por minuto),
+    rango del día, posición en el rango, momentum 15', vs VWAP, spread e idea
+    heurística LONG/SHORT con motivo.
+    """
+    return svc_dt.get_day_trading(objetivo_pct=objetivo)
+
+
+@router.get("/companeros/{ticker}")
+def companeros(ticker: str, n: int = 6):
+    """Con qué papeles se mueve un ticker (correlación diaria del subyacente
+    USD): top `n` que acompañan y top `n` que van al revés. Para el panel
+    'SE MUEVE CON / CONTRA' del TRADE LAB.
+    """
+    return svc_dt.get_companeros(ticker=ticker, n=n)
 
 
 @router.get("/correlaciones")

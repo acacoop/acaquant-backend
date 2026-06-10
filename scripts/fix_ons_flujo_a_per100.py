@@ -33,7 +33,9 @@ from core.mongo import get_mongo_client
 
 TARGET_VN = 100.0       # por 100 VN
 UMBRAL_PESO = 500.0     # Σ amort+interes por encima de esto = escala peso
-CAMPOS = ("amortizacion", "interes", "valor_residual")
+# Sólo los PAGOS estaban en escala peso. valor_residual es el nominal residual
+# (ya por-100) → NO se divide (dividirlo rompía la paridad).
+CAMPOS = ("amortizacion", "interes")
 
 
 def _f(x) -> float:

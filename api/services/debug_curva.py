@@ -376,11 +376,18 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
                     raise ValueError("Precio_USD = None (sin MEP o ticker no convertible).")
                 tc_info = {"fuente": "MEP", "valor": mep, "precio_usd": round(precio_calc, 6)}
             elif moneda == "DL":
-                if not tc_a3500 or tc_a3500 <= 0:
-                    raise ValueError("Sin TC A3500 (feed MAE mayorista offline) para dólar-linked.")
-                precio_calc = precio / tc_a3500
-                tc_info = {"fuente": "A3500_mayorista_mae (dólar-linked)", "valor": tc_a3500,
-                           "precio_usd": round(precio_calc, 6)}
+                # Pata peso (precio ~144.000) → ÷A3500. Pata USD (precio ~100) →
+                # tal cual. Detecta por escala (igual que engines/curvas.py).
+                if precio >= 1000:
+                    if not tc_a3500 or tc_a3500 <= 0:
+                        raise ValueError("Sin TC A3500 (feed MAE mayorista offline) para dólar-linked.")
+                    precio_calc = precio / tc_a3500
+                    tc_info = {"fuente": "A3500_mayorista_mae (dólar-linked, pata peso)",
+                               "valor": tc_a3500, "precio_usd": round(precio_calc, 6)}
+                else:
+                    precio_calc = precio
+                    tc_info = {"fuente": "DL pata USD (precio ya en dólares)", "valor": None,
+                               "precio_usd": round(precio_calc, 6)}
             else:
                 precio_calc = precio
                 tc_info = {"fuente": "ARS (peso directo)", "valor": None, "precio_calc": round(precio_calc, 6)}
@@ -400,7 +407,9 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
                     f"con monto>0 (de {len(flujos_raw)} flujos del instrumento)."
                 )
 
-            residual_vivo = float(futuros[0][2].get("valor_residual", 100) or 100)
+            # Residual vivo = Σ amortizaciones futuras (robusto, no depende de
+            # valor_residual que puede venir en otra escala que el flujo).
+            residual_vivo = sum(float(f.get("amortizacion") or 0) for _, _, f in futuros)
             if residual_vivo > 0:
                 calculado["paridad"] = round(precio_calc / residual_vivo * 100, 4)
 

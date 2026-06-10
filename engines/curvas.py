@@ -620,13 +620,18 @@ def calcular_campos(
                 resultado["duration"] = round(dias_a_vto / 365, 4)
                 return resultado
         elif moneda == "DL":
-            # Dólar-linked: cotiza/paga en pesos al TC A3500, pero los flujos
-            # están por 100 VN en escala USD → llevamos el precio peso a USD
-            # dividiéndolo por el A3500 (igual que la curva dolar_linked).
-            if not tc_a3500 or tc_a3500 <= 0:
-                resultado["duration"] = round(dias_a_vto / 365, 4)
-                return resultado
-            precio_calc = precio / tc_a3500
+            # Dólar-linked: paga en pesos al TC A3500 y los flujos están por 100
+            # VN en escala USD. Algunas ONs tienen guardada la pata PESO (precio
+            # ~144.000) y otras la pata USD (precio ~100). Si el precio ya está en
+            # escala USD (< 1000) lo usamos tal cual; si es escala peso, lo
+            # dividimos por el A3500 (= dólar oficial live, el de la home).
+            if precio >= 1000:
+                if not tc_a3500 or tc_a3500 <= 0:
+                    resultado["duration"] = round(dias_a_vto / 365, 4)
+                    return resultado
+                precio_calc = precio / tc_a3500
+            else:
+                precio_calc = precio
         else:
             precio_calc = precio  # ARS peso nativo
 
@@ -639,8 +644,10 @@ def calcular_campos(
             resultado["duration"] = round(dias_a_vto_s / 365, 4)
             return resultado
 
-        # Paridad = precio / residual vivo (valor_residual del primer flujo).
-        residual_vivo = float(flujos_futuros[0][2].get("valor_residual", 100) or 100)
+        # Paridad = precio / residual vivo. El residual vivo (nominal que aún
+        # falta amortizar) = Σ de las amortizaciones futuras — robusto, no depende
+        # del campo `valor_residual` (que puede venir en otra escala que el flujo).
+        residual_vivo = sum(float(f.get("amortizacion") or 0) for _, _, f in flujos_futuros)
         if residual_vivo > 0:
             resultado["paridad"] = round(precio_calc / residual_vivo * 100, 4)
 

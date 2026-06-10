@@ -41,6 +41,8 @@
 5 20 * * 1-5 systemctl stop    motor_breakevens.service
 20 13 * * 1-5 systemctl restart motor_caucion.service
 5 20 * * 1-5 systemctl stop    motor_caucion.service
+20 13 * * 1-5 systemctl restart motor_futuros_dlr.service
+5 20 * * 1-5 systemctl stop    motor_futuros_dlr.service
 20 13 * * 1-5 systemctl restart motor_dolares.service
 5 20 * * 1-5 systemctl stop    motor_dolares.service
 20 13 * * 1-5 systemctl restart motor_cedears.service
@@ -55,14 +57,6 @@
 # ─── Motor de órdenes (10:30 ART → 17:05 ART = 13:30 UTC → 20:05 UTC)
 30 13 * * 1-5 systemctl restart motor_ordenes.service
 5  20 * * 1-5 systemctl stop    motor_ordenes.service
-
-# ─── Motor FUTUROS DLR — EXTENDIDO (no solo rueda): la curva DLR muestra datos en
-# vivo el mayor tiempo posible. Arranca post-resume de Atlas (11:35 UTC) y para antes
-# del pause (03:25 UTC), L-V → cubre toda la ventana de Atlas prendido. `restart`
-# diario mata WS zombies. (Si ROFEX no cotiza fuera de hs, el snapshot igual conserva
-# el último valor; esto captura cualquier sesión extendida.)
-35 11 * * 1-5 systemctl restart motor_futuros_dlr.service
-25 3  * * 2-6 systemctl stop    motor_futuros_dlr.service
 
 # ─── Discovery de cuentas autorizadas (1x/día, 11:40 UTC = 08:40 ART, L-V — post-resume 11:30)
 # Itera 1-12000 contra el broker (pyRofex) y escribe a Mongo → necesita Atlas arriba.
@@ -196,10 +190,12 @@
 # ─── Calendario económico global (Finnhub) — 1x/día post-resume 11:30
 40 11 * * * /root/TradingAV/deploy/run_job.sh economic_calendar 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.economic_calendar'
 
-# ─── Market quotes (watchlist HOME) — cada 1 min en horario US (L-V)
-# Timeout 50s (< intervalo 60s) — yfinance NO tiene timeout propio; sin esto un
-# Yahoo lento apilaba procesos colgados cada minuto.
-*    13-21 * * 1-5 /root/TradingAV/deploy/run_job.sh market_quotes 50s 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_quotes'
+# ─── Market quotes (watchlist HOME / vista GENERAL) — cada 1 min.
+# Los futuros globales (ES/NQ/CL/cripto) cotizan casi 24h → corre toda la ventana de
+# Atlas prendido (12-23 UTC L-V + 0-3 UTC Mar-Sáb), no solo hs US. Índices/Treasury
+# fuera de hs devuelven su último cierre (sin daño). Timeout 50s (< intervalo 60s).
+*    12-23 * * 1-5 /root/TradingAV/deploy/run_job.sh market_quotes 50s 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_quotes'
+*    0-3  * * 2-6 /root/TradingAV/deploy/run_job.sh market_quotes 50s 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_quotes'
 
 # ─── Market anchors (retornos 7d/MTD/YTD/1Y) — 1x/día post-cierre US (22:00 UTC, L-V)
 0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh market_anchors 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_anchors'

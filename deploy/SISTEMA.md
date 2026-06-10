@@ -45,7 +45,7 @@
 | `motor_curvas` | ?–20:05 L-V | `engines.curvas` | Motor Curvas - Enriquecimiento TEA/Duration TimeSales |
 | `motor_dolares` | ?–20:05 L-V | `engines.dolares` | Motor Dolares - MEP/CCL/canje en tiempo real (WS) |
 | `motor_forwards` | ?–20:05 L-V | `engines.forwards` | Motor Forwards - Tasas forward en tiempo real |
-| `motor_futuros_dlr` | ?–03:25 Mar-Sáb | `engines.futuros_dlr` | Motor Futuros DLR - Curva outright Dolar A3500 con tasa implicita |
+| `motor_futuros_dlr` | ?–20:05 L-V | `engines.futuros_dlr` | Motor Futuros DLR - Curva outright Dolar A3500 con tasa implicita |
 | `motor_options` | ?–20:05 L-V | `engines.options` | Motor Opciones GGAL - TradingAV |
 | `motor_ordenes` | ?–20:05 L-V | `engines.motor_ordenes` | Motor Ordenes - escucha order_report y persiste OrdenesLive/Audit |
 | `motor_portfolio_snapshot` | ?–20:05 L-V | `engines.portfolio_snapshot` | Motor de captura del último precio para tickers de tenencia (Trading.PortfolioSnapshot) |
@@ -56,7 +56,8 @@
 <!-- AUTOGEN:crons -->
 | Horario | Módulo(s) |
 |---|---|
-| cada hora · 13-21h · L-V | `jobs.market_quotes'` |
+| cada hora · 0-3h · Mar-Sáb | `jobs.market_quotes'` |
+| cada hora · 12-23h · L-V | `jobs.market_quotes'` |
 | cada 15min · 12-23h · diario | `jobs.news_ingesta'` |
 | cada 15min · 13-20h · L-V | `jobs.adr_live'` |
 | cada 15min · 13-20h · L-V | `engines.dolar_mep'` |
@@ -118,6 +119,7 @@
 | 13:20 · L-V | `systemctl restart motor_forwards.service` |
 | 13:20 · L-V | `systemctl restart motor_breakevens.service` |
 | 13:20 · L-V | `systemctl restart motor_caucion.service` |
+| 13:20 · L-V | `systemctl restart motor_futuros_dlr.service` |
 | 13:20 · L-V | `systemctl restart motor_dolares.service` |
 | 13:20 · L-V | `systemctl restart motor_cedears.service` |
 | 13:20 · L-V | `systemctl restart motor_agro.service` |
@@ -126,7 +128,6 @@
 | 11:30 · diario | `deploy/atlas_cluster.sh resume` |
 | 13:30 · L-V | `systemctl restart motor_ordenes.service` |
 | 03:30 · diario | `deploy/atlas_cluster.sh pause` |
-| 11:35 · L-V | `systemctl restart motor_futuros_dlr.service` |
 <!-- /AUTOGEN:otros -->
 
 > Las tablas de arriba solo listan lo **agendado** en `crontab.txt`. Jobs

@@ -544,3 +544,32 @@ def get_cedears_trades(*, ticker: str, limite: int = 200) -> list[dict]:
             "money":     d.get("money"),
         })
     return out
+
+
+def get_cedears_intraday(*, ticker: str) -> list[dict]:
+    """Serie intradía por minuto (OHLC + vol) del CEDEAR, agregada desde el
+    Time & Sales de hoy (Trading.CedearsTimeSales). Alimenta el chart LIVE del
+    Scanner — sale del MISMO feed que la tabla y el tape, así que coincide (sin
+    el delay de TradingView). No cacheado: va live con el poll del frontend.
+
+    Agrupa por minuto vía $dateToString (UTC) para no depender de $dateTrunc."""
+    db = get_db_trading()
+    inicio_hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    cur = db["CedearsTimeSales"].aggregate([
+        {"$match": {"ticker_corto": ticker.upper(), "timestamp": {"$gte": inicio_hoy}}},
+        {"$sort": {"timestamp": 1}},
+        {"$group": {
+            "_id": {"$dateToString": {"format": "%Y-%m-%dT%H:%M:00Z", "date": "$timestamp"}},
+            "o":   {"$first": "$price"},
+            "h":   {"$max": "$price"},
+            "l":   {"$min": "$price"},
+            "c":   {"$last": "$price"},
+            "vol": {"$sum": "$size"},
+        }},
+        {"$sort": {"_id": 1}},
+    ])
+    return [
+        {"t": d["_id"], "o": d.get("o"), "h": d.get("h"),
+         "l": d.get("l"), "c": d.get("c"), "vol": d.get("vol")}
+        for d in cur
+    ]

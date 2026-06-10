@@ -4,10 +4,10 @@ Espejo conceptual de motor_rofex pero reducido al mínimo:
   - Universo: tickers ARS 24hs de Trading.Cedears (activo=True).
   - Escribe a Trading.CedearsSnapshot (misma DB que el master y el resto
     del market data — sin crear DBs nuevas).
-  - Shape estricto: {ticker, ticker_corto, open, high, low, close, last,
-    updated_at}. SIN bid/offer/ev/book — si después se necesita una métrica
-    derivada (spread puntas, vwap, vol), se agrega cuando se pida, no
-    spec-ahead.
+  - Shape: {ticker, ticker_corto, open, high, low, close, last, bid, offer,
+    spread, vwap, volume, total_money, updated_at}. bid/offer/vol/vwap se
+    agregaron para el scanner de trading (spread de puntas + VOL + VWAP),
+    mismo patrón que engines/valores.py.
 
 Patrón:
   1. _arranque_en_frio(): REST get_market_data por ticker → seed inicial
@@ -69,14 +69,19 @@ class CedearsEngine:
     core.websocket.WebSocketManager con la data cruda de pyRofex.
     """
 
-    # Entries que pedimos a pyRofex — solo lo que persiste el snapshot
-    # (sin BIDS/OFFERS/EV/NV porque no escribimos esos campos hoy).
+    # Entries que pedimos a pyRofex. BIDS/OFFERS → spread de puntas;
+    # NOMINAL_VOLUME (NV) → VOL; TRADE_EFFECTIVE_VOLUME (EV) + NV → VWAP.
+    # Mismo set que engines/valores.py (motor renta fija).
     _ENTRIES: ClassVar[list] = [
         pyRofex.MarketDataEntry.LAST,
         pyRofex.MarketDataEntry.OPENING_PRICE,
         pyRofex.MarketDataEntry.HIGH_PRICE,
         pyRofex.MarketDataEntry.LOW_PRICE,
         pyRofex.MarketDataEntry.CLOSING_PRICE,
+        pyRofex.MarketDataEntry.BIDS,
+        pyRofex.MarketDataEntry.OFFERS,
+        pyRofex.MarketDataEntry.NOMINAL_VOLUME,
+        pyRofex.MarketDataEntry.TRADE_EFFECTIVE_VOLUME,
     ]
 
     def __init__(self, cedears_master: list[dict]):
@@ -100,6 +105,10 @@ class CedearsEngine:
                 "high":  0.0,
                 "low":   0.0,
                 "close": 0.0,  # closing_price = cierre día anterior
+                "bid":   0.0,  # mejor punta compradora
+                "offer": 0.0,  # mejor punta vendedora
+                "nv":    0.0,  # NOMINAL_VOLUME acumulado del día (VOL)
+                "ev":    0.0,  # TRADE_EFFECTIVE_VOLUME acumulado (cash) → VWAP
             } for t in self.tickers
         }
 
@@ -138,6 +147,10 @@ class CedearsEngine:
                 st["low"]   = _to_float(data.get("LO"))
                 st["close"] = _to_float(data.get("CL"))
                 st["last"]  = _to_float(data.get("LA"))
+                st["bid"]   = _to_float(data.get("BI"))   # _to_float toma price del 1er nivel
+                st["offer"] = _to_float(data.get("OF"))
+                st["nv"]    = _to_float(data.get("NV"))
+                st["ev"]    = _to_float(data.get("EV"))
             except Exception as e:
                 logger.warning(f"  · {ticker}: REST exception {type(e).__name__}: {e}")
         logger.info("Arranque en frío completado")
@@ -166,6 +179,16 @@ class CedearsEngine:
             st["close"] = _to_float(data["CL"])
         if data.get("LA") is not None:
             st["last"]  = _to_float(data["LA"])
+        # Puntas + volúmenes. _to_float tolera None / [] / lista de dicts → no
+        # crashea con book vacío (lección incidente FCI book None, motor_rofex).
+        if data.get("BI") is not None:
+            st["bid"]   = _to_float(data["BI"])
+        if data.get("OF") is not None:
+            st["offer"] = _to_float(data["OF"])
+        if data.get("NV") is not None:
+            st["nv"]    = _to_float(data["NV"])
+        if data.get("EV") is not None:
+            st["ev"]    = _to_float(data["EV"])
 
     # ──────────────────────────────────────────────────────────────
     # Snapshot loop — 1s, bulk_write a Cedears.Snapshot
@@ -185,6 +208,11 @@ class CedearsEngine:
                 ops = []
                 for ticker in self.tickers:
                     st = self.market_state[ticker]
+                    bid, offer, nv, ev = st["bid"], st["offer"], st["nv"], st["ev"]
+                    spread = round(offer - bid, 4) if (bid > 0 and offer > 0) else 0.0
+                    # VWAP = cash efectivo / nominales. CEDEAR cotiza por acción →
+                    # NO se multiplica por 100 (eso es convención de bonos).
+                    vwap = round(ev / nv, 4) if nv > 0 else 0.0
                     ops.append(UpdateOne(
                         {"ticker": ticker},
                         {"$set": {
@@ -195,6 +223,12 @@ class CedearsEngine:
                             "low":          st["low"],
                             "close":        st["close"],
                             "last":         st["last"],
+                            "bid":          bid,
+                            "offer":        offer,
+                            "spread":       spread,
+                            "volume":       nv,
+                            "total_money":  ev,
+                            "vwap":         vwap,
                             "updated_at":   ts,
                         }},
                         upsert=True,

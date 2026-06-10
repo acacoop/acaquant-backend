@@ -422,7 +422,7 @@ def get_quant_stats(ticker: str, window: int = 60) -> dict:
     }
 
 
-@cached(ttl=5)
+@cached(ttl=2)
 def get_cedears_scanner() -> list[dict]:
     """Master + snapshot joined por ticker, con métricas operativas.
 
@@ -462,6 +462,12 @@ def get_cedears_scanner() -> list[dict]:
         close = float(s.get("close") or 0)
         high  = float(s.get("high")  or 0)
         low   = float(s.get("low")   or 0)
+        bid    = float(s.get("bid")    or 0)
+        offer  = float(s.get("offer")  or 0)
+        spread = float(s.get("spread") or 0)
+        vwap   = float(s.get("vwap")   or 0)
+        volume = float(s.get("volume") or 0)
+        spread_pct = (spread / ((bid + offer) / 2) * 100) if (bid > 0 and offer > 0) else None
 
         intraday = ((last / open_) - 1) * 100 if last > 0 and open_ > 0 else None
         vs_1d    = ((last / close) - 1) * 100 if last > 0 and close > 0 else None
@@ -491,6 +497,13 @@ def get_cedears_scanner() -> list[dict]:
             "intraday_pct":     intraday,
             "vs_1d_pct":        vs_1d,
             "vs_1d_usd_pct":    vs_1d_usd,
+            # Datos de trading (live desde el motor): puntas, spread, VWAP, VOL.
+            "bid":              bid if bid > 0 else None,
+            "offer":            offer if offer > 0 else None,
+            "spread":           spread if spread > 0 else None,
+            "spread_pct":       spread_pct,
+            "vwap":             vwap if vwap > 0 else None,
+            "volume":           volume if volume > 0 else None,
             # ADR (USD EOD del underlying)
             "adr_last":         adr.get("adr_last"),
             "adr_fecha":        adr.get("adr_fecha"),

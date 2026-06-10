@@ -467,6 +467,7 @@ def get_cedears_scanner() -> list[dict]:
         spread = float(s.get("spread") or 0)
         vwap   = float(s.get("vwap")   or 0)
         volume = float(s.get("volume") or 0)
+        total_money = float(s.get("total_money") or 0)
         spread_pct = (spread / ((bid + offer) / 2) * 100) if (bid > 0 and offer > 0) else None
 
         intraday = ((last / open_) - 1) * 100 if last > 0 and open_ > 0 else None
@@ -504,6 +505,7 @@ def get_cedears_scanner() -> list[dict]:
             "spread_pct":       spread_pct,
             "vwap":             vwap if vwap > 0 else None,
             "volume":           volume if volume > 0 else None,
+            "total_money":      total_money if total_money > 0 else None,
             # ADR (USD EOD del underlying)
             "adr_last":         adr.get("adr_last"),
             "adr_fecha":        adr.get("adr_fecha"),

@@ -885,26 +885,20 @@ def _ops_match(
     denominacion: str | None = None,
     cuenta: str | None = None,
     segmento: str | None = None,
-    *,
-    incluir_sol_susc: bool = False,
 ) -> dict:
-    # etapa=solicitud (pedido FCI bilateral, comprobante DOC) NO suma en VOLUMEN: la
-    # liquidación (CL) ya cuenta esa operación → evita doble conteo. $ne también
-    # matchea los docs SIN etapa (boletos normales y liquidaciones).
-    #
-    # `incluir_sol_susc=True` (solo la LISTA /ops/boletos): ADITIVO — además de lo
-    # countable, muestra las SOLICITUDES de SUSCRIPCIÓN FCI (flujo del día, así se
-    # ven el día del pedido y no recién al liquidar). NO afecta el volumen: las
-    # series/resumen/rollup/SQL siguen con el filtro estricto. Los rescates quedan
-    # como están (su solicitud viene en 0 → no aporta).
-    m: dict = {"moneda": moneda, "es_cierre": False}
-    if incluir_sol_susc:
-        m["$or"] = [
-            {"etapa": {"$ne": "solicitud"}},
-            {"etapa": "solicitud", "operacion": "Suscripción"},
-        ]
-    else:
-        m["etapa"] = {"$ne": "solicitud"}
+    # FCI bilateral aparece 2 veces (solicitud DOC + liquidación CL). Para NO doblar
+    # el volumen se cuenta UNA sola vez, en el día "correcto":
+    #   · SUSCRIPCIÓN → su SOLICITUD (día del pedido; así se ve en el día y no recién
+    #     al liquidar T+1). Se EXCLUYE su liquidación.
+    #   · RESCATE     → su LIQUIDACIÓN (la solicitud del rescate viene en 0). Se
+    #     EXCLUYE su solicitud.
+    # Todo lo demás (boletos normales SIN etapa, liquidaciones de rescate) pasa.
+    # OJO: una suscripción CL muy vieja SIN su DOC quedaría excluida (riesgo asumido).
+    m: dict = {"moneda": moneda, "es_cierre": False,
+               "$nor": [
+                   {"operacion": "Suscripción", "etapa": "liquidacion"},
+                   {"operacion": "Rescate", "etapa": "solicitud"},
+               ]}
     if mercado and mercado.lower() != "todos":
         m["mercado"] = mercado
     if operacion:
@@ -1536,10 +1530,7 @@ def ops_boletos(
                                     denominacion=denominacion, cuenta=cuenta, operacion=operacion,
                                     mercado=mercado, segmento=segmento, scope=scope)
     db = get_db_cashflow()["Operaciones"]
-    # La LISTA incluye las solicitudes de suscripción FCI (flujo del día); el
-    # volumen (series/resumen) NO — ver _ops_match.
-    match = _ops_match(moneda, mercado, operacion, denominacion, cuenta, segmento,
-                       incluir_sol_susc=True)
+    match = _ops_match(moneda, mercado, operacion, denominacion, cuenta, segmento)
     match["concertacion"] = {"$gte": desde, "$lte": hasta}
     aplicar_scope_cuenta(match, scope, campo="cuenta")
     proj = {"_id": 0, "boleto": 1, "concertacion": 1, "cuenta": 1, "denominacion": 1,

@@ -67,12 +67,9 @@ def _ops_where(
     moneda: str | None = None, mercado: str | None = None, operacion: str | None = None,
     denominacion: str | None = None, cuenta: str | None = None, segmento: str | None = None,
     scope: tuple[str, ...] | None = None, *, arancel: bool = False, operador: str | None = None,
-    incluir_sol_susc: bool = False,
 ) -> tuple[str, dict]:
     """Devuelve (where_sql, params). `arancel=True` → sin filtro de moneda, incluye los
-    cierres con arancel (caución), igual que _arancel_match. `incluir_sol_susc=True`
-    (solo la LISTA) → además muestra las solicitudes de suscripción FCI (flujo del día),
-    sin tocar el volumen — equivale al flag homónimo de _ops_match."""
+    cierres con arancel (caución), igual que _arancel_match."""
     conds: list[str] = []
     p: dict = {}
     if arancel:
@@ -85,11 +82,12 @@ def _ops_where(
         conds.append("moneda = %(moneda)s")
         conds.append("es_cierre = false")
         p["moneda"] = moneda
-    if incluir_sol_susc:
-        conds.append("(etapa IS DISTINCT FROM 'solicitud' "
-                     "OR (etapa = 'solicitud' AND operacion = 'Suscripción'))")
-    else:
-        conds.append("etapa IS DISTINCT FROM 'solicitud'")
+    # FCI bilateral: contar UNA vez — suscripción por su SOLICITUD (día del pedido),
+    # rescate por su LIQUIDACIÓN. Excluye suscripción+liquidación y rescate+solicitud.
+    # Equivale al $nor de _ops_match. COALESCE evita que los NULL propaguen a NULL.
+    conds.append(
+        "NOT ((COALESCE(operacion,'') = 'Suscripción' AND COALESCE(etapa,'') = 'liquidacion') "
+        "OR (COALESCE(operacion,'') = 'Rescate' AND COALESCE(etapa,'') = 'solicitud'))")
     if mercado and mercado.lower() != "todos":
         conds.append("mercado = %(mercado)s")
         p["mercado"] = mercado
@@ -241,9 +239,7 @@ def ops_boletos(
     cuenta: str | None = None, operacion: str | None = None, mercado: str | None = None,
     segmento: str | None = None, scope: tuple[str, ...] | None = None,
 ) -> dict:
-    # La LISTA incluye solicitudes de suscripción FCI (flujo del día); el volumen no.
-    where, p = _ops_where(moneda, mercado, operacion, denominacion, cuenta, segmento, scope,
-                          incluir_sol_susc=True)
+    where, p = _ops_where(moneda, mercado, operacion, denominacion, cuenta, segmento, scope)
     p.update({"desde": desde, "hasta": hasta})
     rows = _q(
         f"SELECT boleto, concertacion, id_cuenta AS cuenta, denominacion, tipo_operacion, "

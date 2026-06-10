@@ -46,7 +46,11 @@ def _agregar(ops, desde: str | None) -> list[dict]:
     # cierre — ver diag_aranceles_caucion). Su `bruto` NO cuenta como volumen
     # (repetiría el nocional) → se fuerza a 0; sólo aporta arancel. Los cierres
     # SIN arancel (no-caución) quedan afuera del $or.
-    match: dict = {"etapa": {"$ne": "solicitud"},
+    # FCI bilateral se cuenta UNA vez: suscripción por solicitud (día del pedido),
+    # rescate por liquidación → excluye suscripción+liquidación y rescate+solicitud.
+    # MISMO criterio que _ops_match (si cambia uno, cambiar el otro o divergen).
+    match: dict = {"$nor": [{"operacion": "Suscripción", "etapa": "liquidacion"},
+                            {"operacion": "Rescate", "etapa": "solicitud"}],
                    "$or": [{"es_cierre": False}, {"es_cierre": True, "arancel": {"$ne": 0}}]}
     if desde:
         match["concertacion"] = {"$gte": desde}

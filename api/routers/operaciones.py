@@ -1664,6 +1664,16 @@ def comercial_cobros_futuros_cliente(
     return _com.cobros_futuros_cliente(id_cuenta=id_cuenta)
 
 
+@router.get("/comercial/referido-clientes")
+def comercial_referido_clientes(
+    referido: str = Query(..., description="nombre del referido (empresa referidora)"),
+    moneda: str = Query("ARS"),
+) -> dict:
+    """Vista REFERIDOS: cuentas referidas por una empresa con AuM + volumen (mes/año)
+    + arancel (mes/total). Mongo-only (reusa los helpers del tablero comercial)."""
+    return _com.referido_clientes(referido=referido, moneda=moneda)
+
+
 @router.get("/comercial/actividad-historica")
 def comercial_actividad_historica(
     operador: str = Query(..., description="operador_email o '__todos__' (toda la mesa)"),

@@ -460,6 +460,77 @@ def operador_comercial(*, operador: str, moneda: str = "ARS", nivel_1: str | Non
     }
 
 
+# ── REFERIDOS (lente por empresa referidora) ─────────────────────────────────
+# Al referido (la empresa) solo le interesan SUS cuentas: cuánto operan, AuM,
+# aranceles que generaron. NO operador/segmento/ficha. Reusa los mismos helpers
+# del tablero comercial (vol pesificado, arancel desde Operaciones).
+
+@cached(ttl=300)
+def referido_clientes(*, referido: str, moneda: str = "ARS") -> dict[str, Any]:
+    """Clientes referidos por una empresa: por cuenta AuM + volumen (mes/año) +
+    arancel (mes/total). Vista REFERIDOS. Valores en `moneda` (USD = ÷ MEP)."""
+    ids = _cuentas_de_operador(TODOS, None, None, referido)
+    if not ids:
+        return {"referido": referido, "moneda": moneda, "clientes": [],
+                "resumen": {"n_clientes": 0, "aum_total": 0.0, "vol_mes": 0.0,
+                            "vol_ano": 0.0, "arancel_mes": 0.0, "arancel_total": 0.0}}
+
+    hoy = _hoy_art()
+    factor = _factor_usd(moneda)
+    mtd_desde = hoy.replace(day=1).isoformat()
+    ytd_desde = hoy.replace(month=1, day=1).isoformat()
+    aum = _aum_por_cuenta(ids)
+
+    # Volumen por cuenta: año (ytd) y mes (mtd) en una sola pasada.
+    vol_mes: dict[str, float] = {}
+    vol_ano: dict[str, float] = {}
+    for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
+        {"$match": _match_volumen(ids, ytd_desde)},
+        {"$group": {
+            "_id": "$id_cuenta",
+            "ano": {"$sum": _PESIF},
+            "mes": {"$sum": {"$cond": [{"$gte": ["$fecha", mtd_desde]}, _PESIF, 0]}},
+        }},
+    ]):
+        if d.get("_id"):
+            vol_ano[str(d["_id"])] = float(d.get("ano") or 0.0)
+            vol_mes[str(d["_id"])] = float(d.get("mes") or 0.0)
+
+    aranceles = _aranceles_por_cuenta(ids, mtd_desde)
+    denom = {str(d["id_cuenta"]): d.get("denominacion")
+             for d in get_db_clientes()["Comitentes"].find(
+                 _comitentes_match(TODOS, None, None, referido),
+                 {"_id": 0, "id_cuenta": 1, "denominacion": 1})}
+
+    clientes = []
+    for idc in ids:
+        ar = aranceles.get(idc, {})
+        clientes.append({
+            "id_cuenta":     idc,
+            "denominacion":  denom.get(idc) or "—",
+            "aum":           _cv(aum.get(idc, 0.0), factor),
+            "vol_mes":       _cv(vol_mes.get(idc, 0.0), factor),
+            "vol_ano":       _cv(vol_ano.get(idc, 0.0), factor),
+            "arancel_mes":   _cv(ar.get("ar_mes", 0.0), factor),
+            "arancel_total": _cv(ar.get("ar_total", 0.0), factor),
+        })
+    clientes.sort(key=lambda c: c["aum"], reverse=True)
+
+    return {
+        "referido": referido,
+        "moneda": moneda,
+        "resumen": {
+            "n_clientes":    len(ids),
+            "aum_total":     round(sum(c["aum"] for c in clientes), 2),
+            "vol_mes":       round(sum(c["vol_mes"] for c in clientes), 2),
+            "vol_ano":       round(sum(c["vol_ano"] for c in clientes), 2),
+            "arancel_mes":   round(sum(c["arancel_mes"] for c in clientes), 2),
+            "arancel_total": round(sum(c["arancel_total"] for c in clientes), 2),
+        },
+        "clientes": clientes,
+    }
+
+
 def clientes_por_fecha(*, operador: str, desde: str, hasta: str,
                        moneda: str = "ARS", nivel_1: str | None = None,
                        nivel_3: str | None = None, referido: str | None = None) -> dict[str, Any]:

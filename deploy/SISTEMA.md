@@ -66,6 +66,7 @@
 | cada 5min · *h · diario | `jobs.watchdog'` |
 | 12:00 · diario | `jobs.argentina_datos'` |
 | 12:00 · Dom | `jobs.sync_postgres` |
+| cada hora · 13-20h · L-V | `jobs.informe_salud'` |
 | 14:00 · L-V | `jobs.sync_comitentes'` |
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |
 | 15:00 · L-V | `jobs.aum'` |
@@ -81,6 +82,7 @@
 | 22:00 · L-V | `jobs.flujo_contrapartes'` |
 | 22:00 · L-V | `jobs.bcra` |
 | 22:00 · L-V | `jobs.market_anchors'` |
+| 23:00 · diario | `jobs.informe_salud'` |
 | 23:00 · L-V | `jobs.aum'` |
 | 20:10 · L-V | `jobs.cleanup_cedears_timesales'` |
 | 20:15 · L-V | `jobs.options_rollup'` |

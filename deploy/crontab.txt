@@ -12,6 +12,12 @@
 # run_job.sh. Timeout propio 2m (es liviano).
 */5 * * * * /root/TradingAV/deploy/run_job.sh watchdog 2m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.watchdog'
 
+# ─── Informe de salud ACAQuant → Telegram (cada hora en rueda 13-20 UTC + 1x de noche)
+# Snapshot estructurado de salud (motores frescos, bases creciendo, jobs, SQL sync) a
+# Manager.HealthReports + resumen por Telegram. Read-only + count O(1) (no escanea).
+0 13-20 * * 1-5 /root/TradingAV/deploy/run_job.sh informe_salud 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.informe_salud'
+0 23 * * *      /root/TradingAV/deploy/run_job.sh informe_salud 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.informe_salud'
+
 # ─── Limpieza de instrumentos vencidos (12:30 UTC = 09:30 ART, L-V, antes de abrir motores)
 30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_curvas 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_curvas'
 30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_futuros_dlr 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_futuros_dlr'

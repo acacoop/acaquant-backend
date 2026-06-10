@@ -516,6 +516,25 @@ def referido_clientes(*, referido: str, moneda: str = "ARS") -> dict[str, Any]:
         })
     clientes.sort(key=lambda c: c["aum"], reverse=True)
 
+    # Posición AGREGADA del referido (todas sus cuentas) por título — para el panel
+    # derecho cuando no hay cliente elegido (títulos + valuación de cada uno).
+    posiciones: list[dict[str, Any]] = []
+    col_aum = get_db_valuaciones()["AuM"]
+    snap = col_aum.find_one({}, {"_id": 0, "fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)])
+    if snap:
+        rows_pos = list(col_aum.aggregate([
+            {"$match": {"fecha_snapshot": snap["fecha_snapshot"], "id_cuenta": {"$in": list(ids)}}},
+            {"$group": {"_id": "$unidad", "valuacion": {"$sum": "$valuacion"}}},
+            {"$sort": {"valuacion": -1}},
+        ]))
+        tot = sum(float(r.get("valuacion") or 0.0) for r in rows_pos) or 1.0
+        posiciones = [
+            {"unidad": r["_id"],
+             "valuacion": _cv(float(r.get("valuacion") or 0.0), factor),
+             "pct": round(float(r.get("valuacion") or 0.0) / tot * 100, 1)}
+            for r in rows_pos if r.get("_id")
+        ]
+
     return {
         "referido": referido,
         "moneda": moneda,
@@ -528,6 +547,7 @@ def referido_clientes(*, referido: str, moneda: str = "ARS") -> dict[str, Any]:
             "arancel_total": round(sum(c["arancel_total"] for c in clientes), 2),
         },
         "clientes": clientes,
+        "posiciones": posiciones,
     }
 
 

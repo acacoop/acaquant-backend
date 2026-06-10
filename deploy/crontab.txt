@@ -154,6 +154,11 @@
 # ─── Cierre diario de canje (20:35 UTC = 17:35 ART, L-V — post-cierre motor)
 35 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cierre_canje 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cierre_canje'
 
+# ─── Snapshot diario de sintéticos (20:40 UTC = 17:40 ART, L-V — post-cierre motor)
+# Materializa Trading.SnapshotsSinteticos (TNA/TE/precios de LECAP+Rofex y DLK+Rofex)
+# para acumular serie histórica. Lee get_sinteticos() del último estado del día.
+40 20 * * 1-5 /root/TradingAV/deploy/run_job.sh snapshot_sinteticos 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.snapshot_sinteticos'
+
 # ─── Atlas cluster pause/resume diaria (03:30 / 11:30 UTC = 00:30 / 08:30 ART)
 30 3  * * * /root/TradingAV/deploy/atlas_cluster.sh pause  >> /root/TradingAV/logs/atlas_cluster.log 2>&1
 30 11 * * * /root/TradingAV/deploy/atlas_cluster.sh resume >> /root/TradingAV/logs/atlas_cluster.log 2>&1

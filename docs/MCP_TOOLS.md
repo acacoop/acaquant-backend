@@ -1,6 +1,6 @@
 # MCP Tools Reference — TradingAV
 
-> Documento de referencia para LLMs que consumen las 39 tools del MCP server `https://api.acaquant.com/mcp`. Pensado para alimentar el contexto de Claude (Custom Connector / Project knowledge) y acelerar la decisión de qué tool usar para cada pregunta del usuario.
+> Documento de referencia para LLMs que consumen las 41 tools del MCP server `https://api.acaquant.com/mcp`. Pensado para alimentar el contexto de Claude (Custom Connector / Project knowledge) y acelerar la decisión de qué tool usar para cada pregunta del usuario.
 
 ## Qué expone este MCP
 
@@ -750,6 +750,34 @@ forward_a_b = doc["matrix"][ticker_b][ticker_a]
 **Prompts típicos:**
 - "Pivots semanales de NVDA"
 - "Soportes y resistencias de KO"
+
+---
+
+#### `day_trading_scanner`
+**Para qué:** TRADE LAB intradía — ranking de CEDEARs para scalping según un objetivo de captura. La métrica central es VUELTAS: movimientos zigzag completos ≥ objetivo que el papel ya hizo HOY (del tape por minuto). Solo tiene datos en horario de rueda.
+
+**Params:** `objetivo_pct` — tamaño del movimiento buscado en % (0.1–5, default 0.5).
+
+**Retorna:** `dict` con `objetivo_pct`, `en_rueda` (bool — false fuera de rueda), `rows: list[dict]` ordenadas por vueltas desc; cada fila: `ticker`, `ticker_full`, `nombre`, `sector`, `last`, `dia_pct`, `rango_pct`, `posicion` (0=piso del día, 100=techo), `vueltas`, `mejor_vuelta_pct`, `vueltas_hora`, `pata: {dir, pct}|null` (pata EN CURSO), `mom15_pct` (por reloj), `vs_vwap_pct`, `spread_pct`, `total_money` (cash), `volumen_nominal`, `flujo_compra_pct` + `flujo30_compra_pct` (% de la plata que fue compra agresora, día / últimos 30'), `min_sin_operar`, `prom_vueltas`/`prom_rango`/`prom_dias` (costumbre ~20 ruedas, null hasta que el cron acumule), `idea: {lado, motivo}|null` (heurística, NO recomendación).
+
+**Cómo interpretarlo:** vueltas = dónde está la acción; flujo vs idea = confirmación (si la idea dice LONG pero el flujo es 20% compra, el tape contradice); pata = si llegás temprano o tarde al movimiento actual; spread > objetivo/2 = no operable.
+
+**Prompts típicos:**
+- "¿Qué CEDEAR está dando vueltas de 1% hoy?"
+- "¿Dónde está la acción intradía ahora? ¿Algún rebote con flujo comprador?"
+
+---
+
+#### `day_trading_companeros`
+**Para qué:** Con qué papeles "se mueve" un CEDEAR — pares por correlación.
+
+**Params:** `ticker` — ticker_corto BYMA. `n` — cuántos por lado (default 6, máx 15).
+
+**Retorna:** `dict` con `ticker`, `con: [{ticker, rho}]` (más correlacionados), `contra: [{ticker, rho}]` (más anti-correlacionados), `n_obs`. Pearson de cierres diarios del subyacente USD, ventana 252 ruedas.
+
+**Prompts típicos:**
+- "¿Qué papel se mueve igual que NVDA?"
+- "Estoy long GGAL, ¿con qué lo espejo en short?"
 
 ---
 

@@ -19,6 +19,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from api.services import analitica as svc_ana
 from api.services import canje as svc_canje
 from api.services import carry_trade as svc_carry
+from api.services import day_trading as svc_dt
 from api.services import derivados as svc_der
 from api.services import descomposicion_retorno as svc_desc
 from api.services import fair_value as svc_fv
@@ -618,6 +619,37 @@ def acciones_retornos(ticker: str) -> dict:
 )
 def acciones_quant_stats(ticker: str) -> dict:
     return svc_scanner.get_quant_stats(ticker=ticker)
+
+
+@mcp.tool(
+    description=(
+        "TRADE LAB intradía: ranking de CEDEARs para scalping según un "
+        "objetivo de captura en % (0.1-5, default 0.5). Por papel: VUELTAS "
+        "(movimientos zigzag completos ≥ objetivo que ya hizo HOY, del tape "
+        "por minuto), rango del día y posición en él (0=piso, 100=techo), "
+        "pata EN CURSO (dir + % recorrido), momentum 15' por reloj, lado del "
+        "VWAP, spread bid/offer en %, flujo comprador (% de la plata del día "
+        "y de los últimos 30' que fue compra agresora), volumen en cash y "
+        "nominales, minutos sin operar, costumbre histórica (vueltas promedio "
+        "por rueda, ~20 ruedas) e idea heurística LONG/SHORT con motivo. "
+        "Solo tiene datos en horario de rueda (en_rueda=false fuera de hora)."
+    ),
+)
+def day_trading_scanner(objetivo_pct: float = 0.5) -> dict:
+    return svc_dt.get_day_trading(objetivo_pct=objetivo_pct)
+
+
+@mcp.tool(
+    description=(
+        "Con qué papeles 'se mueve' un CEDEAR: top n más correlacionados "
+        "(con) y más anti-correlacionados (contra) por Pearson de cierres "
+        "diarios del subyacente USD (ventana 252 ruedas). Para armar pares, "
+        "espejos short de un long, o no duplicar la misma apuesta. ticker es "
+        "ticker_corto BYMA."
+    ),
+)
+def day_trading_companeros(ticker: str, n: int = 6) -> dict:
+    return svc_dt.get_companeros(ticker=ticker, n=n)
 
 
 @mcp.tool(

@@ -178,7 +178,7 @@ def get_day_trading(objetivo_pct: float = 0.5) -> dict:
             {ticker, nombre, sector, last, dia_pct, intradia_pct, rango_pct,
              low, high, posicion, vueltas, mejor_vuelta_pct, vueltas_hora,
              pata: {dir, pct} | None,            # pata zigzag EN CURSO
-             mom15_pct, vs_vwap_pct, spread_pct, total_money,
+             mom15_pct, vs_vwap_pct, spread_pct, total_money, volumen_nominal,
              flujo_compra_pct, flujo30_compra_pct,
              min_sin_operar,                      # papeles dormidos
              prom_vueltas, prom_rango, prom_dias, # costumbre (~20 ruedas)
@@ -215,6 +215,7 @@ def get_day_trading(objetivo_pct: float = 0.5) -> dict:
         offer = float(snap.get("offer") or 0) or None
         vwap = float(snap.get("vwap") or 0) or None
         total_money = float(snap.get("total_money") or 0) or None
+        volumen_nominal = float(snap.get("volume") or 0) or None
 
         mins = minutos.get(tk_corto, [])
         closes = [x["c"] for x in mins]
@@ -295,6 +296,7 @@ def get_day_trading(objetivo_pct: float = 0.5) -> dict:
             "vs_vwap_pct":      vs_vwap,
             "spread_pct":       spread_pct,
             "total_money":      total_money,
+            "volumen_nominal":  volumen_nominal,
             "flujo_compra_pct":   _flujo_compra_pct(mins),
             "flujo30_compra_pct": _flujo_compra_pct(mins, desde=ahora - timedelta(minutes=30)),
             "min_sin_operar":   min_sin_operar,

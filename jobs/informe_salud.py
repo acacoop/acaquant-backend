@@ -63,10 +63,12 @@ BASES = [
     ("job_runs",     "Manager",     "JobRuns"),
 ]
 
-# Jobs que se esperan al menos 1x/día → si el último corrió hace > umbral, vencido.
+# Jobs esperados → si el último corrió hace > umbral (horas), vencido. OJO: el
+# `tipo` es el de JobRunLogger (nombre del job), NO la etiqueta del cron — el cron
+# `negocio_chain` loguea como `negocio_movimientos`, etc.
 DAILIES = [
     ("aum", 27), ("sync_postgres", 3), ("bcra", 27), ("argentina_datos", 27),
-    ("snapshot_cierre", 27), ("operaciones_informes", 3), ("negocio_chain", 3),
+    ("snapshot_cierre", 27), ("operaciones_informes", 3), ("negocio_movimientos", 3),
 ]
 
 

@@ -385,6 +385,7 @@ def get_quant_stats(ticker: str, window: int = 60) -> dict:
             "alpha":           {"spy": None, "qqq": None},
             "corr":            {"spy": None, "qqq": None},
             "vol":             {"d30": None, "d60": None},
+            "zscore":          {"d30": None, "d60": None},
         }
 
     rets_a   = returns_from_prices(closes_a)

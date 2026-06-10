@@ -114,7 +114,7 @@ def pivot_points(ticker: str):
 @router.get("/correlaciones")
 def correlaciones(ventana: int = 252, tickers: str | None = None):
     """Matriz de correlación de retornos diarios — motor de la Mesa de
-    Estrategia (ver docs/wip_mesa_estrategia_rv.md).
+    Estrategia (UI: acaquant-web /retorno → CORRELACIONES).
 
     Sin `tickers` usa todo el universo de Renta Variable. `tickers` opcional
     es un CSV de ticker_corto. `ventana` = días hábiles comunes (default 252).
@@ -130,8 +130,8 @@ def correlaciones(ventana: int = 252, tickers: str | None = None):
 @router.get("/trade-analysis")
 def trade_analysis(ticker: str, monto: float = 1_000_000, direccion: str = "long"):
     """Análisis de un trade individual — caracterización de riesgo +
-    hedge-finder. Módulo 1 de la Mesa de Estrategia
-    (ver docs/wip_mesa_estrategia_rv.md). `monto` en USD, `direccion` long|short.
+    hedge-finder. Módulo 1 de la Mesa de Estrategia (UI: acaquant-web
+    /retorno → TRADE LAB). `monto` en USD, `direccion` long|short.
     """
     return rv_motor.get_trade_analysis(
         ticker=ticker, monto=monto, direccion=direccion,
@@ -141,7 +141,7 @@ def trade_analysis(ticker: str, monto: float = 1_000_000, direccion: str = "long
 @router.get("/book-analysis")
 def book_analysis(posiciones: str = ""):
     """Análisis de un book entero — Módulo 2 de la Mesa de Estrategia
-    (ver docs/wip_mesa_estrategia_rv.md).
+    (UI: acaquant-web /retorno → BOOK & RIESGO).
 
     `posiciones` es un CSV de `ticker:notional` (notional en USD, negativo =
     short). Ej: `NVDA:1000000,AMD:-500000`. Devuelve exposición, concentración,

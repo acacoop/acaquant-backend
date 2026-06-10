@@ -1,6 +1,6 @@
 """api/services/rv_motor.py — motor de la Mesa de Estrategia (Renta Variable).
 
-Primera pieza del feature de `docs/wip_mesa_estrategia_rv.md` ("Paso 0 — el
+Primera pieza de la Mesa de Estrategia ("Paso 0 — el
 motor"): la matriz de correlación del universo de activos USD. Es la base del
 hedge-finder (correlación de un activo vs el resto) y de la optimización de
 carteras.
@@ -139,7 +139,7 @@ _Z95 = 1.645   # cuantil 95% normal — para el VaR 1 día
 def get_trade_analysis(ticker: str, monto: float, direccion: str = "long") -> dict:
     """Analiza un trade individual: caracterización de riesgo + hedge-finder.
 
-    Módulo 1 de la Mesa de Estrategia (docs/wip_mesa_estrategia_rv.md).
+    Módulo 1 de la Mesa de Estrategia (UI: acaquant-web /retorno → TRADE LAB).
 
     Args:
         ticker: ticker_corto del activo.
@@ -241,7 +241,7 @@ def get_trade_analysis(ticker: str, monto: float, direccion: str = "long") -> di
         "hedge_finder":    hedge_finder,
         "nota": (
             "Escenarios de stress y niveles de entrada/salida (pivots) "
-            "pendientes — ver docs/wip_mesa_estrategia_rv.md."
+            "pendientes."
         ),
     }
 
@@ -413,7 +413,6 @@ def get_book_analysis(posiciones: tuple[tuple[str, float], ...]) -> dict:
         "contribucion_riesgo": contribucion,
         "excluidos": excluidos,
         "nota": (
-            "Stress test, alertas, rebalanceo y conexión a AuM pendientes "
-            "— ver docs/wip_mesa_estrategia_rv.md."
+            "Stress test, alertas, rebalanceo y conexión a AuM pendientes."
         ),
     }

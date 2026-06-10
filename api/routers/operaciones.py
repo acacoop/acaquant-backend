@@ -1636,6 +1636,27 @@ def comercial_analisis(
         operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido)
 
 
+@router.get("/comercial/cobros-futuros")
+def comercial_cobros_futuros(
+    operador: str = Query(..., description="operador_email o '__todos__'"),
+    nivel_1: str | None = Query(None, description="filtro madre nivel_1"),
+    nivel_3: str | None = Query(None, description="filtro madre nivel_3"),
+    referido: str | None = Query(None, description="filtro madre referido"),
+) -> dict:
+    """Cobros futuros (acreencias) del scope: serie diaria acumulable + totales por
+    cliente. Mongo-only (CashFlow.Acreencias no tiene espejo SQL)."""
+    return _com.cobros_futuros(
+        operador=operador, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido)
+
+
+@router.get("/comercial/cobros-futuros/cliente")
+def comercial_cobros_futuros_cliente(
+    id_cuenta: str = Query(..., description="id de la cuenta comitente"),
+) -> dict:
+    """Detalle de cobros futuros de un cliente: serie acumulable + títulos que cobra."""
+    return _com.cobros_futuros_cliente(id_cuenta=id_cuenta)
+
+
 @router.get("/comercial/actividad-historica")
 def comercial_actividad_historica(
     operador: str = Query(..., description="operador_email o '__todos__' (toda la mesa)"),

@@ -553,37 +553,44 @@ def referido_clientes(*, referido: str, moneda: str = "ARS") -> dict[str, Any]:
 
 def referido_fci(*, referido: str, desde: str, hasta: str,
                  moneda: str = "ARS") -> dict[str, Any]:
-    """Vista REFERIDOS — tabla FCI: cuánto dinero en cartera FCI tuvieron, en
-    promedio diario, las cuentas del referido durante [desde, hasta], abierto
-    por sociedad gerente (emisor). Es la BASE sobre la que luego se aplica el %
-    de comisión de la coop. Valores en `moneda` (USD = ÷ MEP).
+    """Vista REFERIDOS — tabla FCI con la COMISIÓN a la coop, POR FONDO.
 
-    Promedio diario = Σ(valuación FCI de todos los días con foto) / nº de días
-    con snapshot en el rango. Los días sin tenencia cuentan 0 → un fondo que
-    estuvo medio período pondera la mitad, que es lo correcto para un fee sobre
-    saldo. El set de unidades FCI y el mapa unidad→emisor se reusan de
-    `portfolio._fci_assets_map` (única fuente de verdad, no se duplica acá)."""
+    Por cada fondo (unidad) que las cuentas del referido tuvieron en [desde, hasta]:
+      - `saldo`    = saldo promedio diario = Σ(valuación de los días con foto) / nº
+                     de días con snapshot en el rango (días sin tenencia ponderan 0).
+      - `fee`      = honorario ANUAL del fondo (Assets.FEE_ADMIN, fracción; varía por
+                     fondo) — None si todavía no se cargó.
+      - `comision` = saldo × fee × (días_corridos_del_período / 365). El fee es anual:
+                     se prorratea por los días del rango (≈ días del mes).
+
+    El front agrupa por sociedad gerente (`emisor`). Money en `moneda` (USD = ÷ MEP);
+    el `fee` es una tasa, NO se convierte. `_fci_assets_map` (portfolio) es la única
+    fuente de unidades FCI + emisor + fee."""
     vacio = {"referido": referido, "moneda": moneda, "desde": desde, "hasta": hasta,
-             "n_dias": 0, "total": 0.0, "emisores": []}
+             "n_dias": 0, "dias_periodo": 0, "total_saldo": 0.0, "total_comision": 0.0,
+             "fondos": []}
     ids = _cuentas_de_operador(TODOS, None, None, referido)
     if not ids:
         return vacio
 
     from api.services.portfolio import _fci_assets_map
-    fci = _fci_assets_map()                       # unidad → {emisor, ticker}
+    fci = _fci_assets_map()                       # unidad → {emisor, ticker, fee}
     if not fci:
         return vacio
 
     col = get_db_valuaciones()["AuM"]
-    # Denominador del promedio: días con foto en el rango (independiente del
-    # referido). distinct usa el índice de fecha_snapshot → barato.
+    # Denominador del promedio: días con foto en el rango (índice fecha_snapshot).
     n_dias = len(col.distinct(
         "fecha_snapshot", {"fecha_snapshot": {"$gte": desde, "$lte": hasta}})) or 1
+    # Días CORRIDOS del período para prorratear el fee anual (el fee corre todos
+    # los días; el saldo promedio es sobre días hábiles → buena aproximación).
+    try:
+        dias_periodo = (date.fromisoformat(hasta) - date.fromisoformat(desde)).days + 1
+    except ValueError:
+        dias_periodo = n_dias
 
-    # Σ valuación por unidad de las cuentas del referido en fondos FCI, en todo
-    # el rango. El roll-up unidad→emisor se hace acá (el emisor no vive en AuM,
-    # viene del master Assets). Dividir Σ entre n_dias = saldo promedio diario.
-    por_emisor: dict[str, float] = {}
+    factor = _factor_usd(moneda)
+    fondos: list[dict[str, Any]] = []
     for d in col.aggregate([
         {"$match": {
             "fecha_snapshot": {"$gte": desde, "$lte": hasta},
@@ -592,18 +599,24 @@ def referido_fci(*, referido: str, desde: str, hasta: str,
         }},
         {"$group": {"_id": "$unidad", "val": {"$sum": "$valuacion"}}},
     ]):
-        emisor = (fci.get(d["_id"]) or {}).get("emisor") or "—"
-        por_emisor[emisor] = por_emisor.get(emisor, 0.0) + float(d.get("val") or 0.0)
-
-    factor = _factor_usd(moneda)
-    emisores = [{"emisor": e, "promedio": _cv(v / n_dias, factor)}
-                for e, v in por_emisor.items()]
-    emisores.sort(key=lambda x: x["promedio"], reverse=True)
+        info = fci.get(d["_id"]) or {}
+        saldo = float(d.get("val") or 0.0) / n_dias
+        fee = info.get("fee")
+        comision = saldo * fee * dias_periodo / 365 if fee else None
+        fondos.append({
+            "unidad":   d["_id"],
+            "emisor":   info.get("emisor") or "—",
+            "saldo":    _cv(saldo, factor),
+            "fee":      fee,                                   # fracción anual o None
+            "comision": _cv(comision, factor) if comision is not None else None,
+        })
+    fondos.sort(key=lambda x: (x["emisor"], -x["saldo"]))
     return {
         "referido": referido, "moneda": moneda, "desde": desde, "hasta": hasta,
-        "n_dias": n_dias,
-        "total": round(sum(e["promedio"] for e in emisores), 2),
-        "emisores": emisores,
+        "n_dias": n_dias, "dias_periodo": dias_periodo,
+        "total_saldo":    round(sum(f["saldo"] for f in fondos), 2),
+        "total_comision": round(sum(f["comision"] or 0.0 for f in fondos), 2),
+        "fondos": fondos,
     }
 
 

@@ -67,12 +67,13 @@ def _fci_assets_map() -> dict[str, dict]:
     """
     db_v = get_db_valuaciones()
     return {
-        d["unidad"]: {"emisor": d.get("EMISOR", ""), "ticker": d.get("TICKER", "")}
+        d["unidad"]: {"emisor": d.get("EMISOR", ""), "ticker": d.get("TICKER", ""),
+                      "fee": d.get("FEE_ADMIN")}   # honorario anual (fracción), para REFERIDOS
         # $in tolera el rename de cartera (sacar prefijo 'CARTERA '): matchea
         # tanto el valor nuevo ('FCI') como el legacy ('CARTERA FCI').
         for d in db_v["Assets"].find(
             {"CARTERA": {"$in": ["FCI", "CARTERA FCI"]}},
-            {"_id": 0, "unidad": 1, "EMISOR": 1, "TICKER": 1},
+            {"_id": 0, "unidad": 1, "EMISOR": 1, "TICKER": 1, "FEE_ADMIN": 1},
         )
         if d.get("unidad")
     }

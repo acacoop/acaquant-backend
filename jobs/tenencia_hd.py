@@ -50,7 +50,9 @@ def _hd_unidades(client) -> list[str]:
 
 
 def _doc_del_dia(aum_col, fecha: str, hd_unidades: list[str], now: datetime) -> dict:
-    """Arma el doc de tenencia HD para una fecha: AuM por cuenta + posiciones por título."""
+    """Arma el doc de tenencia HD para una fecha: AuM por cuenta + posiciones por
+    título + el TC (MEP) de ESE día congelado (para dolarizar reproducible)."""
+    from api.services._mep import get_mep_for_date
     por_unidad: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     aum: dict[str, float] = defaultdict(float)
     for r in aum_col.aggregate([
@@ -70,8 +72,10 @@ def _doc_del_dia(aum_col, fecha: str, hd_unidades: list[str], now: datetime) -> 
         fila.update({c: round(byc.get(c, 0.0), 2) for c in CUENTAS})
         posiciones.append(fila)
 
+    tc = get_mep_for_date(fecha)   # MEP de ese día (ARS/USD); None si no hay feed
     return {
         "fecha_snapshot": fecha,
+        "tc": round(tc, 2) if tc else None,
         "aum": {c: round(aum.get(c, 0.0), 2) for c in CUENTAS},
         "total": round(sum(aum.values()), 2),
         "posiciones": posiciones,

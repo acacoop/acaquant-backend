@@ -23,7 +23,7 @@ def tenencia_dias() -> dict[str, Any]:
     dias = []
     for d in col.find({}, {"_id": 0, "posiciones": 0}).sort("fecha_snapshot", 1):
         aum = d.get("aum", {})
-        fila = {"fecha": d["fecha_snapshot"], "total": d.get("total", 0.0)}
+        fila = {"fecha": d["fecha_snapshot"], "tc": d.get("tc"), "total": d.get("total", 0.0)}
         fila.update({c: aum.get(c, 0.0) for c in CUENTAS})
         dias.append(fila)
     return {
@@ -37,10 +37,11 @@ def tenencia_posiciones(*, fecha: str) -> dict[str, Any]:
     """Posiciones HD (por título, con desglose por cuenta) de un día."""
     col = get_db_valuaciones()["TenenciaHD"]
     d = col.find_one({"fecha_snapshot": fecha},
-                     {"_id": 0, "fecha_snapshot": 1, "posiciones": 1, "total": 1})
+                     {"_id": 0, "fecha_snapshot": 1, "posiciones": 1, "total": 1, "tc": 1})
     return {
         "fecha": fecha,
         "cuentas": CUENTAS,
+        "tc": (d or {}).get("tc"),
         "total": (d or {}).get("total", 0.0),
         "posiciones": (d or {}).get("posiciones", []),
     }

@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 import pyRofex
 from pymongo import UpdateOne
 
+from core import pg_mirror
 from core.mongo import get_mongo_client
 
 # --- TUS MANAGERS DE INFRAESTRUCTURA ---
@@ -322,6 +323,9 @@ class MicrostructureEngine:
             try:
                 ts = datetime.now(UTC)
                 ops = []
+                # Dual-write a Postgres (flag SNAPSHOT_SQL, ver core/pg_mirror):
+                # solo armamos las filas si el flag está prendido.
+                pg_rows = [] if pg_mirror.snapshots_live_on() else None
                 # Copia defensiva — el adhoc_watcher puede agregar tickers
                 # concurrentemente con este loop.
                 for ticker in list(self.tickers):
@@ -358,9 +362,29 @@ class MicrostructureEngine:
                         }},
                         upsert=True,
                     ))
+                    if pg_rows is not None:
+                        pg_rows.append({
+                            "ticker":         ticker,
+                            "book":           {"bids":   list(st["book"]["bids"]),
+                                               "offers": list(st["book"]["offers"])},
+                            "last_price":     metricas.get("last_price"),
+                            "open_price":     metricas.get("open_price"),
+                            "high_price":     metricas.get("high_price"),
+                            "low_price":      metricas.get("low_price"),
+                            "closing_price":  metricas.get("closing_price"),
+                            "vwap":           metricas.get("vwap"),
+                            "total_nominals": metricas.get("total_nominals"),
+                            "updated_at":     ts,
+                        })
 
                 if ops:
                     self.col_snapshot.bulk_write(ops, ordered=False)
+                    # Espejo SQL best-effort. min_interval=5: este loop re-escribe
+                    # el estado COMPLETO cada 1s → descartar flushes intermedios
+                    # no pierde nada (el próximo trae todo).
+                    if pg_rows:
+                        pg_mirror.mirror_snapshot("market_snapshot", ["ticker"],
+                                                  pg_rows, min_interval=5.0)
 
             except Exception as e:
                 logger.error(f"Error escribiendo snapshots: {e}")

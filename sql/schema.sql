@@ -258,9 +258,14 @@ CREATE TABLE IF NOT EXISTS market_calendar (
     evt_time text,
     impact   integer,
     country  text,
-    data     jsonb
+    data     jsonb,
+    -- timestamptz REAL para el filtro de rango del endpoint. NULL cuando `time` no era
+    -- datetime en Mongo (esos docs tampoco matchean el rango allá → misma semántica).
+    evt_ts   timestamptz
 );
+ALTER TABLE market_calendar ADD COLUMN IF NOT EXISTS evt_ts timestamptz;
 CREATE INDEX IF NOT EXISTS ix_market_calendar_time ON market_calendar(evt_time);
+CREATE INDEX IF NOT EXISTS ix_market_calendar_ts   ON market_calendar(evt_ts);
 
 -- CashFlow.NegocioMovimientos (~339k). Grano único (fecha, comprobante).
 CREATE TABLE IF NOT EXISTS negocio_movimientos (
@@ -302,4 +307,135 @@ CREATE INDEX IF NOT EXISTS ix_nm_cuenta    ON negocio_movimientos(cuenta, fecha)
 -- portfolio: accionistas / sin_accionistas / cooperativas). Solo el string `cuenta`.
 CREATE TABLE IF NOT EXISTS accionistas (
     cuenta text PRIMARY KEY
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- CAPA MERCADO (espejo de Trading.*) — ver docs/SQL.md §Mercado
+-- Diseño: NO se copia el desparramo de Mongo. Las 7 colecciones-serie
+-- {fecha, valor} colapsan en UNA tabla larga; Curvas/BondsMaster materializan
+-- lo consultable como columnas y guardan flujos + doc completo en jsonb;
+-- market_snapshot es COLUMNAR para replicar la semántica $set parcial de los
+-- dos motores (cada uno escribe SOLO sus columnas, sin pisarse).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Trading.{CER, DOLAR, BADLAR, TAMAR, RiesgoPais, InflacionMensual, InflacionInteranual}
+-- (jobs.bcra + jobs.argentina_datos, shape {fecha:'YYYY-MM-DD', valor}).
+-- `serie` = nombre de la colección Mongo (clave compartida por sync y dual-write).
+CREATE TABLE IF NOT EXISTS series_macro (
+    serie text NOT NULL,
+    fecha date NOT NULL,
+    valor numeric,
+    PRIMARY KEY (serie, fecha)
+);
+
+-- Trading.REM (jobs.argentina_datos) — consenso IPC INDEC por informe/período.
+CREATE TABLE IF NOT EXISTS rem (
+    informe       text NOT NULL,            -- 'YYYY-MM' del informe
+    periodo       text NOT NULL,            -- 'YYYY-MM' normalizado (orden lexicográfico)
+    periodo_tipo  text NOT NULL,            -- 'mensual' | 'trimestral'
+    fecha_informe date,
+    mediana numeric, promedio numeric, desvio numeric,
+    minimo  numeric, maximo   numeric,
+    p10 numeric, p25 numeric, p75 numeric, p90 numeric,
+    participantes numeric,
+    updated_at timestamptz,
+    PRIMARY KEY (informe, periodo, periodo_tipo)
+);
+CREATE INDEX IF NOT EXISTS ix_rem_periodo ON rem(periodo);
+
+-- Trading.Curvas — master de instrumentos de renta fija. PK ticker_corto (clave
+-- del upsert de ons.sync_ons_to_curvas; el sync saltea docs sin ticker_corto y
+-- los cuenta). Flujos como jsonb (shape varía por curva: CER % vs tasa_fija abs
+-- — ver CLAUDE.md raíz); `data` = doc completo para no perder campos no
+-- materializados.
+CREATE TABLE IF NOT EXISTS curvas (
+    ticker_corto      text PRIMARY KEY,
+    ticker            text,
+    curva             text,                  -- tasa_fija | cer | soberanos | on_<sector> | ...
+    tipo              text,                  -- Bono | Lecap | Boncap | Soberano | ON
+    moneda_flujo      text,
+    valor_nominal     numeric,
+    fecha_emision     date,
+    fecha_vencimiento date,
+    cupon_anual       numeric,
+    cer_emision       numeric,
+    flujo_vencimiento numeric,
+    emisor            text,
+    sector            text,
+    flujos            jsonb,
+    data              jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_curvas_curva ON curvas(curva);
+CREATE INDEX IF NOT EXISTS ix_curvas_vto   ON curvas(fecha_vencimiento);
+
+-- Trading.BondsMaster — master editable de ONs (panel Manager → TÍTULOS).
+CREATE TABLE IF NOT EXISTS bonds_master (
+    asset           text PRIMARY KEY,
+    emisor          text,
+    sector          text,
+    moneda_flujo    text,
+    tasa_cupon      numeric,
+    vencimiento     date,
+    tickers         jsonb,                   -- {ARS: ticker, USD: ticker}
+    flujos          jsonb,
+    actualizado_por text,
+    actualizado_at  timestamptz,
+    data            jsonb
+);
+
+-- Trading.MarketSnapshot — estado live por ticker. COLUMNAR a propósito: en Mongo
+-- dos motores escriben el mismo doc con $set parcial sin pisarse (valores.py →
+-- book/precios cada 1s; curvas.py → analíticos cada 5s). Acá cada escritor
+-- upsertea SOLO sus columnas → misma semántica. Un jsonb compartido NO sirve
+-- (el merge shallow de `metrics` pisaría los campos del otro motor).
+CREATE TABLE IF NOT EXISTS market_snapshot (
+    ticker         text PRIMARY KEY,
+    -- engines/valores.py (motor_rofex):
+    book           jsonb,                    -- {bids: [...], offers: [...]}
+    last_price     numeric,
+    open_price     numeric,
+    high_price     numeric,
+    low_price      numeric,
+    closing_price  numeric,
+    vwap           numeric,
+    total_nominals numeric,
+    updated_at     timestamptz,
+    -- engines/curvas.py (motor_curvas):
+    tea            numeric,
+    tem            numeric,
+    duration       numeric,
+    mod_duration   numeric,
+    convexity      numeric,
+    paridad        numeric
+);
+
+-- Trading.SnapshotsCierre — HISTÓRICO completo del cierre diario por bono
+-- (jobs/snapshot_cierre.py; en Mongo ts_cierre es string 'YYYY-MM-DD' → date).
+-- La tabla `snapshots_cierre` existente (último cierre por ticker, fallback del
+-- PnL) se mantiene aparte: grano distinto, consumidor distinto.
+CREATE TABLE IF NOT EXISTS snapshots_cierre_hist (
+    fecha              date NOT NULL,        -- Mongo: ts_cierre
+    curva              text NOT NULL,
+    ticker             text NOT NULL,
+    ticker_corto       text,
+    tipo               text,
+    fecha_vencimiento  date,
+    fecha_emision      date,
+    ultimo_precio      numeric,
+    tea numeric, tem numeric, paridad numeric,
+    duration numeric, mod_duration numeric, convexity numeric,
+    total_nominals_dia numeric,
+    is_zero_coupon     boolean,
+    PRIMARY KEY (fecha, curva, ticker)
+);
+CREATE INDEX IF NOT EXISTS ix_sch_ticker ON snapshots_cierre_hist(ticker, fecha);
+CREATE INDEX IF NOT EXISTS ix_sch_curva  ON snapshots_cierre_hist(curva, fecha);
+
+-- Trading.CanjeCierre — cierre diario de tickers de canje (jobs/cierre_canje.py).
+CREATE TABLE IF NOT EXISTS canje_cierre (
+    ticker     text NOT NULL,
+    fecha      date NOT NULL,
+    price      numeric,
+    updated_at timestamptz,
+    PRIMARY KEY (ticker, fecha)
 );

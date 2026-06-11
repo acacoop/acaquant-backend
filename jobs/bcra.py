@@ -4,6 +4,7 @@ from datetime import date, timedelta
 import requests
 
 from core.mongo import get_mongo_client
+from core.pg_mirror import mirror_job
 
 VARIABLES_BCRA = {
     "CER":    30,
@@ -36,6 +37,7 @@ def fetch_y_guardar(nombre, id_variable, desde, hasta):
 
         insertados = 0
         actualizados = 0
+        pg_rows = []
         for d in historial:
             fecha = d.get('fecha')
             valor = d.get('valor')
@@ -50,8 +52,15 @@ def fetch_y_guardar(nombre, id_variable, desde, hasta):
             else:
                 actualizados += 1
                 print(f"  [=] {fecha} = {valor} (ya existia)")
+            try:
+                pg_rows.append({"serie": nombre, "fecha": date.fromisoformat(str(fecha)[:10]),
+                                "valor": valor})
+            except ValueError:
+                pass
 
         print(f"[{nombre}] {insertados} nuevos, {actualizados} ya existian.")
+        # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort — no-op apagado).
+        mirror_job("series_macro", ["serie", "fecha"], pg_rows)
 
     except requests.exceptions.HTTPError as err:
         print(f"[{nombre}] Error HTTP: {err.response.status_code}")

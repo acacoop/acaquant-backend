@@ -22,8 +22,10 @@ _FLAGS = [
     ("PORTFOLIO_SQL",   "PORTFOLIO AuM — /aum, /fci-*, /total-*, /diff"),
     ("PNL_SQL",         "PnL Títulos — /pnl"),
     ("NEWS_SQL",        "HOME/NEWS — /api/news/* (headlines, stats)"),
+    ("MARKET_SQL",      "MARKET — /api/market/quotes + /calendar/economic"),
     ("AUTH_SQL",        "AUTH (lecturas) — roles, matriz, scope de cuentas"),
-    ("SNAPSHOT_SQL",    "MOTORES → SnapshotWriter (dual-write a SQL)"),
+    ("SNAPSHOT_SQL",    "MOTORES → market_snapshot live (dual-write a SQL)"),
+    ("MERCADO_SQL_WRITE", "JOBS mercado → dual-write (series_macro, rem, cierres)"),
 ]
 
 

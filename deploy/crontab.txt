@@ -201,11 +201,11 @@
 0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh market_anchors 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_anchors'
 
 # ─── Sync Mongo→Postgres (espejo SQL analítico / Supabase). Incremental cada 20 min
-# (:00/:20/:40), 15-23 UTC L-V (después de operaciones/negocio/aum) para mantener PG
-# fresco. Lock (run_job.sh) evita solapamiento: si una corrida no terminó, la siguiente
-# se saltea. Lee del SECONDARY, batcheado + throttle, upsert idempotente + borra huérfanos
-# en dims. Atlas pausado 03:30-11:30 UTC → no corre ahí. --full semanal (domingo 12 UTC).
-*/20 15-23 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_postgres 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_postgres'
+# (:00/:20/:40), 14-23 UTC L-V = 11-20 ART (después de operaciones/negocio/aum) para
+# mantener PG fresco. Lock (run_job.sh) evita solapamiento: si una corrida no terminó, la
+# siguiente se saltea. Lee del SECONDARY, batcheado + throttle, upsert idempotente + borra
+# huérfanos en dims. Atlas pausado 03:30-11:30 UTC → no corre ahí. --full semanal (dom 12 UTC).
+*/20 14-23 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_postgres 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_postgres'
 0 12 * * 0 /root/TradingAV/deploy/run_job.sh sync_postgres_full 40m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_postgres --full'
 
 # ─── Sync comitentes (master de clientes) — 3x/día L-V (14/17/21 UTC)

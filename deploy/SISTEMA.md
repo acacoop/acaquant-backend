@@ -61,7 +61,7 @@
 | cada 15min · 12-23h · diario | `jobs.news_ingesta'` |
 | cada 15min · 13-20h · L-V | `jobs.adr_live'` |
 | cada 15min · 13-20h · L-V | `engines.dolar_mep'` |
-| cada 20min · 15-23h · L-V | `jobs.sync_postgres'` |
+| cada 20min · 14-23h · L-V | `jobs.sync_postgres'` |
 | cada 30min · 12-23h · diario | `jobs.news_finnhub'` |
 | cada 4min · 13-20h · L-V | `jobs.comercial_warm'` |
 | cada 5min · *h · diario | `jobs.watchdog'` |

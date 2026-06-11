@@ -63,6 +63,7 @@
 | cada 15min · 13-20h · L-V | `engines.dolar_mep'` |
 | cada 20min · 14-23h · L-V | `jobs.sync_postgres'` |
 | cada 30min · 12-23h · diario | `jobs.news_finnhub'` |
+| cada 30min · 14-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral'` |
 | cada 4min · 13-20h · L-V | `jobs.comercial_warm'` |
 | cada 5min · *h · diario | `jobs.watchdog'` |
 | 12:00 · diario | `jobs.argentina_datos'` |
@@ -71,7 +72,6 @@
 | 14:00 · L-V | `jobs.sync_comitentes'` |
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |
 | 15:00 · L-V | `jobs.aum'` |
-| cada hora · 15-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral'` |
 | 17:00 · L-V | `jobs.aum'` |
 | 17:00 · L-V | `jobs.sync_comitentes'` |
 | 02:00 · Mar-Sáb | `jobs.cashflow` |

@@ -30,17 +30,24 @@ router = APIRouter()
 # Valores que tratamos como "vacío" para detectar gaps en metadata.
 _EMPTY_VALUES: list[str | None] = ["", "NO APLICA", None]
 
-# Campos UPPERCASE editables. Espejan el shape del doc en Valuaciones.Assets.
-# También son los campos válidos para el filtro `campo_vacio`.
+# Campos UPPERCASE editables (string). Espejan el shape del doc en
+# Valuaciones.Assets. También son los campos válidos para el filtro `campo_vacio`.
 _EDITABLE_FIELDS: tuple[str, ...] = (
     "CARTERA", "EMISOR", "INSTRUMENTO",
     "CLASE_ACTIVO", "CALIFICACION", "TICKER", "VENCIMIENTO",
 )
 
+# Campos NUMÉRICOS editables (no entran al autocomplete /values, que es string).
+# FEE_ADMIN: honorario de administración del FCI que cobra la sociedad gerente.
+# Se guarda como FRACCIÓN decimal (0.01 = 1%) → la comisión sale directa
+# (saldo × FEE_ADMIN). Solo tiene sentido para fondos CARTERA=FCI. Lo edita la
+# mesa a mano desde Manager → TÍTULOS · FCI; lo consume la vista REFERIDOS.
+_EDITABLE_NUM_FIELDS: tuple[str, ...] = ("FEE_ADMIN",)
+
 _PROJECTION = {
     "_id": 0, "unidad": 1,
     "CARTERA": 1, "EMISOR": 1, "INSTRUMENTO": 1, "CLASE_ACTIVO": 1,
-    "CALIFICACION": 1, "TICKER": 1, "VENCIMIENTO": 1,
+    "CALIFICACION": 1, "TICKER": 1, "VENCIMIENTO": 1, "FEE_ADMIN": 1,
     # CAFCI es read-only — derivado de `unidad` por jobs/aum.py.
     # No está en _EDITABLE_FIELDS adrede.
     "CAFCI": 1,
@@ -75,7 +82,9 @@ def _list_assets(
         filtros.append({"CARTERA": cartera})
     if emisor:
         filtros.append({"EMISOR": emisor})
-    if campo_vacio and campo_vacio in _EDITABLE_FIELDS:
+    if campo_vacio and campo_vacio in (*_EDITABLE_FIELDS, *_EDITABLE_NUM_FIELDS):
+        # Para FEE_ADMIN (numérico) el único "vacío" real es null/ausente; las
+        # cadenas del set igual no matchean números → sirve para "FCI sin fee".
         filtros.append({campo_vacio: {"$in": _EMPTY_VALUES}})
 
     query: dict = {"$and": filtros} if filtros else {}
@@ -158,6 +167,10 @@ class _AssetPatch(BaseModel):
     CALIFICACION: str | None = Field(None, max_length=128)
     TICKER:       str | None = Field(None, max_length=64)
     VENCIMIENTO:  str | None = Field(None, max_length=64)
+    # Fracción decimal: 0.01 = 1%. Cap 0<fee≤1 (100%) para atajar el error
+    # típico de cargar "1" pensando en 1% (sería 100%). El front muestra el %
+    # equivalente al lado del input para que se vea a simple vista.
+    FEE_ADMIN:    float | None = Field(None, ge=0, le=1)
 
 
 @router.patch("/assets")
@@ -170,11 +183,13 @@ def patch_asset(
     payload = req.model_dump(exclude_none=True)
     unidad = payload.pop("unidad")
 
-    set_fields = {k: v for k, v in payload.items() if k in _EDITABLE_FIELDS}
+    set_fields = {k: v for k, v in payload.items()
+                  if k in _EDITABLE_FIELDS or k in _EDITABLE_NUM_FIELDS}
     if not set_fields:
         raise HTTPException(400, "body sin campos editables — pasá al "
                                   "menos uno de CARTERA, EMISOR, INSTRUMENTO, "
-                                  "CLASE_ACTIVO, CALIFICACION, TICKER, VENCIMIENTO.")
+                                  "CLASE_ACTIVO, CALIFICACION, TICKER, "
+                                  "VENCIMIENTO, FEE_ADMIN.")
 
     set_fields["actualizado_por"] = actor
     set_fields["actualizado_at"]  = datetime.now(UTC)

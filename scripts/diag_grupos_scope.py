@@ -19,6 +19,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import os
 
 from core.mongo import get_mongo_client_read
 
@@ -94,6 +95,34 @@ def main() -> None:
             if faltan:
                 print(f"    ejemplos de carteras que NO ve: {sorted(faltan)[:15]}")
         print()
+
+    # ── 4) GRUPOS EN SQL (la app puede leer de acá si AUTH_SQL=1) ──────────────
+    # Si Mongo no tiene grupos pero SQL SÍ, y AUTH_SQL=1 → el scope que aplica la
+    # app sale de estos grupos FANTASMA (el sync no propagó el borrado). Esa sería
+    # la causa de que los asistentes vean menos pese a "no haber grupos".
+    auth_sql = os.getenv("AUTH_SQL", "0")
+    print("── 4) GRUPOS EN SQL (Postgres) ──\n")
+    print(f"    AUTH_SQL = {auth_sql!r}  ({'la app LEE de SQL' if auth_sql == '1' else 'la app lee de Mongo'})\n")
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT nombre, emails, id_cuentas FROM grupos ORDER BY nombre")
+            sql_grupos = cur.fetchall()
+        if not sql_grupos:
+            print("    SQL tampoco tiene grupos → no es esto.\n")
+        else:
+            print(f"    ⚠️ SQL tiene {len(sql_grupos)} grupo(s) que Mongo NO:")
+            print(f"    {'grupo':<28}{'usuarios':>9}{'cuentas':>9}")
+            for nombre, emails, id_cuentas in sql_grupos:
+                print(f"    {nombre or '—'!s:<28}{len(emails or []):>9}{len(id_cuentas or []):>9}")
+            if auth_sql == "1":
+                print("\n    🔴 CAUSA PROBABLE: AUTH_SQL=1 + grupos fantasma en SQL → la app")
+                print("       restringe por estos grupos viejos. El sync no borró los huérfanos.")
+            else:
+                print("\n    (AUTH_SQL≠1 → la app NO los usa; igual conviene limpiarlos.)")
+            print()
+    except Exception as e:
+        print(f"    (no se pudo consultar Postgres: {type(e).__name__}: {e})\n")
 
     print("=== Lectura ===")
     print("  - El rol (sales/trader/asistente) NO limita carteras; SOLO el grupo.")

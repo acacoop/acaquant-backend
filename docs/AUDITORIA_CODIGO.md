@@ -73,12 +73,14 @@ output en paralelo un día de rueda antes de confiar.
 
 ### A2 · 🟡 EN CURSO — Lógica de negocio en el router `operaciones.py`
 
-> **Avance 2026-06-11**: extraídos los 9 helpers de lógica pura (match/agregación/
-> rollup/selector de motor) a `api/services/operaciones_view.py`, importados al
-> router con alias `_*` (cero cambio en los 74 call sites). Router 1737 → 1563
-> líneas. +13 tests sobre lo que antes era intesteable. Falta: mover los cuerpos
-> de los endpoints pesados (negocio_serie, ops_resumen, ops_agro, ops_aranceles)
-> a funciones de service — próxima cuota.
+> **Avance 2026-06-11 (p1)**: extraídos los 9 helpers de lógica pura a
+> `api/services/operaciones_view.py` con alias `_*` (cero cambio en call sites).
+> **(p2)**: movidos los CUERPOS de los 5 endpoints pesados (negocio_serie,
+> ops_serie, ops_resumen, ops_agro, ops_aranceles) a funciones `*_mongo` del
+> service — el router quedó como dispatcher (validación + SQL dispatch +
+> llamada). Router **1737 → 1266 líneas (−27%)**. El cómputo ahora es
+> reusable por MCP/jobs y testeable sin FastAPI. Quedan los endpoints
+> medianos de /negocio (cuentas, matrix, boletos) — migrar al tocar.
 
 1.737 líneas — el archivo más grande del backend es un **router**, cuando la
 regla del repo es "routers = thin HTTP plumbing". Construcción de mapas de

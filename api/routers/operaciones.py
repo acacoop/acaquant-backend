@@ -1188,6 +1188,19 @@ def comercial_referido_clientes(
     return _com.referido_clientes(referido=referido, moneda=moneda)
 
 
+@router.get("/comercial/referido-fci")
+def comercial_referido_fci(
+    referido: str = Query(..., description="nombre del referido (empresa referidora)"),
+    desde: str = Query(..., description="YYYY-MM-DD inclusive"),
+    hasta: str = Query(..., description="YYYY-MM-DD inclusive"),
+    moneda: str = Query("ARS"),
+) -> dict:
+    """Vista REFERIDOS — tabla FCI: dinero en cartera FCI (saldo promedio diario
+    del rango) de las cuentas del referido, abierto por sociedad gerente. Base
+    para la comisión de la coop. Mongo-only (reusa helpers del tablero comercial)."""
+    return _com.referido_fci(referido=referido, desde=desde, hasta=hasta, moneda=moneda)
+
+
 @router.get("/comercial/actividad-historica")
 def comercial_actividad_historica(
     operador: str = Query(..., description="operador_email o '__todos__' (toda la mesa)"),

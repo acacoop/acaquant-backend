@@ -551,6 +551,62 @@ def referido_clientes(*, referido: str, moneda: str = "ARS") -> dict[str, Any]:
     }
 
 
+def referido_fci(*, referido: str, desde: str, hasta: str,
+                 moneda: str = "ARS") -> dict[str, Any]:
+    """Vista REFERIDOS — tabla FCI: cuánto dinero en cartera FCI tuvieron, en
+    promedio diario, las cuentas del referido durante [desde, hasta], abierto
+    por sociedad gerente (emisor). Es la BASE sobre la que luego se aplica el %
+    de comisión de la coop. Valores en `moneda` (USD = ÷ MEP).
+
+    Promedio diario = Σ(valuación FCI de todos los días con foto) / nº de días
+    con snapshot en el rango. Los días sin tenencia cuentan 0 → un fondo que
+    estuvo medio período pondera la mitad, que es lo correcto para un fee sobre
+    saldo. El set de unidades FCI y el mapa unidad→emisor se reusan de
+    `portfolio._fci_assets_map` (única fuente de verdad, no se duplica acá)."""
+    vacio = {"referido": referido, "moneda": moneda, "desde": desde, "hasta": hasta,
+             "n_dias": 0, "total": 0.0, "emisores": []}
+    ids = _cuentas_de_operador(TODOS, None, None, referido)
+    if not ids:
+        return vacio
+
+    from api.services.portfolio import _fci_assets_map
+    fci = _fci_assets_map()                       # unidad → {emisor, ticker}
+    if not fci:
+        return vacio
+
+    col = get_db_valuaciones()["AuM"]
+    # Denominador del promedio: días con foto en el rango (independiente del
+    # referido). distinct usa el índice de fecha_snapshot → barato.
+    n_dias = len(col.distinct(
+        "fecha_snapshot", {"fecha_snapshot": {"$gte": desde, "$lte": hasta}})) or 1
+
+    # Σ valuación por unidad de las cuentas del referido en fondos FCI, en todo
+    # el rango. El roll-up unidad→emisor se hace acá (el emisor no vive en AuM,
+    # viene del master Assets). Dividir Σ entre n_dias = saldo promedio diario.
+    por_emisor: dict[str, float] = {}
+    for d in col.aggregate([
+        {"$match": {
+            "fecha_snapshot": {"$gte": desde, "$lte": hasta},
+            "id_cuenta": {"$in": list(ids)},
+            "unidad": {"$in": list(fci)},
+        }},
+        {"$group": {"_id": "$unidad", "val": {"$sum": "$valuacion"}}},
+    ]):
+        emisor = (fci.get(d["_id"]) or {}).get("emisor") or "—"
+        por_emisor[emisor] = por_emisor.get(emisor, 0.0) + float(d.get("val") or 0.0)
+
+    factor = _factor_usd(moneda)
+    emisores = [{"emisor": e, "promedio": _cv(v / n_dias, factor)}
+                for e, v in por_emisor.items()]
+    emisores.sort(key=lambda x: x["promedio"], reverse=True)
+    return {
+        "referido": referido, "moneda": moneda, "desde": desde, "hasta": hasta,
+        "n_dias": n_dias,
+        "total": round(sum(e["promedio"] for e in emisores), 2),
+        "emisores": emisores,
+    }
+
+
 def clientes_por_fecha(*, operador: str, desde: str, hasta: str,
                        moneda: str = "ARS", nivel_1: str | None = None,
                        nivel_3: str | None = None, referido: str | None = None) -> dict[str, Any]:
@@ -687,12 +743,25 @@ def operaciones_cliente(*, id_cuenta: str, limite: int = 300) -> dict[str, Any]:
         "categoria": {"$in": list(_CATS_OPERACIONES)},
         **match_no_futuros(),
     }
+    cf = get_db_cashflow()
     rows = list(
-        get_db_cashflow()["NegocioMovimientos"]
+        cf["NegocioMovimientos"]
         .find(match, _OP_PROJ)
         .sort([("fecha", -1), ("comprobante", -1)])
         .limit(int(limite))
     )
+    # Arancel por boleto desde CashFlow.Operaciones (fuente autoritativa del fee;
+    # NegocioMovimientos no lo trae). Join por boleto == comprobante, una sola query.
+    boletos = [str(r["comprobante"]).strip() for r in rows if r.get("comprobante")]
+    ar_map: dict[str, float] = {}
+    if boletos:
+        for o in cf["Operaciones"].find(
+            {"boleto": {"$in": boletos}}, {"_id": 0, "boleto": 1, "arancel": 1}
+        ):
+            if o.get("boleto") is not None:
+                ar_map[str(o["boleto"]).strip()] = float(o.get("arancel") or 0.0)
+    for r in rows:
+        r["arancel"] = ar_map.get(str(r.get("comprobante") or "").strip())
     return {"id_cuenta": str(id_cuenta), "n": len(rows), "operaciones": rows}
 
 

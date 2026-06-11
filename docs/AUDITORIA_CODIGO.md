@@ -172,19 +172,28 @@ TODOS a las 13:20). Es idempotente pero suma latencia justo en la apertura y
 ensucia la responsabilidad (el runtime no debería definir esquema).
 **Fix**: `scripts/setup_indices.py` único, se corre en deploy. ~3h.
 
-### M7 · [V] Frontend: 5 route handlers copiados + el genérico sin usar
-`src/app/api/{operaciones,operar,manager,risk,ordenes,operativa}/...` repiten
-el mismo proxy (~200 líneas) con variaciones, mientras
-`src/lib/proxy-backend.ts::proxyToBackend` — escrito exactamente para esto —
-tiene **cero imports** (solo lo menciona un comentario). **Fix**: migrar los
-handlers al genérico o borrarlo. ~3h.
+### M7 · 🔻 REVISADO — no es duplicación limpia (verificado de cerca)
+Los catch-all `src/app/api/{operaciones,risk,...}` PARECEN copia, pero al
+leerlos difieren en lo que importa: `operaciones` es GET-only con header
+`Cache-Control: no-store, no-cache, must-revalidate`; `risk` hace
+GET/POST/DELETE con `maxDuration=30`; y `proxyToBackend` (el genérico) extrae
+el email del SELLO FIRMADO de CF (no spoofeable) + maneja el portal invitado
+(`x-acaquant-portal: guest`, REGLA #8), mientras los handlers usan el header
+plano (que proxy.ts ya sanea). Migrarlos a ciegas CAMBIARÍA comportamiento de
+auth en código sensible a seguridad. **Decisión: NO consolidar a la fuerza.**
+Prioridad baja → migrar-al-tocar, caso por caso, verificando el portal
+invitado. (Verificado 2026-06-11.)
 
-### M8 · [R] Frontend: formatters de números redefinidos por vista
-`fmtN/fmtAum/fmtUsd/fmtCompact/fmtPct/...` reimplementados en 7+ vistas
-(comercial-operaciones, aum-view, contrapartes, derivados-sinteticos, etc.)
-+ ~79 `toLocaleString("es-AR")` inline, conviviendo con `lib/fmt-money.ts` que
-es la fuente correcta. Cambiar el formato de un número = tocar 8 archivos.
-**Fix**: `lib/fmt.ts` (num/pct/signado/compacto) y migración mecánica. ~1 día.
+### M8 · 🔻 REVISADO — divergencia intencional, no duplicación (verificado)
+Los formatters por vista PARECEN duplicados pero usan convenciones
+DELIBERADAMENTE distintas: el trade lab usa `--` y `toFixed` (punto decimal,
+look de terminal); comercial/aum usan `—` y `toLocaleString("es-AR")` (coma
+decimal, reporting); `fmtCompact` de aum usa sufijos T/B/M/K mientras
+`fmtMoney` usa B/MM/M/k. Un `lib/fmt.ts` global tendría que elegir UNA
+convención → cambiaría cómo se ven los números en vistas de trading, y ningún
+test lo detecta (no hay regresión visual). **Decisión: NO sweep masivo.** El
+costo/riesgo no compensa. Migrar-al-tocar con la convención de cada vista.
+(Verificado 2026-06-11.)
 
 ### M9 · [V tamaño / R detalle] Frontend: las 5 vistas gigantes
 `manager-view.tsx` **3.884**, `aum-view` 1.517, `comercial-operaciones-view`

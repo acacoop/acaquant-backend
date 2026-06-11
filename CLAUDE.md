@@ -179,7 +179,6 @@ jobs/        # batch/cron — incluye precios_acciones_daily (alimenta scanner v
 quant/       # cálculo puro (black_scholes, stats, curve_fit, pivot_points, rolling_stats)
 api/services # lógica pura (invocada por routers y por el agente)
 api/routers  # thin HTTP wrappers. manager/ es paquete de sub-routers
-api/agent/   # asistente tool-use (LEGACY, no en uso — ver sección "Asistente")
 api/mcp/     # MCP server (FastMCP) + OAuth 2.1 provider + discovery
 partner_api/ # app FastAPI SEPARADA (no monta en api/main) — datos para proveedor externo
 scripts/     # one-shot / migraciones / smoke
@@ -243,7 +242,7 @@ uvicorn partner_api.main:app --port 8100   # Partner API (servicio externo, ver 
 
 ## Frontend en repo hermano
 
-`../acaquant-web/` (Next.js 15, deploy auto a Vercel sobre `main`). **No es submodule** — es checkout paralelo. Cambios de API con impacto en UI se editan ahí con rutas absolutas (`C:\...\acaquant-web\...`). Las routes de Next que consumen endpoints "live fallback" necesitan `dynamic = "force-dynamic"` + `revalidate = 0` + `Cache-Control: no-store` (ver `api/CLAUDE.md`).
+`../acaquant-web/` (Next.js 16, deploy auto a Vercel sobre `main` — `src/proxy.ts`, no middleware). **No es submodule** — es checkout paralelo. Cambios de API con impacto en UI se editan ahí con rutas absolutas (`C:\...\acaquant-web\...`). Las routes de Next que consumen endpoints "live fallback" necesitan `dynamic = "force-dynamic"` + `revalidate = 0` + `Cache-Control: no-store` (ver `api/CLAUDE.md`).
 
 ## Tablero Comercial (lente por operador)
 
@@ -294,9 +293,11 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 
 **Enriquecimiento CER**: `motor_curvas` usa CER con settlement T-10 hábiles. Si un bono no opera un día, el último trade puede quedar con CER de ayer.
 
-## Asistente (legacy, no en uso)
+## Asistente legacy — ELIMINADO
 
-`api/agent/` + `POST /api/chat` siguen en el repo como referencia (provider Claude con router Haiku/Sonnet, tools sobre `api/services/*`, `BLOCKED_PATH_PREFIXES` policy). **No se está usando** en producción — no modificar ni invertir tiempo sin coordinar primero. Ningún flow del producto lo invoca.
+`api/agent/` + `POST /api/chat` fueron **borrados del repo** (no existen más;
+no documentar ni referenciar). El asistente con IA del producto es el MCP
+server (sección siguiente).
 
 ## MCP server (Custom Connector)
 

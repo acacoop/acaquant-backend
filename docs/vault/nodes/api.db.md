@@ -42,6 +42,7 @@ Conecta con: usa el singleton `core.mongo.get_mongo_client_read()`; lo consumen 
 - [[api.services.fair_value]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.opciones]]  ·  _module_
+- [[api.services.operaciones_view]]  ·  _module_
 - [[api.services.order_book]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
 - [[api.services.pnl_sql]]  ·  _module_

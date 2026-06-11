@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-117 notas.
+118 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -99,6 +99,7 @@
 - [[api.services.opciones]] — Capa de servicio — opciones (chain + meta + trades históricos + update tasa).
 - [[api.services.operaciones_informes]] — operaciones_informes.py — normalización + ingesta a CashFlow.Operaciones.
 - [[api.services.operaciones_sql]] — api/services/operaciones_sql.py — vista OPERACIONES leyendo de Postgres (Supabase).
+- [[api.services.operaciones_view]] — operaciones_view.py — lógica PURA de la vista Operaciones (negocio + ops).
 - [[api.services.operativa_mep]] — Operativa Dólar MEP — wrapper de 2 órdenes MARKET (BUY AL30 + SELL AL30D).
 - [[api.services.ordenes]] — Servicio de órdenes — funciones puras invocables desde routers o scripts.
 - [[api.services.order_book]] — Capa de servicio — Order Book (LOB) live.

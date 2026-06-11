@@ -25,6 +25,7 @@ Conecta con: la sincroniza desde Aunesa `jobs/sync_comitentes.py`; escribe segme
 - [[api.services.compliance]]  ·  _module_
 - [[api.services.control_automatico]]  ·  _module_
 - [[api.services.operaciones_informes]]  ·  _module_
+- [[api.services.operaciones_view]]  ·  _module_
 - [[api.services.sin_operador]]  ·  _module_
 - [[jobs.actividad_mensual]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_

@@ -708,6 +708,7 @@
 "api.services.comercial_sql",
 "api.services.negocio_sql",
 "api.services.operaciones_sql",
+"api.services.operaciones_view",
 "api.services.titulos_flujos",
 "db.CashFlow.Contrapartes",
 "db.CashFlow.NegocioMovimientos",
@@ -1375,6 +1376,19 @@
 "core.mongo",
 "core.postgres",
 "db.CashFlow.VolumenMercadoAgro"
+]
+},
+{
+"id": "api.services.operaciones_view",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/operaciones_view.py",
+"summary": "operaciones_view.py — lógica PURA de la vista Operaciones (negocio + ops).",
+"links": [
+"api.db",
+"db.CashFlow.Operaciones",
+"db.Clientes.Comitentes"
 ]
 },
 {

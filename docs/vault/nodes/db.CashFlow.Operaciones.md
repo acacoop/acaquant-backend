@@ -23,6 +23,7 @@ Conecta con: la escriben `jobs/operaciones_informes.py` y `api/services/operacio
 - [[api.services.comercial]]  ·  _module_
 - [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.operaciones_informes]]  ·  _module_
+- [[api.services.operaciones_view]]  ·  _module_
 - [[api.services.operativa_mep]]  ·  _module_
 - [[api.services.ordenes]]  ·  _module_
 - [[api.services.risk]]  ·  _module_

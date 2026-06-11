@@ -29,6 +29,9 @@ _CRONS_IGNORADOS = {
     "jobs.comercial_warm",      # cache-warming
     "jobs.partner_export",      # proveedor externo (no es vista acaquant)
     "jobs.options_rollup",      # rollup histórico opciones
+    "jobs.cleanup_cedears_timesales",  # limpieza (vacía el tape al cierre)
+    "jobs.informe_salud",       # health report del propio sistema (infra)
+    "jobs.sync_postgres",       # espejo SQL read-only (copia, no vista)
 }
 
 

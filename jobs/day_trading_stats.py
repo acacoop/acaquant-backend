@@ -78,6 +78,17 @@ def main() -> int:
     parser.add_argument("--dry", action="store_true", help="No persiste, solo imprime resumen")
     args = parser.parse_args()
 
+    if args.dry:
+        _run(dry=True)
+        return 0
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("day_trading_stats") as jr:
+        n = _run(dry=False)
+        jr.set_stat("tickers", n)
+    return 0
+
+
+def _run(dry: bool) -> int:
     client = get_mongo_client()
     db = client["Trading"]
     fecha = datetime.now(UTC).date().isoformat()
@@ -110,13 +121,13 @@ def main() -> int:
         }
         for u in UMBRALES_STATS:
             doc[campo_vueltas(u)] = analizar_vueltas(closes, u)["vueltas"]
-        if not args.dry:
+        if not dry:
             col.update_one({"fecha": fecha, "ticker": tk}, {"$set": doc}, upsert=True)
         n += 1
 
     logger.info("[%s] persistidos %d tickers en Trading.DayTradingStats%s",
-                fecha, n, " (DRY)" if args.dry else "")
-    return 0
+                fecha, n, " (DRY)" if dry else "")
+    return n
 
 
 if __name__ == "__main__":

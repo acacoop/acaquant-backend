@@ -185,5 +185,3 @@ def iter_repo_pages(max_pages: int = 50):
             yield data
             return
         yield data
-        if len(data) == 0:
-            return

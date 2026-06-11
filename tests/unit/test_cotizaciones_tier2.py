@@ -50,9 +50,15 @@ class FakeCollection:
 
 
 def _mock_db(collections: dict):
-    """Retorna un MagicMock que al hacer db[nombre] devuelve la collection."""
+    """Retorna un MagicMock que al hacer db[nombre] devuelve la collection.
+
+    Colecciones NO programadas devuelven una FakeCollection vacía — espeja la
+    semántica del patrón "live fallback" (ej. el service lee SnapshotsCierre
+    primero y, si no hay docs, cae a MarketSnapshot): un test que no programa
+    esa colección equivale a "no hay cierre persistido".
+    """
     db = MagicMock()
-    db.__getitem__.side_effect = lambda name: collections[name]
+    db.__getitem__.side_effect = lambda name: collections.get(name, FakeCollection())
     return db
 
 
@@ -145,9 +151,12 @@ def test_pendiente_actual_largo_menos_corto(monkeypatch):
     """TEA largo 0.05 - corto 0.02 = 300 bps."""
     # Mock listar_curva para evitar el pipeline real
     fake_curva = [
-        {"ticker": "T1", "ticker_corto": "T1", "tea": 0.02, "duration": 0.5},
-        {"ticker": "T2", "ticker_corto": "T2", "tea": 0.03, "duration": 1.5},
-        {"ticker": "T3", "ticker_corto": "T3", "tea": 0.05, "duration": 3.0},
+        {"ticker": "T1", "ticker_corto": "T1", "tea": 0.02, "duration": 0.5,
+         "meses_al_vto": 6.0},
+        {"ticker": "T2", "ticker_corto": "T2", "tea": 0.03, "duration": 1.5,
+         "meses_al_vto": 18.0},
+        {"ticker": "T3", "ticker_corto": "T3", "tea": 0.05, "duration": 3.0,
+         "meses_al_vto": 36.0},
     ]
     monkeypatch.setattr(svc, "listar_curva", lambda **kw: fake_curva)
 
@@ -161,8 +170,10 @@ def test_pendiente_actual_largo_menos_corto(monkeypatch):
 def test_pendiente_con_fecha_comparacion_empinamiento(monkeypatch):
     """Hoy pendiente 300 bps, hace 30 días 200 bps → empinamiento."""
     monkeypatch.setattr(svc, "listar_curva", lambda **kw: [
-        {"ticker": "T1", "ticker_corto": "T1", "tea": 0.02, "duration": 0.5},
-        {"ticker": "T2", "ticker_corto": "T2", "tea": 0.05, "duration": 3.0},
+        {"ticker": "T1", "ticker_corto": "T1", "tea": 0.02, "duration": 0.5,
+         "meses_al_vto": 6.0},
+        {"ticker": "T2", "ticker_corto": "T2", "tea": 0.05, "duration": 3.0,
+         "meses_al_vto": 36.0},
     ])
     monkeypatch.setattr(svc, "snapshot_curva_historico", lambda **kw: [
         {"ticker": "T1", "ticker_corto": "T1", "tea": 0.03, "duration": 0.5},
@@ -180,8 +191,8 @@ def test_pendiente_con_fecha_comparacion_empinamiento(monkeypatch):
 
 def test_pendiente_aplanamiento(monkeypatch):
     monkeypatch.setattr(svc, "listar_curva", lambda **kw: [
-        {"ticker": "T1", "tea": 0.03, "duration": 0.5},
-        {"ticker": "T2", "tea": 0.04, "duration": 3.0},
+        {"ticker": "T1", "tea": 0.03, "duration": 0.5, "meses_al_vto": 6.0},
+        {"ticker": "T2", "tea": 0.04, "duration": 3.0, "meses_al_vto": 36.0},
     ])
     monkeypatch.setattr(svc, "snapshot_curva_historico", lambda **kw: [
         {"ticker": "T1", "tea": 0.02, "duration": 0.5},

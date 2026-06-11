@@ -101,6 +101,10 @@ PIEZAS: list[Pieza] = [
           db="Trading", coll="FairValueResiduos", field="ts_cierre", ts_kind="iso"),
 
     # ── MERCADOS · DERIVADOS ───────────────────────────────
+    Pieza("MERCADOS", "job", "snapshot_sinteticos (serie histórica)", grupo="DERIVADOS",
+          unidad="jobs.snapshot_sinteticos",
+          cadencia="20:40 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
+          run_tipo="snapshot_sinteticos"),
     Pieza("MERCADOS", "motor", "motor_forwards", grupo="DERIVADOS", unidad="motor_forwards",
           cadencia="live", ventana="rueda", umbral_s=60,
           db="Trading", coll="ForwardsLive", field="updated_at"),
@@ -151,6 +155,10 @@ PIEZAS: list[Pieza] = [
     Pieza("MERCADOS", "job", "adr_live", grupo="RENTA VARIABLE", unidad="jobs.adr_live",
           cadencia="cada 15m · 13-20 UTC L-V", ventana="rueda", umbral_s=30 * 60,
           db="Trading", coll="AdrSnapshot", field="updated_at"),
+    Pieza("MERCADOS", "job", "day_trading_stats (costumbre TRADE LAB)", grupo="RENTA VARIABLE",
+          unidad="jobs.day_trading_stats",
+          cadencia="20:06 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
+          run_tipo="day_trading_stats"),
 
     # ── MERCADOS · OPCIONES (GGAL) ─────────────────────────
     Pieza("MERCADOS", "motor", "motor_options (GGAL)", grupo="OPCIONES", unidad="motor_options",
@@ -184,6 +192,9 @@ PIEZAS: list[Pieza] = [
     Pieza("BACK_OFFICE", "job", "operaciones_informes", unidad="jobs.operaciones_informes",
           cadencia="cada 30m · 13:30-22 UTC L-V", ventana="rueda", umbral_s=60 * 60,
           run_tipo="operaciones_informes"),
+    Pieza("BACK_OFFICE", "job", "acreencias (cobros futuros)", unidad="jobs.acreencias",
+          cadencia="23:45 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
+          run_tipo="acreencias"),
 
     # ── PORTFOLIOS / AuM ───────────────────────────────────
     Pieza("PORTFOLIOS", "job", "aum (snapshot)", unidad="jobs.aum",

@@ -114,11 +114,10 @@ def test_iter_repo_pages_corta_en_vacia(monkeypatch):
     monkeypatch.setattr(mae.requests, "get", MagicMock(side_effect=lambda *a, **k: next(responses)))
 
     pages = list(mae.iter_repo_pages(max_pages=10))
-    # La vacía se yield también (lo corta dentro con len==0)
-    assert len(pages) == 3
+    # La página vacía CORTA la iteración y no se yieldea.
+    assert len(pages) == 2
     assert len(pages[0]) == 2
     assert len(pages[1]) == 1
-    assert pages[2] == []
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -54,10 +54,13 @@ def main() -> None:
         print("\n(DRY-RUN — no se escribió nada. Validá una muestra y corré con --commit.)")
         return
 
-    db = get_mongo_client()["CashFlow"]
-    n = reemplazar_coleccion_atomico(db, "Acreencias", docs)
-    db["Acreencias"].create_index("fecha_pago")
-    db["Acreencias"].create_index("id_cuenta")
+    from core.job_runs import JobRunLogger
+    with JobRunLogger("acreencias") as jr:
+        db = get_mongo_client()["CashFlow"]
+        n = reemplazar_coleccion_atomico(db, "Acreencias", docs)
+        db["Acreencias"].create_index("fecha_pago")
+        db["Acreencias"].create_index("id_cuenta")
+        jr.set_stat("acreencias", n)
     print(f"\n✅ {n} acreencias escritas a CashFlow.Acreencias (swap atómico + índices).")
 
 

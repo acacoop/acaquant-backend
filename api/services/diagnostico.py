@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date as _date
 from datetime import datetime, time
 
+from api.cache import cached
 from api.services.diagnostico_registry import PIEZAS, VISTAS, Pieza
 from core.mongo import get_mongo_client_read
 from core.tz import AR_TZ, UTC, ahora_ar, asegurar_aware, segundos_desde
@@ -116,8 +117,14 @@ def _hace(ts: datetime | None) -> str:
 _ALERTA = {"critico", "error", "sin_datos", "lento"}
 
 
+@cached(ttl=30)
 def arbol() -> dict:
-    """Árbol completo: vista → grupos → piezas, con status y resumen."""
+    """Árbol completo: vista → grupos → piezas, con status y resumen.
+
+    Cacheado 30s (anti-estampida): la tab Diagnóstico lo pollea cada 10s y cada
+    llamada hace 45 find_one a Atlas (~1.7s). Con cache, el poll pega al cache y
+    abrir Manager es instantáneo; la frescura mostrada queda como mucho 30s vieja
+    (invisible: el árbol muestra "hace X min"). Sin args → una sola clave."""
     ahora_a = ahora_ar()
 
     with ThreadPoolExecutor(max_workers=12) as ex:

@@ -40,6 +40,7 @@ con signo nativo cubre comisiones automáticamente.
 """
 from __future__ import annotations
 
+import logging
 import re
 from collections import defaultdict
 from datetime import date
@@ -48,6 +49,8 @@ from typing import Any
 from api.cache import cached
 from api.db import get_db_cashflow, get_db_trading, get_db_valuaciones
 from api.services._mep import get_mep_for_date
+
+logger = logging.getLogger(__name__)
 
 # Reglas de normalización por tipo (mismas que jobs/aum.py::_calcular_valuacion).
 # Duplicadas acá para evitar que api/services/ dependa de jobs/. Si en el
@@ -838,6 +841,8 @@ def _load_pnl_bulk_deps(db_v, db_cf, db_t) -> dict:
             if u and instr and instr not in _PLACEHOLDERS_INSTRUMENTO:
                 instrumentos_by_unidad[u] = instr
     except Exception:
+        logger.warning("_load_pnl_bulk_deps: fallo precarga Assets/instrumentos "
+                       "— ese pricing degrada a per-cuenta (N+1)", exc_info=True)
         instrumentos_by_unidad = {}
 
     portfolio_snap_by_ticker: dict[str, dict] = {}
@@ -849,6 +854,8 @@ def _load_pnl_bulk_deps(db_v, db_cf, db_t) -> dict:
             if t:
                 portfolio_snap_by_ticker[t] = d
     except Exception:
+        logger.warning("_load_pnl_bulk_deps: fallo precarga PortfolioSnapshot "
+                       "— ese pricing degrada a per-cuenta (N+1)", exc_info=True)
         portfolio_snap_by_ticker = {}
 
     # SnapshotsCierre: doc con fecha más reciente por ticker. $sort+$group con
@@ -871,6 +878,8 @@ def _load_pnl_bulk_deps(db_v, db_cf, db_t) -> dict:
                     "fecha":      d.get("fecha"),
                 }
     except Exception:
+        logger.warning("_load_pnl_bulk_deps: fallo precarga SnapshotsCierre "
+                       "— ese pricing degrada a per-cuenta (N+1)", exc_info=True)
         snapshots_cierre_by_ticker = {}
 
     # NegocioMovimientos: 1 scan, agrupados por `id_cuenta` (denormalizado en la
@@ -897,6 +906,8 @@ def _load_pnl_bulk_deps(db_v, db_cf, db_t) -> dict:
                 cid = m.group(1)
             boletos_by_id_cuenta.setdefault(cid, []).append(b)
     except Exception:
+        logger.warning("_load_pnl_bulk_deps: fallo precarga NegocioMovimientos "
+                       "— los boletos degradan a 1 regex query POR CUENTA", exc_info=True)
         boletos_by_id_cuenta = {}
 
     # AuM: el cron escribe el mismo `fecha_snapshot` para TODAS las cuentas
@@ -922,6 +933,8 @@ def _load_pnl_bulk_deps(db_v, db_cf, db_t) -> dict:
                 if cid is not None:
                     aum_rows_by_id_cuenta.setdefault(str(cid), []).append(d)
     except Exception:
+        logger.warning("_load_pnl_bulk_deps: fallo precarga AuM "
+                       "— degrada a find_one POR CUENTA", exc_info=True)
         fecha_actual_aum_global = None
         aum_rows_by_id_cuenta = {}
 
@@ -967,6 +980,14 @@ def pnl_todas_cuentas_compute() -> list[dict]:
     # Pre-load global maps + boletos + AuM — ~6 queries totales en lugar
     # de ~5 × N cuentas.
     deps = _load_pnl_bulk_deps(db_v, db_cf, db_t)
+    # Guard anti-N+1 silencioso (AUDITORIA A3): sin boletos NI AuM en bulk,
+    # las 883 cuentas degradarían a ~5 queries c/u. Eso no es "funcionar",
+    # es castigar al M10 una hora — abortamos y JobRunLogger alerta.
+    if not deps.get("boletos_by_id_cuenta") and not deps.get("aum_rows_by_id_cuenta"):
+        raise RuntimeError(
+            "pnl_todas_cuentas_compute: precarga bulk vacía (boletos y AuM) — "
+            "se aborta para no degradar a N+1; ver warnings de _load_pnl_bulk_deps"
+        )
     # MEP de hoy: una sola lectura para convertir el VALOR actual a USD en
     # todas las cuentas (el costo va al MEP histórico por boleto).
     mep_hoy = get_mep_for_date(date.today().isoformat())

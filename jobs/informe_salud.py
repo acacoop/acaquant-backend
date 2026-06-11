@@ -160,21 +160,32 @@ def _seccion_jobs(cli) -> dict:
         return {"ok": ok, "partial": partial, "error": error, "fallas": [],
                 "vencidos": [], "err_seccion": f"{type(e).__name__}"}
 
+    # Último run por tipo en UNA aggregation (antes: un find_one por DAILY → N+1).
     vencidos = []
-    now = _ahora()
+    try:
+        ultimo_por_tipo = {
+            d["_id"]: d
+            for d in col.aggregate([
+                {"$match": {"tipo": {"$in": [t for t, _ in DAILIES]}}},
+                {"$sort": {"started_at": -1}},
+                {"$group": {
+                    "_id": "$tipo",
+                    "finished_at": {"$first": "$finished_at"},
+                    "started_at": {"$first": "$started_at"},
+                }},
+            ])
+        }
+    except Exception:
+        ultimo_por_tipo = {}
     for tipo, horas in DAILIES:
-        try:
-            last = col.find_one({"tipo": tipo}, {"finished_at": 1, "started_at": 1},
-                                sort=[("started_at", -1)])
-            if not last:
-                vencidos.append({"tipo": tipo, "horas": None})
-                continue
-            ref = last.get("finished_at") or last.get("started_at")
-            edad = _edad_seg(ref)
-            if edad is not None and edad / 3600 > horas:
-                vencidos.append({"tipo": tipo, "horas": round(edad / 3600, 1)})
-        except Exception:
-            pass
+        last = ultimo_por_tipo.get(tipo)
+        if not last:
+            vencidos.append({"tipo": tipo, "horas": None})
+            continue
+        ref = last.get("finished_at") or last.get("started_at")
+        edad = _edad_seg(ref)
+        if edad is not None and edad / 3600 > horas:
+            vencidos.append({"tipo": tipo, "horas": round(edad / 3600, 1)})
     return {"ok": ok, "partial": partial, "error": error, "fallas": fallas, "vencidos": vencidos}
 
 

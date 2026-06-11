@@ -63,8 +63,8 @@ semillas, sin bisección de respaldo, techo de tasa 5.000%) mientras
 garantizada + rango para inflación argentina). El motor de curvas — que escribe
 la TEA de cada bono cada 5 segundos — usa la copia débil: en casos límite
 (flujos concentrados, tasas extremas) puede devolver `None` o converger mal
-donde la versión buena resuelve. Además `macaulay_duration` y `convexity`
-están duplicadas ahí mismo (`:60-92`), y el comentario de la sección dice
+donde la versión buena resuelve. (`macaulay_duration` y `convexity` viven solo ahí — no estaban
+duplicadas; el problema era únicamente xirr.) El comentario de la sección decía
 "idénticos a backfill_curvas" — un script que **ya no existe** (comentario
 fósil).
 **Fix**: borrar las copias del motor e importar de `quant/` (la TIR de tu

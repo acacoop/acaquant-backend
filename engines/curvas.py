@@ -18,10 +18,10 @@ from datetime import date, datetime, timedelta
 
 import numpy as np
 from pymongo import UpdateOne
-from scipy.optimize import newton
 
 from core.mongo import get_mongo_client
 from engines._curvas_loader import cargar_indexado_por_ticker
+from quant.xirr import xirr as _xirr_quant
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("MotorCurvas")
@@ -36,25 +36,19 @@ INTERVALO_RECARGA_A3500 = 300
 
 
 # ─────────────────────────────────────────────
-# Helpers de cálculo (idénticos a backfill_curvas)
+# Helpers de cálculo
 # ─────────────────────────────────────────────
 
 def xirr(fechas, flujos):
-    dias = np.array([(f - fechas[0]).days for f in fechas], dtype=float)
-    anios = dias / 365.0
-    cf = np.array(flujos, dtype=float)
+    """TEA implícita de los flujos — delega en quant.xirr (la implementación
+    única y testeada: Newton con damping + bisección garantizada + rango
+    apto inflación argentina). Este wrapper solo adapta la firma histórica
+    del motor (listas paralelas) al formato cashflows [(fecha, monto)].
 
-    def vpn(tir):
-        return np.sum(cf / ((1 + tir) ** anios))
-
-    for semilla in [0.10, 0.40, -0.20]:
-        try:
-            r = newton(vpn, semilla, tol=1e-6, maxiter=100)
-            if -0.99 < r < 50:
-                return r
-        except RuntimeError:
-            continue
-    return None
+    Antes acá vivía una copia degradada (scipy.newton sin fallback) que en
+    casos límite devolvía None donde quant/ resuelve — ver AUDITORIA A1.
+    """
+    return _xirr_quant(list(zip(fechas, flujos)))
 
 
 def macaulay_duration(fechas_flujos, montos, tir, fecha_base):

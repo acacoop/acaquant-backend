@@ -48,29 +48,17 @@ _FLUJOS_EXTERNOS_ALL = _FLUJO_EXTERNO_DEPOSITO | _FLUJO_EXTERNO_EXTRACCION
 _MONEDAS_USD_EQUIV: set[str] = {"USD", "USDC", "USDL"}
 
 
-def _get_mep_for_date(fecha_iso: str, db_val) -> float | None:
-    """Devuelve el último MEP <= end-of-day(fecha_iso) desde
-    Valuaciones.Dolar. Si la fecha cae en finde/feriado o no hay doc
-    para esa fecha exacta, cae al último anterior — el MEP no se mueve
-    los días no hábiles, así que es la mejor proxy.
+def _get_mep_for_date(fecha_iso: str, db_val=None) -> float | None:
+    """MEP histórico — delega en la implementación ÚNICA (_mep.get_mep_for_date).
 
-    Returns None si no hay ningún MEP en la base.
+    Acá vivía una copia idéntica (AUDITORIA M2): un fix en una dejaba a la
+    otra desfasada en cálculo de plata. `db_val` se conserva en la firma por
+    compatibilidad de los call sites pero se ignora — la fuente es siempre
+    Valuaciones.Dolar vía get_db_valuaciones() (mismo origen que el db_val
+    que pasaban los callers).
     """
-    from datetime import datetime as _dt
-    try:
-        target = _dt.fromisoformat(fecha_iso + "T23:59:59")
-    except ValueError:
-        return None
-    doc = db_val["Dolar"].find_one(
-        {"mep": {"$ne": None}, "timestamp": {"$lte": target}},
-        sort=[("timestamp", -1)],
-    )
-    if not doc:
-        return None
-    try:
-        return float(doc.get("mep") or 0) or None
-    except (TypeError, ValueError):
-        return None
+    from api.services._mep import get_mep_for_date
+    return get_mep_for_date(fecha_iso)
 
 
 def _pesificar(importe: float, moneda: str | None, mep: float | None) -> float:

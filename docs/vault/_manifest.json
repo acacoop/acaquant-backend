@@ -154,6 +154,7 @@
 "api.services.analitica",
 "api.services.canje",
 "api.services.carry_trade",
+"api.services.day_trading",
 "api.services.derivados",
 "api.services.descomposicion_retorno",
 "api.services.fair_value",
@@ -1662,6 +1663,7 @@
 "api.cache",
 "api.db",
 "api.services._cuentas_filter",
+"api.services._mep",
 "api.services.portfolio",
 "db.CashFlow.NegocioMovimientos",
 "db.Trading.Curvas",
@@ -1669,7 +1671,6 @@
 "db.Valuaciones.Assets",
 "db.Valuaciones.AuM",
 "db.Valuaciones.ConsolidadoCuentas",
-"db.Valuaciones.Dolar",
 "quant.xirr"
 ]
 },
@@ -1963,8 +1964,18 @@
 "summary": "",
 "links": [
 "core.mongo",
-"core.postgres"
+"core.postgres",
+"core.threads"
 ]
+},
+{
+"id": "core.threads",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/threads.py",
+"summary": "threads.py — lanzamiento de hilos VITALES en motores.",
+"links": []
 },
 {
 "id": "core.tz",
@@ -1983,7 +1994,8 @@
 "path": "core/websocket.py",
 "summary": "WebSocketManager — conexión WS a pyRofex para los motores de mercado.",
 "links": [
-"core.notify"
+"core.notify",
+"core.threads"
 ]
 },
 {
@@ -2742,6 +2754,7 @@
 "links": [
 "core.mongo",
 "core.rofex_session",
+"core.threads",
 "core.websocket",
 "db.Trading.Caucion",
 "db.Trading.CaucionSnapshot",
@@ -2763,7 +2776,8 @@
 "db.Trading.MarketSnapshot",
 "db.Valuaciones.Dolar",
 "db.Valuaciones.DolarSnapshot",
-"engines._curvas_loader"
+"engines._curvas_loader",
+"quant.xirr"
 ]
 },
 {
@@ -2789,6 +2803,7 @@
 "links": [
 "core.mongo",
 "core.rofex_session",
+"core.threads",
 "core.websocket",
 "db.Valuaciones.DolarSnapshot"
 ]
@@ -2819,6 +2834,7 @@
 "core.dolar_oficial",
 "core.mongo",
 "core.rofex_session",
+"core.threads",
 "core.websocket",
 "db.Trading.DOLAR",
 "db.Trading.FuturosDLR",
@@ -2836,6 +2852,7 @@
 "links": [
 "core.mongo",
 "core.rofex_session",
+"core.threads",
 "core.websocket",
 "db.Trading.AgroSnapshot"
 ]
@@ -2850,6 +2867,7 @@
 "links": [
 "core.mongo",
 "core.rofex_session",
+"core.threads",
 "core.websocket",
 "db.Trading.AgroOpcionesSnapshot"
 ]
@@ -2864,6 +2882,7 @@
 "links": [
 "core.mongo",
 "core.rofex_session",
+"core.threads",
 "core.websocket",
 "db.Trading.Cedears",
 "db.Trading.CedearsSnapshot",
@@ -2895,6 +2914,7 @@
 "links": [
 "core.mongo",
 "core.rofex_session",
+"core.threads",
 "core.websocket",
 "quant.black_scholes"
 ]
@@ -2909,6 +2929,7 @@
 "links": [
 "core.mongo",
 "core.rofex_session",
+"core.threads",
 "core.websocket",
 "engines._universo_portfolio"
 ]
@@ -2924,6 +2945,7 @@
 "core.adhoc_subscriptions",
 "core.mongo",
 "core.rofex_session",
+"core.threads",
 "core.websocket",
 "db.Trading.MarketSnapshot",
 "db.Trading.TimeSales",
@@ -2960,6 +2982,7 @@
 "summary": "jobs/acreencias.py — precompute diario del MOTOR DE ACREENCIAS.",
 "links": [
 "api.services.acreencias",
+"core.job_runs",
 "core.mongo"
 ]
 },
@@ -3259,6 +3282,7 @@
 "summary": "day_trading_stats.py — resumen diario de scalping por CEDEAR.",
 "links": [
 "api.services.day_trading",
+"core.job_runs",
 "core.mongo",
 "quant.intraday"
 ]
@@ -5518,6 +5542,20 @@
 ]
 },
 {
+"id": "web.cmp.referidos-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/referidos-view.tsx",
+"summary": "",
+"links": [
+"api.routers.operaciones",
+"api.routers.valuaciones",
+"web.lib.fmt-money",
+"web.lib.use-persisted-state"
+]
+},
+{
 "id": "web.cmp.renta-fija-live",
 "type": "component",
 "layer": "web-component",
@@ -6022,6 +6060,17 @@
 ]
 },
 {
+"id": "web.view.referidos.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/referidos/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.referidos-view"
+]
+},
+{
 "id": "web.view.renta-fija.view",
 "type": "view",
 "layer": "web-view",
@@ -6058,7 +6107,8 @@
 "path": "src/app/retorno/page.tsx",
 "summary": "",
 "links": [
-"web.cmp.retorno-total-view"
+"web.cmp.retorno-total-view",
+"web.lib.me"
 ]
 },
 {

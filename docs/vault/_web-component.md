@@ -1,6 +1,6 @@
 # 🧩 web — componentes
 
-98 notas.
+99 notas.
 
 - [[web.cmp.acreencias-view]]
 - [[web.cmp.agro-datos]]
@@ -82,6 +82,7 @@
 - [[web.cmp.por-cuenta-view]]
 - [[web.cmp.post-trade-lab]]
 - [[web.cmp.recursos-panel]]
+- [[web.cmp.referidos-view]]
 - [[web.cmp.renta-fija-live]]
 - [[web.cmp.renta-fija-table]]
 - [[web.cmp.renta-variable-shell]]

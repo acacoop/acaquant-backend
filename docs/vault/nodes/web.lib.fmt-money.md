@@ -23,4 +23,5 @@ Conecta con: utilidad pura de presentación, sin I/O; la consumen los componente
 - [[web.cmp.comercial-informe-view]]  ·  _component_
 - [[web.cmp.comercial-operaciones-view]]  ·  _component_
 - [[web.cmp.metricas-panel]]  ·  _component_
+- [[web.cmp.referidos-view]]  ·  _component_
 - [[web.cmp.trade-lab-view]]  ·  _component_

@@ -23,5 +23,6 @@ Conecta con: hook de cliente puro, sin red ni Mongo; lo usan las vistas del fron
 - [[web.cmp.operaciones-view]]  ·  _component_
 - [[web.cmp.operadores-view]]  ·  _component_
 - [[web.cmp.ops-view]]  ·  _component_
+- [[web.cmp.referidos-view]]  ·  _component_
 - [[web.cmp.retorno-total-view]]  ·  _component_
 - [[web.cmp.trade-lab-view]]  ·  _component_

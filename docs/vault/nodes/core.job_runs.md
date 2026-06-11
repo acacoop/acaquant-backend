@@ -23,6 +23,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[core.notify]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[jobs.acreencias]]  ·  _module_
 - [[jobs.actividad_mensual]]  ·  _module_
 - [[jobs.aranceles]]  ·  _module_
 - [[jobs.argentina_datos]]  ·  _module_
@@ -32,6 +33,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.cleanup_cedears_timesales]]  ·  _module_
 - [[jobs.comercial_rollup]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_
+- [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.informe_salud]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_

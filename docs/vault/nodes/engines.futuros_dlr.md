@@ -22,6 +22,7 @@ Conecta con: escribe `Trading.FuturosDLRSnapshot` (live, replaced cada 15s) y `T
 - [[core.dolar_oficial]]  ·  _module_
 - [[core.mongo]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_
+- [[core.threads]]  ·  _module_
 - [[core.websocket]]  ·  _module_
 - [[db.Trading.DOLAR]]  ·  _collection_
 - [[db.Valuaciones.Dolar]]  ·  _collection_

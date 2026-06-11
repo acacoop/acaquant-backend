@@ -21,6 +21,7 @@ Conecta con: escribe a `Trading.AgroSnapshot` (ReplaceOne cada 5s); usa `core.ro
 ## Usa / conecta con →
 - [[core.mongo]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_
+- [[core.threads]]  ·  _module_
 - [[core.websocket]]  ·  _module_
 
 ## Lo usan (backlinks) ←

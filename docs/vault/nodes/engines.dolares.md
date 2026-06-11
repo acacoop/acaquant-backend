@@ -21,6 +21,7 @@ Conecta con: escribe `Valuaciones.DolarSnapshot` (1 doc, replaced cada 5s); usa 
 ## Usa / conecta con →
 - [[core.mongo]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_
+- [[core.threads]]  ·  _module_
 - [[core.websocket]]  ·  _module_
 
 ## Lo usan (backlinks) ←

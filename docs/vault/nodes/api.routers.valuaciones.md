@@ -33,4 +33,5 @@ Conecta con: delega en `api.services.valuaciones` (lee `Valuaciones.AuM`, `Conso
 - [[web.api.api.valuaciones.[id_cuenta].variacion]]  ·  _route_
 - [[web.api.api.valuaciones.consolidado]]  ·  _route_
 - [[web.cmp.por-cuenta-view]]  ·  _component_
+- [[web.cmp.referidos-view]]  ·  _component_
 - [[web.cmp.valuaciones-view]]  ·  _component_

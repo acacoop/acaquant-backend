@@ -18,6 +18,7 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.services.day_trading]]  ·  _module_
+- [[core.job_runs]]  ·  _module_
 - [[core.mongo]]  ·  _module_
 - [[quant.intraday]]  ·  _module_
 

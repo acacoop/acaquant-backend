@@ -27,4 +27,5 @@ Conecta con: lee `Valuaciones.Dolar` (poblada por el script de PC oficina); lo u
 - [[api.services.pnl]]  ·  _module_
 - [[api.services.pnl_sql]]  ·  _module_
 - [[api.services.portfolio]]  ·  _module_
+- [[api.services.valuaciones]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_

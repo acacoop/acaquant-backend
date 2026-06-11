@@ -22,7 +22,6 @@ Conecta con: la lee el helper `api/services/_mep.py` (MEP histórico por fecha) 
 - [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
-- [[api.services.valuaciones]]  ·  _module_
 - [[engines.curvas]]  ·  _module_
 - [[engines.dolar_mep]]  ·  _module_
 - [[engines.futuros_dlr]]  ·  _module_

@@ -22,6 +22,7 @@ Conecta con: lee `Valuaciones.AuM`, `CashFlow.NegocioMovimientos` (flujos) y `Tr
 - [[api.cache]]  ·  _module_
 - [[api.db]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
+- [[api.services._mep]]  ·  _module_
 - [[api.services.portfolio]]  ·  _module_
 - [[db.CashFlow.NegocioMovimientos]]  ·  _collection_
 - [[db.Trading.Curvas]]  ·  _collection_
@@ -29,7 +30,6 @@ Conecta con: lee `Valuaciones.AuM`, `CashFlow.NegocioMovimientos` (flujos) y `Tr
 - [[db.Valuaciones.Assets]]  ·  _collection_
 - [[db.Valuaciones.AuM]]  ·  _collection_
 - [[db.Valuaciones.ConsolidadoCuentas]]  ·  _collection_
-- [[db.Valuaciones.Dolar]]  ·  _collection_
 - [[quant.xirr]]  ·  _module_
 
 ## Lo usan (backlinks) ←

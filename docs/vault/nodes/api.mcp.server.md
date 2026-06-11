@@ -23,6 +23,7 @@ Conecta con: importa decenas de `api.services.*`; el sub-app lo monta `api.main`
 - [[api.services.analitica]]  ·  _module_
 - [[api.services.canje]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
+- [[api.services.day_trading]]  ·  _module_
 - [[api.services.derivados]]  ·  _module_
 - [[api.services.descomposicion_retorno]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_

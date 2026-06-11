@@ -19,3 +19,4 @@ Conecta con: escribe a la colección/DB que le pasa cada motor (ej. `Trading.Mar
 ## Usa / conecta con →
 - [[core.mongo]]  ·  _module_
 - [[core.postgres]]  ·  _module_
+- [[core.threads]]  ·  _module_

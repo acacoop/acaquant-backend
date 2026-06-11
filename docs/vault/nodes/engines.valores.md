@@ -20,6 +20,7 @@ Conecta con: escribe `book.bids/offers` y `metrics.{last_price,open,high,low,clo
 - [[core.adhoc_subscriptions]]  ·  _module_
 - [[core.mongo]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_
+- [[core.threads]]  ·  _module_
 - [[core.websocket]]  ·  _module_
 - [[db.Trading.MarketSnapshot]]  ·  _collection_
 - [[db.Trading.TimeSales]]  ·  _collection_

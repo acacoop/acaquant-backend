@@ -1,6 +1,6 @@
 # 🧱 core — infraestructura
 
-29 notas.
+30 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para Trading.AdhocSubscriptions — suscripciones live efímeras.
@@ -28,6 +28,7 @@
 - [[core.roles]] — Roles y matriz de permisos por módulo.
 - [[core.roles_sql]] — core/roles_sql.py — lecturas de AUTH (roles/matriz) desde Postgres.
 - [[core.snapshot_writer]]
+- [[core.threads]] — threads.py — lanzamiento de hilos VITALES en motores.
 - [[core.tz]] — Zona horaria Argentina — ÚNICO lugar para now / tz / cálculo de frescura.
 - [[core.websocket]] — WebSocketManager — conexión WS a pyRofex para los motores de mercado.
 - [[core.yahoo]] — Cliente Yahoo Finance vía yfinance (gratis, sin API key).

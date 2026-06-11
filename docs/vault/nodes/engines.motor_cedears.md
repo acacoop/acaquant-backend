@@ -21,6 +21,7 @@ Conecta con: lee el universo de `Trading.Cedears` (activo=True) y escribe a `Tra
 ## Usa / conecta con →
 - [[core.mongo]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_
+- [[core.threads]]  ·  _module_
 - [[core.websocket]]  ·  _module_
 
 ## Lo usan (backlinks) ←

@@ -18,3 +18,4 @@ Conecta con: componente `RetornoTotalView` → backend `/api/analitica` y `/api/
 
 ## Usa / conecta con →
 - [[web.cmp.retorno-total-view]]  ·  _component_
+- [[web.lib.me]]  ·  _lib_

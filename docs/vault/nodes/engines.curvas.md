@@ -24,6 +24,7 @@ Conecta con: escribe SOLO los campos `metrics.{TEA,TEM,duration,...}` a `Trading
 - [[db.Trading.MarketSnapshot]]  ·  _collection_
 - [[db.Valuaciones.Dolar]]  ·  _collection_
 - [[engines._curvas_loader]]  ·  _module_
+- [[quant.xirr]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.checks]]  ·  _module_

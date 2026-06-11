@@ -21,6 +21,7 @@ Conecta con: escribe a `Opciones.Data` (último precio + griegas por símbolo); 
 ## Usa / conecta con →
 - [[core.mongo]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_
+- [[core.threads]]  ·  _module_
 - [[core.websocket]]  ·  _module_
 - [[quant.black_scholes]]  ·  _module_
 

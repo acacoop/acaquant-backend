@@ -21,6 +21,7 @@ Conecta con: escribe a `Trading.PortfolioSnapshot` (last/closing por ticker) y a
 ## Usa / conecta con →
 - [[core.mongo]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_
+- [[core.threads]]  ·  _module_
 - [[core.websocket]]  ·  _module_
 - [[engines._universo_portfolio]]  ·  _module_
 

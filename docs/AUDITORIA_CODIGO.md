@@ -200,9 +200,12 @@ válido") y aplicarlo al tocar cada endpoint. Sin big-bang.
 
 ## HALLAZGOS — SEVERIDAD BAJA
 
-- **B1 · [V] `scripts/` es un cementerio**: 89 archivos, 44 son one-shot
-  (`diag_/fix_/backfill_/seed_`) que según REGLA #5 debían borrarse al cerrar
-  cada tema. Barrida de limpieza: ~2h (confirmando cada uno).
+- **B1 · [V] `scripts/` — CORREGIDO tras medir**: la hipótesis "cementerio"
+  era FALSA. De 50 one-shots, 30 están referenciados (skills/código/cron/docs)
+  y los 20 sueltos fueron creados EN LA ÚLTIMA SEMANA (tanda de trabajo viva,
+  no acumulación) — la REGLA #5 viene funcionando. Barrida 2026-06-11: se
+  eliminaron 17 cerrados, se conservaron los 3 de investigaciones abiertas
+  (diag_fci_hoy/estado, diag_dolarizar_cobertura).
 - **B2 · [V] CLAUDE.md desactualizado**: documenta `api/agent/` + `POST
   /api/chat` como "legacy en el repo" pero **fueron eliminados** (la carpeta no
   existe); dice "Next.js 15" cuando el front es **Next 16** (con `proxy.ts`,

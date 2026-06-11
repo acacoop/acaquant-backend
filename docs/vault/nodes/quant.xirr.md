@@ -20,3 +20,4 @@ Conecta con: lo importa `api/services/valuaciones.py` (como `_xirr`) para calcul
 
 ## Lo usan (backlinks) ←
 - [[api.services.valuaciones]]  ·  _module_
+- [[engines.curvas]]  ·  _module_

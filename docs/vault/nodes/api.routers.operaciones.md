@@ -49,4 +49,5 @@ Conecta con: lee `CashFlow.NegocioMovimientos` + colecciones `*API` (Mesa/Flujos
 - [[web.cmp.manager-debug-comercial]]  ·  _component_
 - [[web.cmp.operadores-view]]  ·  _component_
 - [[web.cmp.ops-view]]  ·  _component_
+- [[web.cmp.referidos-view]]  ·  _component_
 - [[web.lib.proxy]]  ·  _lib_

@@ -198,6 +198,16 @@ costo/riesgo no compensa. Migrar-al-tocar con la convención de cada vista.
 (Verificado 2026-06-11.)
 
 ### M9 · [V tamaño / R detalle] Frontend: las 5 vistas gigantes
+
+> **Avance 2026-06-11**: la LENTITUD real de Manager NO era el bundle — se midió
+> (`scripts/diag_manager_perf`): el endpoint `/manager/diagnostico` (`arbol()`)
+> tardaba **~1.7s** (45 `find_one` a Atlas, sin cache) y el front lo **polleaba
+> cada 10s**. Fix: `@cached(ttl=30)` en `arbol()` (commit `67e3789`) → el poll
+> pega al cache, Manager abre instantáneo. Pendiente (menor prioridad ahora):
+> partir el componente (3.884 líneas) con `next/dynamic` — es mantenibilidad,
+> ya no performance. Optimización opcional: batchear los 45 `find_one` en un
+> pipeline por colección.
+
 `manager-view.tsx` **3.884**, `aum-view` 1.517, `comercial-operaciones-view`
 1.475, `operar-dashboard-view` 1.463, `valuaciones-view` 1.418. Además son las
 que NO usan `usePoll` (polling manual con `setInterval` propio) ni

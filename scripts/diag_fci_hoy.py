@@ -118,7 +118,7 @@ def main() -> None:
         def f(x):
             return "—" if x is None else (f"{x:,.0f}".replace(",", ".") if isinstance(x, (int, float)) else str(x))
         print(f"{c:<22} {cat:<26} {f(a.get('importe')):>12} {f(o.get('bruto')):>12} "
-              f"{str(o.get('etapa') or '—'):<12} {f(s.get('importe')):>12} {f(q.get('bruto')):>12}")
+              f"{o.get('etapa') or '—'!s:<12} {f(s.get('importe')):>12} {f(q.get('bruto')):>12}")
 
     print("\nLeyenda: NMm/OPm = Mongo NegocioMov/Operaciones · NMs/OPs = SQL. "
           "'—' = no está en esa capa. Buscá: importe en NMm pero OPm '—' (no llegó a Ops) "

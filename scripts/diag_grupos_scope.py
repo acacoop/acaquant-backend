@@ -50,7 +50,7 @@ def main() -> None:
     else:
         print(f"    {'grupo':<28}{'usuarios':>9}{'cuentas':>9}")
         for g in sorted(grupos, key=lambda x: x.get("nombre") or ""):
-            print(f"    {str(g.get('nombre') or '—'):<28}"
+            print(f"    {g.get('nombre') or '—'!s:<28}"
                   f"{len(g.get('emails') or []):>9}{len(g.get('id_cuentas') or []):>9}")
         print()
 

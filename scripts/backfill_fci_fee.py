@@ -24,6 +24,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import re
 import unicodedata
 from datetime import UTC, datetime
 
@@ -35,9 +36,22 @@ _FCI_CARTERAS = ["FCI", "CARTERA FCI"]
 
 
 def _norm(s) -> str:
-    """Normaliza para matchear: sin acentos, minúsculas, espacios colapsados."""
-    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode("ascii")
-    return " ".join(s.strip().lower().split())
+    """Normaliza para matchear: sin acentos, minúsculas, 'fci' suelto fuera, solo
+    alfanumérico (unifica 'X Clase B' vs 'X - Clase B', dobles espacios, etc.)."""
+    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode("ascii").lower()
+    s = re.sub(r"\bfci\b", " ", s)
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return " ".join(s.split())
+
+
+def _fund_name(unidad: str) -> str:
+    """Nombre del fondo dentro del `unidad` de Assets, que viene como
+    '[<id>] CAFCI<cod>-<id> - <NOMBRE>'. Saca el prefijo [id] y el bloque CAFCI
+    (todo hasta el primer ' - '). El Excel trae solo el <NOMBRE> limpio."""
+    s = re.sub(r"^\s*\[\d+\]\s*", "", str(unidad))
+    if " - " in s:
+        s = s.split(" - ", 1)[1]
+    return s
 
 
 def _parse_pct(raw) -> float | None:
@@ -94,7 +108,7 @@ def main() -> None:
     for d in col.find({"CARTERA": {"$in": _FCI_CARTERAS}}, {"_id": 0, "unidad": 1, "FEE_ADMIN": 1}):
         u = d.get("unidad")
         if u:
-            fci[_norm(u)] = {"unidad": u, "fee_actual": d.get("FEE_ADMIN")}
+            fci[_norm(_fund_name(u))] = {"unidad": u, "fee_actual": d.get("FEE_ADMIN")}
     emit(f"[Assets] {len(fci)} fondos CARTERA FCI en el maestro\n")
 
     # ── 3) Matchear filas del archivo ──────────────────────────────────────────

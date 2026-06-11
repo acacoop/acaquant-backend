@@ -29,6 +29,7 @@ from jobs.market_quotes import (
     HOME_INDICES_YAHOO,
     HOME_STOCKS,
     HOME_TREASURIES,
+    mirror_quotes_sql,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,7 @@ def ingesta() -> int:
         "treasuries ok=%d fail=%d · indices ok=%d fail=%d",
         ok_s, fail_s, ok_fx, fail_fx, ok_t, fail_t, ok_i, fail_i,
     )
+    mirror_quotes_sql(coll)
     return 0
 
 

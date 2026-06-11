@@ -115,8 +115,36 @@ cero. Mongo queda como plan B hasta verificar. Manda el gate, no el calendario.
     implementación — el `_serialize` del path Mongo la invoca también → cero drift).
   - `api/routers/market.py`: flag `MARKET_SQL` en ambos endpoints (Mongo intacto).
   - `scripts/compare_market_sql_vs_mongo.py`: GATE (quotes todos/subset + grilla calendar).
-- **Pendiente del user:** ALTER `evt_ts` en Supabase (re-correr `sql/schema.sql` alcanza,
-  es idempotente) + `sync --full` + harness (→ 0 diffs) + `MARKET_SQL=1`.
+- **Post-backfill 2026-06-11 (primer run real del user):** se corrigieron 3 cosas:
+  1. `bonds_master` fallaba (`datetime is not JSON serializable`): los flujos de
+     BondsMaster traen datetimes ANIDADOS y `_doc_iso` solo convertía el nivel top →
+     ahora es recursivo (`core/pg_mirror.doc_iso`, lo usan sync y dual-writes).
+  2. Los 8 diffs del harness eran (a) formato tz: el path Mongo emite `+00:00` en
+     timestamp/updated_at/fetched_at/anchors_updated_at (vía `astimezone(UTC)`) y el
+     jsonb los tenía naive → `_fix_tz` en `market_sql` (paridad exacta); (b) frescura:
+     quotes se actualiza cada 1 min en Mongo y el espejo era horario → dual-write en
+     las ingestas (abajo) + retry en el harness.
+  3. `market_calendar` v2: PK natural `(evt_ts, country, event)` — igual al unique
+     index del escritor `jobs/economic_calendar` (verificado en el código). La v1
+     (hkey = md5 del doc) generaba fila nueva en cada update del evento → imposible
+     dual-write limpio. Migración guardada en `sql/schema.sql` (detecta hkey → drop +
+     recreate; el sync la repuebla).
+  Además, **dual-write en las ingestas de home** (flag `MERCADO_SQL_WRITE`):
+  `market_quotes`/`market_anchors`/`economic_calendar` espejan el estado completo
+  re-leyendo Mongo (datetimes naive/ms idénticos al sync) y `news_ingesta` espeja +
+  aplica retención.
+- **NEWS — retención 2 días (pedido del user 2026-06-11):** TTL index en
+  `News.Headlines` (`jobs/news_ingesta._ensure_indexes`, `RETENCION_DIAS=2`) — Mongo
+  borra solo; purga el backlog existente (~14k docs) al crearse. Espejo: `prune_job`
+  post-ingesta + delete-orphans del sync.
+- **Reconciliación del backfill (explicación, no bug):** `contrapartes PG=362 vs
+  Mongo≈377` = docs sin `cuenta` o con `cuenta` repetida (el espejo dedupea por PK);
+  `aum PG=310.049 vs Mongo≈309.901` = el sync de aum no borra huérfanos (docs que el
+  cleanup retroactivo sacó de Mongo quedan en PG; `estimated_document_count` además
+  es aproximado). Si molesta, se agrega delete-orphans a la fase aum.
+- **Pendiente del user:** re-aplicar `sql/schema.sql` (migra market_calendar + ya no
+  hace falta el ALTER evt_ts) + `sync --full` (re-puebla bonds_master y calendar) +
+  `MERCADO_SQL_WRITE=1` + harness (→ 0 diffs) + `MARKET_SQL=1`.
 
 ### Capa MERCADO — data layer + ESCRITURA (curvas, bonos, snapshots, macro) — código listo ⏳ validar
 - **Qué:** el espejo SQL de TODO lo que alimenta mercados: series macro (CER/A3500/BADLAR/
@@ -264,8 +292,9 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
   cuando su lectura migre — mismo patrón pg_mirror.
 
 ### ⏳ ESCRITURAS (para apagar Mongo) — avance parcial:
-- ✅ **Jobs de MERCADO con dual-write** (flag `MERCADO_SQL_WRITE`): bcra, argentina_datos,
-  snapshot_cierre, cierre_canje. ✅ **Motores** valores/curvas (flag `SNAPSHOT_SQL`).
+- ✅ **Jobs de MERCADO/HOME con dual-write** (flag `MERCADO_SQL_WRITE`): bcra, argentina_datos,
+  snapshot_cierre, cierre_canje, market_quotes, market_anchors, economic_calendar,
+  news_ingesta. ✅ **Motores** valores/curvas (flag `SNAPSHOT_SQL`).
 - ⏳ El resto de los **~40 jobs cron** (market_quotes, news, fair_value, aum, negocio, operaciones,
   aranceles, actividad_mensual, pnl_totales_precompute, consolidado, …) → mismo patrón
   `core/pg_mirror.mirror_job` cuando se retome la Capa B de Aunesa.

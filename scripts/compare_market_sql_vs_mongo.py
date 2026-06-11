@@ -2,8 +2,12 @@
 
 Read-only. Corre los handlers de api/routers/market.py por las dos vías (Mongo y SQL)
 sobre una grilla representativa y reporta diffs. Sale ≠0 si algo no coincide.
-Correr DESPUÉS de aplicar el ALTER de `evt_ts` en Supabase + un sync (los docs de
-calendar necesitan la columna nueva poblada).
+
+Pre-requisitos: re-aplicar sql/schema.sql (migra market_calendar a PK natural) +
+un `sync_postgres` + **MERCADO_SQL_WRITE=1 prendido** (quotes se actualiza cada
+minuto en Mongo — sin el dual-write el espejo siempre va a estar más viejo y el
+harness marca diffs de frescura, no bugs). Si quotes diffea solo en last/updated_at,
+el harness re-intenta una vez solo (puede pisar una corrida del job).
 
     python -m scripts.compare_market_sql_vs_mongo
 """
@@ -12,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from datetime import UTC, datetime, timedelta
 
 from api.services import market_sql
@@ -47,23 +52,26 @@ def main() -> int:
 
     # /quotes — todos y por subset de símbolos (el subset sale de los datos reales).
     todos_mongo = m.quotes(symbols=None)
-    todos_sql = market_sql.quotes(None)
     casos = [("todos", None)]
     syms = [d["symbol"] for d in todos_mongo[:3] if d.get("symbol")]
     if syms:
         casos.append((f"subset {syms}", ",".join(syms)))
     for label, arg in casos:
-        mm = todos_mongo if arg is None else m.quotes(symbols=arg)
-        ss = todos_sql if arg is None else market_sql.quotes(
-            [s.strip().upper() for s in arg.split(",")])
-        if _key(mm) != _key(ss):
+        for intento in (1, 2):  # retry: el job de quotes corre cada 1 min (frescura)
+            mm = m.quotes(symbols=arg)
+            ss = market_sql.quotes(
+                [s.strip().upper() for s in arg.split(",")] if arg else None)
+            if _key(mm) == _key(ss):
+                print(f"OK   quotes {label}: n={len(mm)}")
+                break
+            if intento == 1:
+                time.sleep(5)
+                continue
             fails += 1
             solo_m = set(_key(mm)) - set(_key(ss))
             solo_s = set(_key(ss)) - set(_key(mm))
             print(f"FAIL quotes {label}: mongo={len(mm)} sql={len(ss)} "
                   f"solo_mongo={list(solo_m)[:1]} solo_sql={list(solo_s)[:1]}")
-        else:
-            print(f"OK   quotes {label}: n={len(mm)}")
 
     # /calendar/economic — rangos / importancia / país.
     hoy = datetime.now(UTC).date().isoformat()

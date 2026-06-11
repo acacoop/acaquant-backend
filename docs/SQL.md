@@ -85,27 +85,46 @@ de Mongo — ver comentarios en `sql/schema.sql §CAPA MERCADO`):
 2. **Dual-write best-effort** (`core/pg_mirror.py`, NUNCA levanta — Mongo sigue siendo
    la base operativa): los escritores espejan su write a PG con flags default OFF:
    - `MERCADO_SQL_WRITE=1` → jobs batch: `jobs.bcra`, `jobs.argentina_datos`,
-     `jobs.snapshot_cierre`, `jobs.cierre_canje`.
+     `jobs.snapshot_cierre`, `jobs.cierre_canje`, y las ingestas de home:
+     `jobs.market_quotes` + `jobs.market_anchors` (espejan el watchlist COMPLETO
+     re-leyendo Mongo — los datetimes vuelven naive/ms, idéntico al sync),
+     `jobs.economic_calendar` (ídem) y `jobs.news_ingesta` (+ `prune_job` retención).
+     **Sin este flag, MARKET_SQL/NEWS_SQL servirían datos con hasta 1h de atraso**
+     (quotes se actualiza cada minuto; el sync corre cada hora).
    - `SNAPSHOT_SQL=1` → motores live: `engines/valores.py` (book/precios, throttle 5s
      porque re-escribe el estado completo) y `engines/curvas.py` (analíticos, SIN
      throttle porque escribe deltas). `pg_mirror` replica el `$set` parcial: upsertea
      solo las columnas presentes en cada fila.
    - Curvas/BondsMaster NO llevan dual-write: son masters chicos editados a mano
      (Manager) → el sync horario alcanza; menos código en el path de la API.
+   - jsonb siempre vía `pg_mirror.doc_iso` (conversión datetime→ISO **recursiva** —
+     los datetimes anidados, ej. flujos de BondsMaster, rompen `json.dumps` si solo
+     se convierte el nivel top; incidente del primer backfill 2026-06-11).
 3. **NO migran (decisión):** `TimeSales` y `OrderBookL2` — streams append-only de alto
    volumen; espejarlos duplicaría el costo del M10 sin consumidor SQL. Se revisa
    cuando haya un caso de uso de reportería tick-level.
+
+## NEWS — retención 2 días (no se acumula)
+
+Las noticias viven **2 días** y se borran solas (decisión 2026-06-11): TTL index
+`ttl_fecha_publicacion` en `News.Headlines` (creado idempotente por
+`jobs/news_ingesta.py`, `RETENCION_DIAS = 2`). El espejo `news_headlines` aplica
+la misma retención: `prune_job` tras cada ingesta + el delete-orphans del sync de
+red. Al crear el TTL, Mongo purga lo viejo existente (~14k docs del backlog).
 
 ## Vista MARKET en SQL (quotes + calendario)
 
 `/api/market/quotes` y `/api/market/calendar/economic` corren dual-run (flag
 **`MARKET_SQL=1`**, path Mongo intacto). Servicio: `api/services/market_sql.py`
 (lee `data jsonb`; los retornos desde anchors se computan con `compute_returns`,
-ÚNICA implementación que también usa el path Mongo del router). El calendario
-filtra por **`evt_ts timestamptz`** (columna nueva): NULL cuando `time` no era
-datetime en Mongo — esos docs tampoco matchean el rango allá (misma semántica).
-GATE: `scripts/compare_market_sql_vs_mongo.py` (correr tras aplicar el ALTER de
-`evt_ts` + un sync). `/candle` y `/profile` pegan a APIs externas — no migran.
+ÚNICA implementación que también usa el path Mongo del router; `_fix_tz` agrega
+el offset `+00:00` a los campos que el `_serialize` Mongo emite con
+`astimezone(UTC)` — paridad byte-a-byte). `market_calendar` v2: **PK natural
+(evt_ts, country, event)** = el unique index del escritor (la v1 hkey=md5 del doc
+generaba fila nueva en cada update; re-aplicar `sql/schema.sql` migra solo).
+GATE: `scripts/compare_market_sql_vs_mongo.py` — correr con `MERCADO_SQL_WRITE=1`
+ya prendido (si no, quotes diffea por frescura, no por bug). `/candle` y
+`/profile` pegan a APIs externas — no migran.
 
 ## Fase B — sync (cuando esté la `POSTGRES_URI`)
 `jobs/sync_postgres.py`: lee las colecciones fuente de Mongo y hace UPSERT por PK a

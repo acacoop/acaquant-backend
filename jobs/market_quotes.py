@@ -25,9 +25,23 @@ import requests
 
 from core.finnhub import FinnhubError, quote
 from core.mongo import get_mongo_client
+from core.pg_mirror import doc_iso, jobs_on, mirror_job
 from core.yahoo import YahooError, yahoo_quote
 
 logger = logging.getLogger(__name__)
+
+
+def mirror_quotes_sql(coll) -> None:
+    """Espejo SQL del watchlist COMPLETO (~20 docs) tras la ingesta. Se re-lee el
+    doc final de Mongo (los upserts del job son $set parciales por símbolo —
+    espejar el doc entero garantiza PG == Mongo). Flag MERCADO_SQL_WRITE, no-op
+    apagado. Símbolos purgados: los limpia el delete-orphans de sync_postgres.
+    También lo invoca jobs.market_anchors (escribe en la misma colección)."""
+    if not jobs_on():
+        return
+    rows = [{"symbol": d["symbol"], "grupo": d.get("grupo"), "data": doc_iso(d)}
+            for d in coll.find({}, {"_id": 0}) if d.get("symbol")]
+    mirror_job("market_quotes", ["symbol"], rows)
 
 # ── Watchlist HOME — equity/ETFs (panel widget) ──
 # Grupos:
@@ -327,6 +341,7 @@ def ingesta(include_extra: bool = True) -> int:
         ok, fail, len(stocks), len(HOME_FX), len(HOME_FUTUROS),
         len(HOME_TREASURIES), len(HOME_INDICES_YAHOO),
     )
+    mirror_quotes_sql(coll)
     return 0 if fail < ok else 1
 
 

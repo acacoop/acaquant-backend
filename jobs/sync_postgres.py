@@ -459,9 +459,10 @@ def sync_news(mdb, conn, dry) -> int:
 
 
 def _doc_iso(d):
-    """Copia el doc con todos los datetime → ISO (para guardarlo en jsonb sin ruido de tipos)."""
-    from datetime import datetime as _dt
-    return {k: (v.isoformat() if isinstance(v, _dt) else v) for k, v in d.items()}
+    """Doc con todos los datetime → ISO, RECURSIVO (datetimes anidados — ej. flujos
+    de BondsMaster — rompen json.dumps si solo se convierte el nivel top)."""
+    from core.pg_mirror import doc_iso
+    return doc_iso(d)
 
 
 def sync_quotes(mdb, conn, dry) -> int:
@@ -481,29 +482,37 @@ def sync_quotes(mdb, conn, dry) -> int:
 
 
 def sync_calendar(mdb, conn, dry) -> int:
-    """Market.EconomicCalendar → market_calendar. PK = hash de contenido (no asume id natural).
-    Cols filtrables (time/impact/country) materializadas; el doc entero va en data jsonb."""
-    import hashlib
-    import json as _json
-
+    """Market.EconomicCalendar → market_calendar. PK NATURAL (evt_ts, country, event)
+    = el unique index del escritor (jobs/economic_calendar upsertea por time/country/
+    event) → habilita dual-write limpio (la v1 con hkey=md5 del doc generaba una fila
+    nueva en cada update). Docs cuyo `time` no es datetime se saltean — tampoco
+    matchean el filtro de rango del endpoint en Mongo (misma semántica)."""
     from psycopg.types.json import Jsonb
-    cols = ["hkey", "evt_time", "impact", "country", "data", "evt_ts"]
+    cols = ["evt_ts", "country", "event", "impact", "data"]
     rows = []
     for d in mdb["Market"]["EconomicCalendar"].find({}, {"_id": 0}):
-        doc = _doc_iso(d)
-        hkey = hashlib.md5(_json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()
-        evt = d.get("time")  # puede venir datetime o string → text seguro
-        evt_s = evt.isoformat() if hasattr(evt, "isoformat") else (str(evt) if evt is not None else None)
-        # evt_ts: timestamptz REAL solo si era datetime (los string no matchean el
-        # rango del endpoint en Mongo → acá quedan NULL, misma semántica). Mongo
-        # devuelve naive-UTC → se le clava UTC para que el cast no corra la hora.
-        evt_ts = evt.replace(tzinfo=UTC) if isinstance(evt, datetime) and evt.tzinfo is None \
-            else (evt if isinstance(evt, datetime) else None)
-        rows.append((hkey, evt_s, int(d.get("impact") or 0),
-                     _s(d.get("country")), Jsonb(doc), evt_ts))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "market_calendar", cols, ["hkey"], rows, dry)
-    _delete_not_in(conn, "market_calendar", "hkey", {r[0] for r in rows}, dry)
+        evt = d.get("time")
+        if not isinstance(evt, datetime):
+            continue
+        # Mongo devuelve naive-UTC → se clava UTC para que el cast no corra la hora.
+        evt_ts = evt.replace(tzinfo=UTC) if evt.tzinfo is None else evt
+        rows.append((evt_ts, d.get("country") or "", d.get("event") or "",
+                     int(d.get("impact") or 0), Jsonb(_doc_iso(d))))
+    rows = _dedup(rows, [0, 1, 2])
+    n = _upsert(conn, "market_calendar", cols, ["evt_ts", "country", "event"], rows, dry)
+    if not dry:  # delete de huérfanos con PK compuesta (unnest de arrays paralelos,
+        # comparación por TIPO — nada de matchear timestamps como strings)
+        ts_k = [r[0] for r in rows]
+        co_k = [r[1] for r in rows]
+        ev_k = [r[2] for r in rows]
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM market_calendar mc WHERE NOT EXISTS ("
+                "  SELECT 1 FROM unnest(%s::timestamptz[], %s::text[], %s::text[]) AS k(ts, c, e)"
+                "  WHERE k.ts = mc.evt_ts AND k.c = mc.country AND k.e = mc.event)",
+                (ts_k, co_k, ev_k),
+            )
+        conn.commit()
     return n
 
 

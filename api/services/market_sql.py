@@ -10,6 +10,7 @@ usa en su path Mongo para que no haya drift). Dual-run por flag `MARKET_SQL`.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 from psycopg.rows import dict_row
@@ -21,6 +22,21 @@ def _q(sql: str, params: dict | None = None) -> list[dict]:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(sql, params or {})
         return cur.fetchall()
+
+
+# Claves que el _serialize del path Mongo emite con offset explícito (+00:00, vía
+# astimezone(UTC)). En el jsonb quedaron naive (Mongo guarda naive-UTC) → se les
+# agrega el offset para que el output sea byte-a-byte igual al path Mongo.
+_TZ_KEYS = ("timestamp", "updated_at", "fetched_at", "anchors_updated_at")
+_TZ_RE = re.compile(r"(Z|[+-]\d{2}:?\d{2})$")
+
+
+def _fix_tz(d: dict) -> dict:
+    for k in _TZ_KEYS:
+        v = d.get(k)
+        if isinstance(v, str) and len(v) >= 19 and not _TZ_RE.search(v):
+            d[k] = v + "+00:00"
+    return d
 
 
 def compute_returns(d: dict) -> dict:
@@ -50,16 +66,16 @@ def quotes(symbols: list[str] | None = None) -> list[dict]:
         rows = _q("SELECT data FROM market_quotes WHERE symbol = ANY(%(s)s)", {"s": symbols})
     else:
         rows = _q("SELECT data FROM market_quotes")
-    docs = [compute_returns(dict(r["data"])) for r in rows]
+    docs = [compute_returns(_fix_tz(dict(r["data"]))) for r in rows]
     docs.sort(key=lambda d: (d.get("grupo", "ZZZ"), d.get("symbol", "")))
     return docs
 
 
 def calendar_economic(desde: datetime, hasta: datetime, importancia: int = 0,
                       country: str | None = None, limit: int = 500) -> list[dict]:
-    """Eventos macro en [desde, hasta]. Filtra por `evt_ts` (timestamptz materializado:
-    NULL cuando `time` no era datetime en Mongo → esos docs tampoco matchean el rango
-    en el path Mongo, misma semántica)."""
+    """Eventos macro en [desde, hasta]. Filtra por `evt_ts` (PK natural; los docs
+    Mongo cuyo `time` no es datetime no están en la tabla — tampoco matchean el
+    rango en el path Mongo, misma semántica)."""
     conds = ["evt_ts >= %(desde)s", "evt_ts <= %(hasta)s"]
     p: dict = {"desde": desde, "hasta": hasta, "limit": int(limit)}
     if importancia:
@@ -70,4 +86,4 @@ def calendar_economic(desde: datetime, hasta: datetime, importancia: int = 0,
         p["country"] = country.upper()
     rows = _q(f"SELECT data FROM market_calendar WHERE {' AND '.join(conds)} "
               f"ORDER BY evt_ts ASC LIMIT %(limit)s", p)
-    return [compute_returns(dict(r["data"])) for r in rows]
+    return [compute_returns(_fix_tz(dict(r["data"]))) for r in rows]

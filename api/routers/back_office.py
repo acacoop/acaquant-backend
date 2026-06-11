@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query
 
 from api.auth import get_user_email
 from api.services import acreencias as svc_acr
+from api.services import tenencia_hd as svc_ten
 from api.services.back_office_titulos import get_titulos_mercado
 
 router = APIRouter(prefix="/api/back-office", tags=["BackOffice"])
@@ -57,3 +58,20 @@ def acreencias_cliente(
 ):
     """Próximos cobros de un cliente."""
     return svc_acr.del_cliente(id_cuenta, desde=desde)
+
+
+# ── Tenencia Valorizada (cartera HD, cuentas propias 100/255/256) ──
+# Lee el rollup Valuaciones.TenenciaHD (jobs/tenencia_hd.py, 1×/día hábil).
+@router.get("/tenencia-hd")
+def tenencia_hd(_email: str = Depends(get_user_email)):
+    """Serie diaria: AuM HD por cuenta (100/255/256) — tabla izquierda."""
+    return svc_ten.tenencia_dias()
+
+
+@router.get("/tenencia-hd/posiciones")
+def tenencia_hd_posiciones(
+    fecha: str = Query(..., description="ISO YYYY-MM-DD del día a ver"),
+    _email: str = Depends(get_user_email),
+):
+    """Posiciones HD por título (desglose por cuenta) de un día — tabla derecha."""
+    return svc_ten.tenencia_posiciones(fecha=fecha)

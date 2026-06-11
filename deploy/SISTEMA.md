@@ -99,6 +99,7 @@
 | 11:35 · diario | `jobs.news_ingesta'` |
 | 11:35 · diario | `jobs.news_finnhub'` |
 | 20:35 · L-V | `jobs.cierre_canje'` |
+| 23:35 · L-V | `jobs.tenencia_hd'` |
 | 11:40 · diario | `jobs.economic_calendar'` |
 | 11:40 · L-V | `jobs.descubrir_cuentas'` |
 | cada hora · 13-22h · L-V | `jobs.ops_rollup'` |

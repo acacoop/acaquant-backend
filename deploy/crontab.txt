@@ -125,6 +125,11 @@
 # ─── Consolidado por cuenta (23:30 UTC = 20:30 ART, L-V — post AuM final 23:00)
 30 23 * * 1-5 /root/TradingAV/deploy/run_job.sh consolidado_cuentas 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.consolidado_cuentas'
 
+# ─── Tenencia Valorizada HD (cuentas propias 100/255/256) — 23:35 UTC L-V, post AuM final
+# Materializa Valuaciones.TenenciaHD (1 doc/día, solo CARTERA HD) leyendo el AuM del cierre.
+# Idempotente. Backfill inicial: python -m jobs.tenencia_hd --backfill --desde 2026-04-01
+35 23 * * 1-5 /root/TradingAV/deploy/run_job.sh tenencia_hd 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.tenencia_hd'
+
 # ─── Acreencias clientes (23:45 UTC L-V — post AuM final) → CashFlow.Acreencias.
 # Proyecta cobros futuros por cliente (tenencias × calendario contractual). Liviano.
 45 23 * * 1-5 /root/TradingAV/deploy/run_job.sh acreencias 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.acreencias --commit'

@@ -35,6 +35,7 @@ from pymongo import UpdateOne
 
 from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
+from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
 
 logger = logging.getLogger(__name__)
@@ -128,8 +129,8 @@ class CedearsEngine:
         self._buffer_lock = threading.Lock()
 
         self._arranque_en_frio()
-        threading.Thread(target=self._snapshot_loop, daemon=True).start()
-        threading.Thread(target=self._flush_loop, daemon=True).start()
+        lanzar_hilo_vital(self._snapshot_loop, "snapshot_loop")
+        lanzar_hilo_vital(self._flush_loop, "flush_loop")
 
     # ──────────────────────────────────────────────────────────────
     # Arranque en frío — REST seed

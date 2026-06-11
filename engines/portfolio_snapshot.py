@@ -44,6 +44,7 @@ from pymongo import UpdateOne
 
 from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
+from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
 from engines._universo_portfolio import tickers_de_tenencia
 
@@ -101,7 +102,7 @@ class PortfolioSnapshotEngine:
         self.col = self.client[DB_NAME][COL_NAME]
         self.col_log = self.client[LOG_DB_NAME][LOG_COL_NAME]
 
-        threading.Thread(target=self._snapshot_loop, daemon=True).start()
+        lanzar_hilo_vital(self._snapshot_loop, "snapshot_loop")
 
     # ── Handler invocado por WebSocketManager ──────────────────────────
     def update_price(self, ticker: str, data: dict):
@@ -264,7 +265,7 @@ def run():
     )
     _persistir_log(engine, len(validados), sorted(validados), list(sin_match))
 
-    threading.Thread(target=_refresh_loop, args=(engine, ws), daemon=True).start()
+    lanzar_hilo_vital(_refresh_loop, "refresh_loop", args=(engine, ws))
 
     try:
         while _running:

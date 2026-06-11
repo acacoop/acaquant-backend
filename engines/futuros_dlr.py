@@ -51,6 +51,7 @@ from pymongo import ReplaceOne, UpdateOne
 
 from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
+from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -217,7 +218,7 @@ class FuturosDLREngine:
         self._state_lock = threading.Lock()
         self._ultimo_discovery = time.time()
 
-        threading.Thread(target=self._snapshot_loop, daemon=True).start()
+        lanzar_hilo_vital(self._snapshot_loop, "snapshot_loop")
 
     # ─── WS handler ───────────────────────────────────────────────────────
     def update_price(self, ticker: str, data: dict):

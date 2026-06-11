@@ -17,6 +17,7 @@ from pymongo import UpdateOne
 
 from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
+from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
 from quant.black_scholes import bs_delta, bs_gamma, bs_theta, bs_vega, calc_intrinseco, find_iv
 
@@ -144,7 +145,7 @@ class OptionsEngine:
         self._trade_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="opt_trade")
 
         # Hilo único de escritura de snapshots a MongoDB (bulk_write cada 1s)
-        threading.Thread(target=self._batch_snapshot_loop, daemon=True).start()
+        lanzar_hilo_vital(self._batch_snapshot_loop, "batch_snapshot_loop")
 
     def _generar_maestra(self):
         """Descarga el padrón y filtra opciones GGAL según la config del Manager.
@@ -510,7 +511,7 @@ def run():
             except Exception as e:
                 logger.error(f"Error en _refresh_loop: {e}")
 
-    threading.Thread(target=_refresh_loop, daemon=True).start()
+    lanzar_hilo_vital(_refresh_loop, "refresh_loop")
 
     while _running:
         time.sleep(1)

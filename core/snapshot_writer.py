@@ -2,13 +2,13 @@ import hashlib
 import json
 import logging
 import os
-import threading
 import time
 from datetime import datetime
 
 from pymongo import UpdateOne
 
 from core.mongo import get_mongo_client
+from core.threads import lanzar_hilo_vital
 
 logger = logging.getLogger("SnapshotWriter")
 
@@ -106,12 +106,7 @@ class SnapshotWriter:
 
     def start(self):
         self._running = True
-        t = threading.Thread(
-            target=self._write_loop,
-            daemon=True,
-            name=f"SW-{self.collection_name}"
-        )
-        t.start()
+        lanzar_hilo_vital(self._write_loop, f"SW-{self.collection_name}")
         return self
 
     def stop(self):

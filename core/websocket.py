@@ -21,11 +21,12 @@ a fluir; el diagnóstico de motores lo muestra).
 """
 import logging
 import re
-import threading
 import time
 from typing import ClassVar
 
 import pyRofex
+
+from core.threads import lanzar_hilo_vital
 
 logger = logging.getLogger("core.websocket")
 
@@ -194,7 +195,7 @@ class WebSocketManager:
         if self._reconectando or self._sub is None:
             return
         self._reconectando = True
-        threading.Thread(target=self._loop_reconexion, daemon=True).start()
+        lanzar_hilo_vital(self._loop_reconexion, "ws_reconexion")
 
     def _loop_reconexion(self) -> None:
         tickers, depth, entries = self._sub

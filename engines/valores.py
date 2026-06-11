@@ -15,6 +15,7 @@ from core.mongo import get_mongo_client
 
 # --- TUS MANAGERS DE INFRAESTRUCTURA ---
 from core.rofex_session import inicializar_sesion
+from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
 from engines._curvas_loader import cargar_tickers_ordenados
 
@@ -76,9 +77,9 @@ class MicrostructureEngine:
             self.col_snapshot = None
 
         self._arranque_en_frio()
-        threading.Thread(target=self._worker_loop, daemon=True).start()
-        threading.Thread(target=self._flush_loop, daemon=True).start()
-        threading.Thread(target=self._snapshot_loop, daemon=True).start()
+        lanzar_hilo_vital(self._worker_loop, "worker_loop")
+        lanzar_hilo_vital(self._flush_loop, "flush_loop")
+        lanzar_hilo_vital(self._snapshot_loop, "snapshot_loop")
 
     def _arranque_en_frio(self):
         # 1) Recuperar OPEN/HIGH/LOW reales desde el REST API de Rofex

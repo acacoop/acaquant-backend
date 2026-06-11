@@ -64,6 +64,49 @@ intacta. Proveedor elegido: **Supabase**.
    `session`/`transaction`) y ponerla en el `.env` del Droplet como
    **`POSTGRES_URI`** (variable nueva). NO commitear el valor (va al `.env`, no al repo).
 
+## Capa MERCADO (curvas, bonos, snapshots, macro) — data layer + escritura
+
+Espejo SQL de todo lo que alimenta la vista de mercados (diseñado, NO copiado 1:1
+de Mongo — ver comentarios en `sql/schema.sql §CAPA MERCADO`):
+
+| Tabla | Fuente Mongo | Diseño |
+|---|---|---|
+| `series_macro` | Trading.{CER, DOLAR, BADLAR, TAMAR, RiesgoPais, InflacionMensual, InflacionInteranual} | 7 colecciones `{fecha, valor}` colapsan en UNA tabla larga (`serie` = nombre de la colección) |
+| `rem` | Trading.REM | columnar, PK (informe, periodo, periodo_tipo) |
+| `curvas` | Trading.Curvas | PK `ticker_corto`; lo consultable columnar + `flujos` y doc completo en jsonb |
+| `bonds_master` | Trading.BondsMaster | PK `asset`; ídem (tickers/flujos jsonb) |
+| `market_snapshot` | Trading.MarketSnapshot | **columnar a propósito**: dos motores escriben el mismo doc con `$set` parcial — cada uno upsertea SOLO sus columnas (un jsonb compartido pisaría al otro motor) |
+| `snapshots_cierre_hist` | Trading.SnapshotsCierre | HISTÓRICO completo, PK (fecha, curva, ticker). `snapshots_cierre` (último por ticker, PnL) se mantiene aparte: otro grano/consumidor |
+| `canje_cierre` | Trading.CanjeCierre | PK (ticker, fecha) |
+
+**Escritura — dos caminos complementarios:**
+1. **`jobs/sync_postgres.py`** (fases nuevas, no-críticas hasta que una vista las lea):
+   baseline horario + backfill `--full`. Incrementales por fecha donde aplica.
+2. **Dual-write best-effort** (`core/pg_mirror.py`, NUNCA levanta — Mongo sigue siendo
+   la base operativa): los escritores espejan su write a PG con flags default OFF:
+   - `MERCADO_SQL_WRITE=1` → jobs batch: `jobs.bcra`, `jobs.argentina_datos`,
+     `jobs.snapshot_cierre`, `jobs.cierre_canje`.
+   - `SNAPSHOT_SQL=1` → motores live: `engines/valores.py` (book/precios, throttle 5s
+     porque re-escribe el estado completo) y `engines/curvas.py` (analíticos, SIN
+     throttle porque escribe deltas). `pg_mirror` replica el `$set` parcial: upsertea
+     solo las columnas presentes en cada fila.
+   - Curvas/BondsMaster NO llevan dual-write: son masters chicos editados a mano
+     (Manager) → el sync horario alcanza; menos código en el path de la API.
+3. **NO migran (decisión):** `TimeSales` y `OrderBookL2` — streams append-only de alto
+   volumen; espejarlos duplicaría el costo del M10 sin consumidor SQL. Se revisa
+   cuando haya un caso de uso de reportería tick-level.
+
+## Vista MARKET en SQL (quotes + calendario)
+
+`/api/market/quotes` y `/api/market/calendar/economic` corren dual-run (flag
+**`MARKET_SQL=1`**, path Mongo intacto). Servicio: `api/services/market_sql.py`
+(lee `data jsonb`; los retornos desde anchors se computan con `compute_returns`,
+ÚNICA implementación que también usa el path Mongo del router). El calendario
+filtra por **`evt_ts timestamptz`** (columna nueva): NULL cuando `time` no era
+datetime en Mongo — esos docs tampoco matchean el rango allá (misma semántica).
+GATE: `scripts/compare_market_sql_vs_mongo.py` (correr tras aplicar el ALTER de
+`evt_ts` + un sync). `/candle` y `/profile` pegan a APIs externas — no migran.
+
 ## Fase B — sync (cuando esté la `POSTGRES_URI`)
 `jobs/sync_postgres.py`: lee las colecciones fuente de Mongo y hace UPSERT por PK a
 Postgres (incremental + idempotente), en orden de dependencia (dimensiones antes que

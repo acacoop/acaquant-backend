@@ -24,6 +24,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from config import PARES_CANJE
 from core.mongo import get_mongo_client
+from core.pg_mirror import mirror_job
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("CierreCanje")
@@ -53,6 +54,7 @@ def run(fecha: date, dry: bool = False) -> int:
 
     f_iso = fecha.isoformat()
     escritos = 0
+    pg_rows = []
     for tk in _tickers():
         price = _ultimo_trade_dia(db, tk, fecha)
         if not price or price <= 0:
@@ -62,14 +64,18 @@ def run(fecha: date, dry: bool = False) -> int:
             logger.info("[dry] %s %s = %.4f", f_iso, tk, price)
             escritos += 1
             continue
+        ts = datetime.now(UTC)
         col.update_one(
             {"ticker": tk, "fecha": f_iso},
-            {"$set": {"price": price, "updated_at": datetime.now(UTC)}},
+            {"$set": {"price": price, "updated_at": ts}},
             upsert=True,
         )
+        pg_rows.append({"ticker": tk, "fecha": fecha, "price": price, "updated_at": ts})
         escritos += 1
         logger.info("%s %s = %.4f", f_iso, tk, price)
 
+    # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort — no-op apagado).
+    mirror_job("canje_cierre", ["ticker", "fecha"], pg_rows)
     logger.info("cierre_canje %s: %d/%d tickers", f_iso, escritos, len(_tickers()))
     return escritos
 

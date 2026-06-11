@@ -1,8 +1,15 @@
-"""Router Market: watchlist quotes, economic calendar, candles históricos."""
+"""Router Market: watchlist quotes, economic calendar, candles históricos.
+
+`/quotes` y `/calendar/economic` corren dual-run Mongo↔SQL (flag `MARKET_SQL=1`,
+path Mongo intacto como fallback — ver docs/SQL.md). `/candle` y `/profile`
+pegan a APIs externas, no migran.
+"""
+import os
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
 
+from api.services import market_sql
 from core.mongo import get_mongo_client_read
 
 router = APIRouter(prefix="/api/market", tags=["Market"])
@@ -26,33 +33,19 @@ def _serialize(d: dict) -> dict:
         v = d.get(k)
         if isinstance(v, datetime):
             d[k] = v.astimezone(UTC).isoformat()
-
-    # Compute retornos on-the-fly desde anchors
-    last = d.get("last")
-    for key_ret, key_anchor in [
-        ("ret_7d",  "anchor_7d"),
-        ("ret_mtd", "anchor_mtd"),
-        ("ret_ytd", "anchor_ytd"),
-        ("ret_1y",  "anchor_1y"),
-    ]:
-        anchor = d.get(key_anchor)
-        if last is not None and anchor:
-            try:
-                d[key_ret] = round((last - anchor) / anchor * 100, 2)
-            except (TypeError, ZeroDivisionError):
-                d[key_ret] = None
-        else:
-            d[key_ret] = None
-    return d
+    # Retornos on-the-fly desde anchors — regla compartida con el path SQL.
+    return market_sql.compute_returns(d)
 
 
 @router.get("/quotes")
 def quotes(symbols: str | None = Query(None, description="CSV de símbolos; vacío = todos")):
     """Últimas cotizaciones desde Market.Quotes (población por jobs.market_quotes)."""
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()] if symbols else None
+    if os.getenv("MARKET_SQL") == "1":
+        return market_sql.quotes(syms)
     coll = get_mongo_client_read()["Market"]["Quotes"]
     filtro: dict = {}
-    if symbols:
-        syms = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    if syms:
         filtro["symbol"] = {"$in": syms}
     docs = [_serialize(d) for d in coll.find(filtro)]
     # Ordenar por grupo y luego symbol
@@ -68,11 +61,15 @@ def calendar_economic(
     country:     str | None = Query(None, description="Ej: US, AR, BR, EU"),
     limit:       int = Query(500, ge=1, le=1000),
 ):
-    coll = get_mongo_client_read()["Market"]["EconomicCalendar"]
     now = datetime.now(UTC)
     d_desde = _parse(desde) or now
     d_hasta = _parse(hasta) or (now + timedelta(days=30))
+    if os.getenv("MARKET_SQL") == "1":
+        return market_sql.calendar_economic(
+            desde=d_desde, hasta=d_hasta, importancia=importancia,
+            country=country, limit=limit)
 
+    coll = get_mongo_client_read()["Market"]["EconomicCalendar"]
     filtro: dict = {"time": {"$gte": d_desde, "$lte": d_hasta}}
     if importancia:
         filtro["impact"] = {"$gte": importancia}

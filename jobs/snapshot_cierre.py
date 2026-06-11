@@ -30,6 +30,7 @@ import sys
 from datetime import UTC, date, datetime
 
 from core.mongo import get_mongo_client
+from core.pg_mirror import mirror_job
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("SnapshotCierre")
@@ -94,6 +95,16 @@ def _to_float(v) -> float | None:
         return None
 
 
+def _pg_date(v: str | None) -> date | None:
+    """'YYYY-MM-DD' (output de _norm_fecha) → date para el espejo SQL."""
+    if not v:
+        return None
+    try:
+        return date.fromisoformat(v)
+    except ValueError:
+        return None
+
+
 def procesar_curva(client, curva: str, fecha_str: str, dry: bool) -> int:
     """Procesa una curva leyendo MarketSnapshot.
     Skipea tickers sin trades del día (last_price == 0 o total_nominals == 0).
@@ -112,6 +123,7 @@ def procesar_curva(client, curva: str, fecha_str: str, dry: bool) -> int:
     col = client["Trading"]["SnapshotsCierre"]
     n_ok = 0
     n_skip = 0
+    pg_rows = []
     for ticker, meta in metas.items():
         snap = snaps.get(ticker)
         if not snap:
@@ -160,7 +172,22 @@ def procesar_curva(client, curva: str, fecha_str: str, dry: bool) -> int:
             upsert=True,
         )
         n_ok += 1
+        # Misma fila para el espejo SQL (snapshots_cierre_hist; ts_cierre → fecha date,
+        # strings de fecha → date). Ver sql/schema.sql §CAPA MERCADO.
+        pg_rows.append({
+            "fecha": date.fromisoformat(fecha_str), "curva": curva, "ticker": ticker,
+            "ticker_corto": doc["ticker_corto"], "tipo": doc["tipo"],
+            "fecha_vencimiento": _pg_date(doc["fecha_vencimiento"]),
+            "fecha_emision": _pg_date(doc["fecha_emision"]),
+            "ultimo_precio": doc["ultimo_precio"], "tea": doc["tea"], "tem": doc["tem"],
+            "paridad": doc["paridad"], "duration": doc["duration"],
+            "mod_duration": doc["mod_duration"], "convexity": doc["convexity"],
+            "total_nominals_dia": doc["total_nominals_dia"],
+            "is_zero_coupon": doc["is_zero_coupon"],
+        })
 
+    # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort — no-op apagado).
+    mirror_job("snapshots_cierre_hist", ["fecha", "curva", "ticker"], pg_rows)
     logger.info("[%s %s] %d bonos persistidos (%d skipped)",
                 curva, fecha_str, n_ok, n_skip)
     return n_ok

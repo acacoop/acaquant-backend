@@ -487,15 +487,20 @@ def sync_calendar(mdb, conn, dry) -> int:
     import json as _json
 
     from psycopg.types.json import Jsonb
-    cols = ["hkey", "evt_time", "impact", "country", "data"]
+    cols = ["hkey", "evt_time", "impact", "country", "data", "evt_ts"]
     rows = []
     for d in mdb["Market"]["EconomicCalendar"].find({}, {"_id": 0}):
         doc = _doc_iso(d)
         hkey = hashlib.md5(_json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()
         evt = d.get("time")  # puede venir datetime o string → text seguro
         evt_s = evt.isoformat() if hasattr(evt, "isoformat") else (str(evt) if evt is not None else None)
+        # evt_ts: timestamptz REAL solo si era datetime (los string no matchean el
+        # rango del endpoint en Mongo → acá quedan NULL, misma semántica). Mongo
+        # devuelve naive-UTC → se le clava UTC para que el cast no corra la hora.
+        evt_ts = evt.replace(tzinfo=UTC) if isinstance(evt, datetime) and evt.tzinfo is None \
+            else (evt if isinstance(evt, datetime) else None)
         rows.append((hkey, evt_s, int(d.get("impact") or 0),
-                     _s(d.get("country")), Jsonb(doc)))
+                     _s(d.get("country")), Jsonb(doc), evt_ts))
     rows = _dedup(rows, [0])
     n = _upsert(conn, "market_calendar", cols, ["hkey"], rows, dry)
     _delete_not_in(conn, "market_calendar", "hkey", {r[0] for r in rows}, dry)
@@ -518,6 +523,170 @@ def sync_snapshots_cierre(mdb, conn, dry) -> int:
     n = _upsert(conn, "snapshots_cierre", cols, ["ticker"], rows, dry)
     _delete_not_in(conn, "snapshots_cierre", "ticker", {r[0] for r in rows}, dry)
     return n
+
+
+# ── CAPA MERCADO (espejo Trading.* — ver docs/SQL.md §Mercado) ───────────────
+# Colecciones-serie {fecha:'YYYY-MM-DD', valor} → tabla larga series_macro.
+# `serie` = nombre de la colección Mongo (misma clave usa el dual-write).
+_SERIES_MACRO = ("CER", "DOLAR", "BADLAR", "TAMAR",
+                 "RiesgoPais", "InflacionMensual", "InflacionInteranual")
+
+
+def sync_series_macro(mdb, conn, dry, desde: datetime | None) -> int:
+    """Trading.{CER,DOLAR,...} → series_macro. Incremental por `fecha` (string ISO
+    → comparación lexicográfica; incluye el CER forward, fecha > hoy)."""
+    f_desde = desde.date().isoformat() if desde else None
+    total = 0
+    for serie in _SERIES_MACRO:
+        q = {"fecha": {"$gte": f_desde}} if f_desde else {}
+        rows = []
+        # 7 finds sobre 7 COLECCIONES distintas (no N+1 sobre la misma).
+        for d in mdb["Trading"][serie].find(q, {"_id": 0, "fecha": 1, "valor": 1}):  # perf-ok: PERF002
+            f = _d(d.get("fecha"))
+            if f is None:
+                continue
+            rows.append((serie, f, d.get("valor")))
+        total += _upsert(conn, "series_macro", ["serie", "fecha", "valor"],
+                         ["serie", "fecha"], _dedup(rows, [0, 1]), dry)
+        time.sleep(THROTTLE)
+    return total
+
+
+def sync_rem(mdb, conn, dry) -> int:
+    """Trading.REM → rem. Chica (consenso IPC por informe/período), completa.
+    Solo upsert — los informes históricos no se borran (snapshot acumulativo)."""
+    cols = ["informe", "periodo", "periodo_tipo", "fecha_informe", "mediana", "promedio",
+            "desvio", "minimo", "maximo", "p10", "p25", "p75", "p90", "participantes",
+            "updated_at"]
+    rows = []
+    for d in mdb["Trading"]["REM"].find({}, {"_id": 0}):
+        inf, per, pt = _s(d.get("informe")), _s(d.get("periodo")), _s(d.get("periodo_tipo"))
+        if not (inf and per and pt):
+            continue
+        rows.append((inf, per, pt, _d(d.get("fecha_informe")), d.get("mediana"),
+                     d.get("promedio"), d.get("desvio"), d.get("minimo"), d.get("maximo"),
+                     d.get("p10"), d.get("p25"), d.get("p75"), d.get("p90"),
+                     d.get("participantes"), d.get("updated_at")))
+    return _upsert(conn, "rem", cols, ["informe", "periodo", "periodo_tipo"],
+                   _dedup(rows, [0, 1, 2]), dry)
+
+
+def sync_curvas(mdb, conn, dry) -> tuple[int, int]:
+    """Trading.Curvas → curvas. Chica (~cientos), completa + delete de huérfanos
+    (cleanup_curvas borra vencidos en Mongo; el UPSERT no borra). Lo consultable
+    va columnar; flujos + doc completo en jsonb. Saltea docs sin ticker_corto
+    (PK del upsert de ons.sync_ons_to_curvas) y los cuenta."""
+    from psycopg.types.json import Jsonb
+    cols = ["ticker_corto", "ticker", "curva", "tipo", "moneda_flujo", "valor_nominal",
+            "fecha_emision", "fecha_vencimiento", "cupon_anual", "cer_emision",
+            "flujo_vencimiento", "emisor", "sector", "flujos", "data"]
+    rows, sin_corto = [], 0
+    for d in mdb["Trading"]["Curvas"].find({}, {"_id": 0}):
+        tc = _s(d.get("ticker_corto"))
+        if not tc:
+            sin_corto += 1
+            continue
+        rows.append((
+            tc, _s(d.get("ticker")), _s(d.get("curva")), _s(d.get("tipo")),
+            _s(d.get("moneda_flujo")), d.get("valor_nominal"), _d(d.get("fecha_emision")),
+            _d(d.get("fecha_vencimiento")), d.get("cupon_anual"), d.get("cer_emision"),
+            d.get("flujo_vencimiento"), _s(d.get("emisor")), _s(d.get("sector")),
+            Jsonb(d.get("flujos") or []), Jsonb(_doc_iso(d)),
+        ))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "curvas", cols, ["ticker_corto"], rows, dry)
+    _delete_not_in(conn, "curvas", "ticker_corto", {r[0] for r in rows}, dry)
+    return n, sin_corto
+
+
+def sync_bonds_master(mdb, conn, dry) -> int:
+    """Trading.BondsMaster (master editable de ONs, Manager) → bonds_master.
+    Chica, completa + delete de huérfanos (delete_on borra en Mongo)."""
+    from psycopg.types.json import Jsonb
+    cols = ["asset", "emisor", "sector", "moneda_flujo", "tasa_cupon", "vencimiento",
+            "tickers", "flujos", "actualizado_por", "actualizado_at", "data"]
+    rows = []
+    for d in mdb["Trading"]["BondsMaster"].find({}, {"_id": 0}):
+        a = _s(d.get("asset"))
+        if not a:
+            continue
+        rows.append((a, _s(d.get("emisor")), _s(d.get("sector")), _s(d.get("moneda_flujo")),
+                     d.get("tasa_cupon"), _d(d.get("vencimiento")),
+                     Jsonb(d.get("tickers") or {}), Jsonb(d.get("flujos") or []),
+                     _s(d.get("actualizado_por")), d.get("actualizado_at"),
+                     Jsonb(_doc_iso(d))))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "bonds_master", cols, ["asset"], rows, dry)
+    _delete_not_in(conn, "bonds_master", "asset", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_market_snapshot(mdb, conn, dry) -> int:
+    """Trading.MarketSnapshot → market_snapshot (columnar, 1 fila/ticker). Baseline
+    horario; la frescura intradía la da el dual-write de los motores (SNAPSHOT_SQL,
+    core/pg_mirror). Completa + delete de huérfanos."""
+    from psycopg.types.json import Jsonb
+    cols = ["ticker", "book", "last_price", "open_price", "high_price", "low_price",
+            "closing_price", "vwap", "total_nominals", "updated_at",
+            "tea", "tem", "duration", "mod_duration", "convexity", "paridad"]
+    rows = []
+    for d in mdb["Trading"]["MarketSnapshot"].find({}, {"_id": 0}):
+        t = _s(d.get("ticker"))
+        if not t:
+            continue
+        m = d.get("metrics") or {}
+        rows.append((t, Jsonb(d.get("book") or {}), m.get("last_price"), m.get("open_price"),
+                     m.get("high_price"), m.get("low_price"), m.get("closing_price"),
+                     m.get("vwap"), m.get("total_nominals"), d.get("updated_at"),
+                     m.get("TEA"), m.get("TEM"), m.get("duration"), m.get("mod_duration"),
+                     m.get("convexity"), m.get("paridad")))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "market_snapshot", cols, ["ticker"], rows, dry)
+    _delete_not_in(conn, "market_snapshot", "ticker", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_snapshots_cierre_hist(mdb, conn, dry, desde: datetime | None) -> int:
+    """Trading.SnapshotsCierre → snapshots_cierre_hist (HISTÓRICO completo, grano
+    (fecha, curva, ticker); distinto de snapshots_cierre = último por ticker para
+    el PnL). Incremental por ts_cierre (string 'YYYY-MM-DD' lexicográfico)."""
+    f_desde = desde.date().isoformat() if desde else None
+    q = {"ts_cierre": {"$gte": f_desde}} if f_desde else {}
+    cols = ["fecha", "curva", "ticker", "ticker_corto", "tipo", "fecha_vencimiento",
+            "fecha_emision", "ultimo_precio", "tea", "tem", "paridad", "duration",
+            "mod_duration", "convexity", "total_nominals_dia", "is_zero_coupon"]
+    total = 0
+    cur = mdb["Trading"]["SnapshotsCierre"].find(q, {"_id": 0}, batch_size=BATCH)
+    for batch in _iter_batches(cur):
+        rows = []
+        for d in batch:
+            f, cv, tk = _d(d.get("ts_cierre")), _s(d.get("curva")), _s(d.get("ticker"))
+            if not (f and cv and tk):
+                continue
+            rows.append((f, cv, tk, _s(d.get("ticker_corto")), _s(d.get("tipo")),
+                         _d(d.get("fecha_vencimiento")), _d(d.get("fecha_emision")),
+                         d.get("ultimo_precio"), d.get("tea"), d.get("tem"),
+                         d.get("paridad"), d.get("duration"), d.get("mod_duration"),
+                         d.get("convexity"), d.get("total_nominals_dia"),
+                         d.get("is_zero_coupon")))
+        total += _upsert(conn, "snapshots_cierre_hist", cols, ["fecha", "curva", "ticker"],
+                         _dedup(rows, [0, 1, 2]), dry)
+        time.sleep(THROTTLE)
+    return total
+
+
+def sync_canje_cierre(mdb, conn, dry, desde: datetime | None) -> int:
+    """Trading.CanjeCierre → canje_cierre. Incremental por fecha (string ISO)."""
+    f_desde = desde.date().isoformat() if desde else None
+    q = {"fecha": {"$gte": f_desde}} if f_desde else {}
+    rows = []
+    for d in mdb["Trading"]["CanjeCierre"].find(q, {"_id": 0}):
+        tk, f = _s(d.get("ticker")), _d(d.get("fecha"))
+        if not (tk and f):
+            continue
+        rows.append((tk, f, d.get("price"), d.get("updated_at")))
+    return _upsert(conn, "canje_cierre", ["ticker", "fecha", "price", "updated_at"],
+                   ["ticker", "fecha"], _dedup(rows, [0, 1]), dry)
 
 
 # ── reconciliación (no confiar a ciegas) ─────────────────────────────────────
@@ -588,6 +757,19 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_qt = _t("quotes", lambda: sync_quotes(mdb, conn, dry))
         n_cal = _t("calendar", lambda: sync_calendar(mdb, conn, dry))
         print(f"  news={n_nw}  quotes={n_qt}  calendar={n_cal}")
+
+        # Capa MERCADO (espejo Trading.* — no-crítica hasta que una vista la lea).
+        n_sm = _t("series_macro", lambda: sync_series_macro(mdb, conn, dry, desde))
+        n_rem = _t("rem", lambda: sync_rem(mdb, conn, dry))
+        n_cv, sin_corto = _t("curvas", lambda: sync_curvas(mdb, conn, dry), (0, 0))
+        n_bm = _t("bonds_master", lambda: sync_bonds_master(mdb, conn, dry))
+        n_ms = _t("market_snapshot", lambda: sync_market_snapshot(mdb, conn, dry))
+        n_sh = _t("snapshots_cierre_hist",
+                  lambda: sync_snapshots_cierre_hist(mdb, conn, dry, desde))
+        n_cj = _t("canje_cierre", lambda: sync_canje_cierre(mdb, conn, dry, desde))
+        print(f"  mercado: series_macro={n_sm:,}  rem={n_rem}  curvas={n_cv} "
+              f"(sin ticker_corto, salteadas={sin_corto})  bonds_master={n_bm}  "
+              f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  canje_cierre={n_cj}")
         print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  comitentes={n_co}  "
               f"contrapartes={n_cp}  accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
@@ -618,6 +800,10 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "actividad_mensual": n_am, "assets": n_as, "dolar": n_dl,
              "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc, "news": n_nw,
              "quotes": n_qt, "calendar": n_cal,
+             "series_macro": n_sm, "rem": n_rem, "curvas": n_cv,
+             "curvas_sin_ticker_corto": sin_corto, "bonds_master": n_bm,
+             "market_snapshot": n_ms, "snapshots_cierre_hist": n_sh,
+             "canje_cierre": n_cj,
              "operaciones": n_ops,
              "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol,
              "fases_fallidas": len(fallos)}

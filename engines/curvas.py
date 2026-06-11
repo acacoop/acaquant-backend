@@ -19,6 +19,7 @@ from datetime import date, datetime, timedelta
 import numpy as np
 from pymongo import UpdateOne
 
+from core import pg_mirror
 from core.mongo import get_mongo_client
 from engines._curvas_loader import cargar_indexado_por_ticker
 from quant.xirr import xirr as _xirr_quant
@@ -747,6 +748,8 @@ def run():
                 continue
 
             ops_ms = []
+            # Dual-write a Postgres (flag SNAPSHOT_SQL): filas solo si está prendido.
+            pg_rows = [] if pg_mirror.snapshots_live_on() else None
             for ms_doc in ms_docs:
                 ticker = ms_doc.get("ticker")
                 last_price = (ms_doc.get("metrics") or {}).get("last_price")
@@ -788,9 +791,21 @@ def run():
                 }
                 if updates:
                     ops_ms.append(UpdateOne({"ticker": ticker}, {"$set": updates}))
+                    if pg_rows is not None:
+                        # Solo las columnas presentes en `campos` (mismo $set parcial
+                        # que Mongo: TEA→tea, etc; pg_mirror agrupa por set de keys).
+                        row = {"ticker": ticker}
+                        row.update({f.lower(): campos[f]
+                                    for f in _CAMPOS_ANALITICOS if f in campos})
+                        pg_rows.append(row)
 
             if ops_ms:
                 col_ms.bulk_write(ops_ms, ordered=False)
+                # Espejo SQL best-effort, SIN throttle: este loop escribe DELTAS
+                # (solo tickers con trade nuevo) — descartar un flush perdería el
+                # update hasta el próximo cambio de precio.
+                if pg_rows:
+                    pg_mirror.mirror_snapshot("market_snapshot", ["ticker"], pg_rows)
                 logger.info(f"{len(ops_ms)} tickers enriquecidos en MarketSnapshot.")
 
         except Exception:

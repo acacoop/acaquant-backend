@@ -44,6 +44,7 @@ from core.argentina_datos import (
 )
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
+from core.pg_mirror import mirror_job
 
 # Indicador REM único que nos interesa. argentinadatos.com lo devuelve con
 # este label literal (verificado en /rem/debug: abril 2026).
@@ -102,8 +103,10 @@ def _persistir_serie(
     coll, datos: list[dict], sanity_range: tuple[float, float], nombre: str,
 ) -> dict[str, Any]:
     """Escribe la serie como upsert por fecha. Devuelve stats del run."""
+    from datetime import date as _date
     lo, hi = sanity_range
     ops = []
+    pg_rows = []
     descartados = 0
     for d in datos:
         fecha = d.get("fecha")
@@ -130,11 +133,19 @@ def _persistir_serie(
             }},
             upsert=True,
         ))
+        try:
+            pg_rows.append({"serie": nombre, "fecha": _date.fromisoformat(fecha[:10]),
+                            "valor": v})
+        except ValueError:
+            pass
 
     if not ops:
         return {"persistidos": 0, "descartados": descartados}
 
     coll.bulk_write(ops, ordered=False)
+    # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort). `nombre` ==
+    # nombre de la colección Mongo == clave `serie` de series_macro.
+    mirror_job("series_macro", ["serie", "fecha"], pg_rows)
     return {"persistidos": len(ops), "descartados": descartados}
 
 
@@ -160,7 +171,9 @@ def _persistir_rem(coll, items: list[dict]) -> dict[str, Any]:
     a 'YYYY-MM' para poder ordenar/comparar lexicográficamente sin parsing
     en cada query.
     """
+    from datetime import date as _date
     ops = []
+    pg_rows = []
     descartados_indicador = 0
     descartados_periodo = 0
     for r in items:
@@ -207,6 +220,18 @@ def _persistir_rem(coll, items: list[dict]) -> dict[str, Any]:
             {"$set": doc},
             upsert=True,
         ))
+        try:
+            fi = _date.fromisoformat(str(doc["fecha_informe"])[:10]) \
+                if doc.get("fecha_informe") else None
+        except ValueError:
+            fi = None
+        pg_rows.append({
+            "informe": informe_key, "periodo": periodo_yyyymm, "periodo_tipo": periodo_tipo,
+            "fecha_informe": fi, "mediana": doc["mediana"], "promedio": doc["promedio"],
+            "desvio": doc["desvio"], "minimo": doc["minimo"], "maximo": doc["maximo"],
+            "p10": doc["p10"], "p25": doc["p25"], "p75": doc["p75"], "p90": doc["p90"],
+            "participantes": doc["participantes"], "updated_at": doc["updated_at"],
+        })
     if not ops:
         return {
             "persistidos":           0,
@@ -214,6 +239,8 @@ def _persistir_rem(coll, items: list[dict]) -> dict[str, Any]:
             "descartados_periodo":   descartados_periodo,
         }
     coll.bulk_write(ops, ordered=False)
+    # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort).
+    mirror_job("rem", ["informe", "periodo", "periodo_tipo"], pg_rows)
     return {
         "persistidos":           len(ops),
         "descartados_indicador": descartados_indicador,

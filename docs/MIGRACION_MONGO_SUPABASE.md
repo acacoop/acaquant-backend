@@ -102,15 +102,48 @@ cero. Mongo queda como plan B hasta verificar. Manda el gate, no el calendario.
 - **Pendiente del user:** `CREATE TABLE news_headlines` + índice en Supabase + `sync --full` +
   harness (→ 0 diffs) + `NEWS_SQL=1`.
 
-### Migración MARKET quotes/calendar (`/api/market/*`) — PARCIAL ⏳
+### Migración MARKET quotes/calendar (`/api/market/*`) — código listo ⏳ validar
 - **Qué:** cotizaciones del watchlist (`/quotes`) y calendario económico (`/calendar/economic`).
   (`/candle` y `/profile` son APIs externas — Yahoo/Finnhub — NO tocan Mongo, no migran.)
-- **Hecho:** tablas `market_quotes` (`symbol` PK, `grupo`, `data jsonb`) y `market_calendar`
-  (`hkey` = md5 del doc como PK — no asume id natural; `evt_time`/`impact`/`country` materializados
-  + `data jsonb`) en `sql/schema.sql`; `sync_quotes`/`sync_calendar` en `jobs/sync_postgres.py`.
-- **FALTA (no construido):** `api/services/market_sql.py` (leer jsonb + reusar `_serialize`),
-  flag `MARKET_SQL` en `api/routers/market.py`, harness `compare_market_sql_vs_mongo.py`.
-  → **Este es el primer pendiente concreto si se retoma "migrable sin mercado".**
+- **Cómo:**
+  - Tablas `market_quotes`/`market_calendar` + sync (ya estaban). `market_calendar` ganó
+    **`evt_ts timestamptz`** (el filtro de rango sobre `evt_time text` era frágil): el sync
+    la puebla SOLO cuando `time` es datetime — los docs con `time` string tampoco matchean
+    el rango en Mongo → semántica idéntica.
+  - `api/services/market_sql.py`: `quotes` + `calendar_economic` leyendo `data jsonb`.
+    La regla de retornos desde anchors se factorizó en `compute_returns` (única
+    implementación — el `_serialize` del path Mongo la invoca también → cero drift).
+  - `api/routers/market.py`: flag `MARKET_SQL` en ambos endpoints (Mongo intacto).
+  - `scripts/compare_market_sql_vs_mongo.py`: GATE (quotes todos/subset + grilla calendar).
+- **Pendiente del user:** ALTER `evt_ts` en Supabase (re-correr `sql/schema.sql` alcanza,
+  es idempotente) + `sync --full` + harness (→ 0 diffs) + `MARKET_SQL=1`.
+
+### Capa MERCADO — data layer + ESCRITURA (curvas, bonos, snapshots, macro) — código listo ⏳ validar
+- **Qué:** el espejo SQL de TODO lo que alimenta mercados: series macro (CER/A3500/BADLAR/
+  TAMAR/riesgo país/inflación), REM, `Trading.Curvas`, `Trading.BondsMaster`,
+  `Trading.MarketSnapshot` (live), histórico de cierres y canje. Y la **Fase 2 (escritura)**
+  del dominio mercado: los escritores espejan a PG con dual-write.
+- **Cómo (diseñado, no copiado 1:1 — detalle en `docs/SQL.md §Capa MERCADO`):**
+  - 7 tablas nuevas en `sql/schema.sql`: `series_macro` (7 colecciones-serie → UNA tabla
+    larga), `rem`, `curvas` (columnar + flujos/doc jsonb), `bonds_master`, `market_snapshot`
+    (**columnar** para replicar el `$set` parcial de los 2 motores sin pisarse),
+    `snapshots_cierre_hist` (PK fecha/curva/ticker — shape verificado contra el ESCRITOR
+    `jobs/snapshot_cierre.py`: `ts_cierre` es string, `ultimo_precio`/`tea` minúscula),
+    `canje_cierre`.
+  - 7 fases nuevas en `jobs/sync_postgres.py` (baseline horario + backfill `--full`;
+    no-críticas hasta que una vista las lea).
+  - **`core/pg_mirror.py`** (nuevo): dual-write best-effort genérico — agrupa filas por set
+    de columnas (semántica `$set` parcial), chunking, jamás levanta. Flags default OFF:
+    `MERCADO_SQL_WRITE=1` (jobs bcra / argentina_datos / snapshot_cierre / cierre_canje) y
+    `SNAPSHOT_SQL=1` (motores valores.py con throttle 5s — re-escribe estado completo — y
+    curvas.py sin throttle — escribe deltas).
+  - Curvas/BondsMaster sin dual-write (masters chicos editados a mano → sync horario).
+    `TimeSales`/`OrderBookL2` NO migran (streams de alto volumen sin consumidor SQL).
+- **Pendiente del user:** re-aplicar `sql/schema.sql` en Supabase + `sync --full` (fuera de
+  rueda) + prender `MERCADO_SQL_WRITE=1`; `SNAPSHOT_SQL=1` recién con mercado abierto para
+  verificar carga (los motores live son el único write frecuente).
+- **Próximo paso del dominio:** lecturas SQL de renta-fija/macro/REM (services + harness) —
+  los harness de la parte live necesitan mercado abierto.
 
 ### Feature: chart de volumen interactivo (Operadores) — NO es migración, va sobre SQL
 - **Qué:** click en una barra del chart (día/semana/mes) → la tabla de clientes muestra quiénes
@@ -195,8 +228,12 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
    en CADA request; ante cualquier error SQL cae a Mongo → prender AUTH_SQL nunca tumba la app.
    Vistas tasa-fija/CER de portfolio: ELIMINADAS (sin uso). PnL Títulos: pendiente (task aparte).
 5c. ✅ HOME/NEWS (código listo; flag `NEWS_SQL`; harness) — pendiente user: CREATE TABLE + sync + flag.
-5d. 🟡 MARKET quotes/calendar (tablas + sync hechos; falta service+flag+harness `MARKET_SQL`).
-6. ⏳ MERCADO (curvas, snapshots, timesales — medir shapes; real-time al final)
+5d. ✅ MARKET quotes/calendar (service `market_sql` + flag `MARKET_SQL` + harness; pendiente
+    user: ALTER `evt_ts` + sync + harness + flag).
+6. 🟡 MERCADO — data layer + ESCRITURA hechos (tablas series_macro/rem/curvas/bonds_master/
+   market_snapshot/snapshots_cierre_hist/canje_cierre + sync + dual-write `core/pg_mirror`
+   con flags `MERCADO_SQL_WRITE`/`SNAPSHOT_SQL`). Falta: lecturas SQL de renta-fija/macro/REM
+   (real-time se valida con mercado abierto). TimeSales/OrderBookL2 NO migran (decisión).
 7. ⏳ FASE 2 — ESCRITURAS → apagar Mongo. Ver §5b "Aunesa/Negocio — las dos capas":
    Capa A (lecturas, listo, validar+prender 5 flags) + Capa B (dual-write de 6 ingestas, PAUSADA
    2026-06-07 a pedido del user). Incluye también auth writes + caches + ~40 jobs cron.
@@ -220,15 +257,18 @@ Todo lo **Aunesa** (no real-time) y parte de **Primary** que no necesita mercado
 
 ### ⏳ Necesita MERCADO ABIERTO (real-time, motores):
 - Vistas: renta-fija, derivados, agro, sintéticos, renta-variable/scanner, estrategia (curvas/forwards/
-  breakevens/carry), operar, MCP.
-- **~12 motores** pyRofex → Trading.* (MarketSnapshot/TimeSales/Curvas/OrderBookL2/…). Base lista:
-  dual-write de SnapshotWriter (flag SNAPSHOT_SQL). Falta: tablas snapshot + `sql_table=` por motor +
-  migrar motores que NO usan SnapshotWriter (motor_rofex/options/caución).
+  breakevens/carry), operar, MCP. (El DATA LAYER de curvas/bonos/snapshots/macro ya está — ver
+  "Capa MERCADO" arriba — lo que falta acá son los SERVICES de lectura + harness con rueda.)
+- **Motores**: `valores.py` y `curvas.py` (los 2 que escriben MarketSnapshot) ya tienen dual-write
+  vía `core/pg_mirror` (flag SNAPSHOT_SQL). Falta evaluar el resto (options/caución/cedears/dólar)
+  cuando su lectura migre — mismo patrón pg_mirror.
 
-### ⏳ ESCRITURAS (para apagar Mongo) — TODO sigue en Mongo:
-- **~40 jobs cron** (bcra, argentina_datos, market_quotes, news, snapshot_cierre, fair_value, aum,
-  negocio, operaciones, aranceles, actividad_mensual, pnl_totales_precompute, consolidado, …) → cada uno
-  debe escribir SQL (o dual-write).
+### ⏳ ESCRITURAS (para apagar Mongo) — avance parcial:
+- ✅ **Jobs de MERCADO con dual-write** (flag `MERCADO_SQL_WRITE`): bcra, argentina_datos,
+  snapshot_cierre, cierre_canje. ✅ **Motores** valores/curvas (flag `SNAPSHOT_SQL`).
+- ⏳ El resto de los **~40 jobs cron** (market_quotes, news, fair_value, aum, negocio, operaciones,
+  aranceles, actividad_mensual, pnl_totales_precompute, consolidado, …) → mismo patrón
+  `core/pg_mirror.mirror_job` cuando se retome la Capa B de Aunesa.
 - **Auth writes**: upsert_user, delete_user, set_role_modules, auto_register, last_seen, grupos CRUD, RoleAudit.
 - **Segmentación writes**: edición de Comitentes (niveles/operador) desde /manager.
 - **Caches**: PnLTotalesCache, ConsolidadoCuentas (cron → tabla jsonb).

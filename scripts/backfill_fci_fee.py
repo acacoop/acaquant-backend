@@ -8,18 +8,23 @@ Convención (confirmada): el honorario viene en PORCENTAJE con coma decimal
 (saldo × FEE_ADMIN). Ver [[project_referidos_comision_fci]].
 
 Seguro (REGLA #4):
-  * DRY-RUN por default — NO escribe; muestra match / no-match / FCI sin fee.
+  * DRY-RUN por default — NO escribe; muestra match / TUS FCI sin fee / inválidos.
   * Idempotente: UPDATE por `unidad` (sin upsert) → re-correrlo no duplica ni crea.
   * Scopeado a CARTERA FCI; valida 0<fee<=1 (descarta valores absurdos por error de parseo).
+  * `--out archivo.txt` vuelca el reporte a un archivo (para revisar / pushear / compartir).
+
+El CSV suele traer TODO el universo CAFCI (miles) → la mayoría cae en "no encontrados"
+(fondos que no operás): es ruido esperado. Lo que importa es "TUS FCI SIN FEE".
 
 Uso:
-    python -m scripts.backfill_fci_fee --file ruta/al/excel.xlsx            # DRY-RUN
-    python -m scripts.backfill_fci_fee --file ruta/al/excel.xlsx --apply    # escribe
-    python -m scripts.backfill_fci_fee --file ruta.csv --sheet "Hoja1"
+    python -m scripts.backfill_fci_fee --file scripts/fci_fees.csv                       # DRY-RUN
+    python -m scripts.backfill_fci_fee --file scripts/fci_fees.csv --out scripts/rep.txt # + archivo
+    python -m scripts.backfill_fci_fee --file scripts/fci_fees.csv --apply               # escribe
 """
 from __future__ import annotations
 
 import argparse
+import unicodedata
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -30,8 +35,9 @@ _FCI_CARTERAS = ["FCI", "CARTERA FCI"]
 
 
 def _norm(s) -> str:
-    """Normaliza un nombre de fondo para matchear: minúsculas, espacios colapsados."""
-    return " ".join(str(s or "").strip().lower().split())
+    """Normaliza para matchear: sin acentos, minúsculas, espacios colapsados."""
+    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode("ascii")
+    return " ".join(s.strip().lower().split())
 
 
 def _parse_pct(raw) -> float | None:
@@ -51,21 +57,36 @@ def main() -> None:
     ap.add_argument("--file", required=True, help="Excel (.xlsx) o CSV con columnas Fondo | Honorarios")
     ap.add_argument("--sheet", default=0, help="hoja del Excel (nombre o índice, default primera)")
     ap.add_argument("--apply", action="store_true", help="escribe (default: dry-run)")
+    ap.add_argument("--out", help="vuelca el reporte a este archivo (UTF-8)")
     args = ap.parse_args()
 
-    # ── 1) Leer el archivo (todo como string para controlar el parseo de la coma) ──
+    report: list[str] = []
+
+    def emit(s: str = "") -> None:
+        report.append(s)
+        print(s)
+
+    def flush() -> None:
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(report) + "\n")
+            print(f"\n→ reporte escrito en {args.out}")
+
+    # ── 1) Leer el archivo (todo string para controlar el parseo de la coma) ──
     if args.file.lower().endswith(".csv"):
         df = pd.read_csv(args.file, dtype=str, sep=None, engine="python")
     else:
         df = pd.read_excel(args.file, sheet_name=args.sheet, dtype=str)
     cols = list(df.columns)
     if len(cols) < 2:
-        print(f"⚠️ El archivo tiene {len(cols)} columna(s); necesito al menos 2 (Fondo, Honorarios).")
+        emit(f"El archivo tiene {len(cols)} columna(s); necesito al menos 2 (Fondo, Honorarios).")
+        flush()
         return
     fondo_col = next((c for c in cols if "fondo" in str(c).lower()), cols[0])
     hon_col = next((c for c in cols if "honor" in str(c).lower()), cols[1])
-    print(f"=== backfill FCI fee — archivo {args.file} ===")
-    print(f"    columna Fondo='{fondo_col}'  ·  columna Honorario='{hon_col}'  ·  {'APPLY' if args.apply else 'DRY-RUN'}\n")
+    emit(f"=== backfill FCI fee — archivo {args.file} ===")
+    emit(f"    Fondo='{fondo_col}'  Honorario='{hon_col}'  {'APPLY' if args.apply else 'DRY-RUN'}")
+    emit("")
 
     # ── 2) Universo FCI en Assets (norm(unidad) → unidad original) ─────────────
     col = (get_mongo_client() if args.apply else get_mongo_client_read())["Valuaciones"]["Assets"]
@@ -74,17 +95,15 @@ def main() -> None:
         u = d.get("unidad")
         if u:
             fci[_norm(u)] = {"unidad": u, "fee_actual": d.get("FEE_ADMIN")}
-    print(f"[Assets] {len(fci)} fondos CARTERA FCI en el maestro\n")
+    emit(f"[Assets] {len(fci)} fondos CARTERA FCI en el maestro\n")
 
-    # ── 3) Matchear filas del Excel ────────────────────────────────────────────
+    # ── 3) Matchear filas del archivo ──────────────────────────────────────────
     matched, no_encontrados, invalidos = [], [], []
     vistos: set[str] = set()
     for _, row in df.iterrows():
         fondo = str(row[fondo_col] or "").strip()
-        if not fondo or _norm(fondo) in ("", "fondo"):
-            continue
         nf = _norm(fondo)
-        if nf in vistos:
+        if not nf or nf == "fondo" or nf in vistos:
             continue
         vistos.add(nf)
         pct = _parse_pct(row[hon_col])
@@ -102,39 +121,39 @@ def main() -> None:
         matched.append({"unidad": hit["unidad"], "pct": pct, "fraccion": fraccion,
                         "fee_actual": hit["fee_actual"]})
 
-    # ── 4) Reporte ─────────────────────────────────────────────────────────────
-    print(f"── MATCHEAN ({len(matched)}) — fondo → fee% → fracción (fee actual) ──")
-    for m in matched[:60]:
+    # ── 4) Reporte (enfocado) ──────────────────────────────────────────────────
+    emit(f"── MATCHEAN ({len(matched)}) — fondo → fee% → fracción (fee actual) ──")
+    for m in sorted(matched, key=lambda x: x["unidad"]):
         cambia = "" if m["fee_actual"] == m["fraccion"] else f"  (antes: {m['fee_actual']})"
-        print(f"    {m['unidad'][:46]:<46} {m['pct']:>7.4f}%  → {m['fraccion']}{cambia}")
-    if len(matched) > 60:
-        print(f"    … (+{len(matched) - 60} más)")
-    print()
+        emit(f"    {m['unidad'][:48]:<48} {m['pct']:>7.4f}%  → {m['fraccion']}{cambia}")
+    emit("")
 
-    if no_encontrados:
-        print(f"── ⚠️ NO ENCONTRADOS en Assets ({len(no_encontrados)}) — revisá el nombre en el Excel ──")
-        for f, p in no_encontrados:
-            print(f"    {f[:50]:<50} {p:>7.4f}%")
-        print()
-    if invalidos:
-        print(f"── ⚠️ HONORARIO INVÁLIDO ({len(invalidos)}) ──")
-        for f, v in invalidos:
-            print(f"    {f[:50]:<50} {v}")
-        print()
-
+    # TUS FCI que NO recibieron fee — lo accionable (diferencia de nombre).
     en_excel = {_norm(m["unidad"]) for m in matched}
-    sin_fee = [v["unidad"] for k, v in fci.items() if k not in en_excel]
-    if sin_fee:
-        print(f"── FCI en Assets SIN fee en el Excel ({len(sin_fee)}) ──")
-        for u in sorted(sin_fee)[:40]:
-            print(f"    {u}")
-        if len(sin_fee) > 40:
-            print(f"    … (+{len(sin_fee) - 40} más)")
-        print()
+    sin_fee = sorted(v["unidad"] for k, v in fci.items() if k not in en_excel)
+    emit(f"── ⚠️ TUS FCI (Assets) SIN FEE ({len(sin_fee)}) — revisá el nombre vs el Excel ──")
+    for u in sin_fee:
+        emit(f"    {u}")
+    emit("")
+
+    if invalidos:
+        emit(f"── ⚠️ HONORARIO INVÁLIDO en el Excel ({len(invalidos)}) ──")
+        for f, v in invalidos[:30]:
+            emit(f"    {f[:50]:<50} {v}")
+        emit("")
+
+    # Ruido esperado: fondos del Excel que no están en tu maestro (no los operás).
+    emit(f"── (info) fondos del Excel NO en tu maestro: {len(no_encontrados)} (ruido, ignorar) ──")
+    for f, p in no_encontrados[:15]:
+        emit(f"    {f[:50]:<50} {p:>7.4f}%")
+    if len(no_encontrados) > 15:
+        emit(f"    … (+{len(no_encontrados) - 15} más)")
+    emit("")
 
     # ── 5) Aplicar ─────────────────────────────────────────────────────────────
     if not args.apply:
-        print(f"DRY-RUN: {len(matched)} fondos se actualizarían. Re-corré con --apply para escribir.")
+        emit(f"DRY-RUN: {len(matched)} fondos se actualizarían. Re-corré con --apply para escribir.")
+        flush()
         return
     now = datetime.now(UTC)
     n = 0
@@ -145,7 +164,8 @@ def main() -> None:
                       "actualizado_at": now}},
         )
         n += res.modified_count
-    print(f"✅ APPLY: {n} fondos actualizados ({len(matched)} matcheados).")
+    emit(f"✅ APPLY: {n} fondos actualizados ({len(matched)} matcheados).")
+    flush()
 
 
 if __name__ == "__main__":

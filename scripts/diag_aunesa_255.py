@@ -65,20 +65,31 @@ def main() -> int:
             emit("  (sin respuesta / error HTTP de Aunesa)")
             continue
         rows = _rows(data)
-        emit(f"  registros: {len(rows)}")
-        if rows:
-            emit(f"  keys: {list(rows[0].keys())}")
-            total = 0.0
-            for r in rows:
-                emit("   " + json.dumps(r, ensure_ascii=False, default=str))
-                for k in _VAL_KEYS:
-                    v = r.get(k)
-                    if isinstance(v, (int, float)):
-                        total += v
-                        break
-            emit(f"  SUMA (best-effort sobre {_VAL_KEYS}): {total:,.2f}")
-        else:
-            emit(json.dumps(data, ensure_ascii=False, indent=2, default=str)[:4000])
+        # MISMO filtro que el job (jobs/aum.py::procesar): solo 'Acumulado'.
+        acum = [r for r in rows if r.get("informacion") == "Acumulado"]
+        emit(f"  registros totales: {len(rows)}   |   Acumulado (lo que usa el job): {len(acum)}")
+        if not acum:
+            emit("  (sin filas Acumulado) — keys de la 1ra fila cruda: "
+                 + (str(list(rows[0].keys())) if rows else "—"))
+            continue
+
+        emit(f"  keys de cada fila: {list(acum[0].keys())}")
+        # Campos que parecen fecha → AHÍ se ve si Aunesa corre el día.
+        date_keys = [k for k in acum[0] if "fecha" in k.lower() or "date" in k.lower()]
+        emit(f"  >>> CAMPOS DE FECHA detectados: {date_keys or '(ninguno)'}")
+        emit(f"  {'UNIDAD':<42} {'CANTIDAD':>16} {'PRECIO':>14} "
+             + " ".join(f"{k:>12}" for k in date_keys))
+        total_c = 0.0
+        for r in acum:
+            try:
+                cant = float(r.get("cantidad") or 0)
+            except (TypeError, ValueError):
+                cant = 0.0
+            total_c += cant
+            emit(f"  {str(r.get('unidad'))[:42]:<42} {cant:>16,.2f} "
+                 f"{str(r.get('precio')):>14} "
+                 + " ".join(f"{str(r.get(k)):>12}" for k in date_keys))
+        emit(f"  SUMA cantidades: {total_c:,.2f}")
 
     if out:
         with open(out, "w", encoding="utf-8") as fh:

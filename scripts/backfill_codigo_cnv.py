@@ -1,8 +1,11 @@
 """backfill_codigo_cnv.py — carga masiva del CÓDIGO CNV a Valuaciones.Assets.
 
-Lee un Excel/CSV con 2 columnas: A) Código (CNV)  B) Nombre (== el TICKER del
-asset). Rellena el campo `CODIGO_CNV` en Valuaciones.Assets matcheando
-Nombre → `TICKER` (UPPERCASE, la fuente de verdad).
+Lee un Excel/CSV con 2 columnas: A) Código (CNV)  B) Nombre. Rellena el campo
+`CODIGO_CNV` en Valuaciones.Assets matcheando por `TICKER` (UPPERCASE, la fuente
+de verdad). OJO: el 'Nombre' del export suele ser una DESCRIPCIÓN que arranca
+con el ticker (ej. 'S30S2-L.T.GOB.NAC...'), así que se prueba el string completo
+y el prefijo antes del primer '-' (ver `_candidatos`). El DRY-RUN mide cuántos
+matchean de verdad antes de escribir.
 
 Detección de columnas: busca por nombre de header (codigo/cnv y nombre/ticker,
 sin acentos, case-insensitive); si no las encuentra usa las 2 primeras columnas
@@ -37,6 +40,20 @@ def _norm(s: str) -> str:
     """minúsculas sin acentos, para comparar headers."""
     s = unicodedata.normalize("NFKD", str(s))
     return "".join(c for c in s if not unicodedata.combining(c)).strip().lower()
+
+
+def _candidatos(nombre: str) -> list[str]:
+    """Tickers candidatos a partir del 'Nombre' del Excel. El Nombre suele ser
+    una descripción que ARRANCA con el ticker, ej. 'S30S2-L.T.GOB.NAC...' → el
+    ticker es el prefijo antes del primer '-'. Probamos en orden: (1) string
+    completo, (2) prefijo antes del primer '-'. Devuelve UPPERCASE."""
+    n = nombre.strip().upper()
+    cands = [n]
+    if "-" in n:
+        pref = n.split("-", 1)[0].strip()
+        if pref and pref != n:
+            cands.append(pref)
+    return cands
 
 
 def _pick_col(cols: list[str], claves: tuple[str, ...], fallback_idx: int) -> str:
@@ -107,11 +124,15 @@ def main() -> int:
         if not codigo or not nombre:
             invalidos += 1
             continue
-        tk = nombre.upper()
-        if tk in vistos:
+        cands = _candidatos(nombre)
+        if cands[0] in vistos:
             continue  # duplicado en el Excel → ya procesado
-        vistos.add(tk)
-        unidades = por_ticker.get(tk)
+        vistos.add(cands[0])
+        unidades = None
+        for c in cands:
+            unidades = por_ticker.get(c)
+            if unidades:
+                break
         if not unidades:
             no_encontrados.append(f"{nombre}  (cod {codigo})")
             continue

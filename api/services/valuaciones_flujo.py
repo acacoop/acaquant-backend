@@ -196,8 +196,8 @@ def get_mensual(id_cuenta: str) -> dict:
             b["extracciones"] += imp
 
     from api.services.valuaciones import valuacion_mensual
-    return {"id_cuenta": str(id_cuenta),
-            "filas": valuacion_mensual(id_cuenta=id_cuenta, flujos_override=flujos)}
+    # Devuelve {id_cuenta, meses:[MensualRow], n_meses} igual que Carteras.
+    return valuacion_mensual(id_cuenta=id_cuenta, flujos_override=flujos)
 
 
 def get_tenencias(id_cuenta: str, fecha: str | None = None) -> dict:

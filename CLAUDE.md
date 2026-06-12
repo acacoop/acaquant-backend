@@ -6,7 +6,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → MongoDB Atlas M10 → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO), venv en `/root/TradingAV/venv`.
 
-**DBs Mongo**: `Trading` (Curvas, MarketSnapshot, SnapshotsCierre, CanjeCierre, OrderBookL2, TimeSales, DOLAR), `Valuaciones` (Assets, AuM, DolarOficialLive, PnLTotalesCache, ConsolidadoCuentas), `CashFlow` (Contrapartes, Productores, NegocioMovimientos), `Manager` (Users, RoleMatrix, RoleAudit), `Clientes` (Comitentes, ComercialCache — segmentación/operador asignado), `CuentasAPI` (AccionistasAPI, ContrapartesAPI — copias derivadas), `MCP` (OAuth codes/tokens, TTL automático).
+**DBs Mongo** (12 bases, inventario medido 2026-06-12 con `scripts/diag_inventario_mongo_sql`):
+- `Trading` — núcleo de mercado: Curvas, BondsMaster, MarketSnapshot, SnapshotsCierre, CanjeCierre, TimeSales; series macro DOLAR/CER/BADLAR/TAMAR/RiesgoPais/InflacionMensual/InflacionInteranual/UVA; renta fija derivada BreakevensLive/Historico, ForwardsLive/Historico/Zscore, FitParams, FairValueResiduos, DiasHabiles, REM; FuturosDLR(+Snapshot), Caucion(+Snapshot); renta variable Cedears, CedearsSnapshot, CedearsTimeSales, PreciosAcciones, AdrSnapshot, DayTradingStats; AgroSnapshot, AgroOpcionesSnapshot; SnapshotsSinteticos; ONSnapshot.
+- `Valuaciones` — Assets, AuM, ConsolidadoCuentas, PnLTotalesCache, TenenciaHD, Dolar/DolarSnapshot/DolarOficialLive (MEP/CCL).
+- `CashFlow` — Operaciones, NegocioMovimientos, OpsSerieDiaria, Contrapartes, Productores, Accionistas, Acreencias, Movimientos, VolumenMercadoAgro.
+- `Clientes` — Comitentes, ComercialCache, ActividadMensual (segmentación/operador asignado).
+- `Manager` — Users, RoleMatrix, RoleAudit, Grupos, JobRuns, HealthReports, WatchdogAlertas.
+- `Opciones` — opciones financieras GGAL (motor `engines/options.py`): Data (tick TS), DataHistorica, OptionsSnapshot, Metadata, VR-GGal.
+- `Derivados` — carga MANUAL de la mesa (vista Agro): AgroPizarra, CamaraCereales (+ `*Audit`).
+- `Operaciones` — motor de órdenes: OrdenesLive, OrdenesAudit, TriggersMep, BracketsLive, OperativasMep.
+- `Market` — Quotes (watchlist HOME), EconomicCalendar.
+- `News` — Headlines (TTL 2 días).
+- `MCP` — OAuth clients/codes/tokens (TTL automático).
+- App separada `partner_api` usa la base `ACAPortfolio` (Cartera, ApiUsers).
+
+> Las colecciones espejo `*API` (`CuentasAPI`) fueron **eliminadas** (2026-06-06) — ver más abajo en "Deploy".
 
 ## Contexto por subdirectorio
 

@@ -1,115 +1,161 @@
-"""api/services/valuaciones_flujo.py — flujo directo de la cartera por cuenta.
+"""api/services/valuaciones_flujo.py — flujo directo de la cartera por cuenta (SQL).
 
-NEGOCIO → Valuaciones (solo admin + asistente_comercial). Arma el flujo NETO de
-una cuenta desde los movimientos de títulos (CashFlow.NegocioMovimientos — los
-mismos boletos del PnL Títulos), por mes y categoría, para TODA la cartera. Así
-se evita el ruido de depósitos/extracciones administrativas (que NO son boletos
-de títulos y rompen el neto por depósitos/extracciones).
+NEGOCIO → Valuaciones (admin + asistente_comercial). Flujo neto de la cuenta
+desde los boletos de títulos (tabla SQL `negocio_movimientos`, espejo de
+CashFlow.NegocioMovimientos), por mes y categoría, para TODA la cartera. Evita el
+ruido de depósitos/extracciones administrativas.
+
+EFICIENTE: el RESUMEN se agrega EN POSTGRES (GROUP BY → matriz chica, no miles de
+filas). El DETALLE se pide bajo demanda por (categoría, mes). Acotado por desde/hasta.
 
 5 columnas: compra→COMPRAS, venta→VENTAS, rescate_fci→RESCATES,
 suscripcion_fci→SUSCRIPCIONES, acreencia→OTROS.
 
-El usuario incluye/excluye movimientos (sí/no); la elección se guarda POR CUENTA
-en CashFlow.ValuacionFlujoExcluidos (set de `comprobante` excluidos; default =
-todos incluidos). El flujo neto considera solo los incluidos.
+Las EXCLUSIONES (sí/no) se guardan POR CUENTA en Mongo CashFlow.ValuacionFlujoExcluidos
+(set de comprobantes; default = todos incluidos) y se aplican en el WHERE del SQL.
 
-Pesificación idéntica al PnL (api/services/pnl.py::_pesificar): ARS → importe;
-otra moneda → importe × mep (mep del boleto; fallback get_mep_for_date).
+Nombre FCI: negocio.ticker para FCI es el código CAFCI → se resuelve al ticker
+limpio con LEFT JOIN assets ON assets.cafci = nm.ticker (no afecta al resto).
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
-from api.services._mep import get_mep_for_date
+from psycopg.rows import dict_row
+
 from core.mongo import get_mongo_client, get_mongo_client_read
+from core.postgres import get_pool
 
-# Mapeo categoria del boleto → columna de la vista. Mismo universo que el PnL.
-_CAT_TO_COL: dict[str, str] = {
-    "compra":          "COMPRAS",
-    "venta":           "VENTAS",
-    "rescate_fci":     "RESCATES",
-    "suscripcion_fci": "SUSCRIPCIONES",
-    "acreencia":       "OTROS",
+# categoria del boleto → columna. Mismo universo que el PnL Títulos.
+_COL_TO_CAT: dict[str, str] = {
+    "COMPRAS":       "compra",
+    "VENTAS":        "venta",
+    "RESCATES":      "rescate_fci",
+    "SUSCRIPCIONES": "suscripcion_fci",
+    "OTROS":         "acreencia",
 }
 COLUMNAS: tuple[str, ...] = ("COMPRAS", "VENTAS", "RESCATES", "SUSCRIPCIONES", "OTROS")
+_CATS: list[str] = list(_COL_TO_CAT.values())
 
 _SEL_DB, _SEL_COL = "CashFlow", "ValuacionFlujoExcluidos"
 
-
-def _mes(fecha) -> str:
-    if isinstance(fecha, datetime):
-        return fecha.strftime("%Y-%m")
-    return str(fecha or "")[:7]
-
-
-def _pesificar(importe, moneda, mep, fecha, cache: dict) -> float:
-    try:
-        imp = float(importe or 0)
-    except (TypeError, ValueError):
-        return 0.0
-    if (moneda or "ARS") == "ARS":
-        return imp
-    if mep is None:
-        f = str(fecha or "")
-        if f not in cache:
-            cache[f] = get_mep_for_date(f)
-        mep = cache[f]
-    if not mep or mep <= 0:
-        return imp  # fallback: queda en moneda original (no se pudo pesificar)
-    return imp * mep
+# Pesificación a ARS (SIGNADO, sin abs → para que el NETO tenga sentido):
+# misma moneda → directo; cross → ×mep.
+_CONV = ("CASE WHEN moneda = 'ARS' THEN COALESCE(importe, 0) "
+         "ELSE COALESCE(importe, 0) * COALESCE(mep, 0) END")
 
 
-def _excluidos(id_cuenta: str) -> set:
+def _f(x) -> float:
+    return float(x or 0)
+
+
+def _q(sql: str, params: dict | None = None) -> list[dict]:
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql, params or {})
+        return cur.fetchall()
+
+
+def _excluidos(id_cuenta: str) -> list[str]:
     doc = get_mongo_client_read()[_SEL_DB][_SEL_COL].find_one(
         {"id_cuenta": str(id_cuenta)}, {"_id": 0, "excluidos": 1})
-    return set(doc.get("excluidos") or []) if doc else set()
+    return [str(c) for c in (doc.get("excluidos") or [])] if doc else []
 
 
-def get_flujo(id_cuenta: str) -> dict:
-    """Movimientos de títulos de la cuenta (con flag `incluido`) para la vista.
+def _rango(desde: str | None, hasta: str | None) -> tuple[str, str]:
+    """Default = año en curso (1-ene → hoy) si no se pasa rango."""
+    h = hasta or date.today().isoformat()
+    d = desde or f"{h[:4]}-01-01"
+    return d, h
 
-    El frontend arma la matriz mes×categoría sumando los `incluido=True`.
-    """
-    db_cf = get_mongo_client_read()["CashFlow"]
-    cur = db_cf["NegocioMovimientos"].find(
-        {"id_cuenta": str(id_cuenta), "categoria": {"$in": list(_CAT_TO_COL)}},
-        {"_id": 0, "fecha": 1, "categoria": 1, "op": 1, "ticker": 1,
-         "importe": 1, "moneda": 1, "comprobante": 1, "mep": 1},
-    ).sort([("fecha", 1), ("comprobante", 1)])
 
+def get_resumen(id_cuenta: str, desde: str | None = None, hasta: str | None = None) -> dict:
+    """Matriz mes × categoría agregada en Postgres (solo movimientos incluidos)."""
+    d, h = _rango(desde, hasta)
     excl = _excluidos(id_cuenta)
-    cache: dict = {}
-    movimientos: list[dict] = []
-    for m in cur:
-        comp = m.get("comprobante")
-        importe_ars = _pesificar(
-            m.get("importe"), m.get("moneda"), m.get("mep"), m.get("fecha"), cache)
-        movimientos.append({
-            "comprobante": comp,
-            "fecha":       m.get("fecha"),
-            "mes":         _mes(m.get("fecha")),
-            "categoria":   _CAT_TO_COL.get(m.get("categoria"), "OTROS"),
-            "op":          m.get("op") or m.get("categoria"),
-            "ticker":      m.get("ticker"),
-            "importe":     m.get("importe"),
-            "moneda":      m.get("moneda"),
-            "importe_ars": round(importe_ars, 2),
-            "incluido":    comp not in excl,
-        })
+    rows = _q(
+        f"""SELECT to_char(fecha, 'YYYY-MM') AS mes,
+              SUM(CASE WHEN categoria='compra'          THEN {_CONV} ELSE 0 END) AS compras,
+              SUM(CASE WHEN categoria='venta'           THEN {_CONV} ELSE 0 END) AS ventas,
+              SUM(CASE WHEN categoria='rescate_fci'     THEN {_CONV} ELSE 0 END) AS rescates,
+              SUM(CASE WHEN categoria='suscripcion_fci' THEN {_CONV} ELSE 0 END) AS suscripciones,
+              SUM(CASE WHEN categoria='acreencia'       THEN {_CONV} ELSE 0 END) AS otros
+            FROM negocio_movimientos
+            WHERE id_cuenta = %(id)s AND categoria = ANY(%(cats)s)
+              AND fecha >= %(d)s AND fecha <= %(h)s
+              AND unidad IS DISTINCT FROM 'USDL'
+              AND comprobante <> ALL(%(excl)s)
+            GROUP BY mes ORDER BY mes DESC""",
+        {"id": str(id_cuenta), "cats": _CATS, "d": d, "h": h, "excl": excl},
+    )
+    filas: list[dict] = []
+    tot = {c: 0.0 for c in COLUMNAS}
+    key = {"COMPRAS": "compras", "VENTAS": "ventas", "RESCATES": "rescates",
+           "SUSCRIPCIONES": "suscripciones", "OTROS": "otros"}
+    for r in rows:
+        cols = {c: _f(r[key[c]]) for c in COLUMNAS}
+        for c in COLUMNAS:
+            tot[c] += cols[c]
+        filas.append({"mes": r["mes"],
+                      **{c: round(cols[c], 2) for c in COLUMNAS},
+                      "neto": round(sum(cols.values()), 2)})
     return {
-        "id_cuenta":   str(id_cuenta),
-        "columnas":    list(COLUMNAS),
-        "movimientos": movimientos,
-        "n":           len(movimientos),
+        "id_cuenta":  str(id_cuenta),
+        "desde":      d,
+        "hasta":      h,
+        "columnas":   list(COLUMNAS),
+        "filas":      filas,
+        "totales":    {c: round(tot[c], 2) for c in COLUMNAS},
+        "neto_total": round(sum(tot.values()), 2),
     }
 
 
+def get_movimientos(id_cuenta: str, categoria: str, desde: str | None = None,
+                    hasta: str | None = None, mes: str | None = None) -> dict:
+    """Detalle (bajo demanda) de una categoría, para el panel derecho 50%."""
+    cat = _COL_TO_CAT.get((categoria or "").upper())
+    if not cat:
+        return {"categoria": categoria, "movimientos": [], "n": 0}
+    d, h = _rango(desde, hasta)
+    conds = ["nm.id_cuenta = %(id)s", "nm.categoria = %(cat)s",
+             "nm.fecha >= %(d)s", "nm.fecha <= %(h)s",
+             "nm.unidad IS DISTINCT FROM 'USDL'"]
+    p: dict = {"id": str(id_cuenta), "cat": cat, "d": d, "h": h}
+    if mes:
+        conds.append("to_char(nm.fecha, 'YYYY-MM') = %(mes)s")
+        p["mes"] = mes
+    rows = _q(
+        f"""SELECT nm.comprobante, nm.fecha, nm.op, nm.moneda, nm.importe, nm.mep,
+              COALESCE(a.ticker, nm.ticker) AS ticker,
+              ({_CONV}) AS importe_ars
+            FROM negocio_movimientos nm
+            LEFT JOIN assets a ON a.cafci = nm.ticker
+            WHERE {' AND '.join(conds)}
+            ORDER BY nm.fecha, nm.comprobante""",
+        p,
+    )
+    excl = set(_excluidos(id_cuenta))
+    movimientos = [{
+        "comprobante": str(r["comprobante"]),
+        "fecha":       r["fecha"].isoformat() if r["fecha"] else None,
+        "categoria":   categoria.upper(),
+        "op":          r["op"],
+        "ticker":      r["ticker"],
+        "importe":     _f(r["importe"]),
+        "moneda":      r["moneda"],
+        "importe_ars": round(_f(r["importe_ars"]), 2),
+        "incluido":    str(r["comprobante"]) not in excl,
+    } for r in rows]
+    return {"id_cuenta": str(id_cuenta), "categoria": categoria.upper(),
+            "movimientos": movimientos, "n": len(movimientos)}
+
+
 def set_incluido(id_cuenta: str, comprobante, incluido: bool, actor: str) -> dict:
-    """Incluye/excluye un comprobante para la cuenta. Guarda SOLO las exclusiones
-    (default = incluido). Idempotente; upsert por id_cuenta."""
+    """Incluye/excluye un comprobante para la cuenta (guardado compartido).
+    Guarda SOLO las exclusiones (default = incluido). Idempotente."""
+    comp = str(comprobante)
     col = get_mongo_client()[_SEL_DB][_SEL_COL]
-    cambio = ({"$pull": {"excluidos": comprobante}} if incluido
-              else {"$addToSet": {"excluidos": comprobante}})
+    cambio = ({"$pull": {"excluidos": comp}} if incluido
+              else {"$addToSet": {"excluidos": comp}})
     cambio["$set"] = {"actualizado_por": actor, "actualizado_at": datetime.now(UTC)}
     col.update_one({"id_cuenta": str(id_cuenta)}, cambio, upsert=True)
-    return {"id_cuenta": str(id_cuenta), "comprobante": comprobante, "incluido": incluido}
+    return {"id_cuenta": str(id_cuenta), "comprobante": comp, "incluido": incluido}

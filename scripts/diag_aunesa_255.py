@@ -14,7 +14,6 @@ Uso:
 """
 from __future__ import annotations
 
-import json
 import sys
 
 from jobs.aum import autenticar, consultar_posicion
@@ -87,8 +86,8 @@ def main() -> int:
                 cant = 0.0
             total_c += cant
             emit(f"  {str(r.get('unidad'))[:42]:<42} {cant:>16,.2f} "
-                 f"{str(r.get('precio')):>14} "
-                 + " ".join(f"{str(r.get(k)):>12}" for k in date_keys))
+                 f"{r.get('precio')!s:>14} "
+                 + " ".join(f"{r.get(k)!s:>12}" for k in date_keys))
         emit(f"  SUMA cantidades: {total_c:,.2f}")
 
     if out:

@@ -63,6 +63,7 @@ MODULES: tuple[str, ...] = (
     "operar",         # /operar (DOLAR MEP) + /api/ordenes + /api/operativa + /api/risk
     "operaciones",    # /operaciones (mesa, flujo) + /api/cuentas
     "portfolios",     # /portfolios + /aum + carteras + AuM + titulos
+    "valuaciones-flujo",  # /valuaciones-flujo (flujo directo de cartera — admin + asistente_comercial)
     "back-office",    # /back-office (títulos a enviar/recibir al mercado, conciliación)
     "manager",        # /manager + intel + jobs + logs (umbrella — tabs admin)
     # Sub-módulos de Manager: cobertura granular para el rol `asistente_comercial`
@@ -103,7 +104,7 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "asistente_comercial": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
-        "operaciones", "portfolios", "back-office",
+        "operaciones", "portfolios", "valuaciones-flujo", "back-office",
         "manager_comercial", "manager_clientes", "manager_instrumentos",
         "manager_contrapartes",
     ),

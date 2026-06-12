@@ -225,6 +225,7 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/api/manager/contrapartes",      "manager_contrapartes"),
     ("/api/portfolio",   "portfolios"),
     ("/api/titulos",     "portfolios"),
+    ("/api/valuaciones-flujo", "valuaciones-flujo"),
     # /api/ordenes + /api/operativa + /api/operar + /api/risk → módulo `operar` (acción)
     ("/api/ordenes",     "operar"),
     ("/api/operativa",   "operar"),

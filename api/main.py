@@ -46,6 +46,7 @@ from api.routers import (
     scanner,
     titulos,
     valuaciones,
+    valuaciones_flujo,
 )
 from config import (
     API_KEY,
@@ -197,6 +198,7 @@ _PORTFOLIOS   = [Depends(verify_api_key), Depends(require_module("portfolios"))]
 _BACK_OFFICE  = [Depends(verify_api_key), Depends(require_module("back-office"))]
 _OPERAR       = [Depends(verify_api_key), Depends(require_module("operar"))]
 _OPERACIONES  = [Depends(verify_api_key), Depends(require_module("operaciones"))]
+_VALUACIONES_FLUJO = [Depends(verify_api_key), Depends(require_module("valuaciones-flujo"))]
 # `manager.router` ya NO va con _MANAGER global: gatear todo /api/manager/*
 # con el módulo `manager` excluye a `asistente_comercial` (que solo tiene
 # `manager_comercial` y `manager_clientes`). El gate ahora vive POR sub-router
@@ -220,6 +222,7 @@ app.include_router(scanner.router,            dependencies=_PUBLIC)
 # Restringidos a roles con el módulo respectivo:
 app.include_router(carteras.router,          dependencies=_PORTFOLIOS)
 app.include_router(valuaciones.router,        dependencies=_PORTFOLIOS)
+app.include_router(valuaciones_flujo.router,  dependencies=_VALUACIONES_FLUJO)
 # titulos.router (assets + flujos) es PURO catálogo de instrumentos — sin
 # info de cuentas/posiciones. Lo necesita renta-fija/page.tsx para mapear
 # ticker → curva al pintar la tabla. Antes estaba bajo _PORTFOLIOS y para

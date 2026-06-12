@@ -344,7 +344,14 @@ def serie_valor_cuenta(
 
 
 @cached(ttl=300)
-def valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None) -> dict[str, Any]:
+def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
+    """Versión CACHEADA (flujo externo: depósitos/extracciones) — la usa Carteras.
+    La variante con flujo custom (NEGOCIO→Valuaciones) es `_valuacion_mensual`,
+    SIN cache porque el dict de flujo no es hasheable (rompía @cached)."""
+    return _valuacion_mensual(id_cuenta=id_cuenta)
+
+
+def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None) -> dict[str, Any]:
     """Tabla mensual: valor al cierre del mes + flujos externos del mes.
     Calcula métricas en ARS y USD paralelas.
 

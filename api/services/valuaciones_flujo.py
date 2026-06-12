@@ -195,9 +195,10 @@ def get_mensual(id_cuenta: str) -> dict:
         else:
             b["extracciones"] += imp
 
-    from api.services.valuaciones import valuacion_mensual
+    # Versión SIN cache (el flujo es un dict no hasheable → rompe @cached).
+    from api.services.valuaciones import _valuacion_mensual
     # Devuelve {id_cuenta, meses:[MensualRow], n_meses} igual que Carteras.
-    return valuacion_mensual(id_cuenta=id_cuenta, flujos_override=flujos)
+    return _valuacion_mensual(id_cuenta=id_cuenta, flujos_override=flujos)
 
 
 def get_tenencias(id_cuenta: str, fecha: str | None = None) -> dict:

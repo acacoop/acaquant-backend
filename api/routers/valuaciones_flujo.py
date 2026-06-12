@@ -16,14 +16,21 @@ from api.services import valuaciones_flujo as svc
 router = APIRouter(prefix="/api/valuaciones-flujo", tags=["Valuaciones Flujo"])
 
 
+@router.get("/carteras")
+def carteras() -> dict:
+    """Valores de CARTERA para el filtro maestro de la vista."""
+    return svc.get_carteras()
+
+
 @router.get("/resumen")
 def resumen(
     id_cuenta: str = Query(..., min_length=1, description="id_cuenta"),
     desde: str | None = Query(None, description="YYYY-MM-DD (default 1-ene del año en curso)"),
     hasta: str | None = Query(None, description="YYYY-MM-DD (default hoy)"),
+    cartera: str | None = Query(None, description="Filtrar por CARTERA (default todas)"),
 ) -> dict:
     """Matriz mes × categoría (agregada en Postgres, solo incluidos)."""
-    return svc.get_resumen(id_cuenta=id_cuenta, desde=desde, hasta=hasta)
+    return svc.get_resumen(id_cuenta=id_cuenta, desde=desde, hasta=hasta, cartera=cartera)
 
 
 @router.get("/movimientos")
@@ -33,26 +40,31 @@ def movimientos(
     desde: str | None = Query(None),
     hasta: str | None = Query(None),
     mes: str | None = Query(None, description="YYYY-MM (opcional, para una celda puntual)"),
+    cartera: str | None = Query(None),
 ) -> dict:
     """Detalle (bajo demanda) de una categoría — para el panel derecho 50%."""
     return svc.get_movimientos(id_cuenta=id_cuenta, categoria=categoria,
-                               desde=desde, hasta=hasta, mes=mes)
+                               desde=desde, hasta=hasta, mes=mes, cartera=cartera)
 
 
 @router.get("/mensual")
-def mensual(id_cuenta: str = Query(..., min_length=1)) -> dict:
+def mensual(
+    id_cuenta: str = Query(..., min_length=1),
+    cartera: str | None = Query(None),
+) -> dict:
     """Tabla mensual estilo Carteras (Cierre/Flujo neto/Δ valor/PnL acum/TEM/TEA,
     ARS+USD) con el flujo = neto de los boletos incluidos."""
-    return svc.get_mensual(id_cuenta=id_cuenta)
+    return svc.get_mensual(id_cuenta=id_cuenta, cartera=cartera)
 
 
 @router.get("/tenencias")
 def tenencias(
     id_cuenta: str = Query(..., min_length=1),
     fecha: str | None = Query(None, description="YYYY-MM-DD (cierre del mes); default último"),
+    cartera: str | None = Query(None),
 ) -> dict:
     """Tenencias de la cuenta a la fecha de cierre (panel derecho inferior)."""
-    return svc.get_tenencias(id_cuenta=id_cuenta, fecha=fecha)
+    return svc.get_tenencias(id_cuenta=id_cuenta, fecha=fecha, cartera=cartera)
 
 
 class _SelPatch(BaseModel):

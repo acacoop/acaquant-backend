@@ -68,10 +68,31 @@ def _rango(desde: str | None, hasta: str | None) -> tuple[str, str]:
     return d, h
 
 
-def get_resumen(id_cuenta: str, desde: str | None = None, hasta: str | None = None) -> dict:
+def _cart_cond(cartera: str | None, col: str) -> tuple[str, dict]:
+    """Filtro SQL por CARTERA: el ticker del movimiento ∈ los tickers/cafci de esa
+    cartera en `assets` (para FCI el negocio.ticker es el código CAFCI). Vacío /
+    None / TODAS → sin filtro."""
+    if not cartera or cartera.upper() == "TODAS":
+        return "", {}
+    frag = (f"{col} IN ("
+            "SELECT ticker FROM assets WHERE cartera = %(cart)s AND ticker IS NOT NULL "
+            "UNION SELECT cafci FROM assets WHERE cartera = %(cart)s AND cafci IS NOT NULL)")
+    return frag, {"cart": cartera}
+
+
+def get_carteras() -> dict:
+    """Valores de CARTERA disponibles (para el filtro maestro de la vista)."""
+    rows = _q("SELECT DISTINCT cartera FROM assets "
+              "WHERE cartera IS NOT NULL AND cartera <> '' ORDER BY cartera")
+    return {"carteras": [r["cartera"] for r in rows]}
+
+
+def get_resumen(id_cuenta: str, desde: str | None = None, hasta: str | None = None,
+                cartera: str | None = None) -> dict:
     """Matriz mes × categoría agregada en Postgres (solo movimientos incluidos)."""
     d, h = _rango(desde, hasta)
     excl = _excluidos(id_cuenta)
+    cfrag, cp = _cart_cond(cartera, "ticker")
     rows = _q(
         f"""SELECT to_char(fecha, 'YYYY-MM') AS mes,
               SUM(CASE WHEN categoria='compra'          THEN {_CONV} ELSE 0 END) AS compras,
@@ -84,8 +105,9 @@ def get_resumen(id_cuenta: str, desde: str | None = None, hasta: str | None = No
               AND fecha >= %(d)s AND fecha <= %(h)s
               AND unidad IS DISTINCT FROM 'USDL'
               AND comprobante <> ALL(%(excl)s)
+              {f"AND {cfrag}" if cfrag else ""}
             GROUP BY mes ORDER BY mes DESC""",
-        {"id": str(id_cuenta), "cats": _CATS, "d": d, "h": h, "excl": excl},
+        {"id": str(id_cuenta), "cats": _CATS, "d": d, "h": h, "excl": excl, **cp},
     )
     filas: list[dict] = []
     tot = {c: 0.0 for c in COLUMNAS}
@@ -110,7 +132,8 @@ def get_resumen(id_cuenta: str, desde: str | None = None, hasta: str | None = No
 
 
 def get_movimientos(id_cuenta: str, categoria: str, desde: str | None = None,
-                    hasta: str | None = None, mes: str | None = None) -> dict:
+                    hasta: str | None = None, mes: str | None = None,
+                    cartera: str | None = None) -> dict:
     """Detalle (bajo demanda) de una categoría, para el panel derecho 50%."""
     cat = _COL_TO_CAT.get((categoria or "").upper())
     if not cat:
@@ -123,6 +146,10 @@ def get_movimientos(id_cuenta: str, categoria: str, desde: str | None = None,
     if mes:
         conds.append("to_char(nm.fecha, 'YYYY-MM') = %(mes)s")
         p["mes"] = mes
+    cfrag, cp = _cart_cond(cartera, "nm.ticker")
+    if cfrag:
+        conds.append(cfrag)
+        p.update(cp)
     rows = _q(
         f"""SELECT nm.comprobante, nm.fecha, nm.op, nm.moneda, nm.importe, nm.mep,
               COALESCE(a.ticker, nm.ticker) AS ticker,
@@ -158,7 +185,7 @@ _SIGNO: dict[str, int] = {
 }
 
 
-def get_mensual(id_cuenta: str) -> dict:
+def get_mensual(id_cuenta: str, cartera: str | None = None) -> dict:
     """Tabla mensual estilo Carteras (Cierre AuM, Flujo neto, Δ valor, PnL acum,
     TEM, TEA en ARS y USD) — REUSA api.services.valuaciones.valuacion_mensual,
     pero alimentada con el FLUJO = neto de los boletos de títulos incluidos
@@ -169,14 +196,16 @@ def get_mensual(id_cuenta: str) -> dict:
     front muestra los últimos N meses).
     """
     excl = _excluidos(id_cuenta)
+    cfrag, cp = _cart_cond(cartera, "ticker")
     rows = _q(
         f"""SELECT fecha, categoria, ABS({_CONV}) AS mag
             FROM negocio_movimientos
             WHERE id_cuenta = %(id)s AND categoria = ANY(%(cats)s)
               AND unidad IS DISTINCT FROM 'USDL'
               AND comprobante <> ALL(%(excl)s)
+              {f"AND {cfrag}" if cfrag else ""}
             ORDER BY fecha""",
-        {"id": str(id_cuenta), "cats": _CATS, "excl": excl},
+        {"id": str(id_cuenta), "cats": _CATS, "excl": excl, **cp},
     )
     flujos: dict[str, dict] = {}
     for r in rows:
@@ -196,16 +225,20 @@ def get_mensual(id_cuenta: str) -> dict:
             b["extracciones"] += imp
 
     # Versión SIN cache (el flujo es un dict no hasheable → rompe @cached).
+    # `cartera` también filtra el CIERRE (AuM) por su campo CARTERA, así el
+    # rendimiento queda consistente con el flujo filtrado.
     from api.services.valuaciones import _valuacion_mensual
     # Devuelve {id_cuenta, meses:[MensualRow], n_meses} igual que Carteras.
-    return _valuacion_mensual(id_cuenta=id_cuenta, flujos_override=flujos)
+    return _valuacion_mensual(id_cuenta=id_cuenta, flujos_override=flujos,
+                              cartera=cartera or None)
 
 
-def get_tenencias(id_cuenta: str, fecha: str | None = None) -> dict:
+def get_tenencias(id_cuenta: str, fecha: str | None = None,
+                  cartera: str | None = None) -> dict:
     """Tenencias (posiciones) de la cuenta a una fecha de cierre — reusa el
-    snapshot de Carteras (panel derecho inferior 50%)."""
+    snapshot de Carteras (panel derecho inferior 50%), filtrable por CARTERA."""
     from api.services.valuaciones import posiciones_actuales
-    return posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha)
+    return posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha, cartera=cartera or None)
 
 
 def set_incluido(id_cuenta: str, comprobante, incluido: bool, actor: str) -> dict:

@@ -351,7 +351,8 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     return _valuacion_mensual(id_cuenta=id_cuenta)
 
 
-def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None) -> dict[str, Any]:
+def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
+                       cartera: str | None = None) -> dict[str, Any]:
     """Tabla mensual: valor al cierre del mes + flujos externos del mes.
     Calcula métricas en ARS y USD paralelas.
 
@@ -406,7 +407,8 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None) -> d
     # meses con daily, gana el del último día hábil; para meses cubiertos
     # solo por el snap del 1° del siguiente, gana ese.
     pipeline_fechas = [
-        {"$match": {"id_cuenta": id_cuenta}},
+        {"$match": {"id_cuenta": id_cuenta,
+                    **({"CARTERA": cartera} if cartera else {})}},
         {"$group": {
             "_id":       "$fecha_snapshot",
             "valuacion": {"$sum": "$valuacion"},
@@ -1002,7 +1004,7 @@ def valuacion_mensual_debug(id_cuenta: str) -> dict[str, Any]:
 
 @cached(ttl=60)
 def posiciones_actuales(
-    id_cuenta: str, fecha: str | None = None,
+    id_cuenta: str, fecha: str | None = None, cartera: str | None = None,
 ) -> dict[str, Any]:
     """Posiciones de un fecha_snapshot dado para la cuenta.
 
@@ -1047,7 +1049,8 @@ def posiciones_actuales(
     docs = list(
         db_val["AuM"]
         .find(
-            {"id_cuenta": id_cuenta, "fecha_snapshot": fecha},
+            {"id_cuenta": id_cuenta, "fecha_snapshot": fecha,
+             **({"CARTERA": cartera} if cartera else {})},
             {"_id": 0, "unidad": 1, "cantidad": 1, "precio": 1,
              "valuacion": 1, "tipoTitulo": 1},
         )

@@ -58,6 +58,7 @@ HOME_STOCKS: list[tuple[str, str]] = [
     ("DIA",  "Índices"),
     ("IWM",  "Índices"),
     ("EWZ",  "Índices"),
+    ("SPCX", "Índices"),
 ]
 
 # ── Futuros CME / CBOT / COMEX / NYMEX / ICE + cripto spot vía Yahoo.

@@ -442,7 +442,6 @@ def sync_news(mdb, conn, dry) -> int:
     """News.Headlines (RSS/Finnhub) → news_headlines. data jsonb = doc con fechas a ISO."""
     from datetime import datetime as _dt
 
-    from psycopg.types.json import Jsonb
     cols = ["url", "fecha_publicacion", "fuente", "categoria", "titulo", "data"]
     rows = []
     for d in mdb["News"]["Headlines"].find({}, {"_id": 0}):
@@ -451,7 +450,7 @@ def sync_news(mdb, conn, dry) -> int:
             continue
         doc = {k: (v.isoformat() if isinstance(v, _dt) else v) for k, v in d.items()}
         rows.append((url, d.get("fecha_publicacion"), _s(d.get("fuente")),
-                     _s(d.get("categoria")), _s(d.get("titulo")), Jsonb(doc)))
+                     _s(d.get("categoria")), _s(d.get("titulo")), _jsonb(doc)))
     rows = _dedup(rows, [0])
     n = _upsert(conn, "news_headlines", cols, ["url"], rows, dry)
     _delete_not_in(conn, "news_headlines", "url", {r[0] for r in rows}, dry)
@@ -465,16 +464,27 @@ def _doc_iso(d):
     return doc_iso(d)
 
 
+def _jsonb(v):
+    """Jsonb BLINDADO para columnas jsonb: pasa por _doc_iso (datetime→ISO) y
+    cualquier tipo no-JSON residual (Decimal128, ObjectId anidado, date) cae a
+    str — un campo raro en UN doc no puede volver a tumbar la fase entera
+    (incidente bonds_master 2026-06-12: flujos con datetime iban a Jsonb crudos)."""
+    import json
+    from functools import partial
+
+    from psycopg.types.json import Jsonb
+    return Jsonb(_doc_iso(v), dumps=partial(json.dumps, default=str))
+
+
 def sync_quotes(mdb, conn, dry) -> int:
     """Market.Quotes → market_quotes (key symbol). data jsonb = doc completo (anchors incluidos)."""
-    from psycopg.types.json import Jsonb
     cols = ["symbol", "grupo", "data"]
     rows = []
     for d in mdb["Market"]["Quotes"].find({}, {"_id": 0}):
         sym = _s(d.get("symbol"))
         if not sym:
             continue
-        rows.append((sym, _s(d.get("grupo")), Jsonb(_doc_iso(d))))
+        rows.append((sym, _s(d.get("grupo")), _jsonb(d)))
     rows = _dedup(rows, [0])
     n = _upsert(conn, "market_quotes", cols, ["symbol"], rows, dry)
     _delete_not_in(conn, "market_quotes", "symbol", {r[0] for r in rows}, dry)
@@ -487,7 +497,6 @@ def sync_calendar(mdb, conn, dry) -> int:
     event) → habilita dual-write limpio (la v1 con hkey=md5 del doc generaba una fila
     nueva en cada update). Docs cuyo `time` no es datetime se saltean — tampoco
     matchean el filtro de rango del endpoint en Mongo (misma semántica)."""
-    from psycopg.types.json import Jsonb
     cols = ["evt_ts", "country", "event", "impact", "data"]
     rows = []
     for d in mdb["Market"]["EconomicCalendar"].find({}, {"_id": 0}):
@@ -497,7 +506,7 @@ def sync_calendar(mdb, conn, dry) -> int:
         # Mongo devuelve naive-UTC → se clava UTC para que el cast no corra la hora.
         evt_ts = evt.replace(tzinfo=UTC) if evt.tzinfo is None else evt
         rows.append((evt_ts, d.get("country") or "", d.get("event") or "",
-                     int(d.get("impact") or 0), Jsonb(_doc_iso(d))))
+                     int(d.get("impact") or 0), _jsonb(d)))
     rows = _dedup(rows, [0, 1, 2])
     n = _upsert(conn, "market_calendar", cols, ["evt_ts", "country", "event"], rows, dry)
     if not dry:  # delete de huérfanos con PK compuesta (unnest de arrays paralelos,
@@ -585,7 +594,6 @@ def sync_curvas(mdb, conn, dry) -> tuple[int, int]:
     (cleanup_curvas borra vencidos en Mongo; el UPSERT no borra). Lo consultable
     va columnar; flujos + doc completo en jsonb. Saltea docs sin ticker_corto
     (PK del upsert de ons.sync_ons_to_curvas) y los cuenta."""
-    from psycopg.types.json import Jsonb
     cols = ["ticker_corto", "ticker", "curva", "tipo", "moneda_flujo", "valor_nominal",
             "fecha_emision", "fecha_vencimiento", "cupon_anual", "cer_emision",
             "flujo_vencimiento", "emisor", "sector", "flujos", "data"]
@@ -600,7 +608,7 @@ def sync_curvas(mdb, conn, dry) -> tuple[int, int]:
             _s(d.get("moneda_flujo")), d.get("valor_nominal"), _d(d.get("fecha_emision")),
             _d(d.get("fecha_vencimiento")), d.get("cupon_anual"), d.get("cer_emision"),
             d.get("flujo_vencimiento"), _s(d.get("emisor")), _s(d.get("sector")),
-            Jsonb(d.get("flujos") or []), Jsonb(_doc_iso(d)),
+            _jsonb(d.get("flujos") or []), _jsonb(d),
         ))
     rows = _dedup(rows, [0])
     n = _upsert(conn, "curvas", cols, ["ticker_corto"], rows, dry)
@@ -611,7 +619,6 @@ def sync_curvas(mdb, conn, dry) -> tuple[int, int]:
 def sync_bonds_master(mdb, conn, dry) -> int:
     """Trading.BondsMaster (master editable de ONs, Manager) → bonds_master.
     Chica, completa + delete de huérfanos (delete_on borra en Mongo)."""
-    from psycopg.types.json import Jsonb
     cols = ["asset", "emisor", "sector", "moneda_flujo", "tasa_cupon", "vencimiento",
             "tickers", "flujos", "actualizado_por", "actualizado_at", "data"]
     rows = []
@@ -621,9 +628,9 @@ def sync_bonds_master(mdb, conn, dry) -> int:
             continue
         rows.append((a, _s(d.get("emisor")), _s(d.get("sector")), _s(d.get("moneda_flujo")),
                      d.get("tasa_cupon"), _d(d.get("vencimiento")),
-                     Jsonb(d.get("tickers") or {}), Jsonb(d.get("flujos") or []),
+                     _jsonb(d.get("tickers") or {}), _jsonb(d.get("flujos") or []),
                      _s(d.get("actualizado_por")), d.get("actualizado_at"),
-                     Jsonb(_doc_iso(d))))
+                     _jsonb(d)))
     rows = _dedup(rows, [0])
     n = _upsert(conn, "bonds_master", cols, ["asset"], rows, dry)
     _delete_not_in(conn, "bonds_master", "asset", {r[0] for r in rows}, dry)
@@ -634,7 +641,6 @@ def sync_market_snapshot(mdb, conn, dry) -> int:
     """Trading.MarketSnapshot → market_snapshot (columnar, 1 fila/ticker). Baseline
     horario; la frescura intradía la da el dual-write de los motores (SNAPSHOT_SQL,
     core/pg_mirror). Completa + delete de huérfanos."""
-    from psycopg.types.json import Jsonb
     cols = ["ticker", "book", "last_price", "open_price", "high_price", "low_price",
             "closing_price", "vwap", "total_nominals", "updated_at",
             "tea", "tem", "duration", "mod_duration", "convexity", "paridad"]
@@ -644,7 +650,7 @@ def sync_market_snapshot(mdb, conn, dry) -> int:
         if not t:
             continue
         m = d.get("metrics") or {}
-        rows.append((t, Jsonb(d.get("book") or {}), m.get("last_price"), m.get("open_price"),
+        rows.append((t, _jsonb(d.get("book") or {}), m.get("last_price"), m.get("open_price"),
                      m.get("high_price"), m.get("low_price"), m.get("closing_price"),
                      m.get("vwap"), m.get("total_nominals"), d.get("updated_at"),
                      m.get("TEA"), m.get("TEM"), m.get("duration"), m.get("mod_duration"),

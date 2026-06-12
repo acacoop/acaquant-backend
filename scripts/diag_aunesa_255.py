@@ -14,6 +14,7 @@ Uso:
 """
 from __future__ import annotations
 
+import hashlib
 import sys
 
 from jobs.aum import autenticar, consultar_posicion
@@ -55,6 +56,7 @@ def main() -> int:
         buf.append(s)
 
     headers = autenticar()
+    resumenes: list[tuple] = []
     for fecha in fechas:
         emit(f"\n{'=' * 64}")
         emit(f"CUENTA {CUENTA}  ·  desde={fecha}  ·  nivel='Especie x cuenta'")
@@ -89,6 +91,20 @@ def main() -> int:
                  f"{r.get('precio')!s:>14} "
                  + " ".join(f"{r.get(k)!s:>12}" for k in date_keys))
         emit(f"  SUMA cantidades: {total_c:,.2f}")
+        fp = hashlib.md5(
+            "|".join(f"{r.get('unidad')}:{round(float(r.get('cantidad') or 0), 2)}"
+                     for r in sorted(acum, key=lambda x: str(x.get('unidad')))).encode()
+        ).hexdigest()[:8]
+        resumenes.append((fecha, len(acum), total_c, fp))
+
+    emit("\n" + "=" * 64)
+    emit("COMPARACIÓN — ¿qué fechas devuelven lo MISMO? (ahí está el corrimiento)")
+    emit("=" * 64)
+    emit(f"  {'FECHA (desde)':<16} {'#ESPECIES':>10} {'SUMA CANT':>18} {'HUELLA':>10}")
+    for f, n, t, fp in resumenes:
+        emit(f"  {f:<16} {n:>10} {t:>18,.2f} {fp:>10}")
+    emit("\n  Misma HUELLA = misma posición devuelta → ahí está el corrimiento de fecha.")
+    emit("  Decime cuál FECHA (desde) coincide con tu contable del 29/05 y clavamos el offset.")
 
     if out:
         with open(out, "w", encoding="utf-8") as fh:

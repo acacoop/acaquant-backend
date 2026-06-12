@@ -690,6 +690,41 @@ def sync_snapshots_cierre_hist(mdb, conn, dry, desde: datetime | None) -> int:
     return total
 
 
+# Históricos diarios de la vista mercado → tabla genérica mercado_hist.
+# (colección Mongo, campo fecha, campos subclave) — claves VERIFICADAS contra el
+# upsert de cada escritor (engines/breakevens, forwards, futuros_dlr, caucion;
+# jobs/fair_value). Los snapshots LIVE no se espejan acá (ver sql/schema.sql).
+_MERCADO_HIST = [
+    ("BreakevensHistorico", "fecha",     []),                   # 1 doc/día (pares)
+    ("ForwardsHistorico",   "fecha",     ["curva"]),            # tasas + matrix
+    ("FuturosDLR",          "fecha",     ["ticker"]),           # cierre + TNA implícita
+    ("Caucion",             "fecha",     ["moneda"]),           # cierre TNA caución
+    ("FitParams",           "ts_cierre", ["curva"]),            # Nelson-Siegel betas
+    ("FairValueResiduos",   "ts_cierre", ["curva", "ticker"]),  # residuos fair value
+]
+
+
+def sync_mercado_hist(mdb, conn, dry, desde: datetime | None) -> int:
+    """Históricos diarios de mercado → mercado_hist (grano colección/fecha/subclave,
+    doc completo en jsonb). Incremental por el campo fecha de cada colección
+    (string ISO → comparación lexicográfica)."""
+    f_desde = desde.date().isoformat() if desde else None
+    total = 0
+    for coleccion, campo_fecha, subclaves in _MERCADO_HIST:
+        q = {campo_fecha: {"$gte": f_desde}} if f_desde else {}
+        rows = []
+        for d in mdb["Trading"][coleccion].find(q, {"_id": 0}):  # perf-ok: PERF002
+            f = _d(d.get(campo_fecha))
+            if f is None:
+                continue
+            k = "|".join(str(d.get(s) or "") for s in subclaves)
+            rows.append((coleccion, f, k, _jsonb(d)))
+        total += _upsert(conn, "mercado_hist", ["coleccion", "fecha", "k", "data"],
+                         ["coleccion", "fecha", "k"], _dedup(rows, [0, 1, 2]), dry)
+        time.sleep(THROTTLE)
+    return total
+
+
 def sync_canje_cierre(mdb, conn, dry, desde: datetime | None) -> int:
     """Trading.CanjeCierre → canje_cierre. Incremental por fecha (string ISO)."""
     f_desde = desde.date().isoformat() if desde else None
@@ -782,9 +817,11 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_sh = _t("snapshots_cierre_hist",
                   lambda: sync_snapshots_cierre_hist(mdb, conn, dry, desde))
         n_cj = _t("canje_cierre", lambda: sync_canje_cierre(mdb, conn, dry, desde))
+        n_mh = _t("mercado_hist", lambda: sync_mercado_hist(mdb, conn, dry, desde))
         print(f"  mercado: series_macro={n_sm:,}  rem={n_rem}  curvas={n_cv} "
               f"(sin ticker_corto, salteadas={sin_corto})  bonds_master={n_bm}  "
-              f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  canje_cierre={n_cj}")
+              f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  canje_cierre={n_cj}  "
+              f"mercado_hist={n_mh:,}")
         print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  comitentes={n_co}  "
               f"contrapartes={n_cp}  accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
@@ -818,7 +855,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "series_macro": n_sm, "rem": n_rem, "curvas": n_cv,
              "curvas_sin_ticker_corto": sin_corto, "bonds_master": n_bm,
              "market_snapshot": n_ms, "snapshots_cierre_hist": n_sh,
-             "canje_cierre": n_cj,
+             "canje_cierre": n_cj, "mercado_hist": n_mh,
              "operaciones": n_ops,
              "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol,
              "fases_fallidas": len(fallos)}

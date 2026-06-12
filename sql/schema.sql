@@ -443,3 +443,18 @@ CREATE TABLE IF NOT EXISTS canje_cierre (
     updated_at timestamptz,
     PRIMARY KEY (ticker, fecha)
 );
+
+-- Históricos DIARIOS de la vista mercado (1 tabla genérica): BreakevensHistorico,
+-- ForwardsHistorico, FuturosDLR, Caucion, FitParams, FairValueResiduos. Grano:
+-- (colección, fecha, subclave) — la subclave (`k`) es curva/ticker/moneda según la
+-- colección ('' si el día es la clave entera). Doc completo en jsonb. Los snapshots
+-- LIVE (BreakevensLive, ForwardsLive, *Snapshot, DolarSnapshot…) NO se espejan por
+-- sync (una foto horaria de un dato por-segundo no sirve): migran con su vista vía
+-- dual-write del motor (core/pg_mirror, mismo patrón que market_snapshot).
+CREATE TABLE IF NOT EXISTS mercado_hist (
+    coleccion text NOT NULL,
+    fecha     date NOT NULL,
+    k         text NOT NULL DEFAULT '',
+    data      jsonb,
+    PRIMARY KEY (coleccion, fecha, k)
+);

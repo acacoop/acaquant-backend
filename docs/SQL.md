@@ -78,6 +78,18 @@ de Mongo — ver comentarios en `sql/schema.sql §CAPA MERCADO`):
 | `market_snapshot` | Trading.MarketSnapshot | **columnar a propósito**: dos motores escriben el mismo doc con `$set` parcial — cada uno upsertea SOLO sus columnas (un jsonb compartido pisaría al otro motor) |
 | `snapshots_cierre_hist` | Trading.SnapshotsCierre | HISTÓRICO completo, PK (fecha, curva, ticker). `snapshots_cierre` (último por ticker, PnL) se mantiene aparte: otro grano/consumidor |
 | `canje_cierre` | Trading.CanjeCierre | PK (ticker, fecha) |
+| `mercado_hist` | Trading.{BreakevensHistorico, ForwardsHistorico, FuturosDLR, Caucion, FitParams, FairValueResiduos} | tabla genérica de históricos DIARIOS: grano (colección, fecha, subclave curva/ticker/moneda), doc en jsonb. Claves verificadas contra cada escritor |
+
+**Cobertura de la vista MERCADO — qué NO se espeja por sync (decisión):**
+- **Snapshots LIVE** (BreakevensLive, ForwardsLive/Zscore, CaucionSnapshot,
+  FuturosDLRSnapshot, OptionsSnapshot, AgroSnapshot, AgroOpcionesSnapshot,
+  CedearsSnapshot, AdrSnapshot, SnapshotsSinteticos, Valuaciones.DolarSnapshot,
+  DolarOficialLive): cambian por segundo — un espejo horario es una foto vieja que
+  ninguna vista puede servir. Migran **junto con su lectura**, vía dual-write del
+  motor (`core/pg_mirror`, mismo patrón que `market_snapshot` live).
+- **Streams** (TimeSales, CedearsTimeSales, OrderBookL2): alto volumen, sin
+  consumidor SQL. `Trading.PreciosAcciones` (TS del scanner): pendiente de MEDIR
+  volumen antes de decidir (REGLA #2/#4).
 
 **Escritura — dos caminos complementarios:**
 1. **`jobs/sync_postgres.py`** (fases nuevas, no-críticas hasta que una vista las lea):

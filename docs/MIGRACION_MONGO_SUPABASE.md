@@ -170,6 +170,13 @@ cero. Mongo queda como plan B hasta verificar. Manda el gate, no el calendario.
 - **Pendiente del user:** re-aplicar `sql/schema.sql` en Supabase + `sync --full` (fuera de
   rueda) + prender `MERCADO_SQL_WRITE=1`; `SNAPSHOT_SQL=1` recién con mercado abierto para
   verificar carga (los motores live son el único write frecuente).
+- **Cobertura TOTAL de la vista mercado (2026-06-12):** tabla genérica `mercado_hist`
+  con los históricos diarios restantes (BreakevensHistorico, ForwardsHistorico,
+  FuturosDLR, Caucion, FitParams, FairValueResiduos — claves verificadas contra cada
+  escritor). Los snapshots LIVE (Breakevens/Forwards/Caucion/Options/Agro/Cedears/
+  DolarSnapshot/DolarOficialLive) NO se espejan por sync (foto horaria de dato
+  por-segundo = inservible): migran con su vista vía dual-write del motor.
+  PreciosAcciones (TS scanner): medir volumen antes de decidir.
 - **Próximo paso del dominio:** lecturas SQL de renta-fija/macro/REM (services + harness) —
   los harness de la parte live necesitan mercado abierto.
 

@@ -35,7 +35,14 @@ _EMPTY_VALUES: list[str | None] = ["", "NO APLICA", None]
 _EDITABLE_FIELDS: tuple[str, ...] = (
     "CARTERA", "EMISOR", "INSTRUMENTO",
     "CLASE_ACTIVO", "CALIFICACION", "TICKER", "VENCIMIENTO",
+    # CODIGO_CNV: código CNV del instrumento (string; puede tener ceros a la
+    # izquierda). Se edita a mano o se carga masivo (scripts/backfill_codigo_cnv).
+    "CODIGO_CNV",
 )
+
+# Campos editables que NO entran al autocomplete /values: códigos únicos por
+# asset → un datalist con miles de valores no aporta nada.
+_NO_AUTOCOMPLETE: frozenset[str] = frozenset({"CODIGO_CNV"})
 
 # Campos NUMÉRICOS editables (no entran al autocomplete /values, que es string).
 # FEE_ADMIN: honorario de administración del FCI que cobra la sociedad gerente.
@@ -48,6 +55,7 @@ _PROJECTION = {
     "_id": 0, "unidad": 1,
     "CARTERA": 1, "EMISOR": 1, "INSTRUMENTO": 1, "CLASE_ACTIVO": 1,
     "CALIFICACION": 1, "TICKER": 1, "VENCIMIENTO": 1, "FEE_ADMIN": 1,
+    "CODIGO_CNV": 1,
     # CAFCI es read-only — derivado de `unidad` por jobs/aum.py.
     # No está en _EDITABLE_FIELDS adrede.
     "CAFCI": 1,
@@ -142,6 +150,8 @@ def get_assets_values() -> dict:
 
     values: dict[str, list[str]] = {}
     for campo in _EDITABLE_FIELDS:
+        if campo in _NO_AUTOCOMPLETE:
+            continue
         raw = col.distinct(campo)
         values[campo] = sorted(
             {v for v in raw if isinstance(v, str) and v and v not in placeholders}
@@ -167,6 +177,7 @@ class _AssetPatch(BaseModel):
     CALIFICACION: str | None = Field(None, max_length=128)
     TICKER:       str | None = Field(None, max_length=64)
     VENCIMIENTO:  str | None = Field(None, max_length=64)
+    CODIGO_CNV:   str | None = Field(None, max_length=64)
     # Fracción decimal: 0.01 = 1%. Cap 0<fee≤1 (100%) para atajar el error
     # típico de cargar "1" pensando en 1% (sería 100%). El front muestra el %
     # equivalente al lado del input para que se vea a simple vista.
@@ -189,7 +200,7 @@ def patch_asset(
         raise HTTPException(400, "body sin campos editables — pasá al "
                                   "menos uno de CARTERA, EMISOR, INSTRUMENTO, "
                                   "CLASE_ACTIVO, CALIFICACION, TICKER, "
-                                  "VENCIMIENTO, FEE_ADMIN.")
+                                  "VENCIMIENTO, FEE_ADMIN, CODIGO_CNV.")
 
     set_fields["actualizado_por"] = actor
     set_fields["actualizado_at"]  = datetime.now(UTC)

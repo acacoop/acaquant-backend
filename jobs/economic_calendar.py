@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 
 from core.finnhub import FinnhubError, economic_calendar
 from core.mongo import get_mongo_client
+from core.pg_mirror import doc_iso, jobs_on, mirror_job
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,22 @@ def ingesta() -> int:
             ins += 1
         elif result.modified_count:
             upd += 1
+
+    # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort). Se RE-LEE la
+    # colección (en vez de espejar los docs en memoria): los datetimes vuelven de
+    # Mongo naive y truncados a ms — idéntico a lo que ve el sync y sirve la API.
+    if jobs_on():
+        pg_rows = []
+        for d in coll.find({}, {"_id": 0}):
+            evt = d.get("time")
+            if not isinstance(evt, datetime):
+                continue
+            pg_rows.append({
+                "evt_ts": evt.replace(tzinfo=UTC) if evt.tzinfo is None else evt,
+                "country": d.get("country") or "", "event": d.get("event") or "",
+                "impact": int(d.get("impact") or 0), "data": doc_iso(d),
+            })
+        mirror_job("market_calendar", ["evt_ts", "country", "event"], pg_rows)
 
     logger.info("economic_calendar — ins=%d upd=%d skip=%d total=%d", ins, upd, skip, len(events))
     return 0

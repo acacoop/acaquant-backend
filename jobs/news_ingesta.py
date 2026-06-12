@@ -20,8 +20,14 @@ from datetime import UTC, datetime
 from pymongo.errors import DuplicateKeyError
 
 from core.mongo import get_mongo_client
+from core.pg_mirror import doc_iso, jobs_on, mirror_job, prune_job
 
 logger = logging.getLogger(__name__)
+
+# Retención: las noticias NO se acumulan — viven 2 días y Mongo las borra solo
+# (TTL index sobre fecha_publicacion). El espejo SQL aplica la misma retención
+# vía prune_job tras cada ingesta (y el delete-orphans de sync_postgres de red).
+RETENCION_DIAS = 2
 
 # Fuentes con RSS público. Si una URL cambia, solo se ignora esa fuente esa
 # corrida (el resto sigue). El campo `fuente` se usa también como clave
@@ -60,6 +66,13 @@ def _ensure_indexes(coll) -> None:
     coll.create_index([("fecha_publicacion", -1)])
     coll.create_index([("fuente", 1), ("fecha_publicacion", -1)])
     coll.create_index("categoria")
+    # TTL: Mongo borra solo los docs con fecha_publicacion > RETENCION_DIAS días.
+    # Clave ascendente {f:1} ≠ {f:-1} de arriba → conviven sin conflicto.
+    coll.create_index(
+        [("fecha_publicacion", 1)],
+        name="ttl_fecha_publicacion",
+        expireAfterSeconds=RETENCION_DIAS * 86400,
+    )
 
 
 def _parse_entry_date(entry) -> datetime:
@@ -160,6 +173,16 @@ def main() -> int:
         total_err += err
         logger.info("[%s/%s] ins=%d dup=%d err=%d",
                     f["fuente"], f["categoria"], ins, dup, err)
+
+    # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort): espejo del
+    # estado completo (chico — la TTL mantiene ≤2 días) + misma retención en PG.
+    if jobs_on():
+        rows = [{"url": d["url"], "fecha_publicacion": d.get("fecha_publicacion"),
+                 "fuente": d.get("fuente"), "categoria": d.get("categoria"),
+                 "titulo": d.get("titulo"), "data": doc_iso(d)}
+                for d in coll.find({}, {"_id": 0}) if d.get("url")]
+        mirror_job("news_headlines", ["url"], rows)
+        prune_job("news_headlines", "fecha_publicacion", RETENCION_DIAS)
 
     elapsed = time.time() - t0
     logger.info("DONE — feeds=%d ins=%d dup=%d err=%d %.1fs",

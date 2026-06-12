@@ -251,21 +251,25 @@ CREATE TABLE IF NOT EXISTS market_quotes (
     data   jsonb
 );
 
--- Market.EconomicCalendar — eventos macro. PK = hash de contenido (no hay id natural).
--- evt_time es text (la fecha del evento puede venir string o datetime → se coacciona).
+-- Market.EconomicCalendar — eventos macro. v2: PK NATURAL (evt_ts, country, event),
+-- igual al unique index del ESCRITOR (jobs/economic_calendar upsertea por time/
+-- country/event) → dual-write limpio. La v1 (hkey = md5 del doc) generaba una fila
+-- nueva en cada update del evento. Migración guardada: si existe la v1 se dropea y
+-- recrea (espejo descartable — el próximo sync_postgres la repuebla entera).
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'market_calendar' AND column_name = 'hkey') THEN
+    DROP TABLE market_calendar;
+  END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS market_calendar (
-    hkey     text PRIMARY KEY,
-    evt_time text,
-    impact   integer,
-    country  text,
-    data     jsonb,
-    -- timestamptz REAL para el filtro de rango del endpoint. NULL cuando `time` no era
-    -- datetime en Mongo (esos docs tampoco matchean el rango allá → misma semántica).
-    evt_ts   timestamptz
+    evt_ts  timestamptz NOT NULL,            -- el filtro de rango usa el prefijo de la PK
+    country text NOT NULL,
+    event   text NOT NULL,
+    impact  integer,
+    data    jsonb,
+    PRIMARY KEY (evt_ts, country, event)
 );
-ALTER TABLE market_calendar ADD COLUMN IF NOT EXISTS evt_ts timestamptz;
-CREATE INDEX IF NOT EXISTS ix_market_calendar_time ON market_calendar(evt_time);
-CREATE INDEX IF NOT EXISTS ix_market_calendar_ts   ON market_calendar(evt_ts);
 
 -- CashFlow.NegocioMovimientos (~339k). Grano único (fecha, comprobante).
 CREATE TABLE IF NOT EXISTS negocio_movimientos (

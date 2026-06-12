@@ -34,6 +34,39 @@ def jobs_on() -> bool:
     return os.getenv("MERCADO_SQL_WRITE") == "1"
 
 
+def doc_iso(v):
+    """Conversión RECURSIVA datetime→ISO para guardar docs Mongo en jsonb.
+    Tiene que ser deep: los datetimes anidados (ej. flujos de BondsMaster)
+    rompen json.dumps si solo se convierte el nivel top."""
+    from datetime import datetime
+    if isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, dict):
+        return {k: doc_iso(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [doc_iso(x) for x in v]
+    return v
+
+
+def prune_job(table: str, col: str, days: int) -> int:
+    """Retención best-effort en el espejo (flag MERCADO_SQL_WRITE): borra filas con
+    `col` más viejo que `days` días. Para tablas cuya fuente Mongo tiene TTL (ej.
+    News.Headlines, 2 días) — sin esto el espejo acumularía lo que Mongo ya borró."""
+    if not jobs_on():
+        return 0
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM {table} WHERE {col} < now() - %s * interval '1 day'",
+                (days,),
+            )
+            return cur.rowcount or 0
+    except Exception as e:
+        logger.error("pg_mirror prune %s: %s", table, str(e).splitlines()[0][:200])
+        return 0
+
+
 def mirror_snapshot(table: str, key_cols: list[str], rows: list[dict],
                     min_interval: float = 0.0) -> int:
     """Espejo live desde un motor (flag SNAPSHOT_SQL). `min_interval` > 0

@@ -344,7 +344,7 @@ def serie_valor_cuenta(
 
 
 @cached(ttl=300)
-def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
+def valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None) -> dict[str, Any]:
     """Tabla mensual: valor al cierre del mes + flujos externos del mes.
     Calcula métricas en ARS y USD paralelas.
 
@@ -432,19 +432,25 @@ def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
     # Se hace en Python (no $group server-side) porque la tasa MEP es
     # per-fecha del MOVIMIENTO, no por mes. Cada doc se convierte a ARS
     # antes de sumar al bucket de su mes.
-    movimientos_raw = list(db_cf["NegocioMovimientos"].find(
-        {
-            # id_cuenta indexado (id_cuenta+categoria+fecha) en vez de regex sobre cuenta.
-            "id_cuenta": str(id_cuenta),
-            "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
-        },
-        {"_id": 0, "fecha": 1, "categoria": 1, "importe": 1, "moneda": 1},
-    ))
     # Cache MEP por fecha — evita re-queries dentro del mismo mes.
     mep_cache: dict[str, float | None] = {}
-    # Cada mes guarda agregados (depositos/extracciones) + `items` = lista
-    # de (fecha_iso, importe_ars_signado) que XIRR consume directo.
-    flujos_by_mes: dict[str, dict[str, Any]] = {}
+    # `flujos_override`: un caller puede pasar OTRO flujo (mismo shape
+    # {mes: {depositos, extracciones, items:[(fecha_iso, imp_ars_signado)]}}) y se
+    # usa tal cual — ej. NEGOCIO→Valuaciones usa el neto de los boletos de títulos.
+    # El resto del cálculo (XIRR/TEM/TEA/TWR/USD) queda IDÉNTICO a Carteras.
+    if flujos_override is not None:
+        flujos_by_mes = flujos_override
+        movimientos_raw: list[dict] = []
+    else:
+        movimientos_raw = list(db_cf["NegocioMovimientos"].find(
+            {
+                # id_cuenta indexado (id_cuenta+categoria+fecha) en vez de regex sobre cuenta.
+                "id_cuenta": str(id_cuenta),
+                "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
+            },
+            {"_id": 0, "fecha": 1, "categoria": 1, "importe": 1, "moneda": 1},
+        ))
+        flujos_by_mes = {}
     for m in movimientos_raw:
         fecha = m.get("fecha")
         if not fecha or not isinstance(fecha, str):

@@ -39,6 +39,22 @@ def movimientos(
                                desde=desde, hasta=hasta, mes=mes)
 
 
+@router.get("/mensual")
+def mensual(id_cuenta: str = Query(..., min_length=1)) -> dict:
+    """Tabla mensual estilo Carteras (Cierre/Flujo neto/Δ valor/PnL acum/TEM/TEA,
+    ARS+USD) con el flujo = neto de los boletos incluidos."""
+    return svc.get_mensual(id_cuenta=id_cuenta)
+
+
+@router.get("/tenencias")
+def tenencias(
+    id_cuenta: str = Query(..., min_length=1),
+    fecha: str | None = Query(None, description="YYYY-MM-DD (cierre del mes); default último"),
+) -> dict:
+    """Tenencias de la cuenta a la fecha de cierre (panel derecho inferior)."""
+    return svc.get_tenencias(id_cuenta=id_cuenta, fecha=fecha)
+
+
 class _SelPatch(BaseModel):
     id_cuenta:   str = Field(..., min_length=1)
     comprobante: str | int

@@ -149,6 +149,64 @@ def get_movimientos(id_cuenta: str, categoria: str, desde: str | None = None,
             "movimientos": movimientos, "n": len(movimientos)}
 
 
+# Signo del flujo para el XIRR (confirmado por la mesa): compra/suscripción
+# AGREGAN posición (depósito +); venta/rescate la SACAN (extracción −);
+# acreencia = cobro que sale del portfolio (−).
+_SIGNO: dict[str, int] = {
+    "compra": +1, "suscripcion_fci": +1,
+    "venta": -1, "rescate_fci": -1, "acreencia": -1,
+}
+
+
+def get_mensual(id_cuenta: str) -> dict:
+    """Tabla mensual estilo Carteras (Cierre AuM, Flujo neto, Δ valor, PnL acum,
+    TEM, TEA en ARS y USD) — REUSA api.services.valuaciones.valuacion_mensual,
+    pero alimentada con el FLUJO = neto de los boletos de títulos incluidos
+    (en vez de depósitos/extracciones). XIRR/TEM/TEA idéntico a Carteras.
+
+    El flujo se construye signado (ver _SIGNO) y excluye los comprobantes
+    marcados 'NO'. Sin filtro de fecha: la tabla cubre toda la historia (el
+    front muestra los últimos N meses).
+    """
+    excl = _excluidos(id_cuenta)
+    rows = _q(
+        f"""SELECT fecha, categoria, ABS({_CONV}) AS mag
+            FROM negocio_movimientos
+            WHERE id_cuenta = %(id)s AND categoria = ANY(%(cats)s)
+              AND unidad IS DISTINCT FROM 'USDL'
+              AND comprobante <> ALL(%(excl)s)
+            ORDER BY fecha""",
+        {"id": str(id_cuenta), "cats": _CATS, "excl": excl},
+    )
+    flujos: dict[str, dict] = {}
+    for r in rows:
+        if not r["fecha"]:
+            continue
+        signo = _SIGNO.get(r["categoria"], 0)
+        if signo == 0:
+            continue
+        imp = signo * _f(r["mag"])
+        mes = r["fecha"].isoformat()[:7]
+        b = flujos.setdefault(mes, {"depositos": 0.0, "extracciones": 0.0, "items": []})
+        if imp != 0:
+            b["items"].append((r["fecha"].isoformat(), imp))
+        if imp > 0:
+            b["depositos"] += imp
+        else:
+            b["extracciones"] += imp
+
+    from api.services.valuaciones import valuacion_mensual
+    return {"id_cuenta": str(id_cuenta),
+            "filas": valuacion_mensual(id_cuenta=id_cuenta, flujos_override=flujos)}
+
+
+def get_tenencias(id_cuenta: str, fecha: str | None = None) -> dict:
+    """Tenencias (posiciones) de la cuenta a una fecha de cierre — reusa el
+    snapshot de Carteras (panel derecho inferior 50%)."""
+    from api.services.valuaciones import posiciones_actuales
+    return posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha)
+
+
 def set_incluido(id_cuenta: str, comprobante, incluido: bool, actor: str) -> dict:
     """Incluye/excluye un comprobante para la cuenta (guardado compartido).
     Guarda SOLO las exclusiones (default = incluido). Idempotente."""

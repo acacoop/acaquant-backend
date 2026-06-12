@@ -21,10 +21,33 @@ from core.postgres import connect
 def main() -> int:
     sql = Path("sql/schema.sql").read_text(encoding="utf-8")
     # Quita comentarios de línea ANTES de splitear (evita que un ';' dentro de un
-    # comentario rompa el split). schema.sql es DDL puro (sin funciones / $$ ) →
-    # split por ';' es seguro.
+    # comentario rompa el split).
     sin_comentarios = re.sub(r"--[^\n]*", "", sql)
-    stmts = [s.strip() for s in sin_comentarios.split(";") if s.strip()]
+    # Split por ';' RESPETANDO bloques dollar-quoted ($$ ... $$): schema.sql tiene
+    # algún `DO $$ ... END $$` (migración idempotente) cuyos ';' internos NO son
+    # separadores — partirlo genera pedazos inválidos (SyntaxError).
+    stmts: list[str] = []
+    buf: list[str] = []
+    in_dollar = False
+    i = 0
+    while i < len(sin_comentarios):
+        if sin_comentarios[i:i + 2] == "$$":
+            in_dollar = not in_dollar
+            buf.append("$$")
+            i += 2
+            continue
+        ch = sin_comentarios[i]
+        if ch == ";" and not in_dollar:
+            stmt = "".join(buf).strip()
+            if stmt:
+                stmts.append(stmt)
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        stmts.append(tail)
     print(f"Aplicando sql/schema.sql → {len(stmts)} statements…\n")
 
     ok, fail = 0, 0

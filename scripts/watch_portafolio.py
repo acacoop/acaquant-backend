@@ -51,8 +51,9 @@ def _snapshot():
     return por_fecha
 
 
-def _render(por_fecha: dict):
-    print("\033[2J\033[H", end="")  # limpia pantalla
+def _render(por_fecha: dict, limpiar: bool = True):
+    if limpiar:
+        print("\033[2J\033[H", end="")  # limpia pantalla (solo modo vivo)
     print("═" * 78)
     print("  MONITOR BACKFILL portafolio.tenencia  ·  refresca cada ciclo  ·  Ctrl-C corta")
     print("═" * 78)

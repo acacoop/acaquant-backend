@@ -56,7 +56,7 @@ def main() -> int:
         print(f"  {'FECHA':<12} {'TICKER/UNIDAD':<34} {'CANTIDAD':>15} {'PRECIO':>12} {'VALUACION':>16}")
         for r in rows[:80]:
             etq = (r["ticker"] or r["unidad"] or "")[:34]
-            print(f"  {str(r['fecha']):<12} {etq:<34} {float(r['cantidad'] or 0):>15,.2f} "
+            print(f"  {r['fecha']!s:<12} {etq:<34} {float(r['cantidad'] or 0):>15,.2f} "
                   f"{float(r['precio'] or 0):>12,.2f} {float(r['valuacion'] or 0):>16,.2f}")
         if len(rows) > 80:
             print(f"  … +{len(rows) - 80} filas")
@@ -67,7 +67,7 @@ def main() -> int:
              {"c": cuenta})
     print(f"\n  --- total por fecha (cuenta {cuenta}) ---")
     for r in tot:
-        print(f"  {str(r['fecha']):<12} {r['n']:>4} especies   valuación: {float(r['val'] or 0):>18,.2f}")
+        print(f"  {r['fecha']!s:<12} {r['n']:>4} especies   valuación: {float(r['val'] or 0):>18,.2f}")
 
     # backfill log
     log = _q("SELECT fecha, status, count(*) AS n FROM portafolio.backfill_log "
@@ -75,7 +75,7 @@ def main() -> int:
     if log:
         print("\n  --- backfill_log (qué se procesó) ---")
         for r in log:
-            print(f"  {str(r['fecha']):<12} {r['status']:<14} {r['n']:>5}")
+            print(f"  {r['fecha']!s:<12} {r['status']:<14} {r['n']:>5}")
     return 0
 
 

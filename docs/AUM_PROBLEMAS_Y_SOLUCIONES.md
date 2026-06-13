@@ -1,6 +1,6 @@
 # AUM — PROBLEMAS Y SOLUCIONES (bitácora del incidente)
 
-> **Estado: 🔴 ABIERTO** · Apertura: **2026-06-12** · Última actualización: **2026-06-12 23:03**
+> **Estado: 🔴 ABIERTO** · Apertura: **2026-06-12** · Última actualización: **2026-06-13**
 >
 > Bitácora viva del incidente de datos de **AuM / Tenencia / Valuaciones**. Se
 > documenta TODO: detecciones, hipótesis, pruebas, errores, intentos y avances,
@@ -93,6 +93,20 @@ bono no cambia día a día, es un bug seguro.
 - **PENDIENTE:** correr `diag_aum_congelado` (255 y 805); verificar el diario (H3);
   definir el fix y si se re-backfillea la historia.
 
+**2026-06-13**
+- Corrido `diag_aum_congelado --cuenta 255`. Resultado: **63 unidades** con ≥2 snapshots.
+  - **PRECIO idéntico todos los días: 7** → causa: ver H4 (no mandamos "Actualizar cotizaciones").
+  - **VALUACIÓN idéntica: 6.**
+  - **CANTIDAD idéntica: 15** → puede ser buy&hold (normal) o bug si esas especies operaron.
+- **H4 CONFIRMADO (hipótesis del usuario):** el precio congelado se explica porque la
+  web tiene el toggle **"Actualizar cotizaciones"** que fuerza el refresco, y **nosotros
+  NO lo mandamos** en la consulta → algunas especies traen precio cacheado/viejo.
+  Fix simple: agregar ese parámetro. (Prioridad menor según el usuario.)
+- **Foco ahora:** la CANTIDAD congelada (¿bug o tenencia normal?). Se arma
+  `scripts/diag_aum_cantidad_vs_movs.py` para cruzar las unidades de cantidad plana
+  contra los boletos reales (NegocioMovimientos) y ver si operaron sin actualizarse.
+  **PENDIENTE correrlo en 255.**
+
 ---
 
 ## 6. Herramientas creadas (diags, read-only)
@@ -103,6 +117,7 @@ bono no cambia día a día, es un bug seguro.
 | `scripts/diag_aunesa_255.py` | Consulta cruda `posicionValuada` (`--cuenta`, multi-fecha) + huella por fecha para detectar el corrimiento. |
 | `scripts/diag_aunesa_job_diario.py` | Replica el job DIARIO corriendo ahora (`desde=fecha_t2`, etiqueta hoy) — para verificar H3. |
 | `scripts/diag_aum_congelado.py` | Detecta tenencias congeladas (precio/valuación idéntico día a día) por cuenta. |
+| `scripts/diag_aum_cantidad_vs_movs.py` | Cruza las unidades de cantidad congelada contra NegocioMovimientos: distingue bug (operó y no cambió) de buy&hold normal. |
 | `docs/aunesa_postman_collection.json` | Colección Postman con TODOS los endpoints de Aunesa (login, listadoCuentas, posicionValuada, consolidadosGenerales, informes). |
 
 ---

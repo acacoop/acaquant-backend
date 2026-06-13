@@ -106,6 +106,15 @@ bono no cambia día a día, es un bug seguro.
   `scripts/diag_aum_cantidad_vs_movs.py` para cruzar las unidades de cantidad plana
   contra los boletos reales (NegocioMovimientos) y ver si operaron sin actualizarse.
   **PENDIENTE correrlo en 255.**
+- **Test de fetch eficiente** (`test_portafolio_fetch` al 30/05, todas las cuentas):
+  OK=1046, TIMEOUT=1, ERROR=751 → **los 751 "error" son cuentas SIN posición (HTTP 204)**,
+  normal, no error real. Las pesadas (106=104s, 255=62s…) resolvieron con timeout 240s
+  sin tumbar al resto. Validado el approach paralelo + timeout adaptativo.
+- **SOLUCIÓN elegida (en marcha):** schema SQL nuevo **`portafolio`** que guarda la
+  tenencia por **fecha REAL** (regla: `desde = D + 1 día hábil` → `fecha = D`, sin
+  adivinar). Job `jobs/portafolio_backfill.py` (self-healing, resumable, bulk, sin
+  exclusiones, con NOMINALES). **PENDIENTE:** correr backfill jun 01→17 y validar
+  contra el contable; después job diario + frontend que muestre nominales.
 
 ---
 

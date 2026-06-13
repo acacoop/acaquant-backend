@@ -235,9 +235,29 @@ def get_mensual(id_cuenta: str, cartera: str | None = None) -> dict:
 
 def get_tenencias(id_cuenta: str, fecha: str | None = None,
                   cartera: str | None = None) -> dict:
-    """Tenencias (posiciones) de la cuenta a una fecha de cierre — reusa el
-    snapshot de Carteras (panel derecho inferior 50%), filtrable por CARTERA."""
+    """Tenencias (posiciones) de la cuenta a una fecha — reusa el snapshot de
+    Carteras (panel derecho inferior 50%), filtrable por CARTERA.
+
+    Si se pasa `fecha` y NO existe snapshot exacto para ese día (los snapshots
+    de AuM son irregulares: fin de mes + diarios recientes), resuelve al
+    snapshot disponible más cercano <= fecha ("asof"). Así el buscador por
+    fecha del panel sirve para auditar cualquier día sin caer en vacío. El
+    dict devuelto trae la fecha REAL usada (la UI la muestra)."""
+    from api.db import get_db_valuaciones
     from api.services.valuaciones import posiciones_actuales
+
+    if fecha:
+        aum = get_db_valuaciones()["AuM"]
+        existe = aum.count_documents(
+            {"id_cuenta": id_cuenta, "fecha_snapshot": fecha}, limit=1)
+        if not existe:
+            prev = list(
+                aum.find({"id_cuenta": id_cuenta, "fecha_snapshot": {"$lte": fecha}},
+                         {"_id": 0, "fecha_snapshot": 1})
+                .sort("fecha_snapshot", -1).limit(1)
+            )
+            if prev:
+                fecha = prev[0]["fecha_snapshot"]   # asof: el más cercano <= fecha
     return posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha, cartera=cartera or None)
 
 

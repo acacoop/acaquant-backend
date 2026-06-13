@@ -3,25 +3,22 @@
 Hace EXACTAMENTE lo que el cron diario por cada cuenta:
   autenticar → consultar_posicion(mismos params) → procesar(mismos filtros + valuación)
 PERO sin recorrer todas las cuentas (no llama listadoCuentas) y con la FECHA ORIGEN
-y las CUENTAS hardcodeadas acá arriba para que juegues. NO escribe nada en Mongo.
+y las CUENTAS hardcodeadas para que juegues. NO escribe nada en Mongo.
 
-────────────────────────────────────────────────────────────────────────────
-EDITÁ SOLO ESTO (lo único que cambia respecto del cron real):
+Override por CLI (sin editar el archivo → no choca con git pull):
+    python -m scripts.test_cronjob 255 30/05/2026
+    python -m scripts.test_cronjob 255,256 02/06/2026
+Todo lo demás (params de la consulta, procesar, valuación, filtros) = IDÉNTICO al cron.
 """
-DESDE   = "30/05/2026"      # fecha origen que se le manda a Aunesa (DD/MM/YYYY)
-CUENTAS = ["255"]           # cuenta(s) a consultar
-# ────────────────────────────────────────────────────────────────────────────
-# Override opcional por CLI (sin editar el archivo, así no choca con git pull):
-#   python -m scripts.test_cronjob 255 30/05/2026
-#   python -m scripts.test_cronjob 255,256 02/06/2026
-# Todo lo demás (params de la consulta, procesar, valuación, filtros) = IDÉNTICO al cron.
-
-from __future__ import annotations
-
 import sys
 from datetime import datetime
 
 from jobs.aum import autenticar, consultar_posicion, procesar
+
+# ════════════════ EDITÁ SOLO ESTO (lo único distinto del cron real) ════════════════
+DESDE   = "30/05/2026"      # fecha origen que se le manda a Aunesa (DD/MM/YYYY)
+CUENTAS = ["255"]           # cuenta(s) a consultar
+# ═══════════════════════════════════════════════════════════════════════════════════
 
 
 def main() -> int:

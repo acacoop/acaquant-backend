@@ -67,7 +67,7 @@ def main() -> int:
         print(f"\nunidad: {u}   ({len(lst)} snapshots)")
         print(f"  {'FECHA':<12} {'CANTIDAD':>16} {'PRECIO':>16} {'VALUACION':>18}")
         for d in lst[-15:]:
-            print(f"  {str(d.get('fecha_snapshot')):<12} {_num(d.get('cantidad')):>16,.4f} "
+            print(f"  {d.get('fecha_snapshot')!s:<12} {_num(d.get('cantidad')):>16,.4f} "
                   f"{_num(d.get('precio')):>16,.4f} {_num(d.get('valuacion')):>18,.2f}")
         vals = {round(_num(d.get('valuacion')), 2) for d in lst}
         precios = {round(_num(d.get('precio')), 4) for d in lst}

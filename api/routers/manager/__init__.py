@@ -34,6 +34,7 @@ from api.routers.manager import (
     control_automatico,
     diagnostico,
     grupos,
+    import_tenencia,
     instrumentos,
     jobs,
     logs,
@@ -74,6 +75,7 @@ router.include_router(grupos.router,      dependencies=_MGR)
 router.include_router(aunesa.router,      dependencies=_MGR)
 router.include_router(valuaciones.router, dependencies=_MGR)
 router.include_router(operaciones.router, dependencies=_MGR)
+router.include_router(import_tenencia.router, dependencies=_MGR)
 
 # Tabs accesibles a `asistente_comercial`:
 router.include_router(comercial.router,       dependencies=_COMERCIAL)

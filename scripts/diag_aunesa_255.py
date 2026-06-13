@@ -24,11 +24,11 @@ _DEFAULT = ["29/05/2026", "01/06/2026"]
 _VAL_KEYS = ("valuacion", "valuacionPesos", "valuado", "valor", "valuacionMoneda")
 
 
-def _consultar(headers, fecha):
-    data, reauth = consultar_posicion(CUENTA, headers, desde=fecha)
+def _consultar(headers, fecha, cuenta):
+    data, reauth = consultar_posicion(cuenta, headers, desde=fecha)
     if reauth:  # 401 → re-auth y reintento
         headers = autenticar()
-        data, _ = consultar_posicion(CUENTA, headers, desde=fecha)
+        data, _ = consultar_posicion(cuenta, headers, desde=fecha)
     return data, headers
 
 
@@ -43,11 +43,20 @@ def _rows(data):
 
 
 def main() -> int:
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    argv = sys.argv[1:]
+    cuenta = CUENTA
     out = None
-    if "--out" in sys.argv:
-        out = sys.argv[sys.argv.index("--out") + 1]
-    fechas = args or _DEFAULT
+    fechas: list[str] = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--cuenta" and i + 1 < len(argv):
+            cuenta = argv[i + 1]; i += 2; continue
+        if a == "--out" and i + 1 < len(argv):
+            out = argv[i + 1]; i += 2; continue
+        fechas.append(a); i += 1
+    if not fechas:
+        fechas = _DEFAULT
 
     buf: list[str] = []
 
@@ -59,9 +68,9 @@ def main() -> int:
     resumenes: list[tuple] = []
     for fecha in fechas:
         emit(f"\n{'=' * 64}")
-        emit(f"CUENTA {CUENTA}  ·  desde={fecha}  ·  nivel='Especie x cuenta'")
+        emit(f"CUENTA {cuenta}  ·  desde={fecha}  ·  nivel='Especie x cuenta'")
         emit("=" * 64)
-        data, headers = _consultar(headers, fecha)
+        data, headers = _consultar(headers, fecha, cuenta)
         if data is None:
             emit("  (sin respuesta / error HTTP de Aunesa)")
             continue

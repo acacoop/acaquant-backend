@@ -1005,6 +1005,7 @@ def valuacion_mensual_debug(id_cuenta: str) -> dict[str, Any]:
 @cached(ttl=60)
 def posiciones_actuales(
     id_cuenta: str, fecha: str | None = None, cartera: str | None = None,
+    asof: bool = False,
 ) -> dict[str, Any]:
     """Posiciones de un fecha_snapshot dado para la cuenta.
 
@@ -1012,6 +1013,13 @@ def posiciones_actuales(
     `fecha` es None, usa el snapshot más reciente. Si se pasa una
     fecha (YYYY-MM-DD), usa exactamente esa. Devuelve la lista de
     unidades con cantidad, precio, valuación y share del total.
+
+    `asof=True`: si la fecha pedida NO tiene snapshot (los de AuM son
+    irregulares — fin de mes + diarios recientes), resuelve al snapshot
+    disponible más cercano <= fecha (la posición que se tenía a ese día).
+    NO es "la latest": es el cierre anterior real. Lo usa el buscador por
+    fecha de Carteras para auditar cualquier día sin caer en vacío. El
+    dict devuelto trae la fecha REAL usada (la UI la muestra).
 
     Sirve como "snapshot" en el panel derecho de /valuaciones, con
     selector de fecha para ver posiciones históricas (clickear una
@@ -1021,16 +1029,25 @@ def posiciones_actuales(
 
     if fecha:
         # Validar que efectivamente exista esa fecha para la cuenta.
-        # Si no existe, devolver vacío en lugar de mentir con la latest.
         exists = db_val["AuM"].count_documents(
             {"id_cuenta": id_cuenta, "fecha_snapshot": fecha},
             limit=1,
         )
         if not exists:
-            return {
-                "id_cuenta": id_cuenta, "fecha": fecha,
-                "posiciones": [], "total": 0.0, "n": 0,
-            }
+            prev = list(
+                db_val["AuM"]
+                .find({"id_cuenta": id_cuenta, "fecha_snapshot": {"$lte": fecha}},
+                      {"_id": 0, "fecha_snapshot": 1})
+                .sort("fecha_snapshot", -1)
+                .limit(1)
+            ) if asof else []
+            if not prev:
+                # Sin asof (o sin cierre anterior): vacío en vez de mentir.
+                return {
+                    "id_cuenta": id_cuenta, "fecha": fecha,
+                    "posiciones": [], "total": 0.0, "n": 0,
+                }
+            fecha = prev[0]["fecha_snapshot"]   # asof: el más cercano <= fecha
     else:
         # Default: latest fecha_snapshot para esta cuenta.
         latest = list(

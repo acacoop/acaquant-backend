@@ -152,7 +152,7 @@ def get_posiciones_actuales(
         except ValueError as e:
             raise HTTPException(400, f"fecha mal formada: {fecha!r}") from e
     try:
-        return svc.posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha)
+        return svc.posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha, asof=True)
     except Exception as e:
         logger.exception(
             "valuaciones posiciones-actuales failed: id_cuenta=%s fecha=%s",

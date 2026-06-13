@@ -20,12 +20,15 @@ Uso:
     python -m jobs.portafolio_backfill --desde 2026-06-01 --hasta 2026-06-17
     python -m jobs.portafolio_backfill --force              # re-hace todo (ignora log)
     python -m jobs.portafolio_backfill --cuentas 255,101    # subset (debug)
+    python -m jobs.portafolio_backfill --meses 2026-01,2026-02,2026-03,2026-04
+        # SOLO el último día hábil de cada mes listado (cierres del período fiscal)
 """
 from __future__ import annotations
 
 import sys
 import threading
 import time
+from calendar import monthrange
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
@@ -72,6 +75,14 @@ def _habiles(desde: date, hasta: date) -> list[date]:
             out.append(d)
         d = d + timedelta(days=1)
     return out
+
+
+def _ultimo_habil_del_mes(anio: int, mes: int) -> date:
+    """Último día hábil del mes (camina hacia atrás desde el último día calendario)."""
+    d = date(anio, mes, monthrange(anio, mes)[1])
+    while not _es_habil(d):
+        d = d - timedelta(days=1)
+    return d
 
 
 def _timeout_for(idc: str, denom: str) -> int:
@@ -231,18 +242,27 @@ def _opt(flag, default=None):
 
 
 def main() -> int:
-    desde_arg = _opt("--desde", "2026-06-01")
-    hasta_arg = _opt("--hasta", "2026-06-17")
     force = "--force" in sys.argv
     workers = int(_opt("--workers", MAX_WORKERS))
     subset = _opt("--cuentas")
+    meses_arg = _opt("--meses")
 
-    d0 = datetime.strptime(desde_arg, "%Y-%m-%d").date()
-    d1 = datetime.strptime(hasta_arg, "%Y-%m-%d").date()
-    dias = _habiles(d0, d1)
+    if meses_arg:
+        # Modo "fines de mes": un solo día por mes = el último hábil. Mismo
+        # corrimiento corregido (desde = D+1 hábil) que el resto del backfill.
+        dias = sorted({_ultimo_habil_del_mes(int(ym.split("-")[0]), int(ym.split("-")[1]))
+                       for ym in meses_arg.split(",") if ym.strip()})
+        etiqueta = f"último hábil de [{meses_arg}]"
+    else:
+        desde_arg = _opt("--desde", "2026-06-01")
+        hasta_arg = _opt("--hasta", "2026-06-17")
+        d0 = datetime.strptime(desde_arg, "%Y-%m-%d").date()
+        d1 = datetime.strptime(hasta_arg, "%Y-%m-%d").date()
+        dias = _habiles(d0, d1)
+        etiqueta = f"{desde_arg} → {hasta_arg}"
 
-    print(f"=== BACKFILL portafolio.tenencia · {desde_arg} → {hasta_arg} · "
-          f"{len(dias)} días hábiles · workers={workers} · force={force} ===")
+    print(f"=== BACKFILL portafolio.tenencia · {etiqueta} · "
+          f"{len(dias)} días · workers={workers} · force={force} ===")
     _ensure_schema()
     amap = _load_assets_map()
     _hdr["h"] = autenticar()

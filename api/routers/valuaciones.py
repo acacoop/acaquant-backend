@@ -72,12 +72,13 @@ def get_serie(
 
 
 @router.get("/{id_cuenta}/mensual", dependencies=[Depends(verificar_id_cuenta)])
-def get_mensual(id_cuenta: str):
+def get_mensual(id_cuenta: str, _engine: str | None = Query(None, include_in_schema=False)):
     """Tabla mensual: cierre del mes (último fecha_snapshot) +
     flujos externos del mes (depósitos − extracciones)."""
     _validate_id_cuenta(id_cuenta)
+    use_sql = _engine == "sql" or (_engine != "mongo" and os.getenv("VALUACIONES_SQL") == "1")
     try:
-        return svc.valuacion_mensual(id_cuenta=id_cuenta)
+        return svc.valuacion_mensual(id_cuenta=id_cuenta, engine="sql" if use_sql else "mongo")
     except Exception as e:
         logger.exception("valuaciones mensual failed: id_cuenta=%s", id_cuenta)
         raise HTTPException(status_code=500, detail=str(e)) from e

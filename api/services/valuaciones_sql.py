@@ -60,6 +60,22 @@ def _resolver_fecha(id_cuenta: str, fecha: str | None, asof: bool) -> str | None
     return _iso(r[0]["f"]) if r and r[0]["f"] is not None else None
 
 
+def cierres_fecha_data(id_cuenta: str, cartera: str | None = None) -> list[dict]:
+    """Cierres por fecha (valuación total + n posiciones) desde SQL — mismo shape que el
+    `pipeline_fechas` de valuaciones._valuacion_mensual: [{_id: 'YYYY-MM-DD', valuacion, n}]
+    ordenado asc. Lo consume la tabla mensual (TEA/TWR) reusando el mismo cálculo."""
+    conds = ["id_cuenta = %(c)s", "aum = 'si'"]
+    p: dict = {"c": id_cuenta}
+    if cartera:
+        conds.append("cartera = %(cart)s")
+        p["cart"] = cartera
+    rows = _q(f"SELECT fecha, SUM(valuacion) AS valuacion, COUNT(*) AS n "
+              f"FROM portafolio.tenencia WHERE {' AND '.join(conds)} "
+              f"GROUP BY fecha ORDER BY fecha", p)
+    return [{"_id": _iso(r["fecha"]), "valuacion": _f(r["valuacion"]), "n": int(r["n"])}
+            for r in rows]
+
+
 def serie_valor_cuenta(id_cuenta: str, desde: str | None = None,
                        hasta: str | None = None) -> dict:
     """Serie diaria del valor total — SQL. Mismo shape que valuaciones.serie_valor_cuenta:

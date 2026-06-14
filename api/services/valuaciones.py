@@ -343,16 +343,33 @@ def serie_valor_cuenta(
     }
 
 
+def _cierres_fecha_data(id_cuenta: str, cartera: str | None, engine: str) -> list[dict]:
+    """Cierres por fecha_snapshot → [{_id, valuacion, n}] ordenado asc. Fuente SWAPPABLE:
+    Mongo `Valuaciones.AuM` (default) o SQL `portafolio.tenencia` (engine='sql', dato con
+    fechas corregidas). El resto del cálculo mensual (flujos/MEP/XIRR/TWR) NO cambia —
+    opera sobre esta lista, sea cual sea la fuente."""
+    if engine == "sql":
+        from api.services import valuaciones_sql as _vsql
+        return _vsql.cierres_fecha_data(id_cuenta, cartera)
+    pipeline = [
+        {"$match": {"id_cuenta": id_cuenta, **({"CARTERA": cartera} if cartera else {})}},
+        {"$group": {"_id": "$fecha_snapshot", "valuacion": {"$sum": "$valuacion"},
+                    "n": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+    ]
+    return list(get_db_valuaciones()["AuM"].aggregate(pipeline))
+
+
 @cached(ttl=300)
-def valuacion_mensual(id_cuenta: str) -> dict[str, Any]:
+def valuacion_mensual(id_cuenta: str, engine: str = "mongo") -> dict[str, Any]:
     """Versión CACHEADA (flujo externo: depósitos/extracciones) — la usa Carteras.
-    La variante con flujo custom (NEGOCIO→Valuaciones) es `_valuacion_mensual`,
-    SIN cache porque el dict de flujo no es hasheable (rompía @cached)."""
-    return _valuacion_mensual(id_cuenta=id_cuenta)
+    `engine`: 'mongo' (default) o 'sql' (cierres desde portafolio.tenencia corregido).
+    La variante con flujo custom (NEGOCIO→Valuaciones) es `_valuacion_mensual`."""
+    return _valuacion_mensual(id_cuenta=id_cuenta, engine=engine)
 
 
 def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
-                       cartera: str | None = None) -> dict[str, Any]:
+                       cartera: str | None = None, engine: str = "mongo") -> dict[str, Any]:
     """Tabla mensual: valor al cierre del mes + flujos externos del mes.
     Calcula métricas en ARS y USD paralelas.
 
@@ -406,17 +423,7 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
     # Sorted asc → el último snapshot que cae en el bucket gana → para
     # meses con daily, gana el del último día hábil; para meses cubiertos
     # solo por el snap del 1° del siguiente, gana ese.
-    pipeline_fechas = [
-        {"$match": {"id_cuenta": id_cuenta,
-                    **({"CARTERA": cartera} if cartera else {})}},
-        {"$group": {
-            "_id":       "$fecha_snapshot",
-            "valuacion": {"$sum": "$valuacion"},
-            "n":         {"$sum": 1},
-        }},
-        {"$sort": {"_id": 1}},
-    ]
-    fechas_data = list(db_val["AuM"].aggregate(pipeline_fechas))
+    fechas_data = _cierres_fecha_data(id_cuenta, cartera, engine)
 
     # Bucket = mes calendario del snapshot. Sorted asc → el último snapshot
     # del mes gana en el dict overwrite. Para meses con backfill EOM

@@ -1,7 +1,6 @@
 """Router Operaciones: endpoints para MesaAPI (flujo contrapartes), FlujosAPI
 (movimientos) y NegocioMovimientos (vista de negocio del día)."""
 import logging
-import os
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -227,12 +226,10 @@ def listar_fondos():
 def flujo_vs_aum(
     contraparte: str = Query(..., description="Nombre del fondo (contraparte)"),
     moneda: str = Query("ARS", description="Moneda del flujo (ARS/USD)"),
-    _engine: str = Query("", description="Override motor AuM: 'sql' | 'mongo' (vacío = default)"),
 ):
     """Serie mensual de AuM (línea) + flujo operado (barras) para un fondo.
 
-    AuM: motor SQL por default (`portafolio.tenencia`, fechas corregidas). Mongo
-    queda como legacy/reversión — `AUM_SQL=0` (env) o `?_engine=mongo`.
+    Agrupación server-side via $group pipeline para evitar traer docs en bulk.
     """
     try:
         # DIRECTO desde Valuaciones.Assets (vía servicio): unidades FCI del emisor.
@@ -243,20 +240,9 @@ def flujo_vs_aum(
             and d.get("emisor") == contraparte and d.get("unidad")
         ]
 
-        # Motor AuM: SQL default; ?_engine=mongo o AUM_SQL=0 vuelve a Mongo.
-        motor_aum = (
-            "sql" if (_engine.lower() == "sql"
-                      or (_engine.lower() != "mongo" and os.getenv("AUM_SQL", "1") != "0"))
-            else "mongo"
-        )
-
         aum: list[dict] = []
-        if unidades and motor_aum == "sql":
-            # SQL: import lazy → si fallara, cae solo este endpoint, no toda la API.
-            from api.services.aum_sql import serie_aum_mensual_sql
-            aum = serie_aum_mensual_sql(unidades)
-        elif unidades:
-            # MONGO (legacy): DIRECTO desde Valuaciones.AuM (sin espejo PortfolioAPI.AumAPI):
+        if unidades:
+            # DIRECTO desde Valuaciones.AuM (sin el espejo PortfolioAPI.AumAPI):
             # fecha_snapshot es string 'YYYY-MM-DD' → mes = substr(0,7).
             db_v = get_db_valuaciones()
             pipeline_aum = [
@@ -294,7 +280,6 @@ def flujo_vs_aum(
             "contraparte": contraparte,
             "moneda": moneda,
             "unidades": unidades,
-            "motor_aum": motor_aum,
             "aum": aum,
             "flujo": flujo,
         }

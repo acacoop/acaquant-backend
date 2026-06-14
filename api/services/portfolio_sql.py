@@ -14,11 +14,17 @@ Estado: Chunk 1 (raw: listar_aum, listar_cuentas). Agregados (total_*, fci_*) y 
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 from psycopg.rows import dict_row
 
 from core.postgres import get_pool
+
+# Tabla base del AuM. Default `aum` (espejo del Mongo, fechas viejas). Para servir
+# el dato CORREGIDO (jobs/aum_corregido_sql.py): AUM_SQL_TABLE=aum_corregido. Es un
+# nombre de tabla del propio repo (no input de usuario) → seguro interpolarlo.
+_AUM = os.getenv("AUM_SQL_TABLE", "aum")
 
 
 def _q(sql: str, params: dict | None = None) -> list[dict]:
@@ -45,7 +51,7 @@ def _iso(d):
 
 
 def _max_snap() -> object | None:
-    return _q("SELECT max(fecha_snapshot) AS f FROM aum")[0]["f"]
+    return _q(f"SELECT max(fecha_snapshot) AS f FROM {_AUM}")[0]["f"]
 
 
 def listar_aum(id_cuenta: str | None = None, unidad: str | None = None,
@@ -80,7 +86,7 @@ def listar_aum(id_cuenta: str | None = None, unidad: str | None = None,
             p["hasta"] = hasta
     where = " AND ".join(conds) if conds else "TRUE"
     rows = _q(f"SELECT fecha_snapshot, id_cuenta, unidad, cantidad, cuenta, precio, valuacion "
-              f"FROM aum WHERE {where}", p)
+              f"FROM {_AUM} WHERE {where}", p)
     return [{
         "fecha": _dt(r["fecha_snapshot"]), "id_cuenta": r["id_cuenta"], "unidad": r["unidad"],
         "cantidad": _f(r["cantidad"]), "cuenta": r["cuenta"], "precio": _f(r["precio"]),
@@ -98,7 +104,7 @@ def listar_cuentas(scope: tuple[str, ...] | None = None) -> list[dict]:
         sc = " AND id_cuenta = ANY(%(scope)s)"
         p["scope"] = list(scope)
     return [{"id_cuenta": r["id_cuenta"], "cuenta": r["cuenta"]} for r in _q(
-        f"SELECT id_cuenta, max(cuenta) AS cuenta FROM aum "
+        f"SELECT id_cuenta, max(cuenta) AS cuenta FROM {_AUM} "
         f"WHERE fecha_snapshot = %(f)s{sc} GROUP BY id_cuenta ORDER BY id_cuenta", p)]
 
 
@@ -137,7 +143,7 @@ def _cuenta_filter_sql(filtro: str, pfx: str = "v.") -> tuple[str, dict]:
 
 def _resolve_snap(fecha_pedida: str):
     """Último fecha_snapshot <= fecha_pedida (= _resolve_fecha_snapshot). date o None."""
-    r = _q("SELECT max(fecha_snapshot) AS f FROM aum WHERE fecha_snapshot <= %(f)s",
+    r = _q(f"SELECT max(fecha_snapshot) AS f FROM {_AUM} WHERE fecha_snapshot <= %(f)s",
            {"f": fecha_pedida})
     return r[0]["f"]
 
@@ -165,7 +171,7 @@ def fci_serie(desde: str | None = None, hasta: str | None = None,
         p["hasta"] = hasta
     rows = _q(f"SELECT v.fecha_snapshot AS fecha, "
               f"COALESCE(NULLIF(a.emisor, ''), 'SIN EMISOR') AS emisor, SUM(v.valuacion) AS val "
-              f"FROM aum v JOIN assets a ON a.unidad = v.unidad WHERE {' AND '.join(conds)} "
+              f"FROM {_AUM} v JOIN assets a ON a.unidad = v.unidad WHERE {' AND '.join(conds)} "
               f"GROUP BY v.fecha_snapshot, emisor ORDER BY v.fecha_snapshot", p)
     bucket: dict[str, dict] = {}
     for r in rows:
@@ -192,7 +198,7 @@ def fci_snapshot(fecha: str, cuenta_filter: str = "todas",
         p["scope"] = list(scope)
     rows = _q(f"SELECT v.unidad, COALESCE(NULLIF(a.emisor, ''), 'SIN EMISOR') AS emisor, "
               f"COALESCE(a.ticker, '') AS ticker, v.cuenta, v.id_cuenta, v.valuacion, v.cantidad "
-              f"FROM aum v JOIN assets a ON a.unidad = v.unidad WHERE {' AND '.join(conds)}", p)
+              f"FROM {_AUM} v JOIN assets a ON a.unidad = v.unidad WHERE {' AND '.join(conds)}", p)
     return [{
         "unidad": r["unidad"], "emisor": r["emisor"], "ticker": r["ticker"],
         "cuenta": r["cuenta"] or "", "id_cuenta": r["id_cuenta"] or "",
@@ -219,7 +225,7 @@ def total_serie(desde: str | None = None, hasta: str | None = None,
         conds.append("v.fecha_snapshot <= %(hasta)s")
         p["hasta"] = hasta
     rows = _q(f"SELECT v.fecha_snapshot AS fecha, COALESCE(NULLIF(a.cartera, ''), 'OTROS') AS cartera, "
-              f"SUM(v.valuacion) AS val FROM aum v LEFT JOIN assets a ON a.unidad = v.unidad "
+              f"SUM(v.valuacion) AS val FROM {_AUM} v LEFT JOIN assets a ON a.unidad = v.unidad "
               f"WHERE {' AND '.join(conds)} GROUP BY v.fecha_snapshot, cartera "
               f"ORDER BY v.fecha_snapshot", p)
     mep_cache: dict = {}
@@ -259,7 +265,7 @@ def total_snapshot(fecha: str, cuenta_filter: str = "todas", moneda: str = "ARS"
         p["scope"] = list(scope)
     rows = _q(f"SELECT v.unidad, COALESCE(NULLIF(a.cartera, ''), 'OTROS') AS cartera, "
               f"v.tipo_titulo AS tipo, v.cuenta, v.id_cuenta, v.valuacion, v.cantidad "
-              f"FROM aum v LEFT JOIN assets a ON a.unidad = v.unidad WHERE {' AND '.join(conds)}", p)
+              f"FROM {_AUM} v LEFT JOIN assets a ON a.unidad = v.unidad WHERE {' AND '.join(conds)}", p)
     mep = None
     mep_missing = False
     if moneda == "USD":
@@ -295,7 +301,7 @@ def total_diff(fecha_actual: str, fecha_anterior: str, moneda: str = "ARS",
     def _agg(fecha: str) -> dict[str, dict]:
         p = {**bp, "f": fecha}
         rows = _q(f"SELECT id_cuenta, max(cuenta) AS cuenta, SUM(valuacion) AS saldo "
-                  f"FROM aum WHERE {' AND '.join(base)} AND fecha_snapshot = %(f)s "
+                  f"FROM {_AUM} WHERE {' AND '.join(base)} AND fecha_snapshot = %(f)s "
                   f"GROUP BY id_cuenta", p)
         return {r["id_cuenta"]: {"cuenta": r["cuenta"], "saldo": _f(r["saldo"]) or 0.0}
                 for r in rows}

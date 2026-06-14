@@ -141,6 +141,40 @@ bono no cambia día a día, es un bug seguro.
 
 ---
 
+## 8. MIGRACIÓN del módulo /aum a SQL corregido (2026-06-14)
+
+**Objetivo:** que `/aum` (TOTALES con detalle cuenta/asset/cartera) y `/aum?tab=fci`
+lean el dato CORREGIDO de SQL (`portafolio.tenencia`, fechas reales) — misma vista,
+sin cambiar nada visual.
+
+**Hallazgo clave:** el dual-run de `/aum` YA está cableado:
+- `carteras.py` enruta a `portfolio_sql.py` con `?_engine=sql` o `PORTFOLIO_SQL=1`.
+- `portfolio_sql.py` ya replica las 6 funciones (total_serie/snapshot/diff, fci_serie/
+  snapshot, listar_cuentas) con shape idéntico, filtro de cuenta, MEP, scope, 255.
+- **Pero leía `FROM aum`** = el espejo del Mongo (fechas mal).
+
+**Lo que se hizo (sin reescribir queries):**
+1. `jobs/aum_corregido_sql.py` → construye la tabla `aum_corregido` desde
+   `portafolio.tenencia`, aplicando `_aum_filters.is_excluded` (mismas exclusiones que
+   Valuaciones.AuM; tenencia es sin-exclusiones). `tipo_titulo` se completa desde el
+   espejo `aum`. Idempotente (TRUNCATE+INSERT en transacción).
+2. `portfolio_sql.py` → tabla base parametrizada: `_AUM = os.getenv("AUM_SQL_TABLE","aum")`.
+   Default `aum` = sin cambios.
+
+**🟢 ACTIVAR (flip):**
+1. `python -m jobs.aum_corregido_sql --dry-run`  (ver cuántas filas) → luego sin `--dry-run`.
+2. En el unit de `api.service`: `AUM_SQL_TABLE=aum_corregido` y `PORTFOLIO_SQL=1`.
+3. `systemctl restart api.service`. (O por request, sin restart: `?_engine=sql`.)
+
+**🔙 REVERSIÓN:** sacar `PORTFOLIO_SQL` (o `=0`) + restart → vuelve a Mongo. O sacar
+`AUM_SQL_TABLE` → el SQL lee de nuevo el espejo `aum`. El path Mongo (`portfolio.py`)
+queda intacto.
+
+**Refresco:** `aum_corregido` se reconstruye corriendo el job. Pendiente: encadenarlo
+al backfill/diario para que se actualice solo.
+
+---
+
 > **Cómo se actualiza esta bitácora:** cada prueba/avance/error nuevo se agrega en
 > §5 (Bitácora) con fecha y hora, y si confirma o descarta algo se mueve a §2/§3.
 > No se borra nada hasta el cierre.

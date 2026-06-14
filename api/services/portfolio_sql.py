@@ -7,8 +7,8 @@ frontend de /aum no cambia; solo cambia de dónde salen los datos.
 Fuente: **`portafolio.tenencia`** (fechas reales corregidas, regla H1). Solo cuentan las
 filas marcadas `aum = 'si'` (columna seteada por `scripts/marcar_aum_tenencia` con el
 filtro probado `_aum_filters`). La columna de fecha es `fecha` (se expone como
-`fecha_snapshot` en el SELECT para no tocar el resto). La 255 se excluye de la VISTA acá
-(`id_cuenta IS DISTINCT FROM '255'`), igual que en Mongo. `cartera`/`emisor`/`ticker` se
+`fecha_snapshot` en el SELECT para no tocar el resto). La 255 SÍ aparece en SQL (se sacó
+la exclusión de la vista, a pedido del usuario; el path Mongo la sigue ocultando). `cartera`/`emisor`/`ticker` se
 enriquecen con JOIN a `assets` (igual que el path Mongo enriquece con Valuaciones.Assets).
 `tipo` no existe en tenencia → va vacío (no se usa para los totales).
 """
@@ -144,12 +144,8 @@ def _resolve_snap(fecha_pedida: str):
 
 def fci_serie(desde: str | None = None, hasta: str | None = None,
               cuenta_filter: str = "todas", scope: tuple[str, ...] | None = None) -> list:
-    # Mongo: con filtro/scope excluye 255 (camino raw); sin filtro usa rollup (sin 255).
-    excl = (cuenta_filter and cuenta_filter != "todas") or scope is not None
     conds = [f"a.cartera IN {_FCI_CARTERAS}", "v.aum = 'si'"]
     p: dict = {}
-    if excl:
-        conds.append("v.id_cuenta IS DISTINCT FROM '255'")
     frag, fp = _cuenta_filter_sql(cuenta_filter)
     if frag:
         conds.append(frag)
@@ -180,8 +176,7 @@ def fci_serie(desde: str | None = None, hasta: str | None = None,
 
 def fci_snapshot(fecha: str, cuenta_filter: str = "todas",
                  scope: tuple[str, ...] | None = None) -> list:
-    conds = [f"a.cartera IN {_FCI_CARTERAS}", "v.fecha = %(f)s", "v.aum = 'si'",
-             "v.id_cuenta IS DISTINCT FROM '255'"]
+    conds = [f"a.cartera IN {_FCI_CARTERAS}", "v.fecha = %(f)s", "v.aum = 'si'"]
     p: dict = {"f": fecha}
     frag, fp = _cuenta_filter_sql(cuenta_filter)
     if frag:
@@ -203,7 +198,7 @@ def fci_snapshot(fecha: str, cuenta_filter: str = "todas",
 def total_serie(desde: str | None = None, hasta: str | None = None,
                 cuenta_filter: str = "todas", moneda: str = "ARS",
                 scope: tuple[str, ...] | None = None) -> dict:
-    conds = ["v.aum = 'si'", "v.id_cuenta IS DISTINCT FROM '255'"]
+    conds = ["v.aum = 'si'"]
     p: dict = {}
     frag, fp = _cuenta_filter_sql(cuenta_filter)
     if frag:
@@ -248,7 +243,7 @@ def total_serie(desde: str | None = None, hasta: str | None = None,
 
 def total_snapshot(fecha: str, cuenta_filter: str = "todas", moneda: str = "ARS",
                    scope: tuple[str, ...] | None = None) -> dict:
-    conds = ["v.fecha = %(f)s", "v.aum = 'si'", "v.id_cuenta IS DISTINCT FROM '255'"]
+    conds = ["v.fecha = %(f)s", "v.aum = 'si'"]
     p: dict = {"f": fecha}
     frag, fp = _cuenta_filter_sql(cuenta_filter)
     if frag:
@@ -283,7 +278,7 @@ def total_diff(fecha_actual: str, fecha_anterior: str, moneda: str = "ARS",
                cuenta_filter: str = "todas", scope: tuple[str, ...] | None = None) -> dict:
     fa = _iso(_resolve_snap(fecha_actual)) or fecha_actual
     fant = _iso(_resolve_snap(fecha_anterior)) or fecha_anterior
-    base = ["aum = 'si'", "id_cuenta IS DISTINCT FROM '255'"]
+    base = ["aum = 'si'"]
     bp: dict = {}
     frag, fp = _cuenta_filter_sql(cuenta_filter, pfx="")
     if frag:

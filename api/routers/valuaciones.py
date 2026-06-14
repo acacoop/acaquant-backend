@@ -10,6 +10,7 @@ Endpoint legacy (cost-basis ledger, para drill-down per-ticker en Phase 2):
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -136,6 +137,7 @@ def get_posiciones_actuales(
         None,
         description="YYYY-MM-DD. Si se omite, usa el último fecha_snapshot.",
     ),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Posiciones de un fecha_snapshot dado — por default, el más
     reciente. Pasar fecha=YYYY-MM-DD para ver una fecha histórica
@@ -151,7 +153,12 @@ def get_posiciones_actuales(
             datetime.strptime(fecha, "%Y-%m-%d")
         except ValueError as e:
             raise HTTPException(400, f"fecha mal formada: {fecha!r}") from e
+    use_sql = _engine == "sql" or (_engine != "mongo" and os.getenv("VALUACIONES_SQL") == "1")
     try:
+        if use_sql:
+            # Import lazy → si fallara, cae solo este endpoint, no toda la API.
+            from api.services import valuaciones_sql as svc_sql
+            return svc_sql.posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha, asof=True)
         return svc.posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha, asof=True)
     except Exception as e:
         logger.exception(

@@ -220,7 +220,8 @@ def total_serie(desde: str | None = None, hasta: str | None = None,
         p["hasta"] = hasta
     rows = _q(f"SELECT v.fecha AS fecha, COALESCE(NULLIF(a.cartera, ''), 'OTROS') AS cartera, "
               f"SUM(v.valuacion) AS val FROM {_SRC} v LEFT JOIN assets a ON a.unidad = v.unidad "
-              f"WHERE {' AND '.join(conds)} GROUP BY v.fecha, cartera ORDER BY v.fecha", p)
+              f"WHERE {' AND '.join(conds)} "
+              f"GROUP BY v.fecha, COALESCE(NULLIF(a.cartera, ''), 'OTROS') ORDER BY v.fecha", p)
     mep_cache: dict = {}
     sin_mep: set = set()
     bucket: dict[str, dict] = {}

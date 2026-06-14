@@ -153,27 +153,24 @@ sin cambiar nada visual.
   snapshot, listar_cuentas) con shape idéntico, filtro de cuenta, MEP, scope, 255.
 - **Pero leía `FROM aum`** = el espejo del Mongo (fechas mal).
 
-**Diseño elegido (SIN tabla nueva — decisión del usuario):**
+**Diseño elegido (SIN tabla nueva, SIN vista — decisión del usuario):**
 1. **Columna `aum` (`si`/`no`) en `portafolio.tenencia`** (`scripts/marcar_aum_tenencia.py`):
    marca cada fila con el mismo filtro probado (`_aum_filters.is_excluded`). `si` = cuenta
-   como AuM; `no` = se excluye. Idempotente. (Se rechazó construir una tabla `aum_corregido`
-   aparte: gasta espacio por nada — una columna alcanza.)
-2. **Vista SQL `aum_sql`** (`scripts/crear_vista_aum_sql.py`): filtro guardado (no copia datos)
-   = `SELECT fecha AS fecha_snapshot, …, NULL AS tipo_titulo FROM portafolio.tenencia WHERE
-   aum='si'`. Da el formato que `portfolio_sql.py` ya entiende → sin reescribir queries.
-3. `portfolio_sql.py` → tabla base parametrizada `_AUM = os.getenv("AUM_SQL_TABLE","aum")`.
-   Default `aum` (espejo) = sin cambios hasta el flip.
+   como AuM; `no` = se excluye. Idempotente.
+2. **`portfolio_sql.py` lee DIRECTO `portafolio.tenencia`** filtrando `WHERE aum = 'si'`, usando
+   la columna `fecha` (se expone como `fecha_snapshot` en el SELECT para no tocar el resto).
+   Mismo shape de salida → el **frontend de /aum no cambia**, solo el motor. cartera/emisor/
+   ticker siguen viniendo del JOIN a `assets` (igual que Mongo). `tipo` va vacío (no existe en
+   tenencia, no se usa para totales). Se descartó `aum_corregido` (tabla) y la vista `aum_sql`.
 
 **🟢 ACTIVAR (flip), en orden:**
 1. `python -m scripts.marcar_aum_tenencia`   (agrega/llena la columna `aum`)
-2. `python -m scripts.crear_vista_aum_sql`    (crea la vista `aum_sql`)
-3. En el unit de `api.service`: `AUM_SQL_TABLE=aum_sql` y `PORTFOLIO_SQL=1` → restart.
-   (O probar una request sin restart: `?_engine=sql`.)
+2. En el unit de `api.service`: `PORTFOLIO_SQL=1` → restart. (O por request: `?_engine=sql`.)
 
-**🔙 REVERSIÓN:** sacar `PORTFOLIO_SQL` (o `=0`) + restart → vuelve a Mongo. O sacar
-`AUM_SQL_TABLE` → el SQL vuelve al espejo `aum`. El path Mongo (`portfolio.py`) queda intacto.
+**🔙 REVERSIÓN:** sacar `PORTFOLIO_SQL` (o `=0`) + restart → vuelve a Mongo. El path Mongo
+(`portfolio.py`) queda intacto.
 
-**Refresco (PENDIENTE):** la marca `aum` y la vista quedan fijas hasta re-correr `marcar_aum_tenencia`.
+**Refresco (PENDIENTE):** la marca `aum` queda fija hasta re-correr `marcar_aum_tenencia`.
 Cuando exista el writer diario de `portafolio.tenencia`, debe setear `aum` en el mismo INSERT.
 
 ---

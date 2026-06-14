@@ -1,6 +1,6 @@
 # AUM — PROBLEMAS Y SOLUCIONES (bitácora del incidente)
 
-> **Estado: 🔴 ABIERTO** · Apertura: **2026-06-12** · Última actualización: **2026-06-13**
+> **Estado: 🔴 ABIERTO** · Apertura: **2026-06-12** · Última actualización: **2026-06-13 (tarde)**
 >
 > Bitácora viva del incidente de datos de **AuM / Tenencia / Valuaciones**. Se
 > documenta TODO: detecciones, hipótesis, pruebas, errores, intentos y avances,
@@ -138,6 +138,38 @@ bono no cambia día a día, es un bug seguro.
 3. **Definir el fix del `desde`** (sumar +1 día hábil) consistente entre diario y backfill.
 4. **Decisión:** re-backfillear la historia de AuM corregida (afecta Carteras/PnL/Tenencia histórica) vs arreglar de acá en adelante.
 5. **Cerrar:** validar 2-3 cuentas contra el sistema contable; recién ahí pasar el estado a ✅ RESUELTO.
+
+---
+
+## 8. MIGRACIÓN A SQL — vista AuM en NEGOCIO (2026-06-14)
+
+**Qué se migró:** el endpoint `GET /api/operaciones/flujo-vs-aum` (la línea de
+AuM de la vista NEGOCIO) ahora calcula la serie desde **SQL `portafolio.tenencia`**
+(fechas corregidas, regla H1) en vez de **Mongo `Valuaciones.AuM`** (desfasado).
+
+**Cómo funciona (dual-run, path Mongo intacto):**
+- `api/services/aum_sql.py::serie_aum_mensual_sql(unidades)` — lee SQL aplicando
+  `jobs._aum_filters.is_excluded` (mismas exclusiones que el AuM Mongo).
+- `operaciones.py::flujo_vs_aum` elige motor: **SQL por default**. Devuelve
+  `motor_aum` en el JSON para saber cuál sirvió.
+- Import de `aum_sql` es **lazy** dentro del endpoint → si rompe, cae solo este
+  endpoint, no toda la API.
+
+**🔙 REVERSIÓN (si algo sale mal):**
+- **Global:** `export AUM_SQL=0` en el unit de `api.service` + `systemctl restart
+  api.service` → vuelve a Mongo. (Default sin la env = SQL.)
+- **Por request (sin restart):** `...flujo-vs-aum?...&_engine=mongo`.
+- **Código:** revertir el commit que tocó `operaciones.py` + `aum_sql.py`. El
+  pipeline Mongo quedó intacto en la rama `elif unidades:` del endpoint.
+
+**⚠️ Cobertura conocida:** SQL solo tiene las fechas del backfill
+(`portafolio.tenencia`: cierres 2025-06→2026-04 + diario 2026-05→2026-06). Meses
+anteriores que Mongo sí tenía NO aparecen hasta extender el backfill.
+
+**Pendiente del mismo hilo:** sync Mongo←SQL (corregir lo viejo, decisión
+cantidad-only); job validación 23h (detalle a SQL + resumen a Telegram);
+consolidar las 3 representaciones (Mongo AuM / espejo `aum` / `portafolio.tenencia`)
+en una sola tabla SQL canónica con `tipo_titulo`.
 
 ---
 

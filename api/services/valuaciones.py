@@ -692,7 +692,7 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
     }
 
 
-def valuacion_mensual_debug(id_cuenta: str) -> dict[str, Any]:
+def valuacion_mensual_debug(id_cuenta: str, engine: str = "mongo") -> dict[str, Any]:
     """Versión expandida de `valuacion_mensual` para auditoría desde
     /manager. **No cacheada** — devuelve siempre los datos actuales.
 
@@ -725,17 +725,8 @@ def valuacion_mensual_debug(id_cuenta: str) -> dict[str, Any]:
     db_val = get_db_valuaciones()
     db_cf = get_db_cashflow()
 
-    # 1. Cierres por mes (mismo pipeline que valuacion_mensual).
-    pipeline_fechas = [
-        {"$match": {"id_cuenta": id_cuenta}},
-        {"$group": {
-            "_id":       "$fecha_snapshot",
-            "valuacion": {"$sum": "$valuacion"},
-            "n":         {"$sum": 1},
-        }},
-        {"$sort": {"_id": 1}},
-    ]
-    fechas_data = list(db_val["AuM"].aggregate(pipeline_fechas))
+    # 1. Cierres por mes (misma fuente swappable que valuacion_mensual).
+    fechas_data = _cierres_fecha_data(id_cuenta, None, engine)
     cierres_buckets: dict[str, dict] = {}
     for f in fechas_data:
         fecha_str = str(f["_id"])

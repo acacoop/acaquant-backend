@@ -68,19 +68,51 @@ def autenticar():
     return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
 
 
-# ── Fecha T+2 (igual que main_carteras) ──────────────────────────────────────
-def fecha_t2():
-    arg_holidays = holidays.Argentina()
+# ── Calendario hábil ──────────────────────────────────────────────────────────
+# Regla H1 CONFIRMADA (bitácora docs/AUM_PROBLEMAS_Y_SOLUCIONES.md, medida contra
+# el contable con la cuenta 805): Aunesa con `desde=X` devuelve la posición del
+# día hábil ANTERIOR a X. Para tener la posición AL día D hay que pedir
+# `desde = próximo_hábil(D)` y etiquetar `fecha_snapshot = D`.
+_ARG_HOLIDAYS = holidays.Argentina()
 
-    def proximo_habil(d):
+
+def _proximo_habil(d):
+    d += timedelta(days=1)
+    while d.weekday() >= 5 or d in _ARG_HOLIDAYS:
         d += timedelta(days=1)
-        while d.weekday() >= 5 or d in arg_holidays:
-            d += timedelta(days=1)
-        return d
+    return d
 
+
+def _habil_anterior(d):
+    d -= timedelta(days=1)
+    while d.weekday() >= 5 or d in _ARG_HOLIDAYS:
+        d -= timedelta(days=1)
+    return d
+
+
+def fecha_objetivo_diario():
+    """`desde` = la fecha de HOY (el día que corre el job). Por la regla H1
+    (desde=X → posición del día hábil ANTERIOR a X), eso trae los datos del
+    último día hábil, y el snapshot se etiqueta con ESE día.
+
+    Ej.: corre hoy 16/06 → desde=16/06 → Aunesa devuelve el 13/06 →
+    fecha_snapshot = 2026-06-13.
+
+    Devuelve (desde_ddmmyyyy, fecha_snapshot_iso).
+    """
+    hoy = datetime.now().date()
+    desde = hoy.strftime("%d/%m/%Y")                          # la fecha del día que corre
+    fecha_snapshot = _habil_anterior(hoy).strftime("%Y-%m-%d")  # datos del día hábil anterior
+    return desde, fecha_snapshot
+
+
+# ── Fecha T+2 (igual que main_carteras) — usado por api/routers/manager/aunesa ─
+# OJO: este sigue la regla VIEJA (T+2). NO lo usa el job diario (ver
+# fecha_objetivo_diario). Se conserva por el import del router; revisar aparte.
+def fecha_t2():
     hoy     = datetime.now()
-    t_mas_1 = proximo_habil(hoy)
-    t_mas_2 = proximo_habil(t_mas_1)
+    t_mas_1 = _proximo_habil(hoy)
+    t_mas_2 = _proximo_habil(t_mas_1)
     return t_mas_2.strftime("%d/%m/%Y")
 
 
@@ -303,9 +335,11 @@ def run():
     client = get_mongo_client()
     col    = client["Valuaciones"]["AuM"]
 
-    desde          = fecha_t2()
-    timestamp      = datetime.utcnow()
-    fecha_snapshot = timestamp.strftime("%Y-%m-%d")
+    # Regla validada (H1): snapshotea SIEMPRE el día hábil anterior, con
+    # desde = próximo_hábil(ese día). Idéntico a portafolio_backfill.
+    desde, fecha_snapshot = fecha_objetivo_diario()
+    timestamp       = datetime.utcnow()
+    print(f"📅 snapshot del día {fecha_snapshot}  ·  desde Aunesa = {desde}", flush=True)
     registros_total = 0
 
     futures_map = {}

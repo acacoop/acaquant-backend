@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.services import import_tenencia as svc
+from api.services import import_tenencia_sql as svc_sql
 
 router = APIRouter()
 
@@ -42,3 +43,25 @@ def import_tenencia(req: _ImportReq = Body(...), actor: str = Depends(get_user_e
     """Previsualiza (commit=false) o aplica (commit=true) el import de tenencia."""
     return svc.importar(
         rows=[r.model_dump() for r in req.rows], actor=actor, commit=req.commit)
+
+
+# ── Import a SQL portafolio.tenencia — 2 modos (Manager → AUNESA → IMPORTAR) ──
+class _ImportRows(BaseModel):
+    rows:   list[dict] = Field(..., min_length=1)
+    commit: bool = False
+
+
+@router.post("/import-precios-sql")
+def import_precios_sql(req: _ImportRows = Body(...),
+                       actor: str = Depends(get_user_email)) -> dict:
+    """MODO PRECIOS: Excel [unidad, precio, fecha] → actualiza `precio` en
+    portafolio.tenencia por (fecha, unidad). NO recalcula valuación."""
+    return svc_sql.importar_precios(rows=req.rows, commit=req.commit)
+
+
+@router.post("/import-aum-sql")
+def import_aum_sql(req: _ImportRows = Body(...),
+                   actor: str = Depends(get_user_email)) -> dict:
+    """MODO AUM: Excel [Cuenta, Unidad, Cantidad, Fecha, Precio, Valuación] → pisa
+    portafolio.tenencia por (fecha, id_cuenta). Setea `aum` con _aum_filters."""
+    return svc_sql.importar_aum(rows=req.rows, actor=actor, commit=req.commit)

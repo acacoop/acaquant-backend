@@ -33,6 +33,7 @@ from jobs.portafolio_backfill import (
     _parse,
     _prox_habil,
     _write_date,
+    cargar_contrapartes,
 )
 
 TIMEOUT = 300
@@ -90,6 +91,7 @@ def main() -> int:
     loop = "--loop" in sys.argv
     timeout = int(_opt("--timeout", TIMEOUT))
 
+    cargar_contrapartes()   # para que _parse marque `aum` bien (regla _aum_filters)
     amap = _load_assets_map()
     hdr = {"h": autenticar()}
     pasada = 0

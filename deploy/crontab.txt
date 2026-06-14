@@ -114,7 +114,13 @@
 # ─── BCRA (CER/TAMAR/DOLAR/BADLAR, 22:00 UTC L-V = 19:00 ART)
 0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh bcra 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bcra --today'
 
-# ─── AuM snapshot — 1 corrida L-V a las 12:00 UTC (09:00 ART).
+# ─── Tenencia SQL diaria (portafolio.tenencia) — 11:00 UTC = 08:00 ART, L-V.
+# Writer diario del dato SQL corregido: snapshotea el día hábil ANTERIOR (igual regla H1)
+# y setea la columna `aum` al insertar. Es la fuente de /aum y /valuaciones en SQL.
+# Corre ANTES del AuM Mongo (12:00) para no doblar la carga a Aunesa en simultáneo.
+0 11 * * 1-5 /root/TradingAV/deploy/run_job.sh portafolio_diario 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.portafolio_backfill --diario'
+
+# ─── AuM snapshot (Mongo, legacy/reversión) — 1 corrida L-V a las 12:00 UTC (09:00 ART).
 # Guarda el CIERRE del día hábil ANTERIOR (desde=hoy → Aunesa devuelve el hábil
 # previo, regla H1 confirmada). Ese dato es FIJO → no necesita refrescos intra-rueda
 # (antes corría 5×/día para seguir la posición de HOY en vivo; ya no aplica).

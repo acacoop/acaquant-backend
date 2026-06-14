@@ -38,6 +38,11 @@ import requests
 
 from core.mongo import get_mongo_client_read
 from core.postgres import get_pool
+from jobs._aum_filters import (
+    is_excluded,
+    load_contrapartes_id_cuentas,
+    load_contrapartes_names,
+)
 from jobs.aum import _SESSION, POSICION_URL, _calcular_valuacion, autenticar, obtener_cuentas
 
 # ── knobs ─────────────────────────────────────────────────────────────────────
@@ -54,6 +59,9 @@ _PARAMS_BASE = {
 _FERIADOS = holidays.Argentina()
 _lock = threading.Lock()
 _hdr: dict = {}
+# Contrapartes para marcar `aum` ('si'/'no') al insertar. Se cargan en main().
+_CONT_IDS: frozenset[str] = frozenset()
+_CONT_NAMES: frozenset[str] = frozenset()
 
 
 # ── fechas ────────────────────────────────────────────────────────────────────
@@ -110,11 +118,22 @@ def _ensure_schema():
             n integer, detalle text, actualizado timestamptz DEFAULT now(),
             PRIMARY KEY (fecha, id_cuenta))""",
         "CREATE INDEX IF NOT EXISTS ix_tenencia_cuenta_fecha ON portafolio.tenencia (id_cuenta, fecha)",
+        # `aum` ('si'/'no'): si la fila cuenta como AuM (filtro _aum_filters). La vista /aum
+        # filtra aum='si'. Se setea al insertar (acá) — no hace falta correr marcar_aum aparte.
+        "ALTER TABLE portafolio.tenencia ADD COLUMN IF NOT EXISTS aum text",
     ]
     with get_pool().connection() as conn, conn.cursor() as cur:
         for stmt in ddl:
             cur.execute(stmt)
         conn.commit()
+
+
+def cargar_contrapartes() -> None:
+    """Carga las listas de contrapartes en los globals — para marcar `aum` ('si'/'no')
+    al insertar (regla _aum_filters). Lo llaman main() y reparar_timeouts."""
+    global _CONT_IDS, _CONT_NAMES
+    _CONT_IDS = load_contrapartes_id_cuentas()
+    _CONT_NAMES = load_contrapartes_names()
 
 
 def _load_assets_map() -> dict[str, dict]:
@@ -200,11 +219,13 @@ def _parse(data, idc: str, denom: str, fecha_iso: str, amap: dict) -> list[dict]
             continue
         val = _calcular_valuacion({"precio": g["precio"], "cantidad": g["cantidad"], "tipoTitulo": tipo})
         a = amap.get(unidad, {})
+        aum = "no" if is_excluded(cta, unidad, id_cuenta=idc,
+                                  contrapartes_ids=_CONT_IDS, contrapartes_names=_CONT_NAMES) else "si"
         out.append({
             "fecha": fecha_iso, "id_cuenta": idc, "cuenta": cta, "unidad": unidad,
             "ticker": a.get("ticker"), "cartera": a.get("cartera"),
             "cantidad": round(g["cantidad"], 4), "precio": round(g["precio"], 6),
-            "valuacion": val, "moneda": g["moneda"],
+            "valuacion": val, "moneda": g["moneda"], "aum": aum,
         })
     return out
 
@@ -218,9 +239,9 @@ def _write_date(iso: str, registros: list[dict], status_by: dict[str, tuple]):
         if registros:
             cur.executemany(
                 "INSERT INTO portafolio.tenencia "
-                "(fecha,id_cuenta,cuenta,unidad,ticker,cartera,cantidad,precio,valuacion,moneda) "
+                "(fecha,id_cuenta,cuenta,unidad,ticker,cartera,cantidad,precio,valuacion,moneda,aum) "
                 "VALUES (%(fecha)s,%(id_cuenta)s,%(cuenta)s,%(unidad)s,%(ticker)s,%(cartera)s,"
-                "%(cantidad)s,%(precio)s,%(valuacion)s,%(moneda)s)",
+                "%(cantidad)s,%(precio)s,%(valuacion)s,%(moneda)s,%(aum)s)",
                 registros)
         logrows = [{"fecha": iso, "id_cuenta": c, "status": s[0], "n": s[1], "detalle": s[2]}
                    for c, s in status_by.items()]
@@ -247,7 +268,15 @@ def main() -> int:
     subset = _opt("--cuentas")
     meses_arg = _opt("--meses")
 
-    if meses_arg:
+    if "--diario" in sys.argv:
+        # Modo DIARIO (cron): snapshotea el día hábil ANTERIOR a hoy, igual que jobs/aum.py.
+        # desde = D+1 hábil (= hoy). Es el writer que mantiene SQL al día.
+        d = datetime.now().date() - timedelta(days=1)
+        while not _es_habil(d):
+            d -= timedelta(days=1)
+        dias = [d]
+        etiqueta = f"diario (día hábil anterior: {d.isoformat()})"
+    elif meses_arg:
         # Modo "fines de mes": un solo día por mes = el último hábil. Mismo
         # corrimiento corregido (desde = D+1 hábil) que el resto del backfill.
         dias = sorted({_ultimo_habil_del_mes(int(ym.split("-")[0]), int(ym.split("-")[1]))
@@ -264,6 +293,7 @@ def main() -> int:
     print(f"=== BACKFILL portafolio.tenencia · {etiqueta} · "
           f"{len(dias)} días · workers={workers} · force={force} ===")
     _ensure_schema()
+    cargar_contrapartes()   # marca `aum` al insertar (lo lee _parse vía los globals)
     amap = _load_assets_map()
     _hdr["h"] = autenticar()
     df = obtener_cuentas(_hdr["h"])

@@ -67,8 +67,9 @@ def aunesa_posicion(
     id_cuenta: str = Query(..., description="ID de cuenta Aunesa, ej '805'"),
     desde: str | None = Query(
         None,
-        description="Fecha de liquidación YYYY-MM-DD. Default: T+2 hábil "
-                    "(igual que el job jobs/aum.py).",
+        description="Fecha YYYY-MM-DD que se manda como `desde` a Aunesa. Por la "
+                    "regla H1, `desde=X` devuelve la posición del día hábil "
+                    "ANTERIOR a X. Default: hoy (= último cierre hábil).",
     ),
 ) -> dict[str, Any]:
     """Pega a Aunesa LIVE y devuelve la posición valuada CRUDA de una cuenta.
@@ -85,7 +86,7 @@ def aunesa_posicion(
     # Import adentro: el cliente Aunesa vive en jobs/aum.py. Si fallara el
     # import, solo se cae este endpoint — no el resto de la API.
     try:
-        from jobs.aum import autenticar, consultar_posicion, fecha_t2
+        from jobs.aum import autenticar, consultar_posicion
     except Exception as e:
         logger.exception("no se pudo importar el cliente Aunesa de jobs.aum")
         raise HTTPException(status_code=500,
@@ -101,7 +102,8 @@ def aunesa_posicion(
                 detail=f"fecha mal formada: {desde} (esperado YYYY-MM-DD)",
             ) from e
     else:
-        desde_q = fecha_t2()
+        # Regla H1: desde=hoy → Aunesa devuelve el último cierre hábil.
+        desde_q = datetime.now().strftime("%d/%m/%Y")
     try:
         headers = autenticar()
         data, necesita_reauth = consultar_posicion(id_cuenta, headers, desde_q)

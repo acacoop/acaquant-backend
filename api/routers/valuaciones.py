@@ -53,10 +53,15 @@ def get_serie(
     id_cuenta: str,
     desde: str | None = Query(None, description="YYYY-MM-DD inclusive"),
     hasta: str | None = Query(None, description="YYYY-MM-DD inclusive"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Serie diaria del valor total del portfolio (Valuaciones.AuM)."""
     _validate_id_cuenta(id_cuenta)
+    use_sql = _engine == "sql" or (_engine != "mongo" and os.getenv("VALUACIONES_SQL") == "1")
     try:
+        if use_sql:
+            from api.services import valuaciones_sql as svc_sql
+            return svc_sql.serie_valor_cuenta(id_cuenta=id_cuenta, desde=desde, hasta=hasta)
         return svc.serie_valor_cuenta(id_cuenta=id_cuenta, desde=desde, hasta=hasta)
     except Exception as e:
         logger.exception(

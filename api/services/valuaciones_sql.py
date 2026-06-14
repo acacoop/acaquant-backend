@@ -60,6 +60,30 @@ def _resolver_fecha(id_cuenta: str, fecha: str | None, asof: bool) -> str | None
     return _iso(r[0]["f"]) if r and r[0]["f"] is not None else None
 
 
+def serie_valor_cuenta(id_cuenta: str, desde: str | None = None,
+                       hasta: str | None = None) -> dict:
+    """Serie diaria del valor total — SQL. Mismo shape que valuaciones.serie_valor_cuenta:
+    suma `valuacion` por fecha (aum='si'), una fila por día con valor + n posiciones."""
+    conds = ["id_cuenta = %(c)s", "aum = 'si'"]
+    p: dict = {"c": id_cuenta}
+    if desde:
+        conds.append("fecha >= %(d)s")
+        p["d"] = desde
+    if hasta:
+        conds.append("fecha <= %(h)s")
+        p["h"] = hasta
+    rows = _q(f"SELECT fecha, ROUND(SUM(valuacion), 2) AS valuacion, COUNT(*) AS n "
+              f"FROM portafolio.tenencia WHERE {' AND '.join(conds)} "
+              f"GROUP BY fecha ORDER BY fecha", p)
+    serie = [{"fecha": _iso(r["fecha"]), "valuacion": _f(r["valuacion"]), "n": int(r["n"])}
+             for r in rows]
+    return {
+        "id_cuenta": id_cuenta, "desde": desde, "hasta": hasta, "serie": serie,
+        "ultimo": serie[-1] if serie else None,
+        "primero": serie[0] if serie else None,
+    }
+
+
 def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
                         cartera: str | None = None, asof: bool = False) -> dict:
     """Posiciones de un fecha_snapshot dado — SQL. Mismo shape que valuaciones.py.

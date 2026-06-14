@@ -55,7 +55,11 @@ def main() -> int:
     dry = "--dry-run" in sys.argv
 
     df = _leer(path)
-    if col_u not in df.columns or col_p not in df.columns:
+    # Match de columnas case-insensitive (el archivo trae 'Unidad'/'Precio' con mayúscula).
+    cols_lower = {str(c).strip().lower(): c for c in df.columns}
+    cu = cols_lower.get(col_u.lower())
+    cp = cols_lower.get(col_p.lower())
+    if not cu or not cp:
         print(f"✗ No encuentro las columnas '{col_u}' / '{col_p}'.")
         print(f"  Columnas del archivo: {list(df.columns)}")
         print("  Pasá los nombres reales con --col-unidad y --col-precio.")
@@ -65,8 +69,8 @@ def main() -> int:
     precios: dict[str, float] = {}
     descartadas = 0
     for _, row in df.iterrows():
-        u = str(row[col_u]).strip()
-        px = pd.to_numeric(row[col_p], errors="coerce")
+        u = str(row[cu]).strip()
+        px = pd.to_numeric(row[cp], errors="coerce")
         if not u or pd.isna(px):
             descartadas += 1
             continue

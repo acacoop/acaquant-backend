@@ -18,8 +18,9 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-from api.db import get_db_cashflow, get_db_trading, get_db_valuaciones
+from api.db import get_db_cashflow, get_db_trading
 from api.services.assets_sql import assets_rows
+from core.postgres import get_pool
 
 
 def _base_ticker(code: str | None) -> str:
@@ -95,7 +96,6 @@ def computar_acreencias(dias_horizonte: int = 1825) -> list[dict]:
     """Proyección de cobros futuros por cliente. Cruza el último snapshot de AuM
     con el calendario contractual de cada instrumento. Devuelve un doc por
     (id_cuenta, fecha_pago, ticker). Horizonte: hasta `dias_horizonte` adelante."""
-    val = get_db_valuaciones()
     cal = calendario_instrumentos()
     if not cal:
         return []
@@ -125,16 +125,21 @@ def computar_acreencias(dias_horizonte: int = 1825) -> list[dict]:
                for c in get_db_cashflow().client["Clientes"]["Comitentes"].find(
                    {}, {"_id": 0, "id_cuenta": 1, "denominacion": 1})}
 
-    ultimo = val["AuM"].find_one(sort=[("fecha_snapshot", -1)], projection={"fecha_snapshot": 1})
-    if not ultimo:
-        return []
-    fsnap = ultimo["fecha_snapshot"]
+    # Tenencia (último snapshot) desde SQL portafolio.tenencia (aum='si').
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
+        f = cur.fetchone()[0]
+        if not f:
+            return []
+        cur.execute("SELECT id_cuenta, unidad, cantidad FROM portafolio.tenencia "
+                    "WHERE fecha = %s AND aum = 'si'", (f,))
+        holdings = [{"id_cuenta": r[0], "unidad": r[1], "cantidad": r[2]}
+                    for r in cur.fetchall()]
+    fsnap = f.isoformat()
     tope = (date.today() + timedelta(days=dias_horizonte)).isoformat()
 
     out: list[dict] = []
-    for h in val["AuM"].find(
-        {"fecha_snapshot": fsnap},
-        {"_id": 0, "id_cuenta": 1, "unidad": 1, "cantidad": 1, "cuenta": 1}):
+    for h in holdings:
         cantidad = h.get("cantidad") or 0
         if not cantidad:
             continue

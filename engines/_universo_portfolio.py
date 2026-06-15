@@ -45,27 +45,20 @@ def _set_pyrofex_24hs() -> set[str]:
 
 
 def _instrumentos_de_tenencia() -> set[str]:
-    """INSTRUMENTOs de Valuaciones.Assets para unidades con qty != 0
-    en el último snapshot de Valuaciones.AuM."""
-    client = get_mongo_client_read()
-    db_v = client["Valuaciones"]
-
-    last = db_v["AuM"].find_one({}, sort=[("fecha_snapshot", -1)],
-                                projection={"fecha_snapshot": 1})
-    if not last:
-        return set()
-    fecha = last["fecha_snapshot"]
-
-    pipeline = [
-        {"$match": {"fecha_snapshot": fecha, "cantidad": {"$ne": 0}}},
-        {"$group": {"_id": "$unidad"}},
-    ]
-    unidades = [d["_id"] for d in db_v["AuM"].aggregate(pipeline) if d.get("_id")]
-    if not unidades:
-        return set()
-
+    """INSTRUMENTOs de portafolio.assets para unidades con qty != 0 en el último
+    snapshot de portafolio.tenencia (aum='si')."""
     out: set[str] = set()
     with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
+        fecha = cur.fetchone()[0]
+        if not fecha:
+            return set()
+        cur.execute("SELECT DISTINCT unidad FROM portafolio.tenencia "
+                    "WHERE fecha = %s AND aum = 'si' AND COALESCE(cantidad, 0) <> 0 "
+                    "AND unidad IS NOT NULL", (fecha,))
+        unidades = [r[0] for r in cur.fetchall()]
+        if not unidades:
+            return set()
         cur.execute("SELECT instrumento FROM portafolio.assets WHERE unidad = ANY(%s)",
                     (unidades,))
         for (inst,) in cur.fetchall():

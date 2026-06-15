@@ -22,6 +22,7 @@ from pymongo.errors import BulkWriteError
 
 from api.services.assets_sql import assets_rows
 from core.mongo import get_mongo_client, get_mongo_client_read
+from core.postgres import get_pool
 
 # Carteras (Valuaciones.Assets.CARTERA) que entran a la conciliación de ONs:
 # HD (hard dollar) / DL (dollar linked).
@@ -326,14 +327,19 @@ def conciliar() -> dict:
     Relación: AuM.unidad → Assets (CARTERA ∈ {HD,DL}) → ticker ↔ Curvas
     (match exacto o por base, para no marcar como faltante la otra pata O/D)."""
     read = get_mongo_client_read()
-    val = read["Valuaciones"]
     trading = read["Trading"]
 
-    ultimo = val["AuM"].find_one(sort=[("fecha_snapshot", -1)], projection={"fecha_snapshot": 1})
-    if not ultimo:
-        return {"gap": [], "resumen": {"total": 0, "cubiertas": 0, "faltan": 0, "ignoradas": 0, "snapshot": None}}
-    fsnap = ultimo["fecha_snapshot"]
-    unidades = [u for u in val["AuM"].distinct("unidad", {"fecha_snapshot": fsnap}) if u]
+    # Tenencia (último snapshot) desde SQL portafolio.tenencia (aum='si').
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
+        f = cur.fetchone()[0]
+        if not f:
+            return {"gap": [], "resumen": {"total": 0, "cubiertas": 0, "faltan": 0,
+                                           "ignoradas": 0, "snapshot": None}}
+        cur.execute("SELECT DISTINCT unidad FROM portafolio.tenencia "
+                    "WHERE fecha = %s AND aum = 'si' AND unidad IS NOT NULL", (f,))
+        unidades = [r[0] for r in cur.fetchall()]
+    fsnap = f.isoformat()
 
     assets = assets_rows(["TICKER", "EMISOR", "CARTERA"])   # SQL portafolio.assets
     by_unidad = {a.get("unidad"): a for a in assets if a.get("unidad")}

@@ -50,22 +50,23 @@ def _hd_unidades() -> list[str]:
         return sorted({r[0] for r in cur.fetchall()})
 
 
-def _doc_del_dia(aum_col, fecha: str, hd_unidades: list[str], now: datetime) -> dict:
+def _doc_del_dia(fecha: str, hd_unidades: list[str], now: datetime) -> dict:
     """Arma el doc de tenencia HD para una fecha: AuM por cuenta + posiciones por
-    título + el TC (MEP) de ESE día congelado (para dolarizar reproducible)."""
+    título + el TC (MEP) de ESE día congelado (para dolarizar reproducible).
+    Lee SQL portafolio.tenencia (aum='si')."""
     from api.services._mep import get_mep_for_date
     por_unidad: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     aum: dict[str, float] = defaultdict(float)
-    for r in aum_col.aggregate([
-        {"$match": {"fecha_snapshot": fecha, "id_cuenta": {"$in": CUENTAS},
-                    "unidad": {"$in": hd_unidades}}},
-        {"$group": {"_id": {"u": "$unidad", "c": "$id_cuenta"}, "v": {"$sum": "$valuacion"}}},
-    ]):
-        u = r["_id"]["u"]
-        c = str(r["_id"]["c"])
-        v = float(r.get("v") or 0.0)
-        por_unidad[u][c] += v
-        aum[c] += v
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT unidad, id_cuenta, SUM(valuacion) FROM portafolio.tenencia "
+            "WHERE fecha = %s AND aum = 'si' AND id_cuenta = ANY(%s) AND unidad = ANY(%s) "
+            "GROUP BY unidad, id_cuenta", (fecha, CUENTAS, hd_unidades))
+        for u, c, v in cur.fetchall():
+            c = str(c)
+            v = float(v or 0.0)
+            por_unidad[u][c] += v
+            aum[c] += v
 
     posiciones = []
     for u, byc in sorted(por_unidad.items(), key=lambda kv: -sum(kv[1].values())):
@@ -87,7 +88,6 @@ def _doc_del_dia(aum_col, fecha: str, hd_unidades: list[str], now: datetime) -> 
 def run(fecha: str | None = None, backfill: bool = False, desde: str | None = None) -> dict:
     with JobRunLogger("tenencia_hd") as jr:
         client = get_mongo_client()
-        aum_col = client["Valuaciones"]["AuM"]
         ten_col = client["Valuaciones"]["TenenciaHD"]
         ten_col.create_index("fecha_snapshot", unique=True)   # idempotente
         now = datetime.now(UTC)
@@ -96,25 +96,26 @@ def run(fecha: str | None = None, backfill: bool = False, desde: str | None = No
         if not hd:
             raise RuntimeError(f"No hay unidades con CARTERA={_CARTERA} en Assets — abortando.")
 
-        # Qué fechas procesar.
+        # Qué fechas procesar (desde SQL portafolio.tenencia, aum='si').
         if backfill:
             if not desde:
                 raise ValueError("--backfill requiere --desde YYYY-MM-DD")
-            fechas = sorted(
-                str(f) for f in aum_col.distinct(
-                    "fecha_snapshot",
-                    {"id_cuenta": {"$in": CUENTAS}, "fecha_snapshot": {"$gte": desde}})
-                if f)
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.execute("SELECT DISTINCT fecha FROM portafolio.tenencia "
+                            "WHERE aum = 'si' AND id_cuenta = ANY(%s) AND fecha >= %s "
+                            "ORDER BY fecha", (CUENTAS, desde))
+                fechas = [r[0].isoformat() for r in cur.fetchall()]
         elif fecha:
             fechas = [fecha]
         else:
-            snap = aum_col.find_one({}, {"_id": 0, "fecha_snapshot": 1},
-                                    sort=[("fecha_snapshot", -1)])
-            fechas = [snap["fecha_snapshot"]] if snap else []
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
+                m = cur.fetchone()[0]
+            fechas = [m.isoformat()] if m else []
 
         n = 0
         for f in fechas:
-            doc = _doc_del_dia(aum_col, f, hd, now)
+            doc = _doc_del_dia(f, hd, now)
             ten_col.bulk_write([UpdateOne({"fecha_snapshot": f}, {"$set": doc}, upsert=True)])
             n += 1
             if backfill:

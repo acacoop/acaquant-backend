@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from api.services.assets_sql import assets_rows
 from core.mongo import get_mongo_client_read
+from core.postgres import get_pool
 
 router = APIRouter()
 
@@ -146,7 +147,6 @@ def check_tasa_fija():
     """Estado de instrumentos tasa_fija en AuM."""
     client = get_mongo_client_read()
     db_t = client["Trading"]
-    db_v = client["Valuaciones"]
     curvas_tf = list(db_t["Curvas"].find({"curva": "tasa_fija"}, {"_id": 0, "ticker_corto": 1}))
     if not curvas_tf:
         return {"snapshot": None, "ok": 0, "sin_posicion": 0, "sin_assets": 0, "instrumentos": []}
@@ -155,11 +155,14 @@ def check_tasa_fija():
     for a in assets_rows(["TICKER"]):   # SQL portafolio.assets
         t2u.setdefault(a["TICKER"], []).append(a["unidad"])
 
-    uf = db_v["AuM"].find_one(sort=[("fecha_snapshot", -1)], projection={"fecha_snapshot": 1})
-    fm = uf["fecha_snapshot"] if uf else None
-    con_pos = {d["unidad"] for d in
-               db_v["AuM"].find({"fecha_snapshot": fm}, {"_id": 0, "unidad": 1, "valuacion": 1})
-               if (d.get("valuacion") or 0) != 0} if fm else set()
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
+        fm = cur.fetchone()[0]
+        con_pos: set = set()
+        if fm:
+            cur.execute("SELECT unidad FROM portafolio.tenencia "
+                        "WHERE fecha = %s AND aum = 'si' AND COALESCE(valuacion, 0) <> 0", (fm,))
+            con_pos = {r[0] for r in cur.fetchall()}
 
     rows = []
     for c in sorted(curvas_tf, key=lambda x: x.get("ticker_corto", "")):

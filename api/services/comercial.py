@@ -24,9 +24,9 @@ from api.db import (
     get_db_cashflow,
     get_db_clientes,
     get_db_manager,
-    get_db_valuaciones,
 )
 from api.services._negocio_futuros import match_no_futuros
+from core.postgres import get_pool
 
 # Las queries por cuenta filtran `id_cuenta` (denormalizado en la ingesta de
 # NegocioMovimientos, indexado) — sin regex sobre `cuenta`. Backfill de docs
@@ -281,20 +281,19 @@ def _aum_por_cuenta(ids: tuple[str, ...], *, todos: bool = False) -> dict[str, f
     todas las cuentas del snapshot, sin `$in`)."""
     if not todos and not ids:
         return {}
-    col = get_db_valuaciones()["AuM"]
-    snap = col.find_one({}, {"_id": 0, "fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)])
-    if not snap:
-        return {}
-    match: dict[str, Any] = {"fecha_snapshot": snap["fecha_snapshot"]}
-    if not todos:
-        match["id_cuenta"] = {"$in": list(ids)}
-    out: dict[str, float] = {}
-    for d in col.aggregate([
-        {"$match": match},
-        {"$group": {"_id": "$id_cuenta", "aum": {"$sum": "$valuacion"}}},
-    ]):
-        out[str(d["_id"])] = float(d.get("aum") or 0.0)
-    return out
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
+        f = cur.fetchone()[0]
+        if not f:
+            return {}
+        if todos:
+            cur.execute("SELECT id_cuenta, SUM(valuacion) FROM portafolio.tenencia "
+                        "WHERE fecha = %s AND aum = 'si' GROUP BY id_cuenta", (f,))
+        else:
+            cur.execute("SELECT id_cuenta, SUM(valuacion) FROM portafolio.tenencia "
+                        "WHERE fecha = %s AND aum = 'si' AND id_cuenta = ANY(%s) "
+                        "GROUP BY id_cuenta", (f, list(ids)))
+        return {str(r[0]): float(r[1] or 0.0) for r in cur.fetchall()}
 
 
 def _match_volumen(ids: tuple[str, ...], fecha_desde: str | None,
@@ -519,21 +518,21 @@ def referido_clientes(*, referido: str, moneda: str = "ARS") -> dict[str, Any]:
     # Posición AGREGADA del referido (todas sus cuentas) por título — para el panel
     # derecho cuando no hay cliente elegido (títulos + valuación de cada uno).
     posiciones: list[dict[str, Any]] = []
-    col_aum = get_db_valuaciones()["AuM"]
-    snap = col_aum.find_one({}, {"_id": 0, "fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)])
-    if snap:
-        rows_pos = list(col_aum.aggregate([
-            {"$match": {"fecha_snapshot": snap["fecha_snapshot"], "id_cuenta": {"$in": list(ids)}}},
-            {"$group": {"_id": "$unidad", "valuacion": {"$sum": "$valuacion"}}},
-            {"$sort": {"valuacion": -1}},
-        ]))
-        tot = sum(float(r.get("valuacion") or 0.0) for r in rows_pos) or 1.0
-        posiciones = [
-            {"unidad": r["_id"],
-             "valuacion": _cv(float(r.get("valuacion") or 0.0), factor),
-             "pct": round(float(r.get("valuacion") or 0.0) / tot * 100, 1)}
-            for r in rows_pos if r.get("_id")
-        ]
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
+        f = cur.fetchone()[0]
+        if f:
+            cur.execute("SELECT unidad, SUM(valuacion) AS v FROM portafolio.tenencia "
+                        "WHERE fecha = %s AND aum = 'si' AND id_cuenta = ANY(%s) "
+                        "GROUP BY unidad ORDER BY v DESC", (f, list(ids)))
+            rows_pos = cur.fetchall()
+            tot = sum(float(r[1] or 0.0) for r in rows_pos) or 1.0
+            posiciones = [
+                {"unidad": r[0],
+                 "valuacion": _cv(float(r[1] or 0.0), factor),
+                 "pct": round(float(r[1] or 0.0) / tot * 100, 1)}
+                for r in rows_pos if r[0]
+            ]
 
     return {
         "referido": referido,
@@ -578,33 +577,35 @@ def referido_fci(*, referido: str, desde: str, hasta: str,
     if not fci:
         return vacio
 
-    col = get_db_valuaciones()["AuM"]
-    # Denominador del promedio: días con foto en el rango (índice fecha_snapshot).
-    n_dias = len(col.distinct(
-        "fecha_snapshot", {"fecha_snapshot": {"$gte": desde, "$lte": hasta}})) or 1
     # Días CORRIDOS del período para prorratear el fee anual (el fee corre todos
     # los días; el saldo promedio es sobre días hábiles → buena aproximación).
     try:
         dias_periodo = (date.fromisoformat(hasta) - date.fromisoformat(desde)).days + 1
     except ValueError:
-        dias_periodo = n_dias
+        dias_periodo = 0
 
     factor = _factor_usd(moneda)
     fondos: list[dict[str, Any]] = []
-    for d in col.aggregate([
-        {"$match": {
-            "fecha_snapshot": {"$gte": desde, "$lte": hasta},
-            "id_cuenta": {"$in": list(ids)},
-            "unidad": {"$in": list(fci)},
-        }},
-        {"$group": {"_id": "$unidad", "val": {"$sum": "$valuacion"}}},
-    ]):
-        info = fci.get(d["_id"]) or {}
-        saldo = float(d.get("val") or 0.0) / n_dias
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        # Denominador del promedio: días con foto en el rango.
+        cur.execute("SELECT count(DISTINCT fecha) FROM portafolio.tenencia "
+                    "WHERE aum = 'si' AND fecha BETWEEN %s AND %s", (desde, hasta))
+        n_dias = cur.fetchone()[0] or 1
+        if not dias_periodo:
+            dias_periodo = n_dias
+        cur.execute(
+            "SELECT unidad, SUM(valuacion) AS val FROM portafolio.tenencia "
+            "WHERE aum = 'si' AND fecha BETWEEN %s AND %s AND id_cuenta = ANY(%s) "
+            "AND unidad = ANY(%s) GROUP BY unidad",
+            (desde, hasta, list(ids), list(fci)))
+        rows_fci = cur.fetchall()
+    for unidad, val in rows_fci:
+        info = fci.get(unidad) or {}
+        saldo = float(val or 0.0) / n_dias
         fee = info.get("fee")
         comision = saldo * fee * dias_periodo / 365 if fee else None
         fondos.append({
-            "unidad":   d["_id"],
+            "unidad":   unidad,
             "emisor":   info.get("emisor") or "—",
             "saldo":    _cv(saldo, factor),
             "fee":      fee,                                   # fracción anual o None
@@ -680,15 +681,13 @@ def serie_comercial(
         return {"operador": operador, "id_cuenta": id_cuenta, "metric": metric, "serie": []}
 
     if metric == "aum":
-        aum_match: dict[str, Any] = {} if es_todos else {"id_cuenta": {"$in": list(ids)}}
-        serie = [
-            {"fecha": d["_id"], "valor": _cv(float(d.get("v") or 0.0), factor)}
-            for d in get_db_valuaciones()["AuM"].aggregate([
-                {"$match": aum_match},
-                {"$group": {"_id": "$fecha_snapshot", "v": {"$sum": "$valuacion"}}},
-                {"$sort": {"_id": 1}},
-            ])
-        ]
+        cond = "aum = 'si'" + ("" if es_todos else " AND id_cuenta = ANY(%s)")
+        params = () if es_todos else (list(ids),)
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT fecha, SUM(valuacion) AS v FROM portafolio.tenencia "
+                        f"WHERE {cond} GROUP BY fecha ORDER BY fecha", params)
+            serie = [{"fecha": r[0].isoformat(), "valor": _cv(float(r[1] or 0.0), factor)}
+                     for r in cur.fetchall()]
     else:
         serie = [
             {"fecha": d["_id"], "valor": _cv(float(d.get("v") or 0.0), factor)}
@@ -711,21 +710,23 @@ def portafolio_cliente(*, id_cuenta: str) -> dict[str, Any]:
     Master-detail estilo AUM: cada posición es una `unidad` con su valuación
     (ARS) y su % sobre el total del cliente. Ordenadas por valuación desc.
     """
-    col = get_db_valuaciones()["AuM"]
-    snap = col.find_one({}, {"_id": 0, "fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)])
-    if not snap:
-        return {"id_cuenta": str(id_cuenta), "fecha_snapshot": None, "total": 0.0, "posiciones": []}
-    rows = list(col.aggregate([
-        {"$match": {"fecha_snapshot": snap["fecha_snapshot"], "id_cuenta": str(id_cuenta)}},
-        {"$group": {"_id": "$unidad", "valuacion": {"$sum": "$valuacion"}}},
-        {"$sort": {"valuacion": -1}},
-    ]))
-    total = sum(float(r.get("valuacion") or 0.0) for r in rows)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
+        f = cur.fetchone()[0]
+        if not f:
+            return {"id_cuenta": str(id_cuenta), "fecha_snapshot": None,
+                    "total": 0.0, "posiciones": []}
+        cur.execute("SELECT unidad, SUM(valuacion) AS v FROM portafolio.tenencia "
+                    "WHERE fecha = %s AND aum = 'si' AND id_cuenta = %s "
+                    "GROUP BY unidad ORDER BY v DESC", (f, str(id_cuenta)))
+        rows = cur.fetchall()
+    snap = {"fecha_snapshot": f.isoformat()}
+    total = sum(float(r[1] or 0.0) for r in rows)
     posiciones = [
         {
-            "unidad": r["_id"],
-            "valuacion": round(float(r.get("valuacion") or 0.0), 2),
-            "pct": round(100.0 * float(r.get("valuacion") or 0.0) / total, 2) if total else 0.0,
+            "unidad": r[0],
+            "valuacion": round(float(r[1] or 0.0), 2),
+            "pct": round(100.0 * float(r[1] or 0.0) / total, 2) if total else 0.0,
         }
         for r in rows
     ]
@@ -940,16 +941,12 @@ def resumen_por_operador(*, dias_activa: int = 45, dias_dormida: int = 90) -> di
         )
     )
 
-    # 2) AuM por id_cuenta (último snapshot).
-    aum_col = get_db_valuaciones()["AuM"]
-    ult_snap = aum_col.find_one({}, {"_id": 0, "fecha_snapshot": 1}, sort=[("fecha_snapshot", -1)])
-    aum_por_cuenta: dict[str, float] = {}
-    if ult_snap:
-        for d in aum_col.aggregate([
-            {"$match": {"fecha_snapshot": ult_snap["fecha_snapshot"]}},
-            {"$group": {"_id": "$id_cuenta", "aum": {"$sum": "$valuacion"}}},
-        ]):
-            aum_por_cuenta[str(d["_id"])] = float(d.get("aum") or 0.0)
+    # 2) AuM por id_cuenta (último snapshot) — SQL portafolio.tenencia.
+    aum_por_cuenta = _aum_por_cuenta((), todos=True)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
+        _snap = cur.fetchone()[0]
+    snapshot_aum = _snap.isoformat() if _snap else None
 
     # 3) Actividad: última op por cuenta dentro de la ventana + set "operó alguna vez".
     # Fuente: CashFlow.Operaciones (operaciones de mercado reales, MÁS COMPLETA que
@@ -1004,7 +1001,7 @@ def resumen_por_operador(*, dias_activa: int = 45, dias_dormida: int = 90) -> di
         "operadores": operadores,
         "dias_activa": dias_activa,
         "dias_dormida": dias_dormida,
-        "snapshot_aum": (ult_snap or {}).get("fecha_snapshot"),
+        "snapshot_aum": snapshot_aum,
         "total_cuentas": sum(o["n_cuentas"] for o in operadores),
         "total_aum": sum(o["aum_total"] for o in operadores),
     }

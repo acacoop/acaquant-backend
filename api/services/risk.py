@@ -1,3 +1,5 @@
+
+
 """Servicio RISK — datos de cuenta del broker (saldos, posiciones, márgenes).
 
 Wrapper sobre `pyRofex.get_account_*`. Endpoints REST del broker bajo

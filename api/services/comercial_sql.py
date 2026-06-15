@@ -100,14 +100,14 @@ def _ids_operador(operador: str, nivel_1: str | None = None, nivel_3: str | None
 def _aum_por_cuenta_sql(operador: str, nivel_1: str | None = None,
                         nivel_3: str | None = None, referido: str | None = None) -> dict[str, float]:
     """AuM (último snapshot GLOBAL) por id_cuenta, scopeado al operador + filtros."""
-    snap = _q("SELECT max(fecha_snapshot) AS f FROM aum")[0]["f"]
+    snap = _q("SELECT max(fecha) AS f FROM portafolio.tenencia WHERE aum = 'si'")[0]["f"]
     if snap is None:
         return {}
     p: dict = {"f": snap}
     scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido)
     return {r["id_cuenta"]: _f(r["aum"]) for r in _q(
-        f"SELECT id_cuenta, SUM(valuacion) AS aum FROM aum "
-        f"WHERE fecha_snapshot = %(f)s AND {scope} GROUP BY id_cuenta", p)}
+        f"SELECT id_cuenta, SUM(valuacion) AS aum FROM portafolio.tenencia "
+        f"WHERE fecha = %(f)s AND aum = 'si' AND {scope} GROUP BY id_cuenta", p)}
 
 
 def dimensiones_comercial() -> dict:
@@ -139,11 +139,11 @@ def listar_operadores_comercial() -> list[dict]:
 
 
 def portafolio_cliente(*, id_cuenta: str) -> dict:
-    snap = _q("SELECT max(fecha_snapshot) AS f FROM aum")[0]["f"]
+    snap = _q("SELECT max(fecha) AS f FROM portafolio.tenencia WHERE aum = 'si'")[0]["f"]
     if snap is None:
         return {"id_cuenta": str(id_cuenta), "fecha_snapshot": None, "total": 0.0, "posiciones": []}
-    rows = _q("SELECT unidad, SUM(valuacion) AS valuacion FROM aum "
-              "WHERE fecha_snapshot = %(f)s AND id_cuenta = %(idc)s "
+    rows = _q("SELECT unidad, SUM(valuacion) AS valuacion FROM portafolio.tenencia "
+              "WHERE fecha = %(f)s AND aum = 'si' AND id_cuenta = %(idc)s "
               "GROUP BY unidad ORDER BY valuacion DESC", {"f": snap, "idc": str(id_cuenta)})
     total = sum(_f(r["valuacion"]) for r in rows)
     posiciones = [{
@@ -184,8 +184,8 @@ def serie_comercial(*, operador: str, metric: str = "volumen", moneda: str = "AR
         scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido)
 
     if metric == "aum":
-        rows = _q(f"SELECT fecha_snapshot AS fecha, SUM(valuacion) AS v FROM aum "
-                  f"WHERE {scope} GROUP BY fecha_snapshot ORDER BY fecha_snapshot", p)
+        rows = _q(f"SELECT fecha, SUM(valuacion) AS v FROM portafolio.tenencia "
+                  f"WHERE ({scope}) AND aum = 'si' GROUP BY fecha ORDER BY fecha", p)
     else:
         p["cats"] = list(_CATS_VOLUMEN)
         rows = _q(f"SELECT fecha, SUM({_PESIF}) AS v FROM negocio_movimientos "

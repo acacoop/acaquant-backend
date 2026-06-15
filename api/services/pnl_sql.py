@@ -109,16 +109,16 @@ def _deps_sql(only_cuenta: str | None) -> dict:
     # AuM último snapshot global (posición).
     fecha_actual_aum_global = None
     aum_rows_by_id_cuenta: dict[str, list] = {}
-    snap = _q("SELECT max(fecha_snapshot) AS f FROM aum")[0]["f"]
+    snap = _q("SELECT max(fecha) AS f FROM portafolio.tenencia WHERE aum = 'si'")[0]["f"]
     if snap is not None:
         fecha_actual_aum_global = _iso(snap)
-        wa = "fecha_snapshot = %(f)s"
+        wa = "fecha = %(f)s AND aum = 'si'"
         pa: dict = {"f": snap}
         if only_cuenta is not None:
             wa += " AND id_cuenta = %(idc)s"
             pa["idc"] = only_cuenta
         for d in _q(f"SELECT id_cuenta, unidad, cantidad, precio, valuacion, tipo_titulo "
-                    f"FROM aum WHERE {wa}", pa):
+                    f"FROM portafolio.tenencia WHERE {wa}", pa):
             cid = d.get("id_cuenta")
             if cid is not None:
                 aum_rows_by_id_cuenta.setdefault(str(cid), []).append({

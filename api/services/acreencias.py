@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 from api.db import get_db_cashflow, get_db_trading, get_db_valuaciones
+from api.services.assets_sql import assets_rows
 
 
 def _base_ticker(code: str | None) -> str:
@@ -101,8 +102,7 @@ def computar_acreencias(dias_horizonte: int = 1825) -> list[dict]:
 
     # Resolver tenencia → ticker_corto del calendario (vía Assets.TICKER, con
     # match por base para la pata O/D), igual que el conciliador.
-    assets = {a.get("unidad"): a for a in val["Assets"].find(
-        {}, {"_id": 0, "unidad": 1, "TICKER": 1, "EMISOR": 1})}
+    assets = {a.get("unidad"): a for a in assets_rows(["TICKER", "EMISOR"])}  # SQL
     cal_base: dict[str, str] = {}
     for k in cal:
         cal_base.setdefault(_base_ticker(k), k)

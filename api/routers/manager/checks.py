@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
+from api.services.assets_sql import assets_rows
 from core.mongo import get_mongo_client_read
 
 router = APIRouter()
@@ -151,8 +152,8 @@ def check_tasa_fija():
         return {"snapshot": None, "ok": 0, "sin_posicion": 0, "sin_assets": 0, "instrumentos": []}
 
     t2u: dict[str, list] = {}
-    for a in db_v["Assets"].find({}, {"_id": 0, "TICKER": 1, "unidad": 1}):
-        t2u.setdefault(a.get("TICKER", ""), []).append(a["unidad"])
+    for a in assets_rows(["TICKER"]):   # SQL portafolio.assets
+        t2u.setdefault(a["TICKER"], []).append(a["unidad"])
 
     uf = db_v["AuM"].find_one(sort=[("fecha_snapshot", -1)], projection={"fecha_snapshot": 1})
     fm = uf["fecha_snapshot"] if uf else None

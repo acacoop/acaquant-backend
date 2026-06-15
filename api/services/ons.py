@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from pymongo import UpdateOne
 from pymongo.errors import BulkWriteError
 
+from api.services.assets_sql import assets_rows
 from core.mongo import get_mongo_client, get_mongo_client_read
 
 # Carteras (Valuaciones.Assets.CARTERA) que entran a la conciliación de ONs:
@@ -334,7 +335,7 @@ def conciliar() -> dict:
     fsnap = ultimo["fecha_snapshot"]
     unidades = [u for u in val["AuM"].distinct("unidad", {"fecha_snapshot": fsnap}) if u]
 
-    assets = list(val["Assets"].find({}, {"_id": 0, "unidad": 1, "TICKER": 1, "EMISOR": 1, "CARTERA": 1}))
+    assets = assets_rows(["TICKER", "EMISOR", "CARTERA"])   # SQL portafolio.assets
     by_unidad = {a.get("unidad"): a for a in assets if a.get("unidad")}
     by_ticker = {a.get("TICKER"): a for a in assets if a.get("TICKER")}
 

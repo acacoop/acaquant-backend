@@ -18,7 +18,7 @@ distinguible del dato del job.
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from core.mongo import get_mongo_client, get_mongo_client_read
 
@@ -26,24 +26,56 @@ _DB, _COL = "Valuaciones", "AuM"
 _MAX_ROWS = 50_000  # tope de seguridad por request
 
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_DMY = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
+# DD/MM/YYYY tolerante: día/mes de 1 o 2 dígitos, separador / - o .
+_DMY = re.compile(r"^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$")
+# Sólo dígitos (con o sin '.0') → posible serial de Excel.
+_SERIAL = re.compile(r"^\d{4,6}(?:\.0+)?$")
+_EXCEL_EPOCH = datetime(1899, 12, 30)  # día 0 de Excel (incluye el bug del 1900)
+
+
+def _serial_excel(n: float) -> str | None:
+    """Serial de Excel (celda con formato Fecha) → YYYY-MM-DD. Acotado al rango
+    2000-2100 (~36526..73050) para no confundir un precio/cantidad con una fecha."""
+    if not (20000 <= n <= 80000):
+        return None
+    try:
+        return (_EXCEL_EPOCH + timedelta(days=round(n))).strftime("%Y-%m-%d")
+    except (ValueError, OverflowError):
+        return None
 
 
 def _norm_fecha(v) -> str | None:
-    """Acepta YYYY-MM-DD o DD/MM/YYYY → devuelve YYYY-MM-DD; None si inválida."""
-    s = str(v or "").strip()[:10]
-    if _ISO.match(s):
+    """Devuelve YYYY-MM-DD; None si inválida. Acepta:
+      - 'YYYY-MM-DD' (con o sin hora detrás)
+      - 'D/M/YYYY' / 'D-M-YYYY' / 'D.M.YYYY' (día y mes de 1 o 2 dígitos)
+      - serial de Excel: número (46142) o texto ('46142'/'46142.0') — el caso
+        típico cuando la columna Fecha quedó con formato fecha y no como texto
+      - datetime nativo (por si el parser lo entrega ya tipado)."""
+    if v is None or v == "" or isinstance(v, bool):
+        return None
+    if isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d")
+    if isinstance(v, (int, float)):
+        return _serial_excel(float(v))
+    s = str(v).strip()
+    if not s:
+        return None
+    if _SERIAL.match(s):
+        return _serial_excel(float(s))
+    head = s[:10]
+    if _ISO.match(head):
         try:
-            datetime.strptime(s, "%Y-%m-%d")
-            return s
+            datetime.strptime(head, "%Y-%m-%d")
+            return head
         except ValueError:
             return None
     m = _DMY.match(s)
     if m:
         d, mo, y = m.groups()
         try:
-            datetime.strptime(f"{y}-{mo}-{d}", "%Y-%m-%d")
-            return f"{y}-{mo}-{d}"
+            return datetime.strptime(f"{y}-{int(mo):02d}-{int(d):02d}", "%Y-%m-%d").strftime(
+                "%Y-%m-%d"
+            )
         except ValueError:
             return None
     return None

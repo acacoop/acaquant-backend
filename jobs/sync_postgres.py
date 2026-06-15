@@ -388,24 +388,31 @@ def sync_actividad_mensual(mdb, conn, dry) -> int:
 
 
 def sync_assets(mdb, conn, dry) -> int:
-    """Valuaciones.Assets (UPPERCASE) → tabla assets (lowercase). Join por `unidad` con aum.
-    Master de instrumentos para carteras/FCI/renta fija/PnL. Chica (~1630), completa."""
+    """Valuaciones.Assets (UPPERCASE) → portafolio.assets (lowercase). Join por `unidad`.
+    Master de instrumentos para carteras/FCI/renta fija/PnL. Chica (~1630), completa.
+
+    NOTA (migración SQL en curso): la fuente de verdad pasa a ser portafolio.assets
+    (el panel Manager → Assets escribe ahí y el writer diario auto-da-de-alta). Mientras
+    convivan, este sync sigue espejando Mongo → SQL con los MISMOS valores que escribe el
+    panel (dual-write) → idempotente, no pisa. Se retira cuando se deprecate Mongo Assets."""
     cols = ["unidad", "cartera", "clase_activo", "emisor", "ticker", "instrumento",
-            "calificacion", "cafci"]
+            "calificacion", "cafci", "vencimiento", "codigo_cnv", "fee_admin"]
     rows = []
     for d in mdb["Valuaciones"]["Assets"].find({}, {
         "_id": 0, "unidad": 1, "CARTERA": 1, "CLASE_ACTIVO": 1, "EMISOR": 1, "TICKER": 1,
-        "INSTRUMENTO": 1, "CALIFICACION": 1, "CAFCI": 1,
+        "INSTRUMENTO": 1, "CALIFICACION": 1, "CAFCI": 1, "VENCIMIENTO": 1, "CODIGO_CNV": 1,
+        "FEE_ADMIN": 1,
     }):
         u = _s(d.get("unidad"))
         if not u:
             continue
         rows.append((u, _s(d.get("CARTERA")), _s(d.get("CLASE_ACTIVO")), _s(d.get("EMISOR")),
                      _s(d.get("TICKER")), _s(d.get("INSTRUMENTO")), _s(d.get("CALIFICACION")),
-                     _s(d.get("CAFCI"))))
+                     _s(d.get("CAFCI")), _s(d.get("VENCIMIENTO")), _s(d.get("CODIGO_CNV")),
+                     d.get("FEE_ADMIN")))
     rows = _dedup(rows, [0])
-    n = _upsert(conn, "assets", cols, ["unidad"], rows, dry)
-    _delete_not_in(conn, "assets", "unidad", {r[0] for r in rows}, dry)
+    n = _upsert(conn, "portafolio.assets", cols, ["unidad"], rows, dry)
+    _delete_not_in(conn, "portafolio.assets", "unidad", {r[0] for r in rows}, dry)
     return n
 
 

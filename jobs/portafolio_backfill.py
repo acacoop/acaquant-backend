@@ -38,7 +38,6 @@ from datetime import date, datetime, timedelta
 import holidays
 import requests
 
-from core.mongo import get_mongo_client_read
 from core.postgres import get_pool
 from jobs._aum_filters import (
     is_excluded,
@@ -139,13 +138,35 @@ def cargar_contrapartes() -> None:
 
 
 def _load_assets_map() -> dict[str, dict]:
+    """Mapa unidad → {ticker, cartera} desde SQL `portafolio.assets` (fuente de
+    verdad de metadatos). Antes leía Mongo Valuaciones.Assets; ahora SQL para
+    desacoplar el writer diario de Mongo (migración tenencias→SQL)."""
     out: dict[str, dict] = {}
-    for a in get_mongo_client_read()["Valuaciones"]["Assets"].find(
-            {}, {"_id": 0, "unidad": 1, "TICKER": 1, "CARTERA": 1}):
-        if a.get("unidad"):
-            out[a["unidad"]] = {"ticker": (a.get("TICKER") or "").strip() or None,
-                                "cartera": (a.get("CARTERA") or "").strip() or None}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT unidad, ticker, cartera FROM portafolio.assets")
+        for unidad, ticker, cartera in cur.fetchall():
+            if unidad:
+                out[unidad] = {"ticker": (ticker or "").strip() or None,
+                               "cartera": (cartera or "").strip() or None}
     return out
+
+
+def _alta_assets_nuevos(registros: list[dict]) -> int:
+    """Auto-alta: inserta en `portafolio.assets` las unidades que aparezcan en el
+    snapshot y todavía no estén en el catálogo (metadata vacía, lista para
+    segmentar en Manager → Assets). Réplica del comportamiento que tenía el writer
+    Mongo (`_sincronizar_assets_valuaciones`). ON CONFLICT DO NOTHING → nunca pisa
+    los metadatos ya cargados. Devuelve cuántas dio de alta."""
+    unidades = sorted({r["unidad"] for r in registros if r.get("unidad")})
+    if not unidades:
+        return 0
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO portafolio.assets (unidad) VALUES (%s) ON CONFLICT (unidad) DO NOTHING",
+            [(u,) for u in unidades])
+        n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        conn.commit()
+    return n
 
 
 def _ya_hechas(iso: str) -> set[str]:
@@ -347,12 +368,14 @@ def main() -> int:
                     if done % 200 == 0:
                         print(f"    … {done}/{len(pend)}")
             _write_date(iso, registros, status_by)
+            altas = _alta_assets_nuevos(registros)   # auto-alta de unidades nuevas en assets
             ok = sum(1 for s in status_by.values() if s[0] == "ok")
             vac = sum(1 for s in status_by.values() if s[0] == "vacia")
             to = sum(1 for s in status_by.values() if s[0] == "timeout")
             er = len(status_by) - ok - vac - to
             print(f"  ✓ {iso}: OK={ok} vacía={vac} TIMEOUT={to} ERROR={er} · "
-                  f"filas insertadas={len(registros)} · {time.monotonic()-t0:.0f}s")
+                  f"filas insertadas={len(registros)} · assets nuevos={altas} · "
+                  f"{time.monotonic()-t0:.0f}s")
         except Exception as e:
             print(f"  ✗ {iso}: la fecha falló ({type(e).__name__}: {e}) — sigo con la próxima")
             continue

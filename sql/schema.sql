@@ -198,19 +198,29 @@ CREATE INDEX IF NOT EXISTS ix_aum_unidad    ON aum(unidad, fecha_snapshot);
 -- Valuaciones.Assets — master de instrumentos (UPPERCASE en Mongo → lowercase acá).
 -- Join por `unidad` con aum. Alimenta carteras (cartera), FCI (cartera/emisor),
 -- renta fija (clase_activo) y el normalizer del PnL (ticker/instrumento/cafci).
-CREATE TABLE IF NOT EXISTS assets (
-    unidad       text PRIMARY KEY,
-    cartera      text,
-    clase_activo text,
-    emisor       text,
-    ticker       text,
-    instrumento  text,
-    calificacion text,
-    cafci        text
+-- Master de metadatos de títulos. Vive en el schema `portafolio` (junto a
+-- `portafolio.tenencia`) — es la FUENTE DE VERDAD de la segmentación (panel
+-- Manager → Assets escribe acá; el writer diario auto-da-de-alta unidades nuevas).
+-- Migración public→portafolio: scripts/migrar_assets_a_portafolio.py.
+CREATE SCHEMA IF NOT EXISTS portafolio;
+CREATE TABLE IF NOT EXISTS portafolio.assets (
+    unidad         text PRIMARY KEY,
+    cartera        text,
+    clase_activo   text,
+    emisor         text,
+    ticker         text,
+    instrumento    text,
+    calificacion   text,
+    cafci          text,
+    vencimiento    text,
+    codigo_cnv     text,
+    fee_admin      numeric,          -- fracción (0.01 = 1%), FCI
+    actualizado_por text,
+    actualizado_at  timestamptz
 );
-CREATE INDEX IF NOT EXISTS ix_assets_cartera ON assets(cartera);
-CREATE INDEX IF NOT EXISTS ix_assets_clase   ON assets(clase_activo);
-CREATE INDEX IF NOT EXISTS ix_assets_ticker  ON assets(ticker);
+CREATE INDEX IF NOT EXISTS ix_assets_cartera ON portafolio.assets(cartera);
+CREATE INDEX IF NOT EXISTS ix_assets_clase   ON portafolio.assets(clase_activo);
+CREATE INDEX IF NOT EXISTS ix_assets_ticker  ON portafolio.assets(ticker);
 
 -- Valuaciones.Dolar — feed MEP (timestamp, mep). get_mep_for_date: último mep <= eod(fecha).
 CREATE TABLE IF NOT EXISTS dolar (

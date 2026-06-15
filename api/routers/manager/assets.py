@@ -17,6 +17,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -24,8 +25,10 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from core.mongo import get_mongo_client, get_mongo_client_read
+from core.postgres import get_pool
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Valores que tratamos como "vacío" para detectar gaps en metadata.
 _EMPTY_VALUES: list[str | None] = ["", "NO APLICA", None]
@@ -210,8 +213,31 @@ def patch_asset(
     if result.matched_count == 0:
         raise HTTPException(404, f"unidad no encontrada en Valuaciones.Assets: {unidad!r}")
 
+    # DUAL-WRITE a SQL (fuente de verdad de la migración): la segmentación impacta
+    # en portafolio.assets ya. Best-effort: si SQL falla, Mongo sigue primario y el
+    # sync_postgres (Mongo→SQL) reconcilia en el próximo run. No rompe la edición.
+    _dual_write_sql(unidad, set_fields)
+
     doc = col.find_one({"unidad": unidad}, _PROJECTION) or {}
     return _normalize_assets([doc])[0]
+
+
+def _dual_write_sql(unidad: str, set_fields: dict) -> None:
+    """Upsert de los mismos campos a `portafolio.assets` (UPPERCASE → lowercase,
+    1:1 con .lower()). `actualizado_por/at` ya vienen en minúscula."""
+    cols = {k.lower(): v for k, v in set_fields.items()}
+    colnames = ["unidad", *cols.keys()]
+    updates = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols)
+    sql = (f"INSERT INTO portafolio.assets ({', '.join(colnames)}) "
+           f"VALUES ({', '.join(['%s'] * len(colnames))}) "
+           f"ON CONFLICT (unidad) DO UPDATE SET {updates}")
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, [unidad, *cols.values()])
+            conn.commit()
+    except Exception:
+        logger.warning("dual-write SQL falló para asset %r (Mongo OK, sync reconciliará)",
+                       unidad, exc_info=True)
 
 
 # Compat: PATCH /assets/{unidad} sigue funcionando para clientes viejos

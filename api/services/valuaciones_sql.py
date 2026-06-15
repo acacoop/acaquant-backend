@@ -119,7 +119,7 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
     rows = _q(
         "SELECT v.unidad, v.cantidad, v.precio, v.valuacion, "
         "a.cartera, a.clase_activo, a.ticker, a.emisor, a.calificacion "
-        "FROM portafolio.tenencia v LEFT JOIN assets a ON a.unidad = v.unidad "
+        "FROM portafolio.tenencia v LEFT JOIN portafolio.assets a ON a.unidad = v.unidad "
         f"WHERE v.id_cuenta = %(c)s AND v.fecha = %(f)s AND v.aum = 'si'{cart}", p)
 
     by_unidad: dict[str, dict] = {}

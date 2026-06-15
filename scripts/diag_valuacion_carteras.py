@@ -48,7 +48,7 @@ def main() -> None:
         cur.execute(
             "SELECT COALESCE(NULLIF(t.cartera,''), a.cartera) AS cartera, "
             "       t.cantidad, t.precio, t.valuacion "
-            "FROM portafolio.tenencia t LEFT JOIN assets a ON a.unidad = t.unidad "
+            "FROM portafolio.tenencia t LEFT JOIN portafolio.assets a ON a.unidad = t.unidad "
             "WHERE t.fecha = %s AND t.aum = 'si'", (fecha,))
         filas = cur.fetchall()
 

@@ -161,7 +161,7 @@ def fci_serie(desde: str | None = None, hasta: str | None = None,
         p["hasta"] = hasta
     rows = _q(f"SELECT v.fecha AS fecha, "
               f"COALESCE(NULLIF(a.emisor, ''), 'SIN EMISOR') AS emisor, SUM(v.valuacion) AS val "
-              f"FROM {_SRC} v JOIN assets a ON a.unidad = v.unidad WHERE {' AND '.join(conds)} "
+              f"FROM {_SRC} v JOIN portafolio.assets a ON a.unidad = v.unidad WHERE {' AND '.join(conds)} "
               f"GROUP BY v.fecha, emisor ORDER BY v.fecha", p)
     bucket: dict[str, dict] = {}
     for r in rows:
@@ -187,7 +187,7 @@ def fci_snapshot(fecha: str, cuenta_filter: str = "todas",
         p["scope"] = list(scope)
     rows = _q(f"SELECT v.unidad, COALESCE(NULLIF(a.emisor, ''), 'SIN EMISOR') AS emisor, "
               f"COALESCE(a.ticker, '') AS ticker, v.cuenta, v.id_cuenta, v.valuacion, v.cantidad "
-              f"FROM {_SRC} v JOIN assets a ON a.unidad = v.unidad WHERE {' AND '.join(conds)}", p)
+              f"FROM {_SRC} v JOIN portafolio.assets a ON a.unidad = v.unidad WHERE {' AND '.join(conds)}", p)
     return [{
         "unidad": r["unidad"], "emisor": r["emisor"], "ticker": r["ticker"],
         "cuenta": r["cuenta"] or "", "id_cuenta": r["id_cuenta"] or "",
@@ -214,7 +214,7 @@ def total_serie(desde: str | None = None, hasta: str | None = None,
         conds.append("v.fecha <= %(hasta)s")
         p["hasta"] = hasta
     rows = _q(f"SELECT v.fecha AS fecha, COALESCE(NULLIF(a.cartera, ''), 'OTROS') AS cartera, "
-              f"SUM(v.valuacion) AS val FROM {_SRC} v LEFT JOIN assets a ON a.unidad = v.unidad "
+              f"SUM(v.valuacion) AS val FROM {_SRC} v LEFT JOIN portafolio.assets a ON a.unidad = v.unidad "
               f"WHERE {' AND '.join(conds)} "
               f"GROUP BY v.fecha, COALESCE(NULLIF(a.cartera, ''), 'OTROS') ORDER BY v.fecha", p)
     mep_cache: dict = {}
@@ -254,7 +254,7 @@ def total_snapshot(fecha: str, cuenta_filter: str = "todas", moneda: str = "ARS"
         p["scope"] = list(scope)
     rows = _q(f"SELECT v.unidad, COALESCE(NULLIF(a.cartera, ''), 'OTROS') AS cartera, "
               f"NULL::text AS tipo, v.cuenta, v.id_cuenta, v.valuacion, v.cantidad "
-              f"FROM {_SRC} v LEFT JOIN assets a ON a.unidad = v.unidad "
+              f"FROM {_SRC} v LEFT JOIN portafolio.assets a ON a.unidad = v.unidad "
               f"WHERE {' AND '.join(conds)}", p)
     mep = None
     mep_missing = False

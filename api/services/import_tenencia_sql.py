@@ -136,7 +136,7 @@ def recalcular_valuacion(fechas: list[str], commit: bool = False) -> dict:
             "       COALESCE(NULLIF(t.cartera, ''), a.cartera) AS cartera, "
             "       t.cantidad, t.precio, t.valuacion "
             "FROM portafolio.tenencia t "
-            "LEFT JOIN assets a ON a.unidad = t.unidad "
+            "LEFT JOIN portafolio.assets a ON a.unidad = t.unidad "
             "WHERE t.fecha = ANY(%s)", (fechas_ok,))
         for fecha, idc, unidad, cartera, cantidad, precio, val_old in cur.fetchall():
             div = _divisor_cartera(cartera)

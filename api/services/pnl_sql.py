@@ -48,7 +48,7 @@ def _build_unidad_maps_sql() -> tuple[dict[str, str], dict[str, str]]:
     y match_key→display."""
     unidad_to_match: dict[str, str] = {}
     match_to_display: dict[str, str] = {}
-    for d in _q("SELECT unidad, ticker, cafci FROM assets"):
+    for d in _q("SELECT unidad, ticker, cafci FROM portafolio.assets"):
         unidad = d.get("unidad")
         if not unidad:
             continue
@@ -72,7 +72,7 @@ def _deps_sql(only_cuenta: str | None) -> dict:
     unidad_to_match, match_to_display = _build_unidad_maps_sql()
 
     instrumentos_by_unidad = {}
-    for d in _q("SELECT unidad, instrumento FROM assets WHERE instrumento IS NOT NULL"):
+    for d in _q("SELECT unidad, instrumento FROM portafolio.assets WHERE instrumento IS NOT NULL"):
         instr = (d.get("instrumento") or "").strip()
         if d.get("unidad") and instr and instr not in _PLACEHOLDERS_INSTRUMENTO:
             instrumentos_by_unidad[d["unidad"]] = instr

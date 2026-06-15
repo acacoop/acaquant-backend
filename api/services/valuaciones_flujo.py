@@ -15,7 +15,7 @@ Las EXCLUSIONES (sí/no) se guardan POR CUENTA en Mongo CashFlow.ValuacionFlujoE
 (set de comprobantes; default = todos incluidos) y se aplican en el WHERE del SQL.
 
 Nombre FCI: negocio.ticker para FCI es el código CAFCI → se resuelve al ticker
-limpio con LEFT JOIN assets ON assets.cafci = nm.ticker (no afecta al resto).
+limpio con LEFT JOIN portafolio.assets ON portafolio.assets.cafci = nm.ticker.
 """
 from __future__ import annotations
 
@@ -75,14 +75,14 @@ def _cart_cond(cartera: str | None, col: str) -> tuple[str, dict]:
     if not cartera or cartera.upper() == "TODAS":
         return "", {}
     frag = (f"{col} IN ("
-            "SELECT ticker FROM assets WHERE cartera = %(cart)s AND ticker IS NOT NULL "
-            "UNION SELECT cafci FROM assets WHERE cartera = %(cart)s AND cafci IS NOT NULL)")
+            "SELECT ticker FROM portafolio.assets WHERE cartera = %(cart)s AND ticker IS NOT NULL "
+            "UNION SELECT cafci FROM portafolio.assets WHERE cartera = %(cart)s AND cafci IS NOT NULL)")
     return frag, {"cart": cartera}
 
 
 def get_carteras() -> dict:
     """Valores de CARTERA disponibles (para el filtro maestro de la vista)."""
-    rows = _q("SELECT DISTINCT cartera FROM assets "
+    rows = _q("SELECT DISTINCT cartera FROM portafolio.assets "
               "WHERE cartera IS NOT NULL AND cartera <> '' ORDER BY cartera")
     return {"carteras": [r["cartera"] for r in rows]}
 
@@ -155,7 +155,7 @@ def get_movimientos(id_cuenta: str, categoria: str, desde: str | None = None,
               COALESCE(a.ticker, nm.ticker) AS ticker,
               ({_CONV}) AS importe_ars
             FROM negocio_movimientos nm
-            LEFT JOIN assets a ON a.cafci = nm.ticker
+            LEFT JOIN portafolio.assets a ON a.cafci = nm.ticker
             WHERE {' AND '.join(conds)}
             ORDER BY nm.fecha, nm.comprobante""",
         p,

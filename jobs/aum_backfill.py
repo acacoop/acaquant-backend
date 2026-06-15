@@ -38,7 +38,6 @@ from pymongo import UpdateOne
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from core.mongo import get_mongo_client
 from jobs.aum import (
-    _sincronizar_assets,
     autenticar,
     consultar_posicion,
     obtener_cuentas,
@@ -241,9 +240,6 @@ def main():
     print(f"📝 docs/cuentas_con_error.json: {len(fallidas)} cuentas con error "
           f"en {fecha_snapshot}.")
 
-    unidades = col.distinct("unidad", {"fecha_snapshot": fecha_snapshot})
-    _sincronizar_assets(client["Valuaciones"]["Assets"], unidades)
-    print(f"✅ Assets sincronizado: {len(unidades)} unidades.")
 
 
 if __name__ == "__main__":

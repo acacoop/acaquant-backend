@@ -387,33 +387,9 @@ def sync_actividad_mensual(mdb, conn, dry) -> int:
     return _upsert(conn, "actividad_mensual", cols, ["year_month", "id_cuenta"], rows, dry)
 
 
-def sync_assets(mdb, conn, dry) -> int:
-    """Valuaciones.Assets (UPPERCASE) → portafolio.assets (lowercase). Join por `unidad`.
-    Master de instrumentos para carteras/FCI/renta fija/PnL. Chica (~1630), completa.
-
-    NOTA (migración SQL en curso): la fuente de verdad pasa a ser portafolio.assets
-    (el panel Manager → Assets escribe ahí y el writer diario auto-da-de-alta). Mientras
-    convivan, este sync sigue espejando Mongo → SQL con los MISMOS valores que escribe el
-    panel (dual-write) → idempotente, no pisa. Se retira cuando se deprecate Mongo Assets."""
-    cols = ["unidad", "cartera", "clase_activo", "emisor", "ticker", "instrumento",
-            "calificacion", "cafci", "vencimiento", "codigo_cnv", "fee_admin"]
-    rows = []
-    for d in mdb["Valuaciones"]["Assets"].find({}, {
-        "_id": 0, "unidad": 1, "CARTERA": 1, "CLASE_ACTIVO": 1, "EMISOR": 1, "TICKER": 1,
-        "INSTRUMENTO": 1, "CALIFICACION": 1, "CAFCI": 1, "VENCIMIENTO": 1, "CODIGO_CNV": 1,
-        "FEE_ADMIN": 1,
-    }):
-        u = _s(d.get("unidad"))
-        if not u:
-            continue
-        rows.append((u, _s(d.get("CARTERA")), _s(d.get("CLASE_ACTIVO")), _s(d.get("EMISOR")),
-                     _s(d.get("TICKER")), _s(d.get("INSTRUMENTO")), _s(d.get("CALIFICACION")),
-                     _s(d.get("CAFCI")), _s(d.get("VENCIMIENTO")), _s(d.get("CODIGO_CNV")),
-                     d.get("FEE_ADMIN")))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "portafolio.assets", cols, ["unidad"], rows, dry)
-    _delete_not_in(conn, "portafolio.assets", "unidad", {r[0] for r in rows}, dry)
-    return n
+# sync_assets ELIMINADO (migración assets→SQL): portafolio.assets es la fuente de
+# verdad ahora (panel Manager escribe ahí, writer diario auto-da-de-alta). Sincronizar
+# Mongo→SQL acá pisaría las ediciones del panel. Mongo Valuaciones.Assets deprecado.
 
 
 def sync_dolar(mdb, conn, dry, desde: datetime | None) -> int:
@@ -806,7 +782,6 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_rm = _t("role_matrix", lambda: sync_role_matrix(mdb, conn, dry))
         n_gr = _t("grupos", lambda: sync_grupos(mdb, conn, dry))
         n_am = _t("actividad_mensual", lambda: sync_actividad_mensual(mdb, conn, dry))
-        n_as = _t("assets", lambda: sync_assets(mdb, conn, dry))
         n_dl = _t("dolar", lambda: sync_dolar(mdb, conn, dry, desde))
         n_ps = _t("portfolio_snapshot", lambda: sync_portfolio_snapshot(mdb, conn, dry))
         n_sc = _t("snapshots_cierre", lambda: sync_snapshots_cierre(mdb, conn, dry))
@@ -832,7 +807,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  comitentes={n_co}  "
               f"contrapartes={n_cp}  accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
-              f"assets={n_as}  dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
+              f"dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
 
         n_ops, sin_bol = _t("operaciones", lambda: sync_operaciones(mdb, conn, dry, desde), (0, 0))
         n_aum = _t("aum", lambda: sync_aum(mdb, conn, dry, desde))
@@ -856,7 +831,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
     stats = {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co, "contrapartes": n_cp,
              "accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
-             "actividad_mensual": n_am, "assets": n_as, "dolar": n_dl,
+             "actividad_mensual": n_am, "dolar": n_dl,
              "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc, "news": n_nw,
              "quotes": n_qt, "calendar": n_cal,
              "series_macro": n_sm, "rem": n_rem, "curvas": n_cv,

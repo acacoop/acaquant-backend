@@ -1,10 +1,9 @@
 """Manager sub-router — control del catálogo de títulos (segmentación).
 
 Tab `/manager → ASSETS` para auditar y completar metadatos faltantes
-(CARTERA, EMISOR, INSTRUMENTO, etc.). LEE de SQL `portafolio.assets` (la fuente
-de verdad de la segmentación) vía `api/services/assets_sql.py`. El PATCH escribe
-SQL (autoritativo) + dual-write best-effort a Mongo `Valuaciones.Assets` para las
-vistas que todavía leen Mongo hasta el cutover.
+(CARTERA, EMISOR, INSTRUMENTO, etc.). LEE y ESCRIBE SQL `portafolio.assets` (la
+única fuente de verdad de la segmentación) vía `api/services/assets_sql.py`.
+Mongo `Valuaciones.Assets` quedó deprecado.
 
 Endpoints:
   GET   /api/manager/assets             → lista filtrable (cartera, emisor,
@@ -18,7 +17,6 @@ Endpoints:
 """
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -31,11 +29,9 @@ from api.services.assets_sql import (
     list_assets_panel,
     values_assets_panel,
 )
-from core.mongo import get_mongo_client
 from core.postgres import get_pool
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 # Campos UPPERCASE editables (string). Espejan el shape del doc en
 # portafolio.assets. También son los campos válidos para el filtro `campo_vacio`.
@@ -171,20 +167,10 @@ def patch_asset(
     set_fields["actualizado_por"] = actor
     set_fields["actualizado_at"]  = datetime.now(UTC)
 
-    # SQL `portafolio.assets` es la fuente de verdad del panel: chequeo existencia
-    # y escribo ahí (autoritativo). Una unidad recién auto-dada-de-alta por el writer
-    # diario vive solo en SQL → el 404 va contra SQL, no Mongo.
+    # SQL `portafolio.assets` es la ÚNICA fuente: chequeo existencia y escribo ahí.
     if asset_one_panel(unidad) is None:
         raise HTTPException(404, f"unidad no encontrada en portafolio.assets: {unidad!r}")
     _write_sql(unidad, set_fields)
-
-    # Dual-write best-effort a Mongo (back-compat: vistas que todavía leen Mongo
-    # Assets hasta el cutover). NO condiciona la respuesta — SQL ya es la verdad.
-    try:
-        get_mongo_client()["Valuaciones"]["Assets"].update_one(
-            {"unidad": unidad}, {"$set": set_fields})
-    except Exception:
-        logger.warning("dual-write Mongo falló para asset %r (SQL OK)", unidad, exc_info=True)
 
     doc = asset_one_panel(unidad) or {}
     return _normalize_assets([doc])[0]

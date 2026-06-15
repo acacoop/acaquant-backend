@@ -50,7 +50,6 @@ from pymongo import UpdateOne
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from core.mongo import get_mongo_client
 from jobs.aum import (
-    _sincronizar_assets,
     autenticar,
     consultar_posicion,
     procesar,
@@ -263,14 +262,6 @@ def backfill_un_mes(
           f"error={counts['error']} sin_datos={counts['sin_datos']} "
           f"| {registros_total} registros persistidos en AuM",
           flush=True)
-
-    if counts["ok"] > 0:
-        unidades = client["Valuaciones"]["AuM"].distinct(
-            "unidad", {"fecha_snapshot": fecha_iso},
-        )
-        _sincronizar_assets(client["Valuaciones"]["Assets"], unidades)
-        print(f"  ✅ Assets sincronizado: {len(unidades)} unidades",
-              flush=True)
 
     return {"yyyy_mm": yyyy_mm, "fecha_snapshot": fecha_iso,
             "run_id": run_id, **counts,

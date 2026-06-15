@@ -596,6 +596,7 @@ def _pnl_por_cuenta_core(
                 "precio":     float(d.get("precio") or 0),
                 "valuacion":  float(d.get("valuacion") or 0),
                 "tipoTitulo": d.get("tipoTitulo"),
+                "cartera":    d.get("cartera"),   # ← para el ÷100 por cartera
             }
 
     # ── 5. Construir filas y totales ────────────────────────────────────

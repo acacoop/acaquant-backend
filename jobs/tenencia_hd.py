@@ -35,18 +35,19 @@ from pymongo import UpdateOne
 
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
+from core.postgres import get_pool
 
 CUENTAS = ["100", "255", "256"]
 _CARTERA = "HD"
 _THROTTLE = 0.1   # pausa entre días en el backfill (no starvar la DB)
 
 
-def _hd_unidades(client) -> list[str]:
-    """unidades con CARTERA=HD desde Valuaciones.Assets (fuente de verdad)."""
-    return sorted({
-        d["unidad"] for d in client["Valuaciones"]["Assets"].find(
-            {"CARTERA": _CARTERA}, {"_id": 0, "unidad": 1}) if d.get("unidad")
-    })
+def _hd_unidades() -> list[str]:
+    """unidades con CARTERA=HD desde SQL portafolio.assets (fuente de verdad)."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT unidad FROM portafolio.assets WHERE cartera = %s "
+                    "AND unidad IS NOT NULL", (_CARTERA,))
+        return sorted({r[0] for r in cur.fetchall()})
 
 
 def _doc_del_dia(aum_col, fecha: str, hd_unidades: list[str], now: datetime) -> dict:
@@ -91,7 +92,7 @@ def run(fecha: str | None = None, backfill: bool = False, desde: str | None = No
         ten_col.create_index("fecha_snapshot", unique=True)   # idempotente
         now = datetime.now(UTC)
 
-        hd = _hd_unidades(client)
+        hd = _hd_unidades()
         if not hd:
             raise RuntimeError(f"No hay unidades con CARTERA={_CARTERA} en Assets — abortando.")
 

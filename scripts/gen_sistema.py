@@ -245,7 +245,7 @@ def _template(blocks: dict[str, str]) -> str:
 
 > Las tablas de arriba solo listan lo **agendado** en `crontab.txt`. Jobs
 > manuales / on-demand (backfills, archival: `jobs.*backfill*`,
-> `jobs.aum_resumen_fci`, etc.) se corren a mano y NO aparecen. Helpers
+> etc.) se corren a mano y NO aparecen. Helpers
 > (`jobs._*`, `aunesa_client`, `dias_habiles`) son librerías, no procesos.
 
 ## Componentes que NO están en systemd/cron

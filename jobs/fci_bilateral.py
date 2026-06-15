@@ -37,6 +37,7 @@ from pymongo import UpdateOne
 from api.services import operaciones_informes as svc
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
+from core.postgres import get_pool
 
 _MERCADO = "FCI Bilateral"
 # El FCI bilateral se liquida en T+1/T+2 → solo hace falta mirar lo reciente.
@@ -68,16 +69,16 @@ def _denom(cuenta_raw) -> str | None:
     return _DENOM_RE.sub("", s) or None
 
 
-def _assets_cafci_map(client) -> dict[str, str]:
-    """ticker CAFCI → `unidad` (nombre rico del fondo) desde Valuaciones.Assets,
+def _assets_cafci_map() -> dict[str, str]:
+    """ticker CAFCI → `unidad` (nombre rico del fondo) desde SQL portafolio.assets,
     para que el `instrumento` quede igual al de los CL cargados a mano."""
     out: dict[str, str] = {}
-    for d in client["Valuaciones"]["Assets"].find(
-        {"CAFCI": {"$nin": [None, ""]}}, {"_id": 0, "CAFCI": 1, "unidad": 1}
-    ):
-        c, u = d.get("CAFCI"), d.get("unidad")
-        if c and u:
-            out[str(c).strip()] = u
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT cafci, unidad FROM portafolio.assets "
+                    "WHERE cafci IS NOT NULL AND cafci <> ''")
+        for c, u in cur.fetchall():
+            if c and u:
+                out[str(c).strip()] = u
     return out
 
 
@@ -139,7 +140,7 @@ def run(full: bool = False) -> dict:
 
         # 3) Maps de enriquecimiento (segmento/nivel_3 por cuenta) + Assets (instrumento).
         _, niveles = svc.cargar_maps_enrich(db)
-        assets = _assets_cafci_map(client)
+        assets = _assets_cafci_map()
 
         # 4) Leer FCI bilateral: liquidaciones SOLO CL (las BOL ya son boletos),
         #    solicitudes todas (son DOC). Acotado a los últimos _LOOKBACK_DIAS

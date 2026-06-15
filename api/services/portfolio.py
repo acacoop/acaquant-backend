@@ -58,10 +58,9 @@ _EXCLUDED_FROM_AUM_VIEW: frozenset[str] = frozenset({"255"})
 def _fci_assets_map() -> dict[str, dict]:
     """Mapea unidad → {emisor, ticker} para unidades con CARTERA=CARTERA FCI.
 
-    Lee `Valuaciones.Assets` UPPERCASE (fuente de verdad). Misma fuente que
-    `jobs/aum_resumen_fci.py::_fci_unidades` para que el set de unidades FCI
-    sea idéntico entre el rollup que alimenta el KPI "TOTAL FCI HOY" y el
-    snapshot panel — antes leíamos `TitulosAPI.AssetsAPI` (lowercase, copia
+    Lee `Valuaciones.Assets` UPPERCASE (rama Mongo legacy; la rama SQL usa
+    `portafolio.assets`). El set de unidades FCI sale de CARTERA=FCI — antes
+    leíamos `TitulosAPI.AssetsAPI` (lowercase, copia
     derivada) y se desincronizaban cuando se editaba el master sin correr
     el sync. Cacheado 10 min — los assets FCI cambian como mucho mensualmente.
     """

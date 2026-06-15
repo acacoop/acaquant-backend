@@ -21,6 +21,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from core.mongo import get_mongo_client_read
+from core.postgres import get_pool
 
 ART_OFFSET = timedelta(hours=-3)
 _PLACEHOLDERS = {"", "NO APLICA"}
@@ -64,13 +65,13 @@ def _instrumentos_de_tenencia() -> set[str]:
         return set()
 
     out: set[str] = set()
-    for d in db_v["Assets"].find(
-        {"unidad": {"$in": unidades}},
-        {"_id": 0, "INSTRUMENTO": 1},
-    ):
-        inst = (d.get("INSTRUMENTO") or "").strip()
-        if inst and inst not in _PLACEHOLDERS:
-            out.add(inst)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT instrumento FROM portafolio.assets WHERE unidad = ANY(%s)",
+                    (unidades,))
+        for (inst,) in cur.fetchall():
+            inst = (inst or "").strip()
+            if inst and inst not in _PLACEHOLDERS:
+                out.add(inst)
     return out
 
 
@@ -81,7 +82,6 @@ def _instrumentos_de_boletos_hoy() -> set[str]:
     automática — se reporta en sin_match)."""
     client = get_mongo_client_read()
     db_cf = client["CashFlow"]
-    db_v = client["Valuaciones"]
 
     fecha = _hoy_art_iso()
     tickers_hoy = db_cf["NegocioMovimientos"].distinct(
@@ -94,13 +94,13 @@ def _instrumentos_de_boletos_hoy() -> set[str]:
     # corto humano) o por extracción del unidad (regex `[<id>] <ticker>`).
     # El más rápido es match directo por TICKER.
     out: set[str] = set()
-    for d in db_v["Assets"].find(
-        {"TICKER": {"$in": tickers_hoy}},
-        {"_id": 0, "INSTRUMENTO": 1},
-    ):
-        inst = (d.get("INSTRUMENTO") or "").strip()
-        if inst and inst not in _PLACEHOLDERS:
-            out.add(inst)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT instrumento FROM portafolio.assets WHERE ticker = ANY(%s)",
+                    (tickers_hoy,))
+        for (inst,) in cur.fetchall():
+            inst = (inst or "").strip()
+            if inst and inst not in _PLACEHOLDERS:
+                out.add(inst)
     return out
 
 

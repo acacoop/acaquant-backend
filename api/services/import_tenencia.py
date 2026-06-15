@@ -20,7 +20,8 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime, timedelta
 
-from core.mongo import get_mongo_client, get_mongo_client_read
+from core.mongo import get_mongo_client
+from core.postgres import get_pool
 
 _DB, _COL = "Valuaciones", "AuM"
 _MAX_ROWS = 50_000  # tope de seguridad por request
@@ -100,18 +101,17 @@ def _num(v) -> float | None:
 
 
 def _assets_index() -> dict[str, dict]:
-    """unidad → {tipoTitulo, cartera} desde Valuaciones.Assets (para enriquecer
+    """unidad → {tipoTitulo, cartera} desde SQL portafolio.assets (para enriquecer
     tipoTitulo y validar match de cartera)."""
     out: dict[str, dict] = {}
-    cur = get_mongo_client_read()[_DB]["Assets"].find(
-        {}, {"_id": 0, "unidad": 1, "CLASE_ACTIVO": 1, "CARTERA": 1, "INSTRUMENTO": 1})
-    for a in cur:
-        u = a.get("unidad")
-        if u:
-            out[u] = {
-                "tipoTitulo": (a.get("INSTRUMENTO") or a.get("CLASE_ACTIVO") or "").strip(),
-                "cartera":    (a.get("CARTERA") or "").strip(),
-            }
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT unidad, instrumento, clase_activo, cartera FROM portafolio.assets")
+        for unidad, instrumento, clase, cartera in cur.fetchall():
+            if unidad:
+                out[unidad] = {
+                    "tipoTitulo": (instrumento or clase or "").strip(),
+                    "cartera":    (cartera or "").strip(),
+                }
     return out
 
 

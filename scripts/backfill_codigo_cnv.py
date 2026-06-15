@@ -31,9 +31,8 @@ import unicodedata
 from datetime import UTC, datetime
 
 import pandas as pd
-from pymongo import UpdateOne
 
-from core.mongo import get_mongo_client
+from core.postgres import get_pool
 
 
 def _norm(s: str) -> str:
@@ -102,16 +101,18 @@ def main() -> int:
     rep.append(f"archivo: {args.file}  ({len(df)} filas)")
     rep.append(f"columna CÓDIGO = {col_cod!r}   columna NOMBRE/TICKER = {col_nom!r}")
 
-    # 2) Catálogo de Assets en memoria: TICKER(upper) → [unidad, ...].
-    col = get_mongo_client()["Valuaciones"]["Assets"]
+    # 2) Catálogo desde SQL portafolio.assets: TICKER(upper) → [unidad, ...].
     por_ticker: dict[str, list[str]] = {}
-    for a in col.find({"TICKER": {"$nin": ["", None]}}, {"_id": 0, "unidad": 1, "TICKER": 1}):
-        tk = str(a.get("TICKER", "")).strip().upper()
-        if tk:
-            por_ticker.setdefault(tk, []).append(a["unidad"])
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT unidad, ticker FROM portafolio.assets "
+                    "WHERE ticker IS NOT NULL AND ticker <> ''")
+        for unidad, ticker in cur.fetchall():
+            tk = str(ticker or "").strip().upper()
+            if tk:
+                por_ticker.setdefault(tk, []).append(unidad)
 
-    # 3) Recorrer las filas y armar los updates.
-    ops: list[UpdateOne] = []
+    # 3) Recorrer las filas y armar los updates (codigo, unidad).
+    ops: list[tuple] = []
     n_match_assets = 0
     no_encontrados: list[str] = []
     invalidos = 0
@@ -137,12 +138,7 @@ def main() -> int:
             no_encontrados.append(f"{nombre}  (cod {codigo})")
             continue
         for unidad in unidades:
-            ops.append(UpdateOne(
-                {"unidad": unidad},
-                {"$set": {"CODIGO_CNV": codigo,
-                          "actualizado_por": "backfill_codigo_cnv",
-                          "actualizado_at": ahora}},
-            ))
+            ops.append((codigo, ahora, unidad))
             n_match_assets += 1
 
     rep.append("")
@@ -163,8 +159,13 @@ def main() -> int:
         return 0
 
     if ops:
-        res = col.bulk_write(ops, ordered=False)
-        rep.append(f"\nAPLICADO: matched={res.matched_count} modified={res.modified_count}")
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.executemany(
+                "UPDATE portafolio.assets SET codigo_cnv=%s, "
+                "actualizado_por='backfill_codigo_cnv', actualizado_at=%s WHERE unidad=%s", ops)
+            n = cur.rowcount
+            conn.commit()
+        rep.append(f"\nAPLICADO: {n} assets actualizados ({len(ops)} updates).")
     else:
         rep.append("\nNADA que aplicar (0 matches).")
     _emit(rep, args.out)

@@ -30,7 +30,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from core.mongo import get_mongo_client, get_mongo_client_read
+from core.postgres import get_pool
 
 _FCI_CARTERAS = ["FCI", "CARTERA FCI"]
 
@@ -102,13 +102,14 @@ def main() -> None:
     emit(f"    Fondo='{fondo_col}'  Honorario='{hon_col}'  {'APPLY' if args.apply else 'DRY-RUN'}")
     emit("")
 
-    # ── 2) Universo FCI en Assets (norm(unidad) → unidad original) ─────────────
-    col = (get_mongo_client() if args.apply else get_mongo_client_read())["Valuaciones"]["Assets"]
+    # ── 2) Universo FCI en SQL portafolio.assets (norm(unidad) → unidad original) ─
     fci = {}
-    for d in col.find({"CARTERA": {"$in": _FCI_CARTERAS}}, {"_id": 0, "unidad": 1, "FEE_ADMIN": 1}):
-        u = d.get("unidad")
-        if u:
-            fci[_norm(_fund_name(u))] = {"unidad": u, "fee_actual": d.get("FEE_ADMIN")}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT unidad, fee_admin FROM portafolio.assets WHERE cartera = ANY(%s)",
+                    (_FCI_CARTERAS,))
+        for u, fee in cur.fetchall():
+            if u:
+                fci[_norm(_fund_name(u))] = {"unidad": u, "fee_actual": fee}
     emit(f"[Assets] {len(fci)} fondos CARTERA FCI en el maestro\n")
 
     # ── 3) Matchear filas del archivo ──────────────────────────────────────────
@@ -171,13 +172,13 @@ def main() -> None:
         return
     now = datetime.now(UTC)
     n = 0
-    for m in matched:
-        res = col.update_one(
-            {"unidad": m["unidad"]},
-            {"$set": {"FEE_ADMIN": m["fraccion"], "actualizado_por": "backfill_fci_fee",
-                      "actualizado_at": now}},
-        )
-        n += res.modified_count
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        for m in matched:
+            cur.execute(
+                "UPDATE portafolio.assets SET fee_admin=%s, actualizado_por='backfill_fci_fee', "
+                "actualizado_at=%s WHERE unidad=%s", (m["fraccion"], now, m["unidad"]))
+            n += cur.rowcount
+        conn.commit()
     emit(f"✅ APPLY: {n} fondos actualizados ({len(matched)} matcheados).")
     flush()
 

@@ -1,18 +1,14 @@
 import os
 import sys
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
 import holidays
 import pandas as pd
 import requests
-from pymongo import UpdateOne
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import config
-from core.mongo import get_mongo_client
 from jobs._aum_filters import (
     is_excluded,
     load_contrapartes_id_cuentas,
@@ -256,134 +252,3 @@ def procesar(data, fecha_snapshot, timestamp):
     df_g["timestamp"]      = timestamp
 
     return df_g.to_dict(orient="records")
-
-
-# ── Worker por cuenta (ejecutado en threads) ──────────────────────────────────
-def _consultar_cuenta(cuenta_id, denominacion, idx, total, desde, fecha_snapshot, timestamp,
-                      headers_ref, headers_lock):
-    """Consulta y procesa una cuenta. Retorna lista de registros o []."""
-    try:
-        with headers_lock:
-            h = dict(headers_ref)
-
-        data, necesita_reauth = consultar_posicion(cuenta_id, h, desde)
-
-        if necesita_reauth:
-            with headers_lock:
-                nuevos = autenticar()
-                headers_ref.clear()
-                headers_ref.update(nuevos)
-                h = dict(headers_ref)
-            data, _ = consultar_posicion(cuenta_id, h, desde)
-
-        if not data:
-            print(f"[{idx:3d}/{total}] [{cuenta_id}] {denominacion[:40]} → sin datos", flush=True)
-            return []
-
-        registros = procesar(data, fecha_snapshot, timestamp)
-        print(f"[{idx:3d}/{total}] [{cuenta_id}] {denominacion[:40]} → {len(registros)} posiciones", flush=True)
-        return registros
-
-    except Exception as e:
-        print(f"[{idx:3d}/{total}] [{cuenta_id}] ❌ Error: {e}", flush=True)
-        return []
-
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-def run():
-    print("🔑 Autenticando con Aunesa...", flush=True)
-    headers_ref  = autenticar()   # dict mutable compartido entre threads
-    headers_lock = threading.Lock()
-    print("✅ Auth OK\n", flush=True)
-
-    print("📋 Obteniendo listado de cuentas activas...", flush=True)
-    cuentas = obtener_cuentas(headers_ref)
-    total   = len(cuentas)
-    print(f"   {total} cuentas activas encontradas\n", flush=True)
-
-    client = get_mongo_client()
-    col    = client["Valuaciones"]["AuM"]
-
-    # Regla validada (H1): snapshotea SIEMPRE el día hábil anterior, con
-    # desde = próximo_hábil(ese día). Idéntico a portafolio_backfill.
-    desde, fecha_snapshot = fecha_objetivo_diario()
-    timestamp       = datetime.utcnow()
-    print(f"📅 snapshot del día {fecha_snapshot}  ·  desde Aunesa = {desde}", flush=True)
-    registros_total = 0
-
-    futures_map = {}
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        for i, row in cuentas.iterrows():
-            cuenta_id    = str(row["id"])
-            denominacion = row["denominacion"]
-            f = executor.submit(
-                _consultar_cuenta,
-                cuenta_id, denominacion, i + 1, total,
-                desde, fecha_snapshot, timestamp,
-                headers_ref, headers_lock,
-            )
-            futures_map[f] = cuenta_id
-
-        for f in as_completed(futures_map):
-            cuenta_id = futures_map[f]
-            registros = f.result()
-
-            # Idempotencia cuando el cron corre N veces por día (intra-day):
-            # antes de reinsertar las posiciones de esta cuenta, borrar los
-            # docs viejos de la cuenta para HOY. Sin esto, posiciones que
-            # se cerraron entre dos corridas del cron quedan como
-            # fantasmas (la upsert key (id_cuenta, unidad, fecha_snapshot)
-            # no detecta filas "que ya no vienen").
-            # Gap de <1s entre delete y bulk_write — aceptable.
-            col.delete_many({
-                "id_cuenta":      cuenta_id,
-                "fecha_snapshot": fecha_snapshot,
-            })
-
-            if not registros:
-                continue
-
-            ops = [
-                UpdateOne(
-                    {
-                        "id_cuenta":      r["id_cuenta"],
-                        "unidad":         r["unidad"],
-                        "fecha_snapshot": r["fecha_snapshot"],
-                    },
-                    {"$set": r},
-                    upsert=True,
-                )
-                for r in registros
-            ]
-            col.bulk_write(ops, ordered=False)
-            registros_total += len(registros)
-
-    print(f"\n🏁 Proceso finalizado. Total registros insertados: {registros_total}")
-
-
-
-if __name__ == "__main__":
-    import time
-
-    from core.job_runs import JobRunLogger
-    MAX_INTENTOS = 3
-    ESPERA_SEGUNDOS = 60
-
-    # JobRunLogger envuelve la corrida: persiste el run en Manager.JobRuns y
-    # alerta por Telegram si falla (antes el job moría en silencio).
-    with JobRunLogger("aum"):
-        for intento in range(1, MAX_INTENTOS + 1):
-            try:
-                run()
-                break
-            except requests.exceptions.Timeout as e:
-                print(f"⚠️  Timeout en intento {intento}/{MAX_INTENTOS}: {e}", flush=True)
-                if intento < MAX_INTENTOS:
-                    print(f"   Reintentando en {ESPERA_SEGUNDOS}s...", flush=True)
-                    time.sleep(ESPERA_SEGUNDOS)
-                else:
-                    print("❌ Se agotaron los reintentos.", flush=True)
-                    sys.exit(1)
-            except Exception as e:
-                print(f"❌ Error inesperado: {e}", flush=True)
-                sys.exit(1)

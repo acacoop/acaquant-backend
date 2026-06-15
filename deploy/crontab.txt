@@ -120,12 +120,9 @@
 # Corre ANTES del AuM Mongo (12:00) para no doblar la carga a Aunesa en simultáneo.
 0 11 * * 1-5 /root/TradingAV/deploy/run_job.sh portafolio_diario 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.portafolio_backfill --diario'
 
-# ─── AuM snapshot (Mongo, legacy/reversión) — 1 corrida L-V a las 12:00 UTC (09:00 ART).
-# Guarda el CIERRE del día hábil ANTERIOR (desde=hoy → Aunesa devuelve el hábil
-# previo, regla H1 confirmada). Ese dato es FIJO → no necesita refrescos intra-rueda
-# (antes corría 5×/día para seguir la posición de HOY en vivo; ya no aplica).
-# Idempotente: por cuenta delete_many({fecha_snapshot}) antes del bulk_write.
-0 12 * * 1-5 /root/TradingAV/deploy/run_job.sh aum 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.aum'
+# AuM Mongo (jobs.aum) ELIMINADO 2026-06-15: la fuente única de tenencias es SQL
+# portafolio.tenencia (writer diario de arriba). jobs/aum.py quedó solo como librería
+# de helpers Aunesa (autenticar/consultar_posicion/procesar/_calcular_valuacion).
 
 # ─── Consolidado por cuenta (12:30 UTC = 09:30 ART, L-V — post AuM)
 30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh consolidado_cuentas 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.consolidado_cuentas'

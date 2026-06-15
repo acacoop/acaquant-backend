@@ -237,30 +237,9 @@ def sync_operaciones(mdb, conn, dry, desde: datetime | None) -> tuple[int, int]:
     return total, sin_boleto
 
 
-def sync_aum(mdb, conn, dry, desde: datetime | None) -> int:
-    """Valuaciones.AuM. Grano (fecha_snapshot, id_cuenta, unidad). Incremental por timestamp."""
-    q = {"timestamp": {"$gte": desde}} if desde else {}
-    proj = {
-        "fecha_snapshot": 1, "id_cuenta": 1, "unidad": 1, "cuenta": 1,
-        "cantidad": 1, "precio": 1, "valuacion": 1, "tipoTitulo": 1,
-    }
-    cols = ["fecha_snapshot", "id_cuenta", "unidad", "cuenta",
-            "cantidad", "precio", "valuacion", "tipo_titulo"]
-    total = 0
-    cur = mdb["Valuaciones"]["AuM"].find(q, proj, batch_size=BATCH)
-    for batch in _iter_batches(cur):
-        rows = []
-        for d in batch:
-            f, idc, u = _d(d.get("fecha_snapshot")), _s(d.get("id_cuenta")), _s(d.get("unidad"))
-            if not (f and idc and u):
-                continue
-            rows.append((f, idc, u, _s(d.get("cuenta")),
-                         d.get("cantidad"), d.get("precio"), d.get("valuacion"),
-                         _s(d.get("tipoTitulo"))))
-        total += _upsert(conn, "aum", cols, ["fecha_snapshot", "id_cuenta", "unidad"],
-                         _dedup(rows, [0, 1, 2]), dry)
-        time.sleep(THROTTLE)
-    return total
+# sync_aum ELIMINADO (migración AuM→SQL): pnl_sql/comercial_sql leen portafolio.tenencia
+# (writer diario portafolio_backfill), ya no la tabla 'aum'. Mongo Valuaciones.AuM + la
+# tabla SQL 'aum' quedan deprecados → se dropean (scripts.drop_mongo_aum_deprecado).
 
 
 def sync_negocio(mdb, conn, dry, desde: datetime | None) -> int:
@@ -810,10 +789,9 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
 
         n_ops, sin_bol = _t("operaciones", lambda: sync_operaciones(mdb, conn, dry, desde), (0, 0))
-        n_aum = _t("aum", lambda: sync_aum(mdb, conn, dry, desde))
         n_nm = _t("negocio", lambda: sync_negocio(mdb, conn, dry, desde))
         print(f"  hechos: operaciones={n_ops:,} (sin boleto, salteadas={sin_bol:,})  "
-              f"aum={n_aum:,}  negocio={n_nm:,}")
+              f"negocio={n_nm:,}")
 
         if not dry:
             _t("reconciliar", lambda: reconciliar(mdb, conn))
@@ -839,7 +817,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "market_snapshot": n_ms, "snapshots_cierre_hist": n_sh,
              "canje_cierre": n_cj, "mercado_hist": n_mh,
              "operaciones": n_ops,
-             "aum": n_aum, "negocio": n_nm, "sin_boleto": sin_bol,
+             "negocio": n_nm, "sin_boleto": sin_bol,
              "fases_fallidas": len(fallos)}
     # Re-lanza SOLO si falló una fase crítica (las vistas la consumen). El mirror de
     # Market que falle no alerta. Lo que sí sincronizó ya quedó commiteado por fase.

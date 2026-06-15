@@ -66,46 +66,42 @@
 | cada 30min · 14-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral'` |
 | cada 4min · 13-20h · L-V | `jobs.comercial_warm'` |
 | cada 5min · *h · diario | `jobs.watchdog'` |
+| 11:00 · L-V | `jobs.portafolio_backfill` |
 | 12:00 · diario | `jobs.argentina_datos'` |
 | 12:00 · Dom | `jobs.sync_postgres` |
 | cada hora · 13-20h · L-V | `jobs.informe_salud'` |
 | 14:00 · L-V | `jobs.sync_comitentes'` |
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |
-| 15:00 · L-V | `jobs.aum'` |
-| 17:00 · L-V | `jobs.aum'` |
 | 17:00 · L-V | `jobs.sync_comitentes'` |
 | 02:00 · Mar-Sáb | `jobs.cashflow` |
 | 02:00 · Mar-Sáb | `jobs.partner_export'` |
 | 20:00 · L-V | `jobs.volatilidad_ggal'` |
-| 21:00 · L-V | `jobs.aum'` |
 | 21:00 · L-V | `jobs.sync_comitentes'` |
 | 22:00 · L-V | `jobs.precios_acciones_daily'` |
 | 22:00 · L-V | `jobs.flujo_contrapartes'` |
 | 22:00 · L-V | `jobs.bcra` |
 | 22:00 · L-V | `jobs.market_anchors'` |
 | 23:00 · diario | `jobs.informe_salud'` |
-| 23:00 · L-V | `jobs.aum'` |
 | 20:10 · L-V | `jobs.cleanup_cedears_timesales'` |
 | 20:15 · L-V | `jobs.options_rollup'` |
 | 20:25 · L-V | `jobs.snapshot_cierre` + `jobs.fair_value'` |
 | 12:30 · L-V | `jobs.cleanup_curvas'` |
 | 12:30 · L-V | `jobs.cleanup_futuros_dlr'` |
+| 12:30 · L-V | `jobs.consolidado_cuentas'` |
 | cada hora · 13-21h · L-V | `jobs.operaciones_informes'` |
-| 18:30 · L-V | `jobs.aum'` |
 | 20:30 · L-V | `jobs.forwards_zscore'` |
 | 21:30 · L-V | `jobs.partner_export'` |
 | 22:30 · L-V | `jobs.actividad_mensual'` |
-| 23:30 · L-V | `jobs.consolidado_cuentas'` |
 | 11:35 · diario | `jobs.news_ingesta'` |
 | 11:35 · diario | `jobs.news_finnhub'` |
+| 12:35 · L-V | `jobs.tenencia_hd'` |
 | 20:35 · L-V | `jobs.cierre_canje'` |
-| 23:35 · L-V | `jobs.tenencia_hd'` |
 | 11:40 · diario | `jobs.economic_calendar'` |
 | 11:40 · L-V | `jobs.descubrir_cuentas'` |
 | cada hora · 13-22h · L-V | `jobs.ops_rollup'` |
 | 20:40 · L-V | `jobs.snapshot_sinteticos'` |
+| 12:45 · L-V | `jobs.acreencias` |
 | cada hora · 14-22h · L-V | `jobs.comercial_rollup'` |
-| 23:45 · L-V | `jobs.acreencias` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
 | 20:06 · L-V | `jobs.day_trading_stats'` |
 <!-- /AUTOGEN:crons -->

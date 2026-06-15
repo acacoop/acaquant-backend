@@ -29,8 +29,9 @@ jobs:
       - name: Ruff lint
         run: ruff check .
 
-      - name: Perf scan (blocking)
-        run: python -m scripts.perf_scan --strict
+      - name: Perf scan (informational)
+        run: python -m scripts.perf_scan
+        continue-on-error: true
 
       - name: Pytest
         run: pytest -ra

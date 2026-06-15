@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.cache import cached
-from api.db import get_db_cashflow, get_db_clientes, get_db_valuaciones
+from api.db import get_db_cashflow, get_db_clientes
 from api.services import comercial as _com
 from api.services import comercial_sql as _com_sql
 from api.services import negocio_sql as _neg_sql
@@ -218,73 +218,6 @@ def listar_fondos():
         return _fondos_emisores()
     except Exception as e:
         logger.exception("listar_fondos failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.get("/flujo-vs-aum")
-@cached(ttl=300)
-def flujo_vs_aum(
-    contraparte: str = Query(..., description="Nombre del fondo (contraparte)"),
-    moneda: str = Query("ARS", description="Moneda del flujo (ARS/USD)"),
-):
-    """Serie mensual de AuM (línea) + flujo operado (barras) para un fondo.
-
-    Agrupación server-side via $group pipeline para evitar traer docs en bulk.
-    """
-    try:
-        # DIRECTO desde Valuaciones.Assets (vía servicio): unidades FCI del emisor.
-        unidades = [
-            d["unidad"]
-            for d in assets_normalizados()
-            if d.get("cartera") in ("FCI", "CARTERA FCI")
-            and d.get("emisor") == contraparte and d.get("unidad")
-        ]
-
-        aum: list[dict] = []
-        if unidades:
-            # DIRECTO desde Valuaciones.AuM (sin el espejo PortfolioAPI.AumAPI):
-            # fecha_snapshot es string 'YYYY-MM-DD' → mes = substr(0,7).
-            db_v = get_db_valuaciones()
-            pipeline_aum = [
-                {"$match": {"unidad": {"$in": unidades}, "valuacion": {"$ne": None}}},
-                {"$group": {"_id": "$fecha_snapshot", "total": {"$sum": "$valuacion"}}},
-                {"$sort": {"_id": 1}},
-                {"$group": {
-                    "_id": {"$substr": ["$_id", 0, 7]},
-                    "total": {"$last": "$total"},
-                }},
-                {"$sort": {"_id": 1}},
-                {"$project": {"_id": 0, "mes": "$_id", "total": 1}},
-            ]
-            aum = list(db_v["AuM"].aggregate(pipeline_aum))
-
-        # DIRECTO desde CashFlow.Flujo (sin el espejo OperacionesAPI.MesaAPI):
-        # contraparte/moneda/concertacion/bruto existen idénticos en la fuente.
-        db_cf = get_db_cashflow()
-        pipeline_flujo = [
-            {"$match": {
-                "contraparte": contraparte,
-                "moneda": moneda,
-                "concertacion": {"$type": "string"},
-            }},
-            {"$group": {
-                "_id": {"$substr": ["$concertacion", 0, 7]},
-                "bruto": {"$sum": "$bruto"},
-            }},
-            {"$sort": {"_id": 1}},
-            {"$project": {"_id": 0, "mes": "$_id", "bruto": 1}},
-        ]
-        flujo = list(db_cf["Flujo"].aggregate(pipeline_flujo))
-
-        return {
-            "contraparte": contraparte,
-            "moneda": moneda,
-            "unidades": unidades,
-            "aum": aum,
-            "flujo": flujo,
-        }
-    except Exception as e:
-        logger.exception("flujo_vs_aum failed for contraparte=%s", contraparte)
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

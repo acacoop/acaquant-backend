@@ -399,7 +399,6 @@ Mesa flow + cash movements (read-only). **Bloqueado al asistente y al MCP por po
 | GET | `/flujo` | Trade flow (per-boleto) from `OperacionesAPI.MesaAPI` |
 | GET | `/flujos` | Cash movements from `OperacionesAPI.FlujosAPI` |
 | GET | `/fondos` | Counterparties `grupo=Fondos` with at least one FCI asset |
-| GET | `/flujo-vs-aum` | Monthly flow (bars) vs AuM (line) for a fund |
 | GET | `/negocio` | Negocio del día consolidado por boleto desde `CashFlow.NegocioMovimientos` (param `fecha=YYYY-MM-DD`, default hoy ART). Devuelve `meta` + `agregados` por categoría + `top_tickers` + `boletos`. |
 | GET | `/negocio/fechas` | Lista de fechas con boletos persistidos en `NegocioMovimientos` ordenadas desc. Devuelve `[{fecha, n}]`. Usado por el frontend para limitar el selector. |
 

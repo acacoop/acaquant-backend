@@ -6,7 +6,7 @@ repo: frontend
 tags: [route, web-api, frontend]
 path: src/app/api/valuaciones/consolidado/route.ts
 ---
-
+2
 # web /api/valuaciones/consolidado  (proxy)
 
 **Archivo:** `src/app/api/valuaciones/consolidado/route.ts`

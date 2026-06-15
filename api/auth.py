@@ -298,6 +298,33 @@ def require_module(module: str):
     return _dep
 
 
+def require_admin(request: Request, email: str = Depends(get_user_email)) -> str:
+    """Exige rol `admin` DIRECTO — gate para vistas que nunca se delegan.
+
+    A diferencia de `require_module()`, NO mira `Manager.RoleMatrix` (la matriz
+    editable desde el panel): chequea `get_user_role(email) == "admin"`. Se usa
+    para superficies que deben ser admin-only de forma dura y NO asignables a
+    otros roles desde `/manager → ROLES Y PERMISOS` (ej. TRADE LAB intradía).
+
+    Ventajas sobre crear un módulo nuevo admin-only:
+      - No depende de que alguien edite la matriz viva → no se puede dejar el
+        módulo sin asignar (que dejaría afuera hasta al propio admin).
+      - No es delegable por error desde el panel.
+
+    Portal invitado (www): se rechaza SIEMPRE — su rol se fuerza a `invitado`,
+    jamás admin (default-deny, REGLA #8).
+    """
+    from core.roles import get_user_role
+
+    if is_guest_portal(request):
+        logger.warning("require_admin: bloqueado para portal invitado")
+        raise HTTPException(status_code=403, detail="no disponible para invitado")
+    if get_user_role(email) == "admin":
+        return email
+    logger.warning("require_admin: rechazado email=%r", email)
+    raise HTTPException(status_code=403, detail="acceso restringido a administradores")
+
+
 def require_any_module(modules: tuple[str, ...]):
     """Dependency factory: pasa si el user tiene CUALQUIERA de los módulos.
 

@@ -122,6 +122,9 @@ def _ensure_schema():
         # `aum` ('si'/'no'): si la fila cuenta como AuM (filtro _aum_filters). La vista /aum
         # filtra aum='si'. Se setea al insertar (acá) — no hace falta correr marcar_aum aparte.
         "ALTER TABLE portafolio.tenencia ADD COLUMN IF NOT EXISTS aum text",
+        # tipoTitulo crudo de Aunesa — lo usa el motor PnL (_aplicar_normalizer). Lo
+        # llena el writer; el histórico se backfillea con scripts.migrar_tipotitulo_tenencia.
+        "ALTER TABLE portafolio.tenencia ADD COLUMN IF NOT EXISTS tipo_titulo text",
     ]
     with get_pool().connection() as conn, conn.cursor() as cur:
         for stmt in ddl:
@@ -265,6 +268,7 @@ def _parse(data, idc: str, denom: str, fecha_iso: str, amap: dict) -> list[dict]
             "ticker": a.get("ticker"), "cartera": a.get("cartera"),
             "cantidad": round(g["cantidad"], 4), "precio": round(g["precio"], 6),
             "valuacion": val, "moneda": g["moneda"], "aum": aum,
+            "tipo_titulo": tipo or None,   # crudo de Aunesa (tipoTitulo) — lo usa el motor PnL
         })
     return out
 
@@ -278,9 +282,10 @@ def _write_date(iso: str, registros: list[dict], status_by: dict[str, tuple]):
         if registros:
             cur.executemany(
                 "INSERT INTO portafolio.tenencia "
-                "(fecha,id_cuenta,cuenta,unidad,ticker,cartera,cantidad,precio,valuacion,moneda,aum) "
+                "(fecha,id_cuenta,cuenta,unidad,ticker,cartera,cantidad,precio,valuacion,moneda,aum,"
+                "tipo_titulo) "
                 "VALUES (%(fecha)s,%(id_cuenta)s,%(cuenta)s,%(unidad)s,%(ticker)s,%(cartera)s,"
-                "%(cantidad)s,%(precio)s,%(valuacion)s,%(moneda)s,%(aum)s)",
+                "%(cantidad)s,%(precio)s,%(valuacion)s,%(moneda)s,%(aum)s,%(tipo_titulo)s)",
                 registros)
         logrows = [{"fecha": iso, "id_cuenta": c, "status": s[0], "n": s[1], "detalle": s[2]}
                    for c, s in status_by.items()]

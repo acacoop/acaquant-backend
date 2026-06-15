@@ -20,6 +20,8 @@ _FLAGS = [
     ("NEGOCIO_SQL",     "NEGOCIO — /negocio/* (serie, cuentas, boletos)"),
     ("COMERCIAL_SQL",   "COMERCIAL — /comercial/* (operadores, informes)"),
     ("PORTFOLIO_SQL",   "PORTFOLIO AuM — /aum, /fci-*, /total-*, /diff"),
+    ("VALUACIONES_SQL", "VALUACIONES — /valuaciones (cierre, serie, mensual TEA/TWR, posiciones)"),
+    ("CONTRAPARTES_SQL", "CONTRAPARTES — /manager/contrapartes (lecturas)"),
     ("PNL_SQL",         "PnL Títulos — /pnl"),
     ("NEWS_SQL",        "HOME/NEWS — /api/news/* (headlines, stats)"),
     ("MARKET_SQL",      "MARKET — /api/market/quotes + /calendar/economic"),

@@ -117,14 +117,14 @@ def _deps_sql(only_cuenta: str | None) -> dict:
         if only_cuenta is not None:
             wa += " AND id_cuenta = %(idc)s"
             pa["idc"] = only_cuenta
-        for d in _q(f"SELECT id_cuenta, unidad, cantidad, precio, valuacion, tipo_titulo "
+        for d in _q(f"SELECT id_cuenta, unidad, cantidad, precio, valuacion, tipo_titulo, cartera "
                     f"FROM portafolio.tenencia WHERE {wa}", pa):
             cid = d.get("id_cuenta")
             if cid is not None:
                 aum_rows_by_id_cuenta.setdefault(str(cid), []).append({
                     "id_cuenta": cid, "unidad": d["unidad"], "cantidad": _f(d["cantidad"]),
                     "precio": _f(d["precio"]), "valuacion": _f(d["valuacion"]),
-                    "tipoTitulo": d["tipo_titulo"],
+                    "tipoTitulo": d["tipo_titulo"], "cartera": d["cartera"],
                 })
 
     return {

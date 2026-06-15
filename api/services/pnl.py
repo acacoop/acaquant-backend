@@ -70,12 +70,29 @@ _TIPOS_FUTUROS = {"Futuros", "Forwards", "Derivados"}
 _PLACEHOLDERS_INSTRUMENTO = {"", "NO APLICA"}
 
 
-def _aplicar_normalizer(precio: float, qty: float, tipoTitulo: str | None) -> float:
-    """Mismo divisor/+1 que jobs/aum.py — para que valor_actual_live
-    sea homogéneo con valor_aum."""
+# Renta fija (cotiza en paridad → ÷100) y resto, decidido por CARTERA — el campo
+# confiable y siempre presente en portafolio.tenencia. Mismas listas que el writer.
+_CARTERAS_DIV_100 = {"HD", "DL", "ARS"}
+_CARTERAS_DIV_1 = {"FCI", "RENTA VARIABLE", "MONEDAS", "DERIVADOS"}
+
+
+def _aplicar_normalizer(precio: float, qty: float, cartera: str | None = None,
+                        tipoTitulo: str | None = None) -> float:
+    """Homogeneiza el precio vivo con valor_aum (mismo ÷100/+1 que el writer).
+
+    Decide el ÷100 por CARTERA (HD/DL/ARS = renta fija en paridad) — confiable y
+    siempre presente en portafolio.tenencia. Si la cartera no está clasificada
+    (vacía/rara), cae al `tipoTitulo` legacy como red de seguridad. Futuros
+    (precio+1) por tipoTitulo."""
     tipo = str(tipoTitulo or "")
     if any(f.lower() in tipo.lower() for f in _TIPOS_FUTUROS):
         precio = precio + 1.0
+    c = (cartera or "").strip().upper()
+    if c in _CARTERAS_DIV_100:
+        return (precio * qty) / 100
+    if c in _CARTERAS_DIV_1:
+        return precio * qty
+    # Cartera desconocida/vacía → fallback al tipoTitulo (comportamiento legacy).
     if tipo in _TIPOS_DIVISOR_100:
         return (precio * qty) / 100
     return precio * qty
@@ -85,6 +102,7 @@ def _valor_actual_live(
     db_t, db_v, unidad: str, qty_efectiva: float,
     tipoTitulo: str | None, valor_aum: float,
     *,
+    cartera: str | None = None,
     instrumentos_by_unidad: dict[str, str] | None = None,
     portfolio_snap_by_ticker: dict[str, dict] | None = None,
     snapshots_cierre_by_ticker: dict[str, dict] | None = None,
@@ -139,7 +157,7 @@ def _valor_actual_live(
                 except (TypeError, ValueError):
                     px = None
                 if px is not None and px > 0:
-                    return _aplicar_normalizer(px, qty_efectiva, tipoTitulo), "live"
+                    return _aplicar_normalizer(px, qty_efectiva, cartera, tipoTitulo), "live"
         # 2. SnapshotsCierre — último cierre persistido.
         if snapshots_cierre_by_ticker is not None:
             snc = snapshots_cierre_by_ticker.get(instrumento)
@@ -155,7 +173,7 @@ def _valor_actual_live(
             except (TypeError, ValueError):
                 px = None
             if px is not None and px > 0:
-                return _aplicar_normalizer(px, qty_efectiva, tipoTitulo), "cierre"
+                return _aplicar_normalizer(px, qty_efectiva, cartera, tipoTitulo), "cierre"
     return valor_aum, "aum"
 
 
@@ -629,6 +647,7 @@ def _pnl_por_cuenta_core(
         precio_actual = float(aum.get("precio") or 0)
         valor_aum     = float(aum.get("valuacion") or 0)
         tipoTitulo    = aum.get("tipoTitulo")
+        cartera       = aum.get("cartera")
         unidad_actual = aum.get("unidad", "")
         qty_calc      = st["qty_actual"]
         costo_rem     = st["costo_remanente"]
@@ -660,6 +679,7 @@ def _pnl_por_cuenta_core(
         # aunque AuM siga mostrando 650).
         valor_actual_live, fuente_valor = _valor_actual_live(
             db_t, db_v, unidad_actual, qty_efectiva, tipoTitulo, valor_aum,
+            cartera=cartera,
             instrumentos_by_unidad=instrumentos_by_unidad,
             portfolio_snap_by_ticker=portfolio_snap_by_ticker,
             snapshots_cierre_by_ticker=snapshots_cierre_by_ticker,

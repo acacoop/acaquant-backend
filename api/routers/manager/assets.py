@@ -1,9 +1,10 @@
-"""Manager sub-router — control de Valuaciones.Assets.
+"""Manager sub-router — control del catálogo de títulos (segmentación).
 
 Tab `/manager → ASSETS` para auditar y completar metadatos faltantes
-(CARTERA, EMISOR, INSTRUMENTO, etc.) en Valuaciones.Assets, que es
-la fuente de verdad UPPERCASE — el resto del sistema (TitulosAPI.AssetsAPI)
-se deriva de acá vía `scripts/api_migrate.py:assets`.
+(CARTERA, EMISOR, INSTRUMENTO, etc.). LEE de SQL `portafolio.assets` (la fuente
+de verdad de la segmentación) vía `api/services/assets_sql.py`. El PATCH escribe
+SQL (autoritativo) + dual-write best-effort a Mongo `Valuaciones.Assets` para las
+vistas que todavía leen Mongo hasta el cutover.
 
 Endpoints:
   GET   /api/manager/assets             → lista filtrable (cartera, emisor,
@@ -24,17 +25,20 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
-from core.mongo import get_mongo_client, get_mongo_client_read
+from api.services.assets_sql import (
+    asset_one_panel,
+    gaps_assets_panel,
+    list_assets_panel,
+    values_assets_panel,
+)
+from core.mongo import get_mongo_client
 from core.postgres import get_pool
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Valores que tratamos como "vacío" para detectar gaps en metadata.
-_EMPTY_VALUES: list[str | None] = ["", "NO APLICA", None]
-
 # Campos UPPERCASE editables (string). Espejan el shape del doc en
-# Valuaciones.Assets. También son los campos válidos para el filtro `campo_vacio`.
+# portafolio.assets. También son los campos válidos para el filtro `campo_vacio`.
 _EDITABLE_FIELDS: tuple[str, ...] = (
     "CARTERA", "EMISOR", "INSTRUMENTO",
     "CLASE_ACTIVO", "CALIFICACION", "TICKER", "VENCIMIENTO",
@@ -54,17 +58,6 @@ _NO_AUTOCOMPLETE: frozenset[str] = frozenset({"CODIGO_CNV"})
 # mesa a mano desde Manager → TÍTULOS · FCI; lo consume la vista REFERIDOS.
 _EDITABLE_NUM_FIELDS: tuple[str, ...] = ("FEE_ADMIN",)
 
-_PROJECTION = {
-    "_id": 0, "unidad": 1,
-    "CARTERA": 1, "EMISOR": 1, "INSTRUMENTO": 1, "CLASE_ACTIVO": 1,
-    "CALIFICACION": 1, "TICKER": 1, "VENCIMIENTO": 1, "FEE_ADMIN": 1,
-    "CODIGO_CNV": 1,
-    # CAFCI es read-only — derivado de `unidad` por jobs/aum.py.
-    # No está en _EDITABLE_FIELDS adrede.
-    "CAFCI": 1,
-    "actualizado_por": 1, "actualizado_at": 1,
-}
-
 
 def _normalize_assets(assets: list[dict]) -> list[dict]:
     """Convierte `actualizado_at` (datetime) a ISO string."""
@@ -81,26 +74,11 @@ def _list_assets(
     emisor: str | None = None,
     campo_vacio: str | None = None,
 ) -> list[dict]:
-    """Query base. Sin filtros devuelve TODO Valuaciones.Assets.
-
-    `campo_vacio`: si es uno de los campos UPPERCASE editables, filtra
-    solo los assets donde ese campo está vacío / "NO APLICA" / null.
-    """
-    col = get_mongo_client_read()["Valuaciones"]["Assets"]
-    filtros: list[dict] = []
-
-    if cartera:
-        filtros.append({"CARTERA": cartera})
-    if emisor:
-        filtros.append({"EMISOR": emisor})
-    if campo_vacio and campo_vacio in (*_EDITABLE_FIELDS, *_EDITABLE_NUM_FIELDS):
-        # Para FEE_ADMIN (numérico) el único "vacío" real es null/ausente; las
-        # cadenas del set igual no matchean números → sirve para "FCI sin fee".
-        filtros.append({campo_vacio: {"$in": _EMPTY_VALUES}})
-
-    query: dict = {"$and": filtros} if filtros else {}
-    cur = col.find(query, _PROJECTION).sort("unidad", 1).limit(5000)
-    return _normalize_assets(list(cur))
+    """Query base desde SQL `portafolio.assets`. Sin filtros devuelve TODO el
+    catálogo. `campo_vacio` (campo UPPERCASE): filtra los assets con ese campo
+    vacío / 'NO APLICA' / null."""
+    return _normalize_assets(list_assets_panel(cartera=cartera, emisor=emisor,
+                                               campo_vacio=campo_vacio))
 
 
 @router.get("/assets")
@@ -122,14 +100,8 @@ def list_assets(
 
 @router.get("/assets/gaps")
 def get_assets_gaps() -> dict:
-    """Compat: assets con CARTERA o EMISOR vacíos (clientes viejos)."""
-    col = get_mongo_client_read()["Valuaciones"]["Assets"]
-    query = {"$or": [
-        {"CARTERA": {"$in": _EMPTY_VALUES}},
-        {"EMISOR":  {"$in": _EMPTY_VALUES}},
-    ]}
-    cur = col.find(query, _PROJECTION).sort("unidad", 1).limit(5000)
-    assets = _normalize_assets(list(cur))
+    """Compat: assets con CARTERA o EMISOR vacíos (desde SQL portafolio.assets)."""
+    assets = _normalize_assets(gaps_assets_panel())
     return {"assets": assets, "n": len(assets)}
 
 
@@ -148,17 +120,8 @@ def get_assets_values() -> dict:
           carteras: [...], emisores: [...],   # alias compat de los filtros
         }
     """
-    col = get_mongo_client_read()["Valuaciones"]["Assets"]
-    placeholders = {"", "NO APLICA"}
-
-    values: dict[str, list[str]] = {}
-    for campo in _EDITABLE_FIELDS:
-        if campo in _NO_AUTOCOMPLETE:
-            continue
-        raw = col.distinct(campo)
-        values[campo] = sorted(
-            {v for v in raw if isinstance(v, str) and v and v not in placeholders}
-        )
+    campos = [c for c in _EDITABLE_FIELDS if c not in _NO_AUTOCOMPLETE]
+    values = values_assets_panel(campos)   # SQL portafolio.assets
 
     return {
         "values": values,
@@ -208,36 +171,38 @@ def patch_asset(
     set_fields["actualizado_por"] = actor
     set_fields["actualizado_at"]  = datetime.now(UTC)
 
-    col = get_mongo_client()["Valuaciones"]["Assets"]
-    result = col.update_one({"unidad": unidad}, {"$set": set_fields})
-    if result.matched_count == 0:
-        raise HTTPException(404, f"unidad no encontrada en Valuaciones.Assets: {unidad!r}")
+    # SQL `portafolio.assets` es la fuente de verdad del panel: chequeo existencia
+    # y escribo ahí (autoritativo). Una unidad recién auto-dada-de-alta por el writer
+    # diario vive solo en SQL → el 404 va contra SQL, no Mongo.
+    if asset_one_panel(unidad) is None:
+        raise HTTPException(404, f"unidad no encontrada en portafolio.assets: {unidad!r}")
+    _write_sql(unidad, set_fields)
 
-    # DUAL-WRITE a SQL (fuente de verdad de la migración): la segmentación impacta
-    # en portafolio.assets ya. Best-effort: si SQL falla, Mongo sigue primario y el
-    # sync_postgres (Mongo→SQL) reconcilia en el próximo run. No rompe la edición.
-    _dual_write_sql(unidad, set_fields)
+    # Dual-write best-effort a Mongo (back-compat: vistas que todavía leen Mongo
+    # Assets hasta el cutover). NO condiciona la respuesta — SQL ya es la verdad.
+    try:
+        get_mongo_client()["Valuaciones"]["Assets"].update_one(
+            {"unidad": unidad}, {"$set": set_fields})
+    except Exception:
+        logger.warning("dual-write Mongo falló para asset %r (SQL OK)", unidad, exc_info=True)
 
-    doc = col.find_one({"unidad": unidad}, _PROJECTION) or {}
+    doc = asset_one_panel(unidad) or {}
     return _normalize_assets([doc])[0]
 
 
-def _dual_write_sql(unidad: str, set_fields: dict) -> None:
-    """Upsert de los mismos campos a `portafolio.assets` (UPPERCASE → lowercase,
-    1:1 con .lower()). `actualizado_por/at` ya vienen en minúscula."""
+def _write_sql(unidad: str, set_fields: dict) -> None:
+    """Upsert autoritativo a `portafolio.assets` (UPPERCASE → lowercase, 1:1 con
+    .lower()). `actualizado_por/at` ya vienen en minúscula. Si falla, propaga (el
+    edit no se guardó → el caller devuelve 500)."""
     cols = {k.lower(): v for k, v in set_fields.items()}
     colnames = ["unidad", *cols.keys()]
     updates = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols)
     sql = (f"INSERT INTO portafolio.assets ({', '.join(colnames)}) "
            f"VALUES ({', '.join(['%s'] * len(colnames))}) "
            f"ON CONFLICT (unidad) DO UPDATE SET {updates}")
-    try:
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(sql, [unidad, *cols.values()])
-            conn.commit()
-    except Exception:
-        logger.warning("dual-write SQL falló para asset %r (Mongo OK, sync reconciliará)",
-                       unidad, exc_info=True)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, [unidad, *cols.values()])
+        conn.commit()
 
 
 # Compat: PATCH /assets/{unidad} sigue funcionando para clientes viejos

@@ -21,6 +21,7 @@ from api.cache import cached
 from api.db import get_db_valuaciones
 from api.services._cuentas_filter import match_cuenta_filter
 from api.services._mep import get_mep_for_date
+from api.services.assets_sql import assets_rows
 
 logger = logging.getLogger("api.portfolio")
 
@@ -64,17 +65,12 @@ def _fci_assets_map() -> dict[str, dict]:
     derivada) y se desincronizaban cuando se editaba el master sin correr
     el sync. Cacheado 10 min — los assets FCI cambian como mucho mensualmente.
     """
-    db_v = get_db_valuaciones()
     return {
-        d["unidad"]: {"emisor": d.get("EMISOR", ""), "ticker": d.get("TICKER", ""),
-                      "fee": d.get("FEE_ADMIN")}   # honorario anual (fracción), para REFERIDOS
-        # $in tolera el rename de cartera (sacar prefijo 'CARTERA '): matchea
-        # tanto el valor nuevo ('FCI') como el legacy ('CARTERA FCI').
-        for d in db_v["Assets"].find(
-            {"CARTERA": {"$in": ["FCI", "CARTERA FCI"]}},
-            {"_id": 0, "unidad": 1, "EMISOR": 1, "TICKER": 1, "FEE_ADMIN": 1},
-        )
-        if d.get("unidad")
+        a["unidad"]: {"emisor": a["EMISOR"], "ticker": a["TICKER"],
+                      "fee": a["FEE_ADMIN"]}   # honorario anual (fracción), para REFERIDOS
+        # tolera el rename de cartera: 'FCI' (nuevo) y 'CARTERA FCI' (legacy).
+        for a in assets_rows(["CARTERA", "EMISOR", "TICKER", "FEE_ADMIN"])
+        if a["unidad"] and a["CARTERA"] in ("FCI", "CARTERA FCI")
     }
 
 
@@ -82,16 +78,13 @@ def _fci_assets_map() -> dict[str, dict]:
 def _assets_enrich_map() -> dict[str, dict]:
     """unidad → {cartera, clase_activo} desde Valuaciones.Assets UPPERCASE
     (fuente de verdad — ver `_fci_assets_map` para la motivación)."""
-    db_v = get_db_valuaciones()
     return {
-        d["unidad"]: {
-            "cartera": d.get("CARTERA") or "OTROS",
-            "clase_activo": d.get("CLASE_ACTIVO") or "",
+        a["unidad"]: {
+            "cartera": a["CARTERA"] or "OTROS",
+            "clase_activo": a["CLASE_ACTIVO"],
         }
-        for d in db_v["Assets"].find(
-            {}, {"_id": 0, "unidad": 1, "CARTERA": 1, "CLASE_ACTIVO": 1}
-        )
-        if d.get("unidad")
+        for a in assets_rows(["CARTERA", "CLASE_ACTIVO"])
+        if a["unidad"]
     }
 
 

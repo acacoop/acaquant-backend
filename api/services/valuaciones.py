@@ -30,6 +30,7 @@ from api.db import (
     get_db_trading,
     get_db_valuaciones,
 )
+from api.services.assets_sql import assets_rows
 from quant.xirr import xirr as _xirr
 
 logger = logging.getLogger("api.valuaciones")
@@ -1103,24 +1104,20 @@ def posiciones_actuales(
     # + cartera/clase en una sola query. Antes esto joinaba contra
     # TitulosAPI.AssetsAPI (copia derivada) y los bonos sin match ahí caían al
     # `unidad` crudo largo ("[9396] AO28 - BONO TESORO NAC...").
-    unidades = list(by_unidad.keys())
+    unidades = set(by_unidad.keys())
     enrich_by_unidad: dict[str, dict] = {}
     if unidades:
-        cur_v = db_val["Assets"].find(
-            {"unidad": {"$in": unidades}},
-            {"_id": 0, "unidad": 1, "CARTERA": 1, "CLASE_ACTIVO": 1,
-             "TICKER": 1, "EMISOR": 1, "CALIFICACION": 1, "VENCIMIENTO": 1},
-        )
-        for a in cur_v:
-            u = a.get("unidad")
-            if u:
+        for a in assets_rows(["CARTERA", "CLASE_ACTIVO", "TICKER", "EMISOR",
+                              "CALIFICACION", "VENCIMIENTO"]):
+            u = a["unidad"]
+            if u in unidades:
                 enrich_by_unidad[u] = {
-                    "cartera":      a.get("CARTERA") or "OTROS",
-                    "clase_activo": a.get("CLASE_ACTIVO") or "",
-                    "ticker":       a.get("TICKER") or "",
-                    "emisor":       a.get("EMISOR") or "",
-                    "calificacion": a.get("CALIFICACION") or "",
-                    "vencimiento":  a.get("VENCIMIENTO") or "",
+                    "cartera":      a["CARTERA"] or "OTROS",
+                    "clase_activo": a["CLASE_ACTIVO"],
+                    "ticker":       a["TICKER"],
+                    "emisor":       a["EMISOR"],
+                    "calificacion": a["CALIFICACION"],
+                    "vencimiento":  a["VENCIMIENTO"],
                 }
 
     # Sort por valuación con SIGNO descendente — longs arriba, shorts/cash

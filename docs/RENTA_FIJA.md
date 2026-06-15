@@ -1,3 +1,4 @@
+
 # RENTA FIJA — mapa de datos (Mongo + SQL)
 
 > **Qué es este documento.** Mapa verificado **desde el código** (no desde otros

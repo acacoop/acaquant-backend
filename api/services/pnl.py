@@ -49,6 +49,8 @@ from typing import Any
 from api.cache import cached
 from api.db import get_db_cashflow, get_db_trading, get_db_valuaciones
 from api.services._mep import get_mep_for_date
+from api.services.assets_sql import assets_rows
+from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -116,8 +118,10 @@ def _valor_actual_live(
     if instrumentos_by_unidad is not None:
         instrumento = instrumentos_by_unidad.get(unidad, "")
     else:
-        asset = db_v["Assets"].find_one({"unidad": unidad}, {"_id": 0, "INSTRUMENTO": 1})
-        instrumento = ((asset or {}).get("INSTRUMENTO") or "").strip()
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT instrumento FROM portafolio.assets WHERE unidad = %s", (unidad,))
+            row = cur.fetchone()
+        instrumento = ((row[0] if row else "") or "").strip()
     if instrumento and instrumento not in _PLACEHOLDERS_INSTRUMENTO:
         # 1. PortfolioSnapshot — motor live escribe acá.
         if portfolio_snap_by_ticker is not None:
@@ -203,18 +207,15 @@ def _build_unidad_maps() -> tuple[dict[str, str], dict[str, str]]:
     Cacheado 5min: el mapping cambia mensualmente al alta de instrumentos.
     Antes se rebuilda 1× por cuenta dentro de pnl_todas_cuentas → N+1.
     """
-    db_v = get_db_valuaciones()
     unidad_to_match: dict[str, str] = {}
     match_to_display: dict[str, str] = {}
     placeholders = {"", "NO APLICA"}
-    for d in db_v["Assets"].find(
-        {}, {"_id": 0, "unidad": 1, "TICKER": 1, "CAFCI": 1}
-    ):
-        unidad = d.get("unidad")
+    for a in assets_rows(["TICKER", "CAFCI"]):
+        unidad = a["unidad"]
         if not unidad:
             continue
-        cafci = (d.get("CAFCI") or "").strip()
-        ticker = (d.get("TICKER") or "").strip()
+        cafci = (a["CAFCI"] or "").strip()
+        ticker = (a["TICKER"] or "").strip()
         ticker_clean = ticker if ticker and ticker not in placeholders else None
         cafci_clean = cafci if cafci and cafci not in placeholders else None
 
@@ -833,11 +834,9 @@ def _load_pnl_bulk_deps(db_v, db_cf, db_t) -> dict:
     # Pricing maps (Assets / PortfolioSnapshot / SnapshotsCierre).
     instrumentos_by_unidad: dict[str, str] = {}
     try:
-        for d in db_v["Assets"].find(
-            {}, {"_id": 0, "unidad": 1, "INSTRUMENTO": 1}
-        ):
-            u = d.get("unidad")
-            instr = (d.get("INSTRUMENTO") or "").strip()
+        for a in assets_rows(["INSTRUMENTO"]):
+            u = a["unidad"]
+            instr = (a["INSTRUMENTO"] or "").strip()
             if u and instr and instr not in _PLACEHOLDERS_INSTRUMENTO:
                 instrumentos_by_unidad[u] = instr
     except Exception:

@@ -8,7 +8,7 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → MongoDB Atlas M10 �
 
 **DBs Mongo** (12 bases, inventario medido 2026-06-12 con `scripts/diag_inventario_mongo_sql`):
 - `Trading` — núcleo de mercado: Curvas, BondsMaster, MarketSnapshot, SnapshotsCierre, CanjeCierre, TimeSales; series macro DOLAR/CER/BADLAR/TAMAR/RiesgoPais/InflacionMensual/InflacionInteranual/UVA; renta fija derivada BreakevensLive/Historico, ForwardsLive/Historico/Zscore, FitParams, FairValueResiduos, DiasHabiles, REM; FuturosDLR(+Snapshot), Caucion(+Snapshot); renta variable Cedears, CedearsSnapshot, CedearsTimeSales, PreciosAcciones, AdrSnapshot, DayTradingStats; AgroSnapshot, AgroOpcionesSnapshot; SnapshotsSinteticos; ONSnapshot.
-- `Valuaciones` — Assets, AuM, ConsolidadoCuentas, PnLTotalesCache, TenenciaHD, Dolar/DolarSnapshot/DolarOficialLive (MEP/CCL).
+- `Valuaciones` — ConsolidadoCuentas, PnLTotalesCache, TenenciaHD, Dolar/DolarSnapshot/DolarOficialLive (MEP/CCL). **`AuM` y `Assets` ELIMINADAS (2026-06-15)** → tenencias y catálogo de títulos viven en SQL `portafolio.tenencia` / `portafolio.assets` (ver `docs/SQL.md`).
 - `CashFlow` — Operaciones, NegocioMovimientos, OpsSerieDiaria, Contrapartes, Productores, Accionistas, Acreencias, Movimientos, VolumenMercadoAgro.
 - `Clientes` — Comitentes, ComercialCache, ActividadMensual (segmentación/operador asignado).
 - `Manager` — Users, RoleMatrix, RoleAudit, Grupos, JobRuns, HealthReports, WatchdogAlertas.
@@ -260,7 +260,7 @@ uvicorn partner_api.main:app --port 8100   # Partner API (servicio externo, ver 
 
 ## Tablero Comercial (lente por operador)
 
-`api/services/comercial.py` + `api/routers/manager/comercial.py` (solo manager). Cruza todo por `id_cuenta` (denormalizado e indexado en `NegocioMovimientos` — **nunca regex sobre `cuenta`**; backfill viejo: `scripts/backfill_id_cuenta_negocio.py`): QUIÉN (`Clientes.Comitentes` → operador + `nivel_1`), ACTIVIDAD (`CashFlow.NegocioMovimientos` → última op), TAMAÑO (`Valuaciones.AuM`), operador↔usuario (`Manager.Users`, para cuentas huérfanas). Estado comercial por días desde última op: ACTIVA ≤45 / ENFRIANDOSE 45-90 / DORMIDA / NUEVA. Cacheado on-the-fly (TTL); si pesa, mover a precompute `Clientes.ComercialCache`. Diseño: `docs/TABLERO_COMERCIAL.md`.
+`api/services/comercial.py` + `api/routers/manager/comercial.py` (solo manager). Cruza todo por `id_cuenta` (denormalizado e indexado en `NegocioMovimientos` — **nunca regex sobre `cuenta`**; backfill viejo: `scripts/backfill_id_cuenta_negocio.py`): QUIÉN (`Clientes.Comitentes` → operador + `nivel_1`), ACTIVIDAD (`CashFlow.NegocioMovimientos` → última op), TAMAÑO (`portafolio.tenencia` SQL, `aum='si'`), operador↔usuario (`Manager.Users`, para cuentas huérfanas). Estado comercial por días desde última op: ACTIVA ≤45 / ENFRIANDOSE 45-90 / DORMIDA / NUEVA. Cacheado on-the-fly (TTL); si pesa, mover a precompute `Clientes.ComercialCache`. Diseño: `docs/TABLERO_COMERCIAL.md`.
 
 ## Operaciones — rollup, NO escanear (CRÍTICO, no inferible)
 
@@ -281,16 +281,21 @@ uvicorn partner_api.main:app --port 8100   # Partner API (servicio externo, ver 
 - **tasa_fija**: absolutos. `amortizacion` + `interes`. Requiere `flujo_vencimiento`.
 - **soberanos** (`tipo='globales'|'bonares'`): mismo shape que CER, `cupon_sobre_residual` ya en USD.
 
-Agregar instrumento: doc en `Trading.Curvas` + doc en `Valuaciones.Assets` con `TICKER == ticker_corto`. Sin el segundo no aparece en AuM/Portfolios.
+Agregar instrumento: doc en `Trading.Curvas` + fila en `portafolio.assets` (SQL) con `ticker == ticker_corto`. Sin el segundo no aparece en AuM/Portfolios. (El catálogo de títulos migró de Mongo `Valuaciones.Assets` a SQL `portafolio.assets` el 2026-06-15 — ver `docs/SQL.md`.)
 
 `config.TICKERS_EXTRA_PRECIOS`: tickers que `motor_rofex` suscribe pero `motor_curvas` ignora. Default `['MERV - XMEV - AL30C - 24hs']` para `/api/analitica/canje`.
 
 ## Fórmulas no inferibles
 
-**AuM** (`jobs/aum.py`, `api/services/portfolio.py::_valuacion_api`):
-- Renta fija (`Títulos Públicos, Letras, ONs, Fideicomisos, CPD`) → `cantidad × precio / 100`
-- FCI / OTROS → `cantidad × precio`
-- Futuros → `(precio + 1) × cantidad`
+**AuM / tenencias** — fuente única SQL `portafolio.tenencia` (writer diario
+`jobs/portafolio_backfill --diario`, 11:00 UTC L-V). Mongo `Valuaciones.AuM` fue
+**ELIMINADA** (2026-06-15) junto con `jobs/aum.py::run` (queda solo de librería de
+helpers Aunesa) y la tabla SQL `aum`. El divisor de la valuación lo decide la
+**CARTERA** (no más `tipoTitulo`, que se quedaba NULL):
+- Renta fija (cartera `HD / DL / ARS`, cotiza en paridad) → `cantidad × precio / 100`
+- Cash (`MONEDAS`), `FCI`, `RENTA VARIABLE` → `cantidad × precio` (NUNCA ÷100)
+- Futuros (`DERIVADOS`) → `(precio + 1) × cantidad`
+- El motor de PnL (`pnl.py::_aplicar_normalizer`) usa la MISMA regla por cartera.
 
 **Breakevens** (`engines/breakevens.py`, método Buscar Objetivo, cupón cero):
 ```
@@ -303,7 +308,7 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 
 **TC Breakeven** (`api/services/renta_fija.py::_tc_breakeven`, sólo tasa fija nativa o CER fijado): `TC_BE = MEP × (flujo_vencimiento / precio_actual)`. Lee `flujo_vencimiento` de `Trading.Curvas`, `last_price` del trade más reciente y MEP de `get_ultimo_mep` (live, TTL 5s). Se calcula on-the-fly en `get_renta_fija` y `listar_curva` — no se persiste.
 
-**AuM join chain**: `Trading.Curvas.curva` → `ticker_corto` → `Valuaciones.Assets.TICKER` → `unidad` → `Valuaciones.AuM`.
+**AuM join chain**: `Trading.Curvas.curva` → `ticker_corto` → `portafolio.assets.ticker` → `unidad` → `portafolio.tenencia` (SQL, filtrar `aum='si'`).
 
 **Enriquecimiento CER**: `motor_curvas` usa CER con settlement T-10 hábiles. Si un bono no opera un día, el último trade puede quedar con CER de ayer.
 
@@ -357,11 +362,12 @@ operación (Mongo) sigue. Doc completo y estado por fase: **`docs/SQL.md`** +
 Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `systemctl restart api.service` en el Droplet, o skill `/deploy`. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`.
 
 > **Las colecciones espejo `*API` fueron ELIMINADAS (2026-06-06).** La API lee
-> las fuentes directo (`CashFlow.*`, `Valuaciones.AuM/Assets`) y, para el join
-> Curvas+BondsMaster y la normalización de Assets, usa el servicio
-> `api/services/titulos_flujos.py`. Ya NO existen `jobs/sync_api_copies.py` ni
-> `scripts/api_migrate.py`. Ver memoria `project_api_migrations` (obsoleta).
+> las fuentes directo (`CashFlow.*`) y, para tenencias/catálogo, **SQL**
+> `portafolio.tenencia` / `portafolio.assets` (Mongo `Valuaciones.AuM/Assets`
+> eliminadas 2026-06-15). El join Curvas+BondsMaster y la normalización de Assets
+> los hace `api/services/titulos_flujos.py` (lee `portafolio.assets`). Ya NO existen
+> `jobs/sync_api_copies.py` ni `scripts/api_migrate.py`.
 
-Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.aum` (23 L-V), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `MarketSnapshot` y persiste cierre por bono en `Trading.SnapshotsCierre`), `jobs.negocio_movimientos` (cada hora 15-22 UTC L-V, pega a Aunesa `consolidadosGenerales`, parsea/categoriza/agrupa por boleto y persiste idempotente en `CashFlow.NegocioMovimientos` para la vista `/operaciones/negocio`).
+Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.portafolio_backfill --diario` (11 UTC L-V, writer de tenencias SQL — reemplazó a `jobs.aum`/Mongo, eliminado), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `MarketSnapshot` y persiste cierre por bono en `Trading.SnapshotsCierre`), `jobs.negocio_movimientos` (cada hora 15-22 UTC L-V, pega a Aunesa `consolidadosGenerales`, parsea/categoriza/agrupa por boleto y persiste idempotente en `CashFlow.NegocioMovimientos` para la vista `/operaciones/negocio`).
 
 Dólar oficial: única fuente live es `Valuaciones.DolarOficialLive` (feed MAE mayorista UST$T plazo 000, script local en PC oficina). Histórico/anchors (7d/MTD/YTD del watchlist `/argy`) deshabilitado hasta que MAE acumule histórico suficiente. Para series macro (`serie_macro` con `dolar_oficial`/`dolar_mayorista`) usar `Trading.DOLAR` (BCRA A3500 fixing diario).

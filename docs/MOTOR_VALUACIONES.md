@@ -83,7 +83,7 @@ El `pnl_realizado` histórico se oculta — irá a una vista histórica separada
 - `engines/portfolio_snapshot.py` — motor live de tenencia.
 - `engines/_universo_portfolio.py` — universo dinámico (cuáles tickers suscribir).
 - `core/cafci.py` — extracción de código CAFCI desde unidad.
-- `jobs/aum.py::_sincronizar_assets` — auto-fill de campos en `Assets` cuando aparece nueva unidad.
+- `jobs/portafolio_backfill.py::_alta_assets_nuevos` — auto-alta en `portafolio.assets` (SQL) cuando aparece una unidad nueva.
 - `jobs/negocio_movimientos.py` — ingesta hourly de boletos desde Aunesa.
 
 **Frontend (acaquant-web)**:
@@ -179,7 +179,7 @@ Solución actual (commit `0c3c638`):
 ## Cálculo del valor_actual (cadena de fallback)
 
 Función `_valor_actual_live(db_t, db_v, unidad, qty_efectiva, tipoTitulo,
-valor_aum, *, instrumentos_by_unidad, portfolio_snap_by_ticker,
+valor_aum, *, cartera, instrumentos_by_unidad, portfolio_snap_by_ticker,
 snapshots_cierre_by_ticker)` en `pnl.py`. Los tres kwargs `*_by_*` son
 opcionales: si vienen pre-cargados (path bulk de `pnl_todas_cuentas`) las
 lookups se resuelven contra dicts en memoria; sin ellos cae al `find_one`
@@ -199,10 +199,15 @@ por ticker (path single-cuenta de PNL TÍTULOS).
 5. Fallback: return (valor_aum, "aum")
 ```
 
-**Normalizer por tipoTitulo** (idéntico a `jobs/aum.py::_calcular_valuacion`):
-- TIPOS_DIVISOR_100 (Títulos Públicos, Letras, ONs, Fideicomisos, CPD): `(precio × qty) / 100`.
-- TIPOS_FUTUROS (Futuros, Forwards, Derivados): `(precio + 1) × qty`.
-- Resto: `precio × qty`.
+**Normalizer por CARTERA** (`pnl.py::_aplicar_normalizer`, desde 2026-06-15). El
+÷100 lo decide la **cartera** de `portafolio.tenencia` — confiable y siempre
+presente (antes era por `tipoTitulo`, que se quedó NULL al migrar a SQL y rompía
+el PnL valuando bonos ×100):
+- Renta fija `HD / DL / ARS` (cotiza en paridad): `(precio × qty) / 100`.
+- `DERIVADOS` (futuros): `(precio + 1) × qty`.
+- `FCI / RENTA VARIABLE / MONEDAS` y resto: `precio × qty`.
+- Fallback: si la cartera no está clasificada, cae al `tipoTitulo` legacy
+  (TIPOS_DIVISOR_100) como red de seguridad.
 
 ### qty_efectiva (qué cantidad usamos)
 
@@ -216,11 +221,11 @@ por ticker (path single-cuenta de PNL TÍTULOS).
 
 ## Mapping unidad ↔ ticker
 
-`NegocioMovimientos.ticker` ("AO28", "CAFCI3580-1199") y `Valuaciones.AuM.unidad` 
+`NegocioMovimientos.ticker` ("AO28", "CAFCI3580-1199") y `portafolio.tenencia.unidad`
 ("[5921] AO28 - BONO TESORO NAC.") no matchean directo.
 
 `pnl._build_unidad_maps()` (sin args, `@cached(ttl=300)`) construye dos maps
-desde `Valuaciones.Assets`:
+desde `portafolio.assets` (SQL):
 
 | Tipo | match_key (interno, joinea boletos↔AuM) | display (UI) |
 |---|---|---|

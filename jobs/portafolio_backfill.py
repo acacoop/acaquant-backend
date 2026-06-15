@@ -16,6 +16,8 @@ Características:
   * 204 = cuenta sin posición (vacía), NO error.
 
 Uso:
+    python -m jobs.portafolio_backfill --diario             # CRON: snapshot del día hábil
+        # anterior (= writer diario de SQL, corre 11:00 UTC L-V; ver deploy/crontab.txt)
     python -m jobs.portafolio_backfill                      # 01/06 → 17/06/2026
     python -m jobs.portafolio_backfill --desde 2026-06-01 --hasta 2026-06-17
     python -m jobs.portafolio_backfill --force              # re-hace todo (ignora log)
@@ -186,6 +188,22 @@ def _fetch_parse(idc: str, denom: str, desde: str, fecha_iso: str, amap: dict) -
     return idc, "error_reauth", []
 
 
+def _valuacion(cartera: str | None, precio: float, cantidad: float, tipo: str) -> float:
+    """Valuación de una posición.
+
+    El cash / cartera MONEDAS (ARS, USD efectivo) NUNCA se divide por 100 — es
+    `precio × cantidad` y listo. El resto sigue la regla por `tipoTitulo` de
+    `jobs/aum._calcular_valuacion` (÷100 para renta fija que cotiza en paridad).
+
+    A diferencia del writer Mongo (`jobs/aum.py::procesar`), acá la CARTERA está
+    disponible (viene del assets map) → blindamos el ÷100 del cash en el ORIGEN.
+    Esto evita el bug histórico de MONEDAS subvaluado a 1/100 (ej. ARS).
+    """
+    if (cartera or "").strip().upper() == "MONEDAS":
+        return round(precio * cantidad, 6)
+    return _calcular_valuacion({"precio": precio, "cantidad": cantidad, "tipoTitulo": tipo})
+
+
 def _parse(data, idc: str, denom: str, fecha_iso: str, amap: dict) -> list[dict]:
     """Acumulado · cantidad×-1 · groupby (unidad,tipoTitulo) · valuación. SIN exclusiones."""
     if not isinstance(data, list):
@@ -217,8 +235,8 @@ def _parse(data, idc: str, denom: str, fecha_iso: str, amap: dict) -> list[dict]
     for (unidad, tipo, cta), g in grupos.items():
         if g["cantidad"] == 0:
             continue
-        val = _calcular_valuacion({"precio": g["precio"], "cantidad": g["cantidad"], "tipoTitulo": tipo})
         a = amap.get(unidad, {})
+        val = _valuacion(a.get("cartera"), g["precio"], g["cantidad"], tipo)
         aum = "no" if is_excluded(cta, unidad, id_cuenta=idc,
                                   contrapartes_ids=_CONT_IDS, contrapartes_names=_CONT_NAMES) else "si"
         out.append({

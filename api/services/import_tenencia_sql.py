@@ -98,6 +98,89 @@ def importar_precios(rows: list[dict], commit: bool = False) -> dict:
             "nota": "valuación NO recalculada (paso 2: precio×cantidad, /100 bonos)"}
 
 
+# ── PASO 2: RECALCULAR VALUACIÓN (precio × cantidad, ÷100 renta fija) ──────────
+# El divisor lo decide la CARTERA (no el tipo de instrumento):
+#   ×1   → FCI, RENTA VARIABLE, MONEDAS, DERIVADOS
+#   ÷100 → HD, DL, ARS (renta fija: cotizan en paridad)
+#   FINANCIAMIENTO y cualquier otra → SIN CLASIFICAR: no se toca (default-deny).
+_CARTERA_DIV_1 = {"FCI", "RENTA VARIABLE", "MONEDAS", "DERIVADOS"}
+_CARTERA_DIV_100 = {"HD", "DL", "ARS"}
+
+
+def _divisor_cartera(cartera: str | None) -> int | None:
+    c = (cartera or "").strip().upper()
+    if c in _CARTERA_DIV_100:
+        return 100
+    if c in _CARTERA_DIV_1:
+        return 1
+    return None
+
+
+def recalcular_valuacion(fechas: list[str], commit: bool = False) -> dict:
+    """Recalcula `valuacion = cantidad × precio (÷100 si renta fija)` en
+    portafolio.tenencia para las `fechas` dadas (las que importaste en el paso 1).
+    El divisor sale de la CARTERA. Devuelve el antes/después por cartera; las
+    carteras sin regla (FINANCIAMIENTO/otras) NO se tocan y se reportan aparte.
+    `commit=False` previsualiza; `True` aplica el UPDATE (scopeado por fecha)."""
+    fechas_ok = sorted({f for f in (_norm_fecha(x) for x in (fechas or [])) if f})
+    if not fechas_ok:
+        return {"ok": False, "error": "no hay fechas válidas"}
+
+    # cartera real: la de la fila o, si quedó NULL (filas del modo AUM), la de assets.
+    por_cartera: dict[str, dict] = {}
+    sin_clasificar: dict[str, dict] = {}
+    updates: list[tuple] = []   # (valuacion, fecha, id_cuenta, unidad)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT t.fecha, t.id_cuenta, t.unidad, "
+            "       COALESCE(NULLIF(t.cartera, ''), a.cartera) AS cartera, "
+            "       t.cantidad, t.precio, t.valuacion "
+            "FROM portafolio.tenencia t "
+            "LEFT JOIN assets a ON a.unidad = t.unidad "
+            "WHERE t.fecha = ANY(%s)", (fechas_ok,))
+        for fecha, idc, unidad, cartera, cantidad, precio, val_old in cur.fetchall():
+            div = _divisor_cartera(cartera)
+            antes = float(val_old or 0)
+            key = (cartera or "").strip().upper() or "(sin cartera)"
+            if div is None:
+                g = sin_clasificar.setdefault(key, {"n": 0, "total_antes": 0.0})
+                g["n"] += 1
+                g["total_antes"] += antes
+                continue
+            val_new = round(float(cantidad or 0) * float(precio or 0) / div, 2)
+            g = por_cartera.setdefault(key, {"divisor": div, "n": 0,
+                                             "total_antes": 0.0, "total_despues": 0.0})
+            g["n"] += 1
+            g["total_antes"] += antes
+            g["total_despues"] += val_new
+            updates.append((val_new, fecha, idc, unidad))
+
+        carteras = [{"cartera": k, "divisor": v["divisor"], "n": v["n"],
+                     "total_antes": round(v["total_antes"], 2),
+                     "total_despues": round(v["total_despues"], 2),
+                     "delta": round(v["total_despues"] - v["total_antes"], 2)}
+                    for k, v in sorted(por_cartera.items())]
+        no_clasif = [{"cartera": k, "n": v["n"], "total_antes": round(v["total_antes"], 2)}
+                     for k, v in sorted(sin_clasificar.items())]
+        resumen = {
+            "ok": True, "commit": commit, "fechas": fechas_ok,
+            "n_filas": len(updates) + sum(v["n"] for v in sin_clasificar.values()),
+            "n_recalculadas": len(updates), "carteras": carteras,
+            "sin_clasificar": no_clasif,
+            "total_antes": round(sum(c["total_antes"] for c in carteras), 2),
+            "total_despues": round(sum(c["total_despues"] for c in carteras), 2),
+        }
+        if not commit:
+            return resumen
+        if not updates:
+            return {**resumen, "aplicado": False, "error": "nada para recalcular"}
+        cur.executemany(
+            "UPDATE portafolio.tenencia SET valuacion = %s "
+            "WHERE fecha = %s AND id_cuenta = %s AND unidad = %s", updates)
+        conn.commit()
+    return {**resumen, "aplicado": True, "filas_actualizadas": len(updates)}
+
+
 # ── MODO 2: AUM (pisa tenencias) ──────────────────────────────────────────────
 def importar_aum(rows: list[dict], actor: str, commit: bool = False) -> dict:
     """Excel [Cuenta, Unidad, Cantidad, Fecha, Precio, Valuación] → pisa portafolio.tenencia

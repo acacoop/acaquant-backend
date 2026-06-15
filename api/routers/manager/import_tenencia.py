@@ -65,3 +65,17 @@ def import_aum_sql(req: _ImportRows = Body(...),
     """MODO AUM: Excel [Cuenta, Unidad, Cantidad, Fecha, Precio, Valuación] → pisa
     portafolio.tenencia por (fecha, id_cuenta). Setea `aum` con _aum_filters."""
     return svc_sql.importar_aum(rows=req.rows, actor=actor, commit=req.commit)
+
+
+class _RecalcReq(BaseModel):
+    fechas: list[str] = Field(..., min_length=1)
+    commit: bool = False
+
+
+@router.post("/recalcular-valuacion-sql")
+def recalcular_valuacion_sql(req: _RecalcReq = Body(...),
+                             actor: str = Depends(get_user_email)) -> dict:
+    """PASO 2: recalcula `valuacion = cantidad × precio (÷100 renta fija)` en
+    portafolio.tenencia para las fechas importadas. El divisor sale de la CARTERA.
+    commit=false previsualiza (antes/después por cartera); true aplica el UPDATE."""
+    return svc_sql.recalcular_valuacion(fechas=req.fechas, commit=req.commit)

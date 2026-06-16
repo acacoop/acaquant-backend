@@ -20,7 +20,6 @@ import unicodedata
 from datetime import UTC, date, datetime
 
 from pymongo import UpdateOne
-from pymongo.errors import BulkWriteError
 
 from api.services._mep import get_mep_for_date
 from core.postgres import get_pool
@@ -282,71 +281,6 @@ def _aplicar_enrich(doc: dict, maps: tuple[dict, dict] | None,
     nv = niveles.get(str(doc.get("cuenta") or "").strip(), {})
     doc["segmento"] = nv.get("n1", "")
     doc["nivel_3"] = nv.get("n3", "")
-
-
-def ingestar_filas(
-    coll, rows: list[dict], crear_indice: bool = False,
-    enrich_maps: tuple[dict, dict] | None = None,
-) -> dict:
-    """Normaliza filas crudas y las upsertea por boleto (idempotente).
-
-    Si `enrich_maps` se pasa (catálogo, nivel1), enriquece inline
-    (mercado/operacion/segmento) — así la ingesta diaria no necesita el scan
-    completo de `enriquecer`.
-
-    Devuelve un resumen: recibidas / sin_boleto / upsertadas / modificadas.
-    """
-    if crear_indice:
-        ensure_indexes(coll)
-
-    ahora = datetime.now(UTC)
-    mep_cache: dict[str, float | None] = {}  # memoiza MEP por concertacion
-    # Dedup por boleto DENTRO del lote (última fila gana): con el índice único,
-    # dos filas del mismo boleto que aún no existe harían dos inserts → E11000.
-    por_boleto: dict[str, dict] = {}
-    sin_boleto = 0
-    otc_excluidas = 0
-    for row in rows:
-        doc = normalizar_fila(row)
-        if doc is None:
-            sin_boleto += 1
-            continue
-        if es_otc_excluido(doc.get("tipo_operacion")):
-            otc_excluidas += 1
-            continue
-        doc["ingestado_en"] = ahora
-        _aplicar_enrich(doc, enrich_maps, mep_cache)
-        por_boleto[doc["boleto"]] = doc
-
-    if not por_boleto:
-        return {"recibidas": len(rows), "sin_boleto": sin_boleto,
-                "otc_excluidas": otc_excluidas, "upsertadas": 0, "modificadas": 0}
-
-    ops = [
-        UpdateOne({"boleto": d["boleto"]}, {"$set": d}, upsert=True)
-        for d in por_boleto.values()
-    ]
-
-    try:
-        res = coll.bulk_write(ops, ordered=False)
-        upserted, modified = res.upserted_count, res.modified_count
-    except BulkWriteError as bwe:
-        # ordered=False → las ops sin conflicto SÍ se aplican. Los errores de
-        # clave duplicada (11000) son inofensivos (el boleto ya está). Solo se
-        # re-lanza si hay errores que NO son duplicados. Nunca 500 por un dup.
-        det = bwe.details or {}
-        otros = [e for e in det.get("writeErrors", []) if e.get("code") != 11000]
-        if otros:
-            raise
-        upserted = det.get("nUpserted", 0)
-        modified = det.get("nModified", 0)
-    return {
-        "recibidas":     len(rows),
-        "sin_boleto":    sin_boleto,
-        "otc_excluidas": otc_excluidas,
-        "upsertadas":    upserted,
-        "modificadas":   modified,
-    }
 
 
 _SQL_INGEST = """

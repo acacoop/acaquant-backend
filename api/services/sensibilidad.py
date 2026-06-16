@@ -25,19 +25,6 @@ _DEFAULT_TIRS: tuple[float, ...] = (0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.
 _DEFAULT_HORIZONTE_DIAS = 0  # 0 = upside instantáneo (sin pull-to-par)
 
 
-def _precio_actual_usd(db, ticker_full: str) -> float | None:
-    """Último precio del ticker desde MarketSnapshot. Ya viene en USD para
-    los soberanos D/C; conversión MEP de tickers en pesos no soportada
-    en esta primera versión."""
-    snap = db["MarketSnapshot"].find_one(
-        {"ticker": ticker_full},
-        {"_id": 0, "metrics.last_price": 1},
-    )
-    if snap and snap.get("metrics", {}).get("last_price"):
-        return float(snap["metrics"]["last_price"])
-    return None
-
-
 def _flujos_calendario(flujos_raw, vn: float) -> list[tuple[date, float]]:
     """Convierte la lista de flujos del prospecto a [(fecha, monto USD)]."""
     out: list[tuple[date, float]] = []

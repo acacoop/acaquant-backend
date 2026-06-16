@@ -1,6 +1,6 @@
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import holidays
 import pandas as pd
@@ -84,32 +84,6 @@ def _habil_anterior(d):
     while d.weekday() >= 5 or d in _ARG_HOLIDAYS:
         d -= timedelta(days=1)
     return d
-
-
-def fecha_objetivo_diario():
-    """`desde` = la fecha de HOY (el día que corre el job). Por la regla H1
-    (desde=X → posición del día hábil ANTERIOR a X), eso trae los datos del
-    último día hábil, y el snapshot se etiqueta con ESE día.
-
-    Ej.: corre hoy 16/06 → desde=16/06 → Aunesa devuelve el 13/06 →
-    fecha_snapshot = 2026-06-13.
-
-    Devuelve (desde_ddmmyyyy, fecha_snapshot_iso).
-    """
-    hoy = datetime.now().date()
-    desde = hoy.strftime("%d/%m/%Y")                          # la fecha del día que corre
-    fecha_snapshot = _habil_anterior(hoy).strftime("%Y-%m-%d")  # datos del día hábil anterior
-    return desde, fecha_snapshot
-
-
-# ── Fecha T+2 (igual que main_carteras) — usado por api/routers/manager/aunesa ─
-# OJO: este sigue la regla VIEJA (T+2). NO lo usa el job diario (ver
-# fecha_objetivo_diario). Se conserva por el import del router; revisar aparte.
-def fecha_t2():
-    hoy     = datetime.now()
-    t_mas_1 = _proximo_habil(hoy)
-    t_mas_2 = _proximo_habil(t_mas_1)
-    return t_mas_2.strftime("%d/%m/%Y")
 
 
 # ── Listado de cuentas activas ────────────────────────────────────────────────

@@ -107,26 +107,6 @@ def _audit(kind: str, *, cl_ord_id: str | None = None, account: str | None = Non
     })
 
 
-def _seed_live_doc(*, account: str, ticker: str, side: str, order_type: str,
-                   tif: str, size: int, price: float | None,
-                   actor_email: str | None) -> None:
-    """Crea el doc en OrdenesLive con status=PENDING_LOCAL antes del send.
-
-    Cuando el broker responda con clOrdId, lo updateamos en el mismo doc
-    (matcheamos por _id que vamos a generar acá). Si el broker rechaza,
-    el doc queda con status=REJECTED_LOCAL.
-
-    Nota: este doc NO usa cl_ord_id como clave primaria porque todavía
-    no lo tenemos. Lo seteamos cuando llega la respuesta del broker.
-    """
-    # No insertamos hasta tener cl_ord_id. Si lo hicieramos sin clOrdId
-    # tendríamos un doc huérfano que el motor no puede reconciliar. La
-    # alternativa es mandar primero al broker y persistir con el clOrdId
-    # de la respuesta — eso hacemos en `send_order`. Esta función queda
-    # para consistencia futura (ej: cuando metamos client_request_id).
-    return None
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # API pública
 # ─────────────────────────────────────────────────────────────────────────────

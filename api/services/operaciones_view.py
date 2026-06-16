@@ -48,32 +48,6 @@ def motor(req: str | None, env: str = "OPERACIONES_SQL") -> str:
     return "sql" if os.getenv(env) == "1" else "mongo"
 
 
-def importe_convertido(moneda: str) -> dict:
-    """|importe| convertido a la moneda destino con el `mep` snapshot de CADA
-    boleto (conversión histórica exacta — NO al MEP de hoy). Misma moneda →
-    directo; ARS→USD → /mep; USD→ARS → ×mep. Si a un boleto de otra moneda le
-    falta `mep`, aporta 0 (no se puede convertir sin su mep del día)."""
-    abs_imp = {"$abs": {"$ifNull": ["$importe", 0]}}
-    mep = {"$ifNull": ["$mep", 0]}
-    if (moneda or "ARS").upper() == "USD":
-        return {"$cond": [
-            {"$eq": ["$moneda", "USD"]},
-            abs_imp,
-            {"$cond": [{"$gt": [mep, 0]}, {"$divide": [abs_imp, "$mep"]}, 0]},
-        ]}
-    return {"$cond": [
-        {"$eq": ["$moneda", "ARS"]},
-        abs_imp,
-        {"$multiply": [abs_imp, mep]},
-    ]}
-
-
-def valor_si_categoria(target: str, conv: dict) -> dict:
-    """`conv` (importe ya convertido a la moneda destino) si categoria ==
-    target, sino 0. Para los $group por categoría de la serie / matrix."""
-    return {"$cond": [{"$eq": ["$categoria", target]}, conv, 0]}
-
-
 def ops_match(
     moneda: str,
     mercado: str | None,

@@ -78,24 +78,3 @@ def test_arancel_match_conserva_nor_y_moneda():
     assert m["moneda"] == "USD"
     assert m["segmento"] == "Acciones"
     assert "$nor" in m  # mismo desdoble FCI que ops_match
-
-
-# ── importe_convertido: conversión por MEP histórico del boleto ──────────────
-
-def test_importe_convertido_a_usd():
-    conv = ov.importe_convertido("USD")
-    # USD nativo → |importe| directo; otra moneda → /mep (con guard mep>0)
-    assert conv["$cond"][0] == {"$eq": ["$moneda", "USD"]}
-    rama_no_usd = conv["$cond"][2]
-    assert "$divide" in str(rama_no_usd)
-
-
-def test_importe_convertido_a_ars():
-    conv = ov.importe_convertido("ARS")
-    assert conv["$cond"][0] == {"$eq": ["$moneda", "ARS"]}
-    assert "$multiply" in str(conv["$cond"][2])
-
-
-def test_valor_si_categoria():
-    v = ov.valor_si_categoria("compra", {"x": 1})
-    assert v == {"$cond": [{"$eq": ["$categoria", "compra"]}, {"x": 1}, 0]}

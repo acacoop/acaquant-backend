@@ -138,32 +138,3 @@ def is_excluded(
     return unidad == "ARS" and cuenta in CUENTAS_SIN_ARS
 
 
-def mongo_match_excluded(
-    contrapartes_ids: frozenset[str] | set[str] | None = None,
-    contrapartes_names: frozenset[str] | set[str] | None = None,
-) -> dict:
-    """Filtro Mongo $or equivalente a `is_excluded()`. Útil para
-    `delete_many` / `count_documents` sobre la colección AuM."""
-    or_clauses: list[dict] = [
-        {"unidad": {"$in": list(EXCLUDE_UNIDAD_EXACT)}},
-        {"unidad": {"$regex": _RE_PATTERN.pattern, "$options": "i"}},
-        {"cuenta": {"$regex": _RE_PATTERN.pattern, "$options": "i"}},
-        {
-            "$and": [
-                {"unidad": "ARS"},
-                {"cuenta": {"$in": list(CUENTAS_SIN_ARS)}},
-            ],
-        },
-    ]
-    if contrapartes_ids:
-        # Toleramos `id_cuenta` stored como string OR int — los writers de
-        # Valuaciones.AuM lo guardan como str (regex extract de pandas) pero
-        # otros pipelines podrían normalizar a int.
-        ids_str = list(contrapartes_ids)
-        ids_int = [int(x) for x in contrapartes_ids if x.lstrip("-").isdigit()]
-        or_clauses.append({"id_cuenta": {"$in": ids_str + ids_int}})
-    if contrapartes_names:
-        pattern = _build_contrapartes_regex(contrapartes_names)
-        if pattern:
-            or_clauses.append({"cuenta": {"$regex": pattern, "$options": "i"}})
-    return {"$or": or_clauses}

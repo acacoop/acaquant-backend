@@ -24,7 +24,7 @@ from typing import Any
 import pyRofex
 
 from api.cache import cached
-from core.rofex_orders_session import cuenta_default, ensure_session_envio
+from core.rofex_orders_session import ensure_session_envio
 
 logger = logging.getLogger("api.services.risk")
 
@@ -158,12 +158,6 @@ def saldo_para_rueda(rueda: str = "CI", account: str | None = None) -> dict[str,
         "movimiento_usd_d":  usd_d.get("consumed"),
         "monedas":           monedas,
     }
-
-
-def cuenta_efectiva(account: str | None = None) -> str:
-    """Helper para que el router resuelva account=None contra la default.
-    NO inicializa la sesión — solo devuelve el nombre."""
-    return account or cuenta_default()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

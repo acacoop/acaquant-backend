@@ -20,8 +20,6 @@ archivo — el script de cleanup, la ingesta y cualquier endpoint que muestre
 """
 from __future__ import annotations
 
-import re
-
 # Tupla canónica de substrings. Confirmada por el usuario:
 # - Bonificación
 # - recuperos devengados
@@ -44,12 +42,3 @@ def es_excluido(informacion: str | None) -> bool:
     return any(s in informacion for s in EXCLUIR_INFORMACION_CONTAINS)
 
 
-def match_excluir_informacion() -> dict:
-    """Sub-doc $match Mongo equivalente — usado por el cleanup script.
-
-    Equivalente: `informacion` ∈ {x : x contiene alguno de los substrings}.
-    Genera regex `(s1|s2|...)` con cada string escapado para evitar que
-    caracteres especiales (·, |) se interpreten como meta-caracteres.
-    """
-    parts = [re.escape(s) for s in EXCLUIR_INFORMACION_CONTAINS]
-    return {"informacion": {"$regex": "|".join(parts)}}

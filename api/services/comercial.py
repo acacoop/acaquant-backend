@@ -63,21 +63,6 @@ def estado_comercial(
     return "DORMIDA" if opero_alguna_vez else "NUEVA"
 
 
-def _nuevo_operador(email: str | None, nombre: str | None) -> dict[str, Any]:
-    return {
-        "operador_email": email,
-        "operador_nombre": nombre,
-        "n_cuentas": 0,
-        "n_activas": 0,
-        "n_enfriandose": 0,
-        "n_dormidas": 0,
-        "n_nuevas": 0,
-        "n_sin_segmentar": 0,
-        "aum_total": 0.0,
-        "huerfana": False,
-    }
-
-
 # ── Vista COMERCIAL en OPERACIONES (lente por operador, estilo NEGOCIO) ──────
 # "Volumen operado" = mismo criterio que NEGOCIO: sum(abs(importe)) sobre estas
 # categorías de boleto. AuM = Valuaciones.AuM (ARS). Todo por cuenta del operador.

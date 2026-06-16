@@ -144,10 +144,9 @@
 # Timeout 25m (< intervalo 30m) + lock → no se apila el cómputo pesado de ~883 cuentas.
 5,35 15-22 * * 1-5 /root/TradingAV/deploy/run_job.sh pnl_totales_precompute 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.pnl_totales_precompute'
 
-# ─── Rollup de series de Operaciones (incremental, cada hora :40 en rueda L-V)
-# Pre-agrega CashFlow.OpsSerieDiaria → /ops/serie+aranceles leen esto en vez de
-# escanear las 487k de Operaciones. Backfill inicial: python -m jobs.ops_rollup --full
-40 13-22 * * 1-5 /root/TradingAV/deploy/run_job.sh ops_rollup 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.ops_rollup'
+# ops_rollup (CashFlow.OpsSerieDiaria) ELIMINADO: las series /ops/serie+aranceles
+# se agregan EN VIVO desde SQL operaciones.operaciones (operaciones_sql) — sin
+# precompute Mongo (migración Operaciones→SQL).
 
 # comercial_rollup (Clientes.ComercialCache) ELIMINADO: el informe comercial agrega
 # en vivo desde SQL (comercial_sql) — sin precompute Mongo (migración NegocioMovimientos→SQL).

@@ -354,24 +354,23 @@ def _volumen_total(ids: tuple[str, ...], fecha_desde: str | None,
 def _aranceles_por_cuenta(
     ids: tuple[str, ...] | list[str] | None, fecha_mes: str,
 ) -> dict[str, dict[str, float]]:
-    """{cuenta: {ar_total, ar_mes}} desde Operaciones. `ids=None` → todas las cuentas."""
-    match: dict[str, Any] = {
-        "arancel": {"$gt": 0}, "etapa": {"$ne": "solicitud"},
-    }
+    """{cuenta: {ar_total, ar_mes}} desde SQL operaciones.operaciones. `ids=None`
+    → todas las cuentas. etapa != solicitud (NULL cuenta como no-solicitud)."""
+    conds = ["arancel > 0", "etapa IS DISTINCT FROM 'solicitud'"]
+    p: dict[str, Any] = {"mes": fecha_mes}
     if ids is not None:
-        match["cuenta"] = {"$in": list(ids)}
+        conds.append("id_cuenta = ANY(%(ids)s)")
+        p["ids"] = list(ids)
     out: dict[str, dict[str, float]] = {}
-    for d in get_db_cashflow()["Operaciones"].aggregate([
-        {"$match": match},
-        {"$group": {
-            "_id": "$cuenta",
-            "ar_total": {"$sum": "$arancel"},
-            "ar_mes": {"$sum": {"$cond": [{"$gte": ["$concertacion", fecha_mes]}, "$arancel", 0]}},
-        }},
-    ]):
-        if d.get("_id"):
-            out[str(d["_id"])] = {"ar_total": float(d.get("ar_total") or 0.0),
-                                  "ar_mes": float(d.get("ar_mes") or 0.0)}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"SELECT id_cuenta, SUM(arancel) AS ar_total, "
+            f"SUM(CASE WHEN concertacion >= %(mes)s THEN arancel ELSE 0 END) AS ar_mes "
+            f"FROM operaciones WHERE {' AND '.join(conds)} GROUP BY id_cuenta", p)
+        for idc, ar_total, ar_mes in cur.fetchall():
+            if idc:
+                out[str(idc)] = {"ar_total": float(ar_total or 0.0),
+                                 "ar_mes": float(ar_mes or 0.0)}
     return out
 
 

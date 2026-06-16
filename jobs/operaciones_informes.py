@@ -97,17 +97,17 @@ def _fetch_cuenta(cuenta: str, conc_desde: str, conc_hasta: str,
 def run(desde_d: date, hasta_d: date, workers: int) -> dict:
     with JobRunLogger("operaciones_informes") as jr:
         client = get_mongo_client()
-        db = client["CashFlow"]
-        coll = db["Operaciones"]
+        db = client["CashFlow"]                  # solo para el catálogo TiposOperacion (Mongo)
         maps = svc.cargar_maps_enrich(db)
 
-        # Fuente de cuentas: TODAS las que ya operan (en Operaciones) + comitentes.
+        # Fuente de cuentas: TODAS las que ya operan (SQL operaciones) + comitentes.
         # Comitentes solo NO alcanza: los FCI/sociedades gerentes y la cuenta
         # propia de la empresa no son comitentes y se perdían.
         with get_pool().connection() as _cn, _cn.cursor() as _cu:
             _cu.execute("SELECT id_cuenta FROM comitentes WHERE id_cuenta IS NOT NULL")
             cuentas_comit = {str(r[0]).strip() for r in _cu.fetchall() if r[0] not in (None, "")}
-        cuentas_ops = {str(c).strip() for c in coll.distinct("cuenta") if c not in (None, "")}
+            _cu.execute("SELECT DISTINCT id_cuenta FROM operaciones WHERE id_cuenta IS NOT NULL")
+            cuentas_ops = {str(r[0]).strip() for r in _cu.fetchall() if r[0] not in (None, "")}
         cuentas = sorted(cuentas_comit | cuentas_ops)
         # Ventana de concertación (lo que filtramos) + liquidación amplia (requerida).
         conc_desde, conc_hasta = _ddmmyyyy(desde_d), _ddmmyyyy(hasta_d)
@@ -130,7 +130,7 @@ def run(desde_d: date, hasta_d: date, workers: int) -> dict:
                     con_ops += 1
                     rows.extend(rows_c)
 
-        res = svc.ingestar_filas(coll, rows, enrich_maps=maps)
+        res = svc.ingestar_filas_sql(rows, enrich_maps=maps)
         jr.set_stat("cuentas", len(cuentas))
         jr.set_stat("cuentas_con_ops", con_ops)
         jr.set_stat("cuentas_fallidas", len(fallidas))

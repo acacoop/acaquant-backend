@@ -6,6 +6,7 @@ import time
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from psycopg.rows import dict_row
 
 from api.cache import cached
 from api.db import get_db_cashflow
@@ -71,7 +72,6 @@ def listar_flujo(
     `cuenta` con CashFlow.Contrapartes). Reemplaza la copia intermedia MesaAPI:
     trae `tipoOperacion` y `cuenta` reales (que MesaAPI no tenía) y el `segmento`
     (sesión de mercado) se deriva del tipo_operacion. Excluye Futuros/Opciones."""
-    dbc = get_db_cashflow()
     # cuenta (id) → {contraparte, grupo}. SQL clientes.contrapartes. La cuenta es la CLAVE.
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT id_cuenta, contraparte, segmento FROM contrapartes "
@@ -82,25 +82,30 @@ def listar_flujo(
         }
     # Excluye Futuros/Opciones y las Caución COLOCADORA (apertura+cierre): vienen
     # en pares y duplican/ensucian la vista. La caución tomadora se mantiene.
-    match: dict = {
-        "cuenta": {"$in": list(cp_map)},
-        "tipo_operacion": {"$not": {"$regex": "Futuros|Opciones|colocadora", "$options": "i"}},
-    }
+    # SQL operaciones.operaciones (cuenta→id_cuenta). NULL-safe en el NOT regex.
+    conds = ["id_cuenta = ANY(%(ids)s)",
+             "(tipo_operacion IS NULL OR tipo_operacion !~* 'Futuros|Opciones|colocadora')"]
+    p: dict = {"ids": list(cp_map)}
     if moneda:
-        match["moneda"] = moneda
-    if desde or hasta:
-        rango = {}
-        if desde:
-            rango["$gte"] = desde
-        if hasta:
-            rango["$lte"] = hasta
-        match["concertacion"] = rango
+        conds.append("moneda = %(moneda)s")
+        p["moneda"] = moneda
+    if desde:
+        conds.append("concertacion >= %(desde)s")
+        p["desde"] = desde
+    if hasta:
+        conds.append("concertacion <= %(hasta)s")
+        p["hasta"] = hasta
 
-    proj = {"_id": 0, "boleto": 1, "concertacion": 1, "tipo_operacion": 1, "cuenta": 1,
-            "denominacion": 1, "instrumento": 1, "bruto": 1, "moneda": 1}
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"SELECT boleto, concertacion::text AS concertacion, tipo_operacion, "
+            f"id_cuenta, denominacion, instrumento, bruto, moneda "
+            f"FROM operaciones WHERE {' AND '.join(conds)} ORDER BY concertacion", p)
+        rows = cur.fetchall()
+
     out = []
-    for d in dbc["Operaciones"].find(match, proj).sort("concertacion", 1):
-        cuenta = str(d.get("cuenta") or "").strip()
+    for d in rows:
+        cuenta = str(d.get("id_cuenta") or "").strip()
         cp = cp_map.get(cuenta, {})
         tipo = d.get("tipo_operacion") or ""
         seg = tipo.split()[0] if tipo else ""  # sesión de mercado (Concurrencia/SENEBI/…)
@@ -115,7 +120,7 @@ def listar_flujo(
             "cuenta":        cuenta,
             "denominacion":  d.get("denominacion"),
             "unidad":        d.get("instrumento"),
-            "bruto":         d.get("bruto"),
+            "bruto":         float(d["bruto"]) if d.get("bruto") is not None else None,
             "segmento":      seg,
             "contraparte":   cp.get("contraparte"),
             "moneda":        d.get("moneda"),

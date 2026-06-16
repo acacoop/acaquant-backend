@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from pymongo import UpdateOne
 from pymongo.errors import BulkWriteError
@@ -346,6 +346,101 @@ def ingestar_filas(
         "otc_excluidas": otc_excluidas,
         "upsertadas":    upserted,
         "modificadas":   modified,
+    }
+
+
+_SQL_INGEST = """
+INSERT INTO operaciones
+ (boleto, concertacion, id_cuenta, denominacion, moneda, mercado, operacion,
+  segmento, nivel_3, commodity, es_cierre, bruto, arancel, mep, cantidad,
+  instrumento, tipo_operacion, condiciones, ingestado_en)
+VALUES
+ (%(boleto)s, %(concertacion)s, %(id_cuenta)s, %(denominacion)s, %(moneda)s,
+  %(mercado)s, %(operacion)s, %(segmento)s, %(nivel_3)s, %(commodity)s,
+  %(es_cierre)s, %(bruto)s, %(arancel)s, %(mep)s, %(cantidad)s, %(instrumento)s,
+  %(tipo_operacion)s, %(condiciones)s, %(ingestado_en)s)
+ON CONFLICT (boleto) DO UPDATE SET
+ concertacion=EXCLUDED.concertacion, id_cuenta=EXCLUDED.id_cuenta,
+ denominacion=EXCLUDED.denominacion, moneda=EXCLUDED.moneda,
+ mercado=EXCLUDED.mercado, operacion=EXCLUDED.operacion,
+ segmento=EXCLUDED.segmento, nivel_3=EXCLUDED.nivel_3, commodity=EXCLUDED.commodity,
+ es_cierre=EXCLUDED.es_cierre, bruto=EXCLUDED.bruto, arancel=EXCLUDED.arancel,
+ mep=EXCLUDED.mep, cantidad=EXCLUDED.cantidad, instrumento=EXCLUDED.instrumento,
+ tipo_operacion=EXCLUDED.tipo_operacion, condiciones=EXCLUDED.condiciones,
+ ingestado_en=EXCLUDED.ingestado_en
+"""
+# OJO: `etapa` NO se toca en el UPDATE — la setea jobs/fci_bilateral (FCI bilateral).
+# Mismo comportamiento que el $set de Mongo (que tampoco incluía etapa).
+
+
+def _row_to_sql_params(d: dict) -> dict:
+    """Doc canónico enriquecido → params para _SQL_INGEST. `cuenta` (id numérico)
+    mapea a la columna `id_cuenta`; `concertacion` ISO → date."""
+    conc = d.get("concertacion")
+    return {
+        "boleto":         d["boleto"],
+        "concertacion":   date.fromisoformat(conc) if conc else None,
+        "id_cuenta":      d.get("cuenta"),
+        "denominacion":   d.get("denominacion"),
+        "moneda":         d.get("moneda"),
+        "mercado":        d.get("mercado"),
+        "operacion":      d.get("operacion"),
+        "segmento":       d.get("segmento"),
+        "nivel_3":        d.get("nivel_3"),
+        "commodity":      d.get("commodity"),
+        "es_cierre":      d.get("es_cierre"),
+        "bruto":          d.get("bruto"),
+        "arancel":        d.get("arancel"),
+        "mep":            d.get("mep"),
+        "cantidad":       d.get("cantidad"),
+        "instrumento":    d.get("instrumento"),
+        "tipo_operacion": d.get("tipo_operacion"),
+        "condiciones":    d.get("condiciones"),
+        "ingestado_en":   d.get("ingestado_en"),
+    }
+
+
+def ingestar_filas_sql(
+    rows: list[dict], enrich_maps: tuple[dict, dict] | None = None,
+) -> dict:
+    """= ingestar_filas pero escribe SQL `operaciones.operaciones` (upsert por
+    boleto). Migración CashFlow.Operaciones → SQL: el writer escribe SQL directo.
+
+    Reusa el normalizador y el enrich (puros). Dedup por boleto en el lote
+    (última gana). NO toca `etapa` (la pone fci_bilateral)."""
+    ahora = datetime.now(UTC)
+    mep_cache: dict[str, float | None] = {}
+    por_boleto: dict[str, dict] = {}
+    sin_boleto = 0
+    otc_excluidas = 0
+    for row in rows:
+        doc = normalizar_fila(row)
+        if doc is None:
+            sin_boleto += 1
+            continue
+        if es_otc_excluido(doc.get("tipo_operacion")):
+            otc_excluidas += 1
+            continue
+        doc["ingestado_en"] = ahora
+        _aplicar_enrich(doc, enrich_maps, mep_cache)
+        por_boleto[doc["boleto"]] = doc
+
+    if not por_boleto:
+        return {"recibidas": len(rows), "sin_boleto": sin_boleto,
+                "otc_excluidas": otc_excluidas, "upsertadas": 0, "modificadas": 0}
+
+    params = [_row_to_sql_params(d) for d in por_boleto.values()]
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(_SQL_INGEST, params)
+        conn.commit()
+    # SQL no distingue insert vs update barato en executemany → reportamos el
+    # total escrito como `upsertadas` (la métrica fina no la consume nadie).
+    return {
+        "recibidas":     len(rows),
+        "sin_boleto":    sin_boleto,
+        "otc_excluidas": otc_excluidas,
+        "upsertadas":    len(params),
+        "modificadas":   0,
     }
 
 

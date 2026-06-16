@@ -28,17 +28,56 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 sys.path.insert(0, ".")
-
-from pymongo import UpdateOne
 
 from api.services import operaciones_informes as svc
 from api.services._negocio_sql_read import negocio_movimientos_rows
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
 from core.postgres import get_pool
+
+# Upsert NO destructivo a SQL operaciones.operaciones: en INSERT setea todos los
+# campos del FCI bilateral; en CONFLICT (boleto ya existe) SOLO pisa etapa +
+# ingestado_en → preserva la carga manual histórica ($setOnInsert de Mongo).
+_SQL_FCI_UPSERT = """
+INSERT INTO operaciones
+ (boleto, concertacion, id_cuenta, denominacion, tipo_operacion, instrumento,
+  condiciones, cantidad, bruto, arancel, moneda, mercado, operacion, segmento,
+  nivel_3, commodity, etapa, ingestado_en)
+VALUES (%(boleto)s, %(concertacion)s, %(id_cuenta)s, %(denominacion)s,
+  %(tipo_operacion)s, %(instrumento)s, %(condiciones)s, %(cantidad)s, %(bruto)s,
+  %(arancel)s, %(moneda)s, %(mercado)s, %(operacion)s, %(segmento)s, %(nivel_3)s,
+  %(commodity)s, %(etapa)s, %(ingestado_en)s)
+ON CONFLICT (boleto) DO UPDATE SET
+  etapa = EXCLUDED.etapa, ingestado_en = EXCLUDED.ingestado_en
+"""
+
+
+def _fci_params(etapa: str, base: dict, now: datetime) -> dict:
+    """(etapa, base del _map_doc) → params SQL. `cuenta`→id_cuenta; fecha ISO→date."""
+    conc = base.get("concertacion")
+    return {
+        "boleto":         base["boleto"],
+        "concertacion":   date.fromisoformat(conc) if conc else None,
+        "id_cuenta":      base.get("cuenta"),
+        "denominacion":   base.get("denominacion"),
+        "tipo_operacion": base.get("tipo_operacion"),
+        "instrumento":    base.get("instrumento"),
+        "condiciones":    base.get("condiciones"),
+        "cantidad":       base.get("cantidad"),
+        "bruto":          base.get("bruto"),
+        "arancel":        base.get("arancel"),
+        "moneda":         base.get("moneda"),
+        "mercado":        base.get("mercado"),
+        "operacion":      base.get("operacion"),
+        "segmento":       base.get("segmento"),
+        "nivel_3":        base.get("nivel_3"),
+        "commodity":      base.get("commodity"),
+        "etapa":          etapa,
+        "ingestado_en":   now,
+    }
 
 _MERCADO = "FCI Bilateral"
 # El FCI bilateral se liquida en T+1/T+2 → solo hace falta mirar lo reciente.
@@ -115,28 +154,26 @@ def _map_doc(d: dict, niveles: dict, assets: dict, now: datetime) -> tuple[str, 
 def run(full: bool = False) -> dict:
     with JobRunLogger("fci_bilateral") as jr:
         client = get_mongo_client()
-        db = client["CashFlow"]
-        ops = db["Operaciones"]
+        db = client["CashFlow"]                  # solo para el catálogo TiposOperacion (Mongo)
         now = datetime.now(UTC)
 
-        # 1) Catálogo (idempotente).
+        # 1) Catálogo (idempotente) — TiposOperacion sigue en Mongo (catálogo chico).
         for c in _CATALOGO:
             db["TiposOperacion"].update_one(
                 {"tipo_operacion": c["tipo_operacion"]}, {"$set": c}, upsert=True)
 
-        # 2) Taggear los CL históricos ya en Operaciones (carga manual) que no
-        #    están en NegocioMovimientos → no se pisarían en el paso 5. Es un
-        #    backfill de una vez y escanea el subconjunto FCI Bilateral de
-        #    Operaciones (mercado sin índice) → solo con --full, no cada hora.
+        # 2) Taggear los CL históricos ya en SQL operaciones (carga manual) que no
+        #    están en negocio_movimientos → no se pisarían en el paso 5. Es un
+        #    backfill de una vez → solo con --full, no cada hora.
         tag_mod = 0
         if full:
-            tag = ops.update_many(
-                {"mercado": _MERCADO,
-                 "tipo_operacion": {"$regex": "Liquidaci", "$options": "i"},
-                 "etapa": {"$exists": False}},
-                {"$set": {"etapa": "liquidacion"}},
-            )
-            tag_mod = tag.modified_count
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE operaciones SET etapa = 'liquidacion' "
+                    "WHERE mercado = %s AND tipo_operacion ILIKE '%%Liquidaci%%' "
+                    "AND etapa IS NULL", (_MERCADO,))
+                tag_mod = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+                conn.commit()
 
         # 3) Maps de enriquecimiento (segmento/nivel_3 por cuenta) + Assets (instrumento).
         _, niveles = svc.cargar_maps_enrich(db)
@@ -167,31 +204,21 @@ def run(full: bool = False) -> dict:
             if prev is None or (base["bruto"] or 0) > (prev[1]["bruto"] or 0):
                 por_boleto[b] = (etapa, base)
 
-        # 5) Upsert NO destructivo: campos mapeados solo on-insert (preserva la
-        #    carga manual histórica); `etapa` siempre seteada.
-        # `ingestado_en` va en $set (NO en $setOnInsert) → se bumpea SIEMPRE, también
-        # cuando solo cambia `etapa`. Sin esto, una modificación no re-dispara el sync
-        # incremental (que filtra por ingestado_en) y SQL queda con el valor viejo.
-        bulk = [
-            UpdateOne(
-                {"boleto": base["boleto"]},
-                {"$setOnInsert": {k: v for k, v in base.items() if k != "ingestado_en"},
-                 "$set": {"etapa": etapa, "ingestado_en": now}},
-                upsert=True)
-            for etapa, base in por_boleto.values()
-        ]
+        # 5) Upsert NO destructivo a SQL: en INSERT setea los campos del boleto;
+        #    en CONFLICT SOLO pisa etapa + ingestado_en (preserva la carga manual).
+        #    `ingestado_en` se bumpea SIEMPRE (también cuando solo cambia etapa).
         up = mod = 0
-        if bulk:
-            res = ops.bulk_write(bulk, ordered=False)
-            up, mod = res.upserted_count, res.modified_count
+        if por_boleto:
+            params = [_fci_params(etapa, base, now) for etapa, base in por_boleto.values()]
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.executemany(_SQL_FCI_UPSERT, params)
+                conn.commit()
+            up = len(params)   # SQL no separa insert/update barato → total escrito
 
         # 6) Corregir bruto=0 de las suscripciones FCI normales (comprobante BOL):
         #    el API de informes las trae con bruto=0; el monto correcto está en
-        #    NegocioMovimientos. SEGURO en horario de rueda desde el fix del índice
-        #    uq_boleto plano (incidente 2026-06-04): cada update por boleto es un
-        #    lookup instantáneo, no el COLLSCAN de 488k que lo hacía explotar.
-        #    SCOPEADO: primero busca los REALMENTE rotos (bruto 0/null) y solo pisa
-        #    esos → escrituras mínimas. UPDATE puro (sin upsert) → no duplica.
+        #    negocio_movimientos. SCOPEADO: primero busca los REALMENTE rotos
+        #    (bruto 0/null) y solo pisa esos → escrituras mínimas. UPDATE puro.
         imp_por_boleto = {
             str(d["comprobante"]).strip(): abs(d["importe"])
             for d in negocio_movimientos_rows(
@@ -201,14 +228,18 @@ def run(full: bool = False) -> dict:
         }
         corr = 0
         if imp_por_boleto:
-            rotos = [str(o["boleto"]).strip() for o in ops.find(
-                {"boleto": {"$in": list(imp_por_boleto)}, "bruto": {"$in": [0, None]}},
-                {"_id": 0, "boleto": 1})]
-            if rotos:
-                corr = ops.bulk_write(
-                    [UpdateOne({"boleto": b, "bruto": {"$in": [0, None]}},
-                               {"$set": {"bruto": imp_por_boleto[b]}}) for b in rotos],
-                    ordered=False).modified_count
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT boleto FROM operaciones WHERE boleto = ANY(%s) "
+                    "AND (bruto = 0 OR bruto IS NULL)", (list(imp_por_boleto),))
+                rotos = [str(r[0]).strip() for r in cur.fetchall()]
+                if rotos:
+                    cur.executemany(
+                        "UPDATE operaciones SET bruto = %(bruto)s "
+                        "WHERE boleto = %(boleto)s AND (bruto = 0 OR bruto IS NULL)",
+                        [{"boleto": b, "bruto": imp_por_boleto[b]} for b in rotos])
+                    corr = cur.rowcount if cur.rowcount and cur.rowcount > 0 else len(rotos)
+                conn.commit()
 
         jr.set_stat("cl_tag_etapa", tag_mod)
         jr.set_stat("fci_comprobantes", len(por_boleto))

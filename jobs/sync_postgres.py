@@ -134,43 +134,9 @@ def _delete_not_in(conn, table, pk_col, keep, dry) -> int:
 
 
 # ── HECHOS (batcheados + throttle; incremental por campo de ingesta) ──────────
-def sync_operaciones(mdb, conn, dry, desde: datetime | None) -> tuple[int, int]:
-    """CashFlow.Operaciones. OJO: el id de cuenta es 'cuenta', NO 'id_cuenta'.
-    Se saltean docs sin boleto (PK natural) y se reporta el conteo."""
-    q = {"ingestado_en": {"$gte": desde}} if desde else {}
-    proj = {
-        "boleto": 1, "concertacion": 1, "cuenta": 1, "denominacion": 1, "moneda": 1,
-        "mercado": 1, "operacion": 1, "segmento": 1, "nivel_3": 1, "commodity": 1,
-        "es_cierre": 1, "etapa": 1, "bruto": 1, "arancel": 1, "mep": 1,
-        # Campos de la vista OPERACIONES (migración a SQL):
-        "cantidad": 1, "instrumento": 1, "tipo_operacion": 1, "condiciones": 1,
-        "ingestado_en": 1,
-    }
-    cols = ["boleto", "concertacion", "id_cuenta", "denominacion", "moneda", "mercado",
-            "operacion", "segmento", "nivel_3", "commodity", "es_cierre", "etapa",
-            "bruto", "arancel", "mep",
-            "cantidad", "instrumento", "tipo_operacion", "condiciones", "ingestado_en"]
-    total, sin_boleto = 0, 0
-    cur = mdb["CashFlow"]["Operaciones"].find(q, proj, batch_size=BATCH)
-    for batch in _iter_batches(cur):
-        rows = []
-        for d in batch:
-            bol = _s(d.get("boleto"))
-            if not bol:
-                sin_boleto += 1
-                continue
-            rows.append((
-                bol, _d(d.get("concertacion")), _s(d.get("cuenta")),
-                _s(d.get("denominacion")), _s(d.get("moneda")), _s(d.get("mercado")),
-                _s(d.get("operacion")), _s(d.get("segmento")), _s(d.get("nivel_3")),
-                _s(d.get("commodity")), d.get("es_cierre"), _s(d.get("etapa")),
-                d.get("bruto"), d.get("arancel"), d.get("mep"),
-                d.get("cantidad"), _s(d.get("instrumento")), _s(d.get("tipo_operacion")),
-                _s(d.get("condiciones")), d.get("ingestado_en"),
-            ))
-        total += _upsert(conn, "operaciones", cols, ["boleto"], _dedup(rows, [0]), dry)
-        time.sleep(THROTTLE)
-    return total, sin_boleto
+# sync_operaciones ELIMINADO (migración Operaciones→SQL): la tabla
+# operaciones.operaciones la escriben directo jobs/operaciones_informes.py y
+# jobs/fci_bilateral.py. Ya no se copia desde Mongo CashFlow.Operaciones.
 
 
 # sync_aum ELIMINADO (migración AuM→SQL): pnl_sql/comercial_sql leen portafolio.tenencia
@@ -614,7 +580,6 @@ def reconciliar(mdb, conn):
     pares = [
         ("operadores", None, None),
         ("cuentas", None, None),
-        ("operaciones", "CashFlow", "Operaciones"),
     ]
     print("\n── Reconciliación (filas PG vs docs Mongo) ──")
     with conn.cursor() as cur:
@@ -689,10 +654,9 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
 
-        n_ops, sin_bol = _t("operaciones", lambda: sync_operaciones(mdb, conn, dry, desde), (0, 0))
-        # negocio_movimientos ya NO se sincroniza: lo escribe SQL directo
-        # jobs/negocio_movimientos.py (migración NegocioMovimientos→SQL).
-        print(f"  hechos: operaciones={n_ops:,} (sin boleto, salteadas={sin_bol:,})")
+        # operaciones y negocio_movimientos ya NO se sincronizan: los escriben
+        # SQL directo jobs/operaciones_informes.py, jobs/fci_bilateral.py y
+        # jobs/negocio_movimientos.py (migración Operaciones/NegocioMov → SQL).
 
         if not dry:
             _t("reconciliar", lambda: reconciliar(mdb, conn))
@@ -716,7 +680,6 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "curvas_sin_ticker_corto": sin_corto, "bonds_master": n_bm,
              "market_snapshot": n_ms, "snapshots_cierre_hist": n_sh,
              "canje_cierre": n_cj, "mercado_hist": n_mh,
-             "operaciones": n_ops, "sin_boleto": sin_bol,
              "fases_fallidas": len(fallos)}
     # Re-lanza SOLO si falló una fase crítica (las vistas la consumen). El mirror de
     # Market que falle no alerta. Lo que sí sincronizó ya quedó commiteado por fase.

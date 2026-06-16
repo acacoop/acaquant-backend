@@ -26,12 +26,6 @@ equipo edita Contrapartes y se respeta solo en el próximo run.
 persistencia) — `_EXCLUDED_FROM_AUM_VIEW = {"255"}` en
 `api/services/portfolio.py`. Sigue capturándose para verla individualmente.
 
-## Encadenado a `sync_api_copies`
-
-Los jobs que tocan colecciones con copia derivada `*API.*API` encadenan
-`jobs/sync_api_copies.py` post-job (ver `crontab.txt`). Manual:
-`python -m scripts.api_migrate <cmd>`.
-
 ## Reglas
 
 - `python -m jobs.<job>` desde la raíz siempre.

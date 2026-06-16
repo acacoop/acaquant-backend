@@ -905,51 +905,6 @@ def analisis_comercial(
     }
 
 
-@cached(ttl=300)
-def actividad_historica(
-    *, operador: str, desde: str | None = None, hasta: str | None = None, moneda: str = "ARS",
-) -> dict[str, Any]:
-    """Serie mensual de CUENTAS ACTIVAS, desde el snapshot `Clientes.ActividadMensual`.
-
-    "Activa en el mes M" = la cuenta operó (≥1 boleto operativo) en el mes
-    calendario M. El snapshot lo precalcula `jobs/actividad_mensual.py` (1 doc
-    por mes×cuenta, con operador/segmento CONGELADOS al momento del cómputo →
-    point-in-time). Acá solo se agrega y se scopea.
-
-    `operador == TODOS` → toda la mesa (sin filtro por operador). `desde`/`hasta`
-    son meses "YYYY-MM" inclusive. Devuelve serie ordenada por mes ascendente.
-    """
-    factor = _factor_usd(moneda)
-    match: dict[str, Any] = {}
-    if operador != TODOS:
-        match["operador_email"] = operador
-    if desde or hasta:
-        ym: dict[str, str] = {}
-        if desde:
-            ym["$gte"] = desde
-        if hasta:
-            ym["$lte"] = hasta
-        match["year_month"] = ym
-
-    serie = [
-        {
-            "year_month": d["_id"],
-            "n_activas": d["n_activas"],
-            "volumen": _cv(d.get("volumen_ars", 0.0), factor),
-        }
-        for d in get_db_clientes()["ActividadMensual"].aggregate([
-            {"$match": match},
-            {"$group": {
-                "_id": "$year_month",
-                "n_activas": {"$sum": 1},  # 1 doc = 1 cuenta activa (clave única mes×cuenta)
-                "volumen_ars": {"$sum": "$volumen_ars"},
-            }},
-            {"$sort": {"_id": 1}},
-        ])
-    ]
-    return {"operador": operador, "serie": serie}
-
-
 def _fin_de_mes(anio: int, mes: int) -> datetime:
     """Último instante del mes (naive, como se guardan los fecha_alta_legajo)."""
     ini_sig = datetime(anio + 1, 1, 1) if mes == 12 else datetime(anio, mes + 1, 1)

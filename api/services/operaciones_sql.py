@@ -234,32 +234,6 @@ def ops_resumen(
     }
 
 
-def ops_boletos(
-    desde: str = "", hasta: str = "", moneda: str = "ARS", denominacion: str | None = None,
-    cuenta: str | None = None, operacion: str | None = None, mercado: str | None = None,
-    segmento: str | None = None, scope: tuple[str, ...] | None = None,
-) -> dict:
-    where, p = _ops_where(moneda, mercado, operacion, denominacion, cuenta, segmento, scope)
-    p.update({"desde": desde, "hasta": hasta})
-    rows = _q(
-        f"SELECT boleto, concertacion, id_cuenta AS cuenta, denominacion, tipo_operacion, "
-        f"operacion, mercado, instrumento, condiciones, cantidad, bruto, moneda, etapa "
-        f"FROM operaciones WHERE {where} "
-        f"AND concertacion >= %(desde)s AND concertacion <= %(hasta)s "
-        f"ORDER BY bruto DESC NULLS LAST LIMIT 500", p,
-    )
-    boletos = [{
-        "boleto": r["boleto"], "concertacion": _iso(r["concertacion"]), "cuenta": r["cuenta"],
-        "denominacion": r["denominacion"], "tipo_operacion": r["tipo_operacion"],
-        "operacion": r["operacion"], "mercado": r["mercado"], "instrumento": r["instrumento"],
-        "condiciones": r["condiciones"],
-        "cantidad": _f(r["cantidad"]) if r["cantidad"] is not None else None,
-        "bruto": _f(r["bruto"]) if r["bruto"] is not None else None, "moneda": r["moneda"],
-        "etapa": r["etapa"],
-    } for r in rows]
-    return {"boletos": boletos, "n": len(boletos)}
-
-
 # ── ARANCELES (_arancel_match; arancel siempre ABS y en pesos) ───────────────
 _ARANCEL = "SUM(ABS(COALESCE(arancel, 0)))"
 

@@ -30,8 +30,8 @@ tiene lo que aplica a todo el repo.
 
 - **`api/CLAUDE.md`** — ⚠️ REGLA #1 (validar imports), RBAC, services `@cached`, filtros de cuenta, live fallback, motor de PnL.
 - **`engines/CLAUDE.md`** — patrón de escritura a `MarketSnapshot`, Atlas / motores stale.
-- **`jobs/CLAUDE.md`** — filtros de exclusión del AuM, encadenado `sync_api_copies`.
-- **`scripts/CLAUDE.md`** — REGLA #0 aplicada, patrón de backfill multi-mes.
+- **`jobs/CLAUDE.md`** — filtros de exclusión del AuM, patrón de jobs nuevos (`JobRunLogger`).
+- **`scripts/CLAUDE.md`** — REGLA #0 aplicada, minimalismo (REGLA #5), backfills seguros (REGLA #4).
 
 ## ⚠️ REGLA #0 — Cómo entregar trabajo al usuario (LEER PRIMERO)
 

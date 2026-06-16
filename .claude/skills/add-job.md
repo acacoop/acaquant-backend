@@ -9,7 +9,7 @@ Se aplica cuando el usuario pide "crear un job que traiga X", "un cron que haga 
 
 ## 1. Decidir la naturaleza del job
 
-- **One-shot manual** (backfill, migración) → solo `python -m jobs.<nombre>` con flags. Ejemplo: `jobs/aum_backfill.py`.
+- **One-shot manual** (backfill, migración) → solo `python -m jobs.<nombre>` con flags. Ejemplo: `jobs/portafolio_backfill.py` (`--diario` / `--desde`).
 - **Cron diario/periódico** → entry en `deploy/crontab.txt`. Ejemplo: `jobs/bcra.py`, `jobs/argentina_datos.py`.
 - **Always-on intradía (WS)** → no es un job, es un **engine**. Va en `engines/` con su propio systemd service. No aplica esta skill.
 

@@ -96,11 +96,11 @@ tail -100 logs/<x>.log                  # ej. logs/aum.log
 ```
 **Fix:** corregir la causa y re-correr a mano:
 ```
-venv/bin/python -m jobs.<x>             # ej. jobs.aum, jobs.bcra --today
+venv/bin/python -m jobs.<x>             # ej. jobs.portafolio_backfill --diario, jobs.bcra --today
 ```
-Jobs que mueven plata / críticos: `aum` (15 y 17 UTC), `bcra --today` (22 UTC),
-`negocio_movimientos` (cada hora 15–22 UTC), `cashflow` (02 UTC), `argentina_datos`
-(12 UTC). Si tocaste colecciones API, re-sincronizá: `jobs.sync_api_copies`.
+Jobs que mueven plata / críticos: `portafolio_backfill --diario` (11 UTC, tenencias SQL),
+`bcra --today` (22 UTC), `negocio_movimientos` (cada 30 min 14–22 UTC), `cashflow` (02 UTC),
+`argentina_datos` (12 UTC).
 
 ---
 

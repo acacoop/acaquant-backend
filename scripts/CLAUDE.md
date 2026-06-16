@@ -10,9 +10,10 @@ project-wide.
 > `db_maintenance`, `audit_db`, `diag_atlas_*`, `atlas_health`, `watch_db`,
 > `healthcheck_mongo`, `diag_index_usage`, `diag_mongo_connections`),
 > seguridad (`security_audit`), feeds/admin (`mae_forex_client`, `partner_user`),
-> y los referenciados por skills (backfill-mes, index-health, safe-backfill).
-> **Un `diag_*`/`fix_*`/`backfill_*` que ya cumplió su función se borra en el
-> mismo commit del fix** — no se acumula.
+> y los referenciados por skills (index-health, safe-backfill). Segunda purga
+> 2026-06-16: −67 one-shots de features ya eliminadas (AuM/Assets, Operaciones/
+> NegocioMov/Contrapartes→SQL, gates de migración cumplidos). **Un `diag_*`/`fix_*`/
+> `backfill_*` que ya cumplió su función se borra en el mismo commit del fix** — no se acumula.
 
 ## REGLA #0 aplicada a scripts
 
@@ -25,9 +26,8 @@ scripts.<x>` en el Droplet.
   bloque de comandos/queries para copiar y pegar en el chat. Una query
   Mongo de 5 líneas igual va en archivo.
 - Una solución por vez, comiteada — cero "probá esto, si no probá esto otro".
-- Patrón backfill multi-mes: ver `backfill_2026.py` / `retry_cuentas_2026.py`
-  (por mes: DELETE → BACKFILL → FIX, con `RESUMEN` al final) y el skill
-  `backfill-mes`.
+- Backfills scopeados/batcheados/idempotentes (REGLA #4): ver `backfill_fci_bruto.py`
+  y el skill `safe-backfill`.
 
 ## Convención
 

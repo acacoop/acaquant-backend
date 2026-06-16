@@ -333,31 +333,6 @@ def analisis_comercial(*, operador: str, dias_activa: int = 45, dias_dormida: in
             "dias_dormida": dias_dormida, "clientes": clientes}
 
 
-def actividad_historica(*, operador: str, desde: str | None = None,
-                        hasta: str | None = None, moneda: str = "ARS") -> dict:
-    """Serie mensual de cuentas activas desde la tabla actividad_mensual (snapshot
-    point-in-time, ya espejado). operador == __todos__ → toda la mesa."""
-    factor = _factor_usd(moneda)
-    where = "1=1"
-    p: dict = {}
-    if operador != "__todos__":
-        where += " AND operador_email = %(op)s"
-        p["op"] = operador
-    if desde:
-        where += " AND year_month >= %(desde)s"
-        p["desde"] = desde
-    if hasta:
-        where += " AND year_month <= %(hasta)s"
-        p["hasta"] = hasta
-    serie = [{
-        "year_month": r["year_month"], "n_activas": r["n_activas"],
-        "volumen": _cv(_f(r["volumen_ars"]), factor),
-    } for r in _q(
-        f"SELECT year_month, count(*) AS n_activas, SUM(volumen_ars) AS volumen_ars "
-        f"FROM actividad_mensual WHERE {where} GROUP BY year_month ORDER BY year_month", p)]
-    return {"operador": operador, "serie": serie}
-
-
 # ── INFORME (global, transversal a la mesa) ──────────────────────────────────
 def _fin_de_mes(anio: int, mes: int) -> date:
     """Último día del mes (date). fecha_alta_legajo es date en SQL → comparación por día."""

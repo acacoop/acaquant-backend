@@ -59,11 +59,9 @@ _BUDGETS_S: dict[str, int] = {
     "negocio_movimientos":     25 * 60 + _GRACE_S,
     "aranceles":               25 * 60 + _GRACE_S,
     "fci_bilateral":           25 * 60 + _GRACE_S,
-    # ── aum_chain (25m): aum → sync_api_copies ──
-    "aum":                     25 * 60 + _GRACE_S,
-    # ── cashflow_chain (30m): cashflow → sync_api_copies ──
+    # ── cashflow (30m, standalone) ──
     "cashflow":                30 * 60 + _GRACE_S,
-    # ── flujo_chain (30m): flujo_contrapartes → sync_api_copies ──
+    # ── flujo_contrapartes (30m, standalone) ──
     "flujo_contrapartes":      30 * 60 + _GRACE_S,
     # ── cierre_chain (25m): snapshot_cierre → fair_value ──
     "snapshot_cierre":         25 * 60 + _GRACE_S,

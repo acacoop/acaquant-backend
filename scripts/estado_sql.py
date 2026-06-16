@@ -17,7 +17,6 @@ load_dotenv()  # fallback (.env local)
 
 _FLAGS = [
     ("OPERACIONES_SQL", "OPERACIONES — /ops/* (movimientos, aranceles, agro)"),
-    ("NEGOCIO_SQL",     "NEGOCIO — /negocio/* (serie, cuentas, boletos)"),
     ("COMERCIAL_SQL",   "COMERCIAL — /comercial/* (operadores, informes)"),
     ("PORTFOLIO_SQL",   "PORTFOLIO AuM — /aum, /fci-*, /total-*, /diff"),
     ("VALUACIONES_SQL", "VALUACIONES — /valuaciones (cierre, serie, mensual TEA/TWR, posiciones)"),

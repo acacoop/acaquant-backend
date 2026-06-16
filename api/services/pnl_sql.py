@@ -148,3 +148,50 @@ def pnl_por_cuenta_sql(id_cuenta: str) -> dict:
         mep_cache={},
         **deps,
     )
+
+
+def pnl_todas_cuentas_compute_sql() -> list[dict]:
+    """= pnl.pnl_todas_cuentas_compute pero con TODAS las deps de SQL (boletos +
+    posición + cuentas). Lo corre el cron `jobs.pnl_totales_precompute` → persiste
+    en Valuaciones.PnLTotalesCache. NegocioMovimientos ya vive en SQL, así que el
+    cron no toca Mongo para los boletos.
+
+    Pre-carga bulk de boletos + posición (2 queries grandes) y reusa el motor por
+    cuenta — los boletos viajan por kwarg → 0 query por cuenta."""
+    from api.services import portfolio_sql
+
+    cuentas = portfolio_sql.listar_cuentas()
+    if not cuentas:
+        return []
+
+    deps = _deps_sql(only_cuenta=None)
+    # Guard anti-N+1 / anti-colección-vacía: sin boletos NI posición abortamos
+    # para no persistir un cache vacío que pisaría el bueno.
+    if not deps.get("boletos_by_id_cuenta") and not deps.get("aum_rows_by_id_cuenta"):
+        raise RuntimeError(
+            "pnl_todas_cuentas_compute_sql: precarga bulk vacía (boletos y posición) — abortado")
+
+    mep_hoy = get_mep_for_date(date.today().isoformat())
+    db_cf, db_v, db_t = get_db_cashflow(), get_db_valuaciones(), get_db_trading()
+    mep_cache: dict[str, float | None] = {}
+
+    out: list[dict] = []
+    for c in cuentas:
+        id_cta = c.get("id_cuenta")
+        if not id_cta:
+            continue
+        try:
+            r = _pnl_por_cuenta_core(
+                id_cuenta=str(id_cta),
+                db_cf=db_cf, db_v=db_v, db_t=db_t,
+                mep_hoy=mep_hoy, mep_cache=mep_cache, **deps,
+            )
+        except Exception:
+            continue
+        out.append({
+            "id_cuenta": id_cta,
+            "cuenta":    c.get("cuenta") or "",
+            "rows":      r.get("rows", []),
+            "totales":   r.get("totales", {}) or {},
+        })
+    return out

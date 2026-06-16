@@ -17,15 +17,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from api.services.pnl import pnl_todas_cuentas_compute
+from api.services.pnl_sql import pnl_todas_cuentas_compute_sql
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client, reemplazar_coleccion_atomico
 
 
 def main() -> None:
     with JobRunLogger("pnl_totales_precompute") as jr:
-        jr.log("calculando PnL de todas las cuentas…")
-        cuentas = pnl_todas_cuentas_compute()
+        jr.log("calculando PnL de todas las cuentas (SQL)…")
+        cuentas = pnl_todas_cuentas_compute_sql()
         ahora = datetime.now(UTC)
         for d in cuentas:
             d["computed_at"] = ahora

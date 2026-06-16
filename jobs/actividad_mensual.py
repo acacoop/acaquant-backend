@@ -24,7 +24,7 @@ import argparse
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from api.services.comercial import _CATS_OPERACIONES, _PESIF
+from api.services.comercial import _CATS_OPERACIONES
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
 
@@ -34,22 +34,25 @@ def _mes_actual_art() -> str:
     return (datetime.now(UTC) - timedelta(hours=3)).date().isoformat()[:7]
 
 
-def _agregar(mov, cats: list[str], meses: list[str] | None) -> list[dict[str, Any]]:
-    """Agrega NegocioMovimientos por (year_month, id_cuenta). `meses=None` = todos."""
-    match: dict[str, Any] = {"categoria": {"$in": cats}, "id_cuenta": {"$ne": None}}
+def _agregar(cats: list[str], meses: list[str] | None) -> list[dict[str, Any]]:
+    """Agrega SQL operaciones.negocio_movimientos por (year_month, id_cuenta).
+    `meses=None` = todos."""
+    from core.postgres import get_pool
+    pesif = ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) "
+             "ELSE abs(COALESCE(importe, 0)) * COALESCE(mep, 0) END")
+    conds = ["categoria = ANY(%(cats)s)", "id_cuenta IS NOT NULL"]
+    p: dict[str, Any] = {"cats": cats}
     if meses:
-        # fecha es string ISO; rango lexicográfico [primer mes, mes siguiente al último).
-        lo = min(meses) + "-01"
-        hi = _mes_siguiente(max(meses)) + "-01"
-        match["fecha"] = {"$gte": lo, "$lt": hi}
-    return list(mov.aggregate([
-        {"$match": match},
-        {"$group": {
-            "_id": {"ym": {"$substrBytes": ["$fecha", 0, 7]}, "id": "$id_cuenta"},
-            "n_ops": {"$sum": 1},
-            "volumen_ars": {"$sum": _PESIF},
-        }},
-    ]))
+        p["lo"] = min(meses) + "-01"
+        p["hi"] = _mes_siguiente(max(meses)) + "-01"
+        conds.append("fecha >= %(lo)s AND fecha < %(hi)s")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"SELECT to_char(fecha, 'YYYY-MM') AS ym, id_cuenta, count(*) AS n_ops, "
+            f"SUM({pesif}) AS volumen_ars FROM negocio_movimientos "
+            f"WHERE {' AND '.join(conds)} GROUP BY ym, id_cuenta", p)
+        return [{"_id": {"ym": ym, "id": idc}, "n_ops": n, "volumen_ars": float(v or 0.0)}
+                for ym, idc, n, v in cur.fetchall()]
 
 
 def _mes_siguiente(ym: str) -> str:
@@ -65,7 +68,6 @@ def main() -> None:
     args = ap.parse_args()
 
     client = get_mongo_client()
-    mov = client["CashFlow"]["NegocioMovimientos"]
     destino = client["Clientes"]["ActividadMensual"]
     cats = list(_CATS_OPERACIONES)
 
@@ -78,7 +80,7 @@ def main() -> None:
             meses = [mes]
             run.log(f"Procesando mes {mes}…")
 
-        filas = _agregar(mov, cats, meses)
+        filas = _agregar(cats, meses)
         if not filas:
             run.log("⚠ 0 filas agregadas — la colección NO se toca.")
             return

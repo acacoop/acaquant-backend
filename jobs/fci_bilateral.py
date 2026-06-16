@@ -35,6 +35,7 @@ sys.path.insert(0, ".")
 from pymongo import UpdateOne
 
 from api.services import operaciones_informes as svc
+from api.services._negocio_sql_read import negocio_movimientos_rows
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
 from core.postgres import get_pool
@@ -116,7 +117,6 @@ def run(full: bool = False) -> dict:
         client = get_mongo_client()
         db = client["CashFlow"]
         ops = db["Operaciones"]
-        mov = db["NegocioMovimientos"]
         now = datetime.now(UTC)
 
         # 1) Catálogo (idempotente).
@@ -142,21 +142,23 @@ def run(full: bool = False) -> dict:
         _, niveles = svc.cargar_maps_enrich(db)
         assets = _assets_cafci_map()
 
-        # 4) Leer FCI bilateral: liquidaciones SOLO CL (las BOL ya son boletos),
-        #    solicitudes todas (son DOC). Acotado a los últimos _LOOKBACK_DIAS
-        #    (usa índice fecha_categoria; el regex ^CL queda como filtro residual
-        #    barato sobre la ventana chica). --full mira toda la historia.
-        q: dict = {"$or": [
-            {"categoria": {"$in": list(_CATS_LIQ)}, "comprobante": {"$regex": "^CL", "$options": "i"}},
-            {"categoria": {"$in": list(_CATS_SOL)}},
-        ]}
-        if not full:
-            hoy = (now - timedelta(hours=3)).date()   # ART
-            q = {"fecha": {"$gte": (hoy - timedelta(days=_LOOKBACK_DIAS)).isoformat()}, **q}
-        proj = {"_id": 0, "comprobante": 1, "categoria": 1, "fecha": 1, "cuenta": 1,
-                "id_cuenta": 1, "ticker": 1, "importe": 1, "cantidad": 1, "moneda": 1}
+        # 4) Leer FCI bilateral desde SQL operaciones.negocio_movimientos:
+        #    liquidaciones SOLO CL (las BOL ya son boletos), solicitudes todas
+        #    (son DOC). Acotado a los últimos _LOOKBACK_DIAS; --full = toda la
+        #    historia. Es el $or de Mongo partido en dos queries (LIQ con prefijo
+        #    CL + SOL sin prefijo).
+        fecha_gte = None if full else (
+            ((now - timedelta(hours=3)).date()   # ART
+             - timedelta(days=_LOOKBACK_DIAS)).isoformat())
+        _f4 = ("comprobante", "categoria", "fecha", "cuenta",
+               "id_cuenta", "ticker", "importe", "cantidad", "moneda")
+        registros = (
+            negocio_movimientos_rows(fields=_f4, categorias=list(_CATS_LIQ),
+                                     comprobante_prefix="CL", fecha_gte=fecha_gte)
+            + negocio_movimientos_rows(fields=_f4, categorias=list(_CATS_SOL),
+                                       fecha_gte=fecha_gte))
         por_boleto: dict[str, tuple[str, dict]] = {}
-        for d in mov.find(q, proj):
+        for d in registros:
             if not d.get("comprobante") or d.get("categoria") not in _MAP:
                 continue
             etapa, base = _map_doc(d, niveles, assets, now)
@@ -190,14 +192,11 @@ def run(full: bool = False) -> dict:
         #    lookup instantáneo, no el COLLSCAN de 488k que lo hacía explotar.
         #    SCOPEADO: primero busca los REALMENTE rotos (bruto 0/null) y solo pisa
         #    esos → escrituras mínimas. UPDATE puro (sin upsert) → no duplica.
-        q_bol: dict = {"categoria": {"$in": list(_CATS_LIQ)},
-                       "comprobante": {"$regex": "^BOL", "$options": "i"}}
-        if not full:
-            hoy = (now - timedelta(hours=3)).date()  # ART
-            q_bol["fecha"] = {"$gte": (hoy - timedelta(days=_LOOKBACK_DIAS)).isoformat()}
         imp_por_boleto = {
             str(d["comprobante"]).strip(): abs(d["importe"])
-            for d in mov.find(q_bol, {"_id": 0, "comprobante": 1, "importe": 1})
+            for d in negocio_movimientos_rows(
+                fields=("comprobante", "importe"), categorias=list(_CATS_LIQ),
+                comprobante_prefix="BOL", fecha_gte=fecha_gte)
             if d.get("comprobante") and d.get("importe") is not None
         }
         corr = 0

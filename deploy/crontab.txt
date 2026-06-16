@@ -149,11 +149,8 @@
 # escanear las 487k de Operaciones. Backfill inicial: python -m jobs.ops_rollup --full
 40 13-22 * * 1-5 /root/TradingAV/deploy/run_job.sh ops_rollup 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.ops_rollup'
 
-# ─── Rollup comercial (incremental, cada hora :45 en rueda L-V) → Clientes.ComercialCache
-# Pre-agrega {fecha, id_cuenta} → {vol, n_ops, arancel} para que /comercial/informe lo
-# lea en vez de escanear NegocioMov+Operaciones (C1/C4). Corre 5' después de ops_rollup
-# (datos de Operaciones frescos). Backfill inicial: python -m jobs.comercial_rollup --full
-45 14-22 * * 1-5 /root/TradingAV/deploy/run_job.sh comercial_rollup 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.comercial_rollup'
+# comercial_rollup (Clientes.ComercialCache) ELIMINADO: el informe comercial agrega
+# en vivo desde SQL (comercial_sql) — sin precompute Mongo (migración NegocioMovimientos→SQL).
 
 # ─── Rollup diario de opciones (20:15 UTC = 17:15 ART, L-V)
 15 20 * * 1-5 /root/TradingAV/deploy/run_job.sh options_rollup 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.options_rollup'

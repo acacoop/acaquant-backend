@@ -22,9 +22,10 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import holidays
+from psycopg.rows import dict_row
 
 from api.cache import cached
-from core.mongo import get_mongo_client_read
+from core.postgres import get_pool
 
 # Plazos que liquidan en el mismo día de la operación (T+0).
 PLAZOS_T0 = ("CI", "Inm")
@@ -124,30 +125,15 @@ def get_titulos_mercado(fecha: str | None = None) -> dict[str, Any]:
     hoy_str = hoy.isoformat()
     ayer_str = ayer.isoformat()
 
-    db = get_mongo_client_read()["CashFlow"]
-    docs = list(db["NegocioMovimientos"].find(
-        {
-            "$or": [
-                {"fecha": hoy_str,  "plazo": {"$in": list(PLAZOS_T0)}},
-                {"fecha": ayer_str, "plazo": {"$in": list(PLAZOS_T1)}},
-            ],
-            "categoria": {"$in": list(CATEGORIAS_MERCADO)},
-        },
-        {
-            "_id":          0,
-            "fecha":        1,
-            "plazo":        1,
-            "op":           1,
-            "categoria":    1,
-            "ticker":       1,
-            "cantidad":     1,
-            "precio":       1,
-            "importe":      1,
-            "cuenta":       1,
-            "comprobante":  1,
-            "moneda":       1,
-        },
-    ))
+    # SQL operaciones.negocio_movimientos. `fecha::text` para comparar con los ISO strings.
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT fecha::text AS fecha, plazo, op, categoria, ticker, cantidad, precio, "
+            "importe, cuenta, comprobante, moneda FROM negocio_movimientos "
+            "WHERE categoria = ANY(%s) AND "
+            "((fecha = %s AND plazo = ANY(%s)) OR (fecha = %s AND plazo = ANY(%s)))",
+            (list(CATEGORIAS_MERCADO), hoy_str, list(PLAZOS_T0), ayer_str, list(PLAZOS_T1)))
+        docs = cur.fetchall()
 
     # Defensive: pueden caer "Inm" (=CI) hoy O 24hs ayer, pero también
     # podríamos ver otros plazos raros que no encuadran (48hs, Contado,

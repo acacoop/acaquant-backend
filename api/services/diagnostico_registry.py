@@ -171,13 +171,10 @@ PIEZAS: list[Pieza] = [
           run_tipo="operaciones_informes"),
     Pieza("NEGOCIO", "api", "Aunesa boletos (negocio_movimientos)", unidad="jobs.negocio_movimientos",
           cadencia="cada 60m en rueda", ventana="rueda", umbral_s=70 * 60,
-          db="CashFlow", coll="NegocioMovimientos", field="ingestado_en"),
+          run_tipo="negocio_movimientos"),
     Pieza("NEGOCIO", "job", "ops_rollup", unidad="jobs.ops_rollup",
           cadencia="cada hora :40 · 13-22 UTC L-V", ventana="rueda", umbral_s=90 * 60,
           run_tipo="ops_rollup"),
-    Pieza("NEGOCIO", "job", "comercial_rollup (ComercialCache)", unidad="jobs.comercial_rollup",
-          cadencia="cada hora :45 · 14-22 UTC L-V", ventana="rueda", umbral_s=90 * 60,
-          run_tipo="comercial_rollup"),
     Pieza("NEGOCIO", "job", "flujo_contrapartes", unidad="jobs.flujo_contrapartes",
           cadencia="22:00 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           db="CashFlow", coll="Flujo", field="concertacion", ts_kind="iso"),
@@ -188,7 +185,7 @@ PIEZAS: list[Pieza] = [
     # ── BACK OFFICE ────────────────────────────────────────
     Pieza("BACK_OFFICE", "api", "Aunesa boletos (negocio_movimientos)", unidad="jobs.negocio_movimientos",
           cadencia="cada 60m en rueda", ventana="rueda", umbral_s=70 * 60,
-          db="CashFlow", coll="NegocioMovimientos", field="ingestado_en"),
+          run_tipo="negocio_movimientos"),
     Pieza("BACK_OFFICE", "job", "operaciones_informes", unidad="jobs.operaciones_informes",
           cadencia="cada 30m · 13:30-22 UTC L-V", ventana="rueda", umbral_s=60 * 60,
           run_tipo="operaciones_informes"),
@@ -196,10 +193,15 @@ PIEZAS: list[Pieza] = [
           cadencia="23:45 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           run_tipo="acreencias"),
 
-    # ── PORTFOLIOS / AuM ───────────────────────────────────
-    Pieza("PORTFOLIOS", "job", "aum (snapshot)", unidad="jobs.aum",
-          cadencia="15/17/18:30/21/23 UTC L-V", ventana="diario", umbral_s=int(1.5 * _D),
-          db="Valuaciones", coll="AuM", field="fecha_snapshot", ts_kind="iso"),
+    # ── PORTFOLIOS / Tenencias (SQL) ───────────────────────
+    # AuM Mongo (jobs.aum) eliminado 2026-06-15: el writer de tenencias es el
+    # cron diario portafolio_backfill --diario → SQL portafolio.tenencia. La
+    # frescura SQL no la chequea este registro (solo inventario).
+    Pieza("PORTFOLIOS", "job", "tenencia (snapshot SQL)", unidad="jobs.portafolio_backfill",
+          cadencia="11:00 UTC L-V", ventana="diario", umbral_s=int(1.5 * _D)),
+    Pieza("PORTFOLIOS", "job", "tenencia_hd (cuentas propias)", unidad="jobs.tenencia_hd",
+          cadencia="12:35 UTC L-V", ventana="diario", umbral_s=int(1.5 * _D),
+          db="Valuaciones", coll="TenenciaHD", field="fecha_snapshot", ts_kind="iso"),
     Pieza("PORTFOLIOS", "job", "pnl_totales_precompute", unidad="jobs.pnl_totales_precompute",
           cadencia="cada 30m :05,:35 · 15-22 UTC L-V", ventana="rueda", umbral_s=60 * 60,
           db="Valuaciones", coll="PnLTotalesCache", field="computed_at"),

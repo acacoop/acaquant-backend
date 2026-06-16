@@ -13,10 +13,11 @@ from __future__ import annotations
 
 from collections import Counter
 
+from psycopg.rows import dict_row
+
 from api.cache import cached
-from api.services._negocio_futuros import match_no_futuros
-from api.services.comercial import _CATS_VOLUMEN, _PESIF
-from core.mongo import get_mongo_client_read
+from api.services.comercial import _CATS_VOLUMEN
+from core.postgres import get_pool
 from jobs._aum_filters import (
     is_excluded,
     load_contrapartes_id_cuentas,
@@ -44,22 +45,18 @@ def _categoria(cuenta: str | None, unidad: str | None, idc: str, ids, names) -> 
 @cached(ttl=300)
 def cuentas_sin_operador() -> dict:
     """{clientes_sin_operador, no_clientes, resumen_no_clientes, contadores}."""
-    db = get_mongo_client_read()
-    nm = db["CashFlow"]["NegocioMovimientos"]
-
-    agg = {
-        str(r["_id"]): {"vol": float(r["v"] or 0.0),
-                        "cuenta": r.get("cuenta"), "unidad": r.get("unidad")}
-        for r in nm.aggregate([
-            {"$match": {"categoria": {"$in": list(_CATS_VOLUMEN)}, **match_no_futuros()}},
-            {"$group": {"_id": "$id_cuenta", "v": {"$sum": _PESIF},
-                        "cuenta": {"$first": "$cuenta"}, "unidad": {"$first": "$unidad"}}},
-        ], allowDiskUse=True)
-        if r.get("_id")
-    }
-    from psycopg.rows import dict_row
-
-    from core.postgres import get_pool
+    # Volumen pesificado por cuenta (SQL operaciones.negocio_movimientos).
+    _pesif = ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) "
+              "ELSE abs(COALESCE(importe, 0)) * COALESCE(mep, 0) END")
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"SELECT id_cuenta, SUM({_pesif}) AS v, (array_agg(cuenta))[1] AS cuenta, "
+            f"(array_agg(unidad))[1] AS unidad FROM negocio_movimientos "
+            f"WHERE categoria = ANY(%s) AND unidad IS DISTINCT FROM 'USDL' "
+            f"AND id_cuenta IS NOT NULL GROUP BY id_cuenta", (list(_CATS_VOLUMEN),))
+        agg = {str(r["id_cuenta"]): {"vol": float(r["v"] or 0.0),
+                                     "cuenta": r["cuenta"], "unidad": r["unidad"]}
+               for r in cur.fetchall() if r["id_cuenta"]}
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute("SELECT c.id_cuenta, u.denominacion, c.operador_email, c.estado "
                     "FROM comitentes c LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta")

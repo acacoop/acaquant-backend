@@ -178,37 +178,9 @@ def sync_operaciones(mdb, conn, dry, desde: datetime | None) -> tuple[int, int]:
 # tabla SQL 'aum' quedan deprecados → se dropean (scripts.drop_mongo_aum_deprecado).
 
 
-def sync_negocio(mdb, conn, dry, desde: datetime | None) -> int:
-    """CashFlow.NegocioMovimientos. Grano (fecha, comprobante). Incremental por ingestado_en."""
-    q = {"ingestado_en": {"$gte": desde}} if desde else {}
-    proj = {
-        "fecha": 1, "comprobante": 1, "id_cuenta": 1, "categoria": 1, "op": 1,
-        "ticker": 1, "cantidad": 1, "precio": 1, "importe": 1, "moneda": 1, "mep": 1,
-        # Campos de la vista NEGOCIO:
-        "cuenta": 1, "unidad": 1, "plazo": 1, "lugar": 1, "estado": 1, "informacion": 1,
-        "ingestado_en": 1,
-    }
-    cols = ["fecha", "comprobante", "id_cuenta", "categoria", "op", "ticker",
-            "cantidad", "precio", "importe", "moneda", "mep",
-            "cuenta", "unidad", "plazo", "lugar", "estado", "informacion", "ingestado_en"]
-    total = 0
-    cur = mdb["CashFlow"]["NegocioMovimientos"].find(q, proj, batch_size=BATCH)
-    for batch in _iter_batches(cur):
-        rows = []
-        for d in batch:
-            f, comp = _d(d.get("fecha")), _s(d.get("comprobante"))
-            if not (f and comp):
-                continue
-            rows.append((f, comp, _s(d.get("id_cuenta")), _s(d.get("categoria")),
-                         _s(d.get("op")), _s(d.get("ticker")), d.get("cantidad"),
-                         d.get("precio"), d.get("importe"), _s(d.get("moneda")), d.get("mep"),
-                         _s(d.get("cuenta")), _s(d.get("unidad")), _s(d.get("plazo")),
-                         _s(d.get("lugar")), _s(d.get("estado")), _s(d.get("informacion")),
-                         d.get("ingestado_en")))
-        total += _upsert(conn, "negocio_movimientos", cols, ["fecha", "comprobante"],
-                         _dedup(rows, [0, 1]), dry)
-        time.sleep(THROTTLE)
-    return total
+# sync_negocio ELIMINADO (migración NegocioMovimientos→SQL): la tabla
+# operaciones.negocio_movimientos la escribe directo jobs/negocio_movimientos.py.
+# Ya no se copia desde Mongo CashFlow.NegocioMovimientos (colección eliminada).
 
 
 def sync_accionistas(mdb, conn, dry) -> int:
@@ -642,11 +614,7 @@ def reconciliar(mdb, conn):
     pares = [
         ("operadores", None, None),
         ("cuentas", None, None),
-        ("comitentes", "Clientes", "Comitentes"),
-        ("contrapartes", "CashFlow", "Contrapartes"),
         ("operaciones", "CashFlow", "Operaciones"),
-        ("aum", "Valuaciones", "AuM"),
-        ("negocio_movimientos", "CashFlow", "NegocioMovimientos"),
     ]
     print("\n── Reconciliación (filas PG vs docs Mongo) ──")
     with conn.cursor() as cur:
@@ -722,9 +690,9 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
 
         n_ops, sin_bol = _t("operaciones", lambda: sync_operaciones(mdb, conn, dry, desde), (0, 0))
-        n_nm = _t("negocio", lambda: sync_negocio(mdb, conn, dry, desde))
-        print(f"  hechos: operaciones={n_ops:,} (sin boleto, salteadas={sin_bol:,})  "
-              f"negocio={n_nm:,}")
+        # negocio_movimientos ya NO se sincroniza: lo escribe SQL directo
+        # jobs/negocio_movimientos.py (migración NegocioMovimientos→SQL).
+        print(f"  hechos: operaciones={n_ops:,} (sin boleto, salteadas={sin_bol:,})")
 
         if not dry:
             _t("reconciliar", lambda: reconciliar(mdb, conn))
@@ -748,8 +716,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "curvas_sin_ticker_corto": sin_corto, "bonds_master": n_bm,
              "market_snapshot": n_ms, "snapshots_cierre_hist": n_sh,
              "canje_cierre": n_cj, "mercado_hist": n_mh,
-             "operaciones": n_ops,
-             "negocio": n_nm, "sin_boleto": sin_bol,
+             "operaciones": n_ops, "sin_boleto": sin_bol,
              "fases_fallidas": len(fallos)}
     # Re-lanza SOLO si falló una fase crítica (las vistas la consumen). El mirror de
     # Market que falle no alerta. Lo que sí sincronizó ya quedó commiteado por fase.

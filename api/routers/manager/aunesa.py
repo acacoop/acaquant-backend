@@ -2,8 +2,8 @@
 
 Thin wrapper sobre `api/services/aunesa_negocio.py`. Para discovery /
 debugging desde el panel /manager. La vista de producción
-/operaciones/negocio NO usa este endpoint — lee de Mongo directo
-(pobladado por jobs/negocio_movimientos.py).
+/operaciones/negocio NO usa este endpoint — lee de SQL
+operaciones.negocio_movimientos (escrita por jobs/negocio_movimientos.py).
 """
 from __future__ import annotations
 
@@ -15,14 +15,16 @@ from typing import Any
 
 import requests
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from api.services import aunesa_negocio as svc
-from api.services._negocio_arancelables import match_solo_arancelables
-from api.services._negocio_futuros import match_no_futuros
+from api.services._negocio_arancelables import OP_NO_ARANCELABLES
+from api.services._negocio_futuros import EXCLUIR_UNIDADES_FUTUROS
 from api.services.aunesa_aranceles import run_backfill
-from core.mongo import get_mongo_client, get_mongo_client_read
+from core.mongo import get_mongo_client
+from core.postgres import get_pool
 
 router = APIRouter()
 logger = logging.getLogger("api.manager.aunesa")
@@ -136,17 +138,16 @@ def aunesa_posicion(
 
 
 # ── BOLETOS → tab FALTANTES ───────────────────────────────────────────────────
-# Lista los boletos en CashFlow.NegocioMovimientos del rango pedido que NO
-# tienen arancel (campo `arancel` ausente o ≤ 0). Sirve para detectar GAPs
+# Lista los boletos en SQL operaciones.negocio_movimientos del rango pedido que
+# NO tienen arancel (columna `arancel` null o ≤ 0). Sirve para detectar GAPs
 # antes/después de correr el backfill. Filtra futuros DLR (unidad=USDL) —
 # no tienen arancel propio y no entrarían igual.
 
-_FALTANTES_PROJ = {
-    "_id": 0, "comprobante": 1, "id_cuenta": 1, "cuenta": 1,
-    "fecha": 1, "categoria": 1, "op": 1, "informacion": 1,
-    "moneda": 1, "ticker": 1, "unidad": 1,
-    "importe": 1, "arancel": 1,
-}
+_FALTANTES_COLS = (
+    "comprobante", "id_cuenta", "cuenta", "to_char(fecha, 'YYYY-MM-DD') AS fecha",
+    "categoria", "op", "informacion", "moneda", "ticker", "unidad",
+    "importe", "arancel",
+)
 
 
 @router.get("/aunesa/boletos/faltantes")
@@ -170,39 +171,51 @@ def aunesa_boletos_faltantes(
     if desde > hasta:
         raise HTTPException(status_code=400, detail="desde > hasta")
 
-    coll = get_mongo_client_read()["CashFlow"]["NegocioMovimientos"]
     # Excluye:
     #   - futuros DLR (unidad=USDL) — no arancelables del proyecto.
     #   - ops no arancelables (Cash dividend, Interest payment, cauciones
     #     apertura, suscripciones/rescates FCI, etc) — los confirmó el user
     #     como "tratamiento sin arancel".
-    match: dict[str, Any] = {
-        "fecha": {"$gte": desde, "$lte": hasta},
-        "$or": [{"arancel": {"$exists": False}}, {"arancel": {"$lte": 0}}, {"arancel": None}],
-        **match_no_futuros(),
-        **match_solo_arancelables(),
+    # "Sin arancel" = columna null o ≤ 0. NULL-safe en los $nin → IS NULL OR <> ALL.
+    where = (
+        "fecha >= %(desde)s AND fecha <= %(hasta)s "
+        "AND (arancel IS NULL OR arancel <= 0) "
+        "AND (unidad IS NULL OR unidad <> ALL(%(futs)s)) "
+        "AND (op IS NULL OR op <> ALL(%(ops)s))"
+    )
+    params: dict[str, Any] = {
+        "desde": desde, "hasta": hasta,
+        "futs": list(EXCLUIR_UNIDADES_FUTUROS), "ops": list(OP_NO_ARANCELABLES),
     }
     if id_cuenta:
-        match["id_cuenta"] = str(id_cuenta)
+        where += " AND id_cuenta = %(idc)s"
+        params["idc"] = str(id_cuenta)
 
-    # Boletos detallados (capped).
-    boletos = list(coll.find(match, _FALTANTES_PROJ).sort([("fecha", -1)]).limit(limit))
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        # Boletos detallados (capped).
+        cur.execute(
+            f"SELECT {', '.join(_FALTANTES_COLS)} FROM negocio_movimientos "
+            f"WHERE {where} ORDER BY fecha DESC LIMIT %(lim)s",
+            {**params, "lim": limit})
+        boletos = cur.fetchall()
+        for b in boletos:
+            if b.get("importe") is not None:
+                b["importe"] = float(b["importe"])
+            if b.get("arancel") is not None:
+                b["arancel"] = float(b["arancel"])
 
-    # Agregado por (categoria, op) sobre TODO el rango — sin cap, para que
-    # el resumen sea fiel aunque la tabla detallada esté truncada. Da el
-    # mapa "qué tipos de mov" están rebotando el match, con cuántas cuentas
-    # únicas (= ámbito del agujero, sirve para decidir si es un caso global
-    # o de una cuenta puntual).
-    por_categoria_op = list(coll.aggregate([
-        {"$match": match},
-        {"$group": {
-            "_id":         {"categoria": "$categoria", "op": "$op"},
-            "n":           {"$sum": 1},
-            "importe_abs": {"$sum": {"$abs": {"$ifNull": ["$importe", 0]}}},
-            "cuentas":     {"$addToSet": "$id_cuenta"},
-        }},
-        {"$sort": {"n": -1}},
-    ]))
+        # Agregado por (categoria, op) sobre TODO el rango — sin cap, para que
+        # el resumen sea fiel aunque la tabla detallada esté truncada. Da el
+        # mapa "qué tipos de mov" están rebotando el match, con cuántas cuentas
+        # únicas (= ámbito del agujero).
+        cur.execute(
+            f"SELECT categoria, op, count(*) AS n, "
+            f"SUM(abs(COALESCE(importe, 0))) AS importe_abs, "
+            f"count(DISTINCT id_cuenta) AS n_cuentas "
+            f"FROM negocio_movimientos WHERE {where} "
+            f"GROUP BY categoria, op ORDER BY n DESC",
+            params)
+        por_categoria_op = cur.fetchall()
 
     n_total = sum(int(r["n"]) for r in por_categoria_op)
     return {
@@ -212,11 +225,11 @@ def aunesa_boletos_faltantes(
         "limit":     limit,
         "resumen": [
             {
-                "categoria":   r["_id"].get("categoria"),
-                "op":          r["_id"].get("op"),
+                "categoria":   r.get("categoria"),
+                "op":          r.get("op"),
                 "n":           int(r["n"]),
                 "importe_abs": float(r.get("importe_abs") or 0.0),
-                "n_cuentas":   len(r.get("cuentas") or []),
+                "n_cuentas":   int(r.get("n_cuentas") or 0),
             }
             for r in por_categoria_op
         ],

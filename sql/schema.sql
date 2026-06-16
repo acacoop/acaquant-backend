@@ -324,6 +324,11 @@ ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS lugar      
 ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS estado       text;
 ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS informacion  text;
 ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS ingestado_en timestamptz;
+-- Aranceles (cobro del proyecto por boleto). `arancel` = atajo ARS (numeric, lo
+-- consume el auditor /aunesa/boletos/faltantes); `aranceles` = desglose por moneda
+-- (jsonb {ARS: x, USD: y}). Los escribe jobs/aranceles (api/services/aunesa_aranceles).
+ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS arancel      numeric;
+ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS aranceles    jsonb;
 
 CREATE INDEX IF NOT EXISTS ix_nm_id_cuenta ON operaciones.negocio_movimientos(id_cuenta, fecha);
 CREATE INDEX IF NOT EXISTS ix_nm_categoria ON operaciones.negocio_movimientos(categoria, fecha);

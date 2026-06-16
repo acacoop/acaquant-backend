@@ -20,16 +20,15 @@ Dos enfoques convivientes:
 from __future__ import annotations
 
 import logging
-import re
 from datetime import date as _date
 from typing import Any
 
 from api.cache import cached
 from api.db import (
-    get_db_cashflow,
     get_db_trading,
     get_db_valuaciones,
 )
+from api.services._negocio_sql_read import negocio_movimientos_rows
 from api.services.assets_sql import assets_rows
 from quant.xirr import xirr as _xirr
 
@@ -119,28 +118,17 @@ def posiciones_cuenta(id_cuenta: str, hasta: str | None = None) -> dict[str, Any
           n_tickers, n_boletos
         }
     """
-    db_cf = get_db_cashflow()
     db_t = get_db_trading()
 
     # 1. Boletos relevantes — solo categorías que mueven cost basis.
-    match: dict[str, Any] = {
-        # id_cuenta (denormalizado + indexado: id_cuenta+categoria+fecha) en vez
-        # de regex sobre `cuenta` → usa índice, no escanea la colección entera.
-        "id_cuenta": str(id_cuenta),
-        "categoria": {"$in": _CAT_ALL},
-        "ticker":    {"$ne": None},
-    }
-    if hasta:
-        match["fecha"] = {"$lte": hasta}
-
-    boletos = list(
-        db_cf["NegocioMovimientos"]
-        .find(
-            match,
-            {"_id": 0, "fecha": 1, "ticker": 1, "categoria": 1,
-             "cantidad": 1, "precio": 1, "moneda": 1, "comprobante": 1},
-        )
-        .sort([("fecha", 1), ("comprobante", 1)])
+    # SQL operaciones.negocio_movimientos (shape-Mongo vía shim).
+    boletos = negocio_movimientos_rows(
+        fields=("fecha", "ticker", "categoria", "cantidad", "precio", "moneda", "comprobante"),
+        id_cuenta=str(id_cuenta),
+        categorias=_CAT_ALL,
+        ticker_not_null=True,
+        fecha_lte=hasta or None,
+        order=True,
     )
 
     # 2. Acumular por ticker — orden temporal estricto para weighted avg.
@@ -407,7 +395,6 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
       }, ...]
     """
     db_val = get_db_valuaciones()
-    db_cf = get_db_cashflow()
 
     # 1. Valuación al cierre de cada mes (último fecha_snapshot del mes).
     #
@@ -459,14 +446,11 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
         flujos_by_mes = flujos_override
         movimientos_raw: list[dict] = []
     else:
-        movimientos_raw = list(db_cf["NegocioMovimientos"].find(
-            {
-                # id_cuenta indexado (id_cuenta+categoria+fecha) en vez de regex sobre cuenta.
-                "id_cuenta": str(id_cuenta),
-                "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
-            },
-            {"_id": 0, "fecha": 1, "categoria": 1, "importe": 1, "moneda": 1},
-        ))
+        movimientos_raw = negocio_movimientos_rows(
+            fields=("fecha", "categoria", "importe", "moneda"),
+            id_cuenta=str(id_cuenta),
+            categorias=list(_FLUJOS_EXTERNOS_ALL),
+        )
         flujos_by_mes = {}
     for m in movimientos_raw:
         fecha = m.get("fecha")
@@ -724,7 +708,6 @@ def valuacion_mensual_debug(id_cuenta: str, engine: str = "mongo") -> dict[str, 
         }
     """
     db_val = get_db_valuaciones()
-    db_cf = get_db_cashflow()
 
     # 1. Cierres por mes (misma fuente swappable que valuacion_mensual).
     fechas_data = _cierres_fecha_data(id_cuenta, None, engine)
@@ -742,15 +725,12 @@ def valuacion_mensual_debug(id_cuenta: str, engine: str = "mongo") -> dict[str, 
 
     # 2. Flujos externos pesificados — guardamos el doc completo para
     # poder mostrarlo en la UI de debug.
-    movimientos_raw = list(db_cf["NegocioMovimientos"].find(
-        {
-            # id_cuenta indexado (id_cuenta+categoria+fecha) en vez de regex sobre cuenta.
-            "id_cuenta": str(id_cuenta),
-            "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
-        },
-        {"_id": 0, "fecha": 1, "categoria": 1, "importe": 1, "moneda": 1,
-         "op": 1, "ticker": 1, "comprobante": 1, "informacion": 1},
-    ))
+    movimientos_raw = negocio_movimientos_rows(
+        fields=("fecha", "categoria", "importe", "moneda",
+                "op", "ticker", "comprobante", "informacion"),
+        id_cuenta=str(id_cuenta),
+        categorias=list(_FLUJOS_EXTERNOS_ALL),
+    )
 
     mep_cache: dict[str, float | None] = {}
     flujos_by_mes: dict[str, dict[str, Any]] = {}
@@ -1421,26 +1401,18 @@ def movimientos_mes(id_cuenta: str, fecha_anchor: str) -> dict[str, Any]:
           n, total_neto, total_depositos, total_extracciones
         }
     """
-    db_cf = get_db_cashflow()
     db_val = get_db_valuaciones()
     mes = fecha_anchor[:7]  # YYYY-MM
 
-    # Match: cuenta por prefijo numérico, fecha contiene el mes target,
+    # Match: cuenta por prefijo numérico, fecha en el mes target,
     # categoria entre los flujos externos.
-    match = {
-        "cuenta":    {"$regex": f"^\\[{re.escape(str(id_cuenta))}\\]"},
-        "categoria": {"$in": list(_FLUJOS_EXTERNOS_ALL)},
-        "fecha":     {"$regex": f"^{mes}"},
-    }
-    docs = list(
-        db_cf["NegocioMovimientos"]
-        .find(
-            match,
-            {"_id": 0, "fecha": 1, "comprobante": 1, "categoria": 1,
-             "importe": 1, "moneda": 1, "op": 1, "ticker": 1,
-             "informacion": 1, "cuenta": 1},
-        )
-        .sort([("fecha", 1), ("comprobante", 1)])
+    docs = negocio_movimientos_rows(
+        fields=("fecha", "comprobante", "categoria", "importe", "moneda",
+                "op", "ticker", "informacion", "cuenta"),
+        cuenta_prefix=str(id_cuenta),
+        categorias=list(_FLUJOS_EXTERNOS_ALL),
+        fecha_prefix=mes,
+        order=True,
     )
 
     # Cache MEP por fecha (varios movimientos del mismo día comparten tasa).
@@ -1518,7 +1490,9 @@ def construir_consolidado() -> list[dict[str, Any]]:
         if id_cta is None:
             continue
         try:
-            m = valuacion_mensual(id_cuenta=str(id_cta))
+            # engine="sql": los cierres salen de portafolio.tenencia (Valuaciones.AuM
+            # fue eliminado en la migración SQL). Los flujos ya salen de SQL.
+            m = valuacion_mensual(id_cuenta=str(id_cta), engine="sql")
         except Exception:
             continue
         meses = m.get("meses") or []

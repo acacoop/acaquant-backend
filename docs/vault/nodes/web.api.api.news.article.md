@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/news/article/route.ts
+path: src\app\api\news\article\route.ts
 ---
 
 # web /api/news/article  (proxy)
 
-**Archivo:** `src/app/api/news/article/route.ts`
+**Archivo:** `src\app\api\news\article\route.ts`
 
 ## Qué hace
 Route handler que proxea el reader-mode de un artículo: recibe ?url, valida y pega a /api/news/article del backend para traer el texto limpio. maxDuration 30s por el scraping, sin cache.

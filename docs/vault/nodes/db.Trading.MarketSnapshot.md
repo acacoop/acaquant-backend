@@ -34,3 +34,4 @@ Conecta con: la escriben `motor_curvas` y demás motores vía `core/snapshot_wri
 - [[engines.valores]]  ·  _module_
 - [[jobs.informe_salud]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
+- [[jobs.sync_postgres]]  ·  _module_

@@ -1,5 +1,5 @@
 ---
-id: cron.jobs.comercial_rollup
+id: cron.jobs.portafolio_backfill
 type: cron
 layer: deploy
 repo: infra
@@ -7,7 +7,7 @@ tags: [cron, deploy, infra]
 path: deploy/crontab.txt
 ---
 
-# cron: jobs.comercial_rollup
+# cron: jobs.portafolio_backfill
 
 > Tarea programada (cron).
 
@@ -17,4 +17,4 @@ path: deploy/crontab.txt
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
-- [[jobs.comercial_rollup]]  ·  _module_
+- [[jobs.portafolio_backfill]]  ·  _module_

@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/futuros-dlr/route.ts
+path: src\app\api\futuros-dlr\route.ts
 ---
 
 # web /api/futuros-dlr  (proxy)
 
-**Archivo:** `src/app/api/futuros-dlr/route.ts`
+**Archivo:** `src\app\api\futuros-dlr\route.ts`
 
 ## Qué hace
 Proxy live de los futuros DLR (Dólar A3500): pega a `/api/cotizaciones/futuros-dlr` y devuelve sin cache, porque el edge cache pisaba el polling del cliente.

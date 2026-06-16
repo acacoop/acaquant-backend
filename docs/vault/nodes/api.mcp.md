@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/mcp/__init__.py
+path: api\mcp\__init__.py
 ---
 
 # api/mcp/__init__
 
 > MCP server — expone data 100% de mercado al Claude Desktop / Claude Code.
 
-**Archivo:** `api/mcp/__init__.py`
+**Archivo:** `api\mcp\__init__.py`
 
 ## Qué hace
 Paquete del servidor MCP (`api/mcp/`). Expone data 100% de mercado (curvas, forwards, breakevens, opciones, REM, etc.) como tools de solo lectura para clientes Claude (Desktop / claude.ai vía Custom Connector). No expone datos privados (portfolio, cuentas, AuM, manager). El `__init__.py` solo documenta; el setup real está en `server.py`.

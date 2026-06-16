@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/estrategia-shared.tsx
+path: src\components\estrategia-shared.tsx
 ---
 
 # web/components/estrategia-shared
 
-**Archivo:** `src/components/estrategia-shared.tsx`
+**Archivo:** `src\components\estrategia-shared.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,14 +4,14 @@ type: module
 layer: partner_api
 repo: backend
 tags: [module, partner_api, backend]
-path: partner_api/odata.py
+path: partner_api\odata.py
 ---
 
 # partner_api/odata
 
 > partner_api/odata.py — servicio OData v2 sobre ACAPortfolio.Cartera.
 
-**Archivo:** `partner_api/odata.py`
+**Archivo:** `partner_api\odata.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,12 +4,12 @@ type: lib
 layer: web-lib
 repo: frontend
 tags: [lib, web-lib, frontend]
-path: src/lib/types.ts
+path: src\lib\types.ts
 ---
 
 # web/lib/types
 
-**Archivo:** `src/lib/types.ts`
+**Archivo:** `src\lib\types.ts`
 
 ## Qué hace
 Catálogo de tipos TypeScript compartidos entre páginas y componentes del frontend, centralizando contratos que antes estaban duplicados en cada archivo. Define las formas de los documentos que devuelve el backend: renta fija (`RentaFijaDoc` con métricas, TC breakeven, flujo de vencimiento), forwards (matriz, histórico y z-scores), fair value, entre otros. Es la fuente de verdad de los shapes para que el frontend tipee las respuestas de la API.

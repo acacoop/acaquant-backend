@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/auth.py
+path: api\auth.py
 ---
 
 # api/auth
 
 > Autenticación de identidad — validación JWT de Cloudflare Access.
 
-**Archivo:** `api/auth.py`
+**Archivo:** `api\auth.py`
 
 ## Qué hace
 Autenticación de identidad de la API: valida criptográficamente el JWT que emite Cloudflare Access (en vez de confiar en el header de email, que es spoofable). Expone los dependencies de FastAPI `get_user_email` (identidad del caller), `require_manager` (gate de admin por `MANAGER_EMAILS`) y `require_module`/`require_any_module` (RBAC por módulo). Fail-open controlado en dev si faltan `CF_ACCESS_TEAM`/`CF_ACCESS_AUD`.
@@ -36,6 +36,7 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 - [[api.routers.manager.contrapartes]]  ·  _module_
 - [[api.routers.manager.control_automatico]]  ·  _module_
 - [[api.routers.manager.grupos]]  ·  _module_
+- [[api.routers.manager.import_tenencia]]  ·  _module_
 - [[api.routers.manager.ons]]  ·  _module_
 - [[api.routers.manager.roles]]  ·  _module_
 - [[api.routers.manager.users]]  ·  _module_

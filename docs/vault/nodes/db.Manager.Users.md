@@ -16,6 +16,5 @@ Maestro de usuarios de la plataforma en la base `Manager`: identidad (email), ro
 Conecta con: la lee `api/auth.py` (resuelve rol del caller tras validar el JWT de Cloudflare Access), `core/roles.py` y `api/services/comercial.py`; se administra (CRUD) vía `api/routers/manager/users.py`.
 
 ## Lo usan (backlinks) ←
-- [[api.services.comercial]]  ·  _module_
 - [[core.roles]]  ·  _module_
 - [[jobs.sync_postgres]]  ·  _module_

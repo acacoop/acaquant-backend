@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/portfolio_sql.py
+path: api\services\portfolio_sql.py
 ---
 
 # api/services/portfolio_sql
 
 > api/services/portfolio_sql.py — vista PORTFOLIO / AuM leyendo de Postgres (Supabase).
 
-**Archivo:** `api/services/portfolio_sql.py`
+**Archivo:** `api\services\portfolio_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -21,3 +21,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.carteras]]  ·  _module_
+- [[api.services.pnl_sql]]  ·  _module_

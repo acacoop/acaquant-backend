@@ -98,10 +98,8 @@
 | 20:35 · L-V | `jobs.cierre_canje'` |
 | 11:40 · diario | `jobs.economic_calendar'` |
 | 11:40 · L-V | `jobs.descubrir_cuentas'` |
-| cada hora · 13-22h · L-V | `jobs.ops_rollup'` |
 | 20:40 · L-V | `jobs.snapshot_sinteticos'` |
 | 12:45 · L-V | `jobs.acreencias` |
-| cada hora · 14-22h · L-V | `jobs.comercial_rollup'` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
 | 20:06 · L-V | `jobs.day_trading_stats'` |
 <!-- /AUTOGEN:crons -->

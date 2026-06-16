@@ -1,6 +1,6 @@
 # 🧩 web — componentes
 
-99 notas.
+96 notas.
 
 - [[web.cmp.acreencias-view]]
 - [[web.cmp.agro-datos]]
@@ -22,8 +22,6 @@
 - [[web.cmp.cobros-futuros-view]]
 - [[web.cmp.comercial-informe-view]]
 - [[web.cmp.comercial-operaciones-view]]
-- [[web.cmp.comercial-panel]]
-- [[web.cmp.contrapartes-shell]]
 - [[web.cmp.contrapartes-view]]
 - [[web.cmp.costo-historico-chart]]
 - [[web.cmp.curvas-chart]]
@@ -46,7 +44,6 @@
 - [[web.cmp.estrategias-tabla]]
 - [[web.cmp.fair-value-modal]]
 - [[web.cmp.fair-value-view]]
-- [[web.cmp.flujo-vs-aum-view]]
 - [[web.cmp.forward-matrix-zscore]]
 - [[web.cmp.forwards-panel]]
 - [[web.cmp.futuros-dlr-curve-chart]]
@@ -57,8 +54,6 @@
 - [[web.cmp.jobs-runs-panel]]
 - [[web.cmp.logs-panel]]
 - [[web.cmp.manager-contrapartes-view]]
-- [[web.cmp.manager-debug-comercial]]
-- [[web.cmp.manager-debug-segmento]]
 - [[web.cmp.manager-debug-tea]]
 - [[web.cmp.manager-debug-xirr]]
 - [[web.cmp.manager-view]]
@@ -82,6 +77,7 @@
 - [[web.cmp.por-cuenta-view]]
 - [[web.cmp.post-trade-lab]]
 - [[web.cmp.recursos-panel]]
+- [[web.cmp.referido-fci-table]]
 - [[web.cmp.referidos-view]]
 - [[web.cmp.renta-fija-live]]
 - [[web.cmp.renta-fija-table]]
@@ -91,6 +87,7 @@
 - [[web.cmp.roles-panel]]
 - [[web.cmp.scanner-view]]
 - [[web.cmp.sensibilidad-table]]
+- [[web.cmp.tenencia-valorizada-view]]
 - [[web.cmp.theme-toggle]]
 - [[web.cmp.ticker-chart-panel]]
 - [[web.cmp.titulos-mercado-view]]

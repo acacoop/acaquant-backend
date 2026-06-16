@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/derivados-agro/camara/[cereal]/route.ts
+path: src\app\api\derivados-agro\camara\[cereal]\route.ts
 ---
 
 # web /api/derivados-agro/camara/[cereal]  (proxy)
 
-**Archivo:** `src/app/api/derivados-agro/camara/[cereal]/route.ts`
+**Archivo:** `src\app\api\derivados-agro\camara\[cereal]\route.ts`
 
 ## Qué hace
 PATCH de un cereal puntual de la Cámara: recibe `{precio_ars?, precio_usd?}`, valida que sea JSON y reenvía al backend, que aplica la validación y el audit del cambio.

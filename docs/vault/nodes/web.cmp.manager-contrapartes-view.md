@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/manager-contrapartes-view.tsx
+path: src\components\manager-contrapartes-view.tsx
 ---
 
 # web/components/manager-contrapartes-view
 
-**Archivo:** `src/components/manager-contrapartes-view.tsx`
+**Archivo:** `src\components\manager-contrapartes-view.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

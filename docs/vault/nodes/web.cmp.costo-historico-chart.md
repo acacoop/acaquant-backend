@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/costo-historico-chart.tsx
+path: src\components\costo-historico-chart.tsx
 ---
 
 # web/components/costo-historico-chart
 
-**Archivo:** `src/components/costo-historico-chart.tsx`
+**Archivo:** `src\components\costo-historico-chart.tsx`
 
 ## Qué hace
 Gráfico histórico del costo de una estrategia de opciones (combinación de legs) a lo largo del tiempo, bucketeado por minutos. Superpone en un segundo eje el spot del subyacente GGAL (switch ARS/ADR) y marca el costo live actual. Sirve a la vista de armado de estrategias de opciones.

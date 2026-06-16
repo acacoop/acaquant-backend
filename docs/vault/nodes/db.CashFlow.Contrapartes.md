@@ -17,11 +17,4 @@ Conecta con: la pueblan/usan `jobs/flujo_contrapartes.py` y `api/services/segmen
 
 ## Lo usan (backlinks) ←
 - [[api.routers.cuentas]]  ·  _module_
-- [[api.routers.operaciones]]  ·  _module_
-- [[api.services.contrapartes_seg]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
-- [[api.services.segmentacion]]  ·  _module_
-- [[jobs._aum_filters]]  ·  _module_
-- [[jobs.flujo_contrapartes]]  ·  _module_
-- [[jobs.segmento_contrapartes]]  ·  _module_
-- [[jobs.sync_postgres]]  ·  _module_

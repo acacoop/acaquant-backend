@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/aum-view.tsx
+path: src\components\aum-view.tsx
 ---
 
 # web/components/aum-view
 
-**Archivo:** `src/components/aum-view.tsx`
+**Archivo:** `src\components\aum-view.tsx`
 
 ## Qué hace
 Vista AuM: muestra la evolución histórica del activo bajo administración (área temporal por emisor) y el detalle de tenencias por unidad/cuenta, con un bloque dedicado a Tasa Fija (cobro proyectado por ticker y por cuenta hasta vencimiento). Permite exportar a XLSX.

@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/derivados-agro/mejoras-dispo/route.ts
+path: src\app\api\derivados-agro\mejoras-dispo\route.ts
 ---
 
 # web /api/derivados-agro/mejoras-dispo  (proxy)
 
-**Archivo:** `src/app/api/derivados-agro/mejoras-dispo/route.ts`
+**Archivo:** `src\app\api\derivados-agro\mejoras-dispo\route.ts`
 
 ## Qué hace
 Proxy live de la tabla Mejoras Precio Disponible (3 bloques: Soja/Maíz/Trigo + LECAPs): pega a `/api/derivados/agro/mejoras-dispo` y devuelve sin cache para que el polling vea precios y TNAs frescos.

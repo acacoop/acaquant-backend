@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/market/quotes/route.ts
+path: src\app\api\market\quotes\route.ts
 ---
 
 # web /api/market/quotes  (proxy)
 
-**Archivo:** `src/app/api/market/quotes/route.ts`
+**Archivo:** `src\app\api\market\quotes\route.ts`
 
 ## Qué hace
 Route handler que proxea las cotizaciones de watchlists (equity + forex) al backend (/api/market/quotes), pasando el querystring. Sin cache.

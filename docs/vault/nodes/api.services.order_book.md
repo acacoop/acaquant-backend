@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/order_book.py
+path: api\services\order_book.py
 ---
 
 # api/services/order_book
 
 > Capa de servicio — Order Book (LOB) live.
 
-**Archivo:** `api/services/order_book.py`
+**Archivo:** `api\services\order_book.py`
 
 ## Qué hace
 Devuelve el libro de órdenes (LOB) live de un ticker, con profundidad 5 (bids/offers) más precios open/high/low/last/cierre. Sin histórico: solo el último estado vivo. Acepta ticker completo o corto+plazo y cubre todos los tickers que el motor suscribe, no solo los de curva. Latencia ~10-50ms.

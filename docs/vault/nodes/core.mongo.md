@@ -4,12 +4,12 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/mongo.py
+path: core\mongo.py
 ---
 
 # core/mongo
 
-**Archivo:** `core/mongo.py`
+**Archivo:** `core\mongo.py`
 
 ## Qué hace
 El conector central a MongoDB Atlas. Expone dos singletons thread-safe: `get_mongo_client()` (read-write, pool 20, para motores y crons) y `get_mongo_client_read()` (read-only, `SECONDARY_PREFERRED`, pool 50, para la API). Lee `MONGO_URI`/`MONGO_URI_READ` del `.env`, comparte un único connection pool por proceso y deja que el driver reconecte solo (sin ping por llamada, que costaba ~180ms). Incluye `reemplazar_coleccion_atomico()` para reescribir colecciones precompute enteras sin ventana de vacío (swap por rename atómico).
@@ -24,10 +24,8 @@ Conecta con: TODO el backend (`engines/`, `jobs/`, `api/services/`) pasa por ac�
 - [[api.db]]  ·  _module_
 - [[api.main]]  ·  _module_
 - [[api.mcp.oauth]]  ·  _module_
-- [[api.routers.manager.assets]]  ·  _module_
 - [[api.routers.manager.aunesa]]  ·  _module_
 - [[api.routers.manager.checks]]  ·  _module_
-- [[api.routers.manager.clientes]]  ·  _module_
 - [[api.routers.manager.instrumentos]]  ·  _module_
 - [[api.routers.manager.jobs]]  ·  _module_
 - [[api.routers.manager.operaciones]]  ·  _module_
@@ -37,14 +35,11 @@ Conecta con: TODO el backend (`engines/`, `jobs/`, `api/services/`) pasa por ac�
 - [[api.routers.news]]  ·  _module_
 - [[api.routers.operar]]  ·  _module_
 - [[api.services._idempotencia]]  ·  _module_
-- [[api.services.aunesa_aranceles]]  ·  _module_
-- [[api.services.back_office_titulos]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
-- [[api.services.contrapartes_seg]]  ·  _module_
-- [[api.services.control_automatico]]  ·  _module_
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_
+- [[api.services.import_tenencia]]  ·  _module_
 - [[api.services.mejoras_dispo]]  ·  _module_
 - [[api.services.ons]]  ·  _module_
 - [[api.services.opciones]]  ·  _module_
@@ -52,7 +47,6 @@ Conecta con: TODO el backend (`engines/`, `jobs/`, `api/services/`) pasa por ac�
 - [[api.services.operativa_mep]]  ·  _module_
 - [[api.services.ordenes]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
-- [[api.services.sin_operador]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
 - [[core.adhoc_subscriptions]]  ·  _module_
 - [[core.brackets]]  ·  _module_
@@ -78,17 +72,12 @@ Conecta con: TODO el backend (`engines/`, `jobs/`, `api/services/`) pasa por ac�
 - [[engines.options]]  ·  _module_
 - [[engines.portfolio_snapshot]]  ·  _module_
 - [[engines.valores]]  ·  _module_
-- [[jobs._aum_filters]]  ·  _module_
 - [[jobs.acreencias]]  ·  _module_
 - [[jobs.actividad_mensual]]  ·  _module_
 - [[jobs.adr_live]]  ·  _module_
 - [[jobs.aranceles]]  ·  _module_
 - [[jobs.archive_options_data]]  ·  _module_
 - [[jobs.argentina_datos]]  ·  _module_
-- [[jobs.aum]]  ·  _module_
-- [[jobs.aum_backfill]]  ·  _module_
-- [[jobs.aum_backfill_historico]]  ·  _module_
-- [[jobs.aum_resumen_fci]]  ·  _module_
 - [[jobs.backfill_breakevens]]  ·  _module_
 - [[jobs.backfill_forwards]]  ·  _module_
 - [[jobs.bcra]]  ·  _module_
@@ -97,7 +86,6 @@ Conecta con: TODO el backend (`engines/`, `jobs/`, `api/services/`) pasa por ac�
 - [[jobs.cleanup_cedears_timesales]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
 - [[jobs.cleanup_futuros_dlr]]  ·  _module_
-- [[jobs.comercial_rollup]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.descubrir_cuentas]]  ·  _module_
@@ -110,21 +98,18 @@ Conecta con: TODO el backend (`engines/`, `jobs/`, `api/services/`) pasa por ac�
 - [[jobs.informe_salud]]  ·  _module_
 - [[jobs.market_anchors]]  ·  _module_
 - [[jobs.market_quotes]]  ·  _module_
-- [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.news_finnhub]]  ·  _module_
 - [[jobs.news_ingesta]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
-- [[jobs.ops_rollup]]  ·  _module_
 - [[jobs.options_rollup]]  ·  _module_
 - [[jobs.partner_export]]  ·  _module_
 - [[jobs.pnl_totales_precompute]]  ·  _module_
 - [[jobs.precios_acciones_daily]]  ·  _module_
 - [[jobs.segmentar_patrimonial]]  ·  _module_
-- [[jobs.segmento_contrapartes]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.snapshot_sinteticos]]  ·  _module_
-- [[jobs.sync_comitentes]]  ·  _module_
 - [[jobs.sync_postgres]]  ·  _module_
+- [[jobs.tenencia_hd]]  ·  _module_
 - [[jobs.volatilidad_ggal]]  ·  _module_
 - [[jobs.watchdog]]  ·  _module_
 - [[quant.black_scholes]]  ·  _module_

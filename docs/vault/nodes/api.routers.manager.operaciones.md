@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/manager/operaciones.py
+path: api\routers\manager\operaciones.py
 ---
 
 # api/routers/manager/operaciones
 
-> Manager · Operaciones — backfill de CashFlow.Operaciones por CSV.
+> Manager · Operaciones — backfill de operaciones.operaciones (SQL) por CSV.
 
-**Archivo:** `api/routers/manager/operaciones.py`
+**Archivo:** `api\routers\manager\operaciones.py`
 
 ## Qué hace
 Sub-router `/api/manager/operaciones` — backfill de `CashFlow.Operaciones` por CSV. La manager-view parsea el CSV en el cliente y manda las filas crudas en lotes a `POST /operaciones/backfill`; el backend las normaliza y upsertea por boleto (idempotente). `GET /operaciones/stats` devuelve el estado actual de la colección para la UI. Admin-only.
@@ -22,7 +22,7 @@ Conecta con: service `api.services.operaciones_informes` (normalización + upser
 - [[api.services]]  ·  _module_
 - [[api.services.operaciones_informes]]  ·  _module_
 - [[core.mongo]]  ·  _module_
-- [[db.CashFlow.Operaciones]]  ·  _collection_
+- [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_

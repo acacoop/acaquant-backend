@@ -16,20 +16,8 @@ Movimientos de negocio (boletos parseados, categorizados y agrupados) en la base
 Conecta con: la escribe el cron `jobs/negocio_movimientos.py` (cada hora, pega a Aunesa); aranceles los completa `jobs/aranceles.py` / `api/services/aunesa_aranceles.py`. La leen `api/services/comercial.py`, `back_office_titulos.py` y los routers de operaciones. Filtros de exclusión en `_negocio_futuros.py`, `_negocio_arancelables.py`, `_negocio_informacion_filter.py`.
 
 ## Lo usan (backlinks) ←
-- [[api.routers.manager.aunesa]]  ·  _module_
 - [[api.routers.manager.status]]  ·  _module_
-- [[api.routers.operaciones]]  ·  _module_
-- [[api.services.aunesa_aranceles]]  ·  _module_
-- [[api.services.back_office_titulos]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
-- [[api.services.diagnostico_registry]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
-- [[api.services.sin_operador]]  ·  _module_
-- [[api.services.valuaciones]]  ·  _module_
 - [[engines._universo_portfolio]]  ·  _module_
-- [[jobs.actividad_mensual]]  ·  _module_
-- [[jobs.comercial_rollup]]  ·  _module_
-- [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.informe_salud]]  ·  _module_
-- [[jobs.negocio_movimientos]]  ·  _module_
-- [[jobs.sync_postgres]]  ·  _module_

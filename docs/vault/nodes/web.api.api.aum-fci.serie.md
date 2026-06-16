@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/aum-fci/serie/route.ts
+path: src\app\api\aum-fci\serie\route.ts
 ---
 
 # web /api/aum-fci/serie  (proxy)
 
-**Archivo:** `src/app/api/aum-fci/serie/route.ts`
+**Archivo:** `src\app\api\aum-fci\serie\route.ts`
 
 ## Qué hace
 Devuelve la serie temporal del AuM de FCI: total por fecha y desglose por emisor, en un rango `desde`/`hasta`, con filtro opcional por cuenta y operador. No cachea (el cron actualiza diario y la cartera se edita durante el día).

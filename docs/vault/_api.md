@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-118 notas.
+122 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -26,21 +26,21 @@
 - [[api.routers.ingest]] — Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet.
 - [[api.routers.manager]] — Manager API — paquete con sub-routers por sub-dominio.
 - [[api.routers.manager._common]] — Constantes y helpers compartidos entre los sub-módulos de manager/.
-- [[api.routers.manager.assets]] — Manager sub-router — control de Valuaciones.Assets.
+- [[api.routers.manager.assets]] — Manager sub-router — control del catálogo de títulos (segmentación).
 - [[api.routers.manager.aunesa]] — Manager · Aunesa — endpoint exploratorio en vivo.
 - [[api.routers.manager.checks]] — GET /api/manager/checks/* — validaciones de consistencia sobre Mongo.
-- [[api.routers.manager.clientes]] — Manager sub-router — edición de Clientes.Comitentes (segmentación comercial).
-- [[api.routers.manager.comercial]] — Sub-router Manager → /api/manager/comercial — Tablero Comercial.
+- [[api.routers.manager.clientes]] — Manager sub-router — edición de `clientes.comitentes` (segmentación comercial, SQL).
 - [[api.routers.manager.compliance]] — Manager sub-router — COMPLIANCE: operador nuestro vs Aunesa.
 - [[api.routers.manager.contrapartes]] — Manager sub-router — vista CONTRAPARTES (módulo `manager_contrapartes`).
 - [[api.routers.manager.control_automatico]] — POST /api/manager/control-automatico/* — conciliación Excel↔cuentas + segmentar.
 - [[api.routers.manager.diagnostico]] — GET /api/manager/diagnostico — árbol de salud por vista (motores/jobs/apis).
 - [[api.routers.manager.grupos]] — Manager sub-router — grupos de acceso por cuenta.
+- [[api.routers.manager.import_tenencia]] — Manager sub-router — import masivo de tenencia a Valuaciones.AuM (admin).
 - [[api.routers.manager.instrumentos]] — Manager sub-router — Títulos → Instrumentos (solo lectura).
 - [[api.routers.manager.jobs]] — POST /jobs/run + GET /jobs/history, /jobs/history/stats, /jobs/{id}.
 - [[api.routers.manager.logs]] — GET /api/manager/logs — últimos N logs de un servicio systemd.
 - [[api.routers.manager.ons]] — Manager sub-router — gestión de ONs (Trading.BondsMaster).
-- [[api.routers.manager.operaciones]] — Manager · Operaciones — backfill de CashFlow.Operaciones por CSV.
+- [[api.routers.manager.operaciones]] — Manager · Operaciones — backfill de operaciones.operaciones (SQL) por CSV.
 - [[api.routers.manager.options]] — GET/PUT /api/manager/options/expiries — config del engine de opciones.
 - [[api.routers.manager.roles]] — Manager sub-router — matriz de roles + audit log.
 - [[api.routers.manager.status]] — GET /api/manager/status — estado unificado de motores y jobs batch.
@@ -66,10 +66,12 @@
 - [[api.services._negocio_arancelables]] — Filtro de `op` no arancelables para CashFlow.NegocioMovimientos.
 - [[api.services._negocio_futuros]] — Filtro de exclusión de futuros para queries sobre CashFlow.NegocioMovimientos.
 - [[api.services._negocio_informacion_filter]] — Filtro de exclusión por `informacion` para CashFlow.NegocioMovimientos.
+- [[api.services._negocio_sql_read]] — Lectura de boletos desde SQL `operaciones.negocio_movimientos` devolviendo dicts
 - [[api.services.acreencias]] — api/services/acreencias.py — motor de acreencias (cobros futuros por cliente).
 - [[api.services.analitica]] — Capa de servicio — analítica Tier 2 sobre data existente.
 - [[api.services.argy]] — Capa de servicio — métricas argentinas con returns calculados.
-- [[api.services.aunesa_aranceles]] — Backfill de aranceles desde Aunesa /operaciones/informes a CashFlow.NegocioMovimientos.
+- [[api.services.assets_sql]] — api/services/assets_sql.py — lectura del catálogo de títulos desde SQL
+- [[api.services.aunesa_aranceles]] — Backfill de aranceles desde Aunesa /operaciones/informes a SQL
 - [[api.services.aunesa_informes]] — api/services/aunesa_informes.py — aranceles por boleto desde Aunesa /operaciones/informes.
 - [[api.services.aunesa_negocio]] — aunesa_negocio.py — service compartido para análisis del endpoint
 - [[api.services.back_office_titulos]] — Service — Títulos / Mercado (Back Office).
@@ -80,8 +82,7 @@
 - [[api.services.comercial_sql]] — api/services/comercial_sql.py — vista COMERCIAL leyendo de Postgres (Supabase).
 - [[api.services.comparar_inversion]] — Comparar Inversión — service que compara 2 bonos de Trading.Curvas lado a lado.
 - [[api.services.compliance]] — Compliance — compara el operador asignado por la mesa vs el que reporta Aunesa.
-- [[api.services.contrapartes_seg]] — api/services/contrapartes_seg.py — segmentación + conciliador de CashFlow.Contrapartes.
-- [[api.services.contrapartes_seg_sql]] — api/services/contrapartes_seg_sql.py — espejo SQL (solo LECTURAS) de
+- [[api.services.contrapartes_seg]] — api/services/contrapartes_seg.py — segmentación + conciliador de `clientes.contrapartes` (SQL).
 - [[api.services.control_automatico]] — Control Automático (Clientes): concilia un Excel de CUITs contra nuestras cuentas.
 - [[api.services.day_trading]] — day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).
 - [[api.services.debug_curva]] — Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.
@@ -91,9 +92,11 @@
 - [[api.services.diagnostico]] — Motor del Diagnóstico — arma el árbol vista→piezas con status, desde el registro.
 - [[api.services.diagnostico_registry]] — Registro ÚNICO del Diagnóstico: vista → motores / jobs / APIs que la alimentan.
 - [[api.services.fair_value]] — fair_value.py — service del módulo Fair Value relativo intra-curva.
+- [[api.services.import_tenencia]] — api/services/import_tenencia.py — import masivo de tenencia a Valuaciones.AuM.
+- [[api.services.import_tenencia_sql]] — api/services/import_tenencia_sql.py — import manual a SQL `portafolio.tenencia`.
 - [[api.services.macro]] — Capa de servicio — series macro y clasificación.
+- [[api.services.market_sql]] — api/services/market_sql.py — Market (watchlist + calendario económico) leyendo Postgres.
 - [[api.services.mejoras_dispo]] — Service — Mejoras Precio Disponible (Agro).
-- [[api.services.negocio_sql]] — api/services/negocio_sql.py — vista NEGOCIO leyendo de Postgres (Supabase).
 - [[api.services.news_sql]] — api/services/news_sql.py — News (home) leyendo de Postgres. Espejo de los endpoints
 - [[api.services.ons]] — api/services/ons.py — maestro de ONs (Trading.BondsMaster) + sync a Curvas.
 - [[api.services.opciones]] — Capa de servicio — opciones (chain + meta + trades históricos + update tasa).
@@ -110,7 +113,6 @@
 - [[api.services.rem]] — Expectativas REM (Relevamiento de Expectativas de Mercado, BCRA).
 - [[api.services.renta_fija]] — Capa de servicio — renta fija (MarketSnapshot + TimeSales + Curvas).
 - [[api.services.repo]] — Capa de servicio — mercado repo (caución).
-- [[api.services.reporting]] — api/services/reporting.py — reportería que lee de la capa SQL (Postgres/Supabase).
 - [[api.services.risk]] — Servicio RISK — datos de cuenta del broker (saldos, posiciones, márgenes).
 - [[api.services.rv_motor]] — api/services/rv_motor.py — motor de la Mesa de Estrategia (Renta Variable).
 - [[api.services.scanner]] — api/services/scanner.py — vista Scanner del módulo Renta Variable.
@@ -118,5 +120,7 @@
 - [[api.services.sensibilidad]] — Análisis de sensibilidad de retorno total a escenarios de TIR.
 - [[api.services.sin_operador]] — Cuentas sin operador asignado — el bucket "(sin operador)" del ranking comercial.
 - [[api.services.sinteticos]] — Sintéticos — combinaciones LECAP/DLK + futuro DLR.
+- [[api.services.tenencia_hd]] — Service Tenencia Valorizada (cartera HD, cuentas propias 100/255/256).
 - [[api.services.titulos_flujos]] — api/services/titulos_flujos.py — flujos normalizados por instrumento.
 - [[api.services.valuaciones]] — Valuaciones — performance e historia por cuenta.
+- [[api.services.valuaciones_sql]] — api/services/valuaciones_sql.py — espejo SQL de api/services/valuaciones.py.

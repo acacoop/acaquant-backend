@@ -21,3 +21,4 @@ Conecta con: la escribe `jobs/bcra.py`; la leen `api/services/macro.py`, `carry_
 - [[api.services.macro]]  ·  _module_
 - [[engines.futuros_dlr]]  ·  _module_
 - [[jobs.bcra]]  ·  _module_
+- [[jobs.sync_postgres]]  ·  _module_

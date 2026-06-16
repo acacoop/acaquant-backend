@@ -4,12 +4,12 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/__init__.py
+path: api\__init__.py
 ---
 
 # api/__init__
 
-**Archivo:** `api/__init__.py`
+**Archivo:** `api\__init__.py`
 
 ## Qué hace
 Paquete raíz de la API FastAPI (`api/`). Es solo el marcador de paquete (`__init__.py` vacío); el código vive en `api/main.py` (entrypoint), `api/routers/` (HTTP), `api/services/` (lógica pura) y `api/mcp/` (servidor MCP).

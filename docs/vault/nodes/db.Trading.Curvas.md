@@ -35,3 +35,4 @@ Conecta con: la consumen los motores (`engines/curvas.py`, breakevens, forwards)
 - [[engines._curvas_loader]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
+- [[jobs.sync_postgres]]  ·  _module_

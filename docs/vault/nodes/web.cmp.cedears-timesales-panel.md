@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/cedears-timesales-panel.tsx
+path: src\components\cedears-timesales-panel.tsx
 ---
 
 # web/components/cedears-timesales-panel
 
-**Archivo:** `src/components/cedears-timesales-panel.tsx`
+**Archivo:** `src\components\cedears-timesales-panel.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

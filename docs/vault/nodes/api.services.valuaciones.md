@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/valuaciones.py
+path: api\services\valuaciones.py
 ---
 
 # api/services/valuaciones
 
 > Valuaciones — performance e historia por cuenta.
 
-**Archivo:** `api/services/valuaciones.py`
+**Archivo:** `api\services\valuaciones.py`
 
 ## Qué hace
 Service de performance e historia por cuenta, con dos enfoques convivientes: (A) AUM-BASED para /serie y /mensual, que suma el snapshot MTM diario y lo combina con flujos externos (depósitos/extracciones) para la mensualización "valor de cierre + flujo neto" y la TIR; (B) COST-BASIS LEDGER para /posiciones, que reconstruye lots de boletos para PnL realizado vs no realizado por ticker. Pesifica monedas USD al MEP del día.
@@ -21,13 +21,15 @@ Conecta con: lee `Valuaciones.AuM`, `CashFlow.NegocioMovimientos` (flujos) y `Tr
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
 - [[api.db]]  ·  _module_
+- [[api.services]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
 - [[api.services._mep]]  ·  _module_
+- [[api.services._negocio_sql_read]]  ·  _module_
+- [[api.services.assets_sql]]  ·  _module_
 - [[api.services.portfolio]]  ·  _module_
-- [[db.CashFlow.NegocioMovimientos]]  ·  _collection_
+- [[api.services.valuaciones_sql]]  ·  _module_
 - [[db.Trading.Curvas]]  ·  _collection_
 - [[db.Trading.MarketSnapshot]]  ·  _collection_
-- [[db.Valuaciones.Assets]]  ·  _collection_
 - [[db.Valuaciones.AuM]]  ·  _collection_
 - [[db.Valuaciones.ConsolidadoCuentas]]  ·  _collection_
 - [[quant.xirr]]  ·  _module_

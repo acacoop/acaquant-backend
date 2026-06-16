@@ -16,7 +16,6 @@ Operaciones normalizadas e ingestadas desde los informes de Aunesa, en la base `
 Conecta con: la escriben `jobs/operaciones_informes.py` y `api/services/operaciones_informes.py` (normalización + ingesta idempotente); backfill manual por CSV vía `api/routers/manager/operaciones.py`. La leen routers de operaciones/operativa y el scoping de grupos (`_grupos_scope.py`).
 
 ## Lo usan (backlinks) ←
-- [[api.routers.manager.operaciones]]  ·  _module_
 - [[api.routers.manager.status]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.services._idempotencia]]  ·  _module_
@@ -29,10 +28,5 @@ Conecta con: la escriben `jobs/operaciones_informes.py` y `api/services/operacio
 - [[api.services.risk]]  ·  _module_
 - [[core.brackets]]  ·  _module_
 - [[engines.motor_ordenes]]  ·  _module_
-- [[jobs.comercial_rollup]]  ·  _module_
 - [[jobs.descubrir_cuentas]]  ·  _module_
-- [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.informe_salud]]  ·  _module_
-- [[jobs.operaciones_informes]]  ·  _module_
-- [[jobs.ops_rollup]]  ·  _module_
-- [[jobs.sync_postgres]]  ·  _module_

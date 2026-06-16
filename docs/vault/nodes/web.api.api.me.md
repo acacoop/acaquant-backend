@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/me/route.ts
+path: src\app\api\me\route.ts
 ---
 
 # web /api/me  (proxy)
 
-**Archivo:** `src/app/api/me/route.ts`
+**Archivo:** `src\app\api\me\route.ts`
 
 ## Qué hace
 Proxy a /api/me del backend: devuelve la identidad del caller (email, rol, módulos habilitados, is_admin). Deriva el email de confianza del sello firmado de Cloudflare Access (no spoofeable) y lo reenvía en los headers que el backend prioriza. Es la base del RBAC en el frontend.

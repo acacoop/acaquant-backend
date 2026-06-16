@@ -4,7 +4,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/__init__.py",
+"path": "api\\__init__.py",
 "summary": "",
 "links": []
 },
@@ -13,7 +13,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/auth.py",
+"path": "api\\auth.py",
 "summary": "Autenticación de identidad — validación JWT de Cloudflare Access.",
 "links": [
 "config",
@@ -25,7 +25,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/cache.py",
+"path": "api\\cache.py",
 "summary": "Cache in-process para endpoints FastAPI.",
 "links": []
 },
@@ -34,7 +34,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/db.py",
+"path": "api\\db.py",
 "summary": "Helpers de acceso a las bases Mongo (sin dependencia de FastAPI).",
 "links": [
 "core.mongo"
@@ -45,7 +45,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/deps.py",
+"path": "api\\deps.py",
 "summary": "Dependencias de FastAPI (auth) + re-export de helpers de DB.",
 "links": [
 "api.db",
@@ -57,7 +57,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/main.py",
+"path": "api\\main.py",
 "summary": "TradingAV API — FastAPI entrypoint.",
 "links": [
 "api.auth",
@@ -100,7 +100,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/mcp/__init__.py",
+"path": "api\\mcp\\__init__.py",
 "summary": "MCP server — expone data 100% de mercado al Claude Desktop / Claude Code.",
 "links": []
 },
@@ -109,7 +109,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/mcp/auth.py",
+"path": "api\\mcp\\auth.py",
 "summary": "Middleware de auth para el sub-app MCP.",
 "links": [
 "api.mcp.oauth",
@@ -121,7 +121,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/mcp/discovery.py",
+"path": "api\\mcp\\discovery.py",
 "summary": "Discovery endpoints OAuth: lo que Claude Desktop busca primero.",
 "links": [
 "config"
@@ -132,7 +132,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/mcp/oauth.py",
+"path": "api\\mcp\\oauth.py",
 "summary": "OAuth 2.1 provider para el MCP server — login delegado a Cloudflare Access.",
 "links": [
 "api.auth",
@@ -147,7 +147,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/mcp/server.py",
+"path": "api\\mcp\\server.py",
 "summary": "FastMCP server para TradingAV.",
 "links": [
 "api.services",
@@ -173,7 +173,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/profiling.py",
+"path": "api\\profiling.py",
 "summary": "api/profiling.py — Middleware opt-in de profiling de requests (pyinstrument).",
 "links": [
 "config"
@@ -184,7 +184,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/ratelimit.py",
+"path": "api\\ratelimit.py",
 "summary": "Rate limiter compartido — instancia única de slowapi.",
 "links": []
 },
@@ -193,7 +193,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/__init__.py",
+"path": "api\\routers\\__init__.py",
 "summary": "",
 "links": []
 },
@@ -202,7 +202,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/analitica.py",
+"path": "api\\routers\\analitica.py",
 "summary": "Router Analítica — Tier 1 + Tier 2 tools del asistente expuestas como HTTP.",
 "links": [
 "api.services",
@@ -222,13 +222,14 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/back_office.py",
+"path": "api\\routers\\back_office.py",
 "summary": "Router /api/back-office — sección Back Office.",
 "links": [
 "api.auth",
 "api.services",
 "api.services.acreencias",
-"api.services.back_office_titulos"
+"api.services.back_office_titulos",
+"api.services.tenencia_hd"
 ]
 },
 {
@@ -236,7 +237,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/carteras.py",
+"path": "api\\routers\\carteras.py",
 "summary": "Router Portfolio — thin wrappers sobre `api.services.portfolio`.",
 "links": [
 "api.services",
@@ -253,7 +254,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/cotizaciones.py",
+"path": "api\\routers\\cotizaciones.py",
 "summary": "Router Cotizaciones — thin wrappers sobre la capa de servicio.",
 "links": [
 "api.auth",
@@ -273,7 +274,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/cuentas.py",
+"path": "api\\routers\\cuentas.py",
 "summary": "Router Cuentas: accionistas y contrapartes, DIRECTO desde las colecciones",
 "links": [
 "api.cache",
@@ -286,7 +287,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/derivados_agro.py",
+"path": "api\\routers\\derivados_agro.py",
 "summary": "Router /api/derivados/agro — Pase Agro + Estrategias + Cámara + Mejoras Dispo.",
 "links": [
 "api.auth",
@@ -300,7 +301,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/derivados_sinteticos.py",
+"path": "api\\routers\\derivados_sinteticos.py",
 "summary": "Router /api/derivados/sinteticos — sintéticos LECAP / DLK + futuro DLR.",
 "links": [
 "api.auth",
@@ -312,7 +313,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/ingest.py",
+"path": "api\\routers\\ingest.py",
 "summary": "Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet.",
 "links": [
 "config",
@@ -324,7 +325,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/__init__.py",
+"path": "api\\routers\\manager\\__init__.py",
 "summary": "Manager API — paquete con sub-routers por sub-dominio.",
 "links": [
 "api.auth",
@@ -333,12 +334,12 @@
 "api.routers.manager.aunesa",
 "api.routers.manager.checks",
 "api.routers.manager.clientes",
-"api.routers.manager.comercial",
 "api.routers.manager.compliance",
 "api.routers.manager.contrapartes",
 "api.routers.manager.control_automatico",
 "api.routers.manager.diagnostico",
 "api.routers.manager.grupos",
+"api.routers.manager.import_tenencia",
 "api.routers.manager.instrumentos",
 "api.routers.manager.jobs",
 "api.routers.manager.logs",
@@ -356,7 +357,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/_common.py",
+"path": "api\\routers\\manager\\_common.py",
 "summary": "Constantes y helpers compartidos entre los sub-módulos de manager/.",
 "links": []
 },
@@ -365,12 +366,12 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/assets.py",
-"summary": "Manager sub-router — control de Valuaciones.Assets.",
+"path": "api\\routers\\manager\\assets.py",
+"summary": "Manager sub-router — control del catálogo de títulos (segmentación).",
 "links": [
 "api.auth",
-"core.mongo",
-"db.Valuaciones.Assets"
+"api.services.assets_sql",
+"core.postgres"
 ]
 },
 {
@@ -378,7 +379,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/aunesa.py",
+"path": "api\\routers\\manager\\aunesa.py",
 "summary": "Manager · Aunesa — endpoint exploratorio en vivo.",
 "links": [
 "api.auth",
@@ -388,7 +389,7 @@
 "api.services.aunesa_aranceles",
 "api.services.aunesa_negocio",
 "core.mongo",
-"db.CashFlow.NegocioMovimientos",
+"core.postgres",
 "jobs.aum"
 ]
 },
@@ -397,17 +398,17 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/checks.py",
+"path": "api\\routers\\manager\\checks.py",
 "summary": "GET /api/manager/checks/* — validaciones de consistencia sobre Mongo.",
 "links": [
+"api.services.assets_sql",
 "api.services.comercial",
 "api.services.debug_curva",
 "core.mongo",
+"core.postgres",
 "db.Trading.Curvas",
 "db.Trading.FuturosDLRSnapshot",
 "db.Trading.TimeSales",
-"db.Valuaciones.Assets",
-"db.Valuaciones.AuM",
 "engines.breakevens",
 "engines.curvas",
 "quant.pivot_points"
@@ -418,32 +419,14 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/clientes.py",
-"summary": "Manager sub-router — edición de Clientes.Comitentes (segmentación comercial).",
+"path": "api\\routers\\manager\\clientes.py",
+"summary": "Manager sub-router — edición de `clientes.comitentes` (segmentación comercial, SQL).",
 "links": [
 "api.auth",
 "api.services.macro",
 "api.services.segmentacion",
 "api.services.sin_operador",
-"core.mongo",
-"db.CashFlow.Productores",
-"db.Clientes.Comitentes"
-]
-},
-{
-"id": "api.routers.manager.comercial",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/routers/manager/comercial.py",
-"summary": "Sub-router Manager → /api/manager/comercial — Tablero Comercial.",
-"links": [
-"api.db",
-"api.services.comercial",
-"api.services.macro",
-"api.services.segmentacion",
-"db.Clientes.Comitentes",
-"db.Trading.UVA"
+"core.postgres"
 ]
 },
 {
@@ -451,7 +434,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/compliance.py",
+"path": "api\\routers\\manager\\compliance.py",
 "summary": "Manager sub-router — COMPLIANCE: operador nuestro vs Aunesa.",
 "links": [
 "api.services",
@@ -463,13 +446,12 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/contrapartes.py",
+"path": "api\\routers\\manager\\contrapartes.py",
 "summary": "Manager sub-router — vista CONTRAPARTES (módulo `manager_contrapartes`).",
 "links": [
 "api.auth",
 "api.services",
-"api.services.contrapartes_seg",
-"api.services.contrapartes_seg_sql"
+"api.services.contrapartes_seg"
 ]
 },
 {
@@ -477,7 +459,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/control_automatico.py",
+"path": "api\\routers\\manager\\control_automatico.py",
 "summary": "POST /api/manager/control-automatico/* — conciliación Excel↔cuentas + segmentar.",
 "links": [
 "api.auth",
@@ -490,7 +472,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/diagnostico.py",
+"path": "api\\routers\\manager\\diagnostico.py",
 "summary": "GET /api/manager/diagnostico — árbol de salud por vista (motores/jobs/apis).",
 "links": [
 "api.services.diagnostico"
@@ -501,7 +483,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/grupos.py",
+"path": "api\\routers\\manager\\grupos.py",
 "summary": "Manager sub-router — grupos de acceso por cuenta.",
 "links": [
 "api.auth",
@@ -510,11 +492,25 @@
 ]
 },
 {
+"id": "api.routers.manager.import_tenencia",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\routers\\manager\\import_tenencia.py",
+"summary": "Manager sub-router — import masivo de tenencia a Valuaciones.AuM (admin).",
+"links": [
+"api.auth",
+"api.services",
+"api.services.import_tenencia",
+"api.services.import_tenencia_sql"
+]
+},
+{
 "id": "api.routers.manager.instrumentos",
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/instrumentos.py",
+"path": "api\\routers\\manager\\instrumentos.py",
 "summary": "Manager sub-router — Títulos → Instrumentos (solo lectura).",
 "links": [
 "core.mongo",
@@ -527,7 +523,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/jobs.py",
+"path": "api\\routers\\manager\\jobs.py",
 "summary": "POST /jobs/run + GET /jobs/history, /jobs/history/stats, /jobs/{id}.",
 "links": [
 "api.ratelimit",
@@ -541,7 +537,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/logs.py",
+"path": "api\\routers\\manager\\logs.py",
 "summary": "GET /api/manager/logs — últimos N logs de un servicio systemd.",
 "links": [
 "api.cache",
@@ -553,7 +549,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/ons.py",
+"path": "api\\routers\\manager\\ons.py",
 "summary": "Manager sub-router — gestión de ONs (Trading.BondsMaster).",
 "links": [
 "api.auth",
@@ -566,13 +562,13 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/operaciones.py",
-"summary": "Manager · Operaciones — backfill de CashFlow.Operaciones por CSV.",
+"path": "api\\routers\\manager\\operaciones.py",
+"summary": "Manager · Operaciones — backfill de operaciones.operaciones (SQL) por CSV.",
 "links": [
 "api.services",
 "api.services.operaciones_informes",
 "core.mongo",
-"db.CashFlow.Operaciones"
+"core.postgres"
 ]
 },
 {
@@ -580,7 +576,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/options.py",
+"path": "api\\routers\\manager\\options.py",
 "summary": "GET/PUT /api/manager/options/expiries — config del engine de opciones.",
 "links": [
 "api.routers.manager._common",
@@ -592,7 +588,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/roles.py",
+"path": "api\\routers\\manager\\roles.py",
 "summary": "Manager sub-router — matriz de roles + audit log.",
 "links": [
 "api.auth",
@@ -604,7 +600,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/status.py",
+"path": "api\\routers\\manager\\status.py",
 "summary": "GET /api/manager/status — estado unificado de motores y jobs batch.",
 "links": [
 "api.routers.manager._common",
@@ -623,7 +619,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/users.py",
+"path": "api\\routers\\manager\\users.py",
 "summary": "Manager sub-router — CRUD de usuarios.",
 "links": [
 "api.auth",
@@ -635,7 +631,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager/valuaciones.py",
+"path": "api\\routers\\manager\\valuaciones.py",
 "summary": "Manager · Valuaciones — debug XIRR mensual.",
 "links": [
 "api.services",
@@ -647,7 +643,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/manager_resources.py",
+"path": "api\\routers\\manager_resources.py",
 "summary": "Endpoints de recursos del servidor para el Manager.",
 "links": []
 },
@@ -656,9 +652,11 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/market.py",
+"path": "api\\routers\\market.py",
 "summary": "Router Market: watchlist quotes, economic calendar, candles históricos.",
 "links": [
+"api.services",
+"api.services.market_sql",
 "core.finnhub",
 "core.mongo",
 "core.yahoo"
@@ -669,7 +667,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/me.py",
+"path": "api\\routers\\me.py",
 "summary": "Router /api/me — identidad del caller.",
 "links": [
 "api.auth",
@@ -681,7 +679,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/news.py",
+"path": "api\\routers\\news.py",
 "summary": "Router News: headlines agregados de RSS (News.Headlines) + reader mode.",
 "links": [
 "api.ratelimit",
@@ -695,26 +693,19 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/operaciones.py",
+"path": "api\\routers\\operaciones.py",
 "summary": "Router Operaciones: endpoints para MesaAPI (flujo contrapartes), FlujosAPI",
 "links": [
 "api.cache",
 "api.db",
 "api.services",
-"api.services._cuentas_filter",
 "api.services._grupos_scope",
-"api.services._negocio_futuros",
 "api.services.comercial",
 "api.services.comercial_sql",
-"api.services.negocio_sql",
 "api.services.operaciones_sql",
 "api.services.operaciones_view",
-"api.services.titulos_flujos",
-"db.CashFlow.Contrapartes",
-"db.CashFlow.NegocioMovimientos",
-"db.CashFlow.Operaciones",
-"db.Clientes.Comitentes",
-"db.Valuaciones.AuM"
+"core.postgres",
+"db.CashFlow.Operaciones"
 ]
 },
 {
@@ -722,7 +713,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/operar.py",
+"path": "api\\routers\\operar.py",
 "summary": "Router /api/operar — soporte para la vista \"Operar Dashboard\".",
 "links": [
 "api.auth",
@@ -740,7 +731,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/operativa.py",
+"path": "api\\routers\\operativa.py",
 "summary": "Router /api/operativa — wrappers operativos sobre /api/ordenes.",
 "links": [
 "api.auth",
@@ -754,7 +745,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/ordenes.py",
+"path": "api\\routers\\ordenes.py",
 "summary": "Router /api/ordenes — envío/cancel/listado de órdenes contra ROFEX (LIVE).",
 "links": [
 "api.auth",
@@ -768,7 +759,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/risk.py",
+"path": "api\\routers\\risk.py",
 "summary": "Router /api/risk — datos de cuenta del broker (saldos, posiciones, márgenes).",
 "links": [
 "api.auth",
@@ -781,7 +772,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/scanner.py",
+"path": "api\\routers\\scanner.py",
 "summary": "Router /api/scanner — vista Scanner del módulo Renta Variable.",
 "links": [
 "api.auth",
@@ -796,7 +787,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/titulos.py",
+"path": "api\\routers\\titulos.py",
 "summary": "Router Titulos: assets + flujos, DIRECTO desde las fuentes (Valuaciones.Assets",
 "links": [
 "api.cache",
@@ -811,12 +802,13 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/routers/valuaciones.py",
+"path": "api\\routers\\valuaciones.py",
 "summary": "Router /api/valuaciones — performance e historia por cuenta.",
 "links": [
 "api.services",
 "api.services._grupos_scope",
-"api.services.valuaciones"
+"api.services.valuaciones",
+"api.services.valuaciones_sql"
 ]
 },
 {
@@ -824,7 +816,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/__init__.py",
+"path": "api\\services\\__init__.py",
 "summary": "",
 "links": []
 },
@@ -833,12 +825,12 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/_cuentas_filter.py",
+"path": "api\\services\\_cuentas_filter.py",
 "summary": "Helpers compartidos para filtrar pipelines Mongo por tipo de cuenta.",
 "links": [
 "api.cache",
 "api.db",
-"db.Clientes.Comitentes"
+"core.postgres"
 ]
 },
 {
@@ -846,7 +838,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/_grupos_scope.py",
+"path": "api\\services\\_grupos_scope.py",
 "summary": "Enforcement de grupos — scoping de cuentas por usuario (Fase 2).",
 "links": [
 "api.auth",
@@ -858,7 +850,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/_idempotencia.py",
+"path": "api\\services\\_idempotencia.py",
 "summary": "Idempotencia de envío de órdenes — anti doble-orden (reintento / doble-click).",
 "links": [
 "core.mongo",
@@ -870,7 +862,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/_mep.py",
+"path": "api\\services\\_mep.py",
 "summary": "Helper compartido — devuelve el MEP histórico para una fecha dada.",
 "links": [
 "api.db",
@@ -882,7 +874,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/_negocio_arancelables.py",
+"path": "api\\services\\_negocio_arancelables.py",
 "summary": "Filtro de `op` no arancelables para CashFlow.NegocioMovimientos.",
 "links": []
 },
@@ -891,7 +883,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/_negocio_futuros.py",
+"path": "api\\services\\_negocio_futuros.py",
 "summary": "Filtro de exclusión de futuros para queries sobre CashFlow.NegocioMovimientos.",
 "links": []
 },
@@ -900,23 +892,33 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/_negocio_informacion_filter.py",
+"path": "api\\services\\_negocio_informacion_filter.py",
 "summary": "Filtro de exclusión por `informacion` para CashFlow.NegocioMovimientos.",
 "links": []
+},
+{
+"id": "api.services._negocio_sql_read",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\_negocio_sql_read.py",
+"summary": "Lectura de boletos desde SQL `operaciones.negocio_movimientos` devolviendo dicts",
+"links": [
+"core.postgres"
+]
 },
 {
 "id": "api.services.acreencias",
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/acreencias.py",
+"path": "api\\services\\acreencias.py",
 "summary": "api/services/acreencias.py — motor de acreencias (cobros futuros por cliente).",
 "links": [
 "api.db",
-"db.Clientes.Comitentes",
+"api.services.assets_sql",
+"core.postgres",
 "db.Trading.Curvas",
-"db.Valuaciones.Assets",
-"db.Valuaciones.AuM",
 "engines.curvas"
 ]
 },
@@ -925,7 +927,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/analitica.py",
+"path": "api\\services\\analitica.py",
 "summary": "Capa de servicio — analítica Tier 2 sobre data existente.",
 "links": [
 "api.cache",
@@ -942,7 +944,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/argy.py",
+"path": "api\\services\\argy.py",
 "summary": "Capa de servicio — métricas argentinas con returns calculados.",
 "links": [
 "api.cache",
@@ -952,18 +954,28 @@
 ]
 },
 {
+"id": "api.services.assets_sql",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\assets_sql.py",
+"summary": "api/services/assets_sql.py — lectura del catálogo de títulos desde SQL",
+"links": [
+"core.postgres"
+]
+},
+{
 "id": "api.services.aunesa_aranceles",
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/aunesa_aranceles.py",
-"summary": "Backfill de aranceles desde Aunesa /operaciones/informes a CashFlow.NegocioMovimientos.",
+"path": "api\\services\\aunesa_aranceles.py",
+"summary": "Backfill de aranceles desde Aunesa /operaciones/informes a SQL",
 "links": [
 "api.services._negocio_arancelables",
 "api.services._negocio_futuros",
 "api.services.aunesa_informes",
-"core.mongo",
-"db.CashFlow.NegocioMovimientos"
+"core.postgres"
 ]
 },
 {
@@ -971,7 +983,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/aunesa_informes.py",
+"path": "api\\services\\aunesa_informes.py",
 "summary": "api/services/aunesa_informes.py — aranceles por boleto desde Aunesa /operaciones/informes.",
 "links": [
 "core",
@@ -983,7 +995,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/aunesa_negocio.py",
+"path": "api\\services\\aunesa_negocio.py",
 "summary": "aunesa_negocio.py — service compartido para análisis del endpoint",
 "links": [
 "api.services._negocio_informacion_filter",
@@ -995,12 +1007,11 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/back_office_titulos.py",
+"path": "api\\services\\back_office_titulos.py",
 "summary": "Service — Títulos / Mercado (Back Office).",
 "links": [
 "api.cache",
-"core.mongo",
-"db.CashFlow.NegocioMovimientos"
+"core.postgres"
 ]
 },
 {
@@ -1008,7 +1019,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/camara_cereales.py",
+"path": "api\\services\\camara_cereales.py",
 "summary": "Service — Cámara Arbitral de Cereales de Rosario.",
 "links": [
 "core.mongo"
@@ -1019,7 +1030,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/canje.py",
+"path": "api\\services\\canje.py",
 "summary": "Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).",
 "links": [
 "api.cache",
@@ -1034,7 +1045,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/carry_trade.py",
+"path": "api\\services\\carry_trade.py",
 "summary": "Serie de carry trade en USD para una curva (tasa_fija / cer).",
 "links": [
 "api.cache",
@@ -1051,19 +1062,19 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/comercial.py",
+"path": "api\\services\\comercial.py",
 "summary": "api/services/comercial.py — Tablero Comercial (lente por operador).",
 "links": [
 "api.cache",
 "api.db",
 "api.services._negocio_futuros",
 "api.services.macro",
+"api.services.portfolio",
+"core.postgres",
 "db.CashFlow.NegocioMovimientos",
 "db.CashFlow.Operaciones",
 "db.Clientes.ComercialCache",
-"db.Clientes.Comitentes",
-"db.Manager.Users",
-"db.Valuaciones.AuM"
+"db.Clientes.Comitentes"
 ]
 },
 {
@@ -1071,7 +1082,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/comercial_sql.py",
+"path": "api\\services\\comercial_sql.py",
 "summary": "api/services/comercial_sql.py — vista COMERCIAL leyendo de Postgres (Supabase).",
 "links": [
 "api.services.comercial",
@@ -1083,7 +1094,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/comparar_inversion.py",
+"path": "api\\services\\comparar_inversion.py",
 "summary": "Comparar Inversión — service que compara 2 bonos de Trading.Curvas lado a lado.",
 "links": [
 "api.cache",
@@ -1099,14 +1110,13 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/compliance.py",
+"path": "api\\services\\compliance.py",
 "summary": "Compliance — compara el operador asignado por la mesa vs el que reporta Aunesa.",
 "links": [
 "api.cache",
-"api.db",
 "core",
 "core.aunesa",
-"db.Clientes.Comitentes"
+"core.postgres"
 ]
 },
 {
@@ -1114,24 +1124,12 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/contrapartes_seg.py",
-"summary": "api/services/contrapartes_seg.py — segmentación + conciliador de CashFlow.Contrapartes.",
+"path": "api\\services\\contrapartes_seg.py",
+"summary": "api/services/contrapartes_seg.py — segmentación + conciliador de `clientes.contrapartes` (SQL).",
 "links": [
 "api.services.segmentacion",
 "core",
 "core.aunesa",
-"core.mongo",
-"db.CashFlow.Contrapartes"
-]
-},
-{
-"id": "api.services.contrapartes_seg_sql",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/contrapartes_seg_sql.py",
-"summary": "api/services/contrapartes_seg_sql.py — espejo SQL (solo LECTURAS) de",
-"links": [
 "core.postgres"
 ]
 },
@@ -1140,12 +1138,11 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/control_automatico.py",
+"path": "api\\services\\control_automatico.py",
 "summary": "Control Automático (Clientes): concilia un Excel de CUITs contra nuestras cuentas.",
 "links": [
 "core.doc_fiscal",
-"core.mongo",
-"db.Clientes.Comitentes"
+"core.postgres"
 ]
 },
 {
@@ -1153,7 +1150,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/day_trading.py",
+"path": "api\\services\\day_trading.py",
 "summary": "day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).",
 "links": [
 "api.cache",
@@ -1167,7 +1164,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/debug_curva.py",
+"path": "api\\services\\debug_curva.py",
 "summary": "Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.",
 "links": [
 "core.mongo",
@@ -1181,7 +1178,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/derivados.py",
+"path": "api\\services\\derivados.py",
 "summary": "Capa de servicio — derivados (futuros DLR, forwards, breakevens).",
 "links": [
 "api.cache",
@@ -1193,7 +1190,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/derivados_agro.py",
+"path": "api\\services\\derivados_agro.py",
 "summary": "Service puro — Pase Agro (Trigo / Maíz / Soja Rosario).",
 "links": [
 "core.dolar_oficial",
@@ -1207,7 +1204,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/descomposicion_retorno.py",
+"path": "api\\services\\descomposicion_retorno.py",
 "summary": "descomposicion_retorno.py — Atribución carry / rolldown / cambio_tasa.",
 "links": [
 "api.cache",
@@ -1222,9 +1219,10 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/diagnostico.py",
+"path": "api\\services\\diagnostico.py",
 "summary": "Motor del Diagnóstico — arma el árbol vista→piezas con status, desde el registro.",
 "links": [
+"api.cache",
 "api.services.diagnostico_registry",
 "core.mongo",
 "core.tz",
@@ -1236,16 +1234,14 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/diagnostico_registry.py",
+"path": "api\\services\\diagnostico_registry.py",
 "summary": "Registro ÚNICO del Diagnóstico: vista → motores / jobs / APIs que la alimentan.",
 "links": [
-"db.CashFlow.NegocioMovimientos",
 "db.CashFlow.Operaciones",
 "db.Trading.CanjeCierre",
 "db.Trading.MarketSnapshot",
 "db.Trading.SnapshotsCierre",
 "db.Trading.TimeSales",
-"db.Valuaciones.AuM",
 "db.Valuaciones.ConsolidadoCuentas",
 "db.Valuaciones.Dolar",
 "db.Valuaciones.DolarOficialLive",
@@ -1257,7 +1253,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/fair_value.py",
+"path": "api\\services\\fair_value.py",
 "summary": "fair_value.py — service del módulo Fair Value relativo intra-curva.",
 "links": [
 "api.cache",
@@ -1267,11 +1263,37 @@
 ]
 },
 {
+"id": "api.services.import_tenencia",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\import_tenencia.py",
+"summary": "api/services/import_tenencia.py — import masivo de tenencia a Valuaciones.AuM.",
+"links": [
+"core.mongo",
+"core.postgres",
+"db.Valuaciones.AuM"
+]
+},
+{
+"id": "api.services.import_tenencia_sql",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\import_tenencia_sql.py",
+"summary": "api/services/import_tenencia_sql.py — import manual a SQL `portafolio.tenencia`.",
+"links": [
+"api.services.import_tenencia",
+"core.postgres",
+"jobs._aum_filters"
+]
+},
+{
 "id": "api.services.macro",
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/macro.py",
+"path": "api\\services\\macro.py",
 "summary": "Capa de servicio — series macro y clasificación.",
 "links": [
 "api.cache",
@@ -1286,11 +1308,22 @@
 ]
 },
 {
+"id": "api.services.market_sql",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\market_sql.py",
+"summary": "api/services/market_sql.py — Market (watchlist + calendario económico) leyendo Postgres.",
+"links": [
+"core.postgres"
+]
+},
+{
 "id": "api.services.mejoras_dispo",
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/mejoras_dispo.py",
+"path": "api\\services\\mejoras_dispo.py",
 "summary": "Service — Mejoras Precio Disponible (Agro).",
 "links": [
 "api.cache",
@@ -1301,22 +1334,11 @@
 ]
 },
 {
-"id": "api.services.negocio_sql",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/negocio_sql.py",
-"summary": "api/services/negocio_sql.py — vista NEGOCIO leyendo de Postgres (Supabase).",
-"links": [
-"core.postgres"
-]
-},
-{
 "id": "api.services.news_sql",
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/news_sql.py",
+"path": "api\\services\\news_sql.py",
 "summary": "api/services/news_sql.py — News (home) leyendo de Postgres. Espejo de los endpoints",
 "links": [
 "core.postgres"
@@ -1327,15 +1349,15 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/ons.py",
+"path": "api\\services\\ons.py",
 "summary": "api/services/ons.py — maestro de ONs (Trading.BondsMaster) + sync a Curvas.",
 "links": [
+"api.services.assets_sql",
 "core.mongo",
+"core.postgres",
 "db.Trading.BondsMaster",
 "db.Trading.Curvas",
-"db.Trading.OnsIgnoradas",
-"db.Valuaciones.Assets",
-"db.Valuaciones.AuM"
+"db.Trading.OnsIgnoradas"
 ]
 },
 {
@@ -1343,7 +1365,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/opciones.py",
+"path": "api\\services\\opciones.py",
 "summary": "Capa de servicio — opciones (chain + meta + trades históricos + update tasa).",
 "links": [
 "api.cache",
@@ -1357,12 +1379,12 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/operaciones_informes.py",
+"path": "api\\services\\operaciones_informes.py",
 "summary": "operaciones_informes.py — normalización + ingesta a CashFlow.Operaciones.",
 "links": [
 "api.services._mep",
-"db.CashFlow.Operaciones",
-"db.Clientes.Comitentes"
+"core.postgres",
+"db.CashFlow.Operaciones"
 ]
 },
 {
@@ -1370,7 +1392,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/operaciones_sql.py",
+"path": "api\\services\\operaciones_sql.py",
 "summary": "api/services/operaciones_sql.py — vista OPERACIONES leyendo de Postgres (Supabase).",
 "links": [
 "core.mongo",
@@ -1383,10 +1405,11 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/operaciones_view.py",
+"path": "api\\services\\operaciones_view.py",
 "summary": "operaciones_view.py — lógica PURA de la vista Operaciones (negocio + ops).",
 "links": [
 "api.db",
+"api.services._grupos_scope",
 "db.CashFlow.Operaciones",
 "db.Clientes.Comitentes"
 ]
@@ -1396,7 +1419,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/operativa_mep.py",
+"path": "api\\services\\operativa_mep.py",
 "summary": "Operativa Dólar MEP — wrapper de 2 órdenes MARKET (BUY AL30 + SELL AL30D).",
 "links": [
 "api.services.ordenes",
@@ -1410,7 +1433,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/ordenes.py",
+"path": "api\\services\\ordenes.py",
 "summary": "Servicio de órdenes — funciones puras invocables desde routers o scripts.",
 "links": [
 "api.services._idempotencia",
@@ -1424,7 +1447,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/order_book.py",
+"path": "api\\services\\order_book.py",
 "summary": "Capa de servicio — Order Book (LOB) live.",
 "links": [
 "api.cache",
@@ -1438,17 +1461,18 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/pnl.py",
+"path": "api\\services\\pnl.py",
 "summary": "Motor de PnL por (cuenta, ticker) con cost-basis weighted-average.",
 "links": [
 "api.cache",
 "api.db",
 "api.services._cuentas_filter",
 "api.services._mep",
+"api.services.assets_sql",
 "api.services.portfolio",
+"core.postgres",
 "db.CashFlow.NegocioMovimientos",
 "db.Trading.SnapshotsCierre",
-"db.Valuaciones.Assets",
 "db.Valuaciones.AuM",
 "db.Valuaciones.PnLTotalesCache"
 ]
@@ -1458,12 +1482,14 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/pnl_sql.py",
+"path": "api\\services\\pnl_sql.py",
 "summary": "api/services/pnl_sql.py — PnL Títulos leyendo de Postgres, REUSANDO el motor de pnl.py.",
 "links": [
 "api.db",
+"api.services",
 "api.services._mep",
 "api.services.pnl",
+"api.services.portfolio_sql",
 "core.postgres"
 ]
 },
@@ -1472,14 +1498,14 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/portfolio.py",
+"path": "api\\services\\portfolio.py",
 "summary": "Capa de servicio — portfolio / AuM / FCI.",
 "links": [
 "api.cache",
 "api.db",
 "api.services._cuentas_filter",
 "api.services._mep",
-"db.Valuaciones.Assets",
+"api.services.assets_sql",
 "db.Valuaciones.AuM"
 ]
 },
@@ -1488,7 +1514,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/portfolio_sql.py",
+"path": "api\\services\\portfolio_sql.py",
 "summary": "api/services/portfolio_sql.py — vista PORTFOLIO / AuM leyendo de Postgres (Supabase).",
 "links": [
 "core.postgres"
@@ -1499,7 +1525,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/rem.py",
+"path": "api\\services\\rem.py",
 "summary": "Expectativas REM (Relevamiento de Expectativas de Mercado, BCRA).",
 "links": [
 "api.cache",
@@ -1511,7 +1537,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/renta_fija.py",
+"path": "api\\services\\renta_fija.py",
 "summary": "Capa de servicio — renta fija (MarketSnapshot + TimeSales + Curvas).",
 "links": [
 "api.cache",
@@ -1530,7 +1556,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/repo.py",
+"path": "api\\services\\repo.py",
 "summary": "Capa de servicio — mercado repo (caución).",
 "links": [
 "api.cache",
@@ -1538,22 +1564,11 @@
 ]
 },
 {
-"id": "api.services.reporting",
-"type": "module",
-"layer": "api",
-"repo": "backend",
-"path": "api/services/reporting.py",
-"summary": "api/services/reporting.py — reportería que lee de la capa SQL (Postgres/Supabase).",
-"links": [
-"core.postgres"
-]
-},
-{
 "id": "api.services.risk",
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/risk.py",
+"path": "api\\services\\risk.py",
 "summary": "Servicio RISK — datos de cuenta del broker (saldos, posiciones, márgenes).",
 "links": [
 "api.cache",
@@ -1568,7 +1583,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/rv_motor.py",
+"path": "api\\services\\rv_motor.py",
 "summary": "api/services/rv_motor.py — motor de la Mesa de Estrategia (Renta Variable).",
 "links": [
 "api.cache",
@@ -1583,7 +1598,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/scanner.py",
+"path": "api\\services\\scanner.py",
 "summary": "api/services/scanner.py — vista Scanner del módulo Renta Variable.",
 "links": [
 "api.cache",
@@ -1599,10 +1614,10 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/segmentacion.py",
+"path": "api\\services\\segmentacion.py",
 "summary": "Clasificación patrimonial de clientes (escribe a `Clientes.Comitentes.nivel_3`).",
 "links": [
-"db.CashFlow.Contrapartes",
+"core.postgres",
 "db.CashFlow.Productores"
 ]
 },
@@ -1611,7 +1626,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/sensibilidad.py",
+"path": "api\\services\\sensibilidad.py",
 "summary": "Análisis de sensibilidad de retorno total a escenarios de TIR.",
 "links": [
 "api.cache",
@@ -1626,15 +1641,12 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/sin_operador.py",
+"path": "api\\services\\sin_operador.py",
 "summary": "Cuentas sin operador asignado — el bucket \"(sin operador)\" del ranking comercial.",
 "links": [
 "api.cache",
-"api.services._negocio_futuros",
 "api.services.comercial",
-"core.mongo",
-"db.CashFlow.NegocioMovimientos",
-"db.Clientes.Comitentes",
+"core.postgres",
 "jobs._aum_filters"
 ]
 },
@@ -1643,7 +1655,7 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/sinteticos.py",
+"path": "api\\services\\sinteticos.py",
 "summary": "Sintéticos — combinaciones LECAP/DLK + futuro DLR.",
 "links": [
 "api.cache",
@@ -1654,16 +1666,28 @@
 ]
 },
 {
+"id": "api.services.tenencia_hd",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\tenencia_hd.py",
+"summary": "Service Tenencia Valorizada (cartera HD, cuentas propias 100/255/256).",
+"links": [
+"api.cache",
+"api.db"
+]
+},
+{
 "id": "api.services.titulos_flujos",
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/titulos_flujos.py",
+"path": "api\\services\\titulos_flujos.py",
 "summary": "api/services/titulos_flujos.py — flujos normalizados por instrumento.",
 "links": [
 "api.db",
-"db.Trading.Curvas",
-"db.Valuaciones.Assets"
+"core.postgres",
+"db.Trading.Curvas"
 ]
 },
 {
@@ -1671,21 +1695,34 @@
 "type": "module",
 "layer": "api",
 "repo": "backend",
-"path": "api/services/valuaciones.py",
+"path": "api\\services\\valuaciones.py",
 "summary": "Valuaciones — performance e historia por cuenta.",
 "links": [
 "api.cache",
 "api.db",
+"api.services",
 "api.services._cuentas_filter",
 "api.services._mep",
+"api.services._negocio_sql_read",
+"api.services.assets_sql",
 "api.services.portfolio",
-"db.CashFlow.NegocioMovimientos",
+"api.services.valuaciones_sql",
 "db.Trading.Curvas",
 "db.Trading.MarketSnapshot",
-"db.Valuaciones.Assets",
 "db.Valuaciones.AuM",
 "db.Valuaciones.ConsolidadoCuentas",
 "quant.xirr"
+]
+},
+{
+"id": "api.services.valuaciones_sql",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api\\services\\valuaciones_sql.py",
+"summary": "api/services/valuaciones_sql.py — espejo SQL de api/services/valuaciones.py.",
+"links": [
+"core.postgres"
 ]
 },
 {
@@ -1702,7 +1739,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/__init__.py",
+"path": "core\\__init__.py",
 "summary": "",
 "links": []
 },
@@ -1711,7 +1748,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/adhoc_subscriptions.py",
+"path": "core\\adhoc_subscriptions.py",
 "summary": "Helpers para Trading.AdhocSubscriptions — suscripciones live efímeras.",
 "links": [
 "core.mongo"
@@ -1722,7 +1759,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/argentina_datos.py",
+"path": "core\\argentina_datos.py",
 "summary": "Cliente de argentinadatos.com — indicadores macro AR públicos.",
 "links": []
 },
@@ -1731,7 +1768,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/atlas_api.py",
+"path": "core\\atlas_api.py",
 "summary": "core/atlas_api.py — lector de la Atlas Admin API (REST de gestión).",
 "links": []
 },
@@ -1740,7 +1777,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/aunesa.py",
+"path": "core\\aunesa.py",
 "summary": "core/aunesa.py — cliente único de la API del custodio Aunesa.",
 "links": [
 "config"
@@ -1751,7 +1788,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/brackets.py",
+"path": "core\\brackets.py",
 "summary": "Brackets — entrada LIMIT + salida automática cuando la entrada se llena.",
 "links": [
 "core.mongo",
@@ -1763,7 +1800,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/byma.py",
+"path": "core\\byma.py",
 "summary": "Cliente BYMA Primarias Placements.",
 "links": [
 "config"
@@ -1774,7 +1811,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/cafci.py",
+"path": "core\\cafci.py",
 "summary": "Extracción del código CAFCI desde un string `unidad`.",
 "links": []
 },
@@ -1783,7 +1820,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/doc_fiscal.py",
+"path": "core\\doc_fiscal.py",
 "summary": "Documento fiscal (DNI/CUIT/CUIL) — parseo y claves de cruce. Lógica PURA.",
 "links": []
 },
@@ -1792,7 +1829,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/dolar_oficial.py",
+"path": "core\\dolar_oficial.py",
 "summary": "Fuente única para el \"dólar oficial\" mayorista.",
 "links": [
 "core.mongo",
@@ -1804,7 +1841,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/finnhub.py",
+"path": "core\\finnhub.py",
 "summary": "Cliente Finnhub con rate limiting interno.",
 "links": [
 "config"
@@ -1815,7 +1852,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/grupos.py",
+"path": "core\\grupos.py",
 "summary": "core/grupos.py — grupos de acceso por cuenta (scoping multi-tenant).",
 "links": [
 "core",
@@ -1829,7 +1866,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/grupos_sql.py",
+"path": "core\\grupos_sql.py",
 "summary": "core/grupos_sql.py — lectura del scope de cuentas (grupos) desde Postgres.",
 "links": [
 "core.postgres"
@@ -1840,7 +1877,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/job_runs.py",
+"path": "core\\job_runs.py",
 "summary": "Context manager para registrar runs de jobs automáticos en Manager.JobRuns.",
 "links": [
 "core.mongo",
@@ -1853,7 +1890,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/mae.py",
+"path": "core\\mae.py",
 "summary": "Cliente MAE MarketData.",
 "links": [
 "config"
@@ -1864,7 +1901,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/mongo.py",
+"path": "core\\mongo.py",
 "summary": "",
 "links": [
 "core",
@@ -1876,7 +1913,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/mongo_monitor.py",
+"path": "core\\mongo_monitor.py",
 "summary": "mongo_monitor.py — listener de pymongo para grabar queries de la API.",
 "links": []
 },
@@ -1885,7 +1922,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/notify.py",
+"path": "core\\notify.py",
 "summary": "Notificaciones operativas (Telegram).",
 "links": [
 "config"
@@ -1896,10 +1933,21 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/openfigi.py",
+"path": "core\\openfigi.py",
 "summary": "Cliente OpenFIGI con caching en Mongo (Smart.CusipCatalog).",
 "links": [
 "core.mongo"
+]
+},
+{
+"id": "core.pg_mirror",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core\\pg_mirror.py",
+"summary": "core/pg_mirror.py — dual-write best-effort Mongo→Postgres (Fase 2, capa MERCADO).",
+"links": [
+"core.postgres"
 ]
 },
 {
@@ -1907,7 +1955,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/postgres.py",
+"path": "core\\postgres.py",
 "summary": "core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.",
 "links": []
 },
@@ -1916,7 +1964,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/profiler.py",
+"path": "core\\profiler.py",
 "summary": "Stopwatch mínimo para instrumentar pasos dentro de una función.",
 "links": []
 },
@@ -1925,7 +1973,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/rofex_orders_session.py",
+"path": "core\\rofex_orders_session.py",
 "summary": "Sesión pyRofex dedicada a envío/seguimiento de órdenes.",
 "links": []
 },
@@ -1934,7 +1982,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/rofex_session.py",
+"path": "core\\rofex_session.py",
 "summary": "",
 "links": [
 "config"
@@ -1945,7 +1993,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/roles.py",
+"path": "core\\roles.py",
 "summary": "Roles y matriz de permisos por módulo.",
 "links": [
 "config",
@@ -1962,7 +2010,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/roles_sql.py",
+"path": "core\\roles_sql.py",
 "summary": "core/roles_sql.py — lecturas de AUTH (roles/matriz) desde Postgres.",
 "links": [
 "core.postgres",
@@ -1974,7 +2022,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/snapshot_writer.py",
+"path": "core\\snapshot_writer.py",
 "summary": "",
 "links": [
 "core.mongo",
@@ -1987,7 +2035,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/threads.py",
+"path": "core\\threads.py",
 "summary": "threads.py — lanzamiento de hilos VITALES en motores.",
 "links": []
 },
@@ -1996,7 +2044,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/tz.py",
+"path": "core\\tz.py",
 "summary": "Zona horaria Argentina — ÚNICO lugar para now / tz / cálculo de frescura.",
 "links": []
 },
@@ -2005,7 +2053,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/websocket.py",
+"path": "core\\websocket.py",
 "summary": "WebSocketManager — conexión WS a pyRofex para los motores de mercado.",
 "links": [
 "core.notify",
@@ -2017,7 +2065,7 @@
 "type": "module",
 "layer": "core",
 "repo": "backend",
-"path": "core/yahoo.py",
+"path": "core\\yahoo.py",
 "summary": "Cliente Yahoo Finance vía yfinance (gratis, sin API key).",
 "links": []
 },
@@ -2074,17 +2122,6 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.argentina_datos"
-]
-},
-{
-"id": "cron.jobs.aum",
-"type": "cron",
-"layer": "deploy",
-"repo": "infra",
-"path": "deploy/crontab.txt",
-"summary": "Tarea programada (cron).",
-"links": [
-"jobs.aum"
 ]
 },
 {
@@ -2151,17 +2188,6 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.cleanup_futuros_dlr"
-]
-},
-{
-"id": "cron.jobs.comercial_rollup",
-"type": "cron",
-"layer": "deploy",
-"repo": "infra",
-"path": "deploy/crontab.txt",
-"summary": "Tarea programada (cron).",
-"links": [
-"jobs.comercial_rollup"
 ]
 },
 {
@@ -2319,17 +2345,6 @@
 ]
 },
 {
-"id": "cron.jobs.ops_rollup",
-"type": "cron",
-"layer": "deploy",
-"repo": "infra",
-"path": "deploy/crontab.txt",
-"summary": "Tarea programada (cron).",
-"links": [
-"jobs.ops_rollup"
-]
-},
-{
 "id": "cron.jobs.options_rollup",
 "type": "cron",
 "layer": "deploy",
@@ -2360,6 +2375,17 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.pnl_totales_precompute"
+]
+},
+{
+"id": "cron.jobs.portafolio_backfill",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.portafolio_backfill"
 ]
 },
 {
@@ -2415,6 +2441,17 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.sync_postgres"
+]
+},
+{
+"id": "cron.jobs.tenencia_hd",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.tenencia_hd"
 ]
 },
 {
@@ -2705,7 +2742,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/__init__.py",
+"path": "engines\\__init__.py",
 "summary": "",
 "links": []
 },
@@ -2714,7 +2751,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/_curvas_loader.py",
+"path": "engines\\_curvas_loader.py",
 "summary": "Carga común de Trading.Curvas para todos los motores.",
 "links": [
 "config",
@@ -2728,14 +2765,13 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/_universo_portfolio.py",
+"path": "engines\\_universo_portfolio.py",
 "summary": "Universo dinámico para motor_portfolio_snapshot.",
 "links": [
 "core.mongo",
+"core.postgres",
 "db.CashFlow.NegocioMovimientos",
-"db.Manager.PyRofexInstruments",
-"db.Valuaciones.Assets",
-"db.Valuaciones.AuM"
+"db.Manager.PyRofexInstruments"
 ]
 },
 {
@@ -2743,7 +2779,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/breakevens.py",
+"path": "engines\\breakevens.py",
 "summary": "main_breakevens.py — Motor de breakevens CER/Lecap en tiempo real.",
 "links": [
 "core.mongo",
@@ -2763,7 +2799,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/caucion.py",
+"path": "engines\\caucion.py",
 "summary": "Motor de caución ARS y USD a corto plazo.",
 "links": [
 "core.mongo",
@@ -2780,11 +2816,13 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/curvas.py",
+"path": "engines\\curvas.py",
 "summary": "main_curvas.py — Motor de enriquecimiento en tiempo real para Trading.TimeSales.",
 "links": [
+"core",
 "core.dolar_oficial",
 "core.mongo",
+"core.pg_mirror",
 "db.Trading.CER",
 "db.Trading.DiasHabiles",
 "db.Trading.MarketSnapshot",
@@ -2799,7 +2837,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/dolar_mep.py",
+"path": "engines\\dolar_mep.py",
 "summary": "",
 "links": [
 "core.mongo",
@@ -2812,7 +2850,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/dolares.py",
+"path": "engines\\dolares.py",
 "summary": "Motor de dólares MEP/CCL/canje en tiempo real (WebSocket).",
 "links": [
 "core.mongo",
@@ -2827,7 +2865,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/forwards.py",
+"path": "engines\\forwards.py",
 "summary": "main_forwards.py — Motor de tasas forward en tiempo real.",
 "links": [
 "core.mongo",
@@ -2842,7 +2880,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/futuros_dlr.py",
+"path": "engines\\futuros_dlr.py",
 "summary": "Motor de futuros DLR (Dólar A3500) — outrights single-leg.",
 "links": [
 "core.dolar_oficial",
@@ -2861,7 +2899,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/motor_agro.py",
+"path": "engines\\motor_agro.py",
 "summary": "Motor de Futuros Agro Rosario — Trigo / Maíz / Soja.",
 "links": [
 "core.mongo",
@@ -2876,7 +2914,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/motor_agro_opciones.py",
+"path": "engines\\motor_agro_opciones.py",
 "summary": "Motor de Opciones Agro Rosario — Trigo / Maíz / Soja.",
 "links": [
 "core.mongo",
@@ -2891,7 +2929,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/motor_cedears.py",
+"path": "engines\\motor_cedears.py",
 "summary": "motor_cedears.py — feed live de CEDEARs vía pyRofex WS.",
 "links": [
 "core.mongo",
@@ -2908,7 +2946,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/motor_ordenes.py",
+"path": "engines\\motor_ordenes.py",
 "summary": "Motor de órdenes — escucha execution reports y persiste el ciclo de vida.",
 "links": [
 "core",
@@ -2923,7 +2961,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/options.py",
+"path": "engines\\options.py",
 "summary": "Motor de Opciones GGAL - Servicio Headless",
 "links": [
 "core.mongo",
@@ -2938,7 +2976,7 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/portfolio_snapshot.py",
+"path": "engines\\portfolio_snapshot.py",
 "summary": "Motor dedicado a captura del último precio para tickers de tenencia.",
 "links": [
 "core.mongo",
@@ -2953,11 +2991,13 @@
 "type": "module",
 "layer": "engines",
 "repo": "backend",
-"path": "engines/valores.py",
+"path": "engines\\valores.py",
 "summary": "",
 "links": [
+"core",
 "core.adhoc_subscriptions",
 "core.mongo",
+"core.pg_mirror",
 "core.rofex_session",
 "core.threads",
 "core.websocket",
@@ -2971,7 +3011,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/__init__.py",
+"path": "jobs\\__init__.py",
 "summary": "",
 "links": []
 },
@@ -2980,11 +3020,10 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/_aum_filters.py",
+"path": "jobs\\_aum_filters.py",
 "summary": "Reglas de exclusión aplicadas a `Valuaciones.AuM`.",
 "links": [
-"core.mongo",
-"db.CashFlow.Contrapartes"
+"core.postgres"
 ]
 },
 {
@@ -2992,7 +3031,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/acreencias.py",
+"path": "jobs\\acreencias.py",
 "summary": "jobs/acreencias.py — precompute diario del MOTOR DE ACREENCIAS.",
 "links": [
 "api.services.acreencias",
@@ -3005,15 +3044,14 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/actividad_mensual.py",
+"path": "jobs\\actividad_mensual.py",
 "summary": "actividad_mensual.py — snapshot mensual de CUENTAS ACTIVAS.",
 "links": [
 "api.services.comercial",
 "core.job_runs",
 "core.mongo",
-"db.CashFlow.NegocioMovimientos",
-"db.Clientes.ActividadMensual",
-"db.Clientes.Comitentes"
+"core.postgres",
+"db.Clientes.ActividadMensual"
 ]
 },
 {
@@ -3021,7 +3059,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/adr_live.py",
+"path": "jobs\\adr_live.py",
 "summary": "adr_live.py — pull live USD prices del subyacente de cada CEDEAR.",
 "links": [
 "core.finnhub",
@@ -3034,7 +3072,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/aranceles.py",
+"path": "jobs\\aranceles.py",
 "summary": "Job de aranceles — pega a Aunesa /informes y completa los boletos sin arancel.",
 "links": [
 "api.services.aunesa_aranceles",
@@ -3047,7 +3085,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/archive_options_data.py",
+"path": "jobs\\archive_options_data.py",
 "summary": "archive_options_data.py — backup + purga de Opciones.Data.",
 "links": [
 "core.mongo"
@@ -3058,12 +3096,13 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/argentina_datos.py",
+"path": "jobs\\argentina_datos.py",
 "summary": "Cron: pega argentinadatos.com y persiste riesgo país / IPC / REM en Mongo.",
 "links": [
 "core.argentina_datos",
 "core.job_runs",
-"core.mongo"
+"core.mongo",
+"core.pg_mirror"
 ]
 },
 {
@@ -3071,60 +3110,11 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/aum.py",
+"path": "jobs\\aum.py",
 "summary": "",
 "links": [
 "config",
-"core.cafci",
-"core.job_runs",
-"core.mongo",
-"db.Valuaciones.Assets",
-"db.Valuaciones.AuM",
-"jobs._aum_filters",
-"jobs.aum_resumen_fci"
-]
-},
-{
-"id": "jobs.aum_backfill",
-"type": "module",
-"layer": "jobs",
-"repo": "backend",
-"path": "jobs/aum_backfill.py",
-"summary": "aum_backfill.py — Corre el snapshot de AuM para una fecha pasada.",
-"links": [
-"core.mongo",
-"db.Valuaciones.Assets",
-"db.Valuaciones.AuM",
-"jobs.aum",
-"jobs.aum_resumen_fci"
-]
-},
-{
-"id": "jobs.aum_backfill_historico",
-"type": "module",
-"layer": "jobs",
-"repo": "backend",
-"path": "jobs/aum_backfill_historico.py",
-"summary": "aum_backfill_historico.py — backfill de cierres de mes (jul-2025 → feb-2026).",
-"links": [
-"core.mongo",
-"db.Valuaciones.Assets",
-"db.Valuaciones.AuM",
-"jobs.aum"
-]
-},
-{
-"id": "jobs.aum_resumen_fci",
-"type": "module",
-"layer": "jobs",
-"repo": "backend",
-"path": "jobs/aum_resumen_fci.py",
-"summary": "aum_resumen_fci.py — pre-materializa Valuaciones.AuMResumenFCI.",
-"links": [
-"core.mongo",
-"db.Valuaciones.Assets",
-"db.Valuaciones.AuM",
-"db.Valuaciones.AuMResumenFCI"
+"jobs._aum_filters"
 ]
 },
 {
@@ -3132,7 +3122,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/aunesa_client.py",
+"path": "jobs\\aunesa_client.py",
 "summary": "",
 "links": [
 "config"
@@ -3143,7 +3133,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/backfill_breakevens.py",
+"path": "jobs\\backfill_breakevens.py",
 "summary": "Backfill histórico de Trading.BreakevensHistorico.",
 "links": [
 "core.mongo",
@@ -3158,7 +3148,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/backfill_forwards.py",
+"path": "jobs\\backfill_forwards.py",
 "summary": "Backfill histórico de Trading.ForwardsHistorico.",
 "links": [
 "core.mongo",
@@ -3173,11 +3163,12 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/bcra.py",
+"path": "jobs\\bcra.py",
 "summary": "",
 "links": [
 "core.job_runs",
 "core.mongo",
+"core.pg_mirror",
 "db.Trading.DOLAR"
 ]
 },
@@ -3186,7 +3177,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/cashflow.py",
+"path": "jobs\\cashflow.py",
 "summary": "",
 "links": [
 "config",
@@ -3200,11 +3191,12 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/cierre_canje.py",
+"path": "jobs\\cierre_canje.py",
 "summary": "cierre_canje.py — materializa el cierre diario de los tickers de canje.",
 "links": [
 "config",
 "core.mongo",
+"core.pg_mirror",
 "db.Trading.CanjeCierre",
 "db.Trading.TimeSales"
 ]
@@ -3214,7 +3206,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/cleanup_cedears_timesales.py",
+"path": "jobs\\cleanup_cedears_timesales.py",
 "summary": "cleanup_cedears_timesales.py — vacía el Time & Sales intradía de CEDEARs.",
 "links": [
 "core.job_runs",
@@ -3227,7 +3219,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/cleanup_curvas.py",
+"path": "jobs\\cleanup_curvas.py",
 "summary": "Limpieza de instrumentos vencidos en Trading.Curvas.",
 "links": [
 "core.mongo",
@@ -3239,27 +3231,10 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/cleanup_futuros_dlr.py",
+"path": "jobs\\cleanup_futuros_dlr.py",
 "summary": "Limpieza de contratos DLR vencidos en Trading.FuturosDLRSnapshot.",
 "links": [
 "core.mongo"
-]
-},
-{
-"id": "jobs.comercial_rollup",
-"type": "module",
-"layer": "jobs",
-"repo": "backend",
-"path": "jobs/comercial_rollup.py",
-"summary": "jobs/comercial_rollup.py — precompute Clientes.ComercialCache (rollup comercial).",
-"links": [
-"api.services._negocio_futuros",
-"api.services.comercial",
-"core.job_runs",
-"core.mongo",
-"db.CashFlow.NegocioMovimientos",
-"db.CashFlow.Operaciones",
-"db.Clientes.ComercialCache"
 ]
 },
 {
@@ -3267,7 +3242,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/comercial_warm.py",
+"path": "jobs\\comercial_warm.py",
 "summary": "jobs/comercial_warm.py — precalienta la cache in-process de la vista COMERCIAL.",
 "links": [
 "config"
@@ -3278,7 +3253,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/consolidado_cuentas.py",
+"path": "jobs\\consolidado_cuentas.py",
 "summary": "consolidado_cuentas.py — precalcula la valuación consolidada por cuenta.",
 "links": [
 "api.services.valuaciones",
@@ -3292,7 +3267,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/day_trading_stats.py",
+"path": "jobs\\day_trading_stats.py",
 "summary": "day_trading_stats.py — resumen diario de scalping por CEDEAR.",
 "links": [
 "api.services.day_trading",
@@ -3306,7 +3281,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/descubrir_cuentas.py",
+"path": "jobs\\descubrir_cuentas.py",
 "summary": "Descubre cuentas autorizadas para el user master del broker.",
 "links": [
 "core.mongo",
@@ -3318,7 +3293,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/dias_habiles.py",
+"path": "jobs\\dias_habiles.py",
 "summary": "data_diashabiles.py — Carga días hábiles del calendario argentino a Trading.DiasHabiles.",
 "links": [
 "core.mongo",
@@ -3330,11 +3305,12 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/economic_calendar.py",
+"path": "jobs\\economic_calendar.py",
 "summary": "economic_calendar.py — ingesta diaria del calendario económico global.",
 "links": [
 "core.finnhub",
-"core.mongo"
+"core.mongo",
+"core.pg_mirror"
 ]
 },
 {
@@ -3342,7 +3318,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/fair_value.py",
+"path": "jobs\\fair_value.py",
 "summary": "fair_value.py — fit cuadrático + residuos + z-scores diarios.",
 "links": [
 "core.mongo",
@@ -3357,16 +3333,15 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/fci_bilateral.py",
+"path": "jobs\\fci_bilateral.py",
 "summary": "jobs/fci_bilateral.py — lleva el FCI bilateral de CashFlow.NegocioMovimientos a",
 "links": [
 "api.services",
+"api.services._negocio_sql_read",
 "api.services.operaciones_informes",
 "core.job_runs",
 "core.mongo",
-"db.CashFlow.NegocioMovimientos",
-"db.CashFlow.Operaciones",
-"db.Valuaciones.Assets"
+"core.postgres"
 ]
 },
 {
@@ -3374,12 +3349,12 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/flujo_contrapartes.py",
+"path": "jobs\\flujo_contrapartes.py",
 "summary": "",
 "links": [
 "config",
 "core.mongo",
-"db.CashFlow.Contrapartes",
+"core.postgres",
 "db.CashFlow.Flujo"
 ]
 },
@@ -3388,7 +3363,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/forwards_zscore.py",
+"path": "jobs\\forwards_zscore.py",
 "summary": "forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.",
 "links": [
 "core.mongo",
@@ -3401,7 +3376,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/informe_salud.py",
+"path": "jobs\\informe_salud.py",
 "summary": "informe_salud.py — Informe de salud de ACAQuant (health report a Telegram).",
 "links": [
 "core.job_runs",
@@ -3421,7 +3396,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/market_anchors.py",
+"path": "jobs\\market_anchors.py",
 "summary": "market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).",
 "links": [
 "core.mongo",
@@ -3434,11 +3409,12 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/market_quotes.py",
+"path": "jobs\\market_quotes.py",
 "summary": "market_quotes.py — cotizaciones equity + forex para watchlists.",
 "links": [
 "core.finnhub",
 "core.mongo",
+"core.pg_mirror",
 "core.yahoo"
 ]
 },
@@ -3447,15 +3423,14 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/negocio_movimientos.py",
+"path": "jobs\\negocio_movimientos.py",
 "summary": "negocio_movimientos.py — pega a Aunesa, consolida y persiste boletos",
 "links": [
 "api.services",
 "api.services._mep",
 "api.services.aunesa_negocio",
 "core.job_runs",
-"core.mongo",
-"db.CashFlow.NegocioMovimientos"
+"core.postgres"
 ]
 },
 {
@@ -3463,7 +3438,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/news_finnhub.py",
+"path": "jobs\\news_finnhub.py",
 "summary": "news_finnhub.py — ingesta de noticias desde Finnhub.",
 "links": [
 "core.finnhub",
@@ -3475,10 +3450,11 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/news_ingesta.py",
+"path": "jobs\\news_ingesta.py",
 "summary": "news_ingesta.py — Ingesta de RSS de medios económicos argentinos.",
 "links": [
-"core.mongo"
+"core.mongo",
+"core.pg_mirror"
 ]
 },
 {
@@ -3486,7 +3462,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/operaciones_informes.py",
+"path": "jobs\\operaciones_informes.py",
 "summary": "operaciones_informes.py — ingesta de operaciones desde Aunesa /informes a",
 "links": [
 "api.services",
@@ -3496,21 +3472,7 @@
 "core.aunesa",
 "core.job_runs",
 "core.mongo",
-"db.CashFlow.Operaciones",
-"db.Clientes.Comitentes"
-]
-},
-{
-"id": "jobs.ops_rollup",
-"type": "module",
-"layer": "jobs",
-"repo": "backend",
-"path": "jobs/ops_rollup.py",
-"summary": "jobs/ops_rollup.py — precompute CashFlow.OpsSerieDiaria (rollup de las series).",
-"links": [
-"core.job_runs",
-"core.mongo",
-"db.CashFlow.Operaciones"
+"core.postgres"
 ]
 },
 {
@@ -3518,7 +3480,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/options_rollup.py",
+"path": "jobs\\options_rollup.py",
 "summary": "options_rollup.py — rollup diario de Opciones.Data → Opciones.DataHistorica.",
 "links": [
 "core.mongo"
@@ -3529,7 +3491,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/partner_export.py",
+"path": "jobs\\partner_export.py",
 "summary": "partner_export.py — exporta posiciones de cuentas puntuales a ACAPortfolio.Cartera.",
 "links": [
 "config",
@@ -3542,13 +3504,39 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/pnl_totales_precompute.py",
+"path": "jobs\\pnl_totales_precompute.py",
 "summary": "pnl_totales_precompute.py — precalcula el PnL de TODAS las cuentas.",
 "links": [
-"api.services.pnl",
+"api.services.pnl_sql",
 "core.job_runs",
 "core.mongo",
 "db.Valuaciones.PnLTotalesCache"
+]
+},
+{
+"id": "jobs.portafolio_backfill",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs\\portafolio_backfill.py",
+"summary": "jobs/portafolio_backfill.py — backfill de portafolio.tenencia (SQL), self-healing.",
+"links": [
+"core.postgres",
+"jobs._aum_filters",
+"jobs.aum"
+]
+},
+{
+"id": "jobs.portafolio_reparar_timeouts",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs\\portafolio_reparar_timeouts.py",
+"summary": "jobs/portafolio_reparar_timeouts.py — recupera los TIMEOUT/ERROR del backfill.",
+"links": [
+"core.postgres",
+"jobs.aum",
+"jobs.portafolio_backfill"
 ]
 },
 {
@@ -3556,7 +3544,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/precios_acciones_daily.py",
+"path": "jobs\\precios_acciones_daily.py",
 "summary": "precios_acciones_daily.py — agrega 1 vela daily por activo a",
 "links": [
 "core.mongo",
@@ -3569,7 +3557,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/segmentar_patrimonial.py",
+"path": "jobs\\segmentar_patrimonial.py",
 "summary": "segmentar_patrimonial.py — re-clasifica `nivel_3` de todas las Comitentes activas.",
 "links": [
 "api.services.macro",
@@ -3579,27 +3567,16 @@
 ]
 },
 {
-"id": "jobs.segmento_contrapartes",
-"type": "module",
-"layer": "jobs",
-"repo": "backend",
-"path": "jobs/segmento_contrapartes.py",
-"summary": "set_segmento_contrapartes.py",
-"links": [
-"core.mongo",
-"db.CashFlow.Contrapartes"
-]
-},
-{
 "id": "jobs.snapshot_cierre",
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/snapshot_cierre.py",
+"path": "jobs\\snapshot_cierre.py",
 "summary": "snapshot_cierre.py — materializa el cierre diario por bono en Trading.SnapshotsCierre.",
 "links": [
 "core.job_runs",
 "core.mongo",
+"core.pg_mirror",
 "db.Trading.Curvas",
 "db.Trading.MarketSnapshot",
 "db.Trading.SnapshotsCierre"
@@ -3610,7 +3587,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/snapshot_sinteticos.py",
+"path": "jobs\\snapshot_sinteticos.py",
 "summary": "snapshot_sinteticos.py — materializa el cierre diario de sintéticos en Trading.SnapshotsSinteticos.",
 "links": [
 "api.services.sinteticos",
@@ -3624,14 +3601,13 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/sync_comitentes.py",
-"summary": "Sync de cuentas comitentes desde Aunesa → master `Clientes.Comitentes`.",
+"path": "jobs\\sync_comitentes.py",
+"summary": "Sync de cuentas comitentes desde Aunesa → master SQL `clientes.comitentes`",
 "links": [
 "config",
 "core.doc_fiscal",
 "core.job_runs",
-"core.mongo",
-"db.Clientes.Comitentes"
+"core.postgres"
 ]
 },
 {
@@ -3639,26 +3615,42 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/sync_postgres.py",
+"path": "jobs\\sync_postgres.py",
 "summary": "jobs/sync_postgres.py — sync Mongo → Postgres (Supabase). Fase B.",
 "links": [
 "core.job_runs",
 "core.mongo",
+"core.pg_mirror",
 "core.postgres",
 "db.CashFlow.Accionistas",
-"db.CashFlow.Contrapartes",
-"db.CashFlow.NegocioMovimientos",
-"db.CashFlow.Operaciones",
 "db.Clientes.ActividadMensual",
-"db.Clientes.Comitentes",
 "db.Manager.Grupos",
 "db.Manager.RoleMatrix",
 "db.Manager.Users",
+"db.Trading.BondsMaster",
+"db.Trading.CanjeCierre",
+"db.Trading.Curvas",
+"db.Trading.DOLAR",
+"db.Trading.MarketSnapshot",
 "db.Trading.PortfolioSnapshot",
+"db.Trading.REM",
 "db.Trading.SnapshotsCierre",
-"db.Valuaciones.Assets",
-"db.Valuaciones.AuM",
 "db.Valuaciones.Dolar"
+]
+},
+{
+"id": "jobs.tenencia_hd",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs\\tenencia_hd.py",
+"summary": "jobs/tenencia_hd.py — materializa la Tenencia Valorizada (cartera HD) de las",
+"links": [
+"api.services._mep",
+"core.job_runs",
+"core.mongo",
+"core.postgres",
+"db.Valuaciones.TenenciaHD"
 ]
 },
 {
@@ -3666,7 +3658,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/volatilidad_ggal.py",
+"path": "jobs\\volatilidad_ggal.py",
 "summary": "",
 "links": [
 "core.mongo"
@@ -3677,7 +3669,7 @@
 "type": "module",
 "layer": "jobs",
 "repo": "backend",
-"path": "jobs/watchdog.py",
+"path": "jobs\\watchdog.py",
 "summary": "jobs/watchdog.py — \"el agente que evalúa solo\": detecta jobs colgados y alerta.",
 "links": [
 "core",
@@ -3692,7 +3684,7 @@
 "type": "module",
 "layer": "partner_api",
 "repo": "backend",
-"path": "partner_api/__init__.py",
+"path": "partner_api\\__init__.py",
 "summary": "partner_api — API externa de datos de portfolio para un proveedor.",
 "links": []
 },
@@ -3701,7 +3693,7 @@
 "type": "module",
 "layer": "partner_api",
 "repo": "backend",
-"path": "partner_api/auth.py",
+"path": "partner_api\\auth.py",
 "summary": "Auth del partner_api — login usuario/password → JWT, y el guard de los",
 "links": [
 "partner_api.db",
@@ -3714,7 +3706,7 @@
 "type": "module",
 "layer": "partner_api",
 "repo": "backend",
-"path": "partner_api/db.py",
+"path": "partner_api\\db.py",
 "summary": "Conexión Mongo del partner_api — singleton read-only a la base `ACAPortfolio`.",
 "links": [
 "partner_api.settings"
@@ -3725,7 +3717,7 @@
 "type": "module",
 "layer": "partner_api",
 "repo": "backend",
-"path": "partner_api/main.py",
+"path": "partner_api\\main.py",
 "summary": "partner_api — app FastAPI del servicio externo de datos para el proveedor.",
 "links": [
 "partner_api",
@@ -3742,7 +3734,7 @@
 "type": "module",
 "layer": "partner_api",
 "repo": "backend",
-"path": "partner_api/odata.py",
+"path": "partner_api\\odata.py",
 "summary": "partner_api/odata.py — servicio OData v2 sobre ACAPortfolio.Cartera.",
 "links": [
 "db.ACAPortfolio.Cartera",
@@ -3756,7 +3748,7 @@
 "type": "module",
 "layer": "partner_api",
 "repo": "backend",
-"path": "partner_api/ratelimit.py",
+"path": "partner_api\\ratelimit.py",
 "summary": "Rate limiter del partner_api — slowapi, keyeado por IP del cliente.",
 "links": []
 },
@@ -3765,7 +3757,7 @@
 "type": "module",
 "layer": "partner_api",
 "repo": "backend",
-"path": "partner_api/routes.py",
+"path": "partner_api\\routes.py",
 "summary": "Endpoints de datos del partner_api — SOLO lectura de ACAPortfolio.Cartera.",
 "links": [
 "db.ACAPortfolio.Cartera",
@@ -3779,7 +3771,7 @@
 "type": "module",
 "layer": "partner_api",
 "repo": "backend",
-"path": "partner_api/security.py",
+"path": "partner_api\\security.py",
 "summary": "Hashing de passwords + emisión/validación de JWT para partner_api.",
 "links": [
 "partner_api.settings"
@@ -3790,7 +3782,7 @@
 "type": "module",
 "layer": "partner_api",
 "repo": "backend",
-"path": "partner_api/settings.py",
+"path": "partner_api\\settings.py",
 "summary": "Configuración del servicio partner_api — lee su propio set de env vars.",
 "links": []
 },
@@ -3799,7 +3791,7 @@
 "type": "module",
 "layer": "quant",
 "repo": "backend",
-"path": "quant/__init__.py",
+"path": "quant\\__init__.py",
 "summary": "",
 "links": []
 },
@@ -3808,7 +3800,7 @@
 "type": "module",
 "layer": "quant",
 "repo": "backend",
-"path": "quant/black_scholes.py",
+"path": "quant\\black_scholes.py",
 "summary": "",
 "links": [
 "core.mongo"
@@ -3819,7 +3811,7 @@
 "type": "module",
 "layer": "quant",
 "repo": "backend",
-"path": "quant/curve_fit.py",
+"path": "quant\\curve_fit.py",
 "summary": "curve_fit.py — Ajuste de curva por mínimos cuadrados.",
 "links": []
 },
@@ -3828,7 +3820,7 @@
 "type": "module",
 "layer": "quant",
 "repo": "backend",
-"path": "quant/intraday.py",
+"path": "quant\\intraday.py",
 "summary": "intraday.py — métricas intradía sobre series de precios por minuto.",
 "links": []
 },
@@ -3837,7 +3829,7 @@
 "type": "module",
 "layer": "quant",
 "repo": "backend",
-"path": "quant/pivot_points.py",
+"path": "quant\\pivot_points.py",
 "summary": "pivot_points.py — Floor Trader Pivot Points sobre Trading.PreciosAcciones.",
 "links": [
 "core.mongo",
@@ -3849,7 +3841,7 @@
 "type": "module",
 "layer": "quant",
 "repo": "backend",
-"path": "quant/rolling_stats.py",
+"path": "quant\\rolling_stats.py",
 "summary": "rolling_stats.py — beta / alpha / correlación / vol realizada",
 "links": []
 },
@@ -3858,7 +3850,7 @@
 "type": "module",
 "layer": "quant",
 "repo": "backend",
-"path": "quant/stats.py",
+"path": "quant\\stats.py",
 "summary": "Helpers estadísticos sobre series numéricas.",
 "links": []
 },
@@ -3867,7 +3859,7 @@
 "type": "module",
 "layer": "quant",
 "repo": "backend",
-"path": "quant/xirr.py",
+"path": "quant\\xirr.py",
 "summary": "xirr.py — TIR.NO.PER de Excel (XIRR / IRR para flujos en fechas",
 "links": []
 },
@@ -3876,7 +3868,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/api.service",
+"path": "deploy\\systemd\\api.service",
 "summary": "Servicio systemd.",
 "links": []
 },
@@ -3885,7 +3877,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_agro.service",
+"path": "deploy\\systemd\\motor_agro.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.motor_agro"
@@ -3896,7 +3888,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_agro_opciones.service",
+"path": "deploy\\systemd\\motor_agro_opciones.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.motor_agro_opciones"
@@ -3907,7 +3899,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_breakevens.service",
+"path": "deploy\\systemd\\motor_breakevens.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.breakevens"
@@ -3918,7 +3910,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_caucion.service",
+"path": "deploy\\systemd\\motor_caucion.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.caucion"
@@ -3929,7 +3921,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_cedears.service",
+"path": "deploy\\systemd\\motor_cedears.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.motor_cedears"
@@ -3940,7 +3932,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_curvas.service",
+"path": "deploy\\systemd\\motor_curvas.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.curvas"
@@ -3951,7 +3943,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_dolares.service",
+"path": "deploy\\systemd\\motor_dolares.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.dolares"
@@ -3962,7 +3954,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_forwards.service",
+"path": "deploy\\systemd\\motor_forwards.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.forwards"
@@ -3973,7 +3965,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_futuros_dlr.service",
+"path": "deploy\\systemd\\motor_futuros_dlr.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.futuros_dlr"
@@ -3984,7 +3976,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_options.service",
+"path": "deploy\\systemd\\motor_options.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.options"
@@ -3995,7 +3987,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_ordenes.service",
+"path": "deploy\\systemd\\motor_ordenes.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.motor_ordenes"
@@ -4006,7 +3998,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_portfolio_snapshot.service",
+"path": "deploy\\systemd\\motor_portfolio_snapshot.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.portfolio_snapshot"
@@ -4017,7 +4009,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/motor_rofex.service",
+"path": "deploy\\systemd\\motor_rofex.service",
 "summary": "Servicio systemd.",
 "links": [
 "engines.valores"
@@ -4028,7 +4020,7 @@
 "type": "service",
 "layer": "deploy",
 "repo": "infra",
-"path": "deploy/systemd/partner_api.service",
+"path": "deploy\\systemd\\partner_api.service",
 "summary": "Servicio systemd.",
 "links": []
 },
@@ -4037,7 +4029,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/analitica/[...path]/route.ts",
+"path": "src\\app\\api\\analitica\\[...path]\\route.ts",
 "summary": "",
 "links": []
 },
@@ -4046,7 +4038,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/argy/route.ts",
+"path": "src\\app\\api\\argy\\route.ts",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -4058,7 +4050,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/aum-diff/route.ts",
+"path": "src\\app\\api\\aum-diff\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4069,7 +4061,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/aum-fci/serie/route.ts",
+"path": "src\\app\\api\\aum-fci\\serie\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4080,7 +4072,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/aum-fci/snapshot/route.ts",
+"path": "src\\app\\api\\aum-fci\\snapshot\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4091,7 +4083,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/aum-pnl/route.ts",
+"path": "src\\app\\api\\aum-pnl\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4102,7 +4094,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/aum-pnl-todas/route.ts",
+"path": "src\\app\\api\\aum-pnl-todas\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4113,7 +4105,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/aum-total/serie/route.ts",
+"path": "src\\app\\api\\aum-total\\serie\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4124,7 +4116,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/aum-total/snapshot/route.ts",
+"path": "src\\app\\api\\aum-total\\snapshot\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4135,7 +4127,18 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/back-office/acreencias/[...path]/route.ts",
+"path": "src\\app\\api\\back-office\\acreencias\\[...path]\\route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.back-office.tenencia-hd.[[...path]]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src\\app\\api\\back-office\\tenencia-hd\\[[...path]]\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4146,7 +4149,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/back-office/titulos-mercado/route.ts",
+"path": "src\\app\\api\\back-office\\titulos-mercado\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4157,7 +4160,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/cashflow/route.ts",
+"path": "src\\app\\api\\cashflow\\route.ts",
 "summary": "",
 "links": [
 "api.routers.cuentas",
@@ -4170,7 +4173,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/caucion/route.ts",
+"path": "src\\app\\api\\caucion\\route.ts",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -4182,7 +4185,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/comparar/route.ts",
+"path": "src\\app\\api\\comparar\\route.ts",
 "summary": "",
 "links": [
 "api.routers.analitica",
@@ -4194,7 +4197,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/comparar/bonos/route.ts",
+"path": "src\\app\\api\\comparar\\bonos\\route.ts",
 "summary": "",
 "links": [
 "api.routers.analitica",
@@ -4206,7 +4209,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/contrapartes/route.ts",
+"path": "src\\app\\api\\contrapartes\\route.ts",
 "summary": "",
 "links": [
 "api.routers.cuentas",
@@ -4219,7 +4222,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/cotizaciones/[...path]/route.ts",
+"path": "src\\app\\api\\cotizaciones\\[...path]\\route.ts",
 "summary": "",
 "links": []
 },
@@ -4228,7 +4231,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/derivados-agro/route.ts",
+"path": "src\\app\\api\\derivados-agro\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4239,7 +4242,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/derivados-agro/camara/route.ts",
+"path": "src\\app\\api\\derivados-agro\\camara\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4250,7 +4253,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/derivados-agro/camara/[cereal]/route.ts",
+"path": "src\\app\\api\\derivados-agro\\camara\\[cereal]\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4261,7 +4264,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/derivados-agro/estrategia/simular/route.ts",
+"path": "src\\app\\api\\derivados-agro\\estrategia\\simular\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4272,7 +4275,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/derivados-agro/mejoras-dispo/route.ts",
+"path": "src\\app\\api\\derivados-agro\\mejoras-dispo\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4283,7 +4286,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/derivados-agro/opciones/[commodity]/route.ts",
+"path": "src\\app\\api\\derivados-agro\\opciones\\[commodity]\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4294,7 +4297,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/derivados-agro/pizarra/[commodity]/route.ts",
+"path": "src\\app\\api\\derivados-agro\\pizarra\\[commodity]\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4305,7 +4308,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/derivados-sinteticos/route.ts",
+"path": "src\\app\\api\\derivados-sinteticos\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4316,22 +4319,10 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/dolares-historico/route.ts",
+"path": "src\\app\\api\\dolares-historico\\route.ts",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
-"web.lib.api"
-]
-},
-{
-"id": "web.api.api.flujo-vs-aum",
-"type": "route",
-"layer": "web-api",
-"repo": "frontend",
-"path": "src/app/api/flujo-vs-aum/route.ts",
-"summary": "",
-"links": [
-"api.routers.operaciones",
 "web.lib.api"
 ]
 },
@@ -4340,7 +4331,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/futuros-dlr/route.ts",
+"path": "src\\app\\api\\futuros-dlr\\route.ts",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -4352,7 +4343,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/historico-curva/route.ts",
+"path": "src\\app\\api\\historico-curva\\route.ts",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -4364,7 +4355,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/manager/[...path]/route.ts",
+"path": "src\\app\\api\\manager\\[...path]\\route.ts",
 "summary": "",
 "links": []
 },
@@ -4373,7 +4364,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/market/calendar/route.ts",
+"path": "src\\app\\api\\market\\calendar\\route.ts",
 "summary": "",
 "links": [
 "api.routers.market",
@@ -4385,7 +4376,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/market/quotes/route.ts",
+"path": "src\\app\\api\\market\\quotes\\route.ts",
 "summary": "",
 "links": [
 "api.routers.market",
@@ -4397,7 +4388,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/me/route.ts",
+"path": "src\\app\\api\\me\\route.ts",
 "summary": "",
 "links": [
 "web.lib.cf-access"
@@ -4408,7 +4399,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/mep/route.ts",
+"path": "src\\app\\api\\mep\\route.ts",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -4420,7 +4411,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/news/route.ts",
+"path": "src\\app\\api\\news\\route.ts",
 "summary": "",
 "links": [
 "api.routers.news",
@@ -4432,7 +4423,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/news/article/route.ts",
+"path": "src\\app\\api\\news\\article\\route.ts",
 "summary": "",
 "links": [
 "api.routers.news",
@@ -4444,7 +4435,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/opciones-meta/route.ts",
+"path": "src\\app\\api\\opciones-meta\\route.ts",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -4456,7 +4447,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/operaciones/[[...path]]/route.ts",
+"path": "src\\app\\api\\operaciones\\[[...path]]\\route.ts",
 "summary": "",
 "links": []
 },
@@ -4465,7 +4456,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/operar/[[...path]]/route.ts",
+"path": "src\\app\\api\\operar\\[[...path]]\\route.ts",
 "summary": "",
 "links": []
 },
@@ -4474,7 +4465,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/operativa/[[...path]]/route.ts",
+"path": "src\\app\\api\\operativa\\[[...path]]\\route.ts",
 "summary": "",
 "links": []
 },
@@ -4483,7 +4474,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/ordenes/[[...path]]/route.ts",
+"path": "src\\app\\api\\ordenes\\[[...path]]\\route.ts",
 "summary": "",
 "links": []
 },
@@ -4492,7 +4483,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/portfolio-cuentas/route.ts",
+"path": "src\\app\\api\\portfolio-cuentas\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4503,7 +4494,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/portfolio/operadores/route.ts",
+"path": "src\\app\\api\\portfolio\\operadores\\route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4514,7 +4505,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/risk/[[...path]]/route.ts",
+"path": "src\\app\\api\\risk\\[[...path]]\\route.ts",
 "summary": "",
 "links": []
 },
@@ -4523,7 +4514,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/scanner/[...path]/route.ts",
+"path": "src\\app\\api\\scanner\\[...path]\\route.ts",
 "summary": "",
 "links": [
 "api.routers.scanner",
@@ -4535,7 +4526,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/trades/route.ts",
+"path": "src\\app\\api\\trades\\route.ts",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -4547,7 +4538,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/valuaciones/[id_cuenta]/mensual/route.ts",
+"path": "src\\app\\api\\valuaciones\\[id_cuenta]\\mensual\\route.ts",
 "summary": "",
 "links": [
 "api.routers.valuaciones",
@@ -4559,7 +4550,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/valuaciones/[id_cuenta]/movimientos/route.ts",
+"path": "src\\app\\api\\valuaciones\\[id_cuenta]\\movimientos\\route.ts",
 "summary": "",
 "links": [
 "api.routers.valuaciones",
@@ -4571,7 +4562,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/valuaciones/[id_cuenta]/posiciones/route.ts",
+"path": "src\\app\\api\\valuaciones\\[id_cuenta]\\posiciones\\route.ts",
 "summary": "",
 "links": [
 "api.routers.valuaciones",
@@ -4583,7 +4574,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/valuaciones/[id_cuenta]/posiciones-actuales/route.ts",
+"path": "src\\app\\api\\valuaciones\\[id_cuenta]\\posiciones-actuales\\route.ts",
 "summary": "",
 "links": [
 "api.routers.valuaciones",
@@ -4595,7 +4586,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/valuaciones/[id_cuenta]/serie/route.ts",
+"path": "src\\app\\api\\valuaciones\\[id_cuenta]\\serie\\route.ts",
 "summary": "",
 "links": [
 "api.routers.valuaciones",
@@ -4607,7 +4598,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/valuaciones/[id_cuenta]/variacion/route.ts",
+"path": "src\\app\\api\\valuaciones\\[id_cuenta]\\variacion\\route.ts",
 "summary": "",
 "links": [
 "api.routers.valuaciones",
@@ -4619,7 +4610,7 @@
 "type": "route",
 "layer": "web-api",
 "repo": "frontend",
-"path": "src/app/api/valuaciones/consolidado/route.ts",
+"path": "src\\app\\api\\valuaciones\\consolidado\\route.ts",
 "summary": "",
 "links": [
 "api.routers.valuaciones",
@@ -4631,7 +4622,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/acreencias-view.tsx",
+"path": "src\\components\\acreencias-view.tsx",
 "summary": "",
 "links": [
 "web.lib.fmt-money"
@@ -4642,7 +4633,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/agro-datos.tsx",
+"path": "src\\components\\agro-datos.tsx",
 "summary": "",
 "links": [
 "web.lib.use-poll"
@@ -4653,7 +4644,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/agro-mejoras-dispo.tsx",
+"path": "src\\components\\agro-mejoras-dispo.tsx",
 "summary": "",
 "links": [
 "web.lib.use-poll"
@@ -4664,7 +4655,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/agro-shell.tsx",
+"path": "src\\components\\agro-shell.tsx",
 "summary": "",
 "links": [
 "web.lib.use-is-guest"
@@ -4675,7 +4666,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/agro-view.tsx",
+"path": "src\\components\\agro-view.tsx",
 "summary": "",
 "links": [
 "api.routers.operaciones"
@@ -4686,7 +4677,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/aranceles-view.tsx",
+"path": "src\\components\\aranceles-view.tsx",
 "summary": "",
 "links": [
 "api.routers.operaciones"
@@ -4697,7 +4688,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/aum-view.tsx",
+"path": "src\\components\\aum-view.tsx",
 "summary": "",
 "links": [
 "api.routers.me",
@@ -4710,7 +4701,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/aunesa-aum-panel.tsx",
+"path": "src\\components\\aunesa-aum-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.manager"
@@ -4721,7 +4712,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/aunesa-boletos-panel.tsx",
+"path": "src\\components\\aunesa-boletos-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.manager.aunesa"
@@ -4732,7 +4723,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/aunesa-explorar-panel.tsx",
+"path": "src\\components\\aunesa-explorar-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.manager.aunesa"
@@ -4743,7 +4734,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/aunesa-posicion-panel.tsx",
+"path": "src\\components\\aunesa-posicion-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.manager.aunesa"
@@ -4754,7 +4745,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/back-office-shell.tsx",
+"path": "src\\components\\back-office-shell.tsx",
 "summary": "",
 "links": []
 },
@@ -4763,7 +4754,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/breakevens-block.tsx",
+"path": "src\\components\\breakevens-block.tsx",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -4775,7 +4766,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/canje-tab.tsx",
+"path": "src\\components\\canje-tab.tsx",
 "summary": "",
 "links": [
 "api.routers.analitica",
@@ -4787,7 +4778,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/cedears-scanner-table.tsx",
+"path": "src\\components\\cedears-scanner-table.tsx",
 "summary": "",
 "links": [
 "web.lib.types-scanner"
@@ -4798,7 +4789,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/cedears-timesales-panel.tsx",
+"path": "src\\components\\cedears-timesales-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.scanner"
@@ -4809,7 +4800,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/coberturas-view.tsx",
+"path": "src\\components\\coberturas-view.tsx",
 "summary": "",
 "links": [
 "api.routers.scanner",
@@ -4823,7 +4814,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/cobros-futuros-view.tsx",
+"path": "src\\components\\cobros-futuros-view.tsx",
 "summary": "",
 "links": [
 "api.routers.operaciones",
@@ -4835,7 +4826,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/comercial-informe-view.tsx",
+"path": "src\\components\\comercial-informe-view.tsx",
 "summary": "",
 "links": [
 "api.routers.operaciones",
@@ -4848,7 +4839,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/comercial-operaciones-view.tsx",
+"path": "src\\components\\comercial-operaciones-view.tsx",
 "summary": "",
 "links": [
 "api.routers.operaciones",
@@ -4858,31 +4849,11 @@
 ]
 },
 {
-"id": "web.cmp.comercial-panel",
-"type": "component",
-"layer": "web-component",
-"repo": "frontend",
-"path": "src/components/comercial-panel.tsx",
-"summary": "",
-"links": [
-"api.routers.manager.comercial"
-]
-},
-{
-"id": "web.cmp.contrapartes-shell",
-"type": "component",
-"layer": "web-component",
-"repo": "frontend",
-"path": "src/components/contrapartes-shell.tsx",
-"summary": "",
-"links": []
-},
-{
 "id": "web.cmp.contrapartes-view",
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/contrapartes-view.tsx",
+"path": "src\\components\\contrapartes-view.tsx",
 "summary": "",
 "links": [
 "api.routers.manager.contrapartes"
@@ -4893,7 +4864,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/costo-historico-chart.tsx",
+"path": "src\\components\\costo-historico-chart.tsx",
 "summary": "",
 "links": [
 "api.routers.analitica",
@@ -4907,7 +4878,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/curvas-chart.tsx",
+"path": "src\\components\\curvas-chart.tsx",
 "summary": "",
 "links": [
 "api.routers.analitica",
@@ -4920,7 +4891,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/derivados-agro-futuros.tsx",
+"path": "src\\components\\derivados-agro-futuros.tsx",
 "summary": "",
 "links": [
 "web.lib.use-poll"
@@ -4931,7 +4902,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/derivados-agro-opciones.tsx",
+"path": "src\\components\\derivados-agro-opciones.tsx",
 "summary": "",
 "links": [
 "web.lib.use-poll"
@@ -4942,7 +4913,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/derivados-agro-pizarra.tsx",
+"path": "src\\components\\derivados-agro-pizarra.tsx",
 "summary": "",
 "links": [
 "web.lib.use-poll"
@@ -4953,7 +4924,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/derivados-operar.tsx",
+"path": "src\\components\\derivados-operar.tsx",
 "summary": "",
 "links": [
 "api.routers.operar",
@@ -4965,7 +4936,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/derivados-shell.tsx",
+"path": "src\\components\\derivados-shell.tsx",
 "summary": "",
 "links": [
 "web.lib.estrategias"
@@ -4976,7 +4947,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/derivados-sinteticos-view.tsx",
+"path": "src\\components\\derivados-sinteticos-view.tsx",
 "summary": "",
 "links": [
 "web.lib.use-poll"
@@ -4987,7 +4958,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/derivados-view.tsx",
+"path": "src\\components\\derivados-view.tsx",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -5000,7 +4971,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/descomposicion-tab.tsx",
+"path": "src\\components\\descomposicion-tab.tsx",
 "summary": "",
 "links": [
 "api.routers.analitica",
@@ -5012,7 +4983,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/dolar-mep-compra-view.tsx",
+"path": "src\\components\\dolar-mep-compra-view.tsx",
 "summary": "",
 "links": [
 "api.routers.operativa"
@@ -5023,7 +4994,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/dolar-mep-detalle-drawer.tsx",
+"path": "src\\components\\dolar-mep-detalle-drawer.tsx",
 "summary": "",
 "links": [
 "api.routers.operativa"
@@ -5034,7 +5005,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/dolar-mep-shell.tsx",
+"path": "src\\components\\dolar-mep-shell.tsx",
 "summary": "",
 "links": [
 "api.routers.operativa",
@@ -5046,7 +5017,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/dolar-mep-timesales-chart.tsx",
+"path": "src\\components\\dolar-mep-timesales-chart.tsx",
 "summary": "",
 "links": [
 "api.routers.operativa"
@@ -5057,7 +5028,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/dolar-mep-venta-view.tsx",
+"path": "src\\components\\dolar-mep-venta-view.tsx",
 "summary": "",
 "links": [
 "api.routers.operativa"
@@ -5068,7 +5039,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/download-button.tsx",
+"path": "src\\components\\download-button.tsx",
 "summary": "",
 "links": []
 },
@@ -5077,7 +5048,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/escenarios-tabla.tsx",
+"path": "src\\components\\escenarios-tabla.tsx",
 "summary": "",
 "links": [
 "web.lib.estrategias"
@@ -5088,7 +5059,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/estrategia-shared.tsx",
+"path": "src\\components\\estrategia-shared.tsx",
 "summary": "",
 "links": [
 "api.routers.scanner",
@@ -5101,7 +5072,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/estrategias-tabla.tsx",
+"path": "src\\components\\estrategias-tabla.tsx",
 "summary": "",
 "links": [
 "web.lib.estrategias"
@@ -5112,7 +5083,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/fair-value-modal.tsx",
+"path": "src\\components\\fair-value-modal.tsx",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -5124,7 +5095,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/fair-value-view.tsx",
+"path": "src\\components\\fair-value-view.tsx",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -5133,22 +5104,11 @@
 ]
 },
 {
-"id": "web.cmp.flujo-vs-aum-view",
-"type": "component",
-"layer": "web-component",
-"repo": "frontend",
-"path": "src/components/flujo-vs-aum-view.tsx",
-"summary": "",
-"links": [
-"web.lib.use-viewport-key"
-]
-},
-{
 "id": "web.cmp.forward-matrix-zscore",
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/forward-matrix-zscore.tsx",
+"path": "src\\components\\forward-matrix-zscore.tsx",
 "summary": "",
 "links": [
 "web.lib.types"
@@ -5159,7 +5119,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/forwards-panel.tsx",
+"path": "src\\components\\forwards-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -5173,7 +5133,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/futuros-dlr-curve-chart.tsx",
+"path": "src\\components\\futuros-dlr-curve-chart.tsx",
 "summary": "",
 "links": []
 },
@@ -5182,7 +5142,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/griegas-historico-chart.tsx",
+"path": "src\\components\\griegas-historico-chart.tsx",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -5194,7 +5154,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/grupos-panel.tsx",
+"path": "src\\components\\grupos-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.manager.grupos",
@@ -5206,7 +5166,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/header.tsx",
+"path": "src\\components\\header.tsx",
 "summary": "",
 "links": [
 "web.lib.use-is-guest"
@@ -5217,7 +5177,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/home-view.tsx",
+"path": "src\\components\\home-view.tsx",
 "summary": "",
 "links": [
 "web.cmp.canje-tab",
@@ -5233,7 +5193,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/jobs-runs-panel.tsx",
+"path": "src\\components\\jobs-runs-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.manager.jobs"
@@ -5244,7 +5204,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/logs-panel.tsx",
+"path": "src\\components\\logs-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.manager.logs"
@@ -5255,34 +5215,10 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/manager-contrapartes-view.tsx",
+"path": "src\\components\\manager-contrapartes-view.tsx",
 "summary": "",
 "links": [
 "api.routers.manager.contrapartes"
-]
-},
-{
-"id": "web.cmp.manager-debug-comercial",
-"type": "component",
-"layer": "web-component",
-"repo": "frontend",
-"path": "src/components/manager-debug-comercial.tsx",
-"summary": "",
-"links": [
-"api.routers.manager.checks",
-"api.routers.operaciones"
-]
-},
-{
-"id": "web.cmp.manager-debug-segmento",
-"type": "component",
-"layer": "web-component",
-"repo": "frontend",
-"path": "src/components/manager-debug-segmento.tsx",
-"summary": "",
-"links": [
-"api.routers.manager.clientes",
-"api.routers.manager.comercial"
 ]
 },
 {
@@ -5290,7 +5226,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/manager-debug-tea.tsx",
+"path": "src\\components\\manager-debug-tea.tsx",
 "summary": "",
 "links": [
 "api.routers.manager.checks"
@@ -5301,7 +5237,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/manager-debug-xirr.tsx",
+"path": "src\\components\\manager-debug-xirr.tsx",
 "summary": "",
 "links": [
 "api.routers.manager.valuaciones"
@@ -5312,7 +5248,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/manager-view.tsx",
+"path": "src\\components\\manager-view.tsx",
 "summary": "",
 "links": [
 "api.routers.manager",
@@ -5332,7 +5268,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/metricas-panel.tsx",
+"path": "src\\components\\metricas-panel.tsx",
 "summary": "",
 "links": [
 "web.lib.fmt-money",
@@ -5344,7 +5280,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/news-panel.tsx",
+"path": "src\\components\\news-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.news"
@@ -5355,7 +5291,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/news-reader.tsx",
+"path": "src\\components\\news-reader.tsx",
 "summary": "",
 "links": [
 "api.routers.news"
@@ -5366,7 +5302,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/ons-live.tsx",
+"path": "src\\components\\ons-live.tsx",
 "summary": "",
 "links": [
 "api.routers.analitica",
@@ -5379,7 +5315,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/opcion-historico-chart.tsx",
+"path": "src\\components\\opcion-historico-chart.tsx",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -5391,7 +5327,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/opciones-table-compact.tsx",
+"path": "src\\components\\opciones-table-compact.tsx",
 "summary": "",
 "links": [
 "web.lib.estrategias"
@@ -5402,7 +5338,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/operaciones-view.tsx",
+"path": "src\\components\\operaciones-view.tsx",
 "summary": "",
 "links": [
 "web.lib.use-persisted-state"
@@ -5413,7 +5349,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/operadores-view.tsx",
+"path": "src\\components\\operadores-view.tsx",
 "summary": "",
 "links": [
 "api.routers.me",
@@ -5426,7 +5362,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/operar-dashboard-view.tsx",
+"path": "src\\components\\operar-dashboard-view.tsx",
 "summary": "",
 "links": [
 "api.routers.operar",
@@ -5439,7 +5375,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/operar-fci-view.tsx",
+"path": "src\\components\\operar-fci-view.tsx",
 "summary": "",
 "links": [
 "api.routers.ordenes",
@@ -5451,7 +5387,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/operar-shell.tsx",
+"path": "src\\components\\operar-shell.tsx",
 "summary": "",
 "links": []
 },
@@ -5460,7 +5396,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/ops-view.tsx",
+"path": "src\\components\\ops-view.tsx",
 "summary": "",
 "links": [
 "api.routers.operaciones",
@@ -5472,7 +5408,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/pause-banner.tsx",
+"path": "src\\components\\pause-banner.tsx",
 "summary": "",
 "links": []
 },
@@ -5481,7 +5417,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/payoff-chart.tsx",
+"path": "src\\components\\payoff-chart.tsx",
 "summary": "",
 "links": [
 "web.lib.estrategias",
@@ -5493,7 +5429,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/pivot-points-panel.tsx",
+"path": "src\\components\\pivot-points-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.scanner",
@@ -5505,16 +5441,18 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/pnl-titulos-view.tsx",
+"path": "src\\components\\pnl-titulos-view.tsx",
 "summary": "",
-"links": []
+"links": [
+"web.lib.xlsx-export"
+]
 },
 {
 "id": "web.cmp.pnl-totales-view",
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/pnl-totales-view.tsx",
+"path": "src\\components\\pnl-totales-view.tsx",
 "summary": "",
 "links": [
 "web.cmp.pnl-titulos-view",
@@ -5526,7 +5464,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/por-cuenta-view.tsx",
+"path": "src\\components\\por-cuenta-view.tsx",
 "summary": "",
 "links": [
 "api.routers.valuaciones",
@@ -5538,7 +5476,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/post-trade-lab.tsx",
+"path": "src\\components\\post-trade-lab.tsx",
 "summary": "",
 "links": [
 "web.lib.estrategias"
@@ -5549,10 +5487,22 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/recursos-panel.tsx",
+"path": "src\\components\\recursos-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.manager"
+]
+},
+{
+"id": "web.cmp.referido-fci-table",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\referido-fci-table.tsx",
+"summary": "",
+"links": [
+"api.routers.operaciones",
+"web.lib.fmt-money"
 ]
 },
 {
@@ -5560,13 +5510,15 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/referidos-view.tsx",
+"path": "src\\components\\referidos-view.tsx",
 "summary": "",
 "links": [
 "api.routers.operaciones",
 "api.routers.valuaciones",
+"web.cmp.referido-fci-table",
 "web.lib.fmt-money",
-"web.lib.use-persisted-state"
+"web.lib.use-persisted-state",
+"web.lib.xlsx-export"
 ]
 },
 {
@@ -5574,7 +5526,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/renta-fija-live.tsx",
+"path": "src\\components\\renta-fija-live.tsx",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -5592,7 +5544,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/renta-fija-table.tsx",
+"path": "src\\components\\renta-fija-table.tsx",
 "summary": "",
 "links": [
 "web.lib.types"
@@ -5603,7 +5555,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/renta-variable-shell.tsx",
+"path": "src\\components\\renta-variable-shell.tsx",
 "summary": "",
 "links": [
 "web.lib.types-scanner"
@@ -5614,7 +5566,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/retorno-total-mini.tsx",
+"path": "src\\components\\retorno-total-mini.tsx",
 "summary": "",
 "links": [
 "api.routers.analitica"
@@ -5625,7 +5577,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/retorno-total-view.tsx",
+"path": "src\\components\\retorno-total-view.tsx",
 "summary": "",
 "links": [
 "web.lib.use-persisted-state"
@@ -5636,7 +5588,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/roles-panel.tsx",
+"path": "src\\components\\roles-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.manager.roles"
@@ -5647,7 +5599,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/scanner-view.tsx",
+"path": "src\\components\\scanner-view.tsx",
 "summary": "",
 "links": [
 "api.routers.scanner",
@@ -5660,10 +5612,21 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/sensibilidad-table.tsx",
+"path": "src\\components\\sensibilidad-table.tsx",
 "summary": "",
 "links": [
 "api.routers.analitica"
+]
+},
+{
+"id": "web.cmp.tenencia-valorizada-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src\\components\\tenencia-valorizada-view.tsx",
+"summary": "",
+"links": [
+"web.lib.use-persisted-state"
 ]
 },
 {
@@ -5671,7 +5634,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/theme-toggle.tsx",
+"path": "src\\components\\theme-toggle.tsx",
 "summary": "",
 "links": []
 },
@@ -5680,7 +5643,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/ticker-chart-panel.tsx",
+"path": "src\\components\\ticker-chart-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.scanner",
@@ -5692,7 +5655,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/titulos-mercado-view.tsx",
+"path": "src\\components\\titulos-mercado-view.tsx",
 "summary": "",
 "links": [
 "web.lib.use-poll",
@@ -5704,7 +5667,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/trade-lab-view.tsx",
+"path": "src\\components\\trade-lab-view.tsx",
 "summary": "",
 "links": [
 "api.routers.scanner",
@@ -5719,7 +5682,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/tradingview-chart.tsx",
+"path": "src\\components\\tradingview-chart.tsx",
 "summary": "",
 "links": []
 },
@@ -5728,7 +5691,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/ui.tsx",
+"path": "src\\components\\ui.tsx",
 "summary": "",
 "links": []
 },
@@ -5737,7 +5700,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/usuarios-panel.tsx",
+"path": "src\\components\\usuarios-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.manager.users"
@@ -5748,7 +5711,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/valuaciones-shell.tsx",
+"path": "src\\components\\valuaciones-shell.tsx",
 "summary": "",
 "links": [
 "web.cmp.aum-view",
@@ -5762,7 +5725,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/valuaciones-view.tsx",
+"path": "src\\components\\valuaciones-view.tsx",
 "summary": "",
 "links": [
 "api.routers.valuaciones",
@@ -5775,7 +5738,7 @@
 "type": "component",
 "layer": "web-component",
 "repo": "frontend",
-"path": "src/components/watchlist-panel.tsx",
+"path": "src\\components\\watchlist-panel.tsx",
 "summary": "",
 "links": [
 "api.routers.market",
@@ -5787,7 +5750,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/api.ts",
+"path": "src\\lib\\api.ts",
 "summary": "",
 "links": []
 },
@@ -5796,7 +5759,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/cf-access.ts",
+"path": "src\\lib\\cf-access.ts",
 "summary": "",
 "links": []
 },
@@ -5805,7 +5768,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/estrategias.ts",
+"path": "src\\lib\\estrategias.ts",
 "summary": "",
 "links": []
 },
@@ -5814,7 +5777,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/fmt-money.ts",
+"path": "src\\lib\\fmt-money.ts",
 "summary": "",
 "links": []
 },
@@ -5823,7 +5786,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/me.ts",
+"path": "src\\lib\\me.ts",
 "summary": "",
 "links": []
 },
@@ -5832,7 +5795,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/proxy.ts",
+"path": "src\\proxy.ts",
 "summary": "",
 "links": [
 "api.routers.cuentas",
@@ -5852,7 +5815,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/types.ts",
+"path": "src\\lib\\types.ts",
 "summary": "",
 "links": []
 },
@@ -5861,7 +5824,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/types-estrategia.ts",
+"path": "src\\lib\\types-estrategia.ts",
 "summary": "",
 "links": []
 },
@@ -5870,7 +5833,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/types-scanner.ts",
+"path": "src\\lib\\types-scanner.ts",
 "summary": "",
 "links": []
 },
@@ -5879,7 +5842,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/use-is-guest.ts",
+"path": "src\\lib\\use-is-guest.ts",
 "summary": "",
 "links": [
 "api.routers.me"
@@ -5890,7 +5853,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/use-persisted-state.ts",
+"path": "src\\lib\\use-persisted-state.ts",
 "summary": "",
 "links": []
 },
@@ -5899,7 +5862,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/use-poll.ts",
+"path": "src\\lib\\use-poll.ts",
 "summary": "",
 "links": []
 },
@@ -5908,7 +5871,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/use-viewport-key.ts",
+"path": "src\\lib\\use-viewport-key.ts",
 "summary": "",
 "links": []
 },
@@ -5917,7 +5880,7 @@
 "type": "lib",
 "layer": "web-lib",
 "repo": "frontend",
-"path": "src/lib/xlsx-export.ts",
+"path": "src\\lib\\xlsx-export.ts",
 "summary": "",
 "links": []
 },
@@ -5926,7 +5889,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/error.tsx",
+"path": "src\\app\\error.tsx",
 "summary": "",
 "links": []
 },
@@ -5935,7 +5898,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/layout.tsx",
+"path": "src\\app\\layout.tsx",
 "summary": "",
 "links": [
 "web.cmp.header",
@@ -5949,7 +5912,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/page.tsx",
+"path": "src\\app\\page.tsx",
 "summary": "",
 "links": [
 "web.cmp.home-view"
@@ -5960,7 +5923,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/agro/page.tsx",
+"path": "src\\app\\agro\\page.tsx",
 "summary": "",
 "links": [
 "web.cmp.agro-shell",
@@ -5972,7 +5935,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/aum/page.tsx",
+"path": "src\\app\\aum\\page.tsx",
 "summary": "",
 "links": [
 "web.cmp.aum-view"
@@ -5983,7 +5946,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/back-office/page.tsx",
+"path": "src\\app\\back-office\\page.tsx",
 "summary": "",
 "links": [
 "web.cmp.back-office-shell"
@@ -5994,10 +5957,10 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/contrapartes/page.tsx",
+"path": "src\\app\\contrapartes\\page.tsx",
 "summary": "",
 "links": [
-"web.cmp.contrapartes-shell"
+"web.cmp.contrapartes-view"
 ]
 },
 {
@@ -6005,7 +5968,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/derivados/page.tsx",
+"path": "src\\app\\derivados\\page.tsx",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -6020,7 +5983,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/manager/page.tsx",
+"path": "src\\app\\manager\\page.tsx",
 "summary": "",
 "links": [
 "web.cmp.manager-view",
@@ -6032,7 +5995,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/ons/page.tsx",
+"path": "src\\app\\ons\\page.tsx",
 "summary": "",
 "links": [
 "api.routers.analitica",
@@ -6045,7 +6008,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/operaciones/page.tsx",
+"path": "src\\app\\operaciones\\page.tsx",
 "summary": "",
 "links": [
 "web.cmp.operaciones-view"
@@ -6056,7 +6019,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/operadores/page.tsx",
+"path": "src\\app\\operadores\\page.tsx",
 "summary": "",
 "links": [
 "web.cmp.operadores-view"
@@ -6067,7 +6030,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/operar/page.tsx",
+"path": "src\\app\\operar\\page.tsx",
 "summary": "",
 "links": [
 "web.cmp.operar-shell"
@@ -6078,7 +6041,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/referidos/page.tsx",
+"path": "src\\app\\referidos\\page.tsx",
 "summary": "",
 "links": [
 "web.cmp.referidos-view"
@@ -6089,7 +6052,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/renta-fija/page.tsx",
+"path": "src\\app\\renta-fija\\page.tsx",
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
@@ -6104,7 +6067,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/renta-variable/page.tsx",
+"path": "src\\app\\renta-variable\\page.tsx",
 "summary": "",
 "links": [
 "api.routers.scanner",
@@ -6118,11 +6081,10 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/retorno/page.tsx",
+"path": "src\\app\\retorno\\page.tsx",
 "summary": "",
 "links": [
-"web.cmp.retorno-total-view",
-"web.lib.me"
+"web.cmp.retorno-total-view"
 ]
 },
 {
@@ -6130,7 +6092,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/sinteticos/page.tsx",
+"path": "src\\app\\sinteticos\\page.tsx",
 "summary": "",
 "links": [
 "web.cmp.derivados-sinteticos-view"
@@ -6141,7 +6103,7 @@
 "type": "view",
 "layer": "web-view",
 "repo": "frontend",
-"path": "src/app/valuaciones/page.tsx",
+"path": "src\\app\\valuaciones\\page.tsx",
 "summary": "",
 "links": [
 "web.cmp.valuaciones-shell"

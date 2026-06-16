@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/cleanup_cedears_timesales.py
+path: jobs\cleanup_cedears_timesales.py
 ---
 
 # jobs/cleanup_cedears_timesales
 
 > cleanup_cedears_timesales.py — vacía el Time & Sales intradía de CEDEARs.
 
-**Archivo:** `jobs/cleanup_cedears_timesales.py`
+**Archivo:** `jobs\cleanup_cedears_timesales.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

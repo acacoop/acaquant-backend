@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/scanner.py
+path: api\routers\scanner.py
 ---
 
 # api/routers/scanner
 
 > Router /api/scanner — vista Scanner del módulo Renta Variable.
 
-**Archivo:** `api/routers/scanner.py`
+**Archivo:** `api\routers\scanner.py`
 
 ## Qué hace
 Router de la vista Scanner del módulo Renta Variable. `GET /api/scanner/cedears` devuelve la lista de CEDEARs activos cruzando el master con el snapshot live (underlying, ratio, sector, last/open/high/low, intraday% y vs-1D en ARS/USD); `/ccl` da el CCL live + variación 1D para el KPI del shell.

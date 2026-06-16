@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/comparar/bonos/route.ts
+path: src\app\api\comparar\bonos\route.ts
 ---
 
 # web /api/comparar/bonos  (proxy)
 
-**Archivo:** `src/app/api/comparar/bonos/route.ts`
+**Archivo:** `src\app\api\comparar\bonos\route.ts`
 
 ## Qué hace
 Devuelve el universo de bonos disponibles para el selector del comparador (pega a `/api/analitica/comparar/bonos`). Sin cache de edge; el cliente refetcha al montar (TTL backend 30s).

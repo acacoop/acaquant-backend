@@ -1,3 +1,0 @@
-Corre el snapshot de AuM para una fecha pasada puntual (no el día corriente). Reusa los helpers de `jobs.aum` (auth, consulta, procesado, valuación) pero pidiendo a Aunesa el `desde` correcto para reconstruir el cierre de esa fecha. Soporta acotar a cuentas explícitas o solo a las ya presentes en AuM, con workers/timeout/retries configurables; pisa por (id_cuenta, unidad, fecha_snapshot) y deja las cuentas fallidas en `docs/cuentas_con_error.json` con comando de reintento sugerido.
-
-Conecta con: pega a Aunesa, escribe `Valuaciones.AuM`, sincroniza `Valuaciones.Assets` y dispara `aum_resumen_fci`. Herramienta manual, no va por cron.

@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/theme-toggle.tsx
+path: src\components\theme-toggle.tsx
 ---
 
 # web/components/theme-toggle
 
-**Archivo:** `src/components/theme-toggle.tsx`
+**Archivo:** `src\components\theme-toggle.tsx`
 
 ## Qué hace
 Switch de tema claro/oscuro. Alterna la clase "light" en el elemento html y guarda la preferencia en localStorage; el default es claro y el oscuro es opt-in. El anti-parpadeo en la carga inicial lo resuelve un script en el layout.

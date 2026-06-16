@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/archive_options_data.py
+path: jobs\archive_options_data.py
 ---
 
 # jobs/archive_options_data
 
 > archive_options_data.py — backup + purga de Opciones.Data.
 
-**Archivo:** `jobs/archive_options_data.py`
+**Archivo:** `jobs\archive_options_data.py`
 
 ## Qué hace
 Mantenimiento de `Opciones.Data`: exporta el 100% de la colección a un JSON local (streaming, sin volar memoria) y después purga de Mongo los trades con timestamp anterior a hoy 00:00 ART, dejando solo la rueda en curso. Tiene salvaguarda: aborta el borrado si no exportó al menos el 99% de los docs. Default dry-run; `--apply` ejecuta. Se corre a mano (post-OPEX o para liberar espacio).

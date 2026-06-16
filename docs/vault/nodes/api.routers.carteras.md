@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/carteras.py
+path: api\routers\carteras.py
 ---
 
 # api/routers/carteras
 
 > Router Portfolio — thin wrappers sobre `api.services.portfolio`.
 
-**Archivo:** `api/routers/carteras.py`
+**Archivo:** `api\routers\carteras.py`
 
 ## Qué hace
 Router `/api/portfolio`: endpoints de portfolio / AuM / PnL. Thin wrappers sobre `api.services.portfolio` y `api.services.pnl`; la lógica de joins, agregación y valuación vive en el service. Aplica scoping de grupos (Fase 2): cada endpoint resuelve las cuentas visibles del usuario y, en la vista AUM, intersecta además con el filtro madre por operador.

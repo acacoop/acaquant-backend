@@ -4,12 +4,12 @@ type: lib
 layer: web-lib
 repo: frontend
 tags: [lib, web-lib, frontend]
-path: src/lib/estrategias.ts
+path: src\lib\estrategias.ts
 ---
 
 # web/lib/estrategias
 
-**Archivo:** `src/lib/estrategias.ts`
+**Archivo:** `src\lib\estrategias.ts`
 
 ## Qué hace
 Motor de estrategias de opciones del lado del cliente — port en TypeScript de `dashboard/views/opciones.py`. Define los templates de estrategias (spreads, conos/cunas, ratios, backspreads, cóndor de hierro, venta de vol) y resuelve cada uno contra el snapshot de opciones (`OpcionDoc`): elige strikes líquidos, calcula prima neta all-in (incluye derecho de mercado 0,20% sobre prima), griegas netas, payoff a vencimiento, breakevens y la tabla de escenarios ±2% con teórico Black-Scholes (también porteado, con `normCdf` Abramowitz-Stegun).

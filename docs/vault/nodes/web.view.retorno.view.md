@@ -4,12 +4,12 @@ type: view
 layer: web-view
 repo: frontend
 tags: [view, web-view, frontend]
-path: src/app/retorno/page.tsx
+path: src\app\retorno\page.tsx
 ---
 
 # web /retorno  (view)
 
-**Archivo:** `src/app/retorno/page.tsx`
+**Archivo:** `src\app\retorno\page.tsx`
 
 ## Qué hace
 Vista `/retorno` — retorno total / comparar inversión de bonos. Wrapper mínimo (sin `force-dynamic` ni SSR fetch) que delega todo en `RetornoTotalView`, que hace sus fetches client-side.
@@ -18,4 +18,3 @@ Conecta con: componente `RetornoTotalView` → backend `/api/analitica` y `/api/
 
 ## Usa / conecta con →
 - [[web.cmp.retorno-total-view]]  ·  _component_
-- [[web.lib.me]]  ·  _lib_

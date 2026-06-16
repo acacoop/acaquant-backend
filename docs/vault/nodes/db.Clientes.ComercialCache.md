@@ -17,4 +17,3 @@ Conecta con: la escribe `jobs/comercial_rollup.py` (precompute); la lee `api/ser
 
 ## Lo usan (backlinks) ←
 - [[api.services.comercial]]  ·  _module_
-- [[jobs.comercial_rollup]]  ·  _module_

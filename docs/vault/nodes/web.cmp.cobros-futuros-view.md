@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/cobros-futuros-view.tsx
+path: src\components\cobros-futuros-view.tsx
 ---
 
 # web/components/cobros-futuros-view
 
-**Archivo:** `src/components/cobros-futuros-view.tsx`
+**Archivo:** `src\components\cobros-futuros-view.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -1,6 +1,6 @@
 # 🧱 core — infraestructura
 
-30 notas.
+31 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para Trading.AdhocSubscriptions — suscripciones live efímeras.
@@ -21,6 +21,7 @@
 - [[core.mongo_monitor]] — mongo_monitor.py — listener de pymongo para grabar queries de la API.
 - [[core.notify]] — Notificaciones operativas (Telegram).
 - [[core.openfigi]] — Cliente OpenFIGI con caching en Mongo (Smart.CusipCatalog).
+- [[core.pg_mirror]] — core/pg_mirror.py — dual-write best-effort Mongo→Postgres (Fase 2, capa MERCADO).
 - [[core.postgres]] — core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.
 - [[core.profiler]] — Stopwatch mínimo para instrumentar pasos dentro de una función.
 - [[core.rofex_orders_session]] — Sesión pyRofex dedicada a envío/seguimiento de órdenes.

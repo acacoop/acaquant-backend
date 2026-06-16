@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/agro-datos.tsx
+path: src\components\agro-datos.tsx
 ---
 
 # web/components/agro-datos
 
-**Archivo:** `src/components/agro-datos.tsx`
+**Archivo:** `src\components\agro-datos.tsx`
 
 ## Qué hace
 Pizarra editable de precios de la Cámara Arbitral de Cereales de Rosario (TRIGO, MAIZ, GIRASOL, SOJA, SORGO) en ARS y USD. Hace polling cada 10s, muestra quién y cuándo actualizó cada precio, y guarda ediciones con debounce de 800ms. Es la pestaña "Datos" del shell Agro.

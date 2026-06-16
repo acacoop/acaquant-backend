@@ -653,7 +653,7 @@ Every mutation invalidates the in-process cache (`core/roles.py::invalidate_cach
 
 | Method | Path | Limit | Description |
 |---|---|---|---|
-| POST | `/jobs/run` | 5/h, 20/d | Body `{tipo, args[]}`. Spawns a job (`tipo ∈ aum_backfill, aum_resumen_fci, cashflow, flujo, bcra, sync_api_copies, crear_indices, cleanup_curvas`). Worker is `subprocess.run` with 360 s timeout. |
+| POST | `/jobs/run` | 5/h, 20/d | Body `{tipo, args[]}`. Spawns a job (`tipo ∈ cashflow, flujo, bcra, crear_indices, cleanup_curvas` — ver `_CMDS` en `manager/jobs.py`). Worker is `subprocess.run` with 360 s timeout. |
 | GET | `/jobs/{job_id}` | — | `status ∈ {running, done, error}`, `rc`, last 1500 chars of stdout/stderr |
 | GET | `/jobs/history` | — | Runs from `Manager.JobRuns` (TTL 60 d). Filters: `tipo`, `status`, `desde`, `hasta`, `limit≤500` |
 | GET | `/jobs/history/stats` | — | Per-tipo aggregates since `desde` (default 7 d) |
@@ -784,17 +784,14 @@ Read-only re-exposure of 30 analytical tools (curvas, forwards, breakevens, opci
 
 ## 8. Data architecture
 
-Source collections are the system of record. API-facing collections are denormalised copies refreshed by scheduled jobs. Cotizaciones, Manager, Risk and Operaciones (live) read directly.
+Las colecciones fuente son el system of record. Tenencias y catálogo de títulos
+viven en **SQL** (`portafolio.tenencia` / `portafolio.assets`); las colecciones
+espejo `*API` fueron **eliminadas** (2026-06-06) y la API lee las fuentes directo
+(el join Curvas+BondsMaster lo hace `api/services/titulos_flujos.py`). El resto lo
+escriben motores (real-time) y jobs directamente sobre Mongo.
 
-| API DB / Collection | Source | Sync |
+| Collection | Source | Writer |
 |---|---|---|
-| `CuentasAPI.AccionistasAPI` | `CashFlow.Accionistas` | `scripts.api_migrate accionistas` |
-| `CuentasAPI.ContrapartesAPI` | `CashFlow.Contrapartes` | `scripts.api_migrate contrapartes` |
-| `OperacionesAPI.MesaAPI` | `CashFlow.Flujo` | `scripts.api_migrate flujo` |
-| `OperacionesAPI.FlujosAPI` | `CashFlow.Movimientos` | `scripts.api_migrate movimientos` |
-| `PortfolioAPI.AumAPI` | `Valuaciones.AuM` | `scripts.api_migrate aum` |
-| `TitulosAPI.AssetsAPI` | `Valuaciones.Assets` | `scripts.api_migrate assets` |
-| `TitulosAPI.ValuacionesAPI` | `Trading.Curvas` + `Trading.BondsMaster` | `scripts.api_migrate flujos-titulos` |
 | `Trading.*` | — | Motors write real-time |
 | `Trading.CaucionSnapshot` / `Caucion` | — | `engines.caucion` |
 | `Trading.FuturosDLRSnapshot` / `FuturosDLR` | — | `engines.futuros_dlr` |
@@ -807,14 +804,11 @@ Source collections are the system of record. API-facing collections are denormal
 | `Market.Quotes` / `Market.EconomicCalendar` | — | `jobs.market_quotes`, `jobs.market_anchors`, `jobs.economic_calendar` |
 | `Manager.JobRuns` | — | Background writers + TTL 60 d |
 | `Manager.PyRofexDiscovery` / `PyRofexInstruments` | — | `scripts.discovery_pyrofex` (one-shot manual) |
-| `Manager.AsistenteLogs` | — | `POST /api/chat` |
 | `Manager.IntelDocs` | — | `/api/manager/intel/*` |
 | `Manager.Users` / `RoleMatrix` / `RoleAudit` | — | `/api/manager/users`, `/api/manager/roles`, auto-register on first visit |
 | `Operaciones.OrdenesLive` / `OrdenesAudit` | — | `motor_ordenes` (WS order_report) |
 | `Operaciones.OperativasMep` / `TriggersMep` | — | `/api/operativa/*` + scanner asyncio in `api.main` lifespan |
 | `MCP.*` (codes / tokens / clients) | — | OAuth 2.1 provider in `api/mcp/oauth.py` (TTL automático) |
-
-**Automated re-sync** (`jobs/sync_api_copies.py`) is chained in the crontab after each source job so API copies stay fresh without human intervention. See `deploy/crontab.txt`.
 
 ---
 

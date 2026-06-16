@@ -1,10 +1,13 @@
 # AUM — PROBLEMAS Y SOLUCIONES (bitácora del incidente)
 
-> **Estado: 🔴 ABIERTO** · Apertura: **2026-06-12** · Última actualización: **2026-06-13**
+> **Estado: ✅ RESUELTO (2026-06-15)** · Apertura: **2026-06-12**
 >
-> Bitácora viva del incidente de datos de **AuM / Tenencia / Valuaciones**. Se
-> documenta TODO: detecciones, hipótesis, pruebas, errores, intentos y avances,
-> con fecha y hora, hasta resolverlo. **No se borra hasta que esté solucionado.**
+> **Resolución:** el descalce se corrigió migrando las tenencias a **SQL**
+> (`portafolio.tenencia`, writer `jobs/portafolio_backfill --diario`, con la regla
+> H1 aplicada). `Valuaciones.AuM` (Mongo) fue **eliminada** el 2026-06-15. Esta
+> bitácora se conserva por la **regla H1** (Aunesa `desde=X` devuelve el día hábil
+> ANTERIOR → pedir `desde = D+1`), aún vigente para el writer SQL y referenciada
+> desde `jobs/aum.py`. El resto es registro forense del incidente.
 
 ---
 

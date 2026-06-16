@@ -93,17 +93,6 @@ El `pnl_realizado` histórico se oculta — irá a una vista histórica separada
 - `src/components/valuaciones-view.tsx` — vista PORTAFOLIO (chart evolución mensual + tabla).
 - `src/app/api/aum-pnl/route.ts` y `aum-pnl-todas/route.ts` — proxies.
 
-**Scripts** (en `scripts/`):
-- `backfill_trd_categorias.py` — TRD → compra/venta por signo.
-- `backfill_licitacion_compra.py` — Licitación → compra.
-- `backfill_liquidacion_fci.py` — Liquidación FCI bilateral (parser).
-- `backfill_assets_cafci.py` — auto-fill CAFCI desde unidad.
-- `backfill_assets_instrumento.py` — auto-fill INSTRUMENTO con validación contra pyRofex.
-- `audit_assets_instrumento.py` — read-only, reporta sospechosos.
-- `diagnose_live_coverage.py` — qué % de tenencia tiene cobertura live.
-- `match_mep_boletos.py` — completa MEP en boletos backfilleados.
-- `backfill_negocio_range.py` — corre `negocio_movimientos` por rango de fechas.
-
 ---
 
 ## Lógica del cost-basis (cómo se computa el PnL)

@@ -148,10 +148,25 @@ def _comitentes_match(operador_email: str, nivel_1: str | None = None,
 
 def _cuentas_de_operador(operador_email: str, nivel_1: str | None = None,
                          nivel_3: str | None = None, referido: str | None = None) -> tuple[str, ...]:
-    """ids de cuenta (Comitentes activas) del scope. `TODOS` sin filtros → todas."""
-    docs = get_db_clientes()["Comitentes"].find(
-        _comitentes_match(operador_email, nivel_1, nivel_3, referido), {"_id": 0, "id_cuenta": 1})
-    return tuple(sorted(str(d["id_cuenta"]) for d in docs if d.get("id_cuenta")))
+    """ids de cuenta (Comitentes activas) del scope. `TODOS` sin filtros → todas.
+    Lee SQL clientes.comitentes (Mongo Clientes.Comitentes fue eliminada)."""
+    conds = ["estado = 'Activa'", "id_cuenta IS NOT NULL"]
+    p: dict[str, Any] = {}
+    if operador_email != TODOS:
+        conds.append("operador_email = %(op)s")
+        p["op"] = operador_email
+    if nivel_1:
+        conds.append("nivel_1 = %(n1)s")
+        p["n1"] = nivel_1
+    if nivel_3:
+        conds.append("nivel_3 = %(n3)s")
+        p["n3"] = nivel_3
+    if referido:
+        conds.append("referido = %(rf)s")
+        p["rf"] = referido
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT id_cuenta FROM comitentes WHERE {' AND '.join(conds)}", p)
+        return tuple(sorted(str(r[0]) for r in cur.fetchall() if r[0]))
 
 
 def dimensiones_comercial() -> dict[str, Any]:
@@ -479,26 +494,36 @@ def referido_clientes(*, referido: str, moneda: str = "ARS") -> dict[str, Any]:
     ytd_desde = hoy.replace(month=1, day=1).isoformat()
     aum = _aum_por_cuenta(ids)
 
-    # Volumen por cuenta: año (ytd) y mes (mtd) en una sola pasada.
+    # Volumen por cuenta: año (ytd) y mes (mtd) en una sola pasada — SQL
+    # operaciones.negocio_movimientos. Pesifica ARS in-place; excluye futuros DLR.
     vol_mes: dict[str, float] = {}
     vol_ano: dict[str, float] = {}
-    for d in get_db_cashflow()["NegocioMovimientos"].aggregate([
-        {"$match": _match_volumen(ids, ytd_desde)},
-        {"$group": {
-            "_id": "$id_cuenta",
-            "ano": {"$sum": _PESIF},
-            "mes": {"$sum": {"$cond": [{"$gte": ["$fecha", mtd_desde]}, _PESIF, 0]}},
-        }},
-    ]):
-        if d.get("_id"):
-            vol_ano[str(d["_id"])] = float(d.get("ano") or 0.0)
-            vol_mes[str(d["_id"])] = float(d.get("mes") or 0.0)
+    _pesif = ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) "
+              "ELSE abs(COALESCE(importe, 0)) * COALESCE(mep, 0) END")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"SELECT id_cuenta, SUM({_pesif}) AS ano, "
+            f"SUM(CASE WHEN fecha >= %(mtd)s THEN {_pesif} ELSE 0 END) AS mes "
+            f"FROM negocio_movimientos "
+            f"WHERE categoria = ANY(%(cats)s) AND unidad IS DISTINCT FROM 'USDL' "
+            f"AND id_cuenta = ANY(%(ids)s) AND fecha >= %(ytd)s GROUP BY id_cuenta",
+            {"cats": list(_CATS_VOLUMEN), "ids": list(ids),
+             "ytd": ytd_desde, "mtd": mtd_desde})
+        for idc, ano, mes in cur.fetchall():
+            if idc:
+                vol_ano[str(idc)] = float(ano or 0.0)
+                vol_mes[str(idc)] = float(mes or 0.0)
 
     aranceles = _aranceles_por_cuenta(ids, mtd_desde)
-    denom = {str(d["id_cuenta"]): d.get("denominacion")
-             for d in get_db_clientes()["Comitentes"].find(
-                 _comitentes_match(TODOS, None, None, referido),
-                 {"_id": 0, "id_cuenta": 1, "denominacion": 1})}
+    # Denominación por cuenta desde SQL (clientes.comitentes activas del referido
+    # ⋈ clientes.cuentas para el nombre).
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT c.id_cuenta, u.denominacion FROM comitentes c "
+            "LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta "
+            "WHERE c.estado = 'Activa' AND c.referido = %(rf)s AND c.id_cuenta IS NOT NULL",
+            {"rf": referido})
+        denom = {str(r[0]): r[1] for r in cur.fetchall() if r[0]}
 
     clientes = []
     for idc in ids:

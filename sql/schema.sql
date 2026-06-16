@@ -234,6 +234,27 @@ CREATE INDEX IF NOT EXISTS ix_assets_cartera ON portafolio.assets(cartera);
 CREATE INDEX IF NOT EXISTS ix_assets_clase   ON portafolio.assets(clase_activo);
 CREATE INDEX IF NOT EXISTS ix_assets_ticker  ON portafolio.assets(ticker);
 
+-- Valuaciones.ConsolidadoCuentas — cache iterativo (1 fila/cuenta) para /valuaciones/consolidado.
+-- NO es un rollup agregable en vivo: cada fila es el XIRR/TWR/PnL acumulado de la cuenta
+-- (Python sobre los cierres SQL), por eso se precalcula. Lo escribe el cron
+-- jobs.consolidado_cuentas (dual-write Mongo+SQL); el service SQL solo lo lee + filtra.
+CREATE TABLE IF NOT EXISTS portafolio.consolidado (
+    id_cuenta     text PRIMARY KEY,
+    cuenta        text,
+    ultimo_dia    text,
+    valor_ars     numeric,
+    valor_usd     numeric,
+    base100_ars   numeric,
+    base100_usd   numeric,
+    pnl_acum_ars  numeric,
+    pnl_acum_usd  numeric,
+    tem_ars       numeric,
+    tem_usd       numeric,
+    tea_ars       numeric,
+    tea_usd       numeric,
+    computed_at   timestamptz DEFAULT now()
+);
+
 -- Valuaciones.Dolar — feed MEP (timestamp, mep). get_mep_for_date: último mep <= eod(fecha).
 CREATE TABLE IF NOT EXISTS dolar (
     timestamp timestamptz PRIMARY KEY,

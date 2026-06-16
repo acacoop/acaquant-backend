@@ -34,6 +34,7 @@ def get_consolidado(
         description="todas | accionistas | sin_accionistas | cooperativas | productores",
     ),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Una fila por cuenta: valor, base 100, PnL acum, TEM, TEA (ARS y USD).
 
@@ -41,7 +42,11 @@ def get_consolidado(
     comparar carteras entre sí. Cacheado — el primer load puede tardar.
     El `scope` de grupos limita las filas a las cuentas visibles del user.
     """
+    use_sql = _engine == "sql" or (_engine != "mongo" and os.getenv("VALUACIONES_SQL") == "1")
     try:
+        if use_sql:
+            from api.services import valuaciones_sql as svc_sql
+            return svc_sql.valuacion_consolidada(filtro_cuenta=filtro_cuenta, scope=scope)
         return svc.valuacion_consolidada(filtro_cuenta=filtro_cuenta, scope=scope)
     except Exception as e:
         logger.exception("valuaciones consolidado failed: filtro=%s", filtro_cuenta)

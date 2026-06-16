@@ -280,3 +280,70 @@ def variacion_titulos(id_cuenta: str, fecha: str) -> dict:
             "delta_total":   round(tot_delta, 2),
         },
     }
+
+
+def _fn(x):
+    """Decimal/num → float, preservando None (base100/tem/tea pueden ser None)."""
+    return None if x is None else float(x)
+
+
+def valuacion_consolidada(filtro_cuenta: str = "todas",
+                          scope: tuple[str, ...] | None = None) -> dict:
+    """Espejo SQL de valuaciones.valuacion_consolidada — lee `portafolio.consolidado`
+    (cache iterativo escrito por el cron jobs.consolidado_cuentas, dual-write Mongo+SQL).
+
+    Aplica el scope de grupos + el filtro de tipo de cuenta EN PYTHON, idéntico al path
+    Mongo. Mismo shape {rows, n, filtro_cuenta}. Si la tabla no existe / está vacía
+    (falta correr el cron una vez) → rows: []."""
+    try:
+        rows = _q(
+            "SELECT id_cuenta, cuenta, ultimo_dia, valor_ars, valor_usd, base100_ars, "
+            "base100_usd, pnl_acum_ars, pnl_acum_usd, tem_ars, tem_usd, tea_ars, tea_usd "
+            "FROM portafolio.consolidado")
+    except Exception:
+        return {"rows": [], "n": 0, "filtro_cuenta": filtro_cuenta}
+
+    docs = [{
+        "cuenta":       r["cuenta"] or "",
+        "id_cuenta":    r["id_cuenta"],
+        "ultimo_dia":   r["ultimo_dia"],
+        "valor_ars":    _fn(r["valor_ars"]),
+        "valor_usd":    _fn(r["valor_usd"]),
+        "base100_ars":  _fn(r["base100_ars"]),
+        "base100_usd":  _fn(r["base100_usd"]),
+        "pnl_acum_ars": _fn(r["pnl_acum_ars"]),
+        "pnl_acum_usd": _fn(r["pnl_acum_usd"]),
+        "tem_ars":      _fn(r["tem_ars"]),
+        "tem_usd":      _fn(r["tem_usd"]),
+        "tea_ars":      _fn(r["tea_ars"]),
+        "tea_usd":      _fn(r["tea_usd"]),
+    } for r in rows]
+
+    if scope is not None:
+        permitidas = set(scope)
+        docs = [d for d in docs if str(d.get("id_cuenta", "")) in permitidas]
+
+    if filtro_cuenta and filtro_cuenta != "todas":
+        from api.services._cuentas_filter import (
+            _cuentas_accionistas,
+            _ids_cuenta_productores,
+        )
+        accs = set(_cuentas_accionistas())
+        prods = set(_ids_cuenta_productores())
+
+        def _ok(d: dict) -> bool:
+            cuenta = d.get("cuenta") or ""
+            idc = str(d.get("id_cuenta") or "")
+            if filtro_cuenta == "accionistas":
+                return cuenta in accs
+            if filtro_cuenta == "sin_accionistas":
+                return cuenta not in accs
+            if filtro_cuenta == "cooperativas":
+                return cuenta not in accs and "coop" in cuenta.lower()
+            if filtro_cuenta == "productores":
+                return idc in prods
+            return True
+
+        docs = [d for d in docs if _ok(d)]
+
+    return {"rows": docs, "n": len(docs), "filtro_cuenta": filtro_cuenta}

@@ -43,16 +43,11 @@ import re
 import sys
 from datetime import UTC, date, datetime, timedelta
 
-from pymongo import UpdateOne
-
 sys.path.insert(0, ".")
 
 from api.services import aunesa_negocio as svc
 from api.services._mep import get_mep_for_date
-from core.mongo import get_mongo_client
-
-DB_NAME = "CashFlow"
-COL_NAME = "NegocioMovimientos"
+from core.postgres import get_pool
 
 # `cuenta` viene "[805] NOMBRE" → id de la cuenta comitente. Denormalizado en
 # el doc para que las queries por cuenta usen índice (en vez de regex). Lo
@@ -63,26 +58,6 @@ _RE_ID_CUENTA = re.compile(r"^\[(\d+)\]")
 def _extract_id_cuenta(cuenta: str | None) -> str | None:
     m = _RE_ID_CUENTA.match(cuenta or "")
     return m.group(1) if m else None
-
-
-def _ensure_indexes(coll) -> None:
-    """Índice único (fecha, comprobante). Idempotente."""
-    coll.create_index(
-        [("fecha", 1), ("comprobante", 1)],
-        unique=True,
-        sparse=False,
-        name="uq_fecha_comprobante",
-    )
-    # Útiles para queries del front:
-    coll.create_index([("fecha", -1), ("categoria", 1)], name="fecha_categoria")
-    coll.create_index([("fecha", -1), ("cuenta", 1)], name="fecha_cuenta")
-    coll.create_index([("fecha", -1), ("ticker", 1)], name="fecha_ticker")
-    # Vista COMERCIAL: queries por cuenta vía id_cuenta (sin regex).
-    coll.create_index([("id_cuenta", 1), ("fecha", -1)], name="idcuenta_fecha")
-    coll.create_index(
-        [("id_cuenta", 1), ("categoria", 1), ("fecha", -1)],
-        name="idcuenta_categoria_fecha",
-    )
 
 
 def _boleto_a_doc(b: dict, fecha_iso: str, ahora: datetime, mep: float | None) -> dict:
@@ -149,40 +124,37 @@ def run(fecha_d: date, dry: bool = False) -> dict:
             "fecha": fecha_iso, "dry": True,
         }
 
-    client = get_mongo_client()
-    coll = client[DB_NAME][COL_NAME]
-    _ensure_indexes(coll)
-
     # MEP del día — una lookup, se reusa para todos los boletos de la fecha.
     mep = get_mep_for_date(fecha_iso)
     if mep is None:
         logger.warning("Sin MEP para %s — boletos quedarán con mep=null.", fecha_iso)
 
     ahora = datetime.now(UTC)
-    ops = []
-    for b in persistibles:
-        doc = _boleto_a_doc(b, fecha_iso, ahora, mep)
-        ops.append(UpdateOne(
-            {"fecha": fecha_iso, "comprobante": b["comprobante"]},
-            {"$set": doc},
-            upsert=True,
-        ))
+    docs = [_boleto_a_doc(b, fecha_iso, ahora, mep) for b in persistibles]
 
-    result = coll.bulk_write(ops, ordered=False)
-    logger.info(
-        "Bulk write OK: matched=%d modified=%d upserted=%d (de %d boletos)",
-        result.matched_count, result.modified_count,
-        result.upserted_count, len(persistibles),
-    )
+    # Escritura SQL operaciones.negocio_movimientos (upsert por fecha+comprobante).
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO negocio_movimientos "
+            "(fecha, comprobante, id_cuenta, categoria, op, ticker, cantidad, precio, importe, "
+            " moneda, mep, cuenta, plazo, lugar, estado, informacion, ingestado_en) "
+            "VALUES (%(fecha)s, %(comprobante)s, %(id_cuenta)s, %(categoria)s, %(op)s, %(ticker)s, "
+            " %(cantidad)s, %(precio)s, %(importe)s, %(moneda)s, %(mep)s, %(cuenta)s, %(plazo)s, "
+            " %(lugar)s, %(estado)s, %(informacion)s, %(ingestado_en)s) "
+            "ON CONFLICT (fecha, comprobante) DO UPDATE SET "
+            "id_cuenta=EXCLUDED.id_cuenta, categoria=EXCLUDED.categoria, op=EXCLUDED.op, "
+            "ticker=EXCLUDED.ticker, cantidad=EXCLUDED.cantidad, precio=EXCLUDED.precio, "
+            "importe=EXCLUDED.importe, moneda=EXCLUDED.moneda, mep=EXCLUDED.mep, "
+            "cuenta=EXCLUDED.cuenta, plazo=EXCLUDED.plazo, lugar=EXCLUDED.lugar, "
+            "estado=EXCLUDED.estado, informacion=EXCLUDED.informacion, "
+            "ingestado_en=EXCLUDED.ingestado_en",
+            docs)
+        n = len(docs)
+        conn.commit()
+    logger.info("SQL upsert OK: %d boletos → operaciones.negocio_movimientos", n)
 
-    return {
-        "fecha":      fecha_iso,
-        "boletos":    len(persistibles),
-        "skipped":    skipped,
-        "upsertados": result.upserted_count,
-        "matched":    result.matched_count,
-        "modified":   result.modified_count,
-    }
+    return {"fecha": fecha_iso, "boletos": len(persistibles),
+            "skipped": skipped, "upsertados": n}
 
 
 def main() -> int:

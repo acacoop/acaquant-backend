@@ -62,8 +62,11 @@ def get_pool():
         with _pool_lock:
             if _pool is None:
                 from psycopg_pool import ConnectionPool
+                # max_size 8→20: con varias vistas en SQL + el watchlist polleando,
+                # 8 conexiones se agotaban → PoolTimeout. timeout 30→8s: si igual se
+                # satura, falla RÁPIDO (no cuelga 30s arrastrando el threadpool).
                 _pool = ConnectionPool(
-                    get_postgres_uri(), min_size=1, max_size=8, open=True,
+                    get_postgres_uri(), min_size=2, max_size=20, open=True, timeout=8.0,
                     kwargs={"options": f"-c statement_timeout=15000 -c search_path={_SEARCH_PATH}"},
                 )
     return _pool

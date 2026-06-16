@@ -15,6 +15,7 @@ from datetime import datetime
 
 from psycopg.rows import dict_row
 
+from api.cache import cached
 from core.postgres import get_pool
 
 
@@ -60,15 +61,26 @@ def compute_returns(d: dict) -> dict:
     return d
 
 
-def quotes(symbols: list[str] | None = None) -> list[dict]:
-    """Últimas cotizaciones del watchlist. `symbols` ya viene upper/strip del router."""
-    if symbols:
-        rows = _q("SELECT data FROM market_quotes WHERE symbol = ANY(%(s)s)", {"s": symbols})
-    else:
-        rows = _q("SELECT data FROM market_quotes")
+@cached(ttl=3)
+def _quotes_all() -> list[dict]:
+    """Watchlist COMPLETO (todos los símbolos) — el path CALIENTE (pollea ~cada 2s).
+    Cacheado 3s: el dato cambia ≤1×/min → 1 query a Postgres por ventana, no por request.
+    Sin esto, cada poll agarra una conexión del pool → se agota → PoolTimeout
+    (incidente 2026-06-16, tumbó la API)."""
+    rows = _q("SELECT data FROM market_quotes")
     docs = [compute_returns(_fix_tz(dict(r["data"]))) for r in rows]
     docs.sort(key=lambda d: (d.get("grupo", "ZZZ"), d.get("symbol", "")))
     return docs
+
+
+def quotes(symbols: list[str] | None = None) -> list[dict]:
+    """Últimas cotizaciones del watchlist. `symbols` ya viene upper/strip del router."""
+    if symbols:  # path raro (símbolos puntuales) → sin cache
+        rows = _q("SELECT data FROM market_quotes WHERE symbol = ANY(%(s)s)", {"s": symbols})
+        docs = [compute_returns(_fix_tz(dict(r["data"]))) for r in rows]
+        docs.sort(key=lambda d: (d.get("grupo", "ZZZ"), d.get("symbol", "")))
+        return docs
+    return _quotes_all()
 
 
 def calendar_economic(desde: datetime, hasta: datetime, importancia: int = 0,

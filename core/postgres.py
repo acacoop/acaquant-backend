@@ -32,11 +32,18 @@ def get_postgres_uri() -> str:
     return POSTGRES_URI
 
 
+# Las tablas están organizadas por dominio en schemas (clientes/operaciones/
+# portafolio). El `search_path` resuelve los nombres SIN calificar en este orden →
+# el código existente sigue funcionando sin tocar cada query. `public` al final
+# para mercado/manager/macro.
+_SEARCH_PATH = "clientes, operaciones, portafolio, public"
+
+
 def connect() -> psycopg.Connection:
     """Nueva conexión psycopg standalone. El caller la cierra — usar como context
     manager: `with connect() as conn: ...`. Para batch (sync/smoke/scripts) alcanza
     una conexión por corrida. La API usa el pool (`get_pool`), no esto."""
-    return psycopg.connect(get_postgres_uri())
+    return psycopg.connect(get_postgres_uri(), options=f"-c search_path={_SEARCH_PATH}")
 
 
 def get_pool():
@@ -55,6 +62,6 @@ def get_pool():
                 from psycopg_pool import ConnectionPool
                 _pool = ConnectionPool(
                     get_postgres_uri(), min_size=1, max_size=8, open=True,
-                    kwargs={"options": "-c statement_timeout=15000"},
+                    kwargs={"options": f"-c statement_timeout=15000 -c search_path={_SEARCH_PATH}"},
                 )
     return _pool

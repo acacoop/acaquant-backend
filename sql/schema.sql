@@ -16,24 +16,38 @@
 --
 -- Idempotente: DROP ... IF EXISTS + CREATE. El sync (jobs/sync_postgres.py, Fase B)
 -- hace UPSERT por PK.
+--
+-- ORGANIZACIÓN POR SCHEMA (no desparramado como Mongo). El search_path
+-- (core/postgres.py = clientes, operaciones, portafolio, public) resuelve los
+-- nombres sin calificar:
+--   clientes    → cuentas, operadores, comitentes, contrapartes, accionistas, actividad_mensual
+--   operaciones → operaciones, negocio_movimientos, (movimientos, flujo)
+--   portafolio  → tenencia, assets
+--   public      → mercado / manager / macro
+-- NO hay tablas rollup (OpsSerieDiaria/ComercialCache de Mongo NO se replican):
+-- en Postgres el GROUP BY indexado corre en ms → se agrega EN VIVO.
+
+CREATE SCHEMA IF NOT EXISTS clientes;
+CREATE SCHEMA IF NOT EXISTS operaciones;
+CREATE SCHEMA IF NOT EXISTS portafolio;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- DIMENSIONES
+-- DIMENSIONES — schema `clientes` (cuentas + segmentación)
 -- ─────────────────────────────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS operadores (
+CREATE TABLE IF NOT EXISTS clientes.operadores (
     email   text PRIMARY KEY,
     nombre  text
 );
 
-CREATE TABLE IF NOT EXISTS cuentas (
+CREATE TABLE IF NOT EXISTS clientes.cuentas (
     id_cuenta    text PRIMARY KEY,          -- clave estable en todo el sistema ("805")
     denominacion text                        -- "[805] NOMBRE" o nombre a secas
 );
 
-CREATE TABLE IF NOT EXISTS comitentes (
-    id_cuenta       text PRIMARY KEY REFERENCES cuentas(id_cuenta),
-    operador_email  text REFERENCES operadores(email),
+CREATE TABLE IF NOT EXISTS clientes.comitentes (
+    id_cuenta       text PRIMARY KEY REFERENCES clientes.cuentas(id_cuenta),
+    operador_email  text REFERENCES clientes.operadores(email),
     tipo_doc        text,
     nro_doc         text,
     nivel_1         text,                    -- segmentación (MAYÚSCULAS): PRODUCTORES, etc.
@@ -54,27 +68,22 @@ CREATE TABLE IF NOT EXISTS comitentes (
     dma               text,
     cupo_transaccional_ars numeric,           -- cupo.transaccional_ars (subdoc Mongo)
     cupo_usado_ars         numeric,           -- cupo.usado_ars
-    referido               text               -- quién refirió al cliente (ficha + filtro comercial)
+    referido               text,              -- quién refirió al cliente (ficha + filtro comercial)
+    -- Segmentación/auditoría (para escribir TODO a SQL — eran subdocs/campos en Mongo):
+    observaciones          text,
+    sucursal               text,
+    segmento_patrimonial   text,
+    origen                 text,              -- "aunesa" | "reconciler" | "manual"
+    cupo_utilizacion_pct   numeric,
+    cupo_cargado_en        timestamptz,
+    cupo_fuente            text,
+    actualizado_por        text,
+    actualizado_at         timestamptz
 );
--- La tabla ya existe en Supabase → ALTER idempotente agrega las columnas nuevas.
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS estado                    text;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS fecha_alta_legajo         date;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS telefono                  text;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS email                     text;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS nivel_4                   text;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS nivel_5                   text;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS primer_contacto_comercial text;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS riesgo_la_ft              text;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS division                  text;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS adc                       text;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS dma                       text;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS cupo_transaccional_ars    numeric;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS cupo_usado_ars            numeric;
-ALTER TABLE comitentes ADD COLUMN IF NOT EXISTS referido                  text;
-CREATE INDEX IF NOT EXISTS ix_comitentes_operador ON comitentes(operador_email);
-CREATE INDEX IF NOT EXISTS ix_comitentes_nivel1   ON comitentes(nivel_1);
-CREATE INDEX IF NOT EXISTS ix_comitentes_estado   ON comitentes(estado);
-CREATE INDEX IF NOT EXISTS ix_comitentes_alta     ON comitentes(fecha_alta_legajo);
+CREATE INDEX IF NOT EXISTS ix_comitentes_operador ON clientes.comitentes(operador_email);
+CREATE INDEX IF NOT EXISTS ix_comitentes_nivel1   ON clientes.comitentes(nivel_1);
+CREATE INDEX IF NOT EXISTS ix_comitentes_estado   ON clientes.comitentes(estado);
+CREATE INDEX IF NOT EXISTS ix_comitentes_alta     ON clientes.comitentes(fecha_alta_legajo);
 
 -- Manager.Users — usuarios de la app (RBAC). email lowercased. Antes solo `email` (flag
 -- huérfanas comercial); ahora con role/enabled/etc. para la migración de AUTH a SQL.
@@ -112,7 +121,7 @@ CREATE INDEX IF NOT EXISTS ix_grupos_emails ON grupos USING gin(emails);
 
 -- Clientes.ActividadMensual — snapshot point-in-time (operador/segmento CONGELADOS al
 -- correr el job). NO derivar en vivo (rompería el congelado). Se espeja tal cual.
-CREATE TABLE IF NOT EXISTS actividad_mensual (
+CREATE TABLE IF NOT EXISTS clientes.actividad_mensual (
     year_month      text NOT NULL,            -- "YYYY-MM" (comparación lexicográfica = Mongo)
     id_cuenta       text NOT NULL,
     operador_email  text,
@@ -122,14 +131,17 @@ CREATE TABLE IF NOT EXISTS actividad_mensual (
     volumen_ars     numeric,
     PRIMARY KEY (year_month, id_cuenta)
 );
-CREATE INDEX IF NOT EXISTS ix_am_operador ON actividad_mensual(operador_email, year_month);
+CREATE INDEX IF NOT EXISTS ix_am_operador ON clientes.actividad_mensual(operador_email, year_month);
 
-CREATE TABLE IF NOT EXISTS contrapartes (
-    id_cuenta    text PRIMARY KEY,           -- en Mongo: CashFlow.Contrapartes.cuenta
-    contraparte  text,                       -- nombre
-    segmento     text                        -- grupo (Fondos, ALYC, ...)
+CREATE TABLE IF NOT EXISTS clientes.contrapartes (
+    id_cuenta       text PRIMARY KEY,        -- en Mongo: CashFlow.Contrapartes.cuenta
+    contraparte     text,                    -- nombre
+    segmento        text,                    -- grupo (Fondos, ALYC, ...)
+    origen          text,                    -- "manual" | "reconciler"
+    actualizado_por text,
+    actualizado_at  timestamptz
 );
-CREATE INDEX IF NOT EXISTS ix_contrapartes_segmento ON contrapartes(segmento);
+CREATE INDEX IF NOT EXISTS ix_contrapartes_segmento ON clientes.contrapartes(segmento);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- HECHOS
@@ -137,7 +149,7 @@ CREATE INDEX IF NOT EXISTS ix_contrapartes_segmento ON contrapartes(segmento);
 
 -- CashFlow.Operaciones (~490k). boleto es único (uq_boleto_full) pero hay docs
 -- sin boleto → PK surrogate + boleto unique-nullable.
-CREATE TABLE IF NOT EXISTS operaciones (
+CREATE TABLE IF NOT EXISTS operaciones.operaciones (
     id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     boleto         text UNIQUE,
     concertacion   date,                      -- Mongo guarda 'YYYY-MM-DD' string → casteado a date
@@ -163,20 +175,20 @@ CREATE TABLE IF NOT EXISTS operaciones (
 );
 -- La tabla ya estaba creada en Supabase → CREATE IF NOT EXISTS NO agrega columnas.
 -- Estos ALTER son idempotentes y SÍ las agregan a la tabla existente.
-ALTER TABLE operaciones ADD COLUMN IF NOT EXISTS cantidad       numeric;
-ALTER TABLE operaciones ADD COLUMN IF NOT EXISTS instrumento    text;
-ALTER TABLE operaciones ADD COLUMN IF NOT EXISTS tipo_operacion text;
-ALTER TABLE operaciones ADD COLUMN IF NOT EXISTS condiciones    text;
-ALTER TABLE operaciones ADD COLUMN IF NOT EXISTS ingestado_en   timestamptz;
+ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS cantidad       numeric;
+ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS instrumento    text;
+ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS tipo_operacion text;
+ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS condiciones    text;
+ALTER TABLE operaciones.operaciones ADD COLUMN IF NOT EXISTS ingestado_en   timestamptz;
 
-CREATE INDEX IF NOT EXISTS ix_ops_concertacion ON operaciones(concertacion);
-CREATE INDEX IF NOT EXISTS ix_ops_id_cuenta    ON operaciones(id_cuenta);
-CREATE INDEX IF NOT EXISTS ix_ops_moneda_cierre ON operaciones(moneda, es_cierre);
+CREATE INDEX IF NOT EXISTS ix_ops_concertacion ON operaciones.operaciones(concertacion);
+CREATE INDEX IF NOT EXISTS ix_ops_id_cuenta    ON operaciones.operaciones(id_cuenta);
+CREATE INDEX IF NOT EXISTS ix_ops_moneda_cierre ON operaciones.operaciones(moneda, es_cierre);
 -- Patrones de la vista OPERACIONES en SQL (agregar live, sin rollup):
-CREATE INDEX IF NOT EXISTS ix_ops_moneda_concert ON operaciones(moneda, concertacion);
-CREATE INDEX IF NOT EXISTS ix_ops_segmento_concert ON operaciones(segmento, concertacion);
-CREATE INDEX IF NOT EXISTS ix_ops_ingestado ON operaciones(ingestado_en);
-CREATE INDEX IF NOT EXISTS ix_ops_commodity_concert ON operaciones(commodity, concertacion)
+CREATE INDEX IF NOT EXISTS ix_ops_moneda_concert ON operaciones.operaciones(moneda, concertacion);
+CREATE INDEX IF NOT EXISTS ix_ops_segmento_concert ON operaciones.operaciones(segmento, concertacion);
+CREATE INDEX IF NOT EXISTS ix_ops_ingestado ON operaciones.operaciones(ingestado_en);
+CREATE INDEX IF NOT EXISTS ix_ops_commodity_concert ON operaciones.operaciones(commodity, concertacion)
     WHERE commodity IN ('SOJA', 'TRIGO', 'MAIZ');
 
 -- Valuaciones.AuM (~291k). Grano único (fecha_snapshot, id_cuenta, unidad).
@@ -282,7 +294,7 @@ CREATE TABLE IF NOT EXISTS market_calendar (
 );
 
 -- CashFlow.NegocioMovimientos (~339k). Grano único (fecha, comprobante).
-CREATE TABLE IF NOT EXISTS negocio_movimientos (
+CREATE TABLE IF NOT EXISTS operaciones.negocio_movimientos (
     fecha        date NOT NULL,
     comprobante  text NOT NULL,
     id_cuenta    text,                       -- soft ref
@@ -305,21 +317,21 @@ CREATE TABLE IF NOT EXISTS negocio_movimientos (
     PRIMARY KEY (fecha, comprobante)
 );
 -- La tabla ya existe en Supabase → ALTER idempotente agrega las columnas nuevas.
-ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS cuenta       text;
-ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS unidad       text;
-ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS plazo        text;
-ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS lugar        text;
-ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS estado       text;
-ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS informacion  text;
-ALTER TABLE negocio_movimientos ADD COLUMN IF NOT EXISTS ingestado_en timestamptz;
+ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS cuenta       text;
+ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS unidad       text;
+ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS plazo        text;
+ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS lugar        text;
+ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS estado       text;
+ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS informacion  text;
+ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS ingestado_en timestamptz;
 
-CREATE INDEX IF NOT EXISTS ix_nm_id_cuenta ON negocio_movimientos(id_cuenta, fecha);
-CREATE INDEX IF NOT EXISTS ix_nm_categoria ON negocio_movimientos(categoria, fecha);
-CREATE INDEX IF NOT EXISTS ix_nm_cuenta    ON negocio_movimientos(cuenta, fecha);
+CREATE INDEX IF NOT EXISTS ix_nm_id_cuenta ON operaciones.negocio_movimientos(id_cuenta, fecha);
+CREATE INDEX IF NOT EXISTS ix_nm_categoria ON operaciones.negocio_movimientos(categoria, fecha);
+CREATE INDEX IF NOT EXISTS ix_nm_cuenta    ON operaciones.negocio_movimientos(cuenta, fecha);
 
 -- CashFlow.Accionistas — set de cuentas accionistas (para el filtro de cuenta de NEGOCIO/
 -- portfolio: accionistas / sin_accionistas / cooperativas). Solo el string `cuenta`.
-CREATE TABLE IF NOT EXISTS accionistas (
+CREATE TABLE IF NOT EXISTS clientes.accionistas (
     cuenta text PRIMARY KEY
 );
 

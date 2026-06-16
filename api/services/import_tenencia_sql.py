@@ -37,10 +37,19 @@ def _idc_de(row: dict) -> str:
     return m.group(1) if m else ""
 
 
+def _norm_key(k) -> str:
+    """Normaliza un header de Excel: sin mayúsculas, sin espacios (incl. el duro \xa0)."""
+    return str(k).replace("\xa0", " ").strip().casefold()
+
+
 def _campo(row: dict, *nombres):
+    """Match TOLERANTE de header: ignora mayúsculas y espacios al borde → "Precio",
+    "PRECIO", "Precio " y "precio" matchean todos (el Excel real del contable varía)."""
+    norm = {_norm_key(k): v for k, v in row.items()}
     for n in nombres:
-        if n in row and row[n] not in (None, ""):
-            return row[n]
+        v = norm.get(_norm_key(n))
+        if v not in (None, ""):
+            return v
     return None
 
 
@@ -73,7 +82,8 @@ def importar_precios(rows: list[dict], commit: bool = False) -> dict:
     fechas = sorted({f for f, _, _ in parsed})
     resumen = {"ok": True, "modo": "precios", "commit": commit, "n_filas": len(rows),
                "n_validas": len(parsed), "n_errores": len(errores), "errores": errores[:200],
-               "fechas": fechas}
+               "fechas": fechas,
+               "columnas_detectadas": list(rows[0].keys()) if rows else []}
     if not commit:
         # Previsualización: cuántas matchean en la tabla.
         with get_pool().connection() as conn, conn.cursor() as cur:

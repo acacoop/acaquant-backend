@@ -213,7 +213,6 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     # sobre el umbrella `/api/manager` → `manager`. Los bulks son más
     # específicos que `/api/manager/clientes` y por eso van listados (también
     # ganan por longitud).
-    ("/api/manager/comercial",         "manager_comercial"),
     ("/api/manager/clientes",          "manager_clientes"),
     ("/api/manager/clientes/bulk",     "manager_clientes_bulk"),
     ("/api/manager/clientes/bulk-fondeo", "manager_clientes_bulk"),
@@ -225,7 +224,6 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("/api/manager/contrapartes",      "manager_contrapartes"),
     ("/api/portfolio",   "portfolios"),
     ("/api/titulos",     "portfolios"),
-    ("/api/valuaciones-flujo", "valuaciones-flujo"),
     # /api/ordenes + /api/operativa + /api/operar + /api/risk → módulo `operar` (acción)
     ("/api/ordenes",     "operar"),
     ("/api/operativa",   "operar"),

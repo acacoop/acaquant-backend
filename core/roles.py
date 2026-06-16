@@ -63,13 +63,11 @@ MODULES: tuple[str, ...] = (
     "operar",         # /operar (DOLAR MEP) + /api/ordenes + /api/operativa + /api/risk
     "operaciones",    # /operaciones (mesa, flujo) + /api/cuentas
     "portfolios",     # /portfolios + /aum + carteras + AuM + titulos
-    "valuaciones-flujo",  # /valuaciones-flujo (flujo directo de cartera — admin + asistente_comercial)
     "back-office",    # /back-office (títulos a enviar/recibir al mercado, conciliación)
     "manager",        # /manager + intel + jobs + logs (umbrella — tabs admin)
     # Sub-módulos de Manager: cobertura granular para el rol `asistente_comercial`
-    # (acceso SOLO a las tabs Comercial + Clientes, sin ver el resto). El sub-router
+    # (acceso SOLO a la tab Clientes, sin ver el resto). El sub-router
     # respectivo lleva su propio require_module() en api/routers/manager/__init__.py.
-    "manager_comercial",      # /api/manager/comercial/* (read-only: tablero por operador)
     "manager_clientes",       # /api/manager/clientes + /clientes/values + PATCH (edición fila)
     "manager_clientes_bulk",  # /api/manager/clientes/bulk + /bulk-fondeo (carga masiva — admin)
     "manager_compliance",     # /api/manager/compliance/* (read-only: operador nuestro vs Aunesa)
@@ -104,8 +102,8 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
     "asistente_comercial": (
         "home", "renta-fija", "derivados", "agro", "sinteticos",
         "renta-variable", "estrategia",
-        "operaciones", "portfolios", "valuaciones-flujo", "back-office",
-        "manager_comercial", "manager_clientes", "manager_instrumentos",
+        "operaciones", "portfolios", "back-office",
+        "manager_clientes", "manager_instrumentos",
         "manager_contrapartes",
     ),
     # Compliance: HOME + todos los mercados + Manager SOLO Clientes + Compliance

@@ -8,7 +8,6 @@ sólo en `jobs.py` internamente (catch-all `/jobs/{id}` definido después de
 RBAC por sub-router (gate fino para `asistente_comercial`):
   - Tabs admin (status/checks/jobs/options/asistente/logs/users/roles/grupos/
     aunesa/assets/valuaciones) → `manager` (umbrella, admin-only).
-  - `comercial.router` (GETs)                       → `manager_comercial`
   - `clientes.router` (GETs + PATCH fila a fila)    → `manager_clientes`
   - `clientes.bulk_router` (POST /bulk + /bulk-fondeo) → `manager_clientes_bulk`
 
@@ -28,7 +27,6 @@ from api.routers.manager import (
     aunesa,
     checks,
     clientes,
-    comercial,
     compliance,
     contrapartes,
     control_automatico,
@@ -54,7 +52,6 @@ router = APIRouter(prefix="/api/manager", tags=["Manager"])
 # `manager_comercial` y `manager_clientes` pero SIN `manager`) entra a sus 2
 # tabs. Las tabs admin (status/jobs/etc) siguen requiriendo `manager`.
 _MGR             = [Depends(verify_api_key), Depends(require_module("manager"))]
-_COMERCIAL       = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_comercial")))]
 _CLIENTES        = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_clientes")))]
 _CLIENTES_BULK   = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_clientes_bulk")))]
 _COMPLIANCE      = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_compliance")))]
@@ -78,7 +75,6 @@ router.include_router(operaciones.router, dependencies=_MGR)
 router.include_router(import_tenencia.router, dependencies=_MGR)
 
 # Tabs accesibles a `asistente_comercial`:
-router.include_router(comercial.router,       dependencies=_COMERCIAL)
 router.include_router(clientes.router,            dependencies=_CLIENTES)
 router.include_router(control_automatico.router,  dependencies=_CLIENTES)
 router.include_router(clientes.bulk_router,       dependencies=_CLIENTES_BULK)

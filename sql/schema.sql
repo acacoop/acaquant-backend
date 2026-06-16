@@ -191,21 +191,8 @@ CREATE INDEX IF NOT EXISTS ix_ops_ingestado ON operaciones.operaciones(ingestado
 CREATE INDEX IF NOT EXISTS ix_ops_commodity_concert ON operaciones.operaciones(commodity, concertacion)
     WHERE commodity IN ('SOJA', 'TRIGO', 'MAIZ');
 
--- Valuaciones.AuM (~291k). Grano único (fecha_snapshot, id_cuenta, unidad).
-CREATE TABLE IF NOT EXISTS aum (
-    fecha_snapshot date NOT NULL,
-    id_cuenta      text NOT NULL,            -- soft ref
-    unidad         text NOT NULL,
-    cuenta         text,
-    cantidad       numeric,
-    precio         numeric,
-    valuacion      numeric,
-    tipo_titulo    text,                     -- Mongo tipoTitulo (total_snapshot + normalizer PnL)
-    PRIMARY KEY (fecha_snapshot, id_cuenta, unidad)
-);
-ALTER TABLE aum ADD COLUMN IF NOT EXISTS tipo_titulo text;
-CREATE INDEX IF NOT EXISTS ix_aum_id_cuenta ON aum(id_cuenta, fecha_snapshot);
-CREATE INDEX IF NOT EXISTS ix_aum_unidad    ON aum(unidad, fecha_snapshot);
+-- Valuaciones.AuM: tabla `aum` ELIMINADA (Mongo Y SQL) el 2026-06-15. Las tenencias
+-- viven en `portafolio.tenencia` (writer jobs/portafolio_backfill --diario). No recrear.
 
 -- Valuaciones.Assets — master de instrumentos (UPPERCASE en Mongo → lowercase acá).
 -- Join por `unidad` con aum. Alimenta carteras (cartera), FCI (cartera/emisor),

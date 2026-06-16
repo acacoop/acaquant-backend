@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.cache import cached
-from api.db import get_db_cashflow, get_db_clientes
+from api.db import get_db_cashflow
 from api.services import comercial as _com
 from api.services import comercial_sql as _com_sql
 from api.services import negocio_sql as _neg_sql
@@ -944,8 +944,11 @@ def ops_segmentos(_engine: str | None = Query(None, include_in_schema=False)):
 @router.get("/ops/niveles5")
 @cached(ttl=600)
 def ops_niveles5():
-    """Valores distintos de nivel_5 (Clientes.Comitentes), para el filtro AGRO."""
-    vals = get_db_clientes()["Comitentes"].distinct("nivel_5", {"nivel_5": {"$nin": [None, ""]}})
+    """Valores distintos de nivel_5 (clientes.comitentes SQL), para el filtro AGRO."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT nivel_5 FROM comitentes "
+                    "WHERE nivel_5 IS NOT NULL AND nivel_5 <> ''")
+        vals = [r[0] for r in cur.fetchall()]
     return {"niveles5": sorted(str(v) for v in vals if v)}
 
 

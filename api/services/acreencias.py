@@ -120,10 +120,10 @@ def computar_acreencias(dias_horizonte: int = 1825) -> list[dict]:
                 return cal_base[b]
         return None
 
-    # Denominación de clientes (id_cuenta → nombre).
-    nombres = {c.get("id_cuenta"): c.get("denominacion")
-               for c in get_db_cashflow().client["Clientes"]["Comitentes"].find(
-                   {}, {"_id": 0, "id_cuenta": 1, "denominacion": 1})}
+    # Denominación de clientes (id_cuenta → nombre) desde SQL clientes.cuentas.
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id_cuenta, denominacion FROM cuentas")
+        nombres = {r[0]: r[1] for r in cur.fetchall()}
 
     # Tenencia (último snapshot) desde SQL portafolio.tenencia (aum='si').
     with get_pool().connection() as conn, conn.cursor() as cur:

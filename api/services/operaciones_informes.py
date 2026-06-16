@@ -23,6 +23,17 @@ from pymongo import UpdateOne
 from pymongo.errors import BulkWriteError
 
 from api.services._mep import get_mep_for_date
+from core.postgres import get_pool
+
+
+def _niveles_por_cuenta() -> dict[str, dict]:
+    """id_cuenta → {n1 (nivel_1), n3 (nivel_3)} desde SQL clientes.comitentes."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id_cuenta, nivel_1, nivel_3 FROM comitentes "
+                    "WHERE id_cuenta IS NOT NULL AND id_cuenta <> ''")
+        return {str(idc).strip(): {"n1": n1 or "", "n3": n3 or ""}
+                for idc, n1, n3 in cur.fetchall()}
+
 
 # Header (normalizado: lower, sin acentos, sin separadores) → campo canónico.
 # Cubre los nombres de la API informes y los del histórico (Excel en español).
@@ -197,14 +208,7 @@ def cargar_maps_enrich(db) -> tuple[dict, dict]:
         )
         if d.get("tipo_operacion")
     }
-    niveles = {
-        str(d.get("id_cuenta")).strip(): {"n1": d.get("nivel_1") or "", "n3": d.get("nivel_3") or ""}
-        for d in db.client["Clientes"]["Comitentes"].find(
-            {"id_cuenta": {"$exists": True, "$ne": ""}},
-            {"_id": 0, "id_cuenta": 1, "nivel_1": 1, "nivel_3": 1},
-        )
-        if d.get("id_cuenta") not in (None, "")
-    }
+    niveles = _niveles_por_cuenta()
     return cat, niveles
 
 
@@ -360,15 +364,7 @@ def enriquecer(db, batch: int = 2000) -> dict:
         if d.get("tipo_operacion")
     }
     # id_cuenta → {nivel_1 (segmento comercial), nivel_3 (dimensión aranceles)}.
-    comit = db.client["Clientes"]["Comitentes"]
-    niveles = {
-        str(d.get("id_cuenta")).strip(): {"n1": d.get("nivel_1") or "", "n3": d.get("nivel_3") or ""}
-        for d in comit.find(
-            {"id_cuenta": {"$exists": True, "$ne": ""}},
-            {"_id": 0, "id_cuenta": 1, "nivel_1": 1, "nivel_3": 1},
-        )
-        if d.get("id_cuenta") not in (None, "")
-    }
+    niveles = _niveles_por_cuenta()
     coll = db["Operaciones"]
     coll.create_index([("concertacion", -1), ("mercado", 1)], name="concertacion_mercado")
     coll.create_index([("concertacion", -1), ("operacion", 1)], name="concertacion_operacion")

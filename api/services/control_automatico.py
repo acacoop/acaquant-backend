@@ -16,21 +16,24 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from pymongo import UpdateOne
+from psycopg.rows import dict_row
 
 from core.doc_fiscal import NIVEL_1_PRODUCTORES, claves_match, solo_digitos
-from core.mongo import get_mongo_client, get_mongo_client_read
+from core.postgres import get_pool
 
 
 def _index_base() -> dict[str, dict]:
-    """clave_match → datos de la cuenta nuestra (de Clientes.Comitentes)."""
-    cur = get_mongo_client_read()["Clientes"]["Comitentes"].find(
-        {"nro_doc": {"$exists": True, "$nin": [None, ""]}},
-        {"_id": 0, "id_cuenta": 1, "denominacion": 1, "tipo_doc": 1,
-         "nro_doc": 1, "operador_nombre": 1, "nivel_1": 1},
-    )
+    """clave_match → datos de la cuenta nuestra (SQL clientes.comitentes)."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT c.id_cuenta, u.denominacion, c.tipo_doc, c.nro_doc, "
+            "o.nombre AS operador_nombre, c.nivel_1 FROM comitentes c "
+            "LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta "
+            "LEFT JOIN operadores o ON o.email = c.operador_email "
+            "WHERE c.nro_doc IS NOT NULL AND c.nro_doc <> ''")
+        rows = cur.fetchall()
     index: dict[str, dict] = {}
-    for c in cur:
+    for c in rows:
         for k in claves_match(c.get("nro_doc")):
             index.setdefault(k, c)   # primera gana (colisión improbable)
     return index
@@ -78,13 +81,11 @@ def segmentar(id_cuentas: list[str], actor: str = "system") -> dict:
     if not ids:
         return {"modificadas": 0, "matched": 0}
     now = datetime.now(UTC)
-    ops = [
-        UpdateOne(
-            {"id_cuenta": idc},
-            {"$set": {"nivel_1": NIVEL_1_PRODUCTORES,
-                      "actualizado_por": actor, "actualizado_at": now}},
-        )
-        for idc in ids
-    ]
-    res = get_mongo_client()["Clientes"]["Comitentes"].bulk_write(ops, ordered=False)
-    return {"modificadas": res.modified_count, "matched": res.matched_count}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(
+            "UPDATE comitentes SET nivel_1 = %s, actualizado_por = %s, actualizado_at = %s "
+            "WHERE id_cuenta = %s",
+            [(NIVEL_1_PRODUCTORES, actor, now, idc) for idc in ids])
+        n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        conn.commit()
+    return {"modificadas": n, "matched": n}

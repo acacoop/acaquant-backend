@@ -46,7 +46,6 @@ def cuentas_sin_operador() -> dict:
     """{clientes_sin_operador, no_clientes, resumen_no_clientes, contadores}."""
     db = get_mongo_client_read()
     nm = db["CashFlow"]["NegocioMovimientos"]
-    com = db["Clientes"]["Comitentes"]
 
     agg = {
         str(r["_id"]): {"vol": float(r["v"] or 0.0),
@@ -58,12 +57,13 @@ def cuentas_sin_operador() -> dict:
         ], allowDiskUse=True)
         if r.get("_id")
     }
-    detalle = {
-        str(d["id_cuenta"]): d
-        for d in com.find({}, {"_id": 0, "id_cuenta": 1, "denominacion": 1,
-                               "operador_email": 1, "estado": 1})
-        if d.get("id_cuenta")
-    }
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT c.id_cuenta, u.denominacion, c.operador_email, c.estado "
+                    "FROM comitentes c LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta")
+        detalle = {str(d["id_cuenta"]): d for d in cur.fetchall() if d.get("id_cuenta")}
     ids = load_contrapartes_id_cuentas()
     names = load_contrapartes_names()
 

@@ -66,7 +66,6 @@ def main() -> None:
 
     client = get_mongo_client()
     mov = client["CashFlow"]["NegocioMovimientos"]
-    comitentes = client["Clientes"]["Comitentes"]
     destino = client["Clientes"]["ActividadMensual"]
     cats = list(_CATS_OPERACIONES)
 
@@ -84,14 +83,15 @@ def main() -> None:
             run.log("⚠ 0 filas agregadas — la colección NO se toca.")
             return
 
-        # Operador/segmento vigente (se congela en el doc) — 1 sola lectura.
-        info: dict[str, dict[str, Any]] = {
-            str(c["id_cuenta"]): c
-            for c in comitentes.find(
-                {}, {"_id": 0, "id_cuenta": 1, "operador_email": 1,
-                     "operador_nombre": 1, "nivel_1": 1},
-            )
-        }
+        # Operador/segmento vigente (se congela en el doc) — SQL clientes.comitentes.
+        from psycopg.rows import dict_row
+
+        from core.postgres import get_pool
+        with get_pool().connection() as _cn, _cn.cursor(row_factory=dict_row) as _cu:
+            _cu.execute(
+                "SELECT c.id_cuenta, c.operador_email, o.nombre AS operador_nombre, c.nivel_1 "
+                "FROM comitentes c LEFT JOIN operadores o ON o.email = c.operador_email")
+            info: dict[str, dict[str, Any]] = {str(c["id_cuenta"]): c for c in _cu.fetchall()}
         ahora = datetime.now(UTC)
         docs: list[dict[str, Any]] = []
         meses_tocados: set[str] = set()

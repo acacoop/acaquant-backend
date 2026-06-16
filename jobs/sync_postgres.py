@@ -123,61 +123,9 @@ def _delete_not_in(conn, table, pk_col, keep, dry) -> int:
     return len(muertas)
 
 
-def sync_dims_clientes(mdb, conn, dry) -> tuple[int, int, int]:
-    """operadores + cuentas + comitentes salen TODOS de Clientes.Comitentes (1 sola lectura).
-
-    operadores = SOLO los operador_email que aparecen en Comitentes (= los que realmente
-    manejan cartera). NO se mezcla con Manager.Users (esos son usuarios de la app, otra
-    entidad). estado_comercial es DERIVADO (comercial.py) → NULL en la capa SQL.
-    Borra huérfanos en orden FK-safe: comitentes (hijo) → cuentas / operadores (padres)."""
-    proj = {
-        "id_cuenta": 1, "denominacion": 1, "operador_email": 1, "operador_nombre": 1,
-        "tipo_doc": 1, "nro_doc": 1, "nivel_1": 1, "nivel_2": 1, "nivel_3": 1,
-        # Campos de la vista COMERCIAL:
-        "estado": 1, "fecha_alta_legajo": 1, "telefono": 1, "email": 1, "nivel_4": 1,
-        "nivel_5": 1, "primer_contacto_comercial": 1, "riesgo_la_ft": 1, "division": 1,
-        "adc": 1, "dma": 1, "cupo": 1, "referido": 1,
-    }
-    operadores: dict[str, str | None] = {}
-    cuentas, comitentes = [], []
-    for d in mdb["Clientes"]["Comitentes"].find({}, proj):
-        idc = _s(d.get("id_cuenta"))
-        if not idc:
-            continue
-        em = _s(d.get("operador_email"))
-        if em:
-            operadores[em] = _s(d.get("operador_nombre")) or operadores.get(em)
-        cuentas.append((idc, _s(d.get("denominacion"))))
-        cupo = d.get("cupo") or {}
-        comitentes.append((
-            idc, em, _s(d.get("tipo_doc")), _s(d.get("nro_doc")),
-            _s(d.get("nivel_1")), _s(d.get("nivel_2")), _s(d.get("nivel_3")), None,
-            _s(d.get("estado")), _d(d.get("fecha_alta_legajo")), _s(d.get("telefono")),
-            _s(d.get("email")), _s(d.get("nivel_4")), _s(d.get("nivel_5")),
-            _s(d.get("primer_contacto_comercial")), _s(d.get("riesgo_la_ft")),
-            _s(d.get("division")), _s(d.get("adc")), _s(d.get("dma")),
-            cupo.get("transaccional_ars"), cupo.get("usado_ars"), _s(d.get("referido")),
-        ))
-    cuentas, comitentes = _dedup(cuentas, [0]), _dedup(comitentes, [0])
-
-    # Padres antes que el hijo en el UPSERT (FK), hijo antes que padres en el DELETE.
-    n_op = _upsert(conn, "operadores", ["email", "nombre"], ["email"],
-                   list(operadores.items()), dry)
-    n_cu = _upsert(conn, "cuentas", ["id_cuenta", "denominacion"], ["id_cuenta"], cuentas, dry)
-    n_co = _upsert(
-        conn, "comitentes",
-        ["id_cuenta", "operador_email", "tipo_doc", "nro_doc",
-         "nivel_1", "nivel_2", "nivel_3", "estado_comercial",
-         "estado", "fecha_alta_legajo", "telefono", "email", "nivel_4", "nivel_5",
-         "primer_contacto_comercial", "riesgo_la_ft", "division", "adc", "dma",
-         "cupo_transaccional_ars", "cupo_usado_ars", "referido"],
-        ["id_cuenta"], comitentes, dry,
-    )
-    ids = {r[0] for r in comitentes}
-    _delete_not_in(conn, "comitentes", "id_cuenta", ids, dry)
-    _delete_not_in(conn, "cuentas", "id_cuenta", ids, dry)
-    _delete_not_in(conn, "operadores", "email", operadores.keys(), dry)
-    return n_op, n_cu, n_co
+# sync_dims_clientes ELIMINADO: clientes.{comitentes,cuentas,operadores} son la fuente
+# de verdad ahora — los escribe jobs/sync_comitentes (Aunesa→SQL directo) + el panel
+# Manager → Clientes. Sincronizar Mongo→SQL acá pisaría la segmentación de la mesa.
 
 
 # sync_contrapartes ELIMINADO: clientes.contrapartes es la fuente de verdad ahora
@@ -742,7 +690,6 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
             tempos[label] = time.perf_counter() - t0
             return r
 
-        n_op, n_cu, n_co = _t("dims_clientes", lambda: sync_dims_clientes(mdb, conn, dry), (0, 0, 0))
         n_ac = _t("accionistas", lambda: sync_accionistas(mdb, conn, dry))
         n_mu = _t("manager_users", lambda: sync_manager_users(mdb, conn, dry))
         n_rm = _t("role_matrix", lambda: sync_role_matrix(mdb, conn, dry))
@@ -770,8 +717,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
               f"(sin ticker_corto, salteadas={sin_corto})  bonds_master={n_bm}  "
               f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  canje_cierre={n_cj}  "
               f"mercado_hist={n_mh:,}")
-        print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  comitentes={n_co}  "
-              f"accionistas={n_ac}  manager_users={n_mu}  "
+        print(f"  dimensiones: accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
 
@@ -794,8 +740,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         for label, err in fallos:
             print(f"  - {label}: {err}")
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
-    stats = {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co,
-             "accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
+    stats = {"accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
              "actividad_mensual": n_am, "dolar": n_dl,
              "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc, "news": n_nw,
              "quotes": n_qt, "calendar": n_cal,

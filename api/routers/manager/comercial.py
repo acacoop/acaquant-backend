@@ -8,7 +8,6 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from api.db import get_db_clientes
 from api.services.comercial import resumen_por_operador
 from api.services.macro import get_ultimo_mep, get_ultimo_uva
 from api.services.segmentacion import _TIPOS_PH, _TIPOS_PJ, clasificar_nivel_3
@@ -33,18 +32,25 @@ def debug_segmento(id_cuenta: str = Query(..., min_length=1)) -> dict[str, Any]:
     vs lo que daría recalculado ahora. Para que la mesa pueda confirmar que
     el segmento es el correcto antes de actuar comercialmente.
     """
-    col = get_db_clientes()["Comitentes"]
-    doc = col.find_one(
-        {"id_cuenta": id_cuenta},
-        {
-            "_id": 0, "id_cuenta": 1, "denominacion": 1, "tipo_cliente": 1,
-            "nivel_1": 1, "nivel_3": 1,
-            "cupo.transaccional_ars": 1, "cupo.usado_ars": 1,
-            "cupo.cargado_en": 1, "cupo.fuente": 1,
-        },
-    )
-    if not doc:
-        raise HTTPException(404, f"id_cuenta {id_cuenta!r} no encontrada en Clientes.Comitentes")
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT c.id_cuenta, u.denominacion, c.tipo_cliente, c.nivel_1, c.nivel_3, "
+            "c.cupo_transaccional_ars, c.cupo_usado_ars, c.cupo_cargado_en, c.cupo_fuente "
+            "FROM comitentes c LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta "
+            "WHERE c.id_cuenta = %s", (id_cuenta,))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, f"id_cuenta {id_cuenta!r} no encontrada en comitentes")
+    doc = {
+        "id_cuenta": row["id_cuenta"], "denominacion": row["denominacion"],
+        "tipo_cliente": row["tipo_cliente"], "nivel_1": row["nivel_1"], "nivel_3": row["nivel_3"],
+        "cupo": {"transaccional_ars": row["cupo_transaccional_ars"],
+                 "usado_ars": row["cupo_usado_ars"], "cargado_en": row["cupo_cargado_en"],
+                 "fuente": row["cupo_fuente"]},
+    }
 
     tipo = doc.get("tipo_cliente")
     cupo = doc.get("cupo") or {}

@@ -14,7 +14,7 @@ Filtros soportados:
 from __future__ import annotations
 
 from api.cache import cached
-from api.db import get_db_cashflow, get_db_clientes
+from api.db import get_db_cashflow
 
 _COOP_REGEX = r"\bcoop"
 
@@ -44,14 +44,11 @@ def _ids_cuenta_productores() -> list[str]:
     movimientos / AuM va por `id_cuenta`, NO por el string `cuenta`
     ('[534] EGUREN, NE'): ese formato vive en los movs, pero Comitentes relaciona
     por id_cuenta — igual que todo el tablero comercial."""
-    db = get_db_clientes()
-    return [
-        str(d["id_cuenta"])
-        for d in db["Comitentes"].find(
-            {"nivel_1": "PRODUCTORES"}, {"_id": 0, "id_cuenta": 1}
-        )
-        if d.get("id_cuenta") is not None
-    ]
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id_cuenta FROM comitentes WHERE nivel_1 = 'PRODUCTORES' "
+                    "AND id_cuenta IS NOT NULL")
+        return [str(r[0]) for r in cur.fetchall()]
 
 
 def match_cuenta_filter(filtro: str) -> dict:

@@ -14,7 +14,6 @@ from __future__ import annotations
 from typing import Any
 
 from api.cache import cached
-from api.db import get_db_clientes
 from core import aunesa
 
 
@@ -48,15 +47,16 @@ def comparar_operadores() -> dict[str, Any]:
         aunesa_cta[idc] = {"denominacion": c.get("denominacion"),
                            "email": email, "nombre": nombre}
 
-    # 2) Nuestra base.
-    nuestro_cta = {
-        str(d["id_cuenta"]): d
-        for d in get_db_clientes()["Comitentes"].find(
-            {}, {"_id": 0, "id_cuenta": 1, "denominacion": 1,
-                 "operador_email": 1, "operador_nombre": 1},
-        )
-        if d.get("id_cuenta")
-    }
+    # 2) Nuestra base (SQL clientes.comitentes + cuentas/operadores).
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT c.id_cuenta, u.denominacion, c.operador_email, o.nombre AS operador_nombre "
+            "FROM comitentes c LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta "
+            "LEFT JOIN operadores o ON o.email = c.operador_email")
+        nuestro_cta = {str(d["id_cuenta"]): d for d in cur.fetchall() if d.get("id_cuenta")}
 
     # 3) Cruce sobre la unión de cuentas.
     filas: list[dict] = []

@@ -36,7 +36,9 @@ def get_postgres_uri() -> str:
 # portafolio). El `search_path` resuelve los nombres SIN calificar en este orden →
 # el código existente sigue funcionando sin tocar cada query. `public` al final
 # para mercado/manager/macro.
-_SEARCH_PATH = "clientes, operaciones, portafolio, public"
+# OJO: SIN espacios — libpq parsea `-c search_path=...` separando por espacios, un
+# espacio después de la coma rompe la conexión ("List syntax is invalid").
+_SEARCH_PATH = "clientes,operaciones,portafolio,public"
 
 
 def connect() -> psycopg.Connection:

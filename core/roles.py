@@ -74,6 +74,7 @@ MODULES: tuple[str, ...] = (
     "manager_titulos",        # /api/manager/assets + /ons (Títulos: Assets + ONs, edición maestro)
     "manager_instrumentos",   # /api/manager/checks/{discovery-pyrofex,instruments-by-cfi} (Títulos→Instrumentos, SOLO lectura)
     "manager_contrapartes",   # /api/manager/contrapartes/* (segmentación + conciliador Aunesa)
+    "manager_aunesa",         # /api/manager/import-* (AUNESA → IMPORTAR AUM: precios + tenencia SQL)
 )
 
 
@@ -104,7 +105,7 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
         "renta-variable", "estrategia",
         "operaciones", "portfolios", "back-office",
         "manager_clientes", "manager_instrumentos",
-        "manager_contrapartes",
+        "manager_contrapartes", "manager_aunesa",
     ),
     # Compliance: HOME + todos los mercados + Manager SOLO Clientes + Compliance
     # (sin `manager` umbrella → no ve las tabs de admin). Detecta diferencias de

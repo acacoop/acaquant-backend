@@ -58,6 +58,7 @@ _COMPLIANCE      = [Depends(verify_api_key), Depends(require_any_module(("manage
 _TITULOS         = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_titulos")))]
 _INSTRUMENTOS    = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_titulos", "manager_instrumentos")))]
 _CONTRAPARTES    = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_contrapartes")))]
+_AUNESA          = [Depends(verify_api_key), Depends(require_any_module(("manager", "manager_aunesa")))]
 
 # Tabs admin (umbrella `manager`):
 router.include_router(status.router,      dependencies=_MGR)
@@ -72,7 +73,7 @@ router.include_router(grupos.router,      dependencies=_MGR)
 router.include_router(aunesa.router,      dependencies=_MGR)
 router.include_router(valuaciones.router, dependencies=_MGR)
 router.include_router(operaciones.router, dependencies=_MGR)
-router.include_router(import_tenencia.router, dependencies=_MGR)
+router.include_router(import_tenencia.router, dependencies=_AUNESA)
 
 # Tabs accesibles a `asistente_comercial`:
 router.include_router(clientes.router,            dependencies=_CLIENTES)

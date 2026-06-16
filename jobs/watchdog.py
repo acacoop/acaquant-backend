@@ -161,6 +161,46 @@ def _check_db_queries(col, ahora: datetime, dry_run: bool) -> list[str]:
     return lineas
 
 
+def _check_motores(col, ahora: datetime, dry_run: bool) -> list[str]:
+    """Alerta por Telegram cuando un MOTOR de mercado está MUERTO (sin datos frescos
+    > 15 min) en horario de rueda. El watchdog corre cada 5 min → la caída se detecta
+    rápido, a diferencia de `informe_salud` (horario). Cooldown POR motor (30 min).
+
+    Reusa `informe_salud._seccion_motores` (frescura de la colección de cada motor):
+    un motor en loop de restart NO escribe → su colección se queda stale → 'muerto'.
+    Es la red que faltó cuando motor_options entró en loop sin avisar (2026-06-16)."""
+    from jobs.informe_salud import _en_rueda, _seccion_motores
+
+    if not _en_rueda(ahora.replace(tzinfo=None)):
+        return []  # motores apagados fuera de rueda → no alertar
+    try:
+        sec = _seccion_motores(get_mongo_client(), en_rueda=True)
+    except Exception:
+        return []  # no romper el watchdog de jobs si la lectura de motores falla
+
+    alertados: list[str] = []
+    for it in sec["items"]:
+        if it["estado"] != "muerto":
+            continue
+        key = f"motor:{it['motor']}"
+        prev = col.find_one({"_id": key})
+        if prev and prev.get("last_alert_at") and \
+                (ahora - prev["last_alert_at"]) < timedelta(seconds=_COOLDOWN_S):
+            continue
+        edad = it.get("edad_s")
+        edad_txt = f"{edad // 60} min" if isinstance(edad, int) else "sin datos"
+        msg = (f"🔴 Motor CAÍDO: *{it['motor']}* sin datos frescos hace *{edad_txt}* "
+               f"(en rueda).\nLa colección `{it['coll']}` no se actualiza → el motor "
+               f"está muerto o en loop de restart.\n_triage: `/motor-status` o "
+               f"`journalctl -u motor_<x>.service -n 50`._")
+        if not dry_run:
+            send_telegram(msg)
+            col.update_one({"_id": key},
+                           {"$set": {"last_alert_at": ahora, "edad_s": edad}}, upsert=True)
+        alertados.append(it["motor"])
+    return alertados
+
+
 def run(dry_run: bool = False) -> dict:
     ahora = datetime.now(UTC)
     col = get_mongo_client()["Manager"]["WatchdogAlertas"]
@@ -193,12 +233,17 @@ def run(dry_run: bool = False) -> dict:
     # Queries COLLSCAN escaneando de más (best-effort; no rompe si ATLAS_* falta).
     db_scans = _check_db_queries(col, ahora, dry_run)
 
+    # Motores de mercado caídos/en loop (frescura de datos en rueda).
+    motores_caidos = _check_motores(col, ahora, dry_run)
+
     if dry_run:
         print(f"[DRY] jobs corriendo: {revisados}")
         print(f"[DRY] alertaría jobs: {alertados}")
         print(f"[DRY] alertaría DB COLLSCAN: {db_scans}")
+        print(f"[DRY] alertaría motores caídos: {motores_caidos}")
     return {"corriendo": len(corriendo), "alertados": len(alertados),
-            "jobs": [a[0] for a in alertados], "db_scans": len(db_scans)}
+            "jobs": [a[0] for a in alertados], "db_scans": len(db_scans),
+            "motores_caidos": motores_caidos}
 
 
 def main() -> int:

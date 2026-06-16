@@ -115,6 +115,20 @@ class MongoManager:
 # ==========================================
 # EL CEREBRO: OptionsEngine (idéntico a main_options.py)
 # ==========================================
+# Las opciones GGAL se identifican por el ROOT del símbolo (GFGC=call, GFGV=put) + el
+# cfi de opción equity. ROFEX cambió el `underlying` de 'Grupo Financiero Galicia Merval'
+# a la razón social completa ('GRUPO FINANCIERO GALICIA S.A ESCRIT.  B  1 V') el 2026-06-16
+# → filtrar por underlying mató el motor (matcheaba 0). El símbolo GFG* es estable.
+_OPT_CFIS = ("OCASPS", "OPASPS")  # OCASPS = CALL, OPASPS = PUT
+
+
+def _es_opcion_ggal(inst: dict) -> bool:
+    if inst.get("cficode") not in _OPT_CFIS:
+        return False
+    sym = (inst.get("instrumentId") or {}).get("symbol") or ""
+    return "GFG" in sym
+
+
 class OptionsEngine:
 
     def __init__(self):
@@ -164,15 +178,15 @@ class OptionsEngine:
         # Usamos `> hoy` para saltar el OPEX del propio día.
         expiries_futuras = set()
         for inst in res['instruments']:
-            if inst.get('underlying') == "Grupo Financiero Galicia Merval":
-                cfi = inst.get('cficode', '')
-                vence_raw = inst.get('maturity_date', inst.get('maturityDate', ''))
-                if cfi.startswith('O') and len(vence_raw) == 8:
-                    try:
-                        if datetime.strptime(vence_raw, "%Y%m%d") > hoy:
-                            expiries_futuras.add(vence_raw)
-                    except ValueError:
-                        pass
+            if not _es_opcion_ggal(inst):
+                continue
+            vence_raw = inst.get('maturity_date', inst.get('maturityDate', ''))
+            if len(vence_raw) == 8:
+                try:
+                    if datetime.strptime(vence_raw, "%Y%m%d") > hoy:
+                        expiries_futuras.add(vence_raw)
+                except ValueError:
+                    pass
 
         if not expiries_futuras:
             return mapa, agrupacion
@@ -209,7 +223,7 @@ class OptionsEngine:
 
         # Segunda pasada: cargar strikes de los vencimientos elegidos
         for inst in res['instruments']:
-            if inst.get('underlying') != "Grupo Financiero Galicia Merval":
+            if not _es_opcion_ggal(inst):
                 continue
             cfi = inst.get('cficode', '')
             vence_raw = inst.get('maturity_date', inst.get('maturityDate', ''))

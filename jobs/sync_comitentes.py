@@ -1,9 +1,10 @@
-"""Sync de cuentas comitentes desde Aunesa → master `Clientes.Comitentes`.
+"""Sync de cuentas comitentes desde Aunesa → master SQL `clientes.comitentes`
+(+ `clientes.cuentas` con denominacion + `clientes.operadores`).
 
 Pobla/actualiza el master de clientes del Tablero de Control Comercial
 (docs/TABLERO_COMERCIAL.md) desde `GET /api/cuentas/listadoCuentas`. Pensado
 para correr 1×/día por cron: las cuentas nuevas se agregan solas (upsert por
-`id_cuenta`), idempotente.
+`id_cuenta`), idempotente. Fuente ÚNICA SQL (Mongo Clientes.Comitentes deprecado).
 
 Reglas (mismo criterio que el master de Assets en aum.py):
   - `$set` de los campos de Aunesa (denominación, estado, teléfono, etc.),
@@ -28,18 +29,14 @@ import argparse
 from datetime import UTC, datetime
 
 import requests
-from pymongo import ASCENDING, UpdateOne
 
 import config
 from core.doc_fiscal import parse_titular
 from core.job_runs import JobRunLogger
-from core.mongo import get_mongo_client
+from core.postgres import get_pool
 
 AUTH_URL = "https://aca.aunesa.com/Irmo/api/login"
 LISTADO_URL = "https://aca.aunesa.com/Irmo/api/cuentas/listadoCuentas"
-
-DB = "Clientes"
-COL = "Comitentes"
 
 # Campos de segmentación manual — se crean en null al insertar y el sync no
 # los toca nunca más (los edita la mesa desde la UI). nivel_1..5 = árbol de
@@ -165,59 +162,68 @@ def run(*, include_all: bool = False, dry_run: bool = False) -> None:
             data = [c for c in data if (c.get("estado") or "") == "Activa"]
         jr.set_stat("a_procesar", len(data))
 
-        col = get_mongo_client()[DB][COL]
-        col.create_index([("id_cuenta", ASCENDING)], unique=True)
-        col.create_index([("operador_email", ASCENDING)])
-
         now = datetime.now(UTC)
-        ops: list[UpdateOne] = []
+        operadores: dict[str, str | None] = {}    # email → nombre
+        cuentas: list[tuple] = []                 # (id_cuenta, denominacion)
+        comitentes: list[tuple] = []
         saltadas = 0
         for c in data:
             doc = _map_cuenta(c)
-            if not doc["id_cuenta"]:
+            idc = doc["id_cuenta"]
+            if not idc:
                 saltadas += 1
                 continue
-            set_fields = {
-                k: v for k, v in doc.items()
-                if k != "id_cuenta" and k not in INSERT_ONLY_FIELDS
-            }
-            set_fields["origen"] = "aunesa"
-            set_fields["updated_at"] = now
-            on_insert: dict = {"created_at": now}
-            for mf in MANUAL_FIELDS:
-                on_insert[mf] = None
-            # Subdocs manuales: dict vacío, NO null, así dot-notation funciona
-            # desde el primer write del endpoint/motor (ver MANUAL_SUBDOCS).
-            for sd in MANUAL_SUBDOCS:
-                on_insert[sd] = {}
-            # Operador: valor de Aunesa SOLO al crear; en re-syncs no se toca
-            # (un campo no puede estar en $set y $setOnInsert a la vez).
-            for f in INSERT_ONLY_FIELDS:
-                on_insert[f] = doc.get(f)
-            ops.append(
-                UpdateOne(
-                    {"id_cuenta": doc["id_cuenta"]},
-                    {"$set": set_fields, "$setOnInsert": on_insert},
-                    upsert=True,
-                )
-            )
-
+            email = doc.get("operador_email")
+            if email:
+                operadores[email] = doc.get("operador_nombre")
+            cuentas.append((idc, doc.get("denominacion")))
+            fa = doc.get("fecha_alta_legajo")
+            comitentes.append((
+                idc, email, doc.get("tipo_doc"), doc.get("nro_doc"), doc.get("tipo_titular"),
+                doc.get("tipo"), doc.get("estado"), doc.get("clase"),
+                fa.date() if isinstance(fa, datetime) else fa,
+                doc.get("tipo_cliente"), doc.get("perfil_inversion"), doc.get("provincia"),
+                doc.get("telefono"), doc.get("email"), "aunesa", now, now,
+            ))
         jr.set_stat("saltadas_sin_id", saltadas)
 
         if dry_run:
             jr.set_stat("dry_run", True)
-            jr.log(f"DRY-RUN: {len(ops)} upserts pendientes (no se escribió nada).")
+            jr.log(f"DRY-RUN: {len(comitentes)} comitentes (no se escribió nada).")
             return
 
-        if ops:
-            res = col.bulk_write(ops, ordered=False)
-            jr.set_stat("upserted", res.upserted_count)
-            jr.set_stat("modified", res.modified_count)
-            jr.set_stat("matched", res.matched_count)
-        jr.log(
-            f"sync_comitentes OK: {len(ops)} cuentas procesadas "
-            f"({jr.stats.get('upserted', 0)} nuevas, {jr.stats.get('modified', 0)} actualizadas)."
-        )
+        # Escritura SQL. Orden FK-safe: operadores + cuentas (destinos del FK) → comitentes.
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            if operadores:
+                cur.executemany(
+                    "INSERT INTO operadores (email, nombre) VALUES (%s, %s) "
+                    "ON CONFLICT (email) DO UPDATE SET nombre = EXCLUDED.nombre",
+                    list(operadores.items()))
+            cur.executemany(
+                "INSERT INTO cuentas (id_cuenta, denominacion) VALUES (%s, %s) "
+                "ON CONFLICT (id_cuenta) DO UPDATE SET denominacion = EXCLUDED.denominacion",
+                cuentas)
+            # ON CONFLICT pisa SOLO los campos AUTO de Aunesa. operador_email, created_at y
+            # los manuales (nivel_*, cupo, observaciones, segmento_patrimonial, etc.) NO se
+            # tocan en re-syncs — los gestiona la mesa desde /manager → CLIENTES.
+            cur.executemany(
+                "INSERT INTO comitentes (id_cuenta, operador_email, tipo_doc, nro_doc, "
+                "tipo_titular, tipo, estado, clase, fecha_alta_legajo, tipo_cliente, "
+                "perfil_inversion, provincia, telefono, email, origen, created_at, updated_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (id_cuenta) DO UPDATE SET "
+                "tipo_doc=EXCLUDED.tipo_doc, nro_doc=EXCLUDED.nro_doc, "
+                "tipo_titular=EXCLUDED.tipo_titular, tipo=EXCLUDED.tipo, estado=EXCLUDED.estado, "
+                "clase=EXCLUDED.clase, fecha_alta_legajo=EXCLUDED.fecha_alta_legajo, "
+                "tipo_cliente=EXCLUDED.tipo_cliente, perfil_inversion=EXCLUDED.perfil_inversion, "
+                "provincia=EXCLUDED.provincia, telefono=EXCLUDED.telefono, email=EXCLUDED.email, "
+                "origen=EXCLUDED.origen, updated_at=EXCLUDED.updated_at",
+                comitentes)
+            conn.commit()
+
+        jr.set_stat("upserted", len(comitentes))
+        jr.log(f"sync_comitentes OK (SQL): {len(comitentes)} comitentes, "
+               f"{len(cuentas)} cuentas, {len(operadores)} operadores.")
 
 
 if __name__ == "__main__":

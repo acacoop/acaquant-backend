@@ -8,8 +8,8 @@ Dual-run: el router elige Mongo o SQL por `?_engine=sql` / flag `VALUACIONES_SQL
 Default Mongo → la vista en vivo NO cambia hasta probar con ?_engine=sql. Mismo shape de
 salida que valuaciones.py para que el frontend no cambie.
 
-Estado: posiciones_actuales (tabla de posiciones). Pendientes: serie, mensual, variación,
-consolidado (se agregan de a una, cada una verificada antes de prender el flag global).
+Estado: posiciones_actuales, serie, mensual (vía cierres_fecha_data), variación.
+Pendiente: consolidado (es un cache iterativo, ver jobs/consolidado_cuentas + tabla SQL).
 """
 from __future__ import annotations
 
@@ -160,4 +160,123 @@ def posiciones_actuales(id_cuenta: str, fecha: str | None = None,
         ],
         "total": round(total, 2),
         "n":     len(ordenadas),
+    }
+
+
+def variacion_titulos(id_cuenta: str, fecha: str) -> dict:
+    """Espejo SQL de valuaciones.variacion_titulos — lee `portafolio.tenencia`.
+
+    Descompone la variación del portfolio entre `fecha` (cierre de mes) y el cierre
+    del mes anterior, por unidad, separando efecto MERCADO (precio) de OPERADO
+    (cantidad). Cash → `otros`. Mismo shape que el path Mongo (que quedó roto al
+    eliminarse Valuaciones.AuM 2026-06-15 → esta es la fuente real).
+
+        delta_mercado = (pe_act − pe_prev) × cantidad_prev
+        delta_operado = (cant_act − cant_prev) × pe_act
+        delta_total   = val_act − val_prev = delta_mercado + delta_operado
+
+    `tipo` (tipoTitulo) no existe en SQL → None; el cash se detecta por `_es_cash`
+    sobre la unidad (mismo criterio canónico que el resto del código).
+    """
+    from api.services.valuaciones import _es_cash
+
+    base = {"id_cuenta": id_cuenta, "fecha": fecha, "fecha_anterior": None,
+            "filas": [], "otros": None, "totales": None}
+
+    frows = _q("SELECT DISTINCT fecha FROM portafolio.tenencia "
+               "WHERE id_cuenta = %(c)s AND aum = 'si' ORDER BY fecha", {"c": id_cuenta})
+    fechas = [_iso(r["fecha"]) for r in frows if r["fecha"] is not None]
+    if fecha not in fechas:
+        return {**base, "error": "fecha sin snapshot para la cuenta"}
+
+    # Comparar contra el CIERRE DEL MES ANTERIOR (último snapshot del mes calendario),
+    # no contra el snapshot cronológico previo (hay snapshots diarios). Igual que Mongo.
+    cierres: dict[str, str] = {}
+    for f in fechas:  # asc → el último del mes gana
+        cierres[f[:7]] = f
+    cierres_ord = [cierres[m] for m in sorted(cierres)]
+    if fecha in cierres_ord:
+        idx = cierres_ord.index(fecha)
+        if idx == 0:
+            return {**base, "error": "no hay mes anterior — es el primer mes"}
+        fecha_prev = cierres_ord[idx - 1]
+    else:
+        idx = fechas.index(fecha)
+        if idx == 0:
+            return {**base, "error": "no hay snapshot anterior"}
+        fecha_prev = fechas[idx - 1]
+
+    def _cargar(f: str) -> dict[str, dict]:
+        rows = _q("SELECT unidad, SUM(cantidad) AS cantidad, SUM(valuacion) AS valuacion "
+                  "FROM portafolio.tenencia WHERE id_cuenta = %(c)s AND fecha = %(f)s "
+                  "AND aum = 'si' GROUP BY unidad", {"c": id_cuenta, "f": f})
+        return {r["unidad"]: {"cantidad": _f(r["cantidad"]), "valuacion": _f(r["valuacion"])}
+                for r in rows if r["unidad"]}
+
+    prev = _cargar(fecha_prev)
+    act = _cargar(fecha)
+
+    filas: list[dict] = []
+    otros = {"delta_mercado": 0.0, "delta_operado": 0.0, "delta_total": 0.0,
+             "val_anterior": 0.0, "val_actual": 0.0, "n": 0}
+
+    for u in set(prev) | set(act):
+        p = prev.get(u)
+        a = act.get(u)
+        cant_prev = p["cantidad"] if p else 0.0
+        cant_act = a["cantidad"] if a else 0.0
+        val_prev = p["valuacion"] if p else 0.0
+        val_act = a["valuacion"] if a else 0.0
+        delta_total = val_act - val_prev
+        if cant_prev != 0 and cant_act != 0:
+            pe_prev = val_prev / cant_prev
+            pe_act = val_act / cant_act
+            delta_mercado = (pe_act - pe_prev) * cant_prev
+            delta_operado = (cant_act - cant_prev) * pe_act
+        else:
+            delta_mercado = 0.0
+            delta_operado = delta_total
+
+        if _es_cash(u, None):
+            otros["delta_mercado"] += delta_mercado
+            otros["delta_operado"] += delta_operado
+            otros["delta_total"] += delta_total
+            otros["val_anterior"] += val_prev
+            otros["val_actual"] += val_act
+            otros["n"] += 1
+        else:
+            estado = "ambos" if (p and a) else ("nuevo" if a else "cerrado")
+            filas.append({
+                "unidad":        u,
+                "tipo":          None,
+                "val_anterior":  round(val_prev, 2),
+                "val_actual":    round(val_act, 2),
+                "delta_mercado": round(delta_mercado, 2),
+                "delta_operado": round(delta_operado, 2),
+                "delta_total":   round(delta_total, 2),
+                "estado":        estado,
+            })
+
+    filas.sort(key=lambda r: -abs(r["delta_total"]))
+
+    tot_merc = sum(r["delta_mercado"] for r in filas) + otros["delta_mercado"]
+    tot_oper = sum(r["delta_operado"] for r in filas) + otros["delta_operado"]
+    tot_delta = sum(r["delta_total"] for r in filas) + otros["delta_total"]
+    tot_prev = sum(r["val_anterior"] for r in filas) + otros["val_anterior"]
+    tot_act = sum(r["val_actual"] for r in filas) + otros["val_actual"]
+
+    return {
+        "id_cuenta":      id_cuenta,
+        "fecha":          fecha,
+        "fecha_anterior": fecha_prev,
+        "filas":          filas,
+        "otros":          {k: (round(v, 2) if isinstance(v, float) else v)
+                           for k, v in otros.items()},
+        "totales": {
+            "val_anterior":  round(tot_prev, 2),
+            "val_actual":    round(tot_act, 2),
+            "delta_mercado": round(tot_merc, 2),
+            "delta_operado": round(tot_oper, 2),
+            "delta_total":   round(tot_delta, 2),
+        },
     }

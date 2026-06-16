@@ -116,6 +116,7 @@ def get_variacion(
         description="YYYY-MM-DD — fecha_snapshot del mes; se compara contra "
                     "el snapshot anterior.",
     ),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Descompone la variación del portfolio vs el snapshot anterior, por
     título, separando efecto mercado (precio) de efecto operado (cantidad).
@@ -126,7 +127,11 @@ def get_variacion(
         datetime.strptime(fecha, "%Y-%m-%d")
     except ValueError as e:
         raise HTTPException(400, f"fecha mal formada: {fecha!r}") from e
+    use_sql = _engine == "sql" or (_engine != "mongo" and os.getenv("VALUACIONES_SQL") == "1")
     try:
+        if use_sql:
+            from api.services import valuaciones_sql as svc_sql
+            return svc_sql.variacion_titulos(id_cuenta=id_cuenta, fecha=fecha)
         return svc.variacion_titulos(id_cuenta=id_cuenta, fecha=fecha)
     except Exception as e:
         logger.exception(

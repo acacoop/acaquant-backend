@@ -1,17 +1,28 @@
-# SQL / Postgres (Supabase) — capa relacional analítica
+# SQL / Postgres (Supabase) — capa relacional del núcleo de negocio
 
-Subdoc de `docs/ARQUITECTURA.md §5`. Postgres NO reemplaza a Mongo: es un **espejo
-relacional de solo-lectura** del núcleo de negocio, para reportería con SQL real,
-cruces baratos y, a futuro, BI/ML. Si Postgres se cae, la operación (Mongo) sigue
-intacta. Proveedor elegido: **Supabase**.
+Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase**.
 
-## Estado
-- **Fase A — esquema:** `sql/schema.sql` (v1). ✅ aplicado en Supabase (smoke OK).
-- **Fase B — sync Mongo→PG:** `jobs/sync_postgres.py` + reconciliación. ✅ escrito.
-  Pendiente: backfill inicial (`--full`, fuera de rueda) + cronear (B.2: `JobRunLogger`
-  + `crontab.txt` + índice `ingestado_en` para el incremental).
-- **Fase C — reportería sobre PG:** endpoints de reporting leen SQL. ⏳ después.
-- **Fase D — PG fuente de verdad de lo relacional:** solo si C demuestra valor. RED.
+> **2026-06-16 — CUTOVER COMPLETO del núcleo Aunesa.** Postgres dejó de ser un
+> "espejo read-only" y pasó a ser la **FUENTE DE VERDAD (escritura+lectura)** de
+> tenencias, negocio, operaciones, clientes y contrapartes. Mongo quedó SOLO para
+> mercado (`Trading.*`), catálogos y dominios no migrados. **NO se recrean en SQL
+> los precomputes/rollups de Mongo** — Postgres agrega EN VIVO con índices.
+
+## Estado (qué vive dónde)
+- **SQL = fuente de verdad:** `portafolio.{tenencia, assets}`, `clientes.{comitentes,
+  cuentas, operadores, contrapartes, actividad_mensual, accionistas}`,
+  `operaciones.{operaciones, negocio_movimientos, movimientos}`. Writers escriben SQL
+  directo (`jobs.portafolio_backfill`, `jobs.sync_comitentes`, `jobs.negocio_movimientos`,
+  `jobs.operaciones_informes`, `jobs.fci_bilateral`). Flags `*_SQL=1` en `.env`.
+- **DROPEADAS de Mongo (2026-06-15/16):** `Valuaciones.AuM`, `Valuaciones.Assets`,
+  `Clientes.Comitentes`, `CashFlow.Contrapartes`, `CashFlow.NegocioMovimientos`,
+  `CashFlow.Operaciones`, `CashFlow.OpsSerieDiaria`. Tabla SQL `aum` también dropeada.
+- **Sync/rollups Mongo MATADOS:** `sync_{operaciones,negocio,aum,assets,contrapartes,
+  dims_clientes}` de `jobs/sync_postgres.py`, `jobs/ops_rollup.py` (+OpsSerieDiaria),
+  `jobs/comercial_rollup.py` (+ComercialCache).
+- **Sigue en Mongo (no migrado):** `Trading.*` (mercado), `CashFlow.{Acreencias,
+  Movimientos, Productores, Accionistas, VolumenMercadoAgro, TiposOperacion}`,
+  `Manager.*`, `Opciones`, `News`, `Market`. `sync_postgres` solo espeja estas dims.
 
 ## Vista OPERACIONES en SQL (primer feature de producto migrado)
 

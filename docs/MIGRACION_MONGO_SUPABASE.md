@@ -4,6 +4,14 @@
 > Supabase/Postgres: el **qué** (ejecutivo) y el **cómo** (técnico). Se actualiza en cada
 > cambio. Docs relacionados: `SQL.md` (operativa), `SQL_MODELO.md` (diseño del modelo).
 
+> ## ✅ 2026-06-16 — NÚCLEO AUNESA MIGRADO Y CERRADO
+> El plan dual-run/espejo de abajo quedó **superado**: se hizo cutover COMPLETO a SQL
+> (escritura+lectura) y se **dropeó Mongo** de tenencias, assets, comitentes,
+> contrapartes, NegocioMovimientos y Operaciones (+rollups OpsSerieDiaria/ComercialCache).
+> Estado vigente y mapa "qué vive dónde": **`docs/SQL.md`**. Lo de abajo queda como
+> bitácora histórica del proceso (cómo se llegó). Sigue en Mongo: mercado (`Trading.*`),
+> catálogos, `Acreencias`/`Movimientos`, `Manager`, `Opciones`, `News`, `Market`.
+
 ---
 
 ## 1. Resumen ejecutivo

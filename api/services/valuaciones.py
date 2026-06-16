@@ -1539,8 +1539,6 @@ def valuacion_consolidada(
 
     Si la colección está vacía → `rows: []` (falta correr el job una vez).
     """
-    from api.services._cuentas_filter import match_cuenta_filter
-
     db_val = get_db_valuaciones()
     docs = list(db_val["ConsolidadoCuentas"].find(
         {}, {"_id": 0, "computed_at": 0},
@@ -1551,19 +1549,30 @@ def valuacion_consolidada(
         permitidas = set(scope)
         docs = [d for d in docs if str(d.get("id_cuenta", "")) in permitidas]
 
+    # Filtro por tipo de cuenta — se aplica EN PYTHON sobre los docs ya cargados
+    # (cada uno trae `cuenta`="[N] NOMBRE" + `id_cuenta`). Antes cruzaba contra
+    # Valuaciones.AuM (eliminada en la migración SQL) → ahora membership directa.
     if filtro_cuenta and filtro_cuenta != "todas":
-        sub = match_cuenta_filter(filtro_cuenta)
-        if sub:
-            last = db_val["AuM"].find_one(
-                {}, {"_id": 0, "fecha_snapshot": 1},
-                sort=[("fecha_snapshot", -1)],
-            )
-            ids: set = set()
-            if last:
-                ids = set(db_val["AuM"].distinct(
-                    "id_cuenta",
-                    {**sub, "fecha_snapshot": last["fecha_snapshot"]},
-                ))
-            docs = [d for d in docs if d.get("id_cuenta") in ids]
+        from api.services._cuentas_filter import (
+            _cuentas_accionistas,
+            _ids_cuenta_productores,
+        )
+        accs = set(_cuentas_accionistas())          # strings "[N] NOMBRE"
+        prods = set(_ids_cuenta_productores())      # id_cuenta
+
+        def _ok(d: dict) -> bool:
+            cuenta = d.get("cuenta") or ""
+            idc = str(d.get("id_cuenta") or "")
+            if filtro_cuenta == "accionistas":
+                return cuenta in accs
+            if filtro_cuenta == "sin_accionistas":
+                return cuenta not in accs
+            if filtro_cuenta == "cooperativas":
+                return cuenta not in accs and "coop" in cuenta.lower()
+            if filtro_cuenta == "productores":
+                return idc in prods
+            return True
+
+        docs = [d for d in docs if _ok(d)]
 
     return {"rows": docs, "n": len(docs), "filtro_cuenta": filtro_cuenta}

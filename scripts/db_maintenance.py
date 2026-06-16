@@ -34,14 +34,11 @@ from core.mongo import get_mongo_client
 
 _CREATE: list = []  # PortfolioAPI.AumAPI eliminada — la API lee Valuaciones.AuM directo.
 _DROP = [
-    ("Manager", "AumBackfillLog", "run_id_1"),
     ("Market", "EconomicCalendar", "time_1"),
 ]
 # (db, coll, días de retención, campo|None). campo=None → autodetectar el único
 # campo datetime; explícito cuando hay varios (ej. started_at/finished_at).
 _TTL = [
-    ("Manager", "AumBackfillLog", 90, "started_at"),
-    ("Manager", "AsistenteLogs", 90, None),
     ("Manager", "RoleAudit", 90, None),
     ("Manager", "ChangeLog", 90, None),
     ("Manager", "PortfolioSnapshotLog", 90, None),

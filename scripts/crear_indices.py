@@ -54,29 +54,6 @@ def main():
         (trading["Curvas"], [("ticker_corto", 1)],
             "Curvas: ticker_corto"),
 
-        # ── Valuaciones.AuM ───────────────────────────────────────────────
-        (valuaciones["AuM"], [("fecha_snapshot", 1)],
-            "AuM: fecha_snapshot"),
-        (valuaciones["AuM"], [("unidad", 1), ("fecha_snapshot", -1)],
-            "AuM: unidad + fecha_snapshot"),
-        (valuaciones["AuM"], [("id_cuenta", 1), ("fecha_snapshot", -1)],
-            "AuM: id_cuenta + fecha_snapshot"),
-        (valuaciones["AuM"], [("cuenta", 1), ("fecha_snapshot", -1)],
-            "AuM: cuenta + fecha_snapshot"),
-        # Covering para la serie AuM por operador (vista COMERCIAL): incluye
-        # valuacion → el $group lee del índice sin FETCH del doc. Acelera
-        # serie_comercial(metric=aum) y _aum_por_cuenta.
-        (valuaciones["AuM"], [("id_cuenta", 1), ("fecha_snapshot", 1), ("valuacion", 1)],
-            "AuM: id_cuenta + fecha_snapshot + valuacion (covering)"),
-
-        # ── Valuaciones.AuMResumen ────────────────────────────────────────
-        (valuaciones["AuMResumen"], [("id_cuenta", 1), ("unidad", 1), ("fecha_snapshot", -1)],
-            "AuMResumen: id_cuenta + unidad + fecha_snapshot"),
-        (valuaciones["AuMResumen"], [("CARTERA", 1), ("fecha_snapshot", -1)],
-            "AuMResumen: CARTERA + fecha_snapshot"),
-        (valuaciones["AuMResumen"], [("EMISOR", 1), ("fecha_snapshot", -1)],
-            "AuMResumen: EMISOR + fecha_snapshot"),
-
         # ── Valuaciones.Dolar ─────────────────────────────────────────────
         (valuaciones["Dolar"], [("timestamp", -1)],
             "Dolar: timestamp"),

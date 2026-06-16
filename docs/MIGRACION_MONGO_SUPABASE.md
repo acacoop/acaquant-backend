@@ -12,6 +12,37 @@
 > bitácora histórica del proceso (cómo se llegó). Sigue en Mongo: mercado (`Trading.*`),
 > catálogos, `Acreencias`/`Movimientos`, `Manager`, `Opciones`, `News`, `Market`.
 
+## 🎯 2026-06-16 — ROADMAP DECOMMISSION (apagar Mongo por completo)
+
+Decisión del user: **dar de baja Mongo, todo a SQL.** Inventario factual medido con
+`scripts/diag_inventario_mongo_sql` (102 colecciones Mongo / 17 tablas SQL públicas + schemas
+`clientes`/`operaciones`/`portafolio`).
+
+**Buckets:**
+- ✅ **YA en SQL** — negocio (operaciones, negocio_mov, comitentes, contrapartes, tenencia,
+  assets, consolidado) + mercado base (curvas, bonds_master, canje_cierre, snapshots_cierre
+  +hist, market_snapshot, dolar, rem, news, market_quotes/calendar, 7 series en `series_macro`).
+- 🗑️ **DROP (muertas)** — **paso 1, EN CURSO**: `Manager.AsistenteLogs`, `Manager.AumBackfillLog`,
+  `Valuaciones.AuMResumen`, `Valuaciones.AumBackfillRuns` → `scripts/drop_colecciones_muertas`
+  (dry-run/--apply; refs en crear_indices/db_maintenance ya limpiadas). Pendiente (necesita sacar
+  el path Mongo de comercial primero): `Clientes.ComercialCache` (58k, precompute muerto).
+- 🔨 **MIGRAR** — RF derivada (Breakevens/Forwards/FitParams/FairValue/DiasHabiles), RV
+  (Cedears/ADR/PreciosAcciones/DayTrading), Agro/Derivados, CashFlow (Movimientos/Acreencias/
+  Productores/TiposOperacion/VolumenMercadoAgro), caches (PnLTotalesCache/TenenciaHD), Manager
+  infra (JobRuns/HealthReports/WatchdogAlertas/RoleAudit/PyRofex*), MCP (OAuth*), UVA (+ macro).
+
+**3 piedras grandes** (cada una = mini-proyecto con su gate): `Trading.TimeSales` (5,1M docs),
+`Opciones.Data` (1M docs), **motor de órdenes** (`Operaciones.OrdenesLive/Audit/Triggers/Brackets`,
+real-time, crítico).
+
+**Secuencia (menor → mayor riesgo):** 1) drop muertas → 2) series simples → 3) snapshots de
+mercado → 4) caches → 5) CashFlow → 6) Manager/MCP → 7) las 3 piedras. **Cada paso:** crear tabla
+SQL → write nativo → leer SQL → validar paridad → drop Mongo. Reversible hasta el drop.
+
+> **Lo más pesado es la ESCRITURA, no la lectura:** hoy los motores/jobs escriben Mongo y
+> `sync_postgres` lo espeja. Para apagar Mongo, cada motor/job escribe SQL nativo (dual-write
+> → cortar Mongo). Eso es el grueso del trabajo, no un flag.
+
 ---
 
 ## 1. Resumen ejecutivo

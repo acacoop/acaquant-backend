@@ -46,6 +46,7 @@ from api.services.operaciones_view import (
     valor_si_categoria as _valor_si_categoria,
 )
 from api.services.titulos_flujos import assets_normalizados
+from core.postgres import get_pool
 
 logger = logging.getLogger("api.operaciones")
 
@@ -71,18 +72,14 @@ def listar_flujo(
     trae `tipoOperacion` y `cuenta` reales (que MesaAPI no tenía) y el `segmento`
     (sesión de mercado) se deriva del tipo_operacion. Excluye Futuros/Opciones."""
     dbc = get_db_cashflow()
-    # cuenta (id) → {contraparte, grupo}. La cuenta es la CLAVE de match.
-    cp_map = {
-        str(d.get("cuenta")).strip(): {
-            "contraparte": d.get("contraparte") or "",
-            "grupo": d.get("segmento") or "",
+    # cuenta (id) → {contraparte, grupo}. SQL clientes.contrapartes. La cuenta es la CLAVE.
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id_cuenta, contraparte, segmento FROM contrapartes "
+                    "WHERE id_cuenta IS NOT NULL AND id_cuenta <> ''")
+        cp_map = {
+            str(idc).strip(): {"contraparte": cp or "", "grupo": seg or ""}
+            for idc, cp, seg in cur.fetchall() if idc not in (None, "")
         }
-        for d in dbc["Contrapartes"].find(
-            {"cuenta": {"$exists": True, "$ne": ""}},
-            {"_id": 0, "cuenta": 1, "contraparte": 1, "segmento": 1},
-        )
-        if d.get("cuenta") not in (None, "")
-    }
     # Excluye Futuros/Opciones y las Caución COLOCADORA (apertura+cierre): vienen
     # en pares y duplican/ensucian la vista. La caución tomadora se mantiene.
     match: dict = {
@@ -184,16 +181,11 @@ def _fondos_emisores() -> list[str]:
         if _fondos_cache_data is not None and now < _fondos_cache_ts:
             return _fondos_cache_data
 
-    # DIRECTO desde CashFlow.Contrapartes (sin el espejo CuentasAPI.ContrapartesAPI):
-    # grupo=segmento, nombre=contraparte.
-    db_cf = get_db_cashflow()
-    fondos_cu = {
-        d["contraparte"]
-        for d in db_cf["Contrapartes"].find(
-            {"segmento": "Fondos"}, {"_id": 0, "contraparte": 1}
-        )
-        if d.get("contraparte")
-    }
+    # SQL clientes.contrapartes (segmento=Fondos): grupo=segmento, nombre=contraparte.
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT contraparte FROM contrapartes "
+                    "WHERE segmento = 'Fondos' AND contraparte IS NOT NULL")
+        fondos_cu = {r[0] for r in cur.fetchall() if r[0]}
     result: list[str] = []
     if fondos_cu:
         # DIRECTO desde Valuaciones.Assets (vía servicio): emisores con cartera FCI.

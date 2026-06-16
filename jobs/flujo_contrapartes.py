@@ -76,7 +76,6 @@ def main(dias: int = N_DIAS_LOOKBACK):
     print(f"Rango: {desde} → {hoy}  ({dias + 1} días)\n")
 
     client = get_mongo_client()
-    col_contrapartes = client["CashFlow"]["Contrapartes"]
     col_flujo        = client["CashFlow"]["Flujo"]
 
     # ── 1. Auth (delete se hace al final, solo si el fetch es exitoso) ───────
@@ -84,11 +83,12 @@ def main(dias: int = N_DIAS_LOOKBACK):
     headers = autenticar()
     print("Auth OK\n")
 
-    # ── 3. Contrapartes con cuenta ────────────────────────────────────────────
-    docs = list(col_contrapartes.find(
-        {"cuenta": {"$exists": True, "$ne": ""}},
-        {"_id": 0, "contraparte": 1, "cuenta": 1}
-    ))
+    # ── 3. Contrapartes con cuenta (SQL clientes.contrapartes) ─────────────────
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT contraparte, id_cuenta FROM contrapartes "
+                    "WHERE id_cuenta IS NOT NULL AND id_cuenta <> ''")
+        docs = [{"contraparte": cp, "cuenta": idc} for cp, idc in cur.fetchall()]
     print(f"{len(docs)} contrapartes con cuenta asignada\n")
 
     # ── 4. Fetch por contraparte ──────────────────────────────────────────────

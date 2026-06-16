@@ -180,21 +180,9 @@ def sync_dims_clientes(mdb, conn, dry) -> tuple[int, int, int]:
     return n_op, n_cu, n_co
 
 
-def sync_contrapartes(mdb, conn, dry) -> int:
-    """contrapartes: en Mongo el id de cuenta se llama 'cuenta'."""
-    rows = []
-    for d in mdb["CashFlow"]["Contrapartes"].find(
-        {}, {"cuenta": 1, "contraparte": 1, "segmento": 1}
-    ):
-        idc = _s(d.get("cuenta"))
-        if not idc:
-            continue
-        rows.append((idc, _s(d.get("contraparte")), _s(d.get("segmento"))))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "contrapartes", ["id_cuenta", "contraparte", "segmento"],
-                ["id_cuenta"], rows, dry)
-    _delete_not_in(conn, "contrapartes", "id_cuenta", {r[0] for r in rows}, dry)
-    return n
+# sync_contrapartes ELIMINADO: clientes.contrapartes es la fuente de verdad ahora
+# (editor del panel + reconciliador escriben SQL directo). Mongo CashFlow.Contrapartes
+# deprecado. Sincronizar Mongo→SQL acá pisaría las ediciones del panel.
 
 
 # ── HECHOS (batcheados + throttle; incremental por campo de ingesta) ──────────
@@ -755,7 +743,6 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
             return r
 
         n_op, n_cu, n_co = _t("dims_clientes", lambda: sync_dims_clientes(mdb, conn, dry), (0, 0, 0))
-        n_cp = _t("contrapartes", lambda: sync_contrapartes(mdb, conn, dry))
         n_ac = _t("accionistas", lambda: sync_accionistas(mdb, conn, dry))
         n_mu = _t("manager_users", lambda: sync_manager_users(mdb, conn, dry))
         n_rm = _t("role_matrix", lambda: sync_role_matrix(mdb, conn, dry))
@@ -784,7 +771,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
               f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  canje_cierre={n_cj}  "
               f"mercado_hist={n_mh:,}")
         print(f"  dimensiones: operadores={n_op}  cuentas={n_cu}  comitentes={n_co}  "
-              f"contrapartes={n_cp}  accionistas={n_ac}  manager_users={n_mu}  "
+              f"accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
 
@@ -807,7 +794,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         for label, err in fallos:
             print(f"  - {label}: {err}")
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
-    stats = {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co, "contrapartes": n_cp,
+    stats = {"operadores": n_op, "cuentas": n_cu, "comitentes": n_co,
              "accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
              "actividad_mensual": n_am, "dolar": n_dl,
              "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc, "news": n_nw,

@@ -13,30 +13,20 @@ Endpoints (prefix /api/manager lo agrega el paquete):
   POST  /contrapartes            → alta desde el conciliador (idempotente). Mongo.
   GET   /contrapartes/reconcile  → conciliador (pega Aunesa live, on-demand). Mongo.
 
-Lecturas: motor Mongo o SQL según flag CONTRAPARTES_SQL (default Mongo) — patrón dual-run.
-Escrituras + conciliador: Mongo (fuente de verdad) + Aunesa live.
+Fuente única SQL `clientes.contrapartes` (lecturas, escrituras y conciliador).
 """
 from __future__ import annotations
 
 import logging
-import os
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.auth import get_user_email
-from api.services import contrapartes_seg as _mongo
-from api.services import contrapartes_seg_sql as _sql
+from api.services import contrapartes_seg as _svc
 
 logger = logging.getLogger("api.manager.contrapartes")
 router = APIRouter()
-
-
-def _motor(req: str | None):
-    """Módulo de lectura (Mongo o SQL) según ?_engine o el flag CONTRAPARTES_SQL."""
-    if req in ("sql", "mongo"):
-        return _sql if req == "sql" else _mongo
-    return _sql if os.getenv("CONTRAPARTES_SQL") == "1" else _mongo
 
 
 @router.get("/contrapartes")
@@ -44,16 +34,15 @@ def list_contrapartes(
     segmento: str | None = Query(None, description="Filtra por segmento exacto"),
     contraparte: str | None = Query(None, description="Filtra por contraparte exacta"),
     q: str | None = Query(None, description="Substring sobre denominacion o cuenta"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Lista de contrapartes para el panel de segmentación."""
-    return _motor(_engine).listar_contrapartes(segmento=segmento, contraparte=contraparte, q=q)
+    return _svc.listar_contrapartes(segmento=segmento, contraparte=contraparte, q=q)
 
 
 @router.get("/contrapartes/segmentos")
-def contrapartes_segmentos(_engine: str | None = Query(None, include_in_schema=False)) -> dict:
+def contrapartes_segmentos() -> dict:
     """Valores distintos de segmento + contraparte (datalist del form)."""
-    return _motor(_engine).segmentos_distinct()
+    return _svc.segmentos_distinct()
 
 
 class _ContrapartePatch(BaseModel):
@@ -69,7 +58,7 @@ class _ContrapartePatch(BaseModel):
 @router.patch("/contrapartes")
 def patch_contraparte(req: _ContrapartePatch = Body(...), actor: str = Depends(get_user_email)) -> dict:
     """Edita contraparte/segmento de una cuenta existente."""
-    res = _mongo.update_contraparte(
+    res = _svc.update_contraparte(
         cuenta=req.cuenta, contraparte=req.contraparte, segmento=req.segmento, actor=actor)
     if not res.get("updated"):
         reason = res.get("reason")
@@ -90,7 +79,7 @@ class _ContraparteNew(BaseModel):
 @router.post("/contrapartes")
 def add_contraparte(req: _ContraparteNew = Body(...), actor: str = Depends(get_user_email)) -> dict:
     """Alta de 1 click desde el conciliador (idempotente)."""
-    res = _mongo.add_contraparte(
+    res = _svc.add_contraparte(
         cuenta=req.cuenta, denominacion=req.denominacion, contraparte=req.contraparte,
         segmento=req.segmento, actor=actor)
     if not res.get("added"):
@@ -104,7 +93,7 @@ def reconcile_contrapartes(
 ) -> dict:
     """Conciliador: pega Aunesa LIVE. On-demand (botón) — no cachear ni pollear."""
     try:
-        return _mongo.reconciliar(limit=limit)
+        return _svc.reconciliar(limit=limit)
     except Exception as e:
         logger.exception("reconcile_contrapartes failed")
         raise HTTPException(502, f"No se pudo conciliar con Aunesa: {e}") from e

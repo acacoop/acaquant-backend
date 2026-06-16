@@ -62,13 +62,15 @@ _MIN_CONTRAPARTE_NAME_LEN = 3
 
 
 def load_contrapartes_names() -> frozenset[str]:
-    """Lee `CashFlow.Contrapartes` y devuelve nombres únicos de
+    """Lee `clientes.contrapartes` (SQL) y devuelve nombres únicos de
     `contraparte` (uppercase, sin placeholders, len >= 3). Usado para
     matchear por palabra completa contra `cuenta` del AuM cuando el
     matching por id_cuenta no alcanza."""
-    from core.mongo import get_mongo_client_read
+    from core.postgres import get_pool
 
-    raw = get_mongo_client_read()["CashFlow"]["Contrapartes"].distinct("contraparte")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT contraparte FROM contrapartes WHERE contraparte IS NOT NULL")
+        raw = [r[0] for r in cur.fetchall()]
     out: set[str] = set()
     for r in raw:
         if not isinstance(r, str):
@@ -92,19 +94,16 @@ def _build_contrapartes_regex(names: frozenset[str] | set[str]) -> str | None:
 
 
 def load_contrapartes_id_cuentas() -> frozenset[str]:
-    """Lee `CashFlow.Contrapartes.cuenta` (el id_cuenta) DIRECTO de la fuente
-    (sin el espejo CuentasAPI.ContrapartesAPI) y devuelve el set como strings.
+    """Lee `clientes.contrapartes.id_cuenta` (SQL) y devuelve el set como strings.
     Match por id (no por la denominación) porque el formato de cuenta difiere
-    entre Valuaciones.AuM (prefijo "[NN] ") y Contrapartes — el id numérico es
-    la única clave estable. En Contrapartes el campo `cuenta` ES el id."""
-    from core.mongo import get_mongo_client_read
+    entre tenencia (prefijo "[NN] ") y contrapartes — el id numérico es la única
+    clave estable."""
+    from core.postgres import get_pool
 
-    col = get_mongo_client_read()["CashFlow"]["Contrapartes"]
-    return frozenset(
-        str(d["cuenta"])
-        for d in col.find({}, {"_id": 0, "cuenta": 1})
-        if d.get("cuenta") is not None
-    )
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id_cuenta FROM contrapartes "
+                    "WHERE id_cuenta IS NOT NULL AND id_cuenta <> ''")
+        return frozenset(str(r[0]) for r in cur.fetchall())
 
 
 def is_excluded(

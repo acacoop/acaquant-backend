@@ -1,20 +1,19 @@
-"""api/services/contrapartes_seg.py — segmentación + conciliador de CashFlow.Contrapartes.
+"""api/services/contrapartes_seg.py — segmentación + conciliador de `clientes.contrapartes` (SQL).
 
-Backend de la vista MANAGER → CONTRAPARTES (módulo `manager_contrapartes`). Mongo es la
-FUENTE DE VERDAD; el espejo SQL (tabla `contrapartes`) se refresca en el próximo
-`sync_postgres` (cron cada 20 min). Servicio puro (sin FastAPI).
+Backend de la vista MANAGER → CONTRAPARTES (módulo `manager_contrapartes`). **Fuente única
+SQL** (Mongo CashFlow.Contrapartes deprecado). Servicio puro (sin FastAPI).
 
-Doc de Contrapartes (clave = `cuenta`, el id):
-  {cuenta, denominacion (de Aunesa, read-only), contraparte (editable), segmento (editable)}
+Tabla `clientes.contrapartes` (clave = `id_cuenta`):
+  {id_cuenta, denominacion (de Aunesa), contraparte (editable), segmento (editable),
+   origen, actualizado_por/at}. `denominacion` se prefiere de la fila; si falta, del JOIN
+   a `cuentas`.
 
 ⚠️ Efectos colaterales (INTENCIONALES) al AGREGAR una contraparte — el front avisa:
   - la cuenta SALE del AuM (jobs/_aum_filters.py reglas 3 y 4: match por id o por nombre).
   - su nivel_3 pasa a "PJ GRANDE" (api/services/segmentacion.py::clasificar_nivel_3).
 
 Conciliador: lista cuentas que están en Aunesa (`cuentas/listadoCuentas`) pero NO en
-Contrapartes, y cuya `denominacion` contiene el nombre de alguna contraparte conocida
-(keywords auto-derivadas de los `contraparte` distintos). Sirve para detectar cuentas
-nuevas sin segmentar.
+contrapartes, y cuya `denominacion` contiene el nombre de alguna contraparte conocida.
 """
 from __future__ import annotations
 
@@ -22,23 +21,31 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from api.services.segmentacion import _TIPOS_PH  # tipo_cliente de persona física (Persona/Empleado)
+from psycopg.rows import dict_row
+
+from api.services.segmentacion import _TIPOS_PH  # tipo_cliente de persona física
 from core import aunesa
-from core.mongo import get_mongo_client, get_mongo_client_read
+from core.postgres import get_pool
 
 # Valores de `contraparte` que no son nombres reales (mismo criterio que _aum_filters).
 _PLACEHOLDERS: frozenset[str] = frozenset({"", "NO APLICA", "N/A", "NONE", "NULL", "-"})
-# Mínimo de caracteres de una keyword para usarse en el match (evita falsos positivos).
 _MIN_KEYWORD_LEN = 3
-_PROJ = {"_id": 0, "cuenta": 1, "denominacion": 1, "contraparte": 1, "segmento": 1}
+# denominacion preferida: la de la fila; si NULL, la del JOIN a cuentas.
+_DEN = "COALESCE(c.denominacion, u.denominacion)"
 
 
-def _col_ro():
-    return get_mongo_client_read()["CashFlow"]["Contrapartes"]
+def _q(sql: str, params: dict | None = None) -> list[dict]:
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql, params or {})
+        return cur.fetchall()
 
 
-def _col_rw():
-    return get_mongo_client()["CashFlow"]["Contrapartes"]
+def _exec(sql: str, params: dict) -> int:
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        n = cur.rowcount
+        conn.commit()
+        return n
 
 
 def _s(v: Any) -> str | None:
@@ -48,16 +55,8 @@ def _s(v: Any) -> str | None:
     return s or None
 
 
-def _cuenta_match(cuenta: str) -> dict:
-    """Match por `cuenta` tolerando que esté guardada como string o int."""
-    if cuenta.isdigit():
-        return {"cuenta": {"$in": [cuenta, int(cuenta)]}}
-    return {"cuenta": cuenta}
-
-
 def inferir_segmento(denominacion: str | None, contraparte: str | None) -> str | None:
-    """Sugerencia de segmento. Réplica de jobs/segmento_contrapartes.inferir_segmento
-    (para no depender de un script one-shot) — mantener en sync si cambian las reglas."""
+    """Sugerencia de segmento (FCI→Fondos, ALYC, BANCO→Bancos)."""
     den = (denominacion or "").upper()
     cp = (contraparte or "").upper()
     if "FCI" in den:
@@ -70,9 +69,6 @@ def inferir_segmento(denominacion: str | None, contraparte: str | None) -> str |
 
 
 def _norm_keyword(v: Any) -> str | None:
-    """Nombre de contraparte → keyword normalizada (upper, sin placeholders, len>=3).
-    Mismo criterio que jobs/_aum_filters.load_contrapartes_names → detección y exclusión
-    del AuM quedan alineadas."""
     if not isinstance(v, str):
         return None
     s = v.strip().upper()
@@ -83,105 +79,100 @@ def _norm_keyword(v: Any) -> str | None:
 
 def listar_contrapartes(*, segmento: str | None = None, contraparte: str | None = None,
                         q: str | None = None) -> dict:
-    """Lista las contrapartes (panel izquierdo). Filtros opcionales por segmento /
-    contraparte exactos y `q` (substring sobre denominacion o cuenta)."""
-    # AND de condiciones: base (cuenta no vacía) + filtros + cada palabra de `q`.
-    # Cada token debe estar en denominacion o cuenta (sin importar el orden) → "NICOLAS
-    # MOLLO" matchea "MOLLO, NICOLAS". Substring por token (case-insensitive).
-    and_clauses: list[dict[str, Any]] = [{"cuenta": {"$nin": [None, ""]}}]
+    """Lista las contrapartes (panel izquierdo). Filtros por segmento/contraparte exactos
+    y `q` (cada token en denominacion o cuenta, AND sin orden)."""
+    where = ["c.id_cuenta IS NOT NULL"]
+    p: dict = {}
     if segmento:
-        and_clauses.append({"segmento": segmento})
+        where.append("c.segmento = %(seg)s")
+        p["seg"] = segmento
     if contraparte:
-        and_clauses.append({"contraparte": contraparte})
-    for tok in (q or "").split():
-        rgx = {"$regex": re.escape(tok), "$options": "i"}
-        and_clauses.append({"$or": [{"denominacion": rgx}, {"cuenta": rgx}]})
-    filtro: dict[str, Any] = {"$and": and_clauses}
-    # Coercionar a string SIEMPRE: hay docs sucios con `contraparte`/`cuenta` numéricos
-    # (ej. CUIT de sociedades gerentes). Si el front recibe un número y lo reescribe,
-    # lo manda como número → Pydantic (str) lo rechaza con 422 → "da error al guardar".
-    rows = [
-        {"cuenta": _s(d.get("cuenta")), "denominacion": _s(d.get("denominacion")),
-         "contraparte": _s(d.get("contraparte")), "segmento": _s(d.get("segmento"))}
-        for d in _col_ro().find(filtro, _PROJ).sort("denominacion", 1).limit(5000)
-    ]
-    return {"contrapartes": rows, "n": len(rows)}
+        where.append("c.contraparte = %(cp)s")
+        p["cp"] = contraparte
+    for i, tok in enumerate((q or "").split()):
+        where.append(f"({_DEN} ILIKE %(t{i})s OR c.id_cuenta ILIKE %(t{i})s)")
+        p[f"t{i}"] = f"%{tok}%"
+    rows = _q(
+        f"SELECT c.id_cuenta AS cuenta, {_DEN} AS denominacion, c.contraparte, c.segmento "
+        f"FROM contrapartes c LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta "
+        f"WHERE {' AND '.join(where)} ORDER BY denominacion NULLS LAST LIMIT 5000", p)
+    return {"contrapartes": [
+        {"cuenta": _s(r["cuenta"]), "denominacion": _s(r["denominacion"]),
+         "contraparte": _s(r["contraparte"]), "segmento": _s(r["segmento"])}
+        for r in rows], "n": len(rows)}
 
 
 def segmentos_distinct() -> dict:
     """Valores distintos de segmento + contraparte para los datalist (autocomplete)."""
-    col = _col_ro()
-
-    def _clean(vals: list) -> list[str]:
+    def _clean(rows: list[dict], col: str) -> list[str]:
         return sorted({
-            str(v).strip() for v in vals
-            if isinstance(v, str) and v.strip() and str(v).strip().upper() not in _PLACEHOLDERS
-        })
-
-    return {"segmentos": _clean(col.distinct("segmento")),
-            "contrapartes": _clean(col.distinct("contraparte"))}
+            r[col].strip() for r in rows
+            if isinstance(r[col], str) and r[col].strip()
+            and r[col].strip().upper() not in _PLACEHOLDERS})
+    segs = _q("SELECT DISTINCT segmento FROM contrapartes WHERE segmento IS NOT NULL")
+    cps = _q("SELECT DISTINCT contraparte FROM contrapartes WHERE contraparte IS NOT NULL")
+    return {"segmentos": _clean(segs, "segmento"), "contrapartes": _clean(cps, "contraparte")}
 
 
 def update_contraparte(*, cuenta: str, contraparte: str | None = None,
                        segmento: str | None = None, actor: str | None = None) -> dict:
-    """Edita contraparte/segmento de una cuenta existente. Devuelve {updated, ...}.
-    El router traduce updated=False/reason a 400/404."""
+    """Edita contraparte/segmento de una cuenta existente. El router traduce
+    updated=False/reason a 400/404."""
     cuenta = _s(cuenta) or ""
     if not cuenta:
         return {"updated": False, "reason": "cuenta_vacia"}
-    set_fields: dict[str, Any] = {}
+    sets: dict[str, Any] = {}
     if contraparte is not None:
-        set_fields["contraparte"] = _s(contraparte)
+        sets["contraparte"] = _s(contraparte)
     if segmento is not None:
-        set_fields["segmento"] = _s(segmento)
-    if not set_fields:
+        sets["segmento"] = _s(segmento)
+    if not sets:
         return {"updated": False, "reason": "sin_campos"}
-    set_fields["actualizado_por"] = actor
-    set_fields["actualizado_at"] = datetime.now(UTC)
-    res = _col_rw().update_one(_cuenta_match(cuenta), {"$set": set_fields})
-    if res.matched_count == 0:
+    sets["actualizado_por"] = actor
+    sets["actualizado_at"] = datetime.now(UTC)
+    cols = ", ".join(f"{k} = %({k})s" for k in sets)
+    n = _exec(f"UPDATE contrapartes SET {cols} WHERE id_cuenta = %(idc)s",
+              {**sets, "idc": cuenta})
+    if n == 0:
         return {"updated": False, "reason": "not_found"}
-    doc = _col_ro().find_one(_cuenta_match(cuenta), _PROJ) or {}
-    return {"updated": True, "cuenta": str(doc.get("cuenta")), "denominacion": doc.get("denominacion"),
-            "contraparte": doc.get("contraparte"), "segmento": doc.get("segmento")}
+    row = _q(f"SELECT c.id_cuenta AS cuenta, {_DEN} AS denominacion, c.contraparte, c.segmento "
+             f"FROM contrapartes c LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta "
+             f"WHERE c.id_cuenta = %(idc)s", {"idc": cuenta})
+    d = row[0] if row else {}
+    return {"updated": True, "cuenta": str(d.get("cuenta")), "denominacion": d.get("denominacion"),
+            "contraparte": d.get("contraparte"), "segmento": d.get("segmento")}
 
 
 def add_contraparte(*, cuenta: str, denominacion: str | None, contraparte: str | None,
                     segmento: str | None, actor: str | None = None) -> dict:
-    """Alta de 1 click desde el conciliador. Idempotente (upsert por cuenta)."""
+    """Alta de 1 click desde el conciliador. Idempotente (upsert por id_cuenta)."""
     cuenta = _s(cuenta) or ""
     if not cuenta:
         return {"added": False, "reason": "cuenta_vacia"}
-    doc = {
-        "cuenta": cuenta, "denominacion": _s(denominacion),
-        "contraparte": _s(contraparte), "segmento": _s(segmento),
-        "actualizado_por": actor, "actualizado_at": datetime.now(UTC), "origen": "reconciler",
-    }
-    _col_rw().update_one(_cuenta_match(cuenta), {"$set": doc}, upsert=True)
-    return {"added": True, "cuenta": cuenta, "denominacion": doc["denominacion"],
-            "contraparte": doc["contraparte"], "segmento": doc["segmento"]}
+    p = {"idc": cuenta, "den": _s(denominacion), "cp": _s(contraparte),
+         "seg": _s(segmento), "por": actor, "at": datetime.now(UTC)}
+    _exec(
+        "INSERT INTO contrapartes (id_cuenta, denominacion, contraparte, segmento, origen, "
+        "actualizado_por, actualizado_at) "
+        "VALUES (%(idc)s, %(den)s, %(cp)s, %(seg)s, 'reconciler', %(por)s, %(at)s) "
+        "ON CONFLICT (id_cuenta) DO UPDATE SET denominacion = EXCLUDED.denominacion, "
+        "contraparte = EXCLUDED.contraparte, segmento = EXCLUDED.segmento, origen = 'reconciler', "
+        "actualizado_por = EXCLUDED.actualizado_por, actualizado_at = EXCLUDED.actualizado_at", p)
+    return {"added": True, "cuenta": cuenta, "denominacion": p["den"],
+            "contraparte": p["cp"], "segmento": p["seg"]}
 
 
 def reconciliar(*, limit: int = 500) -> dict:
-    """Conciliador (panel derecho). Devuelve cuentas de Aunesa que NO están en
-    Contrapartes y cuya `denominacion` matchea el nombre de una contraparte conocida.
-
-    Pega Aunesa LIVE (cuentas/listadoCuentas) — on-demand, NO cachear ni pollear.
-    """
-    col = _col_ro()
-    existentes = {
-        str(d["cuenta"])
-        for d in col.find({"cuenta": {"$nin": [None, ""]}}, {"_id": 0, "cuenta": 1})
-        if d.get("cuenta") is not None
-    }
-    # keyword (upper) → nombre original, para sugerir la contraparte.
+    """Conciliador (panel derecho): cuentas de Aunesa que NO están en contrapartes y cuya
+    `denominacion` matchea el nombre de una contraparte conocida. Pega Aunesa LIVE."""
+    existentes = {str(r["id_cuenta"]) for r in
+                  _q("SELECT id_cuenta FROM contrapartes WHERE id_cuenta IS NOT NULL "
+                     "AND id_cuenta <> ''")}
     keywords: dict[str, str] = {}
-    for r in col.distinct("contraparte"):
-        k = _norm_keyword(r)
+    for r in _q("SELECT DISTINCT contraparte FROM contrapartes WHERE contraparte IS NOT NULL"):
+        k = _norm_keyword(r["contraparte"])
         if k:
-            keywords[k] = r.strip()
-    # Match por PALABRA COMPLETA (\bKW\b), no substring → "MAX" no matchea dentro
-    # de "MAXIMILIANO". Longest-first (regex greedy elige el nombre más largo).
+            keywords[k] = r["contraparte"].strip()
     kw_sorted = sorted(keywords, key=lambda x: (-len(x), x))
     kw_re = re.compile(r"\b(" + "|".join(re.escape(k) for k in kw_sorted) + r")\b") if kw_sorted else None
 
@@ -196,9 +187,6 @@ def reconciliar(*, limit: int = 500) -> dict:
     for c in data:
         if not isinstance(c, dict) or (c.get("estado") or "") != "Activa":
             continue
-        # Una contraparte NUNCA es persona física → se excluyen los tipo_cliente PH
-        # (Persona / Empleado). Mismo criterio que la clasificación patrimonial
-        # (segmentacion._TIPOS_PH). Acelera el conciliador y deja solo PJ/institucionales.
         tipo_cli = (c.get("disposicionesGenerales") or {}).get("tipoCliente")
         if tipo_cli in _TIPOS_PH:
             continue
@@ -214,12 +202,10 @@ def reconciliar(*, limit: int = 500) -> dict:
             continue
         match = m.group(1)
         candidatos.append({
-            "cuenta": cid,
-            "denominacion": den,
+            "cuenta": cid, "denominacion": den,
             "contraparte_sugerida": keywords[match],
             "segmento_sugerido": inferir_segmento(den, keywords[match]),
-            "keyword": keywords[match],
-            "tipo_cliente": tipo_cli,
+            "keyword": keywords[match], "tipo_cliente": tipo_cli,
         })
         if len(candidatos) >= limit:
             break

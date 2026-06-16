@@ -127,3 +127,24 @@ def _mirror(table: str, key_cols: list[str], rows: list[dict]) -> int:
     except Exception as e:
         logger.error("pg_mirror %s: %s", table, str(e).splitlines()[0][:200])
         return 0
+
+
+# ── SQL-NATIVE (decommission Mongo): upsert/prune INCONDICIONALES ─────────────
+# Para jobs que ya NO escriben Mongo (la fuente es SQL). A diferencia de mirror_job/
+# prune_job (gateados por MERCADO_SQL_WRITE = "dual-write"), estos siempre escriben.
+def write_native(table: str, key_cols: list[str], rows: list[dict]) -> int:
+    """Upsert incondicional a SQL (job SQL-native, sin Mongo)."""
+    return _mirror(table, key_cols, rows) if rows else 0
+
+
+def prune_native(table: str, col: str, days: int) -> int:
+    """Retención incondicional (job SQL-native): borra filas con `col` > `days` días."""
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM {table} WHERE {col} < now() - %s * interval '1 day'", (days,))
+            return cur.rowcount or 0
+    except Exception as e:
+        logger.error("pg_mirror prune_native %s: %s", table, str(e).splitlines()[0][:200])
+        return 0

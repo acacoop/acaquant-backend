@@ -1,7 +1,8 @@
 """news_ingesta.py — Ingesta de RSS de medios económicos argentinos.
 
-Corre cada 15 min vía cron y mete las headlines en `News.Headlines` con dedup
-por URL. Si algún feed devuelve error, se loggea y se sigue con el resto.
+Corre cada 15 min vía cron y escribe las headlines DIRECTO a SQL `news_headlines`
+(upsert por URL + prune de retención). SQL-native: ya NO escribe Mongo. Si un feed
+devuelve error, se loggea y se sigue con el resto.
 
 Uso:
     python -m jobs.news_ingesta           # una corrida normal
@@ -17,10 +18,7 @@ import sys
 import time
 from datetime import UTC, datetime
 
-from pymongo.errors import DuplicateKeyError
-
-from core.mongo import get_mongo_client
-from core.pg_mirror import doc_iso, jobs_on, mirror_job, prune_job
+from core.pg_mirror import doc_iso, prune_native, write_native
 
 logger = logging.getLogger(__name__)
 
@@ -61,20 +59,6 @@ NEWS_FEEDS: list[dict[str, str]] = [
 ]
 
 
-def _ensure_indexes(coll) -> None:
-    coll.create_index("url", unique=True)
-    coll.create_index([("fecha_publicacion", -1)])
-    coll.create_index([("fuente", 1), ("fecha_publicacion", -1)])
-    coll.create_index("categoria")
-    # TTL: Mongo borra solo los docs con fecha_publicacion > RETENCION_DIAS días.
-    # Clave ascendente {f:1} ≠ {f:-1} de arriba → conviven sin conflicto.
-    coll.create_index(
-        [("fecha_publicacion", 1)],
-        name="ttl_fecha_publicacion",
-        expireAfterSeconds=RETENCION_DIAS * 86400,
-    )
-
-
 def _parse_entry_date(entry) -> datetime:
     """Intenta extraer fecha del entry del feed; fallback = ahora UTC."""
     try:
@@ -102,29 +86,28 @@ def _clean_excerpt(raw: str, maxlen: int = 400) -> str:
     return txt[:maxlen]
 
 
-def ingesta_una_fuente(feed_cfg: dict, coll) -> tuple[int, int, int]:
-    """Parsea un feed y hace upsert en la colección. Devuelve (insertados, duplicados, errores)."""
+def ingesta_una_fuente(feed_cfg: dict) -> list[dict]:
+    """Parsea un feed y devuelve los docs de headlines (SQL-native: NO escribe Mongo)."""
     import feedparser
-    insertados = duplicados = errores = 0
     try:
         parsed = feedparser.parse(feed_cfg["url"])
     except Exception as e:
         logger.warning("feed %s fallo al parsear: %s", feed_cfg["url"], e)
-        return 0, 0, 1
+        return []
 
     if parsed.bozo and not parsed.entries:
         logger.warning("feed %s no devolvió entries (bozo=%s): %s",
                        feed_cfg["url"], parsed.bozo, getattr(parsed, "bozo_exception", ""))
-        return 0, 0, 1
+        return []
 
     now = datetime.now(UTC)
+    docs: list[dict] = []
     for entry in parsed.entries:
         url = getattr(entry, "link", "") or ""
         titulo = getattr(entry, "title", "") or ""
         if not url or not titulo:
             continue
-
-        doc = {
+        docs.append({
             "url":                url,
             "fuente":             feed_cfg["fuente"],
             "categoria":          feed_cfg["categoria"],
@@ -132,17 +115,8 @@ def ingesta_una_fuente(feed_cfg: dict, coll) -> tuple[int, int, int]:
             "excerpt":            _clean_excerpt(getattr(entry, "summary", "") or ""),
             "fecha_publicacion":  _parse_entry_date(entry),
             "fetched_at":         now,
-        }
-        try:
-            coll.insert_one(doc)
-            insertados += 1
-        except DuplicateKeyError:
-            duplicados += 1
-        except Exception as e:
-            logger.exception("error insertando %s: %s", url, e)
-            errores += 1
-
-    return insertados, duplicados, errores
+        })
+    return docs
 
 
 def main() -> int:
@@ -160,33 +134,25 @@ def main() -> int:
             logger.error("fuente %s no encontrada", args.fuente)
             return 2
 
-    client = get_mongo_client()
-    coll = client["News"]["Headlines"]
-    _ensure_indexes(coll)
-
     t0 = time.time()
-    total_ins = total_dup = total_err = 0
+    docs: list[dict] = []
     for f in feeds:
-        ins, dup, err = ingesta_una_fuente(f, coll)
-        total_ins += ins
-        total_dup += dup
-        total_err += err
-        logger.info("[%s/%s] ins=%d dup=%d err=%d",
-                    f["fuente"], f["categoria"], ins, dup, err)
+        d = ingesta_una_fuente(f)
+        docs.extend(d)
+        logger.info("[%s/%s] %d headlines", f["fuente"], f["categoria"], len(d))
 
-    # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort): espejo del
-    # estado completo (chico — la TTL mantiene ≤2 días) + misma retención en PG.
-    if jobs_on():
-        rows = [{"url": d["url"], "fecha_publicacion": d.get("fecha_publicacion"),
-                 "fuente": d.get("fuente"), "categoria": d.get("categoria"),
-                 "titulo": d.get("titulo"), "data": doc_iso(d)}
-                for d in coll.find({}, {"_id": 0}) if d.get("url")]
-        mirror_job("news_headlines", ["url"], rows)
-        prune_job("news_headlines", "fecha_publicacion", RETENCION_DIAS)
+    # SQL-NATIVE: upsert directo a news_headlines (sin Mongo). Dedup por url + retención.
+    por_url = {d["url"]: d for d in docs if d.get("url")}
+    rows = [{"url": d["url"], "fecha_publicacion": d.get("fecha_publicacion"),
+             "fuente": d.get("fuente"), "categoria": d.get("categoria"),
+             "titulo": d.get("titulo"), "data": doc_iso(d)}
+            for d in por_url.values()]
+    n = write_native("news_headlines", ["url"], rows)
+    prune_native("news_headlines", "fecha_publicacion", RETENCION_DIAS)
 
     elapsed = time.time() - t0
-    logger.info("DONE — feeds=%d ins=%d dup=%d err=%d %.1fs",
-                len(feeds), total_ins, total_dup, total_err, elapsed)
+    logger.info("DONE — feeds=%d headlines=%d upserted=%d %.1fs",
+                len(feeds), len(rows), n, elapsed)
     return 0
 
 

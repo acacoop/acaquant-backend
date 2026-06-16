@@ -274,25 +274,6 @@ def sync_portfolio_snapshot(mdb, conn, dry) -> int:
     return n
 
 
-def sync_news(mdb, conn, dry) -> int:
-    """News.Headlines (RSS/Finnhub) → news_headlines. data jsonb = doc con fechas a ISO."""
-    from datetime import datetime as _dt
-
-    cols = ["url", "fecha_publicacion", "fuente", "categoria", "titulo", "data"]
-    rows = []
-    for d in mdb["News"]["Headlines"].find({}, {"_id": 0}):
-        url = _s(d.get("url"))
-        if not url:
-            continue
-        doc = {k: (v.isoformat() if isinstance(v, _dt) else v) for k, v in d.items()}
-        rows.append((url, d.get("fecha_publicacion"), _s(d.get("fuente")),
-                     _s(d.get("categoria")), _s(d.get("titulo")), _jsonb(doc)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "news_headlines", cols, ["url"], rows, dry)
-    _delete_not_in(conn, "news_headlines", "url", {r[0] for r in rows}, dry)
-    return n
-
-
 def _doc_iso(d):
     """Doc con todos los datetime → ISO, RECURSIVO (datetimes anidados — ej. flujos
     de BondsMaster — rompen json.dumps si solo se convierte el nivel top)."""
@@ -631,10 +612,9 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_dl = _t("dolar", lambda: sync_dolar(mdb, conn, dry, desde))
         n_ps = _t("portfolio_snapshot", lambda: sync_portfolio_snapshot(mdb, conn, dry))
         n_sc = _t("snapshots_cierre", lambda: sync_snapshots_cierre(mdb, conn, dry))
-        n_nw = _t("news", lambda: sync_news(mdb, conn, dry))
         n_qt = _t("quotes", lambda: sync_quotes(mdb, conn, dry))
         n_cal = _t("calendar", lambda: sync_calendar(mdb, conn, dry))
-        print(f"  news={n_nw}  quotes={n_qt}  calendar={n_cal}")
+        print(f"  quotes={n_qt}  calendar={n_cal}  (news → SQL-native, ya sin espejo)")
 
         # Capa MERCADO (espejo Trading.* — no-crítica hasta que una vista la lea).
         n_sm = _t("series_macro", lambda: sync_series_macro(mdb, conn, dry, desde))
@@ -674,7 +654,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
     stats = {"accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
              "actividad_mensual": n_am, "dolar": n_dl,
-             "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc, "news": n_nw,
+             "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc,
              "quotes": n_qt, "calendar": n_cal,
              "series_macro": n_sm, "rem": n_rem, "curvas": n_cv,
              "curvas_sin_ticker_corto": sin_corto, "bonds_master": n_bm,

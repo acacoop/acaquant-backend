@@ -7,7 +7,7 @@ Tres pipes:
 4. /company-news por ADR argentino/LATAM (GGAL, YPF, BMA, etc). Fuente='Finnhub',
    cat='adr' + guardamos symbol como tag.
 
-Todo va a News.Headlines con dedup por URL (mismo index que news_ingesta.py).
+Todo va DIRECTO a SQL `news_headlines` (upsert por URL), SQL-native como news_ingesta.py.
 
 Cron sugerido: cada 30 min en horario de mercado US:
     */30 12-23 * * 1-5 cd /root/TradingAV && venv/bin/python -m jobs.news_finnhub
@@ -19,10 +19,8 @@ import logging
 import sys
 from datetime import UTC, datetime, timedelta
 
-from pymongo.errors import DuplicateKeyError
-
 from core.finnhub import FinnhubError, company_news, general_news
-from core.mongo import get_mongo_client
+from core.pg_mirror import doc_iso, write_native
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +68,8 @@ def _to_doc(item: dict, categoria: str, extra_tag: str | None = None) -> dict | 
 
 
 def ingesta(categorias: bool = True, adrs: bool = True) -> int:
-    client = get_mongo_client()
-    coll = client["News"]["Headlines"]
-    coll.create_index("url", unique=True)
-
-    ins = dup = err = 0
+    docs: list[dict] = []
+    err = 0
 
     if categorias:
         for cat_nuestra, fh_cat in CATEGORIAS:
@@ -86,13 +81,8 @@ def ingesta(categorias: bool = True, adrs: bool = True) -> int:
                 continue
             for it in items:
                 doc = _to_doc(it, cat_nuestra)
-                if not doc:
-                    continue
-                try:
-                    coll.insert_one(doc)
-                    ins += 1
-                except DuplicateKeyError:
-                    dup += 1
+                if doc:
+                    docs.append(doc)
             logger.info("general/%s: %d items", fh_cat, len(items))
 
     if adrs:
@@ -107,15 +97,18 @@ def ingesta(categorias: bool = True, adrs: bool = True) -> int:
                 continue
             for it in items:
                 doc = _to_doc(it, "adr", extra_tag=sym)
-                if not doc:
-                    continue
-                try:
-                    coll.insert_one(doc)
-                    ins += 1
-                except DuplicateKeyError:
-                    dup += 1
+                if doc:
+                    docs.append(doc)
 
-    logger.info("news_finnhub — ins=%d dup=%d err=%d", ins, dup, err)
+    # SQL-NATIVE: upsert directo a news_headlines (sin Mongo). Dedup por url.
+    # La retención la aplica news_ingesta (prune_native sobre la misma tabla).
+    por_url = {d["url"]: d for d in docs if d.get("url")}
+    rows = [{"url": d["url"], "fecha_publicacion": d.get("fecha_publicacion"),
+             "fuente": d.get("fuente"), "categoria": d.get("categoria"),
+             "titulo": d.get("titulo"), "data": doc_iso(d)}
+            for d in por_url.values()]
+    n = write_native("news_headlines", ["url"], rows)
+    logger.info("news_finnhub — headlines=%d upserted=%d err=%d", len(rows), n, err)
     return 0
 
 

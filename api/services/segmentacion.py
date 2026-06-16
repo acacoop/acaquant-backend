@@ -99,12 +99,13 @@ def clasificar_nivel_3(
     return None
 
 
-def cargar_ids_contrapartes(db_cashflow) -> set[str]:
-    """Set de `id_cuenta` que son contrapartes (`CashFlow.Contrapartes.cuenta`) →
-    PJ GRANDE por regla de negocio. `db_cashflow` = handle de la DB CashFlow.
-    NO es puro (lee Mongo) — separado a propósito de `clasificar_nivel_3`."""
-    return {
-        str(c).strip()
-        for c in db_cashflow["Contrapartes"].distinct("cuenta")
-        if c not in (None, "")
-    }
+def cargar_ids_contrapartes(db_cashflow=None) -> set[str]:
+    """Set de `id_cuenta` que son contrapartes (SQL `clientes.contrapartes`) →
+    PJ GRANDE por regla de negocio. `db_cashflow` se acepta por compat (se ignora).
+    NO es puro (lee SQL) — separado a propósito de `clasificar_nivel_3`."""
+    from core.postgres import get_pool
+
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id_cuenta FROM contrapartes "
+                    "WHERE id_cuenta IS NOT NULL AND id_cuenta <> ''")
+        return {str(r[0]).strip() for r in cur.fetchall()}

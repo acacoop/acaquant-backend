@@ -987,7 +987,10 @@ def pnl_todas_cuentas_compute() -> list[dict]:
     esa colección — nunca recalcula en vivo (recorrer 883 cuentas en una
     request HTTP se pasaba del timeout → 502).
     """
-    from api.services.portfolio import listar_cuentas
+    # SQL: la lista de cuentas sale de portafolio.tenencia (portfolio_sql); el
+    # portfolio.py Mongo leía Valuaciones.AuM (eliminada) → devolvía [] y el cache
+    # de PnL TOTALES quedaba vacío.
+    from api.services.portfolio_sql import listar_cuentas
 
     cuentas = listar_cuentas()
     if not cuentas:

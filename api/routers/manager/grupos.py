@@ -32,7 +32,7 @@ def get_grupos() -> dict:
     """Grupos existentes + las cuentas reales (último snapshot AuM) para que
     el panel arme el selector. Las cuentas son las que YA existen — no se
     puede asignar a un grupo una cuenta inventada."""
-    from api.services.portfolio import listar_cuentas
+    from api.services.portfolio_sql import listar_cuentas  # AuM Mongo eliminada → SQL
 
     return {
         "grupos":  listar_grupos(),

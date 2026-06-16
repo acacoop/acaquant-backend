@@ -1482,7 +1482,10 @@ def construir_consolidado() -> list[dict[str, Any]]:
     N cuentas en vivo se pasa del timeout HTTP (502). El job persiste el
     resultado en `Valuaciones.ConsolidadoCuentas`.
     """
-    from api.services.portfolio import listar_cuentas
+    # SQL: Valuaciones.AuM (Mongo) fue eliminada → la lista de cuentas sale de
+    # portafolio.tenencia (portfolio_sql), no del portfolio.py Mongo (que leía AuM
+    # y devolvía [] → construir_consolidado daba 0 filas).
+    from api.services.portfolio_sql import listar_cuentas
 
     rows: list[dict[str, Any]] = []
     for c in listar_cuentas():

@@ -483,9 +483,28 @@ def run():
         return
 
     engine = OptionsEngine()
+    # Resiliencia: si el padrón aún no tiene opciones (pre-mercado / OPEX sin nuevo
+    # vencimiento listado), NO salir → reintentar adentro hasta que ROFEX las publique.
+    # Antes el `return` mataba el proceso y systemd lo reiniciaba en LOOP (525 restarts
+    # el 2026-06-16, pre-apertura). El batch_snapshot_loop ya está corriendo (no escribe
+    # nada con estado vacío) → reusamos el mismo engine en vez de reconstruir (no leaka hilos).
+    intentos = 0
+    while _running and not engine.mapa_opciones:
+        intentos += 1
+        logger.warning(
+            f"No se encontraron opciones de GGAL (intento {intentos}) — reintento en 60s "
+            f"(pre-mercado / ROFEX aún no listó el vencimiento)."
+        )
+        for _ in range(60):
+            if not _running:
+                return
+            time.sleep(1)
+        engine.mapa_opciones, engine.agrupacion_strikes = engine._generar_maestra()
+        if engine.mapa_opciones:
+            engine._inicializar_estado_memoria()
+            logger.info(f"✅ {len(engine.mapa_opciones)} opciones GGAL encontradas tras reintento.")
     if not engine.mapa_opciones:
-        logger.error("No se encontraron opciones de GGAL en el mercado.")
-        return
+        return  # _running pasó a False durante la espera → apagado limpio (no es crash)
 
     ws_manager = WebSocketManager(engine)
     engine._ws_ref = ws_manager  # permite que el engine agregue suscripciones dinámicas

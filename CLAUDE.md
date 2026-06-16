@@ -196,6 +196,7 @@ api/routers  # thin HTTP wrappers. manager/ es paquete de sub-routers
 api/mcp/     # MCP server (FastMCP) + OAuth 2.1 provider + discovery
 partner_api/ # app FastAPI SEPARADA (no monta en api/main) — datos para proveedor externo
 scripts/     # one-shot / migraciones / smoke
+tests/       # pytest — unit/ + integration/ (marker `integration`, excluido por defecto via addopts)
 sql/         # schema.sql — espejo relacional Postgres/Supabase (ver "Capa SQL")
 deploy/      # systemd + crontab.txt (fuente de verdad)
 .claude/     # settings.json + hooks + commands + skills + agents (ver .claude/INDEX.md)

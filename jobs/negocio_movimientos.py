@@ -47,7 +47,7 @@ sys.path.insert(0, ".")
 
 from api.services import aunesa_negocio as svc
 from api.services._mep import get_mep_for_date
-from core.postgres import get_pool
+from core.postgres import get_job_pool
 
 # `cuenta` viene "[805] NOMBRE" → id de la cuenta comitente. Denormalizado en
 # el doc para que las queries por cuenta usen índice (en vez de regex). Lo
@@ -133,7 +133,7 @@ def run(fecha_d: date, dry: bool = False) -> dict:
     docs = [_boleto_a_doc(b, fecha_iso, ahora, mep) for b in persistibles]
 
     # Escritura SQL operaciones.negocio_movimientos (upsert por fecha+comprobante).
-    with get_pool().connection() as conn, conn.cursor() as cur:
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(
             "INSERT INTO negocio_movimientos "
             "(fecha, comprobante, id_cuenta, categoria, op, ticker, cantidad, precio, importe, "

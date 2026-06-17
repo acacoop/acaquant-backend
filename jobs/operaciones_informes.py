@@ -26,7 +26,7 @@ from api.services.aunesa_informes import parse_monto
 from core import aunesa
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
-from core.postgres import get_pool
+from core.postgres import get_job_pool
 
 _INFORMES = "operaciones/informes"
 # Filtramos por CONCERTACIÓN (lo que interesa). Pero el endpoint EXIGE
@@ -103,7 +103,7 @@ def run(desde_d: date, hasta_d: date, workers: int) -> dict:
         # Fuente de cuentas: TODAS las que ya operan (SQL operaciones) + comitentes.
         # Comitentes solo NO alcanza: los FCI/sociedades gerentes y la cuenta
         # propia de la empresa no son comitentes y se perdían.
-        with get_pool().connection() as _cn, _cn.cursor() as _cu:
+        with get_job_pool().connection() as _cn, _cn.cursor() as _cu:
             _cu.execute("SELECT id_cuenta FROM comitentes WHERE id_cuenta IS NOT NULL")
             cuentas_comit = {str(r[0]).strip() for r in _cu.fetchall() if r[0] not in (None, "")}
             _cu.execute("SELECT DISTINCT id_cuenta FROM operaciones WHERE id_cuenta IS NOT NULL")

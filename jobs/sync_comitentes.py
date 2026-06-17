@@ -33,7 +33,7 @@ import requests
 import config
 from core.doc_fiscal import parse_titular
 from core.job_runs import JobRunLogger
-from core.postgres import get_pool
+from core.postgres import get_job_pool
 
 AUTH_URL = "https://aca.aunesa.com/Irmo/api/login"
 LISTADO_URL = "https://aca.aunesa.com/Irmo/api/cuentas/listadoCuentas"
@@ -193,7 +193,7 @@ def run(*, include_all: bool = False, dry_run: bool = False) -> None:
             return
 
         # Escritura SQL. Orden FK-safe: operadores + cuentas (destinos del FK) → comitentes.
-        with get_pool().connection() as conn, conn.cursor() as cur:
+        with get_job_pool().connection() as conn, conn.cursor() as cur:
             if operadores:
                 cur.executemany(
                     "INSERT INTO operadores (email, nombre) VALUES (%s, %s) "

@@ -30,7 +30,7 @@ def _persistir_sql(filas: list[dict]) -> int:
 
     Self-crea la tabla (CREATE TABLE IF NOT EXISTS) → no hace falta aplicar el schema
     aparte. Swap por TRUNCATE+INSERT en una transacción; dedup por id_cuenta."""
-    from core.postgres import get_pool
+    from core.postgres import get_job_pool
 
     vistos: set[str] = set()
     rows = []
@@ -42,7 +42,7 @@ def _persistir_sql(filas: list[dict]) -> int:
         rows.append((idc, *(f.get(c) for c in _SQL_COLS[1:])))
 
     ph = ", ".join(["%s"] * len(_SQL_COLS))
-    with get_pool().connection() as conn, conn.cursor() as cur:
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS portafolio.consolidado (
                 id_cuenta text PRIMARY KEY, cuenta text, ultimo_dia text,

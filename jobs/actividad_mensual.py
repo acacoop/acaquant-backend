@@ -37,7 +37,7 @@ def _mes_actual_art() -> str:
 def _agregar(cats: list[str], meses: list[str] | None) -> list[dict[str, Any]]:
     """Agrega SQL operaciones.negocio_movimientos por (year_month, id_cuenta).
     `meses=None` = todos."""
-    from core.postgres import get_pool
+    from core.postgres import get_job_pool
     pesif = ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) "
              "ELSE abs(COALESCE(importe, 0)) * COALESCE(mep, 0) END")
     conds = ["categoria = ANY(%(cats)s)", "id_cuenta IS NOT NULL"]
@@ -46,7 +46,7 @@ def _agregar(cats: list[str], meses: list[str] | None) -> list[dict[str, Any]]:
         p["lo"] = min(meses) + "-01"
         p["hi"] = _mes_siguiente(max(meses)) + "-01"
         conds.append("fecha >= %(lo)s AND fecha < %(hi)s")
-    with get_pool().connection() as conn, conn.cursor() as cur:
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             f"SELECT to_char(fecha, 'YYYY-MM') AS ym, id_cuenta, count(*) AS n_ops, "
             f"SUM({pesif}) AS volumen_ars FROM negocio_movimientos "
@@ -88,8 +88,8 @@ def main() -> None:
         # Operador/segmento vigente (se congela en el doc) — SQL clientes.comitentes.
         from psycopg.rows import dict_row
 
-        from core.postgres import get_pool
-        with get_pool().connection() as _cn, _cn.cursor(row_factory=dict_row) as _cu:
+        from core.postgres import get_job_pool
+        with get_job_pool().connection() as _cn, _cn.cursor(row_factory=dict_row) as _cu:
             _cu.execute(
                 "SELECT c.id_cuenta, c.operador_email, o.nombre AS operador_nombre, c.nivel_1 "
                 "FROM comitentes c LEFT JOIN operadores o ON o.email = c.operador_email")

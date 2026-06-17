@@ -39,7 +39,7 @@ from pymongo import UpdateOne
 
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
-from core.postgres import get_pool
+from core.postgres import get_job_pool
 
 CUENTAS = ["100", "255", "256"]
 _CARTERA = "HD"
@@ -48,7 +48,7 @@ _THROTTLE = 0.1   # pausa entre días en el backfill (no starvar la DB)
 
 def _hd_unidades() -> list[str]:
     """unidades con CARTERA=HD desde SQL portafolio.assets (fuente de verdad)."""
-    with get_pool().connection() as conn, conn.cursor() as cur:
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT unidad FROM portafolio.assets WHERE cartera = %s "
                     "AND unidad IS NOT NULL", (_CARTERA,))
         return sorted({r[0] for r in cur.fetchall()})
@@ -63,7 +63,7 @@ def _doc_del_dia(fecha: str, hd_unidades: list[str], now: datetime) -> dict:
     cant_unidad: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     precio_unidad: dict[str, float] = {}
     aum: dict[str, float] = defaultdict(float)
-    with get_pool().connection() as conn, conn.cursor() as cur:
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT unidad, id_cuenta, SUM(valuacion), SUM(cantidad), MAX(precio) "
             "FROM portafolio.tenencia "
@@ -120,7 +120,7 @@ def run(fecha: str | None = None, backfill: bool = False, desde: str | None = No
         if backfill:
             if not desde:
                 raise ValueError("--backfill requiere --desde YYYY-MM-DD")
-            with get_pool().connection() as conn, conn.cursor() as cur:
+            with get_job_pool().connection() as conn, conn.cursor() as cur:
                 cur.execute("SELECT DISTINCT fecha FROM portafolio.tenencia "
                             "WHERE aum = 'si' AND id_cuenta = ANY(%s) AND fecha >= %s "
                             "ORDER BY fecha", (CUENTAS, desde))
@@ -128,7 +128,7 @@ def run(fecha: str | None = None, backfill: bool = False, desde: str | None = No
         elif fecha:
             fechas = [fecha]
         else:
-            with get_pool().connection() as conn, conn.cursor() as cur:
+            with get_job_pool().connection() as conn, conn.cursor() as cur:
                 cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
                 m = cur.fetchone()[0]
             fechas = [m.isoformat()] if m else []

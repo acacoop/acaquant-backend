@@ -38,7 +38,7 @@ from datetime import date, datetime, timedelta
 import holidays
 import requests
 
-from core.postgres import get_pool
+from core.postgres import get_job_pool
 from jobs._aum_filters import (
     is_excluded,
     load_contrapartes_id_cuentas,
@@ -126,7 +126,7 @@ def _ensure_schema():
         # llena el writer; el histórico se backfillea con scripts.migrar_tipotitulo_tenencia.
         "ALTER TABLE portafolio.tenencia ADD COLUMN IF NOT EXISTS tipo_titulo text",
     ]
-    with get_pool().connection() as conn, conn.cursor() as cur:
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
         for stmt in ddl:
             cur.execute(stmt)
         conn.commit()
@@ -145,7 +145,7 @@ def _load_assets_map() -> dict[str, dict]:
     verdad de metadatos). Antes leía Mongo Valuaciones.Assets; ahora SQL para
     desacoplar el writer diario de Mongo (migración tenencias→SQL)."""
     out: dict[str, dict] = {}
-    with get_pool().connection() as conn, conn.cursor() as cur:
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT unidad, ticker, cartera FROM portafolio.assets")
         for unidad, ticker, cartera in cur.fetchall():
             if unidad:
@@ -163,7 +163,7 @@ def _alta_assets_nuevos(registros: list[dict]) -> int:
     unidades = sorted({r["unidad"] for r in registros if r.get("unidad")})
     if not unidades:
         return 0
-    with get_pool().connection() as conn, conn.cursor() as cur:
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(
             "INSERT INTO portafolio.assets (unidad) VALUES (%s) ON CONFLICT (unidad) DO NOTHING",
             [(u,) for u in unidades])
@@ -173,7 +173,7 @@ def _alta_assets_nuevos(registros: list[dict]) -> int:
 
 
 def _ya_hechas(iso: str) -> set[str]:
-    with get_pool().connection() as conn, conn.cursor() as cur:
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT id_cuenta FROM portafolio.backfill_log "
                     "WHERE fecha = %s AND status IN ('ok', 'vacia')", (iso,))
         return {r[0] for r in cur.fetchall()}
@@ -276,7 +276,7 @@ def _parse(data, idc: str, denom: str, fecha_iso: str, amap: dict) -> list[dict]
 # ── escritura por fecha (bulk, 1 transacción) ─────────────────────────────────
 def _write_date(iso: str, registros: list[dict], status_by: dict[str, tuple]):
     cuentas = list(status_by.keys())
-    with get_pool().connection() as conn, conn.cursor() as cur:
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM portafolio.tenencia WHERE fecha = %s AND id_cuenta = ANY(%s)",
                     (iso, cuentas))
         if registros:

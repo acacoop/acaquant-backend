@@ -25,7 +25,7 @@ from datetime import date
 
 import requests
 
-from core.postgres import get_pool
+from core.postgres import get_job_pool
 from jobs.aum import _SESSION, POSICION_URL, autenticar
 from jobs.portafolio_backfill import (
     _PARAMS_BASE,
@@ -50,7 +50,7 @@ def _opt(flag, default=None):
 
 def _pendientes() -> list[tuple[str, str, str]]:
     """(fecha_iso, id_cuenta, status) de todo lo que NO quedó ok/vacía."""
-    with get_pool().connection() as conn, conn.cursor() as cur:
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT fecha::text, id_cuenta, status FROM portafolio.backfill_log "
             "WHERE status NOT IN ('ok', 'vacia') ORDER BY fecha, id_cuenta")

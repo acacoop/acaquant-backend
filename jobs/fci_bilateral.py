@@ -36,7 +36,7 @@ from api.services import operaciones_informes as svc
 from api.services._negocio_sql_read import negocio_movimientos_rows
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
-from core.postgres import get_pool
+from core.postgres import get_job_pool
 
 # Upsert NO destructivo a SQL operaciones.operaciones: en INSERT setea todos los
 # campos del FCI bilateral; en CONFLICT (boleto ya existe) SOLO pisa etapa +
@@ -113,7 +113,7 @@ def _assets_cafci_map() -> dict[str, str]:
     """ticker CAFCI → `unidad` (nombre rico del fondo) desde SQL portafolio.assets,
     para que el `instrumento` quede igual al de los CL cargados a mano."""
     out: dict[str, str] = {}
-    with get_pool().connection() as conn, conn.cursor() as cur:
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT cafci, unidad FROM portafolio.assets "
                     "WHERE cafci IS NOT NULL AND cafci <> ''")
         for c, u in cur.fetchall():
@@ -167,7 +167,7 @@ def run(full: bool = False) -> dict:
         #    backfill de una vez → solo con --full, no cada hora.
         tag_mod = 0
         if full:
-            with get_pool().connection() as conn, conn.cursor() as cur:
+            with get_job_pool().connection() as conn, conn.cursor() as cur:
                 cur.execute(
                     "UPDATE operaciones SET etapa = 'liquidacion' "
                     "WHERE mercado = %s AND tipo_operacion ILIKE '%%Liquidaci%%' "
@@ -210,7 +210,7 @@ def run(full: bool = False) -> dict:
         up = mod = 0
         if por_boleto:
             params = [_fci_params(etapa, base, now) for etapa, base in por_boleto.values()]
-            with get_pool().connection() as conn, conn.cursor() as cur:
+            with get_job_pool().connection() as conn, conn.cursor() as cur:
                 cur.executemany(_SQL_FCI_UPSERT, params)
                 conn.commit()
             up = len(params)   # SQL no separa insert/update barato → total escrito
@@ -228,7 +228,7 @@ def run(full: bool = False) -> dict:
         }
         corr = 0
         if imp_por_boleto:
-            with get_pool().connection() as conn, conn.cursor() as cur:
+            with get_job_pool().connection() as conn, conn.cursor() as cur:
                 cur.execute(
                     "SELECT boleto FROM operaciones WHERE boleto = ANY(%s) "
                     "AND (bruto = 0 OR bruto IS NULL)", (list(imp_por_boleto),))

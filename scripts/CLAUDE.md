@@ -9,7 +9,7 @@ project-wide.
 > (`gen_*`), perf (`perf_*`, `profile_*`), DBA/monitoreo (`crear_indices`,
 > `db_maintenance`, `audit_db`, `diag_atlas_*`, `atlas_health`, `watch_db`,
 > `healthcheck_mongo`, `diag_index_usage`, `diag_mongo_connections`),
-> seguridad (`security_audit`), feeds/admin (`mae_forex_client`, `partner_user`),
+> seguridad (`security_audit`), feeds/admin (`partner_user`),
 > y los referenciados por skills (index-health, safe-backfill). Segunda purga
 > 2026-06-16: −67 one-shots de features ya eliminadas (AuM/Assets, Operaciones/
 > NegocioMov/Contrapartes→SQL, gates de migración cumplidos). **Un `diag_*`/`fix_*`/

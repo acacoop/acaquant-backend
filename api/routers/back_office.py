@@ -81,9 +81,12 @@ def tenencia_hd_posiciones(
 def tenencia_hd_precio(
     fecha:  str = Body(..., embed=True, description="ISO YYYY-MM-DD"),
     unidad: str = Body(..., embed=True),
-    precio: float = Body(..., embed=True, description="precio nuevo (HD = paridad)"),
+    precio: float = Body(..., embed=True, description="precio nuevo"),
+    dividir_100: bool = Body(True, embed=True, description="True = paridad (÷100); False = valor pleno"),
     _email: str = Depends(get_user_email),
 ):
-    """Edita a mano el PRECIO de una unidad en un día → recalcula la valuación HD
-    de las 3 cuentas (cantidad × precio / 100) + los totales. Corrige el doc frozen."""
-    return svc_ten.actualizar_precio_posicion(fecha=fecha, unidad=unidad, precio=precio)
+    """Edita a mano el PRECIO de una unidad en un día → recalcula la valuación de las
+    3 cuentas + los totales, DIRECTO en SQL portafolio.tenencia. `dividir_100`=True
+    (default, HD paridad) → cantidad × precio / 100; False → cantidad × precio."""
+    return svc_ten.actualizar_precio_posicion(
+        fecha=fecha, unidad=unidad, precio=precio, dividir_100=dividir_100)

@@ -88,21 +88,27 @@ def tenencia_posiciones(*, fecha: str) -> dict[str, Any]:
             "total": total, "posiciones": posiciones}
 
 
-def actualizar_precio_posicion(*, fecha: str, unidad: str, precio: float) -> dict[str, Any]:
-    """Corrige a mano el PRECIO de una unidad en un día → recalcula la valuación HD
-    (cartera HD = paridad → cantidad × precio / 100) de las 3 cuentas, DIRECTO en SQL
-    `portafolio.tenencia`. Devuelve la nueva valuación por cuenta + el total del día."""
+def actualizar_precio_posicion(*, fecha: str, unidad: str, precio: float,
+                               dividir_100: bool = True) -> dict[str, Any]:
+    """Corrige a mano el PRECIO de una unidad en un día → recalcula la valuación de
+    las 3 cuentas, DIRECTO en SQL `portafolio.tenencia`. Devuelve la nueva valuación
+    por cuenta + el total del día.
+
+    `dividir_100` (default True): cartera HD cotiza en PARIDAD → valuación =
+    cantidad × precio / 100. Si el título cotiza en valor PLENO (no paridad), pasar
+    False → valuación = cantidad × precio."""
     try:
         precio = float(precio)
     except (TypeError, ValueError):
         return {"ok": False, "error": f"precio inválido: {precio!r}"}
 
+    divisor = 100.0 if dividir_100 else 1.0
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE portafolio.tenencia "
-            "SET precio = %s, valuacion = ROUND((cantidad * %s / 100.0)::numeric, 2) "
+            "SET precio = %s, valuacion = ROUND((cantidad * %s / %s)::numeric, 2) "
             "WHERE fecha = %s AND unidad = %s AND id_cuenta = ANY(%s) AND aum = 'si'",
-            (round(precio, 4), precio, fecha, unidad, CUENTAS))
+            (round(precio, 4), precio, divisor, fecha, unidad, CUENTAS))
         n = cur.rowcount
         if not n:
             conn.rollback()

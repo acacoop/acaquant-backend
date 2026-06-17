@@ -88,8 +88,11 @@ def get_job_pool():
         with _job_pool_lock:
             if _job_pool is None:
                 from psycopg_pool import ConnectionPool
+                # timeout 30s (NO 8 como la web): un job de fondo puede esperar por
+                # una conexión libre sin drama (no es user-facing) → ante contención
+                # transitoria espera en vez de abortar con PoolTimeout.
                 _job_pool = ConnectionPool(
-                    get_postgres_uri(), min_size=1, max_size=4, open=True, timeout=8.0,
+                    get_postgres_uri(), min_size=1, max_size=4, open=True, timeout=30.0,
                     kwargs={"options": f"-c statement_timeout=15000 -c search_path={_SEARCH_PATH}"},
                 )
     return _job_pool

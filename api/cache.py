@@ -54,6 +54,16 @@ def _sweep_expired_locked(now: float) -> None:
         _store.pop(k, None)
 
 
+def invalidate(*fn_names: str) -> int:
+    """Borra del cache las entradas de las funciones nombradas (post-mutación).
+    Llave = (módulo, nombre_fn, kwargs) → matchea por nombre_fn."""
+    with _lock:
+        keys = [k for k in _store if k[1] in fn_names]
+        for k in keys:
+            _store.pop(k, None)
+    return len(keys)
+
+
 def cached(ttl: int) -> Callable:
     """Cachea la respuesta de un handler por `ttl` segundos.
 

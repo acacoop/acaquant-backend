@@ -8,8 +8,12 @@ Por qué una colección y no leer AuM en vivo (ver docs/ARQUITECTURA.md):
   * Lectura O(1) en el endpoint (patrón rollup-no-escanear, REGLA #4).
 
 Escribe `Valuaciones.TenenciaHD`, grano 1 doc por `fecha_snapshot`:
-    { fecha_snapshot, aum:{ "100":…, "255":…, "256":… }, total,
-      posiciones:[ {unidad, "100":…, "255":…, "256":…, total} … ], generado_en }
+    { fecha_snapshot, tc, aum:{ "100":…, "255":…, "256":… }, total,
+      posiciones:[ {unidad, "100":val, "255":val, "256":val, total,     # valuación (dinero)
+                    precio, cant:{ "100":…, "255":…, "256":… }, total_cant} … ],
+      generado_en }
+El switch DINERO/NOMINAL del front usa `cant`; el editor manual corrige `precio`
+y recalcula la valuación (cantidad × precio / 100, HD = paridad).
 
 Solo títulos con CARTERA=HD (resuelto desde Valuaciones.Assets en cada corrida).
 
@@ -56,21 +60,37 @@ def _doc_del_dia(fecha: str, hd_unidades: list[str], now: datetime) -> dict:
     Lee SQL portafolio.tenencia (aum='si')."""
     from api.services._mep import get_mep_for_date
     por_unidad: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    cant_unidad: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    precio_unidad: dict[str, float] = {}
     aum: dict[str, float] = defaultdict(float)
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT unidad, id_cuenta, SUM(valuacion) FROM portafolio.tenencia "
+            "SELECT unidad, id_cuenta, SUM(valuacion), SUM(cantidad), MAX(precio) "
+            "FROM portafolio.tenencia "
             "WHERE fecha = %s AND aum = 'si' AND id_cuenta = ANY(%s) AND unidad = ANY(%s) "
             "GROUP BY unidad, id_cuenta", (fecha, CUENTAS, hd_unidades))
-        for u, c, v in cur.fetchall():
+        for u, c, v, cant, prec in cur.fetchall():
             c = str(c)
             v = float(v or 0.0)
             por_unidad[u][c] += v
+            cant_unidad[u][c] += float(cant or 0.0)
+            if prec is not None:
+                precio_unidad[u] = float(prec)
             aum[c] += v
 
     posiciones = []
     for u, byc in sorted(por_unidad.items(), key=lambda kv: -sum(kv[1].values())):
-        fila = {"unidad": u, "total": round(sum(byc.values()), 2)}
+        cantc = cant_unidad[u]
+        # `precio` + `cant` (cantidad nominal por cuenta) NUEVOS — habilitan el switch
+        # DINERO/NOMINAL y el editor manual de precio. Las claves 100/255/256 siguen
+        # siendo la VALUACIÓN (compat con el path viejo).
+        fila = {
+            "unidad":     u,
+            "total":      round(sum(byc.values()), 2),
+            "precio":     round(precio_unidad[u], 4) if u in precio_unidad else None,
+            "cant":       {c: round(cantc.get(c, 0.0), 4) for c in CUENTAS},
+            "total_cant": round(sum(cantc.values()), 4),
+        }
         fila.update({c: round(byc.get(c, 0.0), 2) for c in CUENTAS})
         posiciones.append(fila)
 

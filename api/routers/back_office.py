@@ -6,7 +6,7 @@ Más sub-vistas se irán sumando acá conforme se vayan definiendo.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 
 from api.auth import get_user_email
 from api.services import acreencias as svc_acr
@@ -75,3 +75,15 @@ def tenencia_hd_posiciones(
 ):
     """Posiciones HD por título (desglose por cuenta) de un día — tabla derecha."""
     return svc_ten.tenencia_posiciones(fecha=fecha)
+
+
+@router.post("/tenencia-hd/precio")
+def tenencia_hd_precio(
+    fecha:  str = Body(..., embed=True, description="ISO YYYY-MM-DD"),
+    unidad: str = Body(..., embed=True),
+    precio: float = Body(..., embed=True, description="precio nuevo (HD = paridad)"),
+    _email: str = Depends(get_user_email),
+):
+    """Edita a mano el PRECIO de una unidad en un día → recalcula la valuación HD
+    de las 3 cuentas (cantidad × precio / 100) + los totales. Corrige el doc frozen."""
+    return svc_ten.actualizar_precio_posicion(fecha=fecha, unidad=unidad, precio=precio)

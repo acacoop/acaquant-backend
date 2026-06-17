@@ -323,6 +323,16 @@ def require_admin(request: Request, email: str = Depends(get_user_email)) -> str
     raise HTTPException(status_code=403, detail="acceso restringido a administradores")
 
 
+def require_no_invitado(request: Request) -> None:
+    """Bloquea al portal invitado (www). Defense-in-depth para endpoints de ESCRITURA
+    de la mesa que viven en un módulo de MERCADO (ej. PATCH agro pizarra/cámara): el gate
+    de módulo deja entrar al invitado (puede VER agro), pero NUNCA debe ESCRIBIR. REGLA #8
+    — no confiar en que el frontend de www oculte el botón."""
+    if is_guest_portal(request):
+        logger.warning("require_no_invitado: escritura bloqueada para portal invitado")
+        raise HTTPException(status_code=403, detail="no disponible para invitado")
+
+
 def require_any_module(modules: tuple[str, ...]):
     """Dependency factory: pasa si el user tiene CUALQUIERA de los módulos.
 

@@ -306,7 +306,7 @@ def _opt(flag, default=None):
     return default
 
 
-def main() -> int:
+def _run_backfill() -> int:
     force = "--force" in sys.argv
     workers = int(_opt("--workers", MAX_WORKERS))
     subset = _opt("--cuentas")
@@ -388,6 +388,18 @@ def main() -> int:
     print(f"\n🏁 Backfill terminado en {time.monotonic()-t_run:.0f}s. "
           f"Re-corré para reintentar lo que haya quedado en TIMEOUT/ERROR (self-healing).")
     return 0
+
+
+def main() -> int:
+    """En modo --diario (cron) envuelve la corrida en JobRunLogger("aum") para
+    que el monitoreo (informe_salud.DAILIES) la vea fresca. jobs/aum.py se
+    eliminó (este es su reemplazo SQL), por eso el daily "aum" quedaba siempre
+    vencido: nadie lo logueaba. Los modos manuales (backfill/--force) no logean."""
+    if "--diario" in sys.argv:
+        from core.job_runs import JobRunLogger
+        with JobRunLogger("aum"):
+            return _run_backfill()
+    return _run_backfill()
 
 
 if __name__ == "__main__":

@@ -285,6 +285,45 @@ def _fmt_delta(d) -> str:
     return f" ({'+' if d > 0 else ''}{d:,})".replace(",", ".")
 
 
+def _explicar(rep: dict) -> list[str]:
+    """Traduce cada problema detectado a lenguaje ejecutivo (qué pasó + qué
+    hacer). REGLA #3: el informe llega con la explicación, no solo el síntoma."""
+    out: list[str] = []
+    mot = rep["motores"]
+    jb = rep["jobs"]
+    fallas_txt = " ".join(str(f.get("err", "")) for f in jb.get("fallas", []))
+
+    if mot.get("muertos"):
+        out.append("Motor(es) de mercado MUERTOS: dejaron de actualizar precios en "
+                   "rueda. Grave — las vistas quedan con el dato viejo. Revisá el "
+                   "systemd del motor en el Droplet.")
+    if mot.get("stale"):
+        out.append("Motor(es) STALE: actualizan pero atrasados. Suele ser mercado "
+                   "quieto o feed lento; vigilá que no pasen a muerto.")
+    if jb.get("error") and "PoolTimeout" in fallas_txt:
+        out.append("Job con ERROR por PoolTimeout: el job no consiguió una conexión "
+                   "libre a Postgres (Supabase) en 8s y abortó. NO es que el dato esté "
+                   "mal — no pudo ni arrancar. Pasa en hora pico (rueda): hay pocas "
+                   "conexiones y están todas ocupadas (API + sync + otros jobs). Se "
+                   "arregla con más conexiones (upgrade del plan Supabase) o escalonando "
+                   "los jobs para que no choquen. Reintenta solo en la próxima corrida.")
+    elif jb.get("error"):
+        out.append("Job con ERROR: un proceso batch falló. Detalle en Manager.JobRuns. "
+                   "Si es transitorio, reintenta en la próxima corrida.")
+    if jb.get("vencidos"):
+        out.append("Daily(s) vencido(s): un proceso que debía correr hoy no dejó "
+                   "registro en plazo. Causas típicas: cron caído, job renombrado, o un "
+                   "check viejo apuntando a un job que ya no existe.")
+    sq = rep["sql_sync"]
+    if sq.get("estado") not in ("ok", None) or (sq.get("edad_min") or 0) > 60:
+        out.append("Sync SQL atrasado: la copia Mongo→Postgres no corre hace rato. Las "
+                   "vistas que leen SQL pueden mostrar datos viejos hasta el próximo sync.")
+    if rep["mongo"].get("rw_ms") is None:
+        out.append("Mongo no responde: la base principal (la que opera) no contesta el "
+                   "ping. Es lo MÁS grave — atendé esto antes que nada.")
+    return out
+
+
 def render_telegram(rep: dict) -> str:
     now = rep["ts"]
     rueda = "rueda" if rep["en_rueda"] else "fuera de rueda"
@@ -295,6 +334,12 @@ def render_telegram(rep: dict) -> str:
         lines.append("*⚠️ Problemas:*")
         for p in rep["problemas"]:
             lines.append(f"  • {p}")
+        explic = _explicar(rep)
+        if explic:
+            lines.append("")
+            lines.append("*🧭 Qué significa (criollo):*")
+            for e in explic:
+                lines.append(f"  • {e}")
 
     # Motores
     lines.append("")

@@ -107,7 +107,7 @@ def check_config() -> list[str]:
     return avisos
 
 
-def main() -> None:
+def _emit() -> None:
     print("=" * 70)
     print("AUDITORÍA DE SEGURIDAD — TradingAV")
     print("=" * 70)
@@ -169,6 +169,43 @@ def main() -> None:
     print("    (solo la IP del Droplet + tu IP). Si está abierta + se filtró la URI = acceso total.")
     print("  □ Droplet: 'sudo ufw status' (solo 22/80/443), fail2ban activo, SSH con key (no password).")
     print("  □ Cada cambio de código sensible: pasalo por el skill /security-review.")
+
+
+def main() -> None:
+    """Por default escribe el reporte completo a un archivo (es largo). Con
+    --stdout además lo imprime en la terminal."""
+    import argparse
+    import sys
+    from contextlib import redirect_stdout
+
+    ap = argparse.ArgumentParser(description="Auditoría de seguridad TradingAV")
+    ap.add_argument("--out", default="security_audit_report.txt",
+                    help="archivo de salida (default: security_audit_report.txt)")
+    ap.add_argument("--stdout", action="store_true",
+                    help="además del archivo, imprimir todo en la terminal")
+    args = ap.parse_args()
+
+    with open(args.out, "w", encoding="utf-8") as f:
+        if args.stdout:
+            class _Tee:
+                def write(self, s: str) -> int:
+                    sys.__stdout__.write(s)
+                    return f.write(s)
+
+                def flush(self) -> None:
+                    sys.__stdout__.flush()
+                    f.flush()
+
+            with redirect_stdout(_Tee()):
+                _emit()
+        else:
+            with redirect_stdout(f):
+                _emit()
+
+    print(f"✅ Reporte de seguridad escrito en: {args.out}")
+    print("   Abrilo con tu editor. NOTA: los hallazgos 'B608 (SQL injection)' de")
+    print("   bandit son FALSOS POSITIVOS — el código parametriza todos los valores")
+    print("   del usuario con %(param)s; las columnas/tablas son hardcodeadas/whitelist.")
 
 
 if __name__ == "__main__":

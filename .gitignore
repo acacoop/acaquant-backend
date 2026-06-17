@@ -33,3 +33,4 @@ docs/*.xlsx
 
 # Material de lectura / PDFs sueltos — no van al repo.
 *.pdf
+security_audit_report.txt

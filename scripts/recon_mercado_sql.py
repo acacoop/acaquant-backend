@@ -68,7 +68,7 @@ def _mongo_vivo(mdb) -> bool:
     """Ping rápido a Mongo. Si Atlas no responde, lo decimos claro y no intentamos
     20 counts que timeoutean de a uno (cada uno tarda serverSelectionTimeoutMS)."""
     try:
-        mdb.client.admin.command("ping")
+        mdb.admin.command("ping")
         return True
     except PyMongoError as e:
         print(f"\n⚠ Mongo (Atlas) no responde: {type(e).__name__}: "

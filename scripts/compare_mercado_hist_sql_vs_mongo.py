@@ -29,6 +29,9 @@ _ROUND = 9
 
 
 def _norm(v: Any) -> Any:
+    """Redondea números (float/Decimal) y recursa. NO reordena listas: las
+    anidadas (ej. `pares`) preservan el orden del doc fuente (jsonb == Mongo);
+    el orden de la lista TOP se resuelve por identidad en _case."""
     if isinstance(v, bool):
         return v
     if isinstance(v, (int, float)):
@@ -36,14 +39,16 @@ def _norm(v: Any) -> Any:
     if isinstance(v, dict):
         return {k: _norm(x) for k, x in v.items()}
     if isinstance(v, list):
-        normed = [_norm(x) for x in v]
-        # multiset: ordenar por repr canónico (el orden de empate no es contractual)
-        try:
-            normed = sorted(normed, key=lambda x: json.dumps(x, sort_keys=True, default=str))
-        except Exception:
-            pass
-        return normed
+        return [_norm(x) for x in v]
     return v
+
+
+def _ident(d: Any) -> tuple:
+    """Clave de identidad de un doc histórico (fecha + subclave) para alinear las
+    dos listas por fila lógica, no por posición."""
+    if not isinstance(d, dict):
+        return (json.dumps(d, sort_keys=True, default=str),)
+    return tuple(str(d.get(k, "")) for k in ("fecha", "curva", "ticker", "moneda"))
 
 
 def _diff(a: Any, b: Any, path: str = "") -> list[str]:
@@ -72,10 +77,29 @@ def _diff(a: Any, b: Any, path: str = "") -> list[str]:
 def _case(fm, fs) -> tuple[bool, list[str], int]:
     # jsonable_encoder = el contrato real (lo que FastAPI emite). Iguala el
     # datetime nativo de Mongo con el string ISO del jsonb SQL.
-    m = jsonable_encoder(fm())
-    s = jsonable_encoder(fs())
-    difs = _diff(_norm(s), _norm(m), "")  # SQL vs Mongo
-    return (not difs, difs, len(m) if isinstance(m, list) else -1)
+    m = _norm(jsonable_encoder(fm()))
+    s = _norm(jsonable_encoder(fs()))
+    if not isinstance(m, list) or not isinstance(s, list):
+        return (m == s, [] if m == s else ["<root>: difiere"], -1)
+
+    # Alinear por identidad (fecha+subclave), no por posición: el orden de la
+    # lista top no es contractual. Así un diff señala la FILA (fecha) exacta.
+    mi: dict[tuple, Any] = {_ident(d): d for d in m}
+    si: dict[tuple, Any] = {_ident(d): d for d in s}
+    difs: list[str] = []
+    for k in sorted(mi.keys() - si.keys()):
+        difs.append(f"fila solo en Mongo: {k}")
+    for k in sorted(si.keys() - mi.keys()):
+        difs.append(f"fila solo en SQL: {k}")
+    fechas_drift: set = set()
+    for k in sorted(mi.keys() & si.keys()):
+        d = _diff(si[k], mi[k], f"[{k[0]}]")
+        if d:
+            fechas_drift.add(k[0])
+            difs += d
+    if fechas_drift:
+        difs.insert(0, f">>> fechas con drift de valor: {sorted(fechas_drift)}")
+    return (not difs, difs, len(m))
 
 
 def main() -> int:

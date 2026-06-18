@@ -159,6 +159,10 @@ def guardar(client, curva, ordered, tasas, matrix, ts, fecha_str):
         {"$set": {**doc_base, "fecha": fecha_str}},
         upsert=True
     )
+    # Espejo SQL (mercado_hist) — mantiene fresca la fila de HOY (flag SNAPSHOT_SQL).
+    # El doc en Mongo incluye `curva` (lo agrega el upsert desde el filtro) → idem acá.
+    from core.pg_mirror import mirror_hist
+    mirror_hist("ForwardsHistorico", fecha_str, curva, {**doc_base, "fecha": fecha_str, "curva": curva})
 
 
 # ─────────────────────────────────────────────

@@ -6,7 +6,9 @@ levantan: cualquier error se loguea y el caller sigue — Mongo es la base
 operativa, Postgres es espejo descartable (ver docs/SQL.md).
 
 Flags (env, default OFF):
-    SNAPSHOT_SQL=1       → snapshots live de motores (tabla market_snapshot)
+    SNAPSHOT_SQL=1       → motores live: market_snapshot (valores/curvas) +
+                           mercado_hist de los históricos intradía-mutables
+                           (breakevens/forwards, vía mirror_hist)
     MERCADO_SQL_WRITE=1  → jobs batch de mercado (series_macro, rem,
                            snapshots_cierre_hist, canje_cierre)
 
@@ -89,6 +91,28 @@ def mirror_job(table: str, key_cols: list[str], rows: list[dict]) -> int:
     if not jobs_on() or not rows:
         return 0
     return _mirror(table, key_cols, rows)
+
+
+def mirror_hist(coleccion: str, fecha_str: str, k: str, doc: dict) -> int:
+    """Espejo de un doc histórico intradía-mutable a `mercado_hist`, desde un MOTOR
+    (flag SNAPSHOT_SQL). BreakevensHistorico / ForwardsHistorico reviven la fila de
+    HOY con precios live → el sync horario la deja stale; el motor la mantiene
+    fresca acá. Aplica `doc_iso` (datetime→isoformat) IGUAL que `sync._jsonb` para
+    que `mercado_hist_sql` lea idéntico a Mongo. No-op con el flag apagado."""
+    if not snapshots_live_on() or not fecha_str:
+        return 0
+    try:
+        from datetime import date
+        row = {
+            "coleccion": coleccion,
+            "fecha": date.fromisoformat(str(fecha_str)[:10]),
+            "k": k or "",
+            "data": doc_iso(doc),
+        }
+        return _mirror("mercado_hist", ["coleccion", "fecha", "k"], [row])
+    except Exception as e:
+        logger.error("pg_mirror hist %s: %s", coleccion, str(e).splitlines()[0][:200])
+        return 0
 
 
 def _mirror(table: str, key_cols: list[str], rows: list[dict]) -> int:

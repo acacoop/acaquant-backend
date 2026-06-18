@@ -412,11 +412,15 @@ def guardar(client, pares_result, ts, fecha_str):
     )
 
     # BreakevensHistorico: 1 doc por fecha, actualizado durante el día
+    doc_hist = {**doc_base, "fecha": fecha_str}
     client["Trading"]["BreakevensHistorico"].update_one(
         {"fecha": fecha_str},
-        {"$set": {**doc_base, "fecha": fecha_str}},
+        {"$set": doc_hist},
         upsert=True,
     )
+    # Espejo SQL (mercado_hist) — mantiene fresca la fila de HOY (flag SNAPSHOT_SQL).
+    from core.pg_mirror import mirror_hist
+    mirror_hist("BreakevensHistorico", fecha_str, "", doc_hist)
 
 
 # ─────────────────────────────────────────────

@@ -17,6 +17,7 @@ canónica antes de comparar. Números a float redondeado. Gate de MERCADO_HIST_S
 from __future__ import annotations
 
 import json
+from datetime import date
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
@@ -26,6 +27,7 @@ from api.services import mercado_hist_sql as sql
 from api.services import repo
 
 _ROUND = 9
+HOY = date.today().isoformat()  # la fila de hoy es live → se tolera (ver _case)
 
 
 def _norm(v: Any) -> Any:
@@ -74,32 +76,45 @@ def _diff(a: Any, b: Any, path: str = "") -> list[str]:
     return [] if a == b else [f"{path}: {a!r} ≠ {b!r}"]
 
 
-def _case(fm, fs) -> tuple[bool, list[str], int]:
-    # jsonable_encoder = el contrato real (lo que FastAPI emite). Iguala el
-    # datetime nativo de Mongo con el string ISO del jsonb SQL.
+def _case(fm, fs) -> tuple[bool, list[str], list[str], int]:
+    """Devuelve (ok, hist_difs, live_warns, n). La HISTORIA (fecha < hoy) es
+    inmutable → debe matchear exacto (drift = BUG, falla el gate). La fila de HOY
+    es live (breakevens/forwards reviven con precios) → mutará entre el write a
+    Mongo y el espejo aunque haya dual-write → se tolera y se reporta."""
     m = _norm(jsonable_encoder(fm()))
     s = _norm(jsonable_encoder(fs()))
     if not isinstance(m, list) or not isinstance(s, list):
-        return (m == s, [] if m == s else ["<root>: difiere"], -1)
+        return (m == s, [] if m == s else ["<root>: difiere"], [], -1)
 
-    # Alinear por identidad (fecha+subclave), no por posición: el orden de la
-    # lista top no es contractual. Así un diff señala la FILA (fecha) exacta.
+    # Alinear por identidad (fecha+subclave), no por posición.
     mi: dict[tuple, Any] = {_ident(d): d for d in m}
     si: dict[tuple, Any] = {_ident(d): d for d in s}
-    difs: list[str] = []
+    hist: list[str] = []
+    live: list[str] = []
+
+    def _bucket(fecha: str) -> list[str]:
+        return live if fecha >= HOY else hist
+
     for k in sorted(mi.keys() - si.keys()):
-        difs.append(f"fila solo en Mongo: {k}")
+        _bucket(k[0]).append(f"fila solo en Mongo: {k}")
     for k in sorted(si.keys() - mi.keys()):
-        difs.append(f"fila solo en SQL: {k}")
-    fechas_drift: set = set()
+        _bucket(k[0]).append(f"fila solo en SQL: {k}")
+    drift_hist: set = set()
+    drift_live: set = set()
     for k in sorted(mi.keys() & si.keys()):
         d = _diff(si[k], mi[k], f"[{k[0]}]")
-        if d:
-            fechas_drift.add(k[0])
-            difs += d
-    if fechas_drift:
-        difs.insert(0, f">>> fechas con drift de valor: {sorted(fechas_drift)}")
-    return (not difs, difs, len(m))
+        if not d:
+            continue
+        if k[0] >= HOY:
+            drift_live.add(k[0]); live += d
+        else:
+            drift_hist.add(k[0]); hist += d
+    if drift_hist:
+        hist.insert(0, f">>> HISTORIA con drift (BUG): {sorted(drift_hist)}")
+    if drift_live:
+        live.insert(0, f">>> hoy/live con drift (tolerado; requiere SNAPSHOT_SQL=1): "
+                       f"{sorted(drift_live)}")
+    return (not hist, hist, live, len(m))
 
 
 def main() -> int:
@@ -128,26 +143,35 @@ def main() -> int:
          lambda: sql.get_historico_futuros_dlr(desde="2026-01-01", hasta="2026-03-31")),
     ]
 
-    print("GATE históricos de mercado — SQL (mercado.mercado_hist) ↔ Mongo (Trading.*)\n")
+    print("GATE históricos de mercado — SQL (mercado.mercado_hist) ↔ Mongo (Trading.*)")
+    print(f"Historia (fecha < {HOY}) = exacta (gate). Fila de hoy = live, se tolera.\n")
     ok_n = 0
+    live_total = 0
     for nombre, fm, fs in grid:
-        ok, difs, n = _case(fm, fs)
+        ok, hist, live, n = _case(fm, fs)
+        live_total += 1 if live else 0
+        mark = "✓" if ok else "✗"
+        warn = "  ⚠ hoy/live difiere (tolerado)" if live else ""
+        print(f"  {mark} {nombre}  ({n} docs){warn}")
+        for d in (hist if not ok else [])[:8]:
+            print(f"      {d}")
+        if not ok and len(hist) > 8:
+            print(f"      … (+{len(hist) - 8} difs más)")
         if ok:
             ok_n += 1
-            print(f"  ✓ {nombre}  ({n} docs)")
-        else:
-            print(f"  ✗ {nombre}")
-            for d in difs[:8]:
+            for d in live[:1]:  # mostrar solo el resumen de fechas live
                 print(f"      {d}")
-            if len(difs) > 8:
-                print(f"      … (+{len(difs) - 8} difs más)")
 
     total = len(grid)
-    print(f"\nRESULTADO: {ok_n}/{total} casos en paridad.")
+    print(f"\nRESULTADO: {ok_n}/{total} casos con HISTORIA en paridad exacta.")
+    if live_total:
+        print(f"({live_total} casos con drift SOLO en la fila de hoy — esperable hasta SNAPSHOT_SQL=1 "
+              "+ restart de motores breakevens/forwards.)")
     if ok_n == total:
-        print("✅ GATE VERDE — se puede prender MERCADO_HIST_SQL=1 en el .env del Droplet.")
+        print("✅ GATE VERDE (historia exacta) — MERCADO_HIST_SQL=1 OK; prender SNAPSHOT_SQL=1 "
+              "para la fila de hoy de breakevens/forwards.")
         return 0
-    print("❌ GATE ROJO — NO prender MERCADO_HIST_SQL. Revisar las difs de arriba.")
+    print("❌ GATE ROJO — hay drift en HISTORIA (no es la fila de hoy). Revisar arriba.")
     return 1
 
 

@@ -32,6 +32,15 @@ logger = logging.getLogger("api.operaciones")
 
 router = APIRouter(prefix="/api/operaciones", tags=["Operaciones"])
 
+
+def _split_excluir(excluir: str | None) -> tuple[str, ...] | None:
+    """Param `excluir` (denominaciones separadas por '\\n') → tupla, o None si vacío.
+    Tupla (no list) para que sea hashable: entra en la key de `@cached`."""
+    if not excluir:
+        return None
+    vals = tuple(x for x in excluir.split("\n") if x.strip())
+    return vals or None
+
 @router.get("/flujo")
 @cached(ttl=300)
 def listar_flujo(
@@ -226,6 +235,7 @@ def ops_serie(
     cuenta: str | None = Query(None, description="Filtra a una cuenta (búsqueda)"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
     operador: str | None = Query(None, description="Filtra por operador (operador_email)"),
+    excluir: str | None = Query(None, description="Cuentas a ocultar (denominaciones separadas por \\n)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
     _engine: str | None = Query(None, include_in_schema=False),
 ):
@@ -239,7 +249,7 @@ def ops_serie(
     if moneda == "USD_DOL" or _motor(_engine) == "sql":  # dolarizado → SQL siempre
         return _ops_sql.ops_serie(moneda=moneda, mercado=mercado, operacion=operacion,
                                   denominacion=denominacion, cuenta=cuenta, segmento=segmento,
-                                  scope=scope, operador=operador)
+                                  scope=scope, operador=operador, excluir=_split_excluir(excluir))
     return _ov.ops_serie_mongo(
         moneda=moneda, mercado=mercado, operacion=operacion,
         denominacion=denominacion, cuenta=cuenta, segmento=segmento,
@@ -260,6 +270,7 @@ def ops_resumen(
     cuenta: str | None = Query(None, description="Filtra a una cuenta (búsqueda)"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
     operador: str | None = Query(None, description="Filtra por operador (operador_email)"),
+    excluir: str | None = Query(None, description="Cuentas a ocultar (denominaciones separadas por \\n)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
     _engine: str | None = Query(None, include_in_schema=False),
 ):
@@ -275,7 +286,7 @@ def ops_resumen(
         return _ops_sql.ops_resumen(moneda=moneda, mercado=mercado, desde=desde, hasta=hasta,
                                     operacion=operacion, denominacion=denominacion, cuenta=cuenta,
                                     segmento=segmento, scope=scope, instrumento=instrumento,
-                                    operador=operador)
+                                    operador=operador, excluir=_split_excluir(excluir))
     return _ov.ops_resumen_mongo(
         moneda=moneda, mercado=mercado, desde=desde, hasta=hasta,
         operacion=operacion, denominacion=denominacion, instrumento=instrumento,

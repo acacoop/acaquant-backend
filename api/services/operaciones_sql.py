@@ -67,6 +67,7 @@ def _ops_where(
     moneda: str | None = None, mercado: str | None = None, operacion: str | None = None,
     denominacion: str | None = None, cuenta: str | None = None, segmento: str | None = None,
     scope: tuple[str, ...] | None = None, *, arancel: bool = False, operador: str | None = None,
+    excluir: tuple[str, ...] | None = None,
 ) -> tuple[str, dict]:
     """Devuelve (where_sql, params). `arancel=True` → sin filtro de moneda, incluye los
     cierres con arancel (caución), igual que _arancel_match."""
@@ -106,6 +107,11 @@ def _ops_where(
     if operador:
         conds.append("id_cuenta IN (SELECT id_cuenta FROM comitentes WHERE operador_email = %(operador)s)")
         p["operador"] = operador
+    if excluir:
+        # Ocultar cuentas elegidas por el usuario. Compara contra la denominación tal
+        # como se muestra ('(sin)' para NULL/'') → coincide con lo que llega del front.
+        conds.append("COALESCE(NULLIF(denominacion, ''), '(sin)') <> ALL(%(excluir)s)")
+        p["excluir"] = list(excluir)
     if scope is not None:
         conds.append("id_cuenta = ANY(%(scope)s)")
         p["scope"] = list(scope)
@@ -172,8 +178,10 @@ def ops_serie(
     moneda: str = "ARS", mercado: str | None = None, operacion: str | None = None,
     denominacion: str | None = None, cuenta: str | None = None, segmento: str | None = None,
     scope: tuple[str, ...] | None = None, operador: str | None = None,
+    excluir: tuple[str, ...] | None = None,
 ) -> dict:
-    where, p = _ops_where(moneda, mercado, operacion, denominacion, cuenta, segmento, scope, operador=operador)
+    where, p = _ops_where(moneda, mercado, operacion, denominacion, cuenta, segmento, scope,
+                          operador=operador, excluir=excluir)
     rows = _q(
         f"SELECT concertacion AS fecha, {_bruto_expr(moneda)} AS bruto "
         f"FROM operaciones WHERE {where} GROUP BY concertacion ORDER BY concertacion",
@@ -188,8 +196,10 @@ def ops_resumen(
     operacion: str | None = None, denominacion: str | None = None, cuenta: str | None = None,
     segmento: str | None = None, scope: tuple[str, ...] | None = None,
     instrumento: str | None = None, operador: str | None = None,
+    excluir: tuple[str, ...] | None = None,
 ) -> dict:
-    base, p = _ops_where(moneda, mercado, cuenta=cuenta, segmento=segmento, scope=scope, operador=operador)
+    base, p = _ops_where(moneda, mercado, cuenta=cuenta, segmento=segmento, scope=scope,
+                         operador=operador, excluir=excluir)
     p.update({"desde": desde, "hasta": hasta})
     base = f"{base} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
     bexpr = _bruto_expr(moneda)

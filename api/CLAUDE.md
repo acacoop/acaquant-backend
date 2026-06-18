@@ -3,9 +3,12 @@
 Se carga al trabajar en `api/`. El `CLAUDE.md` raíz tiene lo project-wide
 (overview, REGLA #0, estructura, deploy, MCP).
 
-`api/services/` es lógica pura (sin FastAPI), invocada por routers y por el
-agente. `api/routers/` es solo HTTP plumbing — `manager/` es un paquete de
-sub-routers. `api/agent/` es legacy (no en uso). `api/mcp/` es el MCP server.
+`api/services/` es lógica pura (sin FastAPI), invocada por routers (y por el
+MCP server). `api/routers/` es solo HTTP plumbing — `manager/` es un paquete de
+sub-routers. `api/mcp/` es el MCP server (asistente IA del producto). **El
+asistente legacy `api/agent/` + `POST /api/chat` fueron ELIMINADOS** (2026-06-03);
+si queda algún dir vacío (`api/agent/structured/`) es residual — no documentar
+ni reusar.
 
 > **Postura de seguridad de la API consolidada: `docs/SECURITY.md`** —
 > capas (CF Access → API_KEY → JWT → RBAC → rate limit), secretos, y el
@@ -50,13 +53,14 @@ pasar con `get_historico_curva` (commit `746d8b6`).
 Cloudflare Access = quién entra. `core/roles.py` = qué ve.
 
 Módulos canónicos (`core/roles.py::MODULES`): `home, renta-fija, derivados,
-renta-variable, estrategia, operar, operaciones, portfolios, asistente,
-manager`.
+renta-variable, estrategia, operar, operaciones, portfolios, manager`.
+(`asistente` se quitó al eliminar `api/agent`; verificá `MODULES` antes de
+asumir la lista exacta.)
 
 | Módulo | admin | trader | sales |
 |---|---|---|---|
 | home / renta-fija / derivados / renta-variable / estrategia | ✓ | ✓ | ✓ |
-| operaciones / portfolios / asistente | ✓ | ✓ | – |
+| operaciones / portfolios | ✓ | ✓ | – |
 | operar (envío/cancel de órdenes) | ✓ | – | – |
 | manager | ✓ | – | – |
 
@@ -85,10 +89,11 @@ env (legacy) → `DEFAULT_ROLE="sales"`.
 ## Filtros de cuenta en endpoints
 
 `api/services/_cuentas_filter.py::match_cuenta_filter(filtro)` devuelve
-sub-doc `$match` para filtrar pipelines Mongo por tipo: `todas`,
-`accionistas` (∈ `CuentasAPI.AccionistasAPI`), `sin_accionistas`,
-`cooperativas` (∉ accionistas + regex `\bcoop`), `productores`
-(∈ `CashFlow.Productores`).
+sub-doc `$match` Mongo por tipo: `todas`, `accionistas`
+(∈ `CashFlow.Accionistas.cuenta` — el espejo `CuentasAPI.AccionistasAPI` ya
+no existe), `sin_accionistas`, `cooperativas` (∉ accionistas + regex `\bcoop`),
+`productores` (matchea por `id_cuenta` ∈ SQL `comitentes WHERE
+nivel_1='PRODUCTORES'`; el resto matchea por el string `cuenta`).
 
 Lo usan operaciones (vista negocio) y portfolio (AuM por cartera, FCI, total,
 diff). `VALID_FILTERS` único — sumar tipos nuevos en un solo lugar.
@@ -122,8 +127,10 @@ cost-basis weighted-average. Tres KPIs: realizado / no-realizado / pasivo
 **Reglas críticas:**
 - `pnl_no_realizado = valor_aum − costo_remanente`. NO usar
   `qty × precio_actual` — el precio del AuM viene en paridad cruda.
-- Mapping `unidad ↔ ticker` viene de `Valuaciones.Assets` UPPERCASE (campo
-  `TICKER`), no de regex sobre la unidad.
+- Mapping `unidad ↔ ticker` viene de **SQL `portafolio.assets`** (vía
+  `assets_sql.py::assets_rows`, campo `TICKER`), no de regex sobre la unidad.
+  (`Valuaciones.Assets` Mongo fue eliminada 2026-06-15 — los comentarios que
+  aún la nombren en `pnl.py` son residuales.)
 - Cada boleto en `NegocioMovimientos` tiene `mep` snapshot inmutable.
   Pesificación = `importe × b.mep`. Fallback a `_mep.get_mep_for_date()`
   solo si `mep=null`.

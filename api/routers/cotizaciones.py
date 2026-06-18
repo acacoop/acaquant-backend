@@ -13,6 +13,8 @@ que parsean query params y delegan al service. Separación por dominio:
 Motivo de la capa de servicio: `api/agent/tools.py::dispatch` la invoca
 directamente, sin loopback HTTP.
 """
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import require_module
@@ -22,10 +24,19 @@ from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
 from api.services import opciones as svc_opt
 from api.services import rem as svc_rem
+from api.services import rem_sql as svc_rem_sql
 from api.services import renta_fija as svc_rf
 from api.services import repo as svc_repo
 
 router = APIRouter(prefix="/api/cotizaciones", tags=["Cotizaciones"])
+
+
+def _rem(engine: str | None):
+    """Selector de motor REM: SQL (macro.rem) o Mongo (Trading.REM). SQL si
+    `?_engine=sql` o el flag global `REM_SQL=1`; Mongo en cualquier otro caso
+    (default). El path Mongo queda intacto → rollback = sacar la env + restart."""
+    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("REM_SQL") == "1")
+    return svc_rem_sql if use_sql else svc_rem
 
 
 # ── Series BCRA (BADLAR, CER, DOLAR) ──
@@ -236,9 +247,9 @@ def historico_breakevens(
 
 
 @router.get("/rem/informes")
-def rem_listar_informes():
-    """Informes REM disponibles en Mongo (ordenados desc)."""
-    return svc_rem.listar_informes()
+def rem_listar_informes(_engine: str | None = Query(None, include_in_schema=False)):
+    """Informes REM disponibles (ordenados desc)."""
+    return _rem(_engine).listar_informes()
 
 
 @router.get("/rem")
@@ -247,10 +258,11 @@ def rem_expectativas(
     periodo_tipo: str | None = Query(None, description="mensual | anual | trimestral"),
     periodo_desde: str | None = Query(None, description="Filtro mínimo de periodo ('YYYY-MM')"),
     periodo_hasta: str | None = Query(None, description="Filtro máximo de periodo ('YYYY-MM')"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Expectativas REM crudas (IPC nivel general INDEC): mediana / promedio /
     percentiles / participantes por período, ordenado asc."""
-    return svc_rem.expectativas(
+    return _rem(_engine).expectativas(
         informe=informe, periodo_tipo=periodo_tipo,
         periodo_desde=periodo_desde, periodo_hasta=periodo_hasta,
     )
@@ -259,18 +271,19 @@ def rem_expectativas(
 @router.get("/rem/breakeven-acumulado")
 def rem_breakeven_acumulado(
     informe: str | None = Query(None, description="'YYYY-MM' o vacío=último"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """IPC mensual del REM → promedio mensual geométrico acumulado desde HOY
     hasta cada mes futuro. Formato listo para superponer con breakeven de
     mercado en el chart."""
-    return svc_rem.breakeven_acumulado(informe=informe)
+    return _rem(_engine).breakeven_acumulado(informe=informe)
 
 
 @router.get("/rem/debug")
-def rem_debug():
-    """Diagnóstico: qué indicadores / períodos / informes hay en Mongo y qué
-    indicador IPC elige el fuzzy match. Útil cuando el chart no dibuja."""
-    return svc_rem.debug_info()
+def rem_debug(_engine: str | None = Query(None, include_in_schema=False)):
+    """Diagnóstico: qué informes / períodos hay y cuántos. Útil cuando el chart
+    no dibuja."""
+    return _rem(_engine).debug_info()
 
 
 # ── Renta Fija ──

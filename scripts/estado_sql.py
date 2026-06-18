@@ -25,6 +25,7 @@ _FLAGS = [
     ("NEWS_SQL",        "HOME/NEWS — /api/news/* (headlines, stats)"),
     ("MARKET_SQL",      "MARKET — /api/market/quotes + /calendar/economic"),
     ("REM_SQL",         "REM — /api/cotizaciones/rem* (expectativas IPC, breakeven acum)"),
+    ("MACRO_SQL",       "MACRO — /cotizaciones/{badlar,cer,dolar} + /analitica/serie-macro (7 series)"),
     ("AUTH_SQL",        "AUTH (lecturas) — roles, matriz, scope de cuentas"),
     ("SNAPSHOT_SQL",    "MOTORES → market_snapshot live (dual-write a SQL)"),
     ("MERCADO_SQL_WRITE", "JOBS mercado → dual-write (series_macro, rem, cierres)"),

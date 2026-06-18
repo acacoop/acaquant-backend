@@ -4,6 +4,8 @@ Los 6 endpoints acá son thin wrappers sobre `api/services/*`. El asistente
 los llama directo via service registry (sin HTTP loopback); este router
 existe para consumo externo (acaquant-web, curl, debugging).
 """
+import os
+
 from fastapi import APIRouter, Body, Query
 from pydantic import BaseModel, Field
 
@@ -13,11 +15,20 @@ from api.services import carry_trade as svc_carry
 from api.services import comparar_inversion as svc_cmp
 from api.services import descomposicion_retorno as svc_desc
 from api.services import macro as svc_macro
+from api.services import macro_sql as svc_macro_sql
 from api.services import opciones as svc_opc
 from api.services import renta_fija as svc_rf
 from api.services import sensibilidad as svc_sens
 
 router = APIRouter(prefix="/api/analitica", tags=["Analítica"])
+
+
+def _macro(engine: str | None):
+    """Selector de motor de series macro (mismo criterio que cotizaciones._macro):
+    SQL si `?_engine=sql` o flag `MACRO_SQL=1`; default Mongo. El path SQL delega
+    a Mongo lo no-migrado (mep/ccl/canje, series por ticker, caución)."""
+    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("MACRO_SQL") == "1")
+    return svc_macro_sql if use_sql else svc_macro
 
 
 @router.get("/listar-curva")
@@ -49,16 +60,18 @@ def ons_calendario(
 def serie_macro(
     variable: str = Query(..., description="tamar|cer|dolar|badlar|mep|ccl|canje|ipc|ipim|riesgo_pais|repo|rem_inflacion o <TICKER>.<CAMPO>"),
     ventana_dias: int = Query(90, ge=1, le=3650),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_macro.obtener_serie_macro(variable=variable, ventana_dias=ventana_dias)
+    return _macro(_engine).obtener_serie_macro(variable=variable, ventana_dias=ventana_dias)
 
 
 @router.get("/clasificar-nivel")
 def clasificar_nivel(
     variable: str = Query(..., description="Ver /serie-macro para valores válidos"),
     ventana_dias: int = Query(90, ge=1, le=3650),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_macro.clasificar_nivel(variable=variable, ventana_dias=ventana_dias)
+    return _macro(_engine).clasificar_nivel(variable=variable, ventana_dias=ventana_dias)
 
 
 # ── Tier 2: extensiones sobre data existente ──

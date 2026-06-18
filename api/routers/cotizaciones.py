@@ -22,6 +22,7 @@ from api.services import argy as svc_argy
 from api.services import derivados as svc_der
 from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
+from api.services import macro_sql as svc_macro_sql
 from api.services import opciones as svc_opt
 from api.services import rem as svc_rem
 from api.services import rem_sql as svc_rem_sql
@@ -39,6 +40,14 @@ def _rem(engine: str | None):
     return svc_rem_sql if use_sql else svc_rem
 
 
+def _macro(engine: str | None):
+    """Selector de motor de series macro: SQL (macro.series_macro) o Mongo
+    (Trading.*). SQL si `?_engine=sql` o flag `MACRO_SQL=1`; default Mongo. El
+    path SQL delega a Mongo lo no-migrado (mep/ccl/canje, ticker, caución)."""
+    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("MACRO_SQL") == "1")
+    return svc_macro_sql if use_sql else svc_macro
+
+
 # ── Series BCRA (BADLAR, CER, DOLAR) ──
 
 
@@ -46,24 +55,27 @@ def _rem(engine: str | None):
 def listar_badlar(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_macro.get_badlar(desde=desde, hasta=hasta)
+    return _macro(_engine).get_badlar(desde=desde, hasta=hasta)
 
 
 @router.get("/cer")
 def listar_cer(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_macro.get_cer(desde=desde, hasta=hasta)
+    return _macro(_engine).get_cer(desde=desde, hasta=hasta)
 
 
 @router.get("/dolar")
 def listar_dolar(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_macro.get_dolar(desde=desde, hasta=hasta)
+    return _macro(_engine).get_dolar(desde=desde, hasta=hasta)
 
 
 # ── Dólar MEP ──

@@ -49,7 +49,11 @@ def inventario_mongo() -> dict[str, dict[str, int]]:
 
 
 def inventario_sql() -> dict[str, int]:
-    """Tablas públicas de Postgres con conteo estimado (sin escanear)."""
+    """Tablas de Postgres con conteo estimado (sin escanear), TODOS los schemas
+    de usuario. Tras la reorg v2 (2026-06-18) nada vive en `public`: las tablas
+    están en schemas de dominio (mercado, macro, clientes, operaciones,
+    portafolio, valuaciones, manager, home). Clave = `schema.tabla` para no
+    perder el contexto de dominio."""
     try:
         from core.postgres import get_pool
     except Exception as e:
@@ -58,13 +62,15 @@ def inventario_sql() -> dict[str, int]:
     try:
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute("""
-                SELECT relname, reltuples::bigint
+                SELECT n.nspname, c.relname, c.reltuples::bigint
                 FROM pg_class c
                 JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE c.relkind = 'r' AND n.nspname = 'public'
-                ORDER BY relname
+                WHERE c.relkind = 'r'
+                  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+                  AND n.nspname NOT LIKE 'pg_%%'
+                ORDER BY n.nspname, c.relname
             """)
-            return {r[0]: int(r[1]) for r in cur.fetchall()}
+            return {f"{r[0]}.{r[1]}": int(r[2]) for r in cur.fetchall()}
     except Exception as e:
         print(f"\n[SQL] no se pudo conectar a Postgres: {str(e).splitlines()[0][:120]}")
         return {}
@@ -83,12 +89,12 @@ def main() -> int:
             total_cols += 1
 
     print("\n" + "=" * 70)
-    print("INVENTARIO SQL (tablas públicas / conteo estimado)")
+    print("INVENTARIO SQL (todos los schemas de dominio / conteo estimado)")
     print("=" * 70)
     sql = inventario_sql()
-    print(f"\n### postgres  ({len(sql)} tablas)")
+    print(f"\n### postgres  ({len(sql)} tablas en {len({t.split('.', 1)[0] for t in sql})} schemas)")
     for t, n in sql.items():
-        print(f"    {t:<32} {n:>12,}")
+        print(f"    {t:<40} {n:>12,}")
 
     # Mapeo heurístico por nombre: qué colección Mongo tiene una tabla parecida.
     print("\n" + "=" * 70)

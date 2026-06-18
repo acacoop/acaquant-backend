@@ -1,0 +1,81 @@
+"""api/services/mercado_hist_sql.py — históricos de mercado leyendo Postgres.
+
+Espejo SQL-native de los `get_historico_*` de `derivados.py` (futuros DLR,
+forwards, breakevens) y `repo.py` (caución). Fuente: `mercado.mercado_hist`,
+tabla genérica grano (coleccion, fecha, k=subclave) con el doc completo en
+`data jsonb`. Devolver `data` reconstruye el doc original (incluido `fecha` como
+string, igual que Mongo).
+
+Paridad de datetime: el jsonb se escribió con datetime→`.isoformat()`
+(`sync._jsonb` → `pg_mirror.doc_iso`), idéntico a lo que FastAPI emite en el path
+Mongo (jsonable_encoder usa isoformat); estos endpoints NO tienen serializer
+custom → no hace falta `_fix_tz`.
+
+Filtros: `fecha` por la columna `date` (== comparación lexicográfica del string
+Mongo 'YYYY-MM-DD'); subclave por la columna `k` (k=ticker en FuturosDLR, moneda
+en Caucion, curva en ForwardsHistorico, '' en BreakevensHistorico).
+
+Dual-run flag `MERCADO_HIST_SQL`. Gate: `scripts/compare_mercado_hist_sql_vs_mongo.py`.
+"""
+from __future__ import annotations
+
+from psycopg.rows import dict_row
+
+from api.cache import cached
+from core.postgres import get_pool
+
+
+def _hist(coleccion: str, k: str | None = None, desde: str | None = None,
+          hasta: str | None = None, order_extra: str | None = None) -> list:
+    """[doc, ...] de `mercado_hist` para una colección, reconstruidos desde jsonb."""
+    where = ["coleccion = %s"]
+    params: list = [coleccion]
+    if k is not None:
+        where.append("k = %s")
+        params.append(k)
+    if desde:
+        where.append("fecha >= %s::date")
+        params.append(desde)
+    if hasta:
+        where.append("fecha <= %s::date")
+        params.append(hasta)
+    order = "fecha" + (f", {order_extra}" if order_extra else "")
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"SELECT data FROM mercado.mercado_hist WHERE {' AND '.join(where)} "
+            f"ORDER BY {order}",
+            tuple(params),
+        )
+        return [r["data"] for r in cur.fetchall()]
+
+
+@cached(ttl=300)
+def get_historico_futuros_dlr(
+    ticker: str | None = None, desde: str | None = None, hasta: str | None = None,
+) -> list:
+    # Mongo ordena (fecha, vencimiento); k=ticker, así que el 2do criterio sale del jsonb.
+    return _hist("FuturosDLR", k=ticker, desde=desde, hasta=hasta,
+                 order_extra="(data->>'vencimiento')")
+
+
+@cached(ttl=300)
+def get_historico_forwards(
+    curva: str | None = None, desde: str | None = None, hasta: str | None = None,
+) -> list:
+    # Mongo no ordena este (orden natural); ordenamos por (fecha, k=curva) — determinista,
+    # y el front no depende del orden de empate (la lectura Mongo tampoco lo garantizaba).
+    return _hist("ForwardsHistorico", k=curva, desde=desde, hasta=hasta, order_extra="k")
+
+
+@cached(ttl=300)
+def get_historico_breakevens(desde: str | None = None, hasta: str | None = None) -> list:
+    return _hist("BreakevensHistorico", desde=desde, hasta=hasta)
+
+
+@cached(ttl=300)
+def get_historico_caucion(
+    moneda: str | None = None, desde: str | None = None, hasta: str | None = None,
+) -> list:
+    # Mongo ordena (fecha, moneda); k=moneda. El filtro Mongo uppercasea el input.
+    k = moneda.upper() if moneda else None
+    return _hist("Caucion", k=k, desde=desde, hasta=hasta, order_extra="k")

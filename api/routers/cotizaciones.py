@@ -23,6 +23,7 @@ from api.services import derivados as svc_der
 from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
 from api.services import macro_sql as svc_macro_sql
+from api.services import mercado_hist_sql as svc_mhist
 from api.services import opciones as svc_opt
 from api.services import rem as svc_rem
 from api.services import rem_sql as svc_rem_sql
@@ -46,6 +47,14 @@ def _macro(engine: str | None):
     path SQL delega a Mongo lo no-migrado (mep/ccl/canje, ticker, caución)."""
     use_sql = engine == "sql" or (engine != "mongo" and os.getenv("MACRO_SQL") == "1")
     return svc_macro_sql if use_sql else svc_macro
+
+
+def _hist(engine: str | None, mongo_svc):
+    """Selector de históricos de mercado (futuros DLR / forwards / breakevens /
+    caución): SQL (`mercado.mercado_hist`) si `?_engine=sql` o flag
+    `MERCADO_HIST_SQL=1`; si no, el servicio Mongo original (`mongo_svc`)."""
+    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("MERCADO_HIST_SQL") == "1")
+    return svc_mhist if use_sql else mongo_svc
 
 
 # ── Series BCRA (BADLAR, CER, DOLAR) ──
@@ -129,8 +138,9 @@ def historico_caucion(
     moneda: str | None = Query(None, description="ARS o USD"),
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_repo.get_historico_caucion(moneda=moneda, desde=desde, hasta=hasta)
+    return _hist(_engine, svc_repo).get_historico_caucion(moneda=moneda, desde=desde, hasta=hasta)
 
 
 # ── Futuros DLR ──
@@ -146,8 +156,9 @@ def historico_futuros_dlr(
     ticker: str | None = Query(None, description="Filtrar por ticker (DLR/MMMYY)"),
     desde:  str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta:  str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_der.get_historico_futuros_dlr(ticker=ticker, desde=desde, hasta=hasta)
+    return _hist(_engine, svc_der).get_historico_futuros_dlr(ticker=ticker, desde=desde, hasta=hasta)
 
 
 # ── Forwards ──
@@ -165,8 +176,9 @@ def historico_forwards(
     curva: str | None = Query(None, description="Filtrar por curva (tasa_fija/cer)"),
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_der.get_historico_forwards(curva=curva, desde=desde, hasta=hasta)
+    return _hist(_engine, svc_der).get_historico_forwards(curva=curva, desde=desde, hasta=hasta)
 
 
 @router.get("/forwards-zscore")
@@ -251,8 +263,9 @@ def snapshot_live() -> dict:
 def historico_breakevens(
     desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_der.get_historico_breakevens(desde=desde, hasta=hasta)
+    return _hist(_engine, svc_der).get_historico_breakevens(desde=desde, hasta=hasta)
 
 
 # ── REM (Relevamiento de Expectativas de Mercado, BCRA) ──

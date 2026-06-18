@@ -34,13 +34,15 @@ def get_postgres_uri() -> str:
     return POSTGRES_URI
 
 
-# Las tablas están organizadas por dominio en schemas (clientes/operaciones/
-# portafolio). El `search_path` resuelve los nombres SIN calificar en este orden →
-# el código existente sigue funcionando sin tocar cada query. `public` al final
-# para mercado/manager/macro.
+# Las tablas están organizadas por dominio en schemas (ver sql/schema.sql §v2). El
+# `search_path` resuelve los nombres SIN calificar en este orden → el código existente
+# sigue funcionando sin tocar cada query (los nombres son únicos entre schemas, no hay
+# colisión). `public` queda al final (vacío tras la migración v2, por si algo cae ahí).
 # OJO: SIN espacios — libpq parsea `-c search_path=...` separando por espacios, un
 # espacio después de la coma rompe la conexión ("List syntax is invalid").
-_SEARCH_PATH = "clientes,operaciones,portafolio,public"
+# Postgres ignora en silencio los schemas inexistentes → desplegar este cambio ANTES de
+# correr el schema.sql nuevo es seguro (durante la transición resuelve por `public`).
+_SEARCH_PATH = "clientes,operaciones,portafolio,mercado,macro,valuaciones,manager,home,public"
 
 
 def connect() -> psycopg.Connection:

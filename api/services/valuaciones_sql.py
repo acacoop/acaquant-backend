@@ -289,7 +289,7 @@ def _fn(x):
 
 def valuacion_consolidada(filtro_cuenta: str = "todas",
                           scope: tuple[str, ...] | None = None) -> dict:
-    """Espejo SQL de valuaciones.valuacion_consolidada — lee `portafolio.consolidado`
+    """Espejo SQL de valuaciones.valuacion_consolidada — lee `valuaciones.consolidado`
     (cache iterativo escrito por el cron jobs.consolidado_cuentas, dual-write Mongo+SQL).
 
     Aplica el scope de grupos + el filtro de tipo de cuenta EN PYTHON, idéntico al path
@@ -299,7 +299,7 @@ def valuacion_consolidada(filtro_cuenta: str = "todas",
         rows = _q(
             "SELECT id_cuenta, cuenta, ultimo_dia, valor_ars, valor_usd, base100_ars, "
             "base100_usd, pnl_acum_ars, pnl_acum_usd, tem_ars, tem_usd, tea_ars, tea_usd "
-            "FROM portafolio.consolidado")
+            "FROM valuaciones.consolidado")
     except Exception:
         return {"rows": [], "n": 0, "filtro_cuenta": filtro_cuenta}
 

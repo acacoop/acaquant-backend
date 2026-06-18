@@ -58,15 +58,46 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase**.
 - **`operaciones.etapa`** no apareció en la muestra de 200 docs → se mapea defensivo
   (puede quedar NULL).
 
-## El esquema (`sql/schema.sql`)
+## El esquema (`sql/schema.sql`) — v2 organizado por dominio (2026-06-18)
+
+**Nada en `public`.** Las tablas viven en schemas de dominio; el `search_path`
+(`core/postgres.py`) resuelve los nombres sin calificar — los nombres de tabla son
+únicos entre schemas, no hay colisión:
+
+| Schema | Tablas |
+|---|---|
+| `clientes` | cuentas, operadores, comitentes, contrapartes, accionistas, actividad_mensual |
+| `operaciones` | operaciones, negocio_movimientos |
+| `portafolio` | tenencia, backfill_log, assets |
+| `valuaciones` | consolidado, dolar, portfolio_snapshot |
+| `mercado` | curvas, bonds_master, market_snapshot, snapshots_cierre, snapshots_cierre_hist, canje_cierre, mercado_hist |
+| `macro` | series_macro, rem |
+| `manager` | manager_users, role_matrix, grupos |
+| `home` | news_headlines, market_quotes, market_calendar |
+
+- **Migración v1→v2 idempotente:** un bloque `DO $$ … ALTER TABLE … SET SCHEMA` al
+  principio de `schema.sql` mueve cada tabla que todavía esté en `public`/`portafolio`
+  (instalación vieja). En fresh install no matchea nada y se crean ya en su schema.
+  `SET SCHEMA` arrastra índices y constraints. Reincorporadas al schema.sql en esta
+  tanda: `portafolio.tenencia` + `portafolio.backfill_log` (se habían creado a mano
+  en Supabase). `consolidado` se movió `portafolio`→`valuaciones`.
 - **Dimensiones** (PK natural): `operadores`, `cuentas`, `comitentes`, `contrapartes`.
-- **Hechos** (id_cuenta indexado, sin FK dura): `operaciones`, `aum`, `negocio_movimientos`.
+- **Hechos** (id_cuenta indexado, sin FK dura): `operaciones`, `negocio_movimientos`.
 - **Por qué sin FK dura en los hechos:** la fuente Mongo tiene huérfanos (operaciones
   con `id_cuenta` que no está en Comitentes). Un FK duro los rechazaría; soft +
   indexado nos deja cargarlos Y auditarlos (`SELECT ... WHERE id_cuenta NOT IN (SELECT id_cuenta FROM comitentes)`)
   como feature de calidad de dato.
-- **v1:** tipos/nullability marcados `TODO:validar` — confirmar contra un diag
-  read-only de Mongo antes de cargar en serio (REGLA #2 — no asumir shapes).
+
+### Orden de aplicación SEGURO (sin ventana de caída)
+Postgres ignora en silencio los schemas inexistentes del `search_path`, así que el
+código nuevo (con `mercado,macro,…` en el path) anda igual contra el esquema viejo.
+El orden que NO corta la web:
+1. `git pull` + `systemctl restart api.service` (deploya el `search_path` nuevo; las
+   tablas siguen en `public`, el path las resuelve por ahí).
+2. Correr `sql/schema.sql` en Supabase (mueve las tablas a sus schemas; ahora el path
+   las resuelve por `mercado/macro/…`). Es idempotente — se puede re-correr.
+   Hacerlo al revés (mover las tablas con el código viejo aún corriendo) deja la API
+   sin resolver los nombres → 500. Código primero, SQL después.
 
 ## Cómo aplicar el esquema en Supabase (acción del user, una vez)
 1. Crear proyecto en supabase.com → se crea un Postgres.
@@ -126,6 +157,27 @@ de Mongo — ver comentarios en `sql/schema.sql §CAPA MERCADO`):
 3. **NO migran (decisión):** `TimeSales` y `OrderBookL2` — streams append-only de alto
    volumen; espejarlos duplicaría el costo del M10 sin consumidor SQL. Se revisa
    cuando haya un caso de uso de reportería tick-level.
+
+### Dual-write robusto de mercado — activar + validar (2026-06-18)
+
+Objetivo: que la escritura de mercado caiga en SQL **en vivo siempre**, con Mongo de
+respaldo (si SQL cae, la mesa sigue). El mecanismo (`core/pg_mirror.py`) ya existe y es
+no-op con los flags apagados. Para volverlo el camino real:
+
+1. **Prender los flags en el `.env` del Droplet** (los leen los motores y los jobs):
+   - `SNAPSHOT_SQL=1` → motores live (`engines/valores.py`, `engines/curvas.py`)
+     espejan `market_snapshot` a SQL.
+   - `MERCADO_SQL_WRITE=1` → jobs batch (`bcra`, `argentina_datos`, `snapshot_cierre`,
+     `cierre_canje`, quotes/anchors/calendar/news) espejan series_macro/rem/cierres/home.
+   Restart de los servicios afectados para que tomen el env.
+2. **Validar paridad con `python -m scripts.recon_mercado_sql`** (read-only): compara
+   conteos Mongo `Trading.*` ↔ SQL `mercado.*`/`macro.*`. Diferencias chicas en tablas
+   live (market_snapshot) son por timing — el chequeo de frescura (`max(updated_at)` de
+   cada lado) confirma que el espejo está al día. Si una tabla de masters/cierres
+   diffea fuerte, correr `jobs.sync_postgres --full` (baseline) y re-validar.
+
+> Esto es el paso previo OBLIGADO a cualquier cutover SQL-native de los motores
+> (decisión "dual-write robusto" — Mongo queda de red de seguridad).
 
 ## NEWS — retención 2 días (no se acumula)
 

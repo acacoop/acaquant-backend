@@ -1,11 +1,16 @@
 """scripts/compare_mercado_hist_sql_vs_mongo.py — GATE históricos de mercado (SQL ↔ Mongo).
 
 Read-only. Corre los get_historico_* Mongo (derivados.py / repo.py) vs el espejo
-SQL (mercado_hist_sql.py) sobre la misma grilla y compara CONTENIDO (mismo
-multiset de docs). El orden de empate dentro de una fecha NO se exige idéntico
-(la lectura Mongo de forwards/breakevens no estaba ordenada) → ambas listas se
-ordenan por una clave canónica (json sort_keys) antes de comparar. Números a
-float redondeado. Gate antes de prender MERCADO_HIST_SQL=1.
+SQL (mercado_hist_sql.py) sobre la misma grilla y compara el CONTRATO REAL: lo
+que la API/MCP emiten sobre JSON. Por eso ambos lados pasan primero por
+`jsonable_encoder` (lo que usa FastAPI) — así un `datetime` nativo de Mongo y el
+string ISO que el jsonb guardó (sync._jsonb→isoformat) se comparan en su forma
+serializada, que es idéntica. Sin esto el gate falla por tipo (datetime vs str)
+una diferencia que NO existe sobre HTTP.
+
+El orden de empate dentro de una fecha NO se exige idéntico (la lectura Mongo de
+forwards/breakevens no estaba ordenada) → ambas listas se ordenan por clave
+canónica antes de comparar. Números a float redondeado. Gate de MERCADO_HIST_SQL.
 
     python -m scripts.compare_mercado_hist_sql_vs_mongo
 """
@@ -13,6 +18,8 @@ from __future__ import annotations
 
 import json
 from typing import Any
+
+from fastapi.encoders import jsonable_encoder
 
 from api.services import derivados as der
 from api.services import mercado_hist_sql as sql
@@ -63,8 +70,11 @@ def _diff(a: Any, b: Any, path: str = "") -> list[str]:
 
 
 def _case(fm, fs) -> tuple[bool, list[str], int]:
-    m = fm()
-    difs = _diff(_norm(fs()), _norm(m), "")  # SQL vs Mongo
+    # jsonable_encoder = el contrato real (lo que FastAPI emite). Iguala el
+    # datetime nativo de Mongo con el string ISO del jsonb SQL.
+    m = jsonable_encoder(fm())
+    s = jsonable_encoder(fs())
+    difs = _diff(_norm(s), _norm(m), "")  # SQL vs Mongo
     return (not difs, difs, len(m) if isinstance(m, list) else -1)
 
 

@@ -205,12 +205,16 @@ _CARTERAS_BONO = ("ARS", "HD", "DL")  # renta fija (cotizan en paridad). El rest
 
 
 def titulos_sin_flujo() -> list[dict]:
-    """Assets de cartera ARS/HD/DL (BONOS) que NO tienen flujo futuro en
-    Trading.Curvas → no proyectan cobros (acreencias) ni valúan por flujo.
+    """Bonos que YA están en Trading.Curvas como NO-ON (soberanos/tasa_fija/CER —
+    los de la vista Renta Fija) y les FALTA el flujo futuro → no proyectan cobros
+    ni valúan por flujo. Ej.: un Boncap en Curvas sin `flujo_vencimiento`.
 
-    Control de calidad de dato (Manager): un bono SIEMPRE debe tener flujo.
-    Clasifica el motivo y marca si está EN CARTERA hoy (prioridad de carga).
-    Devuelve [{unidad, ticker, cartera, emisor, motivo, en_cartera}].
+    Scope acotado a propósito (Manager): lo que NO está en Curvas son ONs → se
+    gestionan por el conciliador de ONs (BondsMaster) o alta manual, NO acá. Acá
+    solo se LISTA lo de Curvas que hay que completarle el flujo.
+
+    Marca si está EN CARTERA hoy (prioridad). Devuelve
+    [{unidad, ticker, cartera, emisor, motivo, en_cartera}].
     """
     bonos = [a for a in assets_rows(["CARTERA", "TICKER", "EMISOR"])
              if (a.get("CARTERA") or "").upper() in _CARTERAS_BONO]
@@ -218,15 +222,19 @@ def titulos_sin_flujo() -> list[dict]:
         return []
 
     # ¿Tiene flujo futuro? = está en el calendario del motor (incluye bullets de
-    # flujo_vencimiento). ¿Está modelado? = aparece en Curvas (para distinguir
-    # 'no está' de 'está pero sin flujo').
+    # flujo_vencimiento). El control de BONOS solo cubre los que YA están en
+    # Trading.Curvas como NO-ON (soberanos/tasa_fija/CER — los de Renta Fija) y les
+    # falta el flujo. Lo que NO está en Curvas son ONs → van por el conciliador de ONs
+    # (BondsMaster) o alta manual, NO por acá.
     cal = calendario_instrumentos()
     cal_tk, cal_base = set(cal), {}
     for k in cal:
         cal_base.setdefault(_base_ticker(k), k)
     mod_tk: set[str] = set()
     mod_base: dict[str, str] = {}
-    for d in get_db_trading()["Curvas"].find({}, {"_id": 0, "ticker_corto": 1, "ticker": 1}):
+    for d in get_db_trading()["Curvas"].find(
+            {"curva": {"$not": {"$regex": "^on"}}},   # NO-ON: los bonos de Renta Fija
+            {"_id": 0, "ticker_corto": 1, "ticker": 1}):
         for key in (d.get("ticker_corto"), d.get("ticker")):
             if key:
                 mod_tk.add(key)
@@ -252,8 +260,9 @@ def titulos_sin_flujo() -> list[dict]:
         cands = (a.get("TICKER"), a.get("unidad"), _codigo_de_unidad(a.get("unidad")))
         if _hit(cal_tk, cal_base, cands):
             continue  # tiene flujo futuro (array o bullet) → OK
-        motivo = ("en Curvas pero sin flujo futuro (ni array ni flujo_vencimiento)"
-                  if _hit(mod_tk, mod_base, cands) else "no está en Trading.Curvas")
+        if not _hit(mod_tk, mod_base, cands):
+            continue  # NO está en Curvas como no-ON → es ON / alta manual, no es de acá
+        motivo = "en Curvas pero sin flujo futuro (ni array ni flujo_vencimiento)"
         out.append({
             "unidad": a.get("unidad"), "ticker": a.get("TICKER") or None,
             "cartera": a.get("CARTERA"), "emisor": a.get("EMISOR") or None,

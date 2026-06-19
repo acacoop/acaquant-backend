@@ -1,11 +1,12 @@
-"""Router Cuentas: accionistas y contrapartes, DIRECTO desde las colecciones
-fuente en CashFlow (sin los espejos CuentasAPI.*API)."""
+"""Router Cuentas: accionistas (Mongo CashFlow.Accionistas) y contrapartes
+(SQL clientes.contrapartes — fuente única; Mongo CashFlow.Contrapartes fue dropeada)."""
 import re
 
 from fastapi import APIRouter
 
 from api.cache import cached
 from api.db import get_db_cashflow
+from core.postgres import get_pool
 
 router = APIRouter(prefix="/api/cuentas", tags=["Cuentas"])
 
@@ -36,20 +37,15 @@ def listar_accionistas():
 @router.get("/contrapartes")
 @cached(ttl=3600)
 def listar_contrapartes():
-    """DIRECTO desde CashFlow.Contrapartes (sin la copia intermedia
-    CuentasAPI.ContrapartesAPI). nombre = contraparte, grupo = segmento."""
-    coll = get_db_cashflow()["Contrapartes"]
-    out = []
-    for d in coll.find(
-        {"cuenta": {"$exists": True, "$ne": ""}},
-        {"_id": 0, "cuenta": 1, "contraparte": 1, "segmento": 1},
-    ):
-        c = str(d.get("cuenta") or "").strip()
-        if not c:
-            continue
-        out.append({
-            "cuenta": c, "id_cuenta": c,
-            "nombre": d.get("contraparte") or "",
-            "grupo": d.get("segmento") or "",
-        })
-    return out
+    """DIRECTO desde SQL clientes.contrapartes (fuente única; Mongo CashFlow.Contrapartes
+    fue dropeada). id_cuenta = clave, nombre = contraparte, grupo = segmento."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id_cuenta, contraparte, segmento FROM contrapartes "
+            "WHERE id_cuenta IS NOT NULL AND id_cuenta <> '' ORDER BY id_cuenta"
+        )
+        rows = cur.fetchall()
+    return [
+        {"cuenta": idc, "id_cuenta": idc, "nombre": cp or "", "grupo": seg or ""}
+        for idc, cp, seg in rows
+    ]

@@ -47,13 +47,19 @@ def list_bonos(curva: str | None = Query(None)) -> dict:
 
 @router.get("/bonos/sin-flujo")
 def bonos_sin_flujo() -> dict:
-    """Control: bonos cartera ARS/HD/DL SIN flujo futuro en Curvas (no proyectan
-    cobros ni valúan). Gate `manager_titulos` — visible en la sub-tab BONOS."""
+    """Conciliador unificado: bonos cartera ARS/DL/HD faltantes o incompletos en
+    Trading.Curvas (no-ON) o BondsMaster (ONs), con la acción para resolver cada uno.
+    Gate `manager_titulos`. Ignorar/designorar: usar /api/manager/ons/ignorar."""
     from api.services.acreencias import titulos_sin_flujo
     falta = titulos_sin_flujo()
     return {
         "total": len(falta),
         "en_cartera": sum(1 for t in falta if t["en_cartera"]),
+        "por_fuente": {
+            "curvas": sum(1 for t in falta if t["fuente"] == "curvas"),
+            "bondsmaster": sum(1 for t in falta if t["fuente"] == "bondsmaster"),
+            "ninguna": sum(1 for t in falta if t["fuente"] == "ninguna"),
+        },
         "ok": not falta,
         "titulos": falta,
     }

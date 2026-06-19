@@ -282,6 +282,9 @@ def titulos_sin_flujo() -> list[dict]:
                 return idx[base[b]]
         return None
 
+    # Ignorados manualmente (marcados como "no aplica" desde el conciliador).
+    ignoradas = {d.get("ticker") for d in trd["OnsIgnoradas"].find({}, {"_id": 0, "ticker": 1})}
+
     # Unidades en cartera HOY (prioridad).
     en_cartera: set[str] = set()
     with get_pool().connection() as conn, conn.cursor() as cur:
@@ -301,6 +304,8 @@ def titulos_sin_flujo() -> list[dict]:
         bm = _lookup(bm_idx, bm_base, cands)
         if cv is True or bm is True:
             continue  # tiene flujo en Curvas o BondsMaster → OK
+        if any(c in ignoradas for c in cands if c):
+            continue  # marcado como "no aplica"
         if cv is False:
             fuente, accion, motivo = "curvas", "editar_curvas", "en Curvas (no-ON) sin flujo — completar"
         elif bm is False:

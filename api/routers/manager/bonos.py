@@ -45,6 +45,20 @@ def list_bonos(curva: str | None = Query(None)) -> dict:
     return {"bonos": bonos, "n": len(bonos)}
 
 
+@router.get("/bonos/sin-flujo")
+def bonos_sin_flujo() -> dict:
+    """Control: bonos cartera ARS/HD/DL SIN flujo futuro en Curvas (no proyectan
+    cobros ni valúan). Gate `manager_titulos` — visible en la sub-tab BONOS."""
+    from api.services.acreencias import titulos_sin_flujo
+    falta = titulos_sin_flujo()
+    return {
+        "total": len(falta),
+        "en_cartera": sum(1 for t in falta if t["en_cartera"]),
+        "ok": not falta,
+        "titulos": falta,
+    }
+
+
 @router.post("/bonos")
 def upsert_bono(req: _BonoUpsert = Body(...), actor: str = Depends(get_user_email)) -> dict:
     try:

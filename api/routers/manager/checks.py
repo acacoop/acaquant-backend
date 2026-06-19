@@ -22,21 +22,6 @@ def check_debug_comercial(
     return debug_comercial(operador=operador, segmento=segmento, moneda=moneda)
 
 
-@router.get("/checks/titulos-sin-flujo")
-def check_titulos_sin_flujo():
-    """Control de calidad: bonos (cartera ARS/HD/DL) SIN flujo futuro en
-    Trading.Curvas → no proyectan cobros ni valúan por flujo. Lista los faltantes
-    con el motivo (no modelado / sin flujos / vencidos) y si están en cartera hoy."""
-    from api.services.acreencias import titulos_sin_flujo
-    falta = titulos_sin_flujo()
-    return {
-        "total": len(falta),
-        "en_cartera": sum(1 for t in falta if t["en_cartera"]),
-        "ok": not falta,
-        "titulos": falta,
-    }
-
-
 @router.get("/checks/curvas-pendientes")
 def check_curvas_pendientes():
     """Docs sin duration en TimeSales agrupados por ticker."""

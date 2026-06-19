@@ -204,46 +204,85 @@ def computar_acreencias(dias_horizonte: int = 1825) -> list[dict]:
 _CARTERAS_BONO = ("ARS", "HD", "DL")  # renta fija (cotizan en paridad). El resto
 
 
+def _tiene_flujo_def(d: dict, hoy: date) -> bool:
+    """¿El doc tiene DEFINICIÓN de flujo futuro? Estructural — NO valúa:
+      - array `flujos` con alguna fecha > hoy, O
+      - `flujo_vencimiento` > 0 con `fecha_vencimiento`/`vencimiento` > hoy (bullet).
+    Clave para CER: un CER futuro TIENE flujo aunque su CER de liquidación no esté
+    publicado (no se puede valuar todavía, pero el flujo existe)."""
+    from engines.curvas import fecha_flujo
+    for fl in d.get("flujos") or []:
+        fd = fecha_flujo(fl)
+        if fd and fd > hoy:
+            return True
+    fv = d.get("flujo_vencimiento")
+    vraw = d.get("fecha_vencimiento") or d.get("vencimiento")
+    try:
+        vto = date.fromisoformat(str(vraw)[:10]) if vraw else None
+    except ValueError:
+        vto = None
+    return bool(fv and float(fv) > 0 and vto and vto > hoy)
+
+
 def titulos_sin_flujo() -> list[dict]:
-    """Bonos que YA están en Trading.Curvas como NO-ON (soberanos/tasa_fija/CER —
-    los de la vista Renta Fija) y les FALTA el flujo futuro → no proyectan cobros
-    ni valúan por flujo. Ej.: un Boncap en Curvas sin `flujo_vencimiento`.
+    """Conciliador de bonos: por cada bono en cartera ARS/DL/HD, busca si está en
+    Trading.Curvas (NO-ON, los de Renta Fija) o en BondsMaster (ONs), y si le falta
+    el flujo. Lista los faltantes/incompletos con la ACCIÓN según dónde esté:
+      - en Curvas sin flujo  → 'editar_curvas'      (completar; NO se agregan nuevos a Curvas)
+      - en BondsMaster sin flujo → 'editar_bondsmaster' (completar)
+      - en ninguna           → 'alta_bondsmaster'   (las nuevas van a ONs/BondsMaster)
 
-    Scope acotado a propósito (Manager): lo que NO está en Curvas son ONs → se
-    gestionan por el conciliador de ONs (BondsMaster) o alta manual, NO acá. Acá
-    solo se LISTA lo de Curvas que hay que completarle el flujo.
-
-    Marca si está EN CARTERA hoy (prioridad). Devuelve
-    [{unidad, ticker, cartera, emisor, motivo, en_cartera}].
+    'Tiene flujo' es ESTRUCTURAL (hay definición de flujo), no valuación — los CER
+    futuros tienen flujo aunque no se puedan valuar todavía. Marca `en_cartera` hoy.
+    Devuelve [{unidad, ticker, cartera, emisor, fuente, accion, motivo, en_cartera}].
     """
     bonos = [a for a in assets_rows(["CARTERA", "TICKER", "EMISOR"])
              if (a.get("CARTERA") or "").upper() in _CARTERAS_BONO]
     if not bonos:
         return []
 
-    # ¿Tiene flujo futuro? = está en el calendario del motor (incluye bullets de
-    # flujo_vencimiento). El control de BONOS solo cubre los que YA están en
-    # Trading.Curvas como NO-ON (soberanos/tasa_fija/CER — los de Renta Fija) y les
-    # falta el flujo. Lo que NO está en Curvas son ONs → van por el conciliador de ONs
-    # (BondsMaster) o alta manual, NO por acá.
-    cal = calendario_instrumentos()
-    cal_tk, cal_base = set(cal), {}
-    for k in cal:
-        cal_base.setdefault(_base_ticker(k), k)
-    mod_tk: set[str] = set()
-    mod_base: dict[str, str] = {}
-    for d in get_db_trading()["Curvas"].find(
-            {"curva": {"$not": {"$regex": "^on"}}},   # NO-ON: los bonos de Renta Fija
-            {"_id": 0, "ticker_corto": 1, "ticker": 1}):
-        for key in (d.get("ticker_corto"), d.get("ticker")):
-            if key:
-                mod_tk.add(key)
-                mod_base.setdefault(_base_ticker(key), key)
+    hoy = date.today()
+    trd = get_db_trading()
 
-    def _hit(tk_set: set, base_map: dict, cands) -> bool:
-        return any(c and (c in tk_set or _base_ticker(c) in base_map) for c in cands)
+    def _index(cursor, key_fns: list) -> tuple[dict, dict]:
+        """{key: tiene_flujo} + {base: key} para matchear por ticker/código."""
+        idx: dict[str, bool] = {}
+        base: dict[str, str] = {}
+        for d in cursor:
+            tf = _tiene_flujo_def(d, hoy)
+            for fn in key_fns:
+                key = fn(d)
+                if key:
+                    idx[key] = tf
+                    base.setdefault(_base_ticker(key), key)
+        return idx, base
 
-    # Unidades en cartera HOY (último snapshot aum='si') → prioridad.
+    # Curvas NO-ON (Renta Fija) y BondsMaster (ONs), cada uno con ¿tiene flujo?
+    curvas_idx, curvas_base = _index(
+        trd["Curvas"].find({"curva": {"$not": {"$regex": "^on"}}},
+                           {"_id": 0, "ticker_corto": 1, "ticker": 1, "flujos": 1,
+                            "flujo_vencimiento": 1, "fecha_vencimiento": 1}),
+        [lambda d: d.get("ticker_corto"), lambda d: d.get("ticker")])
+    bm_idx, bm_base = _index(
+        trd["BondsMaster"].find({}, {"_id": 0, "asset": 1, "tickers": 1,
+                                     "flujos": 1, "vencimiento": 1}),
+        [lambda d: d.get("asset"),
+         lambda d: (d.get("tickers") or {}).get("ARS"),
+         lambda d: (d.get("tickers") or {}).get("USD")])
+
+    def _lookup(idx: dict, base: dict, cands) -> bool | None:
+        """True/False=tiene/no flujo · None=no está en ese maestro."""
+        for c in cands:
+            if not c:
+                continue
+            if c in idx:
+                return idx[c]
+            b = _base_ticker(c)
+            if b in base:
+                return idx[base[b]]
+        return None
+
+    # Unidades en cartera HOY (prioridad).
     en_cartera: set[str] = set()
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
@@ -255,21 +294,27 @@ def titulos_sin_flujo() -> list[dict]:
 
     out: list[dict] = []
     for a in bonos:
-        # incluye el código limpio de la unidad ('[id] CODE - desc' → 'CODE') para
-        # matchear Curvas aunque el Asset no tenga TICKER cargado.
+        # código limpio de la unidad ('[id] CODE - desc' → 'CODE') para matchear
+        # aunque el Asset no tenga TICKER cargado.
         cands = (a.get("TICKER"), a.get("unidad"), _codigo_de_unidad(a.get("unidad")))
-        if _hit(cal_tk, cal_base, cands):
-            continue  # tiene flujo futuro (array o bullet) → OK
-        if not _hit(mod_tk, mod_base, cands):
-            continue  # NO está en Curvas como no-ON → es ON / alta manual, no es de acá
-        motivo = "en Curvas pero sin flujo futuro (ni array ni flujo_vencimiento)"
+        cv = _lookup(curvas_idx, curvas_base, cands)
+        bm = _lookup(bm_idx, bm_base, cands)
+        if cv is True or bm is True:
+            continue  # tiene flujo en Curvas o BondsMaster → OK
+        if cv is False:
+            fuente, accion, motivo = "curvas", "editar_curvas", "en Curvas (no-ON) sin flujo — completar"
+        elif bm is False:
+            fuente, accion, motivo = "bondsmaster", "editar_bondsmaster", "en BondsMaster sin flujo — completar"
+        else:
+            fuente, accion, motivo = "ninguna", "alta_bondsmaster", "no está en Curvas ni BondsMaster — dar de alta (ONs)"
         out.append({
-            "unidad": a.get("unidad"), "ticker": a.get("TICKER") or None,
+            "unidad": a.get("unidad"),
+            "ticker": a.get("TICKER") or _codigo_de_unidad(a.get("unidad")) or None,
             "cartera": a.get("CARTERA"), "emisor": a.get("EMISOR") or None,
-            "motivo": motivo, "en_cartera": a.get("unidad") in en_cartera,
+            "fuente": fuente, "accion": accion, "motivo": motivo,
+            "en_cartera": a.get("unidad") in en_cartera,
         })
-    # En cartera primero, después por cartera/unidad.
-    out.sort(key=lambda x: (not x["en_cartera"], x["cartera"] or "", x["unidad"] or ""))
+    out.sort(key=lambda x: (not x["en_cartera"], x["fuente"], x["cartera"] or "", x["unidad"] or ""))
     return out
 
 

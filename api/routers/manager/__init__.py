@@ -25,6 +25,7 @@ from api.deps import verify_api_key
 from api.routers.manager import (
     assets,
     aunesa,
+    bonos,
     checks,
     clientes,
     compliance,
@@ -82,5 +83,6 @@ router.include_router(clientes.bulk_router,       dependencies=_CLIENTES_BULK)
 router.include_router(compliance.router,      dependencies=_COMPLIANCE)
 router.include_router(assets.router,          dependencies=_TITULOS)
 router.include_router(ons.router,             dependencies=_TITULOS)
+router.include_router(bonos.router,           dependencies=_TITULOS)
 router.include_router(instrumentos.router,    dependencies=_INSTRUMENTOS)
 router.include_router(contrapartes.router,    dependencies=_CONTRAPARTES)

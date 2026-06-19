@@ -12,10 +12,12 @@ Todo lo NO migrado se reexporta del módulo Mongo → drop-in del selector:
   - calendario_ons / get_retorno_total_data → derivados (Mongo por ahora)
   - resolver_ticker_exacto / _CURVAS_VALIDAS → helpers compartidos
 
-Híbridos a propósito (mismo criterio que macro_sql delega mep/ccl a Mongo):
-  - `_bonos_cer_fijados` se REUSA del path Mongo: necesita Trading.DiasHabiles, que
-    NO está espejado en SQL. Es barato (cacheado 30s) → no justifica migrar DiasHabiles.
-  - MEP live (`macro.get_ultimo_mep`) → Valuaciones.Dolar live, no es series_macro.
+SQL-native:
+  - `_bonos_cer_fijados` (CER fijado): lee macro.series_macro (CER) + mercado.dias_habiles
+    (migrada 19/6) + mercado.curvas. Ya NO depende de Mongo.
+Híbrido que queda (1):
+  - MEP live (`macro.get_ultimo_mep`) → Valuaciones.DolarSnapshot live (feed WS), aún sin
+    espejo SQL. Migra con el dual-write del motor de dólar (Rojo). `# TODO SQL-native`.
 
 REGLA #1 del 19/6 (Mongo se apaga; SQL nativo; lo muerto se borra, no se migra):
   - `total_money` (volumen $ del día) está MUERTO — el motor lo dejó de escribir
@@ -23,9 +25,8 @@ REGLA #1 del 19/6 (Mongo se apaga; SQL nativo; lo muerto se borra, no se migra):
     se quita `total_money_dia` del output y el orden 'volumen_dia' pasa a ordenar por
     el volumen VIVO (`total_nominals_dia`), no por un 0 fantasma como hacía Mongo.
 
-Dependencias Mongo que faltan migrar para que esto sea 100% SQL-native (ver bitácora
-docs/2026-06-19.md): `DiasHabiles` (CER fijado) y el MEP live (DolarSnapshot). Mientras
-tanto se reusan del path Mongo, marcado abajo con `# TODO SQL-native`.
+Dependencia Mongo que falta para que sea 100% SQL-native (ver docs/2026-06-19.md):
+el MEP live (`DolarSnapshot`, feed WS). `DiasHabiles` ya migró a SQL (19/6).
 
 Dual-run flag `RENTA_FIJA_SQL` (+ `?_engine` override). Validación: spot-check funcional
 SQL (no byte-parity contra Mongo — Mongo se va). Se apoya en el dual-write de
@@ -33,18 +34,18 @@ market_snapshot (SNAPSHOT_SQL) en paridad (recon 2026-06-19, fresco a ~1s).
 """
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 
 from psycopg.rows import dict_row
 
 from api.cache import cached
-from core.postgres import get_pool
 
 # Helpers PUROS + passthroughs del path Mongo (drop-in del selector).
+# `_bonos_cer_fijados` NO se importa: acá es SQL-native (ver abajo).
 from api.services.renta_fija import (  # noqa: F401  (reexport intencional)
     _CURVAS_VALIDAS,
     _ORDENES_VALIDOS,
-    _bonos_cer_fijados,
     _es_curva_on,
     _tc_breakeven,
     calendario_ons,
@@ -52,6 +53,9 @@ from api.services.renta_fija import (  # noqa: F401  (reexport intencional)
     get_retorno_total_data,
     resolver_ticker_exacto,
 )
+from core.postgres import get_pool
+
+logger = logging.getLogger(__name__)
 
 
 def _f(v) -> float | None:
@@ -70,6 +74,40 @@ def _ilike_param(instrumento: str) -> str:
     comodines LIKO (% _ \\) para que el input se trate literal."""
     esc = instrumento.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{esc}%"
+
+
+@cached(ttl=30)
+def _bonos_cer_fijados() -> set[str]:
+    """SQL-native: tickers CER cuyo CER de liquidación del VTO (T-10 hábiles) ya
+    fue publicado por el BCRA → comportan tasa fija. Espejo del helper Mongo de
+    renta_fija.py, leyendo SQL: CER (macro.series_macro), calendario hábil
+    (mercado.dias_habiles) y la curva CER (mercado.curvas). La lógica T-10 la
+    pone `fecha_cer_liquidacion` (puro, reusado). Strings 'YYYY-MM-DD' para que la
+    comparación lexicográfica == la del path Mongo. Fallback set() ante error."""
+    from engines.curvas import fecha_cer_liquidacion
+    try:
+        cmax = _q("SELECT to_char(max(fecha), 'YYYY-MM-DD') AS f "
+                  "FROM macro.series_macro WHERE serie = 'CER'")
+        max_cer = cmax[0]["f"] if cmax else None
+        if not max_cer:
+            return set()
+        dias_habiles = sorted(
+            r["f"] for r in _q("SELECT to_char(fecha, 'YYYY-MM-DD') AS f "
+                               "FROM mercado.dias_habiles")
+        )
+        fijados: set[str] = set()
+        for r in _q("SELECT ticker, to_char(fecha_vencimiento, 'YYYY-MM-DD') AS vto "
+                    "FROM mercado.curvas WHERE curva = 'cer'"):
+            vto = (r.get("vto") or "")[:10]
+            if not vto:
+                continue
+            fecha_liq = fecha_cer_liquidacion(dias_habiles, vto, n=10)
+            if fecha_liq and fecha_liq <= max_cer:
+                fijados.add(r["ticker"])
+        return fijados
+    except Exception:
+        logger.exception("_bonos_cer_fijados (SQL) falló — devuelvo set vacío (fallback)")
+        return set()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

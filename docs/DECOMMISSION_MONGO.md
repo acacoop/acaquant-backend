@@ -62,9 +62,13 @@ Espejo escrito + servicio SQL + validado, pero `estado_sql` los muestra ⚪ MONG
 
 | Dominio | Flag | Colecciones Mongo a dropear después |
 |---|---|---|
-| Macro (7 series) | `MACRO_SQL` ⚪ | CER, DOLAR, BADLAR, TAMAR, RiesgoPais, InflacionMensual, InflacionInteranual |
-| REM | `REM_SQL` ⚪ | REM |
-| Históricos mercado | `MERCADO_HIST_SQL` ⚪ | BreakevensHistorico, ForwardsHistorico, FuturosDLR, Caucion, FitParams, FairValueResiduos |
+| Macro (7 series) | `MACRO_SQL` 🟢 **ON 19/6** (gate 29/29) | CER, DOLAR, BADLAR, TAMAR, RiesgoPais, InflacionMensual, InflacionInteranual |
+| REM | `REM_SQL` 🟢 **ON 19/6** (gate 13/13) | REM |
+| Históricos mercado | `MERCADO_HIST_SQL` 🟢 **ON 19/6** (gate 10/10 historia) | BreakevensHistorico, ForwardsHistorico, FuturosDLR, Caucion, FitParams, FairValueResiduos |
+
+> **Lectura CUTOVER (19/6)** ✅. Falta para dropear: (a) `SNAPSHOT_SQL=1` + restart motores
+> breakevens/forwards (fila de hoy live, POST-CIERRE); (b) pasar los writes de los jobs a
+> SQL-only; (c) `drop_coleccion` de las 13. Hasta (b) Mongo sigue de respaldo (dual-write).
 
 ---
 

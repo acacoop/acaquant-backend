@@ -236,13 +236,26 @@ def titulos_sin_flujo() -> list[dict]:
     futuros tienen flujo aunque no se puedan valuar todavía. Marca `en_cartera` hoy.
     Devuelve [{unidad, ticker, cartera, emisor, fuente, accion, motivo, en_cartera}].
     """
-    bonos = [a for a in assets_rows(["CARTERA", "TICKER", "EMISOR"])
-             if (a.get("CARTERA") or "").upper() in _CARTERAS_BONO]
-    if not bonos:
-        return []
-
     hoy = date.today()
     trd = get_db_trading()
+
+    # SOLO lo del ÚLTIMO AUM (held). Sin esto el catálogo entero trae miles de
+    # bonos vencidos/históricos que no tiene sentido conciliar.
+    assets_by_unidad = {a.get("unidad"): a
+                        for a in assets_rows(["CARTERA", "TICKER", "EMISOR"]) if a.get("unidad")}
+    held: list[str] = []
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
+        f = cur.fetchone()[0]
+        if f:
+            cur.execute("SELECT DISTINCT unidad FROM portafolio.tenencia "
+                        "WHERE fecha = %s AND aum = 'si'", (f,))
+            held = [r[0] for r in cur.fetchall() if r[0]]
+    bonos = [assets_by_unidad[u] for u in held
+             if u in assets_by_unidad
+             and (assets_by_unidad[u].get("CARTERA") or "").upper() in _CARTERAS_BONO]
+    if not bonos:
+        return []
 
     def _index(cursor, key_fns: list) -> tuple[dict, dict]:
         """{key: tiene_flujo} + {base: key} para matchear por ticker/código."""
@@ -285,16 +298,6 @@ def titulos_sin_flujo() -> list[dict]:
     # Ignorados manualmente (marcados como "no aplica" desde el conciliador).
     ignoradas = {d.get("ticker") for d in trd["OnsIgnoradas"].find({}, {"_id": 0, "ticker": 1})}
 
-    # Unidades en cartera HOY (prioridad).
-    en_cartera: set[str] = set()
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
-        f = cur.fetchone()[0]
-        if f:
-            cur.execute("SELECT DISTINCT unidad FROM portafolio.tenencia "
-                        "WHERE fecha = %s AND aum = 'si'", (f,))
-            en_cartera = {r[0] for r in cur.fetchall() if r[0]}
-
     out: list[dict] = []
     for a in bonos:
         # código limpio de la unidad ('[id] CODE - desc' → 'CODE') para matchear
@@ -317,7 +320,7 @@ def titulos_sin_flujo() -> list[dict]:
             "ticker": a.get("TICKER") or _codigo_de_unidad(a.get("unidad")) or None,
             "cartera": a.get("CARTERA"), "emisor": a.get("EMISOR") or None,
             "fuente": fuente, "accion": accion, "motivo": motivo,
-            "en_cartera": a.get("unidad") in en_cartera,
+            "en_cartera": True,   # solo se listan los del último AUM (held)
         })
     out.sort(key=lambda x: (not x["en_cartera"], x["fuente"], x["cartera"] or "", x["unidad"] or ""))
     return out

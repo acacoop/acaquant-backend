@@ -1,7 +1,7 @@
-"""Tests de api/services/operaciones_view.py — la lógica pura que antes vivía
-presa dentro del router (AUDITORIA A2). Fija las reglas de dominio NO
-inferibles: separación es_cierre (volumen vs arancel), desdoble FCI bilateral
-y conversión por MEP histórico."""
+"""Tests de api/services/operaciones_view.py — los helpers PUROS que quedan
+(selector de motor + parser de fecha de Movimientos). Los constructores de match
+Mongo (ops_match/arancel_match) y los cuerpos /ops/* se ELIMINARON al cutover
+SQL-native de Operaciones (REGLA #1 19/6: Mongo se apaga, el código muerto se borra)."""
 from __future__ import annotations
 
 import api.services.operaciones_view as ov
@@ -32,49 +32,3 @@ def test_ddmmyyyy_a_iso():
     assert ov.ddmmyyyy_a_iso(" 31/12/2024 ") == "2024-12-31"
     assert ov.ddmmyyyy_a_iso("no-fecha") is None
     assert ov.ddmmyyyy_a_iso(None) is None
-
-
-# ── ops_match: VOLUMEN excluye el cierre y desdobla FCI bilateral ────────────
-
-def test_ops_match_excluye_cierre():
-    m = ov.ops_match("ARS", None)
-    assert m["es_cierre"] is False
-    assert m["moneda"] == "ARS"
-
-
-def test_ops_match_nor_fci_bilateral():
-    # No doblar el volumen: fuera la liquidación de Suscripción y la solicitud de Rescate.
-    m = ov.ops_match("ARS", None)
-    assert {"operacion": "Suscripción", "etapa": "liquidacion"} in m["$nor"]
-    assert {"operacion": "Rescate", "etapa": "solicitud"} in m["$nor"]
-
-
-def test_ops_match_todos_no_filtra():
-    m = ov.ops_match("USD", "todos", segmento="todos")
-    assert "mercado" not in m  # 'todos' = sin filtro
-    assert "segmento" not in m
-
-
-def test_ops_match_filtros_opcionales():
-    m = ov.ops_match("ARS", "BYMA", operacion="Compra", denominacion="AL30", cuenta="123")
-    assert m["mercado"] == "BYMA"
-    assert m["operacion"] == "Compra"
-    assert m["denominacion"] == "AL30"
-    assert m["cuenta"] == "123"
-
-
-# ── arancel_match: ARANCEL incluye los cierres con fee (caución) ─────────────
-
-def test_arancel_match_incluye_cierres_con_arancel():
-    m = ov.arancel_match("ARS")
-    # ya no filtra es_cierre directo; el $or admite cierres con arancel != 0
-    assert "es_cierre" not in m
-    assert {"es_cierre": False} in m["$or"]
-    assert {"es_cierre": True, "arancel": {"$ne": 0}} in m["$or"]
-
-
-def test_arancel_match_conserva_nor_y_moneda():
-    m = ov.arancel_match("USD", segmento="Acciones")
-    assert m["moneda"] == "USD"
-    assert m["segmento"] == "Acciones"
-    assert "$nor" in m  # mismo desdoble FCI que ops_match

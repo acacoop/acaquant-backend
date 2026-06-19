@@ -44,7 +44,7 @@ Cutover hecho, SQL es la fuente. Mongo dropeada o a punto.
 
 | Dominio | Colecciones Mongo | Flag lectura | Pendiente |
 |---|---|---|---|
-| Operaciones | `CashFlow.Operaciones`, `OpsSerieDiaria` | `OPERACIONES_SQL` 🟢 | borrar path Mongo (`operaciones_view.py`) |
+| Operaciones | `CashFlow.Operaciones`, `OpsSerieDiaria` | `OPERACIONES_SQL` 🟢 | ✅ **CERRADO** — `/ops/*` SQL-only, path Mongo borrado (19/6) |
 | Negocio | `CashFlow.NegocioMovimientos` | (negocio) 🟢 | borrar refs muertas |
 | Comercial | `Clientes.ComercialCache` | `COMERCIAL_SQL` 🟢 | borrar path Mongo (`comercial.py`) |
 | Comitentes | `Clientes.Comitentes` | (auth/comercial) 🟢 | borrar refs muertas |

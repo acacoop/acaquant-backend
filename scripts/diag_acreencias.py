@@ -91,7 +91,7 @@ def main() -> int:
     print(f"  {'id_cuenta':<12}{'cliente':<24}{'sin filtro':>16}{'>= hoy':>16}")
     for r in rows:
         cli = (r.get("cliente") or "?")[:22]
-        print(f"  {str(r['_id']):<12}{cli:<24}{_fmt(r['todo']):>16}{_fmt(r['fut']):>16}")
+        print(f"  {r['_id']!s:<12}{cli:<24}{_fmt(r['todo']):>16}{_fmt(r['fut']):>16}")
     return 0
 
 

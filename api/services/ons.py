@@ -320,6 +320,20 @@ def _base_ticker(code: str | None) -> str:
     return code[:-1] if code[-1] in ("O", "D", "C") else code
 
 
+_RE_CODIGO = re.compile(r"^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)")
+
+
+def _codigo_de_unidad(unidad: str | None) -> str:
+    """Extrae el código del string Aunesa: '[57187] OLC3O' → 'OLC3O',
+    '[57785] MRCYO - ON GENE...' → 'MRCYO'. Sin prefijo lo deja igual.
+
+    Necesario porque la unidad de tenencia trae '[id] CODE - descripción' y el
+    Curvas usa el código limpio → sin extraerlo, el conciliador nunca matchea
+    (el bono sigue apareciendo aunque ya esté en Curvas)."""
+    m = _RE_CODIGO.match(unidad or "")
+    return m.group(1).upper() if m else (unidad or "")
+
+
 def conciliar() -> dict:
     """Gap de cobertura: instrumentos HD/DL que tienen los clientes (último AuM)
     y NO están en Trading.Curvas. Excluye los marcados como ignorados.
@@ -351,8 +365,8 @@ def conciliar() -> dict:
     set_base = {_base_ticker(c) for c in set_corto}
     ignoradas = {d.get("ticker") for d in trading["OnsIgnoradas"].find({}, {"_id": 0, "ticker": 1})}
 
-    def cubierto(ticker, unidad) -> bool:
-        for cand in (ticker, unidad):
+    def cubierto(*cands) -> bool:
+        for cand in cands:
             if cand and (cand in set_corto or cand in set_full or _base_ticker(cand) in set_base):
                 return True
         return False
@@ -360,18 +374,21 @@ def conciliar() -> dict:
     total = cubiertas = 0
     gap = []
     for u in unidades:
-        a = by_unidad.get(u) or by_ticker.get(u)
+        # La unidad de tenencia es '[id] CODE - desc'; el código limpio matchea Curvas
+        # y sirve de fallback cuando el Asset no tiene TICKER cargado.
+        codigo = _codigo_de_unidad(u)
+        a = by_unidad.get(u) or by_ticker.get(u) or by_unidad.get(codigo) or by_ticker.get(codigo)
         if not a:
             continue
         cartera = (a.get("CARTERA") or "").strip().upper()
         if cartera not in CARTERAS_ON:
             continue
         total += 1
-        ticker = a.get("TICKER")
-        if cubierto(ticker, u):
+        ticker = a.get("TICKER") or codigo   # fallback al código embebido
+        if cubierto(ticker, u, codigo):
             cubiertas += 1
             continue
-        if ticker in ignoradas or u in ignoradas:
+        if ticker in ignoradas or u in ignoradas or codigo in ignoradas:
             continue
         gap.append({"unidad": u, "ticker": ticker, "emisor": a.get("EMISOR"), "cartera": cartera})
 

@@ -16,6 +16,7 @@ Capa pura (sin FastAPI). El cómputo lo persiste `jobs/acreencias.py` a
 """
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime, timedelta
 
 from api.db import get_db_cashflow, get_db_trading
@@ -27,6 +28,16 @@ def _base_ticker(code: str | None) -> str:
     if not code or len(code) < 3:
         return code or ""
     return code[:-1] if code[-1] in ("O", "D", "C") else code
+
+
+_RE_CODIGO = re.compile(r"^\s*(?:\[\d+\]\s*)?([A-Za-z0-9]+)")
+
+
+def _codigo_de_unidad(unidad: str | None) -> str:
+    """'[57187] OLC3O' → 'OLC3O' · '[57785] MRCYO - ON...' → 'MRCYO'. La unidad de
+    tenencia trae '[id] CODE - desc'; sin extraer el código no matchea Curvas."""
+    m = _RE_CODIGO.match(unidad or "")
+    return m.group(1).upper() if m else (unidad or "")
 
 
 def _moneda_de(curva: str, doc: dict) -> str:
@@ -236,7 +247,9 @@ def titulos_sin_flujo() -> list[dict]:
 
     out: list[dict] = []
     for a in bonos:
-        cands = (a.get("TICKER"), a.get("unidad"))
+        # incluye el código limpio de la unidad ('[id] CODE - desc' → 'CODE') para
+        # matchear Curvas aunque el Asset no tenga TICKER cargado.
+        cands = (a.get("TICKER"), a.get("unidad"), _codigo_de_unidad(a.get("unidad")))
         if _hit(cal_tk, cal_base, cands):
             continue  # tiene flujo futuro (array o bullet) → OK
         motivo = ("en Curvas pero sin flujo futuro (ni array ni flujo_vencimiento)"

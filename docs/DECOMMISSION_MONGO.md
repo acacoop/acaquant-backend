@@ -66,9 +66,12 @@ Espejo escrito + servicio SQL + validado, pero `estado_sql` los muestra ⚪ MONG
 | REM | `REM_SQL` 🟢 **ON 19/6** (gate 13/13) | REM |
 | Históricos mercado | `MERCADO_HIST_SQL` 🟢 **ON 19/6** (gate 10/10 historia) | BreakevensHistorico, ForwardsHistorico, FuturosDLR, Caucion, FitParams, FairValueResiduos |
 
-> **Lectura CUTOVER (19/6)** ✅. Falta para dropear: (a) `SNAPSHOT_SQL=1` + restart motores
-> breakevens/forwards (fila de hoy live, POST-CIERRE); (b) pasar los writes de los jobs a
-> SQL-only; (c) `drop_coleccion` de las 13. Hasta (b) Mongo sigue de respaldo (dual-write).
+> **Lectura CUTOVER (19/6)** ✅. **DROP BLOQUEADO** (verificado 19/6): los MOTORES
+> (curvas, forwards, futuros_dlr, caucion, breakevens) y jobs (argentina_datos, fair_value,
+> backfills, forwards_zscore) **todavía leen/escriben estas colecciones en Mongo** para
+> calcular. Para dropear hay que **migrar esos motores/jobs a SQL** (el laburo pesado,
+> de a uno, Rojo). Hasta entonces Mongo sigue vivo de respaldo (dual-write). Pendiente menor:
+> `SNAPSHOT_SQL=1` post-cierre (fila de hoy de breakevens/forwards live).
 
 ---
 

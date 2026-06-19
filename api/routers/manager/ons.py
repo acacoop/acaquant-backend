@@ -49,6 +49,7 @@ class _ONUpsert(BaseModel):
     sector: str | None = Field(None, max_length=64)
     tickers: _Tickers | None = None
     flujos: list[_Flujo] | None = None
+    es_on: bool | None = None   # True = aparece en vista ONs (Mercados); False = solo base de flujos
 
 
 class _SectorPatch(BaseModel):

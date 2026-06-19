@@ -29,7 +29,11 @@ from core.postgres import get_pool
 CARTERAS_ON = {"HD", "DL"}
 
 # Campos editables del maestro (lo que el form de Manager puede setear).
-EDITABLES = ("emisor", "moneda_flujo", "tasa_cupon", "vencimiento", "sector", "tickers", "flujos")
+# `es_on`: si aparece en la vista ONs de Mercados (sync a Curvas on_*). False = solo
+# base de flujos (bono común, no ensucia ONs). Default True (back-compat: lo que ya
+# existe son ONs reales).
+EDITABLES = ("emisor", "moneda_flujo", "tasa_cupon", "vencimiento", "sector", "tickers",
+             "flujos", "es_on")
 
 
 def slug_sector(raw) -> str:
@@ -116,7 +120,10 @@ def sync_ons_to_curvas() -> dict:
 
     Lo llaman el panel Manager (tras cada mutación) y el seed CLI --commit."""
     read = get_mongo_client_read()["Trading"]["BondsMaster"]
-    docs = [d for d in (bondmaster_to_curva_doc(b) for b in read.find({}, {"_id": 0})) if d]
+    # Solo los marcados como ON (es_on != False) van a Curvas → vista ONs de Mercados.
+    # Los comunes (es_on=False) quedan SOLO como base de flujos en BondsMaster.
+    docs = [d for d in (bondmaster_to_curva_doc(b)
+                        for b in read.find({}, {"_id": 0}) if b.get("es_on") is not False) if d]
     # Dedup por ticker_corto (la unique index de Curvas). El último gana.
     por_corto = {d["ticker_corto"]: d for d in docs if d.get("ticker_corto")}
     curvas = get_mongo_client()["Trading"]["Curvas"]

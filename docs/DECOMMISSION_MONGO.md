@@ -120,6 +120,56 @@ Lo que el scanner marca `[MIGRAR] lectura viva`. Orden sugerido menor→mayor ri
 
 ---
 
+## 🏃 RUNBOOK — cutover Bucket 2 (Macro / REM / Históricos)
+
+Domínios con código + gate LISTOS y dual-write ya poblando SQL (`MERCADO_SQL_WRITE` ON).
+Cutover de LECTURA = prender flags. Cada paso corre en el Droplet (`cd /root/TradingAV`).
+
+**Paso 0 — Medir (REGLA #2/#4):**
+```
+python -m scripts.diag_inventario_mongo_sql
+```
+Confirmar que `macro.series_macro`, `macro.rem`, `mercado.mercado_hist` tienen filas
+(≈ a Mongo). Pasarme la salida si hay dudas.
+
+**Paso 1 — Gates de paridad (read-only):**
+```
+python -m scripts.compare_macro_sql_vs_mongo
+python -m scripts.compare_rem_sql_vs_mongo
+python -m scripts.compare_mercado_hist_sql_vs_mongo
+```
+Exigir paridad. Único drift tolerado: la **fila de HOY** de breakevens/forwards
+(intradía-mutable, esperado). Si una serie histórica diffea fuerte → NO prender;
+correr `python -m scripts.sync_postgres --full` (fuera de rueda) y re-validar.
+
+**Paso 2 — Prender flags (cutover):** agregar al `.env` del Droplet y reiniciar:
+```
+MACRO_SQL=1
+REM_SQL=1
+MERCADO_HIST_SQL=1
+```
+`systemctl restart api.service`
+
+**Paso 3 — Verificar:**
+```
+python -m scripts.estado_sql        # los 3 deben quedar 🟢 SQL
+```
++ ojo a las vistas en la app (cotizaciones macro, REM, históricos de mercado).
+
+**Rollback:** sacar los 3 flags del `.env` + restart → vuelve a Mongo al instante
+(el dual-write sigue escribiendo Mongo). Reversible hasta el Paso 4.
+
+**Paso 4 — DECOMMISSION (apagar Mongo de estos dominios) — requiere código previo:**
+Hoy los jobs **dual-escriben** (Mongo+SQL). Para poder DROPEAR las colecciones, antes
+hay que pasar esos writes a **SQL-only** (lo hago yo en código, post-cutover de lectura):
+`jobs.bcra`/`jobs.argentina_datos` (series_macro+REM) y los motores de históricos.
+Recién ahí: `python -m scripts.drop_coleccion <Coll> --dry-run` → `--apply`.
+
+> Orden no negociable: **lectura SQL (1-3) → write SQL-native (4a) → drop (4b)**. Dropear
+> con el job todavía escribiendo Mongo lo recrea/rompe.
+
+---
+
 ## ▶️ Próximos pasos propuestos
 1. **Refrescar el mapa con prod**: correr en Droplet `diag_inventario_mongo_sql` + `estado_sql` → pegar conteos reales acá (confirma muertas).
 2. **Quick win seguro**: borrar el código Mongo muerto del Bucket 1 + fix `cuentas.py`/Contrapartes (está roto). Cero migración, solo limpieza — alinea con REGLA #1.

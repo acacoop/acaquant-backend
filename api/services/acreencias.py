@@ -146,7 +146,10 @@ def computar_acreencias(dias_horizonte: int = 1825) -> list[dict]:
             return []
         cur.execute("SELECT id_cuenta, unidad, cantidad FROM portafolio.tenencia "
                     "WHERE fecha = %s AND aum = 'si'", (f,))
-        holdings = [{"id_cuenta": r[0], "unidad": r[1], "cantidad": r[2]}
+        # cantidad viene Decimal de SQL → float (Decimal/float rompe el cálculo y
+        # además Decimal no es JSON-serializable para el doc de Acreencias).
+        holdings = [{"id_cuenta": r[0], "unidad": r[1],
+                     "cantidad": float(r[2]) if r[2] is not None else 0.0}
                     for r in cur.fetchall()]
     fsnap = f.isoformat()
     tope = (date.today() + timedelta(days=dias_horizonte)).isoformat()

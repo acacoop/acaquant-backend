@@ -75,8 +75,8 @@ def _debug_ticker(inp: str) -> int:
     db = get_db_trading()
     docs = list(db["Curvas"].find(
         {"$or": [{"ticker_corto": inp}, {"ticker": {"$regex": inp, "$options": "i"}}]},
-        {"_id": 0, "ticker_corto": 1, "ticker": 1, "curva": 1,
-         "cer_emision": 1, "flujos": 1, "moneda_flujo": 1}))
+        {"_id": 0, "ticker_corto": 1, "ticker": 1, "curva": 1, "cer_emision": 1,
+         "flujos": 1, "moneda_flujo": 1, "flujo_vencimiento": 1, "fecha_vencimiento": 1}))
     if not docs:
         print(f"❌ {inp} NO está en Trading.Curvas → NO_MODELADO. Ese es el motivo de que "
               f"NO aparezca en cobros futuros (sin doc en Curvas, no hay flujos que proyectar).")
@@ -121,7 +121,18 @@ def _debug_ticker(inp: str) -> int:
             mark = "" if futuro else "  ← pasado (no cuenta)"
             print(f"  {fd!s:<12}{monto:>16,.2f}  {det}{mark}")
         if fut == 0:
-            print("  ⚠ SIN flujos FUTUROS → por eso NO aparece en cobros futuros.")
+            fv = d.get("flujo_vencimiento")
+            vraw = d.get("fecha_vencimiento")
+            try:
+                vto = _date.fromisoformat(str(vraw)[:10]) if vraw else None
+            except ValueError:
+                vto = None
+            if fv and float(fv) > 0 and vto and vto > hoy:
+                print(f"  {vto!s:<12}{float(fv):>16,.2f}  BULLET (flujo_vencimiento al vto) "
+                      f"← Lecap/Boncap, sin array de flujos")
+                print(f"  → 1 pago bullet. monto_cliente = cantidad/100 × {float(fv):,.4f}")
+            else:
+                print("  ⚠ SIN flujos FUTUROS (ni array ni flujo_vencimiento) → NO proyecta.")
         else:
             print(f"  → {fut} flujos futuros. monto_cliente = cantidad/100 × monto/100VN.")
             print("    Si el monto/100VN se ve bajo: revisar el factor CER (cer_liq/cer_emision)")

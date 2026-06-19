@@ -54,7 +54,8 @@ def calendario_instrumentos() -> dict[str, dict]:
     db = get_db_trading()
     docs = list(db["Curvas"].find(
         {}, {"_id": 0, "ticker_corto": 1, "ticker": 1, "curva": 1,
-             "flujos": 1, "cer_emision": 1, "moneda_flujo": 1}))
+             "flujos": 1, "cer_emision": 1, "moneda_flujo": 1,
+             "flujo_vencimiento": 1, "fecha_vencimiento": 1}))
 
     hay_cer = any((d.get("curva") == "cer") for d in docs)
     cer_dict = cargar_cer(db.client, dias=1200) if hay_cer else {}
@@ -86,6 +87,18 @@ def calendario_instrumentos() -> dict[str, dict]:
                 monto = monto_flujo(f)
             if monto and monto > 0:
                 cal.append({"fecha": fd.isoformat(), "monto": round(monto, 6)})
+        if not cal:
+            # Bullet (Lecap/Boncap tasa_fija): SIN array `flujos`, paga
+            # `flujo_vencimiento` (por 100 VN) en una sola fecha al vencimiento.
+            # Sin esto, todos los bonos bullet proyectaban CERO acreencias.
+            fv = d.get("flujo_vencimiento")
+            vraw = d.get("fecha_vencimiento")
+            try:
+                vto = date.fromisoformat(str(vraw)[:10]) if vraw else None
+            except ValueError:
+                vto = None
+            if fv and float(fv) > 0 and vto and vto > hoy:
+                cal = [{"fecha": vto.isoformat(), "monto": round(float(fv), 6)}]
         if cal:
             cal.sort(key=lambda x: x["fecha"])
             out[tk] = {"moneda": _moneda_de(curva, d), "flujos": cal}
@@ -185,24 +198,28 @@ def titulos_sin_flujo() -> list[dict]:
     Clasifica el motivo y marca si está EN CARTERA hoy (prioridad de carga).
     Devuelve [{unidad, ticker, cartera, emisor, motivo, en_cartera}].
     """
-    from engines.curvas import fecha_flujo
-
     bonos = [a for a in assets_rows(["CARTERA", "TICKER", "EMISOR"])
              if (a.get("CARTERA") or "").upper() in _CARTERAS_BONO]
     if not bonos:
         return []
 
-    hoy = date.today()
-    tk_idx: dict[str, tuple[int, int]] = {}   # ticker → (n_flujos, n_futuros)
-    base_idx: dict[str, str] = {}
-    for d in get_db_trading()["Curvas"].find(
-            {}, {"_id": 0, "ticker_corto": 1, "ticker": 1, "flujos": 1}):
-        flujos = d.get("flujos") or []
-        n_fut = sum(1 for f in flujos if (fd := fecha_flujo(f)) and fd > hoy)
+    # ¿Tiene flujo futuro? = está en el calendario del motor (incluye bullets de
+    # flujo_vencimiento). ¿Está modelado? = aparece en Curvas (para distinguir
+    # 'no está' de 'está pero sin flujo').
+    cal = calendario_instrumentos()
+    cal_tk, cal_base = set(cal), {}
+    for k in cal:
+        cal_base.setdefault(_base_ticker(k), k)
+    mod_tk: set[str] = set()
+    mod_base: dict[str, str] = {}
+    for d in get_db_trading()["Curvas"].find({}, {"_id": 0, "ticker_corto": 1, "ticker": 1}):
         for key in (d.get("ticker_corto"), d.get("ticker")):
             if key:
-                tk_idx[key] = (len(flujos), n_fut)
-                base_idx.setdefault(_base_ticker(key), key)
+                mod_tk.add(key)
+                mod_base.setdefault(_base_ticker(key), key)
+
+    def _hit(tk_set: set, base_map: dict, cands) -> bool:
+        return any(c and (c in tk_set or _base_ticker(c) in base_map) for c in cands)
 
     # Unidades en cartera HOY (último snapshot aum='si') → prioridad.
     en_cartera: set[str] = set()
@@ -216,23 +233,11 @@ def titulos_sin_flujo() -> list[dict]:
 
     out: list[dict] = []
     for a in bonos:
-        info = None
-        for c in (a.get("TICKER"), a.get("unidad")):
-            if not c:
-                continue
-            if c in tk_idx:
-                info = tk_idx[c]; break
-            b = _base_ticker(c)
-            if b in base_idx:
-                info = tk_idx[base_idx[b]]; break
-        if info is None:
-            motivo = "no está en Trading.Curvas"
-        elif info[0] == 0:
-            motivo = "en Curvas pero SIN flujos cargados"
-        elif info[1] == 0:
-            motivo = "flujos todos vencidos (sin futuros)"
-        else:
-            continue  # tiene flujo futuro → OK
+        cands = (a.get("TICKER"), a.get("unidad"))
+        if _hit(cal_tk, cal_base, cands):
+            continue  # tiene flujo futuro (array o bullet) → OK
+        motivo = ("en Curvas pero sin flujo futuro (ni array ni flujo_vencimiento)"
+                  if _hit(mod_tk, mod_base, cands) else "no está en Trading.Curvas")
         out.append({
             "unidad": a.get("unidad"), "ticker": a.get("TICKER") or None,
             "cartera": a.get("CARTERA"), "emisor": a.get("EMISOR") or None,

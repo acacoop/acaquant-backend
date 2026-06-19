@@ -390,6 +390,14 @@ CREATE TABLE IF NOT EXISTS mercado.curvas (
 CREATE INDEX IF NOT EXISTS ix_curvas_curva ON mercado.curvas(curva);
 CREATE INDEX IF NOT EXISTS ix_curvas_vto   ON mercado.curvas(fecha_vencimiento);
 
+-- Trading.DiasHabiles — calendario hábil argentino (jobs/dias_habiles, holidays.AR).
+-- Lo consume la lógica CER-fijado (T-10 hábiles) y el cleanup de curvas. Mongo guarda
+-- {fecha:'YYYY-MM-DD'}; acá date tipado. Dual-write desde el job hasta migrar todos
+-- los readers → drop Mongo.
+CREATE TABLE IF NOT EXISTS mercado.dias_habiles (
+    fecha date PRIMARY KEY
+);
+
 -- Trading.BondsMaster — master editable de ONs (panel Manager → TÍTULOS).
 CREATE TABLE IF NOT EXISTS mercado.bonds_master (
     asset           text PRIMARY KEY,

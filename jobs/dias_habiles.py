@@ -11,6 +11,7 @@ import holidays
 from pymongo import UpdateOne
 
 from core.mongo import get_mongo_client
+from core.pg_mirror import write_native
 
 YEAR = 2026
 
@@ -39,6 +40,12 @@ def run():
         for f in dias
     ]
     col.bulk_write(ops, ordered=False)
+
+    # Dual-write SQL (mercado.dias_habiles) — best-effort, no levanta si PG cae.
+    # Hasta que migren todos los readers de Trading.DiasHabiles → drop Mongo.
+    rows = [{"fecha": date.fromisoformat(f)} for f in dias]
+    n = write_native("mercado.dias_habiles", ["fecha"], rows)
+    print(f"SQL mercado.dias_habiles: {n} upserts.")
     print("Listo.")
 
 

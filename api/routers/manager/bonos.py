@@ -21,9 +21,14 @@ router = APIRouter()
 
 class _Flujo(BaseModel):
     fecha: str = Field(..., max_length=10)
-    amortizacion: float = 0.0
-    interes: float = 0.0
-    valor_residual: float = 100.0
+    # subset según tipo (tasa_fija: amort/interes · cer/dual/soberano: *_pct)
+    amortizacion: float | None = None
+    interes: float | None = None
+    valor_residual: float | None = None
+    amortizacion_pct: float | None = None
+    cupon_sobre_residual: float | None = None
+    residual_previo_pct: float | None = None
+    cupon_anual: float | None = None
 
 
 class _BonoUpsert(BaseModel):
@@ -32,11 +37,14 @@ class _BonoUpsert(BaseModel):
     curva: str = Field(..., min_length=1, max_length=32)
     tipo: str | None = Field(None, max_length=32)
     moneda_flujo: str | None = Field(None, max_length=8)
+    tasa_referencia: str | None = Field(None, max_length=32)
+    fecha_emision: str | None = Field(None, max_length=10)
     fecha_vencimiento: str | None = Field(None, max_length=10)
     valor_nominal: float | None = None
     cer_emision: float | None = None
+    cupon_anual: float | None = None
     flujo_vencimiento: float | None = None     # bullet (Lecap/Boncap)
-    flujos: list[_Flujo] | None = None          # cronograma (cupón)
+    flujos: list[_Flujo] | None = None          # cronograma (resto)
 
 
 @router.get("/bonos")

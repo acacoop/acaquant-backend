@@ -37,11 +37,23 @@ def list_bonos(curva: str | None = None) -> list[dict]:
     return out
 
 
+# Campos doc nivel-bono que el editor puede setear (según tipo).
+_DOC_STR = ("tipo", "moneda_flujo", "tasa_referencia")     # strings tal cual
+_DOC_NUM = ("cer_emision", "cupon_anual")                  # numéricos
+_DOC_FECHA = ("fecha_emision", "fecha_vencimiento")        # fechas ISO
+# Campos numéricos de un FLUJO (pass-through; el subset depende del tipo de bono).
+_FLUJO_NUM = ("amortizacion", "interes", "valor_residual", "amortizacion_pct",
+              "cupon_sobre_residual", "residual_previo_pct", "cupon_anual")
+
+
 def upsert_bono(payload: dict, actor: str = "") -> dict:
     """Crea/edita un bono directo en Trading.Curvas (upsert por `ticker_corto`).
-
-    Requiere `ticker_corto`, `ticker` (full, lo usa el motor) y `curva` válida.
-    Flujo: o `flujo_vencimiento` (bullet) o `flujos` (cronograma) — al menos uno.
+    Guarda las MISMAS shapes de Trading.Curvas según el tipo (no se inventa nada):
+      - lecap/boncap (tasa_fija) → bullet `flujo_vencimiento`.
+      - cer  → flujos {fecha, amortizacion_pct, cupon_sobre_residual, residual_previo_pct} + cer_emision/cupon_anual.
+      - dual/tamar → flujos {fecha, amortizacion_pct} + tasa_referencia.
+      - tasa_fija con cupón → flujos {fecha, amortizacion, interes}.
+      - soberanos → flujos {fecha, amortizacion_pct, cupon_sobre_residual}.
     """
     tc = (payload.get("ticker_corto") or "").strip()
     if not tc:
@@ -61,17 +73,19 @@ def upsert_bono(payload: dict, actor: str = "") -> dict:
         "actualizado_por": actor,
         "actualizado_at": datetime.now(UTC),
     }
-    if payload.get("tipo"):
-        doc["tipo"] = payload["tipo"]
-    if payload.get("moneda_flujo"):
-        doc["moneda_flujo"] = payload["moneda_flujo"].upper()
-    venc = _fecha_iso(payload.get("fecha_vencimiento"))
-    if venc:
-        doc["fecha_vencimiento"] = venc
-    if payload.get("cer_emision") is not None:
-        doc["cer_emision"] = _f(payload.get("cer_emision"))
+    for k in _DOC_STR:
+        v = payload.get(k)
+        if v not in (None, ""):
+            doc[k] = v.upper() if k == "moneda_flujo" else v
+    for k in _DOC_NUM:
+        if payload.get(k) is not None:
+            doc[k] = _f(payload.get(k))
+    for k in _DOC_FECHA:
+        fi = _fecha_iso(payload.get(k))
+        if fi:
+            doc[k] = fi
 
-    # Flujo: bullet o cronograma.
+    # Flujo: bullet (Lecap/Boncap) o cronograma (pass-through de los campos del tipo).
     fv = payload.get("flujo_vencimiento")
     flujos_in = payload.get("flujos")
     if flujos_in:
@@ -80,23 +94,21 @@ def upsert_bono(payload: dict, actor: str = "") -> dict:
             fi = _fecha_flujo_iso(fl.get("fecha"))
             if not fi:
                 continue
-            flujos.append({
-                "fecha": fi,
-                "amortizacion": _f(fl.get("amortizacion"), 0.0),
-                "interes": _f(fl.get("interes"), 0.0),
-                "valor_residual": _f(fl.get("valor_residual"), 100.0) or 100.0,
-            })
+            row: dict = {"fecha": fi}
+            for ff in _FLUJO_NUM:
+                if fl.get(ff) is not None:
+                    row[ff] = _f(fl.get(ff))
+            flujos.append(row)
         if not flujos:
             raise ValueError("los flujos no tienen ninguna fecha válida")
         doc["flujos"] = flujos
-        # un cronograma deja sin sentido el bullet → lo limpiamos si existía
-        doc["flujo_vencimiento"] = None
+        doc["flujo_vencimiento"] = None   # cronograma → sin bullet
     elif fv is not None and _f(fv) > 0:
-        if not venc:
+        if not doc.get("fecha_vencimiento"):
             raise ValueError("el bullet (flujo_vencimiento) necesita 'fecha_vencimiento'")
         doc["flujo_vencimiento"] = _f(fv)
     else:
-        raise ValueError("falta el flujo: pasá 'flujo_vencimiento' (bullet) o 'flujos' (cronograma)")
+        raise ValueError("falta el flujo: 'flujo_vencimiento' (bullet) o 'flujos' (cronograma)")
 
     col = get_mongo_client()["Trading"]["Curvas"]
     col.update_one({"ticker_corto": tc}, {"$set": doc}, upsert=True)

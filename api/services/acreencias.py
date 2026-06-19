@@ -171,6 +171,79 @@ def computar_acreencias(dias_horizonte: int = 1825) -> list[dict]:
 
 
 # ─────────────────────────────────────────────
+# Control de calidad: bonos sin flujo (no proyectan acreencias ni valúan bien)
+# ─────────────────────────────────────────────
+
+_CARTERAS_BONO = ("ARS", "HD", "DL")  # renta fija (cotizan en paridad). El resto
+
+
+def titulos_sin_flujo() -> list[dict]:
+    """Assets de cartera ARS/HD/DL (BONOS) que NO tienen flujo futuro en
+    Trading.Curvas → no proyectan cobros (acreencias) ni valúan por flujo.
+
+    Control de calidad de dato (Manager): un bono SIEMPRE debe tener flujo.
+    Clasifica el motivo y marca si está EN CARTERA hoy (prioridad de carga).
+    Devuelve [{unidad, ticker, cartera, emisor, motivo, en_cartera}].
+    """
+    from engines.curvas import fecha_flujo
+
+    bonos = [a for a in assets_rows(["CARTERA", "TICKER", "EMISOR"])
+             if (a.get("CARTERA") or "").upper() in _CARTERAS_BONO]
+    if not bonos:
+        return []
+
+    hoy = date.today()
+    tk_idx: dict[str, tuple[int, int]] = {}   # ticker → (n_flujos, n_futuros)
+    base_idx: dict[str, str] = {}
+    for d in get_db_trading()["Curvas"].find(
+            {}, {"_id": 0, "ticker_corto": 1, "ticker": 1, "flujos": 1}):
+        flujos = d.get("flujos") or []
+        n_fut = sum(1 for f in flujos if (fd := fecha_flujo(f)) and fd > hoy)
+        for key in (d.get("ticker_corto"), d.get("ticker")):
+            if key:
+                tk_idx[key] = (len(flujos), n_fut)
+                base_idx.setdefault(_base_ticker(key), key)
+
+    # Unidades en cartera HOY (último snapshot aum='si') → prioridad.
+    en_cartera: set[str] = set()
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
+        f = cur.fetchone()[0]
+        if f:
+            cur.execute("SELECT DISTINCT unidad FROM portafolio.tenencia "
+                        "WHERE fecha = %s AND aum = 'si'", (f,))
+            en_cartera = {r[0] for r in cur.fetchall() if r[0]}
+
+    out: list[dict] = []
+    for a in bonos:
+        info = None
+        for c in (a.get("TICKER"), a.get("unidad")):
+            if not c:
+                continue
+            if c in tk_idx:
+                info = tk_idx[c]; break
+            b = _base_ticker(c)
+            if b in base_idx:
+                info = tk_idx[base_idx[b]]; break
+        if info is None:
+            motivo = "no está en Trading.Curvas"
+        elif info[0] == 0:
+            motivo = "en Curvas pero SIN flujos cargados"
+        elif info[1] == 0:
+            motivo = "flujos todos vencidos (sin futuros)"
+        else:
+            continue  # tiene flujo futuro → OK
+        out.append({
+            "unidad": a.get("unidad"), "ticker": a.get("TICKER") or None,
+            "cartera": a.get("CARTERA"), "emisor": a.get("EMISOR") or None,
+            "motivo": motivo, "en_cartera": a.get("unidad") in en_cartera,
+        })
+    # En cartera primero, después por cartera/unidad.
+    out.sort(key=lambda x: (not x["en_cartera"], x["cartera"] or "", x["unidad"] or ""))
+    return out
+
+
+# ─────────────────────────────────────────────
 # Lecturas para la vista (leen CashFlow.Acreencias precomputado)
 # ─────────────────────────────────────────────
 

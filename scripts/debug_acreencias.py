@@ -133,11 +133,28 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cuenta", help="id_cuenta para detalle por holding")
     ap.add_argument("--ticker", help="inspeccionar los flujos de un bono (PMJ26, T30J6)")
+    ap.add_argument("--bonos", action="store_true",
+                    help="control: bonos (cartera ARS/HD/DL) SIN flujo en Curvas")
     ap.add_argument("--top", type=int, default=40, help="filas en el reporte global")
     args = ap.parse_args()
 
     if args.ticker:
         return _debug_ticker(args.ticker)
+
+    if args.bonos:
+        from api.services.acreencias import titulos_sin_flujo
+        falta = titulos_sin_flujo()
+        en_cart = sum(1 for t in falta if t["en_cartera"])
+        print(f"═══ Bonos (cartera ARS/HD/DL) SIN flujo en Curvas — {len(falta)} "
+              f"({en_cart} en cartera hoy) ═══\n")
+        print(f"  {'cart':<5}{'unidad':<16}{'ticker':<10}{'hoy':<5}motivo")
+        for t in falta:
+            hoy = "SÍ" if t["en_cartera"] else "·"
+            print(f"  {(t['cartera'] or '?'):<5}{(t['unidad'] or '?'):<16}"
+                  f"{(t['ticker'] or '—'):<10}{hoy:<5}{t['motivo']}")
+        if not falta:
+            print("  ✅ Todos los bonos ARS/HD/DL tienen flujo futuro en Curvas.")
+        return 0
 
     cal = calendario_instrumentos()                 # ticker → {moneda, flujos futuros}
     cal_base = {}

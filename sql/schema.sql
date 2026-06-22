@@ -17,7 +17,7 @@
 --   operaciones → operaciones, negocio_movimientos
 --   portafolio  → tenencia, backfill_log, assets
 --   valuaciones → consolidado, dolar, portfolio_snapshot
---   mercado     → curvas, bonds_master, market_snapshot, snapshots_cierre,
+--   mercado     → curvas, market_snapshot, snapshots_cierre,
 --                 snapshots_cierre_hist, canje_cierre, mercado_hist
 --   macro       → series_macro, rem
 --   manager     → manager_users, role_matrix, grupos
@@ -60,7 +60,6 @@ DECLARE mv record;
 BEGIN
   FOR mv IN SELECT * FROM (VALUES
     ('public','curvas','mercado'),
-    ('public','bonds_master','mercado'),
     ('public','market_snapshot','mercado'),
     ('public','snapshots_cierre','mercado'),
     ('public','snapshots_cierre_hist','mercado'),
@@ -398,20 +397,8 @@ CREATE TABLE IF NOT EXISTS mercado.dias_habiles (
     fecha date PRIMARY KEY
 );
 
--- Trading.BondsMaster — master editable de ONs (panel Manager → TÍTULOS).
-CREATE TABLE IF NOT EXISTS mercado.bonds_master (
-    asset           text PRIMARY KEY,
-    emisor          text,
-    sector          text,
-    moneda_flujo    text,
-    tasa_cupon      numeric,
-    vencimiento     date,
-    tickers         jsonb,                   -- {ARS: ticker, USD: ticker}
-    flujos          jsonb,
-    actualizado_por text,
-    actualizado_at  timestamptz,
-    data            jsonb
-);
+-- (Trading.BondsMaster → mercado.bonds_master ELIMINADA 2026-06-22: las ONs se
+-- consolidaron en mercado.curvas como curva on_<sector>. UNA sola base de bonos.)
 
 -- Trading.MarketSnapshot — estado live por ticker. COLUMNAR a propósito: en Mongo dos
 -- motores escriben el mismo doc con $set parcial sin pisarse (valores.py → book/precios

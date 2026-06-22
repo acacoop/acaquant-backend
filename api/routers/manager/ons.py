@@ -1,13 +1,13 @@
-"""Manager sub-router — gestión de ONs (Trading.BondsMaster).
+"""Manager sub-router — gestión de ONs, DIRECTO sobre Trading.Curvas (curva on_<sector>).
 
 Tab `/manager → TÍTULOS → ONs`. Dos cosas:
   - SEGMENTAR: setear el sector de cada ON (energia/finanzas/otros). Live: se
-    refleja en la vista /ons sin reiniciar motores.
+    refleja en la vista /ons sin reiniciar motores (cambia la curva on_<sector>).
   - ALTA/EDICIÓN: crear/editar una ON con sus flujos (cronograma de pagos).
 
-Cada mutación escribe el maestro BondsMaster y RE-SINCRONIZA Trading.Curvas
-(vía api.services.ons), así el bono aparece en la vista al instante. La lógica
-pura vive en `api/services/ons.py` (compartida con el seed CLI).
+UNA sola base: cada mutación escribe `Trading.Curvas` directo (BondsMaster RETIRADO,
+Fase 3 2026-06-22), así el bono aparece en la vista al instante. La lógica pura vive
+en `api/services/ons.py`.
 
 Endpoints (gate `manager_titulos`, igual que assets):
   GET    /api/manager/ons              → lista filtrable (sector, emisor)
@@ -15,7 +15,6 @@ Endpoints (gate `manager_titulos`, igual que assets):
   POST   /api/manager/ons              → alta/edición (upsert por `asset`)
   PATCH  /api/manager/ons/sector       → segmentar (setear sector)
   DELETE /api/manager/ons?asset=X      → baja
-  POST   /api/manager/ons/sync         → re-sincronizar BondsMaster → Curvas
 """
 from __future__ import annotations
 

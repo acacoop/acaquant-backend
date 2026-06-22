@@ -1,13 +1,11 @@
 """api/services/titulos_flujos.py — flujos normalizados por instrumento.
 
-Reemplaza el espejo materializado `TitulosAPI.ValuacionesAPI`: arma en runtime
-el merge `Trading.Curvas` + `Trading.BondsMaster` con los flujos normalizados,
-un doc por instrumento (join key con assets: `ticker`). Es un set chico (~121
-docs) → barato de computar por request. Los callers ya cachean su resultado
-(endpoints @cached), por eso esta función NO cachea: devuelve dicts frescos en
-cada llamada para que el caller pueda mutarlos sin ensuciar ningún cache.
-
-Lógica idéntica a la que tenía `scripts/api_migrate.migrate_flujos_titulos`.
+Arma en runtime, desde `Trading.Curvas` (UNA sola base: la `curva` decide la vista,
+las ONs son curva on_<sector>), un doc por instrumento con los flujos normalizados
+(join key con assets: `ticker`). BondsMaster fue RETIRADO (consolidado en Curvas,
+2026-06-22). Es un set chico (~169 docs) → barato por request. Los callers ya cachean
+su resultado (endpoints @cached), por eso esta función NO cachea: devuelve dicts
+frescos en cada llamada para que el caller pueda mutarlos sin ensuciar ningún cache.
 """
 from __future__ import annotations
 
@@ -28,21 +26,6 @@ def _fecha_to_datetime(raw) -> datetime | None:
         return datetime(dt.year, dt.month, dt.day)
     except (ValueError, AttributeError):
         return None
-
-
-def _calcular_residual_actual(flujos: list[dict]) -> float | None:
-    """Residual del último flujo cuya fecha ya pasó. 100 si ninguno pasó; None si no hay."""
-    if not flujos:
-        return None
-    hoy = datetime.now()
-    ultimo_residual = 100.0
-    for f in flujos:
-        fecha = f.get("fecha")
-        if fecha and fecha <= hoy:
-            residual = f.get("residual")
-            if residual is not None:
-                ultimo_residual = residual
-    return ultimo_residual
 
 
 def _build_from_curvas(doc: dict) -> dict:
@@ -68,35 +51,6 @@ def _build_from_curvas(doc: dict) -> dict:
         "tasa_cupon": None,
         "flujo_vencimiento": doc.get("flujo_vencimiento"),
         "valor_residual_actual_pct": doc.get("valor_residual_actual_pct"),
-        "flujos": flujos,
-    }
-
-
-def _build_from_bondmaster(doc: dict) -> dict:
-    flujos = [
-        {
-            "fecha": _fecha_to_datetime(f.get("fecha")),
-            "amortizacion": f.get("amortizacion"),
-            "interes": f.get("interes"),
-            "residual": f.get("valor_residual"),
-        }
-        for f in (doc.get("flujos", []) or [])
-    ]
-    tickers = doc.get("tickers", {}) or {}
-    instrumento = tickers.get("ARS") or tickers.get("USD") or ""
-    return {
-        "ticker": doc.get("asset", ""),
-        "instrumento": instrumento,
-        "curva": "",
-        "moneda_flujo": doc.get("moneda_flujo", ""),
-        "fecha_emision": None,
-        "fecha_vencimiento": _fecha_to_datetime(doc.get("vencimiento")),
-        "valor_nominal": 100,
-        "cupon_anual": None,
-        "cer_emision": None,
-        "tasa_cupon": doc.get("tasa_cupon"),
-        "flujo_vencimiento": None,
-        "valor_residual_actual_pct": _calcular_residual_actual(flujos),
         "flujos": flujos,
     }
 

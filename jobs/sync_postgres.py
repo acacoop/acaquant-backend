@@ -433,27 +433,6 @@ def sync_curvas(mdb, conn, dry) -> tuple[int, int]:
     return n, sin_corto
 
 
-def sync_bonds_master(mdb, conn, dry) -> int:
-    """Trading.BondsMaster (master editable de ONs, Manager) → bonds_master.
-    Chica, completa + delete de huérfanos (delete_on borra en Mongo)."""
-    cols = ["asset", "emisor", "sector", "moneda_flujo", "tasa_cupon", "vencimiento",
-            "tickers", "flujos", "actualizado_por", "actualizado_at", "data"]
-    rows = []
-    for d in mdb["Trading"]["BondsMaster"].find({}, {"_id": 0}):
-        a = _s(d.get("asset"))
-        if not a:
-            continue
-        rows.append((a, _s(d.get("emisor")), _s(d.get("sector")), _s(d.get("moneda_flujo")),
-                     d.get("tasa_cupon"), _d(d.get("vencimiento")),
-                     _jsonb(d.get("tickers") or {}), _jsonb(d.get("flujos") or []),
-                     _s(d.get("actualizado_por")), d.get("actualizado_at"),
-                     _jsonb(d)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "bonds_master", cols, ["asset"], rows, dry)
-    _delete_not_in(conn, "bonds_master", "asset", {r[0] for r in rows}, dry)
-    return n
-
-
 def sync_market_snapshot(mdb, conn, dry) -> int:
     """Trading.MarketSnapshot → market_snapshot (columnar, 1 fila/ticker). Baseline
     horario; la frescura intradía la da el dual-write de los motores (SNAPSHOT_SQL,
@@ -620,14 +599,13 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_sm = _t("series_macro", lambda: sync_series_macro(mdb, conn, dry, desde))
         n_rem = _t("rem", lambda: sync_rem(mdb, conn, dry))
         n_cv, sin_corto = _t("curvas", lambda: sync_curvas(mdb, conn, dry), (0, 0))
-        n_bm = _t("bonds_master", lambda: sync_bonds_master(mdb, conn, dry))
         n_ms = _t("market_snapshot", lambda: sync_market_snapshot(mdb, conn, dry))
         n_sh = _t("snapshots_cierre_hist",
                   lambda: sync_snapshots_cierre_hist(mdb, conn, dry, desde))
         n_cj = _t("canje_cierre", lambda: sync_canje_cierre(mdb, conn, dry, desde))
         n_mh = _t("mercado_hist", lambda: sync_mercado_hist(mdb, conn, dry, desde))
         print(f"  mercado: series_macro={n_sm:,}  rem={n_rem}  curvas={n_cv} "
-              f"(sin ticker_corto, salteadas={sin_corto})  bonds_master={n_bm}  "
+              f"(sin ticker_corto, salteadas={sin_corto})  "
               f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  canje_cierre={n_cj}  "
               f"mercado_hist={n_mh:,}")
         print(f"  dimensiones: accionistas={n_ac}  manager_users={n_mu}  "
@@ -657,7 +635,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc,
              "quotes": n_qt, "calendar": n_cal,
              "series_macro": n_sm, "rem": n_rem, "curvas": n_cv,
-             "curvas_sin_ticker_corto": sin_corto, "bonds_master": n_bm,
+             "curvas_sin_ticker_corto": sin_corto,
              "market_snapshot": n_ms, "snapshots_cierre_hist": n_sh,
              "canje_cierre": n_cj, "mercado_hist": n_mh,
              "fases_fallidas": len(fallos)}

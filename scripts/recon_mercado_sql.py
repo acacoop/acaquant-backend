@@ -95,10 +95,6 @@ def main() -> int:
         mg_curvas = _mg_count(trading["Curvas"], {"ticker_corto": {"$nin": [None, ""]}}) if mongo_ok else None
         print(_fmt_row("curvas (ticker_corto≠∅)", mg_curvas, _sql_count(cur, "mercado.curvas")))
 
-        # BondsMaster: solo docs con asset (PK del upsert).
-        mg_bm = _mg_count(trading["BondsMaster"], {"asset": {"$nin": [None, ""]}}) if mongo_ok else None
-        print(_fmt_row("bonds_master (asset≠∅)", mg_bm, _sql_count(cur, "mercado.bonds_master")))
-
         # MarketSnapshot: 1 fila/ticker. LIVE → la dif por timing es esperable.
         mg_ms = _mg_count(trading["MarketSnapshot"], {"ticker": {"$nin": [None, ""]}}) if mongo_ok else None
         print(_fmt_row("market_snapshot (live)", mg_ms,

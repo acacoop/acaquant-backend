@@ -1,16 +1,16 @@
-"""api/services/ons.py — maestro de ONs (Trading.BondsMaster) + sync a Curvas.
+"""api/services/ons.py — gestión de ONs, DIRECTO sobre Trading.Curvas (curva on_<sector>).
 
-`Trading.BondsMaster` es la FUENTE editable de las ONs (panel Manager + seed
-CLI). Este servicio centraliza:
-  - el transform BondsMaster → doc de Trading.Curvas (curva='on_<sector>') que
-    consumen el motor (motor_curvas) y la vista (renta_fija.listar_curva). Es
-    el MISMO transform que usa `scripts/seed_curvas_ons.py` (sin divergencia).
-  - el sync BondsMaster → Curvas (upsert + borra stale).
-  - el CRUD para Manager (list / values / upsert / delete / set_sector).
+UNA sola base: las ONs viven en `Trading.Curvas` como `curva='on_<sector>'` (igual que
+el resto de la renta fija — la `curva` decide la vista). BondsMaster fue RETIRADO
+(Fase 3, 2026-06-22). Este servicio centraliza:
+  - el transform PAYLOAD del editor → doc de Trading.Curvas (`bondmaster_to_curva_doc`),
+    que consumen el motor (motor_curvas) y la vista (renta_fija.listar_curva).
+  - el CRUD para Manager (list / values / upsert / delete / set_sector) sobre Curvas.
+  - el conciliador de cobertura (AuM HD/DL vs Curvas).
 
 Puro (sin FastAPI). Lectura con get_mongo_client_read(); escritura con
-get_mongo_client(). El sector va codificado en la curva ('on_energia', etc.),
-DB-driven (campo BondsMaster.sector). Ver `api/services/renta_fija.py`.
+get_mongo_client(). El sector va codificado en la curva ('on_energia', etc.), DB-driven.
+Ver `api/services/renta_fija.py`.
 """
 from __future__ import annotations
 

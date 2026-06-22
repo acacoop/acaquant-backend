@@ -18,6 +18,7 @@ from api.services import macro as svc_macro
 from api.services import macro_sql as svc_macro_sql
 from api.services import opciones as svc_opc
 from api.services import renta_fija as svc_rf
+from api.services import renta_fija_sql as svc_rf_sql
 from api.services import sensibilidad as svc_sens
 
 router = APIRouter(prefix="/api/analitica", tags=["Analítica"])
@@ -31,6 +32,13 @@ def _macro(engine: str | None):
     return svc_macro_sql if use_sql else svc_macro
 
 
+def _rf(engine: str | None):
+    """Selector de renta fija LIVE (mismo criterio que cotizaciones._rf): SQL
+    (mercado.*) si `?_engine=sql` o flag `RENTA_FIJA_SQL=1`; Mongo en otro caso."""
+    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("RENTA_FIJA_SQL") == "1")
+    return svc_rf_sql if use_sql else svc_rf
+
+
 @router.get("/listar-curva")
 def listar_curva(
     curva: str = Query(..., description="cer | tasa_fija | tamar | soberanos | dolar_linked | on | on_<sector>"),
@@ -38,8 +46,9 @@ def listar_curva(
     vencimiento_min_meses: float | None = Query(None, description="Filtrar ≥ N meses"),
     vencimiento_max_meses: float | None = Query(None, description="Filtrar ≤ N meses"),
     limit: int | None = Query(None, description="Top N después de ordenar"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_rf.listar_curva(
+    return _rf(_engine).listar_curva(
         curva=curva,
         ordenar_por=ordenar_por,
         vencimiento_min_meses=vencimiento_min_meses,

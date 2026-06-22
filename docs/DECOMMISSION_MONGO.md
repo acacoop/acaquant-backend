@@ -84,8 +84,12 @@ Espejo escrito + servicio SQL + validado, pero `estado_sql` los muestra ⚪ MONG
 
 Lo que el scanner marca `[MIGRAR] lectura viva`. Orden sugerido menor→mayor riesgo.
 
-### 3a. Renta fija / mercado LIVE (EN CURSO — 4° corte)
-- `MarketSnapshot` (read) → **renta_fija_sql.py en curso**. Dep: `DiasHabiles` (tabla SQL nueva) + MEP live (`DolarSnapshot`).
+### 3a. Renta fija / mercado LIVE (4° corte — CABLEADO, falta cutover)
+- `MarketSnapshot` (read) → **`renta_fija_sql.py` COMPLETO + selector cableado** (flag
+  `RENTA_FIJA_SQL`, `?_engine` override) en `cotizaciones.py` (renta-fija, snapshot-live,
+  historico/curva) y `analitica.py` (listar-curva). Gate: `scripts/compare_renta_fija_sql_vs_mongo.py`.
+  `DiasHabiles` ya migró a SQL. **Cutover**: correr el gate → si OK, `RENTA_FIJA_SQL=1` + restart.
+  Híbrido que queda: MEP live (`get_ultimo_mep` → `DolarSnapshot`, feed WS, sin espejo SQL aún).
 - Snapshots LIVE (migran con su vista, dual-write motor): `ForwardsLive`, `BreakevensLive`,
   `ForwardsZscore`, `CaucionSnapshot`, `FuturosDLRSnapshot`, `DolarSnapshot`, `SnapshotsSinteticos`.
 

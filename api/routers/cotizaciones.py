@@ -28,6 +28,7 @@ from api.services import opciones as svc_opt
 from api.services import rem as svc_rem
 from api.services import rem_sql as svc_rem_sql
 from api.services import renta_fija as svc_rf
+from api.services import renta_fija_sql as svc_rf_sql
 from api.services import repo as svc_repo
 
 router = APIRouter(prefix="/api/cotizaciones", tags=["Cotizaciones"])
@@ -55,6 +56,15 @@ def _hist(engine: str | None, mongo_svc):
     `MERCADO_HIST_SQL=1`; si no, el servicio Mongo original (`mongo_svc`)."""
     use_sql = engine == "sql" or (engine != "mongo" and os.getenv("MERCADO_HIST_SQL") == "1")
     return svc_mhist if use_sql else mongo_svc
+
+
+def _rf(engine: str | None):
+    """Selector de renta fija LIVE: SQL (mercado.market_snapshot + curvas +
+    snapshots_cierre_hist) si `?_engine=sql` o flag `RENTA_FIJA_SQL=1`; Mongo
+    (Trading.*) en cualquier otro caso. El path Mongo queda intacto → rollback =
+    sacar la env + restart."""
+    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("RENTA_FIJA_SQL") == "1")
+    return svc_rf_sql if use_sql else svc_rf
 
 
 # ── Series BCRA (BADLAR, CER, DOLAR) ──
@@ -235,7 +245,7 @@ def listar_breakevens():
 
 
 @router.get("/snapshot-live")
-def snapshot_live() -> dict:
+def snapshot_live(_engine: str | None = Query(None, include_in_schema=False)) -> dict:
     """Bundle live de la pantalla RENTA FIJA: renta_fija + forwards +
     breakevens en una sola respuesta. Cada bloque viene del cache TTL
     propio del service (renta_fija=5s, forwards=30s, breakevens=30s),
@@ -253,7 +263,7 @@ def snapshot_live() -> dict:
     forwards/breakevens vengan del cache.
     """
     return {
-        "renta_fija": svc_rf.get_renta_fija(),
+        "renta_fija": _rf(_engine).get_renta_fija(),
         "forwards":   svc_der.get_forwards(),
         "breakevens": svc_der.get_breakevens(),
     }
@@ -317,8 +327,9 @@ def rem_debug(_engine: str | None = Query(None, include_in_schema=False)):
 @router.get("/renta-fija")
 def listar_renta_fija(
     instrumento: str | None = Query(None, description="Filtrar por instrumento. Acepta ticker corto ('TX26') o completo ('MERV - XMEV - TX26 - 24hs')."),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_rf.get_renta_fija(instrumento=instrumento)
+    return _rf(_engine).get_renta_fija(instrumento=instrumento)
 
 
 # ── Opciones ──
@@ -390,7 +401,8 @@ def historico_trades(
 @router.get("/historico/curva")
 def historico_curva(
     curva: str = Query(..., description="tasa_fija / cer"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_rf.get_historico_curva(curva=curva)
+    return _rf(_engine).get_historico_curva(curva=curva)
 
 

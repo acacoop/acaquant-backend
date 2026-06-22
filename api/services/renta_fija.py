@@ -162,10 +162,11 @@ def get_renta_fija(instrumento: str | None = None) -> list:
 
 @cached(ttl=15)
 def get_historico_trades(instrumento: str | None = None) -> list:
-    """Trades de los últimos 15 días. Match EXACTO por ticker para usar índice."""
+    """Trades de HOY solamente (sin histórico). Si un bono operó hoy aparece; si no, no.
+    El nombre quedó por compat — ya NO trae días viejos. Match EXACTO por ticker (índice)."""
     db = get_db_trading()
-    corte = datetime.now(UTC) - timedelta(days=15)
-    filtro: dict = {"timestamp": {"$gte": corte}}
+    hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    filtro: dict = {"timestamp": {"$gte": hoy}}
     if instrumento:
         exacto = resolver_ticker_exacto(instrumento)
         if exacto is None:

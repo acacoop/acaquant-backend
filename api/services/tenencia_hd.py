@@ -19,18 +19,22 @@ from api.cache import cached, invalidate
 from core.postgres import get_pool
 
 CUENTAS = ["100", "255", "256"]
-# Set de unidades HD del catálogo SQL portafolio.assets (IS NOT NULL para no romper
-# el NOT IN del filtro ARS — un NULL en el subquery haría que NOT IN no devuelva nada).
+# Sets de unidades por cartera del catálogo SQL portafolio.assets (IS NOT NULL para no
+# romper el NOT IN del filtro ARS — un NULL en el subquery haría que NOT IN no devuelva nada).
 _HD_UNITS = "SELECT unidad FROM portafolio.assets WHERE cartera = 'HD' AND unidad IS NOT NULL"
+# MONEDAS (cash: ARS/USD/USDC) = cartera 'MONEDAS' → se EXCLUYEN de TODAS las vistas
+# (no entran en ninguna cartera, por pedido de la mesa).
+_MONEDAS_UNITS = "SELECT unidad FROM portafolio.assets WHERE cartera = 'MONEDAS' AND unidad IS NOT NULL"
 
 
 def _cartera_subq(cartera: str) -> str:
     """Filtro de cartera para la tenencia valorizada (cuentas propias):
       - 'HD'  → Cartera USD: bonos hard-dollar (cartera = 'HD').
-      - 'ARS' → Cartera ARS: TODO lo que NO es HD (pesos: ARS/DL/FCI/RV/cash/…).
-    'todas las que no sean de HD' = NOT IN el set HD (incluye unidades sin asset)."""
+      - 'ARS' → Cartera ARS: TODO lo que NO es HD NI MONEDAS (pesos: ARS/DL/FCI/RV/…).
+    Las MONEDAS (cash) se excluyen de ambas. HD ya excluye MONEDAS por definición
+    (cartera='HD'); ARS = NOT HD necesita excluir MONEDAS explícito."""
     if (cartera or "").upper() == "ARS":
-        return f"unidad NOT IN ({_HD_UNITS})"
+        return f"(unidad NOT IN ({_HD_UNITS}) AND unidad NOT IN ({_MONEDAS_UNITS}))"
     return f"unidad IN ({_HD_UNITS})"
 
 

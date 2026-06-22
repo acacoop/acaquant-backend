@@ -170,17 +170,19 @@ COL_ACCOUNTS = "AccountsDescubiertas"
 
 @cached(ttl=600)
 def _nombres_por_id_cuenta() -> dict[str, str]:
-    """Mapa id_cuenta (str) → nombre del titular. DIRECTO desde las fuentes
-    CashFlow.Accionistas / CashFlow.Contrapartes (sin los espejos CuentasAPI.*).
-    Cache TTL 10min porque cambian poco (alta de cliente ~1x/sem).
+    """Mapa id_cuenta (str) → nombre del titular. Accionistas desde Mongo
+    CashFlow.Accionistas; contrapartes desde SQL `clientes.contrapartes` (Mongo
+    CashFlow.Contrapartes fue DROPEADA). Cache TTL 10min porque cambian poco
+    (alta de cliente ~1x/sem).
 
     Accionistas: `cuenta` = '[N] NOMBRE' → id_cuenta y nombre se derivan.
-    Contrapartes: `cuenta` = id, `contraparte` = nombre. Si un id vive en
+    Contrapartes: `id_cuenta` = id, `contraparte` = nombre. Si un id vive en
     ambas, prevalece Accionistas (fuente canónica).
     """
     import re
 
     from core.mongo import get_mongo_client_read
+    from core.postgres import get_pool
     cf = get_mongo_client_read()["CashFlow"]
     out: dict[str, str] = {}
     _re_cta = re.compile(r"^\[(\d+)\]\s*(.*)$")
@@ -188,11 +190,12 @@ def _nombres_por_id_cuenta() -> dict[str, str]:
         m = _re_cta.match(str(d.get("cuenta") or "").strip())
         if m and m.group(2).strip():
             out[m.group(1)] = m.group(2).strip()
-    for d in cf["Contrapartes"].find({}, {"_id": 0, "cuenta": 1, "contraparte": 1}):
-        idc = d.get("cuenta")
-        nom = d.get("contraparte")
-        if idc and nom:
-            out.setdefault(str(idc), str(nom))
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id_cuenta, contraparte FROM contrapartes "
+                    "WHERE id_cuenta IS NOT NULL AND contraparte IS NOT NULL")
+        for idc, nom in cur.fetchall():
+            if idc and nom:
+                out.setdefault(str(idc), str(nom))   # accionistas prevalece
     return out
 
 

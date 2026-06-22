@@ -13,11 +13,11 @@ Todo lo NO migrado se reexporta del módulo Mongo → drop-in del selector:
   - resolver_ticker_exacto / _CURVAS_VALIDAS → helpers compartidos
 
 SQL-native:
-  - `_bonos_cer_fijados` (CER fijado): lee macro.series_macro (CER) + mercado.dias_habiles
-    (migrada 19/6) + mercado.curvas. Ya NO depende de Mongo.
-Híbrido que queda (1):
-  - MEP live (`macro.get_ultimo_mep`) → Valuaciones.DolarSnapshot live (feed WS), aún sin
-    espejo SQL. Migra con el dual-write del motor de dólar (Rojo). `# TODO SQL-native`.
+  - `_bonos_cer_fijados` (CER fijado): lee macro.series_macro (CER) + mercado.curvas de SQL.
+Híbridos que quedan (2) — leen Mongo, aún sin espejo SQL (no migrados):
+  - MEP live (`macro.get_ultimo_mep`) → Valuaciones.DolarSnapshot (feed WS). Migra con el
+    dual-write del motor de dólar (Rojo). `# TODO SQL-native`.
+  - DiasHabiles (`Trading.DiasHabiles`, para el T-10 de CER fijado) → NO migró a SQL todavía.
 
 REGLA #1 del 19/6 (Mongo se apaga; SQL nativo; lo muerto se borra, no se migra):
   - `total_money` (volumen $ del día) está MUERTO — el motor lo dejó de escribir
@@ -25,8 +25,8 @@ REGLA #1 del 19/6 (Mongo se apaga; SQL nativo; lo muerto se borra, no se migra):
     se quita `total_money_dia` del output y el orden 'volumen_dia' pasa a ordenar por
     el volumen VIVO (`total_nominals_dia`), no por un 0 fantasma como hacía Mongo.
 
-Dependencia Mongo que falta para que sea 100% SQL-native (ver docs/2026-06-19.md):
-el MEP live (`DolarSnapshot`, feed WS). `DiasHabiles` ya migró a SQL (19/6).
+Dependencias Mongo que faltan para que sea 100% SQL-native: el MEP live (`DolarSnapshot`,
+feed WS) y `DiasHabiles` (ninguno migró a SQL todavía).
 
 Dual-run flag `RENTA_FIJA_SQL` (+ `?_engine` override). Validación: spot-check funcional
 SQL (no byte-parity contra Mongo — Mongo se va). Se apoya en el dual-write de
@@ -78,12 +78,12 @@ def _ilike_param(instrumento: str) -> str:
 
 @cached(ttl=30)
 def _bonos_cer_fijados() -> set[str]:
-    """SQL-native: tickers CER cuyo CER de liquidación del VTO (T-10 hábiles) ya
-    fue publicado por el BCRA → comportan tasa fija. Espejo del helper Mongo de
-    renta_fija.py, leyendo SQL: CER (macro.series_macro), calendario hábil
-    (mercado.dias_habiles) y la curva CER (mercado.curvas). La lógica T-10 la
-    pone `fecha_cer_liquidacion` (puro, reusado). Strings 'YYYY-MM-DD' para que la
-    comparación lexicográfica == la del path Mongo. Fallback set() ante error."""
+    """Tickers CER cuyo CER de liquidación del VTO (T-10 hábiles) ya fue publicado
+    por el BCRA → comportan tasa fija. CER (macro.series_macro) y la curva CER
+    (mercado.curvas) salen de SQL; DiasHabiles es HÍBRIDO (Mongo Trading.DiasHabiles,
+    aún sin espejo SQL — igual que el MEP). La lógica T-10 la pone `fecha_cer_liquidacion`
+    (puro, reusado). Strings 'YYYY-MM-DD' para que la comparación lexicográfica == la
+    del path Mongo. Fallback set() ante error."""
     from engines.curvas import fecha_cer_liquidacion
     try:
         cmax = _q("SELECT to_char(max(fecha), 'YYYY-MM-DD') AS f "
@@ -91,9 +91,11 @@ def _bonos_cer_fijados() -> set[str]:
         max_cer = cmax[0]["f"] if cmax else None
         if not max_cer:
             return set()
+        # DiasHabiles: Mongo (sin tabla SQL aún). # TODO SQL-native cuando se migre.
+        from core.mongo import get_mongo_client_read
         dias_habiles = sorted(
-            r["f"] for r in _q("SELECT to_char(fecha, 'YYYY-MM-DD') AS f "
-                               "FROM mercado.dias_habiles")
+            d["fecha"] for d in get_mongo_client_read()["Trading"]["DiasHabiles"].find(
+                {}, {"fecha": 1, "_id": 0}) if d.get("fecha")
         )
         fijados: set[str] = set()
         for r in _q("SELECT ticker, to_char(fecha_vencimiento, 'YYYY-MM-DD') AS vto "
@@ -216,7 +218,7 @@ def _fetch_curva_docs(curva: str, fijados: set[str]) -> list[dict]:
         if curva == "on":
             return _q(
                 "SELECT ticker, ticker_corto, tipo, fecha_vencimiento, fecha_emision, "
-                "curva, emisor, moneda_flujo FROM mercado.curvas WHERE curva LIKE 'on%'")
+                "curva, emisor, moneda_flujo FROM mercado.curvas WHERE curva LIKE 'on%%'")
         return _q(
             "SELECT ticker, ticker_corto, tipo, fecha_vencimiento, fecha_emision, "
             "curva, emisor, moneda_flujo FROM mercado.curvas WHERE curva = %s", (curva,))

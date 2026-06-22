@@ -98,8 +98,8 @@ def main() -> int:
 
     print("\n═══ get_historico_curva (serie diaria) ═══")
     for curva in ("cer", "tasa_fija"):
-        a = sq.get_historico_curva(curva)
-        b = mg.get_historico_curva(curva)
+        a = sq.get_historico_curva(curva=curva)   # @cached → kwargs only
+        b = mg.get_historico_curva(curva=curva)
         fa = {r.get("fecha") for r in a}
         fb = {r.get("fecha") for r in b}
         _cmp_sets(f"fechas curva={curva}", fa, fb)

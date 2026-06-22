@@ -60,21 +60,26 @@ def acreencias_cliente(
     return svc_acr.del_cliente(id_cuenta, desde=desde)
 
 
-# ── Tenencia Valorizada (cartera HD, cuentas propias 100/255/256) ──
-# Lee el rollup Valuaciones.TenenciaHD (jobs/tenencia_hd.py, 1×/día hábil).
+# ── Tenencia Valorizada (cuentas propias 100/255/256) — SQL-native ──
+# `cartera`: 'HD' (Cartera USD, default) o 'ARS' (todo lo no-HD). Lee
+# portafolio.tenencia directo (api/services/tenencia_hd.py).
 @router.get("/tenencia-hd")
-def tenencia_hd(_email: str = Depends(get_user_email)):
-    """Serie diaria: AuM HD por cuenta (100/255/256) — tabla izquierda."""
-    return svc_ten.tenencia_dias()
+def tenencia_hd(
+    cartera: str = Query("HD", description="HD (Cartera USD) | ARS (todo lo no-HD)"),
+    _email: str = Depends(get_user_email),
+):
+    """Serie diaria: AuM por cuenta (100/255/256) de la cartera elegida — tabla izquierda."""
+    return svc_ten.tenencia_dias(cartera=cartera)
 
 
 @router.get("/tenencia-hd/posiciones")
 def tenencia_hd_posiciones(
     fecha: str = Query(..., description="ISO YYYY-MM-DD del día a ver"),
+    cartera: str = Query("HD", description="HD (Cartera USD) | ARS (todo lo no-HD)"),
     _email: str = Depends(get_user_email),
 ):
-    """Posiciones HD por título (desglose por cuenta) de un día — tabla derecha."""
-    return svc_ten.tenencia_posiciones(fecha=fecha)
+    """Posiciones por título (desglose por cuenta) de un día — tabla derecha."""
+    return svc_ten.tenencia_posiciones(fecha=fecha, cartera=cartera)
 
 
 @router.post("/tenencia-hd/precio")
@@ -83,10 +88,11 @@ def tenencia_hd_precio(
     unidad: str = Body(..., embed=True),
     precio: float = Body(..., embed=True, description="precio nuevo"),
     dividir_100: bool = Body(True, embed=True, description="True = paridad (÷100); False = valor pleno"),
+    cartera: str = Body("HD", embed=True, description="HD | ARS — para recalcular el total del día"),
     _email: str = Depends(get_user_email),
 ):
     """Edita a mano el PRECIO de una unidad en un día → recalcula la valuación de las
     3 cuentas + los totales, DIRECTO en SQL portafolio.tenencia. `dividir_100`=True
-    (default, HD paridad) → cantidad × precio / 100; False → cantidad × precio."""
+    (default, paridad) → cantidad × precio / 100; False → cantidad × precio."""
     return svc_ten.actualizar_precio_posicion(
-        fecha=fecha, unidad=unidad, precio=precio, dividir_100=dividir_100)
+        fecha=fecha, unidad=unidad, precio=precio, dividir_100=dividir_100, cartera=cartera)

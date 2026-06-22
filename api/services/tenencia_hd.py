@@ -19,8 +19,19 @@ from api.cache import cached, invalidate
 from core.postgres import get_pool
 
 CUENTAS = ["100", "255", "256"]
-# Filtro HD: las unidades cuya cartera es HD en el catálogo SQL portafolio.assets.
-_HD_SUBQ = "unidad IN (SELECT unidad FROM portafolio.assets WHERE cartera = 'HD')"
+# Set de unidades HD del catálogo SQL portafolio.assets (IS NOT NULL para no romper
+# el NOT IN del filtro ARS — un NULL en el subquery haría que NOT IN no devuelva nada).
+_HD_UNITS = "SELECT unidad FROM portafolio.assets WHERE cartera = 'HD' AND unidad IS NOT NULL"
+
+
+def _cartera_subq(cartera: str) -> str:
+    """Filtro de cartera para la tenencia valorizada (cuentas propias):
+      - 'HD'  → Cartera USD: bonos hard-dollar (cartera = 'HD').
+      - 'ARS' → Cartera ARS: TODO lo que NO es HD (pesos: ARS/DL/FCI/RV/cash/…).
+    'todas las que no sean de HD' = NOT IN el set HD (incluye unidades sin asset)."""
+    if (cartera or "").upper() == "ARS":
+        return f"unidad NOT IN ({_HD_UNITS})"
+    return f"unidad IN ({_HD_UNITS})"
 
 
 def _tc(fecha: str) -> float | None:
@@ -32,14 +43,15 @@ def _tc(fecha: str) -> float | None:
 
 
 @cached(ttl=300)
-def tenencia_dias() -> dict[str, Any]:
-    """Serie diaria: 1 fila por fecha con el AuM HD de cada cuenta + total + tc.
-    Live desde SQL portafolio.tenencia (aum='si', cartera HD, cuentas 100/255/256)."""
+def tenencia_dias(cartera: str = "HD") -> dict[str, Any]:
+    """Serie diaria: 1 fila por fecha con el AuM de cada cuenta + total + tc.
+    Live desde SQL portafolio.tenencia (aum='si', cuentas 100/255/256), filtrado por
+    `cartera`: 'HD' (Cartera USD) o 'ARS' (todo lo no-HD)."""
     por_fecha: dict[str, dict[str, float]] = {}
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             f"SELECT fecha, id_cuenta, SUM(valuacion) FROM portafolio.tenencia "
-            f"WHERE aum = 'si' AND id_cuenta = ANY(%s) AND {_HD_SUBQ} "
+            f"WHERE aum = 'si' AND id_cuenta = ANY(%s) AND {_cartera_subq(cartera)} "
             f"GROUP BY fecha, id_cuenta ORDER BY fecha", (CUENTAS,))
         for fecha, idc, val in cur.fetchall():
             por_fecha.setdefault(fecha.isoformat(), {})[str(idc)] = float(val or 0.0)
@@ -49,12 +61,13 @@ def tenencia_dias() -> dict[str, Any]:
         fila = {"fecha": f, "tc": _tc(f), "total": round(sum(byc.values()), 2)}
         fila.update({c: round(byc.get(c, 0.0), 2) for c in CUENTAS})
         dias.append(fila)
-    return {"cuentas": CUENTAS, "dias": dias,
+    return {"cuentas": CUENTAS, "cartera": (cartera or "HD").upper(), "dias": dias,
             "ultima_fecha": dias[-1]["fecha"] if dias else None}
 
 
-def tenencia_posiciones(*, fecha: str) -> dict[str, Any]:
-    """Posiciones HD (por título, desglose por cuenta) de un día — live desde SQL."""
+def tenencia_posiciones(*, fecha: str, cartera: str = "HD") -> dict[str, Any]:
+    """Posiciones (por título, desglose por cuenta) de un día — live desde SQL,
+    filtrado por `cartera` ('HD' = Cartera USD / 'ARS' = todo lo no-HD)."""
     por_unidad: dict[str, dict[str, float]] = {}
     cant_unidad: dict[str, dict[str, float]] = {}
     precio_unidad: dict[str, float] = {}
@@ -62,7 +75,7 @@ def tenencia_posiciones(*, fecha: str) -> dict[str, Any]:
         cur.execute(
             f"SELECT unidad, id_cuenta, SUM(valuacion), SUM(cantidad), MAX(precio) "
             f"FROM portafolio.tenencia "
-            f"WHERE fecha = %s AND aum = 'si' AND id_cuenta = ANY(%s) AND {_HD_SUBQ} "
+            f"WHERE fecha = %s AND aum = 'si' AND id_cuenta = ANY(%s) AND {_cartera_subq(cartera)} "
             f"GROUP BY unidad, id_cuenta", (fecha, CUENTAS))
         for u, idc, val, cant, prec in cur.fetchall():
             c = str(idc)
@@ -84,12 +97,12 @@ def tenencia_posiciones(*, fecha: str) -> dict[str, Any]:
         fila.update({c: round(byc.get(c, 0.0), 2) for c in CUENTAS})
         posiciones.append(fila)
     total = round(sum(p["total"] for p in posiciones), 2)
-    return {"fecha": fecha, "cuentas": CUENTAS, "tc": _tc(fecha),
-            "total": total, "posiciones": posiciones}
+    return {"fecha": fecha, "cuentas": CUENTAS, "cartera": (cartera or "HD").upper(),
+            "tc": _tc(fecha), "total": total, "posiciones": posiciones}
 
 
 def actualizar_precio_posicion(*, fecha: str, unidad: str, precio: float,
-                               dividir_100: bool = True) -> dict[str, Any]:
+                               dividir_100: bool = True, cartera: str = "HD") -> dict[str, Any]:
     """Corrige a mano el PRECIO de una unidad en un día → recalcula la valuación de
     las 3 cuentas, DIRECTO en SQL `portafolio.tenencia`. Devuelve la nueva valuación
     por cuenta + el total del día.
@@ -121,7 +134,7 @@ def actualizar_precio_posicion(*, fecha: str, unidad: str, precio: float,
         nuevas = {str(idc): round(float(v or 0.0), 2) for idc, v in cur.fetchall()}
         cur.execute(
             f"SELECT SUM(valuacion) FROM portafolio.tenencia "
-            f"WHERE fecha = %s AND aum = 'si' AND id_cuenta = ANY(%s) AND {_HD_SUBQ}",
+            f"WHERE fecha = %s AND aum = 'si' AND id_cuenta = ANY(%s) AND {_cartera_subq(cartera)}",
             (fecha, CUENTAS))
         total = round(float(cur.fetchone()[0] or 0.0), 2)
 

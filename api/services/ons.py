@@ -17,9 +17,6 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
-from pymongo import UpdateOne
-from pymongo.errors import BulkWriteError
-
 from api.services.assets_sql import assets_rows
 from core.mongo import get_mongo_client, get_mongo_client_read
 from core.postgres import get_pool
@@ -106,116 +103,99 @@ def bondmaster_to_curva_doc(bm: dict) -> dict | None:
         "tasa_cupon": bm.get("tasa_cupon"),
         "valor_nominal": 100,
         "fecha_vencimiento": _fecha_iso(bm.get("vencimiento")),
+        "tickers": {"ARS": tickers.get("ARS"), "USD": tickers.get("USD")},  # ambas patas
         "flujos": flujos,
     }
 
 
-def sync_ons_to_curvas() -> dict:
-    """Sincroniza TODAS las ONs de BondsMaster → Trading.Curvas (upsert por
-    ticker + borra las curva ^on que ya no estén). Idempotente. Devuelve counts.
-
-    Lo llaman el panel Manager (tras cada mutación) y el seed CLI --commit."""
-    read = get_mongo_client_read()["Trading"]["BondsMaster"]
-    docs = [d for d in (bondmaster_to_curva_doc(b) for b in read.find({}, {"_id": 0})) if d]
-    # Dedup por ticker_corto (la unique index de Curvas). El último gana.
-    por_corto = {d["ticker_corto"]: d for d in docs if d.get("ticker_corto")}
-    curvas = get_mongo_client()["Trading"]["Curvas"]
-    # Upsert SOLO por ticker_corto (la clave única): siempre matchea el doc
-    # existente del bono → actualiza en vez de insertar → NUNCA choca la unique
-    # index (aunque cambie la pata canónica O↔D). Sin filtro de curva — ese
-    # filtro causaba que no matcheara y terminara insertando + chocando (E11000).
-    ops = [UpdateOne({"ticker_corto": tc}, {"$set": d}, upsert=True) for tc, d in por_corto.items()]
-    sincronizadas = 0
-    if ops:
-        try:
-            res = curvas.bulk_write(ops, ordered=False)
-            sincronizadas = (res.upserted_count or 0) + (res.modified_count or 0)
-        except BulkWriteError as e:
-            # Por las dudas: ignoramos choques de unique key (11000) residuales;
-            # el resto se aplica igual (ordered=False). Cualquier otro error sí sube.
-            otros = [w for w in e.details.get("writeErrors", []) if w.get("code") != 11000]
-            if otros:
-                raise
-            sincronizadas = e.details.get("nModified", 0) + e.details.get("nUpserted", 0)
-    borradas = curvas.delete_many(
-        {"curva": {"$regex": "^on"}, "ticker_corto": {"$nin": list(por_corto)}}).deleted_count
-    return {"sincronizadas": sincronizadas, "borradas": borradas}
-
-
 # ─────────────────────────────────────────────
-# CRUD para Manager (panel TÍTULOS → ONs)
+# CRUD para Manager (panel TÍTULOS → ONs) — DIRECTO sobre Trading.Curvas (on_*).
+# UNA sola base: las ONs viven en Curvas como curva on_<sector>. BondsMaster RETIRADO
+# (Fase 3, 2026-06-22). `bondmaster_to_curva_doc` ahora transforma el PAYLOAD del editor
+# (mismo shape) → doc de Curvas; ya no hay sync intermedio.
 # ─────────────────────────────────────────────
+
+def _curva_to_on(d: dict) -> dict:
+    """Doc de Curvas on_* → shape ON que consume el panel (asset, tickers, vencimiento…)."""
+    return {
+        "asset": d.get("ticker_corto"),
+        "emisor": d.get("emisor"),
+        "sector": d.get("sector") or (str(d.get("curva") or "").replace("on_", "") or "otros"),
+        "moneda_flujo": d.get("moneda_flujo"),
+        "tasa_cupon": d.get("tasa_cupon"),
+        "vencimiento": d.get("fecha_vencimiento"),
+        "tickers": d.get("tickers") or {},
+        "flujos": d.get("flujos") or [],
+        "actualizado_por": d.get("actualizado_por"),
+        "actualizado_at": d.get("actualizado_at"),
+    }
+
 
 def list_ons(sector: str | None = None, emisor: str | None = None) -> list[dict]:
-    """ONs del maestro BondsMaster, con filtros opcionales, ordenadas por emisor."""
-    read = get_mongo_client_read()["Trading"]["BondsMaster"]
-    filtro: dict = {}
+    """ONs (curva on_*) de Trading.Curvas, con filtros opcionales, ordenadas por emisor."""
+    read = get_mongo_client_read()["Trading"]["Curvas"]
+    filtro: dict = {"curva": {"$regex": "^on"}}
     if sector:
         filtro["sector"] = sector
     if emisor:
         filtro["emisor"] = emisor
-    out = list(read.find(filtro, {"_id": 0}).limit(5000))
+    out = [_curva_to_on(d) for d in read.find(filtro, {"_id": 0}).limit(5000)]
     out.sort(key=lambda d: ((d.get("emisor") or "").lower(), d.get("asset") or ""))
     return out
 
 
 def ons_values() -> dict:
-    """Valores únicos para filtros/autocomplete del panel."""
-    read = get_mongo_client_read()["Trading"]["BondsMaster"]
+    """Valores únicos (emisor/sector/moneda) de las ONs en Curvas — para los datalist."""
+    read = get_mongo_client_read()["Trading"]["Curvas"]
+    on = {"curva": {"$regex": "^on"}}
     return {
-        "emisores": sorted(e for e in read.distinct("emisor") if e),
-        "sectores": sorted(s for s in read.distinct("sector") if s),
-        "monedas": sorted(m for m in read.distinct("moneda_flujo") if m),
+        "emisores": sorted(e for e in read.distinct("emisor", on) if e),
+        "sectores": sorted(s for s in read.distinct("sector", on) if s),
+        "monedas": sorted(m for m in read.distinct("moneda_flujo", on) if m),
     }
 
 
 def upsert_on(payload: dict, actor: str = "") -> dict:
-    """Crea/edita una ON en BondsMaster (upsert por `asset`) y re-sincroniza
-    Curvas. `payload` trae asset + los campos editables (incluido `flujos`,
-    que reemplaza el array completo). Devuelve el doc guardado + el resultado
-    del sync."""
+    """Crea/edita una ON DIRECTO en Trading.Curvas (curva on_<sector>), upsert por
+    ticker_corto (=`asset`). `payload` trae asset + campos editables (incl. flujos)."""
     asset = (payload.get("asset") or "").strip()
     if not asset:
         raise ValueError("falta 'asset'")
-
-    doc = {k: payload[k] for k in EDITABLES if k in payload}
-    doc["asset"] = asset
+    doc = bondmaster_to_curva_doc({**payload, "asset": asset})
+    if not doc:
+        raise ValueError("falta el ticker (pata ARS o USD) — no se puede armar el doc de Curvas")
     doc["actualizado_por"] = actor
     doc["actualizado_at"] = datetime.now(UTC)
-
-    col = get_mongo_client()["Trading"]["BondsMaster"]
-    col.update_one({"asset": asset}, {"$set": doc}, upsert=True)
-    saved = col.find_one({"asset": asset}, {"_id": 0}) or {}
-    sync = sync_ons_to_curvas()
-    return {"on": saved, "sync": sync}
+    col = get_mongo_client()["Trading"]["Curvas"]
+    col.update_one({"ticker_corto": asset}, {"$set": doc}, upsert=True)
+    saved = col.find_one({"ticker_corto": asset}, {"_id": 0}) or {}
+    return {"on": _curva_to_on(saved)}
 
 
 def delete_on(asset: str) -> dict:
-    """Borra una ON de BondsMaster y la saca de Curvas (vía sync)."""
+    """Borra una ON de Trading.Curvas (curva on_*) por ticker_corto."""
     asset = (asset or "").strip()
     if not asset:
         raise ValueError("falta 'asset'")
-    col = get_mongo_client()["Trading"]["BondsMaster"]
-    deleted = col.delete_one({"asset": asset}).deleted_count
-    sync = sync_ons_to_curvas()
-    return {"borrada": deleted, "sync": sync}
+    deleted = get_mongo_client()["Trading"]["Curvas"].delete_one(
+        {"ticker_corto": asset, "curva": {"$regex": "^on"}}).deleted_count
+    return {"borrada": deleted}
 
 
 def set_sector(asset: str, sector: str, actor: str = "") -> dict:
-    """Setea el sector de una ON (segmentación) y re-sincroniza. Live: el cambio
-    de sector se refleja en la vista sin reiniciar motores."""
+    """Setea el sector de una ON → cambia la curva a on_<sector>. Live (sin reiniciar)."""
     asset = (asset or "").strip()
     if not asset:
         raise ValueError("falta 'asset'")
-    col = get_mongo_client()["Trading"]["BondsMaster"]
+    col = get_mongo_client()["Trading"]["Curvas"]
     res = col.update_one(
-        {"asset": asset},
-        {"$set": {"sector": sector, "actualizado_por": actor, "actualizado_at": datetime.now(UTC)}})
+        {"ticker_corto": asset, "curva": {"$regex": "^on"}},
+        {"$set": {"sector": sector, "curva": f"on_{slug_sector(sector)}",
+                  "actualizado_por": actor, "actualizado_at": datetime.now(UTC)}})
     if res.matched_count == 0:
-        raise ValueError(f"ON '{asset}' no existe")
-    sync = sync_ons_to_curvas()
-    saved = col.find_one({"asset": asset}, {"_id": 0}) or {}
-    return {"on": saved, "sync": sync}
+        raise ValueError(f"ON '{asset}' no existe en Curvas")
+    saved = col.find_one({"ticker_corto": asset}, {"_id": 0}) or {}
+    return {"on": _curva_to_on(saved)}
 
 
 # ─────────────────────────────────────────────

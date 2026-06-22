@@ -105,13 +105,6 @@ def delete_on(asset: str = Query(..., min_length=1)) -> dict:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
-@router.post("/ons/sync")
-def sync_ons() -> dict:
-    """Re-sincroniza BondsMaster → Curvas manualmente (normalmente no hace falta:
-    cada alta/edición ya sincroniza)."""
-    return svc.sync_ons_to_curvas()
-
-
 @router.post("/ons/parse-flujos")
 def parse_flujos(req: _ParseFlujos = Body(...)) -> dict:
     """Parsea flujos pegados de Excel (formato oficial BYMA/IAMC o simple) →

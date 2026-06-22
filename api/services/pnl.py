@@ -283,31 +283,6 @@ def _new_state() -> dict:
     }
 
 
-@cached(ttl=300)
-def pnl_por_cuenta(id_cuenta: str) -> dict:
-    """PnL por ticker para una cuenta — ver docstring del módulo.
-
-    Wrapper público cacheado que arma las dependencias para una sola
-    cuenta y delega al core. La versión bulk (pnl_todas_cuentas) bypasa
-    este wrapper y llama a `_pnl_por_cuenta_core` directo con maps
-    pre-cargados, evitando el N+1 que disparaba 504 en /pnl-todas.
-    """
-    db_cf = get_db_cashflow()
-    db_v = get_db_valuaciones()
-    db_t = get_db_trading()
-    unidad_to_match, match_to_display = _build_unidad_maps()
-    return _pnl_por_cuenta_core(
-        id_cuenta=id_cuenta,
-        db_cf=db_cf, db_v=db_v, db_t=db_t,
-        unidad_to_match=unidad_to_match,
-        match_to_display=match_to_display,
-        mep_hoy=get_mep_for_date(date.today().isoformat()),
-        # En el path single-cuenta no pre-cargamos pricing maps —
-        # `_valor_actual_live` cae a find_one por ticker. Para ~30 tickers
-        # de una cuenta, son 60-90 queries: barato.
-    )
-
-
 def _pnl_por_cuenta_core(
     *,
     id_cuenta: str,

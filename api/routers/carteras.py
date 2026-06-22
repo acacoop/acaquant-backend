@@ -7,8 +7,6 @@ Scoping de grupos (Fase 2): cada endpoint resuelve el `scope` de cuentas
 visibles del usuario (`scope_cuentas`) y lo pasa al service. `scope=None`
 = sin restricción (admin o usuario sin grupo). Ver `docs/GRUPOS.md`.
 """
-import os
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.services import pnl as pnl_svc
@@ -77,16 +75,12 @@ def listar_aum(
 
 
 @router.get("/pnl", dependencies=[Depends(verificar_id_cuenta)])
-def pnl(id_cuenta: str = Query(..., description="id_cuenta numérico (ej '255')"),
-        _engine: str | None = Query(None, include_in_schema=False)):
-    """PnL por (cuenta, ticker) basado en cash flows. Ver api.services.pnl
-    para la lógica completa. `verificar_id_cuenta` corta con 403 si la
-    cuenta está fuera del scope de grupos del usuario. Flag PNL_SQL → motor SQL
-    (reusa el mismo cost-basis, datos de Postgres)."""
-    use_sql = _engine == "sql" or (_engine != "mongo" and os.getenv("PNL_SQL") == "1")
-    if use_sql:
-        return pnl_sql.pnl_por_cuenta_sql(id_cuenta=id_cuenta)
-    return pnl_svc.pnl_por_cuenta(id_cuenta=id_cuenta)
+def pnl(id_cuenta: str = Query(..., description="id_cuenta numérico (ej '255')")):
+    """PnL por (cuenta, ticker) basado en cash flows — SIEMPRE SQL (`pnl_sql`,
+    cost-basis sobre Postgres). La rama Mongo (`pnl.pnl_por_cuenta`) se RETIRÓ
+    (decommission 2026-06-22). `verificar_id_cuenta` corta con 403 si la cuenta
+    está fuera del scope de grupos del usuario."""
+    return pnl_sql.pnl_por_cuenta_sql(id_cuenta=id_cuenta)
 
 
 @router.get("/pnl-todas")

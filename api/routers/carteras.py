@@ -13,7 +13,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.services import pnl as pnl_svc
 from api.services import pnl_sql
-from api.services import portfolio as svc
 from api.services import portfolio_sql as svc_sql
 from api.services._grupos_scope import scope_cuentas, verificar_id_cuenta
 
@@ -21,11 +20,10 @@ router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
 
 
 def _psvc(engine: str | None):
-    """Módulo de servicio de AuM: SQL o Mongo, por `?_engine=sql|mongo` o el flag
-    global PORTFOLIO_SQL=1. Default Mongo. Solo aplica a las funciones ya migradas
-    (listar_aum/cuentas, fci_*, total_*); tasa-fija/cer/pnl siguen en Mongo."""
-    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("PORTFOLIO_SQL") == "1")
-    return svc_sql if use_sql else svc
+    """Módulo de servicio de AuM: SIEMPRE SQL (`portfolio_sql`). La rama Mongo
+    (`portfolio.py` sobre Valuaciones.AuM) se RETIRÓ — AuM dropeada, decommission
+    2026-06-22. `?_engine` queda sin efecto para AuM (compat)."""
+    return svc_sql
 
 
 def scope_aum(

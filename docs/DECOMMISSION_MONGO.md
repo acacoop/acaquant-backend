@@ -20,21 +20,26 @@ Este doc es el **tablero de gobierno** del decommission. Se construye cruzando 3
 
 ## 🚨 HALLAZGO CRÍTICO — código Mongo MUERTO leyendo colecciones ya DROPEADAS
 
-Verificado leyendo el código (no asumido). Estos dominios ya están **cutover a SQL +
-Mongo DROPEADA** (docs/SQL.md, 2026-06-15/16), pero **quedó el path Mongo de fallback
-en el código**, leyendo colecciones que **ya no existen**:
+Verificado con prod (`estado_sql` + `diag_inventario_mongo_sql`, 2026-06-22). Flags
+`OPERACIONES_SQL / COMERCIAL_SQL / PORTFOLIO_SQL / VALUACIONES_SQL / PNL_SQL` todos 🟢 **ON**.
+Inventario confirma DROPEADAS: `Valuaciones.AuM`, `Valuaciones.Assets`, `CashFlow.Operaciones`,
+`CashFlow.NegocioMovimientos`, `CashFlow.Contrapartes`, `OpsSerieDiaria` (no aparecen). Los
+paths Mongo que las leen son **código muerto confirmado** (flag ON + colección inexistente):
 
-| Código (path Mongo muerto) | Colección dropeada que lee | Estado | Acción |
-|---|---|---|---|
-| `api/routers/cuentas.py` (contrapartes) | `CashFlow.Contrapartes` | ⚠️ **ROTO EN VIVO** (sin flag, colección no existe) | **fix/borrar ya** |
-| `api/services/comercial.py` (path Mongo) | `Comitentes`, `NegocioMovimientos`, `Operaciones`, `ComercialCache` | muerto (flag `COMERCIAL_SQL` ON) | borrar path Mongo |
-| `api/services/operaciones_view.py` | `CashFlow.Operaciones` | muerto (flag `OPERACIONES_SQL` ON) | borrar |
-| `api/services/pnl.py` (fallback) | `NegocioMovimientos`, `Valuaciones.AuM` | muerto (flag `PNL_SQL` ON) | borrar |
+| Código (path Mongo muerto) | Colección dropeada que lee | Estado |
+|---|---|---|
+| ~~`api/routers/cuentas.py` (contrapartes)~~ | `CashFlow.Contrapartes` | ✅ **YA SQL** (clientes.contrapartes) |
+| ~~`api/services/risk.py` (`_nombres_por_id_cuenta`)~~ | `CashFlow.Contrapartes` | ✅ **FIXEADO 22/6** (→ SQL) |
+| ~~`api/services/operaciones_view.py`~~ | `CashFlow.Operaciones`/`OpsSerieDiaria`/`Comitentes` | ✅ **YA PURGADO** (solo helpers) |
+| `api/services/comercial.py` (path Mongo) | `Comitentes`, `NegocioMovimientos`, `ComercialCache` | ⬜ purgar readers (flag `COMERCIAL_SQL` ON) |
+| `api/services/pnl.py` (fallback) | `NegocioMovimientos`, `Valuaciones.AuM` | ⬜ purgar readers (flag `PNL_SQL` ON) |
+| `api/services/portfolio.py` (Mongo) | `Valuaciones.AuM` (~9 reads) | ⬜ purgar readers (flag `PORTFOLIO_SQL` ON) |
+| `api/services/valuaciones.py` (Mongo) | `Valuaciones.AuM` (~12 reads), `NegocioMovimientos` | ⬜ purgar readers (flag `VALUACIONES_SQL` ON) |
 
-**Por qué importa:** (1) `cuentas.py` está sirviendo vacío/error hoy. (2) El resto es una
-mina: si alguien apaga un flag `*_SQL`, la vista intenta leer una colección inexistente y
-se cae. Borrar estos paths es parte del decommission (REGLA #1: lo muerto se borra) y
-además **simplifica el cutover** (sin fallback que mantener).
+**OJO (no es "borrar el archivo"):** los servicios SQL importan **helpers PUROS** de estos
+mismos archivos (`comercial_sql`←`comercial`, `pnl_sql`←`pnl`, `valuaciones_sql`←`valuaciones._es_cash`,
+`comercial`←`portfolio._fci_assets_map`) + jobs/tests. El purgado es **quirúrgico**: sacar las
+FUNCIONES que leen Mongo, CONSERVAR los helpers. Hacerlo de a un archivo, validando (import+ruff+test).
 
 ---
 

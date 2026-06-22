@@ -27,16 +27,21 @@ def main() -> int:
     curvas = cli["Trading"]["Curvas"]
 
     n_set, n_skip, n_nocurva = 0, 0, 0
+    faltan: list[str] = []
     for b in bm:
         asset = b.get("asset")
         tickers = b.get("tickers") or {}
         if not asset or not (tickers.get("ARS") or tickers.get("USD")):
             n_skip += 1
             continue
+        # OJO: incluir ticker_corto en la proyección — si se proyecta SOLO `tickers`
+        # y el doc no lo tiene (es lo que backfilleamos), find_one devuelve {} (falsy)
+        # y parece "no encontrado". Con ticker_corto el doc nunca es vacío.
         c = curvas.find_one({"ticker_corto": asset, "curva": {"$regex": "^on"}},
-                            {"_id": 0, "tickers": 1})
+                            {"_id": 0, "ticker_corto": 1, "tickers": 1})
         if not c:
             n_nocurva += 1
+            faltan.append(asset)
             continue
         if c.get("tickers"):
             n_skip += 1   # ya tiene → idempotente
@@ -50,6 +55,9 @@ def main() -> int:
     print(f"BondsMaster: {len(bm)} docs")
     print(f"{'SET' if args.apply else '[dry] setearía'} tickers en Curvas: {n_set}")
     print(f"ya tenían / sin tickers: {n_skip}   ·   sin doc on_* en Curvas: {n_nocurva}")
+    if faltan:
+        print(f"\n⚠️  {len(faltan)} en BondsMaster pero NO en Curvas (migrar antes de dropear BM):")
+        print(f"   {', '.join(faltan)}")
     if not args.apply:
         print("\n(DRY-RUN — nada escrito. Correr con --apply.)")
     else:

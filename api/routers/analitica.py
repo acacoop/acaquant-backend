@@ -111,14 +111,6 @@ def pendiente_curva(
     )
 
 
-@router.get("/liquidez-secundario")
-def liquidez_secundario(
-    ticker: str = Query(..., description="Ticker corto o completo ROFEX"),
-    dias: int = Query(20, ge=3, le=252, description="Ventana para el promedio"),
-):
-    return svc_ana.liquidez_secundario(ticker=ticker, dias=dias)
-
-
 @router.get("/sensibilidad-retorno")
 def sensibilidad_retorno(
     curva: str = Query("soberanos", description="Curva (soberanos)"),

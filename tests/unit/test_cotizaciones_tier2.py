@@ -6,7 +6,7 @@ validar la lógica sin DB real.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -213,91 +213,5 @@ def test_pendiente_sin_datos_suficientes(monkeypatch):
     assert "error" in out
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# liquidez_secundario
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_liquidez_ticker_no_resuelve(monkeypatch):
-    monkeypatch.setattr(svc, "resolver_ticker_exacto", lambda t: None)
-    out = svc.liquidez_secundario(ticker="NOEXISTE")
-    assert "error" in out
-
-
-def test_liquidez_sin_datos(monkeypatch):
-    """Ticker válido pero sin trades en la ventana."""
-    monkeypatch.setattr(svc, "resolver_ticker_exacto", lambda t: "MERV - XMEV - T1 - 24hs")
-    monkeypatch.setattr(svc, "get_db_trading", lambda: _mock_db({
-        "TimeSales": FakeCollection(aggregate_docs=[]),
-    }))
-    out = svc.liquidez_secundario(ticker="T1", dias=20)
-    assert out["clasificacion"] == "sin_datos"
-    assert out["volumen_dia_actual"] == 0
-
-
-def test_liquidez_media(monkeypatch):
-    """Volumen hoy 1000, promedio histórico 1000 → ratio 1.0 → media."""
-    hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    monkeypatch.setattr(svc, "resolver_ticker_exacto", lambda t: "TX26_FULL")
-    monkeypatch.setattr(svc, "get_db_trading", lambda: _mock_db({
-        "TimeSales": FakeCollection(aggregate_docs=[
-            {"_id": (hoy - timedelta(days=3)).strftime("%Y-%m-%d"), "money": 1000},
-            {"_id": (hoy - timedelta(days=2)).strftime("%Y-%m-%d"), "money": 1000},
-            {"_id": (hoy - timedelta(days=1)).strftime("%Y-%m-%d"), "money": 1000},
-            {"_id": hoy.strftime("%Y-%m-%d"),                       "money": 1000},
-        ]),
-    }))
-    out = svc.liquidez_secundario(ticker="TX26", dias=20)
-    assert out["volumen_dia_actual"] == 1000
-    assert out["volumen_promedio_dia"] == 1000
-    assert out["ratio_vs_promedio"] == 1.0
-    assert out["clasificacion"] == "media"
-    assert out["dias_analizados"] == 3
-
-
-def test_liquidez_baja(monkeypatch):
-    """Hoy 100, promedio 1000 → ratio 0.1 → baja."""
-    hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    monkeypatch.setattr(svc, "resolver_ticker_exacto", lambda t: "X")
-    monkeypatch.setattr(svc, "get_db_trading", lambda: _mock_db({
-        "TimeSales": FakeCollection(aggregate_docs=[
-            {"_id": (hoy - timedelta(days=2)).strftime("%Y-%m-%d"), "money": 1000},
-            {"_id": (hoy - timedelta(days=1)).strftime("%Y-%m-%d"), "money": 1000},
-            {"_id": hoy.strftime("%Y-%m-%d"),                       "money": 100},
-        ]),
-    }))
-    out = svc.liquidez_secundario(ticker="X")
-    assert out["clasificacion"] == "baja"
-    assert out["ratio_vs_promedio"] == 0.1
-
-
-def test_liquidez_anomala(monkeypatch):
-    """Hoy 5000, promedio 1000 → ratio 5.0 → anomalamente_alta."""
-    hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    monkeypatch.setattr(svc, "resolver_ticker_exacto", lambda t: "X")
-    monkeypatch.setattr(svc, "get_db_trading", lambda: _mock_db({
-        "TimeSales": FakeCollection(aggregate_docs=[
-            {"_id": (hoy - timedelta(days=2)).strftime("%Y-%m-%d"), "money": 1000},
-            {"_id": (hoy - timedelta(days=1)).strftime("%Y-%m-%d"), "money": 1000},
-            {"_id": hoy.strftime("%Y-%m-%d"),                       "money": 5000},
-        ]),
-    }))
-    out = svc.liquidez_secundario(ticker="X")
-    assert out["clasificacion"] == "anomalamente_alta"
-    assert out["ratio_vs_promedio"] == 5.0
-
-
-def test_liquidez_excluye_hoy_del_promedio(monkeypatch):
-    """El promedio histórico NO debe incluir al día actual."""
-    hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    monkeypatch.setattr(svc, "resolver_ticker_exacto", lambda t: "X")
-    monkeypatch.setattr(svc, "get_db_trading", lambda: _mock_db({
-        "TimeSales": FakeCollection(aggregate_docs=[
-            {"_id": (hoy - timedelta(days=1)).strftime("%Y-%m-%d"), "money": 100},
-            {"_id": hoy.strftime("%Y-%m-%d"),                       "money": 999_999},
-        ]),
-    }))
-    out = svc.liquidez_secundario(ticker="X")
-    # Promedio = 100 (no cuenta el día actual)
-    assert out["volumen_promedio_dia"] == 100
-    assert out["dias_analizados"] == 1
+# (tests de liquidez_secundario eliminados 2026-06-22 — la función se borró: leía
+# TimeSales 20d, solo se exponía por MCP sin uso en el front.)

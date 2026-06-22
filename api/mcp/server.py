@@ -118,16 +118,6 @@ def pendiente_curva(
 
 @mcp.tool(
     description=(
-        "Volumen operado del día de un bono vs su promedio de las últimas N "
-        "ruedas. Útil para evaluar liquidez antes de operar."
-    ),
-)
-def liquidez_secundario(ticker: str, dias: int = 20) -> dict:
-    return svc_ana.liquidez_secundario(ticker=ticker, dias=dias)
-
-
-@mcp.tool(
-    description=(
         "Trades de los últimos 15 días para un instrumento (o todos si se "
         "omite). Cada trade trae precio, size, side, money, TEA/duration "
         "enriquecidas por el motor. Ticker corto ('TX26') o completo."

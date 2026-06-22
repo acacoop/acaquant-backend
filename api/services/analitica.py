@@ -13,7 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from api.cache import cached
 from api.db import get_db_trading
-from api.services.renta_fija import _CURVAS_VALIDAS, listar_curva, resolver_ticker_exacto
+from api.services.renta_fija import _CURVAS_VALIDAS, listar_curva
 
 
 @cached(ttl=300)
@@ -329,73 +329,6 @@ def calcular_pendiente_curva(
     return out
 
 
-def _clasificar_liquidez(ratio: float | None) -> str:
-    if ratio is None:
-        return "sin_datos"
-    if ratio < 0.3:
-        return "baja"
-    if ratio <= 1.5:
-        return "media"
-    if ratio <= 3.0:
-        return "alta"
-    return "anomalamente_alta"
-
-
-@cached(ttl=60)
-def liquidez_secundario(ticker: str, dias: int = 20) -> dict:
-    """Volumen operado del día actual vs promedio histórico (Trading.TimeSales).
-
-    Usa TimeSales para consistencia (en vez de MarketSnapshot) porque el
-    histórico agrupado por día siempre sale de ahí. dias = ventana para el
-    promedio. Clasificación: baja | media | alta | anomalamente_alta.
-    """
-    ticker_exacto = resolver_ticker_exacto(ticker)
-    if not ticker_exacto:
-        return {"error": f"no se pudo resolver ticker '{ticker}'"}
-
-    db = get_db_trading()
-    hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    desde = hoy - timedelta(days=dias)
-
-    agg = list(db["TimeSales"].aggregate([
-        {"$match": {
-            "ticker": ticker_exacto,
-            "timestamp": {"$gte": desde},
-            "money": {"$gt": 0},
-        }},
-        {"$group": {
-            "_id":   {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
-            "money": {"$sum": "$money"},
-        }},
-        {"$sort": {"_id": 1}},
-    ]))
-
-    if not agg:
-        return {
-            "ticker":              ticker_exacto,
-            "volumen_dia_actual":  0,
-            "volumen_promedio_dia": None,
-            "ratio_vs_promedio":   None,
-            "dias_analizados":     0,
-            "clasificacion":       "sin_datos",
-        }
-
-    hoy_str = hoy.strftime("%Y-%m-%d")
-    hoy_row = next((r for r in agg if r["_id"] == hoy_str), None)
-    vol_hoy = float(hoy_row["money"]) if hoy_row else 0.0
-
-    hist = [float(r["money"]) for r in agg if r["_id"] != hoy_str]
-    promedio = round(sum(hist) / len(hist), 2) if hist else None
-
-    ratio = None
-    if promedio and promedio > 0:
-        ratio = round(vol_hoy / promedio, 3)
-
-    return {
-        "ticker":               ticker_exacto,
-        "volumen_dia_actual":   round(vol_hoy, 2),
-        "volumen_promedio_dia": promedio,
-        "ratio_vs_promedio":    ratio,
-        "dias_analizados":      len(hist),
-        "clasificacion":        _clasificar_liquidez(ratio),
-    }
+# liquidez_secundario + _clasificar_liquidez ELIMINADOS (2026-06-22): leían TimeSales
+# sobre 20 días, solo se exponían por MCP (sin uso en el front) → se borran para que
+# TimeSales quede intraday/última-sesión y habilitar TTL corto.

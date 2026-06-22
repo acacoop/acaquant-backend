@@ -67,6 +67,14 @@ def _rf(engine: str | None):
     return svc_rf_sql if use_sql else svc_rf
 
 
+def _fwbe(engine: str | None):
+    """Forwards/breakevens LIVE: SQL (la fila más reciente de mercado_hist, fresca por
+    SNAPSHOT_SQL) si `?_engine=sql` o `RENTA_FIJA_SQL=1`; Mongo (ForwardsLive/BreakevensLive)
+    si no. MISMO flag que el resto de renta fija → un solo switch para toda la pantalla."""
+    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("RENTA_FIJA_SQL") == "1")
+    return svc_mhist if use_sql else svc_der
+
+
 # ── Series BCRA (BADLAR, CER, DOLAR) ──
 
 
@@ -177,8 +185,9 @@ def historico_futuros_dlr(
 @router.get("/forwards")
 def listar_forwards(
     curva: str | None = Query(None, description="Filtrar por curva (tasa_fija/cer)"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_der.get_forwards(curva=curva)
+    return _fwbe(_engine).get_forwards(curva=curva)
 
 
 @router.get("/historico/forwards")
@@ -240,8 +249,8 @@ def fair_value_historico(
 
 
 @router.get("/breakevens")
-def listar_breakevens():
-    return svc_der.get_breakevens()
+def listar_breakevens(_engine: str | None = Query(None, include_in_schema=False)):
+    return _fwbe(_engine).get_breakevens()
 
 
 @router.get("/snapshot-live")
@@ -264,8 +273,8 @@ def snapshot_live(_engine: str | None = Query(None, include_in_schema=False)) ->
     """
     return {
         "renta_fija": _rf(_engine).get_renta_fija(),
-        "forwards":   svc_der.get_forwards(),
-        "breakevens": svc_der.get_breakevens(),
+        "forwards":   _fwbe(_engine).get_forwards(),
+        "breakevens": _fwbe(_engine).get_breakevens(),
     }
 
 

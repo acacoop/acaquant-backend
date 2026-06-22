@@ -49,6 +49,44 @@ def _hist(coleccion: str, k: str | None = None, desde: str | None = None,
         return [r["data"] for r in cur.fetchall()]
 
 
+def _sin_fecha(d: dict) -> dict:
+    """El live (ForwardsLive/BreakevensLive) NO tiene `fecha`; la fila de mercado_hist sí.
+    La saco para que el shape sea idéntico al doc live de Mongo."""
+    return {k: v for k, v in d.items() if k != "fecha"}
+
+
+@cached(ttl=30)
+def get_forwards(curva: str | None = None) -> list:
+    """LIVE forwards desde SQL = la fila MÁS RECIENTE (max fecha) por curva de
+    ForwardsHistorico en `mercado.mercado_hist`. Equivale a Trading.ForwardsLive
+    (1 doc por curva, último valor pisado). La frescura intradía la da el motor
+    (mirror_hist bajo SNAPSHOT_SQL refresca la fila de hoy en cada tick)."""
+    where = ["coleccion = 'ForwardsHistorico'"]
+    params: list = []
+    if curva:
+        where.append("k = %s")
+        params.append(curva)
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"SELECT DISTINCT ON (k) data FROM mercado.mercado_hist "
+            f"WHERE {' AND '.join(where)} ORDER BY k, fecha DESC",
+            tuple(params),
+        )
+        return [_sin_fecha(r["data"]) for r in cur.fetchall()]
+
+
+@cached(ttl=30)
+def get_breakevens() -> list:
+    """LIVE breakevens desde SQL = la fila MÁS RECIENTE de BreakevensHistorico
+    (1 doc global). Equivale a Trading.BreakevensLive."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT data FROM mercado.mercado_hist WHERE coleccion = 'BreakevensHistorico' "
+            "ORDER BY fecha DESC LIMIT 1",
+        )
+        return [_sin_fecha(r["data"]) for r in cur.fetchall()]
+
+
 @cached(ttl=300)
 def get_historico_futuros_dlr(
     ticker: str | None = None, desde: str | None = None, hasta: str | None = None,

@@ -16,6 +16,8 @@ flujo_vencimiento) y reporta el drift de campos live aparte (informativo).
 """
 from __future__ import annotations
 
+from api.services import derivados as der_mg
+from api.services import mercado_hist_sql as der_sq
 from api.services import renta_fija as mg
 from api.services import renta_fija_sql as sq
 from api.services.renta_fija import _CURVAS_VALIDAS
@@ -104,6 +106,19 @@ def main() -> int:
         fb = {r.get("fecha") for r in b}
         _cmp_sets(f"fechas curva={curva}", fa, fb)
         print(f"      filas: SQL={len(a)}  Mongo={len(b)}")
+
+    print("\n═══ forwards / breakevens (live — fila más reciente de mercado_hist) ═══")
+    fw_sql = {f.get("curva") for f in der_sq.get_forwards()}
+    fw_mg = {f.get("curva") for f in der_mg.get_forwards()}
+    if not _cmp_sets("forwards (curvas)", fw_sql, fw_mg):
+        fallas += 1
+    be_sql, be_mg = der_sq.get_breakevens(), der_mg.get_breakevens()
+    pares_sql = set((be_sql[0].get("pares") or {}).keys()) if be_sql else set()
+    pares_mg = set((be_mg[0].get("pares") or {}).keys()) if be_mg else set()
+    if not _cmp_sets("breakevens (pares)", pares_sql, pares_mg):
+        fallas += 1
+    print("  (Los VALORES de tasas/matrix/pares son live → coinciden recién con SNAPSHOT_SQL "
+          "activo y el motor corriendo. Acá se compara ESTRUCTURA.)")
 
     print("\n" + "═" * 60)
     if fallas:

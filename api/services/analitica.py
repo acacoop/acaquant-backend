@@ -1,15 +1,16 @@
 """Capa de servicio — analítica Tier 2 sobre data existente.
 
-Tres herramientas que operan encima de `renta_fija.listar_curva` y
-`Trading.TimeSales` para responder preguntas analíticas:
+Dos herramientas que operan encima de `renta_fija.listar_curva` y de los cierres
+persistidos (`Trading.SnapshotsCierre`):
 
 - `snapshot_curva_historico(curva, fecha)` — curva entera como cerró en un día pasado.
 - `calcular_pendiente_curva(curva, metrica, fecha_comparacion)` — slope en bps ± comparación.
-- `liquidez_secundario(ticker, dias)` — volumen del día vs promedio N ruedas.
+
+(liquidez_secundario eliminado 2026-06-22; el fallback a TimeSales del snapshot también.)
 """
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 
 from api.cache import cached
 from api.db import get_db_trading
@@ -21,9 +22,9 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
     """Curva entera tal como cerró un día pasado.
 
     Lee Trading.SnapshotsCierre (poblada por jobs/snapshot_cierre.py +
-    backfill_snapshots_cierre). Si la fecha no tiene snapshot, fallback
-    a agregar TimeSales con $group (lógica vieja, para fechas anteriores
-    al backfill).
+    backfill_snapshots_cierre). Si es HOY y aún no cerró, fallback a MarketSnapshot
+    (live). Para fechas viejas sin cierre persistido → []. (El fallback a TimeSales
+    se eliminó 2026-06-22: TimeSales pasa a intraday/última-sesión, TTL corto.)
 
     Devuelve mismo shape que antes (ticker, ticker_corto, precio, TEA,
     TEM, paridad, duration, etc.). Si un bono no operó ese día, no
@@ -165,73 +166,10 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
             out.sort(key=lambda x: x.get("fecha_vencimiento") or "9999")
             return out
 
-    # ── Fallback B: agregar TimeSales del día (fechas previas al backfill o
-    # gap). Mantiene el comportamiento histórico para no romper queries
-    # de fechas viejas mientras la cobertura de SnapshotsCierre crece.
-    fin_dt = fecha_dt + timedelta(days=1)
-    tickers = list(meta_by_ticker.keys())
-    enrich: dict[str, dict] = {}
-    for r in db["TimeSales"].aggregate([
-        {"$match": {
-            "ticker": {"$in": tickers},
-            "timestamp": {"$gte": fecha_dt, "$lt": fin_dt},
-            "price": {"$gt": 0},
-        }},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {
-            "_id":       "$ticker",
-            "price":     {"$first": "$price"},
-            "TEA":       {"$first": "$TEA"},
-            "TEM":       {"$first": "$TEM"},
-            "paridad":   {"$first": "$paridad"},
-            "duration":     {"$first": "$duration"},
-            "mod_duration": {"$first": "$mod_duration"},
-            "convexity":    {"$first": "$convexity"},
-            "ts":           {"$first": "$timestamp"},
-        }},
-    ]):
-        enrich[r["_id"]] = r
-
-    out = []
-    for ticker, m in meta_by_ticker.items():
-        if ticker not in enrich:
-            continue
-        en = enrich[ticker]
-        vto_raw = m.get("fecha_vencimiento")
-        meses = None
-        try:
-            if isinstance(vto_raw, datetime):
-                vto = vto_raw if vto_raw.tzinfo else vto_raw.replace(tzinfo=UTC)
-            else:
-                vto = datetime.fromisoformat(str(vto_raw)[:10]).replace(tzinfo=UTC)
-            meses = round((vto - fecha_dt).days / 30.44, 1)
-        except Exception:
-            pass
-        ts_last = en.get("ts")
-        entry = {
-            "ticker":             ticker,
-            "ticker_corto":       m.get("ticker_corto"),
-            "tipo":               m.get("tipo"),
-            "fecha_vencimiento":  str(m.get("fecha_vencimiento"))[:10] if m.get("fecha_vencimiento") else None,
-            "meses_al_vto":       meses,
-            "ultimo_precio":      en.get("price"),
-            "tea":                en.get("TEA"),
-            "tem":                en.get("TEM"),
-            "paridad":            en.get("paridad"),
-            "duration":           en.get("duration"),
-            "mod_duration":       en.get("mod_duration"),
-            "convexity":          en.get("convexity"),
-            "ts_ultimo_trade":    ts_last.isoformat() if isinstance(ts_last, datetime) else ts_last,
-        }
-        if curva == "cer":
-            cupon = m.get("cupon_anual")
-            entry["is_zero_coupon"] = (cupon is None) or (float(cupon) == 0.0)
-            cer_em = m.get("cer_emision")
-            if cer_em:
-                entry["cer_emision"] = float(cer_em)
-        out.append(entry)
-    out.sort(key=lambda x: x.get("fecha_vencimiento") or "9999")
-    return out
+    # Fallback TimeSales ELIMINADO (2026-06-22): para fechas viejas sin SnapshotsCierre
+    # se devuelve vacío. SnapshotsCierre es la fuente histórica; TimeSales pasa a ser
+    # intraday/última-sesión (TTL corto). El gap se cubre con backfill de SnapshotsCierre.
+    return []
 
 
 _METRICAS_PENDIENTE = ("tea", "tem", "duration")

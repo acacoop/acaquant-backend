@@ -6,7 +6,6 @@ validar la lógica sin DB real.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -85,9 +84,8 @@ def test_snapshot_historico_fecha_invalida(monkeypatch):
     assert svc.snapshot_curva_historico(curva="cer", fecha="no-es-fecha") == []
 
 
-def test_snapshot_historico_devuelve_bonos_con_trades_ese_dia(monkeypatch):
-    """Caso base: 2 bonos CER, ambos operaron el 2026-01-15."""
-    fecha_trade = datetime(2026, 1, 15, 14, 30, tzinfo=UTC)
+def test_snapshot_historico_devuelve_bonos_del_cierre(monkeypatch):
+    """Caso base: 2 bonos CER con cierre persistido el 2026-01-15 (SnapshotsCierre)."""
     monkeypatch.setattr(svc, "get_db_trading", lambda: _mock_db({
         "Curvas": FakeCollection(find_docs=[
             {"ticker": "TICK1", "ticker_corto": "T1", "tipo": "cer",
@@ -95,11 +93,11 @@ def test_snapshot_historico_devuelve_bonos_con_trades_ese_dia(monkeypatch):
             {"ticker": "TICK2", "ticker_corto": "T2", "tipo": "cer",
              "fecha_vencimiento": "2028-06-15"},
         ]),
-        "TimeSales": FakeCollection(aggregate_docs=[
-            {"_id": "TICK1", "price": 100.5, "TEA": 0.02, "TEM": 0.0017,
-             "paridad": 99.5, "duration": 1.2, "convexity": 2.0, "ts": fecha_trade},
-            {"_id": "TICK2", "price": 85.3, "TEA": 0.04, "TEM": 0.0033,
-             "paridad": 90.2, "duration": 2.4, "convexity": 7.0, "ts": fecha_trade},
+        "SnapshotsCierre": FakeCollection(find_docs=[
+            {"ticker": "TICK1", "ticker_corto": "T1", "tipo": "cer", "ultimo_precio": 100.5,
+             "tea": 0.02, "tem": 0.0017, "paridad": 99.5, "duration": 1.2, "convexity": 2.0},
+            {"ticker": "TICK2", "ticker_corto": "T2", "tipo": "cer", "ultimo_precio": 85.3,
+             "tea": 0.04, "tem": 0.0033, "paridad": 90.2, "duration": 2.4, "convexity": 7.0},
         ]),
     }))
 
@@ -113,16 +111,16 @@ def test_snapshot_historico_devuelve_bonos_con_trades_ese_dia(monkeypatch):
     assert t1["fecha_vencimiento"] == "2027-06-15"
 
 
-def test_snapshot_historico_excluye_bonos_que_no_operaron(monkeypatch):
-    """Si un bono NO tiene trade ese día, no aparece en el resultado."""
-    fecha_trade = datetime(2026, 1, 15, 14, 30, tzinfo=UTC)
+def test_snapshot_historico_excluye_bonos_sin_cierre(monkeypatch):
+    """Si un bono NO tiene cierre persistido ese día, no aparece en el resultado."""
     monkeypatch.setattr(svc, "get_db_trading", lambda: _mock_db({
         "Curvas": FakeCollection(find_docs=[
             {"ticker": "OPERA",    "ticker_corto": "OP", "fecha_vencimiento": "2027-01-01"},
             {"ticker": "NO_OPERA", "ticker_corto": "NO", "fecha_vencimiento": "2027-01-01"},
         ]),
-        "TimeSales": FakeCollection(aggregate_docs=[
-            {"_id": "OPERA", "price": 100, "TEA": 0.01, "duration": 1.0, "ts": fecha_trade},
+        "SnapshotsCierre": FakeCollection(find_docs=[
+            {"ticker": "OPERA", "ticker_corto": "OP", "ultimo_precio": 100,
+             "tea": 0.01, "duration": 1.0},
         ]),
     }))
 

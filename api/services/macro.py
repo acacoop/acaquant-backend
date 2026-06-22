@@ -9,7 +9,7 @@ Expone dos tools al asistente:
 
 Variables soportadas:
 - Macros puras: tamar, cer, dolar, badlar, mep
-- Series por ticker: `<TICKER>.<CAMPO>` — ej "TX26.TEM", "GD30.paridad"
+- (Series por ticker `<TICKER>.<CAMPO>` ELIMINADAS 2026-06-22 — leían TimeSales 90d, MCP-only.)
   Campos: TEA, TEM, paridad, duration, price
 
 Variables bloqueadas por data faltante (devuelven stub con hint):
@@ -293,46 +293,9 @@ def _fetch_serie_macro(variable: str, ventana_dias: int) -> list[dict]:
     return out
 
 
-def _fetch_serie_ticker(variable: str, ventana_dias: int) -> list[dict]:
-    """Serie por ticker: variable con forma '<TICKER>.<CAMPO>'.
-
-    Devuelve un punto por día (último valor del día para ese ticker/campo).
-    """
-    # Import lazy para evitar ciclo al importar macro desde tools.py
-    from api.services.renta_fija import resolver_ticker_exacto
-
-    parts = variable.split(".", 1)
-    if len(parts) != 2:
-        return []
-    ticker_raw, campo = parts[0].strip().upper(), parts[1].strip()
-    if campo not in _CAMPOS_TICKER_VALIDOS:
-        return []
-
-    ticker_exact = resolver_ticker_exacto(ticker_raw)
-    if not ticker_exact:
-        return []
-
-    db = get_db_trading()
-    corte = datetime.now(UTC) - timedelta(days=ventana_dias)
-
-    pipeline = [
-        {"$match": {
-            "ticker": ticker_exact,
-            "timestamp": {"$gte": corte},
-            campo: {"$exists": True, "$ne": None},
-        }},
-        {"$sort": {"timestamp": 1}},
-        {"$group": {
-            "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
-            "valor": {"$last": f"${campo}"},
-        }},
-        {"$sort": {"_id": 1}},
-    ]
-    return [
-        {"fecha": r["_id"], "valor": float(r["valor"])}
-        for r in db["TimeSales"].aggregate(pipeline)
-        if r.get("valor") is not None
-    ]
+# _fetch_serie_ticker (serie '<TICKER>.<CAMPO>' desde TimeSales 90d) ELIMINADO
+# (2026-06-22): solo se exponía por MCP, sin uso en el front. Se quita para dejar
+# TimeSales intraday/última-sesión (TTL corto).
 
 
 def _stub_bloqueada(variable: str) -> dict:
@@ -362,18 +325,14 @@ def obtener_serie_macro(variable: str, ventana_dias: int = 90) -> dict:
     if var in _BLOQUEADAS:
         return _stub_bloqueada(var)
 
-    # Serie por ticker: contiene "."
-    if "." in var:
-        # Mantener el case original del ticker para resolver_ticker_exacto
-        serie = _fetch_serie_ticker(variable.strip(), ventana_dias)
-    elif var in _MACROS:
+    if var in _MACROS:
         serie = _fetch_serie_macro(var, ventana_dias)
     else:
         return {
             "variable": variable,
             "error": f"variable desconocida: {variable}",
             "clasificacion": "sin_datos",
-            "hint": f"valores soportados: {sorted(_MACROS.keys())} o '<TICKER>.<CAMPO>'",
+            "hint": f"valores soportados: {sorted(_MACROS.keys())}",
         }
 
     if not serie:

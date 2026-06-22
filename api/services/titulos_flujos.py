@@ -102,15 +102,11 @@ def _build_from_bondmaster(doc: dict) -> dict:
 
 
 def flujos_instrumentos() -> list[dict]:
-    """Merge Curvas + BondsMaster (dedup por ticker, prevalece Curvas). Dicts frescos."""
+    """Flujos de los instrumentos desde Trading.Curvas. TODO vive en Curvas (la `curva`
+    decide la vista); BondsMaster se consolidó en Curvas (`on_*`) → ya NO se mergea
+    (verificado no-op: los 169 BM están en Curvas, dedup por ticker_corto). Dicts frescos."""
     db = get_db_trading()
-    out = [_build_from_curvas(d) for d in db["Curvas"].find({}, {"_id": 0})]
-    tickers_curvas = {d["ticker"] for d in out}
-    for d in db["BondsMaster"].find({}, {"_id": 0}):
-        doc = _build_from_bondmaster(d)
-        if doc["ticker"] not in tickers_curvas:
-            out.append(doc)
-    return out
+    return [_build_from_curvas(d) for d in db["Curvas"].find({}, {"_id": 0})]
 
 
 _ASSETS_COLS = ("unidad", "calificacion", "cartera", "clase_activo",

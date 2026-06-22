@@ -225,12 +225,12 @@ def _tiene_flujo_def(d: dict, hoy: date) -> bool:
 
 
 def titulos_sin_flujo() -> list[dict]:
-    """Conciliador de bonos: por cada bono en cartera ARS/DL/HD, busca si está en
-    Trading.Curvas (NO-ON, los de Renta Fija) o en BondsMaster (ONs), y si le falta
-    el flujo. Lista los faltantes/incompletos con la ACCIÓN según dónde esté:
-      - en Curvas sin flujo  → 'editar_curvas'      (completar; NO se agregan nuevos a Curvas)
-      - en BondsMaster sin flujo → 'editar_bondsmaster' (completar)
-      - en ninguna           → 'alta_bondsmaster'   (las nuevas van a ONs/BondsMaster)
+    """Conciliador de bonos: por cada bono del último AUM (cartera ARS/DL/HD), busca si
+    está en Trading.Curvas y si le falta el flujo. TODO vive en Curvas; la `curva`
+    decide la vista (no-ON = Renta Fija; `on_*` = ONs). Acción según dónde esté:
+      - en Curvas no-ON sin flujo → 'editar_curvas' (completar)
+      - en Curvas on_* sin flujo  → 'editar_on'      (completar, vista ONs)
+      - en ninguna                → 'alta'           (dar de alta)
 
     'Tiene flujo' es ESTRUCTURAL (hay definición de flujo), no valuación — los CER
     futuros tienen flujo aunque no se puedan valuar todavía. Marca `en_cartera` hoy.
@@ -270,18 +270,16 @@ def titulos_sin_flujo() -> list[dict]:
                     base.setdefault(_base_ticker(key), key)
         return idx, base
 
-    # Curvas NO-ON (Renta Fija) y BondsMaster (ONs), cada uno con ¿tiene flujo?
+    # TODO vive en Trading.Curvas; la `curva` decide la vista. NO-ON (Renta Fija) y
+    # ON (`on_*`, vista ONs) — cada uno con ¿tiene flujo? (las ONs ya viven en Curvas,
+    # NO se lee BondsMaster: consolidado en Curvas, 2026-06-19).
+    _PROJ = {"_id": 0, "ticker_corto": 1, "ticker": 1, "flujos": 1,
+             "flujo_vencimiento": 1, "fecha_vencimiento": 1}
+    _KEYS = [lambda d: d.get("ticker_corto"), lambda d: d.get("ticker")]
     curvas_idx, curvas_base = _index(
-        trd["Curvas"].find({"curva": {"$not": {"$regex": "^on"}}},
-                           {"_id": 0, "ticker_corto": 1, "ticker": 1, "flujos": 1,
-                            "flujo_vencimiento": 1, "fecha_vencimiento": 1}),
-        [lambda d: d.get("ticker_corto"), lambda d: d.get("ticker")])
-    bm_idx, bm_base = _index(
-        trd["BondsMaster"].find({}, {"_id": 0, "asset": 1, "tickers": 1,
-                                     "flujos": 1, "vencimiento": 1}),
-        [lambda d: d.get("asset"),
-         lambda d: (d.get("tickers") or {}).get("ARS"),
-         lambda d: (d.get("tickers") or {}).get("USD")])
+        trd["Curvas"].find({"curva": {"$not": {"$regex": "^on"}}}, _PROJ), _KEYS)
+    on_idx, on_base = _index(
+        trd["Curvas"].find({"curva": {"$regex": "^on"}}, _PROJ), _KEYS)
 
     def _lookup(idx: dict, base: dict, cands) -> bool | None:
         """True/False=tiene/no flujo · None=no está en ese maestro."""
@@ -304,17 +302,17 @@ def titulos_sin_flujo() -> list[dict]:
         # aunque el Asset no tenga TICKER cargado.
         cands = (a.get("TICKER"), a.get("unidad"), _codigo_de_unidad(a.get("unidad")))
         cv = _lookup(curvas_idx, curvas_base, cands)
-        bm = _lookup(bm_idx, bm_base, cands)
-        if cv is True or bm is True:
-            continue  # tiene flujo en Curvas o BondsMaster → OK
+        on = _lookup(on_idx, on_base, cands)
+        if cv is True or on is True:
+            continue  # tiene flujo en Curvas (no-ON u ON) → OK
         if any(c in ignoradas for c in cands if c):
             continue  # marcado como "no aplica"
         if cv is False:
             fuente, accion, motivo = "curvas", "editar_curvas", "en Curvas (no-ON) sin flujo — completar"
-        elif bm is False:
-            fuente, accion, motivo = "bondsmaster", "editar_bondsmaster", "en BondsMaster sin flujo — completar"
+        elif on is False:
+            fuente, accion, motivo = "on", "editar_on", "en Curvas on_* (ON) sin flujo — completar"
         else:
-            fuente, accion, motivo = "ninguna", "alta_bondsmaster", "no está en Curvas ni BondsMaster — dar de alta (ONs)"
+            fuente, accion, motivo = "ninguna", "alta", "no está en Curvas — dar de alta"
         out.append({
             "unidad": a.get("unidad"),
             "ticker": a.get("TICKER") or _codigo_de_unidad(a.get("unidad")) or None,

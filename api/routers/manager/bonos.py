@@ -65,7 +65,7 @@ def bonos_sin_flujo() -> dict:
         "en_cartera": sum(1 for t in falta if t["en_cartera"]),
         "por_fuente": {
             "curvas": sum(1 for t in falta if t["fuente"] == "curvas"),
-            "bondsmaster": sum(1 for t in falta if t["fuente"] == "bondsmaster"),
+            "on": sum(1 for t in falta if t["fuente"] == "on"),
             "ninguna": sum(1 for t in falta if t["fuente"] == "ninguna"),
         },
         "ok": not falta,

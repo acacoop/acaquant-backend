@@ -135,6 +135,9 @@ def main() -> int:
             "meta": meta,
         }
         col_dst.update_one({"curva": curva}, {"$set": doc}, upsert=True)
+        # Dual-write SQL (flag MERCADO_SQL_WRITE): coeficientes z-score por curva.
+        from core.pg_mirror import doc_iso, mirror_job
+        mirror_job("forwards_zscore", ["curva"], [{"curva": curva, "data": doc_iso(doc)}])
 
     if args.dry:
         logger.info("(--dry: no se escribió en Mongo)")

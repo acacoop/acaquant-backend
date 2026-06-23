@@ -64,6 +64,7 @@ BEGIN
     ('public','timesales','mercado'),
     ('public','futuros_dlr_snapshot','mercado'),
     ('public','caucion_snapshot','mercado'),
+    ('public','forwards_zscore','mercado'),
     ('public','snapshots_cierre','mercado'),
     ('public','snapshots_cierre_hist','mercado'),
     ('public','canje_cierre','mercado'),
@@ -465,6 +466,13 @@ CREATE TABLE IF NOT EXISTS mercado.caucion_snapshot (
     moneda     text PRIMARY KEY,
     data       jsonb,
     updated_at timestamptz DEFAULT now()
+);
+
+-- Trading.ForwardsZscore → coeficientes (media/desvío) del z-score por curva (job diario).
+-- Dual-write desde jobs/forwards_zscore.py (flag MERCADO_SQL_WRITE).
+CREATE TABLE IF NOT EXISTS mercado.forwards_zscore (
+    curva text PRIMARY KEY,
+    data  jsonb
 );
 
 -- Trading.SnapshotsCierre → último cierre por ticker (fallback de precio del PnL).

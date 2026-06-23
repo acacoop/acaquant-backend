@@ -90,6 +90,19 @@ def get_futuros_dlr() -> list:
         return [r["data"] for r in cur.fetchall()]
 
 
+@cached(ttl=60)
+def get_forwards_zscore(curva: str | None = None) -> list:
+    """Coeficientes z-score (media/desvío) por curva desde SQL (mercado.forwards_zscore,
+    dual-write del job bajo MERCADO_SQL_WRITE). Igual que el path Mongo (ForwardsZscore)."""
+    where, params = "", ()
+    if curva:
+        where = "WHERE curva = %s"
+        params = (curva,)
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(f"SELECT data FROM mercado.forwards_zscore {where}", params)
+        return [r["data"] for r in cur.fetchall()]
+
+
 @cached(ttl=30)
 def get_caucion(moneda: str | None = None) -> list:
     """Snapshot LIVE de caución desde SQL (mercado.caucion_snapshot, dual-write motor bajo

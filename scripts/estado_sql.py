@@ -30,8 +30,10 @@ _FLAGS = [
     ("RENTA_FIJA_SQL",  "RENTA FIJA LIVE — /cotizaciones/renta-fija + snapshot-live + /analitica/listar-curva + historico/curva"),
     ("AGRO_SQL",        "AGRO — /derivados/agro/* (pase, opciones, simulador, cámara, mejoras-dispo)"),
     ("AUTH_SQL",        "AUTH (lecturas) — roles, matriz, scope de cuentas"),
+    ("MANAGER_SQL",     "MANAGER infra (lecturas) — /jobs/history(/stats), /roles/audit, frescura jobs"),
     ("SNAPSHOT_SQL",    "MOTORES → market_snapshot live (dual-write a SQL)"),
     ("MERCADO_SQL_WRITE", "JOBS mercado → dual-write (series_macro, rem, cierres)"),
+    ("MANAGER_SQL_WRITE", "MANAGER infra → dual-write (JobRuns→job_runs, RoleAudit→role_audit)"),
 ]
 
 

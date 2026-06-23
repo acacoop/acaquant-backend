@@ -41,6 +41,33 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase**.
   `to_char` (substr 0-based), `COALESCE`/`ABS`, `ultima_ingesta` ISO naive, label `'(sin)'` donde
   Mongo dejaba `''` (el sync hace `''→NULL`), `denominacion` de cuentas-list no-determinística.
 
+### MANAGER infra — JobRuns + RoleAudit (dual-run 2026-06-23)
+
+Las lecturas de INFRAESTRUCTURA del panel Manager corren dual-run Mongo↔SQL:
+- **Tablas:** `manager.job_runs` (Manager.JobRuns — historial de corridas) y `manager.role_audit`
+  (Manager.RoleAudit — auditoría append-only de cambios de rol/usuario). Passthrough `data jsonb`
+  (doc completo vía `doc_iso`) + columnas materializadas para filtrar/ordenar: job_runs
+  `(run_id PK, tipo, started_at, finished_at, status)`; role_audit `(audit_id PK, ts, actor, action,
+  target)`. PK = `str(_id)` de Mongo.
+- **TZ (crítico):** los writers usan `datetime.now(UTC)` **aware** → columnas **timestamptz**
+  (started_at/finished_at/ts) — el cast no corre la hora.
+- **Servicio:** `api/services/manager_infra_sql.py` (puro, pool `get_pool`). Replica el shape exacto
+  del path Mongo: `/jobs/history` y `/jobs/history/stats` reformatean ts a AR igual que `jobs.py`;
+  `/roles/audit` devuelve el doc tal cual (ts ISO del jsonb, como `core.roles.list_audit`).
+- **Lecturas migradas:** `GET /api/manager/jobs/history`, `/jobs/history/stats`, `/roles/audit`, y la
+  frescura por `run_tipo` del Diagnóstico (`api/services/diagnostico._leer_frescura`, con fallback a
+  Mongo si SQL falla).
+- **Flag lectura:** `MANAGER_SQL=1` (override `?_engine=sql|mongo`). Default Mongo → path Mongo intacto.
+- **Flag escritura (dual-write):** `MANAGER_SQL_WRITE=1` → `core/job_runs.py` (JobRunLogger, tras el
+  insert Mongo) y `core/roles.py::_audit_insert` (las 3 mutaciones de rol/usuario) espejan a SQL.
+  Best-effort try/except: si SQL falla NO tumba el job/mutación (Mongo es la fuente de verdad; el sync
+  alinea). **Sin este flag, lo recién escrito no aparece en SQL hasta el próximo `sync_postgres`.**
+- **Sync baseline:** `sync_job_runs` (incremental por `started_at`, batcheado) + `sync_role_audit`
+  (full, chica) en `jobs/sync_postgres.py`.
+- **NO migradas (decisión):** `Manager.HealthReports` y `Manager.WatchdogAlertas` — son estado
+  INTERNO job-a-job (informe de salud lee su propio informe previo; el watchdog su cooldown por `_id`).
+  Ninguna vista/web las lee → migrarlas no aporta. Candidatas a quedarse en Mongo (TTL propio).
+
 ## Mapeos no obvios (verificados con `scripts/diag_shapes_sync`, REGLA #2)
 - **`operaciones.id_cuenta` ← Mongo `cuenta`** (Operaciones NO tiene `id_cuenta`).
 - **`operadores` = SOLO los `operador_email` que aparecen en `Clientes.Comitentes`**
@@ -72,7 +99,7 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase**.
 | `valuaciones` | consolidado, dolar, portfolio_snapshot |
 | `mercado` | curvas, bonds_master, market_snapshot, snapshots_cierre, snapshots_cierre_hist, canje_cierre, mercado_hist |
 | `macro` | series_macro, rem |
-| `manager` | manager_users, role_matrix, grupos |
+| `manager` | manager_users, role_matrix, grupos, job_runs, role_audit |
 | `home` | news_headlines, market_quotes, market_calendar |
 
 - **Migración v1→v2 idempotente:** un bloque `DO $$ … ALTER TABLE … SET SCHEMA` al

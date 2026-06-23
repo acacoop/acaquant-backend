@@ -220,6 +220,44 @@ def sync_grupos(mdb, conn, dry) -> int:
     return n
 
 
+def sync_job_runs(mdb, conn, dry, desde: datetime | None) -> int:
+    """Manager.JobRuns → manager.job_runs (historial de corridas). PK = str(_id) Mongo.
+    Columnas materializadas (tipo, started_at, finished_at, status) + doc en jsonb.
+    Incremental por started_at (datetime). Batcheado + throttle (puede crecer). El
+    dual-write de core/job_runs.py (MANAGER_SQL_WRITE) lo mantiene fresco entre syncs."""
+    q = {"started_at": {"$gte": desde}} if desde else {}
+    total = 0
+    cur = mdb["Manager"]["JobRuns"].find(q, batch_size=BATCH)
+    for batch in _iter_batches(cur):
+        rows = []
+        for d in batch:
+            rid = str(d.get("_id"))
+            doc = {k: v for k, v in d.items() if k != "_id"}
+            rows.append((rid, _s(d.get("tipo")), d.get("started_at"),
+                         d.get("finished_at"), _s(d.get("status")), _jsonb(doc)))
+        total += _upsert(conn, "job_runs",
+                         ["run_id", "tipo", "started_at", "finished_at", "status", "data"],
+                         ["run_id"], _dedup(rows, [0]), dry)
+        time.sleep(THROTTLE)
+    return total
+
+
+def sync_role_audit(mdb, conn, dry) -> int:
+    """Manager.RoleAudit → manager.role_audit (append-only, chico). PK = str(_id) Mongo.
+    Columnas materializadas (ts, actor, action, target) + doc completo en jsonb. Solo
+    upsert (append-only, no se borran eventos históricos)."""
+    rows = []
+    for d in mdb["Manager"]["RoleAudit"].find({}):
+        rid = str(d.get("_id"))
+        doc = {k: v for k, v in d.items() if k != "_id"}
+        rows.append((rid, d.get("ts"), _s(d.get("actor")), _s(d.get("action")),
+                     _s(d.get("target")), _jsonb(doc)))
+    rows = _dedup(rows, [0])
+    return _upsert(conn, "role_audit",
+                   ["audit_id", "ts", "actor", "action", "target", "data"],
+                   ["audit_id"], rows, dry)
+
+
 def sync_actividad_mensual(mdb, conn, dry) -> int:
     """Clientes.ActividadMensual → tabla actividad_mensual (snapshot point-in-time, se espeja
     tal cual; operador/segmento están CONGELADOS al correr el job — NO recomputar en vivo)."""
@@ -822,6 +860,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_mu = _t("manager_users", lambda: sync_manager_users(mdb, conn, dry))
         n_rm = _t("role_matrix", lambda: sync_role_matrix(mdb, conn, dry))
         n_gr = _t("grupos", lambda: sync_grupos(mdb, conn, dry))
+        n_jr = _t("job_runs", lambda: sync_job_runs(mdb, conn, dry, desde))
+        n_ra = _t("role_audit", lambda: sync_role_audit(mdb, conn, dry))
         n_am = _t("actividad_mensual", lambda: sync_actividad_mensual(mdb, conn, dry))
         n_dl = _t("dolar", lambda: sync_dolar(mdb, conn, dry, desde))
         n_ps = _t("portfolio_snapshot", lambda: sync_portfolio_snapshot(mdb, conn, dry))
@@ -870,6 +910,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         print(f"  dimensiones: accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
+        print(f"  manager infra: job_runs={n_jr:,}  role_audit={n_ra}")
 
         # operaciones y negocio_movimientos ya NO se sincronizan: los escriben
         # SQL directo jobs/operaciones_informes.py, jobs/fci_bilateral.py y
@@ -890,6 +931,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
             print(f"  - {label}: {err}")
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
     stats = {"accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
+             "job_runs": n_jr, "role_audit": n_ra,
              "actividad_mensual": n_am, "dolar": n_dl,
              "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc,
              "quotes": n_qt, "calendar": n_cal,

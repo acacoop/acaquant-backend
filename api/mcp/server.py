@@ -118,12 +118,15 @@ def pendiente_curva(
 
 @mcp.tool(
     description=(
-        "Trades de los últimos 15 días para un instrumento (o todos si se "
-        "omite). Cada trade trae precio, size, side, money, TEA/duration "
-        "enriquecidas por el motor. Ticker corto ('TX26') o completo."
+        "Trades de HOY para un instrumento (o todos si se omite). Cada trade trae "
+        "hora, precio, size, side, money. Ticker corto ('TX26') o completo."
     ),
 )
 def historico_trades(instrumento: str | None = None) -> list[dict]:
+    import os
+    if os.getenv("RENTA_FIJA_SQL") == "1":
+        from api.services import renta_fija_sql as _rfs
+        return _rfs.get_historico_trades(instrumento=instrumento)
     return svc_rf.get_historico_trades(instrumento=instrumento)
 
 

@@ -40,13 +40,12 @@ _DROP = [
 # campo datetime; explícito cuando hay varios (ej. started_at/finished_at).
 _TTL = [
     ("Manager", "RoleAudit", 90, None),
-    ("Manager", "ChangeLog", 90, None),
     ("Manager", "PortfolioSnapshotLog", 90, None),
     ("Operaciones", "OrdenesAudit", 90, None),
     ("Derivados", "AgroPizarraAudit", 90, None),
     ("Derivados", "CamaraCerealesAudit", 90, None),
     ("Opciones", "Data", 90, None),       # time-series
-    ("Trading", "TimeSales", 90, None),   # time-series
+    # Manager.ChangeLog (huérfana) + Trading.TimeSales (SQL-only) DROPEADAS 2026-06-23.
 ]
 
 

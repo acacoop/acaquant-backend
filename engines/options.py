@@ -254,13 +254,22 @@ class OptionsEngine:
         """
         if not self.mapa_opciones:
             return
+        vigentes = list(self.mapa_opciones.keys())
         try:
             col = get_mongo_client()["Opciones"]["OptionsSnapshot"]
-            resultado = col.delete_many({"symbol": {"$nin": list(self.mapa_opciones.keys())}})
+            resultado = col.delete_many({"symbol": {"$nin": vigentes}})
             if resultado.deleted_count:
                 logger.info(f"🧹 OptionsSnapshot: purgados {resultado.deleted_count} docs de series anteriores.")
         except Exception as e:
             logger.error(f"Error purgando OptionsSnapshot: {e}")
+        # Misma política en SQL: solo strikes vigentes (borra los vencimientos viejos).
+        try:
+            from core.postgres import get_pool
+            with get_pool().connection() as _cn, _cn.cursor() as _cur:
+                _cur.execute("DELETE FROM mercado.options_snapshot WHERE symbol <> ALL(%s)",
+                             (vigentes,))
+        except Exception as e:
+            logger.error(f"Error purgando options_snapshot SQL: {e}")
 
     def refrescar_mapa(self) -> list[str]:
         """Recomputa mapa_opciones desde pyRofex y devuelve símbolos nuevos.
@@ -390,6 +399,7 @@ class OptionsEngine:
                 S = self.market_state.get(self.spot_symbol, {}).get('last', 0)
                 ts = datetime.now()
                 ops = []
+                docs = []
 
                 for sym, info in self.mapa_opciones.items():
                     md = self.market_state.get(sym, {})
@@ -446,9 +456,23 @@ class OptionsEngine:
                             pass
 
                     ops.append(UpdateOne({"symbol": sym}, {"$set": doc}, upsert=True))
+                    docs.append(doc)
 
                 if ops:
                     col.bulk_write(ops, ordered=False)
+                    # Dual-write SQL (flag SNAPSHOT_SQL): chain live de opciones (grid).
+                    # Solo vencimientos vigentes — la purga de series viejas la maneja
+                    # _purgar_snapshot_series_anteriores (Mongo + SQL).
+                    try:
+                        from core import pg_mirror
+                        pg_mirror.mirror_snapshot("options_snapshot", ["symbol"], [
+                            {"symbol": d.get("symbol"), "tipo": d.get("tipo"),
+                             "vence": d.get("vence"), "updated_at": d.get("updated_at"),
+                             "data": pg_mirror.doc_iso(d)}
+                            for d in docs if d.get("symbol")
+                        ])
+                    except Exception:
+                        pass
 
             except Exception as e:
                 logger.error(f"Error en batch_snapshot_loop: {e}")

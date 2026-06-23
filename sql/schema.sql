@@ -62,6 +62,7 @@ BEGIN
     ('public','curvas','mercado'),
     ('public','market_snapshot','mercado'),
     ('public','timesales','mercado'),
+    ('public','options_snapshot','mercado'),
     ('public','futuros_dlr_snapshot','mercado'),
     ('public','caucion_snapshot','mercado'),
     ('public','forwards_zscore','mercado'),
@@ -474,6 +475,20 @@ CREATE TABLE IF NOT EXISTS mercado.forwards_zscore (
     curva text PRIMARY KEY,
     data  jsonb
 );
+
+-- Opciones.OptionsSnapshot → chain LIVE de opciones GGAL (grid, motor reemplaza c/1s).
+-- Dual-write desde engines/options.py (flag SNAPSHOT_SQL). Greeks (delta/gamma/iv/...) los
+-- calcula el motor vía quant/black_scholes — acá se ESPEJAN (no se recalculan). Política
+-- "solo strikes vigentes": _purgar_snapshots_fuera_de_mapa borra los symbols que no están
+-- en el mapa actual (vencimientos viejos). `updated_at` naive ART/UTC (datetime.now()).
+CREATE TABLE IF NOT EXISTS mercado.options_snapshot (
+    symbol     text PRIMARY KEY,
+    tipo       text,
+    vence      text,                    -- 'YYYYMMDD'
+    updated_at timestamp,               -- naive (sin tz, como Mongo)
+    data       jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_options_snapshot_updated ON mercado.options_snapshot (updated_at);
 
 -- Trading.SnapshotsCierre → último cierre por ticker (fallback de precio del PnL).
 CREATE TABLE IF NOT EXISTS mercado.snapshots_cierre (

@@ -25,6 +25,7 @@ from api.services import macro as svc_macro
 from api.services import macro_sql as svc_macro_sql
 from api.services import mercado_hist_sql as svc_mhist
 from api.services import opciones as svc_opt
+from api.services import opciones_sql as svc_opt_sql
 from api.services import rem as svc_rem
 from api.services import rem_sql as svc_rem_sql
 from api.services import renta_fija as svc_rf
@@ -354,12 +355,21 @@ def listar_renta_fija(
 # ── Opciones ──
 
 
+def _opc(engine: str | None):
+    """Selector de la chain de opciones: SQL (mercado.options_snapshot) si `?_engine=sql`
+    o flag `OPCIONES_SQL=1`; Mongo (Opciones.OptionsSnapshot) en otro caso. Solo aplica a
+    get_opciones (meta/historico/griegas siguen Mongo)."""
+    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("OPCIONES_SQL") == "1")
+    return svc_opt_sql if use_sql else svc_opt
+
+
 @router.get("/opciones")
 def listar_opciones(
     instrumento: str | None = Query(None, description="Filtrar por instrumento. Acepta corto ('GFGC10950A') o completo ('MERV - XMEV - GFGC10950A - 24hs')."),
     tipo: str | None = Query(None, description="Filtrar por tipo (CALL/PUT)"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_opt.get_opciones(instrumento=instrumento, tipo=tipo)
+    return _opc(_engine).get_opciones(instrumento=instrumento, tipo=tipo)
 
 
 @router.get("/opciones/meta")

@@ -63,6 +63,7 @@ BEGIN
     ('public','market_snapshot','mercado'),
     ('public','timesales','mercado'),
     ('public','futuros_dlr_snapshot','mercado'),
+    ('public','caucion_snapshot','mercado'),
     ('public','snapshots_cierre','mercado'),
     ('public','snapshots_cierre_hist','mercado'),
     ('public','canje_cierre','mercado'),
@@ -456,6 +457,14 @@ CREATE TABLE IF NOT EXISTS mercado.futuros_dlr_snapshot (
     vencimiento text,                    -- 'YYYYMMDD'
     data        jsonb,
     updated_at  timestamptz DEFAULT now()
+);
+
+-- Trading.CaucionSnapshot → snapshot LIVE de caución (motor reemplaza c/15s, 1 doc/moneda).
+-- Dual-write desde engines/caucion.py (flag SNAPSHOT_SQL). Histórico al cierre → mercado_hist.
+CREATE TABLE IF NOT EXISTS mercado.caucion_snapshot (
+    moneda     text PRIMARY KEY,
+    data       jsonb,
+    updated_at timestamptz DEFAULT now()
 );
 
 -- Trading.SnapshotsCierre → último cierre por ticker (fallback de precio del PnL).

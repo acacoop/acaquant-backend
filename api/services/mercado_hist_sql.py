@@ -91,6 +91,20 @@ def get_futuros_dlr() -> list:
 
 
 @cached(ttl=30)
+def get_caucion(moneda: str | None = None) -> list:
+    """Snapshot LIVE de caución desde SQL (mercado.caucion_snapshot, dual-write motor bajo
+    SNAPSHOT_SQL). Con `moneda` (uppercase) filtra esa; sin filtro devuelve todas. Igual
+    que el path Mongo (CaucionSnapshot)."""
+    where, params = "", ()
+    if moneda:
+        where = "WHERE moneda = %s"
+        params = (moneda.upper(),)
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(f"SELECT data FROM mercado.caucion_snapshot {where}", params)
+        return [r["data"] for r in cur.fetchall()]
+
+
+@cached(ttl=30)
 def get_breakevens() -> list:
     """LIVE breakevens desde SQL = la fila MÁS RECIENTE de BreakevensHistorico
     (1 doc global). Equivale a Trading.BreakevensLive."""

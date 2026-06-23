@@ -67,6 +67,14 @@ def _rf(engine: str | None):
     return svc_rf_sql if use_sql else svc_rf
 
 
+def _caucion(engine: str | None):
+    """Selector de caución LIVE: SQL (mercado.caucion_snapshot) vs Mongo (repo.py /
+    CaucionSnapshot). Mismo flag RENTA_FIJA_SQL. OJO: el Mongo de caución es svc_repo,
+    no svc_der → no usar _fwbe."""
+    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("RENTA_FIJA_SQL") == "1")
+    return svc_mhist if use_sql else svc_repo
+
+
 def _fwbe(engine: str | None):
     """Forwards/breakevens LIVE: SQL (la fila más reciente de mercado_hist, fresca por
     SNAPSHOT_SQL) si `?_engine=sql` o `RENTA_FIJA_SQL=1`; Mongo (ForwardsLive/BreakevensLive)
@@ -147,8 +155,9 @@ def argy():
 @router.get("/caucion")
 def caucion(
     moneda: str | None = Query(None, description="ARS o USD; vacío = ambas"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_repo.get_caucion(moneda=moneda)
+    return _caucion(_engine).get_caucion(moneda=moneda)
 
 
 @router.get("/historico/caucion")

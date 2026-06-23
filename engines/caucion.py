@@ -189,14 +189,25 @@ class CaucionEngine:
     def _volcar_snapshot(self):
         ts = datetime.now(UTC)
         ops = []
+        docs = []
         with self._state_lock:
             for ticker in self.tickers_actuales:
                 st = self.market_state.get(ticker, {})
                 doc = self._build_snapshot_doc(ticker, st, ts)
                 if doc:
                     ops.append(ReplaceOne({"moneda": doc["moneda"]}, doc, upsert=True))
+                    docs.append(doc)
         if ops:
             self.col_snap.bulk_write(ops, ordered=False)
+            # Dual-write SQL (flag SNAPSHOT_SQL): snapshot live de caución.
+            try:
+                from core import pg_mirror
+                pg_mirror.mirror_snapshot("caucion_snapshot", ["moneda"], [
+                    {"moneda": d.get("moneda"), "data": pg_mirror.doc_iso(d)}
+                    for d in docs if d.get("moneda")
+                ])
+            except Exception:
+                pass
 
     def _build_snapshot_doc(self, ticker: str, st: dict, ts: datetime) -> dict | None:
         last = st.get("last") or {}

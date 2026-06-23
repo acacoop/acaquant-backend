@@ -312,6 +312,21 @@ def set_pizarra(
 
     col.replace_one({"_id": commodity}, new, upsert=True)
 
+    # Dual-write incondicional a Postgres (carga manual de la mesa, no hay motor que
+    # lo refresque). Best-effort: si PG está caído no rompe la escritura a Mongo.
+    try:
+        from core import pg_mirror
+        # `commodity` queda también dentro de `data` (renombrado de `_id`) para que el
+        # read SQL reconstruya el mismo dict que indexa el service por commodity.
+        data = {"commodity": commodity,
+                **{k: v for k, v in new.items() if k != "_id"}}
+        pg_mirror.write_native(
+            "mercado.agro_pizarra", ["commodity"],
+            [{"commodity": commodity, "data": pg_mirror.doc_iso(data)}],
+        )
+    except Exception:
+        pass
+
     audit.insert_one({
         "commodity":  commodity,
         "prev": {

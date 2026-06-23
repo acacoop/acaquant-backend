@@ -28,6 +28,7 @@ _FLAGS = [
     ("MACRO_SQL",       "MACRO — /cotizaciones/{badlar,cer,dolar} + /analitica/serie-macro (7 series)"),
     ("MERCADO_HIST_SQL", "HISTÓRICOS — /cotizaciones/historico/{breakevens,forwards,futuros-dlr,caucion}"),
     ("RENTA_FIJA_SQL",  "RENTA FIJA LIVE — /cotizaciones/renta-fija + snapshot-live + /analitica/listar-curva + historico/curva"),
+    ("AGRO_SQL",        "AGRO — /derivados/agro/* (pase, opciones, simulador, cámara, mejoras-dispo)"),
     ("AUTH_SQL",        "AUTH (lecturas) — roles, matriz, scope de cuentas"),
     ("SNAPSHOT_SQL",    "MOTORES → market_snapshot live (dual-write a SQL)"),
     ("MERCADO_SQL_WRITE", "JOBS mercado → dual-write (series_macro, rem, cierres)"),

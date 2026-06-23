@@ -95,6 +95,19 @@ def set_camara_cereal(
     }
     col.replace_one({"_id": c}, new, upsert=True)
 
+    # Dual-write incondicional a Postgres (carga manual de la mesa, no hay motor que
+    # lo refresque). `cereal` queda dentro de `data` (renombrado de `_id`) para que el
+    # read SQL reconstruya el mismo dict. Best-effort: no rompe el write a Mongo.
+    try:
+        from core import pg_mirror
+        data = {"cereal": c, **{k: v for k, v in new.items() if k != "_id"}}
+        pg_mirror.write_native(
+            "mercado.camara_cereales", ["cereal"],
+            [{"cereal": c, "data": pg_mirror.doc_iso(data)}],
+        )
+    except Exception:
+        pass
+
     audit.insert_one({
         "cereal":     c,
         "prev": {

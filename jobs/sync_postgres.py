@@ -390,6 +390,68 @@ def sync_caucion_snapshot(mdb, conn, dry) -> int:
     return n
 
 
+def sync_agro_snapshot(mdb, conn, dry) -> int:
+    """Trading.AgroSnapshot → agro_snapshot (BASELINE; el motor lo refresca live bajo
+    SNAPSHOT_SQL). Passthrough jsonb; `commodity` columna para filtrar. _delete_not_in
+    limpia tickers stale (vencidos/variantes) que el motor borra en Mongo pero el mirror
+    live —solo upsert— no quita."""
+    rows = []
+    for d in mdb["Trading"]["AgroSnapshot"].find({}, {"_id": 0}):
+        t = _s(d.get("ticker"))
+        if t:
+            rows.append((t, _s(d.get("commodity")), _jsonb(d)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "agro_snapshot", ["ticker", "commodity", "data"], ["ticker"], rows, dry)
+    _delete_not_in(conn, "agro_snapshot", "ticker", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_agro_opciones_snapshot(mdb, conn, dry) -> int:
+    """Trading.AgroOpcionesSnapshot → agro_opciones_snapshot (BASELINE; el motor lo
+    refresca live bajo SNAPSHOT_SQL). Passthrough jsonb; `commodity` columna."""
+    rows = []
+    for d in mdb["Trading"]["AgroOpcionesSnapshot"].find({}, {"_id": 0}):
+        t = _s(d.get("ticker"))
+        if t:
+            rows.append((t, _s(d.get("commodity")), _jsonb(d)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "agro_opciones_snapshot",
+                ["ticker", "commodity", "data"], ["ticker"], rows, dry)
+    _delete_not_in(conn, "agro_opciones_snapshot", "ticker", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_agro_pizarra(mdb, conn, dry) -> int:
+    """Derivados.AgroPizarra → agro_pizarra (carga MANUAL; el service la dual-escribe en
+    write_native). Baseline para arrancar el espejo. PK = commodity (Mongo _id); `commodity`
+    queda también dentro de `data` (igual que el dual-write del service)."""
+    rows = []
+    for d in mdb["Derivados"]["AgroPizarra"].find({}):
+        c = _s(d.get("_id"))
+        if c:
+            data = {"commodity": c, **{k: v for k, v in d.items() if k != "_id"}}
+            rows.append((c, _jsonb(data)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "agro_pizarra", ["commodity", "data"], ["commodity"], rows, dry)
+    _delete_not_in(conn, "agro_pizarra", "commodity", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_camara_cereales(mdb, conn, dry) -> int:
+    """Derivados.CamaraCereales → camara_cereales (carga MANUAL; el service la dual-escribe
+    en write_native). Baseline. PK = cereal (Mongo _id); `cereal` queda dentro de `data`."""
+    rows = []
+    for d in mdb["Derivados"]["CamaraCereales"].find({}):
+        c = _s(d.get("_id"))
+        if c:
+            data = {"cereal": c, **{k: v for k, v in d.items() if k != "_id"}}
+            rows.append((c, _jsonb(data)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "camara_cereales", ["cereal", "data"], ["cereal"], rows, dry)
+    _delete_not_in(conn, "camara_cereales", "cereal", {r[0] for r in rows}, dry)
+    return n
+
+
 def sync_forwards_zscore(mdb, conn, dry) -> int:
     """Trading.ForwardsZscore → forwards_zscore (BASELINE; el job lo refresca diario)."""
     rows = []
@@ -650,11 +712,17 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_fd = _t("futuros_dlr_snapshot", lambda: sync_futuros_dlr_snapshot(mdb, conn, dry))
         n_ca = _t("caucion_snapshot", lambda: sync_caucion_snapshot(mdb, conn, dry))
         n_fz = _t("forwards_zscore", lambda: sync_forwards_zscore(mdb, conn, dry))
+        n_as = _t("agro_snapshot", lambda: sync_agro_snapshot(mdb, conn, dry))
+        n_ao = _t("agro_opciones_snapshot", lambda: sync_agro_opciones_snapshot(mdb, conn, dry))
+        n_ap = _t("agro_pizarra", lambda: sync_agro_pizarra(mdb, conn, dry))
+        n_cc = _t("camara_cereales", lambda: sync_camara_cereales(mdb, conn, dry))
         print(f"  mercado: series_macro={n_sm:,}  rem={n_rem}  curvas={n_cv} "
               f"(sin ticker_corto, salteadas={sin_corto})  "
               f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  canje_cierre={n_cj}  "
               f"mercado_hist={n_mh:,}")
         print(f"  derivados live (baseline): futuros_dlr={n_fd}  caucion={n_ca}  forwards_zscore={n_fz}")
+        print(f"  agro (baseline): agro_snapshot={n_as}  agro_opciones={n_ao}  "
+              f"agro_pizarra={n_ap}  camara_cereales={n_cc}")
         print(f"  dimensiones: accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
@@ -685,6 +753,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "curvas_sin_ticker_corto": sin_corto,
              "market_snapshot": n_ms, "snapshots_cierre_hist": n_sh,
              "canje_cierre": n_cj, "mercado_hist": n_mh,
+             "agro_snapshot": n_as, "agro_opciones_snapshot": n_ao,
+             "agro_pizarra": n_ap, "camara_cereales": n_cc,
              "fases_fallidas": len(fallos)}
     # Re-lanza SOLO si falló una fase crítica (las vistas la consumen). El mirror de
     # Market que falle no alerta. Lo que sí sincronizó ya quedó commiteado por fase.

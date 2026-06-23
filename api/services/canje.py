@@ -30,18 +30,21 @@ from config import PARES_CANJE
 
 
 def _ultimo_trade_dia(db, ticker: str, dia: date) -> float | None:
-    """Último trade (price>0) de `ticker` en `dia`. Usa el índice
-    (ticker, timestamp) → 1 doc, O(1). Compartido entre el fallback live de
-    hoy y referencia del cron (jobs/cierre_canje usa la misma lógica)."""
-    inicio = datetime.combine(dia, datetime.min.time(), tzinfo=UTC)
+    """Último trade (price>0) de `ticker` en `dia` desde SQL `mercado.timesales`
+    (Trading.TimeSales fue DROPEADA 2026-06-22 — el tape vive solo en Postgres).
+    `ts` es naive ART → bounds naive del día ART. `db` queda para los lectores Mongo
+    vivos del módulo (CanjeCierre)."""
+    from core.postgres import get_pool
+    inicio = datetime.combine(dia, datetime.min.time())
     fin = inicio + timedelta(days=1)
-    doc = db["TimeSales"].find_one(
-        {"ticker": ticker, "price": {"$gt": 0},
-         "timestamp": {"$gte": inicio, "$lt": fin}},
-        sort=[("timestamp", -1)],
-        projection={"_id": 0, "price": 1},
-    )
-    return float(doc["price"]) if doc else None
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT price FROM mercado.timesales WHERE ticker = %s AND price > 0 "
+            "AND ts >= %s AND ts < %s ORDER BY ts DESC LIMIT 1",
+            (ticker, inicio, fin),
+        )
+        row = cur.fetchone()
+    return float(row[0]) if row and row[0] is not None else None
 
 
 def _precios_cierre(db, tickers: list[str], desde: date, hasta: date) -> dict[str, dict[date, float]]:

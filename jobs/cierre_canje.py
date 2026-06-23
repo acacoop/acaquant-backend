@@ -35,15 +35,19 @@ def _tickers() -> list[str]:
 
 
 def _ultimo_trade_dia(db, ticker: str, dia: date) -> float | None:
-    inicio = datetime.combine(dia, datetime.min.time(), tzinfo=UTC)
+    # Último trade del día desde SQL mercado.timesales (Trading.TimeSales DROPEADA
+    # 2026-06-22). ts naive ART → bounds naive del día ART. `db` ya no se usa acá.
+    from core.postgres import get_pool
+    inicio = datetime.combine(dia, datetime.min.time())
     fin = inicio + timedelta(days=1)
-    doc = db["TimeSales"].find_one(
-        {"ticker": ticker, "price": {"$gt": 0},
-         "timestamp": {"$gte": inicio, "$lt": fin}},
-        sort=[("timestamp", -1)],
-        projection={"_id": 0, "price": 1},
-    )
-    return float(doc["price"]) if doc else None
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT price FROM mercado.timesales WHERE ticker = %s AND price > 0 "
+            "AND ts >= %s AND ts < %s ORDER BY ts DESC LIMIT 1",
+            (ticker, inicio, fin),
+        )
+        row = cur.fetchone()
+    return float(row[0]) if row and row[0] is not None else None
 
 
 def run(fecha: date, dry: bool = False) -> int:

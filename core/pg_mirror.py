@@ -93,12 +93,9 @@ def mirror_job(table: str, key_cols: list[str], rows: list[dict]) -> int:
     return _mirror(table, key_cols, rows)
 
 
-def append_snapshot(table: str, rows: list[dict]) -> int:
-    """INSERT APPEND-ONLY (sin upsert) desde un motor live (flag SNAPSHOT_SQL). Para
-    STREAMS como TimeSales: cada trade es una fila nueva, sin PK natural → no hay
-    ON CONFLICT. Best-effort: nunca levanta (Mongo es la base). No-op con flag apagado."""
-    if not snapshots_live_on() or not rows:
-        return 0
+def _append(table: str, rows: list[dict]) -> int:
+    """INSERT append-only (sin upsert). Para STREAMS como TimeSales: cada fila es nueva,
+    sin PK natural → no hay ON CONFLICT. Best-effort: nunca levanta."""
     try:
         from core.postgres import get_pool
         grupos: dict[tuple, list[tuple]] = {}
@@ -117,6 +114,16 @@ def append_snapshot(table: str, rows: list[dict]) -> int:
     except Exception as e:
         logger.error("pg_mirror append %s: %s", table, str(e).splitlines()[0][:200])
         return 0
+
+
+def append_snapshot(table: str, rows: list[dict]) -> int:
+    """Append gateado por SNAPSHOT_SQL (motor en modo DUAL-write Mongo+SQL)."""
+    return _append(table, rows) if (snapshots_live_on() and rows) else 0
+
+
+def append_native(table: str, rows: list[dict]) -> int:
+    """Append INCONDICIONAL (motor SQL-native, sin Mongo). SQL es la única escritura."""
+    return _append(table, rows) if rows else 0
 
 
 def mirror_hist(coleccion: str, fecha_str: str, k: str, doc: dict) -> int:

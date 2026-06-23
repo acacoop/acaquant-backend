@@ -70,19 +70,17 @@ class MicrostructureEngine:
         try:
             self.mongo_client = get_mongo_client()
             self.db = self.mongo_client["Trading"]
-            self.col_trades = self.db["TimeSales"]
+            # TimeSales ya NO se escribe en Mongo (SQL-only, decommission 2026-06-22).
             self.col_snapshot = self.db["MarketSnapshot"]
         except Exception as e:
             print(f"Error conectando a Mongo en main_ts: {e}")
-            self.col_trades = None
             self.col_snapshot = None
 
-        # Retención del espejo SQL de trades (~7d) — 1 vez al arranque, gateado por
-        # SNAPSHOT_SQL. El tape muestra solo el día; no hace falta guardar más.
+        # Retención de mercado.timesales (~7d) — 1 vez al arranque. El tape muestra solo
+        # el día; no hace falta guardar más. SQL-only → prune incondicional.
         try:
             from core import pg_mirror
-            if pg_mirror.snapshots_live_on():
-                pg_mirror.prune_native("mercado.timesales", "ts", 7)
+            pg_mirror.prune_native("mercado.timesales", "ts", 7)
         except Exception:
             pass
 
@@ -121,20 +119,29 @@ class MicrostructureEngine:
             except Exception as e:
                 print(f"⚠️ No se pudo obtener market data REST para {ticker}: {e}")
 
-        # 2) Reconstruir financials del día desde trades en MongoDB.
-        # Una sola query con $in en vez de N find secuenciales (antes N+1).
-        if self.col_trades is None: return
+        # 2) Reconstruir financials del día desde los trades en SQL (mercado.timesales,
+        # SQL-only desde 2026-06-22). Una sola query con ANY en vez de N find.
         _art_now = datetime.utcnow() - timedelta(hours=3)
         inicio = _art_now.replace(hour=0, minute=0, second=0, microsecond=0)
-        cursor = self.col_trades.find(
-            {"ticker": {"$in": list(self.tickers)}, "timestamp": {"$gte": inicio}},
-            {"_id": 0, "ticker": 1, "price": 1, "size": 1, "side": 1, "timestamp": 1},
-        )
-        for doc in cursor:
-            st = self.market_state.get(doc.get("ticker"))
+        try:
+            from core.postgres import get_pool
+            with get_pool().connection() as _cn, _cn.cursor() as _cur:
+                _cur.execute(
+                    "SELECT ticker, price, size, side, ts FROM mercado.timesales "
+                    "WHERE ticker = ANY(%s) AND ts >= %s",
+                    (list(self.tickers), inicio),
+                )
+                trades_hoy = _cur.fetchall()
+        except Exception as e:
+            print(f"⚠️ No se pudo reconstruir financials desde SQL: {e}")
+            return
+        for ticker_t, px, sz, sd, ts in trades_hoy:
+            st = self.market_state.get(ticker_t)
             if not st:
                 continue
-            px, sz, sd = doc.get("price", 0), doc.get("size", 0), doc.get("side", "MID")
+            px = float(px or 0)
+            sz = float(sz or 0)
+            sd = sd or "MID"
             cash = (px / 100.0) * sz
             st["daily_financials"]["total_nominals"] += sz
             st["daily_financials"]["total_money"] += cash
@@ -142,7 +149,7 @@ class MicrostructureEngine:
                 st["daily_financials"]["buy_money"] += cash
             elif sd == "SELL":
                 st["daily_financials"]["sell_money"] += cash
-            h = doc["timestamp"].hour
+            h = ts.hour
             if 10 <= h <= 17:
                 st["hourly_stats"][h]["total"] += cash
                 if sd == "BUY":
@@ -199,27 +206,23 @@ class MicrostructureEngine:
         """Thread dedicado: persiste trades en MongoDB sin bloquear el worker."""
         while True:
             time.sleep(1.0)
-            if not self.trade_buffer or self.col_trades is None:
+            if not self.trade_buffer:
                 continue
             with self._buffer_lock:
                 batch = self.trade_buffer[:]
                 self.trade_buffer = []
-            try:
-                self.col_trades.insert_many(batch, ordered=False)
-            except Exception as e:
-                print(f"Error flush trades: {e}")
-            # Dual-write SQL (flag SNAPSHOT_SQL): solo los campos del tape (sin los
-            # enriquecidos TEA/TEM/duration que agrega curvas.py — el tape no los usa).
+            # SQL-ONLY (2026-06-22): TimeSales ya NO se escribe en Mongo. Solo los campos
+            # del tape (sin los enriquecidos TEA/TEM/duration que el tape no muestra).
             try:
                 from core import pg_mirror
-                pg_mirror.append_snapshot("mercado.timesales", [
+                pg_mirror.append_native("mercado.timesales", [
                     {"ticker": t.get("ticker"), "ts": t.get("timestamp"),
                      "price": t.get("price"), "size": t.get("size"),
                      "side": t.get("side"), "money": t.get("money")}
                     for t in batch if t.get("ticker") and t.get("timestamp")
                 ])
-            except Exception:
-                pass  # best-effort: Mongo ya persistió
+            except Exception as e:
+                print(f"Error flush trades SQL: {e}")
 
     def _procesar_tick_logica(self, ticker, data):
         # Defensivo: race entre WS push y add_ticker (adhoc). Si llega un

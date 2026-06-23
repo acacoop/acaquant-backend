@@ -89,18 +89,29 @@ def _scope_cuentas(operador: str, p: dict, nivel_1: str | None = None,
 
 
 def _ids_operador(operador: str, nivel_1: str | None = None, nivel_3: str | None = None,
-                  referido: str | None = None) -> list[str]:
-    """ids de cuenta activas del scope (operador + niveles + referido)."""
+                  referido: str | None = None, corte: str | None = None) -> list[str]:
+    """ids de cuenta activas del scope (operador + niveles + referido). `corte` (ISO) limita
+    a las cuentas que YA existían a esa fecha (fecha_alta_legajo <= corte) — para el modo
+    'foto al día X'."""
     p: dict = {}
     where = _comitentes_where(operador, p, nivel_1, nivel_3, referido)
+    if corte is not None:
+        where += " AND fecha_alta_legajo <= %(corte_alta)s"
+        p["corte_alta"] = corte
     return sorted(r["id_cuenta"] for r in _q(
         f"SELECT id_cuenta FROM comitentes WHERE {where}", p))
 
 
 def _aum_por_cuenta_sql(operador: str, nivel_1: str | None = None,
-                        nivel_3: str | None = None, referido: str | None = None) -> dict[str, float]:
-    """AuM (último snapshot GLOBAL) por id_cuenta, scopeado al operador + filtros."""
-    snap = _q("SELECT max(fecha) AS f FROM portafolio.tenencia WHERE aum = 'si'")[0]["f"]
+                        nivel_3: str | None = None, referido: str | None = None,
+                        corte: str | None = None) -> dict[str, float]:
+    """AuM por id_cuenta, scopeado al operador + filtros. Sin `corte` = último snapshot GLOBAL;
+    con `corte` (ISO) = el snapshot de `tenencia` más reciente <= corte (foto al día X)."""
+    if corte is not None:
+        snap = _q("SELECT max(fecha) AS f FROM portafolio.tenencia "
+                  "WHERE aum = 'si' AND fecha <= %(c)s", {"c": corte})[0]["f"]
+    else:
+        snap = _q("SELECT max(fecha) AS f FROM portafolio.tenencia WHERE aum = 'si'")[0]["f"]
     if snap is None:
         return {}
     p: dict = {"f": snap}
@@ -283,24 +294,32 @@ def operador_comercial(*, operador: str, moneda: str = "ARS", nivel_1: str | Non
 
 def analisis_comercial(*, operador: str, dias_activa: int = 45, dias_dormida: int = 90,
                        moneda: str = "ARS", nivel_1: str | None = None,
-                       nivel_3: str | None = None, referido: str | None = None) -> dict:
-    ids = _ids_operador(operador, nivel_1, nivel_3, referido)
+                       nivel_3: str | None = None, referido: str | None = None,
+                       fecha: str | None = None) -> dict:
+    # Modo "foto al día X": `fecha` (ISO) = corte → todo se calcula como estaba ese día
+    # (universo con alta<=corte, última op<=corte, AuM del snapshot<=corte, días vs corte).
+    # `fecha=None` → modo live (hoy). El cupo NO es histórico aún (valor actual) → ver paso 2.
+    corte = date.fromisoformat(fecha) if fecha else _hoy_art()
+    corte_iso = corte.isoformat() if fecha else None
+    ids = _ids_operador(operador, nivel_1, nivel_3, referido, corte=corte_iso)
     if not ids and operador != "__todos__":
         return {"operador": operador, "dias_activa": dias_activa,
-                "dias_dormida": dias_dormida, "clientes": []}
-    hoy = _hoy_art()
+                "dias_dormida": dias_dormida, "fecha": fecha, "clientes": []}
     factor = _factor_usd(moneda)
     factor_cupo = _factor_usd("USD")  # cupo SIEMPRE en USD al MEP del día
-    aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3, referido)
-    year_start = date(hoy.year, 1, 1).isoformat()
-    month_start = hoy.replace(day=1).isoformat()
+    aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3, referido, corte=corte_iso)
+    year_start = date(corte.year, 1, 1).isoformat()
+    month_start = corte.replace(day=1).isoformat()
 
-    # Última operación EVER por cuenta (Operaciones, fuente de verdad).
+    # Última operación por cuenta <= corte (Operaciones, fuente de verdad).
     p: dict = {}
     scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido)
-    ult_op = {r["id_cuenta"]: _iso(r["ult"]) for r in _q(
-        f"SELECT id_cuenta, max(concertacion) AS ult FROM operaciones WHERE {scope} "
-        f"GROUP BY id_cuenta", p) if r["ult"] is not None}
+    ult_sql = f"SELECT id_cuenta, max(concertacion) AS ult FROM operaciones WHERE {scope}"
+    if fecha:
+        ult_sql += " AND concertacion <= %(corte)s"
+        p["corte"] = corte_iso
+    ult_sql += " GROUP BY id_cuenta"
+    ult_op = {r["id_cuenta"]: _iso(r["ult"]) for r in _q(ult_sql, p) if r["ult"] is not None}
 
     ficha = _ficha_por_cuenta(operador, _ANALISIS, nivel_1, nivel_3, referido)
     p_cupo: dict = {}
@@ -311,7 +330,7 @@ def analisis_comercial(*, operador: str, dias_activa: int = 45, dias_dormida: in
     clientes = []
     for idc in ids:
         ult = ult_op.get(idc)
-        dias = (hoy - date.fromisoformat(ult)).days if ult else None
+        dias = (corte - date.fromisoformat(ult)).days if ult else None
         dias_win = dias if (dias is not None and dias <= dias_dormida) else None
         est = estado_comercial(dias_win, ult is not None, dias_activa, dias_dormida)
         f = ficha.get(idc, {})
@@ -330,7 +349,7 @@ def analisis_comercial(*, operador: str, dias_activa: int = 45, dias_dormida: in
         })
     clientes.sort(key=lambda x: x["aum"], reverse=True)
     return {"operador": operador, "dias_activa": dias_activa,
-            "dias_dormida": dias_dormida, "clientes": clientes}
+            "dias_dormida": dias_dormida, "fecha": fecha, "clientes": clientes}
 
 
 # ── INFORME (global, transversal a la mesa) ──────────────────────────────────

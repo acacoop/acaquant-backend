@@ -429,12 +429,16 @@ def comercial_analisis(
     nivel_1: str | None = Query(None, description="filtro madre nivel_1"),
     nivel_3: str | None = Query(None, description="filtro madre nivel_3"),
     referido: str | None = Query(None, description="filtro madre referido"),
+    fecha: str | None = Query(None, description="foto al día X (ISO YYYY-MM-DD). None = hoy"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Dataset de la vista ANÁLISIS: clientes del operador con estado comercial,
-    AuM, última op y niveles de segmentación (estado / churn / distribución)."""
+    AuM, última op y niveles de segmentación (estado / churn / distribución).
+    `fecha` = modo 'foto al día X': todo se calcula como estaba esa fecha (estado/activas/
+    AuM/cuentas por nivel). El cupo queda en valor actual (no histórico aún)."""
     return _com_motor(_engine).analisis_comercial(
-        operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido)
+        operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido,
+        fecha=fecha)
 
 
 @router.get("/comercial/cobros-futuros")

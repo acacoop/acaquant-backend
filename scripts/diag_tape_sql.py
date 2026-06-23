@@ -1,9 +1,10 @@
 """diag_tape_sql.py — por qué el TAPE (libro) sale vacío aunque mercado.timesales se llena.
 
-Read-only. Clava la causa en una corrida: flag, cutoff de fecha, o match de ticker.
+Read-only. Replica EXACTO el camino del frontend: toma el mismo ticker que muestra el
+libro (el de mayor volumen de get_renta_fija) y lo traza punta a punta.
 
-    python -m scripts.diag_tape_sql                       # diagnóstico general
-    python -m scripts.diag_tape_sql --instrumento AL30    # + traza un instrumento puntual
+    python -m scripts.diag_tape_sql                  # usa el ticker[0] real del front
+    python -m scripts.diag_tape_sql --instrumento X  # fuerza uno puntual
 """
 from __future__ import annotations
 
@@ -16,52 +17,47 @@ from core.postgres import get_pool
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--instrumento", default="AL30", help="ticker corto o completo a trazar")
+    ap.add_argument("--instrumento", default=None)
     args = ap.parse_args()
 
-    print(f"RENTA_FIJA_SQL en el entorno: {os.getenv('RENTA_FIJA_SQL')!r}  "
-          f"(si no es '1', /historico/trades cae al path MONGO → lee Trading.TimeSales DROPEADA → vacío)")
+    print(f"RENTA_FIJA_SQL = {os.getenv('RENTA_FIJA_SQL')!r}")
 
     art_hoy = (datetime.now(UTC) - timedelta(hours=3)).replace(
         tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
-    print(f"\ncutoff 'hoy' (naive ART) que usa get_historico_trades: {art_hoy}")
 
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT count(*), min(ts), max(ts) FROM mercado.timesales")
-        n_tot, ts_min, ts_max = cur.fetchone()
-        print(f"\nmercado.timesales TOTAL: {n_tot:,} filas · ts min={ts_min} · ts max={ts_max}")
-
         cur.execute("SELECT count(*) FROM mercado.timesales WHERE ts >= %s", (art_hoy,))
-        n_hoy = cur.fetchone()[0]
-        print(f"mercado.timesales con ts >= cutoff hoy: {n_hoy:,} filas "
-              f"{'← ⚠ 0 filas: o no hubo trades hoy, o el cutoff/TZ descarta todo' if n_hoy == 0 else '✅'}")
+        print(f"timesales con ts >= hoy({art_hoy}): {cur.fetchone()[0]:,} filas")
 
-        print("\nTickers DISTINTOS con trades hoy (top 15 por volumen) — formato EXACTO guardado:")
-        cur.execute(
-            "SELECT ticker, count(*) n FROM mercado.timesales WHERE ts >= %s "
-            "GROUP BY ticker ORDER BY n DESC LIMIT 15", (art_hoy,))
-        for tk, n in cur.fetchall():
-            print(f"   {n:>6}  |{tk}|")
+    # El MISMO ticker que el front muestra por default: get_renta_fija ordenado por
+    # total_nominals desc, primer instrumento con last_price (igual que libro-panel.tsx).
+    from api.services.renta_fija_sql import get_historico_trades, get_renta_fija
+    rf = get_renta_fija()
+    con_last = [d for d in rf if d.get("metrics", {}).get("last_price")]
+    con_last.sort(key=lambda d: d.get("metrics", {}).get("total_nominals", 0), reverse=True)
+    instr = args.instrumento or (con_last[0]["instrumento"] if con_last else None)
+    print(f"\nticker que el FRONT mandaría (instrumento[0]): {instr!r}")
+    print(f"primeros 5 instrumentos de get_renta_fija: {[d['instrumento'] for d in con_last[:5]]}")
 
-    # Traza el instrumento puntual por el MISMO camino que la API.
-    instr = args.instrumento
-    print(f"\n── Traza de '{instr}' ──")
-    from api.services.renta_fija import resolver_ticker_exacto
-    exacto = resolver_ticker_exacto(instr)
-    print(f"resolver_ticker_exacto({instr!r}) → {exacto!r}")
-    if exacto:
+    if instr:
+        from api.services.renta_fija import resolver_ticker_exacto
+        exacto = resolver_ticker_exacto(instr)
+        print(f"\nresolver_ticker_exacto({instr!r}) → {exacto!r}")
         with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT count(*) FROM mercado.timesales WHERE ticker = %s AND ts >= %s",
-                        (exacto, art_hoy))
-            n = cur.fetchone()[0]
-            print(f"mercado.timesales WHERE ticker = {exacto!r} AND ts>=hoy: {n:,} filas "
-                  f"{'← ⚠ el ticker resuelto NO matchea el guardado (mirá los |...| de arriba)' if n == 0 else '✅ MATCHEA'}")
+            # Exact (lo que hace hoy get_historico_trades).
+            if exacto:
+                cur.execute("SELECT count(*) FROM mercado.timesales WHERE ticker = %s AND ts >= %s",
+                            (exacto, art_hoy))
+                print(f"  EXACTO  ticker = {exacto!r}  → {cur.fetchone()[0]:,} filas")
+            # Substring (lo que haría un ILIKE, como get_renta_fija).
+            esc = instr.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            cur.execute("SELECT count(*) FROM mercado.timesales WHERE ticker ILIKE %s ESCAPE '\\' "
+                        "AND ts >= %s", (f"%{esc}%", art_hoy))
+            print(f"  ILIKE   '%{instr}%'  → {cur.fetchone()[0]:,} filas")
 
-    from api.services.renta_fija_sql import get_historico_trades
-    out = get_historico_trades(instrumento=instr)
-    print(f"\nget_historico_trades(SQL, {instr!r}) devolvió: {len(out)} trades")
-    out_all = get_historico_trades()
-    print(f"get_historico_trades(SQL, SIN instrumento) devolvió: {len(out_all)} trades")
+        n = len(get_historico_trades(instrumento=instr))
+        print(f"\nget_historico_trades(SQL, {instr!r}) = {n} trades  "
+              f"{'← ⚠ VACÍO, este es el bug' if n == 0 else '✅'}")
     return 0
 
 

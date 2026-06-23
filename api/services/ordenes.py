@@ -95,9 +95,10 @@ def _tif_enum(tif: str | None):
 
 def _audit(kind: str, *, cl_ord_id: str | None = None, account: str | None = None,
            actor_email: str | None = None, payload: dict | None = None) -> None:
+    ts = datetime.now(UTC)
     db = get_mongo_client()[DB_NAME]
     db[COL_AUDIT].insert_one({
-        "ts": datetime.now(UTC),
+        "ts": ts,
         "kind": kind,
         "cl_ord_id": cl_ord_id,
         "ws_cl_ord_id": None,
@@ -105,6 +106,17 @@ def _audit(kind: str, *, cl_ord_id: str | None = None, account: str | None = Non
         "actor_email": actor_email,
         "payload": payload or {},
     })
+    # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE) — DESPUÉS de Mongo, en su
+    # propio try → un fallo de SQL NUNCA afecta la orden ni el audit real.
+    try:
+        from core import pg_mirror
+        pg_mirror.append_ordenes("operaciones.ordenes_audit", [{
+            "ts": ts, "kind": kind, "cl_ord_id": cl_ord_id, "account": account,
+            "actor_email": actor_email,
+            "data": pg_mirror.doc_iso({"ws_cl_ord_id": None, "payload": payload or {}}),
+        }])
+    except Exception:
+        pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────

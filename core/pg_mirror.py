@@ -93,6 +93,27 @@ def mirror_job(table: str, key_cols: list[str], rows: list[dict]) -> int:
     return _mirror(table, key_cols, rows)
 
 
+def ordenes_on() -> bool:
+    return os.getenv("ORDENES_SQL_WRITE") == "1"
+
+
+def mirror_ordenes(table: str, key_cols: list[str], rows: list[dict]) -> int:
+    """Espejo del MOTOR DE ÓRDENES (flag ORDENES_SQL_WRITE). UPSERT best-effort por
+    `key_cols`. CRÍTICO: el caller lo llama DESPUÉS del write a Mongo y dentro de su
+    propio try/except → un fallo de SQL NUNCA bloquea ni afecta la orden real al broker."""
+    if not ordenes_on() or not rows:
+        return 0
+    return _mirror(table, key_cols, rows)
+
+
+def append_ordenes(table: str, rows: list[dict]) -> int:
+    """Append-only del motor de órdenes (flag ORDENES_SQL_WRITE) — para OrdenesAudit
+    (PK surrogate, cada evento es una fila nueva). Best-effort, nunca levanta."""
+    if not ordenes_on() or not rows:
+        return 0
+    return _append(table, rows)
+
+
 def _append(table: str, rows: list[dict]) -> int:
     """INSERT append-only (sin upsert). Para STREAMS como TimeSales / options_data: cada fila
     es nueva, sin PK natural → no hay ON CONFLICT. dict/list → Jsonb (columnas jsonb, ej. el

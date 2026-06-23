@@ -138,8 +138,9 @@ def _ensure_indexes(db) -> None:
 def _audit(db, kind: str, *, cl_ord_id: str | None = None,
            ws_cl_ord_id: str | None = None, account: str | None = None,
            actor_email: str | None = None, payload: dict | None = None) -> None:
+    ts = datetime.now(UTC)
     db[COL_AUDIT].insert_one({
-        "ts": datetime.now(UTC),
+        "ts": ts,
         "kind": kind,
         "cl_ord_id": cl_ord_id,
         "ws_cl_ord_id": ws_cl_ord_id,
@@ -147,6 +148,16 @@ def _audit(db, kind: str, *, cl_ord_id: str | None = None,
         "actor_email": actor_email,
         "payload": payload or {},
     })
+    # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE) — después de Mongo, nunca rompe.
+    try:
+        from core import pg_mirror
+        pg_mirror.append_ordenes("operaciones.ordenes_audit", [{
+            "ts": ts, "kind": kind, "cl_ord_id": cl_ord_id, "account": account,
+            "actor_email": actor_email,
+            "data": pg_mirror.doc_iso({"ws_cl_ord_id": ws_cl_ord_id, "payload": payload or {}}),
+        }])
+    except Exception:
+        pass
 
 
 def _upsert_live_from_er(db, rep: dict[str, Any]) -> None:
@@ -186,6 +197,18 @@ def _upsert_live_from_er(db, rep: dict[str, Any]) -> None:
          "$setOnInsert": {"cl_ord_id": cl_ord_id, "created_at": now}},
         upsert=True,
     )
+    # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE). Sin read-back (path de ER, alta
+    # frecuencia): uso doc_set que ya tengo. created_at lo completa el baseline sync.
+    try:
+        from core import pg_mirror
+        if pg_mirror.ordenes_on():
+            pg_mirror.mirror_ordenes("operaciones.ordenes_live", ["cl_ord_id"], [{
+                "cl_ord_id": cl_ord_id, "account": doc_set.get("account"),
+                "ticker": doc_set.get("ticker"), "estado": doc_set.get("status"),
+                "updated_at": now, "data": pg_mirror.doc_iso({"cl_ord_id": cl_ord_id, **doc_set}),
+            }])
+    except Exception:
+        pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -430,6 +453,19 @@ def _recovery(db, _account_master: str) -> None:
             {"cl_ord_id": {"$in": list(huerfanas)}},
             {"$set": {"status": "UNKNOWN_LOCAL", "updated_at": now}},
         )
+        # Dual-write best-effort a SQL (recovery = raro → read-back del doc completo OK).
+        try:
+            from core import pg_mirror
+            if pg_mirror.ordenes_on():
+                rows = [{
+                    "cl_ord_id": d.get("cl_ord_id"), "account": d.get("account"),
+                    "ticker": d.get("ticker"), "estado": d.get("status"),
+                    "updated_at": d.get("updated_at"), "data": pg_mirror.doc_iso(d),
+                } for d in db[COL_LIVE].find({"cl_ord_id": {"$in": list(huerfanas)}}, {"_id": 0})]
+                if rows:
+                    pg_mirror.mirror_ordenes("operaciones.ordenes_live", ["cl_ord_id"], rows)
+        except Exception:
+            pass
         for cid in huerfanas:
             _audit(db, "RECOVERY", cl_ord_id=cid,
                    payload={"reason": "no encontrada en broker"})
@@ -450,14 +486,23 @@ def _heartbeat_loop(db, account: str) -> None:
     heartbeat explícito."""
     while _running:
         try:
+            ts = datetime.now(UTC)
             db[COL_HEARTBEAT].update_one(
                 {"_id": "singleton"},
                 {"$set": {
-                    "updated_at": datetime.now(UTC),
+                    "updated_at": ts,
                     "account":    account,
                 }},
                 upsert=True,
             )
+            # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE).
+            try:
+                from core import pg_mirror
+                pg_mirror.mirror_ordenes("operaciones.motor_heartbeat", ["id"], [{
+                    "id": "singleton", "updated_at": ts,
+                    "data": pg_mirror.doc_iso({"account": account})}])
+            except Exception:
+                pass
         except Exception as e:
             logger.warning("heartbeat write falló: %s", e)
         time.sleep(HEARTBEAT_DB_S)

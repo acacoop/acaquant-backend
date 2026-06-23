@@ -13,6 +13,7 @@ from api.services import pnl as pnl_svc
 from api.services import pnl_sql
 from api.services import portfolio_sql as svc_sql
 from api.services._grupos_scope import scope_cuentas, verificar_id_cuenta
+from api.services.operaciones_view import motor as _motor
 
 router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
 
@@ -90,16 +91,20 @@ def pnl_todas(
         description="todas | accionistas | sin_accionistas | cooperativas | productores",
     ),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """PnL agregado de TODAS las cuentas — una fila por (cuenta, ticker).
 
-    Útil para la sub-vista TOTALES en /aum → VALUACIONES. Itera sobre
-    todas las cuentas del último snapshot y aplana los rows con info
-    de cuenta (`cuenta`, `id_cuenta`). El `scope` de grupos limita el
-    agregado a las cuentas visibles del usuario.
+    Útil para la sub-vista TOTALES en /aum → VALUACIONES. Lee el cache precalculado
+    (cron jobs.pnl_totales_precompute) y aplana los rows con info de cuenta (`cuenta`,
+    `id_cuenta`). El `scope` de grupos limita el agregado a las cuentas visibles del
+    usuario.
 
-    Cacheada con TTL=60s.
-    """
+    Dual-run: SQL (`valuaciones.pnl_totales_cache`) o Mongo (`Valuaciones.PnLTotalesCache`)
+    por flag PNL_TOTALES_SQL (override `?_engine=sql|mongo`). Default Mongo → path Mongo
+    intacto. Cacheada con TTL=60s (en el path Mongo)."""
+    if _motor(_engine, "PNL_TOTALES_SQL") == "sql":
+        return pnl_sql.pnl_todas_cuentas_sql(filtro_cuenta=filtro_cuenta, scope=scope)
     return pnl_svc.pnl_todas_cuentas(filtro_cuenta=filtro_cuenta, scope=scope)
 
 

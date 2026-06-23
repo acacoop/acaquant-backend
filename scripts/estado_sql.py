@@ -25,6 +25,7 @@ _FLAGS = [
     ("VALUACIONES_SQL", "VALUACIONES — /valuaciones (cierre, serie, mensual TEA/TWR, posiciones)"),
     ("CONTRAPARTES_SQL", "CONTRAPARTES — /manager/contrapartes (lecturas)"),
     ("PNL_SQL",         "PnL Títulos — /pnl"),
+    ("PNL_TOTALES_SQL", "PnL TOTALES — /pnl-todas (cache de todas las cuentas)"),
     ("NEWS_SQL",        "HOME/NEWS — /api/news/* (headlines, stats)"),
     ("MARKET_SQL",      "MARKET — /api/market/quotes + /calendar/economic"),
     ("REM_SQL",         "REM — /api/cotizaciones/rem* (expectativas IPC, breakeven acum)"),

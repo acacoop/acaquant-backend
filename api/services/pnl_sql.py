@@ -150,6 +150,126 @@ def pnl_por_cuenta_sql(id_cuenta: str) -> dict:
     )
 
 
+def pnl_todas_cuentas_sql(
+    filtro_cuenta: str = "todas",
+    scope: tuple[str, ...] | None = None,
+) -> dict:
+    """Espejo SQL de pnl.pnl_todas_cuentas — LECTURA LIVIANA del cache.
+
+    Lee `valuaciones.pnl_totales_cache` (precalculado por el cron
+    jobs.pnl_totales_precompute, dual-write Mongo+SQL). Mismo shape de salida que el
+    path Mongo: aplana los rows con info de cuenta + suma totales. El filtro de tipo
+    de cuenta se aplica EN PYTHON (accionistas/productores ∈ sets SQL) — NO contra
+    Valuaciones.AuM (eliminada), igual que valuaciones_sql.valuacion_consolidada.
+
+    Si la tabla no existe / está vacía (falta correr el cron) → rows: []."""
+    try:
+        cache = _q(
+            "SELECT id_cuenta, cuenta, rows, totales FROM valuaciones.pnl_totales_cache")
+    except Exception:
+        return {"rows": [], "totales": _pnl_totales_vacio(), "filtro_cuenta": filtro_cuenta}
+
+    docs = [{
+        "id_cuenta": d["id_cuenta"],
+        "cuenta":    d["cuenta"] or "",
+        "rows":      d["rows"] or [],
+        "totales":   d["totales"] or {},
+    } for d in cache]
+
+    # Scope de grupos — subset de cuentas visibles para el usuario.
+    if scope is not None:
+        permitidas = set(scope)
+        docs = [d for d in docs if str(d.get("id_cuenta", "")) in permitidas]
+
+    # Filtro de tipo de cuenta — membership directa (cuenta="[N] NOMBRE" + id_cuenta).
+    if filtro_cuenta and filtro_cuenta != "todas":
+        from api.services._cuentas_filter import (
+            _cuentas_accionistas,
+            _ids_cuenta_productores,
+        )
+        accs = set(_cuentas_accionistas())
+        prods = set(_ids_cuenta_productores())
+
+        def _ok(d: dict) -> bool:
+            cuenta = d.get("cuenta") or ""
+            idc = str(d.get("id_cuenta") or "")
+            if filtro_cuenta == "accionistas":
+                return cuenta in accs
+            if filtro_cuenta == "sin_accionistas":
+                return cuenta not in accs
+            if filtro_cuenta == "cooperativas":
+                return cuenta not in accs and "coop" in cuenta.lower()
+            if filtro_cuenta == "productores":
+                return idc in prods
+            return True
+
+        docs = [d for d in docs if _ok(d)]
+
+    rows: list[dict] = []
+    totales = _pnl_totales_vacio()
+    for d in docs:
+        id_cta = d.get("id_cuenta")
+        cta_label = d.get("cuenta") or ""
+        for row in d.get("rows", []):
+            # TOTALES lista solo posiciones abiertas — qty_aum != 0 (los cerrados
+            # intraday ya están sumados en el `totales` por cuenta).
+            if float(row.get("qty_aum") or 0) == 0:
+                continue
+            r2 = dict(row)
+            r2["cuenta"] = cta_label
+            r2["id_cuenta"] = id_cta
+            rows.append(r2)
+        t = d.get("totales", {}) or {}
+        for k in totales:
+            totales[k] += float(t.get(k) or 0)
+
+    def _total_view(row: dict) -> float:
+        return (
+            float(row.get("pnl_no_realizado") or 0)
+            + float(row.get("pnl_pasivo") or 0)
+            + float(row.get("pnl_realizado_dia") or 0)
+        )
+    rows.sort(key=lambda r: -_total_view(r))
+
+    return {
+        "rows": rows,
+        "totales": {
+            "n_cuentas":         len(docs),
+            "n_filas":           len(rows),
+            "costo_remanente":   round(totales["costo_remanente"], 2),
+            "valor_actual":      round(totales["valor_actual"], 2),
+            "pnl_no_realizado":  round(totales["pnl_no_realizado"], 2),
+            "pnl_pasivo":        round(totales["pnl_pasivo"], 2),
+            "pnl_realizado_dia": round(totales["pnl_realizado_dia"], 2),
+            "pnl_total":         round(totales["pnl_total"], 2),
+            "costo_remanente_usd":   round(totales["costo_remanente_usd"], 2),
+            "valor_actual_usd":      round(totales["valor_actual_usd"], 2),
+            "pnl_no_realizado_usd":  round(totales["pnl_no_realizado_usd"], 2),
+            "pnl_pasivo_usd":        round(totales["pnl_pasivo_usd"], 2),
+            "pnl_realizado_dia_usd": round(totales["pnl_realizado_dia_usd"], 2),
+            "pnl_total_usd":         round(totales["pnl_total_usd"], 2),
+        },
+        "filtro_cuenta": filtro_cuenta,
+    }
+
+
+def _pnl_totales_vacio() -> dict:
+    return {
+        "costo_remanente":   0.0,
+        "valor_actual":      0.0,
+        "pnl_no_realizado":  0.0,
+        "pnl_pasivo":        0.0,
+        "pnl_realizado_dia": 0.0,
+        "pnl_total":         0.0,
+        "costo_remanente_usd":   0.0,
+        "valor_actual_usd":      0.0,
+        "pnl_no_realizado_usd":  0.0,
+        "pnl_pasivo_usd":        0.0,
+        "pnl_realizado_dia_usd": 0.0,
+        "pnl_total_usd":         0.0,
+    }
+
+
 def pnl_todas_cuentas_compute_sql() -> list[dict]:
     """= pnl.pnl_todas_cuentas_compute pero con TODAS las deps de SQL (boletos +
     posición + cuentas). Lo corre el cron `jobs.pnl_totales_precompute` → persiste

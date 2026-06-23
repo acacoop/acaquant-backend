@@ -37,6 +37,30 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase**.
   el código) → candidata a drop, NO se migró. Servicio de lectura:
   `api/services/cashflow_sql.py`.
 
+## VALUACIONES — caches precalculados (dual-run, lectura SQL bajo flag)
+
+Las dos vistas pesadas de Portfolio leen un cache precalculado por cron (recorrer
+~880 cuentas en una request HTTP = 502). Ambas corren dual-run Mongo↔SQL con el
+path Mongo intacto; el cron dual-escribe Mongo+SQL en cada corrida:
+
+- **`/valuaciones/consolidado`** (TOTALES > POR CUENTA): `Valuaciones.ConsolidadoCuentas`
+  → `valuaciones.consolidado` (columnar: 1 fila/cuenta con valor/base100/PnL/TEM/TEA).
+  Flag **`VALUACIONES_SQL`**. Writer: `jobs/consolidado_cuentas.py` (swap por TRUNCATE+INSERT).
+  Service SQL: `valuaciones_sql.valuacion_consolidada`.
+- **`/api/portfolio/pnl-todas`** (TOTALES, PnL por (cuenta, ticker) de toda la mesa):
+  `Valuaciones.PnLTotalesCache` → `valuaciones.pnl_totales_cache` (**passthrough jsonb**:
+  PK `id_cuenta`, `cuenta` materializado, `rows`/`totales` jsonb — `rows` trae el detalle
+  de boletos por ticker, demasiado anidado para columnar). Flag **`PNL_TOTALES_SQL`**
+  (override `?_engine=sql|mongo`). Writer: `jobs/pnl_totales_precompute.py` (dual-write SQL
+  vía `pg_mirror.replace_native`, swap atómico; `pnl_todas_cuentas_compute_sql` ya leía
+  TODO de SQL — boletos/posición/precios — para el cálculo). Service SQL de lectura:
+  `pnl_sql.pnl_todas_cuentas_sql`. **TZ:** `computed_at` = `datetime.now(UTC)` aware →
+  `timestamptz`. El filtro de tipo de cuenta (accionistas/productores) se hace EN PYTHON
+  contra los sets SQL (`_cuentas_filter`), NO contra `Valuaciones.AuM` (eliminada) — el
+  path Mongo viejo (`pnl.pnl_todas_cuentas`) todavía cruza AuM y queda roto para
+  `filtro_cuenta != 'todas'`; el path SQL es el correcto. Sync baseline: `sync_pnl_totales`
+  en `jobs/sync_postgres.py`.
+
 ## Vista OPERACIONES en SQL (primer feature de producto migrado)
 
 `/api/operaciones/ops/*` (pestañas MOVIMIENTOS/ARANCELES/AGRO) corre dual-run Mongo↔SQL.

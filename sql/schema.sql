@@ -91,6 +91,7 @@ BEGIN
     ('public','rem','macro'),
     ('public','dolar','valuaciones'),
     ('public','portfolio_snapshot','valuaciones'),
+    ('public','pnl_totales_cache','valuaciones'),
     ('portafolio','consolidado','valuaciones'),
     ('public','manager_users','manager'),
     ('public','role_matrix','manager'),
@@ -418,6 +419,22 @@ CREATE TABLE IF NOT EXISTS valuaciones.consolidado (
     tea_ars       numeric,
     tea_usd       numeric,
     computed_at   timestamptz DEFAULT now()
+);
+
+-- Valuaciones.PnLTotalesCache — cache del PnL de TODAS las cuentas (vista TOTALES,
+-- /api/portfolio/pnl-todas). NO es agregable en vivo: cada fila es el cost-basis
+-- weighted-average de la cuenta (Python, recorre boletos+posición), por eso se precalcula.
+-- Lo escribe el cron jobs.pnl_totales_precompute (dual-write Mongo+SQL, swap atómico cada
+-- 30min); el service SQL solo lo lee + filtra. Passthrough jsonb (rows incluye el detalle de
+-- boletos por ticker, demasiado anidado/variable para columnar). PK = id_cuenta; `cuenta`
+-- materializado (no se filtra/ordena por él en SQL — se lee de jsonb). computed_at: el writer
+-- usa datetime.now(UTC) AWARE → timestamptz (el cast no corre la hora).
+CREATE TABLE IF NOT EXISTS valuaciones.pnl_totales_cache (
+    id_cuenta   text PRIMARY KEY,
+    cuenta      text,
+    rows        jsonb,        -- una entrada por ticker (con boletos anidados)
+    totales     jsonb,        -- agregados ARS+USD de la cuenta
+    computed_at timestamptz DEFAULT now()
 );
 
 -- Valuaciones.Dolar — feed MEP (timestamp, mep). get_mep_for_date: último mep <= eod(fecha).

@@ -5,9 +5,10 @@ en vivo en cada request HTTP → se pasaba del timeout (502) y no escalaba
 con la cantidad de usuarios.
 
 Este job hace ese cálculo offline (sin límite de tiempo) y lo persiste en
-`Valuaciones.PnLTotalesCache` — un documento por cuenta, con sus filas y
-el detalle de boletos. El endpoint `/api/portfolio/pnl-todas` solo lee esa
-colección. Mismo patrón que `Trading.SnapshotsCierre`.
+`Valuaciones.PnLTotalesCache` (Mongo) Y `valuaciones.pnl_totales_cache` (SQL,
+dual-write) — un documento por cuenta, con sus filas y el detalle de boletos.
+El endpoint `/api/portfolio/pnl-todas` lee uno u otro según PNL_TOTALES_SQL —
+instantáneo. Mismo patrón que `jobs.consolidado_cuentas`.
 
 Corre por cron cada 30 min en la rueda (:05 y :35), después de
 `negocio_movimientos`.
@@ -20,6 +21,31 @@ from datetime import UTC, datetime
 from api.services.pnl_sql import pnl_todas_cuentas_compute_sql
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client, reemplazar_coleccion_atomico
+
+
+def _persistir_sql(cuentas: list[dict]) -> int:
+    """Dual-write a `valuaciones.pnl_totales_cache` (cache SQL del path PNL_TOTALES_SQL).
+
+    Swap atómico (TRUNCATE+INSERT en una transacción, vía pg_mirror.replace_native) →
+    sin ventana de vacío, igual que el swap Mongo. Dedup por id_cuenta (PK). `rows`/
+    `totales` (dict/list) → jsonb automático; `computed_at` (datetime aware) → timestamptz."""
+    from core.pg_mirror import replace_native
+
+    vistos: set[str] = set()
+    rows: list[dict] = []
+    for d in cuentas:
+        idc = str(d.get("id_cuenta"))
+        if idc in vistos:
+            continue
+        vistos.add(idc)
+        rows.append({
+            "id_cuenta":   idc,
+            "cuenta":      d.get("cuenta") or "",
+            "rows":        d.get("rows", []),
+            "totales":     d.get("totales", {}) or {},
+            "computed_at": d.get("computed_at"),
+        })
+    return replace_native("valuaciones.pnl_totales_cache", rows)
 
 
 def main() -> None:
@@ -42,6 +68,13 @@ def main() -> None:
                    f"Valuaciones.PnLTotalesCache")
         else:
             jr.error("pnl_todas_cuentas_compute devolvió 0 cuentas — colección NO tocada")
+
+        # Dual-write SQL — en try aparte: si PG falla, el cache Mongo (path vivo) NO se afecta.
+        try:
+            ns = _persistir_sql(cuentas)
+            jr.log(f"✅ {ns} cuentas → valuaciones.pnl_totales_cache (SQL)")
+        except Exception as e:
+            jr.log(f"⚠️ dual-write SQL falló (Mongo OK, no bloqueante): {e}")
 
 
 if __name__ == "__main__":

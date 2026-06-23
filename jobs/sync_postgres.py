@@ -343,13 +343,16 @@ def sync_calendar(mdb, conn, dry) -> int:
 
 
 def sync_snapshots_cierre(mdb, conn, dry) -> int:
-    """Trading.SnapshotsCierre → snapshots_cierre, último por ticker (el PnL usa el más reciente)."""
+    """Trading.SnapshotsCierre → snapshots_cierre, último por ticker (el PnL usa el más
+    reciente como fallback de precio). OJO (bug fixeado 2026-06-22): el doc Mongo usa
+    `ts_cierre` (fecha) y `ultimo_precio` (precio), NO `fecha`/`last_price` — leer los
+    nombres equivocados escribía NULLs (la tabla tenía tickers sin valores)."""
     cols = ["ticker", "last_price", "fecha"]
     rows = []
     for d in mdb["Trading"]["SnapshotsCierre"].aggregate([
-        {"$sort": {"fecha": -1}},
-        {"$group": {"_id": "$ticker", "last_price": {"$first": "$last_price"},
-                    "fecha": {"$first": "$fecha"}}},
+        {"$sort": {"ts_cierre": -1}},
+        {"$group": {"_id": "$ticker", "last_price": {"$first": "$ultimo_precio"},
+                    "fecha": {"$first": "$ts_cierre"}}},
     ]):
         t = _s(d.get("_id"))
         if t:

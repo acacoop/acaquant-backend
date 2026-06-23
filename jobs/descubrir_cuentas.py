@@ -36,6 +36,7 @@ from dotenv import load_dotenv
 from pymongo import ASCENDING, UpdateOne
 
 from core.mongo import get_mongo_client
+from core.postgres import get_pool
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -51,6 +52,17 @@ _SOCKET_TIMEOUT_S = 20
 # Cota de tiempo TOTAL del job (red de seguridad independiente del timeout de
 # run_job.sh): si el barrido no termina en este tiempo, persiste lo hecho y corta.
 _MAX_MIN_DEFAULT = 60
+
+
+def _ids_de_clientes() -> list[str]:
+    """IDs de cuenta REALES desde SQL `clientes.cuentas` (se actualiza a diario vía
+    jobs.sync_comitentes). Reemplaza el barrido ciego 1..12000: consultamos al broker
+    SOLO las cuentas que existen → termina en minutos y nunca pierde una cuenta nueva
+    (apenas aparece en clientes, el descubridor del día siguiente la consulta)."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id_cuenta FROM clientes.cuentas "
+                    "WHERE id_cuenta ~ '^[0-9]+$' ORDER BY id_cuenta::int")
+        return [r[0] for r in cur.fetchall()]
 
 
 def _read(name: str) -> str | None:
@@ -146,6 +158,9 @@ def _persist(snapshots: list[tuple[str, dict]]) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--rango", action="store_true",
+                        help="Modo LEGACY: barrer --desde..--hasta a ciegas (lento, corta por "
+                             "tiempo). Default: consultar solo los id_cuenta reales de SQL clientes.")
     parser.add_argument("--desde", type=int, default=1)
     parser.add_argument("--hasta", type=int, default=12000)
     parser.add_argument("--sleep", type=float, default=0.2)
@@ -164,11 +179,17 @@ def main() -> int:
     _ensure_indexes()
     _login()
 
-    total = args.hasta - args.desde + 1
-    logger.info(
-        "Backfill rango %d..%d (%d cuentas, sleep=%ss, batch=%d) …",
-        args.desde, args.hasta, total, args.sleep, args.batch,
-    )
+    # Universo a consultar: por default, los id_cuenta REALES de clientes (SQL) — termina
+    # en minutos y nunca pierde una cuenta nueva. --rango fuerza el barrido ciego legacy.
+    if args.rango:
+        target_ids = [str(i) for i in range(args.desde, args.hasta + 1)]
+        logger.info("Modo RANGO (legacy) %d..%d (%d cuentas, sleep=%ss) …",
+                    args.desde, args.hasta, len(target_ids), args.sleep)
+    else:
+        target_ids = _ids_de_clientes()
+        logger.info("Modo CLIENTES: %d cuentas reales desde SQL clientes.cuentas (sleep=%ss) …",
+                    len(target_ids), args.sleep)
+    total = len(target_ids)
 
     n_autorizadas = 0
     n_activas = 0
@@ -178,14 +199,13 @@ def main() -> int:
     cortado = False
 
     try:
-        for acc_int in range(args.desde, args.hasta + 1):
+        for i, acc in enumerate(target_ids, start=1):
             # Cota de tiempo: si nos pasamos, persistimos lo pendiente (abajo) y cortamos.
             if time.monotonic() - t0 > max_s:
-                logger.warning("cota de tiempo (%d min) alcanzada en acc=%d — corto y persisto",
-                               args.max_min, acc_int)
+                logger.warning("cota de tiempo (%d min) alcanzada en acc=%s — corto y persisto",
+                               args.max_min, acc)
                 cortado = True
                 break
-            acc = str(acc_int)
             snap = _probe_account(acc)
             if snap is not None:
                 n_autorizadas += 1
@@ -198,7 +218,7 @@ def main() -> int:
                 _persist(pendientes)
                 pendientes.clear()
                 elapsed = time.monotonic() - t0
-                hechos = acc_int - args.desde + 1
+                hechos = i
                 logger.info(
                     "  progreso: %d/%d (%.1f%%) — %d autorizadas, %d activas — %.0fs",
                     hechos, total, 100 * hechos / total, n_autorizadas, n_activas, elapsed,
@@ -218,9 +238,9 @@ def main() -> int:
 
     elapsed = time.monotonic() - t0
     logger.info(
-        "Listo%s. Rango %d..%d en %.0fs. Autorizadas=%d, activas=%d.",
+        "Listo%s. %d cuentas consultadas en %.0fs. Autorizadas=%d, activas=%d.",
         " (CORTADO por cota de tiempo)" if cortado else "",
-        args.desde, args.hasta, elapsed, n_autorizadas, n_activas,
+        total, elapsed, n_autorizadas, n_activas,
     )
     return 0
 

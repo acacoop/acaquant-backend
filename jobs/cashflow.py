@@ -134,6 +134,21 @@ def run(desde, hasta):
             insertados_total += nuevos
             print(f"{len(con_comp)} con comprobante  →  {nuevos} nuevos en Mongo")
 
+            # Espejo SQL incondicional (operaciones.movimientos, upsert por comprobante).
+            # Mongo usa $setOnInsert (no pisa lo existente); el upsert SQL por la PK
+            # comprobante es idempotente — la API re-envía el mismo valor por boleto →
+            # mismo efecto. `fecha` se guarda CRUDA dd/mm/yyyy (el read la parsea a ISO,
+            # igual que el path Mongo). data = doc completo (datetimes→ISO). Best-effort:
+            # si SQL cae, Mongo queda como fuente operativa.
+            from core.pg_mirror import doc_iso, write_native
+            sql_rows = [{
+                "comprobante": r["comprobante"], "cuenta": r.get("cuenta"),
+                "fecha": r.get("fecha"), "informacion": r.get("informacion"),
+                "total": r.get("total"), "unidad": r.get("unidad"),
+                "data": doc_iso(r),
+            } for r in con_comp]
+            write_native("operaciones.movimientos", ["comprobante"], sql_rows)
+
         except Exception as e:
             print(f"❌ Error: {e}")
 

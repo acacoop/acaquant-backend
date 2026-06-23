@@ -61,7 +61,20 @@ def main() -> None:
         db["Acreencias"].create_index("fecha_pago")
         db["Acreencias"].create_index("id_cuenta")
         jr.set_stat("acreencias", n)
-    print(f"\n✅ {n} acreencias escritas a CashFlow.Acreencias (swap atómico + índices).")
+        # Espejo SQL incondicional (swap atómico TRUNCATE+INSERT a operaciones.acreencias).
+        # Mismo set que Mongo → la vista lee idéntico bajo ACREENCIAS_SQL=1. Best-effort:
+        # si SQL cae, Mongo queda como fuente. fecha_pago/snapshot ya son ISO strings;
+        # `data` lleva el doc completo (generado_at aware → ISO recursivo via doc_iso).
+        from core.pg_mirror import doc_iso, replace_native
+        rows = [{
+            "fecha_pago": d["fecha_pago"], "id_cuenta": d.get("id_cuenta"),
+            "ticker": d.get("ticker"), "moneda": d.get("moneda"),
+            "monto": d.get("monto"), "data": doc_iso(d),
+        } for d in docs]
+        n_sql = replace_native("operaciones.acreencias", rows)
+        jr.set_stat("acreencias_sql", n_sql)
+    print(f"\n✅ {n} acreencias escritas a CashFlow.Acreencias (swap atómico + índices)."
+          f"  SQL: {n_sql} filas a operaciones.acreencias.")
 
 
 if __name__ == "__main__":

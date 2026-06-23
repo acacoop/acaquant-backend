@@ -182,6 +182,31 @@ def _acreencias_col():
     return get_db_cashflow()["Acreencias"]
 
 
+def _acreencias_docs(ids: list[str] | None) -> list[dict[str, Any]]:
+    """Docs de acreencias del scope (ids=None → todas), shape uniforme {fecha_pago,
+    cliente, id_cuenta, moneda, monto, ...}. Dual-run: SQL (operaciones.acreencias) si
+    ACREENCIAS_SQL=1, sino Mongo (CashFlow.Acreencias)."""
+    from api.services import cashflow_sql as _cf_sql
+    if _cf_sql.acreencias_sql_on():
+        return _cf_sql.acreencias_docs(ids)
+    match: dict[str, Any] = {} if ids is None else {"id_cuenta": {"$in": list(ids)}}
+    return list(_acreencias_col().find(
+        match, {"_id": 0, "fecha_pago": 1, "cliente": 1, "id_cuenta": 1,
+                "moneda": 1, "monto": 1}))
+
+
+def _acreencias_docs_cliente(id_cuenta: str) -> list[dict[str, Any]]:
+    """Docs de un cliente, asc (fecha_pago, -monto) — para el detalle. Dual-run."""
+    from api.services import cashflow_sql as _cf_sql
+    if _cf_sql.acreencias_sql_on():
+        return _cf_sql.acreencias_docs(id_cuenta=id_cuenta, order_cliente=True)
+    return list(_acreencias_col().find(
+        {"id_cuenta": str(id_cuenta)},
+        {"_id": 0, "fecha_pago": 1, "cliente": 1, "ticker": 1,
+         "emisor": 1, "moneda": 1, "monto": 1},
+    ).sort([("fecha_pago", 1), ("monto", -1)]))
+
+
 @cached(ttl=300)
 def cobros_futuros(*, operador: str, nivel_1: str | None = None,
                    nivel_3: str | None = None, referido: str | None = None) -> dict[str, Any]:
@@ -194,40 +219,33 @@ def cobros_futuros(*, operador: str, nivel_1: str | None = None,
         return {"operador": operador, "serie": [], "clientes": [],
                 "total_ars": 0.0, "total_usd": 0.0}
 
-    match: dict[str, Any] = {} if es_todos else {"id_cuenta": {"$in": list(ids)}}
-    col = _acreencias_col()
+    # Dual-run: ACREENCIAS_SQL=1 → docs de operaciones.acreencias (SQL); sino Mongo. La
+    # AGREGACIÓN (serie por moneda + totales por cliente) es idéntica sobre cualquiera
+    # de las dos fuentes (mismo shape de doc) → no se duplica la matemática.
+    docs = _acreencias_docs(None if es_todos else list(ids))
 
     # Serie diaria por moneda (para el gráfico acumulado del scope).
     serie_map: dict[str, dict[str, Any]] = {}
-    for d in col.aggregate([
-        {"$match": match},
-        {"$group": {"_id": {"fecha": "$fecha_pago", "moneda": "$moneda"},
-                    "monto": {"$sum": "$monto"}}},
-    ]):
-        f = d["_id"]["fecha"]
+    # Totales por cliente (tabla izquierda). `cliente` = el del PRIMER doc de la cuenta
+    # (equivale al $first del aggregate Mongo).
+    cli_map: dict[str, dict[str, Any]] = {}
+    for d in docs:
+        f = d.get("fecha_pago")
+        monto = float(d.get("monto") or 0.0)
+        es_usd = d.get("moneda") == "USD"
         e = serie_map.setdefault(f, {"fecha": f, "ars": 0.0, "usd": 0.0})
-        if d["_id"].get("moneda") == "USD":
-            e["usd"] += float(d.get("monto") or 0.0)
-        else:
-            e["ars"] += float(d.get("monto") or 0.0)
+        e["usd" if es_usd else "ars"] += monto
+        idc = str(d.get("id_cuenta"))
+        c = cli_map.setdefault(idc, {"id_cuenta": idc, "cliente": d.get("cliente"),
+                                     "ars": 0.0, "usd": 0.0})
+        c["usd" if es_usd else "ars"] += monto
     serie = [serie_map[f] for f in sorted(serie_map)]
 
-    # Totales por cliente (tabla izquierda). Orden por monto combinado (relevancia);
-    # el front re-ordena por la moneda elegida.
-    clientes: list[dict[str, Any]] = []
-    for d in col.aggregate([
-        {"$match": match},
-        {"$group": {"_id": "$id_cuenta",
-                    "cliente": {"$first": "$cliente"},
-                    "ars": {"$sum": {"$cond": [{"$eq": ["$moneda", "USD"]}, 0, "$monto"]}},
-                    "usd": {"$sum": {"$cond": [{"$eq": ["$moneda", "USD"]}, "$monto", 0]}}}},
-    ]):
-        clientes.append({
-            "id_cuenta": str(d["_id"]),
-            "cliente":   d.get("cliente"),
-            "total_ars": round(float(d.get("ars") or 0.0), 2),
-            "total_usd": round(float(d.get("usd") or 0.0), 2),
-        })
+    clientes = [
+        {"id_cuenta": c["id_cuenta"], "cliente": c["cliente"],
+         "total_ars": round(c["ars"], 2), "total_usd": round(c["usd"], 2)}
+        for c in cli_map.values()
+    ]
     clientes.sort(key=lambda c: c["total_ars"] + c["total_usd"], reverse=True)
 
     return {
@@ -242,11 +260,7 @@ def cobros_futuros(*, operador: str, nivel_1: str | None = None,
 @cached(ttl=300)
 def cobros_futuros_cliente(*, id_cuenta: str) -> dict[str, Any]:
     """Detalle de un cliente: serie diaria (acumulable) + títulos que cobra."""
-    docs = list(_acreencias_col().find(
-        {"id_cuenta": str(id_cuenta)},
-        {"_id": 0, "fecha_pago": 1, "cliente": 1, "ticker": 1,
-         "emisor": 1, "moneda": 1, "monto": 1},
-    ).sort([("fecha_pago", 1), ("monto", -1)]))
+    docs = _acreencias_docs_cliente(str(id_cuenta))
 
     serie_map: dict[str, dict[str, Any]] = {}
     titulos: list[dict[str, Any]] = []

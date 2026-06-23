@@ -7,6 +7,7 @@ from psycopg.rows import dict_row
 
 from api.cache import cached
 from api.db import get_db_cashflow
+from api.services import cashflow_sql as _cf_sql
 from api.services import comercial as _com
 from api.services import comercial_sql as _com_sql
 from api.services import operaciones_sql as _ops_sql
@@ -119,10 +120,16 @@ def listar_flujos(
     # rango de fechas y el orden se resuelven en Python porque la fecha está en
     # dd/mm/yyyy (no ordenable como string en Mongo). El set es chico (~12k docs,
     # casi siempre filtrado por cuenta).
+    # Dual-run: flag MOVIMIENTOS_SQL=1 → operaciones.movimientos (SQL). El scope se
+    # verifica acá ANTES de delegar (igual que el path Mongo lo hace en el if cuenta).
+    if cuenta:
+        verificar_cuenta_str(cuenta, scope)
+    if _cf_sql.movimientos_sql_on():
+        return _cf_sql.listar_flujos(cuenta=cuenta, unidad=unidad, desde=desde,
+                                     hasta=hasta, scope=scope)
     db = get_db_cashflow()
     filtro: dict = {}
     if cuenta:
-        verificar_cuenta_str(cuenta, scope)
         filtro["cuenta"] = cuenta
     else:
         aplicar_scope_cuenta(filtro, scope)

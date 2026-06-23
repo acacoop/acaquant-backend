@@ -20,9 +20,22 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase**.
 - **Sync/rollups Mongo MATADOS:** `sync_{operaciones,negocio,aum,assets,contrapartes,
   dims_clientes}` de `jobs/sync_postgres.py`, `jobs/ops_rollup.py` (+OpsSerieDiaria),
   `jobs/comercial_rollup.py` (+ComercialCache).
-- **Sigue en Mongo (no migrado):** `Trading.*` (mercado), `CashFlow.{Acreencias,
-  Movimientos, Productores, Accionistas, VolumenMercadoAgro, TiposOperacion}`,
-  `Manager.*`, `Opciones`, `News`, `Market`. `sync_postgres` solo espeja estas dims.
+- **Sigue en Mongo (no migrado):** `Trading.*` (mercado), `CashFlow.{Accionistas,
+  Productores}`, `Manager.*`, `Opciones`, `News`, `Market`. `sync_postgres` solo
+  espeja estas dims.
+- **CashFlow dual-run (lectura SQL bajo flag, Mongo intacto, 2026-06-23):**
+  `CashFlow.Movimientos` → `operaciones.movimientos` (flag **`MOVIMIENTOS_SQL`**,
+  vista FLUJOS `/api/operaciones/flujos`); `CashFlow.Acreencias` →
+  `operaciones.acreencias` (flag **`ACREENCIAS_SQL`**, back-office `/acreencias/*` +
+  comercial `/cobros-futuros`); `CashFlow.VolumenMercadoAgro` →
+  `mercado.volumen_mercado_agro` (flag **`VOLUMEN_AGRO_SQL`**, denominador del share
+  AGRO en `/ops/agro`). `CashFlow.TiposOperacion` → `operaciones.tipos_operacion`
+  (catálogo: espejado por sync para tenerlo, SIN lector SQL — el enrich de los
+  writers sigue leyendo Mongo, corre en el proceso del job, no en una vista con flag).
+  Dual-write en vivo: `jobs/cashflow.py` (movimientos), `jobs/acreencias.py`
+  (acreencias, swap atómico). `CashFlow.Productores` es **HUÉRFANA** (nadie la lee en
+  el código) → candidata a drop, NO se migró. Servicio de lectura:
+  `api/services/cashflow_sql.py`.
 
 ## Vista OPERACIONES en SQL (primer feature de producto migrado)
 

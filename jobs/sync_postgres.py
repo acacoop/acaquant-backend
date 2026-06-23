@@ -163,6 +163,78 @@ def sync_accionistas(mdb, conn, dry) -> int:
     return n
 
 
+def sync_movimientos(mdb, conn, dry) -> int:
+    """CashFlow.Movimientos → operaciones.movimientos (vista FLUJOS, /api/operaciones/flujos).
+    BASELINE (el job cashflow.py la dual-escribe en vivo). Passthrough columnar + data jsonb;
+    `fecha` se guarda CRUDA dd/mm/yyyy (el read service la parsea a ISO). PK = comprobante."""
+    cols = ["comprobante", "cuenta", "fecha", "informacion", "total", "unidad", "data"]
+    rows = []
+    for d in mdb["CashFlow"]["Movimientos"].find({}, {"_id": 0}):
+        comp = _s(d.get("comprobante"))
+        if comp:
+            rows.append((comp, _s(d.get("cuenta")), _s(d.get("fecha")),
+                         _s(d.get("informacion")), d.get("total"), _s(d.get("unidad")),
+                         _jsonb(d)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "movimientos", cols, ["comprobante"], rows, dry)
+    _delete_not_in(conn, "movimientos", "comprobante", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_acreencias(mdb, conn, dry) -> int:
+    """CashFlow.Acreencias → operaciones.acreencias (cobros futuros). BASELINE (el job
+    acreencias.py la reemplaza en vivo con swap atómico). El grano no es único →
+    surrogate PK IDENTITY; acá truncamos e insertamos todo el set (idéntico al swap
+    Mongo). fecha_pago/snapshot son ISO strings; data jsonb = doc completo."""
+    rows = []
+    for d in mdb["CashFlow"]["Acreencias"].find({}, {"_id": 0}):
+        rows.append((_s(d.get("fecha_pago")), _s(d.get("id_cuenta")), _s(d.get("ticker")),
+                     _s(d.get("moneda")), d.get("monto"), _jsonb(d)))
+    if dry:
+        return len(rows)
+    cols = ["fecha_pago", "id_cuenta", "ticker", "moneda", "monto", "data"]
+    with conn.cursor() as cur:
+        cur.execute("TRUNCATE operaciones.acreencias")
+        if rows:
+            ph = "(" + ",".join(["%s"] * len(cols)) + ")"
+            cur.executemany(
+                f'INSERT INTO operaciones.acreencias ({",".join(cols)}) VALUES {ph}', rows)
+    conn.commit()
+    return len(rows)
+
+
+def sync_tipos_operacion(mdb, conn, dry) -> int:
+    """CashFlow.TiposOperacion → operaciones.tipos_operacion (catálogo chico, mapeo
+    tipo_operacion→mercado/operacion). Espejo para tenerlo en SQL; el enrich de los
+    writers SIGUE leyendo Mongo (corre en el proceso del job). PK = tipo_operacion."""
+    rows = []
+    for d in mdb["CashFlow"]["TiposOperacion"].find({}, {"_id": 0}):
+        t = _s(d.get("tipo_operacion"))
+        if t:
+            rows.append((t, _jsonb(d)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "tipos_operacion", ["tipo_operacion", "data"], ["tipo_operacion"], rows, dry)
+    _delete_not_in(conn, "tipos_operacion", "tipo_operacion", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_volumen_mercado_agro(mdb, conn, dry) -> int:
+    """CashFlow.VolumenMercadoAgro → mercado.volumen_mercado_agro (denominador del share
+    AGRO, carga MANUAL). Passthrough: periodo/commodity materializados + data jsonb.
+    PK = (periodo, commodity)."""
+    cols = ["periodo", "commodity", "toneladas", "data"]
+    rows = []
+    for d in mdb["CashFlow"]["VolumenMercadoAgro"].find({}, {"_id": 0}):
+        per, comm = _s(d.get("periodo")), _s(d.get("commodity"))
+        if per and comm:
+            rows.append((per, comm, d.get("toneladas"), _jsonb(d)))
+    rows = _dedup(rows, [0, 1])
+    # Solo upsert (sin _delete_not_in): la PK es compuesta (periodo, commodity) y el
+    # helper borra por una sola columna → no aplica. Tabla chica/manual, no se limpian
+    # huérfanos (despreciable).
+    return _upsert(conn, "volumen_mercado_agro", cols, ["periodo", "commodity"], rows, dry)
+
+
 def sync_manager_users(mdb, conn, dry) -> int:
     """Manager.Users → manager_users (email lowercased + role/enabled/etc para AUTH SQL)."""
     cols = ["email", "role", "enabled", "auto_registered", "notes",
@@ -857,6 +929,10 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
             return r
 
         n_ac = _t("accionistas", lambda: sync_accionistas(mdb, conn, dry))
+        n_mov = _t("movimientos", lambda: sync_movimientos(mdb, conn, dry))
+        n_acr = _t("acreencias", lambda: sync_acreencias(mdb, conn, dry))
+        n_to = _t("tipos_operacion", lambda: sync_tipos_operacion(mdb, conn, dry))
+        n_vma = _t("volumen_mercado_agro", lambda: sync_volumen_mercado_agro(mdb, conn, dry))
         n_mu = _t("manager_users", lambda: sync_manager_users(mdb, conn, dry))
         n_rm = _t("role_matrix", lambda: sync_role_matrix(mdb, conn, dry))
         n_gr = _t("grupos", lambda: sync_grupos(mdb, conn, dry))
@@ -911,6 +987,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
         print(f"  manager infra: job_runs={n_jr:,}  role_audit={n_ra}")
+        print(f"  cashflow (baseline): movimientos={n_mov:,}  acreencias={n_acr:,}  "
+              f"tipos_operacion={n_to}  volumen_mercado_agro={n_vma}")
 
         # operaciones y negocio_movimientos ya NO se sincronizan: los escriben
         # SQL directo jobs/operaciones_informes.py, jobs/fci_bilateral.py y
@@ -933,6 +1011,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     stats = {"accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
              "job_runs": n_jr, "role_audit": n_ra,
              "actividad_mensual": n_am, "dolar": n_dl,
+             "movimientos": n_mov, "acreencias": n_acr, "tipos_operacion": n_to,
+             "volumen_mercado_agro": n_vma,
              "portfolio_snapshot": n_ps, "snapshots_cierre": n_sc,
              "quotes": n_qt, "calendar": n_cal,
              "series_macro": n_sm, "rem": n_rem, "curvas": n_cv,

@@ -443,13 +443,19 @@ def ops_agro(
                 f"FROM operaciones WHERE {base} GROUP BY p, commodity", bp):
         nuestro_m.setdefault(r["p"], {})[r["c"]] = _f(r["ton"])
 
-    # share: denominador desde Mongo (VolumenMercadoAgro, híbrido). Misma lógica que el router.
-    from core.mongo import get_mongo_client_read
-    mercado: dict[str, dict] = {}
-    for d in get_mongo_client_read()["CashFlow"]["VolumenMercadoAgro"].find(
-        {}, {"_id": 0, "periodo": 1, "commodity": 1, "toneladas": 1}
-    ):
-        mercado.setdefault(d["periodo"], {})[d["commodity"]] = d.get("toneladas") or 0
+    # share: denominador del market-share. Dual-run: VOLUMEN_AGRO_SQL=1 →
+    # mercado.volumen_mercado_agro (SQL); sino Mongo (CashFlow.VolumenMercadoAgro,
+    # carga manual). Mismo `{periodo: {commodity: toneladas}}` desde cualquiera.
+    from api.services import cashflow_sql as _cf_sql
+    if _cf_sql.volumen_agro_sql_on():
+        mercado = _cf_sql.volumen_mercado_agro()
+    else:
+        from core.mongo import get_mongo_client_read
+        mercado = {}
+        for d in get_mongo_client_read()["CashFlow"]["VolumenMercadoAgro"].find(
+            {}, {"_id": 0, "periodo": 1, "commodity": 1, "toneladas": 1}
+        ):
+            mercado.setdefault(d["periodo"], {})[d["commodity"]] = d.get("toneladas") or 0
     serie_share = []
     for p in sorted(mercado):
         nm = mercado[p]

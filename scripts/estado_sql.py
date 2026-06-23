@@ -17,6 +17,9 @@ load_dotenv()  # fallback (.env local)
 
 _FLAGS = [
     ("OPERACIONES_SQL", "OPERACIONES — /ops/* (movimientos, aranceles, agro)"),
+    ("MOVIMIENTOS_SQL", "FLUJOS — /api/operaciones/flujos (CashFlow.Movimientos)"),
+    ("ACREENCIAS_SQL",  "ACREENCIAS — /back-office/acreencias/* + /comercial/cobros-futuros"),
+    ("VOLUMEN_AGRO_SQL", "SHARE AGRO — denominador de /ops/agro (CashFlow.VolumenMercadoAgro)"),
     ("COMERCIAL_SQL",   "COMERCIAL — /comercial/* (operadores, informes)"),
     ("PORTFOLIO_SQL",   "PORTFOLIO AuM — /aum, /fci-*, /total-*, /diff"),
     ("VALUACIONES_SQL", "VALUACIONES — /valuaciones (cierre, serie, mensual TEA/TWR, posiciones)"),

@@ -433,7 +433,11 @@ CREATE TABLE IF NOT EXISTS mercado.market_snapshot (
 CREATE TABLE IF NOT EXISTS mercado.timesales (
     id     bigserial PRIMARY KEY,
     ticker text NOT NULL,
-    ts     timestamptz NOT NULL,        -- Mongo: timestamp
+    -- SIN tz a propósito: valores.py guarda el trade como naive en hora ART
+    -- (engines/valores.py:296 astimezone(ART).replace(tzinfo=None)). Con timestamptz
+    -- psycopg lo etiquetaría UTC y el tape mostraría la hora corrida 3hs. `timestamp`
+    -- preserva el mismo valor naive que Mongo → display idéntico.
+    ts     timestamp NOT NULL,          -- Mongo: timestamp (naive ART)
     price  numeric,
     size   numeric,
     side   text,                        -- BUY | SELL | MID

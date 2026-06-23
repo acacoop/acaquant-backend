@@ -145,17 +145,18 @@ def obtener_paridades(client, tickers):
 
 
 def obtener_precios(client, tickers):
-    """Último precio (positivo) por ticker. Para Lecaps/Boncap y CER.
-
-    Se usa para el BE por método Buscar Objetivo: precio_lecap y precio_cer
-    directos, sin pasar por TEM/paridad (evita compounding de convenciones).
-    """
-    pipeline = [
-        {"$match": {"ticker": {"$in": tickers}, "price": {"$gt": 0}}},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {"_id": "$ticker", "price": {"$first": "$price"}}},
-    ]
-    return {r["_id"]: r["price"] for r in client["Trading"]["TimeSales"].aggregate(pipeline)}
+    """Último precio (positivo) por ticker. Lee MarketSnapshot.metrics.last_price
+    (lo escribe valores.py en cada trade) — antes agregaba TimeSales; es el MISMO
+    valor (el último trade) sin depender del stream. Mismo patrón que obtener_tems/
+    obtener_paridades. Para el BE por método Buscar Objetivo (precio_lecap/precio_cer)."""
+    return {
+        d["ticker"]: (d.get("metrics") or {}).get("last_price")
+        for d in client["Trading"]["MarketSnapshot"].find(
+            {"ticker": {"$in": tickers}, "metrics.last_price": {"$gt": 0}},
+            {"_id": 0, "ticker": 1, "metrics.last_price": 1},
+        )
+        if ((d.get("metrics") or {}).get("last_price") or 0) > 0
+    }
 
 
 def obtener_valor_cer(client, fecha_iso: str) -> float | None:

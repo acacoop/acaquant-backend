@@ -35,7 +35,7 @@ market_snapshot (SNAPSHOT_SQL) en paridad (recon 2026-06-19, fresco a ~1s).
 from __future__ import annotations
 
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from psycopg.rows import dict_row
 
@@ -81,9 +81,11 @@ def get_historico_trades(instrumento: str | None = None) -> list:
     Mismo shape que el path Mongo (instrumento, timestamp, price, size, side, money), de
     mayor a menor ts. SOLO el día (cutoff = inicio de hoy UTC, idéntico a Mongo) — el tape
     no muestra histórico. Sin los enriquecidos TEA/TEM/duration: el tape no los usa."""
-    hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    # `ts` se guarda naive en hora ART (igual que Mongo) → cutoff naive ART de hoy.
+    art_hoy = (datetime.now(UTC) - timedelta(hours=3)).replace(
+        tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
     where = ["ts >= %s"]
-    params: list = [hoy]
+    params: list = [art_hoy]
     if instrumento:
         exacto = resolver_ticker_exacto(instrumento)
         if exacto is None:

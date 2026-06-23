@@ -578,6 +578,92 @@ def sync_canje_cierre(mdb, conn, dry, desde: datetime | None) -> int:
                    ["ticker", "fecha"], _dedup(rows, [0, 1]), dry)
 
 
+# ── RENTA VARIABLE — Scanner CEDEARs (espejo Trading.* — ver docs/SQL.md) ─────
+def sync_cedears(mdb, conn, dry) -> int:
+    """Trading.Cedears → cedears. Master chico (~73), completo + delete de huérfanos.
+    Columnas materializadas (ticker/ticker_corto/underlying/activo) + doc en jsonb
+    (el scanner usa nombre/ratio/sector/industria/region/pais)."""
+    rows = []
+    for d in mdb["Trading"]["Cedears"].find({}, {"_id": 0}):
+        t = _s(d.get("ticker"))
+        if not t:
+            continue
+        rows.append((t, _s(d.get("ticker_corto")), _s(d.get("underlying")),
+                     bool(d.get("activo")), _jsonb(d)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "cedears", ["ticker", "ticker_corto", "underlying", "activo", "data"],
+                ["ticker"], rows, dry)
+    _delete_not_in(conn, "cedears", "ticker", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_cedears_snapshot(mdb, conn, dry) -> int:
+    """Trading.CedearsSnapshot → cedears_snapshot (BASELINE; el motor lo refresca live
+    bajo SNAPSHOT_SQL). Passthrough jsonb, 1 doc por ticker BYMA."""
+    rows = []
+    for d in mdb["Trading"]["CedearsSnapshot"].find({}, {"_id": 0}):
+        t = _s(d.get("ticker"))
+        if t:
+            rows.append((t, _jsonb(d), d.get("updated_at")))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "cedears_snapshot", ["ticker", "data", "updated_at"], ["ticker"], rows, dry)
+    _delete_not_in(conn, "cedears_snapshot", "ticker", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_adr_snapshot(mdb, conn, dry) -> int:
+    """Trading.AdrSnapshot → adr_snapshot (BASELINE; jobs.adr_live lo refresca live bajo
+    SNAPSHOT_SQL). Passthrough jsonb, 1 doc por underlying (US symbol)."""
+    rows = []
+    for d in mdb["Trading"]["AdrSnapshot"].find({}, {"_id": 0}):
+        t = _s(d.get("ticker"))
+        if t:
+            rows.append((t, _jsonb(d), d.get("updated_at")))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "adr_snapshot", ["ticker", "data", "updated_at"], ["ticker"], rows, dry)
+    _delete_not_in(conn, "adr_snapshot", "ticker", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_precios_acciones(mdb, conn, dry, desde: datetime | None) -> int:
+    """Trading.PreciosAcciones (EOD del underlying USD) → precios_acciones (columnar).
+    Incremental por `fecha` (datetime). Batcheado + throttle (46k docs → no escanear
+    a ciegas, REGLA #4). Upsert por (ticker, fecha)."""
+    q = {"fecha": {"$gte": desde}} if desde else {}
+    total = 0
+    cur = mdb["Trading"]["PreciosAcciones"].find(
+        q, {"_id": 0, "ticker": 1, "fecha": 1, "open": 1, "high": 1, "low": 1,
+            "close": 1, "volume": 1})
+    for batch in _iter_batches(cur):
+        rows = []
+        for d in batch:
+            t, f = _s(d.get("ticker")), _d(d.get("fecha"))
+            if not (t and f):
+                continue
+            rows.append((t, f, d.get("open"), d.get("high"), d.get("low"),
+                         d.get("close"), d.get("volume")))
+        total += _upsert(conn, "precios_acciones",
+                         ["ticker", "fecha", "open", "high", "low", "close", "volume"],
+                         ["ticker", "fecha"], _dedup(rows, [0, 1]), dry)
+        time.sleep(THROTTLE)
+    return total
+
+
+def sync_day_trading_stats(mdb, conn, dry, desde: datetime | None) -> int:
+    """Trading.DayTradingStats → day_trading_stats (passthrough jsonb). Incremental
+    por `fecha` (string ISO → comparación lexicográfica). Upsert por (fecha, ticker)."""
+    f_desde = desde.date().isoformat() if desde else None
+    q = {"fecha": {"$gte": f_desde}} if f_desde else {}
+    rows = []
+    for d in mdb["Trading"]["DayTradingStats"].find(q, {"_id": 0}):
+        f, tk = _d(d.get("fecha")), _s(d.get("ticker"))
+        if not (f and tk):
+            continue
+        rows.append((f, tk, _jsonb(d)))
+    return _upsert(conn, "day_trading_stats", ["fecha", "ticker", "data"],
+                   ["fecha", "ticker"], _dedup(rows, [0, 1]), dry)
+
+
 # ── reconciliación (no confiar a ciegas) ─────────────────────────────────────
 def reconciliar(mdb, conn):
     pares = [
@@ -650,6 +736,15 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_fd = _t("futuros_dlr_snapshot", lambda: sync_futuros_dlr_snapshot(mdb, conn, dry))
         n_ca = _t("caucion_snapshot", lambda: sync_caucion_snapshot(mdb, conn, dry))
         n_fz = _t("forwards_zscore", lambda: sync_forwards_zscore(mdb, conn, dry))
+
+        # Renta variable — Scanner CEDEARs (baseline; motor/jobs refrescan live).
+        n_ced = _t("cedears", lambda: sync_cedears(mdb, conn, dry))
+        n_csn = _t("cedears_snapshot", lambda: sync_cedears_snapshot(mdb, conn, dry))
+        n_adr = _t("adr_snapshot", lambda: sync_adr_snapshot(mdb, conn, dry))
+        n_pa = _t("precios_acciones", lambda: sync_precios_acciones(mdb, conn, dry, desde))
+        n_dts = _t("day_trading_stats", lambda: sync_day_trading_stats(mdb, conn, dry, desde))
+        print(f"  scanner: cedears={n_ced}  cedears_snapshot={n_csn}  adr_snapshot={n_adr}  "
+              f"precios_acciones={n_pa:,}  day_trading_stats={n_dts}")
         print(f"  mercado: series_macro={n_sm:,}  rem={n_rem}  curvas={n_cv} "
               f"(sin ticker_corto, salteadas={sin_corto})  "
               f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  canje_cierre={n_cj}  "
@@ -685,6 +780,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "curvas_sin_ticker_corto": sin_corto,
              "market_snapshot": n_ms, "snapshots_cierre_hist": n_sh,
              "canje_cierre": n_cj, "mercado_hist": n_mh,
+             "cedears": n_ced, "cedears_snapshot": n_csn, "adr_snapshot": n_adr,
+             "precios_acciones": n_pa, "day_trading_stats": n_dts,
              "fases_fallidas": len(fallos)}
     # Re-lanza SOLO si falló una fase crítica (las vistas la consumen). El mirror de
     # Market que falle no alerta. Lo que sí sincronizó ya quedó commiteado por fase.

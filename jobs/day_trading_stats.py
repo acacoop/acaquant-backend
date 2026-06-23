@@ -34,6 +34,7 @@ import sys
 from datetime import UTC, datetime
 
 from api.services.day_trading import UMBRALES_STATS, campo_vueltas
+from core import pg_mirror
 from core.mongo import get_mongo_client
 from quant.intraday import analizar_vueltas
 
@@ -103,6 +104,7 @@ def _run(dry: bool) -> int:
         return 0
 
     n = 0
+    sql_rows: list[dict] = []
     for tk, mins in minutos.items():
         closes = [x["c"] for x in mins]
         if len(closes) < 2:
@@ -123,7 +125,13 @@ def _run(dry: bool) -> int:
             doc[campo_vueltas(u)] = analizar_vueltas(closes, u)["vueltas"]
         if not dry:
             col.update_one({"fecha": fecha, "ticker": tk}, {"$set": doc}, upsert=True)
+            # Espejo SQL (flag MERCADO_SQL_WRITE, best-effort): passthrough jsonb a
+            # mercado.day_trading_stats. fecha (str ISO) la coacciona psycopg a date.
+            sql_rows.append({"fecha": fecha, "ticker": tk, "data": pg_mirror.doc_iso(doc)})
         n += 1
+
+    if not dry:
+        pg_mirror.mirror_job("mercado.day_trading_stats", ["fecha", "ticker"], sql_rows)
 
     logger.info("[%s] persistidos %d tickers en Trading.DayTradingStats%s",
                 fecha, n, " (DRY)" if dry else "")

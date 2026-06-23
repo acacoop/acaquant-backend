@@ -8,6 +8,7 @@ Todas las fechas pasan por `core.tz` (ZoneInfo) → sin el desfasaje de los
 """
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date as _date
 from datetime import datetime, time
@@ -16,6 +17,10 @@ from api.cache import cached
 from api.services.diagnostico_registry import PIEZAS, VISTAS, Pieza
 from core.mongo import get_mongo_client_read
 from core.tz import AR_TZ, UTC, ahora_ar, asegurar_aware, segundos_desde
+
+
+def _manager_sql_on() -> bool:
+    return os.getenv("MANAGER_SQL") == "1"
 
 _APERTURA = {"rueda": time(10, 0), "rueda_agro": time(10, 30)}
 _CIERRE = time(17, 5)
@@ -64,6 +69,16 @@ def _leer_frescura(p: Pieza) -> tuple[datetime | None, str | None]:
     """Devuelve (timestamp_aware | None, run_status | None) de una pieza."""
     cli = get_mongo_client_read()
     if p.run_tipo:
+        if _manager_sql_on():
+            # JobRuns migrado a SQL: la frescura de jobs sale de manager.job_runs.
+            # Best-effort: si SQL falla, cae a Mongo (no romper el Diagnóstico).
+            try:
+                from api.services import manager_infra_sql
+                ts, status = manager_infra_sql.jobrun_ultimo_sql(p.run_tipo)
+                if ts is not None:
+                    return asegurar_aware(ts, UTC), status
+            except Exception:
+                pass
         doc = cli["Manager"]["JobRuns"].find_one(
             {"tipo": p.run_tipo}, {"finished_at": 1, "status": 1, "_id": 0},
             sort=[("finished_at", -1)],

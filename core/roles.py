@@ -199,6 +199,28 @@ def _audit_col():
     return get_mongo_client()["Manager"]["RoleAudit"]
 
 
+def _audit_insert(doc: dict) -> None:
+    """Inserta un evento en Manager.RoleAudit (fuente de verdad) y, si MANAGER_SQL_WRITE,
+    lo dual-escribe a SQL manager.role_audit. `ts` es AWARE UTC → timestamptz no corre la
+    hora. Best-effort: si SQL falla NO debe tumbar la mutación (Mongo ya persistió; el
+    próximo sync_postgres alinea SQL)."""
+    res = _audit_col().insert_one(doc)
+    if os.getenv("MANAGER_SQL_WRITE") != "1":
+        return
+    try:
+        from core.pg_mirror import doc_iso, write_native
+        write_native("manager.role_audit", ["audit_id"], [{
+            "audit_id": str(res.inserted_id),
+            "ts":       doc.get("ts"),
+            "actor":    doc.get("actor"),
+            "action":   doc.get("action"),
+            "target":   doc.get("target"),
+            "data":     doc_iso({k: v for k, v in doc.items() if k != "_id"}),
+        }])
+    except Exception as e:
+        logger.warning("RoleAudit: dual-write SQL falló (%s) — Mongo ya persistió", e)
+
+
 def _load_matrix_from_db() -> dict[str, tuple[str, ...]]:
     """Lee la matriz completa de Manager.RoleMatrix; si está vacía, cae al default."""
     try:
@@ -470,7 +492,7 @@ def upsert_user(email: str, role: str, enabled: bool = True,
     col.update_one({"email": email_norm}, update, upsert=True)
     after = col.find_one({"email": email_norm}, {"_id": 0})
 
-    _audit_col().insert_one({
+    _audit_insert({
         "ts": now,
         "actor": actor,
         "action": "upsert_user",
@@ -491,7 +513,7 @@ def delete_user(email: str, actor: str = "system") -> bool:
         return False
     col.delete_one({"email": email_norm})
 
-    _audit_col().insert_one({
+    _audit_insert({
         "ts": datetime.now(UTC),
         "actor": actor,
         "action": "delete_user",
@@ -534,7 +556,7 @@ def set_role_modules(role: str, modules: list[str], actor: str = "system") -> di
             logger.warning("set_role_modules: espejo SQL falló (%s) — Mongo ya persistió, "
                            "SQL se alinea en el próximo sync", e)
 
-    _audit_col().insert_one({
+    _audit_insert({
         "ts": now,
         "actor": actor,
         "action": "set_role_modules",

@@ -91,6 +91,8 @@ BEGIN
     ('public','manager_users','manager'),
     ('public','role_matrix','manager'),
     ('public','grupos','manager'),
+    ('public','job_runs','manager'),
+    ('public','role_audit','manager'),
     ('public','news_headlines','home'),
     ('public','market_quotes','home'),
     ('public','market_calendar','home')
@@ -769,6 +771,39 @@ CREATE TABLE IF NOT EXISTS manager.grupos (
     updated_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS ix_grupos_emails ON manager.grupos USING gin(emails);
+
+-- Manager.JobRuns — historial de corridas de jobs/crons (lo escribe core/job_runs.py
+-- JobRunLogger). Lo leen el panel Diagnóstico (/jobs/history, /jobs/history/stats),
+-- el registry de frescura y el informe de salud. PK = run_id (str(ObjectId) Mongo del
+-- doc, o uuid si SQL-native). Columnas materializadas para filtrar/ordenar/agrupar:
+-- tipo (nombre del job), started_at/finished_at (timestamptz: el writer usa
+-- datetime.now(UTC) AWARE), status (ok|partial|error). El resto del doc (stats,
+-- errors, log, elapsed_s) vive en `data` jsonb. TTL 60d lo aplica el writer/cleanup.
+CREATE TABLE IF NOT EXISTS manager.job_runs (
+    run_id      text PRIMARY KEY,            -- str(ObjectId) del doc Mongo (o uuid SQL-native)
+    tipo        text,
+    started_at  timestamptz,
+    finished_at timestamptz,
+    status      text,                        -- ok | partial | error
+    data        jsonb                        -- doc completo (stats, errors, log, elapsed_s)
+);
+CREATE INDEX IF NOT EXISTS ix_job_runs_tipo_started ON manager.job_runs(tipo, started_at DESC);
+CREATE INDEX IF NOT EXISTS ix_job_runs_started      ON manager.job_runs(started_at DESC);
+
+-- Manager.RoleAudit — append-only de cambios de roles/usuarios (lo escribe
+-- core/roles.py en upsert_user/delete_user/set_role_modules). Lo lee el panel
+-- /manager/roles/audit. PK = audit_id (str(ObjectId) Mongo). Columnas materializadas
+-- ts (timestamptz: el writer usa datetime.now(UTC) AWARE), actor, action, target;
+-- before/after quedan en `data` jsonb.
+CREATE TABLE IF NOT EXISTS manager.role_audit (
+    audit_id text PRIMARY KEY,               -- str(ObjectId) del doc Mongo
+    ts       timestamptz,
+    actor    text,
+    action   text,                           -- upsert_user | delete_user | set_role_modules
+    target   text,
+    data     jsonb                           -- {before, after} + el resto del doc
+);
+CREATE INDEX IF NOT EXISTS ix_role_audit_ts ON manager.role_audit(ts DESC);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- HOME — watchlist + noticias + calendario económico

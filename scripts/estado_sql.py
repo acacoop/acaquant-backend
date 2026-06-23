@@ -32,8 +32,10 @@ _FLAGS = [
     ("OPCIONES_SQL",    "OPCIONES — /derivados charts (chain, meta, histórico, VR-GGal, griegas, estrategia)"),
     ("SCANNER_SQL",     "RENTA VARIABLE — Scanner CEDEARs (/scanner/*: cedears, ADR, precios, day-trading)"),
     ("AUTH_SQL",        "AUTH (lecturas) — roles, matriz, scope de cuentas"),
+    ("MANAGER_SQL",     "MANAGER infra (lecturas) — /jobs/history(/stats), /roles/audit, frescura jobs"),
     ("SNAPSHOT_SQL",    "MOTORES → market_snapshot live (dual-write a SQL)"),
     ("MERCADO_SQL_WRITE", "JOBS mercado → dual-write (series_macro, rem, cierres)"),
+    ("MANAGER_SQL_WRITE", "MANAGER infra → dual-write (JobRuns→job_runs, RoleAudit→role_audit)"),
 ]
 
 

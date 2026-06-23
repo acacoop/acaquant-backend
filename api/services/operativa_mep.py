@@ -232,6 +232,39 @@ def _persistir_orden_live(
         "account":    account,
         "payload":    order,
     })
+    # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE) — después de Mongo, nunca rompe.
+    try:
+        from core import pg_mirror
+        if pg_mirror.ordenes_on():
+            # Read-back del doc completo (la `data` de ordenes_live debe tener el doc entero
+            # con created_at — el upsert pisaría una data parcial).
+            d = db[COL_ORDENES].find_one({"cl_ord_id": cl_ord_id}, {"_id": 0})
+            if d:
+                pg_mirror.mirror_ordenes("operaciones.ordenes_live", ["cl_ord_id"], [{
+                    "cl_ord_id": cl_ord_id, "account": d.get("account"),
+                    "ticker": d.get("ticker"), "estado": d.get("status"),
+                    "updated_at": d.get("updated_at"), "data": pg_mirror.doc_iso(d)}])
+        pg_mirror.append_ordenes("operaciones.ordenes_audit", [{
+            "ts": now, "kind": "REST_SNAPSHOT", "cl_ord_id": cl_ord_id, "account": account,
+            "actor_email": None, "data": pg_mirror.doc_iso({"payload": order})}])
+    except Exception:
+        pass
+
+
+def _mirror_operativa_sql(db_ops, operativa_id: str) -> None:
+    """Espejo best-effort OperativasMep→`operaciones.operativas_mep` (flag ORDENES_SQL_WRITE).
+    Read-back del doc completo (low-freq: pocas operativas/día). NUNCA levanta."""
+    try:
+        from core import pg_mirror
+        if not pg_mirror.ordenes_on():
+            return
+        d = db_ops[COL_OPERATIVAS].find_one({"operativa_id": operativa_id}, {"_id": 0})
+        if d:
+            pg_mirror.mirror_ordenes("operaciones.operativas_mep", ["id"], [{
+                "id": operativa_id, "account": d.get("account"), "rueda": d.get("rueda"),
+                "ts": d.get("updated_at") or d.get("created_at"), "data": pg_mirror.doc_iso(d)}])
+    except Exception:
+        pass
 
 
 def _ejecutar_buy_then_sell(
@@ -403,6 +436,7 @@ def crear_operativa(
         "updated_at": now,
     }
     db_ops[COL_OPERATIVAS].insert_one(doc)
+    _mirror_operativa_sql(db_ops, operativa_id)
 
     if nominales <= 0:
         motivo = (
@@ -417,6 +451,7 @@ def crear_operativa(
                 "updated_at": datetime.now(UTC),
             }},
         )
+        _mirror_operativa_sql(db_ops, operativa_id)
         return {
             "ok": False,
             "operativa_id": operativa_id,
@@ -487,6 +522,7 @@ def operativa_venta_mep(
         "updated_at": now,
     }
     db_ops[COL_OPERATIVAS].insert_one(doc)
+    _mirror_operativa_sql(db_ops, operativa_id)
 
     res = _ejecutar_buy_then_sell(
         buy_ticker=tk["al30d"],
@@ -586,6 +622,7 @@ def _persistir_resultado_operativa(
         {"operativa_id": operativa_id},
         {"$set": update_set},
     )
+    _mirror_operativa_sql(db_ops, operativa_id)
 
     return {
         "ok":            global_status in {"OK", "OK_PARCIAL"},

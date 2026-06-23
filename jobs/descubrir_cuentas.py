@@ -153,6 +153,15 @@ def _persist(snapshots: list[tuple[str, dict]]) -> int:
             upsert=True,
         ))
     res = get_mongo_client()[DB][COL].bulk_write(ops, ordered=False)
+    # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE) — después de Mongo, nunca rompe.
+    try:
+        from core import pg_mirror
+        pg_mirror.mirror_ordenes("operaciones.accounts_descubiertas", ["account_id"], [{
+            "account_id": acc, "activa": snap["activa"], "last_discovered_at": now,
+            "data": pg_mirror.doc_iso({"last_snapshot": snap}),
+        } for acc, snap in snapshots])
+    except Exception:
+        pass
     return res.upserted_count + res.modified_count
 
 

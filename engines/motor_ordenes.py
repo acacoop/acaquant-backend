@@ -197,16 +197,20 @@ def _upsert_live_from_er(db, rep: dict[str, Any]) -> None:
          "$setOnInsert": {"cl_ord_id": cl_ord_id, "created_at": now}},
         upsert=True,
     )
-    # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE). Sin read-back (path de ER, alta
-    # frecuencia): uso doc_set que ya tengo. created_at lo completa el baseline sync.
+    # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE). Read-back del doc completo: el
+    # read-side filtra /dia por data->>'created_at' (estable, setOnInsert) → la `data` tiene
+    # que tener el doc entero, no el doc_set parcial. El guard ordenes_on() evita el read
+    # cuando el flag está apagado (cero overhead hasta el cutover).
     try:
         from core import pg_mirror
         if pg_mirror.ordenes_on():
-            pg_mirror.mirror_ordenes("operaciones.ordenes_live", ["cl_ord_id"], [{
-                "cl_ord_id": cl_ord_id, "account": doc_set.get("account"),
-                "ticker": doc_set.get("ticker"), "estado": doc_set.get("status"),
-                "updated_at": now, "data": pg_mirror.doc_iso({"cl_ord_id": cl_ord_id, **doc_set}),
-            }])
+            d = db[COL_LIVE].find_one({"cl_ord_id": cl_ord_id}, {"_id": 0})
+            if d:
+                pg_mirror.mirror_ordenes("operaciones.ordenes_live", ["cl_ord_id"], [{
+                    "cl_ord_id": cl_ord_id, "account": d.get("account"),
+                    "ticker": d.get("ticker"), "estado": d.get("status"),
+                    "updated_at": d.get("updated_at"), "data": pg_mirror.doc_iso(d),
+                }])
     except Exception:
         pass
 
@@ -499,7 +503,7 @@ def _heartbeat_loop(db, account: str) -> None:
             try:
                 from core import pg_mirror
                 pg_mirror.mirror_ordenes("operaciones.motor_heartbeat", ["id"], [{
-                    "id": "singleton", "updated_at": ts,
+                    "id": "current", "updated_at": ts,
                     "data": pg_mirror.doc_iso({"account": account})}])
             except Exception:
                 pass

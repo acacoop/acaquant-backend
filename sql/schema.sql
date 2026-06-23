@@ -70,6 +70,11 @@ BEGIN
     ('public','snapshots_cierre_hist','mercado'),
     ('public','canje_cierre','mercado'),
     ('public','mercado_hist','mercado'),
+    ('public','cedears','mercado'),
+    ('public','cedears_snapshot','mercado'),
+    ('public','adr_snapshot','mercado'),
+    ('public','precios_acciones','mercado'),
+    ('public','day_trading_stats','mercado'),
     ('public','series_macro','macro'),
     ('public','rem','macro'),
     ('public','dolar','valuaciones'),
@@ -538,6 +543,75 @@ CREATE TABLE IF NOT EXISTS mercado.mercado_hist (
     data      jsonb,
     PRIMARY KEY (coleccion, fecha, k)
 );
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- RENTA VARIABLE — Scanner CEDEARs (Trading.{Cedears, CedearsSnapshot,
+-- PreciosAcciones, AdrSnapshot, DayTradingStats}). Espejo del dominio scanner;
+-- lectura SQL bajo flag SCANNER_SQL (api/services/scanner_sql.py).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Trading.Cedears → master categórico de CEDEARs (sector/industria/region/pais,
+-- ratio, underlying). Chico (~73 docs). Passthrough: `data jsonb` = doc completo
+-- (el scanner usa muchos campos: nombre, ratio_cedear, sector, industria, ...).
+-- Columnas materializadas para filtrar el universo activo y joinear por ticker.
+CREATE TABLE IF NOT EXISTS mercado.cedears (
+    ticker       text PRIMARY KEY,           -- ticker BYMA completo (PK del snapshot)
+    ticker_corto text,
+    underlying   text,
+    activo       boolean,
+    data         jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_cedears_corto ON mercado.cedears (ticker_corto);
+
+-- Trading.CedearsSnapshot → snapshot LIVE del CEDEAR en ARS (motor reescribe c/1s,
+-- 1 doc por ticker). Dual-write desde engines/motor_cedears.py (flag SNAPSHOT_SQL).
+-- Passthrough: data jsonb = doc completo (last/open/high/low/close/bid/offer/
+-- spread/vwap/volume/total_money/updated_at). `updated_at` AWARE UTC (Mongo:
+-- datetime.now(UTC)) → timestamptz (no corre la hora).
+CREATE TABLE IF NOT EXISTS mercado.cedears_snapshot (
+    ticker     text PRIMARY KEY,
+    data       jsonb,
+    updated_at timestamptz DEFAULT now()
+);
+
+-- Trading.AdrSnapshot → quote LIVE USD del subyacente (Finnhub, jobs/adr_live.py
+-- cada 15 min, 1 doc por underlying). Dual-write bajo SNAPSHOT_SQL. Passthrough:
+-- data jsonb = {ticker,c,pc,o,h,l,t,updated_at}. `updated_at` AWARE UTC.
+CREATE TABLE IF NOT EXISTS mercado.adr_snapshot (
+    ticker     text PRIMARY KEY,             -- underlying (US symbol)
+    data       jsonb,
+    updated_at timestamptz DEFAULT now()
+);
+
+-- Trading.PreciosAcciones → velas DIARIAS (EOD) del subyacente USD (Yahoo,
+-- jobs/precios_acciones_daily.py). Timeseries en Mongo; acá tabla columnar normal.
+-- Grano (ticker, fecha). `fecha` es DATE (en Mongo es datetime naive UTC a las 00h
+-- US — el scanner ya lo trata como anchor de día; date evita el problema de tz).
+CREATE TABLE IF NOT EXISTS mercado.precios_acciones (
+    ticker text NOT NULL,                    -- underlying (US symbol)
+    fecha  date NOT NULL,
+    open   numeric,
+    high   numeric,
+    low    numeric,
+    close  numeric,
+    volume numeric,
+    PRIMARY KEY (ticker, fecha)
+);
+CREATE INDEX IF NOT EXISTS ix_precios_acciones_ticker_fecha
+    ON mercado.precios_acciones (ticker, fecha);
+
+-- Trading.DayTradingStats → resumen diario de scalping por CEDEAR (jobs/
+-- day_trading_stats.py, post-cierre, 1 doc por fecha+ticker). Grano (fecha,ticker).
+-- `fecha` es DATE (en Mongo es string 'YYYY-MM-DD'). `data jsonb` = doc completo
+-- (vueltas_05/075/10/15, rango_pct, total_money, flujo_compra_pct, n_minutos).
+CREATE TABLE IF NOT EXISTS mercado.day_trading_stats (
+    fecha  date NOT NULL,
+    ticker text NOT NULL,                    -- ticker_corto
+    data   jsonb,
+    PRIMARY KEY (fecha, ticker)
+);
+CREATE INDEX IF NOT EXISTS ix_dts_ticker_fecha
+    ON mercado.day_trading_stats (ticker, fecha DESC);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- MACRO — series económicas (BCRA / argentina_datos / REM)

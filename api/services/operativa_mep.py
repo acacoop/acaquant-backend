@@ -97,18 +97,23 @@ ORDER_POLL_INTERVAL_S = 0.2
 
 
 def _last_trade(ticker: str) -> dict[str, Any] | None:
-    """Último trade de un ticker desde Trading.TimeSales. Devuelve {price, ts} o None."""
-    db = get_mongo_client_read()[DB_TRADING]
-    doc = db[COL_TIMESALES].find_one(
-        {"ticker": ticker},
-        sort=[("timestamp", -1)],
-        projection={"_id": 0, "price": 1, "timestamp": 1},
-    )
-    if not doc:
+    """Último trade de un ticker desde SQL `mercado.timesales`. Devuelve {price, ts} o None.
+
+    Trading.TimeSales (Mongo) fue DROPEADA 2026-06-22 — el tape vive solo en Postgres.
+    `ts` es naive ART (igual que guardaba Mongo) → isoformat sin tz, idéntico al contrato
+    que consumía el frontend del Dólar MEP."""
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT price, ts FROM mercado.timesales WHERE ticker = %s ORDER BY ts DESC LIMIT 1",
+            (ticker,),
+        )
+        row = cur.fetchone()
+    if not row:
         return None
-    ts = doc.get("timestamp")
+    price, ts = row
     return {
-        "price": doc.get("price"),
+        "price": float(price) if price is not None else None,
         "ts": ts.isoformat() if isinstance(ts, datetime) else ts,
     }
 
@@ -845,24 +850,26 @@ def serie_mep_minuto(
         desde = now_naive_art.replace(hour=0, minute=0, second=0, microsecond=0)
 
     tk = TICKERS_POR_RUEDA[rueda]
-    db = get_mongo_client_read()[DB_TRADING]
+    from core.postgres import get_pool
 
     def _serie_ticker(ticker: str) -> dict[datetime, float]:
-        cursor = db[COL_TIMESALES].aggregate([
-            {"$match": {"ticker": ticker, "timestamp": {"$gte": desde}}},
-            {"$group": {
-                "_id": {"$dateTrunc": {"date": "$timestamp", "unit": "minute"}},
-                "last_price": {"$last": "$price"},
-            }},
-            {"$sort": {"_id": 1}},
-        ])
+        # Último precio por minuto desde SQL mercado.timesales (== $dateTrunc minute +
+        # $last de Mongo). `minuto` queda naive ART, igual que producía $dateTrunc.
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT ON (date_trunc('minute', ts)) "
+                "date_trunc('minute', ts) AS minuto, price "
+                "FROM mercado.timesales WHERE ticker = %s AND ts >= %s "
+                "ORDER BY date_trunc('minute', ts), ts DESC",
+                (ticker, desde),
+            )
+            rows = cur.fetchall()
         out: dict[datetime, float] = {}
-        for row in cursor:
-            px = row.get("last_price")
+        for minuto, px in rows:
             if px is None:
                 continue
             try:
-                out[row["_id"]] = float(px)
+                out[minuto] = float(px)
             except (TypeError, ValueError):
                 continue
         return out

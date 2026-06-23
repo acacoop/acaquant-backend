@@ -6,6 +6,7 @@ FastAPI matchea "history" como job_id y nunca llega a los estáticos.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
@@ -20,6 +21,11 @@ from api.routers.manager._common import _AR_TZ, PROJECT_ROOT
 from core.mongo import get_mongo_client_read
 
 router = APIRouter()
+
+
+def _use_sql(engine: str | None) -> bool:
+    """Selector dual-run: ?_engine override; sino flag global MANAGER_SQL=1 (default Mongo)."""
+    return engine == "sql" or (engine != "mongo" and os.getenv("MANAGER_SQL") == "1")
 
 # Job store in-process
 _jobs: dict[str, dict] = {}
@@ -79,6 +85,13 @@ def run_job(
     return {"job_id": job_id}
 
 
+def _parse_dt(s: str) -> datetime:
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=UTC)
+
+
 @router.get("/jobs/history")
 def get_jobs_history(
     tipo: str | None = Query(None, description="Filtrar por tipo de job (carteras, aum, ...)"),
@@ -86,8 +99,18 @@ def get_jobs_history(
     desde: str | None = Query(None, description="ISO datetime o YYYY-MM-DD (UTC)"),
     hasta: str | None = Query(None, description="ISO datetime o YYYY-MM-DD (UTC)"),
     limit: int = Query(100, le=500),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    """Últimas corridas registradas en Manager.JobRuns. TTL 60d."""
+    """Últimas corridas registradas en Manager.JobRuns (o manager.job_runs si MANAGER_SQL). TTL 60d."""
+    if _use_sql(_engine):
+        from api.services import manager_infra_sql
+        return manager_infra_sql.jobs_history_sql(
+            tipo=tipo, status=status,
+            desde=_parse_dt(desde) if desde else None,
+            hasta=_parse_dt(hasta) if hasta else None,
+            limit=limit,
+        )
+
     filtro: dict = {}
     if tipo:
         filtro["tipo"] = tipo
@@ -95,17 +118,10 @@ def get_jobs_history(
         filtro["status"] = status
     if desde or hasta:
         rango: dict = {}
-
-        def _parse(s: str) -> datetime:
-            try:
-                return datetime.fromisoformat(s.replace("Z", "+00:00"))
-            except ValueError:
-                return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=UTC)
-
         if desde:
-            rango["$gte"] = _parse(desde)
+            rango["$gte"] = _parse_dt(desde)
         if hasta:
-            rango["$lte"] = _parse(hasta)
+            rango["$lte"] = _parse_dt(hasta)
         filtro["started_at"] = rango
 
     docs = list(
@@ -126,12 +142,17 @@ def get_jobs_history(
 @router.get("/jobs/history/stats")
 def get_jobs_history_stats(
     desde: str | None = Query(None, description="YYYY-MM-DD (default: últimos 7 días)"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Resumen por tipo: runs totales, ok/partial/error y último run."""
     if desde:
         dt_desde = datetime.strptime(desde, "%Y-%m-%d").replace(tzinfo=UTC)
     else:
         dt_desde = datetime.now(UTC) - timedelta(days=7)
+
+    if _use_sql(_engine):
+        from api.services import manager_infra_sql
+        return manager_infra_sql.jobs_history_stats_sql(desde=dt_desde)
 
     pipeline = [
         {"$match": {"started_at": {"$gte": dt_desde}}},

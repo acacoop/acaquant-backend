@@ -356,9 +356,11 @@ def listar_renta_fija(
 
 
 def _opc(engine: str | None):
-    """Selector de la chain de opciones: SQL (mercado.options_snapshot) si `?_engine=sql`
-    o flag `OPCIONES_SQL=1`; Mongo (Opciones.OptionsSnapshot) en otro caso. Solo aplica a
-    get_opciones (meta/historico/griegas siguen Mongo)."""
+    """Selector del dominio OPCIONES: SQL (mercado.options_*) si `?_engine=sql` o flag
+    `OPCIONES_SQL=1`; Mongo (Opciones.*) en otro caso. Cubre TODO el dominio salvo la
+    mutación de tasa (update_opciones_tasa, siempre Mongo): chain (options_snapshot), meta
+    (options_metadata), histórico intradía (options_data), VR (options_vr) y griegas
+    (options_data_hist). El path Mongo queda intacto → rollback = sacar la env + restart."""
     use_sql = engine == "sql" or (engine != "mongo" and os.getenv("OPCIONES_SQL") == "1")
     return svc_opt_sql if use_sql else svc_opt
 
@@ -373,8 +375,8 @@ def listar_opciones(
 
 
 @router.get("/opciones/meta")
-def opciones_meta():
-    return svc_opt.get_opciones_meta()
+def opciones_meta(_engine: str | None = Query(None, include_in_schema=False)):
+    return _opc(_engine).get_opciones_meta()
 
 
 @router.put("/opciones/tasa")
@@ -396,25 +398,27 @@ def opciones_update_tasa(
 def historico_opciones(
     instrumento: str | None = Query(None, description="Filtrar por instrumento (symbol)"),
     tipo: str | None = Query(None, description="Filtrar por tipo (CALL/PUT)"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_opt.get_historico_opciones(instrumento=instrumento, tipo=tipo)
+    return _opc(_engine).get_historico_opciones(instrumento=instrumento, tipo=tipo)
 
 
 @router.get("/vr-ggal")
-def vr_ggal():
+def vr_ggal(_engine: str | None = Query(None, include_in_schema=False)):
     """Serie diaria GGAL local (ARS) + ADR (USD) de Opciones.VR-GGal.
 
     Para el 2º eje del chart de costo histórico (spot del subyacente).
     """
-    return svc_opt.get_vr_ggal_serie()
+    return _opc(_engine).get_vr_ggal_serie()
 
 
 @router.get("/griegas/opciones")
 def griegas_opciones(
     instrumento: str = Query(..., description="Instrumento (symbol) del contrato"),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
     """Evolución diaria de griegas de un contrato (Opciones.DataHistorica)."""
-    return svc_opt.get_griegas_historico(instrumento=instrumento)
+    return _opc(_engine).get_griegas_historico(instrumento=instrumento)
 
 
 # ── Históricos TimeSales ──

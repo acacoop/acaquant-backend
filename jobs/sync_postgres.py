@@ -403,6 +403,50 @@ def sync_forwards_zscore(mdb, conn, dry) -> int:
     return n
 
 
+def sync_options_metadata(mdb, conn, dry) -> int:
+    """Opciones.Metadata → options_metadata (config + vr_ggal). 2 docs, completa. La tasa
+    además se dual-writea inmediata al editarla (update_opciones_tasa); acá es el baseline."""
+    rows = []
+    for d in mdb["Opciones"]["Metadata"].find({"type": {"$in": ["config", "vr_ggal"]}},
+                                              {"_id": 0}):
+        t = _s(d.get("type"))
+        if t:
+            rows.append((t, _jsonb(d)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "options_metadata", ["type", "data"], ["type"], rows, dry)
+    _delete_not_in(conn, "options_metadata", "type", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_options_vr(mdb, conn, dry) -> int:
+    """Opciones.VR-GGal → options_vr (serie diaria GGAL local/ADR, ~40 ruedas). Completa.
+    Saltea el doc SUMMARY_METRICS (no tiene `Date`). PK = fecha (date)."""
+    rows = []
+    for d in mdb["Opciones"]["VR-GGal"].find({"type": {"$ne": "SUMMARY_METRICS"}}, {"_id": 0}):
+        f = _d(d.get("Date"))
+        if f:
+            rows.append((f, _jsonb(d)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "options_vr", ["fecha", "data"], ["fecha"], rows, dry)
+    _delete_not_in(conn, "options_vr", "fecha", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_options_data_hist(mdb, conn, dry, desde: datetime | None) -> int:
+    """Opciones.DataHistorica → options_data_hist (rollup diario de griegas por contrato,
+    grano fecha+symbol). Incremental por `fecha` (string 'YYYY-MM-DD' lexicográfico)."""
+    f_desde = desde.date().isoformat() if desde else None
+    q = {"fecha": {"$gte": f_desde}} if f_desde else {}
+    rows = []
+    for d in mdb["Opciones"]["DataHistorica"].find(q, {"_id": 0}):
+        f, sym = _s(d.get("fecha")), _s(d.get("symbol"))
+        if f and sym:
+            rows.append((f, sym, _jsonb(d)))
+    rows = _dedup(rows, [0, 1])
+    return _upsert(conn, "options_data_hist", ["fecha", "symbol", "data"],
+                   ["fecha", "symbol"], rows, dry)
+
+
 # ── CAPA MERCADO (espejo Trading.* — ver docs/SQL.md §Mercado) ───────────────
 # Colecciones-serie {fecha:'YYYY-MM-DD', valor} → tabla larga series_macro.
 # `serie` = nombre de la colección Mongo (misma clave usa el dual-write).
@@ -650,11 +694,16 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_fd = _t("futuros_dlr_snapshot", lambda: sync_futuros_dlr_snapshot(mdb, conn, dry))
         n_ca = _t("caucion_snapshot", lambda: sync_caucion_snapshot(mdb, conn, dry))
         n_fz = _t("forwards_zscore", lambda: sync_forwards_zscore(mdb, conn, dry))
+        # Opciones — charts (baseline diario). Data (ticks) NO acá: la dual-writea el motor.
+        n_om = _t("options_metadata", lambda: sync_options_metadata(mdb, conn, dry))
+        n_ov = _t("options_vr", lambda: sync_options_vr(mdb, conn, dry))
+        n_odh = _t("options_data_hist", lambda: sync_options_data_hist(mdb, conn, dry, desde))
         print(f"  mercado: series_macro={n_sm:,}  rem={n_rem}  curvas={n_cv} "
               f"(sin ticker_corto, salteadas={sin_corto})  "
               f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  canje_cierre={n_cj}  "
               f"mercado_hist={n_mh:,}")
         print(f"  derivados live (baseline): futuros_dlr={n_fd}  caucion={n_ca}  forwards_zscore={n_fz}")
+        print(f"  opciones (baseline): metadata={n_om}  vr={n_ov}  data_hist={n_odh:,}")
         print(f"  dimensiones: accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")
@@ -685,6 +734,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "curvas_sin_ticker_corto": sin_corto,
              "market_snapshot": n_ms, "snapshots_cierre_hist": n_sh,
              "canje_cierre": n_cj, "mercado_hist": n_mh,
+             "options_metadata": n_om, "options_vr": n_ov, "options_data_hist": n_odh,
              "fases_fallidas": len(fallos)}
     # Re-lanza SOLO si falló una fase crítica (las vistas la consumen). El mirror de
     # Market que falle no alerta. Lo que sí sincronizó ya quedó commiteado por fase.

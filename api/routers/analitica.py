@@ -17,6 +17,7 @@ from api.services import descomposicion_retorno as svc_desc
 from api.services import macro as svc_macro
 from api.services import macro_sql as svc_macro_sql
 from api.services import opciones as svc_opc
+from api.services import opciones_sql as svc_opc_sql
 from api.services import renta_fija as svc_rf
 from api.services import renta_fija_sql as svc_rf_sql
 from api.services import sensibilidad as svc_sens
@@ -37,6 +38,13 @@ def _rf(engine: str | None):
     (mercado.*) si `?_engine=sql` o flag `RENTA_FIJA_SQL=1`; Mongo en otro caso."""
     use_sql = engine == "sql" or (engine != "mongo" and os.getenv("RENTA_FIJA_SQL") == "1")
     return svc_rf_sql if use_sql else svc_rf
+
+
+def _opc(engine: str | None):
+    """Selector OPCIONES (mismo criterio que cotizaciones._opc): SQL (mercado.options_data)
+    si `?_engine=sql` o flag `OPCIONES_SQL=1`; Mongo (Opciones.Data) en otro caso."""
+    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("OPCIONES_SQL") == "1")
+    return svc_opc_sql if use_sql else svc_opc
 
 
 @router.get("/listar-curva")
@@ -261,7 +269,10 @@ def rolldown_esperado(
 
 
 @router.post("/estrategia-historico")
-def estrategia_historico(req: _EstrategiaHistoricoReq = Body(...)):
+def estrategia_historico(
+    req: _EstrategiaHistoricoReq = Body(...),
+    _engine: str | None = Query(None, include_in_schema=False),
+):
     """Serie intradía de costo de una estrategia de opciones.
 
     Lee Opciones.Data (tick-level del OPEX en curso), agrupa en buckets de
@@ -274,7 +285,7 @@ def estrategia_historico(req: _EstrategiaHistoricoReq = Body(...)):
     se omiten — la serie queda con huecos, no con ceros.
     """
     legs = [leg.model_dump() for leg in req.legs]
-    return svc_opc.estrategia_historico(
+    return _opc(_engine).estrategia_historico(
         legs=legs,
         bucket_min=req.bucket_min,
         desde=req.desde,

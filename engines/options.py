@@ -81,6 +81,19 @@ class MongoManager:
             if griegas and isinstance(griegas, dict):
                 registro.update(griegas)
             self.collection.insert_one(registro)
+            # Dual-write SQL (flag SNAPSHOT_SQL): tick intradía → mercado.options_data.
+            # Solo vencimiento vigente (el symbol está en el mapa); la purga de series
+            # viejas la hacen _purgar_snapshots_fuera_de_mapa + jobs/archive_options_data.
+            # `ts` naive (datetime.now() ART) IGUAL que el doc → timestamp SIN tz.
+            try:
+                from core import pg_mirror
+                pg_mirror.append_snapshot("mercado.options_data", [{
+                    "symbol": symbol,
+                    "ts": registro["timestamp"],
+                    "data": pg_mirror.doc_iso(registro),
+                }])
+            except Exception:
+                pass
         except Exception as e:
             logger.error(f"Error al guardar operacion: {e}")
 
@@ -263,13 +276,18 @@ class OptionsEngine:
         except Exception as e:
             logger.error(f"Error purgando OptionsSnapshot: {e}")
         # Misma política en SQL: solo strikes vigentes (borra los vencimientos viejos).
+        # options_snapshot (grid) Y options_data (ticks intradía) — ambos quedan acotados
+        # al vencimiento vigente, igual que en Mongo. archive_options_data hace la purga
+        # diaria adicional por timestamp (ts < hoy ART).
         try:
             from core.postgres import get_pool
             with get_pool().connection() as _cn, _cn.cursor() as _cur:
                 _cur.execute("DELETE FROM mercado.options_snapshot WHERE symbol <> ALL(%s)",
                              (vigentes,))
+                _cur.execute("DELETE FROM mercado.options_data WHERE symbol <> ALL(%s)",
+                             (vigentes,))
         except Exception as e:
-            logger.error(f"Error purgando options_snapshot SQL: {e}")
+            logger.error(f"Error purgando options_snapshot/options_data SQL: {e}")
 
     def refrescar_mapa(self) -> list[str]:
         """Recomputa mapa_opciones desde pyRofex y devuelve símbolos nuevos.

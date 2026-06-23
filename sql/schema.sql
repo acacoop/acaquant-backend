@@ -63,6 +63,10 @@ BEGIN
     ('public','market_snapshot','mercado'),
     ('public','timesales','mercado'),
     ('public','options_snapshot','mercado'),
+    ('public','options_metadata','mercado'),
+    ('public','options_data_hist','mercado'),
+    ('public','options_vr','mercado'),
+    ('public','options_data','mercado'),
     ('public','futuros_dlr_snapshot','mercado'),
     ('public','caucion_snapshot','mercado'),
     ('public','forwards_zscore','mercado'),
@@ -489,6 +493,49 @@ CREATE TABLE IF NOT EXISTS mercado.options_snapshot (
     data       jsonb
 );
 CREATE INDEX IF NOT EXISTS ix_options_snapshot_updated ON mercado.options_snapshot (updated_at);
+
+-- Opciones.Metadata → 2 docs: config (tasa risk-free + expiries) y vr_ggal (vol referencia
+-- ADR/local). Alimenta /opciones/meta. Lo escribe el motor (config) + jobs/volatilidad_ggal
+-- (vr_ggal) + la mutación update_opciones_tasa (API). Baseline por sync_postgres; la tasa se
+-- dual-writea inmediata al editarla. PK = type, 1 fila por tipo.
+CREATE TABLE IF NOT EXISTS mercado.options_metadata (
+    type text PRIMARY KEY,                -- 'config' | 'vr_ggal'
+    data jsonb
+);
+
+-- Opciones.DataHistorica → rollup DIARIO de griegas por contrato (1 fila por fecha+symbol).
+-- Alimenta el chart de evolución de griegas (/griegas/opciones). Lo escribe jobs/options_rollup
+-- (dual-write incondicional). `fecha` string 'YYYY-MM-DD' (== Mongo, comparación lexicográfica).
+CREATE TABLE IF NOT EXISTS mercado.options_data_hist (
+    fecha  text NOT NULL,                  -- 'YYYY-MM-DD'
+    symbol text NOT NULL,
+    data   jsonb,
+    PRIMARY KEY (fecha, symbol)
+);
+CREATE INDEX IF NOT EXISTS ix_options_data_hist_symbol ON mercado.options_data_hist (symbol);
+
+-- Opciones.VR-GGal → serie diaria GGAL local (ARS) + ADR (USD), ~40 ruedas. 2º eje del chart
+-- de costo histórico. Lo escribe jobs/volatilidad_ggal (refresca la serie entera c/día). PK =
+-- fecha (date). El doc SUMMARY_METRICS de Mongo NO se espeja (no tiene `Date`).
+CREATE TABLE IF NOT EXISTS mercado.options_vr (
+    fecha date PRIMARY KEY,               -- Mongo: campo `Date`
+    data  jsonb
+);
+
+-- Opciones.Data → ticks intradía de la chain (1 fila por tick). Alimenta el chart intradía de
+-- una opción (/historico/opciones) + el costo histórico de estrategia. Append-only (sin PK
+-- natural). Dual-write del motor en guardar_operacion_unica (flag SNAPSHOT_SQL). POLÍTICA
+-- "solo vencimiento vigente": _purgar_snapshots_fuera_de_mapa borra los symbols fuera del
+-- mapa; jobs/archive_options_data borra ts < hoy ART al cierre → la tabla NO acumula
+-- vencimientos viejos. `ts` naive ART (datetime.now()) IGUAL que options_snapshot → timestamp
+-- SIN tz, o el chart muestra la hora corrida.
+CREATE TABLE IF NOT EXISTS mercado.options_data (
+    symbol text NOT NULL,
+    ts     timestamp NOT NULL,             -- naive (sin tz, como Mongo)
+    data   jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_options_data_symbol_ts ON mercado.options_data (symbol, ts);
+CREATE INDEX IF NOT EXISTS ix_options_data_ts        ON mercado.options_data (ts);
 
 -- Trading.SnapshotsCierre → último cierre por ticker (fallback de precio del PnL).
 CREATE TABLE IF NOT EXISTS mercado.snapshots_cierre (

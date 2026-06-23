@@ -55,9 +55,32 @@ def main() -> int:
                         "AND ts >= %s", (f"%{esc}%", art_hoy))
             print(f"  ILIKE   '%{instr}%'  → {cur.fetchone()[0]:,} filas")
 
+        # ¿Existe el SÍMBOLO (sin settlement) bajo CUALQUIER ticker en timesales hoy?
+        simbolo = instr.split(" - ")[2] if " - " in instr else instr
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT ticker FROM mercado.timesales "
+                        "WHERE ticker ILIKE %s AND ts >= %s LIMIT 10",
+                        (f"%{simbolo}%", art_hoy))
+            encontrados = [r[0] for r in cur.fetchall()]
+        print(f"\ntimesales con símbolo '{simbolo}' (cualquier settlement) hoy: "
+              f"{encontrados or '⚠ NINGUNO — ese bono no operó en el tape hoy'}")
+
         n = len(get_historico_trades(instrumento=instr))
-        print(f"\nget_historico_trades(SQL, {instr!r}) = {n} trades  "
-              f"{'← ⚠ VACÍO, este es el bug' if n == 0 else '✅'}")
+        print(f"get_historico_trades(SQL, {instr!r}) = {n} trades  "
+              f"{'← VACÍO' if n == 0 else '✅'}")
+
+    # SANITY: agarro el ticker de MAYOR volumen en timesales hoy y lo paso por el
+    # mismo get_historico_trades. Si esto da >0, el backend del tape FUNCIONA.
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ticker, count(*) n FROM mercado.timesales WHERE ts >= %s "
+                    "GROUP BY ticker ORDER BY n DESC LIMIT 1", (art_hoy,))
+        row = cur.fetchone()
+    if row:
+        top_tk, top_n = row
+        m = len(get_historico_trades(instrumento=top_tk))
+        print(f"\nSANITY — ticker más operado hoy: {top_tk!r} ({top_n:,} trades en timesales)")
+        print(f"  get_historico_trades({top_tk!r}) = {m} trades  "
+              f"{'← ⚠ BUG: el backend NO devuelve trades que SÍ existen' if m == 0 else '✅ el backend FUNCIONA'}")
     return 0
 
 

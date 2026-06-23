@@ -416,14 +416,16 @@ def _rollup_por_cuenta(mes_start: str, scope: str | None, p: dict,
         f"WITH vol AS (SELECT id_cuenta, "
         f"  SUM({_PESIF}) AS vol_total, "
         f"  SUM(CASE WHEN fecha >= %(mes)s THEN {_PESIF} ELSE 0 END) AS vol_mes, "
-        f"  count(*) AS n_ops FROM negocio_movimientos WHERE {w_vol} GROUP BY id_cuenta), "
+        f"  count(*) AS n_ops, "
+        f"  SUM(CASE WHEN fecha >= %(mes)s THEN 1 ELSE 0 END) AS n_ops_mes "
+        f"  FROM negocio_movimientos WHERE {w_vol} GROUP BY id_cuenta), "
         f"ar AS (SELECT id_cuenta, SUM(arancel) AS ar_total, "
         f"  SUM(CASE WHEN concertacion >= %(mes)s THEN arancel ELSE 0 END) AS ar_mes "
         f"  FROM operaciones WHERE {w_ar} GROUP BY id_cuenta) "
         f"SELECT COALESCE(v.id_cuenta, a.id_cuenta) AS id_cuenta, "
         f"  COALESCE(v.vol_total,0) AS vol_total, COALESCE(v.vol_mes,0) AS vol_mes, "
-        f"  COALESCE(v.n_ops,0) AS n_ops, COALESCE(a.ar_total,0) AS ar_total, "
-        f"  COALESCE(a.ar_mes,0) AS ar_mes "
+        f"  COALESCE(v.n_ops,0) AS n_ops, COALESCE(v.n_ops_mes,0) AS n_ops_mes, "
+        f"  COALESCE(a.ar_total,0) AS ar_total, COALESCE(a.ar_mes,0) AS ar_mes "
         f"FROM vol v FULL OUTER JOIN ar a ON v.id_cuenta = a.id_cuenta", p)
     return {r["id_cuenta"]: r for r in rows if r["id_cuenta"]}
 
@@ -460,11 +462,16 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None) -> dict:
                 "operador_email": info.get("operador_email"),
                 "operador_nombre": (info.get("operador_nombre") or info.get("operador_email")
                                     or "(sin operador)"),
-                "vol_total": 0.0, "vol_mes": 0.0, "ar_total": 0.0, "ar_mes": 0.0, "n_ops": 0,
+                "vol_total": 0.0, "vol_mes": 0.0, "ar_total": 0.0, "ar_mes": 0.0,
+                "n_ops": 0, "ctas_ops": 0,
             }
         for k in ("vol_total", "vol_mes", "ar_total", "ar_mes"):
             o[k] += _f(agg[k])
         o["n_ops"] += int(agg["n_ops"] or 0)
+        # Ctas Ops = cuentas DISTINTAS que operaron en el mes del corte (≥1 op en la
+        # ventana [día 1 del mes, corte]). Cada cuenta cuenta como 1, opere 1 vez o mil.
+        if int(agg.get("n_ops_mes") or 0) > 0:
+            o["ctas_ops"] += 1
 
         seg = info.get("nivel_1") or "(sin segmentar)"
         s = segs.get(seg)

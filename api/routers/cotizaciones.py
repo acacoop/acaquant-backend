@@ -165,8 +165,8 @@ def historico_caucion(
 
 
 @router.get("/futuros-dlr")
-def futuros_dlr():
-    return svc_der.get_futuros_dlr()
+def futuros_dlr(_engine: str | None = Query(None, include_in_schema=False)):
+    return _fwbe(_engine).get_futuros_dlr()
 
 
 @router.get("/historico/futuros-dlr")

@@ -62,6 +62,7 @@ BEGIN
     ('public','curvas','mercado'),
     ('public','market_snapshot','mercado'),
     ('public','timesales','mercado'),
+    ('public','futuros_dlr_snapshot','mercado'),
     ('public','snapshots_cierre','mercado'),
     ('public','snapshots_cierre_hist','mercado'),
     ('public','canje_cierre','mercado'),
@@ -445,6 +446,17 @@ CREATE TABLE IF NOT EXISTS mercado.timesales (
 );
 CREATE INDEX IF NOT EXISTS ix_timesales_ticker_ts ON mercado.timesales (ticker, ts DESC);
 CREATE INDEX IF NOT EXISTS ix_timesales_ts ON mercado.timesales (ts);  -- prune por retención
+
+-- Trading.FuturosDLRSnapshot → snapshot LIVE de futuros DLR (motor reemplaza c/15s).
+-- Dual-write desde engines/futuros_dlr.py (flag SNAPSHOT_SQL). El histórico (al cierre)
+-- va a mercado_hist (colección FuturosDLR). Passthrough: data jsonb = el doc completo,
+-- `vencimiento` columna para filtrar > hoy en la vista.
+CREATE TABLE IF NOT EXISTS mercado.futuros_dlr_snapshot (
+    ticker      text PRIMARY KEY,
+    vencimiento text,                    -- 'YYYYMMDD'
+    data        jsonb,
+    updated_at  timestamptz DEFAULT now()
+);
 
 -- Trading.SnapshotsCierre → último cierre por ticker (fallback de precio del PnL).
 CREATE TABLE IF NOT EXISTS mercado.snapshots_cierre (

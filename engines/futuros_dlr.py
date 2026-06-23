@@ -277,14 +277,26 @@ class FuturosDLREngine:
         ts = datetime.now(UTC)
         spot, fuente_spot = _spot_referencia(self.client)
         ops = []
+        docs = []
         with self._state_lock:
             for ticker, mat in self.tickers_actuales:
                 st = self.market_state.get(ticker, {})
                 doc = self._build_snapshot_doc(ticker, mat, st, spot, fuente_spot, ts)
                 if doc:
                     ops.append(ReplaceOne({"ticker": ticker}, doc, upsert=True))
+                    docs.append(doc)
         if ops:
             self.col_snap.bulk_write(ops, ordered=False)
+            # Dual-write SQL (flag SNAPSHOT_SQL): snapshot live de futuros DLR.
+            try:
+                from core import pg_mirror
+                pg_mirror.mirror_snapshot("futuros_dlr_snapshot", ["ticker"], [
+                    {"ticker": d.get("ticker"), "vencimiento": d.get("vencimiento"),
+                     "data": pg_mirror.doc_iso(d)}
+                    for d in docs if d.get("ticker")
+                ])
+            except Exception:
+                pass
 
     def _build_snapshot_doc(
         self, ticker: str, mat: str, st: dict, spot: float | None,

@@ -19,6 +19,8 @@ Dual-run flag `MERCADO_HIST_SQL`. Gate: `scripts/compare_mercado_hist_sql_vs_mon
 """
 from __future__ import annotations
 
+from datetime import date
+
 from psycopg.rows import dict_row
 
 from api.cache import cached
@@ -73,6 +75,19 @@ def get_forwards(curva: str | None = None) -> list:
             tuple(params),
         )
         return [_sin_fecha(r["data"]) for r in cur.fetchall()]
+
+
+@cached(ttl=30)
+def get_futuros_dlr() -> list:
+    """Snapshot LIVE de futuros DLR desde SQL (mercado.futuros_dlr_snapshot, dual-write
+    del motor bajo SNAPSHOT_SQL). Filtra `vencimiento` > hoy (YYYYMMDD) y ordena — igual
+    que el path Mongo (FuturosDLRSnapshot). Devuelve el doc completo (data jsonb)."""
+    hoy = date.today().strftime("%Y%m%d")
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT data FROM mercado.futuros_dlr_snapshot "
+            "WHERE vencimiento > %s ORDER BY vencimiento", (hoy,))
+        return [r["data"] for r in cur.fetchall()]
 
 
 @cached(ttl=30)

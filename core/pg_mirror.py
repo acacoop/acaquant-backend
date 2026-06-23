@@ -94,14 +94,26 @@ def mirror_job(table: str, key_cols: list[str], rows: list[dict]) -> int:
 
 
 def _append(table: str, rows: list[dict]) -> int:
-    """INSERT append-only (sin upsert). Para STREAMS como TimeSales: cada fila es nueva,
-    sin PK natural → no hay ON CONFLICT. Best-effort: nunca levanta."""
+    """INSERT append-only (sin upsert). Para STREAMS como TimeSales / options_data: cada fila
+    es nueva, sin PK natural → no hay ON CONFLICT. dict/list → Jsonb (columnas jsonb, ej. el
+    tick crudo de options_data). Best-effort: nunca levanta."""
     try:
+        import json
+        from functools import partial
+
+        from psycopg.types.json import Jsonb
+
         from core.postgres import get_pool
+
+        dumps = partial(json.dumps, default=str)  # datetimes residuales dentro de jsonb → str
+
+        def _adapt(v):
+            return Jsonb(v, dumps=dumps) if isinstance(v, dict | list) else v
+
         grupos: dict[tuple, list[tuple]] = {}
         for r in rows:
             cols = tuple(r.keys())
-            grupos.setdefault(cols, []).append(tuple(r[c] for c in cols))
+            grupos.setdefault(cols, []).append(tuple(_adapt(r[c]) for c in cols))
         n = 0
         with get_pool().connection() as conn, conn.cursor() as cur:
             for cols, vals in grupos.items():

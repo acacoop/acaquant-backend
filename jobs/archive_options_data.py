@@ -97,6 +97,19 @@ def run(apply: bool) -> int:
 
     restantes = col.count_documents({})  # perf-ok: PERF003 — verificación post-delete (conteo exacto)
     logger.info("Quedan en la colección: %d docs", restantes)
+
+    # Misma purga en el espejo SQL (mercado.options_data): el `ts` es naive ART (== Mongo
+    # datetime.now()), así que el corte es contra `hoy_ar` SIN tz. Best-effort: si PG está
+    # caído no aborta el job (Mongo ya quedó limpio). Mantiene la tabla SQL acotada a la
+    # rueda en curso — es el motivo de existir de este job.
+    try:
+        from core.postgres import get_pool
+        hoy_naive = hoy_ar.replace(tzinfo=None)
+        with get_pool().connection() as cn, cn.cursor() as cur:
+            cur.execute("DELETE FROM mercado.options_data WHERE ts < %s", (hoy_naive,))
+            logger.info("🗑️  SQL options_data: borrados %d ticks (ts < hoy ART)", cur.rowcount or 0)
+    except Exception as e:
+        logger.error("No se pudo purgar mercado.options_data SQL: %s", e)
     return 0
 
 

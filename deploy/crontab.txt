@@ -153,6 +153,13 @@
 # ─── Rollup diario de opciones (20:15 UTC = 17:15 ART, L-V)
 15 20 * * 1-5 /root/TradingAV/deploy/run_job.sh options_rollup 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.options_rollup'
 
+# ─── Archivo + purga de Opciones.Data (20:50 UTC = 17:50 ART, L-V — post rollup 20:15)
+# Backup a JSON local + borra ticks < hoy ART de Mongo Y del espejo SQL mercado.options_data.
+# DEBE correr DESPUÉS de options_rollup (que consume los ticks del día para DataHistorica).
+# Sin este cron la colección/tabla acumulaban vencimientos viejos (bloat). Default es dry-run
+# → el cron pasa --apply para ejecutar de verdad.
+50 20 * * 1-5 /root/TradingAV/deploy/run_job.sh archive_options_data 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.archive_options_data --apply'
+
 # ─── Z-score de forwards (20:30 UTC = 17:30 ART, L-V — post-cierre motor)
 30 20 * * 1-5 /root/TradingAV/deploy/run_job.sh forwards_zscore 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.forwards_zscore'
 

@@ -209,6 +209,19 @@ def update_opciones_tasa(valor: float) -> dict:
         {"$set": {"tasa": float(valor)}},
         upsert=True,
     )
+    # Espejo inmediato a SQL (flag SNAPSHOT_SQL): el grid SQL lee la tasa de
+    # mercado.options_metadata. Sin esto la nueva tasa sólo llegaría a SQL en el
+    # próximo sync_postgres. Se mergea sobre el doc `config` existente (no pisa expiries).
+    try:
+        from core import pg_mirror
+        if pg_mirror.snapshots_live_on():
+            doc = col.find_one({"type": "config"}, {"_id": 0}) or {"tasa": float(valor)}
+            pg_mirror.mirror_snapshot(
+                "mercado.options_metadata", ["type"],
+                [{"type": "config", "data": pg_mirror.doc_iso(doc)}],
+            )
+    except Exception:
+        pass
     clear_cache()
     return {"ok": True, "tasa": float(valor)}
 
@@ -301,6 +314,15 @@ def _estrategia_historico_cached(
         }
         buckets.setdefault(b, []).append(d)
 
+    return estrategia_desde_buckets(buckets, legs)
+
+
+def estrategia_desde_buckets(
+    buckets: dict[datetime, list[dict]], legs: list[dict],
+) -> list[dict]:
+    """Post-procesa los buckets {bucket: [{symbol,bid,offer,last,strike,tipo,spot}]} → serie
+    de costo de la estrategia. Independiente de la fuente (Mongo o SQL) → lo reusa
+    `opciones_sql.estrategia_historico`. Ver `estrategia_historico` para la semántica de pricing."""
     out: list[dict] = []
     for ts, docs in buckets.items():
         # buildPorStrike: {strike: {CALL: doc, PUT: doc}}

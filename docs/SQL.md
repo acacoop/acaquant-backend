@@ -121,6 +121,11 @@ de Mongo — ver comentarios en `sql/schema.sql §CAPA MERCADO`):
 | `snapshots_cierre_hist` | Trading.SnapshotsCierre | HISTÓRICO completo, PK (fecha, curva, ticker). `snapshots_cierre` (último por ticker, PnL) se mantiene aparte: otro grano/consumidor |
 | `canje_cierre` | Trading.CanjeCierre | PK (ticker, fecha) |
 | `mercado_hist` | Trading.{BreakevensHistorico, ForwardsHistorico, FuturosDLR, Caucion, FitParams, FairValueResiduos} | tabla genérica de históricos DIARIOS: grano (colección, fecha, subclave curva/ticker/moneda), doc en jsonb. Claves verificadas contra cada escritor |
+| `options_snapshot` | Opciones.OptionsSnapshot | grid LIVE de la chain (dual-write motor, SNAPSHOT_SQL). Solo vencimiento vigente |
+| `options_metadata` | Opciones.Metadata (config + vr_ggal) | PK `type`, doc jsonb. Tasa risk-free + VR. Baseline por sync; tasa dual-write inmediata al editar |
+| `options_data_hist` | Opciones.DataHistorica | rollup DIARIO de griegas por contrato, PK (fecha, symbol). Baseline por sync |
+| `options_vr` | Opciones.VR-GGal | serie diaria GGAL local/ADR, PK `fecha`. Baseline por sync (saltea SUMMARY_METRICS) |
+| `options_data` | Opciones.Data | ticks intradía (append-only, sin PK). Dual-write motor (SNAPSHOT_SQL). Solo vencimiento vigente: purga el motor + `jobs/archive_options_data` (ts < hoy ART, cron 20:50 UTC) |
 
 **Cobertura de la vista MERCADO — qué NO se espeja por sync (decisión):**
 - **Snapshots LIVE** (BreakevensLive, ForwardsLive/Zscore, CaucionSnapshot,

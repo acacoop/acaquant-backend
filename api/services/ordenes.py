@@ -119,6 +119,26 @@ def _audit(kind: str, *, cl_ord_id: str | None = None, account: str | None = Non
         pass
 
 
+def _mirror_live_sql(db, cl_ord_id: str) -> None:
+    """Espejo best-effort OrdenesLive→`operaciones.ordenes_live` (flag ORDENES_SQL_WRITE).
+    Lee el doc recién escrito y lo upsertea por cl_ord_id. El guard `ordenes_on()` evita el
+    read-back cuando el flag está apagado (cero overhead). NUNCA levanta: la orden ya está
+    en Mongo + en el broker, el espejo SQL es secundario."""
+    try:
+        from core import pg_mirror
+        if not pg_mirror.ordenes_on():
+            return
+        d = db[COL_LIVE].find_one({"cl_ord_id": cl_ord_id}, {"_id": 0})
+        if d:
+            pg_mirror.mirror_ordenes("operaciones.ordenes_live", ["cl_ord_id"], [{
+                "cl_ord_id": cl_ord_id, "account": d.get("account"),
+                "ticker": d.get("ticker"), "estado": d.get("status"),
+                "updated_at": d.get("updated_at"), "data": pg_mirror.doc_iso(d),
+            }])
+    except Exception:
+        pass
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # API pública
 # ─────────────────────────────────────────────────────────────────────────────
@@ -270,6 +290,7 @@ def _send_order_impl(
         },
         upsert=True,
     )
+    _mirror_live_sql(db, cl_ord_id)
 
     _audit("SEND_OK", cl_ord_id=cl_ord_id, account=acc, actor_email=actor_email,
            payload={"request": request_payload, "response": resp})
@@ -814,6 +835,7 @@ def _send_fci_order_impl(
         },
         upsert=True,
     )
+    _mirror_live_sql(db, cl_ord_id)
     _audit("FCI_SEND_OK", cl_ord_id=cl_ord_id, account=acc, actor_email=actor_email,
            payload={"request": request_payload, "response": resp})
     return {"ok": True, "cl_ord_id": cl_ord_id, "status": "PENDING_NEW",

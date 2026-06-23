@@ -88,6 +88,14 @@ BEGIN
     ('public','movimientos','operaciones'),
     ('public','acreencias','operaciones'),
     ('public','tipos_operacion','operaciones'),
+    ('public','ordenes_live','operaciones'),
+    ('public','ordenes_audit','operaciones'),
+    ('public','motor_heartbeat','operaciones'),
+    ('public','operativas_mep','operaciones'),
+    ('public','brackets_live','operaciones'),
+    ('public','triggers_mep','operaciones'),
+    ('public','ordenes_idempotency','operaciones'),
+    ('public','accounts_descubiertas','operaciones'),
     ('public','series_macro','macro'),
     ('public','rem','macro'),
     ('public','dolar','valuaciones'),
@@ -335,6 +343,75 @@ CREATE TABLE IF NOT EXISTS operaciones.tipos_operacion (
     tipo_operacion text PRIMARY KEY,
     data           jsonb
 );
+
+-- ── MOTOR DE ÓRDENES (OPERAR) — base Mongo `Operaciones.*` (TRANSACCIONAL, real-time).
+-- Migrado 2026-06-23. Dual-write BEST-EFFORT del motor/services bajo flag ORDENES_SQL_WRITE
+-- (try/except, DESPUÉS del write a Mongo → un fallo de SQL NUNCA bloquea ni afecta la orden
+-- real al broker). Lectura dual-run bajo ORDENES_SQL. Passthrough jsonb + columnas clave
+-- para filtrar (account/estado/ts). Timestamps aware UTC (datetime.now(UTC)) → timestamptz.
+CREATE TABLE IF NOT EXISTS operaciones.ordenes_live (
+    cl_ord_id  text PRIMARY KEY,
+    account    text,
+    ticker     text,
+    estado     text,
+    updated_at timestamptz,
+    data       jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_ordenes_live_account ON operaciones.ordenes_live (account, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS operaciones.ordenes_audit (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts          timestamptz,
+    kind        text,
+    cl_ord_id   text,
+    account     text,
+    actor_email text,
+    data        jsonb              -- payload + ws_cl_ord_id + resto del doc
+);
+CREATE INDEX IF NOT EXISTS ix_ordenes_audit_clord ON operaciones.ordenes_audit (cl_ord_id, ts DESC);
+CREATE INDEX IF NOT EXISTS ix_ordenes_audit_ts    ON operaciones.ordenes_audit (ts DESC);
+
+CREATE TABLE IF NOT EXISTS operaciones.motor_heartbeat (
+    id         text PRIMARY KEY,           -- 'current' (singleton)
+    updated_at timestamptz,
+    data       jsonb
+);
+
+CREATE TABLE IF NOT EXISTS operaciones.operativas_mep (
+    id      text PRIMARY KEY,              -- str(_id) Mongo
+    account text,
+    rueda   text,
+    ts      timestamptz,
+    data    jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_operativas_mep_account ON operaciones.operativas_mep (account, ts DESC);
+
+CREATE TABLE IF NOT EXISTS operaciones.brackets_live (
+    cl_ord_id text PRIMARY KEY,
+    account   text,
+    estado    text,
+    data      jsonb
+);
+
+CREATE TABLE IF NOT EXISTS operaciones.triggers_mep (
+    id      text PRIMARY KEY,
+    account text,
+    data    jsonb
+);
+
+CREATE TABLE IF NOT EXISTS operaciones.ordenes_idempotency (
+    clave text PRIMARY KEY,
+    ts    timestamptz,
+    data  jsonb
+);
+
+CREATE TABLE IF NOT EXISTS operaciones.accounts_descubiertas (
+    account_id         text PRIMARY KEY,
+    activa             boolean,
+    last_discovered_at timestamptz,
+    data               jsonb               -- last_snapshot (ars/usd/n_pos) + resto
+);
+CREATE INDEX IF NOT EXISTS ix_accounts_desc_activa ON operaciones.accounts_descubiertas (activa);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PORTAFOLIO — tenencias + catálogo de títulos (FUENTE DE VERDAD, SQL-native)

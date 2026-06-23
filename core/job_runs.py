@@ -20,6 +20,7 @@ El índice TTL en Manager.JobRuns se crea en scripts/crear_indices.py.
 """
 from __future__ import annotations
 
+import os
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -77,12 +78,33 @@ class JobRunLogger:
             "log":         self._log[-_MAX_LOG_LINES:],
         }
 
+        run_id = None
         try:
             from core.mongo import get_mongo_client
-            get_mongo_client()["Manager"]["JobRuns"].insert_one(doc)
+            res = get_mongo_client()["Manager"]["JobRuns"].insert_one(doc)
+            run_id = str(res.inserted_id)
         except Exception as e:
             # No queremos que un fallo al registrar tire abajo el job.
             print(f"⚠️  JobRunLogger: no se pudo persistir run: {e}", flush=True)
+
+        # Dual-write best-effort a SQL (manager.job_runs), gateado por MANAGER_SQL_WRITE.
+        # Mongo es la fuente de verdad; si SQL falla NO debe tumbar el job (try/except).
+        if run_id and os.getenv("MANAGER_SQL_WRITE") == "1":
+            try:
+                from core.pg_mirror import doc_iso, write_native
+                # doc.pop("_id") no hace falta: doc_iso ignora el ObjectId (cae a str
+                # dentro del jsonb vía json.dumps(default=str)). started_at/finished_at
+                # son AWARE UTC → la columna timestamptz no corre la hora.
+                write_native("manager.job_runs", ["run_id"], [{
+                    "run_id":      run_id,
+                    "tipo":        self.tipo,
+                    "started_at":  self._started,
+                    "finished_at": finished,
+                    "status":      status,
+                    "data":        doc_iso({k: v for k, v in doc.items() if k != "_id"}),
+                }])
+            except Exception as e:
+                print(f"⚠️  JobRunLogger: dual-write SQL falló: {e}", flush=True)
 
         # Alerta operativa si el job no terminó OK. Solo metadata (el detalle
         # ya quedó en Manager.JobRuns). No-op si Telegram no está configurado;

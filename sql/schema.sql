@@ -75,6 +75,10 @@ BEGIN
     ('public','adr_snapshot','mercado'),
     ('public','precios_acciones','mercado'),
     ('public','day_trading_stats','mercado'),
+    ('public','agro_snapshot','mercado'),
+    ('public','agro_opciones_snapshot','mercado'),
+    ('public','agro_pizarra','mercado'),
+    ('public','camara_cereales','mercado'),
     ('public','series_macro','macro'),
     ('public','rem','macro'),
     ('public','dolar','valuaciones'),
@@ -542,6 +546,46 @@ CREATE TABLE IF NOT EXISTS mercado.mercado_hist (
     k         text NOT NULL DEFAULT '',
     data      jsonb,
     PRIMARY KEY (coleccion, fecha, k)
+);
+
+-- ── AGRO / Derivados Agro (vista /derivados → Agro) ──────────────────────────
+-- Trading.AgroSnapshot → futuros agro Rosario (Trigo/Maíz/Soja), 1 doc/ticker,
+-- motor reemplaza c/5s. Dual-write desde engines/motor_agro.py (flag SNAPSHOT_SQL).
+-- Passthrough jsonb; `commodity` columna para filtrar por commodity. NO histórico
+-- (mismo criterio que el motor: solo último precio para pase/TNAV).
+CREATE TABLE IF NOT EXISTS mercado.agro_snapshot (
+    ticker     text PRIMARY KEY,
+    commodity  text,                    -- TRIGO | MAIZ | SOJA
+    data       jsonb,
+    updated_at timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_agro_snapshot_commodity ON mercado.agro_snapshot (commodity);
+
+-- Trading.AgroOpcionesSnapshot → opciones agro Rosario (call/put), 1 doc/ticker,
+-- motor reemplaza c/5s. Dual-write desde engines/motor_agro_opciones.py (flag
+-- SNAPSHOT_SQL). Passthrough jsonb; `commodity` columna para filtrar el panel.
+CREATE TABLE IF NOT EXISTS mercado.agro_opciones_snapshot (
+    ticker     text PRIMARY KEY,
+    commodity  text,                    -- TRIGO | MAIZ | SOJA
+    data       jsonb,
+    updated_at timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_agro_opc_snapshot_commodity ON mercado.agro_opciones_snapshot (commodity);
+
+-- Derivados.AgroPizarra → carga MANUAL de la mesa (1 doc/commodity). Lo escribe el
+-- service api/services/derivados_agro.py::set_pizarra (dual-write incondicional,
+-- write_native). Passthrough jsonb; PK = commodity (Mongo _id).
+CREATE TABLE IF NOT EXISTS mercado.agro_pizarra (
+    commodity text PRIMARY KEY,         -- TRIGO | MAIZ | SOJA
+    data      jsonb
+);
+
+-- Derivados.CamaraCereales → carga MANUAL de la mesa (5 cereales). Lo escribe el
+-- service api/services/camara_cereales.py::set_camara_cereal (dual-write incondicional,
+-- write_native). Passthrough jsonb; PK = cereal (Mongo _id).
+CREATE TABLE IF NOT EXISTS mercado.camara_cereales (
+    cereal text PRIMARY KEY,            -- TRIGO | MAIZ | GIRASOL | SOJA | SORGO
+    data   jsonb
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────

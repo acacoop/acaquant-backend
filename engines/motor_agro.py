@@ -245,14 +245,27 @@ class AgroEngine:
     def _volcar_snapshot(self):
         ts = datetime.now(UTC)
         ops = []
+        docs = []
         with self._state_lock:
             for u in self.universo:
                 st = self.market_state.get(u["ticker"], {})
                 doc = self._build_snapshot_doc(u, st, ts)
                 if doc:
                     ops.append(ReplaceOne({"ticker": u["ticker"]}, doc, upsert=True))
+                    docs.append(doc)
         if ops:
             self.col_snap.bulk_write(ops, ordered=False)
+            # Dual-write best-effort a Postgres (flag SNAPSHOT_SQL). Passthrough jsonb;
+            # `commodity` columna para que la vista filtre. No-op con el flag apagado.
+            try:
+                from core import pg_mirror
+                pg_mirror.mirror_snapshot(
+                    "mercado.agro_snapshot", ["ticker"],
+                    [{"ticker": d["ticker"], "commodity": d.get("commodity"),
+                      "data": pg_mirror.doc_iso(d)} for d in docs],
+                )
+            except Exception:
+                pass
 
     def _build_snapshot_doc(self, u: dict, st: dict, ts: datetime) -> dict:
         last = st.get("last") or {}

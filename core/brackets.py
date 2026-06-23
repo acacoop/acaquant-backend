@@ -94,7 +94,24 @@ def create_bracket(
         "updated_at":        now,
     }
     _coll().insert_one(doc)
+    _mirror_bracket_sql(entry_cl_ord_id)
     return doc
+
+
+def _mirror_bracket_sql(entry_cl_ord_id: str | None) -> None:
+    """Espejo best-effort BracketsLive→`operaciones.brackets_live` (flag ORDENES_SQL_WRITE).
+    PK = entry_cl_ord_id (columna cl_ord_id). Read-back, low-freq, NUNCA levanta."""
+    try:
+        from core import pg_mirror
+        if not pg_mirror.ordenes_on() or not entry_cl_ord_id:
+            return
+        d = _coll().find_one({"entry_cl_ord_id": entry_cl_ord_id}, {"_id": 0})
+        if d:
+            pg_mirror.mirror_ordenes("operaciones.brackets_live", ["cl_ord_id"], [{
+                "cl_ord_id": entry_cl_ord_id, "account": d.get("account"),
+                "estado": d.get("status"), "data": pg_mirror.doc_iso(d)}])
+    except Exception:
+        pass
 
 
 def find_pending_by_entry(entry_cl_ord_id: str) -> dict[str, Any] | None:
@@ -120,6 +137,7 @@ def mark_exit_sent(
             "updated_at":       datetime.now(UTC),
         }},
     )
+    _mirror_bracket_sql(entry_cl_ord_id)
 
 
 def mark_entry_dead(entry_cl_ord_id: str, status_broker: str) -> None:
@@ -132,6 +150,7 @@ def mark_entry_dead(entry_cl_ord_id: str, status_broker: str) -> None:
             "updated_at":       datetime.now(UTC),
         }},
     )
+    _mirror_bracket_sql(entry_cl_ord_id)
 
 
 def mark_exit_rejected(entry_cl_ord_id: str, reason: str | None) -> None:
@@ -143,6 +162,7 @@ def mark_exit_rejected(entry_cl_ord_id: str, reason: str | None) -> None:
             "updated_at":     datetime.now(UTC),
         }},
     )
+    _mirror_bracket_sql(entry_cl_ord_id)
 
 
 def mark_completed(exit_cl_ord_id: str) -> None:
@@ -151,6 +171,8 @@ def mark_completed(exit_cl_ord_id: str) -> None:
         {"exit_cl_ord_id": exit_cl_ord_id, "status": STATUS_EXIT_SENT},
         {"$set": {"status": STATUS_COMPLETED, "updated_at": datetime.now(UTC)}},
     )
+    _b = find_by_exit(exit_cl_ord_id)
+    _mirror_bracket_sql(_b.get("entry_cl_ord_id") if _b else None)
 
 
 def find_by_exit(exit_cl_ord_id: str) -> dict[str, Any] | None:

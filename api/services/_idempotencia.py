@@ -49,6 +49,21 @@ def _col():
     return c
 
 
+def _mirror_idem_sql(key: str) -> None:
+    """Espejo best-effort OrdenesIdempotency→operaciones.ordenes_idempotency
+    (flag ORDENES_SQL_WRITE). Read-back, nunca levanta."""
+    try:
+        from core import pg_mirror
+        if not pg_mirror.ordenes_on():
+            return
+        d = _col().find_one({"key": key}, {"_id": 0})
+        if d:
+            pg_mirror.mirror_ordenes("operaciones.ordenes_idempotency", ["clave"], [{
+                "clave": key, "ts": d.get("created_at"), "data": pg_mirror.doc_iso(d)}])
+    except Exception:
+        pass
+
+
 def reservar(key: str) -> bool:
     """True si reservamos la clave (somos el 1er envío → hay que mandar).
     False si ya existía (es un duplicado → NO mandar, ver esperar_resultado)."""
@@ -56,6 +71,7 @@ def reservar(key: str) -> bool:
         _col().insert_one(
             {"key": key, "status": "in_progress", "result": None, "created_at": datetime.now(UTC)}
         )
+        _mirror_idem_sql(key)
         return True
     except DuplicateKeyError:
         return False
@@ -71,6 +87,7 @@ def guardar_resultado(key: str, result: dict[str, Any]) -> None:
             {"key": key},
             {"$set": {"status": "done", "result": result, "finished_at": datetime.now(UTC)}},
         )
+        _mirror_idem_sql(key)
     except Exception as e:
         logger.warning("idempotencia: guardar_resultado falló: %s", e)
 
@@ -81,6 +98,7 @@ def guardar_error(key: str, msg: str) -> None:
             {"key": key},
             {"$set": {"status": "error", "error": msg[:300], "finished_at": datetime.now(UTC)}},
         )
+        _mirror_idem_sql(key)
     except Exception as e:
         logger.warning("idempotencia: guardar_error falló: %s", e)
 

@@ -294,8 +294,45 @@ class CedearsEngine:
                     ))
                 if ops:
                     self.col_snapshot.bulk_write(ops, ordered=False)
+                    self._mirror_sql(ts)
             except Exception as e:
                 logger.error(f"Error en _snapshot_loop: {e}")
+
+    def _mirror_sql(self, ts: datetime):
+        """Espejo SQL del snapshot live (flag SNAPSHOT_SQL, best-effort). Reconstruye
+        el doc desde market_state (igual que el $set de Mongo) y lo manda como
+        passthrough jsonb a mercado.cedears_snapshot. No-op con el flag apagado."""
+        from core import pg_mirror
+        if not pg_mirror.snapshots_live_on():
+            return
+        rows = []
+        for ticker in self.tickers:
+            st = self.market_state[ticker]
+            bid, offer, nv, ev = st["bid"], st["offer"], st["nv"], st["ev"]
+            spread = round(offer - bid, 4) if (bid > 0 and offer > 0) else 0.0
+            vwap = round(ev / nv, 4) if nv > 0 else 0.0
+            doc = {
+                "ticker":       ticker,
+                "ticker_corto": self._ticker_corto_map[ticker],
+                "open":         st["open"],
+                "high":         st["high"],
+                "low":          st["low"],
+                "close":        st["close"],
+                "last":         st["last"],
+                "bid":          bid,
+                "offer":        offer,
+                "spread":       spread,
+                "volume":       nv,
+                "total_money":  ev,
+                "vwap":         vwap,
+                "updated_at":   ts,
+            }
+            rows.append({
+                "ticker":     ticker,
+                "data":       pg_mirror.doc_iso(doc),
+                "updated_at": ts,
+            })
+        pg_mirror.mirror_snapshot("mercado.cedears_snapshot", ["ticker"], rows)
 
     def _flush_loop(self):
         """Cada 1s vuelca el buffer de trades inferidos a Trading.CedearsTimeSales.

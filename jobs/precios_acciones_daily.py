@@ -24,6 +24,7 @@ import logging
 import time
 from datetime import UTC, datetime, timedelta
 
+from core import pg_mirror
 from core.mongo import get_mongo_client
 from core.yahoo import YahooError, stock_candle
 
@@ -95,6 +96,19 @@ def upsert_ticker(col, ticker: str) -> tuple[int, int, str | None]:
         })
     if nuevos:
         col.insert_many(nuevos)
+        # Espejo SQL (flag MERCADO_SQL_WRITE, best-effort): mismas velas nuevas a
+        # mercado.precios_acciones (columnar). `fecha` Mongo (datetime naive 00h
+        # UTC US) → date para la tabla. Idempotente: upsert por (ticker, fecha).
+        sql_rows = [{
+            "ticker": ticker,
+            "fecha":  d["fecha"].date() if hasattr(d["fecha"], "date") else d["fecha"],
+            "open":   d.get("open"),
+            "high":   d.get("high"),
+            "low":    d.get("low"),
+            "close":  d.get("close"),
+            "volume": d.get("volume"),
+        } for d in nuevos]
+        pg_mirror.mirror_job("mercado.precios_acciones", ["ticker", "fecha"], sql_rows)
 
     return len(nuevos), n - len(nuevos), None
 

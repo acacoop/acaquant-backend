@@ -33,6 +33,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
+from core import pg_mirror
 from core.finnhub import FinnhubError, quote
 from core.mongo import get_mongo_client
 
@@ -64,6 +65,7 @@ def run() -> None:
 
     ok = 0
     fail = 0
+    sql_rows: list[dict] = []
     for ticker in underlyings:
         try:
             q = quote(ticker)
@@ -79,21 +81,23 @@ def run() -> None:
             fail += 1
             continue
 
-        col.update_one(
-            {"ticker": ticker},
-            {"$set": {
-                "ticker":     ticker,
-                "c":          c,
-                "pc":         pc,
-                "o":          q.get("o"),
-                "h":          q.get("h"),
-                "l":          q.get("l"),
-                "t":          q.get("t"),
-                "updated_at": now,
-            }},
-            upsert=True,
-        )
+        doc = {
+            "ticker":     ticker,
+            "c":          c,
+            "pc":         pc,
+            "o":          q.get("o"),
+            "h":          q.get("h"),
+            "l":          q.get("l"),
+            "t":          q.get("t"),
+            "updated_at": now,
+        }
+        col.update_one({"ticker": ticker}, {"$set": doc}, upsert=True)
+        # Espejo SQL (flag SNAPSHOT_SQL, best-effort): passthrough jsonb a
+        # mercado.adr_snapshot. doc_iso convierte el datetime aware a ISO.
+        sql_rows.append({"ticker": ticker, "data": pg_mirror.doc_iso(doc), "updated_at": now})
         ok += 1
+
+    pg_mirror.mirror_snapshot("mercado.adr_snapshot", ["ticker"], sql_rows)
 
     logger.info("Resumen: %d OK · %d fail", ok, fail)
 

@@ -235,6 +235,159 @@ def sync_volumen_mercado_agro(mdb, conn, dry) -> int:
     return _upsert(conn, "volumen_mercado_agro", cols, ["periodo", "commodity"], rows, dry)
 
 
+# ── MOTOR DE ÓRDENES (read-side SQL — BASELINE; el write-side dual-escribe live) ──
+# Las 8 tablas operaciones.{ordenes_live, ordenes_audit, motor_heartbeat, operativas_mep,
+# brackets_live, triggers_mep, ordenes_idempotency, accounts_descubiertas} las dual-escribe
+# el motor/services en vivo (flag ORDENES_SQL_WRITE). Acá está el BASELINE: alinea SQL a
+# Mongo por si el dual-write no corrió aún (fresh install) o se rompió. Passthrough:
+# columnas clave (para filtrar) + `data` jsonb (doc completo via _jsonb). Best-effort:
+# cada colección puede no existir todavía → el caller (_t) aísla el fallo.
+
+def sync_ordenes_live(mdb, conn, dry) -> int:
+    """Operaciones.OrdenesLive → operaciones.ordenes_live. Doc del ciclo de vida de
+    cada orden (upsert por cl_ord_id, last-write-wins en Mongo). `estado` materializa
+    `status`; `updated_at` es aware (datetime.now(UTC)). data jsonb = doc completo."""
+    cols = ["cl_ord_id", "account", "ticker", "estado", "updated_at", "data"]
+    rows = []
+    for d in mdb["Operaciones"]["OrdenesLive"].find({}, {"_id": 0}):
+        cid = _s(d.get("cl_ord_id"))
+        if not cid:
+            continue
+        rows.append((cid, _s(d.get("account")), _s(d.get("ticker")), _s(d.get("status")),
+                     d.get("updated_at"), _jsonb(d)))
+    rows = _dedup(rows, [0])
+    # SIN _delete_not_in: OrdenesLive crece y NO se limpia en Mongo (queda histórico
+    # del día); borrar acá perdería órdenes válidas. El read filtra por created_at.
+    return _upsert(conn, "ordenes_live", cols, ["cl_ord_id"], rows, dry)
+
+
+def sync_ordenes_audit(mdb, conn, dry, desde: datetime | None) -> int:
+    """Operaciones.OrdenesAudit → operaciones.ordenes_audit (APPEND-ONLY, PK surrogate
+    IDENTITY). Cada evento (SEND_REQUEST / EXECUTION_REPORT / etc.) es una fila nueva.
+
+    Sin PK natural → no se puede UPSERT. El BASELINE usa la ventana incremental por `ts`
+    y, para no duplicar en re-corridas, BORRA primero las filas del rango [desde, now] y
+    re-inserta (idempotente sobre la ventana; las filas fuera de la ventana no se tocan).
+    En --full (desde=None) re-truncar sería destructivo si el dual-write ya cargó eventos
+    nuevos → en ese caso se omite el borrado y se confía en que la tabla esté vacía
+    (fresh install) o se corra el baseline una sola vez. Batcheado + throttle."""
+    cols = ["ts", "kind", "cl_ord_id", "account", "actor_email", "data"]
+    q = {"ts": {"$gte": desde}} if desde else {}
+    if not dry and desde is not None:
+        # Idempotencia de la ventana: limpia [desde, ∞) antes de re-insertar.
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM ordenes_audit WHERE ts >= %s", (desde,))
+        conn.commit()
+    total = 0
+    cur = mdb["Operaciones"]["OrdenesAudit"].find(q, {"_id": 0}, batch_size=BATCH)
+    for batch in _iter_batches(cur):
+        rows = []
+        for d in batch:
+            doc = {k: v for k, v in d.items()
+                   if k not in ("ts", "kind", "cl_ord_id", "account", "actor_email")}
+            rows.append((d.get("ts"), _s(d.get("kind")), _s(d.get("cl_ord_id")),
+                         _s(d.get("account")), _s(d.get("actor_email")), _jsonb(doc)))
+        if rows and not dry:
+            ph = "(" + ",".join(["%s"] * len(cols)) + ")"
+            with conn.cursor() as c:
+                c.executemany(
+                    f'INSERT INTO ordenes_audit ({",".join(cols)}) VALUES {ph}', rows)
+            conn.commit()
+        total += len(rows)
+        time.sleep(THROTTLE)
+    return total
+
+
+def sync_motor_heartbeat(mdb, conn, dry) -> int:
+    """Operaciones.MotorOrdenesHeartbeat (_id='singleton') → operaciones.motor_heartbeat
+    (PK id='current'). Lo escribe el loop del motor cada 30s (updated_at aware + account).
+    Frescura para /manager → DIAG. data jsonb = doc completo."""
+    cols = ["id", "updated_at", "data"]
+    rows = []
+    for d in mdb["Operaciones"]["MotorOrdenesHeartbeat"].find({}):
+        doc = {k: v for k, v in d.items() if k != "_id"}
+        rows.append(("current", d.get("updated_at"), _jsonb(doc)))
+    rows = _dedup(rows, [0])
+    return _upsert(conn, "motor_heartbeat", cols, ["id"], rows, dry)
+
+
+def sync_operativas_mep(mdb, conn, dry) -> int:
+    """Operaciones.OperativasMep → operaciones.operativas_mep (wrapper de la operativa
+    Dólar MEP). PK = operativa_id (str). `ts` = created_at (aware). data jsonb = doc
+    completo (incluye buy/sell.cl_ord_id, nominales, mep_inicial, etc.)."""
+    cols = ["id", "account", "rueda", "ts", "data"]
+    rows = []
+    for d in mdb["Operaciones"]["OperativasMep"].find({}, {"_id": 0}):
+        oid = _s(d.get("operativa_id"))
+        if not oid:
+            continue
+        rows.append((oid, _s(d.get("account")), _s(d.get("rueda")),
+                     d.get("created_at"), _jsonb(d)))
+    rows = _dedup(rows, [0])
+    return _upsert(conn, "operativas_mep", cols, ["id"], rows, dry)
+
+
+def sync_brackets_live(mdb, conn, dry) -> int:
+    """Operaciones.BracketsLive → operaciones.brackets_live (entrada LIMIT + salida auto).
+    OJO (no inferible): la PK natural en Mongo es `entry_cl_ord_id` (unique) → mapea a la
+    columna `cl_ord_id` de la tabla. `estado` materializa `status`. data jsonb = doc
+    completo (price_entry/price_exit, exit_cl_ord_id, etc.)."""
+    cols = ["cl_ord_id", "account", "estado", "data"]
+    rows = []
+    for d in mdb["Operaciones"]["BracketsLive"].find({}, {"_id": 0}):
+        cid = _s(d.get("entry_cl_ord_id"))
+        if not cid:
+            continue
+        rows.append((cid, _s(d.get("account")), _s(d.get("status")), _jsonb(d)))
+    rows = _dedup(rows, [0])
+    return _upsert(conn, "brackets_live", cols, ["cl_ord_id"], rows, dry)
+
+
+def sync_triggers_mep(mdb, conn, dry) -> int:
+    """Operaciones.TriggersMep → operaciones.triggers_mep. Colección del scanner de
+    triggers MEP (puede no existir / estar vacía — el scanner está inactivo hoy). PK = id
+    (str(_id) Mongo). Passthrough defensivo; data jsonb = doc completo."""
+    cols = ["id", "account", "data"]
+    rows = []
+    for d in mdb["Operaciones"]["TriggersMep"].find({}):
+        doc = {k: v for k, v in d.items() if k != "_id"}
+        rows.append((str(d.get("_id")), _s(d.get("account")), _jsonb(doc)))
+    rows = _dedup(rows, [0])
+    return _upsert(conn, "triggers_mep", cols, ["id"], rows, dry)
+
+
+def sync_ordenes_idempotency(mdb, conn, dry) -> int:
+    """Operaciones.OrdenesIdempotency → operaciones.ordenes_idempotency (claves anti
+    doble-orden, TTL 1 día en Mongo). PK = clave (← campo `key`). `ts` = created_at.
+    data jsonb = doc completo (status/result/finished_at)."""
+    cols = ["clave", "ts", "data"]
+    rows = []
+    for d in mdb["Operaciones"]["OrdenesIdempotency"].find({}, {"_id": 0}):
+        k = _s(d.get("key"))
+        if not k:
+            continue
+        rows.append((k, d.get("created_at"), _jsonb(d)))
+    rows = _dedup(rows, [0])
+    return _upsert(conn, "ordenes_idempotency", cols, ["clave"], rows, dry)
+
+
+def sync_accounts_descubiertas(mdb, conn, dry) -> int:
+    """Operaciones.AccountsDescubiertas → operaciones.accounts_descubiertas (cuentas
+    autorizadas del master, las pobla jobs.descubrir_cuentas). PK = account_id. `data`
+    jsonb trae `last_snapshot` (ars/usd/n_pos) — el read service lo lee de ahí."""
+    cols = ["account_id", "activa", "last_discovered_at", "data"]
+    rows = []
+    for d in mdb["Operaciones"]["AccountsDescubiertas"].find({}, {"_id": 0}):
+        acc = _s(d.get("account_id"))
+        if not acc:
+            continue
+        rows.append((acc, bool(d.get("activa")), d.get("last_discovered_at"), _jsonb(d)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "accounts_descubiertas", cols, ["account_id"], rows, dry)
+    _delete_not_in(conn, "accounts_descubiertas", "account_id", {r[0] for r in rows}, dry)
+    return n
+
+
 def sync_manager_users(mdb, conn, dry) -> int:
     """Manager.Users → manager_users (email lowercased + role/enabled/etc para AUTH SQL)."""
     cols = ["email", "role", "enabled", "auto_registered", "notes",
@@ -953,6 +1106,20 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_acr = _t("acreencias", lambda: sync_acreencias(mdb, conn, dry))
         n_to = _t("tipos_operacion", lambda: sync_tipos_operacion(mdb, conn, dry))
         n_vma = _t("volumen_mercado_agro", lambda: sync_volumen_mercado_agro(mdb, conn, dry))
+
+        # Motor de órdenes — read-side SQL (BASELINE; el write-side dual-escribe live).
+        n_ol = _t("ordenes_live", lambda: sync_ordenes_live(mdb, conn, dry))
+        n_oa = _t("ordenes_audit", lambda: sync_ordenes_audit(mdb, conn, dry, desde))
+        n_hb = _t("motor_heartbeat", lambda: sync_motor_heartbeat(mdb, conn, dry))
+        n_op = _t("operativas_mep", lambda: sync_operativas_mep(mdb, conn, dry))
+        n_bk = _t("brackets_live", lambda: sync_brackets_live(mdb, conn, dry))
+        n_tr = _t("triggers_mep", lambda: sync_triggers_mep(mdb, conn, dry))
+        n_id = _t("ordenes_idempotency", lambda: sync_ordenes_idempotency(mdb, conn, dry))
+        n_acd = _t("accounts_descubiertas", lambda: sync_accounts_descubiertas(mdb, conn, dry))
+        print(f"  motor órdenes (baseline): ordenes_live={n_ol}  ordenes_audit={n_oa:,}  "
+              f"motor_heartbeat={n_hb}  operativas_mep={n_op}  brackets_live={n_bk}  "
+              f"triggers_mep={n_tr}  ordenes_idempotency={n_id}  accounts_descubiertas={n_acd}")
+
         n_mu = _t("manager_users", lambda: sync_manager_users(mdb, conn, dry))
         n_rm = _t("role_matrix", lambda: sync_role_matrix(mdb, conn, dry))
         n_gr = _t("grupos", lambda: sync_grupos(mdb, conn, dry))
@@ -1046,6 +1213,9 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "agro_snapshot": n_as, "agro_opciones_snapshot": n_ao,
              "agro_pizarra": n_ap, "camara_cereales": n_cc,
              "options_metadata": n_om, "options_vr": n_ov, "options_data_hist": n_odh,
+             "ordenes_live": n_ol, "ordenes_audit": n_oa, "motor_heartbeat": n_hb,
+             "operativas_mep": n_op, "brackets_live": n_bk, "triggers_mep": n_tr,
+             "ordenes_idempotency": n_id, "accounts_descubiertas": n_acd,
              "fases_fallidas": len(fallos)}
     # Re-lanza SOLO si falló una fase crítica (las vistas la consumen). El mirror de
     # Market que falle no alerta. Lo que sí sincronizó ya quedó commiteado por fase.

@@ -16,6 +16,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import get_user_email
+from api.services import ordenes_sql as _ord_sql
 from api.services._grupos_scope import scope_cuentas, verificar_account
 from api.services.risk import (
     account_detailed_position,
@@ -27,6 +28,16 @@ from api.services.risk import (
 
 router = APIRouter(prefix="/api/risk", tags=["risk"])
 logger = logging.getLogger("api.risk")
+
+
+def _read_sql(engine: str | None) -> bool:
+    """Dual-run de LECTURA del listado de cuentas: SQL si flag ORDENES_SQL=1, con
+    override por request (`?_engine=sql|mongo`). El path Mongo queda intacto."""
+    if engine == "sql":
+        return True
+    if engine == "mongo":
+        return False
+    return _ord_sql.ordenes_sql_on()
 
 
 @router.get("/account/saldo")
@@ -101,6 +112,7 @@ def detailed(
 @router.get("/account/listado")
 def listado(
     solo_activas: bool = False,
+    _engine: str | None = Query(None, include_in_schema=False),
     _email: str = Depends(get_user_email),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> list[dict[str, Any]]:
@@ -117,8 +129,12 @@ def listado(
 
     Filtrado por scope de grupos: un user scopeado solo ve sus cuentas en el
     dropdown (admin / sin-grupo ven todas).
+
+    Dual-run: lee SQL `operaciones.accounts_descubiertas` (flag ORDENES_SQL) o
+    Mongo `Operaciones.AccountsDescubiertas`; mismo shape, mismo join de nombres.
     """
-    rows = listado_cuentas(solo_activas=solo_activas)
+    fn = _ord_sql.listado_cuentas if _read_sql(_engine) else listado_cuentas
+    rows = fn(solo_activas=solo_activas)
     if scope is not None:
         permitidas = set(scope)
         rows = [r for r in rows if str(r.get("account_id")) in permitidas]

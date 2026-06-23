@@ -47,6 +47,66 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase**.
   `partner.<tabla>`, fuera del search_path de la mesa). NO entra en `jobs/sync_postgres.py`
   (dominio separado, otra base, dato de un tercero). Ver `docs/PARTNER_API.md`.
 
+## MOTOR DE ÓRDENES — read-side dual-run (2026-06-23, dominio TRANSACCIONAL)
+
+⚠️ **Dominio en vivo, crítico.** La base Mongo `Operaciones` (motor de órdenes) se migró
+al patrón dual-run. **El write-side (motor + services de envío/cancel) sigue escribiendo
+Mongo** y dual-escribe SQL **best-effort** bajo flag `ORDENES_SQL_WRITE` (try/except,
+DESPUÉS del write a Mongo → un fallo de SQL NUNCA bloquea ni afecta la orden real al
+broker). **La lectura** corre dual-run bajo flag `ORDENES_SQL` (default Mongo, override por
+request `?_engine=sql|mongo`); el path Mongo queda intacto → rollback = sacar el flag.
+
+8 tablas en el schema `operaciones` (ver `sql/schema.sql`):
+
+| Mongo (`Operaciones.*`) | Tabla SQL | PK | Notas |
+|---|---|---|---|
+| `OrdenesLive` | `ordenes_live` | `cl_ord_id` | columnas account/ticker/estado(=`status`)/updated_at + `data` jsonb (doc completo) |
+| `OrdenesAudit` | `ordenes_audit` | `id` IDENTITY | APPEND-ONLY (cada ER/evento = fila); `data` = ws_cl_ord_id + payload |
+| `MotorOrdenesHeartbeat` (`_id='singleton'`) | `motor_heartbeat` | `id`='current' | frescura para /manager → DIAG |
+| `OperativasMep` | `operativas_mep` | `id`=`operativa_id` | wrapper Dólar MEP; `ts`=created_at |
+| `BracketsLive` | `brackets_live` | `cl_ord_id`=`entry_cl_ord_id` | **PK natural Mongo es `entry_cl_ord_id`** (no inferible) |
+| `TriggersMep` | `triggers_mep` | `id`=str(_id) | scanner inactivo hoy; sync defensivo |
+| `OrdenesIdempotency` | `ordenes_idempotency` | `clave`=`key` | claves anti doble-orden (TTL 1d en Mongo) |
+| `AccountsDescubiertas` | `accounts_descubiertas` | `account_id` | `data.last_snapshot` trae ars/usd/n_pos |
+
+**LECTURAS migradas** (`api/services/ordenes_sql.py`, selector en los routers):
+- `GET /api/ordenes/dia` (`ordenes.list_orders_dia`) — el doc LOCAL sale de SQL
+  `ordenes_live`; **el merge con el broker (pyRofex `get_all_orders_status`) es la verdad
+  real-time y queda IDÉNTICO** (se reusa el builder puro `_broker_report_to_local`).
+- `GET /api/ordenes/{cl_ord_id}` (`ordenes.get_order_status`, find_one) y el chequeo de
+  scope del `DELETE /api/ordenes/{id}` (lectura de cuenta).
+- `GET /api/risk/account/listado` (`risk.listado_cuentas`) — mismo shape, mismo join de
+  nombres (`risk._nombres_por_id_cuenta`), mismo orden.
+
+**Reglas de traducción (no inferibles):**
+- `ordenes_live` filtra el día por `data->>'created_at'` (ISO en jsonb), **NO** por la
+  columna `updated_at` (que se mueve con cada ER y arrastraría órdenes de días previos).
+- Fechas en `data` jsonb son ISO → el read las rehidrata a datetime aware UTC (el merge y
+  el sort por `created_at` las necesitan tipadas).
+- `brackets_live`/`motor_heartbeat`/`operativas_mep`/`idempotency` mapean nombres de PK
+  (`entry_cl_ord_id`→`cl_ord_id`, `_id`→`id='current'`, `operativa_id`→`id`, `key`→`clave`).
+
+**NO migradas** (siguen Mongo-only, justificación):
+- Operativa MEP listado/detalle/serie (`operativa_mep.listar_operativas_dia`,
+  `obtener_detalle_operativa`, `serie_mep_minuto`) y brackets `/operar/brackets/dia`
+  (`core.brackets.list_dia`): leen `OrdenesLive`+`OrdenesAudit`+`OperativasMep` con joins
+  vivos; el read-side de esta tanda cubre la orden individual y el listado del día, que es
+  lo que consume el Dashboard de Operar. Se pueden migrar después con el mismo patrón.
+- **Heartbeat freshness** (/manager → DIAG): lo lee `api/services/diagnostico.py` de forma
+  GENÉRICA por `db/coll/field` declarado en `diagnostico_registry.py` (no un lector con
+  flag). Migrarlo tocaría el motor de diagnóstico → fuera del read-side; queda Mongo.
+
+**Baseline**: `jobs/sync_postgres.py` (8 funciones `sync_*`, no-críticas → no alertan si
+fallan; las colecciones pueden no existir aún). `ordenes_audit` es append-only: el
+incremental borra la ventana `ts >= desde` y re-inserta (idempotente sobre la ventana).
+Estado del flag: `python -m scripts.estado_sql` (`ORDENES_SQL` lectura, `ORDENES_SQL_WRITE`
+dual-write).
+
+> **GATE antes de cutover** (igual que operaciones): comparar SQL↔Mongo para
+> `/ordenes/dia` (mismo merge de broker → comparar solo el set LOCAL), `/ordenes/{id}` y
+> `/risk/listado`, exigir paridad. NO migrar la lectura a ciegas — el dual-write es
+> best-effort y la tabla puede ir atrás del motor hasta que el baseline corra.
+
 ## VALUACIONES — caches precalculados (dual-run, lectura SQL bajo flag)
 
 Las dos vistas pesadas de Portfolio leen un cache precalculado por cron (recorrer

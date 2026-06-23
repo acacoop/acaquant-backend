@@ -23,6 +23,51 @@ aislada, auth propia.
 - **`partner_api/`** — servicio FastAPI aparte (puerto 8100). Lee
   `ACAPortfolio.Cartera`. No comparte proceso ni conexión Mongo con la mesa.
 
+## Migración Mongo → SQL (para apagar Mongo)
+
+El partner_api fue migrado al mismo patrón **dual-run** del resto del sistema:
+las mismas dos colecciones de `ACAPortfolio` viven ahora también en Postgres
+(Supabase), en un schema PROPIO `partner` (ver `sql/schema.sql` §PARTNER y
+`docs/SQL.md`).
+
+- **Tablas SQL**: `partner.cartera` (espejo de `Cartera`, columnas materializadas
+  — shape fijo y conocido, sin jsonb) y `partner.api_users` (espejo de
+  `ApiUsers`, con el `password_hash` tal cual). `fecha` se guarda como `date`,
+  `exported_at`/`created_at` como `timestamptz` (en Mongo son datetime aware UTC).
+- **Conexión propia**: `partner_api/pg.py` (NO importa `core.postgres`; usa la env
+  `POSTGRES_URI` y SIEMPRE califica `partner.<tabla>` — la API de la mesa nunca
+  resuelve sin querer una tabla de un tercero). Auto-crea schema+tablas en el
+  primer uso (`ensure_schema()`).
+- **Lectura** (`partner_api/store.py`) — selector por flag de entorno:
+  - `PARTNER_SQL` ausente / `0` (**DEFAULT**) → lee **Mongo** (path original
+    INTACTO). El proveedor no nota ningún cambio.
+  - `PARTNER_SQL=1` → lee **Postgres**. Devuelve el MISMO shape (mismo orden,
+    mismos campos) en los dos backends. Cubre REST (`/v1/*`) Y OData (`/odata/*`).
+  - Rollback = sacar la env + `systemctl restart partner_api.service`.
+- **Escritura** (gateada por `PARTNER_SQL_WRITE=1`, default apagada → dual-write
+  best-effort, si PG falla NO rompe el path Mongo):
+  - Cartera: `jobs/partner_export.py` escribe Mongo **y** `partner.cartera` (mismo
+    delete+insert idempotente por `(id_cuenta, fecha)`).
+  - Usuarios: `scripts/partner_user.py` (crear/reset/habilitar/deshabilitar)
+    upsertea también `partner.api_users`.
+- **Baseline (seed inicial)**: `python -m scripts.partner_sql_baseline` — vuelca
+  el contenido actual de `ACAPortfolio` a las tablas SQL (idempotente, `--dry-run`
+  para contar). NO va en `jobs/sync_postgres.py` (el partner es un dominio
+  separado). Después, el dual-write mantiene SQL al día.
+
+**Orden de cutover** (sin downtime para el proveedor):
+1. Correr el schema (`sql/schema.sql`) o dejar que `ensure_schema()` cree las tablas.
+2. `PARTNER_SQL_WRITE=1` en el `.env` + restart → dual-write activo (Mongo sigue
+   siendo la fuente de lectura).
+3. `python -m scripts.partner_sql_baseline` → seed del histórico.
+4. Verificar paridad (comparar `/v1/portfolio` y `/v1/fechas` con y sin
+   `PARTNER_SQL=1` apuntando a las mismas fechas).
+5. `PARTNER_SQL=1` + restart → la lectura pasa a SQL. Rollback inmediato sacando
+   la env.
+6. Cuando se decida apagar Mongo: quitar `PARTNER_MONGO_URI` deja de aplicar (el
+   servicio ya no lo usa con `PARTNER_SQL=1`); `partner_api/db.py` queda como
+   código muerto a borrar en un commit posterior.
+
 ## Seguridad — capas
 
 1. **Aislamiento de datos (lo más fuerte).** El servicio se conecta a Mongo

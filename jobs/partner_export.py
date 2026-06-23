@@ -37,6 +37,7 @@ Uso:  python -m jobs.partner_export
 """
 from __future__ import annotations
 
+import os
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -49,6 +50,45 @@ from core.mongo import get_mongo_client
 
 _DB_NAME = "ACAPortfolio"
 _COL_NAME = "Cartera"
+
+# Dual-write a SQL (partner.cartera) gateado: con PARTNER_SQL_WRITE=1 el job
+# escribe TAMBIÉN en Postgres, además de Mongo (path Mongo INTACTO). Apagado por
+# default → rollback = sacar la env. La lectura del servicio se togglea aparte
+# con PARTNER_SQL (ver partner_api/store.py).
+def _sql_write_enabled() -> bool:
+    return os.getenv("PARTNER_SQL_WRITE", "").strip() in ("1", "true", "True")
+
+
+def _sql_upsert_cuenta(cid: str, fecha: str, docs: list[dict]) -> None:
+    """Espejo SQL idempotente por (id_cuenta, fecha): borra las filas de ESA
+    cuenta para ESA fecha y reinserta. Mismo grano que el delete_many de Mongo →
+    el histórico de otras fechas queda intacto. Best-effort: si PG falla NO
+    rompe el job (Mongo es la fuente operativa mientras dura el dual-write)."""
+    try:
+        from partner_api import pg
+        pg.ensure_schema()
+        with pg.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM partner.cartera WHERE id_cuenta = %s AND fecha = %s::date",
+                    (cid, fecha),
+                )
+                if docs:
+                    cur.executemany(
+                        "INSERT INTO partner.cartera (fecha, id_cuenta, unidad, "
+                        "cuenta, cantidad, precio, valuacion, exported_at) "
+                        "VALUES (%(fecha)s::date, %(id_cuenta)s, %(unidad)s, %(cuenta)s, "
+                        "%(cantidad)s, %(precio)s, %(valuacion)s, %(exported_at)s) "
+                        "ON CONFLICT (fecha, id_cuenta, unidad) DO UPDATE SET "
+                        "cuenta = EXCLUDED.cuenta, cantidad = EXCLUDED.cantidad, "
+                        "precio = EXCLUDED.precio, valuacion = EXCLUDED.valuacion, "
+                        "exported_at = EXCLUDED.exported_at",
+                        docs,
+                    )
+            conn.commit()
+    except Exception as e:  # noqa: BLE001 — best-effort, no debe tumbar el export
+        print(f"  [{cid}] ⚠ dual-write SQL falló (Mongo OK): {e}", flush=True)
+
 
 # Zona horaria de Argentina — define el día de `fecha` del snapshot.
 _AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
@@ -190,6 +230,7 @@ def main() -> None:
     col = client[_DB_NAME][_COL_NAME]
     col.create_index([("id_cuenta", 1), ("fecha", -1)])
 
+    sql_write = _sql_write_enabled()
     ahora = datetime.now(UTC)
     total_pos = 0
     con_datos = 0
@@ -208,6 +249,9 @@ def main() -> None:
         if not registros:
             print(f"  [{cid}] sin posiciones — se saltea "
                   f"(cuenta vacía o sin datos en Aunesa).", flush=True)
+            # SQL: igual de idempotente — limpia la cuenta/fecha (cuenta vaciada).
+            if sql_write:
+                _sql_upsert_cuenta(cid, fecha, [])
             continue
 
         docs = [
@@ -224,6 +268,8 @@ def main() -> None:
             for r in registros
         ]
         col.insert_many(docs)
+        if sql_write:
+            _sql_upsert_cuenta(cid, fecha, docs)
         total_pos += len(docs)
         con_datos += 1
         print(f"  [{cid}] {len(docs)} posiciones exportadas.", flush=True)

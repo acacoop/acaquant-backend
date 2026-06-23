@@ -48,6 +48,7 @@ CREATE SCHEMA IF NOT EXISTS macro;
 CREATE SCHEMA IF NOT EXISTS valuaciones;
 CREATE SCHEMA IF NOT EXISTS manager;
 CREATE SCHEMA IF NOT EXISTS home;
+CREATE SCHEMA IF NOT EXISTS partner;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- MIGRACIÓN idempotente public/portafolio → schemas de dominio (v1 → v2).
@@ -930,4 +931,49 @@ CREATE TABLE IF NOT EXISTS home.market_calendar (
     impact  integer,
     data    jsonb,
     PRIMARY KEY (evt_ts, country, event)
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- PARTNER — espejo de la base Mongo `ACAPortfolio` del servicio externo
+-- (app SEPARADA `partner_api/`, NO se monta en api/main). Migración Mongo→SQL
+-- para poder apagar Mongo por completo. Ver docs/PARTNER_API.md y docs/SQL.md.
+--
+-- Schema PROPIO `partner` (no se mezcla con el núcleo de la mesa): el dato es de
+-- un tercero, lo escribe/lee un proceso aparte. Las tablas se crean con este DDL
+-- (idempotente) y/o por el writer/auth en _ensure_schema(). search_path de
+-- core/postgres.py NO incluye `partner` a propósito → el partner_api usa su
+-- propia conexión (partner_api/pg.py) y SIEMPRE califica `partner.<tabla>`, así
+-- la API de la mesa nunca resuelve sin querer una tabla de un tercero.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ACAPortfolio.Cartera → snapshot diario de posiciones de las cuentas habilitadas
+-- (1 fila por fecha+id_cuenta+unidad). Lo escribe jobs/partner_export.py (2×/día,
+-- dual-write Mongo+SQL bajo flag PARTNER_SQL_WRITE). Shape FIJO y conocido (el job
+-- arma el doc con campos explícitos) → columnas materializadas, sin jsonb. `fecha`
+-- es string ISO 'YYYY-MM-DD' del día hábil ARGENTINO (NO date naive) → se guarda
+-- como `date` tipado (parse trivial, sin tz). `id_cuenta` es string ("463"). PK
+-- natural = el grano del export (idempotente por fecha/cuenta).
+CREATE TABLE IF NOT EXISTS partner.cartera (
+    fecha       date NOT NULL,            -- Mongo: string 'YYYY-MM-DD' (día hábil AR)
+    id_cuenta   text NOT NULL,
+    unidad      text NOT NULL,
+    cuenta      text,                     -- "[id] NOMBRE"
+    cantidad    numeric,
+    precio      numeric,
+    valuacion   numeric,
+    exported_at timestamptz,              -- Mongo: datetime AWARE UTC → timestamptz
+    PRIMARY KEY (fecha, id_cuenta, unidad)
+);
+CREATE INDEX IF NOT EXISTS ix_partner_cartera_cuenta_fecha
+    ON partner.cartera (id_cuenta, fecha DESC);
+
+-- ACAPortfolio.ApiUsers → credenciales del proveedor (usuario/hash/enabled). Lo
+-- escribe scripts/partner_user.py (dual-write Mongo+SQL bajo flag PARTNER_SQL_WRITE);
+-- lo lee partner_api/auth.py + odata.py (login + Basic). password_hash es el
+-- "salt_hex$hash_hex" de partner_api/security.py — se espeja TAL CUAL. PK = username.
+CREATE TABLE IF NOT EXISTS partner.api_users (
+    username      text PRIMARY KEY,
+    password_hash text,
+    enabled       boolean,
+    created_at    timestamptz             -- Mongo: datetime AWARE UTC → timestamptz
 );

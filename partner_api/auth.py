@@ -17,7 +17,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
-from partner_api.db import get_db
+from partner_api import store
 from partner_api.ratelimit import client_ip, limiter
 from partner_api.security import crear_token, hash_password, validar_token, verify_password
 
@@ -33,7 +33,8 @@ _DUMMY_HASH = hash_password("dummy-no-user")
 
 
 def _buscar_usuario(username: str) -> dict | None:
-    return get_db()["ApiUsers"].find_one({"username": username})
+    """Usuario del proveedor (dual-run Mongo/SQL vía store, flag PARTNER_SQL)."""
+    return store.find_user(username)
 
 
 @router.post("/token")

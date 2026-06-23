@@ -27,7 +27,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
-from partner_api.db import get_db
+from partner_api import store
 from partner_api.ratelimit import limiter
 from partner_api.security import verify_password
 
@@ -36,7 +36,6 @@ router = APIRouter(prefix="/odata", tags=["odata"])
 
 NS = "Acaquant"        # namespace del esquema
 ENTITY = "Portfolio"   # entidad / entity set
-COL = "Cartera"        # colección Mongo
 
 # Propiedades de la entidad: nombre (= campo Mongo) → tipo Edm. La key `ID` es
 # sintética (fecha|id_cuenta|unidad) porque la posición no tiene id propio.
@@ -68,7 +67,7 @@ def _basic_auth(request: Request) -> str:
     except (binascii.Error, ValueError, UnicodeDecodeError):
         raise HTTPException(401, "Auth Basic malformado", headers=unauth) from None
     username = username.strip()
-    user = get_db()["ApiUsers"].find_one({"username": username})
+    user = store.find_user(username)
     ok = verify_password(password, user["password_hash"]) if user else False
     if not user or not ok or not user.get("enabled", False):
         raise HTTPException(401, "usuario o password inválidos", headers=unauth)
@@ -139,15 +138,9 @@ def metadata() -> Response:
     return Response(xml, media_type="application/xml", headers=_ODATA_HEADERS)
 
 
-# ── Datos (Basic Auth) ───────────────────────────────────────────────────────
-def _query(mongo: dict, *, skip: int | None, top: int | None) -> list[dict]:
-    cur = get_db()[COL].find(mongo, {"_id": 0, "exported_at": 0}).sort(
-        [("fecha", -1), ("id_cuenta", 1), ("unidad", 1)])
-    if skip:
-        cur = cur.skip(skip)
-    lim = min(top, _MAX_ROWS) if top else _MAX_ROWS
-    cur = cur.limit(lim)
-    docs = list(cur)
+# ── Datos (Basic Auth) — vía store (dual-run Mongo/SQL, flag PARTNER_SQL) ─────
+def _query(flt: dict, *, skip: int | None, top: int | None) -> list[dict]:
+    docs = store.odata_query(flt, skip=skip, top=top, max_rows=_MAX_ROWS)
     if not top and len(docs) == _MAX_ROWS:
         logger.warning("odata Portfolio: se alcanzó el tope de %s filas (truncado)", _MAX_ROWS)
     return docs
@@ -167,15 +160,15 @@ def portfolio_entityset(
 ) -> dict:
     """Entity set Portfolio — posiciones de Cartera en formato OData v2 JSON."""
     response.headers["DataServiceVersion"] = "2.0"
-    mongo = _parse_filter(filter_)
+    flt = _parse_filter(filter_)
 
     total = None
     if (inlinecount or "").lower() == "allpages":
-        total = get_db()[COL].count_documents(mongo)
+        total = store.odata_count(flt)
 
     sel = {s.strip() for s in select.split(",")} if select else None
     results = []
-    for d in _query(mongo, skip=skip, top=top):
+    for d in _query(flt, skip=skip, top=top):
         row: dict[str, Any] = {"__metadata": {"type": f"{NS}.{ENTITY}"}, "ID": _key(d)}
         for name, _t in _PROPS:
             row[name] = d.get(name)
@@ -197,5 +190,5 @@ def portfolio_count(
     filter_: str | None = Query(None, alias="$filter"),
 ) -> Response:
     """Conteo de filas (plain text) — OData v2 `$count`."""
-    n = get_db()[COL].count_documents(_parse_filter(filter_))
+    n = store.odata_count(_parse_filter(filter_))
     return Response(str(n), media_type="text/plain", headers=_ODATA_HEADERS)

@@ -135,8 +135,12 @@ Lo que el scanner marca `[MIGRAR] lectura viva`. Orden sugerido menor→mayor ri
 
 ---
 
-## 📌 Fuera de alcance (apps separadas)
-- `partner_api` usa base `ACAPortfolio` (`Cartera`, `ApiUsers`) — app independiente, NO entra en este decommission.
+## 📌 Apps separadas
+- `partner_api` usa base `ACAPortfolio` (`Cartera`, `ApiUsers`) — app independiente.
+  **Migrada a SQL (dual-run) el 2026-06-23** → schema `partner` (`partner.cartera`,
+  `partner.api_users`), flags `PARTNER_SQL` (lectura) / `PARTNER_SQL_WRITE` (escritura).
+  Ver `docs/PARTNER_API.md`. Con `PARTNER_SQL=1` ya no depende de Mongo → su base
+  `ACAPortfolio` puede dropearse tras el cutover.
 
 ---
 

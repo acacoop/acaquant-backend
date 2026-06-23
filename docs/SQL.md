@@ -36,6 +36,16 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase**.
   (acreencias, swap atómico). `CashFlow.Productores` es **HUÉRFANA** (nadie la lee en
   el código) → candidata a drop, NO se migró. Servicio de lectura:
   `api/services/cashflow_sql.py`.
+- **PARTNER API dual-run (app SEPARADA, schema `partner`, 2026-06-23):** la base
+  Mongo `ACAPortfolio` del servicio externo (`partner_api/`) se migró al mismo patrón.
+  `ACAPortfolio.Cartera` → **`partner.cartera`** (columnas materializadas, shape fijo);
+  `ACAPortfolio.ApiUsers` → **`partner.api_users`** (con `password_hash`). Lectura por
+  flag **`PARTNER_SQL`** (default Mongo) en `partner_api/store.py`; escritura por flag
+  **`PARTNER_SQL_WRITE`** (dual-write best-effort) en `jobs/partner_export.py` (Cartera)
+  y `scripts/partner_user.py` (usuarios). Baseline: `scripts/partner_sql_baseline.py`.
+  Conexión PROPIA `partner_api/pg.py` (no `core.postgres`; siempre califica
+  `partner.<tabla>`, fuera del search_path de la mesa). NO entra en `jobs/sync_postgres.py`
+  (dominio separado, otra base, dato de un tercero). Ver `docs/PARTNER_API.md`.
 
 ## Vista OPERACIONES en SQL (primer feature de producto migrado)
 

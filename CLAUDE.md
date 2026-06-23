@@ -335,6 +335,7 @@ server (sección siguiente).
 - Endpoints: `POST /v1/token` (login user/pass → JWT), `GET /v1/fechas`, `GET /v1/portfolio`, `GET /health`.
 - DB propia: `ACAPortfolio.Cartera`. Env vars `PARTNER_MONGO_URI`, `PARTNER_JWT_SECRET` (chequeadas al importar `main.py`).
 - Auth + rate limit propios (`partner_api/auth.py`, `security.py`, `ratelimit.py`) — no comparte código con `api/auth.py`.
+- **Migrado a SQL (dual-run, 2026-06-23):** `ACAPortfolio.{Cartera,ApiUsers}` → schema `partner` (`partner.cartera`, `partner.api_users`). Lectura por flag `PARTNER_SQL=1` (default Mongo) vía `partner_api/store.py`; escritura por flag `PARTNER_SQL_WRITE=1` (dual-write best-effort) en `jobs/partner_export.py` + `scripts/partner_user.py`. Conexión propia `partner_api/pg.py` (no `core.postgres`). Baseline: `scripts/partner_sql_baseline.py`. Ver `docs/PARTNER_API.md` y `docs/SQL.md`.
 
 ## Capa SQL — Postgres/Supabase (migración Mongo→PG en curso)
 

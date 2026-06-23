@@ -249,16 +249,23 @@ def _ficha_por_cuenta(operador: str, campos: tuple[str, ...], nivel_1: str | Non
 
 
 def operador_comercial(*, operador: str, moneda: str = "ARS", nivel_1: str | None = None,
-                       nivel_3: str | None = None, referido: str | None = None) -> dict:
+                       nivel_3: str | None = None, referido: str | None = None,
+                       fecha: str | None = None) -> dict:
+    # `fecha` (ISO) = fecha de corte: MTD/YTD relativos a corte, volumen capeado a <= corte.
     factor = _factor_usd(moneda)
-    hoy = _hoy_art()
-    mtd, ytd = hoy.replace(day=1).isoformat(), hoy.replace(month=1, day=1).isoformat()
-    ids = _ids_operador(operador, nivel_1, nivel_3, referido)
-    aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3, referido)
+    corte = date.fromisoformat(fecha) if fecha else _hoy_art()
+    corte_iso = corte.isoformat() if fecha else None
+    mtd, ytd = corte.replace(day=1).isoformat(), corte.replace(month=1, day=1).isoformat()
+    ids = _ids_operador(operador, nivel_1, nivel_3, referido, corte=corte_iso)
+    aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3, referido, corte=corte_iso)
 
     # Volumen YTD y MTD por cuenta en una pasada.
     p: dict = {"ytd": ytd, "mtd": mtd, "cats": list(_CATS_VOLUMEN)}
     scope = _scope_cuentas(operador, p, nivel_1, nivel_3, referido)
+    cap = ""
+    if fecha:
+        cap = " AND fecha <= %(corte)s"
+        p["corte"] = corte_iso
     vol_ytd: dict[str, float] = {}
     vol_mtd: dict[str, float] = {}
     for r in _q(
@@ -266,7 +273,7 @@ def operador_comercial(*, operador: str, moneda: str = "ARS", nivel_1: str | Non
         f"SUM(CASE WHEN fecha >= %(ytd)s THEN {_PESIF} ELSE 0 END) AS vy, "
         f"SUM(CASE WHEN fecha >= %(mtd)s THEN {_PESIF} ELSE 0 END) AS vm "
         f"FROM negocio_movimientos WHERE {scope} AND categoria = ANY(%(cats)s) "
-        f"AND unidad IS DISTINCT FROM 'USDL' GROUP BY id_cuenta", p,
+        f"AND unidad IS DISTINCT FROM 'USDL'{cap} GROUP BY id_cuenta", p,
     ):
         vol_ytd[r["id_cuenta"]] = _f(r["vy"])
         vol_mtd[r["id_cuenta"]] = _f(r["vm"])
@@ -360,10 +367,16 @@ def _fin_de_mes(anio: int, mes: int) -> date:
 
 
 def informe_cuentas_por_segmento(*, hasta: str | None = None,
-                                 operador: str | None = None) -> dict:
+                                 operador: str | None = None,
+                                 fecha: str | None = None) -> dict:
     hoy = _hoy_art()
-    anio, mes = (int(hasta[:4]), int(hasta[5:7])) if hasta else (hoy.year, hoy.month)
-    corte = _fin_de_mes(anio, mes)
+    if fecha:
+        # Fecha de corte exacta (unificada con el resto de la vista): cuentas con alta <= fecha.
+        corte = date.fromisoformat(fecha)
+        anio, mes = corte.year, corte.month
+    else:
+        anio, mes = (int(hasta[:4]), int(hasta[5:7])) if hasta else (hoy.year, hoy.month)
+        corte = _fin_de_mes(anio, mes)
     where = "estado = 'Activa' AND fecha_alta_legajo <= %(corte)s"
     p: dict = {"corte": corte}
     if operador:
@@ -383,13 +396,19 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
     }
 
 
-def _rollup_por_cuenta(mes_start: str, scope: str | None, p: dict) -> dict[str, dict]:
+def _rollup_por_cuenta(mes_start: str, scope: str | None, p: dict,
+                       corte: str | None = None) -> dict[str, dict]:
     """{id_cuenta: {vol_total, vol_mes, n_ops, ar_total, ar_mes}} en vivo (reemplaza
-    ComercialCache). vol/n_ops de negocio_movimientos (cats), arancel de operaciones."""
+    ComercialCache). vol/n_ops de negocio_movimientos (cats), arancel de operaciones.
+    `corte` (ISO) = fecha de corte: TOTAL acumula hasta corte, MES = [mes_start, corte]."""
     p["cats"] = list(_CATS_VOLUMEN)
     p["mes"] = mes_start
     w_vol = "unidad IS DISTINCT FROM 'USDL' AND categoria = ANY(%(cats)s)"
     w_ar = "arancel > 0 AND etapa IS DISTINCT FROM 'solicitud'"
+    if corte is not None:
+        p["corte"] = corte
+        w_vol += " AND fecha <= %(corte)s"
+        w_ar += " AND concertacion <= %(corte)s"
     if scope:
         w_vol += f" AND {scope}"
         w_ar += f" AND {scope}"
@@ -413,11 +432,12 @@ def _ticket(vol: float, n: int) -> float:
     return round(vol / n, 2) if n else 0.0
 
 
-def informe_comercial(*, moneda: str = "ARS") -> dict:
-    hoy = _hoy_art()
+def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None) -> dict:
+    # `fecha` (ISO) = fecha de corte: TOTAL acumula hasta corte, MES = mes de corte.
+    corte = date.fromisoformat(fecha) if fecha else _hoy_art()
     factor = _factor_usd(moneda)
-    mes_start = hoy.replace(day=1).isoformat()
-    por_cuenta = _rollup_por_cuenta(mes_start, None, {})
+    mes_start = corte.replace(day=1).isoformat()
+    por_cuenta = _rollup_por_cuenta(mes_start, None, {}, corte=fecha)
 
     detalle = {r["id_cuenta"]: r for r in _q(
         "SELECT c.id_cuenta, c.operador_email, o.nombre AS operador_nombre, c.nivel_1 "
@@ -471,21 +491,22 @@ def informe_comercial(*, moneda: str = "ARS") -> dict:
     segmentos = sorted(segs.values(), key=lambda x: x["ar_total"], reverse=True)
     for s in segmentos:
         s["ticket_promedio"] = _ticket(s["vol_total"], s["n_ops"])
-    return {"mes_actual": f"{hoy.year:04d}-{hoy.month:02d}",
+    return {"mes_actual": f"{corte.year:04d}-{corte.month:02d}", "fecha": fecha,
             "comerciales": comerciales, "aranceles_segmento": segmentos}
 
 
-def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS") -> dict:
-    hoy = _hoy_art()
+def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS",
+                               fecha: str | None = None) -> dict:
+    corte = date.fromisoformat(fecha) if fecha else _hoy_art()
     factor = _factor_usd(moneda)
-    mes_start = hoy.replace(day=1).isoformat()
+    mes_start = corte.replace(day=1).isoformat()
     cuentas = {r["id_cuenta"]: (r["nivel_1"] or "(sin segmentar)") for r in _q(
         "SELECT id_cuenta, nivel_1 FROM comitentes WHERE operador_email = %(op)s "
         "AND estado = 'Activa'", {"op": operador})}
     if not cuentas:
         return {"operador": operador, "aranceles_segmento": []}
     scope = "id_cuenta = ANY(%(ids)s)"
-    por_cuenta = _rollup_por_cuenta(mes_start, scope, {"ids": list(cuentas)})
+    por_cuenta = _rollup_por_cuenta(mes_start, scope, {"ids": list(cuentas)}, corte=fecha)
     segs: dict[str, dict] = {}
     for idc, agg in por_cuenta.items():
         seg = cuentas.get(idc, "(sin segmentar)")

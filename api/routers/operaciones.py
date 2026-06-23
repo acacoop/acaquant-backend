@@ -362,11 +362,13 @@ def comercial_operador(
     nivel_1: str | None = Query(None, description="filtro madre nivel_1 (cruza con operador/nivel_3)"),
     nivel_3: str | None = Query(None, description="filtro madre nivel_3 (cruza con operador/nivel_1)"),
     referido: str | None = Query(None, description="filtro madre referido (cruza con los demás)"),
+    fecha: str | None = Query(None, description="fecha de corte (ISO). None = hoy"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Resumen (KPIs) + clientes (tabla + ficha) del operador, en una pasada."""
     return _com_motor(_engine).operador_comercial(
-        operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido)
+        operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido,
+        fecha=fecha)
 
 
 @router.get("/comercial/serie")
@@ -490,33 +492,36 @@ def comercial_referido_fci(
 @router.get("/comercial/informe")
 def comercial_informe(
     moneda: str = Query("ARS", description="ARS | USD"),
+    fecha: str | None = Query(None, description="fecha de corte (ISO): TOTAL hasta corte, MES = mes de corte. None = hoy"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Tablas 2 y 3 del Informe: volumen + aranceles por comercial (ranking) y
     aranceles por segmento. Global (toda la mesa)."""
-    return _com_motor(_engine).informe_comercial(moneda=moneda)
+    return _com_motor(_engine).informe_comercial(moneda=moneda, fecha=fecha)
 
 
 @router.get("/comercial/informe-segmento")
 def comercial_informe_segmento(
     hasta: str | None = Query(None, description="mes YYYY-MM (default actual); acumulado a fin de mes"),
     operador: str | None = Query(None, description="opcional: solo cuentas de ese comercial"),
+    fecha: str | None = Query(None, description="fecha de corte exacta (ISO) — pisa `hasta`"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
-    """Tabla 1 del Informe: # cuentas por segmento (nivel_1), acumulado a fin del
-    mes `hasta` por fecha de alta. `operador` opcional re-scopea a ese comercial."""
-    return _com_motor(_engine).informe_cuentas_por_segmento(hasta=hasta, operador=operador)
+    """Tabla 1 del Informe: # cuentas por segmento (nivel_1), acumulado a la fecha de
+    corte (`fecha` exacta, o fin del mes `hasta`) por fecha de alta. `operador` opcional."""
+    return _com_motor(_engine).informe_cuentas_por_segmento(hasta=hasta, operador=operador, fecha=fecha)
 
 
 @router.get("/comercial/informe-aranceles-segmento")
 def comercial_informe_aranceles_segmento(
     operador: str = Query(..., description="operador_email a desglosar"),
     moneda: str = Query("ARS", description="ARS | USD"),
+    fecha: str | None = Query(None, description="fecha de corte (ISO). None = hoy"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Q3 re-scopeada a un comercial: aranceles + ticket por segmento, solo de
     sus cuentas."""
-    return _com_motor(_engine).informe_aranceles_segmento(operador=operador, moneda=moneda)
+    return _com_motor(_engine).informe_aranceles_segmento(operador=operador, moneda=moneda, fecha=fecha)
 
 
 @router.get("/comercial/informe-segmento-detalle")

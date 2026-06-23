@@ -217,3 +217,41 @@ def prune_native(table: str, col: str, days: int) -> int:
     except Exception as e:
         logger.error("pg_mirror prune_native %s: %s", table, str(e).splitlines()[0][:200])
         return 0
+
+
+def replace_native(table: str, rows: list[dict]) -> int:
+    """Swap atómico de TODA la tabla (TRUNCATE + INSERT en una transacción), para
+    precomputes que reemplazan el set entero — sin PK natural sobre la que upsertar
+    (ej. acreencias: grano no-único, surrogate PK IDENTITY). Análogo a Mongo
+    reemplazar_coleccion_atomico. Best-effort: si falla, rollback y Mongo queda como
+    fuente. Las columnas IDENTITY se generan solas (no se pasan en los rows)."""
+    if not rows:
+        return 0
+    try:
+        import json
+        from functools import partial
+
+        from psycopg.types.json import Jsonb
+
+        from core.postgres import get_pool
+
+        dumps = partial(json.dumps, default=str)
+
+        def _adapt(v):
+            return Jsonb(v, dumps=dumps) if isinstance(v, dict | list) else v
+
+        grupos: dict[tuple, list[tuple]] = {}
+        for r in rows:
+            cols = tuple(r.keys())
+            grupos.setdefault(cols, []).append(tuple(_adapt(r[c]) for c in cols))
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(f"TRUNCATE {table}")
+            for cols, vals in grupos.items():
+                sql = (f"INSERT INTO {table} ({','.join(cols)}) "
+                       f"VALUES ({','.join(['%s'] * len(cols))})")
+                for i in range(0, len(vals), _CHUNK):
+                    cur.executemany(sql, vals[i:i + _CHUNK])
+        return len(rows)
+    except Exception as e:
+        logger.error("pg_mirror replace_native %s: %s", table, str(e).splitlines()[0][:200])
+        return 0

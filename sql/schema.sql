@@ -83,6 +83,10 @@ BEGIN
     ('public','agro_opciones_snapshot','mercado'),
     ('public','agro_pizarra','mercado'),
     ('public','camara_cereales','mercado'),
+    ('public','volumen_mercado_agro','mercado'),
+    ('public','movimientos','operaciones'),
+    ('public','acreencias','operaciones'),
+    ('public','tipos_operacion','operaciones'),
     ('public','series_macro','macro'),
     ('public','rem','macro'),
     ('public','dolar','valuaciones'),
@@ -276,6 +280,57 @@ ALTER TABLE operaciones.negocio_movimientos ADD COLUMN IF NOT EXISTS aranceles  
 CREATE INDEX IF NOT EXISTS ix_nm_id_cuenta ON operaciones.negocio_movimientos(id_cuenta, fecha);
 CREATE INDEX IF NOT EXISTS ix_nm_categoria ON operaciones.negocio_movimientos(categoria, fecha);
 CREATE INDEX IF NOT EXISTS ix_nm_cuenta    ON operaciones.negocio_movimientos(cuenta, fecha);
+
+-- CashFlow.Movimientos → depósitos / extracciones / transferencias (vista FLUJOS,
+-- /api/operaciones/flujos). La escribe jobs/cashflow.py ($setOnInsert por
+-- `comprobante`). Passthrough columnar + data jsonb: la vista usa pocos campos
+-- (comprobante, cuenta, fecha, informacion, total, unidad) → se materializan para
+-- filtrar por cuenta/unidad; el resto del doc va en jsonb. OJO `fecha` viene en
+-- string dd/mm/yyyy de Aunesa (NO ISO) → se guarda TAL CUAL (text), el parser a ISO
+-- lo hace el read service (igual que el path Mongo, que ordena/filtra en Python).
+-- PK = comprobante (índice único del writer).
+CREATE TABLE IF NOT EXISTS operaciones.movimientos (
+    comprobante text PRIMARY KEY,           -- Mongo `comprobante` → boleto en la vista
+    cuenta      text,                        -- "[N] NOMBRE" (filtro + scope)
+    fecha       text,                        -- dd/mm/yyyy CRUDO (NO ISO) — parseo a ISO en el read
+    informacion text,
+    total       numeric,                     -- ya con signo invertido por el writer (entrada +)
+    unidad      text,                         -- ARS/USD (filtro)
+    data        jsonb                         -- doc Mongo completo (campos extra)
+);
+CREATE INDEX IF NOT EXISTS ix_mov_cuenta ON operaciones.movimientos(cuenta);
+
+-- CashFlow.Acreencias → proyección de cobros futuros por (cliente, fecha_pago,
+-- ticker). La precomputa jobs/acreencias.py (--commit, swap atómico de toda la
+-- colección) cruzando tenencia × calendario contractual. Read: back-office
+-- (acreencias/*) + comercial (cobros-futuros). Passthrough columnar: las vistas
+-- agrupan por fecha_pago / id_cuenta / moneda y suman monto → se materializan esas
+-- columnas; `data` jsonb tiene el doc completo (cliente, emisor, cantidad, snapshot).
+-- `generado_at` NO se guarda como columna: las lecturas lo proyectan fuera (igual
+-- que Mongo). fecha_pago/snapshot son strings ISO 'YYYY-MM-DD'. PK surrogate: el
+-- grano (id_cuenta, fecha_pago, ticker) no es único garantizado en la fuente →
+-- el writer reemplaza TODO el set en cada corrida (truncate+insert), no upsertea.
+CREATE TABLE IF NOT EXISTS operaciones.acreencias (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    fecha_pago  text,                         -- ISO 'YYYY-MM-DD'
+    id_cuenta   text,
+    ticker      text,
+    moneda      text,                         -- ARS | USD (nativa, NO se pesifica)
+    monto       numeric,
+    data        jsonb                         -- cliente, emisor, cantidad, snapshot, ...
+);
+CREATE INDEX IF NOT EXISTS ix_acr_fecha_pago ON operaciones.acreencias(fecha_pago);
+CREATE INDEX IF NOT EXISTS ix_acr_id_cuenta  ON operaciones.acreencias(id_cuenta);
+
+-- CashFlow.TiposOperacion → catálogo chico (mapeo tipo_operacion → mercado/operacion)
+-- que enriquece la ingesta de operaciones. Passthrough jsonb; PK = `tipo_operacion`
+-- (la clave del join en operaciones_informes.cargar_maps_enrich). Espejo BASELINE por
+-- sync (el enrich de los writers SIGUE leyendo Mongo — corre en el proceso del job, no
+-- en una vista con flag; ver docs/SQL.md). Sin lector SQL todavía: se espeja para tenerlo.
+CREATE TABLE IF NOT EXISTS operaciones.tipos_operacion (
+    tipo_operacion text PRIMARY KEY,
+    data           jsonb
+);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PORTAFOLIO — tenencias + catálogo de títulos (FUENTE DE VERDAD, SQL-native)
@@ -633,6 +688,19 @@ CREATE TABLE IF NOT EXISTS mercado.agro_pizarra (
 CREATE TABLE IF NOT EXISTS mercado.camara_cereales (
     cereal text PRIMARY KEY,            -- TRIGO | MAIZ | GIRASOL | SOJA | SORGO
     data   jsonb
+);
+
+-- CashFlow.VolumenMercadoAgro → volumen TOTAL del mercado agro por mes/commodity
+-- (carga MANUAL mes a mes). Es el DENOMINADOR del share AGRO (/ops/agro serie_share:
+-- nuestro / mercado). Lo lee api/services/operaciones_sql.py::ops_agro. Grano
+-- (periodo, commodity); `toneladas` materializada (lo único que consume el share),
+-- doc completo en jsonb. PK = (periodo, commodity).
+CREATE TABLE IF NOT EXISTS mercado.volumen_mercado_agro (
+    periodo   text NOT NULL,            -- 'YYYY-MM'
+    commodity text NOT NULL,            -- SOJA | TRIGO | MAIZ (MAYÚSCULA, para el join)
+    toneladas numeric,
+    data      jsonb,
+    PRIMARY KEY (periodo, commodity)
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────

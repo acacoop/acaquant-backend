@@ -333,7 +333,12 @@ def _col():
 
 
 def por_dia(desde: str | None = None, hasta: str | None = None) -> list[dict]:
-    """Agregado por fecha de pago: total por moneda + #clientes + #pagos."""
+    """Agregado por fecha de pago: total por moneda + #clientes + #pagos.
+
+    Dual-run: flag ACREENCIAS_SQL=1 → operaciones.acreencias (SQL). Path Mongo intacto."""
+    from api.services import cashflow_sql as _cf_sql
+    if _cf_sql.acreencias_sql_on():
+        return _cf_sql.por_dia(desde=desde, hasta=hasta)
     match: dict = {"fecha_pago": {"$gte": desde or date.today().isoformat()}}
     if hasta:
         match["fecha_pago"]["$lte"] = hasta
@@ -365,10 +370,16 @@ def por_dia(desde: str | None = None, hasta: str | None = None) -> list[dict]:
 
 def del_dia(fecha: str) -> list[dict]:
     """Quién cobra en una fecha y cuánto (por cliente·ticker)."""
+    from api.services import cashflow_sql as _cf_sql
+    if _cf_sql.acreencias_sql_on():
+        return _cf_sql.del_dia(fecha)
     return list(_col().find({"fecha_pago": fecha}, {"_id": 0, "generado_at": 0}).sort("monto", -1))
 
 
 def del_cliente(id_cuenta: str, desde: str | None = None) -> list[dict]:
     """Próximos cobros de un cliente, ordenados por fecha."""
+    from api.services import cashflow_sql as _cf_sql
+    if _cf_sql.acreencias_sql_on():
+        return _cf_sql.del_cliente(id_cuenta, desde=desde)
     match = {"id_cuenta": id_cuenta, "fecha_pago": {"$gte": desde or date.today().isoformat()}}
     return list(_col().find(match, {"_id": 0, "generado_at": 0}).sort("fecha_pago", 1))

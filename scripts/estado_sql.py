@@ -17,6 +17,7 @@ load_dotenv()  # fallback (.env local)
 
 _FLAGS = [
     ("OPERACIONES_SQL", "OPERACIONES — /ops/* (movimientos, aranceles, agro)"),
+    ("ORDENES_SQL",     "ÓRDENES (read-side) — /ordenes/dia + /ordenes/{id} + /risk/listado (merge broker intacto)"),
     ("MOVIMIENTOS_SQL", "FLUJOS — /api/operaciones/flujos (CashFlow.Movimientos)"),
     ("ACREENCIAS_SQL",  "ACREENCIAS — /back-office/acreencias/* + /comercial/cobros-futuros"),
     ("VOLUMEN_AGRO_SQL", "SHARE AGRO — denominador de /ops/agro (CashFlow.VolumenMercadoAgro)"),
@@ -40,6 +41,7 @@ _FLAGS = [
     ("SNAPSHOT_SQL",    "MOTORES → market_snapshot live (dual-write a SQL)"),
     ("MERCADO_SQL_WRITE", "JOBS mercado → dual-write (series_macro, rem, cierres)"),
     ("MANAGER_SQL_WRITE", "MANAGER infra → dual-write (JobRuns→job_runs, RoleAudit→role_audit)"),
+    ("ORDENES_SQL_WRITE", "MOTOR ÓRDENES → dual-write (OrdenesLive/Audit/heartbeat/operativas/... → SQL)"),
 ]
 
 

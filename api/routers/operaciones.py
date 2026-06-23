@@ -21,9 +21,6 @@ from api.services.operaciones_view import (
 from api.services.operaciones_view import (
     ddmmyyyy_a_iso as _ddmmyyyy_a_iso,
 )
-from api.services.operaciones_view import (
-    motor as _motor,
-)
 from core.postgres import get_pool
 
 logger = logging.getLogger("api.operaciones")
@@ -332,8 +329,10 @@ def ops_niveles5():
 # Vista nueva en OPERACIONES. Lógica en api/services/comercial.py.
 
 def _com_motor(_engine: str | None):
-    """Devuelve el módulo de servicio (SQL o Mongo) según el flag COMERCIAL_SQL / ?_engine."""
-    return _com_sql if _motor(_engine, "COMERCIAL_SQL") == "sql" else _com
+    """Comercial es SIEMPRE SQL (comercial_sql). El path Mongo (comercial.py) leía
+    Comitentes/NegocioMovimientos/ComercialCache — todas DROPEADAS → era código muerto
+    (decommission 2026-06-23). El `_engine` queda sin efecto (compat)."""
+    return _com_sql
 
 
 @router.get("/comercial/operadores")

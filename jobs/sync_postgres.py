@@ -363,6 +363,46 @@ def sync_snapshots_cierre(mdb, conn, dry) -> int:
     return n
 
 
+def sync_futuros_dlr_snapshot(mdb, conn, dry) -> int:
+    """Trading.FuturosDLRSnapshot → futuros_dlr_snapshot (BASELINE; el motor lo refresca
+    live bajo SNAPSHOT_SQL). Passthrough jsonb."""
+    rows = []
+    for d in mdb["Trading"]["FuturosDLRSnapshot"].find({}, {"_id": 0}):
+        t = _s(d.get("ticker"))
+        if t:
+            rows.append((t, _s(d.get("vencimiento")), _jsonb(d)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "futuros_dlr_snapshot", ["ticker", "vencimiento", "data"], ["ticker"], rows, dry)
+    _delete_not_in(conn, "futuros_dlr_snapshot", "ticker", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_caucion_snapshot(mdb, conn, dry) -> int:
+    """Trading.CaucionSnapshot → caucion_snapshot (BASELINE; el motor lo refresca live)."""
+    rows = []
+    for d in mdb["Trading"]["CaucionSnapshot"].find({}, {"_id": 0}):
+        m = _s(d.get("moneda"))
+        if m:
+            rows.append((m, _jsonb(d)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "caucion_snapshot", ["moneda", "data"], ["moneda"], rows, dry)
+    _delete_not_in(conn, "caucion_snapshot", "moneda", {r[0] for r in rows}, dry)
+    return n
+
+
+def sync_forwards_zscore(mdb, conn, dry) -> int:
+    """Trading.ForwardsZscore → forwards_zscore (BASELINE; el job lo refresca diario)."""
+    rows = []
+    for d in mdb["Trading"]["ForwardsZscore"].find({}, {"_id": 0}):
+        c = _s(d.get("curva"))
+        if c:
+            rows.append((c, _jsonb(d)))
+    rows = _dedup(rows, [0])
+    n = _upsert(conn, "forwards_zscore", ["curva", "data"], ["curva"], rows, dry)
+    _delete_not_in(conn, "forwards_zscore", "curva", {r[0] for r in rows}, dry)
+    return n
+
+
 # ── CAPA MERCADO (espejo Trading.* — ver docs/SQL.md §Mercado) ───────────────
 # Colecciones-serie {fecha:'YYYY-MM-DD', valor} → tabla larga series_macro.
 # `serie` = nombre de la colección Mongo (misma clave usa el dual-write).
@@ -607,10 +647,14 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
                   lambda: sync_snapshots_cierre_hist(mdb, conn, dry, desde))
         n_cj = _t("canje_cierre", lambda: sync_canje_cierre(mdb, conn, dry, desde))
         n_mh = _t("mercado_hist", lambda: sync_mercado_hist(mdb, conn, dry, desde))
+        n_fd = _t("futuros_dlr_snapshot", lambda: sync_futuros_dlr_snapshot(mdb, conn, dry))
+        n_ca = _t("caucion_snapshot", lambda: sync_caucion_snapshot(mdb, conn, dry))
+        n_fz = _t("forwards_zscore", lambda: sync_forwards_zscore(mdb, conn, dry))
         print(f"  mercado: series_macro={n_sm:,}  rem={n_rem}  curvas={n_cv} "
               f"(sin ticker_corto, salteadas={sin_corto})  "
               f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  canje_cierre={n_cj}  "
               f"mercado_hist={n_mh:,}")
+        print(f"  derivados live (baseline): futuros_dlr={n_fd}  caucion={n_ca}  forwards_zscore={n_fz}")
         print(f"  dimensiones: accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  snapshots_cierre={n_sc}")

@@ -114,7 +114,11 @@ Lo que el scanner marca `[MIGRAR] lectura viva`. Orden sugerido menor→mayor ri
 - (lecturas de roles/grupos ya en SQL vía `AUTH_SQL` 🟢; falta su EDICIÓN/writes.)
 
 ### 3h. 🪨 Las 3 piedras grandes (cada una = mini-proyecto con su gate)
-1. `Trading.TimeSales` (~5.1M docs) — TTL 15d + write SQL-native (ver bitácora 19/6).
+1. ~~`Trading.TimeSales` (~5.6M docs)~~ ✅ **DROPEADA 2026-06-22.** SQL-only (`mercado.timesales`),
+   valores.py escribe SQL (append_native) + read de arranque SQL, prune 7d. Tape = solo HOY
+   (front filtra). Lectores históricos (liquidez/serie-ticker/snapshot-fallback) eran MCP-only
+   → borrados. `ts` naive ART (no timestamptz, sino el tape corría 3hs). Forwards/curvas leen
+   MarketSnapshot (nunca TimeSales); breakevens.obtener_precios → MarketSnapshot.last_price.
 2. `Opciones.Data` (~1M docs).
 3. **Motor de órdenes** `Operaciones.{OrdenesLive, OrdenesAudit, TriggersMep, BracketsLive, OperativasMep}` — real-time, crítico.
 

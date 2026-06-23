@@ -49,7 +49,6 @@ from api.services.renta_fija import (  # noqa: F401  (reexport intencional)
     _es_curva_on,
     _tc_breakeven,
     calendario_ons,
-    get_historico_trades,
     get_retorno_total_data,
     resolver_ticker_exacto,
 )
@@ -74,6 +73,33 @@ def _ilike_param(instrumento: str) -> str:
     comodines LIKO (% _ \\) para que el input se trate literal."""
     esc = instrumento.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{esc}%"
+
+
+@cached(ttl=15)
+def get_historico_trades(instrumento: str | None = None) -> list:
+    """Trades de HOY desde SQL (mercado.timesales — dual-write del motor bajo SNAPSHOT_SQL).
+    Mismo shape que el path Mongo (instrumento, timestamp, price, size, side, money), de
+    mayor a menor ts. SOLO el día (cutoff = inicio de hoy UTC, idéntico a Mongo) — el tape
+    no muestra histórico. Sin los enriquecidos TEA/TEM/duration: el tape no los usa."""
+    hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    where = ["ts >= %s"]
+    params: list = [hoy]
+    if instrumento:
+        exacto = resolver_ticker_exacto(instrumento)
+        if exacto is None:
+            return []
+        where.append("ticker = %s")
+        params.append(exacto)
+    rows = _q(
+        f"SELECT ticker AS instrumento, ts AS timestamp, price, size, side, money "
+        f"FROM mercado.timesales WHERE {' AND '.join(where)} ORDER BY ts DESC LIMIT 10000",
+        tuple(params),
+    )
+    for r in rows:
+        r["price"] = _f(r["price"])
+        r["size"] = _f(r["size"])
+        r["money"] = _f(r["money"])
+    return rows
 
 
 @cached(ttl=30)

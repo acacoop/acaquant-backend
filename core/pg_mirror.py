@@ -93,6 +93,32 @@ def mirror_job(table: str, key_cols: list[str], rows: list[dict]) -> int:
     return _mirror(table, key_cols, rows)
 
 
+def append_snapshot(table: str, rows: list[dict]) -> int:
+    """INSERT APPEND-ONLY (sin upsert) desde un motor live (flag SNAPSHOT_SQL). Para
+    STREAMS como TimeSales: cada trade es una fila nueva, sin PK natural → no hay
+    ON CONFLICT. Best-effort: nunca levanta (Mongo es la base). No-op con flag apagado."""
+    if not snapshots_live_on() or not rows:
+        return 0
+    try:
+        from core.postgres import get_pool
+        grupos: dict[tuple, list[tuple]] = {}
+        for r in rows:
+            cols = tuple(r.keys())
+            grupos.setdefault(cols, []).append(tuple(r[c] for c in cols))
+        n = 0
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            for cols, vals in grupos.items():
+                sql = (f"INSERT INTO {table} ({','.join(cols)}) "
+                       f"VALUES ({','.join(['%s'] * len(cols))})")
+                for i in range(0, len(vals), _CHUNK):
+                    cur.executemany(sql, vals[i:i + _CHUNK])
+                n += len(vals)
+        return n
+    except Exception as e:
+        logger.error("pg_mirror append %s: %s", table, str(e).splitlines()[0][:200])
+        return 0
+
+
 def mirror_hist(coleccion: str, fecha_str: str, k: str, doc: dict) -> int:
     """Espejo de un doc histórico intradía-mutable a `mercado_hist`, desde un MOTOR
     (flag SNAPSHOT_SQL). BreakevensHistorico / ForwardsHistorico reviven la fila de

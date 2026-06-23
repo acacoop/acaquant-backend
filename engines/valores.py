@@ -77,6 +77,15 @@ class MicrostructureEngine:
             self.col_trades = None
             self.col_snapshot = None
 
+        # Retención del espejo SQL de trades (~7d) — 1 vez al arranque, gateado por
+        # SNAPSHOT_SQL. El tape muestra solo el día; no hace falta guardar más.
+        try:
+            from core import pg_mirror
+            if pg_mirror.snapshots_live_on():
+                pg_mirror.prune_native("mercado.timesales", "ts", 7)
+        except Exception:
+            pass
+
         self._arranque_en_frio()
         lanzar_hilo_vital(self._worker_loop, "worker_loop")
         lanzar_hilo_vital(self._flush_loop, "flush_loop")
@@ -199,6 +208,18 @@ class MicrostructureEngine:
                 self.col_trades.insert_many(batch, ordered=False)
             except Exception as e:
                 print(f"Error flush trades: {e}")
+            # Dual-write SQL (flag SNAPSHOT_SQL): solo los campos del tape (sin los
+            # enriquecidos TEA/TEM/duration que agrega curvas.py — el tape no los usa).
+            try:
+                from core import pg_mirror
+                pg_mirror.append_snapshot("mercado.timesales", [
+                    {"ticker": t.get("ticker"), "ts": t.get("timestamp"),
+                     "price": t.get("price"), "size": t.get("size"),
+                     "side": t.get("side"), "money": t.get("money")}
+                    for t in batch if t.get("ticker") and t.get("timestamp")
+                ])
+            except Exception:
+                pass  # best-effort: Mongo ya persistió
 
     def _procesar_tick_logica(self, ticker, data):
         # Defensivo: race entre WS push y add_ticker (adhoc). Si llega un

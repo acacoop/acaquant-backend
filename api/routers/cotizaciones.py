@@ -403,8 +403,9 @@ def griegas_opciones(
 @router.get("/historico/trades")
 def historico_trades(
     instrumento: str | None = Query(None, description="Filtrar por instrumento. Acepta corto ('TX26') o completo ('MERV - XMEV - TX26 - 24hs')."),
+    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return svc_rf.get_historico_trades(instrumento=instrumento)
+    return _rf(_engine).get_historico_trades(instrumento=instrumento)
 
 
 @router.get("/historico/curva")

@@ -61,6 +61,7 @@ BEGIN
   FOR mv IN SELECT * FROM (VALUES
     ('public','curvas','mercado'),
     ('public','market_snapshot','mercado'),
+    ('public','timesales','mercado'),
     ('public','snapshots_cierre','mercado'),
     ('public','snapshots_cierre_hist','mercado'),
     ('public','canje_cierre','mercado'),
@@ -424,6 +425,22 @@ CREATE TABLE IF NOT EXISTS mercado.market_snapshot (
     convexity      numeric,
     paridad        numeric
 );
+
+-- Trading.TimeSales → tape intradía (stream append-only). Dual-write desde valores.py
+-- (flag SNAPSHOT_SQL), retención corta (~7d): el tape muestra SOLO el día y los motores
+-- leen el último valor. NO se guardan los enriquecidos (TEA/TEM/duration de curvas.py) —
+-- el tape solo usa hora/precio/size/lado. PK surrogate (cada trade es una fila nueva).
+CREATE TABLE IF NOT EXISTS mercado.timesales (
+    id     bigserial PRIMARY KEY,
+    ticker text NOT NULL,
+    ts     timestamptz NOT NULL,        -- Mongo: timestamp
+    price  numeric,
+    size   numeric,
+    side   text,                        -- BUY | SELL | MID
+    money  numeric
+);
+CREATE INDEX IF NOT EXISTS ix_timesales_ticker_ts ON mercado.timesales (ticker, ts DESC);
+CREATE INDEX IF NOT EXISTS ix_timesales_ts ON mercado.timesales (ts);  -- prune por retención
 
 -- Trading.SnapshotsCierre → último cierre por ticker (fallback de precio del PnL).
 CREATE TABLE IF NOT EXISTS mercado.snapshots_cierre (

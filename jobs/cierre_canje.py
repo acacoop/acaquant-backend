@@ -23,8 +23,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 
 from config import PARES_CANJE
-from core.mongo import get_mongo_client
-from core.pg_mirror import mirror_job
+from core.pg_mirror import write_native
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("CierreCanje")
@@ -51,16 +50,13 @@ def _ultimo_trade_dia(db, ticker: str, dia: date) -> float | None:
 
 
 def run(fecha: date, dry: bool = False) -> int:
-    client = get_mongo_client()
-    db = client["Trading"]
-    col = db["CanjeCierre"]
-    col.create_index([("ticker", 1), ("fecha", 1)], unique=True)
-
+    # SQL-NATIVE: Trading.CanjeCierre (Mongo) fue migrada → dropeada. Escribe directo a
+    # mercado.canje_cierre (upsert por ticker+fecha). El último trade sale de mercado.timesales.
     f_iso = fecha.isoformat()
     escritos = 0
     pg_rows = []
     for tk in _tickers():
-        price = _ultimo_trade_dia(db, tk, fecha)
+        price = _ultimo_trade_dia(None, tk, fecha)
         if not price or price <= 0:
             logger.warning("sin trade %s en %s → skip", tk, f_iso)
             continue
@@ -68,18 +64,12 @@ def run(fecha: date, dry: bool = False) -> int:
             logger.info("[dry] %s %s = %.4f", f_iso, tk, price)
             escritos += 1
             continue
-        ts = datetime.now(UTC)
-        col.update_one(
-            {"ticker": tk, "fecha": f_iso},
-            {"$set": {"price": price, "updated_at": ts}},
-            upsert=True,
-        )
-        pg_rows.append({"ticker": tk, "fecha": fecha, "price": price, "updated_at": ts})
+        pg_rows.append({"ticker": tk, "fecha": fecha, "price": price,
+                        "updated_at": datetime.now(UTC)})
         escritos += 1
         logger.info("%s %s = %.4f", f_iso, tk, price)
 
-    # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort — no-op apagado).
-    mirror_job("canje_cierre", ["ticker", "fecha"], pg_rows)
+    write_native("mercado.canje_cierre", ["ticker", "fecha"], pg_rows)
     logger.info("cierre_canje %s: %d/%d tickers", f_iso, escritos, len(_tickers()))
     return escritos
 

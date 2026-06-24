@@ -22,7 +22,6 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 from api.cache import cached
-from api.db import get_db_trading
 
 # Pares predefinidos viven en config.PARES_CANJE (compartidos con el cron de
 # cierre, regla de capas). La key 'par' del endpoint matchea ahí.
@@ -47,29 +46,26 @@ def _ultimo_trade_dia(db, ticker: str, dia: date) -> float | None:
     return float(row[0]) if row and row[0] is not None else None
 
 
-def _precios_cierre(db, tickers: list[str], desde: date, hasta: date) -> dict[str, dict[date, float]]:
-    """{ticker: {fecha: precio_cierre}} leyendo Trading.CanjeCierre (1 doc por
-    (ticker, fecha), materializado por el cron). Si el rango incluye hoy y el
-    cron aún no corrió, agrega el punto live (último trade del día)."""
+def _precios_cierre(tickers: list[str], desde: date, hasta: date) -> dict[str, dict[date, float]]:
+    """{ticker: {fecha: precio_cierre}} desde SQL `mercado.canje_cierre` (Trading.CanjeCierre
+    Mongo migrada → dropeada). `fecha` es DATE en SQL. Si el rango incluye hoy y el cron aún
+    no corrió, agrega el punto live (último trade del día desde mercado.timesales)."""
     out: dict[str, dict[date, float]] = {tk: {} for tk in tickers}
-    cur = db["CanjeCierre"].find(
-        {"ticker": {"$in": tickers},
-         "fecha": {"$gte": desde.isoformat(), "$lte": hasta.isoformat()},
-         "price": {"$gt": 0}},
-        {"_id": 0, "ticker": 1, "fecha": 1, "price": 1},
-    )
-    for r in cur:
-        try:
-            f = datetime.strptime(r["fecha"], "%Y-%m-%d").date()
-        except (ValueError, KeyError):
-            continue
-        out.setdefault(r["ticker"], {})[f] = float(r["price"])
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT ticker, fecha, price FROM mercado.canje_cierre "
+            "WHERE ticker = ANY(%s) AND fecha >= %s AND fecha <= %s AND price > 0",
+            (list(tickers), desde, hasta),
+        )
+        for ticker, f, price in cur.fetchall():
+            out.setdefault(ticker, {})[f] = float(price)
 
     hoy = datetime.now(UTC).date()
     if desde <= hoy <= hasta:
         for tk in tickers:
             if hoy not in out.get(tk, {}):
-                p = _ultimo_trade_dia(db, tk, hoy)
+                p = _ultimo_trade_dia(None, tk, hoy)
                 if p:
                     out.setdefault(tk, {})[hoy] = p
     return out
@@ -113,10 +109,9 @@ def serie_canje(par: str = "AL30", desde: str | None = None, hasta: str | None =
     if desde_d > hasta_d:
         desde_d, hasta_d = hasta_d, desde_d
 
-    db = get_db_trading()
     tk_c = par_def["c"]
     tk_d = par_def["d"]
-    precios = _precios_cierre(db, [tk_c, tk_d], desde_d, hasta_d)
+    precios = _precios_cierre([tk_c, tk_d], desde_d, hasta_d)
     map_c = precios.get(tk_c, {})
     map_d = precios.get(tk_d, {})
 

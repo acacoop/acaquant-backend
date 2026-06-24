@@ -123,9 +123,11 @@ PIEZAS: list[Pieza] = [
     Pieza("MERCADOS", "job", "forwards_zscore", grupo="DERIVADOS", unidad="jobs.forwards_zscore",
           cadencia="20:30 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           db="Trading", coll="ForwardsZscore", field="updated_at"),
+    # cierre_canje escribe SQL-native (mercado.canje_cierre) desde el cutover 2026-06-24;
+    # Trading.CanjeCierre Mongo dropeada → ya no se chequea esa colección (el diagnostico no
+    # lee SQL todavía). TODO: wirear JobRunLogger + run_tipo="cierre_canje" para frescura fina.
     Pieza("MERCADOS", "job", "cierre_canje", grupo="DERIVADOS", unidad="jobs.cierre_canje",
-          cadencia="20:35 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
-          db="Trading", coll="CanjeCierre", field="updated_at"),
+          cadencia="20:35 UTC L-V", ventana="diario", umbral_s=int(3 * _D)),
     Pieza("MERCADOS", "api", "MAE UST$T (dólar oficial, MANUAL)", grupo="DERIVADOS",
           cadencia="cada 30s en rueda (script PC oficina)", ventana="rueda", umbral_s=5 * 60,
           db="Valuaciones", coll="DolarOficialLive", field="updated_at"),

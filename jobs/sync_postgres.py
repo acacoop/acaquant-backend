@@ -953,18 +953,9 @@ def sync_mercado_hist(mdb, conn, dry, desde: datetime | None) -> int:
     return total
 
 
-def sync_canje_cierre(mdb, conn, dry, desde: datetime | None) -> int:
-    """Trading.CanjeCierre → canje_cierre. Incremental por fecha (string ISO)."""
-    f_desde = desde.date().isoformat() if desde else None
-    q = {"fecha": {"$gte": f_desde}} if f_desde else {}
-    rows = []
-    for d in mdb["Trading"]["CanjeCierre"].find(q, {"_id": 0}):
-        tk, f = _s(d.get("ticker")), _d(d.get("fecha"))
-        if not (tk and f):
-            continue
-        rows.append((tk, f, d.get("price"), d.get("updated_at")))
-    return _upsert(conn, "canje_cierre", ["ticker", "fecha", "price", "updated_at"],
-                   ["ticker", "fecha"], _dedup(rows, [0, 1]), dry)
+# sync_canje_cierre ELIMINADO (cutover CanjeCierre→SQL 2026-06-24): jobs/cierre_canje.py
+# escribe mercado.canje_cierre SQL-native (write_native) y api/services/canje.py lo lee de SQL.
+# Trading.CanjeCierre (Mongo) dropeada → ya no hay de dónde sincronizar.
 
 
 # ── RENTA VARIABLE — Scanner CEDEARs (espejo Trading.* — ver docs/SQL.md) ─────
@@ -1141,7 +1132,6 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_ms = _t("market_snapshot", lambda: sync_market_snapshot(mdb, conn, dry))
         n_sh = _t("snapshots_cierre_hist",
                   lambda: sync_snapshots_cierre_hist(mdb, conn, dry, desde))
-        n_cj = _t("canje_cierre", lambda: sync_canje_cierre(mdb, conn, dry, desde))
         n_mh = _t("mercado_hist", lambda: sync_mercado_hist(mdb, conn, dry, desde))
         n_fd = _t("futuros_dlr_snapshot", lambda: sync_futuros_dlr_snapshot(mdb, conn, dry))
         n_ca = _t("caucion_snapshot", lambda: sync_caucion_snapshot(mdb, conn, dry))
@@ -1165,7 +1155,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_odh = _t("options_data_hist", lambda: sync_options_data_hist(mdb, conn, dry, desde))
         print(f"  mercado: series_macro={n_sm:,}  rem={n_rem}  curvas={n_cv} "
               f"(sin ticker_corto, salteadas={sin_corto})  "
-              f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  canje_cierre={n_cj}  "
+              f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  "
               f"mercado_hist={n_mh:,}")
         print(f"  derivados live (baseline): futuros_dlr={n_fd}  caucion={n_ca}  forwards_zscore={n_fz}")
         print(f"  agro (baseline): agro_snapshot={n_as}  agro_opciones={n_ao}  "
@@ -1207,7 +1197,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "series_macro": n_sm, "rem": n_rem, "curvas": n_cv,
              "curvas_sin_ticker_corto": sin_corto,
              "market_snapshot": n_ms, "snapshots_cierre_hist": n_sh,
-             "canje_cierre": n_cj, "mercado_hist": n_mh,
+             "mercado_hist": n_mh,
              "cedears": n_ced, "cedears_snapshot": n_csn, "adr_snapshot": n_adr,
              "precios_acciones": n_pa, "day_trading_stats": n_dts,
              "agro_snapshot": n_as, "agro_opciones_snapshot": n_ao,

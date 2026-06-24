@@ -1,17 +1,16 @@
-"""drop_orphans_mongo.py — dropea colecciones Mongo HUÉRFANAS (nadie lee NI escribe).
+"""drop_orphans_mongo.py — dropea colecciones Mongo ya migradas/huérfanas a SQL.
 
-Verificado 2026-06-23 por grep de acceso REAL a la colección en TODO el repo (no
-menciones en comentarios), tras descartar 3 falsos positivos de una auditoría automática
-(OnsIgnoradas/PortfolioSnapshotLog/PyRofexDiscovery SÍ están vivas):
-  - Manager.ChangeLog — sin writer ni reader. Solo aparecía en la lista de retención de
-    `scripts/db_maintenance.py` (ya removida). Huérfana.
-  - CashFlow.ValuacionFlujoExcluidos — CERO referencias en el repo entero. Huérfana.
+⚠️ Correr SOLO después de verificar que la vista correspondiente lee bien de SQL.
 
-NO incluye CashFlow.Flujo: es zombie (job vivo, sin reader de vista — /contrapartes lee
-SQL operaciones.operaciones), pero matarla requiere bajar el job flujo_contrapartes
-(cron + monitores) → se hace aparte, con confirmación.
+Verificado 2026-06-24:
+  - Trading.CanjeCierre — CUTOVER a SQL: api/services/canje.py::_precios_cierre lee
+    mercado.canje_cierre (SQL); jobs/cierre_canje.py escribe SQL-native (write_native);
+    sync_canje_cierre ELIMINADO. La completitud dio 100% (338=338). Verificar /derivados →
+    canje antes de dropear.
+  - Manager.ChangeLog — sin writer ni reader (huérfana, verificada por grep).
+  - CashFlow.ValuacionFlujoExcluidos — CERO referencias en el repo (huérfana).
 
-IRREVERSIBLE: dropear borra los datos. Dry-run por default muestra el conteo primero.
+Idempotente: dropear una colección ya borrada = no-op (0 docs). Dry-run por default.
     python -m scripts.drop_orphans_mongo            # cuenta (dry-run)
     python -m scripts.drop_orphans_mongo --apply    # DROPEA
 """
@@ -21,7 +20,11 @@ import argparse
 
 from core.mongo import get_mongo_client
 
-_ORPHANS = [("Manager", "ChangeLog"), ("CashFlow", "ValuacionFlujoExcluidos")]
+_ORPHANS = [
+    ("Trading", "CanjeCierre"),
+    ("Manager", "ChangeLog"),
+    ("CashFlow", "ValuacionFlujoExcluidos"),
+]
 
 
 def main() -> int:

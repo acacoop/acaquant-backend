@@ -11,10 +11,11 @@ Análogo a la segmentación de clientes: el `rubro` NO se escribe libre — se e
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Query
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
+from core.mongo import get_mongo_client
 from core.postgres import get_pool
 
 router = APIRouter()
@@ -91,3 +92,22 @@ def patch_cedear(req: _CedearPatch = Body(...)) -> dict:
     if matched == 0:
         raise HTTPException(404, f"ticker no encontrado: {req.ticker!r}")
     return {"ok": True, "ticker": req.ticker, **sets}
+
+
+@router.delete("/renta-variable")
+def borrar_cedear(ticker: str = Query(..., description="ticker BYMA completo (PK)")) -> dict:
+    """Saca un CEDEAR del universo para dejar de suscribirlo. Borra del MASTER
+    (Mongo `Trading.Cedears` — fuente de verdad del motor) y del espejo SQL
+    (`mercado.cedears` + snapshot). El motor deja de trackearlo en el próximo
+    restart; `precios_acciones_daily`/`adr_live` dejan de pedir su underlying.
+    Reversible solo re-dándolo de alta (scripts/add_cedear)."""
+    mdb = get_mongo_client()["Trading"]
+    mongo_del = mdb["Cedears"].delete_one({"ticker": ticker}).deleted_count
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM mercado.cedears WHERE ticker = %s", (ticker,))
+        sql_del = cur.rowcount
+        cur.execute("DELETE FROM mercado.cedears_snapshot WHERE ticker = %s", (ticker,))
+        conn.commit()
+    if not mongo_del and not sql_del:
+        raise HTTPException(404, f"ticker no encontrado: {ticker!r}")
+    return {"ok": True, "ticker": ticker, "mongo_borrado": mongo_del, "sql_borrado": sql_del}

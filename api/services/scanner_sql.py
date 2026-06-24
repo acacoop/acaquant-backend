@@ -108,7 +108,7 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
     live_by_underlying: dict[str, dict] = {}
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "SELECT ticker, fecha, close FROM mercado.precios_acciones "
+            "SELECT ticker, fecha, close, volume FROM mercado.precios_acciones "
             "WHERE ticker = ANY(%s) ORDER BY ticker, fecha",
             (underlyings,),
         )
@@ -116,7 +116,9 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
             fecha = d["fecha"]
             fdt = datetime(fecha.year, fecha.month, fecha.day)  # naive 00h
             docs_by_underlying.setdefault(d["ticker"], []).append(
-                {"fecha": fdt, "close": float(d["close"]) if d["close"] is not None else None}
+                {"fecha": fdt,
+                 "close": float(d["close"]) if d["close"] is not None else None,
+                 "volume": float(d["volume"]) if d["volume"] is not None else None}
             )
         cur.execute(
             "SELECT data FROM mercado.adr_snapshot WHERE ticker = ANY(%s)",
@@ -129,6 +131,9 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
 
     hoy = datetime.now(UTC).replace(tzinfo=None)
     anchor_7d = hoy - timedelta(days=7)
+    # WTD: lunes 00h de la semana en curso → _ret_vs ancla en el cierre del viernes previo.
+    anchor_wtd = (hoy - timedelta(days=hoy.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0)
     anchor_mtd = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     anchor_ytd = hoy.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -150,8 +155,8 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
         if not docs and not live:
             out[ticker_corto] = {
                 "adr_last": None, "adr_fecha": None, "adr_intraday": None,
-                "adr_vs_1d_pct": None, "adr_ret_7d_pct": None,
-                "adr_ret_mtd_pct": None, "adr_ret_ytd_pct": None,
+                "adr_vs_1d_pct": None, "adr_ret_wtd_pct": None, "adr_ret_7d_pct": None,
+                "adr_ret_mtd_pct": None, "adr_ret_ytd_pct": None, "adr_dollar_vol": None,
             }
             continue
 
@@ -196,14 +201,24 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
                     return None
             return None
 
+        # Peso para el Pulso: volumen USD del ADR (cierre × volumen del último EOD).
+        # Es la "size" pura del subyacente — el Pulso ya no pondera por $ operado del CEDEAR.
+        dollar_vol = None
+        if docs:
+            ld = docs[-1]
+            if ld.get("close") and ld.get("volume"):
+                dollar_vol = ld["close"] * ld["volume"]
+
         out[ticker_corto] = {
             "adr_last": last_close,
             "adr_fecha": last_fecha.isoformat() if isinstance(last_fecha, datetime) else None,
             "adr_intraday": adr_intraday,
             "adr_vs_1d_pct": vs_1d,
+            "adr_ret_wtd_pct": _ret_vs(anchor_wtd),
             "adr_ret_7d_pct": _ret_vs(anchor_7d),
             "adr_ret_mtd_pct": _ret_vs(anchor_mtd),
             "adr_ret_ytd_pct": _ret_vs(anchor_ytd),
+            "adr_dollar_vol": dollar_vol,
         }
     return out
 
@@ -280,9 +295,11 @@ def get_cedears_scanner() -> list[dict]:
             "adr_fecha": adr.get("adr_fecha"),
             "adr_intraday": adr.get("adr_intraday"),
             "adr_vs_1d_pct": adr.get("adr_vs_1d_pct"),
+            "adr_ret_wtd_pct": adr.get("adr_ret_wtd_pct"),
             "adr_ret_7d_pct": adr.get("adr_ret_7d_pct"),
             "adr_ret_mtd_pct": adr.get("adr_ret_mtd_pct"),
             "adr_ret_ytd_pct": adr.get("adr_ret_ytd_pct"),
+            "adr_dollar_vol": adr.get("adr_dollar_vol"),
             "updated_at": s.get("updated_at"),
         })
     return out

@@ -15,11 +15,20 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+from psycopg.rows import dict_row
+
 from api.cache import cached
 from api.db import get_db_trading, get_db_valuaciones
+from core.postgres import get_pool
 
 _CURVAS_VALIDAS = ("tasa_fija", "cer")
 _DOLARES_VALIDOS = ("mep", "oficial")
+
+
+def _q(sql: str, params: tuple = ()) -> list[dict]:
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql, params)
+        return cur.fetchall()
 
 
 def _serie_mep_diaria(db_val, desde: date, hasta: date) -> dict[date, float]:
@@ -71,10 +80,10 @@ def _serie_oficial_diaria(db_trd, desde: date, hasta: date) -> dict[date, float]
 def _precios_diarios_curva(db_trd, curva: str, desde: date, hasta: date) -> dict[str, dict[date, float]]:
     """{ticker_corto: {fecha: ultimo_precio}} para todos los bonos de la curva.
 
-    Lee Trading.SnapshotsCierre (1 doc por (curva, fecha, ticker)). Solo
-    días con cierre real persistido por jobs/snapshot_cierre — descarta
-    de raíz fines de semana y feriados (donde antes aparecían fechas
-    fantasma del aggregate sobre TimeSales).
+    SQL-NATIVE (cutover SnapshotsCierre 2026-06-24): el cierre histórico vive en
+    `mercado.snapshots_cierre_hist` (Trading.SnapshotsCierre Mongo migrada →
+    dropeada; `fecha` es DATE en SQL). Solo días con cierre real persistido por
+    jobs/snapshot_cierre — descarta de raíz fines de semana y feriados.
 
     Si el rango incluye el día de hoy y aún no hay cierre persistido (el
     cron snapshot_cierre corre 20:25 UTC), agrega un punto live leyendo
@@ -82,18 +91,14 @@ def _precios_diarios_curva(db_trd, curva: str, desde: date, hasta: date) -> dict
     sin esperar al cron.
     """
     out: dict[str, dict[date, float]] = {}
-    cur = db_trd["SnapshotsCierre"].find(
-        {
-            "curva":         curva,
-            "ts_cierre":     {"$gte": desde.isoformat(), "$lte": hasta.isoformat()},
-            "ultimo_precio": {"$gt": 0},
-        },
-        {"_id": 0, "ts_cierre": 1, "ticker": 1, "ticker_corto": 1, "ultimo_precio": 1},
-    )
-    for r in cur:
-        try:
-            f = datetime.strptime(r["ts_cierre"], "%Y-%m-%d").date()
-        except (ValueError, KeyError):
+    for r in _q(
+        "SELECT fecha, ticker, ticker_corto, ultimo_precio "
+        "FROM mercado.snapshots_cierre_hist "
+        "WHERE curva = %s AND fecha >= %s AND fecha <= %s AND ultimo_precio > 0",
+        (curva, desde, hasta),
+    ):
+        f = r.get("fecha")
+        if not isinstance(f, date):
             continue
         corto = r.get("ticker_corto") or r.get("ticker")
         out.setdefault(corto, {})[f] = float(r["ultimo_precio"])

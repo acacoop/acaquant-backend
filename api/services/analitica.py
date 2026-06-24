@@ -1,30 +1,45 @@
 """Capa de servicio — analítica Tier 2 sobre data existente.
 
 Dos herramientas que operan encima de `renta_fija.listar_curva` y de los cierres
-persistidos (`Trading.SnapshotsCierre`):
+persistidos (SQL `mercado.snapshots_cierre_hist`):
 
 - `snapshot_curva_historico(curva, fecha)` — curva entera como cerró en un día pasado.
 - `calcular_pendiente_curva(curva, metrica, fecha_comparacion)` — slope en bps ± comparación.
 
-(liquidez_secundario eliminado 2026-06-22; el fallback a TimeSales del snapshot también.)
+(liquidez_secundario eliminado 2026-06-22; el fallback a TimeSales del snapshot también.
+El cierre histórico migró de Mongo `Trading.SnapshotsCierre` a SQL — cutover 2026-06-24.)
 """
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
+from psycopg.rows import dict_row
+
 from api.cache import cached
 from api.db import get_db_trading
 from api.services.renta_fija import _CURVAS_VALIDAS, listar_curva
+from core.postgres import get_pool
+
+
+def _q(sql: str, params: tuple = ()) -> list[dict]:
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql, params)
+        return cur.fetchall()
+
+
+def _f(v):
+    """numeric (Decimal) → float, preservando None (shape idéntico al path Mongo)."""
+    return float(v) if v is not None else None
 
 
 @cached(ttl=300)
 def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
     """Curva entera tal como cerró un día pasado.
 
-    Lee Trading.SnapshotsCierre (poblada por jobs/snapshot_cierre.py +
-    backfill_snapshots_cierre). Si es HOY y aún no cerró, fallback a MarketSnapshot
-    (live). Para fechas viejas sin cierre persistido → []. (El fallback a TimeSales
-    se eliminó 2026-06-22: TimeSales pasa a intraday/última-sesión, TTL corto.)
+    Lee SQL `mercado.snapshots_cierre_hist` (poblada por jobs/snapshot_cierre.py;
+    Trading.SnapshotsCierre Mongo migrada → dropeada, cutover 2026-06-24). Si es HOY y
+    aún no cerró, fallback a Trading.MarketSnapshot (live, Mongo). Para fechas viejas sin
+    cierre persistido → []. (El fallback a TimeSales se eliminó 2026-06-22.)
 
     Devuelve mismo shape que antes (ticker, ticker_corto, precio, TEA,
     TEM, paridad, duration, etc.). Si un bono no operó ese día, no
@@ -54,15 +69,13 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
     except ValueError:
         return []
 
-    # ── Camino primario: leer SnapshotsCierre del día ──
-    snap_rows = list(db["SnapshotsCierre"].find(
-        {"ts_cierre": fecha_str, "curva": curva},
-        {"_id": 0,
-         "ticker": 1, "ticker_corto": 1, "tipo": 1,
-         "fecha_vencimiento": 1, "ultimo_precio": 1,
-         "tea": 1, "tem": 1, "paridad": 1,
-         "duration": 1, "mod_duration": 1, "convexity": 1},
-    ))
+    # ── Camino primario: leer el cierre del día de SQL (snapshots_cierre_hist) ──
+    snap_rows = _q(
+        "SELECT ticker, ticker_corto, tipo, fecha_vencimiento, ultimo_precio, "
+        "tea, tem, paridad, duration, mod_duration, convexity "
+        "FROM mercado.snapshots_cierre_hist WHERE fecha = %s AND curva = %s",
+        (fecha_dt.date(), curva),
+    )
 
     if snap_rows:
         out: list[dict] = []
@@ -85,16 +98,17 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
                 "tipo":               r.get("tipo") or m.get("tipo"),
                 "fecha_vencimiento":  str(vto_raw)[:10] if vto_raw else None,
                 "meses_al_vto":       meses,
-                "ultimo_precio":      r.get("ultimo_precio"),
-                "tea":                r.get("tea"),
-                "tem":                r.get("tem"),
-                "paridad":            r.get("paridad"),
-                "duration":           r.get("duration"),
-                "mod_duration":       r.get("mod_duration"),
-                "convexity":          r.get("convexity"),
-                # SnapshotsCierre no guarda timestamp del último trade —
-                # ts_cierre es el día. Los consumers que usaban ts_ultimo_trade
-                # lo único que hacían era mostrar la fecha; ts_cierre alcanza.
+                # SQL devuelve numeric → float (igual shape que el path Mongo).
+                "ultimo_precio":      _f(r.get("ultimo_precio")),
+                "tea":                _f(r.get("tea")),
+                "tem":                _f(r.get("tem")),
+                "paridad":            _f(r.get("paridad")),
+                "duration":           _f(r.get("duration")),
+                "mod_duration":       _f(r.get("mod_duration")),
+                "convexity":          _f(r.get("convexity")),
+                # El cierre no guarda timestamp del último trade — la fecha del
+                # cierre alcanza (los consumers que usaban ts_ultimo_trade solo
+                # mostraban la fecha).
                 "ts_ultimo_trade":    fecha_str,
             }
             if curva == "cer":

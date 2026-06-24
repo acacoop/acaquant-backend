@@ -505,72 +505,16 @@ def calendario_ons(meses: int = 12) -> list[dict]:
 def get_historico_curva(curva: str) -> list:
     """Serie diaria por ticker de una curva: último precio + enriquecimiento.
 
-    Lee Trading.SnapshotsCierre (1 doc por (curva, fecha, ticker)). Antes
-    agregaba TimeSales con $group (caro: 750k+ docs). Ahora el cierre ya
-    está pre-agregado por jobs/snapshot_cierre y backfill_snapshots_cierre.
-
-    Si hoy todavía no tiene cierre persistido (cron 20:25 UTC), agrega
-    una fila por ticker desde Trading.MarketSnapshot.metrics — así el
-    selector de fechas del frontend llega a hoy sin esperar al cron.
-
-    Incluye `tipo` (globales / bonares / etc) para que el frontend pueda
-    pintar curvas separadas dentro del mismo chart.
+    SQL-NATIVE (cutover SnapshotsCierre 2026-06-24): `Trading.SnapshotsCierre`
+    (Mongo) fue migrada → dropeada. El cierre histórico vive en
+    `mercado.snapshots_cierre_hist`; el live-fallback de hoy en
+    `mercado.market_snapshot`. Esta función (path "Mongo" del selector
+    RENTA_FIJA_SQL) ya NO lee Mongo — delega en el twin SQL, que produce el
+    MISMO shape. Mantenemos la función para no romper el selector ni los
+    callers; converge a una sola implementación.
     """
-    db = get_db_trading()
-    out = []
-    cur = db["SnapshotsCierre"].find(
-        {"curva": curva},
-        {"_id": 0,
-         "ts_cierre": 1, "ticker_corto": 1, "ticker": 1, "tipo": 1,
-         "ultimo_precio": 1, "tea": 1, "tem": 1,
-         "duration": 1, "paridad": 1},
-    ).sort([("ts_cierre", 1), ("ticker", 1)])
-    fechas_persistidas: set[str] = set()
-    for r in cur:
-        fechas_persistidas.add(r.get("ts_cierre") or "")
-        out.append({
-            "fecha":    r.get("ts_cierre"),
-            "ticker":   r.get("ticker_corto") or r.get("ticker"),
-            "tipo":     r.get("tipo"),
-            "price":    r.get("ultimo_precio"),
-            "TEA":      r.get("tea"),
-            "TEM":      r.get("tem"),
-            "duration": r.get("duration"),
-            "paridad":  r.get("paridad"),
-        })
-
-    hoy_str = date.today().isoformat()
-    if hoy_str not in fechas_persistidas:
-        meta = {
-            d["ticker"]: d
-            for d in db["Curvas"].find(
-                {"curva": curva},
-                {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1},
-            )
-        }
-        if meta:
-            for r in db["MarketSnapshot"].find(
-                {
-                    "ticker":             {"$in": list(meta.keys())},
-                    "metrics.last_price": {"$gt": 0},
-                },
-                {"_id": 0, "ticker": 1,
-                 "metrics.last_price": 1, "metrics.TEA": 1, "metrics.TEM": 1,
-                 "metrics.duration": 1, "metrics.paridad": 1},
-            ):
-                m = meta.get(r.get("ticker"), {})
-                metrics = r.get("metrics") or {}
-                out.append({
-                    "fecha":    hoy_str,
-                    "ticker":   m.get("ticker_corto") or r.get("ticker"),
-                    "tipo":     m.get("tipo"),
-                    "price":    metrics.get("last_price"),
-                    "TEA":      metrics.get("TEA"),
-                    "TEM":      metrics.get("TEM"),
-                    "duration": metrics.get("duration"),
-                    "paridad":  metrics.get("paridad"),
-                })
-    return out
+    from api.services import renta_fija_sql
+    return renta_fija_sql.get_historico_curva(curva=curva)
 
 
 def get_retorno_total_data(curva: str) -> dict:

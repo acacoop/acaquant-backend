@@ -93,9 +93,12 @@ PIEZAS: list[Pieza] = [
     Pieza("MERCADOS", "job", "bcra (CER/TAMAR/DOLAR)", grupo="RENTA FIJA", unidad="jobs.bcra",
           cadencia="diario 22:00 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           db="Trading", coll="CER", field="fecha", ts_kind="iso"),
+    # snapshot_cierre escribe SQL-native (mercado.snapshots_cierre + _hist) desde el cutover
+    # 2026-06-24; Trading.SnapshotsCierre Mongo dropeada → frescura por JobRuns (el job usa
+    # JobRunLogger("snapshot_cierre")), no por la colección Mongo.
     Pieza("MERCADOS", "job", "snapshot_cierre", grupo="RENTA FIJA", unidad="jobs.snapshot_cierre",
           cadencia="20:25 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
-          db="Trading", coll="SnapshotsCierre", field="ts_cierre", ts_kind="iso"),
+          run_tipo="snapshot_cierre"),
     Pieza("MERCADOS", "job", "fair_value (fit)", grupo="RENTA FIJA", unidad="jobs.fair_value",
           cadencia="20:25 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           db="Trading", coll="FairValueResiduos", field="ts_cierre", ts_kind="iso"),

@@ -596,25 +596,10 @@ def sync_calendar(mdb, conn, dry) -> int:
     return n
 
 
-def sync_snapshots_cierre(mdb, conn, dry) -> int:
-    """Trading.SnapshotsCierre → snapshots_cierre, último por ticker (el PnL usa el más
-    reciente como fallback de precio). OJO (bug fixeado 2026-06-22): el doc Mongo usa
-    `ts_cierre` (fecha) y `ultimo_precio` (precio), NO `fecha`/`last_price` — leer los
-    nombres equivocados escribía NULLs (la tabla tenía tickers sin valores)."""
-    cols = ["ticker", "last_price", "fecha"]
-    rows = []
-    for d in mdb["Trading"]["SnapshotsCierre"].aggregate([
-        {"$sort": {"ts_cierre": -1}},
-        {"$group": {"_id": "$ticker", "last_price": {"$first": "$ultimo_precio"},
-                    "fecha": {"$first": "$ts_cierre"}}},
-    ]):
-        t = _s(d.get("_id"))
-        if t:
-            rows.append((t, d.get("last_price"), _d(d.get("fecha"))))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "snapshots_cierre", cols, ["ticker"], rows, dry)
-    _delete_not_in(conn, "snapshots_cierre", "ticker", {r[0] for r in rows}, dry)
-    return n
+# sync_snapshots_cierre ELIMINADO (cutover SnapshotsCierre→SQL 2026-06-24): jobs/snapshot_cierre.py
+# escribe mercado.snapshots_cierre SQL-native (último precio por ticker, fallback del PnL) y
+# api/services/pnl_sql.py / pnl.py lo leen de SQL. Trading.SnapshotsCierre (Mongo) dropeada → ya no
+# hay de dónde sincronizar.
 
 
 def sync_futuros_dlr_snapshot(mdb, conn, dry) -> int:
@@ -850,33 +835,10 @@ def sync_market_snapshot(mdb, conn, dry) -> int:
     return n
 
 
-def sync_snapshots_cierre_hist(mdb, conn, dry, desde: datetime | None) -> int:
-    """Trading.SnapshotsCierre → snapshots_cierre_hist (HISTÓRICO completo, grano
-    (fecha, curva, ticker); distinto de snapshots_cierre = último por ticker para
-    el PnL). Incremental por ts_cierre (string 'YYYY-MM-DD' lexicográfico)."""
-    f_desde = desde.date().isoformat() if desde else None
-    q = {"ts_cierre": {"$gte": f_desde}} if f_desde else {}
-    cols = ["fecha", "curva", "ticker", "ticker_corto", "tipo", "fecha_vencimiento",
-            "fecha_emision", "ultimo_precio", "tea", "tem", "paridad", "duration",
-            "mod_duration", "convexity", "total_nominals_dia", "is_zero_coupon"]
-    total = 0
-    cur = mdb["Trading"]["SnapshotsCierre"].find(q, {"_id": 0}, batch_size=BATCH)
-    for batch in _iter_batches(cur):
-        rows = []
-        for d in batch:
-            f, cv, tk = _d(d.get("ts_cierre")), _s(d.get("curva")), _s(d.get("ticker"))
-            if not (f and cv and tk):
-                continue
-            rows.append((f, cv, tk, _s(d.get("ticker_corto")), _s(d.get("tipo")),
-                         _d(d.get("fecha_vencimiento")), _d(d.get("fecha_emision")),
-                         d.get("ultimo_precio"), d.get("tea"), d.get("tem"),
-                         d.get("paridad"), d.get("duration"), d.get("mod_duration"),
-                         d.get("convexity"), d.get("total_nominals_dia"),
-                         d.get("is_zero_coupon")))
-        total += _upsert(conn, "snapshots_cierre_hist", cols, ["fecha", "curva", "ticker"],
-                         _dedup(rows, [0, 1, 2]), dry)
-        time.sleep(THROTTLE)
-    return total
+# sync_snapshots_cierre_hist ELIMINADO (cutover SnapshotsCierre→SQL 2026-06-24):
+# jobs/snapshot_cierre.py escribe mercado.snapshots_cierre_hist SQL-native (write_native,
+# histórico por fecha+curva+ticker) y lo leen api/services/{renta_fija_sql,renta_fija,analitica,
+# carry_trade}.py + jobs/fair_value.py. Trading.SnapshotsCierre (Mongo) dropeada → sin fuente.
 
 
 # Históricos diarios de la vista mercado → tabla genérica mercado_hist.
@@ -1081,7 +1043,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_dl = _t("dolar", lambda: sync_dolar(mdb, conn, dry, desde))
         n_ps = _t("portfolio_snapshot", lambda: sync_portfolio_snapshot(mdb, conn, dry))
         n_pt = _t("pnl_totales", lambda: sync_pnl_totales(mdb, conn, dry))
-        n_sc = _t("snapshots_cierre", lambda: sync_snapshots_cierre(mdb, conn, dry))
+        # snapshots_cierre (último por ticker) ya NO se sincroniza: lo escribe SQL-native
+        # jobs/snapshot_cierre.py (cutover SnapshotsCierre→SQL 2026-06-24).
         n_qt = _t("quotes", lambda: sync_quotes(mdb, conn, dry))
         n_cal = _t("calendar", lambda: sync_calendar(mdb, conn, dry))
         print(f"  quotes={n_qt}  calendar={n_cal}  (news → SQL-native, ya sin espejo)")
@@ -1091,8 +1054,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_rem = _t("rem", lambda: sync_rem(mdb, conn, dry))
         n_cv, sin_corto = _t("curvas", lambda: sync_curvas(mdb, conn, dry), (0, 0))
         n_ms = _t("market_snapshot", lambda: sync_market_snapshot(mdb, conn, dry))
-        n_sh = _t("snapshots_cierre_hist",
-                  lambda: sync_snapshots_cierre_hist(mdb, conn, dry, desde))
+        # snapshots_cierre_hist (histórico) ya NO se sincroniza: lo escribe SQL-native
+        # jobs/snapshot_cierre.py (cutover SnapshotsCierre→SQL 2026-06-24).
         n_mh = _t("mercado_hist", lambda: sync_mercado_hist(mdb, conn, dry, desde))
         n_fd = _t("futuros_dlr_snapshot", lambda: sync_futuros_dlr_snapshot(mdb, conn, dry))
         n_ca = _t("caucion_snapshot", lambda: sync_caucion_snapshot(mdb, conn, dry))
@@ -1116,16 +1079,14 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_ov = _t("options_vr", lambda: sync_options_vr(mdb, conn, dry))
         print(f"  mercado: series_macro={n_sm:,}  rem={n_rem}  curvas={n_cv} "
               f"(sin ticker_corto, salteadas={sin_corto})  "
-              f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  "
-              f"mercado_hist={n_mh:,}")
+              f"market_snapshot={n_ms}  mercado_hist={n_mh:,}")
         print(f"  derivados live (baseline): futuros_dlr={n_fd}  caucion={n_ca}  forwards_zscore={n_fz}")
         print(f"  agro (baseline): agro_snapshot={n_as}  agro_opciones={n_ao}  "
               f"agro_pizarra={n_ap}  camara_cereales={n_cc}")
         print(f"  opciones (baseline): metadata={n_om}  vr={n_ov}")
         print(f"  dimensiones: accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
-              f"dolar={n_dl}  portfolio_snapshot={n_ps}  pnl_totales={n_pt}  "
-              f"snapshots_cierre={n_sc}")
+              f"dolar={n_dl}  portfolio_snapshot={n_ps}  pnl_totales={n_pt}")
         print(f"  manager infra: job_runs={n_jr:,}  role_audit={n_ra}")
         print(f"  cashflow (baseline): tipos_operacion={n_to}  volumen_mercado_agro={n_vma}")
 
@@ -1153,11 +1114,11 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "actividad_mensual": n_am, "dolar": n_dl,
              "tipos_operacion": n_to,
              "volumen_mercado_agro": n_vma,
-             "portfolio_snapshot": n_ps, "pnl_totales": n_pt, "snapshots_cierre": n_sc,
+             "portfolio_snapshot": n_ps, "pnl_totales": n_pt,
              "quotes": n_qt, "calendar": n_cal,
              "series_macro": n_sm, "rem": n_rem, "curvas": n_cv,
              "curvas_sin_ticker_corto": sin_corto,
-             "market_snapshot": n_ms, "snapshots_cierre_hist": n_sh,
+             "market_snapshot": n_ms,
              "mercado_hist": n_mh,
              "cedears": n_ced, "cedears_snapshot": n_csn, "adr_snapshot": n_adr,
              "precios_acciones": n_pa, "day_trading_stats": n_dts,

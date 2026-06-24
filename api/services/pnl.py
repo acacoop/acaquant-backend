@@ -158,15 +158,21 @@ def _valor_actual_live(
                     px = None
                 if px is not None and px > 0:
                     return _aplicar_normalizer(px, qty_efectiva, cartera, tipoTitulo), "live"
-        # 2. SnapshotsCierre — último cierre persistido.
+        # 2. snapshots_cierre (SQL) — último cierre persistido por ticker. Fallback de
+        # precio del PnL. Trading.SnapshotsCierre (Mongo) migrada → dropeada (2026-06-24);
+        # mercado.snapshots_cierre ya guarda 1 fila/ticker con el último (no hace falta sort).
         if snapshots_cierre_by_ticker is not None:
             snc = snapshots_cierre_by_ticker.get(instrumento)
         else:
-            snc = db_t["SnapshotsCierre"].find_one(
-                {"ticker": instrumento},
-                {"_id": 0, "last_price": 1, "fecha": 1},
-                sort=[("fecha", -1)],
-            )
+            snc = None
+            with get_pool().connection() as conn, conn.cursor() as _cur:
+                _cur.execute(
+                    "SELECT last_price, fecha FROM mercado.snapshots_cierre WHERE ticker = %s",
+                    (instrumento,),
+                )
+                _row = _cur.fetchone()
+            if _row:
+                snc = {"last_price": _row[0], "fecha": _row[1]}
         if snc:
             try:
                 px = float(snc.get("last_price")) if snc.get("last_price") is not None else None
@@ -853,27 +859,18 @@ def _load_pnl_bulk_deps(db_v, db_cf, db_t) -> dict:
                        "— ese pricing degrada a per-cuenta (N+1)", exc_info=True)
         portfolio_snap_by_ticker = {}
 
-    # SnapshotsCierre: doc con fecha más reciente por ticker. $sort+$group con
-    # allowDiskUse=True — la colección crece 1 doc/ticker/día.
+    # snapshots_cierre (SQL): último precio por ticker (1 fila/ticker, PK ticker).
+    # Trading.SnapshotsCierre (Mongo) migrada → dropeada (2026-06-24); la tabla SQL ya
+    # está colapsada al último → un SELECT plano reemplaza el $sort+$group de Mongo.
     snapshots_cierre_by_ticker: dict[str, dict] = {}
     try:
-        pipeline = [
-            {"$sort": {"ticker": 1, "fecha": -1}},
-            {"$group": {
-                "_id":        "$ticker",
-                "last_price": {"$first": "$last_price"},
-                "fecha":      {"$first": "$fecha"},
-            }},
-        ]
-        for d in db_t["SnapshotsCierre"].aggregate(pipeline, allowDiskUse=True):
-            t = d.get("_id")
-            if t:
-                snapshots_cierre_by_ticker[t] = {
-                    "last_price": d.get("last_price"),
-                    "fecha":      d.get("fecha"),
-                }
+        with get_pool().connection() as conn, conn.cursor() as _cur:
+            _cur.execute("SELECT ticker, last_price, fecha FROM mercado.snapshots_cierre")
+            for t, last_price, fecha in _cur.fetchall():
+                if t:
+                    snapshots_cierre_by_ticker[t] = {"last_price": last_price, "fecha": fecha}
     except Exception:
-        logger.warning("_load_pnl_bulk_deps: fallo precarga SnapshotsCierre "
+        logger.warning("_load_pnl_bulk_deps: fallo precarga snapshots_cierre (SQL) "
                        "— ese pricing degrada a per-cuenta (N+1)", exc_info=True)
         snapshots_cierre_by_ticker = {}
 

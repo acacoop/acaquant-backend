@@ -2,7 +2,9 @@
 
 Encadenado al cron de snapshot_cierre. Por cada curva:
 
-  1. Lee Trading.SnapshotsCierre del día.
+  1. Lee el cierre del día de SQL `mercado.snapshots_cierre_hist`
+     (Trading.SnapshotsCierre Mongo migrada → dropeada, cutover 2026-06-24;
+     snapshot_cierre escribe esa tabla justo antes en el mismo cron-chain).
   2. Filtra el universo del fit:
        - dias_al_vto >= 15
        - total_nominals_dia >= --vol-min (default 50M)
@@ -38,10 +40,51 @@ import sys
 from datetime import UTC, date, datetime, timedelta
 
 from core.mongo import get_mongo_client
+from core.postgres import get_pool
 from quant.curve_fit import fit_quadratic
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("FairValue")
+
+
+def _leer_snapshot_cierre(curva: str, fecha_str: str) -> list[dict]:
+    """Cierre del día desde SQL `mercado.snapshots_cierre_hist`, con el shape que
+    espera el resto del job (lo que antes traía Trading.SnapshotsCierre):
+    numéricos → float, fechas → ISO 'YYYY-MM-DD' (los helpers _dias_al_vto/
+    _dias_desde_emision parsean strings). Filtra (fecha, curva)."""
+    from psycopg.rows import dict_row
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    def _iso(v):
+        return v.isoformat() if v is not None else None
+
+    out: list[dict] = []
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT ticker, ticker_corto, tea, tem, paridad, duration, mod_duration, "
+            "convexity, total_nominals_dia, is_zero_coupon, fecha_vencimiento, "
+            "fecha_emision FROM mercado.snapshots_cierre_hist "
+            "WHERE fecha = %s AND curva = %s",
+            (date.fromisoformat(fecha_str), curva),
+        )
+        for r in cur.fetchall():
+            out.append({
+                "ticker":             r["ticker"],
+                "ticker_corto":       r["ticker_corto"],
+                "tea":                _f(r["tea"]),
+                "tem":                _f(r["tem"]),
+                "paridad":            _f(r["paridad"]),
+                "duration":           _f(r["duration"]),
+                "mod_duration":       _f(r["mod_duration"]),
+                "convexity":          _f(r["convexity"]),
+                "total_nominals_dia": _f(r["total_nominals_dia"]),
+                "is_zero_coupon":     r["is_zero_coupon"],
+                "fecha_vencimiento":  _iso(r["fecha_vencimiento"]),
+                "fecha_emision":      _iso(r["fecha_emision"]),
+            })
+    return out
 
 CURVAS_V1 = ("tasa_fija", "cer")
 DIAS_AL_VTO_MIN = 15
@@ -132,12 +175,12 @@ def procesar_curva(
 ) -> dict:
     fecha_ref = date.fromisoformat(fecha_str)
 
-    snap = list(client["Trading"]["SnapshotsCierre"].find(
-        {"ts_cierre": fecha_str, "curva": curva},
-        {"_id": 0},
-    ))
+    snap = _leer_snapshot_cierre(curva, fecha_str)
     if not snap:
-        logger.warning("[%s %s] sin SnapshotsCierre — corre snapshot_cierre primero", curva, fecha_str)
+        logger.warning(
+            "[%s %s] sin cierre en mercado.snapshots_cierre_hist — corre snapshot_cierre primero",
+            curva, fecha_str,
+        )
         return {"curva": curva, "n_universo": 0, "n_residuos": 0}
 
     universo = [b for b in snap if _en_universo_fit(b, curva, fecha_ref, vol_min)]

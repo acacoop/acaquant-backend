@@ -85,7 +85,11 @@ def test_snapshot_historico_fecha_invalida(monkeypatch):
 
 
 def test_snapshot_historico_devuelve_bonos_del_cierre(monkeypatch):
-    """Caso base: 2 bonos CER con cierre persistido el 2026-01-15 (SnapshotsCierre)."""
+    """Caso base: 2 bonos CER con cierre persistido el 2026-01-15.
+
+    El cierre histórico se lee de SQL `mercado.snapshots_cierre_hist` (cutover
+    2026-06-24) vía `svc._q` → se mockea esa función. Curvas/MarketSnapshot
+    siguen en Mongo (get_db_trading)."""
     monkeypatch.setattr(svc, "get_db_trading", lambda: _mock_db({
         "Curvas": FakeCollection(find_docs=[
             {"ticker": "TICK1", "ticker_corto": "T1", "tipo": "cer",
@@ -93,13 +97,15 @@ def test_snapshot_historico_devuelve_bonos_del_cierre(monkeypatch):
             {"ticker": "TICK2", "ticker_corto": "T2", "tipo": "cer",
              "fecha_vencimiento": "2028-06-15"},
         ]),
-        "SnapshotsCierre": FakeCollection(find_docs=[
-            {"ticker": "TICK1", "ticker_corto": "T1", "tipo": "cer", "ultimo_precio": 100.5,
-             "tea": 0.02, "tem": 0.0017, "paridad": 99.5, "duration": 1.2, "convexity": 2.0},
-            {"ticker": "TICK2", "ticker_corto": "T2", "tipo": "cer", "ultimo_precio": 85.3,
-             "tea": 0.04, "tem": 0.0033, "paridad": 90.2, "duration": 2.4, "convexity": 7.0},
-        ]),
     }))
+    monkeypatch.setattr(svc, "_q", lambda *a, **k: [
+        {"ticker": "TICK1", "ticker_corto": "T1", "tipo": "cer", "ultimo_precio": 100.5,
+         "tea": 0.02, "tem": 0.0017, "paridad": 99.5, "duration": 1.2,
+         "mod_duration": None, "convexity": 2.0, "fecha_vencimiento": None},
+        {"ticker": "TICK2", "ticker_corto": "T2", "tipo": "cer", "ultimo_precio": 85.3,
+         "tea": 0.04, "tem": 0.0033, "paridad": 90.2, "duration": 2.4,
+         "mod_duration": None, "convexity": 7.0, "fecha_vencimiento": None},
+    ])
 
     out = svc.snapshot_curva_historico(curva="cer", fecha="2026-01-15")
     assert len(out) == 2
@@ -118,11 +124,12 @@ def test_snapshot_historico_excluye_bonos_sin_cierre(monkeypatch):
             {"ticker": "OPERA",    "ticker_corto": "OP", "fecha_vencimiento": "2027-01-01"},
             {"ticker": "NO_OPERA", "ticker_corto": "NO", "fecha_vencimiento": "2027-01-01"},
         ]),
-        "SnapshotsCierre": FakeCollection(find_docs=[
-            {"ticker": "OPERA", "ticker_corto": "OP", "ultimo_precio": 100,
-             "tea": 0.01, "duration": 1.0},
-        ]),
     }))
+    monkeypatch.setattr(svc, "_q", lambda *a, **k: [
+        {"ticker": "OPERA", "ticker_corto": "OP", "tipo": None, "ultimo_precio": 100,
+         "tea": 0.01, "tem": None, "paridad": None, "duration": 1.0,
+         "mod_duration": None, "convexity": None, "fecha_vencimiento": None},
+    ])
 
     out = svc.snapshot_curva_historico(curva="cer", fecha="2026-01-15")
     tickers = {r["ticker"] for r in out}

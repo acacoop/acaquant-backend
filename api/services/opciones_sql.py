@@ -18,7 +18,7 @@ Dual-run flag `OPCIONES_SQL` (+ `?_engine`).
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from psycopg.rows import dict_row
 
@@ -41,20 +41,24 @@ def _project(d: dict) -> dict:
 
 @cached(ttl=60)
 def get_opciones(instrumento: str | None = None, tipo: str | None = None) -> list:
-    """Chain live de opciones desde SQL. Solo con tick HOY (updated_at >= inicio de hoy,
-    naive == criterio del motor `datetime.now()`). Filtros opcionales por symbol/tipo."""
-    inicio_hoy = datetime.now(UTC).replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
-    where = ["updated_at >= %s"]
-    params: list = [inicio_hoy]
+    """Chain de opciones desde SQL (mercado.options_snapshot). SIN filtro de "solo hoy":
+    la tabla ya contiene SOLO la chain VIGENTE (el motor purga los strikes/vencimientos
+    fuera de mapa), así que mostrarla siempre da el comportamiento correcto — live con el
+    mercado abierto, ÚLTIMO CIERRE con el mercado cerrado (antes filtraba updated_at>=hoy
+    y la vista quedaba vacía fuera de rueda; el `updated_at` de cada fila indica frescura)."""
+    where: list[str] = []
+    params: list = []
     if instrumento:
         where.append("symbol ILIKE %s")
         params.append(f"%{instrumento}%")
     if tipo:
         where.append("tipo = %s")
         params.append(tipo.upper())
+    sql = "SELECT data FROM mercado.options_snapshot"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(f"SELECT data FROM mercado.options_snapshot WHERE {' AND '.join(where)}",
-                    tuple(params))
+        cur.execute(sql, tuple(params))
         return [_project(r["data"]) for r in cur.fetchall()]
 
 

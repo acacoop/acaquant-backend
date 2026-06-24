@@ -45,10 +45,20 @@ __all__ = [
 # ── helpers ──────────────────────────────────────────────────────────────────
 def _master_activos() -> list[dict]:
     """Docs master (activo=true) reconstruidos desde el jsonb — shape idéntico al
-    doc Mongo de Trading.Cedears."""
+    doc Mongo de Trading.Cedears, MÁS la clasificación de negocio que vive en
+    columnas materializadas (no en el jsonb): `rubro` (reemplaza `sector`, más
+    granular) y `es_ia` (bool, ecosistema IA). Se inyectan en el dict para que el
+    scanner los exponga por CEDEAR. NO pisan campos del jsonb — `sector` queda
+    intacto por compatibilidad."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute("SELECT data FROM mercado.cedears WHERE activo IS TRUE")
-        return [r["data"] for r in cur.fetchall()]
+        cur.execute("SELECT data, rubro, es_ia FROM mercado.cedears WHERE activo IS TRUE")
+        out: list[dict] = []
+        for r in cur.fetchall():
+            d = dict(r["data"] or {})
+            d["rubro"] = r["rubro"]
+            d["es_ia"] = r["es_ia"]
+            out.append(d)
+        return out
 
 
 def _resolve_underlying(ticker_corto: str) -> str:
@@ -246,6 +256,8 @@ def get_cedears_scanner() -> list[dict]:
             "underlying": m.get("underlying"),
             "ratio_cedear": m.get("ratio_cedear"),
             "sector": m.get("sector"),
+            "rubro": m.get("rubro"),
+            "es_ia": m.get("es_ia"),
             "industria": m.get("industria"),
             "region": m.get("region"),
             "pais": m.get("pais"),

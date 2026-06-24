@@ -7,8 +7,12 @@ Ya dropeadas (cutover completo: read SQL-only + write SQL-native + sync eliminad
   - Trading.PreciosAcciones        (2026-06-24) — 1ª colección VIVA. Writers SQL-native
     (precios_acciones_daily/backfill), lectores SQL (scanner_sql, pivot_points, rv_motor).
 
-Cuando se cierre el cutover de la próxima colección del núcleo (AdrSnapshot /
-CedearsSnapshot / ...), se agrega acá con su nota de verificación y se dropea.
+Pendiente de drop (cutover hecho — verificar antes de --apply):
+  - Trading.AdrSnapshot — jobs/adr_live escribe mercado.adr_snapshot SQL-native
+    (write_native) + registra en JobRuns (run_tipo="adr_live"). Lector Mongo solo en
+    scanner.py (gateado SCANNER_SQL=0 → dormido en prod). sync_adr_snapshot eliminado.
+    ⚠️ ANTES de dropear: deployar + verificar que el SCANNER (vista ADR: precio USD live
+    + 1D) sigue fresco tras una corrida de adr_live (cada 15m). Ahí --apply.
 
 Idempotente: dropear una colección ya borrada = no-op (0 docs). Dry-run por default.
     python -m scripts.drop_orphans_mongo            # cuenta (dry-run)
@@ -21,7 +25,7 @@ import argparse
 from core.mongo import get_mongo_client
 
 _ORPHANS: list[tuple[str, str]] = [
-    # vacío — sin colecciones pendientes de drop (la próxima del cutover va acá)
+    ("Trading", "AdrSnapshot"),
 ]
 
 

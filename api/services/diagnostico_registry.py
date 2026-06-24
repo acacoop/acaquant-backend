@@ -159,7 +159,7 @@ PIEZAS: list[Pieza] = [
           cadencia="22:00 UTC L-V", ventana="diario", umbral_s=int(3 * _D)),
     Pieza("MERCADOS", "job", "adr_live", grupo="RENTA VARIABLE", unidad="jobs.adr_live",
           cadencia="cada 15m · 13-20 UTC L-V", ventana="rueda", umbral_s=30 * 60,
-          db="Trading", coll="AdrSnapshot", field="updated_at"),
+          run_tipo="adr_live"),
     Pieza("MERCADOS", "job", "day_trading_stats (costumbre TRADE LAB)", grupo="RENTA VARIABLE",
           unidad="jobs.day_trading_stats",
           cadencia="20:06 UTC L-V", ventana="diario", umbral_s=int(3 * _D),

@@ -16,7 +16,7 @@ from core.postgres import get_pool
 def main() -> int:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT ticker_corto, upper(COALESCE(underlying, ticker_corto)) AS u, "
-                    "       activo, rubro FROM mercado.cedears ORDER BY ticker_corto")
+                    "       rubro FROM mercado.cedears ORDER BY ticker_corto")
         cedears = cur.fetchall()
 
         cur.execute("SELECT DISTINCT upper(ticker) FROM mercado.precios_acciones")
@@ -25,7 +25,7 @@ def main() -> int:
         con_adr = {r[0] for r in cur.fetchall()}
 
     sin_eod, sin_adr, sin_rubro = [], [], []
-    for corto, u, activo, rubro in cedears:
+    for corto, u, rubro in cedears:
         if u not in con_eod:
             sin_eod.append(f"{corto}({u})")
         if u not in con_adr:

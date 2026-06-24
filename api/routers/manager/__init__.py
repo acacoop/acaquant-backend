@@ -40,6 +40,7 @@ from api.routers.manager import (
     ons,
     operaciones,
     options,
+    renta_variable,
     roles,
     status,
     users,
@@ -84,5 +85,6 @@ router.include_router(compliance.router,      dependencies=_COMPLIANCE)
 router.include_router(assets.router,          dependencies=_TITULOS)
 router.include_router(ons.router,             dependencies=_TITULOS)
 router.include_router(bonos.router,           dependencies=_TITULOS)
+router.include_router(renta_variable.router,  dependencies=_TITULOS)
 router.include_router(instrumentos.router,    dependencies=_INSTRUMENTOS)
 router.include_router(contrapartes.router,    dependencies=_CONTRAPARTES)

@@ -23,24 +23,21 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase**.
 - **Sigue en Mongo (no migrado):** `Trading.*` (mercado), `CashFlow.{Accionistas,
   Productores}`, `Manager.*`, `Opciones`, `News`, `Market`. `sync_postgres` solo
   espeja estas dims.
-- **CashFlow ACREENCIAS — CUTOVER SQL-NATIVE (2026-06-23):** `CashFlow.Acreencias`
-  (Mongo) migrada → **lista para DROP**. `jobs/acreencias.py` escribe SOLO SQL
-  `operaciones.acreencias` (`replace_native`, swap atómico TRUNCATE+INSERT) — la
-  escritura Mongo se eliminó. Las vistas (back-office `/acreencias/*` + comercial
-  `/cobros-futuros`) leen SIEMPRE SQL (sin flag; `ACREENCIAS_SQL` removido).
-  `sync_acreencias` eliminado de `jobs/sync_postgres.py`. Lectura: `api/services/
-  cashflow_sql.py` (`por_dia`/`del_dia`/`del_cliente`/`acreencias_docs`).
-- **CashFlow dual-run (lectura SQL bajo flag, Mongo intacto, 2026-06-23):**
-  `CashFlow.Movimientos` → `operaciones.movimientos` (flag **`MOVIMIENTOS_SQL`**,
-  vista FLUJOS `/api/operaciones/flujos`); `CashFlow.VolumenMercadoAgro` →
-  `mercado.volumen_mercado_agro` (flag **`VOLUMEN_AGRO_SQL`**, denominador del share
-  AGRO en `/ops/agro`). `CashFlow.TiposOperacion` → `operaciones.tipos_operacion`
-  (catálogo: espejado por sync para tenerlo, SIN lector SQL — el enrich de los
-  writers sigue leyendo Mongo, corre en el proceso del job, no en una vista con flag).
-  Dual-write en vivo: `jobs/cashflow.py` (movimientos).
-  `CashFlow.Productores` es **HUÉRFANA** (nadie la lee en
-  el código) → candidata a drop, NO se migró. Servicio de lectura:
-  `api/services/cashflow_sql.py`.
+- **CashFlow.Movimientos + Acreencias → SQL-NATIVE (CUTOVERS 2026-06-23/24) → DROPEABLES:**
+  FLUJOS (`/api/operaciones/flujos`) lee SIEMPRE `operaciones.movimientos`; back-office
+  `/acreencias/*` + comercial `/cobros-futuros` leen SIEMPRE `operaciones.acreencias` (ambos
+  sin flag — `MOVIMIENTOS_SQL`/`ACREENCIAS_SQL` eliminados). `jobs/cashflow.py` escribe
+  movimientos SQL-native (`write_native`, PK `comprobante`); `jobs/acreencias.py` escribe
+  acreencias SQL-native (`replace_native`, swap atómico). `sync_movimientos`/`sync_acreencias`
+  ELIMINADOS. `CashFlow.Movimientos` y `CashFlow.Acreencias` (Mongo) → drop vía
+  `scripts/drop_orphans_mongo.py`. Lectura: `api/services/cashflow_sql.py`.
+- **CashFlow dual-run restante (lectura SQL bajo flag, Mongo intacto, 2026-06-23):**
+  `CashFlow.VolumenMercadoAgro` → `mercado.volumen_mercado_agro` (flag **`VOLUMEN_AGRO_SQL`**,
+  denominador del share AGRO en `/ops/agro`). `CashFlow.TiposOperacion` →
+  `operaciones.tipos_operacion` (catálogo: espejado por sync, SIN lector SQL — el enrich de
+  los writers lee Mongo, corre en el proceso del job, no en una vista con flag).
+  `CashFlow.Productores` es **HUÉRFANA** (nadie la lee) → candidata a drop, NO migrada.
+  Servicio de lectura:
 - **PARTNER API dual-run (app SEPARADA, schema `partner`, 2026-06-23):** la base
   Mongo `ACAPortfolio` del servicio externo (`partner_api/`) se migró al mismo patrón.
   `ACAPortfolio.Cartera` → **`partner.cartera`** (columnas materializadas, shape fijo);

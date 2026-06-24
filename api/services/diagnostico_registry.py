@@ -207,9 +207,12 @@ PIEZAS: list[Pieza] = [
     Pieza("PORTFOLIOS", "job", "consolidado_cuentas", unidad="jobs.consolidado_cuentas",
           cadencia="23:30 UTC L-V", ventana="diario", umbral_s=int(1.5 * _D),
           db="Valuaciones", coll="ConsolidadoCuentas", field="computed_at"),
+    # jobs/cashflow escribe SQL-native (operaciones.movimientos) desde el cutover 2026-06-24;
+    # CashFlow.Movimientos Mongo dropeada → ya no se chequea esa colección. El job corre con
+    # JobRunLogger("cashflow") → la frescura sale de Manager.JobRuns por run_tipo (no de la coll).
     Pieza("PORTFOLIOS", "job", "cashflow (movimientos)", unidad="jobs.cashflow",
           cadencia="02:00 UTC mar-sáb", ventana="diario", umbral_s=int(2 * _D),
-          db="CashFlow", coll="Movimientos", field="fecha", ts_kind="ddmmyyyy"),
+          run_tipo="cashflow"),
     Pieza("PORTFOLIOS", "job", "actividad_mensual", unidad="jobs.actividad_mensual",
           cadencia="22:30 UTC L-V", ventana="diario", umbral_s=int(1.5 * _D),
           run_tipo="actividad_mensual"),

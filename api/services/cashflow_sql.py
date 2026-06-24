@@ -5,9 +5,12 @@ VolumenMercadoAgro (denominador del share AGRO).
 Servicio PURO (sin FastAPI). Cada función devuelve EXACTAMENTE el mismo shape que su
 contraparte Mongo (api/routers/operaciones.py::listar_flujos, api/services/acreencias.py,
 api/services/comercial.py, api/services/operaciones_sql.py::ops_agro) para que el
-dual-run sea byte-a-byte. Flags de lectura por dominio:
+resultado sea byte-a-byte.
 
-    MOVIMIENTOS_SQL=1     → /api/operaciones/flujos lee SQL (operaciones.movimientos)
+FLUJOS y ACREENCIAS son SQL-NATIVE desde los cutovers de 2026-06-23/24: /api/operaciones/flujos
++ back-office/acreencias + comercial/cobros-futuros leen SIEMPRE SQL (CashFlow.Movimientos y
+CashFlow.Acreencias Mongo dropeadas) — sin flag. Queda un dominio en dual-run por flag:
+
     VOLUMEN_AGRO_SQL=1    → el denominador del share AGRO sale de SQL (mercado.volumen_mercado_agro)
 
 ACREENCIAS — SQL-NATIVE (cutover 2026-06-23): back-office/acreencias + comercial/
@@ -37,8 +40,8 @@ _RE_ID_BRACKET = re.compile(r"^\[(\d+)\]")
 
 
 # ── selectores de motor (flag por dominio, mismo patrón que operaciones_view.motor) ──
-def movimientos_sql_on() -> bool:
-    return os.getenv("MOVIMIENTOS_SQL") == "1"
+# movimientos_sql_on() / acreencias_sql_on() ELIMINADOS (cutovers 2026-06-23/24):
+# FLUJOS y ACREENCIAS leen SQL fijo (sin flag).
 
 
 def volumen_agro_sql_on() -> bool:

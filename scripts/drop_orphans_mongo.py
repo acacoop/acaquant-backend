@@ -2,13 +2,14 @@
 
 ⚠️ Correr SOLO después de verificar que la vista correspondiente lee bien de SQL.
 
-Cutover verificado 2026-06-24 (read SQL-only + write SQL-native + sync eliminado):
-  - Trading.SnapshotsCierre — jobs/snapshot_cierre.py escribe SQL-native (2 tablas:
-    mercado.snapshots_cierre último-por-ticker = fallback de precio del PnL, y
-    snapshots_cierre_hist = histórico). 6 lectores migrados a SQL (pnl, renta_fija,
-    analitica, carry_trade, fair_value). ⚠️ ANTES de dropear: correr
-    `python -m jobs.sync_postgres --full` para garantizar el histórico completo en SQL,
-    y verificar PnL + histórico de curva + carry + fair_value.
+Cutover 2026-06-24 (read SQL-only + write SQL-native + sync eliminado):
+  - Trading.PreciosAcciones — jobs/precios_acciones_daily + scripts/backfill_precios_acciones
+    escriben mercado.precios_acciones SQL-native (write_native). Lectores migrados a SQL:
+    scanner_sql, quant/pivot_points (4 lecturas) y api/services/rv_motor (Estrategia RV).
+    sync_precios_acciones eliminado. El path Mongo de scanner.py SOLO se usa con
+    SCANNER_SQL=0 → debe quedar SCANNER_SQL=1 (prod ya lo tiene).
+    ⚠️ ANTES de dropear: deployar + verificar en la próxima rueda que andan: SCANNER vista
+    ADR (7D/15R/MTD/YTD), panel PIVOTS, y Estrategia RV (matriz de correlación). Ahí --apply.
 
 Idempotente: dropear una colección ya borrada = no-op (0 docs). Dry-run por default.
     python -m scripts.drop_orphans_mongo            # cuenta (dry-run)
@@ -21,7 +22,7 @@ import argparse
 from core.mongo import get_mongo_client
 
 _ORPHANS = [
-    ("Trading", "SnapshotsCierre"),
+    ("Trading", "PreciosAcciones"),
 ]
 
 

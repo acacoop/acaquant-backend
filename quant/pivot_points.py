@@ -1,4 +1,4 @@
-"""pivot_points.py — Floor Trader Pivot Points sobre Trading.PreciosAcciones.
+"""pivot_points.py — Floor Trader Pivot Points sobre mercado.precios_acciones (SQL).
 
 Filosofía: el cálculo NUNCA hardcodea fechas. Cada timeframe pide
 dinámicamente "el período anterior cerrado" (último día hábil, última
@@ -113,15 +113,55 @@ def _rango_anual_previo() -> tuple[datetime, datetime]:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Lectura de Mongo + cálculo
+# Lectura de SQL (mercado.precios_acciones) + cálculo
 # ──────────────────────────────────────────────────────────────────────────
+# `core.postgres` / `core.mongo` se importan dentro del cuerpo para que quant/
+# no dependa de la infra al import-time (regla de capas del CLAUDE.md).
+
+
+def _sql_docs_en_rango(ticker: str, fecha_desde: datetime, fecha_hasta: datetime) -> list[dict]:
+    """Velas EOD de mercado.precios_acciones en [desde, hasta), asc. `fecha` (DATE)
+    → datetime naive 00h para mantener el shape que tenían los docs de Mongo."""
+    from core.postgres import get_pool
+
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT fecha, high, low, close FROM mercado.precios_acciones "
+            "WHERE ticker = %s AND fecha >= %s AND fecha < %s ORDER BY fecha",
+            (ticker, fecha_desde.date(), fecha_hasta.date()),
+        )
+        rows = cur.fetchall()
+    return [
+        {"fecha": datetime(r[0].year, r[0].month, r[0].day),
+         "high":  float(r[1]) if r[1] is not None else None,
+         "low":   float(r[2]) if r[2] is not None else None,
+         "close": float(r[3]) if r[3] is not None else None}
+        for r in rows
+    ]
+
+
+def _sql_last_doc(ticker: str) -> dict | None:
+    """Última vela (cierre más reciente) de mercado.precios_acciones, o None."""
+    from core.postgres import get_pool
+
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT fecha, close FROM mercado.precios_acciones "
+            "WHERE ticker = %s ORDER BY fecha DESC LIMIT 1",
+            (ticker,),
+        )
+        r = cur.fetchone()
+    if not r:
+        return None
+    return {"fecha": datetime(r[0].year, r[0].month, r[0].day),
+            "close": float(r[1]) if r[1] is not None else None}
 
 
 def _ohlc_en_rango(
     ticker: str, fecha_desde: datetime, fecha_hasta: datetime,
     solo_ultima: bool = False,
 ) -> dict | None:
-    """Lee Trading.PreciosAcciones y agrega H/L/C del rango [desde, hasta).
+    """Lee mercado.precios_acciones y agrega H/L/C del rango [desde, hasta).
 
     H = max de todos los high del rango.
     L = min de todos los low del rango.
@@ -132,18 +172,8 @@ def _ohlc_en_rango(
     sus pivots se proyectan del día anterior, NO se agregan varios días.
 
     Returns None si no hay docs en el rango.
-
-    `get_mongo_client` se importa dentro del cuerpo para que quant/ no
-    dependa de la infra al import-time (regla de capas del CLAUDE.md).
     """
-    from core.mongo import get_mongo_client
-
-    col = get_mongo_client()["Trading"]["PreciosAcciones"]
-    docs = list(col.find(
-        {"ticker": ticker, "fecha": {"$gte": fecha_desde, "$lt": fecha_hasta}},
-        projection={"_id": 0, "fecha": 1, "high": 1, "low": 1, "close": 1},
-        sort=[("fecha", 1)],
-    ))
+    docs = _sql_docs_en_rango(ticker, fecha_desde, fecha_hasta)
     if not docs:
         return None
     if solo_ultima:
@@ -207,16 +237,9 @@ def obtener_4_timeframes(ticker: str) -> dict:
           }
         }
     """
-    from core.mongo import get_mongo_client
-
     # Último close = última vela disponible en la serie (cierre del día
     # previo hasta que el cron diario meta el de hoy).
-    col = get_mongo_client()["Trading"]["PreciosAcciones"]
-    last_doc = col.find_one(
-        {"ticker": ticker},
-        projection={"_id": 0, "fecha": 1, "close": 1},
-        sort=[("fecha", -1)],
-    )
+    last_doc = _sql_last_doc(ticker)
     last       = last_doc.get("close") if last_doc else None
     last_fecha = last_doc.get("fecha") if last_doc else None
 
@@ -276,14 +299,7 @@ def _debug_frame(
     Con `solo_ultima` (timeframe diario) deja únicamente la última vela: el
     pivot diario se proyecta del día previo, no agrega varios días.
     """
-    from core.mongo import get_mongo_client
-
-    col = get_mongo_client()["Trading"]["PreciosAcciones"]
-    docs = list(col.find(
-        {"ticker": ticker, "fecha": {"$gte": fecha_desde, "$lt": fecha_hasta}},
-        projection={"_id": 0, "fecha": 1, "high": 1, "low": 1, "close": 1},
-        sort=[("fecha", 1)],
-    ))
+    docs = _sql_docs_en_rango(ticker, fecha_desde, fecha_hasta)
     if solo_ultima and docs:
         docs = docs[-1:]
     base = {
@@ -331,14 +347,7 @@ def debug_4_timeframes(ticker: str) -> dict:
     """Como `obtener_4_timeframes` pero con el detalle COMPLETO del cálculo:
     ventana consultada, velas usadas, de qué vela sale cada H/L/C, fórmula
     con números y niveles. Alimenta el panel de Manager → Validaciones."""
-    from core.mongo import get_mongo_client
-
-    col = get_mongo_client()["Trading"]["PreciosAcciones"]
-    last_doc = col.find_one(
-        {"ticker": ticker},
-        projection={"_id": 0, "fecha": 1, "close": 1},
-        sort=[("fecha", -1)],
-    )
+    last_doc = _sql_last_doc(ticker)
 
     diario_desde, diario_hasta   = _rango_diario_previo()
     semanal_desde, semanal_hasta = _rango_semanal_previo()

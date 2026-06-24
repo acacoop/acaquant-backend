@@ -351,11 +351,9 @@ def get_ticker_returns(ticker: str) -> dict:
 @cached(ttl=60)
 def get_pivot_points(ticker: str) -> dict:
     """Pivot points en 4 timeframes del subyacente USD. Mismo cálculo
-    (quant.pivot_points.obtener_4_timeframes — lee Mongo PreciosAcciones), con el
-    `last` pisado por el live del ADR desde mercado.adr_snapshot.
-
-    NOTA: obtener_4_timeframes lee de Mongo Trading.PreciosAcciones (no migrado a
-    SQL acá — vive en quant/). El path SQL solo cambia la fuente del `last` live.
+    (quant.pivot_points.obtener_4_timeframes — lee mercado.precios_acciones SQL desde
+    el cutover 2026-06-24), con el `last` pisado por el live del ADR desde
+    mercado.adr_snapshot.
     """
     from quant.pivot_points import obtener_4_timeframes
 

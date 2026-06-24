@@ -55,7 +55,6 @@ def get_correlation_matrix(
         }
         La covarianza se reconstruye: `cov_ij = matriz_ij × vol_i × vol_j`.
     """
-    db = get_db_trading()
     universo = _universo_map()
 
     if tickers:
@@ -63,17 +62,18 @@ def get_correlation_matrix(
     else:
         pedidos = universo
 
-    # Precios de todos los underlyings en UNA query.
-    docs = db["PreciosAcciones"].find(
-        {"ticker": {"$in": sorted(set(pedidos.values()))}},
-        projection={"_id": 0, "ticker": 1, "fecha": 1, "close": 1},
-        sort=[("fecha", 1)],
-    )
+    # Precios de todos los underlyings en UNA query a mercado.precios_acciones (SQL).
+    # Cutover PreciosAcciones→SQL (2026-06-24): antes leía Trading.PreciosAcciones (Mongo).
+    from core.postgres import get_pool
+    underlyings = sorted(set(pedidos.values()))
     por_underlying: dict[str, dict[str, float]] = {}
-    for d in docs:
-        if d.get("close") is None or not d.get("fecha"):
-            continue
-        por_underlying.setdefault(d["ticker"], {})[str(d["fecha"])[:10]] = d["close"]
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT ticker, fecha, close FROM mercado.precios_acciones "
+            "WHERE ticker = ANY(%s) AND close IS NOT NULL ORDER BY fecha",
+            (underlyings,))
+        for ticker, fecha, close in cur.fetchall():
+            por_underlying.setdefault(ticker, {})[fecha.isoformat()] = float(close)
 
     series: dict[str, dict[str, float]] = {}
     excluidos: list[str] = []

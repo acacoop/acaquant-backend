@@ -928,28 +928,9 @@ def sync_adr_snapshot(mdb, conn, dry) -> int:
     return n
 
 
-def sync_precios_acciones(mdb, conn, dry, desde: datetime | None) -> int:
-    """Trading.PreciosAcciones (EOD del underlying USD) → precios_acciones (columnar).
-    Incremental por `fecha` (datetime). Batcheado + throttle (46k docs → no escanear
-    a ciegas, REGLA #4). Upsert por (ticker, fecha)."""
-    q = {"fecha": {"$gte": desde}} if desde else {}
-    total = 0
-    cur = mdb["Trading"]["PreciosAcciones"].find(
-        q, {"_id": 0, "ticker": 1, "fecha": 1, "open": 1, "high": 1, "low": 1,
-            "close": 1, "volume": 1})
-    for batch in _iter_batches(cur):
-        rows = []
-        for d in batch:
-            t, f = _s(d.get("ticker")), _d(d.get("fecha"))
-            if not (t and f):
-                continue
-            rows.append((t, f, d.get("open"), d.get("high"), d.get("low"),
-                         d.get("close"), d.get("volume")))
-        total += _upsert(conn, "precios_acciones",
-                         ["ticker", "fecha", "open", "high", "low", "close", "volume"],
-                         ["ticker", "fecha"], _dedup(rows, [0, 1]), dry)
-        time.sleep(THROTTLE)
-    return total
+# sync_precios_acciones ELIMINADO en el cutover PreciosAcciones→SQL (2026-06-24):
+# jobs/precios_acciones_daily escribe mercado.precios_acciones SQL-native (write_native),
+# lectores (scanner_sql, quant/pivot_points) leen SQL. Trading.PreciosAcciones dropeada.
 
 
 def sync_day_trading_stats(mdb, conn, dry, desde: datetime | None) -> int:
@@ -1065,10 +1046,11 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_ced = _t("cedears", lambda: sync_cedears(mdb, conn, dry))
         n_csn = _t("cedears_snapshot", lambda: sync_cedears_snapshot(mdb, conn, dry))
         n_adr = _t("adr_snapshot", lambda: sync_adr_snapshot(mdb, conn, dry))
-        n_pa = _t("precios_acciones", lambda: sync_precios_acciones(mdb, conn, dry, desde))
+        # precios_acciones: SQL-native (precios_acciones_daily escribe SQL directo) —
+        # sync eliminado en el cutover PreciosAcciones→SQL (2026-06-24).
         n_dts = _t("day_trading_stats", lambda: sync_day_trading_stats(mdb, conn, dry, desde))
         print(f"  scanner: cedears={n_ced}  cedears_snapshot={n_csn}  adr_snapshot={n_adr}  "
-              f"precios_acciones={n_pa:,}  day_trading_stats={n_dts}")
+              f"day_trading_stats={n_dts}")
         n_as = _t("agro_snapshot", lambda: sync_agro_snapshot(mdb, conn, dry))
         n_ao = _t("agro_opciones_snapshot", lambda: sync_agro_opciones_snapshot(mdb, conn, dry))
         n_ap = _t("agro_pizarra", lambda: sync_agro_pizarra(mdb, conn, dry))
@@ -1121,7 +1103,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "market_snapshot": n_ms,
              "mercado_hist": n_mh,
              "cedears": n_ced, "cedears_snapshot": n_csn, "adr_snapshot": n_adr,
-             "precios_acciones": n_pa, "day_trading_stats": n_dts,
+             "day_trading_stats": n_dts,
              "agro_snapshot": n_as, "agro_opciones_snapshot": n_ao,
              "agro_pizarra": n_ap, "camara_cereales": n_cc,
              "options_metadata": n_om, "options_vr": n_ov,

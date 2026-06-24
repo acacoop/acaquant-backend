@@ -156,7 +156,8 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
             out[ticker_corto] = {
                 "adr_last": None, "adr_fecha": None, "adr_intraday": None,
                 "adr_vs_1d_pct": None, "adr_ret_wtd_pct": None, "adr_ret_7d_pct": None,
-                "adr_ret_mtd_pct": None, "adr_ret_ytd_pct": None, "adr_dollar_vol": None,
+                "adr_ret_15r_pct": None, "adr_ret_mtd_pct": None, "adr_ret_ytd_pct": None,
+                "adr_dollar_vol": None,
             }
             continue
 
@@ -209,6 +210,14 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
             if ld.get("close") and ld.get("volume"):
                 dollar_vol = ld["close"] * ld["volume"]
 
+        # Retorno últimas 15 ruedas: last_close vs el cierre 15 ruedas antes del último EOD
+        # (count-based, no por fecha). Necesita ≥16 cierres en la serie.
+        ret_15r = None
+        if last_close is not None and len(docs) >= 16:
+            base15 = docs[-16].get("close")
+            if base15 and base15 > 0:
+                ret_15r = ((last_close / base15) - 1) * 100
+
         out[ticker_corto] = {
             "adr_last": last_close,
             "adr_fecha": last_fecha.isoformat() if isinstance(last_fecha, datetime) else None,
@@ -216,6 +225,7 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
             "adr_vs_1d_pct": vs_1d,
             "adr_ret_wtd_pct": _ret_vs(anchor_wtd),
             "adr_ret_7d_pct": _ret_vs(anchor_7d),
+            "adr_ret_15r_pct": ret_15r,
             "adr_ret_mtd_pct": _ret_vs(anchor_mtd),
             "adr_ret_ytd_pct": _ret_vs(anchor_ytd),
             "adr_dollar_vol": dollar_vol,
@@ -297,6 +307,7 @@ def get_cedears_scanner() -> list[dict]:
             "adr_vs_1d_pct": adr.get("adr_vs_1d_pct"),
             "adr_ret_wtd_pct": adr.get("adr_ret_wtd_pct"),
             "adr_ret_7d_pct": adr.get("adr_ret_7d_pct"),
+            "adr_ret_15r_pct": adr.get("adr_ret_15r_pct"),
             "adr_ret_mtd_pct": adr.get("adr_ret_mtd_pct"),
             "adr_ret_ytd_pct": adr.get("adr_ret_ytd_pct"),
             "adr_dollar_vol": adr.get("adr_dollar_vol"),

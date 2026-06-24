@@ -8,11 +8,13 @@ Ya dropeadas (cutover completo: read SQL-only + write SQL-native + sync eliminad
     (precios_acciones_daily/backfill), lectores SQL (scanner_sql, pivot_points, rv_motor).
 
 Pendiente de drop (cutover hecho — verificar antes de --apply):
-  - Trading.AdrSnapshot — jobs/adr_live escribe mercado.adr_snapshot SQL-native
-    (write_native) + registra en JobRuns (run_tipo="adr_live"). Lector Mongo solo en
-    scanner.py (gateado SCANNER_SQL=0 → dormido en prod). sync_adr_snapshot eliminado.
-    ⚠️ ANTES de dropear: deployar + verificar que el SCANNER (vista ADR: precio USD live
-    + 1D) sigue fresco tras una corrida de adr_live (cada 15m). Ahí --apply.
+  - Trading.CedearsSnapshot — engines/motor_cedears escribe mercado.cedears_snapshot
+    SQL-native (write_native, cada 1s). Lectores migrados a SQL: scanner_sql, day_trading.
+    Lector Mongo solo en scanner.py (gateado SCANNER_SQL=0 → dormido). sync eliminado.
+    Monitores (diagnostico/status/informe_salud) sacaron el check Mongo (frescura del
+    motor: systemd / skill /motor-status hasta que el monitoreo lea SQL).
+    ⚠️ ANTES de dropear: REINICIAR motor_cedears.service (toma el código SQL-native) +
+    verificar que el SCANNER (vista CEDEAR: last/bid/offer/INTRA) sigue vivo. Ahí --apply.
 
 Idempotente: dropear una colección ya borrada = no-op (0 docs). Dry-run por default.
     python -m scripts.drop_orphans_mongo            # cuenta (dry-run)
@@ -25,7 +27,7 @@ import argparse
 from core.mongo import get_mongo_client
 
 _ORPHANS: list[tuple[str, str]] = [
-    ("Trading", "AdrSnapshot"),
+    ("Trading", "CedearsSnapshot"),
 ]
 
 

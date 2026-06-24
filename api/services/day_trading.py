@@ -25,8 +25,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from psycopg.rows import dict_row
+
 from api.cache import cached
 from api.db import get_db_trading
+from core.postgres import get_pool
 from quant.intraday import analizar_vueltas, momentum_por_tiempo, posicion_en_rango
 
 # Umbral de impulso para la idea por momentum (en % de los últimos 15').
@@ -199,7 +202,15 @@ def get_day_trading(objetivo_pct: float = 0.5) -> dict:
         )
         if m.get("ticker_corto")
     }
-    snaps = {s["ticker"]: s for s in db["CedearsSnapshot"].find({}, {"_id": 0})}
+    # CedearsSnapshot migrada a SQL (mercado.cedears_snapshot, jsonb en `data`) —
+    # cutover 2026-06-24. Mismo shape que el doc Mongo que leía antes.
+    snaps: dict[str, dict] = {}
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM mercado.cedears_snapshot")
+        for r in cur.fetchall():
+            d = r["data"]
+            if d and d.get("ticker"):
+                snaps[d["ticker"]] = d
     minutos = _minutos_por_ticker(db)
     costumbre = _costumbre(bucket=bucket_objetivo(objetivo_pct))
 

@@ -45,7 +45,8 @@ from core.mongo import get_mongo_client
 # aparece "sin datos" es que el nombre no coincide → ajustar acá.
 MOTORES = [
     ("rofex/curvas", "Trading",  "MarketSnapshot",       "updated_at", 60),
-    ("cedears",      "Trading",  "CedearsSnapshot",      "updated_at", 10),
+    # cedears: CedearsSnapshot migrada a SQL (mercado.cedears_snapshot) 2026-06-24 —
+    # sacada de este check Mongo-only. Frescura del motor: systemd / skill /motor-status.
     ("opciones",     "Opciones", "OptionsSnapshot",      "updated_at", 60),
     ("agro",         "Trading",  "AgroSnapshot",         "updated_at", 60),
     ("agro_opc",     "Trading",  "AgroOpcionesSnapshot", "updated_at", 60),

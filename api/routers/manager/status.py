@@ -42,7 +42,8 @@ _MOTORES = [
     ("Trading",     "ForwardsLive",         "updated_at", "ForwardsLive",                        60, UTC,    _APERTURA_DEFAULT),
     ("Trading",     "BreakevensLive",       "updated_at", "BreakevensLive",                      60, UTC,    _APERTURA_DEFAULT),
     ("Opciones",    "OptionsSnapshot",      "updated_at", "OptionsSnapshot",                    180, UTC,    _APERTURA_DEFAULT),
-    ("Trading",     "CedearsSnapshot",      "updated_at", "CedearsSnapshot",                     60, UTC,    _APERTURA_DEFAULT),
+    # CedearsSnapshot migrada a SQL (mercado.cedears_snapshot) 2026-06-24 — sacada de este
+    # check Mongo-only para no falsear. Frescura del motor: systemd / skill /motor-status.
     ("Trading",     "CaucionSnapshot",      "updated_at", "CaucionSnapshot",                     60, UTC,    _APERTURA_DEFAULT),
     ("Valuaciones", "DolarSnapshot",        "updated_at", "DolarSnapshot",                       60, UTC,    _APERTURA_DEFAULT),
     ("Trading",     "FuturosDLRSnapshot",   "updated_at", "FuturosDLRSnapshot",                  60, UTC,    _APERTURA_DEFAULT),

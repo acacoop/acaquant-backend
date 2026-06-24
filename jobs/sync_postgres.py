@@ -900,18 +900,9 @@ def sync_cedears(mdb, conn, dry) -> int:
     return n
 
 
-def sync_cedears_snapshot(mdb, conn, dry) -> int:
-    """Trading.CedearsSnapshot → cedears_snapshot (BASELINE; el motor lo refresca live
-    bajo SNAPSHOT_SQL). Passthrough jsonb, 1 doc por ticker BYMA."""
-    rows = []
-    for d in mdb["Trading"]["CedearsSnapshot"].find({}, {"_id": 0}):
-        t = _s(d.get("ticker"))
-        if t:
-            rows.append((t, _jsonb(d), d.get("updated_at")))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "cedears_snapshot", ["ticker", "data", "updated_at"], ["ticker"], rows, dry)
-    _delete_not_in(conn, "cedears_snapshot", "ticker", {r[0] for r in rows}, dry)
-    return n
+# sync_cedears_snapshot ELIMINADO en el cutover CedearsSnapshot→SQL (2026-06-24):
+# engines/motor_cedears escribe mercado.cedears_snapshot SQL-native (write_native, cada 1s).
+# Lectores en SQL (scanner_sql, day_trading). Trading.CedearsSnapshot dropeada.
 
 
 # sync_adr_snapshot ELIMINADO en el cutover AdrSnapshot→SQL (2026-06-24):
@@ -1035,12 +1026,11 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
 
         # Renta variable — Scanner CEDEARs (baseline; motor/jobs refrescan live).
         n_ced = _t("cedears", lambda: sync_cedears(mdb, conn, dry))
-        n_csn = _t("cedears_snapshot", lambda: sync_cedears_snapshot(mdb, conn, dry))
-        # adr_snapshot + precios_acciones: SQL-native (adr_live / precios_acciones_daily
-        # escriben SQL directo) — syncs eliminados en los cutovers →SQL (2026-06-24).
+        # cedears_snapshot + adr_snapshot + precios_acciones: SQL-native (motor_cedears /
+        # adr_live / precios_acciones_daily escriben SQL directo) — syncs eliminados en
+        # los cutovers →SQL (2026-06-24).
         n_dts = _t("day_trading_stats", lambda: sync_day_trading_stats(mdb, conn, dry, desde))
-        print(f"  scanner: cedears={n_ced}  cedears_snapshot={n_csn}  "
-              f"day_trading_stats={n_dts}")
+        print(f"  scanner: cedears={n_ced}  day_trading_stats={n_dts}")
         n_as = _t("agro_snapshot", lambda: sync_agro_snapshot(mdb, conn, dry))
         n_ao = _t("agro_opciones_snapshot", lambda: sync_agro_opciones_snapshot(mdb, conn, dry))
         n_ap = _t("agro_pizarra", lambda: sync_agro_pizarra(mdb, conn, dry))
@@ -1092,7 +1082,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "curvas_sin_ticker_corto": sin_corto,
              "market_snapshot": n_ms,
              "mercado_hist": n_mh,
-             "cedears": n_ced, "cedears_snapshot": n_csn,
+             "cedears": n_ced,
              "day_trading_stats": n_dts,
              "agro_snapshot": n_as, "agro_opciones_snapshot": n_ao,
              "agro_pizarra": n_ap, "camara_cereales": n_cc,

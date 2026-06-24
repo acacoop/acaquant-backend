@@ -148,9 +148,12 @@ PIEZAS: list[Pieza] = [
           db="Trading", coll="AgroOpcionesSnapshot", field="updated_at"),
 
     # ── MERCADOS · RENTA VARIABLE ──────────────────────────
+    # motor_cedears: CedearsSnapshot migrada a SQL (mercado.cedears_snapshot) 2026-06-24.
+    # El monitor de frescura por colección es Mongo-only → queda informativo hasta que la
+    # infra de diagnóstico lea frescura de SQL (follow-up, lo necesitan todos los motores
+    # que migren). El motor sigue vigilable por systemd `Active` / skill /motor-status.
     Pieza("MERCADOS", "motor", "motor_cedears", grupo="RENTA VARIABLE", unidad="motor_cedears",
-          cadencia="live", ventana="rueda", umbral_s=60,
-          db="Trading", coll="CedearsSnapshot", field="updated_at"),
+          cadencia="live", ventana="rueda", umbral_s=60),
     # precios_acciones_daily: PreciosAcciones (~43k docs) NO tiene índice por
     # `fecha` global (solo {ticker, fecha}) → sortear por fecha sería COLLSCAN
     # cada 10s (REGLA #4). No le ponemos fuente live; quedaría medible si se

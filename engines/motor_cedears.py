@@ -31,7 +31,6 @@ from datetime import UTC, datetime
 from typing import ClassVar
 
 import pyRofex
-from pymongo import UpdateOne
 
 from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
@@ -116,10 +115,9 @@ class CedearsEngine:
         }
 
         self.client = get_mongo_client()
-        # Snapshot vive en la misma DB que el master (Trading.Cedears) y
-        # el resto del market data (Trading.MarketSnapshot, TimeSales, etc).
-        # Sin DB nueva — coherente con el "no migrar nada" del scope.
-        self.col_snapshot = self.client["Trading"]["CedearsSnapshot"]
+        # CedearsSnapshot migrada a SQL (mercado.cedears_snapshot, write_native) —
+        # cutover 2026-06-24. El _snapshot_loop escribe SQL directo, sin Mongo.
+        # (self.client sigue para el master Trading.Cedears + el tape CedearsTimeSales.)
         # Time & Sales INTRADÍA: tape de trades inferidos por salto de NV.
         # Se vacía al cierre (cron jobs.cleanup_cedears_timesales). Índice
         # idempotente para el endpoint (ticker, timestamp desc).
@@ -250,21 +248,23 @@ class CedearsEngine:
                 st["last_nv"], st["prev_px"] = nv, px
 
     # ──────────────────────────────────────────────────────────────
-    # Snapshot loop — 1s, bulk_write a Cedears.Snapshot
+    # Snapshot loop — 1s, write_native a mercado.cedears_snapshot (SQL-native)
     # ──────────────────────────────────────────────────────────────
 
     def _snapshot_loop(self):
-        """Cada 1s reescribe TODOS los docs en Cedears.Snapshot con el
-        estado actual de market_state. SIN dirty-check: todos los tickers
-        siempre, incluso los que no recibieron tick (preserva updated_at
-        fresco, evita el bug de opciones donde ilíquidos quedaban con
-        timestamp viejo).
+        """Cada 1s reescribe TODOS los docs en mercado.cedears_snapshot (SQL-native)
+        con el estado actual de market_state. SIN dirty-check: todos los tickers
+        siempre, incluso los que no recibieron tick (preserva updated_at fresco).
+
+        Cutover 2026-06-24: antes hacía bulk_write a Trading.CedearsSnapshot (Mongo)
+        + espejo SQL bajo SNAPSHOT_SQL. Ahora escribe SOLO SQL (write_native).
         """
+        from core import pg_mirror
         while True:
             time.sleep(1)
             try:
                 ts = datetime.now(UTC)
-                ops = []
+                rows = []
                 for ticker in self.tickers:
                     st = self.market_state[ticker]
                     bid, offer, nv, ev = st["bid"], st["offer"], st["nv"], st["ev"]
@@ -272,67 +272,31 @@ class CedearsEngine:
                     # VWAP = cash efectivo / nominales. CEDEAR cotiza por acción →
                     # NO se multiplica por 100 (eso es convención de bonos).
                     vwap = round(ev / nv, 4) if nv > 0 else 0.0
-                    ops.append(UpdateOne(
-                        {"ticker": ticker},
-                        {"$set": {
-                            "ticker":       ticker,
-                            "ticker_corto": self._ticker_corto_map[ticker],
-                            "open":         st["open"],
-                            "high":         st["high"],
-                            "low":          st["low"],
-                            "close":        st["close"],
-                            "last":         st["last"],
-                            "bid":          bid,
-                            "offer":        offer,
-                            "spread":       spread,
-                            "volume":       nv,
-                            "total_money":  ev,
-                            "vwap":         vwap,
-                            "updated_at":   ts,
-                        }},
-                        upsert=True,
-                    ))
-                if ops:
-                    self.col_snapshot.bulk_write(ops, ordered=False)
-                    self._mirror_sql(ts)
+                    doc = {
+                        "ticker":       ticker,
+                        "ticker_corto": self._ticker_corto_map[ticker],
+                        "open":         st["open"],
+                        "high":         st["high"],
+                        "low":          st["low"],
+                        "close":        st["close"],
+                        "last":         st["last"],
+                        "bid":          bid,
+                        "offer":        offer,
+                        "spread":       spread,
+                        "volume":       nv,
+                        "total_money":  ev,
+                        "vwap":         vwap,
+                        "updated_at":   ts,
+                    }
+                    rows.append({
+                        "ticker":     ticker,
+                        "data":       pg_mirror.doc_iso(doc),
+                        "updated_at": ts,
+                    })
+                if rows:
+                    pg_mirror.write_native("mercado.cedears_snapshot", ["ticker"], rows)
             except Exception as e:
                 logger.error(f"Error en _snapshot_loop: {e}")
-
-    def _mirror_sql(self, ts: datetime):
-        """Espejo SQL del snapshot live (flag SNAPSHOT_SQL, best-effort). Reconstruye
-        el doc desde market_state (igual que el $set de Mongo) y lo manda como
-        passthrough jsonb a mercado.cedears_snapshot. No-op con el flag apagado."""
-        from core import pg_mirror
-        if not pg_mirror.snapshots_live_on():
-            return
-        rows = []
-        for ticker in self.tickers:
-            st = self.market_state[ticker]
-            bid, offer, nv, ev = st["bid"], st["offer"], st["nv"], st["ev"]
-            spread = round(offer - bid, 4) if (bid > 0 and offer > 0) else 0.0
-            vwap = round(ev / nv, 4) if nv > 0 else 0.0
-            doc = {
-                "ticker":       ticker,
-                "ticker_corto": self._ticker_corto_map[ticker],
-                "open":         st["open"],
-                "high":         st["high"],
-                "low":          st["low"],
-                "close":        st["close"],
-                "last":         st["last"],
-                "bid":          bid,
-                "offer":        offer,
-                "spread":       spread,
-                "volume":       nv,
-                "total_money":  ev,
-                "vwap":         vwap,
-                "updated_at":   ts,
-            }
-            rows.append({
-                "ticker":     ticker,
-                "data":       pg_mirror.doc_iso(doc),
-                "updated_at": ts,
-            })
-        pg_mirror.mirror_snapshot("mercado.cedears_snapshot", ["ticker"], rows)
 
     def _flush_loop(self):
         """Cada 1s vuelca el buffer de trades inferidos a Trading.CedearsTimeSales.

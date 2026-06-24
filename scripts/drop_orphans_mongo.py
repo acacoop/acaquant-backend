@@ -2,13 +2,13 @@
 
 ⚠️ Correr SOLO después de verificar que la vista correspondiente lee bien de SQL.
 
-Cutovers verificados 2026-06-24 (read SQL-only + write SQL-native + sync eliminado):
-  - CashFlow.Movimientos — vista FLUJOS lee operaciones.movimientos; jobs/cashflow.py
-    escribe SQL-native. Verificar /operaciones → flujos antes de dropear.
-  - CashFlow.Acreencias — back-office/acreencias + comercial/cobros-futuros leen
-    operaciones.acreencias; jobs/acreencias.py escribe SQL-native (swap atómico).
-  - Opciones.DataHistorica — chart de griegas (/griegas/opciones) lee
-    mercado.options_data_hist; jobs/options_rollup.py escribe SQL-native.
+Cutover verificado 2026-06-24 (read SQL-only + write SQL-native + sync eliminado):
+  - Trading.SnapshotsCierre — jobs/snapshot_cierre.py escribe SQL-native (2 tablas:
+    mercado.snapshots_cierre último-por-ticker = fallback de precio del PnL, y
+    snapshots_cierre_hist = histórico). 6 lectores migrados a SQL (pnl, renta_fija,
+    analitica, carry_trade, fair_value). ⚠️ ANTES de dropear: correr
+    `python -m jobs.sync_postgres --full` para garantizar el histórico completo en SQL,
+    y verificar PnL + histórico de curva + carry + fair_value.
 
 Idempotente: dropear una colección ya borrada = no-op (0 docs). Dry-run por default.
     python -m scripts.drop_orphans_mongo            # cuenta (dry-run)
@@ -21,9 +21,7 @@ import argparse
 from core.mongo import get_mongo_client
 
 _ORPHANS = [
-    ("CashFlow", "Movimientos"),
-    ("CashFlow", "Acreencias"),
-    ("Opciones", "DataHistorica"),
+    ("Trading", "SnapshotsCierre"),
 ]
 
 

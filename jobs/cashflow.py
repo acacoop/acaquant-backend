@@ -6,12 +6,10 @@ from datetime import UTC, date, datetime, timedelta
 
 import holidays
 import requests
-from pymongo import UpdateOne
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import config
-from core.mongo import get_mongo_client
 
 AUTH_URL = "https://aca.aunesa.com/Irmo/api/login"
 OPS_URL  = "https://aca.aunesa.com/Irmo/api/operaciones/consolidadosGenerales"
@@ -77,9 +75,10 @@ def run(desde, hasta):
     headers = autenticar()
     print("✅ Auth OK\n", flush=True)
 
-    client = get_mongo_client()
-    col = client["CashFlow"]["Movimientos"]
-    col.create_index("comprobante", unique=True, background=True)
+    # SQL-NATIVE: CashFlow.Movimientos (Mongo) fue migrada → dropeada. Escribe directo a
+    # operaciones.movimientos (upsert por comprobante, write_native). La PK comprobante hace
+    # el upsert idempotente — la API re-envía el mismo valor por boleto → mismo efecto.
+    from core.pg_mirror import doc_iso, write_native
 
     dias  = dias_habiles(desde, hasta)
     total = len(dias)
@@ -110,9 +109,8 @@ def run(desde, hasta):
                 if "total" in r:
                     r["total"] = float(r["total"]) * -1
 
-            # Filtrar movimientos sin `comprobante`: sin esa clave el
-            # UpdateOne (y el índice único) revientan y el bulk_write se
-            # cae ENTERO → se pierde el día. Mismo patrón defensivo que
+            # Filtrar movimientos sin `comprobante`: es la PK del upsert SQL → sin esa
+            # clave la fila no puede materializarse. Mismo patrón defensivo que
             # negocio_movimientos.py.
             con_comp = [r for r in movimientos if r.get("comprobante")]
             sin_comp = len(movimientos) - len(con_comp)
@@ -121,26 +119,10 @@ def run(desde, hasta):
             if not con_comp:
                 print("0 con comprobante")
                 continue
-            ops = [
-                UpdateOne(
-                    {"comprobante": r["comprobante"]},
-                    {"$setOnInsert": r},
-                    upsert=True,
-                )
-                for r in con_comp
-            ]
-            result = col.bulk_write(ops, ordered=False)
-            nuevos = result.upserted_count
-            insertados_total += nuevos
-            print(f"{len(con_comp)} con comprobante  →  {nuevos} nuevos en Mongo")
 
-            # Espejo SQL incondicional (operaciones.movimientos, upsert por comprobante).
-            # Mongo usa $setOnInsert (no pisa lo existente); el upsert SQL por la PK
-            # comprobante es idempotente — la API re-envía el mismo valor por boleto →
-            # mismo efecto. `fecha` se guarda CRUDA dd/mm/yyyy (el read la parsea a ISO,
-            # igual que el path Mongo). data = doc completo (datetimes→ISO). Best-effort:
-            # si SQL cae, Mongo queda como fuente operativa.
-            from core.pg_mirror import doc_iso, write_native
+            # Escritura SQL-NATIVE a operaciones.movimientos (upsert por comprobante).
+            # `fecha` se guarda CRUDA dd/mm/yyyy (el read service la parsea a ISO).
+            # data = doc completo (datetimes→ISO).
             sql_rows = [{
                 "comprobante": r["comprobante"], "cuenta": r.get("cuenta"),
                 "fecha": r.get("fecha"), "informacion": r.get("informacion"),
@@ -148,6 +130,8 @@ def run(desde, hasta):
                 "data": doc_iso(r),
             } for r in con_comp]
             write_native("operaciones.movimientos", ["comprobante"], sql_rows)
+            insertados_total += len(con_comp)
+            print(f"{len(con_comp)} con comprobante  →  upsert SQL")
 
         except Exception as e:
             print(f"❌ Error: {e}")

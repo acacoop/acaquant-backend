@@ -6,21 +6,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
 from api.cache import cached
-from api.db import get_db_cashflow
 from api.services import cashflow_sql as _cf_sql
 from api.services import comercial as _com
 from api.services import comercial_sql as _com_sql
 from api.services import operaciones_sql as _ops_sql
 from api.services._grupos_scope import (
-    aplicar_scope_cuenta,
     scope_cuentas,
     verificar_cuenta_str,
 )
 from api.services.operaciones_view import (
     OPS_MONEDAS as _OPS_MONEDAS,
-)
-from api.services.operaciones_view import (
-    ddmmyyyy_a_iso as _ddmmyyyy_a_iso,
 )
 from core.postgres import get_pool
 
@@ -115,46 +110,15 @@ def listar_flujos(
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ):
-    # DIRECTO desde CashFlow.Movimientos (sin el espejo OperacionesAPI.FlujosAPI):
-    # comprobante→boleto, total→bruto, fecha(dd/mm/yyyy)→concertacion(iso). El
-    # rango de fechas y el orden se resuelven en Python porque la fecha está en
-    # dd/mm/yyyy (no ordenable como string en Mongo). El set es chico (~12k docs,
-    # casi siempre filtrado por cuenta).
-    # Dual-run: flag MOVIMIENTOS_SQL=1 → operaciones.movimientos (SQL). El scope se
-    # verifica acá ANTES de delegar (igual que el path Mongo lo hace en el if cuenta).
+    # SQL-NATIVE: CashFlow.Movimientos (Mongo) fue migrada → dropeada. Lee SIEMPRE de
+    # operaciones.movimientos (SQL) vía cashflow_sql.listar_flujos: comprobante→boleto,
+    # total→bruto, fecha(dd/mm/yyyy)→concertacion(iso). El rango de fechas y el orden se
+    # resuelven en Python (la fecha está cruda en dd/mm/yyyy, no ordenable). El scope se
+    # verifica acá ANTES de delegar (igual que hacía el path Mongo en el if cuenta).
     if cuenta:
         verificar_cuenta_str(cuenta, scope)
-    if _cf_sql.movimientos_sql_on():
-        return _cf_sql.listar_flujos(cuenta=cuenta, unidad=unidad, desde=desde,
-                                     hasta=hasta, scope=scope)
-    db = get_db_cashflow()
-    filtro: dict = {}
-    if cuenta:
-        filtro["cuenta"] = cuenta
-    else:
-        aplicar_scope_cuenta(filtro, scope)
-    if unidad:
-        filtro["unidad"] = unidad
-
-    proj = {"_id": 0, "comprobante": 1, "cuenta": 1, "fecha": 1,
-            "informacion": 1, "total": 1, "unidad": 1}
-    out = []
-    for d in db["Movimientos"].find(filtro, proj):
-        iso = _ddmmyyyy_a_iso(d.get("fecha"))
-        if desde and (iso is None or iso < desde):
-            continue
-        if hasta and (iso is None or iso > hasta):
-            continue
-        out.append({
-            "boleto":       d.get("comprobante"),
-            "concertacion": iso,
-            "cuenta":       d.get("cuenta"),
-            "informacion":  d.get("informacion"),
-            "bruto":        d.get("total"),
-            "unidad":       d.get("unidad"),
-        })
-    out.sort(key=lambda r: r["concertacion"] or "")
-    return out
+    return _cf_sql.listar_flujos(cuenta=cuenta, unidad=unidad, desde=desde,
+                                 hasta=hasta, scope=scope)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

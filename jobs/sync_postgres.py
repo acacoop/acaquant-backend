@@ -163,22 +163,9 @@ def sync_accionistas(mdb, conn, dry) -> int:
     return n
 
 
-def sync_movimientos(mdb, conn, dry) -> int:
-    """CashFlow.Movimientos → operaciones.movimientos (vista FLUJOS, /api/operaciones/flujos).
-    BASELINE (el job cashflow.py la dual-escribe en vivo). Passthrough columnar + data jsonb;
-    `fecha` se guarda CRUDA dd/mm/yyyy (el read service la parsea a ISO). PK = comprobante."""
-    cols = ["comprobante", "cuenta", "fecha", "informacion", "total", "unidad", "data"]
-    rows = []
-    for d in mdb["CashFlow"]["Movimientos"].find({}, {"_id": 0}):
-        comp = _s(d.get("comprobante"))
-        if comp:
-            rows.append((comp, _s(d.get("cuenta")), _s(d.get("fecha")),
-                         _s(d.get("informacion")), d.get("total"), _s(d.get("unidad")),
-                         _jsonb(d)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "movimientos", cols, ["comprobante"], rows, dry)
-    _delete_not_in(conn, "movimientos", "comprobante", {r[0] for r in rows}, dry)
-    return n
+# sync_movimientos ELIMINADO (cutover Movimientos→SQL 2026-06-24): jobs/cashflow.py escribe
+# operaciones.movimientos SQL-native (write_native) y api/services/cashflow_sql.py lo lee de
+# SQL. CashFlow.Movimientos (Mongo) dropeada → ya no hay de dónde sincronizar.
 
 
 def sync_acreencias(mdb, conn, dry) -> int:
@@ -1093,7 +1080,6 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
             return r
 
         n_ac = _t("accionistas", lambda: sync_accionistas(mdb, conn, dry))
-        n_mov = _t("movimientos", lambda: sync_movimientos(mdb, conn, dry))
         n_acr = _t("acreencias", lambda: sync_acreencias(mdb, conn, dry))
         n_to = _t("tipos_operacion", lambda: sync_tipos_operacion(mdb, conn, dry))
         n_vma = _t("volumen_mercado_agro", lambda: sync_volumen_mercado_agro(mdb, conn, dry))
@@ -1166,12 +1152,13 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  pnl_totales={n_pt}  "
               f"snapshots_cierre={n_sc}")
         print(f"  manager infra: job_runs={n_jr:,}  role_audit={n_ra}")
-        print(f"  cashflow (baseline): movimientos={n_mov:,}  acreencias={n_acr:,}  "
+        print(f"  cashflow (baseline): acreencias={n_acr:,}  "
               f"tipos_operacion={n_to}  volumen_mercado_agro={n_vma}")
 
-        # operaciones y negocio_movimientos ya NO se sincronizan: los escriben
-        # SQL directo jobs/operaciones_informes.py, jobs/fci_bilateral.py y
-        # jobs/negocio_movimientos.py (migración Operaciones/NegocioMov → SQL).
+        # operaciones, negocio_movimientos y movimientos ya NO se sincronizan: los escriben
+        # SQL directo jobs/operaciones_informes.py, jobs/fci_bilateral.py,
+        # jobs/negocio_movimientos.py y jobs/cashflow.py (migración Operaciones/NegocioMov/
+        # Movimientos → SQL).
 
         if not dry:
             _t("reconciliar", lambda: reconciliar(mdb, conn))
@@ -1190,7 +1177,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     stats = {"accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
              "job_runs": n_jr, "role_audit": n_ra,
              "actividad_mensual": n_am, "dolar": n_dl,
-             "movimientos": n_mov, "acreencias": n_acr, "tipos_operacion": n_to,
+             "acreencias": n_acr, "tipos_operacion": n_to,
              "volumen_mercado_agro": n_vma,
              "portfolio_snapshot": n_ps, "pnl_totales": n_pt, "snapshots_cierre": n_sc,
              "quotes": n_qt, "calendar": n_cal,

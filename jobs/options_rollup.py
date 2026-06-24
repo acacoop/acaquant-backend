@@ -1,10 +1,15 @@
-"""options_rollup.py — rollup diario de Opciones.Data → Opciones.DataHistorica.
+"""options_rollup.py — rollup diario de Opciones.Data (Mongo) → mercado.options_data_hist (SQL).
 
-Una fila por (fecha, symbol). Campos:
+Una fila por (fecha, symbol) en SQL, con un jsonb `data` que contiene el doc completo:
   fecha, symbol, tipo, strike
   high (max), low (min > 0), last (último tick cronológico)
   ev (max, = acumulado final del día)
   delta, gamma, vega, theta, iv, spot (del último tick)
+
+SQL-NATIVE (cutover 2026-06-24): la fuente `Opciones.Data` (tick stream intradía) SIGUE en
+Mongo, pero el rollup ya NO se escribe a Mongo `Opciones.DataHistorica` (migrada → dropeada).
+Escribe directo a `mercado.options_data_hist` (write_native, upsert por fecha+symbol;
+`fecha` text 'YYYY-MM-DD'). Lo lee api/services/opciones_sql.get_griegas_historico.
 
 Modos:
   --fecha YYYY-MM-DD    procesa solo ese día (upsert idempotente)
@@ -18,6 +23,7 @@ import argparse
 from datetime import date, datetime, timedelta
 
 from core.mongo import get_mongo_client
+from core.pg_mirror import write_native
 
 
 def _dia_utc(d: date):
@@ -53,7 +59,6 @@ def _pipeline(start, end):
 def procesar_dia(client, d: date):
     start, end = _dia_utc(d)
     src = client["Opciones"]["Data"]
-    dst = client["Opciones"]["DataHistorica"]
     fecha_str = d.strftime("%Y-%m-%d")
 
     rows = list(src.aggregate(_pipeline(start, end)))
@@ -61,6 +66,9 @@ def procesar_dia(client, d: date):
         print(f"  {fecha_str}: sin datos")
         return 0
 
+    # SQL-NATIVE: cada fila lleva el doc completo dentro del jsonb `data` (mismo shape que
+    # producía el sync desde Mongo: fecha+symbol redundan adentro, los lee opciones_sql).
+    pg_rows = []
     for r in rows:
         doc = {
             "fecha":  fecha_str,
@@ -78,12 +86,9 @@ def procesar_dia(client, d: date):
             "iv":     r.get("iv"),
             "spot":   r.get("spot"),
         }
-        dst.update_one(
-            {"fecha": fecha_str, "symbol": doc["symbol"]},
-            {"$set": doc},
-            upsert=True,
-        )
+        pg_rows.append({"fecha": fecha_str, "symbol": doc["symbol"], "data": doc})
 
+    write_native("mercado.options_data_hist", ["fecha", "symbol"], pg_rows)
     print(f"  {fecha_str}: {len(rows)} symbols")
     return len(rows)
 

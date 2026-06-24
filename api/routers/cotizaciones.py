@@ -415,10 +415,13 @@ def vr_ggal(_engine: str | None = Query(None, include_in_schema=False)):
 @router.get("/griegas/opciones")
 def griegas_opciones(
     instrumento: str = Query(..., description="Instrumento (symbol) del contrato"),
-    _engine: str | None = Query(None, include_in_schema=False),
 ):
-    """Evolución diaria de griegas de un contrato (Opciones.DataHistorica)."""
-    return _opc(_engine).get_griegas_historico(instrumento=instrumento)
+    """Evolución diaria de griegas de un contrato (mercado.options_data_hist).
+
+    SQL-NATIVE: `Opciones.DataHistorica` (Mongo) fue migrada → dropeada. Esta vista lee
+    SIEMPRE SQL (no respeta `?_engine` ni el flag `OPCIONES_SQL`, a diferencia del resto del
+    dominio opciones cuyas colecciones Mongo siguen vivas)."""
+    return svc_opt_sql.get_griegas_historico(instrumento=instrumento)
 
 
 # ── Históricos TimeSales ──

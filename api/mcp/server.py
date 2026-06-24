@@ -25,6 +25,7 @@ from api.services import descomposicion_retorno as svc_desc
 from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
 from api.services import opciones as svc_opt
+from api.services import opciones_sql as svc_opt_sql
 from api.services import order_book as svc_ob
 from api.services import rem as svc_rem
 from api.services import renta_fija as svc_rf
@@ -550,7 +551,8 @@ def opciones_historico(
     ),
 )
 def opciones_griegas_historico(instrumento: str) -> list[dict]:
-    return svc_opt.get_griegas_historico(instrumento=instrumento)
+    # SQL-NATIVE: Opciones.DataHistorica (Mongo) migrada → dropeada; lee mercado.options_data_hist.
+    return svc_opt_sql.get_griegas_historico(instrumento=instrumento)
 
 
 @mcp.tool(

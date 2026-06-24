@@ -777,19 +777,9 @@ def sync_options_vr(mdb, conn, dry) -> int:
     return n
 
 
-def sync_options_data_hist(mdb, conn, dry, desde: datetime | None) -> int:
-    """Opciones.DataHistorica → options_data_hist (rollup diario de griegas por contrato,
-    grano fecha+symbol). Incremental por `fecha` (string 'YYYY-MM-DD' lexicográfico)."""
-    f_desde = desde.date().isoformat() if desde else None
-    q = {"fecha": {"$gte": f_desde}} if f_desde else {}
-    rows = []
-    for d in mdb["Opciones"]["DataHistorica"].find(q, {"_id": 0}):
-        f, sym = _s(d.get("fecha")), _s(d.get("symbol"))
-        if f and sym:
-            rows.append((f, sym, _jsonb(d)))
-    rows = _dedup(rows, [0, 1])
-    return _upsert(conn, "options_data_hist", ["fecha", "symbol", "data"],
-                   ["fecha", "symbol"], rows, dry)
+# sync_options_data_hist ELIMINADO (cutover DataHistorica→SQL 2026-06-24): jobs/options_rollup.py
+# escribe mercado.options_data_hist SQL-native (write_native) y api/services/opciones_sql.py lo lee
+# de SQL. Opciones.DataHistorica (Mongo) dropeada → ya no hay de dónde sincronizar.
 
 
 # ── CAPA MERCADO (espejo Trading.* — ver docs/SQL.md §Mercado) ───────────────
@@ -1150,9 +1140,9 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_ap = _t("agro_pizarra", lambda: sync_agro_pizarra(mdb, conn, dry))
         n_cc = _t("camara_cereales", lambda: sync_camara_cereales(mdb, conn, dry))
         # Opciones — charts (baseline diario). Data (ticks) NO acá: la dual-writea el motor.
+        # data_hist tampoco: options_rollup escribe SQL-native (cutover DataHistorica→SQL 2026-06-24).
         n_om = _t("options_metadata", lambda: sync_options_metadata(mdb, conn, dry))
         n_ov = _t("options_vr", lambda: sync_options_vr(mdb, conn, dry))
-        n_odh = _t("options_data_hist", lambda: sync_options_data_hist(mdb, conn, dry, desde))
         print(f"  mercado: series_macro={n_sm:,}  rem={n_rem}  curvas={n_cv} "
               f"(sin ticker_corto, salteadas={sin_corto})  "
               f"market_snapshot={n_ms}  snapshots_cierre_hist={n_sh:,}  "
@@ -1160,7 +1150,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         print(f"  derivados live (baseline): futuros_dlr={n_fd}  caucion={n_ca}  forwards_zscore={n_fz}")
         print(f"  agro (baseline): agro_snapshot={n_as}  agro_opciones={n_ao}  "
               f"agro_pizarra={n_ap}  camara_cereales={n_cc}")
-        print(f"  opciones (baseline): metadata={n_om}  vr={n_ov}  data_hist={n_odh:,}")
+        print(f"  opciones (baseline): metadata={n_om}  vr={n_ov}")
         print(f"  dimensiones: accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  pnl_totales={n_pt}  "
@@ -1202,7 +1192,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "precios_acciones": n_pa, "day_trading_stats": n_dts,
              "agro_snapshot": n_as, "agro_opciones_snapshot": n_ao,
              "agro_pizarra": n_ap, "camara_cereales": n_cc,
-             "options_metadata": n_om, "options_vr": n_ov, "options_data_hist": n_odh,
+             "options_metadata": n_om, "options_vr": n_ov,
              "ordenes_live": n_ol, "ordenes_audit": n_oa, "motor_heartbeat": n_hb,
              "operativas_mep": n_op, "brackets_live": n_bk, "triggers_mep": n_tr,
              "ordenes_idempotency": n_id, "accounts_descubiertas": n_acd,

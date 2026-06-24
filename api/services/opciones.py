@@ -183,20 +183,9 @@ def get_vr_ggal_serie() -> list:
     return out
 
 
-@cached(ttl=120)
-def get_griegas_historico(instrumento: str) -> list:
-    """Serie diaria de griegas de un contrato — Opciones.DataHistorica.
-
-    Una fila por fecha (rollup del último tick del día) con delta/gamma/vega/
-    theta/iv + last/spot. Alimenta el chart de evolución de griegas por
-    contrato. `instrumento` acepta forma corta o completa.
-    """
-    db = get_db_opciones()
-    return list(db["DataHistorica"].find(
-        {"symbol": _ticker_filter(instrumento)},
-        {"_id": 0, "fecha": 1, "delta": 1, "gamma": 1, "vega": 1,
-         "theta": 1, "iv": 1, "last": 1, "spot": 1, "tipo": 1, "strike": 1},
-    ).sort("fecha", 1))
+# get_griegas_historico ELIMINADO (cutover DataHistorica→SQL 2026-06-24): la serie diaria de
+# griegas la sirve opciones_sql.get_griegas_historico (mercado.options_data_hist). El router y el
+# MCP tool leen SIEMPRE SQL. Opciones.DataHistorica (Mongo) dropeada → ya no hay path Mongo.
 
 
 def update_opciones_tasa(valor: float) -> dict:

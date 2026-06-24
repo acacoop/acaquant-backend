@@ -664,9 +664,10 @@ CREATE TABLE IF NOT EXISTS mercado.options_metadata (
     data jsonb
 );
 
--- Opciones.DataHistorica → rollup DIARIO de griegas por contrato (1 fila por fecha+symbol).
--- Alimenta el chart de evolución de griegas (/griegas/opciones). Lo escribe jobs/options_rollup
--- (dual-write incondicional). `fecha` string 'YYYY-MM-DD' (== Mongo, comparación lexicográfica).
+-- options_data_hist → rollup DIARIO de griegas por contrato (1 fila por fecha+symbol).
+-- Alimenta el chart de evolución de griegas (/griegas/opciones). SQL-NATIVE desde el cutover
+-- 2026-06-24: lo escribe jobs/options_rollup (write_native, Opciones.DataHistorica Mongo dropeada);
+-- lo lee api/services/opciones_sql. `fecha` string 'YYYY-MM-DD' (comparación lexicográfica).
 CREATE TABLE IF NOT EXISTS mercado.options_data_hist (
     fecha  text NOT NULL,                  -- 'YYYY-MM-DD'
     symbol text NOT NULL,

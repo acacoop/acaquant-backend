@@ -181,26 +181,10 @@ def sync_movimientos(mdb, conn, dry) -> int:
     return n
 
 
-def sync_acreencias(mdb, conn, dry) -> int:
-    """CashFlow.Acreencias → operaciones.acreencias (cobros futuros). BASELINE (el job
-    acreencias.py la reemplaza en vivo con swap atómico). El grano no es único →
-    surrogate PK IDENTITY; acá truncamos e insertamos todo el set (idéntico al swap
-    Mongo). fecha_pago/snapshot son ISO strings; data jsonb = doc completo."""
-    rows = []
-    for d in mdb["CashFlow"]["Acreencias"].find({}, {"_id": 0}):
-        rows.append((_s(d.get("fecha_pago")), _s(d.get("id_cuenta")), _s(d.get("ticker")),
-                     _s(d.get("moneda")), d.get("monto"), _jsonb(d)))
-    if dry:
-        return len(rows)
-    cols = ["fecha_pago", "id_cuenta", "ticker", "moneda", "monto", "data"]
-    with conn.cursor() as cur:
-        cur.execute("TRUNCATE operaciones.acreencias")
-        if rows:
-            ph = "(" + ",".join(["%s"] * len(cols)) + ")"
-            cur.executemany(
-                f'INSERT INTO operaciones.acreencias ({",".join(cols)}) VALUES {ph}', rows)
-    conn.commit()
-    return len(rows)
+# sync_acreencias ELIMINADO (cutover Acreencias→SQL 2026-06-23): jobs/acreencias.py
+# escribe operaciones.acreencias SQL-native (replace_native, swap atómico) y
+# api/services/cashflow_sql.py lo lee de SQL. CashFlow.Acreencias (Mongo) dropeada
+# → ya no hay de dónde sincronizar.
 
 
 def sync_tipos_operacion(mdb, conn, dry) -> int:
@@ -1094,7 +1078,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
 
         n_ac = _t("accionistas", lambda: sync_accionistas(mdb, conn, dry))
         n_mov = _t("movimientos", lambda: sync_movimientos(mdb, conn, dry))
-        n_acr = _t("acreencias", lambda: sync_acreencias(mdb, conn, dry))
+        # acreencias ya NO se sincroniza: la escribe jobs/acreencias.py SQL-native
+        # (cutover 2026-06-23, CashFlow.Acreencias Mongo dropeada).
         n_to = _t("tipos_operacion", lambda: sync_tipos_operacion(mdb, conn, dry))
         n_vma = _t("volumen_mercado_agro", lambda: sync_volumen_mercado_agro(mdb, conn, dry))
 
@@ -1166,7 +1151,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
               f"dolar={n_dl}  portfolio_snapshot={n_ps}  pnl_totales={n_pt}  "
               f"snapshots_cierre={n_sc}")
         print(f"  manager infra: job_runs={n_jr:,}  role_audit={n_ra}")
-        print(f"  cashflow (baseline): movimientos={n_mov:,}  acreencias={n_acr:,}  "
+        print(f"  cashflow (baseline): movimientos={n_mov:,}  "
               f"tipos_operacion={n_to}  volumen_mercado_agro={n_vma}")
 
         # operaciones y negocio_movimientos ya NO se sincronizan: los escriben
@@ -1190,7 +1175,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     stats = {"accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
              "job_runs": n_jr, "role_audit": n_ra,
              "actividad_mensual": n_am, "dolar": n_dl,
-             "movimientos": n_mov, "acreencias": n_acr, "tipos_operacion": n_to,
+             "movimientos": n_mov, "tipos_operacion": n_to,
              "volumen_mercado_agro": n_vma,
              "portfolio_snapshot": n_ps, "pnl_totales": n_pt, "snapshots_cierre": n_sc,
              "quotes": n_qt, "calendar": n_cal,

@@ -172,39 +172,25 @@ def dimensiones_comercial() -> dict[str, Any]:
 
 
 # ── Cobros futuros (acreencias por operador) ─────────────────────────────────
-# Tab "Cobros Futuros" de la vista OPERADORES. Cruza CashFlow.Acreencias (cobros
+# Tab "Cobros Futuros" de la vista OPERADORES. Cruza las acreencias (cobros
 # proyectados por tenencia × calendario contractual, cron jobs.acreencias) con el
 # scope del operador (_cuentas_de_operador). El `monto` ya viene en su moneda
 # nativa (ARS/USD) — el switch del front elige cuál ver, NO se pesifica (son
 # flujos futuros: pesificar con el MEP de hoy distorsiona).
-
-def _acreencias_col():
-    return get_db_cashflow()["Acreencias"]
-
+# SQL-NATIVE desde el cutover 2026-06-23: las acreencias salen SIEMPRE de SQL
+# operaciones.acreencias (CashFlow.Acreencias Mongo dropeada).
 
 def _acreencias_docs(ids: list[str] | None) -> list[dict[str, Any]]:
     """Docs de acreencias del scope (ids=None → todas), shape uniforme {fecha_pago,
-    cliente, id_cuenta, moneda, monto, ...}. Dual-run: SQL (operaciones.acreencias) si
-    ACREENCIAS_SQL=1, sino Mongo (CashFlow.Acreencias)."""
+    cliente, id_cuenta, moneda, monto, ...} desde SQL operaciones.acreencias."""
     from api.services import cashflow_sql as _cf_sql
-    if _cf_sql.acreencias_sql_on():
-        return _cf_sql.acreencias_docs(ids)
-    match: dict[str, Any] = {} if ids is None else {"id_cuenta": {"$in": list(ids)}}
-    return list(_acreencias_col().find(
-        match, {"_id": 0, "fecha_pago": 1, "cliente": 1, "id_cuenta": 1,
-                "moneda": 1, "monto": 1}))
+    return _cf_sql.acreencias_docs(ids)
 
 
 def _acreencias_docs_cliente(id_cuenta: str) -> list[dict[str, Any]]:
-    """Docs de un cliente, asc (fecha_pago, -monto) — para el detalle. Dual-run."""
+    """Docs de un cliente, asc (fecha_pago, -monto) — para el detalle, desde SQL."""
     from api.services import cashflow_sql as _cf_sql
-    if _cf_sql.acreencias_sql_on():
-        return _cf_sql.acreencias_docs(id_cuenta=id_cuenta, order_cliente=True)
-    return list(_acreencias_col().find(
-        {"id_cuenta": str(id_cuenta)},
-        {"_id": 0, "fecha_pago": 1, "cliente": 1, "ticker": 1,
-         "emisor": 1, "moneda": 1, "monto": 1},
-    ).sort([("fecha_pago", 1), ("monto", -1)]))
+    return _cf_sql.acreencias_docs(id_cuenta=id_cuenta, order_cliente=True)
 
 
 @cached(ttl=300)
@@ -219,9 +205,8 @@ def cobros_futuros(*, operador: str, nivel_1: str | None = None,
         return {"operador": operador, "serie": [], "clientes": [],
                 "total_ars": 0.0, "total_usd": 0.0}
 
-    # Dual-run: ACREENCIAS_SQL=1 → docs de operaciones.acreencias (SQL); sino Mongo. La
-    # AGREGACIÓN (serie por moneda + totales por cliente) es idéntica sobre cualquiera
-    # de las dos fuentes (mismo shape de doc) → no se duplica la matemática.
+    # Docs de acreencias del scope desde SQL operaciones.acreencias. La AGREGACIÓN
+    # (serie por moneda + totales por cliente) se hace acá sobre el shape uniforme.
     docs = _acreencias_docs(None if es_todos else list(ids))
 
     # Serie diaria por moneda (para el gráfico acumulado del scope).

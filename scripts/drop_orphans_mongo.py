@@ -2,14 +2,13 @@
 
 ⚠️ Correr SOLO después de verificar que la vista correspondiente lee bien de SQL.
 
-Cutover 2026-06-24 (read SQL-only + write SQL-native + sync eliminado):
-  - Trading.PreciosAcciones — jobs/precios_acciones_daily + scripts/backfill_precios_acciones
-    escriben mercado.precios_acciones SQL-native (write_native). Lectores migrados a SQL:
-    scanner_sql, quant/pivot_points (4 lecturas) y api/services/rv_motor (Estrategia RV).
-    sync_precios_acciones eliminado. El path Mongo de scanner.py SOLO se usa con
-    SCANNER_SQL=0 → debe quedar SCANNER_SQL=1 (prod ya lo tiene).
-    ⚠️ ANTES de dropear: deployar + verificar en la próxima rueda que andan: SCANNER vista
-    ADR (7D/15R/MTD/YTD), panel PIVOTS, y Estrategia RV (matriz de correlación). Ahí --apply.
+Ya dropeadas (cutover completo: read SQL-only + write SQL-native + sync eliminado):
+  - Trading.SnapshotsCierre        (2026-06-24)
+  - Trading.PreciosAcciones        (2026-06-24) — 1ª colección VIVA. Writers SQL-native
+    (precios_acciones_daily/backfill), lectores SQL (scanner_sql, pivot_points, rv_motor).
+
+Cuando se cierre el cutover de la próxima colección del núcleo (AdrSnapshot /
+CedearsSnapshot / ...), se agrega acá con su nota de verificación y se dropea.
 
 Idempotente: dropear una colección ya borrada = no-op (0 docs). Dry-run por default.
     python -m scripts.drop_orphans_mongo            # cuenta (dry-run)
@@ -21,8 +20,8 @@ import argparse
 
 from core.mongo import get_mongo_client
 
-_ORPHANS = [
-    ("Trading", "PreciosAcciones"),
+_ORPHANS: list[tuple[str, str]] = [
+    # vacío — sin colecciones pendientes de drop (la próxima del cutover va acá)
 ]
 
 

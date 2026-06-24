@@ -76,6 +76,7 @@ BEGIN
     ('public','canje_cierre','mercado'),
     ('public','mercado_hist','mercado'),
     ('public','cedears','mercado'),
+    ('public','rubros','mercado'),
     ('public','cedears_snapshot','mercado'),
     ('public','adr_snapshot','mercado'),
     ('public','precios_acciones','mercado'),
@@ -816,9 +817,25 @@ CREATE TABLE IF NOT EXISTS mercado.cedears (
     ticker_corto text,
     underlying   text,
     activo       boolean,
+    rubro        text,                        -- clasificación de negocio (reemplaza "sector"),
+                                              -- controlada por mercado.rubros, editable en Manager
+    es_ia        boolean,                     -- pertenece a la cadena de valor de IA (filtro/mapeo)
     data         jsonb
 );
 CREATE INDEX IF NOT EXISTS ix_cedears_corto ON mercado.cedears (ticker_corto);
+-- Columnas agregadas 2026-06-24 (renta variable: rubro + es_ia). ADD COLUMN IF NOT EXISTS
+-- para instalaciones donde la tabla ya existía sin estas columnas.
+ALTER TABLE mercado.cedears ADD COLUMN IF NOT EXISTS rubro text;
+ALTER TABLE mercado.cedears ADD COLUMN IF NOT EXISTS es_ia boolean;
+
+-- Catálogo CONTROLADO de rubros (renta variable). Lista cerrada que alimenta el dropdown
+-- del editor en Manager → TÍTULOS → RENTA VARIABLE (no se escribe libre: se elige uno o se
+-- crea con el botón). Análogo a los niveles de segmentación de clientes.
+CREATE TABLE IF NOT EXISTS mercado.rubros (
+    rubro      text PRIMARY KEY,
+    es_ia_def  boolean DEFAULT false,         -- sugerencia de es_ia al asignar este rubro (editable por cuenta)
+    creado_at  timestamptz DEFAULT now()
+);
 
 -- Trading.CedearsSnapshot → snapshot LIVE del CEDEAR en ARS (motor reescribe c/1s,
 -- 1 doc por ticker). Dual-write desde engines/motor_cedears.py (flag SNAPSHOT_SQL).

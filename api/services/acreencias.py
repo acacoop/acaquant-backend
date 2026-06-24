@@ -11,15 +11,16 @@ CER se ajusta al último CER publicado (estimación para flujos futuros). Solo
 cubre instrumentos modelados en Curvas (lo no modelado no proyecta — se cierra
 con el conciliador de Manager).
 
-Capa pura (sin FastAPI). El cómputo lo persiste `jobs/acreencias.py` a
-`CashFlow.Acreencias`; la vista lee esa colección (read funcs abajo).
+Capa pura (sin FastAPI). El cómputo lo persiste `jobs/acreencias.py` a SQL
+`operaciones.acreencias` (swap atómico); la vista lee esa tabla (read funcs
+abajo, vía `cashflow_sql`). CashFlow.Acreencias (Mongo) dropeada en el cutover.
 """
 from __future__ import annotations
 
 import re
 from datetime import UTC, date, datetime, timedelta
 
-from api.db import get_db_cashflow, get_db_trading
+from api.db import get_db_trading
 from api.services.assets_sql import assets_rows
 from core.postgres import get_pool
 
@@ -325,61 +326,26 @@ def titulos_sin_flujo() -> list[dict]:
 
 
 # ─────────────────────────────────────────────
-# Lecturas para la vista (leen CashFlow.Acreencias precomputado)
+# Lecturas para la vista — SQL-NATIVE (operaciones.acreencias)
 # ─────────────────────────────────────────────
-
-def _col():
-    return get_db_cashflow()["Acreencias"]
-
+# CUTOVER 2026-06-23: CashFlow.Acreencias (Mongo) migrada → dropeada. Las tres
+# lecturas leen SIEMPRE SQL `operaciones.acreencias` (vía cashflow_sql, que
+# replica byte-a-byte el shape del viejo path Mongo). El flag ACREENCIAS_SQL y el
+# path Mongo se eliminaron — SQL es la única fuente.
 
 def por_dia(desde: str | None = None, hasta: str | None = None) -> list[dict]:
-    """Agregado por fecha de pago: total por moneda + #clientes + #pagos.
-
-    Dual-run: flag ACREENCIAS_SQL=1 → operaciones.acreencias (SQL). Path Mongo intacto."""
+    """Agregado por fecha de pago: total por moneda + #clientes + #pagos."""
     from api.services import cashflow_sql as _cf_sql
-    if _cf_sql.acreencias_sql_on():
-        return _cf_sql.por_dia(desde=desde, hasta=hasta)
-    match: dict = {"fecha_pago": {"$gte": desde or date.today().isoformat()}}
-    if hasta:
-        match["fecha_pago"]["$lte"] = hasta
-    pipeline = [
-        {"$match": match},
-        {"$group": {
-            "_id": {"fecha": "$fecha_pago", "moneda": "$moneda"},
-            "monto": {"$sum": "$monto"},
-            "cuentas": {"$addToSet": "$id_cuenta"},
-            "n": {"$sum": 1}}},
-        {"$group": {
-            "_id": "$_id.fecha",
-            "por_moneda": {"$push": {"moneda": "$_id.moneda", "monto": "$monto"}},
-            "cuentas": {"$addToSet": "$cuentas"},
-            "n": {"$sum": "$n"}}},
-        {"$sort": {"_id": 1}},
-    ]
-    out = []
-    for d in _col().aggregate(pipeline):
-        cuentas = {c for grupo in d["cuentas"] for c in grupo}
-        out.append({
-            "fecha": d["_id"],
-            "por_moneda": {m["moneda"]: round(m["monto"], 2) for m in d["por_moneda"]},
-            "n_clientes": len(cuentas),
-            "n_pagos": d["n"],
-        })
-    return out
+    return _cf_sql.por_dia(desde=desde, hasta=hasta)
 
 
 def del_dia(fecha: str) -> list[dict]:
     """Quién cobra en una fecha y cuánto (por cliente·ticker)."""
     from api.services import cashflow_sql as _cf_sql
-    if _cf_sql.acreencias_sql_on():
-        return _cf_sql.del_dia(fecha)
-    return list(_col().find({"fecha_pago": fecha}, {"_id": 0, "generado_at": 0}).sort("monto", -1))
+    return _cf_sql.del_dia(fecha)
 
 
 def del_cliente(id_cuenta: str, desde: str | None = None) -> list[dict]:
     """Próximos cobros de un cliente, ordenados por fecha."""
     from api.services import cashflow_sql as _cf_sql
-    if _cf_sql.acreencias_sql_on():
-        return _cf_sql.del_cliente(id_cuenta, desde=desde)
-    match = {"id_cuenta": id_cuenta, "fecha_pago": {"$gte": desde or date.today().isoformat()}}
-    return list(_col().find(match, {"_id": 0, "generado_at": 0}).sort("fecha_pago", 1))
+    return _cf_sql.del_cliente(id_cuenta, desde=desde)

@@ -1,17 +1,22 @@
 """jobs/acreencias.py — precompute diario del MOTOR DE ACREENCIAS.
 
-Cruza las tenencias actuales (Valuaciones.AuM último snapshot) con el calendario
-contractual de cada instrumento (Trading.Curvas.flujos) y persiste, por cliente
-y fecha de pago, cuánto va a cobrar a futuro → `CashFlow.Acreencias`.
+Cruza las tenencias actuales (SQL portafolio.tenencia, aum='si') con el
+calendario contractual de cada instrumento (Trading.Curvas.flujos) y persiste,
+por cliente y fecha de pago, cuánto va a cobrar a futuro → SQL
+`operaciones.acreencias` (swap atómico TRUNCATE+INSERT).
 
-Cron: 1x/día post-AuM (jobs.aum corre 23 UTC L-V) → ej. 23:30 UTC L-V.
+SQL-NATIVE (cutover 2026-06-23): la escritura Mongo `CashFlow.Acreencias` fue
+ELIMINADA — la única escritura es a SQL vía `replace_native`. La colección Mongo
+quedó lista para drop (la vista lee SQL).
+
+Cron: 1x/día post-tenencia → ej. 23:45 UTC L-V.
 
   python -m jobs.acreencias              # DRY-RUN: resumen + muestra, no escribe
-  python -m jobs.acreencias --commit     # escribe CashFlow.Acreencias (swap atómico)
+  python -m jobs.acreencias --commit     # escribe operaciones.acreencias (swap atómico)
 
-Idempotente: re-correrlo reemplaza la colección entera (swap sin ventana de
-vacío). REGLA #2: el dry-run muestra los números antes de mostrarle plata a un
-cliente; validá una muestra contra una valuación conocida antes de --commit.
+Idempotente: re-correrlo reemplaza la tabla entera (swap sin ventana de vacío).
+REGLA #2: el dry-run muestra los números antes de mostrarle plata a un cliente;
+validá una muestra contra una valuación conocida antes de --commit.
 """
 from __future__ import annotations
 
@@ -19,12 +24,12 @@ import argparse
 from collections import defaultdict
 
 from api.services.acreencias import computar_acreencias
-from core.mongo import get_mongo_client, reemplazar_coleccion_atomico
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--commit", action="store_true", help="escribe CashFlow.Acreencias")
+    ap.add_argument("--commit", action="store_true",
+                    help="escribe operaciones.acreencias (SQL)")
     args = ap.parse_args()
 
     docs = computar_acreencias()
@@ -56,15 +61,10 @@ def main() -> None:
 
     from core.job_runs import JobRunLogger
     with JobRunLogger("acreencias") as jr:
-        db = get_mongo_client()["CashFlow"]
-        n = reemplazar_coleccion_atomico(db, "Acreencias", docs)
-        db["Acreencias"].create_index("fecha_pago")
-        db["Acreencias"].create_index("id_cuenta")
-        jr.set_stat("acreencias", n)
-        # Espejo SQL incondicional (swap atómico TRUNCATE+INSERT a operaciones.acreencias).
-        # Mismo set que Mongo → la vista lee idéntico bajo ACREENCIAS_SQL=1. Best-effort:
-        # si SQL cae, Mongo queda como fuente. fecha_pago/snapshot ya son ISO strings;
-        # `data` lleva el doc completo (generado_at aware → ISO recursivo via doc_iso).
+        # SQL-NATIVE: única escritura es el swap atómico TRUNCATE+INSERT a
+        # operaciones.acreencias (sin PK natural → surrogate IDENTITY). fecha_pago/
+        # snapshot ya son ISO strings; `data` lleva el doc completo (generado_at aware
+        # → ISO recursivo via doc_iso). La columna `id` IDENTITY se genera sola.
         from core.pg_mirror import doc_iso, replace_native
         rows = [{
             "fecha_pago": d["fecha_pago"], "id_cuenta": d.get("id_cuenta"),
@@ -72,9 +72,8 @@ def main() -> None:
             "monto": d.get("monto"), "data": doc_iso(d),
         } for d in docs]
         n_sql = replace_native("operaciones.acreencias", rows)
-        jr.set_stat("acreencias_sql", n_sql)
-    print(f"\n✅ {n} acreencias escritas a CashFlow.Acreencias (swap atómico + índices)."
-          f"  SQL: {n_sql} filas a operaciones.acreencias.")
+        jr.set_stat("acreencias", n_sql)
+    print(f"\n✅ {n_sql} acreencias escritas a operaciones.acreencias (SQL, swap atómico).")
 
 
 if __name__ == "__main__":

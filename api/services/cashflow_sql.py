@@ -8,8 +8,12 @@ api/services/comercial.py, api/services/operaciones_sql.py::ops_agro) para que e
 dual-run sea byte-a-byte. Flags de lectura por dominio:
 
     MOVIMIENTOS_SQL=1     → /api/operaciones/flujos lee SQL (operaciones.movimientos)
-    ACREENCIAS_SQL=1      → back-office/acreencias + comercial/cobros-futuros leen SQL
     VOLUMEN_AGRO_SQL=1    → el denominador del share AGRO sale de SQL (mercado.volumen_mercado_agro)
+
+ACREENCIAS — SQL-NATIVE (cutover 2026-06-23): back-office/acreencias + comercial/
+cobros-futuros leen SIEMPRE operaciones.acreencias (SIN flag; CashFlow.Acreencias
+Mongo dropeada). Las funciones por_dia/del_dia/del_cliente/acreencias_docs son la
+única fuente.
 
 Reglas de traducción Mongo→SQL (verificadas contra el código de los writers):
   * Movimientos.`fecha` es string dd/mm/yyyy CRUDO en Mongo → se guarda tal cual en SQL
@@ -35,10 +39,6 @@ _RE_ID_BRACKET = re.compile(r"^\[(\d+)\]")
 # ── selectores de motor (flag por dominio, mismo patrón que operaciones_view.motor) ──
 def movimientos_sql_on() -> bool:
     return os.getenv("MOVIMIENTOS_SQL") == "1"
-
-
-def acreencias_sql_on() -> bool:
-    return os.getenv("ACREENCIAS_SQL") == "1"
 
 
 def volumen_agro_sql_on() -> bool:

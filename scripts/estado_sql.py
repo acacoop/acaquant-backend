@@ -18,7 +18,8 @@ load_dotenv()  # fallback (.env local)
 _FLAGS = [
     ("OPERACIONES_SQL", "OPERACIONES — /ops/* (movimientos, aranceles, agro)"),
     ("ORDENES_SQL",     "ÓRDENES (read-side) — /ordenes/dia + /ordenes/{id} + /risk/listado (merge broker intacto)"),
-    ("MOVIMIENTOS_SQL", "FLUJOS — /api/operaciones/flujos (CashFlow.Movimientos)"),
+    # MOVIMIENTOS_SQL ELIMINADO (cutover Movimientos→SQL 2026-06-24): /api/operaciones/flujos
+    # lee SQL fijo (operaciones.movimientos); CashFlow.Movimientos Mongo dropeada. Sin flag.
     ("ACREENCIAS_SQL",  "ACREENCIAS — /back-office/acreencias/* + /comercial/cobros-futuros"),
     ("VOLUMEN_AGRO_SQL", "SHARE AGRO — denominador de /ops/agro (CashFlow.VolumenMercadoAgro)"),
     ("COMERCIAL_SQL",   "COMERCIAL — /comercial/* (operadores, informes)"),

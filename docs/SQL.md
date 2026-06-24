@@ -23,18 +23,22 @@ Subdoc de `docs/ARQUITECTURA.md §5`. Proveedor: **Supabase**.
 - **Sigue en Mongo (no migrado):** `Trading.*` (mercado), `CashFlow.{Accionistas,
   Productores}`, `Manager.*`, `Opciones`, `News`, `Market`. `sync_postgres` solo
   espeja estas dims.
-- **CashFlow dual-run (lectura SQL bajo flag, Mongo intacto, 2026-06-23):**
-  `CashFlow.Movimientos` → `operaciones.movimientos` (flag **`MOVIMIENTOS_SQL`**,
-  vista FLUJOS `/api/operaciones/flujos`); `CashFlow.Acreencias` →
-  `operaciones.acreencias` (flag **`ACREENCIAS_SQL`**, back-office `/acreencias/*` +
-  comercial `/cobros-futuros`); `CashFlow.VolumenMercadoAgro` →
-  `mercado.volumen_mercado_agro` (flag **`VOLUMEN_AGRO_SQL`**, denominador del share
-  AGRO en `/ops/agro`). `CashFlow.TiposOperacion` → `operaciones.tipos_operacion`
-  (catálogo: espejado por sync para tenerlo, SIN lector SQL — el enrich de los
-  writers sigue leyendo Mongo, corre en el proceso del job, no en una vista con flag).
-  Dual-write en vivo: `jobs/cashflow.py` (movimientos), `jobs/acreencias.py`
-  (acreencias, swap atómico). `CashFlow.Productores` es **HUÉRFANA** (nadie la lee en
-  el código) → candidata a drop, NO se migró. Servicio de lectura:
+- **CashFlow.Movimientos → SQL-NATIVE (CUTOVER 2026-06-24):** la vista FLUJOS
+  (`/api/operaciones/flujos`) lee SIEMPRE `operaciones.movimientos` (sin flag — el
+  `MOVIMIENTOS_SQL` se eliminó); `jobs/cashflow.py` escribe SQL-native (`write_native`,
+  PK `comprobante`); `sync_movimientos` ELIMINADO de `jobs/sync_postgres.py`. **`CashFlow.
+  Movimientos` (Mongo) → DROPEABLE** (`scripts/drop_orphans_mongo.py`). Lectura:
+  `api/services/cashflow_sql.py::listar_flujos`.
+- **CashFlow dual-run restante (lectura SQL bajo flag, Mongo intacto, 2026-06-23):**
+  `CashFlow.Acreencias` → `operaciones.acreencias` (flag **`ACREENCIAS_SQL`**,
+  back-office `/acreencias/*` + comercial `/cobros-futuros`);
+  `CashFlow.VolumenMercadoAgro` → `mercado.volumen_mercado_agro` (flag
+  **`VOLUMEN_AGRO_SQL`**, denominador del share AGRO en `/ops/agro`).
+  `CashFlow.TiposOperacion` → `operaciones.tipos_operacion` (catálogo: espejado por sync
+  para tenerlo, SIN lector SQL — el enrich de los writers sigue leyendo Mongo, corre en
+  el proceso del job, no en una vista con flag). Dual-write en vivo: `jobs/acreencias.py`
+  (acreencias, swap atómico). `CashFlow.Productores` es **HUÉRFANA** (nadie la lee en el
+  código) → candidata a drop, NO se migró. Servicio de lectura:
   `api/services/cashflow_sql.py`.
 - **PARTNER API dual-run (app SEPARADA, schema `partner`, 2026-06-23):** la base
   Mongo `ACAPortfolio` del servicio externo (`partner_api/`) se migró al mismo patrón.

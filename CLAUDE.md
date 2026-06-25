@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → MongoDB Atlas M10 → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO), venv en `/root/TradingAV/venv`.
 
 **DBs Mongo** (12 bases, inventario medido 2026-06-12 con `scripts/diag_inventario_mongo_sql`):
-- `Trading` — núcleo de mercado: Curvas, BondsMaster, MarketSnapshot, SnapshotsCierre, CanjeCierre, TimeSales; series macro DOLAR/CER/BADLAR/TAMAR/RiesgoPais/InflacionMensual/InflacionInteranual/UVA; renta fija derivada BreakevensLive/Historico, ForwardsLive/Historico/Zscore, FitParams, FairValueResiduos, DiasHabiles, REM; FuturosDLR(+Snapshot), Caucion(+Snapshot); renta variable Cedears, CedearsSnapshot, CedearsTimeSales, PreciosAcciones, AdrSnapshot, DayTradingStats; AgroSnapshot, AgroOpcionesSnapshot; SnapshotsSinteticos; ONSnapshot.
+- `Trading` — núcleo de mercado: Curvas, BondsMaster, MarketSnapshot, SnapshotsCierre, CanjeCierre, TimeSales; series macro DOLAR/CER/BADLAR/TAMAR/RiesgoPais/InflacionMensual/InflacionInteranual/UVA; renta fija derivada BreakevensLive/Historico, ForwardsLive/Historico/Zscore, FitParams, FairValueResiduos, DiasHabiles, REM; FuturosDLR(+Snapshot), Caucion(+Snapshot); renta variable Cedears (master), CedearsTimeSales (tape intradía, se vacía al cierre); AgroSnapshot, AgroOpcionesSnapshot; SnapshotsSinteticos; ONSnapshot. **Renta variable migrada a SQL (cutover 2026-06-24): `CedearsSnapshot`→`mercado.cedears_snapshot`, `AdrSnapshot`→`mercado.adr_snapshot`, `PreciosAcciones`→`mercado.precios_acciones` (Mongo `PreciosAcciones` DROPEADA). `motor_cedears`/`adr_live`/`precios_acciones_daily` escriben SQL-native; scanner/day_trading/pivot_points leen SQL — ver `docs/SQL.md`.**
 - `Valuaciones` — ConsolidadoCuentas, PnLTotalesCache, TenenciaHD, Dolar/DolarSnapshot/DolarOficialLive (MEP/CCL). **`AuM` y `Assets` ELIMINADAS (2026-06-15)** → tenencias y catálogo de títulos viven en SQL `portafolio.tenencia` / `portafolio.assets` (ver `docs/SQL.md`).
 - `CashFlow` — Productores, Accionistas, Acreencias, Movimientos, VolumenMercadoAgro, TiposOperacion (catálogo). **`Operaciones`, `NegocioMovimientos`, `Contrapartes` y el rollup `OpsSerieDiaria` → migrados a SQL (`operaciones.operaciones`, `operaciones.negocio_movimientos`, `clientes.contrapartes`) y ELIMINADOS de Mongo (2026-06-16). Ver `docs/SQL.md`.**
 - `Clientes` — Comitentes, ComercialCache, ActividadMensual (segmentación/operador asignado).
@@ -189,7 +189,7 @@ Ver memoria [[feedback_portal_invitado_www]].
 ```
 core/        # infra (mongo, mongo_monitor, postgres, grupos_sql, roles_sql, websocket, rofex_session, rofex_orders_session, roles, snapshot_writer, job_runs, profiler, byma, mae, cafci, finnhub, yahoo, openfigi, argentina_datos, dolar_oficial)
 engines/     # motores WS → Mongo (always-on L-V 13-20 UTC) — incluye motor_cedears (alimenta Scanner CEDEARs)
-jobs/        # batch/cron — incluye precios_acciones_daily (alimenta scanner via Trading.PreciosAcciones TS)
+jobs/        # batch/cron — incluye precios_acciones_daily (alimenta scanner via SQL mercado.precios_acciones)
 quant/       # cálculo puro (black_scholes, stats, curve_fit, pivot_points, rolling_stats)
 api/services # lógica pura (invocada por routers y por el agente)
 api/routers  # thin HTTP wrappers. manager/ es paquete de sub-routers

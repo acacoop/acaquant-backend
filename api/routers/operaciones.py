@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
+from pydantic import BaseModel
 
 from api.cache import cached
 from api.services import cashflow_sql as _cf_sql
@@ -161,6 +162,29 @@ def ops_fechas():
 def ops_meta(fecha: str = Query(..., description="YYYY-MM-DD")):
     """Metadata del día: # boletos + última ingesta + # mercados."""
     return _ops_sql.ops_meta(fecha=fecha)
+
+
+# ── Intraday (monitor FIFO de renta variable, CSV ad-hoc) ─────────────────────
+class _IntradayCSV(BaseModel):
+    csv: str
+    archivo: str | None = None
+
+
+@router.post("/intraday/analizar")
+def intraday_analizar(payload: _IntradayCSV):
+    """Recibe el CSV de boletos del día (formato ROFEX/Aunesa) y devuelve la
+    consolidación FIFO por (cuenta, especie): posición neta, precio ponderado,
+    PnL realizado/no-realizado (mark live), intereses + IVA → PnL neto.
+
+    Efímero: NO persiste. El cálculo vive en api/services/intraday.py."""
+    from api.services import intraday as _intra
+
+    if not (payload.csv or "").strip():
+        raise HTTPException(status_code=400, detail="CSV vacío.")
+    try:
+        return _intra.analizar(payload.csv, archivo=payload.archivo)
+    except _intra.IntradayError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/ops/serie")

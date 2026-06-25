@@ -53,6 +53,18 @@ NEWS_FEEDS: list[dict[str, str]] = [
     {"fuente": "La Nación",    "categoria": "economia",  "url": "https://www.lanacion.com.ar/arc/outboundfeeds/rss/category/economia/?outputType=xml"},
 
     # ───────────────────────────────────────────────────────────────────────
+    # MUNDO — renta variable internacional (Wall Street: SP/Nasdaq, earnings,
+    # movers, tasas). categoria="mundo" → botón dedicado en el panel. Verificados
+    # vivos 2026-06-25 (WSJ/Yahoo/Investing/Fed); CNBC y MarketWatch a confirmar
+    # con feedparser en el Droplet (si 403/dead, el job los saltea sin romper).
+    {"fuente": "WSJ",          "categoria": "mundo", "url": "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain"},
+    {"fuente": "Yahoo Finance","categoria": "mundo", "url": "https://finance.yahoo.com/news/rssindex"},
+    {"fuente": "Investing",    "categoria": "mundo", "url": "https://www.investing.com/rss/news_25.rss"},
+    {"fuente": "Fed",          "categoria": "mundo", "url": "https://www.federalreserve.gov/feeds/press_all.xml"},
+    {"fuente": "CNBC",         "categoria": "mundo", "url": "https://www.cnbc.com/id/20910258/device/rss/rss.html"},
+    {"fuente": "MarketWatch",  "categoria": "mundo", "url": "https://www.marketwatch.com/rss/topstories"},
+
+    # ───────────────────────────────────────────────────────────────────────
     # Feeds pendientes de corregir URL:
     # - Cronista finanzas-mercados (XML syntax error al día de hoy)
     # - BAE economía (XML mismatched tag)

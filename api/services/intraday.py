@@ -277,6 +277,16 @@ def analizar(csv_text: str, *, archivo: str | None = None) -> dict:
             "intereses": intereses,
             "iva": iva,
             "pnl_neto": bruto - intereses - iva,
+            "trades": [
+                {
+                    "hora": x["hora"],
+                    "lado": "Compra" if x["signo"] > 0 else "Venta",
+                    "precio": x["precio"],
+                    "cantidad": x["cantidad"],
+                    "monto": x["monto"],
+                }
+                for x in ts
+            ],
         })
 
     # Orden: abiertas primero (por |valor|), después cerradas (por |PnL|).

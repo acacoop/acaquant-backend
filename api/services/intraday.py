@@ -28,7 +28,7 @@ from collections import deque
 
 logger = logging.getLogger("api.intraday")
 
-__all__ = ["IntradayError", "analizar", "fifo_pnl"]
+__all__ = ["IntradayError", "analizar", "fifo_detallado", "fifo_pnl"]
 
 INTERES_RATE = 0.0007   # arancel por trade sobre el monto bruto
 IVA_RATE = 0.21         # IVA sobre el arancel
@@ -147,16 +147,21 @@ def _sign(x: float) -> int:
     return 1 if x > 0 else -1 if x < 0 else 0
 
 
-def fifo_pnl(trades: list[tuple[float, float]]) -> tuple[float, float, float]:
-    """Motor FIFO puro. `trades` = [(qty_firmada, precio), ...] en orden
-    cronológico (compra +, venta −). Devuelve (pnl_realizado, qty_abierta,
-    precio_ponderado_abierto).
+def fifo_detallado(
+    trades: list[tuple[float, float]],
+) -> tuple[float, float, float, list[tuple[float, float]]]:
+    """Motor FIFO puro con estado por paso. `trades` = [(qty_firmada, precio),
+    ...] en orden cronológico (compra +, venta −). Devuelve
+    (pnl_realizado, qty_abierta, precio_ponderado_abierto, steps), donde
+    `steps[i]` = (posición_acumulada, ponderado_acumulado) DESPUÉS del trade i
+    (ponderado 0 cuando la posición queda neteada en 0).
 
     Cierra contra los lotes más viejos del lado opuesto. Si un trade excede los
     lotes opuestos, el remanente abre un lote nuevo (se da vuelta la posición).
     Simétrico para long y short."""
     lots: deque[list[float]] = deque()  # [qty_firmada, precio], todos mismo signo
     realized = 0.0
+    steps: list[tuple[float, float]] = []
     for qty, price in trades:
         # Consumir lotes opuestos (cierre FIFO).
         while qty != 0 and lots and _sign(lots[0][0]) != _sign(qty):
@@ -173,10 +178,19 @@ def fifo_pnl(trades: list[tuple[float, float]]) -> tuple[float, float, float]:
         # Remanente (mismo lado, o vuelta de posición) → lote nuevo.
         if qty != 0:
             lots.append([qty, price])
+        pos = sum(l[0] for l in lots)
+        cost_i = sum(l[0] * l[1] for l in lots)
+        steps.append((pos, cost_i / pos if pos else 0.0))
 
     open_qty = sum(l[0] for l in lots)
     cost = sum(l[0] * l[1] for l in lots)
     wavg = cost / open_qty if open_qty else 0.0
+    return realized, open_qty, wavg, steps
+
+
+def fifo_pnl(trades: list[tuple[float, float]]) -> tuple[float, float, float]:
+    """Igual que fifo_detallado pero sin los pasos. (pnl_realizado, qty, ponderado)."""
+    realized, open_qty, wavg, _ = fifo_detallado(trades)
     return realized, open_qty, wavg
 
 
@@ -241,7 +255,7 @@ def analizar(csv_text: str, *, archivo: str | None = None) -> dict:
         intereses = sum(t["monto"] * INTERES_RATE for t in ts)
         iva = intereses * IVA_RATE
 
-        realized, open_qty, wavg = fifo_pnl(
+        realized, open_qty, wavg, steps = fifo_detallado(
             [(t["signo"] * t["cantidad"], t["precio"]) for t in ts]
         )
 
@@ -284,8 +298,12 @@ def analizar(csv_text: str, *, archivo: str | None = None) -> dict:
                     "precio": x["precio"],
                     "cantidad": x["cantidad"],
                     "monto": x["monto"],
+                    "pos_acum": steps[i][0],          # posición acumulada tras el trade
+                    "ponderado_acum": steps[i][1],    # ponderado corriendo (0 si neteó)
+                    "interes": x["monto"] * INTERES_RATE,
+                    "iva": x["monto"] * INTERES_RATE * IVA_RATE,
                 }
-                for x in ts
+                for i, x in enumerate(ts)
             ],
         })
 

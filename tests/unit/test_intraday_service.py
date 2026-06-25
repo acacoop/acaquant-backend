@@ -1,5 +1,5 @@
 """Tests del motor api/services/intraday.py (FIFO + parsing AR + intereses)."""
-from api.services.intraday import IVA_RATE, _num, _parse_csv, fifo_pnl
+from api.services.intraday import IVA_RATE, _num, _parse_csv, fifo_detallado, fifo_pnl
 
 
 def test_num_formato_ar():
@@ -55,6 +55,17 @@ def test_parse_excluye_cauciones():
     assert trades[0]["especie"] == "SPCX"
     assert trades[0]["signo"] == -1
     assert trades[0]["precio"] == 4820.0
+
+
+def test_fifo_detallado_steps():
+    # Compra 100@10, compra 50@12, vende 150@15 → al final flat (pos 0, ponder 0).
+    # Paso 1: pos 100, ponder 10. Paso 2: pos 150, ponder (100*10+50*12)/150=10.6667.
+    # Paso 3: cierra todo → pos 0, ponder 0.
+    _r, _q, _w, steps = fifo_detallado([(100, 10), (50, 12), (-150, 15)])
+    assert steps[0] == (100, 10.0)
+    assert steps[1][0] == 150
+    assert round(steps[1][1], 4) == 10.6667
+    assert steps[2] == (0, 0.0)
 
 
 def test_interes_iva_rate():

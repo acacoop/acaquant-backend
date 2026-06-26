@@ -1,0 +1,63 @@
+"""scripts/drop_mongo_migradas.py — DROP de colecciones Mongo ya cutover-eadas a SQL.
+
+LIBRO DE DROPS de la migración Mongo→SQL. Cada entrada de DROPS es una colección que
+cumple las 3 condiciones del cutover (verificadas a mano antes de agregarla):
+  1. su WRITER ya escribe Postgres-native (o nadie la escribe → huérfana),
+  2. NO la lee `jobs/sync_postgres.py` (no rompe el espejo),
+  3. la API ya lee la tabla SQL equivalente (flag en 🟢).
+
+Default DRY-RUN: imprime qué dropearía + el conteo actual. Con `--apply` dropea de verdad.
+Idempotente: una colección ya dropeada se saltea. Read-only salvo `--apply`.
+
+    python -m scripts.drop_mongo_migradas            # dry-run (no toca nada)
+    python -m scripts.drop_mongo_migradas --apply    # dropea de verdad
+
+Irreversible con --apply. Correr fuera de rueda. Borrar del repo cuando la migración cierre.
+"""
+from __future__ import annotations
+
+import sys
+
+# (db, coll, motivo) — agregar SOLO tras verificar las 3 condiciones del cutover.
+DROPS: list[tuple[str, str, str]] = [
+    ("Trading", "CedearsSnapshot",
+     "motor_cedears escribe mercado.cedears_snapshot SQL-native; nadie escribe Mongo; "
+     "no la toca sync_postgres; SCANNER_SQL=1 lee SQL. Huérfana."),
+]
+
+
+def main() -> int:
+    apply = "--apply" in sys.argv
+    from core.mongo import get_mongo_client
+
+    cli = get_mongo_client()
+    modo = "APPLY (DROP REAL)" if apply else "DRY-RUN (no toca nada)"
+    print(f"drop_mongo_migradas — modo {modo}\n")
+
+    existentes = {db: set(cli[db].list_collection_names()) for db in {d for d, _, _ in DROPS}}
+    dropeadas = 0
+    for db, coll, motivo in DROPS:
+        if coll not in existentes.get(db, set()):
+            print(f"  ⏭  {db}.{coll:<24} ya no existe (idempotente)")
+            continue
+        try:
+            n = cli[db][coll].estimated_document_count()
+        except Exception:  # noqa: BLE001
+            n = -1
+        if apply:
+            cli[db].drop_collection(coll)
+            print(f"  🗑  {db}.{coll:<24} DROPEADA (~{n:,} docs) — {motivo}")
+            dropeadas += 1
+        else:
+            print(f"  •  {db}.{coll:<24} se dropearía (~{n:,} docs) — {motivo}")
+
+    print()
+    if apply:
+        print(f"Listo: {dropeadas} colección(es) dropeada(s).")
+    else:
+        print("DRY-RUN. Nada se tocó. Re-correr con --apply para dropear.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -187,7 +187,9 @@ def _write_sql(unidad: str, set_fields: dict) -> None:
     """Upsert autoritativo a `portafolio.assets` (UPPERCASE → lowercase, 1:1 con
     .lower()). `actualizado_por/at` ya vienen en minúscula. Si falla, propaga (el
     edit no se guardó → el caller devuelve 500)."""
-    cols = {k.lower(): v for k, v in set_fields.items()}
+    # .strip() en los string: un valor con espacios al borde (ej. 'HD  ') rompe los
+    # filtros que comparan exacto (cartera HD/MONEDAS en Tenencia, divisor del AuM, etc.).
+    cols = {k.lower(): (v.strip() if isinstance(v, str) else v) for k, v in set_fields.items()}
     colnames = ["unidad", *cols.keys()]
     updates = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols)
     sql = (f"INSERT INTO portafolio.assets ({', '.join(colnames)}) "

@@ -115,6 +115,12 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
         "renta-variable", "estrategia",
         "manager_clientes", "manager_compliance",
     ),
+    # Back Office: SOLO Home + Back Office (títulos a enviar/recibir al mercado,
+    # conciliación, tenencia valorizada). Default mínimo A PROPÓSITO — el admin amplía
+    # o recorta desde /manager → ROLES Y PERMISOS.
+    "back_office": (
+        "home", "back-office",
+    ),
     # Invitado / cliente externo del portal www.acaquant.com: SOLO vistas de
     # mercado (read-only). NADA privado de la mesa — sin operaciones, portfolios,
     # back-office, operar ni manager. Las restricciones finas (ocultar AGRO→DATOS,

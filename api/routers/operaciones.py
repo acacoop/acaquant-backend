@@ -345,11 +345,13 @@ def comercial_dimensiones(_engine: str | None = Query(None, include_in_schema=Fa
 
 @router.get("/comercial/operador")
 def comercial_operador(
-    operador: str = Query(..., description="operador_email"),
+    operador: list[str] = Query(default=[], description="operador(es) — multi. Vacío = todos"),
     moneda: str = Query("ARS"),
-    nivel_1: str | None = Query(None, description="filtro madre nivel_1 (cruza con operador/nivel_3)"),
-    nivel_3: str | None = Query(None, description="filtro madre nivel_3 (cruza con operador/nivel_1)"),
-    referido: str | None = Query(None, description="filtro madre referido (cruza con los demás)"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi; cruza con los demás)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     fecha: str | None = Query(None, description="corte = HASTA (ISO). None = hoy"),
     desde: str | None = Query(None, description="inicio del período (ISO). Si viene, MES = [desde, fecha]"),
     _engine: str | None = Query(None, include_in_schema=False),
@@ -357,41 +359,45 @@ def comercial_operador(
     """Resumen (KPIs) + clientes (tabla + ficha) del operador, en una pasada."""
     return _com_motor(_engine).operador_comercial(
         operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido,
-        fecha=fecha, desde=desde)
+        nivel_4=nivel_4, nivel_5=nivel_5, fecha=fecha, desde=desde)
 
 
 @router.get("/comercial/serie")
 def comercial_serie(
-    operador: str = Query(..., description="operador_email"),
+    operador: list[str] = Query(default=[], description="operador(es) — multi. Vacío = todos"),
     metric: str = Query("volumen", description="volumen | aum"),
     moneda: str = Query("ARS"),
     id_cuenta: str | None = Query(None, description="scope a una sola cuenta (interactivo)"),
-    nivel_1: str | None = Query(None, description="filtro madre nivel_1"),
-    nivel_3: str | None = Query(None, description="filtro madre nivel_3"),
-    referido: str | None = Query(None, description="filtro madre referido"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Serie para el gráfico. Sin id_cuenta → operador; con id_cuenta → cliente."""
     return _com_motor(_engine).serie_comercial(
         operador=operador, metric=metric, moneda=moneda, id_cuenta=id_cuenta,
-        nivel_1=nivel_1, nivel_3=nivel_3, referido=referido)
+        nivel_1=nivel_1, nivel_3=nivel_3, referido=referido, nivel_4=nivel_4, nivel_5=nivel_5)
 
 
 @router.get("/comercial/clientes-por-fecha")
 def comercial_clientes_por_fecha(
-    operador: str = Query(..., description="operador_email"),
+    operador: list[str] = Query(default=[], description="operador(es) — multi. Vacío = todos"),
     desde: str = Query(..., description="ISO YYYY-MM-DD (inicio del período del bar)"),
     hasta: str = Query(..., description="ISO YYYY-MM-DD (fin del período del bar)"),
     moneda: str = Query("ARS"),
-    nivel_1: str | None = Query(None, description="filtro madre nivel_1"),
-    nivel_3: str | None = Query(None, description="filtro madre nivel_3"),
-    referido: str | None = Query(None, description="filtro madre referido"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Clientes que operaron en el rango (click en una barra del chart de volumen)."""
     return _com_motor(_engine).clientes_por_fecha(
         operador=operador, desde=desde, hasta=hasta, moneda=moneda,
-        nivel_1=nivel_1, nivel_3=nivel_3, referido=referido)
+        nivel_1=nivel_1, nivel_3=nivel_3, referido=referido, nivel_4=nivel_4, nivel_5=nivel_5)
 
 
 @router.get("/comercial/portafolio")
@@ -415,11 +421,13 @@ def comercial_operaciones(
 
 @router.get("/comercial/analisis")
 def comercial_analisis(
-    operador: str = Query(..., description="operador_email"),
+    operador: list[str] = Query(default=[], description="operador(es) — multi. Vacío = todos"),
     moneda: str = Query("ARS", description="ARS | USD"),
-    nivel_1: str | None = Query(None, description="filtro madre nivel_1"),
-    nivel_3: str | None = Query(None, description="filtro madre nivel_3"),
-    referido: str | None = Query(None, description="filtro madre referido"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     fecha: str | None = Query(None, description="foto al día X = HASTA (ISO). None = hoy"),
     desde: str | None = Query(None, description="inicio del período (ISO). Si viene, opero_mtd = operó en [desde, fecha]"),
     _engine: str | None = Query(None, include_in_schema=False),
@@ -430,7 +438,7 @@ def comercial_analisis(
     AuM/cuentas por nivel). El cupo queda en valor actual (no histórico aún)."""
     return _com_motor(_engine).analisis_comercial(
         operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido,
-        fecha=fecha, desde=desde)
+        nivel_4=nivel_4, nivel_5=nivel_5, fecha=fecha, desde=desde)
 
 
 @router.get("/comercial/cobros-futuros")

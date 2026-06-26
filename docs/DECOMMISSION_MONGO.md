@@ -18,6 +18,26 @@ Este doc es el **tablero de gobierno** del decommission. Se construye cruzando 3
 
 ---
 
+## 🟢 BITÁCORA 2026-06-26 — inventario medido + primeros drops
+
+Inventario REAL re-medido (`scripts/diag_inventario_full.py`): **Mongo 81 coll / 50 MB**,
+**Postgres 97 tablas / 2.2 GB**. `estado_sql`: TODAS las lecturas en 🟢 SQL salvo `ORDENES_SQL`.
+Flags prendidos hoy: `VOLUMEN_AGRO_SQL`, `PNL_TOTALES_SQL`, `MANAGER_SQL`.
+
+**Cutover #1 (caches valuaciones → SQL-native):** `jobs/consolidado_cuentas.py` y
+`jobs/pnl_totales_precompute.py` escriben SOLO `valuaciones.{consolidado,pnl_totales_cache}`
+(se quitó el dual-write Mongo + `sync_pnl_totales` de `sync_postgres`).
+
+**DROPEADAS (4):** `Trading.CedearsSnapshot`, `Valuaciones.ConsolidadoCuentas`,
+`Valuaciones.PnLTotalesCache` (cutover #1) + `Trading.ONSnapshot` (huérfana, 0 refs en código).
+Mongo: 81 → **77**. Libro de drops: `scripts/drop_mongo_migradas.py`.
+
+**Próximo:** manager infra (prender `MANAGER_SQL_WRITE`, writers SQL-native, construir PG home
+para HealthReports/WatchdogAlertas/PyRofex*/AranceelesJobRuns/PortfolioSnapshotLog) + purgar
+código Mongo muerto (Bucket 1). Motores y órdenes → al cierre/finde (Bucket 3a/3h).
+
+---
+
 ## 🚨 HALLAZGO CRÍTICO — código Mongo MUERTO leyendo colecciones ya DROPEADAS
 
 Verificado con prod (`estado_sql` + `diag_inventario_mongo_sql`, 2026-06-22). Flags

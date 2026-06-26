@@ -29,6 +29,9 @@ DROPS: list[tuple[str, str, str]] = [
     ("Valuaciones", "PnLTotalesCache",
      "jobs/pnl_totales_precompute.py escribe valuaciones.pnl_totales_cache SQL-native "
      "(cutover 2026-06-26); fuera de sync_postgres; requiere PNL_TOTALES_SQL=1 (leer SQL). Huérfana."),
+    ("Trading", "ONSnapshot",
+     "Legacy: los ONs se sirven desde Trading.Curvas (curva=on_*). 0 lectores y 0 escritores "
+     "en el código (grep), última escritura 2026-04-13. Huérfana pura."),
 ]
 
 

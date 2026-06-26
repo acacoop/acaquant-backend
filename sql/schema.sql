@@ -206,6 +206,20 @@ CREATE TABLE IF NOT EXISTS clientes.accionistas (
     cuenta text PRIMARY KEY
 );
 
+-- Objetivos comerciales (CONTROL COMERCIAL) — los carga la jefatura in-view. Granularidad
+-- mensual por comercial; la vista los agrega por el período elegido. Self-create también en
+-- api/services/control_comercial_sql.py.
+CREATE TABLE IF NOT EXISTS clientes.objetivos_comerciales (
+    operador_email      text NOT NULL,
+    anio                int  NOT NULL,
+    mes                 int  NOT NULL CHECK (mes BETWEEN 1 AND 12),
+    volumen_objetivo    numeric,
+    comisiones_objetivo numeric,
+    actualizado_por     text,
+    actualizado_at      timestamptz DEFAULT now(),
+    PRIMARY KEY (operador_email, anio, mes)
+);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- HECHOS — schema `operaciones`
 -- ─────────────────────────────────────────────────────────────────────────────

@@ -33,9 +33,9 @@ from core.postgres import get_pool
 
 # Ficha embebida en cada cliente (= _FICHA_FIELDS de comercial.py). denominacion sale de
 # `cuentas` (no de comitentes); el resto de `comitentes`.
-_FICHA = ("denominacion", "telefono", "email", "nivel_1", "nivel_2", "nivel_3", "nivel_4",
-          "nivel_5", "primer_contacto_comercial", "riesgo_la_ft", "division", "adc", "dma",
-          "referido")
+_FICHA = ("denominacion", "operador_nombre", "telefono", "email", "nivel_1", "nivel_2",
+          "nivel_3", "nivel_4", "nivel_5", "primer_contacto_comercial", "riesgo_la_ft",
+          "division", "adc", "dma", "referido")
 _ANALISIS = ("denominacion", "telefono", "nivel_1", "nivel_2", "nivel_3", "nivel_4", "nivel_5")
 
 # Pesificación de un boleto (ARS directo; USD × mep del boleto). = _PESIF de comercial.py.
@@ -239,12 +239,20 @@ def clientes_por_fecha(*, operador: str, desde: str, hasta: str,
 
 def _ficha_por_cuenta(operador: str, campos: tuple[str, ...], nivel_1: str | None = None,
                       nivel_3: str | None = None, referido: str | None = None) -> dict[str, dict]:
-    """{id_cuenta: {campos}} de comitentes activas (+ denominacion de cuentas) del scope."""
-    cols = ", ".join(f"c.{c}" if c != "denominacion" else "u.denominacion" for c in campos)
+    """{id_cuenta: {campos}} de comitentes activas (+ denominacion de cuentas, + nombre del
+    operador asignado) del scope. `operador_nombre` sale del join a `operadores`."""
+    def _col(c: str) -> str:
+        if c == "denominacion":
+            return "u.denominacion"
+        if c == "operador_nombre":
+            return "o.nombre AS operador_nombre"
+        return f"c.{c}"
+    cols = ", ".join(_col(c) for c in campos)
     p: dict = {}
     where = _comitentes_where(operador, p, nivel_1, nivel_3, referido, alias="c")
     rows = _q(f"SELECT c.id_cuenta, {cols} FROM comitentes c "
-              f"LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta WHERE {where}", p)
+              f"LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta "
+              f"LEFT JOIN operadores o ON o.email = c.operador_email WHERE {where}", p)
     return {r["id_cuenta"]: r for r in rows}
 
 

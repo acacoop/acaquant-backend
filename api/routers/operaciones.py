@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 
-from api.auth import get_user_email
+from api.auth import require_module
 from api.cache import cached
 from api.services import cashflow_sql as _cf_sql
 from api.services import comercial as _com
@@ -546,8 +546,13 @@ def comercial_informe_segmento_detalle(
 
 
 # ── CONTROL COMERCIAL (jefatura) — editor de objetivos (etapa 1) ──────────────
+# Data de jefatura → gateado con require_module("manager"): solo roles con el módulo
+# `manager` (admin/jefatura) leen y editan objetivos. El gate mira la matriz de roles viva.
 @router.get("/comercial/control/objetivos")
-def control_objetivos(anio: int = Query(..., description="año de los objetivos")) -> dict:
+def control_objetivos(
+    anio: int = Query(..., description="año de los objetivos"),
+    _actor: str = Depends(require_module("manager")),
+) -> dict:
     """Objetivos por comercial cargados para un año (alimenta el editor + la Tabla 3)."""
     return _cc.listar_objetivos(anio=anio)
 
@@ -561,8 +566,12 @@ class _ObjetivoIn(BaseModel):
 
 
 @router.patch("/comercial/control/objetivos")
-def control_set_objetivo(req: _ObjetivoIn, actor: str = Depends(get_user_email)) -> dict:
-    """Upsert del objetivo de un comercial para (año, mes). Lo edita el jefe in-view → SQL."""
+def control_set_objetivo(
+    req: _ObjetivoIn,
+    actor: str = Depends(require_module("manager")),
+) -> dict:
+    """Upsert del objetivo de un comercial para (año, mes). Lo edita el jefe in-view → SQL.
+    Gateado: require_module('manager') → 403 si el rol no tiene el módulo manager."""
     return _cc.set_objetivo(
         operador_email=req.operador_email, anio=req.anio, mes=req.mes,
         volumen_objetivo=req.volumen_objetivo, comisiones_objetivo=req.comisiones_objetivo,

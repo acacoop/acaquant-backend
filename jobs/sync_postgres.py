@@ -508,24 +508,10 @@ def sync_portfolio_snapshot(mdb, conn, dry) -> int:
     return n
 
 
-def sync_pnl_totales(mdb, conn, dry) -> int:
-    """Valuaciones.PnLTotalesCache → valuaciones.pnl_totales_cache (cache del PnL de TODAS
-    las cuentas, vista TOTALES /pnl-todas). BASELINE: el cron jobs.pnl_totales_precompute
-    lo dual-escribe en vivo cada 30min (swap atómico) — esto solo lo re-alinea si el cron
-    no corrió aún (fresh install). PK = id_cuenta; `rows`/`totales` jsonb (rows trae el
-    detalle de boletos). `computed_at` es aware (datetime.now(UTC)) → timestamptz."""
-    cols = ["id_cuenta", "cuenta", "rows", "totales", "computed_at"]
-    rows = []
-    for d in mdb["Valuaciones"]["PnLTotalesCache"].find({}, {"_id": 0}):
-        idc = _s(d.get("id_cuenta"))
-        if not idc:
-            continue
-        rows.append((idc, _s(d.get("cuenta")), _jsonb(d.get("rows") or []),
-                     _jsonb(d.get("totales") or {}), d.get("computed_at")))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "pnl_totales_cache", cols, ["id_cuenta"], rows, dry)
-    _delete_not_in(conn, "pnl_totales_cache", "id_cuenta", {r[0] for r in rows}, dry)
-    return n
+# sync_pnl_totales ELIMINADO (cutover ConsolidadoCuentas/PnLTotalesCache → SQL-native,
+# 2026-06-26): jobs/pnl_totales_precompute.py y jobs/consolidado_cuentas.py escriben
+# valuaciones.{pnl_totales_cache,consolidado} directo (sin pasar por Mongo). Las colecciones
+# Mongo Valuaciones.{PnLTotalesCache,ConsolidadoCuentas} quedan huérfanas → drop_mongo_migradas.
 
 
 def _doc_iso(d):
@@ -1005,7 +991,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_am = _t("actividad_mensual", lambda: sync_actividad_mensual(mdb, conn, dry))
         n_dl = _t("dolar", lambda: sync_dolar(mdb, conn, dry, desde))
         n_ps = _t("portfolio_snapshot", lambda: sync_portfolio_snapshot(mdb, conn, dry))
-        n_pt = _t("pnl_totales", lambda: sync_pnl_totales(mdb, conn, dry))
+        # pnl_totales ya NO se sincroniza: lo escribe SQL-native jobs/pnl_totales_precompute.py
+        # (cutover PnLTotalesCache→SQL 2026-06-26).
         # snapshots_cierre (último por ticker) ya NO se sincroniza: lo escribe SQL-native
         # jobs/snapshot_cierre.py (cutover SnapshotsCierre→SQL 2026-06-24).
         n_qt = _t("quotes", lambda: sync_quotes(mdb, conn, dry))
@@ -1048,7 +1035,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         print(f"  opciones (baseline): metadata={n_om}  vr={n_ov}")
         print(f"  dimensiones: accionistas={n_ac}  manager_users={n_mu}  "
               f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
-              f"dolar={n_dl}  portfolio_snapshot={n_ps}  pnl_totales={n_pt}")
+              f"dolar={n_dl}  portfolio_snapshot={n_ps}")
         print(f"  manager infra: job_runs={n_jr:,}  role_audit={n_ra}")
         print(f"  cashflow (baseline): tipos_operacion={n_to}  volumen_mercado_agro={n_vma}")
 
@@ -1076,7 +1063,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
              "actividad_mensual": n_am, "dolar": n_dl,
              "tipos_operacion": n_to,
              "volumen_mercado_agro": n_vma,
-             "portfolio_snapshot": n_ps, "pnl_totales": n_pt,
+             "portfolio_snapshot": n_ps,
              "quotes": n_qt, "calendar": n_cal,
              "series_macro": n_sm, "rem": n_rem, "curvas": n_cv,
              "curvas_sin_ticker_corto": sin_corto,

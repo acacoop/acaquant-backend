@@ -23,6 +23,12 @@ DROPS: list[tuple[str, str, str]] = [
     ("Trading", "CedearsSnapshot",
      "motor_cedears escribe mercado.cedears_snapshot SQL-native; nadie escribe Mongo; "
      "no la toca sync_postgres; SCANNER_SQL=1 lee SQL. Huérfana."),
+    ("Valuaciones", "ConsolidadoCuentas",
+     "jobs/consolidado_cuentas.py escribe valuaciones.consolidado SQL-native (cutover "
+     "2026-06-26); fuera de sync_postgres; VALUACIONES_SQL=1 lee SQL. Huérfana."),
+    ("Valuaciones", "PnLTotalesCache",
+     "jobs/pnl_totales_precompute.py escribe valuaciones.pnl_totales_cache SQL-native "
+     "(cutover 2026-06-26); fuera de sync_postgres; requiere PNL_TOTALES_SQL=1 (leer SQL). Huérfana."),
 ]
 
 

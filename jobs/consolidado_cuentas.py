@@ -4,12 +4,14 @@ La vista TOTALES > POR CUENTA necesita, por cada cuenta, valor + base 100
 + PnL acumulado (ARS y USD). Calcularlo en vivo recorre N cuentas llamando
 `valuacion_mensual` → se pasa del timeout HTTP y la web devuelve 502.
 
-Este job lo calcula offline (sin límite de tiempo) y lo persiste en
-`Valuaciones.ConsolidadoCuentas` (Mongo) Y `valuaciones.consolidado` (SQL, dual-write).
-El endpoint `/api/valuaciones/consolidado` lee uno u otro según VALUACIONES_SQL —
-instantáneo. Mismo patrón que `Trading.SnapshotsCierre`.
+Este job lo calcula offline (sin límite de tiempo) y lo persiste SQL-native en
+`valuaciones.consolidado`. El endpoint `/api/valuaciones/consolidado` lo lee
+(VALUACIONES_SQL=1) — instantáneo.
 
-Corre como cron diario después del AuM final (jobs.aum, 23 UTC L-V).
+Cutover 2026-06-26: dejó de escribir `Valuaciones.ConsolidadoCuentas` (Mongo). SQL es
+la fuente; Mongo quedó huérfana y se dropea (scripts/drop_mongo_migradas).
+
+Corre como cron diario después del AuM final.
   python -m jobs.consolidado_cuentas
 """
 from __future__ import annotations
@@ -18,7 +20,6 @@ from datetime import UTC, datetime
 
 from api.services.valuaciones import construir_consolidado
 from core.job_runs import JobRunLogger
-from core.mongo import get_mongo_client, reemplazar_coleccion_atomico
 
 _SQL_COLS = ("id_cuenta", "cuenta", "ultimo_dia", "valor_ars", "valor_usd",
              "base100_ars", "base100_usd", "pnl_acum_ars", "pnl_acum_usd",
@@ -26,7 +27,7 @@ _SQL_COLS = ("id_cuenta", "cuenta", "ultimo_dia", "valor_ars", "valor_usd",
 
 
 def _persistir_sql(filas: list[dict]) -> int:
-    """Dual-write a `valuaciones.consolidado` (cache SQL del path VALUACIONES_SQL).
+    """Persiste `valuaciones.consolidado` (cache SQL del path VALUACIONES_SQL — fuente única).
 
     Self-crea la tabla (CREATE TABLE IF NOT EXISTS) → no hace falta aplicar el schema
     aparte. Swap por TRUNCATE+INSERT en una transacción; dedup por id_cuenta."""
@@ -68,21 +69,14 @@ def main() -> None:
         for f in filas:
             f["computed_at"] = ahora
 
-        # Swap atómico (sin ventana de vacío): /consolidado lee find({}).
-        db_v = get_mongo_client()["Valuaciones"]
-        n = reemplazar_coleccion_atomico(db_v, "ConsolidadoCuentas", filas)
-        if n > 0:
-            jr.set_stat("cuentas", n)
-            jr.log(f"✅ {n} cuentas persistidas en Valuaciones.ConsolidadoCuentas")
-        else:
-            jr.error("construir_consolidado devolvió 0 filas — colección NO tocada")
+        if not filas:
+            jr.error("construir_consolidado devolvió 0 filas — cache NO tocada")
+            return
 
-        # Dual-write SQL — en try aparte: si PG falla, el cache Mongo (path vivo) NO se afecta.
-        try:
-            ns = _persistir_sql(filas)
-            jr.log(f"✅ {ns} cuentas → valuaciones.consolidado (SQL)")
-        except Exception as e:
-            jr.log(f"⚠️ dual-write SQL falló (Mongo OK, no bloqueante): {e}")
+        # SQL-native: swap atómico (TRUNCATE+INSERT en una transacción) → sin ventana de vacío.
+        ns = _persistir_sql(filas)
+        jr.set_stat("cuentas", ns)
+        jr.log(f"✅ {ns} cuentas → valuaciones.consolidado (SQL)")
 
 
 if __name__ == "__main__":

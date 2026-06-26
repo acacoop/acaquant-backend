@@ -258,12 +258,15 @@ def _ficha_por_cuenta(operador: str, campos: tuple[str, ...], nivel_1: str | Non
 
 def operador_comercial(*, operador: str, moneda: str = "ARS", nivel_1: str | None = None,
                        nivel_3: str | None = None, referido: str | None = None,
-                       fecha: str | None = None) -> dict:
-    # `fecha` (ISO) = fecha de corte: MTD/YTD relativos a corte, volumen capeado a <= corte.
+                       fecha: str | None = None, desde: str | None = None) -> dict:
+    # `fecha` (ISO) = corte = HASTA: TOTAL/YTD hasta corte, volumen capeado a <= corte.
+    # `desde` (ISO) = inicio del período: si viene, la métrica "MES" (vol_mtd) pasa a ser
+    # la suma de [desde, corte] en vez del mes calendario del corte.
     factor = _factor_usd(moneda)
     corte = date.fromisoformat(fecha) if fecha else _hoy_art()
     corte_iso = corte.isoformat() if fecha else None
-    mtd, ytd = corte.replace(day=1).isoformat(), corte.replace(month=1, day=1).isoformat()
+    mtd = desde if desde else corte.replace(day=1).isoformat()
+    ytd = corte.replace(month=1, day=1).isoformat()
     ids = _ids_operador(operador, nivel_1, nivel_3, referido, corte=corte_iso)
     aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3, referido, corte=corte_iso)
 
@@ -310,7 +313,7 @@ def operador_comercial(*, operador: str, moneda: str = "ARS", nivel_1: str | Non
 def analisis_comercial(*, operador: str, dias_activa: int = 45, dias_dormida: int = 90,
                        moneda: str = "ARS", nivel_1: str | None = None,
                        nivel_3: str | None = None, referido: str | None = None,
-                       fecha: str | None = None) -> dict:
+                       fecha: str | None = None, desde: str | None = None) -> dict:
     # Modo "foto al día X": `fecha` (ISO) = corte → todo se calcula como estaba ese día
     # (universo con alta<=corte, última op<=corte, AuM del snapshot<=corte, días vs corte).
     # `fecha=None` → modo live (hoy). El cupo NO es histórico aún (valor actual) → ver paso 2.
@@ -324,7 +327,8 @@ def analisis_comercial(*, operador: str, dias_activa: int = 45, dias_dormida: in
     factor_cupo = _factor_usd("USD")  # cupo SIEMPRE en USD al MEP del día
     aum = _aum_por_cuenta_sql(operador, nivel_1, nivel_3, referido, corte=corte_iso)
     year_start = date(corte.year, 1, 1).isoformat()
-    month_start = corte.replace(day=1).isoformat()
+    # `desde` (período) pisa el mes calendario para el flag opero_mtd → "operó en [desde, corte]".
+    month_start = desde if desde else corte.replace(day=1).isoformat()
 
     # Última operación por cuenta <= corte (Operaciones, fuente de verdad).
     p: dict = {}
@@ -376,7 +380,8 @@ def _fin_de_mes(anio: int, mes: int) -> date:
 
 def informe_cuentas_por_segmento(*, hasta: str | None = None,
                                  operador: str | None = None,
-                                 fecha: str | None = None) -> dict:
+                                 fecha: str | None = None,
+                                 desde: str | None = None) -> dict:
     hoy = _hoy_art()
     if fecha:
         # Fecha de corte exacta (unificada con el resto de la vista): cuentas con alta <= fecha.
@@ -396,9 +401,9 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
         f"ORDER BY n DESC", p)]
 
     # Operativas por segmento: cuentas DISTINTAS que operaron (>=1 op) en la ventana
-    # [primer día del mes del corte, corte] — mismo criterio que CTAS OPS del ranking
-    # (no es "activa por días", es "operó al menos una vez"). Comparte el filtro de operador.
-    mes_start = date(anio, mes, 1).isoformat()
+    # [desde, corte] (si hay `desde`) o [primer día del mes del corte, corte] — mismo criterio
+    # que CTAS OPS del ranking ("operó al menos una vez"). Comparte el filtro de operador.
+    mes_start = desde if desde else date(anio, mes, 1).isoformat()
     p2: dict = {"cats": list(_CATS_VOLUMEN), "mes": mes_start, "corte": corte}
     w_op = ("nm.categoria = ANY(%(cats)s) AND nm.unidad IS DISTINCT FROM 'USDL' "
             "AND nm.fecha >= %(mes)s AND nm.fecha <= %(corte)s")
@@ -464,11 +469,13 @@ def _ticket(vol: float, n: int) -> float:
     return round(vol / n, 2) if n else 0.0
 
 
-def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None) -> dict:
-    # `fecha` (ISO) = fecha de corte: TOTAL acumula hasta corte, MES = mes de corte.
+def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
+                      desde: str | None = None) -> dict:
+    # `fecha` = corte = HASTA: TOTAL acumula hasta corte. `desde` (si viene) hace que la
+    # columna MES (vol_mes/ar_mes) y CTAS OPS sean del período [desde, corte] en vez del mes.
     corte = date.fromisoformat(fecha) if fecha else _hoy_art()
     factor = _factor_usd(moneda)
-    mes_start = corte.replace(day=1).isoformat()
+    mes_start = desde if desde else corte.replace(day=1).isoformat()
     por_cuenta = _rollup_por_cuenta(mes_start, None, {}, corte=fecha)
 
     detalle = {r["id_cuenta"]: r for r in _q(
@@ -533,10 +540,10 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None) -> dict:
 
 
 def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS",
-                               fecha: str | None = None) -> dict:
+                               fecha: str | None = None, desde: str | None = None) -> dict:
     corte = date.fromisoformat(fecha) if fecha else _hoy_art()
     factor = _factor_usd(moneda)
-    mes_start = corte.replace(day=1).isoformat()
+    mes_start = desde if desde else corte.replace(day=1).isoformat()
     cuentas = {r["id_cuenta"]: (r["nivel_1"] or "(sin segmentar)") for r in _q(
         "SELECT id_cuenta, nivel_1 FROM comitentes WHERE operador_email = %(op)s "
         "AND estado = 'Activa'", {"op": operador})}
@@ -566,10 +573,14 @@ def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS",
 
 
 def informe_segmento_detalle(*, segmento: str | None = None, operador: str | None = None,
-                             moneda: str = "ARS") -> dict:
+                             moneda: str = "ARS", fecha: str | None = None,
+                             desde: str | None = None) -> dict:
     hoy = _hoy_art()
     factor = _factor_usd(moneda)
-    mes_start = hoy.replace(day=1).isoformat()
+    corte = date.fromisoformat(fecha) if fecha else hoy
+    corte_iso = corte.isoformat() if fecha else None
+    # `desde` (período) pisa el mes calendario para la columna "arancel_mes".
+    mes_start = desde if desde else corte.replace(day=1).isoformat()
     where = "c.estado = 'Activa'"
     p: dict = {}
     if not segmento or segmento == "todos":
@@ -591,11 +602,15 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
                 "clientes": [], "operaciones": []}
 
     pa = {"ids": ids, "mes": mes_start}
+    cap = ""
+    if corte_iso:
+        pa["corte"] = corte_iso
+        cap = " AND concertacion <= %(corte)s"   # TOTAL acumula hasta HASTA
     clientes = []
     for r in _q("SELECT id_cuenta, SUM(arancel) AS ar_total, "
                 "SUM(CASE WHEN concertacion >= %(mes)s THEN arancel ELSE 0 END) AS ar_mes "
                 "FROM operaciones WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 "
-                "AND etapa IS DISTINCT FROM 'solicitud' GROUP BY id_cuenta", pa):
+                f"AND etapa IS DISTINCT FROM 'solicitud'{cap} GROUP BY id_cuenta", pa):
         idc = r["id_cuenta"]
         clientes.append({
             "id_cuenta": idc, "denominacion": detalle.get(idc) or "—",
@@ -604,12 +619,21 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
         })
     clientes.sort(key=lambda x: x["arancel_total"], reverse=True)
 
+    # Lista de operaciones: si hay período [desde, corte] se acota a él; si no, las últimas 500.
+    pop: dict = {"ids": ids}
+    bounds = ""
+    if desde:
+        pop["desde"] = desde
+        bounds += " AND concertacion >= %(desde)s"
+    if corte_iso:
+        pop["corte"] = corte_iso
+        bounds += " AND concertacion <= %(corte)s"
     operaciones = []
     for r in _q("SELECT concertacion, id_cuenta, boleto, instrumento, operacion, "
                 "tipo_operacion, bruto, moneda, arancel FROM operaciones "
                 "WHERE id_cuenta = ANY(%(ids)s) AND arancel > 0 "
-                "AND etapa IS DISTINCT FROM 'solicitud' "
-                "ORDER BY concertacion DESC, boleto DESC LIMIT 500", {"ids": ids}):
+                f"AND etapa IS DISTINCT FROM 'solicitud'{bounds} "
+                "ORDER BY concertacion DESC, boleto DESC LIMIT 500", pop):
         idc = r["id_cuenta"]
         operaciones.append({
             "fecha": _iso(r["concertacion"]), "id_cuenta": idc,

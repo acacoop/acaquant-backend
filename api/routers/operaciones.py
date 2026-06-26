@@ -350,13 +350,14 @@ def comercial_operador(
     nivel_1: str | None = Query(None, description="filtro madre nivel_1 (cruza con operador/nivel_3)"),
     nivel_3: str | None = Query(None, description="filtro madre nivel_3 (cruza con operador/nivel_1)"),
     referido: str | None = Query(None, description="filtro madre referido (cruza con los demás)"),
-    fecha: str | None = Query(None, description="fecha de corte (ISO). None = hoy"),
+    fecha: str | None = Query(None, description="corte = HASTA (ISO). None = hoy"),
+    desde: str | None = Query(None, description="inicio del período (ISO). Si viene, MES = [desde, fecha]"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Resumen (KPIs) + clientes (tabla + ficha) del operador, en una pasada."""
     return _com_motor(_engine).operador_comercial(
         operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido,
-        fecha=fecha)
+        fecha=fecha, desde=desde)
 
 
 @router.get("/comercial/serie")
@@ -419,7 +420,8 @@ def comercial_analisis(
     nivel_1: str | None = Query(None, description="filtro madre nivel_1"),
     nivel_3: str | None = Query(None, description="filtro madre nivel_3"),
     referido: str | None = Query(None, description="filtro madre referido"),
-    fecha: str | None = Query(None, description="foto al día X (ISO YYYY-MM-DD). None = hoy"),
+    fecha: str | None = Query(None, description="foto al día X = HASTA (ISO). None = hoy"),
+    desde: str | None = Query(None, description="inicio del período (ISO). Si viene, opero_mtd = operó en [desde, fecha]"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Dataset de la vista ANÁLISIS: clientes del operador con estado comercial,
@@ -428,7 +430,7 @@ def comercial_analisis(
     AuM/cuentas por nivel). El cupo queda en valor actual (no histórico aún)."""
     return _com_motor(_engine).analisis_comercial(
         operador=operador, moneda=moneda, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido,
-        fecha=fecha)
+        fecha=fecha, desde=desde)
 
 
 @router.get("/comercial/cobros-futuros")
@@ -480,36 +482,41 @@ def comercial_referido_fci(
 @router.get("/comercial/informe")
 def comercial_informe(
     moneda: str = Query("ARS", description="ARS | USD"),
-    fecha: str | None = Query(None, description="fecha de corte (ISO): TOTAL hasta corte, MES = mes de corte. None = hoy"),
+    fecha: str | None = Query(None, description="corte = HASTA (ISO): TOTAL hasta corte. None = hoy"),
+    desde: str | None = Query(None, description="inicio del período (ISO). Si viene, MES = [desde, fecha] (vol_mes/ar_mes/ctas_ops)"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Tablas 2 y 3 del Informe: volumen + aranceles por comercial (ranking) y
     aranceles por segmento. Global (toda la mesa)."""
-    return _com_motor(_engine).informe_comercial(moneda=moneda, fecha=fecha)
+    return _com_motor(_engine).informe_comercial(moneda=moneda, fecha=fecha, desde=desde)
 
 
 @router.get("/comercial/informe-segmento")
 def comercial_informe_segmento(
     hasta: str | None = Query(None, description="mes YYYY-MM (default actual); acumulado a fin de mes"),
     operador: str | None = Query(None, description="opcional: solo cuentas de ese comercial"),
-    fecha: str | None = Query(None, description="fecha de corte exacta (ISO) — pisa `hasta`"),
+    fecha: str | None = Query(None, description="corte = HASTA exacto (ISO) — pisa `hasta`"),
+    desde: str | None = Query(None, description="inicio del período (ISO). Si viene, las Operativas se cuentan en [desde, fecha]"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Tabla 1 del Informe: # cuentas por segmento (nivel_1), acumulado a la fecha de
     corte (`fecha` exacta, o fin del mes `hasta`) por fecha de alta. `operador` opcional."""
-    return _com_motor(_engine).informe_cuentas_por_segmento(hasta=hasta, operador=operador, fecha=fecha)
+    return _com_motor(_engine).informe_cuentas_por_segmento(
+        hasta=hasta, operador=operador, fecha=fecha, desde=desde)
 
 
 @router.get("/comercial/informe-aranceles-segmento")
 def comercial_informe_aranceles_segmento(
     operador: str = Query(..., description="operador_email a desglosar"),
     moneda: str = Query("ARS", description="ARS | USD"),
-    fecha: str | None = Query(None, description="fecha de corte (ISO). None = hoy"),
+    fecha: str | None = Query(None, description="corte = HASTA (ISO). None = hoy"),
+    desde: str | None = Query(None, description="inicio del período (ISO). Si viene, ar_mes = [desde, fecha]"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Q3 re-scopeada a un comercial: aranceles + ticket por segmento, solo de
     sus cuentas."""
-    return _com_motor(_engine).informe_aranceles_segmento(operador=operador, moneda=moneda, fecha=fecha)
+    return _com_motor(_engine).informe_aranceles_segmento(
+        operador=operador, moneda=moneda, fecha=fecha, desde=desde)
 
 
 @router.get("/comercial/informe-segmento-detalle")
@@ -517,10 +524,12 @@ def comercial_informe_segmento_detalle(
     segmento: str = Query("todos", description="nivel_1 a desglosar; 'todos' = todos los segmentos"),
     operador: str | None = Query(None, description="opcional: solo cuentas de ese comercial"),
     moneda: str = Query("ARS", description="ARS | USD"),
+    fecha: str | None = Query(None, description="corte = HASTA (ISO). None = hoy"),
+    desde: str | None = Query(None, description="inicio del período (ISO). arancel_mes = [desde, fecha]"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Detalle de un segmento (Q4 dinámica): clientes con su arancel +
     operaciones (boletos con arancel) que lo generaron. `segmento='todos'` →
     todos los segmentos (vista por defecto). `operador` opcional."""
     return _com_motor(_engine).informe_segmento_detalle(
-        segmento=segmento, operador=operador, moneda=moneda)
+        segmento=segmento, operador=operador, moneda=moneda, fecha=fecha, desde=desde)

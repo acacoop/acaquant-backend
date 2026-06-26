@@ -172,6 +172,13 @@ def patch_asset(
         raise HTTPException(404, f"unidad no encontrada en portafolio.assets: {unidad!r}")
     _write_sql(unidad, set_fields)
 
+    # Cambiar la CARTERA reclasifica HD/ARS en Tenencia Valorizada (cruce vivo por unidad),
+    # pero la tabla AuM-por-día está cacheada (tenencia_dias, ttl 300s) → invalidar para que
+    # el cambio se vea al instante en vez de esperar 5 min. (Las posiciones ya son live.)
+    if "CARTERA" in set_fields:
+        from api.cache import invalidate
+        invalidate("tenencia_dias")
+
     doc = asset_one_panel(unidad) or {}
     return _normalize_assets([doc])[0]
 

@@ -394,13 +394,35 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
         f"SELECT COALESCE(nivel_1, '(sin segmentar)') AS segmento, count(*) AS n "
         f"FROM comitentes WHERE {where} GROUP BY COALESCE(nivel_1, '(sin segmentar)') "
         f"ORDER BY n DESC", p)]
+
+    # Operativas por segmento: cuentas DISTINTAS que operaron (>=1 op) en la ventana
+    # [primer día del mes del corte, corte] — mismo criterio que CTAS OPS del ranking
+    # (no es "activa por días", es "operó al menos una vez"). Comparte el filtro de operador.
+    mes_start = date(anio, mes, 1).isoformat()
+    p2: dict = {"cats": list(_CATS_VOLUMEN), "mes": mes_start, "corte": corte}
+    w_op = ("nm.categoria = ANY(%(cats)s) AND nm.unidad IS DISTINCT FROM 'USDL' "
+            "AND nm.fecha >= %(mes)s AND nm.fecha <= %(corte)s")
+    if operador:
+        w_op += " AND c.operador_email = %(op)s"
+        p2["op"] = operador
+    ops_map = {r["segmento"]: int(r["n"]) for r in _q(
+        f"SELECT COALESCE(c.nivel_1, '(sin segmentar)') AS segmento, "
+        f"count(DISTINCT nm.id_cuenta) AS n "
+        f"FROM negocio_movimientos nm JOIN comitentes c ON c.id_cuenta = nm.id_cuenta "
+        f"AND c.estado = 'Activa' WHERE {w_op} "
+        f"GROUP BY COALESCE(c.nivel_1, '(sin segmentar)')", p2)}
+    for s in segmentos:
+        s["ctas_ops"] = ops_map.get(s["segmento"], 0)
+
     fa = _q("SELECT min(fecha_alta_legajo) AS f FROM comitentes "
             "WHERE fecha_alta_legajo IS NOT NULL")[0]["f"]
     mes_min = f"{fa.year:04d}-{fa.month:02d}" if fa else f"{hoy.year:04d}-{hoy.month:02d}"
     return {
         "mes": f"{anio:04d}-{mes:02d}", "mes_min": mes_min,
         "mes_actual": f"{hoy.year:04d}-{hoy.month:02d}",
-        "total": sum(s["n"] for s in segmentos), "segmentos": segmentos,
+        "total": sum(s["n"] for s in segmentos),
+        "total_ctas_ops": sum(s["ctas_ops"] for s in segmentos),
+        "segmentos": segmentos,
     }
 
 

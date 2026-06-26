@@ -121,6 +121,12 @@ def conciliar() -> dict:
     return svc.conciliar()
 
 
+@router.get("/ons/ignoradas")
+def ignoradas() -> dict:
+    """Lista los tickers ignorados en el conciliador (para verlos / restaurarlos)."""
+    return svc.listar_ignoradas()
+
+
 @router.post("/ons/ignorar")
 def ignorar(req: _Ignorar = Body(...), actor: str = Depends(get_user_email)) -> dict:
     try:

@@ -397,3 +397,15 @@ def quitar_ignorar(ticker: str) -> dict:
     deleted = get_mongo_client()["Trading"]["OnsIgnoradas"].delete_one(
         {"ticker": (ticker or "").strip()}).deleted_count
     return {"restauradas": deleted}
+
+
+def listar_ignoradas() -> dict:
+    """Lista los tickers marcados como ignorados en el conciliador (para poder
+    restaurarlos desde la UI). Orden: más recientes primero."""
+    docs = list(get_mongo_client()["Trading"]["OnsIgnoradas"].find(
+        {}, {"_id": 0, "ticker": 1, "ignorado_por": 1, "at": 1}))
+    docs.sort(key=lambda d: str(d.get("at") or ""), reverse=True)
+    for d in docs:
+        if d.get("at") is not None:
+            d["at"] = str(d["at"])[:19]
+    return {"ignoradas": docs, "n": len(docs)}

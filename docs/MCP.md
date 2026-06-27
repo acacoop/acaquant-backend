@@ -5,24 +5,33 @@ Claude Code / claude.ai. Permite que Claude haga análisis razonando sobre
 los números reales en lugar de adivinar o de que vos le pegues
 screenshots.
 
+**Hoy es un asistente 100% de RENTA VARIABLE** (equities ARG). El catálogo
+completo de cada tool está en `docs/MCP_TOOLS.md`.
+
 ## Qué expone
 
-Tools de SOLO LECTURA, 39 en total. Cada una es thin wrapper sobre un
-servicio puro de `api/services/*`.
+Tools de SOLO LECTURA, **13 en total**, todas de renta variable. Cada una es
+thin wrapper sobre un servicio puro de `api/services/{scanner_sql,day_trading,
+rv_motor}.py`. El registro vive en `api/mcp/tools/renta_variable.py`.
 
 | Categoría | Tools |
 |---|---|
-| Curvas y bonos | `listar_curva`, `snapshot_curva_historico`, `pendiente_curva`, `liquidez_secundario`, `historico_trades`, `historico_curva` |
-| Atribución (Lecap/Boncap) | `descomposicion_retorno`, `rolldown_esperado` |
-| Sensibilidad | `sensibilidad_retorno` |
-| Forwards / Breakevens | `forwards_live`, `forwards_historico`, `breakevens_live`, `breakevens_historico` |
-| Cauciones / Futuros DLR / MEP | `cauciones_live`, `cauciones_historico`, `futuros_dlr_live`, `futuros_dlr_historico`, `mep_actual`, `mep_historico` |
-| Cross-asset | `canje`, `carry_trade` |
-| Macro (BCRA / INDEC / scrapings) | `serie_macro`, `clasificar_nivel`, `rem_expectativas` |
-| Opciones | `opciones_chain`, `opciones_meta`, `opciones_historico` |
+| Universo | `rv_universo` |
+| Live de mercado | `cedears_scanner`, `ccl_live` |
+| Time sales intradía | `cedears_tape`, `cedears_intraday` |
+| Histórico + quant (USD) | `acciones_retornos`, `acciones_quant_stats`, `pivot_points` |
+| Day-trading lab | `day_trading_scanner`, `day_trading_companeros` |
+| Mesa de Estrategia | `correlacion_matriz`, `trade_analysis`, `book_analysis` |
 
-**No expone (por diseño)**: portfolio, operaciones, cuentas, AuM, manager,
-intel — son datos privados, no de mercado.
+**No expone (por diseño, REGLA #8)**: portfolio, operaciones, cuentas, AuM,
+manager, clientes — datos privados, no de mercado. `trade_analysis` y
+`book_analysis` operan SOLO sobre posiciones que el usuario describe como
+parámetro; no leen ninguna cuenta real.
+
+**Pausados** (código en `api/mcp/tools/parked_mercado.py`, no registrado): renta
+fija, derivados, opciones, forwards, breakevens, cauciones, futuros DLR, MEP y
+macro. Para reactivar un dominio, descomentar `parked_mercado.register(mcp)` en
+`api/mcp/server.py`.
 
 ## Auth — dos caminos
 
@@ -116,7 +125,7 @@ loguea).
 4. Sin OAuth Client ID ni Client Secret — los detecta solo via DCR.
 5. Apretá **Conectar**. Se abre browser → CF Access te pide email + OTP →
    logueás → vuelve a Claude → conectado.
-6. En el chat, las 41 tools deberían aparecer al toque.
+6. En el chat, las 13 tools de renta variable deberían aparecer al toque.
 
 ### Claude Code
 
@@ -136,10 +145,11 @@ Settings → Connectors → Add custom connector → URL =
 
 Una vez conectado, podés pedirle a Claude cosas como:
 
-- "Mostrame las Lecap rankeadas por rolldown esperado a 60 días."
-- "Comparame la curva CER de hoy vs hace 30 días, qué tramo se movió más."
-- "¿Hay dislocaciones de breakevens vs el último REM publicado?"
-- "Mostrame la chain de calls de Galicia cerca del ATM con sus IV."
+- "Mostrame el tablero de CEDEARs ahora, ordenado por variación en USD."
+- "¿Qué papeles de IA hicieron más vueltas de 0.5% hoy para scalpear?"
+- "Quiero comprar USD 20k de NVDA, ¿cómo me cubro vs SPY?"
+- "Analizá el riesgo de un book AAPL:10000, MSFT:8000, TSLA:-5000."
+- "Dame los soportes y resistencias de YPF en los 4 timeframes."
 
 Claude llama las tools, agrupa los datos, razona y te devuelve el insight.
 Cada llamada paga ~50–300 ms. Cache TTL de 60–300s en muchos services.

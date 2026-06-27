@@ -39,6 +39,7 @@ __all__ = [
     "get_pivot_points",
     "get_quant_stats",
     "get_ticker_returns",
+    "get_universo",
 ]
 
 
@@ -313,6 +314,30 @@ def get_cedears_scanner() -> list[dict]:
             "adr_dollar_vol": adr.get("adr_dollar_vol"),
             "updated_at": s.get("updated_at"),
         })
+    return out
+
+
+@cached(ttl=300)
+def get_universo() -> list[dict]:
+    """Catálogo de CEDEARs activos (master categórico, sin precios). Una fila por
+    CEDEAR con su clasificación de negocio. Útil para descubrir qué papeles existen
+    y filtrar por sector/rubro/región/IA antes de pedir live o quant. Lee
+    `mercado.cedears WHERE activo IS TRUE`."""
+    out: list[dict] = []
+    for m in _master_activos():
+        out.append({
+            "ticker_corto": m.get("ticker_corto"),
+            "nombre": m.get("nombre"),
+            "underlying": m.get("underlying"),
+            "ratio_cedear": m.get("ratio_cedear"),
+            "sector": m.get("sector"),
+            "rubro": m.get("rubro"),
+            "es_ia": m.get("es_ia"),
+            "industria": m.get("industria"),
+            "region": m.get("region"),
+            "pais": m.get("pais"),
+        })
+    out.sort(key=lambda d: (d.get("ticker_corto") or ""))
     return out
 
 

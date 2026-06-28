@@ -76,23 +76,16 @@ def get_ultimo_mep() -> dict:
     Devuelve {mep, ccl, canje, oficial, timestamp, source}. Los 4 campos
     numéricos pueden ser None si los inputs WS no están disponibles.
 
-    El `oficial` viene de Valuaciones.DolarOficialLive (MAE UST$T mayorista
+    El `oficial` viene de valuaciones.dolar_oficial_live (MAE UST$T mayorista
     plazo 000) — fuente única del dólar oficial en toda la app. Es
     independiente de la fuente del MEP/CCL: el snapshot WS no lo escribe."""
+    from core import dolar_sql
     from core.dolar_oficial import mid_oficial_live
 
-    db = get_db_valuaciones()
-
-    snap = db["DolarSnapshot"].find_one(
-        {"_id": "current"},
-        {"_id": 0, "mep": 1, "ccl": 1, "canje": 1, "timestamp": 1, "source": 1},
-    )
+    snap = dolar_sql.snapshot_live()
     base = snap if (snap and snap.get("mep") is not None) else None
     if base is None:
-        doc = db["Dolar"].find_one(
-            {}, {"_id": 0, "mep": 1, "ccl": 1, "canje": 1, "timestamp": 1},
-            sort=[("timestamp", -1)],
-        )
+        doc = dolar_sql.ultimo("mep")
         if doc:
             doc["source"] = "cron_close"
         base = doc or {}
@@ -103,36 +96,22 @@ def get_ultimo_mep() -> dict:
 
 @cached(ttl=300)
 def get_ultimo_uva() -> float | None:
-    """Último UVA cargado MANUALMENTE en `Trading.UVA`.
+    """Último UVA cargado MANUALMENTE en `macro.uva` (1 valor por fecha).
 
-    Cada doc tiene `{valor_uva: <float>}` (más lo que sea — el resto se ignora).
-    Toma el más reciente por `_id` (ObjectId time-based). Cuando UVA cambia,
-    se inserta un doc nuevo desde Compass o `scripts/insertar_uva.py` — el
-    cron diario / motor lo levanta solo (vía cache TTL 5min).
-    """
-    doc = get_db_trading()["UVA"].find_one(sort=[("_id", -1)])
-    if not doc:
-        return None
-    v = doc.get("valor_uva")
-    try:
-        return float(v) if v is not None else None
-    except (TypeError, ValueError):
-        return None
+    Cuando UVA cambia se inserta una fila nueva (carga manual) — el cron diario /
+    motor lo levanta solo (vía cache TTL 5min)."""
+    from core import dolar_sql
+    return dolar_sql.ultimo_uva()
 
 
 @cached(ttl=300)
 def get_historico_mep(desde: str | None = None, hasta: str | None = None) -> list:
-    """Serie histórica del dólar MEP (Valuaciones.Dolar)."""
-    db = get_db_valuaciones()
-    filtro: dict = {}
-    if desde or hasta:
-        rango: dict = {}
-        if desde:
-            rango["$gte"] = datetime.fromisoformat(desde)
-        if hasta:
-            rango["$lte"] = datetime.fromisoformat(hasta + "T23:59:59")
-        filtro["timestamp"] = rango
-    return list(db["Dolar"].find(filtro, {"_id": 0, "mep": 1, "timestamp": 1}))
+    """Serie histórica del dólar MEP (valuaciones.dolar). [{mep, timestamp}]."""
+    from core import dolar_sql
+    d = datetime.fromisoformat(desde).replace(tzinfo=UTC) if desde else datetime(2000, 1, 1, tzinfo=UTC)
+    h = (datetime.fromisoformat(hasta + "T23:59:59").replace(tzinfo=UTC)
+         if hasta else datetime.now(UTC))
+    return dolar_sql.serie("mep", d, h)
 
 
 @cached(ttl=60)
@@ -148,17 +127,15 @@ def get_historico_dolares(
     continuidad visual (sin cortes intraday, sin huecos los fines de
     semana cuando se conectan los puntos en el frontend).
 
-    Fuentes:
-      - MEP / CCL → último tick del día en Valuaciones.Dolar (WS engines/dolares.py).
-      - Oficial   → Trading.DOLAR (A3500 BCRA fixing diario, escrito por
+    Fuentes (SQL-native, decomiso Mongo):
+      - MEP / CCL → último tick del día (ART) en valuaciones.dolar (WS engines/dolares.py).
+      - Oficial   → macro.series_macro serie 'DOLAR' (A3500 BCRA fixing diario,
                     jobs/bcra.py 22 UTC L-V). 1 valor por día garantizado.
-                    Antes usábamos dolarapi.com pero a veces no popula y
-                    BCRA es la fuente oficial canónica.
 
     Default ventana: últimos `ventana_dias` (30).
     """
-    db_val = get_db_valuaciones()
-    db_tr = get_db_trading()
+    from core import dolar_sql
+    from core.series_macro import serie_dict
 
     # Resolución de ventana
     if hasta:
@@ -170,41 +147,16 @@ def get_historico_dolares(
     else:
         desde_dt = hasta_dt - timedelta(days=ventana_dias)
 
-    # MEP + CCL: aggregate por día, último tick del día (`$last`).
-    pipeline = [
-        {"$match": {"timestamp": {"$gte": desde_dt, "$lte": hasta_dt}}},
-        {"$sort": {"timestamp": 1}},
-        {"$group": {
-            "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
-            "mep": {"$last": "$mep"},
-            "ccl": {"$last": "$ccl"},
-        }},
-        {"$sort": {"_id": 1}},
-    ]
-    mep_ccl_docs = list(db_val["Dolar"].aggregate(pipeline))
-    mep_series = [
-        {"ts": d["_id"], "valor": float(d["mep"])}
-        for d in mep_ccl_docs if d.get("mep") is not None
-    ]
-    ccl_series = [
-        {"ts": d["_id"], "valor": float(d["ccl"])}
-        for d in mep_ccl_docs if d.get("ccl") is not None
-    ]
+    # MEP + CCL: último tick por día (ART) desde valuaciones.dolar.
+    dias = dolar_sql.serie_diaria(desde_dt, hasta_dt)
+    mep_series = [{"ts": d["ts"], "valor": d["mep"]} for d in dias if d.get("mep") is not None]
+    ccl_series = [{"ts": d["ts"], "valor": d["ccl"]} for d in dias if d.get("ccl") is not None]
 
-    # Oficial = Trading.DOLAR (A3500 BCRA fixing diario). El campo `fecha`
-    # ya es string YYYY-MM-DD y hay 1 doc por día — no hace falta reducir.
+    # Oficial = serie A3500 BCRA (macro.series_macro). 1 valor por día (string YYYY-MM-DD).
     desde_str = desde_dt.strftime("%Y-%m-%d")
     hasta_str = hasta_dt.strftime("%Y-%m-%d")
-    docs_of = list(
-        db_tr["DOLAR"].find(
-            {"fecha": {"$gte": desde_str, "$lte": hasta_str},
-             "valor": {"$gt": 0}},
-            {"_id": 0, "fecha": 1, "valor": 1},
-        ).sort("fecha", 1)
-    )
-    oficial_series = [
-        {"ts": d["fecha"], "valor": float(d["valor"])} for d in docs_of
-    ]
+    of = serie_dict("DOLAR", desde_str, hasta_str, positivo=True)
+    oficial_series = [{"ts": f, "valor": v} for f, v in sorted(of.items())]
 
     return {"mep": mep_series, "ccl": ccl_series, "oficial": oficial_series}
 

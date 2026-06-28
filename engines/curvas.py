@@ -171,14 +171,11 @@ def cargar_mep_actual(client) -> float | None:
     Usado para convertir precios de bonos soberanos ley-NY en pesos
     (ticker sin sufijo D/C) a USD antes del cálculo de YTM.
     """
-    snap = client["Valuaciones"]["DolarSnapshot"].find_one(
-        {"_id": "current"}, {"_id": 0, "mep": 1},
-    )
+    from core import dolar_sql
+    snap = dolar_sql.snapshot_live()
     if snap and snap.get("mep"):
         return float(snap["mep"])
-    doc = client["Valuaciones"]["Dolar"].find_one(
-        {"mep": {"$gt": 0}}, {"_id": 0, "mep": 1}, sort=[("timestamp", -1)],
-    )
+    doc = dolar_sql.ultimo("mep")
     if doc and doc.get("mep"):
         return float(doc["mep"])
     return None

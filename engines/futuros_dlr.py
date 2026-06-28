@@ -163,10 +163,9 @@ def _spot_referencia(client) -> tuple[float | None, str]:
         return v, "a3500_bcra"
 
     # 3) Último fallback: MEP (incorrecto conceptualmente pero mejor que None)
-    doc = client["Valuaciones"]["Dolar"].find_one(
-        {"mep": {"$gt": 0}}, {"_id": 0, "mep": 1}, sort=[("timestamp", -1)],
-    )
-    if doc:
+    from core import dolar_sql
+    doc = dolar_sql.ultimo("mep")
+    if doc and doc.get("mep"):
         return float(doc["mep"]), "mep_fallback"
 
     return None, "none"

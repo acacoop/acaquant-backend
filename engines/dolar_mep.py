@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pyRofex
 
-from core.mongo import get_mongo_client
+from core.pg_mirror import write_native
 from core.rofex_session import inicializar_sesion
 
 TICKER_AL30  = "MERV - XMEV - AL30 - CI"
@@ -41,7 +41,6 @@ def run():
         print("❌ No se pudo inicializar sesión.")
         return
 
-    client = get_mongo_client()
     try:
         al30_offer  = obtener_offer(TICKER_AL30)
         al30d_bid   = obtener_bid(TICKER_AL30D)
@@ -51,8 +50,10 @@ def run():
 
         mep = round(al30_offer / al30d_bid, 4)
 
+        # SQL-NATIVE (decomiso Mongo): histórico → valuaciones.dolar (PK timestamp).
+        # timestamp AWARE (ART) → timestamptz sin ambigüedad.
         doc = {
-            "timestamp":  ahora.replace(tzinfo=None),
+            "timestamp":  ahora,
             "al30_offer": al30_offer,
             "al30d_bid":  al30d_bid,
             "mep":        mep,
@@ -71,7 +72,7 @@ def run():
         except Exception as e_ccl:
             print(f"⚠ AL30C no disponible este turno: {e_ccl}. Se persiste solo MEP.")
 
-        client["Valuaciones"]["Dolar"].insert_one(doc)
+        write_native("dolar", ["timestamp"], [doc])
 
         if "ccl" in doc:
             print(
@@ -83,8 +84,6 @@ def run():
 
     except Exception as e:
         print(f"Error: {e}")
-    # No cerramos el client: es singleton compartido (core/mongo.py).
-    # El proceso muere al terminar el cron y el OS reclama el FD.
 
 
 if __name__ == "__main__":

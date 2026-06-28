@@ -19,7 +19,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from api.cache import cached
-from api.db import get_db_trading, get_db_valuaciones
+from api.db import get_db_trading
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers de anchors históricos
@@ -61,24 +61,15 @@ def _last_le(series: list[tuple[date, float]], target: date) -> float | None:
 
 
 def _serie_dolar(field: str) -> list[tuple[date, float]]:
-    """Serie histórica del campo `field` (mep|ccl|canje) desde Valuaciones.Dolar.
-    Devuelve último valor por día, ordenado ascendente."""
-    db = get_db_valuaciones()
-    docs = list(
-        db["Dolar"]
-        .find({field: {"$ne": None}}, {"_id": 0, "timestamp": 1, field: 1})
-        .sort("timestamp", 1)
-    )
-    # Quedarse con el último por día (cron escribe varias por día ahora).
+    """Serie histórica del campo `field` (mep|ccl|canje) desde valuaciones.dolar
+    (SQL-native). Devuelve último valor por día (ART), ordenado ascendente."""
+    from core import dolar_sql
     by_day: dict[date, float] = {}
-    for d in docs:
-        ts = d.get("timestamp")
-        if not isinstance(ts, datetime):
+    for fecha_s, v in dolar_sql.por_dia(field).items():
+        try:
+            by_day[datetime.strptime(fecha_s, "%Y-%m-%d").date()] = float(v)
+        except (ValueError, TypeError):
             continue
-        v = d.get(field)
-        if v is None:
-            continue
-        by_day[ts.date()] = float(v)
     return sorted(by_day.items())
 
 
@@ -118,10 +109,10 @@ _DOLAR_SNAPSHOT_MAX_AGE_S = 60
 
 
 def _live_dolar() -> dict:
-    """Snapshot live de MEP/CCL/canje desde Valuaciones.DolarSnapshot,
-    fallback al último Valuaciones.Dolar si el snapshot está ausente o stale."""
-    db = get_db_valuaciones()
-    snap = db["DolarSnapshot"].find_one({"_id": "current"})
+    """Snapshot live de MEP/CCL/canje desde valuaciones.dolar_snapshot,
+    fallback al último valuaciones.dolar si el snapshot está ausente o stale."""
+    from core import dolar_sql
+    snap = dolar_sql.snapshot_live()
     if snap and snap.get("mep") is not None:
         ts = snap.get("timestamp")
         is_fresh = (
@@ -136,15 +127,15 @@ def _live_dolar() -> dict:
                 "ts":    ts,
                 "src":   "live",
             }
-    last = db["Dolar"].find_one(
-        {"mep": {"$ne": None}},
-        {"_id": 0, "mep": 1, "ccl": 1, "canje": 1, "timestamp": 1},
-        sort=[("timestamp", -1)],
-    )
+    last = dolar_sql.ultimo("mep")
     if last:
-        last["ts"] = last.pop("timestamp", None)
-        last["src"] = "cron"
-        return last
+        return {
+            "mep":   last.get("mep"),
+            "ccl":   last.get("ccl"),
+            "canje": last.get("canje"),
+            "ts":    last.get("timestamp"),
+            "src":   "cron",
+        }
     return {"mep": None, "ccl": None, "canje": None, "ts": None, "src": "none"}
 
 

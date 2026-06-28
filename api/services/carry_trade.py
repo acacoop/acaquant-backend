@@ -32,30 +32,19 @@ def _q(sql: str, params: tuple = ()) -> list[dict]:
 
 
 def _serie_mep_diaria(db_val, desde: date, hasta: date) -> dict[date, float]:
-    """Último valor de MEP por día desde Valuaciones.Dolar (cron + WS)."""
-    inicio = datetime.combine(desde, datetime.min.time())
-    fin = datetime.combine(hasta + timedelta(days=1), datetime.min.time())
-    pipeline = [
-        {"$match": {
-            "timestamp": {"$gte": inicio, "$lt": fin},
-            "mep":       {"$gt": 0},
-        }},
-        {"$addFields": {
-            "fecha": {"$dateToString": {"format": "%Y-%m-%d", "date": "$timestamp"}},
-        }},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {
-            "_id":   "$fecha",
-            "valor": {"$first": "$mep"},
-        }},
-    ]
+    """Último valor de MEP por día desde valuaciones.dolar (SQL-native)."""
+    from zoneinfo import ZoneInfo
+
+    from core import dolar_sql
+    art = ZoneInfo("America/Argentina/Buenos_Aires")
+    inicio = datetime.combine(desde, datetime.min.time(), tzinfo=art)
+    fin = datetime.combine(hasta + timedelta(days=1), datetime.min.time(), tzinfo=art)
     out: dict[date, float] = {}
-    for r in db_val["Dolar"].aggregate(pipeline):
+    for fecha_s, valor in dolar_sql.por_dia("mep", inicio, fin).items():
         try:
-            f = datetime.strptime(r["_id"], "%Y-%m-%d").date()
-        except ValueError:
+            out[datetime.strptime(fecha_s, "%Y-%m-%d").date()] = float(valor)
+        except (ValueError, TypeError):
             continue
-        out[f] = float(r["valor"])
     return out
 
 

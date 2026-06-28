@@ -29,7 +29,7 @@ import time
 import traceback
 from datetime import UTC, datetime
 
-from core.mongo import get_mongo_client
+from core.pg_mirror import write_snapshot
 from core.rofex_session import inicializar_sesion
 from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
@@ -66,8 +66,8 @@ class DolaresEngine:
     """Mantiene book de los 3 tickers y publica MEP/CCL/canje."""
 
     def __init__(self):
-        self.client = get_mongo_client()
-        self.col_snap = self.client["Valuaciones"]["DolarSnapshot"]
+        # SQL-NATIVE (decomiso Mongo): el snapshot live va a valuaciones.dolar_snapshot
+        # (1 fila fija id='current', upsert cada 5s). Ya no toca Mongo.
 
         # market_state[ticker] = {bid: {price,size}, offer: {price,size}, last:..}
         self.market_state: dict[str, dict] = {t: {} for t in TICKERS}
@@ -126,9 +126,9 @@ class DolaresEngine:
         if al30_offer is None and al30d_bid is None and al30c_bid is None:
             return
 
-        doc = {
-            "_id":         "current",  # único doc fijo
-            "timestamp":   ts,
+        row = {
+            "id":          "current",  # única fila fija
+            "ts":          ts,
             "al30_offer":  al30_offer,
             "al30d_bid":   al30d_bid,
             "al30c_bid":   al30c_bid,
@@ -137,7 +137,7 @@ class DolaresEngine:
             "canje":       canje,
             "source":      "ws_live",
         }
-        self.col_snap.replace_one({"_id": "current"}, doc, upsert=True)
+        write_snapshot("dolar_snapshot", ["id"], [row])
 
     @staticmethod
     def _extract_price(level: dict | None) -> float | None:

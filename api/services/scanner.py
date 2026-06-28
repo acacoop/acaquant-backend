@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from api.cache import cached
-from api.db import get_db_trading, get_db_valuaciones
+from api.db import get_db_trading
 
 # Si Valuaciones.DolarSnapshot._id="current" tiene timestamp más viejo que
 # esto, lo consideramos stale y caemos al último Valuaciones.Dolar.
@@ -51,15 +51,13 @@ def get_ccl_live() -> dict:
       1. Valuaciones.DolarSnapshot._id='current' si timestamp ≤ 60s.
       2. Fallback al último doc con ccl en Valuaciones.Dolar.
     """
-    db = get_db_valuaciones()
+    from core import dolar_sql
 
     # ── Live ────────────────────────────────────────────────────────
     ccl_value: float | None = None
     ts: datetime | None = None
 
-    snap = db["DolarSnapshot"].find_one(
-        {"_id": "current"}, {"ccl": 1, "timestamp": 1}
-    )
+    snap = dolar_sql.snapshot_live()
     if snap:
         snap_ts = snap.get("timestamp")
         if isinstance(snap_ts, datetime):
@@ -69,11 +67,7 @@ def get_ccl_live() -> dict:
                 ts = snap_ts
 
     if ccl_value is None:
-        latest = db["Dolar"].find_one(
-            {"ccl": {"$ne": None}},
-            {"_id": 0, "ccl": 1, "timestamp": 1},
-            sort=[("timestamp", -1)],
-        )
+        latest = dolar_sql.ultimo("ccl")
         if latest and latest.get("ccl"):
             ccl_value = float(latest["ccl"])
             ts = latest.get("timestamp")
@@ -82,17 +76,13 @@ def get_ccl_live() -> dict:
         return {"value": None, "vs_1d_pct": None, "ts": None}
 
     # ── Cierre día previo ──────────────────────────────────────────
-    # Último doc con timestamp < hoy 00:00 UTC. Si ayer no hubo doc
-    # (feriado, weekend), el query devuelve el último día hábil — es
-    # exactamente lo que queremos para "1D".
+    # Último registro con timestamp < hoy 00:00 UTC. Si ayer no hubo dato
+    # (feriado, weekend), devuelve el último día hábil — exactamente lo que
+    # queremos para "1D".
     today_start = datetime.now(UTC).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    prev = db["Dolar"].find_one(
-        {"ccl": {"$ne": None}, "timestamp": {"$lt": today_start}},
-        {"_id": 0, "ccl": 1},
-        sort=[("timestamp", -1)],
-    )
+    prev = dolar_sql.ultimo("ccl", antes_de=today_start)
     vs_1d_pct: float | None = None
     if prev and prev.get("ccl"):
         ccl_prev = float(prev["ccl"])

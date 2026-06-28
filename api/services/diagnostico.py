@@ -86,6 +86,18 @@ def _leer_frescura(p: Pieza) -> tuple[datetime | None, str | None]:
         if not doc:
             return None, None
         return _parse_ts(doc.get("finished_at"), "datetime", "UTC"), doc.get("status")
+    if p.tabla:
+        # Frescura SQL (decomiso Mongo): max(ts_expr::timestamptz) de la tabla.
+        try:
+            from core.postgres import get_pool
+            where = f" WHERE {p.sql_where}" if p.sql_where else ""
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.execute(f"SELECT max(({p.ts_expr})::timestamptz) FROM {p.tabla}{where}")
+                row = cur.fetchone()
+            ts = row[0] if row else None
+            return (asegurar_aware(ts, UTC) if ts else None), None
+        except Exception:
+            return None, None
     if p.coll and p.field:
         filtro = {p.field: {"$exists": True, "$nin": [None, ""]}}
         if p.filtro:

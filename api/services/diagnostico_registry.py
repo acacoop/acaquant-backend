@@ -47,6 +47,13 @@ class Pieza:
     filtro: dict | None = None
     ts_kind: str = "datetime"       # datetime | iso | ddmmyyyy
     assume: str = "UTC"             # UTC | AR — tz a asumir si el ts es naive
+    # Fuente de frescura SQL (decomiso Mongo): si `tabla` está seteada, la frescura
+    # se lee de Postgres (max(ts_expr::timestamptz)), no de Mongo. Para snapshots SQL
+    # el updated_at fresco vive en `data->>'updated_at'` (la columna queda con el
+    # now() del primer insert). `sql_where` filtra (ej. mercado_hist por colección).
+    tabla: str | None = None        # tabla SQL (sin schema, search_path)
+    ts_expr: str = "updated_at"     # expresión SQL del timestamp
+    sql_where: str | None = None    # WHERE opcional
 
 
 _H = 3600
@@ -75,7 +82,7 @@ PIEZAS: list[Pieza] = [
     # ── OPERAR ─────────────────────────────────────────────
     Pieza("OPERAR", "motor", "motor_rofex (order book)", unidad="motor_rofex",
           cadencia="live", ventana="rueda", umbral_s=120,
-          db="Trading", coll="MarketSnapshot", field="updated_at"),
+          tabla="market_snapshot"),
     Pieza("OPERAR", "motor", "motor_ordenes (ER WS)", unidad="motor_ordenes",
           cadencia="live (heartbeat 30s)", ventana="rueda_agro", umbral_s=90,
           db="Operaciones", coll="MotorOrdenesHeartbeat", field="updated_at"),
@@ -86,7 +93,7 @@ PIEZAS: list[Pieza] = [
           db="Trading", coll="TimeSales", field="timestamp", assume="AR"),
     Pieza("MERCADOS", "motor", "motor_curvas (TEA/duration)", grupo="RENTA FIJA", unidad="motor_curvas",
           cadencia="live (2s)", ventana="rueda", umbral_s=120,
-          db="Trading", coll="MarketSnapshot", field="updated_at"),
+          tabla="market_snapshot"),
     Pieza("MERCADOS", "job", "argentina_datos (CER/IPC/RP)", grupo="RENTA FIJA", unidad="jobs.argentina_datos",
           cadencia="diario 12:00 UTC", ventana="diario", umbral_s=int(1.5 * _D),
           run_tipo="argentina_datos"),
@@ -110,22 +117,24 @@ PIEZAS: list[Pieza] = [
           run_tipo="snapshot_sinteticos"),
     Pieza("MERCADOS", "motor", "motor_forwards", grupo="DERIVADOS", unidad="motor_forwards",
           cadencia="live", ventana="rueda", umbral_s=60,
-          db="Trading", coll="ForwardsLive", field="updated_at"),
+          tabla="mercado_hist", ts_expr="data->>'updated_at'",
+          sql_where="coleccion='ForwardsHistorico'"),
     Pieza("MERCADOS", "motor", "motor_futuros_dlr", grupo="DERIVADOS", unidad="motor_futuros_dlr",
           cadencia="live", ventana="rueda", umbral_s=60,
-          db="Trading", coll="FuturosDLRSnapshot", field="updated_at"),
+          tabla="futuros_dlr_snapshot", ts_expr="data->>'updated_at'"),
     Pieza("MERCADOS", "motor", "motor_breakevens", grupo="DERIVADOS", unidad="motor_breakevens",
           cadencia="live", ventana="rueda", umbral_s=60,
-          db="Trading", coll="BreakevensLive", field="updated_at"),
+          tabla="mercado_hist", ts_expr="data->>'updated_at'",
+          sql_where="coleccion='BreakevensHistorico'"),
     Pieza("MERCADOS", "motor", "motor_dolares (MEP/CCL)", grupo="DERIVADOS", unidad="motor_dolares",
           cadencia="live (5s)", ventana="rueda", umbral_s=60,
-          db="Valuaciones", coll="DolarSnapshot", field="updated_at"),
+          tabla="dolar_snapshot", ts_expr="ts"),
     Pieza("MERCADOS", "job", "dolar_mep (histórico)", grupo="DERIVADOS", unidad="engines.dolar_mep",
           cadencia="cada 15m · 13-20 UTC L-V", ventana="rueda", umbral_s=30 * 60,
-          db="Valuaciones", coll="Dolar", field="fecha", ts_kind="iso"),
+          tabla="dolar", ts_expr="timestamp"),
     Pieza("MERCADOS", "job", "forwards_zscore", grupo="DERIVADOS", unidad="jobs.forwards_zscore",
           cadencia="20:30 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
-          db="Trading", coll="ForwardsZscore", field="updated_at"),
+          tabla="forwards_zscore", ts_expr="data->>'updated_at'"),
     # cierre_canje escribe SQL-native (mercado.canje_cierre) desde el cutover 2026-06-24;
     # Trading.CanjeCierre Mongo dropeada → ya no se chequea esa colección (el diagnostico no
     # lee SQL todavía). TODO: wirear JobRunLogger + run_tipo="cierre_canje" para frescura fina.
@@ -133,19 +142,19 @@ PIEZAS: list[Pieza] = [
           cadencia="20:35 UTC L-V", ventana="diario", umbral_s=int(3 * _D)),
     Pieza("MERCADOS", "api", "MAE UST$T (dólar oficial, MANUAL)", grupo="DERIVADOS",
           cadencia="cada 30s en rueda (script PC oficina)", ventana="rueda", umbral_s=5 * 60,
-          db="Valuaciones", coll="DolarOficialLive", field="updated_at"),
+          tabla="dolar_oficial_live"),
 
     Pieza("MERCADOS", "motor", "motor_caucion (TNA)", grupo="DERIVADOS", unidad="motor_caucion",
           cadencia="live", ventana="rueda", umbral_s=60,
-          db="Trading", coll="CaucionSnapshot", field="updated_at"),
+          tabla="caucion_snapshot", ts_expr="data->>'updated_at'"),
 
     # ── MERCADOS · AGRO ────────────────────────────────────
     Pieza("MERCADOS", "motor", "motor_agro", grupo="AGRO", unidad="motor_agro",
           cadencia="live", ventana="rueda_agro", umbral_s=60,
-          db="Trading", coll="AgroSnapshot", field="updated_at"),
+          tabla="agro_snapshot", ts_expr="data->>'updated_at'"),
     Pieza("MERCADOS", "motor", "motor_agro_opciones", grupo="AGRO", unidad="motor_agro_opciones",
           cadencia="live", ventana="rueda_agro", umbral_s=60,
-          db="Trading", coll="AgroOpcionesSnapshot", field="updated_at"),
+          tabla="agro_opciones_snapshot", ts_expr="data->>'updated_at'"),
 
     # ── MERCADOS · RENTA VARIABLE ──────────────────────────
     # motor_cedears: CedearsSnapshot migrada a SQL (mercado.cedears_snapshot) 2026-06-24.
@@ -171,7 +180,7 @@ PIEZAS: list[Pieza] = [
     # ── MERCADOS · OPCIONES (GGAL) ─────────────────────────
     Pieza("MERCADOS", "motor", "motor_options (GGAL)", grupo="OPCIONES", unidad="motor_options",
           cadencia="live", ventana="rueda", umbral_s=180,
-          db="Opciones", coll="OptionsSnapshot", field="updated_at"),
+          tabla="options_snapshot"),
 
     # ── NEGOCIO ────────────────────────────────────────────
     Pieza("NEGOCIO", "job", "operaciones_informes", unidad="jobs.operaciones_informes",
@@ -224,7 +233,7 @@ PIEZAS: list[Pieza] = [
           run_tipo="actividad_mensual"),
     Pieza("PORTFOLIOS", "motor", "motor_portfolio_snapshot", unidad="motor_portfolio_snapshot",
           cadencia="live", ventana="rueda", umbral_s=120,
-          db="Trading", coll="PortfolioSnapshot", field="updated_at"),
+          tabla="portfolio_snapshot"),
 ]
 
 

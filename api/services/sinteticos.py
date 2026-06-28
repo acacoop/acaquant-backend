@@ -161,13 +161,8 @@ def get_sinteticos() -> dict[str, Any]:
     ]
     px_map: dict[str, float] = {}
     if all_tickers:
-        for s in db["MarketSnapshot"].find(
-            {"ticker": {"$in": all_tickers}},
-            {"_id": 0, "ticker": 1, "metrics.last_price": 1},
-        ):
-            last = (s.get("metrics") or {}).get("last_price")
-            if last:
-                px_map[s["ticker"]] = last
+        from core.market_snapshot import metric_map
+        px_map = metric_map(all_tickers, "last_price", positivo=True)  # SQL-only
 
     long_lecap = _build_long_lecap(lecaps, fut_by_ym, px_map, spot, today)
     short_dlk = _build_short_dlk(dlks, fut_by_ym, px_map, spot, today)

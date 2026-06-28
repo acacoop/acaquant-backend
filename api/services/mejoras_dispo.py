@@ -103,13 +103,8 @@ def get_mejoras_dispo() -> dict[str, Any]:
     lecap_tickers = [c["ticker"] for c in lecaps if c.get("ticker")]
     tea_map: dict[str, float] = {}
     if lecap_tickers:
-        for s in trading["MarketSnapshot"].find(
-            {"ticker": {"$in": lecap_tickers}, "metrics.TEA": {"$ne": None}},
-            {"_id": 0, "ticker": 1, "metrics.TEA": 1},
-        ):
-            tea = (s.get("metrics") or {}).get("TEA")
-            if tea is not None:
-                tea_map[s["ticker"]] = tea
+        from core.market_snapshot import metric_map
+        tea_map = metric_map(lecap_tickers, "tea")  # SQL-only (mercado.market_snapshot)
 
     bloques = []
     for commodity in COMMODITIES:

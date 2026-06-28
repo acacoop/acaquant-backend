@@ -43,8 +43,8 @@ def _last_trade(client, ticker_full: str) -> dict | None:
     (engines/curvas.py) y la vista (renta_fija.listar_curva). NO TimeSales: un
     bono puede tener precio de pantalla (market data) sin haber operado, así que
     leer TimeSales daba 'sin trades' aunque la vista muestre precio."""
-    doc = client["Trading"]["MarketSnapshot"].find_one(
-        {"ticker": ticker_full}, {"_id": 0, "updated_at": 1, "metrics": 1})
+    from core.market_snapshot import snapshot_docs
+    doc = snapshot_docs([ticker_full]).get(ticker_full)  # SQL-only
     if not doc:
         return None
     m = doc.get("metrics") or {}

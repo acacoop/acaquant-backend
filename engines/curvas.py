@@ -19,7 +19,7 @@ from datetime import date, datetime, timedelta
 import numpy as np
 from pymongo import UpdateOne
 
-from core import pg_mirror
+from core import market_snapshot, pg_mirror
 from core.mongo import get_mongo_client
 from engines._curvas_loader import cargar_indexado_por_ticker
 from quant.xirr import xirr as _xirr_quant
@@ -734,13 +734,14 @@ def run():
                 ultimo_reload_a3500 = time.time()
                 ultimo_calculado.clear()
 
-            # Lectura del snapshot live: 1 doc por ticker. Sin agregaciones
-            # caras sobre TimeSales. valores.py escribe metrics.last_price
-            # cada 1s; tomamos el último.
-            ms_docs = list(col_ms.find(
-                {"ticker": {"$in": tickers}, "metrics.last_price": {"$gt": 0}},
-                {"_id": 0, "ticker": 1, "updated_at": 1, "metrics.last_price": 1},
-            ))
+            # Lectura del snapshot live SQL-only (mercado.market_snapshot.last_price,
+            # escrito por valores.py). Se arma el mismo shape {ticker, updated_at,
+            # metrics.last_price} que consumía el loop.
+            ms_docs = [
+                {"ticker": d["ticker"], "updated_at": d["updated_at"],
+                 "metrics": {"last_price": d["last_price"]}}
+                for d in market_snapshot.last_prices(tickers)
+            ]
 
             if not ms_docs:
                 time.sleep(INTERVALO_SEGUNDOS)

@@ -63,6 +63,22 @@ def metric_map(tickers, col: str, positivo: bool = False) -> dict[str, float]:
         return {r[0]: float(r[1]) for r in cur.fetchall()}
 
 
+def last_prices(tickers) -> list[dict]:
+    """[{ticker, last_price, updated_at}] con last_price > 0. Lean (sin book jsonb)
+    para el loop de curvas, que lo lee cada pocos segundos."""
+    tickers = list(tickers)
+    if not tickers:
+        return []
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT ticker, last_price, updated_at FROM mercado.market_snapshot "
+            "WHERE ticker = ANY(%s) AND last_price > 0",
+            (tickers,),
+        )
+        return [{"ticker": r[0], "last_price": float(r[1]), "updated_at": r[2]}
+                for r in cur.fetchall()]
+
+
 def cols_map(tickers, cols: list[str]) -> dict[str, dict]:
     """{ticker: {col: valor|None}} para varias columnas. Sin filtro de NULL —
     el caller decide. Para casos que necesitan varias métricas juntas (ej. TEA+duration)."""

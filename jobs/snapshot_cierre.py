@@ -67,22 +67,11 @@ def _meta_curvas(client, curva: str) -> dict[str, dict]:
 
 
 def _market_snapshots(client, tickers: list[str]) -> dict[str, dict]:
-    """Lee el estado del cierre desde Trading.MarketSnapshot.
-    ticker → {metrics: {last_price, total_nominals, TEA, TEM, duration,
-              mod_duration, convexity, paridad}}."""
-    out: dict[str, dict] = {}
-    cur = client["Trading"]["MarketSnapshot"].find(
-        {"ticker": {"$in": tickers}},
-        {"_id": 0, "ticker": 1,
-         "metrics.last_price": 1, "metrics.total_nominals": 1,
-         "metrics.TEA": 1, "metrics.TEM": 1,
-         "metrics.duration": 1, "metrics.mod_duration": 1,
-         "metrics.convexity": 1, "metrics.paridad": 1},
-    )
-    for d in cur:
-        if d.get("ticker"):
-            out[d["ticker"]] = d
-    return out
+    """Estado del cierre — SQL-only (mercado.market_snapshot). ticker →
+    {ticker, metrics: {last_price, total_nominals, TEA, TEM, duration,
+    mod_duration, convexity, paridad}, book, updated_at}."""
+    from core.market_snapshot import snapshot_docs
+    return snapshot_docs(tickers)
 
 
 def _norm_fecha(v) -> str | None:

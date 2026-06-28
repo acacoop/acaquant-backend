@@ -197,16 +197,19 @@ def ensure_indexes(coll) -> None:
     )
 
 
-def cargar_maps_enrich(db) -> tuple[dict, dict]:
+def cargar_maps_enrich(db=None) -> tuple[dict, dict]:
     """Carga (catálogo tipo→{mercado,operacion}, id_cuenta→nivel_1) — para
-    enriquecer inline en la ingesta diaria sin scan completo de la colección."""
-    cat = {
-        d["tipo_operacion"]: d
-        for d in db["TiposOperacion"].find(
-            {}, {"_id": 0, "tipo_operacion": 1, "mercado": 1, "operacion": 1}
-        )
-        if d.get("tipo_operacion")
-    }
+    enriquecer inline en la ingesta diaria sin scan completo de la colección.
+
+    SQL-native (decomiso Mongo): el catálogo se lee de `operaciones.tipos_operacion`
+    (jsonb `data` con mercado/operacion), ya no de Mongo `CashFlow.TiposOperacion`.
+    El param `db` se mantiene por compat de llamadas viejas pero se ignora."""
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT tipo_operacion, data->>'mercado', data->>'operacion' "
+                    "FROM tipos_operacion")
+        cat = {t: {"tipo_operacion": t, "mercado": m, "operacion": o}
+               for t, m, o in cur.fetchall() if t}
     niveles = _niveles_por_cuenta()
     return cat, niveles
 

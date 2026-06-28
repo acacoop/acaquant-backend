@@ -35,7 +35,7 @@ sys.path.insert(0, ".")
 from api.services import operaciones_informes as svc
 from api.services._negocio_sql_read import negocio_movimientos_rows
 from core.job_runs import JobRunLogger
-from core.mongo import get_mongo_client
+from core.pg_mirror import write_native
 from core.postgres import get_job_pool
 
 # Upsert NO destructivo a SQL operaciones.operaciones: en INSERT setea todos los
@@ -153,14 +153,12 @@ def _map_doc(d: dict, niveles: dict, assets: dict, now: datetime) -> tuple[str, 
 
 def run(full: bool = False) -> dict:
     with JobRunLogger("fci_bilateral") as jr:
-        client = get_mongo_client()
-        db = client["CashFlow"]                  # solo para el catálogo TiposOperacion (Mongo)
         now = datetime.now(UTC)
 
-        # 1) Catálogo (idempotente) — TiposOperacion sigue en Mongo (catálogo chico).
-        for c in _CATALOGO:
-            db["TiposOperacion"].update_one(
-                {"tipo_operacion": c["tipo_operacion"]}, {"$set": c}, upsert=True)
+        # 1) Catálogo (idempotente) — TiposOperacion SQL-native (operaciones.tipos_operacion,
+        #    decomiso Mongo): upsert por tipo_operacion, doc completo en `data` jsonb.
+        write_native("tipos_operacion", ["tipo_operacion"],
+                     [{"tipo_operacion": c["tipo_operacion"], "data": c} for c in _CATALOGO])
 
         # 2) Taggear los CL históricos ya en SQL operaciones (carga manual) que no
         #    están en negocio_movimientos → no se pisarían en el paso 5. Es un
@@ -176,7 +174,7 @@ def run(full: bool = False) -> dict:
                 conn.commit()
 
         # 3) Maps de enriquecimiento (segmento/nivel_3 por cuenta) + Assets (instrumento).
-        _, niveles = svc.cargar_maps_enrich(db)
+        _, niveles = svc.cargar_maps_enrich()
         assets = _assets_cafci_map()
 
         # 4) Leer FCI bilateral desde SQL operaciones.negocio_movimientos:

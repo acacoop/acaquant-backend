@@ -25,7 +25,6 @@ from api.services import operaciones_informes as svc
 from api.services.aunesa_informes import parse_monto
 from core import aunesa
 from core.job_runs import JobRunLogger
-from core.mongo import get_mongo_client
 from core.postgres import get_job_pool
 
 _INFORMES = "operaciones/informes"
@@ -96,9 +95,9 @@ def _fetch_cuenta(cuenta: str, conc_desde: str, conc_hasta: str,
 
 def run(desde_d: date, hasta_d: date, workers: int) -> dict:
     with JobRunLogger("operaciones_informes") as jr:
-        client = get_mongo_client()
-        db = client["CashFlow"]                  # solo para el catálogo TiposOperacion (Mongo)
-        maps = svc.cargar_maps_enrich(db)
+        # Catálogo TiposOperacion SQL-native (operaciones.tipos_operacion) — ver
+        # operaciones_informes.cargar_maps_enrich (decomiso Mongo).
+        maps = svc.cargar_maps_enrich()
 
         # Fuente de cuentas: TODAS las que ya operan (SQL operaciones) + comitentes.
         # Comitentes solo NO alcanza: los FCI/sociedades gerentes y la cuenta

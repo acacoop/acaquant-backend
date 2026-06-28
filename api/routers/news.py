@@ -1,16 +1,14 @@
 """Router News: headlines agregados de RSS (News.Headlines) + reader mode."""
 import ipaddress
 import logging
-import os
 import socket
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from api.ratelimit import limiter
 from api.services import news_sql
-from core.mongo import get_mongo_client_read
 
 logger = logging.getLogger(__name__)
 
@@ -102,10 +100,6 @@ _ARTICLE_CACHE_TTL = 3600.0
 _ARTICLE_CACHE_MAX = 200
 
 
-def _db():
-    return get_mongo_client_read()["News"]
-
-
 def _parse_date(s: str | None) -> datetime | None:
     if not s:
         return None
@@ -134,43 +128,11 @@ def list_headlines(
     endpoint cada 60s con `limit` chico; la vista de noticias (si se arma)
     puede paginar con `skip`.
     """
-    if os.getenv("NEWS_SQL") == "1":
-        return news_sql.list_headlines(
-            desde=_parse_date(desde), hasta=_parse_date(hasta), fuente=fuente,
-            categoria=categoria, keyword=keyword, limit=limit, skip=skip)
-    filtro: dict = {}
-
-    d_desde = _parse_date(desde)
-    d_hasta = _parse_date(hasta)
-    if d_desde or d_hasta:
-        rango: dict = {}
-        if d_desde: rango["$gte"] = d_desde
-        if d_hasta: rango["$lte"] = d_hasta
-        filtro["fecha_publicacion"] = rango
-
-    if fuente:    filtro["fuente"] = fuente
-    if categoria: filtro["categoria"] = categoria
-    if keyword:
-        import re
-        filtro["titulo"] = {"$regex": re.escape(keyword), "$options": "i"}
-
-    cur = (
-        _db()["Headlines"]
-        .find(filtro, {"_id": 0})
-        .sort("fecha_publicacion", -1)
-        .skip(skip)
-        .limit(limit)
-    )
-    docs = []
-    for d in cur:
-        # Serializar fechas a ISO string
-        for k in ("fecha_publicacion", "fetched_at"):
-            v = d.get(k)
-            if isinstance(v, datetime):
-                d[k] = v.astimezone(UTC).isoformat()
-        docs.append(d)
-
-    return docs
+    # SQL-native (decomiso Mongo): los writers news_finnhub/news_ingesta escriben
+    # home.news_headlines directo; News.Headlines (Mongo) quedó stale.
+    return news_sql.list_headlines(
+        desde=_parse_date(desde), hasta=_parse_date(hasta), fuente=fuente,
+        categoria=categoria, keyword=keyword, limit=limit, skip=skip)
 
 
 @router.get("/article")
@@ -263,25 +225,5 @@ def article(
 @router.get("/stats")
 def stats(horas: int = Query(24, ge=1, le=720)):
     """Stats agregados por fuente en las últimas N horas (útil para debugging)."""
-    if os.getenv("NEWS_SQL") == "1":
-        return news_sql.stats(horas)
-    desde = datetime.now(UTC) - timedelta(hours=horas)
-    pipeline = [
-        {"$match": {"fecha_publicacion": {"$gte": desde}}},
-        {"$group": {
-            "_id": "$fuente",
-            "count": {"$sum": 1},
-            "last":  {"$max": "$fecha_publicacion"},
-        }},
-        {"$sort": {"count": -1}},
-    ]
-    rows = list(_db()["Headlines"].aggregate(pipeline))
-    out = []
-    for r in rows:
-        last = r.get("last")
-        out.append({
-            "fuente": r["_id"],
-            "count":  r["count"],
-            "last":   last.astimezone(UTC).isoformat() if isinstance(last, datetime) else None,
-        })
-    return {"periodo_horas": horas, "total": sum(r["count"] for r in out), "por_fuente": out}
+    # SQL-native (decomiso Mongo): home.news_headlines.
+    return news_sql.stats(horas)

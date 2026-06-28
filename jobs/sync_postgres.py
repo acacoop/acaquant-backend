@@ -175,18 +175,10 @@ def sync_accionistas(mdb, conn, dry) -> int:
 
 
 def sync_tipos_operacion(mdb, conn, dry) -> int:
-    """CashFlow.TiposOperacion → operaciones.tipos_operacion (catálogo chico, mapeo
-    tipo_operacion→mercado/operacion). Espejo para tenerlo en SQL; el enrich de los
-    writers SIGUE leyendo Mongo (corre en el proceso del job). PK = tipo_operacion."""
-    rows = []
-    for d in mdb["CashFlow"]["TiposOperacion"].find({}, {"_id": 0}):
-        t = _s(d.get("tipo_operacion"))
-        if t:
-            rows.append((t, _jsonb(d)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "tipos_operacion", ["tipo_operacion", "data"], ["tipo_operacion"], rows, dry)
-    _delete_not_in(conn, "tipos_operacion", "tipo_operacion", {r[0] for r in rows}, dry)
-    return n
+    # NEUTRALIZADO (no-op) — decomiso 2026-06-28: jobs/fci_bilateral.py escribe
+    # operaciones.tipos_operacion SQL-native y operaciones_informes lo lee de SQL. El puente
+    # leía Mongo (congelado) y _delete_not_in borraría el catálogo fresco.
+    return 0
 
 
 def sync_volumen_mercado_agro(mdb, conn, dry) -> int:
@@ -455,23 +447,9 @@ def sync_role_audit(mdb, conn, dry) -> int:
 
 
 def sync_actividad_mensual(mdb, conn, dry) -> int:
-    """Clientes.ActividadMensual → tabla actividad_mensual (snapshot point-in-time, se espeja
-    tal cual; operador/segmento están CONGELADOS al correr el job — NO recomputar en vivo)."""
-    cols = ["year_month", "id_cuenta", "operador_email", "operador_nombre", "nivel_1",
-            "n_ops", "volumen_ars"]
-    rows = []
-    for d in mdb["Clientes"]["ActividadMensual"].find({}, {
-        "year_month": 1, "id_cuenta": 1, "operador_email": 1, "operador_nombre": 1,
-        "nivel_1": 1, "n_ops": 1, "volumen_ars": 1,
-    }):
-        ym, idc = _s(d.get("year_month")), _s(d.get("id_cuenta"))
-        if not (ym and idc):
-            continue
-        rows.append((ym, idc, _s(d.get("operador_email")), _s(d.get("operador_nombre")),
-                     _s(d.get("nivel_1")), d.get("n_ops"), d.get("volumen_ars")))
-    rows = _dedup(rows, [0, 1])
-    # Snapshot point-in-time: solo upsert (no se borran meses históricos).
-    return _upsert(conn, "actividad_mensual", cols, ["year_month", "id_cuenta"], rows, dry)
+    # NEUTRALIZADO (no-op) — decomiso 2026-06-28: jobs/actividad_mensual.py escribe
+    # actividad_mensual SQL-native. El puente leía Mongo (congelado) → no aporta.
+    return 0
 
 
 # sync_assets ELIMINADO (migración assets→SQL): portafolio.assets es la fuente de

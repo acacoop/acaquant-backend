@@ -2,9 +2,13 @@
 
 "Cuenta activa en el mes M" = id_cuenta con ≥1 boleto operativo
 (`_CATS_OPERACIONES`) con fecha dentro del mes calendario M. Es la métrica que
-pidió el jefe comercial. Se precalcula offline acá y se persiste en
-`Clientes.ActividadMensual` (1 doc por mes×cuenta) para que la serie histórica
+pidió el jefe comercial. Se precalcula offline acá y se persiste SQL-native en
+`clientes.actividad_mensual` (1 fila por mes×cuenta) para que la serie histórica
 sea instantánea — mismo patrón que `Valuaciones.ConsolidadoCuentas`.
+
+Decomiso Mongo (2026-06-28): el writer dejó de escribir `Clientes.ActividadMensual`
+(Mongo) y escribe directo a SQL (`core.pg_mirror.write_native`). El puente
+`jobs/sync_postgres.py::sync_actividad_mensual` queda obsoleto → neutralizar.
 
 Punto clave (point-in-time): la ACTIVIDAD sale de `NegocioMovimientos` (dato
 inmutable). El operador/segmento se toma de `Clientes.Comitentes` al momento de
@@ -26,7 +30,7 @@ from typing import Any
 
 from api.services.comercial import _CATS_OPERACIONES
 from core.job_runs import JobRunLogger
-from core.mongo import get_mongo_client
+from core.pg_mirror import write_native
 
 
 def _mes_actual_art() -> str:
@@ -67,8 +71,6 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="no escribe, solo informa")
     args = ap.parse_args()
 
-    client = get_mongo_client()
-    destino = client["Clientes"]["ActividadMensual"]
     cats = list(_CATS_OPERACIONES)
 
     with JobRunLogger("actividad_mensual") as run:
@@ -94,7 +96,6 @@ def main() -> None:
                 "SELECT c.id_cuenta, c.operador_email, o.nombre AS operador_nombre, c.nivel_1 "
                 "FROM comitentes c LEFT JOIN operadores o ON o.email = c.operador_email")
             info: dict[str, dict[str, Any]] = {str(c["id_cuenta"]): c for c in _cu.fetchall()}
-        ahora = datetime.now(UTC)
         docs: list[dict[str, Any]] = []
         meses_tocados: set[str] = set()
         for f in filas:
@@ -102,6 +103,8 @@ def main() -> None:
             idc = str(f["_id"]["id"])
             meta = info.get(idc, {})
             meses_tocados.add(ym)
+            # Columnas de clientes.actividad_mensual (sin `data` jsonb; sin computed_at,
+            # que no existe como columna). Operador/segmento CONGELADOS al correr el job.
             docs.append({
                 "year_month": ym,
                 "id_cuenta": idc,
@@ -110,7 +113,6 @@ def main() -> None:
                 "nivel_1": meta.get("nivel_1"),
                 "n_ops": f["n_ops"],
                 "volumen_ars": round(f.get("volumen_ars", 0.0), 2),
-                "computed_at": ahora,
             })
 
         run.set_stat("meses", sorted(meses_tocados))
@@ -122,10 +124,15 @@ def main() -> None:
             run.log("DRY-RUN: no se escribió nada.")
             return
 
-        # Idempotente: reemplaza por completo los meses (re)calculados.
-        destino.delete_many({"year_month": {"$in": sorted(meses_tocados)}})
-        destino.insert_many(docs)
-        run.log(f"✅ {len(docs)} docs persistidos en Clientes.ActividadMensual.")
+        # SQL-native idempotente: reemplaza por completo los meses (re)calculados.
+        # DELETE de los meses tocados (purga cuentas que dejaron de operar) + upsert.
+        from core.postgres import get_job_pool
+        with get_job_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM actividad_mensual WHERE year_month = ANY(%s)",
+                        (sorted(meses_tocados),))
+            conn.commit()
+        write_native("actividad_mensual", ["year_month", "id_cuenta"], docs)
+        run.log(f"✅ {len(docs)} filas persistidas en SQL clientes.actividad_mensual.")
 
 
 if __name__ == "__main__":

@@ -87,25 +87,35 @@ _JOBS_STATUS = [
 
 # APIs externas que alimentan data — chequeamos el último dato escrito
 # por el job consumidor. Tupla:
-# (db, coll, field, tipo_ts, filtro, nombre, umbral_min, cadencia_label, solo_en_rueda)
+# (db, coll, field, tipo_ts, filtro, nombre, umbral_min, cadencia_label, solo_en_rueda, sql)
+#   sql = None                      → frescura desde Mongo (motor/job todavía Mongo-primary).
+#   sql = (tabla, ts_expr[, where]) → frescura desde Postgres (writer SQL-native, decomiso
+#         Mongo). En ese caso db/coll/field/filtro se ignoran (se dejan documentales).
 #
 # solo_en_rueda=True → fuera de la ventana 10-17 ART no se espera data
 # nueva, último conocido se muestra como "fuera_ventana" (no stale).
 _APIS_EXTERNAS = [
     ("Valuaciones", "DolarOficialLive",     "updated_at",        "datetime",
-     None,                          "MAE UST$T (PC oficina)",   5,    "cada 30s en rueda",       True),
+     None,                          "MAE UST$T (PC oficina)",   5,    "cada 30s en rueda",       True,  None),
     ("Trading",     "RiesgoPais",           "fecha",              "iso",
-     None,                          "argentinadatos (RP)",      36*60, "diario 12:00 UTC",       False),
+     None,                          "argentinadatos (RP)",      36*60, "diario 12:00 UTC",       False, None),
     ("Trading",     "InflacionMensual",     "fecha",              "iso",
-     None,                          "argentinadatos (IPC)",     36*60, "diario 12:00 UTC",       False),
+     None,                          "argentinadatos (IPC)",     36*60, "diario 12:00 UTC",       False, None),
+    # NegocioMovimientos migrada a SQL (operaciones.negocio_movimientos) — writer
+    # jobs/negocio_movimientos.py SQL-native; el Mongo quedó stale → frescura desde SQL.
     ("CashFlow",    "NegocioMovimientos",   "ingestado_en",       "datetime",
-     None,                          "Aunesa (boletos)",         70,    "cada 60 min en rueda",   True),
+     None,                          "Aunesa (boletos)",         70,    "cada 60 min en rueda",   True,
+     ("negocio_movimientos", "ingestado_en")),
     ("Market",      "Quotes",               "updated_at",         "datetime",
-     None,                          "Yahoo (market_quotes)",    10,    "cada 1 min 13-21 UTC L-V", True),
+     None,                          "Yahoo (market_quotes)",    10,    "cada 1 min 13-21 UTC L-V", True, None),
+    # News.Headlines migrada a SQL (home.news_headlines) — writers news_finnhub/news_ingesta
+    # SQL-native; el Mongo quedó stale → frescura desde SQL.
     ("News",        "Headlines",            "fecha_publicacion",  "datetime",
-     {"fuente": "finnhub"},         "Finnhub news",             60,    "*/30 min 12-23 UTC",     False),
+     {"fuente": "finnhub"},         "Finnhub news",             60,    "*/30 min 12-23 UTC",     False,
+     ("news_headlines", "fecha_publicacion", "fuente = 'finnhub'")),
     ("News",        "Headlines",            "fecha_publicacion",  "datetime",
-     {"fuente": {"$ne": "finnhub"}},"RSS medios AR",            45,    "*/15 min 12-23 UTC",     False),
+     {"fuente": {"$ne": "finnhub"}},"RSS medios AR",            45,    "*/15 min 12-23 UTC",     False,
+     ("news_headlines", "fecha_publicacion", "fuente <> 'finnhub'")),
 ]
 
 
@@ -172,17 +182,21 @@ def get_status():
         }
 
     def check_api(s):
-        db_n, coll, field, tipo, filtro, nombre, umbral_min, cadencia, solo_rueda = s
-        base_filtro = {field: {"$exists": True, "$nin": [None, ""]}}
-        if filtro:
-            base_filtro = {**base_filtro, **filtro}
-        doc = _fetch_last(db_n, coll, field, base_filtro)
-        if not doc:
+        db_n, coll, field, tipo, filtro, nombre, umbral_min, cadencia, solo_rueda, sql = s
+        if sql:
+            ts_raw = _fetch_last_sql(*sql)
+        else:
+            base_filtro = {field: {"$exists": True, "$nin": [None, ""]}}
+            if filtro:
+                base_filtro = {**base_filtro, **filtro}
+            doc = _fetch_last(db_n, coll, field, base_filtro)
+            ts_raw = doc.get(field) if doc else None
+        if ts_raw is None:
             return {
                 "nombre": nombre, "ultimo": None, "hace": "—",
                 "cadencia": cadencia, "estado": "sin_datos",
             }
-        ts = _parse_ts(doc.get(field), tipo)
+        ts = _parse_ts(ts_raw, tipo)
         if not ts:
             return {
                 "nombre": nombre, "ultimo": str(doc.get(field))[:19], "hace": "—",

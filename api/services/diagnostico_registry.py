@@ -71,13 +71,13 @@ PIEZAS: list[Pieza] = [
     Pieza("HOME", "job", "economic_calendar", unidad="jobs.economic_calendar",
           cadencia="diario ~11:30 UTC", ventana="diario", umbral_s=int(1.5 * _D),
           db="Market", coll="EconomicCalendar", field="fetched_at"),
+    # News.Headlines → SQL home.news_headlines (writers news_finnhub/news_ingesta SQL-native).
     Pieza("HOME", "api", "Finnhub news", grupo=None, unidad="jobs.news_finnhub",
           cadencia="*/30m · 12-23 UTC", ventana="always", umbral_s=3 * _H,
-          db="News", coll="Headlines", field="fecha_publicacion", filtro={"fuente": "finnhub"}),
+          tabla="news_headlines", ts_expr="fecha_publicacion", sql_where="fuente = 'finnhub'"),
     Pieza("HOME", "api", "RSS medios AR", unidad="jobs.news_ingesta",
           cadencia="*/15m · 12-23 UTC", ventana="always", umbral_s=3 * _H,
-          db="News", coll="Headlines", field="fecha_publicacion",
-          filtro={"fuente": {"$ne": "finnhub"}}),
+          tabla="news_headlines", ts_expr="fecha_publicacion", sql_where="fuente <> 'finnhub'"),
 
     # ── OPERAR ─────────────────────────────────────────────
     Pieza("OPERAR", "motor", "motor_rofex (order book)", unidad="motor_rofex",

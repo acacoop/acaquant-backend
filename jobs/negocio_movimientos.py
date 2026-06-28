@@ -1,8 +1,10 @@
 """negocio_movimientos.py — pega a Aunesa, consolida y persiste boletos
-del día en CashFlow.NegocioMovimientos.
+del día SQL-native en `operaciones.negocio_movimientos` (Postgres).
 
-Idempotente por `(fecha, comprobante)`: si ya existe el boleto, se
-actualiza con $set; si es nuevo, upsert. No duplica.
+Decomiso Mongo: el writer NO escribe `CashFlow.NegocioMovimientos` (Mongo);
+escribe directo a SQL (ON CONFLICT). El puente `jobs/sync_postgres.py::sync_negocio`
+ya fue ELIMINADO. Idempotente por `(fecha, comprobante)`: si ya existe el boleto,
+se actualiza; si es nuevo, inserta. No duplica.
 
 Cron: una corrida por hora de 12 ART a 22 ART (15-22 UTC) L-V.
 Ver deploy/crontab.txt.
@@ -162,7 +164,7 @@ def main() -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--fecha", help="YYYY-MM-DD; default: hoy ART")
     parser.add_argument("--dry", action="store_true",
-                        help="No escribe a Mongo, solo reporta cuántos persistirían")
+                        help="No escribe a SQL, solo reporta cuántos persistirían")
     args = parser.parse_args()
 
     if args.fecha:

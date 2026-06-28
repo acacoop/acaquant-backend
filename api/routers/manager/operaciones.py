@@ -11,7 +11,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.services import operaciones_informes as svc
-from core.mongo import get_mongo_client
 from core.postgres import get_pool
 
 logger = logging.getLogger("api.manager.operaciones")
@@ -33,8 +32,8 @@ def operaciones_backfill(req: _BackfillReq):
         raise HTTPException(status_code=400, detail="Lote vacío.")
     try:
         # Enriquecimiento (mercado/operacion/segmento/nivel_3) igual que la ingesta
-        # diaria — el catálogo TiposOperacion sigue en Mongo (chico).
-        maps = svc.cargar_maps_enrich(get_mongo_client()["CashFlow"])
+        # diaria — catálogo TiposOperacion SQL-native (operaciones.tipos_operacion).
+        maps = svc.cargar_maps_enrich()
         return svc.ingestar_filas_sql(req.rows, enrich_maps=maps)
     except Exception as e:
         logger.exception("operaciones_backfill failed")

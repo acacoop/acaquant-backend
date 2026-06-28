@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
+from api.services import operativa_mep_sql as _op_sql
 from api.services._grupos_scope import scope_cuentas, verificar_account
 from api.services._idempotencia import ejecutar_idempotente
 from api.services.operativa_mep import (
@@ -28,6 +29,18 @@ from api.services.operativa_mep import (
 
 router = APIRouter(prefix="/api/operativa", tags=["operativa"])
 logger = logging.getLogger("api.operativa")
+
+
+def _read_sql(engine: str | None) -> bool:
+    """Dual-run de LECTURA (listado del día + drilldown): SQL si flag ORDENES_SQL=1,
+    con override por request (`?_engine=sql|mongo`). El path Mongo queda intacto →
+    rollback = sacar el flag. SOLO afecta de dónde salen los docs del listado/detalle;
+    la CREACIÓN de operativas y el envío al broker NO cambian."""
+    if engine == "sql":
+        return True
+    if engine == "mongo":
+        return False
+    return _op_sql.operativas_sql_on()
 
 
 class MepIn(BaseModel):
@@ -141,23 +154,29 @@ def crear_mep_venta(
 @router.get("/mep/dia")
 def listar_dia(
     account: str | None = None,
+    _engine: str | None = Query(None, include_in_schema=False),
     _email: str = Depends(get_user_email),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> list[dict]:
-    """Operativas MEP del día UTC, con join a OrdenesLive + USD/MEP efectivo."""
+    """Operativas MEP del día UTC, con join a OrdenesLive + USD/MEP efectivo.
+    Dual-run: los docs salen de SQL (flag ORDENES_SQL) o Mongo, mismo shape."""
     verificar_account(account, scope)
-    return listar_operativas_dia(account=account)
+    fn = _op_sql.listar_operativas_dia if _read_sql(_engine) else listar_operativas_dia
+    return fn(account=account)
 
 
 @router.get("/mep/{operativa_id}/detalle")
 def detalle_operativa(
     operativa_id: str,
+    _engine: str | None = Query(None, include_in_schema=False),
     _email: str = Depends(get_user_email),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> dict[str, Any]:
     """Drilldown de una operativa MEP: doc completo + 2 patas con sus
-    OrdenesLive y timeline de execution reports + REST snapshots."""
-    detalle = obtener_detalle_operativa(operativa_id)
+    OrdenesLive y timeline de execution reports + REST snapshots.
+    Dual-run: SQL (flag ORDENES_SQL) o Mongo, mismo shape."""
+    fn = _op_sql.obtener_detalle_operativa if _read_sql(_engine) else obtener_detalle_operativa
+    detalle = fn(operativa_id)
     if detalle is None:
         raise HTTPException(status_code=404, detail=f"operativa {operativa_id!r} no existe")
     verificar_account(detalle.get("account"), scope)

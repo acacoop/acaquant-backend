@@ -110,10 +110,13 @@ def _dias_habiles_ordenados() -> list[str]:
     Trading.DiasHabiles si la tabla SQL aún está vacía (correr jobs.dias_habiles
     para poblarla). El read SQL es ~25ms vs ~345ms del scan Mongo — era el cuello
     de botella de get_renta_fija."""
-    rows = _q("SELECT to_char(fecha, 'YYYY-MM-DD') AS f FROM mercado.dias_habiles ORDER BY fecha")
-    if rows:
-        return [r["f"] for r in rows]
-    # Fallback: la tabla SQL no se pobló todavía → leer Mongo (lento pero correcto).
+    try:
+        rows = _q("SELECT to_char(fecha, 'YYYY-MM-DD') AS f FROM mercado.dias_habiles ORDER BY fecha")
+        if rows:
+            return [r["f"] for r in rows]
+    except Exception:
+        # La tabla SQL no existe / no se pobló todavía → caer a Mongo (no romper).
+        logger.warning("mercado.dias_habiles no disponible — fallback a Mongo Trading.DiasHabiles")
     from core.mongo import get_mongo_client_read
     return sorted(
         d["fecha"] for d in get_mongo_client_read()["Trading"]["DiasHabiles"].find(

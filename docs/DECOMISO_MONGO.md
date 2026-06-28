@@ -5,6 +5,25 @@
 
 ---
 
+## PROGRESO DEL DECOMISO (bitácora)
+
+- **2026-06-28** — Grupo CALENDARIO + MACRO liquidado (lectura+escritura SQL-only,
+  sin fallback Mongo):
+  - `Trading.DiasHabiles` → `mercado.dias_habiles`. Helper único `core/calendario.py`.
+    **DROPEADA** (243 docs).
+  - `Trading.{CER,DOLAR,BADLAR,TAMAR,RiesgoPais,InflacionMensual,InflacionInteranual}`
+    → `macro.series_macro`. Helper `core/series_macro.py`. Writers `bcra.py` +
+    `argentina_datos.py` SQL-native. **DROPEADAS** (~13.000 docs).
+  - `Trading.REM` → `macro.rem`. `argentina_datos` SQL-native (incl. dedup).
+    Lista para DROP (verificar tras deploy).
+  - `sync_postgres`: retirados `sync_series_macro` y `sync_rem` (eran puentes Mongo→SQL).
+  - Pendiente de limpieza: twins Mongo gateados (`macro.py`, `renta_fija.py`) se
+    borran cuando se elimine el selector dual-run.
+- **Próximo:** `Trading.MarketSnapshot` (lo leen breakevens/forwards/curvas) →
+  `mercado.market_snapshot` (SNAPSHOT_SQL on). Después renta fija derivada.
+
+---
+
 ## 0. ESTADO REAL VERIFICADO (flags de prod, 2026-06-28) — LEER PRIMERO
 
 > Esta sección corrige al mapa por colección de abajo, que se generó leyendo

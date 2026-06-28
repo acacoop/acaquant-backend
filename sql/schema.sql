@@ -1251,3 +1251,53 @@ CREATE TABLE IF NOT EXISTS manager.portfolio_snapshot_log (
     n_sin_match integer,
     data        jsonb                    -- {nuevos, sin_match}
 );
+
+-- ── FAIR VALUE (curva cuadrática TEA=β0+β1·d+β2·d² + residuos + z-scores) ─────
+-- Decomiso 2026-06-28: jobs/fair_value.py pasa de Mongo a SQL-NATIVE (write_native,
+-- incondicional). Antes escribía Trading.{FitParams,FairValueResiduos} (Mongo) y leía
+-- su propia historia (ventana 30d para z_temporal) de Mongo; ahora todo vive acá.
+-- api/services/fair_value.py lee estas 2 tablas (live: β del último cierre + TEAs vivas
+-- de market_snapshot; cierre: residuos persistidos; histórico: serie del bono). NO se
+-- espejan por sync_mercado_hist (las entries FitParams/FairValueResiduos se retiran).
+
+-- Trading.FitParams → β de la cuadrática por (curva, cierre). 1 fila por curva/día.
+-- ts_cierre date (Mongo: string ISO 'YYYY-MM-DD'). Todos los campos los lee el service.
+CREATE TABLE IF NOT EXISTS mercado.fit_params (
+    ts_cierre                   date NOT NULL,   -- Mongo: ts_cierre string 'YYYY-MM-DD'
+    curva                       text NOT NULL,
+    beta0                       numeric,
+    beta1                       numeric,
+    beta2                       numeric,
+    r2                          numeric,
+    n_bonos_universo            integer,
+    vol_min_aplicado            numeric,
+    sigma_dia_bps               numeric,
+    media_residuos_universo_bps numeric,
+    updated_at                  timestamptz,
+    data                        jsonb,           -- forward-compat (campos nuevos del fit)
+    PRIMARY KEY (curva, ts_cierre)
+);
+
+-- Trading.FairValueResiduos → residuo + z-scores por (curva, ticker, cierre). El writer
+-- RELEE esta tabla (ventana 30d, ts_cierre DESC) para el z_temporal del día; el service
+-- la lee para el cierre persistido + la serie de drill-down del bono.
+CREATE TABLE IF NOT EXISTS mercado.fair_value_residuos (
+    ts_cierre    date NOT NULL,                  -- Mongo: ts_cierre string 'YYYY-MM-DD'
+    curva        text NOT NULL,
+    ticker       text NOT NULL,
+    ticker_corto text,
+    duration     numeric,
+    tea_obs      numeric,
+    tea_teorica  numeric,
+    residuo_bps  numeric,
+    z_estatico   numeric,
+    z_temporal   numeric,
+    n_obs        integer,
+    en_universo  boolean,
+    data         jsonb,                           -- forward-compat
+    PRIMARY KEY (curva, ticker, ts_cierre)
+);
+-- PK (curva, ticker, ts_cierre) ya sirve el lookup del z_temporal (curva+ticker+rango).
+-- Índice extra para la serie de drill-down por ticker SIN curva (get_fair_value_historico_bono).
+CREATE INDEX IF NOT EXISTS ix_fvr_ticker_ts
+    ON mercado.fair_value_residuos (ticker, ts_cierre);

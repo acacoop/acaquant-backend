@@ -265,6 +265,68 @@ def write_native(table: str, key_cols: list[str], rows: list[dict]) -> int:
     return _mirror(table, key_cols, rows) if rows else 0
 
 
+def merge_jsonb_native(table: str, key_cols: list[str], key_vals: list, patch: dict) -> int:
+    """Merge ATÓMICO (shallow) de `patch` en la columna jsonb `data` de UNA fila, vía
+    `data = <table>.data || EXCLUDED.data` (ON CONFLICT). Es el equivalente SQL del
+    `$set` PARCIAL de Mongo: a nivel fila, sin read-modify-write → cero race entre
+    procesos que tocan campos DISTINTOS del MISMO doc.
+
+    Caso de uso: `mercado.options_metadata.config` es multi-writer — el motor
+    (`engines/options.py`) escribe `tasa`/`expiries_disponibles`, el Manager
+    (`/manager/options/expiries`) escribe `expiries`, y `update_opciones_tasa` la
+    `tasa`. Con un write_native (que reescribe el `data` entero) se pisarían entre
+    sí; con `||` cada uno mergea solo sus campos sin perder los del otro.
+
+    Las `key_cols` se inyectan dentro de `data` (paridad con el doc Mongo, que lleva
+    `type` como campo). Best-effort: nunca levanta."""
+    if not patch:
+        return 0
+    try:
+        import json
+        from functools import partial
+
+        from psycopg.types.json import Jsonb
+
+        from core.postgres import get_pool
+
+        data = dict(patch)
+        for c, v in zip(key_cols, key_vals):
+            data.setdefault(c, v)
+        data = doc_iso(data)  # datetime → ISO (igual que el resto del mirror)
+
+        dumps = partial(json.dumps, default=str)
+        cols = list(key_cols) + ["data"]
+        vals = list(key_vals) + [Jsonb(data, dumps=dumps)]
+        sql = (
+            f"INSERT INTO {table} ({','.join(cols)}) "
+            f"VALUES ({','.join(['%s'] * len(cols))}) "
+            f"ON CONFLICT ({','.join(key_cols)}) "
+            f"DO UPDATE SET data = {table}.data || EXCLUDED.data"
+        )
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, tuple(vals))
+        return 1
+    except Exception as e:
+        logger.error("pg_mirror merge_jsonb %s: %s", table, str(e).splitlines()[0][:200])
+        return 0
+
+
+def read_native_doc(table: str, key_cols: list[str], key_vals: list) -> dict:
+    """Lee la columna jsonb `data` de UNA fila por su PK. Para lectores SQL-native que
+    antes hacían `find_one` en Mongo (ej. el motor de opciones leyendo su config:
+    tasa/expiries). Devuelve {} si no hay fila. Best-effort: nunca levanta."""
+    try:
+        from core.postgres import get_pool
+        where = " AND ".join(f"{c} = %s" for c in key_cols)
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT data FROM {table} WHERE {where}", tuple(key_vals))
+            row = cur.fetchone()
+            return (row[0] or {}) if row else {}
+    except Exception as e:
+        logger.error("pg_mirror read_native_doc %s: %s", table, str(e).splitlines()[0][:200])
+        return {}
+
+
 def prune_native(table: str, col: str, days: int) -> int:
     """Retención incondicional (job SQL-native): borra filas con `col` > `days` días."""
     try:

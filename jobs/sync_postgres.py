@@ -603,18 +603,11 @@ def sync_forwards_zscore(mdb, conn, dry) -> int:
 
 
 def sync_options_metadata(mdb, conn, dry) -> int:
-    """Opciones.Metadata → options_metadata (config + vr_ggal). 2 docs, completa. La tasa
-    además se dual-writea inmediata al editarla (update_opciones_tasa); acá es el baseline."""
-    rows = []
-    for d in mdb["Opciones"]["Metadata"].find({"type": {"$in": ["config", "vr_ggal"]}},
-                                              {"_id": 0}):
-        t = _s(d.get("type"))
-        if t:
-            rows.append((t, _jsonb(d)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "options_metadata", ["type", "data"], ["type"], rows, dry)
-    _delete_not_in(conn, "options_metadata", "type", {r[0] for r in rows}, dry)
-    return n
+    # NEUTRALIZADO (no-op) — decomiso 2026-06-28: los 4 writers de Opciones.Metadata
+    # (motor options, manager/options PUT, update_opciones_tasa, volatilidad_ggal) escriben
+    # SQL-native (merge_jsonb_native). El puente leía Mongo (congelado) y _delete_not_in habría
+    # borrado config/vr_ggal frescos.
+    return 0
 
 
 def sync_options_vr(mdb, conn, dry) -> int:
@@ -722,8 +715,8 @@ def sync_curvas(mdb, conn, dry) -> tuple[int, int]:
 _MERCADO_HIST = [
     # Breakevens/Forwards/FuturosDLR/Caucion Historico: SQL-native (decomiso 2026-06-28) →
     # sacados del bridge (los motores escriben mercado_hist directo; el sync los pisaría stale).
-    ("FitParams",           "ts_cierre", ["curva"]),            # Nelson-Siegel betas (fair_value sigue Mongo)
-    ("FairValueResiduos",   "ts_cierre", ["curva", "ticker"]),  # residuos fair value
+    # FitParams/FairValueResiduos: SQL-native en tablas propias (mercado.fit_params /
+    # mercado.fair_value_residuos, decomiso 2026-06-28) — ya NO van por mercado_hist.
 ]
 
 

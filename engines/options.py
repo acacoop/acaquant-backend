@@ -14,7 +14,6 @@ from datetime import datetime
 
 import pyRofex
 
-from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
 from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
@@ -107,16 +106,13 @@ class OptionsEngine:
         self.spot_symbol = "MERV - XMEV - GGAL - 24hs"
 
         self.writer     = OptionsDataWriter()
-        self._meta_col  = get_mongo_client()["Opciones"]["Metadata"]
 
-        # Tasa: lee de Metadata si existe, si no usa el default y lo persiste
-        cfg = self._meta_col.find_one({"type": "config"})
-        self.tasa = cfg.get("tasa", 0.242) if cfg else 0.242
-        self._meta_col.update_one(
-            {"type": "config"},
-            {"$set": {"tasa": self.tasa}},
-            upsert=True
-        )
+        # Tasa: lee la config SQL-native (mercado.options_metadata.config). Si no existe
+        # usa el default y lo persiste. La config es multi-writer (motor + Manager +
+        # update_opciones_tasa) → se mergea por campo con merge_jsonb_native (`$set` parcial).
+        cfg = self._read_config()
+        self.tasa = cfg.get("tasa", 0.242)
+        self._merge_config({"tasa": self.tasa})
         logger.info(f"Tasa libre de riesgo: {self.tasa:.3f}")
 
         self.mapa_opciones, self.agrupacion_strikes = self._generar_maestra()
@@ -132,6 +128,19 @@ class OptionsEngine:
 
         # Hilo único de escritura de snapshots a MongoDB (bulk_write cada 1s)
         lanzar_hilo_vital(self._batch_snapshot_loop, "batch_snapshot_loop")
+
+    @staticmethod
+    def _read_config() -> dict:
+        """Config del motor desde SQL (mercado.options_metadata.config): tasa + expiries."""
+        from core import pg_mirror
+        return pg_mirror.read_native_doc("options_metadata", ["type"], ["config"])
+
+    @staticmethod
+    def _merge_config(patch: dict) -> None:
+        """Mergea campos en options_metadata.config sin pisar los que escriben el Manager
+        (expiries) ni update_opciones_tasa (tasa) — `$set` parcial atómico vía `||` jsonb."""
+        from core import pg_mirror
+        pg_mirror.merge_jsonb_native("options_metadata", ["type"], ["config"], patch)
 
     def _generar_maestra(self):
         """Descarga el padrón y filtra opciones GGAL según la config del Manager.
@@ -163,21 +172,18 @@ class OptionsEngine:
         if not expiries_futuras:
             return mapa, agrupacion
 
-        # Publicar disponibles (lo usa el Manager para el multi-select)
+        # Publicar disponibles (lo usa el Manager para el multi-select) — SQL-native,
+        # mergeado sobre config para no pisar `expiries`/`tasa`.
         try:
-            self._meta_col.update_one(
-                {"type": "config"},
-                {"$set": {
-                    "expiries_disponibles": sorted(expiries_futuras),
-                    "expiries_updated_at":  datetime.utcnow(),
-                }},
-                upsert=True,
-            )
+            self._merge_config({
+                "expiries_disponibles": sorted(expiries_futuras),
+                "expiries_updated_at":  datetime.utcnow(),
+            })
         except Exception as e:
             logger.warning(f"No se pudo publicar expiries_disponibles: {e}")
 
-        # Leer config del Manager (qué vencimientos eligió el user)
-        cfg = self._meta_col.find_one({"type": "config"}) or {}
+        # Leer config del Manager (qué vencimientos eligió el user) desde SQL
+        cfg = self._read_config()
         expiries_cfg = [e for e in (cfg.get("expiries") or []) if isinstance(e, str)]
 
         if expiries_cfg:
@@ -338,7 +344,7 @@ class OptionsEngine:
             # Cada ~5 min lee Metadata para aplicar cambios de tasa y expiries
             if _tick % 60 == 0:
                 try:
-                    cfg = self._meta_col.find_one({"type": "config"}) or {}
+                    cfg = self._read_config()
                     nueva = cfg.get("tasa")
                     if nueva and abs(nueva - self.tasa) > 1e-6:
                         logger.info(f"Tasa actualizada: {self.tasa:.3f} → {nueva:.3f}")

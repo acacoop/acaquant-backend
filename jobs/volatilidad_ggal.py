@@ -11,7 +11,6 @@ import pandas as pd
 import yfinance as yf
 
 from core import pg_mirror
-from core.mongo import get_mongo_client
 
 # Configuración de Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -67,19 +66,18 @@ def actualizar_historico_ggal_mongo():
             rows.append({"fecha": fecha, "data": pg_mirror.doc_iso(rec)})
         pg_mirror.replace_native("options_vr", rows)
 
-        # 3. Vol de referencia (40R) → Opciones.Metadata.vr_ggal (Mongo). Sigue en Mongo:
-        #    options_metadata es tabla compartida (config del engine + Manager UI) y la
-        #    alimenta el puente sync_options_metadata → SQL. Migrarla SQL-native acá
-        #    chocaría con ese puente. La lee el dashboard vía sync (get_opciones_meta SQL).
-        meta_col = get_mongo_client()["Opciones"]["Metadata"]
-        meta_col.update_one(
-            {"type": "vr_ggal"},
-            {"$set": {
+        # 3. Vol de referencia (40R) → mercado.options_metadata.vr_ggal SQL-NATIVE.
+        #    Mergea solo la fila type='vr_ggal' (||) → no toca la config (tasa/expiries).
+        #    Ya NO escribe Mongo: tras el decomiso, sync_options_metadata se neutraliza,
+        #    así que esta es la única escritura de la vol de referencia. La lee el
+        #    dashboard vía get_opciones_meta (SQL, OPCIONES_SQL=1).
+        pg_mirror.merge_jsonb_native(
+            "options_metadata", ["type"], ["vr_ggal"],
+            {
                 "vr_local":   round(vol_local, 4),
                 "vr_adr":     round(vol_adr,   4),
                 "updated_at": datetime.now(),
-            }},
-            upsert=True
+            },
         )
 
         print("\n" + "=" * 45)

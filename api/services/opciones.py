@@ -189,28 +189,15 @@ def get_vr_ggal_serie() -> list:
 
 
 def update_opciones_tasa(valor: float) -> dict:
-    """Actualiza la tasa libre de riesgo en Opciones.Metadata.config.
+    """Actualiza la tasa libre de riesgo en mercado.options_metadata.config (SQL-native).
+    Mergea SOLO el campo `tasa` (vía `||` jsonb) → no pisa `expiries`/`expiries_disponibles`
+    que escriben el Manager/motor. El motor la toma en su próximo chequeo (~5 min).
     Post-update hace clear_cache() (no decorator — es mutación)."""
     from api.cache import clear_cache
-    col = get_mongo_client()["Opciones"]["Metadata"]
-    col.update_one(
-        {"type": "config"},
-        {"$set": {"tasa": float(valor)}},
-        upsert=True,
+    from core import pg_mirror
+    pg_mirror.merge_jsonb_native(
+        "options_metadata", ["type"], ["config"], {"tasa": float(valor)},
     )
-    # Espejo inmediato a SQL (flag SNAPSHOT_SQL): el grid SQL lee la tasa de
-    # mercado.options_metadata. Sin esto la nueva tasa sólo llegaría a SQL en el
-    # próximo sync_postgres. Se mergea sobre el doc `config` existente (no pisa expiries).
-    try:
-        from core import pg_mirror
-        if pg_mirror.snapshots_live_on():
-            doc = col.find_one({"type": "config"}, {"_id": 0}) or {"tasa": float(valor)}
-            pg_mirror.mirror_snapshot(
-                "mercado.options_metadata", ["type"],
-                [{"type": "config", "data": pg_mirror.doc_iso(doc)}],
-            )
-    except Exception:
-        pass
     clear_cache()
     return {"ok": True, "tasa": float(valor)}
 

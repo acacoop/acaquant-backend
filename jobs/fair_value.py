@@ -14,7 +14,7 @@ Encadenado al cron de snapshot_cierre. Por cada curva:
          el OLS porque sus paridades distintas a Lecers de duration similar
          meten ruido estructural, no mispricing).
   3. Ajusta cuadrática TEA = β₀ + β₁·d + β₂·d² (quant.curve_fit).
-     Persiste β + R² en Trading.FitParams (PK ts_cierre, curva).
+     Persiste β + R² en SQL mercado.fit_params (PK curva, ts_cierre).
   4. Para CADA bono con tea+duration disponibles (filtrado o no, salvo TEA
      null que se omite por imposibilidad de calcular residuo):
        - tea_teorica = β₀ + β₁·d + β₂·d²
@@ -22,9 +22,9 @@ Encadenado al cron de snapshot_cierre. Por cada curva:
   5. z_estatico = residuo / σ(residuos del UNIVERSO FILTRADO).
      (Bonos fuera del universo se valúan con la misma σ — su z queda en
       la misma escala que los del universo.)
-  6. z_temporal: media + desvío de los últimos 30 cierres (≤30 docs ya que
-     SnapshotsCierre es diario). Si n_obs < 20 → NULL.
-  7. Persiste todo en Trading.FairValueResiduos (PK ts_cierre, curva, ticker).
+  6. z_temporal: media + desvío de los últimos 30 cierres (≤30 filas ya que
+     el cierre es diario), leídos de SQL mercado.fair_value_residuos. n_obs<20 → NULL.
+  7. Persiste todo en SQL mercado.fair_value_residuos (PK curva, ticker, ts_cierre).
 
 Uso:
     python -m jobs.fair_value
@@ -39,7 +39,7 @@ import statistics
 import sys
 from datetime import UTC, date, datetime, timedelta
 
-from core.mongo import get_mongo_client
+from core.pg_mirror import write_native
 from core.postgres import get_pool
 from quant.curve_fit import fit_quadratic
 
@@ -141,37 +141,32 @@ def _en_universo_fit(
     return not (curva == "cer" and not bono.get("is_zero_coupon"))
 
 
-def _residuos_historicos(
-    client, curva: str, ticker: str, fecha_ref: date,
-) -> list[float]:
-    """Últimos VENTANA_TEMPORAL_DIAS residuos del bono, EXCLUYENDO el día
-    actual (que todavía no se persistió). Orden no importa para media/desvío.
+def _residuos_historicos(curva: str, ticker: str, fecha_ref: date) -> list[float]:
+    """Últimos VENTANA_TEMPORAL_DIAS residuos del bono, EXCLUYENDO el día actual
+    (que todavía no se persistió). Lee de SQL `mercado.fair_value_residuos`
+    (decomiso 2026-06-28). Orden no importa para media/desvío.
     """
-    desde = (fecha_ref - timedelta(days=int(VENTANA_TEMPORAL_DIAS * 1.7))).isoformat()
-    hasta = (fecha_ref - timedelta(days=1)).isoformat()
-    cur = (
-        client["Trading"]["FairValueResiduos"]
-        .find(
-            {"curva": curva, "ticker": ticker,
-             "ts_cierre": {"$gte": desde, "$lte": hasta}},
-            {"_id": 0, "residuo_bps": 1},
-        )
-        .sort("ts_cierre", -1)
-        .limit(VENTANA_TEMPORAL_DIAS)
-    )
+    desde = fecha_ref - timedelta(days=int(VENTANA_TEMPORAL_DIAS * 1.7))
+    hasta = fecha_ref - timedelta(days=1)
     out: list[float] = []
-    for d in cur:
-        v = d.get("residuo_bps")
-        if v is not None:
-            try:
-                out.append(float(v))
-            except (TypeError, ValueError):
-                continue
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT residuo_bps FROM mercado.fair_value_residuos "
+            "WHERE curva = %s AND ticker = %s AND ts_cierre >= %s AND ts_cierre <= %s "
+            "ORDER BY ts_cierre DESC LIMIT %s",
+            (curva, ticker, desde, hasta, VENTANA_TEMPORAL_DIAS),
+        )
+        for (v,) in cur.fetchall():
+            if v is not None:
+                try:
+                    out.append(float(v))
+                except (TypeError, ValueError):
+                    continue
     return out
 
 
 def procesar_curva(
-    client, curva: str, fecha_str: str, vol_min: float, dry: bool,
+    curva: str, fecha_str: str, vol_min: float, dry: bool,
 ) -> dict:
     fecha_ref = date.fromisoformat(fecha_str)
 
@@ -225,14 +220,11 @@ def procesar_curva(
             curva, fecha_str, media_universo,
         )
 
-    col_fit = client["Trading"]["FitParams"]
-    col_res = client["Trading"]["FairValueResiduos"]
-
     if not dry:
-        col_fit.update_one(
-            {"ts_cierre": fecha_str, "curva": curva},
-            {"$set": {
-                "ts_cierre": fecha_str,
+        write_native(
+            "mercado.fit_params", ["curva", "ts_cierre"],
+            [{
+                "ts_cierre": fecha_ref,
                 "curva": curva,
                 "updated_at": datetime.now(UTC),
                 "beta0": fit.beta0, "beta1": fit.beta1, "beta2": fit.beta2,
@@ -241,13 +233,12 @@ def procesar_curva(
                 "vol_min_aplicado": vol_min,
                 "sigma_dia_bps": sigma_dia,
                 "media_residuos_universo_bps": media_universo,
-            }},
-            upsert=True,
+            }],
         )
 
     # Residuos para todos los bonos del snapshot con tea+duration disponibles
     # (filtrado o no — los que no tienen tea no se valúan).
-    n_persistidos = 0
+    res_rows: list[dict] = []
     for b in snap:
         tea = b.get("tea")
         dur = b.get("duration")
@@ -256,7 +247,7 @@ def procesar_curva(
         residuo_bps = (float(tea) - fit.predict(float(dur))) * 10000
         z_estatico = residuo_bps / sigma_dia if sigma_dia > 1e-9 else None
 
-        residuos_hist = _residuos_historicos(client, curva, b["ticker"], fecha_ref)
+        residuos_hist = _residuos_historicos(curva, b["ticker"], fecha_ref)
         n_obs = len(residuos_hist) + 1  # +1 por el de hoy que estamos guardando
         if n_obs >= N_OBS_TEMPORAL_MIN and len(residuos_hist) >= N_OBS_TEMPORAL_MIN - 1:
             # Calculamos sobre histórico + hoy.
@@ -272,8 +263,8 @@ def procesar_curva(
 
         en_universo = b["ticker"] in universo_tickers
 
-        doc = {
-            "ts_cierre":      fecha_str,
+        res_rows.append({
+            "ts_cierre":      fecha_ref,
             "curva":          curva,
             "ticker":         b["ticker"],
             "ticker_corto":   b.get("ticker_corto"),
@@ -285,14 +276,13 @@ def procesar_curva(
             "z_temporal":     z_temporal,
             "n_obs":          n_obs,
             "en_universo":    en_universo,
-        }
-        if not dry:
-            col_res.update_one(
-                {"ts_cierre": fecha_str, "curva": curva, "ticker": b["ticker"]},
-                {"$set": doc},
-                upsert=True,
-            )
-        n_persistidos += 1
+        })
+
+    n_persistidos = len(res_rows)
+    if not dry and res_rows:
+        write_native(
+            "mercado.fair_value_residuos", ["curva", "ticker", "ts_cierre"], res_rows,
+        )
 
     logger.info(
         "[%s %s] universo=%d β=(%.4f, %.4f, %.4f) R²=%.3f σ=%.1fbps residuos=%d",
@@ -324,27 +314,13 @@ def main() -> int:
         fecha_d = datetime.now(UTC).date()
     fecha_str = fecha_d.isoformat()
 
-    client = get_mongo_client()
-
-    # Índices unicos idempotentes.
-    client["Trading"]["FitParams"].create_index(
-        [("ts_cierre", 1), ("curva", 1)], unique=True, name="uq_ts_curva",
-    )
-    client["Trading"]["FairValueResiduos"].create_index(
-        [("ts_cierre", 1), ("curva", 1), ("ticker", 1)],
-        unique=True, name="uq_ts_curva_ticker",
-    )
-    # Para el lookup de residuos históricos por bono.
-    client["Trading"]["FairValueResiduos"].create_index(
-        [("curva", 1), ("ticker", 1), ("ts_cierre", -1)],
-        name="ix_curva_ticker_ts_desc",
-    )
-
+    # SQL-native (decomiso 2026-06-28): escribe mercado.{fit_params,fair_value_residuos}.
+    # Los índices/PK los garantiza sql/schema.sql (no se crean acá).
     for curva in CURVAS_V1:
-        procesar_curva(client, curva, fecha_str, args.vol_min, args.dry)
+        procesar_curva(curva, fecha_str, args.vol_min, args.dry)
 
     if args.dry:
-        logger.info("(--dry: no se escribió en Mongo)")
+        logger.info("(--dry: no se escribió en SQL)")
     return 0
 
 

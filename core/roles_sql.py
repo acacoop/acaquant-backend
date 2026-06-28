@@ -1,11 +1,19 @@
-"""core/roles_sql.py — lecturas de AUTH (roles/matriz) desde Postgres.
+"""core/roles_sql.py — lecturas + escrituras de AUTH (roles/matriz/usuarios) desde Postgres.
 
-Lecturas PURAS. El orquestador con FALLBACK vive en core/roles.py (decide SQL vs Mongo y,
-ante CUALQUIER error acá, cae a Mongo → prender AUTH_SQL nunca puede lockear). core/ solo
-importa core/ (regla de capas): solo psycopg + core.postgres. MODULES se importa lazy adentro
-de la función para no crear ciclo con core/roles.py.
+Funciones PURAS sobre `manager.manager_users` / `manager.role_matrix`. El orquestador con
+FALLBACK (lecturas) y el DUAL-WRITE best-effort (escrituras) viven en core/roles.py: Mongo
+sigue siendo la fuente de verdad y el fallback de lectura; estos writers mantienen el espejo
+SQL FRESCO al instante (sin esperar los 20 min del sync_postgres) para que con AUTH_SQL=1 el
+panel lea SQL consistente. core/ solo importa core/ (regla de capas): solo psycopg +
+core.postgres. MODULES se importa lazy adentro de cada función para no ciclar con core/roles.py.
+
+Las escrituras SQL son best-effort: el caller (core/roles.py) las envuelve en try/except y NUNCA
+deja que un error SQL tumbe la mutación real (que ya persistió en Mongo). Semántica preservada
+1:1 con Mongo — ver cada docstring.
 """
 from __future__ import annotations
+
+from datetime import datetime
 
 from psycopg.rows import dict_row
 
@@ -16,6 +24,15 @@ def _q(sql: str, params=None) -> list[dict]:
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(sql, params or ())
         return cur.fetchall()
+
+
+def _exec(sql: str, params=None) -> int:
+    """Ejecuta un statement de escritura y commitea. Devuelve rowcount."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params or ())
+        n = cur.rowcount or 0
+        conn.commit()
+        return n
 
 
 def load_matrix_sql() -> dict[str, tuple[str, ...]]:
@@ -59,3 +76,64 @@ def lookup_role_sql(email: str) -> str | None:
     if r["enabled"] is False:
         return None
     return str(r["role"]) if r["role"] else None
+
+
+# ─────────────────────────────────────────────────────────────
+# Escrituras (espejo SQL de las mutaciones de core/roles.py)
+# ─────────────────────────────────────────────────────────────
+
+def upsert_user_sql(email: str, role: str, enabled: bool, notes: str, now: datetime) -> None:
+    """Espejo SQL de roles.upsert_user. Replica el $set/$setOnInsert de Mongo:
+      - $set      → role, enabled, notes, updated_at  (se pisan en cada upsert)
+      - $setOnInsert → created_at  (SOLO al crear; NO se pisa en updates)
+    `created_at` y `auto_registered` quedan FUERA del DO UPDATE SET → en un upsert sobre
+    una fila existente NO se tocan (idéntico a Mongo, que no los lista en $set). En el INSERT
+    inicial created_at = now y auto_registered queda NULL (= "creado a mano", no auto)."""
+    _exec(
+        """
+        INSERT INTO manager_users (email, role, enabled, notes, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (email) DO UPDATE SET
+            role       = EXCLUDED.role,
+            enabled    = EXCLUDED.enabled,
+            notes      = EXCLUDED.notes,
+            updated_at = EXCLUDED.updated_at
+        """,
+        (email, role, bool(enabled), notes or "", now, now),
+    )
+
+
+def delete_user_sql(email: str) -> bool:
+    """Espejo SQL de roles.delete_user. True si borró una fila."""
+    return _exec("DELETE FROM manager_users WHERE email = %s", (email,)) > 0
+
+
+def touch_last_seen_sql(email: str, now: datetime, threshold: datetime) -> None:
+    """Espejo SQL de roles._touch_last_seen. Throttle replicado con el WHERE: solo escribe si
+    `last_seen_at` es NULL (legacy / nunca visto) o más viejo que el umbral — idéntico al
+    filtro `$or:[{$lt: threshold}, {$exists: False}]` de Mongo."""
+    _exec(
+        """
+        UPDATE manager_users SET last_seen_at = %s
+        WHERE email = %s AND (last_seen_at IS NULL OR last_seen_at < %s)
+        """,
+        (now, email, threshold),
+    )
+
+
+def auto_register_sql(email: str, role: str, notes: str, now: datetime) -> None:
+    """Espejo SQL de roles._auto_register. Replica el upsert Mongo:
+      - $set      → email, updated_at
+      - $setOnInsert → role, enabled=True, auto_registered=True, notes, created_at
+    En el INSERT setea todo; en CONFLICT (fila ya existe) SOLO toca updated_at — NO pisa
+    role/enabled/auto_registered/notes/created_at (idéntico a $setOnInsert, que no aplica
+    si el doc ya existía)."""
+    _exec(
+        """
+        INSERT INTO manager_users
+            (email, role, enabled, auto_registered, notes, created_at, updated_at)
+        VALUES (%s, %s, TRUE, TRUE, %s, %s, %s)
+        ON CONFLICT (email) DO UPDATE SET updated_at = EXCLUDED.updated_at
+        """,
+        (email, role, notes or "", now, now),
+    )

@@ -6,8 +6,9 @@ Cada 30s:
   2. Empareja cada bono tasa_fija con el CER cuyo vto es más cercano
      (Trading.Curvas). Lecap/Boncap con vto ~M ↔ CER con vto ~M.
   3. Calcula breakeven de inflación mensual implícita entre HOY y el vto.
-  4. Upsert Trading.BreakevensLive  → 1 doc global (tiempo real)
-  5. Upsert Trading.BreakevensHistorico → 1 doc por fecha (histórico diario)
+  4. Upsert SQL mercado.mercado_hist (coleccion='BreakevensHistorico') → 1 fila
+     por fecha (histórico diario; la fila de HOY se reescribe en cada corrida).
+     El "live" es la fila más reciente — ya no hay BreakevensLive en Mongo.
 
 Fórmulas:
   retorno_acumulado   = (1 + TEM)^(días/30) - 1
@@ -30,7 +31,6 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 
-from core.mongo import get_mongo_client
 from engines._curvas_loader import cargar_por_curva
 from engines.curvas import fecha_cer_liquidacion
 
@@ -357,32 +357,17 @@ def calcular_breakevens(
 # Persistencia
 # ─────────────────────────────────────────────
 
-def guardar(client, pares_result, ts, fecha_str):
+def guardar(pares_result, ts, fecha_str):
     if not pares_result:
         return
 
-    doc_base = {
-        "updated_at": ts,
-        "pares":      pares_result,
-    }
-
-    # BreakevensLive: 1 doc global, siempre pisado
-    client["Trading"]["BreakevensLive"].update_one(
-        {"_id": "breakevens"},
-        {"$set": doc_base},
-        upsert=True,
-    )
-
-    # BreakevensHistorico: 1 doc por fecha, actualizado durante el día
-    doc_hist = {**doc_base, "fecha": fecha_str}
-    client["Trading"]["BreakevensHistorico"].update_one(
-        {"fecha": fecha_str},
-        {"$set": doc_hist},
-        upsert=True,
-    )
-    # Espejo SQL (mercado_hist) — mantiene fresca la fila de HOY (flag SNAPSHOT_SQL).
-    from core.pg_mirror import mirror_hist
-    mirror_hist("BreakevensHistorico", fecha_str, "", doc_hist)
+    # SQL-NATIVE (decomiso Mongo 2026-06-28): el único write es a mercado_hist.
+    # BreakevensLive (Mongo) ya no se escribe — el reader live (mercado_hist_sql.
+    # get_breakevens) toma la fila MÁS RECIENTE de BreakevensHistorico. El doc es
+    # IDÉNTICO al que escribía el sync desde Mongo (updated_at, pares, fecha).
+    doc_hist = {"updated_at": ts, "pares": pares_result, "fecha": fecha_str}
+    from core.pg_mirror import write_hist
+    write_hist("BreakevensHistorico", fecha_str, "", doc_hist)
 
 
 # ─────────────────────────────────────────────
@@ -397,7 +382,11 @@ def cargar_dias_habiles(client):
 
 def run():
     logger.info("Motor Breakevens iniciando...")
-    client = get_mongo_client()
+    # SQL-NATIVE (decomiso Mongo): el motor no lee ni escribe Mongo. Lecturas de
+    # mercado salen de SQL (market_snapshot/series_macro/dias_habiles) y el write
+    # va a mercado_hist. Las funciones helper aún aceptan `client` (las reusan
+    # checks.py/backfills) pero lo IGNORAN → se les pasa None.
+    client = None
 
     pares         = cargar_pares()
     lecap_tickers = [p["lecap_ticker"] for p in pares]
@@ -438,7 +427,7 @@ def run():
                 precios=precios,
                 cer_actual=cer_actual,
             )
-            guardar(client, pares_result, ts, fecha_str)
+            guardar(pares_result, ts, fecha_str)
 
             n_completos = sum(1 for p in pares_result if "breakeven_mensual" in p)
             logger.info(f"{len(pares_result)} pares | {n_completos} con breakeven calculado.")

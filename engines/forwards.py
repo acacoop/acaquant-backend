@@ -5,8 +5,10 @@ Cada 30s:
   1. Lee última TEA por ticker desde Trading.TimeSales
   2. Agrupa por curva (Trading.Curvas)
   3. Calcula matriz NxN de tasas forward
-  4. Upsert Trading.ForwardsLive  → 1 doc por curva (tiempo real)
-  5. Upsert Trading.ForwardsHistorico → 1 doc por (fecha, curva) (histórico diario)
+  4. Upsert SQL mercado.mercado_hist (coleccion='ForwardsHistorico', k=curva) →
+     1 fila por (fecha, curva) (histórico diario; la fila de HOY se reescribe en
+     cada corrida). El "live" por curva es la fila más reciente — ya no hay
+     ForwardsLive en Mongo.
 
 Uso:
     /root/TradingAV/venv/bin/python /root/TradingAV/main_forwards.py
@@ -17,7 +19,6 @@ import time
 import traceback
 from datetime import UTC, datetime
 
-from core.mongo import get_mongo_client
 from engines._curvas_loader import cargar_por_curva
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -123,7 +124,7 @@ def calcular_matriz(instrumentos, tasas_tea):
 # Persistencia
 # ─────────────────────────────────────────────
 
-def guardar(client, curva, ordered, tasas, matrix, ts, fecha_str):
+def guardar(curva, ordered, tasas, matrix, ts, fecha_str):
     if not ordered:
         return
 
@@ -135,26 +136,13 @@ def guardar(client, curva, ordered, tasas, matrix, ts, fecha_str):
         "matrix":    matrix,    # forwards NxN
     }
 
-    col_live = client["Trading"]["ForwardsLive"]
-    col_hist = client["Trading"]["ForwardsHistorico"]
-
-    # ForwardsLive: 1 doc por curva, siempre pisado
-    col_live.update_one(
-        {"curva": curva},
-        {"$set": doc_base},
-        upsert=True
-    )
-
-    # ForwardsHistorico: 1 doc por (fecha, curva), actualizado durante el día
-    col_hist.update_one(
-        {"curva": curva, "fecha": fecha_str},
-        {"$set": {**doc_base, "fecha": fecha_str}},
-        upsert=True
-    )
-    # Espejo SQL (mercado_hist) — mantiene fresca la fila de HOY (flag SNAPSHOT_SQL).
-    # El doc en Mongo incluye `curva` (lo agrega el upsert desde el filtro) → idem acá.
-    from core.pg_mirror import mirror_hist
-    mirror_hist("ForwardsHistorico", fecha_str, curva, {**doc_base, "fecha": fecha_str, "curva": curva})
+    # SQL-NATIVE (decomiso Mongo 2026-06-28): el único write es a mercado_hist
+    # (coleccion='ForwardsHistorico', k=curva). ForwardsLive (Mongo) ya no se
+    # escribe — el reader live (mercado_hist_sql.get_forwards) toma la fila MÁS
+    # RECIENTE por curva. El doc es IDÉNTICO al que escribía el sync desde Mongo
+    # (curva, updated_at, tickers, tasas, matrix, fecha).
+    from core.pg_mirror import write_hist
+    write_hist("ForwardsHistorico", fecha_str, curva, {**doc_base, "fecha": fecha_str})
 
 
 # ─────────────────────────────────────────────
@@ -163,7 +151,10 @@ def guardar(client, curva, ordered, tasas, matrix, ts, fecha_str):
 
 def run():
     logger.info("Motor Forwards iniciando...")
-    client = get_mongo_client()
+    # SQL-NATIVE (decomiso Mongo): el motor no lee ni escribe Mongo. La TEA/duration
+    # salen de SQL (market_snapshot) y el write va a mercado_hist. `obtener_ultimas_teas`
+    # aún acepta `client` por firma histórica pero lo IGNORA → se le pasa None.
+    client = None
 
     grupos = cargar_por_curva()
     logger.info(f"Curvas cargadas: {list(grupos.keys())}")
@@ -186,7 +177,7 @@ def run():
             for curva, instrumentos in grupos.items():
                 ordered, tasas, matrix = calcular_matriz(instrumentos, tasas_tea)
                 if ordered:
-                    guardar(client, curva, ordered, tasas, matrix, ts, fecha_str)
+                    guardar(curva, ordered, tasas, matrix, ts, fecha_str)
                     logger.info(f"[{curva}] {len(ordered)} instrumentos | matrix {len(matrix)}x{len(ordered)}")
 
         except Exception:

@@ -5,14 +5,15 @@ coincide con "días al próximo día hábil". Lun-jue = 1D, vie = 3D
 (cubre fin de semana), vie con lunes feriado = 4D, etc. El plazo se
 re-evalúa cada hora; si cambia (cruce de día), el motor se re-suscribe.
 
-Persistencia:
-- Trading.CaucionSnapshot: 1 doc por moneda, replaced cada 15s.
+Persistencia (SQL-NATIVE — ya NO escribe Mongo, decomiso 2026-06-28):
+- mercado.caucion_snapshot: 1 fila por moneda (data jsonb), UPSERT cada 5s.
   {moneda, plazo_dias, ticker, tna_last, tna_bid, tna_offer, tna_open,
    tna_high, tna_low, tna_closing, vol_efectivo, updated_at}
-- Trading.Caucion: 1 doc por (fecha, moneda) escrito al apagado del
-  motor (cierre de rueda 20:05 UTC). Sirve como serie histórica.
+- mercado.mercado_hist (coleccion='Caucion', k=moneda): 1 fila por
+  (fecha, moneda) escrita al apagado del motor (cierre de rueda 20:05 UTC).
+  Serie histórica, mismo shape que escribía Trading.Caucion.
   {fecha, moneda, plazo_dias, tna_cierre, tna_open, tna_high, tna_low,
-   vol_dia}
+   vol_efectivo}
 
 Ejecutar:
     python -m engines.caucion
@@ -26,9 +27,6 @@ import time
 import traceback
 from datetime import UTC, date, datetime
 
-from pymongo import ReplaceOne, UpdateOne
-
-from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
 from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
@@ -57,7 +55,7 @@ signal.signal(signal.SIGINT, _handle_signal)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _cargar_dias_habiles(client) -> list[str]:
+def _cargar_dias_habiles() -> list[str]:
     """Fechas hábiles ASC desde mercado.dias_habiles (SQL-only). Cacheado por el caller."""
     from core.calendario import dias_habiles_ordenados
     return dias_habiles_ordenados()
@@ -105,11 +103,7 @@ class CaucionEngine:
     """Mantiene estado en RAM y persiste snapshot cada N segundos."""
 
     def __init__(self):
-        self.client = get_mongo_client()
-        self.col_snap = self.client["Trading"]["CaucionSnapshot"]
-        self.col_hist = self.client["Trading"]["Caucion"]
-
-        self.dias_habiles = _cargar_dias_habiles(self.client)
+        self.dias_habiles = _cargar_dias_habiles()
         self.plazo_actual = _calcular_plazo(self.dias_habiles)
         self.tickers_actuales: list[str] = list(_tickers_para_plazo(self.plazo_actual))
         logger.info(
@@ -188,26 +182,21 @@ class CaucionEngine:
 
     def _volcar_snapshot(self):
         ts = datetime.now(UTC)
-        ops = []
         docs = []
         with self._state_lock:
             for ticker in self.tickers_actuales:
                 st = self.market_state.get(ticker, {})
                 doc = self._build_snapshot_doc(ticker, st, ts)
                 if doc:
-                    ops.append(ReplaceOne({"moneda": doc["moneda"]}, doc, upsert=True))
                     docs.append(doc)
-        if ops:
-            self.col_snap.bulk_write(ops, ordered=False)
-            # Dual-write SQL (flag SNAPSHOT_SQL): snapshot live de caución.
-            try:
-                from core import pg_mirror
-                pg_mirror.mirror_snapshot("caucion_snapshot", ["moneda"], [
-                    {"moneda": d.get("moneda"), "data": pg_mirror.doc_iso(d)}
-                    for d in docs if d.get("moneda")
-                ])
-            except Exception:
-                pass
+        if docs:
+            # SQL-native (decomiso Mongo): snapshot live → mercado.caucion_snapshot
+            # (UPSERT por moneda, incondicional). Ya NO escribe Trading.CaucionSnapshot.
+            from core import pg_mirror
+            pg_mirror.write_native("caucion_snapshot", ["moneda"], [
+                {"moneda": d.get("moneda"), "data": pg_mirror.doc_iso(d)}
+                for d in docs if d.get("moneda")
+            ])
 
     def _build_snapshot_doc(self, ticker: str, st: dict, ts: datetime) -> dict | None:
         last = st.get("last") or {}
@@ -231,14 +220,17 @@ class CaucionEngine:
 
     # ─── Vuelco al cierre ─────────────────────────────────────────────────
     def vuelco_cierre(self):
-        """Persiste el último snapshot a Trading.Caucion como cierre del día.
+        """Persiste el último snapshot como cierre del día en mercado.mercado_hist
+        (coleccion='Caucion', SQL-native). Shape del doc IDÉNTICO al que escribía
+        Trading.Caucion → lo lee mercado_hist_sql.get_historico_caucion sin cambios.
 
         Llamado al recibir SIGTERM/SIGINT antes de que el proceso muera.
-        Idempotente: upsert por (fecha, moneda).
+        Idempotente: UPSERT por (coleccion, fecha, k=moneda).
         """
+        from core import pg_mirror
         hoy = date.today().isoformat()
         ts = datetime.now(UTC)
-        ops = []
+        rows = []
         with self._state_lock:
             for ticker in self.tickers_actuales:
                 st = self.market_state.get(ticker, {})
@@ -260,14 +252,15 @@ class CaucionEngine:
                     "vol_efectivo":  st.get("vol_efectivo"),
                     "persisted_at":  ts,
                 }
-                ops.append(UpdateOne(
-                    {"fecha": hoy, "moneda": moneda},
-                    {"$set": doc},
-                    upsert=True,
-                ))
-        if ops:
-            self.col_hist.bulk_write(ops, ordered=False)
-            logger.info("Vuelco de cierre OK: %d docs en Trading.Caucion", len(ops))
+                rows.append({
+                    "coleccion": "Caucion",
+                    "fecha": date.fromisoformat(hoy[:10]),
+                    "k": moneda,
+                    "data": pg_mirror.doc_iso(doc),
+                })
+        if rows:
+            pg_mirror.write_native("mercado_hist", ["coleccion", "fecha", "k"], rows)
+            logger.info("Vuelco de cierre OK: %d docs en mercado_hist (Caucion)", len(rows))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

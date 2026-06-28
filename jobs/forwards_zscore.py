@@ -2,7 +2,8 @@
 
 Lee Trading.ForwardsHistorico de los últimos 30 días hábiles disponibles, calcula
 media y desvío muestral (n-1) de cada celda (ticker_largo, ticker_corto) de la
-matriz por curva, y persiste en Trading.ForwardsZscore.
+matriz por curva, y persiste SQL-NATIVE en mercado.forwards_zscore (write_native,
+upsert por curva). Mongo Trading.ForwardsZscore YA NO se escribe (cutover SQL).
 
 El z-score NO se persiste — el front lo computa en cada refresh con el live:
     z = (forward_live − media) / desvio
@@ -26,7 +27,7 @@ import sys
 from collections import defaultdict
 from datetime import UTC, datetime
 
-from core.mongo import get_mongo_client
+from core.postgres import get_pool
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("ForwardsZscore")
@@ -36,19 +37,28 @@ N_OBS_MIN = 20
 DESVIO_MIN = 1e-6
 
 
-def _stats_curva(client, curva: str) -> tuple[dict, dict]:
-    """Devuelve (stats, meta).
+def _curvas_disponibles() -> list[str]:
+    """Curvas (k) presentes en ForwardsHistorico SQL (mercado.mercado_hist)."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT k FROM mercado.mercado_hist "
+                    "WHERE coleccion = 'ForwardsHistorico' AND k <> ''")
+        return [r[0] for r in cur.fetchall() if r[0]]
+
+
+def _stats_curva(curva: str) -> tuple[dict, dict]:
+    """Devuelve (stats, meta). Lee los últimos VENTANA_DIAS de ForwardsHistorico
+    desde SQL (mercado.mercado_hist, coleccion='ForwardsHistorico', k=curva).
 
     stats = {tk_largo: {tk_corto: {media, desvio, n_obs}}}
     meta  = {fechas_usadas: [...], n_dias: int}
     """
-    cur = (
-        client["Trading"]["ForwardsHistorico"]
-        .find({"curva": curva}, {"_id": 0, "fecha": 1, "matrix": 1})
-        .sort("fecha", -1)
-        .limit(VENTANA_DIAS)
-    )
-    docs = list(cur)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT data FROM mercado.mercado_hist "
+            "WHERE coleccion = 'ForwardsHistorico' AND k = %s "
+            "ORDER BY fecha DESC LIMIT %s",
+            (curva, VENTANA_DIAS))
+        docs = [r[0] for r in cur.fetchall()]
     if not docs:
         return {}, {"fechas_usadas": [], "n_dias": 0}
 
@@ -98,21 +108,17 @@ def main() -> int:
     parser.add_argument("--dry", action="store_true", help="No persiste, solo imprime resumen")
     args = parser.parse_args()
 
-    client = get_mongo_client()
-    col_hist = client["Trading"]["ForwardsHistorico"]
-    col_dst = client["Trading"]["ForwardsZscore"]
-
-    # Curvas presentes en histórico.
-    curvas = col_hist.distinct("curva")
+    # Curvas presentes en histórico (SQL mercado.mercado_hist).
+    curvas = _curvas_disponibles()
     if not curvas:
-        logger.warning("Trading.ForwardsHistorico vacío — nada que calcular.")
+        logger.warning("ForwardsHistorico (mercado_hist) vacío — nada que calcular.")
         return 0
 
     ts = datetime.now(UTC)
     fecha_calculo = ts.date().isoformat()
 
     for curva in curvas:
-        stats, meta = _stats_curva(client, curva)
+        stats, meta = _stats_curva(curva)
         n_pares = sum(len(inner) for inner in stats.values())
         logger.info(
             "[%s] dias=%d pares=%d descartados(n<%d)=%d descartados(desvio<%.0e)=%d",
@@ -134,13 +140,13 @@ def main() -> int:
             "stats": stats,
             "meta": meta,
         }
-        col_dst.update_one({"curva": curva}, {"$set": doc}, upsert=True)
-        # Dual-write SQL (flag MERCADO_SQL_WRITE): coeficientes z-score por curva.
-        from core.pg_mirror import doc_iso, mirror_job
-        mirror_job("forwards_zscore", ["curva"], [{"curva": curva, "data": doc_iso(doc)}])
+        # SQL-NATIVE (sin Mongo): coeficientes z-score por curva → mercado.forwards_zscore
+        # (upsert incondicional por curva). Lo lee api/services/mercado_hist_sql.
+        from core.pg_mirror import doc_iso, write_native
+        write_native("forwards_zscore", ["curva"], [{"curva": curva, "data": doc_iso(doc)}])
 
     if args.dry:
-        logger.info("(--dry: no se escribió en Mongo)")
+        logger.info("(--dry: no se escribió nada)")
     return 0
 
 

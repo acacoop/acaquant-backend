@@ -197,6 +197,28 @@ def mirror_hist(coleccion: str, fecha_str: str, k: str, doc: dict) -> int:
         return 0
 
 
+def write_hist(coleccion: str, fecha_str: str, k: str, doc: dict) -> int:
+    """SQL-native INCONDICIONAL (sin flag) de un doc histórico intradía-mutable a
+    `mercado_hist`. Twin de `mirror_hist` para MOTORES YA DECOMISADOS de Mongo
+    (breakevens/forwards): mismo shape de row (doc_iso → jsonb, fecha date, k subclave)
+    para que `mercado_hist_sql` lea IDÉNTICO a lo que escribía el sync desde Mongo, pero
+    sin gate SNAPSHOT_SQL — el SQL es la única escritura. Best-effort: nunca levanta."""
+    if not fecha_str:
+        return 0
+    try:
+        from datetime import date
+        row = {
+            "coleccion": coleccion,
+            "fecha": date.fromisoformat(str(fecha_str)[:10]),
+            "k": k or "",
+            "data": doc_iso(doc),
+        }
+        return _mirror("mercado_hist", ["coleccion", "fecha", "k"], [row])
+    except Exception as e:
+        logger.error("pg_mirror write_hist %s: %s", coleccion, str(e).splitlines()[0][:200])
+        return 0
+
+
 def _mirror(table: str, key_cols: list[str], rows: list[dict]) -> int:
     try:
         import json

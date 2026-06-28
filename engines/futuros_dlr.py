@@ -7,13 +7,14 @@ y filtra los outrights vigentes del underlying 'Dólar USA A3500':
   - ticker tiene exactamente 1 '/' (DLR/MMMYY) — no DLR/MMMYY/MMMYY (spreads)
   - ticker NO termina en 'M' (variantes paralelas, no las queremos)
 
-Persistencia:
-- Trading.FuturosDLRSnapshot: 1 doc por ticker, replaced cada 15s.
+Persistencia (SQL-NATIVE — ya NO escribe Mongo, decomiso 2026-06-28):
+- mercado.futuros_dlr_snapshot: 1 fila por ticker (data jsonb), UPSERT cada 5s.
   {ticker, vencimiento, dias_a_vto, bid, offer, last, open, high, low,
    closing, vol_efectivo, tasa_implicita_tna, updated_at}
-- Trading.FuturosDLR: 1 doc por (fecha, ticker) escrito al apagado del
-  motor (cierre 20:05 UTC). Sirve como serie histórica.
-  {fecha, ticker, vencimiento, dias_a_vto, precio_cierre, vol_dia,
+- mercado.mercado_hist (coleccion='FuturosDLR', k=ticker): 1 fila por
+  (fecha, ticker) escrita al apagado del motor (cierre 20:05 UTC). Serie
+  histórica, mismo shape que escribía Trading.FuturosDLR.
+  {fecha, ticker, vencimiento, dias_a_vto, precio_cierre, vol_efectivo,
    tasa_implicita_tna_cierre}
 
 Tasa implícita: TNA LINEAL = (precio_dlr/spot - 1) × (365 / dias_a_vto).
@@ -47,7 +48,6 @@ import traceback
 from datetime import UTC, date, datetime
 
 import pyRofex
-from pymongo import ReplaceOne, UpdateOne
 
 from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
@@ -195,9 +195,10 @@ def _tasa_implicita_tna(precio_dlr: float | None, spot: float | None, dias: int)
 
 class FuturosDLREngine:
     def __init__(self):
+        # get_mongo_client se conserva SOLO porque `_spot_referencia(self.client)` lo
+        # recibe por firma (no lee Mongo: usa core.dolar_oficial/series_macro/dolar_sql).
+        # Ya NO se escribe Mongo: el snapshot/histórico es SQL-native.
         self.client = get_mongo_client()
-        self.col_snap = self.client["Trading"]["FuturosDLRSnapshot"]
-        self.col_hist = self.client["Trading"]["FuturosDLR"]
 
         self.tickers_actuales: list[tuple[str, str]] = descubrir_outrights_dlr()
         if not self.tickers_actuales:
@@ -272,27 +273,22 @@ class FuturosDLREngine:
     def _volcar_snapshot(self):
         ts = datetime.now(UTC)
         spot, fuente_spot = _spot_referencia(self.client)
-        ops = []
         docs = []
         with self._state_lock:
             for ticker, mat in self.tickers_actuales:
                 st = self.market_state.get(ticker, {})
                 doc = self._build_snapshot_doc(ticker, mat, st, spot, fuente_spot, ts)
                 if doc:
-                    ops.append(ReplaceOne({"ticker": ticker}, doc, upsert=True))
                     docs.append(doc)
-        if ops:
-            self.col_snap.bulk_write(ops, ordered=False)
-            # Dual-write SQL (flag SNAPSHOT_SQL): snapshot live de futuros DLR.
-            try:
-                from core import pg_mirror
-                pg_mirror.mirror_snapshot("futuros_dlr_snapshot", ["ticker"], [
-                    {"ticker": d.get("ticker"), "vencimiento": d.get("vencimiento"),
-                     "data": pg_mirror.doc_iso(d)}
-                    for d in docs if d.get("ticker")
-                ])
-            except Exception:
-                pass
+        if docs:
+            # SQL-native (decomiso Mongo): snapshot live → mercado.futuros_dlr_snapshot
+            # (UPSERT por ticker, incondicional). Ya NO escribe Trading.FuturosDLRSnapshot.
+            from core import pg_mirror
+            pg_mirror.write_native("futuros_dlr_snapshot", ["ticker"], [
+                {"ticker": d.get("ticker"), "vencimiento": d.get("vencimiento"),
+                 "data": pg_mirror.doc_iso(d)}
+                for d in docs if d.get("ticker")
+            ])
 
     def _build_snapshot_doc(
         self, ticker: str, mat: str, st: dict, spot: float | None,
@@ -333,10 +329,15 @@ class FuturosDLREngine:
 
     # ─── Vuelco al cierre ─────────────────────────────────────────────────
     def vuelco_cierre(self):
+        """Persiste el cierre del día en mercado.mercado_hist (coleccion='FuturosDLR',
+        SQL-native). Shape del doc IDÉNTICO al que escribía Trading.FuturosDLR → lo lee
+        mercado_hist_sql.get_historico_futuros_dlr sin cambios. UPSERT por
+        (coleccion, fecha, k=ticker)."""
+        from core import pg_mirror
         hoy = date.today().isoformat()
         ts = datetime.now(UTC)
         spot, fuente_spot = _spot_referencia(self.client)
-        ops = []
+        rows = []
         with self._state_lock:
             for ticker, mat in self.tickers_actuales:
                 st = self.market_state.get(ticker, {})
@@ -361,14 +362,15 @@ class FuturosDLREngine:
                     "fuente_spot":                 fuente_spot,
                     "persisted_at":                ts,
                 }
-                ops.append(UpdateOne(
-                    {"fecha": hoy, "ticker": ticker},
-                    {"$set": doc},
-                    upsert=True,
-                ))
-        if ops:
-            self.col_hist.bulk_write(ops, ordered=False)
-            logger.info("Vuelco de cierre OK: %d docs en Trading.FuturosDLR", len(ops))
+                rows.append({
+                    "coleccion": "FuturosDLR",
+                    "fecha": date.fromisoformat(hoy[:10]),
+                    "k": ticker,
+                    "data": pg_mirror.doc_iso(doc),
+                })
+        if rows:
+            pg_mirror.write_native("mercado_hist", ["coleccion", "fecha", "k"], rows)
+            logger.info("Vuelco de cierre OK: %d docs en mercado_hist (FuturosDLR)", len(rows))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

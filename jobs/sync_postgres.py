@@ -565,31 +565,15 @@ def sync_calendar(mdb, conn, dry) -> int:
 # hay de dónde sincronizar.
 
 
+# sync_futuros_dlr_snapshot / sync_caucion_snapshot NEUTRALIZADOS (no-op) — decomiso 2026-06-28:
+# engines/futuros_dlr.py + engines/caucion.py escriben SQL-native. Estos puentes leían Mongo
+# (congelado) y hacían _delete_not_in → BORRARÍAN el snapshot SQL vivo del motor.
 def sync_futuros_dlr_snapshot(mdb, conn, dry) -> int:
-    """Trading.FuturosDLRSnapshot → futuros_dlr_snapshot (BASELINE; el motor lo refresca
-    live bajo SNAPSHOT_SQL). Passthrough jsonb."""
-    rows = []
-    for d in mdb["Trading"]["FuturosDLRSnapshot"].find({}, {"_id": 0}):
-        t = _s(d.get("ticker"))
-        if t:
-            rows.append((t, _s(d.get("vencimiento")), _jsonb(d)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "futuros_dlr_snapshot", ["ticker", "vencimiento", "data"], ["ticker"], rows, dry)
-    _delete_not_in(conn, "futuros_dlr_snapshot", "ticker", {r[0] for r in rows}, dry)
-    return n
+    return 0
 
 
 def sync_caucion_snapshot(mdb, conn, dry) -> int:
-    """Trading.CaucionSnapshot → caucion_snapshot (BASELINE; el motor lo refresca live)."""
-    rows = []
-    for d in mdb["Trading"]["CaucionSnapshot"].find({}, {"_id": 0}):
-        m = _s(d.get("moneda"))
-        if m:
-            rows.append((m, _jsonb(d)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "caucion_snapshot", ["moneda", "data"], ["moneda"], rows, dry)
-    _delete_not_in(conn, "caucion_snapshot", "moneda", {r[0] for r in rows}, dry)
-    return n
+    return 0
 
 
 # sync_agro_snapshot / sync_agro_opciones_snapshot / sync_agro_pizarra / sync_camara_cereales
@@ -613,16 +597,9 @@ def sync_camara_cereales(mdb, conn, dry) -> int:
 
 
 def sync_forwards_zscore(mdb, conn, dry) -> int:
-    """Trading.ForwardsZscore → forwards_zscore (BASELINE; el job lo refresca diario)."""
-    rows = []
-    for d in mdb["Trading"]["ForwardsZscore"].find({}, {"_id": 0}):
-        c = _s(d.get("curva"))
-        if c:
-            rows.append((c, _jsonb(d)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "forwards_zscore", ["curva", "data"], ["curva"], rows, dry)
-    _delete_not_in(conn, "forwards_zscore", "curva", {r[0] for r in rows}, dry)
-    return n
+    # NEUTRALIZADO (no-op) — decomiso 2026-06-28: jobs/forwards_zscore.py escribe SQL-native.
+    # El puente leía Mongo (congelado) y _delete_not_in habría borrado las curvas frescas.
+    return 0
 
 
 def sync_options_metadata(mdb, conn, dry) -> int:
@@ -743,11 +720,9 @@ def sync_curvas(mdb, conn, dry) -> tuple[int, int]:
 # upsert de cada escritor (engines/breakevens, forwards, futuros_dlr, caucion;
 # jobs/fair_value). Los snapshots LIVE no se espejan acá (ver sql/schema.sql).
 _MERCADO_HIST = [
-    ("BreakevensHistorico", "fecha",     []),                   # 1 doc/día (pares)
-    ("ForwardsHistorico",   "fecha",     ["curva"]),            # tasas + matrix
-    ("FuturosDLR",          "fecha",     ["ticker"]),           # cierre + TNA implícita
-    ("Caucion",             "fecha",     ["moneda"]),           # cierre TNA caución
-    ("FitParams",           "ts_cierre", ["curva"]),            # Nelson-Siegel betas
+    # Breakevens/Forwards/FuturosDLR/Caucion Historico: SQL-native (decomiso 2026-06-28) →
+    # sacados del bridge (los motores escriben mercado_hist directo; el sync los pisaría stale).
+    ("FitParams",           "ts_cierre", ["curva"]),            # Nelson-Siegel betas (fair_value sigue Mongo)
     ("FairValueResiduos",   "ts_cierre", ["curva", "ticker"]),  # residuos fair value
 ]
 

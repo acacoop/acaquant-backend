@@ -33,43 +33,52 @@ import logging
 import sys
 from datetime import UTC, datetime
 
+from psycopg.rows import dict_row
+
 from api.services.day_trading import UMBRALES_STATS, campo_vueltas
 from core import pg_mirror
 from core.mongo import get_mongo_client
+from core.postgres import get_pool
 from quant.intraday import analizar_vueltas
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("DayTradingStats")
 
 
-def _minutos_por_ticker(db) -> dict[str, list[dict]]:
-    """{ticker_corto: [{m, c, bm, sm} asc]} del tape de HOY (1 aggregation)."""
+def _minutos_por_ticker() -> dict[str, list[dict]]:
+    """{ticker_corto: [{c, bm, sm, tm} asc]} del tape de HOY (1 query SQL).
+
+    Lee mercado.cedears_time_sales (SQL-native desde el decomiso 2026-06-28).
+    c = último precio del minuto · bm/sm = plata comprada/vendida · tm = plata
+    total del minuto."""
     inicio_hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    cur = db["CedearsTimeSales"].aggregate([
-        {"$match": {"timestamp": {"$gte": inicio_hoy}}},
-        {"$sort": {"timestamp": 1}},
-        {"$group": {
-            "_id": {
-                "tk": "$ticker_corto",
-                "m": {"$dateToString": {"format": "%Y-%m-%dT%H:%M:00Z", "date": "$timestamp"}},
-            },
-            "c": {"$last": "$price"},
-            "bm": {"$sum": {"$cond": [{"$eq": ["$side", "BUY"]}, "$money", 0]}},
-            "sm": {"$sum": {"$cond": [{"$eq": ["$side", "SELL"]}, "$money", 0]}},
-            "tm": {"$sum": "$money"},
-        }},
-        {"$sort": {"_id.m": 1}},
-    ])
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT
+                ticker_corto,
+                (array_agg(price ORDER BY ts DESC, id DESC))[1] AS c,
+                COALESCE(sum(money) FILTER (WHERE side = 'BUY'), 0)  AS bm,
+                COALESCE(sum(money) FILTER (WHERE side = 'SELL'), 0) AS sm,
+                COALESCE(sum(money), 0)                             AS tm
+            FROM mercado.cedears_time_sales
+            WHERE ts >= %s
+            GROUP BY ticker_corto, date_trunc('minute', ts AT TIME ZONE 'UTC')
+            ORDER BY date_trunc('minute', ts AT TIME ZONE 'UTC')
+            """,
+            (inicio_hoy,),
+        )
+        rows = cur.fetchall()
     out: dict[str, list[dict]] = {}
-    for d in cur:
-        tk = (d["_id"] or {}).get("tk")
-        if not tk or d.get("c") is None:
+    for d in rows:
+        tk = d["ticker_corto"]
+        if not tk or d["c"] is None:
             continue
         out.setdefault(tk, []).append({
             "c": float(d["c"]),
-            "bm": float(d.get("bm") or 0),
-            "sm": float(d.get("sm") or 0),
-            "tm": float(d.get("tm") or 0),
+            "bm": float(d["bm"] or 0),
+            "sm": float(d["sm"] or 0),
+            "tm": float(d["tm"] or 0),
         })
     return out
 
@@ -98,7 +107,7 @@ def _run(dry: bool) -> int:
     col.create_index([("fecha", 1), ("ticker", 1)], unique=True, name="uq_fecha_ticker")
     col.create_index([("ticker", 1), ("fecha", -1)], name="ix_ticker_fecha")
 
-    minutos = _minutos_por_ticker(db)
+    minutos = _minutos_por_ticker()
     if not minutos:
         logger.warning("[%s] tape vacío — ¿corrió después del cleanup o no hubo rueda?", fecha)
         return 0

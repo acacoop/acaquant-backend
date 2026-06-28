@@ -6,9 +6,10 @@ CEDEARs — ¿qué papel me lo está dando HOY, ahora?".
 Por cada CEDEAR activo cruza:
   - Trading.CedearsSnapshot (live 1s): last, open/high/low, cierre previo,
     bid/offer (spread), vwap, total_money.
-  - Trading.CedearsTimeSales agregado por minuto (UNA aggregation para todo
-    el universo, con plata compradora/vendedora por minuto vía el `side`
-    inferido por el motor): cierres por minuto → vueltas zigzag ≥ objetivo
+  - mercado.cedears_time_sales (SQL-native desde el decomiso 2026-06-28)
+    agregado por minuto (UNA query para todo el universo, con plata
+    compradora/vendedora por minuto vía el `side` inferido por el motor):
+    cierres por minuto → vueltas zigzag ≥ objetivo
     + pata EN CURSO (quant.intraday), momentum 15' por reloj, flujo
     comprador (día y últimos 30'), minutos sin operar.
   - Trading.DayTradingStats (jobs.day_trading_stats, post-cierre): la
@@ -44,38 +45,43 @@ UMBRALES_STATS = (0.5, 0.75, 1.0, 1.5)
 _VENTANA_COSTUMBRE = 20
 
 
-def _minutos_por_ticker(db) -> dict[str, list[dict]]:
-    """{ticker_corto: [{m, c, bm, sm} por minuto de HOY, asc]} en UNA aggregation.
+def _minutos_por_ticker() -> dict[str, list[dict]]:
+    """{ticker_corto: [{m, c, bm, sm} por minuto de HOY, asc]} en UNA query SQL.
 
     m = minuto ISO · c = último precio del minuto · bm/sm = plata comprada/
     vendida en el minuto (side BUY/SELL inferido por el motor; MID se ignora
-    para el flujo pero su precio sí marca el cierre del minuto).
+    para el flujo pero su precio sí marca el cierre del minuto). Lee
+    mercado.cedears_time_sales (SQL-native desde el decomiso 2026-06-28).
     """
     inicio_hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    cur = db["CedearsTimeSales"].aggregate([
-        {"$match": {"timestamp": {"$gte": inicio_hoy}}},
-        {"$sort": {"timestamp": 1}},
-        {"$group": {
-            "_id": {
-                "tk": "$ticker_corto",
-                "m": {"$dateToString": {"format": "%Y-%m-%dT%H:%M:00Z", "date": "$timestamp"}},
-            },
-            "c": {"$last": "$price"},
-            "bm": {"$sum": {"$cond": [{"$eq": ["$side", "BUY"]}, "$money", 0]}},
-            "sm": {"$sum": {"$cond": [{"$eq": ["$side", "SELL"]}, "$money", 0]}},
-        }},
-        {"$sort": {"_id.m": 1}},
-    ])
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT
+                ticker_corto,
+                to_char(date_trunc('minute', ts AT TIME ZONE 'UTC'),
+                        'YYYY-MM-DD"T"HH24:MI:00"Z"')           AS m,
+                (array_agg(price ORDER BY ts DESC, id DESC))[1] AS c,
+                COALESCE(sum(money) FILTER (WHERE side = 'BUY'), 0)  AS bm,
+                COALESCE(sum(money) FILTER (WHERE side = 'SELL'), 0) AS sm
+            FROM mercado.cedears_time_sales
+            WHERE ts >= %s
+            GROUP BY ticker_corto, date_trunc('minute', ts AT TIME ZONE 'UTC')
+            ORDER BY date_trunc('minute', ts AT TIME ZONE 'UTC')
+            """,
+            (inicio_hoy,),
+        )
+        rows = cur.fetchall()
     out: dict[str, list[dict]] = {}
-    for d in cur:
-        tk = (d["_id"] or {}).get("tk")
-        if not tk or d.get("c") is None:
+    for d in rows:
+        tk = d["ticker_corto"]
+        if not tk or d["c"] is None:
             continue
         out.setdefault(tk, []).append({
-            "m": (d["_id"] or {}).get("m"),
+            "m": d["m"],
             "c": float(d["c"]),
-            "bm": float(d.get("bm") or 0),
-            "sm": float(d.get("sm") or 0),
+            "bm": float(d["bm"] or 0),
+            "sm": float(d["sm"] or 0),
         })
     return out
 
@@ -211,7 +217,7 @@ def get_day_trading(objetivo_pct: float = 0.5) -> dict:
             d = r["data"]
             if d and d.get("ticker"):
                 snaps[d["ticker"]] = d
-    minutos = _minutos_por_ticker(db)
+    minutos = _minutos_por_ticker()
     costumbre = _costumbre(bucket=bucket_objetivo(objetivo_pct))
 
     rows: list[dict] = []

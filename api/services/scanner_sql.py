@@ -465,9 +465,11 @@ def get_quant_stats(ticker: str, window: int = 60) -> dict:
     }
 
 
-# ── tape intradía: NO migra a SQL (vive solo en Mongo, se vacía al cierre) ────
-# CedearsTimeSales es un stream intradía efímero (cleanup al cierre) — no tiene
-# espejo SQL. Se delega al path Mongo para mantener el tape/chart live idénticos.
+# ── tape intradía: SQL-native (mercado.cedears_time_sales) ───────────────────
+# El tape de CEDEARs migró de Mongo a SQL en el decomiso 2026-06-28: motor_cedears
+# escribe mercado.cedears_time_sales (intradía, se vacía al cierre) y los readers
+# de scanner.py ya leen SQL. Estos wrappers delegan en scanner.py → SQL-native de
+# punta a punta. Se mantiene la delegación para no duplicar las dos queries.
 def get_cedears_trades(*, ticker: str, limite: int = 200) -> list[dict]:
     from api.services.scanner import get_cedears_trades as _m
     return _m(ticker=ticker, limite=limite)

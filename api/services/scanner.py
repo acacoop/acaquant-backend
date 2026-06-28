@@ -23,8 +23,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from psycopg.rows import dict_row
+
 from api.cache import cached
 from api.db import get_db_trading
+from core.postgres import get_pool
 
 # Si Valuaciones.DolarSnapshot._id="current" tiene timestamp más viejo que
 # esto, lo consideramos stale y caemos al último Valuaciones.Dolar.
@@ -511,58 +514,74 @@ def get_cedears_scanner() -> list[dict]:
 
 
 def get_cedears_trades(*, ticker: str, limite: int = 200) -> list[dict]:
-    """Time & Sales intradía de un CEDEAR (tape). Lee Trading.CedearsTimeSales
-    (trades inferidos por el motor, se vacía al cierre), filtrado a la sesión de
-    hoy, desc por timestamp. `ticker` = ticker_corto. NO cacheado: el tape tiene
-    que ir live con el poll del frontend."""
-    db = get_db_trading()
+    """Time & Sales intradía de un CEDEAR (tape). Lee mercado.cedears_time_sales
+    (SQL-native desde el decomiso 2026-06-28; trades inferidos por el motor, la
+    tabla se vacía al cierre), filtrado a la sesión de hoy, desc por `ts`.
+    `ticker` = ticker_corto. NO cacheado: el tape tiene que ir live con el poll
+    del frontend."""
     inicio_hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    cur = (
-        db["CedearsTimeSales"]
-        .find(
-            {"ticker_corto": ticker.upper(), "timestamp": {"$gte": inicio_hoy}},
-            {"_id": 0, "timestamp": 1, "price": 1, "size": 1, "side": 1, "money": 1},
+    lim = max(1, min(limite, 1000))
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT ts, price, size, side, money FROM mercado.cedears_time_sales "
+            "WHERE ticker_corto = %s AND ts >= %s ORDER BY ts DESC LIMIT %s",
+            (ticker.upper(), inicio_hoy, lim),
         )
-        .sort("timestamp", -1)
-        .limit(max(1, min(limite, 1000)))
-    )
+        rows = cur.fetchall()
     out: list[dict] = []
-    for d in cur:
-        ts = d.get("timestamp")
+    for d in rows:
+        ts = d["ts"]
         out.append({
-            "timestamp": ts.isoformat() if isinstance(ts, datetime) else ts,
-            "price":     d.get("price"),
-            "size":      d.get("size"),
-            "side":      d.get("side"),
-            "money":     d.get("money"),
+            # La clave de salida sigue siendo "timestamp" (no "ts"). Mismo formato
+            # que daba el path Mongo: ISO UTC naive, sin offset (pymongo tz_aware=
+            # False devolvía datetimes naive).
+            "timestamp": (ts.astimezone(UTC).replace(tzinfo=None).isoformat()
+                          if isinstance(ts, datetime) else ts),
+            "price":     float(d["price"]) if d["price"] is not None else None,
+            "size":      float(d["size"])  if d["size"]  is not None else None,
+            "side":      d["side"],
+            "money":     float(d["money"]) if d["money"] is not None else None,
         })
     return out
 
 
 def get_cedears_intraday(*, ticker: str) -> list[dict]:
     """Serie intradía por minuto (OHLC + vol) del CEDEAR, agregada desde el
-    Time & Sales de hoy (Trading.CedearsTimeSales). Alimenta el chart LIVE del
-    Scanner — sale del MISMO feed que la tabla y el tape, así que coincide (sin
-    el delay de TradingView). No cacheado: va live con el poll del frontend.
+    Time & Sales de hoy (mercado.cedears_time_sales, SQL-native desde el decomiso
+    2026-06-28). Alimenta el chart LIVE del Scanner — sale del MISMO feed que la
+    tabla y el tape, así que coincide (sin el delay de TradingView). No cacheado:
+    va live con el poll del frontend.
 
-    Agrupa por minuto vía $dateToString (UTC) para no depender de $dateTrunc."""
-    db = get_db_trading()
+    Agrupa por minuto en UTC (date_trunc + to_char) para emitir el mismo string
+    '%Y-%m-%dT%H:%M:00Z' que daba el $dateToString del path Mongo. open/close =
+    primer/último precio del minuto por `ts` (array_agg ordenado, `id` como
+    desempate = orden de inserción)."""
     inicio_hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    cur = db["CedearsTimeSales"].aggregate([
-        {"$match": {"ticker_corto": ticker.upper(), "timestamp": {"$gte": inicio_hoy}}},
-        {"$sort": {"timestamp": 1}},
-        {"$group": {
-            "_id": {"$dateToString": {"format": "%Y-%m-%dT%H:%M:00Z", "date": "$timestamp"}},
-            "o":   {"$first": "$price"},
-            "h":   {"$max": "$price"},
-            "l":   {"$min": "$price"},
-            "c":   {"$last": "$price"},
-            "vol": {"$sum": "$size"},
-        }},
-        {"$sort": {"_id": 1}},
-    ])
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT
+                to_char(date_trunc('minute', ts AT TIME ZONE 'UTC'),
+                        'YYYY-MM-DD"T"HH24:MI:00"Z"')           AS t,
+                (array_agg(price ORDER BY ts, id))[1]           AS o,
+                max(price)                                      AS h,
+                min(price)                                      AS l,
+                (array_agg(price ORDER BY ts DESC, id DESC))[1] AS c,
+                COALESCE(sum(size), 0)                          AS vol
+            FROM mercado.cedears_time_sales
+            WHERE ticker_corto = %s AND ts >= %s
+            GROUP BY date_trunc('minute', ts AT TIME ZONE 'UTC')
+            ORDER BY date_trunc('minute', ts AT TIME ZONE 'UTC')
+            """,
+            (ticker.upper(), inicio_hoy),
+        )
+        rows = cur.fetchall()
+
+    def _f(x):
+        return float(x) if x is not None else None
+
     return [
-        {"t": d["_id"], "o": d.get("o"), "h": d.get("h"),
-         "l": d.get("l"), "c": d.get("c"), "vol": d.get("vol")}
-        for d in cur
+        {"t": d["t"], "o": _f(d["o"]), "h": _f(d["h"]),
+         "l": _f(d["l"]), "c": _f(d["c"]), "vol": _f(d["vol"])}
+        for d in rows
     ]

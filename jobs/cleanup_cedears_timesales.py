@@ -1,11 +1,11 @@
 """cleanup_cedears_timesales.py — vacía el Time & Sales intradía de CEDEARs.
 
-Trading.CedearsTimeSales es una colección INTRADÍA: el motor_cedears infiere
-trades durante la rueda (tape para el scanner) y este job la borra al cierre,
+mercado.cedears_time_sales (SQL) es una tabla INTRADÍA: el motor_cedears infiere
+trades durante la rueda (tape para el scanner) y este job la vacía al cierre,
 para que nunca arrastre data vieja entre ruedas (es solo para intraday).
 
-El endpoint igual filtra por fecha de hoy, así que un residuo no se mostraría;
-esto mantiene la colección chica y limpia.
+SQL-NATIVE (decomiso Mongo 2026-06-28): antes vaciaba Trading.CedearsTimeSales.
+TRUNCATE ... RESTART IDENTITY resetea también la secuencia del id.
 
 Cron: post-cierre (20:10 UTC = 17:10 ART, L-V — motores paran 20:05).
 
@@ -18,21 +18,22 @@ from __future__ import annotations
 import logging
 import sys
 
-from core.mongo import get_mongo_client
+from core.postgres import get_pool
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("CleanupCedearsTimeSales")
 
 
 def run(dry: bool = False) -> int:
-    col = get_mongo_client()["Trading"]["CedearsTimeSales"]
-    n = col.estimated_document_count()
-    if dry:
-        logger.info("[DRY] borraría %d trades de Trading.CedearsTimeSales", n)
-        return n
-    res = col.delete_many({})
-    logger.info("Vaciada Trading.CedearsTimeSales: %d trades borrados", res.deleted_count)
-    return res.deleted_count
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM cedears_time_sales")
+        n = cur.fetchone()[0]
+        if dry:
+            logger.info("[DRY] borraría %d trades de mercado.cedears_time_sales", n)
+            return n
+        cur.execute("TRUNCATE cedears_time_sales RESTART IDENTITY")
+    logger.info("Vaciada mercado.cedears_time_sales: %d trades borrados", n)
+    return n
 
 
 def main() -> int:

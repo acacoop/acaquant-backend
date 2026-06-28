@@ -115,14 +115,11 @@ class CedearsEngine:
         }
 
         self.client = get_mongo_client()
-        # CedearsSnapshot migrada a SQL (mercado.cedears_snapshot, write_native) —
-        # cutover 2026-06-24. El _snapshot_loop escribe SQL directo, sin Mongo.
-        # (self.client sigue para el master Trading.Cedears + el tape CedearsTimeSales.)
-        # Time & Sales INTRADÍA: tape de trades inferidos por salto de NV.
-        # Se vacía al cierre (cron jobs.cleanup_cedears_timesales). Índice
-        # idempotente para el endpoint (ticker, timestamp desc).
-        self.col_trades = self.client["Trading"]["CedearsTimeSales"]
-        self.col_trades.create_index([("ticker_corto", 1), ("timestamp", -1)], name="tickercorto_ts")
+        # CedearsSnapshot migrada a SQL (mercado.cedears_snapshot) — cutover 2026-06-24.
+        # CedearsTimeSales migrada a SQL (mercado.cedears_time_sales) — decomiso 2026-06-28:
+        # el _flush_loop escribe SQL directo (append_native). self.client sigue para el
+        # master Trading.Cedears (no migrado todavía). El índice (ticker_corto, ts) lo
+        # crea schema.sql. La tabla es intradía: se vacía al cierre (cleanup_cedears_timesales).
         self.trade_buffer: list[dict] = []
         self._buffer_lock = threading.Lock()
 
@@ -299,9 +296,10 @@ class CedearsEngine:
                 logger.error(f"Error en _snapshot_loop: {e}")
 
     def _flush_loop(self):
-        """Cada 1s vuelca el buffer de trades inferidos a Trading.CedearsTimeSales.
-        Thread aparte para no bloquear el WS handler. La colección es intradía
-        (se vacía al cierre vía cron jobs.cleanup_cedears_timesales)."""
+        """Cada 1s vuelca el buffer de trades inferidos a mercado.cedears_time_sales
+        (SQL-native, append). Thread aparte para no bloquear el WS handler. La tabla es
+        intradía (se vacía al cierre vía cron jobs.cleanup_cedears_timesales)."""
+        from core.pg_mirror import append_native
         while True:
             time.sleep(1.0)
             if not self.trade_buffer:
@@ -310,7 +308,17 @@ class CedearsEngine:
                 batch = self.trade_buffer[:]
                 self.trade_buffer = []
             try:
-                self.col_trades.insert_many(batch, ordered=False)
+                # Mongo "timestamp" → columna SQL "ts".
+                rows = [{
+                    "ticker":       t["ticker"],
+                    "ticker_corto": t["ticker_corto"],
+                    "ts":           t["timestamp"],
+                    "price":        t["price"],
+                    "size":         t["size"],
+                    "side":         t["side"],
+                    "money":        t["money"],
+                } for t in batch]
+                append_native("cedears_time_sales", rows)
             except Exception as e:
                 logger.error(f"Error flush trades CEDEARs: {e}")
 

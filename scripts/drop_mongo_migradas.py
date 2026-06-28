@@ -83,7 +83,7 @@ def main() -> int:
             continue
         try:
             n = cli[db][coll].estimated_document_count()
-        except Exception:  # noqa: BLE001
+        except Exception:
             n = -1
         if apply:
             cli[db].drop_collection(coll)

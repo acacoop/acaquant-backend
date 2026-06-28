@@ -249,21 +249,12 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
         "source":  live_oficial.get("source"),
     })
 
-    # ── Riesgo país (bps, vía argentinadatos.com / jobs/argentina_datos.py) ──
-    db_tr = get_db_trading()
-    rp_last = db_tr["RiesgoPais"].find_one(
-        {}, {"_id": 0, "fecha": 1, "valor": 1}, sort=[("fecha", -1)],
-    )
-    if rp_last:
-        rp_serie = [
-            (date.fromisoformat(str(d.get("fecha"))[:10]), float(d.get("valor")))
-            for d in db_tr["RiesgoPais"].find(
-                {"valor": {"$ne": None}},
-                {"_id": 0, "fecha": 1, "valor": 1},
-            ).sort("fecha", 1)
-            if d.get("fecha") and d.get("valor") is not None
-        ]
-        actual = float(rp_last.get("valor") or 0) or None
+    # ── Riesgo país (bps) — SQL-only (macro.series_macro, vía jobs/argentina_datos.py) ──
+    from core.series_macro import serie_dict
+    rp = serie_dict("RiesgoPais")
+    if rp:
+        rp_serie = [(date.fromisoformat(f), v) for f, v in sorted(rp.items())]
+        ult_fecha, actual = rp_serie[-1][0], (rp_serie[-1][1] or None)
         out.append({
             "label":   "RIESGO PAÍS",
             "value":   actual,
@@ -272,7 +263,7 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
             "ret_7d":  _ret_pct(actual, _last_le(rp_serie, anchors["7d"])),
             "ret_mtd": _ret_pct(actual, _last_le(rp_serie, anchors["mtd"])),
             "ret_ytd": _ret_pct(actual, _last_le(rp_serie, anchors["ytd"])),
-            "ts":      str(rp_last.get("fecha"))[:10] if rp_last.get("fecha") else None,
+            "ts":      ult_fecha.isoformat(),
             "source":  "argentinadatos.com",
         })
 

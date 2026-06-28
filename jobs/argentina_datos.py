@@ -44,7 +44,7 @@ from core.argentina_datos import (
 )
 from core.job_runs import JobRunLogger
 from core.mongo import get_mongo_client
-from core.pg_mirror import mirror_job
+from core.pg_mirror import mirror_job, write_native
 
 # Indicador REM único que nos interesa. argentinadatos.com lo devuelve con
 # este label literal (verificado en /rem/debug: abril 2026).
@@ -100,12 +100,12 @@ SANITY = {
 
 
 def _persistir_serie(
-    coll, datos: list[dict], sanity_range: tuple[float, float], nombre: str,
+    datos: list[dict], sanity_range: tuple[float, float], nombre: str,
 ) -> dict[str, Any]:
-    """Escribe la serie como upsert por fecha. Devuelve stats del run."""
+    """Escribe la serie SQL-ONLY (macro.series_macro) por (serie, fecha). `nombre`
+    == clave `serie`. Ya NO escribe Trading.<serie> en Mongo."""
     from datetime import date as _date
     lo, hi = sanity_range
-    ops = []
     pg_rows = []
     descartados = 0
     for d in datos:
@@ -123,30 +123,19 @@ def _persistir_serie(
             )
             descartados += 1
             continue
-        ops.append(UpdateOne(
-            {"fecha": fecha[:10]},
-            {"$set": {
-                "fecha":      fecha[:10],
-                "valor":      v,
-                "fuente":     "argentinadatos.com",
-                "updated_at": datetime.now(UTC),
-            }},
-            upsert=True,
-        ))
         try:
             pg_rows.append({"serie": nombre, "fecha": _date.fromisoformat(fecha[:10]),
                             "valor": v})
         except ValueError:
             pass
 
-    if not ops:
+    if not pg_rows:
         return {"persistidos": 0, "descartados": descartados}
 
-    coll.bulk_write(ops, ordered=False)
-    # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort). `nombre` ==
-    # nombre de la colección Mongo == clave `serie` de series_macro.
-    mirror_job("series_macro", ["serie", "fecha"], pg_rows)
-    return {"persistidos": len(ops), "descartados": descartados}
+    n = write_native("macro.series_macro", ["serie", "fecha"], pg_rows)
+    if not n:
+        logger.warning("[%s] write_native devolvió 0 — revisar Postgres", nombre)
+    return {"persistidos": n, "descartados": descartados}
 
 
 def _parse_informe(path_o_item: str | dict) -> str | None:
@@ -323,7 +312,7 @@ def run(solo: str | None = None, reset_rem: bool = False) -> dict[str, Any]:
     if solo in (None, "riesgo"):
         try:
             serie = get_riesgo_pais_serie()
-            stats = _persistir_serie(db["RiesgoPais"], serie, SANITY["RiesgoPais"], "RiesgoPais")
+            stats = _persistir_serie(serie, SANITY["RiesgoPais"], "RiesgoPais")
             resultado["series"]["riesgo_pais"] = stats
             logger.info("RiesgoPais: %s", stats)
         except ArgDataError as e:
@@ -336,7 +325,7 @@ def run(solo: str | None = None, reset_rem: bool = False) -> dict[str, Any]:
         try:
             serie = get_inflacion_mensual()
             stats = _persistir_serie(
-                db["InflacionMensual"], serie, SANITY["InflacionMensual"], "InflacionMensual",
+                serie, SANITY["InflacionMensual"], "InflacionMensual",
             )
             resultado["series"]["inflacion_mensual"] = stats
             logger.info("InflacionMensual: %s", stats)
@@ -350,8 +339,7 @@ def run(solo: str | None = None, reset_rem: bool = False) -> dict[str, Any]:
         try:
             serie = get_inflacion_interanual()
             stats = _persistir_serie(
-                db["InflacionInteranual"], serie,
-                SANITY["InflacionInteranual"], "InflacionInteranual",
+                serie, SANITY["InflacionInteranual"], "InflacionInteranual",
             )
             resultado["series"]["inflacion_interanual"] = stats
             logger.info("InflacionInteranual: %s", stats)

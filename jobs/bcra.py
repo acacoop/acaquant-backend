@@ -3,8 +3,7 @@ from datetime import date, timedelta
 
 import requests
 
-from core.mongo import get_mongo_client
-from core.pg_mirror import mirror_job
+from core.pg_mirror import write_native
 
 VARIABLES_BCRA = {
     "CER":    30,
@@ -32,35 +31,21 @@ def fetch_y_guardar(nombre, id_variable, desde, hasta):
             print(f"[{nombre}] Sin datos para el rango {desde} → {hasta}.")
             return
 
-        client = get_mongo_client()
-        coleccion = client["Trading"][nombre]
-
-        insertados = 0
-        actualizados = 0
+        # SQL-ONLY (macro.series_macro): ya NO se escribe Trading.<serie> en Mongo.
         pg_rows = []
         for d in historial:
             fecha = d.get('fecha')
             valor = d.get('valor')
-            res = coleccion.update_one(
-                {"fecha": fecha},
-                {"$set": {"fecha": fecha, "valor": valor}},
-                upsert=True
-            )
-            if res.upserted_id:
-                insertados += 1
-                print(f"  [+] {fecha} = {valor} (NUEVO)")
-            else:
-                actualizados += 1
-                print(f"  [=] {fecha} = {valor} (ya existia)")
             try:
                 pg_rows.append({"serie": nombre, "fecha": date.fromisoformat(str(fecha)[:10]),
                                 "valor": valor})
             except ValueError:
                 pass
 
-        print(f"[{nombre}] {insertados} nuevos, {actualizados} ya existian.")
-        # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort — no-op apagado).
-        mirror_job("series_macro", ["serie", "fecha"], pg_rows)
+        n = write_native("macro.series_macro", ["serie", "fecha"], pg_rows)
+        print(f"[{nombre}] {n} upserts a macro.series_macro (de {len(historial)} registros).")
+        if pg_rows and not n:
+            print(f"[{nombre}] ⚠️ write_native devolvió 0 — revisar Postgres.")
 
     except requests.exceptions.HTTPError as err:
         print(f"[{nombre}] Error HTTP: {err.response.status_code}")

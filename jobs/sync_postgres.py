@@ -1000,7 +1000,9 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         print(f"  quotes={n_qt}  calendar={n_cal}  (news → SQL-native, ya sin espejo)")
 
         # Capa MERCADO (espejo Trading.* — no-crítica hasta que una vista la lea).
-        n_sm = _t("series_macro", lambda: sync_series_macro(mdb, conn, dry, desde))
+        # series_macro: RETIRADO — bcra.py y argentina_datos.py escriben
+        # macro.series_macro SQL-native; este sync leía Trading.{CER,DOLAR,...} (en baja).
+        n_sm = 0
         n_rem = _t("rem", lambda: sync_rem(mdb, conn, dry))
         n_cv, sin_corto = _t("curvas", lambda: sync_curvas(mdb, conn, dry), (0, 0))
         n_ms = _t("market_snapshot", lambda: sync_market_snapshot(mdb, conn, dry))

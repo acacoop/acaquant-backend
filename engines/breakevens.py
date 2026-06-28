@@ -160,11 +160,9 @@ def obtener_precios(client, tickers):
 
 
 def obtener_valor_cer(client, fecha_iso: str) -> float | None:
-    """Valor del CER publicado para una fecha ISO."""
-    doc = client["Trading"]["CER"].find_one(
-        {"fecha": fecha_iso}, {"_id": 0, "valor": 1},
-    )
-    return float(doc["valor"]) if doc and doc.get("valor") is not None else None
+    """Valor del CER publicado para una fecha ISO (SQL-only: macro.series_macro)."""
+    from core.series_macro import valor_en_fecha
+    return valor_en_fecha("CER", fecha_iso)
 
 
 def ultimo_ipc_publicado(client) -> str | None:
@@ -176,12 +174,9 @@ def ultimo_ipc_publicado(client) -> str | None:
     Devuelve None si la colección está vacía (para que el motor no filtre
     nada y deje pasar todo en ese caso borde).
     """
-    doc = client["Trading"]["InflacionMensual"].find_one(
-        {}, sort=[("fecha", -1)], projection={"_id": 0, "fecha": 1},
-    )
-    if not doc or not doc.get("fecha"):
-        return None
-    return str(doc["fecha"])[:7]
+    from core.series_macro import ultima_fecha
+    f = ultima_fecha("InflacionMensual")  # SQL-only
+    return f[:7] if f else None
 
 
 def ultimo_cer_publicado(client) -> str | None:
@@ -190,12 +185,8 @@ def ultimo_cer_publicado(client) -> str | None:
     Lo usa calcular_breakevens como fecha de referencia para contar los
     meses pendientes hasta que se fije el CER de liquidación del bono.
     """
-    doc = client["Trading"]["CER"].find_one(
-        {}, sort=[("fecha", -1)], projection={"_id": 0, "fecha": 1},
-    )
-    if not doc or not doc.get("fecha"):
-        return None
-    return str(doc["fecha"])[:10]
+    from core.series_macro import ultima_fecha
+    return ultima_fecha("CER")  # SQL-only (ya viene 'YYYY-MM-DD')
 
 
 def obtener_teas_cer(client, tickers):

@@ -156,14 +156,11 @@ def _spot_referencia(client) -> tuple[float | None, str]:
         return float(live["value"]), live.get("source") or "oficial_mae"
     # Si MAE está offline (PC apagada, etc.), value=None y caemos al fallback.
 
-    # 2) A3500 BCRA fixing diario
-    doc = client["Trading"]["DOLAR"].find_one(
-        {"valor": {"$gt": 0}},
-        {"_id": 0, "valor": 1},
-        sort=[("fecha", -1)],
-    )
-    if doc:
-        return float(doc["valor"]), "a3500_bcra"
+    # 2) A3500 BCRA fixing diario (SQL-only: macro.series_macro)
+    from core.series_macro import ultimo_valor
+    v = ultimo_valor("DOLAR", positivo=True)
+    if v is not None:
+        return v, "a3500_bcra"
 
     # 3) Último fallback: MEP (incorrecto conceptualmente pero mejor que None)
     doc = client["Valuaciones"]["Dolar"].find_one(

@@ -60,20 +60,15 @@ def _serie_mep_diaria(db_val, desde: date, hasta: date) -> dict[date, float]:
 
 
 def _serie_oficial_diaria(db_trd, desde: date, hasta: date) -> dict[date, float]:
-    """Serie A3500 (BCRA) diaria desde Trading.DOLAR. Fecha guardada como
-    string 'YYYY-MM-DD'."""
-    desde_s = desde.isoformat()
-    hasta_s = hasta.isoformat()
+    """Serie A3500 (BCRA) diaria — SQL-only (macro.series_macro, serie DOLAR)."""
+    from core.series_macro import serie_dict
     out: dict[date, float] = {}
-    for d in db_trd["DOLAR"].find(
-        {"fecha": {"$gte": desde_s, "$lte": hasta_s}, "valor": {"$gt": 0}},
-        {"_id": 0, "fecha": 1, "valor": 1},
-    ):
+    for fecha_s, valor in serie_dict("DOLAR", desde.isoformat(), hasta.isoformat(),
+                                     positivo=True).items():
         try:
-            f = datetime.strptime(d["fecha"], "%Y-%m-%d").date()
-        except (ValueError, KeyError):
+            out[datetime.strptime(fecha_s, "%Y-%m-%d").date()] = valor
+        except ValueError:
             continue
-        out[f] = float(d["valor"])
     return out
 
 

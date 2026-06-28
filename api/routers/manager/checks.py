@@ -92,7 +92,8 @@ def check_cer():
         return {"cer_reciente": None, "dias_habiles": 0, "instrumentos": []}
 
     from core.calendario import dias_habiles_ordenados
-    cer_dict = {d["fecha"]: float(d["valor"]) for d in db["CER"].find({}, {"fecha": 1, "valor": 1})}
+    from core.series_macro import serie_dict
+    cer_dict = serie_dict("CER")  # SQL-only (macro.series_macro)
     dias_hab = dias_habiles_ordenados()  # SQL-only (mercado.dias_habiles)
     cer_reciente = max(cer_dict.keys()) if cer_dict else None
 

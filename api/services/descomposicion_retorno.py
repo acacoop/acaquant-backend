@@ -47,7 +47,6 @@ from typing import Any
 import numpy as np
 
 from api.cache import cached
-from api.db import get_db_trading
 from api.services.analitica import snapshot_curva_historico
 from api.services.renta_fija import listar_curva
 
@@ -224,21 +223,14 @@ def _cer_factor_periodo(desde: date, hasta: date) -> tuple[float | None, dict]:
     Si no hay valores en una de las fechas, busca el más cercano <= esa fecha
     (el CER tiene lag T-10 hábiles; cualquier fecha hábil del backend está OK).
     """
-    db = get_db_trading()
+    from core.series_macro import punto_asof
     desde_str = desde.isoformat()
     hasta_str = hasta.isoformat()
-    cer_ini_doc = db["CER"].find_one(
-        {"fecha": {"$lte": desde_str}, "valor": {"$gt": 0}},
-        {"_id": 0, "fecha": 1, "valor": 1},
-        sort=[("fecha", -1)],
-    )
-    cer_fin_doc = db["CER"].find_one(
-        {"fecha": {"$lte": hasta_str}, "valor": {"$gt": 0}},
-        {"_id": 0, "fecha": 1, "valor": 1},
-        sort=[("fecha", -1)],
-    )
+    # SQL-only (macro.series_macro): último CER>0 a cada fecha.
+    cer_ini_doc = punto_asof("CER", desde_str, positivo=True)
+    cer_fin_doc = punto_asof("CER", hasta_str, positivo=True)
     if not cer_ini_doc or not cer_fin_doc:
-        return None, {"error": "Trading.CER sin valores en el período"}
+        return None, {"error": "macro.series_macro (CER) sin valores en el período"}
     cer_ini = float(cer_ini_doc["valor"])
     cer_fin = float(cer_fin_doc["valor"])
     if cer_ini <= 0:

@@ -46,12 +46,9 @@ def _cer_max_y_valor_en(client, fecha: date) -> tuple[str | None, float | None]:
     El BCRA publica CER con ~10 hábiles de forward — por eso el horizonte
     es `fecha + 14d corridos` y no simplemente `fecha`.
     """
+    from core.series_macro import punto_asof
     horizonte = (fecha + timedelta(days=14)).isoformat()
-    doc = client["Trading"]["CER"].find_one(
-        {"fecha": {"$lte": horizonte}},
-        sort=[("fecha", -1)],
-        projection={"_id": 0, "fecha": 1, "valor": 1},
-    )
+    doc = punto_asof("CER", horizonte)  # SQL-only (macro.series_macro)
     if not doc or not doc.get("fecha") or doc.get("valor") is None:
         return None, None
     return str(doc["fecha"])[:10], float(doc["valor"])

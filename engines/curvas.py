@@ -152,12 +152,11 @@ def cargar_cer(client, dias: int = 90):
     así que los valores más viejos nunca se consultan en tiempo real.
     Carga completa crece monotónica sin sentido.
     """
+    from core.series_macro import serie_dict
     desde = (date.today() - timedelta(days=dias)).isoformat()
-    docs = list(client["Trading"]["CER"].find(
-        {"fecha": {"$gte": desde}}, {"fecha": 1, "valor": 1, "_id": 0},
-    ))
-    logger.info(f"CER cargado: {len(docs)} fechas (últimos {dias} días)")
-    return {d["fecha"]: float(d["valor"]) for d in docs}
+    cer = serie_dict("CER", desde)  # SQL-only (macro.series_macro)
+    logger.info(f"CER cargado: {len(cer)} fechas (últimos {dias} días)")
+    return cer
 
 
 def cargar_dias_habiles(client):

@@ -13,11 +13,11 @@ Todo lo NO migrado se reexporta del módulo Mongo → drop-in del selector:
   - resolver_ticker_exacto / _CURVAS_VALIDAS → helpers compartidos
 
 SQL-native:
-  - `_bonos_cer_fijados` (CER fijado): lee macro.series_macro (CER) + mercado.curvas de SQL.
-Híbridos que quedan (2) — leen Mongo, aún sin espejo SQL (no migrados):
+  - `_bonos_cer_fijados` (CER fijado): lee macro.series_macro (CER), mercado.curvas y
+    mercado.dias_habiles de SQL (este último SQL-first + fallback Mongo, ver helper).
+Híbrido que queda (1) — lee Mongo, aún sin espejo SQL (no migrado):
   - MEP live (`macro.get_ultimo_mep`) → Valuaciones.DolarSnapshot (feed WS). Migra con el
     dual-write del motor de dólar (Rojo). `# TODO SQL-native`.
-  - DiasHabiles (`Trading.DiasHabiles`, para el T-10 de CER fijado) → NO migró a SQL todavía.
 
 REGLA #1 del 19/6 (Mongo se apaga; SQL nativo; lo muerto se borra, no se migra):
   - `total_money` (volumen $ del día) está MUERTO — el motor lo dejó de escribir
@@ -25,8 +25,8 @@ REGLA #1 del 19/6 (Mongo se apaga; SQL nativo; lo muerto se borra, no se migra):
     se quita `total_money_dia` del output y el orden 'volumen_dia' pasa a ordenar por
     el volumen VIVO (`total_nominals_dia`), no por un 0 fantasma como hacía Mongo.
 
-Dependencias Mongo que faltan para que sea 100% SQL-native: el MEP live (`DolarSnapshot`,
-feed WS) y `DiasHabiles` (ninguno migró a SQL todavía).
+Dependencia Mongo que falta para que sea 100% SQL-native: el MEP live (`DolarSnapshot`,
+feed WS, aún sin espejo SQL).
 
 Dual-run flag `RENTA_FIJA_SQL` (+ `?_engine` override). Validación: spot-check funcional
 SQL (no byte-parity contra Mongo — Mongo se va). Se apoya en el dual-write de
@@ -104,14 +104,36 @@ def get_historico_trades(instrumento: str | None = None) -> list:
     return rows
 
 
-@cached(ttl=30)
+def _dias_habiles_ordenados() -> list[str]:
+    """Días hábiles ('YYYY-MM-DD' asc). SQL-native: mercado.dias_habiles (poblada
+    por jobs.dias_habiles, que dual-escribe Mongo+SQL). Fallback a Mongo
+    Trading.DiasHabiles si la tabla SQL aún está vacía (correr jobs.dias_habiles
+    para poblarla). El read SQL es ~25ms vs ~345ms del scan Mongo — era el cuello
+    de botella de get_renta_fija."""
+    rows = _q("SELECT to_char(fecha, 'YYYY-MM-DD') AS f FROM mercado.dias_habiles ORDER BY fecha")
+    if rows:
+        return [r["f"] for r in rows]
+    # Fallback: la tabla SQL no se pobló todavía → leer Mongo (lento pero correcto).
+    from core.mongo import get_mongo_client_read
+    return sorted(
+        d["fecha"] for d in get_mongo_client_read()["Trading"]["DiasHabiles"].find(
+            {}, {"fecha": 1, "_id": 0}) if d.get("fecha")
+    )
+
+
+@cached(ttl=600)
 def _bonos_cer_fijados() -> set[str]:
     """Tickers CER cuyo CER de liquidación del VTO (T-10 hábiles) ya fue publicado
     por el BCRA → comportan tasa fija. CER (macro.series_macro) y la curva CER
-    (mercado.curvas) salen de SQL; DiasHabiles es HÍBRIDO (Mongo Trading.DiasHabiles,
-    aún sin espejo SQL — igual que el MEP). La lógica T-10 la pone `fecha_cer_liquidacion`
+    (mercado.curvas) salen de SQL; los días hábiles también (mercado.dias_habiles,
+    SQL-first + fallback Mongo vía `_dias_habiles_ordenados`). La lógica T-10 la pone `fecha_cer_liquidacion`
     (puro, reusado). Strings 'YYYY-MM-DD' para que la comparación lexicográfica == la
-    del path Mongo. Fallback set() ante error."""
+    del path Mongo. Fallback set() ante error.
+
+    TTL=600s (subido de 30s 2026-06-27): el set cambia 1×/día (cuando BCRA
+    publica el CER del día, job 22 UTC) pero costaba ~345ms en frío (scan de
+    Trading.DiasHabiles en Mongo) y se recalculaba cada 30s. Era el cuello de
+    botella de get_renta_fija. 10 min de staleness es inocuo para este set."""
     from engines.curvas import fecha_cer_liquidacion
     try:
         cmax = _q("SELECT to_char(max(fecha), 'YYYY-MM-DD') AS f "
@@ -119,12 +141,7 @@ def _bonos_cer_fijados() -> set[str]:
         max_cer = cmax[0]["f"] if cmax else None
         if not max_cer:
             return set()
-        # DiasHabiles: Mongo (sin tabla SQL aún). # TODO SQL-native cuando se migre.
-        from core.mongo import get_mongo_client_read
-        dias_habiles = sorted(
-            d["fecha"] for d in get_mongo_client_read()["Trading"]["DiasHabiles"].find(
-                {}, {"fecha": 1, "_id": 0}) if d.get("fecha")
-        )
+        dias_habiles = _dias_habiles_ordenados()  # SQL-first, fallback Mongo
         fijados: set[str] = set()
         for r in _q("SELECT ticker, to_char(fecha_vencimiento, 'YYYY-MM-DD') AS vto "
                     "FROM mercado.curvas WHERE curva = 'cer'"):
@@ -165,8 +182,13 @@ def get_renta_fija(instrumento: str | None = None) -> list:
     if instrumento:
         where = "WHERE ticker ILIKE %s ESCAPE '\\'"
         params = (_ilike_param(instrumento),)
+    # `book` (order book JSONB depth-5) NO se trae: la vista /renta-fija no lo
+    # consume (no está en RentaFijaDoc) y traerlo para los ~301 instrumentos
+    # costaba ~120ms + payload pesado a Vercel. El order book vive en su propio
+    # endpoint (api/services/order_book.py). El path Mongo aún lo proyecta, pero
+    # ese path está retirándose y el campo igual quedaba sin usar.
     rows = _q(
-        f"SELECT ticker, book, {', '.join(c for c, _ in _METRIC_COLS)} "
+        f"SELECT ticker, {', '.join(c for c, _ in _METRIC_COLS)} "
         f"FROM mercado.market_snapshot {where}",
         params,
     )
@@ -178,10 +200,7 @@ def get_renta_fija(instrumento: str | None = None) -> list:
             v = _f(r[col])
             if v is not None:
                 metrics[key] = v
-        doc = {"instrumento": r["ticker"], "metrics": metrics}
-        if r.get("book") is not None:
-            doc["book"] = r["book"]
-        docs.append(doc)
+        docs.append({"instrumento": r["ticker"], "metrics": metrics})
 
     # ── Enriquecimiento TC breakeven (tasa fija nativa + CER ya fijados) ──
     fijados = _bonos_cer_fijados()

@@ -5,7 +5,7 @@ fino `manager_instrumentos` → así un rol comercial (asistente_comercial) pued
 VER los instrumentos descubiertos de pyRofex SIN acceso a la edición de maestro
 (Assets/ONs) ni a las tabs admin.
 
-Lee Manager.PyRofexDiscovery / PyRofexInstruments (escritas por
+Lee manager.pyrofex_discovery / manager.pyrofex_instruments (SQL, escritas por
 `scripts/discovery_pyrofex.py`). Los paths se conservan (`/checks/...`) para no
 tocar el frontend.
 """
@@ -15,24 +15,28 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter
 
-from core.mongo import get_mongo_client_read
+from core.postgres import get_pool
 
 router = APIRouter()
 
 
 @router.get("/checks/discovery-pyrofex")
 def discovery_pyrofex():
-    """Instruments de pyRofex agrupados por CFI code (Manager.PyRofexDiscovery)."""
-    client = get_mongo_client_read()
-    doc = client["Manager"]["PyRofexDiscovery"].find_one({"_id": "current"}, {"_id": 0})
-    if not doc:
+    """Instruments de pyRofex agrupados por CFI code (manager.pyrofex_discovery)."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT total_instruments, by_cficode, generated_at "
+            "FROM manager.pyrofex_discovery WHERE id = 'current'"
+        )
+        row = cur.fetchone()
+    if not row:
         return {
             "ok": False,
-            "message": ("Sin data en Manager.PyRofexDiscovery. "
+            "message": ("Sin data en manager.pyrofex_discovery. "
                         "Correr en el Droplet: python -m scripts.discovery_pyrofex"),
             "total_instruments": 0, "by_cficode": [], "generated_at": None, "stale_h": None,
         }
-    generated_at = doc.get("generated_at")
+    total_instruments, by_cficode, generated_at = row
     stale_h: float | None = None
     if isinstance(generated_at, datetime):
         if generated_at.tzinfo is None:
@@ -40,8 +44,8 @@ def discovery_pyrofex():
         stale_h = round((datetime.now(UTC) - generated_at).total_seconds() / 3600.0, 1)
     return {
         "ok": True,
-        "total_instruments": doc.get("total_instruments", 0),
-        "by_cficode": doc.get("by_cficode", []),
+        "total_instruments": total_instruments or 0,
+        "by_cficode": by_cficode or [],
         "generated_at": generated_at.isoformat() if isinstance(generated_at, datetime) else None,
         "stale_h": stale_h,
     }
@@ -49,16 +53,22 @@ def discovery_pyrofex():
 
 @router.get("/checks/instruments-by-cfi")
 def instruments_by_cfi(cficode: str):
-    """Detalle de todos los instruments de un CFI code (Manager.PyRofexInstruments)."""
-    client = get_mongo_client_read()
-    doc = client["Manager"]["PyRofexInstruments"].find_one({"_id": cficode})
-    if not doc:
+    """Detalle de todos los instruments de un CFI code (manager.pyrofex_instruments)."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT count, underlyings, instruments "
+            "FROM manager.pyrofex_instruments WHERE cficode = %s",
+            (cficode,),
+        )
+        row = cur.fetchone()
+    if not row:
         return {
             "ok": False,
             "message": f"No hay data para CFI '{cficode}'. Correr scripts.discovery_pyrofex.",
             "cficode": cficode, "instruments": [],
         }
+    count, underlyings, instruments = row
     return {
-        "ok": True, "cficode": cficode, "count": doc.get("count", 0),
-        "underlyings": doc.get("underlyings", []), "instruments": doc.get("instruments", []),
+        "ok": True, "cficode": cficode, "count": count or 0,
+        "underlyings": underlyings or [], "instruments": instruments or [],
     }

@@ -33,7 +33,7 @@ from api.services.order_book import get_order_book
 from core.adhoc_subscriptions import bump_last_used, subscribe
 from core.brackets import create_bracket, ensure_indexes
 from core.brackets import list_dia as list_brackets_dia
-from core.mongo import get_mongo_client_read
+from core.postgres import get_pool
 
 logger = logging.getLogger("api.operar")
 
@@ -41,21 +41,28 @@ router = APIRouter(prefix="/api/operar", tags=["operar"])
 
 
 def _existe_en_pyrofex(ticker_full: str) -> bool:
-    """¿pyRofex conoce este ticker? Lookup en Manager.PyRofexInstruments.
+    """¿pyRofex conoce este ticker? Lookup en manager.pyrofex_instruments (SQL).
 
     Evita registrar basura en AdhocSubscriptions (typos, tickers viejos).
-    Si discovery_pyrofex nunca corrió, esta validación no aplica y se
-    permite el subscribe optimista — el motor lo va a ignorar igual si
+    Si discovery_pyrofex nunca corrió (tabla vacía), esta validación no aplica
+    y se permite el subscribe optimista — el motor lo va a ignorar igual si
     pyRofex no lo reconoce.
+
+    `instruments @> '[{"ticker": ...}]'::jsonb` = containment sobre el array de
+    instruments del CFI (indexable con GIN) — equivalente a la query Mongo
+    `{"instruments.ticker": ticker_full}`.
     """
-    db = get_mongo_client_read()["Manager"]
-    if "PyRofexInstruments" not in db.list_collection_names():
-        return True  # discovery aún no corrió; permitir.
-    doc = db["PyRofexInstruments"].find_one(
-        {"instruments.ticker": ticker_full},
-        {"_id": 1},
-    )
-    return doc is not None
+    import json
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM manager.pyrofex_instruments LIMIT 1")
+        if cur.fetchone() is None:
+            return True  # discovery aún no corrió; permitir.
+        cur.execute(
+            "SELECT 1 FROM manager.pyrofex_instruments "
+            "WHERE instruments @> %s::jsonb LIMIT 1",
+            (json.dumps([{"ticker": ticker_full}]),),
+        )
+        return cur.fetchone() is not None
 
 
 @router.get("/order-book")

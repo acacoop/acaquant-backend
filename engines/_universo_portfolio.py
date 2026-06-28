@@ -10,11 +10,11 @@ Composición:
   - Tickers de boletos operados hoy en CashFlow.NegocioMovimientos
     (vía join con Assets.INSTRUMENTO si está cargado).
 
-Filtrado: cada candidato se valida contra Manager.PyRofexInstruments —
-si no existe en la lista canónica primary 24hs, se descarta y se
-loguea (visible para corrección manual).
+Filtrado: cada candidato se valida contra manager.pyrofex_instruments
+(SQL, poblada por scripts/discovery_pyrofex.py) — si no existe en la lista
+canónica primary 24hs, se descarta y se loguea (visible para corrección manual).
 
-Read-only sobre Mongo. Excepciones se capturan en el caller.
+Read-only (SQL + Mongo). Excepciones se capturan en el caller.
 """
 from __future__ import annotations
 
@@ -33,13 +33,24 @@ def _hoy_art_iso() -> str:
 
 def _set_pyrofex_24hs() -> set[str]:
     """Symbols pyRofex con formato `MERV - XMEV - * - 24hs` desde
-    Manager.PyRofexInstruments — la fuente canónica para validación."""
-    coll = get_mongo_client_read()["Manager"]["PyRofexInstruments"]
+    manager.pyrofex_instruments (SQL) — la fuente canónica para validación.
+
+    Equivale al find Mongo `{}` proyectando `instruments.ticker`: desanida el
+    array jsonb `instruments` de cada CFI (`jsonb_array_elements`) y filtra el
+    formato 24hs primary. El `trim` replica el `.strip()` del path Mongo; los
+    patrones LIKE van como parámetros para no colisionar con el `%` de psycopg."""
     out: set[str] = set()
-    for doc in coll.find({}, {"_id": 0, "instruments.ticker": 1}):
-        for inst in doc.get("instruments") or []:
-            t = (inst.get("ticker") or "").strip()
-            if t.startswith("MERV - XMEV - ") and t.endswith(" - 24hs"):
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT trim(inst->>'ticker') AS ticker "
+            "FROM manager.pyrofex_instruments p, "
+            "     jsonb_array_elements(p.instruments) AS inst "
+            "WHERE trim(inst->>'ticker') LIKE %s "
+            "  AND trim(inst->>'ticker') LIKE %s",
+            ("MERV - XMEV - %", "% - 24hs"),
+        )
+        for (t,) in cur.fetchall():
+            if t:
                 out.add(t)
     return out
 
@@ -101,7 +112,7 @@ def tickers_de_tenencia() -> tuple[set[str], set[str]]:
     """Devuelve (universo_validado, sin_match).
 
     universo_validado: instrumentos de tenencia + boletos hoy, filtrados
-                       contra Manager.PyRofexInstruments.
+                       contra manager.pyrofex_instruments (SQL).
     sin_match: candidatos que NO existen en pyRofex — visible en log
                para corrección manual.
 

@@ -35,21 +35,13 @@ def obtener_ultimas_teas(client, tickers):
     Devuelve la última TEA y duration disponibles por ticker.
     { ticker: {"TEA": float, "duration": float} }
 
-    Lee Trading.MarketSnapshot.metrics (escrito por engines/curvas.py).
-    Antes agregaba Trading.TimeSales con $group/$first; este path lee
-    1 doc por ticker (find directo) y es estrictamente más rápido.
-    El valor es idéntico: curvas.py escribe en MarketSnapshot la misma
-    TEA del último trade enriquecido en TimeSales.
+    SQL-only: mercado.market_snapshot (tea/duration, escrito por curvas.py).
     """
+    from core.market_snapshot import cols_map
     out = {}
-    for d in client["Trading"]["MarketSnapshot"].find(
-        {"ticker": {"$in": tickers},
-         "metrics.TEA": {"$exists": True, "$ne": None},
-         "metrics.duration": {"$exists": True, "$ne": None}},
-        {"_id": 0, "ticker": 1, "metrics.TEA": 1, "metrics.duration": 1},
-    ):
-        m = d.get("metrics") or {}
-        out[d["ticker"]] = {"TEA": m.get("TEA"), "duration": m.get("duration")}
+    for ticker, m in cols_map(tickers, ["tea", "duration"]).items():
+        if m["tea"] is not None and m["duration"] is not None:
+            out[ticker] = {"TEA": m["tea"], "duration": m["duration"]}
     return out
 
 

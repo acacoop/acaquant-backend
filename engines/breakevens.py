@@ -119,44 +119,22 @@ def cargar_pares():
 # ─────────────────────────────────────────────
 
 def obtener_tems(client, tickers):
-    """Última TEM por ticker Lecap. Lee MarketSnapshot.metrics."""
-    return {
-        d["ticker"]: (d.get("metrics") or {}).get("TEM")
-        for d in client["Trading"]["MarketSnapshot"].find(
-            {"ticker": {"$in": tickers},
-             "metrics.TEM": {"$exists": True, "$ne": None}},
-            {"_id": 0, "ticker": 1, "metrics.TEM": 1},
-        )
-        if (d.get("metrics") or {}).get("TEM") is not None
-    }
+    """Última TEM por ticker Lecap (SQL-only: mercado.market_snapshot)."""
+    from core.market_snapshot import metric_map
+    return metric_map(tickers, "tem")
 
 
 def obtener_paridades(client, tickers):
-    """Última paridad por ticker CER. Lee MarketSnapshot.metrics."""
-    return {
-        d["ticker"]: (d.get("metrics") or {}).get("paridad")
-        for d in client["Trading"]["MarketSnapshot"].find(
-            {"ticker": {"$in": tickers},
-             "metrics.paridad": {"$exists": True, "$ne": None}},
-            {"_id": 0, "ticker": 1, "metrics.paridad": 1},
-        )
-        if (d.get("metrics") or {}).get("paridad") is not None
-    }
+    """Última paridad por ticker CER (SQL-only: mercado.market_snapshot)."""
+    from core.market_snapshot import metric_map
+    return metric_map(tickers, "paridad")
 
 
 def obtener_precios(client, tickers):
-    """Último precio (positivo) por ticker. Lee MarketSnapshot.metrics.last_price
-    (lo escribe valores.py en cada trade) — antes agregaba TimeSales; es el MISMO
-    valor (el último trade) sin depender del stream. Mismo patrón que obtener_tems/
-    obtener_paridades. Para el BE por método Buscar Objetivo (precio_lecap/precio_cer)."""
-    return {
-        d["ticker"]: (d.get("metrics") or {}).get("last_price")
-        for d in client["Trading"]["MarketSnapshot"].find(
-            {"ticker": {"$in": tickers}, "metrics.last_price": {"$gt": 0}},
-            {"_id": 0, "ticker": 1, "metrics.last_price": 1},
-        )
-        if ((d.get("metrics") or {}).get("last_price") or 0) > 0
-    }
+    """Último precio (positivo) por ticker — SQL-only (mercado.market_snapshot.last_price,
+    escrito por valores.py). Para el BE por método Buscar Objetivo (precio_lecap/precio_cer)."""
+    from core.market_snapshot import metric_map
+    return metric_map(tickers, "last_price", positivo=True)
 
 
 def obtener_valor_cer(client, fecha_iso: str) -> float | None:
@@ -190,17 +168,9 @@ def ultimo_cer_publicado(client) -> str | None:
 
 
 def obtener_teas_cer(client, tickers):
-    """Última TEA por ticker CER (calculada por main_curvas.py).
-    Lee MarketSnapshot.metrics."""
-    return {
-        d["ticker"]: (d.get("metrics") or {}).get("TEA")
-        for d in client["Trading"]["MarketSnapshot"].find(
-            {"ticker": {"$in": tickers},
-             "metrics.TEA": {"$exists": True, "$ne": None}},
-            {"_id": 0, "ticker": 1, "metrics.TEA": 1},
-        )
-        if (d.get("metrics") or {}).get("TEA") is not None
-    }
+    """Última TEA por ticker CER (SQL-only: mercado.market_snapshot.tea)."""
+    from core.market_snapshot import metric_map
+    return metric_map(tickers, "tea")
 
 
 # ─────────────────────────────────────────────

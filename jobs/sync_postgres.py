@@ -797,28 +797,11 @@ def sync_curvas(mdb, conn, dry) -> tuple[int, int]:
     return n, sin_corto
 
 
-def sync_market_snapshot(mdb, conn, dry) -> int:
-    """Trading.MarketSnapshot → market_snapshot (columnar, 1 fila/ticker). Baseline
-    horario; la frescura intradía la da el dual-write de los motores (SNAPSHOT_SQL,
-    core/pg_mirror). Completa + delete de huérfanos."""
-    cols = ["ticker", "book", "last_price", "open_price", "high_price", "low_price",
-            "closing_price", "vwap", "total_nominals", "updated_at",
-            "tea", "tem", "duration", "mod_duration", "convexity", "paridad"]
-    rows = []
-    for d in mdb["Trading"]["MarketSnapshot"].find({}, {"_id": 0}):
-        t = _s(d.get("ticker"))
-        if not t:
-            continue
-        m = d.get("metrics") or {}
-        rows.append((t, _jsonb(d.get("book") or {}), m.get("last_price"), m.get("open_price"),
-                     m.get("high_price"), m.get("low_price"), m.get("closing_price"),
-                     m.get("vwap"), m.get("total_nominals"), d.get("updated_at"),
-                     m.get("TEA"), m.get("TEM"), m.get("duration"), m.get("mod_duration"),
-                     m.get("convexity"), m.get("paridad")))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "market_snapshot", cols, ["ticker"], rows, dry)
-    _delete_not_in(conn, "market_snapshot", "ticker", {r[0] for r in rows}, dry)
-    return n
+# sync_market_snapshot ELIMINADO (writer-cutover MarketSnapshot→SQL 2026-06-28,
+# commit aaabaf2): engines/valores.py + engines/curvas.py escriben
+# mercado.market_snapshot SQL-native (core/pg_mirror.write_snapshot, sin flag).
+# Trading.MarketSnapshot (Mongo) ya no tiene writer ni lector vivo → este puente
+# Mongo→SQL pisaba la tabla viva con datos en baja, por eso se retira.
 
 
 # sync_snapshots_cierre_hist ELIMINADO (cutover SnapshotsCierre→SQL 2026-06-24):

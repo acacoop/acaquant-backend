@@ -51,7 +51,7 @@ def scope_aum(
 @router.get("/operadores")
 def operadores():
     """Operadores para el filtro madre de la vista AUM (email, nombre, # cuentas)."""
-    from api.services.comercial import listar_operadores_comercial
+    from api.services.comercial_sql import listar_operadores_comercial
     return listar_operadores_comercial()
 
 

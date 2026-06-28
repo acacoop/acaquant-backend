@@ -26,6 +26,22 @@ def _fetch_last(db_name: str, coll: str, field: str, filtro: dict):
     return client[db_name][coll].find_one(filtro, {field: 1, "_id": 0}, sort=[(field, -1)])
 
 
+def _fetch_last_sql(tabla: str, ts_expr: str, where: str | None = None):
+    """Frescura desde Postgres (decomiso Mongo): max(ts_expr::timestamptz) de la
+    tabla. Para los snapshots SQL el updated_at fresco vive en data->>'updated_at'
+    (la columna queda con el now() del primer insert). Devuelve datetime aware
+    (UTC) o None. Best-effort: si SQL falla, None → el motor sale 'sin_datos'."""
+    from core.postgres import get_pool
+    clause = f" WHERE {where}" if where else ""
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT max(({ts_expr})::timestamptz) FROM {tabla}{clause}")
+            row = cur.fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
 _APERTURA_DEFAULT = time(10, 0)
 _APERTURA_AGRO    = time(10, 30)   # MATBA abre 10:30 ART
 
@@ -34,25 +50,30 @@ def _es_rueda(ahora_ar: datetime, apertura: time = _APERTURA_DEFAULT) -> bool:
     return ahora_ar.weekday() < 5 and apertura <= ahora_ar.time() <= time(17, 5)
 
 
-# Tupla: (db, coll, field, nombre, umbral_s, tz_fallback, apertura_ar)
+# Tupla: (db, coll, field, nombre, umbral_s, tz_fallback, apertura_ar, sql)
+#   sql = None             → frescura desde Mongo (motor todavía Mongo-primary).
+#   sql = (tabla, ts_expr[, where]) → frescura desde Postgres (motor migrado a SQL,
+#         decomiso Mongo). Tablas sin schema → search_path (core.postgres). Para los
+#         snapshots SQL el updated_at fresco vive en data->>'updated_at'.
 _MOTORES = [
-    ("Trading",     "TimeSales",            "timestamp",  "TimeSales (rofex)",                  300, _AR_TZ, _APERTURA_DEFAULT),
-    ("Trading",     "MarketSnapshot",       "updated_at", "MarketSnapshot",                     120, UTC,    _APERTURA_DEFAULT),
-    ("Trading",     "PortfolioSnapshot",    "updated_at", "PortfolioSnapshot (live tenencia)",  120, UTC,    _APERTURA_DEFAULT),
-    ("Trading",     "ForwardsLive",         "updated_at", "ForwardsLive",                        60, UTC,    _APERTURA_DEFAULT),
-    ("Trading",     "BreakevensLive",       "updated_at", "BreakevensLive",                      60, UTC,    _APERTURA_DEFAULT),
-    ("Opciones",    "OptionsSnapshot",      "updated_at", "OptionsSnapshot",                    180, UTC,    _APERTURA_DEFAULT),
+    ("Trading",     "TimeSales",            "timestamp",  "TimeSales (rofex)",                  300, _AR_TZ, _APERTURA_DEFAULT, None),
+    ("Trading",     "MarketSnapshot",       "updated_at", "MarketSnapshot",                     120, UTC,    _APERTURA_DEFAULT, ("market_snapshot", "updated_at")),
+    ("Trading",     "PortfolioSnapshot",    "updated_at", "PortfolioSnapshot (live tenencia)",  120, UTC,    _APERTURA_DEFAULT, ("portfolio_snapshot", "updated_at")),
+    ("Trading",     "ForwardsLive",         "updated_at", "ForwardsLive",                        60, UTC,    _APERTURA_DEFAULT, ("mercado_hist", "data->>'updated_at'", "coleccion='ForwardsHistorico'")),
+    ("Trading",     "BreakevensLive",       "updated_at", "BreakevensLive",                      60, UTC,    _APERTURA_DEFAULT, ("mercado_hist", "data->>'updated_at'", "coleccion='BreakevensHistorico'")),
+    ("Opciones",    "OptionsSnapshot",      "updated_at", "OptionsSnapshot",                    180, UTC,    _APERTURA_DEFAULT, ("options_snapshot", "updated_at")),
     # CedearsSnapshot migrada a SQL (mercado.cedears_snapshot) 2026-06-24 — sacada de este
     # check Mongo-only para no falsear. Frescura del motor: systemd / skill /motor-status.
-    ("Trading",     "CaucionSnapshot",      "updated_at", "CaucionSnapshot",                     60, UTC,    _APERTURA_DEFAULT),
-    ("Valuaciones", "DolarSnapshot",        "updated_at", "DolarSnapshot",                       60, UTC,    _APERTURA_DEFAULT),
-    ("Trading",     "FuturosDLRSnapshot",   "updated_at", "FuturosDLRSnapshot",                  60, UTC,    _APERTURA_DEFAULT),
-    ("Trading",     "AgroSnapshot",         "updated_at", "AgroSnapshot",                        60, UTC,    _APERTURA_AGRO),
-    ("Trading",     "AgroOpcionesSnapshot", "updated_at", "AgroOpcionesSnapshot",                60, UTC,    _APERTURA_AGRO),
+    ("Trading",     "CaucionSnapshot",      "updated_at", "CaucionSnapshot",                     60, UTC,    _APERTURA_DEFAULT, ("caucion_snapshot", "data->>'updated_at'")),
+    ("Valuaciones", "DolarSnapshot",        "updated_at", "DolarSnapshot",                       60, UTC,    _APERTURA_DEFAULT, ("dolar_snapshot", "ts")),
+    ("Trading",     "FuturosDLRSnapshot",   "updated_at", "FuturosDLRSnapshot",                  60, UTC,    _APERTURA_DEFAULT, ("futuros_dlr_snapshot", "data->>'updated_at'")),
+    ("Trading",     "AgroSnapshot",         "updated_at", "AgroSnapshot",                        60, UTC,    _APERTURA_AGRO,    ("agro_snapshot", "data->>'updated_at'")),
+    ("Trading",     "AgroOpcionesSnapshot", "updated_at", "AgroOpcionesSnapshot",                60, UTC,    _APERTURA_AGRO,    ("agro_opciones_snapshot", "data->>'updated_at'")),
     # motor_ordenes solo escribe ER cuando hay actividad — sin heartbeat
     # propio no podemos saber si está vivo. Lee Operaciones.MotorOrdenes
     # Heartbeat que el motor refresca cada 30s. Arranca 10:30 ART (cron).
-    ("Operaciones", "MotorOrdenesHeartbeat","updated_at", "MotorOrdenes (ER WS)",                90, UTC,    _APERTURA_AGRO),
+    # Mongo-primary (órdenes NO migradas a SQL) → frescura sigue Mongo.
+    ("Operaciones", "MotorOrdenesHeartbeat","updated_at", "MotorOrdenes (ER WS)",                90, UTC,    _APERTURA_AGRO,    None),
 ]
 
 _JOBS_STATUS = [
@@ -108,11 +129,14 @@ def get_status():
     rueda = _es_rueda(ahora)
 
     def check_motor(s):
-        db_n, coll, field, nombre, umbral, tz_naive, apertura = s
-        doc = _fetch_last(db_n, coll, field, {field: {"$exists": True}})
-        if not doc or not doc.get(field):
+        db_n, coll, field, nombre, umbral, tz_naive, apertura, sql = s
+        if sql:
+            ts = _fetch_last_sql(*sql)
+        else:
+            doc = _fetch_last(db_n, coll, field, {field: {"$exists": True}})
+            ts = doc.get(field) if doc else None
+        if not ts:
             return {"nombre": nombre, "ultima": None, "hace": "—", "umbral": umbral, "estado": "sin_datos"}
-        ts = doc[field]
         if isinstance(ts, datetime) and ts.tzinfo is None:
             ts = ts.replace(tzinfo=tz_naive)
         delta = (ahora.astimezone(UTC) - ts.astimezone(UTC)).total_seconds()

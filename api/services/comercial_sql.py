@@ -659,3 +659,60 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
         })
     return {"segmento": segmento or "todos", "n_clientes": len(clientes),
             "clientes": clientes, "operaciones": operaciones}
+
+
+def debug_comercial(*, operador: str | None = None, segmento: str | None = None,
+                    moneda: str = "ARS") -> dict:
+    """Auditoría del Informe comercial (Manager → Diagnóstico): desglose POR CUENTA
+    (# ops, volumen total/mes, arancel) + totales + ticket, para un operador O un
+    segmento (nivel_1). Espejo SQL de comercial.debug_comercial — vol/n_ops de
+    negocio_movimientos, arancel de operaciones (vía _rollup_por_cuenta). Volumen
+    pesificado (incluye USD); `moneda='USD'` dolariza al MEP."""
+    hoy = _hoy_art()
+    factor = _factor_usd(moneda)
+    mes_start = hoy.replace(day=1).isoformat()
+
+    where = "c.estado = 'Activa'"
+    p: dict = {}
+    if operador:
+        where += " AND c.operador_email = %(op)s"
+        p["op"] = operador
+    if segmento:
+        if segmento == "(sin segmentar)":
+            where += " AND c.nivel_1 IS NULL"
+        else:
+            where += " AND c.nivel_1 = %(seg)s"
+            p["seg"] = segmento
+    cuentas = {r["id_cuenta"]: (r["denominacion"] or "—") for r in _q(
+        f"SELECT c.id_cuenta, u.denominacion FROM comitentes c "
+        f"LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta WHERE {where}", p)}
+    ids = list(cuentas)
+    if not ids:
+        return {"operador": operador, "segmento": segmento or "todos",
+                "n_cuentas_filtradas": 0, "n_cuentas_con_actividad": 0,
+                "totales": {}, "cuentas": []}
+
+    # vol/n_ops (negocio_movimientos) + arancel (operaciones) por cuenta, en vivo.
+    por_cuenta = _rollup_por_cuenta(mes_start, "id_cuenta = ANY(%(ids)s)", {"ids": ids})
+    filas = [{
+        "id_cuenta": idc, "denominacion": cuentas.get(idc, "—"),
+        "n_ops": int(agg["n_ops"] or 0),
+        "vol_total": _cv(_f(agg["vol_total"]), factor),
+        "vol_mes": _cv(_f(agg["vol_mes"]), factor),
+        "ar_total": _cv(_f(agg["ar_total"]), factor),
+    } for idc, agg in por_cuenta.items()]
+    filas.sort(key=lambda x: x["vol_total"], reverse=True)
+    n_ops = sum(f["n_ops"] for f in filas)
+    vol_total = round(sum(f["vol_total"] for f in filas), 2)
+    return {
+        "operador": operador, "segmento": segmento or "todos",
+        "n_cuentas_filtradas": len(ids),
+        "n_cuentas_con_actividad": len(filas),
+        "totales": {
+            "n_ops": n_ops, "vol_total": vol_total,
+            "vol_mes": round(sum(f["vol_mes"] for f in filas), 2),
+            "ar_total": round(sum(f["ar_total"] for f in filas), 2),
+            "ticket_promedio": round(vol_total / n_ops, 2) if n_ops else 0.0,
+        },
+        "cuentas": filas[:300],
+    }

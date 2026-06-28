@@ -18,7 +18,7 @@ def check_debug_comercial(
 ):
     """Auditoría del Informe comercial: desglose por cuenta (# ops, volumen,
     arancel) + totales + ticket promedio, para un operador o un segmento."""
-    from api.services.comercial import debug_comercial
+    from api.services.comercial_sql import debug_comercial
     return debug_comercial(operador=operador, segmento=segmento, moneda=moneda)
 
 

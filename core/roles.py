@@ -206,25 +206,28 @@ def _audit_col():
 
 
 def _audit_insert(doc: dict) -> None:
-    """Inserta un evento en Manager.RoleAudit (fuente de verdad) y, si MANAGER_SQL_WRITE,
-    lo dual-escribe a SQL manager.role_audit. `ts` es AWARE UTC → timestamptz no corre la
-    hora. Best-effort: si SQL falla NO debe tumbar la mutación (Mongo ya persistió; el
-    próximo sync_postgres alinea SQL)."""
-    res = _audit_col().insert_one(doc)
-    if os.getenv("MANAGER_SQL_WRITE") != "1":
-        return
+    """Inserta un evento de auditoría SQL-NATIVE en manager.role_audit (decomiso Mongo:
+    ya NO escribe Manager.RoleAudit). PK = uuid (antes era str(ObjectId) del insert Mongo).
+    `ts` es AWARE UTC → timestamptz no corre la hora. Best-effort: si SQL falla NO debe
+    tumbar la mutación de usuario/rol (que ya persistió en su propio write).
+
+    Lectura del panel: api/routers/manager/roles.py → manager_infra_sql.list_audit_sql
+    cuando el flag de lectura MANAGER_SQL=1 está prendido. Con MANAGER_SQL=0 el router cae
+    a roles.list_audit (Mongo), que tras este cutover NO verá los eventos nuevos."""
     try:
+        from uuid import uuid4
+
         from core.pg_mirror import doc_iso, write_native
         write_native("manager.role_audit", ["audit_id"], [{
-            "audit_id": str(res.inserted_id),
+            "audit_id": str(uuid4()),
             "ts":       doc.get("ts"),
             "actor":    doc.get("actor"),
             "action":   doc.get("action"),
             "target":   doc.get("target"),
-            "data":     doc_iso({k: v for k, v in doc.items() if k != "_id"}),
+            "data":     doc_iso(doc),
         }])
     except Exception as e:
-        logger.warning("RoleAudit: dual-write SQL falló (%s) — Mongo ya persistió", e)
+        logger.warning("RoleAudit: write SQL falló (%s) — la mutación ya persistió", e)
 
 
 def _load_matrix_from_db() -> dict[str, tuple[str, ...]]:

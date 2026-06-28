@@ -40,18 +40,21 @@ from core.mongo import get_mongo_client
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
-# Motores live: (label, db, colección, campo_ts, cadencia_seg_esperada).
-# Colecciones verificadas (corrida de diag_frescura_snapshots + crontab). Si alguna
-# aparece "sin datos" es que el nombre no coincide → ajustar acá.
+# Motores live: (label, db, colección, campo_ts, cadencia_seg_esperada, sql).
+#   sql = None             → frescura desde Mongo (motor todavía Mongo-primary).
+#   sql = (tabla, ts_expr[, where]) → frescura desde Postgres (motor migrado a SQL,
+#         decomiso Mongo). Tablas sin schema → search_path (core.postgres). Para los
+#         snapshots SQL el updated_at fresco vive en data->>'updated_at' (la columna
+#         updated_at queda con el now() del primer insert).
 MOTORES = [
-    ("rofex/curvas", "Trading",  "MarketSnapshot",       "updated_at", 60),
+    ("rofex/curvas", "Trading",  "MarketSnapshot",       "updated_at", 60, ("market_snapshot", "updated_at")),
     # cedears: CedearsSnapshot migrada a SQL (mercado.cedears_snapshot) 2026-06-24 —
     # sacada de este check Mongo-only. Frescura del motor: systemd / skill /motor-status.
-    ("opciones",     "Opciones", "OptionsSnapshot",      "updated_at", 60),
-    ("agro",         "Trading",  "AgroSnapshot",         "updated_at", 60),
-    ("agro_opc",     "Trading",  "AgroOpcionesSnapshot", "updated_at", 60),
-    ("futuros_dlr",  "Trading",  "FuturosDLRSnapshot",   "updated_at", 10),
-    ("caucion",      "Trading",  "CaucionSnapshot",      "updated_at", 30),
+    ("opciones",     "Opciones", "OptionsSnapshot",      "updated_at", 60, ("options_snapshot", "updated_at")),
+    ("agro",         "Trading",  "AgroSnapshot",         "updated_at", 60, ("agro_snapshot", "data->>'updated_at'")),
+    ("agro_opc",     "Trading",  "AgroOpcionesSnapshot", "updated_at", 60, ("agro_opciones_snapshot", "data->>'updated_at'")),
+    ("futuros_dlr",  "Trading",  "FuturosDLRSnapshot",   "updated_at", 10, ("futuros_dlr_snapshot", "data->>'updated_at'")),
+    ("caucion",      "Trading",  "CaucionSnapshot",      "updated_at", 30, ("caucion_snapshot", "data->>'updated_at'")),
 ]
 
 # Bases a trackear crecimiento: (label, db, colección). Count O(1) + Δ vs anterior.
@@ -89,17 +92,35 @@ def _edad_seg(ts) -> float | None:
     return (_ahora() - base).total_seconds()
 
 
+def _frescura_sql(tabla: str, ts_expr: str, where: str | None = None):
+    """Frescura desde Postgres (decomiso Mongo): max(ts_expr::timestamptz) de la
+    tabla. Tablas sin schema → search_path (core.postgres). Devuelve datetime
+    aware (UTC) o None. Es un JOB → no importa api/, usa core.postgres directo.
+    Best-effort: si SQL falla, None → el motor sale 'sin_datos'."""
+    from core.postgres import get_pool
+    clause = f" WHERE {where}" if where else ""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(f"SELECT max(({ts_expr})::timestamptz) FROM {tabla}{clause}")
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
 # ── Secciones ────────────────────────────────────────────────────────────────
 
 def _seccion_motores(cli, en_rueda: bool) -> dict:
     out = {"items": [], "stale": 0, "muertos": 0}
-    for label, db, coll, ts_field, cadencia in MOTORES:
-        item = {"motor": label, "coll": f"{db}.{coll}", "edad_s": None, "estado": "sin_datos"}
+    for label, db, coll, ts_field, cadencia, sql in MOTORES:
+        fuente = f"sql:{sql[0]}" if sql else f"{db}.{coll}"
+        item = {"motor": label, "coll": fuente, "edad_s": None, "estado": "sin_datos"}
         try:
-            doc = cli[db][coll].find_one({ts_field: {"$ne": None}}, {ts_field: 1},
-                                         sort=[(ts_field, -1)])
-            if doc:
-                edad = _edad_seg(doc.get(ts_field))
+            if sql:
+                ts = _frescura_sql(*sql)
+            else:
+                doc = cli[db][coll].find_one({ts_field: {"$ne": None}}, {ts_field: 1},
+                                             sort=[(ts_field, -1)])
+                ts = doc.get(ts_field) if doc else None
+            if ts is not None:
+                edad = _edad_seg(ts)
                 item["edad_s"] = round(edad) if edad is not None else None
                 if edad is None:
                     item["estado"] = "sin_ts"

@@ -342,7 +342,19 @@ server (sección siguiente).
 **Postgres NO reemplaza Mongo: es un espejo relacional de solo-lectura** del
 núcleo de negocio (reportería con SQL real, cruces baratos). Si PG se cae, la
 operación (Mongo) sigue. Doc completo y estado por fase: **`docs/SQL.md`** +
-`docs/MIGRACION_MONGO_SUPABASE.md`. Esquema: `sql/schema.sql`. Pool/conn:
+`docs/MIGRACION_MONGO_SUPABASE.md`.
+
+> **DECOMISO DE MONGO — leer `docs/DECOMISO_MONGO.md` antes de afirmar que algo
+> "ya está migrado".** Auditoría exhaustiva (2026-06-27): 84 colecciones en 11
+> bases, **~24% realmente fuera de Mongo, ~76% todavía atado**. Mongo es el
+> write-path primario de ~14 motores live + ~26 jobs → NO se puede apagar hoy.
+> El doc tiene el mapa por colección (escritores/lectores/estado SQL) + roadmap
+> de 9 fases. NO declarar el decomiso "completo" sin actualizar ese doc. Ver
+> [[project_decomiso_mongo]].
+
+Esquema: `sql/schema.sql` (OJO: `schema.sql` NO siempre está aplicado en la DB
+real — ej. `mercado.dias_habiles` existe en el archivo pero no en Postgres).
+Pool/conn:
 `core.postgres.get_pool` (lee `.env` propia). Sync: `jobs/sync_postgres.py`.
 
 - **Patrón dual-run (no inferible)**: los endpoints migrados leen SQL **o** Mongo

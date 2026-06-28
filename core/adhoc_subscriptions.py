@@ -1,147 +1,123 @@
-"""Helpers para Trading.AdhocSubscriptions — suscripciones live efímeras.
+"""Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
 
 Aísla los tickers que el user pidió desde el Dashboard de Operar pero que
 NO están en Trading.Curvas ni en config.TICKERS_EXTRA_PRECIOS. El motor
-los suscribe vía pyRofex en runtime (cada 5s polleando esta colección)
-y los persiste en MarketSnapshot como cualquier otro.
+los suscribe vía pyRofex en runtime (cada 5s polleando esta tabla) y los
+persiste en MarketSnapshot como cualquier otro.
+
+SQL-NATIVE (decomiso Mongo): la colección Mongo `Trading.AdhocSubscriptions`
+fue migrada → este módulo escribe/lee SOLO Postgres.
 
 Diseño:
-- `_id` = ticker full ROFEX. Único.
-- TTL index sobre `expires_at` → Mongo borra solo cuando vence.
-- Cap de TTL_DAYS desde `last_used_at`: cada llamada a `subscribe()` o
-  `bump_last_used()` refresca expires_at = now + TTL_DAYS. Si nadie lo
-  usa en 7 días, vence y el motor lo unsuscribe.
-- Cap CAP global: si hay >= CAP docs activos al pedir uno nuevo, el
-  endpoint rechaza con 429.
+- PK = ticker full ROFEX. Único.
+- TTL: Postgres NO tiene TTL nativo → los reads filtran `expires_at > now()`
+  (semántica TTL en lectura) y un cron (`prune_expired`) borra las vencidas.
+- Cap TTL_DAYS desde `last_used_at`: cada subscribe()/bump_last_used() refresca
+  expires_at = now + TTL_DAYS. Si nadie lo usa en 7 días, vence.
+- Cap CAP global: si hay >= CAP filas vivas al pedir una nueva, rechaza con 429.
 """
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from pymongo import ASCENDING
+from core.postgres import get_pool
 
-from core.mongo import get_mongo_client, get_mongo_client_read
-
-DB = "Trading"
-COLL = "AdhocSubscriptions"
+TABLE = "adhoc_subscriptions"            # mercado.adhoc_subscriptions (search_path)
 
 TTL_DAYS = 7
 CAP = 50
 
 
-def _coll_rw():
-    return get_mongo_client()[DB][COLL]
-
-
-def _coll_ro():
-    return get_mongo_client_read()[DB][COLL]
-
-
 def ensure_indexes() -> None:
-    """Crea TTL index sobre expires_at si no existe. Idempotente.
-
-    Llamar al startup del motor o de la API. Mongo respeta el TTL con
-    granularidad de ~60s, suficiente para nuestro uso.
-    """
-    col = _coll_rw()
-    existing = {ix["name"] for ix in col.list_indexes()}
-    if "expires_at_ttl" not in existing:
-        col.create_index(
-            [("expires_at", ASCENDING)],
-            name="expires_at_ttl",
-            expireAfterSeconds=0,
-        )
-    if "ticker_1" not in existing:
-        col.create_index([("ticker", ASCENDING)], name="ticker_1", unique=True)
+    """No-op: el índice (PK ticker + ix expires_at) lo crea schema.sql.
+    Se mantiene por compat con los callers de startup (motor/API)."""
+    return None
 
 
 def subscribe(ticker: str) -> dict:
     """Upsert: agrega o refresca un ticker adhoc.
 
-    Si ya existe, refresca last_used_at y expires_at (rolling TTL).
+    Si ya existe (vivo), refresca last_used_at y expires_at (rolling TTL).
     Si es nuevo y se alcanzó el cap, devuelve {"ok": False, "reason": "cap"}.
-
-    Devuelve dict con estado: {ok, ticker, created, expires_at, active_count}.
     """
     ticker = (ticker or "").strip()
     if not ticker:
         return {"ok": False, "reason": "ticker vacío"}
 
-    col = _coll_rw()
     now = datetime.now(UTC)
     expires_at = now + timedelta(days=TTL_DAYS)
 
-    existing = col.find_one({"_id": ticker})
-    if existing:
-        col.update_one(
-            {"_id": ticker},
-            {"$set": {"last_used_at": now, "expires_at": expires_at}},
-        )
-        return {
-            "ok":           True,
-            "ticker":       ticker,
-            "created":      False,
-            "expires_at":   expires_at,
-            "active_count": col.count_documents({}),
-        }
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"SELECT 1 FROM {TABLE} WHERE ticker = %s AND expires_at > now()", (ticker,))
+        existing = cur.fetchone() is not None
+        if existing:
+            cur.execute(
+                f"UPDATE {TABLE} SET last_used_at = %s, expires_at = %s WHERE ticker = %s",
+                (now, expires_at, ticker))
+            cur.execute(f"SELECT count(*) FROM {TABLE} WHERE expires_at > now()")
+            return {
+                "ok": True, "ticker": ticker, "created": False,
+                "expires_at": expires_at, "active_count": cur.fetchone()[0],
+            }
 
-    active = col.count_documents({})
-    if active >= CAP:
-        return {
-            "ok":           False,
-            "reason":       "cap",
-            "ticker":       ticker,
-            "active_count": active,
-            "cap":          CAP,
-        }
+        cur.execute(f"SELECT count(*) FROM {TABLE} WHERE expires_at > now()")
+        active = cur.fetchone()[0]
+        if active >= CAP:
+            return {"ok": False, "reason": "cap", "ticker": ticker,
+                    "active_count": active, "cap": CAP}
 
-    col.insert_one({
-        "_id":          ticker,
-        "ticker":       ticker,
-        "created_at":   now,
-        "last_used_at": now,
-        "expires_at":   expires_at,
-    })
-    return {
-        "ok":           True,
-        "ticker":       ticker,
-        "created":      True,
-        "expires_at":   expires_at,
-        "active_count": active + 1,
-    }
+        # ON CONFLICT cubre el caso de una fila vencida (aún no pruneada) con el mismo ticker.
+        cur.execute(
+            f"INSERT INTO {TABLE} (ticker, created_at, last_used_at, expires_at) "
+            f"VALUES (%s, %s, %s, %s) "
+            f"ON CONFLICT (ticker) DO UPDATE SET "
+            f"created_at = EXCLUDED.created_at, last_used_at = EXCLUDED.last_used_at, "
+            f"expires_at = EXCLUDED.expires_at",
+            (ticker, now, now, expires_at))
+        return {"ok": True, "ticker": ticker, "created": True,
+                "expires_at": expires_at, "active_count": active + 1}
 
 
 def bump_last_used(ticker: str) -> bool:
-    """Extiende el TTL si el doc existe. No crea nada nuevo.
-
-    Útil cuando el front sigue polleando un ticker que ya está suscrito
-    — cada poll refresca el TTL así no expira mientras se está usando.
-    """
-    res = _coll_rw().update_one(
-        {"_id": ticker},
-        {"$set": {
-            "last_used_at": datetime.now(UTC),
-            "expires_at":   datetime.now(UTC) + timedelta(days=TTL_DAYS),
-        }},
-    )
-    return res.matched_count > 0
+    """Extiende el TTL si la fila existe (viva). No crea nada nuevo."""
+    now = datetime.now(UTC)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE {TABLE} SET last_used_at = %s, expires_at = %s "
+            f"WHERE ticker = %s AND expires_at > now()",
+            (now, now + timedelta(days=TTL_DAYS), ticker))
+        return (cur.rowcount or 0) > 0
 
 
 def list_active_tickers() -> list[str]:
-    """Tickers vivos (sin filtrar por expires_at — Mongo ya los borró)."""
-    return [
-        d["ticker"]
-        for d in _coll_ro().find({}, {"_id": 0, "ticker": 1})
-        if d.get("ticker")
-    ]
+    """Tickers vivos (expires_at > now())."""
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT ticker FROM {TABLE} WHERE expires_at > now()")
+            return [r[0] for r in cur.fetchall() if r[0]]
+    except Exception:
+        return []
 
 
 def count_active() -> int:
-    return _coll_ro().count_documents({})
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT count(*) FROM {TABLE} WHERE expires_at > now()")
+            return cur.fetchone()[0]
+    except Exception:
+        return 0
 
 
 def remove(ticker: str) -> bool:
-    """Borrado manual (no esperar al TTL). Útil para limpieza explícita
-    desde manager o pruebas."""
-    res = _coll_rw().delete_one({"_id": ticker})
-    return res.deleted_count > 0
+    """Borrado manual (no esperar al TTL)."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(f"DELETE FROM {TABLE} WHERE ticker = %s", (ticker,))
+        return (cur.rowcount or 0) > 0
+
+
+def prune_expired() -> int:
+    """Borra las filas vencidas (lo llama un cron — reemplaza el TTL de Mongo)."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(f"DELETE FROM {TABLE} WHERE expires_at <= now()")
+        return cur.rowcount or 0

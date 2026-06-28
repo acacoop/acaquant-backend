@@ -18,7 +18,7 @@ Tracking:
 - Manager.JobRuns: 1 doc por corrida, tipo="aranceles". Si hay errores no
   fatales (cuentas que fallaron tras reintento), status=partial → alerta
   Telegram automática (vía JobRunLogger).
-- También deja un doc en Manager.AranceelesJobRuns con actor="cron@aranceles"
+- También deja una fila en SQL aranceles_job_runs con actor="cron@aranceles"
   para que aparezca en el HISTORIAL de la UI (BOLETOS → BACKFILL).
 
 Uso (manual, para probar):
@@ -35,7 +35,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from api.services.aunesa_aranceles import run_backfill
 from core.job_runs import JobRunLogger
-from core.mongo import get_mongo_client
+from core.pg_mirror import write_native
 
 # Ventana default — cubre liquidación T+2 con margen para reintentos y
 # cambios retroactivos. Si Aunesa nunca rebote, podés bajar a 3.
@@ -46,10 +46,23 @@ _DIAS_DEFAULT = 7
 # uso, este job se dispara N veces por día.
 _WORKERS = 4
 
-# Colección que comparte la UI para el HISTORIAL. El doc del cron también
+# Tabla SQL que comparte la UI para el HISTORIAL. La fila del cron también
 # vive acá (con actor="cron@aranceles") para que se vea en BOLETOS→BACKFILL.
-_UI_JOBS_COL = "AranceelesJobRuns"
+_UI_JOBS_TABLE = "aranceles_job_runs"
 _CRON_ACTOR = "cron@aranceles"
+
+# Columnas fijas de aranceles_job_runs; todo lo demás (cuentas, workers,
+# cuentas_total/done, stats, ejemplos, errores, error) va al jsonb `data`.
+_UI_FIXED_COLS = ("id", "status", "actor", "desde", "hasta", "apply",
+                  "started_at", "updated_at", "finished_at")
+
+
+def _ui_row(doc: dict) -> dict:
+    """Parte el doc lógico de la UI en la fila SQL: columnas fijas + `data` jsonb
+    con el resto. Cada escritura reescribe la fila completa (upsert por id)."""
+    row = {k: doc.get(k) for k in _UI_FIXED_COLS}
+    row["data"] = {k: v for k, v in doc.items() if k not in _UI_FIXED_COLS}
+    return row
 
 
 def main() -> int:
@@ -74,12 +87,11 @@ def main() -> int:
         run.log(f"Rango {desde_d}..{hasta_d} | workers={args.workers} | "
                 f"modo={'APPLY' if apply else 'DRY-RUN'}")
 
-        # Doc en la colección que usa la UI para HISTORIAL. _id es un UUID
+        # Fila en la tabla SQL que usa la UI para HISTORIAL. `id` es un UUID
         # propio del cron — no se mezcla con los UUID del POST endpoint.
         ui_job_id = str(uuid.uuid4())
-        ui_col = get_mongo_client()["Manager"][_UI_JOBS_COL]
-        ui_doc_base = {
-            "_id":           ui_job_id,
+        ui_doc = {
+            "id":            ui_job_id,
             "status":        "running",
             "actor":         _CRON_ACTOR,
             "desde":         desde_d.isoformat(),
@@ -97,39 +109,28 @@ def main() -> int:
             "errores":       [],
             "error":         None,
         }
-        try:
-            ui_col.insert_one(ui_doc_base)
-        except Exception as e:
-            # Si no podemos crear el doc UI, seguimos igual — JobRuns sigue siendo
-            # la fuente principal de tracking. Solo nos perdemos la visibilidad
-            # en la UI para esta corrida.
-            run.error(f"no se pudo crear doc en {_UI_JOBS_COL}: {e}")
+        # write_native es best-effort (loguea y devuelve 0 si falla, nunca
+        # levanta). Si no podemos crear la fila UI, seguimos igual — JobRuns
+        # sigue siendo la fuente principal de tracking.
+        if write_native(_UI_JOBS_TABLE, ["id"], [_ui_row(ui_doc)]) == 0:
+            run.error(f"no se pudo crear fila en {_UI_JOBS_TABLE}")
             ui_job_id = None
 
         def on_progress(state: dict) -> None:
             if ui_job_id is None:
                 return
-            try:
-                ui_col.update_one(
-                    {"_id": ui_job_id},
-                    {"$set": {
-                        "updated_at":    datetime.now(UTC),
-                        "cuentas_total": state["cuentas_total"],
-                        "cuentas_done":  state["cuentas_done"],
-                        "stats": {
-                            "inf":       state["inf"],
-                            "match":     state["match"],
-                            "sin_match": state["sin_match"],
-                            "escritos":  state["escritos"],
-                        },
-                        "ejemplos": state["ejemplos"],
-                        "errores":  state["errores"],
-                    }},
-                )
-            except Exception as e:
-                # No tumbar el job por un fallo en la actualización del doc UI.
-                # JobRuns sigue capturando todo lo importante.
-                run.error(f"actualizando {_UI_JOBS_COL}: {e}")
+            ui_doc["updated_at"]    = datetime.now(UTC)
+            ui_doc["cuentas_total"] = state["cuentas_total"]
+            ui_doc["cuentas_done"]  = state["cuentas_done"]
+            ui_doc["stats"] = {
+                "inf":       state["inf"],
+                "match":     state["match"],
+                "sin_match": state["sin_match"],
+                "escritos":  state["escritos"],
+            }
+            ui_doc["ejemplos"] = state["ejemplos"]
+            ui_doc["errores"]  = state["errores"]
+            write_native(_UI_JOBS_TABLE, ["id"], [_ui_row(ui_doc)])
 
         try:
             state = run_backfill(
@@ -139,16 +140,12 @@ def main() -> int:
             )
         except Exception as e:
             # Excepción fatal → JobRunLogger marca error y dispara Telegram.
-            # Cerramos el doc UI con status=error antes de re-raise.
+            # Cerramos la fila UI con status=error antes de re-raise.
             if ui_job_id is not None:
-                try:
-                    ui_col.update_one(
-                        {"_id": ui_job_id},
-                        {"$set": {"status": "error", "error": str(e),
-                                  "finished_at": datetime.now(UTC)}},
-                    )
-                except Exception:
-                    pass
+                ui_doc["status"]      = "error"
+                ui_doc["error"]       = str(e)
+                ui_doc["finished_at"] = datetime.now(UTC)
+                write_native(_UI_JOBS_TABLE, ["id"], [_ui_row(ui_doc)])
             raise
 
         # Stats al JobRunLogger (los persiste a Manager.JobRuns).
@@ -170,15 +167,11 @@ def main() -> int:
                 f"sin_match={state['sin_match']} escritos={state['escritos']} "
                 f"errores_cuentas={len(state['errores'])}")
 
-        # Cerramos el doc UI como done — el HISTORIAL de la vista lo va a mostrar.
+        # Cerramos la fila UI como done — el HISTORIAL de la vista lo va a mostrar.
         if ui_job_id is not None:
-            try:
-                ui_col.update_one(
-                    {"_id": ui_job_id},
-                    {"$set": {"status": "done", "finished_at": datetime.now(UTC)}},
-                )
-            except Exception:
-                pass
+            ui_doc["status"]      = "done"
+            ui_doc["finished_at"] = datetime.now(UTC)
+            write_native(_UI_JOBS_TABLE, ["id"], [_ui_row(ui_doc)])
 
     return 0
 

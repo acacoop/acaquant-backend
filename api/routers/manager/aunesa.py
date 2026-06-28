@@ -23,14 +23,19 @@ from api.services import aunesa_negocio as svc
 from api.services._negocio_arancelables import OP_NO_ARANCELABLES
 from api.services._negocio_futuros import EXCLUIR_UNIDADES_FUTUROS
 from api.services.aunesa_aranceles import run_backfill
-from core.mongo import get_mongo_client
+from core.pg_mirror import write_native
 from core.postgres import get_pool
 
 router = APIRouter()
 logger = logging.getLogger("api.manager.aunesa")
 
-_JOBS_COL = "AranceelesJobRuns"
+_JOBS_TABLE = "aranceles_job_runs"
 _STALE_S = 300  # 5 min sin update → marca el job como `stale` (proceso reiniciado).
+
+# Columnas fijas de aranceles_job_runs; todo lo demás (cuentas, workers,
+# cuentas_total/done, stats, ejemplos, errores, error) vive en el jsonb `data`.
+_UI_FIXED_COLS = ("id", "status", "actor", "desde", "hasta", "apply",
+                  "started_at", "updated_at", "finished_at")
 
 
 @router.get("/aunesa/explorar")
@@ -257,42 +262,62 @@ class BackfillReq(BaseModel):
     apply:   bool       = Field(True, description="True = escribe; False = dry-run.")
 
 
-def _jobs_col():
-    return get_mongo_client()["Manager"][_JOBS_COL]
+def _ui_row(doc: dict) -> dict:
+    """Parte el doc lógico del job en la fila SQL: columnas fijas + `data` jsonb
+    con el resto. Cada escritura reescribe la fila completa (upsert por id)."""
+    row = {k: doc.get(k) for k in _UI_FIXED_COLS}
+    row["data"] = {k: v for k, v in doc.items() if k not in _UI_FIXED_COLS}
+    return row
+
+
+def _write_job(doc: dict) -> None:
+    """Upsert de la fila completa en SQL (best-effort, nunca levanta)."""
+    write_native(_JOBS_TABLE, ["id"], [_ui_row(doc)])
+
+
+def _read_job(job_id: str) -> dict | None:
+    """Lee la fila y la reconstruye al shape lógico (columnas fijas + spread del
+    jsonb `data`), con los datetimes como objetos (se serializan después)."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"SELECT {', '.join(_UI_FIXED_COLS)}, data FROM {_JOBS_TABLE} "
+            f"WHERE id = %s",
+            (job_id,))
+        r = cur.fetchone()
+    if r is None:
+        return None
+    data = r.pop("data") or {}
+    return {**r, **data}
 
 
 def _serialize_job(doc: dict | None) -> dict | None:
-    """Lo devolvemos sin _id (es UUID, ya está en `job_id`) y con datetimes ISO."""
+    """Lo devolvemos sin `id` (es UUID, ya está en `job_id`) y con datetimes ISO."""
     if doc is None:
         return None
-    out = {k: v for k, v in doc.items() if k != "_id"}
+    out = {k: v for k, v in doc.items() if k != "id"}
     for k in ("started_at", "updated_at", "finished_at"):
         if isinstance(out.get(k), datetime):
             out[k] = out[k].isoformat()
     return out
 
 
-def _run_job(job_id: str, req: BackfillReq, desde_d: date, hasta_d: date) -> None:
-    """Cuerpo del thread daemon. Actualiza progreso en Mongo a cada cuenta."""
-    col = _jobs_col()
+def _run_job(doc: dict, req: BackfillReq, desde_d: date, hasta_d: date) -> None:
+    """Cuerpo del thread daemon. Reescribe la fila SQL completa a cada cuenta."""
+    job_id = doc["id"]
 
     def on_progress(state: dict[str, Any]) -> None:
-        col.update_one(
-            {"_id": job_id},
-            {"$set": {
-                "updated_at":    datetime.now(UTC),
-                "cuentas_total": state["cuentas_total"],
-                "cuentas_done":  state["cuentas_done"],
-                "stats": {
-                    "inf":       state["inf"],
-                    "match":     state["match"],
-                    "sin_match": state["sin_match"],
-                    "escritos":  state["escritos"],
-                },
-                "ejemplos": state["ejemplos"],
-                "errores":  state["errores"],
-            }},
-        )
+        doc["updated_at"]    = datetime.now(UTC)
+        doc["cuentas_total"] = state["cuentas_total"]
+        doc["cuentas_done"]  = state["cuentas_done"]
+        doc["stats"] = {
+            "inf":       state["inf"],
+            "match":     state["match"],
+            "sin_match": state["sin_match"],
+            "escritos":  state["escritos"],
+        }
+        doc["ejemplos"] = state["ejemplos"]
+        doc["errores"]  = state["errores"]
+        _write_job(doc)
 
     try:
         run_backfill(
@@ -300,20 +325,15 @@ def _run_job(job_id: str, req: BackfillReq, desde_d: date, hasta_d: date) -> Non
             workers=req.workers, apply=req.apply,
             on_progress=on_progress, progress_every=1,
         )
-        col.update_one(
-            {"_id": job_id},
-            {"$set": {"status": "done", "finished_at": datetime.now(UTC)}},
-        )
+        doc["status"]      = "done"
+        doc["finished_at"] = datetime.now(UTC)
+        _write_job(doc)
     except Exception as e:
         logger.exception("backfill aranceles job %s falló", job_id)
-        col.update_one(
-            {"_id": job_id},
-            {"$set": {
-                "status":     "error",
-                "error":      str(e),
-                "finished_at": datetime.now(UTC),
-            }},
-        )
+        doc["status"]      = "error"
+        doc["error"]       = str(e)
+        doc["finished_at"] = datetime.now(UTC)
+        _write_job(doc)
 
 
 @router.post("/aunesa/boletos/backfill")
@@ -338,8 +358,8 @@ def boletos_backfill_start(
 
     job_id = str(uuid.uuid4())
     now = datetime.now(UTC)
-    _jobs_col().insert_one({
-        "_id":           job_id,
+    doc = {
+        "id":            job_id,
         "status":        "running",
         "actor":         actor,
         "desde":         req.desde,
@@ -356,10 +376,11 @@ def boletos_backfill_start(
         "ejemplos":      [],
         "errores":       [],
         "error":         None,
-    })
+    }
+    _write_job(doc)
 
     threading.Thread(
-        target=_run_job, args=(job_id, req, desde_d, hasta_d), daemon=True,
+        target=_run_job, args=(doc, req, desde_d, hasta_d), daemon=True,
         name=f"aranceles-{job_id[:8]}",
     ).start()
 
@@ -369,25 +390,34 @@ def boletos_backfill_start(
 @router.get("/aunesa/boletos/backfill/{job_id}")
 def boletos_backfill_status(job_id: str) -> dict[str, Any]:
     """Estado actual del job. Marca `stale` si lleva > 5 min sin update."""
-    doc = _jobs_col().find_one({"_id": job_id})
+    doc = _read_job(job_id)
     if doc is None:
         raise HTTPException(status_code=404, detail=f"job_id desconocido: {job_id}")
     if doc.get("status") == "running":
         updated = doc.get("updated_at")
-        if isinstance(updated, datetime) and (
-            datetime.now(UTC) - updated.replace(tzinfo=UTC) > timedelta(seconds=_STALE_S)
-        ):
-            doc["status"] = "stale"
+        if isinstance(updated, datetime):
+            # timestamptz vuelve aware desde Postgres; si fuera naive, asumir UTC.
+            updated = updated if updated.tzinfo else updated.replace(tzinfo=UTC)
+            if datetime.now(UTC) - updated > timedelta(seconds=_STALE_S):
+                doc["status"] = "stale"
     return _serialize_job(doc) or {}
 
 
 @router.get("/aunesa/boletos/backfill")
 def boletos_backfill_historial(limit: int = Query(20, ge=1, le=100)) -> list[dict[str, Any]]:
-    """Últimos N jobs (más reciente primero). Para mostrar historial en UI."""
-    docs = list(
-        _jobs_col()
-        .find({}, {"ejemplos": 0, "errores": 0})
-        .sort("started_at", -1)
-        .limit(limit)
-    )
-    return [d for d in (_serialize_job(d) for d in docs) if d]
+    """Últimos N jobs (más reciente primero). Para mostrar historial en UI.
+
+    Excluye los campos pesados `ejemplos`/`errores` del jsonb `data` con el
+    operador `-` de Postgres (mismo shape que la vieja proyección Mongo)."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"SELECT {', '.join(_UI_FIXED_COLS)}, "
+            f"(data - 'ejemplos' - 'errores') AS data FROM {_JOBS_TABLE} "
+            f"ORDER BY started_at DESC LIMIT %s",
+            (limit,))
+        rows = cur.fetchall()
+    out = []
+    for r in rows:
+        data = r.pop("data") or {}
+        out.append(_serialize_job({**r, **data}))
+    return [d for d in out if d]

@@ -18,20 +18,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from api.services.ons import _f, _fecha_flujo_iso, _fecha_iso
-from core.mongo import get_mongo_client, get_mongo_client_read
+from api.services.ons import _f, _fecha_flujo_iso, _fecha_iso, _upsert_curva_doc
+from core import curvas_sql
+from core.postgres import get_pool
 
 # Curvas que gestiona este editor (las ONs van por ons.py; mercado las maneja el motor).
 CURVAS_BONO = ("tasa_fija", "cer", "soberanos", "dolar_linked", "tamar", "dual")
 
 
 def list_bonos(curva: str | None = None) -> list[dict]:
-    """Bonos NO-ON de Trading.Curvas (excluye curva ^on, que son del editor de ONs)."""
-    read = get_mongo_client_read()["Trading"]["Curvas"]
-    filtro: dict = {"curva": {"$not": {"$regex": "^on"}}}
-    if curva:
-        filtro["curva"] = curva
-    out = list(read.find(filtro, {"_id": 0}).limit(5000))
+    """Bonos NO-ON de mercado.curvas (excluye curva ^on, que son del editor de ONs)."""
+    out = curvas_sql.por_curva(curva) if curva else curvas_sql.por_curva_not_like("on%")
     out.sort(key=lambda d: (d.get("curva") or "", str(d.get("fecha_vencimiento") or ""),
                             d.get("ticker_corto") or ""))
     return out
@@ -110,17 +107,17 @@ def upsert_bono(payload: dict, actor: str = "") -> dict:
     else:
         raise ValueError("falta el flujo: 'flujo_vencimiento' (bullet) o 'flujos' (cronograma)")
 
-    col = get_mongo_client()["Trading"]["Curvas"]
-    col.update_one({"ticker_corto": tc}, {"$set": doc}, upsert=True)
-    saved = col.find_one({"ticker_corto": tc}, {"_id": 0}) or {}
+    saved = _upsert_curva_doc(doc)
     return {"bono": saved}
 
 
 def delete_bono(ticker_corto: str) -> dict:
-    """Baja un bono de Trading.Curvas por ticker_corto (no toca ONs ^on)."""
+    """Baja un bono de mercado.curvas por ticker_corto (no toca ONs ^on)."""
     tc = (ticker_corto or "").strip()
     if not tc:
         raise ValueError("falta 'ticker_corto'")
-    res = get_mongo_client()["Trading"]["Curvas"].delete_one(
-        {"ticker_corto": tc, "curva": {"$not": {"$regex": "^on"}}})
-    return {"borrado": res.deleted_count}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM mercado.curvas WHERE ticker_corto = %s "
+                    "AND (curva NOT LIKE 'on%%' OR curva IS NULL)", (tc,))
+        deleted = cur.rowcount or 0
+    return {"borrado": deleted}

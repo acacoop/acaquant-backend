@@ -22,6 +22,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from api.db import get_db_trading
 from api.services.assets_sql import assets_rows
+from core import curvas_sql
 from core.postgres import get_pool
 
 
@@ -63,11 +64,8 @@ def calendario_instrumentos() -> dict[str, dict]:
         monto_flujo_soberano,
     )
 
-    db = get_db_trading()
-    docs = list(db["Curvas"].find(
-        {}, {"_id": 0, "ticker_corto": 1, "ticker": 1, "curva": 1,
-             "flujos": 1, "cer_emision": 1, "moneda_flujo": 1,
-             "flujo_vencimiento": 1, "fecha_vencimiento": 1}))
+    db = get_db_trading()  # se usa para CER/días hábiles (db.client), no para Curvas
+    docs = curvas_sql.cargar_todos()  # master desde SQL mercado.curvas (doc completo)
 
     hay_cer = any((d.get("curva") == "cer") for d in docs)
     cer_dict = cargar_cer(db.client, dias=1200) if hay_cer else {}
@@ -273,14 +271,11 @@ def titulos_sin_flujo() -> list[dict]:
 
     # TODO vive en Trading.Curvas; la `curva` decide la vista. NO-ON (Renta Fija) y
     # ON (`on_*`, vista ONs) — cada uno con ¿tiene flujo? (las ONs ya viven en Curvas,
-    # NO se lee BondsMaster: consolidado en Curvas, 2026-06-19).
-    _PROJ = {"_id": 0, "ticker_corto": 1, "ticker": 1, "flujos": 1,
-             "flujo_vencimiento": 1, "fecha_vencimiento": 1}
+    # NO se lee BondsMaster: consolidado en Curvas, 2026-06-19). Master desde SQL
+    # mercado.curvas (curvas_sql devuelve el doc completo → _index/_KEYS sin cambio).
     _KEYS = [lambda d: d.get("ticker_corto"), lambda d: d.get("ticker")]
-    curvas_idx, curvas_base = _index(
-        trd["Curvas"].find({"curva": {"$not": {"$regex": "^on"}}}, _PROJ), _KEYS)
-    on_idx, on_base = _index(
-        trd["Curvas"].find({"curva": {"$regex": "^on"}}, _PROJ), _KEYS)
+    curvas_idx, curvas_base = _index(curvas_sql.por_curva_not_like("on%"), _KEYS)
+    on_idx, on_base = _index(curvas_sql.por_curva_like("on%"), _KEYS)
 
     def _lookup(idx: dict, base: dict, cands) -> bool | None:
         """True/False=tiene/no flujo · None=no está en ese maestro."""

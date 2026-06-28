@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from api.cache import cached
-from api.db import get_db_trading
+from core import curvas_sql
 from engines.curvas import fecha_flujo, monto_flujo_soberano
 
 _DEFAULT_TIRS: tuple[float, ...] = (0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11)
@@ -94,22 +94,16 @@ def sensibilidad_retorno_total(
     Con horizonte=0, cobrado_horizonte=0 → el upside colapsa a upside de
     precio puro (capital-only, sin paso del tiempo).
     """
-    db = get_db_trading()
     modo = (modo or "absoluta").lower()
     if modo not in ("absoluta", "relativa"):
         modo = "absoluta"
 
-    filtro: dict = {"curva": curva}
+    # Master desde SQL mercado.curvas. El filtro por `tipo` ($in) no mapea a
+    # columna → se aplica en Python sobre el doc completo (tipo ya lowercase).
+    bonos = curvas_sql.por_curva(curva)
     if tipos:
-        # Normaliza a lowercase y matchea contra Trading.Curvas.tipo (que
-        # ya está en lowercase: 'globales' / 'bonares' / etc).
-        filtro["tipo"] = {"$in": [t.lower() for t in tipos]}
-
-    bonos = list(db["Curvas"].find(
-        filtro,
-        {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
-         "valor_nominal": 1, "fecha_vencimiento": 1, "flujos": 1},
-    ))
+        tset = {t.lower() for t in tipos}
+        bonos = [b for b in bonos if (b.get("tipo") or "").lower() in tset]
 
     hoy = date.today()
     horizonte = hoy + timedelta(days=max(horizonte_dias, 0))

@@ -100,11 +100,12 @@ def _precios_live_curva(db_trd, curva: str) -> dict[str, float]:
     tickers de la curva. Usado como punto live cuando el cron de cierre
     aún no corrió.
     """
+    # Master desde SQL mercado.curvas (curvas_sql); db_trd ya no se usa acá.
+    from core import curvas_sql
     meta = {
         d["ticker"]: d.get("ticker_corto") or d["ticker"]
-        for d in db_trd["Curvas"].find(
-            {"curva": curva}, {"ticker": 1, "ticker_corto": 1},
-        )
+        for d in curvas_sql.por_curva(curva)
+        if d.get("ticker")
     }
     if not meta:
         return {}

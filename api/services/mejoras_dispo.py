@@ -27,6 +27,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from api.cache import cached
+from core import curvas_sql
 from core.dolar_oficial import mid_oficial_live
 from core.mongo import get_mongo_client_read
 
@@ -87,17 +88,11 @@ def get_mejoras_dispo() -> dict[str, Any]:
         if fvto:
             fut_by_ym.setdefault((fvto.year, fvto.month), f)
 
-    # LECAPs con flujo_vencimiento (deja afuera CER fijado y similares).
-    lecaps = list(trading["Curvas"].find(
-        {
-            "curva": "tasa_fija",
-            "flujo_vencimiento": {"$exists": True, "$ne": None},
-        },
-        {
-            "_id": 0, "ticker": 1, "ticker_corto": 1,
-            "fecha_vencimiento": 1, "flujo_vencimiento": 1,
-        },
-    ))
+    # LECAPs con flujo_vencimiento (deja afuera CER fijado y similares). Master
+    # desde SQL mercado.curvas; el filtro flujo_vencimiento not-null se aplica en
+    # Python sobre el doc completo (no mapea a columna).
+    lecaps = [c for c in curvas_sql.por_curva("tasa_fija")
+              if c.get("flujo_vencimiento") is not None]
 
     # TEA (la "TNA" de la mesa) de cada LECAP en una sola query.
     lecap_tickers = [c["ticker"] for c in lecaps if c.get("ticker")]

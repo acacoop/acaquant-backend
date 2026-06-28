@@ -17,6 +17,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from api.cache import cached
 from api.db import get_db_trading
+from core import curvas_sql
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +50,7 @@ def resolver_ticker_exacto(instrumento: str) -> str | None:
         return None
     if " - " in instr:
         return instr
-    db = get_db_trading()
-    doc = db["Curvas"].find_one(
-        {"ticker_corto": instr}, {"ticker": 1, "_id": 0}
-    )
+    doc = curvas_sql.find_one(instr)
     return doc.get("ticker") if doc else None
 
 
@@ -126,11 +124,10 @@ def get_renta_fija(instrumento: str | None = None) -> list:
     # Build set de tickers tasa_fija (nativa + CER ya fijados → comportan tasa fija).
     fijados = _bonos_cer_fijados()
     flujo_por_ticker: dict[str, float] = {}
-    for c in db["Curvas"].find(
-        {"$or": [{"curva": "tasa_fija"}, {"ticker": {"$in": list(fijados)}}]}
-        if fijados else {"curva": "tasa_fija"},
-        {"_id": 0, "ticker": 1, "flujo_vencimiento": 1},
-    ):
+    for c in curvas_sql.cargar_todos():
+        # tasa_fija nativa + CER ya fijados (comportan tasa fija desde ya).
+        if c.get("curva") != "tasa_fija" and c.get("ticker") not in fijados:
+            continue
         fv = c.get("flujo_vencimiento")
         if fv and fv > 0:
             flujo_por_ticker[c["ticker"]] = float(fv)
@@ -225,10 +222,7 @@ def _bonos_cer_fijados() -> set[str]:
         )
 
         fijados: set[str] = set()
-        for inst in db["Curvas"].find(
-            {"curva": "cer"},
-            {"_id": 0, "ticker": 1, "fecha_vencimiento": 1},
-        ):
+        for inst in curvas_sql.por_curva("cer"):
             vto = str(inst.get("fecha_vencimiento") or "")[:10]
             if not vto:
                 continue
@@ -274,50 +268,31 @@ def listar_curva(
 
     if curva == "cer":
         # Solo CER todavía variable (excluye los que ya quedaron fijados).
-        filtro_curva = {"curva": "cer"}
-        if fijados_tickers:
-            filtro_curva["ticker"] = {"$nin": list(fijados_tickers)}
-        # cupon_anual + cer_emision: para distinguir Lecers (zero coupon)
-        # de Boncers cupón tipo TX26/TX28 (cupon_anual > 0). Lo necesita
-        # la descomposición de retorno CER para filtrar la curva de
+        # El doc completo trae cupon_anual + cer_emision: para distinguir
+        # Lecers (zero coupon) de Boncers cupón tipo TX26/TX28 (cupon_anual > 0).
+        # Lo necesita la descomposición de retorno CER para filtrar la curva de
         # interpolación a los zero coupon (la spec lo pide explícitamente).
-        curva_docs = list(db["Curvas"].find(
-            filtro_curva,
-            {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
-             "fecha_vencimiento": 1, "fecha_emision": 1,
-             "cupon_anual": 1, "cer_emision": 1},
-        ))
+        curva_docs = [
+            d for d in curvas_sql.por_curva("cer")
+            if d.get("ticker") not in fijados_tickers
+        ]
     elif curva == "tasa_fija":
         # tasa_fija propia + CER fijados (se marcan como `cer_fijado=true`).
-        # `flujo_vencimiento` se proyecta acá para calcular tc_breakeven.
-        curva_docs = list(db["Curvas"].find(
-            {
-                "$or": [
-                    {"curva": "tasa_fija"},
-                    {"curva": "cer", "ticker": {"$in": list(fijados_tickers)}}
-                    if fijados_tickers else {"curva": "tasa_fija"},
-                ]
-            },
-            {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
-             "curva": 1, "fecha_vencimiento": 1, "fecha_emision": 1,
-             "flujo_vencimiento": 1},
-        ))
+        # `flujo_vencimiento` viene en el doc para calcular tc_breakeven.
+        curva_docs = [
+            d for d in curvas_sql.cargar_todos()
+            if d.get("curva") == "tasa_fija"
+            or (d.get("curva") == "cer" and d.get("ticker") in fijados_tickers)
+        ]
     elif _es_curva_on(curva):
         # ONs: el sector va en la curva. curva="on" → todas; "on_x" → ese sector.
-        # Trae emisor + curva(=sector) + moneda para los tabs y el coloreo.
-        filtro_on = {"curva": {"$regex": "^on"}} if curva == "on" else {"curva": curva}
-        curva_docs = list(db["Curvas"].find(
-            filtro_on,
-            {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
-             "fecha_vencimiento": 1, "fecha_emision": 1,
-             "curva": 1, "emisor": 1, "moneda_flujo": 1},
-        ))
+        # El doc trae emisor + curva(=sector) + moneda para los tabs y el coloreo.
+        curva_docs = (
+            curvas_sql.por_curva_like("on%") if curva == "on"
+            else curvas_sql.por_curva(curva)
+        )
     else:
-        curva_docs = list(db["Curvas"].find(
-            {"curva": curva},
-            {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
-             "fecha_vencimiento": 1, "fecha_emision": 1},
-        ))
+        curva_docs = curvas_sql.por_curva(curva)
     if not curva_docs:
         return []
 
@@ -462,7 +437,6 @@ def calendario_ons(meses: int = 12) -> list[dict]:
     {fecha, amortizacion, interes, valor_residual}. `monto` = amortizacion +
     interes (por 100 VN). Incluye `tasa_cupon` (la tasa de cupón del bono) y
     `cupon` (el monto del cupón de ese pago)."""
-    db = get_db_trading()
     hoy = datetime.now(UTC).date()
     try:
         meses = max(1, min(int(meses), 120))
@@ -471,11 +445,7 @@ def calendario_ons(meses: int = 12) -> list[dict]:
     hasta = hoy + timedelta(days=meses * 31)
 
     out: list[dict] = []
-    for d in db["Curvas"].find(
-        {"curva": {"$regex": "^on"}},
-        {"_id": 0, "ticker_corto": 1, "emisor": 1, "curva": 1,
-         "moneda_flujo": 1, "tasa_cupon": 1, "flujos": 1},
-    ):
+    for d in curvas_sql.por_curva_like("on%"):
         for f in d.get("flujos") or []:
             raw = f.get("fecha")
             try:
@@ -594,10 +564,7 @@ def _calendario_flujos(curva: str) -> dict[str, list[dict]]:
     )
 
     db = get_db_trading()
-    docs = list(db["Curvas"].find(
-        {"curva": curva},
-        {"_id": 0, "ticker_corto": 1, "ticker": 1, "flujos": 1, "cer_emision": 1},
-    ))
+    docs = curvas_sql.por_curva(curva)
 
     cer_dict: dict = {}
     dias_habiles: list = []

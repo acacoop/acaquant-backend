@@ -82,14 +82,12 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
     client = get_mongo_client_read()
 
     # ── 1. Buscar el instrumento ─────────────────────────────────────────
-    inst = client["Trading"]["Curvas"].find_one(
-        {"ticker_corto": ticker_corto},
-        {"_id": 0},
-    )
+    from core import curvas_sql
+    inst = curvas_sql.find_one(ticker_corto)   # mercado.curvas (SQL)
     if not inst:
         return {
             "ok":      False,
-            "message": f"No encontré ticker_corto '{ticker_corto}' en Trading.Curvas.",
+            "message": f"No encontré ticker_corto '{ticker_corto}' en mercado.curvas.",
         }
 
     ticker_full = inst.get("ticker") or inst.get("curva", "")

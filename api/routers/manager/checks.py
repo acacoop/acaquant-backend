@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 
 from api.services.assets_sql import assets_rows
+from core import curvas_sql
 from core.mongo import get_mongo_client_read
 from core.postgres import get_pool
 
@@ -42,7 +43,7 @@ def check_forwards():
     client = get_mongo_client_read()
     db = client["Trading"]
     grupos: dict[str, list] = {}
-    for d in db["Curvas"].find({}):
+    for d in curvas_sql.cargar_todos():   # mercado.curvas (SQL)
         grupos.setdefault(d.get("curva", "?"), []).append(d)
 
     all_tickers = [i["ticker"] for insts in grupos.values() for i in insts if i.get("ticker")]
@@ -86,8 +87,7 @@ def check_cer():
     from datetime import date, timedelta
     client = get_mongo_client_read()
     db = client["Trading"]
-    curvas_cer = list(db["Curvas"].find({"curva": "cer"},
-                                        {"ticker": 1, "ticker_corto": 1, "cer_emision": 1}))
+    curvas_cer = curvas_sql.por_curva("cer")   # mercado.curvas (SQL)
     if not curvas_cer:
         return {"cer_reciente": None, "dias_habiles": 0, "instrumentos": []}
 
@@ -147,9 +147,7 @@ def check_cer():
 @router.get("/checks/tasa-fija")
 def check_tasa_fija():
     """Estado de instrumentos tasa_fija en AuM."""
-    client = get_mongo_client_read()
-    db_t = client["Trading"]
-    curvas_tf = list(db_t["Curvas"].find({"curva": "tasa_fija"}, {"_id": 0, "ticker_corto": 1}))
+    curvas_tf = curvas_sql.por_curva("tasa_fija")   # mercado.curvas (SQL)
     if not curvas_tf:
         return {"snapshot": None, "ok": 0, "sin_posicion": 0, "sin_assets": 0, "instrumentos": []}
 
@@ -190,7 +188,7 @@ def debug_forward(
     db = client["Trading"]
 
     def _ultima_tea(tc: str):
-        full = db["Curvas"].find_one({"ticker_corto": tc}, {"ticker": 1})
+        full = curvas_sql.find_one(tc)   # mercado.curvas (SQL)
         if not full:
             return None, None, None
         doc = db["TimeSales"].find_one(
@@ -241,11 +239,9 @@ def debug_forward(
 
 @router.get("/checks/tickers-curvas")
 def tickers_curvas():
-    """Lista de ticker_corto disponibles en Trading.Curvas."""
-    client = get_mongo_client_read()
+    """Lista de ticker_corto disponibles en mercado.curvas (SQL)."""
     return sorted({
-        d["ticker_corto"] for d in
-        client["Trading"]["Curvas"].find({}, {"ticker_corto": 1})
+        d["ticker_corto"] for d in curvas_sql.cargar_todos()
         if d.get("ticker_corto")
     })
 
@@ -275,9 +271,9 @@ def debug_soberano(
     )
 
     client = get_mongo_client_read()
-    inst = client["Trading"]["Curvas"].find_one({"ticker_corto": ticker_corto})
+    inst = curvas_sql.find_one(ticker_corto)   # mercado.curvas (SQL)
     if not inst:
-        raise HTTPException(404, f"No existe ticker_corto={ticker_corto!r} en Trading.Curvas")
+        raise HTTPException(404, f"No existe ticker_corto={ticker_corto!r} en mercado.curvas")
 
     curva = inst.get("curva")
     if curva != "soberanos":

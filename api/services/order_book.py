@@ -11,7 +11,7 @@ saliendo de Trading.Curvas (Mongo, colección aparte no migrada aún).
 from __future__ import annotations
 
 from api.cache import cached
-from api.db import get_db_trading
+from core import curvas_sql
 from core.postgres import get_pool
 
 _CURVAS_VALIDAS = ("cer", "tasa_fija", "tamar", "soberanos", "dolar_linked")
@@ -52,10 +52,9 @@ def _tickers_de_curva(curva: str) -> list[str]:
     Cacheable: Curvas cambia rara vez (alta de instrumento) — TTL 5min seguro."""
     if curva not in _CURVAS_VALIDAS:
         return []
-    db = get_db_trading()
     return [
         d["ticker"]
-        for d in db["Curvas"].find({"curva": curva}, {"_id": 0, "ticker": 1})
+        for d in curvas_sql.por_curva(curva)
         if d.get("ticker")
     ]
 

@@ -610,30 +610,10 @@ def sync_rem(mdb, conn, dry) -> int:
 
 
 def sync_curvas(mdb, conn, dry) -> tuple[int, int]:
-    """Trading.Curvas → curvas. Chica (~cientos), completa + delete de huérfanos
-    (cleanup_curvas borra vencidos en Mongo; el UPSERT no borra). Lo consultable
-    va columnar; flujos + doc completo en jsonb. Saltea docs sin ticker_corto
-    (PK del upsert de ons.sync_ons_to_curvas) y los cuenta."""
-    cols = ["ticker_corto", "ticker", "curva", "tipo", "moneda_flujo", "valor_nominal",
-            "fecha_emision", "fecha_vencimiento", "cupon_anual", "cer_emision",
-            "flujo_vencimiento", "emisor", "sector", "flujos", "data"]
-    rows, sin_corto = [], 0
-    for d in mdb["Trading"]["Curvas"].find({}, {"_id": 0}):
-        tc = _s(d.get("ticker_corto"))
-        if not tc:
-            sin_corto += 1
-            continue
-        rows.append((
-            tc, _s(d.get("ticker")), _s(d.get("curva")), _s(d.get("tipo")),
-            _s(d.get("moneda_flujo")), d.get("valor_nominal"), _d(d.get("fecha_emision")),
-            _d(d.get("fecha_vencimiento")), d.get("cupon_anual"), d.get("cer_emision"),
-            d.get("flujo_vencimiento"), _s(d.get("emisor")), _s(d.get("sector")),
-            _jsonb(d.get("flujos") or []), _jsonb(d),
-        ))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "curvas", cols, ["ticker_corto"], rows, dry)
-    _delete_not_in(conn, "curvas", "ticker_corto", {r[0] for r in rows}, dry)
-    return n, sin_corto
+    # NEUTRALIZADO (no-op) — decomiso 2026-06-28: ons.py/bonos_admin.py escriben
+    # mercado.curvas SQL-native y _curvas_loader + ~20 readers leen SQL. El puente leía
+    # Mongo (congelado) y _delete_not_in habría BORRADO el master RF fresco. (0, 0).
+    return 0, 0
 
 
 # sync_market_snapshot ELIMINADO (writer-cutover MarketSnapshot→SQL 2026-06-28,

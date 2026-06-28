@@ -24,10 +24,7 @@ from datetime import date as _date
 from typing import Any
 
 from api.cache import cached
-from api.db import (
-    get_db_trading,
-    get_db_valuaciones,
-)
+from api.db import get_db_valuaciones
 from api.services._negocio_sql_read import negocio_movimientos_rows
 from api.services.assets_sql import assets_rows
 from quant.xirr import xirr as _xirr
@@ -118,8 +115,6 @@ def posiciones_cuenta(id_cuenta: str, hasta: str | None = None) -> dict[str, Any
           n_tickers, n_boletos
         }
     """
-    db_t = get_db_trading()
-
     # 1. Boletos relevantes — solo categorías que mueven cost basis.
     # SQL operaciones.negocio_movimientos (shape-Mongo vía shim).
     boletos = negocio_movimientos_rows(
@@ -184,12 +179,11 @@ def posiciones_cuenta(id_cuenta: str, hasta: str | None = None) -> dict[str, Any
             "n_tickers": 0, "n_boletos": len(boletos),
         }
 
-    # 3. Map short → long ticker via Trading.Curvas (ticker_corto → ticker).
-    short_tickers = list(state.keys())
-    curvas = list(db_t["Curvas"].find(
-        {"ticker_corto": {"$in": short_tickers}},
-        {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1, "fecha_vencimiento": 1},
-    ))
+    # 3. Map short → long ticker via mercado.curvas (ticker_corto → ticker), SQL.
+    short_tickers = set(state.keys())
+    from core import curvas_sql
+    curvas = [c for c in curvas_sql.cargar_todos()
+              if c.get("ticker_corto") in short_tickers]
     short_to_curva: dict[str, dict] = {
         c["ticker_corto"]: c for c in curvas if c.get("ticker_corto")
     }

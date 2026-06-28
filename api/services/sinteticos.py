@@ -122,38 +122,17 @@ def get_sinteticos() -> dict[str, Any]:
 
     # Curvas tasa_fija con flujo_vencimiento — LECAPs / BONCAPs. CER fijados
     # quedan afuera (su shape es CER, no tienen flujo_vencimiento absoluto).
-    lecaps = list(
-        db["Curvas"].find(
-            {
-                "curva": "tasa_fija",
-                "flujo_vencimiento": {"$exists": True, "$ne": None},
-            },
-            {
-                "_id": 0,
-                "ticker": 1,
-                "ticker_corto": 1,
-                "fecha_vencimiento": 1,
-                "flujo_vencimiento": 1,
-            },
-        )
-    )
+    # Master desde SQL mercado.curvas (curvas_sql); el filtro flujo_vencimiento
+    # not-null no mapea a columna → se aplica en Python sobre el doc completo.
+    from core import curvas_sql
+    lecaps = [c for c in curvas_sql.por_curva("tasa_fija")
+              if c.get("flujo_vencimiento") is not None]
 
     # Dollar linked. `dolar_emision` se incluye por defensa: si el bono
     # tiene un DLR de emisión != 1, hay que normalizar el cobro
     # (100 × DLR_final / DLR_emision por 100 VN). Para bonos modernos
     # cuya paridad ya viene ajustada, queda en 1.
-    dlks = list(
-        db["Curvas"].find(
-            {"curva": "dolar_linked"},
-            {
-                "_id": 0,
-                "ticker": 1,
-                "ticker_corto": 1,
-                "fecha_vencimiento": 1,
-                "dolar_emision": 1,
-            },
-        )
-    )
+    dlks = curvas_sql.por_curva("dolar_linked")
 
     # Precios live de todos los bonos en una sola query.
     all_tickers = [

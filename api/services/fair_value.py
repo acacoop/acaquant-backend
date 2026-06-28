@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 from api.cache import cached
-from api.db import get_db_trading
+from core import curvas_sql
 from core.postgres import get_pool
 
 _CURVAS_VALIDAS = ("tasa_fija", "cer")
@@ -105,14 +105,13 @@ def _residuos_por_ticker(curva: str, ts_cierre: str) -> dict[str, dict]:
     return out
 
 
-def _tickers_curva(db, curva: str) -> list[dict]:
-    return list(db["Curvas"].find(
-        {"curva": curva},
-        {"_id": 0, "ticker": 1, "ticker_corto": 1},
-    ))
+def _tickers_curva(curva: str) -> list[dict]:
+    # Master desde SQL mercado.curvas (curvas_sql); devuelve el doc completo,
+    # los callers solo leen ticker/ticker_corto.
+    return curvas_sql.por_curva(curva)
 
 
-def _live_metricas(db, tickers: list[str]) -> dict[str, dict]:
+def _live_metricas(tickers: list[str]) -> dict[str, dict]:
     """TEA, duration vivas por ticker — SQL-only (mercado.market_snapshot)."""
     from core.market_snapshot import snapshot_docs
     out: dict[str, dict] = {}
@@ -155,10 +154,9 @@ def get_fair_value_live(curva: str) -> dict:
     sigma = float(fp.get("sigma_dia_bps") or 0.0)
 
     cierre_residuos = _residuos_por_ticker(curva, ts_cierre)
-    db = get_db_trading()
-    tickers_meta = _tickers_curva(db, curva)
+    tickers_meta = _tickers_curva(curva)
     tickers = [d["ticker"] for d in tickers_meta if d.get("ticker")]
-    live = _live_metricas(db, tickers)
+    live = _live_metricas(tickers)
 
     bonos: list[dict] = []
     last_updated = None

@@ -38,7 +38,6 @@ import logging
 import sys
 from datetime import UTC, date, datetime
 
-from core.mongo import get_mongo_client
 from core.pg_mirror import write_native
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -51,22 +50,15 @@ logger = logging.getLogger("SnapshotCierre")
 CURVAS_V1 = ("tasa_fija", "cer", "soberanos")
 
 
-def _meta_curvas(client, curva: str) -> dict[str, dict]:
-    """Lee metadata estática de Trading.Curvas por curva.
-    ticker → {ticker_corto, tipo, fecha_vencimiento, fecha_emision, cupon_anual}."""
-    out: dict[str, dict] = {}
-    cur = client["Trading"]["Curvas"].find(
-        {"curva": curva},
-        {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
-         "fecha_vencimiento": 1, "fecha_emision": 1, "cupon_anual": 1},
-    )
-    for d in cur:
-        if d.get("ticker"):
-            out[d["ticker"]] = d
-    return out
+def _meta_curvas(curva: str) -> dict[str, dict]:
+    """Lee metadata estática del master por curva desde mercado.curvas (SQL).
+    ticker → doc completo (ticker_corto, tipo, fecha_vencimiento, fecha_emision,
+    cupon_anual, …)."""
+    from core import curvas_sql
+    return {d["ticker"]: d for d in curvas_sql.por_curva(curva) if d.get("ticker")}
 
 
-def _market_snapshots(client, tickers: list[str]) -> dict[str, dict]:
+def _market_snapshots(tickers: list[str]) -> dict[str, dict]:
     """Estado del cierre — SQL-only (mercado.market_snapshot). ticker →
     {ticker, metrics: {last_price, total_nominals, TEA, TEM, duration,
     mod_duration, convexity, paridad}, book, updated_at}."""
@@ -131,20 +123,20 @@ def _pg_date(v: str | None) -> date | None:
 
 
 def procesar_curva(
-    client, curva: str, fecha_str: str, dry: bool,
+    curva: str, fecha_str: str, dry: bool,
 ) -> tuple[int, list[dict], list[dict]]:
     """Procesa una curva leyendo MarketSnapshot.
     Skipea tickers sin trades del día (last_price == 0 o total_nominals == 0).
     Devuelve (n_ok, filas_hist, filas_last) — las filas para las dos tablas SQL:
     `mercado.snapshots_cierre_hist` (histórico) y `mercado.snapshots_cierre`
     (último precio por ticker, fallback del PnL). El caller las escribe juntas."""
-    metas = _meta_curvas(client, curva)
+    metas = _meta_curvas(curva)
     if not metas:
-        logger.warning("[%s] sin tickers en Trading.Curvas — saltando", curva)
+        logger.warning("[%s] sin tickers en mercado.curvas — saltando", curva)
         return 0, [], []
 
     tickers = list(metas.keys())
-    snaps = _market_snapshots(client, tickers)
+    snaps = _market_snapshots(tickers)
     if not snaps:
         logger.warning("[%s %s] sin docs en MarketSnapshot — saltando", curva, fecha_str)
         return 0, [], []
@@ -219,16 +211,15 @@ def main() -> int:
         fecha_d = datetime.now(UTC).date()
     fecha_str = fecha_d.isoformat()
 
-    # Mongo SOLO de lectura (MarketSnapshot + Curvas). El cierre se escribe SQL-native.
-    client = get_mongo_client()
-
+    # Lectura 100% SQL (mercado.market_snapshot + mercado.curvas). El cierre se
+    # escribe SQL-native — ya no se toca Mongo.
     from core.job_runs import JobRunLogger
     with JobRunLogger("snapshot_cierre") as jr:
         total = 0
         hist_rows: list[dict] = []
         last_rows: list[dict] = []
         for curva in CURVAS_V1:
-            n, h_rows, l_rows = procesar_curva(client, curva, fecha_str, args.dry)
+            n, h_rows, l_rows = procesar_curva(curva, fecha_str, args.dry)
             total += n
             hist_rows.extend(h_rows)
             last_rows.extend(l_rows)

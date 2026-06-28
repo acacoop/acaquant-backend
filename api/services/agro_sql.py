@@ -28,6 +28,7 @@ from psycopg.rows import dict_row
 from api.services import camara_cereales as _cam
 from api.services import derivados_agro as _agro
 from api.services import mejoras_dispo as _mej
+from core import curvas_sql
 from core.dolar_oficial import mid_oficial_live
 from core.postgres import get_pool
 
@@ -329,11 +330,9 @@ def get_mejoras_dispo() -> dict[str, Any]:
         if fvto:
             fut_by_ym.setdefault((fvto.year, fvto.month), f)
 
-    lecaps = list(trading["Curvas"].find(
-        {"curva": "tasa_fija", "flujo_vencimiento": {"$exists": True, "$ne": None}},
-        {"_id": 0, "ticker": 1, "ticker_corto": 1,
-         "fecha_vencimiento": 1, "flujo_vencimiento": 1},
-    ))
+    # LECAPs desde SQL mercado.curvas; flujo_vencimiento not-null se filtra en Python.
+    lecaps = [c for c in curvas_sql.por_curva("tasa_fija")
+              if c.get("flujo_vencimiento") is not None]
 
     lecap_tickers = [c["ticker"] for c in lecaps if c.get("ticker")]
     tea_map: dict[str, float] = {}

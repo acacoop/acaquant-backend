@@ -22,6 +22,7 @@ from datetime import UTC, date, datetime
 from api.cache import cached
 from api.db import get_db_trading
 from api.services.renta_fija import _bonos_cer_fijados, listar_curva
+from core import curvas_sql
 
 logger = logging.getLogger(__name__)
 
@@ -51,23 +52,25 @@ def _meses_al_vto(vto_raw, ahora: datetime) -> float | None:
     return round((vto - ahora).days / 30.44, 1)
 
 
-def _docs_seleccionables(db, curva: str, fijados: set[str]) -> list[dict]:
+def _docs_seleccionables(curva: str, fijados: set[str]) -> list[dict]:
     """Metadata cruda de Curvas para el selector, con la MISMA reasignación
     CER↔tasa_fija que listar_curva: curva='cer' excluye los fijados; éstos
-    aparecen bajo 'tasa_fija' (se distinguen por su campo `curva` original)."""
-    proj = {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
-            "fecha_vencimiento": 1, "curva": 1}
+    aparecen bajo 'tasa_fija' (se distinguen por su campo `curva` original).
+
+    Master desde SQL mercado.curvas (curvas_sql); la reasignación CER↔tasa_fija
+    ($nin/$or sobre `ticker`) no mapea a columna → se aplica en Python."""
     if curva == "cer":
-        filtro: dict = {"curva": "cer"}
+        docs = curvas_sql.por_curva("cer")
         if fijados:
-            filtro["ticker"] = {"$nin": list(fijados)}
-    elif curva == "tasa_fija":
-        filtro = ({"$or": [{"curva": "tasa_fija"},
-                           {"curva": "cer", "ticker": {"$in": list(fijados)}}]}
-                  if fijados else {"curva": "tasa_fija"})
-    else:
-        filtro = {"curva": curva}
-    return list(db["Curvas"].find(filtro, proj))
+            docs = [d for d in docs if d.get("ticker") not in fijados]
+        return docs
+    if curva == "tasa_fija":
+        docs = curvas_sql.por_curva("tasa_fija")
+        if fijados:
+            docs = docs + [d for d in curvas_sql.por_curva("cer")
+                           if d.get("ticker") in fijados]
+        return docs
+    return curvas_sql.por_curva(curva)
 
 
 @cached(ttl=30)
@@ -85,12 +88,11 @@ def listar_bonos_seleccionables() -> list[dict]:
     caro (~90% del tiempo) que acá se descartaba. Equivalencia verificada con
     scripts/diag_comparar_seleccionables (868ms→24ms, output idéntico).
     """
-    db = get_db_trading()
     fijados = _bonos_cer_fijados()
     ahora = datetime.now(UTC)
     out: list[dict] = []
     for curva in _CURVAS_SOPORTADAS:
-        for d in _docs_seleccionables(db, curva, fijados):
+        for d in _docs_seleccionables(curva, fijados):
             vto = d.get("fecha_vencimiento")
             meses = _meses_al_vto(vto, ahora)
             if meses is None:  # sin vto / no parseable → listar_curva también lo excluía
@@ -151,12 +153,11 @@ def _flujos_de(curva: str, ticker_corto: str) -> tuple[list[dict], bool]:
     """
     from engines.curvas import cargar_cer, fecha_flujo
 
-    db = get_db_trading()
-    doc = db["Curvas"].find_one(
-        {"curva": curva, "ticker_corto": ticker_corto},
-        {"_id": 0, "flujos": 1, "cer_emision": 1},
-    )
-    if not doc:
+    # Master desde SQL mercado.curvas (curvas_sql.find_one es por ticker_corto, PK).
+    # Replicamos el filtro original {curva, ticker_corto}: exigimos que la curva
+    # nativa del doc coincida con la pedida (mismo resultado que el find_one Mongo).
+    doc = curvas_sql.find_one(ticker_corto)
+    if not doc or doc.get("curva") != curva:
         return [], False
     flujos_doc = doc.get("flujos") or []
 
@@ -165,7 +166,8 @@ def _flujos_de(curva: str, ticker_corto: str) -> tuple[list[dict], bool]:
     if curva == "cer":
         cer_emision = doc.get("cer_emision")
         if cer_emision:
-            cer_dict = cargar_cer(db.client, dias=15)
+            # cargar_cer aún lee la serie CER de Mongo → necesita el MongoClient.
+            cer_dict = cargar_cer(get_db_trading().client, dias=15)
             if cer_dict:
                 ultimo = cer_dict[max(cer_dict.keys())]
                 cer_factor = float(ultimo) / float(cer_emision)

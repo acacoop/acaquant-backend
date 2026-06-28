@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from api.db import get_db_trading
+from core import curvas_sql
 from core.postgres import get_pool
 
 
@@ -59,8 +59,7 @@ def flujos_instrumentos() -> list[dict]:
     """Flujos de los instrumentos desde Trading.Curvas. TODO vive en Curvas (la `curva`
     decide la vista); BondsMaster se consolidó en Curvas (`on_*`) → ya NO se mergea
     (verificado no-op: los 169 BM están en Curvas, dedup por ticker_corto). Dicts frescos."""
-    db = get_db_trading()
-    return [_build_from_curvas(d) for d in db["Curvas"].find({}, {"_id": 0})]
+    return [_build_from_curvas(d) for d in curvas_sql.cargar_todos()]
 
 
 _ASSETS_COLS = ("unidad", "calificacion", "cartera", "clase_activo",

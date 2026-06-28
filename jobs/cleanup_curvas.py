@@ -1,7 +1,10 @@
-"""Limpieza de instrumentos vencidos en Trading.Curvas.
+"""Limpieza de instrumentos vencidos en mercado.curvas (SQL-native).
 
 Elimina docs cuya fecha_vencimiento está a menos de 2 días hábiles de hoy.
-Usa Trading.DiasHabiles como calendario hábil argentino.
+Usa mercado.dias_habiles (vía core.calendario) como calendario hábil argentino.
+
+SQL-native (decomiso Mongo): el master vive en `mercado.curvas` (Postgres). El
+borrado es por `ticker_corto` (PK) — no hay `_id`.
 
 Uso:
     python -m jobs.cleanup_curvas          # ejecución normal
@@ -10,7 +13,8 @@ Uso:
 import sys
 from datetime import date
 
-from core.mongo import get_mongo_client
+from core import curvas_sql
+from core.postgres import get_pool
 
 
 def dias_habiles_entre(hoy_iso: str, venc_iso: str, habiles: set[str]) -> int:
@@ -24,9 +28,6 @@ def dias_habiles_entre(hoy_iso: str, venc_iso: str, habiles: set[str]) -> int:
 
 
 def run(dry: bool = False):
-    client = get_mongo_client()
-    db = client["Trading"]
-
     hoy = date.today().isoformat()
 
     # Cargar calendario hábil (SQL-only: mercado.dias_habiles)
@@ -36,30 +37,32 @@ def run(dry: bool = False):
         print("ERROR: mercado.dias_habiles vacía. Ejecutar jobs.dias_habiles primero.")
         return
 
-    # Buscar docs a eliminar
-    curvas = list(db["Curvas"].find({}, {"_id": 1, "ticker_corto": 1, "fecha_vencimiento": 1}))
+    # Buscar docs a eliminar (master chico ~cientos → traer todos y filtrar).
     a_borrar = []
-    for doc in curvas:
+    for doc in curvas_sql.cargar_todos():
         venc = doc.get("fecha_vencimiento")
-        if not venc:
+        tc = doc.get("ticker_corto")
+        if not venc or not tc:
             continue
+        venc = str(venc)[:10]
         bdays = dias_habiles_entre(hoy, venc, habiles)
         if bdays < 2:
-            a_borrar.append(doc)
-            print(f"  {'[DRY] ' if dry else ''}BORRAR  {doc['ticker_corto']}  "
+            a_borrar.append(tc)
+            print(f"  {'[DRY] ' if dry else ''}BORRAR  {tc}  "
                   f"vence={venc}  dias_habiles={bdays}")
 
     if not a_borrar:
-        print(f"Nada que limpiar (hoy={hoy}, {len(curvas)} instrumentos activos).")
+        print(f"Nada que limpiar (hoy={hoy}).")
         return
 
     if dry:
-        print(f"\n[DRY RUN] Se borrarían {len(a_borrar)} docs de Trading.Curvas.")
+        print(f"\n[DRY RUN] Se borrarían {len(a_borrar)} docs de mercado.curvas.")
         return
 
-    ids = [d["_id"] for d in a_borrar]
-    result = db["Curvas"].delete_many({"_id": {"$in": ids}})
-    print(f"\nEliminados {result.deleted_count} docs de Trading.Curvas (hoy={hoy}).")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM mercado.curvas WHERE ticker_corto = ANY(%s)", (a_borrar,))
+        deleted = cur.rowcount or 0
+    print(f"\nEliminados {deleted} docs de mercado.curvas (hoy={hoy}).")
 
 
 if __name__ == "__main__":

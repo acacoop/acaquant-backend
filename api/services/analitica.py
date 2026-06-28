@@ -16,8 +16,8 @@ from datetime import UTC, date, datetime
 from psycopg.rows import dict_row
 
 from api.cache import cached
-from api.db import get_db_trading
 from api.services.renta_fija import _CURVAS_VALIDAS, listar_curva
+from core import curvas_sql
 from core.postgres import get_pool
 
 
@@ -48,18 +48,12 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
     if curva not in _CURVAS_VALIDAS:
         return []
 
-    db = get_db_trading()
     fecha_str = str(fecha)[:10]
 
     # Metadata estática de Trading.Curvas (necesaria sea cual sea la fuente).
     # cer_emision lo necesita descomposicion_retorno (curva CER) y NO está
     # en SnapshotsCierre — siempre lo joineamos con Curvas.
-    curva_docs = list(db["Curvas"].find(
-        {"curva": curva},
-        {"_id": 0, "ticker": 1, "ticker_corto": 1, "tipo": 1,
-         "fecha_vencimiento": 1, "fecha_emision": 1,
-         "cupon_anual": 1, "cer_emision": 1},
-    ))
+    curva_docs = curvas_sql.por_curva(curva)
     if not curva_docs:
         return []
     meta_by_ticker = {d["ticker"]: d for d in curva_docs if d.get("ticker")}

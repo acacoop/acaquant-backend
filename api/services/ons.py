@@ -8,17 +8,21 @@ el resto de la renta fija — la `curva` decide la vista). BondsMaster fue RETIR
   - el CRUD para Manager (list / values / upsert / delete / set_sector) sobre Curvas.
   - el conciliador de cobertura (AuM HD/DL vs Curvas).
 
-Puro (sin FastAPI). Lectura con get_mongo_client_read(); escritura con
-get_mongo_client(). El sector va codificado en la curva ('on_energia', etc.), DB-driven.
+Puro (sin FastAPI). SQL-native (decomiso Mongo): el master vive en `mercado.curvas`
+(Postgres) — lectura vía `core.curvas_sql`, escritura vía `core.pg_mirror.write_native`.
+Sólo `Trading.OnsIgnoradas` (lista de tickers ignorados del conciliador) sigue en Mongo
+(no tiene tabla SQL). El sector va codificado en la curva ('on_energia', etc.), DB-driven.
 Ver `api/services/renta_fija.py`.
 """
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from api.services.assets_sql import assets_rows
+from core import curvas_sql
 from core.mongo import get_mongo_client, get_mongo_client_read
+from core.pg_mirror import doc_iso, write_native
 from core.postgres import get_pool
 
 # Carteras (Valuaciones.Assets.CARTERA) que entran a la conciliación de ONs:
@@ -65,6 +69,60 @@ def _fecha_flujo_iso(raw) -> str | None:
         except ValueError:
             return None
     return None
+
+
+# ── Espejo SQL-native de Trading.Curvas → mercado.curvas ─────────────────────
+# Las ONs y bonos viven en mercado.curvas (Postgres). El doc COMPLETO va en la
+# columna jsonb `data` (mismo shape que tenía Mongo: fechas como strings ISO);
+# las columnas tipadas son SOLO para filtrar barato. Mapeo IDÉNTICO al de
+# jobs/sync_postgres.py::sync_curvas (la fuente probada del puente Mongo→SQL).
+
+def _row_date(v) -> date | None:
+    """ISO str | datetime | date → date para columna date. None si inválido."""
+    if not v:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    try:
+        return date.fromisoformat(str(v)[:10])
+    except ValueError:
+        return None
+
+
+def curva_doc_to_row(doc: dict) -> dict:
+    """Doc de Trading.Curvas → fila tipada para `mercado.curvas` (write_native).
+    Columnas consultables + `flujos` (jsonb) + doc completo en `data` (datetime→ISO
+    vía doc_iso). Campos ausentes → NULL; el reader (curvas_sql) usa `data`."""
+    return {
+        "ticker_corto": (doc.get("ticker_corto") or "").strip(),
+        "ticker": doc.get("ticker") or None,
+        "curva": doc.get("curva") or None,
+        "tipo": doc.get("tipo") or None,
+        "moneda_flujo": doc.get("moneda_flujo") or None,
+        "valor_nominal": doc.get("valor_nominal"),
+        "fecha_emision": _row_date(doc.get("fecha_emision")),
+        "fecha_vencimiento": _row_date(doc.get("fecha_vencimiento")),
+        "cupon_anual": doc.get("cupon_anual"),
+        "cer_emision": doc.get("cer_emision"),
+        "flujo_vencimiento": doc.get("flujo_vencimiento"),
+        "emisor": doc.get("emisor") or None,
+        "sector": doc.get("sector") or None,
+        "flujos": doc_iso(doc.get("flujos") or []),
+        "data": doc_iso(doc),
+    }
+
+
+def _upsert_curva_doc(doc: dict) -> dict:
+    """Upsert $set-PARCIAL de un doc de curva en `mercado.curvas` (paridad con el
+    `update_one({'$set': doc}, upsert=True)` de Mongo): mergea sobre el doc existente
+    y reescribe la fila completa → no pierde campos que el payload no trae. Devuelve
+    el doc guardado (releído de SQL)."""
+    tc = (doc.get("ticker_corto") or "").strip()
+    existing = curvas_sql.find_one(tc) or {}
+    write_native("mercado.curvas", ["ticker_corto"], [curva_doc_to_row({**existing, **doc})])
+    return curvas_sql.find_one(tc) or {}
 
 
 def bondmaster_to_curva_doc(bm: dict) -> dict | None:
@@ -132,26 +190,24 @@ def _curva_to_on(d: dict) -> dict:
 
 
 def list_ons(sector: str | None = None, emisor: str | None = None) -> list[dict]:
-    """ONs (curva on_*) de Trading.Curvas, con filtros opcionales, ordenadas por emisor."""
-    read = get_mongo_client_read()["Trading"]["Curvas"]
-    filtro: dict = {"curva": {"$regex": "^on"}}
+    """ONs (curva on_*) de mercado.curvas, con filtros opcionales, ordenadas por emisor."""
+    docs = curvas_sql.por_curva_like("on%")
     if sector:
-        filtro["sector"] = sector
+        docs = [d for d in docs if d.get("sector") == sector]
     if emisor:
-        filtro["emisor"] = emisor
-    out = [_curva_to_on(d) for d in read.find(filtro, {"_id": 0}).limit(5000)]
+        docs = [d for d in docs if d.get("emisor") == emisor]
+    out = [_curva_to_on(d) for d in docs]
     out.sort(key=lambda d: ((d.get("emisor") or "").lower(), d.get("asset") or ""))
     return out
 
 
 def ons_values() -> dict:
     """Valores únicos (emisor/sector/moneda) de las ONs en Curvas — para los datalist."""
-    read = get_mongo_client_read()["Trading"]["Curvas"]
-    on = {"curva": {"$regex": "^on"}}
+    docs = curvas_sql.por_curva_like("on%")
     return {
-        "emisores": sorted(e for e in read.distinct("emisor", on) if e),
-        "sectores": sorted(s for s in read.distinct("sector", on) if s),
-        "monedas": sorted(m for m in read.distinct("moneda_flujo", on) if m),
+        "emisores": sorted({d["emisor"] for d in docs if d.get("emisor")}),
+        "sectores": sorted({d["sector"] for d in docs if d.get("sector")}),
+        "monedas": sorted({d["moneda_flujo"] for d in docs if d.get("moneda_flujo")}),
     }
 
 
@@ -166,19 +222,19 @@ def upsert_on(payload: dict, actor: str = "") -> dict:
         raise ValueError("falta el ticker (pata ARS o USD) — no se puede armar el doc de Curvas")
     doc["actualizado_por"] = actor
     doc["actualizado_at"] = datetime.now(UTC)
-    col = get_mongo_client()["Trading"]["Curvas"]
-    col.update_one({"ticker_corto": asset}, {"$set": doc}, upsert=True)
-    saved = col.find_one({"ticker_corto": asset}, {"_id": 0}) or {}
+    saved = _upsert_curva_doc(doc)
     return {"on": _curva_to_on(saved)}
 
 
 def delete_on(asset: str) -> dict:
-    """Borra una ON de Trading.Curvas (curva on_*) por ticker_corto."""
+    """Borra una ON de mercado.curvas (curva on_*) por ticker_corto."""
     asset = (asset or "").strip()
     if not asset:
         raise ValueError("falta 'asset'")
-    deleted = get_mongo_client()["Trading"]["Curvas"].delete_one(
-        {"ticker_corto": asset, "curva": {"$regex": "^on"}}).deleted_count
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM mercado.curvas WHERE ticker_corto = %s "
+                    "AND curva LIKE 'on%%'", (asset,))
+        deleted = cur.rowcount or 0
     return {"borrada": deleted}
 
 
@@ -187,14 +243,14 @@ def set_sector(asset: str, sector: str, actor: str = "") -> dict:
     asset = (asset or "").strip()
     if not asset:
         raise ValueError("falta 'asset'")
-    col = get_mongo_client()["Trading"]["Curvas"]
-    res = col.update_one(
-        {"ticker_corto": asset, "curva": {"$regex": "^on"}},
-        {"$set": {"sector": sector, "curva": f"on_{slug_sector(sector)}",
-                  "actualizado_por": actor, "actualizado_at": datetime.now(UTC)}})
-    if res.matched_count == 0:
+    doc = curvas_sql.find_one(asset)
+    if not doc or not str(doc.get("curva") or "").startswith("on"):
         raise ValueError(f"ON '{asset}' no existe en Curvas")
-    saved = col.find_one({"ticker_corto": asset}, {"_id": 0}) or {}
+    doc["sector"] = sector
+    doc["curva"] = f"on_{slug_sector(sector)}"
+    doc["actualizado_por"] = actor
+    doc["actualizado_at"] = datetime.now(UTC)
+    saved = _upsert_curva_doc(doc)
     return {"on": _curva_to_on(saved)}
 
 
@@ -339,7 +395,7 @@ def conciliar() -> dict:
     by_unidad = {a.get("unidad"): a for a in assets if a.get("unidad")}
     by_ticker = {a.get("TICKER"): a for a in assets if a.get("TICKER")}
 
-    curvas = list(trading["Curvas"].find({}, {"_id": 0, "ticker": 1, "ticker_corto": 1}))
+    curvas = curvas_sql.cargar_todos()   # mercado.curvas (SQL)
     set_full = {c.get("ticker") for c in curvas if c.get("ticker")}
     set_corto = {c.get("ticker_corto") for c in curvas if c.get("ticker_corto")}
     set_base = {_base_ticker(c) for c in set_corto}

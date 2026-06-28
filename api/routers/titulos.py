@@ -78,17 +78,13 @@ def _bonos_cer_fijados_set_corto() -> set[str]:
     El doc de ValuacionesAPI usa el ticker CORTO ('X15Y6'). Mapeamos vía
     Trading.Curvas para que el match en `listar_flujos_titulos` funcione.
     """
-    from api.deps import get_db_trading
+    from core import curvas_sql
 
     fijados_largos = _bonos_cer_fijados()
     if not fijados_largos:
         return set()
-    db = get_db_trading()
     out: set[str] = set()
-    for c in db["Curvas"].find(
-        {"ticker": {"$in": list(fijados_largos)}},
-        {"_id": 0, "ticker_corto": 1},
-    ):
-        if c.get("ticker_corto"):
+    for c in curvas_sql.cargar_todos():
+        if c.get("ticker") in fijados_largos and c.get("ticker_corto"):
             out.add(c["ticker_corto"])
     return out

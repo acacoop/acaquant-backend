@@ -1,28 +1,18 @@
-"""Carga común de Trading.Curvas para todos los motores.
+"""Carga común del master de renta fija para todos los motores.
 
-La definición estática de instrumentos vive en Trading.Curvas. Antes cada
-motor tenía su propia función de carga; las 4 hacían queries casi idénticas
-con micro-diferencias accidentales (proyecciones distintas, filtros
-distintos, shape de retorno distinto). Este módulo unifica ese acceso:
-cualquier cambio en el shape de Trading.Curvas se refleja tocando un
-único lugar.
-
-Los motores corren siempre desde procesos con el singleton de Mongo ya
-inicializado (core/mongo.py), así que las funciones no reciben `client`:
-usan el singleton directamente.
+SQL-NATIVE (decomiso Mongo 2026-06-28): la definición estática de instrumentos
+vive en `mercado.curvas` (Postgres) — antes `Trading.Curvas` (Mongo). El `data`
+jsonb es el doc completo (mismo shape) → cero cambio para los motores que
+consumen estos docs. Este módulo unifica el acceso vía `core.curvas_sql`.
 """
 from __future__ import annotations
 
-from core.mongo import get_mongo_client
-
-
-def _coll():
-    return get_mongo_client()["Trading"]["Curvas"]
+from core import curvas_sql
 
 
 def cargar_todos() -> list[dict]:
-    """Todos los docs de Trading.Curvas sin filtros ni projection."""
-    return list(_coll().find({}))  # perf-ok: PERF001 — Curvas (~57 docs), se necesitan los flujos completos
+    """Todos los docs del master (sin filtros)."""
+    return curvas_sql.cargar_todos()
 
 
 def cargar_por_curva() -> dict[str, list[dict]]:
@@ -30,12 +20,7 @@ def cargar_por_curva() -> dict[str, list[dict]]:
 
     Usado por forwards y breakevens para separar tasa_fija / cer / etc.
     """
-    grupos: dict[str, list[dict]] = {}
-    for d in cargar_todos():
-        curva = d.get("curva")
-        if curva:
-            grupos.setdefault(curva, []).append(d)
-    return grupos
+    return curvas_sql.agrupado_por_curva()
 
 
 def cargar_indexado_por_ticker() -> dict[str, dict]:
@@ -43,7 +28,7 @@ def cargar_indexado_por_ticker() -> dict[str, dict]:
 
     Usado por curvas para enriquecer trades de TimeSales.
     """
-    return {d["ticker"]: d for d in cargar_todos() if d.get("ticker")}
+    return curvas_sql.indexado_por_ticker()
 
 
 def cargar_tickers_ordenados() -> list[str]:
@@ -58,11 +43,8 @@ def cargar_tickers_ordenados() -> list[str]:
          el Dashboard de Operar, TTL 7d). motor_rofex los suscribe live;
          motor_curvas los ignora (no están en Trading.Curvas).
     """
-    docs = list(_coll().find(
-        {"ticker": {"$exists": True}},
-        {"_id": 0, "ticker": 1, "fecha_vencimiento": 1},
-    ))
-    docs.sort(key=lambda d: d.get("fecha_vencimiento", ""))
+    docs = [d for d in curvas_sql.cargar_todos() if d.get("ticker")]
+    docs.sort(key=lambda d: d.get("fecha_vencimiento") or "")
     base = [d["ticker"] for d in docs if d.get("ticker")]
 
     try:

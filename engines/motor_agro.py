@@ -34,9 +34,7 @@ import unicodedata
 from datetime import UTC, date, datetime
 
 import pyRofex
-from pymongo import ReplaceOne
 
-from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
 from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
@@ -156,6 +154,25 @@ def _dias_a_vto(mat_str: str) -> int:
         return 1
 
 
+def _borrar_stale_sql(table: str, tickers_actuales: list[str]) -> None:
+    """Borra del espejo SQL los tickers que ya no están en el universo vigente.
+
+    Reemplaza el `delete_many` de Mongo (cutover SQL-native): sin esto, un futuro
+    vencido / variante retirada quedaría zombie en la tabla y el GET lo renderearía.
+    Best-effort — un fallo de PG al arranque deja zombies hasta el próximo restart,
+    no tumba el motor (idéntico criterio al write_native del loop)."""
+    if not tickers_actuales:
+        return
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(f"DELETE FROM {table} WHERE ticker <> ALL(%s)", (tickers_actuales,))
+            if cur.rowcount:
+                logger.info("Limpieza stale SQL: %d snapshots viejos borrados", cur.rowcount)
+    except Exception as e:
+        logger.error("Limpieza stale SQL %s: %s", table, str(e).splitlines()[0][:200])
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Engine
 # ─────────────────────────────────────────────────────────────────────────────
@@ -163,9 +180,6 @@ def _dias_a_vto(mat_str: str) -> int:
 
 class AgroEngine:
     def __init__(self):
-        self.client = get_mongo_client()
-        self.col_snap = self.client["Trading"]["AgroSnapshot"]
-
         self.universo: list[dict] = descubrir_outrights_agro()
         if not self.universo:
             raise RuntimeError("No hay outrights agro vigentes — abortando.")
@@ -179,12 +193,7 @@ class AgroEngine:
         # Limpiar stale: si una corrida anterior dejó tickers que ya no
         # están en el universo (variantes M, DISPO, vencimientos cumplidos),
         # los borramos para que el GET no los rendere zombie.
-        tickers_actuales = [u["ticker"] for u in self.universo]
-        deleted = self.col_snap.delete_many(
-            {"ticker": {"$nin": tickers_actuales}}
-        )
-        if deleted.deleted_count:
-            logger.info("Limpieza stale: %d snapshots viejos borrados", deleted.deleted_count)
+        _borrar_stale_sql("mercado.agro_snapshot", [u["ticker"] for u in self.universo])
 
         self.market_state: dict[str, dict] = {u["ticker"]: {} for u in self.universo}
         self._state_lock = threading.Lock()
@@ -244,28 +253,22 @@ class AgroEngine:
 
     def _volcar_snapshot(self):
         ts = datetime.now(UTC)
-        ops = []
         docs = []
         with self._state_lock:
             for u in self.universo:
                 st = self.market_state.get(u["ticker"], {})
                 doc = self._build_snapshot_doc(u, st, ts)
                 if doc:
-                    ops.append(ReplaceOne({"ticker": u["ticker"]}, doc, upsert=True))
                     docs.append(doc)
-        if ops:
-            self.col_snap.bulk_write(ops, ordered=False)
-            # Dual-write best-effort a Postgres (flag SNAPSHOT_SQL). Passthrough jsonb;
-            # `commodity` columna para que la vista filtre. No-op con el flag apagado.
-            try:
-                from core import pg_mirror
-                pg_mirror.mirror_snapshot(
-                    "mercado.agro_snapshot", ["ticker"],
-                    [{"ticker": d["ticker"], "commodity": d.get("commodity"),
-                      "data": pg_mirror.doc_iso(d)} for d in docs],
-                )
-            except Exception:
-                pass
+        if docs:
+            # SQL-native (sin Mongo): la tabla es la fuente. Passthrough jsonb;
+            # `commodity` columna para que la vista filtre. write_native nunca levanta.
+            from core import pg_mirror
+            pg_mirror.write_native(
+                "mercado.agro_snapshot", ["ticker"],
+                [{"ticker": d["ticker"], "commodity": d.get("commodity"),
+                  "data": pg_mirror.doc_iso(d)} for d in docs],
+            )
 
     def _build_snapshot_doc(self, u: dict, st: dict, ts: datetime) -> dict:
         last = st.get("last") or {}

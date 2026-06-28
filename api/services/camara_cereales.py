@@ -62,6 +62,21 @@ def get_camara_cereales() -> dict[str, Any]:
     }
 
 
+def _leer_camara_sql(cereal: str) -> dict:
+    """Doc actual del cereal (jsonb `data`) desde SQL. {} si no existe.
+
+    Fuente del `prev` para el update parcial de set_camara_cereal (cutover SQL-native).
+    Si PG está caído devuelve {} → un update parcial podría nullear el otro precio; es
+    el tradeoff inherente de tener SQL como única fuente."""
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM mercado.camara_cereales WHERE cereal = %s", (cereal,))
+        row = cur.fetchone()
+    return (row["data"] if row else None) or {}
+
+
 def set_camara_cereal(
     cereal: str,
     precio_ars: float | None,
@@ -80,34 +95,29 @@ def set_camara_cereal(
     if precio_usd is not None and precio_usd <= 0:
         raise ValueError("precio_usd debe ser > 0")
 
-    client = get_mongo_client()
-    col = client["Derivados"]["CamaraCereales"]
-    audit = client["Derivados"]["CamaraCerealesAudit"]
+    from core import pg_mirror
     now = datetime.now(UTC)
 
-    prev = col.find_one({"_id": c}) or {}
+    # SQL-native: la tabla `mercado.camara_cereales` es la fuente. `prev` (para el
+    # update parcial: None = no tocar) sale de SQL, no de Mongo.
+    prev = _leer_camara_sql(c)
     new = {
-        "_id":        c,
+        "cereal":     c,
         "precio_ars": float(precio_ars) if precio_ars is not None else prev.get("precio_ars"),
         "precio_usd": float(precio_usd) if precio_usd is not None else prev.get("precio_usd"),
         "updated_by": email,
         "updated_at": now,
     }
-    col.replace_one({"_id": c}, new, upsert=True)
 
-    # Dual-write incondicional a Postgres (carga manual de la mesa, no hay motor que
-    # lo refresque). `cereal` queda dentro de `data` (renombrado de `_id`) para que el
-    # read SQL reconstruya el mismo dict. Best-effort: no rompe el write a Mongo.
-    try:
-        from core import pg_mirror
-        data = {"cereal": c, **{k: v for k, v in new.items() if k != "_id"}}
-        pg_mirror.write_native(
-            "mercado.camara_cereales", ["cereal"],
-            [{"cereal": c, "data": pg_mirror.doc_iso(data)}],
-        )
-    except Exception:
-        pass
+    # Write SQL-native incondicional (carga manual de la mesa). `cereal` queda dentro
+    # de `data` para que el read SQL reconstruya el mismo dict. write_native nunca levanta.
+    pg_mirror.write_native(
+        "mercado.camara_cereales", ["cereal"],
+        [{"cereal": c, "data": pg_mirror.doc_iso(new)}],
+    )
 
+    # Audit sigue en Mongo (Derivados.CamaraCerealesAudit) — no migrado en esta fase.
+    audit = get_mongo_client()["Derivados"]["CamaraCerealesAudit"]
     audit.insert_one({
         "cereal":     c,
         "prev": {

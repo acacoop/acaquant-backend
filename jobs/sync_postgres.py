@@ -592,66 +592,24 @@ def sync_caucion_snapshot(mdb, conn, dry) -> int:
     return n
 
 
+# sync_agro_snapshot / sync_agro_opciones_snapshot / sync_agro_pizarra / sync_camara_cereales
+# NEUTRALIZADOS (no-op) — decomiso Mongo 2026-06-28: los motores/services agro escriben SQL-native.
+# Estos puentes leían Mongo (ya congelado) y hacían _delete_not_in → BORRARÍAN las filas SQL
+# frescas. Se dejan como stub return-0 para no tocar el dispatch/report.
 def sync_agro_snapshot(mdb, conn, dry) -> int:
-    """Trading.AgroSnapshot → agro_snapshot (BASELINE; el motor lo refresca live bajo
-    SNAPSHOT_SQL). Passthrough jsonb; `commodity` columna para filtrar. _delete_not_in
-    limpia tickers stale (vencidos/variantes) que el motor borra en Mongo pero el mirror
-    live —solo upsert— no quita."""
-    rows = []
-    for d in mdb["Trading"]["AgroSnapshot"].find({}, {"_id": 0}):
-        t = _s(d.get("ticker"))
-        if t:
-            rows.append((t, _s(d.get("commodity")), _jsonb(d)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "agro_snapshot", ["ticker", "commodity", "data"], ["ticker"], rows, dry)
-    _delete_not_in(conn, "agro_snapshot", "ticker", {r[0] for r in rows}, dry)
-    return n
+    return 0
 
 
 def sync_agro_opciones_snapshot(mdb, conn, dry) -> int:
-    """Trading.AgroOpcionesSnapshot → agro_opciones_snapshot (BASELINE; el motor lo
-    refresca live bajo SNAPSHOT_SQL). Passthrough jsonb; `commodity` columna."""
-    rows = []
-    for d in mdb["Trading"]["AgroOpcionesSnapshot"].find({}, {"_id": 0}):
-        t = _s(d.get("ticker"))
-        if t:
-            rows.append((t, _s(d.get("commodity")), _jsonb(d)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "agro_opciones_snapshot",
-                ["ticker", "commodity", "data"], ["ticker"], rows, dry)
-    _delete_not_in(conn, "agro_opciones_snapshot", "ticker", {r[0] for r in rows}, dry)
-    return n
+    return 0
 
 
 def sync_agro_pizarra(mdb, conn, dry) -> int:
-    """Derivados.AgroPizarra → agro_pizarra (carga MANUAL; el service la dual-escribe en
-    write_native). Baseline para arrancar el espejo. PK = commodity (Mongo _id); `commodity`
-    queda también dentro de `data` (igual que el dual-write del service)."""
-    rows = []
-    for d in mdb["Derivados"]["AgroPizarra"].find({}):
-        c = _s(d.get("_id"))
-        if c:
-            data = {"commodity": c, **{k: v for k, v in d.items() if k != "_id"}}
-            rows.append((c, _jsonb(data)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "agro_pizarra", ["commodity", "data"], ["commodity"], rows, dry)
-    _delete_not_in(conn, "agro_pizarra", "commodity", {r[0] for r in rows}, dry)
-    return n
+    return 0
 
 
 def sync_camara_cereales(mdb, conn, dry) -> int:
-    """Derivados.CamaraCereales → camara_cereales (carga MANUAL; el service la dual-escribe
-    en write_native). Baseline. PK = cereal (Mongo _id); `cereal` queda dentro de `data`."""
-    rows = []
-    for d in mdb["Derivados"]["CamaraCereales"].find({}):
-        c = _s(d.get("_id"))
-        if c:
-            data = {"cereal": c, **{k: v for k, v in d.items() if k != "_id"}}
-            rows.append((c, _jsonb(data)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "camara_cereales", ["cereal", "data"], ["cereal"], rows, dry)
-    _delete_not_in(conn, "camara_cereales", "cereal", {r[0] for r in rows}, dry)
-    return n
+    return 0
 
 
 def sync_forwards_zscore(mdb, conn, dry) -> int:
@@ -683,17 +641,10 @@ def sync_options_metadata(mdb, conn, dry) -> int:
 
 
 def sync_options_vr(mdb, conn, dry) -> int:
-    """Opciones.VR-GGal → options_vr (serie diaria GGAL local/ADR, ~40 ruedas). Completa.
-    Saltea el doc SUMMARY_METRICS (no tiene `Date`). PK = fecha (date)."""
-    rows = []
-    for d in mdb["Opciones"]["VR-GGal"].find({"type": {"$ne": "SUMMARY_METRICS"}}, {"_id": 0}):
-        f = _d(d.get("Date"))
-        if f:
-            rows.append((f, _jsonb(d)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "options_vr", ["fecha", "data"], ["fecha"], rows, dry)
-    _delete_not_in(conn, "options_vr", "fecha", {r[0] for r in rows}, dry)
-    return n
+    # NEUTRALIZADO (no-op) — decomiso Mongo 2026-06-28: jobs/volatilidad_ggal.py escribe
+    # options_vr SQL-native (replace_native). El puente leía Mongo (congelado) y hacía
+    # _delete_not_in → BORRARÍA las filas SQL frescas. Stub para no tocar dispatch/report.
+    return 0
 
 
 # sync_options_data_hist ELIMINADO (cutover DataHistorica→SQL 2026-06-24): jobs/options_rollup.py

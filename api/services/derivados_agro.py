@@ -276,6 +276,21 @@ def _build_bloque(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _leer_pizarra_sql(commodity: str) -> dict:
+    """Doc actual de la pizarra (jsonb `data`) desde SQL. {} si no existe.
+
+    Fuente del `prev` para el update parcial de set_pizarra (cutover SQL-native).
+    Si PG está caído devuelve {} → un update parcial podría nullear el otro campo;
+    es el tradeoff inherente de tener SQL como única fuente."""
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM mercado.agro_pizarra WHERE commodity = %s", (commodity,))
+        row = cur.fetchone()
+    return (row["data"] if row else None) or {}
+
+
 def set_pizarra(
     commodity: str,
     vencimiento_pizarra: str | None,
@@ -290,14 +305,14 @@ def set_pizarra(
     """
     _validate_commodity(commodity)
 
-    client = get_mongo_client()
-    col = client["Derivados"]["AgroPizarra"]
-    audit = client["Derivados"]["AgroPizarraAudit"]
+    from core import pg_mirror
     now = datetime.now(UTC)
 
-    prev = col.find_one({"_id": commodity}) or {}
+    # SQL-native: la tabla `mercado.agro_pizarra` es la fuente. `prev` (para el
+    # update parcial: None = no tocar) sale de SQL, no de Mongo.
+    prev = _leer_pizarra_sql(commodity)
     new = {
-        "_id":                 commodity,
+        "commodity":           commodity,
         "vencimiento_pizarra": vencimiento_pizarra
                                 if vencimiento_pizarra is not None
                                 else prev.get("vencimiento_pizarra"),
@@ -310,23 +325,16 @@ def set_pizarra(
     if new["us_pizarra"] is not None and new["us_pizarra"] <= 0:
         raise ValueError("us_pizarra debe ser > 0")
 
-    col.replace_one({"_id": commodity}, new, upsert=True)
+    # Write SQL-native incondicional (carga manual de la mesa). `commodity` queda
+    # también dentro de `data` para que el read SQL reconstruya el mismo dict que
+    # indexa el service por commodity. write_native nunca levanta (best-effort).
+    pg_mirror.write_native(
+        "mercado.agro_pizarra", ["commodity"],
+        [{"commodity": commodity, "data": pg_mirror.doc_iso(new)}],
+    )
 
-    # Dual-write incondicional a Postgres (carga manual de la mesa, no hay motor que
-    # lo refresque). Best-effort: si PG está caído no rompe la escritura a Mongo.
-    try:
-        from core import pg_mirror
-        # `commodity` queda también dentro de `data` (renombrado de `_id`) para que el
-        # read SQL reconstruya el mismo dict que indexa el service por commodity.
-        data = {"commodity": commodity,
-                **{k: v for k, v in new.items() if k != "_id"}}
-        pg_mirror.write_native(
-            "mercado.agro_pizarra", ["commodity"],
-            [{"commodity": commodity, "data": pg_mirror.doc_iso(data)}],
-        )
-    except Exception:
-        pass
-
+    # Audit sigue en Mongo (Derivados.AgroPizarraAudit) — no migrado en esta fase.
+    audit = get_mongo_client()["Derivados"]["AgroPizarraAudit"]
     audit.insert_one({
         "commodity":  commodity,
         "prev": {

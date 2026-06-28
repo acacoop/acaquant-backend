@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+from core import pg_mirror
 from core.mongo import get_mongo_client
 
 # Configuración de Logging
@@ -18,9 +19,6 @@ logger = logging.getLogger("VR_GGal")
 
 
 def actualizar_historico_ggal_mongo():
-    # Acceso directo a la colección — el singleton de get_mongo_client() maneja el pool.
-    col_vr = get_mongo_client()["Opciones"]["VR-GGal"]
-
     logger.info("📉 Descargando y procesando métricas de Yahoo Finance...")
     tickers = ["GGAL", "GGAL.BA"]
 
@@ -55,23 +53,24 @@ def actualizar_historico_ggal_mongo():
         final_df_sub = final_df.tail(40).copy()
         final_df_sub = final_df_sub.reset_index()
 
-        # 2. Limpieza previa de la colección para refrescar datos
-        col_vr.delete_many({})
-
-        # 3. Inserción de registros
+        # 2. Serie diaria → mercado.options_vr SQL-NATIVE. Refresh atómico de toda la
+        #    serie (TRUNCATE + INSERT), igual semántica que el delete_many({}) + insert
+        #    que hacía en Mongo. PK = fecha (date). El doc resumen (SUMMARY_METRICS) NO
+        #    se persiste en options_vr (la vol referencia va a Metadata vr_ggal, abajo).
         registros = final_df_sub.to_dict('records')
-        col_vr.insert_many(registros)
+        rows = []
+        for rec in registros:
+            f = rec.get("Date")
+            fecha = f.date() if hasattr(f, "date") else None
+            if fecha is None:
+                continue
+            rows.append({"fecha": fecha, "data": pg_mirror.doc_iso(rec)})
+        pg_mirror.replace_native("options_vr", rows)
 
-        # 4. Insertamos un documento de resumen con las volatilidades calculadas
-        resumen = {
-            "type": "SUMMARY_METRICS",
-            "updated_at": datetime.now(),
-            "vol_40r_adr": round(vol_adr, 4),
-            "vol_40r_local": round(vol_local, 4)
-        }
-        col_vr.insert_one(resumen)
-
-        # 5. Upsert en Metadata para que el dashboard lo lea
+        # 3. Vol de referencia (40R) → Opciones.Metadata.vr_ggal (Mongo). Sigue en Mongo:
+        #    options_metadata es tabla compartida (config del engine + Manager UI) y la
+        #    alimenta el puente sync_options_metadata → SQL. Migrarla SQL-native acá
+        #    chocaría con ese puente. La lee el dashboard vía sync (get_opciones_meta SQL).
         meta_col = get_mongo_client()["Opciones"]["Metadata"]
         meta_col.update_one(
             {"type": "vr_ggal"},
@@ -84,7 +83,7 @@ def actualizar_historico_ggal_mongo():
         )
 
         print("\n" + "=" * 45)
-        print("✅ DATOS PERSISTIDOS EN MONGO (VR-GGal)")
+        print("✅ SERIE PERSISTIDA EN SQL (mercado.options_vr)")
         print("=" * 45)
         print("📊 VOLATILIDAD REALIZADA (40R):")
         print(f"🔹 ADR (GGAL):   {vol_adr:.2%}")

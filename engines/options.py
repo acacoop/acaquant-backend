@@ -13,7 +13,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import pyRofex
-from pymongo import UpdateOne
 
 from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
@@ -41,24 +40,19 @@ signal.signal(signal.SIGINT, _handle_signal)
 
 
 # ==========================================
-# Persistencia específica de opciones
+# Persistencia específica de opciones (SQL-native)
 # ==========================================
-# Antes vivía en core/mongo.py, pero su única responsabilidad es escribir a
-# colecciones `Opciones.*`. Es lógica de dominio, no de infraestructura
-# compartida → se quedó acá, junto al único consumidor.
-class MongoManager:
-    def __init__(self, db_name="Opciones", collection_name="Data"):
-        try:
-            self.client = get_mongo_client()
-            self.db = self.client[db_name]
-            self.collection = self.db[collection_name]
-            self.client.server_info()
-            logger.info(f"MongoDB Conectado -> DB: {db_name} | Coll: {collection_name}")
-        except Exception as e:
-            logger.error(f"Error conexion MongoDB: {e}")
-
+# Escribe los ticks de la chain a mercado.options_data (Postgres). Antes escribía
+# Mongo Opciones.Data; tras el cutover de opciones la fuente es SQL.
+class OptionsDataWriter:
     def guardar_operacion_unica(self, symbol, data, server_time=None, griegas=None):
-        """Guarda una operacion individual en Opciones.Data."""
+        """Persiste un tick individual SQL-NATIVE en mercado.options_data (append).
+
+        SQL-native desde el cutover de opciones: ya NO escribe Mongo Opciones.Data
+        (la fuente es SQL). Solo vencimiento vigente (el symbol está en el mapa); la
+        purga de series viejas la hacen _purgar_snapshots_fuera_de_mapa +
+        jobs/archive_options_data. `ts` naive (datetime.now() ART) → timestamp SIN tz.
+        """
         try:
             registro = {
                 "timestamp": server_time if server_time else datetime.now(),
@@ -80,49 +74,14 @@ class MongoManager:
             }
             if griegas and isinstance(griegas, dict):
                 registro.update(griegas)
-            self.collection.insert_one(registro)
-            # Dual-write SQL (flag SNAPSHOT_SQL): tick intradía → mercado.options_data.
-            # Solo vencimiento vigente (el symbol está en el mapa); la purga de series
-            # viejas la hacen _purgar_snapshots_fuera_de_mapa + jobs/archive_options_data.
-            # `ts` naive (datetime.now() ART) IGUAL que el doc → timestamp SIN tz.
-            try:
-                from core import pg_mirror
-                pg_mirror.append_snapshot("mercado.options_data", [{
-                    "symbol": symbol,
-                    "ts": registro["timestamp"],
-                    "data": pg_mirror.doc_iso(registro),
-                }])
-            except Exception:
-                pass
+            from core import pg_mirror
+            pg_mirror.append_native("options_data", [{
+                "symbol": symbol,
+                "ts": registro["timestamp"],
+                "data": pg_mirror.doc_iso(registro),
+            }])
         except Exception as e:
             logger.error(f"Error al guardar operacion: {e}")
-
-    def guardar_snapshot_opciones(self, symbol, data, griegas=None):
-        """Upsert del estado más reciente de cada opción en Opciones.OptionsSnapshot."""
-        try:
-            doc = {
-                "updated_at": datetime.now(),
-                "symbol": symbol,
-                "bid":    data.get('bid', 0),
-                "offer":  data.get('offer', 0),
-                "last":   data.get('last', 0),
-                "open":   data.get('open', 0),
-                "high":   data.get('high', 0),
-                "low":    data.get('low', 0),
-                "ev":     data.get('ev', 0),
-                "strike": data.get('strike'),
-                "tipo":   data.get('tipo'),
-                "spot":   data.get('spot', 0),
-            }
-            if griegas and isinstance(griegas, dict):
-                doc.update(griegas)
-            self.db["OptionsSnapshot"].update_one(
-                {"symbol": symbol},
-                {"$set": doc},
-                upsert=True
-            )
-        except Exception as e:
-            logger.error(f"Error al guardar snapshot: {e}")
 
 
 # ==========================================
@@ -147,7 +106,7 @@ class OptionsEngine:
     def __init__(self):
         self.spot_symbol = "MERV - XMEV - GGAL - 24hs"
 
-        self.mongo      = MongoManager(db_name="Opciones", collection_name="Data")
+        self.writer     = OptionsDataWriter()
         self._meta_col  = get_mongo_client()["Opciones"]["Metadata"]
 
         # Tasa: lee de Metadata si existe, si no usa el default y lo persiste
@@ -259,32 +218,23 @@ class OptionsEngine:
             }
 
     def _purgar_snapshots_fuera_de_mapa(self):
-        """Borra docs de OptionsSnapshot cuyo symbol no esté en el mapa vigente.
+        """Borra (SQL) las filas cuyo symbol no esté en el mapa vigente.
 
-        Mantiene la colección alineada con la serie de opciones que se está
-        trackeando activamente. Sin esto, los snapshots de ruedas pasadas
-        quedaban para siempre y contaminaban la vista del frontend.
+        Mantiene options_snapshot (grid) Y options_data (ticks intradía) acotados a
+        la serie de opciones que se está trackeando activamente — sin esto, los
+        strikes/vencimientos de ruedas pasadas quedaban para siempre y contaminaban
+        la vista del frontend. SQL-native: ya NO purga Mongo. archive_options_data
+        hace la purga diaria adicional por timestamp (ts < hoy ART).
         """
         if not self.mapa_opciones:
             return
         vigentes = list(self.mapa_opciones.keys())
         try:
-            col = get_mongo_client()["Opciones"]["OptionsSnapshot"]
-            resultado = col.delete_many({"symbol": {"$nin": vigentes}})
-            if resultado.deleted_count:
-                logger.info(f"🧹 OptionsSnapshot: purgados {resultado.deleted_count} docs de series anteriores.")
-        except Exception as e:
-            logger.error(f"Error purgando OptionsSnapshot: {e}")
-        # Misma política en SQL: solo strikes vigentes (borra los vencimientos viejos).
-        # options_snapshot (grid) Y options_data (ticks intradía) — ambos quedan acotados
-        # al vencimiento vigente, igual que en Mongo. archive_options_data hace la purga
-        # diaria adicional por timestamp (ts < hoy ART).
-        try:
             from core.postgres import get_pool
             with get_pool().connection() as _cn, _cn.cursor() as _cur:
-                _cur.execute("DELETE FROM mercado.options_snapshot WHERE symbol <> ALL(%s)",
+                _cur.execute("DELETE FROM options_snapshot WHERE symbol <> ALL(%s)",
                              (vigentes,))
-                _cur.execute("DELETE FROM mercado.options_data WHERE symbol <> ALL(%s)",
+                _cur.execute("DELETE FROM options_data WHERE symbol <> ALL(%s)",
                              (vigentes,))
         except Exception as e:
             logger.error(f"Error purgando options_snapshot/options_data SQL: {e}")
@@ -365,16 +315,16 @@ class OptionsEngine:
                         self.last_trade_cache[ticker] = ts
                         spawn = True
                 if spawn:
-                    self._trade_pool.submit(self._guardar_en_mongo, ticker, state.copy(), ts)
+                    self._trade_pool.submit(self._persistir_trade, ticker, state.copy(), ts)
 
     def _batch_snapshot_loop(self):
         """
-        Hilo único de escritura a MongoDB.
-        Cada 1s calcula los Greeks de todas las opciones activas y hace
-        un único bulk_write a OptionsSnapshot — un solo round-trip a Atlas
-        sin importar cuántos activos haya.
+        Hilo único de escritura del grid de opciones, SQL-NATIVE.
+        Cada 1s calcula los Greeks de todas las opciones activas y hace un único
+        write_native (UPSERT por symbol) a mercado.options_snapshot — un solo
+        round-trip a Postgres sin importar cuántos activos haya. Ya NO escribe
+        Mongo Opciones.OptionsSnapshot (la fuente es SQL).
         """
-        col = get_mongo_client()["Opciones"]["OptionsSnapshot"]
         _tick = 0
         # Cache del último estado que vimos por símbolo — evita upserts
         # idénticos. Suele reducir ~90% de writes entre ticks quietos.
@@ -416,7 +366,6 @@ class OptionsEngine:
             try:
                 S = self.market_state.get(self.spot_symbol, {}).get('last', 0)
                 ts = datetime.now()
-                ops = []
                 docs = []
 
                 for sym, info in self.mapa_opciones.items():
@@ -473,30 +422,25 @@ class OptionsEngine:
                         except Exception:
                             pass
 
-                    ops.append(UpdateOne({"symbol": sym}, {"$set": doc}, upsert=True))
                     docs.append(doc)
 
-                if ops:
-                    col.bulk_write(ops, ordered=False)
-                    # Dual-write SQL (flag SNAPSHOT_SQL): chain live de opciones (grid).
-                    # Solo vencimientos vigentes — la purga de series viejas la maneja
-                    # _purgar_snapshot_series_anteriores (Mongo + SQL).
-                    try:
-                        from core import pg_mirror
-                        pg_mirror.mirror_snapshot("options_snapshot", ["symbol"], [
-                            {"symbol": d.get("symbol"), "tipo": d.get("tipo"),
-                             "vence": d.get("vence"), "updated_at": d.get("updated_at"),
-                             "data": pg_mirror.doc_iso(d)}
-                            for d in docs if d.get("symbol")
-                        ])
-                    except Exception:
-                        pass
+                if docs:
+                    # SQL-native: chain live de opciones (grid) → mercado.options_snapshot
+                    # (UPSERT por symbol). Solo vencimientos vigentes — la purga de series
+                    # viejas la maneja _purgar_snapshots_fuera_de_mapa.
+                    from core import pg_mirror
+                    pg_mirror.write_native("options_snapshot", ["symbol"], [
+                        {"symbol": d.get("symbol"), "tipo": d.get("tipo"),
+                         "vence": d.get("vence"), "updated_at": d.get("updated_at"),
+                         "data": pg_mirror.doc_iso(d)}
+                        for d in docs if d.get("symbol")
+                    ])
 
             except Exception as e:
                 logger.error(f"Error en batch_snapshot_loop: {e}")
 
-    def _guardar_en_mongo(self, ticker, state_copy, ts):
-        """Calcula Griegas y persiste el trade histórico en Data."""
+    def _persistir_trade(self, ticker, state_copy, ts):
+        """Calcula Griegas y persiste el trade histórico en mercado.options_data (SQL)."""
         S = self.market_state[self.spot_symbol]['last']
         if S <= 0:
             return
@@ -525,7 +469,7 @@ class OptionsEngine:
         state_copy['strike'] = K
         state_copy['tipo']   = info['tipo']
         state_copy['spot']   = S
-        self.mongo.guardar_operacion_unica(
+        self.writer.guardar_operacion_unica(
             ticker, state_copy, server_time=datetime.now(), griegas=griegas
         )
 

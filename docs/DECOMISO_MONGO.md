@@ -5,6 +5,43 @@
 
 ---
 
+## 0. ESTADO REAL VERIFICADO (flags de prod, 2026-06-28) — LEER PRIMERO
+
+> Esta sección corrige al mapa por colección de abajo, que se generó leyendo
+> CÓDIGO sin ver los flags del `.env` → sobreestimó lo que falta. Fuente: salida
+> real de `python -m scripts.estado_sql` en el Droplet.
+
+**Las LECTURAS ya están casi todas migradas a SQL.** El sistema HOY: **lee
+Postgres, escribe Mongo** (y espeja a SQL por dual-write). Por eso Mongo sigue
+prendido: lo que falta NO es migrar lecturas (hecho), es volver las
+**ESCRITURAS** SQL-native y dropear.
+
+| Read-side | Estado |
+|---|---|
+| OPERACIONES, VOLUMEN_AGRO, COMERCIAL, PORTFOLIO, VALUACIONES, CONTRAPARTES, PNL, PNL_TOTALES, NEWS, MARKET, REM, MACRO, MERCADO_HIST, RENTA_FIJA, AGRO, OPCIONES, SCANNER, AUTH, MANAGER | 🟢 **lee SQL** |
+| **ORDENES** (read-side) | ⚪ todavía Mongo |
+
+| Write-side (dual-write a SQL) | Flag | Estado |
+|---|---|---|
+| Motores → market_snapshot | `SNAPSHOT_SQL` | 🟢 on |
+| Jobs mercado → series_macro / rem / cierres | `MERCADO_SQL_WRITE` | 🟢 on |
+| Manager infra → job_runs / role_audit | `MANAGER_SQL_WRITE` | ⚪ off |
+| Motor órdenes → ordenes_live/audit/… | `ORDENES_SQL_WRITE` | ⚪ off |
+
+**Trabajo restante real (no "meses desde cero"):**
+1. Prender los 2 dual-write que faltan (`MANAGER_SQL_WRITE`, `ORDENES_SQL_WRITE`) + verificar paridad.
+2. Flipear la última lectura Mongo (`ORDENES_SQL`) tras paridad.
+3. **Cutover de ESCRITURAS** dominio por dominio: que cada motor/job deje de escribir Mongo (escriba SQL only). Red de seguridad: las lecturas ya son SQL.
+4. Matar `sync_postgres` (puente Mongo→SQL) cuando ningún writer dependa de él.
+5. Dropear colecciones + apagar Atlas.
+
+> El detalle de abajo (mapa por colección + roadmap de fases) sigue siendo útil
+> para el ORDEN y los bloqueantes, pero leélo con esta corrección: el read-side
+> ya está, y varios "blockers" del audit (ej. `bcra.py sin dual-write`) son
+> FALSOS — verificá contra código antes de actuar (REGLA #2).
+
+---
+
 ## 1. RESUMEN
 
 **84 colecciones mapeadas** en 11 bases (Trading, Valuaciones, CashFlow, Clientes, Manager, Opciones, Derivados, Operaciones, Market, News, ACAPortfolio).

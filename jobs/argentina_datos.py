@@ -1,11 +1,11 @@
-"""Cron: pega argentinadatos.com y persiste riesgo país / IPC / REM en Mongo.
+"""Cron: pega argentinadatos.com y persiste riesgo país / IPC / REM en SQL (SQL-only).
 
-Escribe 3 series simples + REM estructurado:
+Escribe 3 series simples (macro.series_macro) + REM estructurado (macro.rem):
 
-    Trading.RiesgoPais           ← /v1/finanzas/indices/riesgo-pais
-    Trading.InflacionMensual     ← /v1/finanzas/indices/inflacion
-    Trading.InflacionInteranual  ← /v1/finanzas/indices/inflacionInteranual
-    Trading.REM                  ← /v1/rems/{...} (IPC INDEC esperado por el REM)
+    serie='RiesgoPais'           ← /v1/finanzas/indices/riesgo-pais
+    serie='InflacionMensual'     ← /v1/finanzas/indices/inflacion
+    serie='InflacionInteranual'  ← /v1/finanzas/indices/inflacionInteranual
+    macro.rem                    ← /v1/rems/{...} (IPC INDEC esperado por el REM)
 
 Las 3 series de índices usan shape estándar `{fecha: 'YYYY-MM-DD', valor: float}`.
 
@@ -31,8 +31,6 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from pymongo import ASCENDING, UpdateOne
-
 from core.argentina_datos import (
     ArgDataError,
     get_inflacion_interanual,
@@ -43,8 +41,7 @@ from core.argentina_datos import (
     get_riesgo_pais_serie,
 )
 from core.job_runs import JobRunLogger
-from core.mongo import get_mongo_client
-from core.pg_mirror import mirror_job, write_native
+from core.pg_mirror import write_native
 
 # Indicador REM único que nos interesa. argentinadatos.com lo devuelve con
 # este label literal (verificado en /rem/debug: abril 2026).
@@ -152,8 +149,8 @@ def _parse_informe(path_o_item: str | dict) -> str | None:
     return None
 
 
-def _persistir_rem(coll, items: list[dict]) -> dict[str, Any]:
-    """Upsert de registros REM en `Trading.REM`, filtrados a UN indicador
+def _persistir_rem(items: list[dict]) -> dict[str, Any]:
+    """Upsert de registros REM en `macro.rem` (SQL-only), filtrados a UN indicador
     (_INDICADOR_IPC_INDEC) y con schema mínimo.
 
     Clave única: (informe, periodo, periodo_tipo). El periodo se normaliza
@@ -161,7 +158,6 @@ def _persistir_rem(coll, items: list[dict]) -> dict[str, Any]:
     en cada query.
     """
     from datetime import date as _date
-    ops = []
     pg_rows = []
     descartados_indicador = 0
     descartados_periodo = 0
@@ -183,85 +179,53 @@ def _persistir_rem(coll, items: list[dict]) -> dict[str, Any]:
             continue
 
         informe_key = str(informe_raw)[:7]
-        doc = {
-            "informe":       informe_key,
-            "periodo":       periodo_yyyymm,
-            "periodo_tipo":  periodo_tipo,
-            "fecha_informe": r.get("fecha"),
-            "mediana":       r.get("mediana"),
-            "promedio":      r.get("promedio"),
-            "desvio":        r.get("desvio"),
-            "minimo":        r.get("minimo"),
-            "maximo":        r.get("maximo"),
-            "p10":           r.get("percentil10"),
-            "p25":           r.get("percentil25"),
-            "p75":           r.get("percentil75"),
-            "p90":           r.get("percentil90"),
-            "participantes": r.get("participantes"),
-            "updated_at":    datetime.now(UTC),
-        }
-        ops.append(UpdateOne(
-            {
-                "informe":      informe_key,
-                "periodo":      periodo_yyyymm,
-                "periodo_tipo": periodo_tipo,
-            },
-            {"$set": doc},
-            upsert=True,
-        ))
         try:
-            fi = _date.fromisoformat(str(doc["fecha_informe"])[:10]) \
-                if doc.get("fecha_informe") else None
+            fi = _date.fromisoformat(str(r.get("fecha"))[:10]) if r.get("fecha") else None
         except ValueError:
             fi = None
         pg_rows.append({
             "informe": informe_key, "periodo": periodo_yyyymm, "periodo_tipo": periodo_tipo,
-            "fecha_informe": fi, "mediana": doc["mediana"], "promedio": doc["promedio"],
-            "desvio": doc["desvio"], "minimo": doc["minimo"], "maximo": doc["maximo"],
-            "p10": doc["p10"], "p25": doc["p25"], "p75": doc["p75"], "p90": doc["p90"],
-            "participantes": doc["participantes"], "updated_at": doc["updated_at"],
+            "fecha_informe": fi, "mediana": r.get("mediana"), "promedio": r.get("promedio"),
+            "desvio": r.get("desvio"), "minimo": r.get("minimo"), "maximo": r.get("maximo"),
+            "p10": r.get("percentil10"), "p25": r.get("percentil25"),
+            "p75": r.get("percentil75"), "p90": r.get("percentil90"),
+            "participantes": r.get("participantes"), "updated_at": datetime.now(UTC),
         })
-    if not ops:
+    if not pg_rows:
         return {
             "persistidos":           0,
             "descartados_indicador": descartados_indicador,
             "descartados_periodo":   descartados_periodo,
         }
-    coll.bulk_write(ops, ordered=False)
-    # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort).
-    mirror_job("rem", ["informe", "periodo", "periodo_tipo"], pg_rows)
+    # SQL-ONLY (macro.rem): ya NO escribe Trading.REM en Mongo.
+    n = write_native("macro.rem", ["informe", "periodo", "periodo_tipo"], pg_rows)
     return {
-        "persistidos":           len(ops),
+        "persistidos":           n,
         "descartados_indicador": descartados_indicador,
         "descartados_periodo":   descartados_periodo,
     }
 
 
-def _ingestar_rem(db, reset: bool = False) -> dict[str, Any]:
-    """Baja informes REM faltantes + re-baja siempre el último.
+def _ingestar_rem(reset: bool = False) -> dict[str, Any]:
+    """Baja informes REM faltantes + re-baja siempre el último. SQL-ONLY (macro.rem).
 
-    `reset=True` dropea la colección antes de ingestar (para migrar schema
-    sin dejar docs con shape vieja). Correr una vez tras deploy.
+    `reset=True` vacía macro.rem antes de ingestar (migración de schema).
     """
-    coll = db["REM"]
+    from core.postgres import get_pool
 
     if reset:
-        coll.drop()
-        logger.info("REM: colección dropeada (--reset)")
-
-    # Índices del nuevo schema (sin campo indicador). Idempotente.
-    coll.create_index(
-        [("informe", ASCENDING), ("periodo", ASCENDING), ("periodo_tipo", ASCENDING)],
-        unique=True,
-        name="informe_periodo_tipo_uniq",
-    )
-    coll.create_index([("periodo", ASCENDING)], name="periodo")
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM macro.rem")
+        logger.info("REM: macro.rem vaciada (--reset)")
 
     paths = get_rems_meses()
     disponibles = {_parse_informe(p) for p in paths}
     disponibles.discard(None)
 
-    ya_cargados: set[str] = set(coll.distinct("informe"))
+    # Dedup contra SQL (qué informes ya están cargados en macro.rem).
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT informe FROM macro.rem")
+        ya_cargados: set[str] = {r[0] for r in cur.fetchall()}
 
     nuevos = sorted(disponibles - ya_cargados)
     stats_por_informe: dict[str, Any] = {}
@@ -272,7 +236,7 @@ def _ingestar_rem(db, reset: bool = False) -> dict[str, Any]:
         ultimos = get_rems_ultimo()
         informe_ult = _parse_informe(ultimos[0]) if ultimos else None
         if informe_ult:
-            s = _persistir_rem(coll, ultimos)
+            s = _persistir_rem(ultimos)
             stats_por_informe[informe_ult] = s
             total_persistidos += s["persistidos"]
             # Lo consideramos ya tratado para no bajarlo 2 veces.
@@ -287,7 +251,7 @@ def _ingestar_rem(db, reset: bool = False) -> dict[str, Any]:
         except ArgDataError as e:
             logger.warning("rems/%s falló: %s", informe, e)
             continue
-        s = _persistir_rem(coll, items)
+        s = _persistir_rem(items)
         stats_por_informe[informe] = s
         total_persistidos += s["persistidos"]
         logger.info("REM %s: %s", informe, s)
@@ -301,11 +265,8 @@ def _ingestar_rem(db, reset: bool = False) -> dict[str, Any]:
 
 def run(solo: str | None = None, reset_rem: bool = False) -> dict[str, Any]:
     """Fetchea y persiste las series. `solo` = 'riesgo'|'ipc'|'ipcy'|'rem'|None.
-    `reset_rem=True` solo tiene efecto si corre REM — dropea la colección antes
+    `reset_rem=True` solo tiene efecto si corre REM — vacía macro.rem antes
     de ingestar."""
-    client = get_mongo_client()
-    db = client["Trading"]
-
     resultado: dict[str, Any] = {"ok": True, "series": {}}
 
     # Riesgo país
@@ -351,7 +312,7 @@ def run(solo: str | None = None, reset_rem: bool = False) -> dict[str, Any]:
     # REM (estructurado, shape propia)
     if solo in (None, "rem"):
         try:
-            stats = _ingestar_rem(db, reset=reset_rem)
+            stats = _ingestar_rem(reset=reset_rem)
             resultado["series"]["rem"] = stats
             logger.info("REM: %s", stats)
         except ArgDataError as e:
@@ -366,7 +327,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", choices=["riesgo", "ipc", "ipcy", "rem"])
     parser.add_argument("--reset", action="store_true",
-                        help="Dropea Trading.REM antes de ingestar (migración de schema)")
+                        help="Vacía macro.rem antes de ingestar (migración de schema)")
     args = parser.parse_args()
 
     with JobRunLogger("argentina_datos") as jr:

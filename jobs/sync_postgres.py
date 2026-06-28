@@ -1003,7 +1003,8 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         # series_macro: RETIRADO — bcra.py y argentina_datos.py escriben
         # macro.series_macro SQL-native; este sync leía Trading.{CER,DOLAR,...} (en baja).
         n_sm = 0
-        n_rem = _t("rem", lambda: sync_rem(mdb, conn, dry))
+        # rem: RETIRADO — argentina_datos escribe macro.rem SQL-native (Trading.REM en baja).
+        n_rem = 0
         n_cv, sin_corto = _t("curvas", lambda: sync_curvas(mdb, conn, dry), (0, 0))
         n_ms = _t("market_snapshot", lambda: sync_market_snapshot(mdb, conn, dry))
         # snapshots_cierre_hist (histórico) ya NO se sincroniza: lo escribe SQL-native

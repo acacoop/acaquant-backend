@@ -21,7 +21,7 @@ from datetime import UTC, datetime, timedelta
 
 import requests
 
-from core.mongo import get_mongo_client
+from core.pg_mirror import merge_jsonb_native
 from core.yahoo import YahooError, stock_candle
 from jobs.market_quotes import (
     EXTRA_STOCKS,
@@ -29,7 +29,6 @@ from jobs.market_quotes import (
     HOME_INDICES_YAHOO,
     HOME_STOCKS,
     HOME_TREASURIES,
-    mirror_quotes_sql,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,7 +56,7 @@ def _anchor_timestamps(now: datetime) -> dict[str, int]:
     }
 
 
-def update_stock_anchors(coll, sym: str, now: datetime) -> bool:
+def update_stock_anchors(sym: str, now: datetime) -> bool:
     hasta = int(now.timestamp())
     desde = hasta - 400 * 86400  # ~13 meses de colchón
     try:
@@ -78,7 +77,9 @@ def update_stock_anchors(coll, sym: str, now: datetime) -> bool:
     update = {k: _closest_close(times, closes, ts) for k, ts in ts_map.items()}
     update["anchors_updated_at"] = now
 
-    coll.update_one({"symbol": sym}, {"$set": update}, upsert=True)
+    # MERGE atómico (`data = data || patch`): solo toca los anchors, preserva el
+    # precio/intraday que escribe jobs.market_quotes en el MISMO doc jsonb.
+    merge_jsonb_native("market_quotes", ["symbol"], [sym], update)
     return True
 
 
@@ -94,7 +95,7 @@ def _frankfurter_hist(base: str, target: str, date: str) -> float | None:
         return None
 
 
-def update_fx_anchors(coll, display: str, base: str, target: str, now: datetime) -> bool:
+def update_fx_anchors(display: str, base: str, target: str, now: datetime) -> bool:
     """Para FX: 1 request por anchor. frankfurter cachea internamente ECB
     reference rates, así que es rápido y gratis."""
     date_7d  = (now - timedelta(days=7)).date().isoformat()
@@ -109,26 +110,24 @@ def update_fx_anchors(coll, display: str, base: str, target: str, now: datetime)
         "anchor_1y":  _frankfurter_hist(base, target, date_1y),
         "anchors_updated_at": now,
     }
-    coll.update_one({"symbol": display}, {"$set": update}, upsert=True)
+    merge_jsonb_native("market_quotes", ["symbol"], [display], update)
     return any(update[k] is not None for k in ("anchor_7d", "anchor_mtd", "anchor_ytd", "anchor_1y"))
 
 
 def ingesta() -> int:
-    client = get_mongo_client()
-    coll = client["Market"]["Quotes"]
     now = datetime.now(UTC)
 
     all_stocks = [sym for sym, _ in HOME_STOCKS + EXTRA_STOCKS]
     ok_s = fail_s = 0
     for sym in all_stocks:
-        if update_stock_anchors(coll, sym, now):
+        if update_stock_anchors(sym, now):
             ok_s += 1
         else:
             fail_s += 1
 
     ok_fx = fail_fx = 0
     for display, base, target, _grupo in HOME_FX:
-        if update_fx_anchors(coll, display, base, target, now):
+        if update_fx_anchors(display, base, target, now):
             ok_fx += 1
         else:
             fail_fx += 1
@@ -138,7 +137,7 @@ def ingesta() -> int:
     # usando yahoo_sym y luego guardar bajo display.
     ok_t = fail_t = 0
     for yahoo_sym, display in HOME_TREASURIES:
-        if _update_treasury_anchors(coll, yahoo_sym, display, now):
+        if _update_treasury_anchors(yahoo_sym, display, now):
             ok_t += 1
         else:
             fail_t += 1
@@ -146,7 +145,7 @@ def ingesta() -> int:
     # Índices locales (MERVAL, etc) — mismo patrón display ≠ yahoo_sym.
     ok_i = fail_i = 0
     for yahoo_sym, display, _grupo in HOME_INDICES_YAHOO:
-        if _update_treasury_anchors(coll, yahoo_sym, display, now):
+        if _update_treasury_anchors(yahoo_sym, display, now):
             ok_i += 1
         else:
             fail_i += 1
@@ -156,11 +155,10 @@ def ingesta() -> int:
         "treasuries ok=%d fail=%d · indices ok=%d fail=%d",
         ok_s, fail_s, ok_fx, fail_fx, ok_t, fail_t, ok_i, fail_i,
     )
-    mirror_quotes_sql(coll)
     return 0
 
 
-def _update_treasury_anchors(coll, yahoo_sym: str, display: str, now: datetime) -> bool:
+def _update_treasury_anchors(yahoo_sym: str, display: str, now: datetime) -> bool:
     """Variante de update_stock_anchors que guarda bajo display pero fetchea
     con el yahoo_sym (^IRX, ^TNX, etc)."""
     hasta = int(now.timestamp())
@@ -179,7 +177,7 @@ def _update_treasury_anchors(coll, yahoo_sym: str, display: str, now: datetime) 
     ts_map = _anchor_timestamps(now)
     update = {k: _closest_close(times, closes, ts) for k, ts in ts_map.items()}
     update["anchors_updated_at"] = now
-    coll.update_one({"symbol": display}, {"$set": update}, upsert=True)
+    merge_jsonb_native("market_quotes", ["symbol"], [display], update)
     return True
 
 

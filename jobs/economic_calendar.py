@@ -14,19 +14,12 @@ import sys
 from datetime import UTC, datetime
 
 from core.finnhub import FinnhubError, economic_calendar
-from core.mongo import get_mongo_client
-from core.pg_mirror import doc_iso, jobs_on, mirror_job
+from core.pg_mirror import doc_iso, write_native
 
 logger = logging.getLogger(__name__)
 
 
 def ingesta() -> int:
-    client = get_mongo_client()
-    coll = client["Market"]["EconomicCalendar"]
-    coll.create_index([("time", 1), ("country", 1), ("event", 1)], unique=True)
-    coll.create_index("time")
-    coll.create_index([("impact", 1), ("time", 1)])
-
     try:
         data = economic_calendar()
     except FinnhubError as e:
@@ -53,7 +46,13 @@ def ingesta() -> int:
             return 0
 
     now = datetime.now(UTC)
-    ins = upd = skip = 0
+    # SQL-native: un único upsert por PK natural (evt_ts, country, event) — el mismo
+    # unique index del escritor Mongo legacy. EconomicCalendar tiene UN solo writer
+    # (este job) → no hay anchors ni $set parcial que preservar, write_native (que
+    # reescribe el `data` jsonb) es suficiente. El `data` va con doc_iso (datetimes
+    # ISO, igual que escribía el sync) para que market_sql lea byte-a-byte idéntico.
+    pg_rows = []
+    skip = 0
     for ev in events:
         raw_time = ev.get("time", "")
         try:
@@ -62,9 +61,12 @@ def ingesta() -> int:
             skip += 1
             continue
 
-        key = {"time": dt, "country": ev.get("country", ""), "event": ev.get("event", "")}
+        country = ev.get("country", "")
+        event   = ev.get("event", "")
         doc = {
-            **key,
+            "time":     dt,
+            "country":  country,
+            "event":    event,
             "impact":   _impact_to_int(ev.get("impact")),
             "actual":   ev.get("actual"),
             "prev":     ev.get("prev"),
@@ -72,29 +74,13 @@ def ingesta() -> int:
             "unit":     ev.get("unit", ""),
             "fetched_at": now,
         }
-        result = coll.update_one(key, {"$set": doc}, upsert=True)
-        if result.upserted_id is not None:
-            ins += 1
-        elif result.modified_count:
-            upd += 1
+        pg_rows.append({
+            "evt_ts": dt, "country": country, "event": event,
+            "impact": doc["impact"], "data": doc_iso(doc),
+        })
 
-    # Dual-write a Postgres (flag MERCADO_SQL_WRITE, best-effort). Se RE-LEE la
-    # colección (en vez de espejar los docs en memoria): los datetimes vuelven de
-    # Mongo naive y truncados a ms — idéntico a lo que ve el sync y sirve la API.
-    if jobs_on():
-        pg_rows = []
-        for d in coll.find({}, {"_id": 0}):
-            evt = d.get("time")
-            if not isinstance(evt, datetime):
-                continue
-            pg_rows.append({
-                "evt_ts": evt.replace(tzinfo=UTC) if evt.tzinfo is None else evt,
-                "country": d.get("country") or "", "event": d.get("event") or "",
-                "impact": int(d.get("impact") or 0), "data": doc_iso(d),
-            })
-        mirror_job("market_calendar", ["evt_ts", "country", "event"], pg_rows)
-
-    logger.info("economic_calendar — ins=%d upd=%d skip=%d total=%d", ins, upd, skip, len(events))
+    n = write_native("market_calendar", ["evt_ts", "country", "event"], pg_rows)
+    logger.info("economic_calendar — escritos=%d skip=%d total=%d", n, skip, len(events))
     return 0
 
 

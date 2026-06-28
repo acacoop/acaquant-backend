@@ -510,53 +510,16 @@ def _jsonb(v):
     return Jsonb(_doc_iso(v), dumps=partial(json.dumps, default=str))
 
 
+# sync_quotes / sync_calendar NEUTRALIZADOS (no-op) — decomiso 2026-06-28: jobs/market_quotes,
+# market_anchors y economic_calendar escriben SQL-native (merge_jsonb_native / write_native).
+# Ambos puentes hacían delete de huérfanos (_delete_not_in / DELETE NOT EXISTS) leyendo Mongo
+# congelado → habrían BORRADO los quotes/eventos SQL frescos.
 def sync_quotes(mdb, conn, dry) -> int:
-    """Market.Quotes → market_quotes (key symbol). data jsonb = doc completo (anchors incluidos)."""
-    cols = ["symbol", "grupo", "data"]
-    rows = []
-    for d in mdb["Market"]["Quotes"].find({}, {"_id": 0}):
-        sym = _s(d.get("symbol"))
-        if not sym:
-            continue
-        rows.append((sym, _s(d.get("grupo")), _jsonb(d)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "market_quotes", cols, ["symbol"], rows, dry)
-    _delete_not_in(conn, "market_quotes", "symbol", {r[0] for r in rows}, dry)
-    return n
+    return 0
 
 
 def sync_calendar(mdb, conn, dry) -> int:
-    """Market.EconomicCalendar → market_calendar. PK NATURAL (evt_ts, country, event)
-    = el unique index del escritor (jobs/economic_calendar upsertea por time/country/
-    event) → habilita dual-write limpio (la v1 con hkey=md5 del doc generaba una fila
-    nueva en cada update). Docs cuyo `time` no es datetime se saltean — tampoco
-    matchean el filtro de rango del endpoint en Mongo (misma semántica)."""
-    cols = ["evt_ts", "country", "event", "impact", "data"]
-    rows = []
-    for d in mdb["Market"]["EconomicCalendar"].find({}, {"_id": 0}):
-        evt = d.get("time")
-        if not isinstance(evt, datetime):
-            continue
-        # Mongo devuelve naive-UTC → se clava UTC para que el cast no corra la hora.
-        evt_ts = evt.replace(tzinfo=UTC) if evt.tzinfo is None else evt
-        rows.append((evt_ts, d.get("country") or "", d.get("event") or "",
-                     int(d.get("impact") or 0), _jsonb(d)))
-    rows = _dedup(rows, [0, 1, 2])
-    n = _upsert(conn, "market_calendar", cols, ["evt_ts", "country", "event"], rows, dry)
-    if not dry:  # delete de huérfanos con PK compuesta (unnest de arrays paralelos,
-        # comparación por TIPO — nada de matchear timestamps como strings)
-        ts_k = [r[0] for r in rows]
-        co_k = [r[1] for r in rows]
-        ev_k = [r[2] for r in rows]
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM market_calendar mc WHERE NOT EXISTS ("
-                "  SELECT 1 FROM unnest(%s::timestamptz[], %s::text[], %s::text[]) AS k(ts, c, e)"
-                "  WHERE k.ts = mc.evt_ts AND k.c = mc.country AND k.e = mc.event)",
-                (ts_k, co_k, ev_k),
-            )
-        conn.commit()
-    return n
+    return 0
 
 
 # sync_snapshots_cierre ELIMINADO (cutover SnapshotsCierre→SQL 2026-06-24): jobs/snapshot_cierre.py

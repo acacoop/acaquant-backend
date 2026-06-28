@@ -24,24 +24,22 @@ from datetime import UTC, datetime, timedelta
 import requests
 
 from core.finnhub import FinnhubError, quote
-from core.mongo import get_mongo_client
-from core.pg_mirror import doc_iso, jobs_on, mirror_job
+from core.pg_mirror import merge_jsonb_native
 from core.yahoo import YahooError, yahoo_quote
 
 logger = logging.getLogger(__name__)
 
 
-def mirror_quotes_sql(coll) -> None:
-    """Espejo SQL del watchlist COMPLETO (~20 docs) tras la ingesta. Se re-lee el
-    doc final de Mongo (los upserts del job son $set parciales por símbolo —
-    espejar el doc entero garantiza PG == Mongo). Flag MERCADO_SQL_WRITE, no-op
-    apagado. Símbolos purgados: los limpia el delete-orphans de sync_postgres.
-    También lo invoca jobs.market_anchors (escribe en la misma colección)."""
-    if not jobs_on():
+def _write_quote(doc: dict) -> None:
+    """Persiste UN símbolo SQL-native vía MERGE atómico (`data = data || patch`).
+    Crítico que sea merge y no overwrite: los anchors (anchor_7d/mtd/ytd/1y, que
+    escribe jobs.market_anchors sobre el MISMO doc) viven dentro del `data` jsonb
+    — un write_native que pisara `data` entero los borraría (incidente que revirtió
+    el intento previo). Cada símbolo mergea SOLO sus campos de precio/intraday."""
+    sym = doc.get("symbol")
+    if not sym:
         return
-    rows = [{"symbol": d["symbol"], "grupo": d.get("grupo"), "data": doc_iso(d)}
-            for d in coll.find({}, {"_id": 0}) if d.get("symbol")]
-    mirror_job("market_quotes", ["symbol"], rows)
+    merge_jsonb_native("market_quotes", ["symbol"], [sym], doc)
 
 # ── Watchlist HOME — equity/ETFs (panel widget) ──
 # Grupos:
@@ -112,7 +110,7 @@ FRANKFURTER_DATE   = "https://api.frankfurter.app"  # + /YYYY-MM-DD
 EXTRA_STOCKS: list[tuple[str, str]] = []
 
 
-def _upsert_stock(coll, sym: str, grupo: str, q: dict, now: datetime) -> bool:
+def _upsert_stock(sym: str, grupo: str, q: dict, now: datetime) -> bool:
     if not q or q.get("c") in (None, 0):
         return False
     last       = q.get("c")
@@ -136,7 +134,7 @@ def _upsert_stock(coll, sym: str, grupo: str, q: dict, now: datetime) -> bool:
         "timestamp":  datetime.fromtimestamp(q["t"], tz=UTC) if q.get("t") else now,
         "updated_at": now,
     }
-    coll.update_one({"symbol": sym}, {"$set": doc}, upsert=True)
+    _write_quote(doc)
     return True
 
 
@@ -155,7 +153,7 @@ def _frankfurter_rate(base: str, target: str, date: str | None = None) -> float 
         return None
 
 
-def _upsert_forex(coll, display: str, base: str, target: str, grupo: str, now: datetime) -> bool:
+def _upsert_forex(display: str, base: str, target: str, grupo: str, now: datetime) -> bool:
     last = _frankfurter_rate(base, target)
     if last is None:
         return False
@@ -187,15 +185,11 @@ def _upsert_forex(coll, display: str, base: str, target: str, grupo: str, now: d
         "timestamp":  now,
         "updated_at": now,
     }
-    coll.update_one({"symbol": display}, {"$set": doc}, upsert=True)
+    _write_quote(doc)
     return True
 
 
 def ingesta(include_extra: bool = True) -> int:
-    client = get_mongo_client()
-    coll = client["Market"]["Quotes"]
-    coll.create_index("symbol", unique=True)
-
     now = datetime.now(UTC)
     # HOME + EXTRA se pullean juntos (~38 tickers, dentro del cap Finnhub free).
     # El flag include_extra queda por compatibilidad pero el default es True.
@@ -209,13 +203,13 @@ def ingesta(include_extra: bool = True) -> int:
             logger.warning("quote %s failed: %s", sym, e)
             fail += 1
             continue
-        if _upsert_stock(coll, sym, grupo, q, now):
+        if _upsert_stock(sym, grupo, q, now):
             ok += 1
         else:
             fail += 1
 
     for display, base, target, grupo in HOME_FX:
-        if _upsert_forex(coll, display, base, target, grupo, now):
+        if _upsert_forex(display, base, target, grupo, now):
             ok += 1
         else:
             fail += 1
@@ -251,7 +245,7 @@ def ingesta(include_extra: bool = True) -> int:
             "timestamp":  datetime.fromtimestamp(q["t"], tz=UTC) if q.get("t") else now,
             "updated_at": now,
         }
-        coll.update_one({"symbol": display}, {"$set": doc}, upsert=True)
+        _write_quote(doc)
         ok += 1
 
     # Futuros CME/CBOT/COMEX/NYMEX vía Yahoo (continuous front-month).
@@ -285,7 +279,7 @@ def ingesta(include_extra: bool = True) -> int:
             "timestamp":  datetime.fromtimestamp(q["t"], tz=UTC) if q.get("t") else now,
             "updated_at": now,
         }
-        coll.update_one({"symbol": display}, {"$set": doc}, upsert=True)
+        _write_quote(doc)
         ok += 1
 
     # Índices locales (MERVAL, etc) vía Yahoo
@@ -318,14 +312,16 @@ def ingesta(include_extra: bool = True) -> int:
             "timestamp":  datetime.fromtimestamp(q["t"], tz=UTC) if q.get("t") else now,
             "updated_at": now,
         }
-        coll.update_one({"symbol": display}, {"$set": doc}, upsert=True)
+        _write_quote(doc)
         ok += 1
 
-    # Limpieza: eliminar docs cuyo grupo ya no existe (ej. los ETFs viejos
-    # de "Commodities" que migraron a "Futuros"). Idempotente.
-    # Incluye SIEMPRE los grupos de EXTRA_STOCKS (ADR Argentina/LATAM)
-    # aunque la corrida sea --no-extra: si no, la purga borra esos docs en
-    # cada corrida sin --extra y la watchlist ADR queda vacía intermitente.
+    # Limpieza SQL-native: eliminar filas cuyo grupo ya no existe (ej. los ETFs
+    # viejos de "Commodities" que migraron a "Futuros"). Idempotente. Reemplaza
+    # la vieja purga Mongo + el _delete_not_in del sync (neutralizado post-cutover).
+    # Filtra por `data->>'grupo'` (el grupo vive dentro del jsonb; la columna
+    # `grupo` queda NULL con el merge y no se lee). Incluye SIEMPRE los grupos de
+    # EXTRA_STOCKS aunque la corrida sea --no-extra (si no, la purga blanquearía
+    # esos símbolos de forma intermitente).
     grupos_validos = (
         {g for _, g in HOME_STOCKS}
         | {g for _, g in EXTRA_STOCKS}
@@ -333,17 +329,32 @@ def ingesta(include_extra: bool = True) -> int:
         | {g for _, _, g in HOME_INDICES_YAHOO}
         | {"Futuros", "US Treasury"}
     )
-    purga = coll.delete_many({"grupo": {"$nin": list(grupos_validos)}})
-    if purga.deleted_count:
-        logger.info("market_quotes — purgados %d docs de grupos obsoletos", purga.deleted_count)
+    _purga_grupos_obsoletos(grupos_validos)
 
     logger.info(
         "market_quotes — ok=%d fail=%d stocks=%d fx=%d futuros=%d treasuries=%d indices=%d",
         ok, fail, len(stocks), len(HOME_FX), len(HOME_FUTUROS),
         len(HOME_TREASURIES), len(HOME_INDICES_YAHOO),
     )
-    mirror_quotes_sql(coll)
     return 0 if fail < ok else 1
+
+
+def _purga_grupos_obsoletos(grupos_validos: set[str]) -> None:
+    """Borra filas de market_quotes cuyo `data->>'grupo'` ya no es válido.
+    Best-effort: un fallo de SQL nunca tumba el job (la watchlist sigue fresca)."""
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM market_quotes "
+                "WHERE COALESCE(data->>'grupo', '') <> ALL(%s)",
+                (list(grupos_validos),),
+            )
+            if cur.rowcount:
+                logger.info("market_quotes — purgadas %d filas de grupos obsoletos",
+                            cur.rowcount)
+    except Exception as e:
+        logger.error("market_quotes purga: %s", str(e).splitlines()[0][:200])
 
 
 def main() -> int:

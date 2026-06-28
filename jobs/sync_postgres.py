@@ -1006,7 +1006,9 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         # rem: RETIRADO — argentina_datos escribe macro.rem SQL-native (Trading.REM en baja).
         n_rem = 0
         n_cv, sin_corto = _t("curvas", lambda: sync_curvas(mdb, conn, dry), (0, 0))
-        n_ms = _t("market_snapshot", lambda: sync_market_snapshot(mdb, conn, dry))
+        # market_snapshot: RETIRADO — valores.py y curvas.py escriben
+        # mercado.market_snapshot SQL-native (Trading.MarketSnapshot en baja).
+        n_ms = 0
         # snapshots_cierre_hist (histórico) ya NO se sincroniza: lo escribe SQL-native
         # jobs/snapshot_cierre.py (cutover SnapshotsCierre→SQL 2026-06-24).
         n_mh = _t("mercado_hist", lambda: sync_mercado_hist(mdb, conn, dry, desde))

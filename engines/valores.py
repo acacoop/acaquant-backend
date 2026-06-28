@@ -9,7 +9,6 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pyRofex
-from pymongo import UpdateOne
 
 from core import pg_mirror
 from core.mongo import get_mongo_client
@@ -70,11 +69,11 @@ class MicrostructureEngine:
         try:
             self.mongo_client = get_mongo_client()
             self.db = self.mongo_client["Trading"]
-            # TimeSales ya NO se escribe en Mongo (SQL-only, decommission 2026-06-22).
-            self.col_snapshot = self.db["MarketSnapshot"]
+            # TimeSales y MarketSnapshot ya NO se escriben en Mongo (SQL-native).
+            # mongo_client queda solo para AdhocSubscriptions (adhoc_watcher).
         except Exception as e:
             print(f"Error conectando a Mongo en main_ts: {e}")
-            self.col_snapshot = None
+            self.db = None
 
         # Retención de mercado.timesales (~7d) — 1 vez al arranque. El tape muestra solo
         # el día; no hace falta guardar más. SQL-only → prune incondicional.
@@ -337,19 +336,15 @@ class MicrostructureEngine:
 
     def _snapshot_loop(self):
         """
-        Escribe el estado completo de todos los tickers a MarketSnapshot cada 1s.
-        Un único bulk_write reemplaza N round-trips individuales a Atlas.
+        Escribe el estado completo de todos los tickers a mercado.market_snapshot
+        (SQL) cada 1s, con throttle de 5s.
         """
         while True:
             time.sleep(1)
-            if self.col_snapshot is None:
-                continue
             try:
                 ts = datetime.now(UTC)
-                ops = []
-                # Dual-write a Postgres (flag SNAPSHOT_SQL, ver core/pg_mirror):
-                # solo armamos las filas si el flag está prendido.
-                pg_rows = [] if pg_mirror.snapshots_live_on() else None
+                # SQL-only (mercado.market_snapshot): ya NO se escribe Trading.MarketSnapshot.
+                pg_rows = []
                 # Copia defensiva — el adhoc_watcher puede agregar tickers
                 # concurrentemente con este loop.
                 for ticker in list(self.tickers):
@@ -364,51 +359,30 @@ class MicrostructureEngine:
                     if metricas.get("last_price") is None:
                         continue
 
-                    # UpdateOne $set parcial: solo los campos que este motor
-                    # gobierna (book + métricas de precio del día). Los
-                    # analíticos (metrics.TEA/TEM/duration/mod_duration/
-                    # convexity/paridad) los actualiza engines/curvas.py con
-                    # su propio $set y NO los tocamos acá. Cada motor escribe
-                    # lo suyo, sin guardas mutuas.
-                    ops.append(UpdateOne(
-                        {"ticker": ticker},
-                        {"$set": {
-                            "updated_at":             ts,
-                            "book.bids":              list(st["book"]["bids"]),
-                            "book.offers":            list(st["book"]["offers"]),
-                            "metrics.last_price":     metricas.get("last_price"),
-                            "metrics.open_price":     metricas.get("open_price"),
-                            "metrics.high_price":     metricas.get("high_price"),
-                            "metrics.low_price":      metricas.get("low_price"),
-                            "metrics.closing_price":  metricas.get("closing_price"),
-                            "metrics.vwap":           metricas.get("vwap"),
-                            "metrics.total_nominals": metricas.get("total_nominals"),
-                        }},
-                        upsert=True,
-                    ))
-                    if pg_rows is not None:
-                        pg_rows.append({
-                            "ticker":         ticker,
-                            "book":           {"bids":   list(st["book"]["bids"]),
-                                               "offers": list(st["book"]["offers"])},
-                            "last_price":     metricas.get("last_price"),
-                            "open_price":     metricas.get("open_price"),
-                            "high_price":     metricas.get("high_price"),
-                            "low_price":      metricas.get("low_price"),
-                            "closing_price":  metricas.get("closing_price"),
-                            "vwap":           metricas.get("vwap"),
-                            "total_nominals": metricas.get("total_nominals"),
-                            "updated_at":     ts,
-                        })
+                    # Upsert columnar parcial: solo los campos que este motor
+                    # gobierna (book + métricas de precio del día). Los analíticos
+                    # (tea/tem/duration/mod_duration/convexity/paridad) los escribe
+                    # engines/curvas.py sobre sus propias columnas — el upsert SQL
+                    # actualiza SOLO las columnas presentes, sin pisar las del otro.
+                    pg_rows.append({
+                        "ticker":         ticker,
+                        "book":           {"bids":   list(st["book"]["bids"]),
+                                           "offers": list(st["book"]["offers"])},
+                        "last_price":     metricas.get("last_price"),
+                        "open_price":     metricas.get("open_price"),
+                        "high_price":     metricas.get("high_price"),
+                        "low_price":      metricas.get("low_price"),
+                        "closing_price":  metricas.get("closing_price"),
+                        "vwap":           metricas.get("vwap"),
+                        "total_nominals": metricas.get("total_nominals"),
+                        "updated_at":     ts,
+                    })
 
-                if ops:
-                    self.col_snapshot.bulk_write(ops, ordered=False)
-                    # Espejo SQL best-effort. min_interval=5: este loop re-escribe
-                    # el estado COMPLETO cada 1s → descartar flushes intermedios
-                    # no pierde nada (el próximo trae todo).
-                    if pg_rows:
-                        pg_mirror.mirror_snapshot("market_snapshot", ["ticker"],
-                                                  pg_rows, min_interval=5.0)
+                if pg_rows:
+                    # SQL-native. min_interval=5: el loop reescribe el estado COMPLETO
+                    # cada 1s → descartar flushes intermedios no pierde nada.
+                    pg_mirror.write_snapshot("market_snapshot", ["ticker"],
+                                             pg_rows, min_interval=5.0)
 
             except Exception as e:
                 logger.error(f"Error escribiendo snapshots: {e}")

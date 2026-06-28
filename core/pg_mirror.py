@@ -86,6 +86,22 @@ def mirror_snapshot(table: str, key_cols: list[str], rows: list[dict],
     return _mirror(table, key_cols, rows)
 
 
+def write_snapshot(table: str, key_cols: list[str], rows: list[dict],
+                   min_interval: float = 0.0) -> int:
+    """SQL-native INCONDICIONAL (sin flag) para motores live tras el decommission
+    de Mongo — el SQL es la fuente, ya no hay dual-write a espejar. `min_interval`>0
+    descarta flushes más frecuentes (usar SOLO si el caller reescribe el estado
+    COMPLETO cada iteración, ej. valores.py; un escritor de deltas pasa 0)."""
+    if not rows:
+        return 0
+    if min_interval > 0:
+        now = time.monotonic()
+        if now - _last_flush.get(table, 0.0) < min_interval:
+            return 0
+        _last_flush[table] = now
+    return _mirror(table, key_cols, rows)
+
+
 def mirror_job(table: str, key_cols: list[str], rows: list[dict]) -> int:
     """Espejo batch desde un job de mercado (flag MERCADO_SQL_WRITE)."""
     if not jobs_on() or not rows:

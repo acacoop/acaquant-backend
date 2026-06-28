@@ -29,10 +29,11 @@ def run(dry: bool = False):
 
     hoy = date.today().isoformat()
 
-    # Cargar calendario hábil
-    habiles = {d["fecha"] for d in db["DiasHabiles"].find({}, {"fecha": 1, "_id": 0})}
+    # Cargar calendario hábil (SQL-only: mercado.dias_habiles)
+    from core.calendario import dias_habiles_ordenados
+    habiles = set(dias_habiles_ordenados())
     if not habiles:
-        print("ERROR: Trading.DiasHabiles vacío. Ejecutar jobs.dias_habiles primero.")
+        print("ERROR: mercado.dias_habiles vacía. Ejecutar jobs.dias_habiles primero.")
         return
 
     # Buscar docs a eliminar

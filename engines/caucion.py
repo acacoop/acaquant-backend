@@ -58,9 +58,9 @@ signal.signal(signal.SIGINT, _handle_signal)
 
 
 def _cargar_dias_habiles(client) -> list[str]:
-    """Trae todas las fechas hábiles ordenadas. Cacheado en memoria del proceso."""
-    docs = list(client["Trading"]["DiasHabiles"].find({}, {"_id": 0, "fecha": 1}))
-    return sorted(d["fecha"] for d in docs if d.get("fecha"))
+    """Fechas hábiles ASC desde mercado.dias_habiles (SQL-only). Cacheado por el caller."""
+    from core.calendario import dias_habiles_ordenados
+    return dias_habiles_ordenados()
 
 
 def _proximo_habil(dias_habiles: list[str], hoy: date) -> date | None:

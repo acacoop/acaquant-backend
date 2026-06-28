@@ -161,8 +161,8 @@ def cargar_cer(client, dias: int = 90):
 
 
 def cargar_dias_habiles(client):
-    docs = list(client["Trading"]["DiasHabiles"].find({}, {"fecha": 1, "_id": 0}))
-    dias = sorted(d["fecha"] for d in docs)
+    from core.calendario import dias_habiles_ordenados
+    dias = dias_habiles_ordenados(client)  # SQL-first (mercado.dias_habiles), fallback Mongo
     logger.info(f"Días hábiles cargados: {len(dias)}")
     return dias
 

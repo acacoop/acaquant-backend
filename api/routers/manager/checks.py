@@ -91,8 +91,9 @@ def check_cer():
     if not curvas_cer:
         return {"cer_reciente": None, "dias_habiles": 0, "instrumentos": []}
 
+    from core.calendario import dias_habiles_ordenados
     cer_dict = {d["fecha"]: float(d["valor"]) for d in db["CER"].find({}, {"fecha": 1, "valor": 1})}
-    dias_hab = sorted(d["fecha"] for d in db["DiasHabiles"].find({}, {"fecha": 1, "_id": 0}))
+    dias_hab = dias_habiles_ordenados()  # SQL-only (mercado.dias_habiles)
     cer_reciente = max(cer_dict.keys()) if cer_dict else None
 
     def _cer_en_fecha(fd):

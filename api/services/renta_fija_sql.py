@@ -105,23 +105,10 @@ def get_historico_trades(instrumento: str | None = None) -> list:
 
 
 def _dias_habiles_ordenados() -> list[str]:
-    """Días hábiles ('YYYY-MM-DD' asc). SQL-native: mercado.dias_habiles (poblada
-    por jobs.dias_habiles, que dual-escribe Mongo+SQL). Fallback a Mongo
-    Trading.DiasHabiles si la tabla SQL aún está vacía (correr jobs.dias_habiles
-    para poblarla). El read SQL es ~25ms vs ~345ms del scan Mongo — era el cuello
-    de botella de get_renta_fija."""
-    try:
-        rows = _q("SELECT to_char(fecha, 'YYYY-MM-DD') AS f FROM mercado.dias_habiles ORDER BY fecha")
-        if rows:
-            return [r["f"] for r in rows]
-    except Exception:
-        # La tabla SQL no existe / no se pobló todavía → caer a Mongo (no romper).
-        logger.warning("mercado.dias_habiles no disponible — fallback a Mongo Trading.DiasHabiles")
-    from core.mongo import get_mongo_client_read
-    return sorted(
-        d["fecha"] for d in get_mongo_client_read()["Trading"]["DiasHabiles"].find(
-            {}, {"fecha": 1, "_id": 0}) if d.get("fecha")
-    )
+    """Días hábiles ('YYYY-MM-DD' asc) desde mercado.dias_habiles (SQL-only).
+    Delega en core.calendario — fuente única, sin Mongo."""
+    from core.calendario import dias_habiles_ordenados
+    return dias_habiles_ordenados()
 
 
 @cached(ttl=600)

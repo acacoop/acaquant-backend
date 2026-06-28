@@ -429,9 +429,9 @@ def guardar(client, pares_result, ts, fecha_str):
 # ─────────────────────────────────────────────
 
 def cargar_dias_habiles(client):
-    """Lista ordenada ASC de días hábiles desde Trading.DiasHabiles."""
-    docs = list(client["Trading"]["DiasHabiles"].find({}, {"fecha": 1, "_id": 0}))
-    return sorted(d["fecha"] for d in docs)
+    """Lista ASC de días hábiles desde mercado.dias_habiles (SQL-only)."""
+    from core.calendario import dias_habiles_ordenados
+    return dias_habiles_ordenados()
 
 
 def run():

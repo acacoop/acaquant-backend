@@ -31,12 +31,44 @@ SCHEMA_PATH = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
 
 
 def _statements(sql: str) -> list[str]:
-    """Parte el script en statements. schema.sql es DDL pura (sin funciones ni
-    dollar-quoting), así que quitar comentarios '--' y splitear por ';' es seguro."""
+    """Parte el script en statements respetando bloques dollar-quoted ($$ ... $$,
+    $tag$ ... $tag$) — schema.sql tiene bloques DO $$ ... $$ (PL/pgSQL) con ';'
+    internos que NO son separadores. Quita comentarios '--' y splitea por ';'
+    solo FUERA de un bloque dollar-quoted."""
     sin_comentarios = "\n".join(
         re.sub(r"--.*$", "", line) for line in sql.splitlines()
     )
-    return [s.strip() for s in sin_comentarios.split(";") if s.strip()]
+    out: list[str] = []
+    buf: list[str] = []
+    i = 0
+    n = len(sin_comentarios)
+    dollar_tag: str | None = None  # tag actual abierto ($$ o $foo$), o None
+    while i < n:
+        ch = sin_comentarios[i]
+        if ch == "$":
+            m = re.match(r"\$[A-Za-z_0-9]*\$", sin_comentarios[i:])
+            if m:
+                tag = m.group(0)
+                if dollar_tag is None:
+                    dollar_tag = tag        # abre bloque
+                elif dollar_tag == tag:
+                    dollar_tag = None       # cierra bloque
+                buf.append(tag)
+                i += len(tag)
+                continue
+        if ch == ";" and dollar_tag is None:
+            stmt = "".join(buf).strip()
+            if stmt:
+                out.append(stmt)
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    resto = "".join(buf).strip()
+    if resto:
+        out.append(resto)
+    return out
 
 
 def main(dry: bool) -> int:

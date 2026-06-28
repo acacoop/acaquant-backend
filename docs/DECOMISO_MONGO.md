@@ -41,11 +41,19 @@
     jsonb se reemplaza entero); necesita merge jsonb + market_anchors SQL-native.
   - **Flags de lectura a confirmar ON en prod** (env api.service): OPCIONES_SQL, AGRO_SQL,
     RENTA_FIJA_SQL, MERCADO_HIST_SQL, PNL_SQL.
-  - **Falta (Mongo-primary)**: mesa/órdenes (Operaciones.* — plata real, lunes con monitoreo),
-    Market, Opciones.Metadata, fair_value (FitParams/FairValueResiduos), Comercial
-    (Comitentes/NegocioMov/Operaciones legacy readers en comercial.py), Curvas/BondsMaster,
-    Manager auth (Users/RoleMatrix/RoleAudit/Grupos/JobRuns), TimeSales, **PyRofex
-    (writer perdido — reconstruir antes de tocar órdenes)**.
+  - **Wave 2-4 (mismo día, +9 commits)**: monitores de frescura SQL-aware (diagnostico +
+    status.py + informe_salud); `role_audit` SQL-native; comercial readers (carteras/checks)
+    reparados a SQL; **fair_value** SQL-native (+tablas fit_params/fair_value_residuos);
+    **Opciones.Metadata** SQL-native (+helper `merge_jsonb_native` merge atómico); **users/grupos**
+    dual-write SQL al instante (writers nuevos en roles_sql/grupos_sql, NO flip — read-path Mongo);
+    **Market** SQL-native (Quotes+EconomicCalendar con merge para anchors); **órdenes read-side
+    PREP** (operativa_mep_sql + dual-run, sin flip — paridad el lunes). +5 puentes sync
+    neutralizados (options_metadata, quotes, calendar; FitParams/FairValueResiduos fuera de mercado_hist).
+  - **Falta real**: flip de flags + verificación lunes (ORDENES_SQL tras paridad, AUTH_SQL read
+    flip de list_users/listar_grupos, NEWS_SQL); TimeSales + Curvas/BondsMaster (motor_rofex/curvas);
+    **PyRofex (writer perdido — reconstruir)**; idempotencia de órdenes se QUEDA Mongo (by design);
+    MCP OAuth (efímero). Re-aplicar schema (fair_value tables). Confirmar flags ON:
+    OPCIONES_SQL/AGRO_SQL/RENTA_FIJA_SQL/MERCADO_HIST_SQL/MARKET_SQL/PNL_SQL/MANAGER_SQL/AUTH_SQL.
 
 - **2026-06-28** — `Trading.MarketSnapshot` → `mercado.market_snapshot`
   (writer-cutover, commits 02d25ef→aaabaf2 + 1589889):

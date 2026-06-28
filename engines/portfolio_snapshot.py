@@ -247,10 +247,9 @@ def run():
         sys.exit(1)
 
     logger.info(
-        "WS arriba. Universo inicial: %d tickers. Snapshot cada %ss → %s.%s. "
-        "Refresh cada %ss. Sin match en pyRofex: %d.",
-        len(validados), SNAPSHOT_INTERVAL_S, DB_NAME, COL_NAME,
-        REFRESH_INTERVAL_S, len(sin_match),
+        "WS arriba. Universo inicial: %d tickers. Snapshot cada %ss → "
+        "valuaciones.portfolio_snapshot. Refresh cada %ss. Sin match en pyRofex: %d.",
+        len(validados), SNAPSHOT_INTERVAL_S, REFRESH_INTERVAL_S, len(sin_match),
     )
     _persistir_log(engine, len(validados), sorted(validados), list(sin_match))
 

@@ -7,6 +7,46 @@
 
 ## PROGRESO DEL DECOMISO (bitácora)
 
+- **2026-06-28 (PM) — JORNADA GRANDE: +13 tablas, 12 colecciones DROPEADAS, ~16
+  cutovers SQL-native, 9 puentes sync neutralizados.**
+  - **Gate**: `sql/schema.sql` +13 tablas faltantes + ALTERs (cedears_time_sales,
+    snapshots_sinteticos, uva, dolar_snapshot, dolar_oficial_live, adhoc_subscriptions,
+    pyrofex_instruments/discovery, health_reports, watchdog_alertas, aranceles_job_runs,
+    portfolio_snapshot_log). Aplicado en prod (`apply_schema`, 173 stmts OK).
+  - **DROPEADAS (12)** vía `scripts/drop_mongo_migradas` (+ backfills dolar/uva previos):
+    Valuaciones.{DolarOficialLive, DolarSnapshot, Dolar}, Trading.{UVA, SnapshotsSinteticos,
+    CedearsTimeSales}, Manager.{WatchdogAlertas, HealthReports, PortfolioSnapshotLog,
+    AranceelesJobRuns}, Trading.AdhocSubscriptions + Trading.ONSnapshot.
+  - **Writer SQL-native (deploy + verificar lunes en rueda → DROP)**:
+    - DÓLAR: engines/dolares (dolar_snapshot), dolar_mep (dolar), core/dolar_oficial
+      (dolar_oficial_live) + helper core/dolar_sql; 10 readers (macro/argy/scanner/curvas/
+      futuros_dlr/_mep/carry_trade).
+    - INFRA: watchdog, informe_salud, snapshot_sinteticos, portfolio_snapshot(+log),
+      adhoc_subscriptions, aranceles(+aunesa), motor_cedears (cedears_time_sales + readers
+      scanner/day_trading). UVA loader `scripts/insertar_uva`.
+    - OPCIONES: options.py (options_data/options_snapshot), volatilidad_ggal (options_vr).
+      **Metadata NO migrada** (multi-writer: motor+manager/options+update_tasa).
+    - AGRO: motor_agro, motor_agro_opciones, derivados_agro, camara_cereales. Audits siguen Mongo.
+    - RENTA-FIJA DERIVADA: breakevens, forwards (→mercado_hist vía pg_mirror.write_hist),
+      caucion, futuros_dlr, forwards_zscore (lee su fuente de SQL). **fair_value NO migrado**
+      (sin reader SQL + lee su propia historia Mongo → necesita DDL + port del reader).
+  - **Puentes `sync_postgres` NEUTRALIZADOS (no-op / sacados de _MERCADO_HIST)** porque hacían
+    `_delete_not_in` y habrían BORRADO la data SQL fresca: sync_dolar, sync_portfolio_snapshot,
+    sync_agro_snapshot/_opciones/_pizarra/_camara_cereales, sync_options_vr, sync_caucion_snapshot,
+    sync_futuros_dlr_snapshot, sync_forwards_zscore + entries Breakevens/Forwards/Caucion/FuturosDLR.
+  - **Monitoreo**: `diagnostico.py` SQL-aware (Pieza +tabla/ts_expr/sql_where) — 13 piezas
+    repunteadas a SQL. **PENDIENTE**: `status.py::_MOTORES` + `informe_salud.py::MOTORES` (este
+    ALERTA por watchdog) siguen leyendo Mongo → falsos "stale" el lunes hasta repuntarlos.
+  - **MARKET diferido**: writer-cutover revertido — `market_quotes` pisaría los anchors (data
+    jsonb se reemplaza entero); necesita merge jsonb + market_anchors SQL-native.
+  - **Flags de lectura a confirmar ON en prod** (env api.service): OPCIONES_SQL, AGRO_SQL,
+    RENTA_FIJA_SQL, MERCADO_HIST_SQL, PNL_SQL.
+  - **Falta (Mongo-primary)**: mesa/órdenes (Operaciones.* — plata real, lunes con monitoreo),
+    Market, Opciones.Metadata, fair_value (FitParams/FairValueResiduos), Comercial
+    (Comitentes/NegocioMov/Operaciones legacy readers en comercial.py), Curvas/BondsMaster,
+    Manager auth (Users/RoleMatrix/RoleAudit/Grupos/JobRuns), TimeSales, **PyRofex
+    (writer perdido — reconstruir antes de tocar órdenes)**.
+
 - **2026-06-28** — `Trading.MarketSnapshot` → `mercado.market_snapshot`
   (writer-cutover, commits 02d25ef→aaabaf2 + 1589889):
   - **Lecturas**: breakevens, forwards, order_book, fair_value, sinteticos,

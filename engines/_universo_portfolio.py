@@ -5,22 +5,21 @@ pyRofex (formato `MERV - XMEV - X - 24hs`) a los que el motor de
 portfolio se debe suscribir para tener `last_price` live.
 
 Composición:
-  - Valuaciones.Assets.INSTRUMENTO de unidades con tenencia hoy
-    (Valuaciones.AuM último snapshot, qty != 0).
-  - Tickers de boletos operados hoy en CashFlow.NegocioMovimientos
-    (vía join con Assets.INSTRUMENTO si está cargado).
+  - portafolio.assets.instrumento de unidades con tenencia hoy
+    (portafolio.tenencia último snapshot, aum='si', qty != 0).
+  - Tickers de boletos operados hoy en SQL operaciones.negocio_movimientos
+    (vía join con portafolio.assets.instrumento si está cargado).
 
 Filtrado: cada candidato se valida contra manager.pyrofex_instruments
 (SQL, poblada por scripts/discovery_pyrofex.py) — si no existe en la lista
 canónica primary 24hs, se descarta y se loguea (visible para corrección manual).
 
-Read-only (SQL + Mongo). Excepciones se capturan en el caller.
+Read-only (todo SQL). Excepciones se capturan en el caller.
 """
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from core.mongo import get_mongo_client_read
 from core.postgres import get_pool
 
 ART_OFFSET = timedelta(hours=-3)
@@ -81,24 +80,26 @@ def _instrumentos_de_tenencia() -> set[str]:
 
 def _instrumentos_de_boletos_hoy() -> set[str]:
     """INSTRUMENTOs de los tickers operados hoy. Join boleto.ticker →
-    Assets.unidad/TICKER → Assets.INSTRUMENTO. Si el boleto opera un
+    portafolio.assets.ticker → assets.instrumento. Si el boleto opera un
     ticker que aún no tiene Asset, queda fuera (caso edge sin solución
-    automática — se reporta en sin_match)."""
-    client = get_mongo_client_read()
-    db_cf = client["CashFlow"]
+    automática — se reporta en sin_match).
 
+    Lee SQL `operaciones.negocio_movimientos` (writer SQL-native
+    jobs/negocio_movimientos.py). La colección Mongo CashFlow.NegocioMovimientos
+    quedó CONGELADA tras el cutover del writer → leerla daría boletos stale."""
     fecha = _hoy_art_iso()
-    tickers_hoy = db_cf["NegocioMovimientos"].distinct(
-        "ticker", {"fecha": fecha, "ticker": {"$ne": None}},
-    )
-    if not tickers_hoy:
-        return set()
-
-    # Match por TICKER UPPERCASE de Assets (donde tenemos el ticker
-    # corto humano) o por extracción del unidad (regex `[<id>] <ticker>`).
-    # El más rápido es match directo por TICKER.
     out: set[str] = set()
     with get_pool().connection() as conn, conn.cursor() as cur:
+        # DISTINCT ticker de los boletos de hoy (equivale al .distinct() Mongo).
+        cur.execute(
+            "SELECT DISTINCT ticker FROM operaciones.negocio_movimientos "
+            "WHERE fecha = %s::date AND ticker IS NOT NULL",
+            (fecha,),
+        )
+        tickers_hoy = [t for (t,) in cur.fetchall() if t]
+        if not tickers_hoy:
+            return set()
+        # Match directo por TICKER corto humano de portafolio.assets.
         cur.execute("SELECT instrumento FROM portafolio.assets WHERE ticker = ANY(%s)",
                     (tickers_hoy,))
         for (inst,) in cur.fetchall():
@@ -116,7 +117,7 @@ def tickers_de_tenencia() -> tuple[set[str], set[str]]:
     sin_match: candidatos que NO existen en pyRofex — visible en log
                para corrección manual.
 
-    Si Mongo falla, ambos sets se devuelven vacíos.
+    Si SQL falla, ambos sets se devuelven vacíos.
     """
     try:
         canonico = _set_pyrofex_24hs()

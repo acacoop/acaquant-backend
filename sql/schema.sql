@@ -1301,3 +1301,12 @@ CREATE TABLE IF NOT EXISTS mercado.fair_value_residuos (
 -- Índice extra para la serie de drill-down por ticker SIN curva (get_fair_value_historico_bono).
 CREATE INDEX IF NOT EXISTS ix_fvr_ticker_ts
     ON mercado.fair_value_residuos (ticker, ts_cierre);
+
+-- Trading.OnsIgnoradas → tickers marcados "no es ON" en el conciliador de cobertura
+-- (api/services/ons.py). Metadata pura (cero plata): excluye un ticker del gap HD/DL.
+-- Writer: ignorar_concil (upsert por ticker). Doc Mongo: {ticker, ignorado_por, at}.
+CREATE TABLE IF NOT EXISTS mercado.ons_ignoradas (
+    ticker       text PRIMARY KEY,
+    ignorado_por text,
+    at           timestamptz                 -- Mongo: at (UTC aware)
+);

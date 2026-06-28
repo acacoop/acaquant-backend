@@ -10,8 +10,8 @@ el resto de la renta fija — la `curva` decide la vista). BondsMaster fue RETIR
 
 Puro (sin FastAPI). SQL-native (decomiso Mongo): el master vive en `mercado.curvas`
 (Postgres) — lectura vía `core.curvas_sql`, escritura vía `core.pg_mirror.write_native`.
-Sólo `Trading.OnsIgnoradas` (lista de tickers ignorados del conciliador) sigue en Mongo
-(no tiene tabla SQL). El sector va codificado en la curva ('on_energia', etc.), DB-driven.
+La lista de tickers ignorados del conciliador vive en `mercado.ons_ignoradas` (SQL-native,
+decomiso 2026-06-28). El sector va codificado en la curva ('on_energia', etc.), DB-driven.
 Ver `api/services/renta_fija.py`.
 """
 from __future__ import annotations
@@ -21,7 +21,6 @@ from datetime import UTC, date, datetime
 
 from api.services.assets_sql import assets_rows
 from core import curvas_sql
-from core.mongo import get_mongo_client, get_mongo_client_read
 from core.pg_mirror import doc_iso, write_native
 from core.postgres import get_pool
 
@@ -376,10 +375,7 @@ def conciliar() -> dict:
 
     Relación: AuM.unidad → Assets (CARTERA ∈ {HD,DL}) → ticker ↔ Curvas
     (match exacto o por base, para no marcar como faltante la otra pata O/D)."""
-    read = get_mongo_client_read()
-    trading = read["Trading"]
-
-    # Tenencia (último snapshot) desde SQL portafolio.tenencia (aum='si').
+    # Tenencia (último snapshot) + ignorados desde SQL.
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
         f = cur.fetchone()[0]
@@ -389,6 +385,8 @@ def conciliar() -> dict:
         cur.execute("SELECT DISTINCT unidad FROM portafolio.tenencia "
                     "WHERE fecha = %s AND aum = 'si' AND unidad IS NOT NULL", (f,))
         unidades = [r[0] for r in cur.fetchall()]
+        cur.execute("SELECT ticker FROM mercado.ons_ignoradas")
+        ignoradas = {r[0] for r in cur.fetchall()}
     fsnap = f.isoformat()
 
     assets = assets_rows(["TICKER", "EMISOR", "CARTERA"])   # SQL portafolio.assets
@@ -399,7 +397,6 @@ def conciliar() -> dict:
     set_full = {c.get("ticker") for c in curvas if c.get("ticker")}
     set_corto = {c.get("ticker_corto") for c in curvas if c.get("ticker_corto")}
     set_base = {_base_ticker(c) for c in set_corto}
-    ignoradas = {d.get("ticker") for d in trading["OnsIgnoradas"].find({}, {"_id": 0, "ticker": 1})}
 
     def cubierto(*cands) -> bool:
         for cand in cands:
@@ -437,31 +434,32 @@ def conciliar() -> dict:
 
 
 def ignorar_concil(ticker: str, actor: str = "") -> dict:
-    """Marca un ticker como 'no es ON' → no vuelve a aparecer en el gap."""
+    """Marca un ticker como 'no es ON' → no vuelve a aparecer en el gap.
+    Upsert SQL-native por ticker (mercado.ons_ignoradas)."""
     ticker = (ticker or "").strip()
     if not ticker:
         raise ValueError("falta 'ticker'")
-    get_mongo_client()["Trading"]["OnsIgnoradas"].update_one(
-        {"ticker": ticker},
-        {"$set": {"ticker": ticker, "ignorado_por": actor, "at": datetime.now(UTC)}},
-        upsert=True)
+    write_native("mercado.ons_ignoradas", ["ticker"], [
+        {"ticker": ticker, "ignorado_por": actor, "at": datetime.now(UTC)}])
     return {"ignorada": ticker}
 
 
 def quitar_ignorar(ticker: str) -> dict:
     """Saca un ticker de la lista de ignorados → vuelve a conciliar."""
-    deleted = get_mongo_client()["Trading"]["OnsIgnoradas"].delete_one(
-        {"ticker": (ticker or "").strip()}).deleted_count
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM mercado.ons_ignoradas WHERE ticker = %s",
+                    ((ticker or "").strip(),))
+        deleted = cur.rowcount or 0
     return {"restauradas": deleted}
 
 
 def listar_ignoradas() -> dict:
     """Lista los tickers marcados como ignorados en el conciliador (para poder
     restaurarlos desde la UI). Orden: más recientes primero."""
-    docs = list(get_mongo_client()["Trading"]["OnsIgnoradas"].find(
-        {}, {"_id": 0, "ticker": 1, "ignorado_por": 1, "at": 1}))
-    docs.sort(key=lambda d: str(d.get("at") or ""), reverse=True)
-    for d in docs:
-        if d.get("at") is not None:
-            d["at"] = str(d["at"])[:19]
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ticker, ignorado_por, at FROM mercado.ons_ignoradas "
+                    "ORDER BY at DESC NULLS LAST")
+        docs = [{"ticker": r[0], "ignorado_por": r[1],
+                 "at": str(r[2])[:19] if r[2] is not None else None}
+                for r in cur.fetchall()]
     return {"ignoradas": docs, "n": len(docs)}

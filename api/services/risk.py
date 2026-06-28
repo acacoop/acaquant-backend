@@ -170,10 +170,10 @@ COL_ACCOUNTS = "AccountsDescubiertas"
 
 @cached(ttl=600)
 def _nombres_por_id_cuenta() -> dict[str, str]:
-    """Mapa id_cuenta (str) → nombre del titular. Accionistas desde Mongo
-    CashFlow.Accionistas; contrapartes desde SQL `clientes.contrapartes` (Mongo
-    CashFlow.Contrapartes fue DROPEADA). Cache TTL 10min porque cambian poco
-    (alta de cliente ~1x/sem).
+    """Mapa id_cuenta (str) → nombre del titular. Ambas fuentes SQL: accionistas
+    desde `clientes.accionistas`, contrapartes desde `clientes.contrapartes` (Mongo
+    CashFlow.Accionistas en decomiso, Contrapartes DROPEADA). Cache TTL 10min porque
+    cambian poco (alta de cliente ~1x/sem).
 
     Accionistas: `cuenta` = '[N] NOMBRE' → id_cuenta y nombre se derivan.
     Contrapartes: `id_cuenta` = id, `contraparte` = nombre. Si un id vive en
@@ -181,16 +181,15 @@ def _nombres_por_id_cuenta() -> dict[str, str]:
     """
     import re
 
-    from core.mongo import get_mongo_client_read
     from core.postgres import get_pool
-    cf = get_mongo_client_read()["CashFlow"]
     out: dict[str, str] = {}
     _re_cta = re.compile(r"^\[(\d+)\]\s*(.*)$")
-    for d in cf["Accionistas"].find({}, {"_id": 0, "cuenta": 1}):
-        m = _re_cta.match(str(d.get("cuenta") or "").strip())
-        if m and m.group(2).strip():
-            out[m.group(1)] = m.group(2).strip()
     with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT cuenta FROM accionistas WHERE cuenta IS NOT NULL AND cuenta <> ''")
+        for (cuenta,) in cur.fetchall():
+            m = _re_cta.match(str(cuenta or "").strip())
+            if m and m.group(2).strip():
+                out[m.group(1)] = m.group(2).strip()
         cur.execute("SELECT id_cuenta, contraparte FROM contrapartes "
                     "WHERE id_cuenta IS NOT NULL AND contraparte IS NOT NULL")
         for idc, nom in cur.fetchall():

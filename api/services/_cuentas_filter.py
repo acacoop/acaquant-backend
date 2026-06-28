@@ -14,7 +14,6 @@ Filtros soportados:
 from __future__ import annotations
 
 from api.cache import cached
-from api.db import get_db_cashflow
 
 _COOP_REGEX = r"\bcoop"
 
@@ -25,14 +24,13 @@ VALID_FILTERS: tuple[str, ...] = (
 
 @cached(ttl=600)
 def _cuentas_accionistas() -> list[str]:
-    """Lista de strings `cuenta` ('[N] NOMBRE') desde la fuente CashFlow.Accionistas
-    (sin el espejo CuentasAPI.AccionistasAPI — el campo `cuenta` es idéntico)."""
-    db = get_db_cashflow()
-    return [
-        d["cuenta"]
-        for d in db["Accionistas"].find({}, {"_id": 0, "cuenta": 1})
-        if d.get("cuenta")
-    ]
+    """Lista de strings `cuenta` ('[N] NOMBRE') desde SQL `clientes.accionistas`
+    (fuente única; CashFlow.Accionistas Mongo en decomiso). Carga manual:
+    scripts/cargar_accionistas.py."""
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT cuenta FROM accionistas WHERE cuenta IS NOT NULL AND cuenta <> ''")
+        return [str(r[0]) for r in cur.fetchall()]
 
 
 @cached(ttl=600)

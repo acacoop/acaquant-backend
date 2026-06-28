@@ -1,11 +1,10 @@
-"""Router Cuentas: accionistas (Mongo CashFlow.Accionistas) y contrapartes
-(SQL clientes.contrapartes — fuente única; Mongo CashFlow.Contrapartes fue dropeada)."""
+"""Router Cuentas: accionistas y contrapartes (ambos SQL — fuente única;
+Mongo CashFlow.Accionistas/Contrapartes en decomiso/dropeadas)."""
 import re
 
 from fastapi import APIRouter
 
 from api.cache import cached
-from api.db import get_db_cashflow
 from core.postgres import get_pool
 
 router = APIRouter(prefix="/api/cuentas", tags=["Cuentas"])
@@ -16,12 +15,18 @@ _RE_CUENTA = re.compile(r"^\[(\d+)\]\s*(.*)$")
 @router.get("/accionistas")
 @cached(ttl=3600)
 def listar_accionistas():
-    """DIRECTO desde CashFlow.Accionistas {cuenta:'[N] NOMBRE', accionista}.
-    id_cuenta y nombre se derivan de `cuenta`; grupo = accionista."""
-    coll = get_db_cashflow()["Accionistas"]
+    """DIRECTO desde SQL clientes.accionistas {cuenta:'[N] NOMBRE', accionista}.
+    id_cuenta y nombre se derivan de `cuenta`; grupo = accionista. Carga manual:
+    scripts/cargar_accionistas.py."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT cuenta, accionista FROM accionistas "
+            "WHERE cuenta IS NOT NULL AND cuenta <> '' ORDER BY cuenta"
+        )
+        rows = cur.fetchall()
     out = []
-    for d in coll.find({}, {"_id": 0, "cuenta": 1, "accionista": 1}):
-        raw = str(d.get("cuenta") or "").strip()
+    for cuenta, accionista in rows:
+        raw = str(cuenta or "").strip()
         if not raw:
             continue
         m = _RE_CUENTA.match(raw)
@@ -29,7 +34,7 @@ def listar_accionistas():
             "cuenta": raw,
             "id_cuenta": m.group(1) if m else None,
             "nombre": m.group(2).strip() if m else raw,
-            "grupo": d.get("accionista") or "",
+            "grupo": accionista or "",
         })
     return out
 

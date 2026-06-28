@@ -118,13 +118,11 @@ def sensibilidad_retorno_total(
     # eran 2 find_one por bono → 2N round-trips a Atlas). last_price + TEA +
     # duration + paridad de una.
     tickers_full = [b.get("ticker") for b in bonos if b.get("ticker")]
-    snap_map: dict[str, dict] = {}
-    for r in db["MarketSnapshot"].find(
-        {"ticker": {"$in": tickers_full}},
-        {"_id": 0, "ticker": 1, "metrics.last_price": 1, "metrics.TEA": 1,
-         "metrics.duration": 1, "metrics.paridad": 1},
-    ):
-        snap_map[r["ticker"]] = r.get("metrics") or {}
+    # SQL-only (mercado.market_snapshot): metrics anidado, claves Mongo (TEA/paridad…).
+    from core.market_snapshot import snapshot_docs
+    snap_map: dict[str, dict] = {
+        t: doc["metrics"] for t, doc in snapshot_docs(tickers_full).items()
+    }
 
     out: list[dict] = []
     for bono in bonos:

@@ -125,17 +125,12 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
     # snapshot_cierre corre 20:25 UTC). Leemos MarketSnapshot directo,
     # que es la misma fuente que el cron usa al cierre — sólo que live.
     if fecha_str == date.today().isoformat():
-        ms_rows = list(db["MarketSnapshot"].find(
-            {
-                "ticker":             {"$in": list(meta_by_ticker.keys())},
-                "metrics.last_price": {"$gt": 0},
-            },
-            {"_id": 0,
-             "ticker": 1, "updated_at": 1,
-             "metrics.last_price": 1, "metrics.TEA": 1, "metrics.TEM": 1,
-             "metrics.paridad": 1, "metrics.duration": 1,
-             "metrics.mod_duration": 1, "metrics.convexity": 1},
-        ))
+        # SQL-only (mercado.market_snapshot): mismo shape (ticker, updated_at, metrics).
+        from core.market_snapshot import snapshot_docs
+        ms_rows = [
+            d for d in snapshot_docs(list(meta_by_ticker.keys())).values()
+            if (d["metrics"].get("last_price") or 0) > 0
+        ]
         if ms_rows:
             out = []
             for r in ms_rows:

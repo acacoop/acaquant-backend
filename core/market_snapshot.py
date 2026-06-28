@@ -11,6 +11,41 @@ from __future__ import annotations
 
 from core.postgres import get_pool
 
+# Columna SQL → clave del sub-doc `metrics` de Mongo (mayúsculas TEA/TEM como el motor).
+_COL_TO_KEY = {
+    "total_nominals": "total_nominals", "vwap": "vwap", "last_price": "last_price",
+    "open_price": "open_price", "high_price": "high_price", "low_price": "low_price",
+    "closing_price": "closing_price", "tea": "TEA", "tem": "TEM", "duration": "duration",
+    "mod_duration": "mod_duration", "convexity": "convexity", "paridad": "paridad",
+}
+
+
+def snapshot_docs(tickers) -> dict[str, dict]:
+    """{ticker: {"ticker", "metrics": {clave Mongo: val} (sin None), "book": jsonb|None,
+    "updated_at"}} — equivalente al doc de Trading.MarketSnapshot. Drop-in para los
+    lectores que hacían db.MarketSnapshot.find y accedían doc['metrics']/['book']."""
+    tickers = list(tickers)
+    if not tickers:
+        return {}
+    cols = ", ".join(_COL_TO_KEY)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"SELECT ticker, book, updated_at, {cols} FROM mercado.market_snapshot "
+            "WHERE ticker = ANY(%s)",
+            (tickers,),
+        )
+        names = [d.name for d in cur.description]
+        rows = cur.fetchall()
+    out: dict[str, dict] = {}
+    for r in rows:
+        d = dict(zip(names, r))
+        metrics = {key: float(d[col]) for col, key in _COL_TO_KEY.items() if d.get(col) is not None}
+        out[d["ticker"]] = {
+            "ticker": d["ticker"], "metrics": metrics,
+            "book": d.get("book"), "updated_at": d.get("updated_at"),
+        }
+    return out
+
 
 def metric_map(tickers, col: str, positivo: bool = False) -> dict[str, float]:
     """{ticker: valor} de UNA métrica para los tickers dados. Excluye NULL; si

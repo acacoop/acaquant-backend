@@ -194,15 +194,12 @@ def posiciones_cuenta(id_cuenta: str, hasta: str | None = None) -> dict[str, Any
         c["ticker_corto"]: c for c in curvas if c.get("ticker_corto")
     }
 
-    # 4. Prices live de MarketSnapshot (long ticker is the _id).
+    # 4. Prices live de MarketSnapshot — SQL-only (mercado.market_snapshot, key=ticker).
     long_tickers = [c["ticker"] for c in short_to_curva.values() if c.get("ticker")]
     snapshots: dict[str, dict] = {}
     if long_tickers:
-        for d in db_t["MarketSnapshot"].find(
-            {"_id": {"$in": long_tickers}},
-            {"_id": 1, "metrics": 1},
-        ):
-            snapshots[d["_id"]] = d
+        from core.market_snapshot import snapshot_docs
+        snapshots = snapshot_docs(long_tickers)
 
     # 5. Build response rows.
     rows: list[dict[str, Any]] = []

@@ -119,15 +119,11 @@ def _precios_live_curva(db_trd, curva: str) -> dict[str, float]:
     }
     if not meta:
         return {}
+    # last_price SQL-only (mercado.market_snapshot); el meta de Curvas sigue Mongo.
+    from core.market_snapshot import metric_map
     out: dict[str, float] = {}
-    for r in db_trd["MarketSnapshot"].find(
-        {"ticker": {"$in": list(meta.keys())}, "metrics.last_price": {"$gt": 0}},
-        {"_id": 0, "ticker": 1, "metrics.last_price": 1},
-    ):
-        price = (r.get("metrics") or {}).get("last_price")
-        if price is None:
-            continue
-        out[meta[r["ticker"]]] = float(price)
+    for ticker, price in metric_map(list(meta.keys()), "last_price", positivo=True).items():
+        out[meta[ticker]] = price
     return out
 
 

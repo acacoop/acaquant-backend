@@ -60,18 +60,15 @@ def _tickers_curva(db, curva: str) -> list[dict]:
 
 
 def _live_metricas(db, tickers: list[str]) -> dict[str, dict]:
-    """Lee TEA, duration vivas de MarketSnapshot.metrics por ticker."""
+    """TEA, duration vivas por ticker — SQL-only (mercado.market_snapshot)."""
+    from core.market_snapshot import snapshot_docs
     out: dict[str, dict] = {}
-    for d in db["MarketSnapshot"].find(
-        {"ticker": {"$in": tickers}},
-        {"_id": 0, "ticker": 1, "metrics.TEA": 1, "metrics.duration": 1,
-         "updated_at": 1},
-    ):
-        m = d.get("metrics") or {}
-        out[d["ticker"]] = {
-            "tea": m.get("TEA"),
-            "duration": m.get("duration"),
-            "updated_at": d.get("updated_at"),
+    for ticker, doc in snapshot_docs(tickers).items():
+        mt = doc["metrics"]
+        out[ticker] = {
+            "tea": mt.get("TEA"),
+            "duration": mt.get("duration"),
+            "updated_at": doc["updated_at"],
         }
     return out
 

@@ -7,6 +7,20 @@
 
 ## PROGRESO DEL DECOMISO (bitácora)
 
+- **2026-06-28** — `Trading.MarketSnapshot` → `mercado.market_snapshot`
+  (writer-cutover, commits 02d25ef→aaabaf2 + 1589889):
+  - **Lecturas**: breakevens, forwards, order_book, fair_value, sinteticos,
+    mejoras_dispo, agro, curvas-loop, snapshot_cierre y debug leen SQL.
+  - **Escrituras**: `engines/valores.py` + `engines/curvas.py` escriben SOLO
+    `mercado.market_snapshot` (SQL-native vía `core/pg_mirror.write_snapshot`,
+    sin flag). Upsert columnar parcial (cada motor preserva las columnas del otro).
+  - `jobs/sync_postgres.py`: retirado el puente `sync_market_snapshot` (función
+    eliminada en 1589889; ya estaba fuera del dispatch).
+  - Único lector Mongo restante: el twin gateado en `api/services/renta_fija.py`
+    (bypassed por `RENTA_FIJA_SQL=1`).
+  - **PENDIENTE para DROP**: deploy al Droplet + verificar pricing en vivo el lunes
+    en ventana (13-20 UTC) con `scripts/diag_market_snapshot_freshness.py` +
+    chequeo visual de pantallas. ⚠️ Cambio en pricing live — verificar ANTES de dropear.
 - **2026-06-28** — Grupo CALENDARIO + MACRO liquidado (lectura+escritura SQL-only,
   sin fallback Mongo):
   - `Trading.DiasHabiles` → `mercado.dias_habiles`. Helper único `core/calendario.py`.
@@ -19,8 +33,10 @@
   - `sync_postgres`: retirados `sync_series_macro` y `sync_rem` (eran puentes Mongo→SQL).
   - Pendiente de limpieza: twins Mongo gateados (`macro.py`, `renta_fija.py`) se
     borran cuando se elimine el selector dual-run.
-- **Próximo:** `Trading.MarketSnapshot` (lo leen breakevens/forwards/curvas) →
-  `mercado.market_snapshot` (SNAPSHOT_SQL on). Después renta fija derivada.
+- **Próximo:** deployar + verificar el pricing live (lunes, diag de frescura) y
+  dropear `Trading.MarketSnapshot`. Después: renta fija derivada (Breakevens/
+  Forwards Live+Historico, FitParams, FairValueResiduos) — engines a escritura
+  SQL-native + matar el twin gateado de `renta_fija.py`.
 
 ---
 

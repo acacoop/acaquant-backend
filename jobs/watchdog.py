@@ -10,7 +10,7 @@ no).
 NO mira los `engines.X` (motores): corren todo el día a propósito.
 NO depende de JobRunLogger → cubre TODOS los jobs, incluso los que no lo usan.
 
-Cooldown por job en Manager.WatchdogAlertas para no spamear cada 5 min.
+Cooldown por job en SQL `watchdog_alertas` para no spamear cada 5 min.
 
 Uso:
     python -m jobs.watchdog            # evalúa y alerta si corresponde
@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 from core import atlas_api
 from core.mongo import get_mongo_client
 from core.notify import send_telegram
+from core.pg_mirror import write_native
 
 load_dotenv()  # ATLAS_* / ATLAS_RO_* del .env, para leer slow queries (best-effort)
 
@@ -77,6 +78,20 @@ _IGNORAR = {"watchdog", "market_quotes", "comercial_warm"}
 _RE_JOB = re.compile(r"-m\s+jobs\.(\w+)")
 
 
+def _last_alert_at(id_: str) -> datetime | None:
+    """Lee el `last_alert_at` (cooldown) de un id en SQL `watchdog_alertas`.
+    Degradado: si SQL no responde devuelve None → se prioriza ALERTAR (es seguro)
+    antes que silenciar por un error de lectura del espejo de cooldowns."""
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT last_alert_at FROM watchdog_alertas WHERE id = %s", (id_,))
+            row = cur.fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
 def _parse_ps(salida: str) -> list[tuple[str, int, int]]:
     """Parsea `ps -eo etimes=,pid=,args=` → [(nombre_job, pid, etimes_seg)].
 
@@ -113,7 +128,7 @@ def _jobs_corriendo() -> list[tuple[str, int, int]]:
     return _parse_ps(res.stdout)
 
 
-def _check_db_queries(col, ahora: datetime, dry_run: bool) -> list[str]:
+def _check_db_queries(ahora: datetime, dry_run: bool) -> list[str]:
     """Alerta por Telegram cuando una query COLLSCAN escanea ≥ _SCAN_ALERTA docs,
     con su colección + appName — lo que Atlas NO te manda por mail (el 'CPU alto' sí).
     BEST-EFFORT: sin permiso de Performance Advisor (401) o sin ATLAS_* → se omite
@@ -141,9 +156,8 @@ def _check_db_queries(col, ahora: datetime, dry_run: bool) -> list[str]:
                 peores[ns] = m
     if not peores:
         return []
-    prev = col.find_one({"_id": "db_scan"})
-    if prev and prev.get("last_alert_at") and \
-            (ahora - prev["last_alert_at"]) < timedelta(seconds=_COOLDOWN_S):
+    prev = _last_alert_at("db_scan")
+    if prev and (ahora - prev) < timedelta(seconds=_COOLDOWN_S):
         return []
     lineas = []
     for ns, m in sorted(peores.items(), key=lambda kv: -(kv[1].get("docsExamined") or 0))[:5]:
@@ -157,11 +171,11 @@ def _check_db_queries(col, ahora: datetime, dry_run: bool) -> list[str]:
            "\n_falta un índice usable / la query no es selectiva (skill index-health)._")
     if not dry_run:
         send_telegram(msg)
-        col.update_one({"_id": "db_scan"}, {"$set": {"last_alert_at": ahora}}, upsert=True)
+        write_native("watchdog_alertas", ["id"], [{"id": "db_scan", "last_alert_at": ahora}])
     return lineas
 
 
-def _check_motores(col, ahora: datetime, dry_run: bool) -> list[str]:
+def _check_motores(ahora: datetime, dry_run: bool) -> list[str]:
     """Alerta por Telegram cuando un MOTOR de mercado está MUERTO (sin datos frescos
     > 15 min) en horario de rueda. El watchdog corre cada 5 min → la caída se detecta
     rápido, a diferencia de `informe_salud` (horario). Cooldown POR motor (30 min).
@@ -183,9 +197,8 @@ def _check_motores(col, ahora: datetime, dry_run: bool) -> list[str]:
         if it["estado"] != "muerto":
             continue
         key = f"motor:{it['motor']}"
-        prev = col.find_one({"_id": key})
-        if prev and prev.get("last_alert_at") and \
-                (ahora - prev["last_alert_at"]) < timedelta(seconds=_COOLDOWN_S):
+        prev = _last_alert_at(key)
+        if prev and (ahora - prev) < timedelta(seconds=_COOLDOWN_S):
             continue
         edad = it.get("edad_s")
         edad_txt = f"{edad // 60} min" if isinstance(edad, int) else "sin datos"
@@ -195,15 +208,14 @@ def _check_motores(col, ahora: datetime, dry_run: bool) -> list[str]:
                f"`journalctl -u motor_<x>.service -n 50`._")
         if not dry_run:
             send_telegram(msg)
-            col.update_one({"_id": key},
-                           {"$set": {"last_alert_at": ahora, "edad_s": edad}}, upsert=True)
+            write_native("watchdog_alertas", ["id"],
+                         [{"id": key, "last_alert_at": ahora, "edad_s": edad}])
         alertados.append(it["motor"])
     return alertados
 
 
 def run(dry_run: bool = False) -> dict:
     ahora = datetime.now(UTC)
-    col = get_mongo_client()["Manager"]["WatchdogAlertas"]
     corriendo = _jobs_corriendo()
 
     alertados, revisados = [], []
@@ -212,10 +224,9 @@ def run(dry_run: bool = False) -> dict:
         revisados.append((nombre, etimes, budget))
         if etimes <= budget:
             continue
-        # Cooldown: ¿ya alertamos este job hace poco?
-        prev = col.find_one({"_id": nombre})  # perf-ok: PERF002 — N = jobs vivos (~10), lookup por _id
-        if prev and prev.get("last_alert_at") and \
-                (ahora - prev["last_alert_at"]) < timedelta(seconds=_COOLDOWN_S):
+        # Cooldown: ¿ya alertamos este job hace poco? (SELECT por id en SQL)
+        prev = _last_alert_at(nombre)
+        if prev and (ahora - prev) < timedelta(seconds=_COOLDOWN_S):
             continue
         mins = etimes // 60
         bmins = budget // 60
@@ -225,16 +236,15 @@ def run(dry_run: bool = False) -> dict:
                f"Matar a mano: `kill {pid}`.  _revisar RUNBOOK / por qué no murió_")
         if not dry_run:
             send_telegram(msg)
-            col.update_one({"_id": nombre},
-                           {"$set": {"last_alert_at": ahora, "etimes": etimes, "pid": pid}},
-                           upsert=True)
+            write_native("watchdog_alertas", ["id"],
+                         [{"id": nombre, "last_alert_at": ahora, "etimes": etimes, "pid": pid}])
         alertados.append((nombre, mins, bmins))
 
     # Queries COLLSCAN escaneando de más (best-effort; no rompe si ATLAS_* falta).
-    db_scans = _check_db_queries(col, ahora, dry_run)
+    db_scans = _check_db_queries(ahora, dry_run)
 
     # Motores de mercado caídos/en loop (frescura de datos en rueda).
-    motores_caidos = _check_motores(col, ahora, dry_run)
+    motores_caidos = _check_motores(ahora, dry_run)
 
     if dry_run:
         print(f"[DRY] jobs corriendo: {revisados}")

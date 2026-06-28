@@ -1,7 +1,7 @@
 """informe_salud.py — Informe de salud de ACAQuant (health report a Telegram).
 
 Corre cada hora en rueda + una vez de noche. Junta métricas de salud del sistema,
-las PERSISTE estructuradas en Manager.HealthReports (para que agentes futuros lean
+las PERSISTE estructuradas en SQL `health_reports` (para que agentes futuros lean
 la historia) y manda un resumen por Telegram. El mensaje es solo el render del
 snapshot estructurado.
 
@@ -254,14 +254,32 @@ def _consolidar(rep: dict) -> tuple[str, list[str]]:
 
 # ── Construcción + render + persistencia ─────────────────────────────────────
 
+def _ultimo_informe() -> dict | None:
+    """Lee el informe ANTERIOR desde SQL `health_reports` (última fila por ts) y
+    reconstruye el dict equivalente al `rep` que persiste `main` — mismas claves —
+    para que `_seccion_bases` calcule los Δ de counts. Best-effort: si SQL no
+    responde devuelve None (el informe se arma igual, sin deltas)."""
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT ts, en_rueda, veredicto, problemas, data "
+                        "FROM health_reports ORDER BY ts DESC LIMIT 1")
+            row = cur.fetchone()
+        if not row:
+            return None
+        ts, en_rueda, veredicto, problemas, data = row
+        rep = dict(data) if isinstance(data, dict) else {}
+        rep.update({"ts": ts, "en_rueda": en_rueda, "veredicto": veredicto,
+                    "problemas": problemas})
+        return rep
+    except Exception:
+        return None
+
+
 def construir_informe(cli) -> dict:
     now = _ahora()
     en_rueda = _en_rueda(now)
-    prev = None
-    try:
-        prev = cli["Manager"]["HealthReports"].find_one({}, sort=[("ts", -1)])
-    except Exception:
-        pass
+    prev = _ultimo_informe()
 
     rep: dict = {
         "ts": now,
@@ -396,14 +414,20 @@ def main() -> int:
             print("\n[--dry: no se persiste ni se manda]")
             return 0
 
-        # Persistir el snapshot estructurado (TTL 45 días).
+        # Persistir el snapshot estructurado en SQL `health_reports` (append-only).
+        # retención 45d: cron prune_native externo (Postgres no tiene TTL).
         try:
-            col = cli["Manager"]["HealthReports"]
-            col.create_index([("ts", -1)], name="ts_ttl",
-                             expireAfterSeconds=45 * 24 * 3600)
-            col.insert_one(rep)
+            from core.pg_mirror import append_native
+            append_native("health_reports", [{
+                "ts": rep["ts"],
+                "en_rueda": rep["en_rueda"],
+                "veredicto": rep["veredicto"],
+                "problemas": rep["problemas"],
+                "data": {k: rep[k] for k in
+                         ("motores", "bases", "jobs", "sql_sync", "mongo")},
+            }])
         except Exception as e:
-            jr.error(f"persist HealthReports: {type(e).__name__}: {e}")
+            jr.error(f"persist health_reports: {type(e).__name__}: {e}")
 
         if not no_tg:
             from core.notify import send_telegram

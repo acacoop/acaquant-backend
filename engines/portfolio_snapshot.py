@@ -40,9 +40,8 @@ import traceback
 from datetime import UTC, datetime
 
 import pyRofex
-from pymongo import UpdateOne
 
-from core.mongo import get_mongo_client
+from core.pg_mirror import append_native, write_snapshot
 from core.rofex_session import inicializar_sesion
 from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
@@ -50,11 +49,6 @@ from engines._universo_portfolio import tickers_de_tenencia
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("MotorPortfolioSnapshot")
-
-DB_NAME = "Trading"
-COL_NAME = "PortfolioSnapshot"
-LOG_DB_NAME = "Manager"
-LOG_COL_NAME = "PortfolioSnapshotLog"
 
 SNAPSHOT_INTERVAL_S = 1.0
 REFRESH_INTERVAL_S = 60 * 60   # 1 hora — alineado con cron de operaciones
@@ -98,9 +92,8 @@ class PortfolioSnapshotEngine:
             self.state[t] = {"last_price": None, "closing_price": None, "dirty": False}
         self.tickers: set[str] = set(tickers)
 
-        self.client = get_mongo_client()
-        self.col = self.client[DB_NAME][COL_NAME]
-        self.col_log = self.client[LOG_DB_NAME][LOG_COL_NAME]
+        # SQL-NATIVE (decomiso Mongo): precio live → valuaciones.portfolio_snapshot;
+        # audit del refresh → manager.portfolio_snapshot_log.
 
         lanzar_hilo_vital(self._snapshot_loop, "snapshot_loop")
 
@@ -160,25 +153,22 @@ class PortfolioSnapshotEngine:
             time.sleep(SNAPSHOT_INTERVAL_S)
             try:
                 ts = datetime.now(UTC)
-                ops: list[UpdateOne] = []
+                rows: list[dict] = []
                 with self._state_lock:
                     snapshot_items = list(self.state.items())
                 for ticker, s in snapshot_items:
                     if not s.get("dirty"):
                         continue
-                    sets = {"updated_at": ts}
+                    row = {"ticker": ticker, "updated_at": ts}
                     if s.get("last_price") is not None:
-                        sets["last_price"] = s["last_price"]
+                        row["last_price"] = s["last_price"]
                     if s.get("closing_price") is not None:
-                        sets["closing_price"] = s["closing_price"]
-                    ops.append(UpdateOne(
-                        {"ticker": ticker},
-                        {"$set": sets},
-                        upsert=True,
-                    ))
+                        row["closing_price"] = s["closing_price"]
+                    rows.append(row)
                     s["dirty"] = False
-                if ops:
-                    self.col.bulk_write(ops, ordered=False)
+                if rows:
+                    # UPSERT por ticker, columnas parciales (no pisa closing si solo cambió last).
+                    write_snapshot("portfolio_snapshot", ["ticker"], rows)
             except Exception:
                 logger.error("Snapshot loop falló:\n%s", traceback.format_exc())
 
@@ -225,16 +215,15 @@ def _refresh_loop(engine: PortfolioSnapshotEngine, ws: WebSocketManager):
 
 def _persistir_log(engine: PortfolioSnapshotEngine, n_actuales: int,
                    nuevos: list[str], sin_match: list[str]):
-    """Audit en Manager.PortfolioSnapshotLog. Si falla, warning y sigue."""
+    """Audit en manager.portfolio_snapshot_log (SQL). Si falla, warning y sigue."""
     try:
-        engine.col_log.insert_one({
-            "ts":           datetime.now(UTC),
-            "n_actuales":   n_actuales,
-            "n_nuevos":     len(nuevos),
-            "nuevos":       nuevos,
-            "n_sin_match":  len(sin_match),
-            "sin_match":    sin_match[:50],   # cap por defensiva
-        })
+        append_native("portfolio_snapshot_log", [{
+            "ts":          datetime.now(UTC),
+            "n_actuales":  n_actuales,
+            "n_nuevos":    len(nuevos),
+            "n_sin_match": len(sin_match),
+            "data":        {"nuevos": nuevos, "sin_match": sin_match[:50]},
+        }])
     except Exception:
         logger.warning("No pude persistir log de refresh — sigue.")
 

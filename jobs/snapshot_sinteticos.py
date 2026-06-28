@@ -1,4 +1,4 @@
-"""snapshot_sinteticos.py — materializa el cierre diario de sintéticos en Trading.SnapshotsSinteticos.
+"""snapshot_sinteticos.py — materializa el cierre diario de sintéticos en mercado.snapshots_sinteticos (SQL).
 
 Espeja el patrón de jobs.snapshot_cierre, pero para las tasas sintéticas
 (LECAP+Rofex largo / DLK+Rofex corto). Reusa el service get_sinteticos()
@@ -28,7 +28,7 @@ import logging
 import sys
 from datetime import UTC, date, datetime
 
-from core.mongo import get_mongo_client
+from core.pg_mirror import write_native
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("SnapshotSinteticos")
@@ -97,9 +97,9 @@ _FAMILIAS = {
 }
 
 
-def procesar(client, fecha_str: str, dry: bool) -> int:
-    """Lee get_sinteticos() y persiste un doc por (familia, ticker).
-    Skipea filas sin tna NI te (sin precio válido). Devuelve docs upserteados."""
+def procesar(fecha_str: str, dry: bool) -> int:
+    """Lee get_sinteticos() y persiste una fila por (familia, ticker) en SQL.
+    Skipea filas sin tna NI te (sin precio válido). Devuelve filas upserteadas."""
     from api.services.sinteticos import get_sinteticos
 
     data = get_sinteticos()
@@ -107,7 +107,6 @@ def procesar(client, fecha_str: str, dry: bool) -> int:
     spot_source = data.get("spot_source")
     spot_ts = data.get("spot_ts")
 
-    col = client["Trading"]["SnapshotsSinteticos"]
     n_ok = 0
     n_skip = 0
     for tipo_sintetico, (clave, builder) in _FAMILIAS.items():
@@ -122,22 +121,25 @@ def procesar(client, fecha_str: str, dry: bool) -> int:
                 n_skip += 1
                 continue
 
-            doc = {
-                "ts_snapshot":    fecha_str,
+            # Columnas fijas + resto del doc específico por tipo → jsonb `data`.
+            sql_row = {
+                "ts_snapshot":    fecha_str,   # date: Postgres castea el string ISO
                 "tipo_sintetico": tipo_sintetico,
                 "ticker":         ticker,
                 "spot":           spot,
                 "spot_source":    spot_source,
                 "spot_ts":        spot_ts,
-                **base,
+                "te":             base.get("te"),
+                "tna":            base.get("tna"),
+                "data":           {k: v for k, v in base.items() if k not in ("te", "tna")},
             }
             if dry:
                 n_ok += 1
                 continue
-            col.update_one(
-                {"ts_snapshot": fecha_str, "tipo_sintetico": tipo_sintetico, "ticker": ticker},
-                {"$set": doc},
-                upsert=True,
+            write_native(
+                "snapshots_sinteticos",
+                ["ts_snapshot", "tipo_sintetico", "ticker"],
+                [sql_row],
             )
             n_ok += 1
 
@@ -160,24 +162,15 @@ def main() -> int:
         fecha_d = datetime.now(UTC).date()
     fecha_str = fecha_d.isoformat()
 
-    client = get_mongo_client()
-
-    # Índice único idempotente. Mongo lo crea solo la primera vez.
-    client["Trading"]["SnapshotsSinteticos"].create_index(
-        [("ts_snapshot", 1), ("tipo_sintetico", 1), ("ticker", 1)],
-        unique=True,
-        name="uq_ts_tipo_ticker",
-    )
-
     from core.job_runs import JobRunLogger
     with JobRunLogger("snapshot_sinteticos") as jr:
-        total = procesar(client, fecha_str, args.dry)
+        total = procesar(fecha_str, args.dry)
         jr.set_stat("docs", total)
         jr.set_stat("fecha", fecha_str)
         jr.set_stat("dry", args.dry)
         logger.info("Total: %d docs en %s", total, fecha_str)
     if args.dry:
-        logger.info("(--dry: no se escribió en Mongo)")
+        logger.info("(--dry: no se escribió en SQL)")
     return 0
 
 

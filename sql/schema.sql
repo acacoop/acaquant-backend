@@ -1086,3 +1086,168 @@ CREATE TABLE IF NOT EXISTS partner.api_users (
     enabled       boolean,
     created_at    timestamptz             -- Mongo: datetime AWARE UTC → timestamptz
 );
+
+-- ============================================================================
+-- DECOMISO MONGO — tablas faltantes (2026-06-28). Cada una es el destino SQL de
+-- una colección Mongo que hasta hoy NO tenía espejo. Shapes derivados del CÓDIGO
+-- del writer (no inventados). Al aplicarlas, cada motor/job pasa a SQL-native.
+-- ============================================================================
+
+-- Trading.CedearsTimeSales → tape intradía de CEDEARs (engines/motor_cedears.py,
+-- insert_many cada ~1s; alto throughput). Append-only, se VACÍA al cierre (cron
+-- jobs/cleanup_cedears_timesales.py → DELETE/TRUNCATE). Sin clave natural única →
+-- PK identity; el índice (ticker_corto, ts) sirve a scanner/day_trading.
+CREATE TABLE IF NOT EXISTS mercado.cedears_time_sales (
+    id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ticker       text,
+    ticker_corto text,
+    ts           timestamptz,            -- Mongo: "timestamp" (UTC aware)
+    price        numeric,
+    size         numeric,
+    side         text,                   -- BUY | SELL | MID
+    money        numeric
+);
+CREATE INDEX IF NOT EXISTS ix_cedears_ts_corto_ts
+    ON mercado.cedears_time_sales (ticker_corto, ts DESC);
+
+-- Trading.SnapshotsSinteticos → histórico diario de sintéticos (jobs/snapshot_sinteticos.py,
+-- upsert por (ts_snapshot, tipo_sintetico, ticker)). Campos comunes columnar + el
+-- resto (px/vto/te/tna/cobro/descalce/...) en `data` jsonb (varían por tipo).
+CREATE TABLE IF NOT EXISTS mercado.snapshots_sinteticos (
+    ts_snapshot    date NOT NULL,        -- Mongo: string ISO 'YYYY-MM-DD'
+    tipo_sintetico text NOT NULL,        -- long_lecap | short_dlk | ...
+    ticker         text NOT NULL,
+    spot           numeric,
+    spot_source    text,
+    spot_ts        timestamptz,
+    te             numeric,
+    tna            numeric,
+    data           jsonb,                -- campos específicos del tipo
+    PRIMARY KEY (ts_snapshot, tipo_sintetico, ticker)
+);
+
+-- Trading.UVA → valor UVA del BCRA (carga manual, 1 valor por fecha). Lo lee
+-- macro.py::get_ultimo_uva (último por fecha) y jobs/segmentar_patrimonial.py.
+CREATE TABLE IF NOT EXISTS macro.uva (
+    fecha date PRIMARY KEY,
+    valor numeric                        -- Mongo: valor_uva
+);
+
+-- Valuaciones.DolarSnapshot → snapshot LIVE MEP/CCL (engines/dolares.py, replace
+-- cada 5s, 1 doc fijo _id='current'). Una sola fila viva.
+CREATE TABLE IF NOT EXISTS valuaciones.dolar_snapshot (
+    id         text PRIMARY KEY DEFAULT 'current',
+    ts         timestamptz,             -- Mongo: "timestamp"
+    al30_offer numeric,
+    al30d_bid  numeric,
+    al30c_bid  numeric,
+    mep        numeric,
+    ccl        numeric,
+    canje      numeric,
+    source     text
+);
+
+-- Valuaciones.DolarOficialLive → feed MAE mayorista (la PC de oficina pega a
+-- POST /api/ingest/dolar-oficial → la API escribe). Upsert por instrumento.
+-- `data` = dict crudo de MAE (precioUltimo/variacion/...); el filtro canónico del
+-- oficial es ticker=UST$T, segmento=M, plazo=000.
+CREATE TABLE IF NOT EXISTS valuaciones.dolar_oficial_live (
+    ticker          text NOT NULL,
+    codigo_segmento text NOT NULL,
+    codigo_plazo    text NOT NULL,
+    data            jsonb,
+    updated_at      timestamptz,
+    PRIMARY KEY (ticker, codigo_segmento, codigo_plazo)
+);
+
+-- Valuaciones.Dolar (histórico MEP/CCL, append-only cada 15min) — la tabla ya
+-- existía con (timestamp, mep). Se agregan las columnas del doc completo para que
+-- el motor escriba SQL-native sin perder al30/ccl/canje.
+ALTER TABLE valuaciones.dolar ADD COLUMN IF NOT EXISTS al30_offer numeric;
+ALTER TABLE valuaciones.dolar ADD COLUMN IF NOT EXISTS al30d_bid  numeric;
+ALTER TABLE valuaciones.dolar ADD COLUMN IF NOT EXISTS al30c_bid  numeric;
+ALTER TABLE valuaciones.dolar ADD COLUMN IF NOT EXISTS ccl        numeric;
+ALTER TABLE valuaciones.dolar ADD COLUMN IF NOT EXISTS canje      numeric;
+
+-- Trading.PortfolioSnapshot — la tabla ya existía con (ticker, last/closing). Falta
+-- updated_at (el motor lo escribe cada 1s).
+ALTER TABLE valuaciones.portfolio_snapshot ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+
+-- CashFlow.Accionistas — la tabla ya existía con solo `cuenta`. El router lee también
+-- el nombre del accionista.
+ALTER TABLE clientes.accionistas ADD COLUMN IF NOT EXISTS accionista text;
+
+-- Trading.AdhocSubscriptions → suscripciones efímeras del operador (core/adhoc_subscriptions.py,
+-- CRUD + TTL 7d). Postgres no tiene TTL nativo → el barrido lo hace un cron sobre expires_at.
+CREATE TABLE IF NOT EXISTS mercado.adhoc_subscriptions (
+    ticker       text PRIMARY KEY,
+    created_at   timestamptz,
+    last_used_at timestamptz,
+    expires_at   timestamptz
+);
+CREATE INDEX IF NOT EXISTS ix_adhoc_subs_expires ON mercado.adhoc_subscriptions (expires_at);
+
+-- Manager.PyRofexInstruments → lista canónica de instrumentos operables por CFI code
+-- (valida órdenes ANTES de enviarlas). CRÍTICA: si queda sin poblar, el envío de
+-- órdenes falla. La repuebla scripts/discovery_pyrofex.py (sesión pyRofex). PK = CFI.
+CREATE TABLE IF NOT EXISTS manager.pyrofex_instruments (
+    cficode     text PRIMARY KEY,        -- Mongo: _id
+    count       integer,
+    underlyings jsonb,                   -- [str]
+    instruments jsonb                    -- [{ticker, underlying, maturity, currency, ...}]
+);
+
+-- Manager.PyRofexDiscovery → resumen singleton del último discovery (totales + por CFI).
+CREATE TABLE IF NOT EXISTS manager.pyrofex_discovery (
+    id                text PRIMARY KEY DEFAULT 'current',
+    total_instruments integer,
+    by_cficode        jsonb,             -- [{cficode, count, sample_tickers}]
+    generated_at      timestamptz
+);
+
+-- Manager.HealthReports → informe de salud (jobs/informe_salud.py, insert cada hora,
+-- TTL 45d via cron). Cabecera columnar + cuerpo (motores/bases/jobs/sql_sync/mongo) en jsonb.
+CREATE TABLE IF NOT EXISTS manager.health_reports (
+    id        bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts        timestamptz,
+    en_rueda  boolean,
+    veredicto text,                      -- 🟢 | 🟡 | 🔴
+    problemas jsonb,
+    data      jsonb                      -- {motores, bases, jobs, sql_sync, mongo}
+);
+CREATE INDEX IF NOT EXISTS ix_health_reports_ts ON manager.health_reports (ts DESC);
+
+-- Manager.WatchdogAlertas → cooldown por job/motor (jobs/watchdog.py, upsert por _id).
+CREATE TABLE IF NOT EXISTS manager.watchdog_alertas (
+    id            text PRIMARY KEY,      -- job name | 'motor:<x>' | 'db_scan'
+    last_alert_at timestamptz,
+    etimes        integer,
+    pid           integer,
+    edad_s        integer
+);
+
+-- Manager.AranceelesJobRuns → tracking UI del backfill de aranceles (jobs/aranceles.py,
+-- 1 doc/run + updates). Cabecera columnar + stats/ejemplos/errores en jsonb.
+CREATE TABLE IF NOT EXISTS manager.aranceles_job_runs (
+    id          text PRIMARY KEY,        -- UUID
+    status      text,
+    actor       text,
+    desde       text,
+    hasta       text,
+    apply       boolean,
+    started_at  timestamptz,
+    updated_at  timestamptz,
+    finished_at timestamptz,
+    data        jsonb                    -- {cuentas, workers, stats, ejemplos, errores, ...}
+);
+
+-- Manager.PortfolioSnapshotLog → audit del refresh de tenencia (engines/portfolio_snapshot.py,
+-- 1 doc cada 60min). Audit-only, sin readers.
+CREATE TABLE IF NOT EXISTS manager.portfolio_snapshot_log (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts          timestamptz,
+    n_actuales  integer,
+    n_nuevos    integer,
+    n_sin_match integer,
+    data        jsonb                    -- {nuevos, sin_match}
+);

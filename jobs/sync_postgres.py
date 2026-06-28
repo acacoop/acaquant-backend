@@ -479,33 +479,10 @@ def sync_actividad_mensual(mdb, conn, dry) -> int:
 # Mongo→SQL acá pisaría las ediciones del panel. Mongo Valuaciones.Assets deprecado.
 
 
-def sync_dolar(mdb, conn, dry, desde: datetime | None) -> int:
-    """Valuaciones.Dolar (timestamp, mep) → tabla dolar. Para get_mep_for_date (MEP histórico).
-    Incremental por timestamp."""
-    q = {"timestamp": {"$gte": desde}} if desde else {}
-    rows = []
-    for d in mdb["Valuaciones"]["Dolar"].find(q, {"_id": 0, "timestamp": 1, "mep": 1}):
-        ts = d.get("timestamp")
-        if ts is None:
-            continue
-        rows.append((ts, d.get("mep")))
-    return _upsert(conn, "dolar", ["timestamp", "mep"], ["timestamp"], _dedup(rows, [0]), dry)
-
-
-def sync_portfolio_snapshot(mdb, conn, dry) -> int:
-    """Trading.PortfolioSnapshot (precio live por ticker) → portfolio_snapshot. PnL no-realizado."""
-    cols = ["ticker", "last_price", "closing_price"]
-    rows = []
-    for d in mdb["Trading"]["PortfolioSnapshot"].find(
-        {}, {"_id": 0, "ticker": 1, "last_price": 1, "closing_price": 1}
-    ):
-        t = _s(d.get("ticker"))
-        if t:
-            rows.append((t, d.get("last_price"), d.get("closing_price")))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "portfolio_snapshot", cols, ["ticker"], rows, dry)
-    _delete_not_in(conn, "portfolio_snapshot", "ticker", {r[0] for r in rows}, dry)
-    return n
+# sync_dolar + sync_portfolio_snapshot ELIMINADOS (decomiso Mongo 2026-06-28):
+# engines/dolar_mep.py escribe valuaciones.dolar SQL-native y engines/portfolio_snapshot.py
+# escribe valuaciones.portfolio_snapshot SQL-native. Estos puentes leían Mongo (ya stale) y
+# el de portfolio hacía _delete_not_in → habría borrado las filas SQL frescas. Sin fuente Mongo.
 
 
 # sync_pnl_totales ELIMINADO (cutover ConsolidadoCuentas/PnLTotalesCache → SQL-native,
@@ -972,8 +949,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_jr = _t("job_runs", lambda: sync_job_runs(mdb, conn, dry, desde))
         n_ra = _t("role_audit", lambda: sync_role_audit(mdb, conn, dry))
         n_am = _t("actividad_mensual", lambda: sync_actividad_mensual(mdb, conn, dry))
-        n_dl = _t("dolar", lambda: sync_dolar(mdb, conn, dry, desde))
-        n_ps = _t("portfolio_snapshot", lambda: sync_portfolio_snapshot(mdb, conn, dry))
+        # dolar + portfolio_snapshot ya NO se sincronizan: SQL-native (decomiso 2026-06-28).
         # pnl_totales ya NO se sincroniza: lo escribe SQL-native jobs/pnl_totales_precompute.py
         # (cutover PnLTotalesCache→SQL 2026-06-26).
         # snapshots_cierre (último por ticker) ya NO se sincroniza: lo escribe SQL-native
@@ -1022,8 +998,7 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
               f"agro_pizarra={n_ap}  camara_cereales={n_cc}")
         print(f"  opciones (baseline): metadata={n_om}  vr={n_ov}")
         print(f"  dimensiones: accionistas={n_ac}  manager_users={n_mu}  "
-              f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}  "
-              f"dolar={n_dl}  portfolio_snapshot={n_ps}")
+              f"role_matrix={n_rm}  grupos={n_gr}  actividad_mensual={n_am}")
         print(f"  manager infra: job_runs={n_jr:,}  role_audit={n_ra}")
         print(f"  cashflow (baseline): tipos_operacion={n_to}  volumen_mercado_agro={n_vma}")
 
@@ -1048,10 +1023,9 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
     print("\nOK." if not dry else "\nDRY-RUN OK (nada escrito).")
     stats = {"accionistas": n_ac, "manager_users": n_mu, "role_matrix": n_rm, "grupos": n_gr,
              "job_runs": n_jr, "role_audit": n_ra,
-             "actividad_mensual": n_am, "dolar": n_dl,
+             "actividad_mensual": n_am,
              "tipos_operacion": n_to,
              "volumen_mercado_agro": n_vma,
-             "portfolio_snapshot": n_ps,
              "quotes": n_qt, "calendar": n_cal,
              "series_macro": n_sm, "rem": n_rem, "curvas": n_cv,
              "curvas_sin_ticker_corto": sin_corto,

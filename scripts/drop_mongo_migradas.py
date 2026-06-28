@@ -32,6 +32,38 @@ DROPS: list[tuple[str, str, str]] = [
     ("Trading", "ONSnapshot",
      "Legacy: los ONs se sirven desde Trading.Curvas (curva=on_*). 0 lectores y 0 escritores "
      "en el código (grep), última escritura 2026-04-13. Huérfana pura."),
+
+    # ── Decomiso 2026-06-28: writers Y readers ya SQL-native (sin Mongo) ──────────
+    ("Valuaciones", "DolarOficialLive",
+     "core/dolar_oficial.py escribe/lee valuaciones.dolar_oficial_live SQL; backfilleada; "
+     "sin sync. /ingest persiste SQL."),
+    ("Valuaciones", "DolarSnapshot",
+     "engines/dolares.py escribe valuaciones.dolar_snapshot SQL; readers (macro/argy/scanner/"
+     "curvas) leen SQL vía core/dolar_sql; sin sync."),
+    ("Valuaciones", "Dolar",
+     "engines/dolar_mep.py escribe valuaciones.dolar SQL; backfilleada (2003 filas); "
+     "sync_dolar ELIMINADO; readers SQL (core/dolar_sql, _mep, carry_trade)."),
+    ("Trading", "UVA",
+     "macro.get_ultimo_uva lee macro.uva SQL; correr scripts.backfill_uva_sql --apply ANTES. "
+     "Carga nueva vía scripts.insertar_uva."),
+    ("Manager", "WatchdogAlertas",
+     "jobs/watchdog.py escribe/lee manager.watchdog_alertas SQL; sin sync; sin otros readers."),
+    ("Manager", "HealthReports",
+     "jobs/informe_salud.py escribe/lee manager.health_reports SQL; sin sync; sin otros readers."),
+    ("Trading", "SnapshotsSinteticos",
+     "jobs/snapshot_sinteticos.py escribe mercado.snapshots_sinteticos SQL; 0 readers; sin sync."),
+    ("Manager", "PortfolioSnapshotLog",
+     "engines/portfolio_snapshot.py escribe manager.portfolio_snapshot_log SQL; audit, 0 readers."),
+    ("Trading", "AdhocSubscriptions",
+     "core/adhoc_subscriptions.py escribe/lee mercado.adhoc_subscriptions SQL; sin sync; "
+     "TTL por read-filter + prune cron."),
+    ("Manager", "AranceelesJobRuns",
+     "jobs/aranceles.py + manager/aunesa.py escriben/leen manager.aranceles_job_runs SQL; sin sync."),
+    ("Trading", "CedearsTimeSales",
+     "engines/motor_cedears.py escribe mercado.cedears_time_sales SQL; readers (scanner/"
+     "day_trading) SQL; intradía (se vacía al cierre); sin sync."),
+    # NO incluida: Trading.PortfolioSnapshot — pnl.py (rama legacy gateada por PNL_SQL) aún
+    # lee Mongo. Verificar el lunes con PNL_SQL=1 antes de dropear.
 ]
 
 

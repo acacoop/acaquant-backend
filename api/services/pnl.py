@@ -43,13 +43,9 @@ from __future__ import annotations
 import logging
 import re
 from collections import defaultdict
-from datetime import date
 from typing import Any
 
-from api.cache import cached
-from api.db import get_db_cashflow, get_db_trading, get_db_valuaciones
 from api.services._mep import get_mep_for_date
-from api.services.assets_sql import assets_rows
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -99,7 +95,7 @@ def _aplicar_normalizer(precio: float, qty: float, cartera: str | None = None,
 
 
 def _valor_actual_live(
-    db_t, db_v, unidad: str, qty_efectiva: float,
+    unidad: str, qty_efectiva: float,
     tipoTitulo: str | None, valor_aum: float,
     *,
     cartera: str | None = None,
@@ -123,10 +119,9 @@ def _valor_actual_live(
       2. SnapshotsCierre.last_price (último cierre persistido).
       3. valor_aum directo (fallback definitivo).
 
-    Si los kwargs `*_by_*` vienen pre-cargados (path bulk de
-    pnl_todas_cuentas), las 3 lookups se hacen contra los dicts en
-    memoria en vez de pegarle a Mongo. Sin ellos cae al find_one
-    original (path single-cuenta sigue funcionando).
+    Las lookups se hacen contra los dicts pre-cargados desde SQL
+    (`portfolio_snap_by_ticker`, `snapshots_cierre_by_ticker`,
+    `instrumentos_by_unidad`); este motor no lee Mongo (decomiso).
     """
     if qty_efectiva == 0:
         return 0.0, "live"   # cerrado por operación — vale cero
@@ -141,14 +136,8 @@ def _valor_actual_live(
             row = cur.fetchone()
         instrumento = ((row[0] if row else "") or "").strip()
     if instrumento and instrumento not in _PLACEHOLDERS_INSTRUMENTO:
-        # 1. PortfolioSnapshot — motor live escribe acá.
-        if portfolio_snap_by_ticker is not None:
-            snap = portfolio_snap_by_ticker.get(instrumento)
-        else:
-            snap = db_t["PortfolioSnapshot"].find_one(
-                {"ticker": instrumento},
-                {"_id": 0, "last_price": 1, "closing_price": 1},
-            )
+        # 1. PortfolioSnapshot (SQL bulk) — motor live de tenencia.
+        snap = (portfolio_snap_by_ticker or {}).get(instrumento)
         if snap:
             for campo in ("last_price", "closing_price"):
                 px = snap.get(campo)
@@ -207,57 +196,6 @@ def _ticker_corto_fallback(unidad: str) -> str:
     return m.group(1).strip() if m else (unidad or "")
 
 
-@cached(ttl=300)
-def _build_unidad_maps() -> tuple[dict[str, str], dict[str, str]]:
-    """Lee Valuaciones.Assets y devuelve dos maps:
-
-      unidad_to_match: {unidad → match_key}    — para joinear boletos↔AuM.
-      match_to_display: {match_key → display}  — para mostrar en la UI.
-
-    Precedencia para `match_key`:
-      1. `CAFCI` — FCI. Coincide con `boleto.ticker` parseado del bracket.
-      2. `TICKER` — acciones / bonos / ONs.
-      3. Fallback regex sobre la unidad.
-
-    Precedencia para `display`:
-      1. `TICKER` humano de Assets — ej "AL30", "Consultatio Multimercado V".
-      2. el match_key (FCI sin TICKER cargado → muestra el código CAFCI).
-
-    Caso típico para FCI:
-      unidad = "[3580] CAFCI3580-1199 - Consultatio..."
-      match_key = "CAFCI3580-1199"  (matchea con boleto.ticker)
-      display = "Consultatio Multimercado V - Clase A"
-
-    Cacheado 5min: el mapping cambia mensualmente al alta de instrumentos.
-    Antes se rebuilda 1× por cuenta dentro de pnl_todas_cuentas → N+1.
-    """
-    unidad_to_match: dict[str, str] = {}
-    match_to_display: dict[str, str] = {}
-    placeholders = {"", "NO APLICA"}
-    for a in assets_rows(["TICKER", "CAFCI"]):
-        unidad = a["unidad"]
-        if not unidad:
-            continue
-        cafci = (a["CAFCI"] or "").strip()
-        ticker = (a["TICKER"] or "").strip()
-        ticker_clean = ticker if ticker and ticker not in placeholders else None
-        cafci_clean = cafci if cafci and cafci not in placeholders else None
-
-        if cafci_clean:
-            match_key = cafci_clean
-        elif ticker_clean:
-            match_key = ticker_clean
-        else:
-            match_key = _ticker_corto_fallback(unidad)
-        unidad_to_match[unidad] = match_key
-
-        # display: TICKER humano si hay (ej "Consultatio...") sino el
-        # match_key (que para no-FCI es el ticker; para FCI sin TICKER
-        # cargado, queda el código CAFCI — best effort).
-        match_to_display.setdefault(match_key, ticker_clean or match_key)
-    return unidad_to_match, match_to_display
-
-
 def _new_state() -> dict:
     return {
         "qty_actual":       0.0,    # cantidad neta — running
@@ -292,7 +230,6 @@ def _new_state() -> dict:
 def _pnl_por_cuenta_core(
     *,
     id_cuenta: str,
-    db_cf, db_v, db_t,
     unidad_to_match: dict[str, str],
     match_to_display: dict[str, str],
     instrumentos_by_unidad: dict[str, str] | None = None,
@@ -306,60 +243,28 @@ def _pnl_por_cuenta_core(
 ) -> dict:
     """Cálculo del PnL por ticker — toma todas las deps por kwarg.
 
-    Cuando `pnl_todas_cuentas` precarga los maps + boletos + AuM en bulk
-    y los pasa por kwargs, las queries Mongo per-cuenta se eliminan: 6
-    queries totales independientes de N cuentas en lugar de ~5N. En el
-    path single-cuenta los kwargs vienen None y se cae a los find/find_one
-    tradicionales (mismo comportamiento de antes).
+    Las deps (maps + boletos + AuM + snapshots) las precarga en bulk desde SQL
+    `pnl_sql._deps_sql` y se pasan por kwargs → este motor NO lee Mongo (decomiso).
+    Una pasada de SQL alimenta las N cuentas (sin queries per-cuenta).
     """
     # ── 1. Boletos en orden cronológico ─────────────────────────────────
-    # Crítico: el cost-basis depende del orden de procesamiento.
-    # El campo `mep` viene en cada doc desde el job (snapshot inmutable
-    # del día del boleto). Solo caemos a `get_mep_for_date` si no está
-    # (boletos pre-fix sin reingestar, fechas anteriores al feed).
-    if boletos_by_id_cuenta is not None:
-        boletos = boletos_by_id_cuenta.get(id_cuenta, [])
-    else:
-        boletos = list(db_cf["NegocioMovimientos"].find(
-            {
-                # id_cuenta denormalizado + indexado (idcuenta_categoria_fecha).
-                # Antes regex sobre `cuenta` → COLLSCAN de 348k docs (709ms);
-                # ahora IXSCAN de los ~600 boletos de la cuenta (8ms). Cobertura
-                # 100% y equivalencia verificadas (scripts/diag_pnl_cuenta).
-                "id_cuenta": str(id_cuenta),
-                "categoria": {"$in": list(_CATS_RELEVANTES)},
-                "ticker":    {"$ne": None},
-            },
-            {"_id": 0, "fecha": 1, "categoria": 1, "op": 1,
-             "ticker": 1, "cantidad": 1, "precio": 1, "importe": 1,
-             "moneda": 1, "comprobante": 1, "mep": 1},
-        ).sort([("fecha", 1), ("comprobante", 1)]))
+    # Crítico: el cost-basis depende del orden de procesamiento. Los boletos
+    # YA vienen ordenados (fecha, comprobante) y filtrados desde el bulk loader
+    # SQL (`pnl_sql._deps_sql`); este motor no lee Mongo (decomiso).
+    boletos = (boletos_by_id_cuenta or {}).get(id_cuenta, [])
 
     # ── 1b. Última fecha del AuM — para distinguir movimientos intraday.
     # Boletos con fecha > fecha_actual_aum son day-trades del período actual
     # (post último cierre persistido). Su realizado se acumula aparte
     # para que la UI lo pueda mostrar en tickers cerrados intraday
     # (donde qty_efectiva=0 pero hubo trading hoy).
-    fecha_actual_aum: str | None
-    if aum_rows_by_id_cuenta is not None:
-        # En path bulk: si la cuenta tiene rows en el global latest, su
-        # fecha_actual es ese global. Si no tiene rows (cuenta cerrada/
-        # sin posiciones hoy) fecha_actual=None — mismo resultado que
-        # find_one que devolvería None.
-        fecha_actual_aum = (
-            fecha_actual_aum_global
-            if id_cuenta in aum_rows_by_id_cuenta
-            else None
-        )
-    else:
-        last_aum_doc = db_v["AuM"].find_one(
-            {"id_cuenta": id_cuenta},
-            {"_id": 0, "fecha_snapshot": 1},
-            sort=[("fecha_snapshot", -1)],
-        )
-        fecha_actual_aum = (
-            last_aum_doc["fecha_snapshot"] if last_aum_doc else None
-        )
+    # Si la cuenta tiene rows en el global latest (bulk SQL), su fecha_actual es ese
+    # global; si no tiene rows (cuenta cerrada/sin posiciones hoy) → None.
+    fecha_actual_aum: str | None = (
+        fecha_actual_aum_global
+        if id_cuenta in (aum_rows_by_id_cuenta or {})
+        else None
+    )
 
     # ── 2. Pesificación helper ──────────────────────────────────────────
     # Cache solo para fallback (fechas que no tenían mep en el doc). En el path
@@ -557,15 +462,7 @@ def _pnl_por_cuenta_core(
     fecha_actual = fecha_actual_aum
     aum_por_ticker: dict[str, dict] = {}
     if fecha_actual:
-        # En bulk path leemos rows del dict; en single-cuenta find directo.
-        if aum_rows_by_id_cuenta is not None:
-            aum_docs = aum_rows_by_id_cuenta.get(id_cuenta, [])
-        else:
-            aum_docs = db_v["AuM"].find(
-                {"id_cuenta": id_cuenta, "fecha_snapshot": fecha_actual},
-                {"_id": 0, "unidad": 1, "cantidad": 1, "precio": 1,
-                 "valuacion": 1, "tipoTitulo": 1},
-            )
+        aum_docs = (aum_rows_by_id_cuenta or {}).get(id_cuenta, [])
         for d in aum_docs:
             unidad = d.get("unidad", "")
             ticker = unidad_to_match.get(unidad) or _ticker_corto_fallback(unidad)
@@ -660,7 +557,7 @@ def _pnl_por_cuenta_core(
         # qty_calc=458 real) y ETHA vendido (qty_calc=0 → valor=0
         # aunque AuM siga mostrando 650).
         valor_actual_live, fuente_valor = _valor_actual_live(
-            db_t, db_v, unidad_actual, qty_efectiva, tipoTitulo, valor_aum,
+            unidad_actual, qty_efectiva, tipoTitulo, valor_aum,
             cartera=cartera,
             instrumentos_by_unidad=instrumentos_by_unidad,
             portfolio_snap_by_ticker=portfolio_snap_by_ticker,
@@ -800,340 +697,4 @@ def _pnl_por_cuenta_core(
             "pnl_total_usd":         round(tot["pnl_total_usd"], 2),
         },
         "n_tickers": len(rows),
-    }
-
-
-# ─────────────────────────────────────────────────────────────────
-# Vista TOTALES — PnL agregado de TODAS las cuentas (mesa entera).
-# ─────────────────────────────────────────────────────────────────
-
-
-def _load_pnl_bulk_deps(db_v, db_cf, db_t) -> dict:
-    """Pre-carga TODO lo que necesita _pnl_por_cuenta_core en bulk.
-
-    Sin esto, cada cuenta dispara ~5 round-trips a Atlas:
-      - 1 NegocioMovimientos.find con regex sobre `cuenta` (sin índice)
-      - 1 AuM.find_one(id_cuenta, sort=fecha_snapshot)
-      - 1 AuM.find(id_cuenta, fecha=last)
-      - 3 find_one por ticker en _valor_actual_live (Assets, PortfolioSnapshot,
-        SnapshotsCierre)
-    Con 883 cuentas × ~250ms RTT = ~750s. Vercel/CF cortan a 60s → 502.
-
-    Acá hacemos ~6 queries totales (independientes de N cuentas) y agrupamos
-    en memoria. Per-cuenta core solo procesa data ya en RAM.
-
-    Defensiva: cada load va con try/except. Si uno falla (típico:
-    aggregate sin índice → 16MB cap, o memoria) el dict queda vacío y
-    el core cae al path single-cuenta para esa fuente.
-
-    Returns dict con (todos opcionales, default {}):
-      unidad_to_match, match_to_display, instrumentos_by_unidad,
-      portfolio_snap_by_ticker, snapshots_cierre_by_ticker,
-      boletos_by_id_cuenta, aum_rows_by_id_cuenta, fecha_actual_aum_global.
-    """
-    unidad_to_match, match_to_display = _build_unidad_maps()  # cacheado
-
-    # Pricing maps (Assets / PortfolioSnapshot / SnapshotsCierre).
-    instrumentos_by_unidad: dict[str, str] = {}
-    try:
-        for a in assets_rows(["INSTRUMENTO"]):
-            u = a["unidad"]
-            instr = (a["INSTRUMENTO"] or "").strip()
-            if u and instr and instr not in _PLACEHOLDERS_INSTRUMENTO:
-                instrumentos_by_unidad[u] = instr
-    except Exception:
-        logger.warning("_load_pnl_bulk_deps: fallo precarga Assets/instrumentos "
-                       "— ese pricing degrada a per-cuenta (N+1)", exc_info=True)
-        instrumentos_by_unidad = {}
-
-    portfolio_snap_by_ticker: dict[str, dict] = {}
-    try:
-        for d in db_t["PortfolioSnapshot"].find(
-            {}, {"_id": 0, "ticker": 1, "last_price": 1, "closing_price": 1}
-        ):
-            t = d.get("ticker")
-            if t:
-                portfolio_snap_by_ticker[t] = d
-    except Exception:
-        logger.warning("_load_pnl_bulk_deps: fallo precarga PortfolioSnapshot "
-                       "— ese pricing degrada a per-cuenta (N+1)", exc_info=True)
-        portfolio_snap_by_ticker = {}
-
-    # snapshots_cierre (SQL): último precio por ticker (1 fila/ticker, PK ticker).
-    # Trading.SnapshotsCierre (Mongo) migrada → dropeada (2026-06-24); la tabla SQL ya
-    # está colapsada al último → un SELECT plano reemplaza el $sort+$group de Mongo.
-    snapshots_cierre_by_ticker: dict[str, dict] = {}
-    try:
-        with get_pool().connection() as conn, conn.cursor() as _cur:
-            _cur.execute("SELECT ticker, last_price, fecha FROM mercado.snapshots_cierre")
-            for t, last_price, fecha in _cur.fetchall():
-                if t:
-                    snapshots_cierre_by_ticker[t] = {"last_price": last_price, "fecha": fecha}
-    except Exception:
-        logger.warning("_load_pnl_bulk_deps: fallo precarga snapshots_cierre (SQL) "
-                       "— ese pricing degrada a per-cuenta (N+1)", exc_info=True)
-        snapshots_cierre_by_ticker = {}
-
-    # NegocioMovimientos: 1 scan, agrupados por `id_cuenta` (denormalizado en la
-    # ingesta). Usa el campo directo; fallback al regex sobre `cuenta`
-    # ("[123] NOMBRE") solo si faltara id_cuenta (docs viejos sin backfill) — así
-    # no se pierde ningún boleto. Antes era 1 regex query por cuenta → ~883 queries.
-    boletos_by_id_cuenta: dict[str, list] = {}
-    try:
-        cursor = db_cf["NegocioMovimientos"].find(
-            {
-                "categoria": {"$in": list(_CATS_RELEVANTES)},
-                "ticker":    {"$ne": None},
-            },
-            {"_id": 0, "id_cuenta": 1, "cuenta": 1, "fecha": 1, "categoria": 1, "op": 1,
-             "ticker": 1, "cantidad": 1, "precio": 1, "importe": 1,
-             "moneda": 1, "comprobante": 1, "mep": 1},
-        ).sort([("fecha", 1), ("comprobante", 1)])
-        for b in cursor:
-            cid = str(b.get("id_cuenta") or "").strip()
-            if not cid:
-                m = _RE_TICKER_FALLBACK_ID_CUENTA.match(b.get("cuenta") or "")
-                if not m:
-                    continue
-                cid = m.group(1)
-            boletos_by_id_cuenta.setdefault(cid, []).append(b)
-    except Exception:
-        logger.warning("_load_pnl_bulk_deps: fallo precarga NegocioMovimientos "
-                       "— los boletos degradan a 1 regex query POR CUENTA", exc_info=True)
-        boletos_by_id_cuenta = {}
-
-    # AuM: el cron escribe el mismo `fecha_snapshot` para TODAS las cuentas
-    # en cada corrida. Asumimos que el global latest aplica a todas las que
-    # tengan rows en él. Cuentas inactivas (sin rows en el snapshot global)
-    # arrancan sin AuM en bulk → core las trata como sin posiciones (mismo
-    # comportamiento que cuando find_one no devolvía nada).
-    fecha_actual_aum_global: str | None = None
-    aum_rows_by_id_cuenta: dict[str, list] = {}
-    try:
-        last = db_v["AuM"].find_one(
-            {}, {"_id": 0, "fecha_snapshot": 1},
-            sort=[("fecha_snapshot", -1)],
-        )
-        if last:
-            fecha_actual_aum_global = last["fecha_snapshot"]
-            for d in db_v["AuM"].find(
-                {"fecha_snapshot": fecha_actual_aum_global},
-                {"_id": 0, "id_cuenta": 1, "unidad": 1, "cantidad": 1,
-                 "precio": 1, "valuacion": 1, "tipoTitulo": 1},
-            ):
-                cid = d.get("id_cuenta")
-                if cid is not None:
-                    aum_rows_by_id_cuenta.setdefault(str(cid), []).append(d)
-    except Exception:
-        logger.warning("_load_pnl_bulk_deps: fallo precarga AuM "
-                       "— degrada a find_one POR CUENTA", exc_info=True)
-        fecha_actual_aum_global = None
-        aum_rows_by_id_cuenta = {}
-
-    return {
-        "unidad_to_match":            unidad_to_match,
-        "match_to_display":           match_to_display,
-        "instrumentos_by_unidad":     instrumentos_by_unidad,
-        "portfolio_snap_by_ticker":   portfolio_snap_by_ticker,
-        "snapshots_cierre_by_ticker": snapshots_cierre_by_ticker,
-        "boletos_by_id_cuenta":       boletos_by_id_cuenta,
-        "aum_rows_by_id_cuenta":      aum_rows_by_id_cuenta,
-        "fecha_actual_aum_global":    fecha_actual_aum_global,
-    }
-
-
-def pnl_todas_cuentas_compute() -> list[dict]:
-    """Cómputo PESADO del PnL de TODAS las cuentas — lo corre el cron.
-
-    Recorre las cuentas del último snapshot de AuM, pre-carga los maps en
-    bulk (`_load_pnl_bulk_deps`) y llama a `_pnl_por_cuenta_core` por cada
-    una. Devuelve una entrada por cuenta:
-
-        {id_cuenta, cuenta, rows, totales}
-
-    `rows` y `totales` salen tal cual del core — los `rows` incluyen el
-    detalle de boletos (lo que el frontend muestra en el panel derecho).
-
-    Lo corre `jobs.pnl_totales_precompute`, que persiste el resultado en
-    `Valuaciones.PnLTotalesCache`. El endpoint `pnl_todas_cuentas` SOLO lee
-    esa colección — nunca recalcula en vivo (recorrer 883 cuentas en una
-    request HTTP se pasaba del timeout → 502).
-    """
-    # SQL: la lista de cuentas sale de portafolio.tenencia (portfolio_sql); el
-    # portfolio.py Mongo leía Valuaciones.AuM (eliminada) → devolvía [] y el cache
-    # de PnL TOTALES quedaba vacío.
-    from api.services.portfolio_sql import listar_cuentas
-
-    cuentas = listar_cuentas()
-    if not cuentas:
-        return []
-
-    db_cf = get_db_cashflow()
-    db_v  = get_db_valuaciones()
-    db_t  = get_db_trading()
-
-    # Pre-load global maps + boletos + AuM — ~6 queries totales en lugar
-    # de ~5 × N cuentas.
-    deps = _load_pnl_bulk_deps(db_v, db_cf, db_t)
-    # Guard anti-N+1 silencioso (AUDITORIA A3): sin boletos NI AuM en bulk,
-    # las 883 cuentas degradarían a ~5 queries c/u. Eso no es "funcionar",
-    # es castigar al M10 una hora — abortamos y JobRunLogger alerta.
-    if not deps.get("boletos_by_id_cuenta") and not deps.get("aum_rows_by_id_cuenta"):
-        raise RuntimeError(
-            "pnl_todas_cuentas_compute: precarga bulk vacía (boletos y AuM) — "
-            "se aborta para no degradar a N+1; ver warnings de _load_pnl_bulk_deps"
-        )
-    # MEP de hoy: una sola lectura para convertir el VALOR actual a USD en
-    # todas las cuentas (el costo va al MEP histórico por boleto).
-    mep_hoy = get_mep_for_date(date.today().isoformat())
-
-    # Cache de MEP histórico COMPARTIDO entre todas las cuentas: hay solo ~1.3k
-    # fechas posibles, pero el fallback se llamaba ~2.8k veces (mismas fechas
-    # re-buscadas por cuenta). Compartirlo corta los round-trips a Atlas → el
-    # cron baja de ~25s a ~5s. Es un memo de get_mep_for_date (función de la
-    # fecha) → valores idénticos.
-    mep_cache: dict[str, float | None] = {}
-
-    out: list[dict] = []
-    for c in cuentas:
-        id_cta = c.get("id_cuenta")
-        if not id_cta:
-            continue
-        try:
-            r = _pnl_por_cuenta_core(
-                id_cuenta=str(id_cta),
-                db_cf=db_cf, db_v=db_v, db_t=db_t,
-                mep_hoy=mep_hoy,
-                mep_cache=mep_cache,
-                **deps,
-            )
-        except Exception:
-            continue
-        out.append({
-            "id_cuenta": id_cta,
-            "cuenta":    c.get("cuenta") or "",
-            "rows":      r.get("rows", []),
-            "totales":   r.get("totales", {}) or {},
-        })
-    return out
-
-
-@cached(ttl=60)
-def pnl_todas_cuentas(
-    filtro_cuenta: str = "todas",
-    scope: tuple[str, ...] | None = None,
-) -> dict:
-    """PnL agregado de todas las cuentas: una fila por (cuenta, ticker).
-
-    LECTURA LIVIANA: lee `Valuaciones.PnLTotalesCache`, precalculada por el
-    cron `jobs.pnl_totales_precompute` (cada 30 min en la rueda). El
-    endpoint NUNCA recalcula en vivo — recorrer 883 cuentas en una request
-    HTTP se pasaba del timeout (502) y no escalaba con la cantidad de
-    usuarios. Acá solo se lee la colección y se aplica el filtro de tipo
-    de cuenta en memoria.
-
-    Args:
-        filtro_cuenta: "todas" | "accionistas" | "sin_accionistas" |
-                       "cooperativas" | "productores".
-
-    Returns:
-        {
-          rows: [{cuenta, id_cuenta, ticker, display_name, ...}, ...],
-          totales: {n_cuentas, n_filas, costo_remanente, valor_actual,
-                    pnl_no_realizado, pnl_pasivo, pnl_total,
-                    pnl_realizado_dia},
-          filtro_cuenta,
-        }
-        Si la colección está vacía → rows: [] (falta correr el cron).
-    """
-    from api.services._cuentas_filter import match_cuenta_filter
-
-    db_v = get_db_valuaciones()
-    docs = list(db_v["PnLTotalesCache"].find({}, {"_id": 0, "computed_at": 0}))
-
-    # Scoping de grupos: subset de cuentas visibles para el usuario. None =
-    # sin restricción (admin o usuario sin grupo). Se aplica ANTES de sumar
-    # los totales para que el agregado refleje sólo lo que el usuario ve.
-    if scope is not None:
-        permitidas = set(scope)
-        docs = [d for d in docs if str(d.get("id_cuenta", "")) in permitidas]
-
-    # Filtro de tipo de cuenta — subset de las cuentas ya calculadas.
-    if filtro_cuenta and filtro_cuenta != "todas":
-        sub_match = match_cuenta_filter(filtro_cuenta)
-        if sub_match:
-            last = db_v["AuM"].find_one(
-                {}, {"_id": 0, "fecha_snapshot": 1},
-                sort=[("fecha_snapshot", -1)],
-            )
-            ids_match: set = set()
-            if last:
-                ids_match = set(db_v["AuM"].distinct(
-                    "id_cuenta",
-                    {**sub_match, "fecha_snapshot": last["fecha_snapshot"]},
-                ))
-            docs = [d for d in docs if d.get("id_cuenta") in ids_match]
-
-    rows: list[dict] = []
-    totales = {
-        "costo_remanente":   0.0,
-        "valor_actual":      0.0,
-        "pnl_no_realizado":  0.0,
-        "pnl_pasivo":        0.0,
-        "pnl_realizado_dia": 0.0,
-        "pnl_total":         0.0,
-        "costo_remanente_usd":   0.0,
-        "valor_actual_usd":      0.0,
-        "pnl_no_realizado_usd":  0.0,
-        "pnl_pasivo_usd":        0.0,
-        "pnl_realizado_dia_usd": 0.0,
-        "pnl_total_usd":         0.0,
-    }
-    for d in docs:
-        id_cta = d.get("id_cuenta")
-        cta_label = d.get("cuenta") or ""
-        for row in d.get("rows", []):
-            # TOTALES lista posiciones abiertas — qty_aum != 0. Los rows
-            # con qty_aum=0 (cerrados intraday) se omiten del listado; su
-            # realizado del día ya está sumado en el `totales` por cuenta.
-            if float(row.get("qty_aum") or 0) == 0:
-                continue
-            r2 = dict(row)
-            r2["cuenta"]    = cta_label
-            r2["id_cuenta"] = id_cta
-            rows.append(r2)
-        t = d.get("totales", {}) or {}
-        for k in totales:
-            totales[k] += float(t.get(k) or 0)
-
-    # Sort default: pnl_total descendente (las que mejor andan arriba).
-    # Para pnl_total visible usamos no_real + pasivo + real_dia (mismo
-    # cálculo que el frontend, evita inconsistencia).
-    def _total_view(row: dict) -> float:
-        return (
-            float(row.get("pnl_no_realizado") or 0)
-            + float(row.get("pnl_pasivo") or 0)
-            + float(row.get("pnl_realizado_dia") or 0)
-        )
-    rows.sort(key=lambda r: -_total_view(r))
-
-    return {
-        "rows": rows,
-        "totales": {
-            "n_cuentas":         len(docs),
-            "n_filas":           len(rows),
-            "costo_remanente":   round(totales["costo_remanente"], 2),
-            "valor_actual":      round(totales["valor_actual"], 2),
-            "pnl_no_realizado":  round(totales["pnl_no_realizado"], 2),
-            "pnl_pasivo":        round(totales["pnl_pasivo"], 2),
-            "pnl_realizado_dia": round(totales["pnl_realizado_dia"], 2),
-            "pnl_total":         round(totales["pnl_total"], 2),
-            "costo_remanente_usd":   round(totales["costo_remanente_usd"], 2),
-            "valor_actual_usd":      round(totales["valor_actual_usd"], 2),
-            "pnl_no_realizado_usd":  round(totales["pnl_no_realizado_usd"], 2),
-            "pnl_pasivo_usd":        round(totales["pnl_pasivo_usd"], 2),
-            "pnl_realizado_dia_usd": round(totales["pnl_realizado_dia_usd"], 2),
-            "pnl_total_usd":         round(totales["pnl_total_usd"], 2),
-        },
-        "filtro_cuenta": filtro_cuenta,
     }

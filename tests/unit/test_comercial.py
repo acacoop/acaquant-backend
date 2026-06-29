@@ -1,12 +1,11 @@
 """Tests del estado comercial (api/services/comercial.py).
 
 Congela el semáforo de actividad: NUEVA / ACTIVA / ENFRIANDOSE / DORMIDA
-según días sin operar (umbrales 30/90 por default) + el $match de volumen
-(que debe filtrar por id_cuenta indexado, NO por regex sobre cuenta).
+según días sin operar (umbrales 30/90 por default).
 """
 from __future__ import annotations
 
-from api.services.comercial import _match_volumen, estado_comercial
+from api.services.comercial import estado_comercial
 from jobs.negocio_movimientos import _extract_id_cuenta
 
 
@@ -39,31 +38,3 @@ def test_extract_id_cuenta():
     assert _extract_id_cuenta("sin corchete") is None
     assert _extract_id_cuenta("") is None
     assert _extract_id_cuenta(None) is None
-
-
-# ── _match_volumen filtra por id_cuenta indexado (no regex) ─────────────────
-
-def test_match_volumen_usa_id_cuenta():
-    m = _match_volumen(("805", "112"), "2026-01-01")
-    assert m["id_cuenta"] == {"$in": ["805", "112"]}
-    # NO filtra por moneda: el volumen pesifica ARS+USD (× mep del boleto) y
-    # luego suma, así que el $match deja entrar ambas monedas.
-    assert "moneda" not in m
-    assert "$in" in m["categoria"]
-    assert m["fecha"] == {"$gte": "2026-01-01"}
-    # NO debe filtrar por regex sobre `cuenta` (eso es lo que no escalaba).
-    assert "cuenta" not in m
-
-
-def test_match_volumen_sin_fecha():
-    m = _match_volumen(("805",), None)
-    assert "fecha" not in m
-    assert "moneda" not in m
-    assert m["id_cuenta"] == {"$in": ["805"]}
-
-
-def test_match_volumen_todos_no_filtra_cuenta():
-    # `todos=True` (vista "Todos los operadores") → sin $in de id_cuenta.
-    m = _match_volumen((), None, todos=True)
-    assert "id_cuenta" not in m
-    assert "$in" in m["categoria"]

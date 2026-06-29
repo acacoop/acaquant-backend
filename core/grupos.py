@@ -21,21 +21,14 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from core.mongo import get_mongo_client
-from core.roles import _auth_sql, get_user_role
+from core.roles import get_user_role
 
 logger = logging.getLogger(__name__)
 
-_DB_NAME = "Manager"
-_COL_NAME = "Grupos"
 _CACHE_TTL = 60.0
 
 _cache_lock = threading.Lock()
 _cuentas_by_email: dict[str, tuple[float, set[str] | None]] = {}
-
-
-def _col():
-    return get_mongo_client()[_DB_NAME][_COL_NAME]
 
 
 def _norm_emails(emails: Any) -> list[str]:
@@ -85,21 +78,11 @@ def cuentas_visibles(email: str) -> set[str] | None:
 
 
 def _cuentas_de_grupos(email_norm: str) -> set[str] | None:
-    """Cuentas de los grupos del email, con FALLBACK: AUTH_SQL → SQL; ante error → Mongo.
-    None = no está en ningún grupo (ve todo)."""
-    if _auth_sql():
-        try:
-            from core import grupos_sql
-            return grupos_sql.cuentas_de_grupos_sql(email_norm)
-        except Exception as e:
-            logger.warning("AUTH_SQL: grupos SQL falló (%s) → fallback Mongo", e)
-    cuentas: set[str] = set()
-    en_grupo = False
-    for g in _col().find({"emails": email_norm}, {"_id": 0, "id_cuentas": 1}):
-        en_grupo = True
-        for c in g.get("id_cuentas") or []:
-            cuentas.add(str(c))
-    return cuentas if en_grupo else None
+    """Cuentas de los grupos del email desde SQL (manager.grupos). None = no está en
+    ningún grupo (ve todo). SQL-native (decomiso Mongo): Manager.Grupos dropeada. Si SQL
+    falla, propaga → `cuentas_visibles` lo captura y hace fail-open (None = ve todo)."""
+    from core import grupos_sql
+    return grupos_sql.cuentas_de_grupos_sql(email_norm)
 
 
 def listar_grupos() -> list[dict[str, Any]]:

@@ -49,6 +49,7 @@ CREATE SCHEMA IF NOT EXISTS valuaciones;
 CREATE SCHEMA IF NOT EXISTS manager;
 CREATE SCHEMA IF NOT EXISTS home;
 CREATE SCHEMA IF NOT EXISTS partner;
+CREATE SCHEMA IF NOT EXISTS mcp;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- MIGRACIÓN idempotente public/portafolio → schemas de dominio (v1 → v2).
@@ -1310,3 +1311,47 @@ CREATE TABLE IF NOT EXISTS mercado.ons_ignoradas (
     ignorado_por text,
     at           timestamptz                 -- Mongo: at (UTC aware)
 );
+
+-- ── MCP — OAuth 2.1 provider del MCP server (api/mcp/oauth.py) ────────────────
+-- Decomiso 2026-06-29: MCP.{OAuthClients,OAuthCodes,OAuthTokens} (Mongo) → schema `mcp`.
+-- Era el ÚNICO dominio con 0% de camino a SQL → el último bloqueante para apagar Atlas.
+-- Postgres NO tiene TTL index: el vencimiento se filtra por `expires_at` en la lectura
+-- y un prune oportunista (en api/mcp/oauth.py::_ensure_sql, sobre register/authorize)
+-- borra lo vencido (codes 10min, tokens 1h). Las tablas se referencian SIEMPRE
+-- calificadas (`mcp.*`) en el código → `mcp` NO entra al search_path de core/postgres.
+-- Lectura/escritura por flag MCP_SQL=1 (default Mongo → rollback = sacar el flag).
+
+-- MCP.OAuthClients → registros DCR (RFC 7591). Persistente (no expira).
+CREATE TABLE IF NOT EXISTS mcp.oauth_clients (
+    client_id     text PRIMARY KEY,
+    redirect_uris text[] NOT NULL DEFAULT '{}',
+    client_name   text,
+    created_at    timestamptz DEFAULT now()
+);
+
+-- MCP.OAuthCodes → authorization codes (single-use, TTL 10min). El consume es
+-- DELETE ... RETURNING (atómico, equivale al find_one_and_delete de Mongo).
+CREATE TABLE IF NOT EXISTS mcp.oauth_codes (
+    code                  text PRIMARY KEY,
+    client_id             text,
+    redirect_uri          text,
+    scope                 text,
+    subject               text,
+    code_challenge        text,
+    code_challenge_method text,
+    created_at            timestamptz DEFAULT now(),
+    expires_at            timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_mcp_codes_expires ON mcp.oauth_codes (expires_at);
+
+-- MCP.OAuthTokens → access tokens vivos (TTL 1h). is_token_revoked = NO existe fila
+-- viva (borrar la fila = revocar el JWT). Misma semántica que el TTL de Mongo.
+CREATE TABLE IF NOT EXISTS mcp.oauth_tokens (
+    jti        text PRIMARY KEY,
+    subject    text,
+    client_id  text,
+    scope      text,
+    created_at timestamptz DEFAULT now(),
+    expires_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_mcp_tokens_expires ON mcp.oauth_tokens (expires_at);

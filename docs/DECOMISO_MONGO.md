@@ -7,6 +7,38 @@
 
 ## PROGRESO DEL DECOMISO (bitácora)
 
+- **2026-06-29 (lunes) — KEYSTONE + GATES listos para el apagado final.**
+  - **MCP OAuth → SQL** (`api/mcp/oauth.py`): era el ÚNICO dominio 0%-SQL → el último
+    bloqueante real para apagar Atlas. Ahora dual-run por flag **`MCP_SQL`** (default Mongo).
+    Schema `mcp.oauth_{clients,codes,tokens}` en `sql/schema.sql` (+ self-create en
+    `_ensure_sql` y prune oportunista de vencidos — Postgres no tiene TTL index). El check
+    de token es **fail-closed** (cualquier error SQL → token tratado como revocado, nunca
+    concede de más). Cutover: aplicar schema → `MCP_SQL=1` → restart → reconectar el
+    connector UNA vez (re-DCR + re-login, los codes/tokens viejos viven en Mongo) → drop `MCP.*`.
+  - **Backfill de las gateadas** (`scripts/backfill_gated_decomiso.py`): puebla la historia
+    CONGELADA de `Trading.{FitParams,FairValueResiduos,OnsIgnoradas}` →
+    `mercado.{fit_params,fair_value_residuos,ons_ignoradas}` (idempotente, batcheado, read-only
+    Mongo; shapes verificados contra el writer pre-cutover `56cbbf4^`). Tras correrlo con
+    `--apply`, descomentar esas 3 en el libro de drops (`scripts/drop_mongo_migradas.py`).
+  - **CI verde**: ruff estaba ROJO en `main` por los commits decomiso (I001/UP017 en
+    `control_comercial_sql.py` + noqa/F401 en scripts) → arreglado. Import chain `api.main` OK (257 rutas).
+  - **RUNBOOK para TERMINAR (en orden):**
+    1. `git pull` + aplicar `sql/schema.sql` en Supabase (crea schema `mcp`; el resto es idempotente).
+    2. **EN RUEDA (hoy)**: `python -m scripts.drop_mongo_migradas` (dry-run) → SMOKE de cada panel
+       con data viva → `--apply` (dropea las ~40 ya cutover-eadas del libro).
+    3. **Gates** (cada uno con su comparador/backfill antes de descomentar en el libro):
+       `compare_curvas_sql_vs_mongo` → Curvas/BondsMaster; `backfill_gated_decomiso --apply` →
+       FitParams/FairValueResiduos/OnsIgnoradas; `compare_ordenes_sql_vs_mongo` + flip `ORDENES_SQL`
+       **FUERA de rueda** (riesgo ALTO — la mesa).
+    4. **MCP**: `MCP_SQL=1` + restart + reconectar el connector → drop `MCP.*`.
+    5. Confirmar flags de lectura ON: OPCIONES_SQL/AGRO_SQL/RENTA_FIJA_SQL/MERCADO_HIST_SQL/
+       MARKET_SQL/PNL_SQL/PNL_TOTALES_SQL/VALUACIONES_SQL/MANAGER_SQL/AUTH_SQL/NEWS_SQL.
+    6. Cuando `scripts.estado_sql` + `drop_mongo_migradas` (dry-run) den TODO en SQL/dropeado:
+       sacar `sync_postgres` del cron, quitar `MONGO_URI` de los `.env`/unit files, y pausar/cancelar Atlas.
+  - **Queda en Mongo por diseño (única dependencia residual a decidir):**
+    `Operaciones.OrdenesIdempotency` (anti-doble-orden, TTL Mongo) — mover a SQL con el resto
+    de órdenes o aceptarlo. `MCP.*` se dropea recién tras el flip + reconexión del connector.
+
 - **2026-06-28 (PM) — JORNADA GRANDE: +13 tablas, 12 colecciones DROPEADAS, ~16
   cutovers SQL-native, 9 puentes sync neutralizados.**
   - **Gate**: `sql/schema.sql` +13 tablas faltantes + ALTERs (cedears_time_sales,
@@ -125,7 +157,19 @@ prendido: lo que falta NO es migrar lecturas (hecho), es volver las
 
 ---
 
-## 1. RESUMEN
+---
+
+> # ⚠️ TODO LO DE ABAJO (§1–§5 + Apéndice) ESTÁ SUPERADO — audit del 2026-06-26
+> No es el estado actual. Era el mapa inicial que se generó **leyendo código sin ver los
+> flags de prod** → sobreestimó groseramente lo que falta (su veredicto "NO se puede apagar,
+> ni cerca" y sus "sin tabla SQL" / "sin dual-write" son **FALSOS hoy**). Se conserva SOLO
+> como referencia del razonamiento de **orden y riesgo** por fase.
+>
+> **Fuente de verdad del estado por colección:** la bitácora de arriba + `scripts/drop_mongo_migradas.py`
+> (libro de drops: cada entrada = colección con writer SQL-native + reader SQL + fuera de sync).
+> Para el estado de flags en prod: `python -m scripts.estado_sql`.
+
+## 1. RESUMEN (snapshot 2026-06-26 — SUPERADO, ver banner)
 
 **84 colecciones mapeadas** en 11 bases (Trading, Valuaciones, CashFlow, Clientes, Manager, Opciones, Derivados, Operaciones, Market, News, ACAPortfolio).
 
@@ -141,7 +185,7 @@ prendido: lo que falta NO es migrar lecturas (hecho), es volver las
 
 Además, el reporte de completitud detectó **4 colecciones sin plan de migración** (no estaban en el mapa): `Trading.PortfolioSnapshot`, `Trading.AdhocSubscriptions`, `Manager.PortfolioSnapshotLog`, `Manager.AranceelesJobRuns`. Ninguna tiene tabla SQL — son agujeros del plan.
 
-### Veredicto honesto: **NO se puede apagar Mongo hoy. Ni cerca.**
+### ~~Veredicto honesto: NO se puede apagar Mongo hoy. Ni cerca.~~ (SUPERADO 2026-06-29 — ver banner y bitácora; el read-side ya es SQL y ~40 colecciones están listas para drop)
 
 Razones duras (verificadas en el mapa):
 

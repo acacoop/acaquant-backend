@@ -10,14 +10,19 @@ Flujo:
   5. Claude usa el access_token (un JWT firmado por nosotros) en cada request
      al MCP. El middleware lo valida.
 
-Storage: Mongo db `MCP`, colecciones `OAuthClients` / `OAuthCodes` / `OAuthTokens`.
-TTL automático en codes (10min) y tokens (1h).
+Storage (dual-run, flag `MCP_SQL`):
+  - MCP_SQL=1  → Postgres schema `mcp` (oauth_clients/oauth_codes/oauth_tokens),
+                 vía core.postgres.get_pool. Es el camino para apagar Atlas.
+  - sin flag   → Mongo db `MCP` (default, rollback): TTL automático en codes/tokens.
+Postgres no tiene TTL index → el vencimiento se filtra por expires_at en la lectura
++ un prune oportunista en _ensure_sql (codes 10min, tokens 1h). Ver docs/SQL.md.
 """
 from __future__ import annotations
 
 import base64
 import hashlib
 import logging
+import os
 import secrets
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode, urlparse
@@ -25,11 +30,13 @@ from urllib.parse import urlencode, urlparse
 import jwt
 from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from config import MCP_ALLOWED_REDIRECT_HOSTS, MCP_JWT_SECRET, MCP_OAUTH_ISSUER
 from core.mongo import get_mongo_client
+from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +55,48 @@ SUPPORTED_SCOPES         = ("mcp:read",)
 # ─────────────────────────────────────────────────────────────────
 
 
+def _use_sql() -> bool:
+    """Flag de cutover (leído en cada llamada → un restart aplica el cambio)."""
+    return os.getenv("MCP_SQL") == "1"
+
+
 def _db():
     """Mongo db `MCP` (separada de Trading/Manager/Valuaciones)."""
     return get_mongo_client()["MCP"]
 
 
+# ── Postgres (schema `mcp`, calificado SIEMPRE; no entra al search_path) ──────
+
+_DDL_MCP = """
+CREATE SCHEMA IF NOT EXISTS mcp;
+CREATE TABLE IF NOT EXISTS mcp.oauth_clients (
+    client_id text PRIMARY KEY, redirect_uris text[] NOT NULL DEFAULT '{}',
+    client_name text, created_at timestamptz DEFAULT now());
+CREATE TABLE IF NOT EXISTS mcp.oauth_codes (
+    code text PRIMARY KEY, client_id text, redirect_uri text, scope text,
+    subject text, code_challenge text, code_challenge_method text,
+    created_at timestamptz DEFAULT now(), expires_at timestamptz NOT NULL);
+CREATE TABLE IF NOT EXISTS mcp.oauth_tokens (
+    jti text PRIMARY KEY, subject text, client_id text, scope text,
+    created_at timestamptz DEFAULT now(), expires_at timestamptz NOT NULL);
+"""
+
+
+def _ensure_sql() -> None:
+    """Crea las tablas mcp.* (idempotente) + barrido oportunista de vencidos.
+    Postgres no tiene TTL index → este DELETE mantiene chicas codes/tokens."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(_DDL_MCP)
+        cur.execute("DELETE FROM mcp.oauth_codes  WHERE expires_at < now()")
+        cur.execute("DELETE FROM mcp.oauth_tokens WHERE expires_at < now()")
+        conn.commit()
+
+
 def _ensure_indexes() -> None:
-    """Idempotente: TTL en codes y tokens, unique en client_id."""
+    """Idempotente. SQL: crea tablas + prune. Mongo: TTL en codes/tokens + unique."""
+    if _use_sql():
+        _ensure_sql()
+        return
     db = _db()
     db["OAuthCodes"].create_index("expires_at", expireAfterSeconds=0)
     db["OAuthTokens"].create_index("expires_at", expireAfterSeconds=0)
@@ -62,6 +104,16 @@ def _ensure_indexes() -> None:
 
 
 def _save_client(client_id: str, redirect_uris: list[str], client_name: str) -> None:
+    if _use_sql():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO mcp.oauth_clients (client_id, redirect_uris, client_name, created_at) "
+                "VALUES (%s, %s, %s, now()) "
+                "ON CONFLICT (client_id) DO UPDATE SET "
+                "redirect_uris = EXCLUDED.redirect_uris, client_name = EXCLUDED.client_name",
+                (client_id, list(redirect_uris), client_name))
+            conn.commit()
+        return
     _db()["OAuthClients"].update_one(
         {"client_id": client_id},
         {"$set": {
@@ -75,6 +127,12 @@ def _save_client(client_id: str, redirect_uris: list[str], client_name: str) -> 
 
 
 def _get_client(client_id: str) -> dict | None:
+    if _use_sql():
+        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                "SELECT client_id, redirect_uris, client_name FROM mcp.oauth_clients "
+                "WHERE client_id = %s", (client_id,))
+            return cur.fetchone()  # redirect_uris → list[str] (psycopg mapea text[])
     return _db()["OAuthClients"].find_one({"client_id": client_id})
 
 
@@ -82,6 +140,16 @@ def _save_authorization_code(
     code: str, client_id: str, redirect_uri: str, scope: str, subject: str,
     code_challenge: str, code_challenge_method: str,
 ) -> None:
+    if _use_sql():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO mcp.oauth_codes (code, client_id, redirect_uri, scope, subject, "
+                "code_challenge, code_challenge_method, created_at, expires_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, now(), now() + make_interval(secs => %s))",
+                (code, client_id, redirect_uri, scope, subject, code_challenge,
+                 code_challenge_method, AUTH_CODE_TTL_SECONDS))
+            conn.commit()
+        return
     _db()["OAuthCodes"].insert_one({
         "code": code,
         "client_id": client_id,
@@ -96,11 +164,27 @@ def _save_authorization_code(
 
 
 def _consume_authorization_code(code: str) -> dict | None:
-    """Retorna el doc Y lo elimina (single use). None si no existe o expiró."""
+    """Retorna el doc Y lo elimina (single use). None si no existe. La expiración
+    la chequea el caller (igual que el path Mongo, donde el TTL puede no haber barrido)."""
+    if _use_sql():
+        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("DELETE FROM mcp.oauth_codes WHERE code = %s RETURNING *", (code,))
+            row = cur.fetchone()
+            conn.commit()
+        return row
     return _db()["OAuthCodes"].find_one_and_delete({"code": code})
 
 
 def _save_token(jti: str, subject: str, client_id: str, scope: str) -> None:
+    if _use_sql():
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO mcp.oauth_tokens (jti, subject, client_id, scope, created_at, expires_at) "
+                "VALUES (%s, %s, %s, %s, now(), now() + make_interval(secs => %s)) "
+                "ON CONFLICT (jti) DO NOTHING",
+                (jti, subject, client_id, scope, ACCESS_TOKEN_TTL_SECONDS))
+            conn.commit()
+        return
     _db()["OAuthTokens"].insert_one({
         "jti": jti,
         "subject": subject,
@@ -112,8 +196,19 @@ def _save_token(jti: str, subject: str, client_id: str, scope: str) -> None:
 
 
 def is_token_revoked(jti: str) -> bool:
-    """Si el JWT no está en OAuthTokens (TTL barrió o nunca se emitió), tratamos
-    como revocado. Esto da revocación gratis: borrás el doc y el token muere."""
+    """Si el JWT no está vivo (TTL barrió, expiró, o nunca se emitió), es revocado.
+    Revocación gratis: borrás la fila/doc y el token muere. En SQL, ante CUALQUIER
+    error tratamos como revocado (fail-closed) → nunca se concede acceso por un fallo."""
+    if _use_sql():
+        try:
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM mcp.oauth_tokens WHERE jti = %s AND expires_at > now()",
+                    (jti,))
+                return cur.fetchone() is None
+        except Exception:
+            logger.exception("MCP oauth_tokens SQL check falló → trato como revocado")
+            return True
     return _db()["OAuthTokens"].find_one({"jti": jti}) is None
 
 

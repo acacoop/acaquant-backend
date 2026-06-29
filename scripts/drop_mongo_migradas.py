@@ -119,10 +119,14 @@ DROPS: list[tuple[str, str, str]] = [
     # ("Trading", "Curvas",     "ons/bonos_admin SQL-native; ~20 readers + loader SQL; sync_curvas no-op."),
     # ("Trading", "BondsMaster","consolidada en mercado.curvas; muerta."),
 
-    # ── NO incluir todavía (gateadas) ──────────────────────────────────────────────
-    # Trading.FitParams / FairValueResiduos — tablas SQL nuevas VACÍAS; backfill o aceptar
-    #   z_temporal NULL ~20 ruedas antes de dropear.
-    # Trading.OnsIgnoradas — tabla SQL nueva; backfillear el set ignorado o se pierde.
+    # ── Gateadas por BACKFILL: correr `python -m scripts.backfill_gated_decomiso --apply`
+    #    PRIMERO (poblar la historia congelada en Mongo), verificar, y recién ahí descomentar.
+    #    Sin el backfill se pierde historia (z_temporal NULL ~20 ruedas / set ignorado de ONs).
+    # ("Trading", "FitParams",          "fair_value.py SQL-native; historia → mercado.fit_params (backfill_gated_decomiso)."),
+    # ("Trading", "FairValueResiduos",  "fair_value.py SQL-native; historia → mercado.fair_value_residuos (backfill_gated_decomiso)."),
+    # ("Trading", "OnsIgnoradas",       "ons.py SQL-native; set → mercado.ons_ignoradas (backfill_gated_decomiso)."),
+
+    # ── NO incluir todavía (otras gateadas) ──────────────────────────────────────────
     # Trading.PortfolioSnapshot — confirmar que pnl.py PortfolioSnapshot reads son dead-path (PNL_SQL).
     # CashFlow.{Accionistas,VolumenMercadoAgro} — sync backstop activo (carga manual aún a Mongo).
     # Operaciones.* (órdenes) — flipear ORDENES_SQL en rueda tras comparador de paridad PRIMERO.

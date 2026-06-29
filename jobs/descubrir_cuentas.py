@@ -35,7 +35,7 @@ import pyRofex
 from dotenv import load_dotenv
 from pymongo import ASCENDING, UpdateOne
 
-from core.mongo import get_mongo_client
+from core.mongo import get_mongo_client, get_mongo_client_read
 from core.postgres import get_pool
 
 load_dotenv()
@@ -55,14 +55,23 @@ _MAX_MIN_DEFAULT = 60
 
 
 def _ids_de_clientes() -> list[str]:
-    """IDs de cuenta REALES desde SQL `clientes.cuentas` (se actualiza a diario vía
-    jobs.sync_comitentes). Reemplaza el barrido ciego 1..12000: consultamos al broker
-    SOLO las cuentas que existen → termina en minutos y nunca pierde una cuenta nueva
-    (apenas aparece en clientes, el descubridor del día siguiente la consulta)."""
+    """IDs de cuenta a consultar: UNIÓN de SQL `clientes.cuentas` (Comitente+Activa de
+    Aunesa, vía jobs.sync_comitentes) ∪ las ya descubiertas en AccountsDescubiertas.
+
+    El UNION es clave (fix 2026-06-29): una cuenta OPERABLE que NO está en clientes.cuentas
+    (no es Comitente/Activa en Aunesa — ej. propias, otra clase) no aparecería nunca en el
+    modo default → "no se sincroniza, falta para operar". Re-probando las ya descubiertas,
+    una vez que aparecen (ej. tras un `--rango`) se mantienen y su saldo no queda stale.
+    Para cuentas operables NUNCA vistas, correr `--rango` (barrido ciego) una vez."""
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id_cuenta FROM clientes.cuentas "
-                    "WHERE id_cuenta ~ '^[0-9]+$' ORDER BY id_cuenta::int")
-        return [r[0] for r in cur.fetchall()]
+        cur.execute("SELECT id_cuenta FROM clientes.cuentas WHERE id_cuenta ~ '^[0-9]+$'")
+        ids = {r[0] for r in cur.fetchall()}
+    try:  # ya descubiertas (Mongo) — para no perderlas si salieron del set de Aunesa
+        disc = get_mongo_client_read()[DB][COL].distinct("account_id")
+        ids |= {str(a) for a in disc if str(a).isdigit()}
+    except Exception as e:
+        logger.warning("no se pudo unir AccountsDescubiertas al universo: %s", e)
+    return sorted(ids, key=int)
 
 
 def _read(name: str) -> str | None:

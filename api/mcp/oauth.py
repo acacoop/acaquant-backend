@@ -10,10 +10,8 @@ Flujo:
   5. Claude usa el access_token (un JWT firmado por nosotros) en cada request
      al MCP. El middleware lo valida.
 
-Storage (dual-run, flag `MCP_SQL`):
-  - MCP_SQL=1  → Postgres schema `mcp` (oauth_clients/oauth_codes/oauth_tokens),
-                 vía core.postgres.get_pool. Es el camino para apagar Atlas.
-  - sin flag   → Mongo db `MCP` (default, rollback): TTL automático en codes/tokens.
+Storage: Postgres schema `mcp` (oauth_clients/oauth_codes/oauth_tokens), vía
+core.postgres.get_pool (SQL-native — decomiso Mongo: la db Mongo `MCP` fue dropeada).
 Postgres no tiene TTL index → el vencimiento se filtra por expires_at en la lectura
 + un prune oportunista en _ensure_sql (codes 10min, tokens 1h). Ver docs/SQL.md.
 """
@@ -22,7 +20,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
-import os
 import secrets
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode, urlparse
@@ -35,7 +32,6 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
 from config import MCP_ALLOWED_REDIRECT_HOSTS, MCP_JWT_SECRET, MCP_OAUTH_ISSUER
-from core.mongo import get_mongo_client
 from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
@@ -53,16 +49,6 @@ SUPPORTED_SCOPES         = ("mcp:read",)
 # ─────────────────────────────────────────────────────────────────
 # Storage
 # ─────────────────────────────────────────────────────────────────
-
-
-def _use_sql() -> bool:
-    """Flag de cutover (leído en cada llamada → un restart aplica el cambio)."""
-    return os.getenv("MCP_SQL") == "1"
-
-
-def _db():
-    """Mongo db `MCP` (separada de Trading/Manager/Valuaciones)."""
-    return get_mongo_client()["MCP"]
 
 
 # ── Postgres (schema `mcp`, calificado SIEMPRE; no entra al search_path) ──────
@@ -93,123 +79,76 @@ def _ensure_sql() -> None:
 
 
 def _ensure_indexes() -> None:
-    """Idempotente. SQL: crea tablas + prune. Mongo: TTL en codes/tokens + unique."""
-    if _use_sql():
-        _ensure_sql()
-        return
-    db = _db()
-    db["OAuthCodes"].create_index("expires_at", expireAfterSeconds=0)
-    db["OAuthTokens"].create_index("expires_at", expireAfterSeconds=0)
-    db["OAuthClients"].create_index("client_id", unique=True)
+    """Idempotente: crea tablas mcp.* + prune de vencidos (Postgres no tiene TTL index)."""
+    _ensure_sql()
 
 
 def _save_client(client_id: str, redirect_uris: list[str], client_name: str) -> None:
-    if _use_sql():
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO mcp.oauth_clients (client_id, redirect_uris, client_name, created_at) "
-                "VALUES (%s, %s, %s, now()) "
-                "ON CONFLICT (client_id) DO UPDATE SET "
-                "redirect_uris = EXCLUDED.redirect_uris, client_name = EXCLUDED.client_name",
-                (client_id, list(redirect_uris), client_name))
-            conn.commit()
-        return
-    _db()["OAuthClients"].update_one(
-        {"client_id": client_id},
-        {"$set": {
-            "client_id": client_id,
-            "redirect_uris": redirect_uris,
-            "client_name": client_name,
-            "created_at": datetime.now(UTC),
-        }},
-        upsert=True,
-    )
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO mcp.oauth_clients (client_id, redirect_uris, client_name, created_at) "
+            "VALUES (%s, %s, %s, now()) "
+            "ON CONFLICT (client_id) DO UPDATE SET "
+            "redirect_uris = EXCLUDED.redirect_uris, client_name = EXCLUDED.client_name",
+            (client_id, list(redirect_uris), client_name))
+        conn.commit()
 
 
 def _get_client(client_id: str) -> dict | None:
-    if _use_sql():
-        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(
-                "SELECT client_id, redirect_uris, client_name FROM mcp.oauth_clients "
-                "WHERE client_id = %s", (client_id,))
-            return cur.fetchone()  # redirect_uris → list[str] (psycopg mapea text[])
-    return _db()["OAuthClients"].find_one({"client_id": client_id})
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT client_id, redirect_uris, client_name FROM mcp.oauth_clients "
+            "WHERE client_id = %s", (client_id,))
+        return cur.fetchone()  # redirect_uris → list[str] (psycopg mapea text[])
 
 
 def _save_authorization_code(
     code: str, client_id: str, redirect_uri: str, scope: str, subject: str,
     code_challenge: str, code_challenge_method: str,
 ) -> None:
-    if _use_sql():
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO mcp.oauth_codes (code, client_id, redirect_uri, scope, subject, "
-                "code_challenge, code_challenge_method, created_at, expires_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, now(), now() + make_interval(secs => %s))",
-                (code, client_id, redirect_uri, scope, subject, code_challenge,
-                 code_challenge_method, AUTH_CODE_TTL_SECONDS))
-            conn.commit()
-        return
-    _db()["OAuthCodes"].insert_one({
-        "code": code,
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-        "scope": scope,
-        "subject": subject,
-        "code_challenge": code_challenge,
-        "code_challenge_method": code_challenge_method,
-        "created_at": datetime.now(UTC),
-        "expires_at": datetime.now(UTC) + timedelta(seconds=AUTH_CODE_TTL_SECONDS),
-    })
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO mcp.oauth_codes (code, client_id, redirect_uri, scope, subject, "
+            "code_challenge, code_challenge_method, created_at, expires_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, now(), now() + make_interval(secs => %s))",
+            (code, client_id, redirect_uri, scope, subject, code_challenge,
+             code_challenge_method, AUTH_CODE_TTL_SECONDS))
+        conn.commit()
 
 
 def _consume_authorization_code(code: str) -> dict | None:
     """Retorna el doc Y lo elimina (single use). None si no existe. La expiración
-    la chequea el caller (igual que el path Mongo, donde el TTL puede no haber barrido)."""
-    if _use_sql():
-        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-            cur.execute("DELETE FROM mcp.oauth_codes WHERE code = %s RETURNING *", (code,))
-            row = cur.fetchone()
-            conn.commit()
-        return row
-    return _db()["OAuthCodes"].find_one_and_delete({"code": code})
+    la chequea el caller (el prune puede no haber barrido el code vencido)."""
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("DELETE FROM mcp.oauth_codes WHERE code = %s RETURNING *", (code,))
+        row = cur.fetchone()
+        conn.commit()
+    return row
 
 
 def _save_token(jti: str, subject: str, client_id: str, scope: str) -> None:
-    if _use_sql():
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO mcp.oauth_tokens (jti, subject, client_id, scope, created_at, expires_at) "
-                "VALUES (%s, %s, %s, %s, now(), now() + make_interval(secs => %s)) "
-                "ON CONFLICT (jti) DO NOTHING",
-                (jti, subject, client_id, scope, ACCESS_TOKEN_TTL_SECONDS))
-            conn.commit()
-        return
-    _db()["OAuthTokens"].insert_one({
-        "jti": jti,
-        "subject": subject,
-        "client_id": client_id,
-        "scope": scope,
-        "created_at": datetime.now(UTC),
-        "expires_at": datetime.now(UTC) + timedelta(seconds=ACCESS_TOKEN_TTL_SECONDS),
-    })
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO mcp.oauth_tokens (jti, subject, client_id, scope, created_at, expires_at) "
+            "VALUES (%s, %s, %s, %s, now(), now() + make_interval(secs => %s)) "
+            "ON CONFLICT (jti) DO NOTHING",
+            (jti, subject, client_id, scope, ACCESS_TOKEN_TTL_SECONDS))
+        conn.commit()
 
 
 def is_token_revoked(jti: str) -> bool:
-    """Si el JWT no está vivo (TTL barrió, expiró, o nunca se emitió), es revocado.
-    Revocación gratis: borrás la fila/doc y el token muere. En SQL, ante CUALQUIER
-    error tratamos como revocado (fail-closed) → nunca se concede acceso por un fallo."""
-    if _use_sql():
-        try:
-            with get_pool().connection() as conn, conn.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM mcp.oauth_tokens WHERE jti = %s AND expires_at > now()",
-                    (jti,))
-                return cur.fetchone() is None
-        except Exception:
-            logger.exception("MCP oauth_tokens SQL check falló → trato como revocado")
-            return True
-    return _db()["OAuthTokens"].find_one({"jti": jti}) is None
+    """Si el JWT no está vivo (expiró o nunca se emitió), es revocado. Revocación gratis:
+    borrás la fila y el token muere. Ante CUALQUIER error → revocado (fail-closed) →
+    nunca se concede acceso por un fallo."""
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM mcp.oauth_tokens WHERE jti = %s AND expires_at > now()",
+                (jti,))
+            return cur.fetchone() is None
+    except Exception:
+        logger.exception("MCP oauth_tokens SQL check falló → trato como revocado")
+        return True
 
 
 # ─────────────────────────────────────────────────────────────────

@@ -138,6 +138,7 @@ DROPS: list[tuple[str, str, str]] = [
     ("Trading", "PortfolioSnapshot", "engines/portfolio_snapshot SQL-native (valuaciones.portfolio_snapshot); sin sync."),
     ("Trading", "MarketSnapshot", "valores/curvas escriben mercado.market_snapshot SQL-native; sync_market_snapshot eliminado; readers SQL. VERIFICAR pricing live en rueda antes."),
     ("Trading", "Curvas", "ons/bonos_admin SQL-native (mercado.curvas); ~20 readers + loader SQL; sync_curvas no-op. GATE opcional: scripts.compare_curvas_sql_vs_mongo."),
+    ("CashFlow", "Flujo", "flujo_contrapartes (cron) DESHABILITADO; nadie lee Flujo (la vista lee operaciones.operaciones SQL)."),
 
     # Curvas (master RF) — SQL-native. GATE: correr scripts.compare_curvas_sql_vs_mongo
     # (paridad ticker_corto + flujos). Si ✅, descomentar y dropear.

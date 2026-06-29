@@ -3,10 +3,10 @@
 Cloudflare Access decide **quién puede entrar** al sitio (email OTP). Este
 módulo decide **qué ve** cada usuario una vez adentro.
 
-Modelo:
-    Manager.Users       → {email, role, enabled, created_at, updated_at}
-    Manager.RoleMatrix  → {role, modules: [str], updated_by, updated_at}
-    Manager.RoleAudit   → append-only {ts, actor, action, target, before, after}
+Modelo (SQL-native — decomiso Mongo; Manager.* dropeadas):
+    manager.manager_users → {email, role, enabled, created_at, updated_at}
+    manager.role_matrix   → {role, modules: [str], updated_by, updated_at}
+    manager.role_audit    → append-only {ts, actor, action, target, before, after}
 
 Módulos = carpetas de vistas del frontend + sus endpoints backend. La
 lista canónica (`MODULES`) es hardcoded porque agregar un módulo nuevo
@@ -24,23 +24,14 @@ usuarios o la matriz, `invalidate_cache()` purga todo.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
 from config import MANAGER_EMAILS
-from core.mongo import get_mongo_client
 
 logger = logging.getLogger(__name__)
-
-
-def _auth_sql() -> bool:
-    """True si las lecturas de AUTH leen de Postgres (flag AUTH_SQL=1). Default OFF = Mongo.
-    Se lee por-llamada para poder prender/apagar sin restart. El fallback (try SQL → except →
-    Mongo) garantiza que prenderlo NUNCA puede lockear: ante cualquier error SQL, cae a Mongo."""
-    return os.getenv("AUTH_SQL") == "1"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -193,18 +184,6 @@ class UserDoc(TypedDict, total=False):
     updated_at: datetime
 
 
-def _users_col():
-    return get_mongo_client()["Manager"]["Users"]
-
-
-def _matrix_col():
-    return get_mongo_client()["Manager"]["RoleMatrix"]
-
-
-def _audit_col():
-    return get_mongo_client()["Manager"]["RoleAudit"]
-
-
 def _audit_insert(doc: dict) -> None:
     """Inserta un evento de auditoría SQL-NATIVE en manager.role_audit (decomiso Mongo:
     ya NO escribe Manager.RoleAudit). PK = uuid (antes era str(ObjectId) del insert Mongo).
@@ -230,39 +209,18 @@ def _audit_insert(doc: dict) -> None:
         logger.warning("RoleAudit: write SQL falló (%s) — la mutación ya persistió", e)
 
 
-def _load_matrix_from_db() -> dict[str, tuple[str, ...]]:
-    """Lee la matriz completa de Manager.RoleMatrix; si está vacía, cae al default."""
-    try:
-        rows = list(_matrix_col().find({}, {"_id": 0, "role": 1, "modules": 1}))
-    except Exception as e:
-        logger.warning("RoleMatrix: error leyendo Mongo (%s), usando DEFAULT_MATRIX", e)
-        return {k: tuple(v) for k, v in DEFAULT_MATRIX.items()}
-
-    if not rows:
-        return {k: tuple(v) for k, v in DEFAULT_MATRIX.items()}
-
-    out: dict[str, tuple[str, ...]] = {}
-    for r in rows:
-        role = r.get("role")
-        mods = r.get("modules") or []
-        if role:
-            # Filtramos a MODULES canónicos para evitar strings zombies
-            out[str(role)] = tuple(m for m in mods if m in MODULES)
-    return out
-
-
 def _load_matrix() -> dict[str, tuple[str, ...]]:
-    """Matriz con FALLBACK: si AUTH_SQL y SQL trae datos → SQL; vacío o error → Mongo
-    (que a su vez cae a DEFAULT_MATRIX). Nunca devuelve matriz vacía."""
-    if _auth_sql():
-        try:
-            from core import roles_sql
-            m = roles_sql.load_matrix_sql()
-            if m:
-                return m
-        except Exception as e:
-            logger.warning("AUTH_SQL: RoleMatrix SQL falló (%s) → fallback Mongo", e)
-    return _load_matrix_from_db()
+    """Matriz role→modules desde SQL (manager.role_matrix). SQL-native (decomiso Mongo:
+    Manager.RoleMatrix dropeada). Vacío o error SQL → DEFAULT_MATRIX (bootstrap hardcoded).
+    Nunca devuelve matriz vacía → nunca lockea."""
+    try:
+        from core import roles_sql
+        m = roles_sql.load_matrix_sql()
+        if m:
+            return m
+    except Exception as e:
+        logger.warning("RoleMatrix SQL falló (%s) → DEFAULT_MATRIX", e)
+    return {k: tuple(v) for k, v in DEFAULT_MATRIX.items()}
 
 
 def get_matrix() -> dict[str, tuple[str, ...]]:
@@ -303,37 +261,18 @@ def _touch_last_seen(email_norm: str) -> None:
         logger.debug("touch_last_seen: SQL falló para %s: %s", email_norm, e)
 
 
-def _lookup_role_db(email: str) -> str | None:
-    """Lee Manager.Users. Devuelve None si no está o enabled=False."""
+def _lookup_role(email: str) -> str | None:
+    """Role desde SQL (manager.manager_users). SQL-native (decomiso Mongo: Manager.Users
+    dropeada). None = no existe / deshabilitado → el caller auto-registra. Ante CUALQUIER
+    error SQL → None (NUNCA lockea: el caller cae a auto_register/DEFAULT_ROLE)."""
     if not email or email == "anon":
         return None
     try:
-        doc = _users_col().find_one(
-            {"email": email},
-            {"_id": 0, "role": 1, "enabled": 1},
-        )
+        from core import roles_sql
+        return roles_sql.lookup_role_sql(email)
     except Exception as e:
-        logger.warning("Users: error leyendo Mongo (%s) para email=%s", e, email)
+        logger.warning("lookup_role SQL falló (%s) para %s → None (auto-register)", e, email)
         return None
-
-    if not doc:
-        return None
-    if doc.get("enabled") is False:
-        return None
-    role = doc.get("role")
-    return str(role) if role else None
-
-
-def _lookup_role(email: str) -> str | None:
-    """Role con FALLBACK: si AUTH_SQL → SQL; ante CUALQUIER error SQL → Mongo. El resultado
-    SQL es autoritativo (None = no existe / deshabilitado → el caller auto-registra)."""
-    if _auth_sql():
-        try:
-            from core import roles_sql
-            return roles_sql.lookup_role_sql(email)
-        except Exception as e:
-            logger.warning("AUTH_SQL: lookup_role SQL falló (%s) → fallback Mongo", e)
-    return _lookup_role_db(email)
 
 
 def _auto_register(email_norm: str) -> str:
@@ -416,7 +355,7 @@ def get_user_role(email: str) -> str:
             cached = hit[1]
             return cached if cached is not None else DEFAULT_ROLE
 
-    # Rama 2: lookup en Manager.Users (SQL con fallback a Mongo si AUTH_SQL)
+    # Rama 2: lookup en manager.manager_users (SQL). None = no existe → auto-registra.
     role = _lookup_role(email_norm)
 
     # Rama 3: primera visita → auto-registrar
@@ -547,10 +486,10 @@ def list_users() -> list[dict]:
 
 
 def list_audit(limit: int = 50) -> list[dict]:
-    """Últimos N eventos del audit log, del más reciente al más viejo."""
-    return list(
-        _audit_col()
-        .find({}, {"_id": 0})
-        .sort("ts", -1)
-        .limit(int(limit))
-    )
+    """Últimos N eventos del audit log (más reciente primero). SQL-native (decomiso Mongo:
+    Manager.RoleAudit dropeada) → manager.role_audit. El doc vive en `data` jsonb."""
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT data FROM manager.role_audit ORDER BY ts DESC LIMIT %s", (int(limit),))
+        return [dict(r[0] or {}) for r in cur.fetchall()]

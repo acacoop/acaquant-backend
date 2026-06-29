@@ -26,7 +26,6 @@ from datetime import UTC, datetime, timedelta
 from dotenv import load_dotenv
 
 from core import atlas_api
-from core.mongo import get_mongo_client
 from core.notify import send_telegram
 from core.pg_mirror import write_native
 
@@ -180,15 +179,15 @@ def _check_motores(ahora: datetime, dry_run: bool) -> list[str]:
     > 15 min) en horario de rueda. El watchdog corre cada 5 min → la caída se detecta
     rápido, a diferencia de `informe_salud` (horario). Cooldown POR motor (30 min).
 
-    Reusa `informe_salud._seccion_motores` (frescura de la colección de cada motor):
-    un motor en loop de restart NO escribe → su colección se queda stale → 'muerto'.
+    Reusa `informe_salud._seccion_motores` (frescura SQL de cada motor):
+    un motor en loop de restart NO escribe → su tabla SQL se queda stale → 'muerto'.
     Es la red que faltó cuando motor_options entró en loop sin avisar (2026-06-16)."""
     from jobs.informe_salud import _en_rueda, _seccion_motores
 
     if not _en_rueda(ahora.replace(tzinfo=None)):
         return []  # motores apagados fuera de rueda → no alertar
     try:
-        sec = _seccion_motores(get_mongo_client(), en_rueda=True)
+        sec = _seccion_motores(en_rueda=True)
     except Exception:
         return []  # no romper el watchdog de jobs si la lectura de motores falla
 

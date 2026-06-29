@@ -5,24 +5,18 @@ las PERSISTE estructuradas en SQL `health_reports` (para que agentes futuros lea
 la historia) y manda un resumen por Telegram. El mensaje es solo el render del
 snapshot estructurado.
 
-Secciones:
+Secciones (SQL-only — decomiso Mongo):
   1. VEREDICTO     — 🟢/🟡/🔴 global + headline.
-  2. MOTORES       — frescura de cada snapshot live (updated_at más nuevo vs cadencia
-                     esperada). En rueda, stale = caído; fuera de rueda no alarma.
-  3. BASES         — crecimiento por colección: count (O(1), sin scan) + Δ vs informe
-                     anterior. "Se están llenando" = delta positivo donde corresponde.
-  4. JOBS          — Manager.JobRuns última hora: ok/partial/error + fallas + dailies
+  2. MOTORES       — frescura de cada snapshot live desde Postgres (max(updated_at) vs
+                     cadencia esperada). En rueda, stale = caído; fuera de rueda no alarma.
+  3. JOBS          — manager.job_runs última hora: ok/partial/error + fallas + dailies
                      vencidos.
-  5. SQL SYNC      — último run de sync_postgres (edad + estado).
-  6. MONGO         — ping rw/ro (latencia).
-  7. PROBLEMAS     — consolidado de anomalías.
+  4. SQL SYNC      — último run de sync_postgres (edad + estado).
+  5. PROBLEMAS     — consolidado de anomalías.
 
 Diseño (lead tech):
-  - estimated_document_count es O(1) (metadata) → NUNCA escanea. Counts por rango de
-    timestamp en colecciones grandes serían COLLSCAN (REGLA #4) → no se usan; el
-    crecimiento sale del delta de counts entre informes.
-  - find_one(sort=updated_at desc) solo en snapshots CHICOS (cientos/miles de docs).
-  - Defensivo: cada métrica en try/except; una colección inexistente → "sin datos",
+  - Frescura de motores = max(ts)::timestamptz por tabla SQL (índice por ts) → barato.
+  - Defensivo: cada métrica en try/except; si Postgres no responde → "sin datos",
     no rompe el informe.
 
 Uso:
@@ -33,38 +27,21 @@ Uso:
 from __future__ import annotations
 
 import sys
-import time
 from datetime import UTC, datetime, timedelta
-
-from core.mongo import get_mongo_client
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
-# Motores live: (label, db, colección, campo_ts, cadencia_seg_esperada, sql).
-#   sql = None             → frescura desde Mongo (motor todavía Mongo-primary).
-#   sql = (tabla, ts_expr[, where]) → frescura desde Postgres (motor migrado a SQL,
-#         decomiso Mongo). Tablas sin schema → search_path (core.postgres). Para los
-#         snapshots SQL el updated_at fresco vive en data->>'updated_at' (la columna
-#         updated_at queda con el now() del primer insert).
+# Motores live: (label, cadencia_seg_esperada, (tabla_sql, ts_expr[, where])).
+# Frescura desde Postgres (decomiso Mongo, SQL-only). Para los snapshots SQL el
+# updated_at fresco vive en data->>'updated_at' (la columna updated_at queda con el
+# now() del primer insert).
 MOTORES = [
-    ("rofex/curvas", "Trading",  "MarketSnapshot",       "updated_at", 60, ("market_snapshot", "updated_at")),
-    # cedears: CedearsSnapshot migrada a SQL (mercado.cedears_snapshot) 2026-06-24 —
-    # sacada de este check Mongo-only. Frescura del motor: systemd / skill /motor-status.
-    ("opciones",     "Opciones", "OptionsSnapshot",      "updated_at", 60, ("options_snapshot", "updated_at")),
-    ("agro",         "Trading",  "AgroSnapshot",         "updated_at", 60, ("agro_snapshot", "data->>'updated_at'")),
-    ("agro_opc",     "Trading",  "AgroOpcionesSnapshot", "updated_at", 60, ("agro_opciones_snapshot", "data->>'updated_at'")),
-    ("futuros_dlr",  "Trading",  "FuturosDLRSnapshot",   "updated_at", 10, ("futuros_dlr_snapshot", "data->>'updated_at'")),
-    ("caucion",      "Trading",  "CaucionSnapshot",      "updated_at", 30, ("caucion_snapshot", "data->>'updated_at'")),
-]
-
-# Bases a trackear crecimiento: (label, db, colección). Count O(1) + Δ vs anterior.
-BASES = [
-    ("ops",          "CashFlow",    "Operaciones"),
-    ("negocio_mov",  "CashFlow",    "NegocioMovimientos"),
-    ("aum",          "Valuaciones", "AuM"),
-    ("timesales",    "Trading",     "TimeSales"),
-    ("cedears_ts",   "Trading",     "CedearsTimeSales"),
-    ("job_runs",     "Manager",     "JobRuns"),
+    ("rofex/curvas", 60, ("market_snapshot", "updated_at")),
+    ("opciones",     60, ("options_snapshot", "updated_at")),
+    ("agro",         60, ("agro_snapshot", "data->>'updated_at'")),
+    ("agro_opc",     60, ("agro_opciones_snapshot", "data->>'updated_at'")),
+    ("futuros_dlr",  10, ("futuros_dlr_snapshot", "data->>'updated_at'")),
+    ("caucion",      30, ("caucion_snapshot", "data->>'updated_at'")),
 ]
 
 # Jobs esperados → si el último corrió hace > umbral (horas), vencido. OJO: el
@@ -107,18 +84,12 @@ def _frescura_sql(tabla: str, ts_expr: str, where: str | None = None):
 
 # ── Secciones ────────────────────────────────────────────────────────────────
 
-def _seccion_motores(cli, en_rueda: bool) -> dict:
+def _seccion_motores(en_rueda: bool) -> dict:
     out = {"items": [], "stale": 0, "muertos": 0}
-    for label, db, coll, ts_field, cadencia, sql in MOTORES:
-        fuente = f"sql:{sql[0]}" if sql else f"{db}.{coll}"
-        item = {"motor": label, "coll": fuente, "edad_s": None, "estado": "sin_datos"}
+    for label, cadencia, sql in MOTORES:
+        item = {"motor": label, "coll": f"sql:{sql[0]}", "edad_s": None, "estado": "sin_datos"}
         try:
-            if sql:
-                ts = _frescura_sql(*sql)
-            else:
-                doc = cli[db][coll].find_one({ts_field: {"$ne": None}}, {ts_field: 1},
-                                             sort=[(ts_field, -1)])
-                ts = doc.get(ts_field) if doc else None
+            ts = _frescura_sql(*sql)
             if ts is not None:
                 edad = _edad_seg(ts)
                 item["edad_s"] = round(edad) if edad is not None else None
@@ -138,25 +109,6 @@ def _seccion_motores(cli, en_rueda: bool) -> dict:
             item["estado"] = f"error:{type(e).__name__}"
         out["items"].append(item)
     return out
-
-
-def _seccion_bases(cli, prev: dict | None) -> dict:
-    prev_counts = {}
-    if prev:
-        for b in (prev.get("bases") or {}).get("items", []):
-            prev_counts[b["label"]] = b.get("count")
-    items = []
-    for label, db, coll in BASES:
-        entry = {"label": label, "coll": f"{db}.{coll}", "count": None, "delta": None}
-        try:
-            entry["count"] = cli[db][coll].estimated_document_count()
-            p = prev_counts.get(label)
-            if isinstance(p, int) and isinstance(entry["count"], int):
-                entry["delta"] = entry["count"] - p
-        except Exception as e:
-            entry["count"] = f"error:{type(e).__name__}"
-        items.append(entry)
-    return {"items": items}
 
 
 def _jobruns_sql(sql: str, params=None) -> list[dict]:
@@ -237,26 +189,6 @@ def _seccion_sql() -> dict:
         return {"estado": f"error:{type(e).__name__}", "edad_min": None}
 
 
-def _seccion_mongo(cli) -> dict:
-    out = {}
-    try:
-        t0 = time.perf_counter()
-        cli.admin.command("ping")
-        out["rw_ms"] = round((time.perf_counter() - t0) * 1000)
-    except Exception as e:
-        out["rw_ms"] = None
-        out["rw_err"] = type(e).__name__
-    try:
-        from core.mongo import get_mongo_client_read
-        ro = get_mongo_client_read()
-        t0 = time.perf_counter()
-        ro.admin.command("ping")
-        out["ro_ms"] = round((time.perf_counter() - t0) * 1000)
-    except Exception:
-        out["ro_ms"] = None
-    return out
-
-
 # ── Veredicto + problemas ────────────────────────────────────────────────────
 
 def _consolidar(rep: dict) -> tuple[str, list[str]]:
@@ -274,10 +206,8 @@ def _consolidar(rep: dict) -> tuple[str, list[str]]:
     sq = rep["sql_sync"]
     if sq.get("estado") not in ("ok", None) or (sq.get("edad_min") or 0) > 60:
         problemas.append(f"sync SQL: {sq.get('estado')} (hace {sq.get('edad_min')} min)")
-    if rep["mongo"].get("rw_ms") is None:
-        problemas.append("Mongo rw no responde al ping")
 
-    if mot["muertos"] or jb.get("error") or rep["mongo"].get("rw_ms") is None:
+    if mot["muertos"] or jb.get("error"):
         return "🔴", problemas
     if problemas:
         return "🟡", problemas
@@ -286,54 +216,21 @@ def _consolidar(rep: dict) -> tuple[str, list[str]]:
 
 # ── Construcción + render + persistencia ─────────────────────────────────────
 
-def _ultimo_informe() -> dict | None:
-    """Lee el informe ANTERIOR desde SQL `health_reports` (última fila por ts) y
-    reconstruye el dict equivalente al `rep` que persiste `main` — mismas claves —
-    para que `_seccion_bases` calcule los Δ de counts. Best-effort: si SQL no
-    responde devuelve None (el informe se arma igual, sin deltas)."""
-    try:
-        from core.postgres import get_pool
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT ts, en_rueda, veredicto, problemas, data "
-                        "FROM health_reports ORDER BY ts DESC LIMIT 1")
-            row = cur.fetchone()
-        if not row:
-            return None
-        ts, en_rueda, veredicto, problemas, data = row
-        rep = dict(data) if isinstance(data, dict) else {}
-        rep.update({"ts": ts, "en_rueda": en_rueda, "veredicto": veredicto,
-                    "problemas": problemas})
-        return rep
-    except Exception:
-        return None
-
-
-def construir_informe(cli) -> dict:
+def construir_informe() -> dict:
     now = _ahora()
     en_rueda = _en_rueda(now)
-    prev = _ultimo_informe()
 
     rep: dict = {
         "ts": now,
         "en_rueda": en_rueda,
-        "motores": _seccion_motores(cli, en_rueda),
-        "bases": _seccion_bases(cli, prev),
+        "motores": _seccion_motores(en_rueda),
         "jobs": _seccion_jobs(),
         "sql_sync": _seccion_sql(),
-        "mongo": _seccion_mongo(cli),
     }
     veredicto, problemas = _consolidar(rep)
     rep["veredicto"] = veredicto
     rep["problemas"] = problemas
     return rep
-
-
-def _fmt_delta(d) -> str:
-    if not isinstance(d, int):
-        return ""
-    if d == 0:
-        return " (=)"
-    return f" ({'+' if d > 0 else ''}{d:,})".replace(",", ".")
 
 
 def _explicar(rep: dict) -> list[str]:
@@ -367,11 +264,8 @@ def _explicar(rep: dict) -> list[str]:
                    "check viejo apuntando a un job que ya no existe.")
     sq = rep["sql_sync"]
     if sq.get("estado") not in ("ok", None) or (sq.get("edad_min") or 0) > 60:
-        out.append("Sync SQL atrasado: la copia Mongo→Postgres no corre hace rato. Las "
-                   "vistas que leen SQL pueden mostrar datos viejos hasta el próximo sync.")
-    if rep["mongo"].get("rw_ms") is None:
-        out.append("Mongo no responde: la base principal (la que opera) no contesta el "
-                   "ping. Es lo MÁS grave — atendé esto antes que nada.")
+        out.append("Sync SQL atrasado: el job sync_postgres no corre hace rato (hoy ya casi "
+                   "no espeja nada; se retira al cerrar el decomiso).")
     return out
 
 
@@ -402,14 +296,6 @@ def render_telegram(rep: dict) -> str:
         edad = f"{e}s" if isinstance(e, int) and e < 120 else (f"{round(e/60)}m" if isinstance(e, int) else "—")
         lines.append(f"  {icon.get(m['estado'], '⚪')} {m['motor']}: {edad}")
 
-    # Bases
-    lines.append("")
-    lines.append("*Bases (Δ vs anterior):*")
-    for b in rep["bases"]["items"]:
-        c = b["count"]
-        cstr = f"{c:,}".replace(",", ".") if isinstance(c, int) else str(c)
-        lines.append(f"  • {b['label']}: {cstr}{_fmt_delta(b['delta'])}")
-
     # Jobs
     jb = rep["jobs"]
     lines.append("")
@@ -419,12 +305,10 @@ def render_telegram(rep: dict) -> str:
     if jb.get("vencidos"):
         lines.append("  ⏰ vencidos: " + ", ".join(f"{v['tipo']}({v['horas']}h)" for v in jb["vencidos"]))
 
-    # SQL + Mongo
+    # SQL sync
     sq = rep["sql_sync"]
     lines.append("")
     lines.append(f"*SQL sync:* {sq.get('estado')} (hace {sq.get('edad_min')} min)")
-    mg = rep["mongo"]
-    lines.append(f"*Mongo:* rw {mg.get('rw_ms')}ms · ro {mg.get('ro_ms')}ms")
 
     return "\n".join(lines)
 
@@ -432,11 +316,10 @@ def render_telegram(rep: dict) -> str:
 def main() -> int:
     dry = "--dry" in sys.argv
     no_tg = "--no-telegram" in sys.argv
-    cli = get_mongo_client()
 
     from core.job_runs import JobRunLogger
     with JobRunLogger("informe_salud") as jr:
-        rep = construir_informe(cli)
+        rep = construir_informe()
         msg = render_telegram(rep)
         jr.set_stat("veredicto", rep["veredicto"])
         jr.set_stat("n_problemas", len(rep["problemas"]))
@@ -456,7 +339,7 @@ def main() -> int:
                 "veredicto": rep["veredicto"],
                 "problemas": rep["problemas"],
                 "data": {k: rep[k] for k in
-                         ("motores", "bases", "jobs", "sql_sync", "mongo")},
+                         ("motores", "jobs", "sql_sync")},
             }])
         except Exception as e:
             jr.error(f"persist health_reports: {type(e).__name__}: {e}")

@@ -139,6 +139,11 @@ DROPS: list[tuple[str, str, str]] = [
     ("Trading", "MarketSnapshot", "valores/curvas escriben mercado.market_snapshot SQL-native; sync_market_snapshot eliminado; readers SQL. VERIFICAR pricing live en rueda antes."),
     ("Trading", "Curvas", "ons/bonos_admin SQL-native (mercado.curvas); ~20 readers + loader SQL; sync_curvas no-op. GATE opcional: scripts.compare_curvas_sql_vs_mongo."),
     ("CashFlow", "Flujo", "flujo_contrapartes (cron) DESHABILITADO; nadie lee Flujo (la vista lee operaciones.operaciones SQL)."),
+    # CashFlow Accionistas + VolumenMercadoAgro: carga manual ya SQL-native (cargar_accionistas /
+    # cargar_volumen_agro); readers SQL; syncs no-op. Antes de drop: correr `cargar_accionistas
+    # --from-mongo` una vez (sella grupos accionista en SQL).
+    ("CashFlow", "Accionistas", "cargar_accionistas SQL-native (clientes.accionistas); readers SQL; sync_accionistas no-op."),
+    ("CashFlow", "VolumenMercadoAgro", "cargar_volumen_agro SQL-native (mercado.volumen_mercado_agro); VOLUMEN_AGRO_SQL; sync no-op."),
 
     # Curvas (master RF) — SQL-native. GATE: correr scripts.compare_curvas_sql_vs_mongo
     # (paridad ticker_corto + flujos). Si ✅, descomentar y dropear.

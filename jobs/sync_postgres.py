@@ -150,17 +150,10 @@ def _delete_not_in(conn, table, pk_col, keep, dry) -> int:
 
 
 def sync_accionistas(mdb, conn, dry) -> int:
-    """CashFlow.Accionistas → tabla accionistas (solo el string `cuenta`). Para el filtro
-    de cuenta (accionistas/sin_accionistas/cooperativas) de NEGOCIO y portfolio."""
-    rows = []
-    for d in mdb["CashFlow"]["Accionistas"].find({}, {"cuenta": 1}):
-        c = _s(d.get("cuenta"))
-        if c:
-            rows.append((c,))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "accionistas", ["cuenta"], ["cuenta"], rows, dry)
-    _delete_not_in(conn, "accionistas", "cuenta", {r[0] for r in rows}, dry)
-    return n
+    """NO-OP (decomiso 2026-06-29): scripts/cargar_accionistas escribe clientes.accionistas
+    SQL-native; los readers (cuentas/_cuentas_filter/risk) leen SQL. El puente leía Mongo y
+    su _delete_not_in BORRARÍA clientes.accionistas al dropear CashFlow.Accionistas."""
+    return 0
 
 
 # sync_movimientos ELIMINADO (cutover Movimientos→SQL 2026-06-24): jobs/cashflow.py escribe
@@ -182,20 +175,10 @@ def sync_tipos_operacion(mdb, conn, dry) -> int:
 
 
 def sync_volumen_mercado_agro(mdb, conn, dry) -> int:
-    """CashFlow.VolumenMercadoAgro → mercado.volumen_mercado_agro (denominador del share
-    AGRO, carga MANUAL). Passthrough: periodo/commodity materializados + data jsonb.
-    PK = (periodo, commodity)."""
-    cols = ["periodo", "commodity", "toneladas", "data"]
-    rows = []
-    for d in mdb["CashFlow"]["VolumenMercadoAgro"].find({}, {"_id": 0}):
-        per, comm = _s(d.get("periodo")), _s(d.get("commodity"))
-        if per and comm:
-            rows.append((per, comm, d.get("toneladas"), _jsonb(d)))
-    rows = _dedup(rows, [0, 1])
-    # Solo upsert (sin _delete_not_in): la PK es compuesta (periodo, commodity) y el
-    # helper borra por una sola columna → no aplica. Tabla chica/manual, no se limpian
-    # huérfanos (despreciable).
-    return _upsert(conn, "volumen_mercado_agro", cols, ["periodo", "commodity"], rows, dry)
+    """NO-OP (decomiso 2026-06-29): scripts/cargar_volumen_agro escribe
+    mercado.volumen_mercado_agro SQL-native; cashflow_sql lo lee (VOLUMEN_AGRO_SQL). El
+    puente leía Mongo (congelado) y pisaría la carga manual fresca."""
+    return 0
 
 
 # ── MOTOR DE ÓRDENES (read-side SQL — BASELINE; el write-side dual-escribe live) ──

@@ -82,8 +82,11 @@
 # ─── CashFlow (martes a sábado 02:00 UTC = lunes-viernes 23:00 ART).
 0 2 * * 2-6 /root/TradingAV/deploy/run_job.sh cashflow 30m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cashflow --today'
 
-# ─── Flujo Contrapartes (lunes-viernes 22:00 UTC = 19:00 ART).
-0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh flujo_contrapartes 30m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.flujo_contrapartes'
+# ─── Flujo Contrapartes — DESHABILITADO (decomiso 2026-06-29): escribía CashFlow.Flujo
+#     (Mongo) que NO lee nadie (la vista "flujo de contrapartes" lee operaciones.operaciones
+#     en SQL). Se apaga para dejar de escribir Mongo; CashFlow.Flujo queda dropeable.
+#     Descomentar para reactivar.
+# 0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh flujo_contrapartes 30m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.flujo_contrapartes'
 
 # ─── Negocio del día (cada 30 min 14-22 UTC = 11-19 ART L-V) → negocio_movimientos + aranceles + fci_bilateral
 # Pega a Aunesa consolidadosGenerales → CashFlow.NegocioMovimientos (idempotente);

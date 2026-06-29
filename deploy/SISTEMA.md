@@ -78,7 +78,6 @@
 | 20:00 · L-V | `jobs.volatilidad_ggal'` |
 | 21:00 · L-V | `jobs.sync_comitentes'` |
 | 22:00 · L-V | `jobs.precios_acciones_daily'` |
-| 22:00 · L-V | `jobs.flujo_contrapartes'` |
 | 22:00 · L-V | `jobs.bcra` |
 | 22:00 · L-V | `jobs.market_anchors'` |
 | 23:00 · diario | `jobs.informe_salud'` |
@@ -94,13 +93,13 @@
 | 22:30 · L-V | `jobs.actividad_mensual'` |
 | 11:35 · diario | `jobs.news_ingesta'` |
 | 11:35 · diario | `jobs.news_finnhub'` |
-| 12:35 · L-V | `jobs.tenencia_hd'` |
 | 20:35 · L-V | `jobs.cierre_canje'` |
 | 11:40 · diario | `jobs.economic_calendar'` |
 | 11:40 · L-V | `jobs.descubrir_cuentas'` |
 | 20:40 · L-V | `jobs.snapshot_sinteticos'` |
 | 12:45 · L-V | `jobs.acreencias` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
+| 20:50 · L-V | `jobs.archive_options_data` |
 | 20:06 · L-V | `jobs.day_trading_stats'` |
 <!-- /AUTOGEN:crons -->
 

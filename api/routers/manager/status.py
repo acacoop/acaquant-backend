@@ -7,7 +7,6 @@ from datetime import UTC, datetime, time
 from fastapi import APIRouter
 
 from api.routers.manager._common import _AR_TZ
-from core.mongo import get_mongo_client_read
 
 router = APIRouter()
 
@@ -22,8 +21,10 @@ def _fmt_delta(s: float) -> str:
 
 
 def _fetch_last(db_name: str, coll: str, field: str, filtro: dict):
-    client = get_mongo_client_read()
-    return client[db_name][coll].find_one(filtro, {field: 1, "_id": 0}, sort=[(field, -1)])
+    """SQL-native (decomiso Mongo): ya NO consulta Mongo. Las entradas con tupla `sql`
+    leen Postgres vía _fetch_last_sql; las que quedaron sin `sql` devuelven None
+    (estado 'sin_datos') — su frescura, si importa, vive en /manager/jobs (manager.job_runs)."""
+    return None
 
 
 def _fetch_last_sql(tabla: str, ts_expr: str, where: str | None = None):
@@ -56,7 +57,7 @@ def _es_rueda(ahora_ar: datetime, apertura: time = _APERTURA_DEFAULT) -> bool:
 #         decomiso Mongo). Tablas sin schema → search_path (core.postgres). Para los
 #         snapshots SQL el updated_at fresco vive en data->>'updated_at'.
 _MOTORES = [
-    ("Trading",     "TimeSales",            "timestamp",  "TimeSales (rofex)",                  300, _AR_TZ, _APERTURA_DEFAULT, None),
+    ("Trading",     "TimeSales",            "timestamp",  "TimeSales (rofex)",                  300, _AR_TZ, _APERTURA_DEFAULT, ("timesales", "ts")),
     ("Trading",     "MarketSnapshot",       "updated_at", "MarketSnapshot",                     120, UTC,    _APERTURA_DEFAULT, ("market_snapshot", "updated_at")),
     ("Trading",     "PortfolioSnapshot",    "updated_at", "PortfolioSnapshot (live tenencia)",  120, UTC,    _APERTURA_DEFAULT, ("portfolio_snapshot", "updated_at")),
     ("Trading",     "ForwardsLive",         "updated_at", "ForwardsLive",                        60, UTC,    _APERTURA_DEFAULT, ("mercado_hist", "data->>'updated_at'", "coleccion='ForwardsHistorico'")),
@@ -96,11 +97,14 @@ _JOBS_STATUS = [
 # nueva, último conocido se muestra como "fuera_ventana" (no stale).
 _APIS_EXTERNAS = [
     ("Valuaciones", "DolarOficialLive",     "updated_at",        "datetime",
-     None,                          "MAE UST$T (PC oficina)",   5,    "cada 30s en rueda",       True,  None),
+     None,                          "MAE UST$T (PC oficina)",   5,    "cada 30s en rueda",       True,
+     ("valuaciones.dolar_oficial_live", "updated_at")),
     ("Trading",     "RiesgoPais",           "fecha",              "iso",
-     None,                          "argentinadatos (RP)",      36*60, "diario 12:00 UTC",       False, None),
+     None,                          "argentinadatos (RP)",      36*60, "diario 12:00 UTC",       False,
+     ("macro.series_macro", "fecha", "serie = 'RiesgoPais'")),
     ("Trading",     "InflacionMensual",     "fecha",              "iso",
-     None,                          "argentinadatos (IPC)",     36*60, "diario 12:00 UTC",       False, None),
+     None,                          "argentinadatos (IPC)",     36*60, "diario 12:00 UTC",       False,
+     ("macro.series_macro", "fecha", "serie = 'InflacionMensual'")),
     # NegocioMovimientos migrada a SQL (operaciones.negocio_movimientos) — writer
     # jobs/negocio_movimientos.py SQL-native; el Mongo quedó stale → frescura desde SQL.
     ("CashFlow",    "NegocioMovimientos",   "ingestado_en",       "datetime",

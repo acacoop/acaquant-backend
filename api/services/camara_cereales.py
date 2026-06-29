@@ -17,8 +17,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from core.mongo import get_mongo_client, get_mongo_client_read
-
 CEREALES = ("TRIGO", "MAIZ", "GIRASOL", "SOJA", "SORGO")
 
 
@@ -42,8 +40,15 @@ def get_camara_cereales() -> dict[str, Any]:
           ]
         }
     """
-    col = get_mongo_client_read()["Derivados"]["CamaraCereales"]
-    docs = {d["_id"]: d for d in col.find({})}
+    # SQL-native (decomiso 2026-06-29): lee mercado.camara_cereales (la MISMA tabla que
+    # escribe set_camara_cereal). Antes leía Mongo Derivados.CamaraCereales — DROPEADA →
+    # la vista quedaba en blanco. data jsonb = {cereal, precio_ars, precio_usd, updated_by, updated_at}.
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT cereal, data FROM mercado.camara_cereales")
+        docs = {r["cereal"]: (r["data"] or {}) for r in cur.fetchall()}
 
     rows: list[dict[str, Any]] = []
     for cereal in CEREALES:
@@ -116,19 +121,31 @@ def set_camara_cereal(
         [{"cereal": c, "data": pg_mirror.doc_iso(new)}],
     )
 
-    # Audit sigue en Mongo (Derivados.CamaraCerealesAudit) — no migrado en esta fase.
-    audit = get_mongo_client()["Derivados"]["CamaraCerealesAudit"]
-    audit.insert_one({
-        "cereal":     c,
-        "prev": {
-            "precio_ars": prev.get("precio_ars"),
-            "precio_usd": prev.get("precio_usd"),
-        },
-        "new": {
-            "precio_ars": new["precio_ars"],
-            "precio_usd": new["precio_usd"],
-        },
-        "updated_by": email,
-        "updated_at": now,
-    })
+    # Audit SQL-native (mercado.camara_cereales_audit, self-create). Best-effort: un fallo
+    # del audit NO rompe la carga del precio (ya escrito arriba). Antes iba a Mongo
+    # Derivados.CamaraCerealesAudit (no migrado) → la recreaba al dropearla.
+    _audit_camara_sql(c, prev, new, email, now)
     return new
+
+
+def _audit_camara_sql(cereal: str, prev: dict, new: dict, email: str, ts: datetime) -> None:
+    """Append del cambio a mercado.camara_cereales_audit (SQL). Reemplaza el audit Mongo."""
+    try:
+        from psycopg.types.json import Jsonb
+
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS mercado.camara_cereales_audit ("
+                "id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, cereal text, "
+                "prev jsonb, new jsonb, updated_by text, updated_at timestamptz)")
+            cur.execute(
+                "INSERT INTO mercado.camara_cereales_audit (cereal, prev, new, updated_by, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (cereal,
+                 Jsonb({"precio_ars": prev.get("precio_ars"), "precio_usd": prev.get("precio_usd")}),
+                 Jsonb({"precio_ars": new["precio_ars"], "precio_usd": new["precio_usd"]}),
+                 email, ts))
+            conn.commit()
+    except Exception:
+        pass

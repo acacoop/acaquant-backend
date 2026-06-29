@@ -43,7 +43,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Literal
 
 from core.dolar_oficial import mid_oficial_live
-from core.mongo import get_mongo_client, get_mongo_client_read
+from core.mongo import get_mongo_client_read
 
 COMMODITY_ORDER = ("TRIGO", "MAIZ", "SOJA")
 
@@ -333,22 +333,36 @@ def set_pizarra(
         [{"commodity": commodity, "data": pg_mirror.doc_iso(new)}],
     )
 
-    # Audit sigue en Mongo (Derivados.AgroPizarraAudit) — no migrado en esta fase.
-    audit = get_mongo_client()["Derivados"]["AgroPizarraAudit"]
-    audit.insert_one({
-        "commodity":  commodity,
-        "prev": {
-            "vencimiento_pizarra": prev.get("vencimiento_pizarra"),
-            "us_pizarra":          prev.get("us_pizarra"),
-        },
-        "new": {
-            "vencimiento_pizarra": new["vencimiento_pizarra"],
-            "us_pizarra":          new["us_pizarra"],
-        },
-        "updated_by": email,
-        "updated_at": now,
-    })
+    # Audit SQL-native (mercado.agro_pizarra_audit, self-create). Best-effort: un fallo del
+    # audit NO rompe la carga (ya escrita arriba). Antes iba a Mongo Derivados.AgroPizarraAudit
+    # (no migrado) → la recreaba al dropearla.
+    _audit_pizarra_sql(commodity, prev, new, email, now)
     return new
+
+
+def _audit_pizarra_sql(commodity: str, prev: dict, new: dict, email: str, ts: datetime) -> None:
+    """Append del cambio a mercado.agro_pizarra_audit (SQL). Reemplaza el audit Mongo."""
+    try:
+        from psycopg.types.json import Jsonb
+
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS mercado.agro_pizarra_audit ("
+                "id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, commodity text, "
+                "prev jsonb, new jsonb, updated_by text, updated_at timestamptz)")
+            cur.execute(
+                "INSERT INTO mercado.agro_pizarra_audit (commodity, prev, new, updated_by, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (commodity,
+                 Jsonb({"vencimiento_pizarra": prev.get("vencimiento_pizarra"),
+                        "us_pizarra": prev.get("us_pizarra")}),
+                 Jsonb({"vencimiento_pizarra": new["vencimiento_pizarra"],
+                        "us_pizarra": new["us_pizarra"]}),
+                 email, ts))
+            conn.commit()
+    except Exception:
+        pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────

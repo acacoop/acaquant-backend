@@ -114,6 +114,13 @@ DROPS: list[tuple[str, str, str]] = [
     ("Manager", "RoleAudit",  "roles.py::_audit_insert SQL-native; list_audit_sql con MANAGER_SQL."),
     ("Manager", "JobRuns",    "core/job_runs.py JobRunLogger SQL-only; informe_salud/diagnostico leen SQL."),
 
+    # MCP OAuth — cutover 2026-06-29: api/mcp/oauth.py SQL-native bajo MCP_SQL=1.
+    # Verificado con scripts.diag_mcp_sql (clients/tokens viven en mcp.*) + connector
+    # reconectado OK. Era el último dominio 0%-SQL (keystone para apagar Atlas).
+    ("MCP", "OAuthClients", "oauth.py SQL-native (MCP_SQL=1) → mcp.oauth_clients; connector reconectado OK."),
+    ("MCP", "OAuthCodes",   "oauth.py → mcp.oauth_codes (single-use + prune de vencidos en _ensure_sql)."),
+    ("MCP", "OAuthTokens",  "oauth.py → mcp.oauth_tokens; is_token_revoked lee SQL (fail-closed)."),
+
     # Curvas (master RF) — SQL-native. GATE: correr scripts.compare_curvas_sql_vs_mongo
     # (paridad ticker_corto + flujos). Si ✅, descomentar y dropear.
     # ("Trading", "Curvas",     "ons/bonos_admin SQL-native; ~20 readers + loader SQL; sync_curvas no-op."),

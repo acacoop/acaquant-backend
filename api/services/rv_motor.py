@@ -13,7 +13,6 @@ a todo el set, así la matriz sirve para optimización.
 from __future__ import annotations
 
 from api.cache import cached
-from api.db import get_db_trading
 from quant.rolling_stats import correlation, realized_vol, returns_from_prices
 
 # Mínimo de observaciones para incluir un ticker / dar una correlación creíble.
@@ -21,13 +20,15 @@ _MIN_OBS = 30
 
 
 def _universo_map() -> dict[str, str]:
-    """{ticker_corto: underlying} de todo el master Trading.Cedears."""
-    db = get_db_trading()
+    """{ticker_corto: underlying} de todo el master mercado.cedears (SQL-native,
+    decomiso Mongo: Trading.Cedears dropeada)."""
+    from core.postgres import get_pool
     out: dict[str, str] = {}
-    for d in db["Cedears"].find({}, {"_id": 0, "ticker_corto": 1, "underlying": 1}):
-        tc = d.get("ticker_corto")
-        if tc:
-            out[tc.upper()] = (d.get("underlying") or tc).upper()
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ticker_corto, underlying FROM mercado.cedears")
+        for tc, und in cur.fetchall():
+            if tc:
+                out[tc.upper()] = (und or tc).upper()
     return out
 
 
@@ -250,17 +251,21 @@ def get_trade_analysis(ticker: str, monto: float, direccion: str = "long") -> di
 
 
 def _master_info() -> dict[str, dict]:
-    """{ticker_corto: {underlying, sector, region, pais}} de Trading.Cedears."""
-    db = get_db_trading()
+    """{ticker_corto: {underlying, sector, region, pais}} de mercado.cedears (SQL-native;
+    sector/region/pais viven en el jsonb `data`, passthrough del doc original)."""
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
     out: dict[str, dict] = {}
-    for d in db["Cedears"].find(
-        {}, {"_id": 0, "ticker_corto": 1, "underlying": 1,
-             "sector": 1, "region": 1, "pais": 1},
-    ):
-        tc = d.get("ticker_corto")
-        if tc:
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT ticker_corto, underlying, data FROM mercado.cedears")
+        for r in cur.fetchall():
+            tc = r["ticker_corto"]
+            if not tc:
+                continue
+            d = r["data"] or {}
             out[tc.upper()] = {
-                "underlying": (d.get("underlying") or tc).upper(),
+                "underlying": (r["underlying"] or tc).upper(),
                 "sector":     d.get("sector") or "—",
                 "region":     d.get("region") or "—",
                 "pais":       d.get("pais") or "—",

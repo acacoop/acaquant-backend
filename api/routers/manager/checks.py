@@ -5,10 +5,18 @@ from fastapi import APIRouter, HTTPException, Query
 
 from api.services.assets_sql import assets_rows
 from core import curvas_sql
-from core.mongo import get_mongo_client_read
 from core.postgres import get_pool
 
 router = APIRouter()
+
+
+def _futuros_dlr_docs() -> list[dict]:
+    """Docs de mercado.futuros_dlr_snapshot (jsonb `data`) ordenados por vencimiento.
+    SQL-native (decomiso Mongo: Trading.FuturosDLRSnapshot dropeada)."""
+    from psycopg.rows import dict_row
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM mercado.futuros_dlr_snapshot ORDER BY vencimiento")
+        return [r["data"] for r in cur.fetchall() if r["data"]]
 
 
 @router.get("/checks/debug-comercial")
@@ -23,125 +31,33 @@ def check_debug_comercial(
     return debug_comercial(operador=operador, segmento=segmento, moneda=moneda)
 
 
+_DEBUG_OBSOLETO = {
+    "deshabilitado_post_decomiso": True,
+    "nota": (
+        "Check obsoleto: debuggeaba el enriquecimiento por-trade en Trading.TimeSales "
+        "(Mongo, dropeada). El enriquecimiento (TEA/duration/paridad) ahora vive LIVE en "
+        "mercado.market_snapshot, no por-trade. Usá /api/manager/checks/debug-curva-tea "
+        "(SQL) o /api/manager/status para frescura."
+    ),
+}
+
+
 @router.get("/checks/curvas-pendientes")
 def check_curvas_pendientes():
-    """Docs sin duration en TimeSales agrupados por ticker."""
-    client = get_mongo_client_read()
-    rows = list(client["Trading"]["TimeSales"].aggregate([
-        {"$match": {"duration": {"$exists": False}}},
-        {"$group": {"_id": "$ticker", "pendientes": {"$sum": 1}}},
-        {"$sort": {"pendientes": -1}},
-    ]))
-    total = sum(r["pendientes"] for r in rows)
-    return {"total": total, "ok": total == 0,
-            "tickers": [{"ticker": r["_id"], "pendientes": r["pendientes"]} for r in rows]}
+    """OBSOLETO post-decomiso Mongo — ver _DEBUG_OBSOLETO."""
+    return {"total": 0, "ok": True, "tickers": [], **_DEBUG_OBSOLETO}
 
 
 @router.get("/checks/forwards")
 def check_forwards():
-    """TEA disponible por instrumento en Curvas vs ForwardsLive."""
-    client = get_mongo_client_read()
-    db = client["Trading"]
-    grupos: dict[str, list] = {}
-    for d in curvas_sql.cargar_todos():   # mercado.curvas (SQL)
-        grupos.setdefault(d.get("curva", "?"), []).append(d)
-
-    all_tickers = [i["ticker"] for insts in grupos.values() for i in insts if i.get("ticker")]
-    teas_all: dict = {}
-    if all_tickers:
-        for r in db["TimeSales"].aggregate([
-            {"$match": {"ticker": {"$in": all_tickers}, "TEA": {"$exists": True}, "duration": {"$exists": True}}},
-            {"$sort": {"timestamp": -1}},
-            {"$group": {"_id": "$ticker", "TEA": {"$first": "$TEA"}, "duration": {"$first": "$duration"}, "ts": {"$first": "$timestamp"}}},
-        ]):
-            teas_all[r["_id"]] = r
-
-    resultado = []
-    for curva, instrumentos in sorted(grupos.items()):
-        insts = sorted(instrumentos, key=lambda x: x.get("fecha_vencimiento") or "9999")
-        tickers_curva = []
-        for inst in insts:
-            tk = inst.get("ticker", "?")
-            datos = teas_all.get(tk)
-            tickers_curva.append({
-                "ticker":   inst.get("ticker_corto", "?"),
-                "vto":      str(inst.get("fecha_vencimiento") or "?")[:10],
-                "tea":      round(datos["TEA"] * 100, 4) if datos else None,
-                "duration": round(datos["duration"], 4) if datos else None,
-                "ultimo":   datos["ts"].strftime("%d/%m %H:%M") if datos and datos.get("ts") else None,
-                "ok":       datos is not None,
-            })
-        live = db["ForwardsLive"].find_one({"curva": curva}, {"tickers": 1})  # perf-ok: PERF002 — endpoint admin, N = curvas (~5), indexado
-        live_tickers = live.get("tickers", []) if live else []
-        expected = [i.get("ticker_corto") for i in insts if teas_all.get(i.get("ticker"))]
-        resultado.append({"curva": curva, "tickers": tickers_curva,
-                          "live_ok": live_tickers == expected,
-                          "live_tickers": live_tickers, "expected_tickers": expected})
-    return resultado
+    """OBSOLETO post-decomiso Mongo — ver _DEBUG_OBSOLETO."""
+    return _DEBUG_OBSOLETO
 
 
 @router.get("/checks/cer")
 def check_cer():
-    """CER usado en el último trade enriquecido por bono CER."""
-    import bisect
-    from datetime import date, timedelta
-    client = get_mongo_client_read()
-    db = client["Trading"]
-    curvas_cer = curvas_sql.por_curva("cer")   # mercado.curvas (SQL)
-    if not curvas_cer:
-        return {"cer_reciente": None, "dias_habiles": 0, "instrumentos": []}
-
-    from core.calendario import dias_habiles_ordenados
-    from core.series_macro import serie_dict
-    cer_dict = serie_dict("CER")  # SQL-only (macro.series_macro)
-    dias_hab = dias_habiles_ordenados()  # SQL-only (mercado.dias_habiles)
-    cer_reciente = max(cer_dict.keys()) if cer_dict else None
-
-    def _cer_en_fecha(fd):
-        for i in range(7):
-            k = (fd - timedelta(days=i)).isoformat()
-            if k in cer_dict:
-                return k, cer_dict[k]
-        return None, None
-
-    def _cer_liq(settle_str, n=10):
-        # Último día hábil <= settle_str (dias_hab está sorted asc).
-        # bisect_right da el primer índice > settle_str → restamos 1 para el
-        # último <=. Si settle es anterior a todo el calendario, idx = -1.
-        idx = bisect.bisect_right(dias_hab, settle_str) - 1
-        if idx < n:
-            return None, None
-        return _cer_en_fecha(date.fromisoformat(dias_hab[idx - n]))
-
-    def _next_habil(fd):
-        s = fd.isoformat()
-        return next((f for f in dias_hab if f > s), None)
-
-    rows = []
-    for inst in curvas_cer:
-        doc = db["TimeSales"].find_one(  # perf-ok: PERF002 — endpoint admin, N = bonos CER (~20), idx ticker+timestamp
-            {"ticker": inst["ticker"], "duration": {"$exists": True}}, sort=[("timestamp", -1)]
-        )
-        if not doc:
-            rows.append({"ticker": inst.get("ticker_corto", "?"), "ok": False})
-            continue
-        ts = doc["timestamp"]
-        fd = ts.date() if hasattr(ts, "date") else date.fromisoformat(str(ts)[:10])
-        settle = _next_habil(fd)
-        cf, cv = _cer_liq(settle) if settle else (None, None)
-        ce = inst.get("cer_emision")
-        ratio = round(cv / ce, 6) if (cv and ce) else None
-        rows.append({
-            "ticker":       inst.get("ticker_corto", "?"),
-            "ultimo_trade": ts.strftime("%Y-%m-%d %H:%M") if hasattr(ts, "strftime") else str(ts)[:16],
-            "settlement":   settle, "cer_fecha": cf,
-            "cer_valor":    round(cv, 6) if cv else None,
-            "cer_emision":  round(ce, 6) if ce else None,
-            "ratio":        ratio,
-            "paridad":      round(doc.get("paridad", 0), 2) if doc.get("paridad") else None,
-            "ok":           ratio is not None,
-        })
-    return {"cer_reciente": cer_reciente, "dias_habiles": len(dias_hab), "instrumentos": rows}
+    """OBSOLETO post-decomiso Mongo — ver _DEBUG_OBSOLETO."""
+    return {"cer_reciente": None, "dias_habiles": 0, "instrumentos": [], **_DEBUG_OBSOLETO}
 
 
 @router.get("/checks/tasa-fija")
@@ -183,58 +99,8 @@ def debug_forward(
     tc_a: str = Query(..., description="ticker_corto instrumento A"),
     tc_b: str = Query(..., description="ticker_corto instrumento B"),
 ):
-    """Cálculo paso a paso de la tasa forward entre dos instrumentos."""
-    client = get_mongo_client_read()
-    db = client["Trading"]
-
-    def _ultima_tea(tc: str):
-        full = curvas_sql.find_one(tc)   # mercado.curvas (SQL)
-        if not full:
-            return None, None, None
-        doc = db["TimeSales"].find_one(
-            {"ticker": full["ticker"], "TEA": {"$exists": True}, "duration": {"$exists": True}},
-            sort=[("timestamp", -1)]
-        )
-        if not doc:
-            return None, None, None
-        return doc.get("TEA"), doc.get("duration"), doc.get("timestamp")
-
-    tea_a, dur_a, ts_a = _ultima_tea(tc_a)
-    tea_b, dur_b, ts_b = _ultima_tea(tc_b)
-
-    base = {
-        "tc_a": tc_a, "tea_a": tea_a, "duration_a": dur_a,
-        "ts_a": ts_a.strftime("%d/%m %H:%M") if ts_a else None,
-        "tc_b": tc_b, "tea_b": tea_b, "duration_b": dur_b,
-        "ts_b": ts_b.strftime("%d/%m %H:%M") if ts_b else None,
-    }
-
-    if not all(x is not None for x in [tea_a, tea_b, dur_a, dur_b]):
-        return {**base, "error": "Faltan TEA o Duration para uno o ambos tickers.", "pasos": [], "forward": None}
-
-    if dur_a <= dur_b:
-        ta, ra, na, tb, rb, nb = dur_a, tea_a, tc_a, dur_b, tea_b, tc_b
-    else:
-        ta, ra, na, tb, rb, nb = dur_b, tea_b, tc_b, dur_a, tea_a, tc_a
-
-    dt = tb - ta
-    if dt <= 0:
-        return {**base, "error": "Δt ≤ 0, no se puede calcular la forward.", "pasos": [], "forward": None}
-
-    num = (1 + rb) ** tb
-    den = (1 + ra) ** ta
-    fwd = (num / den) ** (1 / dt) - 1
-
-    pasos = [
-        {"paso": f"t corto ({na}) — duration",   "valor": f"{ta:.6f}"},
-        {"paso": f"t largo ({nb}) — duration",   "valor": f"{tb:.6f}"},
-        {"paso": "Δt",                            "valor": f"{dt:.6f}"},
-        {"paso": f"(1+TEA_{nb})^t_largo",         "valor": f"{num:.8f}"},
-        {"paso": f"(1+TEA_{na})^t_corto",         "valor": f"{den:.8f}"},
-        {"paso": "Cociente num/den",              "valor": f"{num/den:.8f}"},
-        {"paso": "Forward resultante",            "valor": f"{fwd*100:.4f}%"},
-    ]
-    return {**base, "forward": round(fwd * 100, 4), "error": None, "pasos": pasos}
+    """OBSOLETO post-decomiso Mongo — leía TEA/duration por-trade de Trading.TimeSales."""
+    return {"tc_a": tc_a, "tc_b": tc_b, "forward": None, "pasos": [], **_DEBUG_OBSOLETO}
 
 
 @router.get("/checks/tickers-curvas")
@@ -270,7 +136,6 @@ def debug_soberano(
         xirr,
     )
 
-    client = get_mongo_client_read()
     inst = curvas_sql.find_one(ticker_corto)   # mercado.curvas (SQL)
     if not inst:
         raise HTTPException(404, f"No existe ticker_corto={ticker_corto!r} en mercado.curvas")
@@ -282,20 +147,20 @@ def debug_soberano(
             f"Este check solo aplica a curva='soberanos' — el ticker tiene curva={curva!r}",
         )
 
-    # ── Instrumento + último precio ────────────────────────────────────
-    last = client["Trading"]["TimeSales"].find_one(
-        {"ticker": inst["ticker"]},
-        {"_id": 0, "price": 1, "timestamp": 1},
-        sort=[("timestamp", -1)],
-    )
-    precio = last.get("price") if last else None
-    ts_trade = last.get("timestamp") if last else None
+    # ── Instrumento + último precio (mercado.timesales, SQL-native) ─────
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT price, ts FROM mercado.timesales WHERE ticker = %s "
+            "ORDER BY ts DESC LIMIT 1", (inst["ticker"],))
+        row = cur.fetchone()
+    precio = float(row[0]) if row and row[0] is not None else None
+    ts_trade = row[1] if row else None
 
-    mep = cargar_mep_actual(client)
+    mep = cargar_mep_actual()
     precio_usd = precio_soberano_a_usd(precio, inst.get("ticker") or "", mep) if precio else None
 
     # ── Settlement ─────────────────────────────────────────────────────
-    dias_habiles = cargar_dias_habiles(client)
+    dias_habiles = cargar_dias_habiles()
     hoy = datetime.now(UTC).date()
     settlement_str = siguiente_dia_habil(dias_habiles, hoy)
     fecha_settlement = date.fromisoformat(settlement_str) if settlement_str else hoy
@@ -410,19 +275,20 @@ def check_breakevens_debug():
     )
     from engines.curvas import fecha_cer_liquidacion
 
-    client = get_mongo_client_read()
+    # SQL-native (decomiso Mongo): los helpers de engines.breakevens leen SQL
+    # (market_snapshot/series_macro/dias_habiles) e ignoran el 1er arg.
     pares = cargar_pares()
     if not pares:
         return {"pares": [], "fecha_cer_max": None, "cer_actual": None}
 
     lecap_tickers = [p["lecap_ticker"] for p in pares]
     cer_tickers   = [p["cer_ticker"]   for p in pares]
-    tems          = obtener_tems(client, lecap_tickers)
-    paridades     = obtener_paridades(client, cer_tickers)
-    precios       = obtener_precios(client, lecap_tickers + cer_tickers)
-    dias_habiles  = cargar_dias_habiles(client)
-    fecha_cer_max = ultimo_cer_publicado(client)
-    cer_actual    = obtener_valor_cer(client, fecha_cer_max) if fecha_cer_max else None
+    tems          = obtener_tems(None, lecap_tickers)
+    paridades     = obtener_paridades(None, cer_tickers)
+    precios       = obtener_precios(None, lecap_tickers + cer_tickers)
+    dias_habiles  = cargar_dias_habiles(None)
+    fecha_cer_max = ultimo_cer_publicado(None)
+    cer_actual    = obtener_valor_cer(None, fecha_cer_max) if fecha_cer_max else None
 
     hoy = date.today()
     filas = []
@@ -536,12 +402,7 @@ def check_futuros_dlr():
     """
     from datetime import UTC, datetime
 
-    client = get_mongo_client_read()
-    docs = list(
-        client["Trading"]["FuturosDLRSnapshot"]
-        .find({}, {"_id": 0})
-        .sort("vencimiento", 1)
-    )
+    docs = _futuros_dlr_docs()
 
     if not docs:
         return {"spot": None, "outrights": [], "total": 0}
@@ -600,12 +461,7 @@ def check_debug_tna_futuros():
       180 días → tna_lineal ≈ tea_compuesta - 3
       365 días → tna_lineal == tea_compuesta (idénticas)
     """
-    client = get_mongo_client_read()
-    docs = list(
-        client["Trading"]["FuturosDLRSnapshot"]
-        .find({}, {"_id": 0})
-        .sort("vencimiento", 1)
-    )
+    docs = _futuros_dlr_docs()
 
     if not docs:
         return {

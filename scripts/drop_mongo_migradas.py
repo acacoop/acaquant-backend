@@ -173,6 +173,12 @@ DROPS: list[tuple[str, str, str]] = [
     ("Operaciones", "BracketsLive",       "core/brackets SQL-native (operaciones.brackets_live)."),
     ("Operaciones", "OrdenesIdempotency", "_idempotencia SQL-native (operaciones.ordenes_idempotency, PK+ON CONFLICT)."),
     ("Operaciones", "TriggersMep",        "scanner inactivo, sin writer; tabla SQL vacía."),
+
+    # PARTNER API — ACAPortfolio (dominio SEPARADO): baseline sembró partner.* + diag_partner_sql
+    # dio paridad OK (1339/2) + PARTNER_SQL/PARTNER_SQL_WRITE prendidos. Dropear estas DOS VACÍA
+    # Mongo del todo → apagar Atlas. Verificar /v1 del proveedor antes del --apply.
+    ("ACAPortfolio", "Cartera",  "partner_export SQL-native (partner.cartera); PARTNER_SQL lee SQL; paridad OK."),
+    ("ACAPortfolio", "ApiUsers", "partner_user SQL-native (partner.api_users); auth lee SQL; paridad OK."),
 ]
 
 

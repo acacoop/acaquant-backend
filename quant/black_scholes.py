@@ -1,46 +1,6 @@
 import numpy as np
 from scipy.stats import norm
 
-from core.mongo import get_mongo_client
-
-
-# --- CÁLCULO DE VOLATILIDAD HISTÓRICA ---
-# --- CÁLCULO DE VOLATILIDAD HISTÓRICA DESDE MONGO ---
-def calcular_hv_40_ruedas(ticker="GGAL.BA"):
-    """
-    Obtiene la Volatilidad Histórica leyendo los retornos logarítmicos
-    de las últimas 40 ruedas directamente desde MongoDB.
-    """
-    try:
-        client = get_mongo_client()
-        db = client["Opciones"]
-        col = db["VR-GGal"]
-
-        # Ordenamos por fecha explícita si existe, sino por _id
-        cursor = col.find().sort("fecha", -1).limit(40)
-        documentos = list(cursor)
-
-        if len(documentos) < 2:
-            return 0.0
-
-        # 3. Extraemos la lista de retornos logarítmicos de la Local
-        log_returns = [doc["LOCAL_Log"] for doc in documentos if "LOCAL_Log" in doc]
-
-        if not log_returns:
-            return 0.0
-
-        # 4. Matemática: Desviación Estándar de la muestra (ddof=1)
-        vol_40 = np.std(log_returns, ddof=1)
-
-        # 5. Anualización (usando 260 como tenías en tu fórmula original)
-        hv_final = vol_40 * np.sqrt(260) * 100
-
-        return float(hv_final)
-
-    except Exception as e:
-        print(f"⚠️ Error calculando Volatilidad Histórica desde Mongo: {e}")
-        return 0.0
-
 
 # --- MODELO BLACK-SCHOLES ---
 def bs_price(S, K, T, r, sigma, option_type='CALL'):

@@ -37,7 +37,6 @@ from psycopg.rows import dict_row
 
 from api.services.day_trading import UMBRALES_STATS, campo_vueltas
 from core import pg_mirror
-from core.mongo import get_mongo_client
 from core.postgres import get_pool
 from quant.intraday import analizar_vueltas
 
@@ -99,13 +98,9 @@ def main() -> int:
 
 
 def _run(dry: bool) -> int:
-    client = get_mongo_client()
-    db = client["Trading"]
+    # SQL-native (decomiso 2026-06-29): escribe SOLO mercado.day_trading_stats
+    # (write_native, incondicional). El tape ya se lee de SQL. Cero Mongo.
     fecha = datetime.now(UTC).date().isoformat()
-
-    col = db["DayTradingStats"]
-    col.create_index([("fecha", 1), ("ticker", 1)], unique=True, name="uq_fecha_ticker")
-    col.create_index([("ticker", 1), ("fecha", -1)], name="ix_ticker_fecha")
 
     minutos = _minutos_por_ticker()
     if not minutos:
@@ -132,17 +127,14 @@ def _run(dry: bool) -> int:
         }
         for u in UMBRALES_STATS:
             doc[campo_vueltas(u)] = analizar_vueltas(closes, u)["vueltas"]
-        if not dry:
-            col.update_one({"fecha": fecha, "ticker": tk}, {"$set": doc}, upsert=True)
-            # Espejo SQL (flag MERCADO_SQL_WRITE, best-effort): passthrough jsonb a
-            # mercado.day_trading_stats. fecha (str ISO) la coacciona psycopg a date.
-            sql_rows.append({"fecha": fecha, "ticker": tk, "data": pg_mirror.doc_iso(doc)})
+        # passthrough jsonb a mercado.day_trading_stats. fecha (str ISO) la coacciona psycopg a date.
+        sql_rows.append({"fecha": fecha, "ticker": tk, "data": pg_mirror.doc_iso(doc)})
         n += 1
 
     if not dry:
-        pg_mirror.mirror_job("mercado.day_trading_stats", ["fecha", "ticker"], sql_rows)
+        pg_mirror.write_native("mercado.day_trading_stats", ["fecha", "ticker"], sql_rows)
 
-    logger.info("[%s] persistidos %d tickers en Trading.DayTradingStats%s",
+    logger.info("[%s] persistidos %d tickers en mercado.day_trading_stats%s",
                 fecha, n, " (DRY)" if dry else "")
     return n
 

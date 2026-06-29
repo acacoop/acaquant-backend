@@ -29,7 +29,6 @@ from datetime import UTC, datetime, timedelta
 from psycopg.rows import dict_row
 
 from api.cache import cached
-from api.db import get_db_trading
 from core.postgres import get_pool
 from quant.intraday import analizar_vueltas, momentum_por_tiempo, posicion_en_rango
 
@@ -122,29 +121,28 @@ def _costumbre(bucket: float) -> dict[str, dict]:
     """{ticker: {vueltas_prom, rango_prom, n_dias}} de las últimas ~20 ruedas
     persistidas por jobs.day_trading_stats. Vacío si el job nunca corrió.
     """
-    db = get_db_trading()
+    # SQL-native (decomiso Mongo): mercado.day_trading_stats (fecha,ticker,data jsonb).
+    # Promedios sobre las últimas N ruedas distintas. campo/rango_pct viven en `data`.
+    from core.postgres import get_pool
     campo = campo_vueltas(bucket)
-    fechas = db["DayTradingStats"].distinct("fecha")
-    if not fechas:
-        return {}
-    usar = sorted(fechas)[-_VENTANA_COSTUMBRE:]
-    cur = db["DayTradingStats"].aggregate([
-        {"$match": {"fecha": {"$in": usar}}},
-        {"$group": {
-            "_id": "$ticker",
-            "vueltas_prom": {"$avg": f"${campo}"},
-            "rango_prom": {"$avg": "$rango_pct"},
-            "n_dias": {"$sum": 1},
-        }},
-    ])
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "WITH ult AS (SELECT DISTINCT fecha FROM mercado.day_trading_stats "
+            "             ORDER BY fecha DESC LIMIT %s) "
+            "SELECT ticker, avg((data->>%s)::float8) AS vueltas_prom, "
+            "       avg((data->>'rango_pct')::float8) AS rango_prom, count(*) AS n_dias "
+            "FROM mercado.day_trading_stats WHERE fecha IN (SELECT fecha FROM ult) "
+            "GROUP BY ticker",
+            (_VENTANA_COSTUMBRE, campo))
+        rows = cur.fetchall()
     return {
-        d["_id"]: {
-            "vueltas_prom": round(d["vueltas_prom"], 1) if d.get("vueltas_prom") is not None else None,
-            "rango_prom": round(d["rango_prom"], 2) if d.get("rango_prom") is not None else None,
-            "n_dias": d.get("n_dias", 0),
+        tk: {
+            "vueltas_prom": round(vp, 1) if vp is not None else None,
+            "rango_prom":   round(rp, 2) if rp is not None else None,
+            "n_dias":       n or 0,
         }
-        for d in cur
-        if d.get("_id")
+        for tk, vp, rp, n in rows
+        if tk
     }
 
 
@@ -197,17 +195,24 @@ def get_day_trading(objetivo_pct: float = 0.5) -> dict:
         Orden: vueltas desc, rango desc. `en_rueda` = hay tape de hoy.
     """
     objetivo_pct = max(0.1, min(float(objetivo_pct), 5.0))
-    db = get_db_trading()
     ahora = datetime.now(UTC)
 
-    master = {
-        m["ticker_corto"]: m
-        for m in db["Cedears"].find(
-            {"activo": True},
-            {"_id": 0, "ticker_corto": 1, "nombre": 1, "sector": 1, "ticker": 1},
-        )
-        if m.get("ticker_corto")
-    }
+    # Master activo desde mercado.cedears (SQL-native; Trading.Cedears dropeada).
+    # nombre/sector viven en el jsonb `data`; sector cae al column `rubro` si falta.
+    master: dict[str, dict] = {}
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT ticker, ticker_corto, rubro, data FROM mercado.cedears WHERE activo IS TRUE")
+        for r in cur.fetchall():
+            tc = r["ticker_corto"]
+            if not tc:
+                continue
+            d = r["data"] or {}
+            master[tc] = {
+                "ticker_corto": tc,
+                "ticker":       r["ticker"],
+                "nombre":       d.get("nombre"),
+                "sector":       d.get("sector") or r["rubro"],
+            }
     # CedearsSnapshot migrada a SQL (mercado.cedears_snapshot, jsonb en `data`) —
     # cutover 2026-06-24. Mismo shape que el doc Mongo que leía antes.
     snaps: dict[str, dict] = {}

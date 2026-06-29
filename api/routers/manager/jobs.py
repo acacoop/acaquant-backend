@@ -6,7 +6,6 @@ FastAPI matchea "history" como job_id y nunca llega a los estáticos.
 """
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import threading
@@ -17,15 +16,10 @@ from fastapi import APIRouter, Body, HTTPException, Path, Query
 from starlette.requests import Request
 
 from api.ratelimit import limiter
-from api.routers.manager._common import _AR_TZ, PROJECT_ROOT
-from core.mongo import get_mongo_client_read
+from api.routers.manager._common import PROJECT_ROOT
 
 router = APIRouter()
 
-
-def _use_sql(engine: str | None) -> bool:
-    """Selector dual-run: ?_engine override; sino flag global MANAGER_SQL=1 (default Mongo)."""
-    return engine == "sql" or (engine != "mongo" and os.getenv("MANAGER_SQL") == "1")
 
 # Job store in-process
 _jobs: dict[str, dict] = {}
@@ -100,42 +94,14 @@ def get_jobs_history(
     limit: int = Query(100, le=500),
     _engine: str | None = Query(None, include_in_schema=False),
 ):
-    """Últimas corridas registradas en Manager.JobRuns (o manager.job_runs si MANAGER_SQL). TTL 60d."""
-    if _use_sql(_engine):
-        from api.services import manager_infra_sql
-        return manager_infra_sql.jobs_history_sql(
-            tipo=tipo, status=status,
-            desde=_parse_dt(desde) if desde else None,
-            hasta=_parse_dt(hasta) if hasta else None,
-            limit=limit,
-        )
-
-    filtro: dict = {}
-    if tipo:
-        filtro["tipo"] = tipo
-    if status:
-        filtro["status"] = status
-    if desde or hasta:
-        rango: dict = {}
-        if desde:
-            rango["$gte"] = _parse_dt(desde)
-        if hasta:
-            rango["$lte"] = _parse_dt(hasta)
-        filtro["started_at"] = rango
-
-    docs = list(
-        get_mongo_client_read()["Manager"]["JobRuns"]
-        .find(filtro, {"_id": 0})
-        .sort("started_at", -1)
-        .limit(limit)
+    """Últimas corridas registradas en manager.job_runs (SQL-native, decomiso Mongo). TTL 60d."""
+    from api.services import manager_infra_sql
+    return manager_infra_sql.jobs_history_sql(
+        tipo=tipo, status=status,
+        desde=_parse_dt(desde) if desde else None,
+        hasta=_parse_dt(hasta) if hasta else None,
+        limit=limit,
     )
-    for d in docs:
-        for k in ("started_at", "finished_at"):
-            v = d.get(k)
-            if isinstance(v, datetime):
-                d[k] = (v if v.tzinfo else v.replace(tzinfo=UTC)) \
-                    .astimezone(_AR_TZ).strftime("%Y-%m-%d %H:%M:%S")
-    return docs
 
 
 @router.get("/jobs/history/stats")
@@ -149,31 +115,8 @@ def get_jobs_history_stats(
     else:
         dt_desde = datetime.now(UTC) - timedelta(days=7)
 
-    if _use_sql(_engine):
-        from api.services import manager_infra_sql
-        return manager_infra_sql.jobs_history_stats_sql(desde=dt_desde)
-
-    pipeline = [
-        {"$match": {"started_at": {"$gte": dt_desde}}},
-        {"$group": {
-            "_id": "$tipo",
-            "total":   {"$sum": 1},
-            "ok":      {"$sum": {"$cond": [{"$eq": ["$status", "ok"]},      1, 0]}},
-            "partial": {"$sum": {"$cond": [{"$eq": ["$status", "partial"]}, 1, 0]}},
-            "error":   {"$sum": {"$cond": [{"$eq": ["$status", "error"]},   1, 0]}},
-            "last_run": {"$max": "$started_at"},
-            "last_status": {"$last": "$status"},
-        }},
-        {"$sort": {"_id": 1}},
-    ]
-    rows = list(get_mongo_client_read()["Manager"]["JobRuns"].aggregate(pipeline))
-    for r in rows:
-        r["tipo"] = r.pop("_id")
-        v = r.get("last_run")
-        if isinstance(v, datetime):
-            r["last_run"] = (v if v.tzinfo else v.replace(tzinfo=UTC)) \
-                .astimezone(_AR_TZ).strftime("%Y-%m-%d %H:%M:%S")
-    return rows
+    from api.services import manager_infra_sql
+    return manager_infra_sql.jobs_history_stats_sql(desde=dt_desde)
 
 
 # Catch-all, DEBE ir después de /jobs/history y /jobs/history/stats.

@@ -20,7 +20,6 @@ import logging
 from datetime import UTC, date, datetime
 
 from api.cache import cached
-from api.db import get_db_trading
 from api.services.renta_fija import _bonos_cer_fijados, listar_curva
 from core import curvas_sql
 
@@ -166,8 +165,8 @@ def _flujos_de(curva: str, ticker_corto: str) -> tuple[list[dict], bool]:
     if curva == "cer":
         cer_emision = doc.get("cer_emision")
         if cer_emision:
-            # cargar_cer aún lee la serie CER de Mongo → necesita el MongoClient.
-            cer_dict = cargar_cer(get_db_trading().client, dias=15)
+            # cargar_cer lee la serie CER de SQL (macro.series_macro); sin client.
+            cer_dict = cargar_cer(dias=15)
             if cer_dict:
                 ultimo = cer_dict[max(cer_dict.keys())]
                 cer_factor = float(ultimo) / float(cer_emision)

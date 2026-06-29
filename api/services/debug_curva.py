@@ -19,7 +19,6 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from core.mongo import get_mongo_client_read
 from engines.curvas import (
     cargar_a3500_actual,
     cargar_cer,
@@ -38,7 +37,7 @@ from engines.curvas import (
 )
 
 
-def _last_trade(client, ticker_full: str) -> dict | None:
+def _last_trade(ticker_full: str) -> dict | None:
     """Precio + métricas del MarketSnapshot — la MISMA fuente que usan el motor
     (engines/curvas.py) y la vista (renta_fija.listar_curva). NO TimeSales: un
     bono puede tener precio de pantalla (market data) sin haber operado, así que
@@ -75,12 +74,11 @@ def _norm_diff(actual: float | None, esperado: float | None, tol: float = 1e-3) 
 def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
     """Reproduce el cálculo de TEA paso a paso para un ticker.
 
-    Lee instrumento de Trading.Curvas (por ticker_corto), último trade de
-    TimeSales, dependencias (CER / MEP / A3500 actuales), y devuelve los
-    pasos intermedios + el resultado recalculado contra el persistido.
+    Lee instrumento de mercado.curvas (por ticker_corto), precio/métricas del
+    MarketSnapshot (SQL mercado.market_snapshot), dependencias (CER / MEP /
+    A3500 actuales), y devuelve los pasos intermedios + el resultado
+    recalculado contra el persistido.
     """
-    client = get_mongo_client_read()
-
     # ── 1. Buscar el instrumento ─────────────────────────────────────────
     from core import curvas_sql
     inst = curvas_sql.find_one(ticker_corto)   # mercado.curvas (SQL)
@@ -108,7 +106,7 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
     }
 
     # ── 2. Precio del MarketSnapshot (market data — puede no haber operado) ──
-    trade = _last_trade(client, ticker_full)
+    trade = _last_trade(ticker_full)
     if not trade or trade.get("price") in (None, 0):
         return {
             "ok":           False,
@@ -144,11 +142,12 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
     dias_a_vto = (fecha_vto - fecha_trade).days
 
     # ── 3. Cargar dependencias según curva ──────────────────────────────
-    dias_habiles = cargar_dias_habiles(client)
-    cer_dict = cargar_cer(client) if curva == "cer" else {}
+    # cargar_* ya son SQL-native (el param client es vestigial) — no se pasa.
+    dias_habiles = cargar_dias_habiles()
+    cer_dict = cargar_cer() if curva == "cer" else {}
     _es_on = curva == "on" or curva.startswith("on_")
-    mep = cargar_mep_actual(client) if (curva == "soberanos" or _es_on) else None
-    tc_a3500 = cargar_a3500_actual(client) if (curva == "dolar_linked" or _es_on) else None
+    mep = cargar_mep_actual() if (curva == "soberanos" or _es_on) else None
+    tc_a3500 = cargar_a3500_actual() if (curva == "dolar_linked" or _es_on) else None
 
     # ── 4. Settlement ───────────────────────────────────────────────────
     settlement_str = siguiente_dia_habil(dias_habiles, fecha_trade)

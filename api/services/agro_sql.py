@@ -313,8 +313,6 @@ def get_mejoras_dispo() -> dict[str, Any]:
 
     Mismo shape que `mejoras_dispo.get_mejoras_dispo` (no se cachea acá; el router
     aplica el selector — el path Mongo conserva su `@cached`)."""
-    db = _mej.get_mongo_client_read()
-    trading = db["Trading"]
     today = date.today()
     hoy_str = today.strftime("%Y%m%d")
 
@@ -322,13 +320,20 @@ def get_mejoras_dispo() -> dict[str, Any]:
 
     camara_docs = {d["cereal"]: d for d in _rows("camara_cereales") if d.get("cereal")}
 
+    # Futuros DLR vigentes desde mercado.futuros_dlr_snapshot (SQL-native; decomiso Mongo:
+    # FuturosDLRSnapshot dropeada). Doc completo en jsonb `data`.
+    from psycopg.rows import dict_row
     fut_by_ym: dict[tuple[int, int], dict] = {}
-    for f in trading["FuturosDLRSnapshot"].find(
-        {"vencimiento": {"$gt": hoy_str}}, {"_id": 0}
-    ):
-        fvto = _mej._parse_yyyymmdd(f.get("vencimiento"))
-        if fvto:
-            fut_by_ym.setdefault((fvto.year, fvto.month), f)
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM mercado.futuros_dlr_snapshot WHERE vencimiento > %s",
+                    (hoy_str,))
+        for r in cur.fetchall():
+            f = r["data"]
+            if not f:
+                continue
+            fvto = _mej._parse_yyyymmdd(f.get("vencimiento"))
+            if fvto:
+                fut_by_ym.setdefault((fvto.year, fvto.month), f)
 
     # LECAPs desde SQL mercado.curvas; flujo_vencimiento not-null se filtra en Python.
     lecaps = [c for c in curvas_sql.por_curva("tasa_fija")

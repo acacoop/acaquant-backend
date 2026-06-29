@@ -19,11 +19,8 @@ Variables bloqueadas por data faltante (devuelven stub con hint):
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from api.cache import cached
-from api.db import get_db_trading, get_db_valuaciones
-from quant.stats import cambio_pct, compute_stats
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Series raw de cotizaciones (BCRA + Dólar financiero)
@@ -35,36 +32,21 @@ from quant.stats import cambio_pct, compute_stats
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _query_serie(collection: str, desde: str | None, hasta: str | None) -> list:
-    db = get_db_trading()
-    filtro: dict = {}
-    if desde or hasta:
-        rango: dict = {}
-        if desde:
-            rango["$gte"] = desde
-        if hasta:
-            rango["$lte"] = hasta
-        filtro["fecha"] = rango
-    return list(
-        db[collection]
-        .find(filtro, {"_id": 0, "fecha": 1, "valor": 1})
-        .sort("fecha", 1)
-    )
-
-
-@cached(ttl=3600)
+# Series BADLAR/CER/DOLAR: SQL-native (decomiso Mongo) → delegan en macro_sql
+# (macro.series_macro). Trading.{BADLAR,CER,DOLAR} dropeadas.
 def get_badlar(desde: str | None = None, hasta: str | None = None) -> list:
-    return _query_serie("BADLAR", desde, hasta)
+    from api.services import macro_sql
+    return macro_sql.get_badlar(desde=desde, hasta=hasta)
 
 
-@cached(ttl=3600)
 def get_cer(desde: str | None = None, hasta: str | None = None) -> list:
-    return _query_serie("CER", desde, hasta)
+    from api.services import macro_sql
+    return macro_sql.get_cer(desde=desde, hasta=hasta)
 
 
-@cached(ttl=3600)
 def get_dolar(desde: str | None = None, hasta: str | None = None) -> list:
-    return _query_serie("DOLAR", desde, hasta)
+    from api.services import macro_sql
+    return macro_sql.get_dolar(desde=desde, hasta=hasta)
 
 
 @cached(ttl=5)
@@ -161,157 +143,17 @@ def get_historico_dolares(
     return {"mep": mep_series, "ccl": ccl_series, "oficial": oficial_series}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Config: mapping variable macro → (db, coleccion, campo_fecha, campo_valor)
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Cada entrada describe cómo traer la serie. fecha_tipo = "string" (ISO YYYY-MM-DD)
-# o "datetime" (objeto Mongo).
-_MACROS: dict[str, dict[str, Any]] = {
-    "tamar":  {"db": "Trading",     "col": "TAMAR",  "ts": "fecha",     "val": "valor", "ts_tipo": "string"},
-    "cer":    {"db": "Trading",     "col": "CER",    "ts": "fecha",     "val": "valor", "ts_tipo": "string"},
-    "dolar":  {"db": "Trading",     "col": "DOLAR",  "ts": "fecha",     "val": "valor", "ts_tipo": "string"},
-    "badlar": {"db": "Trading",     "col": "BADLAR", "ts": "fecha",     "val": "valor", "ts_tipo": "string"},
-    "mep":    {"db": "Valuaciones", "col": "Dolar",  "ts": "timestamp", "val": "mep",   "ts_tipo": "datetime"},
-    "ccl":    {"db": "Valuaciones", "col": "Dolar",  "ts": "timestamp", "val": "ccl",   "ts_tipo": "datetime"},
-    "canje":  {"db": "Valuaciones", "col": "Dolar",  "ts": "timestamp", "val": "canje", "ts_tipo": "datetime"},
-    # Caución: serie de cierre histórico, escrita por engines/caucion.py al apagado.
-    # Filtra por moneda en el fetcher; la tool delega a obtener_serie_macro genérico.
-    "caucion_ars": {"db": "Trading", "col": "Caucion", "ts": "fecha", "val": "tna_cierre", "ts_tipo": "string", "extra_filter": {"moneda": "ARS"}},
-    "caucion_usd": {"db": "Trading", "col": "Caucion", "ts": "fecha", "val": "tna_cierre", "ts_tipo": "string", "extra_filter": {"moneda": "USD"}},
-
-    # Series argentinadatos.com (vía jobs/argentina_datos.py, cron 1x/día).
-    "riesgo_pais":       {"db": "Trading", "col": "RiesgoPais",          "ts": "fecha", "val": "valor", "ts_tipo": "string"},
-    "ipc":               {"db": "Trading", "col": "InflacionMensual",    "ts": "fecha", "val": "valor", "ts_tipo": "string"},
-    "ipc_interanual":    {"db": "Trading", "col": "InflacionInteranual", "ts": "fecha", "val": "valor", "ts_tipo": "string"},
-    # Dólares agregados — antes venían de dolarapi.com (jobs/dolar_api.py),
-    # apagado el 2026-05-04. "oficial" y "mayorista" redirigen a la serie
-    # A3500 BCRA (que ES el oficial mayorista canónico). "blue" no tiene
-    # reemplazo y queda bloqueada.
-    "dolar_oficial":   {"db": "Trading", "col": "DOLAR", "ts": "fecha", "val": "valor", "ts_tipo": "string"},
-    "dolar_mayorista": {"db": "Trading", "col": "DOLAR", "ts": "fecha", "val": "valor", "ts_tipo": "string"},
-}
-
-# Variables conocidas pero bloqueadas por falta de data en Mongo.
-_BLOQUEADAS: dict[str, str] = {
-    "ipim":         "IPIM INDEC no cargado — falta job jobs/inflacion.py",
-    "repo":         "stock REPO BCRA no cargado — falta extensión de jobs/bcra.py",
-    "rem_inflacion": "REM BCRA no cargado — falta job jobs/rem.py (tiene múltiples indicadores, requiere schema específico)",
-}
-
-_CAMPOS_TICKER_VALIDOS = ("TEA", "TEM", "paridad", "duration", "price")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Fetchers internos
+# Tools expuestas al asistente — SQL-native (decomiso Mongo): delegan en macro_sql
+# (macro.series_macro + valuaciones.dolar + mercado.mercado_hist). Las colecciones
+# Trading.{TAMAR,CER,DOLAR,BADLAR,RiesgoPais,Inflacion*,Caucion} y Valuaciones.Dolar
+# fueron dropeadas; macro_sql es la única implementación.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _get_db(db_name: str):
-    return {"Trading": get_db_trading, "Valuaciones": get_db_valuaciones}[db_name]()
-
-
-def _fetch_serie_macro(variable: str, ventana_dias: int) -> list[dict]:
-    """Trae la serie [{fecha, valor}] ordenada cronológicamente."""
-    cfg = _MACROS[variable]
-    db = _get_db(cfg["db"])
-    corte = datetime.now(UTC) - timedelta(days=ventana_dias)
-
-    if cfg["ts_tipo"] == "string":
-        filtro = {cfg["ts"]: {"$gte": corte.strftime("%Y-%m-%d")}}
-    else:
-        filtro = {cfg["ts"]: {"$gte": corte}}
-
-    # Mappings de colecciones compartidas (ej: Trading.Caucion tiene moneda) usan
-    # extra_filter para discriminar la serie correcta.
-    extra = cfg.get("extra_filter")
-    if extra:
-        filtro.update(extra)
-
-    docs = list(
-        db[cfg["col"]]
-        .find(filtro, {"_id": 0, cfg["ts"]: 1, cfg["val"]: 1})
-        .sort(cfg["ts"], 1)
-    )
-
-    out: list[dict] = []
-    for d in docs:
-        fecha = d.get(cfg["ts"])
-        valor = d.get(cfg["val"])
-        if valor is None:
-            continue
-        if isinstance(fecha, datetime):
-            fecha = fecha.strftime("%Y-%m-%d")
-        out.append({"fecha": str(fecha)[:10], "valor": float(valor)})
-    return out
-
-
-# _fetch_serie_ticker (serie '<TICKER>.<CAMPO>' desde TimeSales 90d) ELIMINADO
-# (2026-06-22): solo se exponía por MCP, sin uso en el front. Se quita para dejar
-# TimeSales intraday/última-sesión (TTL corto).
-
-
-def _stub_bloqueada(variable: str) -> dict:
-    """Response estándar para variables que no tienen data cargada."""
-    return {
-        "variable": variable,
-        "actual": None,
-        "clasificacion": "sin_datos",
-        "serie": [],
-        "hint": _BLOQUEADAS.get(variable, "data no disponible"),
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Tools expuestas al asistente
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-@cached(ttl=120)
 def obtener_serie_macro(variable: str, ventana_dias: int = 90) -> dict:
-    """Devuelve actual + serie + stats completos para una variable."""
-    var = (variable or "").strip().lower() if variable else ""
-    if not var:
-        return {"variable": "", "error": "variable vacía", "clasificacion": "sin_datos"}
-
-    # Variables bloqueadas: stub
-    if var in _BLOQUEADAS:
-        return _stub_bloqueada(var)
-
-    if var in _MACROS:
-        serie = _fetch_serie_macro(var, ventana_dias)
-    else:
-        return {
-            "variable": variable,
-            "error": f"variable desconocida: {variable}",
-            "clasificacion": "sin_datos",
-            "hint": f"valores soportados: {sorted(_MACROS.keys())}",
-        }
-
-    if not serie:
-        return {
-            "variable": variable,
-            "actual": None,
-            "serie": [],
-            "clasificacion": "sin_datos",
-            "hint": f"sin observaciones en los últimos {ventana_dias} días",
-        }
-
-    actual = serie[-1]["valor"]
-    fecha_actual = serie[-1]["fecha"]
-    values = [p["valor"] for p in serie]
-    stats = compute_stats(values, actual)
-
-    return {
-        "variable": variable,
-        "actual": actual,
-        "fecha_actual": fecha_actual,
-        "ventana_dias": ventana_dias,
-        "serie": serie,
-        "cambio_dia_pct":    cambio_pct(values, actual, 1),
-        "cambio_semana_pct": cambio_pct(values, actual, 5),   # ~5 ruedas
-        "cambio_mes_pct":    cambio_pct(values, actual, 21),  # ~21 ruedas
-        **stats,
-    }
+    """actual + serie + stats para una variable macro (delega en macro_sql, SQL)."""
+    from api.services import macro_sql
+    return macro_sql.obtener_serie_macro(variable=variable, ventana_dias=ventana_dias)
 
 
 def clasificar_nivel(variable: str, ventana_dias: int = 90) -> dict:

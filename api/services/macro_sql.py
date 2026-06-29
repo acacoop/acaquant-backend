@@ -1,18 +1,11 @@
-"""api/services/macro_sql.py — Series macro leyendo Postgres (macro.series_macro).
+"""api/services/macro_sql.py — Series macro 100% SQL (decomiso Mongo).
 
-Espejo SQL-native del subconjunto SQL-backed de `api/services/macro.py`. Las 7
-series que viven en `macro.series_macro` (CER, DOLAR, BADLAR, TAMAR, RiesgoPais,
-InflacionMensual, InflacionInteranual) se leen de SQL; **todo lo demás delega al
-servicio Mongo** (`macro.py`) → byte-idéntico por construcción:
-
-- mep / ccl / canje  → Valuaciones.Dolar (live, no es series_macro)
-- series por ticker  → TimeSales (stream, no migrado)
-- caucion_ars/usd    → Trading.Caucion (vive en mercado_hist, no en series_macro)
-- variables bloqueadas / desconocidas → mismo stub que Mongo
-
-Dual-run por flag `MACRO_SQL` (+ `?_engine` override). Gate de paridad:
-`scripts/compare_macro_sql_vs_mongo.py`. Como el write-side está en paridad exacta
-(recon 2026-06-18), SQL vacío ⟺ Mongo vacío → delegar en ese caso es seguro.
+Implementación única (ya no hay gemelo Mongo; `macro.py` delega acá):
+- 7 series de `macro.series_macro` (CER, DOLAR, BADLAR, TAMAR, RiesgoPais,
+  InflacionMensual, InflacionInteranual).
+- mep / ccl / canje  → `valuaciones.dolar` (vía core.dolar_sql).
+- caucion_ars/usd    → cierre histórico en `mercado.mercado_hist` (mercado_hist_sql).
+- variables bloqueadas / desconocidas → stub `sin_datos`.
 """
 from __future__ import annotations
 
@@ -21,7 +14,6 @@ from datetime import UTC, datetime, timedelta
 from psycopg.rows import dict_row
 
 from api.cache import cached
-from api.services import macro as _mongo
 from core.postgres import get_pool
 from quant.stats import cambio_pct, compute_stats
 
@@ -88,29 +80,77 @@ def _fetch_serie_macro_sql(serie: str, ventana_dias: int) -> list[dict]:
     return _serie_cruda(serie, corte, None)
 
 
+# Variables del feed dólar (valuaciones.dolar vía dolar_sql) y caución (mercado_hist).
+_DOLAR_FEED_VARS = {"mep", "ccl", "canje"}
+_CAUCION_VARS = {"caucion_ars": "ARS", "caucion_usd": "USD"}
+
+# Conocidas pero sin fuente de datos (mismo stub que daba el path Mongo).
+_BLOQUEADAS: dict[str, str] = {
+    "ipim":          "IPIM INDEC no cargado — falta job jobs/inflacion.py",
+    "repo":          "stock REPO BCRA no cargado — falta extensión de jobs/bcra.py",
+    "rem_inflacion": "REM BCRA no cargado — falta job jobs/rem.py",
+    "blue":          "dólar blue sin fuente (dolarapi.com apagado 2026-05-04)",
+}
+
+
+def _stub(variable: str) -> dict:
+    return {
+        "variable": variable, "actual": None, "clasificacion": "sin_datos",
+        "serie": [], "hint": _BLOQUEADAS.get(variable, "data no disponible"),
+    }
+
+
+def _armar(variable: str, serie: list[dict], ventana_dias: int) -> dict:
+    """{actual, serie, cambios, stats} desde [{fecha, valor}] asc. Stub si vacío."""
+    if not serie:
+        return _stub(variable)
+    actual = serie[-1]["valor"]
+    values = [p["valor"] for p in serie]
+    return {
+        "variable": variable,
+        "actual": actual,
+        "fecha_actual": serie[-1]["fecha"],
+        "ventana_dias": ventana_dias,
+        "serie": serie,
+        "cambio_dia_pct":    cambio_pct(values, actual, 1),
+        "cambio_semana_pct": cambio_pct(values, actual, 5),
+        "cambio_mes_pct":    cambio_pct(values, actual, 21),
+        **compute_stats(values, actual),
+    }
+
+
 @cached(ttl=120)
 def obtener_serie_macro(variable: str, ventana_dias: int = 90) -> dict:
-    """actual + serie + stats. SQL para las 7 series de series_macro; el resto
-    (mep/ccl/canje, ticker, caución, bloqueadas) delega al path Mongo."""
+    """actual + serie + stats — SQL-native (decomiso Mongo).
+
+    7 series de macro.series_macro; mep/ccl/canje de valuaciones.dolar; caución del
+    cierre histórico (mercado.mercado_hist); el resto → stub sin_datos."""
     var = (variable or "").strip().lower() if variable else ""
+
     if var in _VAR_TO_SERIE:
-        serie = _fetch_serie_macro_sql(_VAR_TO_SERIE[var], ventana_dias)
-        if serie:
-            actual = serie[-1]["valor"]
-            values = [p["valor"] for p in serie]
-            return {
-                "variable": variable,
-                "actual": actual,
-                "fecha_actual": serie[-1]["fecha"],
-                "ventana_dias": ventana_dias,
-                "serie": serie,
-                "cambio_dia_pct":    cambio_pct(values, actual, 1),
-                "cambio_semana_pct": cambio_pct(values, actual, 5),
-                "cambio_mes_pct":    cambio_pct(values, actual, 21),
-                **compute_stats(values, actual),
-            }
-        # SQL vacío ⟺ Mongo vacío (write-side en paridad) → Mongo arma el stub.
-    return _mongo.obtener_serie_macro(variable=variable, ventana_dias=ventana_dias)
+        return _armar(variable, _fetch_serie_macro_sql(_VAR_TO_SERIE[var], ventana_dias), ventana_dias)
+
+    if var in _DOLAR_FEED_VARS:
+        from core import dolar_sql
+        hasta = datetime.now(UTC)
+        desde = hasta - timedelta(days=ventana_dias)
+        d = dolar_sql.por_dia(var, desde, hasta)
+        serie = [{"fecha": f, "valor": float(v)} for f, v in sorted(d.items()) if v is not None]
+        return _armar(variable, serie, ventana_dias)
+
+    if var in _CAUCION_VARS:
+        from api.services import mercado_hist_sql
+        corte = (datetime.now(UTC) - timedelta(days=ventana_dias)).strftime("%Y-%m-%d")
+        serie = []
+        for h in mercado_hist_sql.get_historico_caucion(moneda=_CAUCION_VARS[var]):
+            v = h.get("tna_cierre") if isinstance(h, dict) else None
+            f = str(h.get("fecha"))[:10] if isinstance(h, dict) and h.get("fecha") else None
+            if v is not None and f and f >= corte:
+                serie.append({"fecha": f, "valor": float(v)})
+        serie.sort(key=lambda x: x["fecha"])
+        return _armar(variable, serie, ventana_dias)
+
+    return _stub(variable)
 
 
 def clasificar_nivel(variable: str, ventana_dias: int = 90) -> dict:

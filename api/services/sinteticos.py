@@ -35,7 +35,6 @@ from typing import Any
 
 from api.cache import cached
 from core.dolar_oficial import mid_oficial_live
-from core.mongo import get_mongo_client_read
 
 
 def _parse_yyyymmdd(s: str | None) -> date | None:
@@ -96,7 +95,6 @@ def get_sinteticos() -> dict[str, Any]:
               te, tna}, ... ],
         }
     """
-    db = get_mongo_client_read()["Trading"]
     today = date.today()
     hoy_str = today.strftime("%Y%m%d")
 
@@ -105,12 +103,16 @@ def get_sinteticos() -> dict[str, Any]:
     oficial = mid_oficial_live("oficial")
     spot = oficial.get("value")
 
-    # Futuros DLR vigentes, indexados por (año, mes) del vencimiento.
-    futuros = list(
-        db["FuturosDLRSnapshot"]
-        .find({"vencimiento": {"$gt": hoy_str}}, {"_id": 0})
-        .sort("vencimiento", 1)
-    )
+    # Futuros DLR vigentes, indexados por (año, mes) del vencimiento. SQL-native
+    # (decomiso Mongo): mercado.futuros_dlr_snapshot (doc completo en jsonb `data`).
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT data FROM mercado.futuros_dlr_snapshot "
+            "WHERE vencimiento > %s ORDER BY vencimiento", (hoy_str,))
+        futuros = [r["data"] for r in cur.fetchall() if r["data"]]
     fut_by_ym: dict[tuple[int, int], dict] = {}
     for f in futuros:
         fvto = _parse_yyyymmdd(f.get("vencimiento"))

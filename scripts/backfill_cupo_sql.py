@@ -55,10 +55,11 @@ def main() -> int:
         cupo = d.get("cupo") or {}
         t = cupo.get("transaccional_ars")
         u = cupo.get("usado_ars")
+        p = cupo.get("utilizacion_pct")
         if t is None and u is None:
             sin_cupo += 1
             continue
-        updates.append((t, u, str(d["id_cuenta"])))
+        updates.append((t, u, p, str(d["id_cuenta"])))
 
     print(f"Con cupo recuperable: {len(updates)}  |  matcheadas sin cupo: {sin_cupo}  |  "
           f"no matcheadas en Mongo: {len(ids) - len(docs)}")
@@ -75,8 +76,8 @@ def main() -> int:
         return 0
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.executemany(
-            "UPDATE comitentes SET cupo_transaccional_ars = %s, cupo_usado_ars = %s "
-            "WHERE id_cuenta = %s", updates)
+            "UPDATE comitentes SET cupo_transaccional_ars = %s, cupo_usado_ars = %s, "
+            "cupo_utilizacion_pct = %s WHERE id_cuenta = %s", updates)
         conn.commit()
     print(f"\n✅ {len(updates)} cupos copiados Mongo→SQL.")
     return 0

@@ -19,7 +19,6 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from api.cache import cached
-from api.db import get_db_trading
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers de anchors históricos
@@ -74,14 +73,10 @@ def _serie_dolar(field: str) -> list[tuple[date, float]]:
 
 
 def _serie_caucion(moneda: str) -> list[tuple[date, float]]:
-    """Serie histórica de tna_cierre de caución por moneda desde Trading.Caucion."""
-    db = get_db_trading()
-    docs = list(
-        db["Caucion"]
-        .find({"moneda": moneda.upper(), "tna_cierre": {"$ne": None}},
-              {"_id": 0, "fecha": 1, "tna_cierre": 1})
-        .sort("fecha", 1)
-    )
+    """Serie histórica de tna_cierre de caución por moneda desde SQL (mercado_hist Caucion).
+    Antes leía Mongo Trading.Caucion (DROPEADA) → la watchlist mostraba —."""
+    from api.services import mercado_hist_sql
+    docs = mercado_hist_sql.get_historico_caucion(moneda=moneda)
     out: list[tuple[date, float]] = []
     for d in docs:
         f = d.get("fecha")
@@ -92,6 +87,7 @@ def _serie_caucion(moneda: str) -> list[tuple[date, float]]:
             out.append((date.fromisoformat(str(f)[:10]), float(v)))
         except (ValueError, TypeError):
             continue
+    out.sort()  # cronológico ascendente (independiente del orden del reader)
     return out
 
 
@@ -140,12 +136,11 @@ def _live_dolar() -> dict:
 
 
 def _live_caucion(moneda: str) -> dict:
-    """Snapshot live de caución desde Trading.CaucionSnapshot."""
-    db = get_db_trading()
-    snap = db["CaucionSnapshot"].find_one(
-        {"moneda": moneda.upper()},
-        {"_id": 0, "tna_last": 1, "tna_closing": 1, "plazo_dias": 1, "updated_at": 1},
-    )
+    """Snapshot live de caución desde SQL (mercado.caucion_snapshot).
+    Antes leía Mongo Trading.CaucionSnapshot (DROPEADA) → la watchlist mostraba —."""
+    from api.services import mercado_hist_sql
+    docs = mercado_hist_sql.get_caucion(moneda=moneda)
+    snap = docs[0] if docs else None
     if not snap:
         return {"value": None, "plazo_dias": None, "ts": None}
     val = snap.get("tna_last")

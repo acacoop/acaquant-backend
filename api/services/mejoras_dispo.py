@@ -15,21 +15,19 @@ LECAP / BONCAP vigente:
     valor_usd      = valor_final / Px_Futuro_DLR_del_mismo_mes
                       (None si descalce > MAX_DESCALCE_DIAS)
 
-`precio_ars` viene de **Derivados.CamaraCereales** (input manual del trader).
-La TNA viene de `Trading.MarketSnapshot.metrics.TEA` (la calcula el motor
-de curvas) — la desk lo llama "TNA" pero es la TIR efectiva anual.
+`precio_ars` (Cámara) y la TNA (=TEA, MarketSnapshot) las resuelve el lector
+SQL-native `agro_sql.get_mejoras_dispo` — la desk lo llama "TNA" pero es la TIR
+efectiva anual. Match LECAP ↔ futuro DLR por (año, mes), igual que en `sinteticos`.
 
-Cache 5s. Match LECAP ↔ futuro DLR por (año, mes), igual que en `sinteticos`.
+Decomiso Mongo: la lectura `get_mejoras_dispo` (que leía Derivados.CamaraCereales
++ Trading.FuturosDLRSnapshot) se borró — vivía muerta vía router (el router usa
+`agro_sql`). Este módulo queda como helpers PUROS (`_build_filas`, `_parse_yyyymmdd`,
+`_to_date`, `COMMODITIES`, `MAX_DESCALCE_DIAS`) que reusa `agro_sql`. NO borrarlos.
 """
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Any
-
-from api.cache import cached
-from core import curvas_sql
-from core.dolar_oficial import mid_oficial_live
-from core.mongo import get_mongo_client_read
 
 # Solo estos 3 commodities matchean con la cosecha local + futuros DLR.
 # GIRASOL y SORGO existen en la Cámara pero por ahora no se proponen.
@@ -63,62 +61,6 @@ def _to_date(d: Any) -> date | None:
         except ValueError:
             return None
     return None
-
-
-@cached(ttl=5)
-def get_mejoras_dispo() -> dict[str, Any]:
-    """Devuelve los 3 bloques. Cache 5s."""
-    db = get_mongo_client_read()
-    trading = db["Trading"]
-    derivados = db["Derivados"]
-    today = date.today()
-    hoy_str = today.strftime("%Y%m%d")
-
-    spot = mid_oficial_live("oficial").get("value")
-
-    # Cámara — precio_ars por cereal.
-    camara_docs = {d["_id"]: d for d in derivados["CamaraCereales"].find({})}
-
-    # Futuros DLR vigentes indexados por (año, mes).
-    fut_by_ym: dict[tuple[int, int], dict] = {}
-    for f in trading["FuturosDLRSnapshot"].find(
-        {"vencimiento": {"$gt": hoy_str}}, {"_id": 0}
-    ):
-        fvto = _parse_yyyymmdd(f.get("vencimiento"))
-        if fvto:
-            fut_by_ym.setdefault((fvto.year, fvto.month), f)
-
-    # LECAPs con flujo_vencimiento (deja afuera CER fijado y similares). Master
-    # desde SQL mercado.curvas; el filtro flujo_vencimiento not-null se aplica en
-    # Python sobre el doc completo (no mapea a columna).
-    lecaps = [c for c in curvas_sql.por_curva("tasa_fija")
-              if c.get("flujo_vencimiento") is not None]
-
-    # TEA (la "TNA" de la mesa) de cada LECAP en una sola query.
-    lecap_tickers = [c["ticker"] for c in lecaps if c.get("ticker")]
-    tea_map: dict[str, float] = {}
-    if lecap_tickers:
-        from core.market_snapshot import metric_map
-        tea_map = metric_map(lecap_tickers, "tea")  # SQL-only (mercado.market_snapshot)
-
-    bloques = []
-    for commodity in COMMODITIES:
-        cam = camara_docs.get(commodity) or {}
-        precio_ars = cam.get("precio_ars")
-        filas = _build_filas(lecaps, tea_map, fut_by_ym, precio_ars, today)
-        bloques.append({
-            "commodity":  commodity,
-            "precio_ars": precio_ars,
-            "filas":      filas,
-            "precio_updated_at": cam.get("updated_at"),
-            "precio_updated_by": cam.get("updated_by"),
-        })
-
-    return {
-        "ts":      datetime.now(UTC),
-        "spot":    spot,
-        "bloques": bloques,
-    }
 
 
 def _build_filas(

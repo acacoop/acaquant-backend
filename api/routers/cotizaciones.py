@@ -355,14 +355,12 @@ def listar_renta_fija(
 # ── Opciones ──
 
 
-def _opc(engine: str | None):
-    """Selector del dominio OPCIONES: SQL (mercado.options_*) si `?_engine=sql` o flag
-    `OPCIONES_SQL=1`; Mongo (Opciones.*) en otro caso. Cubre TODO el dominio salvo la
-    mutación de tasa (update_opciones_tasa, siempre Mongo): chain (options_snapshot), meta
-    (options_metadata), histórico intradía (options_data), VR (options_vr) y griegas
-    (options_data_hist). El path Mongo queda intacto → rollback = sacar la env + restart."""
-    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("OPCIONES_SQL") == "1")
-    return svc_opt_sql if use_sql else svc_opt
+def _opc(engine: str | None = None):
+    """Dominio OPCIONES: SQL-only (mercado.options_*). La DB `Opciones` (Mongo) fue
+    dropeada. Cubre chain (options_snapshot), meta (options_metadata), histórico intradía
+    (options_data), VR (options_vr) y griegas (options_data_hist). El parámetro `engine`
+    queda por compat con los call-sites (`?_engine`) — ya no selecciona nada."""
+    return svc_opt_sql
 
 
 @router.get("/opciones")

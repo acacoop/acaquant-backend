@@ -1,191 +1,20 @@
-"""Capa de servicio — opciones (chain + meta + trades históricos + update tasa).
+"""Capa de servicio — opciones: helpers puros + mutación de tasa (SQL-native).
 
-Todas las funciones atacan la DB `Opciones` (poblada por `engines/options.py`
-vía WS + `jobs/options_rollup.py` al cierre). La única mutación es
-`update_opciones_tasa`, que escribe la tasa libre de riesgo en
-`Opciones.Metadata.config` y limpia el cache in-process.
+SQL-NATIVE (decomiso Mongo): el dominio OPCIONES se lee 100% desde Postgres
+(`api/services/opciones_sql.py` → `mercado.options_*`). La DB `Opciones` (Mongo)
+fue dropeada. Este módulo conserva SOLO lo que NO es lectura Mongo:
+
+  * `update_opciones_tasa` — mutación de la tasa risk-free (escribe SQL
+    `mercado.options_metadata.config`).
+  * `_leg_key`, `_pick_px`, `estrategia_desde_buckets` — helpers PUROS de pricing
+    de estrategias, reusados por `opciones_sql.estrategia_historico` (la fuente
+    de los buckets es SQL).
 """
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from hashlib import sha1
-
-from api.cache import cached
-from api.db import get_db_opciones
-from api.services.renta_fija import _ticker_filter
-from core.mongo import get_mongo_client
-
-
-@cached(ttl=60)
-def get_opciones(instrumento: str | None = None, tipo: str | None = None) -> list:
-    db = get_db_opciones()
-    # Solo opciones con tick HOY. Las ilíquidas conservan updated_at de la
-    # última rueda que tuvieron precio (dirty-check del engine las saltea
-    # cuando bid=offer=last=0). Sin este filtro la tabla muestra strikes
-    # con vol/last de días anteriores mezclados con los de hoy.
-    inicio_hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    filtro: dict = {"updated_at": {"$gte": inicio_hoy}}
-    if instrumento:
-        filtro["symbol"] = _ticker_filter(instrumento)
-    if tipo:
-        filtro["tipo"] = tipo.upper()
-
-    pipeline = [
-        {"$match": filtro},
-        {"$project": {
-            "_id": 0,
-            "instrumento": "$symbol",
-            "bid": 1,
-            "offer": 1,
-            "last": 1,
-            "open": 1,
-            "high": 1,
-            "low": 1,
-            "ev": 1,
-            "spot": 1,
-            "strike": 1,
-            "tipo": 1,
-            "vence": 1,
-            "closing_price": 1,
-            "delta": 1,
-            "gamma": 1,
-            "iv": 1,
-            "theta": 1,
-            "vega": 1,
-            "updated_at": 1,
-        }},
-    ]
-    return list(db["OptionsSnapshot"].aggregate(pipeline))
-
-
-@cached(ttl=60)
-def get_opciones_meta() -> dict:
-    """Metadata opciones: tasa libre de riesgo + VR (ADR/local)."""
-    db = get_db_opciones()
-    docs = list(db["Metadata"].find(
-        {"type": {"$in": ["vr_ggal", "config"]}}, {"_id": 0}
-    ))
-    by_type = {d.get("type"): d for d in docs}
-    vr = by_type.get("vr_ggal") or {}
-    cfg = by_type.get("config") or {}
-    return {
-        "tasa": float(cfg.get("tasa") or 0.0),
-        "vr_local": float(vr.get("vr_local") or 0.0),
-        "vr_adr": float(vr.get("vr_adr") or 0.0),
-        "updated_at": vr.get("updated_at"),
-    }
-
-
-@cached(ttl=30)
-def get_historico_opciones(
-    instrumento: str | None = None,
-    tipo: str | None = None,
-) -> list:
-    """Serie de opciones de los últimos 21 días (Opciones.Data), agregada por
-    bucket de 15 min — un punto por bucket (el último tick de cada franja).
-
-    `instrumento` acepta forma corta ('GFGC10950A') o completa
-    ('MERV - XMEV - GFGC10950A - 24hs') — ambas matchean.
-
-    Por qué se bucketea: `Opciones.Data` es tick-level. Antes se traían ticks
-    crudos (sort desc + limit 5000) y en opciones muy operadas los 5000 docs
-    cubrían solo los últimos días → el histórico viejo de los 21 días se
-    perdía. Agrupando por bucket ANTES de limitar, los 21 días entran siempre
-    (~26 buckets/día) sin importar el volumen, y la respuesta es más liviana.
-    """
-    db = get_db_opciones()
-    corte = datetime.now() - timedelta(days=21)
-    filtro: dict = {"timestamp": {"$gte": corte}}
-    if instrumento:
-        filtro["symbol"] = _ticker_filter(instrumento)
-    if tipo:
-        filtro["tipo"] = tipo.upper()
-
-    bucket_ms = 15 * 60 * 1000
-    # Floor del timestamp a la franja de 15 min via aritmética de epoch (más
-    # portable que $dateTrunc). `$toLong` de una fecha = ms desde epoch.
-    bucket_expr = {"$toDate": {"$subtract": [
-        {"$toLong": "$timestamp"},
-        {"$mod": [{"$toLong": "$timestamp"}, bucket_ms]},
-    ]}}
-
-    pipeline = [
-        {"$match": filtro},
-        {"$sort": {"timestamp": 1}},  # asc → $last = el tick más reciente del bucket
-        {"$group": {
-            "_id": {"symbol": "$symbol", "bucket": bucket_expr},
-            "instrumento":    {"$last": "$symbol"},
-            "timestamp":      {"$last": "$timestamp"},
-            "last_timestamp": {"$last": "$last_timestamp"},
-            "bid":    {"$last": "$bid"},
-            "offer":  {"$last": "$offer"},
-            "last":   {"$last": "$last"},
-            "spot":   {"$last": "$spot"},
-            "strike": {"$last": "$strike"},
-            "tipo":   {"$last": "$tipo"},
-            "iv":     {"$last": "$iv"},
-            "delta":  {"$last": "$delta"},
-            "gamma":  {"$last": "$gamma"},
-            "vega":   {"$last": "$vega"},
-            "theta":  {"$last": "$theta"},
-        }},
-        {"$sort": {"timestamp": -1}},   # desc — mismo contrato que antes (el cliente revierte)
-        {"$limit": 20000},              # safety para queries sin instrumento
-        {"$project": {
-            "_id": 0,
-            "instrumento": 1,
-            "timestamp": 1,
-            "last_timestamp": 1,
-            "bid": 1,
-            "offer": 1,
-            "last": 1,
-            "spot": 1,
-            "strike": 1,
-            "tipo": 1,
-            "iv": 1,
-            "delta": 1,
-            "gamma": 1,
-            "vega": 1,
-            "theta": 1,
-        }},
-    ]
-    return list(db["Data"].aggregate(pipeline))
-
-
-@cached(ttl=300)
-def get_vr_ggal_serie() -> list:
-    """Serie diaria de GGAL (local ARS + ADR USD) — Opciones.VR-GGal (~40 ruedas).
-
-    Para el 2º eje del chart de costo histórico (spot del subyacente, con switch
-    ARS↔ADR). Excluye el doc resumen `SUMMARY_METRICS`. Devuelve asc por fecha.
-    """
-    db = get_db_opciones()
-    docs = list(db["VR-GGal"].find(
-        {"type": {"$ne": "SUMMARY_METRICS"}},
-        {"_id": 0, "Date": 1, "LOCAL_Close": 1, "ADR_Close": 1},
-    ))
-    out: list[dict] = []
-    for d in docs:
-        fecha = d.get("Date")
-        if isinstance(fecha, datetime):
-            fecha = fecha.date().isoformat()
-        elif isinstance(fecha, str):
-            fecha = fecha[:10]
-        else:
-            continue
-        out.append({
-            "fecha": fecha,
-            "local": d.get("LOCAL_Close"),
-            "adr":   d.get("ADR_Close"),
-        })
-    out.sort(key=lambda x: x["fecha"])
-    return out
-
-
-# get_griegas_historico ELIMINADO (cutover DataHistorica→SQL 2026-06-24): la serie diaria de
-# griegas la sirve opciones_sql.get_griegas_historico (mercado.options_data_hist). El router y el
-# MCP tool leen SIEMPRE SQL. Opciones.DataHistorica (Mongo) dropeada → ya no hay path Mongo.
 
 
 def update_opciones_tasa(valor: float) -> dict:
@@ -203,7 +32,7 @@ def update_opciones_tasa(valor: float) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
-# Costo histórico de estrategia
+# Costo histórico de estrategia — helpers puros (fuente-agnósticos)
 # ─────────────────────────────────────────────────────────────
 
 def _leg_key(legs: list[dict]) -> str:
@@ -233,72 +62,17 @@ def _pick_px(bid: float, offer: float, last: float, side: str) -> float:
     return last
 
 
-@cached(ttl=60)
-def _estrategia_historico_cached(
-    legs_key: str,
-    legs_json: str,
-    bucket_min: int,
-    desde_iso: str | None,
-    hasta_iso: str | None,
-) -> list[dict]:
-    legs = json.loads(legs_json)
-
-    client = get_mongo_client()
-    col = client["Opciones"]["Data"]
-
-    match: dict = {}
-    if desde_iso or hasta_iso:
-        ts: dict = {}
-        if desde_iso:
-            ts["$gte"] = datetime.fromisoformat(desde_iso.replace("Z", "+00:00"))
-        if hasta_iso:
-            ts["$lt"] = datetime.fromisoformat(hasta_iso.replace("Z", "+00:00"))
-        match["timestamp"] = ts
-
-    pipeline = [
-        {"$match": match} if match else {"$match": {}},
-        {"$sort": {"timestamp": 1}},
-        {"$group": {
-            "_id": {
-                "bucket": {"$dateTrunc": {
-                    "date": "$timestamp", "unit": "minute", "binSize": bucket_min,
-                }},
-                "symbol": "$symbol",
-            },
-            "bid":    {"$last": "$bid"},
-            "offer":  {"$last": "$offer"},
-            "last":   {"$last": "$last"},
-            "strike": {"$first": "$strike"},
-            "tipo":   {"$first": "$tipo"},
-            "spot":   {"$last": "$spot"},
-        }},
-        {"$sort": {"_id.bucket": 1}},
-    ]
-
-    # Agrupo en Python por bucket → {bucket: [docs]}
-    buckets: dict[datetime, list[dict]] = {}
-    for r in col.aggregate(pipeline):
-        b = r["_id"]["bucket"]
-        d = {
-            "symbol": r["_id"]["symbol"],
-            "bid":    r.get("bid"),
-            "offer":  r.get("offer"),
-            "last":   r.get("last"),
-            "strike": r.get("strike"),
-            "tipo":   r.get("tipo"),
-            "spot":   r.get("spot"),
-        }
-        buckets.setdefault(b, []).append(d)
-
-    return estrategia_desde_buckets(buckets, legs)
-
-
 def estrategia_desde_buckets(
     buckets: dict[datetime, list[dict]], legs: list[dict],
 ) -> list[dict]:
     """Post-procesa los buckets {bucket: [{symbol,bid,offer,last,strike,tipo,spot}]} → serie
-    de costo de la estrategia. Independiente de la fuente (Mongo o SQL) → lo reusa
-    `opciones_sql.estrategia_historico`. Ver `estrategia_historico` para la semántica de pricing."""
+    de costo de la estrategia. Independiente de la fuente (SQL) → lo reusa
+    `opciones_sql.estrategia_historico`.
+
+    Pricing por pata (matchea lib/estrategias.ts):
+        buy  → offer (si offer y bid >0) si no last
+        sell → bid   (si offer y bid >0) si no last
+    Buckets donde la estrategia no es válida (pata fuera de rango / iliquida) se omiten."""
     out: list[dict] = []
     for ts, docs in buckets.items():
         # buildPorStrike: {strike: {CALL: doc, PUT: doc}}
@@ -366,39 +140,3 @@ def estrategia_desde_buckets(
 
     out.sort(key=lambda x: x["ts"])
     return out
-
-
-def estrategia_historico(
-    legs: list[dict],
-    bucket_min: int = 15,
-    desde: str | None = None,
-    hasta: str | None = None,
-) -> list[dict]:
-    """Serie intradía de costo de una estrategia de opciones.
-
-    Args:
-        legs: [{offset, tipo: CALL|PUT, side: buy|sell, qty}]. El `offset`
-            se aplica sobre el índice del ATM del bucket (no sobre strikes
-            fijas) — replica el comportamiento live del frontend.
-        bucket_min: tamaño del bucket en minutos (default 15).
-        desde, hasta: ISO datetime (default: sin filtro = todo Opciones.Data).
-
-    Returns:
-        [{ts, costo, atm, spot, strikes}, ...] ordenado por ts. Buckets
-        donde la estrategia no es válida (pata fuera de rango / iliquida)
-        se omiten — la serie tiene huecos, no ceros.
-
-    Pricing por pata (matchea lib/estrategias.ts):
-        buy  → offer (si offer y bid >0) si no last
-        sell → bid   (si offer y bid >0) si no last
-    """
-    if bucket_min <= 0:
-        bucket_min = 15
-    legs_json = json.dumps(legs, sort_keys=True)
-    return _estrategia_historico_cached(
-        legs_key=_leg_key(legs),
-        legs_json=legs_json,
-        bucket_min=int(bucket_min),
-        desde_iso=desde,
-        hasta_iso=hasta,
-    )

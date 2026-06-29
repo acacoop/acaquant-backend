@@ -17,7 +17,6 @@ from api.services import derivados as svc_der
 from api.services import descomposicion_retorno as svc_desc
 from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
-from api.services import opciones as svc_opt
 from api.services import opciones_sql as svc_opt_sql
 from api.services import order_book as svc_ob
 from api.services import rem as svc_rem
@@ -457,7 +456,7 @@ def register(mcp) -> None:
         instrumento: str | None = None,
         tipo: str | None = None,
     ) -> list[dict]:
-        return svc_opt.get_opciones(instrumento=instrumento, tipo=tipo)
+        return svc_opt_sql.get_opciones(instrumento=instrumento, tipo=tipo)
 
     @mcp.tool(
         description=(
@@ -466,7 +465,7 @@ def register(mcp) -> None:
         ),
     )
     def opciones_meta() -> dict:
-        return svc_opt.get_opciones_meta()
+        return svc_opt_sql.get_opciones_meta()
 
     @mcp.tool(
         description=(
@@ -478,7 +477,7 @@ def register(mcp) -> None:
         instrumento: str | None = None,
         tipo: str | None = None,
     ) -> list[dict]:
-        return svc_opt.get_historico_opciones(instrumento=instrumento, tipo=tipo)
+        return svc_opt_sql.get_historico_opciones(instrumento=instrumento, tipo=tipo)
 
     @mcp.tool(
         description=(
@@ -499,4 +498,4 @@ def register(mcp) -> None:
         ),
     )
     def opciones_spot_ggal() -> list[dict]:
-        return svc_opt.get_vr_ggal_serie()
+        return svc_opt_sql.get_vr_ggal_serie()

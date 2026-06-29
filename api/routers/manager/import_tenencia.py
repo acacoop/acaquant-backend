@@ -16,7 +16,6 @@ from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel, Field
 
 from api.auth import get_user_email
-from api.services import import_tenencia as svc
 from api.services import import_tenencia_sql as svc_sql
 
 router = APIRouter()
@@ -38,12 +37,8 @@ class _ImportReq(BaseModel):
     commit: bool = False
 
 
-@router.post("/import-tenencia")
-def import_tenencia(req: _ImportReq = Body(...), actor: str = Depends(get_user_email)) -> dict:
-    """Previsualiza (commit=false) o aplica (commit=true) el import de tenencia."""
-    return svc.importar(
-        rows=[r.model_dump() for r in req.rows], actor=actor, commit=req.commit)
-
+# NOTA: el endpoint viejo POST /import-tenencia (escribía Valuaciones.AuM en Mongo, DROPEADA)
+# se eliminó en el decomiso 2026-06-29 — el front usa /import-aum-sql y /import-precios-sql (SQL).
 
 # ── Import a SQL portafolio.tenencia — 2 modos (Manager → AUNESA → IMPORTAR) ──
 class _ImportRows(BaseModel):

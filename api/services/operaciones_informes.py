@@ -19,8 +19,6 @@ import re
 import unicodedata
 from datetime import UTC, date, datetime
 
-from pymongo import UpdateOne
-
 from api.services._mep import get_mep_for_date
 from core.postgres import get_pool
 
@@ -381,75 +379,6 @@ def ingestar_filas_sql(
     }
 
 
-def enriquecer(db, batch: int = 2000) -> dict:
-    """Denormaliza sobre cada doc de CashFlow.Operaciones: `moneda` (de
-    condiciones), `mercado` y `operacion` (join a CashFlow.TiposOperacion por
-    tipo_operacion), y `grupo` + `es_contraparte` (join a CashFlow.Contrapartes
-    por cuenta — grupo = su `segmento`). Re-correr tras editar catálogo o
-    contrapartes. Crea índices de la vista.
-    """
-    cat = {
-        d["tipo_operacion"]: d
-        for d in db["TiposOperacion"].find(
-            {}, {"_id": 0, "tipo_operacion": 1, "mercado": 1, "operacion": 1}
-        )
-        if d.get("tipo_operacion")
-    }
-    # id_cuenta → {nivel_1 (segmento comercial), nivel_3 (dimensión aranceles)}.
-    niveles = _niveles_por_cuenta()
-    coll = db["Operaciones"]
-    coll.create_index([("concertacion", -1), ("mercado", 1)], name="concertacion_mercado")
-    coll.create_index([("concertacion", -1), ("operacion", 1)], name="concertacion_operacion")
-    coll.create_index([("concertacion", -1), ("segmento", 1)], name="concertacion_segmento")
-    coll.create_index([("concertacion", -1), ("nivel_3", 1)], name="concertacion_nivel3")
-    coll.create_index([("moneda", 1), ("concertacion", -1)], name="moneda_concertacion")
-
-    mep_cache: dict[str, float | None] = {}  # memoiza MEP por concertacion
-    ops, total, sin_cat = [], 0, 0
-    for d in coll.find({}, {"_id": 1, "tipo_operacion": 1, "condiciones": 1,
-                            "cuenta": 1, "concertacion": 1}):
-        c = cat.get(d.get("tipo_operacion") or "")
-        if c is None:
-            sin_cat += 1
-        nv = niveles.get(str(d.get("cuenta") or "").strip(), {})
-        ops.append(UpdateOne(
-            {"_id": d["_id"]},
-            {"$set": {
-                "moneda":    _to_moneda(d.get("condiciones")),
-                "mercado":   (c or {}).get("mercado", ""),
-                "operacion": (c or {}).get("operacion", "otro"),
-                "segmento":  nv.get("n1", ""),
-                "nivel_3":   nv.get("n3", ""),
-                "mep":       _mep_para_fecha(d.get("concertacion"), mep_cache),
-            }},
-        ))
-        if len(ops) >= batch:
-            coll.bulk_write(ops, ordered=False)
-            total += len(ops)
-            ops = []
-    if ops:
-        coll.bulk_write(ops, ordered=False)
-        total += len(ops)
-    return {"actualizados": total, "sin_catalogo": sin_cat, "tipos_catalogo": len(cat)}
-
-
-def stats(coll) -> dict:
-    """Resumen del estado de la colección para la UI."""
-    n = coll.estimated_document_count()  # O(1) (metadata) vs count_documents({}) que escanea ~487k
-    if not n:
-        return {"n": 0, "n_cuentas": 0, "min_concertacion": None, "max_concertacion": None}
-    rango = list(coll.aggregate([
-        {"$group": {
-            "_id": None,
-            "min": {"$min": "$concertacion"},
-            "max": {"$max": "$concertacion"},
-            "cuentas": {"$addToSet": "$cuenta"},
-        }},
-    ]))
-    r = rango[0] if rango else {}
-    return {
-        "n":                n,
-        "n_cuentas":        len(r.get("cuentas") or []),
-        "min_concertacion": r.get("min"),
-        "max_concertacion": r.get("max"),
-    }
+# enriquecer()/stats() (operaban Mongo CashFlow.Operaciones) ELIMINADAS — decomiso 2026-06-29:
+# la colección está DROPEADA y el path vivo es SQL (ingestar_filas_sql + _aplicar_enrich →
+# operaciones.operaciones). Eran dead code sin llamadores (manager/operaciones y el cron usan SQL).

@@ -18,9 +18,8 @@ distinguible del dato del job.
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
-from core.mongo import get_mongo_client
 from core.postgres import get_pool
 
 _DB, _COL = "Valuaciones", "AuM"
@@ -203,22 +202,11 @@ def importar(rows: list[dict], actor: str, commit: bool = False) -> dict:
     if not docs:
         return {**resumen, "aplicado": False, "error": "no hay filas válidas para aplicar"}
 
-    # ── Aplicar: por (fecha, cuenta) → delete + insert (idéntico al job) ──────
-    ts = datetime.now(UTC)
-    por_grupo: dict[tuple[str, str], list[dict]] = {}
-    for d in docs:
-        por_grupo.setdefault((d["fecha_snapshot"], d["id_cuenta"]), []).append(d)
-
-    col = get_mongo_client()[_DB][_COL]
-    borrados = insertados = 0
-    for (fecha, idc), grupo in por_grupo.items():
-        borrados += col.delete_many(
-            {"id_cuenta": idc, "fecha_snapshot": fecha}).deleted_count
-        for d in grupo:
-            d["timestamp"] = ts
-            d["importado_por"] = actor
-            d["importado_en"] = ts
-        col.insert_many(grupo, ordered=False)
-        insertados += len(grupo)
-
-    return {**resumen, "aplicado": True, "borrados": borrados, "insertados": insertados}
+    # DEPRECADO (decomiso 2026-06-29): este commit escribía Valuaciones.AuM (Mongo, DROPEADA).
+    # El import vivo es SQL → /import-aum-sql y /import-precios-sql (import_tenencia_sql.py →
+    # portafolio.tenencia). La PREVIEW (commit=False, arriba) sigue sirviendo; el commit Mongo
+    # se bloquea para no recrear AuM. Este módulo se conserva solo por _norm_fecha/_num (los
+    # reusa import_tenencia_sql).
+    raise RuntimeError(
+        "import_tenencia.importar(commit=True) DEPRECADO (escribía Mongo Valuaciones.AuM) — "
+        "usar /import-aum-sql (SQL portafolio.tenencia).")

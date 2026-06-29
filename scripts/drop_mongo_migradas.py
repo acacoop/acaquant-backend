@@ -153,9 +153,10 @@ DROPS: list[tuple[str, str, str]] = [
     # ── Gateadas por BACKFILL: correr `python -m scripts.backfill_gated_decomiso --apply`
     #    PRIMERO (poblar la historia congelada en Mongo), verificar, y recién ahí descomentar.
     #    Sin el backfill se pierde historia (z_temporal NULL ~20 ruedas / set ignorado de ONs).
-    # ("Trading", "FitParams",          "fair_value.py SQL-native; historia → mercado.fit_params (backfill_gated_decomiso)."),
-    # ("Trading", "FairValueResiduos",  "fair_value.py SQL-native; historia → mercado.fair_value_residuos (backfill_gated_decomiso)."),
-    # ("Trading", "OnsIgnoradas",       "ons.py SQL-native; set → mercado.ons_ignoradas (backfill_gated_decomiso)."),
+    # Backfill corrido 2026-06-29 (FitParams 106 + FairValueResiduos 1599 → SQL) → droppables.
+    ("Trading", "FitParams",          "fair_value.py SQL-native; historia en mercado.fit_params (backfill OK)."),
+    ("Trading", "FairValueResiduos",  "fair_value.py SQL-native; historia en mercado.fair_value_residuos (backfill OK)."),
+    ("Trading", "OnsIgnoradas",       "ons.py SQL-native; mercado.ons_ignoradas (set vacío al backfill)."),
 
     # ── NO incluir todavía (otras gateadas) ──────────────────────────────────────────
     # Trading.PortfolioSnapshot — confirmar que pnl.py PortfolioSnapshot reads son dead-path (PNL_SQL).

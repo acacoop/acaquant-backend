@@ -55,8 +55,6 @@ from config import (
     MCP_BEARER_TOKEN,
     MCP_JWT_SECRET,
 )
-from core.mongo import get_mongo_client, get_mongo_client_read
-
 logger = logging.getLogger("api")
 
 
@@ -97,22 +95,12 @@ def _validar_postura_auth() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Pool warmup + sampler de recursos.
-
-    Warmup: ping a Atlas al arrancar para que el primer request del día
-    no pague la penalización de establecer conexión (~500ms–2s).
+    """Sampler de recursos.
 
     Sampler: task background que toma snapshot de CPU/RAM/procesos cada
     60s para alimentar /api/manager/resources/history.
     """
     _validar_postura_auth()
-
-    for nombre, getter in (("rw", get_mongo_client), ("read", get_mongo_client_read)):
-        try:
-            getter().admin.command("ping")
-            logger.info("Mongo pool warmup OK (%s)", nombre)
-        except Exception as e:
-            logger.warning("Mongo pool warmup falló (%s): %s", nombre, e)
 
     sampler_task = asyncio.create_task(manager_resources.resources_sampler_loop(interval_s=60))
 

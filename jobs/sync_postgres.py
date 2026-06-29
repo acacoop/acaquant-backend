@@ -352,98 +352,38 @@ def sync_accounts_descubiertas(mdb, conn, dry) -> int:
 
 
 def sync_manager_users(mdb, conn, dry) -> int:
-    """Manager.Users → manager_users (email lowercased + role/enabled/etc para AUTH SQL)."""
-    cols = ["email", "role", "enabled", "auto_registered", "notes",
-            "last_seen_at", "created_at", "updated_at"]
-    rows = []
-    for d in mdb["Manager"]["Users"].find({}, {
-        "email": 1, "role": 1, "enabled": 1, "auto_registered": 1, "notes": 1,
-        "last_seen_at": 1, "created_at": 1, "updated_at": 1,
-    }):
-        em = _s(d.get("email"))
-        if not em:
-            continue
-        rows.append((em.lower(), _s(d.get("role")), d.get("enabled"),
-                     d.get("auto_registered"), _s(d.get("notes")), d.get("last_seen_at"),
-                     d.get("created_at"), d.get("updated_at")))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "manager_users", cols, ["email"], rows, dry)
-    _delete_not_in(conn, "manager_users", "email", {r[0] for r in rows}, dry)
-    return n
+    # NEUTRALIZADO (no-op) — cutover AUTH→SQL-only 2026-06-28: core/roles.py escribe
+    # manager.manager_users SQL-native (upsert/delete/auto_register/touch_last_seen). El
+    # puente leía Mongo (congelado) y _delete_not_in BORRARÍA los users frescos del panel.
+    return 0
 
 
 def sync_role_matrix(mdb, conn, dry) -> int:
-    """Manager.RoleMatrix (1 doc/rol, array modules) → role_matrix (filas role,module)."""
-    rows = []
-    for d in mdb["Manager"]["RoleMatrix"].find({}, {"role": 1, "modules": 1}):
-        role = _s(d.get("role"))
-        if not role:
-            continue
-        for m in (d.get("modules") or []):
-            ms = _s(m)
-            if ms:
-                rows.append((role, ms))
-    rows = _dedup(rows, [0, 1])
-    n = _upsert(conn, "role_matrix", ["role", "module"], ["role", "module"], rows, dry)
-    if not dry:  # borra (role,module) que ya no están (PK compuesta → delete propio)
-        keep = [f"{r}|{m}" for r, m in rows] or [""]
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM role_matrix WHERE role || '|' || module <> ALL(%s)", (keep,))
-        conn.commit()
-    return n
+    # NEUTRALIZADO (no-op) — cutover AUTH→SQL-only 2026-06-28: core/roles.set_role_modules
+    # escribe manager.role_matrix SQL-native. El puente leía Mongo (congelado) y su DELETE de
+    # huérfanos BORRARÍA la matriz fresca del panel.
+    return 0
 
 
 def sync_grupos(mdb, conn, dry) -> int:
-    """Manager.Grupos → grupos (emails lowercased, id_cuentas como text[]). Scope de cuentas."""
-    cols = ["id", "nombre", "emails", "id_cuentas", "creado_por", "creado_at", "updated_at"]
-    rows = []
-    for d in mdb["Manager"]["Grupos"].find({}):
-        emails = [str(e).strip().lower() for e in (d.get("emails") or []) if e]
-        idc = [str(c) for c in (d.get("id_cuentas") or []) if c is not None]
-        rows.append((str(d.get("_id")), _s(d.get("nombre")), emails, idc,
-                     _s(d.get("creado_por")), d.get("creado_at"), d.get("updated_at")))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "grupos", cols, ["id"], rows, dry)
-    _delete_not_in(conn, "grupos", "id", {r[0] for r in rows}, dry)
-    return n
+    # NEUTRALIZADO (no-op) — cutover AUTH→SQL-only 2026-06-28: core/grupos.py escribe
+    # manager.grupos SQL-native (crear/actualizar/eliminar). El puente leía Mongo (congelado)
+    # y _delete_not_in BORRARÍA los grupos frescos del panel.
+    return 0
 
 
 def sync_job_runs(mdb, conn, dry, desde: datetime | None) -> int:
-    """Manager.JobRuns → manager.job_runs (historial de corridas). PK = str(_id) Mongo.
-    Columnas materializadas (tipo, started_at, finished_at, status) + doc en jsonb.
-    Incremental por started_at (datetime). Batcheado + throttle (puede crecer). El
-    dual-write de core/job_runs.py (MANAGER_SQL_WRITE) lo mantiene fresco entre syncs."""
-    q = {"started_at": {"$gte": desde}} if desde else {}
-    total = 0
-    cur = mdb["Manager"]["JobRuns"].find(q, batch_size=BATCH)
-    for batch in _iter_batches(cur):
-        rows = []
-        for d in batch:
-            rid = str(d.get("_id"))
-            doc = {k: v for k, v in d.items() if k != "_id"}
-            rows.append((rid, _s(d.get("tipo")), d.get("started_at"),
-                         d.get("finished_at"), _s(d.get("status")), _jsonb(doc)))
-        total += _upsert(conn, "job_runs",
-                         ["run_id", "tipo", "started_at", "finished_at", "status", "data"],
-                         ["run_id"], _dedup(rows, [0]), dry)
-        time.sleep(THROTTLE)
-    return total
+    # NEUTRALIZADO (no-op) — cutover Manager→SQL-only 2026-06-28: core/job_runs.JobRunLogger
+    # escribe manager.job_runs SQL-native (uuid run_id). El puente leía Mongo (congelado) y solo
+    # aportaba ruido (sin _delete_not_in, no destructivo, pero ya sin fuente fresca).
+    return 0
 
 
 def sync_role_audit(mdb, conn, dry) -> int:
-    """Manager.RoleAudit → manager.role_audit (append-only, chico). PK = str(_id) Mongo.
-    Columnas materializadas (ts, actor, action, target) + doc completo en jsonb. Solo
-    upsert (append-only, no se borran eventos históricos)."""
-    rows = []
-    for d in mdb["Manager"]["RoleAudit"].find({}):
-        rid = str(d.get("_id"))
-        doc = {k: v for k, v in d.items() if k != "_id"}
-        rows.append((rid, d.get("ts"), _s(d.get("actor")), _s(d.get("action")),
-                     _s(d.get("target")), _jsonb(doc)))
-    rows = _dedup(rows, [0])
-    return _upsert(conn, "role_audit",
-                   ["audit_id", "ts", "actor", "action", "target", "data"],
-                   ["audit_id"], rows, dry)
+    # NEUTRALIZADO (no-op) — cutover Manager→SQL-only 2026-06-28: core/roles._audit_insert ya
+    # escribe manager.role_audit SQL-native. El puente leía Mongo.RoleAudit (congelada, sin
+    # writer desde el cutover del audit) → no aporta.
+    return 0
 
 
 def sync_actividad_mensual(mdb, conn, dry) -> int:

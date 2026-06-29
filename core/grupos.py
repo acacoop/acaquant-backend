@@ -19,9 +19,7 @@ import threading
 import time
 from datetime import UTC, datetime
 from typing import Any
-
-from bson import ObjectId
-from bson.errors import InvalidId
+from uuid import uuid4
 
 from core.mongo import get_mongo_client
 from core.roles import _auth_sql, get_user_role
@@ -105,12 +103,10 @@ def _cuentas_de_grupos(email_norm: str) -> set[str] | None:
 
 
 def listar_grupos() -> list[dict[str, Any]]:
-    """Todos los grupos, con `_id` como string."""
-    out: list[dict[str, Any]] = []
-    for d in _col().find({}).sort("nombre", 1):
-        d["_id"] = str(d["_id"])
-        out.append(d)
-    return out
+    """Todos los grupos, con `_id` como string. SQL-ONLY (decomiso Mongo 2026-06-28):
+    lee manager.grupos (fuente de verdad)."""
+    from core import grupos_sql
+    return grupos_sql.listar_grupos_sql()
 
 
 def crear_grupo(nombre: str, emails: Any, id_cuentas: Any, actor: str) -> dict[str, Any]:
@@ -126,17 +122,13 @@ def crear_grupo(nombre: str, emails: Any, id_cuentas: Any, actor: str) -> dict[s
         "creado_at":  ahora,
         "updated_at": ahora,
     }
-    doc["_id"] = str(_col().insert_one(doc).inserted_id)
-
-    # DUAL-WRITE best-effort a SQL (espejo fresco) — misma PK (str del ObjectId Mongo) en
-    # ambas bases. Sólo si las lecturas van por SQL (AUTH_SQL); sino el sync alinea.
-    if _auth_sql():
-        try:
-            from core import grupos_sql
-            grupos_sql.crear_grupo_sql(doc["_id"], nombre, doc["emails"], doc["id_cuentas"],
-                                       actor, ahora, ahora)
-        except Exception as e:
-            logger.warning("crear_grupo: espejo SQL falló (%s) — Mongo ya persistió", e)
+    # SQL-ONLY (decomiso Mongo 2026-06-28): manager.grupos es la fuente de verdad. La PK ya
+    # NO es str(ObjectId) Mongo → generamos un uuid SQL-native. AUTORITATIVO: si SQL falla,
+    # propagamos (el panel ve el error).
+    doc["_id"] = str(uuid4())
+    from core import grupos_sql
+    grupos_sql.crear_grupo_sql(doc["_id"], nombre, doc["emails"], doc["id_cuentas"],
+                               actor, ahora, ahora)
 
     invalidate_cache()
     return doc
@@ -144,54 +136,31 @@ def crear_grupo(nombre: str, emails: Any, id_cuentas: Any, actor: str) -> dict[s
 
 def actualizar_grupo(grupo_id: str, nombre: str, emails: Any, id_cuentas: Any,
                      actor: str) -> dict[str, Any]:
-    try:
-        oid = ObjectId(grupo_id)
-    except (InvalidId, TypeError) as e:
-        raise ValueError(f"grupo_id inválido: {grupo_id!r}") from e
+    if not grupo_id:
+        raise ValueError(f"grupo_id inválido: {grupo_id!r}")
     nombre = (nombre or "").strip()
     if not nombre:
         raise ValueError("el nombre del grupo no puede estar vacío")
     ahora = datetime.now(UTC)
-    upd = {
-        "nombre":      nombre,
-        "emails":      _norm_emails(emails),
-        "id_cuentas":  _norm_cuentas(id_cuentas),
-        "updated_at":  ahora,
-        "updated_por": actor,
-    }
-    if _col().update_one({"_id": oid}, {"$set": upd}).matched_count == 0:
+    # SQL-ONLY (decomiso Mongo 2026-06-28): manager.grupos es la fuente de verdad. El id ya
+    # NO se parsea como ObjectId (los grupos SQL-native usan uuid). AUTORITATIVO: si SQL falla,
+    # propagamos. La tabla SQL no tiene `updated_por` (metadata no leída) → se omite.
+    from core import grupos_sql
+    if not grupos_sql.actualizar_grupo_sql(grupo_id, nombre, _norm_emails(emails),
+                                           _norm_cuentas(id_cuentas), ahora):
         raise ValueError(f"grupo no encontrado: {grupo_id}")
 
-    # DUAL-WRITE best-effort a SQL (espejo fresco). La tabla SQL no tiene `updated_por`
-    # (metadata no leída) → se omite. Sólo si AUTH_SQL; sino el sync alinea.
-    if _auth_sql():
-        try:
-            from core import grupos_sql
-            grupos_sql.actualizar_grupo_sql(grupo_id, nombre, upd["emails"],
-                                            upd["id_cuentas"], ahora)
-        except Exception as e:
-            logger.warning("actualizar_grupo: espejo SQL falló (%s) — Mongo ya persistió", e)
-
     invalidate_cache()
-    doc = _col().find_one({"_id": oid})
-    doc["_id"] = str(doc["_id"])
-    return doc
+    return grupos_sql.get_grupo_sql(grupo_id) or {}
 
 
 def eliminar_grupo(grupo_id: str) -> bool:
-    try:
-        oid = ObjectId(grupo_id)
-    except (InvalidId, TypeError) as e:
-        raise ValueError(f"grupo_id inválido: {grupo_id!r}") from e
-    deleted = _col().delete_one({"_id": oid}).deleted_count > 0
-
-    # DUAL-WRITE best-effort a SQL (espejo fresco). Sólo si AUTH_SQL; sino el sync alinea.
-    if _auth_sql():
-        try:
-            from core import grupos_sql
-            grupos_sql.eliminar_grupo_sql(grupo_id)
-        except Exception as e:
-            logger.warning("eliminar_grupo: espejo SQL falló (%s) — Mongo ya persistió", e)
+    if not grupo_id:
+        raise ValueError(f"grupo_id inválido: {grupo_id!r}")
+    # SQL-ONLY (decomiso Mongo 2026-06-28): manager.grupos es la fuente de verdad. El id ya
+    # NO se parsea como ObjectId. AUTORITATIVO: si SQL falla, propagamos.
+    from core import grupos_sql
+    deleted = grupos_sql.eliminar_grupo_sql(grupo_id)
 
     invalidate_cache()
     return deleted

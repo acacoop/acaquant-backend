@@ -159,43 +159,52 @@ def _seccion_bases(cli, prev: dict | None) -> dict:
     return {"items": items}
 
 
-def _seccion_jobs(cli) -> dict:
-    col = cli["Manager"]["JobRuns"]
+def _jobruns_sql(sql: str, params=None) -> list[dict]:
+    """Query a manager.job_runs (SQL-ONLY, decomiso Mongo 2026-06-28). Es un JOB →
+    importa core.postgres directo (no api/)."""
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql, params or ())
+        return cur.fetchall()
+
+
+def _seccion_jobs() -> dict:
+    """JOBS de la última hora + dailies vencidos desde manager.job_runs (SQL-ONLY,
+    decomiso Mongo 2026-06-28: JobRunLogger ya escribe SQL-native, Mongo.JobRuns congelada)."""
     desde = _ahora() - timedelta(hours=1)
     ok = partial = error = 0
     fallas = []
     try:
-        for d in col.find({"started_at": {"$gte": desde}},
-                          {"tipo": 1, "status": 1, "errors": 1, "elapsed_s": 1}):
-            st = d.get("status")
-            if st == "ok":
-                ok += 1
-            elif st == "partial":
-                partial += 1
-                fallas.append({"tipo": d.get("tipo"), "status": "partial",
-                               "err": (d.get("errors") or [""])[0][:120]})
-            else:
-                error += 1
-                fallas.append({"tipo": d.get("tipo"), "status": st,
-                               "err": (d.get("errors") or [""])[0][:120]})
+        rows = _jobruns_sql(
+            "SELECT tipo, status, data FROM manager.job_runs WHERE started_at >= %s",
+            (desde,))
     except Exception as e:
         return {"ok": ok, "partial": partial, "error": error, "fallas": [],
                 "vencidos": [], "err_seccion": f"{type(e).__name__}"}
+    for d in rows:
+        st = d.get("status")
+        errs = (d.get("data") or {}).get("errors") or [""]
+        if st == "ok":
+            ok += 1
+        elif st == "partial":
+            partial += 1
+            fallas.append({"tipo": d.get("tipo"), "status": "partial", "err": errs[0][:120]})
+        else:
+            error += 1
+            fallas.append({"tipo": d.get("tipo"), "status": st, "err": errs[0][:120]})
 
-    # Último run por tipo en UNA aggregation (antes: un find_one por DAILY → N+1).
+    # Último run por tipo en UNA query (DISTINCT ON → 1 fila por tipo, la más reciente).
     vencidos = []
     try:
         ultimo_por_tipo = {
-            d["_id"]: d
-            for d in col.aggregate([
-                {"$match": {"tipo": {"$in": [t for t, _ in DAILIES]}}},
-                {"$sort": {"started_at": -1}},
-                {"$group": {
-                    "_id": "$tipo",
-                    "finished_at": {"$first": "$finished_at"},
-                    "started_at": {"$first": "$started_at"},
-                }},
-            ])
+            r["tipo"]: r
+            for r in _jobruns_sql(
+                "SELECT DISTINCT ON (tipo) tipo, finished_at, started_at "
+                "FROM manager.job_runs WHERE tipo = ANY(%s) "
+                "ORDER BY tipo, started_at DESC",
+                ([t for t, _ in DAILIES],))
         }
     except Exception:
         ultimo_por_tipo = {}
@@ -211,13 +220,15 @@ def _seccion_jobs(cli) -> dict:
     return {"ok": ok, "partial": partial, "error": error, "fallas": fallas, "vencidos": vencidos}
 
 
-def _seccion_sql(cli) -> dict:
+def _seccion_sql() -> dict:
+    """Último run de sync_postgres desde manager.job_runs (SQL-ONLY, decomiso Mongo)."""
     try:
-        last = cli["Manager"]["JobRuns"].find_one(
-            {"tipo": "sync_postgres"}, {"finished_at": 1, "started_at": 1, "status": 1},
-            sort=[("started_at", -1)])
-        if not last:
+        rows = _jobruns_sql(
+            "SELECT finished_at, started_at, status FROM manager.job_runs "
+            "WHERE tipo = 'sync_postgres' ORDER BY started_at DESC LIMIT 1")
+        if not rows:
             return {"estado": "sin_runs", "edad_min": None}
+        last = rows[0]
         ref = last.get("finished_at") or last.get("started_at")
         edad = _edad_seg(ref)
         return {"estado": last.get("status"),
@@ -307,8 +318,8 @@ def construir_informe(cli) -> dict:
         "en_rueda": en_rueda,
         "motores": _seccion_motores(cli, en_rueda),
         "bases": _seccion_bases(cli, prev),
-        "jobs": _seccion_jobs(cli),
-        "sql_sync": _seccion_sql(cli),
+        "jobs": _seccion_jobs(),
+        "sql_sync": _seccion_sql(),
         "mongo": _seccion_mongo(cli),
     }
     veredicto, problemas = _consolidar(rep)

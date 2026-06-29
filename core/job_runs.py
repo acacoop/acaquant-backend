@@ -1,10 +1,13 @@
-"""Context manager para registrar runs de jobs automáticos en Manager.JobRuns.
+"""Context manager para registrar runs de jobs automáticos en manager.job_runs (SQL).
 
 Cada cron job puede envolverse en `with JobRunLogger("tipo") as run:` para
-capturar stdout, stats estructurados, duración, errores y persistir un doc
+capturar stdout, stats estructurados, duración, errores y persistir una fila
 al salir — sin perder los logs de archivo que ya existen.
 
-Esquema del doc en Manager.JobRuns:
+SQL-ONLY desde el cutover Manager→SQL (decomiso Mongo 2026-06-28): escribe
+manager.job_runs (Postgres) SQL-native; Mongo Manager.JobRuns quedó sin writer.
+
+Esquema de la fila en manager.job_runs (columnas materializadas + `data` jsonb):
     {
         tipo:         str,                # "carteras", "aum", etc.
         started_at:   datetime (UTC),
@@ -16,11 +19,10 @@ Esquema del doc en Manager.JobRuns:
         log:          list[str],          # últimas ~200 líneas
     }
 
-El índice TTL en Manager.JobRuns se crea en scripts/crear_indices.py.
+La retención de manager.job_runs la aplica el cleanup de Postgres (no TTL nativo).
 """
 from __future__ import annotations
 
-import os
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -78,36 +80,27 @@ class JobRunLogger:
             "log":         self._log[-_MAX_LOG_LINES:],
         }
 
-        run_id = None
+        # SQL-ONLY (decomiso Mongo 2026-06-28): manager.job_runs es la fuente de verdad.
+        # PK run_id = uuid SQL-native (antes era str(ObjectId) del insert Mongo). Best-effort:
+        # lo usan TODOS los jobs/motores → un fallo al registrar NUNCA puede tumbar el job.
         try:
-            from core.mongo import get_mongo_client
-            res = get_mongo_client()["Manager"]["JobRuns"].insert_one(doc)
-            run_id = str(res.inserted_id)
-        except Exception as e:
-            # No queremos que un fallo al registrar tire abajo el job.
-            print(f"⚠️  JobRunLogger: no se pudo persistir run: {e}", flush=True)
+            from uuid import uuid4
 
-        # Dual-write best-effort a SQL (manager.job_runs), gateado por MANAGER_SQL_WRITE.
-        # Mongo es la fuente de verdad; si SQL falla NO debe tumbar el job (try/except).
-        if run_id and os.getenv("MANAGER_SQL_WRITE") == "1":
-            try:
-                from core.pg_mirror import doc_iso, write_native
-                # doc.pop("_id") no hace falta: doc_iso ignora el ObjectId (cae a str
-                # dentro del jsonb vía json.dumps(default=str)). started_at/finished_at
-                # son AWARE UTC → la columna timestamptz no corre la hora.
-                write_native("manager.job_runs", ["run_id"], [{
-                    "run_id":      run_id,
-                    "tipo":        self.tipo,
-                    "started_at":  self._started,
-                    "finished_at": finished,
-                    "status":      status,
-                    "data":        doc_iso({k: v for k, v in doc.items() if k != "_id"}),
-                }])
-            except Exception as e:
-                print(f"⚠️  JobRunLogger: dual-write SQL falló: {e}", flush=True)
+            from core.pg_mirror import doc_iso, write_native
+            # started_at/finished_at son AWARE UTC → la columna timestamptz no corre la hora.
+            write_native("manager.job_runs", ["run_id"], [{
+                "run_id":      str(uuid4()),
+                "tipo":        self.tipo,
+                "started_at":  self._started,
+                "finished_at": finished,
+                "status":      status,
+                "data":        doc_iso(doc),
+            }])
+        except Exception as e:
+            print(f"⚠️  JobRunLogger: no se pudo persistir run en SQL: {e}", flush=True)
 
         # Alerta operativa si el job no terminó OK. Solo metadata (el detalle
-        # ya quedó en Manager.JobRuns). No-op si Telegram no está configurado;
+        # ya quedó en manager.job_runs). No-op si Telegram no está configurado;
         # nunca tira excepción (no debe tumbar el job).
         if status in ("error", "partial"):
             try:

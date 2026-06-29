@@ -293,31 +293,14 @@ def _touch_last_seen(email_norm: str) -> None:
         return
     now = datetime.now(UTC)
     threshold = now - timedelta(seconds=_LAST_SEEN_THROTTLE_S)
+    # SQL-ONLY (decomiso Mongo 2026-06-28): manager.manager_users es la fuente de verdad.
+    # Best-effort SIEMPRE: esta función corre en el hot-path de get_user_role (cada request);
+    # un fallo de SQL NUNCA puede tumbar un request → throttle replicado en el WHERE del UPDATE.
     try:
-        # Update only-if filter: respeta el throttle sin necesidad de leer
-        # antes. `last_seen_at` ausente cuenta como "viejo" (legacy docs).
-        _users_col().update_one(
-            {
-                "email": email_norm,
-                "$or": [
-                    {"last_seen_at": {"$lt": threshold}},
-                    {"last_seen_at": {"$exists": False}},
-                ],
-            },
-            {"$set": {"last_seen_at": now}},
-        )
+        from core import roles_sql
+        roles_sql.touch_last_seen_sql(email_norm, now, threshold)
     except Exception as e:
-        logger.debug("touch_last_seen falló para %s: %s", email_norm, e)
-
-    # DUAL-WRITE best-effort a SQL (espejo fresco). Sólo si las lecturas van por SQL
-    # (AUTH_SQL) — sino el sync_postgres alinea last_seen_at en su próxima corrida y
-    # esta columna no es crítica. Mismo throttle replicado en el WHERE del UPDATE.
-    if _auth_sql():
-        try:
-            from core import roles_sql
-            roles_sql.touch_last_seen_sql(email_norm, now, threshold)
-        except Exception as e:
-            logger.debug("touch_last_seen: espejo SQL falló para %s: %s", email_norm, e)
+        logger.debug("touch_last_seen: SQL falló para %s: %s", email_norm, e)
 
 
 def _lookup_role_db(email: str) -> str | None:
@@ -370,36 +353,15 @@ def _auto_register(email_norm: str) -> str:
     role = "admin" if email_norm in MANAGER_EMAILS else DEFAULT_ROLE
     now = datetime.now(UTC)
     notes = "auto-registrado en primera visita"
+    # SQL-ONLY (decomiso Mongo 2026-06-28): manager.manager_users es la fuente de verdad.
+    # Best-effort: corre en el hot-path de get_user_role; si SQL falla el caller igual cae a
+    # `role` (computado local). El upsert es idempotente (ON CONFLICT) → si falla, la próxima
+    # visita lo reintenta sin duplicar.
     try:
-        _users_col().update_one(
-            {"email": email_norm},
-            {
-                "$set": {
-                    "email": email_norm,
-                    "updated_at": now,
-                },
-                "$setOnInsert": {
-                    "role": role,
-                    "enabled": True,
-                    "auto_registered": True,
-                    "notes": notes,
-                    "created_at": now,
-                },
-            },
-            upsert=True,
-        )
+        from core import roles_sql
+        roles_sql.auto_register_sql(email_norm, role, notes, now)
     except Exception as e:
-        logger.warning("auto-register falló para %s: %s", email_norm, e)
-
-    # DUAL-WRITE best-effort a SQL (espejo fresco) — CRÍTICO con AUTH_SQL=1: sin esto el
-    # lookup_role SQL no vería al user recién auto-registrado hasta el próximo sync (20 min)
-    # y lo re-auto-registraría en loop. Réplica exacta del $set/$setOnInsert de arriba.
-    if _auth_sql():
-        try:
-            from core import roles_sql
-            roles_sql.auto_register_sql(email_norm, role, notes, now)
-        except Exception as e:
-            logger.warning("auto-register: espejo SQL falló para %s: %s", email_norm, e)
+        logger.warning("auto-register: SQL falló para %s: %s", email_norm, e)
     return role
 
 
@@ -506,33 +468,15 @@ def upsert_user(email: str, role: str, enabled: bool = True,
     if role not in matrix:
         raise ValueError(f"role desconocido: {role!r} (válidos: {list(matrix)})")
 
-    col = _users_col()
     now = datetime.now(UTC)
-    before = col.find_one({"email": email_norm}, {"_id": 0})
-
-    update = {
-        "$set": {
-            "email": email_norm,
-            "role": role,
-            "enabled": bool(enabled),
-            "notes": notes or "",
-            "updated_at": now,
-        },
-        "$setOnInsert": {"created_at": now},
-    }
-    col.update_one({"email": email_norm}, update, upsert=True)
-    after = col.find_one({"email": email_norm}, {"_id": 0})
-
-    # DUAL-WRITE best-effort a SQL (espejo fresco) — con AUTH_SQL=1 el panel/lookup leen SQL,
-    # así que la edición tiene que reflejarse YA (sin esperar 20 min al sync). created_at y
-    # auto_registered NO se pisan en el upsert SQL (igual que el $setOnInsert/ausencia en Mongo).
-    if _auth_sql():
-        try:
-            from core import roles_sql
-            roles_sql.upsert_user_sql(email_norm, role, bool(enabled), notes or "", now)
-        except Exception as e:
-            logger.warning("upsert_user: espejo SQL falló (%s) — Mongo ya persistió, "
-                           "SQL se alinea en el próximo sync", e)
+    # SQL-ONLY (decomiso Mongo 2026-06-28): manager.manager_users es la fuente de verdad.
+    # AUTORITATIVO: si SQL falla, propagamos (el panel ve el error). Mejor un 500 visible que
+    # una edición de rol perdida en silencio. created_at/auto_registered no se pisan en el
+    # upsert SQL (igual que el $setOnInsert/ausencia en el viejo Mongo).
+    from core import roles_sql
+    before = roles_sql.get_user_sql(email_norm)
+    roles_sql.upsert_user_sql(email_norm, role, bool(enabled), notes or "", now)
+    after = roles_sql.get_user_sql(email_norm)
 
     _audit_insert({
         "ts": now,
@@ -549,21 +493,13 @@ def upsert_user(email: str, role: str, enabled: bool = True,
 def delete_user(email: str, actor: str = "system") -> bool:
     """Elimina un usuario. Audit-log incluido."""
     email_norm = email.lower().strip()
-    col = _users_col()
-    before = col.find_one({"email": email_norm}, {"_id": 0})
+    # SQL-ONLY (decomiso Mongo 2026-06-28): manager.manager_users es la fuente de verdad.
+    # AUTORITATIVO: si SQL falla, propagamos (el panel ve el error).
+    from core import roles_sql
+    before = roles_sql.get_user_sql(email_norm)
     if not before:
         return False
-    col.delete_one({"email": email_norm})
-
-    # DUAL-WRITE best-effort a SQL (espejo fresco) — borrar también en SQL para que con
-    # AUTH_SQL=1 el user no siga "vivo" en el panel/lookup hasta el próximo sync.
-    if _auth_sql():
-        try:
-            from core import roles_sql
-            roles_sql.delete_user_sql(email_norm)
-        except Exception as e:
-            logger.warning("delete_user: espejo SQL falló (%s) — Mongo ya persistió, "
-                           "SQL se alinea en el próximo sync", e)
+    roles_sql.delete_user_sql(email_norm)
 
     _audit_insert({
         "ts": datetime.now(UTC),
@@ -582,31 +518,14 @@ def set_role_modules(role: str, modules: list[str], actor: str = "system") -> di
     mods_norm = [m for m in modules if m in MODULES]
     now = datetime.now(UTC)
 
-    col = _matrix_col()
-    before = col.find_one({"role": role}, {"_id": 0})
-
-    col.update_one(
-        {"role": role},
-        {"$set": {
-            "role": role,
-            "modules": mods_norm,
-            "updated_by": actor,
-            "updated_at": now,
-        }},
-        upsert=True,
-    )
-    after = col.find_one({"role": role}, {"_id": 0})
-
-    # Si las LECTURAS van por SQL (AUTH_SQL), espejá la escritura a SQL YA — sino el
-    # reload del panel lee role_matrix stale y la edición "no se guarda" (la sync recién
-    # corre cada 20 min). Mongo es la fuente de verdad; si SQL falla, el sync lo alinea.
-    if _auth_sql():
-        try:
-            from core import roles_sql
-            roles_sql.set_role_modules_sql(role, mods_norm)
-        except Exception as e:
-            logger.warning("set_role_modules: espejo SQL falló (%s) — Mongo ya persistió, "
-                           "SQL se alinea en el próximo sync", e)
+    # SQL-ONLY (decomiso Mongo 2026-06-28): manager.role_matrix es la fuente de verdad.
+    # AUTORITATIVO: si SQL falla, propagamos. before/after replican el shape del viejo doc
+    # Mongo ({role, modules, ...}) para el audit y el retorno al panel.
+    from core import roles_sql
+    before_mods = roles_sql.get_role_modules_sql(role)
+    before = {"role": role, "modules": before_mods} if before_mods else None
+    roles_sql.set_role_modules_sql(role, mods_norm)
+    after = {"role": role, "modules": mods_norm, "updated_by": actor, "updated_at": now}
 
     _audit_insert({
         "ts": now,
@@ -621,8 +540,10 @@ def set_role_modules(role: str, modules: list[str], actor: str = "system") -> di
 
 
 def list_users() -> list[dict]:
-    """Todos los usuarios, ordenados por email."""
-    return list(_users_col().find({}, {"_id": 0}).sort("email", 1))
+    """Todos los usuarios, ordenados por email. SQL-ONLY (decomiso Mongo 2026-06-28):
+    lee manager.manager_users (fuente de verdad)."""
+    from core import roles_sql
+    return roles_sql.list_users_sql()
 
 
 def list_audit(limit: int = 50) -> list[dict]:

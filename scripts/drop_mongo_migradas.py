@@ -106,9 +106,17 @@ DROPS: list[tuple[str, str, str]] = [
     ("Manager", "PyRofexInstruments", "discovery_pyrofex → manager.pyrofex_instruments; 5 readers SQL."),
     ("Manager", "PyRofexDiscovery",   "discovery_pyrofex → manager.pyrofex_discovery (singleton)."),
 
-    # Curvas (master RF) — SQL-native pero ALTO BLAST RADIUS. SMOKE primero:
-    # paridad mercado.curvas↔Trading.Curvas + alta/baja de bono en rueda. Luego descomentar.
-    # ("Trading", "Curvas",     "ons/bonos_admin SQL-native; ~20 readers + loader SQL; sync_curvas no-op. SMOKE paridad."),
+    # Manager / Auth (cutover SQL-only: writers SQL-native, readers flipeados, 5 syncs no-op).
+    # SMOKE: panel Manager → USUARIOS / ROLES / GRUPOS carga; un cambio de rol persiste.
+    ("Manager", "Users",      "roles.py SQL-only (upsert/delete/auto_register/touch); list_users SQL; AUTH_SQL/MANAGER_SQL."),
+    ("Manager", "RoleMatrix", "set_role_modules SQL-only; lookup matrix SQL (fallback DEFAULT_MATRIX)."),
+    ("Manager", "Grupos",     "grupos.py SQL-only (crear/actualizar/eliminar, uuid); listar_grupos SQL."),
+    ("Manager", "RoleAudit",  "roles.py::_audit_insert SQL-native; list_audit_sql con MANAGER_SQL."),
+    ("Manager", "JobRuns",    "core/job_runs.py JobRunLogger SQL-only; informe_salud/diagnostico leen SQL."),
+
+    # Curvas (master RF) — SQL-native. GATE: correr scripts.compare_curvas_sql_vs_mongo
+    # (paridad ticker_corto + flujos). Si ✅, descomentar y dropear.
+    # ("Trading", "Curvas",     "ons/bonos_admin SQL-native; ~20 readers + loader SQL; sync_curvas no-op."),
     # ("Trading", "BondsMaster","consolidada en mercado.curvas; muerta."),
 
     # ── NO incluir todavía (gateadas) ──────────────────────────────────────────────
@@ -116,7 +124,6 @@ DROPS: list[tuple[str, str, str]] = [
     #   z_temporal NULL ~20 ruedas antes de dropear.
     # Trading.OnsIgnoradas — tabla SQL nueva; backfillear el set ignorado o se pierde.
     # Trading.PortfolioSnapshot — confirmar que pnl.py PortfolioSnapshot reads son dead-path (PNL_SQL).
-    # Manager.{Users,RoleMatrix,Grupos,JobRuns} — DUAL-write todavía (Mongo backstop); no SQL-native.
     # CashFlow.{Accionistas,VolumenMercadoAgro} — sync backstop activo (carga manual aún a Mongo).
     # Operaciones.* (órdenes) — flipear ORDENES_SQL en rueda tras comparador de paridad PRIMERO.
 ]

@@ -48,6 +48,41 @@ def cuentas_de_grupos_sql(email: str) -> set[str] | None:
     return cuentas
 
 
+def _row_to_grupo(r: dict) -> dict:
+    """Fila SQL → dict con el shape que espera el panel (la PK `id` se expone como `_id`,
+    igual que el path Mongo que devolvía str(ObjectId))."""
+    return {
+        "_id":        r["id"],
+        "nombre":     r["nombre"],
+        "emails":     list(r["emails"] or []),
+        "id_cuentas": list(r["id_cuentas"] or []),
+        "creado_por": r["creado_por"],
+        "creado_at":  r["creado_at"],
+        "updated_at": r["updated_at"],
+    }
+
+
+def listar_grupos_sql() -> list[dict]:
+    """Todos los grupos ordenados por nombre (mismo orden/shape que el path Mongo). Lo
+    consume el panel /api/manager/grupos."""
+    rows = _q(
+        "SELECT id, nombre, emails, id_cuentas, creado_por, creado_at, updated_at "
+        "FROM grupos ORDER BY nombre"
+    )
+    return [_row_to_grupo(r) for r in rows]
+
+
+def get_grupo_sql(grupo_id: str) -> dict | None:
+    """Un grupo por id (mismo shape que listar_grupos_sql). None si no existe. Lo usa
+    actualizar_grupo de core/grupos.py para devolver el doc actualizado."""
+    rows = _q(
+        "SELECT id, nombre, emails, id_cuentas, creado_por, creado_at, updated_at "
+        "FROM grupos WHERE id = %s",
+        (grupo_id,),
+    )
+    return _row_to_grupo(rows[0]) if rows else None
+
+
 # ─────────────────────────────────────────────────────────────
 # Escrituras (espejo SQL de las mutaciones de core/grupos.py)
 # ─────────────────────────────────────────────────────────────

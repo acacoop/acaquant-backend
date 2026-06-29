@@ -78,6 +78,33 @@ def lookup_role_sql(email: str) -> str | None:
     return str(r["role"]) if r["role"] else None
 
 
+def list_users_sql() -> list[dict]:
+    """Todos los usuarios ordenados por email. Mismo shape que el path Mongo
+    (`Manager.Users.find({}, {"_id":0}).sort("email")`): las columnas materializadas
+    SON los campos del doc. Lo consume el panel /api/manager/users."""
+    return _q(
+        "SELECT email, role, enabled, auto_registered, notes, last_seen_at, "
+        "created_at, updated_at FROM manager_users ORDER BY email"
+    )
+
+
+def get_user_sql(email: str) -> dict | None:
+    """Un usuario por email (mismo shape que list_users_sql). None si no existe. Lo usan
+    los writers de core/roles.py para before/after del audit y el valor de retorno."""
+    rows = _q(
+        "SELECT email, role, enabled, auto_registered, notes, last_seen_at, "
+        "created_at, updated_at FROM manager_users WHERE email = %s",
+        (email,),
+    )
+    return rows[0] if rows else None
+
+
+def get_role_modules_sql(role: str) -> list[str]:
+    """Módulos de un role en role_matrix (lista, puede ser vacía si el role no tiene
+    filas). Lo usa set_role_modules de core/roles.py para el before del audit."""
+    return [r["module"] for r in _q("SELECT module FROM role_matrix WHERE role = %s", (role,))]
+
+
 # ─────────────────────────────────────────────────────────────
 # Escrituras (espejo SQL de las mutaciones de core/roles.py)
 # ─────────────────────────────────────────────────────────────

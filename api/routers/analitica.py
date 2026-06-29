@@ -4,7 +4,6 @@ Los 6 endpoints acá son thin wrappers sobre `api/services/*`. El asistente
 los llama directo via service registry (sin HTTP loopback); este router
 existe para consumo externo (acaquant-web, curl, debugging).
 """
-import os
 
 from fastapi import APIRouter, Body, Query
 from pydantic import BaseModel, Field
@@ -14,7 +13,6 @@ from api.services import canje as svc_canje
 from api.services import carry_trade as svc_carry
 from api.services import comparar_inversion as svc_cmp
 from api.services import descomposicion_retorno as svc_desc
-from api.services import macro as svc_macro
 from api.services import macro_sql as svc_macro_sql
 from api.services import opciones_sql as svc_opc_sql
 from api.services import renta_fija as svc_rf
@@ -24,19 +22,15 @@ from api.services import sensibilidad as svc_sens
 router = APIRouter(prefix="/api/analitica", tags=["Analítica"])
 
 
-def _macro(engine: str | None):
-    """Selector de motor de series macro (mismo criterio que cotizaciones._macro):
-    SQL si `?_engine=sql` o flag `MACRO_SQL=1`; default Mongo. El path SQL delega
-    a Mongo lo no-migrado (mep/ccl/canje, series por ticker, caución)."""
-    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("MACRO_SQL") == "1")
-    return svc_macro_sql if use_sql else svc_macro
+def _macro(engine: str | None = None):
+    """Series macro: SQL-only (macro.series_macro). El gemelo Mongo fue retirado;
+    firma `(engine)` por compat con `?_engine`."""
+    return svc_macro_sql
 
 
-def _rf(engine: str | None):
-    """Selector de renta fija LIVE (mismo criterio que cotizaciones._rf): SQL
-    (mercado.*) si `?_engine=sql` o flag `RENTA_FIJA_SQL=1`; Mongo en otro caso."""
-    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("RENTA_FIJA_SQL") == "1")
-    return svc_rf_sql if use_sql else svc_rf
+def _rf(engine: str | None = None):
+    """Renta fija LIVE: SQL-only (mercado.*). El gemelo Mongo fue retirado."""
+    return svc_rf_sql
 
 
 def _opc(engine: str | None = None):

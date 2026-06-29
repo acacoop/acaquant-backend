@@ -13,75 +13,48 @@ que parsean query params y delegan al service. Separación por dominio:
 Motivo de la capa de servicio: `api/agent/tools.py::dispatch` la invoca
 directamente, sin loopback HTTP.
 """
-import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import require_module
 from api.services import argy as svc_argy
-from api.services import derivados as svc_der
 from api.services import fair_value as svc_fv
 from api.services import macro as svc_macro
 from api.services import macro_sql as svc_macro_sql
 from api.services import mercado_hist_sql as svc_mhist
 from api.services import opciones as svc_opt
 from api.services import opciones_sql as svc_opt_sql
-from api.services import rem as svc_rem
 from api.services import rem_sql as svc_rem_sql
-from api.services import renta_fija as svc_rf
 from api.services import renta_fija_sql as svc_rf_sql
-from api.services import repo as svc_repo
 
 router = APIRouter(prefix="/api/cotizaciones", tags=["Cotizaciones"])
 
 
-def _rem(engine: str | None):
-    """Selector de motor REM: SQL (macro.rem) o Mongo (Trading.REM). SQL si
-    `?_engine=sql` o el flag global `REM_SQL=1`; Mongo en cualquier otro caso
-    (default). El path Mongo queda intacto → rollback = sacar la env + restart."""
-    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("REM_SQL") == "1")
-    return svc_rem_sql if use_sql else svc_rem
+# Selectores SQL-only (decomiso Mongo): los servicios Mongo gemelos fueron
+# retirados de la ejecución; estos helpers quedan con la firma `(engine)` por
+# compat con los call-sites (`?_engine`) pero devuelven SIEMPRE el servicio SQL.
+def _rem(engine: str | None = None):
+    return svc_rem_sql
 
 
-def _macro(engine: str | None):
-    """Selector de motor de series macro: SQL (macro.series_macro) o Mongo
-    (Trading.*). SQL si `?_engine=sql` o flag `MACRO_SQL=1`; default Mongo. El
-    path SQL delega a Mongo lo no-migrado (mep/ccl/canje, ticker, caución)."""
-    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("MACRO_SQL") == "1")
-    return svc_macro_sql if use_sql else svc_macro
+def _macro(engine: str | None = None):
+    return svc_macro_sql
 
 
-def _hist(engine: str | None, mongo_svc):
-    """Selector de históricos de mercado (futuros DLR / forwards / breakevens /
-    caución): SQL (`mercado.mercado_hist`) si `?_engine=sql` o flag
-    `MERCADO_HIST_SQL=1`; si no, el servicio Mongo original (`mongo_svc`)."""
-    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("MERCADO_HIST_SQL") == "1")
-    return svc_mhist if use_sql else mongo_svc
+def _hist(engine: str | None = None, mongo_svc=None):
+    return svc_mhist
 
 
-def _rf(engine: str | None):
-    """Selector de renta fija LIVE: SQL (mercado.market_snapshot + curvas +
-    snapshots_cierre_hist) si `?_engine=sql` o flag `RENTA_FIJA_SQL=1`; Mongo
-    (Trading.*) en cualquier otro caso. El path Mongo queda intacto → rollback =
-    sacar la env + restart."""
-    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("RENTA_FIJA_SQL") == "1")
-    return svc_rf_sql if use_sql else svc_rf
+def _rf(engine: str | None = None):
+    return svc_rf_sql
 
 
-def _caucion(engine: str | None):
-    """Selector de caución LIVE: SQL (mercado.caucion_snapshot) vs Mongo (repo.py /
-    CaucionSnapshot). Mismo flag RENTA_FIJA_SQL. OJO: el Mongo de caución es svc_repo,
-    no svc_der → no usar _fwbe."""
-    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("RENTA_FIJA_SQL") == "1")
-    return svc_mhist if use_sql else svc_repo
+def _caucion(engine: str | None = None):
+    return svc_mhist
 
 
-def _fwbe(engine: str | None):
-    """Forwards/breakevens LIVE: SQL (la fila más reciente de mercado_hist, fresca por
-    SNAPSHOT_SQL) si `?_engine=sql` o `RENTA_FIJA_SQL=1`; Mongo (ForwardsLive/BreakevensLive)
-    si no. MISMO flag que el resto de renta fija → un solo switch para toda la pantalla."""
-    use_sql = engine == "sql" or (engine != "mongo" and os.getenv("RENTA_FIJA_SQL") == "1")
-    return svc_mhist if use_sql else svc_der
+def _fwbe(engine: str | None = None):
+    return svc_mhist
 
 
 # ── Series BCRA (BADLAR, CER, DOLAR) ──
@@ -168,7 +141,7 @@ def historico_caucion(
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _hist(_engine, svc_repo).get_historico_caucion(moneda=moneda, desde=desde, hasta=hasta)
+    return _hist(_engine).get_historico_caucion(moneda=moneda, desde=desde, hasta=hasta)
 
 
 # ── Futuros DLR ──
@@ -186,7 +159,7 @@ def historico_futuros_dlr(
     hasta:  str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _hist(_engine, svc_der).get_historico_futuros_dlr(ticker=ticker, desde=desde, hasta=hasta)
+    return _hist(_engine).get_historico_futuros_dlr(ticker=ticker, desde=desde, hasta=hasta)
 
 
 # ── Forwards ──
@@ -207,7 +180,7 @@ def historico_forwards(
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _hist(_engine, svc_der).get_historico_forwards(curva=curva, desde=desde, hasta=hasta)
+    return _hist(_engine).get_historico_forwards(curva=curva, desde=desde, hasta=hasta)
 
 
 @router.get("/forwards-zscore")
@@ -295,7 +268,7 @@ def historico_breakevens(
     hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     _engine: str | None = Query(None, include_in_schema=False),
 ):
-    return _hist(_engine, svc_der).get_historico_breakevens(desde=desde, hasta=hasta)
+    return _hist(_engine).get_historico_breakevens(desde=desde, hasta=hasta)
 
 
 # ── REM (Relevamiento de Expectativas de Mercado, BCRA) ──

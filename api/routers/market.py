@@ -1,16 +1,14 @@
 """Router Market: watchlist quotes, economic calendar, candles históricos.
 
-`/quotes` y `/calendar/economic` corren dual-run Mongo↔SQL (flag `MARKET_SQL=1`,
-path Mongo intacto como fallback — ver docs/SQL.md). `/candle` y `/profile`
-pegan a APIs externas, no migran.
+`/quotes` y `/calendar/economic` leen SQL (`api/services/market_sql`, tablas
+`market.*`) — decomiso Mongo: Market.{Quotes,EconomicCalendar} dropeadas.
+`/candle` y `/profile` pegan a APIs externas (Yahoo/Finnhub).
 """
-import os
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
 
 from api.services import market_sql
-from core.mongo import get_mongo_client_read
 
 router = APIRouter(prefix="/api/market", tags=["Market"])
 
@@ -26,31 +24,11 @@ def _parse(s: str | None) -> datetime | None:
         return None
 
 
-def _serialize(d: dict) -> dict:
-    d = dict(d)
-    d.pop("_id", None)
-    for k in ("timestamp", "updated_at", "fetched_at", "anchors_updated_at"):
-        v = d.get(k)
-        if isinstance(v, datetime):
-            d[k] = v.astimezone(UTC).isoformat()
-    # Retornos on-the-fly desde anchors — regla compartida con el path SQL.
-    return market_sql.compute_returns(d)
-
-
 @router.get("/quotes")
 def quotes(symbols: str | None = Query(None, description="CSV de símbolos; vacío = todos")):
-    """Últimas cotizaciones desde Market.Quotes (población por jobs.market_quotes)."""
+    """Últimas cotizaciones desde market.quotes (SQL; población por jobs.market_quotes)."""
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()] if symbols else None
-    if os.getenv("MARKET_SQL") == "1":
-        return market_sql.quotes(syms)
-    coll = get_mongo_client_read()["Market"]["Quotes"]
-    filtro: dict = {}
-    if syms:
-        filtro["symbol"] = {"$in": syms}
-    docs = [_serialize(d) for d in coll.find(filtro)]
-    # Ordenar por grupo y luego symbol
-    docs.sort(key=lambda d: (d.get("grupo", "ZZZ"), d.get("symbol", "")))
-    return docs
+    return market_sql.quotes(syms)
 
 
 @router.get("/calendar/economic")
@@ -64,20 +42,9 @@ def calendar_economic(
     now = datetime.now(UTC)
     d_desde = _parse(desde) or now
     d_hasta = _parse(hasta) or (now + timedelta(days=30))
-    if os.getenv("MARKET_SQL") == "1":
-        return market_sql.calendar_economic(
-            desde=d_desde, hasta=d_hasta, importancia=importancia,
-            country=country, limit=limit)
-
-    coll = get_mongo_client_read()["Market"]["EconomicCalendar"]
-    filtro: dict = {"time": {"$gte": d_desde, "$lte": d_hasta}}
-    if importancia:
-        filtro["impact"] = {"$gte": importancia}
-    if country:
-        filtro["country"] = country.upper()
-
-    cur = coll.find(filtro, {"_id": 0}).sort("time", 1).limit(limit)
-    return [_serialize(d) for d in cur]
+    return market_sql.calendar_economic(
+        desde=d_desde, hasta=d_hasta, importancia=importancia,
+        country=country, limit=limit)
 
 
 @router.get("/candle")

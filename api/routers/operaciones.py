@@ -451,7 +451,7 @@ def comercial_cobros_futuros(
     referido: str | None = Query(None, description="filtro madre referido"),
 ) -> dict:
     """Cobros futuros (acreencias) del scope: serie diaria acumulable + totales por
-    cliente. Mongo-only (CashFlow.Acreencias no tiene espejo SQL)."""
+    cliente. SQL-native (operaciones.acreencias + clientes.comitentes)."""
     return _com.cobros_futuros(
         operador=operador, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido)
 
@@ -470,7 +470,7 @@ def comercial_referido_clientes(
     moneda: str = Query("ARS"),
 ) -> dict:
     """Vista REFERIDOS: cuentas referidas por una empresa con AuM + volumen (mes/año)
-    + arancel (mes/total). Mongo-only (reusa los helpers del tablero comercial)."""
+    + arancel (mes/total). SQL-native (comitentes/negocio_movimientos/tenencia/operaciones)."""
     return _com.referido_clientes(referido=referido, moneda=moneda)
 
 
@@ -483,7 +483,7 @@ def comercial_referido_fci(
 ) -> dict:
     """Vista REFERIDOS — tabla FCI: dinero en cartera FCI (saldo promedio diario
     del rango) de las cuentas del referido, abierto por sociedad gerente. Base
-    para la comisión de la coop. Mongo-only (reusa helpers del tablero comercial)."""
+    para la comisión de la coop. SQL-native (portafolio.tenencia + comitentes)."""
     return _com.referido_fci(referido=referido, desde=desde, hasta=hasta, moneda=moneda)
 
 

@@ -61,14 +61,12 @@
 | cada 15min · 12-23h · diario | `jobs.news_ingesta'` |
 | cada 15min · 13-20h · L-V | `jobs.adr_live'` |
 | cada 15min · 13-20h · L-V | `engines.dolar_mep'` |
-| cada 20min · 14-23h · L-V | `jobs.sync_postgres'` |
 | cada 30min · 12-23h · diario | `jobs.news_finnhub'` |
 | cada 30min · 14-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral'` |
 | cada 4min · 13-20h · L-V | `jobs.comercial_warm'` |
 | cada 5min · *h · diario | `jobs.watchdog'` |
 | 11:00 · L-V | `jobs.portafolio_backfill` |
 | 12:00 · diario | `jobs.argentina_datos'` |
-| 12:00 · Dom | `jobs.sync_postgres` |
 | cada hora · 13-20h · L-V | `jobs.informe_salud'` |
 | 14:00 · L-V | `jobs.sync_comitentes'` |
 | cada hora · 14-22h · L-V | `jobs.operaciones_informes'` |
@@ -118,9 +116,7 @@
 | 13:20 · L-V | `systemctl restart motor_agro.service` |
 | 13:20 · L-V | `systemctl restart motor_agro_opciones.service` |
 | 13:20 · L-V | `systemctl restart motor_portfolio_snapshot.service` |
-| 11:30 · diario | `deploy/atlas_cluster.sh resume` |
 | 13:30 · L-V | `systemctl restart motor_ordenes.service` |
-| 03:30 · diario | `deploy/atlas_cluster.sh pause` |
 <!-- /AUTOGEN:otros -->
 
 > Las tablas de arriba solo listan lo **agendado** en `crontab.txt`. Jobs

@@ -53,7 +53,6 @@ from dotenv import load_dotenv
 # Cargar .env antes que core/rofex_orders_session lea ROFEX_ORDERS_ENV y demás.
 load_dotenv()
 
-from core.mongo import get_mongo_client  # noqa: E402
 from core.rofex_orders_session import (  # noqa: E402
     cerrar_ws,
     inicializar_para_motor,
@@ -96,13 +95,7 @@ signal.signal(signal.SIGINT, _handle_signal)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _ensure_indexes(db) -> None:
-    """NO-OP (decomiso 2026-06-29): el motor escribe SQL-native (operaciones.ordenes_live /
-    ordenes_audit / motor_heartbeat). Los índices viven en sql/schema.sql."""
-    return
-
-
-def _audit(db, kind: str, *, cl_ord_id: str | None = None,
+def _audit(kind: str, *, cl_ord_id: str | None = None,
            ws_cl_ord_id: str | None = None, account: str | None = None,
            actor_email: str | None = None, payload: dict | None = None) -> None:
     ts = datetime.now(UTC)
@@ -115,7 +108,7 @@ def _audit(db, kind: str, *, cl_ord_id: str | None = None,
     }])
 
 
-def _upsert_live_from_er(db, rep: dict[str, Any]) -> None:
+def _upsert_live_from_er(rep: dict[str, Any]) -> None:
     """Mapea un orderReport del broker a la forma normalizada y hace upsert."""
     cl_ord_id = rep.get("clOrdId")
     if not cl_ord_id:
@@ -178,16 +171,16 @@ def _upsert_live_from_er(db, rep: dict[str, Any]) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _make_er_handler(db):
+def _make_er_handler():
     def _handler(message: dict) -> None:
         try:
             rep = message.get("orderReport") or {}
             if not rep:
                 return
             with _lock:
-                _upsert_live_from_er(db, rep)
+                _upsert_live_from_er(rep)
                 _audit(
-                    db, "EXECUTION_REPORT",
+                    "EXECUTION_REPORT",
                     cl_ord_id=rep.get("clOrdId"),
                     ws_cl_ord_id=rep.get("wsClOrdId"),
                     payload=message,
@@ -204,13 +197,13 @@ def _make_er_handler(db):
 
             # Hook de brackets: si esta orden es la entrada de un bracket
             # PENDING_ENTRY y llegó a FILLED, disparamos la salida.
-            _maybe_dispatch_bracket_exit(db, rep)
+            _maybe_dispatch_bracket_exit(rep)
         except Exception as e:
             logger.error("Error procesando ER: %s", e, exc_info=True)
     return _handler
 
 
-def _maybe_dispatch_bracket_exit(db, rep: dict[str, Any]) -> None:
+def _maybe_dispatch_bracket_exit(rep: dict[str, Any]) -> None:
     """Si el ER recibido corresponde a la entrada de un bracket en PENDING_ENTRY,
     actúa según el status:
 
@@ -317,7 +310,7 @@ def _maybe_dispatch_bracket_exit(db, rep: dict[str, Any]) -> None:
         exit_proprietary=exit_proprietary,
     )
     _audit(
-        db, "BRACKET_EXIT_SENT",
+        "BRACKET_EXIT_SENT",
         cl_ord_id=exit_cl_ord_id,
         account=bracket["account"],
         actor_email=bracket.get("actor_email"),
@@ -340,7 +333,7 @@ def _maybe_dispatch_bracket_exit(db, rep: dict[str, Any]) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _recovery(db, _account_master: str) -> None:
+def _recovery(_account_master: str) -> None:
     """Reconcilia OrdenesLive contra el broker, agrupando por cuenta REAL
     de la orden (no la del master).
 
@@ -402,8 +395,8 @@ def _recovery(db, _account_master: str) -> None:
             cid = rep.get("clOrdId", "")
             if cid in cl_ord_locales:
                 with _lock:
-                    _upsert_live_from_er(db, rep)
-                    _audit(db, "RECOVERY", cl_ord_id=cid, account=acc, payload=rep)
+                    _upsert_live_from_er(rep)
+                    _audit("RECOVERY", cl_ord_id=cid, account=acc, payload=rep)
                 vistos.add(cid)
 
     todas_locales = set().union(*por_cuenta.values()) if por_cuenta else set()
@@ -426,7 +419,7 @@ def _recovery(db, _account_master: str) -> None:
                 (now, patch, list(huerfanas)))
             conn.commit()
         for cid in huerfanas:
-            _audit(db, "RECOVERY", cl_ord_id=cid,
+            _audit("RECOVERY", cl_ord_id=cid,
                    payload={"reason": "no encontrada en broker"})
 
     logger.info("Recovery: reconciliadas=%d, huérfanas=%d", len(vistos), len(huerfanas))
@@ -437,7 +430,7 @@ def _recovery(db, _account_master: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _heartbeat_loop(db, account: str) -> None:
+def _heartbeat_loop(account: str) -> None:
     """Thread daemon: cada HEARTBEAT_DB_S segundos escribe Operaciones.
     MotorOrdenesHeartbeat para que /manager → DIAG sepa que el motor
     está vivo. A diferencia de los otros motores, este no escribe
@@ -457,28 +450,21 @@ def _heartbeat_loop(db, account: str) -> None:
 
 
 def main() -> None:
-    db = get_mongo_client()[DB_NAME]
-    _ensure_indexes(db)
-    try:
-        from core.brackets import ensure_indexes as ensure_brackets_indexes
-        ensure_brackets_indexes()
-        logger.info("Brackets: índices listos en Operaciones.BracketsLive")
-    except Exception as e:
-        logger.warning("Brackets ensure_indexes falló (no bloqueante): %s", e)
-
-    handler = _make_er_handler(db)
+    # SQL-native (decomiso Mongo 2026-06-29): el motor NO toca Mongo. Persiste todo en
+    # operaciones.{ordenes_live,ordenes_audit,motor_heartbeat} (SQL). Sin handle Mongo.
+    handler = _make_er_handler()
     account, env = inicializar_para_motor(handler)
     logger.info("Motor de órdenes ARRIBA (cuenta=%s, env=%s)", account, env.name)
 
     # El motor escucha solo la cuenta master para audit general. Las
     # operativas de mesa (operativa_mep) ya no dependen del WS — confirman
     # los fills vía REST `pyRofex.get_order_status` directo al broker.
-    _recovery(db, account)
+    _recovery(account)
 
     # Heartbeat para monitoreo desde /manager → DIAG.
     threading.Thread(
         target=_heartbeat_loop,
-        args=(db, account),
+        args=(account,),
         daemon=True,
     ).start()
 

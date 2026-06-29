@@ -185,9 +185,8 @@
 # Trading.CedearsTimeSales es intradía (tape del scanner); se borra al cierre.
 10 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_cedears_timesales 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_cedears_timesales'
 
-# ─── Atlas cluster pause/resume diaria (03:30 / 11:30 UTC = 00:30 / 08:30 ART)
-30 3  * * * /root/TradingAV/deploy/atlas_cluster.sh pause  >> /root/TradingAV/logs/atlas_cluster.log 2>&1
-30 11 * * * /root/TradingAV/deploy/atlas_cluster.sh resume >> /root/TradingAV/logs/atlas_cluster.log 2>&1
+# ─── Atlas cluster pause/resume ELIMINADO (decomiso Mongo 2026-06-29): Mongo vacío, no se
+# pausa/resumea más. El M10 se pausa/cancela A MANO una sola vez (tras limpiar el código).
 
 # ─── News RSS medios AR — 1er tiro 11:35 UTC (post-resume 11:30) + cada 15 min 12-23 UTC (todos los días)
 35 11    * * *   /root/TradingAV/deploy/run_job.sh news_ingesta 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.news_ingesta'
@@ -210,13 +209,8 @@
 # ─── Market anchors (retornos 7d/MTD/YTD/1Y) — 1x/día post-cierre US (22:00 UTC, L-V)
 0 22 * * 1-5 /root/TradingAV/deploy/run_job.sh market_anchors 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.market_anchors'
 
-# ─── Sync Mongo→Postgres (espejo SQL analítico / Supabase). Incremental cada 20 min
-# (:00/:20/:40), 14-23 UTC L-V = 11-20 ART (después de operaciones/negocio/aum) para
-# mantener PG fresco. Lock (run_job.sh) evita solapamiento: si una corrida no terminó, la
-# siguiente se saltea. Lee del SECONDARY, batcheado + throttle, upsert idempotente + borra
-# huérfanos en dims. Atlas pausado 03:30-11:30 UTC → no corre ahí. --full semanal (dom 12 UTC).
-*/20 14-23 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_postgres 25m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_postgres'
-0 12 * * 0 /root/TradingAV/deploy/run_job.sh sync_postgres_full 40m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_postgres --full'
+# ─── Sync Mongo→Postgres ELIMINADO (decomiso Mongo 2026-06-29): era el bridge Mongo→SQL.
+# Mongo está vacío y todos los writers son SQL-native → el bridge no tiene fuente. Job borrado.
 
 # ─── Sync comitentes (master de clientes) — 3x/día L-V (14/17/21 UTC)
 0 14 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_comitentes 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes'

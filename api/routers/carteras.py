@@ -9,11 +9,9 @@ visibles del usuario (`scope_cuentas`) y lo pasa al service. `scope=None`
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.services import pnl as pnl_svc
 from api.services import pnl_sql
 from api.services import portfolio_sql as svc_sql
 from api.services._grupos_scope import scope_cuentas, verificar_id_cuenta
-from api.services.operaciones_view import motor as _motor
 
 router = APIRouter(prefix="/api/portfolio", tags=["Portfolio"])
 
@@ -100,12 +98,9 @@ def pnl_todas(
     `id_cuenta`). El `scope` de grupos limita el agregado a las cuentas visibles del
     usuario.
 
-    Dual-run: SQL (`valuaciones.pnl_totales_cache`) o Mongo (`Valuaciones.PnLTotalesCache`)
-    por flag PNL_TOTALES_SQL (override `?_engine=sql|mongo`). Default Mongo → path Mongo
-    intacto. Cacheada con TTL=60s (en el path Mongo)."""
-    if _motor(_engine, "PNL_TOTALES_SQL") == "sql":
-        return pnl_sql.pnl_todas_cuentas_sql(filtro_cuenta=filtro_cuenta, scope=scope)
-    return pnl_svc.pnl_todas_cuentas(filtro_cuenta=filtro_cuenta, scope=scope)
+    SQL-native (decomiso Mongo): lee `valuaciones.pnl_totales_cache`. Valuaciones.PnLTotalesCache
+    (Mongo) dropeada → el gemelo pnl.py ya no se usa."""
+    return pnl_sql.pnl_todas_cuentas_sql(filtro_cuenta=filtro_cuenta, scope=scope)
 
 
 @router.get("/cuentas")

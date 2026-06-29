@@ -49,7 +49,6 @@ from datetime import UTC, date, datetime
 
 import pyRofex
 
-from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
 from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
@@ -142,7 +141,7 @@ def _dias_a_vto(mat_str: str) -> int:
         return 1
 
 
-def _spot_referencia(client) -> tuple[float | None, str]:
+def _spot_referencia(_client=None) -> tuple[float | None, str]:
     """Spot de referencia para calcular tasa implícita. Devuelve (valor, fuente).
 
     Prefiere precioUltimo del oficial mayorista (UST$T MAE) vía
@@ -195,11 +194,8 @@ def _tasa_implicita_tna(precio_dlr: float | None, spot: float | None, dias: int)
 
 class FuturosDLREngine:
     def __init__(self):
-        # get_mongo_client se conserva SOLO porque `_spot_referencia(self.client)` lo
-        # recibe por firma (no lee Mongo: usa core.dolar_oficial/series_macro/dolar_sql).
-        # Ya NO se escribe Mongo: el snapshot/histórico es SQL-native.
-        self.client = get_mongo_client()
-
+        # SQL-native: snapshot/histórico → SQL; el spot lo resuelve
+        # _spot_referencia vía core.dolar_oficial/series_macro/dolar_sql (no Mongo).
         self.tickers_actuales: list[tuple[str, str]] = descubrir_outrights_dlr()
         if not self.tickers_actuales:
             raise RuntimeError("No hay outrights DLR vigentes — abortando.")
@@ -272,7 +268,7 @@ class FuturosDLREngine:
 
     def _volcar_snapshot(self):
         ts = datetime.now(UTC)
-        spot, fuente_spot = _spot_referencia(self.client)
+        spot, fuente_spot = _spot_referencia()
         docs = []
         with self._state_lock:
             for ticker, mat in self.tickers_actuales:
@@ -336,7 +332,7 @@ class FuturosDLREngine:
         from core import pg_mirror
         hoy = date.today().isoformat()
         ts = datetime.now(UTC)
-        spot, fuente_spot = _spot_referencia(self.client)
+        spot, fuente_spot = _spot_referencia()
         rows = []
         with self._state_lock:
             for ticker, mat in self.tickers_actuales:

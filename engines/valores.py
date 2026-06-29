@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 import pyRofex
 
 from core import pg_mirror
-from core.mongo import get_mongo_client
 
 # --- TUS MANAGERS DE INFRAESTRUCTURA ---
 from core.rofex_session import inicializar_sesion
@@ -66,15 +65,8 @@ class MicrostructureEngine:
                 "hourly_stats": {h: {"buy": 0.0, "sell": 0.0, "total": 0.0} for h in range(10, 18)}
             } for t in self.tickers
         }
-        try:
-            self.mongo_client = get_mongo_client()
-            self.db = self.mongo_client["Trading"]
-            # TimeSales y MarketSnapshot ya NO se escriben en Mongo (SQL-native).
-            # mongo_client queda solo para AdhocSubscriptions (adhoc_watcher).
-        except Exception as e:
-            print(f"Error conectando a Mongo en main_ts: {e}")
-            self.db = None
-
+        # TimeSales y MarketSnapshot son SQL-native (mercado.*). Las
+        # suscripciones adhoc viven en mercado.adhoc_subscriptions (core).
         # Retención de mercado.timesales (~7d) — 1 vez al arranque. El tape muestra solo
         # el día; no hace falta guardar más. SQL-only → prune incondicional.
         try:
@@ -393,7 +385,7 @@ class MicrostructureEngine:
 # ==========================================
 
 def _adhoc_watcher(engine, ws_manager, poll_s: int = 5):
-    """Thread daemon: cada `poll_s` segundos, lee Trading.AdhocSubscriptions
+    """Thread daemon: cada `poll_s` segundos, lee mercado.adhoc_subscriptions
     y suscribe vía pyRofex los tickers que NO están en `engine.tickers`.
 
     Las suscripciones pyRofex son aditivas (no rompen las existentes), así
@@ -403,7 +395,7 @@ def _adhoc_watcher(engine, ws_manager, poll_s: int = 5):
 
     try:
         ensure_indexes()
-        logger.info("adhoc_watcher: índices TTL listos en Trading.AdhocSubscriptions")
+        logger.info("adhoc_watcher: listo (mercado.adhoc_subscriptions, SQL)")
     except Exception as e:
         logger.warning(f"adhoc_watcher: ensure_indexes falló: {e}")
 

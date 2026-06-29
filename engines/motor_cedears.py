@@ -32,7 +32,6 @@ from typing import ClassVar
 
 import pyRofex
 
-from core.mongo import get_mongo_client
 from core.rofex_session import inicializar_sesion
 from core.threads import lanzar_hilo_vital
 from core.websocket import WebSocketManager
@@ -114,12 +113,10 @@ class CedearsEngine:
             } for t in self.tickers
         }
 
-        self.client = get_mongo_client()
-        # CedearsSnapshot migrada a SQL (mercado.cedears_snapshot) — cutover 2026-06-24.
-        # CedearsTimeSales migrada a SQL (mercado.cedears_time_sales) — decomiso 2026-06-28:
-        # el _flush_loop escribe SQL directo (append_native). self.client sigue para el
-        # master Trading.Cedears (no migrado todavía). El índice (ticker_corto, ts) lo
-        # crea schema.sql. La tabla es intradía: se vacía al cierre (cleanup_cedears_timesales).
+        # SQL-native (decomiso): snapshot → mercado.cedears_snapshot (cutover 2026-06-24);
+        # time_sales → mercado.cedears_time_sales (el _flush_loop escribe append_native);
+        # master → mercado.cedears (_cargar_cedears_master). El índice (ticker_corto, ts) lo
+        # crea schema.sql. La tabla time_sales es intradía: se vacía al cierre.
         self.trade_buffer: list[dict] = []
         self._buffer_lock = threading.Lock()
 

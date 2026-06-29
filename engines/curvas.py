@@ -19,7 +19,6 @@ from datetime import date, datetime, timedelta
 import numpy as np
 
 from core import market_snapshot, pg_mirror
-from core.mongo import get_mongo_client
 from engines._curvas_loader import cargar_indexado_por_ticker
 from quant.xirr import xirr as _xirr_quant
 
@@ -144,7 +143,7 @@ def get_cer_en_fecha(cer_dict, fecha_date):
 # Carga de datos de referencia
 # ─────────────────────────────────────────────
 
-def cargar_cer(client, dias: int = 90):
+def cargar_cer(_client=None, dias: int = 90):
     """Carga CER solo de los últimos N días.
 
     El enriquecimiento de trades usa T-10 días hábiles como settlement,
@@ -158,14 +157,14 @@ def cargar_cer(client, dias: int = 90):
     return cer
 
 
-def cargar_dias_habiles(client):
+def cargar_dias_habiles(_client=None):
     from core.calendario import dias_habiles_ordenados
-    dias = dias_habiles_ordenados(client)  # SQL-first (mercado.dias_habiles), fallback Mongo
+    dias = dias_habiles_ordenados()  # SQL-only (mercado.dias_habiles)
     logger.info(f"Días hábiles cargados: {len(dias)}")
     return dias
 
 
-def cargar_mep_actual(client) -> float | None:
+def cargar_mep_actual(_client=None) -> float | None:
     """Último MEP disponible. Prefiere DolarSnapshot live; cae al histórico.
 
     Usado para convertir precios de bonos soberanos ley-NY en pesos
@@ -181,7 +180,7 @@ def cargar_mep_actual(client) -> float | None:
     return None
 
 
-def cargar_a3500_actual(client) -> float | None:
+def cargar_a3500_actual(_client=None) -> float | None:
     """TC para valuar dolar-linked en tiempo real durante horas de mercado.
 
     Fuente única: feed MAE mayorista (UST$T plazo 000) vía
@@ -685,14 +684,13 @@ _CAMPOS_ANALITICOS = ("TEA", "TEM", "duration", "mod_duration", "convexity", "pa
 
 def run():
     logger.info("Motor Curvas iniciando...")
-    client = get_mongo_client()  # aún usado para MEP/A3500 live (Valuaciones.Dolar)
 
     curvas = cargar_indexado_por_ticker()
     logger.info(f"Curvas cargadas: {len(curvas)} instrumentos")
-    cer_dict = cargar_cer(client)
-    dias_habiles = cargar_dias_habiles(client)
-    mep_actual = cargar_mep_actual(client)
-    tc_a3500_actual = cargar_a3500_actual(client)
+    cer_dict = cargar_cer()
+    dias_habiles = cargar_dias_habiles()
+    mep_actual = cargar_mep_actual()
+    tc_a3500_actual = cargar_a3500_actual()
     tickers = list(curvas.keys())
 
     ultimo_reload_cer = time.time()
@@ -715,17 +713,17 @@ def run():
             # Recargas periódicas. Cualquier cambio invalida el cache de
             # cálculos (los outputs dependen de CER/MEP/A3500).
             if time.time() - ultimo_reload_cer > INTERVALO_RECARGA_CER:
-                cer_dict = cargar_cer(client)
+                cer_dict = cargar_cer()
                 ultimo_reload_cer = time.time()
                 ultimo_calculado.clear()
 
             if time.time() - ultimo_reload_mep > INTERVALO_RECARGA_MEP:
-                mep_actual = cargar_mep_actual(client)
+                mep_actual = cargar_mep_actual()
                 ultimo_reload_mep = time.time()
                 ultimo_calculado.clear()
 
             if time.time() - ultimo_reload_a3500 > INTERVALO_RECARGA_A3500:
-                tc_a3500_actual = cargar_a3500_actual(client)
+                tc_a3500_actual = cargar_a3500_actual()
                 ultimo_reload_a3500 = time.time()
                 ultimo_calculado.clear()
 

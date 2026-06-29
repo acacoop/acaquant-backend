@@ -1,8 +1,12 @@
 """segmentar_patrimonial.py — re-clasifica `nivel_3` de todas las Comitentes activas.
 
-Lee `tipo_cliente` + `cupo.transaccional_ars` y aplica las reglas de
+Lee `tipo_cliente` + `cupo_transaccional_ars` y aplica las reglas de
 `api.services.segmentacion.clasificar_nivel_3` (ver
-`docs/SEGMENTACION_PATRIMONIAL.md`). Escribe `nivel_3` en `Clientes.Comitentes`.
+`docs/SEGMENTACION_PATRIMONIAL.md`). Escribe `nivel_3` en SQL `clientes.comitentes`.
+
+SQL-native (decomiso 2026-06-29): antes leía/escribía `Clientes.Comitentes` (Mongo,
+deprecado, nadie lo lee — la vista comercial lee SQL). `sync_comitentes` inicializa
+`nivel_3` en null y nunca lo pisa; este motor es su ÚNICO escritor.
 
 PJ (Empresa / FCI / Cía. seguros / etc.) requiere la serie UVA del BCRA que
 **todavía NO está ingestada** en el repo → mientras tanto se les escribe
@@ -23,13 +27,8 @@ import argparse
 from collections import Counter
 from datetime import UTC, datetime
 
-from pymongo import UpdateOne
-
 from api.services.segmentacion import cargar_ids_contrapartes, clasificar_nivel_3
-from core.mongo import get_mongo_client
-
-DB = "Clientes"
-COL = "Comitentes"
+from core.postgres import get_job_pool
 
 
 def _get_mep() -> float | None:
@@ -64,49 +63,44 @@ def main() -> None:
     if not uva:
         print("⚠ Sin UVA (Trading.UVA no ingestado todavía) → ninguna PJ se va a clasificar.")
 
-    client = get_mongo_client()
-    col = client[DB][COL]
-    contrapartes = cargar_ids_contrapartes(client["CashFlow"])
+    contrapartes = cargar_ids_contrapartes()
     print(f"Contrapartes (→ PJ GRANDE): {len(contrapartes)} ids")
-    q: dict = {"estado": "Activa"}
+
+    # Lectura SQL del master (clientes.comitentes). `cupo_transaccional_ars` es
+    # columna flat (en Mongo era el subdoc cupo.transaccional_ars).
+    sql = ("SELECT id_cuenta, tipo_cliente, nivel_3, cupo_transaccional_ars "
+           "FROM comitentes WHERE estado = 'Activa'")
+    params: list = []
     if args.ids:
         ids = [s.strip() for s in args.ids.split(",") if s.strip()]
-        q["id_cuenta"] = {"$in": ids}
-
-    cur = col.find(
-        q,
-        {
-            "_id": 0,
-            "id_cuenta": 1,
-            "tipo_cliente": 1,
-            "nivel_3": 1,
-            "cupo.transaccional_ars": 1,
-        },
-    )
+        sql += " AND id_cuenta = ANY(%s)"
+        params.append(ids)
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        filas = cur.fetchall()
 
     nuevos: dict[str, str | None] = {}
     actuales: dict[str, str | None] = {}
     n_total = 0
     con_cupo = 0
     tipos: Counter = Counter()
-    for r in cur:
+    for idc_raw, tipo_cliente, nivel_3_actual, cupo_ars in filas:
         n_total += 1
-        idc = str(r.get("id_cuenta") or "")
+        idc = str(idc_raw or "")
         if not idc:
             continue
-        cupo_ars = (r.get("cupo") or {}).get("transaccional_ars")
         if cupo_ars is not None and float(cupo_ars) > 0:
             con_cupo += 1
-        tipos[r.get("tipo_cliente") or "(null)"] += 1
+        tipos[tipo_cliente or "(null)"] += 1
         seg = clasificar_nivel_3(
-            r.get("tipo_cliente"),
+            tipo_cliente,
             float(cupo_ars) if cupo_ars is not None else None,
             mep=mep,
             uva=uva,
             es_contraparte=idc in contrapartes,
         )
         nuevos[idc] = seg
-        actuales[idc] = r.get("nivel_3")
+        actuales[idc] = nivel_3_actual
 
     # Distribución nueva (para el dry-run y el log).
     dist = Counter(v or "(sin clasificar)" for v in nuevos.values())
@@ -134,15 +128,12 @@ def main() -> None:
         return
 
     now = datetime.now(UTC)
-    ops = [
-        UpdateOne(
-            {"id_cuenta": idc},
-            {"$set": {"nivel_3": nueva, "actualizado_at": now, "actualizado_por": "motor:segmentar_patrimonial"}},
-        )
-        for idc, _, nueva in cambios
-    ]
-    res = col.bulk_write(ops, ordered=False)
-    print(f"\nOK. Actualizadas: {res.modified_count}")
+    with get_job_pool().connection() as conn, conn.cursor() as cur:
+        cur.executemany(
+            "UPDATE comitentes SET nivel_3 = %s, updated_at = %s WHERE id_cuenta = %s",
+            [(nueva, now, idc) for idc, _, nueva in cambios])
+        conn.commit()
+    print(f"\nOK. Actualizadas: {len(cambios)}")
 
 
 if __name__ == "__main__":

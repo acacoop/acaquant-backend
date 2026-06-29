@@ -37,7 +37,6 @@ Uso:  python -m jobs.partner_export
 """
 from __future__ import annotations
 
-import os
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -46,17 +45,11 @@ import pandas as pd
 import requests
 
 import config
-from core.mongo import get_mongo_client
 
-_DB_NAME = "ACAPortfolio"
-_COL_NAME = "Cartera"
-
-# Dual-write a SQL (partner.cartera) gateado: con PARTNER_SQL_WRITE=1 el job
-# escribe TAMBIÉN en Postgres, además de Mongo (path Mongo INTACTO). Apagado por
-# default → rollback = sacar la env. La lectura del servicio se togglea aparte
-# con PARTNER_SQL (ver partner_api/store.py).
-def _sql_write_enabled() -> bool:
-    return os.getenv("PARTNER_SQL_WRITE", "").strip() in ("1", "true", "True")
+# SQL-native (decomiso Mongo): el export escribe SOLO Postgres `partner.cartera`.
+# ACAPortfolio.Cartera (Mongo) fue dropeada; la lectura del servicio sale de SQL
+# (PARTNER_SQL, ver partner_api/store.py).
+_DEST = "partner.cartera"
 
 
 def _sql_upsert_cuenta(cid: str, fecha: str, docs: list[dict]) -> None:
@@ -226,11 +219,6 @@ def main() -> None:
     headers = _autenticar()
     print("Auth OK", flush=True)
 
-    client = get_mongo_client()
-    col = client[_DB_NAME][_COL_NAME]
-    col.create_index([("id_cuenta", 1), ("fecha", -1)])
-
-    sql_write = _sql_write_enabled()
     ahora = datetime.now(UTC)
     total_pos = 0
     con_datos = 0
@@ -242,16 +230,12 @@ def main() -> None:
 
         registros = _posiciones(data, cid) if isinstance(data, list) and data else []
 
-        # Idempotente: borra los docs de ESTA cuenta para ESTA fecha antes de
-        # reinsertar. El histórico de otras fechas queda intacto.
-        col.delete_many({"id_cuenta": cid, "fecha": fecha})
-
         if not registros:
             print(f"  [{cid}] sin posiciones — se saltea "
                   f"(cuenta vacía o sin datos en Aunesa).", flush=True)
-            # SQL: igual de idempotente — limpia la cuenta/fecha (cuenta vaciada).
-            if sql_write:
-                _sql_upsert_cuenta(cid, fecha, [])
+            # Idempotente: limpia la cuenta/fecha (cuenta vaciada). El histórico
+            # de otras fechas queda intacto.
+            _sql_upsert_cuenta(cid, fecha, [])
             continue
 
         docs = [
@@ -267,15 +251,13 @@ def main() -> None:
             }
             for r in registros
         ]
-        col.insert_many(docs)
-        if sql_write:
-            _sql_upsert_cuenta(cid, fecha, docs)
+        _sql_upsert_cuenta(cid, fecha, docs)
         total_pos += len(docs)
         con_datos += 1
         print(f"  [{cid}] {len(docs)} posiciones exportadas.", flush=True)
 
     print(f"✅ {total_pos} posiciones de {con_datos}/{len(cuentas)} cuenta(s) "
-          f"exportadas a {_DB_NAME}.{_COL_NAME} para {fecha} "
+          f"exportadas a {_DEST} para {fecha} "
           f"({ahora.isoformat()}).")
 
 

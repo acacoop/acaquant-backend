@@ -27,16 +27,14 @@ Estado al momento del handoff. Para retomar en otra PC: `git pull` y seguir desd
 Patrón: o **delegar** la función Mongo a su gemelo `*_sql`, o **portear** la lectura a `mercado.*`
 (la data ya está toda en SQL). OJO: algunos `_sql` reusan helpers PUROS del gemelo Mongo — NO borrarlos.
 
-**Conectan al usarse (URGENTE con M10 pausado — tiran 500 si se abre esa vista):**
-- `api/services/acreencias.py` — lee Mongo (Trading/Curvas) para la vista ONs/acreencias. Portear a SQL.
-- `api/services/mejoras_dispo.py` — gemelo Mongo de la vista AGRO→mejoras. El router YA usa agro_sql
-  (que ya es SQL), así que esto es código muerto vía router — pero conviene gutearlo. Verificar que
-  nadie lo llame directo (sin_operador importa `_CATS_VOLUMEN` de comercial, no de acá).
-- `api/services/debug_curva.py` — endpoint admin debug; lee Mongo (TimeSales). Portear a market_snapshot
-  o stub (como hice en manager/checks).
-- `api/services/derivados_agro.py` (write-side) — `set_pizarra`/`set_camara` (los PATCH de la vista AGRO)
-  todavía dual-escriben Mongo. Sacar la escritura Mongo (dejar solo write_native SQL). ⚠️ Es escritura
-  → con M10 pausado el PATCH de pizarra/cámara tira 500.
+**✅ URGENTES — TODOS CERRADOS (Olas 3.31-3.34, 2026-06-29 noche):**
+- ✅ `derivados_agro.py` (Ola 3.31) — `set_pizarra` ya era SQL; se borraron los 3 reads Mongo muertos
+  vía router (get_pase_agro/get_panel_opciones/simular_estrategia). Helpers puros conservados.
+- ✅ `acreencias.py` (Ola 3.32) — OnsIgnoradas → SQL `mercado.ons_ignoradas`; `cargar_cer`/
+  `cargar_dias_habiles` eran SQL-native (param client vestigial). El conciliador manager/bonos ya no 500ea.
+- ✅ `debug_curva.py` (Ola 3.33) — todo el handle Mongo era vestigial (`_last_trade` usa snapshot_docs SQL;
+  cargar_* SQL-native). Se sacó el cliente + import.
+- ✅ `mejoras_dispo.py` (Ola 3.34) — read Mongo muerto vía router borrado; quedan helpers puros para agro_sql.
 
 **Gateados por flag (NO conectan en prod con el flag en SQL — bajar prioridad, son "rastro"):**
 - `api/services/valuaciones.py` (1500 líneas, gated VALUACIONES_SQL → usa valuaciones_sql). El gemelo

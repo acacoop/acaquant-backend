@@ -20,7 +20,6 @@ from __future__ import annotations
 import re
 from datetime import UTC, date, datetime, timedelta
 
-from api.db import get_db_trading
 from api.services.assets_sql import assets_rows
 from core import curvas_sql
 from core.postgres import get_pool
@@ -64,12 +63,13 @@ def calendario_instrumentos() -> dict[str, dict]:
         monto_flujo_soberano,
     )
 
-    db = get_db_trading()  # se usa para CER/días hábiles (db.client), no para Curvas
     docs = curvas_sql.cargar_todos()  # master desde SQL mercado.curvas (doc completo)
 
     hay_cer = any((d.get("curva") == "cer") for d in docs)
-    cer_dict = cargar_cer(db.client, dias=1200) if hay_cer else {}
-    dias_habiles = cargar_dias_habiles(db.client) if hay_cer else []
+    # cargar_cer / cargar_dias_habiles ya son SQL-native (macro.series_macro /
+    # mercado.dias_habiles) — el param client es vestigial, no se pasa.
+    cer_dict = cargar_cer(dias=1200) if hay_cer else {}
+    dias_habiles = cargar_dias_habiles() if hay_cer else []
     hoy = date.today()
 
     out: dict[str, dict] = {}
@@ -236,7 +236,6 @@ def titulos_sin_flujo() -> list[dict]:
     Devuelve [{unidad, ticker, cartera, emisor, fuente, accion, motivo, en_cartera}].
     """
     hoy = date.today()
-    trd = get_db_trading()
 
     # SOLO lo del ÚLTIMO AUM (held). Sin esto el catálogo entero trae miles de
     # bonos vencidos/históricos que no tiene sentido conciliar.
@@ -290,7 +289,10 @@ def titulos_sin_flujo() -> list[dict]:
         return None
 
     # Ignorados manualmente (marcados como "no aplica" desde el conciliador).
-    ignoradas = {d.get("ticker") for d in trd["OnsIgnoradas"].find({}, {"_id": 0, "ticker": 1})}
+    # SQL-native: mercado.ons_ignoradas (igual que ons.py; Trading.OnsIgnoradas dropeada).
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ticker FROM mercado.ons_ignoradas")
+        ignoradas = {r[0] for r in cur.fetchall()}
 
     out: list[dict] = []
     for a in bonos:

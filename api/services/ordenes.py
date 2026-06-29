@@ -30,7 +30,6 @@ from typing import Any
 
 import pyRofex
 
-from core.mongo import get_mongo_client
 from core.postgres import get_pool
 from core.rofex_orders_session import cuenta_default, ensure_session_envio
 
@@ -95,48 +94,43 @@ def _tif_enum(tif: str | None):
 
 def _audit(kind: str, *, cl_ord_id: str | None = None, account: str | None = None,
            actor_email: str | None = None, payload: dict | None = None) -> None:
-    ts = datetime.now(UTC)
-    db = get_mongo_client()[DB_NAME]
-    db[COL_AUDIT].insert_one({
-        "ts": ts,
-        "kind": kind,
-        "cl_ord_id": cl_ord_id,
-        "ws_cl_ord_id": None,
-        "account": account,
+    # SQL-native (decomiso 2026-06-29): append a operaciones.ordenes_audit, sin Mongo.
+    from core import pg_mirror
+    pg_mirror.append_native("operaciones.ordenes_audit", [{
+        "ts": datetime.now(UTC), "kind": kind, "cl_ord_id": cl_ord_id, "account": account,
         "actor_email": actor_email,
-        "payload": payload or {},
-    })
-    # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE) — DESPUÉS de Mongo, en su
-    # propio try → un fallo de SQL NUNCA afecta la orden ni el audit real.
-    try:
-        from core import pg_mirror
-        pg_mirror.append_ordenes("operaciones.ordenes_audit", [{
-            "ts": ts, "kind": kind, "cl_ord_id": cl_ord_id, "account": account,
-            "actor_email": actor_email,
-            "data": pg_mirror.doc_iso({"ws_cl_ord_id": None, "payload": payload or {}}),
-        }])
-    except Exception:
-        pass
+        "data": pg_mirror.doc_iso({"ws_cl_ord_id": None, "payload": payload or {}}),
+    }])
 
 
-def _mirror_live_sql(db, cl_ord_id: str) -> None:
-    """Espejo best-effort OrdenesLive→`operaciones.ordenes_live` (flag ORDENES_SQL_WRITE).
-    Lee el doc recién escrito y lo upsertea por cl_ord_id. El guard `ordenes_on()` evita el
-    read-back cuando el flag está apagado (cero overhead). NUNCA levanta: la orden ya está
-    en Mongo + en el broker, el espejo SQL es secundario."""
-    try:
-        from core import pg_mirror
-        if not pg_mirror.ordenes_on():
-            return
-        d = db[COL_LIVE].find_one({"cl_ord_id": cl_ord_id}, {"_id": 0})
-        if d:
-            pg_mirror.mirror_ordenes("operaciones.ordenes_live", ["cl_ord_id"], [{
-                "cl_ord_id": cl_ord_id, "account": d.get("account"),
-                "ticker": d.get("ticker"), "estado": d.get("status"),
-                "updated_at": d.get("updated_at"), "data": pg_mirror.doc_iso(d),
-            }])
-    except Exception:
-        pass
+def _upsert_live_sql(cl_ord_id: str, set_fields: dict, insert_only: dict | None = None) -> None:
+    """Upsert SQL-native a operaciones.ordenes_live (read-modify-write, preserva el estado
+    incremental). `set_fields` = siempre (campos no-null); `insert_only` = solo si la fila
+    NO existe (equivale al $setOnInsert de Mongo: status PENDING_NEW, created_at, etc.).
+    SQL-native (decomiso 2026-06-29): el envío de órdenes ya no escribe Mongo."""
+    from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
+
+    from core import pg_mirror
+    from core.postgres import get_pool
+    nuevos = {k: v for k, v in set_fields.items() if v is not None}
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM operaciones.ordenes_live WHERE cl_ord_id = %s", (cl_ord_id,))
+        row = cur.fetchone()
+        prev = (row["data"] if row else None) or {}
+        merged = {**prev, **nuevos}
+        if row is None and insert_only:
+            merged = {**insert_only, **merged}  # insert_only no pisa set_fields/prev
+        merged["cl_ord_id"] = cl_ord_id
+        now = nuevos.get("updated_at") or datetime.now(UTC)
+        cur.execute(
+            "INSERT INTO operaciones.ordenes_live (cl_ord_id, account, ticker, estado, updated_at, data) "
+            "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (cl_ord_id) DO UPDATE SET "
+            "account = EXCLUDED.account, ticker = EXCLUDED.ticker, estado = EXCLUDED.estado, "
+            "updated_at = EXCLUDED.updated_at, data = EXCLUDED.data",
+            (cl_ord_id, merged.get("account"), merged.get("ticker"), merged.get("status"),
+             now, Jsonb(pg_mirror.doc_iso(merged))))
+        conn.commit()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -264,33 +258,15 @@ def _send_order_impl(
     # está caído, el doc queda con PENDING_NEW hasta que el motor arranque
     # y haga recovery (que justamente busca esto y lo sincroniza).
     now = datetime.now(UTC)
-    db = get_mongo_client()[DB_NAME]
-    db[COL_LIVE].update_one(
-        {"cl_ord_id": cl_ord_id},
-        {
-            "$set": {
-                "account": acc,
-                "ticker": ticker,
-                "side": side.upper(),
-                "order_type": order_type.upper(),
-                "tif": (tif or "DAY").upper(),
-                "size": size,
-                "price": price,
-                "proprietary": proprietary,
-                "actor_email": actor_email,
-                "updated_at": now,
-            },
-            "$setOnInsert": {
-                "cl_ord_id": cl_ord_id,
-                "status": "PENDING_NEW",
-                "created_at": now,
-                "cum_qty": 0,
-                "leaves_qty": size,
-            },
-        },
-        upsert=True,
-    )
-    _mirror_live_sql(db, cl_ord_id)
+    _upsert_live_sql(cl_ord_id, {
+        "account": acc, "ticker": ticker, "side": side.upper(),
+        "order_type": order_type.upper(), "tif": (tif or "DAY").upper(),
+        "size": size, "price": price, "proprietary": proprietary,
+        "actor_email": actor_email, "updated_at": now,
+    }, insert_only={
+        "status": "PENDING_NEW", "created_at": now.isoformat(),
+        "cum_qty": 0, "leaves_qty": size,
+    })
 
     _audit("SEND_OK", cl_ord_id=cl_ord_id, account=acc, actor_email=actor_email,
            payload={"request": request_payload, "response": resp})
@@ -319,15 +295,18 @@ def cancel_order(
            payload={"cl_ord_id": cl_ord_id, "proprietary_in": proprietary})
 
     if not proprietary:
-        db = get_mongo_client()[DB_NAME]
-        doc = db[COL_LIVE].find_one({"cl_ord_id": cl_ord_id}, {"proprietary": 1})
-        if doc:
-            proprietary = doc.get("proprietary")
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT data->>'proprietary' FROM operaciones.ordenes_live "
+                        "WHERE cl_ord_id = %s", (cl_ord_id,))
+            r = cur.fetchone()
+        if r and r[0]:
+            proprietary = r[0]
 
     if not proprietary:
         _audit("CANCEL_ERROR", cl_ord_id=cl_ord_id, account=acc,
                actor_email=actor_email,
-               payload={"reason": "proprietary no encontrado (ni en query ni en Mongo)"})
+               payload={"reason": "proprietary no encontrado (ni en query ni en SQL)"})
         return {"ok": False, "error": (
             "proprietary no disponible para cancelar. Si la orden vino de "
             "otra plataforma, abrila desde la web del broker para cancelar."
@@ -348,10 +327,14 @@ def cancel_order(
 
 
 def get_order_status(cl_ord_id: str) -> dict[str, Any] | None:
-    """Lee el estado de una orden de Mongo (lo mantiene actualizado el motor)."""
-    db = get_mongo_client()[DB_NAME]
-    doc = db[COL_LIVE].find_one({"cl_ord_id": cl_ord_id}, {"_id": 0})
-    return doc
+    """Lee el estado de una orden de SQL operaciones.ordenes_live (lo mantiene el motor)."""
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM operaciones.ordenes_live WHERE cl_ord_id = %s", (cl_ord_id,))
+        row = cur.fetchone()
+    return row["data"] if row else None
 
 
 def _broker_report_to_local(rep: dict[str, Any]) -> dict[str, Any]:
@@ -445,11 +428,16 @@ def list_orders_dia(account: str | None = None, fecha: datetime | None = None) -
         fecha = datetime.now(UTC)
     inicio = fecha.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    db = get_mongo_client()[DB_NAME]
-    local = list(db[COL_LIVE].find(
-        {"account": acc, "created_at": {"$gte": inicio}},
-        {"_id": 0},
-    ))
+    # SQL-native (decomiso 2026-06-29): set LOCAL desde operaciones.ordenes_live. Filtra por
+    # data->>'created_at' (ISO string, estable) — NO por updated_at (se mueve con cada ER).
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM operaciones.ordenes_live "
+                    "WHERE account = %s AND data->>'created_at' >= %s",
+                    (acc, inicio.isoformat()))
+        local = [r["data"] for r in cur.fetchall()]
     by_cl_ord: dict[str, dict[str, Any]] = {
         o["cl_ord_id"]: o for o in local if o.get("cl_ord_id")
     }
@@ -814,25 +802,15 @@ def _send_fci_order_impl(
                 "error": "broker no devolvió clientId", "broker_response": resp}
 
     now = datetime.now(UTC)
-    db = get_mongo_client()[DB_NAME]
-    db[COL_LIVE].update_one(
-        {"cl_ord_id": cl_ord_id},
-        {
-            "$set": {
-                "account": acc, "ticker": ticker, "side": s,
-                "order_type": "LIMIT", "tif": "DAY",
-                "size": cuotapartes, "price": cuota,
-                "kind": "FCI", "op": op,
-                "proprietary": proprietary, "actor_email": actor_email, "updated_at": now,
-            },
-            "$setOnInsert": {
-                "cl_ord_id": cl_ord_id, "status": "PENDING_NEW",
-                "created_at": now, "cum_qty": 0, "leaves_qty": cuotapartes,
-            },
-        },
-        upsert=True,
-    )
-    _mirror_live_sql(db, cl_ord_id)
+    _upsert_live_sql(cl_ord_id, {
+        "account": acc, "ticker": ticker, "side": s,
+        "order_type": "LIMIT", "tif": "DAY", "size": cuotapartes, "price": cuota,
+        "kind": "FCI", "op": op, "proprietary": proprietary,
+        "actor_email": actor_email, "updated_at": now,
+    }, insert_only={
+        "status": "PENDING_NEW", "created_at": now.isoformat(),
+        "cum_qty": 0, "leaves_qty": cuotapartes,
+    })
     _audit("FCI_SEND_OK", cl_ord_id=cl_ord_id, account=acc, actor_email=actor_email,
            payload={"request": request_payload, "response": resp})
     return {"ok": True, "cl_ord_id": cl_ord_id, "status": "PENDING_NEW",

@@ -21,84 +21,71 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
-from pymongo.errors import DuplicateKeyError
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
-from core.mongo import get_mongo_client
+from core.postgres import get_pool
 
 logger = logging.getLogger(__name__)
 
-_DB = "Operaciones"
-_COL = "OrdenesIdempotency"
+# SQL-native (decomiso 2026-06-29): el dedup vive en operaciones.ordenes_idempotency
+# (clave PK = atómico ante doble-submit, igual que el unique index Mongo). Postgres no
+# tiene TTL index → prune por `ts` en _ensure (las claves solo atajan reintentos).
 _TTL_S = 86_400      # 1 día
 _WAIT_S = 4.0        # espera máx. del resultado del 1er envío en una dup concurrente
 _POLL_S = 0.1
 
-_idx_ready = False
 
-
-def _col():
-    global _idx_ready
-    c = get_mongo_client()[_DB][_COL]
-    if not _idx_ready:
-        try:
-            c.create_index("key", unique=True)
-            c.create_index("created_at", expireAfterSeconds=_TTL_S)
-        except Exception as e:
-            logger.warning("idempotencia: no pude crear índices: %s", e)
-        _idx_ready = True
-    return c
-
-
-def _mirror_idem_sql(key: str) -> None:
-    """Espejo best-effort OrdenesIdempotency→operaciones.ordenes_idempotency
-    (flag ORDENES_SQL_WRITE). Read-back, nunca levanta."""
-    try:
-        from core import pg_mirror
-        if not pg_mirror.ordenes_on():
-            return
-        d = _col().find_one({"key": key}, {"_id": 0})
-        if d:
-            pg_mirror.mirror_ordenes("operaciones.ordenes_idempotency", ["clave"], [{
-                "clave": key, "ts": d.get("created_at"), "data": pg_mirror.doc_iso(d)}])
-    except Exception:
-        pass
+def _ensure() -> None:
+    """Self-create de la tabla + prune del TTL (best-effort)."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS operaciones.ordenes_idempotency ("
+            "clave text PRIMARY KEY, ts timestamptz DEFAULT now(), data jsonb)")
+        cur.execute("DELETE FROM operaciones.ordenes_idempotency "
+                    "WHERE ts < now() - make_interval(secs => %s)", (_TTL_S,))
+        conn.commit()
 
 
 def reservar(key: str) -> bool:
-    """True si reservamos la clave (somos el 1er envío → hay que mandar).
-    False si ya existía (es un duplicado → NO mandar, ver esperar_resultado)."""
+    """True si reservamos la clave (1er envío → hay que mandar). False si ya existía
+    (duplicado → NO mandar). Atómico vía PK + ON CONFLICT DO NOTHING. Degradación segura:
+    error de infra → True (mejor mandar que tragar una orden real)."""
     try:
-        _col().insert_one(
-            {"key": key, "status": "in_progress", "result": None, "created_at": datetime.now(UTC)}
-        )
-        _mirror_idem_sql(key)
-        return True
-    except DuplicateKeyError:
-        return False
+        _ensure()
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO operaciones.ordenes_idempotency (clave, ts, data) "
+                "VALUES (%s, now(), %s) ON CONFLICT (clave) DO NOTHING",
+                (key, Jsonb({"key": key, "status": "in_progress", "result": None})))
+            reserved = cur.rowcount == 1
+            conn.commit()
+        return reserved
     except Exception as e:
-        # Infra caída → degradamos a "sin dedup": mejor mandar que tragar.
         logger.warning("idempotencia: reservar falló (%s) — envío sin dedup", e)
         return True
 
 
 def guardar_resultado(key: str, result: dict[str, Any]) -> None:
     try:
-        _col().update_one(
-            {"key": key},
-            {"$set": {"status": "done", "result": result, "finished_at": datetime.now(UTC)}},
-        )
-        _mirror_idem_sql(key)
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE operaciones.ordenes_idempotency SET data = data || %s WHERE clave = %s",
+                (Jsonb({"status": "done", "result": result,
+                        "finished_at": datetime.now(UTC).isoformat()}), key))
+            conn.commit()
     except Exception as e:
         logger.warning("idempotencia: guardar_resultado falló: %s", e)
 
 
 def guardar_error(key: str, msg: str) -> None:
     try:
-        _col().update_one(
-            {"key": key},
-            {"$set": {"status": "error", "error": msg[:300], "finished_at": datetime.now(UTC)}},
-        )
-        _mirror_idem_sql(key)
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE operaciones.ordenes_idempotency SET data = data || %s WHERE clave = %s",
+                (Jsonb({"status": "error", "error": msg[:300],
+                        "finished_at": datetime.now(UTC).isoformat()}), key))
+            conn.commit()
     except Exception as e:
         logger.warning("idempotencia: guardar_error falló: %s", e)
 
@@ -129,7 +116,10 @@ def esperar_resultado(key: str) -> dict[str, Any]:
     deadline = time.time() + _WAIT_S
     while time.time() < deadline:
         try:
-            doc = _col().find_one({"key": key})
+            with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("SELECT data FROM operaciones.ordenes_idempotency WHERE clave = %s", (key,))
+                r = cur.fetchone()
+            doc = r["data"] if r else None
         except Exception:
             doc = None
         if doc:

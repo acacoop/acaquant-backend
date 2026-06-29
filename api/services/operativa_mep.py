@@ -206,49 +206,18 @@ def _persistir_orden_live(
     """
     if not order:
         return
-    db = get_mongo_client()[DB_OPS]
     now = datetime.now(UTC)
-    db[COL_ORDENES].update_one(
-        {"cl_ord_id": cl_ord_id},
-        {"$set": {
-            "ticker":     ticker,
-            "side":       side.upper(),
-            "account":    account,
-            "status":     order.get("status"),
-            "cum_qty":    order.get("cumQty"),
-            "leaves_qty": order.get("leavesQty"),
-            "avg_px":     order.get("avgPx"),
-            "last_px":    order.get("lastPx"),
-            "last_qty":   order.get("lastQty"),
-            "updated_at": now,
-            "source":     "rest_poll",
-        }},
-        upsert=True,
-    )
-    db["OrdenesAudit"].insert_one({
-        "ts":         now,
-        "kind":       "REST_SNAPSHOT",
-        "cl_ord_id":  cl_ord_id,
-        "account":    account,
-        "payload":    order,
-    })
-    # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE) — después de Mongo, nunca rompe.
-    try:
-        from core import pg_mirror
-        if pg_mirror.ordenes_on():
-            # Read-back del doc completo (la `data` de ordenes_live debe tener el doc entero
-            # con created_at — el upsert pisaría una data parcial).
-            d = db[COL_ORDENES].find_one({"cl_ord_id": cl_ord_id}, {"_id": 0})
-            if d:
-                pg_mirror.mirror_ordenes("operaciones.ordenes_live", ["cl_ord_id"], [{
-                    "cl_ord_id": cl_ord_id, "account": d.get("account"),
-                    "ticker": d.get("ticker"), "estado": d.get("status"),
-                    "updated_at": d.get("updated_at"), "data": pg_mirror.doc_iso(d)}])
-        pg_mirror.append_ordenes("operaciones.ordenes_audit", [{
-            "ts": now, "kind": "REST_SNAPSHOT", "cl_ord_id": cl_ord_id, "account": account,
-            "actor_email": None, "data": pg_mirror.doc_iso({"payload": order})}])
-    except Exception:
-        pass
+    # SQL-native (decomiso 2026-06-29): reusa los writers SQL de ordenes.py (cero Mongo).
+    from api.services.ordenes import _audit as _audit_ordenes
+    from api.services.ordenes import _upsert_live_sql
+    _upsert_live_sql(cl_ord_id, {
+        "ticker": ticker, "side": side.upper(), "account": account,
+        "status": order.get("status"), "cum_qty": order.get("cumQty"),
+        "leaves_qty": order.get("leavesQty"), "avg_px": order.get("avgPx"),
+        "last_px": order.get("lastPx"), "last_qty": order.get("lastQty"),
+        "updated_at": now, "source": "rest_poll",
+    }, insert_only={"created_at": now.isoformat()})
+    _audit_ordenes("REST_SNAPSHOT", cl_ord_id=cl_ord_id, account=account, payload=order)
 
 
 def _mirror_operativa_sql(db_ops, operativa_id: str) -> None:

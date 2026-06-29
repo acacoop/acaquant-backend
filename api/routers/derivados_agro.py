@@ -25,9 +25,6 @@ from pydantic import BaseModel, Field
 
 from api.auth import get_user_email, require_module, require_no_invitado
 from api.services import agro_sql as _agro_sql
-from api.services import camara_cereales as _cam
-from api.services import derivados_agro as _agro
-from api.services import mejoras_dispo as _mej
 from api.services.camara_cereales import (
     CEREALES,
     set_camara_cereal,
@@ -36,32 +33,16 @@ from api.services.derivados_agro import (
     COMMODITY_ORDER,
     set_pizarra,
 )
-from api.services.operaciones_view import motor as _motor
 
 router = APIRouter(prefix="/api/derivados", tags=["DerivadosAgro"])
 
 
-def _agro_svc(_engine: str | None):
-    """Módulo de servicio (SQL o Mongo) según el flag AGRO_SQL / ?_engine. Default Mongo.
-
-    Las LECTURAS (pase, opciones, simulador, cámara, mejoras-dispo) viven en `agro_sql`
-    cuando el flag está prendido; las escrituras (PATCH) siguen en el path Mongo, que
-    dual-escribe a SQL (write_native). Los símbolos compartidos (CEREALES, COMMODITY_ORDER)
-    son idénticos en ambos módulos."""
-    return _agro_sql if _motor(_engine, "AGRO_SQL") == "sql" else _AGRO_MONGO
-
-
-class _AgroMongoFacade:
-    """Agrupa las 5 lecturas Mongo (viven en 3 módulos distintos) bajo la misma
-    interfaz que `agro_sql` para que el selector sea un swap de objeto."""
-    get_pase_agro = staticmethod(_agro.get_pase_agro)
-    get_panel_opciones = staticmethod(_agro.get_panel_opciones)
-    simular_estrategia = staticmethod(_agro.simular_estrategia)
-    get_camara_cereales = staticmethod(_cam.get_camara_cereales)
-    get_mejoras_dispo = staticmethod(_mej.get_mejoras_dispo)
-
-
-_AGRO_MONGO = _AgroMongoFacade()
+def _agro_svc(_engine: str | None = None):
+    """Lecturas AGRO (pase, opciones, simulador, cámara, mejoras-dispo): SQL-only
+    (`agro_sql` → mercado.agro_*). SQL-native (decomiso Mongo). Las escrituras (PATCH)
+    viven en los services originales y ya escriben SQL (write_native). El parámetro
+    `_engine` queda por compat con `?_engine` — ya no selecciona."""
+    return _agro_sql
 
 
 @router.get("/agro")

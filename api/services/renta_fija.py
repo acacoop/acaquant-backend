@@ -16,7 +16,6 @@ import re
 from datetime import UTC, date, datetime, timedelta
 
 from api.cache import cached
-from api.db import get_db_trading
 from core import curvas_sql
 
 logger = logging.getLogger(__name__)
@@ -91,65 +90,10 @@ def get_renta_fija(instrumento: str | None = None) -> list:
     Sólo se popula para tickers cuya curva sea tasa_fija nativa o CER ya
     fijado (mismo set que `listar_curva` cuando curva='tasa_fija').
     """
-    db = get_db_trading()
-    filtro: dict = {}
-    if instrumento:
-        filtro["ticker"] = _ticker_filter(instrumento)
-
-    pipeline = [
-        {"$match": filtro},
-        {"$project": {
-            "_id": 0,
-            "instrumento": "$ticker",
-            "book": 1,
-            "metrics.total_nominals": 1,
-            "metrics.vwap": 1,
-            "metrics.last_price": 1,
-            "metrics.open_price": 1,
-            "metrics.high_price": 1,
-            "metrics.low_price": 1,
-            "metrics.closing_price": 1,
-            # Analíticos (escritos por engines/curvas.py en el mismo doc).
-            "metrics.TEA": 1,
-            "metrics.TEM": 1,
-            "metrics.duration": 1,
-            "metrics.mod_duration": 1,
-            "metrics.convexity": 1,
-            "metrics.paridad": 1,
-        }},
-    ]
-    docs = list(db["MarketSnapshot"].aggregate(pipeline))
-
-    # ── Enriquecimiento con TC breakeven para tasa fija ──
-    # Build set de tickers tasa_fija (nativa + CER ya fijados → comportan tasa fija).
-    fijados = _bonos_cer_fijados()
-    flujo_por_ticker: dict[str, float] = {}
-    for c in curvas_sql.cargar_todos():
-        # tasa_fija nativa + CER ya fijados (comportan tasa fija desde ya).
-        if c.get("curva") != "tasa_fija" and c.get("ticker") not in fijados:
-            continue
-        fv = c.get("flujo_vencimiento")
-        if fv and fv > 0:
-            flujo_por_ticker[c["ticker"]] = float(fv)
-
-    if flujo_por_ticker:
-        from api.services.macro import get_ultimo_mep  # lazy: evita ciclo
-        mep_doc = get_ultimo_mep()
-        mep = mep_doc.get("mep") if mep_doc else None
-        for d in docs:
-            fv = flujo_por_ticker.get(d.get("instrumento") or "")
-            if fv is None:
-                continue
-            m = d.setdefault("metrics", {})
-            # Pago final = bullet al vto por 100 VN. Lo consume la columna
-            # "Pago Final" de tasa fija en el front. Se expone siempre que el
-            # bono sea tasa fija (nativa o CER fijado); el TC BE además
-            # necesita MEP, por eso queda condicionado a que haya MEP.
-            m["flujo_vencimiento"] = fv
-            if mep:
-                m["tc_breakeven"] = _tc_breakeven(m.get("last_price"), fv, mep)
-
-    return docs
+    # SQL-native (decomiso Mongo): delega en el twin SQL (mismo shape). Trading.MarketSnapshot
+    # dropeada → la fuente es mercado.market_snapshot + mercado.curvas.
+    from api.services import renta_fija_sql
+    return renta_fija_sql.get_renta_fija(instrumento=instrumento)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -161,34 +105,10 @@ def get_renta_fija(instrumento: str | None = None) -> list:
 def get_historico_trades(instrumento: str | None = None) -> list:
     """Trades de HOY solamente (sin histórico). Si un bono operó hoy aparece; si no, no.
     El nombre quedó por compat — ya NO trae días viejos. Match EXACTO por ticker (índice)."""
-    db = get_db_trading()
-    hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    filtro: dict = {"timestamp": {"$gte": hoy}}
-    if instrumento:
-        exacto = resolver_ticker_exacto(instrumento)
-        if exacto is None:
-            return []
-        filtro["ticker"] = exacto
-
-    pipeline = [
-        {"$match": filtro},
-        {"$sort": {"timestamp": -1}},
-        {"$limit": 10000},
-        {"$project": {
-            "_id": 0,
-            "instrumento": "$ticker",
-            "timestamp": 1,
-            "price": 1,
-            "size": 1,
-            "side": 1,
-            "money": 1,
-            "duration": 1,
-            "TEA": 1,
-            "TEM": 1,
-            "paridad": 1,
-        }},
-    ]
-    return list(db["TimeSales"].aggregate(pipeline))
+    # SQL-native (decomiso Mongo): delega en el twin SQL. Trading.TimeSales dropeada →
+    # la fuente es mercado.timesales (solo trades de hoy).
+    from api.services import renta_fija_sql
+    return renta_fija_sql.get_historico_trades(instrumento=instrumento)
 
 
 @cached(ttl=30)
@@ -208,31 +128,10 @@ def _bonos_cer_fijados() -> set[str]:
     tasa_fija se pierda. Sin esto, todo `listar_curva` con curva ∈ {cer,
     tasa_fija} se cae con un error opaco "error del service".
     """
-    from engines.curvas import fecha_cer_liquidacion
-
-    try:
-        db = get_db_trading()
-        cer_max_doc = db["CER"].find_one({}, sort=[("fecha", -1)], projection={"fecha": 1})
-        if not cer_max_doc:
-            return set()
-        max_cer_publicado = cer_max_doc["fecha"]
-
-        dias_habiles = sorted(
-            d["fecha"] for d in db["DiasHabiles"].find({}, {"fecha": 1, "_id": 0})
-        )
-
-        fijados: set[str] = set()
-        for inst in curvas_sql.por_curva("cer"):
-            vto = str(inst.get("fecha_vencimiento") or "")[:10]
-            if not vto:
-                continue
-            fecha_liq = fecha_cer_liquidacion(dias_habiles, vto, n=10)
-            if fecha_liq and fecha_liq <= max_cer_publicado:
-                fijados.add(inst["ticker"])
-        return fijados
-    except Exception:
-        logger.exception("_bonos_cer_fijados falló — devuelvo set vacío (fallback)")
-        return set()
+    # SQL-native (decomiso Mongo): delega en el twin SQL. Trading.CER/DiasHabiles dropeadas →
+    # la fuente es macro.series_macro + mercado.dias_habiles.
+    from api.services import renta_fija_sql
+    return renta_fija_sql._bonos_cer_fijados()
 
 
 def listar_curva(
@@ -261,171 +160,16 @@ def listar_curva(
     if ordenar_por not in _ORDENES_VALIDOS:
         ordenar_por = "vencimiento"
 
-    db = get_db_trading()
-
-    # Reasignación CER ↔ tasa_fija.
-    fijados_tickers = _bonos_cer_fijados() if curva in ("cer", "tasa_fija") else set()
-
-    if curva == "cer":
-        # Solo CER todavía variable (excluye los que ya quedaron fijados).
-        # El doc completo trae cupon_anual + cer_emision: para distinguir
-        # Lecers (zero coupon) de Boncers cupón tipo TX26/TX28 (cupon_anual > 0).
-        # Lo necesita la descomposición de retorno CER para filtrar la curva de
-        # interpolación a los zero coupon (la spec lo pide explícitamente).
-        curva_docs = [
-            d for d in curvas_sql.por_curva("cer")
-            if d.get("ticker") not in fijados_tickers
-        ]
-    elif curva == "tasa_fija":
-        # tasa_fija propia + CER fijados (se marcan como `cer_fijado=true`).
-        # `flujo_vencimiento` viene en el doc para calcular tc_breakeven.
-        curva_docs = [
-            d for d in curvas_sql.cargar_todos()
-            if d.get("curva") == "tasa_fija"
-            or (d.get("curva") == "cer" and d.get("ticker") in fijados_tickers)
-        ]
-    elif _es_curva_on(curva):
-        # ONs: el sector va en la curva. curva="on" → todas; "on_x" → ese sector.
-        # El doc trae emisor + curva(=sector) + moneda para los tabs y el coloreo.
-        curva_docs = (
-            curvas_sql.por_curva_like("on%") if curva == "on"
-            else curvas_sql.por_curva(curva)
-        )
-    else:
-        curva_docs = curvas_sql.por_curva(curva)
-    if not curva_docs:
-        return []
-
-    ahora = datetime.now(UTC)
-    filtrados: list[dict] = []
-    for d in curva_docs:
-        vto_raw = d.get("fecha_vencimiento")
-        if not vto_raw:
-            continue
-        try:
-            if isinstance(vto_raw, datetime):
-                vto = vto_raw if vto_raw.tzinfo else vto_raw.replace(tzinfo=UTC)
-            else:
-                vto = datetime.fromisoformat(str(vto_raw)[:10]).replace(tzinfo=UTC)
-        except Exception:
-            continue
-        meses = round((vto - ahora).days / 30.44, 1)
-        if vencimiento_min_meses is not None and meses < vencimiento_min_meses:
-            continue
-        if vencimiento_max_meses is not None and meses > vencimiento_max_meses:
-            continue
-        d["_meses"] = meses
-        filtrados.append(d)
-
-    if not filtrados:
-        return []
-
-    tickers = [d["ticker"] for d in filtrados]
-
-    enrich_map: dict[str, dict] = {}
-    vol_map: dict[str, dict] = {}
-    # UNA sola query a MarketSnapshot por todos los tickers (antes eran dos
-    # sobre la misma colección/filtro): trae analíticas + volumen juntos.
-    # enrich_map solo para los que tienen precio (>0); vol_map para todos.
-    # Valores idénticos: valores.py escribe last_price y curvas.py los analíticos.
-    for r in db["MarketSnapshot"].find(
-        {"ticker": {"$in": tickers}},
-        {"_id": 0, "ticker": 1, "updated_at": 1,
-         "metrics.last_price": 1, "metrics.TEA": 1, "metrics.TEM": 1,
-         "metrics.paridad": 1, "metrics.duration": 1,
-         "metrics.mod_duration": 1, "metrics.convexity": 1,
-         "metrics.total_money": 1, "metrics.total_nominals": 1},
-    ):
-        m = r.get("metrics") or {}
-        vol_map[r["ticker"]] = {
-            "total_money": m.get("total_money") or 0,
-            "total_nominals": m.get("total_nominals") or 0,
-        }
-        if (m.get("last_price") or 0) > 0:
-            enrich_map[r["ticker"]] = {
-                "price":        m.get("last_price"),
-                "TEA":          m.get("TEA"),
-                "TEM":          m.get("TEM"),
-                "paridad":      m.get("paridad"),
-                "duration":     m.get("duration"),
-                "mod_duration": m.get("mod_duration"),
-                "convexity":    m.get("convexity"),
-                "ts":           r.get("updated_at"),
-            }
-
-    # MEP live para TC breakeven (sólo aplica a curva='tasa_fija' acá).
-    mep_actual: float | None = None
-    if curva == "tasa_fija":
-        from api.services.macro import get_ultimo_mep  # lazy: evita ciclo
-        mep_doc = get_ultimo_mep()
-        mep_raw = mep_doc.get("mep") if mep_doc else None
-        if mep_raw and mep_raw > 0:
-            mep_actual = float(mep_raw)
-
-    out: list[dict] = []
-    for d in filtrados:
-        enrich = enrich_map.get(d["ticker"], {})
-        vol = vol_map.get(d["ticker"], {})
-        ts_last = enrich.get("ts")
-        entry = {
-            "ticker": d["ticker"],
-            "ticker_corto": d.get("ticker_corto"),
-            "tipo": d.get("tipo"),
-            "fecha_vencimiento": str(d.get("fecha_vencimiento"))[:10] if d.get("fecha_vencimiento") else None,
-            "fecha_emision": str(d.get("fecha_emision"))[:10] if d.get("fecha_emision") else None,
-            "meses_al_vto": d["_meses"],
-            "ultimo_precio": enrich.get("price"),
-            "tea": enrich.get("TEA"),
-            "tem": enrich.get("TEM"),
-            "paridad": enrich.get("paridad"),
-            "duration": enrich.get("duration"),
-            "mod_duration": enrich.get("mod_duration"),
-            "convexity": enrich.get("convexity"),
-            "total_money_dia": vol.get("total_money"),
-            "total_nominals_dia": vol.get("total_nominals"),
-            "ts_ultimo_trade": ts_last.isoformat() if isinstance(ts_last, datetime) else ts_last,
-        }
-        # Badge para el frontend: este bono cotiza en la tabla tasa_fija por
-        # tener su CER de liquidación ya publicado, pero nativamente es CER.
-        if d["ticker"] in fijados_tickers:
-            entry["cer_fijado"] = True
-        # TC breakeven: sólo tasa_fija (nativa o CER fijada).
-        if curva == "tasa_fija":
-            entry["tc_breakeven"] = _tc_breakeven(
-                enrich.get("price"), d.get("flujo_vencimiento"), mep_actual,
-            )
-        # Metadatos extra para curva CER:
-        #   - is_zero_coupon: distingue Lecers (cupon_anual=0) de Boncers cupón.
-        #   - cer_emision: factor de emisión, para des-indexar precios sucios
-        #     a paridad real cuando se descompone el retorno (carry/rolldown
-        #     se calculan sobre paridad, el cer_accrual se separa después).
-        if curva == "cer":
-            cupon = d.get("cupon_anual")
-            entry["is_zero_coupon"] = (cupon is None) or (float(cupon) == 0.0)
-            cer_em = d.get("cer_emision")
-            if cer_em:
-                entry["cer_emision"] = float(cer_em)
-        # ONs: emisor + sector (= la curva, ej "on_energia") + moneda → tabs
-        # y coloreo de la curva por sector en el frontend.
-        if _es_curva_on(str(d.get("curva", ""))):
-            entry["emisor"] = d.get("emisor")
-            entry["sector"] = d.get("curva")
-            entry["moneda"] = d.get("moneda_flujo")
-        out.append(entry)
-
-    if ordenar_por == "vencimiento":
-        out.sort(key=lambda x: x.get("fecha_vencimiento") or "9999")
-    elif ordenar_por == "volumen_dia":
-        out.sort(key=lambda x: -(x.get("total_money_dia") or 0))
-    elif ordenar_por == "tea":
-        out.sort(key=lambda x: (x.get("tea") is None, x.get("tea") or 0))
-    elif ordenar_por == "duration":
-        out.sort(key=lambda x: (x.get("duration") is None, x.get("duration") or 0))
-
-    if limit and limit > 0:
-        out = out[:limit]
-
-    return out
+    # SQL-native (decomiso Mongo): delega en el twin SQL (mismo shape). Trading.MarketSnapshot/
+    # Curvas dropeadas → la fuente es mercado.market_snapshot + mercado.curvas.
+    from api.services import renta_fija_sql
+    return renta_fija_sql.listar_curva(
+        curva=curva,
+        ordenar_por=ordenar_por,
+        vencimiento_min_meses=vencimiento_min_meses,
+        vencimiento_max_meses=vencimiento_max_meses,
+        limit=limit,
+    )
 
 
 @cached(ttl=300)
@@ -512,7 +256,6 @@ def get_retorno_total_data(curva: str) -> dict:
     rows = get_historico_curva(curva=curva)
     out: dict = {"curva": curva, "rows": rows, "mep": {}, "oficial": {}, "flujos": {}}
     if curva in ("tasa_fija", "cer") and rows:
-        from api.db import get_db_valuaciones
         from api.services.carry_trade import (
             _serie_mep_diaria,
             _serie_oficial_diaria,
@@ -521,15 +264,15 @@ def get_retorno_total_data(curva: str) -> dict:
         if fechas:
             desde = date.fromisoformat(fechas[0])
             hasta = date.fromisoformat(fechas[-1])
-            db_val = get_db_valuaciones()
-            db_trd = get_db_trading()
+            # _serie_*_diaria ya leen SQL (dolar_sql / macro.series_macro); el 1er
+            # arg quedó por compat de firma y se ignora.
             out["mep"] = {
                 f.isoformat(): round(v, 4)
-                for f, v in _serie_mep_diaria(db_val, desde, hasta).items()
+                for f, v in _serie_mep_diaria(None, desde, hasta).items()
             }
             out["oficial"] = {
                 f.isoformat(): round(v, 4)
-                for f, v in _serie_oficial_diaria(db_trd, desde, hasta).items()
+                for f, v in _serie_oficial_diaria(None, desde, hasta).items()
             }
     if rows:
         out["flujos"] = _calendario_flujos(curva)
@@ -563,14 +306,13 @@ def _calendario_flujos(curva: str) -> dict[str, list[dict]]:
         monto_flujo_soberano,
     )
 
-    db = get_db_trading()
     docs = curvas_sql.por_curva(curva)
 
     cer_dict: dict = {}
     dias_habiles: list = []
     if curva == "cer":
-        cer_dict = cargar_cer(db.client, dias=1200)
-        dias_habiles = cargar_dias_habiles(db.client)
+        cer_dict = cargar_cer(dias=1200)        # SQL-only (macro.series_macro)
+        dias_habiles = cargar_dias_habiles()    # SQL-only (mercado.dias_habiles)
 
     out: dict[str, list[dict]] = {}
     for d in docs:

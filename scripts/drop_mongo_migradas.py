@@ -62,8 +62,63 @@ DROPS: list[tuple[str, str, str]] = [
     ("Trading", "CedearsTimeSales",
      "engines/motor_cedears.py escribe mercado.cedears_time_sales SQL; readers (scanner/"
      "day_trading) SQL; intradía (se vacía al cierre); sin sync."),
-    # NO incluida: Trading.PortfolioSnapshot — pnl.py (rama legacy gateada por PNL_SQL) aún
-    # lee Mongo. Verificar el lunes con PNL_SQL=1 antes de dropear.
+
+    # ── WAVE 2-5 (2026-06-28): writers SQL-native + readers SQL + sync neutralizado ──
+    # PROTOCOLO: correr el DRY-RUN, hacer SMOKE de cada dominio EN RUEDA el lunes
+    # (panel con data viva), y recién entonces --apply. Las gateadas van comentadas abajo.
+
+    # Opciones (motor options.py + volatilidad_ggal SQL-native; sync_options_vr/metadata no-op)
+    ("Opciones", "Data",            "options.py → mercado.options_data (append_native); OPCIONES_SQL."),
+    ("Opciones", "OptionsSnapshot", "options.py → options_snapshot (write_native + purge SQL)."),
+    ("Opciones", "Metadata",        "options/manager.options/update_tasa/volatilidad_ggal → options_metadata (merge_jsonb)."),
+    ("Opciones", "VR-GGal",         "volatilidad_ggal.py → options_vr (replace_native); sync_options_vr no-op."),
+
+    # Renta fija derivada (breakevens/forwards/caucion/futuros_dlr SQL-native; syncs no-op)
+    ("Trading", "BreakevensLive",      "breakevens.py → mercado_hist (write_hist); MERCADO_HIST_SQL."),
+    ("Trading", "BreakevensHistorico", "breakevens.py → mercado_hist coleccion=BreakevensHistorico."),
+    ("Trading", "ForwardsLive",        "forwards.py → mercado_hist; MERCADO_HIST_SQL."),
+    ("Trading", "ForwardsHistorico",   "forwards.py → mercado_hist coleccion=ForwardsHistorico."),
+    ("Trading", "ForwardsZscore",      "forwards_zscore.py → forwards_zscore (lee fuente de mercado_hist); sync no-op."),
+    ("Trading", "CaucionSnapshot",     "caucion.py → caucion_snapshot (write_native); sync_caucion_snapshot no-op."),
+    ("Trading", "Caucion",             "caucion.py → mercado_hist coleccion=Caucion."),
+    ("Trading", "FuturosDLRSnapshot",  "futuros_dlr.py → futuros_dlr_snapshot; sync no-op."),
+    ("Trading", "FuturosDLR",          "futuros_dlr.py → mercado_hist coleccion=FuturosDLR."),
+
+    # Agro (motores + carga manual SQL-native; 4 syncs no-op)
+    ("Trading", "AgroSnapshot",         "motor_agro.py → agro_snapshot; sync no-op; AGRO_SQL."),
+    ("Trading", "AgroOpcionesSnapshot", "motor_agro_opciones.py → agro_opciones_snapshot; sync no-op."),
+    ("Derivados", "AgroPizarra",        "derivados_agro.set_pizarra → agro_pizarra; sync no-op."),
+    ("Derivados", "CamaraCereales",     "camara_cereales.set_camara → camara_cereales; sync no-op."),
+    ("Derivados", "AgroPizarraAudit",   "audit append-only sin readers; DROP con el padre."),
+    ("Derivados", "CamaraCerealesAudit","audit append-only sin readers; DROP con el padre."),
+
+    # Market (jobs SQL-native con merge_jsonb para anchors; sync_quotes/calendar no-op)
+    ("Market", "Quotes",          "market_quotes/anchors → home.market_quotes (merge_jsonb); MARKET_SQL."),
+    ("Market", "EconomicCalendar","economic_calendar.py → home.market_calendar; MARKET_SQL."),
+
+    # Negocio / catálogos (writers SQL-native; readers SQL)
+    ("CashFlow", "NegocioMovimientos", "jobs/negocio_movimientos.py SQL-native; pnl.py reads dead-path (pnl_sql vivo); _universo_portfolio SQL."),
+    ("CashFlow", "TiposOperacion",     "fci_bilateral + operaciones_informes → operaciones.tipos_operacion; sync no-op."),
+    ("Clientes", "ActividadMensual",   "jobs/actividad_mensual.py → clientes.actividad_mensual SQL-native; sync no-op."),
+    ("News",     "Headlines",          "news_finnhub/ingesta SQL-native; readers (news.py/status/registry) SQL; NEWS_SQL."),
+
+    # PyRofex (writer reconstruido scripts/discovery_pyrofex.py; readers SQL; ya poblado)
+    ("Manager", "PyRofexInstruments", "discovery_pyrofex → manager.pyrofex_instruments; 5 readers SQL."),
+    ("Manager", "PyRofexDiscovery",   "discovery_pyrofex → manager.pyrofex_discovery (singleton)."),
+
+    # Curvas (master RF) — SQL-native pero ALTO BLAST RADIUS. SMOKE primero:
+    # paridad mercado.curvas↔Trading.Curvas + alta/baja de bono en rueda. Luego descomentar.
+    # ("Trading", "Curvas",     "ons/bonos_admin SQL-native; ~20 readers + loader SQL; sync_curvas no-op. SMOKE paridad."),
+    # ("Trading", "BondsMaster","consolidada en mercado.curvas; muerta."),
+
+    # ── NO incluir todavía (gateadas) ──────────────────────────────────────────────
+    # Trading.FitParams / FairValueResiduos — tablas SQL nuevas VACÍAS; backfill o aceptar
+    #   z_temporal NULL ~20 ruedas antes de dropear.
+    # Trading.OnsIgnoradas — tabla SQL nueva; backfillear el set ignorado o se pierde.
+    # Trading.PortfolioSnapshot — confirmar que pnl.py PortfolioSnapshot reads son dead-path (PNL_SQL).
+    # Manager.{Users,RoleMatrix,Grupos,JobRuns} — DUAL-write todavía (Mongo backstop); no SQL-native.
+    # CashFlow.{Accionistas,VolumenMercadoAgro} — sync backstop activo (carga manual aún a Mongo).
+    # Operaciones.* (órdenes) — flipear ORDENES_SQL en rueda tras comparador de paridad PRIMERO.
 ]
 
 

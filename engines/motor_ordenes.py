@@ -49,8 +49,6 @@ from typing import Any
 
 import pyRofex
 from dotenv import load_dotenv
-from pymongo import ASCENDING
-from pymongo.errors import OperationFailure
 
 # Cargar .env antes que core/rofex_orders_session lea ROFEX_ORDERS_ENV y demás.
 load_dotenv()
@@ -99,65 +97,22 @@ signal.signal(signal.SIGINT, _handle_signal)
 
 
 def _ensure_indexes(db) -> None:
-    """Crea los índices del motor — idempotente y TOLERANTE a conflictos de opciones.
-
-    pymongo NO es idempotente cuando ya existe un índice con el mismo nombre
-    pero opciones distintas: tira `OperationFailure` code 85 (IndexOptionsConflict).
-    Eso pasó cuando al `ts_1` de OrdenesAudit se le agregó un TTL fuera de banda en
-    Atlas: el `create_index([("ts", ...)])` plano del código chocaba con el TTL
-    existente y el motor moría al arrancar (status=1/FAILURE) → systemd en
-    'activating' eterno → OPERAR sin datos (incidente 2026-06-05).
-
-    El índice existente sirve igual para las queries del motor (es un btree sobre
-    `ts`, con o sin TTL), así que ante un conflicto de opciones LO CONSERVAMOS y
-    seguimos en vez de crashear. No borramos ni recreamos nada (cero mutación).
-    """
-    specs: list[tuple[str, list[tuple[str, int]], dict[str, Any]]] = [
-        (COL_LIVE,  [("cl_ord_id", ASCENDING)], {"unique": True, "sparse": True}),
-        (COL_LIVE,  [("ws_cl_ord_id", ASCENDING)], {"sparse": True}),
-        (COL_LIVE,  [("account", ASCENDING), ("status", ASCENDING)], {}),
-        (COL_LIVE,  [("updated_at", ASCENDING)], {}),
-        (COL_AUDIT, [("ts", ASCENDING)], {}),
-        (COL_AUDIT, [("cl_ord_id", ASCENDING)], {}),
-    ]
-    for col, keys, opts in specs:
-        try:
-            db[col].create_index(keys, **opts)
-        except OperationFailure as e:
-            # 85 IndexOptionsConflict / 86 IndexKeySpecsConflict: ya existe un
-            # índice equivalente con opciones distintas → se conserva, sirve igual.
-            if e.code in (85, 86):
-                logger.warning(
-                    "Índice %s en %s ya existe con opciones distintas (code=%s) — "
-                    "se conserva el existente, no se recrea.", keys, col, e.code,
-                )
-            else:
-                raise
+    """NO-OP (decomiso 2026-06-29): el motor escribe SQL-native (operaciones.ordenes_live /
+    ordenes_audit / motor_heartbeat). Los índices viven en sql/schema.sql."""
+    return
 
 
 def _audit(db, kind: str, *, cl_ord_id: str | None = None,
            ws_cl_ord_id: str | None = None, account: str | None = None,
            actor_email: str | None = None, payload: dict | None = None) -> None:
     ts = datetime.now(UTC)
-    db[COL_AUDIT].insert_one({
-        "ts": ts,
-        "kind": kind,
-        "cl_ord_id": cl_ord_id,
-        "ws_cl_ord_id": ws_cl_ord_id,
-        "account": account,
+    # SQL-native (decomiso 2026-06-29): append a operaciones.ordenes_audit, sin Mongo.
+    from core import pg_mirror
+    pg_mirror.append_native("operaciones.ordenes_audit", [{
+        "ts": ts, "kind": kind, "cl_ord_id": cl_ord_id, "account": account,
         "actor_email": actor_email,
-        "payload": payload or {},
-    })
-    # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE) — después de Mongo, nunca rompe.
-    try:
-        from core import pg_mirror
-        pg_mirror.append_ordenes("operaciones.ordenes_audit", [{
-            "ts": ts, "kind": kind, "cl_ord_id": cl_ord_id, "account": account,
-            "actor_email": actor_email,
-            "data": pg_mirror.doc_iso({"ws_cl_ord_id": ws_cl_ord_id, "payload": payload or {}}),
-        }])
-    except Exception:
-        pass
+        "data": pg_mirror.doc_iso({"ws_cl_ord_id": ws_cl_ord_id, "payload": payload or {}}),
+    }])
 
 
 def _upsert_live_from_er(db, rep: dict[str, Any]) -> None:
@@ -191,28 +146,31 @@ def _upsert_live_from_er(db, rep: dict[str, Any]) -> None:
         "last_er_ts": rep.get("transactTime") or now,
     }
     # `created_at` solo en insert (no se pisa).
-    db[COL_LIVE].update_one(
-        {"cl_ord_id": cl_ord_id},
-        {"$set": {k: v for k, v in doc_set.items() if v is not None},
-         "$setOnInsert": {"cl_ord_id": cl_ord_id, "created_at": now}},
-        upsert=True,
-    )
-    # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE). Read-back del doc completo: el
-    # read-side filtra /dia por data->>'created_at' (estable, setOnInsert) → la `data` tiene
-    # que tener el doc entero, no el doc_set parcial. El guard ordenes_on() evita el read
-    # cuando el flag está apagado (cero overhead hasta el cutover).
-    try:
-        from core import pg_mirror
-        if pg_mirror.ordenes_on():
-            d = db[COL_LIVE].find_one({"cl_ord_id": cl_ord_id}, {"_id": 0})
-            if d:
-                pg_mirror.mirror_ordenes("operaciones.ordenes_live", ["cl_ord_id"], [{
-                    "cl_ord_id": cl_ord_id, "account": d.get("account"),
-                    "ticker": d.get("ticker"), "estado": d.get("status"),
-                    "updated_at": d.get("updated_at"), "data": pg_mirror.doc_iso(d),
-                }])
-    except Exception:
-        pass
+    # SQL-native (decomiso 2026-06-29): read-modify-write a operaciones.ordenes_live. El
+    # estado de la orden es INCREMENTAL (cada ER pisa solo sus campos no-null) → leemos el
+    # doc actual, mergeamos y reescribimos, preservando `created_at` (como el $setOnInsert
+    # de Mongo). Corre bajo `_lock` (single-thread) → no hay race read→write. `created_at`
+    # vive en el jsonb (el read-side filtra /dia por data->>'created_at').
+    from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
+
+    from core import pg_mirror
+    from core.postgres import get_pool
+    nuevos = {k: v for k, v in doc_set.items() if v is not None}
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM operaciones.ordenes_live WHERE cl_ord_id = %s", (cl_ord_id,))
+        row = cur.fetchone()
+        prev = (row["data"] if row else None) or {}
+        merged = {**prev, **nuevos, "cl_ord_id": cl_ord_id}
+        merged.setdefault("created_at", now.isoformat())  # solo en el 1er insert
+        cur.execute(
+            "INSERT INTO operaciones.ordenes_live (cl_ord_id, account, ticker, estado, updated_at, data) "
+            "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (cl_ord_id) DO UPDATE SET "
+            "account = EXCLUDED.account, ticker = EXCLUDED.ticker, estado = EXCLUDED.estado, "
+            "updated_at = EXCLUDED.updated_at, data = EXCLUDED.data",
+            (cl_ord_id, merged.get("account"), merged.get("ticker"), merged.get("status"),
+             now, Jsonb(pg_mirror.doc_iso(merged))))
+        conn.commit()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -400,10 +358,13 @@ def _recovery(db, _account_master: str) -> None:
          reconcilia las que matchean por clOrdId.
       4. Las locales que el broker no conoce → UNKNOWN_LOCAL.
     """
-    pendientes = list(db[COL_LIVE].find(
-        {"status": {"$nin": list(ESTADOS_FINALES) + [None]}},
-        {"cl_ord_id": 1, "account": 1},
-    ))
+    # SQL-native (decomiso 2026-06-29): órdenes locales no-finales desde operaciones.ordenes_live.
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT cl_ord_id, account FROM operaciones.ordenes_live "
+                    "WHERE estado IS NOT NULL AND NOT (estado = ANY(%s))",
+                    (list(ESTADOS_FINALES),))
+        pendientes = [{"cl_ord_id": r[0], "account": r[1]} for r in cur.fetchall()]
     if not pendientes:
         logger.info("Recovery: sin órdenes pendientes locales — nada que reconciliar.")
         return
@@ -453,23 +414,17 @@ def _recovery(db, _account_master: str) -> None:
             len(huerfanas), list(huerfanas)[:5],
         )
         now = datetime.now(UTC)
-        db[COL_LIVE].update_many(
-            {"cl_ord_id": {"$in": list(huerfanas)}},
-            {"$set": {"status": "UNKNOWN_LOCAL", "updated_at": now}},
-        )
-        # Dual-write best-effort a SQL (recovery = raro → read-back del doc completo OK).
-        try:
-            from core import pg_mirror
-            if pg_mirror.ordenes_on():
-                rows = [{
-                    "cl_ord_id": d.get("cl_ord_id"), "account": d.get("account"),
-                    "ticker": d.get("ticker"), "estado": d.get("status"),
-                    "updated_at": d.get("updated_at"), "data": pg_mirror.doc_iso(d),
-                } for d in db[COL_LIVE].find({"cl_ord_id": {"$in": list(huerfanas)}}, {"_id": 0})]
-                if rows:
-                    pg_mirror.mirror_ordenes("operaciones.ordenes_live", ["cl_ord_id"], rows)
-        except Exception:
-            pass
+        # SQL-native: marca UNKNOWN_LOCAL en operaciones.ordenes_live (merge jsonb, sin Mongo).
+        from psycopg.types.json import Jsonb
+
+        from core.postgres import get_pool
+        patch = Jsonb({"status": "UNKNOWN_LOCAL", "updated_at": now.isoformat()})
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE operaciones.ordenes_live SET estado = 'UNKNOWN_LOCAL', updated_at = %s, "
+                "data = data || %s WHERE cl_ord_id = ANY(%s)",
+                (now, patch, list(huerfanas)))
+            conn.commit()
         for cid in huerfanas:
             _audit(db, "RECOVERY", cl_ord_id=cid,
                    payload={"reason": "no encontrada en broker"})
@@ -491,22 +446,11 @@ def _heartbeat_loop(db, account: str) -> None:
     while _running:
         try:
             ts = datetime.now(UTC)
-            db[COL_HEARTBEAT].update_one(
-                {"_id": "singleton"},
-                {"$set": {
-                    "updated_at": ts,
-                    "account":    account,
-                }},
-                upsert=True,
-            )
-            # Dual-write best-effort a SQL (flag ORDENES_SQL_WRITE).
-            try:
-                from core import pg_mirror
-                pg_mirror.mirror_ordenes("operaciones.motor_heartbeat", ["id"], [{
-                    "id": "current", "updated_at": ts,
-                    "data": pg_mirror.doc_iso({"account": account})}])
-            except Exception:
-                pass
+            # SQL-native (decomiso 2026-06-29): heartbeat a operaciones.motor_heartbeat, sin Mongo.
+            from core import pg_mirror
+            pg_mirror.write_native("operaciones.motor_heartbeat", ["id"], [{
+                "id": "current", "updated_at": ts,
+                "data": pg_mirror.doc_iso({"account": account})}])
         except Exception as e:
             logger.warning("heartbeat write falló: %s", e)
         time.sleep(HEARTBEAT_DB_S)

@@ -328,14 +328,15 @@ class CedearsEngine:
 # ──────────────────────────────────────────────────────────────────
 
 def _cargar_cedears_master() -> list[dict]:
-    """Lee Trading.Cedears con activo=True. Devuelve solo los campos
-    necesarios para el motor (ticker, ticker_corto). El resto de la
-    metadata se consume del lado del scanner."""
-    client = get_mongo_client()
-    return list(client["Trading"]["Cedears"].find(
-        {"activo": True},
-        {"_id": 0, "ticker": 1, "ticker_corto": 1},
-    ))
+    """Universo del motor: SQL `mercado.cedears` con activo=true (ticker, ticker_corto).
+
+    SQL-native (decomiso 2026-06-29): MISMA fuente que el editor (Manager → Renta
+    Variable) y el scanner → cero drift. Antes leía Mongo `Trading.Cedears`, que
+    driftaba con el master SQL (el motor quedaba con un universo distinto al panel)."""
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ticker, ticker_corto FROM mercado.cedears WHERE activo IS TRUE")
+        return [{"ticker": t, "ticker_corto": tc} for t, tc in cur.fetchall()]
 
 
 def run():
@@ -344,9 +345,9 @@ def run():
         return
 
     cedears = _cargar_cedears_master()
-    logger.info(f"CEDEARs cargados desde Trading.Cedears: {len(cedears)}")
+    logger.info(f"CEDEARs cargados desde mercado.cedears (SQL): {len(cedears)}")
     if not cedears:
-        logger.error("Sin CEDEARs activos en Trading.Cedears. Correr scripts/seed_cedears.py primero.")
+        logger.error("Sin CEDEARs activos en mercado.cedears. Correr scripts/add_cedears_bulk primero.")
         return
 
     engine = CedearsEngine(cedears)

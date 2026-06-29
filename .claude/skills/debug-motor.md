@@ -71,10 +71,6 @@ Síntomas y decisión:
   db.TimeSales.updateMany({duration: null}, {$unset: {duration: ""}})
   systemctl restart motor_curvas.service
   ```
-- **Re-backfill**: si hay histórico faltante (ej. Forwards), hay jobs específicos:
-  - `python -m jobs.backfill_forwards`
-  - `python -m jobs.backfill_breakevens`
-
 ## 5. Escalamiento
 
 Si el problema persiste después de recovery:

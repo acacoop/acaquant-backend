@@ -39,7 +39,6 @@ def _set_job(job_id: str, **kwargs):
 
 _CMDS: dict[str, list[str]] = {
     "cashflow":        ["jobs.cashflow", "--today"],
-    "flujo":           ["jobs.flujo_contrapartes"],
     "bcra":            ["jobs.bcra", "--today"],
     "crear_indices":   ["scripts.crear_indices"],
     "cleanup_curvas":  ["jobs.cleanup_curvas", "--dry"],

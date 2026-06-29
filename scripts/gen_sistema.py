@@ -266,7 +266,7 @@ def _template(blocks: dict[str, str]) -> str:
 ## Bases de datos (quién escribe qué)
 - **`Trading`** — motores de mercado (MarketSnapshot, Curvas, TimeSales, OrderBookL2, DOLAR, SnapshotsCierre, CedearsSnapshot, PreciosAcciones).
 - **`Valuaciones`** — `jobs.aum` (AuM, Assets), PnL precompute, DolarOficialLive (PC oficina).
-- **`CashFlow`** — `jobs.cashflow`, `jobs.flujo_contrapartes`, `jobs.negocio_movimientos`.
+- **`CashFlow`** — `jobs.cashflow`, `jobs.negocio_movimientos`.
 - **`Manager`** — Users, RoleMatrix, Grupos, JobRuns, OrdenesIdempotency.
 - **`Operaciones`** — `motor_ordenes` (OrdenesLive/Audit), OperativasMep.
 - **`CuentasAPI` / `*API`** — copias derivadas (`jobs.sync_api_copies`).

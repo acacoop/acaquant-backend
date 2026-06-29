@@ -22,6 +22,7 @@ _CRONS_IGNORADOS = {
     "jobs.watchdog",            # watchdog del propio sistema
     "jobs.cleanup_curvas",      # limpieza
     "jobs.cleanup_futuros_dlr", # limpieza
+    "jobs.archive_options_data",  # limpieza (prune intradía de mercado.options_data)
     "jobs.descubrir_cuentas",   # discovery interno
     "jobs.volatilidad_ggal",    # cálculo secundario GGAL
     "jobs.aranceles",           # sub-paso del chain de negocio

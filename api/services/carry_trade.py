@@ -18,7 +18,6 @@ from datetime import date, datetime, timedelta
 from psycopg.rows import dict_row
 
 from api.cache import cached
-from api.db import get_db_trading, get_db_valuaciones
 from core.postgres import get_pool
 
 _CURVAS_VALIDAS = ("tasa_fija", "cer")
@@ -162,17 +161,17 @@ def serie_carry_trade(
     if desde_d > hasta_d:
         desde_d, hasta_d = hasta_d, desde_d
 
-    db_trd = get_db_trading()
-    db_val = get_db_valuaciones()
-
-    precios = _precios_diarios_curva(db_trd, curva, desde_d, hasta_d)
+    # SQL-native (decomiso Mongo): los helpers leen SQL (snapshots_cierre_hist +
+    # core.market_snapshot + dolar_sql/series_macro); el 1er arg `db` quedó por compat
+    # de firma y se ignora.
+    precios = _precios_diarios_curva(None, curva, desde_d, hasta_d)
     if not precios:
         return {"error": "no hay precios en la curva para el rango"}
 
     if dolar_l == "oficial":
-        dolares = _serie_oficial_diaria(db_trd, desde_d, hasta_d)
+        dolares = _serie_oficial_diaria(None, desde_d, hasta_d)
     else:  # mep
-        dolares = _serie_mep_diaria(db_val, desde_d, hasta_d)
+        dolares = _serie_mep_diaria(None, desde_d, hasta_d)
     if not dolares:
         return {"error": f"no hay serie de {dolar_l} para el rango"}
 

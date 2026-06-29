@@ -89,8 +89,11 @@ DROPS: list[tuple[str, str, str]] = [
     ("Trading", "AgroOpcionesSnapshot", "motor_agro_opciones.py → agro_opciones_snapshot; sync no-op."),
     ("Derivados", "AgroPizarra",        "derivados_agro.set_pizarra → agro_pizarra; sync no-op."),
     ("Derivados", "CamaraCereales",     "camara_cereales.set_camara → camara_cereales; sync no-op."),
-    ("Derivados", "AgroPizarraAudit",   "audit append-only sin readers; DROP con el padre."),
-    ("Derivados", "CamaraCerealesAudit","audit append-only sin readers; DROP con el padre."),
+    # ⚠️ Audits NO dropear todavía: camara_cereales.py (línea ~120) y derivados_agro.py
+    # siguen escribiendo el audit a Mongo (insert_one) — no migrado. Si se dropea, renace
+    # en la próxima carga. Migrar el writer del audit (o decidir matarlo) ANTES de dropear.
+    # ("Derivados", "AgroPizarraAudit",   "audit append-only sin readers; DROP con el padre."),
+    # ("Derivados", "CamaraCerealesAudit","audit append-only sin readers; DROP con el padre."),
 
     # Market (jobs SQL-native con merge_jsonb para anchors; sync_quotes/calendar no-op)
     ("Market", "Quotes",          "market_quotes/anchors → home.market_quotes (merge_jsonb); MARKET_SQL."),

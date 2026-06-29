@@ -19,7 +19,9 @@ Tras el alta CON cedear: reiniciar motor_cedears.service (lee el master al arran
 """
 import argparse
 
-from core.mongo import get_mongo_client
+from psycopg.types.json import Jsonb
+
+from core.postgres import get_pool
 
 
 def main() -> int:
@@ -48,19 +50,26 @@ def main() -> int:
         "activo":        True,
     }
 
-    col = get_mongo_client()["Trading"]["Cedears"]
-    existe = col.find_one({"ticker_corto": tc}, {"_id": 0, "ticker_corto": 1})
-    print(f"{'APLICA' if args.apply else 'DRY-RUN'} — upsert Trading.Cedears ticker_corto={tc}")
-    print(f"  ya existe: {'sí' if existe else 'no'}  ·  sin_cedear: {sin_cedear}")
-    for k, v in doc.items():
-        print(f"    {k:<14} {v!r}")
-
-    if not args.apply:
-        print("\n(dry-run) Revisá el doc y re-corré con --apply.")
-        return 0
-
-    res = col.update_one({"ticker_corto": tc}, {"$set": doc}, upsert=True)
-    print(f"\n✅ matched={res.matched_count} upserted={'sí' if res.upserted_id else 'no'}")
+    # SQL-native (decomiso 2026-06-29): el master es mercado.cedears (SQL). Antes Trading.Cedears
+    # (Mongo). ON CONFLICT preserva rubro/es_ia (los pone el editor) — solo refresca el resto.
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM mercado.cedears WHERE ticker_corto = %s", (tc,))
+        existe = cur.fetchone() is not None
+        print(f"{'APLICA' if args.apply else 'DRY-RUN'} — upsert mercado.cedears ticker_corto={tc}")
+        print(f"  ya existe: {'sí' if existe else 'no'}  ·  sin_cedear: {sin_cedear}")
+        for k, v in doc.items():
+            print(f"    {k:<14} {v!r}")
+        if not args.apply:
+            print("\n(dry-run) Revisá el doc y re-corré con --apply.")
+            return 0
+        cur.execute(
+            "INSERT INTO mercado.cedears (ticker, ticker_corto, underlying, activo, data) "
+            "VALUES (%s, %s, %s, %s, %s) "
+            "ON CONFLICT (ticker) DO UPDATE SET ticker_corto = EXCLUDED.ticker_corto, "
+            "underlying = EXCLUDED.underlying, activo = EXCLUDED.activo, data = EXCLUDED.data",
+            (doc["ticker"], tc, doc["underlying"], doc["activo"], Jsonb(doc)))
+        conn.commit()
+    print("\n✅ upsert OK en mercado.cedears.")
     print("Próxima corrida de precios_acciones_daily / adr_live + el motor ya lo incluyen.")
     if not sin_cedear:
         print("⚠️ CON cedear → reiniciá motor_cedears.service para que suscriba el ticker nuevo.")

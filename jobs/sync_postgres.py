@@ -609,21 +609,11 @@ def sync_mercado_hist(mdb, conn, dry, desde: datetime | None) -> int:
 
 # ── RENTA VARIABLE — Scanner CEDEARs (espejo Trading.* — ver docs/SQL.md) ─────
 def sync_cedears(mdb, conn, dry) -> int:
-    """Trading.Cedears → cedears. Master chico (~73), completo + delete de huérfanos.
-    Columnas materializadas (ticker/ticker_corto/underlying/activo) + doc en jsonb
-    (el scanner usa nombre/ratio/sector/industria/region/pais)."""
-    rows = []
-    for d in mdb["Trading"]["Cedears"].find({}, {"_id": 0}):
-        t = _s(d.get("ticker"))
-        if not t:
-            continue
-        rows.append((t, _s(d.get("ticker_corto")), _s(d.get("underlying")),
-                     bool(d.get("activo")), _jsonb(d)))
-    rows = _dedup(rows, [0])
-    n = _upsert(conn, "cedears", ["ticker", "ticker_corto", "underlying", "activo", "data"],
-                ["ticker"], rows, dry)
-    _delete_not_in(conn, "cedears", "ticker", {r[0] for r in rows}, dry)
-    return n
+    """NO-OP (decomiso 2026-06-29): mercado.cedears es SQL-native (alta/baja por
+    add_cedears_bulk/add_cedear/renta_variable → SQL directo; el editor escribe rubro/es_ia).
+    Trading.Cedears (Mongo) se dropeó. Si este sync corriera leería Mongo vacío y su
+    `_delete_not_in` BORRARÍA todo mercado.cedears → por eso es no-op."""
+    return 0
 
 
 # sync_cedears_snapshot ELIMINADO en el cutover CedearsSnapshot→SQL (2026-06-24):

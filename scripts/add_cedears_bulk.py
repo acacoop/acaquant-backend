@@ -21,10 +21,10 @@ Idempotente (upsert por ticker_corto).
     python -m scripts.add_cedears_bulk --apply    # da de alta los verificados
 
 Tras --apply (runbook):
-    1. python -m jobs.sync_postgres                      # Trading.Cedears → mercado.cedears
-    2. python -m scripts.backfill_rubros_cedears --apply # rubro/es_ia de los nuevos
-    3. backfill EOD del underlying nuevo (precios_acciones_daily) + adr_live
-    4. systemctl restart motor_cedears.service           # suscribe los tickers nuevos
+    1. python -m scripts.backfill_rubros_cedears --apply # rubro/es_ia de los nuevos
+    2. backfill EOD del underlying nuevo (precios_acciones_daily) + adr_live
+    3. systemctl restart motor_cedears.service           # suscribe los tickers nuevos
+SQL-native (decomiso 2026-06-29): el master es mercado.cedears (SQL), ya no Trading.Cedears.
 """
 from __future__ import annotations
 
@@ -33,8 +33,9 @@ import csv
 from pathlib import Path
 
 import pyRofex
+from psycopg.types.json import Jsonb
 
-from core.mongo import get_mongo_client
+from core.postgres import get_pool
 from core.rofex_session import inicializar_sesion
 
 _CSV = Path(__file__).resolve().parent.parent / "docs" / "cedears_clasificado_final.csv"
@@ -67,14 +68,12 @@ def main() -> int:
     filas = _leer_csv()
     print(f"CSV objetivo: {len(filas)} empresas")
 
-    col = get_mongo_client()["Trading"]["Cedears"]
-    existentes = {
-        (d.get("underlying") or d.get("ticker_corto") or "").upper()
-        for d in col.find({}, {"_id": 0, "underlying": 1, "ticker_corto": 1})
-    }
-    existentes |= {(d.get("ticker_corto") or "").upper()
-                   for d in col.find({}, {"_id": 0, "ticker_corto": 1})}
-    print(f"Master Trading.Cedears: {len(existentes)} símbolos ya cargados")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT underlying, ticker_corto FROM mercado.cedears")
+        rows_ex = cur.fetchall()
+    existentes = {(u or tc or "").upper() for u, tc in rows_ex}
+    existentes |= {(tc or "").upper() for _, tc in rows_ex}
+    print(f"Master mercado.cedears (SQL): {len(existentes)} símbolos ya cargados")
 
     faltan = [r for r in filas if r["ticker"] not in existentes]
     print(f"Faltan del CSV (no están en el master): {len(faltan)}\n")
@@ -102,23 +101,31 @@ def main() -> int:
         return 0
 
     n = 0
-    for r in con_cedear:
-        tc = r["ticker"]
-        doc = {
-            "ticker":       f"MERV - XMEV - {tc} - 24hs",
-            "ticker_corto": tc,
-            "underlying":   tc,
-            "nombre":       r["nombre"] or tc,
-            "sector":       None,
-            "ratio_cedear": None,
-            "sin_cedear":   False,
-            "activo":       True,
-        }
-        col.update_one({"ticker_corto": tc}, {"$set": doc}, upsert=True)
-        n += 1
-    print(f"\n✅ Alta de {n} CEDEARs en Trading.Cedears.")
-    print("Seguí el runbook del docstring: sync_postgres → backfill_rubros_cedears --apply "
-          "→ backfill EOD/ADR → restart motor_cedears.service.")
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        for r in con_cedear:
+            tc = r["ticker"]
+            doc = {
+                "ticker":       f"MERV - XMEV - {tc} - 24hs",
+                "ticker_corto": tc,
+                "underlying":   tc,
+                "nombre":       r["nombre"] or tc,
+                "sector":       None,
+                "ratio_cedear": None,
+                "sin_cedear":   False,
+                "activo":       True,
+            }
+            # ON CONFLICT preserva rubro/es_ia (los pone el editor) — refresca el resto.
+            cur.execute(
+                "INSERT INTO mercado.cedears (ticker, ticker_corto, underlying, activo, data) "
+                "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (ticker) DO UPDATE SET "
+                "ticker_corto = EXCLUDED.ticker_corto, underlying = EXCLUDED.underlying, "
+                "activo = EXCLUDED.activo, data = EXCLUDED.data",
+                (doc["ticker"], tc, doc["underlying"], doc["activo"], Jsonb(doc)))
+            n += 1
+        conn.commit()
+    print(f"\n✅ Alta de {n} CEDEARs en mercado.cedears (SQL).")
+    print("Seguí el runbook del docstring: backfill_rubros_cedears --apply → backfill EOD/ADR "
+          "→ restart motor_cedears.service.")
     return 0
 
 

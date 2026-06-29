@@ -129,6 +129,10 @@ DROPS: list[tuple[str, str, str]] = [
     ("Operaciones", "AccountsDescubiertas",
      "descubrir_cuentas eliminado; listado_cuentas lee clientes.cuentas (SQL). Sin readers/writers."),
 
+    # Cedears (master RV) — SQL-native (decomiso 2026-06-29): motor lee mercado.cedears;
+    # alta/baja (add_cedear/add_cedears_bulk/renta_variable) escriben SQL; sync_cedears NO-OP.
+    ("Trading", "Cedears", "master RV SQL-native (mercado.cedears); motor/scanner/alta SQL; sync_cedears no-op."),
+
     # Curvas (master RF) — SQL-native. GATE: correr scripts.compare_curvas_sql_vs_mongo
     # (paridad ticker_corto + flujos). Si ✅, descomentar y dropear.
     # ("Trading", "Curvas",     "ons/bonos_admin SQL-native; ~20 readers + loader SQL; sync_curvas no-op."),

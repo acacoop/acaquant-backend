@@ -133,6 +133,12 @@ DROPS: list[tuple[str, str, str]] = [
     # alta/baja (add_cedear/add_cedears_bulk/renta_variable) escriben SQL; sync_cedears NO-OP.
     ("Trading", "Cedears", "master RV SQL-native (mercado.cedears); motor/scanner/alta SQL; sync_cedears no-op."),
 
+    # ── Trading SQL-native (writers SQL + syncs no-op/eliminados) — decomiso 2026-06-29 ──
+    ("Trading", "DayTradingStats", "jobs/day_trading_stats SQL-native (mercado.day_trading_stats); sync_day_trading_stats no-op."),
+    ("Trading", "PortfolioSnapshot", "engines/portfolio_snapshot SQL-native (valuaciones.portfolio_snapshot); sin sync."),
+    ("Trading", "MarketSnapshot", "valores/curvas escriben mercado.market_snapshot SQL-native; sync_market_snapshot eliminado; readers SQL. VERIFICAR pricing live en rueda antes."),
+    ("Trading", "Curvas", "ons/bonos_admin SQL-native (mercado.curvas); ~20 readers + loader SQL; sync_curvas no-op. GATE opcional: scripts.compare_curvas_sql_vs_mongo."),
+
     # Curvas (master RF) — SQL-native. GATE: correr scripts.compare_curvas_sql_vs_mongo
     # (paridad ticker_corto + flujos). Si ✅, descomentar y dropear.
     # ("Trading", "Curvas",     "ons/bonos_admin SQL-native; ~20 readers + loader SQL; sync_curvas no-op."),

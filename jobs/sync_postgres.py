@@ -632,18 +632,10 @@ def sync_cedears(mdb, conn, dry) -> int:
 
 
 def sync_day_trading_stats(mdb, conn, dry, desde: datetime | None) -> int:
-    """Trading.DayTradingStats → day_trading_stats (passthrough jsonb). Incremental
-    por `fecha` (string ISO → comparación lexicográfica). Upsert por (fecha, ticker)."""
-    f_desde = desde.date().isoformat() if desde else None
-    q = {"fecha": {"$gte": f_desde}} if f_desde else {}
-    rows = []
-    for d in mdb["Trading"]["DayTradingStats"].find(q, {"_id": 0}):
-        f, tk = _d(d.get("fecha")), _s(d.get("ticker"))
-        if not (f and tk):
-            continue
-        rows.append((f, tk, _jsonb(d)))
-    return _upsert(conn, "day_trading_stats", ["fecha", "ticker", "data"],
-                   ["fecha", "ticker"], _dedup(rows, [0, 1]), dry)
+    """NO-OP (decomiso 2026-06-29): jobs/day_trading_stats.py escribe mercado.day_trading_stats
+    SQL-native (write_native). El puente leía Mongo Trading.DayTradingStats (congelado) y
+    pisaría el dato fresco. Trading.DayTradingStats → drop."""
+    return 0
 
 
 # ── reconciliación (no confiar a ciegas) ─────────────────────────────────────

@@ -160,8 +160,19 @@ DROPS: list[tuple[str, str, str]] = [
 
     # ── NO incluir todavía (otras gateadas) ──────────────────────────────────────────
     # Trading.PortfolioSnapshot — confirmar que pnl.py PortfolioSnapshot reads son dead-path (PNL_SQL).
-    # CashFlow.{Accionistas,VolumenMercadoAgro} — sync backstop activo (carga manual aún a Mongo).
-    # Operaciones.* (órdenes) — flipear ORDENES_SQL en rueda tras comparador de paridad PRIMERO.
+    # ── ÓRDENES (la mesa en vivo) — cutover SQL-native completo (decomiso 2026-06-29) ──
+    # motor_ordenes + ordenes + _idempotencia + operativa_mep + core/brackets escriben/leen SQL
+    # (operaciones.{ordenes_live,ordenes_audit,operativas_mep,brackets_live,motor_heartbeat,
+    # ordenes_idempotency}). ORDENES_SQL/ORDENES_SQL_WRITE prendidos; syncs neutralizados.
+    # ⚠️ DROPEAR SOLO TRAS SMOKE: mandar+cancelar una orden de prueba + una operativa MEP y
+    # ver que figuran bien en /operar (paridad OK). Es la mesa — verificar antes del --apply.
+    ("Operaciones", "OrdenesLive",        "motor/ordenes/operativa SQL-native (operaciones.ordenes_live)."),
+    ("Operaciones", "OrdenesAudit",       "motor/ordenes/operativa append SQL (operaciones.ordenes_audit)."),
+    ("Operaciones", "MotorOrdenesHeartbeat", "motor SQL-native (operaciones.motor_heartbeat)."),
+    ("Operaciones", "OperativasMep",      "operativa_mep CRUD/reads SQL (operaciones.operativas_mep)."),
+    ("Operaciones", "BracketsLive",       "core/brackets SQL-native (operaciones.brackets_live)."),
+    ("Operaciones", "OrdenesIdempotency", "_idempotencia SQL-native (operaciones.ordenes_idempotency, PK+ON CONFLICT)."),
+    ("Operaciones", "TriggersMep",        "scanner inactivo, sin writer; tabla SQL vacía."),
 ]
 
 

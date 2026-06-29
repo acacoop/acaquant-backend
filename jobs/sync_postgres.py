@@ -675,18 +675,12 @@ def run(full: bool = False, days: int = DEFAULT_DIAS, dry: bool = False) -> dict
         n_to = _t("tipos_operacion", lambda: sync_tipos_operacion(mdb, conn, dry))
         n_vma = _t("volumen_mercado_agro", lambda: sync_volumen_mercado_agro(mdb, conn, dry))
 
-        # Motor de órdenes — read-side SQL (BASELINE; el write-side dual-escribe live).
-        n_ol = _t("ordenes_live", lambda: sync_ordenes_live(mdb, conn, dry))
-        n_oa = _t("ordenes_audit", lambda: sync_ordenes_audit(mdb, conn, dry, desde))
-        n_hb = _t("motor_heartbeat", lambda: sync_motor_heartbeat(mdb, conn, dry))
-        n_op = _t("operativas_mep", lambda: sync_operativas_mep(mdb, conn, dry))
-        n_bk = _t("brackets_live", lambda: sync_brackets_live(mdb, conn, dry))
-        n_tr = _t("triggers_mep", lambda: sync_triggers_mep(mdb, conn, dry))
-        n_id = _t("ordenes_idempotency", lambda: sync_ordenes_idempotency(mdb, conn, dry))
-        n_acd = _t("accounts_descubiertas", lambda: sync_accounts_descubiertas(mdb, conn, dry))
-        print(f"  motor órdenes (baseline): ordenes_live={n_ol}  ordenes_audit={n_oa:,}  "
-              f"motor_heartbeat={n_hb}  operativas_mep={n_op}  brackets_live={n_bk}  "
-              f"triggers_mep={n_tr}  ordenes_idempotency={n_id}  accounts_descubiertas={n_acd}")
+        # Motor de órdenes — SQL-native (decomiso 2026-06-29): motor + services
+        # (ordenes/idempotencia/operativa_mep/brackets) escriben SQL directo. El baseline
+        # Mongo→SQL se NEUTRALIZA: pisaría el dato fresco con Mongo congelado y borraría
+        # al dropear las colecciones. Las funciones sync_ordenes_* quedan muertas.
+        n_ol = n_oa = n_hb = n_op = n_bk = n_tr = n_id = n_acd = 0
+        print("  motor órdenes: SQL-native (sync baseline neutralizado)")
 
         n_mu = _t("manager_users", lambda: sync_manager_users(mdb, conn, dry))
         n_rm = _t("role_matrix", lambda: sync_role_matrix(mdb, conn, dry))

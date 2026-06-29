@@ -37,7 +37,6 @@ from uuid import uuid4
 import pyRofex
 
 from api.services.ordenes import send_order
-from core.mongo import get_mongo_client, get_mongo_client_read
 
 logger = logging.getLogger("api.services.operativa_mep")
 
@@ -220,20 +219,27 @@ def _persistir_orden_live(
     _audit_ordenes("REST_SNAPSHOT", cl_ord_id=cl_ord_id, account=account, payload=order)
 
 
-def _mirror_operativa_sql(db_ops, operativa_id: str) -> None:
-    """Espejo best-effort OperativasMep→`operaciones.operativas_mep` (flag ORDENES_SQL_WRITE).
-    Read-back del doc completo (low-freq: pocas operativas/día). NUNCA levanta."""
-    try:
-        from core import pg_mirror
-        if not pg_mirror.ordenes_on():
-            return
-        d = db_ops[COL_OPERATIVAS].find_one({"operativa_id": operativa_id}, {"_id": 0})
-        if d:
-            pg_mirror.mirror_ordenes("operaciones.operativas_mep", ["id"], [{
-                "id": operativa_id, "account": d.get("account"), "rueda": d.get("rueda"),
-                "ts": d.get("updated_at") or d.get("created_at"), "data": pg_mirror.doc_iso(d)}])
-    except Exception:
-        pass
+def _upsert_operativa_sql(operativa_id: str, fields: dict) -> None:
+    """Upsert SQL-native a operaciones.operativas_mep (read-modify-write). `fields` se mergea
+    en el doc (en el insert inicial trae todo; en updates, solo lo que cambia). SQL-native
+    (decomiso 2026-06-29): la operativa Dólar MEP ya no escribe Mongo."""
+    from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
+
+    from core import pg_mirror
+    from core.postgres import get_pool
+    ts = fields.get("updated_at") or fields.get("created_at") or datetime.now(UTC)
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM operaciones.operativas_mep WHERE id = %s", (operativa_id,))
+        row = cur.fetchone()
+        merged = {**((row["data"] if row else None) or {}), **fields, "operativa_id": operativa_id}
+        cur.execute(
+            "INSERT INTO operaciones.operativas_mep (id, account, rueda, ts, data) "
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET "
+            "account = EXCLUDED.account, rueda = EXCLUDED.rueda, ts = EXCLUDED.ts, data = EXCLUDED.data",
+            (operativa_id, merged.get("account"), merged.get("rueda"), ts,
+             Jsonb(pg_mirror.doc_iso(merged))))
+        conn.commit()
 
 
 def _ejecutar_buy_then_sell(
@@ -384,7 +390,6 @@ def crear_operativa(
     # al broker; sino marcamos FAIL_VALIDACION y devolvemos.
     operativa_id = str(uuid4())
     now = datetime.now(UTC)
-    db_ops = get_mongo_client()[DB_OPS]
     doc = {
         "operativa_id": operativa_id,
         "tipo": "compra",
@@ -404,23 +409,17 @@ def crear_operativa(
         "created_at": now,
         "updated_at": now,
     }
-    db_ops[COL_OPERATIVAS].insert_one(doc)
-    _mirror_operativa_sql(db_ops, operativa_id)
+    _upsert_operativa_sql(operativa_id, doc)
 
     if nominales <= 0:
         motivo = (
             f"nominales=0 (ars_neto=${ars_neto:.2f} / precio_VN=${precio_al30_vn:.2f}). "
             "Subí el monto o bajá la comisión."
         )
-        db_ops[COL_OPERATIVAS].update_one(
-            {"operativa_id": operativa_id},
-            {"$set": {
-                "status": "FAIL_VALIDACION",
-                "buy_error": motivo,
-                "updated_at": datetime.now(UTC),
-            }},
-        )
-        _mirror_operativa_sql(db_ops, operativa_id)
+        _upsert_operativa_sql(operativa_id, {
+            "status": "FAIL_VALIDACION", "buy_error": motivo,
+            "updated_at": datetime.now(UTC),
+        })
         return {
             "ok": False,
             "operativa_id": operativa_id,
@@ -436,7 +435,7 @@ def crear_operativa(
         account=account,
         actor_email=actor_email,
     )
-    return _persistir_resultado_operativa(operativa_id, nominales, res, db_ops)
+    return _persistir_resultado_operativa(operativa_id, nominales, res)
 
 
 def operativa_venta_mep(
@@ -469,7 +468,6 @@ def operativa_venta_mep(
 
     operativa_id = str(uuid4())
     now = datetime.now(UTC)
-    db_ops = get_mongo_client()[DB_OPS]
     doc = {
         "operativa_id": operativa_id,
         "tipo": "venta",
@@ -490,8 +488,7 @@ def operativa_venta_mep(
         "created_at": now,
         "updated_at": now,
     }
-    db_ops[COL_OPERATIVAS].insert_one(doc)
-    _mirror_operativa_sql(db_ops, operativa_id)
+    _upsert_operativa_sql(operativa_id, doc)
 
     res = _ejecutar_buy_then_sell(
         buy_ticker=tk["al30d"],
@@ -500,7 +497,7 @@ def operativa_venta_mep(
         account=account,
         actor_email=actor_email,
     )
-    return _persistir_resultado_operativa(operativa_id, nominales, res, db_ops)
+    return _persistir_resultado_operativa(operativa_id, nominales, res)
 
 
 def crear_operativa_venta(
@@ -567,7 +564,6 @@ def _persistir_resultado_operativa(
     operativa_id: str,
     nominales: int,
     res: dict[str, Any],
-    db_ops,
 ) -> dict[str, Any]:
     """Toma el resultado de _ejecutar_buy_then_sell y persiste el update final
     en OperativasMep. Devuelve el dict que sube al router."""
@@ -587,11 +583,7 @@ def _persistir_resultado_operativa(
         if sell.get("error"):
             update_set["sell_error"] = sell.get("error")
 
-    db_ops[COL_OPERATIVAS].update_one(
-        {"operativa_id": operativa_id},
-        {"$set": update_set},
-    )
-    _mirror_operativa_sql(db_ops, operativa_id)
+    _upsert_operativa_sql(operativa_id, update_set)
 
     return {
         "ok":            global_status in {"OK", "OK_PARCIAL"},
@@ -627,21 +619,23 @@ def _enrich_pata(orden: dict | None) -> dict[str, Any] | None:
 
 def listar_operativas_dia(account: str | None = None) -> list[dict]:
     """Lista operativas del día UTC con join a OrdenesLive y métricas calculadas."""
-    db_ops = get_mongo_client_read()[DB_OPS]
-    inicio = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    filtro: dict[str, Any] = {"created_at": {"$gte": inicio}}
-    if account:
-        filtro["account"] = account
+    # SQL-native (decomiso 2026-06-29): operativas + OrdenesLive desde SQL, sin Mongo.
+    from psycopg.rows import dict_row
 
-    operativas = list(
-        db_ops[COL_OPERATIVAS]
-        .find(filtro, {"_id": 0})
-        .sort("created_at", -1)
-    )
+    from core.postgres import get_pool
+    inicio = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    where = ["data->>'created_at' >= %s"]
+    params: list = [inicio.isoformat()]
+    if account:
+        where.append("account = %s")
+        params.append(account)
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM operaciones.operativas_mep "
+                    f"WHERE {' AND '.join(where)} ORDER BY ts DESC", params)
+        operativas = [r["data"] for r in cur.fetchall()]
     if not operativas:
         return []
 
-    # Traer las OrdenesLive de las patas de un saque
     cl_ord_ids: list[str] = []
     for op in operativas:
         for pata in ("buy", "sell"):
@@ -650,10 +644,12 @@ def listar_operativas_dia(account: str | None = None) -> list[dict]:
                 cl_ord_ids.append(cid)
     ordenes_by_id: dict[str, dict] = {}
     if cl_ord_ids:
-        for d in db_ops[COL_ORDENES].find(
-            {"cl_ord_id": {"$in": cl_ord_ids}}, {"_id": 0},
-        ):
-            ordenes_by_id[d["cl_ord_id"]] = d
+        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("SELECT data FROM operaciones.ordenes_live WHERE cl_ord_id = ANY(%s)",
+                        (cl_ord_ids,))
+            for r in cur.fetchall():
+                d = r["data"]
+                ordenes_by_id[d["cl_ord_id"]] = d
 
     out: list[dict] = []
     for op in operativas:
@@ -746,8 +742,14 @@ def obtener_detalle_operativa(operativa_id: str) -> dict[str, Any] | None:
 
     Devuelve None si la operativa no existe.
     """
-    db = get_mongo_client_read()[DB_OPS]
-    op = db[COL_OPERATIVAS].find_one({"operativa_id": operativa_id})
+    # SQL-native (decomiso 2026-06-29): operativa + OrdenesLive + OrdenesAudit desde SQL.
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM operaciones.operativas_mep WHERE id = %s", (operativa_id,))
+        r = cur.fetchone()
+    op = r["data"] if r else None
     if not op:
         return None
 
@@ -757,19 +759,20 @@ def obtener_detalle_operativa(operativa_id: str) -> dict[str, Any] | None:
     def _pata(cid: str | None) -> dict[str, Any]:
         if not cid:
             return {"live": None, "audit": []}
-        live = db[COL_ORDENES].find_one({"cl_ord_id": cid})
-        audit_cursor = (
-            db["OrdenesAudit"]
-            .find({"cl_ord_id": cid}, {"_id": 0})
-            .sort("ts", 1)
-        )
+        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute("SELECT data FROM operaciones.ordenes_live WHERE cl_ord_id = %s", (cid,))
+            lr = cur.fetchone()
+            live = lr["data"] if lr else None
+            cur.execute("SELECT ts, kind, data FROM operaciones.ordenes_audit "
+                        "WHERE cl_ord_id = %s ORDER BY ts ASC", (cid,))
+            rows_a = cur.fetchall()
         audit = []
-        for a in audit_cursor:
-            ts = a.get("ts")
+        for a in rows_a:
+            ts = a["ts"]
             audit.append({
                 "ts":      ts.isoformat() if isinstance(ts, datetime) else ts,
-                "kind":    a.get("kind"),
-                "payload": a.get("payload"),
+                "kind":    a["kind"],
+                "payload": (a["data"] or {}).get("payload"),
             })
         return {"live": _serializar_doc(live), "audit": audit}
 

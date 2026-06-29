@@ -24,15 +24,15 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from pymongo import ASCENDING
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
-from core.mongo import get_mongo_client, get_mongo_client_read
+from core.postgres import get_pool
 
 logger = logging.getLogger("core.brackets")
 
-DB = "Operaciones"
-COL = "BracketsLive"
-
+# SQL-native (decomiso 2026-06-29): operaciones.brackets_live (PK cl_ord_id = entry_cl_ord_id,
+# + account/estado materializados + data jsonb). Antes Operaciones.BracketsLive (Mongo).
 STATUS_PENDING_ENTRY = "PENDING_ENTRY"
 STATUS_EXIT_SENT     = "EXIT_SENT"
 STATUS_COMPLETED     = "COMPLETED"
@@ -45,20 +45,28 @@ ENTRY_FILLED = {"FILLED"}
 ENTRY_DEAD = {"REJECTED", "CANCELLED", "EXPIRED"}
 
 
-def _coll():
-    return get_mongo_client()[DB][COL]
-
-
 def ensure_indexes() -> None:
-    col = _coll()
-    existing = {ix["name"] for ix in col.list_indexes()}
-    if "entry_cl_ord_id_1" not in existing:
-        col.create_index(
-            [("entry_cl_ord_id", ASCENDING)], name="entry_cl_ord_id_1", unique=True,
-        )
-    if "status_account_1" not in existing:
-        col.create_index([("status", ASCENDING), ("account", ASCENDING)],
-                         name="status_account_1")
+    """NO-OP — los índices de operaciones.brackets_live viven en sql/schema.sql."""
+    return
+
+
+def _write_bracket(entry_cl_ord_id: str, fields: dict) -> None:
+    """Upsert SQL-native (read-modify-write) a operaciones.brackets_live. `fields` se mergea
+    en el doc (insert inicial trae todo; updates solo lo que cambia)."""
+    from core import pg_mirror
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM operaciones.brackets_live WHERE cl_ord_id = %s",
+                    (entry_cl_ord_id,))
+        row = cur.fetchone()
+        merged = {**((row["data"] if row else None) or {}), **fields,
+                  "entry_cl_ord_id": entry_cl_ord_id}
+        cur.execute(
+            "INSERT INTO operaciones.brackets_live (cl_ord_id, account, estado, data) "
+            "VALUES (%s, %s, %s, %s) ON CONFLICT (cl_ord_id) DO UPDATE SET "
+            "account = EXCLUDED.account, estado = EXCLUDED.estado, data = EXCLUDED.data",
+            (entry_cl_ord_id, merged.get("account"), merged.get("status"),
+             Jsonb(pg_mirror.doc_iso(merged))))
+        conn.commit()
 
 
 def create_bracket(
@@ -75,7 +83,7 @@ def create_bracket(
     actor_email: str | None,
 ) -> dict[str, Any]:
     """Inserta el doc post-envío exitoso de la orden de entrada."""
-    now = datetime.now(UTC)
+    now = datetime.now(UTC).isoformat()
     doc = {
         "entry_cl_ord_id":   entry_cl_ord_id,
         "entry_proprietary": entry_proprietary,
@@ -93,33 +101,17 @@ def create_bracket(
         "created_at":        now,
         "updated_at":        now,
     }
-    _coll().insert_one(doc)
-    _mirror_bracket_sql(entry_cl_ord_id)
+    _write_bracket(entry_cl_ord_id, doc)
     return doc
-
-
-def _mirror_bracket_sql(entry_cl_ord_id: str | None) -> None:
-    """Espejo best-effort BracketsLive→`operaciones.brackets_live` (flag ORDENES_SQL_WRITE).
-    PK = entry_cl_ord_id (columna cl_ord_id). Read-back, low-freq, NUNCA levanta."""
-    try:
-        from core import pg_mirror
-        if not pg_mirror.ordenes_on() or not entry_cl_ord_id:
-            return
-        d = _coll().find_one({"entry_cl_ord_id": entry_cl_ord_id}, {"_id": 0})
-        if d:
-            pg_mirror.mirror_ordenes("operaciones.brackets_live", ["cl_ord_id"], [{
-                "cl_ord_id": entry_cl_ord_id, "account": d.get("account"),
-                "estado": d.get("status"), "data": pg_mirror.doc_iso(d)}])
-    except Exception:
-        pass
 
 
 def find_pending_by_entry(entry_cl_ord_id: str) -> dict[str, Any] | None:
     """Lookup que el motor hace en cada ER. Si devuelve algo, hay que disparar."""
-    return _coll().find_one(
-        {"entry_cl_ord_id": entry_cl_ord_id, "status": STATUS_PENDING_ENTRY},
-        {"_id": 0},
-    )
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM operaciones.brackets_live WHERE cl_ord_id = %s "
+                    "AND data->>'status' = %s", (entry_cl_ord_id, STATUS_PENDING_ENTRY))
+        r = cur.fetchone()
+    return r["data"] if r else None
 
 
 def mark_exit_sent(
@@ -128,67 +120,49 @@ def mark_exit_sent(
     exit_cl_ord_id: str,
     exit_proprietary: str | None,
 ) -> None:
-    _coll().update_one(
-        {"entry_cl_ord_id": entry_cl_ord_id},
-        {"$set": {
-            "exit_cl_ord_id":   exit_cl_ord_id,
-            "exit_proprietary": exit_proprietary,
-            "status":           STATUS_EXIT_SENT,
-            "updated_at":       datetime.now(UTC),
-        }},
-    )
-    _mirror_bracket_sql(entry_cl_ord_id)
+    _write_bracket(entry_cl_ord_id, {
+        "exit_cl_ord_id": exit_cl_ord_id, "exit_proprietary": exit_proprietary,
+        "status": STATUS_EXIT_SENT, "updated_at": datetime.now(UTC).isoformat()})
 
 
 def mark_entry_dead(entry_cl_ord_id: str, status_broker: str) -> None:
-    """Entrada terminal sin FILL → no disparamos salida."""
-    _coll().update_one(
-        {"entry_cl_ord_id": entry_cl_ord_id, "status": STATUS_PENDING_ENTRY},
-        {"$set": {
-            "status":           STATUS_ENTRY_CANCELLED,
-            "entry_final_status": status_broker,
-            "updated_at":       datetime.now(UTC),
-        }},
-    )
-    _mirror_bracket_sql(entry_cl_ord_id)
+    """Entrada terminal sin FILL → no disparamos salida. Solo si sigue PENDING_ENTRY."""
+    if not find_pending_by_entry(entry_cl_ord_id):
+        return
+    _write_bracket(entry_cl_ord_id, {
+        "status": STATUS_ENTRY_CANCELLED, "entry_final_status": status_broker,
+        "updated_at": datetime.now(UTC).isoformat()})
 
 
 def mark_exit_rejected(entry_cl_ord_id: str, reason: str | None) -> None:
-    _coll().update_one(
-        {"entry_cl_ord_id": entry_cl_ord_id},
-        {"$set": {
-            "status":         STATUS_EXIT_REJECTED,
-            "exit_error":     reason,
-            "updated_at":     datetime.now(UTC),
-        }},
-    )
-    _mirror_bracket_sql(entry_cl_ord_id)
+    _write_bracket(entry_cl_ord_id, {
+        "status": STATUS_EXIT_REJECTED, "exit_error": reason,
+        "updated_at": datetime.now(UTC).isoformat()})
 
 
 def mark_completed(exit_cl_ord_id: str) -> None:
-    """Cuando la salida llega FILLED."""
-    _coll().update_one(
-        {"exit_cl_ord_id": exit_cl_ord_id, "status": STATUS_EXIT_SENT},
-        {"$set": {"status": STATUS_COMPLETED, "updated_at": datetime.now(UTC)}},
-    )
-    _b = find_by_exit(exit_cl_ord_id)
-    _mirror_bracket_sql(_b.get("entry_cl_ord_id") if _b else None)
+    """Cuando la salida llega FILLED. Solo si el bracket está EXIT_SENT."""
+    b = find_by_exit(exit_cl_ord_id)
+    if not b or b.get("status") != STATUS_EXIT_SENT:
+        return
+    _write_bracket(b["entry_cl_ord_id"], {
+        "status": STATUS_COMPLETED, "updated_at": datetime.now(UTC).isoformat()})
 
 
 def find_by_exit(exit_cl_ord_id: str) -> dict[str, Any] | None:
-    return _coll().find_one(
-        {"exit_cl_ord_id": exit_cl_ord_id},
-        {"_id": 0},
-    )
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT data FROM operaciones.brackets_live "
+                    "WHERE data->>'exit_cl_ord_id' = %s", (exit_cl_ord_id,))
+        r = cur.fetchone()
+    return r["data"] if r else None
 
 
 def list_dia(account: str | None = None) -> list[dict[str, Any]]:
-    filtro: dict = {}
+    where, params = "", []
     if account:
-        filtro["account"] = account
-    return list(
-        get_mongo_client_read()[DB][COL]
-        .find(filtro, {"_id": 0})
-        .sort("created_at", -1)
-        .limit(200)
-    )
+        where = "WHERE account = %s"
+        params = [account]
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(f"SELECT data FROM operaciones.brackets_live {where} "
+                    "ORDER BY data->>'created_at' DESC LIMIT 200", params)
+        return [r["data"] for r in cur.fetchall()]

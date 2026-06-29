@@ -16,7 +16,9 @@ from datetime import date
 
 from psycopg.rows import dict_row
 
-from api.db import get_db_cashflow, get_db_trading, get_db_valuaciones
+# Decomiso Mongo: el motor _pnl_por_cuenta_core acepta db_cf/db_v/db_t pero SOLO los
+# dereferencia en su rama de fallback (cuando los kwargs bulk vienen None). En el path
+# SQL `_deps_sql` provee TODOS los kwargs → esas ramas nunca corren → se pasa None.
 from api.services._mep import get_mep_for_date
 from api.services.pnl import (
     _CATS_RELEVANTES,
@@ -143,7 +145,7 @@ def pnl_por_cuenta_sql(id_cuenta: str) -> dict:
     deps = _deps_sql(only_cuenta=str(id_cuenta))
     return _pnl_por_cuenta_core(
         id_cuenta=str(id_cuenta),
-        db_cf=get_db_cashflow(), db_v=get_db_valuaciones(), db_t=get_db_trading(),
+        db_cf=None, db_v=None, db_t=None,   # vestigial — deps cubre todo (SQL-only)
         mep_hoy=get_mep_for_date(date.today().isoformat()),
         mep_cache={},
         **deps,
@@ -292,7 +294,6 @@ def pnl_todas_cuentas_compute_sql() -> list[dict]:
             "pnl_todas_cuentas_compute_sql: precarga bulk vacía (boletos y posición) — abortado")
 
     mep_hoy = get_mep_for_date(date.today().isoformat())
-    db_cf, db_v, db_t = get_db_cashflow(), get_db_valuaciones(), get_db_trading()
     mep_cache: dict[str, float | None] = {}
 
     out: list[dict] = []
@@ -303,7 +304,7 @@ def pnl_todas_cuentas_compute_sql() -> list[dict]:
         try:
             r = _pnl_por_cuenta_core(
                 id_cuenta=str(id_cta),
-                db_cf=db_cf, db_v=db_v, db_t=db_t,
+                db_cf=None, db_v=None, db_t=None,   # vestigial — deps cubre todo (SQL-only)
                 mep_hoy=mep_hoy, mep_cache=mep_cache, **deps,
             )
         except Exception:

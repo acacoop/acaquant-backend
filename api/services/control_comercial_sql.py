@@ -17,11 +17,11 @@ SQL-native (no toca Mongo). Reusa helpers de comercial_sql (_PESIF, _CATS_VOLUME
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date
 
-from core.postgres import get_pool
 from psycopg.rows import dict_row
 
+from core.postgres import get_pool
 
 # ── Tabla de objetivos (self-create, igual patrón que valuaciones.consolidado) ──
 _DDL = """
@@ -88,16 +88,22 @@ def set_objetivo(*, operador_email: str, anio: int, mes: int,
 
 def _hoy_art() -> date:
     """Hoy en ART (UTC-3) sin depender de tz del server. Igual criterio que comercial_sql."""
-    from datetime import datetime, timedelta, timezone
-    return (datetime.now(timezone.utc) - timedelta(hours=3)).date()
+    from datetime import datetime, timedelta
+    return (datetime.now(UTC) - timedelta(hours=3)).date()
 
 
 # ── Cálculo de las 3 tablas (etapa 2) ────────────────────────────────────────
 # Reusa los helpers de comercial_sql (misma definición de volumen/comisiones/conversión).
-from api.services.comercial_sql import (  # noqa: E402
-    _CATS_VOLUMEN, _PESIF, _cv, _f, _factor_usd, _q,
-)
 from datetime import timedelta  # noqa: E402
+
+from api.services.comercial_sql import (  # noqa: E402
+    _CATS_VOLUMEN,
+    _PESIF,
+    _cv,
+    _f,
+    _factor_usd,
+    _q,
+)
 
 
 def _prev_biz(d: date) -> date:

@@ -86,7 +86,7 @@ def _sql_upsert_cuenta(cid: str, fecha: str, docs: list[dict]) -> None:
                         docs,
                     )
             conn.commit()
-    except Exception as e:  # noqa: BLE001 — best-effort, no debe tumbar el export
+    except Exception as e:
         print(f"  [{cid}] ⚠ dual-write SQL falló (Mongo OK): {e}", flush=True)
 
 

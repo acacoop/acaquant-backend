@@ -14,7 +14,7 @@ Responde:
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC
 
 from core.mongo import get_mongo_client_read
 

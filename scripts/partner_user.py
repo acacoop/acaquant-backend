@@ -72,7 +72,7 @@ def _sql_upsert_user(
                 },
             )
             conn.commit()
-    except Exception as e:  # noqa: BLE001 — best-effort, no debe tumbar el CRUD
+    except Exception as e:
         print(f"⚠ dual-write SQL falló (Mongo OK): {e}")
 
 

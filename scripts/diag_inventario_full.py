@@ -50,7 +50,7 @@ def inventario_mongo() -> None:
     cli = get_mongo_client_read()
     try:
         dbs = sorted(cli.list_database_names())
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"!! No se pudieron listar las bases: {e}")
         return
 
@@ -63,7 +63,7 @@ def inventario_mongo() -> None:
         db = cli[dbname]
         try:
             colls = sorted(db.list_collection_names())
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"\n### DB {dbname}: error listando colecciones: {e}")
             continue
         if not colls:
@@ -76,14 +76,14 @@ def inventario_mongo() -> None:
             coll = db[c]
             try:
                 n = coll.estimated_document_count()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 n = -1
             data_sz = idx_sz = 0
             try:
                 st = db.command("collStats", c)
                 data_sz = st.get("size", 0) or 0
                 idx_sz = st.get("totalIndexSize", 0) or 0
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             # Última escritura: _id más nuevo (índice _id, O(1)); si es ObjectId
             # sacamos generation_time. Si _id es custom (str), probamos campos ts.
@@ -101,7 +101,7 @@ def inventario_mongo() -> None:
                             if f in newest and newest[f] is not None:
                                 last_str = f"{f}={str(newest[f])[:19]}"
                                 break
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             print(f"  {c:<34}{n:>12,}  {_fmt_bytes(data_sz):>9}  {_fmt_bytes(idx_sz):>9}  {last_str:<26} {sample_keys}")
             tot_docs += max(n, 0)
@@ -134,7 +134,7 @@ def inventario_postgres() -> None:
         with connect() as conn, conn.cursor() as cur:
             cur.execute(q)
             rows = cur.fetchall()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"!! No se pudo consultar Postgres: {e}")
         return
 
@@ -161,12 +161,12 @@ def inventario_postgres() -> None:
 def main() -> int:
     try:
         inventario_mongo()
-    except Exception:  # noqa: BLE001
+    except Exception:
         print("!! Falló inventario Mongo:")
         traceback.print_exc()
     try:
         inventario_postgres()
-    except Exception:  # noqa: BLE001
+    except Exception:
         print("!! Falló inventario Postgres:")
         traceback.print_exc()
     return 0

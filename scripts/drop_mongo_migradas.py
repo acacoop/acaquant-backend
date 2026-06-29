@@ -124,6 +124,11 @@ DROPS: list[tuple[str, str, str]] = [
     ("MCP", "OAuthCodes",   "oauth.py → mcp.oauth_codes (single-use + prune de vencidos en _ensure_sql)."),
     ("MCP", "OAuthTokens",  "oauth.py → mcp.oauth_tokens; is_token_revoked lee SQL (fail-closed)."),
 
+    # Órdenes — AccountsDescubiertas: jobs/descubrir_cuentas ELIMINADO (decomiso 2026-06-29).
+    # risk.listado_cuentas lee clientes.cuentas (SQL) directo → sin readers ni writers. Dropeable.
+    ("Operaciones", "AccountsDescubiertas",
+     "descubrir_cuentas eliminado; listado_cuentas lee clientes.cuentas (SQL). Sin readers/writers."),
+
     # Curvas (master RF) — SQL-native. GATE: correr scripts.compare_curvas_sql_vs_mongo
     # (paridad ticker_corto + flujos). Si ✅, descomentar y dropear.
     # ("Trading", "Curvas",     "ons/bonos_admin SQL-native; ~20 readers + loader SQL; sync_curvas no-op."),

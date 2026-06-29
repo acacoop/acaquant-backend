@@ -58,11 +58,9 @@
 30 13 * * 1-5 systemctl restart motor_ordenes.service
 5  20 * * 1-5 systemctl stop    motor_ordenes.service
 
-# ─── Discovery de cuentas autorizadas (1x/día, 11:40 UTC = 08:40 ART, L-V — post-resume 11:30)
-# Itera 1-12000 contra el broker (pyRofex) y escribe a Mongo → necesita Atlas arriba.
-# Timeout 90m: el 2026-06-03 quedó colgado 5h. El lock evita que el cron del día
-# siguiente arranque una 2ª instancia encima si la anterior sigue viva.
-40 11 * * 1-5 /root/TradingAV/deploy/run_job.sh descubrir_cuentas 90m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.descubrir_cuentas'
+# ─── Discovery de cuentas ELIMINADO (decomiso 2026-06-29). No se descubre nada al broker:
+# las cuentas para operar = espejo de las comitentes de SQL clientes.cuentas (las mantiene
+# jobs.sync_comitentes, abajo). risk.listado_cuentas lee clientes.cuentas directo. Sin Mongo.
 
 # ─── Volatilidad GGAL (al cierre)
 0 20 * * 1-5 /root/TradingAV/deploy/run_job.sh volatilidad_ggal 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.volatilidad_ggal'

@@ -170,14 +170,10 @@ COL_ACCOUNTS = "AccountsDescubiertas"
 
 @cached(ttl=600)
 def _nombres_por_id_cuenta() -> dict[str, str]:
-    """Mapa id_cuenta (str) → nombre del titular. Ambas fuentes SQL: accionistas
-    desde `clientes.accionistas`, contrapartes desde `clientes.contrapartes` (Mongo
-    CashFlow.Accionistas en decomiso, Contrapartes DROPEADA). Cache TTL 10min porque
-    cambian poco (alta de cliente ~1x/sem).
-
-    Accionistas: `cuenta` = '[N] NOMBRE' → id_cuenta y nombre se derivan.
-    Contrapartes: `id_cuenta` = id, `contraparte` = nombre. Si un id vive en
-    ambas, prevalece Accionistas (fuente canónica).
+    """Mapa id_cuenta (str) → nombre del titular desde SQL `clientes.cuentas.denominacion`
+    (fuente COMPLETA: TODAS las cuentas sincronizadas de Aunesa). Antes salía solo de
+    accionistas/contrapartes (un subconjunto chico) → la mayoría de las cuentas quedaba
+    SIN nombre. `denominacion` puede venir '[N] NOMBRE' o 'NOMBRE' a secas → se normaliza.
     """
     import re
 
@@ -185,75 +181,50 @@ def _nombres_por_id_cuenta() -> dict[str, str]:
     out: dict[str, str] = {}
     _re_cta = re.compile(r"^\[(\d+)\]\s*(.*)$")
     with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT cuenta FROM accionistas WHERE cuenta IS NOT NULL AND cuenta <> ''")
-        for (cuenta,) in cur.fetchall():
-            m = _re_cta.match(str(cuenta or "").strip())
-            if m and m.group(2).strip():
-                out[m.group(1)] = m.group(2).strip()
-        cur.execute("SELECT id_cuenta, contraparte FROM contrapartes "
-                    "WHERE id_cuenta IS NOT NULL AND contraparte IS NOT NULL")
-        for idc, nom in cur.fetchall():
-            if idc and nom:
-                out.setdefault(str(idc), str(nom))   # accionistas prevalece
+        cur.execute("SELECT id_cuenta, denominacion FROM clientes.cuentas "
+                    "WHERE denominacion IS NOT NULL AND denominacion <> ''")
+        for idc, deno in cur.fetchall():
+            s = str(deno).strip()
+            m = _re_cta.match(s)
+            nombre = (m.group(2).strip() if m else s)
+            if idc and nombre:
+                out[str(idc)] = nombre
     return out
 
 
 def listado_cuentas(solo_activas: bool = False) -> list[dict[str, Any]]:
-    """Lee Operaciones.AccountsDescubiertas y devuelve la lista para el
-    dropdown del frontend.
+    """Cuentas para operar = ESPEJO de las comitentes de SQL `clientes.cuentas`.
 
-    NO pega al broker — la colección la mantiene `jobs.descubrir_cuentas`
-    (un backfill que corre 1 vez/día por cron). Ordenadas por ARS
-    disponible descendente (las gordas arriba). El nombre del titular se
-    joinea de CuentasAPI.AccionistasAPI / ContrapartesAPI.
+    NO hay descubrimiento al broker (se eliminó `jobs.descubrir_cuentas` +
+    `Operaciones.AccountsDescubiertas`): el universo operable son las cuentas comitentes
+    que ya están en `clientes`, mantenidas al día por el cron diario `jobs.sync_comitentes`
+    (Aunesa). Una cuenta comitente nueva aparece sola al día siguiente. SQL-only, sin Mongo.
 
-    Returns:
-        [
-          {
-            "account_id": "100",
-            "nombre": "Acme S.A.",          # del join con CuentasAPI
-            "ars_disponible": 3007793886.49,
-            "usd_d_disponible": 4237.87,
-            "n_posiciones": 8,
-            "activa": True,
-            "last_discovered_at": "2026-04-28T11:30:00+00:00"
-          },
-          ...
-        ]
+    Devuelve `account_id` + `nombre` (denominacion normalizada — viene '[N] NOMBRE' o 'NOMBRE').
+    `solo_activas` se ignora (compat de firma; clientes.cuentas ya son las activas de Aunesa).
+
+    Returns: [{"account_id": "100", "nombre": "Acme S.A."}, ...]  (ordenado por id_cuenta)
     """
-    from core.mongo import get_mongo_client_read
+    import re
 
-    filtro: dict[str, Any] = {}
-    if solo_activas:
-        filtro["activa"] = True
-
-    col = get_mongo_client_read()[DB_OPS][COL_ACCOUNTS]
-    cursor = col.find(filtro, {"_id": 0})
-    docs = list(cursor)
-    nombres = _nombres_por_id_cuenta()
-
+    from core.postgres import get_pool
+    _re_cta = re.compile(r"^\[(\d+)\]\s*(.*)$")
     out: list[dict[str, Any]] = []
-    for d in docs:
-        snap = d.get("last_snapshot") or {}
-        ts = d.get("last_discovered_at")
-        acc = d.get("account_id")
-        out.append({
-            "account_id":         acc,
-            "nombre":             nombres.get(str(acc)) if acc else None,
-            "ars_disponible":     snap.get("ars_disponible"),
-            "usd_d_disponible":   snap.get("usd_d_disponible"),
-            "n_posiciones":       snap.get("n_posiciones") or 0,
-            "activa":             bool(d.get("activa")),
-            "last_discovered_at": ts.isoformat() if isinstance(ts, datetime) else ts,
-        })
-
-    # Ordenar por ARS descendente (las cuentas gordas primero); las de
-    # ARS=None / 0 al final pero antes que las negativas.
-    def _key(c):
-        ars = c.get("ars_disponible")
-        if ars is None:
-            return (1, 0)
-        return (0, -ars)
-
-    out.sort(key=_key)
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id_cuenta, denominacion FROM clientes.cuentas "
+                    "WHERE id_cuenta ~ '^[0-9]+$' ORDER BY id_cuenta::int")
+        for idc, deno in cur.fetchall():
+            s = str(deno or "").strip()
+            m = _re_cta.match(s)
+            out.append({
+                "account_id":         str(idc),
+                "nombre":             (m.group(2).strip() if m else s) or None,
+                # Shape compat (el front lee estos): ya NO hay snapshot de saldos del broker.
+                # Toda comitente es operable → activa=True; los saldos se piden en vivo aparte.
+                "ars_disponible":     None,
+                "usd_d_disponible":   None,
+                "n_posiciones":       0,
+                "activa":             True,
+                "last_discovered_at": None,
+            })
     return out

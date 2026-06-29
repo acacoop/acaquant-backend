@@ -200,45 +200,10 @@ def list_orders_dia(account: str | None = None, fecha: datetime | None = None) -
     return _merge_broker(acc, local)
 
 
-# ── risk.listado_cuentas (AccountsDescubiertas → accounts_descubiertas) ───────
+# ── listado_cuentas — UNA fuente: clientes.cuentas (ver risk.listado_cuentas) ──
 def listado_cuentas(solo_activas: bool = False) -> list[dict[str, Any]]:
-    """Listado de cuentas para el dropdown, desde SQL `operaciones.accounts_descubiertas`.
-    Espejo EXACTO de `risk.listado_cuentas`: mismo shape, mismo join de nombres
-    (`risk._nombres_por_id_cuenta`), mismo orden (ARS disponible desc, None/0 al final).
-
-    El doc SQL trae `last_snapshot` (ars/usd/n_pos) dentro de `data` jsonb +
-    columnas materializadas (account_id/activa/last_discovered_at)."""
-    from api.services.risk import _nombres_por_id_cuenta
-
-    where = "WHERE activa = true" if solo_activas else ""
-    rows = _q(
-        f"SELECT account_id, activa, last_discovered_at, data "
-        f"FROM operaciones.accounts_descubiertas {where}",
-        (),
-    )
-    nombres = _nombres_por_id_cuenta()
-
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        data = r.get("data") or {}
-        snap = data.get("last_snapshot") or {}
-        acc = r.get("account_id")
-        ts = r.get("last_discovered_at")
-        out.append({
-            "account_id":         acc,
-            "nombre":             nombres.get(str(acc)) if acc else None,
-            "ars_disponible":     snap.get("ars_disponible"),
-            "usd_d_disponible":   snap.get("usd_d_disponible"),
-            "n_posiciones":       snap.get("n_posiciones") or 0,
-            "activa":             bool(r.get("activa")),
-            "last_discovered_at": ts.isoformat() if isinstance(ts, datetime) else ts,
-        })
-
-    def _key(c):
-        ars = c.get("ars_disponible")
-        if ars is None:
-            return (1, 0)
-        return (0, -ars)
-
-    out.sort(key=_key)
-    return out
+    """Cuentas para operar = espejo de las comitentes de SQL `clientes.cuentas`. El
+    descubrimiento al broker (`AccountsDescubiertas`) se eliminó — ya no hay dos paths:
+    delega en `risk.listado_cuentas` (fuente única)."""
+    from api.services.risk import listado_cuentas as _ls
+    return _ls(solo_activas)

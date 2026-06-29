@@ -95,7 +95,6 @@
 | 11:35 · diario | `jobs.news_finnhub'` |
 | 20:35 · L-V | `jobs.cierre_canje'` |
 | 11:40 · diario | `jobs.economic_calendar'` |
-| 11:40 · L-V | `jobs.descubrir_cuentas'` |
 | 20:40 · L-V | `jobs.snapshot_sinteticos'` |
 | 12:45 · L-V | `jobs.acreencias` |
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |

@@ -120,4 +120,5 @@ def delete_bono(ticker_corto: str) -> dict:
         cur.execute("DELETE FROM mercado.curvas WHERE ticker_corto = %s "
                     "AND (curva NOT LIKE 'on%%' OR curva IS NULL)", (tc,))
         deleted = cur.rowcount or 0
+    curvas_sql.invalidar()   # refrescar el cache del master tras la baja
     return {"borrado": deleted}

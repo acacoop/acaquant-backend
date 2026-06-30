@@ -121,6 +121,7 @@ def _upsert_curva_doc(doc: dict) -> dict:
     tc = (doc.get("ticker_corto") or "").strip()
     existing = curvas_sql.find_one(tc) or {}
     write_native("mercado.curvas", ["ticker_corto"], [curva_doc_to_row({**existing, **doc})])
+    curvas_sql.invalidar()   # refrescar el cache del master tras el alta/edición
     return curvas_sql.find_one(tc) or {}
 
 
@@ -234,6 +235,7 @@ def delete_on(asset: str) -> dict:
         cur.execute("DELETE FROM mercado.curvas WHERE ticker_corto = %s "
                     "AND curva LIKE 'on%%'", (asset,))
         deleted = cur.rowcount or 0
+    curvas_sql.invalidar()   # refrescar el cache del master tras la baja
     return {"borrada": deleted}
 
 

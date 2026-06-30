@@ -107,7 +107,13 @@ def run(desde_d: date, hasta_d: date, workers: int) -> dict:
             cuentas_comit = {str(r[0]).strip() for r in _cu.fetchall() if r[0] not in (None, "")}
             _cu.execute("SELECT DISTINCT id_cuenta FROM operaciones WHERE id_cuenta IS NOT NULL")
             cuentas_ops = {str(r[0]).strip() for r in _cu.fetchall() if r[0] not in (None, "")}
-        cuentas = sorted(cuentas_comit | cuentas_ops)
+            # clientes.cuentas incluye además las cuentas PROPIA (mesa propia de la
+            # empresa), que NO son comitentes. Sin esto quedaban afuera del universo:
+            # no estaban en comitentes (sync trae solo Comitente) ni en operaciones
+            # (0 boletos) → chicken-and-egg, no podían bootstrappear nunca.
+            _cu.execute("SELECT id_cuenta FROM cuentas WHERE id_cuenta IS NOT NULL")
+            cuentas_maestro = {str(r[0]).strip() for r in _cu.fetchall() if r[0] not in (None, "")}
+        cuentas = sorted(cuentas_comit | cuentas_ops | cuentas_maestro)
         # Ventana de concertación (lo que filtramos) + liquidación amplia (requerida).
         conc_desde, conc_hasta = _ddmmyyyy(desde_d), _ddmmyyyy(hasta_d)
         liq_desde = _ddmmyyyy(desde_d)

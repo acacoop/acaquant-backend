@@ -147,6 +147,29 @@ def _map_cuenta(c: dict) -> dict:
     }
 
 
+def _sync_propia(headers: dict) -> list[tuple]:
+    """Cuentas tipo='Propia' + estado='Activa' (la mesa propia de la empresa, ej.
+    1839 'ACA VALORES S.A - TRADING'). NO son clientes → van SOLO a `clientes.cuentas`
+    (id+denominación, el FK target), NUNCA a `comitentes` (no contaminan el Tablero
+    Comercial). operaciones_informes las suma a su universo para ingestar sus boletos.
+    Devuelve [(id_cuenta, denominacion)]."""
+    r = requests.get(LISTADO_URL, headers=headers, params={"tipoCuenta": "Propia"}, timeout=180)
+    r.raise_for_status()
+    data = r.json()
+    if isinstance(data, dict):
+        data = data.get("cuentas") or data.get("data") or [data]
+    out: list[tuple] = []
+    for c in data:
+        # Filtro defensivo: si el endpoint ignora el param tipoCuenta, igual quedan
+        # solo las Propia+Activa.
+        if (c.get("tipo") or "") != "Propia" or (c.get("estado") or "") != "Activa":
+            continue
+        idc = str(c.get("id")) if c.get("id") is not None else None
+        if idc:
+            out.append((idc, c.get("denominacion")))
+    return out
+
+
 def run(*, include_all: bool = False, dry_run: bool = False) -> None:
     with JobRunLogger("sync_comitentes") as jr:
         headers = _auth()
@@ -222,6 +245,22 @@ def run(*, include_all: bool = False, dry_run: bool = False) -> None:
             conn.commit()
 
         jr.set_stat("upserted", len(comitentes))
+
+        # Pass aparte: cuentas Propia (mesa propia) → SOLO a `cuentas`. Defensivo:
+        # un fallo acá NO debe romper el sync de comitentes (que ya commiteó).
+        try:
+            propias = _sync_propia(headers)
+            if propias and not dry_run:
+                with get_job_pool().connection() as conn, conn.cursor() as cur:
+                    cur.executemany(
+                        "INSERT INTO cuentas (id_cuenta, denominacion) VALUES (%s, %s) "
+                        "ON CONFLICT (id_cuenta) DO UPDATE SET denominacion = EXCLUDED.denominacion",
+                        propias)
+                    conn.commit()
+            jr.set_stat("propias", len(propias))
+        except Exception as e:
+            jr.log(f"propias: falló ({str(e).splitlines()[0][:120]}) — no crítico")
+
         jr.log(f"sync_comitentes OK (SQL): {len(comitentes)} comitentes, "
                f"{len(cuentas)} cuentas, {len(operadores)} operadores.")
 

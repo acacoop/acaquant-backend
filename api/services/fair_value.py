@@ -112,16 +112,24 @@ def _tickers_curva(curva: str) -> list[dict]:
 
 
 def _live_metricas(tickers: list[str]) -> dict[str, dict]:
-    """TEA, duration vivas por ticker — SQL-only (mercado.market_snapshot)."""
-    from core.market_snapshot import snapshot_docs
+    """TEA, duration vivas por ticker — SQL-only (mercado.market_snapshot).
+    Selecciona SOLO las 3 columnas que usa: NO trae el `book` jsonb (order book
+    depth-5, la columna más pesada) que snapshot_docs arrastraba sin necesidad."""
+    if not tickers:
+        return {}
     out: dict[str, dict] = {}
-    for ticker, doc in snapshot_docs(tickers).items():
-        mt = doc["metrics"]
-        out[ticker] = {
-            "tea": mt.get("TEA"),
-            "duration": mt.get("duration"),
-            "updated_at": doc["updated_at"],
-        }
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT ticker, tea, duration, updated_at FROM mercado.market_snapshot "
+            "WHERE ticker = ANY(%s)",
+            (list(tickers),),
+        )
+        for ticker, tea, duration, updated_at in cur.fetchall():
+            out[ticker] = {
+                "tea": float(tea) if tea is not None else None,
+                "duration": float(duration) if duration is not None else None,
+                "updated_at": updated_at,
+            }
     return out
 
 

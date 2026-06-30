@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import os
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 import psycopg
 from dotenv import load_dotenv
@@ -23,6 +25,29 @@ _pool = None
 _pool_lock = threading.Lock()
 _job_pool = None
 _job_pool_lock = threading.Lock()
+
+# Routing opt-in: dentro de `use_job_pool()`, get_pool() devuelve el carril de
+# JOBS (aislado, timeout 30s) en vez del carril web (8s). Es para los crons que
+# REUSAN services de api/ que hardcodean get_pool() (ej. pnl_totales_precompute →
+# pnl_sql / portfolio_sql): así NO compiten en el carril de la web durante la rueda
+# y esperan 30s en vez de abortar a los 8s. ContextVar = aislado por hilo/tarea; la
+# API NUNCA lo setea → su get_pool() devuelve el pool web exactamente como hoy.
+_prefer_job_pool: ContextVar[bool] = ContextVar("_prefer_job_pool", default=False)
+
+
+@contextmanager
+def use_job_pool():
+    """Dentro del bloque, get_pool() usa el carril de jobs (aislado, 30s).
+
+    Uso (cron que reusa un service de api/):
+        with use_job_pool():
+            datos = algun_service_que_usa_get_pool()
+    """
+    token = _prefer_job_pool.set(True)
+    try:
+        yield
+    finally:
+        _prefer_job_pool.reset(token)
 
 
 def get_postgres_uri() -> str:
@@ -61,6 +86,10 @@ def get_pool():
             ...
     `psycopg_pool` se importa adentro para no pagarlo en procesos batch que solo
     usan `connect()`."""
+    # Opt-in al carril de jobs (use_job_pool()). La API nunca entra acá
+    # (contextvar default False) → devuelve el pool web como siempre.
+    if _prefer_job_pool.get():
+        return get_job_pool()
     global _pool
     if _pool is None:
         with _pool_lock:

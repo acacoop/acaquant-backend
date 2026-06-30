@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 
 from api.services.pnl_sql import pnl_todas_cuentas_compute_sql
 from core.job_runs import JobRunLogger
+from core.postgres import use_job_pool
 
 
 def _persistir_sql(cuentas: list[dict]) -> int:
@@ -49,7 +50,11 @@ def _persistir_sql(cuentas: list[dict]) -> int:
 
 
 def main() -> None:
-    with JobRunLogger("pnl_totales_precompute") as jr:
+    # use_job_pool: el cómputo + la persistencia corren en el carril de jobs
+    # (aislado, timeout 30s) en vez del carril web (8s) — evita el PoolTimeout en
+    # rueda. pnl_sql/portfolio_sql/pg_mirror llaman get_pool() por debajo y, dentro
+    # de este bloque, get_pool() devuelve el carril de jobs.
+    with JobRunLogger("pnl_totales_precompute") as jr, use_job_pool():
         jr.log("calculando PnL de todas las cuentas (SQL)…")
         cuentas = pnl_todas_cuentas_compute_sql()
         ahora = datetime.now(UTC)

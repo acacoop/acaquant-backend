@@ -37,21 +37,29 @@ Patrón: o **delegar** la función Mongo a su gemelo `*_sql`, o **portear** la l
 - ✅ `mejoras_dispo.py` (Ola 3.34) — read Mongo muerto vía router borrado; quedan helpers puros para agro_sql.
 
 **Gateados por flag (NO conectan en prod con el flag en SQL — bajar prioridad, son "rastro"):**
-- `api/services/valuaciones.py` (1500 líneas, gated VALUACIONES_SQL → usa valuaciones_sql). El gemelo
-  Mongo. Verificar que el router (api/routers/valuaciones.py + manager/valuaciones.py) flipee SIEMPRE a
-  valuaciones_sql, y gutear valuaciones.py (cuidado: valuaciones_sql importa `_es_cash` de valuaciones — pure, dejarlo).
-- `api/services/pnl.py` — gemelo Mongo de pnl_sql. Ya NADIE lo usa vía router (pnl + pnl-todas son SQL).
-  Verificar que ningún caller directo quede, y gutear (cuidado con helpers puros: `_aplicar_normalizer`,
-  `_build_unidad_maps` — si los usa pnl_sql, dejarlos).
-- `api/services/pnl_sql.py` — ⚠️ tiene `get_db_cashflow/trading/valuaciones` en la firma de helpers que
-  YA leen SQL (vestigial, como pasó en carry_trade/renta_fija). Revisar si son llamadas reales o vestigiales.
-- `api/services/comercial.py` (23 refs, el más grande) — el router YA usa comercial_sql (SIEMPRE SQL,
-  ver operaciones.py:329). Es el gemelo Mongo muerto vía router. PERO exporta helpers usados directo:
-  `_cuentas_de_operador` (lo usa carteras.py:42 scope_aum) y `_CATS_VOLUMEN` (lo usa sin_operador.py).
-  → Portear esos 2 helpers a SQL (clientes.comitentes / operaciones), o moverlos a comercial_sql, y
-  gutear el resto de comercial.py.
+- ✅ `api/services/comercial.py` (Ola 3.35) — guteado: 1292→432 líneas. Las 14 funciones Mongo eran
+  muertas vía router (operaciones.py usa comercial_sql SIEMPRE). Sobreviven las 4 SQL-clean que el router
+  llama directo (cobros_futuros/_cliente, referido_clientes/_fci) + helpers/constantes externas.
+- ✅ `api/services/pnl_sql.py` (Ola 3.36) — los `get_db_*` eran VESTIGIALES (el motor solo los deref en su
+  rama fallback; el path SQL inyecta todos los deps) → se pasa None, sin import Mongo.
+- ✅ `api/services/pnl.py` (Ola 3.37) — guteado: 1139→700 líneas. Borradas las funciones muertas vía router
+  + las 4 ramas Mongo del motor compartido (deps SQL son la única fuente; boletos ya vienen ORDER BY
+  fecha,comprobante de _deps_sql — cost-basis preservado). `_es_cash`/helpers puros conservados.
 
-**Infra final (hacer AL ÚLTIMO, cuando ningún service use get_db_*):**
+**⚠️ valuaciones.py — NO es gut de limpieza, es MIGRACIÓN REAL INCOMPLETA (PENDIENTE, decisión):**
+- `api/services/valuaciones.py` (~1540 líneas, gated VALUACIONES_SQL). `valuaciones_sql` cubre SOLO 4
+  funciones (posiciones_actuales, serie_valor_cuenta, valuacion_consolidada, variacion_titulos). La tabla
+  MENSUAL (`valuacion_mensual`) tiene rama SQL interna (`engine='sql'` → `_cierres_fecha_data` lee
+  portafolio.tenencia). PERO siguen **Mongo-only SIN gemelo SQL**: `aum_raw`, `valuacion_mensual_debug`,
+  `movimientos_mes` (+ `posiciones_cuenta`). NO se pueden gutear sin romper esos endpoints.
+- ⚠️ Con el M10 PAUSADO/vacío NO se puede correr el GATE de paridad SQL↔Mongo → escribir esos gemelos a
+  ciegas viola REGLA #2 (peor en plata/AuM). Decisión del user: (a) escribir los twins SQL + validar de
+  otra forma, o (b) confirmar que esos endpoints (los 3 son debug/secundarios) se pueden discontinuar.
+- El cron `jobs/consolidado_cuentas.py` aún importa `construir_consolidado` (Mongo) — escribe el cache
+  `valuaciones.consolidado` (SQL). Revisar si `construir_consolidado` lee Mongo o ya es SQL interno.
+- `valuaciones_sql` importa `_es_cash` de valuaciones (pure) — dejarlo al gutear.
+
+**Infra final (hacer AL ÚLTIMO, cuando ningún service use get_db_* — BLOQUEADO por valuaciones.py):**
 - `api/db.py` (`get_db_opciones/trading/valuaciones/cashflow/clientes/manager`) — solo conecta cuando
   se LLAMA. Borrar cuando no quede ningún caller.
 - `api/deps.py` — reexporta los get_db_* de api/db (compat). Limpiar junto con api/db.

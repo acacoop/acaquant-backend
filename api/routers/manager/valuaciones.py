@@ -16,7 +16,6 @@ exige `require_module('manager')`).
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -48,10 +47,8 @@ def valuaciones_debug(
 
     Mes más reciente primero.
     """
-    use_sql = _engine == "sql" or (_engine != "mongo" and os.getenv("VALUACIONES_SQL") == "1")
     try:
-        return svc.valuacion_mensual_debug(
-            id_cuenta=id_cuenta, engine="sql" if use_sql else "mongo")
+        return svc.valuacion_mensual_debug(id_cuenta=id_cuenta, engine="sql")
     except Exception as e:
         logger.exception("valuaciones_debug failed para %s", id_cuenta)
         raise HTTPException(status_code=500, detail=str(e)) from e

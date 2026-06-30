@@ -10,7 +10,6 @@ Endpoint legacy (cost-basis ledger, para drill-down per-ticker en Phase 2):
 from __future__ import annotations
 
 import logging
-import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -42,12 +41,9 @@ def get_consolidado(
     comparar carteras entre sí. Cacheado — el primer load puede tardar.
     El `scope` de grupos limita las filas a las cuentas visibles del user.
     """
-    use_sql = _engine == "sql" or (_engine != "mongo" and os.getenv("VALUACIONES_SQL") == "1")
     try:
-        if use_sql:
-            from api.services import valuaciones_sql as svc_sql
-            return svc_sql.valuacion_consolidada(filtro_cuenta=filtro_cuenta, scope=scope)
-        return svc.valuacion_consolidada(filtro_cuenta=filtro_cuenta, scope=scope)
+        from api.services import valuaciones_sql as svc_sql
+        return svc_sql.valuacion_consolidada(filtro_cuenta=filtro_cuenta, scope=scope)
     except Exception as e:
         logger.exception("valuaciones consolidado failed: filtro=%s", filtro_cuenta)
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -62,12 +58,9 @@ def get_serie(
 ):
     """Serie diaria del valor total del portfolio (Valuaciones.AuM)."""
     _validate_id_cuenta(id_cuenta)
-    use_sql = _engine == "sql" or (_engine != "mongo" and os.getenv("VALUACIONES_SQL") == "1")
     try:
-        if use_sql:
-            from api.services import valuaciones_sql as svc_sql
-            return svc_sql.serie_valor_cuenta(id_cuenta=id_cuenta, desde=desde, hasta=hasta)
-        return svc.serie_valor_cuenta(id_cuenta=id_cuenta, desde=desde, hasta=hasta)
+        from api.services import valuaciones_sql as svc_sql
+        return svc_sql.serie_valor_cuenta(id_cuenta=id_cuenta, desde=desde, hasta=hasta)
     except Exception as e:
         logger.exception(
             "valuaciones serie failed: id_cuenta=%s desde=%s hasta=%s",
@@ -81,9 +74,8 @@ def get_mensual(id_cuenta: str, _engine: str | None = Query(None, include_in_sch
     """Tabla mensual: cierre del mes (último fecha_snapshot) +
     flujos externos del mes (depósitos − extracciones)."""
     _validate_id_cuenta(id_cuenta)
-    use_sql = _engine == "sql" or (_engine != "mongo" and os.getenv("VALUACIONES_SQL") == "1")
     try:
-        return svc.valuacion_mensual(id_cuenta=id_cuenta, engine="sql" if use_sql else "mongo")
+        return svc.valuacion_mensual(id_cuenta=id_cuenta, engine="sql")
     except Exception as e:
         logger.exception("valuaciones mensual failed: id_cuenta=%s", id_cuenta)
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -132,12 +124,9 @@ def get_variacion(
         datetime.strptime(fecha, "%Y-%m-%d")
     except ValueError as e:
         raise HTTPException(400, f"fecha mal formada: {fecha!r}") from e
-    use_sql = _engine == "sql" or (_engine != "mongo" and os.getenv("VALUACIONES_SQL") == "1")
     try:
-        if use_sql:
-            from api.services import valuaciones_sql as svc_sql
-            return svc_sql.variacion_titulos(id_cuenta=id_cuenta, fecha=fecha)
-        return svc.variacion_titulos(id_cuenta=id_cuenta, fecha=fecha)
+        from api.services import valuaciones_sql as svc_sql
+        return svc_sql.variacion_titulos(id_cuenta=id_cuenta, fecha=fecha)
     except Exception as e:
         logger.exception(
             "valuaciones variacion failed: id_cuenta=%s fecha=%s",
@@ -169,13 +158,9 @@ def get_posiciones_actuales(
             datetime.strptime(fecha, "%Y-%m-%d")
         except ValueError as e:
             raise HTTPException(400, f"fecha mal formada: {fecha!r}") from e
-    use_sql = _engine == "sql" or (_engine != "mongo" and os.getenv("VALUACIONES_SQL") == "1")
     try:
-        if use_sql:
-            # Import lazy → si fallara, cae solo este endpoint, no toda la API.
-            from api.services import valuaciones_sql as svc_sql
-            return svc_sql.posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha, asof=True)
-        return svc.posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha, asof=True)
+        from api.services import valuaciones_sql as svc_sql
+        return svc_sql.posiciones_actuales(id_cuenta=id_cuenta, fecha=fecha, asof=True)
     except Exception as e:
         logger.exception(
             "valuaciones posiciones-actuales failed: id_cuenta=%s fecha=%s",

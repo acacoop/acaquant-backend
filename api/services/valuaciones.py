@@ -1,21 +1,23 @@
-"""Valuaciones — performance e historia por cuenta.
+"""Valuaciones — performance e historia por cuenta. SQL-only (decomiso Mongo).
 
 Dos enfoques convivientes:
 
 (A) AUM-BASED [usado por /serie y /mensual]
-    Lee `Valuaciones.AuM` directo — es el snapshot diario MTM canónico
-    armado por jobs/aum.py (con normalizaciones por tipo: /100 para
-    renta fija, etc). Para cada (id_cuenta, fecha_snapshot) sumamos
-    `valuacion` de todas las posiciones para obtener el portfolio total
-    en ARS de ese día. Combinado con flujos externos (depósitos /
-    extracciones de CashFlow.NegocioMovimientos) da la mensualización
-    "valor de cierre + flujo neto" que pide la vista.
+    Cierres por fecha desde SQL `portafolio.tenencia` (vía valuaciones_sql /
+    _cierres_fecha_data) — el snapshot diario MTM canónico (normalizado por
+    cartera al persistir). Para cada (id_cuenta, fecha) sumamos `valuacion` de
+    todas las posiciones. Combinado con flujos externos (depósitos/extracciones
+    de operaciones.negocio_movimientos) da la mensualización "valor de cierre +
+    flujo neto" que pide la vista.
 
 (B) COST-BASIS LEDGER [usado por /posiciones]
-    Reconstruye lots de boletos compra/venta con weighted-average cost.
-    Útil para PnL realizado vs no realizado por ticker, pero limitado
-    cuando hay posiciones anteriores al primer boleto disponible. Se
-    mantiene para drill-down per-ticker en Phase 2.
+    Reconstruye lots de boletos compra/venta (operaciones.negocio_movimientos)
+    con weighted-average cost. PnL realizado vs no realizado por ticker.
+
+Los gemelos de solo-lectura serie_valor_cuenta / posiciones_actuales /
+variacion_titulos / valuacion_consolidada viven SQL-native en `valuaciones_sql`
+(el router los usa directo). Acá quedan: mensual (+debug), movimientos_mes,
+posiciones_cuenta, aum_raw, construir_consolidado y el helper puro `_es_cash`.
 """
 from __future__ import annotations
 
@@ -24,9 +26,7 @@ from datetime import date as _date
 from typing import Any
 
 from api.cache import cached
-from api.db import get_db_valuaciones
 from api.services._negocio_sql_read import negocio_movimientos_rows
-from api.services.assets_sql import assets_rows
 from quant.xirr import xirr as _xirr
 
 logger = logging.getLogger("api.valuaciones")
@@ -45,15 +45,10 @@ _FLUJOS_EXTERNOS_ALL = _FLUJO_EXTERNO_DEPOSITO | _FLUJO_EXTERNO_EXTRACCION
 _MONEDAS_USD_EQUIV: set[str] = {"USD", "USDC", "USDL"}
 
 
-def _get_mep_for_date(fecha_iso: str, db_val=None) -> float | None:
-    """MEP histórico — delega en la implementación ÚNICA (_mep.get_mep_for_date).
-
-    Acá vivía una copia idéntica (AUDITORIA M2): un fix en una dejaba a la
-    otra desfasada en cálculo de plata. `db_val` se conserva en la firma por
-    compatibilidad de los call sites pero se ignora — la fuente es siempre
-    Valuaciones.Dolar vía get_db_valuaciones() (mismo origen que el db_val
-    que pasaban los callers).
-    """
+def _get_mep_for_date(fecha_iso: str) -> float | None:
+    """MEP histórico — delega en la implementación ÚNICA (_mep.get_mep_for_date,
+    SQL). Acá vivía una copia idéntica (AUDITORIA M2): un fix en una dejaba a la
+    otra desfasada en cálculo de plata."""
     from api.services._mep import get_mep_for_date
     return get_mep_for_date(fecha_iso)
 
@@ -271,73 +266,14 @@ def posiciones_cuenta(id_cuenta: str, hasta: str | None = None) -> dict[str, Any
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@cached(ttl=300)
-def serie_valor_cuenta(
-    id_cuenta: str,
-    desde: str | None = None,
-    hasta: str | None = None,
-) -> dict[str, Any]:
-    """Serie diaria del portfolio total para una cuenta.
-
-    Suma `valuacion` (ya normalizada por jobs/aum.py — ARS) de todas las
-    posiciones por (id_cuenta, fecha_snapshot). Devuelve una fila por día
-    con valor total + n posiciones contribuyendo.
-
-    Args:
-        id_cuenta: id numérico, ej "805".
-        desde / hasta: YYYY-MM-DD inclusive. None = sin límite.
-    """
-    db_val = get_db_valuaciones()
-    match: dict[str, Any] = {"id_cuenta": id_cuenta}
-    rango: dict[str, str] = {}
-    if desde:
-        rango["$gte"] = desde
-    if hasta:
-        rango["$lte"] = hasta
-    if rango:
-        match["fecha_snapshot"] = rango
-
-    pipeline = [
-        {"$match": match},
-        {"$group": {
-            "_id":       "$fecha_snapshot",
-            "valuacion": {"$sum": "$valuacion"},
-            "n":         {"$sum": 1},
-        }},
-        {"$sort": {"_id": 1}},
-        {"$project": {
-            "_id":       0,
-            "fecha":     "$_id",
-            "valuacion": {"$round": ["$valuacion", 2]},
-            "n":         1,
-        }},
-    ]
-    serie = list(db_val["AuM"].aggregate(pipeline))
-    return {
-        "id_cuenta": id_cuenta,
-        "desde":     desde,
-        "hasta":     hasta,
-        "serie":     serie,
-        "ultimo": serie[-1] if serie else None,
-        "primero": serie[0] if serie else None,
-    }
-
-
-def _cierres_fecha_data(id_cuenta: str, cartera: str | None, engine: str) -> list[dict]:
-    """Cierres por fecha_snapshot → [{_id, valuacion, n}] ordenado asc. Fuente SWAPPABLE:
-    Mongo `Valuaciones.AuM` (default) o SQL `portafolio.tenencia` (engine='sql', dato con
-    fechas corregidas). El resto del cálculo mensual (flujos/MEP/XIRR/TWR) NO cambia —
-    opera sobre esta lista, sea cual sea la fuente."""
-    if engine == "sql":
-        from api.services import valuaciones_sql as _vsql
-        return _vsql.cierres_fecha_data(id_cuenta, cartera)
-    pipeline = [
-        {"$match": {"id_cuenta": id_cuenta, **({"CARTERA": cartera} if cartera else {})}},
-        {"$group": {"_id": "$fecha_snapshot", "valuacion": {"$sum": "$valuacion"},
-                    "n": {"$sum": 1}}},
-        {"$sort": {"_id": 1}},
-    ]
-    return list(get_db_valuaciones()["AuM"].aggregate(pipeline))
+def _cierres_fecha_data(id_cuenta: str, cartera: str | None = None,
+                        engine: str = "sql") -> list[dict]:
+    """Cierres por fecha_snapshot → [{_id, valuacion, n}] ordenado asc, desde SQL
+    `portafolio.tenencia` (vía valuaciones_sql). `engine` queda por compat de call sites
+    (Valuaciones.AuM Mongo eliminada — SQL es la única fuente). El resto del cálculo
+    mensual (flujos/MEP/XIRR/TWR) opera sobre esta lista sin cambios."""
+    from api.services import valuaciones_sql as _vsql
+    return _vsql.cierres_fecha_data(id_cuenta, cartera)
 
 
 @cached(ttl=300)
@@ -385,7 +321,6 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
         n_posiciones: int,
       }, ...]
     """
-    db_val = get_db_valuaciones()
 
     # 1. Valuación al cierre de cada mes (último fecha_snapshot del mes).
     #
@@ -453,7 +388,7 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
             continue
         moneda = m.get("moneda") or "ARS"
         if moneda != "ARS" and fecha not in mep_cache:
-            mep_cache[fecha] = _get_mep_for_date(fecha, db_val)
+            mep_cache[fecha] = _get_mep_for_date(fecha)
         mep = mep_cache.get(fecha)
         imp_ars = _pesificar(imp_orig, moneda, mep)
         mes = fecha[:7]
@@ -520,7 +455,7 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
         # ── MEP del cierre para dolarización ──
         mep_cierre: float | None = None
         if ultimo_dia and ultimo_dia not in mep_cierre_cache:
-            mep_cierre_cache[ultimo_dia] = _get_mep_for_date(ultimo_dia, db_val)
+            mep_cierre_cache[ultimo_dia] = _get_mep_for_date(ultimo_dia)
         mep_cierre = mep_cierre_cache.get(ultimo_dia)
 
         # USD conversión de valores
@@ -531,7 +466,7 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
         extracciones_usd = 0.0
         for fecha_iso, imp_ars in (f.get("items") or []):
             if fecha_iso not in mep_cache:
-                mep_cache[fecha_iso] = _get_mep_for_date(fecha_iso, db_val)
+                mep_cache[fecha_iso] = _get_mep_for_date(fecha_iso)
             mep_flujo = mep_cache.get(fecha_iso)
             imp_usd = imp_ars / mep_flujo if mep_flujo and mep_flujo > 0 else 0.0
             # Determinamos si es deposito o extraccion basándonos en el signo
@@ -598,7 +533,7 @@ def _valuacion_mensual(id_cuenta: str, flujos_override: dict | None = None,
                 for fecha_iso, imp_ars in (f.get("items") or []):
                     try:
                         if fecha_iso not in mep_cache:
-                            mep_cache[fecha_iso] = _get_mep_for_date(fecha_iso, db_val)
+                            mep_cache[fecha_iso] = _get_mep_for_date(fecha_iso)
                         mep_flujo = mep_cache.get(fecha_iso)
                         imp_usd = imp_ars / mep_flujo if mep_flujo and mep_flujo > 0 else 0.0
                         if imp_usd != 0:
@@ -698,7 +633,6 @@ def valuacion_mensual_debug(id_cuenta: str, engine: str = "mongo") -> dict[str, 
           resumen: {primer_mes, ultimo_mes, twr_final, twr_final_usd, ganancia_pct, ganancia_pct_usd}
         }
     """
-    db_val = get_db_valuaciones()
 
     # 1. Cierres por mes (misma fuente swappable que valuacion_mensual).
     fechas_data = _cierres_fecha_data(id_cuenta, None, engine)
@@ -735,7 +669,7 @@ def valuacion_mensual_debug(id_cuenta: str, engine: str = "mongo") -> dict[str, 
             continue
         moneda = m.get("moneda") or "ARS"
         if moneda != "ARS" and fecha not in mep_cache:
-            mep_cache[fecha] = _get_mep_for_date(fecha, db_val)
+            mep_cache[fecha] = _get_mep_for_date(fecha)
         mep = mep_cache.get(fecha)
         imp_ars = _pesificar(imp_orig, moneda, mep)
         mes = fecha[:7]
@@ -786,7 +720,7 @@ def valuacion_mensual_debug(id_cuenta: str, engine: str = "mongo") -> dict[str, 
         # ── MEP del cierre para dolarización ──
         mep_cierre: float | None = None
         if ultimo_dia and ultimo_dia not in mep_cierre_cache:
-            mep_cierre_cache[ultimo_dia] = _get_mep_for_date(ultimo_dia, db_val)
+            mep_cierre_cache[ultimo_dia] = _get_mep_for_date(ultimo_dia)
         mep_cierre = mep_cierre_cache.get(ultimo_dia)
 
         # USD conversión de valores
@@ -797,7 +731,7 @@ def valuacion_mensual_debug(id_cuenta: str, engine: str = "mongo") -> dict[str, 
         extracciones_usd = 0.0
         for fecha_iso, imp_ars in (f.get("items") or []):
             if fecha_iso not in mep_cache:
-                mep_cache[fecha_iso] = _get_mep_for_date(fecha_iso, db_val)
+                mep_cache[fecha_iso] = _get_mep_for_date(fecha_iso)
             mep_flujo = mep_cache.get(fecha_iso)
             imp_usd = imp_ars / mep_flujo if mep_flujo and mep_flujo > 0 else 0.0
             if imp_ars > 0:
@@ -869,7 +803,7 @@ def valuacion_mensual_debug(id_cuenta: str, engine: str = "mongo") -> dict[str, 
                     for fecha_iso, imp_ars in (f.get("items") or []):
                         try:
                             if fecha_iso not in mep_cache:
-                                mep_cache[fecha_iso] = _get_mep_for_date(fecha_iso, db_val)
+                                mep_cache[fecha_iso] = _get_mep_for_date(fecha_iso)
                             mep_flujo = mep_cache.get(fecha_iso)
                             imp_usd = imp_ars / mep_flujo if mep_flujo and mep_flujo > 0 else 0.0
                             if imp_usd != 0:
@@ -972,173 +906,21 @@ def valuacion_mensual_debug(id_cuenta: str, engine: str = "mongo") -> dict[str, 
     }
 
 
-@cached(ttl=60)
-def posiciones_actuales(
-    id_cuenta: str, fecha: str | None = None, cartera: str | None = None,
-    asof: bool = False,
-) -> dict[str, Any]:
-    """Posiciones de un fecha_snapshot dado para la cuenta.
-
-    Read directo de Valuaciones.AuM (sin cost basis ni boletos): si
-    `fecha` es None, usa el snapshot más reciente. Si se pasa una
-    fecha (YYYY-MM-DD), usa exactamente esa. Devuelve la lista de
-    unidades con cantidad, precio, valuación y share del total.
-
-    `asof=True`: si la fecha pedida NO tiene snapshot (los de AuM son
-    irregulares — fin de mes + diarios recientes), resuelve al snapshot
-    disponible más cercano <= fecha (la posición que se tenía a ese día).
-    NO es "la latest": es el cierre anterior real. Lo usa el buscador por
-    fecha de Carteras para auditar cualquier día sin caer en vacío. El
-    dict devuelto trae la fecha REAL usada (la UI la muestra).
-
-    Sirve como "snapshot" en el panel derecho de /valuaciones, con
-    selector de fecha para ver posiciones históricas (clickear una
-    fila de la tabla mensual cambia la fecha mostrada).
-    """
-    db_val = get_db_valuaciones()
-
-    if fecha:
-        # Validar que efectivamente exista esa fecha para la cuenta.
-        exists = db_val["AuM"].count_documents(
-            {"id_cuenta": id_cuenta, "fecha_snapshot": fecha},
-            limit=1,
-        )
-        if not exists:
-            prev = list(
-                db_val["AuM"]
-                .find({"id_cuenta": id_cuenta, "fecha_snapshot": {"$lte": fecha}},
-                      {"_id": 0, "fecha_snapshot": 1})
-                .sort("fecha_snapshot", -1)
-                .limit(1)
-            ) if asof else []
-            if not prev:
-                # Sin asof (o sin cierre anterior): vacío en vez de mentir.
-                return {
-                    "id_cuenta": id_cuenta, "fecha": fecha,
-                    "posiciones": [], "total": 0.0, "n": 0,
-                }
-            fecha = prev[0]["fecha_snapshot"]   # asof: el más cercano <= fecha
-    else:
-        # Default: latest fecha_snapshot para esta cuenta.
-        latest = list(
-            db_val["AuM"]
-            .find({"id_cuenta": id_cuenta}, {"_id": 0, "fecha_snapshot": 1})
-            .sort("fecha_snapshot", -1)
-            .limit(1)
-        )
-        if not latest:
-            return {
-                "id_cuenta": id_cuenta, "fecha": None,
-                "posiciones": [], "total": 0.0, "n": 0,
-            }
-        fecha = latest[0]["fecha_snapshot"]
-
-    docs = list(
-        db_val["AuM"]
-        .find(
-            {"id_cuenta": id_cuenta, "fecha_snapshot": fecha,
-             **({"CARTERA": cartera} if cartera else {})},
-            {"_id": 0, "unidad": 1, "cantidad": 1, "precio": 1,
-             "valuacion": 1, "tipoTitulo": 1},
-        )
-        .sort("valuacion", -1)
-    )
-
-    # Agregar por unidad — varios docs con la misma unidad pueden existir
-    # si la cuenta tiene múltiples lotes / movimientos del día.
-    by_unidad: dict[str, dict[str, Any]] = {}
-    for d in docs:
-        unidad = d.get("unidad")
-        if not unidad:
-            continue
-        try:
-            qty = float(d.get("cantidad") or 0)
-            precio = float(d.get("precio") or 0)
-            val = float(d.get("valuacion") or 0)
-        except (TypeError, ValueError):
-            continue
-        st = by_unidad.setdefault(unidad, {
-            "ticker":    unidad,
-            "cantidad":  0.0,
-            "precio":    precio,
-            "valuacion": 0.0,
-            "tipo":      d.get("tipoTitulo"),
-        })
-        st["cantidad"]  += qty
-        st["valuacion"] += val
-        # precio se sobrescribe — todos los lotes del mismo día tienen mismo precio.
-        st["precio"] = precio
-
-    # Enriquecer con master data desde Valuaciones.Assets (UPPERCASE) — la
-    # fuente de verdad que edita Manager → Assets y que jobs/aum.py sincroniza
-    # con cada unidad del snapshot. Trae ticker/emisor/calificación/vencimiento
-    # + cartera/clase en una sola query. Antes esto joinaba contra
-    # TitulosAPI.AssetsAPI (copia derivada) y los bonos sin match ahí caían al
-    # `unidad` crudo largo ("[9396] AO28 - BONO TESORO NAC...").
-    unidades = set(by_unidad.keys())
-    enrich_by_unidad: dict[str, dict] = {}
-    if unidades:
-        for a in assets_rows(["CARTERA", "CLASE_ACTIVO", "TICKER", "EMISOR",
-                              "CALIFICACION", "VENCIMIENTO"]):
-            u = a["unidad"]
-            if u in unidades:
-                enrich_by_unidad[u] = {
-                    "cartera":      a["CARTERA"] or "OTROS",
-                    "clase_activo": a["CLASE_ACTIVO"],
-                    "ticker":       a["TICKER"],
-                    "emisor":       a["EMISOR"],
-                    "calificacion": a["CALIFICACION"],
-                    "vencimiento":  a["VENCIMIENTO"],
-                }
-
-    # Sort por valuación con SIGNO descendente — longs arriba, shorts/cash
-    # negativo abajo. Antes era por |valuacion| que mezclaba shorts grandes
-    # con longs grandes, confundiendo la lectura.
-    rows = sorted(by_unidad.values(), key=lambda r: -r["valuacion"])
-    total = sum(r["valuacion"] for r in rows)
-    return {
-        "id_cuenta": id_cuenta,
-        "fecha":     fecha,
-        "posiciones": [
-            {
-                "unidad":       r["ticker"],
-                "ticker":       enrich_by_unidad.get(r["ticker"], {}).get("ticker") or r["ticker"],
-                "emisor":       enrich_by_unidad.get(r["ticker"], {}).get("emisor") or "-",
-                "clase_activo": enrich_by_unidad.get(r["ticker"], {}).get("clase_activo") or "-",
-                "cartera":      enrich_by_unidad.get(r["ticker"], {}).get("cartera") or "",
-                "calificacion": enrich_by_unidad.get(r["ticker"], {}).get("calificacion") or "-",
-                "vencimiento":  str(enrich_by_unidad.get(r["ticker"], {}).get("vencimiento") or "")[:10] or None,
-                "tipo":         str(r["tipo"]) if r["tipo"] not in (None, "") else None,
-                "cantidad":     round(r["cantidad"], 4),
-                "precio":       round(r["precio"], 4),
-                "valuacion":    round(r["valuacion"], 2),
-                "share":        (
-                    round((r["valuacion"] / total) * 100, 2)
-                    if total else None
-                ),
-            }
-            for r in rows
-        ],
-        "total": round(total, 2),
-        "n":     len(rows),
-    }
-
-
 def aum_raw(id_cuenta: str, fecha: str | None = None) -> dict[str, Any]:
-    """Docs CRUDOS de Valuaciones.AuM para una (cuenta, fecha_snapshot).
+    """Filas CRUDAS de la tenencia (AuM) para una (cuenta, fecha) — desde SQL
+    `portafolio.tenencia` (Valuaciones.AuM Mongo eliminada).
 
-    Sin agrupar ni enriquecer — devuelve cada doc tal cual está en Mongo
-    (unidad, cantidad, precio, valuacion, tipoTitulo). Pensado para
-    validar a ojo si los precios y las valuaciones están bien:
-    `valuacion` deberí­a ser `cantidad × precio` (con el divisor /100 que
-    aplique según tipo — ese cálculo lo hace jobs/aum.py al persistir).
+    Sin agrupar ni enriquecer — devuelve cada fila tal cual (unidad, cantidad,
+    precio, valuacion, tipo_titulo). Pensado para validar a ojo si los precios y
+    las valuaciones están bien: `valuacion` debería ser `cantidad × precio` (con
+    el divisor /100 que aplique según cartera — ese cálculo lo hace el writer).
 
-    No cacheado — siempre muestra el estado actual de la colección.
+    No cacheado — siempre muestra el estado actual de la tabla. Filtra aum='si'
+    (las filas que cuentan como AuM, == lo que tenía la colección vieja).
 
     Args:
         id_cuenta: id numérico, ej "805".
-        fecha: fecha_snapshot YYYY-MM-DD. Si None o inexistente, usa el
-            último snapshot disponible para la cuenta.
+        fecha: YYYY-MM-DD. Si None o inexistente, usa el último snapshot.
 
     Returns:
         {
@@ -1148,28 +930,29 @@ def aum_raw(id_cuenta: str, fecha: str | None = None) -> dict[str, Any]:
           total, n,
         }
     """
-    db_val = get_db_valuaciones()
+    from core.postgres import get_pool
 
-    fechas = sorted(
-        str(f) for f in db_val["AuM"].distinct("fecha_snapshot", {"id_cuenta": id_cuenta})
-    )
-    if not fechas:
-        return {
-            "id_cuenta": id_cuenta, "fecha": None, "fechas_disponibles": [],
-            "posiciones": [], "total": 0.0, "n": 0,
-        }
-    if not fecha or fecha not in fechas:
-        fecha = fechas[-1]
-
-    docs = list(
-        db_val["AuM"]
-        .find(
-            {"id_cuenta": id_cuenta, "fecha_snapshot": fecha},
-            {"_id": 0, "unidad": 1, "cuenta": 1, "cantidad": 1, "precio": 1,
-             "valuacion": 1, "tipoTitulo": 1, "moneda": 1},
-        )
-        .sort("valuacion", -1)
-    )
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT fecha FROM portafolio.tenencia "
+            "WHERE id_cuenta = %s AND aum = 'si' ORDER BY fecha", (str(id_cuenta),))
+        fechas = [f[0].isoformat() for f in cur.fetchall()]
+        if not fechas:
+            return {
+                "id_cuenta": id_cuenta, "fecha": None, "fechas_disponibles": [],
+                "posiciones": [], "total": 0.0, "n": 0,
+            }
+        if not fecha or fecha not in fechas:
+            fecha = fechas[-1]
+        cur.execute(
+            "SELECT unidad, cuenta, cantidad, precio, valuacion, tipo_titulo, moneda "
+            "FROM portafolio.tenencia WHERE id_cuenta = %s AND fecha = %s AND aum = 'si' "
+            "ORDER BY valuacion DESC NULLS LAST", (str(id_cuenta), fecha))
+        docs = [
+            {"unidad": r[0], "cuenta": r[1], "cantidad": r[2], "precio": r[3],
+             "valuacion": r[4], "tipoTitulo": r[5], "moneda": r[6]}
+            for r in cur.fetchall()
+        ]
 
     posiciones: list[dict[str, Any]] = []
     total = 0.0
@@ -1221,156 +1004,6 @@ def _es_cash(unidad: str | None, tipo: str | None) -> bool:
     return "DEPOSITO" in u or "DEPÓSITO" in u
 
 
-def variacion_titulos(id_cuenta: str, fecha: str) -> dict[str, Any]:
-    """Descompone la variación del portfolio entre `fecha` y el snapshot
-    anterior, por título — separando efecto MERCADO vs efecto OPERADO.
-
-    Por cada unidad con valuación en alguno de los dos snapshots:
-        precio_efectivo = valuacion / cantidad   (ya incluye /100 o +1)
-        delta_mercado = (pe_actual − pe_previo) × cantidad_previa
-        delta_operado = (cantidad_actual − cantidad_previa) × pe_actual
-        delta_total   = valuacion_actual − valuacion_previa
-                      = delta_mercado + delta_operado   (cierra exacto)
-
-    Unidad nueva → todo a `operado` (la compraste). Cerrada → todo a
-    `operado` negativo (la vendiste). El efectivo (ARS/USD/…) se agrega
-    en `otros` — no es "un título que rindió".
-
-    No cacheado — para validar siempre muestra el estado actual.
-
-    Returns:
-        {id_cuenta, fecha, fecha_anterior,
-         filas: [{unidad, tipo, val_anterior, val_actual, delta_mercado,
-                  delta_operado, delta_total, estado}, ...],
-         otros: {delta_mercado, delta_operado, delta_total, val_anterior,
-                 val_actual, n},
-         totales: {val_anterior, val_actual, delta_mercado, delta_operado,
-                   delta_total}}
-    """
-    db_val = get_db_valuaciones()
-    fechas = sorted(
-        str(f) for f in db_val["AuM"].distinct("fecha_snapshot", {"id_cuenta": id_cuenta})
-    )
-    base = {"id_cuenta": id_cuenta, "fecha": fecha, "fecha_anterior": None,
-            "filas": [], "otros": None, "totales": None}
-    if fecha not in fechas:
-        return {**base, "error": "fecha sin snapshot para la cuenta"}
-
-    # Comparamos contra el CIERRE DEL MES ANTERIOR — no contra el snapshot
-    # anterior cronológico. Desde marzo 2026 hay snapshots diarios, así que
-    # el snapshot previo sería el día anterior y la "variación mensual"
-    # quedaría mal. El cierre de cada mes calendario = último snapshot del
-    # mes (mismo criterio que valuacion_mensual).
-    cierres: dict[str, str] = {}
-    for f in fechas:  # asc → el último snapshot del mes gana
-        cierres[f[:7]] = f
-    cierres_ord = [cierres[m] for m in sorted(cierres)]
-    if fecha in cierres_ord:
-        idx = cierres_ord.index(fecha)
-        if idx == 0:
-            return {**base, "error": "no hay mes anterior — es el primer mes"}
-        fecha_prev = cierres_ord[idx - 1]
-    else:
-        # fecha no es un cierre de mes (caso raro) → snapshot anterior directo.
-        idx = fechas.index(fecha)
-        if idx == 0:
-            return {**base, "error": "no hay snapshot anterior"}
-        fecha_prev = fechas[idx - 1]
-
-    def _cargar(f: str) -> dict[str, dict]:
-        agg: dict[str, dict] = {}
-        for d in db_val["AuM"].find(
-            {"id_cuenta": id_cuenta, "fecha_snapshot": f},
-            {"_id": 0, "unidad": 1, "tipoTitulo": 1, "cantidad": 1, "valuacion": 1},
-        ):
-            u = d.get("unidad")
-            if not u:
-                continue
-            try:
-                cant = float(d.get("cantidad") or 0)
-                val = float(d.get("valuacion") or 0)
-            except (TypeError, ValueError):
-                continue
-            e = agg.setdefault(u, {"tipo": d.get("tipoTitulo"),
-                                   "cantidad": 0.0, "valuacion": 0.0})
-            e["cantidad"] += cant
-            e["valuacion"] += val
-        return agg
-
-    prev = _cargar(fecha_prev)
-    act = _cargar(fecha)
-
-    filas: list[dict] = []
-    otros = {"delta_mercado": 0.0, "delta_operado": 0.0, "delta_total": 0.0,
-             "val_anterior": 0.0, "val_actual": 0.0, "n": 0}
-
-    for u in set(prev) | set(act):
-        p = prev.get(u)
-        a = act.get(u)
-        cant_prev = p["cantidad"] if p else 0.0
-        cant_act = a["cantidad"] if a else 0.0
-        val_prev = p["valuacion"] if p else 0.0
-        val_act = a["valuacion"] if a else 0.0
-        tipo = (a or p)["tipo"]
-        delta_total = val_act - val_prev
-        if cant_prev != 0 and cant_act != 0:
-            pe_prev = val_prev / cant_prev
-            pe_act = val_act / cant_act
-            delta_mercado = (pe_act - pe_prev) * cant_prev
-            delta_operado = (cant_act - cant_prev) * pe_act
-        else:
-            # Unidad nueva o cerrada → todo el cambio es operatoria.
-            delta_mercado = 0.0
-            delta_operado = delta_total
-
-        if _es_cash(u, tipo):
-            otros["delta_mercado"] += delta_mercado
-            otros["delta_operado"] += delta_operado
-            otros["delta_total"] += delta_total
-            otros["val_anterior"] += val_prev
-            otros["val_actual"] += val_act
-            otros["n"] += 1
-        else:
-            estado = "ambos" if (p and a) else ("nuevo" if a else "cerrado")
-            filas.append({
-                "unidad":        u,
-                "tipo":          tipo,
-                "val_anterior":  round(val_prev, 2),
-                "val_actual":    round(val_act, 2),
-                "delta_mercado": round(delta_mercado, 2),
-                "delta_operado": round(delta_operado, 2),
-                "delta_total":   round(delta_total, 2),
-                "estado":        estado,
-            })
-
-    filas.sort(key=lambda r: -abs(r["delta_total"]))
-
-    tot_merc = sum(r["delta_mercado"] for r in filas) + otros["delta_mercado"]
-    tot_oper = sum(r["delta_operado"] for r in filas) + otros["delta_operado"]
-    tot_delta = sum(r["delta_total"] for r in filas) + otros["delta_total"]
-    tot_prev = sum(r["val_anterior"] for r in filas) + otros["val_anterior"]
-    tot_act = sum(r["val_actual"] for r in filas) + otros["val_actual"]
-
-    return {
-        "id_cuenta":      id_cuenta,
-        "fecha":          fecha,
-        "fecha_anterior": fecha_prev,
-        "filas":          filas,
-        "otros":          {
-            k: (round(v, 2) if isinstance(v, float) else v)
-            for k, v in otros.items()
-        },
-        "totales": {
-            "val_anterior":  round(tot_prev, 2),
-            "val_actual":    round(tot_act, 2),
-            "delta_mercado": round(tot_merc, 2),
-            "delta_operado": round(tot_oper, 2),
-            "delta_total":   round(tot_delta, 2),
-        },
-    }
-
-
-@cached(ttl=300)
 def movimientos_mes(id_cuenta: str, fecha_anchor: str) -> dict[str, Any]:
     """Movimientos individuales (depósitos / extracciones / transferencias)
     para una cuenta en el mes que contiene `fecha_anchor`.
@@ -1392,7 +1025,6 @@ def movimientos_mes(id_cuenta: str, fecha_anchor: str) -> dict[str, Any]:
           n, total_neto, total_depositos, total_extracciones
         }
     """
-    db_val = get_db_valuaciones()
     mes = fecha_anchor[:7]  # YYYY-MM
 
     # Match: cuenta por prefijo numérico, fecha en el mes target,
@@ -1420,7 +1052,7 @@ def movimientos_mes(id_cuenta: str, fecha_anchor: str) -> dict[str, Any]:
             imp_orig = 0.0
         moneda = d.get("moneda") or "ARS"
         if moneda != "ARS" and fecha and fecha not in mep_cache:
-            mep_cache[fecha] = _get_mep_for_date(fecha, db_val)
+            mep_cache[fecha] = _get_mep_for_date(fecha)
         mep = mep_cache.get(fecha)
         imp_ars = _pesificar(imp_orig, moneda, mep)
 
@@ -1513,60 +1145,3 @@ def construir_consolidado() -> list[dict[str, Any]]:
     return rows
 
 
-@cached(ttl=300)
-def valuacion_consolidada(
-    filtro_cuenta: str = "todas",
-    scope: tuple[str, ...] | None = None,
-) -> dict[str, Any]:
-    """Una fila por cuenta: valor, base 100, PnL acum (ARS y USD).
-
-    LECTURA LIVIANA: lee `Valuaciones.ConsolidadoCuentas`, precalculada
-    offline por el cron `jobs.consolidado_cuentas` (el cálculo recorre N
-    cuentas → no entra en el timeout HTTP). Sólo aplica el filtro de tipo
-    de cuenta sobre lo ya calculado.
-
-    `filtro_cuenta`: "todas" | "accionistas" | "sin_accionistas" |
-    "cooperativas" | "productores" (ver `_cuentas_filter`).
-
-    `scope` restringe a las cuentas del grupo del usuario (None = sin
-    restricción: admin o usuario sin grupo).
-
-    Si la colección está vacía → `rows: []` (falta correr el job una vez).
-    """
-    db_val = get_db_valuaciones()
-    docs = list(db_val["ConsolidadoCuentas"].find(
-        {}, {"_id": 0, "computed_at": 0},
-    ))
-
-    # Scoping de grupos — subset de cuentas visibles para el usuario.
-    if scope is not None:
-        permitidas = set(scope)
-        docs = [d for d in docs if str(d.get("id_cuenta", "")) in permitidas]
-
-    # Filtro por tipo de cuenta — se aplica EN PYTHON sobre los docs ya cargados
-    # (cada uno trae `cuenta`="[N] NOMBRE" + `id_cuenta`). Antes cruzaba contra
-    # Valuaciones.AuM (eliminada en la migración SQL) → ahora membership directa.
-    if filtro_cuenta and filtro_cuenta != "todas":
-        from api.services._cuentas_filter import (
-            _cuentas_accionistas,
-            _ids_cuenta_productores,
-        )
-        accs = set(_cuentas_accionistas())          # strings "[N] NOMBRE"
-        prods = set(_ids_cuenta_productores())      # id_cuenta
-
-        def _ok(d: dict) -> bool:
-            cuenta = d.get("cuenta") or ""
-            idc = str(d.get("id_cuenta") or "")
-            if filtro_cuenta == "accionistas":
-                return cuenta in accs
-            if filtro_cuenta == "sin_accionistas":
-                return cuenta not in accs
-            if filtro_cuenta == "cooperativas":
-                return cuenta not in accs and "coop" in cuenta.lower()
-            if filtro_cuenta == "productores":
-                return idc in prods
-            return True
-
-        docs = [d for d in docs if _ok(d)]
-
-    return {"rows": docs, "n": len(docs), "filtro_cuenta": filtro_cuenta}

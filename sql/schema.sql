@@ -1014,14 +1014,6 @@ CREATE TABLE IF NOT EXISTS manager.role_audit (
 );
 CREATE INDEX IF NOT EXISTS ix_role_audit_ts ON manager.role_audit(ts DESC);
 
--- Watchlist por usuario de la vista TRADING (panel intradía de CEDEARs).
--- Lista de ticker_corto; la lógica del panel vive en api/services/trading_panel.py.
-CREATE TABLE IF NOT EXISTS manager.trading_watchlist (
-    email      text PRIMARY KEY,
-    tickers    text[] NOT NULL DEFAULT '{}',
-    updated_at timestamptz NOT NULL DEFAULT now()
-);
-
 -- ─────────────────────────────────────────────────────────────────────────────
 -- HOME — watchlist + noticias + calendario económico
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1131,21 +1123,6 @@ CREATE TABLE IF NOT EXISTS mercado.cedears_time_sales (
 );
 CREATE INDEX IF NOT EXISTS ix_cedears_ts_corto_ts
     ON mercado.cedears_time_sales (ticker_corto, ts DESC);
-
--- Perfil de volumen intradía por minuto (vista TRADING → RVOL). El tape se vacía
--- al cierre, así que jobs/cedears_volume_history.py captura el volumen por minuto
--- de cada rueda ANTES del cleanup (20:08 UTC) y lo persiste acá. Con ~20 ruedas
--- acumuladas, el panel calcula RVOL(t) = vol_acum_hoy(t) / vol_acum_promedio(t).
--- `minuto` = minuto-del-día UTC 'HH:MM' (matchea el `t` de las velas intradía).
-CREATE TABLE IF NOT EXISTS mercado.cedears_volume_history (
-    ticker_corto text NOT NULL,
-    fecha        date NOT NULL,
-    minuto       text NOT NULL,           -- 'HH:MM' UTC
-    volume       numeric NOT NULL DEFAULT 0,
-    PRIMARY KEY (ticker_corto, fecha, minuto)
-);
-CREATE INDEX IF NOT EXISTS ix_cedears_volhist_tk_fecha
-    ON mercado.cedears_volume_history (ticker_corto, fecha);
 
 -- Trading.SnapshotsSinteticos → histórico diario de sintéticos (jobs/snapshot_sinteticos.py,
 -- upsert por (ts_snapshot, tipo_sintetico, ticker)). Campos comunes columnar + el

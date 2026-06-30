@@ -98,7 +98,6 @@
 | cada hora · 15-22h · L-V | `jobs.pnl_totales_precompute'` |
 | 20:50 · L-V | `jobs.archive_options_data` |
 | 20:06 · L-V | `jobs.day_trading_stats'` |
-| 20:08 · L-V | `jobs.cedears_volume_history'` |
 <!-- /AUTOGEN:crons -->
 
 ## Otros crons (scripts / shell)

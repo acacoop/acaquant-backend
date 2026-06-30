@@ -27,17 +27,16 @@ Un scan sin índice sobre cientos de miles de docs lo clava. Reglas #2 y #4.
    - dé el grano/cardinalidad si es un rollup.
    El user lo corre, devuelve los números. Recién ahí se decide.
 
-2. **SCOPEAR** a lo que realmente cambia. No escanear todo si se puede filtrar por
-   un índice. Ej: corregir solo `{campo: {$in: [0, None]}}`, no todos los docs.
+2. **SCOPEAR** a lo que realmente cambia. No escanear toda la tabla si se puede
+   filtrar por un índice. Ej: corregir solo `WHERE campo = 0 OR campo IS NULL`.
 
 3. **BATCHEAR + THROTTLE.** Procesar por ventanas de fecha **indexadas** (usar el
    índice `fecha`/`concertacion`), con `time.sleep()` entre lotes. Nunca un
-   `bulk_write` gigante de una. Patrón de referencia: `scripts/backfill_fci_bruto.py`.
+   `UPDATE`/`executemany` gigante de una sola transacción.
 
-4. **UPDATE puro, sin upsert**, cuando el doc ya existe → matchea por clave única
-   (boleto, id_cuenta) → no inserta → no duplica. Verificar que la clave del match
-   esté **indexada y que el índice se USE** (no partial sobre el campo del match —
-   ver skill `index-health`, fue la causa del incidente).
+4. **UPDATE puro, sin upsert duplicador**, cuando la fila ya existe → matchea por
+   clave única (PK: boleto, id_cuenta) → no inserta → no duplica. Verificar que la
+   clave del match esté **indexada** (`EXPLAIN` para confirmar que usa el índice).
 
 5. **Vía `run_job.sh`** (lock + timeout) y, salvo que sea liviano y scopeado,
    **fuera de rueda** (después de 20 UTC / motores apagados).
@@ -52,6 +51,7 @@ Script en `scripts/`, commit + push. Y SIEMPRE la explicación ejecutiva:
 
 ## Anti-pattern del incidente (para no repetirlo)
 
-`fci_bilateral --full` re-leía NegocioMovimientos (338k) + Operaciones (488k) sin
-índice, en rueda → CPU 100%. La versión segura (`backfill_fci_bruto`) hace lo mismo
-por ventanas de 30 días indexadas + sleep → cobertura total, cero spikes.
+Un `--full` a ciegas que re-lee cientos de miles de filas sin índice, en rueda →
+CPU 100% (incidente 2026-06-03/04). La versión segura procesa por ventanas de fecha
+indexadas + `sleep` → cobertura total, cero spikes. Medir el costo ANTES (`EXPLAIN`
+/ contar filas afectadas) antes de correr.

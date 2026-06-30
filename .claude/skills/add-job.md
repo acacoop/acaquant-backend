@@ -89,7 +89,7 @@ consume, no hay que encadenar ningún sync — la API ya la lee. Ver `docs/ARQUI
 
 ## 6. Índices
 
-Si la colección destino es nueva, agregar el índice en `scripts/crear_indices.py` (idempotente). Sin índice, las queries se van a aggregate scan completo cuando la colección crezca.
+Si la tabla destino es nueva, agregar el índice en `sql/schema.sql` (`CREATE INDEX IF NOT EXISTS`, idempotente). Sin índice, las queries se van a seq scan completo cuando la tabla crezca. (Decomiso Mongo: el dato vive en Postgres — ya no hay índices Mongo.)
 
 ## 7. Docs
 

@@ -27,10 +27,9 @@ portfolio/cuentas/operaciones de clientes reales.
   (`verificar_account`, `_grupos_scope.py`) en endpoints de órdenes/operaciones.
 
 ### Secretos
-- Cero secretos en código o commits (MONGO_URI, ATLAS_*, AUNESA_*, MCP_*, JWT
+- Cero secretos en código o commits (POSTGRES_URI/`.env` SQL, AUNESA_*, MCP_*, JWT
   secrets). Van en `.env` local / systemd unit files en el Droplet.
 - Que el endpoint/job NO logee secretos ni el query con datos sensibles.
-  (El `watch_db` y los diags muestran metadatos, nunca valores financieros.)
 
 ### CF Access / MCP (rompen silencioso si se tocan mal — ver project_mcp_cf_access)
 - CF Access NO debe tapar `/mcp` ni los `/oauth/*` de token/register/discovery

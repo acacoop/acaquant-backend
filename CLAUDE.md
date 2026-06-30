@@ -4,23 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → MongoDB Atlas M10 → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO), venv en `/root/TradingAV/venv`.
+TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase** → FastAPI (`api.acaquant.com`) → **acaquant-web** Next.js en Vercel (`trading.acaquant.com`). Server en `/root/TradingAV` (Droplet DO), venv en `/root/TradingAV/venv`.
 
-**DBs Mongo** (12 bases, inventario medido 2026-06-12 con `scripts/diag_inventario_mongo_sql`):
-- `Trading` — núcleo de mercado: Curvas, BondsMaster, MarketSnapshot, SnapshotsCierre, CanjeCierre, TimeSales; series macro DOLAR/CER/BADLAR/TAMAR/RiesgoPais/InflacionMensual/InflacionInteranual/UVA; renta fija derivada BreakevensLive/Historico, ForwardsLive/Historico/Zscore, FitParams, FairValueResiduos, DiasHabiles, REM; FuturosDLR(+Snapshot), Caucion(+Snapshot); renta variable Cedears (master), CedearsTimeSales (tape intradía, se vacía al cierre); AgroSnapshot, AgroOpcionesSnapshot; SnapshotsSinteticos; ONSnapshot. **Renta variable migrada a SQL (cutover 2026-06-24): `CedearsSnapshot`→`mercado.cedears_snapshot`, `AdrSnapshot`→`mercado.adr_snapshot`, `PreciosAcciones`→`mercado.precios_acciones` (Mongo `PreciosAcciones` DROPEADA). `motor_cedears`/`adr_live`/`precios_acciones_daily` escriben SQL-native; scanner/day_trading/pivot_points leen SQL — ver `docs/SQL.md`.**
-- `Valuaciones` — ConsolidadoCuentas, PnLTotalesCache, TenenciaHD, Dolar/DolarSnapshot/DolarOficialLive (MEP/CCL). **`AuM` y `Assets` ELIMINADAS (2026-06-15)** → tenencias y catálogo de títulos viven en SQL `portafolio.tenencia` / `portafolio.assets` (ver `docs/SQL.md`).
-- `CashFlow` — Productores, Accionistas, Acreencias, Movimientos, VolumenMercadoAgro, TiposOperacion (catálogo). **`Operaciones`, `NegocioMovimientos`, `Contrapartes` y el rollup `OpsSerieDiaria` → migrados a SQL (`operaciones.operaciones`, `operaciones.negocio_movimientos`, `clientes.contrapartes`) y ELIMINADOS de Mongo (2026-06-16). Ver `docs/SQL.md`.**
-- `Clientes` — Comitentes, ComercialCache, ActividadMensual (segmentación/operador asignado).
-- `Manager` — Users, RoleMatrix, RoleAudit, Grupos, JobRuns, HealthReports, WatchdogAlertas.
-- `Opciones` — opciones financieras GGAL (motor `engines/options.py`): Data (tick TS), DataHistorica, OptionsSnapshot, Metadata, VR-GGal.
-- `Derivados` — carga MANUAL de la mesa (vista Agro): AgroPizarra, CamaraCereales (+ `*Audit`).
-- `Operaciones` — motor de órdenes: OrdenesLive, OrdenesAudit, TriggersMep, BracketsLive, OperativasMep.
-- `Market` — Quotes (watchlist HOME), EconomicCalendar.
-- `News` — Headlines (TTL 2 días).
-- `MCP` — OAuth clients/codes/tokens (TTL automático).
-- App separada `partner_api` usa la base `ACAPortfolio` (Cartera, ApiUsers).
+> **MONGO DECOMISADO (2026-06-29).** El sistema es 100% Postgres/Supabase: motores,
+> jobs, API, MCP y partner_api leen y escriben SQL. NO queda una sola referencia a
+> Mongo en el código (`grep -rE "from core.mongo|import pymongo|MongoClient"` → 0).
+> El cliente Mongo (`core/mongo.py`), `api/db.py` y el tooling Mongo fueron borrados.
+> Si ves "Mongo"/"colección"/"Atlas" en algún doc viejo, es residual — la fuente de
+> verdad es `sql/schema.sql` + `docs/SQL.md`. Registro del decomiso: `docs/HANDOFF_DECOMISO_MONGO.md`.
 
-> Las colecciones espejo `*API` (`CuentasAPI`) fueron **eliminadas** (2026-06-06) — ver más abajo en "Deploy".
+**Schemas SQL** (Postgres/Supabase; `sql/schema.sql` es la fuente — OJO: no siempre 100% aplicado en la DB real, ver "Capa SQL"):
+- `mercado` — núcleo de mercado: `curvas` (master RF, antes Trading.Curvas+BondsMaster), `market_snapshot`, `snapshots_cierre(+_hist)`, `canje_cierre`, `timesales`, `dias_habiles`; renta fija derivada `forwards_zscore`, `fit_params`, `fair_value_residuos`, `ons_ignoradas`; `futuros_dlr_snapshot`, `caucion_snapshot`; opciones `options_data(+_hist)`, `options_snapshot`, `options_metadata`, `options_vr`; renta variable `cedears`(master), `cedears_snapshot`, `adr_snapshot`, `precios_acciones`, `cedears_time_sales`, `day_trading_stats`; agro `agro_snapshot`, `agro_opciones_snapshot`, `agro_pizarra`, `camara_cereales`, `volumen_mercado_agro`; `snapshots_sinteticos`; `mercado_hist`; `rubros`, `adhoc_subscriptions`.
+- `macro` — series macro `series_macro` (DOLAR/CER/BADLAR/TAMAR/RiesgoPais/Inflación), `uva`, `rem`.
+- `valuaciones` — `consolidado`, `pnl_totales_cache`, `portfolio_snapshot`, `dolar`, `dolar_snapshot`, `dolar_oficial_live` (MEP/CCL).
+- `portafolio` — `tenencia` (AuM, fuente única), `assets` (catálogo de títulos), `backfill_log`.
+- `operaciones` — `operaciones` (vista MOVIMIENTOS), `negocio_movimientos` (cost-basis), `acreencias`, `movimientos`, `tipos_operacion`; órdenes `ordenes_live`, `ordenes_audit`, `ordenes_idempotency`, `triggers_mep`, `brackets_live`, `operativas_mep`, `motor_heartbeat`, `accounts_descubiertas`.
+- `clientes` — `comitentes`, `cuentas`, `contrapartes`, `accionistas`, `actividad_mensual`, `operadores`, `objetivos_comerciales` (segmentación/operador).
+- `manager` — `manager_users`, `role_matrix`, `role_audit`, `grupos`, `job_runs`, `health_reports`, `watchdog_alertas`, `pyrofex_instruments`/`pyrofex_discovery`.
+- `home` — `market_quotes` (watchlist HOME), `market_calendar`, `news_headlines`.
+- `mcp` — `oauth_clients`/`oauth_codes`/`oauth_tokens` (TTL automático).
+- `partner` — app separada `partner_api`: `cartera`, `api_users` (antes Mongo `ACAPortfolio`).
 
 ## Contexto por subdirectorio
 
@@ -29,7 +32,7 @@ se carga automáticamente al trabajar en esa carpeta. Este archivo (raíz)
 tiene lo que aplica a todo el repo.
 
 - **`api/CLAUDE.md`** — ⚠️ REGLA #1 (validar imports), RBAC, services `@cached`, filtros de cuenta, live fallback, motor de PnL.
-- **`engines/CLAUDE.md`** — patrón de escritura a `MarketSnapshot`, Atlas / motores stale.
+- **`engines/CLAUDE.md`** — patrón de escritura a `mercado.market_snapshot`, motores stale.
 - **`jobs/CLAUDE.md`** — filtros de exclusión del AuM, patrón de jobs nuevos (`JobRunLogger`).
 - **`scripts/CLAUDE.md`** — REGLA #0 aplicada, minimalismo (REGLA #5), backfills seguros (REGLA #4).
 
@@ -39,14 +42,14 @@ tiene lo que aplica a todo el repo.
 
 - **Nada de bloques de comandos / queries / snippets para que el user copie y pegue.** Operar el Droplet desde la consola web de DigitalOcean hace que copiar y pegar sea doloroso (line wrapping, multilinea, caracteres especiales). Esta regla ya se pidió varias veces y se sigue violando.
 - **Workflow correcto**: Claude escribe el código → archivo en el repo (`scripts/<x>.py`, `jobs/<x>.py`, endpoint en `api/`) → commit + push a `main` → el user hace `git pull` en el Droplet y lo ejecuta con `python -m scripts.<x>`.
-- **Diagnóstico one-shot también va a `scripts/`** (ej. `scripts/diag_*.py`). Una query Mongo de 5 líneas igual va en archivo, no en chat.
+- **Diagnóstico one-shot también va a `scripts/`** (ej. `scripts/diag_*.py`). Una query SQL de 5 líneas igual va en archivo, no en chat.
 - **Excepción mínima**: si es UNA sola línea trivial (`systemctl status x`, `tail logs`), se puede pasar inline — pero el default es siempre script.
 - **Cero "probá esto, si no andá probá esto otro"**. Una solución por vez, comiteada al repo.
 
 ## ⚠️ REGLA #2 — NUNCA ASUMIR: verificar antes de afirmar o codear
 
 **Bloqueante. Es la causa #1 de romper cosas.** Claude NO tiene acceso al
-Droplet ni a Atlas → no puede inferir nada sobre los datos reales. Afirmar
+Droplet ni a la DB de prod (Postgres/Supabase) → no puede inferir nada sobre los datos reales. Afirmar
 hechos sobre prod sin medir (proporciones, volúmenes, esquema, qué campos
 existen, qué valores tienen, cómo se comporta algo) y después escribir código
 en función de eso es lo que rompe todo.
@@ -94,7 +97,7 @@ INCOMPLETO. Aplica también a los diags y a los cambios de doc.
 migración o `--full` se corre sin cumplir TODO esto:
 
 - **Scopeado**: apuntar SOLO a los docs que realmente cambian (ej. `bruto=0`),
-  nunca un scan de toda la colección si se puede filtrar por índice.
+  nunca un scan de toda la tabla si se puede filtrar por índice.
 - **Batcheado + throttle**: procesar en lotes con `sleep` entre lotes para no
   starvar a los motores. Nada de un `bulk_write` gigante de una.
 - **Medir el costo ANTES** (REGLA #2): `explain()` / contar docs afectados. Si
@@ -123,7 +126,7 @@ incidente 2026-06-03. Si dudás del volumen, NO lo corras: medí primero.
 ## ⚠️ REGLA #6 — Credencial/acceso faltante: se pide UNA vez, no se insiste
 
 Si para avanzar hace falta una credencial/usuario/permiso que **solo el user
-puede crear** (ej. usuario Atlas con `clusterMonitor` para `$indexStats`), se
+puede crear** (ej. una env var o un rol de Postgres/Supabase), se
 dice **una vez**, claro, y se marca como PENDIENTE. **No repetir el pedido cada
 turno ni bloquear todo en eso** — seguir con lo que sí se puede hacer. El user
 lo provee cuando puede.
@@ -135,7 +138,7 @@ manera de capacitarme y aprendo si no es con vos"*. En CADA trabajo, además de
 resolver lo pedido:
 
 - **Detectar lo que él no sabe pedir**: joins innecesarios, queries ineficientes,
-  colecciones mal modeladas, código que se puede simplificar, deuda técnica,
+  tablas mal modeladas, código que se puede simplificar, deuda técnica,
   riesgos de datos. Traerlo proactivamente aunque no lo haya pedido.
 - **Enseñar el porqué**: explicar el concepto nuevo en lenguaje claro (gerencial
   + técnico), no solo aplicarlo. Que aprenda algo en cada interacción.
@@ -176,10 +179,10 @@ Ver memoria [[feedback_portal_invitado_www]].
 ## Reglas que rompen todo si se olvidan
 
 - **`python -m <módulo>` desde la raíz siempre**. `python engines/x.py` falla (`core` no es discoverable).
-- **Nunca `client.close()` sobre los Mongo singletons** — mata el pool. Son 2: `core.mongo.get_mongo_client()` (rw, motores/crons) y `get_mongo_client_read()` (ro, `SECONDARY_PREFERRED`, usado por la API).
+- **Conexión SQL**: pool singleton `core.postgres.get_pool()` (no cerrarlo). El `partner_api` usa su propio `partner_api/pg.py`.
 - **Regla de capas**: `core/` no importa nada del proyecto. `engines/` y `jobs/` usan `core/` + `quant/`. `api/services/` es puro (sin FastAPI), `api/routers/` solo HTTP plumbing.
 - **Commits**: estilo `feat/fix/docs/refactor(scope): mensaje` en español, como el `git log`.
-- **Constantes globales y feature flags** viven en `config.py` (raíz): `TICKERS_EXTRA_PRECIOS`, `TICKERS_BOOK_FULL`, etc. Env vars en `.env` local / systemd unit files en el Droplet (`MANAGER_EMAILS`, `DEFAULT_ROLE`, `MCP_*`, `MONGO_URI`).
+- **Constantes globales y feature flags** viven en `config.py` (raíz): `TICKERS_EXTRA_PRECIOS`, `TICKERS_BOOK_FULL`, etc. Env vars en `.env` local / systemd unit files en el Droplet (`MANAGER_EMAILS`, `DEFAULT_ROLE`, `MCP_*`, `POSTGRES_URI`).
 
 > Validar imports antes de pushear router/service (REGLA #1) y la regla de
 > services `@cached` → ver `api/CLAUDE.md`.
@@ -187,8 +190,8 @@ Ver memoria [[feedback_portal_invitado_www]].
 ## Estructura
 
 ```
-core/        # infra (mongo, mongo_monitor, postgres, grupos_sql, roles_sql, websocket, rofex_session, rofex_orders_session, roles, snapshot_writer, job_runs, profiler, byma, mae, cafci, finnhub, yahoo, openfigi, argentina_datos, dolar_oficial)
-engines/     # motores WS → Mongo (always-on L-V 13-20 UTC) — incluye motor_cedears (alimenta Scanner CEDEARs)
+core/        # infra (postgres, pg_mirror, curvas_sql, macro_sql, grupos_sql, roles_sql, series_macro, market_snapshot, websocket, rofex_session, rofex_orders_session, roles, job_runs, profiler, byma, mae, cafci, finnhub, yahoo, argentina_datos, dolar_oficial)
+engines/     # motores WS → SQL (always-on L-V 13-20 UTC) — incluye motor_cedears (alimenta Scanner CEDEARs)
 jobs/        # batch/cron — incluye precios_acciones_daily (alimenta scanner via SQL mercado.precios_acciones)
 quant/       # cálculo puro (black_scholes, stats, curve_fit, pivot_points, rolling_stats)
 api/services # lógica pura (invocada por routers y por el agente)
@@ -245,8 +248,8 @@ python -m engines.<motor> | jobs.<job> | scripts.<cmd>
 ruff check . [--fix]                           # line-length=100, py312
 pytest -ra                                     # unit (pyproject ya excluye integration via addopts)
 pytest tests/<path>::<test_name>               # single test
-pytest -m integration                          # integration (requiere Atlas up)
-python -m scripts.perf_scan [--strict]         # anti-patterns Mongo
+pytest -m integration                          # integration (requiere Postgres accesible)
+python -m scripts.perf_scan [--strict]         # anti-patterns de queries
 ```
 
 CI (`.github/workflows/ci.yml`): en cada push/PR a `main` corre `ruff check .` (bloqueante) + `perf_scan` (informativo, `continue-on-error`) + `pytest -ra` (solo unit). Python 3.12. No buildea el frontend.
@@ -265,22 +268,22 @@ uvicorn partner_api.main:app --port 8100   # Partner API (servicio externo, ver 
 
 ## Operaciones — SQL (migrado de Mongo 2026-06-16, CRÍTICO no inferible)
 
-`operaciones.operaciones` (SQL Postgres) es la fuente de la vista MOVIMIENTOS (`/api/operaciones/ops/*`) + Contrapartes (`/operaciones/flujo`). **`CashFlow.Operaciones` (Mongo) y el rollup `CashFlow.OpsSerieDiaria` fueron ELIMINADOS** — ver `docs/SQL.md`. Origen: `jobs.operaciones_informes` (API informes Aunesa) que escribe SQL directo vía `operaciones_informes.ingestar_filas_sql` (normaliza + enriquece inline `moneda`/`mercado`/`operacion`/`nivel_3`/`segmento`/`es_cierre`/`commodity`/`mep`). `jobs.fci_bilateral` escribe el FCI bilateral (campo `etapa`) — upsert por boleto que NO pisa el resto. El catálogo `TiposOperacion` sigue en Mongo (chico).
+`operaciones.operaciones` (SQL Postgres) es la fuente de la vista MOVIMIENTOS (`/api/operaciones/ops/*`) + Contrapartes (`/operaciones/flujo`). **`CashFlow.Operaciones` (Mongo) y el rollup `CashFlow.OpsSerieDiaria` fueron ELIMINADOS** — ver `docs/SQL.md`. Origen: `jobs.operaciones_informes` (API informes Aunesa) que escribe SQL directo vía `operaciones_informes.ingestar_filas_sql` (normaliza + enriquece inline `moneda`/`mercado`/`operacion`/`nivel_3`/`segmento`/`es_cierre`/`commodity`/`mep`). `jobs.fci_bilateral` escribe el FCI bilateral (campo `etapa`) — upsert por boleto que NO pisa el resto. El catálogo `tipos_operacion` vive en SQL (`operaciones.tipos_operacion`).
 
-**Las series se agregan EN VIVO desde SQL — NO hay rollup.** `/ops/serie` y `/ops/aranceles` agregan con `GROUP BY` + índices sobre `operaciones.operaciones` (`api/services/operaciones_sql.py`, flag `OPERACIONES_SQL=1`). El viejo `jobs/ops_rollup.py` + `OpsSerieDiaria` se mataron (no se recrean precomputes en SQL).
+**Las series se agregan EN VIVO desde SQL — NO hay rollup.** `/ops/serie` y `/ops/aranceles` agregan con `GROUP BY` + índices sobre `operaciones.operaciones` (`api/services/operaciones_sql.py`). El viejo `jobs/ops_rollup.py` + el rollup se mataron (no se recrean precomputes).
 
 - **El arancel y el bruto NO comparten filtro de cierre**: para volumen `bruto` excluye `es_cierre=true`; para `arancel` se INCLUYEN los cierres (el **arancel de caución vive SOLO en el cierre**). `etapa <> 'solicitud'` siempre (la liquidación CL ya cuenta).
 - **`es_cierre`** materializado (bool) separa volumen de arancel sin regex.
 - El motor de PnL no usa esta tabla (cost-basis sale de `negocio_movimientos`); acá viven volumen/arancel comercial.
-- Mismo patrón Mongo-rollup sigue SOLO para opciones (`jobs/options_rollup.py`, no migrado).
+- Opciones mantiene su rollup propio (`jobs/options_rollup.py`) sobre tablas SQL.
 
-## Trading.Curvas — shape de flujos (CRÍTICO, no inferible)
+## mercado.curvas — shape de flujos (CRÍTICO, no inferible)
 
 - **CER**: porcentual. `amortizacion_pct` + `cupon_sobre_residual` YA resuelto (NO re-multiplicar por `residual_previo_pct`). `cupon_anual=0` si zero coupon. Requiere `cer_emision`.
 - **tasa_fija**: absolutos. `amortizacion` + `interes`. Requiere `flujo_vencimiento`.
 - **soberanos** (`tipo='globales'|'bonares'`): mismo shape que CER, `cupon_sobre_residual` ya en USD.
 
-Agregar instrumento: doc en `Trading.Curvas` + fila en `portafolio.assets` (SQL) con `ticker == ticker_corto`. Sin el segundo no aparece en AuM/Portfolios. (El catálogo de títulos migró de Mongo `Valuaciones.Assets` a SQL `portafolio.assets` el 2026-06-15 — ver `docs/SQL.md`.)
+Agregar instrumento: fila en `mercado.curvas` (vía `core/curvas_sql.py`; `data` jsonb = doc completo) + fila en `portafolio.assets` con `ticker == ticker_corto`. Sin el segundo no aparece en AuM/Portfolios.
 
 `config.TICKERS_EXTRA_PRECIOS`: tickers que `motor_rofex` suscribe pero `motor_curvas` ignora. Default `['MERV - XMEV - AL30C - 24hs']` para `/api/analitica/canje`.
 
@@ -305,9 +308,9 @@ Match **mismo vto** Lecap↔CER (`MAX_DIFF_DIAS=20`). Anualización con `dias_ce
 
 **Forwards**: `((1 + TEA_B)^t_B / (1 + TEA_A)^t_A)^(1/(t_B − t_A)) − 1`. Lee última TEA por ticker desde `MarketSnapshot.metrics.TEA` (escrita por `motor_curvas` en cada update). Igual patrón usan `breakevens.py` y los services de portfolio/renta-fija. **No leer TimeSales agregado** — es estrictamente más caro y devuelve el mismo valor que el snapshot live.
 
-**TC Breakeven** (`api/services/renta_fija.py::_tc_breakeven`, sólo tasa fija nativa o CER fijado): `TC_BE = MEP × (flujo_vencimiento / precio_actual)`. Lee `flujo_vencimiento` de `Trading.Curvas`, `last_price` del trade más reciente y MEP de `get_ultimo_mep` (live, TTL 5s). Se calcula on-the-fly en `get_renta_fija` y `listar_curva` — no se persiste.
+**TC Breakeven** (`api/services/renta_fija.py::_tc_breakeven`, sólo tasa fija nativa o CER fijado): `TC_BE = MEP × (flujo_vencimiento / precio_actual)`. Lee `flujo_vencimiento` de `mercado.curvas`, `last_price` del trade más reciente y MEP de `get_ultimo_mep` (live, TTL 5s). Se calcula on-the-fly en `get_renta_fija` y `listar_curva` — no se persiste.
 
-**AuM join chain**: `Trading.Curvas.curva` → `ticker_corto` → `portafolio.assets.ticker` → `unidad` → `portafolio.tenencia` (SQL, filtrar `aum='si'`).
+**AuM join chain**: `mercado.curvas` (campo `curva`) → `ticker_corto` → `portafolio.assets.ticker` → `unidad` → `portafolio.tenencia` (SQL, filtrar `aum='si'`).
 
 **Enriquecimiento CER**: `motor_curvas` usa CER con settlement T-10 hábiles. Si un bono no opera un día, el último trade puede quedar con CER de ayer.
 
@@ -333,53 +336,38 @@ server (sección siguiente).
 `partner_api/` es una **app FastAPI independiente** — NO se monta en `api/main`. Sirve datos de portfolio a un proveedor externo. En el Droplet corre como systemd `partner_api.service`, bindeado a `127.0.0.1:8100`, expuesto vía nginx en `data.acaquant.com`. Sin Swagger/OpenAPI público (`docs_url=None`); la doc va por escrito al proveedor (`docs/PARTNER_API.md`, `docs/PARTNER_API_PROVEEDOR.md`).
 
 - Endpoints: `POST /v1/token` (login user/pass → JWT), `GET /v1/fechas`, `GET /v1/portfolio`, `GET /health`.
-- DB propia: `ACAPortfolio.Cartera`. Env vars `PARTNER_MONGO_URI`, `PARTNER_JWT_SECRET` (chequeadas al importar `main.py`).
-- Auth + rate limit propios (`partner_api/auth.py`, `security.py`, `ratelimit.py`) — no comparte código con `api/auth.py`.
-- **Migrado a SQL (dual-run, 2026-06-23):** `ACAPortfolio.{Cartera,ApiUsers}` → schema `partner` (`partner.cartera`, `partner.api_users`). Lectura por flag `PARTNER_SQL=1` (default Mongo) vía `partner_api/store.py`; escritura por flag `PARTNER_SQL_WRITE=1` (dual-write best-effort) en `jobs/partner_export.py` + `scripts/partner_user.py`. Conexión propia `partner_api/pg.py` (no `core.postgres`). Baseline: `scripts/partner_sql_baseline.py`. Ver `docs/PARTNER_API.md` y `docs/SQL.md`.
+- **DB: SQL schema `partner`** (`partner.cartera`, `partner.api_users`). SQL-only (decomiso Mongo 2026-06-29: `ACAPortfolio` eliminada). Conexión propia `partner_api/pg.py` (env `POSTGRES_URI`, NO `core.postgres`). Lectura `partner_api/store.py`; escritura `jobs/partner_export.py` (export diario) + `scripts/partner_user.py` (gestión de usuarios). Env vars `POSTGRES_URI` + `PARTNER_JWT_SECRET` (chequeadas al importar `main.py`).
+- Auth + rate limit propios (`partner_api/auth.py`, `security.py`, `ratelimit.py`) — no comparte código con `api/auth.py`. Ver `docs/PARTNER_API.md`.
 
-## Capa SQL — Postgres/Supabase (migración Mongo→PG en curso)
+## Capa SQL — Postgres/Supabase (ÚNICA base; Mongo decomisado 2026-06-29)
 
-**Postgres NO reemplaza Mongo: es un espejo relacional de solo-lectura** del
-núcleo de negocio (reportería con SQL real, cruces baratos). Si PG se cae, la
-operación (Mongo) sigue. Doc completo y estado por fase: **`docs/SQL.md`** +
-`docs/MIGRACION_MONGO_SUPABASE.md`.
+**Postgres/Supabase ES el sistema.** Todo lee y escribe SQL: motores, jobs, API,
+MCP, partner_api. Mongo fue decomisado por completo — no hay dual-run, ni flags de
+engine, ni espejo. Doc de referencia del modelo: **`docs/SQL.md`** + `sql/schema.sql`.
 
-> **DECOMISO DE MONGO — leer `docs/DECOMISO_MONGO.md` antes de afirmar que algo
-> "ya está migrado".** Auditoría exhaustiva (2026-06-27): 84 colecciones en 11
-> bases, **~24% realmente fuera de Mongo, ~76% todavía atado**. Mongo es el
-> write-path primario de ~14 motores live + ~26 jobs → NO se puede apagar hoy.
-> El doc tiene el mapa por colección (escritores/lectores/estado SQL) + roadmap
-> de 9 fases. NO declarar el decomiso "completo" sin actualizar ese doc. Ver
-> [[project_decomiso_mongo]].
+Esquema: `sql/schema.sql` (OJO: NO siempre 100% aplicado en la DB real — algún
+`CREATE TABLE`/columna del archivo puede no existir en Postgres todavía; `scripts/apply_schema.py`
+las crea). Pool/conn: `core.postgres.get_pool` (lee `.env` propia). El `partner_api`
+tiene su propia conexión `partner_api/pg.py`.
 
-Esquema: `sql/schema.sql` (OJO: `schema.sql` NO siempre está aplicado en la DB
-real — ej. `mercado.dias_habiles` existe en el archivo pero no en Postgres).
-Pool/conn:
-`core.postgres.get_pool` (lee `.env` propia). Sync: `jobs/sync_postgres.py`.
-
-- **Patrón dual-run (no inferible)**: los endpoints migrados leen SQL **o** Mongo
-  según un flag, con el path Mongo intacto → rollback = sacar la env + restart.
-  Primer feature migrado: vista OPERACIONES (`/api/operaciones/ops/*`) vía
-  `api/services/operaciones_sql.py`, flag global `OPERACIONES_SQL=1` (override por
-  request `?_engine=sql|mongo`), selector en `operaciones.py::_motor()`.
-- **GATE antes de cutover**: correr el comparador SQL↔Mongo (ej.
-  `scripts/compare_ops_sql_vs_mongo.py`) y exigir paridad total. NO migrar lecturas
-  a ciegas — las reglas de traducción Mongo→SQL son sutiles (NULL vs `''`, `es_cierre`,
-  `etapa`, `ABS`/`COALESCE`); están documentadas en `docs/SQL.md`.
-- Otros módulos SQL ya escritos: `core/grupos_sql.py`, `core/roles_sql.py`. Estado de
-  qué dominio lee SQL vs Mongo: `python -m scripts.estado_sql`.
+- Convención: cada dominio tiene su módulo de lectura/escritura SQL (`*_sql.py`
+  o helpers en `core/`): `curvas_sql`, `macro_sql`, `renta_fija_sql`, `comercial_sql`,
+  `valuaciones_sql`, `pnl_sql`, `agro_sql`, `operaciones_sql`, `grupos_sql`, `roles_sql`,
+  `market_snapshot`, `series_macro`, etc. Los selectores `_motor()`/`_engine` y los flags
+  `*_SQL` quedaron obsoletos (ya no hay rama Mongo) — si ves uno, es vestigial.
+- Escrituras SQL-native vía `core.pg_mirror` (`write_native`/`append_native`/`write_hist`).
+- El motor de PnL (`pnl.py::_pnl_por_cuenta_core`) es lógica PURA sobre dicts inyectados
+  desde SQL (`pnl_sql._deps_sql`) — no lee la base directo.
 
 ## Deploy
 
-Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `systemctl restart api.service` en el Droplet, o skill `/deploy`. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`.
+Push a `main` → Vercel auto-deploya acaquant-web. Backend: `git pull` + `python -m scripts.apply_schema` (si hubo cambios de schema) + `systemctl restart api.service` en el Droplet, o skill `/deploy`. Motores de mercado los controla cron (start/stop L-V). Cron fuente de verdad: `deploy/crontab.txt`.
 
-> **Las colecciones espejo `*API` fueron ELIMINADAS (2026-06-06).** La API lee
-> las fuentes directo (`CashFlow.*`) y, para tenencias/catálogo, **SQL**
-> `portafolio.tenencia` / `portafolio.assets` (Mongo `Valuaciones.AuM/Assets`
-> eliminadas 2026-06-15). El join Curvas+BondsMaster y la normalización de Assets
-> los hace `api/services/titulos_flujos.py` (lee `portafolio.assets`). Ya NO existen
-> `jobs/sync_api_copies.py` ni `scripts/api_migrate.py`.
+> **Todo lee SQL.** Tenencias/catálogo en `portafolio.tenencia`/`portafolio.assets`;
+> el join de instrumentos + normalización de assets lo hace `api/services/titulos_flujos.py`
+> (lee `portafolio.assets`). Las viejas colecciones espejo `*API` y los syncs Mongo→Mongo
+> (`sync_api_copies`, `api_migrate`) ya no existen.
 
-Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.portafolio_backfill --diario` (11 UTC L-V, writer de tenencias SQL — reemplazó a `jobs.aum`/Mongo, eliminado), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `MarketSnapshot` y persiste cierre por bono en `Trading.SnapshotsCierre`), `jobs.negocio_movimientos` (cada hora 15-22 UTC L-V, pega a Aunesa `consolidadosGenerales`, parsea/categoriza/agrupa por boleto y persiste idempotente en **SQL `operaciones.negocio_movimientos`** para la vista `/operaciones/negocio`).
+Jobs críticos diarios: `jobs.bcra --today` (22 UTC L-V, pide hoy+21d para CER forward), `jobs.argentina_datos` (12 UTC, RiesgoPais/IPC/REM), `jobs.portafolio_backfill --diario` (11 UTC L-V, writer de tenencias SQL — reemplazó a `jobs.aum`/Mongo, eliminado), `jobs.cleanup_curvas` + `jobs.cleanup_futuros_dlr` (12:30 UTC L-V, antes de motores), `jobs.snapshot_cierre` (20:25 UTC L-V, post-cierre — lee `mercado.market_snapshot` y persiste cierre por bono en `mercado.snapshots_cierre`), `jobs.negocio_movimientos` (cada hora 15-22 UTC L-V, pega a Aunesa `consolidadosGenerales`, parsea/categoriza/agrupa por boleto y persiste idempotente en **SQL `operaciones.negocio_movimientos`** para la vista `/operaciones/negocio`).
 
-Dólar oficial: única fuente live es `Valuaciones.DolarOficialLive` (feed MAE mayorista UST$T plazo 000, script local en PC oficina). Histórico/anchors (7d/MTD/YTD del watchlist `/argy`) deshabilitado hasta que MAE acumule histórico suficiente. Para series macro (`serie_macro` con `dolar_oficial`/`dolar_mayorista`) usar `Trading.DOLAR` (BCRA A3500 fixing diario).
+Dólar oficial: única fuente live es `valuaciones.dolar_oficial_live` (feed MAE mayorista UST$T plazo 000, script local en PC oficina). Histórico/anchors (7d/MTD/YTD del watchlist `/argy`) deshabilitado hasta que MAE acumule histórico suficiente. Para series macro (`serie_macro` con `dolar_oficial`/`dolar_mayorista`) usar `macro.series_macro` clave DOLAR (BCRA A3500 fixing diario).

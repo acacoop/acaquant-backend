@@ -1,18 +1,10 @@
-"""Dependencias de FastAPI (auth) + re-export de helpers de DB.
-
-La capa de servicios (`api/services/*`) importa los helpers de DB desde
-`api/db.py` directo para no depender de fastapi. Los routers pueden seguir
-importándolos desde acá por compat.
-"""
+"""Dependencias de FastAPI (auth). Decomiso Mongo: el reexport de los viejos
+helpers de DB (que vivían en api/db.py) se eliminó junto con el archivo — ya no
+hay lectores Mongo en la API; todo lee SQL."""
 import secrets
 
 from fastapi import Header, HTTPException
 
-from api.db import (  # noqa: F401 — reexport para compat
-    get_db_opciones,
-    get_db_trading,
-    get_db_valuaciones,
-)
 from config import API_KEY
 
 

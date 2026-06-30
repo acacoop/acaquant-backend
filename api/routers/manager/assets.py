@@ -198,6 +198,8 @@ def _write_sql(unidad: str, set_fields: dict) -> None:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(sql, [unidad, *cols.values()])
         conn.commit()
+    from api.services import assets_sql
+    assets_sql.invalidar()   # refrescar el cache del catálogo tras la edición
 
 
 # Compat: PATCH /assets/{unidad} sigue funcionando para clientes viejos

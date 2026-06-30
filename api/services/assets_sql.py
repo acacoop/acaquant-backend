@@ -9,6 +9,8 @@ comparaciones; FEE_ADMIN (numérico) se deja como None.
 """
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Iterable
 
 from core.postgres import get_pool
@@ -22,22 +24,49 @@ _FIELD_COL = {
 }
 _NUMERIC = frozenset({"FEE_ADMIN"})
 
+# Cache del catálogo completo (perf 2026-06-29). `assets_rows` es la lectura más
+# transversal (pnl, acreencias, etc.) y hacía un full-scan por call; el catálogo lo
+# edita Manager → cambia raro. Se cachea la tabla entera 300s y se proyectan los fields
+# pedidos en memoria (chica). Tras editar un asset llamar `invalidar()`.
+_TTL = 300.0
+_cache: dict = {"rows": None, "ts": 0.0}
+_lock = threading.Lock()
+_ALL_FIELDS = tuple(_FIELD_COL)
+
+
+def _all_rows() -> list[dict]:
+    """Catálogo completo cacheado (todas las columnas, normalizado). NO mutar."""
+    now = time.monotonic()
+    if _cache["rows"] is not None and (now - _cache["ts"]) < _TTL:
+        return _cache["rows"]
+    with _lock:
+        if _cache["rows"] is None or (time.monotonic() - _cache["ts"]) >= _TTL:
+            cols = ["unidad", *[_FIELD_COL[f] for f in _ALL_FIELDS]]
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.execute(f"SELECT {', '.join(cols)} FROM portafolio.assets")
+                rows = []
+                for row in cur.fetchall():
+                    d = {"unidad": row[0] or ""}
+                    for i, f in enumerate(_ALL_FIELDS, 1):
+                        d[f] = row[i] if f in _NUMERIC else (row[i] or "")
+                    rows.append(d)
+            _cache["rows"] = rows
+            _cache["ts"] = time.monotonic()
+        return _cache["rows"]
+
+
+def invalidar() -> None:
+    """Forzar recarga del catálogo en la próxima lectura (tras editar un asset)."""
+    _cache["rows"] = None
+    _cache["ts"] = 0.0
+
 
 def assets_rows(fields: Iterable[str]) -> list[dict]:
-    """Lee portafolio.assets y devuelve `[{unidad, <FIELD>: valor, ...}]` con claves
-    UPPERCASE (shape Mongo). `fields`: campos UPPERCASE (sin 'unidad', que va siempre).
+    """`[{unidad, <FIELD>: valor, ...}]` con claves UPPERCASE (shape Mongo), proyectado
+    del catálogo cacheado. `fields`: campos UPPERCASE (sin 'unidad', que va siempre).
     Strings NULL → '' ; FEE_ADMIN NULL → None."""
     fields = list(fields)
-    cols = ["unidad", *[_FIELD_COL[f] for f in fields]]
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(f"SELECT {', '.join(cols)} FROM portafolio.assets")
-        out = []
-        for row in cur.fetchall():
-            d = {"unidad": row[0] or ""}
-            for i, f in enumerate(fields, 1):
-                d[f] = row[i] if f in _NUMERIC else (row[i] or "")
-            out.append(d)
-        return out
+    return [{"unidad": r["unidad"], **{f: r[f] for f in fields}} for r in _all_rows()]
 
 
 # ── Lecturas del PANEL Manager → Assets (shape UPPERCASE completo, incl. auditoría) ──

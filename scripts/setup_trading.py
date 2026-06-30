@@ -7,8 +7,9 @@ deploy del backend (git pull + restart):
 
 Hace dos cosas, las dos seguras de re-correr:
 
-  1. Crea la tabla `manager.trading_watchlist` (la watchlist por usuario).
-     schema.sql no siempre está aplicado en la DB real → la creamos explícito.
+  1. Crea las tablas `manager.trading_watchlist` (watchlist por usuario) y
+     `mercado.cedears_volume_history` (perfil de volumen para el RVOL).
+     schema.sql no siempre está aplicado en la DB real → las creamos explícito.
 
   2. Le da el módulo `trading` al rol `admin` en `manager.role_matrix`, PERO
      solo si el admin ya tiene una fila propia ahí. Si no la tiene, el sistema
@@ -27,16 +28,30 @@ CREATE TABLE IF NOT EXISTS manager.trading_watchlist (
     tickers    text[] NOT NULL DEFAULT '{}',
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS mercado.cedears_volume_history (
+    ticker_corto text NOT NULL,
+    fecha        date NOT NULL,
+    minuto       text NOT NULL,
+    volume       numeric NOT NULL DEFAULT 0,
+    PRIMARY KEY (ticker_corto, fecha, minuto)
+);
+CREATE INDEX IF NOT EXISTS ix_cedears_volhist_tk_fecha
+    ON mercado.cedears_volume_history (ticker_corto, fecha);
 """
 
 
-def _crear_tabla() -> None:
+def _crear_tablas() -> None:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(DDL)
         conn.commit()
-        cur.execute("SELECT to_regclass('manager.trading_watchlist') IS NOT NULL")
-        ok = cur.fetchone()[0]
-    print(f"[1/2] tabla manager.trading_watchlist: {'OK' if ok else 'NO se creó'}")
+        cur.execute(
+            "SELECT to_regclass('manager.trading_watchlist') IS NOT NULL, "
+            "       to_regclass('mercado.cedears_volume_history') IS NOT NULL"
+        )
+        wl, vh = cur.fetchone()
+    print(f"[1/2] tabla manager.trading_watchlist: {'OK' if wl else 'NO se creó'}")
+    print(f"      tabla mercado.cedears_volume_history: {'OK' if vh else 'NO se creó'}")
 
 
 def _grant_admin() -> None:
@@ -60,7 +75,7 @@ def _grant_admin() -> None:
 
 
 def main() -> None:
-    _crear_tabla()
+    _crear_tablas()
     _grant_admin()
     print("Listo. Entrá a /trading (refrescá; el cache de roles ya se invalidó).")
 

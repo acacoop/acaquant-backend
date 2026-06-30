@@ -87,7 +87,8 @@ def _cv(x: float, factor: float | None) -> float:
 
 
 def _cuentas_de_operador(operador_email: str, nivel_1: str | None = None,
-                         nivel_3: str | None = None, referido: str | None = None) -> tuple[str, ...]:
+                         nivel_3: str | None = None, referido: str | None = None,
+                         nivel_2: str | None = None) -> tuple[str, ...]:
     """ids de cuenta (Comitentes activas) del scope. `TODOS` sin filtros → todas.
     Lee SQL clientes.comitentes (Mongo Clientes.Comitentes fue eliminada)."""
     conds = ["estado = 'Activa'", "id_cuenta IS NOT NULL"]
@@ -98,6 +99,9 @@ def _cuentas_de_operador(operador_email: str, nivel_1: str | None = None,
     if nivel_1:
         conds.append("nivel_1 = %(n1)s")
         p["n1"] = nivel_1
+    if nivel_2:
+        conds.append("nivel_2 = %(n2)s")
+        p["n2"] = nivel_2
     if nivel_3:
         conds.append("nivel_3 = %(n3)s")
         p["n3"] = nivel_3
@@ -119,11 +123,13 @@ def _cuentas_de_operador(operador_email: str, nivel_1: str | None = None,
 # operaciones.acreencias (CashFlow.Acreencias Mongo dropeada).
 
 
-def _acreencias_docs(ids: list[str] | None) -> list[dict[str, Any]]:
+def _acreencias_docs(ids: list[str] | None, desde: str | None = None,
+                     hasta: str | None = None) -> list[dict[str, Any]]:
     """Docs de acreencias del scope (ids=None → todas), shape uniforme {fecha_pago,
-    cliente, id_cuenta, moneda, monto, ...} desde SQL operaciones.acreencias."""
+    cliente, id_cuenta, moneda, monto, ...} desde SQL operaciones.acreencias.
+    `desde`/`hasta` (ISO) acotan por fecha_pago."""
     from api.services import cashflow_sql as _cf_sql
-    return _cf_sql.acreencias_docs(ids)
+    return _cf_sql.acreencias_docs(ids, desde=desde, hasta=hasta)
 
 
 def _acreencias_docs_cliente(id_cuenta: str) -> list[dict[str, Any]]:
@@ -134,19 +140,23 @@ def _acreencias_docs_cliente(id_cuenta: str) -> list[dict[str, Any]]:
 
 @cached(ttl=300)
 def cobros_futuros(*, operador: str, nivel_1: str | None = None,
-                   nivel_3: str | None = None, referido: str | None = None) -> dict[str, Any]:
+                   nivel_3: str | None = None, referido: str | None = None,
+                   nivel_2: str | None = None,
+                   desde: str | None = None, hasta: str | None = None) -> dict[str, Any]:
     """Serie diaria (acumulable en el front) + totales por cliente de los cobros
     futuros del scope. El detalle por título va en cobros_futuros_cliente —
-    interactivo, no se manda todo el libro en esta llamada."""
-    es_todos = operador == TODOS and not nivel_1 and not nivel_3 and not referido
-    ids = () if es_todos else _cuentas_de_operador(operador, nivel_1, nivel_3, referido)
+    interactivo, no se manda todo el libro en esta llamada. `desde`/`hasta` (ISO)
+    acotan por fecha de cobro (mismo filtro por fecha que back-office acreencias)."""
+    es_todos = (operador == TODOS and not nivel_1 and not nivel_2 and not nivel_3
+                and not referido)
+    ids = () if es_todos else _cuentas_de_operador(operador, nivel_1, nivel_3, referido, nivel_2)
     if not es_todos and not ids:
         return {"operador": operador, "serie": [], "clientes": [],
                 "total_ars": 0.0, "total_usd": 0.0}
 
     # Docs de acreencias del scope desde SQL operaciones.acreencias. La AGREGACIÓN
     # (serie por moneda + totales por cliente) se hace acá sobre el shape uniforme.
-    docs = _acreencias_docs(None if es_todos else list(ids))
+    docs = _acreencias_docs(None if es_todos else list(ids), desde=desde, hasta=hasta)
 
     # Serie diaria por moneda (para el gráfico acumulado del scope).
     serie_map: dict[str, dict[str, Any]] = {}

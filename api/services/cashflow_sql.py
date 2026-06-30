@@ -182,12 +182,14 @@ def _acr_doc(data: dict | None) -> dict:
 
 
 def acreencias_docs(ids: list[str] | None = None, *, id_cuenta: str | None = None,
-                    order_cliente: bool = False) -> list[dict]:
+                    order_cliente: bool = False,
+                    desde: str | None = None, hasta: str | None = None) -> list[dict]:
     """Docs de acreencias filtrados, con el MISMO shape de campos que los aggregates de
     comercial.py (fecha_pago, cliente, id_cuenta, ticker, emisor, moneda, monto). La
     AGREGACIÓN la hace comercial.py sobre estos docs (idéntica al path Mongo) → no se
     duplica la matemática. `order_cliente=True` ordena por (fecha_pago asc, monto desc)
-    como el detalle por cliente; sino sin orden (se agrupa igual)."""
+    como el detalle por cliente; sino sin orden (se agrupa igual). `desde`/`hasta`
+    (ISO 'YYYY-MM-DD', fecha_pago es text → comparación lexicográfica) acotan el rango."""
     conds: list[str] = []
     p: dict = {}
     if id_cuenta is not None:
@@ -196,6 +198,12 @@ def acreencias_docs(ids: list[str] | None = None, *, id_cuenta: str | None = Non
     elif ids is not None:
         conds.append("id_cuenta = ANY(%(ids)s)")
         p["ids"] = list(ids)
+    if desde:
+        conds.append("fecha_pago >= %(desde)s")
+        p["desde"] = desde
+    if hasta:
+        conds.append("fecha_pago <= %(hasta)s")
+        p["hasta"] = hasta
     where = (" WHERE " + " AND ".join(conds)) if conds else ""
     order = " ORDER BY fecha_pago ASC, monto DESC" if order_cliente else ""
     rows = _q(

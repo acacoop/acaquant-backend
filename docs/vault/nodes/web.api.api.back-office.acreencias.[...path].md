@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src\app\api\back-office\acreencias\[...path]\route.ts
+path: src/app/api/back-office/acreencias/[...path]/route.ts
 ---
 
 # web /api/back-office/acreencias/[...path]  (proxy)
 
-**Archivo:** `src\app\api\back-office\acreencias\[...path]\route.ts`
+**Archivo:** `src/app/api/back-office/acreencias/[...path]/route.ts`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

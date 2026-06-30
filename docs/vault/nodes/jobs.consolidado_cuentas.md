@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\consolidado_cuentas.py
+path: jobs/consolidado_cuentas.py
 ---
 
 # jobs/consolidado_cuentas
 
 > consolidado_cuentas.py — precalcula la valuación consolidada por cuenta.
 
-**Archivo:** `jobs\consolidado_cuentas.py`
+**Archivo:** `jobs/consolidado_cuentas.py`
 
 ## Qué hace
 Precalcula la valuación consolidada por cuenta (valor + base 100 + PnL acumulado en ARS y USD) que necesita la vista TOTALES > POR CUENTA. Hacerlo en vivo recorría N cuentas y reventaba el timeout HTTP (502): este job lo computa offline sin límite de tiempo y lo persiste con swap atómico.
@@ -23,8 +23,7 @@ Conecta con: llama `api.services.valuaciones::construir_consolidado`, escribe `V
 ## Usa / conecta con →
 - [[api.services.valuaciones]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
-- [[core.mongo]]  ·  _module_
-- [[db.Valuaciones.ConsolidadoCuentas]]  ·  _collection_
+- [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[cron.jobs.consolidado_cuentas]]  ·  _cron_

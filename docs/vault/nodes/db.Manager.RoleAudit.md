@@ -15,5 +15,4 @@ Log de auditoría de cambios en la matriz de roles, en la base `Manager`. Regist
 
 Conecta con: la escriben `core/roles.py` y `api/routers/manager/users.py` ante cada cambio de roles/usuarios; se consulta desde el sub-router de roles del Manager.
 
-## Lo usan (backlinks) ←
-- [[core.roles]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

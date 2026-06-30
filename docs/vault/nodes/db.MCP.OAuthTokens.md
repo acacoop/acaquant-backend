@@ -15,5 +15,4 @@ Tokens OAuth emitidos (access/refresh, con TTL automático) del MCP server, en l
 
 Conecta con: la escribe y valida `api/mcp/oauth.py`; los JWTs se firman con `MCP_JWT_SECRET`. Expira sola por índice TTL de Mongo.
 
-## Lo usan (backlinks) ←
-- [[api.mcp.oauth]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\sin_operador.py
+path: api/services/sin_operador.py
 ---
 
 # api/services/sin_operador
 
 > Cuentas sin operador asignado — el bucket "(sin operador)" del ranking comercial.
 
-**Archivo:** `api\services\sin_operador.py`
+**Archivo:** `api/services/sin_operador.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

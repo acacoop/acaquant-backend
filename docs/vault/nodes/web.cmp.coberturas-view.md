@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\coberturas-view.tsx
+path: src/components/coberturas-view.tsx
 ---
 
 # web/components/coberturas-view
 
-**Archivo:** `src\components\coberturas-view.tsx`
+**Archivo:** `src/components/coberturas-view.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

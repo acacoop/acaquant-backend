@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\argy.py
+path: api/services/argy.py
 ---
 
 # api/services/argy
 
 > Capa de servicio — métricas argentinas con returns calculados.
 
-**Archivo:** `api\services\argy.py`
+**Archivo:** `api/services/argy.py`
 
 ## Qué hace
 Arma el agregado del panel ARGY del frontend: las 5 métricas argentinas (MEP, CCL, canje, caución ARS, caución USD), cada una con su valor live y las variaciones %Día / %7d / %MTD / %YTD calculadas contra el cierre histórico anclado a cada fecha-target. Toma el live del snapshot y matchea cada anchor al último cierre con fecha ≤ target.
@@ -20,9 +20,12 @@ Conecta con: lee live de `Valuaciones.DolarSnapshot` y `Trading.CaucionSnapshot`
 
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
-- [[api.db]]  ·  _module_
+- [[api.services]]  ·  _module_
+- [[api.services.mercado_hist_sql]]  ·  _module_
+- [[core]]  ·  _module_
 - [[core.dolar_oficial]]  ·  _module_
-- [[db.Valuaciones.Dolar]]  ·  _collection_
+- [[core.dolar_sql]]  ·  _module_
+- [[core.series_macro]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.cotizaciones]]  ·  _module_

@@ -65,7 +65,7 @@ client →│ Cloudflare Tunnel│→ origin
                  │
                  ▼
         ┌──────────────────┐
-        │ require_module(m)│ (RBAC, core/roles.py)
+        │ require_module(m)│ (RBAC, core/roles_sql.py)
         └──────────────────┘
                  │
                  ▼
@@ -870,8 +870,9 @@ api/
     ├── simulaciones.py          # /api/simulaciones/*    (own)
     └── titulos.py               # /api/titulos/*         (port)
 core/
-├── mongo.py                 # 2 singletons (rw, ro). Nunca .close().
-├── roles.py                 # Manager.Users / RoleMatrix / RoleAudit, get_user_role, has_access
+├── postgres.py              # SQL pool (rw + ro). Pool compartido — nunca .close().
+├── pg_mirror.py             # SQL-native writes (upserts por dominio)
+├── roles_sql.py             # manager.users / role_matrix / role_audit, get_user_role, has_access
 ├── rofex_orders_session.py  # ensure_session_envio (idempotente, thread-safe)
 └── …
 ```
@@ -883,7 +884,7 @@ core/
 Systemd unit `api.service` on the DigitalOcean droplet (path `/root/TradingAV`, venv `/root/TradingAV/venv/bin/python`). Uvicorn binds to `127.0.0.1:8000`; Cloudflare Tunnel (`cloudflared.service`) publishes it as `api.acaquant.com`.
 
 At startup the `lifespan` hook:
-1. Pings both Mongo clients (pool warmup).
+1. Warms up the Postgres pool (`core.postgres.get_pool()`).
 2. Starts the resource sampler (`asyncio.Task`).
 3. Starts the **MEP triggers scanner** (`asyncio.Task` running `evaluar_y_disparar_pendientes` + `cancelar_pendientes_eod` every 1 s).
 
@@ -895,20 +896,18 @@ sudo systemctl restart api.service
 journalctl -u api.service -f
 ```
 
-`MongoClient` instances are shared singletons with `serverSelectionTimeoutMS=30 000` and `compressors="zstd,snappy,zlib"`. Never call `.close()` on them.
-
-Atlas is paused 04:00–11:20 UTC daily for cost; during that window the API returns connection errors — not a bug.
+The Postgres connection pool (`core.postgres.get_pool()`) is a shared, process-wide pool. Never tear it down (`.close()`) on the singletons — it kills the pool for every caller.
 
 ---
 
 ## 11. Testing
 
 ```bash
-pytest -ra                              # unit tests (no Mongo)
+pytest -ra                              # unit tests (no DB)
 pytest tests/unit/test_black_scholes.py # single file
-pytest -m integration                   # requires Mongo — excluded by default
+pytest -m integration                   # requires Postgres — excluded by default
 
-python -m scripts.perf_scan             # static analysis for Mongo anti-patterns
+python -m scripts.perf_scan             # static analysis for SQL anti-patterns
 ```
 
 CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest on every push.
@@ -927,7 +926,7 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest on every push.
 | 2026-04-20 | Add `/api/analitica/*` (Tier 1 assistant tools over HTTP) |
 | 2026-04-20 | `api/auth.py` accepts service-token JWTs from acaquant-web SSR; `CF_TRUSTED_SERVICE_TOKENS` |
 | 2026-04-21 | Typed error model, `/api/cotizaciones/caucion`, `/futuros-dlr`, `/argy`, `convexity`, snapshot-curva-historico, pendiente-curva, liquidez-secundario |
-| 2026-04-22 | Add `/api/me` and full **RBAC** (`Manager.Users`, `Manager.RoleMatrix`, `Manager.RoleAudit`, `require_module`). Frontend nav and `proxy.ts` consume `/api/me`. |
+| 2026-04-22 | Add `/api/me` and full **RBAC** (`manager.users`, `manager.role_matrix`, `manager.role_audit`, `require_module`). Frontend nav and `proxy.ts` consume `/api/me`. |
 | 2026-04-22 | Add `/api/manager/users`, `/api/manager/roles`, `/api/manager/roles/audit`, `/api/manager/logs` |
 | 2026-04-23 | Add `/api/cotizaciones/forwards-zscore`, `/fair-value*`, `/rem*`, `/historico/dolares` |
 | 2026-04-23 | Add `/api/analitica/sensibilidad-retorno`, `/canje`, `/carry-trade`, `/descomposicion-retorno`, `/rolldown-esperado`, `/estrategia-historico` |
@@ -942,19 +941,19 @@ CI (`.github/workflows/ci.yml`): ruff + perf_scan + pytest on every push.
 | 2026-04-28 | **fix(risk):** `/account/saldo` reads `currencyBalance.detailedCurrencyBalance` (Primary's "Efectivo Disponible"), not `availableToOperate.cash` (post-margin). |
 | 2026-04-28 | **rbac:** Split del módulo `operar` — antes todas las acciones de trading caían bajo `operaciones`; ahora `/api/ordenes`, `/api/operativa`, `/api/risk` están bajo `operar` (admin + trader + sales) y `/api/operaciones`, `/api/cuentas` quedan en `operaciones` (admin + trader). Sales puede operar pero NO ver la mesa de flujos. |
 | 2026-04-29 | Add `/api/mm/*` — MM Workstation backend: replay (`/trades-dia`, `/fechas`), paper trading vivo (`/live-snapshot`) y backtest sweep (`POST /backtest`). Módulo `mm` (admin only por default). |
-| 2026-04-29 | **fix(dolar):** Dólar oficial pasa al feed MAE mayorista (UST$T plazo 000) vía script local en PC oficina (`Valuaciones.DolarOficialLive`). dolarapi.com queda solo para series históricas. Filtro estricto Mayorista plazo 000 (= A3500 spot). Watchlist `/argy` y `/api/cotizaciones/futuros-dlr` consumen el mismo mid. |
+| 2026-04-29 | **fix(dolar):** Dólar oficial pasa al feed MAE mayorista (UST$T plazo 000) vía script local en PC oficina (`valuaciones.dolar_oficial_live`). dolarapi.com queda solo para series históricas. Filtro estricto Mayorista plazo 000 (= A3500 spot). Watchlist `/argy` y `/api/cotizaciones/futuros-dlr` consumen el mismo mid. |
 | 2026-04-29 | **fix(futuros-dlr):** `tasa_implicita_tna` cambia de TEA compuesta a **TNA lineal** `(precio/spot − 1) × 365/dias` para alinearse con la convención del terminal Rofex / la mesa. Diverge 2-4 puntos de la TEA en vencimientos largos. |
 | 2026-04-29 | **fix(curvas):** Branch `tasa_fija` de `engines/curvas.py` pasa a usar **settlement T+1** como base para `dias_a_vto` y filtro de cashflows (antes era `fecha_trade`). Alinea con calculadora local de la mesa (15 días settle vs 16 trade). |
-| 2026-04-29 | Add `/api/manager/checks/debug-tna-futuros`, `/checks/debug-curva-tea`, `/checks/discovery-pyrofex`, `/checks/instruments-by-cfi`. Discovery persiste en `Manager.PyRofexDiscovery` (summary 20 samples/CFI) y `Manager.PyRofexInstruments` (full detail por CFI). |
+| 2026-04-29 | Add `/api/manager/checks/debug-tna-futuros`, `/checks/debug-curva-tea`, `/checks/discovery-pyrofex`, `/checks/instruments-by-cfi`. Discovery persiste en `manager.pyrofex_discovery` (summary 20 samples/CFI) y `manager.pyrofex_instruments` (full detail por CFI). |
 | 2026-04-29 | **fix(rbac):** `/api/titulos/*` pasa de `_PORTFOLIOS` a `_PUBLIC` — sales no podía ver la curva de renta-fija ("MERCADO CERRADO") porque el catálogo no devolvía `flujos`. `titulos` es puro catálogo, no info de portfolio. |
 | 2026-04-29 | Add MM Workstation Manager **ASSETS tab** — selector CFI + selector underlying + tabla con todos los instruments del mercado (drill-down de discovery pyRofex). |
-| 2026-04-29 | Add `/api/derivados/agro` + `engines/motor_agro.py` — Pase Agro (Trigo/Maíz/Soja Rosario, CFI FXXXSX). Tabla con fila PIZARRA editable manual (admin only beta) + futuros live de `Trading.AgroSnapshot`. TNAV = `(pizarra/last)^(365/dias) − 1` validada contra planilla mesa. Motor NO escribe TimeSales (solo snapshot). |
-| 2026-05-04 | **refactor(MarketSnapshot):** `engines/valores.py` y `engines/curvas.py` ahora escriben con `UpdateOne $set` parcial sin pisarse. `motor_curvas` deja de enriquecer `Trading.TimeSales` por trade — sólo escribe a `MarketSnapshot.metrics.{TEA,TEM,duration,mod_duration,convexity,paridad}`. 5 consumers migrados de `aggregate $sort+$group` sobre TimeSales a `find` directo sobre `MarketSnapshot.metrics`. `top_trades`/`recent_trades` removidos (payload muerto). |
-| 2026-05-04 | Add **Order Book L2** — `engines/order_book_l2.py` (sesión rofex separada, append-only) + `Trading.OrderBookL2` (Time Series Collection). Endpoint `GET /api/cotizaciones/order-book-historico`. 4 tools nuevas en MCP (`order_book`, `order_books_curva`, `order_book_historico`, `listar_tickers_orderbook_l2`). Cron L-V 13:00–20:05 UTC. |
-| 2026-05-04 | **refactor(históricos):** `get_historico_curva` y `snapshot_curva_historico` migrados de `aggregate` sobre TimeSales a `find` sobre `Trading.SnapshotsCierre` (cierre diario pre-agregado por `jobs/snapshot_cierre`). Backfill a 5 curvas hasta 2026-04-30 vía `scripts/backfill_snapshots_cierre`. |
-| 2026-05-04 | **fix(retorno-total + carry-trade):** Live fallback a `MarketSnapshot.metrics` cuando la fecha pedida es hoy y el cron 20:25 UTC aún no corrió. Aplicado a `snapshot_curva_historico`, `_precios_diarios_curva` (carry) y `get_historico_curva`. Frontend Vercel: `/api/historico-curva` y `/api/analitica/[...path]` con `dynamic="force-dynamic"` + `Cache-Control: no-store` para que el CDN no sirva la respuesta vieja. |
-| 2026-05-04 | **wipe(MM Workstation):** Borrón completo del backend MM (replay/backtest/live-snapshot) y del frontend MM (acaquant-web). Eliminados `api/services/mm.py`, `api/routers/mm.py`, `tests/unit/test_mm.py`, `docs/mm_workstation.jsx` y los componentes en `acaquant-web/src/{components,app}/mm`. Módulo `mm` (RBAC) y prefix `/api/mm` (proxy Vercel) se mantienen para reusar. La nueva vista MM se construye desde cero sobre `Trading.OrderBookL2` + `Trading.TimeSales`. |
-| 2026-05-05 | **feat(MM Microstructure):** Nueva vista `/mm` en acaquant-web con 4 tabs (Intraday, Impact b/k, Smile U, Stylized Facts) + tooltips explicativos `?` en cada métrica. Backend `api/services/mm_microstructure.py` con cap 1-4 del libro Cartea/Jaimungal/Penalva sobre `OrderBookL2` + `TimeSales`. 6 endpoints en `/api/mm/*`. |
-| 2026-05-05 | **migrate:** `Trading.TimeSales` y `Opciones.Data` migradas a Time Series Collections (granularity=seconds, metaField=ticker/symbol). Compresión 74% y 98% on-disk respectivamente. Scripts en `scripts/migrate_timesales_swap.py` y `scripts/migrate_opciones_data_swap.py` con modos precheck/swap/validate/rollback/cleanup. |
-| 2026-05-05 | **wipe:** Borrado de todo el aparato dolarapi.com — `core/dolar_api.py`, `jobs/dolar_api.py`, `tests/unit/test_dolar_api.py`. Migrados `engines/curvas.py` (`cargar_a3500_actual`) y `serie_macro("dolar_oficial"/"mayorista")` al feed MAE / `Trading.DOLAR`. `dolar_blue` queda sin fuente. Cron `dolar_api` apagado. |
-| 2026-05-05 | **feat(operaciones-negocio):** MVP de la vista NEGOCIO en `/operaciones`. Service compartido `api/services/aunesa_negocio.py` con parseo + categorización (16 categorías: compra/venta/FCI super y bilateral/acreencia/4 sub-cauciones/depósito/extracción/etc) + dedup específico (DIF/DIS bilaterales, multi-moneda en dividendos, uso=GRAL en FCI super) + inversión de signo broker→cliente. Job `jobs/negocio_movimientos.py` (cron horario 15-22 UTC L-V) persiste boletos consolidados en `CashFlow.NegocioMovimientos` (idempotente por `(fecha, comprobante)`). 2 endpoints `/api/operaciones/negocio` y `/negocio/fechas`. Frontend tab NEGOCIO con cards por categoría, top 20 tickers y tabla detallada. **No expuesto al asistente ni al MCP** (policy datos privados de mesa). Detalle: `docs/sesion_2026_05_05_negocio.md`. |
+| 2026-04-29 | Add `/api/derivados/agro` + `engines/motor_agro.py` — Pase Agro (Trigo/Maíz/Soja Rosario, CFI FXXXSX). Tabla con fila PIZARRA editable manual (admin only beta) + futuros live de `mercado.agro_snapshot`. TNAV = `(pizarra/last)^(365/dias) − 1` validada contra planilla mesa. Motor NO escribe timesales (solo snapshot). |
+| 2026-05-04 | **refactor(MarketSnapshot):** `engines/valores.py` y `engines/curvas.py` ahora escriben con upsert `$set` parcial sin pisarse. `motor_curvas` deja de enriquecer `mercado.timesales` por trade — sólo escribe a `mercado.market_snapshot.metrics.{TEA,TEM,duration,mod_duration,convexity,paridad}`. 5 consumers migrados de agregación `sort+group` sobre timesales a lectura directa sobre `mercado.market_snapshot.metrics`. `top_trades`/`recent_trades` removidos (payload muerto). |
+| 2026-05-04 | Add **Order Book L2** — `engines/order_book_l2.py` (sesión rofex separada, append-only) + `mercado.order_book_l2`. Endpoint `GET /api/cotizaciones/order-book-historico`. 4 tools nuevas en MCP (`order_book`, `order_books_curva`, `order_book_historico`, `listar_tickers_orderbook_l2`). Cron L-V 13:00–20:05 UTC. |
+| 2026-05-04 | **refactor(históricos):** `get_historico_curva` y `snapshot_curva_historico` migrados de agregación sobre timesales a lectura sobre `mercado.snapshots_cierre` (cierre diario pre-agregado por `jobs/snapshot_cierre`). Backfill a 5 curvas hasta 2026-04-30 vía `scripts/backfill_snapshots_cierre`. |
+| 2026-05-04 | **fix(retorno-total + carry-trade):** Live fallback a `mercado.market_snapshot.metrics` cuando la fecha pedida es hoy y el cron 20:25 UTC aún no corrió. Aplicado a `snapshot_curva_historico`, `_precios_diarios_curva` (carry) y `get_historico_curva`. Frontend Vercel: `/api/historico-curva` y `/api/analitica/[...path]` con `dynamic="force-dynamic"` + `Cache-Control: no-store` para que el CDN no sirva la respuesta vieja. |
+| 2026-05-04 | **wipe(MM Workstation):** Borrón completo del backend MM (replay/backtest/live-snapshot) y del frontend MM (acaquant-web). Eliminados `api/services/mm.py`, `api/routers/mm.py`, `tests/unit/test_mm.py`, `docs/mm_workstation.jsx` y los componentes en `acaquant-web/src/{components,app}/mm`. Módulo `mm` (RBAC) y prefix `/api/mm` (proxy Vercel) se mantienen para reusar. La nueva vista MM se construye desde cero sobre `mercado.order_book_l2` + `mercado.timesales`. |
+| 2026-05-05 | **feat(MM Microstructure):** Nueva vista `/mm` en acaquant-web con 4 tabs (Intraday, Impact b/k, Smile U, Stylized Facts) + tooltips explicativos `?` en cada métrica. Backend `api/services/mm_microstructure.py` con cap 1-4 del libro Cartea/Jaimungal/Penalva sobre `mercado.order_book_l2` + `mercado.timesales`. 6 endpoints en `/api/mm/*`. |
+| 2026-05-05 | **migrate (histórico — etapa Mongo):** `mercado.timesales` y `mercado.options_data` (entonces colecciones Mongo) migradas a Time Series Collections (granularity=seconds, metaField=ticker/symbol). Compresión 74% y 98% on-disk respectivamente. Scripts en `scripts/migrate_timesales_swap.py` y `scripts/migrate_opciones_data_swap.py` con modos precheck/swap/validate/rollback/cleanup. (Evento histórico previo al decomiso de Mongo — ambas tablas viven hoy en SQL.) |
+| 2026-05-05 | **wipe:** Borrado de todo el aparato dolarapi.com — `core/dolar_api.py`, `jobs/dolar_api.py`, `tests/unit/test_dolar_api.py`. Migrados `engines/curvas.py` (`cargar_a3500_actual`) y `serie_macro("dolar_oficial"/"mayorista")` al feed MAE / `macro.series_macro` (serie DOLAR). `dolar_blue` queda sin fuente. Cron `dolar_api` apagado. |
+| 2026-05-05 | **feat(operaciones-negocio):** MVP de la vista NEGOCIO en `/operaciones`. Service compartido `api/services/aunesa_negocio.py` con parseo + categorización (16 categorías: compra/venta/FCI super y bilateral/acreencia/4 sub-cauciones/depósito/extracción/etc) + dedup específico (DIF/DIS bilaterales, multi-moneda en dividendos, uso=GRAL en FCI super) + inversión de signo broker→cliente. Job `jobs/negocio_movimientos.py` (cron horario 15-22 UTC L-V) persiste boletos consolidados en `operaciones.negocio_movimientos` (idempotente por `(fecha, comprobante)`). 2 endpoints `/api/operaciones/negocio` y `/negocio/fechas`. Frontend tab NEGOCIO con cards por categoría, top 20 tickers y tabla detallada. **No expuesto al asistente ni al MCP** (policy datos privados de mesa). Detalle: `docs/sesion_2026_05_05_negocio.md`. |

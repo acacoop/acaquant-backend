@@ -1,5 +1,5 @@
 [Unit]
-Description=Motor de captura del último precio para tickers de tenencia (Trading.PortfolioSnapshot)
+Description=Motor de captura del último precio para tickers de tenencia (valuaciones.portfolio_snapshot)
 After=network.target
 
 [Service]

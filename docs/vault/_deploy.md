@@ -1,11 +1,12 @@
 # 🚀 deploy — servicios + crons
 
-52 notas.
+49 notas.
 
 - [[cron.engines.dolar_mep]] — Tarea programada (cron).
 - [[cron.jobs.acreencias]] — Tarea programada (cron).
 - [[cron.jobs.actividad_mensual]] — Tarea programada (cron).
 - [[cron.jobs.adr_live]] — Tarea programada (cron).
+- [[cron.jobs.archive_options_data]] — Tarea programada (cron).
 - [[cron.jobs.argentina_datos]] — Tarea programada (cron).
 - [[cron.jobs.bcra]] — Tarea programada (cron).
 - [[cron.jobs.cashflow]] — Tarea programada (cron).
@@ -16,9 +17,7 @@
 - [[cron.jobs.comercial_warm]] — Tarea programada (cron).
 - [[cron.jobs.consolidado_cuentas]] — Tarea programada (cron).
 - [[cron.jobs.day_trading_stats]] — Tarea programada (cron).
-- [[cron.jobs.descubrir_cuentas]] — Tarea programada (cron).
 - [[cron.jobs.economic_calendar]] — Tarea programada (cron).
-- [[cron.jobs.flujo_contrapartes]] — Tarea programada (cron).
 - [[cron.jobs.forwards_zscore]] — Tarea programada (cron).
 - [[cron.jobs.informe_salud]] — Tarea programada (cron).
 - [[cron.jobs.market_anchors]] — Tarea programada (cron).
@@ -35,8 +34,6 @@
 - [[cron.jobs.snapshot_cierre]] — Tarea programada (cron).
 - [[cron.jobs.snapshot_sinteticos]] — Tarea programada (cron).
 - [[cron.jobs.sync_comitentes]] — Tarea programada (cron).
-- [[cron.jobs.sync_postgres]] — Tarea programada (cron).
-- [[cron.jobs.tenencia_hd]] — Tarea programada (cron).
 - [[cron.jobs.volatilidad_ggal]] — Tarea programada (cron).
 - [[cron.jobs.watchdog]] — Tarea programada (cron).
 - [[svc.api]] — Servicio systemd.

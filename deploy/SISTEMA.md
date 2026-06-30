@@ -13,16 +13,16 @@
    (dólar MAE)   │            ▼                   │
                  │  ┌──── motores de mercado ───┐ │
                  │  │ rofex, options, curvas, … │ │   (motor_ordenes escucha
-                 ▼  │  (L-V 13–20 UTC → Mongo)  │ │    order_report → OrdenesLive)
-              MongoDB Atlas (M10) ◄── crons (aum, bcra, negocio, …)
+                 ▼  │  (L-V 13–20 UTC → SQL)    │ │    order_report → ordenes_live)
+              Postgres / Supabase ◄── crons (portafolio, bcra, negocio, …)
                  ▲  ▲                            │
-            lee  │  │ atlas_cluster.sh pause 03:30 / resume 11:30 UTC
+            lee  │  └────────────────────────────┘
    api.service (:8000) ──────────────────────────┘   + /mcp (Custom Connector Claude)
    partner_api (:8100)
         ▲  nginx → Cloudflare Access (gate de identidad)
         │ HTTPS
    acaquant-web (Vercel) ── trading.acaquant.com
-   proveedor externo ────── data.acaquant.com (partner_api → ACAPortfolio.Cartera)
+   proveedor externo ────── data.acaquant.com (partner_api → partner.cartera)
 ```
 
 ## Servicios always-on
@@ -48,8 +48,8 @@
 | `motor_futuros_dlr` | ?–20:05 L-V | `engines.futuros_dlr` | Motor Futuros DLR - Curva outright Dolar A3500 con tasa implicita |
 | `motor_options` | ?–20:05 L-V | `engines.options` | Motor Opciones GGAL - TradingAV |
 | `motor_ordenes` | ?–20:05 L-V | `engines.motor_ordenes` | Motor Ordenes - escucha order_report y persiste OrdenesLive/Audit |
-| `motor_portfolio_snapshot` | ?–20:05 L-V | `engines.portfolio_snapshot` | Motor de captura del último precio para tickers de tenencia (Trading.PortfolioSnapshot) |
-| `motor_rofex` | ?–20:05 L-V | `engines.valores` | Motor de Captura Rofex a MongoDB (main_valores) |
+| `motor_portfolio_snapshot` | ?–20:05 L-V | `engines.portfolio_snapshot` | Motor de captura del último precio para tickers de tenencia (valuaciones.portfolio_snapshot) |
+| `motor_rofex` | ?–20:05 L-V | `engines.valores` | Motor de Captura Rofex a SQL (main_valores) |
 <!-- /AUTOGEN:motores -->
 
 ## Jobs / crons (batch)
@@ -126,12 +126,12 @@
 
 ## Componentes que NO están en systemd/cron
 - **`mae_forex.py` — ⚠️ MANUAL (alguien le tiene que dar play):** feed live del
-  dólar mayorista MAE (UST$T plazo 000) → escribe `Valuaciones.DolarOficialLive`.
+  dólar mayorista MAE (UST$T plazo 000) → escribe `valuaciones.dolar_oficial_live`.
   **No está automatizado** (ni systemd ni cron). Si nadie lo arranca, el TC
   dólar-linked (`motor_curvas`, `futuros_dlr`, `/argy`, `macro`) se queda con el
   dólar viejo. Es el único proceso del sistema que depende de que un humano lo prenda.
 - **acaquant-web (Vercel)**: frontend Next.js, deploy auto sobre `main`. Sin crons propios.
-- **MongoDB Atlas (M10)**: la base. Se pausa 03:30 / resume 11:30 UTC = 00:30 / 08:30 ART (cron `atlas_cluster.sh`).
+- **Postgres / Supabase**: la base (única, decomiso Mongo 2026-06-29). Acceso: `core.postgres.get_pool` (app) / `partner_api/pg.py` (partner).
 - **Cloudflare Access**: gate de identidad (quién entra). **nginx** (Droplet): reverse proxy `api`→:8000, `partner_api`→:8100.
 
 ## Integraciones externas (fuentes de datos)
@@ -139,18 +139,19 @@
 - **Aunesa** — movimientos/posiciones (`jobs.cashflow`, `negocio_movimientos`, `descubrir_cuentas`).
 - **BYMA Primarias** (licitaciones) · **MAE** (repos/cauciones) · **Finnhub** (data externa) · **BCRA / argentina_datos** (macro).
 
-## Bases de datos (quién escribe qué)
-- **`Trading`** — motores de mercado (MarketSnapshot, Curvas, TimeSales, OrderBookL2, DOLAR, SnapshotsCierre, CedearsSnapshot, PreciosAcciones).
-- **`Valuaciones`** — `jobs.aum` (AuM, Assets), PnL precompute, DolarOficialLive (PC oficina).
-- **`CashFlow`** — `jobs.cashflow`, `jobs.flujo_contrapartes`, `jobs.negocio_movimientos`.
-- **`Manager`** — Users, RoleMatrix, Grupos, JobRuns, OrdenesIdempotency.
-- **`Operaciones`** — `motor_ordenes` (OrdenesLive/Audit), OperativasMep.
-- **`CuentasAPI` / `*API`** — copias derivadas (`jobs.sync_api_copies`).
-- **`ACAPortfolio`** — `partner_api` (Cartera) · **`MCP`** — tokens OAuth (TTL).
+## Bases de datos (schemas SQL — quién escribe qué)
+- **`mercado`** — motores de mercado (market_snapshot, curvas, timesales, snapshots_cierre, cedears_snapshot, precios_acciones, futuros_dlr_snapshot, options_*, agro_*).
+- **`macro`** — `jobs.bcra`/`jobs.argentina_datos` (series_macro, uva, rem).
+- **`valuaciones`** — PnL precompute (pnl_totales_cache, consolidado), dolar_oficial_live (PC oficina), portfolio_snapshot.
+- **`portafolio`** — `jobs.portafolio_backfill` (tenencia=AuM, assets).
+- **`operaciones`** — `jobs.negocio_movimientos`/`jobs.operaciones_informes` + `motor_ordenes` (operaciones, negocio_movimientos, acreencias, ordenes_*).
+- **`clientes`** — comitentes, cuentas, contrapartes, accionistas, actividad_mensual.
+- **`manager`** — manager_users, role_matrix, grupos, job_runs · **`home`** — quotes/calendar/news · **`mcp`** — OAuth (TTL).
+- **`partner`** — `partner_api` (cartera, api_users).
 
 ## Cómo se opera
 - Servicios: `systemctl {start|stop|restart|status} <servicio>`; logs `journalctl -u <servicio>`.
-- Los motores los prende/apaga el **cron** (fuente: `deploy/crontab.txt`); no arrancarlos a mano fuera de horario (ver RUNBOOK: pausa de Atlas).
+- Los motores los prende/apaga el **cron** (fuente: `deploy/crontab.txt`); no arrancarlos a mano fuera de horario (ver RUNBOOK).
 - Deploy backend: `git pull` + `systemctl restart api.service`. Frontend: push → Vercel.
 
 > Diagnóstico de incidentes: `docs/RUNBOOK.md` · Secretos: `docs/SECRETS.md`.

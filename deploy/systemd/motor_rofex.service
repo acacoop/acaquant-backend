@@ -1,5 +1,5 @@
 [Unit]
-Description=Motor de Captura Rofex a MongoDB (main_valores)
+Description=Motor de Captura Rofex a SQL (main_valores)
 After=network.target
 
 [Service]

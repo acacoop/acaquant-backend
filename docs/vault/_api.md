@@ -1,18 +1,20 @@
 # 🌐 api — services · routers · mcp
 
-122 notas.
+140 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
 - [[api.cache]] — Cache in-process para endpoints FastAPI.
-- [[api.db]] — Helpers de acceso a las bases Mongo (sin dependencia de FastAPI).
-- [[api.deps]] — Dependencias de FastAPI (auth) + re-export de helpers de DB.
+- [[api.deps]] — Dependencias de FastAPI (auth). Decomiso Mongo: el reexport de los viejos
 - [[api.main]] — TradingAV API — FastAPI entrypoint.
 - [[api.mcp]] — MCP server — expone data 100% de mercado al Claude Desktop / Claude Code.
 - [[api.mcp.auth]] — Middleware de auth para el sub-app MCP.
 - [[api.mcp.discovery]] — Discovery endpoints OAuth: lo que Claude Desktop busca primero.
 - [[api.mcp.oauth]] — OAuth 2.1 provider para el MCP server — login delegado a Cloudflare Access.
-- [[api.mcp.server]] — FastMCP server para TradingAV.
+- [[api.mcp.server]] — FastMCP server para TradingAV — asistente 100% de RENTA VARIABLE.
+- [[api.mcp.tools]] — Tools del MCP server, agrupadas por dominio.
+- [[api.mcp.tools.parked_mercado]] — Tools MCP PAUSADAS — renta fija, derivados, opciones, forwards, breakevens,
+- [[api.mcp.tools.renta_variable]] — Tools MCP de RENTA VARIABLE — asistente 100% de equities ARG.
 - [[api.profiling]] — api/profiling.py — Middleware opt-in de profiling de requests (pyinstrument).
 - [[api.ratelimit]] — Rate limiter compartido — instancia única de slowapi.
 - [[api.routers]]
@@ -20,7 +22,7 @@
 - [[api.routers.back_office]] — Router /api/back-office — sección Back Office.
 - [[api.routers.carteras]] — Router Portfolio — thin wrappers sobre `api.services.portfolio`.
 - [[api.routers.cotizaciones]] — Router Cotizaciones — thin wrappers sobre la capa de servicio.
-- [[api.routers.cuentas]] — Router Cuentas: accionistas y contrapartes, DIRECTO desde las colecciones
+- [[api.routers.cuentas]] — Router Cuentas: accionistas y contrapartes (ambos SQL — fuente única;
 - [[api.routers.derivados_agro]] — Router /api/derivados/agro — Pase Agro + Estrategias + Cámara + Mejoras Dispo.
 - [[api.routers.derivados_sinteticos]] — Router /api/derivados/sinteticos — sintéticos LECAP / DLK + futuro DLR.
 - [[api.routers.ingest]] — Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet.
@@ -28,6 +30,7 @@
 - [[api.routers.manager._common]] — Constantes y helpers compartidos entre los sub-módulos de manager/.
 - [[api.routers.manager.assets]] — Manager sub-router — control del catálogo de títulos (segmentación).
 - [[api.routers.manager.aunesa]] — Manager · Aunesa — endpoint exploratorio en vivo.
+- [[api.routers.manager.bonos]] — Manager sub-router — Títulos → Bonos (Trading.Curvas directo, NO-ON).
 - [[api.routers.manager.checks]] — GET /api/manager/checks/* — validaciones de consistencia sobre Mongo.
 - [[api.routers.manager.clientes]] — Manager sub-router — edición de `clientes.comitentes` (segmentación comercial, SQL).
 - [[api.routers.manager.compliance]] — Manager sub-router — COMPLIANCE: operador nuestro vs Aunesa.
@@ -39,9 +42,10 @@
 - [[api.routers.manager.instrumentos]] — Manager sub-router — Títulos → Instrumentos (solo lectura).
 - [[api.routers.manager.jobs]] — POST /jobs/run + GET /jobs/history, /jobs/history/stats, /jobs/{id}.
 - [[api.routers.manager.logs]] — GET /api/manager/logs — últimos N logs de un servicio systemd.
-- [[api.routers.manager.ons]] — Manager sub-router — gestión de ONs (Trading.BondsMaster).
+- [[api.routers.manager.ons]] — Manager sub-router — gestión de ONs, DIRECTO sobre Trading.Curvas (curva on_<sector>).
 - [[api.routers.manager.operaciones]] — Manager · Operaciones — backfill de operaciones.operaciones (SQL) por CSV.
-- [[api.routers.manager.options]] — GET/PUT /api/manager/options/expiries — config del engine de opciones.
+- [[api.routers.manager.options]] — GET/PUT /api/manager/options/expiries — config del engine de opciones (SQL-native).
+- [[api.routers.manager.renta_variable]] — Manager sub-router — Títulos → Renta Variable (CEDEARs: rubro + es_ia).
 - [[api.routers.manager.roles]] — Manager sub-router — matriz de roles + audit log.
 - [[api.routers.manager.status]] — GET /api/manager/status — estado unificado de motores y jobs batch.
 - [[api.routers.manager.users]] — Manager sub-router — CRUD de usuarios.
@@ -68,6 +72,7 @@
 - [[api.services._negocio_informacion_filter]] — Filtro de exclusión por `informacion` para CashFlow.NegocioMovimientos.
 - [[api.services._negocio_sql_read]] — Lectura de boletos desde SQL `operaciones.negocio_movimientos` devolviendo dicts
 - [[api.services.acreencias]] — api/services/acreencias.py — motor de acreencias (cobros futuros por cliente).
+- [[api.services.agro_sql]] — api/services/agro_sql.py — dominio AGRO / Derivados Agro leyendo Postgres.
 - [[api.services.analitica]] — Capa de servicio — analítica Tier 2 sobre data existente.
 - [[api.services.argy]] — Capa de servicio — métricas argentinas con returns calculados.
 - [[api.services.assets_sql]] — api/services/assets_sql.py — lectura del catálogo de títulos desde SQL
@@ -75,15 +80,18 @@
 - [[api.services.aunesa_informes]] — api/services/aunesa_informes.py — aranceles por boleto desde Aunesa /operaciones/informes.
 - [[api.services.aunesa_negocio]] — aunesa_negocio.py — service compartido para análisis del endpoint
 - [[api.services.back_office_titulos]] — Service — Títulos / Mercado (Back Office).
+- [[api.services.bonos_admin]] — api/services/bonos_admin.py — alta/edición de bonos NO-ON directo en Trading.Curvas.
 - [[api.services.camara_cereales]] — Service — Cámara Arbitral de Cereales de Rosario.
 - [[api.services.canje]] — Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).
 - [[api.services.carry_trade]] — Serie de carry trade en USD para una curva (tasa_fija / cer).
-- [[api.services.comercial]] — api/services/comercial.py — Tablero Comercial (lente por operador).
+- [[api.services.cashflow_sql]] — api/services/cashflow_sql.py — lecturas SQL (Supabase) de las colecciones CashFlow
+- [[api.services.comercial]] — api/services/comercial.py — Tablero Comercial: funciones SQL-native vivas.
 - [[api.services.comercial_sql]] — api/services/comercial_sql.py — vista COMERCIAL leyendo de Postgres (Supabase).
 - [[api.services.comparar_inversion]] — Comparar Inversión — service que compara 2 bonos de Trading.Curvas lado a lado.
 - [[api.services.compliance]] — Compliance — compara el operador asignado por la mesa vs el que reporta Aunesa.
 - [[api.services.contrapartes_seg]] — api/services/contrapartes_seg.py — segmentación + conciliador de `clientes.contrapartes` (SQL).
 - [[api.services.control_automatico]] — Control Automático (Clientes): concilia un Excel de CUITs contra nuestras cuentas.
+- [[api.services.control_comercial_sql]] — api/services/control_comercial_sql.py — vista CONTROL COMERCIAL (jefatura).
 - [[api.services.day_trading]] — day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).
 - [[api.services.debug_curva]] — Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.
 - [[api.services.derivados]] — Capa de servicio — derivados (futuros DLR, forwards, breakevens).
@@ -94,33 +102,43 @@
 - [[api.services.fair_value]] — fair_value.py — service del módulo Fair Value relativo intra-curva.
 - [[api.services.import_tenencia]] — api/services/import_tenencia.py — import masivo de tenencia a Valuaciones.AuM.
 - [[api.services.import_tenencia_sql]] — api/services/import_tenencia_sql.py — import manual a SQL `portafolio.tenencia`.
+- [[api.services.intraday]] — api/services/intraday.py — monitor intradía de renta variable (FIFO).
 - [[api.services.macro]] — Capa de servicio — series macro y clasificación.
+- [[api.services.macro_sql]] — api/services/macro_sql.py — Series macro 100% SQL (decomiso Mongo).
+- [[api.services.manager_infra_sql]] — api/services/manager_infra_sql.py — lecturas SQL de la infra de Manager.
 - [[api.services.market_sql]] — api/services/market_sql.py — Market (watchlist + calendario económico) leyendo Postgres.
 - [[api.services.mejoras_dispo]] — Service — Mejoras Precio Disponible (Agro).
+- [[api.services.mercado_hist_sql]] — api/services/mercado_hist_sql.py — históricos de mercado leyendo Postgres.
 - [[api.services.news_sql]] — api/services/news_sql.py — News (home) leyendo de Postgres. Espejo de los endpoints
-- [[api.services.ons]] — api/services/ons.py — maestro de ONs (Trading.BondsMaster) + sync a Curvas.
-- [[api.services.opciones]] — Capa de servicio — opciones (chain + meta + trades históricos + update tasa).
+- [[api.services.ons]] — api/services/ons.py — gestión de ONs, DIRECTO sobre Trading.Curvas (curva on_<sector>).
+- [[api.services.opciones]] — Capa de servicio — opciones: helpers puros + mutación de tasa (SQL-native).
+- [[api.services.opciones_sql]] — api/services/opciones_sql.py — opciones leyendo Postgres (chain + meta + charts).
 - [[api.services.operaciones_informes]] — operaciones_informes.py — normalización + ingesta a CashFlow.Operaciones.
 - [[api.services.operaciones_sql]] — api/services/operaciones_sql.py — vista OPERACIONES leyendo de Postgres (Supabase).
-- [[api.services.operaciones_view]] — operaciones_view.py — lógica PURA de la vista Operaciones (negocio + ops).
+- [[api.services.operaciones_view]] — operaciones_view.py — helpers PUROS compartidos de la vista Operaciones.
 - [[api.services.operativa_mep]] — Operativa Dólar MEP — wrapper de 2 órdenes MARKET (BUY AL30 + SELL AL30D).
+- [[api.services.operativa_mep_sql]] — api/services/operativa_mep_sql.py — READ-SIDE de la operativa Dólar MEP leyendo Postgres.
 - [[api.services.ordenes]] — Servicio de órdenes — funciones puras invocables desde routers o scripts.
+- [[api.services.ordenes_sql]] — api/services/ordenes_sql.py — READ-SIDE del motor de órdenes leyendo Postgres.
 - [[api.services.order_book]] — Capa de servicio — Order Book (LOB) live.
 - [[api.services.pnl]] — Motor de PnL por (cuenta, ticker) con cost-basis weighted-average.
 - [[api.services.pnl_sql]] — api/services/pnl_sql.py — PnL Títulos leyendo de Postgres, REUSANDO el motor de pnl.py.
-- [[api.services.portfolio]] — Capa de servicio — portfolio / AuM / FCI.
+- [[api.services.portfolio]] — Capa de servicio — portfolio / AuM / FCI: helpers PUROS compartidos.
 - [[api.services.portfolio_sql]] — api/services/portfolio_sql.py — vista PORTFOLIO / AuM leyendo de Postgres (Supabase).
 - [[api.services.rem]] — Expectativas REM (Relevamiento de Expectativas de Mercado, BCRA).
+- [[api.services.rem_sql]] — api/services/rem_sql.py — Expectativas REM (IPC INDEC, BCRA) leyendo Postgres.
 - [[api.services.renta_fija]] — Capa de servicio — renta fija (MarketSnapshot + TimeSales + Curvas).
+- [[api.services.renta_fija_sql]] — api/services/renta_fija_sql.py — renta fija LIVE leyendo Postgres (mercado.*).
 - [[api.services.repo]] — Capa de servicio — mercado repo (caución).
 - [[api.services.risk]] — Servicio RISK — datos de cuenta del broker (saldos, posiciones, márgenes).
 - [[api.services.rv_motor]] — api/services/rv_motor.py — motor de la Mesa de Estrategia (Renta Variable).
 - [[api.services.scanner]] — api/services/scanner.py — vista Scanner del módulo Renta Variable.
+- [[api.services.scanner_sql]] — api/services/scanner_sql.py — vista Scanner (Renta Variable) leyendo Postgres.
 - [[api.services.segmentacion]] — Clasificación patrimonial de clientes (escribe a `Clientes.Comitentes.nivel_3`).
 - [[api.services.sensibilidad]] — Análisis de sensibilidad de retorno total a escenarios de TIR.
 - [[api.services.sin_operador]] — Cuentas sin operador asignado — el bucket "(sin operador)" del ranking comercial.
 - [[api.services.sinteticos]] — Sintéticos — combinaciones LECAP/DLK + futuro DLR.
-- [[api.services.tenencia_hd]] — Service Tenencia Valorizada (cartera HD, cuentas propias 100/255/256).
+- [[api.services.tenencia_hd]] — Service Tenencia Valorizada (cartera HD, cuentas propias 100/255/256) — SQL-NATIVE.
 - [[api.services.titulos_flujos]] — api/services/titulos_flujos.py — flujos normalizados por instrumento.
-- [[api.services.valuaciones]] — Valuaciones — performance e historia por cuenta.
+- [[api.services.valuaciones]] — Valuaciones — performance e historia por cuenta. SQL-only (decomiso Mongo).
 - [[api.services.valuaciones_sql]] — api/services/valuaciones_sql.py — espejo SQL de api/services/valuaciones.py.

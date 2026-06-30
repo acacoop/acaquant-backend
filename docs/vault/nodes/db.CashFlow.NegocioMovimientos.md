@@ -17,7 +17,3 @@ Conecta con: la escribe el cron `jobs/negocio_movimientos.py` (cada hora, pega a
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.status]]  ·  _module_
-- [[api.services.comercial]]  ·  _module_
-- [[api.services.pnl]]  ·  _module_
-- [[engines._universo_portfolio]]  ·  _module_
-- [[jobs.informe_salud]]  ·  _module_

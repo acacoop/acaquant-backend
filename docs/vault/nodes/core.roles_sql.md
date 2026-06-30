@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core\roles_sql.py
+path: core/roles_sql.py
 ---
 
 # core/roles_sql
 
-> core/roles_sql.py — lecturas de AUTH (roles/matriz) desde Postgres.
+> core/roles_sql.py — lecturas + escrituras de AUTH (roles/matriz/usuarios) desde Postgres.
 
-**Archivo:** `core\roles_sql.py`
+**Archivo:** `core/roles_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

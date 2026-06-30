@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\cache.py
+path: api/cache.py
 ---
 
 # api/cache
 
 > Cache in-process para endpoints FastAPI.
 
-**Archivo:** `api\cache.py`
+**Archivo:** `api/cache.py`
 
 ## Qué hace
 Cache in-process para handlers de FastAPI vía decorador `@cached(ttl=N)`. Como la API es un único proceso, alcanza un dict con TTL (sin Redis): ahorra un round-trip a Mongo por request repetido dentro de la ventana. La llave es nombre de función + kwargs; el store está acotado (sweep de expiradas + eviction LRU al pasar 512 entradas) para evitar el leak de RAM que tuvo en producción. No cachea respuestas vacías (negative caching off).
@@ -20,6 +20,7 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 
 ## Lo usan (backlinks) ←
 - [[api.routers.cuentas]]  ·  _module_
+- [[api.routers.manager.assets]]  ·  _module_
 - [[api.routers.manager.logs]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.routers.titulos]]  ·  _module_
@@ -38,17 +39,22 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.diagnostico]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
-- [[api.services.mejoras_dispo]]  ·  _module_
+- [[api.services.macro_sql]]  ·  _module_
+- [[api.services.market_sql]]  ·  _module_
+- [[api.services.mercado_hist_sql]]  ·  _module_
 - [[api.services.opciones]]  ·  _module_
+- [[api.services.opciones_sql]]  ·  _module_
 - [[api.services.order_book]]  ·  _module_
-- [[api.services.pnl]]  ·  _module_
 - [[api.services.portfolio]]  ·  _module_
 - [[api.services.rem]]  ·  _module_
+- [[api.services.rem_sql]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
+- [[api.services.renta_fija_sql]]  ·  _module_
 - [[api.services.repo]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
 - [[api.services.rv_motor]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
+- [[api.services.scanner_sql]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
 - [[api.services.sin_operador]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_

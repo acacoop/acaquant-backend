@@ -211,16 +211,16 @@ def _template(blocks: dict[str, str]) -> str:
    (dólar MAE)   │            ▼                   │
                  │  ┌──── motores de mercado ───┐ │
                  │  │ rofex, options, curvas, … │ │   (motor_ordenes escucha
-                 ▼  │  (L-V 13–20 UTC → Mongo)  │ │    order_report → OrdenesLive)
-              MongoDB Atlas (M10) ◄── crons (aum, bcra, negocio, …)
+                 ▼  │  (L-V 13–20 UTC → SQL)    │ │    order_report → ordenes_live)
+              Postgres / Supabase ◄── crons (portafolio, bcra, negocio, …)
                  ▲  ▲                            │
-            lee  │  │ atlas_cluster.sh pause 04h / resume 11:20
+            lee  │  └────────────────────────────┘
    api.service (:8000) ──────────────────────────┘   + /mcp (Custom Connector Claude)
    partner_api (:8100)
         ▲  nginx → Cloudflare Access (gate de identidad)
         │ HTTPS
    acaquant-web (Vercel) ── trading.acaquant.com
-   proveedor externo ────── data.acaquant.com (partner_api → ACAPortfolio.Cartera)
+   proveedor externo ────── data.acaquant.com (partner_api → partner.cartera)
 ```
 
 ## Servicios always-on
@@ -255,7 +255,7 @@ def _template(blocks: dict[str, str]) -> str:
   dólar-linked (`motor_curvas`, `futuros_dlr`, `/argy`, `macro`) se queda con el
   dólar viejo. Es el único proceso del sistema que depende de que un humano lo prenda.
 - **acaquant-web (Vercel)**: frontend Next.js, deploy auto sobre `main`. Sin crons propios.
-- **MongoDB Atlas (M10)**: la base. Se pausa 04:00 / resume 11:20 UTC (cron `atlas_cluster.sh`).
+- **Postgres / Supabase**: la base (única, decomiso Mongo 2026-06-29). `core.postgres.get_pool` (app) / `partner_api/pg.py` (partner).
 - **Cloudflare Access**: gate de identidad (quién entra). **nginx** (Droplet): reverse proxy `api`→:8000, `partner_api`→:8100.
 
 ## Integraciones externas (fuentes de datos)

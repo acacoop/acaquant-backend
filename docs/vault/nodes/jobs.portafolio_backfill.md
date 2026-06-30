@@ -4,19 +4,20 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\portafolio_backfill.py
+path: jobs/portafolio_backfill.py
 ---
 
 # jobs/portafolio_backfill
 
 > jobs/portafolio_backfill.py — backfill de portafolio.tenencia (SQL), self-healing.
 
-**Archivo:** `jobs\portafolio_backfill.py`
+**Archivo:** `jobs/portafolio_backfill.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[core.job_runs]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[jobs._aum_filters]]  ·  _module_
 - [[jobs.aum]]  ·  _module_

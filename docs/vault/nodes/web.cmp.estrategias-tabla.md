@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\estrategias-tabla.tsx
+path: src/components/estrategias-tabla.tsx
 ---
 
 # web/components/estrategias-tabla
 
-**Archivo:** `src\components\estrategias-tabla.tsx`
+**Archivo:** `src/components/estrategias-tabla.tsx`
 
 ## Qué hace
 Tabla de estrategias de opciones GGAL precalculadas por strike: deja elegir strike (con ATM marcado), filtrar por categoría de estrategia y seleccionar una fila para ver su detalle. Solo muestra strikes con liquidez.

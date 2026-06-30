@@ -1,9 +1,10 @@
 # 🖥️ web — vistas
 
-19 notas.
+20 notas.
 
 - [[web.view.(home).error]]
 - [[web.view.(home).layout]]
+- [[web.view.(home).loading]]
 - [[web.view.(home).view]]
 - [[web.view.agro.view]]
 - [[web.view.aum.view]]

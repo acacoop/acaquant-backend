@@ -1,5 +1,5 @@
 ---
-id: cron.jobs.sync_postgres
+id: cron.jobs.archive_options_data
 type: cron
 layer: deploy
 repo: infra
@@ -7,7 +7,7 @@ tags: [cron, deploy, infra]
 path: deploy/crontab.txt
 ---
 
-# cron: jobs.sync_postgres
+# cron: jobs.archive_options_data
 
 > Tarea programada (cron).
 
@@ -17,4 +17,4 @@ path: deploy/crontab.txt
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
-- [[jobs.sync_postgres]]  ·  _module_
+- [[jobs.archive_options_data]]  ·  _module_

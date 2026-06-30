@@ -17,5 +17,3 @@ Conecta con: la escribe el cron `jobs/pnl_totales_precompute.py`; la lee `api/se
 
 ## Lo usan (backlinks) ←
 - [[api.services.diagnostico_registry]]  ·  _module_
-- [[api.services.pnl]]  ·  _module_
-- [[jobs.pnl_totales_precompute]]  ·  _module_

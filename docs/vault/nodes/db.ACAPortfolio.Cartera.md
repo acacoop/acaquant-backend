@@ -15,7 +15,4 @@ Colección de la base `ACAPortfolio` (separada del resto del sistema) que guarda
 
 Conecta con: la escribe `jobs/partner_export.py` (exporta posiciones); la lee `partner_api/routes.py` (endpoint `GET /v1/portfolio` en `data.acaquant.com`). No comparte código ni conexión Mongo con la API principal.
 
-## Lo usan (backlinks) ←
-- [[jobs.partner_export]]  ·  _module_
-- [[partner_api.odata]]  ·  _module_
-- [[partner_api.routes]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

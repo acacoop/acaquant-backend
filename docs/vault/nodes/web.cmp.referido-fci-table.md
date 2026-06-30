@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\referido-fci-table.tsx
+path: src/components/referido-fci-table.tsx
 ---
 
 # web/components/referido-fci-table
 
-**Archivo:** `src\components\referido-fci-table.tsx`
+**Archivo:** `src/components/referido-fci-table.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

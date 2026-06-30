@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src\app\api\back-office\titulos-mercado\route.ts
+path: src/app/api/back-office/titulos-mercado/route.ts
 ---
 
 # web /api/back-office/titulos-mercado  (proxy)
 
-**Archivo:** `src\app\api\back-office\titulos-mercado\route.ts`
+**Archivo:** `src/app/api/back-office/titulos-mercado/route.ts`
 
 ## Qué hace
 Proxy live de la sección Títulos/Mercado del Back Office: reenvía el parámetro opcional `fecha` y devuelve los movimientos sin cache para que el polling vea los nuevos boletos apenas entran.

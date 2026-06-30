@@ -4,12 +4,12 @@ type: lib
 layer: web-lib
 repo: frontend
 tags: [lib, web-lib, frontend]
-path: src\lib\types-estrategia.ts
+path: src/lib/types-estrategia.ts
 ---
 
 # web/lib/types-estrategia
 
-**Archivo:** `src\lib\types-estrategia.ts`
+**Archivo:** `src/lib/types-estrategia.ts`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

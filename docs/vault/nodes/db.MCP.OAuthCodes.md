@@ -15,5 +15,4 @@ Códigos de autorización OAuth 2.1 (efímeros, con TTL automático) del MCP ser
 
 Conecta con: la escribe y consume `api/mcp/oauth.py` (provider OAuth del MCP). Expira sola por índice TTL de Mongo.
 
-## Lo usan (backlinks) ←
-- [[api.mcp.oauth]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

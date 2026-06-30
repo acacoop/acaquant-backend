@@ -10,24 +10,14 @@ invocan con `python -m scripts.<nombre>` desde la raíz.
 
 <!-- AUTOGEN:START — generado por scripts.gen_herramientas, no editar a mano -->
 
-*10 herramientas en 4 categorías.*
-
-### DBA / base de datos
-
-| herramienta | qué hace |
-|---|---|
-| `python -m scripts.audit_db` | Auditoría read-only del cluster Mongo: inventario + índices + TTL + FINDINGS. |
-| `python -m scripts.db_maintenance` | Aplica optimizaciones DBA (crear/dropear índices + TTL). Idempotente, dry-run por default. |
-| `python -m scripts.diag_index_usage` | Uso real de índices ($indexStats): marca MUERTOS (0 ops) y redundantes. |
+*5 herramientas en 3 categorías.*
 
 ### Performance / profiling
 
 | herramienta | qué hace |
 |---|---|
 | `python -m scripts.perf_scan` | Anti-patterns de queries Mongo (PERF001-4); modo --strict para CI / pre-deploy. |
-| `python -m scripts.perf_sweep` | Barrido de latencia de los services (cold/warm + split Mongo vs CPU); --text para consola. |
 | `python -m scripts.profile_motor` | Perfila un motor always-on en vivo con py-spy (top/record/dump), sin reiniciarlo. |
-| `python -m scripts.profile_quant` | Microbenchmark del cálculo puro de quant/ — ¿vale optimizar/reescribir en C++/Rust? |
 
 ### Infra / sincronización
 

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\titulos.py
+path: api/routers/titulos.py
 ---
 
 # api/routers/titulos
 
 > Router Titulos: assets + flujos, DIRECTO desde las fuentes (Valuaciones.Assets
 
-**Archivo:** `api\routers\titulos.py`
+**Archivo:** `api/routers/titulos.py`
 
 ## Qué hace
 Router de consulta del maestro de títulos. `GET /api/titulos/assets` lista activos (unidad, ticker, emisor, cartera, clase, calificación, vencimiento) con filtros simples, y otros endpoints sirven flujos. Cacheado (TTL 600s) porque el maestro cambia poco.
@@ -20,10 +20,10 @@ Conecta con: lee las colecciones derivadas `AssetsAPI`/`FlujosAPI` (vía `get_db
 
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
-- [[api.deps]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
 - [[api.services.titulos_flujos]]  ·  _module_
-- [[db.Trading.Curvas]]  ·  _collection_
+- [[core]]  ·  _module_
+- [[core.curvas_sql]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

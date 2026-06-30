@@ -94,24 +94,24 @@ términos relevantes para la mesa es lo que puede dolarizarse en el mercado,
 no el oficial. Fuente live: `get_ultimo_mep` (TTL 5s), igual que el resto de
 la API.
 
-Alternativas si se descarta MEP: dólar oficial mayorista (BCRA A3500) desde
-`Trading.DOLAR` (fixing diario) o desde `Valuaciones.DolarOficialLive` (feed
-MAE intradiario).
+Alternativas si se descarta MEP: dólar oficial mayorista (BCRA A3500) desde la
+serie macro DOLAR (`series_macro`, fixing diario) o desde
+`valuaciones.dolar_oficial_live` (feed MAE intradiario).
 
 ### ARS → UVAs (para PJ)
 
 **Pendiente de implementar**: en el repo no hay serie UVA todavía. Hay que
 sumarla a `jobs/bcra.py` (es una serie estadística pública igual que CER /
-Riesgo País). Decisión abierta sobre dónde persistirla — probablemente nueva
-colección `Trading.UVA` (timeseries diaria, mismo shape que `Trading.DOLAR`).
+Riesgo País). Decisión abierta sobre dónde persistirla — probablemente como una
+serie UVA más en SQL (timeseries diaria, mismo shape que la serie DOLAR).
 
 Una vez ingestada: el motor toma el último valor UVA publicado al momento
 del cálculo y hace `limite_uvas = limite_ars / uva`.
 
 ## Modelo de datos
 
-Todo vive en **`Clientes.Comitentes`** (la colección ya existente) como
-**subdocumentos atómicos** — no se crea colección nueva en esta fase.
+Todo vive en **`clientes.comitentes`** (la tabla ya existente) como
+**campos/objetos propios de la cuenta** — no se crea tabla nueva en esta fase.
 
 ```jsonc
 {
@@ -151,8 +151,8 @@ escribe nuestra carga masiva / nuestro motor. Por lo tanto van a `MANUAL_FIELDS`
 (o equivalente) en `jobs/sync_comitentes.py` para que el sync diario NO los
 pise. Mismo patrón que `nivel_1..5` y `operador_email/operador_nombre` hoy.
 
-**Histórico (FASE 2, fuera de scope inicial)**: una colección
-`Clientes.LimitesFondeoHistorico` append-only (un doc por carga) habilita
+**Histórico (FASE 2, fuera de scope inicial)**: una tabla
+`clientes.limites_fondeo_historico` append-only (una fila por carga) habilita
 métricas temporales (evolución del segmento del cliente mes a mes) sin migrar
 el modelo actual. No se construye ahora; se deja la puerta abierta.
 
@@ -207,7 +207,7 @@ lógica viva en un solo lugar (en `api/services/`, no duplicada).
 
 ### 2. Motor de segmentación — `jobs/segmentar_patrimonial.py`
 
-- Toma todas las `Comitentes` con `cupo.transaccional_ars` poblado.
+- Toma todas las cuentas de `clientes.comitentes` con `cupo.transaccional_ars` poblado.
 - Para cada cuenta: detecta PH/PJ, obtiene TC (MEP) o UVA según corresponda,
   convierte el límite, aplica las reglas → escribe `segmento_patrimonial` +
   `segmento_patrimonial_calc`.
@@ -249,7 +249,7 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
 3. **Fase 3 — Ingesta UVA al repo** (bloqueante para clasificar PJ, pero NO
    para cargar los límites).
    - Sumar serie UVA a `jobs/bcra.py` o crear `jobs/uva.py`.
-   - Persistir en `Trading.UVA` (TBD shape exacto).
+   - Persistir como serie UVA en SQL (TBD shape exacto).
 4. **Fase 4 — Motor de segmentación**.
    - `jobs/segmentar_patrimonial.py`. Idempotente.
    - Cron en `deploy/crontab.txt` + regenerar `deploy/SISTEMA.md`
@@ -271,7 +271,7 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
 
 ## Decisiones tomadas
 
-- **Subdoc en `Clientes.Comitentes`** (no colección nueva en esta fase).
+- **Campos propios en `clientes.comitentes`** (no tabla nueva en esta fase).
 - **`segmento_patrimonial` convive con `nivel_3` manual** (no lo pisa).
 - **`PH_RETAIL` / `PH_MEDIO_RETAIL` / `PH_ALTO_PATRIMONIO` / `PJ_PEQUENA` / `PJ_MEDIANA` / `PJ_GRANDE`** como enum de string (snake_case mayúscula, sin acentos para evitar bugs en queries).
 - **Inputs en ARS, segmentación en USD (PH) o UVAs (PJ)**.
@@ -296,8 +296,8 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
       interna, mismo URL, menos ruido en el nav. (Bloquea Fase 2.)
 - [ ] **TC a usar para PH**: MEP (recomendado) vs oficial A3500 vs mayorista
       MAE. (Bloquea Fase 4.)
-- [ ] **Dónde persistir UVA**: nueva `Trading.UVA` (recomendado) vs sumarla
-      a otra colección existente. Cron de ingesta (probablemente 12 UTC L-V,
+- [ ] **Dónde persistir UVA**: serie UVA nueva en SQL (recomendado) vs sumarla
+      a una serie existente. Cron de ingesta (probablemente 12 UTC L-V,
       como `argentina_datos`). (Bloquea Fase 4 para PJ.)
 - [ ] **Periodicidad del motor**: post-carga + cron semanal vs mensual.
 - [ ] **Estado inicial post-carga**: ¿qué hacemos con cuentas Activas sin
@@ -310,7 +310,7 @@ qué cuentas con AuM > 0 no tienen cupo cargado (gap del Excel), etc.
 - [ ] Confirmar decisiones abiertas con la mesa.
 - [x] Fase 1 — Backend de carga (endpoint manager + `MANUAL_SUBDOCS`).
 - [x] Fase 2 — Tab "Fondeos" en `/manager → CLIENTES` (acaquant-web).
-- [ ] Fase 3 — Ingesta UVA (`Trading.UVA`).
+- [ ] Fase 3 — Ingesta UVA (serie UVA en SQL).
 - [ ] Fase 4 — Motor de segmentación.
 - [ ] Fase 5 — Vista de segmentación en `/comercial`.
 - [ ] Fase 6 — Histórico (opcional).

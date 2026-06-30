@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\derivados-view.tsx
+path: src/components/derivados-view.tsx
 ---
 
 # web/components/derivados-view
 
-**Archivo:** `src\components\derivados-view.tsx`
+**Archivo:** `src/components/derivados-view.tsx`
 
 ## Qué hace
 Vista principal de Opciones GGAL: chain CALL/PUT compacta + tabla de estrategias armadas, con detalle de payoff, escenarios, post-trade lab y gráficos históricos (costo, opción, griegas). Pollea la chain cada 30 s (uso bajo, se baja la carga serverless).

@@ -1,6 +1,6 @@
 # 🧩 web — componentes
 
-96 notas.
+97 notas.
 
 - [[web.cmp.acreencias-view]]
 - [[web.cmp.agro-datos]]
@@ -51,6 +51,7 @@
 - [[web.cmp.grupos-panel]]
 - [[web.cmp.header]]
 - [[web.cmp.home-view]]
+- [[web.cmp.intraday-view]]
 - [[web.cmp.jobs-runs-panel]]
 - [[web.cmp.logs-panel]]
 - [[web.cmp.manager-contrapartes-view]]

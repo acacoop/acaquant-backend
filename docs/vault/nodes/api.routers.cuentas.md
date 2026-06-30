@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\cuentas.py
+path: api/routers/cuentas.py
 ---
 
 # api/routers/cuentas
 
-> Router Cuentas: accionistas y contrapartes, DIRECTO desde las colecciones
+> Router Cuentas: accionistas y contrapartes (ambos SQL — fuente única;
 
-**Archivo:** `api\routers\cuentas.py`
+**Archivo:** `api/routers/cuentas.py`
 
 ## Qué hace
 Router `/api/cuentas`: listados maestros de cuentas para selectores de la UI. `/accionistas` lee `CuentasAPI.AccionistasAPI`; `/contrapartes` lee directo de `CashFlow.Contrapartes` (nombre = contraparte, grupo = segmento), sin la copia intermedia. Ambos endpoints cacheados 1 hora.
@@ -20,8 +20,7 @@ Conecta con: lee `CuentasAPI.AccionistasAPI` (vía `api.db.get_db_cuentas`) y `C
 
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
-- [[api.db]]  ·  _module_
-- [[db.CashFlow.Contrapartes]]  ·  _collection_
+- [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

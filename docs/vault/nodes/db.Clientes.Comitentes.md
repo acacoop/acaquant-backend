@@ -15,7 +15,4 @@ Maestro de cuentas comitentes (clientes) en la base `Clientes`. Fuente de verdad
 
 Conecta con: la sincroniza desde Aunesa `jobs/sync_comitentes.py`; escribe segmentación `api/services/segmentacion.py` y `jobs/segmentar_patrimonial.py`. La leen `comercial.py`, `compliance.py`, `_cuentas_filter.py` y se edita vía `api/routers/manager/clientes.py`.
 
-## Lo usan (backlinks) ←
-- [[api.services.comercial]]  ·  _module_
-- [[api.services.operaciones_view]]  ·  _module_
-- [[jobs.segmentar_patrimonial]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

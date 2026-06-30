@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\portafolio_reparar_timeouts.py
+path: jobs/portafolio_reparar_timeouts.py
 ---
 
 # jobs/portafolio_reparar_timeouts
 
 > jobs/portafolio_reparar_timeouts.py — recupera los TIMEOUT/ERROR del backfill.
 
-**Archivo:** `jobs\portafolio_reparar_timeouts.py`
+**Archivo:** `jobs/portafolio_reparar_timeouts.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

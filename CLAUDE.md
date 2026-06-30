@@ -264,7 +264,7 @@ uvicorn partner_api.main:app --port 8100   # Partner API (servicio externo, ver 
 
 ## Tablero Comercial (lente por operador)
 
-`api/services/comercial.py` (selector por flag `COMERCIAL_SQL=1` → `api/services/comercial_sql.py`; el router `manager/comercial.py` fue eliminado). Cruza todo por `id_cuenta` (columna en SQL): QUIÉN (`clientes.comitentes` → operador + `nivel_1`), ACTIVIDAD (`operaciones.negocio_movimientos`/`operaciones.operaciones` → última op), TAMAÑO (`portafolio.tenencia`, `aum='si'`), operador↔usuario (`Manager.Users`, para cuentas huérfanas). Estado comercial por días desde última op: ACTIVA ≤45 / ENFRIANDOSE 45-90 / DORMIDA / NUEVA. Agrega EN VIVO con índices (el precompute `Clientes.ComercialCache` fue ELIMINADO — no se recrean rollups en SQL). Diseño: `docs/TABLERO_COMERCIAL.md`.
+El Tablero Comercial se sirve SQL-only desde `api/services/comercial_sql.py` (el router `operaciones.py::_com_motor` siempre devuelve SQL; `comercial.py` quedó como helpers/funciones SQL — ver "Capa SQL"). Cruza todo por `id_cuenta`: QUIÉN (`clientes.comitentes` → operador + `nivel_1`), ACTIVIDAD (`operaciones.negocio_movimientos`/`operaciones.operaciones` → última op), TAMAÑO (`portafolio.tenencia`, `aum='si'`), operador↔usuario (`manager.manager_users`, para cuentas huérfanas). Estado comercial por días desde última op: ACTIVA ≤45 / ENFRIANDOSE 45-90 / DORMIDA / NUEVA. Agrega EN VIVO con índices (sin precompute — no se recrean rollups).
 
 ## Operaciones — SQL (migrado de Mongo 2026-06-16, CRÍTICO no inferible)
 

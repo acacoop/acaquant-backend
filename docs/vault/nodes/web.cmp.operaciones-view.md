@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\operaciones-view.tsx
+path: src/components/operaciones-view.tsx
 ---
 
 # web/components/operaciones-view
 
-**Archivo:** `src\components\operaciones-view.tsx`
+**Archivo:** `src/components/operaciones-view.tsx`
 
 ## Qué hace
 Vista contenedora de /operaciones. Organiza en tabs: OPERACIONES, ARANCELES, AGRO, DEPÓSITOS & EXTRACCIONES e INTRADAY. Usa keep-alive (cada tab se monta la primera vez y luego se oculta con CSS) para que cambiar de pestaña sea instantáneo sin re-fetch.

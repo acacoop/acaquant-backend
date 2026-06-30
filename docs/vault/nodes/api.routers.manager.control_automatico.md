@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\manager\control_automatico.py
+path: api/routers/manager/control_automatico.py
 ---
 
 # api/routers/manager/control_automatico
 
 > POST /api/manager/control-automatico/* — conciliación Excel↔cuentas + segmentar.
 
-**Archivo:** `api\routers\manager\control_automatico.py`
+**Archivo:** `api/routers/manager/control_automatico.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

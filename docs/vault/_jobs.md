@@ -1,34 +1,30 @@
 # ⏱️ jobs — batch / cron
 
-49 notas.
+43 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
 - [[jobs.acreencias]] — jobs/acreencias.py — precompute diario del MOTOR DE ACREENCIAS.
 - [[jobs.actividad_mensual]] — actividad_mensual.py — snapshot mensual de CUENTAS ACTIVAS.
-- [[jobs.adr_live]] — adr_live.py — pull live USD prices del subyacente de cada CEDEAR.
+- [[jobs.adr_live]] — adr_live.py — pull live USD prices del subyacente de cada CEDEAR → SQL.
 - [[jobs.aranceles]] — Job de aranceles — pega a Aunesa /informes y completa los boletos sin arancel.
-- [[jobs.archive_options_data]] — archive_options_data.py — backup + purga de Opciones.Data.
-- [[jobs.argentina_datos]] — Cron: pega argentinadatos.com y persiste riesgo país / IPC / REM en Mongo.
+- [[jobs.archive_options_data]] — archive_options_data.py — purga de mercado.options_data (SQL).
+- [[jobs.argentina_datos]] — Cron: pega argentinadatos.com y persiste riesgo país / IPC / REM en SQL (SQL-only).
 - [[jobs.aum]]
 - [[jobs.aunesa_client]]
-- [[jobs.backfill_breakevens]] — Backfill histórico de Trading.BreakevensHistorico.
-- [[jobs.backfill_forwards]] — Backfill histórico de Trading.ForwardsHistorico.
 - [[jobs.bcra]]
 - [[jobs.cashflow]]
 - [[jobs.cierre_canje]] — cierre_canje.py — materializa el cierre diario de los tickers de canje.
 - [[jobs.cleanup_cedears_timesales]] — cleanup_cedears_timesales.py — vacía el Time & Sales intradía de CEDEARs.
-- [[jobs.cleanup_curvas]] — Limpieza de instrumentos vencidos en Trading.Curvas.
-- [[jobs.cleanup_futuros_dlr]] — Limpieza de contratos DLR vencidos en Trading.FuturosDLRSnapshot.
+- [[jobs.cleanup_curvas]] — Limpieza de instrumentos vencidos en mercado.curvas (SQL-native).
+- [[jobs.cleanup_futuros_dlr]] — Limpieza de contratos DLR vencidos en mercado.futuros_dlr_snapshot (SQL).
 - [[jobs.comercial_warm]] — jobs/comercial_warm.py — precalienta la cache in-process de la vista COMERCIAL.
 - [[jobs.consolidado_cuentas]] — consolidado_cuentas.py — precalcula la valuación consolidada por cuenta.
 - [[jobs.day_trading_stats]] — day_trading_stats.py — resumen diario de scalping por CEDEAR.
-- [[jobs.descubrir_cuentas]] — Descubre cuentas autorizadas para el user master del broker.
-- [[jobs.dias_habiles]] — data_diashabiles.py — Carga días hábiles del calendario argentino a Trading.DiasHabiles.
+- [[jobs.dias_habiles]] — dias_habiles.py — Carga días hábiles del calendario argentino a SQL (mercado.dias_habiles).
 - [[jobs.economic_calendar]] — economic_calendar.py — ingesta diaria del calendario económico global.
 - [[jobs.fair_value]] — fair_value.py — fit cuadrático + residuos + z-scores diarios.
 - [[jobs.fci_bilateral]] — jobs/fci_bilateral.py — lleva el FCI bilateral de CashFlow.NegocioMovimientos a
-- [[jobs.flujo_contrapartes]]
 - [[jobs.forwards_zscore]] — forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.
 - [[jobs.informe_salud]] — informe_salud.py — Informe de salud de ACAQuant (health report a Telegram).
 - [[jobs.market_anchors]] — market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).
@@ -37,17 +33,15 @@
 - [[jobs.news_finnhub]] — news_finnhub.py — ingesta de noticias desde Finnhub.
 - [[jobs.news_ingesta]] — news_ingesta.py — Ingesta de RSS de medios económicos argentinos.
 - [[jobs.operaciones_informes]] — operaciones_informes.py — ingesta de operaciones desde Aunesa /informes a
-- [[jobs.options_rollup]] — options_rollup.py — rollup diario de Opciones.Data → Opciones.DataHistorica.
+- [[jobs.options_rollup]] — options_rollup.py — rollup diario de mercado.options_data (SQL) → mercado.options_data_hist (SQL).
 - [[jobs.partner_export]] — partner_export.py — exporta posiciones de cuentas puntuales a ACAPortfolio.Cartera.
 - [[jobs.pnl_totales_precompute]] — pnl_totales_precompute.py — precalcula el PnL de TODAS las cuentas.
 - [[jobs.portafolio_backfill]] — jobs/portafolio_backfill.py — backfill de portafolio.tenencia (SQL), self-healing.
 - [[jobs.portafolio_reparar_timeouts]] — jobs/portafolio_reparar_timeouts.py — recupera los TIMEOUT/ERROR del backfill.
 - [[jobs.precios_acciones_daily]] — precios_acciones_daily.py — agrega 1 vela daily por activo a
 - [[jobs.segmentar_patrimonial]] — segmentar_patrimonial.py — re-clasifica `nivel_3` de todas las Comitentes activas.
-- [[jobs.snapshot_cierre]] — snapshot_cierre.py — materializa el cierre diario por bono en Trading.SnapshotsCierre.
-- [[jobs.snapshot_sinteticos]] — snapshot_sinteticos.py — materializa el cierre diario de sintéticos en Trading.SnapshotsSinteticos.
+- [[jobs.snapshot_cierre]] — snapshot_cierre.py — materializa el cierre diario por bono SQL-NATIVE.
+- [[jobs.snapshot_sinteticos]] — snapshot_sinteticos.py — materializa el cierre diario de sintéticos en mercado.snapshots_sinteticos (SQL).
 - [[jobs.sync_comitentes]] — Sync de cuentas comitentes desde Aunesa → master SQL `clientes.comitentes`
-- [[jobs.sync_postgres]] — jobs/sync_postgres.py — sync Mongo → Postgres (Supabase). Fase B.
-- [[jobs.tenencia_hd]] — jobs/tenencia_hd.py — materializa la Tenencia Valorizada (cartera HD) de las
 - [[jobs.volatilidad_ggal]]
 - [[jobs.watchdog]] — jobs/watchdog.py — "el agente que evalúa solo": detecta jobs colgados y alerta.

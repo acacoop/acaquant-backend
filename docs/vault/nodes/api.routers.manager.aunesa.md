@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\manager\aunesa.py
+path: api/routers/manager/aunesa.py
 ---
 
 # api/routers/manager/aunesa
 
 > Manager · Aunesa — endpoint exploratorio en vivo.
 
-**Archivo:** `api\routers\manager\aunesa.py`
+**Archivo:** `api/routers/manager/aunesa.py`
 
 ## Qué hace
 Sub-router `/api/manager/aunesa` — tab exploratoria/operativa contra el custodio Aunesa. Permite pegar EN VIVO a Aunesa (consolidado de boletos, posición valuada cruda de una cuenta), listar boletos sin arancel en un rango (tab FALTANTES) y disparar el backfill de aranceles en background (thread daemon del proceso api, progreso persistido por cuenta, marca `stale` si el proceso se reinicia). Admin-only; uso de discovery/debug — la vista de producción no usa estos endpoints.
@@ -25,7 +25,7 @@ Conecta con: services `aunesa_negocio` (fetch live), `aunesa_aranceles::run_back
 - [[api.services._negocio_futuros]]  ·  _module_
 - [[api.services.aunesa_aranceles]]  ·  _module_
 - [[api.services.aunesa_negocio]]  ·  _module_
-- [[core.mongo]]  ·  _module_
+- [[core.pg_mirror]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[jobs.aum]]  ·  _module_
 

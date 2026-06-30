@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\routers\manager\contrapartes.py
+path: api/routers/manager/contrapartes.py
 ---
 
 # api/routers/manager/contrapartes
 
 > Manager sub-router — vista CONTRAPARTES (módulo `manager_contrapartes`).
 
-**Archivo:** `api\routers\manager\contrapartes.py`
+**Archivo:** `api/routers/manager/contrapartes.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

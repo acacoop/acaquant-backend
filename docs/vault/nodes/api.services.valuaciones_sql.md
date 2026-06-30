@@ -4,19 +4,21 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\valuaciones_sql.py
+path: api/services/valuaciones_sql.py
 ---
 
 # api/services/valuaciones_sql
 
 > api/services/valuaciones_sql.py — espejo SQL de api/services/valuaciones.py.
 
-**Archivo:** `api\services\valuaciones_sql.py`
+**Archivo:** `api/services/valuaciones_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.services._cuentas_filter]]  ·  _module_
+- [[api.services.valuaciones]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←

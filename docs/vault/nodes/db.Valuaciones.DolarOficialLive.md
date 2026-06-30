@@ -17,5 +17,3 @@ Conecta con: lo ingesta `api/routers/ingest.py` (endpoint de escritura), central
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.status]]  ·  _module_
-- [[api.services.diagnostico_registry]]  ·  _module_
-- [[core.dolar_oficial]]  ·  _module_

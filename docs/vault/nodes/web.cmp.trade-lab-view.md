@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src\components\trade-lab-view.tsx
+path: src/components/trade-lab-view.tsx
 ---
 
 # web/components/trade-lab-view
 
-**Archivo:** `src\components\trade-lab-view.tsx`
+**Archivo:** `src/components/trade-lab-view.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

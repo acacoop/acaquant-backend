@@ -15,5 +15,4 @@ Cache precalculada del Tablero Comercial en la base `Clientes`. Materializa el r
 
 Conecta con: la escribe `jobs/comercial_rollup.py` (precompute); la lee `api/services/comercial.py` (vista `/api/manager/comercial`). Se precalienta además con `jobs/comercial_warm.py`.
 
-## Lo usan (backlinks) ←
-- [[api.services.comercial]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

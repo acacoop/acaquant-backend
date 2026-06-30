@@ -3,7 +3,7 @@
 17 notas.
 
 - [[engines]]
-- [[engines._curvas_loader]] — Carga común de Trading.Curvas para todos los motores.
+- [[engines._curvas_loader]] — Carga común del master de renta fija para todos los motores.
 - [[engines._universo_portfolio]] — Universo dinámico para motor_portfolio_snapshot.
 - [[engines.breakevens]] — main_breakevens.py — Motor de breakevens CER/Lecap en tiempo real.
 - [[engines.caucion]] — Motor de caución ARS y USD a corto plazo.

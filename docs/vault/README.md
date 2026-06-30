@@ -6,12 +6,12 @@
 
 ## Qué hay adentro
 
-- **237** module
-- **96** component
+- **250** module
+- **97** component
 - **53** route
-- **37** cron
+- **34** cron
 - **29** collection
-- **19** view
+- **20** view
 - **15** service
 - **14** lib
 

@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\order_book.py
+path: api/services/order_book.py
 ---
 
 # api/services/order_book
 
 > Capa de servicio — Order Book (LOB) live.
 
-**Archivo:** `api\services\order_book.py`
+**Archivo:** `api/services/order_book.py`
 
 ## Qué hace
 Devuelve el libro de órdenes (LOB) live de un ticker, con profundidad 5 (bids/offers) más precios open/high/low/last/cierre. Sin histórico: solo el último estado vivo. Acepta ticker completo o corto+plazo y cubre todos los tickers que el motor suscribe, no solo los de curva. Latencia ~10-50ms.
@@ -20,10 +20,10 @@ Conecta con: lee `Trading.MarketSnapshot` (lo popula `engines/valores.py` cada 1
 
 ## Usa / conecta con →
 - [[api.cache]]  ·  _module_
-- [[api.db]]  ·  _module_
-- [[db.Trading.Curvas]]  ·  _collection_
-- [[db.Trading.MarketSnapshot]]  ·  _collection_
+- [[core]]  ·  _module_
+- [[core.curvas_sql]]  ·  _module_
+- [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
-- [[api.mcp.server]]  ·  _module_
+- [[api.mcp.tools.parked_mercado]]  ·  _module_
 - [[api.routers.operar]]  ·  _module_

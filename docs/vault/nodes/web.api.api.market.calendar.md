@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src\app\api\market\calendar\route.ts
+path: src/app/api/market/calendar/route.ts
 ---
 
 # web /api/market/calendar  (proxy)
 
-**Archivo:** `src\app\api\market\calendar\route.ts`
+**Archivo:** `src/app/api/market/calendar/route.ts`
 
 ## Qué hace
 Route handler liviano que proxea el calendario económico global al backend (/api/market/calendar/economic), reenviando el querystring tal cual. Sin cache (revalidate 0).

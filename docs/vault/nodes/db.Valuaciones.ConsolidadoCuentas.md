@@ -17,5 +17,3 @@ Conecta con: la escribe el cron `jobs/consolidado_cuentas.py` (lee `SnapshotsCie
 
 ## Lo usan (backlinks) ←
 - [[api.services.diagnostico_registry]]  ·  _module_
-- [[api.services.valuaciones]]  ·  _module_
-- [[jobs.consolidado_cuentas]]  ·  _module_

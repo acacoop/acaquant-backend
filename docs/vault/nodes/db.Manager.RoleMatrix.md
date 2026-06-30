@@ -15,6 +15,4 @@ Matriz de permisos por módulo y rol (RBAC), en la base `Manager`. Define qué r
 
 Conecta con: la lee `core/roles.py` (motor RBAC) que consultan `api/main.py` y los routers protegidos (scanner, derivados_agro, etc.); cambios quedan registrados en `Manager.RoleAudit`.
 
-## Lo usan (backlinks) ←
-- [[core.roles]]  ·  _module_
-- [[jobs.sync_postgres]]  ·  _module_
+_Sin conexiones detectadas mecánicamente._

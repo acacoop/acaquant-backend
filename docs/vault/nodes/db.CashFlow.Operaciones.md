@@ -18,15 +18,8 @@ Conecta con: la escriben `jobs/operaciones_informes.py` y `api/services/operacio
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.status]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
-- [[api.services._idempotencia]]  ·  _module_
-- [[api.services.comercial]]  ·  _module_
 - [[api.services.diagnostico_registry]]  ·  _module_
-- [[api.services.operaciones_informes]]  ·  _module_
-- [[api.services.operaciones_view]]  ·  _module_
 - [[api.services.operativa_mep]]  ·  _module_
 - [[api.services.ordenes]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
-- [[core.brackets]]  ·  _module_
 - [[engines.motor_ordenes]]  ·  _module_
-- [[jobs.descubrir_cuentas]]  ·  _module_
-- [[jobs.informe_salud]]  ·  _module_

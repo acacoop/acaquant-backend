@@ -4,12 +4,12 @@ type: module
 layer: engines
 repo: backend
 tags: [module, engines, backend]
-path: engines\valores.py
+path: engines/valores.py
 ---
 
 # engines/valores
 
-**Archivo:** `engines\valores.py`
+**Archivo:** `engines/valores.py`
 
 ## Qué hace
 Motor de precios principal (motor_rofex). Suscribe por WS pyRofex todos los tickers de `Trading.Curvas` (más extras de config), mantiene el order book y la microestructura en memoria y, cada 1s, vuelca el estado completo de cada ticker a Mongo con un único bulk_write. Además persiste cada trade individual al histórico de operaciones.
@@ -19,13 +19,11 @@ Conecta con: escribe `book.bids/offers` y `metrics.{last_price,open,high,low,clo
 ## Usa / conecta con →
 - [[core]]  ·  _module_
 - [[core.adhoc_subscriptions]]  ·  _module_
-- [[core.mongo]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
+- [[core.postgres]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_
 - [[core.threads]]  ·  _module_
 - [[core.websocket]]  ·  _module_
-- [[db.Trading.MarketSnapshot]]  ·  _collection_
-- [[db.Trading.TimeSales]]  ·  _collection_
 - [[engines._curvas_loader]]  ·  _module_
 
 ## Lo usan (backlinks) ←

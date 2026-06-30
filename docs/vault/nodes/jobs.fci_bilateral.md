@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs\fci_bilateral.py
+path: jobs/fci_bilateral.py
 ---
 
 # jobs/fci_bilateral
 
 > jobs/fci_bilateral.py — lleva el FCI bilateral de CashFlow.NegocioMovimientos a
 
-**Archivo:** `jobs\fci_bilateral.py`
+**Archivo:** `jobs/fci_bilateral.py`
 
 ## Qué hace
 Lleva el FCI bilateral (que el API de informes no trae) desde `CashFlow.NegocioMovimientos` a `CashFlow.Operaciones`, taggeando la `etapa`: SOLICITUD (comprobante DOC, el pedido del día) vs LIQUIDACIÓN (comprobante CL, la plata liquidada al día siguiente). Excluye los BOL (FCI normales que ya entran como boleto) para no duplicar, y corrige el bruto=0 que el API de informes deja en las suscripciones.
@@ -25,5 +25,5 @@ Conecta con: lee `CashFlow.NegocioMovimientos` y `Valuaciones.Assets` (CAFCI), e
 - [[api.services._negocio_sql_read]]  ·  _module_
 - [[api.services.operaciones_informes]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
-- [[core.mongo]]  ·  _module_
+- [[core.pg_mirror]]  ·  _module_
 - [[core.postgres]]  ·  _module_

@@ -4,12 +4,12 @@ type: lib
 layer: web-lib
 repo: frontend
 tags: [lib, web-lib, frontend]
-path: src\lib\use-persisted-state.ts
+path: src/lib/use-persisted-state.ts
 ---
 
 # web/lib/use-persisted-state
 
-**Archivo:** `src\lib\use-persisted-state.ts`
+**Archivo:** `src/lib/use-persisted-state.ts`
 
 ## Qué hace
 Hook `usePersistedState` — un `useState` que sobrevive a la navegación entre rutas y a un F5 durante la sesión del tab, respaldado en `sessionStorage`. Resuelve que el App Router desmonta la vista al navegar y pierde los filtros/selección; con esto el usuario retoma donde dejó. Usa `sessionStorage` (no `localStorage`) a propósito: arranca limpio al reabrir la app. SSR-safe (primer render con `initial`, rehidrata al montar). Solo para estado serializable a JSON y que sea elección del usuario, no data fetcheada.

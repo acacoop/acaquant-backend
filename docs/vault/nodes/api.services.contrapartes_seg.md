@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api\services\contrapartes_seg.py
+path: api/services/contrapartes_seg.py
 ---
 
 # api/services/contrapartes_seg
 
 > api/services/contrapartes_seg.py — segmentación + conciliador de `clientes.contrapartes` (SQL).
 
-**Archivo:** `api\services\contrapartes_seg.py`
+**Archivo:** `api/services/contrapartes_seg.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

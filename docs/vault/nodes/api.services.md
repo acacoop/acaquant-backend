@@ -24,6 +24,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
 - [[api.routers.derivados_agro]]  ·  _module_
+- [[api.routers.manager.assets]]  ·  _module_
 - [[api.routers.manager.aunesa]]  ·  _module_
 - [[api.routers.manager.bonos]]  ·  _module_
 - [[api.routers.manager.compliance]]  ·  _module_

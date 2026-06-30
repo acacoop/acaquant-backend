@@ -17,4 +17,3 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[web.cmp.coberturas-view]]  ·  _component_
 - [[web.cmp.estrategia-shared]]  ·  _component_
-- [[web.cmp.trade-lab-view]]  ·  _component_

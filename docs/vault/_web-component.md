@@ -1,6 +1,6 @@
 # 🧩 web — componentes
 
-97 notas.
+94 notas.
 
 - [[web.cmp.acreencias-view]]
 - [[web.cmp.agro-datos]]
@@ -28,7 +28,6 @@
 - [[web.cmp.derivados-agro-futuros]]
 - [[web.cmp.derivados-agro-opciones]]
 - [[web.cmp.derivados-agro-pizarra]]
-- [[web.cmp.derivados-operar]]
 - [[web.cmp.derivados-shell]]
 - [[web.cmp.derivados-sinteticos-view]]
 - [[web.cmp.derivados-view]]
@@ -70,7 +69,6 @@
 - [[web.cmp.operar-fci-view]]
 - [[web.cmp.operar-shell]]
 - [[web.cmp.ops-view]]
-- [[web.cmp.pause-banner]]
 - [[web.cmp.payoff-chart]]
 - [[web.cmp.pivot-points-panel]]
 - [[web.cmp.pnl-titulos-view]]
@@ -92,7 +90,6 @@
 - [[web.cmp.theme-toggle]]
 - [[web.cmp.ticker-chart-panel]]
 - [[web.cmp.titulos-mercado-view]]
-- [[web.cmp.trade-lab-view]]
 - [[web.cmp.tradingview-chart]]
 - [[web.cmp.ui]]
 - [[web.cmp.usuarios-panel]]

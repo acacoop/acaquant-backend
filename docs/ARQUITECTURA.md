@@ -7,8 +7,8 @@
 >
 > **Docs de referencia operativa (separados, vivos):** `API.md` (endpoints),
 > `RUNBOOK.md` (operación/incidentes), `MCP.md`/`MCP_TOOLS.md` (MCP server),
-> `MOTOR_VALUACIONES.md` (PnL), `INGEST_DOLAR.md` (feed dólar), `SECRETS.md` +
-> `SECURITY.md` (seguridad), `PARTNER_API*.md`, `TABLERO_COMERCIAL.md`,
+> `MOTOR_VALUACIONES.md` (PnL), `SECRETS.md` +
+> `SECURITY.md` (seguridad), `PARTNER_API*.md`,
 > `GRUPOS.md`, `SEGMENTACION_PATRIMONIAL.md`, `HERRAMIENTAS.md` (auto-gen).
 > El plano vivo de servicios/crons: `deploy/SISTEMA.md`. El grafo navegable:
 > `docs/vault/`.

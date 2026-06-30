@@ -36,6 +36,5 @@ Conecta con: delega en `api.services.scanner` y `api.services.rv_motor` (leen `T
 - [[web.cmp.pivot-points-panel]]  ·  _component_
 - [[web.cmp.scanner-view]]  ·  _component_
 - [[web.cmp.ticker-chart-panel]]  ·  _component_
-- [[web.cmp.trade-lab-view]]  ·  _component_
 - [[web.lib.proxy]]  ·  _lib_
 - [[web.view.renta-variable.view]]  ·  _view_

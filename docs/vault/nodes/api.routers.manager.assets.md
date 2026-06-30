@@ -21,6 +21,7 @@ Conecta con: lee/escribe `Valuaciones.Assets` (read client para GET, rw para PAT
 ## Usa / conecta con →
 - [[api.auth]]  ·  _module_
 - [[api.cache]]  ·  _module_
+- [[api.services]]  ·  _module_
 - [[api.services.assets_sql]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 

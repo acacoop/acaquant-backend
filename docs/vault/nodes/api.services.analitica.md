@@ -23,7 +23,6 @@ Conecta con: lee `Trading.SnapshotsCierre`, `Trading.Curvas` y `Trading.TimeSale
 - [[api.services.renta_fija]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_
-- [[core.market_snapshot]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←

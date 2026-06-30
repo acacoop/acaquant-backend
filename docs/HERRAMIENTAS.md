@@ -16,7 +16,7 @@ invocan con `python -m scripts.<nombre>` desde la raíz.
 
 | herramienta | qué hace |
 |---|---|
-| `python -m scripts.perf_scan` | Anti-patterns de queries Mongo (PERF001-4); modo --strict para CI / pre-deploy. |
+| `python -m scripts.perf_scan` | Anti-patterns de queries PERF001-4; modo --strict para CI / pre-deploy. |
 | `python -m scripts.profile_motor` | Perfila un motor always-on en vivo con py-spy (top/record/dump), sin reiniciarlo. |
 
 ### Infra / sincronización

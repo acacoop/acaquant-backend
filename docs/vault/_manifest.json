@@ -393,6 +393,7 @@
 "links": [
 "api.auth",
 "api.cache",
+"api.services",
 "api.services.assets_sql",
 "core.postgres"
 ]
@@ -1007,7 +1008,6 @@
 "api.services.renta_fija",
 "core",
 "core.curvas_sql",
-"core.market_snapshot",
 "core.postgres"
 ]
 },
@@ -1251,6 +1251,7 @@
 "path": "api/services/control_comercial_sql.py",
 "summary": "api/services/control_comercial_sql.py — vista CONTROL COMERCIAL (jefatura).",
 "links": [
+"api.cache",
 "api.services.comercial_sql",
 "core.postgres"
 ]
@@ -1365,7 +1366,6 @@
 "api.cache",
 "core",
 "core.curvas_sql",
-"core.market_snapshot",
 "core.postgres"
 ]
 },
@@ -3290,17 +3290,6 @@
 ]
 },
 {
-"id": "jobs.aunesa_client",
-"type": "module",
-"layer": "jobs",
-"repo": "backend",
-"path": "jobs/aunesa_client.py",
-"summary": "",
-"links": [
-"config"
-]
-},
-{
 "id": "jobs.bcra",
 "type": "module",
 "layer": "jobs",
@@ -4987,18 +4976,6 @@
 ]
 },
 {
-"id": "web.cmp.derivados-operar",
-"type": "component",
-"layer": "web-component",
-"repo": "frontend",
-"path": "src/components/derivados-operar.tsx",
-"summary": "",
-"links": [
-"api.routers.operar",
-"api.routers.ordenes"
-]
-},
-{
 "id": "web.cmp.derivados-shell",
 "type": "component",
 "layer": "web-component",
@@ -5483,15 +5460,6 @@
 ]
 },
 {
-"id": "web.cmp.pause-banner",
-"type": "component",
-"layer": "web-component",
-"repo": "frontend",
-"path": "src/components/pause-banner.tsx",
-"summary": "",
-"links": []
-},
-{
 "id": "web.cmp.payoff-chart",
 "type": "component",
 "layer": "web-component",
@@ -5742,21 +5710,6 @@
 ]
 },
 {
-"id": "web.cmp.trade-lab-view",
-"type": "component",
-"layer": "web-component",
-"repo": "frontend",
-"path": "src/components/trade-lab-view.tsx",
-"summary": "",
-"links": [
-"api.routers.scanner",
-"web.lib.fmt-money",
-"web.lib.types-estrategia",
-"web.lib.use-persisted-state",
-"web.lib.use-poll"
-]
-},
-{
 "id": "web.cmp.tradingview-chart",
 "type": "component",
 "layer": "web-component",
@@ -5981,7 +5934,6 @@
 "summary": "",
 "links": [
 "web.cmp.header",
-"web.cmp.pause-banner",
 "web.cmp.theme-toggle",
 "web.lib.me"
 ]

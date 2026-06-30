@@ -1,6 +1,9 @@
-"""perf_scan.py — Static analysis para anti-patterns de queries Mongo.
+"""perf_scan.py — Static analysis de anti-patterns de queries (legacy Mongo).
 
-Herramienta: perf · Anti-patterns de queries Mongo (PERF001-4); modo --strict para CI / pre-deploy.
+Herramienta: perf · Anti-patterns de queries PERF001-4; modo --strict para CI / pre-deploy.
+NOTA: los checks PERF001-4 apuntaban a patrones de pymongo (.find sin proyección, etc.).
+Tras el decomiso de Mongo (2026-06-29) quedan casi sin hits; candidato a repurpose a
+anti-patrones SQL o retiro. Para perf SQL real usar `scripts/diag_sql_perf.py`.
 
 Scanea api/, engines/, jobs/ y reporta:
   PERF001  list(col.find(...)) sin projection      → carga docs completos

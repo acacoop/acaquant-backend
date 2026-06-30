@@ -3,7 +3,8 @@
 > Documento vivo del feature. El **LOG DE AVANCES** (al final) es append-only
 > con fecha. Cada vez que toquemos algo de esta feature, agregar una entrada.
 >
-> Sub-feature de **[TABLERO_COMERCIAL.md](TABLERO_COMERCIAL.md)** — esto es
+> Sub-feature del **Tablero Comercial** (vista por operador; ver `CLAUDE.md` →
+> "Tablero Comercial") — esto es
 > "Segmentación de clientes" (capa [3] en la cadena de dependencias del tablero),
 > pero con un criterio **patrimonial objetivo** (límite de fondeo) en vez de
 > categórico-manual.

@@ -41,7 +41,6 @@ Conecta con: lo importa medio repo. Los motores (`engines/`) y `core/rofex_sessi
 - [[core.roles]]  ·  _module_
 - [[engines._curvas_loader]]  ·  _module_
 - [[jobs.aum]]  ·  _module_
-- [[jobs.aunesa_client]]  ·  _module_
 - [[jobs.cashflow]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_
 - [[jobs.comercial_warm]]  ·  _module_

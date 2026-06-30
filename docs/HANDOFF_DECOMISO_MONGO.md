@@ -24,15 +24,15 @@ El app vivo (api/core/engines/jobs), el partner_api y los scripts NO tocan Mongo
    está vacío → no se pierde nada.
 2. **Sacar del `.env` / systemd del Droplet:** `MONGO_URI`, `ATLAS_*`, `PARTNER_MONGO_URI`.
    (El código ya no las lee; quedan como ruido/secreto colgado.)
-3. **Barrido de DOCS** (no toca runtime): `CLAUDE.md` raíz (toda la sección "DBs Mongo"
-   describe el viejo mundo), `docs/ARQUITECTURA.md`, `docs/SQL.md`, `docs/DECOMISO_MONGO.md`,
-   subdir `CLAUDE.md` (scripts/ menciona tooling Mongo borrado). Regenerar el vault y el
-   plano: `python -m scripts.gen_obsidian` + `python -m scripts.gen_sistema`.
+3. ✅ **Barrido de DOCS — HECHO** (2026-06-29): CLAUDE.md raíz + subdir, ARQUITECTURA,
+   SQL.md y los docs de dominio actualizados a SQL; docs de tracking borrados; vault +
+   SISTEMA + HERRAMIENTAS regenerados.
 4. **Deuda de tests (opcional):** se borraron `test_argentina_datos` y `test_cotizaciones_tier2`
    (mockeaban Mongo). Si se quiere recuperar cobertura, reescribir con mocks SQL.
-5. **Limpieza fina (opcional):** quedan comparadores `scripts/compare_*_sql_vs_mongo.py`,
-   `scripts/atlas_health.py`, `scripts/uso_mongo_codigo.py` que NO importan Mongo pero
-   ya no tienen sentido (Mongo terminado) → borrar en una pasada REGLA #5.
+5. ✅ **Limpieza de scripts/jobs — HECHA** (2026-06-29): borrados los comparadores
+   `compare_*_sql_vs_mongo`, `atlas_health`, `uso_mongo_codigo`, `estado_sql`, ~10 diag
+   one-shot + `jobs/aunesa_client.py` (muerto); `informe_salud` sin las falsas alarmas
+   de `aum`/`sync_postgres`.
 
 ## 🔧 Verificación
 ```bash

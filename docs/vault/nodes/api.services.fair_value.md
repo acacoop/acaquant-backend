@@ -22,7 +22,6 @@ Conecta con: lee `Trading.FitParams` (β del cierre), `Trading.FairValueResiduos
 - [[api.cache]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_
-- [[core.market_snapshot]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←

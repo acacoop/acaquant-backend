@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-43 notas.
+42 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -11,7 +11,6 @@
 - [[jobs.archive_options_data]] — archive_options_data.py — purga de mercado.options_data (SQL).
 - [[jobs.argentina_datos]] — Cron: pega argentinadatos.com y persiste riesgo país / IPC / REM en SQL (SQL-only).
 - [[jobs.aum]]
-- [[jobs.aunesa_client]]
 - [[jobs.bcra]]
 - [[jobs.cashflow]]
 - [[jobs.cierre_canje]] — cierre_canje.py — materializa el cierre diario de los tickers de canje.

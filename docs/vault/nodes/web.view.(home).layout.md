@@ -20,6 +20,5 @@ Conecta con: `getMe()` → backend `/api/me`; componentes `Header`, `PauseBanner
 
 ## Usa / conecta con →
 - [[web.cmp.header]]  ·  _component_
-- [[web.cmp.pause-banner]]  ·  _component_
 - [[web.cmp.theme-toggle]]  ·  _component_
 - [[web.lib.me]]  ·  _lib_

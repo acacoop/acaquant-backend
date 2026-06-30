@@ -25,18 +25,10 @@ from datetime import UTC, datetime, timedelta
 
 from dotenv import load_dotenv
 
-from core import atlas_api
 from core.notify import send_telegram
 from core.pg_mirror import write_native
 
-load_dotenv()  # ATLAS_* / ATLAS_RO_* del .env, para leer slow queries (best-effort)
-
-# "Query targeting": una query es problema si EXAMINA mucho y DEVUELVE poco —
-# COLLSCAN o IXSCAN poco selectivo da igual (el de boleto era COLLSCAN 488k:1; el
-# de commodity es IXSCAN 174k:1). Alertamos si examina ≥ _EXAMINED_MIN docs Y la
-# relación examinados/devueltos ≥ _RATIO. Esto es lo que Atlas NO te manda por mail.
-_EXAMINED_MIN = 50_000
-_RATIO_ALERTA = 100
+load_dotenv()
 
 # Presupuesto en SEGUNDOS por job = TIMEOUT de run_job.sh (deploy/crontab.txt) +
 # margen. FILOSOFÍA (decisión 2026-06-04): el watchdog NO es un aviso temprano —
@@ -127,53 +119,6 @@ def _jobs_corriendo() -> list[tuple[str, int, int]]:
     return _parse_ps(res.stdout)
 
 
-def _check_db_queries(ahora: datetime, dry_run: bool) -> list[str]:
-    """Alerta por Telegram cuando una query COLLSCAN escanea ≥ _SCAN_ALERTA docs,
-    con su colección + appName — lo que Atlas NO te manda por mail (el 'CPU alto' sí).
-    BEST-EFFORT: sin permiso de Performance Advisor (401) o sin ATLAS_* → se omite
-    SIN romper el watchdog de procesos. Solo METADATOS (nunca valores) por diseño."""
-    try:
-        nodos = atlas_api.processes()
-    except Exception:
-        return []  # ATLAS_* sin configurar / API caída → no es crítico
-    peores: dict[str, dict] = {}  # ns → la peor query COLLSCAN de esa colección
-    for n in nodos:
-        pid = n.get("id")
-        if not pid:
-            continue
-        try:
-            metas = atlas_api.slow_queries_meta(pid, n_logs=100)
-        except Exception:
-            continue  # 401 sin permiso de Performance Advisor → se omite
-        for m in metas:
-            dex = m.get("docsExamined") or 0
-            ret = m.get("nreturned", m.get("nReturned")) or 0
-            if dex < _EXAMINED_MIN or (dex / max(ret, 1)) < _RATIO_ALERTA:
-                continue  # devuelve casi todo lo que examina → selectivo, no es el problema
-            ns = m.get("ns", "?")
-            if dex > (peores.get(ns, {}).get("docsExamined") or 0):
-                peores[ns] = m
-    if not peores:
-        return []
-    prev = _last_alert_at("db_scan")
-    if prev and (ahora - prev) < timedelta(seconds=_COOLDOWN_S):
-        return []
-    lineas = []
-    for ns, m in sorted(peores.items(), key=lambda kv: -(kv[1].get("docsExamined") or 0))[:5]:
-        dex = m.get("docsExamined") or 0
-        ret = m.get("nreturned", m.get("nReturned")) or 0
-        plan = m.get("planSummary", "?")
-        app = f"  [{m['appName']}]" if m.get("appName") else ""
-        lineas.append(f"• {ns} · {plan} · examinó {dex:,} para devolver {ret}{app}")
-    msg = ("🔴 Watchdog DB: query(s) que examinan mucho y devuelven poco — lo que "
-           "Atlas NO te avisa por mail:\n" + "\n".join(lineas) +
-           "\n_falta un índice usable / la query no es selectiva (skill index-health)._")
-    if not dry_run:
-        send_telegram(msg)
-        write_native("watchdog_alertas", ["id"], [{"id": "db_scan", "last_alert_at": ahora}])
-    return lineas
-
-
 def _check_motores(ahora: datetime, dry_run: bool) -> list[str]:
     """Alerta por Telegram cuando un MOTOR de mercado está MUERTO (sin datos frescos
     > 15 min) en horario de rueda. El watchdog corre cada 5 min → la caída se detecta
@@ -239,19 +184,15 @@ def run(dry_run: bool = False) -> dict:
                          [{"id": nombre, "last_alert_at": ahora, "etimes": etimes, "pid": pid}])
         alertados.append((nombre, mins, bmins))
 
-    # Queries COLLSCAN escaneando de más (best-effort; no rompe si ATLAS_* falta).
-    db_scans = _check_db_queries(ahora, dry_run)
-
     # Motores de mercado caídos/en loop (frescura de datos en rueda).
     motores_caidos = _check_motores(ahora, dry_run)
 
     if dry_run:
         print(f"[DRY] jobs corriendo: {revisados}")
         print(f"[DRY] alertaría jobs: {alertados}")
-        print(f"[DRY] alertaría DB COLLSCAN: {db_scans}")
         print(f"[DRY] alertaría motores caídos: {motores_caidos}")
     return {"corriendo": len(corriendo), "alertados": len(alertados),
-            "jobs": [a[0] for a in alertados], "db_scans": len(db_scans),
+            "jobs": [a[0] for a in alertados],
             "motores_caidos": motores_caidos}
 
 

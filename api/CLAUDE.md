@@ -23,7 +23,7 @@ porque `api.service` corre como un proceso único. Cuando el user hace
 state y toda la web devuelve 502 — renta-fija, derivados, operaciones, todo cae.
 
 **Antes de `git push` de cualquier cambio que toque `api/routers/*`,
-`api/services/*`, `api/main.py`, `api/deps.py`, `api/db.py`, `api/auth.py`,
+`api/services/*`, `api/main.py`, `api/deps.py`, `api/auth.py`,
 `core/roles.py` o cualquier import-chain de `api/main.py`**, ejecutar:
 
 ```bash
@@ -65,19 +65,19 @@ asumir la lista exacta.)
 | manager | ✓ | – | – |
 
 `operar` es admin-only en `DEFAULT_MATRIX` (decisión 2026-05-17) y `sales` se
-sacó de la matriz viva el 2026-05-23 (`scripts/quitar_operar_sales.py`).
-**OJO**: `Manager.RoleMatrix` (Mongo) PISA el default — el enforcement real
-es lo que esté ahí, editable desde `/manager → ROLES Y PERMISOS`. Además del
-gate de módulo, los endpoints de órdenes aplican scope de cuenta por grupo
-(`verificar_account`, ver `api/services/_grupos_scope.py`).
+sacó de la matriz viva el 2026-05-23. **OJO**: `manager.role_matrix` (SQL)
+PISA el default — el enforcement real es lo que esté ahí, editable desde
+`/manager → ROLES Y PERMISOS`. Además del gate de módulo, los endpoints de
+órdenes aplican scope de cuenta por grupo (`verificar_account`, ver
+`api/services/_grupos_scope.py`).
 
-`renta-variable` (Scanner CEDEARs sobre `Trading.CedearsSnapshot` +
-`Trading.PreciosAcciones`) está abierto a los 3 roles desde 2026-05-13.
+`renta-variable` (Scanner CEDEARs sobre `mercado.cedears_snapshot` +
+`mercado.precios_acciones`) está abierto a los 3 roles desde 2026-05-13.
 Agregar módulo nuevo: (1) sumar el string a `MODULES`, (2) actualizar
 `ENDPOINT_MODULE_PREFIXES` en `api/auth.py`, (3) editar la matriz en
-`Manager.RoleMatrix` (o `DEFAULT_MATRIX`).
+`manager.role_matrix` (o `DEFAULT_MATRIX`).
 
-Colecciones `Manager.{Users, RoleMatrix, RoleAudit}`. Helpers: `get_user_role`,
+Tablas `manager.{manager_users, role_matrix, role_audit}`. Helpers: `get_user_role`,
 `has_access`, `require_module(m)` (dependency — código nuevo usa esto, NO
 `require_manager`, alias legacy). Cache TTL 60s → `invalidate_cache()`
 post-mutación. Matriz editable desde `/manager → ROLES Y PERMISOS`.
@@ -88,12 +88,12 @@ env (legacy) → `DEFAULT_ROLE="sales"`.
 
 ## Filtros de cuenta en endpoints
 
-`api/services/_cuentas_filter.py::match_cuenta_filter(filtro)` devuelve
-sub-doc `$match` Mongo por tipo: `todas`, `accionistas`
-(∈ `CashFlow.Accionistas.cuenta` — el espejo `CuentasAPI.AccionistasAPI` ya
-no existe), `sin_accionistas`, `cooperativas` (∉ accionistas + regex `\bcoop`),
-`productores` (matchea por `id_cuenta` ∈ SQL `comitentes WHERE
-nivel_1='PRODUCTORES'`; el resto matchea por el string `cuenta`).
+`api/services/_cuentas_filter.py::match_cuenta_filter(filtro)` devuelve el
+filtro SQL por tipo: `todas`, `accionistas`
+(∈ `clientes.accionistas.cuenta`), `sin_accionistas`, `cooperativas`
+(∉ accionistas + regex `\bcoop`), `productores` (matchea por `id_cuenta` ∈
+SQL `clientes.comitentes WHERE nivel_1='PRODUCTORES'`; el resto matchea por el
+string `cuenta`).
 
 Lo usan operaciones (vista negocio) y portfolio (AuM por cartera, FCI, total,
 diff). `VALID_FILTERS` único — sumar tipos nuevos en un solo lugar.
@@ -101,9 +101,9 @@ diff). `VALID_FILTERS` único — sumar tipos nuevos en un solo lugar.
 ## Patrón "live fallback" (cierre persistido + live de hoy)
 
 Endpoints que sirven data agregada del cierre diario y aceptan `fecha` como
-input deben leer `Trading.SnapshotsCierre` primero y, si no hay doc para hoy
+input deben leer `mercado.snapshots_cierre` primero y, si no hay fila para hoy
 (cron `jobs.snapshot_cierre` corre 20:25 UTC), caer a
-`Trading.MarketSnapshot.metrics`. Mismos campos, mismo shape.
+`mercado.market_snapshot` (metrics). Mismos campos, mismo shape.
 
 Sin esto, durante horario de mercado las vistas se quedan en el cierre del
 día anterior hábil hasta que corra el cron. Con esto, `fecha=hoy` siempre
@@ -129,9 +129,7 @@ cost-basis weighted-average. Tres KPIs: realizado / no-realizado / pasivo
   `qty × precio_actual` — el precio del AuM viene en paridad cruda.
 - Mapping `unidad ↔ ticker` viene de **SQL `portafolio.assets`** (vía
   `assets_sql.py::assets_rows`, campo `TICKER`), no de regex sobre la unidad.
-  (`Valuaciones.Assets` Mongo fue eliminada 2026-06-15 — los comentarios que
-  aún la nombren en `pnl.py` son residuales.)
-- Cada boleto en `NegocioMovimientos` tiene `mep` snapshot inmutable.
+- Cada boleto en `operaciones.negocio_movimientos` tiene `mep` snapshot inmutable.
   Pesificación = `importe × b.mep`. Fallback a `_mep.get_mep_for_date()`
   solo si `mep=null`.
 - Categorías que entran al cost-basis: `compra, venta, suscripcion_fci,
@@ -139,6 +137,6 @@ cost-basis weighted-average. Tres KPIs: realizado / no-realizado / pasivo
 - "Licitación" del primario se categoriza como `compra`.
 
 **TOTALES** (`pnl_todas_cuentas`) y **POR CUENTA** (`valuacion_consolidada`)
-NO recalculan en vivo — leen `Valuaciones.PnLTotalesCache` /
-`Valuaciones.ConsolidadoCuentas`, precalculadas por los crons
+NO recalculan en vivo — leen `valuaciones.pnl_totales_cache` /
+`valuaciones.consolidado`, precalculadas por los crons
 `jobs.pnl_totales_precompute` / `jobs.consolidado_cuentas`.

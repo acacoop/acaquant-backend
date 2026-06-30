@@ -1,4 +1,4 @@
-# SALUD_CURVAS.md — Salud y valuación de `Trading.Curvas`
+# SALUD_CURVAS.md — Salud y valuación de `mercado.curvas`
 
 > Doc de contexto para **mantener sana la valuación de curvas** (TEA, paridad,
 > duration) y planificar un sistema que **avise** cuando algo se rompe antes de
@@ -11,8 +11,8 @@
 
 ## 1. Por qué existe este doc
 
-`Trading.Curvas` alimenta TODO lo de renta fija: la curva, las tablas, los
-ratios, la home, los breakevens, forwards, AuM/PnL (vía el join a Assets). Un
+`mercado.curvas` alimenta TODO lo de renta fija: la curva, las tablas, los
+ratios, la home, los breakevens, forwards, AuM/PnL (vía el join a `portafolio.assets`). Un
 solo bono mal valuado (TEA absurda, paridad explotada) **rompe el chart entero**
 (escala) y contamina cualquier cruce. Los errores casi nunca son de fórmula:
 son de **datos** (moneda mal puesta, flujo en otra escala, pata equivocada,
@@ -20,16 +20,16 @@ precio stale). Este doc cataloga eso para poder **detectarlo automático**.
 
 ---
 
-## 2. Modelo de datos — `Trading.Curvas`
+## 2. Modelo de datos — `mercado.curvas`
 
-Un doc por instrumento. Campos que importan para la valuación:
+Una fila por instrumento. Campos que importan para la valuación:
 
 | Campo | Qué es | Ojo |
 |---|---|---|
 | `curva` | Familia: `cer`, `tasa_fija`, `globales`/`bonares` (soberanos), `dolar_linked`, `on` / `on_<sector>` | El **sector de las ONs va acá** (`on_energia`, `on_financiera`, `on_otros`), no en config |
 | `ticker` | Ticker ROFEX completo de la **pata** elegida (`MERV - XMEV - <SIMBOLO> - 24hs`) | Define de qué **pata** sale el precio (ver §4) |
 | `ticker_corto` | Label humano (clave única) | Puede no reflejar la moneda real |
-| `moneda_flujo` | `USD` / `DL` / `ARS` — **cómo se valúa** (ver §3) | Debe coincidir con `Assets.CARTERA` (HD→USD, DL→DL, ARS→ARS) |
+| `moneda_flujo` | `USD` / `DL` / `ARS` — **cómo se valúa** (ver §3) | Debe coincidir con `portafolio.assets.CARTERA` (HD→USD, DL→DL, ARS→ARS) |
 | `valor_nominal` | VN base (normalmente 100) | |
 | `flujos[]` | Cronograma de pagos | Shape **distinto por familia** (ver abajo) |
 
@@ -39,21 +39,22 @@ Un doc por instrumento. Campos que importan para la valuación:
 - **CER**: porcentual, `amortizacion_pct` + `cupon_sobre_residual` (ya resuelto).
 - **tasa_fija**: absolutos, `amortizacion` + `interes`, requiere `flujo_vencimiento`.
 
-**Join a AuM/PnL**: `Curvas.ticker_corto` → `Assets.TICKER` → `Assets.unidad` →
-`AuM`. Sin el doc espejo en `Assets`, el bono no aparece en AuM/Portfolios.
+**Join a AuM/PnL**: `mercado.curvas.ticker_corto` → `portafolio.assets.ticker` →
+`portafolio.assets.unidad` → `portafolio.tenencia`. Sin la fila espejo en
+`portafolio.assets`, el bono no aparece en AuM/Portfolios.
 
 ---
 
 ## 3. Cómo se valúa — el motor (`engines/curvas.py`)
 
-Dos motores escriben a `Trading.MarketSnapshot` (no se pisan):
+Dos motores escriben a `mercado.market_snapshot` (no se pisan):
 - **`motor_rofex`** (`engines/valores.py`, refresh 1s) → `metrics.last_price` y
   demás precios. Es **precio de pantalla (market data)** — puede existir sin que
   el bono haya operado.
 - **`motor_curvas`** (`engines/curvas.py`, refresh 5s) → `metrics.{TEA, TEM,
   duration, mod_duration, convexity, paridad}`. Lee el `last_price` del snapshot.
 
-> Los motores cargan `Trading.Curvas` **una sola vez al arrancar** → un bono
+> Los motores cargan `mercado.curvas` **una sola vez al arrancar** → un bono
 > nuevo o un cambio de `moneda_flujo`/`flujos` **no impacta hasta reiniciar**
 > `motor_rofex` + `motor_curvas`.
 
@@ -65,7 +66,7 @@ Dos motores escriben a `Trading.MarketSnapshot` (no se pisan):
    | `moneda_flujo` | Conversión del precio | TC usado |
    |---|---|---|
    | `USD` | sufijo `D`/`C` → tal cual (ya USD); si no → **÷ MEP** | `get_ultimo_mep` |
-   | `DL` | precio **< 1000** → tal cual (pata USD); **≥ 1000** → **÷ A3500** | **dólar oficial live** (`DolarOficialLive`, el de la home) |
+   | `DL` | precio **< 1000** → tal cual (pata USD); **≥ 1000** → **÷ A3500** | **dólar oficial live** (`valuaciones.dolar_oficial_live`, el de la home) |
    | `ARS` | tal cual (peso) | — |
 
 3. **Flujos futuros** = los de `fecha > settlement` con `monto_flujo > 0`.
@@ -81,15 +82,15 @@ Dos motores escriben a `Trading.MarketSnapshot` (no se pisan):
 | Dependencia | Fuente | Qué pasa si está mal/caída |
 |---|---|---|
 | **MEP** | `get_ultimo_mep` (live, TTL 5s) | ONs/soberanos USD en pesos quedan sin TEA |
-| **A3500 / dólar oficial live** | `Valuaciones.DolarOficialLive` (feed MAE, PC oficina) | DL pata peso quedan sin TEA. **Mismo TC que la home** (`core.dolar_oficial.mid_oficial_live`) |
-| **CER** | `Trading.DOLAR`/BCRA (T-10 hábiles) | CER salen con CER viejo si el bono no operó |
+| **A3500 / dólar oficial live** | `valuaciones.dolar_oficial_live` (feed MAE, PC oficina) | DL pata peso quedan sin TEA. **Mismo TC que la home** (`core.dolar_oficial.mid_oficial_live`) |
+| **CER** | `macro.series_macro`/BCRA (T-10 hábiles) | CER salen con CER viejo si el bono no operó |
 
 ---
 
 ## 4. Las dos patas (ARS / USD) — la causa raíz más sutil
 
 Casi toda ON cotiza en **dos patas**: una en **pesos** (`VSCIO`, precio ~144.000)
-y una en **dólares** (sufijo `D`, `VSCIOD`, precio ~100). `Trading.Curvas` guarda
+y una en **dólares** (sufijo `D`, `VSCIOD`, precio ~100). `mercado.curvas` guarda
 **una sola** en `ticker` → de ahí sale el precio. La regla:
 
 - **HD (hard-dollar)** → debería usar la **pata USD** (precio ~100, as-is). Si
@@ -111,14 +112,14 @@ y una en **dólares** (sufijo `D`, `VSCIOD`, precio ~100). `Trading.Curvas` guar
 | Herramienta | Qué hace | Cuándo usarla |
 |---|---|---|
 | **DEBUG TEA** (`/manager → checks`, `api/services/debug_curva.py`) | Replica el motor para 1 ticker: muestra precio, TC, flujos, cashflow XIRR y compara calculado vs persistido | Entender por qué un bono da `--` o una TEA rara |
-| **`scripts/diag_ons_clasificacion.py`** | Cruza `Assets.CARTERA` vs `moneda_flujo` vs escala precio↔flujo de TODAS las ONs; marca `MONEDA?` / `ESCALA?` | Auditar clasificación masiva |
+| **`scripts/diag_ons_clasificacion.py`** | Cruza `portafolio.assets.CARTERA` vs `moneda_flujo` vs escala precio↔flujo de TODAS las ONs; marca `MONEDA?` / `ESCALA?` | Auditar clasificación masiva |
 | **`scripts/fix_ons_moneda_from_cartera.py`** | Alinea `moneda_flujo` ← CARTERA | Cuando la moneda no condice con CARTERA |
 | **`scripts/fix_ons_flujo_a_per100.py`** | Normaliza flujos DL de escala peso a ~100 | Flujo cargado en pesos |
 | **`scripts/fix_ons_valor_residual.py`** | Recalcula `valor_residual = Σ amort futura` | Si la paridad explota por residual mal escalado |
-| **`scripts/perf_scan.py`** | Anti-patterns Mongo | CI / antes de pushear |
+| **`scripts/perf_scan.py`** | Anti-patterns de queries SQL | CI / antes de pushear |
 
-> El DEBUG TEA lee el precio de **`MarketSnapshot`** (la misma fuente que el
-> motor), no de `TimeSales` — por eso muestra bonos que cotizan sin haber operado.
+> El DEBUG TEA lee el precio de **`mercado.market_snapshot`** (la misma fuente que
+> el motor), no de `mercado.timesales` — por eso muestra bonos que cotizan sin haber operado.
 
 ---
 
@@ -133,8 +134,8 @@ Síntoma visible → causa → cómo detectarlo → cómo arreglarlo.
 | 3 | **Paridad explotada** (ej. 144.500%) | `valor_residual` en otra escala que el flujo | Paridad >> 150% en la vista | Motor ya usa Σ amort; `fix_ons_valor_residual` limpia el dato |
 | 4 | TEA negativa/inflada en HD | **Pata peso** guardada en un HD → ÷MEP infla el precio | DEBUG: precio_usd > ~108 con paridad rara | **Frente #③**: usar la pata USD |
 | 5 | TEA absurda (>50% o <−50%) | **Precio stale/ilíquido** (last viejo) o bono distressed | DEBUG: comparar precio vs último trade real | Verificar precio; no es bug de cálculo |
-| 6 | Bono sin TEA pero con precio | Precio de pantalla sin trade (market data) | DEBUG muestra precio, TimeSales vacío | Normal; revisar si el precio es representativo |
-| 7 | Bono no cotiza tras alta/cambio | Motores cargan Curvas al arrancar | — | `systemctl restart motor_rofex motor_curvas` |
+| 6 | Bono sin TEA pero con precio | Precio de pantalla sin trade (market data) | DEBUG muestra precio, `mercado.timesales` vacío | Normal; revisar si el precio es representativo |
+| 7 | Bono no cotiza tras alta/cambio | Motores cargan `mercado.curvas` al arrancar | — | `systemctl restart motor_rofex motor_curvas` |
 
 ---
 
@@ -143,14 +144,14 @@ Síntoma visible → causa → cómo detectarlo → cómo arreglarlo.
 Ideas para que el sistema **avise solo** en vez de descubrir los errores a ojo:
 
 1. **Job de sanity diario** (`jobs/curvas_healthcheck.py`, post-cierre) que corra
-   reglas sobre `MarketSnapshot.metrics` + `Curvas` y avise por **Telegram**
+   reglas sobre `mercado.market_snapshot` (metrics) + `mercado.curvas` y avise por **Telegram**
    (ya existe el bot, wired en `JobRunLogger`):
    - paridad fuera de `[40, 160]%`
    - `|TEA|` fuera de `[-30, 60]%` (revisar precio/pata)
    - `moneda_flujo` ≠ CARTERA (regla del `diag_ons_clasificacion`)
    - escala flujo ≠ escala precio (ARS con precio peso y flujo ~100)
    - bono con `flujos` pero sin TEA hace > N días
-   - bono en `Curvas` sin espejo en `Assets` (no entra a AuM)
+   - bono en `mercado.curvas` sin espejo en `portafolio.assets` (no entra a AuM)
 2. **Validación en el ALTA de Manager**: al cargar/editar una ON, correr las
    mismas reglas y mostrar el warning antes de guardar (prevención > corrección).
 3. **Guard en el chart** (frontend): filtrar/clamp de outliers (paridad o TEA

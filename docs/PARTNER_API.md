@@ -7,75 +7,53 @@ aislada, auth propia.
 ## Arquitectura
 
 ```
-  jobs.aum ──► Valuaciones.AuM ──► jobs.partner_export (cron 23:45 UTC)
-                                         │ SOLO config.PARTNER_EXPORT_CUENTAS
-                                         ▼
-                                 ACAPortfolio.Cartera
-                                         │  (Mongo user read-only en `ACAPortfolio`)
-  Proveedor ──HTTPS──► data.acaquant.com ─┴─► partner_api  (uvicorn :8100)
-              Bearer JWT                       proceso systemd aparte
+  jobs.partner_export (cron 23:45 UTC) ──► partner.cartera
+       │ SOLO config.PARTNER_EXPORT_CUENTAS    (Postgres, schema propio)
+       │ (toma el AuM de portafolio.tenencia)
+       ▼
+  Proveedor ──HTTPS──► data.acaquant.com ──► partner_api  (uvicorn :8100)
+              Bearer JWT                      proceso systemd aparte
 ```
 
 - **`jobs/partner_export.py`** — cron diario (23:45 UTC, post-AuM). Vuelca a
-  `ACAPortfolio.Cartera` SOLO las cuentas de `config.PARTNER_EXPORT_CUENTAS`
+  `partner.cartera` SOLO las cuentas de `config.PARTNER_EXPORT_CUENTAS`
   y SOLO los campos `{fecha, id_cuenta, cuenta, unidad, cantidad, precio,
   valuacion}`. Idempotente por fecha, mantiene histórico.
 - **`partner_api/`** — servicio FastAPI aparte (puerto 8100). Lee
-  `ACAPortfolio.Cartera`. No comparte proceso ni conexión Mongo con la mesa.
+  `partner.cartera`. No comparte proceso ni conexión con la mesa.
 
-## Migración Mongo → SQL (para apagar Mongo)
+## Almacenamiento (SQL)
 
-El partner_api fue migrado al mismo patrón **dual-run** del resto del sistema:
-las mismas dos colecciones de `ACAPortfolio` viven ahora también en Postgres
-(Supabase), en un schema PROPIO `partner` (ver `sql/schema.sql` §PARTNER y
-`docs/SQL.md`).
+El partner_api es **SQL-only** (Postgres/Supabase), en un schema PROPIO
+`partner` (ver `sql/schema.sql` §PARTNER y `docs/SQL.md`). *(Histórico: hasta
+2026-06 corrió sobre Mongo `ACAPortfolio` en dual-run; el cutover a SQL ya está
+cerrado y el path Mongo fue eliminado con el decomiso de 2026-06-29.)*
 
-- **Tablas SQL**: `partner.cartera` (espejo de `Cartera`, columnas materializadas
-  — shape fijo y conocido, sin jsonb) y `partner.api_users` (espejo de
-  `ApiUsers`, con el `password_hash` tal cual). `fecha` se guarda como `date`,
-  `exported_at`/`created_at` como `timestamptz` (en Mongo son datetime aware UTC).
+- **Tablas SQL**: `partner.cartera` (columnas materializadas — shape fijo y
+  conocido, sin jsonb) y `partner.api_users` (con el `password_hash` tal cual).
+  `fecha` se guarda como `date`, `exported_at`/`created_at` como `timestamptz`.
 - **Conexión propia**: `partner_api/pg.py` (NO importa `core.postgres`; usa la env
   `POSTGRES_URI` y SIEMPRE califica `partner.<tabla>` — la API de la mesa nunca
   resuelve sin querer una tabla de un tercero). Auto-crea schema+tablas en el
   primer uso (`ensure_schema()`).
-- **Lectura** (`partner_api/store.py`) — selector por flag de entorno:
-  - `PARTNER_SQL` ausente / `0` (**DEFAULT**) → lee **Mongo** (path original
-    INTACTO). El proveedor no nota ningún cambio.
-  - `PARTNER_SQL=1` → lee **Postgres**. Devuelve el MISMO shape (mismo orden,
-    mismos campos) en los dos backends. Cubre REST (`/v1/*`) Y OData (`/odata/*`).
-  - Rollback = sacar la env + `systemctl restart partner_api.service`.
-- **Escritura** (gateada por `PARTNER_SQL_WRITE=1`, default apagada → dual-write
-  best-effort, si PG falla NO rompe el path Mongo):
-  - Cartera: `jobs/partner_export.py` escribe Mongo **y** `partner.cartera` (mismo
-    delete+insert idempotente por `(id_cuenta, fecha)`).
+- **Lectura** (`partner_api/store.py`): siempre Postgres. Mismo shape (mismo
+  orden, mismos campos) en REST (`/v1/*`) Y OData (`/odata/*`).
+- **Escritura**:
+  - Cartera: `jobs/partner_export.py` escribe `partner.cartera` (delete+insert
+    idempotente por `(id_cuenta, fecha)`).
   - Usuarios: `scripts/partner_user.py` (crear/reset/habilitar/deshabilitar)
-    upsertea también `partner.api_users`.
-- **Baseline (seed inicial)**: `python -m scripts.partner_sql_baseline` — vuelca
-  el contenido actual de `ACAPortfolio` a las tablas SQL (idempotente, `--dry-run`
-  para contar). NO va en `jobs/sync_postgres.py` (el partner es un dominio
-  separado). Después, el dual-write mantiene SQL al día.
-
-**Orden de cutover** (sin downtime para el proveedor):
-1. Correr el schema (`sql/schema.sql`) o dejar que `ensure_schema()` cree las tablas.
-2. `PARTNER_SQL_WRITE=1` en el `.env` + restart → dual-write activo (Mongo sigue
-   siendo la fuente de lectura).
-3. `python -m scripts.partner_sql_baseline` → seed del histórico.
-4. Verificar paridad (comparar `/v1/portfolio` y `/v1/fechas` con y sin
-   `PARTNER_SQL=1` apuntando a las mismas fechas).
-5. `PARTNER_SQL=1` + restart → la lectura pasa a SQL. Rollback inmediato sacando
-   la env.
-6. Cuando se decida apagar Mongo: quitar `PARTNER_MONGO_URI` deja de aplicar (el
-   servicio ya no lo usa con `PARTNER_SQL=1`); `partner_api/db.py` queda como
-   código muerto a borrar en un commit posterior.
+    upsertea `partner.api_users`.
 
 ## Seguridad — capas
 
-1. **Aislamiento de datos (lo más fuerte).** El servicio se conecta a Mongo
-   con un usuario **read-only scopeado a la base `ACAPortfolio`**. No puede leer
-   `Valuaciones`/`Manager`/`CashFlow` ni escribir nada. Y `ACAPortfolio.Cartera`
-   sólo contiene las cuentas habilitadas — no existe forma de pedir otra.
+1. **Aislamiento de datos (lo más fuerte).** El servicio sólo consulta el schema
+   `partner` (`partner.cartera` / `partner.api_users`) vía su conexión propia
+   (`partner_api/pg.py`), que SIEMPRE califica `partner.<tabla>`. No lee
+   `valuaciones`/`manager`/`operaciones` ni escribe nada fuera de su schema. Y
+   `partner.cartera` sólo contiene las cuentas habilitadas — no existe forma de
+   pedir otra.
 2. **Auth.** Usuario/password → JWT de vida corta (60 min). Sin token válido
-   no se devuelve nada. Passwords hasheados con PBKDF2 (`ACAPortfolio.ApiUsers`) —
+   no se devuelve nada. Passwords hasheados con PBKDF2 (`partner.api_users`) —
    nunca en texto plano.
 3. **Transporte.** Sólo HTTPS. Detrás del proxy de Cloudflare (WAF + DDoS).
 4. **Rate limiting.** `/v1/token` 10/min (anti fuerza bruta), datos 60/h.
@@ -94,11 +72,11 @@ allowlist (a nivel Cloudflare o nginx) — es la defensa más fuerte.
 
 ## Deploy (Droplet)
 
-1. **Atlas** — crear un DB user nuevo, `aca_1`, con rol **`read`
-   sobre la base `ACAPortfolio`** únicamente. Copiar su connection string.
+1. **SQL** — el schema `partner` y sus tablas se auto-crean en el primer uso
+   (`ensure_schema()` en `partner_api/pg.py`); o aplicar `sql/schema.sql` §PARTNER.
 2. **`.env`** del Droplet — agregar:
    ```
-   PARTNER_MONGO_URI=mongodb+srv://aca_1:...@.../ACAPortfolio
+   POSTGRES_URI=postgresql://...           # Postgres/Supabase (lo reusa partner_api/pg.py)
    PARTNER_JWT_SECRET=<string random largo>
    # opcional: PARTNER_TOKEN_TTL_MIN=60
    ```
@@ -175,7 +153,7 @@ OData v2 estándar**, en paralelo a la REST (no la reemplaza). Implementado en
 - **Service URL:** `https://data.acaquant.com/odata/`
 - **Tipo de conexión en Datasphere:** *Generic OData* (OData **V2**).
 - **Auth:** **HTTP Basic** con el **mismo usuario/password** del proveedor
-  (los de `ACAPortfolio.ApiUsers`) — no usa el flow del JWT.
+  (los de `partner.api_users`) — no usa el flow del JWT.
 - **Entidad:** `Portfolio` (una fila por posición). Propiedades: `ID` (key
   sintética `fecha|id_cuenta|unidad`), `fecha`, `id_cuenta`, `cuenta`, `unidad`,
   `cantidad`, `precio`, `valuacion`.

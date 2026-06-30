@@ -1,66 +1,47 @@
-# Modelo de datos SQL (Postgres/Supabase) — diseño limpio, no espejo de Mongo
+# Modelo de datos SQL (Postgres/Supabase) — principios de diseño
 
-Subdoc de `docs/SQL.md`. La migración a SQL **rediseña** el modelo; NO copia el desparramo
-de Mongo. Objetivo: cada dato vive una vez, tipado, indexado, relacionado por id; lo
-derivado son **vistas**, no colecciones-cache mantenidas a mano.
+Subdoc de `docs/SQL.md`. Acá viven los **principios** del modelo relacional; el
+inventario de schemas/tablas y las notas por dominio están en `docs/SQL.md`.
 
-## Conceptos (Mongo → SQL)
-
-- **Colección → Tabla.** La tabla tiene columnas fijas y tipadas → fuerza consistencia
-  (no más campos que aparecen/desaparecen, no más 3 grafías del mismo nombre).
-- **Base de datos → Schema.** Un schema agrupa tablas por dominio (namespace). Ordena en
-  vez de desparramar.
-- **Duplicación → Normalización.** El dato vive UNA vez y se referencia por clave (FK). Ej:
-  el nombre de la cuenta vive en `core.cuentas`, no copiado en cada operación.
-- **Colección-cache → Vista / Vista materializada.** Lo derivado (rollups, informes,
-  consolidados) se define como fórmula UNA vez; Postgres lo calcula/mantiene. Reemplaza
-  colecciones como OpsSerieDiaria, ComercialCache, PnLTotalesCache, ConsolidadoCuentas + sus crons.
-
-## Organización por schemas
-
-```
-core         -- dimensiones maestras (estables): cuentas, comitentes, operadores,
-                contrapartes, instrumentos
-negocio      -- hechos transaccionales: operaciones, movimientos, flujos
-valuaciones  -- aum, pnl  (+ vistas materializadas de totales/consolidados)
-mercado      -- datos de mercado: curvas, snapshots, timesales, precios, dolar
-                (DISEÑAR tras medir shapes reales — REGLA #2, NO inventar)
-comercial    -- actividad_mensual + VISTAS (informe, estado comercial, churn)
-```
-
-> El espejo actual (Fase B) vive todo en `public` (7 tablas planas) — fue para VALIDAR la
-> migración de lectura, no es el diseño final. A medida que migramos cada dominio a
-> source-of-truth, las tablas pasan a su schema y se normalizan.
+> **Estado (2026-06-29):** la migración terminó. Postgres/Supabase es la única base
+> y el modelo está implementado en `sql/schema.sql` (10 schemas de dominio). Este
+> doc ya no describe un "plan a futuro" — documenta las reglas que siguió el diseño
+> y que rigen cualquier tabla nueva.
 
 ## Principios de diseño (a raja tabla)
 
-1. **Tipos reales**, no todo `text`: fechas `date`/`timestamptz`, plata `numeric`, flags `boolean`.
-2. **Normalizar**: nombres/denominaciones/segmentación viven en la dimensión (`core.cuentas`,
-   `core.comitentes`), los hechos referencian por `id_cuenta`. Mata las inconsistencias que
-   el harness ya detectó (misma cuenta, varias grafías).
-3. **Derivado = vista.** Si un dato se puede calcular de otros, es una `VIEW` (o
-   `MATERIALIZED VIEW` con refresh programado si pesa). NO una tabla que se llena por cron.
-4. **Índices por patrón de acceso** (medidos con `EXPLAIN`), no "por las dudas".
-5. **Calidad de dato en la frontera**: al escribir a SQL (dual-write / ingesta), limpiar lo
-   sucio (espacios, decimales, mayúsculas) — la deuda de datos de Mongo no se hereda.
+1. **Tipos reales**, no todo `text`: fechas `date`/`timestamptz`, plata `numeric`,
+   flags `boolean`. Lo anidado que no vale la pena descomponer va a `jsonb`.
+2. **Un dato vive una vez (normalización).** Nombres/denominaciones/segmentación
+   viven en la dimensión (`clientes.comitentes`, `clientes.cuentas`); los hechos
+   referencian por `id_cuenta`. Mata las inconsistencias de "misma cuenta, varias
+   grafías".
+3. **Schema = dominio.** Cada tabla vive en su schema (`mercado`, `operaciones`,
+   `clientes`, …), no en `public`. El `search_path` resuelve sin calificar.
+4. **Derivado = se calcula, no se cachea a mano** salvo cuando pesa. Lo que se puede
+   agregar en vivo (volumen/aranceles de operaciones, estado comercial) se hace con
+   `GROUP BY` + índices, NO con una tabla-cache mantenida por cron. Solo las dos
+   vistas de Portfolio que recorren ~880 cuentas usan un cache precalculado
+   (`valuaciones.consolidado`, `valuaciones.pnl_totales_cache`) porque no entran en
+   una request HTTP.
+5. **Índices por patrón de acceso** (medidos con `EXPLAIN`), no "por las dudas".
+6. **Calidad de dato en la frontera**: al ingestar, limpiar lo sucio (espacios,
+   decimales, mayúsculas, `''`→`NULL`).
 
-## Cómo se migra cada dominio (patrón repetible)
+## Hechos vs dimensiones
 
-Por dominio (negocio → comercial → valuaciones → mercado):
-1. **Medir** los shapes reales en Mongo (diag read-only, REGLA #2).
-2. **Diseñar** las tablas limpias del schema (tipos, normalización, FK donde no haya
-   huérfanos, índices).
-3. **Migrar lecturas**: servicio SQL + harness de comparación vs Mongo + flag dual-run.
-4. **Dual-write**: el job/motor escribe SQL (y Mongo transitorio como plan B).
-5. **Cortar Mongo** del dominio solo cuando el check de dependencias da 0.
+- **Dimensiones** (PK natural, estables): `clientes.{comitentes, cuentas, operadores,
+  contrapartes}`, masters de mercado (`mercado.curvas`, catálogos), `portafolio.assets`.
+- **Hechos** (`id_cuenta` indexado, **sin FK dura**): `operaciones.{operaciones,
+  negocio_movimientos}`. Sin FK dura porque la fuente histórica trae huérfanos; soft +
+  indexado deja cargarlos y auditarlos como calidad de dato.
+- **Snapshots / streams / históricos**: estado live por clave (`*_snapshot`,
+  `market_snapshot`), tape intradía (`timesales`, `cedears_time_sales`), cierres
+  diarios (`*_hist`, `snapshots_cierre_hist`, `mercado_hist`).
 
-## Estado
+## Convenciones de escritura
 
-- `core` + `negocio` (operaciones) — espejo en `public`, lectura migrada (vista OPERACIONES). ✅
-- Resto — pendiente, siguiendo el patrón de arriba.
-
-## Lo derivado que hoy son colecciones y pasarán a VISTAS
-
-`CashFlow.OpsSerieDiaria`, `Clientes.ComercialCache`, `Valuaciones.PnLTotalesCache`,
-`Valuaciones.ConsolidadoCuentas`, rollups de opciones/comercial → en SQL son vistas
-(materializadas si pesan). Se elimina el cron que las llena.
+Escritura native-SQL vía `core/pg_mirror.py` (`write_native`/`append_native`/
+`write_hist`/`replace_native`/`merge_jsonb_native`, `doc_iso` recursivo para jsonb) y
+SQL crudo en los services. Lectura por dominio en `api/services/<dominio>_sql.py`
+(puros, pool `core.postgres.get_pool`). Detalle completo en `docs/SQL.md §3`.

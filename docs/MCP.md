@@ -52,8 +52,9 @@ token.
   - `POST /oauth/token` (intercambio code → access_token con PKCE)
   - `GET  /.well-known/oauth-protected-resource` (RFC 9728)
   - `GET  /.well-known/oauth-authorization-server` (RFC 8414)
-- Storage: Mongo db `MCP`, colecciones `OAuthClients` / `OAuthCodes` /
-  `OAuthTokens`. TTL automático (10min codes, 1h tokens).
+- Storage: SQL schema `mcp`, tablas `mcp.oauth_clients` / `mcp.oauth_codes` /
+  `mcp.oauth_tokens` (conexión `core.postgres.get_pool()`). TTL automático
+  (10min codes, 1h tokens).
 
 ### B) Static bearer token (curl, scripts, dev)
 

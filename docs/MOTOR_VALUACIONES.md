@@ -30,18 +30,25 @@ El `pnl_realizado` histórico se oculta — irá a una vista histórica separada
 
 ## Arquitectura
 
+> **Nota (decomiso Mongo 2026-06-29):** todas las fuentes son SQL (Postgres).
+> `operaciones.negocio_movimientos` (boletos), `portafolio.tenencia` (AuM),
+> `portafolio.assets` (mapping), `valuaciones.dolar` (MEP histórico),
+> `mercado.market_snapshot` / `mercado.snapshots_cierre` y
+> `valuaciones.portfolio_snapshot` (precios live). Antes vivían en Mongo
+> (`CashFlow`/`Valuaciones`/`Trading`).
+
 ```
-┌──────────────────────────┐    ┌──────────────────────────┐
-│  CashFlow                │    │  Valuaciones             │
-│  ├ NegocioMovimientos    │    │  ├ AuM (snapshot diario) │
-│  │  (boletos)            │    │  ├ Assets (mapping)      │
-│  └ ...                   │    │  │  • TICKER (humano)    │
-│                          │    │  │  • CAFCI (FCI)        │
-│                          │    │  │  • INSTRUMENTO (rofex)│
-│                          │    │  └ Dolar (MEP histórico) │
-└──────────┬───────────────┘    └──────────┬───────────────┘
-           │                                │
-           └────────────┬───────────────────┘
+┌────────────────────────────────┐  ┌────────────────────────────────┐
+│  operaciones                   │  │  portafolio / valuaciones      │
+│  └ negocio_movimientos         │  │  ├ tenencia (snapshot diario)  │
+│     (boletos)                  │  │  ├ assets (mapping)            │
+│                                │  │  │  • TICKER (humano)          │
+│                                │  │  │  • CAFCI (FCI)              │
+│                                │  │  │  • INSTRUMENTO (rofex)      │
+│                                │  │  └ valuaciones.dolar (MEP hist)│
+└──────────┬─────────────────────┘  └──────────┬─────────────────────┘
+           │                                    │
+           └────────────┬───────────────────────┘
                         ↓
        ┌─────────────────────────────────────┐
        │  api/services/pnl.py                │
@@ -50,12 +57,11 @@ El `pnl_realizado` histórico se oculta — irá a una vista histórica separada
        │  • valor_actual chain: live→cierre  │
        └────────────┬────────────────────────┘
                     ↓
-   ┌────────────────────┐    ┌────────────────────────┐
-   │ Trading            │    │ Trading                │
-   │ ├ MarketSnapshot   │    │ └ PortfolioSnapshot    │
-   │   (analytics live) │    │   (live tenencia)      │
-   │   ← motor_rofex    │    │   ← portfolio_snapshot │
-   └────────────────────┘    └────────────────────────┘
+   ┌────────────────────────┐  ┌────────────────────────────┐
+   │ mercado.market_snapshot│  │ valuaciones.portfolio_snapshot│
+   │   (analytics live)     │  │   (live tenencia)          │
+   │   ← motor_rofex        │  │   ← portfolio_snapshot     │
+   └────────────────────────┘  └────────────────────────────┘
                     ↓
        ┌─────────────────────────────────────┐
        │  GET /api/portfolio/pnl?id_cuenta   │
@@ -76,7 +82,7 @@ El `pnl_realizado` histórico se oculta — irá a una vista histórica separada
   `pnl_todas_cuentas` (agregado mesa, `@cached(ttl=60)`),
   `_pnl_por_cuenta_core` (cálculo puro, toma todas las deps por kwarg),
   `_load_pnl_bulk_deps` (pre-carga bulk de maps + boletos + AuM para TOTALES).
-- `api/services/_mep.py` — helper MEP con fallback a `Valuaciones.Dolar`.
+- `api/services/_mep.py` — helper MEP con fallback a `valuaciones.dolar`.
 - `api/services/aunesa_negocio.py` — parser de boletos / categorización.
 - `api/services/valuaciones.py` — vista PORTAFOLIO (legacy AuM-based).
 - `api/routers/carteras.py` — endpoints `/portfolio/pnl`, `/portfolio/pnl-todas`.
@@ -177,12 +183,12 @@ por ticker (path single-cuenta de PNL TÍTULOS).
 ```
 1. Si qty_efectiva == 0 → return (0, "live")  # cerrado intraday
 2. Si no hay unidad → return (valor_aum, "aum")  # fallback final
-3. Lookup Assets.INSTRUMENTO de la unidad.
+3. Lookup assets.INSTRUMENTO de la unidad.
 4. Si INSTRUMENTO existe y no es placeholder ("" / "NO APLICA"):
-   a. Lookup Trading.PortfolioSnapshot[ticker=INSTRUMENTO]
+   a. Lookup valuaciones.portfolio_snapshot[ticker=INSTRUMENTO]
       → si hay last_price o closing_price > 0 →
          return (qty_efectiva × precio × normalizer, "live")
-   b. Lookup Trading.SnapshotsCierre[ticker=INSTRUMENTO]
+   b. Lookup mercado.snapshots_cierre[ticker=INSTRUMENTO]
       → si hay last_price > 0 →
          return (qty_efectiva × precio × normalizer, "cierre")
 5. Fallback: return (valor_aum, "aum")
@@ -210,7 +216,7 @@ el PnL valuando bonos ×100):
 
 ## Mapping unidad ↔ ticker
 
-`NegocioMovimientos.ticker` ("AO28", "CAFCI3580-1199") y `portafolio.tenencia.unidad`
+`operaciones.negocio_movimientos.ticker` ("AO28", "CAFCI3580-1199") y `portafolio.tenencia.unidad`
 ("[5921] AO28 - BONO TESORO NAC.") no matchean directo.
 
 `pnl._build_unidad_maps()` (sin args, `@cached(ttl=300)`) construye dos maps
@@ -218,16 +224,16 @@ desde `portafolio.assets` (SQL):
 
 | Tipo | match_key (interno, joinea boletos↔AuM) | display (UI) |
 |---|---|---|
-| FCI | `Assets.CAFCI` (ej "CAFCI3580-1199") | `Assets.TICKER` (ej "Consultatio Multimercado V") |
-| Acciones / bonos / ONs | `Assets.TICKER` (ej "AL30") | `Assets.TICKER` |
+| FCI | `assets.CAFCI` (ej "CAFCI3580-1199") | `assets.TICKER` (ej "Consultatio Multimercado V") |
+| Acciones / bonos / ONs | `assets.TICKER` (ej "AL30") | `assets.TICKER` |
 | Sin metadata | regex fallback sobre unidad | match_key |
 
-`Assets.CAFCI` es derivado automáticamente de `unidad` por `_sincronizar_assets`
+`assets.CAFCI` es derivado automáticamente de `unidad` por `_sincronizar_assets`
 con regex `\bCAFCI\d+-\d+\b`.
 
-`Assets.INSTRUMENTO` se completa con script:
+`assets.INSTRUMENTO` se completa con script:
 - `backfill_assets_instrumento.py` valida candidatos contra
-  `Manager.PyRofexInstruments` (lista canónica de pyRofex 24hs).
+  `manager.pyrofex_instruments` (lista canónica de pyRofex 24hs).
 - Solo setea si el INSTRUMENTO existe en pyRofex — los strings inválidos
   quedan visibles via `audit_assets_instrumento.py`.
 
@@ -242,8 +248,8 @@ motor_rofex.
 **Universo dinámico**: `engines/_universo_portfolio.py::tickers_de_tenencia()`
 devuelve set de symbols pyRofex de:
 - Unidades con qty != 0 en último AuM.
-- Tickers operados hoy en NegocioMovimientos.
-- Filtrado contra `Manager.PyRofexInstruments` (validación canónica).
+- Tickers operados hoy en `operaciones.negocio_movimientos`.
+- Filtrado contra `manager.pyrofex_instruments` (validación canónica).
 
 **Refresh dinámico**: thread cada 60min revisa el universo. Si entró
 un ticker nuevo (compraste un activo que antes no estaba en cartera),
@@ -252,9 +258,9 @@ no reabre conexión).
 
 **Suscripción reducida**: solo entries `[LAST, CLOSING_PRICE]`. NO
 escribe a `TimeSales`. NO contamina con cada tick. Solo `last_price`
-en `Trading.PortfolioSnapshot` cada 1s.
+en `valuaciones.portfolio_snapshot` cada 1s.
 
-**Logs de refresh**: `Manager.PortfolioSnapshotLog` con timestamp,
+**Logs de refresh**: `manager.portfolio_snapshot_log` con timestamp,
 nuevos tickers agregados, tickers de boletos sin INSTRUMENTO mappeable.
 
 ### Coverage actual (al 2026-05-08)
@@ -364,12 +370,12 @@ disparaba un N+1 (cada cuenta × ~20 tickers × 3 `find_one` en
 `_valor_actual_live` + 1 regex query de boletos) que pegaba 502/504 con
 883 cuentas. Arquitectura actual:
 
-- `_load_pnl_bulk_deps` hace **~6 queries totales** (Assets,
-  PortfolioSnapshot, SnapshotsCierre vía `aggregate`, NegocioMovimientos
-  full-scan agrupado por `id_cuenta`, AuM del último snapshot global) —
-  independiente de N cuentas.
+- `_load_pnl_bulk_deps` hace **~6 queries totales** (`portafolio.assets`,
+  `valuaciones.portfolio_snapshot`, `mercado.snapshots_cierre`,
+  `operaciones.negocio_movimientos` agrupado por `id_cuenta`, AuM del último
+  snapshot global) — independiente de N cuentas.
 - `_pnl_por_cuenta_core` recibe esos dicts por kwarg y procesa en RAM, sin
-  pegarle a Mongo per-cuenta.
+  pegarle a la DB per-cuenta.
 - Cada bulk load va con `try/except`: si uno falla, el dict queda vacío y
   el core cae al path single-cuenta para esa fuente (degradación, no caída).
 - Cache backend `@cached(ttl=60)` en `pnl_todas_cuentas`.
@@ -394,7 +400,7 @@ inmutable en cada boleto al ingestarlo (`b.mep`).
 
 **Fallback**: si `b.mep == null` (boleto pre-fix sin reingestar o
 fecha pre-feed), se llama a `get_mep_for_date(fecha)` que mira
-`Valuaciones.Dolar`.
+`valuaciones.dolar`.
 
 **Si tampoco hay MEP**: importe queda en moneda original. Reportado
 en `fechas_sin_mep` per ticker (badge naranja en la UI).
@@ -403,7 +409,7 @@ en `fechas_sin_mep` per ticker (badge naranja en la UI).
 
 - 2024 H1 + H2 (`backfill_negocio_range`) — backfill completo.
 - 2023 H1 + H2 — backfill completo.
-- MEP histórico 2024 cargado a `Valuaciones.Dolar` por user.
+- MEP histórico 2024 cargado a `valuaciones.dolar` por user.
 - `match_mep_boletos --desde 2024-01-01 --hasta 2024-12-31` — pendiente
   de aplicar (script lo dejó listo, dry mostró 35.086 docs a actualizar
   con 2 sin MEP en feriados).
@@ -493,7 +499,7 @@ quedan incluidas (no fuerzan reset).
 ### Performance
 
 - `pnl_todas_cuentas`: cold start 30-60s. Si se vuelve crítico,
-  refactor a aggregation Mongo en lugar de iterar por cuenta.
+  refactor a agregación SQL (GROUP BY) en lugar de iterar por cuenta.
 
 ### Edge cases conocidos
 
@@ -538,7 +544,7 @@ python -m scripts.audit_assets_instrumento --top 30
 | `GET /api/portfolio/cuentas` | Lista cuentas para selector. |
 | `GET /api/manager/assets?cartera=X` | Lista assets para corregir mapping. |
 | `GET /api/manager/assets/values` | Autocomplete (carteras/emisores). |
-| `PATCH /api/manager/assets` | Editar UPPERCASE en Valuaciones.Assets (con audit). |
+| `PATCH /api/manager/assets` | Editar UPPERCASE en `portafolio.assets` (con audit). |
 | `GET /api/manager/status` | Estado motores + jobs + APIs externas (incluye PortfolioSnapshot + Aunesa). |
 
 ---

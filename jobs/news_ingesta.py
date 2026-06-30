@@ -22,9 +22,8 @@ from core.pg_mirror import doc_iso, prune_native, write_native
 
 logger = logging.getLogger(__name__)
 
-# Retención: las noticias NO se acumulan — viven 2 días y Mongo las borra solo
-# (TTL index sobre fecha_publicacion). El espejo SQL aplica la misma retención
-# vía prune_job tras cada ingesta (y el delete-orphans de sync_postgres de red).
+# Retención: las noticias NO se acumulan — viven 2 días. Tras cada ingesta se
+# borran las filas más viejas que RETENCION_DIAS con `prune_native` (SQL-native).
 RETENCION_DIAS = 2
 
 # Fuentes con RSS público. Si una URL cambia, solo se ignora esa fuente esa

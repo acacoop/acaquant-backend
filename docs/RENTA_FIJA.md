@@ -1,19 +1,24 @@
 
-# RENTA FIJA — mapa de datos (Mongo + SQL)
+# RENTA FIJA — mapa de datos (SQL)
 
 > **Qué es este documento.** Mapa verificado **desde el código** (no desde otros
 > docs) de la vista **RENTA FIJA** (`/renta-fija` en acaquant-web): qué datos
-> muestra, de qué colección Mongo salen, quién las llena, cómo se relacionan, y
-> qué está espejado en SQL y qué no.
+> muestra, de qué tabla SQL salen, quién las llena y cómo se relacionan.
 >
 > **Método.** Cada afirmación de abajo fue verificada leyendo el archivo y la
 > línea reales (routers, services, motores, jobs, `sql/schema.sql`). Lo que **no**
 > pude verificar está marcado explícitamente como `⚠️ a verificar` — no se asumió
-> nada. Lo que requiere **medir en prod** (conteos, si el sync corre de verdad)
-> está en la sección final.
+> nada.
 >
-> Fecha de relevamiento: **2026-06-12**. Si cambia un motor/job/endpoint, este
-> doc queda viejo — regenerar revisando las mismas fuentes.
+> **Estado: SQL-native (Mongo decomisionado 2026-06-29).** Toda la lectura y
+> escritura de esta vista es Postgres/Supabase. Conexión vía
+> `core.postgres.get_pool()`; escrituras SQL-native vía `core.pg_mirror`; lectura
+> por dominio vía los services `*_sql.py` (`renta_fija_sql`, `curvas_sql`, etc.) y
+> helpers (`core/market_snapshot`, `core/series_macro`). Ya no hay Mongo/Atlas.
+>
+> Fecha de relevamiento: **2026-06-12** (actualizado al decomiso de Mongo
+> **2026-06-29**). Si cambia un motor/job/endpoint, este doc queda viejo —
+> regenerar revisando las mismas fuentes.
 
 ---
 
@@ -23,18 +28,19 @@
 Tabla de bonos, Forwards, Curvas y Breakevens (+ sub-tab Libro). Es la pantalla
 más pesada en datos de toda la sección MERCADOS.
 
-📋 **De dónde sale todo:** **100% de Mongo.** La vista lee ~16 colecciones de la
-base `Trading` (+ 2 de `Valuaciones`). Se apoya en **3 colecciones base**
-(`Curvas`, `MarketSnapshot`, `SnapshotsCierre`) y el resto **se deriva** de ellas
-(forwards, breakevens, fair value son **cálculos**, no datos crudos).
+📋 **De dónde sale todo:** **100% de SQL (Postgres/Supabase).** La vista lee ~16
+tablas del schema `mercado` (+ macro y `valuaciones`). Se apoya en **3 tablas
+base** (`mercado.curvas`, `mercado.market_snapshot`, `mercado.snapshots_cierre`)
+y el resto **se deriva** de ellas (forwards, breakevens, fair value son
+**cálculos**, no datos crudos).
 
-📋 **Estado de SQL para esta vista (lo importante):**
-- **Lectura: CERO.** Ningún endpoint de renta fija lee de Postgres. No existe
-  `renta_fija_sql.py`. (Verificado.)
-- **Escritura/espejo:** la mayoría de los **históricos y maestros** SÍ tienen
-  tabla espejo en SQL, poblada por el batch `jobs/sync_postgres.py` (cron cada
-  20 min, sin flag). El **live de forwards/breakevens** (la matriz intradía)
-  **NO tiene espejo en SQL** — solo su cierre diario va a la tabla `mercado_hist`.
+📋 **Arquitectura de datos (lo importante):**
+- **Lectura: SQL-native.** Todos los endpoints de renta fija leen de Postgres vía
+  `core.postgres.get_pool()`, a través de los services `*_sql.py` y helpers
+  (`core/market_snapshot`, `core/series_macro`).
+- **Escritura:** los motores y jobs escriben SQL-native vía `core.pg_mirror`.
+  El live de forwards/breakevens (la matriz intradía) se persiste en sus tablas
+  `mercado` y su cierre diario en las tablas de histórico correspondientes.
 
 ---
 
@@ -57,132 +63,122 @@ Todos los endpoints listados **existen** y fueron verificados en
 
 ---
 
-## 3. Colecciones Mongo de la vista — quién las lee y quién las llena
+## 3. Tablas SQL de la vista — quién las lee y quién las llena
 
-Verificado: acceso `db["Coleccion"]` en cada service + el motor/job que escribe.
+Verificado: acceso a cada tabla en su service `*_sql.py` + el motor/job que escribe.
 
-### 3.1. Colecciones BASE (el núcleo)
+### 3.1. Tablas BASE (el núcleo)
 
-| Colección (`Trading.*`) | Qué es | La leen (services) | La llena (motor/job) |
+| Tabla SQL | Qué es | La leen (services) | La llena (motor/job) |
 |---|---|---|---|
-| **Curvas** | Maestro estático de cada bono: flujos, vencimiento, cupón, `cer_emision` | renta_fija, analitica, carry_trade, sensibilidad, titulos_flujos, fair_value | Maestro editable (no lo escribe un motor) — carga/edición |
-| **MarketSnapshot** | Estado **vivo** por ticker: precio, book, TEA, duration, paridad | renta_fija, analitica, carry_trade, sensibilidad, fair_value | **motor rofex** (`engines/valores.py`: book + precios) **y motor curvas** (`engines/curvas.py`: TEA/TEM/duration/paridad). Cada uno escribe SOLO sus campos con `$set` parcial |
-| **SnapshotsCierre** | Foto del cierre diario por bono | renta_fija, analitica, carry_trade | **`jobs/snapshot_cierre.py`** (cron 20:25 UTC) |
+| **mercado.curvas** | Maestro estático de cada bono: flujos, vencimiento, cupón, `cer_emision` | renta_fija, analitica, carry_trade, sensibilidad, titulos_flujos, fair_value | Maestro editable (no lo escribe un motor) — carga/edición |
+| **mercado.market_snapshot** | Estado **vivo** por ticker: precio, book, TEA, duration, paridad | renta_fija, analitica, carry_trade, sensibilidad, fair_value | **motor rofex** (`engines/valores.py`: book + precios) **y motor curvas** (`engines/curvas.py`: TEA/TEM/duration/paridad). Cada uno escribe SOLO sus campos (update parcial) |
+| **mercado.snapshots_cierre** | Foto del cierre diario por bono | renta_fija, analitica, carry_trade | **`jobs/snapshot_cierre.py`** (cron 20:25 UTC) |
 
-### 3.2. Colecciones DERIVADAS (cálculos a partir de las base)
+### 3.2. Tablas DERIVADAS (cálculos a partir de las base)
 
-| Colección | Qué es | La lee | La llena (verificado) |
+| Tabla SQL | Qué es | La lee | La llena (verificado) |
 |---|---|---|---|
-| **ForwardsLive** | Matriz de tasas forward (1 doc/curva, vivo) | derivados.py | **motor forwards** (`engines/forwards.py`) |
-| **ForwardsHistorico** | Forwards de cierre (1 doc/fecha,curva) | derivados.py | motor forwards |
-| **ForwardsZscore** | Media/desvío por par para z-score | derivados.py | **`jobs/forwards_zscore.py`** (post-cierre) |
-| **BreakevensLive** | Breakeven Lecap↔CER (1 doc global, vivo) | derivados.py | **motor breakevens** (`engines/breakevens.py`) |
-| **BreakevensHistorico** | Breakevens de cierre (1 doc/fecha) | derivados.py | motor breakevens |
-| **FitParams** | Betas Nelson-Siegel de la curva (fair value) | fair_value.py | **`jobs/fair_value.py`** |
-| **FairValueResiduos** | Residuo/z-score por bono vs curva teórica | fair_value.py | `jobs/fair_value.py` |
+| **mercado.forwards** (live) | Matriz de tasas forward (1 fila/curva, vivo) | derivados.py | **motor forwards** (`engines/forwards.py`) |
+| **mercado.forwards** (histórico) | Forwards de cierre (1 fila/fecha,curva) | derivados.py | motor forwards |
+| **mercado.forwards_zscore** | Media/desvío por par para z-score | derivados.py | **`jobs/forwards_zscore.py`** (post-cierre) |
+| **mercado breakevens** (live) | Breakeven Lecap↔CER (1 fila global, vivo) | derivados.py | **motor breakevens** (`engines/breakevens.py`) |
+| **mercado breakevens** (histórico) | Breakevens de cierre (1 fila/fecha) | derivados.py | motor breakevens |
+| **mercado.fit_params** | Betas Nelson-Siegel de la curva (fair value) | fair_value.py | **`jobs/fair_value.py`** |
+| **mercado.fair_value_residuos** | Residuo/z-score por bono vs curva teórica | fair_value.py | `jobs/fair_value.py` |
 
-> El motor breakevens y el motor forwards **leen `MarketSnapshot` + `CER`** (y el
-> de breakevens también `InflacionMensual` y `TimeSales`) para calcular. Es
-> decir: si el precio vivo no llega, forwards y breakevens no se actualizan.
-> Verificado en `engines/breakevens.py:125-205` y `engines/forwards.py:45`.
+> El motor breakevens y el motor forwards **leen `mercado.market_snapshot` +
+> `macro.series_macro` (CER)** (y el de breakevens también la inflación mensual de
+> `macro.series_macro` y `mercado.timesales`) para calcular. Es decir: si el precio
+> vivo no llega, forwards y breakevens no se actualizan. Verificado en
+> `engines/breakevens.py:125-205` y `engines/forwards.py:45`.
 
-### 3.3. Colecciones de soporte
+### 3.3. Tablas de soporte
 
-| Colección | Qué es | La lee | La llena |
+| Tabla SQL | Qué es | La lee | La llena |
 |---|---|---|---|
-| **TimeSales** | Cada trade (Time & Sales) — alimenta sub-tab Libro | analitica, canje, renta_fija, macro | motor rofex (cada trade) |
-| **CanjeCierre** | Cierre diario de tickers de canje | canje.py | `jobs/cierre_canje.py` |
-| **CER** | Valor CER publicado por BCRA (1 doc/día) | renta_fija, descomposicion_retorno | `jobs/bcra.py` |
-| **InflacionMensual** | IPC mensual (usado por motor breakevens) | (motor breakevens) | `jobs/argentina_datos.py` ⚠️ *a verificar el job exacto* |
-| **DiasHabiles** | Calendario hábil (liquidación CER T+10) | renta_fija | job de días hábiles ⚠️ *nombre a verificar* |
-| **REM** | Consenso de inflación (overlay breakevens / rolldown) | derivados (rem), descomposicion_retorno | `jobs/argentina_datos.py` ⚠️ *a verificar* |
-| **UVA** | Valor UVA | macro.py | carga manual ⚠️ *a verificar* |
-| **Caucion / CaucionSnapshot** | Caución cierre / vivo | repo.py | motor caución (`engines/caucion.py`) |
-| **FuturosDLR / FuturosDLRSnapshot** | Futuros DLR cierre / vivo | derivados.py | motor futuros DLR |
-| **Valuaciones.Dolar / DolarSnapshot** | MEP/CCL histórico / vivo | macro, carry_trade | motores dólares / dolar_mep |
+| **mercado.timesales** | Cada trade (Time & Sales) — alimenta sub-tab Libro | analitica, canje, renta_fija, macro | motor rofex (cada trade) |
+| **mercado.canje_cierre** | Cierre diario de tickers de canje | canje.py | `jobs/cierre_canje.py` |
+| **macro.series_macro** (CER) | Valor CER publicado por BCRA (1 fila/día) | renta_fija, descomposicion_retorno | `jobs/bcra.py` |
+| **macro.series_macro** (InflacionMensual) | IPC mensual (usado por motor breakevens) | (motor breakevens) | `jobs/argentina_datos.py` ⚠️ *a verificar el job exacto* |
+| **mercado.dias_habiles** | Calendario hábil (liquidación CER T+10) | renta_fija | job de días hábiles ⚠️ *nombre a verificar* |
+| **macro.rem** | Consenso de inflación (overlay breakevens / rolldown) | derivados (rem), descomposicion_retorno | `jobs/argentina_datos.py` ⚠️ *a verificar* |
+| **macro.uva** | Valor UVA | macro.py | carga manual ⚠️ *a verificar* |
+| **mercado.caucion_snapshot** | Caución cierre / vivo | repo.py | motor caución (`engines/caucion.py`) |
+| **mercado.futuros_dlr_snapshot** | Futuros DLR cierre / vivo | derivados.py | motor futuros DLR |
+| **valuaciones.dolar / valuaciones.dolar_snapshot** | MEP/CCL histórico / vivo | macro, carry_trade | motores dólares / dolar_mep |
 
 ---
 
-## 4. Relaciones clave entre colecciones (los "joins")
+## 4. Relaciones clave entre tablas (los "joins")
 
-Mongo **no tiene foreign keys**: estos cruces se hacen **en Python**, no en la
-base. Los más importantes (verificados):
+Estos cruces hoy se resuelven **en Python dentro de cada service** (podrían
+hacerse como JOINs SQL nativos). Los más importantes (verificados):
 
-1. **El cruce maestro:** `Curvas.ticker_corto` ↔ `MarketSnapshot.ticker` ↔
-   `SnapshotsCierre.ticker`. Une el "DNI" del bono (Curvas) con su precio vivo
-   (MarketSnapshot) o de cierre (SnapshotsCierre). Aparece en casi todos los
-   endpoints. (`renta_fija.py`, `analitica.py`, `sensibilidad.py`.)
+1. **El cruce maestro:** `mercado.curvas.ticker_corto` ↔
+   `mercado.market_snapshot.ticker` ↔ `mercado.snapshots_cierre.ticker`. Une el
+   "DNI" del bono (curvas) con su precio vivo (market_snapshot) o de cierre
+   (snapshots_cierre). Aparece en casi todos los endpoints. (`renta_fija.py`,
+   `analitica.py`, `sensibilidad.py`.)
 
-2. **CER fijado:** `Curvas.fecha_vencimiento` → `DiasHabiles` (T+10) →
-   `CER.fecha`. Si el CER de liquidación de un bono ya está publicado, el bono
-   "migra" de curva CER a tasa fija en runtime. (`renta_fija.py`.)
+2. **CER fijado:** `mercado.curvas.fecha_vencimiento` → `mercado.dias_habiles`
+   (T+10) → `macro.series_macro` (CER por fecha). Si el CER de liquidación de un
+   bono ya está publicado, el bono "migra" de curva CER a tasa fija en runtime.
+   (`renta_fija.py`.)
 
-3. **Par breakeven:** `Curvas` (lecap) ↔ `Curvas` (cer) por `fecha_vencimiento`
-   aproximada (±20 días). El motor breakevens empareja Lecap con el CER más
-   cercano en plazo. (`engines/breakevens.py`.)
+3. **Par breakeven:** `mercado.curvas` (lecap) ↔ `mercado.curvas` (cer) por
+   `fecha_vencimiento` aproximada (±20 días). El motor breakevens empareja Lecap
+   con el CER más cercano en plazo. (`engines/breakevens.py`.)
 
-4. **Fair value live:** `FitParams` (betas del cierre) + `MarketSnapshot` (TEA
-   viva) → `FairValueResiduos` recalculado. (`fair_value.py`.)
+4. **Fair value live:** `mercado.fit_params` (betas del cierre) +
+   `mercado.market_snapshot` (TEA viva) → `mercado.fair_value_residuos`
+   recalculado. (`fair_value.py`.)
 
-5. **Carry / retorno total:** `SnapshotsCierre` (precios) + `Valuaciones.Dolar`
-   (MEP) + `Trading.DOLAR` (oficial A3500). (`carry_trade.py`, `renta_fija.py`.)
+5. **Carry / retorno total:** `mercado.snapshots_cierre` (precios) +
+   `valuaciones.dolar` (MEP) + `macro.series_macro` (DOLAR oficial A3500).
+   (`carry_trade.py`, `renta_fija.py`.)
 
 ---
 
-## 5. Estado SQL — qué está espejado y qué no
+## 5. Modelo SQL de la vista (migración completa)
 
-**Verificado contra `sql/schema.sql` (27 tablas) y el `run()` de
-`jobs/sync_postgres.py` (todas estas sync corren sin flag, en cada corrida del
-cron, cada 20 min en horario de mercado).**
+La migración Mongo→SQL **está completa (2026-06-29)**: la vista lee y escribe
+**SQL-native**. No quedan colecciones Mongo ni el batch de espejo `sync_postgres`
+como fuente — los motores y jobs escriben directo a Postgres vía `core.pg_mirror`.
 
-### 5.1. Colecciones CON espejo en SQL
+### 5.1. Tablas que usa la vista
 
-| Colección Mongo | Tabla SQL | Cómo se puebla |
+Verificado contra `sql/schema.sql`. Cada dato (live, cierre, histórico, maestros
+y series macro) tiene su tabla SQL y se escribe directo desde su motor/job:
+
+| Tabla SQL | Qué guarda | Quién la escribe |
 |---|---|---|
-| Trading.Curvas | `curvas` | `sync_curvas` (batch) |
-| Trading.BondsMaster | `bonds_master` | `sync_bonds_master` (batch) |
-| Trading.MarketSnapshot | `market_snapshot` | `sync_market_snapshot` (batch, baseline) **+ dual-write vivo de los motores** (flag `SNAPSHOT_SQL`, hoy **ENCENDIDO**) |
-| Trading.SnapshotsCierre | `snapshots_cierre` + `snapshots_cierre_hist` | `sync_snapshots_cierre*` (batch) + dual-write (`MERCADO_SQL_WRITE`) |
-| Trading.CanjeCierre | `canje_cierre` | `sync_canje_cierre` (batch) + dual-write |
-| Trading.CER · InflacionMensual · BADLAR · DOLAR · TAMAR · RiesgoPais · InflacionInteranual | `series_macro` (las 7 juntas) | `sync_series_macro` (batch) |
-| Trading.REM | `rem` | `sync_rem` (batch) |
-| Trading.BreakevensHistorico | `mercado_hist` (clave `coleccion='BreakevensHistorico'`) | `sync_mercado_hist` (batch) |
-| Trading.ForwardsHistorico | `mercado_hist` | `sync_mercado_hist` |
-| Trading.FuturosDLR | `mercado_hist` | `sync_mercado_hist` |
-| Trading.Caucion | `mercado_hist` | `sync_mercado_hist` |
-| Trading.FitParams | `mercado_hist` | `sync_mercado_hist` |
-| Trading.FairValueResiduos | `mercado_hist` | `sync_mercado_hist` |
-| Valuaciones.Dolar | `dolar` | `sync_dolar` (batch) |
+| `mercado.curvas` | Maestro de bonos | carga/edición |
+| `mercado.bonds_master` | Maestro complementario de bonos | carga/edición |
+| `mercado.market_snapshot` | Estado vivo por ticker | motor rofex + motor curvas (`core.pg_mirror`) |
+| `mercado.snapshots_cierre` | Cierre diario por bono | `jobs/snapshot_cierre.py` |
+| `mercado.canje_cierre` | Cierre de tickers de canje | `jobs/cierre_canje.py` |
+| `macro.series_macro` | CER · InflacionMensual · BADLAR · DOLAR · TAMAR · RiesgoPais · InflacionInteranual (las 7 juntas) | `jobs/bcra.py`, `jobs/argentina_datos.py` |
+| `macro.uva` | Valor UVA | carga manual |
+| `macro.rem` | Consenso REM | `jobs/argentina_datos.py` |
+| `mercado.forwards` (+ histórico) | Forwards live y de cierre | motor forwards |
+| `mercado.forwards_zscore` | Coeficientes de z-score | `jobs/forwards_zscore.py` |
+| breakevens (live + histórico, schema `mercado`) | Breakevens live y de cierre | motor breakevens |
+| `mercado.fit_params` | Betas Nelson-Siegel | `jobs/fair_value.py` |
+| `mercado.fair_value_residuos` | Residuo/z-score por bono | `jobs/fair_value.py` |
+| `mercado.futuros_dlr_snapshot` | Futuros DLR | motor futuros DLR |
+| `mercado.caucion_snapshot` | Caución | motor caución |
+| `mercado.timesales` | Trades (Libro) | motor rofex |
+| `mercado.dias_habiles` | Calendario hábil | job de días hábiles |
+| `valuaciones.dolar` / `valuaciones.dolar_snapshot` / `valuaciones.dolar_oficial_live` | MEP/CCL histórico/vivo + dólar oficial | motores dólares / dolar_mep |
 
-> **`mercado_hist` es genérica:** una sola tabla con `(coleccion, fecha, k,
-> data jsonb)` que guarda el **doc completo** de 6 colecciones de cierre. Es
-> espejo **batch** — NO hay dual-write vivo desde los motores (verificado: no
-> existe `mirror_*` de mercado_hist en `engines/`).
+### 5.2. Conclusión para RENTA FIJA
 
-### 5.2. Colecciones SIN espejo en SQL (quedaron afuera)
-
-Estas **no tienen ninguna tabla** en `sql/schema.sql`:
-
-- **ForwardsLive** y **BreakevensLive** — el **vivo intradía** de forwards y
-  breakevens (la matriz que ves moverse). Solo su cierre diario va a
-  `mercado_hist`; el live **no está en SQL**.
-- **ForwardsZscore** — coeficientes de z-score.
-- **TimeSales** — los trades (Libro).
-- **CaucionSnapshot**, **FuturosDLRSnapshot**, **Valuaciones.DolarSnapshot** —
-  los snapshots **vivos** (singletons).
-- **DiasHabiles**, **UVA**, **InflacionMensual** *(esta última sí entra a
-  `series_macro`; ver 5.1 — confirmado por el comentario del schema)*.
-
-### 5.3. Conclusión de migración para RENTA FIJA
-
-- La vista **funciona 100% sobre Mongo**. SQL hoy **no sirve ni un dato** de esta
-  pantalla.
-- SQL tiene un espejo de **escritura** bastante completo de los **históricos y
-  maestros** de renta fija (curvas, cierres, series macro, fair value de cierre,
-  forwards/breakevens de cierre). Sirve para reportería futura.
-- Lo que **falta del todo** en SQL es el **estado vivo derivado**: la matriz live
-  de forwards y breakevens, el z-score, el Time & Sales. Si algún día se quiere
-  servir la vista desde SQL, eso hay que diseñarlo (hoy no existe).
+- La vista **funciona 100% sobre SQL**. Lectura por `core.postgres.get_pool()` +
+  los services `*_sql.py` / helpers (`core/market_snapshot`, `core/series_macro`);
+  escritura SQL-native vía `core.pg_mirror`.
+- Tanto el **estado vivo derivado** (matriz live de forwards/breakevens, z-score,
+  Time & Sales) como los **históricos y maestros** viven en Postgres.
 
 ---
 
@@ -207,19 +203,13 @@ front; el backend manda con su TTL de cache.)*
 
 Esto **no se puede afirmar leyendo código** — requiere correr una medición:
 
-1. **¿El espejo SQL está realmente poblado y al día?** Las tablas existen y el
-   sync está wired, pero que corra OK depende de que `jobs/sync_postgres` se
-   ejecute y Postgres esté accesible. **Medir con:**
-   `python -m scripts.diag_inventario_mongo_sql` (lista conteos Mongo vs SQL,
-   read-only).
+1. **Conteos reales por tabla** — no hay ningún número en este doc a propósito
+   (sería fruta). Salen de una consulta read-only sobre Postgres.
 
-2. **Conteos reales por colección/tabla** — no hay ningún número en este doc a
-   propósito (sería fruta). Salen del mismo diag.
-
-3. **Nombres de job exactos** marcados `⚠️ a verificar` en §3.3
-   (InflacionMensual / DiasHabiles / REM / UVA): sé qué colección es y que la
-   leen, pero no confirmé el job que las escribe leyendo su línea. No afecta la
-   vista (son soporte), pero queda anotado para no afirmar de más.
+2. **Nombres de job exactos** marcados `⚠️ a verificar` en §3.3
+   (InflacionMensual / DiasHabiles / REM / UVA): sé qué tabla es y que la leen,
+   pero no confirmé el job que las escribe leyendo su línea. No afecta la vista
+   (son soporte), pero queda anotado para no afirmar de más.
 
 ---
 
@@ -236,7 +226,12 @@ Esto **no se puede afirmar leyendo código** — requiere correr una medición:
 - **Motores:** `engines/valores.py`, `engines/curvas.py`, `engines/forwards.py`,
   `engines/breakevens.py`, `engines/caucion.py`.
 - **Jobs:** `snapshot_cierre.py`, `cierre_canje.py`, `bcra.py`, `fair_value.py`,
-  `forwards_zscore.py`, `argentina_datos.py`, `sync_postgres.py`.
-- **SQL:** `sql/schema.sql` (tablas `curvas`, `bonds_master`, `market_snapshot`,
-  `snapshots_cierre*`, `canje_cierre`, `series_macro`, `rem`, `mercado_hist`,
-  `dolar`).
+  `forwards_zscore.py`, `argentina_datos.py`.
+- **SQL:** conexión `core.postgres.get_pool()`; escritura `core.pg_mirror`;
+  helpers de lectura `core/market_snapshot`, `core/series_macro`; schema
+  `sql/schema.sql` (tablas `mercado.curvas`, `mercado.bonds_master`,
+  `mercado.market_snapshot`, `mercado.snapshots_cierre`, `mercado.canje_cierre`,
+  `mercado.forwards`, `mercado.forwards_zscore`, `mercado.fit_params`,
+  `mercado.fair_value_residuos`, `mercado.futuros_dlr_snapshot`,
+  `mercado.caucion_snapshot`, `mercado.timesales`, `mercado.dias_habiles`,
+  `macro.series_macro`, `macro.rem`, `macro.uva`, `valuaciones.dolar`).

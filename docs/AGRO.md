@@ -1,14 +1,15 @@
-# AGRO — mapa de datos (Mongo + SQL)
+# AGRO — mapa de datos (SQL)
 
 > **Qué es este documento.** Mapa verificado **desde el código** de la vista
-> **AGRO** (`/agro` en acaquant-web): qué muestra, de qué colección Mongo sale
-> cada dato, quién la llena, cómo se relacionan y qué está en SQL y qué no.
+> **AGRO** (`/agro` en acaquant-web): qué muestra, de qué tabla SQL sale
+> cada dato, quién la llena, cómo se relacionan.
 >
 > **Método.** Cada afirmación fue verificada leyendo archivo:línea (routers,
 > services, motores, `sql/schema.sql`). Lo no verificable por código se marca
 > `⚠️ a verificar`. Lo que requiere medir en prod está al final. No se asumió nada.
 >
-> Relevamiento: **2026-06-12**.
+> Relevamiento: **2026-06-12**. Actualizado **2026-06-29** (decomiso total de
+> Mongo: AGRO lee/escribe SQL-native).
 
 ---
 
@@ -19,19 +20,19 @@
 **Mejoras Precio Dispo** (LECAPs para mejorar el precio disponible), y **Datos**
 (carga manual de la Cámara Arbitral de Cereales).
 
-📋 **De dónde sale todo:** Mongo, repartido en **3 bases**: `Trading`
-(snapshots de mercado), **`Derivados`** (datos cargados a mano por la mesa) y
-`CashFlow` (operaciones, para el market share que vive en otra vista).
+📋 **De dónde sale todo:** SQL (Postgres/Supabase), todo bajo el schema
+**`mercado`**: snapshots de mercado (`agro_snapshot`, `agro_opciones_snapshot`,
+`futuros_dlr_snapshot`), datos cargados a mano por la mesa (`agro_pizarra`,
+`camara_cereales`) y el volumen agro (`volumen_mercado_agro`, denominador del
+market share que vive en otra vista). El market share cruza además
+`operaciones.operaciones` y `clientes.comitentes`.
 
-📋 **Estado SQL (lo importante):** **AGRO está casi por completo AFUERA de la
-migración SQL.** Ninguna de sus colecciones propias (`AgroSnapshot`,
-`AgroOpcionesSnapshot`, `Derivados.*`, `FuturosDLRSnapshot`, `VolumenMercadoAgro`)
-tiene tabla en SQL (verificado: 0 apariciones en `sql/schema.sql`). Solo lo
-**compartido** (`Curvas`, `MarketSnapshot`) y el cierre histórico de futuros DLR
-(`FuturosDLR` → `mercado_hist`) están espejados.
-
-🔎 **Hallazgo:** la vista usa una base Mongo **`Derivados`** que **no figura en
-el inventario de bases del `CLAUDE.md`**. Conviene agregarla a la doc raíz.
+📋 **Estado SQL (lo importante):** **AGRO migró por completo a SQL** (decomiso de
+Mongo, 2026-06-29). Todas sus tablas propias (`mercado.agro_snapshot`,
+`mercado.agro_opciones_snapshot`, `mercado.futuros_dlr_snapshot`,
+`mercado.agro_pizarra`, `mercado.camara_cereales`, `mercado.volumen_mercado_agro`)
+y las compartidas (`mercado.curvas`, `mercado.market_snapshot`) viven en SQL. Los
+motores escriben SQL-native (vía `core.pg_mirror`) y los services leen SQL.
 
 ---
 
@@ -59,81 +60,72 @@ Endpoints verificados en `api/routers/derivados_agro.py`.
 
 ---
 
-## 3. Colecciones Mongo — quién las lee y quién las llena (verificado)
+## 3. Tablas SQL — quién las lee y quién las llena (verificado)
 
-| Colección | Base | Qué es | La lee | La llena (verificado) |
+| Tabla | Schema | Qué es | La lee | La llena (verificado) |
 |---|---|---|---|---|
-| **AgroSnapshot** | `Trading` | Futuros agro vivos (~24 docs) | derivados_agro, mejoras (indirecto) | **`engines/motor_agro.py`** (ReplaceOne cada ~5s) |
-| **AgroOpcionesSnapshot** | `Trading` | Cadena de opciones agro viva | derivados_agro | **`engines/motor_agro_opciones.py`** (ReplaceOne cada ~5s) |
-| **FuturosDLRSnapshot** | `Trading` | Futuros DLR vivos | mejoras_dispo | **`engines/futuros_dlr.py`** (limpieza: `jobs/cleanup_futuros_dlr.py`) |
-| **FuturosDLR** | `Trading` | Futuros DLR de cierre (histórico) | (histórico) | `engines/futuros_dlr.py` |
-| **Curvas** | `Trading` | Maestro de bonos (LECAPs para mejoras) | mejoras_dispo | maestro editable |
-| **MarketSnapshot** | `Trading` | TEA viva de cada LECAP | mejoras_dispo | motores rofex + curvas |
-| **AgroPizarra** | **`Derivados`** | Precio pizarra USD por commodity (3 docs) | derivados_agro | **MANUAL** (PATCH desde la mesa) |
-| **AgroPizarraAudit** | **`Derivados`** | Log de cambios de la pizarra | — | escrito en cada PATCH |
-| **CamaraCereales** | **`Derivados`** | Precios Cámara Rosario (5 cereales) | camara_cereales, mejoras_dispo, derivados_agro | **MANUAL** (PATCH desde la mesa) |
-| **CamaraCerealesAudit** | **`Derivados`** | Log de cambios de la cámara | — | escrito en cada PATCH |
+| **agro_snapshot** | `mercado` | Futuros agro vivos (~24 filas) | derivados_agro, mejoras (indirecto) | **`engines/motor_agro.py`** (upsert cada ~5s) |
+| **agro_opciones_snapshot** | `mercado` | Cadena de opciones agro viva | derivados_agro | **`engines/motor_agro_opciones.py`** (upsert cada ~5s) |
+| **futuros_dlr_snapshot** | `mercado` | Futuros DLR vivos | mejoras_dispo | **`engines/futuros_dlr.py`** (limpieza: `jobs/cleanup_futuros_dlr.py`) |
+| **curvas** | `mercado` | Maestro de bonos (LECAPs para mejoras) | mejoras_dispo | maestro editable |
+| **market_snapshot** | `mercado` | TEA viva de cada LECAP | mejoras_dispo | motores rofex + curvas |
+| **agro_pizarra** | `mercado` | Precio pizarra USD por commodity (3 filas) | derivados_agro | **MANUAL** (PATCH desde la mesa) |
+| **agro_pizarra_audit** | `mercado` | Log de cambios de la pizarra | — | escrito en cada PATCH |
+| **camara_cereales** | `mercado` | Precios Cámara Rosario (5 cereales) | camara_cereales, mejoras_dispo, derivados_agro | **MANUAL** (PATCH desde la mesa) |
+| **camara_cereales_audit** | `mercado` | Log de cambios de la cámara | — | escrito en cada PATCH |
 
 > **Dato clave de diseño:** la **Pizarra** y la **Cámara** NO las alimenta ningún
 > motor — son **carga manual de la mesa** (PATCH con `require_module("agro")`),
-> con colecciones de auditoría (`*Audit`) que registran `updated_by` + `updated_at`.
+> con tablas de auditoría (`*_audit`) que registran `updated_by` + `updated_at`.
 
 ---
 
 ## 4. Relaciones clave (verificado)
 
-1. **Pase agro:** `get_pase_agro` cruza `Trading.AgroSnapshot` (futuros vivos en
-   USD) + `Derivados.AgroPizarra` (precio pizarra manual) + `Derivados.CamaraCereales`
+1. **Pase agro:** `get_pase_agro` cruza `mercado.agro_snapshot` (futuros vivos en
+   USD) + `mercado.agro_pizarra` (precio pizarra manual) + `mercado.camara_cereales`
    (precio USD de cámara) para armar la pizarra de pases.
 
 2. **Opción ↔ futuro:** se emparejan por **prefijo del ticker del futuro**, NO
    por fecha de vencimiento (las opciones agro vencen ~1 mes antes que el futuro
    subyacente). Verificado en `derivados_agro.py` (`_futuro_ticker_de_opcion`).
 
-3. **Mejoras dispo:** `Derivados.CamaraCereales` (precio ARS spot) +
-   `Trading.FuturosDLRSnapshot` (cobertura cambiaria) + `Trading.Curvas` (LECAPs)
-   + `Trading.MarketSnapshot` (TEA de cada LECAP) → tasa directa / valor final.
+3. **Mejoras dispo:** `mercado.camara_cereales` (precio ARS spot) +
+   `mercado.futuros_dlr_snapshot` (cobertura cambiaria) + `mercado.curvas` (LECAPs)
+   + `mercado.market_snapshot` (TEA de cada LECAP) → tasa directa / valor final.
 
 ---
 
-## 5. Estado SQL — qué está espejado y qué no
+## 5. Estado SQL — migración completa
 
-**Verificado contra `sql/schema.sql` (búsqueda directa por nombre):**
+**Decomiso de Mongo terminado (2026-06-29): AGRO lee y escribe SQL-native.**
 
-### 5.1. SIN espejo en SQL (0 apariciones en schema.sql)
-- `Trading.AgroSnapshot` ❌
-- `Trading.AgroOpcionesSnapshot` ❌
-- `Trading.FuturosDLRSnapshot` ❌ (el **vivo**)
-- `Derivados.AgroPizarra` (+ Audit) ❌
-- `Derivados.CamaraCereales` (+ Audit) ❌
-- `CashFlow.VolumenMercadoAgro` ❌ (denominador del market share, **carga manual mensual**)
+### 5.1. Tablas propias de AGRO (todas en SQL, schema `mercado`)
+- `mercado.agro_snapshot` — futuros agro vivos
+- `mercado.agro_opciones_snapshot` — cadena de opciones agro viva
+- `mercado.futuros_dlr_snapshot` — futuros DLR (vivo + cierre)
+- `mercado.agro_pizarra` (+ `agro_pizarra_audit`) — pizarra manual
+- `mercado.camara_cereales` (+ `camara_cereales_audit`) — cámara manual
+- `mercado.volumen_mercado_agro` — denominador del market share (**carga manual mensual**)
 
-### 5.2. CON espejo en SQL
-- `Trading.FuturosDLR` (cierre histórico) → tabla `mercado_hist` (vía
-  `sync_mercado_hist`, batch). El **vivo** (Snapshot) no.
-- `Trading.Curvas` → `curvas`; `Trading.MarketSnapshot` → `market_snapshot`
-  (compartidas, ya documentadas en RENTA_FIJA.md).
-- (Market share, en la vista Operaciones) `CashFlow.Operaciones` → tabla
-  `operaciones` con dual-run (`OPERACIONES_SQL`); `Clientes.Comitentes` →
-  `comitentes`. `VolumenMercadoAgro` sigue siendo solo Mongo.
+### 5.2. Compartidas (también SQL)
+- `mercado.curvas` y `mercado.market_snapshot` (documentadas en RENTA_FIJA.md).
+- (Market share, en la vista Operaciones) `operaciones.operaciones` y
+  `clientes.comitentes`.
 
 ### 5.3. Conclusión de migración para AGRO
-- **Lectura: 100% Mongo.** Ningún service de agro lee de SQL.
-- **El núcleo de la vista (futuros, opciones, pizarra, cámara, mejoras) NO tiene
-  ningún espejo en SQL.** Es el módulo de MERCADOS **más fuera** de la migración.
-- Si se quisiera llevar AGRO a SQL, hay que crear tablas para `AgroSnapshot`,
-  `AgroOpcionesSnapshot`, `FuturosDLRSnapshot` y las dos colecciones manuales de
-  `Derivados` — hoy **no existen**.
+- **Lectura y escritura: 100% SQL.** Los services de agro leen vía los `*_sql.py`
+  / helpers de `core`; los motores escriben con `core.pg_mirror`. Conexión
+  `core.postgres.get_pool()`.
+- No queda nada de AGRO en Mongo.
 
 ---
 
 ## 6. ⚠️ Pendiente de verificar / medir en prod (NO asumido)
 
-1. **Base `Derivados` no inventariada** en `CLAUDE.md` — corregir la doc raíz
-   (existe y la usan 3 services de agro, verificado).
-2. **Conteos reales** (¿`AgroSnapshot` tiene los ~24 docs?, ¿la pizarra tiene los
-   3?, etc.) — medir con `python -m scripts.diag_inventario_mongo_sql`.
-3. **`AgroPizarra`/`CamaraCereales` creación inicial:** el código asume que
+1. **Conteos reales** (¿`mercado.agro_snapshot` tiene las ~24 filas?, ¿la pizarra
+   tiene las 3?, etc.) — medir en SQL.
+2. **`agro_pizarra`/`camara_cereales` creación inicial:** el código asume que
    existen; no se vio dónde se crean por primera vez. ⚠️ a verificar (¿seed manual?).
 
 ---
@@ -148,5 +140,9 @@ Endpoints verificados en `api/routers/derivados_agro.py`.
 - **Services:** `derivados_agro.py`, `camara_cereales.py`, `mejoras_dispo.py`.
 - **Motores:** `engines/motor_agro.py`, `engines/motor_agro_opciones.py`,
   `engines/futuros_dlr.py` (limpieza: `jobs/cleanup_futuros_dlr.py`).
-- **SQL:** `sql/schema.sql` (solo `curvas`, `market_snapshot`, `mercado_hist`,
-  `operaciones`, `comitentes` tocan tangencialmente a agro).
+- **SQL:** `sql/schema.sql` (schema `mercado`: `agro_snapshot`,
+  `agro_opciones_snapshot`, `futuros_dlr_snapshot`, `agro_pizarra`(+`_audit`),
+  `camara_cereales`(+`_audit`), `volumen_mercado_agro`, `curvas`,
+  `market_snapshot`; + `operaciones.operaciones` y `clientes.comitentes` para el
+  market share). Conexión `core.postgres.get_pool()`, escritura vía
+  `core.pg_mirror`.

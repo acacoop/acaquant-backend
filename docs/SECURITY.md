@@ -65,7 +65,7 @@ da 401.
 ## 4. RBAC — qué ve cada role
 
 CF Access dice quién entra; `core/roles.py` dice qué ve. `require_module(m)`
-es la dependency que chequea que el role del email (de `Manager.RoleMatrix`)
+es la dependency que chequea que el role del email (de `manager.role_matrix`)
 tenga el módulo. Aplicado por router en `api/main.py`:
 
 | Grupo | Routers | Roles |
@@ -106,7 +106,7 @@ Viven en `.env` (local) y systemd unit files (Droplet). Nunca en el repo.
 | `CF_TRUSTED_SERVICE_TOKENS` | service tokens aceptados (acaquant-web SSR) |
 | `MCP_BEARER_TOKEN` | fallback static del MCP |
 | `MCP_JWT_SECRET` | firma de los JWT OAuth del MCP |
-| `MONGO_URI` | credenciales de Atlas |
+| `POSTGRES_URI` | credenciales de Postgres/Supabase |
 
 Rotación de `API_KEY`: manual — generar nueva, actualizar `.env` del Droplet
 + las env vars de Vercel (acaquant-web), redeploy de ambos.

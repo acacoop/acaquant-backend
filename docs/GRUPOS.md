@@ -5,17 +5,16 @@ El admin lo gestiona 100% desde `/manager → GRUPOS`.
 
 ## Modelo
 
-Colección **`Manager.Grupos`**:
+Tabla **`manager.grupos`** (SQL). Shape conceptual de un grupo:
 
-```js
+```jsonc
 {
-  _id:        ObjectId,
   nombre:     "Mesa Rosario",
   emails:     ["user1@x.com", "user2@x.com"],   // lowercased
   id_cuentas: ["805", "1207", ...],             // id_cuenta (string)
   creado_por: "admin@x.com",
-  creado_at:  ISODate,
-  updated_at: ISODate,
+  creado_at:  <timestamptz>,
+  updated_at: <timestamptz>,
   updated_por:"admin@x.com",
 }
 ```
@@ -52,7 +51,7 @@ deben tumbar la app; el peor caso es "ve de más", igual al estado actual.
   - `api/services/_grupos_scope.py`: dependencies `scope_cuentas`
     (inyecta `tuple[str,...] | None`) y `verificar_id_cuenta` (403).
   - Los services de `portfolio.py`, `pnl.py` y `valuaciones.py` aceptan
-    `scope` y lo aplican al `$match` Mongo / al filtro de docs.
+    `scope` y lo aplican al filtro SQL (`WHERE id_cuenta IN ...`) / de filas.
   - Routers `carteras.py` y `valuaciones.py` resuelven el scope y lo
     pasan; los endpoints `/{id_cuenta}/*` quedan gateados.
   - El cron (`pnl_todas_cuentas_compute`) corre sin scope.

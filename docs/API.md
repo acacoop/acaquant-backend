@@ -16,10 +16,10 @@ It is the only consumption boundary of the platform: the production frontend (**
 
 **Design principles**
 
-- **Read-only by default, mutations are explicit.** Every `GET` reads through `get_mongo_client_read()` (`SECONDARY_PREFERRED`). The handful of mutating endpoints (`POST/PUT/PATCH/DELETE`) is enumerated and gated.
+- **Read-only by default, mutations are explicit.** Every `GET` reads through the SQL read pool (`core.postgres.get_pool()`). The handful of mutating endpoints (`POST/PUT/PATCH/DELETE`) is enumerated and gated.
 - **Thin routers, fat services.** Router modules under `api/routers/` parse params and delegate to pure-Python services under `api/services/`. The same services are invoked by the assistant tool registry without HTTP loopback and by the MCP server tools.
 - **Defense in depth.** Cloudflare Tunnel + Access (SSO + service tokens), signed JWT validation, bearer key, rate limiting by identity, **role-based access control (RBAC) per module** with audit log, and explicit SSRF protection on user-supplied URLs.
-- **Snapshots over joins.** Heavy analytical endpoints read pre-aggregated API collections (`CuentasAPI`, `PortfolioAPI`, `OperacionesAPI`, `TitulosAPI`) kept in sync by scheduled jobs.
+- **SQL-native reads.** Heavy analytical endpoints read directly from the Postgres/Supabase tables (e.g. `portafolio.tenencia`, `portafolio.assets`, `operaciones.operaciones`); the pre-aggregated `*API` mirror collections were eliminated and the API now joins sources at read time (`api/services/titulos_flujos.py`).
 
 ---
 
@@ -105,13 +105,13 @@ Authorization: Bearer <API_KEY>
 
 ### 3.4 RBAC per module
 
-Identity tells us **who is calling**; RBAC tells us **what they can see**. Backed by three Mongo collections (`core/roles.py`):
+Identity tells us **who is calling**; RBAC tells us **what they can see**. Backed by three SQL tables (`core/roles_sql.py`):
 
-| Collection | Purpose |
+| Table | Purpose |
 |---|---|
-| `Manager.Users` | `{email, role, enabled, created_at, updated_at, auto_registered?, notes?}`. Auto-registers the first time a new email is seen (default role = `sales`). |
-| `Manager.RoleMatrix` | `{role, modules: [str], updated_by, updated_at}`. Editable from the Manager panel. |
-| `Manager.RoleAudit` | Append-only `{ts, actor, action, target, before, after}` for every user/matrix mutation. |
+| `manager.users` | `{email, role, enabled, created_at, updated_at, auto_registered?, notes?}`. Auto-registers the first time a new email is seen (default role = `sales`). |
+| `manager.role_matrix` | `{role, modules: [str], updated_by, updated_at}`. Editable from the Manager panel. |
+| `manager.role_audit` | Append-only `{ts, actor, action, target, before, after}` for every user/matrix mutation. |
 
 **Modules** (canonical list in `core/roles.py::MODULES`):
 
@@ -158,7 +158,7 @@ X-Acaquant-User-Email: jdoe@acavalores.com
 2. **Service token JWT** + `X-Acaquant-User-Email` → forwarded user email (the standard production path from acaquant-web).
 3. **Service token JWT** without `X-Acaquant-User-Email` → synthetic `service:<common_name>` identity. `get_user_role()` falls back to `DEFAULT_ROLE` (`sales`); restricted modules return `403`.
 
-> **Security note.** Until 2026-04-28 the synthetic `service:*` identity was implicitly mapped to `admin`. This was a **privilege-escalation bug** — every user-driven request reached the backend as `service:<cn>` (because of the CF stripping above) and was treated as admin, ignoring `Manager.Users` entirely. Fixed in commit `12b7008`: `service:*` now resolves to `DEFAULT_ROLE`. Machine integrations that need elevated access must register their email/CN explicitly in `Manager.Users`.
+> **Security note.** Until 2026-04-28 the synthetic `service:*` identity was implicitly mapped to `admin`. This was a **privilege-escalation bug** — every user-driven request reached the backend as `service:<cn>` (because of the CF stripping above) and was treated as admin, ignoring `manager.users` entirely. Fixed in commit `12b7008`: `service:*` now resolves to `DEFAULT_ROLE`. Machine integrations that need elevated access must register their email/CN explicitly in `manager.users`.
 
 ### 3.6 Backwards compatibility — `require_manager`
 
@@ -213,10 +213,10 @@ Handler-level errors use one of two shapes:
 ## 6. Conventions
 
 - **Path prefix.** Every route is under `/api`. Health is `/api/health`. MCP is mounted at `/mcp` (separate auth, see `docs/MCP.md`).
-- **Date format.** `YYYY-MM-DD` for calendar days, ISO-8601 with `+00:00` for timestamps. Some live endpoints serialize `Trading.TimeSales` timestamps as ART-shifted UTC (`+03:00` from naive ART) — see `MOTOR_TS_OFFSET` in `api/services/operativa_mep.py` and `api/services/triggers_mep.py`.
+- **Date format.** `YYYY-MM-DD` for calendar days, ISO-8601 with `+00:00` for timestamps. Some live endpoints serialize `mercado.timesales` timestamps as ART-shifted UTC (`+03:00` from naive ART) — see `MOTOR_TS_OFFSET` in `api/services/operativa_mep.py` and `api/services/triggers_mep.py`.
 - **Currency.** `ARS` or `USD` in the `moneda`/`unidad` field.
 - **Account.** ROFEX accounts are passed as plain strings (`"805"`). The default account comes from `ROFEX_ACCOUNT` (env). The environment used (`live` vs `remarket`) is controlled by `ROFEX_ORDERS_ENV`.
-- **Filters.** All query params are optional unless marked required. Missing filters return the full collection (subject to projection).
+- **Filters.** All query params are optional unless marked required. Missing filters return the full table (subject to projection).
 - **Response envelopes.** List endpoints return a JSON array. Analytical endpoints return an object with the minimal shape described per route.
 - **Projection.** Responses are projected server-side to remove `_id` and reduce payload. Field lists are authoritative in this document; clients must tolerate new fields.
 - **Compression.** Responses ≥ 1 KiB are served with `Content-Encoding: gzip` when the client advertises it (`GZipMiddleware`).
@@ -251,14 +251,14 @@ Routes are grouped by tag. Access column:
 
 ### 7.2 Cotizaciones (`/api/cotizaciones/*`) · pub
 
-Live and historical market data. All reads go directly against `Trading.*` / `Opciones.*` / `Valuaciones.*`; no migration needed.
+Live and historical market data. All reads go directly against the SQL market tables (`mercado.*`, `macro.*`, `valuaciones.*`).
 
 | Method | Path | Summary |
 |---|---|---|
 | GET | `/badlar` | BADLAR series (BCRA id=7) |
 | GET | `/cer` | CER series (BCRA id=30) |
 | GET | `/dolar` | Official USD (A3500, BCRA id=5) |
-| GET | `/mep` | Latest MEP/CCL/canje (live `DolarSnapshot`, falls back to cron histórico) |
+| GET | `/mep` | Latest MEP/CCL/canje (live `valuaciones.dolar_snapshot`, falls back to cron histórico) |
 | GET | `/forwards` | Live forward-rate matrix |
 | GET | `/forwards-zscore` | Z-score of a forward vs N-day rolling window |
 | GET | `/fair-value` | Bond fair value live (vs YTM curve) |
@@ -280,9 +280,9 @@ Live and historical market data. All reads go directly against `Trading.*` / `Op
 | GET | `/historico/dolares` | Multi-USD type history (D, C, MEP, oficial, …) |
 | GET | `/historico/forwards` | Forward matrices by date |
 | GET | `/historico/breakevens` | Breakevens by date |
-| GET | `/historico/trades` | Raw trades (price/size/side) from `Trading.TimeSales`, last 15 days, hard-limit 10 000. Analytics (TEA/TEM/duration/paridad) populated only for trades **before 2026-05-04** (motor_curvas stopped enriching TimeSales after that). |
+| GET | `/historico/trades` | Raw trades (price/size/side) from `mercado.timesales`, last 15 days, hard-limit 10 000. Analytics (TEA/TEM/duration/paridad) populated only for trades **before 2026-05-04** (motor_curvas stopped enriching TimeSales after that). |
 | GET | `/historico/opciones` | Option trades, last 21 days, hard-limit 5 000 |
-| GET | `/historico/curva` | Daily close per ticker in a curve (`curva` required). Source: `Trading.SnapshotsCierre` (cron 20:25 UTC L-V). If today has no persisted close yet, includes a live row per ticker from `Trading.MarketSnapshot.metrics`. |
+| GET | `/historico/curva` | Daily close per ticker in a curve (`curva` required). Source: `mercado.snapshots_cierre` (cron 20:25 UTC L-V). If today has no persisted close yet, includes a live row per ticker from `mercado.market_snapshot.metrics`. |
 | GET | `/historico/caucion` | Daily TNA close by currency |
 | GET | `/historico/futuros-dlr` | Daily DLR futures close |
 
@@ -291,7 +291,7 @@ Live and historical market data. All reads go directly against `Trading.*` / `Op
 | Param | Type | Notes |
 |---|---|---|
 | `desde` / `hasta` | `date` | `YYYY-MM-DD` inclusive |
-| `instrumento` | `string` | Short ticker (`TX26`) or full ROFEX (`MERV - XMEV - TX26 - 24hs`). Short tickers are resolved against `Trading.Curvas.ticker_corto`. |
+| `instrumento` | `string` | Short ticker (`TX26`) or full ROFEX (`MERV - XMEV - TX26 - 24hs`). Short tickers are resolved against `mercado.curvas.ticker_corto`. |
 | `curva` | `enum` | `tasa_fija` \| `cer` \| `tamar` \| `soberanos` \| `dolar_linked` |
 | `tipo` | `enum` | `CALL` \| `PUT` (options) |
 
@@ -299,8 +299,8 @@ Live and historical market data. All reads go directly against `Trading.*` / `Op
 
 These fields are computed by `engines/curvas.py` (refresh ~2s) and persisted in two places:
 
-- **Live** — `Trading.MarketSnapshot.metrics`. Surfaced by `/listar-curva`, `/snapshot-curva-historico` (when `fecha=today` before the close cron), and the live row of `/historico/curva` for today.
-- **Historical** — `Trading.SnapshotsCierre` (one doc per `(curva, ts_cierre, ticker)`, populated by `jobs/snapshot_cierre.py` at 20:25 UTC and the `backfill_snapshots_cierre` script). Surfaced by `/historico/curva`, `/snapshot-curva-historico` (past dates), `/serie-macro` with `<TICKER>.<FIELD>`, etc.
+- **Live** — `mercado.market_snapshot.metrics`. Surfaced by `/listar-curva`, `/snapshot-curva-historico` (when `fecha=today` before the close cron), and the live row of `/historico/curva` for today.
+- **Historical** — `mercado.snapshots_cierre` (one row per `(curva, ts_cierre, ticker)`, populated by `jobs/snapshot_cierre.py` at 20:25 UTC and the `backfill_snapshots_cierre` script). Surfaced by `/historico/curva`, `/snapshot-curva-historico` (past dates), `/serie-macro` with `<TICKER>.<FIELD>`, etc.
 
 Field semantics:
 
@@ -312,7 +312,7 @@ Field semantics:
 | `TEM` | `tasa_fija` | Monthly effective rate |
 | `paridad` | `cer` + soberanos | `price / (VN × CER_trade / CER_emision) × 100` |
 
-**Note on `/historico/trades`:** before 2026-05-04 these fields were also stamped per-trade in `Trading.TimeSales` (motor_curvas wrote them on every tick). After that refactor TimeSales is append-only price/size/side; the analytics live exclusively in `MarketSnapshot` (live) and `SnapshotsCierre` (close). For "TEA history of bond X" prefer `/historico/curva` filtering by ticker on the client, or `/serie-macro?variable=<TICKER>.TEA`.
+**Note on `/historico/trades`:** before 2026-05-04 these fields were also stamped per-trade in `mercado.timesales` (motor_curvas wrote them on every tick). After that refactor timesales is append-only price/size/side; the analytics live exclusively in `mercado.market_snapshot` (live) and `mercado.snapshots_cierre` (close). For "TEA history of bond X" prefer `/historico/curva` filtering by ticker on the client, or `/serie-macro?variable=<TICKER>.TEA`.
 
 ---
 
@@ -365,11 +365,11 @@ Cross-MEP arb monitor. Joins live AL30 (CI/24hs) with AL30D, computes implied ME
 
 #### `GET /carry-trade`
 
-Implied local carry vs forward-implied devaluation (ROFEX DLR). Daily prices source: `Trading.SnapshotsCierre` (cron 20:25 UTC L-V). If the requested range includes today and the close cron has not run yet, a live point is appended from `Trading.MarketSnapshot.metrics.last_price` so the series always reaches "today" during market hours. MEP comes from `Valuaciones.Dolar` (written by `engines/dolar_mep` every 15 min L-V 13–20 UTC).
+Implied local carry vs forward-implied devaluation (ROFEX DLR). Daily prices source: `mercado.snapshots_cierre` (cron 20:25 UTC L-V). If the requested range includes today and the close cron has not run yet, a live point is appended from `mercado.market_snapshot.metrics.last_price` so the series always reaches "today" during market hours. MEP comes from `valuaciones.dolar` (written by `engines/dolar_mep` every 15 min L-V 13–20 UTC).
 
 #### `GET /descomposicion-retorno`
 
-Ex-post return decomposition between two dates. Modes: `realizado` (ex-post, requires both dates) and `proyectado` (live carry). CER curve supported. Both endpoints read `Trading.SnapshotsCierre` via `snapshot_curva_historico`; if either bound is today and no close is persisted, the same live fallback to `MarketSnapshot.metrics` applies. See `api/services/descomposicion_retorno.py` for the full formula breakdown.
+Ex-post return decomposition between two dates. Modes: `realizado` (ex-post, requires both dates) and `proyectado` (live carry). CER curve supported. Both endpoints read `mercado.snapshots_cierre` via `snapshot_curva_historico`; if either bound is today and no close is persisted, the same live fallback to `mercado.market_snapshot.metrics` applies. See `api/services/descomposicion_retorno.py` for the full formula breakdown.
 
 #### `POST /estrategia-historico`
 
@@ -379,7 +379,7 @@ Backtests a strategy with body-passed inputs (positions + dates + initial capita
 
 ### 7.4 Cuentas (`/api/cuentas/*`) · op
 
-Counterparty / shareholder reference data (manual in `CashFlow.*`).
+Counterparty / shareholder reference data (lives in SQL — counterparties in `clientes.contrapartes`).
 
 | Method | Path | Summary |
 |---|---|---|
@@ -396,11 +396,11 @@ Mesa flow + cash movements (read-only). **Bloqueado al asistente y al MCP por po
 
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/flujo` | Trade flow (per-boleto) from `OperacionesAPI.MesaAPI` |
-| GET | `/flujos` | Cash movements from `OperacionesAPI.FlujosAPI` |
+| GET | `/flujo` | Trade flow (per-boleto) from `operaciones.operaciones` |
+| GET | `/flujos` | Cash movements from `operaciones.operaciones` |
 | GET | `/fondos` | Counterparties `grupo=Fondos` with at least one FCI asset |
-| GET | `/negocio` | Negocio del día consolidado por boleto desde `CashFlow.NegocioMovimientos` (param `fecha=YYYY-MM-DD`, default hoy ART). Devuelve `meta` + `agregados` por categoría + `top_tickers` + `boletos`. |
-| GET | `/negocio/fechas` | Lista de fechas con boletos persistidos en `NegocioMovimientos` ordenadas desc. Devuelve `[{fecha, n}]`. Usado por el frontend para limitar el selector. |
+| GET | `/negocio` | Negocio del día consolidado por boleto desde `operaciones.negocio_movimientos` (param `fecha=YYYY-MM-DD`, default hoy ART). Devuelve `meta` + `agregados` por categoría + `top_tickers` + `boletos`. |
+| GET | `/negocio/fechas` | Lista de fechas con boletos persistidos en `operaciones.negocio_movimientos` ordenadas desc. Devuelve `[{fecha, n}]`. Usado por el frontend para limitar el selector. |
 
 #### `/negocio` — schema del response
 
@@ -426,7 +426,7 @@ Categorías posibles (16):
 
 `importe` y `cantidad` están **siempre en perspectiva del cliente** (positivo = ingresa, negativo = egresa). Aunesa devuelve perspectiva broker; el service invierte el signo.
 
-La data la pobla `jobs/negocio_movimientos.py` cada hora 12-22 ART L-V. Detalle del flujo en `docs/sesion_2026_05_05_negocio.md`.
+La data la pobla `jobs/negocio_movimientos.py` cada hora 12-22 ART L-V (escritura SQL-native en `operaciones.negocio_movimientos`). Detalle del flujo en `docs/sesion_2026_05_05_negocio.md`.
 
 ---
 
@@ -437,11 +437,11 @@ Direct ROFEX order send / cancel / status. Backed by `api/services/ordenes.py` o
 | Method | Path | Summary |
 |---|---|---|
 | POST | `` | Send a LIMIT or MARKET order. Body: `{ticker, side, size, order_type, price?, tif, account?}`. Returns `{ok, cl_ord_id, status, broker_response, error?}`. `201 Created` on success. |
-| DELETE | `/{cl_ord_id}` | Cancel by client order id. Returns `{ok, broker_response, error?}`. The actual ER lands in Mongo via the order-reports motor. |
+| DELETE | `/{cl_ord_id}` | Cancel by client order id. Returns `{ok, broker_response, error?}`. The actual ER lands in SQL via the order-reports motor. |
 | GET | `/dia` | Orders sent today (UTC) for the default account. |
-| GET | `/{cl_ord_id}` | Current order status, maintained by the order-reports motor (`Operaciones.OrdenesLive`). `404` if unknown. |
+| GET | `/{cl_ord_id}` | Current order status, maintained by the order-reports motor (`operaciones.ordenes_live`). `404` if unknown. |
 
-`actor_email` is captured from the authenticated identity and persisted in `Operaciones.OrdenesAudit`. `pyRofex` is initialized lazily on first call (`ensure_session_envio()`); the call is idempotent and thread-safe.
+`actor_email` is captured from the authenticated identity and persisted in `operaciones.ordenes_audit`. `pyRofex` is initialized lazily on first call (`ensure_session_envio()`); the call is idempotent and thread-safe.
 
 > **Bug fix 2026-04-28** — `send_order` previously called `ensure_session_envio()` only when `account` was `None`. Callers that passed an explicit account (e.g. the trigger scanner) hit pyRofex with no default environment and got `Environment not specify.` Now `ensure_session_envio()` runs unconditionally; account resolution uses `cuenta_default()` separately.
 
@@ -449,14 +449,14 @@ Direct ROFEX order send / cancel / status. Backed by `api/services/ordenes.py` o
 
 ### 7.7 Operativa MEP (`/api/operativa/*`) · opr
 
-Wrapped operativa: BUY AL30 + SELL AL30D in one call. Persists to `Operaciones.OperativasMep`; the legs live in `Operaciones.OrdenesLive` and join at read time.
+Wrapped operativa: BUY AL30 + SELL AL30D in one call. Persists to `operaciones.operativas_mep`; the legs live in `operaciones.ordenes_live` and join at read time.
 
 #### Live cotización + chart series
 
 | Method | Path | Summary |
 |---|---|---|
 | GET | `/mep/cotizacion?rueda=` | Live AL30 / AL30D / implicit MEP for a `rueda ∈ {CI, 24hs}`. |
-| GET | `/mep/timesales?rueda=` | Per-minute MEP series, last 24 h. Pipeline `$dateTrunc + $last` server-side. `ts` is in real UTC (offset corrected from the motor's naive ART). |
+| GET | `/mep/timesales?rueda=` | Per-minute MEP series, last 24 h. Per-minute bucketing (`date_trunc` + last) server-side. `ts` is in real UTC (offset corrected from the motor's naive ART). |
 
 #### Compra inmediata
 
@@ -484,7 +484,7 @@ Wrapped operativa: BUY AL30 + SELL AL30D in one call. Persists to `Operaciones.O
 
 #### Triggers (operativa condicional)
 
-Background scanner in `api.main` lifespan polls `Operaciones.TriggersMep` every 1 s. Stale guard: if AL30 / AL30D `last_trade > 5 s` old, the trigger does not fire — the cotization may be ghost (motor down). EOD auto-cancel at 19:50 UTC (16:50 ART).
+Background scanner in `api.main` lifespan polls `operaciones.triggers_mep` every 1 s. Stale guard: if AL30 / AL30D `last_trade > 5 s` old, the trigger does not fire — the cotization may be ghost (motor down). EOD auto-cancel at 19:50 UTC (16:50 ART).
 
 | Method | Path | Summary |
 |---|---|---|
@@ -537,7 +537,7 @@ Wrapper over `pyRofex.get_account_*`. Uncached — always fresh from the broker.
 
 ### 7.9 Portfolio (`/api/portfolio/*`) · port
 
-Reads from `PortfolioAPI.AumAPI`, `TitulosAPI.AssetsAPI` and `TitulosAPI.ValuacionesAPI`. Valuation formula in `_valuacion_api(cantidad, precio, cartera, clase)`:
+Reads SQL-native from `portafolio.tenencia` and `portafolio.assets` (the `*API` mirror collections were eliminated). Valuation formula in `_valuacion_api(cantidad, precio, cartera, clase)`:
 
 - Fixed income (`Títulos Públicos`, `Letras`, `ONs`, `Fideicomisos`, `CPD`) → `cantidad × precio / 100`
 - Futures → `(precio + 1) × cantidad`
@@ -560,7 +560,7 @@ Field schemas unchanged from v0.1; see `api/routers/carteras.py` and `_valuacion
 | Method | Path | Summary |
 |---|---|---|
 | GET | `/assets` | Instrument metadata |
-| GET | `/flujos` | Unified cash flows (`Trading.Curvas` + `Trading.BondsMaster`) |
+| GET | `/flujos` | Unified cash flows (`mercado.curvas` + `mercado.bonds_master`) |
 
 `flujos[]` element: `fecha`, `amortizacion` (% of VN for CER, absolute for bonds), `interes` (rate on residual for CER, absolute for bonds), `residual`.
 
@@ -586,7 +586,7 @@ Position schema: see `api/services/simulaciones.py::Posicion`.
 
 ### 7.12 News (`/api/news*`) · pub
 
-Aggregates local + global headlines (RSS + Finnhub) into `News.Headlines`. The reader mode (`/article`) fetches the target URL server-side; all URLs are validated against an anti-SSRF policy that blocks private, loopback, link-local, reserved and cloud-metadata addresses, plus non-HTTP(S) schemes and non-80/443 ports.
+Aggregates local + global headlines (RSS + Finnhub) into `news.headlines`. The reader mode (`/article`) fetches the target URL server-side; all URLs are validated against an anti-SSRF policy that blocks private, loopback, link-local, reserved and cloud-metadata addresses, plus non-HTTP(S) schemes and non-80/443 ports.
 
 | Method | Path | Summary |
 |---|---|---|
@@ -611,21 +611,21 @@ Global watchlist + calendar + OHLC.
 
 ### 7.14 Manager (`/api/manager/*`) · adm
 
-Operational tooling. Every route requires the `manager` module (admin only by default). All reads pass through `get_mongo_client_read()`; explicit mutations use the writer.
+Operational tooling. Every route requires the `manager` module (admin only by default). All reads pass through the SQL read pool (`core.postgres.get_pool()`); explicit mutations use the SQL write pool.
 
 #### 7.14.1 Identity & RBAC management
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/users` | List all users in `Manager.Users` |
+| GET | `/users` | List all users in `manager.users` |
 | POST | `/users` | Body `{email, role, enabled?, notes?}` — creates or upserts |
 | PATCH | `/users/{email}` | Partial update: `role`, `enabled`, `notes` |
 | DELETE | `/users/{email}` | Remove |
 | GET | `/roles` | Current matrix (DB or default) |
 | PATCH | `/roles/{role}` | Body `{modules: [str]}` — replaces the module list for a role |
-| GET | `/roles/audit?limit=` | Last N audit-log entries (`Manager.RoleAudit`, newest first) |
+| GET | `/roles/audit?limit=` | Last N audit-log entries (`manager.role_audit`, newest first) |
 
-Every mutation invalidates the in-process cache (`core/roles.py::invalidate_cache`).
+Every mutation invalidates the in-process cache (`core/roles_sql.py::invalidate_cache`).
 
 #### 7.14.2 Status
 
@@ -640,14 +640,14 @@ Every mutation invalidates the in-process cache (`core/roles.py::invalidate_cach
 | `GET /checks/cer` | CER used in the last enriched trade per CER bond |
 | `GET /checks/tasa-fija` | State of tasa-fija instruments in the latest AuM snapshot |
 | `GET /checks/debug-forward?tc_a=&tc_b=` | Step-by-step forward calculation between two tickers |
-| `GET /checks/tickers-curvas` | `ticker_corto` index of `Trading.Curvas` |
+| `GET /checks/tickers-curvas` | `ticker_corto` index of `mercado.curvas` |
 | `GET /checks/debug-soberano?ticker_corto=` | Inspect curve enrichment of a soberano |
 | `GET /checks/breakevens-debug` | Trace the live breakeven aggregation |
 | `GET /checks/futuros-dlr` | Diagnostics of the DLR outright curve enrichment |
 | `GET /checks/debug-tna-futuros` | Per-outright comparison of TNA lineal vs TEA compuesta — used to validate the formula change of 2026-04-29 |
 | `GET /checks/debug-curva-tea?ticker=` | Step-by-step recomputation of TEA / duration / convexity for one bond, exposing all intermediate inputs (trade, settlement, CER ratio, cashflow grid, XIRR). Mirrors `engines/curvas.py::calcular_campos`. |
-| `GET /checks/discovery-pyrofex` | Reads `Manager.PyRofexDiscovery` — summary of every CFI code seen in `pyRofex.get_detailed_instruments()` with sample tickers. Used to identify CFI codes when extending motors. |
-| `GET /checks/instruments-by-cfi?cficode=` | Drill-down: ALL instruments under one CFI from `Manager.PyRofexInstruments` (currency, tickSize, contractMultiplier, putOrCall, strikePrice, etc.). |
+| `GET /checks/discovery-pyrofex` | Reads `manager.pyrofex_discovery` — summary of every CFI code seen in `pyRofex.get_detailed_instruments()` with sample tickers. Used to identify CFI codes when extending motors. |
+| `GET /checks/instruments-by-cfi?cficode=` | Drill-down: ALL instruments under one CFI from `manager.pyrofex_instruments` (currency, tickSize, contractMultiplier, putOrCall, strikePrice, etc.). |
 
 #### 7.14.4 Jobs
 
@@ -655,7 +655,7 @@ Every mutation invalidates the in-process cache (`core/roles.py::invalidate_cach
 |---|---|---|---|
 | POST | `/jobs/run` | 5/h, 20/d | Body `{tipo, args[]}`. Spawns a job (`tipo ∈ cashflow, flujo, bcra, crear_indices, cleanup_curvas` — ver `_CMDS` en `manager/jobs.py`). Worker is `subprocess.run` with 360 s timeout. |
 | GET | `/jobs/{job_id}` | — | `status ∈ {running, done, error}`, `rc`, last 1500 chars of stdout/stderr |
-| GET | `/jobs/history` | — | Runs from `Manager.JobRuns` (TTL 60 d). Filters: `tipo`, `status`, `desde`, `hasta`, `limit≤500` |
+| GET | `/jobs/history` | — | Runs from `manager.job_runs` (TTL 60 d). Filters: `tipo`, `status`, `desde`, `hasta`, `limit≤500` |
 | GET | `/jobs/history/stats` | — | Per-tipo aggregates since `desde` (default 7 d) |
 
 Route ordering: `/jobs/history` and `/jobs/history/stats` are declared before the catch-all `/jobs/{job_id}`.
@@ -664,17 +664,17 @@ Route ordering: `/jobs/history` and `/jobs/history/stats` are declared before th
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/options/expiries` | `{disponibles, activos, auto_pick, actualizado, mapa_size}` from `Opciones.Metadata` |
+| GET | `/options/expiries` | `{disponibles, activos, auto_pick, actualizado, mapa_size}` from `mercado.options_metadata` |
 | PUT | `/options/expiries` | Body `{expiries: string[8]}`. Empty array → auto-pick mode. Engine reloads on next 5 min tick. |
 
 #### 7.14.6 Asistente observability — *legacy, no en uso*
 
-Endpoints leen `Manager.AsistenteLogs`. El asistente (`/api/chat`) ya no se usa — se conserva el código (`api/agent/`) como referencia. Estos endpoints siguen vivos pero la colección no recibe escrituras nuevas.
+Endpoints leen `manager.asistente_logs`. El asistente (`/api/chat`) ya no se usa — se conserva el código (`api/agent/`) como referencia. Estos endpoints siguen vivos pero la tabla no recibe escrituras nuevas.
 
 | Path | Description |
 |---|---|
 | `GET /asistente/stats?horas=` | Counts (`ok|error|truncated`), token usage, avg/p95 latency, estimated cost |
-| `GET /asistente/logs?horas=&estado=&limit=` | Newest-first entries from `Manager.AsistenteLogs` |
+| `GET /asistente/logs?horas=&estado=&limit=` | Newest-first entries from `manager.asistente_logs` |
 | `GET /asistente/timeseries?horas=` | Hourly buckets with `count`, `tokens`, `errors` |
 | `GET /asistente/tools-ranking?horas=` | Tools ordered by invocation count with `ok`/`fail` |
 
@@ -700,10 +700,10 @@ PDF or pasted-text reports → Gemini JSON-mode extracts 12 macro variables → 
 | Method | Path | Description |
 |---|---|---|
 | POST | `/intel/extract` | `multipart/form-data` — `fuente` (required), optional `fecha`, `titulo`, `texto`, `pdf` (≤10 MB). Returns preview, **does not persist** |
-| POST | `/intel/save` | JSON `{fuente, fecha, titulo, raw_text, extracted}`; writes `Manager.IntelDocs` with `confirmed=true` |
+| POST | `/intel/save` | JSON `{fuente, fecha, titulo, raw_text, extracted}`; writes `manager.intel_docs` with `confirmed=true` |
 | GET | `/intel` | List newest-first (`limit≤200`, `fuente`) |
 | GET | `/intel/latest` | Last confirmed report (used by `api/agent/context.py`) |
-| GET | `/intel/{id}` | Fetch by Mongo `_id` |
+| GET | `/intel/{id}` | Fetch by row `id` |
 | PATCH | `/intel/{id}` | Partial update |
 | DELETE | `/intel/{id}` | Remove |
 
@@ -741,7 +741,7 @@ PDF or pasted-text reports → Gemini JSON-mode extracts 12 macro variables → 
 }
 ```
 
-`model_used` reports the model chosen by `decide_model()` (Haiku vs Sonnet). Errors follow the typed shape (§5). Every turn — success, truncation or error — is persisted to `Manager.AsistenteLogs` (`/api/manager/asistente/*`).
+`model_used` reports the model chosen by `decide_model()` (Haiku vs Sonnet). Errors follow the typed shape (§5). Every turn — success, truncation or error — is persisted to `manager.asistente_logs` (`/api/manager/asistente/*`).
 
 `BLOCKED_PATH_PREFIXES` (portfolio / operaciones / cuentas / manager) are blocked from being invoked through the assistant tools — read-only market data only. Same policy applies to the MCP server.
 
@@ -751,18 +751,18 @@ PDF or pasted-text reports → Gemini JSON-mode extracts 12 macro variables → 
 
 ### 7.16 MM Workstation (`/api/mm/*`) · mm
 
-**En reconstrucción 2026-05-04.** El backend MM (replay + backtest + paper trading vivo) se eliminó completo el 2026-05-04 — la nueva vista MM se construye desde cero sobre `Trading.OrderBookL2` (motor `engines/order_book_l2.py`, hoy capturando `MERV - XMEV - AL30 - CI`) y `Trading.TimeSales`. Endpoints pendientes; el módulo `mm` (RBAC) y el prefix `/api/mm` (proxy Vercel) se mantienen para reusar.
+**En reconstrucción 2026-05-04.** El backend MM (replay + backtest + paper trading vivo) se eliminó completo el 2026-05-04 — la nueva vista MM se construye desde cero sobre `mercado.order_book_l2` (motor `engines/order_book_l2.py`, hoy capturando `MERV - XMEV - AL30 - CI`) y `mercado.timesales`. Endpoints pendientes; el módulo `mm` (RBAC) y el prefix `/api/mm` (proxy Vercel) se mantienen para reusar.
 
 ---
 
 ### 7.17 Derivados Agro (`/api/derivados/agro*`) · admin-only inline
 
-Tabla **PASE AGRO** (Trigo / Maíz / Soja Rosario). El backend lee snapshots live de `Trading.AgroSnapshot` (escrito por `engines/motor_agro.py` — outrights FXXXSX filtrados por underlying agro), los joina con la fila PIZARRA manual de `Derivados.AgroPizarra` y devuelve la tabla calculada. **Beta — restringido a `role == "admin"` mientras la mesa valida los números.** El router está montado bajo `_PUBLIC` para el routing pero ambos handlers chequean rol inline. Cuando se abra, el GET pasará a sales/trader y el PATCH a trader+admin.
+Tabla **PASE AGRO** (Trigo / Maíz / Soja Rosario). El backend lee snapshots live de `mercado.agro_snapshot` (escrito por `engines/motor_agro.py` — outrights FXXXSX filtrados por underlying agro), los joina con la fila PIZARRA manual (carga manual de la mesa, en SQL) y devuelve la tabla calculada. **Beta — restringido a `role == "admin"` mientras la mesa valida los números.** El router está montado bajo `_PUBLIC` para el routing pero ambos handlers chequean rol inline. Cuando se abra, el GET pasará a sales/trader y el PATCH a trader+admin.
 
 | Method | Path | Summary |
 |---|---|---|
 | GET | `/api/derivados/agro` | Tabla completa (3 bloques: TRIGO, MAIZ, SOJA). Cada bloque trae 1 fila PIZARRA + 1 fila DISPO (placeholder) + N filas de futuros vivos. |
-| PATCH | `/api/derivados/agro/pizarra/{commodity}` | Upsert de la fila PIZARRA. Body `{vencimiento_pizarra?, us_pizarra?}` (null = no tocar). Audit en `Derivados.AgroPizarraAudit`. |
+| PATCH | `/api/derivados/agro/pizarra/{commodity}` | Upsert de la fila PIZARRA. Body `{vencimiento_pizarra?, us_pizarra?}` (null = no tocar). Audit en SQL (`derivados` audit). |
 
 **Cálculos puros (no se persisten):**
 
@@ -772,7 +772,7 @@ Tabla **PASE AGRO** (Trigo / Maíz / Soja Rosario). El backend lee snapshots liv
 
 Validado contra la planilla de la mesa: `(202.79/229.60)^(365/236) − 1 = -17.41%` (planilla -17.47%); `(190.00/191.90)^(365/149) − 1 = -2.41%` (planilla -2.41%).
 
-El motor (`engines/motor_agro.py`) **no escribe `Trading.TimeSales`** (decisión consciente de la mesa para reducir presión sobre Atlas — esta tabla sólo necesita el último precio). Filtra variantes paralelas (`*M`) y placeholders (`DISPO`) del universo descubierto. No persiste histórico diario por ahora.
+El motor (`engines/motor_agro.py`) **no escribe `mercado.timesales`** (decisión consciente de la mesa — esta tabla sólo necesita el último precio). Filtra variantes paralelas (`*M`) y placeholders (`DISPO`) del universo descubierto. No persiste histórico diario por ahora.
 
 ---
 
@@ -784,31 +784,31 @@ Read-only re-exposure of 30 analytical tools (curvas, forwards, breakevens, opci
 
 ## 8. Data architecture
 
-Las colecciones fuente son el system of record. Tenencias y catálogo de títulos
-viven en **SQL** (`portafolio.tenencia` / `portafolio.assets`); las colecciones
+Las tablas SQL (Postgres/Supabase) son el system of record. Tenencias y catálogo
+de títulos viven en `portafolio.tenencia` / `portafolio.assets`; las colecciones
 espejo `*API` fueron **eliminadas** (2026-06-06) y la API lee las fuentes directo
 (el join Curvas+BondsMaster lo hace `api/services/titulos_flujos.py`). El resto lo
-escriben motores (real-time) y jobs directamente sobre Mongo.
+escriben motores (real-time) y jobs SQL-native (vía `core.pg_mirror`).
 
-| Collection | Source | Writer |
+| Table | Source | Writer |
 |---|---|---|
-| `Trading.*` | — | Motors write real-time |
-| `Trading.CaucionSnapshot` / `Caucion` | — | `engines.caucion` |
-| `Trading.FuturosDLRSnapshot` / `FuturosDLR` | — | `engines.futuros_dlr` |
-| `Trading.AgroSnapshot` | — | `engines.motor_agro` (snapshot only — no TimeSales) |
-| `Derivados.AgroPizarra` / `AgroPizarraAudit` | — | `PATCH /api/derivados/agro/pizarra/{commodity}` |
-| `Opciones.*` | — | `engines.options` + `jobs.options_rollup` |
-| `Valuaciones.DolarSnapshot` | — | `engines.dolares` (live, `_id='current'`) |
-| `Valuaciones.Dolar` | — | `engines.dolar_mep` (cron, histórico) |
-| `News.Headlines` | — | `jobs.news_ingesta`, `jobs.news_finnhub` |
-| `Market.Quotes` / `Market.EconomicCalendar` | — | `jobs.market_quotes`, `jobs.market_anchors`, `jobs.economic_calendar` |
-| `Manager.JobRuns` | — | Background writers + TTL 60 d |
-| `Manager.PyRofexDiscovery` / `PyRofexInstruments` | — | `scripts.discovery_pyrofex` (one-shot manual) |
-| `Manager.IntelDocs` | — | `/api/manager/intel/*` |
-| `Manager.Users` / `RoleMatrix` / `RoleAudit` | — | `/api/manager/users`, `/api/manager/roles`, auto-register on first visit |
-| `Operaciones.OrdenesLive` / `OrdenesAudit` | — | `motor_ordenes` (WS order_report) |
-| `Operaciones.OperativasMep` / `TriggersMep` | — | `/api/operativa/*` + scanner asyncio in `api.main` lifespan |
-| `MCP.*` (codes / tokens / clients) | — | OAuth 2.1 provider in `api/mcp/oauth.py` (TTL automático) |
+| `mercado.*` | — | Motors write real-time |
+| `mercado.caucion_snapshot` | — | `engines.caucion` |
+| `mercado.futuros_dlr_snapshot` | — | `engines.futuros_dlr` |
+| `mercado.agro_snapshot` | — | `engines.motor_agro` (snapshot only — no timesales) |
+| `derivados.agro_pizarra` (+ audit) | — | `PATCH /api/derivados/agro/pizarra/{commodity}` |
+| `mercado.options_*` | — | `engines.options` + `jobs.options_rollup` |
+| `valuaciones.dolar_snapshot` | — | `engines.dolares` (live, `_id='current'`) |
+| `valuaciones.dolar` | — | `engines.dolar_mep` (cron, histórico) |
+| `news.headlines` | — | `jobs.news_ingesta`, `jobs.news_finnhub` |
+| `market.quotes` / `market.economic_calendar` | — | `jobs.market_quotes`, `jobs.market_anchors`, `jobs.economic_calendar` |
+| `manager.job_runs` | — | Background writers + TTL 60 d |
+| `manager.pyrofex_discovery` / `pyrofex_instruments` | — | `scripts.discovery_pyrofex` (one-shot manual) |
+| `manager.intel_docs` | — | `/api/manager/intel/*` |
+| `manager.users` / `role_matrix` / `role_audit` | — | `/api/manager/users`, `/api/manager/roles`, auto-register on first visit |
+| `operaciones.ordenes_live` / `ordenes_audit` | — | `motor_ordenes` (WS order_report) |
+| `operaciones.operativas_mep` / `triggers_mep` | — | `/api/operativa/*` + scanner asyncio in `api.main` lifespan |
+| `mcp.oauth_clients` / `oauth_codes` / `oauth_tokens` | — | OAuth 2.1 provider in `api/mcp/oauth.py` (TTL automático) |
 
 ---
 

@@ -40,12 +40,11 @@ no, es el frontend (Vercel) o Cloudflare. Mirá el último deploy en Vercel.
 **Síntoma:** curvas, AuM o snapshots muestran datos del día anterior aunque el
 mercado está abierto.
 
-**Causa típica: motores arrancaron durante la pausa de Atlas.** Atlas M10 se
-pausa de madrugada (~04:00–11:20 UTC); si un motor quedó vivo, sirve snapshots
-viejos. Los motores deberían arrancar a las 13 UTC (post-resume), pero un start
-manual fuera de hora lo rompe.
+**Causa típica: un motor quedó vivo fuera de hora y sirve snapshots viejos.**
+Los motores deberían arrancar a las 13 UTC (los prende/apaga el cron L-V); un
+start manual fuera de hora o un motor que no se reinició deja datos stale.
 ```
-systemctl status motor_curvas.service  # mirá 'Active: since' — ¿arrancó antes de las 11:20 UTC?
+systemctl status motor_curvas.service  # mirá 'Active: since' — ¿arrancó cuándo?
 systemctl status motor_rofex.service
 ```
 **Fix:** reiniciar los motores afectados → `systemctl restart motor_<x>.service`.
@@ -91,7 +90,7 @@ que alimenta un cron: aum, bcra, negocio_movimientos, etc.).
 
 ```
 # Detalle completo del run (la alerta solo trae el resumen):
-# en /manager → JOBS, o consultá Manager.JobRuns por tipo=<x>.
+# en /manager → JOBS, o consultá manager.job_runs por tipo=<x>.
 tail -100 logs/<x>.log                  # ej. logs/aum.log
 ```
 **Fix:** corregir la causa y re-correr a mano:
@@ -114,14 +113,14 @@ Si `sendMessage` da 400 → chat_id mal. Ver memoria `project_telegram_alertas`.
 
 ---
 
-## 🔴 Atlas (MongoDB) no responde
+## 🔴 La base de datos (Postgres/Supabase) no responde
 
-**Síntoma:** todo lo que toca DB falla; en logs "ServerSelectionTimeout" o el
-warmup de la API loguea "Mongo pool warmup falló".
+**Síntoma:** todo lo que toca DB falla; en logs errores de conexión a Postgres
+o el warmup de la API loguea fallo de pool.
 
-**Fix:** revisar el cluster en MongoDB Atlas (¿pausado? ¿IP whitelist? ¿límite de
-conexiones?). El resume diario lo dispara `atlas_cluster.sh resume` ~11:20 UTC.
-Si quedó pausado, resumir manualmente desde el panel de Atlas.
+**Fix:** revisar el estado de la DB en Supabase (¿proyecto pausado? ¿reglas de
+red / IP allowlist? ¿límite de conexiones / pool agotado?) y la `POSTGRES_URI`
+del `.env`. Reiniciar la API tras corregir: `systemctl restart api.service`.
 
 ---
 
@@ -142,5 +141,5 @@ Si quedó pausado, resumir manualmente desde el panel de Atlas.
   el último acceso de cada usuario, marca "(nunca entró)" y un badge **INACTIVO**
   para los que no se ven hace >90 días → deshabilitarlos con el toggle ENABLED.
   Ver `docs/SECRETS.md` para rotación de credenciales.
-- **Backups:** verificar que Atlas tenga backups activos + hacer una restauración
+- **Backups:** verificar que la DB (Supabase) tenga backups activos + hacer una restauración
   de prueba periódica (documentar RPO/RTO). *(pendiente de implementar)*

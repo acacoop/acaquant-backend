@@ -17,9 +17,13 @@ run es un proceso nuevo).
 | Secreto | Qué es / dónde se usa | Cómo rotar | Si se filtra |
 |---|---|---|---|
 | `ROFEX_USER` / `ROFEX_PASSWORD` / `ROFEX_ACCOUNT` | Credenciales del broker (pyRofex). La API y `motor_ordenes` las usan para **enviar y seguir órdenes reales**. | Portal del broker / pyRofex (cambiar password). | Alguien podría **operar tu cuenta**. Máxima prioridad. |
-| `MONGO_URI` | Cadena de conexión a Atlas (no está en `config.py`; la lee `core/mongo.py`). Acceso total a todas las DBs. | Atlas → Database Access → editar el password del user → actualizar la URI. | Acceso total a datos de clientes. Rotar + revisar IP whitelist. |
+| `POSTGRES_URI` | Cadena de conexión a Postgres/Supabase (la lee `core/postgres.py`; `partner_api/pg.py` la reusa). Acceso total a las DBs SQL. | Supabase → Database → rotar el password del rol → actualizar la URI. | Acceso total a datos de clientes. Rotar + revisar reglas de red. |
 | `API_KEY` | Bearer de la API (`api/deps.py`). El frontend la manda en cada request. | Generar un random nuevo → `.env` del backend **y** env var en Vercel (deben coincidir) → restart API + redeploy front. | Acceso a la API saltando el bearer (pero CF Access sigue adelante). |
-| `PARTNER_JWT_SECRET` / `PARTNER_MONGO_URI` | Firma de JWT y DB de `partner_api` (servicio externo, `ACAPortfolio.Cartera`). | Random nuevo / rotar en Atlas → restart `partner_api.service`. | Acceso a la API del proveedor / a su DB. |
+| `PARTNER_JWT_SECRET` | Firma de JWT de `partner_api` (servicio externo). Su DB son las tablas `partner.*` en Postgres (vía `POSTGRES_URI`). | Random nuevo → restart `partner_api.service`. | Acceso a la API del proveedor. |
+
+> **Obsoletos (ya NO se leen — eliminables del `.env`):** `MONGO_URI`, `ATLAS_*`,
+> `PARTNER_MONGO_URI`. Quedaron del stack Mongo, decomisado 2026-06-29; el código
+> ya no los usa. El secreto vivo de base de datos es `POSTGRES_URI`.
 
 ## 🟠 Medios (acceso a datos o a servicios pagos)
 
@@ -31,7 +35,7 @@ run es un proceso nuevo).
 | `TELEGRAM_BOT_TOKEN` | Bot de alertas (@acaquantbot). | @BotFather → /mybots → Revoke token → actualizar `.env`. |
 | `BYMA_CLIENT_ID` / `BYMA_CLIENT_SECRET` | OAuth2 para licitaciones primarias BYMA. | Portal BYMA Developer. |
 | `MAE_API_KEY` | MarketData MAE (repos/cauciones wholesale). | Coordinar con MAE. |
-| `DOLAR_INGEST_TOKEN` | Token de `POST /api/ingest/dolar-oficial` (la PC de oficina lo manda en `X-Ingest-Token`). Va en el `.env` del Droplet **y** en la oficina (deben coincidir). Si se filtra: solo permite escribir DolarOficialLive, no da acceso a Mongo. | Random nuevo → `.env` Droplet + oficina → restart API. |
+| `DOLAR_INGEST_TOKEN` | Token de `POST /api/ingest/dolar-oficial` (la PC de oficina lo manda en `X-Ingest-Token`). Va en el `.env` del Droplet **y** en la oficina (deben coincidir). Si se filtra: solo permite escribir el dólar oficial live, no da acceso a la DB. | Random nuevo → `.env` Droplet + oficina → restart API. |
 | `FINNHUB_API_KEY` | Data de mercado externa. | Dashboard de Finnhub. |
 | `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | LLM del asistente (legacy, no en uso hoy). | Consola Anthropic / Google. |
 
@@ -41,7 +45,7 @@ run es un proceso nuevo).
 |---|---|
 | `CF_ACCESS_TEAM` / `CF_ACCESS_AUD` | Identifican el tenant/app de Cloudflare Access para validar el JWT. Si faltan, el JWT no se valida (modo dev). |
 | `CF_TRUSTED_SERVICE_TOKENS` | `common_names` de máquinas confiables (ej. el frontend Vercel). |
-| `MANAGER_EMAILS` | Emails admin de bootstrap (fallback al RBAC de `Manager.Users`). |
+| `MANAGER_EMAILS` | Emails admin de bootstrap (fallback al RBAC de `manager.manager_users`). |
 | `ENV` | `prod` activa el fail-closed de auth (EXT-AUTH1). |
 
 ## Frontend (env vars en Vercel, no en el `.env` del Droplet)
@@ -55,7 +59,7 @@ run es un proceso nuevo).
 
 ## Procedimiento de rotación (general)
 
-1. **Regenerar** la credencial en su fuente (portal del proveedor, Atlas, BotFather…).
+1. **Regenerar** la credencial en su fuente (portal del proveedor, Supabase, BotFather…).
 2. **Actualizar** donde viva: `.env` del Droplet (`nano /root/TradingAV/.env`) y/o
    env var en Vercel y/o el systemd unit.
 3. **Reiniciar** lo afectado: `systemctl restart api.service` (y `partner_api.service`
@@ -64,7 +68,7 @@ run es un proceso nuevo).
 
 **Cuándo rotar:** ante sospecha de filtración (alguien vio un `.env`, un token en
 un log, etc.), cuando se va alguien del equipo con acceso al servidor, y como
-higiene periódica para las críticas (broker, Mongo) — al menos 1 vez al año.
+higiene periódica para las críticas (broker, base de datos) — al menos 1 vez al año.
 
 ## Higiene
 

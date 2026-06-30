@@ -1,9 +1,9 @@
-# DERIVADOS — mapa de datos (Mongo + SQL)
+# DERIVADOS — mapa de datos (SQL)
 
 > **Qué es este documento.** Mapa verificado **desde el código** de la vista
 > **DERIVADOS** (`/derivados` en acaquant-web) = **opciones financieras (GGAL)**.
-> Qué muestra, de qué colección Mongo sale, quién la llena, relaciones, y qué hay
-> en SQL.
+> Qué muestra, de qué tabla SQL sale, quién la llena, relaciones, y cómo se
+> conecta.
 >
 > **Método.** Verificado leyendo archivo:línea. Lo no confirmable por código se
 > marca `⚠️ a verificar`. No se asumió nada. Relevamiento: **2026-06-12**.
@@ -16,17 +16,13 @@
 de **opciones financieras de GGAL**: cadena call/put, estrategias, payoff,
 escenarios, costo histórico, griegas y un "post-trade lab".
 
-📋 **De dónde sale todo:** una **única base Mongo `Opciones`** (5 colecciones).
+📋 **De dónde sale todo:** el schema SQL **`mercado`** (5 tablas de opciones).
 Buena parte de la vista (payoff, escenarios, estrategias, lab) se calcula
 **en el navegador** con Black-Scholes — sin pegar al backend.
 
-📋 **Estado SQL (lo importante):** **DERIVADOS está 100% afuera de SQL.** Ninguna
-colección de la base `Opciones` tiene tabla (verificado: 0 apariciones en
-`sql/schema.sql`). El service `opciones.py` no toca Postgres.
-
-🔎 **Hallazgo:** la vista usa la base Mongo **`Opciones`** (vía `get_db_opciones()`,
-`api/db.py:9`) que **no figura en el inventario del `CLAUDE.md`** — igual que la
-base `Derivados` de AGRO. La doc raíz tiene el inventario de bases incompleto.
+📋 **Estado SQL (lo importante):** **DERIVADOS está 100% en SQL** (migración
+completa, 2026-06-29). La vista lee SQL-native vía `core.postgres.get_pool()`;
+los motores/jobs escriben SQL-native vía `core.pg_mirror`.
 
 ---
 
@@ -54,17 +50,17 @@ Endpoints verificados en `api/routers/cotizaciones.py` (289–339) y
 
 ---
 
-## 3. Colecciones Mongo (base `Opciones`) — quién las lee y quién las llena
+## 3. Tablas SQL (schema `mercado`) — quién las lee y quién las llena
 
-**Verificado: `opciones.py` accede vía `get_db_opciones()` → base `Opciones`.**
+**Verificado: `opciones.py` lee SQL vía `core.postgres.get_pool()`.**
 
-| Colección (`Opciones.*`) | Qué es | La lee (endpoint) | La llena (verificado) |
+| Tabla SQL (`mercado.*`) | Qué es | La lee (endpoint) | La llena (verificado) |
 |---|---|---|---|
-| **OptionsSnapshot** | Cadena viva por símbolo (precio + griegas, recalc 5s) | `/opciones` | **`engines/options.py`** (`OptionsEngine`, bulk UpdateOne ~5s con dirty-check) |
-| **Data** | Tick-level histórico (cada trade, con griegas) | `/historico/opciones`, `/estrategia-historico` | `engines/options.py` (insert por trade nuevo) |
-| **DataHistorica** | Rollup diario (1 fila/día/símbolo) | `/griegas/opciones` | **`jobs/options_rollup.py`** (post-cierre, ~20:15 UTC) |
-| **Metadata** | Config (tasa risk-free) + VR GGAL (local/ADR) | `/opciones/meta` | tasa: PUT admin + init motor · VR: **`jobs/volatilidad_ggal.py`** (Yahoo) |
-| **VR-GGal** | Serie diaria GGAL local + ADR (~40 ruedas) | `/vr-ggal` | `jobs/volatilidad_ggal.py` (delete_many + insert_many) |
+| **options_snapshot** | Cadena viva por símbolo (precio + griegas, recalc 5s) | `/opciones` | **`engines/options.py`** (`OptionsEngine`, ~5s con dirty-check) |
+| **options_data** | Tick-level histórico (cada trade, con griegas) | `/historico/opciones`, `/estrategia-historico` | `engines/options.py` (insert por trade nuevo) |
+| **options_data_hist** | Rollup diario (1 fila/día/símbolo) | `/griegas/opciones` | **`jobs/options_rollup.py`** (post-cierre, ~20:15 UTC) |
+| **options_metadata** | Config (tasa risk-free) + VR GGAL (local/ADR) | `/opciones/meta` | tasa: PUT admin + init motor · VR: **`jobs/volatilidad_ggal.py`** (Yahoo) |
+| **options_vr** | Serie diaria GGAL local + ADR (~40 ruedas) | `/vr-ggal` | `jobs/volatilidad_ggal.py` (reemplazo full de la serie) |
 
 > **Filtro fresh/stale (verificado, `opciones.py:20-28`):** `get_opciones` filtra
 > `updated_at >= inicio del día`. Las opciones que **no operaron hoy** conservan
@@ -76,31 +72,31 @@ Endpoints verificados en `api/routers/cotizaciones.py` (289–339) y
 
 ## 4. Relaciones clave (verificado)
 
-1. **Cadena ↔ griegas:** la cadena viva (`OptionsSnapshot`) trae las griegas ya
+1. **Cadena ↔ griegas:** la cadena viva (`options_snapshot`) trae las griegas ya
    calculadas por el motor (Black-Scholes con IV implícita). El histórico de
-   griegas sale del rollup diario (`DataHistorica`).
-2. **Estrategia histórica:** `estrategia_historico` agrupa `Opciones.Data` por
-   buckets de 15 min y arma el costo de la estrategia con **ATM dinámico** (el
+   griegas sale del rollup diario (`options_data_hist`).
+2. **Estrategia histórica:** `estrategia_historico` agrupa `mercado.options_data`
+   por buckets de 15 min y arma el costo de la estrategia con **ATM dinámico** (el
    offset de cada pata es relativo al ATM de cada bucket, no a un strike fijo).
 3. **Spot de 2º eje:** los charts de costo/histórico superponen el spot GGAL
-   (local/ADR) leído de `VR-GGal`.
+   (local/ADR) leído de `options_vr`.
 
 ---
 
 ## 5. Estado SQL
 
-**Verificado por búsqueda directa en `sql/schema.sql`:**
+**Migración completa (2026-06-29): la vista DERIVADOS lee SQL-native.**
 
-- `Opciones.OptionsSnapshot` → **0** en schema ❌
-- `Opciones.Data` → ❌
-- `Opciones.DataHistorica` → ❌
-- `Opciones.Metadata` → ❌
-- `Opciones.VR-GGal` → ❌
-- `api/services/opciones.py` lee SQL: **0** (no `get_pool`, no `_sql`).
+- `mercado.options_snapshot` ✅
+- `mercado.options_data` ✅
+- `mercado.options_data_hist` ✅
+- `mercado.options_metadata` ✅
+- `mercado.options_vr` ✅
+- `api/services/opciones.py` lee SQL vía `core.postgres.get_pool()`; los
+  motores/jobs escriben SQL-native vía `core.pg_mirror`.
 
-**Conclusión:** la vista DERIVADOS **no tiene NINGÚN punto de contacto con SQL**.
-Está completamente fuera de la migración. Para llevarla a SQL habría que crear de
-cero tablas para las 5 colecciones de la base `Opciones` — hoy no existen.
+**Conclusión:** la vista DERIVADOS está **100% sobre SQL** (schema `mercado`). No
+queda ningún punto de contacto con Mongo.
 
 ---
 
@@ -121,13 +117,11 @@ Front: cadena poll 30s; el resto on-demand (al seleccionar contrato/estrategia).
 
 ## 7. ⚠️ Pendiente de verificar / medir en prod (NO asumido)
 
-1. **Base `Opciones` no inventariada** en `CLAUDE.md` — corregir doc raíz.
-2. **Horario del cron `jobs/volatilidad_ggal.py`** (VR GGAL) — no lo confirmé en
+1. **Horario del cron `jobs/volatilidad_ggal.py`** (VR GGAL) — no lo confirmé en
    `deploy/crontab.txt`. ⚠️ a verificar.
-3. **Timezone de `inicio_hoy`** en el filtro de `get_opciones` (¿UTC o ART?) — el
+2. **Timezone de `inicio_hoy`** en el filtro de `get_opciones` (¿UTC o ART?) — el
    código usa `datetime.now(UTC)`; confirmar que el corte de "hoy" es el esperado
    por la mesa. ⚠️ a verificar.
-4. **Conteos reales** de cada colección → `python -m scripts.diag_inventario_mongo_sql`.
 
 ---
 
@@ -139,8 +133,9 @@ Front: cadena poll 30s; el resto on-demand (al seleccionar contrato/estrategia).
   `opcion-historico-chart.tsx`, `griegas-historico-chart.tsx`,
   `post-trade-lab.tsx`, `lib/estrategias.ts` (Black-Scholes client-side).
 - **Routers:** `api/routers/cotizaciones.py` (289–339), `api/routers/analitica.py` (249).
-- **Service:** `api/services/opciones.py`. DB helper: `api/db.py::get_db_opciones`.
+- **Service:** `api/services/opciones.py`. Conexión SQL: `core.postgres.get_pool()`.
 - **Motor:** `engines/options.py` (`OptionsEngine`).
 - **Jobs:** `jobs/options_rollup.py` (rollup diario), `jobs/volatilidad_ggal.py`
-  (VR GGAL), `jobs/archive_options_data.py` (purga de `Data`).
-- **SQL:** ninguna tabla. (Verificado: 0 colecciones `Opciones.*` en `sql/schema.sql`.)
+  (VR GGAL), `jobs/archive_options_data.py` (purga de `options_data`).
+- **SQL:** schema `mercado` — `options_snapshot`, `options_data`,
+  `options_data_hist`, `options_metadata`, `options_vr`.

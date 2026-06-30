@@ -47,8 +47,10 @@ MOTORES = [
 # Jobs esperados → si el último corrió hace > umbral (horas), vencido. OJO: el
 # `tipo` es el de JobRunLogger (nombre del job), NO la etiqueta del cron — el cron
 # `negocio_chain` loguea como `negocio_movimientos`, etc.
+# `aum` y `sync_postgres` se retiraron (decomiso Mongo 2026-06-29: el AuM lo escribe
+# portafolio_backfill y no hay sync Mongo→SQL) → ya no se esperan (daban falsa alarma).
 DAILIES = [
-    ("aum", 27), ("sync_postgres", 3), ("bcra", 27), ("argentina_datos", 27),
+    ("bcra", 27), ("argentina_datos", 27), ("portafolio_backfill", 27),
     ("snapshot_cierre", 27), ("operaciones_informes", 3), ("negocio_movimientos", 3),
 ]
 
@@ -172,23 +174,6 @@ def _seccion_jobs() -> dict:
     return {"ok": ok, "partial": partial, "error": error, "fallas": fallas, "vencidos": vencidos}
 
 
-def _seccion_sql() -> dict:
-    """Último run de sync_postgres desde manager.job_runs (SQL-ONLY, decomiso Mongo)."""
-    try:
-        rows = _jobruns_sql(
-            "SELECT finished_at, started_at, status FROM manager.job_runs "
-            "WHERE tipo = 'sync_postgres' ORDER BY started_at DESC LIMIT 1")
-        if not rows:
-            return {"estado": "sin_runs", "edad_min": None}
-        last = rows[0]
-        ref = last.get("finished_at") or last.get("started_at")
-        edad = _edad_seg(ref)
-        return {"estado": last.get("status"),
-                "edad_min": round(edad / 60, 1) if edad is not None else None}
-    except Exception as e:
-        return {"estado": f"error:{type(e).__name__}", "edad_min": None}
-
-
 # ── Veredicto + problemas ────────────────────────────────────────────────────
 
 def _consolidar(rep: dict) -> tuple[str, list[str]]:
@@ -203,9 +188,6 @@ def _consolidar(rep: dict) -> tuple[str, list[str]]:
         problemas.append(f"{jb['error']} job(s) con ERROR en la última hora")
     if jb.get("vencidos"):
         problemas.append("dailies vencidos: " + ", ".join(v["tipo"] for v in jb["vencidos"]))
-    sq = rep["sql_sync"]
-    if sq.get("estado") not in ("ok", None) or (sq.get("edad_min") or 0) > 60:
-        problemas.append(f"sync SQL: {sq.get('estado')} (hace {sq.get('edad_min')} min)")
 
     if mot["muertos"] or jb.get("error"):
         return "🔴", problemas
@@ -225,7 +207,6 @@ def construir_informe() -> dict:
         "en_rueda": en_rueda,
         "motores": _seccion_motores(en_rueda),
         "jobs": _seccion_jobs(),
-        "sql_sync": _seccion_sql(),
     }
     veredicto, problemas = _consolidar(rep)
     rep["veredicto"] = veredicto
@@ -262,10 +243,6 @@ def _explicar(rep: dict) -> list[str]:
         out.append("Daily(s) vencido(s): un proceso que debía correr hoy no dejó "
                    "registro en plazo. Causas típicas: cron caído, job renombrado, o un "
                    "check viejo apuntando a un job que ya no existe.")
-    sq = rep["sql_sync"]
-    if sq.get("estado") not in ("ok", None) or (sq.get("edad_min") or 0) > 60:
-        out.append("Sync SQL atrasado: el job sync_postgres no corre hace rato (hoy ya casi "
-                   "no espeja nada; se retira al cerrar el decomiso).")
     return out
 
 
@@ -305,11 +282,6 @@ def render_telegram(rep: dict) -> str:
     if jb.get("vencidos"):
         lines.append("  ⏰ vencidos: " + ", ".join(f"{v['tipo']}({v['horas']}h)" for v in jb["vencidos"]))
 
-    # SQL sync
-    sq = rep["sql_sync"]
-    lines.append("")
-    lines.append(f"*SQL sync:* {sq.get('estado')} (hace {sq.get('edad_min')} min)")
-
     return "\n".join(lines)
 
 
@@ -339,7 +311,7 @@ def main() -> int:
                 "veredicto": rep["veredicto"],
                 "problemas": rep["problemas"],
                 "data": {k: rep[k] for k in
-                         ("motores", "jobs", "sql_sync")},
+                         ("motores", "jobs")},
             }])
         except Exception as e:
             jr.error(f"persist health_reports: {type(e).__name__}: {e}")

@@ -266,6 +266,14 @@ CREATE INDEX IF NOT EXISTS ix_ops_segmento_concert ON operaciones.operaciones(se
 CREATE INDEX IF NOT EXISTS ix_ops_ingestado ON operaciones.operaciones(ingestado_en);
 CREATE INDEX IF NOT EXISTS ix_ops_commodity_concert ON operaciones.operaciones(commodity, concertacion)
     WHERE commodity IN ('SOJA', 'TRIGO', 'MAIZ');
+-- ARANCEL/comisiones (perf 2026-06-29): el predicado `arancel<>0 AND etapa<>'solicitud'`
+-- se repite en informe_comercial, _rollup_por_cuenta, _aranceles_por_cuenta,
+-- informe_segmento_detalle, ops_aranceles y control_comercial. Sin índice = scan de
+-- ~490k filas. Parciales (chicos: solo las filas con arancel real).
+CREATE INDEX IF NOT EXISTS ix_ops_arancel_cuenta ON operaciones.operaciones(id_cuenta)
+    WHERE arancel <> 0 AND etapa IS DISTINCT FROM 'solicitud';
+CREATE INDEX IF NOT EXISTS ix_ops_arancel_concert ON operaciones.operaciones(concertacion)
+    WHERE arancel <> 0 AND etapa IS DISTINCT FROM 'solicitud';
 
 -- CashFlow.NegocioMovimientos (~339k). Grano único (fecha, comprobante). La escribe
 -- directo jobs/negocio_movimientos.py (SQL-native).
@@ -763,6 +771,11 @@ CREATE TABLE IF NOT EXISTS mercado.mercado_hist (
     data      jsonb,
     PRIMARY KEY (coleccion, fecha, k)
 );
+-- get_forwards: `DISTINCT ON (k) ... WHERE coleccion=X ORDER BY k, fecha DESC`. La PK
+-- (coleccion,fecha,k) NO sirve para ese orden (k antes que fecha) → sort en memoria.
+-- Este índice lo cubre y crece bien con el histórico (perf 2026-06-29).
+CREATE INDEX IF NOT EXISTS ix_mercado_hist_col_k_fecha
+    ON mercado.mercado_hist (coleccion, k, fecha DESC);
 
 -- ── AGRO / Derivados Agro (vista /derivados → Agro) ──────────────────────────
 -- Trading.AgroSnapshot → futuros agro Rosario (Trigo/Maíz/Soja), 1 doc/ticker,

@@ -1,5 +1,38 @@
 """Tests del motor api/services/intraday.py (FIFO + parsing AR + intereses)."""
-from api.services.intraday import IVA_RATE, _num, _parse_csv, fifo_detallado, fifo_pnl
+from api.services.intraday import (
+    IVA_RATE,
+    _num,
+    _parse_csv,
+    _posicion,
+    fifo_detallado,
+    fifo_pnl,
+)
+
+
+def _ts(*trades):
+    """[(signo, cantidad, precio)] → list[dict] que consume _posicion."""
+    return [
+        {"hora": f"10:{i:02d}", "signo": s, "cantidad": q, "precio": p,
+         "monto": q * p, "moneda": "ARS"}
+        for i, (s, q, p) in enumerate(trades)
+    ]
+
+
+def test_posicion_fifo_long():
+    p = _posicion("100", "GGAL", _ts((1, 100, 10), (1, 100, 12), (-1, 150, 15)), None)
+    assert p["pnl_realizado"] == 650.0
+    assert p["qty_neta"] == 50
+    assert p["precio_ponderado"] == 12.0
+    assert p["estado"] == "LONG"
+    assert p["n_ops"] == 3
+
+
+def test_posicion_recalcula_al_excluir_un_trade():
+    # Sin la 2ª compra: Compra 100@10 + Venta 150@15 → cierra 100, abre short 50.
+    p = _posicion("100", "GGAL", _ts((1, 100, 10), (-1, 150, 15)), None)
+    assert p["pnl_realizado"] == 500.0
+    assert p["qty_neta"] == -50
+    assert p["estado"] == "SHORT"
 
 
 def test_num_formato_ar():

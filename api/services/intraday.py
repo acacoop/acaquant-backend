@@ -28,7 +28,7 @@ from collections import deque
 
 logger = logging.getLogger("api.intraday")
 
-__all__ = ["IntradayError", "analizar", "fifo_detallado", "fifo_pnl"]
+__all__ = ["IntradayError", "analizar", "fifo_detallado", "fifo_pnl", "recalcular"]
 
 INTERES_RATE = 0.0007   # arancel por trade sobre el monto bruto
 IVA_RATE = 0.21         # IVA sobre el arancel
@@ -235,6 +235,86 @@ def _marks_live(tickers_corto: set[str]) -> dict[str, dict]:
         return {}
 
 
+# ── armado de posición (compartido por analizar y recalcular) ────────────────
+def _posicion(cuenta: str, especie: str, ts: list[dict], mark_live: dict | None) -> dict:
+    """Construye el dict de una posición desde sus trades crudos `ts` (cada uno con
+    signo/cantidad/precio/monto/moneda/hora) corriendo el FIFO. `mark_live` = {last,
+    updated_at} o None (cae al último precio del CSV)."""
+    compras_qty = sum(t["cantidad"] for t in ts if t["signo"] > 0)
+    ventas_qty = sum(t["cantidad"] for t in ts if t["signo"] < 0)
+    intereses = sum(t["monto"] * INTERES_RATE for t in ts)
+    iva = intereses * IVA_RATE
+
+    realized, open_qty, wavg, steps = fifo_detallado(
+        [(t["signo"] * t["cantidad"], t["precio"]) for t in ts]
+    )
+
+    if mark_live:
+        mark, mark_source, mark_ts = mark_live["last"], "live", mark_live.get("updated_at")
+    else:
+        mark, mark_source, mark_ts = ts[-1]["precio"], "csv", None
+
+    unreal = open_qty * (mark - wavg) if abs(open_qty) > 1e-9 else 0.0
+    bruto = realized + unreal
+    estado = "CERRADA" if abs(open_qty) < 1e-9 else ("LONG" if open_qty > 0 else "SHORT")
+
+    return {
+        "cuenta": cuenta,
+        "especie": especie,
+        "moneda": ts[0]["moneda"],
+        "n_ops": len(ts),
+        "compras_qty": compras_qty,
+        "ventas_qty": ventas_qty,
+        "qty_neta": open_qty,
+        "estado": estado,
+        "precio_ponderado": wavg if abs(open_qty) > 1e-9 else None,
+        "mark": mark,
+        "mark_source": mark_source,
+        "mark_updated_at": mark_ts,
+        "monto_abierto": open_qty * wavg if abs(open_qty) > 1e-9 else 0.0,
+        "valor_actual": open_qty * mark if abs(open_qty) > 1e-9 else 0.0,
+        "pnl_realizado": realized,
+        "pnl_no_realizado": unreal,
+        "pnl_bruto": bruto,
+        "intereses": intereses,
+        "iva": iva,
+        "pnl_neto": bruto - intereses - iva,
+        "trades": [
+            {
+                "hora": x["hora"],
+                "lado": "Compra" if x["signo"] > 0 else "Venta",
+                "precio": x["precio"],
+                "cantidad": x["cantidad"],
+                "monto": x["monto"],
+                "pos_acum": steps[i][0],
+                "ponderado_acum": steps[i][1],
+                "interes": x["monto"] * INTERES_RATE,
+                "iva": x["monto"] * INTERES_RATE * IVA_RATE,
+            }
+            for i, x in enumerate(ts)
+        ],
+    }
+
+
+def _totales(posiciones: list[dict]) -> dict:
+    return {
+        "pnl_realizado": sum(p["pnl_realizado"] for p in posiciones),
+        "pnl_no_realizado": sum(p["pnl_no_realizado"] for p in posiciones),
+        "pnl_bruto": sum(p["pnl_bruto"] for p in posiciones),
+        "intereses": sum(p["intereses"] for p in posiciones),
+        "iva": sum(p["iva"] for p in posiciones),
+        "pnl_neto": sum(p["pnl_neto"] for p in posiciones),
+        "abiertas": sum(1 for p in posiciones if p["estado"] != "CERRADA"),
+        "cerradas": sum(1 for p in posiciones if p["estado"] == "CERRADA"),
+    }
+
+
+def _ordenar(posiciones: list[dict]) -> None:
+    posiciones.sort(
+        key=lambda p: (p["estado"] == "CERRADA", -abs(p["valor_actual"] or p["pnl_bruto"]))
+    )
+
+
 # ── orquestación ─────────────────────────────────────────────────────────────
 def analizar(csv_text: str, *, archivo: str | None = None) -> dict:
     """Pipeline completo: parsea → FIFO por (cuenta, especie) → intereses/IVA →
@@ -248,84 +328,50 @@ def analizar(csv_text: str, *, archivo: str | None = None) -> dict:
 
     marks = _marks_live({esp for _, esp in grupos})
 
-    posiciones: list[dict] = []
-    for (cuenta, especie), ts in grupos.items():
-        compras_qty = sum(t["cantidad"] for t in ts if t["signo"] > 0)
-        ventas_qty = sum(t["cantidad"] for t in ts if t["signo"] < 0)
-        intereses = sum(t["monto"] * INTERES_RATE for t in ts)
-        iva = intereses * IVA_RATE
-
-        realized, open_qty, wavg, steps = fifo_detallado(
-            [(t["signo"] * t["cantidad"], t["precio"]) for t in ts]
-        )
-
-        # Mark: live por ticker_corto; si no hay, último precio operado del CSV.
-        mk = marks.get(especie)
-        if mk:
-            mark, mark_source, mark_ts = mk["last"], "live", mk.get("updated_at")
-        else:
-            mark, mark_source, mark_ts = ts[-1]["precio"], "csv", None
-
-        unreal = open_qty * (mark - wavg) if abs(open_qty) > 1e-9 else 0.0
-        bruto = realized + unreal
-        estado = "CERRADA" if abs(open_qty) < 1e-9 else ("LONG" if open_qty > 0 else "SHORT")
-
-        posiciones.append({
-            "cuenta": cuenta,
-            "especie": especie,
-            "moneda": ts[0]["moneda"],
-            "n_ops": len(ts),
-            "compras_qty": compras_qty,
-            "ventas_qty": ventas_qty,
-            "qty_neta": open_qty,
-            "estado": estado,
-            "precio_ponderado": wavg if abs(open_qty) > 1e-9 else None,
-            "mark": mark,
-            "mark_source": mark_source,
-            "mark_updated_at": mark_ts,
-            "monto_abierto": open_qty * wavg if abs(open_qty) > 1e-9 else 0.0,
-            "valor_actual": open_qty * mark if abs(open_qty) > 1e-9 else 0.0,
-            "pnl_realizado": realized,
-            "pnl_no_realizado": unreal,
-            "pnl_bruto": bruto,
-            "intereses": intereses,
-            "iva": iva,
-            "pnl_neto": bruto - intereses - iva,
-            "trades": [
-                {
-                    "hora": x["hora"],
-                    "lado": "Compra" if x["signo"] > 0 else "Venta",
-                    "precio": x["precio"],
-                    "cantidad": x["cantidad"],
-                    "monto": x["monto"],
-                    "pos_acum": steps[i][0],          # posición acumulada tras el trade
-                    "ponderado_acum": steps[i][1],    # ponderado corriendo (0 si neteó)
-                    "interes": x["monto"] * INTERES_RATE,
-                    "iva": x["monto"] * INTERES_RATE * IVA_RATE,
-                }
-                for i, x in enumerate(ts)
-            ],
-        })
-
-    # Orden: abiertas primero (por |valor|), después cerradas (por |PnL|).
-    posiciones.sort(
-        key=lambda p: (p["estado"] == "CERRADA", -abs(p["valor_actual"] or p["pnl_bruto"]))
-    )
-
-    tot = {
-        "pnl_realizado": sum(p["pnl_realizado"] for p in posiciones),
-        "pnl_no_realizado": sum(p["pnl_no_realizado"] for p in posiciones),
-        "pnl_bruto": sum(p["pnl_bruto"] for p in posiciones),
-        "intereses": sum(p["intereses"] for p in posiciones),
-        "iva": sum(p["iva"] for p in posiciones),
-        "pnl_neto": sum(p["pnl_neto"] for p in posiciones),
-        "abiertas": sum(1 for p in posiciones if p["estado"] != "CERRADA"),
-        "cerradas": sum(1 for p in posiciones if p["estado"] == "CERRADA"),
-    }
+    posiciones = [
+        _posicion(cuenta, especie, ts, marks.get(especie))
+        for (cuenta, especie), ts in grupos.items()
+    ]
+    _ordenar(posiciones)
 
     return {
         "archivo": archivo,
         "filas_validas": len(trades),
         "posiciones": posiciones,
-        "totales": tot,
+        "totales": _totales(posiciones),
     }
+
+
+def recalcular(items: list[dict]) -> dict:
+    """Re-FIFO sobre los trades INCLUIDOS (filtrado por-trade del frontend).
+
+    `items` = [{cuenta, especie, moneda, trades: [{hora, lado, precio, cantidad,
+    monto}]}], con SOLO los trades que el usuario dejó tildados. Devuelve
+    {posiciones, totales} con el mismo shape que `analizar` (sin archivo/filas).
+    Una posición con todos los trades excluidos se omite (no aporta)."""
+    marks = _marks_live({str(it.get("especie", "")).upper() for it in items})
+
+    posiciones: list[dict] = []
+    for it in items:
+        cuenta = str(it.get("cuenta", ""))
+        especie = str(it.get("especie", ""))
+        moneda = str(it.get("moneda", ""))
+        ts: list[dict] = []
+        for t in it.get("trades", []) or []:
+            try:
+                ts.append({
+                    "hora": t.get("hora", ""),
+                    "signo": 1 if str(t.get("lado")) == "Compra" else -1,
+                    "cantidad": float(t.get("cantidad") or 0),
+                    "precio": float(t.get("precio") or 0),
+                    "monto": float(t.get("monto") or 0),
+                    "moneda": moneda,
+                })
+            except (TypeError, ValueError):
+                continue
+        if not ts:
+            continue
+        posiciones.append(_posicion(cuenta, especie, ts, marks.get(especie)))
+
+    _ordenar(posiciones)
+    return {"posiciones": posiciones, "totales": _totales(posiciones)}

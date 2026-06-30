@@ -189,6 +189,35 @@ def intraday_analizar(payload: _IntradayCSV):
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+class _IntradayTrade(BaseModel):
+    hora: str | None = None
+    lado: str
+    precio: float
+    cantidad: float
+    monto: float
+
+
+class _IntradayPos(BaseModel):
+    cuenta: str
+    especie: str
+    moneda: str = ""
+    trades: list[_IntradayTrade] = []
+
+
+class _IntradayRecalc(BaseModel):
+    posiciones: list[_IntradayPos] = []
+
+
+@router.post("/intraday/recalcular")
+def intraday_recalcular(payload: _IntradayRecalc):
+    """Re-FIFO con SOLO los trades incluidos (filtrado por-trade del frontend).
+    Devuelve {posiciones, totales} con el mismo shape que /analizar."""
+    from api.services import intraday as _intra
+
+    items = [p.model_dump() for p in payload.posiciones]
+    return _intra.recalcular(items=items)
+
+
 @router.get("/ops/serie")
 @cached(ttl=300)
 def ops_serie(

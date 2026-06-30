@@ -72,29 +72,34 @@ def _warmup() -> None:
 
 
 def _time_funcs() -> None:
-    print("\n④ Timing END-TO-END de funciones de servicio (lo que siente el user)")
+    print("\n④ Timing de funciones de servicio — 3 columnas:")
+    print("   FRÍO = 1ª llamada (cold imports + sub-caches vacíos, == arrancar un worker)")
+    print("   RECALC = recompute con imports calientes (lo que paga 1 request cada TTL)")
+    print("   CACHE = 2º hit dentro del TTL (lo que pagan TODOS los demás requests)")
+    from api.cache import invalidate
+    rf = __import__("api.services.renta_fija_sql", fromlist=["x"])
+    cs = __import__("core.curvas_sql", fromlist=["x"])
     casos = [
-        ("renta_fija_sql.get_renta_fija()",
-         lambda: __import__("api.services.renta_fija_sql", fromlist=["x"]).get_renta_fija()),
-        ("renta_fija_sql.listar_curva('cer')",
-         lambda: __import__("api.services.renta_fija_sql", fromlist=["x"]).listar_curva("cer")),
-        ("renta_fija_sql.listar_curva('tasa_fija')",
-         lambda: __import__("api.services.renta_fija_sql", fromlist=["x"]).listar_curva("tasa_fija")),
-        ("renta_fija_sql.get_historico_curva('cer')",
-         lambda: __import__("api.services.renta_fija_sql", fromlist=["x"]).get_historico_curva("cer")),
-        ("curvas_sql.cargar_todos()",
-         lambda: __import__("core.curvas_sql", fromlist=["x"]).cargar_todos()),
+        ("get_renta_fija", "get_renta_fija", lambda: rf.get_renta_fija()),
+        ("listar_curva(cer)", "listar_curva", lambda: rf.listar_curva(curva="cer")),
+        ("listar_curva(tasa_fija)", "listar_curva", lambda: rf.listar_curva(curva="tasa_fija")),
+        ("get_historico_curva(cer)", "get_historico_curva", lambda: rf.get_historico_curva(curva="cer")),
+        ("curvas_sql.cargar_todos", None, lambda: cs.cargar_todos()),
     ]
-    for nombre, fn in casos:
+    print(f"   {'función':36}{'frío':>9}{'recalc':>9}{'cache':>8}")
+    for nombre, cache_fn, fn in casos:
         try:
-            t0 = time.perf_counter()
-            r = fn()
-            dt = _ms(t0)
+            t0 = time.perf_counter(); r = fn(); cold = _ms(t0)
+            if cache_fn:
+                invalidate(cache_fn)
+            t1 = time.perf_counter(); fn(); recalc = _ms(t1)
+            t2 = time.perf_counter(); fn(); cache = _ms(t2)
             n = len(r) if hasattr(r, "__len__") else "?"
-            flag = " 🔴 LENTO" if dt > 800 else (" 🟡" if dt > 300 else " ✅")
-            print(f"   {nombre:48} {dt:>7}ms  ({n} filas){flag}")
+            flag = " 🔴" if recalc > 150 else (" 🟡" if recalc > 60 else " ✅")
+            print(f"   {nombre:36}{cold:>8}ms{recalc:>8}ms{cache:>7}ms  ({n}){flag}")
         except Exception as e:
-            print(f"   {nombre:48}  ERROR: {str(e).splitlines()[0][:80]}")
+            print(f"   {nombre:36}  ERROR: {str(e).splitlines()[0][:66]}")
+    print("   → RECALC es el número clave; CACHE ≈0 confirma que el cache amortigua.")
 
 
 _EXPLAIN_QUERIES = [

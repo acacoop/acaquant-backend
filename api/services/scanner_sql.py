@@ -86,13 +86,76 @@ def _serie_closes(underlying: str) -> list[float]:
 
 
 # ── ADR metrics (USD del underlying) ─────────────────────────────────────────
-def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
-    """Métricas ADR (USD) por ticker_corto, en pocas queries. Espeja
-    scanner._adr_metrics_para_todos pero desde mercado.precios_acciones (EOD) +
-    mercado.adr_snapshot (live USD).
+@cached(ttl=900)
+def _eod_anchors_por_underlying(underlyings: tuple[str, ...]) -> dict[str, dict]:
+    """Parte EOD (cambia 1×/día) del scanner, separada del live para NO releer la
+    historia entera de precios_acciones cada 2s (era ~60k filas por hit del scanner;
+    estos valores solo cambian cuando corre el job EOD). Cacheado 15min.
 
-    El dict de salida está keyed por ticker_corto; los datos vienen de las tablas
-    que indexan por underlying. None en cualquier campo si la serie es corta.
+    Por underlying devuelve las anclas/bases derivadas del cierre EOD:
+      base_wtd/7d/mtd/ytd: cierre del último EOD ≤ el anchor (para los retornos)
+      base_15r: cierre 15 ruedas antes del último EOD (count-based)
+      eod_last_close / eod_prev_close: últimos 2 cierres EOD (fallback sin live + vs_1d)
+      eod_last_fecha: fecha (ISO) del último EOD · dollar_vol: close×volume del último EOD
+    """
+    if not underlyings:
+        return {}
+    hoy = datetime.now(UTC).replace(tzinfo=None)
+    anchor_7d = hoy - timedelta(days=7)
+    # WTD: lunes 00h de la semana en curso → ancla en el cierre del viernes previo.
+    anchor_wtd = (hoy - timedelta(days=hoy.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    anchor_mtd = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    anchor_ytd = hoy.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    docs_by: dict[str, list[dict]] = {}
+    with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT ticker, fecha, close, volume FROM mercado.precios_acciones "
+            "WHERE ticker = ANY(%s) ORDER BY ticker, fecha",
+            (list(underlyings),),
+        )
+        for d in cur.fetchall():
+            fecha = d["fecha"]
+            docs_by.setdefault(d["ticker"], []).append(
+                {"fecha": datetime(fecha.year, fecha.month, fecha.day),  # naive 00h
+                 "close": float(d["close"]) if d["close"] is not None else None,
+                 "volume": float(d["volume"]) if d["volume"] is not None else None})
+
+    def _base_le(docs: list[dict], anchor_ts: datetime) -> float | None:
+        """Cierre del EOD más reciente ≤ anchor (== el _ret_vs original, sin last_close)."""
+        for d in reversed(docs):
+            if d["fecha"] <= anchor_ts:
+                base = d.get("close")
+                return base if (base and base > 0) else None
+        return None
+
+    out: dict[str, dict] = {}
+    for u, docs in docs_by.items():
+        docs.sort(key=lambda x: x["fecha"])
+        ld = docs[-1] if docs else {}
+        base15 = docs[-16].get("close") if len(docs) >= 16 else None
+        out[u] = {
+            "base_wtd": _base_le(docs, anchor_wtd),
+            "base_7d":  _base_le(docs, anchor_7d),
+            "base_mtd": _base_le(docs, anchor_mtd),
+            "base_ytd": _base_le(docs, anchor_ytd),
+            "base_15r": base15 if (base15 and base15 > 0) else None,
+            "eod_last_close": ld.get("close"),
+            "eod_prev_close": docs[-2].get("close") if len(docs) >= 2 else None,
+            "eod_last_fecha": ld["fecha"].isoformat() if ld.get("fecha") else None,
+            "dollar_vol": (ld["close"] * ld["volume"]
+                           if ld.get("close") and ld.get("volume") else None),
+        }
+    return out
+
+
+def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
+    """Métricas ADR (USD) por ticker_corto. La parte EOD (anclas de retorno) viene
+    cacheada de `_eod_anchors_por_underlying` (15min); acá solo se lee el live
+    (mercado.adr_snapshot, ~chico) y se combinan — sin releer los ~60k EOD cada 2s.
+
+    Mismo shape/semántica que antes: el retorno es `last_close (live o EOD) / base_EOD`.
     """
     if not master:
         return {}
@@ -103,24 +166,11 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
     }
     underlyings = sorted(set(corto_to_underlying.values()))
 
-    # Serie EOD de todos los underlyings en UNA query. fecha es DATE → la convierto
-    # a datetime naive (00h) para comparar con los anchors, igual que el path Mongo.
-    docs_by_underlying: dict[str, list[dict]] = {}
+    anchors = _eod_anchors_por_underlying(underlyings=tuple(underlyings))
+
+    # Live USD (chico): 1 query a adr_snapshot.
     live_by_underlying: dict[str, dict] = {}
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            "SELECT ticker, fecha, close, volume FROM mercado.precios_acciones "
-            "WHERE ticker = ANY(%s) ORDER BY ticker, fecha",
-            (underlyings,),
-        )
-        for d in cur.fetchall():
-            fecha = d["fecha"]
-            fdt = datetime(fecha.year, fecha.month, fecha.day)  # naive 00h
-            docs_by_underlying.setdefault(d["ticker"], []).append(
-                {"fecha": fdt,
-                 "close": float(d["close"]) if d["close"] is not None else None,
-                 "volume": float(d["volume"]) if d["volume"] is not None else None}
-            )
         cur.execute(
             "SELECT data FROM mercado.adr_snapshot WHERE ticker = ANY(%s)",
             (underlyings,),
@@ -131,15 +181,8 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
                 live_by_underlying[d["ticker"]] = d
 
     hoy = datetime.now(UTC).replace(tzinfo=None)
-    anchor_7d = hoy - timedelta(days=7)
-    # WTD: lunes 00h de la semana en curso → _ret_vs ancla en el cierre del viernes previo.
-    anchor_wtd = (hoy - timedelta(days=hoy.weekday())).replace(
-        hour=0, minute=0, second=0, microsecond=0)
-    anchor_mtd = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    anchor_ytd = hoy.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
     def _live_dt(live: dict):
-        """`updated_at` del snapshot live (string ISO en jsonb) → datetime|None."""
         ua = live.get("updated_at")
         if isinstance(ua, str):
             try:
@@ -148,12 +191,17 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
                 return None
         return ua if isinstance(ua, datetime) else None
 
+    def _ret(last_close: float | None, base: float | None) -> float | None:
+        if last_close is None or not base or base <= 0:
+            return None
+        return ((last_close / base) - 1) * 100
+
     out: dict[str, dict] = {}
     for ticker_corto, underlying in corto_to_underlying.items():
-        docs = docs_by_underlying.get(underlying, [])
+        eod = anchors.get(underlying)
         live = live_by_underlying.get(underlying)
 
-        if not docs and not live:
+        if not eod and not live:
             out[ticker_corto] = {
                 "adr_last": None, "adr_fecha": None, "adr_intraday": None,
                 "adr_vs_1d_pct": None, "adr_ret_wtd_pct": None, "adr_ret_7d_pct": None,
@@ -161,75 +209,41 @@ def _adr_metrics_para_todos(master: list[dict]) -> dict[str, dict]:
                 "adr_dollar_vol": None,
             }
             continue
+        eod = eod or {}
 
         last_close: float | None = None
-        last_fecha: datetime | None = None
+        last_fecha = None
         adr_intraday: bool | None = None
         if live and live.get("c"):
             last_close = float(live["c"])
-            last_fecha = _live_dt(live)
+            ld = _live_dt(live)
+            last_fecha = ld.isoformat() if isinstance(ld, datetime) else None
             t = live.get("t")
             if isinstance(t, (int, float)) and t > 0:
                 adr_intraday = datetime.fromtimestamp(t, tz=UTC).date() >= hoy.date()
-        elif docs:
-            docs.sort(key=lambda x: x["fecha"])
-            last_doc = docs[-1]
-            last_close = last_doc.get("close")
-            last_fecha = last_doc.get("fecha")
+        elif eod.get("eod_last_close") is not None:
+            last_close = eod["eod_last_close"]
+            last_fecha = eod.get("eod_last_fecha")
             adr_intraday = False
-        else:
-            docs.sort(key=lambda x: x["fecha"])
 
         vs_1d = None
         if live and last_close and live.get("pc"):
-            prev_close = float(live["pc"])
-            if prev_close > 0:
-                vs_1d = ((last_close / prev_close) - 1) * 100
-        elif len(docs) >= 2 and last_close:
-            prev_close = docs[-2].get("close")
-            if prev_close:
-                vs_1d = ((last_close / prev_close) - 1) * 100
-
-        docs.sort(key=lambda x: x["fecha"])
-
-        def _ret_vs(anchor_ts: datetime, _docs=docs, _last_close=last_close) -> float | None:
-            if _last_close is None:
-                return None
-            for d in reversed(_docs):
-                if d["fecha"] <= anchor_ts:
-                    base = d.get("close")
-                    if base and base > 0:
-                        return ((_last_close / base) - 1) * 100
-                    return None
-            return None
-
-        # Peso para el Pulso: volumen USD del ADR (cierre × volumen del último EOD).
-        # Es la "size" pura del subyacente — el Pulso ya no pondera por $ operado del CEDEAR.
-        dollar_vol = None
-        if docs:
-            ld = docs[-1]
-            if ld.get("close") and ld.get("volume"):
-                dollar_vol = ld["close"] * ld["volume"]
-
-        # Retorno últimas 15 ruedas: last_close vs el cierre 15 ruedas antes del último EOD
-        # (count-based, no por fecha). Necesita ≥16 cierres en la serie.
-        ret_15r = None
-        if last_close is not None and len(docs) >= 16:
-            base15 = docs[-16].get("close")
-            if base15 and base15 > 0:
-                ret_15r = ((last_close / base15) - 1) * 100
+            pc = float(live["pc"])
+            vs_1d = ((last_close / pc) - 1) * 100 if pc > 0 else None
+        elif last_close and eod.get("eod_prev_close"):
+            vs_1d = _ret(last_close, eod["eod_prev_close"])
 
         out[ticker_corto] = {
             "adr_last": last_close,
-            "adr_fecha": last_fecha.isoformat() if isinstance(last_fecha, datetime) else None,
+            "adr_fecha": last_fecha,
             "adr_intraday": adr_intraday,
             "adr_vs_1d_pct": vs_1d,
-            "adr_ret_wtd_pct": _ret_vs(anchor_wtd),
-            "adr_ret_7d_pct": _ret_vs(anchor_7d),
-            "adr_ret_15r_pct": ret_15r,
-            "adr_ret_mtd_pct": _ret_vs(anchor_mtd),
-            "adr_ret_ytd_pct": _ret_vs(anchor_ytd),
-            "adr_dollar_vol": dollar_vol,
+            "adr_ret_wtd_pct": _ret(last_close, eod.get("base_wtd")),
+            "adr_ret_7d_pct": _ret(last_close, eod.get("base_7d")),
+            "adr_ret_15r_pct": _ret(last_close, eod.get("base_15r")),
+            "adr_ret_mtd_pct": _ret(last_close, eod.get("base_mtd")),
+            "adr_ret_ytd_pct": _ret(last_close, eod.get("base_ytd")),
+            "adr_dollar_vol": eod.get("dollar_vol"),
         }
     return out
 

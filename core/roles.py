@@ -50,6 +50,7 @@ MODULES: tuple[str, ...] = (
     "agro",           # /agro (pizarra + mejoras precio dispo + datos cámara cereales)
     "sinteticos",     # /sinteticos (long ROFEX + LECAP, short ROFEX + DLK)
     "renta-variable", # /renta-variable + smart money 13F/Form 4 sobre CEDEARs
+    "trading",        # /trading (panel intradía de CEDEARs — 5 sistemas, admin-only)
     "estrategia",     # /retorno (sensibilidad, canje, carry)
     "operar",         # /operar (DOLAR MEP) + /api/ordenes + /api/operativa + /api/risk
     "operaciones",    # /operaciones (mesa, flujo) + /api/cuentas

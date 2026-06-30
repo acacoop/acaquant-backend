@@ -1014,6 +1014,14 @@ CREATE TABLE IF NOT EXISTS manager.role_audit (
 );
 CREATE INDEX IF NOT EXISTS ix_role_audit_ts ON manager.role_audit(ts DESC);
 
+-- Watchlist por usuario de la vista TRADING (panel intradía de CEDEARs).
+-- Lista de ticker_corto; la lógica del panel vive en api/services/trading_panel.py.
+CREATE TABLE IF NOT EXISTS manager.trading_watchlist (
+    email      text PRIMARY KEY,
+    tickers    text[] NOT NULL DEFAULT '{}',
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- HOME — watchlist + noticias + calendario económico
 -- ─────────────────────────────────────────────────────────────────────────────

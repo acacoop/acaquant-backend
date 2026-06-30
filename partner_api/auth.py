@@ -33,7 +33,7 @@ _DUMMY_HASH = hash_password("dummy-no-user")
 
 
 def _buscar_usuario(username: str) -> dict | None:
-    """Usuario del proveedor (dual-run Mongo/SQL vía store, flag PARTNER_SQL)."""
+    """Usuario del proveedor (SQL-native (store → partner.api_users))."""
     return store.find_user(username)
 
 

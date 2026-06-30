@@ -11,8 +11,9 @@ NO depende del `search_path` de la mesa. `_ensure_schema()` las auto-crea
 (idempotente) en el primer uso, así el servicio arranca aunque el schema.sql
 todavía no se haya corrido a mano.
 
-Solo se usa cuando `PARTNER_SQL=1` (lectura) o `PARTNER_SQL_WRITE=1` (escritura
-del job/script); con el default (Mongo) este módulo nunca se importa de hecho.
+Es la ÚNICA fuente de datos del partner_api (decomiso Mongo: ACAPortfolio
+eliminada). La lectura (store.py) y la escritura (jobs/partner_export.py,
+scripts/partner_user.py) van por acá.
 """
 from __future__ import annotations
 
@@ -64,7 +65,7 @@ def _require_uri() -> str:
     if not POSTGRES_URI:
         raise RuntimeError(
             "Falta POSTGRES_URI en el .env (connection string de Supabase). "
-            "Necesario cuando PARTNER_SQL=1 o PARTNER_SQL_WRITE=1."
+            "Es la fuente de datos del partner_api."
         )
     return POSTGRES_URI
 

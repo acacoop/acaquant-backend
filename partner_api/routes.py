@@ -4,7 +4,7 @@ Todos requieren un Bearer token válido (`Depends(usuario_actual)`).
 El dataset sólo contiene las cuentas de `config.PARTNER_EXPORT_CUENTAS`, así que
 no hay forma de pedir una cuenta que no esté habilitada.
 
-Fuente de datos: `partner_api.store` (dual-run Mongo/SQL por flag PARTNER_SQL).
+Fuente de datos: `partner_api.store` (SQL-native (partner.cartera)).
 """
 from __future__ import annotations
 

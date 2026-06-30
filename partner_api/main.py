@@ -23,18 +23,20 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from partner_api import auth, odata, routes
+from partner_api.pg import POSTGRES_URI
 from partner_api.ratelimit import client_ip, limiter
 from partner_api.security import validar_token
-from partner_api.settings import PARTNER_JWT_SECRET, PARTNER_MONGO_URI
+from partner_api.settings import PARTNER_JWT_SECRET
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("partner_api")
 _audit = logging.getLogger("partner_api.audit")
 
 # Chequeo de config al importar — si faltan las env vars, queda logueado
-# fuerte en el arranque del servicio.
+# fuerte en el arranque del servicio. SQL-native (decomiso Mongo): la fuente es
+# Postgres (POSTGRES_URI), ya no ACAPortfolio Mongo.
 _faltan = [
-    n for n, v in (("PARTNER_MONGO_URI", PARTNER_MONGO_URI),
+    n for n, v in (("POSTGRES_URI", POSTGRES_URI),
                    ("PARTNER_JWT_SECRET", PARTNER_JWT_SECRET))
     if not v
 ]

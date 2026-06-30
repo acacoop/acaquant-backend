@@ -138,7 +138,7 @@ def metadata() -> Response:
     return Response(xml, media_type="application/xml", headers=_ODATA_HEADERS)
 
 
-# ── Datos (Basic Auth) — vía store (dual-run Mongo/SQL, flag PARTNER_SQL) ─────
+# ── Datos (Basic Auth) — vía store (SQL-native (store → partner.cartera)) ─────
 def _query(flt: dict, *, skip: int | None, top: int | None) -> list[dict]:
     docs = store.odata_query(flt, skip=skip, top=top, max_rows=_MAX_ROWS)
     if not top and len(docs) == _MAX_ROWS:

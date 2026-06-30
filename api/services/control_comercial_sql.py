@@ -21,6 +21,7 @@ from datetime import UTC, date
 
 from psycopg.rows import dict_row
 
+from api.cache import cached
 from core.postgres import get_pool
 
 # ── Tabla de objetivos (self-create, igual patrón que valuaciones.consolidado) ──
@@ -152,9 +153,14 @@ def _pct(cur: float, prev: float) -> float | None:
     return round((cur - prev) / prev * 100, 1) if prev else None
 
 
+@cached(ttl=300)
 def datos_totales_alyc(*, moneda: str = "ARS") -> dict:
     """Tabla 1: totales de la mesa por períodos FIJOS (no usa Desde/Hasta) + % vs el período
-    anterior inmediato equivalente. Ancla = última fecha con operaciones."""
+    anterior inmediato equivalente. Ancla = última fecha con operaciones.
+
+    @cached(300s): hace ~30 agregaciones seriales sobre operaciones/negocio_movimientos
+    (varias barren todo el histórico) y el resultado NO depende del usuario (solo `moneda`)
+    → se recalcula 1×/5min en vez de en cada hit del dashboard de jefatura (perf 2026-06-29)."""
     factor = _factor_usd(moneda)
     a = _ancla()
     # (label, desde, hasta, prev_desde, prev_hasta). prev=None → sin comparación.

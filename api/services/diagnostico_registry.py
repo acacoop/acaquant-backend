@@ -176,6 +176,10 @@ PIEZAS: list[Pieza] = [
           unidad="jobs.day_trading_stats",
           cadencia="20:06 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           run_tipo="day_trading_stats"),
+    Pieza("MERCADOS", "job", "cedears_volume_history (RVOL vista TRADING)", grupo="RENTA VARIABLE",
+          unidad="jobs.cedears_volume_history",
+          cadencia="20:08 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
+          run_tipo="cedears_volume_history"),
 
     # ── MERCADOS · OPCIONES (GGAL) ─────────────────────────
     Pieza("MERCADOS", "motor", "motor_options (GGAL)", grupo="OPCIONES", unidad="motor_options",

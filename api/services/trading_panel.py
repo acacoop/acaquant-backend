@@ -20,6 +20,7 @@ import logging
 
 from psycopg.rows import dict_row
 
+from api.cache import cached
 from api.services import scanner_sql as svc
 from api.services.trading_systems import derivar_campos, evaluar_sistemas
 from core.postgres import get_pool
@@ -66,7 +67,8 @@ def get_panel(*, tickers: list[str]) -> dict:
         pivots = _safe(svc.get_pivot_points, tk, "pivots")
         stats = _safe(svc.get_quant_stats, tk, "quant_stats")
         candles = _safe(svc.get_cedears_intraday, tk, "intraday") or []
-        campos = derivar_campos(sr, pivots, stats, candles)
+        baseline = get_rvol_baseline(ticker=tk)
+        campos = derivar_campos(sr, pivots, stats, candles, baseline)
         campos["sistemas"] = evaluar_sistemas(campos)
         rows.append(campos)
 
@@ -86,6 +88,48 @@ def _safe(fn, ticker: str, label: str):
 def _now_iso() -> str:
     from datetime import UTC, datetime
     return datetime.now(UTC).isoformat()
+
+
+@cached(ttl=600)
+def get_rvol_baseline(*, ticker: str) -> dict[str, float]:
+    """Perfil de volumen acumulado promedio por minuto-del-día (últimas 20 ruedas).
+
+    {minuto 'HH:MM' UTC: vol_acumulado_promedio} desde mercado.cedears_volume_history
+    (lo escribe jobs.cedears_volume_history). Vacío si la tabla no existe todavía o
+    no hay historia → el panel cae al fallback `dia_volatil` por rango. Cacheado 10'
+    (el perfil cambia 1 vez por rueda)."""
+    tk = (ticker or "").strip().upper()
+    if not tk:
+        return {}
+    try:
+        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                WITH dias AS (
+                    SELECT DISTINCT fecha
+                    FROM mercado.cedears_volume_history
+                    WHERE ticker_corto = %s
+                    ORDER BY fecha DESC LIMIT 20
+                ),
+                perfil AS (
+                    SELECT h.minuto,
+                           SUM(h.volume) OVER (
+                               PARTITION BY h.fecha ORDER BY h.minuto
+                               ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                           ) AS cum
+                    FROM mercado.cedears_volume_history h
+                    JOIN dias d ON d.fecha = h.fecha
+                    WHERE h.ticker_corto = %s
+                )
+                SELECT minuto, AVG(cum) AS avg_cum
+                FROM perfil GROUP BY minuto
+                """,
+                (tk, tk),
+            )
+            return {r["minuto"]: float(r["avg_cum"]) for r in cur.fetchall() if r["avg_cum"]}
+    except Exception as e:
+        logger.debug("trading_panel: rvol_baseline falló para %s (%s)", tk, e)
+        return {}
 
 
 # ── watchlist por usuario (SQL) ───────────────────────────────────────────────

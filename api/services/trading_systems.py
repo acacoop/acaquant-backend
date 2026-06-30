@@ -45,6 +45,7 @@ UMBRAL = {
     "s4_activo": 0.8,           # |gap_adr_pct| para ACTIVO (catch-up / fade)
     "s5_crosses_max": 2,        # cruces de VWAP para "día tendencial"
     "dia_volatil_mult": 1.5,    # rango_dia_pct > esto × vol_diaria → día volátil
+    "rvol_volatil": 1.5,        # RVOL > esto → día con volumen anormal (Fase 2)
     "climax_mult": 3.0,         # vela de clímax = vol > esto × media 10 velas
     "trading_days": 252,
 }
@@ -78,6 +79,40 @@ def _parse_iso(s: Any) -> datetime | None:
 
 def _sistema(estado: str, lado: str | None = None, nota: str = "") -> dict[str, Any]:
     return {"estado": estado, "lado": lado, "nota": nota}
+
+
+def _hhmm(t: Any) -> str | None:
+    """Minuto-del-día UTC 'HH:MM' del timestamp de una vela ('...THH:MM:00Z')."""
+    dt = _parse_iso(t)
+    return dt.strftime("%H:%M") if dt else None
+
+
+def _baseline_at(baseline: dict[str, float], minuto: str) -> float | None:
+    """Volumen acumulado promedio del baseline en el minuto <= `minuto` más cercano."""
+    best_k: str | None = None
+    best_v: float | None = None
+    for k, v in baseline.items():
+        if k <= minuto and (best_k is None or k > best_k):
+            best_k, best_v = k, v
+    return best_v
+
+
+def _rvol(candles: list[dict], baseline: dict[str, float] | None) -> float | None:
+    """RVOL = volumen acumulado de hoy hasta el último minuto / promedio 20d a ese minuto."""
+    if not baseline or not candles:
+        return None
+    cum = 0.0
+    for c in candles:
+        v = _f(c.get("vol"))
+        if v:
+            cum += v
+    minuto = _hhmm(candles[-1].get("t"))
+    if minuto is None:
+        return None
+    base = _baseline_at(baseline, minuto)
+    if not base or base <= 0:
+        return None
+    return cum / base
 
 
 # ── 1. campos derivados ────────────────────────────────────────────────────────
@@ -196,8 +231,14 @@ def derivar_campos(
     pivots: dict | None,
     stats: dict | None,
     candles: list[dict] | None,
+    baseline: dict[str, float] | None = None,
 ) -> dict[str, Any]:
-    """Combina los 4 crudos en el set de campos derivados por ticker."""
+    """Combina los crudos en el set de campos derivados por ticker.
+
+    `baseline` (Fase 2, opcional) = {minuto 'HH:MM' UTC: vol_acum_promedio_20d} de
+    `mercado.cedears_volume_history` → habilita el RVOL. Sin él, `dia_volatil` cae
+    al fallback por rango (vol del día vs vol 30d).
+    """
     sr = scanner_row or {}
     last = _f(sr.get("last"))
     vwap = _f(sr.get("vwap"))
@@ -262,7 +303,7 @@ def derivar_campos(
         vol30 / math.sqrt(UMBRAL["trading_days"]) * 100 if vol30 is not None else None
     )
     campos["vol_diaria_pct"] = vol_diaria_pct
-    campos["dia_volatil"] = bool(
+    volatil_rango = bool(
         campos["rango_dia_pct"] is not None
         and vol_diaria_pct
         and campos["rango_dia_pct"] > UMBRAL["dia_volatil_mult"] * vol_diaria_pct
@@ -270,7 +311,14 @@ def derivar_campos(
 
     campos.update(_pivotes(pivots, last))
     campos.update(_campos_velas(candles or [], last))
-    campos["rvol"] = None  # Fase 2 (baseline SQL)
+
+    # RVOL (Fase 2): volumen acumulado de hoy vs promedio 20d al mismo minuto.
+    rvol = _rvol(candles or [], baseline)
+    campos["rvol"] = rvol
+    # Día volátil = volumen anormal (RVOL) O el fallback por rango.
+    campos["dia_volatil"] = bool(
+        (rvol is not None and rvol > UMBRAL["rvol_volatil"]) or volatil_rango
+    )
     return campos
 
 

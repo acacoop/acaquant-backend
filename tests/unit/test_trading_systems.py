@@ -91,6 +91,30 @@ def test_velas_opening_range_y_cruces():
     assert c["minutos_rueda"] == 21.0
 
 
+def test_rvol_dispara_dia_volatil():
+    # rango chico (0.5%) → NO volátil por rango; pero RVOL=2.0 → SÍ volátil.
+    sr = _scanner_row(last=100.5, high=100.5, low=100, close=100)
+    stats = {"vol": {"d30": 0.30, "d60": 0.30}, "zscore": {"d30": 1.0, "d60": 1.0}}
+    candles = [
+        {"t": "2026-06-30T14:00:00Z", "o": 100, "h": 100, "l": 100, "c": 100, "vol": 1000},
+        {"t": "2026-06-30T14:01:00Z", "o": 100, "h": 100, "l": 100, "c": 100, "vol": 1000},
+        {"t": "2026-06-30T14:02:00Z", "o": 100, "h": 100, "l": 100, "c": 100, "vol": 1000},
+    ]
+    baseline = {"14:00": 500.0, "14:01": 1000.0, "14:02": 1500.0}  # cum hoy 3000 / 1500 = 2.0
+    c = derivar_campos(sr, None, stats, candles, baseline)
+    assert c["rvol"] == 2.0
+    assert c["dia_volatil"] is True
+    # sin baseline → cae al fallback por rango (que acá da False)
+    assert derivar_campos(sr, None, stats, candles)["dia_volatil"] is False
+
+
+def test_baseline_at_toma_el_minuto_anterior_mas_cercano():
+    from api.services.trading_systems import _baseline_at
+    bl = {"14:00": 100.0, "14:05": 500.0, "14:10": 900.0}
+    assert _baseline_at(bl, "14:07") == 500.0   # el <= más cercano
+    assert _baseline_at(bl, "13:00") is None     # nada antes
+
+
 # ── semáforo de sistemas ────────────────────────────────────────────────────────
 
 def test_s4_dislocacion():

@@ -119,12 +119,24 @@ def snapshot_curva_historico(curva: str, fecha: str) -> list[dict]:
     # snapshot_cierre corre 20:25 UTC). Leemos MarketSnapshot directo,
     # que es la misma fuente que el cron usa al cierre — sólo que live.
     if fecha_str == date.today().isoformat():
-        # SQL-only (mercado.market_snapshot): mismo shape (ticker, updated_at, metrics).
-        from core.market_snapshot import snapshot_docs
-        ms_rows = [
-            d for d in snapshot_docs(list(meta_by_ticker.keys())).values()
-            if (d["metrics"].get("last_price") or 0) > 0
-        ]
+        # SQL-only (mercado.market_snapshot). Query directa de las columnas que se
+        # usan — NO trae el `book` jsonb (order book depth-5) que snapshot_docs
+        # arrastraba sin necesidad (perf 2026-06-29). Shape compat: {ticker, metrics, updated_at}.
+        _MS_COLS = (("last_price", "last_price"), ("tea", "TEA"), ("tem", "TEM"),
+                    ("paridad", "paridad"), ("duration", "duration"),
+                    ("mod_duration", "mod_duration"), ("convexity", "convexity"))
+        ms_rows = []
+        with get_pool().connection() as _conn, _conn.cursor(row_factory=dict_row) as _cur:
+            _cur.execute(
+                "SELECT ticker, updated_at, "
+                + ", ".join(c for c, _ in _MS_COLS)
+                + " FROM mercado.market_snapshot WHERE ticker = ANY(%s) AND last_price > 0",
+                (list(meta_by_ticker.keys()),),
+            )
+            for _r in _cur.fetchall():
+                metrics = {k: float(_r[c]) for c, k in _MS_COLS if _r.get(c) is not None}
+                ms_rows.append({"ticker": _r["ticker"], "updated_at": _r["updated_at"],
+                                "metrics": metrics})
         if ms_rows:
             out = []
             for r in ms_rows:

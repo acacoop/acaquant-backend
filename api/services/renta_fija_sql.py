@@ -297,6 +297,7 @@ def _market_maps(tickers: list[str]) -> tuple[dict, dict]:
     return enrich_map, vol_map
 
 
+@cached(ttl=10)
 def listar_curva(
     curva: str,
     ordenar_por: str = "vencimiento",

@@ -232,6 +232,7 @@ ENDPOINT_MODULE_PREFIXES: tuple[tuple[str, str], ...] = (
     # /api/operaciones + /api/cuentas → módulo `operaciones` (mesa, flujo, contrapartes)
     ("/api/operaciones", "operaciones"),
     ("/api/cuentas",     "operaciones"),
+    ("/api/trading",     "trading"),  # vista TRADING (pivots CEDEAR), admin-only
     # /api/mm → módulo `mm` (MM Workstation: order book + timesales — en reconstrucción)
     ("/api/mm",          "mm"),
 )

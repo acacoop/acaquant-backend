@@ -45,6 +45,7 @@ from api.routers import (
     risk,
     scanner,
     titulos,
+    trading,
     valuaciones,
 )
 from config import (
@@ -186,6 +187,7 @@ _PORTFOLIOS   = [Depends(verify_api_key), Depends(require_module("portfolios"))]
 _BACK_OFFICE  = [Depends(verify_api_key), Depends(require_module("back-office"))]
 _OPERAR       = [Depends(verify_api_key), Depends(require_module("operar"))]
 _OPERACIONES  = [Depends(verify_api_key), Depends(require_module("operaciones"))]
+_TRADING      = [Depends(verify_api_key), Depends(require_module("trading"))]
 # `manager.router` ya NO va con _MANAGER global: gatear todo /api/manager/*
 # con el módulo `manager` excluye a `asistente_comercial` (que solo tiene
 # `manager_comercial` y `manager_clientes`). El gate ahora vive POR sub-router
@@ -205,6 +207,7 @@ app.include_router(derivados_agro.router,    dependencies=_PUBLIC)
 app.include_router(derivados_sinteticos.router, dependencies=_PUBLIC)
 app.include_router(back_office.router,        dependencies=_BACK_OFFICE)
 app.include_router(scanner.router,            dependencies=_PUBLIC)
+app.include_router(trading.router,            dependencies=_TRADING)  # vista TRADING (admin)
 
 # Restringidos a roles con el módulo respectivo:
 app.include_router(carteras.router,          dependencies=_PORTFOLIOS)

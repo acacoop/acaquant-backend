@@ -1124,6 +1124,22 @@ CREATE TABLE IF NOT EXISTS mercado.cedears_time_sales (
 CREATE INDEX IF NOT EXISTS ix_cedears_ts_corto_ts
     ON mercado.cedears_time_sales (ticker_corto, ts DESC);
 
+-- OHLC diario por CEDEAR (ventana móvil ~20 ruedas) para pivots sobre el CEDEAR
+-- en ARS. Lo escribe jobs/cedears_ohlc_daily.py tras el cierre, copiando OP/HI/LO
+-- del snapshot + el last como close del día (el `close` del snapshot es el cierre
+-- de AYER, no se usa). El job poda las ruedas más viejas → la tabla no crece.
+CREATE TABLE IF NOT EXISTS mercado.cedears_ohlc_daily (
+    ticker_corto text NOT NULL,
+    fecha        date NOT NULL,
+    open         numeric,
+    high         numeric,
+    low          numeric,
+    close        numeric,
+    PRIMARY KEY (ticker_corto, fecha)
+);
+CREATE INDEX IF NOT EXISTS ix_cedears_ohlc_tk_fecha
+    ON mercado.cedears_ohlc_daily (ticker_corto, fecha DESC);
+
 -- Trading.SnapshotsSinteticos → histórico diario de sintéticos (jobs/snapshot_sinteticos.py,
 -- upsert por (ts_snapshot, tipo_sintetico, ticker)). Campos comunes columnar + el
 -- resto (px/vto/te/tna/cobro/descalce/...) en `data` jsonb (varían por tipo).

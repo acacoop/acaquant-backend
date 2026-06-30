@@ -178,6 +178,11 @@
 # motor para 20:05, cleanup borra 20:10 — no mover sin mover los tres.
 6 20 * * 1-5 /root/TradingAV/deploy/run_job.sh day_trading_stats 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.day_trading_stats'
 
+# OHLC diario de cada CEDEAR → mercado.cedears_ohlc_daily (para pivots sobre el
+# CEDEAR). Lee el SNAPSHOT (no el tape), así que no le afecta el cleanup; corre con
+# el motor ya parado (20:05) → valores finales del día. Ventana móvil 20 ruedas.
+15 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cedears_ohlc_daily 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cedears_ohlc_daily'
+
 # ─── Vaciado del Time & Sales intradía de CEDEARs (20:10 UTC = 17:10 ART, L-V)
 # Trading.CedearsTimeSales es intradía (tape del scanner); se borra al cierre.
 10 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_cedears_timesales 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_cedears_timesales'

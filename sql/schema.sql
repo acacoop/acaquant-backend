@@ -1368,3 +1368,23 @@ CREATE TABLE IF NOT EXISTS mcp.oauth_tokens (
     expires_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_mcp_tokens_expires ON mcp.oauth_tokens (expires_at);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- PERFORMANCE — autovacuum agresivo + fillfactor en tablas de ALTA ROTACIÓN
+-- (perf 2026-06-29). Los motores upsertean estas tablas cada ~1s; con el
+-- autovacuum default (20%) se bloatean (market_snapshot llegó a 434MB para 310
+-- filas → seq scan 38ms). fillfactor 80 deja lugar para UPDATE HOT (sin bloat de
+-- índice) y el autovacuum al 2% las mantiene chicas. Idempotente. El mismo seteo
+-- lo aplica `scripts/sql_vacuum_tune.py --tune` (+ --vacuum-full para compactar).
+-- ─────────────────────────────────────────────────────────────────────────────
+ALTER TABLE mercado.market_snapshot        SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
+ALTER TABLE mercado.cedears_snapshot       SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
+ALTER TABLE mercado.adr_snapshot           SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
+ALTER TABLE mercado.agro_snapshot          SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
+ALTER TABLE mercado.agro_opciones_snapshot SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
+ALTER TABLE mercado.futuros_dlr_snapshot   SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
+ALTER TABLE mercado.caucion_snapshot       SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
+ALTER TABLE mercado.options_snapshot       SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
+ALTER TABLE mercado.snapshots_sinteticos   SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
+ALTER TABLE home.market_quotes             SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
+ALTER TABLE valuaciones.portfolio_snapshot SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);

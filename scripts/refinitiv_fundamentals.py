@@ -7,12 +7,12 @@ la FOTO de mercado, y hace upsert idempotente a Supabase (schemas research.*).
 
 Solo datos REALES — nada de estimados/consenso/futuro.
 
-    python refinitiv_fundamentals.py --dry-run    # prueba: imprime lo que escribiría
-    python refinitiv_fundamentals.py              # escribe a la base
+Cómo correrlo (funciona igual en Spyder/Jupyter con el botón Run, o en terminal):
+    - Poné DRY_RUN = True  → solo IMPRIME lo que escribiría (prueba, no toca la base)
+    - Poné DRY_RUN = False → ESCRIBE a la base
 
 Instalar en tu PC:  pip install eikon pandas "psycopg[binary]"
 """
-import argparse
 import warnings
 
 import eikon as ek
@@ -23,6 +23,7 @@ warnings.simplefilter("ignore", FutureWarning)
 warnings.simplefilter("ignore", RuntimeWarning)
 
 # ── CONFIG (pegá tus valores) ──────────────────────────────────────────────
+DRY_RUN = True   # True = solo imprime (prueba) · False = escribe a la base
 APP_KEY = "PEGA_TU_APP_KEY_ACA"
 POSTGRES_URI = "PEGA_TU_POSTGRES_URI_ACA"   # el mismo connection string de Supabase
 
@@ -162,12 +163,9 @@ _SQL_COMP = (
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--dry-run", action="store_true", help="imprime lo que escribiría, no toca la base")
-    a = ap.parse_args()
     ek.set_app_key(APP_KEY)
 
-    conn = None if a.dry_run else psycopg.connect(POSTGRES_URI)
+    conn = None if DRY_RUN else psycopg.connect(POSTGRES_URI)
     for ric in RICS:
         print(f"\n=== {ric} ===")
         fund = []
@@ -179,7 +177,7 @@ def main():
 
         print(f"  fundamentals: {len(fund)} filas · snapshot: precio={snap[1]} mktcap={snap[4]} "
               f"· empresa={comp[2]}")
-        if a.dry_run:
+        if DRY_RUN:
             for r in fund[:6]:
                 print("   ej:", r[1], r[2], r[3], r[5], "=", r[7])
             continue
@@ -192,7 +190,7 @@ def main():
 
     if conn:
         conn.close()
-    print("\n(dry-run: no se escribió nada)" if a.dry_run else "\nListo.")
+    print("\n(DRY_RUN=True: no se escribió nada)" if DRY_RUN else "\nListo.")
 
 
 if __name__ == "__main__":

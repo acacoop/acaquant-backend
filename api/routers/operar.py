@@ -65,6 +65,18 @@ def _existe_en_pyrofex(ticker_full: str) -> bool:
         return cur.fetchone() is not None
 
 
+def _tiene_puntas(book: dict) -> bool:
+    """True si el libro trae al menos una punta (bid u offer).
+
+    Una fila de `market_snapshot` puede quedar STALE con el libro vacío después de
+    que venció la suscripción adhoc (el motor deja de refrescarla). Devolver esa
+    fila como 200 haría que el endpoint NUNCA re-suscriba → DOM muerto para siempre.
+    Tratarla como 'sin libro' fuerza el camino de suscripción.
+    """
+    b = book.get("book") or {}
+    return bool(b.get("bids")) or bool(b.get("offers"))
+
+
 @router.get("/order-book")
 def get_book(
     ticker: str = Query(..., description="Ticker corto (AL30) o full ROFEX"),
@@ -78,13 +90,15 @@ def get_book(
     (~5s) y aparece en MarketSnapshot.
     """
     book = get_order_book(ticker, plazo=plazo)
-    if book is not None:
+    if book is not None and _tiene_puntas(book):
         # Refresca TTL si era adhoc (no rompe nada si no estaba ahí).
         try:
             bump_last_used(book.get("ticker", ""))
         except Exception:
             pass
         return book
+    # Sin fila, o fila STALE con libro vacío (suscripción vencida): caer al camino
+    # de suscripción para que el motor lo vuelva a levantar (no devolver un DOM muerto).
 
     # No está en MarketSnapshot. Resolver el ticker FULL para registrar
     # en AdhocSubscriptions (necesitamos el full para que pyRofex lo

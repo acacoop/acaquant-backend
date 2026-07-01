@@ -170,7 +170,7 @@ _SQL_COMP = (
 def main():
     ek.set_app_key(APP_KEY)
 
-    conn = None if DRY_RUN else psycopg.connect(POSTGRES_URI)
+    conn = None if DRY_RUN else psycopg.connect(POSTGRES_URI, sslmode="require")
     for ric in RICS:
         print(f"\n=== {ric} ===")
         fund = []

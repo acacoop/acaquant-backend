@@ -1,102 +1,135 @@
-"""refinitiv_prueba.py — PRUEBA del API de Eikon (RKLB.O), ampliada.
+"""refinitiv_prueba.py — PRUEBA del API de Eikon (RKLB.O), modelado ampliado.
 
 Standalone: NO depende del repo. Copialo a tu PC (con Workspace/Eikon ABIERTO),
 pegá tu app key abajo, y corrélo:  python refinitiv_prueba.py
 
-De momento SOLO imprime el response (no escribe a la base). Ahora trae los TRES
-estados (Income Statement / Balance Sheet / Cash Flow), últimos ~8 trimestres, y
-agrega una columna `Periodo` (Año + Trimestre) para leerlo como el Excel.
+SOLO imprime el response (no escribe a la base). Trae, para RKLB.O:
+  1) Estados: Income / Balance / Cash Flow (8 trimestres)
+  2) Márgenes (calculados: bruto / EBITDA / operativo / neto)
+  3) Ratios y valuación (P/E, EV/EBITDA, P/S, P/BV, ROE, ROA)
+  4) Snapshot de mercado (precio, 52w, market cap, EV, div yield, price target)
+  5) Estimados de consenso (Revenue/EPS/EBITDA/Net Income a futuro)
+  6) Segmentos (ingresos por línea de negocio)
 
-Los nombres de campo marcados con  # ?  son tentativos: si alguno no resuelve,
-get_data NO rompe — lo lista en la sección de avisos. Corrélo, pegame la salida y
-corrijo los que fallen + sigo sumando (segmentos, ratios, etc.).
-
-Requisitos en tu PC:
-    pip install eikon pandas
-    (y tener Refinitiv Workspace/Eikon abierto y logueado)
+Campos con  # ?  = tentativos (si fallan, get_data los lista en "avisos"; los corrijo).
+Los de estimados salen del "Tablero Acciones" (verificados). Requisitos en tu PC:
+    pip install eikon pandas   (+ Workspace/Eikon abierto y logueado)
 """
+import warnings
+
 import eikon as ek
 import pandas as pd
 
-pd.set_option("display.width", 240)
+warnings.simplefilter("ignore", FutureWarning)  # silencia el aviso interno de eikon
+pd.set_option("display.width", 260)
 pd.set_option("display.max_columns", 60)
 
-# ── 1) Configurar API Key ──────────────────────────────────────────────────
+# ── 1) API Key ─────────────────────────────────────────────────────────────
 ek.set_app_key("PEGA_TU_APP_KEY_ACA")
 
-# ── 2) Qué pedimos ─────────────────────────────────────────────────────────
 RIC = "RKLB.O"
-PARAMS = {"Period": "FQ0", "Frq": "FQ", "SDate": "0", "EDate": "-7"}  # últimos 8 trimestres
+Q = {"Period": "FQ0", "Frq": "FQ", "SDate": "0", "EDate": "-7"}   # 8 trimestres
+FY = {"Period": "FY0", "Frq": "FY", "SDate": "0", "EDate": "2"}   # actual + 2 años futuros
 
-# Cada lista mapea a las líneas del Excel de referencia. Los  # ?  son a confirmar.
 INCOME = [
-    "TR.Revenue",                 # Revenue from Business Activities - Total
-    "TR.CostOfRevenueTotal",      # Cost of Revenues - Total
-    "TR.GrossProfit",             # Gross Profit - Total
-    "TR.SGATotal",                # ? Selling, General & Admin - Total
-    "TR.ResearchAndDevelopment",  # ? Research & Development Expense
-    "TR.TotalOperatingExpense",   # ? Operating Expenses - Total
-    "TR.OperatingIncome",         # Operating Profit
-    "TR.EBITDA",                  # EBITDA
-    "TR.DepreciationAmort",       # ? Depreciación & amortización
-    "TR.PretaxIncome",            # ? Resultado antes de impuestos
-    "TR.IncomeTaxes",             # ? Impuesto a las ganancias
-    "TR.NetIncomeAfterTaxes",     # Resultado neto
-    "TR.EPSActValue",             # BPA (EPS)
+    "TR.Revenue", "TR.CostOfRevenueTotal", "TR.GrossProfit", "TR.ResearchAndDevelopment",
+    "TR.TotalOperatingExpense", "TR.OperatingIncome", "TR.EBITDA",
+    "TR.DepreciationAmort", "TR.PretaxIncome", "TR.IncomeTaxes",
+    "TR.NetIncomeAfterTaxes", "TR.EPSActValue",
 ]
-
 BALANCE = [
-    "TR.CashAndSTInvestments",    # ? Cash & Short-Term Investments
-    "TR.CashAndEquivalents",      # ? Cash & Cash Equivalents
-    "TR.TotalReceivablesNet",     # ? Loans & Receivables - Net
-    "TR.TotalInventory",          # ? Inventories - Total
-    "TR.TotalCurrentAssets",      # Total Current Assets
-    "TR.NetPPE",                  # ? Property, Plant & Equipment - Net
-    "TR.TotalAssets",             # ? Total Assets
-    "TR.TotalCurrentLiabilities", # ? Total Current Liabilities
-    "TR.TotalDebt",               # ? Total Debt
-    "TR.TotalLiabilities",        # ? Total Liabilities
-    "TR.TotalEquity",             # ? Total Shareholders' Equity
+    "TR.CashAndSTInvestments", "TR.TotalReceivablesNet", "TR.TotalInventory",
+    "TR.TotalCurrentAssets", "TR.NetPPE", "TR.TotalAssets",
+    "TR.TotalCurrentLiabilities", "TR.TotalDebt", "TR.TotalLiabilities", "TR.TotalEquity",
 ]
-
 CASHFLOW = [
-    "TR.CashFromOperatingActivities",  # ? Operating Cash Flow
-    "TR.CapitalExpenditures",          # ? CapEx
-    "TR.FreeCashFlow",                 # ? Free Cash Flow
-    "TR.CashFromInvestingActivities",  # ? Cash from Investing
-    "TR.CashFromFinancingActivities",  # ? Cash from Financing
-    "TR.NetChangeInCash",              # ? Variación neta de caja
+    "TR.CashFromOperatingActivities", "TR.CapitalExpenditures", "TR.FreeCashFlow",
+    "TR.CashFromInvestingActivities", "TR.CashFromFinancingActivities",
+]
+RATIOS = [
+    "TR.PE",                  # ? P / E
+    "TR.EVToEBITDA",          # ? EV / EBITDA
+    "TR.PriceToSalesPerShare",  # ? Price / Sales
+    "TR.PriceToBVPerShare",   # ? Price / Book
+    "TR.ROEActValue",         # ? ROE
+    "TR.ROAActValue",         # ? ROA
+]
+SNAPSHOT = [
+    "TR.PriceClose",          # ? último precio
+    "TR.Price52WeekHigh",     # ? máx 52 sem
+    "TR.Price52WeekLow",      # ? mín 52 sem
+    "TR.CompanyMarketCap",    # cap de mercado
+    "TR.EnterpriseValue",     # ? EV
+    "TR.SharesOutstanding",   # ? acciones en circ.
+    "TR.DividendYield",       # ? dividend yield
+    "TR.PriceTargetMean",     # ? precio objetivo (consenso)
+    "TR.RecommendationLabel", # ? recomendación
+]
+ESTIMATES = [
+    "TR.RevenueMeanEstimate",    # ingresos estimados (consenso)
+    "TR.EPSMeanEstimate",        # EPS estimado
+    "TR.EBITDAMean",             # EBITDA estimado
+    "TR.NetIncomeMeanEstimate",  # resultado neto estimado
 ]
 
 
 def _periodo(df: pd.DataFrame) -> pd.DataFrame:
-    """Agrega columna 'Periodo' (Año + Trimestre) a partir de la fecha de cierre.
-    Nota: el trimestre se deriva del mes (cierre Dic = Q4). Vale para calendarios
-    fiscales que cierran en diciembre (RKLB). Para otros habría que usar el período
-    fiscal de Refinitiv."""
     if "Date" not in df.columns:
-        return df
+        return df.drop(columns=["Instrument"], errors="ignore")
     d = pd.to_datetime(df["Date"])
     df.insert(0, "Periodo", d.dt.year.astype(str) + " Q" + (((d.dt.month - 1) // 3) + 1).astype(str))
     return df.drop(columns=["Date", "Instrument"], errors="ignore")
 
 
-def traer(nombre: str, campos: list[str]) -> None:
-    # "TR.Revenue.date" adelante → nos da la columna Date del período.
-    df, err = ek.get_data([RIC], ["TR.Revenue.date", *campos], PARAMS)
-    print(f"\n===================  {nombre}  ({RIC})  ===================")
-    print(_periodo(df).to_string(index=False))
+def traer(nombre, campos, params, period="TR.Revenue.date"):
+    fields = ([period] if period else []) + campos
+    df, err = ek.get_data([RIC], fields, params or {})
+    print(f"\n==================  {nombre}  ({RIC})  ==================")
+    print((_periodo(df) if period == "TR.Revenue.date" else
+           df.drop(columns=["Instrument"], errors="ignore")).to_string(index=False))
     if err:
         print(f"--- avisos {nombre} (campos que no resolvieron):")
         for e in err:
             print("   ", e)
+    return df
 
 
-# ── 3) Traer e imprimir ────────────────────────────────────────────────────
-traer("INCOME STATEMENT", INCOME)
-traer("BALANCE SHEET", BALANCE)
-traer("CASH FLOW", CASHFLOW)
+# ── Estados ────────────────────────────────────────────────────────────────
+inc = traer("INCOME STATEMENT", INCOME, Q)
+traer("BALANCE SHEET", BALANCE, Q)
+traer("CASH FLOW", CASHFLOW, Q)
 
-print("\nValores en UNIDADES (÷ 1.000.000 = los millones del Excel); el BPA va en "
-      "unidades por acción.\nPegame la salida: corrijo los campos con # ? que fallen "
-      "y sumo segmentos + ratios. Después lo conectamos a la base.")
+# ── Márgenes (calculados desde el income) ──────────────────────────────────
+try:
+    m = _periodo(inc.copy())
+    rev = m["Revenue"]
+    mar = pd.DataFrame({"Periodo": m["Periodo"]})
+    mar["Margen Bruto %"] = (m["Gross Profit"] / rev * 100).round(1)
+    mar["Margen EBITDA %"] = (m["EBITDA"] / rev * 100).round(1)
+    mar["Margen Operativo %"] = (m["Operating Income"] / rev * 100).round(1)
+    mar["Margen Neto %"] = (m["Net Income After Taxes"] / rev * 100).round(1)
+    print("\n==================  MÁRGENES (calculados)  ==================")
+    print(mar.to_string(index=False))
+except Exception as e:
+    print(f"\n(no pude calcular márgenes: {e})")
+
+# ── Ratios / valuación / snapshot / estimados / segmentos ──────────────────
+traer("RATIOS / VALUACIÓN", RATIOS, Q)
+traer("SNAPSHOT DE MERCADO", SNAPSHOT, None, period=None)
+traer("ESTIMADOS (CONSENSO)", ESTIMATES, FY, period="TR.RevenueMeanEstimate.fperiod")
+
+# Segmentos: estructura distinta (una fila por segmento). Tentativo.
+seg, serr = ek.get_data(
+    [RIC],
+    ["TR.BGS.BusinessTotalRevenue.segmentName", "TR.BGS.BusinessTotalRevenue"],  # ?
+    {"Period": "FQ0", "Frq": "FQ", "SDate": "0", "EDate": "-3"},
+)
+print(f"\n==================  SEGMENTOS (ingresos)  ({RIC})  ==================")
+print(seg.drop(columns=["Instrument"], errors="ignore").to_string(index=False))
+if serr:
+    print("--- avisos segmentos:")
+    for e in serr:
+        print("   ", e)
+
+print("\nValores en unidades (÷1.000.000 = millones). Pegame la salida: corrijo los "
+      "# ? que fallen y ajustamos qué dejamos. Después lo modelamos y conectamos a la base.")

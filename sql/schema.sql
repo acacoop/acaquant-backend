@@ -855,6 +855,10 @@ CREATE INDEX IF NOT EXISTS ix_cedears_corto ON mercado.cedears (ticker_corto);
 -- para instalaciones donde la tabla ya existía sin estas columnas.
 ALTER TABLE mercado.cedears ADD COLUMN IF NOT EXISTS rubro text;
 ALTER TABLE mercado.cedears ADD COLUMN IF NOT EXISTS es_ia boolean;
+-- RIC (Refinitiv Instrument Code): identidad del subyacente en Refinitiv/LSEG
+-- (ej. RKLB → 'RKLB.O'). Carga MANUAL. Clave para la capa ANÁLISIS/RESEARCH
+-- (fundamentals via lseg-data). Ver docs/RESEARCH_REFINITIV.md.
+ALTER TABLE mercado.cedears ADD COLUMN IF NOT EXISTS ric text;
 
 -- Catálogo CONTROLADO de rubros (renta variable). Lista cerrada que alimenta el dropdown
 -- del editor en Manager → TÍTULOS → RENTA VARIABLE (no se escribe libre: se elige uno o se

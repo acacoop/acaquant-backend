@@ -60,7 +60,12 @@ PARAMS = {"Q": {"Period": "FQ0", "Frq": "FQ", "SDate": "0", "EDate": "-11"},   #
 
 
 def _num(v):
-    return None if v is None or (isinstance(v, float) and pd.isna(v)) else float(v)
+    if v is None or pd.isna(v):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def _fiscal(period_end, freq):
@@ -129,7 +134,7 @@ def snapshot_row(ric):
 
     def gs(sub):
         v = g(sub)
-        return None if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
+        return None if v is None or pd.isna(v) else str(v)
 
     snap = (ric, gn("Price Close"), gn("52 Week High"), gn("52 Week Low"),
             gn("Market Cap"), gn("Enterprise Value"), gn("Shares"), gn("Dividend"),

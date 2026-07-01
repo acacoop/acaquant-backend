@@ -42,6 +42,7 @@ from api.routers import (
     operar,
     operativa,
     ordenes,
+    research,
     risk,
     scanner,
     titulos,
@@ -207,6 +208,7 @@ app.include_router(derivados_agro.router,    dependencies=_PUBLIC)
 app.include_router(derivados_sinteticos.router, dependencies=_PUBLIC)
 app.include_router(back_office.router,        dependencies=_BACK_OFFICE)
 app.include_router(scanner.router,            dependencies=_PUBLIC)
+app.include_router(research.router,           dependencies=_PUBLIC)  # Análisis Fundamental (gate renta-variable en el router)
 app.include_router(trading.router,            dependencies=_TRADING)  # vista TRADING (admin)
 
 # Restringidos a roles con el módulo respectivo:

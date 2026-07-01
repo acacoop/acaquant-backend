@@ -11,8 +11,10 @@ SOLO imprime el response (no escribe a la base). Trae, para RKLB.O:
   5) Estimados de consenso (Revenue/EPS/EBITDA/Net Income a futuro)
   6) Segmentos (ingresos por línea de negocio)
 
-Campos con  # ?  = tentativos (si fallan, get_data los lista en "avisos"; los corrijo).
-Los de estimados salen del "Tablero Acciones" (verificados). Requisitos en tu PC:
+Nota: en RKLB varios ratios (P/E, EV/EBITDA, ROA) vienen <NA> PORQUE la empresa da
+pérdidas (no existen matemáticamente); en una empresa rentable van a traer valor.
+
+Requisitos en tu PC:
     pip install eikon pandas   (+ Workspace/Eikon abierto y logueado)
 """
 import warnings
@@ -20,7 +22,8 @@ import warnings
 import eikon as ek
 import pandas as pd
 
-warnings.simplefilter("ignore", FutureWarning)  # silencia el aviso interno de eikon
+warnings.simplefilter("ignore", FutureWarning)   # avisos internos de eikon/pandas
+warnings.simplefilter("ignore", RuntimeWarning)
 pd.set_option("display.width", 260)
 pd.set_option("display.max_columns", 60)
 
@@ -47,33 +50,22 @@ CASHFLOW = [
     "TR.CashFromInvestingActivities", "TR.CashFromFinancingActivities",
 ]
 RATIOS = [
-    "TR.PE",                  # ? P / E
-    "TR.EVToEBITDA",          # ? EV / EBITDA
-    "TR.PriceToSalesPerShare",  # ? Price / Sales
-    "TR.PriceToBVPerShare",   # ? Price / Book
-    "TR.ROEActValue",         # ? ROE
-    "TR.ROAActValue",         # ? ROA
+    "TR.PE", "TR.EVToEBITDA", "TR.PriceToSalesPerShare", "TR.PriceToBVPerShare",
+    "TR.ROEActValue", "TR.ROAActValue",
 ]
 SNAPSHOT = [
-    "TR.PriceClose",          # ? último precio
-    "TR.Price52WeekHigh",     # ? máx 52 sem
-    "TR.Price52WeekLow",      # ? mín 52 sem
-    "TR.CompanyMarketCap",    # cap de mercado
-    "TR.EnterpriseValue",     # ? EV
-    "TR.SharesOutstanding",   # ? acciones en circ.
-    "TR.DividendYield",       # ? dividend yield
-    "TR.PriceTargetMean",     # ? precio objetivo (consenso)
-    "TR.RecommendationLabel", # ? recomendación
+    "TR.PriceClose", "TR.Price52WeekHigh", "TR.Price52WeekLow", "TR.CompanyMarketCap",
+    "TR.EnterpriseValue", "TR.SharesOutstanding", "TR.DividendYield",
+    "TR.PriceTargetMean", "TR.RecommendationMean",
 ]
 ESTIMATES = [
-    "TR.RevenueMeanEstimate",    # ingresos estimados (consenso)
-    "TR.EPSMeanEstimate",        # EPS estimado
-    "TR.EBITDAMean",             # EBITDA estimado
-    "TR.NetIncomeMeanEstimate",  # resultado neto estimado
+    "TR.RevenueMeanEstimate", "TR.EPSMeanEstimate", "TR.EBITDAMean", "TR.NetIncomeMeanEstimate",
 ]
 
 
 def _periodo(df: pd.DataFrame) -> pd.DataFrame:
+    """No muta: agrega 'Periodo' (Año + Trimestre) desde la fecha y limpia columnas."""
+    df = df.copy()
     if "Date" not in df.columns:
         return df.drop(columns=["Instrument"], errors="ignore")
     d = pd.to_datetime(df["Date"])
@@ -84,14 +76,14 @@ def _periodo(df: pd.DataFrame) -> pd.DataFrame:
 def traer(nombre, campos, params, period="TR.Revenue.date"):
     fields = ([period] if period else []) + campos
     df, err = ek.get_data([RIC], fields, params or {})
+    out = _periodo(df) if period == "TR.Revenue.date" else df.drop(columns=["Instrument"], errors="ignore")
     print(f"\n==================  {nombre}  ({RIC})  ==================")
-    print((_periodo(df) if period == "TR.Revenue.date" else
-           df.drop(columns=["Instrument"], errors="ignore")).to_string(index=False))
+    print(out.to_string(index=False))
     if err:
         print(f"--- avisos {nombre} (campos que no resolvieron):")
         for e in err:
             print("   ", e)
-    return df
+    return out
 
 
 # ── Estados ────────────────────────────────────────────────────────────────
@@ -99,29 +91,30 @@ inc = traer("INCOME STATEMENT", INCOME, Q)
 traer("BALANCE SHEET", BALANCE, Q)
 traer("CASH FLOW", CASHFLOW, Q)
 
-# ── Márgenes (calculados desde el income) ──────────────────────────────────
+# ── Márgenes (calculados desde el income; inc ya trae la columna Periodo) ───
 try:
-    m = _periodo(inc.copy())
-    rev = m["Revenue"]
-    mar = pd.DataFrame({"Periodo": m["Periodo"]})
-    mar["Margen Bruto %"] = (m["Gross Profit"] / rev * 100).round(1)
-    mar["Margen EBITDA %"] = (m["EBITDA"] / rev * 100).round(1)
-    mar["Margen Operativo %"] = (m["Operating Income"] / rev * 100).round(1)
-    mar["Margen Neto %"] = (m["Net Income After Taxes"] / rev * 100).round(1)
+    rev = inc["Revenue"]
+    mar = pd.DataFrame({
+        "Periodo": inc["Periodo"],
+        "Margen Bruto %": (inc["Gross Profit"] / rev * 100).round(1),
+        "Margen EBITDA %": (inc["EBITDA"] / rev * 100).round(1),
+        "Margen Operativo %": (inc["Operating Income"] / rev * 100).round(1),
+        "Margen Neto %": (inc["Net Income After Taxes"] / rev * 100).round(1),
+    })
     print("\n==================  MÁRGENES (calculados)  ==================")
     print(mar.to_string(index=False))
 except Exception as e:
     print(f"\n(no pude calcular márgenes: {e})")
 
-# ── Ratios / valuación / snapshot / estimados / segmentos ──────────────────
+# ── Ratios / snapshot / estimados ──────────────────────────────────────────
 traer("RATIOS / VALUACIÓN", RATIOS, Q)
 traer("SNAPSHOT DE MERCADO", SNAPSHOT, None, period=None)
 traer("ESTIMADOS (CONSENSO)", ESTIMATES, FY, period="TR.RevenueMeanEstimate.fperiod")
 
-# Segmentos: estructura distinta (una fila por segmento). Tentativo.
+# ── Segmentos (una fila por segmento) ──────────────────────────────────────
 seg, serr = ek.get_data(
     [RIC],
-    ["TR.BGS.BusinessTotalRevenue.segmentName", "TR.BGS.BusinessTotalRevenue"],  # ?
+    ["TR.BGS.BusTotalRevenue.segmentName", "TR.BGS.BusTotalRevenue"],
     {"Period": "FQ0", "Frq": "FQ", "SDate": "0", "EDate": "-3"},
 )
 print(f"\n==================  SEGMENTOS (ingresos)  ({RIC})  ==================")
@@ -131,5 +124,5 @@ if serr:
     for e in serr:
         print("   ", e)
 
-print("\nValores en unidades (÷1.000.000 = millones). Pegame la salida: corrijo los "
-      "# ? que fallen y ajustamos qué dejamos. Después lo modelamos y conectamos a la base.")
+print("\nValores en unidades (÷1.000.000 = millones). Pegame la salida y cerramos "
+      "qué dejamos; después lo modelamos y conectamos a la base.")

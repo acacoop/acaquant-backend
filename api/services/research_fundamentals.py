@@ -34,6 +34,40 @@ _ORDER: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Etiqueta de presentación (label largo de Refinitiv → nombre corto/es). El orden
+# se calcula con el label ORIGINAL (_ORDER); esto es solo lo que se muestra.
+_LABEL: dict[str, str] = {
+    "Revenue": "Ingresos",
+    "Cost of Revenue, Total": "Costo de ventas",
+    "Gross Profit": "Ganancia bruta",
+    "Research And Development": "I + D",
+    "Total Operating Expense": "Gastos operativos",
+    "Operating Income": "Resultado operativo",
+    "Depreciation And Amortization": "Amortizaciones",
+    "Net Income After Taxes": "Resultado neto",
+    "Earnings Per Share - Actual": "BPA",
+    "Cash and Short Term Investments": "Caja e inv. CP",
+    "Total Receivables, Net": "Créditos por ventas",
+    "Total Inventory": "Inventarios",
+    "Total Current Assets": "Activo corriente",
+    "Total Assets": "Activo total",
+    "Total Current Liabilities": "Pasivo corriente",
+    "Total Debt": "Deuda total",
+    "Total Liabilities": "Pasivo total",
+    "Total Equity": "Patrimonio neto",
+    "Cash from Operating Activities": "Flujo operativo",
+    "Capital Expenditures, Cumulative": "CapEx (acum.)",
+    "Free Cash Flow": "Flujo de caja libre",
+    "Cash from Investing Activities": "Flujo de inversión",
+    "Cash from Financing Activities": "Flujo de financiación",
+    "P/E (Daily Time Series Ratio)": "P / E",
+    "Enterprise Value To EBITDA (Daily Time Series Ratio)": "EV / EBITDA",
+    "Price To Sales Per Share (Daily Time Series Ratio)": "P / Ventas",
+    "Price To Book Value Per Share (Daily Time Series Ratio)": "P / VL",
+    "Return On Equity - Actual": "ROE",
+    "Return On Assets - Actual": "ROA",
+}
+
 
 @cached(ttl=300)
 def list_companies() -> list[dict]:
@@ -98,12 +132,14 @@ def get_analisis(ric: str, freq: str = "FY") -> dict:
             continue
         orden_p.setdefault(r["fiscal_period"], r["period_end"])
         by_stmt.setdefault(r["statement"], {}).setdefault(r["item"], {})[r["fiscal_period"]] = _f(r["value"])
-    periodos = sorted(orden_p, key=lambda p: orden_p[p])
+    # últimos N períodos (para que la tabla no se desborde): 6 años / 8 trimestres
+    periodos = sorted(orden_p, key=lambda p: orden_p[p])[-(8 if freq == "Q" else 6):]
 
     def tabla(stmt: str) -> list[dict]:
         items = by_stmt.get(stmt, {})
         ordenados = sorted(items, key=lambda it: _orden_item(stmt, it))
-        return [{"item": it, "valores": [items[it].get(fp) for fp in periodos]} for it in ordenados]
+        return [{"item": _LABEL.get(it, it), "valores": [items[it].get(fp) for fp in periodos]}
+                for it in ordenados]
 
     tablas = {s: tabla(s) for s in ("income", "balance", "cashflow", "ratios")}
 
@@ -131,8 +167,12 @@ def get_analisis(ric: str, freq: str = "FY") -> dict:
             "neto": _mg(_rowval("Net Income", fp)),
         })
 
-    # segmentos: tabla segmento × período (siempre trimestral), últimos 6
-    seg_rows = [r for r in _rows(ric, "Q") if r["statement"] == "segment" and r["segment"]]
+    # segmentos: tabla segmento × período (siempre trimestral), últimos 6.
+    # Se filtran los pseudo-segmentos agregados ('... Total', 'Consolidated').
+    seg_rows = [r for r in _rows(ric, "Q")
+                if r["statement"] == "segment" and r["segment"]
+                and "total" not in r["segment"].lower()
+                and "consolidated" not in r["segment"].lower()]
     seg_by: dict[str, dict] = {}
     seg_orden: dict[str, object] = {}
     for r in seg_rows:

@@ -1,11 +1,9 @@
 """Capa de servicio — Análisis Fundamental (módulo Renta Variable).
 
 Lee research.{companies, fundamentals, market_snapshot} (fundamentals de
-Refinitiv/LSEG, ingestados por scripts/refinitiv_fundamentals.py) y arma los datos
-de los 4 paneles de la vista Análisis Fundamental. Read-only, SQL-only.
-
-Paneles: (1) ficha + mercado, (2) evolución (ingresos/EBITDA/neto),
-(3) márgenes calculados + ratios, (4) ingresos por segmento.
+Refinitiv/LSEG, ingestados por scripts/refinitiv_fundamentals.py) y arma la vista
+Análisis Fundamental estilo informe (tablas de estados + múltiplos/ratios +
+márgenes + segmentos). Read-only, SQL-only.
 """
 from __future__ import annotations
 
@@ -14,10 +12,32 @@ from psycopg.rows import dict_row
 from api.cache import cached
 from core.postgres import get_pool
 
+# Orden de presentación por estado (prefijo del label de Refinitiv → índice de fila).
+# Los estados no traen ordinal en la base; ordenamos por este prefijo (startswith).
+_ORDER: dict[str, tuple[str, ...]] = {
+    "income": (
+        "Revenue", "Cost of Revenue", "Gross Profit", "Research", "Total Operating",
+        "Operating Income", "EBITDA", "Depreciation", "Pretax", "Income Tax",
+        "Net Income", "Earnings Per Share",
+    ),
+    "balance": (
+        "Cash and Short", "Total Receivable", "Total Inventory", "Total Current Assets",
+        "Total Assets", "Total Current Liabilit", "Total Debt", "Total Liabilit", "Total Equity",
+    ),
+    "cashflow": (
+        "Cash from Operating", "Capital Expenditure", "Free Cash",
+        "Cash from Investing", "Cash from Financing",
+    ),
+    "ratios": (
+        "P/E", "Enterprise Value", "Price To Sales", "Price To Book",
+        "Return On Equity", "Return On Assets",
+    ),
+}
+
 
 @cached(ttl=300)
 def list_companies() -> list[dict]:
-    """Universo para el selector de empresa. Ordenado por nombre."""
+    """Universo para el selector de empresa."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             "SELECT ric, ticker, nombre, sector FROM research.companies "
@@ -40,17 +60,21 @@ def _f(v) -> float | None:
     return float(v) if v is not None else None
 
 
-def _pick(d: dict, sub: str):
-    """Primer valor cuyo item contiene `sub` (case-insensitive)."""
-    for k, v in d.items():
-        if sub.lower() in k.lower():
-            return v
-    return None
+def _orden_item(statement: str, item: str) -> tuple[int, str]:
+    order = _ORDER.get(statement, ())
+    for i, sub in enumerate(order):
+        if item.lower().startswith(sub.lower()):
+            return (i, item)
+    return (len(order), item)  # desconocidos al final, alfabético
 
 
 @cached(ttl=300)
 def get_analisis(ric: str, freq: str = "FY") -> dict:
-    """Datos de los 4 paneles para un RIC. `freq` = 'FY' (anual) | 'Q' (trimestral)."""
+    """Datos de la vista para un RIC. `freq` = 'FY' (anual) | 'Q' (trimestral).
+
+    Devuelve tablas pivoteadas (item × período) por estado, márgenes calculados y
+    los ingresos por segmento (tabla).
+    """
     freq = "Q" if str(freq).upper().startswith("Q") else "FY"
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
@@ -66,54 +90,66 @@ def get_analisis(ric: str, freq: str = "FY") -> dict:
 
     rows = _rows(ric, freq)
 
-    # income + ratios pivotados por período (fiscal_period), ordenados por period_end
-    orden: dict[str, object] = {}
-    income: dict[str, dict] = {}
-    ratios: dict[str, dict] = {}
+    # pivot: statement -> item -> {fiscal_period: value}; y orden de períodos por period_end
+    by_stmt: dict[str, dict[str, dict]] = {}
+    orden_p: dict[str, object] = {}
     for r in rows:
-        fp = r["fiscal_period"]
-        orden.setdefault(fp, r["period_end"])
-        if r["statement"] == "income":
-            income.setdefault(fp, {})[r["item"]] = _f(r["value"])
-        elif r["statement"] == "ratios":
-            ratios.setdefault(fp, {})[r["item"]] = _f(r["value"])
-    periodos = sorted(income, key=lambda p: orden[p])
+        if r["statement"] == "segment":
+            continue
+        orden_p.setdefault(r["fiscal_period"], r["period_end"])
+        by_stmt.setdefault(r["statement"], {}).setdefault(r["item"], {})[r["fiscal_period"]] = _f(r["value"])
+    periodos = sorted(orden_p, key=lambda p: orden_p[p])
 
-    evolucion, margenes, ratios_arr = [], [], []
+    def tabla(stmt: str) -> list[dict]:
+        items = by_stmt.get(stmt, {})
+        ordenados = sorted(items, key=lambda it: _orden_item(stmt, it))
+        return [{"item": it, "valores": [items[it].get(fp) for fp in periodos]} for it in ordenados]
+
+    tablas = {s: tabla(s) for s in ("income", "balance", "cashflow", "ratios")}
+
+    # márgenes calculados desde el income
+    inc = by_stmt.get("income", {})
+
+    def _rowval(sub: str, fp: str):
+        for it, vals in inc.items():
+            if sub.lower() in it.lower():
+                return vals.get(fp)
+        return None
+
+    margenes = []
     for fp in periodos:
-        inc = income.get(fp, {})
-        rev = _pick(inc, "Revenue")
-        ebitda = _pick(inc, "EBITDA")
-        neto = _pick(inc, "Net Income")
-        gross = _pick(inc, "Gross Profit")
-        oper = _pick(inc, "Operating Income")
-        evolucion.append({"periodo": fp, "ingresos": rev, "ebitda": ebitda, "neto": neto})
+        rev = _rowval("Revenue", fp)
 
-        def _m(x, r=rev):
+        def _mg(x, r=rev):
             return round(x / r * 100, 1) if r and x is not None else None
 
-        margenes.append({"periodo": fp, "bruto": _m(gross), "ebitda": _m(ebitda),
-                         "operativo": _m(oper), "neto": _m(neto)})
-        rr = ratios.get(fp, {})
-        ratios_arr.append({"periodo": fp, "roe": _pick(rr, "Return On Equity"),
-                           "roa": _pick(rr, "Return On Assets"),
-                           "ps": _pick(rr, "Price To Sales"),
-                           "pb": _pick(rr, "Price To Book")})
+        margenes.append({
+            "periodo": fp,
+            "bruto": _mg(_rowval("Gross Profit", fp)),
+            "ebitda": _mg(_rowval("EBITDA", fp)),
+            "operativo": _mg(_rowval("Operating Income", fp)),
+            "neto": _mg(_rowval("Net Income", fp)),
+        })
 
-    # segmentos: última fecha disponible (se ingestan siempre en trimestral)
+    # segmentos: tabla segmento × período (siempre trimestral), últimos 6
     seg_rows = [r for r in _rows(ric, "Q") if r["statement"] == "segment" and r["segment"]]
-    segmentos = []
-    if seg_rows:
-        ultimo = max(r["period_end"] for r in seg_rows)
-        segmentos = [{"segmento": r["segment"], "valor": _f(r["value"])}
-                     for r in seg_rows if r["period_end"] == ultimo]
+    seg_by: dict[str, dict] = {}
+    seg_orden: dict[str, object] = {}
+    for r in seg_rows:
+        seg_orden.setdefault(r["fiscal_period"], r["period_end"])
+        seg_by.setdefault(r["segment"], {})[r["fiscal_period"]] = _f(r["value"])
+    seg_periodos = sorted(seg_orden, key=lambda p: seg_orden[p])[-6:]
+    segmentos = {
+        "periodos": seg_periodos,
+        "filas": [{"segmento": s, "valores": [seg_by[s].get(fp) for fp in seg_periodos]}
+                  for s in sorted(seg_by)],
+    }
 
     return {
         "company": company,
         "market": market,
         "periodos": periodos,
-        "evolucion": evolucion,
+        "tablas": tablas,
         "margenes": margenes,
-        "ratios": ratios_arr,
         "segmentos": segmentos,
     }

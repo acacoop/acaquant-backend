@@ -50,6 +50,7 @@ CREATE SCHEMA IF NOT EXISTS manager;
 CREATE SCHEMA IF NOT EXISTS home;
 CREATE SCHEMA IF NOT EXISTS partner;
 CREATE SCHEMA IF NOT EXISTS mcp;
+CREATE SCHEMA IF NOT EXISTS research;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- MIGRACIÓN idempotente public/portafolio → schemas de dominio (v1 → v2).
@@ -1388,6 +1389,60 @@ CREATE TABLE IF NOT EXISTS mcp.oauth_tokens (
     expires_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_mcp_tokens_expires ON mcp.oauth_tokens (expires_at);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- RESEARCH — capa ANÁLISIS: fundamentals de empresas desde Refinitiv/LSEG (Eikon).
+-- Solo datos REALES (nada de estimados/consenso/futuro). Se ingesta MANUAL desde la
+-- PC con Workspace abierto (scripts/refinitiv_fundamentals.py). Ver docs/RESEARCH_REFINITIV.md.
+--
+-- Tres tablas, cada una con la FORMA que le corresponde a su dato:
+--   companies       → catálogo (1 fila/RIC): el universo que seguimos.
+--   fundamentals    → LARGA (EAV): estados + ratios + segmentos por período. Cientos
+--                     de líneas que varían por empresa → agregar concepto = insertar fila.
+--   market_snapshot → ANCHA (1 fila/RIC, se pisa): foto de mercado ACTUAL (pocos campos
+--                     fijos que cambian todo el tiempo → no tiene sentido "larga").
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS research.companies (
+    ric           text PRIMARY KEY,            -- 'RKLB.O' (identidad Refinitiv, clave)
+    ticker        text,                          -- 'RKLB'
+    nombre        text,
+    sector        text,
+    pais          text,
+    bolsa         text,
+    moneda        text,                          -- moneda de reporte de los estados
+    cedear_ticker text,                          -- link opcional a mercado.cedears.ticker_corto
+    activo        boolean DEFAULT true,
+    updated_at    timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS research.fundamentals (
+    ric        text NOT NULL,                    -- join a research.companies.ric
+    statement  text NOT NULL,                    -- income | balance | cashflow | ratios | segment
+    freq       text NOT NULL,                    -- 'Q' | 'FY'
+    period_end date NOT NULL,                     -- fin de período (2026-03-31)
+    fiscal_period text,                           -- '2026 Q1' | '2025'
+    item       text NOT NULL,                     -- concepto ('Revenue', 'EBITDA', ...)
+    segment    text NOT NULL DEFAULT '',          -- segmento (solo statement='segment'); '' en el resto
+    value      numeric,
+    currency   text,
+    source     text DEFAULT 'refinitiv',
+    updated_at timestamptz DEFAULT now(),
+    PRIMARY KEY (ric, statement, freq, period_end, item, segment)
+);
+CREATE INDEX IF NOT EXISTS ix_fundamentals_ric ON research.fundamentals (ric, statement, freq, period_end);
+
+CREATE TABLE IF NOT EXISTS research.market_snapshot (
+    ric         text PRIMARY KEY,
+    price       numeric,
+    high_52w    numeric,
+    low_52w     numeric,
+    market_cap  numeric,
+    ev          numeric,
+    shares      numeric,
+    div_yield   numeric,
+    currency    text,
+    updated_at  timestamptz DEFAULT now()
+);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- PERFORMANCE — autovacuum agresivo + fillfactor en tablas de ALTA ROTACIÓN

@@ -964,6 +964,9 @@ ALTER TABLE manager.manager_users ADD COLUMN IF NOT EXISTS notes           text;
 ALTER TABLE manager.manager_users ADD COLUMN IF NOT EXISTS last_seen_at    timestamptz;
 ALTER TABLE manager.manager_users ADD COLUMN IF NOT EXISTS created_at      timestamptz;
 ALTER TABLE manager.manager_users ADD COLUMN IF NOT EXISTS updated_at      timestamptz;
+-- Permiso per-usuario (no por rol) para VER/EDITAR Control Comercial. Lo tilda el
+-- admin en /manager → Usuarios. NULL/false = sin acceso (default-deny; admin siempre entra).
+ALTER TABLE manager.manager_users ADD COLUMN IF NOT EXISTS control_comercial boolean;
 
 -- Manager.RoleMatrix — qué módulos ve cada rol. Filas-largas (role, module). En Mongo es
 -- 1 doc por rol con un array modules. Vacío → DEFAULT_MATRIX (en core/roles.py).

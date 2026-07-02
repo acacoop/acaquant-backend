@@ -324,6 +324,23 @@ def require_admin(request: Request, email: str = Depends(get_user_email)) -> str
     raise HTTPException(status_code=403, detail="acceso restringido a administradores")
 
 
+def require_control_comercial(request: Request, email: str = Depends(get_user_email)) -> str:
+    """Permiso PER-USUARIO para VER/EDITAR Control Comercial (admin o flag en
+    Manager.Users). Default-deny. Portal invitado siempre rechazado (REGLA #8).
+
+    A diferencia de require_module(): NO mira la matriz de roles — el permiso es por
+    usuario (columna `control_comercial` en manager_users, tildada en /manager → Usuarios)."""
+    from core.roles import user_has_control_comercial
+
+    if is_guest_portal(request):
+        logger.warning("require_control_comercial: bloqueado para portal invitado")
+        raise HTTPException(status_code=403, detail="no disponible para invitado")
+    if user_has_control_comercial(email):
+        return email
+    logger.warning("require_control_comercial: rechazado email=%r", email)
+    raise HTTPException(status_code=403, detail="acceso a Control Comercial no autorizado")
+
+
 def require_no_invitado(request: Request) -> None:
     """Bloquea al portal invitado (www). Defense-in-depth para endpoints de ESCRITURA
     de la mesa que viven en un módulo de MERCADO (ej. PATCH agro pizarra/cámara): el gate

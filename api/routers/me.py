@@ -7,7 +7,12 @@ user autenticado debe poder consultar su propia identidad).
 from fastapi import APIRouter, Depends, Request
 
 from api.auth import get_user_email, is_guest_portal
-from core.roles import INVITADO_MODULES, get_user_modules, get_user_role
+from core.roles import (
+    INVITADO_MODULES,
+    get_user_modules,
+    get_user_role,
+    user_has_control_comercial,
+)
 
 router = APIRouter(tags=["Auth"])
 
@@ -32,6 +37,7 @@ def me(request: Request, email: str = Depends(get_user_email)) -> dict:
             "role":     "invitado",
             "modules":  list(INVITADO_MODULES),
             "is_admin": False,
+            "control_comercial": False,
         }
     role = get_user_role(email)
     modules = list(get_user_modules(email))
@@ -40,4 +46,5 @@ def me(request: Request, email: str = Depends(get_user_email)) -> dict:
         "role":     role,
         "modules":  modules,
         "is_admin": role == "admin",
+        "control_comercial": user_has_control_comercial(email),
     }

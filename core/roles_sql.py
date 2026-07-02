@@ -83,8 +83,8 @@ def list_users_sql() -> list[dict]:
     (`Manager.Users.find({}, {"_id":0}).sort("email")`): las columnas materializadas
     SON los campos del doc. Lo consume el panel /api/manager/users."""
     return _q(
-        "SELECT email, role, enabled, auto_registered, notes, last_seen_at, "
-        "created_at, updated_at FROM manager_users ORDER BY email"
+        "SELECT email, role, enabled, auto_registered, control_comercial, notes, "
+        "last_seen_at, created_at, updated_at FROM manager_users ORDER BY email"
     )
 
 
@@ -92,8 +92,8 @@ def get_user_sql(email: str) -> dict | None:
     """Un usuario por email (mismo shape que list_users_sql). None si no existe. Lo usan
     los writers de core/roles.py para before/after del audit y el valor de retorno."""
     rows = _q(
-        "SELECT email, role, enabled, auto_registered, notes, last_seen_at, "
-        "created_at, updated_at FROM manager_users WHERE email = %s",
+        "SELECT email, role, enabled, auto_registered, control_comercial, notes, "
+        "last_seen_at, created_at, updated_at FROM manager_users WHERE email = %s",
         (email,),
     )
     return rows[0] if rows else None
@@ -109,7 +109,8 @@ def get_role_modules_sql(role: str) -> list[str]:
 # Escrituras (espejo SQL de las mutaciones de core/roles.py)
 # ─────────────────────────────────────────────────────────────
 
-def upsert_user_sql(email: str, role: str, enabled: bool, notes: str, now: datetime) -> None:
+def upsert_user_sql(email: str, role: str, enabled: bool, control_comercial: bool,
+                    notes: str, now: datetime) -> None:
     """Espejo SQL de roles.upsert_user. Replica el $set/$setOnInsert de Mongo:
       - $set      → role, enabled, notes, updated_at  (se pisan en cada upsert)
       - $setOnInsert → created_at  (SOLO al crear; NO se pisa en updates)
@@ -118,15 +119,17 @@ def upsert_user_sql(email: str, role: str, enabled: bool, notes: str, now: datet
     inicial created_at = now y auto_registered queda NULL (= "creado a mano", no auto)."""
     _exec(
         """
-        INSERT INTO manager_users (email, role, enabled, notes, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO manager_users
+            (email, role, enabled, control_comercial, notes, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (email) DO UPDATE SET
-            role       = EXCLUDED.role,
-            enabled    = EXCLUDED.enabled,
-            notes      = EXCLUDED.notes,
-            updated_at = EXCLUDED.updated_at
+            role              = EXCLUDED.role,
+            enabled           = EXCLUDED.enabled,
+            control_comercial = EXCLUDED.control_comercial,
+            notes             = EXCLUDED.notes,
+            updated_at        = EXCLUDED.updated_at
         """,
-        (email, role, bool(enabled), notes or "", now, now),
+        (email, role, bool(enabled), bool(control_comercial), notes or "", now, now),
     )
 
 

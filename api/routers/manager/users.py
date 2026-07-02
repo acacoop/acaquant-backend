@@ -37,6 +37,7 @@ class _UserCreate(BaseModel):
 class _UserPatch(BaseModel):
     role: str | None = Field(None, min_length=1, max_length=32)
     enabled: bool | None = None
+    control_comercial: bool | None = None
     notes: str | None = None
 
 
@@ -92,6 +93,8 @@ def patch_user_endpoint(
         email=email,
         role=req.role if req.role is not None else current["role"],
         enabled=req.enabled if req.enabled is not None else current.get("enabled", True),
+        control_comercial=(req.control_comercial if req.control_comercial is not None
+                           else current.get("control_comercial", False)),
         notes=req.notes if req.notes is not None else current.get("notes", ""),
         actor=actor,
     )

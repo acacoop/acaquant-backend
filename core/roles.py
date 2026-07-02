@@ -180,6 +180,7 @@ class UserDoc(TypedDict, total=False):
     email: str
     role: str
     enabled: bool
+    control_comercial: bool
     notes: str
     created_at: datetime
     updated_at: datetime
@@ -396,11 +397,29 @@ def has_access(email: str, module: str) -> bool:
     return module in get_user_modules(email)
 
 
+def user_has_control_comercial(email: str) -> bool:
+    """Permiso PER-USUARIO (no por rol) para VER/EDITAR Control Comercial.
+
+    admin SIEMPRE (para no quedar afuera de la gestión); el resto solo si el admin
+    tildó `control_comercial=true` en /manager → Usuarios. Default-deny."""
+    email_norm = (email or "").lower().strip()
+    if get_user_role(email_norm) == "admin":
+        return True
+    try:
+        from core import roles_sql
+        u = roles_sql.get_user_sql(email_norm)
+        return bool(u and u.get("control_comercial"))
+    except Exception as e:
+        logger.debug("user_has_control_comercial(%s): %s", email_norm, e)
+        return False
+
+
 # ─────────────────────────────────────────────────────────────
 # Mutaciones (usadas por los endpoints CRUD de Manager.Users)
 # ─────────────────────────────────────────────────────────────
 
 def upsert_user(email: str, role: str, enabled: bool = True,
+                control_comercial: bool = False,
                 notes: str | None = None, actor: str = "system") -> dict:
     """Crea o actualiza un usuario. Audit-log incluido."""
     email_norm = email.lower().strip()
@@ -415,7 +434,8 @@ def upsert_user(email: str, role: str, enabled: bool = True,
     # upsert SQL (igual que el $setOnInsert/ausencia en el viejo Mongo).
     from core import roles_sql
     before = roles_sql.get_user_sql(email_norm)
-    roles_sql.upsert_user_sql(email_norm, role, bool(enabled), notes or "", now)
+    roles_sql.upsert_user_sql(email_norm, role, bool(enabled), bool(control_comercial),
+                              notes or "", now)
     after = roles_sql.get_user_sql(email_norm)
 
     _audit_insert({

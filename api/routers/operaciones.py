@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 
-from api.auth import require_module
+from api.auth import require_control_comercial
 from api.cache import cached
 from api.services import cashflow_sql as _cf_sql
 from api.services import comercial as _com
@@ -590,7 +590,7 @@ def comercial_informe_segmento_detalle(
 @router.get("/comercial/control/objetivos")
 def control_objetivos(
     anio: int = Query(..., description="año de los objetivos"),
-    _actor: str = Depends(require_module("operaciones")),
+    _actor: str = Depends(require_control_comercial),
 ) -> dict:
     """Objetivos por comercial cargados para un año (alimenta el editor + la Tabla 3)."""
     return _cc.listar_objetivos(anio=anio)
@@ -607,10 +607,10 @@ class _ObjetivoIn(BaseModel):
 @router.patch("/comercial/control/objetivos")
 def control_set_objetivo(
     req: _ObjetivoIn,
-    actor: str = Depends(require_module("operaciones")),
+    actor: str = Depends(require_control_comercial),
 ) -> dict:
     """Upsert del objetivo de un comercial para (año, mes). Lo edita el jefe in-view → SQL.
-    Gateado: require_module('operaciones') → 403 si el rol no tiene acceso a Operadores."""
+    Gateado: require_control_comercial → 403 salvo admin o user con el flag en Manager."""
     return _cc.set_objetivo(
         operador_email=req.operador_email, anio=req.anio, mes=req.mes,
         volumen_objetivo=req.volumen_objetivo, comisiones_objetivo=req.comisiones_objetivo,
@@ -620,7 +620,7 @@ def control_set_objetivo(
 @router.get("/comercial/control/totales")
 def control_totales(
     moneda: str = Query("ARS", description="ARS | USD"),
-    _actor: str = Depends(require_module("operaciones")),
+    _actor: str = Depends(require_control_comercial),
 ) -> dict:
     """Tabla 1 — totales ALyC por períodos fijos (Día/Semana/Mes/YTD/12M/2025/2024/Total)
     + % vs período anterior. NO depende de Desde/Hasta."""
@@ -632,7 +632,7 @@ def control_por_operador(
     desde: str = Query(..., description="ISO YYYY-MM-DD"),
     hasta: str = Query(..., description="ISO YYYY-MM-DD"),
     moneda: str = Query("ARS", description="ARS | USD"),
-    _actor: str = Depends(require_module("operaciones")),
+    _actor: str = Depends(require_control_comercial),
 ) -> dict:
     """Tabla 2 — por comercial en [desde, hasta]: activos/inactivos + volumen + comisiones
     (cada uno con % vs el rango anterior de igual largo)."""
@@ -644,7 +644,7 @@ def control_objetivos_vs_actual(
     desde: str = Query(..., description="ISO YYYY-MM-DD"),
     hasta: str = Query(..., description="ISO YYYY-MM-DD"),
     moneda: str = Query("ARS", description="ARS | USD"),
-    _actor: str = Depends(require_module("operaciones")),
+    _actor: str = Depends(require_control_comercial),
 ) -> dict:
     """Tabla 3 — por comercial: Actual (en el rango) vs Objetivo (suma de objetivos mensuales
     del rango) + % alcanzado."""

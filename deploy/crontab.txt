@@ -183,6 +183,12 @@
 # el motor ya parado (20:05) → valores finales del día. Ventana móvil 20 ruedas.
 15 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cedears_ohlc_daily 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cedears_ohlc_daily'
 
+# OHLC diario de cada BONO (renta fija) → mercado.bonos_ohlc_daily (para pivots
+# sobre el bono en la vista TRADING). Lee mercado.market_snapshot (que escribe
+# motor_rofex), con el motor ya parado (20:05) → valores finales del día. Ventana
+# móvil 20 ruedas. Gemelo de cedears_ohlc_daily.
+16 20 * * 1-5 /root/TradingAV/deploy/run_job.sh bonos_ohlc_daily 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bonos_ohlc_daily'
+
 # ─── Vaciado del Time & Sales intradía de CEDEARs (20:10 UTC = 17:10 ART, L-V)
 # Trading.CedearsTimeSales es intradía (tape del scanner); se borra al cierre.
 10 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_cedears_timesales 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_cedears_timesales'

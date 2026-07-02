@@ -24,8 +24,12 @@ def pivots(tickers: str = Query("", description="CSV de ticker_corto de CEDEARs"
 
 @router.get("/universo")
 def universo():
-    """Catálogo liviano de CEDEARs activos para el selector (ticker_corto + nombre)."""
-    return [
-        {"ticker_corto": r.get("ticker_corto"), "nombre": r.get("nombre") or ""}
+    """Catálogo liviano para el selector: CEDEARs activos + bonos de renta fija.
+    Cada item: {ticker_corto, nombre, clase: 'cedear'|'bono'}. El endpoint /pivots
+    resuelve la fuente de datos por `ticker_corto` (no necesita `clase`)."""
+    cedears = [
+        {"ticker_corto": r.get("ticker_corto"), "nombre": r.get("nombre") or "",
+         "clase": "cedear"}
         for r in scanner_svc.get_universo()
     ]
+    return cedears + svc.bonos_universo()

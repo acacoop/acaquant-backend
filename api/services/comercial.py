@@ -86,6 +86,34 @@ def _cv(x: float, factor: float | None) -> float:
     return round(x / factor, 2) if factor else round(float(x), 2)
 
 
+# ── Valuación EN MONEDA DESTINO al MEP del TRADE (unificación ARS/USD) ─────────
+# En vez de pesificar todo a ARS al MEP del boleto y después dolarizar el AGREGADO
+# al MEP de HOY (round-trip que distorsiona las ops nativas en USD), valuamos CADA
+# fila directo en la moneda destino, al MEP de su propio boleto:
+#   • Vista ARS: op ARS = importe;         op USD = importe × mep_boleto.
+#   • Vista USD: op USD = importe (exacto); op ARS = importe / mep_boleto.
+# Así una op de USD 1.000 SIEMPRE son USD 1.000 y el histórico no se mueve con el
+# dólar de hoy. `mep_hoy` = fallback SOLO para filas cuyo mep quedó null/0 (no se
+# dropean del total). El SQL ya devuelve el valor en la moneda pedida → no hay `_cv`.
+def _valor_expr(moneda: str, mep_hoy: float | None = None) -> str:
+    """Expresión SQL: valor de un boleto (`importe`/`moneda`/`mep`) en la moneda destino."""
+    if (moneda or "ARS").upper() == "USD":
+        div = f"COALESCE(NULLIF(mep, 0), {float(mep_hoy)})" if mep_hoy else "NULLIF(mep, 0)"
+        return (f"CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) / {div} "
+                f"ELSE abs(COALESCE(importe, 0)) END")
+    return ("CASE WHEN moneda = 'ARS' THEN abs(COALESCE(importe, 0)) "
+            "ELSE abs(COALESCE(importe, 0)) * COALESCE(mep, 0) END")
+
+
+def _arancel_expr(moneda: str, mep_hoy: float | None = None) -> str:
+    """Expresión SQL: `arancel` (SIEMPRE en ARS) en la moneda destino. ARS = arancel;
+    USD = arancel / mep del boleto (fallback mep_hoy)."""
+    if (moneda or "ARS").upper() == "USD":
+        div = f"COALESCE(NULLIF(mep, 0), {float(mep_hoy)})" if mep_hoy else "NULLIF(mep, 0)"
+        return f"COALESCE(arancel, 0) / {div}"
+    return "COALESCE(arancel, 0)"
+
+
 def _cuentas_de_operador(operador_email: str, nivel_1: str | None = None,
                          nivel_3: str | None = None, referido: str | None = None,
                          nivel_2: str | None = None) -> tuple[str, ...]:

@@ -97,9 +97,9 @@ def _hoy_art() -> date:
 # Reusa los helpers de comercial_sql (misma definición de volumen/comisiones/conversión).
 from datetime import timedelta  # noqa: E402
 
+from api.services.comercial import _arancel_expr, _valor_expr  # noqa: E402
 from api.services.comercial_sql import (  # noqa: E402
     _CATS_VOLUMEN,
-    _PESIF,
     _cv,
     _f,
     _factor_usd,
@@ -134,18 +134,20 @@ def _ancla() -> date:
     return r[0]["f"] if r and r[0]["f"] else hoy
 
 
-def _agg_total(desde: date, hasta: date, factor: float) -> dict:
-    """Mesa completa en [desde, hasta]: clientes activos (operaron ≥1), volumen, comisiones."""
+def _agg_total(desde: date, hasta: date, moneda: str, mep_hoy: float | None) -> dict:
+    """Mesa completa en [desde, hasta]: clientes activos (operaron ≥1), volumen, comisiones.
+    Volumen/comisiones ya vienen EN LA MONEDA destino (valuados al MEP del boleto)."""
+    volx, arax = _valor_expr(moneda, mep_hoy), _arancel_expr(moneda, mep_hoy)
     p = {"d": desde, "h": hasta, "cats": list(_CATS_VOLUMEN)}
-    v = _q(f"SELECT COUNT(DISTINCT id_cuenta) AS act, COALESCE(SUM({_PESIF}),0) AS vol "
+    v = _q(f"SELECT COUNT(DISTINCT id_cuenta) AS act, COALESCE(SUM({volx}),0) AS vol "
            f"FROM negocio_movimientos WHERE categoria = ANY(%(cats)s) "
            f"AND unidad IS DISTINCT FROM 'USDL' AND fecha >= %(d)s AND fecha <= %(h)s", p)[0]
-    c = _q("SELECT COALESCE(SUM(arancel),0) AS com FROM operaciones "
+    c = _q(f"SELECT COALESCE(SUM({arax}),0) AS com FROM operaciones "
            "WHERE arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
            "AND concertacion >= %(d)s AND concertacion <= %(h)s", {"d": desde, "h": hasta})[0]
     return {"clientes_activos": int(v["act"] or 0),
-            "volumen": _cv(_f(v["vol"]), factor),
-            "comisiones": _cv(_f(c["com"]), factor)}
+            "volumen": round(_f(v["vol"]), 2),
+            "comisiones": round(_f(c["com"]), 2)}
 
 
 def _pct(cur: float, prev: float) -> float | None:
@@ -181,8 +183,8 @@ def datos_totales_alyc(*, moneda: str = "ARS") -> dict:
     ]
     filas = []
     for label, d, h, pdde, phasta in defs:
-        cur = _agg_total(d, h, factor)
-        prev = _agg_total(pdde, phasta, factor) if pdde else None
+        cur = _agg_total(d, h, moneda, factor)
+        prev = _agg_total(pdde, phasta, moneda, factor) if pdde else None
         fila = {"periodo": label, **cur}
         for k in ("clientes_activos", "volumen", "comisiones"):
             fila[f"{k}_pct"] = _pct(cur[k], prev[k]) if prev else None
@@ -190,15 +192,16 @@ def datos_totales_alyc(*, moneda: str = "ARS") -> dict:
     return {"moneda": moneda, "ancla": a.isoformat(), "filas": filas}
 
 
-def _por_operador(desde: date, hasta: date) -> dict[str, dict]:
-    """{operador_email: {activos, volumen(ARS), comisiones(ARS)}} en [desde, hasta]. Agrega por
-    cuenta (sin alias, para reusar _PESIF) y mapea a operador en Python."""
+def _por_operador(desde: date, hasta: date, moneda: str, mep_hoy: float | None) -> dict[str, dict]:
+    """{operador_email: {activos, volumen, comisiones}} en [desde, hasta], ya EN LA MONEDA
+    destino (valuado al MEP del boleto). Agrega por cuenta y mapea a operador en Python."""
+    volx, arax = _valor_expr(moneda, mep_hoy), _arancel_expr(moneda, mep_hoy)
     op_de = {r["id_cuenta"]: r["operador_email"] for r in _q(
         "SELECT id_cuenta, operador_email FROM comitentes WHERE estado='Activa' "
         "AND operador_email IS NOT NULL")}
     out: dict[str, dict] = {}
     p = {"d": desde, "h": hasta, "cats": list(_CATS_VOLUMEN)}
-    for r in _q(f"SELECT id_cuenta, COALESCE(SUM({_PESIF}),0) AS vol FROM negocio_movimientos "
+    for r in _q(f"SELECT id_cuenta, COALESCE(SUM({volx}),0) AS vol FROM negocio_movimientos "
                 f"WHERE categoria = ANY(%(cats)s) AND unidad IS DISTINCT FROM 'USDL' "
                 f"AND fecha >= %(d)s AND fecha <= %(h)s GROUP BY id_cuenta", p):
         op = op_de.get(r["id_cuenta"])
@@ -207,7 +210,7 @@ def _por_operador(desde: date, hasta: date) -> dict[str, dict]:
         s = out.setdefault(op, {"activos": 0, "volumen": 0.0, "comisiones": 0.0})
         s["activos"] += 1
         s["volumen"] += _f(r["vol"])
-    for r in _q("SELECT id_cuenta, COALESCE(SUM(arancel),0) AS com FROM operaciones "
+    for r in _q(f"SELECT id_cuenta, COALESCE(SUM({arax}),0) AS com FROM operaciones "
                 "WHERE arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
                 "AND concertacion >= %(d)s AND concertacion <= %(h)s GROUP BY id_cuenta",
                 {"d": desde, "h": hasta}):
@@ -226,8 +229,8 @@ def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS") -> dict:
     dias = (d1 - d0).days
     pd1 = d0 - timedelta(days=1)            # rango anterior: termina el día previo a `desde`
     pd0 = pd1 - timedelta(days=dias)        # y arranca `dias` antes → mismo largo
-    cur = _por_operador(d0, d1)
-    prev = _por_operador(pd0, pd1)
+    cur = _por_operador(d0, d1, moneda, factor)
+    prev = _por_operador(pd0, pd1, moneda, factor)
     nombre = {r["email"]: r["nombre"] for r in _q(
         "SELECT c.operador_email AS email, o.nombre AS nombre FROM comitentes c "
         "LEFT JOIN operadores o ON o.email = c.operador_email "
@@ -246,9 +249,9 @@ def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS") -> dict:
             "clientes_activos": activos,
             "clientes_activos_pct": _pct(activos, pv["activos"]),
             "clientes_inactivos": inactivos,
-            "volumen": _cv(c["volumen"], factor),
+            "volumen": round(c["volumen"], 2),
             "volumen_pct": _pct(c["volumen"], pv["volumen"]),
-            "comisiones": _cv(c["comisiones"], factor),
+            "comisiones": round(c["comisiones"], 2),
             "comisiones_pct": _pct(c["comisiones"], pv["comisiones"]),
         }
         filas.append(fila)
@@ -261,7 +264,7 @@ def objetivos_vs_actual(*, desde: str, hasta: str, moneda: str = "ARS") -> dict:
     _ensure()
     factor = _factor_usd(moneda)
     d0, d1 = date.fromisoformat(desde), date.fromisoformat(hasta)
-    actual = _por_operador(d0, d1)
+    actual = _por_operador(d0, d1, moneda, factor)
     # Meses que toca el rango [d0, d1] → suma de objetivos de esos (anio, mes).
     meses: list[tuple[int, int]] = []
     cur = d0.replace(day=1)
@@ -287,7 +290,9 @@ def objetivos_vs_actual(*, desde: str, hasta: str, moneda: str = "ARS") -> dict:
     for op in sorted(set(actual) | set(obj), key=lambda o: -actual.get(o, {}).get("volumen", 0.0)):
         a = actual.get(op, {"volumen": 0.0, "comisiones": 0.0})
         o = obj.get(op, {"vo": 0.0, "co": 0.0})
-        vol_act, com_act = _cv(a["volumen"], factor), _cv(a["comisiones"], factor)
+        # Actual: ya en la moneda destino (MEP del trade). Objetivo: es una META sin MEP de
+        # trade → se dolariza al MEP de hoy (`_cv`), es lo único razonable para un target.
+        vol_act, com_act = round(a["volumen"], 2), round(a["comisiones"], 2)
         vol_obj, com_obj = _cv(o["vo"], factor), _cv(o["co"], factor)
         # % alcanzado: promedio simple de avance de volumen y comisiones (los 2 que tienen objetivo).
         avances = [x for x in (

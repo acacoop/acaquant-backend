@@ -23,6 +23,7 @@ Excel/response_cuenta_*.json
 .venv/
 archive/
 exports/
+scripts/out_1816/
 
 # CSVs en docs/ — usados para data sensible (backfill manual de AuM, etc.)
 # Nunca van al repo. Si querés versionar uno específico, forzar con `git add -f`.

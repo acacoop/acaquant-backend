@@ -54,18 +54,18 @@ def _ohlc_ultima_rueda(tabla: str, tickers: list[str]) -> dict[str, dict]:
         return {}
 
 
-def _cedears_last(tickers: set[str]) -> dict[str, float | None]:
-    """`last` live de cada CEDEAR desde el scanner (1 llamada, @cached)."""
+def _cedears_live(tickers: set[str]) -> dict[str, dict]:
+    """{ticker_corto: {last, vwap}} live de cada CEDEAR desde el scanner (1 llamada, @cached)."""
     try:
         universo = scanner_svc.get_cedears_scanner()
     except Exception as e:
         logger.debug("trading_pivots: scanner falló (%s)", e)
         return {}
-    out: dict[str, float | None] = {}
+    out: dict[str, dict] = {}
     for r in universo:
         tk = str(r.get("ticker_corto", "")).upper()
         if tk in tickers:
-            out[tk] = r.get("last")
+            out[tk] = {"last": r.get("last"), "vwap": r.get("vwap")}
     return out
 
 
@@ -79,15 +79,17 @@ def _bonos_corto_a_largo() -> dict[str, str]:
     return out
 
 
-def _bonos_last(tickers: list[str], corto_a_largo: dict[str, str]) -> dict[str, float | None]:
-    """`last` live de cada bono desde mercado.market_snapshot (keyeado por ticker largo)."""
+def _bonos_live(tickers: list[str], corto_a_largo: dict[str, str]) -> dict[str, dict]:
+    """{ticker_corto: {last, vwap}} live de cada bono desde mercado.market_snapshot
+    (keyeado por ticker largo)."""
     largos = [corto_a_largo[t] for t in tickers if t in corto_a_largo]
     lp = market_snapshot.metric_map(largos, "last_price", positivo=True)  # {largo: last}
-    out: dict[str, float | None] = {}
+    vw = market_snapshot.metric_map(largos, "vwap", positivo=True)        # {largo: vwap}
+    out: dict[str, dict] = {}
     for t in tickers:
         largo = corto_a_largo.get(t)
         if largo is not None:
-            out[t] = lp.get(largo)
+            out[t] = {"last": lp.get(largo), "vwap": vw.get(largo)}
     return out
 
 
@@ -132,20 +134,21 @@ def get_pivots(*, tickers: list[str]) -> list[dict]:
     cedears = [t for t in tks if t not in corto_a_largo]
 
     ohlc: dict[str, dict] = {}
-    lasts: dict[str, float | None] = {}
+    live: dict[str, dict] = {}
     if cedears:
         ohlc.update(_ohlc_ultima_rueda("mercado.cedears_ohlc_daily", cedears))
-        lasts.update(_cedears_last(set(cedears)))
+        live.update(_cedears_live(set(cedears)))
     if bonos:
         ohlc.update(_ohlc_ultima_rueda("mercado.bonos_ohlc_daily", bonos))
-        lasts.update(_bonos_last(bonos, corto_a_largo))
+        live.update(_bonos_live(bonos, corto_a_largo))
 
     out: list[dict] = []
     for tk in tks:
-        last = lasts.get(tk)
+        info = live.get(tk) or {}
+        last, vwap = info.get("last"), info.get("vwap")
         row = ohlc.get(tk)
         if not row:
-            out.append({"ticker": tk, "last": last, "sin_datos": True})
+            out.append({"ticker": tk, "last": last, "vwap": vwap, "sin_datos": True})
             continue
         h, l, c = float(row["high"]), float(row["low"]), float(row["close"])
         niveles = calcular(high=h, low=l, close=c)
@@ -155,6 +158,7 @@ def get_pivots(*, tickers: list[str]) -> list[dict]:
             "fecha": fecha.isoformat() if hasattr(fecha, "isoformat") else None,
             "high": h, "low": l, "close": c,
             "last": last,
+            "vwap": vwap,
             "pivots": dict(niveles),  # pp, r1, r2, r3, s1, s2, s3
         })
     return out

@@ -22,6 +22,14 @@ def pivots(tickers: str = Query("", description="CSV de ticker_corto de CEDEARs"
     return svc.get_pivots(tickers=lista)
 
 
+@router.get("/pivot-radar")
+def pivot_radar():
+    """Radar de proximidad a pivote de TODO el universo de CEDEARs. Cada item:
+    {ticker, last, nivel, nivel_precio, dist_pct}. Ordenado por |dist_pct| asc;
+    el frontend filtra por el umbral elegido."""
+    return svc.pivot_radar()
+
+
 @router.get("/universo")
 def universo():
     """Catálogo liviano para el selector: CEDEARs activos + bonos de renta fija.

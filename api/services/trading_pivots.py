@@ -21,6 +21,7 @@ import logging
 
 from psycopg.rows import dict_row
 
+from api.cache import cached
 from api.services import scanner_sql as scanner_svc
 from core import curvas_sql, market_snapshot
 from core.postgres import get_pool
@@ -161,4 +162,48 @@ def get_pivots(*, tickers: list[str]) -> list[dict]:
             "vwap": vwap,
             "pivots": dict(niveles),  # pp, r1, r2, r3, s1, s2, s3
         })
+    return out
+
+
+@cached(ttl=2)
+def pivot_radar() -> list[dict]:
+    """Radar de proximidad a pivote sobre TODO el universo de CEDEARs.
+
+    Para cada CEDEAR con last live + pivots (última rueda guardada), calcula el
+    nivel de pivote MÁS CERCANO y la distancia % del last a ese nivel. Devuelve
+    TODOS los que tienen dato, ordenados por distancia absoluta asc — el frontend
+    filtra por el umbral elegido (el selector no re-pega al backend).
+
+    Cada item: {ticker, last, nivel ('PP'|'R1'..'S3'), nivel_precio,
+    dist_pct (signed: + = last por encima del nivel)}.
+    """
+    universo = [
+        str(u.get("ticker_corto", "")).upper()
+        for u in scanner_svc.get_universo()
+        if u.get("ticker_corto")
+    ]
+    out: list[dict] = []
+    for r in get_pivots(tickers=universo):
+        last = r.get("last")
+        pivots = r.get("pivots")
+        if not last or last <= 0 or not pivots:
+            continue
+        # Nivel más cercano por distancia relativa (denominador = last).
+        best_key, best_val, best_dist = None, None, None
+        for key, val in pivots.items():
+            if val is None:
+                continue
+            dist = (last - val) / last * 100.0
+            if best_dist is None or abs(dist) < abs(best_dist):
+                best_key, best_val, best_dist = key, val, dist
+        if best_key is None:
+            continue
+        out.append({
+            "ticker": r["ticker"],
+            "last": last,
+            "nivel": best_key.upper(),        # pp/r1/… → PP/R1/…
+            "nivel_precio": best_val,
+            "dist_pct": best_dist,
+        })
+    out.sort(key=lambda d: abs(d["dist_pct"]))
     return out

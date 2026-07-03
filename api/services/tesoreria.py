@@ -12,14 +12,24 @@ necesita) se congelará con un job aparte más adelante.
 """
 from __future__ import annotations
 
+import unicodedata
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from core import aunesa
 
 _ENDPOINT = "cuentas/consultaMovDocsSolicitados"
-_INGRESO = "Depósito"
-_EGRESO = "Extracción"
+# La dirección la da `solicitud`. Comparamos SIN acentos y en minúscula porque el string
+# de Aunesa puede venir en NFC o NFD (la 'ó'/'ó' se ven iguales pero != por bytes) — comparar
+# el literal acentuado directo descartaba TODAS las filas (200 OK con 0 resultados).
+_INGRESO = "deposito"   # 'Depósito'
+_EGRESO = "extraccion"  # 'Extracción'
+
+
+def _norm(s: Any) -> str:
+    """Minúscula + sin diacríticos, para comparar `solicitud` a prueba de NFC/NFD."""
+    d = unicodedata.normalize("NFKD", str(s or ""))
+    return "".join(c for c in d if not unicodedata.combining(c)).strip().lower()
 
 
 def _hoy_art() -> datetime:
@@ -81,7 +91,7 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado")
     resumen: dict[str, dict] = {}
     movimientos: list[dict] = []
     for r in rows:
-        sol = r.get("solicitud")
+        sol = _norm(r.get("solicitud"))
         if sol not in (_INGRESO, _EGRESO):
             continue  # defensivo: el discovery confirmó SOLO estos 2 valores
         unidad = (r.get("unidad") or "?").upper()
@@ -115,4 +125,5 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado")
     movimientos.sort(key=lambda m: m.get("hora") or "", reverse=True)
 
     return {"fecha": ddmmyyyy, "estado": estado, "resumen": resumen,
-            "movimientos": movimientos, "n": len(movimientos)}
+            "movimientos": movimientos, "n": len(movimientos),
+            "raw": len(rows)}  # filas crudas de Aunesa (diagnóstico: raw>0 y n=0 = filtro)

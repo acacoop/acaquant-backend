@@ -37,10 +37,13 @@ def _hoy_art() -> datetime:
     return datetime.now(UTC) - timedelta(hours=3)
 
 
-def _fechas(iso: str | None) -> tuple[str, str]:
-    """(dd/mm/yyyy, yyyymmdd) desde un ISO YYYY-MM-DD; default = hoy ART."""
+def _fechas(iso: str | None) -> tuple[str, str, str]:
+    """(dd/mm/yyyy del día, dd/mm/yyyy del día+1, yyyymmdd del día) desde un ISO YYYY-MM-DD;
+    default = hoy ART. El día+1 es para `liquidacionHasta`: Aunesa EXIGE desde < hasta
+    (un rango de un solo día con desde==hasta tira 400), así que pedimos [día, día+1] y
+    después filtramos las filas al día objetivo."""
     d = datetime.strptime(iso, "%Y-%m-%d").date() if iso else _hoy_art().date()
-    return d.strftime("%d/%m/%Y"), d.strftime("%Y%m%d")
+    return d.strftime("%d/%m/%Y"), (d + timedelta(days=1)).strftime("%d/%m/%Y"), d.strftime("%Y%m%d")
 
 
 def _num(x: Any) -> float:
@@ -74,8 +77,8 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado")
       - `movimientos`: filas para la tabla (hora, cuenta, cliente, riel, unidad, tipo,
         monto, estado), ordenadas por hora desc.
     """
-    ddmmyyyy, yyyymmdd = _fechas(fecha)
-    params: dict[str, Any] = {"liquidacionDesde": ddmmyyyy, "liquidacionHasta": ddmmyyyy}
+    ddmmyyyy, ddmmyyyy_hasta, yyyymmdd = _fechas(fecha)
+    params: dict[str, Any] = {"liquidacionDesde": ddmmyyyy, "liquidacionHasta": ddmmyyyy_hasta}
     if estado:
         params["estados"] = estado
 
@@ -90,7 +93,12 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado")
 
     resumen: dict[str, dict] = {}
     movimientos: list[dict] = []
+    dia_objetivo = 0
     for r in rows:
+        # El rango pedido es [día, día+1]; nos quedamos SOLO con las filas del día objetivo.
+        if str(r.get("fecha") or "").strip() != ddmmyyyy:
+            continue
+        dia_objetivo += 1
         sol = _norm(r.get("solicitud"))
         if sol not in (_INGRESO, _EGRESO):
             continue  # defensivo: el discovery confirmó SOLO estos 2 valores
@@ -126,4 +134,5 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado")
 
     return {"fecha": ddmmyyyy, "estado": estado, "resumen": resumen,
             "movimientos": movimientos, "n": len(movimientos),
-            "raw": len(rows)}  # filas crudas de Aunesa (diagnóstico: raw>0 y n=0 = filtro)
+            # diagnóstico: raw = filas del rango [día,día+1]; dia = filas del día objetivo.
+            "raw": dia_objetivo}

@@ -113,6 +113,15 @@ def _resumen(rows: list[dict]) -> None:
     print(f"    filas={len(rows)}  Σmonto={_fmt(sum(montos))}  "
           f"min={_fmt(min(montos))}  max={_fmt(max(montos))}  negativos={neg}")
     print(f"    campos presentes: {sorted({k for r in rows for k in r})}")
+    # Fill-rate por campo: cuántas filas traen cada campo con valor real. Clave para saber
+    # si la cuenta bancaria DE ACA aparece en algún lado (o si banco/cbuCVU son solo de la
+    # contraparte y vienen sparse). Para 'banco' además muestra los valores distintos.
+    print("    fill-rate por campo (con valor / total):")
+    for k in sorted({k for r in rows for k in r}):
+        llenos = sum(1 for r in rows if r.get(k) not in (None, "", [], {}))
+        print(f"        {k:14} {llenos:5}/{len(rows)}")
+    bancos = sorted({str(r.get("banco")) for r in rows if r.get("banco")})
+    print(f"    valores distintos de `banco` ({len(bancos)}): {bancos[:20]}")
     # `solicitud` es el campo que separa INGRESO (Depósito) de EGRESO (Extracción) —
     # va primero. Los demás son cortes secundarios (riel / moneda / estado / banco).
     for k in ("solicitud", "estado", "tipoDocSoli", "unidad", "banco"):

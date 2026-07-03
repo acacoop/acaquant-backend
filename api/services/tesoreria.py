@@ -125,6 +125,10 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado")
             "tipo": "ingreso" if es_ingreso else "egreso",
             "monto": round(monto, 2),
             "estado": r.get("estado"),
+            # OJO: `banco`/`cbu` son de la CONTRAPARTE (el cliente), NO la cuenta de ACA.
+            # Vienen sparse (banco null ~96%). No sirven como columna POSI por sí solos.
+            "banco": r.get("banco"),
+            "cbu": r.get("cbuCVU"),
         })
 
     for b in resumen.values():

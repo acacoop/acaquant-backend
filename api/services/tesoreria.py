@@ -61,14 +61,6 @@ def _hora(id_: Any, yyyymmdd: str) -> str:
     return ""
 
 
-def _riel(tipo_doc: Any) -> str:
-    """'[TR] Transferencia' → 'Transferencia' (saca el código entre corchetes)."""
-    s = (str(tipo_doc or "")).strip()
-    if s.startswith("[") and "]" in s:
-        return s.split("]", 1)[1].strip() or s
-    return s
-
-
 def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado") -> dict:
     """Ingresos/egresos bancarios de un día (default hoy ART) desde Aunesa.
 
@@ -93,50 +85,37 @@ def ingresos_egresos_dia(*, fecha: str | None = None, estado: str = "Procesado")
 
     resumen: dict[str, dict] = {}
     movimientos: list[dict] = []
-    dia_objetivo = 0
     for r in rows:
         # El rango pedido es [día, día+1]; nos quedamos SOLO con las filas del día objetivo.
         if str(r.get("fecha") or "").strip() != ddmmyyyy:
             continue
-        dia_objetivo += 1
         sol = _norm(r.get("solicitud"))
-        if sol not in (_INGRESO, _EGRESO):
-            continue  # defensivo: el discovery confirmó SOLO estos 2 valores
-        unidad = (r.get("unidad") or "?").upper()
-        monto = _num(r.get("monto"))
-        es_ingreso = sol == _INGRESO
+        es_ingreso, es_egreso = sol == _INGRESO, sol == _EGRESO
 
-        b = resumen.setdefault(unidad, {"ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0})
-        if es_ingreso:
-            b["ingresos"] += monto
-        else:
-            b["egresos"] += monto
-        b["neto"] = b["ingresos"] - b["egresos"]
-        b["n"] += 1
+        if es_ingreso or es_egreso:
+            unidad = (r.get("unidad") or "?").upper()
+            monto = _num(r.get("monto"))
+            b = resumen.setdefault(unidad, {"ingresos": 0.0, "egresos": 0.0, "neto": 0.0, "n": 0})
+            if es_ingreso:
+                b["ingresos"] += monto
+            else:
+                b["egresos"] += monto
+            b["neto"] = b["ingresos"] - b["egresos"]
+            b["n"] += 1
 
-        per = r.get("persona") or {}
-        movimientos.append({
-            "id": r.get("id"),
-            "hora": _hora(r.get("id"), yyyymmdd),
-            "cuenta": r.get("cuenta"),
-            "cliente": per.get("nombreCompleto") or "",
-            "riel": _riel(r.get("tipoDocSoli")),
-            "unidad": unidad,
-            "tipo": "ingreso" if es_ingreso else "egreso",
-            "monto": round(monto, 2),
-            "estado": r.get("estado"),
-            # OJO: `banco`/`cbu` son de la CONTRAPARTE (el cliente), NO la cuenta de ACA.
-            # Vienen sparse (banco null ~96%). No sirven como columna POSI por sí solos.
-            "banco": r.get("banco"),
-            "cbu": r.get("cbuCVU"),
-        })
+        # Movimiento = TODOS los campos crudos de Aunesa (persona aplanada a persona_*) +
+        # derivados `_hora`/`_tipo`. Se devuelve todo para inspección directa en el front.
+        mov = {k: v for k, v in r.items() if k != "persona"}
+        for pk, pv in (r.get("persona") or {}).items():
+            mov[f"persona_{pk}"] = pv
+        mov["_hora"] = _hora(r.get("id"), yyyymmdd)
+        mov["_tipo"] = "ingreso" if es_ingreso else "egreso" if es_egreso else ""
+        movimientos.append(mov)
 
     for b in resumen.values():
         b["ingresos"], b["egresos"], b["neto"] = (
             round(b["ingresos"], 2), round(b["egresos"], 2), round(b["neto"], 2))
-    movimientos.sort(key=lambda m: m.get("hora") or "", reverse=True)
+    movimientos.sort(key=lambda m: str(m.get("_hora") or ""), reverse=True)
 
     return {"fecha": ddmmyyyy, "estado": estado, "resumen": resumen,
-            "movimientos": movimientos, "n": len(movimientos),
-            # diagnóstico: raw = filas del rango [día,día+1]; dia = filas del día objetivo.
-            "raw": dia_objetivo}
+            "movimientos": movimientos, "n": len(movimientos), "raw": len(movimientos)}

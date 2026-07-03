@@ -24,7 +24,7 @@ from typing import Any
 import pyRofex
 
 from api.cache import cached
-from core.rofex_orders_session import ensure_session_envio
+from core.rofex_orders_session import ensure_session_envio, normalizar_cuenta
 
 logger = logging.getLogger("api.services.risk")
 
@@ -60,7 +60,7 @@ def _resolve_account(account: str | None) -> str:
     """Inicializa la sesión y devuelve la cuenta efectiva. Si el caller
     no pasa account, se usa la del .env (cuenta_default)."""
     default = ensure_session_envio()
-    return account or default
+    return normalizar_cuenta(account or default)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -217,7 +217,9 @@ def listado_cuentas(solo_activas: bool = False) -> list[dict[str, Any]]:
             s = str(deno or "").strip()
             m = _re_cta.match(s)
             out.append({
-                "account_id":         str(idc),
+                # ROFEX exige mínimo 3 dígitos: '9' → '009'. El id_cuenta de clientes.cuentas
+                # perdió los ceros (bug de sync) → sin esto ROFEX no vincula ni trae saldos.
+                "account_id":         normalizar_cuenta(str(idc)),
                 "nombre":             (m.group(2).strip() if m else s) or None,
                 # Shape compat (el front lee estos): ya NO hay snapshot de saldos del broker.
                 # Toda comitente es operable → activa=True; los saldos se piden en vivo aparte.

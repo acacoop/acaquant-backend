@@ -69,6 +69,17 @@ def _credenciales() -> tuple[str, str, str, pyRofex.Environment]:
     )
 
 
+def normalizar_cuenta(account: str | None) -> str:
+    """Cuenta ROFEX = MÍNIMO 3 dígitos con ceros a la izquierda ('9' → '009').
+
+    ROFEX no vincula la cuenta ni trae saldos si va sin padding. El `id_cuenta` de
+    `clientes.cuentas` quedó guardado sin ceros a la izquierda (las de 1-2 dígitos), así
+    que normalizamos SIEMPRE antes de hablar con el broker. Es un no-op para cuentas de
+    3+ dígitos y para valores no numéricos (no rompe nada existente)."""
+    s = (account or "").strip()
+    return s.zfill(3) if s.isdigit() else s
+
+
 def cuenta_default() -> str:
     """Cuenta a usar cuando el caller no especifica una.
 
@@ -77,7 +88,7 @@ def cuenta_default() -> str:
     este helper sigue valiendo como fallback.
     """
     _, _, account, _ = _credenciales()
-    return account
+    return normalizar_cuenta(account)
 
 
 def _do_initialize() -> tuple[str, pyRofex.Environment]:

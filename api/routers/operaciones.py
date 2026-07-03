@@ -617,14 +617,31 @@ def control_set_objetivo(
         actor=actor or "")
 
 
+# Filtros madre de la barra de Operadores (multi-select; cruzan con AND). Vacío = sin filtro
+# (mesa completa). Van como tupla a los services (datos_totales_alyc está @cached → hashable).
+def _filtros_madre(
+    operador: list[str] = Query(default=[], description="operador(es) — multi. Vacío = todos"),
+    nivel_1: list[str] = Query(default=[], description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] = Query(default=[], description="filtro madre nivel_2 (multi)"),
+    nivel_3: list[str] = Query(default=[], description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] = Query(default=[], description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] = Query(default=[], description="filtro madre nivel_5 (multi)"),
+    referido: list[str] = Query(default=[], description="filtro madre referido (multi)"),
+) -> dict:
+    return {"operador": tuple(operador), "nivel_1": tuple(nivel_1), "nivel_2": tuple(nivel_2),
+            "nivel_3": tuple(nivel_3), "nivel_4": tuple(nivel_4), "nivel_5": tuple(nivel_5),
+            "referido": tuple(referido)}
+
+
 @router.get("/comercial/control/totales")
 def control_totales(
     moneda: str = Query("ARS", description="ARS | USD"),
+    filtros: dict = Depends(_filtros_madre),
     _actor: str = Depends(require_control_comercial),
 ) -> dict:
     """Tabla 1 — totales ALyC por períodos fijos (Día/Semana/Mes/YTD/12M/2025/2024/Total)
-    + % vs período anterior. NO depende de Desde/Hasta."""
-    return _cc.datos_totales_alyc(moneda=moneda)
+    + % vs período anterior. NO depende de Desde/Hasta. Filtros madre acotan el scope."""
+    return _cc.datos_totales_alyc(moneda=moneda, **filtros)
 
 
 @router.get("/comercial/control/por-operador")
@@ -632,11 +649,12 @@ def control_por_operador(
     desde: str = Query(..., description="ISO YYYY-MM-DD"),
     hasta: str = Query(..., description="ISO YYYY-MM-DD"),
     moneda: str = Query("ARS", description="ARS | USD"),
+    filtros: dict = Depends(_filtros_madre),
     _actor: str = Depends(require_control_comercial),
 ) -> dict:
     """Tabla 2 — por comercial en [desde, hasta]: activos/inactivos + volumen + comisiones
-    (cada uno con % vs el rango anterior de igual largo)."""
-    return _cc.datos_por_operador(desde=desde, hasta=hasta, moneda=moneda)
+    (cada uno con % vs el rango anterior de igual largo). Filtros madre acotan el scope."""
+    return _cc.datos_por_operador(desde=desde, hasta=hasta, moneda=moneda, **filtros)
 
 
 @router.get("/comercial/control/objetivos-vs-actual")
@@ -644,8 +662,9 @@ def control_objetivos_vs_actual(
     desde: str = Query(..., description="ISO YYYY-MM-DD"),
     hasta: str = Query(..., description="ISO YYYY-MM-DD"),
     moneda: str = Query("ARS", description="ARS | USD"),
+    filtros: dict = Depends(_filtros_madre),
     _actor: str = Depends(require_control_comercial),
 ) -> dict:
     """Tabla 3 — por comercial: Actual (en el rango) vs Objetivo (suma de objetivos mensuales
-    del rango) + % alcanzado."""
-    return _cc.objetivos_vs_actual(desde=desde, hasta=hasta, moneda=moneda)
+    del rango) + % alcanzado. Filtros madre acotan el scope."""
+    return _cc.objetivos_vs_actual(desde=desde, hasta=hasta, moneda=moneda, **filtros)

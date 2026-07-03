@@ -134,17 +134,53 @@ def _ancla() -> date:
     return r[0]["f"] if r and r[0]["f"] else hoy
 
 
-def _agg_total(desde: date, hasta: date, moneda: str, mep_hoy: float | None) -> dict:
+def _hay_filtro(*vals) -> bool:
+    """True si al menos un filtro (operador/nivel/referido) trae un valor real
+    (ignora None, '', '__todos__' y colecciones vacías)."""
+    for v in vals:
+        if not v:
+            continue
+        items = [v] if isinstance(v, str) else list(v)
+        if any(x and str(x) != "__todos__" for x in items):
+            return True
+    return False
+
+
+def _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido):
+    """Filtros madre → (ids_cuenta, operadores) del scope, o (None, None) si NO hay ningún
+    filtro activo (= mesa completa, comportamiento histórico sin restricción).
+
+    `ids` restringe las agregaciones a esas cuentas; `ops` es el set de comerciales de esas
+    cuentas (para no mostrar operadores fuera del scope en Tablas 2 y 3). Reusa el mismo
+    resolvedor de cuentas activas que las otras vistas comerciales (`_ids_operador`)."""
+    if not _hay_filtro(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido):
+        return None, None
+    from api.services.comercial_sql import _ids_operador
+    ids = _ids_operador(operador, nivel_1=nivel_1, nivel_3=nivel_3, referido=referido,
+                        nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2)
+    ops = {r["operador_email"] for r in _q(
+        "SELECT DISTINCT operador_email FROM comitentes WHERE estado='Activa' "
+        "AND operador_email IS NOT NULL AND id_cuenta = ANY(%(ids)s)", {"ids": ids})}
+    return ids, ops
+
+
+def _agg_total(desde: date, hasta: date, moneda: str, mep_hoy: float | None,
+               ids: list[str] | None = None) -> dict:
     """Mesa completa en [desde, hasta]: clientes activos (operaron ≥1), volumen, comisiones.
-    Volumen/comisiones ya vienen EN LA MONEDA destino (valuados al MEP del boleto)."""
+    Volumen/comisiones ya vienen EN LA MONEDA destino (valuados al MEP del boleto).
+    `ids` (opcional) restringe a un set de cuentas del scope (filtros madre)."""
     volx, arax = _valor_expr(moneda, mep_hoy), _arancel_expr(moneda, mep_hoy)
+    scope = " AND id_cuenta = ANY(%(ids)s)" if ids is not None else ""
     p = {"d": desde, "h": hasta, "cats": list(_CATS_VOLUMEN)}
+    pc: dict = {"d": desde, "h": hasta}
+    if ids is not None:
+        p["ids"] = pc["ids"] = ids
     v = _q(f"SELECT COUNT(DISTINCT id_cuenta) AS act, COALESCE(SUM({volx}),0) AS vol "
            f"FROM negocio_movimientos WHERE categoria = ANY(%(cats)s) "
-           f"AND unidad IS DISTINCT FROM 'USDL' AND fecha >= %(d)s AND fecha <= %(h)s", p)[0]
+           f"AND unidad IS DISTINCT FROM 'USDL' AND fecha >= %(d)s AND fecha <= %(h)s{scope}", p)[0]
     c = _q(f"SELECT COALESCE(SUM({arax}),0) AS com FROM operaciones "
-           "WHERE arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
-           "AND concertacion >= %(d)s AND concertacion <= %(h)s", {"d": desde, "h": hasta})[0]
+           f"WHERE arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
+           f"AND concertacion >= %(d)s AND concertacion <= %(h)s{scope}", pc)[0]
     return {"clientes_activos": int(v["act"] or 0),
             "volumen": round(_f(v["vol"]), 2),
             "comisiones": round(_f(c["com"]), 2)}
@@ -156,14 +192,21 @@ def _pct(cur: float, prev: float) -> float | None:
 
 
 @cached(ttl=300)
-def datos_totales_alyc(*, moneda: str = "ARS") -> dict:
+def datos_totales_alyc(*, moneda: str = "ARS", operador=(), nivel_1=(), nivel_2=(),
+                       nivel_3=(), nivel_4=(), nivel_5=(), referido=()) -> dict:
     """Tabla 1: totales de la mesa por períodos FIJOS (no usa Desde/Hasta) + % vs el período
-    anterior inmediato equivalente. Ancla = última fecha con operaciones.
+    anterior inmediato equivalente. Ancla = última fecha con operaciones (siempre global — los
+    períodos "Mes/YTD/…" son de la mesa; los filtros madre solo acotan los valores adentro).
+
+    Filtros madre (operador/niveles/referido) restringen a las cuentas del scope; sin filtros =
+    mesa completa. Van como TUPLAS (hashables) porque la fn está @cached (la key hace
+    tuple(sorted(kwargs)) → una lista la rompería).
 
     @cached(300s): hace ~30 agregaciones seriales sobre operaciones/negocio_movimientos
-    (varias barren todo el histórico) y el resultado NO depende del usuario (solo `moneda`)
-    → se recalcula 1×/5min en vez de en cada hit del dashboard de jefatura (perf 2026-06-29)."""
+    (varias barren todo el histórico) → se recalcula 1×/5min por combinación de moneda+filtros
+    en vez de en cada hit del dashboard de jefatura (perf 2026-06-29)."""
     factor = _factor_usd(moneda)
+    ids, _ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido)
     a = _ancla()
     # (label, desde, hasta, prev_desde, prev_hasta). prev=None → sin comparación.
     pd = _prev_biz(a)
@@ -183,8 +226,8 @@ def datos_totales_alyc(*, moneda: str = "ARS") -> dict:
     ]
     filas = []
     for label, d, h, pdde, phasta in defs:
-        cur = _agg_total(d, h, moneda, factor)
-        prev = _agg_total(pdde, phasta, moneda, factor) if pdde else None
+        cur = _agg_total(d, h, moneda, factor, ids)
+        prev = _agg_total(pdde, phasta, moneda, factor, ids) if pdde else None
         fila = {"periodo": label, **cur}
         for k in ("clientes_activos", "volumen", "comisiones"):
             fila[f"{k}_pct"] = _pct(cur[k], prev[k]) if prev else None
@@ -192,18 +235,24 @@ def datos_totales_alyc(*, moneda: str = "ARS") -> dict:
     return {"moneda": moneda, "ancla": a.isoformat(), "filas": filas}
 
 
-def _por_operador(desde: date, hasta: date, moneda: str, mep_hoy: float | None) -> dict[str, dict]:
+def _por_operador(desde: date, hasta: date, moneda: str, mep_hoy: float | None,
+                  ids: list[str] | None = None) -> dict[str, dict]:
     """{operador_email: {activos, volumen, comisiones}} en [desde, hasta], ya EN LA MONEDA
-    destino (valuado al MEP del boleto). Agrega por cuenta y mapea a operador en Python."""
+    destino (valuado al MEP del boleto). Agrega por cuenta y mapea a operador en Python.
+    `ids` (opcional) restringe a las cuentas del scope (filtros madre)."""
     volx, arax = _valor_expr(moneda, mep_hoy), _arancel_expr(moneda, mep_hoy)
     op_de = {r["id_cuenta"]: r["operador_email"] for r in _q(
         "SELECT id_cuenta, operador_email FROM comitentes WHERE estado='Activa' "
         "AND operador_email IS NOT NULL")}
+    scope = " AND id_cuenta = ANY(%(ids)s)" if ids is not None else ""
     out: dict[str, dict] = {}
     p = {"d": desde, "h": hasta, "cats": list(_CATS_VOLUMEN)}
+    pc: dict = {"d": desde, "h": hasta}
+    if ids is not None:
+        p["ids"] = pc["ids"] = ids
     for r in _q(f"SELECT id_cuenta, COALESCE(SUM({volx}),0) AS vol FROM negocio_movimientos "
                 f"WHERE categoria = ANY(%(cats)s) AND unidad IS DISTINCT FROM 'USDL' "
-                f"AND fecha >= %(d)s AND fecha <= %(h)s GROUP BY id_cuenta", p):
+                f"AND fecha >= %(d)s AND fecha <= %(h)s{scope} GROUP BY id_cuenta", p):
         op = op_de.get(r["id_cuenta"])
         if not op:
             continue
@@ -211,9 +260,9 @@ def _por_operador(desde: date, hasta: date, moneda: str, mep_hoy: float | None) 
         s["activos"] += 1
         s["volumen"] += _f(r["vol"])
     for r in _q(f"SELECT id_cuenta, COALESCE(SUM({arax}),0) AS com FROM operaciones "
-                "WHERE arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
-                "AND concertacion >= %(d)s AND concertacion <= %(h)s GROUP BY id_cuenta",
-                {"d": desde, "h": hasta}):
+                f"WHERE arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
+                f"AND concertacion >= %(d)s AND concertacion <= %(h)s{scope} GROUP BY id_cuenta",
+                pc):
         op = op_de.get(r["id_cuenta"])
         if not op:
             continue
@@ -221,23 +270,30 @@ def _por_operador(desde: date, hasta: date, moneda: str, mep_hoy: float | None) 
     return out
 
 
-def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS") -> dict:
+def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS", operador=(), nivel_1=(),
+                       nivel_2=(), nivel_3=(), nivel_4=(), nivel_5=(), referido=()) -> dict:
     """Tabla 2: por comercial en [desde, hasta]: clientes activos/inactivos + volumen +
-    comisiones, cada uno con % vs el rango ANTERIOR de igual largo."""
+    comisiones, cada uno con % vs el rango ANTERIOR de igual largo. Filtros madre
+    (operador/niveles/referido) acotan a las cuentas del scope; sin filtros = mesa completa."""
     factor = _factor_usd(moneda)
+    ids, _ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido)
     d0, d1 = date.fromisoformat(desde), date.fromisoformat(hasta)
     dias = (d1 - d0).days
     pd1 = d0 - timedelta(days=1)            # rango anterior: termina el día previo a `desde`
     pd0 = pd1 - timedelta(days=dias)        # y arranca `dias` antes → mismo largo
-    cur = _por_operador(d0, d1, moneda, factor)
-    prev = _por_operador(pd0, pd1, moneda, factor)
+    cur = _por_operador(d0, d1, moneda, factor, ids)
+    prev = _por_operador(pd0, pd1, moneda, factor, ids)
     nombre = {r["email"]: r["nombre"] for r in _q(
         "SELECT c.operador_email AS email, o.nombre AS nombre FROM comitentes c "
         "LEFT JOIN operadores o ON o.email = c.operador_email "
         "WHERE c.estado='Activa' AND c.operador_email IS NOT NULL GROUP BY c.operador_email, o.nombre")}
+    # Total de clientes por operador para el conteo de INACTIVOS — restringido al scope
+    # (con filtro madre, "inactivos" es relativo a las cuentas del scope, no a toda la mesa).
+    tc_scope = " AND id_cuenta = ANY(%(ids)s)" if ids is not None else ""
     total_clientes = {r["operador_email"]: int(r["n"]) for r in _q(
-        "SELECT operador_email, COUNT(*) AS n FROM comitentes WHERE estado='Activa' "
-        "AND operador_email IS NOT NULL GROUP BY operador_email")}
+        f"SELECT operador_email, COUNT(*) AS n FROM comitentes WHERE estado='Activa' "
+        f"AND operador_email IS NOT NULL{tc_scope} GROUP BY operador_email",
+        {"ids": ids} if ids is not None else {})}
     filas = []
     for op in sorted(set(cur) | set(total_clientes), key=lambda o: -cur.get(o, {}).get("volumen", 0.0)):
         c = cur.get(op, {"activos": 0, "volumen": 0.0, "comisiones": 0.0})
@@ -258,13 +314,16 @@ def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS") -> dict:
     return {"moneda": moneda, "desde": desde, "hasta": hasta, "filas": filas}
 
 
-def objetivos_vs_actual(*, desde: str, hasta: str, moneda: str = "ARS") -> dict:
+def objetivos_vs_actual(*, desde: str, hasta: str, moneda: str = "ARS", operador=(), nivel_1=(),
+                        nivel_2=(), nivel_3=(), nivel_4=(), nivel_5=(), referido=()) -> dict:
     """Tabla 3: por comercial, Volumen/Comisiones ACTUAL en [desde, hasta] vs OBJETIVO (suma de
-    los objetivos mensuales que caen en el rango) + % alcanzado."""
+    los objetivos mensuales que caen en el rango) + % alcanzado. Filtros madre acotan a las
+    cuentas del scope y a los comerciales de ese scope; sin filtros = mesa completa."""
     _ensure()
     factor = _factor_usd(moneda)
+    ids, ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido)
     d0, d1 = date.fromisoformat(desde), date.fromisoformat(hasta)
-    actual = _por_operador(d0, d1, moneda, factor)
+    actual = _por_operador(d0, d1, moneda, factor, ids)
     # Meses que toca el rango [d0, d1] → suma de objetivos de esos (anio, mes).
     meses: list[tuple[int, int]] = []
     cur = d0.replace(day=1)
@@ -286,8 +345,11 @@ def objetivos_vs_actual(*, desde: str, hasta: str, moneda: str = "ARS") -> dict:
         "SELECT c.operador_email, o.nombre AS nombre FROM comitentes c "
         "LEFT JOIN operadores o ON o.email = c.operador_email "
         "WHERE c.estado='Activa' AND c.operador_email IS NOT NULL GROUP BY c.operador_email, o.nombre")}
+    universo = set(actual) | set(obj)
+    if ops is not None:                    # con filtro madre: solo comerciales del scope
+        universo &= ops
     filas = []
-    for op in sorted(set(actual) | set(obj), key=lambda o: -actual.get(o, {}).get("volumen", 0.0)):
+    for op in sorted(universo, key=lambda o: -actual.get(o, {}).get("volumen", 0.0)):
         a = actual.get(op, {"volumen": 0.0, "comisiones": 0.0})
         o = obj.get(op, {"vo": 0.0, "co": 0.0})
         # Actual: ya en la moneda destino (MEP del trade). Objetivo: es una META sin MEP de

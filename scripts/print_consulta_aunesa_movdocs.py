@@ -1,39 +1,56 @@
 """scripts/print_consulta_aunesa_movdocs.py — imprime la CONSULTA EXACTA que Tesorería
-le hace hoy a Aunesa (para revisar con el equipo).
+le hace hoy a Aunesa, y los CAMPOS REALES que devuelve (para revisar con el equipo).
 
-Reusa la MISMA lógica que corre en producción (`api/services/tesoreria`) → lo que ves acá
-es literal lo que se manda. Por defecto NO ejecuta (solo muestra el request); con
-`--ejecutar` le pega en vivo y muestra el status + cuántas filas trae.
+Reusa la MISMA lógica de producción (`api/services/tesoreria`) → el request es literal el
+que se manda. Los campos NO están hardcodeados: se DERIVAN de la respuesta real (unión de
+todas las claves + fill-rate). Por eso ejecuta la llamada por defecto; con `--no-run` solo
+muestra el request sin pegarle a Aunesa.
 
 Uso:
-  python -m scripts.print_consulta_aunesa_movdocs                 # muestra el request (hoy)
+  python -m scripts.print_consulta_aunesa_movdocs                 # request + campos reales (hoy)
   python -m scripts.print_consulta_aunesa_movdocs --fecha 2026-07-03
-  python -m scripts.print_consulta_aunesa_movdocs --ejecutar      # + lo corre en vivo
+  python -m scripts.print_consulta_aunesa_movdocs --no-run        # solo el request
 """
 from __future__ import annotations
 
 import argparse
 import sys
+from typing import Any
 
 import requests
 
 from api.services.tesoreria import _ENDPOINT, _fechas
 from core import aunesa
 
-# Campos que DEVUELVE la response (medidos por el discovery, no de la doc).
-CAMPOS_RESPONSE = [
-    "id", "idExterno", "solicitud (Depósito=ingreso / Extracción=egreso)", "tipoDocSoli",
-    "persona {tipoDocumento, documento, tipoPersona, cuit, nombreCompleto}",
-    "cuenta (comitente, NO cuenta bancaria)", "fecha", "estado", "cbuCVU (contraparte)",
-    "banco (contraparte, viene null ~96%)", "unidad (ARS/USD)", "monto (siempre positivo)",
-]
+
+def _campos_reales(rows: list[dict]) -> list[tuple[str, int]]:
+    """Unión de TODAS las claves de la respuesta (persona.* aplanada) + cuántas filas traen
+    valor real en cada una. Derivado de los datos, sin lista hardcodeada."""
+    llenos: dict[str, int] = {}
+    presentes: set[str] = set()
+    for r in rows:
+        for k, v in r.items():
+            if k == "persona":
+                presentes.add("persona")
+                for pk, pv in (v or {}).items():
+                    key = f"persona.{pk}"
+                    presentes.add(key)
+                    if pv not in (None, "", [], {}):
+                        llenos[key] = llenos.get(key, 0) + 1
+                if v:
+                    llenos["persona"] = llenos.get("persona", 0) + 1
+            else:
+                presentes.add(k)
+                if v not in (None, "", [], {}):
+                    llenos[k] = llenos.get(k, 0) + 1
+    return [(k, llenos.get(k, 0)) for k in sorted(presentes)]
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Imprime la consulta de Tesorería a Aunesa.")
     p.add_argument("--fecha", default=None, help="ISO YYYY-MM-DD (default hoy ART)")
     p.add_argument("--estado", default="Procesado")
-    p.add_argument("--ejecutar", action="store_true", help="además, correrlo en vivo")
+    p.add_argument("--no-run", action="store_true", help="no ejecutar, solo mostrar el request")
     args = p.parse_args()
 
     ddmmyyyy, ddmmyyyy_hasta, _ = _fechas(args.fecha)
@@ -60,23 +77,29 @@ def main() -> int:
     print("\n  Autenticación:")
     print(f"      1) POST {aunesa.BASE_URL}/login  (clientId/username/password)  → token")
     print("      2) Header:  Authorization: Bearer <token>   +   Content-Type: application/json")
-    print("\n  Campos que DEVUELVE cada movimiento (medido, no de la doc):")
-    for c in CAMPOS_RESPONSE:
-        print(f"      · {c}")
-    print("\n  ⚠ NO devuelve la 'cuenta operativa' (cuenta bancaria de ACA). El único 'banco'")
-    print("     que trae es el de la CONTRAPARTE (cliente) y viene null en ~96% de las filas.")
     print("=" * 78)
 
-    if args.ejecutar:
-        print("\nEjecutando en vivo…")
-        resp = aunesa.get(_ENDPOINT, params)
-        print(f"  status = {resp.status_code}")
-        if resp.status_code == 200:
-            body = resp.json()
-            n = len(body) if isinstance(body, list) else "?"
-            print(f"  filas devueltas = {n}")
-        else:
-            print(f"  body = {resp.text[:300]}")
+    if args.no_run:
+        print("\n(--no-run: no se ejecutó; no puedo mostrar los campos REALES sin correrlo)")
+        return 0
+
+    print("\nEjecutando en vivo para leer los CAMPOS REALES…")
+    resp = aunesa.get(_ENDPOINT, params)
+    print(f"  status = {resp.status_code}")
+    if resp.status_code != 200:
+        print(f"  body = {resp.text[:300]}")
+        return 1
+    body: Any = resp.json()
+    rows = body if isinstance(body, list) else []
+    print(f"  filas devueltas = {len(rows)}")
+    if not rows:
+        print("  (sin filas — probá otra fecha/estado para ver los campos)")
+        return 0
+    print(f"\n  CAMPOS REALES que devuelve cada movimiento (derivados de las {len(rows)} filas,")
+    print("  con cuántas las traen con valor — NO es una lista escrita a mano):")
+    for k, n in _campos_reales(rows):
+        print(f"      {k:26} {n:5}/{len(rows)}")
+    print("\n  (si NO ves un campo de 'cuenta operativa'/cuenta bancaria de ACA acá, no lo trae)")
     return 0
 
 

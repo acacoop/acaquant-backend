@@ -11,9 +11,24 @@ from fastapi import APIRouter, Body, Depends, Query
 from api.auth import get_user_email
 from api.services import acreencias as svc_acr
 from api.services import tenencia_hd as svc_ten
+from api.services import tesoreria as svc_tes
 from api.services.back_office_titulos import get_titulos_mercado
 
 router = APIRouter(prefix="/api/back-office", tags=["BackOffice"])
+
+
+@router.get("/tesoreria/dia")
+def tesoreria_dia(
+    fecha: str | None = Query(None, description="ISO YYYY-MM-DD; default = hoy"),
+    estado: str = Query("Procesado", description="Estado Aunesa: Procesado | Pendiente | "
+                        "Pendiente de autorizar | Demorado | Rechazado | Anulado | Incompleto"),
+    _email: str = Depends(get_user_email),
+):
+    """Ingresos/egresos bancarios del día (Aunesa consultaMovDocsSolicitados).
+
+    Ingreso = solicitud 'Depósito', Egreso = 'Extracción'. Resumen por moneda
+    (ARS/USD) + detalle de movimientos. Live contra Aunesa (sin persistir)."""
+    return svc_tes.ingresos_egresos_dia(fecha=fecha, estado=estado)
 
 
 @router.get("/titulos-mercado")

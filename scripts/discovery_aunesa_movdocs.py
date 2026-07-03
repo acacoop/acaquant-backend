@@ -122,6 +122,19 @@ def _resumen(rows: list[dict]) -> None:
         print(f"        {k:14} {llenos:5}/{len(rows)}")
     bancos = sorted({str(r.get("banco")) for r in rows if r.get("banco")})
     print(f"    valores distintos de `banco` ({len(bancos)}): {bancos[:20]}")
+    # Volcado de UNA fila COMPLETA (todos los campos, valores PII ocultos) — para confirmar
+    # a ojo que NO hay ningún campo escondido. Una response JSON no oculta campos: esto es
+    # literal lo que manda Aunesa por movimiento.
+    _pii = {"documento", "cuit", "nombreCompleto", "cbuCVU", "monto"}
+
+    def _mask_row(o: Any) -> Any:
+        if isinstance(o, dict):
+            return {k: ("‹oculto›" if k in _pii else _mask_row(v)) for k, v in o.items()}
+        if isinstance(o, list):
+            return [_mask_row(x) for x in o]
+        return o
+    print("    fila COMPLETA (1ª, PII oculta — TODOS los campos que trae Aunesa):")
+    print(json.dumps(_mask_row(rows[0]), indent=6, ensure_ascii=False))
     # `solicitud` es el campo que separa INGRESO (Depósito) de EGRESO (Extracción) —
     # va primero. Los demás son cortes secundarios (riel / moneda / estado / banco).
     for k in ("solicitud", "estado", "tipoDocSoli", "unidad", "banco"):

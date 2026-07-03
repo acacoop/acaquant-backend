@@ -113,9 +113,18 @@ def _resumen(rows: list[dict]) -> None:
     print(f"    filas={len(rows)}  Σmonto={_fmt(sum(montos))}  "
           f"min={_fmt(min(montos))}  max={_fmt(max(montos))}  negativos={neg}")
     print(f"    campos presentes: {sorted({k for r in rows for k in r})}")
-    for k in ("estado", "tipoDocSoli", "unidad", "banco"):
+    # `solicitud` es el campo que separa INGRESO (Depósito) de EGRESO (Extracción) —
+    # va primero. Los demás son cortes secundarios (riel / moneda / estado / banco).
+    for k in ("solicitud", "estado", "tipoDocSoli", "unidad", "banco"):
         if any(k in r for r in rows):
             _dist(rows, k)
+    # Corte cruzado solicitud × unidad (la base de "ingresos/egresos del día por moneda").
+    print("    · solicitud × unidad (Σmonto):")
+    cruz: dict[tuple[str, str], list[float]] = defaultdict(list)
+    for r in rows:
+        cruz[(str(r.get("solicitud")), str(r.get("unidad")))].append(_num(r.get("monto")))
+    for (sol, uni), montos in sorted(cruz.items(), key=lambda kv: -sum(kv[1])):
+        print(f"        {sol!r:24} {uni!r:6}  n={len(montos):5}  Σmonto={_fmt(sum(montos))}")
     print("    muestra (PII enmascarada):")
     for r in rows[:3]:
         per = r.get("persona") or {}

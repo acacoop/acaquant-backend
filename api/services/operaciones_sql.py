@@ -215,25 +215,34 @@ def ops_resumen(
             w += " AND instrumento = %(f_instr)s"; pp["f_instr"] = instrumento
         return w, pp
 
+    # arancel POR FILA: se suma en la MISMA query que el bruto (mismo WHERE: moneda +
+    # es_cierre=false + cross-filters) → es el arancel exacto de las operaciones mostradas.
+    # NOTA: el arancel se guarda SIEMPRE en pesos (ABS); el arancel de caución (que vive en
+    # los cierres, es_cierre=true) NO entra acá — ese vive en la tab ARANCELES dedicada.
+    aexpr = "SUM(ABS(COALESCE(arancel, 0)))"
+
     # por_operacion: cruzada por denominacion + instrumento, HAVING bruto<>0.
     w_op, p_op = _xf(denom=True, instr=True)
     por_operacion = [
-        {"operacion": r["operacion"] or "(sin)", "bruto": round(_f(r["bruto"]), 2), "n": r["n"]}
-        for r in _q(f"SELECT operacion, {bexpr} AS bruto, count(*) AS n FROM operaciones "
+        {"operacion": r["operacion"] or "(sin)", "bruto": round(_f(r["bruto"]), 2),
+         "arancel": round(_f(r["ar"]), 2), "n": r["n"]}
+        for r in _q(f"SELECT operacion, {bexpr} AS bruto, {aexpr} AS ar, count(*) AS n FROM operaciones "
                     f"WHERE {w_op} GROUP BY operacion HAVING {bexpr} <> 0 ORDER BY bruto DESC", p_op)
     ]
     # por_denominacion: cruzada por operacion + instrumento.
     w_dn, p_dn = _xf(op=True, instr=True)
     por_denominacion = [
-        {"denominacion": r["denominacion"] or "(sin)", "bruto": round(_f(r["bruto"]), 2), "n": r["n"]}
-        for r in _q(f"SELECT denominacion, {bexpr} AS bruto, count(*) AS n FROM operaciones "
+        {"denominacion": r["denominacion"] or "(sin)", "bruto": round(_f(r["bruto"]), 2),
+         "arancel": round(_f(r["ar"]), 2), "n": r["n"]}
+        for r in _q(f"SELECT denominacion, {bexpr} AS bruto, {aexpr} AS ar, count(*) AS n FROM operaciones "
                     f"WHERE {w_dn} GROUP BY denominacion ORDER BY bruto DESC", p_dn)
     ]
     # por_instrumento (títulos): cruzada por operacion + denominacion, HAVING bruto<>0.
     w_in, p_in = _xf(op=True, denom=True)
     por_instrumento = [
-        {"instrumento": r["instrumento"] or "(sin)", "bruto": round(_f(r["bruto"]), 2), "n": r["n"]}
-        for r in _q(f"SELECT instrumento, {bexpr} AS bruto, count(*) AS n FROM operaciones "
+        {"instrumento": r["instrumento"] or "(sin)", "bruto": round(_f(r["bruto"]), 2),
+         "arancel": round(_f(r["ar"]), 2), "n": r["n"]}
+        for r in _q(f"SELECT instrumento, {bexpr} AS bruto, {aexpr} AS ar, count(*) AS n FROM operaciones "
                     f"WHERE {w_in} GROUP BY instrumento HAVING {bexpr} <> 0 ORDER BY bruto DESC", p_in)
     ]
     total = round(sum(r["bruto"] for r in (por_denominacion if denominacion else por_operacion)), 2)

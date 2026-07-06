@@ -111,6 +111,9 @@ def get_pase_agro() -> dict[str, Any]:
         "last_snapshot_at": last_snap,
         "snapshot_age_s":   round(snap_age) if snap_age is not None else None,
         "bloques":          bloques,
+        # Tasas manuales ON / Pagaré (tab DATOS) — alimentan las columnas
+        # Pagaré / ON del "Pase con Cobertura" (fórmula a definir).
+        "tasas_cobertura":  _cam.get_tasas_cobertura(),
     }
 
 

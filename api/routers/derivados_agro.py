@@ -27,7 +27,9 @@ from api.auth import get_user_email, require_module, require_no_invitado
 from api.services import agro_sql as _agro_sql
 from api.services.camara_cereales import (
     CEREALES,
+    get_tasas_cobertura,
     set_camara_cereal,
+    set_tasas_cobertura,
 )
 from api.services.derivados_agro import (
     COMMODITY_ORDER,
@@ -209,6 +211,46 @@ def patch_camara_cereal(
             cereal=cereal,
             precio_ars=payload.precio_ars,
             precio_usd=payload.precio_usd,
+            email=email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TASAS DE COBERTURA (ON / Pagaré) — inputs manuales globales de la tab DATOS
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/agro/tasas-cobertura")
+def tasas_cobertura(
+    _email: str = Depends(get_user_email),
+):
+    """Tasas manuales ON / Pagaré (globales) que alimentan el Pase con Cobertura."""
+    return get_tasas_cobertura()
+
+
+class TasasCoberturaIn(BaseModel):
+    tasa_on: float | None = Field(
+        default=None, gt=0, description="Tasa ON en %; null = no tocar",
+    )
+    tasa_pagare: float | None = Field(
+        default=None, gt=0, description="Tasa Pagaré en %; null = no tocar",
+    )
+
+
+@router.patch("/agro/tasas-cobertura")
+def patch_tasas_cobertura(
+    payload: TasasCoberturaIn,
+    email: str = Depends(get_user_email),
+    _mod: None = Depends(require_module("agro")),
+    _noguest: None = Depends(require_no_invitado),   # escritura: bloquea invitado www (REGLA #8)
+):
+    """Upsert de las tasas ON / Pagaré (globales)."""
+    try:
+        return set_tasas_cobertura(
+            tasa_on=payload.tasa_on,
+            tasa_pagare=payload.tasa_pagare,
             email=email,
         )
     except ValueError as e:

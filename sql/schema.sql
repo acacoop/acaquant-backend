@@ -818,6 +818,16 @@ CREATE TABLE IF NOT EXISTS mercado.camara_cereales (
     data   jsonb
 );
 
+-- Tasas de cobertura ON / Pagaré → 2 inputs manuales GLOBALES de la tab DATOS
+-- (una sola fila, id='GLOBAL'). Alimentan las columnas Pagaré/ON del "Pase con
+-- Cobertura". Lo escribe api/services/camara_cereales.py::set_tasas_cobertura
+-- (self-create + upsert). data jsonb = {tasa_on, tasa_pagare, updated_by, updated_at}.
+CREATE TABLE IF NOT EXISTS mercado.agro_tasas_cobertura (
+    id         text PRIMARY KEY,        -- siempre 'GLOBAL'
+    data       jsonb,
+    updated_at timestamptz
+);
+
 -- CashFlow.VolumenMercadoAgro → volumen TOTAL del mercado agro por mes/commodity
 -- (carga MANUAL mes a mes). Es el DENOMINADOR del share AGRO (/ops/agro serie_share:
 -- nuestro / mercado). Lo lee api/services/operaciones_sql.py::ops_agro. Grano

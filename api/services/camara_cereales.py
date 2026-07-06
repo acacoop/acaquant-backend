@@ -149,3 +149,84 @@ def _audit_camara_sql(cereal: str, prev: dict, new: dict, email: str, ts: dateti
             conn.commit()
     except Exception:
         pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TASAS DE COBERTURA (ON / Pagaré) — inputs manuales GLOBALES
+# ─────────────────────────────────────────────────────────────────────────────
+# Dos tasas que carga el trader en la tab DATOS. Alimentarán el cálculo de las
+# columnas Pagaré / ON del "Pase con Cobertura" (fórmula a definir con la mesa —
+# por ahora solo se persisten y se muestran). NO son por commodity: una sola fila
+# global (id='GLOBAL'). La tabla se auto-crea para tolerar el drift de schema.
+# Se guarda el número tal cual lo tipea el trader (una TNA en %, ej. 40.5).
+
+_TASAS_TABLE = "mercado.agro_tasas_cobertura"
+_TASAS_KEY = "GLOBAL"
+
+
+def _ensure_tasas_table(cur) -> None:
+    cur.execute(
+        f"CREATE TABLE IF NOT EXISTS {_TASAS_TABLE} ("
+        "id text PRIMARY KEY, data jsonb, updated_at timestamptz)")
+
+
+def get_tasas_cobertura() -> dict[str, Any]:
+    """Tasas manuales ON / Pagaré (global). Campos None si no se cargaron.
+
+    Output: {"tasa_on": float|None, "tasa_pagare": float|None,
+             "updated_by": str|None, "updated_at": str|None}
+    """
+    from psycopg.rows import dict_row
+
+    from core.postgres import get_pool
+    row = None
+    try:
+        with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            _ensure_tasas_table(cur)
+            cur.execute(f"SELECT data FROM {_TASAS_TABLE} WHERE id = %s", (_TASAS_KEY,))
+            row = cur.fetchone()
+            conn.commit()
+    except Exception:
+        row = None
+    d = (row["data"] if row else None) or {}
+    return {
+        "tasa_on":     d.get("tasa_on"),
+        "tasa_pagare": d.get("tasa_pagare"),
+        "updated_by":  d.get("updated_by"),
+        "updated_at":  d.get("updated_at"),
+    }
+
+
+def set_tasas_cobertura(
+    tasa_on: float | None,
+    tasa_pagare: float | None,
+    email: str,
+) -> dict[str, Any]:
+    """Upsert de las tasas ON / Pagaré. None = no tocar esa tasa (update parcial,
+    igual que set_camara_cereal). Devuelve el doc actualizado."""
+    if tasa_on is None and tasa_pagare is None:
+        raise ValueError("debe venir tasa_on o tasa_pagare (o ambas)")
+    if tasa_on is not None and tasa_on <= 0:
+        raise ValueError("tasa_on debe ser > 0")
+    if tasa_pagare is not None and tasa_pagare <= 0:
+        raise ValueError("tasa_pagare debe ser > 0")
+
+    from psycopg.types.json import Jsonb
+
+    from core.postgres import get_pool
+    now = datetime.now(UTC)
+    prev = get_tasas_cobertura()
+    new = {
+        "tasa_on":     float(tasa_on) if tasa_on is not None else prev.get("tasa_on"),
+        "tasa_pagare": float(tasa_pagare) if tasa_pagare is not None else prev.get("tasa_pagare"),
+        "updated_by":  email,
+        "updated_at":  now.isoformat(),
+    }
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        _ensure_tasas_table(cur)
+        cur.execute(
+            f"INSERT INTO {_TASAS_TABLE} (id, data, updated_at) VALUES (%s, %s, %s) "
+            f"ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at",
+            (_TASAS_KEY, Jsonb(new), now))
+        conn.commit()
+    return new

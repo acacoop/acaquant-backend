@@ -31,7 +31,7 @@ from typing import Any
 import pyRofex
 
 from core.postgres import get_pool
-from core.rofex_orders_session import cuenta_default, ensure_session_envio, normalizar_cuenta
+from core.rofex_orders_session import cuenta_default, ensure_session_envio, resolver_cuenta_rofex
 
 logger = logging.getLogger("api.services.ordenes")
 
@@ -206,9 +206,10 @@ def _send_order_impl(
     # pyRofex.send_order tira ApiException("Environment not specify.") si
     # ningún endpoint del API tocó pyRofex antes en este proceso.
     _ensure_session()
-    # ROFEX exige mínimo 3 dígitos ('9' → '009'): el account que manda el front sale de
-    # clientes.cuentas sin ceros a la izquierda → normalizar antes de enviar la orden.
-    acc = normalizar_cuenta(account or cuenta_default())
+    # El account que manda el front es el id_cuenta crudo de clientes.cuentas → lo
+    # traducimos al nº que ROFEX acepta (medido + cacheado; algunas van crudas, otras con
+    # cero a la izquierda, sin regla). Resolver ANTES de enviar la orden.
+    acc = resolver_cuenta_rofex(account or cuenta_default())
 
     request_payload = {
         "ticker": ticker, "side": side, "size": size,
@@ -425,7 +426,7 @@ def list_orders_dia(account: str | None = None, fecha: datetime | None = None) -
     la respuesta del endpoint. Cancelar una external requiere también
     `proprietary` que va en el payload.
     """
-    acc = normalizar_cuenta(account or cuenta_default())
+    acc = resolver_cuenta_rofex(account or cuenta_default())
     if fecha is None:
         fecha = datetime.now(UTC)
     inicio = fecha.replace(hour=0, minute=0, second=0, microsecond=0)

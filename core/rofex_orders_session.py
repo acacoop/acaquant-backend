@@ -70,14 +70,15 @@ def _credenciales() -> tuple[str, str, str, pyRofex.Environment]:
 
 
 def normalizar_cuenta(account: str | None) -> str:
-    """Cuenta ROFEX = MÍNIMO 3 dígitos con ceros a la izquierda ('9' → '009').
+    """Identidad (strip). Se mantiene por compat con los call sites de display/metadata
+    (listado de cuentas, id que el front reenvía).
 
-    ROFEX no vincula la cuenta ni trae saldos si va sin padding. El `id_cuenta` de
-    `clientes.cuentas` quedó guardado sin ceros a la izquierda (las de 1-2 dígitos), así
-    que normalizamos SIEMPRE antes de hablar con el broker. Es un no-op para cuentas de
-    3+ dígitos y para valores no numéricos (no rompe nada existente)."""
-    s = (account or "").strip()
-    return s.zfill(3) if s.isdigit() else s
+    OJO — historia: antes esto padeaba a 3 dígitos ('9' → '009') asumiendo que ROFEX
+    exigía padding. FALSO: se midió contra el broker (scripts/diag_rofex_cuenta) y NO hay
+    regla — algunas cuentas ROFEX las quiere crudas ('15'), otras con cero ('009'), sin
+    patrón. La traducción al número que ROFEX acepta la hace `resolver_cuenta_rofex`
+    (prueba contra el broker + cachea), NO un formateo."""
+    return (account or "").strip()
 
 
 def cuenta_default() -> str:
@@ -89,6 +90,59 @@ def cuenta_default() -> str:
     """
     _, _, account, _ = _credenciales()
     return normalizar_cuenta(account)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Resolución del número de cuenta que ROFEX ACEPTA (medido, no derivado)
+# ─────────────────────────────────────────────────────────────────────────────
+# `clientes.cuentas.id_cuenta` perdió los ceros a la izquierda de forma INCONSISTENTE:
+# la cuenta real de ROFEX de una es '004' y de otra es '6' — no hay regla de formateo
+# que las cubra a las dos (verificado contra el broker). Fuente de verdad = ROFEX: se
+# prueba `get_account_report` con las formas candidatas y se cachea la que responde OK.
+_cuenta_rofex_cache: dict[str, str] = {}
+
+
+def _formas_cuenta(s: str) -> list[str]:
+    """Formas candidatas a probar contra ROFEX, sin repetir: crudo, zfill(3), zfill(4)."""
+    out: list[str] = []
+    for f in (s, s.zfill(3), s.zfill(4)):
+        if f not in out:
+            out.append(f)
+    return out
+
+
+def resolver_cuenta_rofex(account: str | None) -> str:
+    """Devuelve el número de cuenta que ROFEX ACEPTA para `account` (medido, cacheado).
+
+    ROFEX no deriva la cuenta del `id_cuenta` por formato → se prueba
+    `get_account_report` con [crudo, zfill(3), zfill(4)] y se devuelve la primera con
+    status OK + saldos. Solo se cachean los ACIERTOS (un fallo transitorio del broker no
+    queda pegado). Si ninguna forma anda (o el account no es numérico) se devuelve tal
+    cual → falla visible aguas abajo (ej. cuenta '11', que no tiene nº ROFEX válido)."""
+    s = (account or "").strip()
+    if not s or not s.isdigit():
+        return s
+    cached = _cuenta_rofex_cache.get(s)
+    if cached is not None:
+        return cached
+    try:
+        ensure_session_envio()          # sin sesión no se puede resolver
+    except Exception:
+        return s                        # devolvemos crudo; se reintenta en la próxima
+    for f in _formas_cuenta(s):
+        try:
+            resp = pyRofex.get_account_report(account=f)
+        except Exception:
+            continue
+        if (isinstance(resp, dict) and resp.get("status") == "OK"
+                and (resp.get("accountData") or {}).get("detailedAccountReports")):
+            _cuenta_rofex_cache[s] = f
+            if f != s:
+                logger.info("cuenta ROFEX resuelta: id_cuenta %r → %r", s, f)
+            return f
+    logger.warning("cuenta %r no tiene forma ROFEX válida (probé %s) — se manda cruda y "
+                   "va a fallar; revisar el nº real de ese comitente", s, _formas_cuenta(s))
+    return s
 
 
 def _do_initialize() -> tuple[str, pyRofex.Environment]:

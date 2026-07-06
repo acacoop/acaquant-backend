@@ -84,6 +84,43 @@ def _comitentes_where(operador, p: dict, nivel_1=None,
     return " AND ".join(conds)
 
 
+def _madre_activa(operador=None, nivel_1=None, nivel_2=None, nivel_3=None,
+                  nivel_4=None, nivel_5=None, referido=None) -> bool:
+    """True si HAY al menos un filtro madre seleccionado (operador/nivel_1..5/referido).
+    Sirve para que el INFORME solo aplique el scope cuando el usuario filtró — sin
+    filtro, las queries quedan IDÉNTICAS al comportamiento global de siempre."""
+    def _has(v) -> bool:
+        if v is None:
+            return False
+        if isinstance(v, str):
+            return v.strip() not in ("", "__todos__")
+        return any(x and str(x) != "__todos__" for x in v)
+    return any(_has(v) for v in (operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido))
+
+
+def _append_niveles(where: str, p: dict, alias: str, nivel_1=None, nivel_2=None,
+                    nivel_3=None, nivel_4=None, nivel_5=None, referido=None) -> str:
+    """Appendéa conds ` AND <col> = ANY(...)` para los filtros madre nivel_1..5 +
+    referido a un WHERE ya armado (para las queries del INFORME que tienen su propio
+    `operador` drill-down). Usa claves de param mn1..mref para no chocar. `alias` prefija
+    columnas cuando hay JOIN (ej. 'c')."""
+    a = f"{alias}." if alias else ""
+    def _lst(v) -> list[str]:
+        if v is None:
+            return []
+        items = [v] if isinstance(v, str) else list(v)
+        return [str(x) for x in items if x and str(x) != "__todos__"]
+    for col, val, key in (
+        ("nivel_1", nivel_1, "mn1"), ("nivel_2", nivel_2, "mn2"), ("nivel_3", nivel_3, "mn3"),
+        ("nivel_4", nivel_4, "mn4"), ("nivel_5", nivel_5, "mn5"), ("referido", referido, "mref"),
+    ):
+        vals = _lst(val)
+        if vals:
+            p[key] = vals
+            where += f" AND {a}{col} = ANY(%({key})s)"
+    return where
+
+
 def _scope_cuentas(operador, p: dict, nivel_1=None,
                    nivel_3=None, referido=None,
                    nivel_4=None, nivel_5=None, nivel_2=None) -> str:
@@ -395,7 +432,9 @@ def _fin_de_mes(anio: int, mes: int) -> date:
 def informe_cuentas_por_segmento(*, hasta: str | None = None,
                                  operador: str | None = None,
                                  fecha: str | None = None,
-                                 desde: str | None = None) -> dict:
+                                 desde: str | None = None,
+                                 nivel_1=None, nivel_2=None, nivel_3=None,
+                                 nivel_4=None, nivel_5=None, referido=None) -> dict:
     hoy = _hoy_art()
     if fecha:
         # Fecha de corte exacta (unificada con el resto de la vista): cuentas con alta <= fecha.
@@ -409,6 +448,7 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
     if operador:
         where += " AND operador_email = %(op)s"
         p["op"] = operador
+    where = _append_niveles(where, p, "", nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido)
     segmentos = [{"segmento": r["segmento"], "n": r["n"]} for r in _q(
         f"SELECT COALESCE(nivel_1, '(sin segmentar)') AS segmento, count(*) AS n "
         f"FROM comitentes WHERE {where} GROUP BY COALESCE(nivel_1, '(sin segmentar)') "
@@ -424,6 +464,7 @@ def informe_cuentas_por_segmento(*, hasta: str | None = None,
     if operador:
         w_op += " AND c.operador_email = %(op)s"
         p2["op"] = operador
+    w_op = _append_niveles(w_op, p2, "c", nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido)
     ops_map = {r["segmento"]: int(r["n"]) for r in _q(
         f"SELECT COALESCE(c.nivel_1, '(sin segmentar)') AS segmento, "
         f"count(DISTINCT nm.id_cuenta) AS n "
@@ -484,13 +525,22 @@ def _ticket(vol: float, n: int) -> float:
 
 
 def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
-                      desde: str | None = None) -> dict:
+                      desde: str | None = None, operador=None, nivel_1=None,
+                      nivel_2=None, nivel_3=None, nivel_4=None, nivel_5=None,
+                      referido=None) -> dict:
     # `fecha` = corte = HASTA: TOTAL acumula hasta corte. `desde` (si viene) hace que la
     # columna MES (vol_mes/ar_mes) y CTAS OPS sean del período [desde, corte] en vez del mes.
+    # Filtros madre (operador/nivel_1..5/referido): si HAY alguno, se scopea el rollup a
+    # esas cuentas; sin filtro queda global (idéntico a siempre).
     corte = date.fromisoformat(fecha) if fecha else _hoy_art()
     factor = _factor_usd(moneda)
     mes_start = desde if desde else corte.replace(day=1).isoformat()
-    por_cuenta = _rollup_por_cuenta(mes_start, None, {}, corte=fecha)
+    p_scope: dict = {}
+    scope = None
+    if _madre_activa(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido):
+        scope = _scope_cuentas(operador, p_scope, nivel_1, nivel_3, referido,
+                               nivel_4=nivel_4, nivel_5=nivel_5, nivel_2=nivel_2)
+    por_cuenta = _rollup_por_cuenta(mes_start, scope, p_scope, corte=fecha)
 
     detalle = {r["id_cuenta"]: r for r in _q(
         "SELECT c.id_cuenta, c.operador_email, o.nombre AS operador_nombre, c.nivel_1 "
@@ -554,13 +604,17 @@ def informe_comercial(*, moneda: str = "ARS", fecha: str | None = None,
 
 
 def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS",
-                               fecha: str | None = None, desde: str | None = None) -> dict:
+                               fecha: str | None = None, desde: str | None = None,
+                               nivel_1=None, nivel_2=None, nivel_3=None,
+                               nivel_4=None, nivel_5=None, referido=None) -> dict:
     corte = date.fromisoformat(fecha) if fecha else _hoy_art()
     factor = _factor_usd(moneda)
     mes_start = desde if desde else corte.replace(day=1).isoformat()
+    p_c: dict = {"op": operador}
+    w_c = _append_niveles("operador_email = %(op)s AND estado = 'Activa'", p_c, "",
+                          nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido)
     cuentas = {r["id_cuenta"]: (r["nivel_1"] or "(sin segmentar)") for r in _q(
-        "SELECT id_cuenta, nivel_1 FROM comitentes WHERE operador_email = %(op)s "
-        "AND estado = 'Activa'", {"op": operador})}
+        f"SELECT id_cuenta, nivel_1 FROM comitentes WHERE {w_c}", p_c)}
     if not cuentas:
         return {"operador": operador, "aranceles_segmento": []}
     scope = "id_cuenta = ANY(%(ids)s)"
@@ -588,7 +642,8 @@ def informe_aranceles_segmento(*, operador: str, moneda: str = "ARS",
 
 def informe_segmento_detalle(*, segmento: str | None = None, operador: str | None = None,
                              moneda: str = "ARS", fecha: str | None = None,
-                             desde: str | None = None) -> dict:
+                             desde: str | None = None, nivel_1=None, nivel_2=None,
+                             nivel_3=None, nivel_4=None, nivel_5=None, referido=None) -> dict:
     hoy = _hoy_art()
     factor = _factor_usd(moneda)
     corte = date.fromisoformat(fecha) if fecha else hoy
@@ -607,6 +662,9 @@ def informe_segmento_detalle(*, segmento: str | None = None, operador: str | Non
     if operador:
         where += " AND c.operador_email = %(op)s"
         p["op"] = operador
+    # `segmento` ya fija nivel_1 (Q4 es el detalle de UN segmento) → no re-aplico nivel_1
+    # madre acá para no contradecirlo; sí el resto de los niveles + referido.
+    where = _append_niveles(where, p, "c", None, nivel_2, nivel_3, nivel_4, nivel_5, referido)
     detalle = {r["id_cuenta"]: r["denominacion"] for r in _q(
         f"SELECT c.id_cuenta, u.denominacion FROM comitentes c "
         f"LEFT JOIN cuentas u ON u.id_cuenta = c.id_cuenta WHERE {where}", p)}

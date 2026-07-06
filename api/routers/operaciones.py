@@ -532,11 +532,22 @@ def comercial_informe(
     moneda: str = Query("ARS", description="ARS | USD"),
     fecha: str | None = Query(None, description="corte = HASTA (ISO): TOTAL hasta corte. None = hoy"),
     desde: str | None = Query(None, description="inicio del período (ISO). Si viene, MES = [desde, fecha] (vol_mes/ar_mes/ctas_ops)"),
+    operador: list[str] | None = Query(None, description="filtro madre operador (multi)"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Tablas 2 y 3 del Informe: volumen + aranceles por comercial (ranking) y
-    aranceles por segmento. Global (toda la mesa)."""
-    return _com_motor(_engine).informe_comercial(moneda=moneda, fecha=fecha, desde=desde)
+    aranceles por segmento. Global (toda la mesa) salvo que se filtre por los
+    filtros madre (operador/nivel_1..5/referido), que scopean el informe."""
+    return _com_motor(_engine).informe_comercial(
+        moneda=moneda, fecha=fecha, desde=desde, operador=operador,
+        nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
+        nivel_4=nivel_4, nivel_5=nivel_5, referido=referido)
 
 
 @router.get("/comercial/informe-segmento")
@@ -545,12 +556,20 @@ def comercial_informe_segmento(
     operador: str | None = Query(None, description="opcional: solo cuentas de ese comercial"),
     fecha: str | None = Query(None, description="corte = HASTA exacto (ISO) — pisa `hasta`"),
     desde: str | None = Query(None, description="inicio del período (ISO). Si viene, las Operativas se cuentan en [desde, fecha]"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Tabla 1 del Informe: # cuentas por segmento (nivel_1), acumulado a la fecha de
     corte (`fecha` exacta, o fin del mes `hasta`) por fecha de alta. `operador` opcional."""
     return _com_motor(_engine).informe_cuentas_por_segmento(
-        hasta=hasta, operador=operador, fecha=fecha, desde=desde)
+        hasta=hasta, operador=operador, fecha=fecha, desde=desde,
+        nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
+        nivel_4=nivel_4, nivel_5=nivel_5, referido=referido)
 
 
 @router.get("/comercial/informe-aranceles-segmento")
@@ -559,12 +578,20 @@ def comercial_informe_aranceles_segmento(
     moneda: str = Query("ARS", description="ARS | USD"),
     fecha: str | None = Query(None, description="corte = HASTA (ISO). None = hoy"),
     desde: str | None = Query(None, description="inicio del período (ISO). Si viene, ar_mes = [desde, fecha]"),
+    nivel_1: list[str] | None = Query(None, description="filtro madre nivel_1 (multi)"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Q3 re-scopeada a un comercial: aranceles + ticket por segmento, solo de
     sus cuentas."""
     return _com_motor(_engine).informe_aranceles_segmento(
-        operador=operador, moneda=moneda, fecha=fecha, desde=desde)
+        operador=operador, moneda=moneda, fecha=fecha, desde=desde,
+        nivel_1=nivel_1, nivel_2=nivel_2, nivel_3=nivel_3,
+        nivel_4=nivel_4, nivel_5=nivel_5, referido=referido)
 
 
 @router.get("/comercial/informe-segmento-detalle")
@@ -574,13 +601,20 @@ def comercial_informe_segmento_detalle(
     moneda: str = Query("ARS", description="ARS | USD"),
     fecha: str | None = Query(None, description="corte = HASTA (ISO). None = hoy"),
     desde: str | None = Query(None, description="inicio del período (ISO). arancel_mes = [desde, fecha]"),
+    nivel_2: list[str] | None = Query(None, description="filtro madre nivel_2 (multi)"),
+    nivel_3: list[str] | None = Query(None, description="filtro madre nivel_3 (multi)"),
+    nivel_4: list[str] | None = Query(None, description="filtro madre nivel_4 (multi)"),
+    nivel_5: list[str] | None = Query(None, description="filtro madre nivel_5 (multi)"),
+    referido: list[str] | None = Query(None, description="filtro madre referido (multi)"),
     _engine: str | None = Query(None, include_in_schema=False),
 ) -> dict:
     """Detalle de un segmento (Q4 dinámica): clientes con su arancel +
     operaciones (boletos con arancel) que lo generaron. `segmento='todos'` →
-    todos los segmentos (vista por defecto). `operador` opcional."""
+    todos los segmentos (vista por defecto). `operador` opcional. `nivel_1` lo fija
+    `segmento`; el resto de los niveles + referido scopean."""
     return _com_motor(_engine).informe_segmento_detalle(
-        segmento=segmento, operador=operador, moneda=moneda, fecha=fecha, desde=desde)
+        segmento=segmento, operador=operador, moneda=moneda, fecha=fecha, desde=desde,
+        nivel_2=nivel_2, nivel_3=nivel_3, nivel_4=nivel_4, nivel_5=nivel_5, referido=referido)
 
 
 # ── CONTROL COMERCIAL (jefatura) — editor de objetivos (etapa 1) ──────────────

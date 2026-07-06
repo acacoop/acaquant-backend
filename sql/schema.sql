@@ -818,6 +818,19 @@ CREATE TABLE IF NOT EXISTS mercado.camara_cereales (
     data   jsonb
 );
 
+-- Breakevens overrides → curaduría manual de pares Lecap↔CER (Manager). Una fila
+-- por par EXCLUIDO. El reader api/services/mercado_hist_sql.get_breakevens filtra
+-- estos pares (el motor los sigue calculando; se ocultan en la vista). Lo escribe
+-- api/services/breakevens_admin.py (self-create + upsert/delete). PK = (lecap, cer)
+-- en tickers CORTOS (S13N6, TX26).
+CREATE TABLE IF NOT EXISTS mercado.breakevens_overrides (
+    lecap      text NOT NULL,
+    cer        text NOT NULL,
+    updated_by text,
+    updated_at timestamptz,
+    PRIMARY KEY (lecap, cer)
+);
+
 -- Tasas de cobertura ON / Pagaré → 2 inputs manuales GLOBALES de la tab DATOS
 -- (una sola fila, id='GLOBAL'). Alimentan las columnas Pagaré/ON del "Pase con
 -- Cobertura". Lo escribe api/services/camara_cereales.py::set_tasas_cobertura

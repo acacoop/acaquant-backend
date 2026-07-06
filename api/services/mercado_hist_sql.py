@@ -118,15 +118,41 @@ def get_caucion(moneda: str | None = None) -> list:
 
 
 @cached(ttl=30)
-def get_breakevens() -> list:
-    """LIVE breakevens desde SQL = la fila MÁS RECIENTE de BreakevensHistorico
-    (1 doc global). Equivale a Trading.BreakevensLive."""
+def breakevens_docs_raw() -> list:
+    """Doc live de breakevens SIN curar (fila más reciente de BreakevensHistorico).
+    Lo usa la matriz de Manager (necesita ver TODOS los pares, incluidos los
+    excluidos). La vista pública usa `get_breakevens`, que filtra los excluidos."""
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             "SELECT data FROM mercado.mercado_hist WHERE coleccion = 'BreakevensHistorico' "
             "ORDER BY fecha DESC LIMIT 1",
         )
         return [_sin_fecha(r["data"]) for r in cur.fetchall()]
+
+
+def get_breakevens() -> list:
+    """LIVE breakevens desde SQL = la fila MÁS RECIENTE de BreakevensHistorico
+    (1 doc global). Equivale a Trading.BreakevensLive.
+
+    Curaduría (2026-07): filtra los pares (lecap, cer) marcados como EXCLUIDOS en
+    Manager (`mercado.breakevens_overrides`). El motor los sigue calculando; acá se
+    ocultan al instante, sin reiniciar el motor. Fail-open: si el filtro falla, se
+    devuelve todo."""
+    docs = breakevens_docs_raw()
+    try:
+        from api.services.breakevens_admin import get_excluidos
+        excl = get_excluidos()
+        if excl:
+            for d in docs:
+                pares = d.get("pares")
+                if isinstance(pares, list):
+                    d["pares"] = [
+                        p for p in pares
+                        if (p.get("lecap"), p.get("cer")) not in excl
+                    ]
+    except Exception:
+        pass
+    return docs
 
 
 @cached(ttl=300)

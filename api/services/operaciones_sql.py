@@ -163,6 +163,16 @@ def ops_meta(fecha: str) -> dict:
 
 
 # ── serie / resumen / boletos (VOLUMEN, _ops_match) ──────────────────────────
+def _arancel_expr(moneda: str) -> str:
+    """Expr SQL agregada del arancel (ABS). El arancel se guarda SIEMPRE en pesos →
+    en USD/USD_DOL se convierte con el mep de cada boleto (arancel/mep; sin mep → 0).
+    En ARS queda en pesos. Mismo criterio de dolarización que _bruto_expr."""
+    if moneda in (_DOLARIZAR, "USD"):
+        return ("SUM(CASE WHEN COALESCE(mep, 0) > 0 "
+                "THEN ABS(COALESCE(arancel, 0)) / mep ELSE 0 END)")
+    return "SUM(ABS(COALESCE(arancel, 0)))"
+
+
 def _bruto_expr(moneda: str) -> str:
     """Expr SQL agregada del volumen. 'USD_DOL' → suma cada boleto convertido a USD
     con su mep (USD directo; ARS / mep; sin mep → 0, se descarta en silencio). ARS/USD
@@ -217,9 +227,9 @@ def ops_resumen(
 
     # arancel POR FILA: se suma en la MISMA query que el bruto (mismo WHERE: moneda +
     # es_cierre=false + cross-filters) → es el arancel exacto de las operaciones mostradas.
-    # NOTA: el arancel se guarda SIEMPRE en pesos (ABS); el arancel de caución (que vive en
-    # los cierres, es_cierre=true) NO entra acá — ese vive en la tab ARANCELES dedicada.
-    aexpr = "SUM(ABS(COALESCE(arancel, 0)))"
+    # Sigue la MISMA dolarización que el bruto (USD/USD_DOL → /mep). El arancel de caución
+    # (cierres, es_cierre=true) NO entra acá — ese vive en la tab ARANCELES dedicada.
+    aexpr = _arancel_expr(moneda)
 
     # por_operacion: cruzada por denominacion + instrumento, HAVING bruto<>0.
     w_op, p_op = _xf(denom=True, instr=True)

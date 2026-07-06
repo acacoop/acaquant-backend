@@ -27,23 +27,39 @@ def scope_aum(
     operador: str | None = Query(
         None, description="Filtro madre de la vista AUM: scopea TODO a las cuentas de ese operador (email)"
     ),
+    nivel_1: str | None = Query(
+        None, description="Filtro madre de la vista AUM: scopea a las cuentas de ese Nivel 1 (segmento)"
+    ),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
 ) -> tuple[str, ...] | None:
-    """Scope de cuentas de AUM = scope de grupos del usuario ∩ cuentas del operador.
+    """Scope de cuentas de AUM = scope de grupos del usuario ∩ cuentas del operador ∩ nivel_1.
 
-    Sin `operador` → el scope de grupos tal cual (comportamiento actual). Con
-    `operador`: si el user no está scopeado (admin, scope None) → las cuentas
-    del operador; si está scopeado por grupo → la intersección. Reusa el mismo
-    riel `scope` que ya aplican los services, así el filtro es "madre" sin tocar
-    la lógica: estrechar el scope recalcula todas las tabs solas.
+    Sin `operador` ni `nivel_1` → el scope de grupos tal cual (comportamiento actual).
+    Con alguno: si el user no está scopeado (admin, scope None) → las cuentas del
+    filtro; si está scopeado por grupo → la intersección. Reusa el mismo riel `scope`
+    que ya aplican los services, así el filtro es "madre" sin tocar la lógica:
+    estrechar el scope recalcula todas las tabs solas.
     """
-    if not operador:
+    if not operador and not nivel_1:
         return scope
-    from api.services.comercial import _cuentas_de_operador
-    op = _cuentas_de_operador(operador)
+    from api.services.comercial import TODOS, _cuentas_de_operador
+    # `_cuentas_de_operador` ya combina operador + nivel_1 (AND) en una sola query.
+    sel = _cuentas_de_operador(operador or TODOS, nivel_1=nivel_1)
     if scope is None:
-        return op
-    return tuple(sorted(set(scope) & set(op)))
+        return sel
+    return tuple(sorted(set(scope) & set(sel)))
+
+
+@router.get("/niveles-1")
+def niveles_1() -> dict:
+    """Valores distintos de nivel_1 (segmento) de comitentes activas, para el filtro
+    madre de la vista AUM."""
+    from core.postgres import get_pool
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT nivel_1 FROM clientes.comitentes "
+                    "WHERE nivel_1 IS NOT NULL AND nivel_1 <> '' AND estado = 'Activa' "
+                    "ORDER BY nivel_1")
+        return {"niveles_1": [r[0] for r in cur.fetchall()]}
 
 
 @router.get("/operadores")

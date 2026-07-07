@@ -67,7 +67,7 @@ def _ops_where(
     moneda: str | None = None, mercado: str | None = None, operacion: str | None = None,
     denominacion: str | None = None, cuenta: str | None = None, segmento: str | None = None,
     scope: tuple[str, ...] | None = None, *, arancel: bool = False, operador: str | None = None,
-    excluir: tuple[str, ...] | None = None,
+    excluir: tuple[str, ...] | None = None, nivel_3: str | None = None,
 ) -> tuple[str, dict]:
     """Devuelve (where_sql, params). `arancel=True` → sin filtro de moneda, incluye los
     cierres con arancel (caución), igual que _arancel_match."""
@@ -104,6 +104,11 @@ def _ops_where(
     if segmento and segmento.lower() != "todos":
         conds.append("segmento = %(segmento)s")
         p["segmento"] = segmento
+    if nivel_3 and nivel_3.lower() != "todos":
+        # nivel_3 congelado en el boleto (columna propia de operaciones.operaciones),
+        # NO el vigente del comitente — es el segmento al momento de la operación.
+        conds.append("nivel_3 = %(nivel_3)s")
+        p["nivel_3"] = nivel_3
     if operador:
         conds.append("id_cuenta IN (SELECT id_cuenta FROM comitentes WHERE operador_email = %(operador)s)")
         p["operador"] = operador
@@ -129,6 +134,14 @@ def ops_segmentos() -> dict:
     rows = _q("SELECT DISTINCT segmento FROM operaciones "
               "WHERE segmento IS NOT NULL AND segmento <> '' ORDER BY segmento")
     return {"segmentos": [r["segmento"] for r in rows]}
+
+
+def ops_niveles3() -> dict:
+    """Valores distintos de nivel_3 (segmento congelado en el boleto) presentes en
+    operaciones.operaciones — catálogo para el filtro nivel_3 de la vista OPERACIONES."""
+    rows = _q("SELECT DISTINCT nivel_3 FROM operaciones "
+              "WHERE nivel_3 IS NOT NULL AND nivel_3 <> '' ORDER BY nivel_3")
+    return {"niveles3": [r["nivel_3"] for r in rows]}
 
 
 def ops_fechas() -> dict:
@@ -188,10 +201,10 @@ def ops_serie(
     moneda: str = "ARS", mercado: str | None = None, operacion: str | None = None,
     denominacion: str | None = None, cuenta: str | None = None, segmento: str | None = None,
     scope: tuple[str, ...] | None = None, operador: str | None = None,
-    excluir: tuple[str, ...] | None = None,
+    excluir: tuple[str, ...] | None = None, nivel_3: str | None = None,
 ) -> dict:
     where, p = _ops_where(moneda, mercado, operacion, denominacion, cuenta, segmento, scope,
-                          operador=operador, excluir=excluir)
+                          operador=operador, excluir=excluir, nivel_3=nivel_3)
     rows = _q(
         f"SELECT concertacion AS fecha, {_bruto_expr(moneda)} AS bruto "
         f"FROM operaciones WHERE {where} GROUP BY concertacion ORDER BY concertacion",
@@ -206,10 +219,10 @@ def ops_resumen(
     operacion: str | None = None, denominacion: str | None = None, cuenta: str | None = None,
     segmento: str | None = None, scope: tuple[str, ...] | None = None,
     instrumento: str | None = None, operador: str | None = None,
-    excluir: tuple[str, ...] | None = None,
+    excluir: tuple[str, ...] | None = None, nivel_3: str | None = None,
 ) -> dict:
     base, p = _ops_where(moneda, mercado, cuenta=cuenta, segmento=segmento, scope=scope,
-                         operador=operador, excluir=excluir)
+                         operador=operador, excluir=excluir, nivel_3=nivel_3)
     p.update({"desde": desde, "hasta": hasta})
     base = f"{base} AND concertacion >= %(desde)s AND concertacion <= %(hasta)s"
     bexpr = _bruto_expr(moneda)

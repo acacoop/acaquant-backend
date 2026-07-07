@@ -227,6 +227,7 @@ def ops_serie(
     denominacion: str | None = Query(None, description="Filtra el gráfico a una denominacion"),
     cuenta: str | None = Query(None, description="Filtra a una cuenta (búsqueda)"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
+    nivel_3: str | None = Query(None, description="Filtra por nivel_3 (segmento del boleto)"),
     operador: str | None = Query(None, description="Filtra por operador (operador_email)"),
     excluir: str | None = Query(None, description="Cuentas a ocultar (denominaciones separadas por \\n)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
@@ -240,7 +241,8 @@ def ops_serie(
         raise HTTPException(status_code=400, detail=f"moneda inválida: {moneda!r}")
     return _ops_sql.ops_serie(moneda=moneda, mercado=mercado, operacion=operacion,
                               denominacion=denominacion, cuenta=cuenta, segmento=segmento,
-                              scope=scope, operador=operador, excluir=_split_excluir(excluir))
+                              scope=scope, operador=operador, excluir=_split_excluir(excluir),
+                              nivel_3=nivel_3)
 
 
 @router.get("/ops/resumen")
@@ -255,6 +257,7 @@ def ops_resumen(
     instrumento: str | None = Query(None, description="Selección de instrumento/título (cross-filter)"),
     cuenta: str | None = Query(None, description="Filtra a una cuenta (búsqueda)"),
     segmento: str | None = Query(None, description="Filtra por segmento (nivel_1)"),
+    nivel_3: str | None = Query(None, description="Filtra por nivel_3 (segmento del boleto)"),
     operador: str | None = Query(None, description="Filtra por operador (operador_email)"),
     excluir: str | None = Query(None, description="Cuentas a ocultar (denominaciones separadas por \\n)"),
     scope: tuple[str, ...] | None = Depends(scope_cuentas),
@@ -270,7 +273,8 @@ def ops_resumen(
     return _ops_sql.ops_resumen(moneda=moneda, mercado=mercado, desde=desde, hasta=hasta,
                                 operacion=operacion, denominacion=denominacion, cuenta=cuenta,
                                 segmento=segmento, scope=scope, instrumento=instrumento,
-                                operador=operador, excluir=_split_excluir(excluir))
+                                operador=operador, excluir=_split_excluir(excluir),
+                                nivel_3=nivel_3)
 
 
 @router.get("/ops/agro")
@@ -338,6 +342,13 @@ def ops_cuentas_list(scope: tuple[str, ...] | None = Depends(scope_cuentas)):
 def ops_segmentos():
     """Segmentos (nivel_1) distintos, para el filtro."""
     return _ops_sql.ops_segmentos()
+
+
+@router.get("/ops/niveles3")
+@cached(ttl=600)
+def ops_niveles3():
+    """Valores distintos de nivel_3 (segmento del boleto), para el filtro OPERACIONES."""
+    return _ops_sql.ops_niveles3()
 
 
 @router.get("/ops/niveles5")

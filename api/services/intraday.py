@@ -28,7 +28,7 @@ from collections import deque
 
 logger = logging.getLogger("api.intraday")
 
-__all__ = ["IntradayError", "analizar", "fifo_detallado", "fifo_pnl", "recalcular"]
+__all__ = ["IntradayError", "analizar", "fifo_detallado", "fifo_pnl", "marks", "recalcular"]
 
 INTERES_RATE = 0.0007   # arancel por trade sobre el monto bruto
 IVA_RATE = 0.21         # IVA sobre el arancel
@@ -233,6 +233,13 @@ def _marks_live(tickers_corto: set[str]) -> dict[str, dict]:
     except Exception as e:  # feed opcional, nunca debe romper el cálculo
         logger.warning("intraday: mark live no disponible (%s) — uso precio CSV", e)
         return {}
+
+
+def marks(especies: list[str]) -> dict:
+    """Marks live frescos por especie (para el botón "Actualizar cotizaciones"
+    del monitor intradía, sin re-subir el CSV). Devuelve
+    {especie_upper: {last, updated_at}} sólo para las que el feed tiene precio."""
+    return _marks_live({str(e).upper() for e in especies if e})
 
 
 # ── armado de posición (compartido por analizar y recalcular) ────────────────

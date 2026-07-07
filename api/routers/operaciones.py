@@ -218,6 +218,20 @@ def intraday_recalcular(payload: _IntradayRecalc):
     return _intra.recalcular(items=items)
 
 
+class _IntradayMarks(BaseModel):
+    especies: list[str] = []
+
+
+@router.post("/intraday/marks")
+def intraday_marks(payload: _IntradayMarks):
+    """Marks live frescos por especie, para el botón "Actualizar cotizaciones"
+    del monitor intradía (refresca precios sin re-subir el CSV).
+    Devuelve {marks: {especie: {last, updated_at}}} (sólo las que tienen feed)."""
+    from api.services import intraday as _intra
+
+    return {"marks": _intra.marks(especies=payload.especies)}
+
+
 @router.get("/ops/serie")
 @cached(ttl=300)
 def ops_serie(

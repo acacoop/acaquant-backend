@@ -208,6 +208,15 @@ CREATE TABLE IF NOT EXISTS clientes.accionistas (
     cuenta text PRIMARY KEY
 );
 
+-- ACA VALORES — set de cuentas editable desde el Manager (Manager → CLIENTES → ACA VALORES).
+-- Filtro por id_cuenta en la vista OPERACIONES: ver Todas / Solo ACA VALORES / Sin ACA VALORES.
+CREATE TABLE IF NOT EXISTS clientes.aca_valores (
+    id_cuenta       text PRIMARY KEY,
+    denominacion    text,
+    actualizado_por text,
+    actualizado_at  timestamptz
+);
+
 -- Objetivos comerciales (CONTROL COMERCIAL) — los carga la jefatura in-view. Granularidad
 -- mensual por comercial; la vista los agrega por el período elegido. Self-create también en
 -- api/services/control_comercial_sql.py.

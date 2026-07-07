@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends
 from api.auth import require_any_module, require_module
 from api.deps import verify_api_key
 from api.routers.manager import (
+    aca_valores,
     assets,
     aunesa,
     bonos,
@@ -80,6 +81,7 @@ router.include_router(import_tenencia.router, dependencies=_AUNESA)
 
 # Tabs accesibles a `asistente_comercial`:
 router.include_router(clientes.router,            dependencies=_CLIENTES)
+router.include_router(aca_valores.router,         dependencies=_CLIENTES)
 router.include_router(control_automatico.router,  dependencies=_CLIENTES)
 router.include_router(clientes.bulk_router,       dependencies=_CLIENTES_BULK)
 router.include_router(compliance.router,      dependencies=_COMPLIANCE)

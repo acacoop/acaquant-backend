@@ -36,6 +36,7 @@ _CMDS: dict[str, list[str]] = {
     "bcra":            ["jobs.bcra", "--today"],
     "crear_indices":   ["scripts.crear_indices"],
     "cleanup_curvas":  ["jobs.cleanup_curvas", "--dry"],
+    "backfill_tasas":  ["jobs.backfill_tasas"],
 }
 
 

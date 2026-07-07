@@ -327,10 +327,14 @@ def debug_calculo_tea(ticker_corto: str) -> dict[str, Any]:
             precio_usd = precio / tc_a3500
             tc_info["precio_usd"] = round(precio_usd, 6)
 
+            # Igual que el motor (engines.curvas rama dolar_linked): flujos en shape
+            # porcentual sobre VN → monto_flujo_soberano, NO monto_flujo (que busca
+            # amortizacion/interes absolutos y devuelve 0 para estos → falso "sin flujos").
             futuros = [
-                (fecha_flujo(f), monto_flujo(f), f)
+                (fecha_flujo(f), monto_flujo_soberano(f, valor_nominal), f)
                 for f in flujos_raw
-                if fecha_flujo(f) and fecha_flujo(f) > fecha_settlement and monto_flujo(f) > 0
+                if fecha_flujo(f) and fecha_flujo(f) > fecha_settlement
+                and monto_flujo_soberano(f, valor_nominal) > 0
             ]
             flujos_futuros = [
                 {"fecha": fd.isoformat(), "monto": round(m, 4), "raw": f}

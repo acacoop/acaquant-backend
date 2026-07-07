@@ -198,39 +198,26 @@ def _seccion_novedades() -> dict:
     """
     out: dict = {"comitentes": None, "operaciones": None, "rf_sin_tea": None}
 
-    # 1) Comitentes nuevos hoy (cuentas que aparecieron en el sync de hoy).
+    # 1) Comitentes nuevos hoy — SOLO conteo (sin nombres: regla del canal Telegram,
+    #    core/notify.py → nunca datos de clientes; el detalle se ve en la web).
     try:
         rows = _jobruns_sql(
-            "SELECT co.id_cuenta, cu.denominacion, op.nombre AS operador "
-            "FROM clientes.comitentes co "
-            "LEFT JOIN clientes.cuentas cu ON cu.id_cuenta = co.id_cuenta "
-            "LEFT JOIN clientes.operadores op ON op.email = co.operador_email "
-            "WHERE co.created_at >= date_trunc('day', now()) "
-            "ORDER BY cu.denominacion")
-        out["comitentes"] = {
-            "n": len(rows),
-            "items": [{"id_cuenta": r["id_cuenta"], "denominacion": r.get("denominacion"),
-                       "operador": r.get("operador")} for r in rows[:8]],
-        }
+            "SELECT count(*) AS n FROM clientes.comitentes "
+            "WHERE created_at >= date_trunc('day', now())")
+        out["comitentes"] = {"n": (rows[0].get("n") if rows else 0) or 0}
     except Exception as e:
         out["comitentes"] = {"error": type(e).__name__}
 
-    # 2) Operaciones del día: boletos operados (sin cierres ni solicitudes) + Σ bruto.
+    # 2) Operaciones del día — SOLO conteo (sin montos: regla del canal Telegram).
+    #    Boletos operados = sin cierres de caución ni solicitudes.
     try:
         rows = _jobruns_sql(
-            "SELECT count(*) AS n, count(DISTINCT id_cuenta) AS n_cuentas, "
-            "SUM(bruto) FILTER (WHERE moneda='ARS') AS bruto_ars, "
-            "SUM(bruto) FILTER (WHERE moneda='USD') AS bruto_usd "
+            "SELECT count(*) AS n, count(DISTINCT id_cuenta) AS n_cuentas "
             "FROM operaciones.operaciones "
             "WHERE concertacion = current_date "
             "AND etapa <> 'solicitud' AND COALESCE(es_cierre, false) = false")
         r = rows[0] if rows else {}
-        out["operaciones"] = {
-            "n": r.get("n") or 0,
-            "n_cuentas": r.get("n_cuentas") or 0,
-            "bruto_ars": float(r["bruto_ars"]) if r.get("bruto_ars") is not None else 0.0,
-            "bruto_usd": float(r["bruto_usd"]) if r.get("bruto_usd") is not None else 0.0,
-        }
+        out["operaciones"] = {"n": r.get("n") or 0, "n_cuentas": r.get("n_cuentas") or 0}
     except Exception as e:
         out["operaciones"] = {"error": type(e).__name__}
 
@@ -370,15 +357,10 @@ def render_telegram(rep: dict) -> str:
     return "\n".join(lines)
 
 
-def _fmt_ars(n: float) -> str:
-    """ARS sin decimales, formato AR ($1.234.567) — número completo, sin abreviar."""
-    return "$" + f"{round(n):,}".replace(",", ".")
-
-
 def _render_novedades(nov: dict) -> list[str]:
     """Bloque '📊 NOVEDADES DEL DÍA': comitentes nuevos, operaciones del día y
-    renta fija sin TEA. Cada línea sale solo si el bloque no falló. Los ítems con
-    detalle se listan solo si hay algo (si no, el número basta)."""
+    renta fija sin TEA. SOLO conteos — sin nombres de clientes ni montos (regla
+    del canal Telegram, core/notify.py). Cada línea sale solo si el bloque no falló."""
     if not nov:
         return []
     lines = ["", "*📊 Novedades del día:*"]
@@ -387,27 +369,13 @@ def _render_novedades(nov: dict) -> list[str]:
     if "error" in com:
         lines.append("  ⚪ Comitentes nuevos: sin datos")
     else:
-        n = com.get("n", 0)
-        lines.append(f"  🆕 Comitentes nuevos hoy: {n}")
-        for it in com.get("items", []):
-            den = _md(it.get("denominacion") or it.get("id_cuenta"))
-            op = f" · {_md(it['operador'])}" if it.get("operador") else ""
-            lines.append(f"     · {den}{op}")
+        lines.append(f"  🆕 Comitentes nuevos hoy: {com.get('n', 0)}")
 
     ops = nov.get("operaciones") or {}
     if "error" in ops:
         lines.append("  ⚪ Operaciones del día: sin datos")
     else:
-        n = ops.get("n", 0)
-        nc = ops.get("n_cuentas", 0)
-        lines.append(f"  📈 Boletos operados hoy: {n} ({nc} cuentas)")
-        montos = []
-        if ops.get("bruto_ars"):
-            montos.append(f"ARS {_fmt_ars(ops['bruto_ars'])}")
-        if ops.get("bruto_usd"):
-            montos.append(f"USD {_fmt_ars(ops['bruto_usd'])}")
-        if montos:
-            lines.append("     Σ bruto: " + " · ".join(montos))
+        lines.append(f"  📈 Boletos operados hoy: {ops.get('n', 0)} ({ops.get('n_cuentas', 0)} cuentas)")
 
     rf = nov.get("rf_sin_tea") or {}
     if "error" in rf:

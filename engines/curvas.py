@@ -682,6 +682,27 @@ def calcular_campos(
 _CAMPOS_ANALITICOS = ("TEA", "TEM", "duration", "mod_duration", "convexity", "paridad")
 
 
+def dep_tasa_disponible(curva: str | None, mep: float | None, a3500: float | None) -> bool:
+    """¿Está disponible la dependencia externa que necesita ESTE tipo de curva para
+    calcular la tasa? Se usa para decidir si un "no pude calcular TEA" es genuino
+    (dato roto → hay que LIMPIAR la TEA vieja) o transitorio (feed caído → NO tocar,
+    para no borrar una tasa buena).
+
+      - tasa_fija    → sin dependencia externa (siempre computable si hay flujos).
+      - soberanos    → precisa MEP.
+      - dolar_linked → precisa A3500 (feed MAE mayorista).
+      - cer / on / tamar / etc → dep por-fecha más frágil: conservador, NO forzamos
+        limpieza (devolvemos False) para no arriesgar borrar tasas válidas.
+    """
+    if curva == "tasa_fija":
+        return True
+    if curva == "soberanos":
+        return bool(mep)
+    if curva == "dolar_linked":
+        return bool(a3500)
+    return False
+
+
 def run():
     logger.info("Motor Curvas iniciando...")
 
@@ -782,6 +803,13 @@ def run():
                 row = {"ticker": ticker}
                 row.update({f.lower(): campos[f]
                             for f in _CAMPOS_ANALITICOS if f in campos})
+                # Anti-TEA-fantasma: si NO se calculó TEA pero la dependencia del tipo
+                # de curva está disponible (no es feed caído), la tasa que quedó pegada
+                # en el snapshot es basura → escribir NULL para no mostrar un valor viejo.
+                if "TEA" not in campos and dep_tasa_disponible(
+                        instrumento.get("curva"), mep_actual, tc_a3500_actual):
+                    row["tea"] = None
+                    row["tem"] = None
                 if len(row) > 1:
                     pg_rows.append(row)
 

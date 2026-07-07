@@ -145,7 +145,6 @@ def pnl_por_cuenta_sql(id_cuenta: str) -> dict:
     deps = _deps_sql(only_cuenta=str(id_cuenta))
     return _pnl_por_cuenta_core(
         id_cuenta=str(id_cuenta),
-        db_cf=None, db_v=None, db_t=None,   # vestigial — deps cubre todo (SQL-only)
         mep_hoy=get_mep_for_date(date.today().isoformat()),
         mep_cache={},
         **deps,
@@ -297,6 +296,8 @@ def pnl_todas_cuentas_compute_sql() -> list[dict]:
     mep_cache: dict[str, float | None] = {}
 
     out: list[dict] = []
+    fallos = 0
+    primer_error: str | None = None
     for c in cuentas:
         id_cta = c.get("id_cuenta")
         if not id_cta:
@@ -304,10 +305,15 @@ def pnl_todas_cuentas_compute_sql() -> list[dict]:
         try:
             r = _pnl_por_cuenta_core(
                 id_cuenta=str(id_cta),
-                db_cf=None, db_v=None, db_t=None,   # vestigial — deps cubre todo (SQL-only)
                 mep_hoy=mep_hoy, mep_cache=mep_cache, **deps,
             )
-        except Exception:
+        except Exception as e:
+            # Antes se tragaba en silencio → un TypeError de firma quedaba oculto y
+            # el job daba "0 cuentas / PARTIAL" sin decir por qué. Ahora lo logueamos
+            # y, si NINGUNA cuenta salió, propagamos para que el run figure como error real.
+            fallos += 1
+            if primer_error is None:
+                primer_error = f"{type(e).__name__}: {e}"
             continue
         out.append({
             "id_cuenta": id_cta,
@@ -315,4 +321,12 @@ def pnl_todas_cuentas_compute_sql() -> list[dict]:
             "rows":      r.get("rows", []),
             "totales":   r.get("totales", {}) or {},
         })
+
+    # Si TODAS fallaron, es un bug (firma incompatible, deps mal armadas, etc.), no
+    # "no hay cuentas": propagamos para que el cron lo marque como ERROR con causa,
+    # en vez de un PARTIAL "0 cuentas" que no dice nada y no toca el cache.
+    if not out and fallos:
+        raise RuntimeError(
+            f"pnl_todas_cuentas_compute_sql: las {fallos} cuentas fallaron. "
+            f"Primer error: {primer_error}")
     return out

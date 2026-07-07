@@ -33,6 +33,7 @@ def _recalcular() -> dict:
         cargar_dias_habiles,
         cargar_indexado_por_ticker,
         cargar_mep_actual,
+        dep_tasa_disponible,
     )
 
     curvas = cargar_indexado_por_ticker()
@@ -48,6 +49,7 @@ def _recalcular() -> dict:
     rows: list[dict] = []
     rellenados: list[str] = []   # no tenían TEA y ahora sí
     refrescados = 0              # ya tenían TEA, se recalculó
+    limpiados: list[str] = []    # tenían TEA fantasma y se limpió (dep disponible)
     sin_precio = 0
     sin_tea = 0                  # con precio pero el motor no da TEA (queda como estaba)
 
@@ -64,16 +66,25 @@ def _recalcular() -> dict:
         # Solo columnas presentes (paridad con el motor: no pisa con NULL lo que no calcula).
         row = {"ticker": ticker}
         row.update({f.lower(): campos[f] for f in _CAMPOS_ANALITICOS if f in campos})
-        if len(row) > 1:
-            rows.append(row)
 
         tenia = ticker in tea_antes
         tiene = campos.get("TEA") is not None
+        limpiar = (not tiene and tenia
+                   and dep_tasa_disponible(instrumento.get("curva"), mep, a3500))
+        if limpiar:
+            row["tea"] = None
+            row["tem"] = None
+
+        if len(row) > 1:
+            rows.append(row)
+
         if tiene and not tenia:
             rellenados.append(instrumento.get("ticker_corto") or ticker)
         elif tiene and tenia:
             refrescados += 1
-        elif not tiene:
+        elif limpiar:
+            limpiados.append(instrumento.get("ticker_corto") or ticker)
+        else:
             sin_tea += 1
 
     escritos = write_snapshot("market_snapshot", ["ticker"], rows) if rows else 0
@@ -82,6 +93,7 @@ def _recalcular() -> dict:
         "instrumentos": len(curvas),
         "escritos": escritos,
         "rellenados": sorted(rellenados),
+        "limpiados": sorted(limpiados),
         "refrescados": refrescados,
         "sin_precio": sin_precio,
         "sin_tea": sin_tea,
@@ -102,13 +114,16 @@ def main() -> None:
         jr.set_stat("instrumentos", r["instrumentos"])
         jr.set_stat("escritos", r["escritos"])
         jr.set_stat("rellenados", len(r["rellenados"]))
+        jr.set_stat("limpiados", len(r["limpiados"]))
         jr.set_stat("refrescados", r["refrescados"])
         jr.set_stat("sin_tea", r["sin_tea"])
         jr.set_stat("sin_precio", r["sin_precio"])
 
         det = f"({', '.join(r['rellenados'])})" if r["rellenados"] else ""
+        limp = f" · {len(r['limpiados'])} TEA fantasma limpiadas ({', '.join(r['limpiados'])})" \
+            if r["limpiados"] else ""
         jr.log(f"✅ {r['escritos']} filas escritas · {len(r['rellenados'])} bonos NUEVOS con TEA "
-               f"{det} · {r['refrescados']} refrescados · {r['sin_tea']} sin TEA · "
+               f"{det}{limp} · {r['refrescados']} refrescados · {r['sin_tea']} sin TEA · "
                f"{r['sin_precio']} sin precio. MEP={r['mep']} A3500={r['a3500']}")
 
 

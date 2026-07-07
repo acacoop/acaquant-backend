@@ -174,6 +174,74 @@ def _seccion_jobs() -> dict:
     return {"ok": ok, "partial": partial, "error": error, "fallas": fallas, "vencidos": vencidos}
 
 
+# ── Novedades del día (negocio / data-quality) ───────────────────────────────
+
+def _seccion_novedades() -> dict:
+    """Métricas de negocio/datos del día para el informe de rueda. Cada bloque
+    en try/except (best-effort): si una query falla, ese bloque queda en None y
+    el resto igual sale. Todas son agregados de una fila / listas cortas → baratas
+    (no escanean prod a ciegas, REGLA #4).
+
+      - comitentes nuevos hoy   (clientes.comitentes.created_at >= hoy)
+      - operaciones del día      (operaciones.operaciones, concertacion = hoy)
+      - renta fija sin TEA/TNA   (mercado.curvas ⋈ market_snapshot: cotiza y tea=0)
+    """
+    out: dict = {"comitentes": None, "operaciones": None, "rf_sin_tea": None}
+
+    # 1) Comitentes nuevos hoy (cuentas que aparecieron en el sync de hoy).
+    try:
+        rows = _jobruns_sql(
+            "SELECT co.id_cuenta, cu.denominacion, op.nombre AS operador "
+            "FROM clientes.comitentes co "
+            "LEFT JOIN clientes.cuentas cu ON cu.id_cuenta = co.id_cuenta "
+            "LEFT JOIN clientes.operadores op ON op.email = co.operador_email "
+            "WHERE co.created_at >= date_trunc('day', now()) "
+            "ORDER BY cu.denominacion")
+        out["comitentes"] = {
+            "n": len(rows),
+            "items": [{"id_cuenta": r["id_cuenta"], "denominacion": r.get("denominacion"),
+                       "operador": r.get("operador")} for r in rows[:8]],
+        }
+    except Exception as e:
+        out["comitentes"] = {"error": type(e).__name__}
+
+    # 2) Operaciones del día: boletos operados (sin cierres ni solicitudes) + Σ bruto.
+    try:
+        rows = _jobruns_sql(
+            "SELECT count(*) AS n, count(DISTINCT id_cuenta) AS n_cuentas, "
+            "SUM(bruto) FILTER (WHERE moneda='ARS') AS bruto_ars, "
+            "SUM(bruto) FILTER (WHERE moneda='USD') AS bruto_usd "
+            "FROM operaciones.operaciones "
+            "WHERE concertacion = current_date "
+            "AND etapa <> 'solicitud' AND COALESCE(es_cierre, false) = false")
+        r = rows[0] if rows else {}
+        out["operaciones"] = {
+            "n": r.get("n") or 0,
+            "n_cuentas": r.get("n_cuentas") or 0,
+            "bruto_ars": float(r["bruto_ars"]) if r.get("bruto_ars") is not None else 0.0,
+            "bruto_usd": float(r["bruto_usd"]) if r.get("bruto_usd") is not None else 0.0,
+        }
+    except Exception as e:
+        out["operaciones"] = {"error": type(e).__name__}
+
+    # 3) Renta fija cotizando sin TEA/TNA (bono con precio vivo pero tasa nula).
+    try:
+        rows = _jobruns_sql(
+            "SELECT c.ticker_corto "
+            "FROM mercado.curvas c "
+            "JOIN mercado.market_snapshot ms ON ms.ticker = c.ticker "
+            "WHERE COALESCE(ms.last_price, 0) > 0 AND COALESCE(ms.tea, 0) = 0 "
+            "ORDER BY c.ticker_corto")
+        out["rf_sin_tea"] = {
+            "n": len(rows),
+            "tickers": [r["ticker_corto"] for r in rows[:12] if r.get("ticker_corto")],
+        }
+    except Exception as e:
+        out["rf_sin_tea"] = {"error": type(e).__name__}
+
+    return out
+
+
 # ── Veredicto + problemas ────────────────────────────────────────────────────
 
 def _consolidar(rep: dict) -> tuple[str, list[str]]:
@@ -207,6 +275,7 @@ def construir_informe() -> dict:
         "en_rueda": en_rueda,
         "motores": _seccion_motores(en_rueda),
         "jobs": _seccion_jobs(),
+        "novedades": _seccion_novedades(),
     }
     veredicto, problemas = _consolidar(rep)
     rep["veredicto"] = veredicto
@@ -282,7 +351,66 @@ def render_telegram(rep: dict) -> str:
     if jb.get("vencidos"):
         lines.append("  ⏰ vencidos: " + ", ".join(f"{v['tipo']}({v['horas']}h)" for v in jb["vencidos"]))
 
+    # Novedades del día (negocio / data-quality)
+    lines.extend(_render_novedades(rep.get("novedades") or {}))
+
     return "\n".join(lines)
+
+
+def _fmt_ars(n: float) -> str:
+    """ARS sin decimales, formato AR ($1.234.567) — número completo, sin abreviar."""
+    return "$" + f"{round(n):,}".replace(",", ".")
+
+
+def _render_novedades(nov: dict) -> list[str]:
+    """Bloque '📊 NOVEDADES DEL DÍA': comitentes nuevos, operaciones del día y
+    renta fija sin TEA. Cada línea sale solo si el bloque no falló. Los ítems con
+    detalle se listan solo si hay algo (si no, el número basta)."""
+    if not nov:
+        return []
+    lines = ["", "*📊 Novedades del día:*"]
+
+    com = nov.get("comitentes") or {}
+    if "error" in com:
+        lines.append("  ⚪ Comitentes nuevos: sin datos")
+    else:
+        n = com.get("n", 0)
+        lines.append(f"  🆕 Comitentes nuevos hoy: {n}")
+        for it in com.get("items", []):
+            den = it.get("denominacion") or it.get("id_cuenta")
+            op = f" · {it['operador']}" if it.get("operador") else ""
+            lines.append(f"     · {den}{op}")
+
+    ops = nov.get("operaciones") or {}
+    if "error" in ops:
+        lines.append("  ⚪ Operaciones del día: sin datos")
+    else:
+        n = ops.get("n", 0)
+        nc = ops.get("n_cuentas", 0)
+        lines.append(f"  📈 Boletos operados hoy: {n} ({nc} cuentas)")
+        montos = []
+        if ops.get("bruto_ars"):
+            montos.append(f"ARS {_fmt_ars(ops['bruto_ars'])}")
+        if ops.get("bruto_usd"):
+            montos.append(f"USD {_fmt_ars(ops['bruto_usd'])}")
+        if montos:
+            lines.append("     Σ bruto: " + " · ".join(montos))
+
+    rf = nov.get("rf_sin_tea") or {}
+    if "error" in rf:
+        lines.append("  ⚪ RF sin TEA: sin datos")
+    else:
+        n = rf.get("n", 0)
+        if n == 0:
+            lines.append("  ✅ Renta fija sin TEA/TNA: 0")
+        else:
+            tickers = ", ".join(rf.get("tickers", []))
+            mas = f" (+{n - len(rf.get('tickers', []))} más)" if n > len(rf.get("tickers", [])) else ""
+            lines.append(f"  ⚠️ Renta fija cotizando sin TEA/TNA: {n}")
+            if tickers:
+                lines.append(f"     {tickers}{mas}")
+
+    return lines
 
 
 def main() -> int:
@@ -311,7 +439,7 @@ def main() -> int:
                 "veredicto": rep["veredicto"],
                 "problemas": rep["problemas"],
                 "data": {k: rep[k] for k in
-                         ("motores", "jobs")},
+                         ("motores", "jobs", "novedades")},
             }])
         except Exception as e:
             jr.error(f"persist health_reports: {type(e).__name__}: {e}")

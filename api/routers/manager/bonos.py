@@ -73,6 +73,13 @@ def bonos_sin_flujo() -> dict:
     }
 
 
+@router.get("/bonos/sin-tasa")
+def bonos_sin_tasa() -> dict:
+    """Bonos con precio pero sin TEA en el snapshot (los que muestran "--").
+    SQL read-only, no recalcula. Gate `manager_titulos`."""
+    return svc.bonos_sin_tasa()
+
+
 @router.post("/bonos")
 def upsert_bono(req: _BonoUpsert = Body(...), actor: str = Depends(get_user_email)) -> dict:
     try:

@@ -111,6 +111,36 @@ def upsert_bono(payload: dict, actor: str = "") -> dict:
     return {"bono": saved}
 
 
+def bonos_sin_tasa() -> dict:
+    """Bonos de mercado.curvas que tienen precio de pantalla pero NO tienen TEA
+    calculada en el snapshot (last_price > 0 y tea IS NULL) — los que muestran "--".
+
+    Es el "ver los errores" del panel de bonos: SQL puro (rápido, read-only), no
+    recalcula. Para el POR QUÉ de cada uno usar el debug (/checks/debug-curva-tea).
+    Un bono sin precio (nunca operó / motor no lo suscribe) NO cuenta como error acá.
+    """
+    from core import market_snapshot
+
+    docs = curvas_sql.por_curva_not_like("on%")
+    by_full = {d.get("ticker"): d for d in docs if d.get("ticker")}
+    cols = market_snapshot.cols_map(list(by_full), ["last_price", "tea"])
+
+    filas = []
+    for full, d in by_full.items():
+        m = cols.get(full) or {}
+        lp = m.get("last_price")
+        if lp and lp > 0 and m.get("tea") is None:
+            filas.append({
+                "ticker_corto": d.get("ticker_corto"),
+                "ticker": full,
+                "curva": d.get("curva"),
+                "fecha_vencimiento": str(d.get("fecha_vencimiento") or "")[:10],
+                "last_price": lp,
+            })
+    filas.sort(key=lambda x: (x.get("curva") or "", x.get("ticker_corto") or ""))
+    return {"total": len(filas), "ok": not filas, "bonos": filas}
+
+
 def delete_bono(ticker_corto: str) -> dict:
     """Baja un bono de mercado.curvas por ticker_corto (no toca ONs ^on)."""
     tc = (ticker_corto or "").strip()

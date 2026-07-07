@@ -270,11 +270,37 @@ def _por_operador(desde: date, hasta: date, moneda: str, mep_hoy: float | None,
     return out
 
 
+def _aum_por_operador(corte: date, factor, op_de: dict[str, str],
+                      ids: list[str] | None = None) -> dict[str, float]:
+    """{operador_email: AuM} al snapshot de tenencia más reciente <= `corte`, ya en la
+    moneda destino. Suma la valuación (aum='si') por cuenta y la mapea a su operador.
+    `ids` (scope de filtros madre) restringe las cuentas; None = mesa completa."""
+    snap = _q("SELECT max(fecha) AS f FROM portafolio.tenencia "
+              "WHERE aum = 'si' AND fecha <= %(c)s", {"c": corte})
+    f = snap[0]["f"] if snap else None
+    if not f:
+        return {}
+    scope = " AND id_cuenta = ANY(%(ids)s)" if ids is not None else ""
+    p: dict = {"f": f}
+    if ids is not None:
+        p["ids"] = ids
+    out: dict[str, float] = {}
+    for r in _q(f"SELECT id_cuenta, SUM(valuacion) AS aum FROM portafolio.tenencia "
+                f"WHERE fecha = %(f)s AND aum = 'si'{scope} GROUP BY id_cuenta", p):
+        op = op_de.get(r["id_cuenta"])
+        if not op:
+            continue
+        out[op] = out.get(op, 0.0) + _f(r["aum"])
+    return {op: _cv(v, factor) for op, v in out.items()}
+
+
 def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS", operador=(), nivel_1=(),
                        nivel_2=(), nivel_3=(), nivel_4=(), nivel_5=(), referido=()) -> dict:
-    """Tabla 2: por comercial en [desde, hasta]: clientes activos/inactivos + volumen +
-    comisiones, cada uno con % vs el rango ANTERIOR de igual largo. Filtros madre
-    (operador/niveles/referido) acotan a las cuentas del scope; sin filtros = mesa completa."""
+    """Tabla 2: por comercial en [desde, hasta]: clientes activos/inactivos + AuM + volumen +
+    comisiones, cada uno con % vs el rango ANTERIOR de igual largo. El AuM es la foto al
+    snapshot <= `hasta` y su % compara contra el snapshot <= el día previo a `desde` (mismo
+    criterio de período anterior que el resto). Filtros madre (operador/niveles/referido)
+    acotan a las cuentas del scope; sin filtros = mesa completa."""
     factor = _factor_usd(moneda)
     ids, _ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido)
     d0, d1 = date.fromisoformat(desde), date.fromisoformat(hasta)
@@ -287,6 +313,12 @@ def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS", operador=
         "SELECT c.operador_email AS email, o.nombre AS nombre FROM comitentes c "
         "LEFT JOIN operadores o ON o.email = c.operador_email "
         "WHERE c.estado='Activa' AND c.operador_email IS NOT NULL GROUP BY c.operador_email, o.nombre")}
+    # AuM por operador: foto al cierre del rango (d1) vs foto al cierre del rango anterior (pd1).
+    op_de = {r["id_cuenta"]: r["operador_email"] for r in _q(
+        "SELECT id_cuenta, operador_email FROM comitentes WHERE estado='Activa' "
+        "AND operador_email IS NOT NULL")}
+    aum_cur = _aum_por_operador(d1, factor, op_de, ids)
+    aum_prev = _aum_por_operador(pd1, factor, op_de, ids)
     # Total de clientes por operador para el conteo de INACTIVOS — restringido al scope
     # (con filtro madre, "inactivos" es relativo a las cuentas del scope, no a toda la mesa).
     tc_scope = " AND id_cuenta = ANY(%(ids)s)" if ids is not None else ""
@@ -300,11 +332,14 @@ def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS", operador=
         pv = prev.get(op, {"activos": 0, "volumen": 0.0, "comisiones": 0.0})
         activos = c["activos"]
         inactivos = max(0, total_clientes.get(op, 0) - activos)
+        au, au_prev = aum_cur.get(op, 0.0), aum_prev.get(op, 0.0)
         fila = {
             "operador_email": op, "operador_nombre": nombre.get(op) or op,
             "clientes_activos": activos,
             "clientes_activos_pct": _pct(activos, pv["activos"]),
             "clientes_inactivos": inactivos,
+            "aum": round(au, 2),
+            "aum_pct": _pct(au, au_prev),
             "volumen": round(c["volumen"], 2),
             "volumen_pct": _pct(c["volumen"], pv["volumen"]),
             "comisiones": round(c["comisiones"], 2),

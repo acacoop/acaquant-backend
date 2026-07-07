@@ -26,8 +26,16 @@ Uso:
 """
 from __future__ import annotations
 
+import re
 import sys
 from datetime import UTC, datetime, timedelta
+
+
+def _md(s) -> str:
+    """Escapa los chars que Telegram (parse_mode=Markdown legacy) interpreta, para
+    que nombres con `_`/`*` no se rendericen como cursiva/negrita ni se coman los
+    caracteres (ej. `agro_opc` salía `agroopc`, `portafolio_backfill` → sin `_`)."""
+    return re.sub(r"([_*\[`])", r"\\\1", str(s))
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
@@ -47,10 +55,12 @@ MOTORES = [
 # Jobs esperados → si el último corrió hace > umbral (horas), vencido. OJO: el
 # `tipo` es el de JobRunLogger (nombre del job), NO la etiqueta del cron — el cron
 # `negocio_chain` loguea como `negocio_movimientos`, etc.
-# `aum` y `sync_postgres` se retiraron (decomiso Mongo 2026-06-29: el AuM lo escribe
-# portafolio_backfill y no hay sync Mongo→SQL) → ya no se esperan (daban falsa alarma).
+# `sync_postgres` se retiró (decomiso Mongo 2026-06-29: no hay sync Mongo→SQL).
+# El writer diario del AuM es `jobs.portafolio_backfill --diario` pero se registra
+# con JobRunLogger("aum") (nombre legacy conservado) → acá se vigila el tipo REAL
+# `aum`, no `portafolio_backfill` (que nunca existe en job_runs → daba falso vencido).
 DAILIES = [
-    ("bcra", 27), ("argentina_datos", 27), ("portafolio_backfill", 27),
+    ("bcra", 27), ("argentina_datos", 27), ("aum", 27),
     ("snapshot_cierre", 27), ("operaciones_informes", 3), ("negocio_movimientos", 3),
 ]
 
@@ -324,7 +334,7 @@ def render_telegram(rep: dict) -> str:
         lines.append("")
         lines.append("*⚠️ Problemas:*")
         for p in rep["problemas"]:
-            lines.append(f"  • {p}")
+            lines.append(f"  • {_md(p)}")
         explic = _explicar(rep)
         if explic:
             lines.append("")
@@ -340,16 +350,19 @@ def render_telegram(rep: dict) -> str:
     for m in rep["motores"]["items"]:
         e = m["edad_s"]
         edad = f"{e}s" if isinstance(e, int) and e < 120 else (f"{round(e/60)}m" if isinstance(e, int) else "—")
-        lines.append(f"  {icon.get(m['estado'], '⚪')} {m['motor']}: {edad}")
+        lines.append(f"  {icon.get(m['estado'], '⚪')} {_md(m['motor'])}: {edad}")
 
     # Jobs
     jb = rep["jobs"]
     lines.append("")
     lines.append(f"*Jobs (1h):* {jb.get('ok', 0)} ok · {jb.get('partial', 0)} partial · {jb.get('error', 0)} error")
     for f in jb.get("fallas", [])[:5]:
-        lines.append(f"  ✗ {f['tipo']} [{f['status']}]: {f['err']}")
+        lines.append(f"  ✗ {_md(f['tipo'])} [{f['status']}]: {_md(f['err'])}")
     if jb.get("vencidos"):
-        lines.append("  ⏰ vencidos: " + ", ".join(f"{v['tipo']}({v['horas']}h)" for v in jb["vencidos"]))
+        def _venc(v):
+            h = v.get("horas")
+            return f"{_md(v['tipo'])}({'sin registro' if h is None else f'{h}h'})"
+        lines.append("  ⏰ vencidos: " + ", ".join(_venc(v) for v in jb["vencidos"]))
 
     # Novedades del día (negocio / data-quality)
     lines.extend(_render_novedades(rep.get("novedades") or {}))
@@ -377,8 +390,8 @@ def _render_novedades(nov: dict) -> list[str]:
         n = com.get("n", 0)
         lines.append(f"  🆕 Comitentes nuevos hoy: {n}")
         for it in com.get("items", []):
-            den = it.get("denominacion") or it.get("id_cuenta")
-            op = f" · {it['operador']}" if it.get("operador") else ""
+            den = _md(it.get("denominacion") or it.get("id_cuenta"))
+            op = f" · {_md(it['operador'])}" if it.get("operador") else ""
             lines.append(f"     · {den}{op}")
 
     ops = nov.get("operaciones") or {}
@@ -404,7 +417,7 @@ def _render_novedades(nov: dict) -> list[str]:
         if n == 0:
             lines.append("  ✅ Renta fija sin TEA/TNA: 0")
         else:
-            tickers = ", ".join(rf.get("tickers", []))
+            tickers = ", ".join(_md(t) for t in rf.get("tickers", []))
             mas = f" (+{n - len(rf.get('tickers', []))} más)" if n > len(rf.get("tickers", [])) else ""
             lines.append(f"  ⚠️ Renta fija cotizando sin TEA/TNA: {n}")
             if tickers:

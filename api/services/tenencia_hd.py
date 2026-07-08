@@ -83,45 +83,67 @@ def tenencia_posiciones(*, fecha: str, cartera: str = "HD") -> dict[str, Any]:
     filtrado por `cartera` ('HD' = Cartera USD / 'ARS' = todo lo no-HD).
 
     NETEA el alquiler (por título+cuenta, date-aware): descuenta los nominales en
-    alquiler y su valuación. Si un título queda 100% en alquiler, no aparece."""
+    alquiler y su valuación. Si un título queda 100% en alquiler, no aparece.
+
+    Adjunta el desglose en GARANTÍA (estado GAR de Aunesa) por cuenta: `gar`
+    (valor) y `gar_cant` (nominales) → la vista filtra Todos / Sin GAR / Solo GAR."""
     marcas = get_alquiler_marcas()
     por_unidad: dict[str, dict[str, float]] = {}
     cant_unidad: dict[str, dict[str, float]] = {}
+    gar_val_unidad: dict[str, dict[str, float]] = {}
+    gar_cant_unidad: dict[str, dict[str, float]] = {}
     precio_unidad: dict[str, float] = {}
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            f"SELECT unidad, id_cuenta, SUM(valuacion), SUM(cantidad), MAX(precio) "
+            f"SELECT unidad, id_cuenta, SUM(valuacion), SUM(cantidad), MAX(precio), "
+            f"SUM(COALESCE(gar_cantidad, 0)) "
             f"FROM portafolio.tenencia "
             f"WHERE fecha = %s AND aum = 'si' AND id_cuenta = ANY(%s) AND {_cartera_subq(cartera)} "
             f"GROUP BY unidad, id_cuenta", (fecha, CUENTAS))
-        for u, idc, val, cant, prec in cur.fetchall():
+        for u, idc, val, cant, prec, gar in cur.fetchall():
             c = str(idc)
             cant_f = float(cant or 0.0)
             factor = _net_factor(cant_f, marcas.get((c, u)), fecha)  # descuenta alquiler
-            por_unidad.setdefault(u, {})[c] = float(val or 0.0) * factor
-            cant_unidad.setdefault(u, {})[c] = cant_f * factor
+            net_val = float(val or 0.0) * factor
+            net_cant = cant_f * factor
+            # Fracción del título en garantía (sobre el nominal crudo, clamp 0..1).
+            gar_frac = min(1.0, max(0.0, float(gar or 0.0) / cant_f)) if cant_f else 0.0
+            por_unidad.setdefault(u, {})[c] = net_val
+            cant_unidad.setdefault(u, {})[c] = net_cant
+            gar_val_unidad.setdefault(u, {})[c] = net_val * gar_frac
+            gar_cant_unidad.setdefault(u, {})[c] = net_cant * gar_frac
             if prec is not None:
                 precio_unidad[u] = float(prec)
 
     posiciones = []
+    total_gar = 0.0
     for u in sorted(por_unidad, key=lambda x: -sum(por_unidad[x].values())):
         byc = por_unidad[u]
         cantc = cant_unidad.get(u, {})
+        garv = gar_val_unidad.get(u, {})
+        garc = gar_cant_unidad.get(u, {})
         total_cant = round(sum(cantc.values()), 4)
         if total_cant == 0:
             continue   # título 100% en alquiler → fuera de la vista principal
+        gar_total = round(sum(garv.values()), 2)
+        total_gar += gar_total
         fila = {
             "unidad": u,
             "total": round(sum(byc.values()), 2),
             "precio": round(precio_unidad[u], 4) if u in precio_unidad else None,
             "cant": {c: round(cantc.get(c, 0.0), 4) for c in CUENTAS},
             "total_cant": total_cant,
+            "gar": {c: round(garv.get(c, 0.0), 2) for c in CUENTAS},
+            "gar_cant": {c: round(garc.get(c, 0.0), 4) for c in CUENTAS},
+            "gar_total": gar_total,
+            "gar_total_cant": round(sum(garc.values()), 4),
         }
         fila.update({c: round(byc.get(c, 0.0), 2) for c in CUENTAS})
         posiciones.append(fila)
     total = round(sum(p["total"] for p in posiciones), 2)
     return {"fecha": fecha, "cuentas": CUENTAS, "cartera": (cartera or "HD").upper(),
-            "tc": _tc(fecha), "total": total, "posiciones": posiciones}
+            "tc": _tc(fecha), "total": total, "total_gar": round(total_gar, 2),
+            "posiciones": posiciones}
 
 
 # ── ALQUILER (marca durable por título + cuenta, self-service) ───────────────

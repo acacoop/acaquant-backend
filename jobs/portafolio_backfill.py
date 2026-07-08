@@ -125,6 +125,10 @@ def _ensure_schema():
         # tipoTitulo crudo de Aunesa — lo usa el motor PnL (_aplicar_normalizer). Lo
         # llena el writer; el histórico se backfillea con scripts.migrar_tipotitulo_tenencia.
         "ALTER TABLE portafolio.tenencia ADD COLUMN IF NOT EXISTS tipo_titulo text",
+        # gar_cantidad: nominales del título que Aunesa marca en GARANTÍA (estado='GAR').
+        # Se llena desde el writer (parte de la cantidad total). NULL = sin GAR / histórico
+        # previo a esta columna. Lo consume la vista Tenencia Valorizada (filtro GAR).
+        "ALTER TABLE portafolio.tenencia ADD COLUMN IF NOT EXISTS gar_cantidad numeric",
     ]
     with get_job_pool().connection() as conn, conn.cursor() as cur:
         for stmt in ddl:
@@ -234,7 +238,7 @@ def _parse(data, idc: str, denom: str, fecha_iso: str, amap: dict) -> list[dict]
         return []
     cuenta_str = f"[{idc}] {denom}"
     grupos: dict[tuple, dict] = defaultdict(
-        lambda: {"cantidad": 0.0, "precio": 0.0, "tipo": "", "moneda": None})
+        lambda: {"cantidad": 0.0, "gar_cant": 0.0, "precio": 0.0, "tipo": "", "moneda": None})
     for r in data:
         if not isinstance(r, dict) or r.get("informacion") != "Acumulado":
             continue
@@ -253,6 +257,10 @@ def _parse(data, idc: str, denom: str, fecha_iso: str, amap: dict) -> list[dict]
         tipo = r.get("tipoTitulo") or ""
         g = grupos[(unidad, tipo, cta)]
         g["cantidad"] += cant
+        # estado Aunesa: 'DIS' disponible / 'GAR' garantía / 'DIF' diferido. Acumulo
+        # aparte lo que está en GARANTÍA para poder filtrarlo en Tenencia Valorizada.
+        if (r.get("estado") or "").upper() == "GAR":
+            g["gar_cant"] += cant
         g["precio"] = max(g["precio"], prec)
         g["moneda"] = r.get("moneda") or g["moneda"]
     out = []
@@ -269,6 +277,7 @@ def _parse(data, idc: str, denom: str, fecha_iso: str, amap: dict) -> list[dict]
             "cantidad": round(g["cantidad"], 4), "precio": round(g["precio"], 6),
             "valuacion": val, "moneda": g["moneda"], "aum": aum,
             "tipo_titulo": tipo or None,   # crudo de Aunesa (tipoTitulo) — lo usa el motor PnL
+            "gar_cantidad": round(g["gar_cant"], 4) if g["gar_cant"] else None,
         })
     return out
 
@@ -283,9 +292,10 @@ def _write_date(iso: str, registros: list[dict], status_by: dict[str, tuple]):
             cur.executemany(
                 "INSERT INTO portafolio.tenencia "
                 "(fecha,id_cuenta,cuenta,unidad,ticker,cartera,cantidad,precio,valuacion,moneda,aum,"
-                "tipo_titulo) "
+                "tipo_titulo,gar_cantidad) "
                 "VALUES (%(fecha)s,%(id_cuenta)s,%(cuenta)s,%(unidad)s,%(ticker)s,%(cartera)s,"
-                "%(cantidad)s,%(precio)s,%(valuacion)s,%(moneda)s,%(aum)s,%(tipo_titulo)s)",
+                "%(cantidad)s,%(precio)s,%(valuacion)s,%(moneda)s,%(aum)s,%(tipo_titulo)s,"
+                "%(gar_cantidad)s)",
                 registros)
         logrows = [{"fecha": iso, "id_cuenta": c, "status": s[0], "n": s[1], "detalle": s[2]}
                    for c, s in status_by.items()]

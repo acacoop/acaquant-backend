@@ -232,16 +232,19 @@ def _set_param_doc(
     return new
 
 
-# ── Tasas de cobertura (ON / Pagaré / Caución 7D) ────────────────────────────
-# tasa_caucion_7d (TNA %) alimenta el "Descuento a Tasa de Caución 7D" que da el
-# "Monto Pesos Cau 7D" de cada card del Pase con Cobertura (ver agro_cobertura).
-_TASAS_FIELDS = ("tasa_on", "tasa_pagare", "tasa_caucion_7d")
+# ── Tasas de cobertura (ON / Pagaré / Caución 7D ARS y USD) ──────────────────
+# tasa_caucion_7d (TNA %, en pesos) alimenta el "Descuento a Tasa de Caución 7D"
+# que da el "Monto Pesos Cau 7D" de cada card del Pase con Cobertura.
+# tasa_caucion_7d_usd es su equivalente en dólares (para las próximas columnas
+# del pase). Ver agro_cobertura.
+_TASAS_FIELDS = ("tasa_on", "tasa_pagare", "tasa_caucion_7d", "tasa_caucion_7d_usd")
 
 
 def get_tasas_cobertura() -> dict[str, Any]:
-    """Tasas manuales ON / Pagaré / Caución 7D (global). None si no se cargaron.
+    """Tasas manuales ON / Pagaré / Caución 7D ARS+USD (global). None si no cargadas.
 
-    Output: {"tasa_on", "tasa_pagare", "tasa_caucion_7d", "updated_by", "updated_at"}
+    Output: {"tasa_on", "tasa_pagare", "tasa_caucion_7d", "tasa_caucion_7d_usd",
+             "updated_by", "updated_at"}
     """
     return _get_param_doc(_TASAS_KEY, _TASAS_FIELDS)
 
@@ -251,14 +254,16 @@ def set_tasas_cobertura(
     tasa_pagare: float | None,
     email: str,
     tasa_caucion_7d: float | None = None,
+    tasa_caucion_7d_usd: float | None = None,
 ) -> dict[str, Any]:
-    """Upsert de las tasas ON / Pagaré / Caución 7D. None = no tocar esa tasa."""
+    """Upsert de las tasas ON / Pagaré / Caución 7D (ARS y USD). None = no tocar."""
     return _set_param_doc(
         _TASAS_KEY, _TASAS_FIELDS,
         {
             "tasa_on": tasa_on,
             "tasa_pagare": tasa_pagare,
             "tasa_caucion_7d": tasa_caucion_7d,
+            "tasa_caucion_7d_usd": tasa_caucion_7d_usd,
         },
         email,
     )

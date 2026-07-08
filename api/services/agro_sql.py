@@ -25,6 +25,7 @@ from typing import Any
 
 from psycopg.rows import dict_row
 
+from api.services import agro_cobertura as _cob
 from api.services import camara_cereales as _cam
 from api.services import derivados_agro as _agro
 from api.services import mejoras_dispo as _mej
@@ -112,8 +113,11 @@ def get_pase_agro() -> dict[str, Any]:
         "snapshot_age_s":   round(snap_age) if snap_age is not None else None,
         "bloques":          bloques,
         # Tasas manuales ON / Pagaré (tab DATOS) — alimentan las columnas
-        # Pagaré / ON del "Pase con Cobertura" (fórmula a definir).
+        # Pagaré / ON del "Pase con Cobertura".
         "tasas_cobertura":  _cam.get_tasas_cobertura(),
+        # Cards + ganancia ON del "Pase con Cobertura" (calculado sobre estos
+        # mismos bloques → única fuente de la fórmula).
+        "pase_cobertura":   _cob.get_pase_cobertura(bloques),
     }
 
 

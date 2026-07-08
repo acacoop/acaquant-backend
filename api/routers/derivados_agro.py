@@ -240,7 +240,10 @@ class TasasCoberturaIn(BaseModel):
         default=None, gt=0, description="Tasa Pagaré en %; null = no tocar",
     )
     tasa_caucion_7d: float | None = Field(
-        default=None, gt=0, description="Tasa de caución 7D (TNA %); null = no tocar",
+        default=None, gt=0, description="Tasa de caución 7D en ARS (TNA %); null = no tocar",
+    )
+    tasa_caucion_7d_usd: float | None = Field(
+        default=None, gt=0, description="Tasa de caución 7D en USD (TNA %); null = no tocar",
     )
 
 
@@ -257,6 +260,7 @@ def patch_tasas_cobertura(
             tasa_on=payload.tasa_on,
             tasa_pagare=payload.tasa_pagare,
             tasa_caucion_7d=payload.tasa_caucion_7d,
+            tasa_caucion_7d_usd=payload.tasa_caucion_7d_usd,
             email=email,
         )
     except ValueError as e:

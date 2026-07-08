@@ -27,8 +27,10 @@ from api.auth import get_user_email, require_module, require_no_invitado
 from api.services import agro_sql as _agro_sql
 from api.services.camara_cereales import (
     CEREALES,
+    get_dolares_referencia,
     get_tasas_cobertura,
     set_camara_cereal,
+    set_dolares_referencia,
     set_tasas_cobertura,
 )
 from api.services.derivados_agro import (
@@ -251,6 +253,47 @@ def patch_tasas_cobertura(
         return set_tasas_cobertura(
             tasa_on=payload.tasa_on,
             tasa_pagare=payload.tasa_pagare,
+            email=email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DÓLARES DE REFERENCIA (Banco Nación / Matba Rofex) — inputs manuales globales
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/agro/dolares-referencia")
+def dolares_referencia(
+    _email: str = Depends(get_user_email),
+):
+    """Dólares manuales Banco Nación / Matba Rofex (globales) que alimentarán el
+    Pase con Cobertura."""
+    return get_dolares_referencia()
+
+
+class DolaresReferenciaIn(BaseModel):
+    dolar_bna: float | None = Field(
+        default=None, gt=0, description="Dólar Banco Nación ($); null = no tocar",
+    )
+    dolar_matba: float | None = Field(
+        default=None, gt=0, description="Dólar Matba Rofex ($); null = no tocar",
+    )
+
+
+@router.patch("/agro/dolares-referencia")
+def patch_dolares_referencia(
+    payload: DolaresReferenciaIn,
+    email: str = Depends(get_user_email),
+    _mod: None = Depends(require_module("agro")),
+    _noguest: None = Depends(require_no_invitado),   # escritura: bloquea invitado www (REGLA #8)
+):
+    """Upsert de los dólares Banco Nación / Matba Rofex (globales)."""
+    try:
+        return set_dolares_referencia(
+            dolar_bna=payload.dolar_bna,
+            dolar_matba=payload.dolar_matba,
             email=email,
         )
     except ValueError as e:

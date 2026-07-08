@@ -152,16 +152,20 @@ def _audit_camara_sql(cereal: str, prev: dict, new: dict, email: str, ts: dateti
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TASAS DE COBERTURA (ON / Pagaré) — inputs manuales GLOBALES
+# PARÁMETROS MANUALES GLOBALES DE LA MESA AGRO — tab DATOS
 # ─────────────────────────────────────────────────────────────────────────────
-# Dos tasas que carga el trader en la tab DATOS. Alimentarán el cálculo de las
-# columnas Pagaré / ON del "Pase con Cobertura" (fórmula a definir con la mesa —
-# por ahora solo se persisten y se muestran). NO son por commodity: una sola fila
-# global (id='GLOBAL'). La tabla se auto-crea para tolerar el drift de schema.
-# Se guarda el número tal cual lo tipea el trader (una TNA en %, ej. 40.5).
+# Escalares que carga el trader a mano y que alimentan otros cálculos (hoy el
+# "Pase con Cobertura"). NO son por commodity: una fila global por familia.
+# Todo vive en la misma tabla `mercado.agro_tasas_cobertura` (id = clave de la
+# familia), que se auto-crea para tolerar el drift de schema:
+#   - id='GLOBAL'  → tasas ON / Pagaré (TNA %, ej. 40.5)
+#   - id='DOLARES' → dólares de referencia Banco Nación / Matba Rofex ($/US$)
+# Cada familia tiene su propio `updated_at` (fila aparte) → editar un dólar no
+# pisa el timestamp de las tasas. El helper genérico evita duplicar el CRUD.
 
 _TASAS_TABLE = "mercado.agro_tasas_cobertura"
 _TASAS_KEY = "GLOBAL"
+_DOLARES_KEY = "DOLARES"
 
 
 def _ensure_tasas_table(cur) -> None:
@@ -170,12 +174,9 @@ def _ensure_tasas_table(cur) -> None:
         "id text PRIMARY KEY, data jsonb, updated_at timestamptz)")
 
 
-def get_tasas_cobertura() -> dict[str, Any]:
-    """Tasas manuales ON / Pagaré (global). Campos None si no se cargaron.
-
-    Output: {"tasa_on": float|None, "tasa_pagare": float|None,
-             "updated_by": str|None, "updated_at": str|None}
-    """
+def _get_param_doc(key: str, fields: tuple[str, ...]) -> dict[str, Any]:
+    """Lee la fila `key` de la tabla de params y devuelve solo `fields` (+audit).
+    Campos None si no se cargaron. Tolera PG caído (devuelve todo None)."""
     from psycopg.rows import dict_row
 
     from core.postgres import get_pool
@@ -183,18 +184,64 @@ def get_tasas_cobertura() -> dict[str, Any]:
     try:
         with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
             _ensure_tasas_table(cur)
-            cur.execute(f"SELECT data FROM {_TASAS_TABLE} WHERE id = %s", (_TASAS_KEY,))
+            cur.execute(f"SELECT data FROM {_TASAS_TABLE} WHERE id = %s", (key,))
             row = cur.fetchone()
             conn.commit()
     except Exception:
         row = None
     d = (row["data"] if row else None) or {}
-    return {
-        "tasa_on":     d.get("tasa_on"),
-        "tasa_pagare": d.get("tasa_pagare"),
-        "updated_by":  d.get("updated_by"),
-        "updated_at":  d.get("updated_at"),
+    out: dict[str, Any] = {f: d.get(f) for f in fields}
+    out["updated_by"] = d.get("updated_by")
+    out["updated_at"] = d.get("updated_at")
+    return out
+
+
+def _set_param_doc(
+    key: str,
+    fields: tuple[str, ...],
+    updates: dict[str, float | None],
+    email: str,
+) -> dict[str, Any]:
+    """Upsert parcial de la fila `key`. None = no tocar ese campo (igual que
+    set_camara_cereal). Cada valor debe ser > 0. Devuelve el doc actualizado."""
+    if all(updates.get(f) is None for f in fields):
+        raise ValueError(f"debe venir al menos uno de: {', '.join(fields)}")
+    for f in fields:
+        v = updates.get(f)
+        if v is not None and v <= 0:
+            raise ValueError(f"{f} debe ser > 0")
+
+    from psycopg.types.json import Jsonb
+
+    from core.postgres import get_pool
+    now = datetime.now(UTC)
+    prev = _get_param_doc(key, fields)
+    new: dict[str, Any] = {
+        f: (float(updates[f]) if updates.get(f) is not None else prev.get(f))
+        for f in fields
     }
+    new["updated_by"] = email
+    new["updated_at"] = now.isoformat()
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        _ensure_tasas_table(cur)
+        cur.execute(
+            f"INSERT INTO {_TASAS_TABLE} (id, data, updated_at) VALUES (%s, %s, %s) "
+            f"ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at",
+            (key, Jsonb(new), now))
+        conn.commit()
+    return new
+
+
+# ── Tasas de cobertura (ON / Pagaré) ─────────────────────────────────────────
+_TASAS_FIELDS = ("tasa_on", "tasa_pagare")
+
+
+def get_tasas_cobertura() -> dict[str, Any]:
+    """Tasas manuales ON / Pagaré (global). Campos None si no se cargaron.
+
+    Output: {"tasa_on", "tasa_pagare", "updated_by", "updated_at"}
+    """
+    return _get_param_doc(_TASAS_KEY, _TASAS_FIELDS)
 
 
 def set_tasas_cobertura(
@@ -202,31 +249,35 @@ def set_tasas_cobertura(
     tasa_pagare: float | None,
     email: str,
 ) -> dict[str, Any]:
-    """Upsert de las tasas ON / Pagaré. None = no tocar esa tasa (update parcial,
-    igual que set_camara_cereal). Devuelve el doc actualizado."""
-    if tasa_on is None and tasa_pagare is None:
-        raise ValueError("debe venir tasa_on o tasa_pagare (o ambas)")
-    if tasa_on is not None and tasa_on <= 0:
-        raise ValueError("tasa_on debe ser > 0")
-    if tasa_pagare is not None and tasa_pagare <= 0:
-        raise ValueError("tasa_pagare debe ser > 0")
+    """Upsert de las tasas ON / Pagaré. None = no tocar esa tasa (update parcial)."""
+    return _set_param_doc(
+        _TASAS_KEY, _TASAS_FIELDS,
+        {"tasa_on": tasa_on, "tasa_pagare": tasa_pagare}, email,
+    )
 
-    from psycopg.types.json import Jsonb
 
-    from core.postgres import get_pool
-    now = datetime.now(UTC)
-    prev = get_tasas_cobertura()
-    new = {
-        "tasa_on":     float(tasa_on) if tasa_on is not None else prev.get("tasa_on"),
-        "tasa_pagare": float(tasa_pagare) if tasa_pagare is not None else prev.get("tasa_pagare"),
-        "updated_by":  email,
-        "updated_at":  now.isoformat(),
-    }
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        _ensure_tasas_table(cur)
-        cur.execute(
-            f"INSERT INTO {_TASAS_TABLE} (id, data, updated_at) VALUES (%s, %s, %s) "
-            f"ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at",
-            (_TASAS_KEY, Jsonb(new), now))
-        conn.commit()
-    return new
+# ── Dólares de referencia (Banco Nación / Matba Rofex) ───────────────────────
+# Cotizaciones que el trader carga a mano en la tab DATOS. Alimentarán el
+# cálculo del "Pase con Cobertura". Antes se pensaron como discovery MAE
+# automático; por decisión de la mesa hoy se cargan manual.
+_DOLARES_FIELDS = ("dolar_bna", "dolar_matba")
+
+
+def get_dolares_referencia() -> dict[str, Any]:
+    """Dólares manuales Banco Nación / Matba Rofex (global). None si no cargados.
+
+    Output: {"dolar_bna", "dolar_matba", "updated_by", "updated_at"}
+    """
+    return _get_param_doc(_DOLARES_KEY, _DOLARES_FIELDS)
+
+
+def set_dolares_referencia(
+    dolar_bna: float | None,
+    dolar_matba: float | None,
+    email: str,
+) -> dict[str, Any]:
+    """Upsert de los dólares de referencia. None = no tocar ese dólar."""
+    return _set_param_doc(
+        _DOLARES_KEY, _DOLARES_FIELDS,
+        {"dolar_bna": dolar_bna, "dolar_matba": dolar_matba}, email,
+    )

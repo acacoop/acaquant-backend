@@ -70,7 +70,9 @@ def get_pase_agro() -> dict[str, Any]:
     """
     pizarras = {p["commodity"]: p for p in _rows("agro_pizarra")
                 if p.get("commodity")}
-    camara = {c["cereal"]: c for c in _rows("camara_cereales") if c.get("cereal")}
+    # Cámara con la pata derivada YA calculada (SOJA en ARS → USD, resto USD → ARS,
+    # con el dólar BNA). _build_bloque usa `precio_usd`, que para SOJA es derivado.
+    camara = {c["cereal"]: c for c in _cam.get_camara_cereales()["cereales"]}
     snapshots = _rows("agro_snapshot")
 
     oficial = mid_oficial_live("oficial")
@@ -297,19 +299,9 @@ def simular_estrategia(
 
 # ── CÁMARA ARBITRAL DE CEREALES ──────────────────────────────────────────────
 def get_camara_cereales() -> dict[str, Any]:
-    """Los 5 cereales desde SQL. Mismo shape que `camara_cereales.get_camara_cereales`."""
-    docs = {d["cereal"]: d for d in _rows("camara_cereales") if d.get("cereal")}
-    rows = [
-        {
-            "cereal":     cereal,
-            "precio_ars": (docs.get(cereal) or {}).get("precio_ars"),
-            "precio_usd": (docs.get(cereal) or {}).get("precio_usd"),
-            "updated_by": (docs.get(cereal) or {}).get("updated_by"),
-            "updated_at": (docs.get(cereal) or {}).get("updated_at"),
-        }
-        for cereal in _cam.CEREALES
-    ]
-    return {"ts": datetime.now(UTC), "cereales": rows}
+    """Los 5 cereales. Delega en el service canónico, que guarda solo la pata
+    manual (SOJA en ARS, resto en USD) y deriva la otra con el dólar BNA."""
+    return _cam.get_camara_cereales()
 
 
 # ── MEJORAS PRECIO DISPONIBLE ────────────────────────────────────────────────
@@ -325,7 +317,8 @@ def get_mejoras_dispo() -> dict[str, Any]:
 
     spot = mid_oficial_live("oficial").get("value")
 
-    camara_docs = {d["cereal"]: d for d in _rows("camara_cereales") if d.get("cereal")}
+    # Cámara con pata derivada calculada — MAIZ/TRIGO cargan USD → precio_ars derivado.
+    camara_docs = {c["cereal"]: c for c in _cam.get_camara_cereales()["cereales"]}
 
     # Futuros DLR vigentes desde mercado.futuros_dlr_snapshot (SQL-native; decomiso Mongo:
     # FuturosDLRSnapshot dropeada). Doc completo en jsonb `data`.

@@ -19,6 +19,36 @@ from typing import Any
 
 CEREALES = ("TRIGO", "MAIZ", "GIRASOL", "SOJA", "SORGO")
 
+# Qué pata carga el trader a MANO; la otra se DERIVA con el dólar Banco Nación
+# (decisión de la mesa): SOJA en ARS, el resto (TRIGO/MAIZ/GIRASOL/SORGO) en USD.
+# Solo se completa una pata — la otra es 100% automática.
+_MANUAL_LEG_ARS = ("SOJA",)
+
+
+def manual_leg(cereal: str) -> str:
+    """'ars' si el trader carga la pata en pesos, 'usd' si la carga en dólares."""
+    return "ars" if cereal.upper() in _MANUAL_LEG_ARS else "usd"
+
+
+def _derivar_legs(
+    cereal: str,
+    precio_ars_stored: float | None,
+    precio_usd_stored: float | None,
+    dolar_bna: float | None,
+) -> tuple[float | None, float | None]:
+    """(precio_ars, precio_usd) con la pata derivada calculada con el dólar BNA.
+
+    SOJA: manual ARS → USD = ARS / BNA (dolariza).
+    Resto: manual USD → ARS = USD × BNA (pesifica).
+    La pata derivada queda None si falta el dólar BNA o el valor manual."""
+    if manual_leg(cereal) == "ars":
+        precio_ars = precio_ars_stored
+        precio_usd = (precio_ars / dolar_bna) if (precio_ars is not None and dolar_bna) else None
+    else:
+        precio_usd = precio_usd_stored
+        precio_ars = (precio_usd * dolar_bna) if (precio_usd is not None and dolar_bna) else None
+    return precio_ars, precio_usd
+
 
 def _validate_cereal(cereal: str) -> str:
     c = cereal.upper()
@@ -30,19 +60,23 @@ def _validate_cereal(cereal: str) -> str:
 def get_camara_cereales() -> dict[str, Any]:
     """Devuelve los 5 cereales (siempre los 5, aunque no estén cargados).
 
+    Solo se guarda la pata MANUAL (SOJA en ARS, resto en USD); la otra se DERIVA
+    acá con el dólar Banco Nación (get_dolares_referencia). Si el BNA no está
+    cargado, la pata derivada sale None.
+
     Output:
         {
-          "ts": datetime,
+          "ts": datetime, "dolar_bna": float | None,
           "cereales": [
-            {"cereal": "TRIGO", "precio_ars": float | None, "precio_usd": float | None,
-             "updated_by": str | None, "updated_at": datetime | None},
+            {"cereal", "precio_ars", "precio_usd", "manual_leg": "ars"|"usd",
+             "updated_by", "updated_at"},
             ...
           ]
         }
     """
     # SQL-native (decomiso 2026-06-29): lee mercado.camara_cereales (la MISMA tabla que
-    # escribe set_camara_cereal). Antes leía Mongo Derivados.CamaraCereales — DROPEADA →
-    # la vista quedaba en blanco. data jsonb = {cereal, precio_ars, precio_usd, updated_by, updated_at}.
+    # escribe set_camara_cereal). data jsonb = {cereal, precio_ars|precio_usd (solo la
+    # pata manual), updated_by, updated_at}.
     from psycopg.rows import dict_row
 
     from core.postgres import get_pool
@@ -50,20 +84,26 @@ def get_camara_cereales() -> dict[str, Any]:
         cur.execute("SELECT cereal, data FROM mercado.camara_cereales")
         docs = {r["cereal"]: (r["data"] or {}) for r in cur.fetchall()}
 
+    dolar_bna = get_dolares_referencia().get("dolar_bna")
+
     rows: list[dict[str, Any]] = []
     for cereal in CEREALES:
         d = docs.get(cereal) or {}
+        precio_ars, precio_usd = _derivar_legs(
+            cereal, d.get("precio_ars"), d.get("precio_usd"), dolar_bna)
         rows.append({
             "cereal":     cereal,
-            "precio_ars": d.get("precio_ars"),
-            "precio_usd": d.get("precio_usd"),
+            "precio_ars": precio_ars,
+            "precio_usd": precio_usd,
+            "manual_leg": manual_leg(cereal),
             "updated_by": d.get("updated_by"),
             "updated_at": d.get("updated_at"),
         })
 
     return {
-        "ts":       datetime.now(UTC),
-        "cereales": rows,
+        "ts":        datetime.now(UTC),
+        "dolar_bna": dolar_bna,
+        "cereales":  rows,
     }
 
 
@@ -88,28 +128,29 @@ def set_camara_cereal(
     precio_usd: float | None,
     email: str,
 ) -> dict[str, Any]:
-    """Upsert de un cereal. None = no tocar ese campo (igual que set_pizarra).
-
-    Devuelve el doc actualizado. Inserta en CamaraCerealesAudit.
+    """Upsert de la PATA MANUAL de un cereal (la otra se deriva al leer con el
+    dólar BNA). SOJA se carga en ARS; el resto en USD. Se ignora la pata que no
+    corresponde. Devuelve el doc guardado + inserta audit.
     """
     c = _validate_cereal(cereal)
-    if precio_ars is None and precio_usd is None:
-        raise ValueError("debe venir precio_ars o precio_usd (o ambos)")
-    if precio_ars is not None and precio_ars <= 0:
-        raise ValueError("precio_ars debe ser > 0")
-    if precio_usd is not None and precio_usd <= 0:
-        raise ValueError("precio_usd debe ser > 0")
+    leg = manual_leg(c)
+    valor = precio_ars if leg == "ars" else precio_usd
+    if valor is None:
+        moneda = "ARS" if leg == "ars" else "USD"
+        raise ValueError(f"{c} se carga en {moneda}: falta ese valor")
+    if valor <= 0:
+        raise ValueError("el precio debe ser > 0")
 
     from core import pg_mirror
     now = datetime.now(UTC)
 
-    # SQL-native: la tabla `mercado.camara_cereales` es la fuente. `prev` (para el
-    # update parcial: None = no tocar) sale de SQL, no de Mongo.
+    # Solo se persiste la pata manual; la derivada NO se guarda (se calcula al leer
+    # con el dólar BNA vigente → si el BNA cambia, la pata derivada se actualiza sola).
     prev = _leer_camara_sql(c)
     new = {
         "cereal":     c,
-        "precio_ars": float(precio_ars) if precio_ars is not None else prev.get("precio_ars"),
-        "precio_usd": float(precio_usd) if precio_usd is not None else prev.get("precio_usd"),
+        "precio_ars": float(valor) if leg == "ars" else None,
+        "precio_usd": float(valor) if leg == "usd" else None,
         "updated_by": email,
         "updated_at": now,
     }

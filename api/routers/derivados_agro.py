@@ -239,6 +239,9 @@ class TasasCoberturaIn(BaseModel):
     tasa_pagare: float | None = Field(
         default=None, gt=0, description="Tasa Pagaré en %; null = no tocar",
     )
+    tasa_caucion_7d: float | None = Field(
+        default=None, gt=0, description="Tasa de caución 7D (TNA %); null = no tocar",
+    )
 
 
 @router.patch("/agro/tasas-cobertura")
@@ -248,11 +251,12 @@ def patch_tasas_cobertura(
     _mod: None = Depends(require_module("agro")),
     _noguest: None = Depends(require_no_invitado),   # escritura: bloquea invitado www (REGLA #8)
 ):
-    """Upsert de las tasas ON / Pagaré (globales)."""
+    """Upsert de las tasas ON / Pagaré / Caución 7D (globales)."""
     try:
         return set_tasas_cobertura(
             tasa_on=payload.tasa_on,
             tasa_pagare=payload.tasa_pagare,
+            tasa_caucion_7d=payload.tasa_caucion_7d,
             email=email,
         )
     except ValueError as e:
@@ -298,6 +302,21 @@ def patch_dolares_referencia(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DESCUENTO A TASA DE CAUCIÓN 7D — derivado (Cámara + tasa caución) para el Pase
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/agro/descuento-caucion")
+def descuento_caucion(
+    _email: str = Depends(get_user_email),
+):
+    """Precio disponible descontado a caución 7D por commodity (TRIGO/MAIZ/SOJA).
+    Es el 'Monto Pesos Cau 7D' que consume cada card del Pase con Cobertura."""
+    from api.services.agro_cobertura import get_descuento_caucion
+    return get_descuento_caucion()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

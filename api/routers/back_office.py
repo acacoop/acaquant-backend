@@ -111,3 +111,14 @@ def tenencia_hd_precio(
     (default, paridad) → cantidad × precio / 100; False → cantidad × precio."""
     return svc_ten.actualizar_precio_posicion(
         fecha=fecha, unidad=unidad, precio=precio, dividir_100=dividir_100, cartera=cartera)
+
+
+@router.post("/tenencia-hd/alquiler")
+def tenencia_hd_alquiler(
+    unidad:   str = Body(..., embed=True),
+    cantidad: float | None = Body(None, embed=True, description="nominales en alquiler; 0/null = quitar"),
+    email: str = Depends(get_user_email),
+):
+    """Marca DURABLE de alquiler por título (nominales en alquiler). Se setea una
+    vez y dura hasta que se cambie — no es por día. cantidad 0/null quita la marca."""
+    return svc_ten.set_alquiler(unidad=unidad, cantidad=cantidad, email=email)

@@ -47,7 +47,8 @@ def main() -> None:
     args = ap.parse_args()
 
     base = date.fromisoformat(args.desde) if args.desde else date.today()
-    desde = _prox_habil(base).isoformat()
+    # Aunesa exige dd/mm/yyyy (igual que jobs.portafolio_backfill). ISO da HTTP 400.
+    desde = _prox_habil(base).strftime("%d/%m/%Y")
     hdr = autenticar()
     cuentas = [c.strip() for c in args.cuentas.split(",") if c.strip()]
 

@@ -9,7 +9,10 @@ filas con índice en milisegundos. Ver docs/SQL.md y el plan de migración.
 Reglas de traducción Mongo→SQL blindadas (verificadas con diag_ops_sql_nulls):
   * etapa: `IS DISTINCT FROM 'solicitud'` (98% de los docs tienen etapa NULL; `<> 'solicitud'`
     NO matchea NULL en SQL → perdería todo). Equivale al `$ne` de Mongo.
-  * es_cierre: `= false` (excluye los 49 NULL, igual que Mongo `{es_cierre:false}`).
+  * es_cierre: `COALESCE(es_cierre, false) = false`. NULL = NO es cierre (ej. FCI
+    bilateral, que lo escribe jobs/fci_bilateral sin setear el campo) → se INCLUYE.
+    El viejo `= false` mimicaba Mongo `{es_cierre:false}` y perdía todos los NULL,
+    ocultando las operaciones bilaterales de la vista (fix 2026-07-08).
   * fechas: concertacion es `date` → se formatea a 'YYYY-MM-DD' a la salida.
   * Decimal→float, $ifNull→COALESCE, $abs→ABS, substr 0-based→to_char.
 
@@ -74,15 +77,17 @@ def _ops_where(
     cierres con arancel (caución), igual que _arancel_match."""
     conds: list[str] = []
     p: dict = {}
+    # es_cierre NULL (ej. FCI bilateral) = NO es cierre → COALESCE para no perderlos
+    # (NULL = false en SQL da NULL, no TRUE, y descartaba esas filas). Ver docstring.
     if arancel:
-        conds.append("(es_cierre = false OR (es_cierre = true AND arancel <> 0))")
+        conds.append("(COALESCE(es_cierre, false) = false OR (es_cierre = true AND arancel <> 0))")
     elif moneda == _DOLARIZAR:
         # Dolarizado: entran ARS y USD (sin filtro de moneda); cada boleto se
         # convierte a USD con su mep en la suma del volumen (ver _bruto_expr).
-        conds.append("es_cierre = false")
+        conds.append("COALESCE(es_cierre, false) = false")
     else:
         conds.append("moneda = %(moneda)s")
-        conds.append("es_cierre = false")
+        conds.append("COALESCE(es_cierre, false) = false")
         p["moneda"] = moneda
     # FCI bilateral: contar UNA vez — suscripción por su SOLICITUD (día del pedido),
     # rescate por su LIQUIDACIÓN. Excluye suscripción+liquidación y rescate+solicitud.

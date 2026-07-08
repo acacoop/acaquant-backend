@@ -288,6 +288,9 @@ class DolaresReferenciaIn(BaseModel):
     dolar_matba: float | None = Field(
         default=None, gt=0, description="Dólar Matba Rofex ($); null = no tocar",
     )
+    bna_comprador_t1: float | None = Field(
+        default=None, gt=0, description="BNA Comprador T−1 / ayer ($); null = no tocar",
+    )
 
 
 @router.patch("/agro/dolares-referencia")
@@ -302,6 +305,7 @@ def patch_dolares_referencia(
         return set_dolares_referencia(
             dolar_bna=payload.dolar_bna,
             dolar_matba=payload.dolar_matba,
+            bna_comprador_t1=payload.bna_comprador_t1,
             email=email,
         )
     except ValueError as e:

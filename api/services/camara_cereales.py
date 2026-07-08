@@ -269,17 +269,18 @@ def set_tasas_cobertura(
     )
 
 
-# ── Dólares de referencia (Banco Nación / Matba Rofex) ───────────────────────
-# Cotizaciones que el trader carga a mano en la tab DATOS. Alimentarán el
-# cálculo del "Pase con Cobertura". Antes se pensaron como discovery MAE
-# automático; por decisión de la mesa hoy se cargan manual.
-_DOLARES_FIELDS = ("dolar_bna", "dolar_matba")
+# ── Dólares de referencia (Banco Nación / Matba Rofex / BNA Comprador T-1) ────
+# Cotizaciones que el trader carga a mano en la tab DATOS y alimentan el "Pase
+# con Cobertura". bna_comprador_t1 = BNA comprador de AYER (T−1), usado en la
+# columna Pagaré. Antes se pensaron como discovery MAE automático; por decisión
+# de la mesa hoy se cargan manual.
+_DOLARES_FIELDS = ("dolar_bna", "dolar_matba", "bna_comprador_t1")
 
 
 def get_dolares_referencia() -> dict[str, Any]:
-    """Dólares manuales Banco Nación / Matba Rofex (global). None si no cargados.
+    """Dólares manuales BNA / Matba / BNA Comprador T-1 (global). None si no cargados.
 
-    Output: {"dolar_bna", "dolar_matba", "updated_by", "updated_at"}
+    Output: {"dolar_bna", "dolar_matba", "bna_comprador_t1", "updated_by", "updated_at"}
     """
     return _get_param_doc(_DOLARES_KEY, _DOLARES_FIELDS)
 
@@ -288,9 +289,15 @@ def set_dolares_referencia(
     dolar_bna: float | None,
     dolar_matba: float | None,
     email: str,
+    bna_comprador_t1: float | None = None,
 ) -> dict[str, Any]:
     """Upsert de los dólares de referencia. None = no tocar ese dólar."""
     return _set_param_doc(
         _DOLARES_KEY, _DOLARES_FIELDS,
-        {"dolar_bna": dolar_bna, "dolar_matba": dolar_matba}, email,
+        {
+            "dolar_bna": dolar_bna,
+            "dolar_matba": dolar_matba,
+            "bna_comprador_t1": bna_comprador_t1,
+        },
+        email,
     )

@@ -30,7 +30,8 @@ def _cols(cur, schema: str, table: str) -> list[str]:
         "SELECT column_name FROM information_schema.columns "
         "WHERE table_schema = %s AND table_name = %s ORDER BY ordinal_position",
         (schema, table))
-    return [r[0] for r in cur.fetchall()]
+    # cursor con row_factory=dict_row → cada fila es dict, no tupla.
+    return [r["column_name"] for r in cur.fetchall()]
 
 
 def _run(cur, titulo: str, sql: str, params: dict) -> None:

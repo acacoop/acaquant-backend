@@ -37,6 +37,9 @@ _CMDS: dict[str, list[str]] = {
     "crear_indices":   ["scripts.crear_indices"],
     "cleanup_curvas":  ["jobs.cleanup_curvas", "--dry"],
     "backfill_tasas":  ["jobs.backfill_tasas"],
+    # Auto-control de calidad de datos: re-corre los 5 controles y actualiza
+    # manager.controles_datos (sin Telegram — botón "CORRER AHORA" de la tab).
+    "controles_datos": ["jobs.controles_datos", "--no-telegram"],
 }
 
 

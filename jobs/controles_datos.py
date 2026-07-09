@@ -74,16 +74,23 @@ def _ensure() -> None:
 
 # ── Controles (cada uno devuelve [{key, detalle}]) ───────────────────────────
 
+# La matriz de forwards que importa a la mesa es SOLO la de la tabla de renta
+# fija: TASA FIJA y CER. Las curvas de ONs (on_*) tienen forwards publicados
+# pero sus faltantes no son accionables (bonos ilíquidos) → ruido.
+CURVAS_FORWARDS = ("tasa_fija", "cer")
+
+
 def _chk_forwards_faltantes() -> list[dict]:
     """Bonos del master ausentes de la matriz de forwards de su curva + matrices
-    stale. Solo evalúa curvas que el motor efectivamente publica (hay doc en
-    mercado_hist), así no inventa faltantes para curvas sin forwards."""
+    stale. Solo evalúa CURVAS_FORWARDS (tasa_fija/cer) que el motor efectivamente
+    publica (hay doc en mercado_hist)."""
     from core.curvas_sql import agrupado_por_curva
     from core.market_snapshot import cols_map
     grupos = agrupado_por_curva()
     docs = {r["k"]: r for r in _q(
         "SELECT DISTINCT ON (k) k, fecha, data FROM mercado.mercado_hist "
-        "WHERE coleccion = 'ForwardsHistorico' ORDER BY k, fecha DESC")}
+        "WHERE coleccion = 'ForwardsHistorico' AND k = ANY(%s) ORDER BY k, fecha DESC",
+        (list(CURVAS_FORWARDS),))}
     items: list[dict] = []
     for curva, doc in docs.items():
         insts = grupos.get(curva) or []
@@ -102,8 +109,10 @@ def _chk_forwards_faltantes() -> list[dict]:
         snap = cols_map([master[tc] for tc in faltantes], ["tea", "duration", "last_price"])
         for tc in faltantes:
             m = snap.get(master[tc]) or {}
-            if m.get("last_price") is None:
-                causa = "sin precio en market_snapshot (no operó / motor no lo suscribe)"
+            # last_price None O 0 = no operó (el dry-run 2026-07-09 mostró filas
+            # con precio 0: "cotiza sin TEA" era engañoso — no había trade).
+            if not m.get("last_price"):
+                causa = "no operó (sin precio vivo en market_snapshot)"
             elif m.get("tea") is None:
                 causa = "cotiza pero SIN TEA (motor_curvas no le calculó tasa — revisar flujos/CER del bono)"
             elif m.get("duration") is None:

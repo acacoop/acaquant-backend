@@ -31,7 +31,6 @@ slowapi==0.1.9  # rate-limit por usuario en /api/chat y /manager/jobs/run
 pyjwt[crypto]==2.12.1  # validación de JWT de Cloudflare Access
 email-validator==2.3.0  # requerido por pydantic.EmailStr en /api/manager/users
 mcp==1.27.0  # Model Context Protocol — server expuesto en /mcp para Claude Desktop/Code
-anthropic  # SDK Claude — lectura ejecutiva del auto-control (core/ai_resumen.py). Re-pinear con lock_deps tras instalar.
 orjson==3.11.8  # serializer JSON nativo de FastAPI — más rápido + menos RAM que stdlib
 ruff==0.15.11
 pytest==9.0.3

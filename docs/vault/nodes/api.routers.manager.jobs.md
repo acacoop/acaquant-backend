@@ -22,9 +22,12 @@ Conecta con: lanza subprocesos de `jobs.*` y `scripts.crear_indices` (cwd = PROJ
 - [[api.ratelimit]]  ·  _module_
 - [[api.routers.manager._common]]  ·  _module_
 - [[api.services]]  ·  _module_
+- [[api.services.jobs_catalogo]]  ·  _module_
 - [[api.services.manager_infra_sql]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_
 - [[web.cmp.jobs-runs-panel]]  ·  _component_
+- [[web.cmp.manager-controles-panel]]  ·  _component_
+- [[web.cmp.manager-jobs-panel]]  ·  _component_
 - [[web.cmp.manager-view]]  ·  _component_

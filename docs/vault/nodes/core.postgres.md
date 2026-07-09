@@ -60,6 +60,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.import_tenencia]]  ·  _module_
 - [[api.services.import_tenencia_sql]]  ·  _module_
 - [[api.services.intraday]]  ·  _module_
+- [[api.services.jobs_catalogo]]  ·  _module_
 - [[api.services.macro_sql]]  ·  _module_
 - [[api.services.manager_infra_sql]]  ·  _module_
 - [[api.services.market_sql]]  ·  _module_

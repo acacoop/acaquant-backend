@@ -6,8 +6,8 @@
 
 ## Qué hay adentro
 
-- **266** module
-- **105** component
+- **267** module
+- **107** component
 - **60** route
 - **37** cron
 - **29** collection

@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-152 notas.
+153 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -112,6 +112,7 @@
 - [[api.services.import_tenencia]] — api/services/import_tenencia.py — import masivo de tenencia a Valuaciones.AuM.
 - [[api.services.import_tenencia_sql]] — api/services/import_tenencia_sql.py — import manual a SQL `portafolio.tenencia`.
 - [[api.services.intraday]] — api/services/intraday.py — monitor intradía de renta variable (FIFO).
+- [[api.services.jobs_catalogo]] — api/services/jobs_catalogo.py — catálogo COMPLETO de jobs agendados.
 - [[api.services.macro]] — Capa de servicio — series macro y clasificación.
 - [[api.services.macro_sql]] — api/services/macro_sql.py — Series macro 100% SQL (decomiso Mongo).
 - [[api.services.manager_infra_sql]] — api/services/manager_infra_sql.py — lecturas SQL de la infra de Manager.

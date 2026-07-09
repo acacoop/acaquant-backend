@@ -4,7 +4,7 @@
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
-- [[core.ai_resumen]] — core/ai_resumen.py — lectura ejecutiva con Claude para los informes operativos.
+- [[core.ai_resumen]] — core/ai_resumen.py — lectura ejecutiva con IA para los informes operativos.
 - [[core.argentina_datos]] — Cliente de argentinadatos.com — indicadores macro AR públicos.
 - [[core.aunesa]] — core/aunesa.py — cliente único de la API del custodio Aunesa.
 - [[core.brackets]] — Brackets — entrada LIMIT + salida automática cuando la entrada se llena.

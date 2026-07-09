@@ -24,6 +24,7 @@ Conecta con: no hace fetch propio relevante — orquesta los sub-paneles, cada u
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.routers.manager.clientes]]  ·  _module_
 - [[api.routers.manager.compliance]]  ·  _module_
+- [[api.routers.manager.controles]]  ·  _module_
 - [[api.routers.manager.diagnostico]]  ·  _module_
 - [[api.routers.manager.jobs]]  ·  _module_
 - [[api.routers.manager.ons]]  ·  _module_

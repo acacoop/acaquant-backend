@@ -39,6 +39,7 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.descomposicion_retorno]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
+- [[api.services.jobs_catalogo]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.macro_sql]]  ·  _module_
 - [[api.services.market_sql]]  ·  _module_

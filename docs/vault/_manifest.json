@@ -607,6 +607,7 @@
 "api.ratelimit",
 "api.routers.manager._common",
 "api.services",
+"api.services.jobs_catalogo",
 "api.services.manager_infra_sql"
 ]
 },
@@ -1528,6 +1529,18 @@
 ]
 },
 {
+"id": "api.services.jobs_catalogo",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/jobs_catalogo.py",
+"summary": "api/services/jobs_catalogo.py — catálogo COMPLETO de jobs agendados.",
+"links": [
+"api.cache",
+"core.postgres"
+]
+},
+{
 "id": "api.services.macro",
 "type": "module",
 "layer": "api",
@@ -2144,7 +2157,7 @@
 "layer": "core",
 "repo": "backend",
 "path": "core/ai_resumen.py",
-"summary": "core/ai_resumen.py — lectura ejecutiva con Claude para los informes operativos.",
+"summary": "core/ai_resumen.py — lectura ejecutiva con IA para los informes operativos.",
 "links": []
 },
 {
@@ -5674,6 +5687,18 @@
 ]
 },
 {
+"id": "web.cmp.manager-controles-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/manager-controles-panel.tsx",
+"summary": "",
+"links": [
+"api.routers.manager.controles",
+"api.routers.manager.jobs"
+]
+},
+{
 "id": "web.cmp.manager-debug-tea",
 "type": "component",
 "layer": "web-component",
@@ -5696,6 +5721,18 @@
 ]
 },
 {
+"id": "web.cmp.manager-jobs-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/manager-jobs-panel.tsx",
+"summary": "",
+"links": [
+"api.routers.manager.jobs",
+"web.lib.use-persisted-state"
+]
+},
+{
 "id": "web.cmp.manager-view",
 "type": "component",
 "layer": "web-component",
@@ -5710,6 +5747,7 @@
 "api.routers.manager.checks",
 "api.routers.manager.clientes",
 "api.routers.manager.compliance",
+"api.routers.manager.controles",
 "api.routers.manager.diagnostico",
 "api.routers.manager.jobs",
 "api.routers.manager.ons",

@@ -89,6 +89,15 @@ def _parse_dt(s: str) -> datetime:
         return datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=UTC)
 
 
+@router.get("/jobs/catalogo")
+def get_jobs_catalogo():
+    """Catálogo COMPLETO de jobs agendados: se parsea deploy/crontab.txt en
+    runtime (nunca desactualizado) + último run por módulo desde job_runs.
+    Lo consume Manager → OBSERVABILIDAD → JOBS."""
+    from api.services.jobs_catalogo import catalogo_jobs
+    return catalogo_jobs()
+
+
 @router.get("/jobs/history")
 def get_jobs_history(
     tipo: str | None = Query(None, description="Filtrar por tipo de job (carteras, aum, ...)"),

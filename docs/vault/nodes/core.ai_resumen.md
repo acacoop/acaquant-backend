@@ -9,7 +9,7 @@ path: core/ai_resumen.py
 
 # core/ai_resumen
 
-> core/ai_resumen.py — lectura ejecutiva con Claude para los informes operativos.
+> core/ai_resumen.py — lectura ejecutiva con IA para los informes operativos.
 
 **Archivo:** `core/ai_resumen.py`
 

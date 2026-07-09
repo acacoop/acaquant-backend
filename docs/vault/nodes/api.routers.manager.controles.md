@@ -21,3 +21,5 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_
+- [[web.cmp.manager-controles-panel]]  ·  _component_
+- [[web.cmp.manager-view]]  ·  _component_

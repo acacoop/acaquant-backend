@@ -32,5 +32,17 @@ def listar_controles(incluir_resueltos_dias: int = 7) -> dict:
             "desde": r["first_seen"], "visto": r["last_seen"],
             "resuelto": r["resuelto_at"],
         })
+    # Última corrida del job (para que el front auto-dispare si está viejo y
+    # muestre "actualizado hace X"). Best-effort: sin runs → None.
+    ultima = None
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT max(started_at)::text FROM manager.job_runs "
+                        "WHERE tipo = 'controles_datos'")
+            row = cur.fetchone()
+            ultima = row[0] if row else None
+    except Exception:
+        pass
     return {"controles": out,
-            "totales": {cid: len(g["activos"]) for cid, g in out.items()}}
+            "totales": {cid: len(g["activos"]) for cid, g in out.items()},
+            "ultima_corrida": ultima}

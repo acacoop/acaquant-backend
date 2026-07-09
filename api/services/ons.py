@@ -119,7 +119,7 @@ def _upsert_curva_doc(doc: dict) -> dict:
     y reescribe la fila completa → no pierde campos que el payload no trae. Devuelve
     el doc guardado (releído de SQL)."""
     tc = (doc.get("ticker_corto") or "").strip()
-    existing = curvas_sql.find_one(tc) or {}
+    existing = curvas_sql.find_one(tc) or {}  # perf-ok: PERF004 — 1ª lectura = base del merge; la 2ª relee POST-write (contrato: devolver lo guardado). Mutación admin, corre poco.
     write_native("mercado.curvas", ["ticker_corto"], [curva_doc_to_row({**existing, **doc})])
     curvas_sql.invalidar()   # refrescar el cache del master tras el alta/edición
     return curvas_sql.find_one(tc) or {}

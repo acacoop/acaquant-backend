@@ -115,9 +115,12 @@ def get_historico_opciones(
         params.append(tipo.upper())
 
     # bucket = floor(epoch/900)*900 → instante de inicio de la franja de 15 min.
+    # Proyección server-side de los campos del jsonb (data->'f' preserva el tipo):
+    # viaja solo lo que el chart consume, no el doc entero por fila (hasta 20k filas).
+    proj = ", ".join(f"data->'{f}' AS \"{f}\"" for f in _HIST_FIELDS)
     sql = (
         "SELECT DISTINCT ON (symbol, floor(extract(epoch FROM ts) / 900)) "
-        "  symbol, ts, data "
+        f"  symbol, ts, {proj} "
         "FROM mercado.options_data "
         f"WHERE {' AND '.join(where)} "
         "ORDER BY symbol, floor(extract(epoch FROM ts) / 900), ts DESC "
@@ -127,11 +130,8 @@ def get_historico_opciones(
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         cur.execute(sql, tuple(params))
         for r in cur.fetchall():
-            d = r["data"] or {}
             row = {"instrumento": r["symbol"], "timestamp": r["ts"]}
-            for f in _HIST_FIELDS:
-                if f in d:
-                    row[f] = d[f]
+            row.update({f: r[f] for f in _HIST_FIELDS})
             out.append(row)
     # Mongo devuelve desc por timestamp (el cliente lo revierte). DISTINCT ON ordena por
     # (symbol, bucket) → re-ordenar en Python para igualar el contrato.
@@ -145,13 +145,13 @@ def get_vr_ggal_serie() -> list:
     Mismo shape/orden (asc por fecha) que el path Mongo."""
     out: list[dict] = []
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        cur.execute("SELECT fecha, data FROM mercado.options_vr ORDER BY fecha")
+        cur.execute("SELECT fecha, data->'LOCAL_Close' AS local, data->'ADR_Close' AS adr "
+                    "FROM mercado.options_vr ORDER BY fecha")
         for r in cur.fetchall():
-            d = r["data"] or {}
             out.append({
                 "fecha": r["fecha"].isoformat() if r["fecha"] else None,
-                "local": d.get("LOCAL_Close"),
-                "adr":   d.get("ADR_Close"),
+                "local": r["local"],
+                "adr":   r["adr"],
             })
     return out
 
@@ -162,19 +162,19 @@ def get_griegas_historico(instrumento: str) -> list:
     Una fila por fecha. `instrumento` acepta forma corta o completa (ILIKE). asc por fecha.
     Mismo shape que el path Mongo (`opciones.get_griegas_historico`)."""
     flds = ("delta", "gamma", "vega", "theta", "iv", "last", "spot", "tipo", "strike")
+    proj = ", ".join(f"data->'{f}' AS \"{f}\"" for f in flds)
     out: list[dict] = []
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        # ILIKE %..% (forma corta = substring) no puede usar el índice b-tree de symbol —
+        # aceptado: la tabla es chica (1 fila/contrato/día) y la fn está @cached(120s).
         cur.execute(
-            "SELECT fecha, data FROM mercado.options_data_hist "
+            f"SELECT fecha, {proj} FROM mercado.options_data_hist "
             "WHERE symbol ILIKE %s ORDER BY fecha",
             (f"%{instrumento}%",),
         )
         for r in cur.fetchall():
-            d = r["data"] or {}
             row = {"fecha": r["fecha"]}
-            for f in flds:
-                if f in d:
-                    row[f] = d[f]
+            row.update({f: r[f] for f in flds})
             out.append(row)
     return out
 

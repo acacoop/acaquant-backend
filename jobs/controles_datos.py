@@ -157,6 +157,23 @@ def _chk_comitentes_sin_nivel1() -> list[dict]:
             for r in rows if r.get("id_cuenta")]
 
 
+def _chk_simbolos_cuarentena() -> list[dict]:
+    """Símbolos en cuarentena: ROFEX los rechazó ("Product don't exist") y el WS
+    los excluye de las suscripciones (core/simbolos_cuarentena). La causa de
+    fondo suele ser un ticker mal cargado o un bono vencido en el master —
+    corregirlo ahí es el fix definitivo. Se auto-resuelven si ROFEX los vuelve
+    a aceptar en la ventana de reintento (7d)."""
+    rows = _q(
+        "SELECT ticker, motivo, rechazos, last_seen::date AS ultimo "
+        "FROM mercado.simbolos_cuarentena "
+        "WHERE last_seen >= now() - interval '7 days' ORDER BY ticker")
+    return [{
+        "key": r["ticker"],
+        "detalle": (f"{r['ticker']}: {r['motivo']} — {r['rechazos']} rechazo(s), "
+                    f"último {r['ultimo']}"),
+    } for r in rows if r.get("ticker")]
+
+
 def _chk_contrapartes_pendientes() -> list[dict]:
     """Conciliador de contrapartes (= botón "Solicitar cuentas" de Manager):
     cuentas de Aunesa que matchean una contraparte conocida y NO están dadas de
@@ -184,6 +201,8 @@ CONTROLES: list[Control] = [
     Control("forwards_faltantes", "Bonos ausentes de forwards", True, _chk_forwards_faltantes),
     Control("rf_sin_tasa", "Renta fija cotizando sin TEA/TNA", True, _chk_rf_sin_tasa),
     Control("assets_sin_cartera", "Assets sin cartera", True, _chk_assets_sin_cartera),
+    Control("simbolos_cuarentena", "Símbolos rechazados por ROFEX (cuarentena)", True,
+            _chk_simbolos_cuarentena),
     Control("comitentes_sin_nivel1", "Comitentes activos sin nivel 1", False,
             _chk_comitentes_sin_nivel1),
     Control("contrapartes_pendientes", "Cuentas de contrapartes sin dar de alta", False,

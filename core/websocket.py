@@ -78,6 +78,20 @@ class WebSocketManager:
         pide BIDS/OFFERS)."""
         if not lista_tickers:
             return
+        # Filtro de cuarentena: símbolos que ROFEX rechazó hace poco no se
+        # vuelven a pedir (pasada la ventana de reintento entran de nuevo solos).
+        # Best-effort: sin Postgres, set vacío → se suscribe todo como antes.
+        from core.simbolos_cuarentena import excluidos
+        q = excluidos()
+        if q:
+            antes = len(lista_tickers)
+            lista_tickers = [t for t in lista_tickers if t not in q]
+            if antes != len(lista_tickers):
+                logger.info(
+                    "WS %s: %d símbolo(s) en cuarentena excluidos de la suscripción",
+                    self._nombre, antes - len(lista_tickers))
+            if not lista_tickers:
+                return
         ents = entries if entries is not None else self._ENTRIES
         chunk_size = 50
         for i in range(0, len(lista_tickers), chunk_size):
@@ -179,6 +193,12 @@ class WebSocketManager:
                 self._nombre, bad,
             )
             self._purgar_simbolos(bad)
+            # Playbook determinista: persistir la lección para que el próximo
+            # arranque NO vuelva a pedir el símbolo muerto (la purga en memoria
+            # se perdía en cada reinicio y el error se repetía todos los días).
+            # Best-effort + guardrail de masa adentro (core/simbolos_cuarentena).
+            from core.simbolos_cuarentena import agregar as _cuarentenar
+            _cuarentenar(bad, motivo=f"ROFEX: Product don't exist (WS {self._nombre})")
             self._reconectar()
             return
         # Resto de errores: transitorio → solo log (no Telegram). El loop de

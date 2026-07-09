@@ -1311,6 +1311,17 @@ CREATE TABLE IF NOT EXISTS manager.controles_datos (
 CREATE INDEX IF NOT EXISTS ix_controles_datos_activos
     ON manager.controles_datos(control_id) WHERE resuelto_at IS NULL;
 
+-- Cuarentena de símbolos que ROFEX rechaza ("Product don't exist"). El WS los
+-- persiste (core/simbolos_cuarentena) y las suscripciones los excluyen mientras
+-- last_seen < 7 días (después se reintentan solos). Nunca se borra: reversible.
+CREATE TABLE IF NOT EXISTS mercado.simbolos_cuarentena (
+    ticker     text PRIMARY KEY,
+    motivo     text,
+    first_seen timestamptz NOT NULL DEFAULT now(),
+    last_seen  timestamptz NOT NULL DEFAULT now(),
+    rechazos   integer NOT NULL DEFAULT 1
+);
+
 -- Manager.AranceelesJobRuns → tracking UI del backfill de aranceles (jobs/aranceles.py,
 -- 1 doc/run + updates). Cabecera columnar + stats/ejemplos/errores en jsonb.
 CREATE TABLE IF NOT EXISTS manager.aranceles_job_runs (

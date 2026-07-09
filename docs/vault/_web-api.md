@@ -1,6 +1,6 @@
 # 🔌 web — rutas API (proxy)
 
-53 notas.
+60 notas.
 
 - [[web.api.api.analitica.[...path]]]
 - [[web.api.api.argy]]
@@ -13,6 +13,7 @@
 - [[web.api.api.aum-total.snapshot]]
 - [[web.api.api.back-office.acreencias.[...path]]]
 - [[web.api.api.back-office.tenencia-hd.[[...path]]]]
+- [[web.api.api.back-office.tesoreria.[[...path]]]]
 - [[web.api.api.back-office.titulos-mercado]]
 - [[web.api.api.cashflow]]
 - [[web.api.api.caucion]]
@@ -23,10 +24,13 @@
 - [[web.api.api.derivados-agro]]
 - [[web.api.api.derivados-agro.camara]]
 - [[web.api.api.derivados-agro.camara.[cereal]]]
+- [[web.api.api.derivados-agro.descuento-caucion]]
+- [[web.api.api.derivados-agro.dolares-referencia]]
 - [[web.api.api.derivados-agro.estrategia.simular]]
 - [[web.api.api.derivados-agro.mejoras-dispo]]
 - [[web.api.api.derivados-agro.opciones.[commodity]]]
 - [[web.api.api.derivados-agro.pizarra.[commodity]]]
+- [[web.api.api.derivados-agro.tasas-cobertura]]
 - [[web.api.api.derivados-sinteticos]]
 - [[web.api.api.dolares-historico]]
 - [[web.api.api.futuros-dlr]]
@@ -44,10 +48,13 @@
 - [[web.api.api.operativa.[[...path]]]]
 - [[web.api.api.ordenes.[[...path]]]]
 - [[web.api.api.portfolio-cuentas]]
+- [[web.api.api.portfolio.niveles-1]]
 - [[web.api.api.portfolio.operadores]]
+- [[web.api.api.research.[...path]]]
 - [[web.api.api.risk.[[...path]]]]
 - [[web.api.api.scanner.[...path]]]
 - [[web.api.api.trades]]
+- [[web.api.api.trading.[...path]]]
 - [[web.api.api.valuaciones.[id_cuenta].mensual]]
 - [[web.api.api.valuaciones.[id_cuenta].movimientos]]
 - [[web.api.api.valuaciones.[id_cuenta].posiciones]]

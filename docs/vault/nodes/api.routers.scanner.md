@@ -33,8 +33,12 @@ Conecta con: delega en `api.services.scanner` y `api.services.rv_motor` (leen `T
 - [[web.cmp.cedears-timesales-panel]]  ·  _component_
 - [[web.cmp.coberturas-view]]  ·  _component_
 - [[web.cmp.estrategia-shared]]  ·  _component_
+- [[web.cmp.live-intraday-chart]]  ·  _component_
 - [[web.cmp.pivot-points-panel]]  ·  _component_
 - [[web.cmp.scanner-view]]  ·  _component_
 - [[web.cmp.ticker-chart-panel]]  ·  _component_
+- [[web.cmp.trading-movers-scanner]]  ·  _component_
+- [[web.cmp.trading-view]]  ·  _component_
+- [[web.cmp.trading-volumen-scanner]]  ·  _component_
 - [[web.lib.proxy]]  ·  _lib_
 - [[web.view.renta-variable.view]]  ·  _view_

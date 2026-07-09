@@ -24,9 +24,11 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.cotizaciones]]  ·  _module_
 - [[api.routers.derivados_agro]]  ·  _module_
+- [[api.routers.manager.aca_valores]]  ·  _module_
 - [[api.routers.manager.assets]]  ·  _module_
 - [[api.routers.manager.aunesa]]  ·  _module_
 - [[api.routers.manager.bonos]]  ·  _module_
+- [[api.routers.manager.breakevens]]  ·  _module_
 - [[api.routers.manager.compliance]]  ·  _module_
 - [[api.routers.manager.contrapartes]]  ·  _module_
 - [[api.routers.manager.control_automatico]]  ·  _module_
@@ -41,10 +43,13 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.routers.operativa]]  ·  _module_
 - [[api.routers.ordenes]]  ·  _module_
+- [[api.routers.research]]  ·  _module_
 - [[api.routers.risk]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
+- [[api.routers.trading]]  ·  _module_
 - [[api.routers.valuaciones]]  ·  _module_
 - [[api.services.acreencias]]  ·  _module_
+- [[api.services.agro_cobertura]]  ·  _module_
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
@@ -58,6 +63,7 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.renta_fija]]  ·  _module_
 - [[api.services.repo]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
+- [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_

@@ -26,4 +26,6 @@ _(pendiente de enriquecimiento)_
 ## Lo usan (backlinks) ←
 - [[api.mcp.tools.renta_variable]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
+- [[api.routers.trading]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
+- [[api.services.trading_pivots]]  ·  _module_

@@ -17,6 +17,7 @@ path: api/services/operaciones_sql.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.cache]]  ·  _module_
 - [[api.services]]  ·  _module_
 - [[api.services.cashflow_sql]]  ·  _module_
 - [[core.postgres]]  ·  _module_

@@ -27,3 +27,4 @@ Conecta con: lanza subprocesos de `jobs.*` y `scripts.crear_indices` (cwd = PROJ
 ## Lo usan (backlinks) ←
 - [[api.routers.manager]]  ·  _module_
 - [[web.cmp.jobs-runs-panel]]  ·  _component_
+- [[web.cmp.manager-view]]  ·  _component_

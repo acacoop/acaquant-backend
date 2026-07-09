@@ -27,6 +27,7 @@ Conecta con: lee la identidad verificada vía `web.lib.cf-access` (`trustedEmail
 - [[web.api.api.aum-total.snapshot]]  ·  _route_
 - [[web.api.api.back-office.acreencias.[...path]]]  ·  _route_
 - [[web.api.api.back-office.tenencia-hd.[[...path]]]]  ·  _route_
+- [[web.api.api.back-office.tesoreria.[[...path]]]]  ·  _route_
 - [[web.api.api.back-office.titulos-mercado]]  ·  _route_
 - [[web.api.api.cashflow]]  ·  _route_
 - [[web.api.api.caucion]]  ·  _route_
@@ -36,10 +37,13 @@ Conecta con: lee la identidad verificada vía `web.lib.cf-access` (`trustedEmail
 - [[web.api.api.derivados-agro]]  ·  _route_
 - [[web.api.api.derivados-agro.camara]]  ·  _route_
 - [[web.api.api.derivados-agro.camara.[cereal]]]  ·  _route_
+- [[web.api.api.derivados-agro.descuento-caucion]]  ·  _route_
+- [[web.api.api.derivados-agro.dolares-referencia]]  ·  _route_
 - [[web.api.api.derivados-agro.estrategia.simular]]  ·  _route_
 - [[web.api.api.derivados-agro.mejoras-dispo]]  ·  _route_
 - [[web.api.api.derivados-agro.opciones.[commodity]]]  ·  _route_
 - [[web.api.api.derivados-agro.pizarra.[commodity]]]  ·  _route_
+- [[web.api.api.derivados-agro.tasas-cobertura]]  ·  _route_
 - [[web.api.api.derivados-sinteticos]]  ·  _route_
 - [[web.api.api.dolares-historico]]  ·  _route_
 - [[web.api.api.futuros-dlr]]  ·  _route_
@@ -51,9 +55,12 @@ Conecta con: lee la identidad verificada vía `web.lib.cf-access` (`trustedEmail
 - [[web.api.api.news.article]]  ·  _route_
 - [[web.api.api.opciones-meta]]  ·  _route_
 - [[web.api.api.portfolio-cuentas]]  ·  _route_
+- [[web.api.api.portfolio.niveles-1]]  ·  _route_
 - [[web.api.api.portfolio.operadores]]  ·  _route_
+- [[web.api.api.research.[...path]]]  ·  _route_
 - [[web.api.api.scanner.[...path]]]  ·  _route_
 - [[web.api.api.trades]]  ·  _route_
+- [[web.api.api.trading.[...path]]]  ·  _route_
 - [[web.api.api.valuaciones.[id_cuenta].mensual]]  ·  _route_
 - [[web.api.api.valuaciones.[id_cuenta].movimientos]]  ·  _route_
 - [[web.api.api.valuaciones.[id_cuenta].posiciones]]  ·  _route_

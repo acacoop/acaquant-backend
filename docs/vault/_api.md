@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-140 notas.
+152 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -28,14 +28,17 @@
 - [[api.routers.ingest]] — Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet.
 - [[api.routers.manager]] — Manager API — paquete con sub-routers por sub-dominio.
 - [[api.routers.manager._common]] — Constantes y helpers compartidos entre los sub-módulos de manager/.
+- [[api.routers.manager.aca_valores]] — Manager sub-router — set de cuentas ACA VALORES (módulo `manager_clientes`).
 - [[api.routers.manager.assets]] — Manager sub-router — control del catálogo de títulos (segmentación).
 - [[api.routers.manager.aunesa]] — Manager · Aunesa — endpoint exploratorio en vivo.
 - [[api.routers.manager.bonos]] — Manager sub-router — Títulos → Bonos (Trading.Curvas directo, NO-ON).
+- [[api.routers.manager.breakevens]] — Manager sub-router — Títulos → Breakevens (curaduría de pares).
 - [[api.routers.manager.checks]] — GET /api/manager/checks/* — validaciones de consistencia sobre Mongo.
 - [[api.routers.manager.clientes]] — Manager sub-router — edición de `clientes.comitentes` (segmentación comercial, SQL).
 - [[api.routers.manager.compliance]] — Manager sub-router — COMPLIANCE: operador nuestro vs Aunesa.
 - [[api.routers.manager.contrapartes]] — Manager sub-router — vista CONTRAPARTES (módulo `manager_contrapartes`).
 - [[api.routers.manager.control_automatico]] — POST /api/manager/control-automatico/* — conciliación Excel↔cuentas + segmentar.
+- [[api.routers.manager.controles]] — GET /api/manager/controles — anomalías del auto-control de calidad de datos.
 - [[api.routers.manager.diagnostico]] — GET /api/manager/diagnostico — árbol de salud por vista (motores/jobs/apis).
 - [[api.routers.manager.grupos]] — Manager sub-router — grupos de acceso por cuenta.
 - [[api.routers.manager.import_tenencia]] — Manager sub-router — import masivo de tenencia a Valuaciones.AuM (admin).
@@ -58,9 +61,11 @@
 - [[api.routers.operar]] — Router /api/operar — soporte para la vista "Operar Dashboard".
 - [[api.routers.operativa]] — Router /api/operativa — wrappers operativos sobre /api/ordenes.
 - [[api.routers.ordenes]] — Router /api/ordenes — envío/cancel/listado de órdenes contra ROFEX (LIVE).
+- [[api.routers.research]] — Router /api/research — vista Análisis Fundamental del módulo Renta Variable.
 - [[api.routers.risk]] — Router /api/risk — datos de cuenta del broker (saldos, posiciones, márgenes).
 - [[api.routers.scanner]] — Router /api/scanner — vista Scanner del módulo Renta Variable.
 - [[api.routers.titulos]] — Router Titulos: assets + flujos, DIRECTO desde las fuentes (Valuaciones.Assets
+- [[api.routers.trading]] — Router /api/trading — vista TRADING (módulo `trading`, admin-only).
 - [[api.routers.valuaciones]] — Router /api/valuaciones — performance e historia por cuenta.
 - [[api.services]]
 - [[api.services._cuentas_filter]] — Helpers compartidos para filtrar pipelines Mongo por tipo de cuenta.
@@ -71,7 +76,9 @@
 - [[api.services._negocio_futuros]] — Filtro de exclusión de futuros para queries sobre CashFlow.NegocioMovimientos.
 - [[api.services._negocio_informacion_filter]] — Filtro de exclusión por `informacion` para CashFlow.NegocioMovimientos.
 - [[api.services._negocio_sql_read]] — Lectura de boletos desde SQL `operaciones.negocio_movimientos` devolviendo dicts
+- [[api.services.aca_valores]] — api/services/aca_valores.py — CRUD del set de cuentas "ACA VALORES" (SQL).
 - [[api.services.acreencias]] — api/services/acreencias.py — motor de acreencias (cobros futuros por cliente).
+- [[api.services.agro_cobertura]] — Service — Pase con Cobertura (AGRO).
 - [[api.services.agro_sql]] — api/services/agro_sql.py — dominio AGRO / Derivados Agro leyendo Postgres.
 - [[api.services.analitica]] — Capa de servicio — analítica Tier 2 sobre data existente.
 - [[api.services.argy]] — Capa de servicio — métricas argentinas con returns calculados.
@@ -81,6 +88,7 @@
 - [[api.services.aunesa_negocio]] — aunesa_negocio.py — service compartido para análisis del endpoint
 - [[api.services.back_office_titulos]] — Service — Títulos / Mercado (Back Office).
 - [[api.services.bonos_admin]] — api/services/bonos_admin.py — alta/edición de bonos NO-ON directo en Trading.Curvas.
+- [[api.services.breakevens_admin]] — api/services/breakevens_admin.py — curaduría de pares de breakevens.
 - [[api.services.camara_cereales]] — Service — Cámara Arbitral de Cereales de Rosario.
 - [[api.services.canje]] — Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).
 - [[api.services.carry_trade]] — Serie de carry trade en USD para una curva (tasa_fija / cer).
@@ -92,6 +100,7 @@
 - [[api.services.contrapartes_seg]] — api/services/contrapartes_seg.py — segmentación + conciliador de `clientes.contrapartes` (SQL).
 - [[api.services.control_automatico]] — Control Automático (Clientes): concilia un Excel de CUITs contra nuestras cuentas.
 - [[api.services.control_comercial_sql]] — api/services/control_comercial_sql.py — vista CONTROL COMERCIAL (jefatura).
+- [[api.services.controles_sql]] — api/services/controles_sql.py — lectura del auto-control de calidad de datos.
 - [[api.services.day_trading]] — day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).
 - [[api.services.debug_curva]] — Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.
 - [[api.services.derivados]] — Capa de servicio — derivados (futuros DLR, forwards, breakevens).
@@ -130,6 +139,7 @@
 - [[api.services.renta_fija]] — Capa de servicio — renta fija (MarketSnapshot + TimeSales + Curvas).
 - [[api.services.renta_fija_sql]] — api/services/renta_fija_sql.py — renta fija LIVE leyendo Postgres (mercado.*).
 - [[api.services.repo]] — Capa de servicio — mercado repo (caución).
+- [[api.services.research_fundamentals]] — Capa de servicio — Análisis Fundamental (módulo Renta Variable).
 - [[api.services.risk]] — Servicio RISK — datos de cuenta del broker (saldos, posiciones, márgenes).
 - [[api.services.rv_motor]] — api/services/rv_motor.py — motor de la Mesa de Estrategia (Renta Variable).
 - [[api.services.scanner]] — api/services/scanner.py — vista Scanner del módulo Renta Variable.
@@ -139,6 +149,8 @@
 - [[api.services.sin_operador]] — Cuentas sin operador asignado — el bucket "(sin operador)" del ranking comercial.
 - [[api.services.sinteticos]] — Sintéticos — combinaciones LECAP/DLK + futuro DLR.
 - [[api.services.tenencia_hd]] — Service Tenencia Valorizada (cartera HD, cuentas propias 100/255/256) — SQL-NATIVE.
+- [[api.services.tesoreria]] — api/services/tesoreria.py — Back Office → Tesorería (ingresos/egresos del día).
 - [[api.services.titulos_flujos]] — api/services/titulos_flujos.py — flujos normalizados por instrumento.
+- [[api.services.trading_pivots]] — Pivots Floor Trader sobre el activo (ARS) — vista TRADING.
 - [[api.services.valuaciones]] — Valuaciones — performance e historia por cuenta. SQL-only (decomiso Mongo).
 - [[api.services.valuaciones_sql]] — api/services/valuaciones_sql.py — espejo SQL de api/services/valuaciones.py.

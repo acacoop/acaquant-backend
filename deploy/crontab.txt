@@ -18,6 +18,13 @@
 0 13-20 * * 1-5 /root/TradingAV/deploy/run_job.sh informe_salud 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.informe_salud'
 0 23 * * *      /root/TradingAV/deploy/run_job.sh informe_salud 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.informe_salud'
 
+# ─── Auto-control de CALIDAD DE DATOS → Telegram (media rueda, L-V)
+# Complementa al informe de salud (frescura) con controles de CONTENIDO: bonos
+# fuera de forwards, RF sin tasa, assets sin cartera, comitentes sin nivel_1,
+# contrapartes sin alta (conciliador Aunesa). Diffea contra manager.controles_datos
+# → alerta SOLO lo nuevo/resuelto. Con ANTHROPIC_API_KEY agrega lectura ejecutiva AI.
+30 16 * * 1-5 /root/TradingAV/deploy/run_job.sh controles_datos 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.controles_datos'
+
 # ─── Limpieza de instrumentos vencidos (12:30 UTC = 09:30 ART, L-V, antes de abrir motores)
 30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_curvas 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_curvas'
 30 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_futuros_dlr 10m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_futuros_dlr'

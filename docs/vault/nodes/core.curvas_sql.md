@@ -36,7 +36,10 @@ _(pendiente de enriquecimiento)_
 - [[api.services.sensibilidad]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
 - [[api.services.titulos_flujos]]  ·  _module_
+- [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
 - [[engines._curvas_loader]]  ·  _module_
+- [[jobs.bonos_ohlc_daily]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
+- [[jobs.controles_datos]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_

@@ -22,6 +22,7 @@ Conecta con: invoca `api.services.pnl.pnl_todas_cuentas_compute` (motor de PnL c
 - [[api.services.pnl_sql]]  ·  _module_
 - [[core.job_runs]]  ·  _module_
 - [[core.pg_mirror]]  ·  _module_
+- [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[cron.jobs.pnl_totales_precompute]]  ·  _cron_

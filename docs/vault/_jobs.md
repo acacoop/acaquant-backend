@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-42 notas.
+46 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -11,14 +11,18 @@
 - [[jobs.archive_options_data]] — archive_options_data.py — purga de mercado.options_data (SQL).
 - [[jobs.argentina_datos]] — Cron: pega argentinadatos.com y persiste riesgo país / IPC / REM en SQL (SQL-only).
 - [[jobs.aum]]
+- [[jobs.backfill_tasas]] — backfill_tasas.py — recalcula TEA/TEM/duration/paridad de TODOS los bonos de
 - [[jobs.bcra]]
+- [[jobs.bonos_ohlc_daily]] — bonos_ohlc_daily.py — guarda el OHLC diario de cada bono (ventana móvil).
 - [[jobs.cashflow]]
+- [[jobs.cedears_ohlc_daily]] — cedears_ohlc_daily.py — guarda el OHLC diario de cada CEDEAR (ventana móvil).
 - [[jobs.cierre_canje]] — cierre_canje.py — materializa el cierre diario de los tickers de canje.
 - [[jobs.cleanup_cedears_timesales]] — cleanup_cedears_timesales.py — vacía el Time & Sales intradía de CEDEARs.
 - [[jobs.cleanup_curvas]] — Limpieza de instrumentos vencidos en mercado.curvas (SQL-native).
 - [[jobs.cleanup_futuros_dlr]] — Limpieza de contratos DLR vencidos en mercado.futuros_dlr_snapshot (SQL).
 - [[jobs.comercial_warm]] — jobs/comercial_warm.py — precalienta la cache in-process de la vista COMERCIAL.
 - [[jobs.consolidado_cuentas]] — consolidado_cuentas.py — precalcula la valuación consolidada por cuenta.
+- [[jobs.controles_datos]] — controles_datos.py — Auto-control de CALIDAD DE DATOS de ACAQuant.
 - [[jobs.day_trading_stats]] — day_trading_stats.py — resumen diario de scalping por CEDEAR.
 - [[jobs.dias_habiles]] — dias_habiles.py — Carga días hábiles del calendario argentino a SQL (mercado.dias_habiles).
 - [[jobs.economic_calendar]] — economic_calendar.py — ingesta diaria del calendario económico global.

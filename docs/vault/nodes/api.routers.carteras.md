@@ -25,6 +25,7 @@ Conecta con: delega en services `portfolio` y `pnl`; usa `api.services._grupos_s
 - [[api.services.comercial_sql]]  ·  _module_
 - [[api.services.pnl_sql]]  ·  _module_
 - [[api.services.portfolio_sql]]  ·  _module_
+- [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_

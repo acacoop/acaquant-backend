@@ -75,9 +75,11 @@
 "api.routers.operar",
 "api.routers.operativa",
 "api.routers.ordenes",
+"api.routers.research",
 "api.routers.risk",
 "api.routers.scanner",
 "api.routers.titulos",
+"api.routers.trading",
 "api.routers.valuaciones",
 "config"
 ]
@@ -249,7 +251,8 @@
 "api.services",
 "api.services.acreencias",
 "api.services.back_office_titulos",
-"api.services.tenencia_hd"
+"api.services.tenencia_hd",
+"api.services.tesoreria"
 ]
 },
 {
@@ -265,7 +268,8 @@
 "api.services.comercial",
 "api.services.comercial_sql",
 "api.services.pnl_sql",
-"api.services.portfolio_sql"
+"api.services.portfolio_sql",
+"core.postgres"
 ]
 },
 {
@@ -311,6 +315,7 @@
 "links": [
 "api.auth",
 "api.services",
+"api.services.agro_cobertura",
 "api.services.agro_sql",
 "api.services.camara_cereales",
 "api.services.derivados_agro"
@@ -350,14 +355,17 @@
 "links": [
 "api.auth",
 "api.deps",
+"api.routers.manager.aca_valores",
 "api.routers.manager.assets",
 "api.routers.manager.aunesa",
 "api.routers.manager.bonos",
+"api.routers.manager.breakevens",
 "api.routers.manager.checks",
 "api.routers.manager.clientes",
 "api.routers.manager.compliance",
 "api.routers.manager.contrapartes",
 "api.routers.manager.control_automatico",
+"api.routers.manager.controles",
 "api.routers.manager.diagnostico",
 "api.routers.manager.grupos",
 "api.routers.manager.import_tenencia",
@@ -382,6 +390,19 @@
 "path": "api/routers/manager/_common.py",
 "summary": "Constantes y helpers compartidos entre los sub-módulos de manager/.",
 "links": []
+},
+{
+"id": "api.routers.manager.aca_valores",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/aca_valores.py",
+"summary": "Manager sub-router — set de cuentas ACA VALORES (módulo `manager_clientes`).",
+"links": [
+"api.auth",
+"api.services",
+"api.services.aca_valores"
+]
 },
 {
 "id": "api.routers.manager.assets",
@@ -429,6 +450,19 @@
 "api.services",
 "api.services.acreencias",
 "api.services.bonos_admin"
+]
+},
+{
+"id": "api.routers.manager.breakevens",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/breakevens.py",
+"summary": "Manager sub-router — Títulos → Breakevens (curaduría de pares).",
+"links": [
+"api.auth",
+"api.services",
+"api.services.breakevens_admin"
 ]
 },
 {
@@ -501,6 +535,17 @@
 "api.auth",
 "api.services",
 "api.services.control_automatico"
+]
+},
+{
+"id": "api.routers.manager.controles",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/manager/controles.py",
+"summary": "GET /api/manager/controles — anomalías del auto-control de calidad de datos.",
+"links": [
+"api.services.controles_sql"
 ]
 },
 {
@@ -806,6 +851,19 @@
 ]
 },
 {
+"id": "api.routers.research",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/research.py",
+"summary": "Router /api/research — vista Análisis Fundamental del módulo Renta Variable.",
+"links": [
+"api.auth",
+"api.services",
+"api.services.research_fundamentals"
+]
+},
+{
 "id": "api.routers.risk",
 "type": "module",
 "layer": "api",
@@ -850,6 +908,19 @@
 "api.services.titulos_flujos",
 "core",
 "core.curvas_sql"
+]
+},
+{
+"id": "api.routers.trading",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/trading.py",
+"summary": "Router /api/trading — vista TRADING (módulo `trading`, admin-only).",
+"links": [
+"api.services",
+"api.services.scanner_sql",
+"api.services.trading_pivots"
 ]
 },
 {
@@ -961,6 +1032,17 @@
 ]
 },
 {
+"id": "api.services.aca_valores",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/aca_valores.py",
+"summary": "api/services/aca_valores.py — CRUD del set de cuentas \"ACA VALORES\" (SQL).",
+"links": [
+"core.postgres"
+]
+},
+{
 "id": "api.services.acreencias",
 "type": "module",
 "layer": "api",
@@ -978,6 +1060,19 @@
 ]
 },
 {
+"id": "api.services.agro_cobertura",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/agro_cobertura.py",
+"summary": "Service — Pase con Cobertura (AGRO).",
+"links": [
+"api.services",
+"api.services.camara_cereales",
+"api.services.derivados_agro"
+]
+},
+{
 "id": "api.services.agro_sql",
 "type": "module",
 "layer": "api",
@@ -986,6 +1081,7 @@
 "summary": "api/services/agro_sql.py — dominio AGRO / Derivados Agro leyendo Postgres.",
 "links": [
 "api.services",
+"api.services.agro_cobertura",
 "api.services.camara_cereales",
 "api.services.derivados_agro",
 "api.services.mejoras_dispo",
@@ -1100,6 +1196,19 @@
 "api.services.ons",
 "core",
 "core.curvas_sql",
+"core.market_snapshot",
+"core.postgres"
+]
+},
+{
+"id": "api.services.breakevens_admin",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/breakevens_admin.py",
+"summary": "api/services/breakevens_admin.py — curaduría de pares de breakevens.",
+"links": [
+"api.services.mercado_hist_sql",
 "core.postgres"
 ]
 },
@@ -1252,7 +1361,19 @@
 "summary": "api/services/control_comercial_sql.py — vista CONTROL COMERCIAL (jefatura).",
 "links": [
 "api.cache",
+"api.services.comercial",
 "api.services.comercial_sql",
+"core.postgres"
+]
+},
+{
+"id": "api.services.controles_sql",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/controles_sql.py",
+"summary": "api/services/controles_sql.py — lectura del auto-control de calidad de datos.",
+"links": [
 "core.postgres"
 ]
 },
@@ -1483,6 +1604,7 @@
 "summary": "api/services/mercado_hist_sql.py — históricos de mercado leyendo Postgres.",
 "links": [
 "api.cache",
+"api.services.breakevens_admin",
 "core.postgres"
 ]
 },
@@ -1558,6 +1680,7 @@
 "path": "api/services/operaciones_sql.py",
 "summary": "api/services/operaciones_sql.py — vista OPERACIONES leyendo de Postgres (Supabase).",
 "links": [
+"api.cache",
 "api.services",
 "api.services.cashflow_sql",
 "core.postgres"
@@ -1664,6 +1787,7 @@
 "path": "api/services/pnl_sql.py",
 "summary": "api/services/pnl_sql.py — PnL Títulos leyendo de Postgres, REUSANDO el motor de pnl.py.",
 "links": [
+"api.cache",
 "api.services",
 "api.services._cuentas_filter",
 "api.services._mep",
@@ -1765,6 +1889,18 @@
 "api.cache",
 "api.services",
 "api.services.mercado_hist_sql"
+]
+},
+{
+"id": "api.services.research_fundamentals",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/research_fundamentals.py",
+"summary": "Capa de servicio — Análisis Fundamental (módulo Renta Variable).",
+"links": [
+"api.cache",
+"core.postgres"
 ]
 },
 {
@@ -1897,6 +2033,18 @@
 ]
 },
 {
+"id": "api.services.tesoreria",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/tesoreria.py",
+"summary": "api/services/tesoreria.py — Back Office → Tesorería (ingresos/egresos del día).",
+"links": [
+"core",
+"core.aunesa"
+]
+},
+{
 "id": "api.services.titulos_flujos",
 "type": "module",
 "layer": "api",
@@ -1907,6 +2055,24 @@
 "core",
 "core.curvas_sql",
 "core.postgres"
+]
+},
+{
+"id": "api.services.trading_pivots",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/trading_pivots.py",
+"summary": "Pivots Floor Trader sobre el activo (ARS) — vista TRADING.",
+"links": [
+"api.cache",
+"api.services",
+"api.services.scanner_sql",
+"core",
+"core.curvas_sql",
+"core.market_snapshot",
+"core.postgres",
+"quant.pivot_points"
 ]
 },
 {
@@ -1971,6 +2137,15 @@
 "links": [
 "core.postgres"
 ]
+},
+{
+"id": "core.ai_resumen",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/ai_resumen.py",
+"summary": "core/ai_resumen.py — lectura ejecutiva con Claude para los informes operativos.",
+"links": []
 },
 {
 "id": "core.argentina_datos",
@@ -2363,6 +2538,17 @@
 ]
 },
 {
+"id": "cron.jobs.bonos_ohlc_daily",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.bonos_ohlc_daily"
+]
+},
+{
 "id": "cron.jobs.cashflow",
 "type": "cron",
 "layer": "deploy",
@@ -2371,6 +2557,17 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.cashflow"
+]
+},
+{
+"id": "cron.jobs.cedears_ohlc_daily",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.cedears_ohlc_daily"
 ]
 },
 {
@@ -2437,6 +2634,17 @@
 "summary": "Tarea programada (cron).",
 "links": [
 "jobs.consolidado_cuentas"
+]
+},
+{
+"id": "cron.jobs.controles_datos",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.controles_datos"
 ]
 },
 {
@@ -3290,6 +3498,22 @@
 ]
 },
 {
+"id": "jobs.backfill_tasas",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/backfill_tasas.py",
+"summary": "backfill_tasas.py — recalcula TEA/TEM/duration/paridad de TODOS los bonos de",
+"links": [
+"core",
+"core.job_runs",
+"core.market_snapshot",
+"core.pg_mirror",
+"core.postgres",
+"engines.curvas"
+]
+},
+{
 "id": "jobs.bcra",
 "type": "module",
 "layer": "jobs",
@@ -3303,6 +3527,22 @@
 ]
 },
 {
+"id": "jobs.bonos_ohlc_daily",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/bonos_ohlc_daily.py",
+"summary": "bonos_ohlc_daily.py — guarda el OHLC diario de cada bono (ventana móvil).",
+"links": [
+"core",
+"core.curvas_sql",
+"core.job_runs",
+"core.market_snapshot",
+"core.pg_mirror",
+"core.postgres"
+]
+},
+{
 "id": "jobs.cashflow",
 "type": "module",
 "layer": "jobs",
@@ -3313,6 +3553,20 @@
 "config",
 "core.job_runs",
 "core.pg_mirror"
+]
+},
+{
+"id": "jobs.cedears_ohlc_daily",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/cedears_ohlc_daily.py",
+"summary": "cedears_ohlc_daily.py — guarda el OHLC diario de cada CEDEAR (ventana móvil).",
+"links": [
+"core",
+"core.job_runs",
+"core.pg_mirror",
+"core.postgres"
 ]
 },
 {
@@ -3386,6 +3640,23 @@
 "links": [
 "api.services.valuaciones",
 "core.job_runs",
+"core.postgres"
+]
+},
+{
+"id": "jobs.controles_datos",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/controles_datos.py",
+"summary": "controles_datos.py — Auto-control de CALIDAD DE DATOS de ACAQuant.",
+"links": [
+"api.services.contrapartes_seg",
+"core.ai_resumen",
+"core.curvas_sql",
+"core.job_runs",
+"core.market_snapshot",
+"core.notify",
 "core.postgres"
 ]
 },
@@ -3600,7 +3871,8 @@
 "links": [
 "api.services.pnl_sql",
 "core.job_runs",
-"core.pg_mirror"
+"core.pg_mirror",
+"core.postgres"
 ]
 },
 {
@@ -4201,6 +4473,17 @@
 ]
 },
 {
+"id": "web.api.api.back-office.tesoreria.[[...path]]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/back-office/tesoreria/[[...path]]/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
 "id": "web.api.api.back-office.titulos-mercado",
 "type": "route",
 "layer": "web-api",
@@ -4268,7 +4551,6 @@
 "path": "src/app/api/contrapartes/route.ts",
 "summary": "",
 "links": [
-"api.routers.cuentas",
 "api.routers.operaciones",
 "web.lib.api"
 ]
@@ -4316,6 +4598,28 @@
 ]
 },
 {
+"id": "web.api.api.derivados-agro.descuento-caucion",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/derivados-agro/descuento-caucion/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.derivados-agro.dolares-referencia",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/derivados-agro/dolares-referencia/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
 "id": "web.api.api.derivados-agro.estrategia.simular",
 "type": "route",
 "layer": "web-api",
@@ -4354,6 +4658,17 @@
 "layer": "web-api",
 "repo": "frontend",
 "path": "src/app/api/derivados-agro/pizarra/[commodity]/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.derivados-agro.tasas-cobertura",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/derivados-agro/tasas-cobertura/route.ts",
 "summary": "",
 "links": [
 "web.lib.api"
@@ -4546,6 +4861,17 @@
 ]
 },
 {
+"id": "web.api.api.portfolio.niveles-1",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/portfolio/niveles-1/route.ts",
+"summary": "",
+"links": [
+"web.lib.api"
+]
+},
+{
 "id": "web.api.api.portfolio.operadores",
 "type": "route",
 "layer": "web-api",
@@ -4553,6 +4879,18 @@
 "path": "src/app/api/portfolio/operadores/route.ts",
 "summary": "",
 "links": [
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.research.[...path]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/research/[...path]/route.ts",
+"summary": "",
+"links": [
+"api.routers.research",
 "web.lib.api"
 ]
 },
@@ -4586,6 +4924,18 @@
 "summary": "",
 "links": [
 "api.routers.cotizaciones",
+"web.lib.api"
+]
+},
+{
+"id": "web.api.api.trading.[...path]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/trading/[...path]/route.ts",
+"summary": "",
+"links": [
+"api.routers.trading",
 "web.lib.api"
 ]
 },
@@ -4875,6 +5225,19 @@
 "links": [
 "api.routers.operaciones",
 "web.lib.fmt-money"
+]
+},
+{
+"id": "web.cmp.comercial-control-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/comercial-control-view.tsx",
+"summary": "",
+"links": [
+"api.routers.operaciones",
+"web.lib.fmt-money",
+"web.lib.xlsx-export"
 ]
 },
 {
@@ -5173,6 +5536,17 @@
 ]
 },
 {
+"id": "web.cmp.fundamental-analysis-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/fundamental-analysis-view.tsx",
+"summary": "",
+"links": [
+"api.routers.research"
+]
+},
+{
 "id": "web.cmp.futuros-dlr-curve-chart",
 "type": "component",
 "layer": "web-component",
@@ -5255,6 +5629,18 @@
 ]
 },
 {
+"id": "web.cmp.live-intraday-chart",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/live-intraday-chart.tsx",
+"summary": "",
+"links": [
+"api.routers.scanner",
+"web.lib.types-trading"
+]
+},
+{
 "id": "web.cmp.logs-panel",
 "type": "component",
 "layer": "web-component",
@@ -5263,6 +5649,17 @@
 "summary": "",
 "links": [
 "api.routers.manager.logs"
+]
+},
+{
+"id": "web.cmp.manager-aca-valores-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/manager-aca-valores-view.tsx",
+"summary": "",
+"links": [
+"api.routers.manager"
 ]
 },
 {
@@ -5309,10 +5706,12 @@
 "api.routers.manager",
 "api.routers.manager.assets",
 "api.routers.manager.bonos",
+"api.routers.manager.breakevens",
 "api.routers.manager.checks",
 "api.routers.manager.clientes",
 "api.routers.manager.compliance",
 "api.routers.manager.diagnostico",
+"api.routers.manager.jobs",
 "api.routers.manager.ons",
 "api.routers.manager.operaciones",
 "api.routers.manager.options",
@@ -5457,6 +5856,17 @@
 "links": [
 "api.routers.operaciones",
 "web.lib.use-persisted-state"
+]
+},
+{
+"id": "web.cmp.order-book-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/order-book-panel.tsx",
+"summary": "",
+"links": [
+"api.routers.operar"
 ]
 },
 {
@@ -5710,6 +6120,84 @@
 ]
 },
 {
+"id": "web.cmp.trading-movers-scanner",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/trading-movers-scanner.tsx",
+"summary": "",
+"links": [
+"api.routers.scanner",
+"web.lib.types-scanner",
+"web.lib.use-poll"
+]
+},
+{
+"id": "web.cmp.trading-pivot-radar",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/trading-pivot-radar.tsx",
+"summary": "",
+"links": [
+"api.routers.trading",
+"web.lib.types-trading",
+"web.lib.use-poll"
+]
+},
+{
+"id": "web.cmp.trading-radar-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/trading-radar-panel.tsx",
+"summary": "",
+"links": []
+},
+{
+"id": "web.cmp.trading-shell",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/trading-shell.tsx",
+"summary": "",
+"links": [
+"web.lib.use-persisted-state"
+]
+},
+{
+"id": "web.cmp.trading-view",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/trading-view.tsx",
+"summary": "",
+"links": [
+"api.routers.market",
+"api.routers.scanner",
+"api.routers.trading",
+"web.cmp.cedears-timesales-panel",
+"web.cmp.live-intraday-chart",
+"web.cmp.order-book-panel",
+"web.cmp.trading-radar-panel",
+"web.lib.types-trading",
+"web.lib.use-poll"
+]
+},
+{
+"id": "web.cmp.trading-volumen-scanner",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/trading-volumen-scanner.tsx",
+"summary": "",
+"links": [
+"api.routers.scanner",
+"web.lib.types-scanner",
+"web.lib.use-poll"
+]
+},
+{
 "id": "web.cmp.tradingview-chart",
 "type": "component",
 "layer": "web-component",
@@ -5866,6 +6354,15 @@
 "layer": "web-lib",
 "repo": "frontend",
 "path": "src/lib/types-scanner.ts",
+"summary": "",
+"links": []
+},
+{
+"id": "web.lib.types-trading",
+"type": "lib",
+"layer": "web-lib",
+"repo": "frontend",
+"path": "src/lib/types-trading.ts",
 "summary": "",
 "links": []
 },
@@ -6136,6 +6633,17 @@
 "summary": "",
 "links": [
 "web.cmp.derivados-sinteticos-view"
+]
+},
+{
+"id": "web.view.trading.view",
+"type": "view",
+"layer": "web-view",
+"repo": "frontend",
+"path": "src/app/trading/page.tsx",
+"summary": "",
+"links": [
+"web.cmp.trading-shell"
 ]
 },
 {

@@ -1,6 +1,6 @@
 # 📚 web — lib
 
-14 notas.
+15 notas.
 
 - [[web.lib.api]]
 - [[web.lib.cf-access]]
@@ -11,6 +11,7 @@
 - [[web.lib.types]]
 - [[web.lib.types-estrategia]]
 - [[web.lib.types-scanner]]
+- [[web.lib.types-trading]]
 - [[web.lib.use-is-guest]]
 - [[web.lib.use-persisted-state]]
 - [[web.lib.use-poll]]

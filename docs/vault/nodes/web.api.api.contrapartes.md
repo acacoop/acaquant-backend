@@ -17,6 +17,5 @@ Arma la vista de contrapartes: en paralelo pide el flujo de operaciones de los �
 Conecta con: vista de contrapartes del front → este route → backend `api/routers/operaciones.py` + `api/routers/cuentas.py`.
 
 ## Usa / conecta con →
-- [[api.routers.cuentas]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
 - [[web.lib.api]]  ·  _lib_

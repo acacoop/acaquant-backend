@@ -24,3 +24,4 @@ Conecta con: lee `Trading.PreciosAcciones` en Mongo (import diferido de `core.mo
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.services.scanner_sql]]  ·  _module_
+- [[api.services.trading_pivots]]  ·  _module_

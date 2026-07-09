@@ -88,6 +88,7 @@
 | 12:30 · L-V | `jobs.cleanup_futuros_dlr'` |
 | 12:30 · L-V | `jobs.consolidado_cuentas'` |
 | cada hora · 13-21h · L-V | `jobs.operaciones_informes'` |
+| 16:30 · L-V | `jobs.controles_datos'` |
 | 20:30 · L-V | `jobs.forwards_zscore'` |
 | 21:30 · L-V | `jobs.partner_export'` |
 | 22:30 · L-V | `jobs.actividad_mensual'` |

@@ -25,4 +25,5 @@ Conecta con: lee `Trading.AgroSnapshot` (futuros) y `Trading.AgroOpcionesSnapsho
 
 ## Lo usan (backlinks) ←
 - [[api.routers.derivados_agro]]  ·  _module_
+- [[api.services.agro_cobertura]]  ·  _module_
 - [[api.services.agro_sql]]  ·  _module_

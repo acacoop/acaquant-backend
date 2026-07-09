@@ -18,6 +18,7 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.mcp.oauth]]  ·  _module_
+- [[api.routers.carteras]]  ·  _module_
 - [[api.routers.cuentas]]  ·  _module_
 - [[api.routers.manager.assets]]  ·  _module_
 - [[api.routers.manager.aunesa]]  ·  _module_
@@ -32,6 +33,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services._cuentas_filter]]  ·  _module_
 - [[api.services._idempotencia]]  ·  _module_
 - [[api.services._negocio_sql_read]]  ·  _module_
+- [[api.services.aca_valores]]  ·  _module_
 - [[api.services.acreencias]]  ·  _module_
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.analitica]]  ·  _module_
@@ -39,6 +41,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.aunesa_aranceles]]  ·  _module_
 - [[api.services.back_office_titulos]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
+- [[api.services.breakevens_admin]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
 - [[api.services.canje]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
@@ -49,6 +52,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.contrapartes_seg]]  ·  _module_
 - [[api.services.control_automatico]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
+- [[api.services.controles_sql]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_
@@ -75,6 +79,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.portfolio_sql]]  ·  _module_
 - [[api.services.rem_sql]]  ·  _module_
 - [[api.services.renta_fija_sql]]  ·  _module_
+- [[api.services.research_fundamentals]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
 - [[api.services.rv_motor]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
@@ -84,6 +89,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.sinteticos]]  ·  _module_
 - [[api.services.tenencia_hd]]  ·  _module_
 - [[api.services.titulos_flujos]]  ·  _module_
+- [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
 - [[api.services.valuaciones_sql]]  ·  _module_
 - [[core.adhoc_subscriptions]]  ·  _module_
@@ -110,11 +116,15 @@ _(pendiente de enriquecimiento)_
 - [[jobs.adr_live]]  ·  _module_
 - [[jobs.archive_options_data]]  ·  _module_
 - [[jobs.argentina_datos]]  ·  _module_
+- [[jobs.backfill_tasas]]  ·  _module_
+- [[jobs.bonos_ohlc_daily]]  ·  _module_
+- [[jobs.cedears_ohlc_daily]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_
 - [[jobs.cleanup_cedears_timesales]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
 - [[jobs.cleanup_futuros_dlr]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_
+- [[jobs.controles_datos]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.fair_value]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
@@ -124,6 +134,7 @@ _(pendiente de enriquecimiento)_
 - [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.options_rollup]]  ·  _module_
+- [[jobs.pnl_totales_precompute]]  ·  _module_
 - [[jobs.portafolio_backfill]]  ·  _module_
 - [[jobs.portafolio_reparar_timeouts]]  ·  _module_
 - [[jobs.precios_acciones_daily]]  ·  _module_

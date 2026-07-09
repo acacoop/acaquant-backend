@@ -20,10 +20,12 @@ Conecta con: no hace fetch propio relevante — orquesta los sub-paneles, cada u
 - [[api.routers.manager]]  ·  _module_
 - [[api.routers.manager.assets]]  ·  _module_
 - [[api.routers.manager.bonos]]  ·  _module_
+- [[api.routers.manager.breakevens]]  ·  _module_
 - [[api.routers.manager.checks]]  ·  _module_
 - [[api.routers.manager.clientes]]  ·  _module_
 - [[api.routers.manager.compliance]]  ·  _module_
 - [[api.routers.manager.diagnostico]]  ·  _module_
+- [[api.routers.manager.jobs]]  ·  _module_
 - [[api.routers.manager.ons]]  ·  _module_
 - [[api.routers.manager.operaciones]]  ·  _module_
 - [[api.routers.manager.options]]  ·  _module_

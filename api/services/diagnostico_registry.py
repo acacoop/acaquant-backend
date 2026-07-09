@@ -113,6 +113,10 @@ PIEZAS: list[Pieza] = [
           unidad="jobs.bonos_ohlc_daily",
           cadencia="20:16 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           run_tipo="bonos_ohlc_daily"),
+    Pieza("MERCADOS", "job", "controles_datos (auto-control calidad)", grupo="RENTA FIJA",
+          unidad="jobs.controles_datos",
+          cadencia="16:30 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
+          run_tipo="controles_datos"),
 
     # ── MERCADOS · DERIVADOS ───────────────────────────────
     Pieza("MERCADOS", "job", "snapshot_sinteticos (serie histórica)", grupo="DERIVADOS",

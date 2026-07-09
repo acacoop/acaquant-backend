@@ -18,6 +18,7 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.services]]  ·  _module_
+- [[api.services.agro_cobertura]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
 - [[api.services.mejoras_dispo]]  ·  _module_

@@ -45,13 +45,16 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.mercado_hist_sql]]  ·  _module_
 - [[api.services.opciones]]  ·  _module_
 - [[api.services.opciones_sql]]  ·  _module_
+- [[api.services.operaciones_sql]]  ·  _module_
 - [[api.services.order_book]]  ·  _module_
+- [[api.services.pnl_sql]]  ·  _module_
 - [[api.services.portfolio]]  ·  _module_
 - [[api.services.rem]]  ·  _module_
 - [[api.services.rem_sql]]  ·  _module_
 - [[api.services.renta_fija]]  ·  _module_
 - [[api.services.renta_fija_sql]]  ·  _module_
 - [[api.services.repo]]  ·  _module_
+- [[api.services.research_fundamentals]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
 - [[api.services.rv_motor]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
@@ -60,4 +63,5 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.sin_operador]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
 - [[api.services.tenencia_hd]]  ·  _module_
+- [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_

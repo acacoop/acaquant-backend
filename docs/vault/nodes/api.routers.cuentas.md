@@ -25,5 +25,4 @@ Conecta con: lee `CuentasAPI.AccionistasAPI` (vía `api.db.get_db_cuentas`) y `C
 ## Lo usan (backlinks) ←
 - [[api.main]]  ·  _module_
 - [[web.api.api.cashflow]]  ·  _route_
-- [[web.api.api.contrapartes]]  ·  _route_
 - [[web.lib.proxy]]  ·  _lib_

@@ -21,6 +21,7 @@ Conecta con: services `derivados_agro`, `camara_cereales`, `mejoras_dispo`; auth
 ## Usa / conecta con →
 - [[api.auth]]  ·  _module_
 - [[api.services]]  ·  _module_
+- [[api.services.agro_cobertura]]  ·  _module_
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_

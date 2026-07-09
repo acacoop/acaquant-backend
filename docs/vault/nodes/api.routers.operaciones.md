@@ -40,6 +40,7 @@ Conecta con: lee `CashFlow.NegocioMovimientos` + colecciones `*API` (Mesa/Flujos
 - [[web.cmp.agro-view]]  ·  _component_
 - [[web.cmp.aranceles-view]]  ·  _component_
 - [[web.cmp.cobros-futuros-view]]  ·  _component_
+- [[web.cmp.comercial-control-view]]  ·  _component_
 - [[web.cmp.comercial-informe-view]]  ·  _component_
 - [[web.cmp.comercial-operaciones-view]]  ·  _component_
 - [[web.cmp.intraday-view]]  ·  _component_

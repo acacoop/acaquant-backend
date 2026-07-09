@@ -24,3 +24,4 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.contrapartes]]  ·  _module_
+- [[jobs.controles_datos]]  ·  _module_

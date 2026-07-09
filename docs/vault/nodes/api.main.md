@@ -46,8 +46,10 @@ Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, t
 - [[api.routers.operar]]  ·  _module_
 - [[api.routers.operativa]]  ·  _module_
 - [[api.routers.ordenes]]  ·  _module_
+- [[api.routers.research]]  ·  _module_
 - [[api.routers.risk]]  ·  _module_
 - [[api.routers.scanner]]  ·  _module_
 - [[api.routers.titulos]]  ·  _module_
+- [[api.routers.trading]]  ·  _module_
 - [[api.routers.valuaciones]]  ·  _module_
 - [[config]]  ·  _module_

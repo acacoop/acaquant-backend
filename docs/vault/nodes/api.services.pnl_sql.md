@@ -17,6 +17,7 @@ path: api/services/pnl_sql.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.cache]]  ·  _module_
 - [[api.services]]  ·  _module_
 - [[api.services._cuentas_filter]]  ·  _module_
 - [[api.services._mep]]  ·  _module_

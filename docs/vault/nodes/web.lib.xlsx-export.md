@@ -18,6 +18,7 @@ Conecta con: utilidad de cliente, sin red; consume las rows ya armadas por las v
 
 ## Lo usan (backlinks) ←
 - [[web.cmp.aum-view]]  ·  _component_
+- [[web.cmp.comercial-control-view]]  ·  _component_
 - [[web.cmp.comercial-informe-view]]  ·  _component_
 - [[web.cmp.comercial-operaciones-view]]  ·  _component_
 - [[web.cmp.pnl-titulos-view]]  ·  _component_

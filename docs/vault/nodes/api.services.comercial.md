@@ -30,5 +30,6 @@ Conecta con: lee `Clientes.Comitentes`, `CashFlow.Operaciones`, `CashFlow.Negoci
 - [[api.routers.carteras]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.services.comercial_sql]]  ·  _module_
+- [[api.services.control_comercial_sql]]  ·  _module_
 - [[api.services.sin_operador]]  ·  _module_
 - [[jobs.actividad_mensual]]  ·  _module_

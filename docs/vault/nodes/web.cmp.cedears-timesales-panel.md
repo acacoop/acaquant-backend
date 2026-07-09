@@ -16,3 +16,6 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.routers.scanner]]  ·  _module_
+
+## Lo usan (backlinks) ←
+- [[web.cmp.trading-view]]  ·  _component_

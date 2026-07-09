@@ -24,4 +24,6 @@ Conecta con: refleja lo que sirven `GET /api/scanner/*` (`api.routers.scanner` +
 - [[web.cmp.renta-variable-shell]]  ·  _component_
 - [[web.cmp.scanner-view]]  ·  _component_
 - [[web.cmp.ticker-chart-panel]]  ·  _component_
+- [[web.cmp.trading-movers-scanner]]  ·  _component_
+- [[web.cmp.trading-volumen-scanner]]  ·  _component_
 - [[web.view.renta-variable.view]]  ·  _view_

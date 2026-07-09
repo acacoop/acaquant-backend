@@ -38,4 +38,5 @@ Conecta con: escribe SOLO los campos `metrics.{TEA,TEM,duration,...}` a `Trading
 - [[api.services.renta_fija_sql]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
 - [[engines.breakevens]]  ·  _module_
+- [[jobs.backfill_tasas]]  ·  _module_
 - [[svc.motor_curvas]]  ·  _service_

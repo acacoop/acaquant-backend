@@ -20,6 +20,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.ons]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_
+- [[core.market_snapshot]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←

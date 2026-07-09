@@ -33,6 +33,7 @@ from api.routers.manager import (
     compliance,
     contrapartes,
     control_automatico,
+    controles,
     diagnostico,
     grupos,
     import_tenencia,
@@ -66,6 +67,7 @@ _AUNESA          = [Depends(verify_api_key), Depends(require_any_module(("manage
 
 # Tabs admin (umbrella `manager`):
 router.include_router(status.router,      dependencies=_MGR)
+router.include_router(controles.router, dependencies=_MGR)
 router.include_router(diagnostico.router, dependencies=_MGR)
 router.include_router(checks.router,      dependencies=_MGR)
 router.include_router(jobs.router,        dependencies=_MGR)

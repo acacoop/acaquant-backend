@@ -51,8 +51,11 @@ _(pendiente de enriquecimiento)_
 - [[jobs.adr_live]]  ·  _module_
 - [[jobs.aranceles]]  ·  _module_
 - [[jobs.argentina_datos]]  ·  _module_
+- [[jobs.backfill_tasas]]  ·  _module_
 - [[jobs.bcra]]  ·  _module_
+- [[jobs.bonos_ohlc_daily]]  ·  _module_
 - [[jobs.cashflow]]  ·  _module_
+- [[jobs.cedears_ohlc_daily]]  ·  _module_
 - [[jobs.cierre_canje]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.dias_habiles]]  ·  _module_

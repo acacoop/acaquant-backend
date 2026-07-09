@@ -20,6 +20,7 @@ Conecta con: utilidad pura de presentación, sin I/O; la consumen los componente
 - [[web.cmp.acreencias-view]]  ·  _component_
 - [[web.cmp.coberturas-view]]  ·  _component_
 - [[web.cmp.cobros-futuros-view]]  ·  _component_
+- [[web.cmp.comercial-control-view]]  ·  _component_
 - [[web.cmp.comercial-informe-view]]  ·  _component_
 - [[web.cmp.comercial-operaciones-view]]  ·  _component_
 - [[web.cmp.metricas-panel]]  ·  _component_

@@ -28,10 +28,14 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.adr_live]]  ·  _module_
 - [[jobs.aranceles]]  ·  _module_
 - [[jobs.argentina_datos]]  ·  _module_
+- [[jobs.backfill_tasas]]  ·  _module_
 - [[jobs.bcra]]  ·  _module_
+- [[jobs.bonos_ohlc_daily]]  ·  _module_
 - [[jobs.cashflow]]  ·  _module_
+- [[jobs.cedears_ohlc_daily]]  ·  _module_
 - [[jobs.cleanup_cedears_timesales]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_
+- [[jobs.controles_datos]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.fci_bilateral]]  ·  _module_
 - [[jobs.informe_salud]]  ·  _module_

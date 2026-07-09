@@ -48,7 +48,9 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[api.services.scanner]]  ·  _module_
 - [[api.services.sensibilidad]]  ·  _module_
 - [[api.services.sinteticos]]  ·  _module_
+- [[api.services.tesoreria]]  ·  _module_
 - [[api.services.titulos_flujos]]  ·  _module_
+- [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
 - [[core.brackets]]  ·  _module_
 - [[core.grupos]]  ·  _module_
@@ -64,6 +66,9 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[engines.options]]  ·  _module_
 - [[engines.valores]]  ·  _module_
 - [[jobs.adr_live]]  ·  _module_
+- [[jobs.backfill_tasas]]  ·  _module_
+- [[jobs.bonos_ohlc_daily]]  ·  _module_
+- [[jobs.cedears_ohlc_daily]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_

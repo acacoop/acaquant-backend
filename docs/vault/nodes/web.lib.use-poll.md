@@ -30,3 +30,7 @@ Conecta con: hook de cliente; hace `fetch` con `cache: "no-store"` a route handl
 - [[web.cmp.renta-fija-live]]  ·  _component_
 - [[web.cmp.scanner-view]]  ·  _component_
 - [[web.cmp.titulos-mercado-view]]  ·  _component_
+- [[web.cmp.trading-movers-scanner]]  ·  _component_
+- [[web.cmp.trading-pivot-radar]]  ·  _component_
+- [[web.cmp.trading-view]]  ·  _component_
+- [[web.cmp.trading-volumen-scanner]]  ·  _component_

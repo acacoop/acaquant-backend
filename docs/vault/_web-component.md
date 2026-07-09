@@ -1,6 +1,6 @@
 # 🧩 web — componentes
 
-94 notas.
+105 notas.
 
 - [[web.cmp.acreencias-view]]
 - [[web.cmp.agro-datos]]
@@ -20,6 +20,7 @@
 - [[web.cmp.cedears-timesales-panel]]
 - [[web.cmp.coberturas-view]]
 - [[web.cmp.cobros-futuros-view]]
+- [[web.cmp.comercial-control-view]]
 - [[web.cmp.comercial-informe-view]]
 - [[web.cmp.comercial-operaciones-view]]
 - [[web.cmp.contrapartes-view]]
@@ -45,6 +46,7 @@
 - [[web.cmp.fair-value-view]]
 - [[web.cmp.forward-matrix-zscore]]
 - [[web.cmp.forwards-panel]]
+- [[web.cmp.fundamental-analysis-view]]
 - [[web.cmp.futuros-dlr-curve-chart]]
 - [[web.cmp.griegas-historico-chart]]
 - [[web.cmp.grupos-panel]]
@@ -52,7 +54,9 @@
 - [[web.cmp.home-view]]
 - [[web.cmp.intraday-view]]
 - [[web.cmp.jobs-runs-panel]]
+- [[web.cmp.live-intraday-chart]]
 - [[web.cmp.logs-panel]]
+- [[web.cmp.manager-aca-valores-view]]
 - [[web.cmp.manager-contrapartes-view]]
 - [[web.cmp.manager-debug-tea]]
 - [[web.cmp.manager-debug-xirr]]
@@ -69,6 +73,7 @@
 - [[web.cmp.operar-fci-view]]
 - [[web.cmp.operar-shell]]
 - [[web.cmp.ops-view]]
+- [[web.cmp.order-book-panel]]
 - [[web.cmp.payoff-chart]]
 - [[web.cmp.pivot-points-panel]]
 - [[web.cmp.pnl-titulos-view]]
@@ -90,6 +95,12 @@
 - [[web.cmp.theme-toggle]]
 - [[web.cmp.ticker-chart-panel]]
 - [[web.cmp.titulos-mercado-view]]
+- [[web.cmp.trading-movers-scanner]]
+- [[web.cmp.trading-pivot-radar]]
+- [[web.cmp.trading-radar-panel]]
+- [[web.cmp.trading-shell]]
+- [[web.cmp.trading-view]]
+- [[web.cmp.trading-volumen-scanner]]
 - [[web.cmp.tradingview-chart]]
 - [[web.cmp.ui]]
 - [[web.cmp.usuarios-panel]]

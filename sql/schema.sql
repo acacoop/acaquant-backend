@@ -1296,6 +1296,21 @@ CREATE TABLE IF NOT EXISTS manager.watchdog_alertas (
     edad_s        integer
 );
 
+-- Auto-control de calidad de datos (jobs/controles_datos.py): una fila por anomalía
+-- detectada (control_id = chequeo, item_key = clave estable: ticker/unidad/cuenta).
+-- El runner diffea contra este estado para alertar SOLO lo nuevo y marcar resueltos.
+CREATE TABLE IF NOT EXISTS manager.controles_datos (
+    control_id  text NOT NULL,
+    item_key    text NOT NULL,
+    detalle     text,
+    first_seen  timestamptz NOT NULL DEFAULT now(),
+    last_seen   timestamptz NOT NULL DEFAULT now(),
+    resuelto_at timestamptz,              -- NULL = anomalía vigente
+    PRIMARY KEY (control_id, item_key)
+);
+CREATE INDEX IF NOT EXISTS ix_controles_datos_activos
+    ON manager.controles_datos(control_id) WHERE resuelto_at IS NULL;
+
 -- Manager.AranceelesJobRuns → tracking UI del backfill de aranceles (jobs/aranceles.py,
 -- 1 doc/run + updates). Cabecera columnar + stats/ejemplos/errores en jsonb.
 CREATE TABLE IF NOT EXISTS manager.aranceles_job_runs (

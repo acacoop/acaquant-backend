@@ -200,22 +200,28 @@ def _seccion_novedades() -> dict:
 
     # 1) Comitentes nuevos hoy — SOLO conteo (sin nombres: regla del canal Telegram,
     #    core/notify.py → nunca datos de clientes; el detalle se ve en la web).
+    #    Por fecha_alta_legajo (alta REAL en Aunesa). El viejo filtro por created_at
+    #    contaba el timestamp del primer sync (el backfill insertó todo en un día)
+    #    → siempre daba 0-2. fecha_alta_legajo es la fecha de negocio.
     try:
         rows = _jobruns_sql(
             "SELECT count(*) AS n FROM clientes.comitentes "
-            "WHERE created_at >= date_trunc('day', now())")
+            "WHERE fecha_alta_legajo = current_date")
         out["comitentes"] = {"n": (rows[0].get("n") if rows else 0) or 0}
     except Exception as e:
         out["comitentes"] = {"error": type(e).__name__}
 
     # 2) Operaciones del día — SOLO conteo (sin montos: regla del canal Telegram).
-    #    Boletos operados = sin cierres de caución ni solicitudes.
+    #    Boletos operados = sin cierres de caución ni solicitudes. OJO: etapa es
+    #    NULL en la enorme mayoría de los boletos → `<> 'solicitud'` los EXCLUÍA
+    #    (NULL <> x evalúa NULL, no TRUE) y el conteo daba 1-2 cuando eran cientos.
+    #    IS DISTINCT FROM es la forma NULL-safe (misma regla que operaciones_sql).
     try:
         rows = _jobruns_sql(
             "SELECT count(*) AS n, count(DISTINCT id_cuenta) AS n_cuentas "
             "FROM operaciones.operaciones "
             "WHERE concertacion = current_date "
-            "AND etapa <> 'solicitud' AND COALESCE(es_cierre, false) = false")
+            "AND etapa IS DISTINCT FROM 'solicitud' AND COALESCE(es_cierre, false) = false")
         r = rows[0] if rows else {}
         out["operaciones"] = {"n": r.get("n") or 0, "n_cuentas": r.get("n_cuentas") or 0}
     except Exception as e:

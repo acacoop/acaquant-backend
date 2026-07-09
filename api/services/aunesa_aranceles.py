@@ -1,16 +1,14 @@
 """Backfill de aranceles desde Aunesa /operaciones/informes a SQL
 `operaciones.negocio_movimientos`.
 
-Lógica core compartida entre:
-  - `scripts/backfill_aranceles.py` (CLI manual, dry-run/apply, escribe logs/).
-  - `POST /api/manager/aunesa/boletos/backfill` (vista UI, corre en background
-    thread del proceso `api.service` y persiste progreso en `Manager.AranceelesJobRuns`
-    para que el front polee).
+Invocado por `POST /api/manager/aunesa/boletos/backfill` (vista UI, corre en
+background thread del proceso `api.service` y persiste progreso para que el
+front polee).
 
-Por cada cuenta:
-  1. Pide a Aunesa /informes (en paralelo, ThreadPoolExecutor).
-  2. Hace 1 sola query SQL: comprobantes arancelables de esa cuenta en
-     `negocio_movimientos`. Excluye futuros DLR (USDL) y `op` no arancelables.
+Procesa las cuentas en chunks de _CHUNK_CUENTAS:
+  1. UNA query SQL por chunk: comprobantes arancelables de esas cuentas en
+     `negocio_movimientos` (excluye futuros DLR/USDL y `op` no arancelables).
+  2. Pide a Aunesa /informes por cuenta (en paralelo, ThreadPoolExecutor).
   3. Para cada arancel devuelto por Aunesa, si el comprobante existe arma un
      UPDATE que setea `aranceles` (jsonb por moneda) y `arancel` (atajo ARS).
   4. Flushea en lotes de _FLUSH (2000) para que el progreso parcial persista
@@ -43,15 +41,17 @@ logger = logging.getLogger(__name__)
 _MARGEN_LIQ_DIAS = 15
 _FLUSH = 2000
 
-# Filtro SQL: comprobantes arancelables de una cuenta (= match_no_futuros +
+# Filtro SQL: comprobantes arancelables de un CHUNK de cuentas (= match_no_futuros +
 # match_solo_arancelables de Mongo). NULL-safe: en Mongo $nin matchea también
-# los docs sin el campo → acá `IS NULL OR <> ALL`.
+# los docs sin el campo → acá `IS NULL OR <> ALL`. Batcheado con = ANY: antes era
+# 1 query por cuenta (N round-trips seriales); el chunk acota la memoria del preload.
 _SQL_COMPROBANTES = (
-    "SELECT comprobante FROM negocio_movimientos "
-    "WHERE id_cuenta = %(idc)s "
+    "SELECT id_cuenta, comprobante FROM negocio_movimientos "
+    "WHERE id_cuenta = ANY(%(idcs)s) "
     "  AND (unidad IS NULL OR unidad <> ALL(%(futs)s)) "
     "  AND (op IS NULL OR op <> ALL(%(ops)s))"
 )
+_CHUNK_CUENTAS = 100
 _SQL_UPDATE = (
     "UPDATE negocio_movimientos SET aranceles = %(aranceles)s, arancel = %(arancel)s "
     "WHERE comprobante = %(comprobante)s"
@@ -143,20 +143,25 @@ def run_backfill(
                     conn.commit()
             pendientes.clear()
 
-    def _procesar_db(cuenta: str, mapa: dict) -> None:
-        if not mapa:
-            return
-        state["inf"] += len(mapa)
-        # 1 sola query: comprobantes arancelables de esta cuenta. Excluye
-        # futuros DLR (USDL) y ops no arancelables → cuando Aunesa no los
-        # devuelve no inflan el contador sin_match con false positives.
+    def _comprobantes_chunk(cuentas_chunk: list[str]) -> dict[str, set]:
+        """Comprobantes arancelables del chunk, agrupados por cuenta — UNA query
+        (excluye futuros DLR/USDL y ops no arancelables, para que los boletos que
+        Aunesa no devuelve no inflen sin_match con false positives)."""
+        out: dict[str, set] = {}
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(_SQL_COMPROBANTES, {
-                "idc":  cuenta,
+                "idcs": cuentas_chunk,
                 "futs": list(EXCLUIR_UNIDADES_FUTUROS),
                 "ops":  list(OP_NO_ARANCELABLES),
             })
-            nm_set = {r[0] for r in cur.fetchall()}
+            for idc, comp in cur.fetchall():
+                out.setdefault(str(idc), set()).add(comp)
+        return out
+
+    def _procesar_db(cuenta: str, mapa: dict, nm_set: set) -> None:
+        if not mapa:
+            return
+        state["inf"] += len(mapa)
         for boleto, aranceles in mapa.items():
             if boleto not in nm_set:
                 state["sin_match"] += 1
@@ -181,19 +186,22 @@ def run_backfill(
 
     def _pass(subset: list[str], n_workers: int) -> list[dict[str, str]]:
         errs: list[dict[str, str]] = []
-        if not subset:
-            return errs
-        with ThreadPoolExecutor(max_workers=n_workers) as ex:
-            futs = {ex.submit(_fetch_one, c): c for c in subset}
-            for fut in as_completed(futs):
-                cuenta, mapa, err = fut.result()
-                state["cuentas_done"] += 1
-                if err is not None:
-                    errs.append({"cuenta": cuenta, "error": err})
-                else:
-                    _procesar_db(cuenta, mapa)
-                if state["cuentas_done"] % progress_every == 0:
-                    _emit()
+        # Chunks de _CHUNK_CUENTAS: el preload de comprobantes es 1 query por chunk
+        # (vs 1 por cuenta) y la memoria queda acotada al chunk en curso.
+        for i in range(0, len(subset), _CHUNK_CUENTAS):
+            chunk = subset[i:i + _CHUNK_CUENTAS]
+            comps = _comprobantes_chunk(chunk)
+            with ThreadPoolExecutor(max_workers=n_workers) as ex:
+                futs = {ex.submit(_fetch_one, c): c for c in chunk}
+                for fut in as_completed(futs):
+                    cuenta, mapa, err = fut.result()
+                    state["cuentas_done"] += 1
+                    if err is not None:
+                        errs.append({"cuenta": cuenta, "error": err})
+                    else:
+                        _procesar_db(cuenta, mapa, comps.get(cuenta, set()))
+                    if state["cuentas_done"] % progress_every == 0:
+                        _emit()
         return errs
 
     errores = _pass(cs, workers)

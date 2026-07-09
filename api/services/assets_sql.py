@@ -119,15 +119,19 @@ def gaps_assets_panel(limit: int = 5000) -> list[dict]:
 
 def values_assets_panel(fields: Iterable[str]) -> dict[str, list[str]]:
     """Valores únicos por campo UPPERCASE (para los datalist del form). Filtra
-    vacíos y 'NO APLICA'."""
-    out: dict[str, list[str]] = {}
+    vacíos y 'NO APLICA'. UNA query para todos los campos (array_agg DISTINCT
+    por columna en una sola pasada de la tabla — antes: un SELECT por campo)."""
+    pares = [(f, _FIELD_COL[f]) for f in fields]
+    if not pares:
+        return {}
+    sel = ", ".join(f"array_agg(DISTINCT {col}) FILTER (WHERE {col} IS NOT NULL)"
+                    for _, col in pares)
     with get_pool().connection() as conn, conn.cursor() as cur:
-        for f in fields:
-            col = _FIELD_COL[f]
-            cur.execute(f"SELECT DISTINCT {col} FROM portafolio.assets WHERE {col} IS NOT NULL")
-            out[f] = sorted({r[0] for r in cur.fetchall()
-                             if isinstance(r[0], str) and r[0] and r[0] != "NO APLICA"})
-    return out
+        cur.execute(f"SELECT {sel} FROM portafolio.assets")
+        row = cur.fetchone()
+    return {f: sorted({v for v in (vals or [])
+                       if isinstance(v, str) and v and v != "NO APLICA"})
+            for (f, _), vals in zip(pares, row, strict=True)}
 
 
 def asset_one_panel(unidad: str) -> dict | None:

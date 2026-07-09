@@ -85,24 +85,28 @@ def importar_precios(rows: list[dict], commit: bool = False) -> dict:
                "fechas": fechas,
                "columnas_detectadas": list(rows[0].keys()) if rows else []}
     if not commit:
-        # Previsualización: cuántas matchean en la tabla.
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            match = 0
-            for fecha, unidad, _ in parsed:
-                cur.execute("SELECT 1 FROM portafolio.tenencia "
-                            "WHERE fecha = %s AND unidad = %s LIMIT 1", (fecha, unidad))
-                if cur.fetchone():
-                    match += 1
+        # Previsualización: cuántas matchean en la tabla — UNA query para todo el Excel
+        # (antes: un SELECT por fila) vía join contra unnest de los pares (fecha, unidad).
+        match = 0
+        if parsed:
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT DISTINCT t.fecha::text, t.unidad FROM portafolio.tenencia t "
+                    "JOIN unnest(%s::date[], %s::text[]) AS q(fecha, unidad) "
+                    "ON t.fecha = q.fecha AND t.unidad = q.unidad",
+                    ([f for f, _, _ in parsed], [u for _, u, _ in parsed]))
+                existentes = {(f, u) for f, u in cur.fetchall()}
+            match = sum(1 for f, u, _ in parsed if (f, u) in existentes)
         return {**resumen, "matchean": match, "sin_match": len(parsed) - match}
     if not parsed:
         return {**resumen, "aplicado": False, "error": "no hay filas válidas"}
 
-    actualizadas = 0
     with get_pool().connection() as conn, conn.cursor() as cur:
-        for fecha, unidad, precio in parsed:
-            cur.execute("UPDATE portafolio.tenencia SET precio = %s "
-                        "WHERE fecha = %s AND unidad = %s", (precio, fecha, unidad))
-            actualizadas += cur.rowcount
+        # executemany (mismo patrón que recalcular_valuacion) — antes: un UPDATE por fila.
+        cur.executemany("UPDATE portafolio.tenencia SET precio = %s "
+                        "WHERE fecha = %s AND unidad = %s",
+                        [(precio, fecha, unidad) for fecha, unidad, precio in parsed])
+        actualizadas = cur.rowcount   # psycopg3: acumulado de todas las ejecuciones
         conn.commit()
     return {**resumen, "aplicado": True, "filas_actualizadas": actualizadas,
             "nota": "valuación NO recalculada (paso 2: precio×cantidad, /100 bonos)"}

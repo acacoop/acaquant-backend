@@ -66,6 +66,54 @@ def _iso_naive(d):
 _DOLARIZAR = "USD_DOL"
 
 
+# ── FLUJO CONTRAPARTES — resumen agregado (vista /operaciones → CONTRAPARTES) ─
+def flujo_resumen(desde: str | None = None, hasta: str | None = None) -> dict:
+    """Agregado por (día, contraparte, moneda) del flujo de contrapartes.
+
+    Reemplaza el patrón "mandar 2 años de operaciones crudas al browser y agrupar
+    en React": Postgres agrega y viaja UNA fila por (día, contraparte, moneda)
+    con el grupo ya joineado. El drill-down de un día puntual sigue usando
+    /flujo?desde=dia&hasta=dia (operaciones individuales).
+
+    Mismo universo que listar_flujo (router operaciones): solo cuentas de
+    clientes.contrapartes, excluye Futuros/Opciones/caución colocadora."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id_cuenta, contraparte, segmento FROM contrapartes "
+                    "WHERE id_cuenta IS NOT NULL AND id_cuenta <> ''")
+        cp_map = {str(idc).strip(): (cp or "", seg or "")
+                  for idc, cp, seg in cur.fetchall() if idc not in (None, "")}
+    conds = ["id_cuenta = ANY(%(ids)s)",
+             "(tipo_operacion IS NULL OR tipo_operacion !~* 'Futuros|Opciones|colocadora')"]
+    p: dict = {"ids": list(cp_map)}
+    if desde:
+        conds.append("concertacion >= %(desde)s")
+        p["desde"] = desde
+    if hasta:
+        conds.append("concertacion <= %(hasta)s")
+        p["hasta"] = hasta
+    rows = _q(f"SELECT concertacion::text AS dia, id_cuenta, moneda, "
+              f"COALESCE(SUM(bruto), 0) AS bruto, COUNT(*) AS n "
+              f"FROM operaciones WHERE {' AND '.join(conds)} "
+              f"GROUP BY concertacion, id_cuenta, moneda", p)
+    # Re-agrupar por nombre de contraparte (varias cuentas pueden compartirla).
+    agg: dict[tuple, dict] = {}
+    for r in rows:
+        cpn, grupo = cp_map.get(str(r["id_cuenta"]).strip(), ("", ""))
+        e = agg.setdefault((r["dia"], cpn, r["moneda"]), {
+            "dia": r["dia"], "contraparte": cpn, "grupo": grupo,
+            "moneda": r["moneda"], "bruto": 0.0, "n": 0})
+        e["bruto"] += _f(r["bruto"])
+        e["n"] += int(r["n"])
+    filas = sorted(agg.values(), key=lambda x: (x["dia"], x["contraparte"] or ""))
+    for f in filas:
+        f["bruto"] = round(f["bruto"], 2)
+    return {
+        "filas": filas,
+        "grupos": sorted({seg for _, seg in cp_map.values() if seg}),
+        "monedas": sorted({f["moneda"] for f in filas if f["moneda"]}),
+    }
+
+
 # ── WHERE compartido (equivale a _ops_match / _arancel_match) ─────────────────
 def _ops_where(
     moneda: str | None = None, mercado: str | None = None, operacion: str | None = None,

@@ -104,6 +104,18 @@ def listar_flujo(
     return out
 
 
+@router.get("/flujo/resumen")
+@cached(ttl=300)
+def flujo_resumen(
+    desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+):
+    """Resumen del flujo de contrapartes agregado por (día, contraparte, moneda) +
+    grupos/monedas disponibles. Lo consume la vista CONTRAPARTES del frontend en
+    lugar de bajar 2 años de operaciones crudas (el drill-down por día usa /flujo)."""
+    return _ops_sql.flujo_resumen(desde=desde, hasta=hasta)
+
+
 @router.get("/flujos")
 @cached(ttl=300)
 def listar_flujos(

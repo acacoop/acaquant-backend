@@ -25,6 +25,7 @@ from datetime import UTC, datetime, timedelta
 
 from psycopg.rows import dict_row
 
+from api.cache import cached
 from core.postgres import get_pool
 
 _SERIE_VENTANA_DIAS = 550  # ~18 meses (igual que operaciones.py)
@@ -294,7 +295,10 @@ def ops_resumen(
 _ARANCEL = "SUM(ABS(COALESCE(arancel, 0)))"
 
 
+@cached(ttl=300)
 def _operador_map() -> dict[str, str]:
+    """Mapa id_cuenta→operador. Dato casi estático (alta/edición de comitentes):
+    sin cache se escaneaba comitentes⋈operadores en CADA request de aranceles."""
     rows = _q("SELECT c.id_cuenta, COALESCE(o.nombre, o.email, '(sin operador)') AS op "
               "FROM comitentes c LEFT JOIN operadores o ON o.email = c.operador_email")
     return {str(r["id_cuenta"]): r["op"] for r in rows}

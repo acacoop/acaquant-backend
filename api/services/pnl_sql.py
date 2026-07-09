@@ -19,6 +19,7 @@ from psycopg.rows import dict_row
 # Decomiso Mongo: el motor _pnl_por_cuenta_core acepta db_cf/db_v/db_t pero SOLO los
 # dereferencia en su rama de fallback (cuando los kwargs bulk vienen None). En el path
 # SQL `_deps_sql` provee TODOS los kwargs → esas ramas nunca corren → se pasa None.
+from api.cache import cached
 from api.services._mep import get_mep_for_date
 from api.services.pnl import (
     _CATS_RELEVANTES,
@@ -69,24 +70,53 @@ def _build_unidad_maps_sql() -> tuple[dict[str, str], dict[str, str]]:
     return unidad_to_match, match_to_display
 
 
-def _deps_sql(only_cuenta: str | None) -> dict:
-    """Arma las deps del motor desde SQL (= _load_pnl_bulk_deps pero en Postgres)."""
-    unidad_to_match, match_to_display = _build_unidad_maps_sql()
+@cached(ttl=300)
+def _mapas_assets() -> dict:
+    """Mapas globales derivados del catálogo `portafolio.assets` (casi estático).
 
-    instrumentos_by_unidad = {}
+    Cacheados 300s: sin esto cada request de PnL re-escaneaba assets 2 veces.
+    Los dicts cacheados se COMPARTEN entre requests → solo lectura (el motor
+    solo hace .get(), verificado en pnl.py)."""
+    unidad_to_match, match_to_display = _build_unidad_maps_sql()
+    instrumentos_by_unidad: dict[str, str] = {}
     for d in _q("SELECT unidad, instrumento FROM portafolio.assets WHERE instrumento IS NOT NULL"):
         instr = (d.get("instrumento") or "").strip()
         if d.get("unidad") and instr and instr not in _PLACEHOLDERS_INSTRUMENTO:
             instrumentos_by_unidad[d["unidad"]] = instr
+    return {
+        "unidad_to_match": unidad_to_match, "match_to_display": match_to_display,
+        "instrumentos_by_unidad": instrumentos_by_unidad,
+    }
 
-    portfolio_snap_by_ticker = {
+
+@cached(ttl=5)
+def _pricing_live() -> dict:
+    """Precios live por ticker (portfolio_snapshot). El motor escribe cada 1s
+    durante la rueda → TTL corto (5s, mismo criterio que market_sql._quotes_all):
+    colapsa ráfagas de requests sin dejar el PnL stale."""
+    return {
         d["ticker"]: {"last_price": _f(d["last_price"]), "closing_price": _f(d["closing_price"])}
         for d in _q("SELECT ticker, last_price, closing_price FROM portfolio_snapshot")
     }
-    snapshots_cierre_by_ticker = {
+
+
+@cached(ttl=60)
+def _pricing_cierre() -> dict:
+    """Cierres persistidos por ticker (snapshots_cierre, escribe 1×/día el cron)."""
+    return {
         d["ticker"]: {"last_price": _f(d["last_price"]), "fecha": _iso(d["fecha"])}
         for d in _q("SELECT ticker, last_price, fecha FROM snapshots_cierre")
     }
+
+
+def _deps_sql(only_cuenta: str | None) -> dict:
+    """Arma las deps del motor desde SQL (= _load_pnl_bulk_deps pero en Postgres)."""
+    mapas = _mapas_assets()
+    unidad_to_match = mapas["unidad_to_match"]
+    match_to_display = mapas["match_to_display"]
+    instrumentos_by_unidad = mapas["instrumentos_by_unidad"]
+    portfolio_snap_by_ticker = _pricing_live()
+    snapshots_cierre_by_ticker = _pricing_cierre()
 
     # Boletos por cuenta (scopeado si only_cuenta).
     where = "categoria = ANY(%(cats)s) AND ticker IS NOT NULL"

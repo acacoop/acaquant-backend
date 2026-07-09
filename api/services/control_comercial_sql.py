@@ -164,31 +164,72 @@ def _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido):
     return ids, ops
 
 
-def _agg_total(desde: date, hasta: date, moneda: str, mep_hoy: float | None,
-               ids: list[str] | None = None) -> dict:
-    """Mesa completa en [desde, hasta]: clientes activos (operaron ≥1), volumen, comisiones.
-    Volumen/comisiones ya vienen EN LA MONEDA destino (valuados al MEP del boleto).
-    `ids` (opcional) restringe a un set de cuentas del scope (filtros madre)."""
+def _agg_totales_batch(defs: list[tuple], moneda: str, mep_hoy: float | None,
+                       ids: list[str] | None = None):
+    """TODOS los períodos (actual + anterior) en 2 queries con agregación condicional
+    (`agg FILTER (WHERE fecha ∈ rango)`, un par de columnas por rango) en vez de 2 queries
+    por período (hasta 32 round-trips seriales). Postgres escanea cada tabla UNA vez y
+    computa todos los agregados en esa pasada.
+
+    Devuelve `get(desde, hasta) → {clientes_activos, volumen, comisiones}`."""
     volx, arax = _valor_expr(moneda, mep_hoy), _arancel_expr(moneda, mep_hoy)
     scope = " AND id_cuenta = ANY(%(ids)s)" if ids is not None else ""
-    p = {"d": desde, "h": hasta, "cats": list(_CATS_VOLUMEN)}
-    pc: dict = {"d": desde, "h": hasta}
+    ranges: list[tuple[date, date]] = sorted({
+        (d, h) for _label, d, h, pd, ph in defs for (d, h) in ([(d, h)] + ([(pd, ph)] if pd else []))
+    })
+    p: dict = {"cats": list(_CATS_VOLUMEN)}
+    pc: dict = {}
     if ids is not None:
         p["ids"] = pc["ids"] = ids
-    v = _q(f"SELECT COUNT(DISTINCT id_cuenta) AS act, COALESCE(SUM({volx}),0) AS vol "
-           f"FROM negocio_movimientos WHERE categoria = ANY(%(cats)s) "
-           f"AND unidad IS DISTINCT FROM 'USDL' AND fecha >= %(d)s AND fecha <= %(h)s{scope}", p)[0]
-    c = _q(f"SELECT COALESCE(SUM({arax}),0) AS com FROM operaciones "
+    sel_v, sel_c = [], []
+    for i, (d, h) in enumerate(ranges):
+        p[f"d{i}"] = pc[f"d{i}"] = d
+        p[f"h{i}"] = pc[f"h{i}"] = h
+        rng = f"fecha >= %(d{i})s AND fecha <= %(h{i})s"
+        sel_v.append(f"COUNT(DISTINCT id_cuenta) FILTER (WHERE {rng}) AS act{i}")
+        sel_v.append(f"COALESCE(SUM({volx}) FILTER (WHERE {rng}), 0) AS vol{i}")
+        rngc = f"concertacion >= %(d{i})s AND concertacion <= %(h{i})s"
+        sel_c.append(f"COALESCE(SUM({arax}) FILTER (WHERE {rngc}), 0) AS com{i}")
+    p["dmin"] = pc["dmin"] = min(d for d, _ in ranges)
+    p["hmax"] = pc["hmax"] = max(h for _, h in ranges)
+    v = _q(f"SELECT {', '.join(sel_v)} FROM negocio_movimientos "
+           f"WHERE categoria = ANY(%(cats)s) AND unidad IS DISTINCT FROM 'USDL' "
+           f"AND fecha >= %(dmin)s AND fecha <= %(hmax)s{scope}", p)[0]
+    c = _q(f"SELECT {', '.join(sel_c)} FROM operaciones "
            f"WHERE arancel > 0 AND etapa IS DISTINCT FROM 'solicitud' "
-           f"AND concertacion >= %(d)s AND concertacion <= %(h)s{scope}", pc)[0]
-    return {"clientes_activos": int(v["act"] or 0),
-            "volumen": round(_f(v["vol"]), 2),
-            "comisiones": round(_f(c["com"]), 2)}
+           f"AND concertacion >= %(dmin)s AND concertacion <= %(hmax)s{scope}", pc)[0]
+    idx = {r: i for i, r in enumerate(ranges)}
+
+    def get(desde: date, hasta: date) -> dict:
+        i = idx[(desde, hasta)]
+        return {"clientes_activos": int(v[f"act{i}"] or 0),
+                "volumen": round(_f(v[f"vol{i}"]), 2),
+                "comisiones": round(_f(c[f"com{i}"]), 2)}
+    return get
 
 
 def _pct(cur: float, prev: float) -> float | None:
     """% de variación cur vs prev. None si prev es 0 (no hay base de comparación)."""
     return round((cur - prev) / prev * 100, 1) if prev else None
+
+
+@cached(ttl=300)
+def _op_de() -> dict[str, str]:
+    """Mapa id_cuenta→operador (comitentes Activas). Cacheado: antes esta misma query
+    se ejecutaba 3 veces por request de datos_por_operador (cur + prev + AuM)."""
+    return {r["id_cuenta"]: r["operador_email"] for r in _q(
+        "SELECT id_cuenta, operador_email FROM comitentes WHERE estado='Activa' "
+        "AND operador_email IS NOT NULL")}
+
+
+@cached(ttl=300)
+def _nombres_operador() -> dict[str, str]:
+    """Mapa operador_email→nombre display. Compartido por Tablas 2 y 3."""
+    return {r["email"]: r["nombre"] for r in _q(
+        "SELECT c.operador_email AS email, o.nombre AS nombre FROM comitentes c "
+        "LEFT JOIN operadores o ON o.email = c.operador_email "
+        "WHERE c.estado='Activa' AND c.operador_email IS NOT NULL "
+        "GROUP BY c.operador_email, o.nombre")}
 
 
 @cached(ttl=300)
@@ -202,9 +243,9 @@ def datos_totales_alyc(*, moneda: str = "ARS", operador=(), nivel_1=(), nivel_2=
     mesa completa. Van como TUPLAS (hashables) porque la fn está @cached (la key hace
     tuple(sorted(kwargs)) → una lista la rompería).
 
-    @cached(300s): hace ~30 agregaciones seriales sobre operaciones/negocio_movimientos
-    (varias barren todo el histórico) → se recalcula 1×/5min por combinación de moneda+filtros
-    en vez de en cada hit del dashboard de jefatura (perf 2026-06-29)."""
+    @cached(300s) + batch: los 15 rangos se resuelven en 2 queries con agregación
+    condicional (_agg_totales_batch) y se recalcula 1×/5min por combinación de
+    moneda+filtros en vez de en cada hit del dashboard de jefatura."""
     factor = _factor_usd(moneda)
     ids, _ops = _scope(operador, nivel_1, nivel_2, nivel_3, nivel_4, nivel_5, referido)
     a = _ancla()
@@ -224,10 +265,11 @@ def datos_totales_alyc(*, moneda: str = "ARS", operador=(), nivel_1=(), nivel_2=
         ("2024", date(2024, 1, 1), date(2024, 12, 31), date(2023, 1, 1), date(2023, 12, 31)),
         ("Total", date(2000, 1, 1), a, None, None),
     ]
+    agg = _agg_totales_batch(defs, moneda, factor, ids)
     filas = []
     for label, d, h, pdde, phasta in defs:
-        cur = _agg_total(d, h, moneda, factor, ids)
-        prev = _agg_total(pdde, phasta, moneda, factor, ids) if pdde else None
+        cur = agg(d, h)
+        prev = agg(pdde, phasta) if pdde else None
         fila = {"periodo": label, **cur}
         for k in ("clientes_activos", "volumen", "comisiones"):
             fila[f"{k}_pct"] = _pct(cur[k], prev[k]) if prev else None
@@ -241,9 +283,7 @@ def _por_operador(desde: date, hasta: date, moneda: str, mep_hoy: float | None,
     destino (valuado al MEP del boleto). Agrega por cuenta y mapea a operador en Python.
     `ids` (opcional) restringe a las cuentas del scope (filtros madre)."""
     volx, arax = _valor_expr(moneda, mep_hoy), _arancel_expr(moneda, mep_hoy)
-    op_de = {r["id_cuenta"]: r["operador_email"] for r in _q(
-        "SELECT id_cuenta, operador_email FROM comitentes WHERE estado='Activa' "
-        "AND operador_email IS NOT NULL")}
+    op_de = _op_de()
     scope = " AND id_cuenta = ANY(%(ids)s)" if ids is not None else ""
     out: dict[str, dict] = {}
     p = {"d": desde, "h": hasta, "cats": list(_CATS_VOLUMEN)}
@@ -309,14 +349,9 @@ def datos_por_operador(*, desde: str, hasta: str, moneda: str = "ARS", operador=
     pd0 = pd1 - timedelta(days=dias)        # y arranca `dias` antes → mismo largo
     cur = _por_operador(d0, d1, moneda, factor, ids)
     prev = _por_operador(pd0, pd1, moneda, factor, ids)
-    nombre = {r["email"]: r["nombre"] for r in _q(
-        "SELECT c.operador_email AS email, o.nombre AS nombre FROM comitentes c "
-        "LEFT JOIN operadores o ON o.email = c.operador_email "
-        "WHERE c.estado='Activa' AND c.operador_email IS NOT NULL GROUP BY c.operador_email, o.nombre")}
+    nombre = _nombres_operador()
     # AuM por operador: foto al cierre del rango (d1) vs foto al cierre del rango anterior (pd1).
-    op_de = {r["id_cuenta"]: r["operador_email"] for r in _q(
-        "SELECT id_cuenta, operador_email FROM comitentes WHERE estado='Activa' "
-        "AND operador_email IS NOT NULL")}
+    op_de = _op_de()
     aum_cur = _aum_por_operador(d1, factor, op_de, ids)
     aum_prev = _aum_por_operador(pd1, factor, op_de, ids)
     # Total de clientes por operador para el conteo de INACTIVOS — restringido al scope
@@ -376,10 +411,7 @@ def objetivos_vs_actual(*, desde: str, hasta: str, moneda: str = "ARS", operador
                 (claves,))
             for r in cur2.fetchall():
                 obj[r["operador_email"]] = {"vo": _f(r["vo"]), "co": _f(r["co"])}
-    nombre = {r["operador_email"]: r["nombre"] for r in _q(
-        "SELECT c.operador_email, o.nombre AS nombre FROM comitentes c "
-        "LEFT JOIN operadores o ON o.email = c.operador_email "
-        "WHERE c.estado='Activa' AND c.operador_email IS NOT NULL GROUP BY c.operador_email, o.nombre")}
+    nombre = _nombres_operador()
     universo = set(actual) | set(obj)
     if ops is not None:                    # con filtro madre: solo comerciales del scope
         universo &= ops

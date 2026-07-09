@@ -109,6 +109,10 @@ PIEZAS: list[Pieza] = [
     Pieza("MERCADOS", "job", "fair_value (fit)", grupo="RENTA FIJA", unidad="jobs.fair_value",
           cadencia="20:25 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
           db="Trading", coll="FairValueResiduos", field="ts_cierre", ts_kind="iso"),
+    Pieza("MERCADOS", "job", "bonos_ohlc_daily (pivots RF)", grupo="RENTA FIJA",
+          unidad="jobs.bonos_ohlc_daily",
+          cadencia="20:16 UTC L-V", ventana="diario", umbral_s=int(3 * _D),
+          run_tipo="bonos_ohlc_daily"),
 
     # ── MERCADOS · DERIVADOS ───────────────────────────────
     Pieza("MERCADOS", "job", "snapshot_sinteticos (serie histórica)", grupo="DERIVADOS",

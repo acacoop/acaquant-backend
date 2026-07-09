@@ -136,6 +136,19 @@ def listar_flujos(
                                  hasta=hasta, scope=scope)
 
 
+@router.get("/flujos/resumen")
+@cached(ttl=300)
+def flujos_resumen(
+    desde: str | None = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    hasta: str | None = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    scope: tuple[str, ...] | None = Depends(scope_cuentas),
+):
+    """Resumen de movimientos agregado por (día, cuenta, unidad) con entradas y
+    salidas separadas. Lo consume la vista CASHFLOW en vez de bajar los
+    movimientos crudos de 2 años."""
+    return _cf_sql.flujos_resumen(desde=desde, hasta=hasta, scope=scope)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # OPERACIONES (vista MOVIMIENTOS) — lee CashFlow.Operaciones (fuente: API
 # informes), enriquecida con moneda/mercado/operacion por

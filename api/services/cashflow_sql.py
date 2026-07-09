@@ -109,6 +109,38 @@ def listar_flujos(
     return out
 
 
+def flujos_resumen(
+    desde: str | None = None, hasta: str | None = None,
+    scope: tuple[str, ...] | None = None,
+) -> dict:
+    """Resumen agregado de la vista CASHFLOW: una fila por (día, cuenta, unidad)
+    con entradas (Σ brutos ≥0) y salidas (Σ brutos <0) separadas — la vista las
+    muestra por separado, un neto solo no alcanza.
+
+    Reemplaza bajar 2 años de movimientos crudos al browser. La fecha se parsea
+    en Python (dd/mm/yyyy crudo, igual que listar_flujos) — un to_date en SQL
+    reventaría con una fecha malformada."""
+    rows = listar_flujos(desde=desde, hasta=hasta, scope=scope)
+    agg: dict[tuple, dict] = {}
+    for r in rows:
+        if not r["concertacion"]:
+            continue
+        e = agg.setdefault((r["concertacion"], r["cuenta"] or "", r["unidad"] or ""), {
+            "dia": r["concertacion"], "cuenta": r["cuenta"] or "",
+            "unidad": r["unidad"] or "", "entradas": 0.0, "salidas": 0.0, "n": 0})
+        b = r["bruto"] or 0.0
+        if b >= 0:
+            e["entradas"] += b
+        else:
+            e["salidas"] += b
+        e["n"] += 1
+    filas = sorted(agg.values(), key=lambda x: (x["dia"], x["cuenta"]))
+    for f in filas:
+        f["entradas"] = round(f["entradas"], 2)
+        f["salidas"] = round(f["salidas"], 2)
+    return {"filas": filas}
+
+
 # ── ACREENCIAS (cobros futuros) — espejo de acreencias.py (por_dia/del_dia/del_cliente) ──
 def por_dia(desde: str | None = None, hasta: str | None = None) -> list[dict]:
     """Agregado por fecha de pago: total por moneda + #clientes + #pagos. Mismo shape

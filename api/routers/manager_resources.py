@@ -29,21 +29,37 @@ _started = time.time()
 
 
 # ── Identificación de procesos relevantes ─────────────────────────────────────
-# Cada tupla: (label, cmdline substring to match).
-_PROCESS_LABELS: list[tuple[str, str]] = [
-    ("api",               "uvicorn api.main:app"),
-    ("motor_rofex",       "engines.valores"),
-    ("motor_options",     "engines.options"),
-    ("motor_curvas",      "engines.curvas"),
-    ("motor_forwards",    "engines.forwards"),
-    ("motor_breakevens",  "engines.breakevens"),
-    ("motor_ordenes",     "engines.motor_ordenes"),
-    ("cloudflared",       "cloudflared"),
-]
+# Los servicios se DERIVAN de deploy/systemd/*.service (ExecStart → substring a
+# matchear en la cmdline del proceso): un motor nuevo aparece solo con el deploy,
+# sin tocar listas a mano (antes era una lista hardcodeada y quedó vieja — le
+# faltaban dólares/futuros_dlr/caución/agro/cedears/portfolio_snapshot).
+def _labels_desde_systemd() -> list[tuple[str, str]]:
+    import re
+    from pathlib import Path
+    out: list[tuple[str, str]] = []
+    d = Path(__file__).resolve().parents[2] / "deploy" / "systemd"
+    for f in sorted(d.glob("*.service")):
+        try:
+            m = re.search(r"^ExecStart=.*?(?:-m\s+(\S+)|uvicorn\s+(\S+))",
+                          f.read_text(encoding="utf-8"), re.MULTILINE)
+        except OSError:
+            continue
+        needle = (m.group(1) or m.group(2)) if m else None
+        if needle:
+            out.append((f.stem, needle))
+    out.append(("cloudflared", "cloudflared"))  # instalado aparte, sin unit en el repo
+    return out
+
+
+_PROCESS_LABELS: list[tuple[str, str]] = _labels_desde_systemd()
+
+# Para el match, needle más LARGO primero: "engines.motor_agro" es substring de
+# "engines.motor_agro_opciones" — sin este orden, agro_opciones caía en agro.
+_LABELS_MATCH = sorted(_PROCESS_LABELS, key=lambda t: -len(t[1]))
 
 
 def _label_for(cmdline: str) -> str | None:
-    for label, needle in _PROCESS_LABELS:
+    for label, needle in _LABELS_MATCH:
         if needle in cmdline:
             return label
     return None

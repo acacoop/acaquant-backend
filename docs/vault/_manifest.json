@@ -65,6 +65,7 @@
 "api.routers.cuentas",
 "api.routers.derivados_agro",
 "api.routers.derivados_sinteticos",
+"api.routers.ia",
 "api.routers.ingest",
 "api.routers.manager",
 "api.routers.manager_resources",
@@ -331,6 +332,19 @@
 "links": [
 "api.auth",
 "api.services.sinteticos"
+]
+},
+{
+"id": "api.routers.ia",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/routers/ia.py",
+"summary": "api/routers/ia.py — endpoints del módulo IA (QuantAI, docs/QUANTAI.md).",
+"links": [
+"api.services",
+"api.services.briefing",
+"api.services.ia_obs"
 ]
 },
 {
@@ -1214,6 +1228,18 @@
 ]
 },
 {
+"id": "api.services.briefing",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/briefing.py",
+"summary": "api/services/briefing.py — Briefing de apertura (QuantAI P1, v1 DETERMINISTA).",
+"links": [
+"core.postgres",
+"db.Trading.DOLAR"
+]
+},
+{
 "id": "api.services.camara_cereales",
 "type": "module",
 "layer": "api",
@@ -1488,6 +1514,18 @@
 "api.cache",
 "core",
 "core.curvas_sql",
+"core.postgres"
+]
+},
+{
+"id": "api.services.ia_obs",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/ia_obs.py",
+"summary": "api/services/ia_obs.py — observabilidad del gateway de IA (SQL ia.trazas).",
+"links": [
+"core.ai",
 "core.postgres"
 ]
 },
@@ -2152,13 +2190,26 @@
 ]
 },
 {
+"id": "core.ai",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/ai.py",
+"summary": "core/ai.py — gateway único de IA (QuantAI Fase 0, ver docs/QUANTAI.md).",
+"links": [
+"core.postgres"
+]
+},
+{
 "id": "core.ai_resumen",
 "type": "module",
 "layer": "core",
 "repo": "backend",
 "path": "core/ai_resumen.py",
 "summary": "core/ai_resumen.py — lectura ejecutiva con IA para los informes operativos.",
-"links": []
+"links": [
+"core.ai"
+]
 },
 {
 "id": "core.argentina_datos",
@@ -2435,6 +2486,17 @@
 ]
 },
 {
+"id": "core.simbolos_cuarentena",
+"type": "module",
+"layer": "core",
+"repo": "backend",
+"path": "core/simbolos_cuarentena.py",
+"summary": "core/simbolos_cuarentena.py — cuarentena PERSISTENTE de símbolos que ROFEX rechaza.",
+"links": [
+"core.postgres"
+]
+},
+{
 "id": "core.threads",
 "type": "module",
 "layer": "core",
@@ -2461,6 +2523,7 @@
 "summary": "WebSocketManager — conexión WS a pyRofex para los motores de mercado.",
 "links": [
 "core.notify",
+"core.simbolos_cuarentena",
 "core.threads"
 ]
 },
@@ -4735,6 +4798,15 @@
 ]
 },
 {
+"id": "web.api.api.ia.[...path]",
+"type": "route",
+"layer": "web-api",
+"repo": "frontend",
+"path": "src/app/api/ia/[...path]/route.ts",
+"summary": "",
+"links": []
+},
+{
 "id": "web.api.api.manager.[...path]",
 "type": "route",
 "layer": "web-api",
@@ -5181,6 +5253,17 @@
 ]
 },
 {
+"id": "web.cmp.briefing-modal",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/briefing-modal.tsx",
+"summary": "",
+"links": [
+"api.routers.ia"
+]
+},
+{
 "id": "web.cmp.canje-tab",
 "type": "component",
 "layer": "web-component",
@@ -5611,6 +5694,7 @@
 "path": "src/components/home-view.tsx",
 "summary": "",
 "links": [
+"web.cmp.briefing-modal",
 "web.cmp.canje-tab",
 "web.cmp.futuros-dlr-curve-chart",
 "web.cmp.news-panel",
@@ -5718,6 +5802,17 @@
 "summary": "",
 "links": [
 "api.routers.manager.valuaciones"
+]
+},
+{
+"id": "web.cmp.manager-ia-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/manager-ia-panel.tsx",
+"summary": "",
+"links": [
+"api.routers.ia"
 ]
 },
 {
@@ -6357,6 +6452,7 @@
 "summary": "",
 "links": [
 "api.routers.cuentas",
+"api.routers.ia",
 "api.routers.manager",
 "api.routers.operaciones",
 "api.routers.operar",

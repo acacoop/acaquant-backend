@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-153 notas.
+156 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -25,6 +25,7 @@
 - [[api.routers.cuentas]] — Router Cuentas: accionistas y contrapartes (ambos SQL — fuente única;
 - [[api.routers.derivados_agro]] — Router /api/derivados/agro — Pase Agro + Estrategias + Cámara + Mejoras Dispo.
 - [[api.routers.derivados_sinteticos]] — Router /api/derivados/sinteticos — sintéticos LECAP / DLK + futuro DLR.
+- [[api.routers.ia]] — api/routers/ia.py — endpoints del módulo IA (QuantAI, docs/QUANTAI.md).
 - [[api.routers.ingest]] — Ingesta (escritura) — datos que ENTRAN desde fuera del Droplet.
 - [[api.routers.manager]] — Manager API — paquete con sub-routers por sub-dominio.
 - [[api.routers.manager._common]] — Constantes y helpers compartidos entre los sub-módulos de manager/.
@@ -89,6 +90,7 @@
 - [[api.services.back_office_titulos]] — Service — Títulos / Mercado (Back Office).
 - [[api.services.bonos_admin]] — api/services/bonos_admin.py — alta/edición de bonos NO-ON directo en Trading.Curvas.
 - [[api.services.breakevens_admin]] — api/services/breakevens_admin.py — curaduría de pares de breakevens.
+- [[api.services.briefing]] — api/services/briefing.py — Briefing de apertura (QuantAI P1, v1 DETERMINISTA).
 - [[api.services.camara_cereales]] — Service — Cámara Arbitral de Cereales de Rosario.
 - [[api.services.canje]] — Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).
 - [[api.services.carry_trade]] — Serie de carry trade en USD para una curva (tasa_fija / cer).
@@ -109,6 +111,7 @@
 - [[api.services.diagnostico]] — Motor del Diagnóstico — arma el árbol vista→piezas con status, desde el registro.
 - [[api.services.diagnostico_registry]] — Registro ÚNICO del Diagnóstico: vista → motores / jobs / APIs que la alimentan.
 - [[api.services.fair_value]] — fair_value.py — service del módulo Fair Value relativo intra-curva.
+- [[api.services.ia_obs]] — api/services/ia_obs.py — observabilidad del gateway de IA (SQL ia.trazas).
 - [[api.services.import_tenencia]] — api/services/import_tenencia.py — import masivo de tenencia a Valuaciones.AuM.
 - [[api.services.import_tenencia_sql]] — api/services/import_tenencia_sql.py — import manual a SQL `portafolio.tenencia`.
 - [[api.services.intraday]] — api/services/intraday.py — monitor intradía de renta variable (FIFO).

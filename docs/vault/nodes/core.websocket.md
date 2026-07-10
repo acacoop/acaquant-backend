@@ -20,6 +20,7 @@ Conecta con: la plataforma ROFEX vía pyRofex (sesión de `core.rofex_session`);
 
 ## Usa / conecta con →
 - [[core.notify]]  ·  _module_
+- [[core.simbolos_cuarentena]]  ·  _module_
 - [[core.threads]]  ·  _module_
 
 ## Lo usan (backlinks) ←

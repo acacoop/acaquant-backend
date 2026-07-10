@@ -17,6 +17,7 @@ Conecta con: src/lib/cf-access.ts (trustedEmail), el endpoint /api/me del backen
 
 ## Usa / conecta con →
 - [[api.routers.cuentas]]  ·  _module_
+- [[api.routers.ia]]  ·  _module_
 - [[api.routers.manager]]  ·  _module_
 - [[api.routers.operaciones]]  ·  _module_
 - [[api.routers.operar]]  ·  _module_

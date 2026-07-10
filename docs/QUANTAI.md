@@ -56,10 +56,16 @@ calendario.
   punta a punta en el Droplet (completion real + traza en `ia.trazas`).
   **VERIFICADO contra el proveedor:** los IDs `deepseek-v4-flash` y
   `deepseek-v4-pro` existen tal cual (GET /models) — ya no es hipótesis.
-- **Próximo paso inmediato (user):** tras el deploy del módulo RBAC, en
-  `/manager → ROLES Y PERMISOS` tildar `ia` para el rol `admin` (la matriz de
-  prod pisa el default → el módulo nuevo no se asigna solo). Ese tilde ES el
-  canary del rollout.
+- **Fase 0: 3 de 4 hechos** (gateway, RBAC, observabilidad). Falta solo la
+  suite de evals (punto 4), diferida A PROPÓSITO hasta tener outputs reales
+  que congelar como casos (hoy no hay ninguna tarea LLM corriendo en prod).
+- **Cabos sueltos al cierre 2026-07-10:**
+  1. Validar la frescura del feed MAE (PC oficina) a las 10:00 ART — el propio
+     modal del briefing lo revela: si muestra "aún sin operaciones" a las 10 y
+     precio a las 10:15, se corre la hora o se acepta el delay.
+  2. `.env` del Droplet tiene una línea mal formada (warning python-dotenv
+     "line 33") — no rompe, pero si esa línea era una var real se está
+     ignorando en silencio. Ver con `sed -n '33p' /root/TradingAV/.env`.
 
 ---
 
@@ -362,4 +368,12 @@ plataforma del Copiloto si algún día se retoman.
 
 - **2026-07-10 — Fase 0.1: gateway `core/ai.py`** (+ tabla `ia.trazas`, migración
   de `ai_resumen` adentro, `scripts/smoke_ai.py`, tests unit). Key DeepSeek
-  seteada por el user en el Droplet el mismo día.
+  seteada por el user en el Droplet el mismo día. Smoke OK E2E; IDs
+  `deepseek-v4-flash`/`-pro` verificados contra el proveedor.
+- **2026-07-10 — Fase 0.2: módulo `ia` en el RBAC** (`a6fd413`): MODULES +
+  prefijo `/api/ia` + tests que congelan default-solo-admin e invitado-jamás.
+  Tilde de `ia` para `admin` hecho por el user en el panel (canary activo).
+- **2026-07-10 — Fase 0.3: observabilidad** (`c7f5308` + web `8e88487`):
+  `GET /api/ia/observabilidad` + pill IA en Manager → OBSERVABILIDAD.
+- **2026-07-10 — P1 v1 determinista en shadow** (`3010c70` + web `9ea4990`):
+  `GET /api/ia/briefing` + modal 10:00 ART en HOME (ver sección P1).

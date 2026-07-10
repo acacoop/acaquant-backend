@@ -16,5 +16,8 @@ path: core/ai_resumen.py
 ## Qué hace
 _(pendiente de enriquecimiento)_
 
+## Usa / conecta con →
+- [[core.ai]]  ·  _module_
+
 ## Lo usan (backlinks) ←
 - [[jobs.controles_datos]]  ·  _module_

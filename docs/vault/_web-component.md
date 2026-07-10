@@ -1,6 +1,6 @@
 # 🧩 web — componentes
 
-107 notas.
+109 notas.
 
 - [[web.cmp.acreencias-view]]
 - [[web.cmp.agro-datos]]
@@ -15,6 +15,7 @@
 - [[web.cmp.aunesa-posicion-panel]]
 - [[web.cmp.back-office-shell]]
 - [[web.cmp.breakevens-block]]
+- [[web.cmp.briefing-modal]]
 - [[web.cmp.canje-tab]]
 - [[web.cmp.cedears-scanner-table]]
 - [[web.cmp.cedears-timesales-panel]]
@@ -61,6 +62,7 @@
 - [[web.cmp.manager-controles-panel]]
 - [[web.cmp.manager-debug-tea]]
 - [[web.cmp.manager-debug-xirr]]
+- [[web.cmp.manager-ia-panel]]
 - [[web.cmp.manager-jobs-panel]]
 - [[web.cmp.manager-view]]
 - [[web.cmp.metricas-panel]]

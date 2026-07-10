@@ -42,6 +42,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.back_office_titulos]]  ·  _module_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.breakevens_admin]]  ·  _module_
+- [[api.services.briefing]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
 - [[api.services.canje]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
@@ -57,6 +58,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.derivados_agro]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
+- [[api.services.ia_obs]]  ·  _module_
 - [[api.services.import_tenencia]]  ·  _module_
 - [[api.services.import_tenencia_sql]]  ·  _module_
 - [[api.services.intraday]]  ·  _module_
@@ -94,6 +96,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.valuaciones]]  ·  _module_
 - [[api.services.valuaciones_sql]]  ·  _module_
 - [[core.adhoc_subscriptions]]  ·  _module_
+- [[core.ai]]  ·  _module_
 - [[core.brackets]]  ·  _module_
 - [[core.calendario]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_
@@ -105,6 +108,7 @@ _(pendiente de enriquecimiento)_
 - [[core.roles]]  ·  _module_
 - [[core.roles_sql]]  ·  _module_
 - [[core.series_macro]]  ·  _module_
+- [[core.simbolos_cuarentena]]  ·  _module_
 - [[engines._universo_portfolio]]  ·  _module_
 - [[engines.motor_agro]]  ·  _module_
 - [[engines.motor_agro_opciones]]  ·  _module_

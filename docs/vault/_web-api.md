@@ -1,6 +1,6 @@
 # 🔌 web — rutas API (proxy)
 
-60 notas.
+61 notas.
 
 - [[web.api.api.analitica.[...path]]]
 - [[web.api.api.argy]]
@@ -35,6 +35,7 @@
 - [[web.api.api.dolares-historico]]
 - [[web.api.api.futuros-dlr]]
 - [[web.api.api.historico-curva]]
+- [[web.api.api.ia.[...path]]]
 - [[web.api.api.manager.[...path]]]
 - [[web.api.api.market.calendar]]
 - [[web.api.api.market.quotes]]

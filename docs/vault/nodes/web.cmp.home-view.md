@@ -17,6 +17,7 @@ Vista de inicio (/). Layout con watchlist, panel de noticias y un chart central 
 Conecta con: compone `WatchlistPanel`, `NewsPanel`, `TradingViewChart` y `FuturosDlrCurveChart`. Indirectamente consume los endpoints de cada uno (watchlist, news, futuros DLR).
 
 ## Usa / conecta con →
+- [[web.cmp.briefing-modal]]  ·  _component_
 - [[web.cmp.canje-tab]]  ·  _component_
 - [[web.cmp.futuros-dlr-curve-chart]]  ·  _component_
 - [[web.cmp.news-panel]]  ·  _component_

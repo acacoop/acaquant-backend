@@ -36,6 +36,7 @@ Conecta con: importa `api.auth`, `api.deps`, `api.ratelimit`, `api.profiling`, t
 - [[api.routers.cuentas]]  ·  _module_
 - [[api.routers.derivados_agro]]  ·  _module_
 - [[api.routers.derivados_sinteticos]]  ·  _module_
+- [[api.routers.ia]]  ·  _module_
 - [[api.routers.ingest]]  ·  _module_
 - [[api.routers.manager]]  ·  _module_
 - [[api.routers.manager_resources]]  ·  _module_

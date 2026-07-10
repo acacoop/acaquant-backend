@@ -1,9 +1,10 @@
 # 🧱 core — infraestructura
 
-32 notas.
+34 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
+- [[core.ai]] — core/ai.py — gateway único de IA (QuantAI Fase 0, ver docs/QUANTAI.md).
 - [[core.ai_resumen]] — core/ai_resumen.py — lectura ejecutiva con IA para los informes operativos.
 - [[core.argentina_datos]] — Cliente de argentinadatos.com — indicadores macro AR públicos.
 - [[core.aunesa]] — core/aunesa.py — cliente único de la API del custodio Aunesa.
@@ -30,6 +31,7 @@
 - [[core.roles]] — Roles y matriz de permisos por módulo.
 - [[core.roles_sql]] — core/roles_sql.py — lecturas + escrituras de AUTH (roles/matriz/usuarios) desde Postgres.
 - [[core.series_macro]] — Series macro (CER, DOLAR, BADLAR, TAMAR, RiesgoPais, Inflación…) — SQL-ONLY.
+- [[core.simbolos_cuarentena]] — core/simbolos_cuarentena.py — cuarentena PERSISTENTE de símbolos que ROFEX rechaza.
 - [[core.threads]] — threads.py — lanzamiento de hilos VITALES en motores.
 - [[core.tz]] — Zona horaria Argentina — ÚNICO lugar para now / tz / cálculo de frescura.
 - [[core.websocket]] — WebSocketManager — conexión WS a pyRofex para los motores de mercado.

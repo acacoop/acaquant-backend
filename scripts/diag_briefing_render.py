@@ -2,10 +2,8 @@
 
 Diagnóstico READ-ONLY que llama al service REAL (`briefing.briefing_hoy()`, la
 misma fuente de verdad que consume el modal de HOME) y lo renderiza como una
-maqueta de texto del cartel. A diferencia de `diag_briefing_datos.py` (que
-vuelca las fuentes crudas para diseñar), esto muestra el PAYLOAD YA COMPUESTO:
-variaciones calculadas, flags de stale, "aún sin operaciones", etc. — lo que la
-mesa vería si abriera el briefing en este instante.
+maqueta de texto del cartel, con el modelo uniforme de columnas HOY·1D·WTD·MTD
+para las tres secciones (futuros, dólar oficial, financieros).
 
 Correrlo idealmente ~10:00 ART:
     python -m scripts.diag_briefing_render
@@ -15,7 +13,7 @@ Al final imprime el JSON crudo del payload por si hace falta el detalle exacto.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import datetime
 
 from api.services.briefing import briefing_hoy
 
@@ -33,43 +31,38 @@ def _num(v, dec: int = 2) -> str:
 
 def _pct(v) -> str:
     if v is None:
-        return "  s/var"
+        return "—"
     signo = "+" if float(v) >= 0 else ""
     return f"{signo}{_num(v)}%"
 
 
-def _cuando(ts) -> str:
-    if ts is None:
-        return ""
-    if isinstance(ts, datetime):
-        from datetime import UTC
-        m = int((datetime.now(UTC) - ts).total_seconds() // 60)
-        hace = f"hace {m} min" if m < 120 else f"hace {m // 60} h"
-        return f"({hace})"
-    if isinstance(ts, date):
-        return f"({ts.isoformat()})"
-    return f"({ts})"
+def _fila(label: str, r: dict) -> str:
+    hoy = "Sin Ops" if r.get("hoy") is None else _num(r.get("hoy"))
+    return (f"      {label:<14} {hoy:>12} "
+            f"{_pct(r.get('ret_1d')):>9} {_pct(r.get('ret_wtd')):>9} "
+            f"{_pct(r.get('ret_mtd')):>9}")
 
 
-def _linea(etiqueta: str, valor: str, extra: str = "") -> str:
-    return f"    {etiqueta:<22} {valor:>16}   {extra}".rstrip()
+def _header() -> str:
+    return f"      {'':<14} {'HOY':>12} {'1D':>9} {'WTD':>9} {'MTD':>9}"
 
 
 def main() -> None:
     p = briefing_hoy()
 
-    print("\n" + "═" * 60)
+    print("\n" + "═" * 62)
     print(f"  ☀  BRIEFING DE APERTURA — {p['fecha']}")
     gen = p.get("generado")
     if isinstance(gen, datetime):
         print(f"     generado {gen:%H:%M}Z")
-    print("═" * 60)
+    print("═" * 62)
 
     # ── FUTUROS ─────────────────────────────────────────────────
-    print("\n  FUTUROS         " + f"{'último':>12} {'1d':>9} {'sem':>9} {'mes':>9}")
+    print("\n  FUTUROS")
+    print(_header())
     futuros = p.get("futuros") or []
     if not futuros:
-        print("    (sin datos de futuros)")
+        print("      (sin datos de futuros)")
     grupo_actual = None
     for f in futuros:
         g = f.get("grupo")
@@ -77,45 +70,23 @@ def main() -> None:
             print(f"    · {g}")
             grupo_actual = g
         flag = "  ⚠STALE" if f.get("stale") else ""
-        print(f"      {(f.get('label') or '?'):<12} {_num(f.get('last')):>12} "
-              f"{_pct(f.get('pct_day')):>9} {_pct(f.get('ret_semana')):>9} "
-              f"{_pct(f.get('ret_mes')):>9}{flag}")
+        print(_fila(f.get("label") or "?", f) + flag)
 
     # ── DÓLAR OFICIAL ───────────────────────────────────────────
     print("\n  DÓLAR OFICIAL")
-    ol = p.get("oficial_live")
-    if ol is None:
-        print(_linea("Mayorista MAE (live)", "aún sin operaciones hoy"))
-    else:
-        extra = (
-            f"{_pct(ol.get('variacion_pct'))}   "
-            f"máx {_num(ol.get('maximo'))} / mín {_num(ol.get('minimo'))}   "
-            f"{_cuando(ol.get('ts'))}"
-        )
-        print(_linea("Mayorista MAE (live)", _num(ol.get("valor")), extra))
-    a3500 = p.get("a3500")
-    if a3500:
-        print(_linea(
-            "A3500 BCRA (fixing)",
-            _num(a3500.get("valor")),
-            f"{_pct(a3500.get('variacion_pct'))}   {_cuando(a3500.get('fecha'))}",
-        ))
-    else:
-        print(_linea("A3500 BCRA (fixing)", "—"))
+    print(_header())
+    for r in (p.get("oficial") or []):
+        print(_fila(r.get("label") or "?", r))
 
     # ── FINANCIEROS ─────────────────────────────────────────────
-    mep, ccl = p.get("mep"), p.get("ccl")
-    fecha_cierre = (mep or ccl or {}).get("fecha")
-    print(f"\n  DÓLARES FINANCIEROS (cierre {fecha_cierre or '—'})")
-    for nombre, blk in (("MEP", mep), ("CCL", ccl)):
-        if blk:
-            print(_linea(nombre, _num(blk.get("cierre")), _pct(blk.get("variacion_pct"))))
-        else:
-            print(_linea(nombre, "—"))
+    print("\n  DÓLARES FINANCIEROS")
+    print(_header())
+    for r in (p.get("financieros") or []):
+        print(_fila(r.get("label") or "?", r))
 
-    print("\n" + "═" * 60)
-    print("  JSON crudo del payload (para el detalle exacto):")
-    print("═" * 60)
+    print("\n" + "═" * 62)
+    print("  JSON crudo del payload:")
+    print("═" * 62)
     print(json.dumps(p, ensure_ascii=False, indent=2, default=str))
     print("\nListo. Pegale este output a Claude.")
 

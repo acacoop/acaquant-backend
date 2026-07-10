@@ -49,8 +49,13 @@ def _closest_close(times: list[int], closes: list[float], target_ts: int) -> flo
 
 
 def _anchor_timestamps(now: datetime) -> dict[str, int]:
+    # WTD = week-to-date: cierre de la última rueda ANTES del lunes de esta semana
+    # (típicamente el viernes). Distinto de anchor_7d (rolling 7 días), que se
+    # mantiene para /argy. _closest_close toma el cierre <= al target.
+    inicio_semana = datetime(now.year, now.month, now.day, tzinfo=UTC) - timedelta(days=now.weekday())
     return {
         "anchor_7d":  int((now - timedelta(days=7)).timestamp()),
+        "anchor_wtd": int((inicio_semana - timedelta(seconds=1)).timestamp()),
         "anchor_mtd": int(datetime(now.year, now.month, 1, tzinfo=UTC).timestamp()),
         "anchor_ytd": int(datetime(now.year, 1, 1, tzinfo=UTC).timestamp()),
         "anchor_1y":  int((now - timedelta(days=365)).timestamp()),
@@ -100,12 +105,14 @@ def update_fx_anchors(display: str, base: str, target: str, now: datetime) -> bo
     """Para FX: 1 request por anchor. frankfurter cachea internamente ECB
     reference rates, así que es rápido y gratis."""
     date_7d  = (now - timedelta(days=7)).date().isoformat()
+    date_wtd = (now - timedelta(days=now.weekday() + 3)).date().isoformat()  # viernes previo
     date_mtd = datetime(now.year, now.month, 1, tzinfo=UTC).date().isoformat()
     date_ytd = datetime(now.year, 1, 1, tzinfo=UTC).date().isoformat()
     date_1y  = (now - timedelta(days=365)).date().isoformat()
 
     update = {
         "anchor_7d":  _frankfurter_hist(base, target, date_7d),
+        "anchor_wtd": _frankfurter_hist(base, target, date_wtd),
         "anchor_mtd": _frankfurter_hist(base, target, date_mtd),
         "anchor_ytd": _frankfurter_hist(base, target, date_ytd),
         "anchor_1y":  _frankfurter_hist(base, target, date_1y),

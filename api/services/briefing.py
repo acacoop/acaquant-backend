@@ -1,25 +1,29 @@
 """api/services/briefing.py — Briefing de apertura (QuantAI P1, v1 DETERMINISTA).
 
-Arma el contenido del modal de las 10:00 ART de HOME: futuros de índices US,
-dólar oficial (mayorista live MAE + A3500 BCRA) y cierres MEP/CCL con variación
-vs la rueda anterior. TODO calculado de datos ya ingeridos — sin LLM: son solo
-números, y la regla de oro 1 del roadmap dice que la IA nunca es la fuente de
-un número. La capa de redacción IA se agrega ARRIBA de esto cuando el briefing
-sume narrativa (noticias/calendario); este service es, a la vez, su fallback
-determinista.
+Arma el contenido del modal de las 10:00 ART de HOME con un modelo de columnas
+UNIFORME para todas las filas: HOY · 1D · WTD · MTD.
 
-Manejo de feriados/fin de semana gratis: "cierre anterior" = los dos últimos
-días CON DATOS (solo hay filas en días de rueda), no ayer calendario.
+  - HOY   = último valor/precio (o None → "Sin Ops" si no operó hoy).
+  - 1D    = variación vs el cierre anterior. Puede faltar si hoy no hay dato.
+  - WTD   = week-to-date (desde el cierre de la rueda previa al lunes de la semana).
+  - MTD   = month-to-date (desde el cierre de la rueda previa al 1° del mes).
 
-Fuentes (verificadas con scripts/diag 2026-07-10):
-  - home.market_quotes 'S&P FUT'/'NASDAQ FUT' (Yahoo, cron 1min; pct_day listo)
-  - valuaciones.dolar_oficial_live UST$T M/000 (MAE via PC oficina; variacion lista)
-  - macro.series_macro serie DOLAR (A3500 BCRA, fixing diario)
-  - valuaciones.dolar (histórico MEP/CCL → último valor por día = cierre)
+Punto clave: WTD y MTD se calculan SIEMPRE sobre el último cierre disponible —
+sirven aunque hoy no haya operado (no dependen de 1D). Los futuros toman las
+anclas que persiste jobs/market_anchors en su doc; los dólares (A3500/MEP/CCL)
+se calculan al vuelo desde su propio histórico. El mayorista MAE aún no tiene
+histórico → HOY vivo o "Sin Ops", WTD/MTD en None.
+
+TODO determinista (regla de oro 1: la IA nunca es la fuente de un número). La
+capa de redacción IA se agrega ARRIBA de esto; este service es su fallback.
+
+Fuentes: home.market_quotes (futuros+anclas) · valuaciones.dolar_oficial_live
+(mayorista MAE) · macro.series_macro DOLAR (A3500 BCRA) · valuaciones.dolar
+(MEP/CCL histórico).
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -30,10 +34,8 @@ from core.postgres import get_pool
 _ART = ZoneInfo("America/Argentina/Buenos_Aires")
 _FUTUROS_STALE_MIN = 30  # el poller corre cada 1 min; >30 min = feed caído
 
-# Orden y agrupación de lectura de la mesa. El índice en esta lista fija el orden
-# de aparición; el segundo campo agrupa en el cartel. Los labels son los `symbol`
-# que escribe jobs/market_quotes (HOME_FUTUROS). Un futuro que no esté acá cae al
-# final como "Otros" (no se pierde).
+# Orden y agrupación de lectura de la mesa. El índice fija el orden de aparición;
+# el segundo campo agrupa en el cartel. Los labels son los `symbol` de HOME_FUTUROS.
 _FUTUROS_ORDEN: list[tuple[str, str]] = [
     ("S&P FUT",    "Índices US"),
     ("NASDAQ FUT", "Índices US"),
@@ -56,10 +58,30 @@ def _var_pct(actual: float | None, anterior: float | None) -> float | None:
     return round((float(actual) / float(anterior) - 1) * 100, 2)
 
 
+def _rets_hist(serie: list[tuple[date, Any]], hoy_art: date) -> dict[str, Any] | None:
+    """Dada una serie de cierres [(fecha, valor), ...] DESCENDENTE por fecha,
+    devuelve HOY (último cierre) + 1D/WTD/MTD. Las tres variaciones se anclan al
+    último cierre, así que valen aunque hoy todavía no haya rueda."""
+    limpia = [(f, float(v)) for f, v in serie if v is not None]
+    if not limpia:
+        return None
+    fecha0, hoy = limpia[0]
+    prev = limpia[1][1] if len(limpia) > 1 else None
+    lunes = hoy_art - timedelta(days=hoy_art.weekday())
+    primero_mes = hoy_art.replace(day=1)
+    wtd = next((v for f, v in limpia if f < lunes), None)
+    mtd = next((v for f, v in limpia if f < primero_mes), None)
+    return {
+        "fecha":   fecha0,
+        "hoy":     hoy,
+        "ret_1d":  _var_pct(hoy, prev),
+        "ret_wtd": _var_pct(hoy, wtd),
+        "ret_mtd": _var_pct(hoy, mtd),
+    }
+
+
 def _futuros(cur) -> list[dict[str, Any]]:
-    """Los 10 futuros del watchlist (índices US, energía, metales, granos, cripto)
-    con variación 1d (pct_day), semana (ancla 7d) y mes (ancla MTD). Las anclas las
-    escribe jobs/market_anchors en el mismo doc; el retorno se calcula al vuelo."""
+    """Los 10 futuros con HOY (last) + 1D (pct_day) + WTD/MTD (anclas del doc)."""
     cur.execute(
         "SELECT data FROM home.market_quotes"
         " WHERE data->>'type' = 'future' OR data->>'grupo' = 'Futuros'"
@@ -79,104 +101,83 @@ def _futuros(cur) -> list[dict[str, Any]]:
                 pass
         last = data.get("last")
         out.append({
-            "label":       label,
-            "grupo":       _FUT_GRUPO.get(label, "Otros"),
-            "last":        last,
-            "pct_day":     round(data["pct_day"], 2) if data.get("pct_day") is not None else None,
-            "ret_semana":  _var_pct(last, data.get("anchor_7d")),
-            "ret_mes":     _var_pct(last, data.get("anchor_mtd")),
-            "updated_at":  upd,
-            "stale":       stale,
+            "label":      label,
+            "grupo":      _FUT_GRUPO.get(label, "Otros"),
+            "hoy":        last,
+            "ret_1d":     round(data["pct_day"], 2) if data.get("pct_day") is not None else None,
+            "ret_wtd":    _var_pct(last, data.get("anchor_wtd")),
+            "ret_mtd":    _var_pct(last, data.get("anchor_mtd")),
+            "updated_at": upd,
+            "stale":      stale,
         })
-    # Orden de mesa (los no listados van al final, alfabético)
     out.sort(key=lambda r: (_FUT_POS.get(r["label"], 99), r["label"] or ""))
     return out
 
 
-def _oficial_live(cur, hoy_art) -> dict[str, Any] | None:
-    """Mayorista MAE de HOY. Si el feed no operó hoy (PC apagada / sin ruedas),
-    devuelve None — el front muestra 'aún sin operaciones' (nunca un número
-    viejo disfrazado de vivo)."""
+def _mayorista(cur, hoy_art: date) -> dict[str, Any]:
+    """Mayorista MAE de HOY (live). Sin histórico usable → WTD/MTD None; si el feed
+    no operó hoy, HOY=None (el front muestra 'Sin Ops', nunca un número viejo)."""
+    row = {"label": "Mayorista MAE", "hoy": None, "ret_1d": None,
+           "ret_wtd": None, "ret_mtd": None, "ts": None}
     cur.execute(
-        """
-        SELECT data, updated_at FROM valuaciones.dolar_oficial_live
-        WHERE ticker = 'UST$T' AND codigo_segmento = 'M' AND codigo_plazo = '000'
-        """
+        "SELECT data, updated_at FROM valuaciones.dolar_oficial_live"
+        " WHERE ticker = 'UST$T' AND codigo_segmento = 'M' AND codigo_plazo = '000'"
     )
     fila = cur.fetchone()
-    if not fila:
-        return None
-    data, upd = fila["data"], fila["updated_at"]
-    if upd is None or upd.astimezone(_ART).date() != hoy_art:
-        return None
-    return {
-        "valor":         data.get("precioUltimo"),
-        "variacion_pct": data.get("variacion"),
-        "maximo":        data.get("precioMaximo"),
-        "minimo":        data.get("precioMinimo"),
-        "ts":            upd,
-    }
+    if fila and fila["updated_at"] and fila["updated_at"].astimezone(_ART).date() == hoy_art:
+        data = fila["data"]
+        row.update(hoy=data.get("precioUltimo"), ret_1d=data.get("variacion"),
+                   ts=fila["updated_at"])
+    return row
 
 
-def _a3500(cur) -> dict[str, Any] | None:
+def _a3500(cur, hoy_art: date) -> dict[str, Any] | None:
     cur.execute(
         "SELECT fecha, valor FROM macro.series_macro"
-        " WHERE serie = 'DOLAR' ORDER BY fecha DESC LIMIT 2"
+        " WHERE serie = 'DOLAR' ORDER BY fecha DESC LIMIT 45"
     )
-    filas = cur.fetchall()
-    if not filas:
-        return None
-    ultimo = filas[0]
-    anterior = filas[1] if len(filas) > 1 else None
-    return {
-        "fecha":         ultimo["fecha"],
-        "valor":         ultimo["valor"],
-        "variacion_pct": _var_pct(ultimo["valor"], anterior["valor"] if anterior else None),
-    }
+    r = _rets_hist([(f["fecha"], f["valor"]) for f in cur.fetchall()], hoy_art)
+    if r:
+        r["label"] = "A3500 BCRA"
+    return r
 
 
-def _mep_ccl(cur) -> dict[str, Any]:
-    """Cierre del último día con rueda + variación vs la rueda anterior, para
-    mep y ccl. 'Cierre' = último valor del día en valuaciones.dolar."""
+def _financieros(cur, hoy_art: date) -> list[dict[str, Any]]:
+    """MEP y CCL: cierre por día (último valor del día) → 1D/WTD/MTD."""
     cur.execute(
         """
         SELECT DISTINCT ON (date(timestamp)) date(timestamp) AS dia, mep, ccl
         FROM valuaciones.dolar
-        WHERE mep IS NOT NULL AND timestamp >= now() - interval '14 days'
+        WHERE mep IS NOT NULL AND timestamp >= now() - interval '50 days'
         ORDER BY date(timestamp) DESC, timestamp DESC
-        LIMIT 2
+        LIMIT 45
         """
     )
     filas = cur.fetchall()
-    if not filas:
-        return {"mep": None, "ccl": None}
-    ult = filas[0]
-    ant = filas[1] if len(filas) > 1 else None
-    out = {}
-    for campo in ("mep", "ccl"):
-        out[campo] = {
-            "fecha":         ult["dia"],
-            "cierre":        ult[campo],
-            "variacion_pct": _var_pct(ult[campo], ant[campo] if ant else None),
-        }
+    out = []
+    for label, campo in (("MEP", "mep"), ("CCL", "ccl")):
+        r = _rets_hist([(f["dia"], f[campo]) for f in filas], hoy_art)
+        if r:
+            r["label"] = label
+            out.append(r)
     return out
 
 
 def briefing_hoy() -> dict[str, Any]:
-    """Payload completo del modal. Cada bloque puede venir None/[] si su fuente
-    no tiene datos — el front decide qué renderizar (failing gracefully)."""
+    """Payload del modal. Tres bloques, cada fila con el mismo shape
+    (label, hoy, ret_1d, ret_wtd, ret_mtd). Cada bloque puede venir []/None si su
+    fuente no tiene datos — el front decide qué renderizar (failing gracefully)."""
     hoy_art = datetime.now(_ART).date()
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         futuros = _futuros(cur)
-        oficial_live = _oficial_live(cur, hoy_art)
-        a3500 = _a3500(cur)
-        cambios = _mep_ccl(cur)
+        mayorista = _mayorista(cur, hoy_art)
+        a3500 = _a3500(cur, hoy_art)
+        financieros = _financieros(cur, hoy_art)
+    oficial = [mayorista] + ([a3500] if a3500 else [])
     return {
-        "fecha":        hoy_art.isoformat(),
-        "generado":     datetime.now(UTC),
-        "futuros":      futuros,
-        "oficial_live": oficial_live,   # None → "aún sin operaciones hoy"
-        "a3500":        a3500,          # último fixing BCRA + var vs anterior
-        "mep":          cambios.get("mep"),
-        "ccl":          cambios.get("ccl"),
+        "fecha":       hoy_art.isoformat(),
+        "generado":    datetime.now(UTC),
+        "futuros":     futuros,       # índices US/energía/metales/granos/cripto
+        "oficial":     oficial,       # mayorista MAE (live) + A3500 (fixing)
+        "financieros": financieros,   # MEP + CCL
     }

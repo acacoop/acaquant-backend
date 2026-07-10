@@ -49,15 +49,10 @@ def _moneda_de(curva: str, doc: dict) -> str:
     return "ARS"  # cer, tasa_fija, tamar, dual
 
 
-def calendario_instrumentos(incluir_hoy: bool = False) -> dict[str, dict]:
+def calendario_instrumentos() -> dict[str, dict]:
     """`{ticker_corto: {moneda, flujos: [{fecha, monto}]}}` — calendario contractual
     FUTURO por instrumento (monto por 100 VN). Cubre todas las curvas, incluida la
-    familia `on_*` (montos absolutos como tasa_fija).
-
-    `incluir_hoy=True` incluye también los flujos que caen HOY (por defecto se
-    excluyen, solo > hoy). Lo usa el precompute de acreencias para que el briefing
-    de apertura pueda decir "el bono X paga HOY" (un pago del día es un cobro
-    pendiente hasta que liquida)."""
+    familia `on_*` (montos absolutos como tasa_fija)."""
     from engines.curvas import (
         cargar_cer,
         cargar_dias_habiles,
@@ -87,9 +82,7 @@ def calendario_instrumentos(incluir_hoy: bool = False) -> dict[str, dict]:
         cal: list[dict] = []
         for f in d.get("flujos") or []:
             fd = fecha_flujo(f)
-            if not fd:
-                continue
-            if (fd < hoy) if incluir_hoy else (fd <= hoy):   # hoy: incluido o no
+            if not fd or fd <= hoy:          # solo flujos futuros
                 continue
             if curva == "soberanos" or curva == "dolar_linked":
                 monto = monto_flujo_soberano(f, 100)
@@ -114,8 +107,7 @@ def calendario_instrumentos(incluir_hoy: bool = False) -> dict[str, dict]:
                 vto = date.fromisoformat(str(vraw)[:10]) if vraw else None
             except ValueError:
                 vto = None
-            vto_ok = (vto >= hoy) if incluir_hoy else (vto > hoy)
-            if fv and float(fv) > 0 and vto and vto_ok:
+            if fv and float(fv) > 0 and vto and vto > hoy:
                 cal = [{"fecha": vto.isoformat(), "monto": round(float(fv), 6)}]
         if cal:
             cal.sort(key=lambda x: x["fecha"])
@@ -123,12 +115,11 @@ def calendario_instrumentos(incluir_hoy: bool = False) -> dict[str, dict]:
     return out
 
 
-def computar_acreencias(dias_horizonte: int = 1825, incluir_hoy: bool = False) -> list[dict]:
+def computar_acreencias(dias_horizonte: int = 1825) -> list[dict]:
     """Proyección de cobros futuros por cliente. Cruza el último snapshot de AuM
     con el calendario contractual de cada instrumento. Devuelve un doc por
-    (id_cuenta, fecha_pago, ticker). Horizonte: hasta `dias_horizonte` adelante.
-    `incluir_hoy=True` suma también los pagos que caen HOY (para el briefing)."""
-    cal = calendario_instrumentos(incluir_hoy=incluir_hoy)
+    (id_cuenta, fecha_pago, ticker). Horizonte: hasta `dias_horizonte` adelante."""
+    cal = calendario_instrumentos()
     if not cal:
         return []
 
@@ -357,21 +348,73 @@ def del_cliente(id_cuenta: str, desde: str | None = None) -> list[dict]:
     return _cf_sql.del_cliente(id_cuenta, desde=desde)
 
 
-def paga_en_fecha(fecha: str) -> list[dict]:
-    """Qué bonos EN CARTERA pagan (cupón/amort/vto) en `fecha`, agregado por ticker
-    y sumando toda la cartera. Para el briefing de apertura ('el bono X de <emisor>
-    paga hoy'). Lee la tabla precomputada operaciones.acreencias — query rápido e
-    indexado (safe para el polling del modal). Requiere que jobs.acreencias corra
-    con incluir_hoy=True para que la fecha de hoy exista en la tabla."""
-    with get_pool().connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT ticker, data->>'emisor' AS emisor, moneda, "
-            "       sum(monto) AS monto, count(DISTINCT id_cuenta) AS cuentas "
-            "FROM operaciones.acreencias WHERE fecha_pago = %s "
-            "GROUP BY ticker, data->>'emisor', moneda "
-            "ORDER BY sum(monto) DESC",
-            (fecha,),
-        )
-        return [{"ticker": r[0], "emisor": r[1], "moneda": r[2],
-                 "monto": float(r[3]) if r[3] is not None else 0.0,
-                 "cuentas": r[4]} for r in cur.fetchall()]
+# Cache por día: qué bonos pagan hoy cambia 1×/día (fechas contractuales). Evita
+# recomputar en cada poll del modal (60s). Se limpia al rotar el día.
+_pagan_cache: dict[str, list[dict]] = {}
+
+
+def bonos_pagan_en_fecha(fecha_iso: str) -> list[dict]:
+    """Bonos EN CARTERA (último AUM held) cuyo flujo de `mercado.curvas` cae en
+    `fecha_iso`. ESTRUCTURAL: detecta que existe el flujo en esa fecha, NO lo valúa
+    → un CER que paga hoy aparece aunque su CER de liquidación no esté publicado.
+    Devuelve [{ticker, emisor}] agregado por ticker. Cacheado por día.
+
+    Distinto de `computar_acreencias` (proyección VALUADA por cliente, a futuro) y
+    de `titulos_sin_flujo` (bonos en cartera SIN flujo — el health)."""
+    if fecha_iso in _pagan_cache:
+        return _pagan_cache[fecha_iso]
+    from engines.curvas import fecha_flujo
+
+    objetivo = date.fromisoformat(fecha_iso)
+
+    # Índice de curvas: {clave ticker → emisor} de los que pagan en la fecha.
+    paga: dict[str, str | None] = {}
+    base: dict[str, str] = {}
+    for d in curvas_sql.cargar_todos():
+        cae_hoy = any(fecha_flujo(fl) == objetivo for fl in (d.get("flujos") or []))
+        if not cae_hoy:
+            vraw = d.get("fecha_vencimiento") or d.get("vencimiento")
+            try:
+                vto = date.fromisoformat(str(vraw)[:10]) if vraw else None
+            except (ValueError, TypeError):
+                vto = None
+            cae_hoy = bool(vto == objetivo and d.get("flujo_vencimiento"))
+        if not cae_hoy:
+            continue
+        for key in (d.get("ticker_corto"), d.get("ticker")):
+            if key:
+                paga[key] = d.get("emisor")
+                base.setdefault(_base_ticker(key), key)
+
+    res: list[dict] = []
+    if paga:
+        # Cruzar con lo held (último AUM). Match por TICKER del Asset / código de la
+        # unidad / base (pata O/D), igual que el conciliador.
+        assets = {a.get("unidad"): a
+                  for a in assets_rows(["TICKER", "EMISOR"]) if a.get("unidad")}
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT max(fecha) FROM portafolio.tenencia WHERE aum = 'si'")
+            f = cur.fetchone()[0]
+            held = []
+            if f:
+                cur.execute("SELECT DISTINCT unidad FROM portafolio.tenencia "
+                            "WHERE fecha = %s AND aum = 'si'", (f,))
+                held = [r[0] for r in cur.fetchall() if r[0]]
+
+        vistos: dict[str, dict] = {}
+        for u in held:
+            a = assets.get(u) or {}
+            for c in (a.get("TICKER"), u, _codigo_de_unidad(u)):
+                if not c:
+                    continue
+                key = c if c in paga else base.get(_base_ticker(c))
+                if key and key in paga:
+                    tk = a.get("TICKER") or _codigo_de_unidad(u) or key
+                    vistos.setdefault(tk, {"ticker": tk,
+                                           "emisor": paga[key] or a.get("EMISOR")})
+                    break
+        res = sorted(vistos.values(), key=lambda x: (x.get("emisor") or "", x["ticker"]))
+
+    _pagan_cache.clear()
+    _pagan_cache[fecha_iso] = res
+    return res

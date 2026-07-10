@@ -175,14 +175,14 @@ def briefing_hoy() -> dict[str, Any]:
         a3500 = _a3500(cur, hoy_art)
         financieros = _financieros(cur, hoy_art)
     oficial = [mayorista] + ([a3500] if a3500 else [])
-    # Bonos en cartera que pagan HOY (cupón/amort/vto). Lectura rápida de la tabla
-    # precomputada (jobs.acreencias con incluir_hoy) — no recalcula en cada poll.
-    paga_hoy = acreencias.paga_en_fecha(hoy_art.isoformat())
+    # Bonos que pagan hoy (cupón/amort/vto). Estructural sobre curvas, filtrado a lo
+    # que hay en cartera. Cacheado por día → el polling del modal no recomputa.
+    pagan_hoy = acreencias.bonos_pagan_en_fecha(hoy_art.isoformat())
     return {
         "fecha":       hoy_art.isoformat(),
         "generado":    datetime.now(UTC),
         "futuros":     futuros,       # índices US/energía/metales/granos/cripto
         "oficial":     oficial,       # mayorista MAE (live) + A3500 (fixing)
         "financieros": financieros,   # MEP + CCL
-        "paga_hoy":    paga_hoy,      # [] si nada vence hoy en cartera
+        "pagan_hoy":   pagan_hoy,     # [] si ninguno paga hoy
     }

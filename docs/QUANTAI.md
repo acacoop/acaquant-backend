@@ -106,26 +106,50 @@ calendario.
 ## Proyectos elegidos (orden = dependencias)
 
 ### P1 — Briefing de apertura automático
-**Estado: v1 DETERMINISTA construida (2026-07-10), en shadow via módulo `ia`** ·
-Tipo: modal in-app · Canal: SOLO interno (decisión del user 2026-07: NADA de
-Telegram para esto)
+**Estado: v2 en construcción — contenido ampliado, BACKEND listo, FRONTEND
+pendiente** · Tipo: modal in-app · Canal: SOLO interno (decisión del user
+2026-07: NADA de Telegram para esto)
 
-**Decisión 2026-07-10 (user): la v1 es SIN LLM.** El contenido pedido (futuros
-S&P/NASDAQ, oficial mayorista live + A3500, cierres MEP/CCL, todos con
-variación) son solo números → regla de oro 1: se renderiza determinista.
-La capa de redacción IA se suma ARRIBA cuando el briefing incorpore narrativa
-(noticias/calendario/controles); este cartel ES su fallback determinista.
+**Decisión 2026-07-10 (user): la v1/v2 son SIN LLM.** El contenido son solo
+números → regla de oro 1: se renderiza determinista. La capa de redacción IA se
+suma ARRIBA cuando el briefing incorpore narrativa; este cartel ES su fallback.
 
-**v1 implementada:** `api/services/briefing.py` (compute-on-read, sin cron ni
-tabla: reusa `home.market_quotes`, `valuaciones.dolar_oficial_live`,
-`macro.series_macro` DOLAR y `valuaciones.dolar`; "rueda anterior" = últimos
-días CON datos → feriados gratis) + `GET /api/ia/briefing` (gate `ia`) +
-`BriefingModal` en HOME (acaquant-web): aparece desde las 10:00 ART L-V vía
-polling 60s + focus, dismiss por usuario+día (localStorage), botón ☀ BRIEFING
-para re-lectura, "aún sin operaciones" si el feed MAE no operó hoy. Fuentes y
-shapes verificados con `scripts/diag_briefing_datos.py` (queda en el repo
-mientras se itere el contenido).
-**Pendiente de validar:** frescura del feed MAE a las 10:00 (PC de oficina).
+**v1 (base):** `api/services/briefing.py` (compute-on-read, sin cron ni tabla:
+reusa `home.market_quotes`, `valuaciones.dolar_oficial_live`, `macro.series_macro`
+DOLAR, `valuaciones.dolar`; "rueda anterior" = últimos días CON datos → feriados
+gratis) + `GET /api/ia/briefing` (gate `ia`) + `BriefingModal` en HOME.
+
+**v2 (2026-07-10, backend hecho — falta rehacer el modal):** rediseño de contenido
+pedido por la mesa, medido con diags antes de construir. Modelo de columnas
+UNIFORME `HOY · 1D · WTD · MTD` para toda fila. Bloques del payload:
+- **`futuros`** (10, agrupados Índices US/Energía/Metales/Granos/Cripto): los 10 de
+  `HOME_FUTUROS` ya se ingerían; se extendió `jobs/market_anchors` para cubrirlos
+  (+ ancla nueva `anchor_wtd` = week-to-date real, además de `anchor_7d` rolling
+  que se mantiene para /argy). 1D=pct_day, WTD/MTD desde anclas del doc.
+- **`oficial`** (mayorista MAE live + A3500) y **`financieros`** (MEP/CCL): WTD/MTD
+  se calculan al vuelo desde su propio histórico (sirven aunque hoy no opere —
+  se anclan al último cierre). Mayorista sin histórico → HOY "Sin Ops", WTD/MTD None.
+- **`pagan_hoy`**: bonos que pagan cupón/amort/vto hoy (título SIN "en cartera" pero
+  FILTRADO a lo held). `acreencias.bonos_pagan_en_fecha`: ESTRUCTURAL sobre
+  `mercado.curvas` (existe el flujo con fecha == hoy, no lo valúa → un CER que paga
+  hoy aparece aunque su CER de liq no esté publicado) cruzado con el último AUM.
+  Cacheado por día (el poll no recomputa). NO toca la tabla de acreencias ni el job.
+  Pendiente aparte (pedido del user): llevar `titulos_sin_flujo` (bonos en cartera
+  SIN flujo) a un control automático de health (hoy vive solo en el Manager).
+- **`agenda` — DIFERIDO por fuente muerta.** `home.market_calendar` (Finnhub free)
+  dejó de servir datos ~2026-04; última ventana 17/04→17/06. Reemplazo decidido:
+  **FMP** (`/api/v3/economic_calendar`, free 250 req/día, verificado). PENDIENTE:
+  `FMP_API_KEY` en el Droplet (REGLA #6) → escribir `core/fmp.py` + reapuntar
+  `jobs/economic_calendar` a FMP (misma tabla) + sumar bloque `agenda` al briefing.
+
+Diags de diseño (se borran al cerrar el contenido — REGLA #5):
+`scripts/diag_briefing_render.py` (maqueta del modal desde el service real) y
+`scripts/diag_briefing_v2.py` (mide futuros/anclas, calendario, acreencias).
+
+**Pendientes:** (1) **rehacer el modal** en acaquant-web al shape v2 nuevo (bloques
+`futuros/oficial/financieros/paga_hoy` + 4 columnas + grupos) — hoy renderiza el
+shape v1 viejo, queda desalineado (está en shadow, solo admin, no afecta a nadie).
+(2) frescura del feed MAE a las 10:00 (PC oficina). (3) Agenda vía FMP (ver arriba).
 
 Cron pre-apertura que junta lo YA ingerido (ADRs, dólar, riesgo país,
 economic_calendar, news_headlines, acreencias próximas, estado de controles) en

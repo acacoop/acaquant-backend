@@ -32,7 +32,10 @@ def main() -> None:
                     help="escribe operaciones.acreencias (SQL)")
     args = ap.parse_args()
 
-    docs = computar_acreencias()
+    # incluir_hoy=True: la proyección incluye los pagos que caen HOY (no solo > hoy)
+    # para que el briefing de apertura pueda decir "el bono X paga hoy". Efecto: la
+    # vista de back-office de acreencias muestra también el día en curso.
+    docs = computar_acreencias(incluir_hoy=True)
     print(f"{len(docs)} acreencias proyectadas (cliente·fecha·ticker)")
     if not docs:
         print("Sin acreencias: ¿hay AuM con snapshot y instrumentos en Curvas con flujos futuros?")

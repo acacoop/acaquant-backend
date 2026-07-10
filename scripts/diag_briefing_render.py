@@ -84,6 +84,17 @@ def main() -> None:
     for r in (p.get("financieros") or []):
         print(_fila(r.get("label") or "?", r))
 
+    # ── PAGA HOY (acreencias en cartera) ────────────────────────
+    print("\n  VENCEN HOY EN CARTERA")
+    paga = p.get("paga_hoy") or []
+    if not paga:
+        print("      (nada vence hoy en cartera)")
+    for r in paga:
+        emisor = f" ({r['emisor']})" if r.get("emisor") else ""
+        print(f"      {(r.get('ticker') or '?'):<10}{emisor:<26} "
+              f"{r.get('moneda') or '':<4} {_num(r.get('monto')):>16}  "
+              f"{r.get('cuentas', 0)} ctas")
+
     print("\n" + "═" * 62)
     print("  JSON crudo del payload:")
     print("═" * 62)

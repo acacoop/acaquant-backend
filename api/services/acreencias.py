@@ -49,10 +49,15 @@ def _moneda_de(curva: str, doc: dict) -> str:
     return "ARS"  # cer, tasa_fija, tamar, dual
 
 
-def calendario_instrumentos() -> dict[str, dict]:
+def calendario_instrumentos(incluir_hoy: bool = False) -> dict[str, dict]:
     """`{ticker_corto: {moneda, flujos: [{fecha, monto}]}}` — calendario contractual
     FUTURO por instrumento (monto por 100 VN). Cubre todas las curvas, incluida la
-    familia `on_*` (montos absolutos como tasa_fija)."""
+    familia `on_*` (montos absolutos como tasa_fija).
+
+    `incluir_hoy=True` incluye también los flujos que caen HOY (por defecto se
+    excluyen, solo > hoy). Lo usa el precompute de acreencias para que el briefing
+    de apertura pueda decir "el bono X paga HOY" (un pago del día es un cobro
+    pendiente hasta que liquida)."""
     from engines.curvas import (
         cargar_cer,
         cargar_dias_habiles,
@@ -82,7 +87,9 @@ def calendario_instrumentos() -> dict[str, dict]:
         cal: list[dict] = []
         for f in d.get("flujos") or []:
             fd = fecha_flujo(f)
-            if not fd or fd <= hoy:          # solo flujos futuros
+            if not fd:
+                continue
+            if (fd < hoy) if incluir_hoy else (fd <= hoy):   # hoy: incluido o no
                 continue
             if curva == "soberanos" or curva == "dolar_linked":
                 monto = monto_flujo_soberano(f, 100)
@@ -107,7 +114,8 @@ def calendario_instrumentos() -> dict[str, dict]:
                 vto = date.fromisoformat(str(vraw)[:10]) if vraw else None
             except ValueError:
                 vto = None
-            if fv and float(fv) > 0 and vto and vto > hoy:
+            vto_ok = (vto >= hoy) if incluir_hoy else (vto > hoy)
+            if fv and float(fv) > 0 and vto and vto_ok:
                 cal = [{"fecha": vto.isoformat(), "monto": round(float(fv), 6)}]
         if cal:
             cal.sort(key=lambda x: x["fecha"])
@@ -115,11 +123,12 @@ def calendario_instrumentos() -> dict[str, dict]:
     return out
 
 
-def computar_acreencias(dias_horizonte: int = 1825) -> list[dict]:
+def computar_acreencias(dias_horizonte: int = 1825, incluir_hoy: bool = False) -> list[dict]:
     """Proyección de cobros futuros por cliente. Cruza el último snapshot de AuM
     con el calendario contractual de cada instrumento. Devuelve un doc por
-    (id_cuenta, fecha_pago, ticker). Horizonte: hasta `dias_horizonte` adelante."""
-    cal = calendario_instrumentos()
+    (id_cuenta, fecha_pago, ticker). Horizonte: hasta `dias_horizonte` adelante.
+    `incluir_hoy=True` suma también los pagos que caen HOY (para el briefing)."""
+    cal = calendario_instrumentos(incluir_hoy=incluir_hoy)
     if not cal:
         return []
 
@@ -346,3 +355,23 @@ def del_cliente(id_cuenta: str, desde: str | None = None) -> list[dict]:
     """Próximos cobros de un cliente, ordenados por fecha."""
     from api.services import cashflow_sql as _cf_sql
     return _cf_sql.del_cliente(id_cuenta, desde=desde)
+
+
+def paga_en_fecha(fecha: str) -> list[dict]:
+    """Qué bonos EN CARTERA pagan (cupón/amort/vto) en `fecha`, agregado por ticker
+    y sumando toda la cartera. Para el briefing de apertura ('el bono X de <emisor>
+    paga hoy'). Lee la tabla precomputada operaciones.acreencias — query rápido e
+    indexado (safe para el polling del modal). Requiere que jobs.acreencias corra
+    con incluir_hoy=True para que la fecha de hoy exista en la tabla."""
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT ticker, data->>'emisor' AS emisor, moneda, "
+            "       sum(monto) AS monto, count(DISTINCT id_cuenta) AS cuentas "
+            "FROM operaciones.acreencias WHERE fecha_pago = %s "
+            "GROUP BY ticker, data->>'emisor', moneda "
+            "ORDER BY sum(monto) DESC",
+            (fecha,),
+        )
+        return [{"ticker": r[0], "emisor": r[1], "moneda": r[2],
+                 "monto": float(r[3]) if r[3] is not None else 0.0,
+                 "cuentas": r[4]} for r in cur.fetchall()]

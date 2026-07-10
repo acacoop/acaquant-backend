@@ -33,11 +33,13 @@ def main() -> None:
     print(f"{'ts (UTC)':<20} {'tarea':<20} {'modelo':<16} {'ok':<3} "
           f"{'tok_in':>7} {'tok_out':>7} {'lat_ms':>7}  error")
     print("─" * 110)
+    def _n(v) -> str:
+        return "-" if v is None else str(v)
+
     for ts, tarea, modelo, ok, ti, to, lat, err in filas:
+        estado = "✓" if ok else "✗"
         print(f"{str(ts)[:19]:<20} {(tarea or '')[:20]:<20} {(modelo or '')[:16]:<16} "
-              f"{'✓' if ok else '✗':<3} {str(ti if ti is not None else '-'):>7} "
-              f"{str(to if to is not None else '-'):>7} {str(lat if lat is not None else '-'):>7}  "
-              f"{(err or '')[:70]}")
+              f"{estado:<3} {_n(ti):>7} {_n(to):>7} {_n(lat):>7}  {(err or '')[:70]}")
 
     print(f"\nTokens gastados HOY (UTC): {hoy:,}")
     print("Presupuesto diario default: 2.000.000 tokens (env AI_BUDGET_TOKENS_DIA).")

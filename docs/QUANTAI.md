@@ -142,9 +142,8 @@ UNIFORME `HOY · 1D · WTD · MTD` para toda fila. Bloques del payload:
   `FMP_API_KEY` en el Droplet (REGLA #6) → escribir `core/fmp.py` + reapuntar
   `jobs/economic_calendar` a FMP (misma tabla) + sumar bloque `agenda` al briefing.
 
-Diags de diseño (se borran al cerrar el contenido — REGLA #5):
-`scripts/diag_briefing_render.py` (maqueta del modal desde el service real) y
-`scripts/diag_briefing_v2.py` (mide futuros/anclas, calendario, acreencias).
+Los diags de diseño del briefing (`diag_briefing_*`) se borraron al cerrar el
+contenido (REGLA #5). Si se retoma el bloque Agenda, se re-arma uno puntual.
 
 **Modal (acaquant-web `briefing-modal.tsx`):** rehecho al shape v2 — tabla
 uniforme de 4 columnas, futuros agrupados, mayorista "Sin Ops", bloque "Bonos que
@@ -173,9 +172,9 @@ manual: acceso desde HOME para volver a abrirlo aunque se haya descartado.
 Éxito: que la mesa lo reclame el día que falte.
 
 ### P2 — Triage inteligente de incidentes
-**Estado: v1 construida (2026-07-10) — REACTIVO, falta correr/shadow** · Tipo:
-watcher reactivo (NO batch — decisión del user) · Canal: Telegram (+ OBSERVABILIDAD
-pendiente)
+**Estado: v1 FUNCIONANDO (2026-07-10) — probado con fallas reales, falta shadow** ·
+Tipo: watcher reactivo (NO batch — decisión del user) · Canal: Telegram
+(+ OBSERVABILIDAD pendiente)
 
 Sobre `manager.job_runs` fallados (status='error'): agrupa por FIRMA del error,
 distingue HECHO de HIPÓTESIS y recomienda acción (modelo pro). **Nunca ejecuta nada.**
@@ -190,16 +189,29 @@ severidad — solo crashes. Loop de mejora: cuando un patrón se repite, el obje
 codificar un playbook determinista → esa falla sale del camino del LLM para siempre
 (más determinista, menos tokens con el tiempo).
 
-**Construido:** `jobs/triage.py` (con `--dry-run`: prueba sin tokens ni escritura) +
+**Construido:** `jobs/triage.py` (`--dry-run` = prueba sin tokens; `--force` +
+`--lookback-min N` = re-diagnóstico/inspección ignorando dedup y watermark) +
 `ia.triage_incidentes` (memoria de firmas/diagnósticos) + `ia.triage_estado`
-(watermark) + tarea `triage_incidente` (tier pro) en core/ai + cron cada 10 min.
-Privacidad: logs = dato técnico; scrub básico de emails/CUITs; el texto de log se
-trata como DATO hostil (anti prompt-injection en el system prompt).
+(watermark) + tarea `triage_incidente` (pro) en core/ai + cron cada 10 min. El
+contexto que va al modelo = errores acumulados de `job_runs` + el log real del job
+(`logs/<tipo>.log`, que escribe `run_job.sh` con stdout+stderr — más rico que lo que
+el job guarda en job_runs). Privacidad: logs = dato técnico; scrub de emails/CUITs;
+log tratado como DATO hostil (anti prompt-injection). Debug del gateway:
+`scripts/diag_ia_trazas.py`.
 
-**Pendiente:** correr en shadow unos días (leer los diagnósticos antes de confiar) ·
-tab TRIAGE en OBSERVABILIDAD (hoy solo Telegram) · thinking mode del modelo pro
-(sin cablear, REGLA #2) · journalctl para casos profundos (v2; v1 usa el log tail que
-ya guarda job_runs) · sumar 'partial' además de 'error' si hace falta.
+**Lecciones (verificadas con `ia.trazas`, la medición como piedra angular):**
+- `deepseek-v4-pro` RAZONA y el razonamiento cuenta como output → `max_tokens`
+  chico (700) = se queda sin lugar para la respuesta y vuelve VACÍA. Subido a 2500.
+  Regla general para tareas `pro`: dar techo de salida amplio. **Cabo suelto:**
+  `controles_resumen` (flash, 800) tiene el MISMO síntoma con inputs grandes →
+  subirle el max_tokens también.
+- Costo real medido: ~13k tokens en un día entero de pruebas (de 2M de presupuesto) →
+  centavos. El pipeline cuesta lo que el doc decía (<$1/mes).
+
+**Pendiente:** correr en shadow unos días (leer los diagnósticos antes de abrirlo) ·
+tab TRIAGE en OBSERVABILIDAD (hoy solo Telegram) · thinking mode del pro (sin cablear,
+REGLA #2) · sumar 'partial' además de 'error' si hace falta · subir max_tokens de
+`controles_resumen`.
 
 ### P3 — Copiloto de Mesa
 **Estado: PENDIENTE** · Tipo: agente conversacional in-app · Gate: módulo `ia`
@@ -414,17 +426,18 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
-- **2026-07-10 — P2 v1: triage reactivo de incidentes** (`jobs/triage.py` +
-  `ia.triage_incidentes`/`ia.triage_estado` + tarea `triage_incidente` pro + cron
-  10 min). Reactivo puro (no batch), 4 guardas de costo (dedup por firma / watermark
-  / presupuesto / severidad), Telegram. `--dry-run` para probar sin tokens. Falta
-  correr en shadow + tab OBSERVABILIDAD + thinking mode.
+- **2026-07-10 — P2 v1: triage reactivo de incidentes, FUNCIONANDO** (`jobs/triage.py`
+  + `ia.triage_incidentes`/`ia.triage_estado` + tarea `triage_incidente` pro + cron
+  10 min). Reactivo puro (no batch), 4 guardas de costo (dedup por firma / watermark /
+  presupuesto / severidad), lee `logs/<job>.log`, Telegram. Probado con fallas reales
+  (ok=✓). Bug encontrado y arreglado vía `ia.trazas`: v4-pro razona → `max_tokens` bajo
+  volvía respuesta vacía (700→2500). Falta: shadow + tab OBSERVABILIDAD + thinking mode.
 - **2026-07-10 — P1 v2: briefing ampliado** (backend TRD-FX + modal acaquant-web).
   Columnas uniformes HOY·1D·WTD·MTD. Futuros: los 10 de `HOME_FUTUROS` +
   `market_anchors` extendido a futuros con ancla `anchor_wtd` (WTD real). Dólares:
   WTD/MTD al vuelo desde histórico. Bonos que pagan hoy: estructural sobre curvas ×
-  held (`acreencias.bonos_pagan_en_fecha`). Diseño medido con `diag_briefing_v2` +
-  `diag_briefing_render`. Agenda diferida (Finnhub free muerto → FMP pendiente de key).
+  held (`acreencias.bonos_pagan_en_fecha`). Diseño medido con diags (ya borrados,
+  REGLA #5). Agenda diferida (Finnhub free muerto → FMP/LSEG pendiente de fuente).
 - **2026-07-10 — Fase 0.1: gateway `core/ai.py`** (+ tabla `ia.trazas`, migración
   de `ai_resumen` adentro, `scripts/smoke_ai.py`, tests unit). Key DeepSeek
   seteada por el user en el Droplet el mismo día. Smoke OK E2E; IDs

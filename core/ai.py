@@ -52,9 +52,11 @@ _TAREAS: dict[str, dict] = {
                           "model_env": "AI_RESUMEN_MODEL"},
     "smoke": {"tier": "flash", "max_tokens": 64, "timeout_s": 30},
     # P2 triage de incidentes (jobs/triage.py): diagnóstico de una falla de job.
-    # tier pro (razonamiento). Thinking mode todavía NO cableado (pendiente de
-    # verificar el shape del parámetro de DeepSeek — REGLA #2); pro alcanza para v1.
-    "triage_incidente": {"tier": "pro", "max_tokens": 700, "timeout_s": 90},
+    # tier pro (razonamiento). max_tokens ALTO a propósito: v4-pro razona antes de
+    # responder y el razonamiento cuenta como output — con 700 se quedaba sin lugar
+    # para la respuesta final y volvía vacía (verificado en ia.trazas: tok_out=700,
+    # "respuesta vacía"). 2500 le da lugar para pensar Y contestar.
+    "triage_incidente": {"tier": "pro", "max_tokens": 2500, "timeout_s": 120},
 }
 
 _DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60}

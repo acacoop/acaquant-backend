@@ -25,6 +25,7 @@ from core.pg_mirror import merge_jsonb_native
 from core.yahoo import YahooError, stock_candle
 from jobs.market_quotes import (
     EXTRA_STOCKS,
+    HOME_FUTUROS,
     HOME_FX,
     HOME_INDICES_YAHOO,
     HOME_STOCKS,
@@ -150,10 +151,20 @@ def ingesta() -> int:
         else:
             fail_i += 1
 
+    # Futuros (S&P/Nasdaq/WTI/Brent/Oro/Soja/Maíz/Trigo/BTC/ETH) — mismo patrón
+    # display ≠ yahoo_sym (se fetchea por ES=F, se guarda por 'S&P FUT'). Sin esto
+    # los futuros del watchlist/briefing quedan sin retorno semana/mes.
+    ok_f = fail_f = 0
+    for yahoo_sym, display, _exchange in HOME_FUTUROS:
+        if _update_treasury_anchors(yahoo_sym, display, now):
+            ok_f += 1
+        else:
+            fail_f += 1
+
     logger.info(
         "market_anchors — stocks ok=%d fail=%d · fx ok=%d fail=%d · "
-        "treasuries ok=%d fail=%d · indices ok=%d fail=%d",
-        ok_s, fail_s, ok_fx, fail_fx, ok_t, fail_t, ok_i, fail_i,
+        "treasuries ok=%d fail=%d · indices ok=%d fail=%d · futuros ok=%d fail=%d",
+        ok_s, fail_s, ok_fx, fail_fx, ok_t, fail_t, ok_i, fail_i, ok_f, fail_f,
     )
     return 0
 

@@ -34,11 +34,12 @@ def main() -> None:
     with connect() as conn, conn.cursor() as cur:
         # 1) Futuros de índices
         print("── 1. FUTUROS (home.market_quotes) ──────────────────────────")
-        # OJO: la tabla es (symbol, grupo, data jsonb) — la frescura viene
-        # dentro del jsonb (campo que ponga el job), por eso se imprime entero.
+        # OJO: la tabla es (symbol, grupo, data jsonb) y el writer usa el LABEL
+        # como PK ('S&P FUT'), no el símbolo Yahoo — se matchea por ambos.
         cur.execute(
             "SELECT symbol, data FROM home.market_quotes"
-            " WHERE symbol IN ('ES=F', 'NQ=F') ORDER BY symbol"
+            " WHERE symbol IN ('S&P FUT', 'NASDAQ FUT')"
+            "    OR data->>'yahoo_sym' IN ('ES=F', 'NQ=F') ORDER BY symbol"
         )
         filas = cur.fetchall()
         if not filas:

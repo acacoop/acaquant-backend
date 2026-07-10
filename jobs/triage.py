@@ -186,15 +186,19 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true",
                     help="preview: no llama al LLM, no escribe, no avisa")
-    ap.add_argument("--lookback-min", type=int, default=_LOOKBACK_DEFAULT_MIN,
-                    help="ventana del primer run sin watermark (min)")
+    ap.add_argument("--lookback-min", type=int, default=None,
+                    help="lee desde now-N min IGNORANDO el watermark (inspección / re-diagnóstico). "
+                         "Sin esto usa el watermark (o now-60 en el primer run).")
     ap.add_argument("--force", action="store_true",
                     help="re-diagnostica TODAS las firmas de la ventana (ignora dedup) — para tuning")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        watermark = _get_watermark(cur, args.lookback_min)
+        if args.lookback_min is not None:
+            watermark = datetime.now(UTC) - timedelta(minutes=args.lookback_min)  # override explícito
+        else:
+            watermark = _get_watermark(cur, _LOOKBACK_DEFAULT_MIN)
         fallas = _leer_fallas(cur, watermark)
     grupos = _agrupar(fallas)
 

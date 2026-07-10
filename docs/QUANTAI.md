@@ -86,15 +86,24 @@ calendario.
 ## Proyectos elegidos (orden = dependencias)
 
 ### P1 — Briefing de apertura automático
-**Estado: PENDIENTE** · Tipo: pipeline batch · Canal: Telegram (+ card en HOME
-gated por `ia`, opcional después)
+**Estado: PENDIENTE** · Tipo: pipeline batch + modal in-app · Canal: SOLO
+interno (decisión del user 2026-07: NADA de Telegram para esto)
 
 Cron pre-apertura que junta lo YA ingerido (ADRs, dólar, riesgo país,
 economic_calendar, news_headlines, acreencias próximas, estado de controles) en
-un JSON y el LLM lo REDACTA como informe de mesa de ~12 líneas. La IA no busca
-ni decide: narra datos verificados (workflow determinista con un paso de
-redacción — no es un agente, y no debe serlo). Degradación: sin LLM sale la
-versión tabla. Éxito: que la mesa lo reclame el día que falte.
+un JSON, el LLM lo REDACTA como informe de mesa de ~12 líneas y se PERSISTE
+(tabla SQL, 1 fila por día). La IA no busca ni decide: narra datos verificados
+(workflow determinista con un paso de redacción — no es un agente, y no debe
+serlo).
+
+**Entrega — modal "Briefing" en HOME:** al abrir acaquant, al usuario (con
+módulo `ia`) le aparece una ventana centrada con el briefing del día y un botón
+**"No volver a mostrar"** que lo silencia POR ESE DÍA (dismiss persistido por
+usuario+fecha — localStorage alcanza para v1; al día siguiente reaparece con el
+briefing nuevo). Si el briefing del día aún no se generó o el LLM falló, el
+modal no aparece (failing gracefully: nunca una ventana vacía). Re-lectura
+manual: acceso desde HOME para volver a abrirlo aunque se haya descartado.
+Éxito: que la mesa lo reclame el día que falte.
 
 ### P2 — Triage inteligente de incidentes
 **Estado: PENDIENTE** · Tipo: pipeline batch · Canal: Telegram + OBSERVABILIDAD

@@ -30,6 +30,25 @@ from core.postgres import get_pool
 _ART = ZoneInfo("America/Argentina/Buenos_Aires")
 _FUTUROS_STALE_MIN = 30  # el poller corre cada 1 min; >30 min = feed caído
 
+# Orden y agrupación de lectura de la mesa. El índice en esta lista fija el orden
+# de aparición; el segundo campo agrupa en el cartel. Los labels son los `symbol`
+# que escribe jobs/market_quotes (HOME_FUTUROS). Un futuro que no esté acá cae al
+# final como "Otros" (no se pierde).
+_FUTUROS_ORDEN: list[tuple[str, str]] = [
+    ("S&P FUT",    "Índices US"),
+    ("NASDAQ FUT", "Índices US"),
+    ("WTI",        "Energía"),
+    ("BRENT",      "Energía"),
+    ("ORO",        "Metales"),
+    ("SOJA",       "Granos"),
+    ("MAIZ",       "Granos"),
+    ("TRIGO",      "Granos"),
+    ("BTCUSDT",    "Cripto"),
+    ("ETHUSDT",    "Cripto"),
+]
+_FUT_POS = {lbl: i for i, (lbl, _) in enumerate(_FUTUROS_ORDEN)}
+_FUT_GRUPO = dict(_FUTUROS_ORDEN)
+
 
 def _var_pct(actual: float | None, anterior: float | None) -> float | None:
     if actual is None or not anterior:
@@ -38,13 +57,18 @@ def _var_pct(actual: float | None, anterior: float | None) -> float | None:
 
 
 def _futuros(cur) -> list[dict[str, Any]]:
+    """Los 10 futuros del watchlist (índices US, energía, metales, granos, cripto)
+    con variación 1d (pct_day), semana (ancla 7d) y mes (ancla MTD). Las anclas las
+    escribe jobs/market_anchors en el mismo doc; el retorno se calcula al vuelo."""
     cur.execute(
-        "SELECT data FROM home.market_quotes WHERE symbol IN ('S&P FUT', 'NASDAQ FUT')"
+        "SELECT data FROM home.market_quotes"
+        " WHERE data->>'type' = 'future' OR data->>'grupo' = 'Futuros'"
     )
     out = []
     ahora = datetime.now(UTC)
     for fila in cur.fetchall():
         data = fila["data"]
+        label = data.get("symbol")
         upd = data.get("updated_at")
         stale = True
         if upd:
@@ -53,15 +77,19 @@ def _futuros(cur) -> list[dict[str, Any]]:
                 stale = (ahora - ts) > timedelta(minutes=_FUTUROS_STALE_MIN)
             except ValueError:
                 pass
+        last = data.get("last")
         out.append({
-            "label":      data.get("symbol"),
-            "last":       data.get("last"),
-            "pct_day":    round(data["pct_day"], 2) if data.get("pct_day") is not None else None,
-            "updated_at": upd,
-            "stale":      stale,
+            "label":       label,
+            "grupo":       _FUT_GRUPO.get(label, "Otros"),
+            "last":        last,
+            "pct_day":     round(data["pct_day"], 2) if data.get("pct_day") is not None else None,
+            "ret_semana":  _var_pct(last, data.get("anchor_7d")),
+            "ret_mes":     _var_pct(last, data.get("anchor_mtd")),
+            "updated_at":  upd,
+            "stale":       stale,
         })
-    # S&P primero, NASDAQ después (orden fijo de lectura de la mesa)
-    out.sort(key=lambda r: 0 if r["label"] == "S&P FUT" else 1)
+    # Orden de mesa (los no listados van al final, alfabético)
+    out.sort(key=lambda r: (_FUT_POS.get(r["label"], 99), r["label"] or ""))
     return out
 
 

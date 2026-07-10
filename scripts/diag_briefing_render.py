@@ -65,18 +65,21 @@ def main() -> None:
         print(f"     generado {gen:%H:%M}Z")
     print("═" * 60)
 
-    # ── FUTUROS US ──────────────────────────────────────────────
-    print("\n  FUTUROS US")
+    # ── FUTUROS ─────────────────────────────────────────────────
+    print("\n  FUTUROS         " + f"{'último':>12} {'1d':>9} {'sem':>9} {'mes':>9}")
     futuros = p.get("futuros") or []
     if not futuros:
         print("    (sin datos de futuros)")
+    grupo_actual = None
     for f in futuros:
-        flag = "  ⚠ STALE" if f.get("stale") else ""
-        print(_linea(
-            f.get("label") or "?",
-            _num(f.get("last")),
-            f"{_pct(f.get('pct_day'))}   {_cuando(f.get('updated_at'))}{flag}",
-        ))
+        g = f.get("grupo")
+        if g != grupo_actual:
+            print(f"    · {g}")
+            grupo_actual = g
+        flag = "  ⚠STALE" if f.get("stale") else ""
+        print(f"      {(f.get('label') or '?'):<12} {_num(f.get('last')):>12} "
+              f"{_pct(f.get('pct_day')):>9} {_pct(f.get('ret_semana')):>9} "
+              f"{_pct(f.get('ret_mes')):>9}{flag}")
 
     # ── DÓLAR OFICIAL ───────────────────────────────────────────
     print("\n  DÓLAR OFICIAL")

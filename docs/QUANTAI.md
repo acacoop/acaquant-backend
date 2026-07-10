@@ -163,48 +163,158 @@ la infraestructura de evaluación que los proyectos anteriores construyen.
 
 ## Principios de ingeniería (guían TODO el desarrollo)
 
-Estos son los estándares pro con los que se construye cada pieza — si un
-diseño los contradice, se replantea el diseño:
+Organizado por disciplina. Para cada concepto la POSICIÓN de QuantAI:
+**ADOPTAR YA** / **DIFERIDO** (con la condición explícita que lo activa) /
+**NO APLICA** (con el porqué). Si un diseño contradice esto, se replantea el
+diseño — o se actualiza esta sección con la decisión nueva.
 
-1. **Workflows antes que agentes.** Si la tarea tiene pasos conocidos (briefing,
-   prep de reunión), es un workflow determinista con pasos de LLM — más barato,
-   predecible y testeable. Agente (el modelo decide qué hacer) solo donde la
-   entrada es abierta de verdad (copiloto, analista). Nunca multi-agente sin
-   una necesidad que un agente solo no cubra.
-2. **Model selection por tarea, no por moda.** Flash para redactar/clasificar;
-   pro + thinking para diagnóstico y SQL. Revisar con datos de la tabla de
-   observabilidad (costo/latencia/calidad reales), no por sensación.
-3. **Tools chicas, puras y bien descriptas.** Cada tool hace una cosa, con
-   descripción que dice CUÁNDO usarla, no solo qué hace. Las tools heredan el
-   RBAC — el permiso es estructural, jamás un "no muestres esto" en el prompt.
-4. **Context engineering explícito.** Lo que el modelo necesita se le da
-   curado (definiciones de negocio, reglas, datos del caso); no se le da la
-   base entera ni se confía en su memoria de internet. Prompts versionados en
-   el repo como código.
-5. **Evals como parte del ciclo, no como afterthought.** Cambio de prompt o
-   modelo → correr el eval set de esa tarea. Cada fallo real en producción se
-   convierte en un caso nuevo del set (el set crece con la realidad, no con
-   imaginación).
-6. **Observabilidad total.** Toda llamada trazada (tarea, tokens, latencia,
-   resultado). El feedback del usuario es señal: botón 👍/👎 en outputs
-   interactivos desde la v1 — alimenta el loop de mejora.
-7. **Autonomy slider.** Todo empieza en el nivel de autonomía más bajo que
-   sirva (informar → sugerir → sugerir con 1-click → automático) y solo sube
-   un nivel con evidencia medida de que el anterior funciona. Hoy: todo en
-   informar/sugerir.
-8. **Failing gracefully.** Cada feature define su degradación ANTES de
-   construirse: sin proveedor → versión determinista o feature oculta; nunca
-   un spinner eterno ni una vista rota.
-9. **Seguridad desde el diseño.** Amenaza principal: prompt injection vía
-   datos (una noticia, un log, un nombre de cuenta pueden contener texto
-   malicioso que el modelo interprete como instrucción). Defensas: tools
-   read-only, el LLM jamás compone SQL/comandos fuera de la jaula del P5,
-   presupuestos, y red-teaming casero antes de exponer cualquier cosa a más
-   usuarios (probar activamente de romperlo, no asumir buena fe).
-10. **Human-in-the-loop con escalamiento claro.** Qué decide la IA, qué decide
-    el humano y cómo se escala, definido por proyecto ANTES de construir.
-    Accountability: cada acción aplicada por humano sobre sugerencia de IA
-    queda auditada (quién, cuándo, qué sugirió la IA).
+### Arquitectura y orquestación
+- **Workflows antes que agentes — ADOPTAR YA.** Tarea con pasos conocidos
+  (briefing, prep de reunión, triage) = workflow determinista con pasos de LLM:
+  más barato, predecible, testeable. Agente (el modelo decide qué hacer) solo
+  donde la entrada es abierta de verdad: copiloto (ReAct simple: razonar →
+  tool → responder) y analista (planner-executor: planea la query, la ejecuta,
+  lee el resultado).
+- **Multi-agente / swarms / coordinación (manager, jerárquica, actor-critic) —
+  DIFERIDO.** Un solo agente con buenas tools cubre todo el alcance actual.
+  Condición de disparo: una tarea real donde un agente solo demuestre no
+  alcanzar (ej. el analista necesitando un "revisor" independiente de sus
+  queries — sería el primer caso legítimo de 2 agentes: generador + crítico).
+  Actor frameworks (Ray/Akka), message brokers, A2A: NO APLICA a esta escala —
+  nuestro "motor de orquestación" son los crons + jobs que ya existen.
+- **Model selection por tarea, no por moda — ADOPTAR YA.** Flash para
+  redactar/clasificar; pro + thinking para diagnóstico y SQL. Revisar con datos
+  de la tabla de observabilidad, no por sensación.
+- **Tools chicas, puras y bien descriptas — ADOPTAR YA.** Cada tool hace una
+  cosa; la descripción dice CUÁNDO usarla. Selección de tools estándar (lista
+  plana curada): semántica/jerárquica DIFERIDO hasta superar ~30 tools. Las
+  tools heredan el RBAC — el permiso es estructural, jamás un "no muestres
+  esto" en el prompt.
+
+### Conocimiento y memoria
+- **Context engineering explícito — ADOPTAR YA.** Lo que el modelo necesita se
+  le da curado (reglas de negocio, definiciones, datos del caso); nunca la base
+  entera ni su memoria de internet. Prompts versionados en el repo como código.
+  Gestión de context window: los payloads se capan y priorizan (lo nuevo > lo
+  viejo, lo anómalo > lo normal) — ya practicado en ai_resumen.
+- **Memoria conversacional (corto plazo) — ADOPTAR con el copiloto.** Historial
+  por usuario en SQL, con ventana acotada.
+- **Full-text search antes que semántica — ADOPTAR YA.** Postgres ya lo da
+  gratis; para buscar en operaciones/logs/noticias alcanza y es exacto.
+- **Vector stores / RAG / semantic search — DIFERIDO.** Nuestro patrón dominante
+  es tool-calling sobre datos ESTRUCTURADOS (no hace falta RAG para leer una
+  tabla). Condición de disparo: el primer corpus NO estructurado de tamaño real
+  — ej. base educativa del copiloto (>50 documentos), histórico de research, o
+  prospectos. Cuando pase: pgvector dentro del Postgres existente (no un vector
+  store aparte — menos infra, misma casa).
+- **Semantic experience memory / note-taking del agente — DIFERIDO** (versión
+  liviana con el triage: registrar diagnósticos pasados y consultarlos como
+  contexto "¿esto ya pasó?"; eso ES experience memory, sin llamarlo así).
+- **Knowledge graphs / GraphRAG — NO APLICA.** Nuestro grafo YA existe y es
+  relacional: cuentas↔operaciones↔tenencias↔instrumentos con FKs. Un KG
+  paralelo duplicaría la verdad con riesgo de divergencia (el riesgo clásico de
+  los grafos dinámicos). Se re-evalúa solo si aparece un dominio de relaciones
+  no tabulares (ej. red de vínculos societarios entre emisores).
+
+### Aprendizaje del sistema
+- **Nonparametric primero — ADOPTAR YA.** El sistema aprende SIN tocar pesos:
+  (a) exemplar learning = los mejores/peores outputs reales se convierten en
+  ejemplos few-shot del prompt; (b) reflexion = en tareas de calidad crítica,
+  un segundo paso del modelo critica su propio output contra una checklist
+  antes de entregarlo (candidato: el SQL del analista); (c) experiential = el
+  triage consulta diagnósticos previos. Todo esto es barato y reversible.
+- **Fine-tuning (SFT/DPO) y small models — DIFERIDO.** Condición de disparo:
+  una tarea estable, de alto volumen, con eval set maduro (>500 casos) donde el
+  prompt engineering se haya estancado — el único candidato plausible a mediano
+  plazo es la clasificación de noticias si se retoma ese proyecto. Hasta
+  entonces es complejidad sin retorno.
+- **RL con recompensas verificables — NO APLICA** a nuestra escala (es
+  herramienta de labs que entrenan modelos, no de quienes los usan).
+
+### Validación y medición
+- **La medición es la piedra angular — ADOPTAR YA.** Ninguna feature de IA se
+  declara "terminada" sin su eval set y su métrica de éxito definida ANTES de
+  construir (cada proyecto la tiene en su sección).
+- **Eval sets integrados al ciclo — ADOPTAR YA.** Cambio de prompt o modelo →
+  correr el set de esa tarea. Cada fallo real de producción se convierte en
+  caso nuevo (el set crece con la realidad, no con imaginación).
+- **Evaluación por componente Y end-to-end — ADOPTAR con el copiloto.** Por
+  componente: ¿eligió la tool correcta? ¿el SQL es correcto? End-to-end: ¿la
+  respuesta final es correcta y consistente entre corridas? Chequeo de
+  alucinación específico: todo número del output debe existir en el resultado
+  de alguna tool llamada (verificable mecánicamente).
+- **Inputs inesperados — ADOPTAR YA.** Cada eval set incluye casos adversos:
+  pregunta fuera de alcance, datos vacíos, texto malicioso embebido.
+
+### Monitoreo en producción
+- **El monitoreo como fuente de aprendizaje — ADOPTAR YA.** La tabla de trazas
+  de IA (Fase 0) es nuestro "Langfuse casero": tarea, modelo, tokens, latencia,
+  costo, resultado, feedback. Visible en OBSERVABILIDAD. Stacks dedicados
+  (OTel/Grafana/Langfuse/Phoenix): DIFERIDO — a nuestra escala la tabla SQL +
+  la vista existente cumplen el mismo rol sin infra nueva; condición de disparo:
+  volumen o multi-servicio que la tabla no aguante.
+- **Shadow mode — ADOPTAR como práctica.** Todo pipeline nuevo corre N días
+  generando output SIN entregarlo (se guarda y se revisa) antes de mostrarse.
+  El briefing nace así: genera diario, lo lee solo el admin, y recién después
+  se abre a la mesa.
+- **Canary / rollout gradual — ADOPTAR YA:** es exactamente la marca AI
+  (módulo `ia` primero al admin, después rol por rol).
+- **Regression traces — ADOPTAR YA:** toda traza que produjo un output malo se
+  archiva y entra al eval set (es la misma regla de "el set crece con la
+  realidad", vista desde el monitoreo).
+- **Feedback del usuario como señal — ADOPTAR YA:** 👍/👎 en cada output
+  interactivo desde v1, guardado junto a la traza.
+- **Distribution shift — ADOPTAR como control:** los datos argentinos cambian
+  de régimen (canje, cepo, cambio de reglas) → cuando cambia el mundo, los
+  prompts con reglas de negocio quedan viejos. Revisión disparada por eventos
+  de mercado, no por calendario. Self-healing: ya tenemos el patrón (playbooks
+  deterministas, cuarentena ROFEX) — la IA propone playbooks, no se auto-cura
+  a sí misma.
+
+### Bucles de mejora
+- **Feedback pipeline — ADOPTAR YA:** trazas + 👍/👎 + fallos → revisión humana
+  periódica → refinar prompt/tool → correr evals → desplegar. Ese es el loop;
+  vive en este doc como checklist operativa cuando haya features en producción.
+- **A/B y experimentación — DIFERIDO** hasta tener volumen de uso que dé
+  significancia (con 5 usuarios internos, el A/B es charlar con los 5).
+  Bayesian bandits: NO APLICA a esta escala.
+- **Continuous learning:** ICL (mejorar el contexto con ejemplos reales) =
+  ADOPTAR YA (es el nonparametric de arriba); offline retraining = mismo
+  DIFERIDO que fine-tuning.
+
+### Seguridad de sistemas agénticos
+- **Threat model propio — ADOPTAR YA.** Amenazas en orden real para nosotros:
+  (1) prompt injection vía datos — una noticia, un log, una denominación de
+  cuenta pueden contener texto que el modelo lea como instrucción; TODO dato
+  externo se trata como hostil. (2) Fuga de datos entre roles — resuelto
+  estructuralmente (tools por RBAC). (3) Fuga de datos al proveedor —
+  regla de oro 3 (anonimización). (4) Abuso de costos — presupuestos Fase 0.
+- **Defensas estructurales sobre defensas de prompt — ADOPTAR YA:** tools
+  read-only, la jaula SQL del P5 (rol read-only, whitelist, límites), el LLM
+  jamás compone comandos/SQL fuera de esa jaula, presupuestos con apagado.
+  Un "por favor no hagas X" en el prompt NO es una defensa.
+- **Red teaming casero — ADOPTAR YA:** antes de abrir cualquier feature a más
+  usuarios, una sesión dedicada a romperla (inyección en datos, preguntas
+  fuera de alcance, extracción de datos de otros roles). Los ataques que
+  funcionen se vuelven casos del eval set. Threat modeling formal (MAESTRO):
+  DIFERIDO hasta exponer IA al público (portal invitado, hoy fuera de alcance).
+- **Data provenance — ADOPTAR YA:** todo output de IA queda marcado como tal
+  (en UI y en datos: columna `origen`), con su traza. Nunca un texto de IA
+  puede confundirse con un dato verificado del sistema.
+
+### UX y colaboración humano-agente
+- **Autonomy slider — ADOPTAR YA.** Todo empieza en el nivel más bajo que sirva
+  (informar → sugerir → sugerir con 1-click → automático) y solo sube UN nivel
+  con evidencia medida. Hoy: todo en informar/sugerir.
+- **Comunicar confianza e incertidumbre — ADOPTAR YA:** el copiloto muestra qué
+  tools consultó; el triage separa HECHO de HIPÓTESIS; el analista muestra el
+  SQL. "No tengo cómo saber eso" es una respuesta válida y preferible.
+- **Failing gracefully — ADOPTAR YA:** cada feature define su degradación ANTES
+  de construirse (sin proveedor → versión determinista o feature oculta; nunca
+  un spinner eterno ni una vista rota).
+- **Human-in-the-loop con accountability — ADOPTAR YA:** qué decide la IA y qué
+  el humano, definido por proyecto antes de construir; toda acción humana sobre
+  sugerencia de IA queda auditada (quién, cuándo, qué sugirió).
 
 ---
 

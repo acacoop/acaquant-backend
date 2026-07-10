@@ -52,12 +52,14 @@ calendario.
   - Auto-control de calidad de datos (jobs/controles_datos + tab CONTROLES en
     OBSERVABILIDAD) y playbook determinista de cuarentena ROFEX — la base
     operativa sobre la que se montan Briefing y Triage.
-- **`DEEPSEEK_API_KEY` seteada en el Droplet (2026-07-10)** — bloqueante resuelto.
-- **Próximo paso inmediato:** en el Droplet, `git pull` +
-  `python -m scripts.apply_schema` (crea `ia.trazas`) +
-  `python -m scripts.smoke_ai` (verifica key, modelos reales del proveedor y
-  traza E2E). Si el smoke avisa que `deepseek-v4-flash`/`-pro` no existen como
-  IDs, setear `AI_MODEL_FLASH`/`AI_MODEL_PRO` en el `.env` con los IDs reales.
+- **`DEEPSEEK_API_KEY` seteada + SMOKE OK (2026-07-10):** gateway operativo de
+  punta a punta en el Droplet (completion real + traza en `ia.trazas`).
+  **VERIFICADO contra el proveedor:** los IDs `deepseek-v4-flash` y
+  `deepseek-v4-pro` existen tal cual (GET /models) — ya no es hipótesis.
+- **Próximo paso inmediato (user):** tras el deploy del módulo RBAC, en
+  `/manager → ROLES Y PERMISOS` tildar `ia` para el rol `admin` (la matriz de
+  prod pisa el default → el módulo nuevo no se asigna solo). Ese tilde ES el
+  canary del rollout.
 
 ---
 
@@ -75,7 +77,12 @@ calendario.
    env-overridables (`AI_MODEL_FLASH`/`AI_MODEL_PRO`); thinking mode se cablea
    con la primera tarea pro (P2) verificando el API del proveedor. Smoke E2E:
    `scripts/smoke_ai.py`.
-2. **Módulo `ia` en el RBAC** (MODULES + ENDPOINT_MODULE_PREFIXES + matriz).
+2. ~~**Módulo `ia` en el RBAC**~~ **HECHO (2026-07-10).** `ia` en `MODULES`
+   (core/roles.py) + prefijo `/api/ia` → `ia` en `ENDPOINT_MODULE_PREFIXES`
+   (api/auth.py): todo endpoint futuro bajo `/api/ia` nace default-deny.
+   `invitado` NUNCA lo tiene (test que lo congela). Default solo `admin`;
+   como la matriz de prod pisa el default, la activación real es el tilde
+   del admin en el panel (ver "Próximo paso inmediato").
 3. **Observabilidad de la IA desde el día 1:** ~~tabla~~ la tabla `ia.trazas`
    existe y el gateway registra cada llamada (quién, tarea, modelo, tokens
    in/out, latencia, éxito/fallo, columna `feedback` para el 👍/👎 futuro).

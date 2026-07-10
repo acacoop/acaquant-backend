@@ -56,6 +56,8 @@ MODULES: tuple[str, ...] = (
     "operaciones",    # /operaciones (mesa, flujo) + /api/cuentas
     "portfolios",     # /portfolios + /aum + carteras + AuM + titulos
     "back-office",    # /back-office (títulos a enviar/recibir al mercado, conciliación)
+    "ia",             # features de IA (QuantAI, docs/QUANTAI.md) — gate de /api/ia/*.
+                      # JAMÁS agregarlo a `invitado` (REGLA #8): es la marca AI interna.
     "manager",        # /manager + intel + jobs + logs (umbrella — tabs admin)
     # Sub-módulos de Manager: cobertura granular para el rol `asistente_comercial`
     # (acceso SOLO a la tab Clientes, sin ver el resto). El sub-router
@@ -130,6 +132,11 @@ DEFAULT_MATRIX: dict[str, tuple[str, ...]] = {
 # este default).
 # renta-variable: habilitado para todos los roles (2026-05-13). Smart Money
 # se eliminó del producto, el módulo ahora hospeda el Scanner de CEDEARs.
+# ia: default SOLO admin (canary/rollout gradual, docs/QUANTAI.md 2026-07-10).
+# Como la role_matrix de prod está poblada (pisa este default), activarlo es
+# una acción del admin en /manager → ROLES Y PERMISOS: primero para `admin`,
+# después rol por rol con evidencia. Sacarlo del rol = kill switch (~60s, TTL
+# del cache). NUNCA para `invitado` (REGLA #8).
 
 # Role asignado a emails que pasaron Cloudflare pero no están seedeados
 # en Manager.Users. Preferimos "sales" (módulos públicos) para no dejar

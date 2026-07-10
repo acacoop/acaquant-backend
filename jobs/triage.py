@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -44,6 +45,24 @@ logger = logging.getLogger(__name__)
 
 _SEVERIDAD = ("error",)          # solo crashes (guarda #4). 'partial' se puede sumar luego.
 _LOOKBACK_DEFAULT_MIN = 60       # ventana del primer run (sin watermark) — evita diagnosticar toda la historia
+_LOGS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+_LOG_MAX_LINEAS = 45             # cuánto del logfile leer (el bloque del último run)
+
+
+def _leer_logfile(tipo: str) -> str:
+    """Lee el tramo del ÚLTIMO run del job desde logs/<tipo>.log (run_job.sh
+    redirige ahí stdout+stderr — el detalle que no queda en job_runs). Desde el
+    último 'START <tipo>' hasta el final. '' si el archivo no existe. Para fallas
+    frescas ese bloque ES el de la falla; para viejas puede ser un run posterior."""
+    path = os.path.join(_LOGS_DIR, f"{tipo}.log")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lineas = fh.readlines()
+    except OSError:
+        return ""
+    idx = next((i for i in range(len(lineas) - 1, -1, -1) if f"START {tipo}" in lineas[i]), None)
+    bloque = lineas[idx:] if idx is not None else lineas[-_LOG_MAX_LINEAS:]
+    return _scrub("".join(bloque[-_LOG_MAX_LINEAS:]))
 
 _RE_HEX   = re.compile(r"0x[0-9a-fA-F]+")
 _RE_NUM   = re.compile(r"\d+")
@@ -96,7 +115,10 @@ def _agrupar(fallas: list[dict]) -> dict[str, dict]:
         g = grupos.get(firma)
         if g is None:
             errores_txt = _scrub("\n".join(errores[-8:]))[:_MAX_CTX_CHARS]
-            log_tail = _scrub("\n".join((data.get("log") or [])[-25:]))[:_MAX_CTX_CHARS]
+            # logfile (run_job.sh, stdout+stderr) es más rico que el log que el job
+            # guarda en job_runs. Si no hay logfile, caemos a lo de job_runs.
+            log_jobruns = _scrub("\n".join((data.get("log") or [])[-25:]))
+            log_tail = (_leer_logfile(f["tipo"]) or log_jobruns)[:_MAX_CTX_CHARS]
             g = grupos[firma] = {
                 "tipo": f["tipo"], "ocurrencias": 0, "muestra": muestra,
                 "errores_txt": errores_txt, "log_tail": log_tail, "ultimo": f["started_at"],

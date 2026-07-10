@@ -100,8 +100,26 @@ calendario.
 ## Proyectos elegidos (orden = dependencias)
 
 ### P1 — Briefing de apertura automático
-**Estado: PENDIENTE** · Tipo: pipeline batch + modal in-app · Canal: SOLO
-interno (decisión del user 2026-07: NADA de Telegram para esto)
+**Estado: v1 DETERMINISTA construida (2026-07-10), en shadow via módulo `ia`** ·
+Tipo: modal in-app · Canal: SOLO interno (decisión del user 2026-07: NADA de
+Telegram para esto)
+
+**Decisión 2026-07-10 (user): la v1 es SIN LLM.** El contenido pedido (futuros
+S&P/NASDAQ, oficial mayorista live + A3500, cierres MEP/CCL, todos con
+variación) son solo números → regla de oro 1: se renderiza determinista.
+La capa de redacción IA se suma ARRIBA cuando el briefing incorpore narrativa
+(noticias/calendario/controles); este cartel ES su fallback determinista.
+
+**v1 implementada:** `api/services/briefing.py` (compute-on-read, sin cron ni
+tabla: reusa `home.market_quotes`, `valuaciones.dolar_oficial_live`,
+`macro.series_macro` DOLAR y `valuaciones.dolar`; "rueda anterior" = últimos
+días CON datos → feriados gratis) + `GET /api/ia/briefing` (gate `ia`) +
+`BriefingModal` en HOME (acaquant-web): aparece desde las 10:00 ART L-V vía
+polling 60s + focus, dismiss por usuario+día (localStorage), botón ☀ BRIEFING
+para re-lectura, "aún sin operaciones" si el feed MAE no operó hoy. Fuentes y
+shapes verificados con `scripts/diag_briefing_datos.py` (queda en el repo
+mientras se itere el contenido).
+**Pendiente de validar:** frescura del feed MAE a las 10:00 (PC de oficina).
 
 Cron pre-apertura que junta lo YA ingerido (ADRs, dólar, riesgo país,
 economic_calendar, news_headlines, acreencias próximas, estado de controles) en

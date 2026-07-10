@@ -305,7 +305,8 @@ def main() -> None:
         jr.set_stat("diagnosticadas", n_diag)
         jr.set_stat("sin_diagnostico", n_sin)
         jr.set_stat("conocidas", len(conocidas))
-    print(f"✅ {n_diag} diagnosticadas · {n_sin} sin diagnóstico (presupuesto) · "
+    print(f"✅ {n_diag} diagnosticadas · {n_sin} sin respuesta del modelo "
+          f"(ver por qué en ia.trazas: presupuesto / error HTTP / etc) · "
           f"{len(conocidas)} conocidas (bump)")
 
 

@@ -106,8 +106,8 @@ calendario.
 ## Proyectos elegidos (orden = dependencias)
 
 ### P1 — Briefing de apertura automático
-**Estado: v2 en construcción — contenido ampliado, BACKEND listo, FRONTEND
-pendiente** · Tipo: modal in-app · Canal: SOLO interno (decisión del user
+**Estado: v2 COMPLETA (backend + modal), en shadow · falta solo el bloque
+Agenda (fuente)** · Tipo: modal in-app · Canal: SOLO interno (decisión del user
 2026-07: NADA de Telegram para esto)
 
 **Decisión 2026-07-10 (user): la v1/v2 son SIN LLM.** El contenido son solo
@@ -146,10 +146,15 @@ Diags de diseño (se borran al cerrar el contenido — REGLA #5):
 `scripts/diag_briefing_render.py` (maqueta del modal desde el service real) y
 `scripts/diag_briefing_v2.py` (mide futuros/anclas, calendario, acreencias).
 
-**Pendientes:** (1) **rehacer el modal** en acaquant-web al shape v2 nuevo (bloques
-`futuros/oficial/financieros/paga_hoy` + 4 columnas + grupos) — hoy renderiza el
-shape v1 viejo, queda desalineado (está en shadow, solo admin, no afecta a nadie).
-(2) frescura del feed MAE a las 10:00 (PC oficina). (3) Agenda vía FMP (ver arriba).
+**Modal (acaquant-web `briefing-modal.tsx`):** rehecho al shape v2 — tabla
+uniforme de 4 columnas, futuros agrupados, mayorista "Sin Ops", bloque "Bonos que
+pagan hoy" (solo si hay). Aparece 10:00 ART L-V (gate `ia`), dismiss por día,
+botón ☀ BRIEFING para re-lectura.
+
+**Pendientes:** (1) Agenda vía FMP (ver arriba — necesita `FMP_API_KEY`).
+(2) Health: `titulos_sin_flujo` → control automático en `controles_datos`.
+(3) frescura del feed MAE a las 10:00 (PC oficina). (4) verificar el cruce de
+"bonos que pagan hoy" el día que pague alguno (hoy 10/07 no paga ninguno).
 
 Cron pre-apertura que junta lo YA ingerido (ADRs, dólar, riesgo país,
 economic_calendar, news_headlines, acreencias próximas, estado de controles) en
@@ -390,6 +395,12 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
+- **2026-07-10 — P1 v2: briefing ampliado** (backend TRD-FX + modal acaquant-web).
+  Columnas uniformes HOY·1D·WTD·MTD. Futuros: los 10 de `HOME_FUTUROS` +
+  `market_anchors` extendido a futuros con ancla `anchor_wtd` (WTD real). Dólares:
+  WTD/MTD al vuelo desde histórico. Bonos que pagan hoy: estructural sobre curvas ×
+  held (`acreencias.bonos_pagan_en_fecha`). Diseño medido con `diag_briefing_v2` +
+  `diag_briefing_render`. Agenda diferida (Finnhub free muerto → FMP pendiente de key).
 - **2026-07-10 — Fase 0.1: gateway `core/ai.py`** (+ tabla `ia.trazas`, migración
   de `ai_resumen` adentro, `scripts/smoke_ai.py`, tests unit). Key DeepSeek
   seteada por el user en el Droplet el mismo día. Smoke OK E2E; IDs

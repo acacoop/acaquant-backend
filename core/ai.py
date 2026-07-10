@@ -51,6 +51,10 @@ _TAREAS: dict[str, dict] = {
     "controles_resumen": {"tier": "flash", "max_tokens": 800, "timeout_s": 60,
                           "model_env": "AI_RESUMEN_MODEL"},
     "smoke": {"tier": "flash", "max_tokens": 64, "timeout_s": 30},
+    # P2 triage de incidentes (jobs/triage.py): diagnóstico de una falla de job.
+    # tier pro (razonamiento). Thinking mode todavía NO cableado (pendiente de
+    # verificar el shape del parámetro de DeepSeek — REGLA #2); pro alcanza para v1.
+    "triage_incidente": {"tier": "pro", "max_tokens": 700, "timeout_s": 90},
 }
 
 _DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60}

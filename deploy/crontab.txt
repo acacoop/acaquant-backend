@@ -231,3 +231,8 @@
 0 14 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_comitentes 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes'
 0 17 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_comitentes 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes'
 0 21 * * 1-5 /root/TradingAV/deploy/run_job.sh sync_comitentes 15m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.sync_comitentes'
+
+# ─── Triage IA de incidentes (QuantAI P2) — REACTIVO: cada 10 min chequea fallas
+# nuevas en job_runs (query gratis) y solo una firma NUEVA gasta un diagnóstico
+# del LLM (guardas: dedup + watermark + presupuesto + severidad). docs/QUANTAI.md.
+*/10 * * * * /root/TradingAV/deploy/run_job.sh triage 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.triage'

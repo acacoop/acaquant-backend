@@ -1549,3 +1549,28 @@ CREATE TABLE IF NOT EXISTS ia.trazas (
 );
 CREATE INDEX IF NOT EXISTS ix_ia_trazas_ts ON ia.trazas (ts);
 CREATE INDEX IF NOT EXISTS ix_ia_trazas_usuario_ts ON ia.trazas (usuario, ts);
+
+-- Triage de incidentes (QuantAI P2, docs/QUANTAI.md) — REACTIVO. jobs/triage.py
+-- lee las fallas nuevas de manager.job_runs, las agrupa por FIRMA (dedup) y SOLO
+-- una firma NUEVA gasta un diagnóstico del LLM (guarda de costo). La memoria
+-- experiencial ("¿esto ya pasó?") vive acá: una firma conocida NO se re-diagnostica,
+-- solo suma ocurrencias — con el tiempo, más determinista y menos tokens.
+CREATE TABLE IF NOT EXISTS ia.triage_incidentes (
+    firma          text PRIMARY KEY,          -- 'tipo::firma-normalizada' del error
+    tipo           text NOT NULL,             -- job que falla
+    primera_vez    timestamptz NOT NULL DEFAULT now(),
+    ultima_vez     timestamptz NOT NULL DEFAULT now(),
+    ocurrencias    integer NOT NULL DEFAULT 1,
+    muestra_error  text,                      -- muestra del error crudo (PII scrubeada)
+    diagnostico    jsonb,                     -- {causa, hecho, hipotesis, recomendacion, confianza}
+    modelo         text,                      -- modelo que diagnosticó (NULL = sin diagnosticar)
+    estado         text NOT NULL DEFAULT 'nuevo',   -- nuevo | diagnosticado | playbook | resuelto
+    notificado_at  timestamptz
+);
+CREATE INDEX IF NOT EXISTS ix_triage_ultima ON ia.triage_incidentes (ultima_vez DESC);
+
+-- Watermark del triage: hasta qué started_at ya procesó (idempotencia + reactividad).
+CREATE TABLE IF NOT EXISTS ia.triage_estado (
+    id                text PRIMARY KEY,        -- 'watermark'
+    ultimo_procesado  timestamptz
+);

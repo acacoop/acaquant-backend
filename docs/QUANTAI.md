@@ -173,14 +173,33 @@ manual: acceso desde HOME para volver a abrirlo aunque se haya descartado.
 Éxito: que la mesa lo reclame el día que falte.
 
 ### P2 — Triage inteligente de incidentes
-**Estado: PENDIENTE** · Tipo: pipeline batch · Canal: Telegram + OBSERVABILIDAD
+**Estado: v1 construida (2026-07-10) — REACTIVO, falta correr/shadow** · Tipo:
+watcher reactivo (NO batch — decisión del user) · Canal: Telegram (+ OBSERVABILIDAD
+pendiente)
 
-Sobre job_runs fallados + logs (journalctl) + historial: agrupa fallas por
-causa probable, distingue HECHO ("el error dice X, pasó 3 veces") de HIPÓTESIS
-("sospecho Y"), y recomienda acción. Acá sí conviene thinking mode / modelo pro.
-Loop de mejora incorporado: cuando el mismo patrón aparece repetido, el triage
-propone crear un playbook determinista (precedente: cuarentena ROFEX) — la IA
-se vuelve innecesaria para lo conocido, que es el objetivo. Nunca ejecuta nada.
+Sobre `manager.job_runs` fallados (status='error'): agrupa por FIRMA del error,
+distingue HECHO de HIPÓTESIS y recomienda acción (modelo pro). **Nunca ejecuta nada.**
+
+**Decisión del user 2026-07: REACTIVO PURO, no batch.** Un cron corto (cada 10 min)
+chequea fallas nuevas; el chequeo es una query SQL (gratis) y el token sale SOLO ante
+una firma nueva. **4 guardas de costo:** (1) dedup por firma — una firma conocida no
+se re-diagnostica (0 tokens), solo suma ocurrencias; (2) watermark — cada corrida
+procesa solo lo nuevo (batchea ráfagas: crashloop = 1 diagnóstico); (3) presupuesto
+(ya en core/ai) — superado → firma queda 'nuevo' sin diagnóstico (degrada); (4)
+severidad — solo crashes. Loop de mejora: cuando un patrón se repite, el objetivo es
+codificar un playbook determinista → esa falla sale del camino del LLM para siempre
+(más determinista, menos tokens con el tiempo).
+
+**Construido:** `jobs/triage.py` (con `--dry-run`: prueba sin tokens ni escritura) +
+`ia.triage_incidentes` (memoria de firmas/diagnósticos) + `ia.triage_estado`
+(watermark) + tarea `triage_incidente` (tier pro) en core/ai + cron cada 10 min.
+Privacidad: logs = dato técnico; scrub básico de emails/CUITs; el texto de log se
+trata como DATO hostil (anti prompt-injection en el system prompt).
+
+**Pendiente:** correr en shadow unos días (leer los diagnósticos antes de confiar) ·
+tab TRIAGE en OBSERVABILIDAD (hoy solo Telegram) · thinking mode del modelo pro
+(sin cablear, REGLA #2) · journalctl para casos profundos (v2; v1 usa el log tail que
+ya guarda job_runs) · sumar 'partial' además de 'error' si hace falta.
 
 ### P3 — Copiloto de Mesa
 **Estado: PENDIENTE** · Tipo: agente conversacional in-app · Gate: módulo `ia`
@@ -395,6 +414,11 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
+- **2026-07-10 — P2 v1: triage reactivo de incidentes** (`jobs/triage.py` +
+  `ia.triage_incidentes`/`ia.triage_estado` + tarea `triage_incidente` pro + cron
+  10 min). Reactivo puro (no batch), 4 guardas de costo (dedup por firma / watermark
+  / presupuesto / severidad), Telegram. `--dry-run` para probar sin tokens. Falta
+  correr en shadow + tab OBSERVABILIDAD + thinking mode.
 - **2026-07-10 — P1 v2: briefing ampliado** (backend TRD-FX + modal acaquant-web).
   Columnas uniformes HOY·1D·WTD·MTD. Futuros: los 10 de `HOME_FUTUROS` +
   `market_anchors` extendido a futuros con ancla `anchor_wtd` (WTD real). Dólares:

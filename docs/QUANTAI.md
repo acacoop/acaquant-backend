@@ -83,11 +83,13 @@ calendario.
    `invitado` NUNCA lo tiene (test que lo congela). Default solo `admin`;
    como la matriz de prod pisa el default, la activación real es el tilde
    del admin en el panel (ver "Próximo paso inmediato").
-3. **Observabilidad de la IA desde el día 1:** ~~tabla~~ la tabla `ia.trazas`
-   existe y el gateway registra cada llamada (quién, tarea, modelo, tokens
-   in/out, latencia, éxito/fallo, columna `feedback` para el 👍/👎 futuro).
-   **FALTA:** la vista en OBSERVABILIDAD (endpoint + tab en acaquant-web) —
-   depende del punto 2 (gate por módulo).
+3. ~~**Observabilidad de la IA desde el día 1**~~ **HECHO (2026-07-10).**
+   `ia.trazas` + registro desde el gateway (quién, tarea, modelo, tokens
+   in/out, latencia, éxito/fallo, columna `feedback` para el 👍/👎 futuro) +
+   vista: `GET /api/ia/observabilidad` (service `api/services/ia_obs.py`,
+   gate módulo `ia`) → pill **IA** en Manager → OBSERVABILIDAD (resumen de
+   hoy con % del presupuesto, por tarea, por día, últimas llamadas). La pill
+   solo aparece con el módulo `ia` en /api/me.
 4. **Suite de evaluación mínima:** por cada tarea de IA, un set chico de casos
    de prueba (input real → output esperado/criterios) que se corre al cambiar
    un prompt o modelo. Empieza siendo un archivo de casos + un script; crece

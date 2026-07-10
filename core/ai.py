@@ -73,6 +73,16 @@ def _modelo(cfg: dict) -> str:
     return os.getenv("AI_MODEL_FLASH", "deepseek-v4-flash")
 
 
+def presupuesto_dia_global() -> int:
+    """Tope global de tokens/día del gateway. Fuente única — lo usa el check
+    interno y la vista de observabilidad (api/services/ia_obs.py)."""
+    return int(os.getenv("AI_BUDGET_TOKENS_DIA", "2000000"))
+
+
+def presupuesto_dia_usuario() -> int:
+    return int(os.getenv("AI_BUDGET_TOKENS_DIA_USUARIO", "200000"))
+
+
 def _presupuesto_excedido(usuario: str | None) -> bool:
     """True si el gasto de HOY (UTC) superó el tope global o el del usuario.
     Best-effort: si la DB no responde NO bloquea — el presupuesto es control de
@@ -91,10 +101,10 @@ def _presupuesto_excedido(usuario: str | None) -> bool:
                 (usuario,),
             )
             total, del_usuario = cur.fetchone()
-        if total >= int(os.getenv("AI_BUDGET_TOKENS_DIA", "2000000")):
+        if total >= presupuesto_dia_global():
             logger.warning("core.ai: presupuesto GLOBAL diario agotado (%s tokens hoy)", total)
             return True
-        if usuario and del_usuario >= int(os.getenv("AI_BUDGET_TOKENS_DIA_USUARIO", "200000")):
+        if usuario and del_usuario >= presupuesto_dia_usuario():
             logger.warning(
                 "core.ai: presupuesto diario de %s agotado (%s tokens hoy)", usuario, del_usuario
             )

@@ -32,6 +32,7 @@ from api.routers import (
     cuentas,
     derivados_agro,
     derivados_sinteticos,
+    ia,
     ingest,
     manager,
     manager_resources,
@@ -189,6 +190,8 @@ _BACK_OFFICE  = [Depends(verify_api_key), Depends(require_module("back-office"))
 _OPERAR       = [Depends(verify_api_key), Depends(require_module("operar"))]
 _OPERACIONES  = [Depends(verify_api_key), Depends(require_module("operaciones"))]
 _TRADING      = [Depends(verify_api_key), Depends(require_module("trading"))]
+# Módulo `ia` (QuantAI): features de IA — canary via matriz (default solo admin).
+_IA           = [Depends(verify_api_key), Depends(require_module("ia"))]
 # `manager.router` ya NO va con _MANAGER global: gatear todo /api/manager/*
 # con el módulo `manager` excluye a `asistente_comercial` (que solo tiene
 # `manager_comercial` y `manager_clientes`). El gate ahora vive POR sub-router
@@ -210,6 +213,7 @@ app.include_router(back_office.router,        dependencies=_BACK_OFFICE)
 app.include_router(scanner.router,            dependencies=_PUBLIC)
 app.include_router(research.router,           dependencies=_PUBLIC)  # Análisis Fundamental (gate renta-variable en el router)
 app.include_router(trading.router,            dependencies=_TRADING)  # vista TRADING (admin)
+app.include_router(ia.router,                 dependencies=_IA)       # IA (QuantAI) — gate módulo `ia`
 
 # Restringidos a roles con el módulo respectivo:
 app.include_router(carteras.router,          dependencies=_PORTFOLIOS)

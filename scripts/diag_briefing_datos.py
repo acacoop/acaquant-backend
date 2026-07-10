@@ -34,16 +34,18 @@ def main() -> None:
     with connect() as conn, conn.cursor() as cur:
         # 1) Futuros de índices
         print("── 1. FUTUROS (home.market_quotes) ──────────────────────────")
+        # OJO: la tabla es (symbol, grupo, data jsonb) — la frescura viene
+        # dentro del jsonb (campo que ponga el job), por eso se imprime entero.
         cur.execute(
-            "SELECT symbol, data, updated_at FROM home.market_quotes"
+            "SELECT symbol, data FROM home.market_quotes"
             " WHERE symbol IN ('ES=F', 'NQ=F') ORDER BY symbol"
         )
         filas = cur.fetchall()
         if not filas:
             print("  ✗ SIN FILAS para ES=F / NQ=F")
-        for sym, data, upd in filas:
-            print(f"  {sym} ({_hace(upd)}):")
-            print(f"    {json.dumps(data, ensure_ascii=False, default=str)[:400]}")
+        for sym, data in filas:
+            print(f"  {sym}:")
+            print(f"    {json.dumps(data, ensure_ascii=False, default=str)[:700]}")
 
         # 2) Oficial mayorista live (MAE)
         print("\n── 2. OFICIAL MAYORISTA LIVE (valuaciones.dolar_oficial_live) ──")

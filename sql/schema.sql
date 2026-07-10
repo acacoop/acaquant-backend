@@ -51,6 +51,7 @@ CREATE SCHEMA IF NOT EXISTS home;
 CREATE SCHEMA IF NOT EXISTS partner;
 CREATE SCHEMA IF NOT EXISTS mcp;
 CREATE SCHEMA IF NOT EXISTS research;
+CREATE SCHEMA IF NOT EXISTS ia;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- MIGRACIÓN idempotente public/portafolio → schemas de dominio (v1 → v2).
@@ -1524,3 +1525,27 @@ ALTER TABLE mercado.options_snapshot       SET (autovacuum_vacuum_scale_factor=0
 ALTER TABLE mercado.snapshots_sinteticos   SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
 ALTER TABLE home.market_quotes             SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
 ALTER TABLE valuaciones.portfolio_snapshot SET (autovacuum_vacuum_scale_factor=0.02, autovacuum_vacuum_threshold=50, autovacuum_analyze_scale_factor=0.02, fillfactor=80);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- IA — observabilidad del gateway core/ai.py (QuantAI Fase 0, docs/QUANTAI.md)
+-- Cada llamada a un LLM deja una fila acá (el "job_runs" de la IA). El
+-- presupuesto diario del gateway (global y por usuario) se calcula sumando los
+-- tokens de HOY sobre esta tabla. `feedback` guarda el 👍(1)/👎(-1) del usuario
+-- en outputs interactivos (NULL = sin feedback). Retención: cleanup de Postgres
+-- (no TTL nativo), igual que manager.job_runs.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ia.trazas (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    ts          timestamptz NOT NULL DEFAULT now(),
+    tarea       text NOT NULL,
+    modelo      text NOT NULL,
+    usuario     text,
+    tokens_in   integer,
+    tokens_out  integer,
+    latencia_ms integer,
+    ok          boolean NOT NULL,
+    error       text,
+    feedback    smallint
+);
+CREATE INDEX IF NOT EXISTS ix_ia_trazas_ts ON ia.trazas (ts);
+CREATE INDEX IF NOT EXISTS ix_ia_trazas_usuario_ts ON ia.trazas (usuario, ts);

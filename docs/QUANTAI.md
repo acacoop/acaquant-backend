@@ -49,33 +49,38 @@ calendario.
 ## Estado actual
 
 - **Hecho (previo al roadmap):**
-  - `core/ai_resumen.py`: cliente DeepSeek (requests, `DEEPSEEK_API_KEY`,
-    override `AI_RESUMEN_MODEL`) con lectura ejecutiva del control diario —
-    DORMIDO hasta que exista la key. Es el embrión de la Fundación.
   - Auto-control de calidad de datos (jobs/controles_datos + tab CONTROLES en
     OBSERVABILIDAD) y playbook determinista de cuarentena ROFEX — la base
     operativa sobre la que se montan Briefing y Triage.
-- **Bloqueante único ahora mismo:** crear la cuenta DeepSeek y setear
-  `DEEPSEEK_API_KEY` en el Droplet (env del cron + unit de la API). PENDIENTE
-  del user.
+- **`DEEPSEEK_API_KEY` seteada en el Droplet (2026-07-10)** — bloqueante resuelto.
+- **Próximo paso inmediato:** en el Droplet, `git pull` +
+  `python -m scripts.apply_schema` (crea `ia.trazas`) +
+  `python -m scripts.smoke_ai` (verifica key, modelos reales del proveedor y
+  traza E2E). Si el smoke avisa que `deepseek-v4-flash`/`-pro` no existen como
+  IDs, setear `AI_MODEL_FLASH`/`AI_MODEL_PRO` en el `.env` con los IDs reales.
 
 ---
 
 ## Fase 0 — Fundación (prerequisito de todo)
 
-**Estado: PENDIENTE**
+**Estado: EN CURSO**
 
-1. **`core/ai.py` — el gateway único de IA.** Toda llamada a un LLM del sistema
-   pasa por acá (ai_resumen se migra adentro). Provee: elección de modelo por
-   tarea (flash/pro, thinking on/off), timeouts, reintentos, y **presupuesto**
-   (tope de tokens por día global y por usuario; superado → la feature degrada,
-   no explota). Proveedor-agnóstico: cambiar de proveedor = tocar un solo módulo.
+1. ~~**`core/ai.py` — el gateway único de IA.**~~ **HECHO (2026-07-10).**
+   Toda llamada a un LLM pasa por `core.ai.completar(tarea, system=, user=,
+   usuario=)`: tareas registradas (`_TAREAS`: tier flash/pro, max_tokens,
+   timeout), presupuesto diario de tokens global y por usuario (contra
+   `ia.trazas`; superado → degrada), 1 retry ante timeout/5xx, traza SQL de
+   cada llamada, contrato "nunca levanta" (devuelve None). `ai_resumen` migrado
+   adentro (quedó como prompt de la tarea `controles_resumen`). Modelos
+   env-overridables (`AI_MODEL_FLASH`/`AI_MODEL_PRO`); thinking mode se cablea
+   con la primera tarea pro (P2) verificando el API del proveedor. Smoke E2E:
+   `scripts/smoke_ai.py`.
 2. **Módulo `ia` en el RBAC** (MODULES + ENDPOINT_MODULE_PREFIXES + matriz).
-3. **Observabilidad de la IA desde el día 1:** cada llamada se registra
-   (quién, qué tarea, modelo, tokens in/out, latencia, éxito/fallo) en una
-   tabla SQL — es el equivalente de `manager.job_runs` para la IA. Sin esto no
-   hay medición, y sin medición no hay mejora (ver Principios). Visible en
-   OBSERVABILIDAD.
+3. **Observabilidad de la IA desde el día 1:** ~~tabla~~ la tabla `ia.trazas`
+   existe y el gateway registra cada llamada (quién, tarea, modelo, tokens
+   in/out, latencia, éxito/fallo, columna `feedback` para el 👍/👎 futuro).
+   **FALTA:** la vista en OBSERVABILIDAD (endpoint + tab en acaquant-web) —
+   depende del punto 2 (gate por módulo).
 4. **Suite de evaluación mínima:** por cada tarea de IA, un set chico de casos
    de prueba (input real → output esperado/criterios) que se corre al cambiar
    un prompt o modelo. Empieza siendo un archivo de casos + un script; crece
@@ -328,4 +333,6 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
-*(mover acá una línea por cada ítem terminado, con fecha y commit)*
+- **2026-07-10 — Fase 0.1: gateway `core/ai.py`** (+ tabla `ia.trazas`, migración
+  de `ai_resumen` adentro, `scripts/smoke_ai.py`, tests unit). Key DeepSeek
+  seteada por el user en el Droplet el mismo día.

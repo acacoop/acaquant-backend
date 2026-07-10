@@ -5,8 +5,8 @@ CONTENIDO: datos que existen pero están mal/incompletos. Cada control devuelve
 una lista de anomalías con una clave estable; el runner las diffea contra el
 estado persistido en SQL `manager.controles_datos` y alerta por Telegram
 destacando lo NUEVO de hoy y lo RESUELTO (no repite lo ya conocido como si
-fuera novedad). Con ANTHROPIC_API_KEY seteada, core/ai_resumen agrega una
-lectura ejecutiva en criollo al final del mensaje.
+fuera novedad). Con DEEPSEEK_API_KEY seteada, core/ai_resumen (vía el gateway
+core/ai.py) agrega una lectura ejecutiva en criollo al final del mensaje.
 
 Controles v1:
   * forwards_faltantes    — bonos del master (mercado.curvas) que NO están en la

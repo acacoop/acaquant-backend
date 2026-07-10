@@ -1,35 +1,29 @@
 """core/ai_resumen.py — lectura ejecutiva con IA para los informes operativos.
 
-Toma el resultado estructurado de un control/informe (dict) y devuelve un párrafo
-ejecutivo en criollo: qué pasó, qué es nuevo, qué mirar primero. Es la capa "AI"
-del auto-control de datos (jobs/controles_datos).
+Acá vive el PROMPT de la tarea "controles_resumen" (la lectura ejecutiva del
+auto-control de datos, jobs/controles_datos) y el capado de su payload. El
+transporte (proveedor, modelo, timeout, reintentos, presupuesto, traza) lo
+resuelve el gateway core/ai.py — este módulo NO habla con el proveedor.
 
-Proveedor: DeepSeek (API OpenAI-compatible, https://api.deepseek.com) — elegido
-por costo: el resumen diario son ~3-6k tokens de input y <1k de output, y
-deepseek-chat lo resuelve bien por centavos al mes.
-
-100% opcional y best-effort: si falta DEEPSEEK_API_KEY o la API falla, devuelve
-None y el caller usa su render determinista. NUNCA propaga excepción (mismo
-contrato que core/notify.py).
+Contrato intacto para el caller: resumen_ejecutivo() devuelve str o None (sin
+DEEPSEEK_API_KEY o ante cualquier fallo → None y el caller usa su render
+determinista). NUNCA propaga excepción.
 
 Regla del canal: al prompt solo entra metadata operativa (conteos, tickers,
 nombres de jobs) — el caller es responsable de NO pasar datos de clientes.
 
-Env vars:
-  DEEPSEEK_API_KEY  — requerida para activar la capa AI (sin ella → None).
-  AI_RESUMEN_MODEL  — override del modelo (default deepseek-chat).
+Env vars (las lee el gateway): DEEPSEEK_API_KEY; AI_RESUMEN_MODEL (override
+del modelo solo para esta tarea).
 """
 from __future__ import annotations
 
 import json
 import logging
-import os
+
+from core.ai import completar
 
 logger = logging.getLogger(__name__)
 
-_URL = "https://api.deepseek.com/chat/completions"
-_TIMEOUT_S = 60
-_MAX_TOKENS = 800
 _MAX_PAYLOAD_CHARS = 12_000  # techo del contexto que mandamos (json del informe)
 
 _SYSTEM = (
@@ -54,30 +48,9 @@ _SYSTEM = (
 def resumen_ejecutivo(payload: dict) -> str | None:
     """Párrafo ejecutivo sobre el resultado de los controles. None si la capa AI
     no está disponible (sin key) o falla — el caller renderiza sin ella."""
-    key = os.getenv("DEEPSEEK_API_KEY")
-    if not key:
-        return None
     try:
-        import requests
         contexto = json.dumps(payload, ensure_ascii=False, default=str)[:_MAX_PAYLOAD_CHARS]
-        resp = requests.post(
-            _URL,
-            headers={"Authorization": f"Bearer {key}"},
-            json={
-                "model": os.getenv("AI_RESUMEN_MODEL", "deepseek-chat"),
-                "max_tokens": _MAX_TOKENS,
-                "messages": [
-                    {"role": "system", "content": _SYSTEM},
-                    {"role": "user", "content": contexto},
-                ],
-            },
-            timeout=_TIMEOUT_S,
-        )
-        if resp.status_code != 200:
-            logger.warning("ai_resumen HTTP %s: %s", resp.status_code, resp.text[:200])
-            return None
-        texto = (resp.json()["choices"][0]["message"]["content"] or "").strip()
-        return texto or None
     except Exception as e:
-        logger.warning("ai_resumen falló: %s: %s", type(e).__name__, e)
+        logger.warning("ai_resumen: payload no serializable: %s", e)
         return None
+    return completar("controles_resumen", system=_SYSTEM, user=contexto)

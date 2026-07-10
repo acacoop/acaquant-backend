@@ -37,6 +37,7 @@ run es un proceso nuevo).
 | `MAE_API_KEY` | MarketData MAE (repos/cauciones wholesale). | Coordinar con MAE. |
 | `DOLAR_INGEST_TOKEN` | Token de `POST /api/ingest/dolar-oficial` (la PC de oficina lo manda en `X-Ingest-Token`). Va en el `.env` del Droplet **y** en la oficina (deben coincidir). Si se filtra: solo permite escribir el dólar oficial live, no da acceso a la DB. | Random nuevo → `.env` Droplet + oficina → restart API. |
 | `FINNHUB_API_KEY` | Data de mercado externa. | Dashboard de Finnhub. |
+| `DEEPSEEK_API_KEY` | LLM del sistema — gateway `core/ai.py` (QuantAI). Cuenta prepaga, saldo chico: si se filtra, el daño máximo es quemar el saldo. Sin ella la capa AI degrada (todo sigue funcionando sin IA). | platform.deepseek.com → API Keys → regenerar → `.env` (los crons la toman solos; restart API cuando la use la API). |
 | `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | LLM del asistente (legacy, no en uso hoy). | Consola Anthropic / Google. |
 
 ## 🟢 Config sensible (no son secretos, pero cuidá quién los edita)

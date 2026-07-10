@@ -34,6 +34,8 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 - `manager` — `manager_users`, `role_matrix`, `role_audit`, `grupos`, `job_runs`, `health_reports`, `watchdog_alertas`, `pyrofex_instruments`/`pyrofex_discovery`.
 - `home` — `market_quotes` (watchlist HOME), `market_calendar`, `news_headlines`.
 - `mcp` — `oauth_clients`/`oauth_codes`/`oauth_tokens` (TTL automático).
+- `ia` — observabilidad del gateway de IA (`core/ai.py`, ver `docs/QUANTAI.md`): `trazas` (cada llamada LLM: tarea, modelo, tokens, latencia, ok/error, feedback). El presupuesto diario del gateway se calcula sobre esta tabla.
+- `research` — fundamentals Refinitiv: `companies`, `fundamentals`, `market_snapshot` (ver `docs/RESEARCH_REFINITIV.md`).
 - `partner` — app separada `partner_api`: `cartera`, `api_users` (antes Mongo `ACAPortfolio`).
 
 ## Contexto por subdirectorio
@@ -201,7 +203,7 @@ Ver memoria [[feedback_portal_invitado_www]].
 ## Estructura
 
 ```
-core/        # infra (postgres, pg_mirror, curvas_sql, dolar_sql, grupos_sql, roles_sql, series_macro, market_snapshot, websocket, rofex_session, rofex_orders_session, roles, job_runs, profiler, byma, mae, cafci, finnhub, yahoo, argentina_datos, dolar_oficial)
+core/        # infra (postgres, pg_mirror, ai [gateway LLM], ai_resumen, curvas_sql, dolar_sql, grupos_sql, roles_sql, series_macro, market_snapshot, websocket, rofex_session, rofex_orders_session, roles, job_runs, profiler, byma, mae, cafci, finnhub, yahoo, argentina_datos, dolar_oficial)
 engines/     # motores WS → SQL (always-on L-V 13-20 UTC) — incluye motor_cedears (alimenta Scanner CEDEARs)
 jobs/        # batch/cron — incluye precios_acciones_daily (alimenta scanner via SQL mercado.precios_acciones)
 quant/       # cálculo puro (black_scholes, stats, curve_fit, pivot_points, rolling_stats)

@@ -23,24 +23,28 @@ _TIMEOUT_S = 5
 _MAX_LEN = 3500  # Telegram corta a 4096; dejamos margen.
 
 
-def send_telegram(text: str) -> bool:
+def send_telegram(text: str, *, markdown: bool = True) -> bool:
     """Manda un mensaje al grupo/chat configurado. True si se envió.
 
     No-op (False) si no hay token/chat. Nunca propaga excepción.
+    `markdown=False` manda texto plano (útil cuando el contenido tiene `_`/`*`
+    que el parser de Markdown se comería — ej. nombres de jobs como sync_postgres).
     """
     if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
         return False
     try:
         import requests
 
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": text[:_MAX_LEN],
+            "disable_web_page_preview": True,
+        }
+        if markdown:
+            payload["parse_mode"] = "Markdown"
         resp = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": text[:_MAX_LEN],
-                "parse_mode": "Markdown",
-                "disable_web_page_preview": True,
-            },
+            json=payload,
             timeout=_TIMEOUT_S,
         )
         if resp.status_code != 200:

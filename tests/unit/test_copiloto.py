@@ -375,11 +375,28 @@ def test_enriquecer_no_muta_las_filas_originales(monkeypatch):
         lambda: {"AAPL": {"anual": {"pp": 100.0, "r1": 110.0, "r2": 120.0, "r3": 130.0,
                                     "s1": 90.0, "s2": 80.0, "s3": 70.0}}},
     )
+    monkeypatch.setattr(copiloto, "_retornos_ruedas", lambda: {"AAPL": {"r30": 4.2, "r45": 9.9}})
+    monkeypatch.setattr(copiloto, "_extremos_serie", lambda: {"AAPL": {"max": 250.0, "min": 50.0}})
     original = [{"ticker_corto": "AAPL", "underlying": "AAPL", "adr_last": 125.0}]
     out = copiloto._enriquecer_cedears(original)
     assert out[0]["piv_anual"] == "R2-R3"
     assert out[0]["piv_mensual"] is None  # sin vela mensual → sin zona
+    assert out[0]["ret_30r"] == 4.2 and out[0]["ret_45r"] == 9.9
+    assert out[0]["max_serie"] == 250.0 and out[0]["min_serie"] == 50.0
+    assert out[0]["dist_max"] == -50.0  # 125 está 50% abajo del máximo de la serie
     assert "piv_anual" not in original[0]  # las filas cacheadas del scanner no se tocan
+
+
+def test_verificacion_estricta_bloquea(monkeypatch):
+    _vista_fake(monkeypatch)
+
+    def fake_completar(tarea, *, system, user, usuario=None, detalle=None):
+        return "AAPL subió 99.99%", 1  # inventa el número SIEMPRE (también en el retry)
+
+    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    out = copiloto.preguntar("fake", "¿cómo viene AAPL?")
+    # política estricta: verificada o no se muestra
+    assert out == {"ok": False, "error": "verificacion"}
 
 
 def test_feedback_valor_invalido():

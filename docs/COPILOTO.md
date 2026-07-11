@@ -113,6 +113,22 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.19 (verificado o no se muestra + máx/mín de serie)
+- **[política]** VERIFICADO O NADA (directiva del user): si tras la
+  auto-corrección quedan números sin respaldo, la respuesta NO se muestra
+  (error `verificacion` con mensaje claro en el panel). Se terminó el
+  "tomalo con pinzas".
+- **[prompt −]** PROHIBIDA la aritmética propia del modelo (promedios, sumas,
+  agrupaciones inventadas — caso real: "Memoria y storage +432%" era un
+  sub-rubro que el modelo inventó y promedió). Los únicos agregados válidos
+  son los precalculados (pulso/rankings/screenings). Se quitó la fórmula del
+  CCL implícito del prompt (producía números incomprobables).
+- **[contexto +]** `max_serie_usd` / `min_serie_usd` / `dist_al_max%` por
+  papel (pedido del user): extremos del subyacente en NUESTRA serie —
+  HONESTIDAD: arranca ene-2024, el prompt obliga a decir "máximo de los
+  últimos dos años", jamás "histórico de siempre". Si algún día se extiende
+  el backfill (DESDE_BACKFILL), la profundidad mejora sola.
+
 ### 2026-07-11 — v1.18 (screenings deterministas + chips limpios + pivots al guardrail)
 - **[contexto +]** Bloque `[screenings ya calculados]`: rezagados de verdad
   (año<0, 15r>0, semana>0), rebotes de corto, zona de decisión (por liquidez)

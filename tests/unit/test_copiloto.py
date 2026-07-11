@@ -78,7 +78,7 @@ def test_contexto_y_respuesta_ok(monkeypatch):
     _vista_fake(monkeypatch)
     capturado = {}
 
-    def fake_completar(tarea, *, system, user, usuario=None):
+    def fake_completar(tarea, *, system, user, usuario=None, detalle=None):
         capturado.update(tarea=tarea, system=system, user=user, usuario=usuario)
         return "AAPL sube 1.23%", 42
 
@@ -103,7 +103,7 @@ def test_cap_de_filas(monkeypatch):
     _vista_fake(monkeypatch, filas=filas)
     capturado = {}
 
-    def fake_completar(tarea, *, system, user, usuario=None):
+    def fake_completar(tarea, *, system, user, usuario=None, detalle=None):
         capturado["user"] = user
         return "ok", 1
 
@@ -158,7 +158,7 @@ def test_detectar_tickers_palabras_comunes_no_matchean():
 def test_extras_entran_al_contexto_y_su_fallo_no_rompe(monkeypatch):
     capturado = {}
 
-    def fake_completar(tarea, *, system, user, usuario=None):
+    def fake_completar(tarea, *, system, user, usuario=None, detalle=None):
         capturado["user"] = user
         return "ok", 1
 

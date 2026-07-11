@@ -69,6 +69,18 @@ agrega como caso — el set crece con la realidad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.7 (errores claros + trazas con contenido)
+- **[UX]** El panel dice CUÁL degradación fue: "alcanzaste TU límite diario"
+  (presupuesto_usuario) vs "el sistema alcanzó su tope" (presupuesto_global)
+  vs "sin datos" — chau "IA no disponible" genérico. El copiloto chequea el
+  presupuesto ANTES de armar el contexto (`core.ai.motivo_presupuesto`).
+- **[observabilidad]** `ia.trazas` ganó `detalle` (la pregunta) y `respuesta`
+  (extracto, cap 1500): cada llamada del copiloto queda auditable con su
+  contenido. Requiere apply_schema.
+- **[UI Manager]** OBSERVABILIDAD → IA rediseñada en 4 cuadrantes: presupuesto
+  (ver/editar + usado hoy) · por tarea/por día (tabs) · últimas llamadas
+  (click) · detalle de la llamada elegida (pedido/respuesta/error).
+
 ### 2026-07-11 — v1.6 (pulso + evals)
 - **[contexto +]** Bloque `[pulso por rubro]`: retornos 1d/WTD/MTD/YTD por
   rubro YA calculados (ponderados por volumen USD, mismo criterio que el PULSO

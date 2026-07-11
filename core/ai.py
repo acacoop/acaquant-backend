@@ -132,10 +132,13 @@ def presupuesto_dia_usuario() -> int:
     return v if v else int(os.getenv("AI_BUDGET_TOKENS_DIA_USUARIO", "1000000"))
 
 
-def _presupuesto_excedido(usuario: str | None) -> bool:
-    """True si el gasto de HOY (UTC) superó el tope global o el del usuario.
-    Best-effort: si la DB no responde NO bloquea — el presupuesto es control de
-    costos, no un gate de seguridad."""
+def motivo_presupuesto(usuario: str | None) -> str | None:
+    """'global' o 'usuario' según QUÉ tope superó el gasto de HOY (UTC), o None
+    si hay margen. Público a propósito: las features lo consultan ANTES de
+    llamar para devolver un error CLARO ("tu límite" vs "el del sistema") en
+    vez de un genérico — el gateway igual re-chequea. Best-effort: si la DB no
+    responde NO bloquea — el presupuesto es control de costos, no un gate de
+    seguridad."""
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
@@ -152,16 +155,24 @@ def _presupuesto_excedido(usuario: str | None) -> bool:
             total, del_usuario = cur.fetchone()
         if total >= presupuesto_dia_global():
             logger.warning("core.ai: presupuesto GLOBAL diario agotado (%s tokens hoy)", total)
-            return True
+            return "global"
         if usuario and del_usuario >= presupuesto_dia_usuario():
             logger.warning(
                 "core.ai: presupuesto diario de %s agotado (%s tokens hoy)", usuario, del_usuario
             )
-            return True
-        return False
+            return "usuario"
+        return None
     except Exception as e:
         logger.warning("core.ai: no pude chequear el presupuesto (%s) — sigo sin bloquear", e)
-        return False
+        return None
+
+
+def _presupuesto_excedido(usuario: str | None) -> bool:
+    return motivo_presupuesto(usuario) is not None
+
+
+_MAX_DETALLE_CHARS = 600     # extracto del pedido (lo pasa el caller, ej. la pregunta)
+_MAX_RESPUESTA_CHARS = 1500  # extracto de la respuesta del modelo
 
 
 def _trazar(
@@ -173,18 +184,25 @@ def _trazar(
     latencia_ms: int | None,
     ok: bool,
     error: str | None,
+    detalle: str | None = None,
+    respuesta: str | None = None,
 ) -> int | None:
     """Persiste la traza y devuelve su id (para asociar feedback 👍/👎),
-    o None si la DB no respondió — best-effort, nunca corta la llamada."""
+    o None si la DB no respondió — best-effort, nunca corta la llamada.
+    `detalle`/`respuesta` son extractos legibles para el panel de
+    OBSERVABILIDAD (qué se preguntó / qué contestó), capados."""
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO ia.trazas (tarea, modelo, usuario, tokens_in, tokens_out,"
-                " latencia_ms, ok, error) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+                " latencia_ms, ok, error, detalle, respuesta)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
                 " RETURNING id",
                 (tarea, modelo, usuario, tokens_in, tokens_out, latencia_ms, ok,
-                 error[:_MAX_ERROR_CHARS] if error else None),
+                 error[:_MAX_ERROR_CHARS] if error else None,
+                 detalle[:_MAX_DETALLE_CHARS] if detalle else None,
+                 respuesta[:_MAX_RESPUESTA_CHARS] if respuesta else None),
             )
             return cur.fetchone()[0]
     except Exception as e:
@@ -198,10 +216,15 @@ def completar(
     system: str,
     user: str,
     usuario: str | None = None,
+    detalle: str | None = None,
 ) -> str | None:
     """Una completion vía el gateway. Devuelve el texto o None (sin key,
-    presupuesto agotado, o fallo del proveedor) — NUNCA levanta excepción."""
-    texto, _traza_id = completar_con_traza(tarea, system=system, user=user, usuario=usuario)
+    presupuesto agotado, o fallo del proveedor) — NUNCA levanta excepción.
+    `detalle`: extracto legible del pedido (ej. la pregunta del usuario) que
+    queda en la traza para el panel de OBSERVABILIDAD."""
+    texto, _traza_id = completar_con_traza(
+        tarea, system=system, user=user, usuario=usuario, detalle=detalle
+    )
     return texto
 
 
@@ -211,27 +234,30 @@ def completar_con_traza(
     system: str,
     user: str,
     usuario: str | None = None,
+    detalle: str | None = None,
 ) -> tuple[str | None, int | None]:
     """Igual que completar() pero devuelve también el id de la traza en
     ia.trazas (o None si no se pudo trazar) — para features interactivas que
     asocian feedback 👍/👎 a la llamada. Mismo contrato: NUNCA levanta."""
     try:
-        return _completar(tarea, system=system, user=user, usuario=usuario)
+        return _completar(tarea, system=system, user=user, usuario=usuario, detalle=detalle)
     except Exception as e:  # cinturón: el contrato es no propagar JAMÁS
         logger.warning("core.ai: fallo inesperado en %s: %s: %s", tarea, type(e).__name__, e)
         return None, None
 
 
 def _completar(
-    tarea: str, *, system: str, user: str, usuario: str | None
+    tarea: str, *, system: str, user: str, usuario: str | None, detalle: str | None = None
 ) -> tuple[str | None, int | None]:
     key = os.getenv("DEEPSEEK_API_KEY")
     if not key:
         return None, None  # gateway apagado — sin traza (sería ruido en cada corrida)
     cfg = _config(tarea)
     modelo = _modelo(cfg)
-    if _presupuesto_excedido(usuario):
-        _trazar(tarea, modelo, usuario, None, None, None, False, "presupuesto diario agotado")
+    motivo = motivo_presupuesto(usuario)
+    if motivo:
+        _trazar(tarea, modelo, usuario, None, None, None, False,
+                f"presupuesto diario agotado ({motivo})", detalle=detalle)
         return None, None
 
     import requests
@@ -262,7 +288,7 @@ def _completar(
         if resp.status_code != 200:  # 4xx: pedido mal armado / key inválida — sin retry
             err = f"HTTP {resp.status_code}: {resp.text[:200]}"
             logger.warning("core.ai %s → %s", tarea, err)
-            _trazar(tarea, modelo, usuario, None, None, latencia_ms, False, err)
+            _trazar(tarea, modelo, usuario, None, None, latencia_ms, False, err, detalle=detalle)
             return None, None
         try:
             data = resp.json()
@@ -270,14 +296,15 @@ def _completar(
             usage = data.get("usage") or {}
         except Exception as e:
             _trazar(tarea, modelo, usuario, None, None, latencia_ms, False,
-                    f"respuesta inparseable: {e}")
+                    f"respuesta inparseable: {e}", detalle=detalle)
             return None, None
         traza_id = _trazar(tarea, modelo, usuario, usage.get("prompt_tokens"),
                            usage.get("completion_tokens"), latencia_ms, bool(texto),
-                           None if texto else "respuesta vacía")
+                           None if texto else "respuesta vacía",
+                           detalle=detalle, respuesta=texto or None)
         return (texto or None), traza_id
 
     latencia_ms = int((time.perf_counter() - t0) * 1000)
     logger.warning("core.ai %s falló tras reintentos: %s", tarea, ultimo_error)
-    _trazar(tarea, modelo, usuario, None, None, latencia_ms, False, ultimo_error)
+    _trazar(tarea, modelo, usuario, None, None, latencia_ms, False, ultimo_error, detalle=detalle)
     return None, None

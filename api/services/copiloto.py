@@ -495,6 +495,14 @@ def preguntar(
     if not pregunta:
         return {"ok": False, "error": "pregunta_vacia"}
 
+    # Presupuesto ANTES de armar nada: si el tope ya está agotado, el error
+    # dice CUÁL ("tu límite" vs "el del sistema") — el gateway re-chequea igual.
+    from core.ai import motivo_presupuesto
+
+    motivo = motivo_presupuesto(usuario)
+    if motivo:
+        return {"ok": False, "error": f"presupuesto_{motivo}"}
+
     try:
         filas = cfg["fetch"]()
     except Exception as e:
@@ -542,6 +550,7 @@ def preguntar(
         system=_SYSTEM_BASE + "\n" + cfg["reglas"],
         user="\n".join(partes),
         usuario=usuario,
+        detalle=pregunta,  # queda en la traza → panel OBSERVABILIDAD
     )
     if not texto:
         return {"ok": False, "error": "ia_no_disponible"}

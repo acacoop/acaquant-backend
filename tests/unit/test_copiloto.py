@@ -200,6 +200,23 @@ def test_numeros_sin_respaldo():
     assert total == 0
 
 
+def test_jerga_en_respuesta():
+    cfg = copiloto.VISTAS["renta_variable"]
+    # headers internos colados → detectados
+    jerga = copiloto._jerga_en_respuesta(
+        "el rubro pierde 4.39% de ret_7d con monto_usd_ny fuerte", cfg, "como vienen?"
+    )
+    assert "ret_7d" in jerga and "monto_usd_ny" in jerga
+    # lenguaje de mesa limpio → nada
+    assert copiloto._jerga_en_respuesta(
+        "Vienen bien en el año: +11% en dólares, aunque esta semana caen.", cfg, "como vienen?"
+    ) == []
+    # si el USUARIO usa el término, se le puede contestar con él
+    assert copiloto._jerga_en_respuesta(
+        "zona_piv_año te dice dónde está parado", cfg, "que es zona_piv_año?"
+    ) == []
+
+
 def test_autocorreccion_reintenta_con_numeros_malos(monkeypatch):
     _vista_fake(monkeypatch)
     llamadas = []

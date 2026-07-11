@@ -59,10 +59,11 @@ CÓMO SE ARMA UNA RESPUESTA (método general, aplica a toda pregunta):
 1. CONCLUSIÓN PRIMERO: tu primera frase responde la pregunta en lenguaje simple, como se \
 lo dirías a un cliente por teléfono. Después, como MÁXIMO 3 datos que la sostienen — la \
 gente retiene ~4 ideas; más que eso es ruido.
-2. PLAZOS CON SENTIDO: salvo que la pregunta fije un plazo, pensá en corto (hoy/semana) Y \
-en largo (mes/año). Si la historia CAMBIA según el plazo, decilo — esa suele ser la \
-respuesta valiosa ("hoy se despegó, pero en el año vienen de la mano"). Elegí SOLO los \
-plazos que aportan a la conclusión, no los listes todos.
+2. PLAZOS CON SENTIDO — y EL PLAZO DE LA PREGUNTA MANDA: si la pregunta nombra un plazo \
+("este año", "hoy", "en el mes"), la CONCLUSIÓN es la de ESE plazo; los demás entran solo \
+como matiz al final ("vienen bien en el año, aunque en las últimas semanas se enfriaron"). \
+Si no fija plazo, pensá en corto (hoy/semana) Y largo (mes/año), y si la historia cambia \
+según el plazo, decilo — esa suele ser la respuesta valiosa. Nunca listes todos los plazos.
 3. ESTADÍSTICA TRADUCIDA, JAMÁS NOMBRADA: usá beta/correlación/z-score/volatilidad para \
 PENSAR tu conclusión, pero al usuario traducilos: correlación alta = "se mueve casi \
 calcado al índice"; baja = "va por su cuenta"; beta alta = "amplifica al mercado: sube \
@@ -92,6 +93,11 @@ es lo habitual en META: después de días así suele enfriarse."
 MAL: "- V: PP-R1, monto ARS 325M, var_dia% -0.07 — tocando la banda" (nadie pidió volumen \
 ni variación, y habla en columnas)
 BIEN: "- Visa — apoyada justo en el equilibrio del año"
+MAL (pregunta: "¿cómo vienen las del espacio este 2026?"): "Vienen complicadas: pierden \
+3.89% hoy, -9.87% en la semana y -4.39% de ret_7d…" (la pregunta era por el AÑO y \
+arrancó por el día, encima con jerga)
+BIEN: "Vienen bien en el año: +11% en dólares. Ojo que el último tramo se enfriaron — \
+esta semana están cayendo fuerte."
 """
 
 
@@ -554,6 +560,35 @@ def _numeros_sin_respaldo(respuesta: str, contexto: str) -> tuple[list[str], int
     return malos, total
 
 
+# Términos internos que JAMÁS deben llegar al usuario. El prompt ya lo pide,
+# pero el modelo lo rompe cada tanto (shadow: "ret_7d", "monto_usd_ny") →
+# guardrail estructural: se detectan por código y disparan la auto-corrección.
+_JERGA_FIJA = {"es_ia", "adr", "tsv", "zona_piv", "piv_anual", "piv_mensual",
+               "z-score", "zscore", "mtd", "wtd", "ytd"}
+# palabras de mesa legítimas aunque coincidan con headers
+_NO_ES_JERGA = {"nombre", "sector", "rubro", "pais", "ticker", "ratio", "vwap",
+                "spread", "compra", "venta", "nominales", "ia", "subyacente"}
+
+
+def _jerga_en_respuesta(respuesta: str, cfg: dict, pregunta: str) -> list[str]:
+    """Headers/campos del contexto que se colaron en la respuesta. Un término
+    queda permitido si el USUARIO lo usó en su pregunta (si él habla de
+    'zona_piv', se le puede contestar igual)."""
+    resp = respuesta.lower()
+    preg = (pregunta or "").lower()
+    terminos: set[str] = set(_JERGA_FIJA)
+    for c in cfg.get("columnas") or []:
+        campo, header = c if isinstance(c, tuple) else (c, c)
+        terminos.update((campo.strip("%").lower(), header.strip("%").lower()))
+    out = []
+    for t in sorted(terminos - _NO_ES_JERGA):
+        if len(t) < 3 or t in preg:
+            continue
+        if re.search(rf"(?<![a-z0-9_%]){re.escape(t)}(?![a-z0-9_%])", resp):
+            out.append(t)
+    return out
+
+
 def vistas_para(email: str) -> list[dict]:
     """Vistas del copiloto que este usuario puede usar (gate por módulo RBAC
     de cada vista — el gate del módulo `ia` ya lo puso el montaje del router).
@@ -653,20 +688,30 @@ def preguntar(
     if not texto:
         return {"ok": False, "error": "ia_no_disponible"}
 
-    # Reflexion (QUANTAI, nonparametric): si hay números sin respaldo en los
-    # datos, NO se muestran — se le devuelve al modelo su respuesta con la
-    # lista exacta y se lo obliga a reescribir citando números reales. Solo
-    # si aún así queda algo, sale con la advertencia (y la lista) al usuario.
+    # Reflexion (QUANTAI, nonparametric): números sin respaldo o jerga interna
+    # NO se muestran — el modelo recibe su respuesta con el detalle exacto y
+    # la reescribe. Solo si tras el reintento queda algo, sale la advertencia
+    # de números (la jerga residual se loguea, no se le muestra al usuario).
     malos, chequeados = _numeros_sin_respaldo(texto, contexto)
-    if malos:
-        logger.warning("copiloto %s: %d/%d números sin respaldo (%s) — autocorrección",
-                       vista, len(malos), chequeados, malos)
+    jerga = _jerga_en_respuesta(texto, cfg, pregunta)
+    if malos or jerga:
+        logger.warning("copiloto %s: %d/%d números sin respaldo %s · jerga %s — autocorrección",
+                       vista, len(malos), chequeados, malos, jerga)
+        problemas = []
+        if malos:
+            problemas.append(
+                f"estos números NO aparecen en los datos: {', '.join(malos)} — usá solo "
+                "números exactos de los datos (si abreviás un monto con M, redondeá el real)"
+            )
+        if jerga:
+            problemas.append(
+                "usaste jerga interna del sistema que el usuario JAMÁS debe ver: "
+                f"{', '.join(jerga)} — traducila a lenguaje de mesa"
+            )
         correccion = (
             f"{contexto}\n[tu respuesta previa]\n{texto}\n"
-            "[verificación automática] Estos números de tu respuesta NO aparecen en los "
-            f"datos: {', '.join(malos)}. Reescribí la respuesta COMPLETA usando solo números "
-            "exactos de los datos (si abreviás un monto con M, redondeá el dato real). "
-            "Mismo formato y largo, sin mencionar esta corrección."
+            f"[verificación automática] {'; '.join(problemas)}. Reescribí la respuesta "
+            "COMPLETA corregida, mismo formato y largo, sin mencionar esta corrección."
         )
         texto2, traza_id2 = completar_con_traza(
             "copiloto_vista",
@@ -677,7 +722,8 @@ def preguntar(
         )
         if texto2:
             malos2, _ = _numeros_sin_respaldo(texto2, contexto)
-            if len(malos2) < len(malos):
+            jerga2 = _jerga_en_respuesta(texto2, cfg, pregunta)
+            if len(malos2) + len(jerga2) < len(malos) + len(jerga):
                 texto, traza_id, malos = texto2, traza_id2, malos2
 
     return {

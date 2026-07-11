@@ -71,7 +71,41 @@ momentos puntuales (ej. antes de abrir el copiloto al resto de la mesa).
 Cada fallo real del shadow se sigue agregando como caso — documenta qué NO
 puede volver a romperse, se corra o no el runner.
 
+## Plan "prompt engineering para finanzas" (guía AI-in-Finance, 2026-07-11)
+
+Adopciones decididas charlando con el user (TODO se implementa CON su ayuda y
+queda asentado acá):
+1. **Audiencia por rol RBAC** — el registro cambia según quién pregunta
+   (trader: seco y numérico · sales: explicado y en términos de cliente).
+   Estado: PENDIENTE — falta que el user defina el tono por rol.
+2. **Biblioteca de consultas de mesa** — chips predefinidos en el panel con
+   prompts curados y versionados en el repo (conocimiento institucional +
+   consistencia + evaluables). Estado: PENDIENTE — falta que el user elija
+   los chips iniciales.
+3. **Plantillas de formato por tipo de pregunta** (ranking / estado de papel /
+   comparación / screening). Estado: parcialmente cubierto por el método
+   Minto + ejemplos; se formaliza junto con los chips.
+4. **Escenarios deterministas** ("¿qué pasa si el CCL sube 5%?") — código
+   computa, el modelo narra. DIFERIDO: antesala del P5.
+Ya cubiertos por diseño previo: los 5 componentes (rol/contexto/tarea/
+restricciones/formato), verificación de outputs (automatizada, mejor que el
+protocolo manual del libro), anti-patrón de datos en tiempo real (el modelo
+solo ve lo inyectado).
+
 ## Changelog del asistente (obligatorio, con fecha)
+
+### 2026-07-11 — v1.15 (guardrail de jerga + el plazo de la pregunta manda)
+- **[agente +]** La jerga interna dejó de ser una regla de prompt y pasó a ser
+  GUARDRAIL estructural: `_jerga_en_respuesta()` detecta por código headers/
+  términos del sistema colados en la respuesta ("ret_7d", "monto_usd_ny"…) y
+  dispara la misma auto-corrección que los números sin respaldo (un solo
+  reintento cubre ambos). Permitido solo si el usuario usó el término en su
+  pregunta. (Shadow: el prompt solo no alcanzaba — el modelo lo rompía cada
+  tanto.)
+- **[prompt +]** El PLAZO que nombra la pregunta manda la conclusión; los
+  demás plazos entran como matiz al final. Caso real como ejemplo MAL/BIEN:
+  "¿cómo vienen las del espacio este 2026?" → la respuesta es la del AÑO
+  (+11%), no la del día.
 
 ### 2026-07-11 — v1.14 (método de respuesta — pirámide de Minto)
 - **[prompt ~]** Las reglas de estilo se consolidaron en un MÉTODO general de

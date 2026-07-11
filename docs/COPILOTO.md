@@ -61,11 +61,15 @@ Panel (browser) ── {vista, pregunta, historial} ──► POST /api/ia/copil
 
 ## Cómo se evalúa (candado de regresión)
 
+**Decisión del user (2026-07-11): las pruebas las hace ÉL, manualmente, desde
+el panel** — preguntas reales + 👍/👎. No pedirle presupuesto para el runner
+ni proponer correrlo de rutina.
+
 `evals/copiloto_vista.json` (casos reales del shadow + adversos) + runner
-`python -m scripts.eval_copiloto` (Droplet; gasta ~22k tokens/caso, usuario
-`eval@copiloto` en las trazas). **Se corre después de CADA cambio a
-copiloto.py y antes de darlo por bueno.** Cada fallo real nuevo del shadow se
-agrega como caso — el set crece con la realidad.
+`python -m scripts.eval_copiloto` quedan como herramienta OPCIONAL para
+momentos puntuales (ej. antes de abrir el copiloto al resto de la mesa).
+Cada fallo real del shadow se sigue agregando como caso — documenta qué NO
+puede volver a romperse, se corra o no el runner.
 
 ## Changelog del asistente (obligatorio, con fecha)
 

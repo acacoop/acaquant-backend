@@ -70,7 +70,10 @@ calcado al índice"; baja = "va por su cuenta"; beta alta = "amplifica al mercad
 más en los días buenos y cae más en los malos"; movimiento con z alto = "un salto \
 inusualmente grande para lo que suele moverse — después de días así suele enfriarse". \
 El término técnico y su número SOLO si el usuario lo pide por su nombre.
-4. Frases completas, UNA idea por frase. Nada de ametralladora de cifras encadenadas.
+4. Frases completas, UNA idea por frase. Nada de ametralladora de cifras encadenadas. \
+Cuando la respuesta es una LISTA de papeles con datos, presentala como tabla markdown \
+simple (máximo 4 columnas, headers de mesa: "papel", "año", "semana") y DESPUÉS una \
+línea de lectura. Para lo demás, texto plano con guiones.
 5. Respondés SOLO lo que se pregunta: sin métricas que nadie pidió (volumen, spread, \
 variaciones) salvo que la pregunta las necesite. Si piden N papeles, das EXACTAMENTE N. \
 Sin resumen redundante al final, sin aclaraciones de fuente ni fecha.
@@ -201,20 +204,86 @@ def _velas_periodo_previo() -> dict:
     return out
 
 
+@cached(ttl=900)
+def _retornos_ruedas() -> dict:
+    """{underlying: {"r30": pct, "r45": pct}} — retornos a 30/45 RUEDAS (días
+    de mercado) desde mercado.precios_acciones. Lente de trading pedido por la
+    mesa (2026-07-11): complementa semana/mes/año calendario. Una sola query
+    agregada para todo el universo."""
+    from core.postgres import get_pool
+
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH s AS (
+                SELECT ticker, close,
+                       row_number() OVER (PARTITION BY ticker ORDER BY fecha DESC) AS rn
+                FROM mercado.precios_acciones
+                WHERE close IS NOT NULL AND close > 0
+                  AND fecha >= (now() - interval '120 days')::date
+            )
+            SELECT ticker,
+                   max(close) FILTER (WHERE rn = 1),
+                   max(close) FILTER (WHERE rn = 31),
+                   max(close) FILTER (WHERE rn = 46)
+            FROM s GROUP BY ticker
+            """
+        )
+        out: dict[str, dict] = {}
+        for tk, c0, c30, c45 in cur.fetchall():
+            if not c0:
+                continue
+            out[tk] = {
+                "r30": (float(c0) / float(c30) - 1) * 100 if c30 else None,
+                "r45": (float(c0) / float(c45) - 1) * 100 if c45 else None,
+            }
+    return out
+
+
 def _enriquecer_cedears(filas: list[dict]) -> list[dict]:
-    """Suma piv_anual/piv_mensual (zona del subyacente vs pivots del período
-    previo). COPIA las filas: vienen del cache del scanner y mutarlas
-    contaminaría lo que ve el tablero."""
+    """Suma piv_anual/piv_mensual (zona vs pivots del período previo) y
+    ret_30r/ret_45r (retornos por ruedas). COPIA las filas: vienen del cache
+    del scanner y mutarlas contaminaría lo que ve el tablero."""
     zonas = _velas_periodo_previo()
+    try:
+        ruedas = _retornos_ruedas()
+    except Exception as e:
+        logger.warning("copiloto: retornos por ruedas fallaron (%s)", e)
+        ruedas = {}
     out = []
     for f in filas:
         f = dict(f)
-        z = zonas.get(str(f.get("underlying") or f.get("ticker_corto") or "").upper()) or {}
+        under = str(f.get("underlying") or f.get("ticker_corto") or "").upper()
+        z = zonas.get(under) or {}
         last = f.get("adr_last")
         f["piv_anual"] = _zona(last, z["anual"]) if last and z.get("anual") else None
         f["piv_mensual"] = _zona(last, z["mensual"]) if last and z.get("mensual") else None
+        r = ruedas.get(under) or {}
+        f["ret_30r"] = r.get("r30")
+        f["ret_45r"] = r.get("r45")
         out.append(f)
     return out
+
+
+def _rankings(filas: list[dict]) -> list[str]:
+    """Tops YA ordenados por código. El modelo ordenando 187 filas a ojo se
+    comía al líder (shadow: faltó SNDK en el top del año) — esto lo hace
+    determinista."""
+    def top(campo: str, titulo: str, peor: bool = False) -> str:
+        vals = sorted(
+            ((f[campo], f.get("ticker_corto")) for f in filas if f.get(campo) is not None),
+            reverse=not peor,
+        )[:5]
+        return f"{titulo}: " + ", ".join(f"{t} {v:+.2f}%" for v, t in vals)
+
+    return [
+        "[rankings ya calculados — para 'los que más/menos…' usá ESTOS, no ordenes a mano]",
+        top("adr_ret_ytd_pct", "top año"),
+        top("adr_ret_ytd_pct", "peores año", peor=True),
+        top("adr_ret_mtd_pct", "top mes"),
+        top("adr_ret_wtd_pct", "top semana"),
+        top("adr_vs_1d_pct", "top día"),
+    ]
 
 
 # ── Bloques de detalle por ticker (vista renta_variable) ────────────────────
@@ -431,6 +500,10 @@ def _extras_renta_variable(filas: list[dict], pregunta: str, historial: list[dic
         partes.extend(_pulso_por_rubro(filas))
     except Exception as e:
         logger.warning("copiloto: pulso por rubro falló (%s)", e)
+    try:
+        partes.extend(_rankings(filas))
+    except Exception as e:
+        logger.warning("copiloto: rankings fallaron (%s)", e)
     for f in _detectar_tickers(filas, pregunta, historial):
         partes.extend(_detalle_ticker(f))
     return partes
@@ -452,6 +525,11 @@ var_dia_usd%: la variación del día en dólares (descuenta el CCL).
 - ny_hoy% / ny_dia%: la acción en NY, hoy contra apertura / contra cierre anterior.
 - ret_semana% / ret_7d% / ret_mes% / ret_año%: retornos de la acción en USD — semana en \
 curso, 7 días, mes en curso, y AÑO CALENDARIO en curso (desde el 1° de enero).
+- ret_15ruedas% / ret_30ruedas% / ret_45ruedas%: retornos por RUEDAS (días de mercado) — \
+el lente de trading para leer tramos cortos y medios sin depender del calendario.
+- REPUNTE (definición de la mesa): un papel repunta cuando venía cayendo en el tramo \
+largo (año o 45 ruedas) Y se dio vuelta con consistencia en el corto (15 ruedas y semana \
+positivas). Una semana verde aislada NO es repunte — llamalo "rebote de corto" y aclaralo.
 - spread%: costo de entrar/salir (menor = más líquido). nominales/monto_ars: lo operado \
 del CEDEAR. monto_usd_ny: lo operado de la acción en NY.
 - zona_piv_año / zona_piv_mes: dónde está parado el papel respecto de los pivots del \
@@ -472,6 +550,8 @@ Bloques adicionales que pueden aparecer después de la tabla:
 - [pulso por rubro]: agregados YA CALCULADOS por rubro (retornos del subyacente en USD, \
 ponderados por volumen). Para preguntas de mercado en general, sectores o rubros usá SIEMPRE \
 estas líneas — NO promedies filas de la tabla a mano.
+- [rankings ya calculados]: tops y peores del año/mes/semana/día ORDENADOS por código. \
+Para cualquier "los que más/menos…" usá ESTOS — jamás ordenes las filas a mano.
 - [detalle TICKER]: datos del subyacente en NY — pivots clásicos (PP punto pivote, R1-R3 \
 resistencias, S1-S3 soportes; marcos diario/semanal/mensual/anual; en USD), quant (beta y \
 correlación vs SPY y QQQ, volatilidad anualizada, z-score del último retorno) y últimos \
@@ -496,8 +576,10 @@ _CHIPS_RENTA_VARIABLE = [
      "pregunta": "¿Qué papeles líquidos están apoyados en su equilibrio anual o "
                  "mensual? Solo nombres, agrupados según vengan de subir o de caer."},
     {"label": "Rezagados repuntando",
-     "pregunta": "Dame papeles negativos en el año que estén ganando esta semana. "
-                 "Ticker y los dos datos, nada más."},
+     "pregunta": "Papeles negativos en el año que se hayan dado vuelta DE VERDAD "
+                 "(15 ruedas y semana positivas, no una semana verde aislada). "
+                 "Tabla: papel | año | 15 ruedas | semana. Y una línea de qué tan "
+                 "sólido es cada repunte."},
     {"label": "Voladores del año",
      "pregunta": "¿Qué papeles subieron más en el año? Top 5, y decime cuáles ya "
                  "rompieron todos los techos del año pasado."},
@@ -536,6 +618,8 @@ VISTAS: dict[str, dict] = {
             ("adr_last", "precio_usd_ny"), ("adr_intraday", "ny_hoy%"),
             ("adr_vs_1d_pct", "ny_dia%"),
             ("adr_ret_wtd_pct", "ret_semana%"), ("adr_ret_7d_pct", "ret_7d%"),
+            ("adr_ret_15r_pct", "ret_15ruedas%"),
+            ("ret_30r", "ret_30ruedas%"), ("ret_45r", "ret_45ruedas%"),
             ("adr_ret_mtd_pct", "ret_mes%"), ("adr_ret_ytd_pct", "ret_año%"),
             ("adr_dollar_vol", "monto_usd_ny"),
             ("piv_anual", "zona_piv_año"), ("piv_mensual", "zona_piv_mes"),
@@ -597,7 +681,13 @@ def _numeros_sin_respaldo(respuesta: str, contexto: str) -> tuple[list[str], int
 # pero el modelo lo rompe cada tanto (shadow: "ret_7d", "monto_usd_ny") →
 # guardrail estructural: se detectan por código y disparan la auto-corrección.
 _JERGA_FIJA = {"es_ia", "adr", "tsv", "zona_piv", "piv_anual", "piv_mensual",
-               "z-score", "zscore", "mtd", "wtd", "ytd"}
+               "z-score", "zscore", "mtd", "wtd", "ytd", "columna", "header"}
+
+# Derrame de razonamiento en la respuesta visible (autocorrecciones tipo
+# "Corrijo:", "— no, X también…"): dispara la misma reescritura.
+_RE_DERRAME = re.compile(
+    r"[Cc]orrijo|[Rr]evisar:|[Pp]erd[óo]n|—\s*no,|[Ee]ntonces respuesta final"
+)
 # palabras de mesa legítimas aunque coincidan con headers
 _NO_ES_JERGA = {"nombre", "sector", "rubro", "pais", "ticker", "ratio", "vwap",
                 "spread", "compra", "venta", "nominales", "ia", "subyacente"}
@@ -617,7 +707,9 @@ def _jerga_en_respuesta(respuesta: str, cfg: dict, pregunta: str) -> list[str]:
     for t in sorted(terminos - _NO_ES_JERGA):
         if len(t) < 3 or t in preg:
             continue
-        if re.search(rf"(?<![a-z0-9_%]){re.escape(t)}(?![a-z0-9_%])", resp):
+        # OJO: el "%" NO delimita — "ret_año%" en la respuesta ES el término
+        # "ret_año" (bug real del shadow: el % del header lo hacía invisible)
+        if re.search(rf"(?<![a-z0-9_]){re.escape(t)}(?![a-z0-9_])", resp):
             out.append(t)
     return out
 
@@ -739,9 +831,12 @@ def preguntar(
     # de números (la jerga residual se loguea, no se le muestra al usuario).
     malos, chequeados = _numeros_sin_respaldo(texto, contexto)
     jerga = _jerga_en_respuesta(texto, cfg, pregunta)
-    if malos or jerga:
-        logger.warning("copiloto %s: %d/%d números sin respaldo %s · jerga %s — autocorrección",
-                       vista, len(malos), chequeados, malos, jerga)
+    derrame = bool(_RE_DERRAME.search(texto))
+    if malos or jerga or derrame:
+        logger.warning(
+            "copiloto %s: %d/%d números sin respaldo %s · jerga %s · derrame=%s — autocorrección",
+            vista, len(malos), chequeados, malos, jerga, derrame,
+        )
         problemas = []
         if malos:
             problemas.append(
@@ -752,6 +847,11 @@ def preguntar(
             problemas.append(
                 "usaste jerga interna del sistema que el usuario JAMÁS debe ver: "
                 f"{', '.join(jerga)} — traducila a lenguaje de mesa"
+            )
+        if derrame:
+            problemas.append(
+                "mostraste correcciones o razonamiento intermedio — entregá SOLO la "
+                "respuesta final, limpia"
             )
         correccion = (
             f"{contexto}\n[tu respuesta previa]\n{texto}\n"
@@ -768,7 +868,9 @@ def preguntar(
         if texto2:
             malos2, _ = _numeros_sin_respaldo(texto2, contexto)
             jerga2 = _jerga_en_respuesta(texto2, cfg, pregunta)
-            if len(malos2) + len(jerga2) < len(malos) + len(jerga):
+            derrame2 = bool(_RE_DERRAME.search(texto2))
+            if (len(malos2) + len(jerga2) + int(derrame2)
+                    < len(malos) + len(jerga) + int(derrame)):
                 texto, traza_id, malos = texto2, traza_id2, malos2
 
     return {

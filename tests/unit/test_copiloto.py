@@ -211,6 +211,11 @@ def test_jerga_en_respuesta():
         "el rubro pierde 4.39% de ret_7d con monto_usd_ny fuerte", cfg, "como vienen?"
     )
     assert "ret_7d" in jerga and "monto_usd_ny" in jerga
+    # bug real del shadow: el "%" pegado al término NO lo esconde
+    jerga = copiloto._jerga_en_respuesta(
+        "T (ret_año% -14.94, ret_semana% 2.67) y la columna ia", cfg, "rezagados?"
+    )
+    assert "ret_año" in jerga and "ret_semana" in jerga and "columna" in jerga
     # lenguaje de mesa limpio → nada
     assert copiloto._jerga_en_respuesta(
         "Vienen bien en el año: +11% en dólares, aunque esta semana caen.", cfg, "como vienen?"
@@ -237,6 +242,38 @@ def test_autocorreccion_reintenta_con_numeros_malos(monkeypatch):
     assert "99.99" in llamadas[1]["user"] and "autocorrección" in llamadas[1]["detalle"]
     assert out["respuesta"] == "AAPL subió 1.23%" and out["traza_id"] == 2
     assert out["numeros_sin_respaldo"] == []
+
+
+def test_rankings_ordena_por_codigo():
+    filas = [
+        {"ticker_corto": "SNDK", "adr_ret_ytd_pct": 707.11, "adr_ret_mtd_pct": -5.72,
+         "adr_ret_wtd_pct": 9.83, "adr_vs_1d_pct": 1.0},
+        {"ticker_corto": "MU", "adr_ret_ytd_pct": 243.12, "adr_ret_mtd_pct": -5.13,
+         "adr_ret_wtd_pct": -0.55, "adr_vs_1d_pct": 2.0},
+        {"ticker_corto": "BABA", "adr_ret_ytd_pct": -23.37, "adr_ret_mtd_pct": 14.63,
+         "adr_ret_wtd_pct": 14.73, "adr_vs_1d_pct": 3.0},
+    ]
+    lineas = copiloto._rankings(filas)
+    # el caso real: SNDK lidera el año y el modelo lo salteaba — el código no
+    assert lineas[1].startswith("top año: SNDK +707.11%, MU +243.12%")
+    assert lineas[2].startswith("peores año: BABA -23.37%")
+    assert lineas[3].startswith("top mes: BABA +14.63%")
+
+
+def test_derrame_dispara_autocorreccion(monkeypatch):
+    _vista_fake(monkeypatch)
+    llamadas = []
+
+    def fake_completar(tarea, *, system, user, usuario=None, detalle=None):
+        llamadas.append(user)
+        if len(llamadas) == 1:
+            return "V sube 1.23% — no, V pierde. Corrijo: solo AAPL.", 1
+        return "Solo AAPL sube 1.23%.", 2
+
+    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    out = copiloto.preguntar("fake", "¿quién sube?")
+    assert len(llamadas) == 2 and "razonamiento intermedio" in llamadas[1]
+    assert out["respuesta"] == "Solo AAPL sube 1.23%."
 
 
 def test_tono_por_rol_entra_al_system(monkeypatch):

@@ -96,6 +96,23 @@ solo ve lo inyectado).
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.17 (tablas, ruedas, rankings deterministas, fix del guardrail)
+- **[bugfix]** El guardrail de jerga tenía un bug de regex: "ret_año%" no
+  matcheaba por el "%" pegado — por eso siguió pasando jerga tras v1.15.
+  Corregido + "columna"/"header" al lexicón + el DERRAME de razonamiento
+  visible ("Corrijo:", "— no,") también dispara la reescritura.
+- **[contexto +]** Retornos por RUEDAS: `ret_15ruedas%` (ya venía del scanner,
+  no lo exponíamos) + `ret_30ruedas%`/`ret_45ruedas%` calculados de la serie
+  (1 query cacheada). Pedido de la mesa: el lente de trading.
+- **[contexto +]** Bloque `[rankings ya calculados]`: top/peores del año, mes,
+  semana y día ordenados por CÓDIGO (caso real: el modelo salteó a SNDK +707%
+  en el top del año — ordenar 187 filas a ojo es lo que peor hace).
+- **[prompt +]** Definición de REPUNTE de la mesa (cae en el tramo largo Y se
+  dio vuelta en 15 ruedas + semana; una semana verde sola = "rebote de
+  corto") · listas de papeles con datos → TABLA markdown simple (máx 4
+  columnas) + una línea de lectura. Chip Rezagados actualizado a este formato.
+- **[UI]** El panel renderiza tablas markdown (datos en tabla, lectura abajo).
+
 ### 2026-07-11 — v1.16 (chips de mesa + audiencia por rol)
 - **[producto +]** Biblioteca de consultas de mesa: 5 chips de un click en el
   panel (Papeles de IA · Argentina · En zona de decisión · Rezagados

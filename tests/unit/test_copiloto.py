@@ -47,8 +47,8 @@ def test_tsv_headers_una_vez_y_celdas_sanitizadas():
 
 def test_vista_desconocida_y_pregunta_vacia():
     assert copiloto.preguntar("no_existe", "hola") == {"ok": False, "error": "vista_desconocida"}
-    _ = copiloto.VISTAS["cedears"]  # la vista real existe
-    assert copiloto.preguntar("cedears", "   ")["error"] == "pregunta_vacia"
+    _ = copiloto.VISTAS["renta_variable"]  # la vista real existe
+    assert copiloto.preguntar("renta_variable", "   ")["error"] == "pregunta_vacia"
 
 
 def test_sin_datos_degrada(monkeypatch):
@@ -61,7 +61,7 @@ def test_sin_datos_degrada(monkeypatch):
 def test_fetch_que_explota_degrada(monkeypatch):
     monkeypatch.setitem(
         copiloto.VISTAS, "fake",
-        {**copiloto.VISTAS["cedears"], "fetch": lambda: 1 / 0},
+        {**copiloto.VISTAS["renta_variable"], "fetch": lambda: 1 / 0},
     )
     assert copiloto.preguntar("fake", "x")["error"] == "datos_no_disponibles"
 
@@ -120,10 +120,6 @@ def test_gate_por_modulo_de_vista(monkeypatch):
     monkeypatch.setattr("core.roles.has_access", lambda email, mod: mod == "renta-variable")
     vistas = copiloto.vistas_para("u@x.com")
     assert {"vista": "renta_variable", "titulo": "Renta Variable"} in vistas
-    # el alias "cedears" (misma config) no se duplica en la lista…
-    assert len([v for v in vistas if v["titulo"] == "Renta Variable"]) == 1
-    # …pero sigue siendo usable (front viejo durante el deploy)
-    assert copiloto.puede_usar("u@x.com", "cedears") is True
     assert copiloto.puede_usar("u@x.com", "renta_variable") is True
     monkeypatch.setattr("core.roles.has_access", lambda email, mod: False)
     assert copiloto.vistas_para("u@x.com") == []

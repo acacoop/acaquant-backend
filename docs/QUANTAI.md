@@ -214,9 +214,8 @@ REGLA #2) · sumar 'partial' además de 'error' si hace falta · subir max_token
 `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1 CONSTRUIDA (2026-07-11) — backend + panel en vista CEDEARs; falta
-deploy + shadow (admin)** · Tipo: copiloto contextual por vista · Gate: `ia` +
-módulo RBAC de la vista
+**Estado: v1.1 DEPLOYADA y confirmada (2026-07-11) — EN SHADOW (admin)** ·
+Tipo: copiloto contextual por vista · Gate: `ia` + módulo RBAC de la vista
 
 **Decisión 2026-07-11 (user): NO chatbot global — copiloto CONTEXTUAL por
 tabla.** Cada tabla de mercado tiene su botón IA y el panel responde SOLO sobre
@@ -266,11 +265,19 @@ universo, sin LLM, cap 3) → solo los bloques de los tickers nombrados entran
 al contexto. El system prompt le enseña a pedir el ticker exacto cuando el
 detalle no está. Fuera del alcance de esta vista (son otras páginas): Trade
 Lab (admin), intradía/time-sales (/trading), Mesa de Estrategia (/retorno).
-Alias transitorio `cedears` → borrar tras confirmar el deploy.
+Alias transitorio `cedears` borrado tras confirmar el deploy (2026-07-11).
 
-**Pendientes:** deploy + shadow (el admin la usa unos días y se leen
-`ia.trazas` antes de abrirla a la mesa) · eval set de `copiloto_vista` con
-preguntas reales del shadow (arranca la Fase 0.4) · replicar a más vistas
+**Incidente colateral resuelto (2026-07-11): pivots/quant con series rotas.**
+El copiloto expuso que `mercado.precios_acciones` tenía 116/187 series
+arrancando 2025-05-20 (vela anual incompleta), CRWD en escala pre-split y una
+vela basura en HON. Fix en `jobs/precios_acciones_daily`: `--backfill` scopeado
+desde 2024-01-01 (corrido y verificado con diag, ya borrado) + auto-reparación
+permanente en el daily (vela guardada difiere >10% de Yahoo = re-ajuste/split →
+re-backfill del ticker en el acto).
+
+**Pendientes:** shadow en curso — el admin la usa unos días, deja 👍/👎 y se
+leen `ia.trazas` antes de abrirla a la mesa · eval set de `copiloto_vista` con
+las preguntas reales del shadow (arranca la Fase 0.4) · replicar a más vistas
 (renta fija, opciones…) recién después del shadow · hipótesis SIN verificar:
 el context caching de DeepSeek abarataría preguntas sucesivas — medir en
 `ia.trazas` antes de contar con eso.

@@ -285,9 +285,6 @@ VISTAS: dict[str, dict] = {
         "reglas": _REGLAS_RENTA_VARIABLE,
     },
 }
-# Alias transitorio del deploy (el front viejo manda "cedears" hasta que Vercel
-# termine): misma config. BORRAR tras confirmar el copiloto de vista completa.
-VISTAS["cedears"] = VISTAS["renta_variable"]
 
 
 def vistas_para(email: str) -> list[dict]:

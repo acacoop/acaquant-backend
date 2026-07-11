@@ -103,10 +103,14 @@ calendario.
    duro del sistema; el tope por usuario no puede superarlo (la suma de
    usuarios sí puede — corta el global). Defaults: 2M global / 1M usuario
    (subido de 200k al medir ~22k tokens/pregunta del copiloto).
-4. **Suite de evaluación mínima:** por cada tarea de IA, un set chico de casos
-   de prueba (input real → output esperado/criterios) que se corre al cambiar
-   un prompt o modelo. Empieza siendo un archivo de casos + un script; crece
-   con los fallos reales que se vayan encontrando.
+4. **Suite de evaluación mínima — EN CURSO (2026-07-11).** Primera tarea con
+   eval set: `copiloto_vista` — `evals/copiloto_vista.json` (6 casos: 4 fallos
+   reales del shadow + 2 adversos) + runner `scripts/eval_copiloto.py` (corre
+   en el Droplet contra datos vivos; checks de presencia por regex, tolerantes
+   a la variación del LLM). Contrato: se corre tras CADA cambio al prompt/
+   contexto del copiloto; cada fallo real nuevo se suma como caso. Falta:
+   sets para `controles_resumen` y `triage_incidente` cuando acumulen fallos
+   reales que congelar.
 
 ---
 

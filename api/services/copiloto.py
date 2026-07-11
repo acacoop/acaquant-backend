@@ -333,6 +333,42 @@ def _fundamentals_ticker(f: dict) -> list[str]:
         return []
 
 
+def _wavg(filas: list[dict], campo: str) -> float | None:
+    """Promedio ponderado por volumen USD del subyacente (mismo criterio que
+    el PULSO de la vista)."""
+    num = den = 0.0
+    for f in filas:
+        v, w = f.get(campo), f.get("adr_dollar_vol") or 0
+        if v is not None and w > 0:
+            num += float(v) * float(w)
+            den += float(w)
+    return num / den if den else None
+
+
+def _pulso_por_rubro(filas: list[dict]) -> list[str]:
+    """Agregado determinista por rubro. Regla de oro 1: la IA no promedia 187
+    filas mentalmente — para preguntas de mercado/sector recibe los números ya
+    calculados y solo los narra."""
+    grupos: dict[str, list[dict]] = {}
+    for f in filas:
+        grupos.setdefault(f.get("rubro") or f.get("sector") or "OTROS", []).append(f)
+    orden = sorted(
+        grupos.items(),
+        key=lambda kv: -sum(f.get("adr_dollar_vol") or 0 for f in kv[1]),
+    )
+    lineas = [
+        "[pulso por rubro — retornos del subyacente USD, ponderados por volumen USD]",
+        "rubro\tn\t1d%\twtd%\tmtd%\tytd%",
+    ]
+    for rubro, fs in orden:
+        lineas.append("\t".join([
+            _celda(rubro), str(len(fs)),
+            _celda(_wavg(fs, "adr_vs_1d_pct")), _celda(_wavg(fs, "adr_ret_wtd_pct")),
+            _celda(_wavg(fs, "adr_ret_mtd_pct")), _celda(_wavg(fs, "adr_ret_ytd_pct")),
+        ]))
+    return lineas
+
+
 def _extras_renta_variable(filas: list[dict], pregunta: str, historial: list[dict]) -> list[str]:
     partes: list[str] = []
     try:
@@ -346,6 +382,10 @@ def _extras_renta_variable(filas: list[dict], pregunta: str, historial: list[dic
             partes.append(linea)
     except Exception as e:
         logger.warning("copiloto: CCL live falló (%s)", e)
+    try:
+        partes.extend(_pulso_por_rubro(filas))
+    except Exception as e:
+        logger.warning("copiloto: pulso por rubro falló (%s)", e)
     for f in _detectar_tickers(filas, pregunta, historial):
         partes.extend(_detalle_ticker(f))
     return partes
@@ -383,6 +423,9 @@ ya clara; "<S3" = cayó muchísimo.
 
 Bloques adicionales que pueden aparecer después de la tabla:
 - [CCL live]: dólar contado con liquidación (ARS por USD), la referencia cambiaria del tablero.
+- [pulso por rubro]: agregados YA CALCULADOS por rubro (retornos del subyacente en USD, \
+ponderados por volumen). Para preguntas de mercado en general, sectores o rubros usá SIEMPRE \
+estas líneas — NO promedies filas de la tabla a mano.
 - [detalle TICKER]: datos del subyacente en NY — pivots clásicos (PP punto pivote, R1-R3 \
 resistencias, S1-S3 soportes; marcos diario/semanal/mensual/anual; en USD), quant (beta y \
 correlación vs SPY y QQQ, volatilidad anualizada, z-score del último retorno) y últimos \

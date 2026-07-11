@@ -198,6 +198,22 @@ def test_zona_pivots():
     assert copiloto._zona(65, lv) == "<S3"
 
 
+def test_pulso_por_rubro_pondera_por_volumen():
+    filas = [
+        {"rubro": "SEMIS", "adr_vs_1d_pct": 10.0, "adr_dollar_vol": 300.0,
+         "adr_ret_wtd_pct": None, "adr_ret_mtd_pct": None, "adr_ret_ytd_pct": None},
+        {"rubro": "SEMIS", "adr_vs_1d_pct": -2.0, "adr_dollar_vol": 100.0,
+         "adr_ret_wtd_pct": None, "adr_ret_mtd_pct": None, "adr_ret_ytd_pct": None},
+        {"rubro": "BANCOS", "adr_vs_1d_pct": 1.0, "adr_dollar_vol": 50.0,
+         "adr_ret_wtd_pct": 2.0, "adr_ret_mtd_pct": 3.0, "adr_ret_ytd_pct": 4.0},
+    ]
+    lineas = copiloto._pulso_por_rubro(filas)
+    assert lineas[1].startswith("rubro\t")
+    # SEMIS primero (más volumen) y ponderado: (10·300 − 2·100) / 400 = 7.00
+    assert lineas[2].split("\t")[:3] == ["SEMIS", "2", "7.00"]
+    assert lineas[3].split("\t")[:3] == ["BANCOS", "1", "1.00"]
+
+
 def test_enriquecer_no_muta_las_filas_originales(monkeypatch):
     monkeypatch.setattr(
         copiloto, "_velas_periodo_previo",

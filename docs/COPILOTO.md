@@ -59,7 +59,25 @@ Panel (browser) ── {vista, pregunta, historial} ──► POST /api/ia/copil
 
 ---
 
+## Cómo se evalúa (candado de regresión)
+
+`evals/copiloto_vista.json` (casos reales del shadow + adversos) + runner
+`python -m scripts.eval_copiloto` (Droplet; gasta ~22k tokens/caso, usuario
+`eval@copiloto` en las trazas). **Se corre después de CADA cambio a
+copiloto.py y antes de darlo por bueno.** Cada fallo real nuevo del shadow se
+agrega como caso — el set crece con la realidad.
+
 ## Changelog del asistente (obligatorio, con fecha)
+
+### 2026-07-11 — v1.6 (pulso + evals)
+- **[contexto +]** Bloque `[pulso por rubro]`: retornos 1d/WTD/MTD/YTD por
+  rubro YA calculados (ponderados por volumen USD, mismo criterio que el PULSO
+  de la vista). Regla de oro 1: para preguntas de mercado/sector el modelo
+  narra números deterministas en vez de promediar 187 filas a mano.
+- **[gateway]** `max_tokens` 2000 → 3000 (trazas mostraron respuestas de 1796
+  al ras del techo + una vacía).
+- **[evals]** Nace el eval set (Fase 0.4): 6 casos (4 fallos reales del
+  shadow + 2 adversos de diseño) + runner `scripts/eval_copiloto.py`.
 
 ### 2026-07-11 — v1.5 (gateway)
 - **[gateway]** Presupuestos de tokens editables desde Manager →

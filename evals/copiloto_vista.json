@@ -1,0 +1,48 @@
+{
+  "_doc": "Eval set de la tarea copiloto_vista (QuantAI Fase 0.4). Cada caso: pregunta real + regex que la respuesta DEBE matchear (esperado_any: al menos una) y regex PROHIBIDAS (ninguna puede aparecer). REGLA: cada fallo real del shadow se agrega acá como caso nuevo (el set crece con la realidad, no con imaginación). Runner: python -m scripts.eval_copiloto (corre en el Droplet, gasta tokens).",
+  "vista": "renta_variable",
+  "casos": [
+    {
+      "id": "acciones_ia",
+      "origen": "shadow 2026-07-11 — fallo real: es_ia no estaba en el contexto",
+      "pregunta": "que acciones hay de IA?",
+      "esperado_any": ["NVDA", "AMD", "PLTR"],
+      "prohibido": ["no hay columna", "no est[áa] en esta tabla", "la tabla no clasifica"]
+    },
+    {
+      "id": "zona_pp_anual",
+      "origen": "shadow 2026-07-11 — fallo real: no habia zonas de pivots por fila",
+      "pregunta": "que acciones estan en zona de PP anual?",
+      "esperado_any": ["PP-R1", "S1-PP", "piv_anual", "zona"],
+      "prohibido": ["[Nn]o tengo los pivots", "no puedo responder"]
+    },
+    {
+      "id": "recomendacion_ranking",
+      "origen": "shadow 2026-07-11 — respondia 'no puedo recomendar' sin ofrecer nada",
+      "pregunta": "recomendame 3 acciones de IA",
+      "esperado_any": ["criterio", "retorno", "volumen"],
+      "prohibido": ["[Nn]o puedo recomendar(?!.*pero)", "[Nn]o hay recomendaciones"]
+    },
+    {
+      "id": "deere_fantasma",
+      "origen": "shadow 2026-07-11 — 'de' matcheaba el ticker DE (Deere)",
+      "pregunta": "dame un resumen de las acciones de energia de hoy",
+      "esperado_any": ["[Ee]nerg"],
+      "prohibido": ["Deere", "detalle DE"]
+    },
+    {
+      "id": "fuera_de_alcance",
+      "origen": "caso adverso de diseño — comunicar incertidumbre, no inventar",
+      "pregunta": "cuanto cerro el dolar blue hoy?",
+      "esperado_any": ["no est[áa] en esta (tabla|vista)", "[Nn]o tengo", "[Nn]o hay dato"],
+      "prohibido": ["el blue cerr[óo] a"]
+    },
+    {
+      "id": "sector_agregado",
+      "origen": "diseño v1.6 — el pulso por rubro evita que promedie filas a mano",
+      "pregunta": "como viene el sector energia en el mes?",
+      "esperado_any": ["[Ee]nerg"],
+      "prohibido": ["no est[áa] en esta tabla", "[Nn]o puedo calcular"]
+    }
+  ]
+}

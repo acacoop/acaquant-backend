@@ -60,8 +60,10 @@ _TAREAS: dict[str, dict] = {
     # P3 copiloto de mesa (api/services/copiloto.py): Q&A sobre los datos de UNA
     # vista de mercado, provistos en el prompt. tier flash (no hay razonamiento
     # pesado: los datos ya vienen dados). max_tokens generoso a propósito —
-    # lección del P2: techo chico + input grande = respuesta vacía.
-    "copiloto_vista": {"tier": "flash", "max_tokens": 2000, "timeout_s": 60},
+    # lección del P2: techo chico + input grande = respuesta vacía. 2000→3000
+    # el 2026-07-11: en ia.trazas hubo respuestas de 1796 tok_out (al ras) y
+    # una vacía.
+    "copiloto_vista": {"tier": "flash", "max_tokens": 3000, "timeout_s": 60},
 }
 
 _DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60}

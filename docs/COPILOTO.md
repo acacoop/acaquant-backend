@@ -75,16 +75,18 @@ puede volver a romperse, se corra o no el runner.
 
 Adopciones decididas charlando con el user (TODO se implementa CON su ayuda y
 queda asentado acá):
-1. **Audiencia por rol RBAC** — el registro cambia según quién pregunta
-   (trader: seco y numérico · sales: explicado y en términos de cliente).
-   Estado: PENDIENTE — falta que el user defina el tono por rol.
-2. **Biblioteca de consultas de mesa** — chips predefinidos en el panel con
-   prompts curados y versionados en el repo (conocimiento institucional +
-   consistencia + evaluables). Estado: PENDIENTE — falta que el user elija
-   los chips iniciales.
+1. **Audiencia por rol RBAC** — **HECHO (2026-07-11, tono definido por el
+   user):** trader = seco/numérico, sales = explicado y con frases repetibles
+   a un cliente, admin = neutro. `_TONO_POR_ROL` en copiloto.py vía
+   `get_user_role` (best-effort: roles caídos → neutro).
+2. **Biblioteca de consultas de mesa** — **HECHO (2026-07-11, chips elegidos
+   por el user):** 5 chips en el panel (Papeles de IA · Argentina · En zona
+   de decisión · Rezagados repuntando · Voladores del año), prompts curados
+   en `_CHIPS_RENTA_VARIABLE` (copiloto.py) y servidos por /copiloto/vistas.
+   Sumar/editar un chip = editar esa lista + changelog.
 3. **Plantillas de formato por tipo de pregunta** (ranking / estado de papel /
-   comparación / screening). Estado: parcialmente cubierto por el método
-   Minto + ejemplos; se formaliza junto con los chips.
+   comparación / screening). Estado: cubierto por el método Minto + ejemplos
+   MAL/BIEN + los prompts de los chips (que fijan formato por consulta).
 4. **Escenarios deterministas** ("¿qué pasa si el CCL sube 5%?") — código
    computa, el modelo narra. DIFERIDO: antesala del P5.
 Ya cubiertos por diseño previo: los 5 componentes (rol/contexto/tarea/
@@ -93,6 +95,16 @@ protocolo manual del libro), anti-patrón de datos en tiempo real (el modelo
 solo ve lo inyectado).
 
 ## Changelog del asistente (obligatorio, con fecha)
+
+### 2026-07-11 — v1.16 (chips de mesa + audiencia por rol)
+- **[producto +]** Biblioteca de consultas de mesa: 5 chips de un click en el
+  panel (Papeles de IA · Argentina · En zona de decisión · Rezagados
+  repuntando · Voladores del año — elegidos por el user). Prompts curados y
+  versionados en `_CHIPS_RENTA_VARIABLE`; el panel los recibe por
+  /copiloto/vistas.
+- **[prompt +]** Audiencia por rol RBAC (tono definido por el user): trader
+  seco y numérico · sales explicado con frases repetibles al cliente · admin
+  neutro.
 
 ### 2026-07-11 — v1.15 (guardrail de jerga + el plazo de la pregunta manda)
 - **[agente +]** La jerga interna dejó de ser una regla de prompt y pasó a ser

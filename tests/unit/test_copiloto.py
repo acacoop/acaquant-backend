@@ -119,7 +119,11 @@ def test_cap_de_filas(monkeypatch):
 def test_gate_por_modulo_de_vista(monkeypatch):
     monkeypatch.setattr("core.roles.has_access", lambda email, mod: mod == "renta-variable")
     vistas = copiloto.vistas_para("u@x.com")
-    assert {"vista": "renta_variable", "titulo": "Renta Variable"} in vistas
+    rv = next(v for v in vistas if v["vista"] == "renta_variable")
+    assert rv["titulo"] == "Renta Variable"
+    # los chips (consultas de mesa curadas) viajan en el payload de /vistas
+    assert {c["label"] for c in rv["chips"]} >= {"Papeles de IA", "Argentina"}
+    assert all(c["pregunta"] for c in rv["chips"])
     assert copiloto.puede_usar("u@x.com", "renta_variable") is True
     monkeypatch.setattr("core.roles.has_access", lambda email, mod: False)
     assert copiloto.vistas_para("u@x.com") == []
@@ -233,6 +237,27 @@ def test_autocorreccion_reintenta_con_numeros_malos(monkeypatch):
     assert "99.99" in llamadas[1]["user"] and "autocorrección" in llamadas[1]["detalle"]
     assert out["respuesta"] == "AAPL subió 1.23%" and out["traza_id"] == 2
     assert out["numeros_sin_respaldo"] == []
+
+
+def test_tono_por_rol_entra_al_system(monkeypatch):
+    _vista_fake(monkeypatch)
+    capturado = {}
+
+    def fake_completar(tarea, *, system, user, usuario=None, detalle=None):
+        capturado["system"] = system
+        return "ok", 1
+
+    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    monkeypatch.setattr("core.roles.get_user_role", lambda email: "sales")
+    copiloto.preguntar("fake", "¿cómo viene AAPL?", usuario="v@x.com")
+    assert "COMERCIAL" in capturado["system"]
+    monkeypatch.setattr("core.roles.get_user_role", lambda email: "trader")
+    copiloto.preguntar("fake", "¿cómo viene AAPL?", usuario="v@x.com")
+    assert "TRADER" in capturado["system"]
+    # rol sin tono especial (admin) → system neutro
+    monkeypatch.setattr("core.roles.get_user_role", lambda email: "admin")
+    copiloto.preguntar("fake", "¿cómo viene AAPL?", usuario="v@x.com")
+    assert "COMERCIAL" not in capturado["system"] and "TRADER" not in capturado["system"]
 
 
 def test_pct_convierte_fraccion():

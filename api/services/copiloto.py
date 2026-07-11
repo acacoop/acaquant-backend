@@ -482,10 +482,43 @@ ratios, en la moneda indicada) + márgenes. Solo existe para las empresas cargad
 pivots/beta/retornos/fundamentals de un papel y su bloque no está, pedile al usuario que \
 nombre el ticker exacto en la pregunta."""
 
+# Biblioteca de consultas de mesa (libro de finanzas, elegidas por el user
+# 2026-07-11): chips de un click en el panel. El prompt curado vive ACÁ,
+# versionado — es conocimiento institucional, no texto libre del usuario.
+_CHIPS_RENTA_VARIABLE = [
+    {"label": "Papeles de IA",
+     "pregunta": "¿Cómo viene hoy la cadena de IA? Qué parte empuja, qué parte "
+                 "queda atrás, y 3 destacados del día."},
+    {"label": "Argentina",
+     "pregunta": "¿Cómo vienen hoy los papeles argentinos? ¿El movimiento es "
+                 "genuino en dólares o es efecto del CCL?"},
+    {"label": "En zona de decisión",
+     "pregunta": "¿Qué papeles líquidos están apoyados en su equilibrio anual o "
+                 "mensual? Solo nombres, agrupados según vengan de subir o de caer."},
+    {"label": "Rezagados repuntando",
+     "pregunta": "Dame papeles negativos en el año que estén ganando esta semana. "
+                 "Ticker y los dos datos, nada más."},
+    {"label": "Voladores del año",
+     "pregunta": "¿Qué papeles subieron más en el año? Top 5, y decime cuáles ya "
+                 "rompieron todos los techos del año pasado."},
+]
+
+# Audiencia por rol RBAC (libro: "la audiencia manda más que el rol").
+# El registro cambia según QUIÉN pregunta — decisión del user 2026-07-11.
+_TONO_POR_ROL = {
+    "trader": "El usuario es TRADER: respondé seco y directo, con más números y "
+              "cero explicación de conceptos que ya conoce.",
+    "sales": "El usuario es de COMERCIAL: explicá un toque más y redondeá frases "
+             "que pueda repetirle a un cliente tal cual. No des por sabidos los "
+             "conceptos técnicos.",
+}
+
+
 VISTAS: dict[str, dict] = {
     "renta_variable": {
         "titulo": "Renta Variable",
         "modulo": "renta-variable",
+        "chips": _CHIPS_RENTA_VARIABLE,
         "fetch": _fetch_cedears,
         "extras": _extras_renta_variable,
         "enriquecer": _enriquecer_cedears,
@@ -600,7 +633,8 @@ def vistas_para(email: str) -> list[dict]:
         if id(cfg) in vistos or not has_access(email, cfg["modulo"]):
             continue
         vistos.add(id(cfg))
-        out.append({"vista": clave, "titulo": cfg["titulo"]})
+        out.append({"vista": clave, "titulo": cfg["titulo"],
+                    "chips": cfg.get("chips") or []})
     return out
 
 
@@ -677,10 +711,21 @@ def preguntar(
 
     from core.ai import completar_con_traza
 
+    # Audiencia por rol RBAC: el mismo dato, contado distinto según quién pregunta
+    tono = ""
+    if usuario:
+        try:
+            from core.roles import get_user_role
+
+            tono = _TONO_POR_ROL.get(get_user_role(usuario), "")
+        except Exception:  # roles caídos → tono neutro, jamás corta la pregunta
+            tono = ""
+    system = _SYSTEM_BASE + (f"\n{tono}" if tono else "") + "\n" + cfg["reglas"]
+
     contexto = "\n".join(partes)
     texto, traza_id = completar_con_traza(
         "copiloto_vista",
-        system=_SYSTEM_BASE + "\n" + cfg["reglas"],
+        system=system,
         user=contexto,
         usuario=usuario,
         detalle=pregunta,  # queda en la traza → panel OBSERVABILIDAD
@@ -715,7 +760,7 @@ def preguntar(
         )
         texto2, traza_id2 = completar_con_traza(
             "copiloto_vista",
-            system=_SYSTEM_BASE + "\n" + cfg["reglas"],
+            system=system,
             user=correccion,
             usuario=usuario,
             detalle=f"[autocorrección] {pregunta}",

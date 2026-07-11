@@ -61,6 +61,13 @@ Panel (browser) ── {vista, pregunta, historial} ──► POST /api/ia/copil
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.5 (gateway)
+- **[gateway]** Presupuestos de tokens editables desde Manager →
+  OBSERVABILIDAD → IA (tabla `ia.config`, solo admin, auditado). El GLOBAL
+  diario es techo duro del sistema; el tope por usuario no puede superarlo.
+  Afecta la disponibilidad del asistente: presupuesto agotado = "IA no
+  disponible" hasta medianoche UTC o hasta que el admin suba el tope.
+
 ### 2026-07-11 — v1.4 (presupuesto)
 - **[medición]** Costo real por pregunta: ~22k tokens de input (187 filas ×
   26 columnas), medido en `ia.trazas`. El shadow agotó el tope por usuario

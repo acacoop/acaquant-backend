@@ -84,18 +84,50 @@ def _modelo(cfg: dict) -> str:
     return os.getenv("AI_MODEL_FLASH", "deepseek-v4-flash")
 
 
+# ── Config editable (ia.config, editable desde Manager → OBSERVABILIDAD → IA) ──
+# Precedencia: tabla ia.config > env var > default del código. Cache 60s para
+# no pegarle a la DB en cada llamada; best-effort (DB caída → último conocido).
+
+_CONFIG_DB_TTL_S = 60
+_config_db_cache: dict = {"ts": 0.0, "valores": {}}
+
+
+def _config_db() -> dict:
+    ahora = time.monotonic()
+    if ahora - _config_db_cache["ts"] < _CONFIG_DB_TTL_S:
+        return _config_db_cache["valores"]
+    valores = _config_db_cache["valores"]  # fallback: último conocido
+    try:
+        from core.postgres import get_pool
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT clave, valor FROM ia.config")
+            valores = {r[0]: int(r[1]) for r in cur.fetchall()}
+    except Exception as e:
+        logger.warning("core.ai: no pude leer ia.config (%s) — uso env/default", e)
+    _config_db_cache.update(ts=ahora, valores=valores)
+    return valores
+
+
+def invalidate_config_cache() -> None:
+    """La llama el service al editar presupuestos para que el gateway los vea ya."""
+    _config_db_cache["ts"] = 0.0
+
+
 def presupuesto_dia_global() -> int:
-    """Tope global de tokens/día del gateway. Fuente única — lo usa el check
-    interno y la vista de observabilidad (api/services/ia_obs.py)."""
-    return int(os.getenv("AI_BUDGET_TOKENS_DIA", "2000000"))
+    """Tope global de tokens/día del gateway — TECHO DURO del sistema: aunque
+    la suma de topes por usuario lo supere, el gasto total del día no lo pasa
+    (cada llamada chequea los dos). Fuente única — lo usa el check interno y
+    la vista de observabilidad (api/services/ia_obs.py)."""
+    v = _config_db().get("budget_dia_global")
+    return v if v else int(os.getenv("AI_BUDGET_TOKENS_DIA", "2000000"))
 
 
 def presupuesto_dia_usuario() -> int:
     """Default 1M (subido de 200k el 2026-07-11): el copiloto cuesta ~22k
     tokens/pregunta (medido en ia.trazas) y 200k = ~9 preguntas cortaba un día
-    normal de shadow. 1M ≈ 45 preguntas ≈ centavos en flash. El global (2M)
-    sigue siendo el techo del sistema."""
-    return int(os.getenv("AI_BUDGET_TOKENS_DIA_USUARIO", "1000000"))
+    normal de shadow. 1M ≈ 45 preguntas ≈ centavos en flash."""
+    v = _config_db().get("budget_dia_usuario")
+    return v if v else int(os.getenv("AI_BUDGET_TOKENS_DIA_USUARIO", "1000000"))
 
 
 def _presupuesto_excedido(usuario: str | None) -> bool:

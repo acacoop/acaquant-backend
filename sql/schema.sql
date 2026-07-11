@@ -1550,6 +1550,19 @@ CREATE TABLE IF NOT EXISTS ia.trazas (
 CREATE INDEX IF NOT EXISTS ix_ia_trazas_ts ON ia.trazas (ts);
 CREATE INDEX IF NOT EXISTS ix_ia_trazas_usuario_ts ON ia.trazas (usuario, ts);
 
+-- Config editable del gateway de IA (presupuestos de tokens). Se edita desde
+-- Manager → OBSERVABILIDAD → IA (solo admin). Precedencia en core/ai.py:
+-- esta tabla > env var > default del código. Claves: budget_dia_global,
+-- budget_dia_usuario. El GLOBAL es techo duro del día: aunque la suma de los
+-- topes por usuario lo supere en papel, el gasto total no puede pasarlo
+-- (cada llamada chequea los dos).
+CREATE TABLE IF NOT EXISTS ia.config (
+    clave       text PRIMARY KEY,
+    valor       bigint NOT NULL,
+    updated_at  timestamptz NOT NULL DEFAULT now(),
+    updated_by  text
+);
+
 -- Triage de incidentes (QuantAI P2, docs/QUANTAI.md) — REACTIVO. jobs/triage.py
 -- lee las fallas nuevas de manager.job_runs, las agrupa por FIRMA (dedup) y SOLO
 -- una firma NUEVA gasta un diagnóstico del LLM (guarda de costo). La memoria

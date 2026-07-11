@@ -96,6 +96,13 @@ calendario.
    gate módulo `ia`) → pill **IA** en Manager → OBSERVABILIDAD (resumen de
    hoy con % del presupuesto, por tarea, por día, últimas llamadas). La pill
    solo aparece con el módulo `ia` en /api/me.
+   **Presupuestos editables desde el panel (2026-07-11, pedido del user):**
+   tabla `ia.config` (precedencia tabla > env > default; cache 60s en el
+   gateway) + `GET/POST /api/ia/presupuesto` (editar = SOLO admin, auditado
+   quién/cuándo) + editor en la pill IA. Semántica: el GLOBAL diario es techo
+   duro del sistema; el tope por usuario no puede superarlo (la suma de
+   usuarios sí puede — corta el global). Defaults: 2M global / 1M usuario
+   (subido de 200k al medir ~22k tokens/pregunta del copiloto).
 4. **Suite de evaluación mínima:** por cada tarea de IA, un set chico de casos
    de prueba (input real → output esperado/criterios) que se corre al cambiar
    un prompt o modelo. Empieza siendo un archivo de casos + un script; crece

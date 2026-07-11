@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.auth import get_user_email
+from api.auth import get_user_email, require_admin
 from api.services import briefing, copiloto, ia_obs
 
 router = APIRouter(prefix="/api/ia", tags=["ia"])
@@ -20,6 +20,29 @@ def observabilidad(dias: int = 14, limit: int = 30):
     """Trazas del gateway de IA para OBSERVABILIDAD → IA: resumen de hoy
     (+% presupuesto), serie por día, agregado por tarea y últimas llamadas."""
     return ia_obs.observabilidad(dias=dias, limit=limit)
+
+
+class PresupuestosBody(BaseModel):
+    global_dia: int | None = None   # tokens/día de TODO el sistema (techo duro)
+    usuario_dia: int | None = None  # tokens/día por usuario (≤ global)
+
+
+@router.get("/presupuesto")
+def presupuesto_get():
+    """Límites de tokens vigentes del gateway (tabla > env > default)."""
+    return ia_obs.get_presupuestos()
+
+
+@router.post("/presupuesto", dependencies=[Depends(require_admin)])
+def presupuesto_set(body: PresupuestosBody, email: str = Depends(get_user_email)):
+    """Edita los topes diarios (SOLO admin). El global es techo duro del día;
+    el tope por usuario no puede superarlo. Queda auditado quién y cuándo."""
+    try:
+        return ia_obs.set_presupuestos(
+            global_dia=body.global_dia, usuario_dia=body.usuario_dia, actor=email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/briefing")

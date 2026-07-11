@@ -6,52 +6,127 @@
       "id": "acciones_ia",
       "origen": "shadow 2026-07-11 — fallo real: es_ia no estaba en el contexto",
       "pregunta": "que acciones hay de IA?",
-      "esperado_any": ["NVDA", "AMD", "PLTR"],
-      "prohibido": ["no hay columna", "no est[áa] en esta tabla", "la tabla no clasifica"]
+      "esperado_any": [
+        "NVDA",
+        "AMD",
+        "PLTR"
+      ],
+      "prohibido": [
+        "[Cc]olumna",
+        "[Dd]e la tabla,",
+        "adr_ret",
+        "adr_vs",
+        "es_ia",
+        "la tabla no clasifica",
+        "no est[áa] en esta tabla",
+        "no hay columna",
+        "piv_anual",
+        "piv_mensual"
+      ]
     },
     {
       "id": "zona_pp_anual",
       "origen": "shadow 2026-07-11 — fallo real: no habia zonas de pivots por fila",
       "pregunta": "que acciones estan en zona de PP anual?",
-      "esperado_any": ["PP-R1", "S1-PP", "piv_anual", "zona"],
-      "prohibido": ["[Nn]o tengo los pivots", "no puedo responder"]
+      "esperado_any": [
+        "PP-R1",
+        "S1-PP",
+        "zona"
+      ],
+      "prohibido": [
+        "[Nn]o tengo los pivots",
+        "no puedo responder"
+      ]
     },
     {
       "id": "recomendacion_ranking",
       "origen": "shadow 2026-07-11 — respondia 'no puedo recomendar' sin ofrecer nada",
       "pregunta": "recomendame 3 acciones de IA",
-      "esperado_any": ["criterio", "retorno", "volumen"],
-      "prohibido": ["[Nn]o puedo recomendar(?!.*pero)", "[Nn]o hay recomendaciones", "[Cc]orrijo", "[Rr]evisar:"],
+      "esperado_any": [
+        "criterio",
+        "retorno",
+        "volumen"
+      ],
+      "prohibido": [
+        "[Cc]olumna",
+        "[Cc]orrijo",
+        "[Dd]e la tabla,",
+        "[Nn]o hay recomendaciones",
+        "[Nn]o puedo recomendar(?!.*pero)",
+        "[Rr]evisar:",
+        "adr_ret",
+        "adr_vs",
+        "es_ia",
+        "piv_anual",
+        "piv_mensual"
+      ],
       "max_chars": 1200
     },
     {
       "id": "ranking_breve",
       "origen": "shadow 2026-07-11 — el thinking del v4-flash se derramaba en la respuesta (ranking eterno con autocorrecciones)",
       "pregunta": "Qué acciones de IA vienen mejor este mes",
-      "esperado_any": ["%"],
-      "prohibido": ["[Cc]orrijo", "[Rr]evisar", "[Ee]ntonces respuesta final", "[Pp]erdón"],
+      "esperado_any": [
+        "%"
+      ],
+      "prohibido": [
+        "[Cc]olumna",
+        "[Cc]orrijo",
+        "[Dd]e la tabla,",
+        "[Ee]ntonces respuesta final",
+        "[Pp]erdón",
+        "[Rr]evisar",
+        "adr_ret",
+        "adr_vs",
+        "es_ia",
+        "piv_anual",
+        "piv_mensual"
+      ],
       "max_chars": 1200
     },
     {
       "id": "deere_fantasma",
       "origen": "shadow 2026-07-11 — 'de' matcheaba el ticker DE (Deere)",
       "pregunta": "dame un resumen de las acciones de energia de hoy",
-      "esperado_any": ["[Ee]nerg"],
-      "prohibido": ["Deere", "detalle DE"]
+      "esperado_any": [
+        "[Ee]nerg"
+      ],
+      "prohibido": [
+        "Deere",
+        "detalle DE"
+      ]
     },
     {
       "id": "fuera_de_alcance",
       "origen": "caso adverso de diseño — comunicar incertidumbre, no inventar",
       "pregunta": "cuanto cerro el dolar blue hoy?",
-      "esperado_any": ["no est[áa] en esta (tabla|vista)", "[Nn]o tengo", "[Nn]o hay dato"],
-      "prohibido": ["el blue cerr[óo] a"]
+      "esperado_any": [
+        "no est[áa] en esta (tabla|vista)",
+        "[Nn]o tengo",
+        "[Nn]o hay dato"
+      ],
+      "prohibido": [
+        "el blue cerr[óo] a"
+      ]
     },
     {
       "id": "sector_agregado",
       "origen": "diseño v1.6 — el pulso por rubro evita que promedie filas a mano",
       "pregunta": "como viene el sector energia en el mes?",
-      "esperado_any": ["[Ee]nerg"],
-      "prohibido": ["no est[áa] en esta tabla", "[Nn]o puedo calcular"]
+      "esperado_any": [
+        "[Ee]nerg"
+      ],
+      "prohibido": [
+        "[Cc]olumna",
+        "[Dd]e la tabla,",
+        "[Nn]o puedo calcular",
+        "adr_ret",
+        "adr_vs",
+        "es_ia",
+        "no est[áa] en esta tabla",
+        "piv_anual",
+        "piv_mensual"
+      ]
     }
   ]
 }

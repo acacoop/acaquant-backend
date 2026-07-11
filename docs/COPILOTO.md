@@ -69,6 +69,15 @@ agrega como caso — el set crece con la realidad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.11 (voz de operador)
+- **[prompt +]** Regla de identidad: habla como OPERADOR, no como analista de
+  datos — prohibido mencionar columnas/jerga interna ("es_ia",
+  "adr_ret_mtd_pct", "de la tabla…"); criterio del ranking en UNA línea de
+  lenguaje de mesa; si piden N, exactamente N; sin resumen redundante al
+  final. (Shadow: la respuesta recitaba la mecánica y cerraba repitiendo la
+  conclusión.)
+- **[evals]** Jerga interna prohibida en los 4 casos de ranking/sector.
+
 ### 2026-07-11 — v1.10 (thinking bajo control)
 - **[bug raíz]** Los v4 traen `thinking` DEFAULT ENABLED (verificado contra la
   doc del proveedor): el copiloto razonaba sin pedirlo — tokens invisibles,

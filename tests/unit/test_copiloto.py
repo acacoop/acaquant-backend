@@ -39,8 +39,8 @@ def test_tsv_headers_una_vez_y_celdas_sanitizadas():
     lineas = tsv.split("\n")
     assert lineas[0] == "ticker_corto\tnombre\tlast\tvs_1d_pct"
     assert len(lineas) == 3
-    # None → "-", floats con 2 decimales
-    assert lineas[1].split("\t") == ["AAPL", "Apple Inc", "15,234.50", "-"]
+    # None → "-", floats con 2 decimales SIN separador de miles (menos tokens)
+    assert lineas[1].split("\t") == ["AAPL", "Apple Inc", "15234.50", "-"]
     # un string con tab/newline no rompe el TSV
     assert lineas[2].split("\t")[1] == "Mercado Libre con enter"
 

@@ -65,7 +65,9 @@ def _celda(v) -> str:
     if isinstance(v, bool):  # antes que float: bool es subclase de int
         return "si" if v else "no"
     if isinstance(v, float):
-        return f"{v:,.2f}"
+        # sin separador de miles: "15,234.50" tokeniza peor que "15234.50" y
+        # con ~4900 celdas por pregunta la diferencia es real (medido 22k in)
+        return f"{v:.2f}"
     if isinstance(v, str):
         # sanitización: una celda jamás rompe el TSV ni mete saltos de línea
         return v.replace("\t", " ").replace("\n", " ").strip()[:60]
@@ -186,7 +188,7 @@ def _pct(x, dec: int = 2) -> str:
 
 
 def _num(x) -> str:
-    return f"{x:,.2f}" if isinstance(x, (int, float)) else "-"
+    return f"{x:.2f}" if isinstance(x, (int, float)) else "-"
 
 
 # Palabras comunes del español/inglés que COLISIONAN con tickers del universo

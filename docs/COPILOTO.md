@@ -61,6 +61,16 @@ Panel (browser) ── {vista, pregunta, historial} ──► POST /api/ia/copil
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.4 (presupuesto)
+- **[medición]** Costo real por pregunta: ~22k tokens de input (187 filas ×
+  26 columnas), medido en `ia.trazas`. El shadow agotó el tope por usuario
+  (200k = ~9 preguntas) → "IA no disponible" a media tarde.
+- **[gateway]** Presupuesto diario por usuario: default 200k → **1M** (~45
+  preguntas ≈ centavos en flash). Global sigue en 2M. Env:
+  `AI_BUDGET_TOKENS_DIA_USUARIO`.
+- **[contexto −]** Números sin separador de miles en el TSV ("15234.50", no
+  "15,234.50") — tokeniza mejor con ~4900 celdas por pregunta.
+
 ### 2026-07-11 — v1.3
 - **[fix detección]** Palabras comunes que colisionan con tickers ("de" →
   Deere) solo matchean escritas en MAYÚSCULAS (`_TOKENS_AMBIGUOS`). Caso real

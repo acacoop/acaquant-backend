@@ -46,10 +46,14 @@ def test_presupuestos_precedencia_db_env_default(monkeypatch):
     # 1) la tabla ia.config gana
     monkeypatch.setattr(
         ai, "_config_db",
-        lambda: {"budget_dia_global": 500_000, "budget_dia_usuario": 100_000},
+        lambda: {"budget_dia_global": 500_000, "budget_dia_usuario": 100_000,
+                 "budget_dia_usuario:admin@x.com": 400_000},
     )
     assert ai.presupuesto_dia_global() == 500_000
     assert ai.presupuesto_dia_usuario() == 100_000
+    # excepción personal pisa el general SOLO para ese email
+    assert ai.presupuesto_dia_usuario("admin@x.com") == 400_000
+    assert ai.presupuesto_dia_usuario("otro@x.com") == 100_000
     # 2) sin fila en la tabla → env var
     monkeypatch.setattr(ai, "_config_db", dict)
     monkeypatch.setenv("AI_BUDGET_TOKENS_DIA", "777000")
@@ -73,3 +77,16 @@ def test_set_presupuestos_valida_antes_de_tocar_db(monkeypatch):
     with pytest.raises(ValueError):
         # usuario (3M) > global vigente (2M) — el global es techo duro
         ia_obs.set_presupuestos(None, 3_000_000, actor="a@b.com")
+
+
+def test_set_presupuesto_usuario_valida(monkeypatch):
+    from api.services import ia_obs
+
+    monkeypatch.setattr("core.ai.presupuesto_dia_global", lambda: 2_000_000)
+    with pytest.raises(ValueError):
+        ia_obs.set_presupuesto_usuario("no-es-mail", 100, actor="a@b.com")
+    with pytest.raises(ValueError):
+        ia_obs.set_presupuesto_usuario("x@y.com", 0, actor="a@b.com")
+    with pytest.raises(ValueError):
+        # excepción personal tampoco puede superar el global
+        ia_obs.set_presupuesto_usuario("x@y.com", 3_000_000, actor="a@b.com")

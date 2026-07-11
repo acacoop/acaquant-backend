@@ -69,6 +69,13 @@ agrega como caso — el set crece con la realidad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.9 (excepciones de límite por usuario)
+- **[gateway]** Límite diario PERSONAL por usuario (clave
+  `budget_dia_usuario:<email>` en ia.config): pisa el tope general solo para
+  ese email — ej. el admin se da más margen que la mesa. Siempre ≤ global
+  (techo duro intacto). Editable en el cuadrante PRESUPUESTO (solo admin,
+  auditado); `POST /api/ia/presupuesto/usuario` (valor null = borrar).
+
 ### 2026-07-11 — v1.8 (saldo real del proveedor)
 - **[observabilidad]** `GET /api/ia/saldo` + cuadrante PRESUPUESTO del panel:
   saldo REAL de la cuenta DeepSeek (`GET /user/balance`, verificado contra la

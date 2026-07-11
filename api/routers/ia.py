@@ -39,6 +39,21 @@ def saldo_proveedor():
     return ia_obs.saldo()
 
 
+class PresupuestoUsuarioBody(BaseModel):
+    email: str
+    valor: int | None = None  # None = borrar la excepción (vuelve al tope general)
+
+
+@router.post("/presupuesto/usuario", dependencies=[Depends(require_admin)])
+def presupuesto_usuario_set(body: PresupuestoUsuarioBody, email: str = Depends(get_user_email)):
+    """Excepción PERSONAL de tope diario para un usuario (SOLO admin) — pisa
+    el tope general solo para ese email. valor null la borra."""
+    try:
+        return ia_obs.set_presupuesto_usuario(email=body.email, valor=body.valor, actor=email)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @router.post("/presupuesto", dependencies=[Depends(require_admin)])
 def presupuesto_set(body: PresupuestosBody, email: str = Depends(get_user_email)):
     """Edita los topes diarios (SOLO admin). El global es techo duro del día;

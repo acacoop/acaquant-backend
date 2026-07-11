@@ -30,6 +30,7 @@ def get_presupuestos() -> dict:
     out = {
         "global_dia": ai.presupuesto_dia_global(),
         "usuario_dia": ai.presupuesto_dia_usuario(),
+        "excepciones": [],  # límites personales que pisan el tope general
         "editado": None,
     }
     try:
@@ -37,6 +38,7 @@ def get_presupuestos() -> dict:
             cur.execute(
                 "SELECT clave, valor, updated_at, updated_by FROM ia.config "
                 "WHERE clave IN ('budget_dia_global', 'budget_dia_usuario') "
+                "   OR clave LIKE 'budget_dia_usuario:%' "
                 "ORDER BY updated_at DESC"
             )
             filas = cur.fetchall()
@@ -45,9 +47,50 @@ def get_presupuestos() -> dict:
                 "por": filas[0]["updated_by"],
                 "cuando": filas[0]["updated_at"].isoformat(),
             }
+        out["excepciones"] = sorted(
+            [
+                {"usuario": f["clave"].split(":", 1)[1], "valor": int(f["valor"])}
+                for f in filas
+                if f["clave"].startswith("budget_dia_usuario:")
+            ],
+            key=lambda e: e["usuario"],
+        )
     except Exception:
         pass  # tabla aún no aplicada → rigen env/default igual
     return out
+
+
+def set_presupuesto_usuario(email: str, valor: int | None, actor: str) -> dict:
+    """Excepción PERSONAL de tope diario para un usuario (ej. el admin se da
+    más margen que el general). valor None = borrar la excepción (vuelve al
+    tope general). Mismas reglas: positivo y ≤ global."""
+    from core import ai
+
+    email = (email or "").strip().lower()
+    if not email or "@" not in email:
+        raise ValueError("email inválido")
+    if valor is not None:
+        valor = int(valor)
+        if valor <= 0:
+            raise ValueError("el límite debe ser un entero positivo")
+        if valor > ai.presupuesto_dia_global():
+            raise ValueError(
+                f"el límite personal ({valor:,}) no puede superar el global "
+                f"({ai.presupuesto_dia_global():,})"
+            )
+    clave = f"budget_dia_usuario:{email}"
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        if valor is None:
+            cur.execute("DELETE FROM ia.config WHERE clave = %s", (clave,))
+        else:
+            cur.execute(
+                "INSERT INTO ia.config (clave, valor, updated_by) VALUES (%s, %s, %s) "
+                "ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor, "
+                "updated_at = now(), updated_by = EXCLUDED.updated_by",
+                (clave, valor, actor),
+            )
+    ai.invalidate_config_cache()
+    return get_presupuestos()
 
 
 def set_presupuestos(

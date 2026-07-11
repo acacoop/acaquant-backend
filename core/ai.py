@@ -172,11 +172,17 @@ def presupuesto_dia_global() -> int:
     return v if v else int(os.getenv("AI_BUDGET_TOKENS_DIA", "2000000"))
 
 
-def presupuesto_dia_usuario() -> int:
-    """Default 1M (subido de 200k el 2026-07-11): el copiloto cuesta ~22k
-    tokens/pregunta (medido en ia.trazas) y 200k = ~9 preguntas cortaba un día
-    normal de shadow. 1M ≈ 45 preguntas ≈ centavos en flash."""
-    v = _config_db().get("budget_dia_usuario")
+def presupuesto_dia_usuario(usuario: str | None = None) -> int:
+    """Tope diario de tokens para UN usuario. Precedencia: excepción personal
+    (clave 'budget_dia_usuario:<email>' en ia.config, editable en Manager) >
+    tope general (clave 'budget_dia_usuario') > env > default 1M (subido de
+    200k el 2026-07-11: el copiloto cuesta ~22k tokens/pregunta medidos)."""
+    cfgdb = _config_db()
+    if usuario:
+        propio = cfgdb.get(f"budget_dia_usuario:{usuario}")
+        if propio:
+            return propio
+    v = cfgdb.get("budget_dia_usuario")
     return v if v else int(os.getenv("AI_BUDGET_TOKENS_DIA_USUARIO", "1000000"))
 
 
@@ -204,7 +210,7 @@ def motivo_presupuesto(usuario: str | None) -> str | None:
         if total >= presupuesto_dia_global():
             logger.warning("core.ai: presupuesto GLOBAL diario agotado (%s tokens hoy)", total)
             return "global"
-        if usuario and del_usuario >= presupuesto_dia_usuario():
+        if usuario and del_usuario >= presupuesto_dia_usuario(usuario):
             logger.warning(
                 "core.ai: presupuesto diario de %s agotado (%s tokens hoy)", usuario, del_usuario
             )

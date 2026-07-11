@@ -73,6 +73,16 @@ puede volver a romperse, se corra o no el runner.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.14 (método de respuesta — pirámide de Minto)
+- **[prompt ~]** Las reglas de estilo se consolidaron en un MÉTODO general de
+  armado de respuesta (pedido del user: general, no guionado; fundado en
+  Pyramid Principle/BLUF y en los pilotos de LLM del FCA): (1) conclusión
+  primero en una frase simple + máx 3 apoyos; (2) plazos con sentido — corto Y
+  largo, y decir si la historia cambia según el plazo; (3) estadística para
+  PENSAR pero traducida al hablar (beta/correlación/z-score jamás nombrados
+  salvo pedido explícito); (4) una idea por frase. Ejemplo MAL/BIEN nuevo con
+  el caso real de META (metralleta de cifras → narrativa de mesa).
+
 ### 2026-07-11 — v1.13 (auto-corrección + solo lo pedido)
 - **[agente +]** Reflexion: si la verificación encuentra números sin respaldo,
   la respuesta NO se muestra — el modelo recibe su propia respuesta con la

@@ -144,6 +144,17 @@ def test_detectar_tickers():
     assert len(out) == copiloto._MAX_TICKERS_DETALLE
 
 
+def test_detectar_tickers_palabras_comunes_no_matchean():
+    filas = [{"ticker_corto": "DE", "underlying": "DE"},
+             {"ticker_corto": "NVDA", "underlying": "NVDA"}]
+    # "de" minúscula (palabra española) NO es Deere (caso real del shadow)
+    out = copiloto._detectar_tickers(filas, "recomendame acciones de IA con nvda", [])
+    assert [f["ticker_corto"] for f in out] == ["NVDA"]
+    # "DE" escrito en mayúsculas a propósito SÍ es Deere
+    out = copiloto._detectar_tickers(filas, "¿cómo viene DE hoy?", [])
+    assert [f["ticker_corto"] for f in out] == ["DE"]
+
+
 def test_extras_entran_al_contexto_y_su_fallo_no_rompe(monkeypatch):
     capturado = {}
 

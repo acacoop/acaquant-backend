@@ -214,20 +214,52 @@ REGLA #2) · sumar 'partial' además de 'error' si hace falta · subir max_token
 `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: PENDIENTE** · Tipo: agente conversacional in-app · Gate: módulo `ia`
+**Estado: v1 CONSTRUIDA (2026-07-11) — backend + panel en vista CEDEARs; falta
+deploy + shadow (admin)** · Tipo: copiloto contextual por vista · Gate: `ia` +
+módulo RBAC de la vista
 
-Panel de chat en trading.acaquant.com. Arquitectura: LLM + **tools curadas
-sobre `api/services`** (leer curvas, AuM, operaciones, comercial…), donde el
-set de tools disponible se deriva de los módulos RBAC del usuario — lo que su
-rol no ve, no existe como tool (el gate es estructural, no un prompt).
-Patrón de orquestación: ReAct simple (razonar → llamar tool → responder);
-resistir la tentación de multi-agente hasta que una necesidad real lo pida.
-Cada respuesta muestra qué tools consultó (transparencia → confianza) y
-comunica incertidumbre ("no tengo tool para eso") en vez de inventar.
-Empezar con 5-8 tools de ALTA calidad (descripciones precisas, ejemplos) antes
-que 30 mediocres — la curaduría de tools ES el proyecto. Memoria: historial de
-conversación por usuario (corto plazo); nada de vector stores hasta que haya
-una necesidad concreta. Límite de mensajes/día por usuario.
+**Decisión 2026-07-11 (user): NO chatbot global — copiloto CONTEXTUAL por
+tabla.** Cada tabla de mercado tiene su botón IA y el panel responde SOLO sobre
+los datos de ESA tabla. Es "workflows antes que agentes" aplicado al copiloto:
+la vista determina el contexto → UNA llamada LLM por pregunta (sin loop ReAct,
+sin catálogo de tools, más barato y evaluable). El chatbot global con tools por
+RBAC queda como evolución natural NO planificada: el armador de contexto de
+cada vista ES la tool futura. Primera vista: **CEDEARs** (decisión user).
+Conversación corta: últimos 4 pares pregunta/respuesta, viven en el cliente —
+v1 no persiste historial.
+
+**Diseño v1 (construido):**
+- `api/services/copiloto.py` — registro `VISTAS`: cada vista declara fetch (el
+  MISMO service `@cached` que alimenta la tabla — refetch gratis), subset de
+  columnas relevantes, módulo RBAC y reglas del dominio para el system prompt
+  (qué significa cada columna — contra la corrección silenciosa).
+- **Los datos JAMÁS viajan del frontend**: el browser manda `{vista, pregunta,
+  historial}`; el server arma el contexto. Anti prompt-injection + datos reales
+  garantizados + no se paga el upload.
+- Serialización **TSV, no JSON** (~2-3× menos tokens de input); cap 400 filas;
+  celdas sanitizadas (una celda jamás rompe el TSV ni inyecta líneas).
+- Endpoints: `GET /api/ia/copiloto/vistas` (vistas habilitadas; el front lo usa
+  de probe — 403 = sin `ia` = botón oculto), `POST /api/ia/copiloto`,
+  `POST /api/ia/copiloto/feedback` (👍/👎 → `ia.trazas.feedback`; el gateway
+  ganó `completar_con_traza()` que devuelve el id de la traza).
+- Gate doble estructural: módulo `ia` (montaje `_IA`) + módulo de la vista
+  (`has_access`) — si tu rol no ve la tabla, el copiloto no existe ahí.
+- Tarea `copiloto_vista` (flash, max_tokens 2000 — lección del P2). Control de
+  gasto = presupuesto por usuario ya existente del gateway (no se hizo contador
+  de mensajes aparte — si el uso real lo pide, se agrega).
+- v1 SOLO vistas de mercado → datos públicos, nada que anonimizar (regla de
+  oro 3 ni se activa). Vistas con datos de clientes exigirán esa capa ANTES.
+- Degradación: todo fallo → `ok=false` con motivo; el panel muestra "IA no
+  disponible", la tabla ni se entera.
+- Frontend (acaquant-web): `ia-vista-panel.tsx` — drawer lateral montado en la
+  vista CEDEARs, oculto sin módulo `ia`, con fuente de datos visible y 👍/👎.
+
+**Pendientes:** deploy + shadow (el admin la usa unos días y se leen
+`ia.trazas` antes de abrirla a la mesa) · eval set de `copiloto_vista` con
+preguntas reales del shadow (arranca la Fase 0.4) · replicar a más vistas
+(renta fija, opciones…) recién después del shadow · hipótesis SIN verificar:
+el context caching de DeepSeek abarataría preguntas sucesivas — medir en
+`ia.trazas` antes de contar con eso.
 
 ### P4 — Prep de reuniones comerciales
 **Estado: PENDIENTE** · Tipo: informe con receta (workflow sobre el copiloto) ·
@@ -426,6 +458,12 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
+- **2026-07-11 — P3 v1: copiloto contextual por vista, CONSTRUIDO** (backend
+  `api/services/copiloto.py` + endpoints `/api/ia/copiloto*` + tarea
+  `copiloto_vista` + `completar_con_traza` en el gateway + panel
+  `ia-vista-panel.tsx` en CEDEARs). Decisión de forma: contextual por tabla, NO
+  chatbot global (ver P3). Falta deploy + shadow. De paso: `jobs.triage` sumado
+  a `_CRONS_IGNORADOS` del test del Diagnóstico (CI estaba roja desde el P2).
 - **2026-07-10 — P2 v1: triage reactivo de incidentes, FUNCIONANDO** (`jobs/triage.py`
   + `ia.triage_incidentes`/`ia.triage_estado` + tarea `triage_incidente` pro + cron
   10 min). Reactivo puro (no batch), 4 guardas de costo (dedup por firma / watermark /

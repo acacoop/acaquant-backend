@@ -57,6 +57,11 @@ _TAREAS: dict[str, dict] = {
     # para la respuesta final y volvía vacía (verificado en ia.trazas: tok_out=700,
     # "respuesta vacía"). 2500 le da lugar para pensar Y contestar.
     "triage_incidente": {"tier": "pro", "max_tokens": 2500, "timeout_s": 120},
+    # P3 copiloto de mesa (api/services/copiloto.py): Q&A sobre los datos de UNA
+    # vista de mercado, provistos en el prompt. tier flash (no hay razonamiento
+    # pesado: los datos ya vienen dados). max_tokens generoso a propósito —
+    # lección del P2: techo chico + input grande = respuesta vacía.
+    "copiloto_vista": {"tier": "flash", "max_tokens": 2000, "timeout_s": 60},
 }
 
 _DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60}
@@ -130,18 +135,23 @@ def _trazar(
     latencia_ms: int | None,
     ok: bool,
     error: str | None,
-) -> None:
+) -> int | None:
+    """Persiste la traza y devuelve su id (para asociar feedback 👍/👎),
+    o None si la DB no respondió — best-effort, nunca corta la llamada."""
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO ia.trazas (tarea, modelo, usuario, tokens_in, tokens_out,"
-                " latencia_ms, ok, error) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                " latencia_ms, ok, error) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+                " RETURNING id",
                 (tarea, modelo, usuario, tokens_in, tokens_out, latencia_ms, ok,
                  error[:_MAX_ERROR_CHARS] if error else None),
             )
+            return cur.fetchone()[0]
     except Exception as e:
         logger.warning("core.ai: no pude registrar la traza de %s (%s)", tarea, e)
+        return None
 
 
 def completar(
@@ -153,22 +163,38 @@ def completar(
 ) -> str | None:
     """Una completion vía el gateway. Devuelve el texto o None (sin key,
     presupuesto agotado, o fallo del proveedor) — NUNCA levanta excepción."""
+    texto, _traza_id = completar_con_traza(tarea, system=system, user=user, usuario=usuario)
+    return texto
+
+
+def completar_con_traza(
+    tarea: str,
+    *,
+    system: str,
+    user: str,
+    usuario: str | None = None,
+) -> tuple[str | None, int | None]:
+    """Igual que completar() pero devuelve también el id de la traza en
+    ia.trazas (o None si no se pudo trazar) — para features interactivas que
+    asocian feedback 👍/👎 a la llamada. Mismo contrato: NUNCA levanta."""
     try:
         return _completar(tarea, system=system, user=user, usuario=usuario)
     except Exception as e:  # cinturón: el contrato es no propagar JAMÁS
         logger.warning("core.ai: fallo inesperado en %s: %s: %s", tarea, type(e).__name__, e)
-        return None
+        return None, None
 
 
-def _completar(tarea: str, *, system: str, user: str, usuario: str | None) -> str | None:
+def _completar(
+    tarea: str, *, system: str, user: str, usuario: str | None
+) -> tuple[str | None, int | None]:
     key = os.getenv("DEEPSEEK_API_KEY")
     if not key:
-        return None  # gateway apagado — sin traza (sería ruido en cada corrida)
+        return None, None  # gateway apagado — sin traza (sería ruido en cada corrida)
     cfg = _config(tarea)
     modelo = _modelo(cfg)
     if _presupuesto_excedido(usuario):
         _trazar(tarea, modelo, usuario, None, None, None, False, "presupuesto diario agotado")
-        return None
+        return None, None
 
     import requests
     url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com") + "/chat/completions"
@@ -199,7 +225,7 @@ def _completar(tarea: str, *, system: str, user: str, usuario: str | None) -> st
             err = f"HTTP {resp.status_code}: {resp.text[:200]}"
             logger.warning("core.ai %s → %s", tarea, err)
             _trazar(tarea, modelo, usuario, None, None, latencia_ms, False, err)
-            return None
+            return None, None
         try:
             data = resp.json()
             texto = (data["choices"][0]["message"]["content"] or "").strip()
@@ -207,13 +233,13 @@ def _completar(tarea: str, *, system: str, user: str, usuario: str | None) -> st
         except Exception as e:
             _trazar(tarea, modelo, usuario, None, None, latencia_ms, False,
                     f"respuesta inparseable: {e}")
-            return None
-        _trazar(tarea, modelo, usuario, usage.get("prompt_tokens"),
-                usage.get("completion_tokens"), latencia_ms, bool(texto),
-                None if texto else "respuesta vacía")
-        return texto or None
+            return None, None
+        traza_id = _trazar(tarea, modelo, usuario, usage.get("prompt_tokens"),
+                           usage.get("completion_tokens"), latencia_ms, bool(texto),
+                           None if texto else "respuesta vacía")
+        return (texto or None), traza_id
 
     latencia_ms = int((time.perf_counter() - t0) * 1000)
     logger.warning("core.ai %s falló tras reintentos: %s", tarea, ultimo_error)
     _trazar(tarea, modelo, usuario, None, None, latencia_ms, False, ultimo_error)
-    return None
+    return None, None

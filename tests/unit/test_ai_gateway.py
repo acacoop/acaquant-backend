@@ -11,6 +11,7 @@ from core import ai
 def test_sin_key_devuelve_none_sin_tocar_nada(monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     assert ai.completar("smoke", system="x", user="y") is None
+    assert ai.completar_con_traza("smoke", system="x", user="y") == (None, None)
 
 
 def test_tarea_desconocida_cae_a_default_flash():

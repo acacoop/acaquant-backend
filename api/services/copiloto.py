@@ -265,6 +265,49 @@ def _enriquecer_cedears(filas: list[dict]) -> list[dict]:
     return out
 
 
+def _screenings(filas: list[dict]) -> list[str]:
+    """Screenings de mesa YA FILTRADOS por código (rezagados, zona de decisión,
+    techos rotos). El modelo filtrando 187 filas × 3 condiciones respondía
+    distinto en cada corrida y derramaba correcciones (shadow 2026-07-11) —
+    la pertenencia a cada lista la decide el código, siempre igual."""
+    def val(f: dict, campo: str) -> float | None:
+        v = f.get(campo)
+        return float(v) if v is not None else None
+
+    rez, rebotes, decision, sin_techo = [], [], [], []
+    for f in filas:
+        anio, r15 = val(f, "adr_ret_ytd_pct"), val(f, "adr_ret_15r_pct")
+        sem, tk = val(f, "adr_ret_wtd_pct"), f.get("ticker_corto")
+        if not tk:
+            continue
+        if anio is not None and anio < 0 and sem is not None and sem > 0:
+            if r15 is not None and r15 > 0:
+                rez.append((r15, f"{tk} año {anio:+.1f}%, 15 ruedas {r15:+.1f}%, "
+                                 f"semana {sem:+.1f}%"))
+            else:
+                rebotes.append(tk)
+        if f.get("piv_anual") in ("PP-R1", "S1-PP") or f.get("piv_mensual") in ("PP-R1", "S1-PP"):
+            decision.append((val(f, "total_money") or 0, tk))
+        if f.get("piv_anual") == ">R3":
+            sin_techo.append((anio or 0, tk))
+
+    rez.sort(reverse=True)
+    decision.sort(reverse=True)
+    sin_techo.sort(reverse=True)
+    return [
+        "[screenings ya calculados — la pertenencia la define el CÓDIGO; para "
+        "'rezagados', 'zona de decisión' o 'rompieron techos' usá ESTAS listas tal cual]",
+        "rezagados repuntando de verdad (año<0, 15 ruedas>0 y semana>0): "
+        + ("; ".join(s for _, s in rez[:10]) if rez else "ninguno hoy"),
+        "rebotes de corto (año<0 y semana>0, pero 15 ruedas todavía negativas): "
+        + (", ".join(rebotes[:10]) if rebotes else "ninguno"),
+        "en zona de decisión (equilibrio anual o mensual), por liquidez: "
+        + (", ".join(t for _, t in decision[:10]) if decision else "ninguno"),
+        "rompieron todos los techos del año pasado: "
+        + (", ".join(t for _, t in sin_techo[:10]) if sin_techo else "ninguno"),
+    ]
+
+
 def _rankings(filas: list[dict]) -> list[str]:
     """Tops YA ordenados por código. El modelo ordenando 187 filas a ojo se
     comía al líder (shadow: faltó SNDK en el top del año) — esto lo hace
@@ -504,6 +547,10 @@ def _extras_renta_variable(filas: list[dict], pregunta: str, historial: list[dic
         partes.extend(_rankings(filas))
     except Exception as e:
         logger.warning("copiloto: rankings fallaron (%s)", e)
+    try:
+        partes.extend(_screenings(filas))
+    except Exception as e:
+        logger.warning("copiloto: screenings fallaron (%s)", e)
     for f in _detectar_tickers(filas, pregunta, historial):
         partes.extend(_detalle_ticker(f))
     return partes
@@ -573,13 +620,12 @@ _CHIPS_RENTA_VARIABLE = [
      "pregunta": "¿Cómo vienen hoy los papeles argentinos? ¿El movimiento es "
                  "genuino en dólares o es efecto del CCL?"},
     {"label": "En zona de decisión",
-     "pregunta": "¿Qué papeles líquidos están apoyados en su equilibrio anual o "
-                 "mensual? Solo nombres, agrupados según vengan de subir o de caer."},
+     "pregunta": "¿Qué papeles líquidos están hoy en zona de decisión? Nombres y "
+                 "una línea de lectura de conjunto."},
     {"label": "Rezagados repuntando",
-     "pregunta": "Papeles negativos en el año que se hayan dado vuelta DE VERDAD "
-                 "(15 ruedas y semana positivas, no una semana verde aislada). "
-                 "Tabla: papel | año | 15 ruedas | semana. Y una línea de qué tan "
-                 "sólido es cada repunte."},
+     "pregunta": "Mostrame los rezagados que están repuntando de verdad. Tabla: "
+                 "papel | año | 15 ruedas | semana, y una línea de qué tan sólido "
+                 "es cada repunte."},
     {"label": "Voladores del año",
      "pregunta": "¿Qué papeles subieron más en el año? Top 5, y decime cuáles ya "
                  "rompieron todos los techos del año pasado."},
@@ -711,6 +757,12 @@ def _jerga_en_respuesta(respuesta: str, cfg: dict, pregunta: str) -> list[str]:
         # "ret_año" (bug real del shadow: el % del header lo hacía invisible)
         if re.search(rf"(?<![a-z0-9_]){re.escape(t)}(?![a-z0-9_])", resp):
             out.append(t)
+    # Nomenclatura de pivots (PP/R1-R3/S1-S3): prohibida salvo que el usuario
+    # hable de pivots/niveles ("zona >R3 anual" seguía apareciendo — R1/S3
+    # esquivaban el filtro de longitud mínima).
+    if not re.search(r"pivot|nivel|\bpp\b|\b[rs][1-3]\b", preg):
+        if re.search(r"\b(?:PP|[RS][1-3])\b", respuesta):
+            out.append("nomenclatura de pivots (PP/R1/S3)")
     return out
 
 

@@ -244,6 +244,38 @@ def test_autocorreccion_reintenta_con_numeros_malos(monkeypatch):
     assert out["numeros_sin_respaldo"] == []
 
 
+def test_jerga_nomenclatura_pivots():
+    cfg = copiloto.VISTAS["renta_variable"]
+    # ">R3 anual" sin que el usuario hable de pivots → jerga
+    jerga = copiloto._jerga_en_respuesta(
+        "SNDK está en zona >R3 anual, sin techos", cfg, "cuáles rompieron techos?"
+    )
+    assert any("pivots" in j for j in jerga)
+    # si el usuario nombra PP/pivots, se le contesta con esos términos
+    assert copiloto._jerga_en_respuesta(
+        "V y CAT están en PP-R1 anual", cfg, "qué papeles están en zona de PP anual?"
+    ) == []
+
+
+def test_screenings_filtra_por_codigo():
+    filas = [
+        {"ticker_corto": "T", "adr_ret_ytd_pct": -14.9, "adr_ret_15r_pct": 5.2,
+         "adr_ret_wtd_pct": 2.7, "total_money": 100, "piv_anual": "S1-PP"},
+        {"ticker_corto": "BIDU", "adr_ret_ytd_pct": -10.0, "adr_ret_15r_pct": -9.5,
+         "adr_ret_wtd_pct": 3.7, "total_money": 50, "piv_anual": "S2-S1"},
+        {"ticker_corto": "SNDK", "adr_ret_ytd_pct": 707.1, "adr_ret_15r_pct": 20.0,
+         "adr_ret_wtd_pct": 9.8, "total_money": 900, "piv_anual": ">R3"},
+    ]
+    lineas = copiloto._screenings(filas)
+    texto = "\n".join(lineas)
+    # T repunta de verdad; BIDU es solo rebote de corto; SNDK rompió techos
+    assert "rezagados repuntando de verdad" in texto and "T año -14.9%" in texto
+    assert "BIDU" in next(li for li in lineas if "rebotes de corto" in li)
+    assert "SNDK" in next(li for li in lineas if "rompieron todos los techos" in li)
+    # T también está en zona de decisión (S1-PP)
+    assert "T" in next(li for li in lineas if "zona de decisión" in li)
+
+
 def test_rankings_ordena_por_codigo():
     filas = [
         {"ticker_corto": "SNDK", "adr_ret_ytd_pct": 707.11, "adr_ret_mtd_pct": -5.72,

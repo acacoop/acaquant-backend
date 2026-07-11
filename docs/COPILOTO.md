@@ -113,6 +113,21 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.18 (screenings deterministas + chips limpios + pivots al guardrail)
+- **[contexto +]** Bloque `[screenings ya calculados]`: rezagados de verdad
+  (año<0, 15r>0, semana>0), rebotes de corto, zona de decisión (por liquidez)
+  y techos rotos — FILTRADOS POR CÓDIGO. El modelo filtrando 187 filas × 3
+  condiciones respondía distinto en cada corrida y derramaba correcciones
+  ("no, son 15 ruedas…"); ahora la pertenencia es determinista e idéntica
+  entre corridas.
+- **[guardrail +]** Nomenclatura de pivots (PP/R1-R3/S1-S3) detectada por
+  código (">R3 anual" seguía saliendo: R1/S3 esquivaban el filtro de longitud
+  mínima). Permitida solo si el usuario habla de pivots/niveles.
+- **[UI]** Los chips muestran su ETIQUETA en el chat ("Rezagados repuntando");
+  el prompt curado viaja por atrás — conversación limpia.
+- **[chips ~]** Prompts de Rezagados y Zona de decisión simplificados (la
+  definición vive en el screening, no en el texto del chip).
+
 ### 2026-07-11 — v1.17 (tablas, ruedas, rankings deterministas, fix del guardrail)
 - **[bugfix]** El guardrail de jerga tenía un bug de regex: "ret_año%" no
   matcheaba por el "%" pegado — por eso siguió pasando jerga tras v1.15.

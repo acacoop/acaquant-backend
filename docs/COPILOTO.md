@@ -94,6 +94,23 @@ restricciones/formato), verificación de outputs (automatizada, mejor que el
 protocolo manual del libro), anti-patrón de datos en tiempo real (el modelo
 solo ve lo inyectado).
 
+## Técnicas aplicadas (glosario de referencia)
+
+**Datos (context engineering):** grounding/contexto curado server-side ·
+precómputo determinista (pulso, rankings, zonas piv, ruedas — la IA nunca es
+fuente de un número) · detección determinista de tickers en la pregunta.
+**Prompt:** persona + audiencia por rol RBAC · few-shot con ejemplos MAL/BIEN
+salidos del shadow · método Minto/BLUF (conclusión primero, el plazo de la
+pregunta manda) · biblioteca de prompts = chips versionados · control del
+thinking por tarea (apagado copiloto / prendido triage; razonamiento a trazas).
+**Guardrails (código, no prompt):** verificación de grounding de números ·
+detector de jerga interna y derrame de razonamiento · reflexion
+(auto-corrección con el problema señalado, 1 reintento, antes de mostrar).
+**Operación:** shadow + eval set que crece con fallos reales · trazas
+completas + 👍/👎 · presupuestos con kill switch editables.
+**El patrón rector:** lo que el modelo rompe dos veces deja de ser regla de
+prompt y baja a código. Prompt para el estilo, código para la verdad.
+
 ## Changelog del asistente (obligatorio, con fecha)
 
 ### 2026-07-11 — v1.17 (tablas, ruedas, rankings deterministas, fix del guardrail)

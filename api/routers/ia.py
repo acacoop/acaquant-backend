@@ -33,6 +33,12 @@ def presupuesto_get():
     return ia_obs.get_presupuestos()
 
 
+@router.get("/saldo")
+def saldo_proveedor():
+    """Saldo REAL de la cuenta DeepSeek (/user/balance del proveedor)."""
+    return ia_obs.saldo()
+
+
 @router.post("/presupuesto", dependencies=[Depends(require_admin)])
 def presupuesto_set(body: PresupuestosBody, email: str = Depends(get_user_email)):
     """Edita los topes diarios (SOLO admin). El global es techo duro del día;

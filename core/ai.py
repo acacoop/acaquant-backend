@@ -115,6 +115,54 @@ def invalidate_config_cache() -> None:
     _config_db_cache["ts"] = 0.0
 
 
+# ── Saldo REAL de la cuenta del proveedor ────────────────────────────────────
+# GET /user/balance (verificado contra la doc de DeepSeek 2026-07-11:
+# is_available + balance_infos[{currency, total_balance, granted_balance,
+# topped_up_balance}]). Es el dato de la CUENTA, no una inferencia. El
+# proveedor NO expone "tokens restantes" — convertir plata→tokens exigiría
+# asumir tabla de precios y mix de modelos, así que no se hace.
+
+_SALDO_TTL_S = 300
+_saldo_cache: dict = {"ts": 0.0, "valor": None}
+
+
+def saldo_proveedor() -> dict | None:
+    """Saldo real de la cuenta DeepSeek, cacheado 5 min. None si no hay key
+    ni valor previo. Nunca levanta."""
+    key = os.getenv("DEEPSEEK_API_KEY")
+    if not key:
+        return None
+    ahora = time.monotonic()
+    if ahora - _saldo_cache["ts"] < _SALDO_TTL_S and _saldo_cache["valor"] is not None:
+        return _saldo_cache["valor"]
+    try:
+        import requests
+        url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com") + "/user/balance"
+        resp = requests.get(url, headers={"Authorization": f"Bearer {key}"}, timeout=10)
+        if resp.status_code != 200:
+            logger.warning("core.ai: /user/balance HTTP %s: %s",
+                           resp.status_code, resp.text[:120])
+            return _saldo_cache["valor"]
+        data = resp.json()
+        valor = {
+            "disponible": bool(data.get("is_available")),
+            "saldos": [
+                {
+                    "moneda": b.get("currency"),
+                    "total": b.get("total_balance"),
+                    "otorgado": b.get("granted_balance"),
+                    "cargado": b.get("topped_up_balance"),
+                }
+                for b in (data.get("balance_infos") or [])
+            ],
+        }
+        _saldo_cache.update(ts=ahora, valor=valor)
+        return valor
+    except Exception as e:
+        logger.warning("core.ai: no pude leer el saldo del proveedor (%s)", e)
+        return _saldo_cache["valor"]
+
+
 def presupuesto_dia_global() -> int:
     """Tope global de tokens/día del gateway — TECHO DURO del sistema: aunque
     la suma de topes por usuario lo supere, el gasto total del día no lo pasa

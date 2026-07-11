@@ -69,6 +69,14 @@ agrega como caso — el set crece con la realidad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.8 (saldo real del proveedor)
+- **[observabilidad]** `GET /api/ia/saldo` + cuadrante PRESUPUESTO del panel:
+  saldo REAL de la cuenta DeepSeek (`GET /user/balance`, verificado contra la
+  doc del proveedor 2026-07-11; cache 5 min). Se muestra plata (total/cargado/
+  otorgado por moneda) + flag oficial "alcanza para operar". "Tokens
+  restantes" NO se muestra a propósito: el proveedor no lo expone y
+  convertir plata→tokens sería inferir precios/mix de modelos (REGLA #2).
+
 ### 2026-07-11 — v1.7 (errores claros + trazas con contenido)
 - **[UX]** El panel dice CUÁL degradación fue: "alcanzaste TU límite diario"
   (presupuesto_usuario) vs "el sistema alcanzó su tope" (presupuesto_global)

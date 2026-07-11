@@ -14,6 +14,14 @@ from core.ai import presupuesto_dia_global
 from core.postgres import get_pool
 
 
+def saldo() -> dict:
+    """Saldo REAL de la cuenta DeepSeek (GET /user/balance del proveedor,
+    cache 5 min en core/ai). disponible=None → sin dato (key ausente o fallo)."""
+    from core.ai import saldo_proveedor
+
+    return saldo_proveedor() or {"disponible": None, "saldos": []}
+
+
 def get_presupuestos() -> dict:
     """Límites vigentes del gateway (resueltos con su precedencia) + auditoría
     de la última edición si los setearon desde el panel."""

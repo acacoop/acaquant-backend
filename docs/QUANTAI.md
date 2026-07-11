@@ -267,6 +267,23 @@ detalle no está. Fuera del alcance de esta vista (son otras páginas): Trade
 Lab (admin), intradía/time-sales (/trading), Mesa de Estrategia (/retorno).
 Alias transitorio `cedears` borrado tras confirmar el deploy (2026-07-11).
 
+**v1.2 (2026-07-11) — primer loop del shadow, tal como manda el doc.** La
+primera pregunta real ("¿qué acciones hay de IA?") encontró la primera falla:
+`es_ia`/`rubro` no estaban en el contexto → el modelo improvisó por nombre de
+empresa. Fix: columnas `es_ia` + `rubro` + **zonas de pivots derivadas**
+`piv_anual`/`piv_mensual` para TODO el universo (posición del subyacente vs
+pivots del período previo; 2 queries agregadas cacheadas 15 min, no 187
+llamadas) + la **lectura de pivots de la mesa codificada en el prompt**
+(conocimiento no inferible, pedido del user):
+- **>R3 / <S3** (anual o mensual) = subió/cayó muchísimo — rompió el mapa del período.
+- **R2-R3 / S3-S2** = la tendencia ya está clara.
+- **R1-R2 / S2-S1** = subió/cayó algo.
+- **alrededor del PP** = zona neutral; el PP es la referencia ideal para tomar decisiones.
+El asistente usa esta lectura como contexto implícito (sin listar niveles salvo
+que se los pidan). UI: la línea de fuente (📊 vista · filas · hora) salió de la
+respuesta — queda el disclaimer fijo del panel (data provenance cubierta).
+**Este caso es el candidato #1 del eval set de `copiloto_vista`.**
+
 **Incidente colateral resuelto (2026-07-11): pivots/quant con series rotas.**
 El copiloto expuso que `mercado.precios_acciones` tenía 116/187 series
 arrancando 2025-05-20 (vela anual incompleta), CRWD en escala pre-split y una

@@ -25,6 +25,8 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
+from api.cache import cached
+
 logger = logging.getLogger(__name__)
 
 _MAX_FILAS = 400          # techo defensivo del contexto (el universo es dinámico)
@@ -52,6 +54,8 @@ nada de tablas markdown: el panel es angosto).
 def _celda(v) -> str:
     if v is None:
         return "-"
+    if isinstance(v, bool):  # antes que float: bool es subclase de int
+        return "si" if v else "no"
     if isinstance(v, float):
         return f"{v:,.2f}"
     if isinstance(v, str):
@@ -71,6 +75,89 @@ def _fetch_cedears() -> list[dict]:
     from api.services import scanner_sql
 
     return scanner_sql.get_cedears_scanner()
+
+
+# ── Zonas de pivots (contexto implícito para TODO el universo) ──────────────
+#
+# Pedido de la mesa (2026-07-11): el asistente tiene que saber DÓNDE está
+# parado cada papel respecto de sus pivots anual y mensual sin que se lo
+# pregunten por ticker. Calcular los 187 vía get_pivot_points sería carísimo;
+# en cambio, 2 queries agregadas sobre mercado.precios_acciones arman la vela
+# del período previo de todo el universo y acá se clasifica la ZONA
+# (">R3", "R2-R3", …) que entra como columna del TSV.
+
+def _zona(last: float, lv: dict) -> str:
+    """Zona del precio respecto de los niveles Floor Trader del período previo."""
+    if last > lv["r3"]:
+        return ">R3"
+    if last > lv["r2"]:
+        return "R2-R3"
+    if last > lv["r1"]:
+        return "R1-R2"
+    if last > lv["pp"]:
+        return "PP-R1"
+    if last > lv["s1"]:
+        return "S1-PP"
+    if last > lv["s2"]:
+        return "S2-S1"
+    if last > lv["s3"]:
+        return "S3-S2"
+    return "<S3"
+
+
+@cached(ttl=900)
+def _velas_periodo_previo() -> dict:
+    """{ticker: {"anual": levels, "mensual": levels}} para todo lo que haya en
+    mercado.precios_acciones — H/L/C del año y mes calendario previos en dos
+    queries agregadas (baratas e indexadas), no una por ticker."""
+    from core.postgres import get_pool
+    from quant.pivot_points import calcular
+
+    queries = {
+        "anual": """
+            SELECT ticker, max(high), min(low),
+                   (array_agg(close ORDER BY fecha DESC))[1]
+            FROM mercado.precios_acciones
+            WHERE fecha >= date_trunc('year', now()) - interval '1 year'
+              AND fecha <  date_trunc('year', now())
+              AND high IS NOT NULL AND low IS NOT NULL AND close IS NOT NULL
+            GROUP BY ticker
+        """,
+        "mensual": """
+            SELECT ticker, max(high), min(low),
+                   (array_agg(close ORDER BY fecha DESC))[1]
+            FROM mercado.precios_acciones
+            WHERE fecha >= date_trunc('month', now()) - interval '1 month'
+              AND fecha <  date_trunc('month', now())
+              AND high IS NOT NULL AND low IS NOT NULL AND close IS NOT NULL
+            GROUP BY ticker
+        """,
+    }
+    out: dict[str, dict] = {}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        for periodo, q in queries.items():
+            cur.execute(q)
+            for tk, h, low, c in cur.fetchall():
+                out.setdefault(tk, {})[periodo] = calcular(
+                    high=float(h), low=float(low), close=float(c)
+                )
+    return out
+
+
+def _enriquecer_cedears(filas: list[dict]) -> list[dict]:
+    """Suma piv_anual/piv_mensual (zona del subyacente vs pivots del período
+    previo). COPIA las filas: vienen del cache del scanner y mutarlas
+    contaminaría lo que ve el tablero."""
+    zonas = _velas_periodo_previo()
+    out = []
+    for f in filas:
+        f = dict(f)
+        z = zonas.get(str(f.get("underlying") or f.get("ticker_corto") or "").upper()) or {}
+        last = f.get("adr_last")
+        f["piv_anual"] = _zona(last, z["anual"]) if last and z.get("anual") else None
+        f["piv_mensual"] = _zona(last, z["mensual"]) if last and z.get("mensual") else None
+        out.append(f)
+    return out
 
 
 # ── Bloques de detalle por ticker (vista renta_variable) ────────────────────
@@ -255,6 +342,17 @@ adr_dollar_vol: monto operado del subyacente en USD.
 - adr_ret_wtd_pct / adr_ret_7d_pct / adr_ret_mtd_pct / adr_ret_ytd_pct: retornos del \
 subyacente en USD (semana en curso / 7 días / mes en curso / año en curso).
 - CCL implícito de un papel = last × ratio_cedear / adr_last (ARS por USD).
+- es_ia: "si" = el papel pertenece a la cadena de valor de INTELIGENCIA ARTIFICIAL (es el \
+mismo filtro del botón AI de la vista). Para preguntas sobre acciones/papeles de IA usá \
+SIEMPRE esta columna, no el nombre de la empresa.
+- rubro: clasificación granular del papel (más fina que sector).
+- piv_anual / piv_mensual: ZONA del precio actual del subyacente respecto de sus pivots \
+Floor Trader del año/mes calendario previo. Lectura de la mesa (usala para dar contexto de \
+dónde está parado un papel, SIN listar niveles numéricos salvo que te los pidan): \
+">R3" = subió muchísimo, rompió el mapa del período; "R2-R3" = tendencia alcista ya clara; \
+"R1-R2" = subió algo; "PP-R1" y "S1-PP" = zona neutral alrededor del PP, que es la \
+referencia ideal para tomar decisiones; "S2-S1" = cayó algo; "S3-S2" = tendencia bajista \
+ya clara; "<S3" = cayó muchísimo.
 
 Bloques adicionales que pueden aparecer después de la tabla:
 - [CCL live]: dólar contado con liquidación (ARS por USD), la referencia cambiaria del tablero.
@@ -274,13 +372,15 @@ VISTAS: dict[str, dict] = {
         "modulo": "renta-variable",
         "fetch": _fetch_cedears,
         "extras": _extras_renta_variable,
+        "enriquecer": _enriquecer_cedears,
         "columnas": [
-            "ticker_corto", "nombre", "underlying", "ratio_cedear", "sector", "pais",
+            "ticker_corto", "nombre", "underlying", "ratio_cedear", "sector", "rubro",
+            "pais", "es_ia",
             "last", "intraday_pct", "vs_1d_pct", "vs_1d_usd_pct",
             "bid", "offer", "spread_pct", "vwap", "volume", "total_money",
             "adr_last", "adr_intraday", "adr_vs_1d_pct",
             "adr_ret_wtd_pct", "adr_ret_7d_pct", "adr_ret_mtd_pct", "adr_ret_ytd_pct",
-            "adr_dollar_vol",
+            "adr_dollar_vol", "piv_anual", "piv_mensual",
         ],
         "reglas": _REGLAS_RENTA_VARIABLE,
     },
@@ -332,6 +432,13 @@ def preguntar(
         filas = None
     if not filas:
         return {"ok": False, "error": "datos_no_disponibles"}
+
+    enriquecer = cfg.get("enriquecer")
+    if enriquecer:
+        try:
+            filas = enriquecer(filas)
+        except Exception as e:
+            logger.warning("copiloto %s: enriquecer falló (%s) — sigo sin derivadas", vista, e)
 
     truncado = len(filas) > _MAX_FILAS
     tabla = _tsv(filas[:_MAX_FILAS], cfg["columnas"])

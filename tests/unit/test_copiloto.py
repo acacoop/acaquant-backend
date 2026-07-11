@@ -169,6 +169,37 @@ def test_pct_convierte_fraccion():
     assert copiloto._pct(0.4567, 1) == "45.7%"
 
 
+def test_celda_bool_legible():
+    assert copiloto._celda(True) == "si"
+    assert copiloto._celda(False) == "no"
+
+
+def test_zona_pivots():
+    lv = {"pp": 100.0, "r1": 110.0, "r2": 120.0, "r3": 130.0,
+          "s1": 90.0, "s2": 80.0, "s3": 70.0}
+    assert copiloto._zona(135, lv) == ">R3"
+    assert copiloto._zona(125, lv) == "R2-R3"
+    assert copiloto._zona(115, lv) == "R1-R2"
+    assert copiloto._zona(105, lv) == "PP-R1"
+    assert copiloto._zona(95, lv) == "S1-PP"
+    assert copiloto._zona(85, lv) == "S2-S1"
+    assert copiloto._zona(75, lv) == "S3-S2"
+    assert copiloto._zona(65, lv) == "<S3"
+
+
+def test_enriquecer_no_muta_las_filas_originales(monkeypatch):
+    monkeypatch.setattr(
+        copiloto, "_velas_periodo_previo",
+        lambda: {"AAPL": {"anual": {"pp": 100.0, "r1": 110.0, "r2": 120.0, "r3": 130.0,
+                                    "s1": 90.0, "s2": 80.0, "s3": 70.0}}},
+    )
+    original = [{"ticker_corto": "AAPL", "underlying": "AAPL", "adr_last": 125.0}]
+    out = copiloto._enriquecer_cedears(original)
+    assert out[0]["piv_anual"] == "R2-R3"
+    assert out[0]["piv_mensual"] is None  # sin vela mensual → sin zona
+    assert "piv_anual" not in original[0]  # las filas cacheadas del scanner no se tocan
+
+
 def test_feedback_valor_invalido():
     assert copiloto.registrar_feedback(1, 5, "u@x.com") == {
         "ok": False, "error": "valor_invalido",

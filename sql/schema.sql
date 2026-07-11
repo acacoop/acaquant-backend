@@ -1547,13 +1547,15 @@ CREATE TABLE IF NOT EXISTS ia.trazas (
     error       text,
     feedback    smallint,
     detalle     text,   -- extracto del pedido (ej. la pregunta), cap en core/ai
-    respuesta   text    -- extracto de la respuesta del modelo, cap en core/ai
+    respuesta   text,   -- extracto de la respuesta del modelo, cap en core/ai
+    razonamiento text   -- extracto del reasoning_content (thinking), cap en core/ai
 );
 CREATE INDEX IF NOT EXISTS ix_ia_trazas_ts ON ia.trazas (ts);
 CREATE INDEX IF NOT EXISTS ix_ia_trazas_usuario_ts ON ia.trazas (usuario, ts);
 -- Columnas agregadas 2026-07-11 (panel OBSERVABILIDAD → IA: detalle por llamada)
 ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS detalle text;
 ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS respuesta text;
+ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS razonamiento text;
 
 -- Config editable del gateway de IA (presupuestos de tokens). Se edita desde
 -- Manager → OBSERVABILIDAD → IA (solo admin). Precedencia en core/ai.py:

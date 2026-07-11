@@ -43,30 +43,32 @@ logger = logging.getLogger(__name__)
 _MAX_ERROR_CHARS = 300  # techo del texto de error que se persiste en la traza
 
 # Registro de tareas: tier "flash" = redacción/clasificación barata; "pro" =
-# razonamiento pesado. El thinking mode se cablea cuando llegue la primera
-# tarea pro (P2 triage), verificando el shape del parámetro contra la doc del
-# proveedor en ese momento (REGLA #2: no codear contra un API no verificado).
+# razonamiento pesado. `thinking`: "enabled"/"disabled" — VERIFICADO contra la
+# doc del proveedor (2026-07-11): los v4 traen thinking DEFAULT ENABLED, por
+# eso hay que apagarlo explícito en tareas simples (venía quemando tokens
+# invisibles y hasta derramando el razonamiento dentro de la respuesta del
+# copiloto). El razonamiento llega aparte en `reasoning_content` → se guarda
+# en la traza (debug), nunca se muestra al usuario.
 # `model_env` (opcional) = env var que overridea el modelo SOLO para esa tarea.
 _TAREAS: dict[str, dict] = {
     "controles_resumen": {"tier": "flash", "max_tokens": 800, "timeout_s": 60,
-                          "model_env": "AI_RESUMEN_MODEL"},
-    "smoke": {"tier": "flash", "max_tokens": 64, "timeout_s": 30},
+                          "model_env": "AI_RESUMEN_MODEL", "thinking": "disabled"},
+    "smoke": {"tier": "flash", "max_tokens": 64, "timeout_s": 30, "thinking": "disabled"},
     # P2 triage de incidentes (jobs/triage.py): diagnóstico de una falla de job.
-    # tier pro (razonamiento). max_tokens ALTO a propósito: v4-pro razona antes de
-    # responder y el razonamiento cuenta como output — con 700 se quedaba sin lugar
-    # para la respuesta final y volvía vacía (verificado en ia.trazas: tok_out=700,
-    # "respuesta vacía"). 2500 le da lugar para pensar Y contestar.
-    "triage_incidente": {"tier": "pro", "max_tokens": 2500, "timeout_s": 120},
+    # tier pro + thinking ENABLED a propósito (es diagnóstico — la decisión de
+    # QUANTAI.md; cableado 2026-07-11 con el shape verificado). max_tokens ALTO:
+    # el razonamiento cuenta como output — con 700 volvía vacía (ia.trazas).
+    "triage_incidente": {"tier": "pro", "max_tokens": 2500, "timeout_s": 120,
+                         "thinking": "enabled"},
     # P3 copiloto de mesa (api/services/copiloto.py): Q&A sobre los datos de UNA
-    # vista de mercado, provistos en el prompt. tier flash (no hay razonamiento
-    # pesado: los datos ya vienen dados). max_tokens generoso a propósito —
-    # lección del P2: techo chico + input grande = respuesta vacía. 2000→3000
-    # el 2026-07-11: en ia.trazas hubo respuestas de 1796 tok_out (al ras) y
-    # una vacía.
-    "copiloto_vista": {"tier": "flash", "max_tokens": 3000, "timeout_s": 60},
+    # vista de mercado, provistos en el prompt. thinking DISABLED: los datos ya
+    # vienen dados y el razonamiento del v4-flash se derramaba en la respuesta
+    # (shadow 2026-07-11). max_tokens generoso — lección del P2.
+    "copiloto_vista": {"tier": "flash", "max_tokens": 3000, "timeout_s": 60,
+                       "thinking": "disabled"},
 }
 
-_DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60}
+_DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60, "thinking": "disabled"}
 
 
 def _config(tarea: str) -> dict:
@@ -227,6 +229,7 @@ def _presupuesto_excedido(usuario: str | None) -> bool:
 
 _MAX_DETALLE_CHARS = 600     # extracto del pedido (lo pasa el caller, ej. la pregunta)
 _MAX_RESPUESTA_CHARS = 1500  # extracto de la respuesta del modelo
+_MAX_RAZONAMIENTO_CHARS = 2000  # extracto del reasoning_content (debug, panel IA)
 
 
 def _trazar(
@@ -240,23 +243,25 @@ def _trazar(
     error: str | None,
     detalle: str | None = None,
     respuesta: str | None = None,
+    razonamiento: str | None = None,
 ) -> int | None:
     """Persiste la traza y devuelve su id (para asociar feedback 👍/👎),
     o None si la DB no respondió — best-effort, nunca corta la llamada.
-    `detalle`/`respuesta` son extractos legibles para el panel de
-    OBSERVABILIDAD (qué se preguntó / qué contestó), capados."""
+    `detalle`/`respuesta`/`razonamiento` son extractos legibles para el panel
+    de OBSERVABILIDAD (qué se preguntó / qué contestó / cómo razonó), capados."""
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO ia.trazas (tarea, modelo, usuario, tokens_in, tokens_out,"
-                " latencia_ms, ok, error, detalle, respuesta)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                " latencia_ms, ok, error, detalle, respuesta, razonamiento)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
                 " RETURNING id",
                 (tarea, modelo, usuario, tokens_in, tokens_out, latencia_ms, ok,
                  error[:_MAX_ERROR_CHARS] if error else None,
                  detalle[:_MAX_DETALLE_CHARS] if detalle else None,
-                 respuesta[:_MAX_RESPUESTA_CHARS] if respuesta else None),
+                 respuesta[:_MAX_RESPUESTA_CHARS] if respuesta else None,
+                 razonamiento[:_MAX_RAZONAMIENTO_CHARS] if razonamiento else None),
             )
             return cur.fetchone()[0]
     except Exception as e:
@@ -319,6 +324,9 @@ def _completar(
     body = {
         "model": modelo,
         "max_tokens": cfg["max_tokens"],
+        # shape verificado contra la doc del proveedor (2026-07-11): default es
+        # "enabled" → hay que mandar el switch SIEMPRE, explícito por tarea.
+        "thinking": {"type": cfg.get("thinking", "disabled")},
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -346,7 +354,9 @@ def _completar(
             return None, None
         try:
             data = resp.json()
-            texto = (data["choices"][0]["message"]["content"] or "").strip()
+            msg = data["choices"][0]["message"]
+            texto = (msg.get("content") or "").strip()
+            razonamiento = (msg.get("reasoning_content") or "").strip() or None
             usage = data.get("usage") or {}
         except Exception as e:
             _trazar(tarea, modelo, usuario, None, None, latencia_ms, False,
@@ -355,7 +365,8 @@ def _completar(
         traza_id = _trazar(tarea, modelo, usuario, usage.get("prompt_tokens"),
                            usage.get("completion_tokens"), latencia_ms, bool(texto),
                            None if texto else "respuesta vacía",
-                           detalle=detalle, respuesta=texto or None)
+                           detalle=detalle, respuesta=texto or None,
+                           razonamiento=razonamiento)
         return (texto or None), traza_id
 
     latencia_ms = int((time.perf_counter() - t0) * 1000)

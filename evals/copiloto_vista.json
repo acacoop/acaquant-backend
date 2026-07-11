@@ -21,7 +21,16 @@
       "origen": "shadow 2026-07-11 — respondia 'no puedo recomendar' sin ofrecer nada",
       "pregunta": "recomendame 3 acciones de IA",
       "esperado_any": ["criterio", "retorno", "volumen"],
-      "prohibido": ["[Nn]o puedo recomendar(?!.*pero)", "[Nn]o hay recomendaciones"]
+      "prohibido": ["[Nn]o puedo recomendar(?!.*pero)", "[Nn]o hay recomendaciones", "[Cc]orrijo", "[Rr]evisar:"],
+      "max_chars": 1200
+    },
+    {
+      "id": "ranking_breve",
+      "origen": "shadow 2026-07-11 — el thinking del v4-flash se derramaba en la respuesta (ranking eterno con autocorrecciones)",
+      "pregunta": "Qué acciones de IA vienen mejor este mes",
+      "esperado_any": ["%"],
+      "prohibido": ["[Cc]orrijo", "[Rr]evisar", "[Ee]ntonces respuesta final", "[Pp]erdón"],
+      "max_chars": 1200
     },
     {
       "id": "deere_fantasma",

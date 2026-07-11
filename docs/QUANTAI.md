@@ -220,9 +220,11 @@ log tratado como DATO hostil (anti prompt-injection). Debug del gateway:
   centavos. El pipeline cuesta lo que el doc decía (<$1/mes).
 
 **Pendiente:** correr en shadow unos días (leer los diagnósticos antes de abrirlo) ·
-tab TRIAGE en OBSERVABILIDAD (hoy solo Telegram) · thinking mode del pro (sin cablear,
-REGLA #2) · sumar 'partial' además de 'error' si hace falta · subir max_tokens de
-`controles_resumen`.
+tab TRIAGE en OBSERVABILIDAD (hoy solo Telegram) · ~~thinking mode del pro~~
+**CABLEADO (2026-07-11):** shape verificado contra la doc (`thinking: {type}`,
+default enabled → ahora explícito por tarea: triage enabled, flash disabled;
+el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
+además de 'error' si hace falta · subir max_tokens de `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
 **Estado: v1.3 DEPLOYADA (2026-07-11) — EN SHADOW (admin)** ·

@@ -39,6 +39,10 @@ def correr_caso(vista: str, caso: dict) -> tuple[bool, list[str]]:
     for p in caso.get("prohibido") or []:
         if re.search(p, resp):
             problemas.append(f"apareció prohibida: {p!r}")
+    max_chars = caso.get("max_chars")
+    if max_chars and len(resp) > max_chars:
+        problemas.append(f"respuesta larga: {len(resp)} chars (máx {max_chars}) — "
+                         "¿se derramó el razonamiento?")
     return not problemas, problemas + [f"respuesta: {resp[:300]}"]
 
 

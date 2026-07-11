@@ -69,6 +69,21 @@ agrega como caso — el set crece con la realidad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.10 (thinking bajo control)
+- **[bug raíz]** Los v4 traen `thinking` DEFAULT ENABLED (verificado contra la
+  doc del proveedor): el copiloto razonaba sin pedirlo — tokens invisibles,
+  "respuestas vacías" al ras del techo, y el razonamiento derramado dentro de
+  una respuesta del shadow (ranking con autocorrecciones interminables).
+- **[gateway]** Switch `thinking` explícito POR TAREA: copiloto/controles/
+  smoke → disabled; triage → enabled a propósito (diagnóstico — cierra el
+  cabo suelto del P2). `reasoning_content` se captura y guarda en
+  `ia.trazas.razonamiento` (cap 2000) → visible en el DETALLE del panel:
+  ahora se puede debuggear CÓMO razonó cada llamada. Requiere apply_schema.
+- **[prompt +]** Brevedad dura: directo al resultado, sin cálculos intermedios
+  ni correcciones, ~12 líneas máx, ranking = 1 línea de criterio + lista.
+- **[evals]** Caso nuevo `ranking_breve` (el fallo real) + chequeo `max_chars`
+  en el runner (detecta derrames de razonamiento).
+
 ### 2026-07-11 — v1.9 (excepciones de límite por usuario)
 - **[gateway]** Límite diario PERSONAL por usuario (clave
   `budget_dia_usuario:<email>` en ia.config): pisa el tope general solo para

@@ -182,7 +182,7 @@ def observabilidad(dias: int = 14, limit: int = 30) -> dict:
         cur.execute(
             """
             SELECT id, ts, tarea, modelo, usuario, tokens_in, tokens_out,
-                   latencia_ms, ok, error, feedback, detalle, respuesta
+                   latencia_ms, ok, error, feedback, detalle, respuesta, razonamiento
             FROM ia.trazas
             ORDER BY id DESC
             LIMIT %s

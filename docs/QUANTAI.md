@@ -214,8 +214,12 @@ REGLA #2) · sumar 'partial' además de 'error' si hace falta · subir max_token
 `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1.1 DEPLOYADA y confirmada (2026-07-11) — EN SHADOW (admin)** ·
+**Estado: v1.3 DEPLOYADA (2026-07-11) — EN SHADOW (admin)** ·
 Tipo: copiloto contextual por vista · Gate: `ia` + módulo RBAC de la vista
+
+> **Doc vivo del asistente: `docs/COPILOTO.md`** — mapa del código, qué ve el
+> asistente HOY y **changelog fechado OBLIGATORIO**: todo cambio a contexto/
+> prompt/vistas se asienta ahí en el mismo commit (pedido del user 2026-07-11).
 
 **Decisión 2026-07-11 (user): NO chatbot global — copiloto CONTEXTUAL por
 tabla.** Cada tabla de mercado tiene su botón IA y el panel responde SOLO sobre

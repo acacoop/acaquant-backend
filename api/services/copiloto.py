@@ -1,5 +1,9 @@
 """api/services/copiloto.py — P3 Copiloto de Mesa (QuantAI, docs/QUANTAI.md).
 
+⚠️ TRAZABILIDAD OBLIGATORIA: todo cambio a lo que el asistente ve o cómo se
+comporta (VISTAS, columnas, reglas, prompt, detección) se asienta CON FECHA en
+el changelog de docs/COPILOTO.md, en el MISMO commit. Sin eso, incompleto.
+
 Copiloto CONTEXTUAL por vista de mercado: el usuario pregunta desde una tabla
 de la app y la IA responde SOLO con los datos de ESA tabla. No es un agente:
 no hay loop de tools ni decisión del modelo sobre qué datos buscar — la vista

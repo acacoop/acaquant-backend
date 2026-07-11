@@ -119,11 +119,58 @@ def test_cap_de_filas(monkeypatch):
 def test_gate_por_modulo_de_vista(monkeypatch):
     monkeypatch.setattr("core.roles.has_access", lambda email, mod: mod == "renta-variable")
     vistas = copiloto.vistas_para("u@x.com")
-    assert {"vista": "cedears", "titulo": "Scanner CEDEARs"} in vistas
+    assert {"vista": "renta_variable", "titulo": "Renta Variable"} in vistas
+    # el alias "cedears" (misma config) no se duplica en la lista…
+    assert len([v for v in vistas if v["titulo"] == "Renta Variable"]) == 1
+    # …pero sigue siendo usable (front viejo durante el deploy)
     assert copiloto.puede_usar("u@x.com", "cedears") is True
+    assert copiloto.puede_usar("u@x.com", "renta_variable") is True
     monkeypatch.setattr("core.roles.has_access", lambda email, mod: False)
     assert copiloto.vistas_para("u@x.com") == []
-    assert copiloto.puede_usar("u@x.com", "cedears") is False
+    assert copiloto.puede_usar("u@x.com", "renta_variable") is False
+
+
+def test_detectar_tickers():
+    filas = [
+        {"ticker_corto": "AAPL", "underlying": "AAPL"},
+        {"ticker_corto": "MELI", "underlying": "MELI"},
+        {"ticker_corto": "NVDA", "underlying": "NVDA"},
+        {"ticker_corto": "GOOGL", "underlying": "GOOGL"},
+    ]
+    # match por token, case-insensitive; palabras comunes no matchean
+    out = copiloto._detectar_tickers(filas, "¿cómo viene nvda contra AAPL hoy?", [])
+    assert [f["ticker_corto"] for f in out] == ["NVDA", "AAPL"]
+    # follow-up: el ticker viene de una pregunta previa del historial
+    out = copiloto._detectar_tickers(filas, "¿y sus pivots?", [{"pregunta": "dame MELI"}])
+    assert [f["ticker_corto"] for f in out] == ["MELI"]
+    # cap de 3
+    out = copiloto._detectar_tickers(filas, "AAPL MELI NVDA GOOGL", [])
+    assert len(out) == copiloto._MAX_TICKERS_DETALLE
+
+
+def test_extras_entran_al_contexto_y_su_fallo_no_rompe(monkeypatch):
+    capturado = {}
+
+    def fake_completar(tarea, *, system, user, usuario=None):
+        capturado["user"] = user
+        return "ok", 1
+
+    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+
+    _vista_fake(monkeypatch)
+    copiloto.VISTAS["fake"]["extras"] = lambda filas, pregunta, historial: ["[CCL live] 1.234"]
+    assert copiloto.preguntar("fake", "¿cuánto está el ccl?")["ok"] is True
+    assert "[CCL live] 1.234" in capturado["user"]
+
+    copiloto.VISTAS["fake"]["extras"] = lambda *a: 1 / 0
+    out = copiloto.preguntar("fake", "¿algo?")
+    assert out["ok"] is True  # extras rotos → contexto sin detalle, pregunta sigue
+
+
+def test_pct_convierte_fraccion():
+    assert copiloto._pct(0.0123) == "1.23%"
+    assert copiloto._pct(None) == "-"
+    assert copiloto._pct(0.4567, 1) == "45.7%"
 
 
 def test_feedback_valor_invalido():

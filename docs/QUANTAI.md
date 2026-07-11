@@ -251,8 +251,22 @@ v1 no persiste historial.
   oro 3 ni se activa). Vistas con datos de clientes exigirán esa capa ANTES.
 - Degradación: todo fallo → `ok=false` con motivo; el panel muestra "IA no
   disponible", la tabla ni se entera.
-- Frontend (acaquant-web): `ia-vista-panel.tsx` — drawer lateral montado en la
-  vista CEDEARs, oculto sin módulo `ia`, con fuente de datos visible y 👍/👎.
+- Frontend (acaquant-web): `ia-vista-panel.tsx` — drawer lateral montado en el
+  shell de Renta Variable (presente en ambas tabs), oculto sin módulo `ia`,
+  con fuente de datos visible, 👍/👎 y botón "Consultale a la IA".
+
+**v1.1 (2026-07-11, pedido del user): copiloto de la VISTA completa, no solo
+la tabla.** La vista `renta_variable` suma al contexto: **CCL live** (siempre,
+1 línea) y **detalle por ticker** — pivots 4 marcos, quant (beta/corr vs
+SPY/QQQ, vol, z-score), últimos 15 retornos diarios y fundamentals Refinitiv
+(si la empresa está en `research.companies`; hoy cobertura ~1 empresa, RKLB —
+crece sola al cargar más). Cómo sin explotar tokens: **detección determinista
+de tickers en la pregunta** (match de tokens contra ticker/underlying del
+universo, sin LLM, cap 3) → solo los bloques de los tickers nombrados entran
+al contexto. El system prompt le enseña a pedir el ticker exacto cuando el
+detalle no está. Fuera del alcance de esta vista (son otras páginas): Trade
+Lab (admin), intradía/time-sales (/trading), Mesa de Estrategia (/retorno).
+Alias transitorio `cedears` → borrar tras confirmar el deploy.
 
 **Pendientes:** deploy + shadow (el admin la usa unos días y se leen
 `ia.trazas` antes de abrirla a la mesa) · eval set de `copiloto_vista` con

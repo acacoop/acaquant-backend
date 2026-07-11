@@ -127,6 +127,24 @@
         "piv_anual",
         "piv_mensual"
       ]
+    },
+    {
+      "id": "ticker_natural",
+      "origen": "shadow 2026-07-11 — respuesta tecnica (PP-R1, z-score, beta) a una pregunta simple de mesa",
+      "pregunta": "como viene GGAL? le queda recorrido para arriba?",
+      "esperado_any": [
+        "GGAL",
+        "[Gg]alicia"
+      ],
+      "prohibido": [
+        "\\bPP\\b",
+        "\\bR[123]\\b",
+        "\\bS[123]\\b",
+        "z-?score",
+        "zona_piv",
+        "piv_"
+      ],
+      "max_chars": 1000
     }
   ]
 }

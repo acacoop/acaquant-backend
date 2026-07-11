@@ -69,6 +69,24 @@ agrega como caso — el set crece con la realidad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.12 (números verificados + pivots traducidos)
+- **[bug real]** El modelo citaba la COLUMNA equivocada y volteaba signos
+  (dijo "MU ytd −5.13" cuando −5.13 es el MES y el año es +243; "TGT −38"
+  cuando es +38). La tabla estaba bien; el modelo se perdía entre 26 headers
+  crípticos (`adr_ret_mtd_pct` vs `ytd`).
+- **[contexto]** Headers del TSV renombrados a lenguaje claro e inconfundible:
+  `ret_mes%`, `ret_año%`, `precio_usd_ny`, `var_dia_usd%`, `zona_piv_año`…
+- **[verificación +]** Chequeo mecánico anti-alucinación: cada número de la
+  respuesta se busca en el contexto enviado (tolerancia de redondeo; ignora
+  rankings/años). Números sin respaldo → warning en logs + `⚠ tomalo con
+  pinzas` visible en el panel del copiloto (nivel informar, no bloquea).
+- **[prompt +]** Ejemplos few-shot de estilo (MAL/BIEN) + pivots como CONTEXTO
+  jamás vocabulario: nunca decir PP/R1/S2 al usuario (salvo que él los nombre);
+  traducir la zona a lectura de mesa y dar precios concretos, no nomenclatura.
+  Semántica del user: R3/S3 extremos, R1/S1 puede seguir o rebotar al PP,
+  R2/S2 tendencia clara.
+- **[evals]** Caso `ticker_natural` (la respuesta técnica de GGAL, fallo real).
+
 ### 2026-07-11 — v1.11 (voz de operador)
 - **[prompt +]** Regla de identidad: habla como OPERADOR, no como analista de
   datos — prohibido mencionar columnas/jerga interna ("es_ia",

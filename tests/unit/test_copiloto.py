@@ -174,6 +174,30 @@ def test_extras_entran_al_contexto_y_su_fallo_no_rompe(monkeypatch):
     assert out["ok"] is True  # extras rotos → contexto sin detalle, pregunta sigue
 
 
+def test_tsv_headers_renombrados():
+    tsv = copiloto._tsv(
+        [{"adr_ret_mtd_pct": 5.0, "adr_ret_ytd_pct": -23.37}],
+        [("adr_ret_mtd_pct", "ret_mes%"), ("adr_ret_ytd_pct", "ret_año%")],
+    )
+    lineas = tsv.split("\n")
+    assert lineas[0] == "ret_mes%\tret_año%"
+    assert lineas[1] == "5.00\t-23.37"
+
+
+def test_numeros_sin_respaldo():
+    ctx = "ticker\tret_mes%\tret_año%\nMU\t-5.13\t243.12\nTGT\t3.72\t38.25"
+    # números copiados bien (con signo dado vuelta igual matchea por |abs|,
+    # y el redondeo a entero también)
+    ok, total = copiloto._numeros_sin_respaldo("MU +243.12% en el año, TGT +38%", ctx)
+    assert (ok, total) == (0, 2)
+    # un número inventado se detecta
+    ok, total = copiloto._numeros_sin_respaldo("MU subió 99.99% este mes", ctx)
+    assert ok == 1 and total == 1
+    # posiciones de ranking y años no cuentan
+    ok, total = copiloto._numeros_sin_respaldo("1. MU 2. TGT (desde 2025)", ctx)
+    assert total == 0
+
+
 def test_pct_convierte_fraccion():
     assert copiloto._pct(0.0123) == "1.23%"
     assert copiloto._pct(None) == "-"

@@ -27,6 +27,7 @@ Decisiones de diseño (asentadas en docs/QUANTAI.md — P3):
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 
 from api.cache import cached
@@ -59,12 +60,23 @@ nada de tablas markdown: el panel es angosto).
 - Directo al resultado: NUNCA muestres cálculos intermedios, correcciones, dudas ni tu \
 razonamiento. Máximo ~12 líneas salvo que te pidan más.
 - Hablás como un OPERADOR, no como un analista de datos: JAMÁS menciones nombres de \
-columnas ni jerga interna (nada de "es_ia", "adr_ret_mtd_pct", "columna", "de la tabla", \
-"el subyacente según el campo…"). El criterio de un ranking va en UNA línea de lenguaje \
-de mesa (ej. "Por retorno del mes en USD:") y después la lista, ordenada de verdad.
-- Si piden N papeles, das EXACTAMENTE N. Sin resumen redundante al final (nada de listar \
-seis y cerrar con "los 3 mejores son…"), sin aclaraciones de fuente, fecha ni qué quedó \
-afuera.
+columnas ni jerga interna. El criterio de un ranking va en UNA línea de lenguaje de mesa \
+y después la lista, ordenada de verdad. COPIÁ los números EXACTOS de la fila y columna \
+correctas, con su signo — releé la fila antes de citar un número.
+- Si piden N papeles, das EXACTAMENTE N. Sin resumen redundante al final, sin aclaraciones \
+de fuente, fecha ni qué quedó afuera.
+- "En el año" en los datos = desde el 1° de enero (ret_año%). Si un papel voló antes de \
+enero, puede estar plano en el año igual — aclaralo solo si hace a la pregunta.
+
+Ejemplos de estilo — imitá los BIEN:
+MAL: "- adr_ret_ytd_pct negativo, adr_ret_wtd_pct positivo: TGT ytd -38.25%…"
+BIEN: "Pierden en el año pero repuntan esta semana: TGT (-12% año, +7% semana), …"
+MAL: "Criterio: papeles con es_ia=si ordenados por adr_ret_mtd_pct descendente"
+BIEN: "Por retorno del mes en USD, los papeles de IA:"
+MAL: "Está en PP-R1 anual y mensual, z-score 2.5 a 30 ruedas, beta 1.56 vs SPY"
+BIEN: "Viene fuerte, arriba del equilibrio del año. El salto de hoy es inusualmente \
+grande — después de un día así suele enfriarse algo. Si acompaña el mercado, tiene aire \
+hasta la zona de 54; arriba de eso, 56 es la próxima parada."
 """
 
 
@@ -83,10 +95,15 @@ def _celda(v) -> str:
     return str(v)
 
 
-def _tsv(filas: list[dict], columnas: list[str]) -> str:
-    lineas = ["\t".join(columnas)]
+def _tsv(filas: list[dict], columnas: list) -> str:
+    """columnas: campo str, o tupla (campo, header). Los headers van en
+    lenguaje claro y bien distintos entre sí — con 26 columnas por fila, un
+    header críptico ('adr_ret_mtd_pct' vs 'ytd') hacía que el modelo citara
+    la columna equivocada (verificado en el shadow 2026-07-11)."""
+    cols = [c if isinstance(c, tuple) else (c, c) for c in columnas]
+    lineas = ["\t".join(h for _campo, h in cols)]
     for f in filas:
-        lineas.append("\t".join(_celda(f.get(c)) for c in columnas))
+        lineas.append("\t".join(_celda(f.get(campo)) for campo, _h in cols))
     return "\n".join(lineas)
 
 
@@ -214,8 +231,6 @@ def _detectar_tickers(filas: list[dict], pregunta: str, historial: list[dict]) -
     """Tickers del universo mencionados en la pregunta (y en las previas, para
     follow-ups tipo '¿y sus pivots?'). Match determinista por token — sin LLM.
     Tokens ambiguos (palabras comunes) solo matchean escritos en mayúsculas."""
-    import re
-
     textos = [pregunta] + [h.get("pregunta") or "" for h in reversed(historial or [])]
     tokens: list[str] = []
     for txt in textos:
@@ -406,29 +421,30 @@ def _extras_renta_variable(filas: list[dict], pregunta: str, historial: list[dic
 # `extras` (opcional): callable(filas, pregunta, historial) → bloques adicionales
 # después de la tabla (CCL, detalle por ticker mencionado, fundamentals).
 _REGLAS_RENTA_VARIABLE = """Significado de las columnas (tablero de CEDEARs, mercado argentino):
-- ticker_corto: ticker del CEDEAR en BYMA. underlying: ticker del subyacente en NY.
-- ratio_cedear: cantidad de CEDEARs que equivalen a 1 acción del subyacente.
-- last/bid/offer/vwap: precios del CEDEAR en ARS. adr_last: precio del subyacente en USD (NY).
-- intraday_pct: variación % del CEDEAR contra la apertura de hoy. vs_1d_pct: contra el cierre \
-anterior. vs_1d_usd_pct: vs_1d ajustado por la variación del CCL (aprox. retorno en dólares).
-- spread_pct: spread bid/offer como % del precio medio (liquidez: menor = más líquido).
-- volume: nominales operados del CEDEAR. total_money: monto operado en ARS. \
-adr_dollar_vol: monto operado del subyacente en USD.
-- adr_intraday / adr_vs_1d_pct: variación del subyacente en NY (hoy / contra cierre anterior).
-- adr_ret_wtd_pct / adr_ret_7d_pct / adr_ret_mtd_pct / adr_ret_ytd_pct: retornos del \
-subyacente en USD (semana en curso / 7 días / mes en curso / año en curso).
-- CCL implícito de un papel = last × ratio_cedear / adr_last (ARS por USD).
-- es_ia: "si" = el papel pertenece a la cadena de valor de INTELIGENCIA ARTIFICIAL (es el \
-mismo filtro del botón AI de la vista). Para preguntas sobre acciones/papeles de IA usá \
-SIEMPRE esta columna, no el nombre de la empresa.
-- rubro: clasificación granular del papel (más fina que sector).
-- piv_anual / piv_mensual: ZONA del precio actual del subyacente respecto de sus pivots \
-Floor Trader del año/mes calendario previo. Lectura de la mesa (usala para dar contexto de \
-dónde está parado un papel, SIN listar niveles numéricos salvo que te los pidan): \
-">R3" = subió muchísimo, rompió el mapa del período; "R2-R3" = tendencia alcista ya clara; \
-"R1-R2" = subió algo; "PP-R1" y "S1-PP" = zona neutral alrededor del PP, que es la \
-referencia ideal para tomar decisiones; "S2-S1" = cayó algo; "S3-S2" = tendencia bajista \
-ya clara; "<S3" = cayó muchísimo.
+- ticker: el CEDEAR en BYMA. subyacente: la acción en NY. ratio: CEDEARs por 1 acción.
+- ia: "si" = pertenece a la cadena de valor de INTELIGENCIA ARTIFICIAL. Para preguntas \
+sobre acciones/papeles de IA usá SIEMPRE esta columna, no el nombre de la empresa.
+- rubro: clasificación granular (más fina que sector).
+- precio_ars/compra/venta/vwap: el CEDEAR en pesos. precio_usd_ny: la acción en USD en NY.
+- var_apertura%: CEDEAR contra la apertura de hoy. var_dia%: contra el cierre anterior. \
+var_dia_usd%: la variación del día en dólares (descuenta el CCL).
+- ny_hoy% / ny_dia%: la acción en NY, hoy contra apertura / contra cierre anterior.
+- ret_semana% / ret_7d% / ret_mes% / ret_año%: retornos de la acción en USD — semana en \
+curso, 7 días, mes en curso, y AÑO CALENDARIO en curso (desde el 1° de enero).
+- spread%: costo de entrar/salir (menor = más líquido). nominales/monto_ars: lo operado \
+del CEDEAR. monto_usd_ny: lo operado de la acción en NY.
+- zona_piv_año / zona_piv_mes: dónde está parado el papel respecto de los pivots del \
+período previo (contexto de posición, ver abajo cómo usarlo).
+- CCL implícito de un papel = precio_ars × ratio / precio_usd_ny (ARS por USD).
+
+Cómo usar las zonas de pivots — SON CONTEXTO PARA TU LECTURA, NO VOCABULARIO: al usuario \
+JAMÁS le digas "PP", "R1", "S2", "zona_piv" ni nomenclatura técnica, salvo que ÉL nombre \
+pivots o niveles en su pregunta. Traducí la zona a lectura de mesa: ">R3" = rompió todos \
+los techos del período; "R2-R3" = en plena tendencia alcista; "R1-R2" = subió y puede \
+estirar a la próxima zona o enfriarse; "PP-R1"/"S1-PP" = en zona de equilibrio, punto de \
+decisión; "S2-S1" = cayó y puede seguir o rebotar; "S3-S2" = tendencia bajista clara; \
+"<S3" = perforó todos los pisos. Si tenés los niveles (bloque detalle), podés dar el \
+PRECIO concreto ("tiene aire hasta la zona de 54"), nunca el nombre del nivel.
 
 Bloques adicionales que pueden aparecer después de la tabla:
 - [CCL live]: dólar contado con liquidación (ARS por USD), la referencia cambiaria del tablero.
@@ -452,18 +468,65 @@ VISTAS: dict[str, dict] = {
         "fetch": _fetch_cedears,
         "extras": _extras_renta_variable,
         "enriquecer": _enriquecer_cedears,
+        # (campo interno, header que ve el modelo) — headers claros y bien
+        # distintos entre sí: el modelo confundía mtd/ytd y firmaba mal signos
         "columnas": [
-            "ticker_corto", "nombre", "underlying", "ratio_cedear", "sector", "rubro",
-            "pais", "es_ia",
-            "last", "intraday_pct", "vs_1d_pct", "vs_1d_usd_pct",
-            "bid", "offer", "spread_pct", "vwap", "volume", "total_money",
-            "adr_last", "adr_intraday", "adr_vs_1d_pct",
-            "adr_ret_wtd_pct", "adr_ret_7d_pct", "adr_ret_mtd_pct", "adr_ret_ytd_pct",
-            "adr_dollar_vol", "piv_anual", "piv_mensual",
+            ("ticker_corto", "ticker"), ("nombre", "nombre"),
+            ("underlying", "subyacente"), ("ratio_cedear", "ratio"),
+            ("sector", "sector"), ("rubro", "rubro"), ("pais", "pais"),
+            ("es_ia", "ia"),
+            ("last", "precio_ars"), ("intraday_pct", "var_apertura%"),
+            ("vs_1d_pct", "var_dia%"), ("vs_1d_usd_pct", "var_dia_usd%"),
+            ("bid", "compra"), ("offer", "venta"), ("spread_pct", "spread%"),
+            ("vwap", "vwap"), ("volume", "nominales"), ("total_money", "monto_ars"),
+            ("adr_last", "precio_usd_ny"), ("adr_intraday", "ny_hoy%"),
+            ("adr_vs_1d_pct", "ny_dia%"),
+            ("adr_ret_wtd_pct", "ret_semana%"), ("adr_ret_7d_pct", "ret_7d%"),
+            ("adr_ret_mtd_pct", "ret_mes%"), ("adr_ret_ytd_pct", "ret_año%"),
+            ("adr_dollar_vol", "monto_usd_ny"),
+            ("piv_anual", "zona_piv_año"), ("piv_mensual", "zona_piv_mes"),
         ],
         "reglas": _REGLAS_RENTA_VARIABLE,
     },
 }
+
+
+# ── Verificación mecánica de números (anti alucinación) ─────────────────────
+# Principio QUANTAI: todo número del output debe existir en los datos que se
+# le dieron. El shadow (2026-07-11) mostró al modelo citando la columna
+# equivocada y volteando signos → esto lo detecta código, no un humano.
+
+_RE_NUM = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _numeros_sin_respaldo(respuesta: str, contexto: str) -> tuple[int, int]:
+    """(sin_respaldo, total_chequeados). Un número de la respuesta 'tiene
+    respaldo' si aparece (en valor absoluto, con tolerancia de redondeo) en el
+    contexto. Se ignoran enteros chicos (posiciones de ranking, cantidades) y
+    años — señal de alerta, no de bloqueo."""
+    ctx = set()
+    for m in _RE_NUM.finditer(contexto):
+        try:
+            ctx.add(abs(float(m.group())))
+        except ValueError:
+            continue
+    total = sospechosos = 0
+    for m in _RE_NUM.finditer(respuesta.replace(",", ".")):
+        try:
+            v = abs(float(m.group().replace(",", ".")))
+        except ValueError:
+            continue
+        es_entero = "." not in m.group()
+        if es_entero and (v <= 31 or 1900 <= v <= 2100):
+            continue  # rankings, cantidades, fechas
+        total += 1
+        respaldado = any(
+            abs(c - v) <= max(0.011, 0.001 * v) or (es_entero and round(c) == v)
+            for c in ctx
+        )
+        if not respaldado:
+            sospechosos += 1
+    return sospechosos, total
 
 
 def vistas_para(email: str) -> list[dict]:
@@ -554,19 +617,25 @@ def preguntar(
 
     from core.ai import completar_con_traza
 
+    contexto = "\n".join(partes)
     texto, traza_id = completar_con_traza(
         "copiloto_vista",
         system=_SYSTEM_BASE + "\n" + cfg["reglas"],
-        user="\n".join(partes),
+        user=contexto,
         usuario=usuario,
         detalle=pregunta,  # queda en la traza → panel OBSERVABILIDAD
     )
     if not texto:
         return {"ok": False, "error": "ia_no_disponible"}
+    sin_respaldo, chequeados = _numeros_sin_respaldo(texto, contexto)
+    if sin_respaldo:
+        logger.warning("copiloto %s: %d/%d números sin respaldo en el contexto (traza %s)",
+                       vista, sin_respaldo, chequeados, traza_id)
     return {
         "ok": True,
         "respuesta": texto,
         "traza_id": traza_id,
+        "numeros_sin_respaldo": sin_respaldo,
         "fuente": {
             "vista": vista,
             "titulo": cfg["titulo"],

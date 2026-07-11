@@ -73,6 +73,18 @@ puede volver a romperse, se corra o no el runner.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.13 (auto-corrección + solo lo pedido)
+- **[agente +]** Reflexion: si la verificación encuentra números sin respaldo,
+  la respuesta NO se muestra — el modelo recibe su propia respuesta con la
+  lista exacta de números que no cierran y la reescribe con datos reales (1
+  reintento; se queda la mejor). El costo extra solo se paga cuando falla.
+- **[verificación]** La advertencia ahora dice CUÁLES números no verificó
+  ("⚠ No pude verificar: 325M, 8.8M"). Y entiende abreviaciones K/M/B
+  ("325M" ≈ 325.432.132 → respaldado) — los 2 falsos positivos del shadow
+  eran montos abreviados.
+- **[prompt +]** Responder SOLO lo pedido — sin métricas de yapa (el shadow
+  metía volumen en una pregunta de pivots) + ejemplo MAL/BIEN del caso real.
+
 ### 2026-07-11 — v1.12 (números verificados + pivots traducidos)
 - **[bug real]** El modelo citaba la COLUMNA equivocada y volteaba signos
   (dijo "MU ytd −5.13" cuando −5.13 es el MES y el año es +243; "TGT −38"

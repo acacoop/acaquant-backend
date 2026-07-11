@@ -185,17 +185,37 @@ def test_tsv_headers_renombrados():
 
 
 def test_numeros_sin_respaldo():
-    ctx = "ticker\tret_mes%\tret_año%\nMU\t-5.13\t243.12\nTGT\t3.72\t38.25"
-    # números copiados bien (con signo dado vuelta igual matchea por |abs|,
-    # y el redondeo a entero también)
-    ok, total = copiloto._numeros_sin_respaldo("MU +243.12% en el año, TGT +38%", ctx)
-    assert (ok, total) == (0, 2)
-    # un número inventado se detecta
-    ok, total = copiloto._numeros_sin_respaldo("MU subió 99.99% este mes", ctx)
-    assert ok == 1 and total == 1
+    ctx = "ticker\tret_mes%\tret_año%\tmonto\nMU\t-5.13\t243.12\t325432132.00\nTGT\t3.72\t38.25\t8842000.00"
+    # copiados bien (redondeo a entero incluido) → sin sospechosos
+    malos, total = copiloto._numeros_sin_respaldo("MU +243.12% en el año, TGT +38%", ctx)
+    assert (malos, total) == ([], 2)
+    # abreviaciones con sufijo (325M ≈ 325432132, 8.8M ≈ 8842000) → respaldadas
+    malos, total = copiloto._numeros_sin_respaldo("movieron 325M y 8.8M", ctx)
+    assert malos == []
+    # un número inventado se detecta y se DEVUELVE cuál es
+    malos, total = copiloto._numeros_sin_respaldo("MU subió 99.99% este mes", ctx)
+    assert malos == ["99.99"] and total == 1
     # posiciones de ranking y años no cuentan
-    ok, total = copiloto._numeros_sin_respaldo("1. MU 2. TGT (desde 2025)", ctx)
+    malos, total = copiloto._numeros_sin_respaldo("1. MU 2. TGT (desde 2025)", ctx)
     assert total == 0
+
+
+def test_autocorreccion_reintenta_con_numeros_malos(monkeypatch):
+    _vista_fake(monkeypatch)
+    llamadas = []
+
+    def fake_completar(tarea, *, system, user, usuario=None, detalle=None):
+        llamadas.append({"user": user, "detalle": detalle})
+        if len(llamadas) == 1:
+            return "AAPL subió 99.99%", 1  # número inventado → dispara reflexion
+        return "AAPL subió 1.23%", 2       # corregido con el dato real
+
+    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    out = copiloto.preguntar("fake", "¿cómo viene AAPL?")
+    assert len(llamadas) == 2
+    assert "99.99" in llamadas[1]["user"] and "autocorrección" in llamadas[1]["detalle"]
+    assert out["respuesta"] == "AAPL subió 1.23%" and out["traza_id"] == 2
+    assert out["numeros_sin_respaldo"] == []
 
 
 def test_pct_convierte_fraccion():

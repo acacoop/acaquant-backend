@@ -65,6 +65,8 @@ y después la lista, ordenada de verdad. COPIÁ los números EXACTOS de la fila 
 correctas, con su signo — releé la fila antes de citar un número.
 - Si piden N papeles, das EXACTAMENTE N. Sin resumen redundante al final, sin aclaraciones \
 de fuente, fecha ni qué quedó afuera.
+- Respondés SOLO lo que se pregunta: NO agregues métricas que nadie pidió (volumen, \
+spread, variaciones) salvo que la pregunta las necesite para tener sentido.
 - "En el año" en los datos = desde el 1° de enero (ret_año%). Si un papel voló antes de \
 enero, puede estar plano en el año igual — aclaralo solo si hace a la pregunta.
 
@@ -77,6 +79,9 @@ MAL: "Está en PP-R1 anual y mensual, z-score 2.5 a 30 ruedas, beta 1.56 vs SPY"
 BIEN: "Viene fuerte, arriba del equilibrio del año. El salto de hoy es inusualmente \
 grande — después de un día así suele enfriarse algo. Si acompaña el mercado, tiene aire \
 hasta la zona de 54; arriba de eso, 56 es la próxima parada."
+MAL: "- V: PP-R1, monto ARS 325M, var_dia% -0.07 — tocando la banda" (nadie pidió volumen \
+ni variación, y habla en columnas)
+BIEN: "- Visa — apoyada justo en el equilibrio del año"
 """
 
 
@@ -496,37 +501,47 @@ VISTAS: dict[str, dict] = {
 # le dieron. El shadow (2026-07-11) mostró al modelo citando la columna
 # equivocada y volteando signos → esto lo detecta código, no un humano.
 
-_RE_NUM = re.compile(r"-?\d+(?:\.\d+)?")
+_RE_NUM = re.compile(r"(-?\d+(?:\.\d+)?)\s*([kKmMbB])?\b")
+_ESCALAS = {"k": 1e3, "m": 1e6, "b": 1e9}
 
 
-def _numeros_sin_respaldo(respuesta: str, contexto: str) -> tuple[int, int]:
-    """(sin_respaldo, total_chequeados). Un número de la respuesta 'tiene
-    respaldo' si aparece (en valor absoluto, con tolerancia de redondeo) en el
-    contexto. Se ignoran enteros chicos (posiciones de ranking, cantidades) y
-    años — señal de alerta, no de bloqueo."""
-    ctx = set()
+def _numeros_sin_respaldo(respuesta: str, contexto: str) -> tuple[list[str], int]:
+    """(lista de números sin respaldo tal como aparecen, total_chequeados).
+    Un número 'tiene respaldo' si aparece (en valor absoluto, con tolerancia
+    de redondeo) en el contexto — incluyendo abreviaciones tipo '325M' (se
+    prueba ×1e3/1e6/1e9 con tolerancia relativa). Se ignoran enteros chicos
+    (rankings, cantidades) y años."""
+    ctx: set[float] = set()
     for m in _RE_NUM.finditer(contexto):
         try:
-            ctx.add(abs(float(m.group())))
+            ctx.add(abs(float(m.group(1))))
         except ValueError:
             continue
-    total = sospechosos = 0
+    total = 0
+    malos: list[str] = []
     for m in _RE_NUM.finditer(respuesta.replace(",", ".")):
         try:
-            v = abs(float(m.group().replace(",", ".")))
+            v = abs(float(m.group(1)))
         except ValueError:
             continue
-        es_entero = "." not in m.group()
-        if es_entero and (v <= 31 or 1900 <= v <= 2100):
+        sufijo = (m.group(2) or "").lower()
+        es_entero = "." not in m.group(1)
+        if not sufijo and es_entero and (v <= 31 or 1900 <= v <= 2100):
             continue  # rankings, cantidades, fechas
         total += 1
-        respaldado = any(
-            abs(c - v) <= max(0.011, 0.001 * v) or (es_entero and round(c) == v)
-            for c in ctx
-        )
-        if not respaldado:
-            sospechosos += 1
-    return sospechosos, total
+        v_escalado = v * _ESCALAS[sufijo] if sufijo else None
+
+        def _match(c: float, v=v, es_entero=es_entero, v_escalado=v_escalado) -> bool:
+            if abs(c - v) <= max(0.011, 0.001 * v):
+                return True  # copiado tal cual (tolerancia de redondeo estricta)
+            if es_entero and round(c) == v:
+                return True  # el modelo redondeó a entero
+            # abreviado con sufijo ("325M" ≈ 325432132): tolerancia relativa
+            return v_escalado is not None and abs(c - v_escalado) <= 0.015 * v_escalado
+
+        if not any(_match(c) for c in ctx):
+            malos.append(m.group(0).strip())
+    return malos, total
 
 
 def vistas_para(email: str) -> list[dict]:
@@ -627,15 +642,39 @@ def preguntar(
     )
     if not texto:
         return {"ok": False, "error": "ia_no_disponible"}
-    sin_respaldo, chequeados = _numeros_sin_respaldo(texto, contexto)
-    if sin_respaldo:
-        logger.warning("copiloto %s: %d/%d números sin respaldo en el contexto (traza %s)",
-                       vista, sin_respaldo, chequeados, traza_id)
+
+    # Reflexion (QUANTAI, nonparametric): si hay números sin respaldo en los
+    # datos, NO se muestran — se le devuelve al modelo su respuesta con la
+    # lista exacta y se lo obliga a reescribir citando números reales. Solo
+    # si aún así queda algo, sale con la advertencia (y la lista) al usuario.
+    malos, chequeados = _numeros_sin_respaldo(texto, contexto)
+    if malos:
+        logger.warning("copiloto %s: %d/%d números sin respaldo (%s) — autocorrección",
+                       vista, len(malos), chequeados, malos)
+        correccion = (
+            f"{contexto}\n[tu respuesta previa]\n{texto}\n"
+            "[verificación automática] Estos números de tu respuesta NO aparecen en los "
+            f"datos: {', '.join(malos)}. Reescribí la respuesta COMPLETA usando solo números "
+            "exactos de los datos (si abreviás un monto con M, redondeá el dato real). "
+            "Mismo formato y largo, sin mencionar esta corrección."
+        )
+        texto2, traza_id2 = completar_con_traza(
+            "copiloto_vista",
+            system=_SYSTEM_BASE + "\n" + cfg["reglas"],
+            user=correccion,
+            usuario=usuario,
+            detalle=f"[autocorrección] {pregunta}",
+        )
+        if texto2:
+            malos2, _ = _numeros_sin_respaldo(texto2, contexto)
+            if len(malos2) < len(malos):
+                texto, traza_id, malos = texto2, traza_id2, malos2
+
     return {
         "ok": True,
         "respuesta": texto,
         "traza_id": traza_id,
-        "numeros_sin_respaldo": sin_respaldo,
+        "numeros_sin_respaldo": malos,
         "fuente": {
             "vista": vista,
             "titulo": cfg["titulo"],

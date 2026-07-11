@@ -20,6 +20,7 @@ CRONTAB = ROOT / "deploy" / "crontab.txt"
 # sub-pasos de enriquecimiento). Se excluyen a propósito del árbol del Diagnóstico.
 _CRONS_IGNORADOS = {
     "jobs.watchdog",            # watchdog del propio sistema
+    "jobs.triage",              # triage IA de fallas de jobs (P2 QuantAI) — observa al sistema
     "jobs.cleanup_curvas",      # limpieza
     "jobs.cleanup_futuros_dlr", # limpieza
     "jobs.archive_options_data",  # limpieza (prune intradía de mercado.options_data)

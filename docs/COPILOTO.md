@@ -113,6 +113,14 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.37 (carry solo-real + diag de contexto)
+- **[filtro +]** |carry USD| >15% en 14d = dato roto (batería ronda 3: PARP
+  "+464%", TO26 "−37%" eran precios viejos) → excluido del bloque, misma
+  política que los residuos.
+- **[tooling]** `scripts/diag_contexto_rf.py`: imprime el contexto EXACTO que
+  ve el modelo (tabla + todos los bloques) sin gastar tokens — la lupa para
+  cazar bloqueos de verificación (números fantasma 156/143 en 26/29/33).
+
 ### 2026-07-12 — v1.36 (el tablero de /retorno mapeado a RF)
 - **[contexto +]** Pedido del user (fundamental): `[retorno de PRECIO por
   curva]` mediana 7d/14d/MTD desde cierres históricos (honestidad declarada:

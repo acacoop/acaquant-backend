@@ -113,15 +113,16 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
-### 2026-07-12 — v1.30 (residuos sospechosos ⚠ + rankings humanos en RF)
-- **[conocimiento de mesa +]** Residuo >500bps = ⚠ marcado por CÓDIGO: casi
-  seguro precio viejo o bono ilíquido, NO ganga (shadow: presentó +9337bps
-  como "extremadamente barato"). El prompt separa lo sospechoso de lo
-  genuinamente barato.
+### 2026-07-12 — v1.30 (solo señales REALES + rankings humanos en RF)
+- **[conocimiento de mesa +]** Directiva del user: "no quiero nada de
+  sospechoso, quiero cosas REALES" → los residuos >500bps (precio viejo /
+  bono ilíquido; shadow: +9337bps presentado como ganga) se EXCLUYEN del
+  ranking por código — el modelo nunca los ve como candidatos
+  (`_MAX_RESIDUO_REAL_BPS`). Si un residuo enorme aparece en la tabla general
+  pero no en el bloque, el prompt le prohíbe presentarlo como oportunidad.
 - **[prompt + / chip ~]** Rankings RF humanos: conclusión en una frase, tabla
   top 3 por lado, lectura final que AGREGA (porqué/riesgo) sin repetir la
-  tabla — con ejemplo MAL/BIEN del caso real. Chip "Baratos vs curva"
-  reescrito en ese molde.
+  tabla. Chip "Baratos vs curva" reescrito en ese molde.
 
 ### 2026-07-12 — v1.29.1 (fix: el fair value no llegaba)
 - **[bugfix]** "Baratos vs curva" decía "sin precio teórico": llamada

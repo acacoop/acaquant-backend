@@ -667,6 +667,7 @@ nombre el ticker exacto en la pregunta."""
 
 _CURVAS_RF = ("cer", "tasa_fija", "soberanos", "dolar_linked")
 _CURVAS_FIT = ("cer", "tasa_fija")  # fair value solo existe para estas
+_MAX_RESIDUO_REAL_BPS = 500  # residuo mayor = precio viejo/iliquidez → se excluye
 
 
 def _fetch_renta_fija(params: dict | None = None) -> list[dict]:
@@ -767,27 +768,32 @@ def _baratos_caros_rf() -> list[str]:
         except Exception as e:
             logger.warning("copiloto rf: fv %s falló (%s)", curva, e)
             continue
-        bonos = [b for b in fv.get("bonos") or [] if b.get("residuo_bps") is not None]
+        # SOLO señales reales (directiva del user): los residuos absurdos
+        # (>500bps = precio viejo / bono que no opera) se EXCLUYEN acá — el
+        # modelo nunca los ve como candidatos.
+        bonos = [
+            b for b in fv.get("bonos") or []
+            if b.get("residuo_bps") is not None
+            and abs(b["residuo_bps"]) <= _MAX_RESIDUO_REAL_BPS
+        ]
         if not bonos:
             continue
         bonos.sort(key=lambda b: -b["residuo_bps"])
         r2 = fv.get("r2")
-
-        def _item(b: dict) -> str:
-            # residuo absurdo = casi seguro precio viejo / bono ilíquido, NO
-            # ganga — la sospecha la marca el CÓDIGO, el modelo la explica
-            marca = "⚠" if abs(b["residuo_bps"]) > 500 else ""
-            return f"{b.get('ticker_corto')} {b['residuo_bps']:+.0f}bps{marca}"
-
         partes.append(
             f"{curva} (fit r²={r2:.2f})"
             + (" — fit flojo, cautela" if r2 and r2 < 0.9 else "")
-            + " · baratos: " + ", ".join(_item(b) for b in bonos[:3])
-            + " · caros: " + ", ".join(_item(b) for b in bonos[-3:][::-1])
+            + " · baratos: "
+            + ", ".join(f"{b.get('ticker_corto')} {b['residuo_bps']:+.0f}bps"
+                        for b in bonos[:3])
+            + " · caros: "
+            + ", ".join(f"{b.get('ticker_corto')} {b['residuo_bps']:+.0f}bps"
+                        for b in bonos[-3:][::-1])
         )
     return (["[baratos y caros vs la curva — residuo del fair value; positivo = rinde "
-             "MÁS que la curva. ⚠ = residuo enorme (>500bps): casi seguro precio viejo "
-             "o iliquidez, NO una ganga]"] + partes) if partes else []
+             "MÁS que la curva. Ya FILTRADO por código: los residuos >500bps (precio "
+             "viejo/iliquidez) no aparecen — todo lo listado es señal operable]"]
+            + partes) if partes else []
 
 
 def _forwards_rf(filas: list[dict], pregunta: str, historial: list[dict]) -> list[str]:
@@ -901,16 +907,13 @@ el breakeven > expectativa (REM/IPC), el mercado paga por cobertura CER; si <, l
 fija gana si la inflación acompaña. [MEP live] ancla los tc_breakeven.
 
 Reglas de acá:
-- Residuos con ⚠ (>500bps): NO son gangas — casi siempre es un precio viejo o un bono que \
-no opera. Nombralos como sospechosos ("chequealo antes de festejar"), JAMÁS como los más \
-baratos de verdad. Lo genuinamente barato está en los residuos grandes SIN ⚠.
+- El bloque [baratos y caros] ya viene FILTRADO: los residuos absurdos (precio viejo / \
+bonos que no operan) NO aparecen — todo lo que ves ahí es señal real y operable. Si en la \
+TABLA general ves un residuo_bps enorme que no figura en el bloque, es porque fue filtrado \
+por sospechoso: no lo presentes como oportunidad.
 - Formato de rankings acá: conclusión en UNA frase, tabla CHICA (top 3 por lado como \
 mucho), y una lectura final que AGREGUE algo (el porqué probable, el riesgo) — nunca que \
 repita lo que la tabla ya muestra.
-Ejemplo — MAL: "Lectura: los tasa fija largos están extremadamente baratos, rinden hasta \
-93 puntos más…" (repite la tabla y se come el ⚠). BIEN: "Lo genuinamente barato hoy es \
-TX31; los tasa fija 2027 muestran residuos absurdos que huelen a precio viejo, no a \
-oportunidad — chequealos antes de festejar."
 - CER tiene settlement T-10 hábiles: si un bono no operó hoy, su TEA puede arrastrar el \
 CER de ayer — ante algo raro en un CER ilíquido, mencioná esta salvedad.
 - Comparar dos bonos = spot de ambos + el forward implícito entre ellos (si aparece el \
@@ -1386,10 +1389,9 @@ VISTAS: dict[str, dict] = {
              "pregunta": "¿Cómo se movieron las curvas hoy contra el último cierre? "
                          "Qué comprimió, qué descomprimió, y si hay una historia detrás."},
             {"label": "Baratos vs curva",
-             "pregunta": "¿Qué está genuinamente barato y qué caro contra su curva hoy? "
-                         "Top 3 por lado en tabla chica, separando lo sospechoso (⚠) de "
-                         "lo real, y una lectura que me diga el porqué — sin repetir la "
-                         "tabla."},
+             "pregunta": "¿Qué está barato y qué caro contra su curva hoy? Top 3 por "
+                         "lado en tabla chica y una lectura que me diga el porqué — sin "
+                         "repetir la tabla."},
             {"label": "Forwards desarbitrados",
              "pregunta": "¿Hay forwards lejos de su historia hoy? Contame si huele a "
                          "arbitraje o a cambio de régimen."},

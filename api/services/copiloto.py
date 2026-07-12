@@ -807,8 +807,10 @@ def _libro_resumen(ticker: str) -> list[str]:
             linea += f" · spread {_num(spread)}"
         if tot_bid + tot_off:
             pct_bid = round(100 * tot_bid / (tot_bid + tot_off))
+            # ambos lados YA calculados: el modelo no puede derivar 100−x
+            # (verificación estricta) y el desbalance se cita por cualquiera
             linea += (f" · profundidad {tot_bid} nominales comprando vs {tot_off} vendiendo "
-                      f"({pct_bid}% del lado comprador)")
+                      f"· desbalance {pct_bid}% comprador / {100 - pct_bid}% vendedor")
         partes.append(linea)
     return partes
 

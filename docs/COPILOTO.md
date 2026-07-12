@@ -113,6 +113,13 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.27 (desbalance del libro con los dos lados)
+- **[bugfix]** El chip "Lectura del libro" quedaba bloqueado por la
+  verificación: el contexto daba solo "14% comprador" y el modelo decía
+  "86% vendedor" (100−14 = aritmética prohibida → sin respaldo). El bloque
+  [libro] ahora entrega ambos porcentajes ya calculados. Patrón general:
+  si un derivado obvio se va a citar, va PRECALCULADO en el contexto.
+
 ### 2026-07-12 — v1.26 (la doctrina del trader: pivots, tendencia, posiciones)
 - **[contexto +]** Tarjetas enriquecidas: cada nivel PP..S3 como "precio
   (dif%)" YA calculado (el toggle DIF% de la vista — cero aritmética del

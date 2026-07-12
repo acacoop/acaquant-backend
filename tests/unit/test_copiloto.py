@@ -500,7 +500,10 @@ def test_fetch_renta_fija_merge(monkeypatch):
     import api.services.fair_value as fv
     import api.services.renta_fija as rf
 
-    monkeypatch.setattr(fv, "get_fair_value_live", lambda curva: {
+    # OJO: kwargs-only, como el wrapper @cached real — una llamada posicional
+    # acá adentro tiene que EXPLOTAR el test (bug real 2026-07-12: el fair
+    # value no llegaba al copiloto por llamarlo posicional)
+    monkeypatch.setattr(fv, "get_fair_value_live", lambda *, curva: {
         "r2": 0.97,
         "bonos": [{"ticker_corto": "TX26", "tea_teorica": 41.0, "residuo_bps": 85.0}],
     } if curva == "cer" else {"bonos": []})

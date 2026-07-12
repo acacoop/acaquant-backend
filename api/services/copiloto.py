@@ -677,7 +677,7 @@ def _fetch_renta_fija(params: dict | None = None) -> list[dict]:
     fv_por_ticker: dict[str, dict] = {}
     for curva in _CURVAS_FIT:
         try:
-            for b in (fair_value.get_fair_value_live(curva) or {}).get("bonos") or []:
+            for b in (fair_value.get_fair_value_live(curva=curva) or {}).get("bonos") or []:
                 fv_por_ticker[b.get("ticker_corto") or b.get("ticker")] = b
         except Exception as e:
             logger.warning("copiloto rf: fair value %s falló (%s)", curva, e)
@@ -763,7 +763,7 @@ def _baratos_caros_rf() -> list[str]:
     partes = []
     for curva in _CURVAS_FIT:
         try:
-            fv = fair_value.get_fair_value_live(curva) or {}
+            fv = fair_value.get_fair_value_live(curva=curva) or {}
         except Exception as e:
             logger.warning("copiloto rf: fv %s falló (%s)", curva, e)
             continue

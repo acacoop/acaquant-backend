@@ -113,6 +113,16 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.35 (ronda 2 de la batería: dólares live + spread de legislación)
+- **[bugfix]** `get_ultimo_mep()` devuelve un dict {mep, ccl, canje, oficial}
+  — el bloque ahora muestra [dólares live] MEP·CCL·oficial (antes float(dict)
+  reventaba en silencio).
+- **[contexto +]** `[spread de legislación]`: TEA AL−GD en bps HOY y su
+  promedio de 90 ruedas (de snapshots_cierre_hist, pares AL30D/GD30D y
+  AL35D/GD35D) — "¿caro o barato contra lo normal?" ahora se responde con
+  datos (la pregunta 19 quedaba bloqueada porque el modelo intentaba el
+  histórico de memoria).
+
 ### 2026-07-12 — v1.34 (batería de 15: cluster de escalas y contratos)
 - **[bugfix ×5, todos cazados por scripts/bateria_rf]** (1) TEA/TEM/tea_fit
   llegan en FRACCIÓN de los services → normalizados a % en el fetch ("lecaps

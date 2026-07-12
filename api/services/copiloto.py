@@ -1054,6 +1054,47 @@ def _descomposicion_rf(ticker: str, etiqueta: str) -> list[str]:
     return [linea]
 
 
+_PARES_LEGISLACION = (("AL30D", "GD30D"), ("AL35D", "GD35D"))
+
+
+def _spread_legislacion_rf(filas: list[dict]) -> list[str]:
+    """[spread de legislación]: TEA AL − TEA GD hoy y su promedio de 90 días
+    (de snapshots_cierre_hist) — 'caro o barato contra lo normal' con datos,
+    no con silencio (batería 2026-07-12: la pregunta quedaba bloqueada)."""
+    from core.postgres import get_pool
+
+    por_tk = {f.get("ticker_corto"): f for f in filas}
+    lineas = []
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            for al, gd in _PARES_LEGISLACION:
+                fa, fg = por_tk.get(al), por_tk.get(gd)
+                if not fa or not fg or fa.get("tea") is None or fg.get("tea") is None:
+                    continue
+                hoy_bps = (fa["tea"] - fg["tea"]) * 100  # teas ya en %
+                cur.execute(
+                    """
+                    SELECT avg((a.tea - g.tea) * 10000), count(*)
+                    FROM mercado.snapshots_cierre_hist a
+                    JOIN mercado.snapshots_cierre_hist g
+                      ON g.fecha = a.fecha AND g.ticker_corto = %s
+                    WHERE a.ticker_corto = %s
+                      AND a.fecha >= now()::date - 90
+                      AND a.tea IS NOT NULL AND g.tea IS NOT NULL
+                    """,
+                    (gd, al),
+                )
+                prom, n = cur.fetchone() or (None, 0)
+                linea = f"{al}−{gd}: hoy {hoy_bps:+.0f}bps"
+                if prom is not None and n:
+                    linea += f" vs promedio 90d {float(prom):+.0f}bps ({n} ruedas)"
+                lineas.append(linea)
+    except Exception as e:
+        logger.warning("copiloto rf: spread legislación falló (%s)", e)
+    return (["[spread de legislación — prima ley local vs ley NY, en bps de TEA]"]
+            + lineas) if lineas else []
+
+
 def _estrategia_rf(filas: list[dict], pregunta: str, historial: list[dict]) -> list[str]:
     nombrados = _detectar_tickers(filas, pregunta, historial)
     partes: list[str] = []
@@ -1075,9 +1116,14 @@ def _extras_renta_fija(
     try:
         from api.services.macro import get_ultimo_mep
 
-        mep = get_ultimo_mep()
-        if mep:
-            partes.append(f"[MEP live] {float(mep):.2f} ARS/USD (referencia de los tc_breakeven)")
+        d = get_ultimo_mep() or {}  # devuelve {mep, ccl, canje, oficial, ...}
+        if d.get("mep") is not None:
+            linea = f"[dólares live] MEP {float(d['mep']):.2f}"
+            if d.get("ccl") is not None:
+                linea += f" · CCL {float(d['ccl']):.2f}"
+            if d.get("oficial") is not None:
+                linea += f" · oficial {float(d['oficial']):.2f}"
+            partes.append(linea + " (el MEP es la referencia de los tc_breakeven)")
     except Exception as e:
         logger.warning("copiloto rf: MEP falló (%s)", e)
     partes.extend(_resumen_curvas_rf(filas))
@@ -1085,6 +1131,7 @@ def _extras_renta_fija(
     partes.extend(_baratos_caros_rf())
     partes.extend(_forwards_rf(filas, pregunta, historial))
     partes.extend(_breakevens_rf())
+    partes.extend(_spread_legislacion_rf(filas))
     partes.extend(_estrategia_rf(filas, pregunta, historial))
     return partes
 
@@ -1105,7 +1152,10 @@ caros] = ranking por residuo (ojo al r² del fit). [forwards] = tasa implícita 
 vencimientos; z alto = lejos de su historia (candidato a arbitraje o a cambio de régimen — \
 decí las dos lecturas). [breakevens] = inflación mensual que empata cada par lecap-CER: si \
 el breakeven > expectativa (REM/IPC), el mercado paga por cobertura CER; si <, la tasa \
-fija gana si la inflación acompaña. [MEP live] ancla los tc_breakeven.
+fija gana si la inflación acompaña. [dólares live] ancla los tc_breakeven.
+[spread de legislación] = prima del ley local (AL) sobre el ley NY (GD) en bps de TEA, \
+HOY y su promedio de 90 ruedas: "¿caro o barato contra lo normal?" se responde con ESOS \
+dos números, jamás con memoria propia.
 
 MARCO DE PORTFOLIO (para "¿lecap o CER?" y "¿corto o largo?" — es tu forma de razonar):
 - TASA FIJA vs CER = la regla del breakeven (la misma de TIPS vs Treasuries): si la \

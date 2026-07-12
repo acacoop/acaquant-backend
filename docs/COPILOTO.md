@@ -113,6 +113,20 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.25 (números es-AR + reloj de mercado y disciplina)
+- **[bugfix crítico]** La verificación bloqueaba TODA la vista trading: el
+  modelo escribe precios a la argentina ("10.793" = 10793) y el parser los
+  leía como decimales → falso "sin respaldo" → respuesta bloqueada. El
+  verificador ahora prueba TODAS las interpretaciones (literal, es-AR con
+  puntos de miles, coma decimal, K/M/B).
+- **[contexto + / prompt +]** `[reloj de mercado]` determinista (hora ART +
+  `mercado.dias_habiles`): PRE-APERTURA / RUEDA VIVA (10:30-13) / **ZONA
+  MUERTA (13-16)** / ÚLTIMO TRAMO (16-17) / CERRADO. Rol de DISCIPLINA
+  (pedido del user: "más que mostrar datos, asesorar"): en zona muerta la
+  primera frase SIEMPRE lo recuerda y frena al usuario si insinúa operar
+  (anti-overtrading); fuera de rueda aclara que los datos son de la última
+  rueda; en rueda viva marca la ansiedad de mirar muchos papeles seguidos.
+
 ### 2026-07-12 — v1.24 (SEGUNDA VISTA: Trading — pivots live, libro, tape)
 - **[vista +]** `trading` (página /trading, módulo RBAC `trading`, admin-only):
   el copiloto del que TRADEA. Novedad arquitectónica: la vista recibe

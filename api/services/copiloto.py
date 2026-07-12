@@ -818,6 +818,55 @@ def _movers_resumen(umbral: float = 4.0) -> list[str]:
     return [f"[movers ±{umbral:.0f}% del día] " + "; ".join(s for _, s in movers[:12])]
 
 
+def _estado_mercado(ahora_art: datetime, es_habil: bool) -> tuple[str, str]:
+    """(estado, lectura de disciplina) — el mapa horario de la mesa (user
+    2026-07-12): rueda 10:30-17:00 ART solo hábiles; 13-16 el mercado está
+    MUERTO y el asistente ayuda a NO operar (anti-overtrading). Puro para
+    poder testearlo."""
+    hora = ahora_art.hour + ahora_art.minute / 60
+    if not es_habil:
+        return ("CERRADO (no es día hábil)",
+                "los datos que ves son de la última rueda — no hay nada que operar hoy")
+    if hora < 10.5:
+        return ("PRE-APERTURA (abre 10:30)",
+                "todavía no abrió — el libro puede estar armándose, no saques conclusiones")
+    if hora < 13:
+        return ("RUEDA VIVA — tramo de la mañana",
+                "el tramo con volumen real de la rueda")
+    if hora < 16:
+        return ("ZONA MUERTA (13 a 16)",
+                "el mercado está MUERTO a esta hora: poco volumen, libro poco representativo, "
+                "movimientos engañosos. Tu regla: NO operar en esta franja — si el usuario "
+                "insinúa entrar ahora, recordáselo primero (anti-overtrading)")
+    if hora < 17:
+        return ("ÚLTIMO TRAMO (16 a 17)",
+                "vuelve el volumen hacia el cierre — los movimientos valen de nuevo, "
+                "pero cuidado con quedarse comprado sobre el final")
+    return ("CERRADO (cerró 17:00)",
+            "rueda terminada — los datos son el cierre de hoy, no hay nada que operar")
+
+
+def _reloj_mercado() -> list[str]:
+    from datetime import timedelta
+
+    ahora_art = datetime.now(UTC) - timedelta(hours=3)
+    es_habil = ahora_art.weekday() < 5
+    if es_habil:
+        try:
+            from core.postgres import get_pool
+
+            with get_pool().connection() as conn, conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM mercado.dias_habiles WHERE fecha = %s",
+                            (ahora_art.date(),))
+                es_habil = cur.fetchone() is not None
+        except Exception as e:
+            logger.warning("copiloto: dias_habiles no disponible (%s) — asumo hábil", e)
+    estado, lectura = _estado_mercado(ahora_art, es_habil)
+    dia = ("lunes", "martes", "miércoles", "jueves", "viernes",
+           "sábado", "domingo")[ahora_art.weekday()]
+    return [f"[reloj de mercado] {dia} {ahora_art:%H:%M} ART — {estado}. Lectura: {lectura}."]
+
+
 def _extras_trading(
     filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
 ) -> list[str]:
@@ -825,6 +874,7 @@ def _extras_trading(
 
     _tickers, seleccionado, _ov = _sanear_params_trading(params)
     partes: list[str] = []
+    partes.extend(_reloj_mercado())
     try:
         ccl = scanner.get_ccl_live() or {}
         if ccl.get("value") is not None:
@@ -870,6 +920,15 @@ cuidado con entrar a mercado.
 "Agresión compradora" = trades ejecutados contra la punta vendedora.
 - [movers]: los que se mueven fuerte hoy (±4%), mismo criterio que el radar de la vista.
 - [CCL]/[SPY]/[QQQ]: contexto de mercado.
+
+TU ROL PRINCIPAL ES DE DISCIPLINA, no de mostrar datos: el bloque [reloj de mercado] manda.
+- En ZONA MUERTA (13-16): tu primera frase SIEMPRE lo recuerda. Si el usuario insinúa \
+entrar/operar en esa franja, tu trabajo es frenarlo con los motivos (volumen bajo, libro \
+poco representativo, overtrading). Después respondés lo que preguntó.
+- Fuera de rueda o día no hábil: aclarás que los datos son de la última rueda y que no hay \
+nada que operar — evitá análisis que inviten a ansiedad de apertura.
+- En rueda viva: normal, pero si detectás muchas preguntas seguidas sobre entrar a papeles \
+distintos, marcálo ("estás mirando el cuarto papel en 10 minutos — ¿plan o ansiedad?").
 
 Reglas de acá:
 - Respuestas CORTAS: el usuario está operando, no leyendo un informe. 3-6 líneas.
@@ -981,43 +1040,72 @@ VISTAS: dict[str, dict] = {
 # le dieron. El shadow (2026-07-11) mostró al modelo citando la columna
 # equivocada y volteando signos → esto lo detecta código, no un humano.
 
-_RE_NUM = re.compile(r"(-?\d+(?:\.\d+)?)\s*([kKmMbB])?\b")
+_RE_NUM = re.compile(r"(-?\d[\d.,]*)\s*([kKmMbB])?\b")
 _ESCALAS = {"k": 1e3, "m": 1e6, "b": 1e9}
+
+
+def _candidatos_numericos(token: str) -> list[float]:
+    """Interpretaciones posibles de un número escrito: '10.793' puede ser
+    diez mil setecientos noventa y tres (formato es-AR, el de la mesa) o
+    10.793 — se prueban AMBAS contra el contexto. Bug real del shadow: la
+    vista trading (precios en miles) quedaba bloqueada entera porque el
+    modelo escribía a la argentina y el parser leía decimales."""
+    token = token.strip().lstrip("-")
+    out: list[float] = []
+    # es-AR: 1.234.567,89 o 10.793 (puntos de miles, coma decimal)
+    if re.fullmatch(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?", token):
+        try:
+            out.append(float(token.replace(".", "").replace(",", ".")))
+        except ValueError:
+            pass
+    # coma decimal simple: 6,65
+    if re.fullmatch(r"\d+,\d+", token):
+        try:
+            out.append(float(token.replace(",", ".")))
+        except ValueError:
+            pass
+    # lectura literal (punto decimal, sin separadores)
+    try:
+        out.append(float(token.replace(",", "")))
+    except ValueError:
+        pass
+    return out
 
 
 def _numeros_sin_respaldo(respuesta: str, contexto: str) -> tuple[list[str], int]:
     """(lista de números sin respaldo tal como aparecen, total_chequeados).
-    Un número 'tiene respaldo' si aparece (en valor absoluto, con tolerancia
-    de redondeo) en el contexto — incluyendo abreviaciones tipo '325M' (se
-    prueba ×1e3/1e6/1e9 con tolerancia relativa). Se ignoran enteros chicos
-    (rankings, cantidades) y años."""
+    Un número 'tiene respaldo' si ALGUNA de sus interpretaciones (literal,
+    formato es-AR, abreviación K/M/B) aparece en el contexto con tolerancia
+    de redondeo. Se ignoran enteros chicos (rankings, cantidades) y años."""
     ctx: set[float] = set()
     for m in _RE_NUM.finditer(contexto):
         try:
-            ctx.add(abs(float(m.group(1))))
+            ctx.add(abs(float(m.group(1).replace(",", ""))))
         except ValueError:
             continue
     total = 0
     malos: list[str] = []
-    for m in _RE_NUM.finditer(respuesta.replace(",", ".")):
-        try:
-            v = abs(float(m.group(1)))
-        except ValueError:
+    for m in _RE_NUM.finditer(respuesta):
+        candidatos = _candidatos_numericos(m.group(1))
+        if not candidatos:
             continue
         sufijo = (m.group(2) or "").lower()
-        es_entero = "." not in m.group(1)
-        if not sufijo and es_entero and (v <= 31 or 1900 <= v <= 2100):
+        es_entero = all(float(c).is_integer() for c in candidatos)
+        if not sufijo and es_entero and all(c <= 31 or 1900 <= c <= 2100 for c in candidatos):
             continue  # rankings, cantidades, fechas
         total += 1
-        v_escalado = v * _ESCALAS[sufijo] if sufijo else None
+        if sufijo:
+            candidatos = candidatos + [c * _ESCALAS[sufijo] for c in candidatos]
 
-        def _match(c: float, v=v, es_entero=es_entero, v_escalado=v_escalado) -> bool:
-            if abs(c - v) <= max(0.011, 0.001 * v):
-                return True  # copiado tal cual (tolerancia de redondeo estricta)
-            if es_entero and round(c) == v:
-                return True  # el modelo redondeó a entero
-            # abreviado con sufijo ("325M" ≈ 325432132): tolerancia relativa
-            return v_escalado is not None and abs(c - v_escalado) <= 0.015 * v_escalado
+        def _match(c: float) -> bool:
+            for v in candidatos:  # noqa: B023 — se consume dentro del mismo loop
+                if abs(c - v) <= max(0.011, 0.001 * v):
+                    return True
+                if v.is_integer() and round(c) == v:
+                    return True
+                if sufijo and abs(c - v) <= 0.015 * v:  # noqa: B023
+                    return True
+            return False
 
         if not any(_match(c) for c in ctx):
             malos.append(m.group(0).strip())

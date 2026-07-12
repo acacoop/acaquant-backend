@@ -409,6 +409,38 @@ def test_verificacion_estricta_bloquea(monkeypatch):
     assert out == {"ok": False, "error": "verificacion"}
 
 
+def test_numeros_formato_argentino():
+    # contexto en formato del TSV (punto decimal); precios en miles
+    ctx = "ticker\tlast\tPP\tR1\nRKLB\t10580.00\t10587.00\t10793.00"
+    # el modelo escribe a la argentina: "10.793" ES 10793 → respaldado
+    malos, total = copiloto._numeros_sin_respaldo(
+        "está pegado a R1 en 10.793; el last es 10.580", ctx
+    )
+    assert (malos, total) == ([], 2)
+    # coma decimal también: "6,65%" con 6.65 en contexto
+    malos, _ = copiloto._numeros_sin_respaldo("subió 6,65%", "var\t6.65")
+    assert malos == []
+    # y un número inventado sigue cayendo
+    malos, _ = copiloto._numeros_sin_respaldo("R2 está en 99.999", ctx)
+    assert malos == ["99.999"]
+
+
+def test_estado_mercado_mapa_horario():
+    from datetime import datetime
+
+    def art(h, m=0, dia=4):  # dia 4 = viernes
+        return datetime(2026, 7, 6 + dia, h, m)  # 2026-07-06 es lunes
+
+    assert "PRE-APERTURA" in copiloto._estado_mercado(art(9, 45), True)[0]
+    assert "RUEDA VIVA" in copiloto._estado_mercado(art(11, 30), True)[0]
+    assert "ZONA MUERTA" in copiloto._estado_mercado(art(14, 0), True)[0]
+    assert "NO operar" in copiloto._estado_mercado(art(14, 0), True)[1]
+    assert "ÚLTIMO TRAMO" in copiloto._estado_mercado(art(16, 30), True)[0]
+    assert "CERRADO" in copiloto._estado_mercado(art(18, 0), True)[0]
+    # feriado/finde: cerrado aunque sea horario de rueda
+    assert "no es día hábil" in copiloto._estado_mercado(art(11, 0), False)[0]
+
+
 def test_sanear_params_trading():
     tickers, sel, ov = copiloto._sanear_params_trading({
         "tickers": ["rklb", "SNDK", "rklb", "../x", ""],

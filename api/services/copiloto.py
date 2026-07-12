@@ -745,10 +745,14 @@ def _fetch_trading(params: dict | None = None) -> list[dict]:
                 ((n.upper(), p) for n, p in piv.items() if p),
                 key=lambda np: abs(float(last) - np[1]),
             )
-            f["nivel_cercano"] = f"{nombre} a {(precio / float(last) - 1) * 100:+.2f}%"
+            dist = (precio / float(last) - 1) * 100
+            f["nivel_cercano"] = f"{nombre} a {dist:+.2f}%"
+            # numérico para el vigía (no va al TSV — campos con _)
+            f["_nivel_nombre"], f["_nivel_precio"], f["_nivel_dist"] = nombre, precio, dist
         else:
             f["zona"] = None
             f["nivel_cercano"] = None
+            f["_nivel_nombre"] = f["_nivel_precio"] = f["_nivel_dist"] = None
         s = por_ticker.get(tk) or {}
         f["dia_pct"] = s.get("vs_1d_pct")
         f["rubro"] = s.get("rubro")
@@ -1460,6 +1464,100 @@ def preguntar(
             "generado": generado,
         },
     }
+
+
+# ── El VIGÍA (vista trading) — reactividad SIN LLM ──────────────────────────
+#
+# Watchers deterministas elegidos por el user (2026-07-12):
+#  T1: una de SUS tarjetas toca o está muy cerca de un nivel de pivots.
+#  T2: un ticker que NO tiene, del TOP 15 por volumen y con ±4% en la rueda,
+#      se acerca a algún nivel (candidato a estrategia 1/2 que no está mirando).
+# El front lo pollea; cada alerta es template fijo (cero tokens). El botón
+# "¿lo miramos?" del toast recién ahí abre el copiloto (una llamada).
+
+_VIGIA_UMBRAL_CARDS = 0.20   # % al nivel para "tocó / muy cerca" en tus tarjetas
+_VIGIA_UMBRAL_RADAR = 0.35   # % para "se acerca" en el radar de candidatos
+_VIGIA_TOP_VOLUMEN = 15
+_VIGIA_MOVER_PCT = 4.0
+
+
+def vigia(params: dict | None = None) -> dict:
+    """Evalúa los disparadores del vigía. Determinista, sin IA. Devuelve
+    {estado, alertas:[{id, tipo, ticker, mensaje, ...}]}. Fuera de rueda no
+    dispara (no hay nada que operar); en zona muerta dispara PERO cada
+    mensaje lleva la advertencia de disciplina."""
+    from datetime import timedelta
+
+    ahora_art = datetime.now(UTC) - timedelta(hours=3)
+    estado, _lectura = _estado_mercado(ahora_art, ahora_art.weekday() < 5)
+    if estado.startswith(("CERRADO", "PRE-APERTURA")):
+        return {"estado": estado, "alertas": []}
+    en_zona_muerta = estado.startswith("ZONA MUERTA")
+    sufijo_zm = (" ⚠ zona muerta (13-16): el toque con este volumen vale poco."
+                 if en_zona_muerta else "")
+    hoy = ahora_art.date().isoformat()
+    alertas: list[dict] = []
+
+    # T1 — tarjetas del usuario en nivel (con SUS overrides re-aplicados)
+    tickers_cards, _sel, _ov = _sanear_params_trading(params)
+    try:
+        for f in _fetch_trading(params):
+            dist = f.get("_nivel_dist")
+            if dist is None or abs(dist) > _VIGIA_UMBRAL_CARDS:
+                continue
+            tk, nivel = f["ticker"], f["_nivel_nombre"]
+            alertas.append({
+                "id": f"card:{tk}:{nivel}:{hoy}",
+                "tipo": "nivel_card",
+                "ticker": tk,
+                "nivel": nivel,
+                "mensaje": f"{tk} tocó {nivel} ({f['_nivel_precio']:.0f}) — "
+                           f"está a {dist:+.2f}%.{sufijo_zm}",
+                "pregunta": f"{tk} acaba de llegar a {nivel}: leeme libro y tape, "
+                            "¿hay señal o dejo pasar?",
+            })
+    except Exception as e:
+        logger.warning("vigía T1 falló (%s)", e)
+
+    # T2 — radar: top volumen + mover ±4% + cerca de nivel, fuera de tus cards
+    try:
+        from api.services import scanner_sql, trading_pivots
+
+        filas = scanner_sql.get_cedears_scanner()
+        top_vol = sorted(
+            (f for f in filas if f.get("total_money")),
+            key=lambda f: -f["total_money"],
+        )[:_VIGIA_TOP_VOLUMEN]
+        candidatos = [
+            f for f in top_vol
+            if f.get("vs_1d_pct") is not None
+            and abs(f["vs_1d_pct"]) >= _VIGIA_MOVER_PCT
+            and f.get("ticker_corto") not in tickers_cards
+        ]
+        radar = {r.get("ticker"): r for r in trading_pivots.pivot_radar()}
+        for c in candidatos:
+            tk = c["ticker_corto"]
+            r = radar.get(tk)
+            if not r or r.get("dist_pct") is None:
+                continue
+            if abs(r["dist_pct"]) > _VIGIA_UMBRAL_RADAR:
+                continue
+            alertas.append({
+                "id": f"radar:{tk}:{r.get('nivel')}:{hoy}",
+                "tipo": "radar",
+                "ticker": tk,
+                "nivel": r.get("nivel"),
+                "mensaje": f"{tk} (top volumen, {c['vs_1d_pct']:+.1f}% hoy) no está en "
+                           f"tus tarjetas y se acercó a {r.get('nivel')} "
+                           f"({r.get('nivel_precio'):.0f}).{sufijo_zm}",
+                "pregunta": f"{tk} viene {c['vs_1d_pct']:+.1f}% hoy y llegó a "
+                            f"{r.get('nivel')}: ¿vale una tarjeta? Leeme el cuadro.",
+                "accion_agregar": tk,
+            })
+    except Exception as e:
+        logger.warning("vigía T2 falló (%s)", e)
+
+    return {"estado": estado, "alertas": alertas}
 
 
 def historial_persistido(usuario: str, limit: int = 8) -> dict:

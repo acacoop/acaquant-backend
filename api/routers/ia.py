@@ -121,6 +121,19 @@ def copiloto_preguntar(body: PreguntaCopiloto, email: str = Depends(get_user_ema
     )
 
 
+class VigiaBody(BaseModel):
+    params: dict | None = None  # tickers de las tarjetas + overrides (se sanean)
+
+
+@router.post("/copiloto/vigia")
+def copiloto_vigia(body: VigiaBody, email: str = Depends(get_user_email)):
+    """El vigía de la vista TRADING: evalúa los disparadores (tarjeta en
+    nivel / candidato del radar) por CÓDIGO — cero tokens. El front lo pollea."""
+    if not copiloto.puede_usar(email, "trading"):
+        raise HTTPException(status_code=403, detail="módulo trading no autorizado")
+    return copiloto.vigia(params=body.params)
+
+
 @router.post("/copiloto/feedback")
 def copiloto_feedback(body: FeedbackCopiloto, email: str = Depends(get_user_email)):
     """👍/👎 del usuario sobre una respuesta del copiloto → ia.trazas.feedback."""

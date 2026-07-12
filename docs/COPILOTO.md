@@ -113,6 +113,19 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.28 (EL VIGÍA — reactividad sin LLM)
+- **[reactividad +]** `POST /api/ia/copiloto/vigia` (gate ia+trading):
+  watchers DETERMINISTAS elegidos por el user, cero tokens — T1: una de sus
+  tarjetas toca/roza un nivel (±0.20%, con SUS overrides); T2: un ticker
+  fuera de sus tarjetas, del top 15 por volumen y con ±4% en la rueda, se
+  acerca a un nivel (±0.35%, vía pivot_radar). Fuera de rueda no dispara;
+  en zona muerta dispara CON la advertencia de disciplina en el mensaje.
+- **[UI]** Toasts en la vista TRADING (poll 15s): mensaje template + botón
+  "¿LO MIRAMOS?" (abre el copiloto con la pregunta armada — recién ahí se
+  gasta UNA llamada) + "➕ AGREGAR <ticker>" en las del radar (1-click,
+  autonomy slider: sugerir, jamás automático). Descartes por día en
+  localStorage.
+
 ### 2026-07-12 — v1.27 (desbalance del libro con los dos lados)
 - **[bugfix]** El chip "Lectura del libro" quedaba bloqueado por la
   verificación: el contexto daba solo "14% comprador" y el modelo decía

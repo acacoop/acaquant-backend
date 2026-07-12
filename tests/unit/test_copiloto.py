@@ -496,6 +496,47 @@ def test_sanear_posiciones():
     assert copiloto._sanear_posiciones(None) == []
 
 
+def test_vigia_disparadores(monkeypatch):
+    import api.services.scanner_sql as ssql
+    import api.services.trading_pivots as tp
+
+    # T1: RKLB (tarjeta) pegado a PP (dist +0.06% < 0.20)
+    monkeypatch.setattr(tp, "get_pivots", lambda *, tickers: [{
+        "ticker": "RKLB", "high": 10800.0, "low": 10400.0, "close": 10560.0,
+        "last": 10580.0, "vwap": 10533.0,
+        "pivots": {"pp": 10586.7, "r1": 10773.3, "r2": 10986.7, "r3": 11173.3,
+                   "s1": 10373.3, "s2": 10186.7, "s3": 9973.3},
+    }])
+    # T2: GGAL top volumen, +5.2% hoy, fuera de tarjetas, a 0.1% de R1
+    monkeypatch.setattr(ssql, "get_cedears_scanner", lambda: [
+        {"ticker_corto": "GGAL", "vs_1d_pct": 5.2, "total_money": 9e9, "rubro": None},
+        {"ticker_corto": "RKLB", "vs_1d_pct": -1.0, "total_money": 5e9, "rubro": "Espacial"},
+        {"ticker_corto": "KO", "vs_1d_pct": 0.5, "total_money": 8e9, "rubro": None},
+    ])
+    monkeypatch.setattr(tp, "pivot_radar", lambda: [
+        {"ticker": "GGAL", "last": 8350.0, "nivel": "R1", "nivel_precio": 8358.0,
+         "dist_pct": 0.10},
+        {"ticker": "KO", "last": 100.0, "nivel": "PP", "nivel_precio": 100.05,
+         "dist_pct": 0.05},  # cerca de nivel pero NO es mover → no dispara
+    ])
+    # rueda viva forzada (el vigía no dispara fuera de rueda)
+    monkeypatch.setattr(copiloto, "_estado_mercado",
+                        lambda ahora, habil: ("RUEDA VIVA — tramo de la mañana", "x"))
+
+    out = copiloto.vigia({"tickers": ["RKLB"]})
+    tipos = {a["tipo"]: a for a in out["alertas"]}
+    assert "nivel_card" in tipos and tipos["nivel_card"]["ticker"] == "RKLB"
+    assert "PP" in tipos["nivel_card"]["mensaje"]
+    assert "radar" in tipos and tipos["radar"]["ticker"] == "GGAL"
+    assert tipos["radar"]["accion_agregar"] == "GGAL"
+    assert all(a["ticker"] != "KO" for a in out["alertas"])  # no-mover no dispara
+
+    # fuera de rueda: silencio total
+    monkeypatch.setattr(copiloto, "_estado_mercado",
+                        lambda ahora, habil: ("CERRADO (cerró 17:00)", "x"))
+    assert copiloto.vigia({"tickers": ["RKLB"]})["alertas"] == []
+
+
 def test_feedback_valor_invalido():
     assert copiloto.registrar_feedback(1, 5, "u@x.com") == {
         "ok": False, "error": "valor_invalido",

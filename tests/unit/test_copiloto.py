@@ -570,7 +570,8 @@ def test_estrategia_rf_bajo_demanda(monkeypatch):
             "b": {"flujos": [{"monto": 1180000.0}], "moneda": "ARS"},
             "meta": {"warnings": []},
         }))
-    monkeypatch.setattr(se, "sensibilidad_retorno_total", lambda *, curva: [])
+    monkeypatch.setattr(se, "sensibilidad_retorno_total",
+                        lambda *, curva, modo="absoluta", tirs=(): [])
     monkeypatch.setattr(dr, "descomposicion_realizada",
                         lambda *, desde, hasta, curva: {"bonos": [
                             {"ticker_corto": "TX26", "r_total": 0.031,

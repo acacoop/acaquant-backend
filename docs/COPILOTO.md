@@ -113,6 +113,17 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.33 (shocks de TIR + silencios inteligentes + descomposición natural)
+- **[fix]** Sensibilidad en modo RELATIVA (±0.5/1/2pp sobre la TEA actual):
+  "¿y si comprime 2 puntos?" se responde directo del bloque — antes los
+  escenarios eran TIRs absolutas, el modelo restaba a mano y la verificación
+  lo bloqueaba (caso real GD30).
+- **[prompt ~]** Lo que no existe para los bonos de la pregunta NO se
+  menciona (shadow: "no hay fair value" en una comparación de bonares donde
+  el fair value ni aplica) · descomposición narrada en lenguaje de mesa
+  (devengo / rodar por la curva / movimiento de tasas / arrastre
+  inflacionario, técnico entre paréntesis solo la primera vez).
+
 ### 2026-07-12 — v1.32 (las herramientas de ESTRATEGIA, disponibles en RF)
 - **[contexto +]** Pedido del user: comparar inversión, sensibilidad y
   descomposición viven en la página Estrategia pero SON análisis de RF — el

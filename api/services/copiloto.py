@@ -970,7 +970,13 @@ def _sensibilidad_rf(ticker: str) -> list[str]:
     from api.services import sensibilidad
 
     try:
-        filas_s = sensibilidad.sensibilidad_retorno_total(curva="soberanos")
+        # modo RELATIVA con shocks: el trader pregunta "¿y si comprime 2
+        # puntos?" — los escenarios vienen como ±pp, no como TIRs absolutas
+        # (shadow: el modelo restaba TIR−2 a mano → verificación lo bloqueaba)
+        filas_s = sensibilidad.sensibilidad_retorno_total(
+            curva="soberanos", modo="relativa",
+            tirs=(-2.0, -1.0, -0.5, 0.5, 1.0, 2.0),
+        )
     except Exception as e:
         logger.warning("copiloto rf: sensibilidad falló (%s)", e)
         return []
@@ -978,10 +984,10 @@ def _sensibilidad_rf(ticker: str) -> list[str]:
     if not row:
         return []
     escenarios = ", ".join(
-        f"TIR {e.get('tir'):.1f}% → precio {e.get('precio_objetivo'):.1f} "
-        f"({_pct(e.get('upside'))})"
-        for e in (row.get("escenarios") or [])[:5]
-        if e.get("tir") is not None and e.get("precio_objetivo") is not None
+        f"TIR {e['shock_pp']:+.1f}pp (a {e.get('tir'):.1f}%) → precio "
+        f"{e.get('precio_objetivo'):.1f} ({_pct(e.get('upside'))})"
+        for e in (row.get("escenarios") or [])
+        if e.get("shock_pp") is not None and e.get("precio_objetivo") is not None
     )
     if not escenarios:
         return []
@@ -1097,9 +1103,14 @@ constante). Es tu columna vertebral para cualquier "¿A o B?": flujos + residuos
 implícito + el trade-off de plazos.
 - [sensibilidad TICKER] (solo soberanos): precio objetivo ante escenarios de TIR. Es \
 upside de PRECIO solamente — sin carry — y tenés que aclararlo siempre.
-- [descomposición TICKER 30d] (pesos): qué explicó el retorno del último mes — carry \
-(devengo), rolldown (rodar por la curva) y Δtasa (movimiento del mercado). Es LA \
-respuesta a "¿por qué subió/bajó tanto?".
+- [descomposición TICKER 30d] (pesos): qué explicó el retorno del último mes. Al narrarla \
+usá los nombres de mesa con el técnico entre paréntesis SOLO la primera vez: "lo que \
+devengó por el paso del tiempo (carry)", "lo que ganó por rodar hacia la parte corta de \
+la curva (rolldown)", "el movimiento de tasas del mercado", "el arrastre inflacionario \
+del índice (ajuste CER)". Es LA respuesta a "¿por qué subió/bajó tanto?".
+- Si un dato NO existe para los bonos de la pregunta (ej. residuo de fair value en \
+soberanos, descomposición en dollar-linked), NO menciones su ausencia — simplemente no lo \
+uses. Solo aclarás que falta si el usuario lo pidió explícitamente.
 
 Reglas de acá:
 - El bloque [baratos y caros] ya viene FILTRADO: los residuos absurdos (precio viejo / \

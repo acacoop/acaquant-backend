@@ -124,6 +124,10 @@ Agenda (fuente)** · Tipo: modal in-app · Canal: SOLO interno (decisión del us
 **Decisión 2026-07-10 (user): la v1/v2 son SIN LLM.** El contenido son solo
 números → regla de oro 1: se renderiza determinista. La capa de redacción IA se
 suma ARRIBA cuando el briefing incorpore narrativa; este cartel ES su fallback.
+**HECHO (2026-07-12): la capa narrativa llegó vía el copiloto** — botón
+🗣 NARRÁMELO en el modal (y chip "Narrame el briefing" en la vista HOME del
+copiloto, P3 v1.43): narración A DEMANDA con el mismo payload como contexto
+(cero tokens de cron; la tabla determinista sigue siendo fuente y fallback).
 
 **v1 (base):** `api/services/briefing.py` (compute-on-read, sin cron ni tabla:
 reusa `home.market_quotes`, `valuaciones.dolar_oficial_live`, `macro.series_macro`
@@ -230,11 +234,11 @@ el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
 además de 'error' si hace falta · subir max_tokens de `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1.42 (2026-07-12) — 3 VISTAS EN SHADOW (admin): Renta Variable,
+**Estado: v1.43 (2026-07-12) — 4 VISTAS EN SHADOW (admin): HOME, Renta Variable,
 TRADING (+ el VIGÍA reactivo) y RENTA FIJA** · Tipo: copiloto contextual por
 vista · Gate: `ia` + módulo RBAC de la vista
 
-> El detalle fino del asistente (qué ve HOY, técnicas, changelog v1→v1.42)
+> El detalle fino del asistente (qué ve HOY, técnicas, changelog v1→v1.43)
 > vive en `docs/COPILOTO.md`. Resumen de lo construido 11-12/07: vista RV
 > completa (pulso/rankings/screenings/extremos desde 2005) · vista TRADING
 > (8 tarjetas con overrides, libro, tape, movers, posiciones del INTRADAY,
@@ -252,7 +256,10 @@ vista · Gate: `ia` + módulo RBAC de la vista
 > exacto sin tokens). v1.40/41: derivación entre vistas (pregunta de otro
 > dominio → "consultalo desde X" + botón RBAC-aware con HANDOFF: la vista
 > destino re-pregunta sola, misma conversación), mensajes de presupuesto
-> accionables, botón IA al header (ex-TERMINAL) en RV/RF.
+> accionables, botón IA al header (ex-TERMINAL) en RV/RF. v1.43: vista HOME
+> (watchlist + briefing como contexto, retorno/carry/canje reusados de RF,
+> honestidad "describo, no explico causas" — noticias descartadas por el
+> user) + 🗣 NARRÁMELO en el modal del briefing (la capa narrativa de P1).
 > Pendiente de verificar con rueda abierta: semántica de ventana del
 > carry_trade.
 
@@ -539,7 +546,7 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
-- **2026-07-11/12 — P3 v1→v1.42: copiloto de mesa COMPLETO en shadow** (3
+- **2026-07-11/12 — P3 v1→v1.43: copiloto de mesa COMPLETO en shadow** (4
   vistas: RV, TRADING + vigía reactivo, y RENTA FIJA con marco de portfolio;
   doctrina del trader; verificación estricta con auto-corrección; memoria
   por conversaciones; presupuestos editables con excepciones por usuario;

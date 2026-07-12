@@ -116,6 +116,33 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.43 (CUARTA VISTA: Home — panorama + briefing narrado)
+- **[vista +]** `home` (módulo `home`, los 3 roles; invitado jamás — el gate
+  `ia` es default-deny): la vista del "¿qué está pasando?". Tabla = watchlist
+  entera (~40 filas: métricas ARGY con anclas día/7d/MTD/YTD + market_quotes)
+  — tan chica que entra completa, sin detección de tickers. La más barata de
+  las 4 (~4-5k tokens vs 22k de RV).
+- **[contexto]** Bloques: `[briefing de apertura]` = el MISMO payload del
+  modal de las 10:00 (`briefing.briefing_hoy`, follow-ups con el número
+  exacto de la tabla) · `[futuros DLR ROFEX]` (curva + TNA implícita, ya en
+  %) · `[retorno de PRECIO por curva]` y `[carry y canje]` REUSADOS del
+  copiloto RF (mismas funciones).
+- **[prompt]** Regla de honestidad central: los datos dicen QUÉ se movió,
+  nunca POR QUÉ — prohibido inventar causas macro/noticias de memoria
+  (decisión del user: noticias NO entran al contexto). Método de narración
+  transversal del día (qué manda / dólares y brecha / riesgo país / qué
+  mirar). Semántica del canje y del oficial sin histórico en las reglas.
+- **[producto +]** 🗣 NARRÁMELO en el modal del briefing: la capa de
+  redacción IA que P1 siempre anticipó, A DEMANDA (cero tokens de cron). En
+  HOME dispara el panel por evento; desde otra página usa el handoff de
+  sessionStorage + navegación. Prompt curado `_PREGUNTA_NARRAR_BRIEFING`
+  (copiloto.py = fuente de verdad; briefing-modal.tsx lo copia) — también es
+  el chip "Narrame el briefing".
+- **[chips]** Narrame el briefing · ¿Cómo viene el mercado? · Dólares y
+  brecha (propuestos — editables como siempre).
+- **[UI]** Botón "Consultale a la IA" en el header también en `/` (slot
+  ex-TERMINAL).
+
 ### 2026-07-12 — v1.42 (hilo narrativo — la respuesta cuenta UNA historia)
 - **[prompt ~]** Fallo real del shadow ("¿cómo viene RKLB?" → 4 bullets
   sueltos: retornos / pivots / ruedas / fundamentals sin conectar): la regla

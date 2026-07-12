@@ -1718,6 +1718,174 @@ está fino hasta R2").
 es del trader. "Si rompe X, lo próximo es Y" está bien; "entrá" no.
 - Si el libro o el tape están vacíos, decilo sin vueltas."""
 
+# ── Vista HOME (panorama general — watchlist + briefing + curvas) ───────────
+#
+# La vista del "¿qué está pasando?": tabla = watchlist entera (~40 filas, la
+# más barata de las cuatro), bloques = el MISMO payload del briefing de las
+# 10:00 + futuros DLR + retorno/carry/canje reusados del copiloto RF. Todo
+# numérico y precalculado — acá el copiloto describe y cruza, no explica
+# causas (sin noticias en el contexto, decisión del user 2026-07-12).
+
+# Prompt curado de la narración del briefing (P1: "la capa de redacción IA
+# arriba del briefing determinista"). Lo usan el chip del panel y el botón
+# 🗣 NARRÁMELO del modal (briefing-modal.tsx copia este texto).
+_PREGUNTA_NARRAR_BRIEFING = (
+    "Narrame el briefing de hoy como informe de mesa: 6-8 líneas de lectura "
+    "transversal — qué grupo manda hoy, si los dólares acompañan o se abre la "
+    "brecha, el riesgo país si se movió, y qué mirar en la rueda. No repitas "
+    "la tabla fila por fila: contá la historia del día. Si algo no operó hoy, "
+    "decilo."
+)
+
+
+def _fetch_home(params: dict | None = None) -> list[dict]:
+    """Watchlist completa: métricas ARGY (MEP/CCL/canje/oficial/riesgo país/
+    cauciones, con anclas día/7d/MTD/YTD ya calculadas) + home.market_quotes
+    (futuros globales, índices, monedas). Cada parte en su try: si una fuente
+    falla, la otra sigue."""
+    filas: list[dict] = []
+    try:
+        from api.services import argy
+
+        for m in argy.get_argy_with_returns() or []:
+            filas.append({
+                "symbol": m.get("label"), "grupo": "ARGENTINA",
+                "last": m.get("value"), "unit": m.get("unit"),
+                "pct_day": m.get("ret_day"), "ret_7d": m.get("ret_7d"),
+                "ret_mtd": m.get("ret_mtd"), "ret_ytd": m.get("ret_ytd"),
+            })
+    except Exception as e:
+        logger.warning("copiloto home: argy falló (%s)", e)
+    try:
+        from api.services import market_sql
+
+        for q in market_sql.quotes() or []:
+            filas.append({
+                "symbol": q.get("symbol"), "grupo": q.get("grupo") or "-",
+                "last": q.get("last"), "unit": None,
+                "pct_day": q.get("pct_day"), "ret_7d": q.get("ret_7d"),
+                "ret_mtd": q.get("ret_mtd"), "ret_ytd": q.get("ret_ytd"),
+            })
+    except Exception as e:
+        logger.warning("copiloto home: market_quotes falló (%s)", e)
+    return filas
+
+
+def _briefing_bloque() -> list[str]:
+    """[briefing de apertura]: el MISMO payload determinista del modal de las
+    10:00 (briefing.py) — los follow-ups de esa tabla se responden con el
+    número exacto que el usuario acaba de ver."""
+    from api.services import briefing
+
+    try:
+        b = briefing.briefing_hoy() or {}
+    except Exception as e:
+        logger.warning("copiloto home: briefing falló (%s)", e)
+        return []
+
+    def linea(r: dict) -> str:
+        seg = [f"hoy {_celda(r.get('hoy'))}"]
+        for k, et in (("ret_1d", "1d"), ("ret_wtd", "sem"), ("ret_mtd", "mes")):
+            v = r.get(k)
+            seg.append(f"{et} {v:+.2f}%" if v is not None else f"{et} -")
+        base = f"{r.get('label')}: " + " · ".join(seg)
+        if r.get("stale"):
+            base += " (dato viejo ⚠)"
+        return base
+
+    partes = [f"[briefing de apertura — la tabla del modal de las 10:00, {b.get('fecha')}]"]
+    grupo = None
+    for r in b.get("futuros") or []:
+        if r.get("grupo") != grupo:
+            grupo = r.get("grupo")
+            partes.append(f"futuros {grupo}:")
+        partes.append("  " + linea(r))
+    for titulo, key in (("dólar oficial", "oficial"), ("dólares financieros", "financieros")):
+        filas_b = b.get(key) or []
+        if filas_b:
+            partes.append(f"{titulo}: " + " | ".join(linea(r) for r in filas_b))
+    pagan = b.get("pagan_hoy") or []
+    partes.append(
+        "bonos en cartera que pagan hoy: "
+        + (", ".join(str(p.get("ticker")) + (f" ({p.get('emisor')})" if p.get("emisor") else "")
+                     for p in pagan) if pagan else "ninguno")
+    )
+    return partes
+
+
+def _futuros_dlr_bloque() -> list[str]:
+    """[futuros DLR]: la curva ROFEX con su devaluación implícita (TNA lineal
+    en %, convención del terminal Rofex), calculada por el motor."""
+    from api.services import mercado_hist_sql
+
+    try:
+        docs = mercado_hist_sql.get_futuros_dlr() or []
+    except Exception as e:
+        logger.warning("copiloto home: futuros DLR fallaron (%s)", e)
+        return []
+    lineas = []
+    for d in docs[:12]:
+        px = d.get("last") or d.get("closing")
+        if px is None:
+            continue
+        s = f"{d.get('ticker')} ({d.get('dias_a_vto')}d): {float(px):.1f}"
+        tna = d.get("tasa_implicita_tna")
+        if tna is not None:
+            s += f" · TNA implícita {float(tna):.1f}%"
+        lineas.append(s)
+    return (["[futuros DLR ROFEX — precio del dólar futuro y devaluación implícita "
+             "(TNA lineal %)]"] + lineas) if lineas else []
+
+
+def _extras_home(
+    filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
+) -> list[str]:
+    partes: list[str] = []
+    partes.extend(_briefing_bloque())
+    partes.extend(_futuros_dlr_bloque())
+    try:
+        partes.extend(_retornos_precio_curva())
+    except Exception as e:
+        logger.warning("copiloto home: retornos por curva fallaron (%s)", e)
+    partes.extend(_carry_canje_rf())
+    return partes
+
+
+_REGLAS_HOME = """Sos el copiloto de la HOME — el panorama general del mercado. Acá se \
+pregunta "¿qué está pasando?": tu trabajo es el pulso del día y los CRUCES entre bloques, \
+no el detalle fino (para eso están las otras vistas — derivá como siempre).
+
+Columnas de la tabla (la watchlist): instrumento · grupo (ARGENTINA, índices, energía, \
+metales, granos, cripto, monedas, futuros ROFEX…) · valor (con su unidad: $ = pesos; \
+% = el instrumento ES una tasa o brecha) · var_dia% · ret_7d% · ret_mes% · ret_año%.
+- CANJE: la brecha CCL/MEP en %. Se ABRE cuando el CCL le gana al MEP (tensión, demanda \
+de girar dólares afuera); se CIERRA cuando convergen. Su var_dia% es variación relativa \
+del valor, no puntos.
+- RIESGO PAIS: en puntos básicos (bps). CAUCION: tasas en % anual.
+- DOLAR OFICIAL: mayorista MAE en vivo. Si sus plazos largos vienen "-" es porque el \
+histórico todavía no existe — decilo tal cual, jamás lo estimes.
+
+Bloques después de la tabla:
+- [briefing de apertura]: la MISMA tabla del modal de las 10:00 — futuros globales \
+agrupados, dólar oficial y financieros con hoy·1d·sem·mes, y los bonos en cartera que \
+pagan hoy. Es tu fuente para narrar el día.
+- [futuros DLR ROFEX]: la curva de dólar futuro con la devaluación implícita (TNA lineal, \
+la convención de la mesa).
+- [retorno de PRECIO por curva] y [carry y canje]: los tableros de renta fija, mediana \
+por curva — para "¿cómo vienen los bonos?" en trazo grueso.
+
+REGLA DE HONESTIDAD — la más importante de esta vista: tus datos dicen QUÉ se movió, \
+nunca POR QUÉ. Ante un "¿por qué subió/bajó?" respondés el movimiento con sus plazos y \
+aclarás que el motivo no está en tus datos. PROHIBIDO inventar causas macro, políticas o \
+noticias de memoria. Describir y cruzar sí; explicar causas no.
+
+CÓMO NARRAR EL DÍA (para "narrame el briefing" o "¿cómo viene el mercado?"): lectura \
+TRANSVERSAL en 6-8 líneas, jamás fila por fila — (1) qué manda hoy: ¿es un día de \
+índices, de commodities o de dólar?; (2) los dólares: ¿acompañan tranquilos o la brecha/\
+canje se abre?; (3) riesgo país solo si se movió; (4) qué mirar en la rueda que viene. \
+Cerrá con los bonos que pagan hoy solo si hay alguno."""
+
+
 # Biblioteca de consultas de mesa (libro de finanzas, elegidas por el user
 # 2026-07-11): chips de un click en el panel. El prompt curado vive ACÁ,
 # versionado — es conocimiento institucional, no texto libre del usuario.
@@ -1753,6 +1921,35 @@ _TONO_POR_ROL = {
 
 
 VISTAS: dict[str, dict] = {
+    "home": {
+        "titulo": "Home",
+        "modulo": "home",
+        "dominio": "panorama general del mercado — watchlist (MERVAL, riesgo país, "
+                   "dólares MEP/CCL/oficial, canje, futuros globales y DLR), el briefing "
+                   "del día y el trazo grueso de las curvas de bonos",
+        "fetch": _fetch_home,
+        "extras": _extras_home,
+        "jerga_permitida": {"canje", "tna", "mep", "ccl", "carry", "bps", "brecha",
+                            "riesgo", "caucion", "valor"},
+        "chips": [
+            {"label": "Narrame el briefing", "pregunta": _PREGUNTA_NARRAR_BRIEFING},
+            {"label": "¿Cómo viene el mercado?",
+             "pregunta": "Dame el pulso de hoy en 5 líneas: qué manda (¿índices, "
+                         "commodities, dólar?), cómo están los dólares y el riesgo "
+                         "país, y qué mirar en la rueda."},
+            {"label": "Dólares y brecha",
+             "pregunta": "¿Cómo están MEP, CCL y oficial hoy y en el mes? ¿El canje "
+                         "se abre o se cierra? Una lectura corta del panorama "
+                         "cambiario, sin recomendación."},
+        ],
+        "columnas": [
+            ("symbol", "instrumento"), ("grupo", "grupo"),
+            ("last", "valor"), ("unit", "unidad"),
+            ("pct_day", "var_dia%"), ("ret_7d", "ret_7d%"),
+            ("ret_mtd", "ret_mes%"), ("ret_ytd", "ret_año%"),
+        ],
+        "reglas": _REGLAS_HOME,
+    },
     "renta_variable": {
         "titulo": "Renta Variable",
         "modulo": "renta-variable",

@@ -500,6 +500,60 @@ def test_presupuesto_agotado_durante_la_llamada(monkeypatch):
     assert out == {"ok": False, "error": "presupuesto_usuario"}
 
 
+def test_vista_home_registrada():
+    cfg = copiloto.VISTAS["home"]
+    assert cfg["modulo"] == "home" and cfg["dominio"]
+    assert {c["label"] for c in cfg["chips"]} >= {"Narrame el briefing"}
+    assert all(c["pregunta"] for c in cfg["chips"])
+
+
+def test_fetch_home_mezcla_argy_y_quotes(monkeypatch):
+    monkeypatch.setattr(
+        "api.services.argy.get_argy_with_returns",
+        lambda: [{"label": "DOLAR MEP", "value": 1234.5, "unit": "$",
+                  "ret_day": 0.5, "ret_7d": 1.2, "ret_mtd": 3.0, "ret_ytd": 20.0}],
+    )
+    monkeypatch.setattr(
+        "api.services.market_sql.quotes",
+        lambda: [{"symbol": "ES=F", "grupo": "Índices", "last": 6100.0,
+                  "pct_day": -0.3, "ret_7d": 0.8, "ret_mtd": 2.0, "ret_ytd": 15.0}],
+    )
+    filas = copiloto._fetch_home()
+    assert [f["symbol"] for f in filas] == ["DOLAR MEP", "ES=F"]
+    assert filas[0]["grupo"] == "ARGENTINA" and filas[0]["unit"] == "$"
+    assert filas[1]["pct_day"] == -0.3
+
+
+def test_fetch_home_una_fuente_caida_no_rompe(monkeypatch):
+    monkeypatch.setattr("api.services.argy.get_argy_with_returns", lambda: 1 / 0)
+    monkeypatch.setattr(
+        "api.services.market_sql.quotes",
+        lambda: [{"symbol": "GC=F", "grupo": "Metales", "last": 3300.0}],
+    )
+    filas = copiloto._fetch_home()
+    assert len(filas) == 1 and filas[0]["symbol"] == "GC=F"
+
+
+def test_briefing_bloque_serializa(monkeypatch):
+    monkeypatch.setattr(
+        "api.services.briefing.briefing_hoy",
+        lambda: {
+            "fecha": "2026-07-13",
+            "futuros": [{"label": "S&P 500", "grupo": "Índices US", "hoy": 6100.0,
+                         "ret_1d": 0.5, "ret_wtd": 1.0, "ret_mtd": None}],
+            "oficial": [{"label": "Mayorista MAE", "hoy": None, "ret_1d": None,
+                         "ret_wtd": None, "ret_mtd": None}],
+            "financieros": [],
+            "pagan_hoy": [{"ticker": "TX26", "emisor": None}],
+        },
+    )
+    bloque = "\n".join(copiloto._briefing_bloque())
+    assert "briefing de apertura" in bloque and "2026-07-13" in bloque
+    assert "futuros Índices US" in bloque
+    assert "S&P 500: hoy 6100.00 · 1d +0.50% · sem +1.00% · mes -" in bloque
+    assert "pagan hoy: TX26" in bloque
+
+
 def test_estado_mercado_mapa_horario():
     from datetime import datetime
 

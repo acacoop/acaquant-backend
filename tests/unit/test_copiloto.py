@@ -557,6 +557,39 @@ def test_resumen_curvas_por_tramo():
     assert any(li.startswith("tasa_fija (1)") for li in lineas)
 
 
+def test_estrategia_rf_bajo_demanda(monkeypatch):
+    import api.services.comparar_inversion as ci
+    import api.services.descomposicion_retorno as dr
+    import api.services.sensibilidad as se
+
+    llamadas = []
+    monkeypatch.setattr(ci, "comparar", lambda a, b, monto, moneda="ARS": (
+        llamadas.append(("comparar", a, b)) or {
+            "a": {"flujos": [{"monto": 600000.0}, {"monto": 550000.0}],
+                  "moneda": "ARS", "vencimiento": "2027-06-30"},
+            "b": {"flujos": [{"monto": 1180000.0}], "moneda": "ARS"},
+            "meta": {"warnings": []},
+        }))
+    monkeypatch.setattr(se, "sensibilidad_retorno_total", lambda *, curva: [])
+    monkeypatch.setattr(dr, "descomposicion_realizada",
+                        lambda *, desde, hasta, curva: {"bonos": [
+                            {"ticker_corto": "TX26", "r_total": 0.031,
+                             "carry": 0.028, "rolldown": 0.002, "cambio_tasa": 0.001},
+                        ]})
+
+    filas = [{"ticker_corto": "TX26", "curva_label": "cer", "tipo": "cer"},
+             {"ticker_corto": "S31O5", "curva_label": "tasa_fija", "tipo": "tasa_fija"}]
+    partes = copiloto._estrategia_rf(filas, "¿TX26 o S31O5 para 6 meses?", [])
+    texto = "\n".join(partes)
+    # nombró dos bonos → comparación completa con ids curvas:<ticker>
+    assert llamadas and llamadas[0] == ("comparar", "curvas:TX26", "curvas:S31O5")
+    assert "cobra 1150000 ARS en 2 pagos" in texto
+    # TX26 es CER → descomposición de 30 días
+    assert "descomposición TX26" in texto and "carry 2.80%" in texto
+    # sin bonos nombrados → nada (no engorda el contexto base)
+    assert copiloto._estrategia_rf(filas, "¿cómo está la curva?", []) == []
+
+
 def test_jerga_permitida_por_vista():
     cfg_rf = copiloto.VISTAS["renta_fija"]
     # en renta fija, TEA/bps/duration SON el idioma → no disparan

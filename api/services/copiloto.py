@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from api.cache import cached
 
@@ -929,6 +929,112 @@ def _resumen_curvas_rf(filas: list[dict]) -> list[str]:
             + lineas) if lineas else []
 
 
+# Herramientas de la vista ESTRATEGIA disponibles para el copiloto RF
+# (pedido del user 2026-07-12): la página es otra, pero el ANÁLISIS es de
+# renta fija — son services puros de mercado y se activan bajo demanda
+# (al nombrar bonos), así no engordan el contexto base.
+
+
+def _comparar_bonos_rf(fa: dict, fb: dict) -> list[str]:
+    """[comparar A vs B]: flujos de invertir ARS 1.000.000 hoy en cada uno
+    (service comparar_inversion, el de la vista Estrategia)."""
+    from api.services import comparar_inversion
+
+    a, b = fa.get("ticker_corto"), fb.get("ticker_corto")
+    try:
+        r = comparar_inversion.comparar(f"curvas:{a}", f"curvas:{b}", 1_000_000.0, "ARS")
+    except Exception as e:
+        logger.warning("copiloto rf: comparar %s/%s falló (%s)", a, b, e)
+        return []
+    if not r or r.get("error"):
+        return []
+    lineas = [f"[comparar {a} vs {b} — flujos de invertir ARS 1000000 hoy]"]
+    for lado, tk in (("a", a), ("b", b)):
+        p = r.get(lado) or {}
+        flujos = p.get("flujos") or []
+        total = sum(x.get("monto") or 0 for x in flujos)
+        det = (f"{tk}: cobra {total:.0f} {p.get('moneda') or ''} en {len(flujos)} pagos"
+               + (f" hasta {p.get('vencimiento')}" if p.get("vencimiento") else ""))
+        if p.get("cer_proyectado"):
+            det += " (flujos CER proyectados con CER constante, no con inflación)"
+        lineas.append(det)
+    warns = (r.get("meta") or {}).get("warnings") or []
+    if warns:
+        lineas.append("advertencias: " + ", ".join(str(w) for w in warns))
+    return lineas
+
+
+def _sensibilidad_rf(ticker: str) -> list[str]:
+    """[sensibilidad TICKER]: precio objetivo ante escenarios de TIR (solo
+    soberanos; upside de PRECIO, sin carry)."""
+    from api.services import sensibilidad
+
+    try:
+        filas_s = sensibilidad.sensibilidad_retorno_total(curva="soberanos")
+    except Exception as e:
+        logger.warning("copiloto rf: sensibilidad falló (%s)", e)
+        return []
+    row = next((x for x in filas_s or [] if x.get("ticker") == ticker), None)
+    if not row:
+        return []
+    escenarios = ", ".join(
+        f"TIR {e.get('tir'):.1f}% → precio {e.get('precio_objetivo'):.1f} "
+        f"({_pct(e.get('upside'))})"
+        for e in (row.get("escenarios") or [])[:5]
+        if e.get("tir") is not None and e.get("precio_objetivo") is not None
+    )
+    if not escenarios:
+        return []
+    return [f"[sensibilidad {ticker} — precio hoy {row.get('precio_actual')}, "
+            f"TIR {row.get('tea_actual')}%, dur {row.get('duration')}] {escenarios} "
+            "(upside de PRECIO solamente, sin carry)"]
+
+
+def _descomposicion_rf(ticker: str, etiqueta: str) -> list[str]:
+    """[descomposición TICKER 30d]: qué explicó el retorno del último mes —
+    carry, rolldown y movimiento de tasa (curvas cer/tasa_fija)."""
+    from api.services import descomposicion_retorno
+
+    curva = "cer" if etiqueta.startswith("cer") else "tasa_fija"
+    hoy = datetime.now(UTC).date()
+    try:
+        r = descomposicion_retorno.descomposicion_realizada(
+            desde=(hoy - timedelta(days=30)).isoformat(), hasta=hoy.isoformat(),
+            curva=curva,
+        )
+    except Exception as e:
+        logger.warning("copiloto rf: descomposición %s falló (%s)", ticker, e)
+        return []
+    if not r or r.get("error"):
+        return []
+    bonos = r.get("bonos") or r.get("detalle") or []
+    bono = next((x for x in bonos
+                 if ticker in (x.get("ticker_corto"), x.get("ticker"), x.get("label"))),
+                None)
+    if not bono or bono.get("r_total") is None:
+        return []
+    linea = (f"[descomposición {ticker} — últimos 30 días] retorno {_pct(bono['r_total'])}"
+             f" = carry {_pct(bono.get('carry'))} + rolldown {_pct(bono.get('rolldown'))}"
+             f" + Δtasa {_pct(bono.get('cambio_tasa'))}")
+    if bono.get("cer_accrual") is not None:
+        linea += f" + ajuste CER {_pct(bono.get('cer_accrual'))}"
+    return [linea]
+
+
+def _estrategia_rf(filas: list[dict], pregunta: str, historial: list[dict]) -> list[str]:
+    nombrados = _detectar_tickers(filas, pregunta, historial)
+    partes: list[str] = []
+    if len(nombrados) >= 2:
+        partes.extend(_comparar_bonos_rf(nombrados[0], nombrados[1]))
+    for f in nombrados[:2]:
+        etiqueta = str(f.get("curva_label") or "")
+        if f.get("tipo") in ("globales", "bonares"):
+            partes.extend(_sensibilidad_rf(f.get("ticker_corto")))
+        elif etiqueta.startswith(("cer", "tasa_fija")):
+            partes.extend(_descomposicion_rf(f.get("ticker_corto"), etiqueta))
+    return partes
+
+
 def _extras_renta_fija(
     filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
 ) -> list[str]:
@@ -946,6 +1052,7 @@ def _extras_renta_fija(
     partes.extend(_baratos_caros_rf())
     partes.extend(_forwards_rf(filas, pregunta, historial))
     partes.extend(_breakevens_rf())
+    partes.extend(_estrategia_rf(filas, pregunta, historial))
     return partes
 
 
@@ -981,6 +1088,18 @@ compresión de tasas → favorece largo; incertidumbre alta → corto o CER.
 - SIEMPRE presentá la decisión como trade-off con el supuesto explícito ("si esperás \
 inflación arriba de X%/mes, CER corto; si creés en la desinflación del REM, la tasa fija \
 larga paga carry + rolldown con la curva así de empinada") — jamás una orden.
+
+Herramientas bajo demanda (aparecen cuando nombrás bonos — son las de la vista Estrategia, \
+disponibles acá):
+- [comparar A vs B]: los flujos de invertir ARS 1.000.000 HOY en cada bono — total a \
+cobrar, cantidad de pagos, advertencias (cruce de moneda, flujos CER proyectados con CER \
+constante). Es tu columna vertebral para cualquier "¿A o B?": flujos + residuos + forward \
+implícito + el trade-off de plazos.
+- [sensibilidad TICKER] (solo soberanos): precio objetivo ante escenarios de TIR. Es \
+upside de PRECIO solamente — sin carry — y tenés que aclararlo siempre.
+- [descomposición TICKER 30d] (pesos): qué explicó el retorno del último mes — carry \
+(devengo), rolldown (rodar por la curva) y Δtasa (movimiento del mercado). Es LA \
+respuesta a "¿por qué subió/bajó tanto?".
 
 Reglas de acá:
 - El bloque [baratos y caros] ya viene FILTRADO: los residuos absurdos (precio viejo / \

@@ -113,6 +113,16 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.32 (las herramientas de ESTRATEGIA, disponibles en RF)
+- **[contexto +]** Pedido del user: comparar inversión, sensibilidad y
+  descomposición viven en la página Estrategia pero SON análisis de RF — el
+  copiloto RF ahora las tiene, BAJO DEMANDA (se activan al nombrar bonos,
+  cero costo en el contexto base): [comparar A vs B] (flujos de ARS 1M hoy
+  en cada uno + advertencias) al nombrar dos bonos · [sensibilidad TICKER]
+  (escenarios de TIR, solo soberanos, upside de precio sin carry) ·
+  [descomposición TICKER 30d] (carry + rolldown + Δtasa — el "¿por qué
+  subió?") para pesos. Services puros reutilizados tal cual.
+
 ### 2026-07-12 — v1.31 (marco de portfolio: ¿tasa fija o CER? ¿corto o largo?)
 - **[contexto +]** `[breakevens + señal vs REM]`: cada par lecap-CER con su
   breakeven YA cruzado por código contra el promedio mensual geométrico del

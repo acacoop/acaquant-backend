@@ -113,6 +113,12 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.29.1 (fix: el fair value no llegaba)
+- **[bugfix]** "Baratos vs curva" decía "sin precio teórico": llamada
+  POSICIONAL a `get_fair_value_live` (service `@cached` → exige kwargs, el
+  clásico del repo) → TypeError tragado → residuos vacíos. Fix + fake del
+  test kwargs-only para que CI lo cace si reaparece.
+
 ### 2026-07-12 — v1.29 (TERCERA VISTA: Renta Fija — curvas, fair value, forwards, breakevens)
 - **[vista +]** `renta_fija` (módulo `renta-fija`, 3 roles): el idioma acá es
   TEA/curva/forward/breakeven (jerga_permitida por vista). Tabla = ~4 curvas

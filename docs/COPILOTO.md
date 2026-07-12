@@ -113,6 +113,18 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.34 (batería de 15: cluster de escalas y contratos)
+- **[bugfix ×5, todos cazados por scripts/bateria_rf]** (1) TEA/TEM/tea_fit
+  llegan en FRACCIÓN de los services → normalizados a % en el fetch ("lecaps
+  al 0.22% TEA" era esto; también cierres, forwards, breakevens y shocks de
+  sensibilidad, cada uno en su bloque). (2) `get_ultimo_mep` vive en
+  `api.services.macro`, no en `_mep`. (3) `get_breakevens()` devuelve LISTA
+  de docs → `[0].pares`. (4) `comparar` es `@cached` → kwargs (2ª vez la
+  misma trampa; fake del test ahora kwargs-only). (5) Detección de tickers
+  con sufijo de especie: "GD30" matchea GD30D/C.
+- **[contexto ~]** Header de [movimientos] con la fecha del cierre comparado
+  + instrucción de decir "no hay rueda nueva" en fin de semana.
+
 ### 2026-07-12 — v1.33 (shocks de TIR + silencios inteligentes + descomposición natural)
 - **[fix]** Sensibilidad en modo RELATIVA (±0.5/1/2pp sobre la TEA actual):
   "¿y si comprime 2 puntos?" se responde directo del bloque — antes los

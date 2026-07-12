@@ -505,7 +505,7 @@ def test_fetch_renta_fija_merge(monkeypatch):
     # value no llegaba al copiloto por llamarlo posicional)
     monkeypatch.setattr(fv, "get_fair_value_live", lambda *, curva: {
         "r2": 0.97,
-        "bonos": [{"ticker_corto": "TX26", "tea_teorica": 41.0, "residuo_bps": 85.0}],
+        "bonos": [{"ticker_corto": "TX26", "tea_teorica": 0.41, "residuo_bps": 85.0}],
     } if curva == "cer" else {"bonos": []})
     monkeypatch.setattr(rf, "get_renta_fija", lambda: [
         {"instrumento": "MERV - XMEV - S31O5 - 24hs",
@@ -513,18 +513,21 @@ def test_fetch_renta_fija_merge(monkeypatch):
     ])
 
     def fake_listar(*, curva):
+        # los services devuelven TEA en FRACCIÓN (0.4185 = 41.85%)
         if curva == "cer":
-            return [{"ticker_corto": "TX26", "tipo": "cer", "tea": 41.85,
+            return [{"ticker_corto": "TX26", "tipo": "cer", "tea": 0.4185,
                      "meses_al_vto": 14.0, "ultimo_precio": 1520.0}]
         if curva == "tasa_fija":
-            return [{"ticker_corto": "S31O5", "tipo": "tasa_fija", "tea": 39.0,
+            return [{"ticker_corto": "S31O5", "tipo": "tasa_fija", "tea": 0.39,
                      "cer_fijado": True, "meses_al_vto": 3.0, "ultimo_precio": 132.0}]
         return []
 
     monkeypatch.setattr(rf, "listar_curva", fake_listar)
     filas = copiloto._fetch_renta_fija()
     tx = next(f for f in filas if f["ticker_corto"] == "TX26")
-    assert tx["residuo_bps"] == 85.0 and tx["tea_teorica"] == 41.0
+    assert tx["residuo_bps"] == 85.0
+    # normalización a %: fracción 0.4185 → 41.85 en la tabla del copiloto
+    assert round(tx["tea"], 2) == 41.85
     s31 = next(f for f in filas if f["ticker_corto"] == "S31O5")
     assert s31["curva_label"] == "tasa_fija (CER fijado)"
     assert s31["tc_breakeven"] == 1450.5  # mapeado del instrumento ROFEX largo
@@ -563,8 +566,9 @@ def test_estrategia_rf_bajo_demanda(monkeypatch):
     import api.services.sensibilidad as se
 
     llamadas = []
-    monkeypatch.setattr(ci, "comparar", lambda a, b, monto, moneda="ARS": (
-        llamadas.append(("comparar", a, b)) or {
+    # kwargs-only como el wrapper @cached real (batería: posicional explotaba)
+    monkeypatch.setattr(ci, "comparar", lambda *, a_id, b_id, monto, moneda_input="ARS": (
+        llamadas.append(("comparar", a_id, b_id)) or {
             "a": {"flujos": [{"monto": 600000.0}, {"monto": 550000.0}],
                   "moneda": "ARS", "vencimiento": "2027-06-30"},
             "b": {"flujos": [{"monto": 1180000.0}], "moneda": "ARS"},

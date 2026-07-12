@@ -429,7 +429,8 @@ def _detectar_tickers(filas: list[dict], pregunta: str, historial: list[dict]) -
     vistos: set[str] = set()
     out: list[dict] = []
     for tok in tokens:
-        f = por_clave.get(tok)
+        # sufijos de especie D/C: "GD30" debe matchear GD30D (batería RF)
+        f = por_clave.get(tok) or por_clave.get(tok + "D") or por_clave.get(tok + "C")
         if f and f.get("ticker_corto") not in vistos:
             vistos.add(f["ticker_corto"])
             out.append(f)
@@ -711,6 +712,12 @@ def _fetch_renta_fija(params: dict | None = None) -> list[dict]:
             f["tea_teorica"] = fv.get("tea_teorica")
             f["residuo_bps"] = fv.get("residuo_bps")
             f["tc_breakeven"] = tc_por_corto.get(f.get("ticker_corto"))
+            # Los services devuelven TEA/TEM en FRACCIÓN (0.39 = 39%) — acá se
+            # normaliza a % para el TSV (batería 2026-07-12: 'lecaps al 0.22%
+            # TEA' era esto). paridad ya viene en escala 100.
+            for k in ("tea", "tem", "tea_teorica"):
+                if f.get(k) is not None:
+                    f[k] = float(f[k]) * 100
             filas.append(f)
     return filas
 
@@ -723,13 +730,17 @@ def _teas_cierre_anterior() -> dict[str, float]:
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            SELECT ticker_corto, tea FROM mercado.snapshots_cierre_hist
+            SELECT ticker_corto, tea, fecha FROM mercado.snapshots_cierre_hist
             WHERE fecha = (SELECT max(fecha) FROM mercado.snapshots_cierre_hist
                            WHERE fecha < now()::date)
               AND tea IS NOT NULL
             """
         )
-        return {r[0]: float(r[1]) for r in cur.fetchall() if r[0]}
+        filas = cur.fetchall()
+    # tea persiste en FRACCIÓN → a % (misma normalización que el fetch)
+    teas = {r[0]: float(r[1]) * 100 for r in filas if r[0]}
+    teas["_fecha"] = str(filas[0][2]) if filas else None  # para el header del bloque
+    return teas
 
 
 def _movimientos_dia_rf(filas: list[dict]) -> list[str]:
@@ -741,6 +752,7 @@ def _movimientos_dia_rf(filas: list[dict]) -> list[str]:
     except Exception as e:
         logger.warning("copiloto rf: teas de cierre fallaron (%s)", e)
         return []
+    fecha_cierre = cierre.pop("_fecha", None)
     deltas = []
     for f in filas:
         tk, tea = f.get("ticker_corto"), f.get("tea")
@@ -752,8 +764,10 @@ def _movimientos_dia_rf(filas: list[dict]) -> list[str]:
     if not deltas:
         return ["[movimientos del día] sin cierre previo para comparar"]
     deltas.sort(reverse=True)
-    return ["[movimientos del día — TEA hoy vs último cierre, en bps] "
-            + "; ".join(s for _, s in deltas[:12])]
+    cab = f"[movimientos — TEA actual vs cierre del {fecha_cierre}, en bps" \
+          if fecha_cierre else "[movimientos — TEA actual vs último cierre, en bps"
+    return [cab + "; si es fin de semana/feriado los valores coinciden — decilo, no "
+                  "hay rueda nueva] " + "; ".join(s for _, s in deltas[:12])]
 
 
 def _baratos_caros_rf() -> list[str]:
@@ -818,8 +832,9 @@ def _forwards_rf(filas: list[dict], pregunta: str, historial: list[dict]) -> lis
                     continue
                 z = (fwd - media) / desvio
                 if abs(z) >= 1.5:
-                    extremos.append((abs(z), f"{corto}→{largo} ({curva}) fwd {fwd:.1f}% "
-                                             f"vs media {media:.1f}% · z {z:+.1f}"))
+                    # tasas en fracción → % para el contexto
+                    extremos.append((abs(z), f"{corto}→{largo} ({curva}) fwd {fwd * 100:.1f}% "
+                                             f"vs media {media * 100:.1f}% · z {z:+.1f}"))
     extremos.sort(reverse=True)
     partes = []
     if extremos:
@@ -836,8 +851,10 @@ def _forwards_rf(filas: list[dict], pregunta: str, historial: list[dict]) -> lis
             fwd = (m.get(b) or {}).get(a) or (m.get(a) or {}).get(b)
             if fwd is not None:
                 tasas = doc.get("tasas") or {}
-                partes.append(f"[forward {a}↔{b} ({curva})] implícito {fwd:.2f}% · "
-                              f"spot {a} {tasas.get(a, 0):.2f}% · {b} {tasas.get(b, 0):.2f}%")
+                partes.append(
+                    f"[forward {a}↔{b} ({curva})] implícito {fwd * 100:.2f}% · "
+                    f"spot {a} {tasas.get(a, 0) * 100:.2f}% · {b} {tasas.get(b, 0) * 100:.2f}%"
+                )
                 break
     return partes
 
@@ -863,7 +880,8 @@ def _breakevens_rf() -> list[str]:
     from api.services import mercado_hist_sql, rem_sql
 
     try:
-        pares = (mercado_hist_sql.get_breakevens() or {}).get("pares") or []
+        docs = mercado_hist_sql.get_breakevens() or []
+        pares = (docs[0] if docs else {}).get("pares") or []  # devuelve LISTA de docs
     except Exception as e:
         logger.warning("copiloto rf: breakevens fallaron (%s)", e)
         return []
@@ -882,6 +900,7 @@ def _breakevens_rf() -> list[str]:
         be = p.get("breakeven_mensual")
         if be is None:
             continue
+        be = float(be) * 100  # el motor lo guarda en fracción
         base = f"{p.get('lecap')}/{p.get('cer')} a {p.get('dias')}d: mercado {be:.2f}%/mes"
         rem_pm = _rem_promedio_hasta(serie_rem, p.get("fecha_vencimiento"))
         if rem_pm is not None:
@@ -942,7 +961,10 @@ def _comparar_bonos_rf(fa: dict, fb: dict) -> list[str]:
 
     a, b = fa.get("ticker_corto"), fb.get("ticker_corto")
     try:
-        r = comparar_inversion.comparar(f"curvas:{a}", f"curvas:{b}", 1_000_000.0, "ARS")
+        # @cached → SIEMPRE kwargs (batería 2026-07-12: posicional explotaba)
+        r = comparar_inversion.comparar(
+            a_id=f"curvas:{a}", b_id=f"curvas:{b}", monto=1_000_000.0, moneda_input="ARS",
+        )
     except Exception as e:
         logger.warning("copiloto rf: comparar %s/%s falló (%s)", a, b, e)
         return []
@@ -973,9 +995,11 @@ def _sensibilidad_rf(ticker: str) -> list[str]:
         # modo RELATIVA con shocks: el trader pregunta "¿y si comprime 2
         # puntos?" — los escenarios vienen como ±pp, no como TIRs absolutas
         # (shadow: el modelo restaba TIR−2 a mano → verificación lo bloqueaba)
+        # el service trabaja en FRACCIONES (defaults 0.04..0.11) → los shocks
+        # también: ±0.005/0.01/0.02 = ±0.5/1/2 puntos porcentuales
         filas_s = sensibilidad.sensibilidad_retorno_total(
             curva="soberanos", modo="relativa",
-            tirs=(-2.0, -1.0, -0.5, 0.5, 1.0, 2.0),
+            tirs=(-0.02, -0.01, -0.005, 0.005, 0.01, 0.02),
         )
     except Exception as e:
         logger.warning("copiloto rf: sensibilidad falló (%s)", e)
@@ -984,16 +1008,19 @@ def _sensibilidad_rf(ticker: str) -> list[str]:
     if not row:
         return []
     escenarios = ", ".join(
-        f"TIR {e['shock_pp']:+.1f}pp (a {e.get('tir'):.1f}%) → precio "
+        f"TIR {e['shock_pp'] * 100:+.1f}pp (a {e.get('tir') * 100:.1f}%) → precio "
         f"{e.get('precio_objetivo'):.1f} ({_pct(e.get('upside'))})"
         for e in (row.get("escenarios") or [])
         if e.get("shock_pp") is not None and e.get("precio_objetivo") is not None
     )
     if not escenarios:
         return []
-    return [f"[sensibilidad {ticker} — precio hoy {row.get('precio_actual')}, "
-            f"TIR {row.get('tea_actual')}%, dur {row.get('duration')}] {escenarios} "
-            "(upside de PRECIO solamente, sin carry)"]
+    tea_act = row.get("tea_actual")
+    cab = f"[sensibilidad {ticker} — precio hoy {row.get('precio_actual')}"
+    if tea_act is not None:
+        cab += f", TIR {tea_act * 100:.1f}%"
+    cab += f", dur {row.get('duration')}]"
+    return [f"{cab} {escenarios} (upside de PRECIO solamente, sin carry)"]
 
 
 def _descomposicion_rf(ticker: str, etiqueta: str) -> list[str]:
@@ -1046,7 +1073,7 @@ def _extras_renta_fija(
 ) -> list[str]:
     partes: list[str] = []
     try:
-        from api.services._mep import get_ultimo_mep
+        from api.services.macro import get_ultimo_mep
 
         mep = get_ultimo_mep()
         if mep:

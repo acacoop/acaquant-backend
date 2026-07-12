@@ -534,6 +534,21 @@ def test_fetch_home_una_fuente_caida_no_rompe(monkeypatch):
     assert len(filas) == 1 and filas[0]["symbol"] == "GC=F"
 
 
+def test_renta_fija_pulso_por_curva_y_tramo(monkeypatch):
+    monkeypatch.setattr(copiloto, "_fetch_renta_fija", lambda params=None: [
+        {"ticker_corto": "S31L6", "curva_label": "tasa_fija", "tea": 39.0, "meses_al_vto": 1},
+        {"ticker_corto": "T15E7", "curva_label": "tasa_fija", "tea": 33.0, "meses_al_vto": 24},
+        {"ticker_corto": "TX26", "curva_label": "cer", "tea": 10.0, "meses_al_vto": 8},
+    ])
+    monkeypatch.setattr(copiloto, "_teas_cierre_anterior",
+                        lambda: {"S31L6": 40.0, "T15E7": 32.5, "_fecha": "2026-07-11"})
+    bloque = "\n".join(copiloto._renta_fija_pulso())
+    # tasa_fija: corto comprime 100bps, largo descomprime 50bps — separado por tramo
+    assert "tasa_fija: corto 39.0% (-100bps hoy) · largo 33.0% (+50bps hoy)" in bloque
+    # cer sin cierre previo → TEA sin delta
+    assert "cer: medio 10.0%" in bloque
+
+
 def test_briefing_bloque_serializa(monkeypatch):
     monkeypatch.setattr(
         "api.services.briefing.briefing_hoy",

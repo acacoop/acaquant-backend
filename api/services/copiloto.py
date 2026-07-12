@@ -1729,13 +1729,68 @@ es del trader. "Si rompe X, lo próximo es Y" está bien; "entrá" no.
 # Prompt curado de la narración del briefing (P1: "la capa de redacción IA
 # arriba del briefing determinista"). Lo usan el chip del panel y el botón
 # 🗣 NARRÁMELO del modal (briefing-modal.tsx copia este texto).
+# SEGMENTADO (feedback del shadow 2026-07-12): el mercado no es uno — granos,
+# bonos, dólar y acciones no se mezclan en una misma conclusión.
 _PREGUNTA_NARRAR_BRIEFING = (
-    "Narrame el briefing de hoy como informe de mesa: 6-8 líneas de lectura "
-    "transversal — qué grupo manda hoy, si los dólares acompañan o se abre la "
-    "brecha, el riesgo país si se movió, y qué mirar en la rueda. No repitas "
-    "la tabla fila por fila: contá la historia del día. Si algo no operó hoy, "
-    "decilo."
+    "Narrame el día como informe de mesa, POR SEGMENTO y en este orden: renta "
+    "fija (por curva — ¿comprime la parte corta o la larga? ¿CER, tasa fija o "
+    "soberanos?), acciones, dólares y tasas (¿el canje se abre o se cierra?), "
+    "y commodities e índices globales. 2-3 frases por segmento, salteá los que "
+    "no tengan nada para decir, y JAMÁS los mezcles. Cerrá con qué mirar en la "
+    "rueda y los bonos que pagan hoy solo si hay."
 )
+
+
+def _renta_fija_pulso() -> list[str]:
+    """[renta fija hoy]: TEA promedio por curva y TRAMO (corto <6m / medio /
+    largo >18m) + Δ promedio vs el último cierre en bps. El segmento más
+    operado de la plaza — sin esto el pulso de HOME estaba ciego a los bonos
+    (feedback del shadow 2026-07-12: 'no sabe de la renta fija, que en ARGY
+    es donde más a full está'). Reusa los fetch cacheados de la vista RF."""
+    try:
+        filas = _fetch_renta_fija()
+        cierre = _teas_cierre_anterior()
+    except Exception as e:
+        logger.warning("copiloto home: pulso RF falló (%s)", e)
+        return []
+    cierre.pop("_fecha", None)
+    grupos: dict[tuple, list] = {}
+    for f in filas:
+        base = str(f.get("curva_label") or "").split(" (")[0]
+        tea, m = f.get("tea"), f.get("meses_al_vto")
+        if not base or tea is None or m is None:
+            continue
+        tramo = "corto" if m < 6 else ("medio" if m <= 18 else "largo")
+        prev = cierre.get(f.get("ticker_corto"))
+        grupos.setdefault((base, tramo), []).append(
+            (tea, (tea - prev) * 100 if prev is not None else None)
+        )
+    por_curva: dict[str, list[str]] = {}
+    orden = {"corto": 0, "medio": 1, "largo": 2}
+    for (base, tramo), vals in sorted(grupos.items(),
+                                      key=lambda kv: (kv[0][0], orden[kv[0][1]])):
+        teas = [t for t, _ in vals]
+        deltas = [d for _, d in vals if d is not None]
+        seg = f"{tramo} {sum(teas) / len(teas):.1f}%"
+        if deltas:
+            seg += f" ({sum(deltas) / len(deltas):+.0f}bps hoy)"
+        por_curva.setdefault(base, []).append(seg)
+    if not por_curva:
+        return []
+    return (["[renta fija hoy — TEA promedio por curva y tramo; entre paréntesis el Δ "
+             "vs el último cierre en bps (negativo = comprime = sube el precio). Si es "
+             "fin de semana/feriado los Δ son ~0: decí que no hubo rueda nueva]"]
+            + [f"{curva}: " + " · ".join(segs) for curva, segs in sorted(por_curva.items())])
+
+
+def _renta_variable_pulso() -> list[str]:
+    """[renta variable hoy]: el pulso por rubro del tablero de CEDEARs (el
+    MISMO agregado determinista de la vista RV) — el segmento ACCIONES."""
+    try:
+        return _pulso_por_rubro(_fetch_cedears())
+    except Exception as e:
+        logger.warning("copiloto home: pulso RV falló (%s)", e)
+        return []
 
 
 def _fetch_home(params: dict | None = None) -> list[dict]:
@@ -1840,14 +1895,18 @@ def _futuros_dlr_bloque() -> list[str]:
 def _extras_home(
     filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
 ) -> list[str]:
+    # Un bloque por SEGMENTO del mercado (renta fija · acciones · dólar futuro
+    # · briefing global) — la narración recorre segmentos, jamás los mezcla.
     partes: list[str] = []
-    partes.extend(_briefing_bloque())
-    partes.extend(_futuros_dlr_bloque())
+    partes.extend(_renta_fija_pulso())
     try:
         partes.extend(_retornos_precio_curva())
     except Exception as e:
         logger.warning("copiloto home: retornos por curva fallaron (%s)", e)
     partes.extend(_carry_canje_rf())
+    partes.extend(_renta_variable_pulso())
+    partes.extend(_futuros_dlr_bloque())
+    partes.extend(_briefing_bloque())
     return partes
 
 
@@ -1865,25 +1924,38 @@ del valor, no puntos.
 - DOLAR OFICIAL: mayorista MAE en vivo. Si sus plazos largos vienen "-" es porque el \
 histórico todavía no existe — decilo tal cual, jamás lo estimes.
 
-Bloques después de la tabla:
-- [briefing de apertura]: la MISMA tabla del modal de las 10:00 — futuros globales \
-agrupados, dólar oficial y financieros con hoy·1d·sem·mes, y los bonos en cartera que \
-pagan hoy. Es tu fuente para narrar el día.
-- [futuros DLR ROFEX]: la curva de dólar futuro con la devaluación implícita (TNA lineal, \
-la convención de la mesa).
-- [retorno de PRECIO por curva] y [carry y canje]: los tableros de renta fija, mediana \
-por curva — para "¿cómo vienen los bonos?" en trazo grueso.
+Bloques después de la tabla — UNO POR SEGMENTO del mercado:
+- [renta fija hoy]: TEA promedio por curva y TRAMO con su Δ vs el cierre en bps — acá \
+leés si comprime la parte corta o la larga, y si el movimiento es de los CER, la tasa \
+fija, los soberanos o los dollar-linked (son curvas DISTINTAS, nombralas por separado).
+- [retorno de PRECIO por curva] y [carry y canje]: los bonos en trazo grueso por ventana.
+- [pulso por rubro]: el segmento ACCIONES (CEDEARs/ADRs, retornos en USD por rubro, ya \
+ponderados).
+- [futuros DLR ROFEX]: la curva de dólar futuro con la devaluación implícita (TNA lineal).
+- [briefing de apertura]: la tabla del modal de las 10:00 — futuros globales agrupados, \
+dólar oficial y financieros, y los bonos en cartera que pagan hoy.
+
+EL MERCADO NO ES UNO — SEGMENTÁ SIEMPRE: renta fija, acciones, dólares/tasas y \
+commodities/índices son mundos distintos que JAMÁS se mezclan en una misma conclusión \
+("mandan los granos" no dice nada de los bonos ni del dólar). Para narrar el día o \
+responder "¿cómo viene el mercado?", recorré los segmentos EN ESTE ORDEN, 2-3 frases \
+por segmento, salteando los que no tengan nada para decir:
+1. RENTA FIJA (lo más operado de la plaza): de [renta fija hoy] — qué curva se mueve y \
+en qué tramo.
+2. ACCIONES: de [pulso por rubro] + el MERVAL de la tabla.
+3. DÓLARES Y TASAS: MEP/CCL/oficial, el canje (¿se abre o se cierra?) y las cauciones.
+4. COMMODITIES E ÍNDICES GLOBALES: de la watchlist y el briefing, POR GRUPO (granos ≠ \
+energía ≠ metales ≠ índices ≠ cripto).
+5. Cierre: UNA frase con qué mirar en la rueda; los bonos que pagan hoy solo si hay.
+
+PROHIBIDO PROMEDIAR GRUPOS A MANO: si querés decir "los granos vienen fuertes", nombrá \
+el que más se mueve con SU número exacto de la tabla ("maíz +7.6%") — nunca un promedio \
+o cifra de grupo que no esté precalculada en los bloques.
 
 REGLA DE HONESTIDAD — la más importante de esta vista: tus datos dicen QUÉ se movió, \
 nunca POR QUÉ. Ante un "¿por qué subió/bajó?" respondés el movimiento con sus plazos y \
 aclarás que el motivo no está en tus datos. PROHIBIDO inventar causas macro, políticas o \
-noticias de memoria. Describir y cruzar sí; explicar causas no.
-
-CÓMO NARRAR EL DÍA (para "narrame el briefing" o "¿cómo viene el mercado?"): lectura \
-TRANSVERSAL en 6-8 líneas, jamás fila por fila — (1) qué manda hoy: ¿es un día de \
-índices, de commodities o de dólar?; (2) los dólares: ¿acompañan tranquilos o la brecha/\
-canje se abre?; (3) riesgo país solo si se movió; (4) qué mirar en la rueda que viene. \
-Cerrá con los bonos que pagan hoy solo si hay alguno."""
+noticias de memoria. Describir y cruzar sí; explicar causas no."""
 
 
 # Biblioteca de consultas de mesa (libro de finanzas, elegidas por el user
@@ -1934,9 +2006,10 @@ VISTAS: dict[str, dict] = {
         "chips": [
             {"label": "Narrame el briefing", "pregunta": _PREGUNTA_NARRAR_BRIEFING},
             {"label": "¿Cómo viene el mercado?",
-             "pregunta": "Dame el pulso de hoy en 5 líneas: qué manda (¿índices, "
-                         "commodities, dólar?), cómo están los dólares y el riesgo "
-                         "país, y qué mirar en la rueda."},
+             "pregunta": "El pulso de hoy POR SEGMENTO: renta fija (qué curva y qué "
+                         "tramo se mueve), acciones, dólares y tasas, commodities e "
+                         "índices. Cortito por segmento, sin mezclarlos, y cerrá con "
+                         "qué mirar en la rueda."},
             {"label": "Dólares y brecha",
              "pregunta": "¿Cómo están MEP, CCL y oficial hoy y en el mes? ¿El canje "
                          "se abre o se cierra? Una lectura corta del panorama "

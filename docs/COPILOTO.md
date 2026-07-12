@@ -19,7 +19,7 @@
 | Observabilidad | tabla `ia.trazas` + Manager → OBSERVABILIDAD → pill IA | Cada pregunta: tokens, latencia, ok/error, feedback 👍/👎. |
 | Tests | `tests/unit/test_copiloto.py` | Congelan contrato: TSV, gates, caps, degradación, detección de tickers, verificador. |
 | Diag de contexto | `scripts/diag_contexto_rf.py` | LA LUPA: imprime el contexto exacto que ve el modelo, sin tokens. Primer comando ante cualquier rareza. |
-| Baterías | `scripts/bateria_rf.py` (+ `smoke_copiloto.py`, `eval_copiloto.py`) | Mapeo masivo de preguntas reales contra el copiloto vivo (gasta tokens del email que se pase). |
+| Baterías | `scripts/bateria_rf.py`, `scripts/bateria_home.py` (+ `smoke_copiloto.py`, `eval_copiloto.py`) | Mapeo masivo de preguntas reales contra el copiloto vivo (gasta tokens del email que se pase). |
 
 ## Cómo fluye una pregunta
 
@@ -115,6 +115,25 @@ completas + 👍/👎 · presupuestos con kill switch editables.
 prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
+
+### 2026-07-12 — v1.44 (HOME segmentada — el mercado no es uno)
+- **[rediseño, feedback del shadow]** "¿Cómo viene el mercado?" mezclaba
+  granos con dólar y acciones en una sola conclusión, y el pulso estaba
+  CIEGO a la renta fija ("en ARGY es donde más a full está"). La narración
+  ahora es POR SEGMENTO en orden fijo: renta fija → acciones → dólares y
+  tasas → commodities/índices → cruce final. Prompt de narración, chip y
+  copia del modal actualizados en el mismo cambio.
+- **[contexto +]** `[renta fija hoy]`: TEA promedio por CURVA y TRAMO
+  (corto/medio/largo) con Δ vs el último cierre en bps — responde "¿comprime
+  la corta o la larga? ¿los CER o los globales?" con datos (reusa los fetch
+  cacheados de la vista RF). `[pulso por rubro]` de CEDEARs sumado como
+  segmento ACCIONES (misma función de la vista RV).
+- **[prompt +]** PROHIBIDO promediar grupos a mano ("los granos +4%"): para
+  hablar de un grupo se nombra el que más se mueve con SU número — hipótesis
+  principal del bloqueo de verificación de "Narrame el briefing" del shadow.
+- **[tooling]** `scripts/bateria_home.py`: 15 preguntas (narración incluida
+  como #1) cubriendo segmentos, honestidad y derivación — para correr en el
+  Droplet y cazar los bloqueos con su motivo.
 
 ### 2026-07-12 — v1.43 (CUARTA VISTA: Home — panorama + briefing narrado)
 - **[vista +]** `home` (módulo `home`, los 3 roles; invitado jamás — el gate

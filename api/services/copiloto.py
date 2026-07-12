@@ -999,6 +999,37 @@ def preguntar(
     }
 
 
+def historial_persistido(usuario: str, limit: int = 8) -> list[dict]:
+    """Memoria persistente del chat SIN tabla nueva: las trazas de
+    observabilidad YA guardan cada intercambio (detalle=pregunta, respuesta=
+    extracto cap 1500). Al abrir el panel se recuperan los últimos, y el
+    historial que el cliente re-inyecta al modelo sale de ahí. Se excluyen
+    los reintentos de autocorrección (son internos)."""
+    try:
+        from core.postgres import get_pool
+
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, detalle, respuesta, feedback
+                FROM ia.trazas
+                WHERE usuario = %s AND tarea = 'copiloto_vista' AND ok
+                  AND respuesta IS NOT NULL AND detalle IS NOT NULL
+                  AND detalle NOT LIKE '[autocorrección]%%'
+                ORDER BY id DESC LIMIT %s
+                """,
+                (usuario, max(1, min(int(limit), 20))),
+            )
+            filas = cur.fetchall()
+        return [
+            {"traza_id": r[0], "pregunta": r[1], "respuesta": r[2], "feedback": r[3]}
+            for r in reversed(filas)
+        ]
+    except Exception as e:
+        logger.warning("copiloto historial: no pude leer (%s) — panel arranca vacío", e)
+        return []
+
+
 def registrar_feedback(traza_id: int, valor: int, usuario: str) -> dict:
     """👍/👎 sobre una respuesta propia: valor 1 o -1 sobre ia.trazas.feedback.
     Solo trazas del mismo usuario (nadie califica llamadas ajenas)."""

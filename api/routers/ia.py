@@ -97,6 +97,13 @@ def copiloto_vistas(email: str = Depends(get_user_email)):
     return {"vistas": copiloto.vistas_para(email=email)}
 
 
+@router.get("/copiloto/historial")
+def copiloto_historial(limit: int = 8, email: str = Depends(get_user_email)):
+    """Últimos intercambios del usuario con el copiloto (memoria persistente,
+    reconstruida desde ia.trazas — sin tabla nueva)."""
+    return {"mensajes": copiloto.historial_persistido(usuario=email, limit=limit)}
+
+
 @router.post("/copiloto")
 def copiloto_preguntar(body: PreguntaCopiloto, email: str = Depends(get_user_email)):
     """Una pregunta sobre la tabla de una vista de mercado. La IA solo ve los

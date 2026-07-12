@@ -113,6 +113,19 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.22 (memoria persistente + etapas del pensando · streaming DESCARTADO)
+- **[producto +]** Memoria persistente del chat SIN tabla nueva: al abrir el
+  panel se recuperan los últimos 8 intercambios del usuario, reconstruidos
+  desde `ia.trazas` (`GET /api/ia/copiloto/historial`) — con sus 👍/👎. Los
+  follow-ups sobreviven al refresh/cambio de día.
+- **[UI]** "Pensando…" ahora narra las etapas reales del pipeline: "Leyendo
+  los datos… → Redactando… → Verificando números…".
+- **[DESCARTADO] Streaming de respuestas** — incompatible con la política
+  "verificado o no se muestra" (2026-07-11): no se puede verificar texto que
+  no terminó de generarse; streamear mostraría números sin chequear y habría
+  que retractarlos en pantalla. Se re-evalúa solo si algún día se relaja la
+  política. Las etapas del pensando cubren la percepción de velocidad.
+
 ### 2026-07-12 — v1.21 (destacados IA deterministas + chip afinado + cursiva)
 - **[contexto +]** Línea "papeles de IA destacados HOY" en los screenings
   (top 5 del día SOLO entre ia=si, por código) — el chip de IA colaba a GGAL

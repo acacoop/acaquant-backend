@@ -1054,6 +1054,96 @@ def _descomposicion_rf(ticker: str, etiqueta: str) -> list[str]:
     return [linea]
 
 
+@cached(ttl=900)
+def _retornos_precio_curva() -> list[str]:
+    """[retorno de precio por curva] — mediana por curva en 7d/14d/MTD desde
+    los cierres históricos. Pedido del user: el tablero de /retorno mapeado
+    acá. HONESTIDAD: es retorno de PRECIO (en bullets cortos ≈ retorno total;
+    en hard dollar excluye cupones — la cifra exacta vive en /retorno)."""
+    from statistics import median
+
+    from core.postgres import get_pool
+
+    hoy = datetime.now(UTC).date()
+    cortes = {"7d": hoy - timedelta(days=7), "14d": hoy - timedelta(days=14),
+              "MTD": hoy.replace(day=1)}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT curva, ticker_corto, fecha, ultimo_precio
+            FROM mercado.snapshots_cierre_hist
+            WHERE fecha >= now()::date - 50 AND ultimo_precio IS NOT NULL
+              AND ultimo_precio > 0
+            ORDER BY curva, ticker_corto, fecha
+            """
+        )
+        series: dict[tuple, list] = {}
+        for curva, tk, fecha, px in cur.fetchall():
+            series.setdefault((curva, tk), []).append((fecha, float(px)))
+
+    rets: dict[str, dict[str, list[float]]] = {}
+    for (curva, _tk), pts in series.items():
+        ultimo = pts[-1][1]
+        for etiqueta, corte in cortes.items():
+            base = next((px for f, px in reversed(pts) if f <= corte), None)
+            if base:
+                rets.setdefault(curva, {}).setdefault(etiqueta, []).append(
+                    (ultimo / base - 1) * 100)
+    lineas = []
+    for curva in sorted(rets):
+        seg = [f"{et} {median(vals):+.1f}%" for et in ("7d", "14d", "MTD")
+               if (vals := rets[curva].get(et))]
+        if seg:
+            lineas.append(f"{curva} ({len(rets[curva].get('7d') or [])} bonos): "
+                          + " · ".join(seg))
+    return (["[retorno de PRECIO por curva — mediana por ventana; en bullets cortos "
+             "≈ retorno total, en hard dollar EXCLUYE cupones]"] + lineas) if lineas else []
+
+
+def _carry_canje_rf() -> list[str]:
+    """[carry en USD] (últimos 14d vía MEP, por curva) + [canje] — los otros
+    dos tableros de /retorno mapeados al copiloto."""
+    partes = []
+    desde = (datetime.now(UTC).date() - timedelta(days=14)).isoformat()
+    try:
+        from statistics import median
+
+        from api.services import carry_trade
+
+        for curva in ("tasa_fija", "cer"):
+            r = carry_trade.serie_carry_trade(curva=curva, desde=desde) or {}
+            tabla = [t for t in r.get("tabla") or [] if t.get("carry_usd") is not None]
+            if not tabla:
+                continue
+            vals = sorted(tabla, key=lambda t: t["carry_usd"])
+            med = median(t["carry_usd"] for t in tabla) * 100
+            peor, mejor = vals[0], vals[-1]
+            partes.append(
+                f"carry USD 14d {curva}: mediana {med:+.1f}% · mejor "
+                f"{mejor.get('ticker')} {mejor['carry_usd'] * 100:+.1f}% · peor "
+                f"{peor.get('ticker')} {peor['carry_usd'] * 100:+.1f}%"
+            )
+    except Exception as e:
+        logger.warning("copiloto rf: carry falló (%s)", e)
+    try:
+        from api.services import canje as canje_svc
+
+        s = (canje_svc.serie_canje(par="AL30") or {}).get("serie") or []
+        if s:
+            hoy_v = s[-1].get("canje")
+            corte = (datetime.now(UTC).date() - timedelta(days=7)).isoformat()
+            prev = next((x.get("canje") for x in reversed(s)
+                         if str(x.get("fecha"))[:10] <= corte), None)
+            if hoy_v is not None:
+                linea = f"canje AL30 (CCL/MEP): hoy {hoy_v * 100:+.2f}%"
+                if prev is not None:
+                    linea += f" · hace 7d {prev * 100:+.2f}%"
+                partes.append(linea)
+    except Exception as e:
+        logger.warning("copiloto rf: canje falló (%s)", e)
+    return (["[carry y canje — tableros de /retorno]"] + partes) if partes else []
+
+
 _PARES_LEGISLACION = (("AL30D", "GD30D"), ("AL35D", "GD35D"))
 
 
@@ -1132,6 +1222,11 @@ def _extras_renta_fija(
     partes.extend(_forwards_rf(filas, pregunta, historial))
     partes.extend(_breakevens_rf())
     partes.extend(_spread_legislacion_rf(filas))
+    try:
+        partes.extend(_retornos_precio_curva())
+    except Exception as e:
+        logger.warning("copiloto rf: retornos por ventana fallaron (%s)", e)
+    partes.extend(_carry_canje_rf())
     partes.extend(_estrategia_rf(filas, pregunta, historial))
     return partes
 
@@ -1156,6 +1251,11 @@ fija gana si la inflación acompaña. [dólares live] ancla los tc_breakeven.
 [spread de legislación] = prima del ley local (AL) sobre el ley NY (GD) en bps de TEA, \
 HOY y su promedio de 90 ruedas: "¿caro o barato contra lo normal?" se responde con ESOS \
 dos números, jamás con memoria propia.
+[retorno de PRECIO por curva] = mediana 7d/14d/MTD por curva — para "¿cómo vino X esta \
+semana/el mes?". En bullets cortos ≈ retorno total; en hard dollar EXCLUYE cupones y \
+tenés que aclararlo (el retorno total exacto vive en la vista /retorno).
+[carry y canje] = carry en USD de los últimos 14d por curva (mediana + mejor/peor, vía \
+MEP) y el canje CCL/MEP del AL30 hoy vs hace 7 días — el pulso de las coberturas.
 
 MARCO DE PORTFOLIO (para "¿lecap o CER?" y "¿corto o largo?" — es tu forma de razonar):
 - TASA FIJA vs CER = la regla del breakeven (la misma de TIPS vs Treasuries): si la \

@@ -113,6 +113,15 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.36 (el tablero de /retorno mapeado a RF)
+- **[contexto +]** Pedido del user (fundamental): `[retorno de PRECIO por
+  curva]` mediana 7d/14d/MTD desde cierres históricos (honestidad declarada:
+  bullets cortos ≈ retorno total; hard dollar excluye cupones — el exacto
+  vive en /retorno, cuyo cálculo es 100% frontend y no se duplica) ·
+  `[carry y canje]`: carry USD 14d por curva (mediana + mejor/peor, vía MEP)
+  y canje AL30 hoy vs 7d. Los tres tableros de la home de /retorno, ahora
+  presentes en el copiloto RF.
+
 ### 2026-07-12 — v1.35 (ronda 2 de la batería: dólares live + spread de legislación)
 - **[bugfix]** `get_ultimo_mep()` devuelve un dict {mep, ccl, canje, oficial}
   — el bloque ahora muestra [dólares live] MEP·CCL·oficial (antes float(dict)

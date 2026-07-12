@@ -1742,6 +1742,8 @@ VISTAS: dict[str, dict] = {
     "renta_variable": {
         "titulo": "Renta Variable",
         "modulo": "renta-variable",
+        "dominio": "acciones, CEDEARs y ADRs — papeles de equity, retornos, "
+                   "sectores, pivots, fundamentals",
         "chips": _CHIPS_RENTA_VARIABLE,
         "fetch": _fetch_cedears,
         "extras": _extras_renta_variable,
@@ -1773,6 +1775,8 @@ VISTAS: dict[str, dict] = {
     "renta_fija": {
         "titulo": "Renta Fija",
         "modulo": "renta-fija",
+        "dominio": "bonos y letras (soberanos, lecaps, CER, dollar linked) — "
+                   "curvas, TEA, rendimientos, breakevens, carry, canje, fair value",
         "fetch": _fetch_renta_fija,
         "extras": _extras_renta_fija,
         # acá TEA/bps/duration/breakeven SON el idioma — no son jerga
@@ -1813,6 +1817,8 @@ VISTAS: dict[str, dict] = {
     "trading": {
         "titulo": "Trading",
         "modulo": "trading",
+        "dominio": "el monitor intradía del que está operando — sus tarjetas, "
+                   "pivots en vivo, libro, tape, movers",
         "permitir_pivots": True,  # acá la nomenclatura PP/R1/S3 ES el idioma
         "fetch": _fetch_trading,
         "extras": _extras_trading,
@@ -1967,6 +1973,70 @@ def _jerga_en_respuesta(respuesta: str, cfg: dict, pregunta: str) -> list[str]:
     return out
 
 
+# ── Derivación a otras vistas (pedido del user 2026-07-12) ──────────────────
+# "¿Qué bono rinde más?" preguntado en Renta Variable moría en "eso no está en
+# esta tabla". El modelo no puede RESPONDER fuera de su vista (no tiene esos
+# datos), pero sí puede DECIR dónde se responde: el prompt recibe la lista de
+# las otras vistas con copiloto que el usuario puede usar (RBAC — jamás derivar
+# a una puerta cerrada) y, si deriva, cierra con un marcador [[VISTA:clave]]
+# que el CÓDIGO valida contra el registro y convierte en botón en el panel.
+
+_RE_VISTA_MARKER = re.compile(r"\s*\[\[VISTA:([a-z_]+)\]\]\s*")
+
+
+def _bloque_otras_vistas(usuario: str | None, vista_actual: str) -> str:
+    if not usuario:
+        return ""
+    try:
+        from core.roles import has_access
+
+        otras = [
+            (clave, c) for clave, c in VISTAS.items()
+            if clave != vista_actual and c.get("dominio")
+            and has_access(usuario, c["modulo"])
+        ]
+    except Exception as e:
+        logger.warning("copiloto: otras vistas no disponibles (%s)", e)
+        return ""
+    if not otras:
+        return ""
+    lineas = [f"- {c['titulo']} (clave: {clave}): {c['dominio']}" for clave, c in otras]
+    return (
+        "\n\nOTRAS VISTAS CON COPILOTO — para DERIVAR, jamás para responder por ellas:\n"
+        + "\n".join(lineas)
+        + "\nSi la pregunta pertenece a uno de esos dominios y no a esta vista, NO "
+        "contestes solo \"eso no está en esta tabla\": respondé en UNA frase que esa "
+        "consulta se hace desde la vista indicada (nombrala por su título) y no "
+        "inventes ni un dato de ese dominio. Cerrá esa respuesta con el marcador "
+        "[[VISTA:clave]] solo, en la última línea (ej. [[VISTA:renta_fija]]) — no es "
+        "texto para el usuario: el panel lo convierte en un botón que lo lleva ahí."
+    )
+
+
+def _extraer_vista_sugerida(
+    texto: str, vista_actual: str, usuario: str | None
+) -> tuple[str, dict | None]:
+    """Saca el marcador [[VISTA:x]] del texto y lo valida por código (existe,
+    no es la vista actual, el usuario tiene acceso). Marcador inválido =
+    se borra y no hay sugerencia — el modelo jamás manda a una puerta cerrada."""
+    m = _RE_VISTA_MARKER.search(texto)
+    if not m:
+        return texto, None
+    texto = _RE_VISTA_MARKER.sub("\n", texto).strip()
+    clave = m.group(1)
+    cfg = VISTAS.get(clave)
+    if not cfg or clave == vista_actual:
+        return texto, None
+    try:
+        from core.roles import has_access
+
+        if usuario and has_access(usuario, cfg["modulo"]):
+            return texto, {"vista": clave, "titulo": cfg["titulo"]}
+    except Exception as e:
+        logger.warning("copiloto: no pude validar la vista sugerida (%s)", e)
+    return texto, None
+
+
 def vistas_para(email: str) -> list[dict]:
     """Vistas del copiloto que este usuario puede usar (gate por módulo RBAC
     de cada vista — el gate del módulo `ia` ya lo puso el montaje del router).
@@ -2082,7 +2152,8 @@ def preguntar(
             tono = _TONO_POR_ROL.get(get_user_role(usuario), "")
         except Exception:  # roles caídos → tono neutro, jamás corta la pregunta
             tono = ""
-    system = _SYSTEM_BASE + (f"\n{tono}" if tono else "") + "\n" + cfg["reglas"]
+    system = (_SYSTEM_BASE + (f"\n{tono}" if tono else "") + "\n" + cfg["reglas"]
+              + _bloque_otras_vistas(usuario, vista))
 
     contexto = "\n".join(partes)
     texto, traza_id = completar_con_traza(
@@ -2093,6 +2164,12 @@ def preguntar(
         detalle=pregunta,  # queda en la traza → panel OBSERVABILIDAD
     )
     if not texto:
+        # Si el presupuesto se agotó DURANTE la llamada (el pre-chequeo de
+        # arriba había pasado justo por debajo del tope), el genérico "IA no
+        # disponible" confundía — se re-chequea para nombrar el motivo real.
+        motivo = motivo_presupuesto(usuario)
+        if motivo:
+            return {"ok": False, "error": f"presupuesto_{motivo}"}
         return {"ok": False, "error": "ia_no_disponible"}
 
     # Reflexion (QUANTAI, nonparametric): números sin respaldo o jerga interna
@@ -2152,11 +2229,14 @@ def preguntar(
                        vista, malos)
         return {"ok": False, "error": "verificacion"}
 
+    texto, vista_sugerida = _extraer_vista_sugerida(texto, vista, usuario)
+
     _marcar_conversacion(traza_id, conv_id)
     return {
         "ok": True,
         "respuesta": texto,
         "traza_id": traza_id,
+        "vista_sugerida": vista_sugerida,
         "numeros_sin_respaldo": [],
         "fuente": {
             "vista": vista,

@@ -440,6 +440,66 @@ def test_numeros_formato_argentino():
     assert malos == ["99.999"]
 
 
+def test_derivacion_a_otra_vista(monkeypatch):
+    # "¿qué bono rinde más?" en RV: el prompt lista las otras vistas del
+    # usuario y el marcador [[VISTA:x]] se valida por código y sale del texto
+    _vista_fake(monkeypatch)
+    monkeypatch.setattr("core.roles.has_access", lambda email, mod: True)
+    capturado = {}
+
+    def fake_completar(tarea, *, system, user, usuario=None, detalle=None):
+        capturado["system"] = system
+        return "Eso es de bonos: consultalo desde la vista Renta Fija.\n[[VISTA:renta_fija]]", 7
+
+    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    out = copiloto.preguntar("fake", "¿qué bono rinde más este mes?", usuario="u@x.com")
+    assert out["ok"] is True
+    assert "OTRAS VISTAS CON COPILOTO" in capturado["system"]
+    assert "renta_fija" in capturado["system"]
+    assert "[[VISTA" not in out["respuesta"]  # el marcador jamás llega al usuario
+    assert out["vista_sugerida"] == {"vista": "renta_fija", "titulo": "Renta Fija"}
+
+
+def test_derivacion_sin_acceso_se_descarta(monkeypatch):
+    # sin acceso RBAC a la vista sugerida: ni bloque en el prompt ni botón
+    _vista_fake(monkeypatch)
+    monkeypatch.setattr("core.roles.has_access", lambda email, mod: False)
+    capturado = {}
+
+    def fake_completar(tarea, *, system, user, usuario=None, detalle=None):
+        capturado["system"] = system
+        return "Andá a Renta Fija.\n[[VISTA:renta_fija]]", 7
+
+    monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
+    out = copiloto.preguntar("fake", "¿qué bono rinde más?", usuario="u@x.com")
+    assert "OTRAS VISTAS CON COPILOTO" not in capturado["system"]
+    assert out["vista_sugerida"] is None
+    assert "[[VISTA" not in out["respuesta"]
+
+
+def test_marcador_invalido_se_borra(monkeypatch):
+    # vista inexistente alucinada por el modelo: se limpia, sin sugerencia
+    texto, sugerida = copiloto._extraer_vista_sugerida(
+        "Consultalo allá.\n[[VISTA:no_existe]]", "renta_variable", "u@x.com")
+    assert sugerida is None and "[[VISTA" not in texto
+
+
+def test_presupuesto_agotado_durante_la_llamada(monkeypatch):
+    # el pre-chequeo pasa (había margen) pero el gasto cruza el tope durante
+    # la llamada → el error nombra el presupuesto, no el genérico
+    _vista_fake(monkeypatch)
+    monkeypatch.setattr("core.ai.completar_con_traza", lambda *a, **k: (None, None))
+    llamadas = {"n": 0}
+
+    def fake_motivo(usuario):
+        llamadas["n"] += 1
+        return None if llamadas["n"] == 1 else "usuario"
+
+    monkeypatch.setattr("core.ai.motivo_presupuesto", fake_motivo)
+    out = copiloto.preguntar("fake", "¿cómo viene AAPL?", usuario="u@x.com")
+    assert out == {"ok": False, "error": "presupuesto_usuario"}
+
+
 def test_estado_mercado_mapa_horario():
     from datetime import datetime
 

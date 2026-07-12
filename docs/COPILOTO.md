@@ -53,9 +53,10 @@ Panel (browser) ── {vista, pregunta, historial} ──► POST /api/ia/copil
 
 ## Cómo se agrega una vista nueva
 
-1. Entrada en `VISTAS` (copiloto.py): `titulo`, `modulo` RBAC, `fetch` (el
-   MISMO service @cached de la vista), `columnas`, `reglas` del dominio, y
-   opcionales `enriquecer` / `extras`.
+1. Entrada en `VISTAS` (copiloto.py): `titulo`, `modulo` RBAC, `dominio`
+   (una línea de qué se pregunta ahí — alimenta la derivación entre vistas),
+   `fetch` (el MISMO service @cached de la vista), `columnas`, `reglas` del
+   dominio, y opcionales `enriquecer` / `extras`.
 2. `<IaVistaPanel vista="..." />` donde la vista lo quiera (el padre posiciona).
 3. Entrada acá en el changelog + estado en QUANTAI.md.
 
@@ -114,6 +115,27 @@ completas + 👍/👎 · presupuestos con kill switch editables.
 prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
+
+### 2026-07-12 — v1.40 (derivación entre vistas + presupuesto claro + botón al header)
+- **[producto +]** Pregunta de OTRO dominio ("¿qué bono rinde más?" hecho en
+  RV) ya no muere en "eso no está en esta tabla": el system prompt recibe la
+  lista de las otras vistas con copiloto QUE EL USUARIO PUEDE USAR (RBAC —
+  jamás derivar a una puerta cerrada), campo `dominio` en `VISTAS`. El modelo
+  deriva en UNA frase y cierra con el marcador `[[VISTA:x]]`, que el CÓDIGO
+  valida (existe + acceso) y borra del texto; el panel lo vuelve botón
+  "Abrir Renta Fija →" (`vista_sugerida` en la respuesta, mapa
+  `RUTA_VISTA` en `ia-vista-panel.tsx`).
+- **[UX]** Presupuesto agotado con mensaje accionable: "pedile al
+  administrador que te amplíe el cupo" (el texto anterior mandaba a Manager,
+  que la mesa no ve). Y el caso confuso REAL: si el tope se cruzaba DURANTE
+  la llamada (el pre-chequeo había pasado justo abajo del límite), caía al
+  genérico "IA no disponible" — ahora `preguntar()` re-chequea
+  `motivo_presupuesto` al recibir vacío y nombra el motivo.
+- **[UI]** El botón "Consultale a la IA" de RV y RF se mudó al slot derecho
+  del Header (reemplaza el texto decorativo TERMINAL solo en esas rutas —
+  pedido del user: usar el lugar que ya existe) — desaparece la franja gris
+  propia en /renta-fija. Trading conserva su botón in-view: va cableado a
+  las tarjetas y al vigía (`getParams`/`preguntaExterna`).
 
 ### 2026-07-12 — v1.39 (cierre de la batería: canje bien definido + chip Panorama)
 - **[prompt +]** Definición dura del canje (la 32 la invirtió): canje =

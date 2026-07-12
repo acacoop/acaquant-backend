@@ -227,11 +227,11 @@ el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
 además de 'error' si hace falta · subir max_tokens de `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1.39 (2026-07-12) — 3 VISTAS EN SHADOW (admin): Renta Variable,
+**Estado: v1.40 (2026-07-12) — 3 VISTAS EN SHADOW (admin): Renta Variable,
 TRADING (+ el VIGÍA reactivo) y RENTA FIJA** · Tipo: copiloto contextual por
 vista · Gate: `ia` + módulo RBAC de la vista
 
-> El detalle fino del asistente (qué ve HOY, técnicas, changelog v1→v1.39)
+> El detalle fino del asistente (qué ve HOY, técnicas, changelog v1→v1.40)
 > vive en `docs/COPILOTO.md`. Resumen de lo construido 11-12/07: vista RV
 > completa (pulso/rankings/screenings/extremos desde 2005) · vista TRADING
 > (8 tarjetas con overrides, libro, tape, movers, posiciones del INTRADAY,
@@ -246,8 +246,11 @@ vista · Gate: `ia` + módulo RBAC de la vista
 > conversaciones separadas · EL VIGÍA: watchers deterministas → toasts
 > cero-tokens con "¿lo miramos?" y agregar-tarjeta 1-click. Tooling:
 > bateria_rf (35 preguntas, cazó ~15 bugs) + diag_contexto_rf (el contexto
-> exacto sin tokens). Pendiente de verificar con rueda abierta: semántica de
-> ventana del carry_trade.
+> exacto sin tokens). v1.40: derivación entre vistas (pregunta de otro
+> dominio → "consultalo desde X" + botón, RBAC-aware), mensajes de
+> presupuesto accionables, botón IA al header (ex-TERMINAL) en RV/RF.
+> Pendiente de verificar con rueda abierta: semántica de ventana del
+> carry_trade.
 
 > **Doc vivo del asistente: `docs/COPILOTO.md`** — mapa del código, qué ve el
 > asistente HOY y **changelog fechado OBLIGATORIO**: todo cambio a contexto/
@@ -532,7 +535,7 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
-- **2026-07-11/12 — P3 v1→v1.39: copiloto de mesa COMPLETO en shadow** (3
+- **2026-07-11/12 — P3 v1→v1.40: copiloto de mesa COMPLETO en shadow** (3
   vistas: RV, TRADING + vigía reactivo, y RENTA FIJA con marco de portfolio;
   doctrina del trader; verificación estricta con auto-corrección; memoria
   por conversaciones; presupuestos editables con excepciones por usuario;

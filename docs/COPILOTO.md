@@ -113,6 +113,19 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.31 (marco de portfolio: ¿tasa fija o CER? ¿corto o largo?)
+- **[contexto +]** `[breakevens + señal vs REM]`: cada par lecap-CER con su
+  breakeven YA cruzado por código contra el promedio mensual geométrico del
+  REM al mismo horizonte (diff en pp + señal "favorece tasa fija/CER si el
+  REM acierta") — la regla TIPS clásica, ejecutada determinista. `[curvas
+  por tramo]`: TEA promedio corto/medio/largo + empinamiento por curva.
+- **[prompt +]** Marco de PM (investigado en fuentes CFA/institucionales):
+  tasa fija vs CER = breakeven vs expectativa (con la salvedad de prima de
+  riesgo/iliquidez); corto vs largo = carry+rolldown vs duration según
+  empinamiento; SIEMPRE trade-off con supuesto explícito, jamás orden.
+- **[chip +]** "¿Tasa fija o CER?" — el cuadro completo con los supuestos de
+  cada camino.
+
 ### 2026-07-12 — v1.30 (solo señales REALES + rankings humanos en RF)
 - **[conocimiento de mesa +]** Directiva del user: "no quiero nada de
   sospechoso, quiero cosas REALES" → los residuos >500bps (precio viejo /

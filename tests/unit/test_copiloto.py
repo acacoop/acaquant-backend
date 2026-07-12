@@ -530,6 +530,33 @@ def test_fetch_renta_fija_merge(monkeypatch):
     assert s31["tc_breakeven"] == 1450.5  # mapeado del instrumento ROFEX largo
 
 
+def test_rem_promedio_hasta():
+    serie = [
+        {"fin_mes": "2026-07-31", "promedio_mensual_acum": 0.020},
+        {"fin_mes": "2026-08-31", "promedio_mensual_acum": 0.018},
+        {"fin_mes": "2026-10-31", "promedio_mensual_acum": 0.017},
+    ]
+    # vencimiento en septiembre → toma el primer fin_mes que lo cubre (octubre)
+    assert round(copiloto._rem_promedio_hasta(serie, "2026-09-15"), 6) == 1.7
+    # vencimiento pasado el REM disponible → usa el último acumulado
+    assert round(copiloto._rem_promedio_hasta(serie, "2027-06-30"), 6) == 1.7
+    assert copiloto._rem_promedio_hasta(serie, None) is None
+    assert copiloto._rem_promedio_hasta([], "2026-09-15") is None
+
+
+def test_resumen_curvas_por_tramo():
+    filas = [
+        {"curva_label": "cer", "tea": 40.0, "meses_al_vto": 3.0},
+        {"curva_label": "cer", "tea": 44.0, "meses_al_vto": 24.0},
+        {"curva_label": "tasa_fija (CER fijado)", "tea": 38.0, "meses_al_vto": 2.0},
+    ]
+    lineas = copiloto._resumen_curvas_rf(filas)
+    cer = next(li for li in lineas if li.startswith("cer"))
+    assert "corto 40.0%" in cer and "largo 44.0%" in cer and "empinamiento +4.0pp" in cer
+    # el "(CER fijado)" agrupa con tasa_fija base
+    assert any(li.startswith("tasa_fija (1)") for li in lineas)
+
+
 def test_jerga_permitida_por_vista():
     cfg_rf = copiloto.VISTAS["renta_fija"]
     # en renta fija, TEA/bps/duration SON el idioma → no disparan

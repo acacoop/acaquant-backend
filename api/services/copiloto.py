@@ -842,31 +842,91 @@ def _forwards_rf(filas: list[dict], pregunta: str, historial: list[dict]) -> lis
     return partes
 
 
+def _rem_promedio_hasta(serie: list[dict], fecha_vto: str | None) -> float | None:
+    """Promedio mensual geométrico del REM desde hoy hasta el mes del
+    vencimiento (%). serie viene de rem_sql.breakeven_acumulado (fracciones)."""
+    if not fecha_vto or not serie:
+        return None
+    for item in serie:
+        fin = item.get("fin_mes")
+        if fin and str(fin) >= str(fecha_vto)[:10]:
+            v = item.get("promedio_mensual_acum")
+            return v * 100 if v is not None else None
+    ultimo = serie[-1].get("promedio_mensual_acum")
+    return ultimo * 100 if ultimo is not None else None
+
+
 def _breakevens_rf() -> list[str]:
-    """[breakevens]: los pares lecap-CER completos + REM/IPC para el cruce."""
+    """[breakevens + señal]: cada par lecap-CER con su inflación implícita YA
+    CRUZADA contra el REM del mismo horizonte (la resta la hace código —
+    regla TIPS clásica: esperás inflación > breakeven → CER; < → tasa fija)."""
     from api.services import mercado_hist_sql, rem_sql
 
-    partes = []
     try:
         pares = (mercado_hist_sql.get_breakevens() or {}).get("pares") or []
-        if pares:
-            partes.append("[breakevens lecap-CER — inflación mensual implícita] "
-                          + "; ".join(
-                              f"{p.get('lecap')}/{p.get('cer')} a {p.get('dias')}d: "
-                              f"{p.get('breakeven_mensual'):.2f}%"
-                              for p in pares if p.get("breakeven_mensual") is not None))
     except Exception as e:
         logger.warning("copiloto rf: breakevens fallaron (%s)", e)
+        return []
+    if not pares:
+        return []
+    serie_rem: list[dict] = []
+    informe = None
     try:
         rem = rem_sql.breakeven_acumulado() or {}
-        if rem:
-            resumen = {k: rem[k] for k in ("informe", "meses", "acumulado_pct")
-                       if k in rem}
-            if resumen:
-                partes.append(f"[REM] {resumen}")
+        serie_rem, informe = rem.get("serie") or [], rem.get("informe")
     except Exception as e:
         logger.warning("copiloto rf: REM falló (%s)", e)
-    return partes
+
+    lineas = []
+    for p in pares:
+        be = p.get("breakeven_mensual")
+        if be is None:
+            continue
+        base = f"{p.get('lecap')}/{p.get('cer')} a {p.get('dias')}d: mercado {be:.2f}%/mes"
+        rem_pm = _rem_promedio_hasta(serie_rem, p.get("fecha_vencimiento"))
+        if rem_pm is not None:
+            diff = be - rem_pm
+            if diff > 0.15:
+                senal = "breakeven CARO → favorece TASA FIJA si el REM acierta"
+            elif diff < -0.15:
+                senal = "breakeven BARATO → favorece CER si el REM acierta"
+            else:
+                senal = "en línea con el REM"
+            base += f" vs REM {rem_pm:.2f}%/mes · diff {diff:+.2f}pp · {senal}"
+        lineas.append(base)
+    if not lineas:
+        return []
+    cab = ("[breakevens lecap-CER + señal vs REM"
+           + (f" (informe {informe})" if informe else "") + "] ")
+    return [cab + "; ".join(lineas)]
+
+
+def _resumen_curvas_rf(filas: list[dict]) -> list[str]:
+    """[curvas por tramo]: TEA promedio corto/medio/largo y empinamiento por
+    curva — la base determinista para 'corto o largo' (carry & rolldown)."""
+    grupos: dict[str, list[dict]] = {}
+    for f in filas:
+        base = str(f.get("curva_label") or "").split(" (")[0]
+        if base and f.get("tea") is not None and f.get("meses_al_vto") is not None:
+            grupos.setdefault(base, []).append(f)
+    lineas = []
+    for curva, fs in sorted(grupos.items()):
+        def prom(sel: list[dict]) -> float | None:
+            teas = [b["tea"] for b in sel]
+            return sum(teas) / len(teas) if teas else None
+
+        corto = prom([b for b in fs if b["meses_al_vto"] < 6])
+        medio = prom([b for b in fs if 6 <= b["meses_al_vto"] <= 18])
+        largo = prom([b for b in fs if b["meses_al_vto"] > 18])
+        seg = [f"corto {corto:.1f}%" if corto is not None else None,
+               f"medio {medio:.1f}%" if medio is not None else None,
+               f"largo {largo:.1f}%" if largo is not None else None]
+        linea = f"{curva} ({len(fs)}): " + " · ".join(s for s in seg if s)
+        if corto is not None and largo is not None:
+            linea += f" · empinamiento {largo - corto:+.1f}pp"
+        lineas.append(linea)
+    return (["[curvas por tramo — TEA promedio; empinamiento = largo − corto]"]
+            + lineas) if lineas else []
 
 
 def _extras_renta_fija(
@@ -881,6 +941,7 @@ def _extras_renta_fija(
             partes.append(f"[MEP live] {float(mep):.2f} ARS/USD (referencia de los tc_breakeven)")
     except Exception as e:
         logger.warning("copiloto rf: MEP falló (%s)", e)
+    partes.extend(_resumen_curvas_rf(filas))
     partes.extend(_movimientos_dia_rf(filas))
     partes.extend(_baratos_caros_rf())
     partes.extend(_forwards_rf(filas, pregunta, historial))
@@ -905,6 +966,21 @@ vencimientos; z alto = lejos de su historia (candidato a arbitraje o a cambio de
 decí las dos lecturas). [breakevens] = inflación mensual que empata cada par lecap-CER: si \
 el breakeven > expectativa (REM/IPC), el mercado paga por cobertura CER; si <, la tasa \
 fija gana si la inflación acompaña. [MEP live] ancla los tc_breakeven.
+
+MARCO DE PORTFOLIO (para "¿lecap o CER?" y "¿corto o largo?" — es tu forma de razonar):
+- TASA FIJA vs CER = la regla del breakeven (la misma de TIPS vs Treasuries): si la \
+inflación esperada supera el breakeven del par, gana el CER; si queda por debajo, gana la \
+tasa fija. La señal contra el REM ya viene CALCULADA en [breakevens + señal] — usala tal \
+cual y aclarando el supuesto ("si el REM acierta…"). Recordá que el breakeven trae prima \
+de riesgo e iliquidez: no es un pronóstico puro.
+- CORTO vs LARGO = carry y rolldown contra duration: con curva EMPINADA (ver empinamiento \
+en [curvas por tramo]), el tramo largo paga más carry y suma rolldown (el bono "rueda" \
+hacia tasas menores al envejecer), pero con duration alta cada punto de tasa pega mucho \
+más. Curva plana o invertida → el largo no paga el riesgo, el corto manda. Expectativa de \
+compresión de tasas → favorece largo; incertidumbre alta → corto o CER.
+- SIEMPRE presentá la decisión como trade-off con el supuesto explícito ("si esperás \
+inflación arriba de X%/mes, CER corto; si creés en la desinflación del REM, la tasa fija \
+larga paga carry + rolldown con la curva así de empinada") — jamás una orden.
 
 Reglas de acá:
 - El bloque [baratos y caros] ya viene FILTRADO: los residuos absurdos (precio viejo / \
@@ -1395,6 +1471,11 @@ VISTAS: dict[str, dict] = {
             {"label": "Forwards desarbitrados",
              "pregunta": "¿Hay forwards lejos de su historia hoy? Contame si huele a "
                          "arbitraje o a cambio de régimen."},
+            {"label": "¿Tasa fija o CER?",
+             "pregunta": "Con los breakevens, plazos y rendimientos de hoy: ¿el mercado "
+                         "está pagando ir a tasa fija o a CER? ¿Y conviene más el tramo "
+                         "corto o el largo? Dame el cuadro con los supuestos de cada "
+                         "camino, sin recomendación directa."},
         ],
         "columnas": [
             ("ticker_corto", "ticker"), ("curva_label", "curva"),

@@ -41,6 +41,17 @@ PREGUNTAS = [
     # calidad de dato / honestidad
     "¿Hay algún CER corto ilíquido que pueda estar mostrando tasa vieja?",
     "¿A cuánto está el riesgo país hoy?",  # fuera de alcance → debe decir que no lo tiene
+    # ── ronda 2 (16-25): post-fix de escalas — correr con --desde 16 ──
+    "¿Cuánto rinde hoy una lecap corta de verdad, en TEA y en TEM?",  # escalas arregladas
+    "Tengo pesos parados por 60 días: ¿qué mirarías primero y qué NO harías?",
+    "¿Qué CER fijados hay y qué significa que estén fijados a la hora de elegirlos?",
+    "GD30 contra AL30: ¿el spread de legislación está caro o barato contra lo normal?",
+    "¿Dónde está el mejor carry ajustado por duration de toda la tabla?",
+    "Si mañana el BCRA baja tasas fuerte, ¿qué bonos de la tabla ganan más y cuáles ni se enteran?",
+    "¿Cuál es el bono con mejor rolldown si la curva se queda quieta 3 meses?",
+    "Armame una cartera simple 70/30 entre cobertura inflación y tasa, con nombres — y decime qué la rompería.",
+    "¿El TZXO6 sigue barato o ya lo arbitraron? ¿Cómo viene su residuo?",
+    "¿Y comparado con el que le sigue en la curva?",  # follow-up: memoria + forward del par
 ]
 
 

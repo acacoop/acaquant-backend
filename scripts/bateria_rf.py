@@ -52,6 +52,17 @@ PREGUNTAS = [
     "Armame una cartera simple 70/30 entre cobertura inflación y tasa, con nombres — y decime qué la rompería.",
     "¿El TZXO6 sigue barato o ya lo arbitraron? ¿Cómo viene su residuo?",
     "¿Y comparado con el que le sigue en la curva?",  # follow-up: memoria + forward del par
+    # ── ronda 3 (26-35): tableros de /retorno + cruces — correr con --desde 26 ──
+    "¿Cómo vino cada curva en el mes? ¿Quién está ganando el año hasta acá?",
+    "¿Dónde estuvo el mejor carry en dólares estas dos semanas? ¿Y el peor?",
+    "¿El canje se está abriendo o cerrando? ¿Qué me dice eso del clima?",
+    "¿El spread de legislación está caro o barato contra lo normal?",  # la 19, ahora con datos
+    "El MEP está quieto hace días: ¿eso hace más atractivo el carry o es una trampa?",
+    "¿Qué curva estuvo más volátil este mes y qué me dice eso para elegir plazo?",
+    "Si el canje se abre fuerte, ¿qué le pasa a mis tc_breakeven de las lecaps?",
+    "Dame el panorama completo de pesos en 5 líneas: curvas, carry, canje y qué mirar el lunes.",
+    "¿Cuánto rindió la curva CER en dólares este mes?",  # cruce retorno ARS × MEP — ¿lo tiene o dice que no?
+    "¿Qué pregunta importante debería estar haciéndote que no te hice?",  # meta: autoconocimiento
 ]
 
 

@@ -1265,7 +1265,9 @@ dos números, jamás con memoria propia.
 semana/el mes?". En bullets cortos ≈ retorno total; en hard dollar EXCLUYE cupones y \
 tenés que aclararlo (el retorno total exacto vive en la vista /retorno).
 [carry y canje] = carry en USD de los últimos 14d por curva (mediana + mejor/peor, vía \
-MEP) y el canje CCL/MEP del AL30 hoy vs hace 7 días — el pulso de las coberturas.
+MEP) y el canje CCL/MEP del AL30 hoy vs hace 7 días — el pulso de las coberturas. \
+DEFINICIÓN (no la inviertas): canje = CCL/MEP − 1; se ABRE cuando el CCL sube más que el \
+MEP (demanda de girar dólares afuera = señal de tensión); se CIERRA cuando convergen.
 
 MARCO DE PORTFOLIO (para "¿lecap o CER?" y "¿corto o largo?" — es tu forma de razonar):
 - TASA FIJA vs CER = la regla del breakeven (la misma de TIPS vs Treasuries): si la \
@@ -1788,6 +1790,9 @@ VISTAS: dict[str, dict] = {
             {"label": "Forwards desarbitrados",
              "pregunta": "¿Hay forwards lejos de su historia hoy? Contame si huele a "
                          "arbitraje o a cambio de régimen."},
+            {"label": "Panorama de pesos",
+             "pregunta": "Dame el panorama completo de pesos en 5 líneas: curvas, "
+                         "carry, canje y qué mirar en la próxima rueda."},
             {"label": "¿Tasa fija o CER?",
              "pregunta": "Con los breakevens, plazos y rendimientos de hoy: ¿el mercado "
                          "está pagando ir a tasa fija o a CER? ¿Y conviene más el tramo "

@@ -113,6 +113,16 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.39 (cierre de la batería: canje bien definido + chip Panorama)
+- **[prompt +]** Definición dura del canje (la 32 la invirtió): canje =
+  CCL/MEP − 1; se ABRE cuando el CCL le gana al MEP (tensión), se CIERRA
+  cuando convergen.
+- **[chip +]** "Panorama de pesos" — la pregunta 33 de la batería promovida a
+  chip (curvas + carry + canje + qué mirar en la próxima rueda, 5 líneas).
+- **[en observación]** Carry USD 14d (mediana CER +9.5%) luce alto vs el
+  retorno de precio del mismo período — verificar la semántica de ventana
+  del service `carry_trade` con rueda abierta antes de confiar el bloque.
+
 ### 2026-07-12 — v1.38 (el bug de los números fantasma + forwards sin ONs)
 - **[bugfix crítico, cazado con diag_contexto_rf]** El verificador NO VEÍA
   los números pegados a letras en el contexto ("156bps", "143d", "90d" — el

@@ -2374,7 +2374,12 @@ def historial_persistido(usuario: str, limit: int = 8) -> dict:
         return {
             "conv_id": conv_id,
             "mensajes": [
-                {"traza_id": r[0], "pregunta": r[1], "respuesta": r[2], "feedback": r[3]}
+                # la traza guarda la respuesta CRUDA del modelo (antes del
+                # post-proceso) → el marcador [[VISTA:x]] se limpia acá también
+                # o reaparece literal al restaurar el chat (bug del shadow)
+                {"traza_id": r[0], "pregunta": r[1],
+                 "respuesta": _RE_VISTA_MARKER.sub("\n", r[2]).strip(),
+                 "feedback": r[3]}
                 for r in reversed(filas)
             ],
         }

@@ -116,6 +116,19 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.41 (handoff automático de la derivación + fix marcador en historial)
+- **[bugfix]** El marcador `[[VISTA:x]]` reaparecía LITERAL al restaurar el
+  chat tras navegar: `ia.trazas.respuesta` guarda la respuesta CRUDA del
+  modelo (pre-limpieza) y `historial_persistido` la servía tal cual. Ahora
+  el marcador se limpia también al leer el historial.
+- **[producto +]** Handoff de la derivación (pedido del user): el botón
+  "Abrir X →" deja `{vista, pregunta original, conv_id}` en sessionStorage;
+  el panel de la vista destino lo levanta al montar, retoma la MISMA
+  conversación, se abre solo y re-pregunta en segundo plano — cero re-tipeo.
+  Costo honesto: la re-pregunta paga UNA llamada (la respuesta real necesita
+  el contexto de la vista destino — inevitable); lo que se elimina es el
+  re-tipeo manual, no esa llamada.
+
 ### 2026-07-12 — v1.40 (derivación entre vistas + presupuesto claro + botón al header)
 - **[producto +]** Pregunta de OTRO dominio ("¿qué bono rinde más?" hecho en
   RV) ya no muere en "eso no está en esta tabla": el system prompt recibe la

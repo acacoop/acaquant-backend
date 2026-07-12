@@ -669,6 +669,7 @@ nombre el ticker exacto en la pregunta."""
 _CURVAS_RF = ("cer", "tasa_fija", "soberanos", "dolar_linked")
 _CURVAS_FIT = ("cer", "tasa_fija")  # fair value solo existe para estas
 _MAX_RESIDUO_REAL_BPS = 500  # residuo mayor = precio viejo/iliquidez → se excluye
+_MAX_CARRY_REAL_PCT = 15     # |carry USD| 14d mayor = dato roto → se excluye
 
 
 def _fetch_renta_fija(params: dict | None = None) -> list[dict]:
@@ -1112,16 +1113,21 @@ def _carry_canje_rf() -> list[str]:
 
         for curva in ("tasa_fija", "cer"):
             r = carry_trade.serie_carry_trade(curva=curva, desde=desde) or {}
-            tabla = [t for t in r.get("tabla") or [] if t.get("carry_usd") is not None]
+            # SOLO señales reales: |carry| > 15% en 14 días = precio viejo /
+            # bono ilíquido (batería: PARP +464%) → se excluye del bloque
+            tabla = [t for t in r.get("tabla") or []
+                     if t.get("carry_usd") is not None
+                     and abs(t["carry_usd"] * 100) <= _MAX_CARRY_REAL_PCT]
             if not tabla:
                 continue
             vals = sorted(tabla, key=lambda t: t["carry_usd"])
             med = median(t["carry_usd"] for t in tabla) * 100
             peor, mejor = vals[0], vals[-1]
             partes.append(
-                f"carry USD 14d {curva}: mediana {med:+.1f}% · mejor "
-                f"{mejor.get('ticker')} {mejor['carry_usd'] * 100:+.1f}% · peor "
-                f"{peor.get('ticker')} {peor['carry_usd'] * 100:+.1f}%"
+                f"carry USD 14d {curva} (filtrado a señales reales): mediana "
+                f"{med:+.1f}% · mejor {mejor.get('ticker')} "
+                f"{mejor['carry_usd'] * 100:+.1f}% · peor {peor.get('ticker')} "
+                f"{peor['carry_usd'] * 100:+.1f}%"
             )
     except Exception as e:
         logger.warning("copiloto rf: carry falló (%s)", e)

@@ -772,15 +772,22 @@ def _baratos_caros_rf() -> list[str]:
             continue
         bonos.sort(key=lambda b: -b["residuo_bps"])
         r2 = fv.get("r2")
+
+        def _item(b: dict) -> str:
+            # residuo absurdo = casi seguro precio viejo / bono ilíquido, NO
+            # ganga — la sospecha la marca el CÓDIGO, el modelo la explica
+            marca = "⚠" if abs(b["residuo_bps"]) > 500 else ""
+            return f"{b.get('ticker_corto')} {b['residuo_bps']:+.0f}bps{marca}"
+
         partes.append(
-            f"{curva} (fit r²={r2:.2f})" + (" ⚠ fit flojo, tomar con cautela" if r2 and r2 < 0.9 else "")
-            + " · baratos: "
-            + ", ".join(f"{b.get('ticker_corto')} +{b['residuo_bps']:.0f}bps" for b in bonos[:4])
-            + " · caros: "
-            + ", ".join(f"{b.get('ticker_corto')} {b['residuo_bps']:.0f}bps" for b in bonos[-4:][::-1])
+            f"{curva} (fit r²={r2:.2f})"
+            + (" — fit flojo, cautela" if r2 and r2 < 0.9 else "")
+            + " · baratos: " + ", ".join(_item(b) for b in bonos[:3])
+            + " · caros: " + ", ".join(_item(b) for b in bonos[-3:][::-1])
         )
-    return (["[baratos y caros vs la curva — residuo del fair value; positivo = "
-             "rinde MÁS que la curva]"] + partes) if partes else []
+    return (["[baratos y caros vs la curva — residuo del fair value; positivo = rinde "
+             "MÁS que la curva. ⚠ = residuo enorme (>500bps): casi seguro precio viejo "
+             "o iliquidez, NO una ganga]"] + partes) if partes else []
 
 
 def _forwards_rf(filas: list[dict], pregunta: str, historial: list[dict]) -> list[str]:
@@ -894,6 +901,16 @@ el breakeven > expectativa (REM/IPC), el mercado paga por cobertura CER; si <, l
 fija gana si la inflación acompaña. [MEP live] ancla los tc_breakeven.
 
 Reglas de acá:
+- Residuos con ⚠ (>500bps): NO son gangas — casi siempre es un precio viejo o un bono que \
+no opera. Nombralos como sospechosos ("chequealo antes de festejar"), JAMÁS como los más \
+baratos de verdad. Lo genuinamente barato está en los residuos grandes SIN ⚠.
+- Formato de rankings acá: conclusión en UNA frase, tabla CHICA (top 3 por lado como \
+mucho), y una lectura final que AGREGUE algo (el porqué probable, el riesgo) — nunca que \
+repita lo que la tabla ya muestra.
+Ejemplo — MAL: "Lectura: los tasa fija largos están extremadamente baratos, rinden hasta \
+93 puntos más…" (repite la tabla y se come el ⚠). BIEN: "Lo genuinamente barato hoy es \
+TX31; los tasa fija 2027 muestran residuos absurdos que huelen a precio viejo, no a \
+oportunidad — chequealos antes de festejar."
 - CER tiene settlement T-10 hábiles: si un bono no operó hoy, su TEA puede arrastrar el \
 CER de ayer — ante algo raro en un CER ilíquido, mencioná esta salvedad.
 - Comparar dos bonos = spot de ambos + el forward implícito entre ellos (si aparece el \
@@ -1369,8 +1386,10 @@ VISTAS: dict[str, dict] = {
              "pregunta": "¿Cómo se movieron las curvas hoy contra el último cierre? "
                          "Qué comprimió, qué descomprimió, y si hay una historia detrás."},
             {"label": "Baratos vs curva",
-             "pregunta": "¿Qué bonos están baratos y cuáles caros contra su curva hoy? "
-                         "Tabla y una línea de lectura."},
+             "pregunta": "¿Qué está genuinamente barato y qué caro contra su curva hoy? "
+                         "Top 3 por lado en tabla chica, separando lo sospechoso (⚠) de "
+                         "lo real, y una lectura que me diga el porqué — sin repetir la "
+                         "tabla."},
             {"label": "Forwards desarbitrados",
              "pregunta": "¿Hay forwards lejos de su historia hoy? Contame si huele a "
                          "arbitraje o a cambio de régimen."},

@@ -34,7 +34,7 @@ TradingAV — plataforma quant MERVAL/ROFEX. pyRofex WS → **Postgres/Supabase*
 - `manager` — `manager_users`, `role_matrix`, `role_audit`, `grupos`, `job_runs`, `health_reports`, `watchdog_alertas`, `pyrofex_instruments`/`pyrofex_discovery`.
 - `home` — `market_quotes` (watchlist HOME), `market_calendar`, `news_headlines`.
 - `mcp` — `oauth_clients`/`oauth_codes`/`oauth_tokens` (TTL automático).
-- `ia` — observabilidad del gateway de IA (`core/ai.py`, ver `docs/QUANTAI.md`): `trazas` (cada llamada LLM: tarea, modelo, tokens, latencia, ok/error, feedback). El presupuesto diario del gateway se calcula sobre esta tabla. Router HTTP: `api/routers/ia.py` (montado en `api/main.py` con bearer + `require_module("ia")`; ej. `GET /api/ia/briefing` — Briefing de apertura).
+- `ia` — observabilidad del gateway de IA (`core/ai.py`, ver `docs/QUANTAI.md`): `trazas` (cada llamada LLM: tarea, modelo, tokens, latencia, ok/error, feedback, detalle/respuesta/razonamiento, conv_id) y `config` (presupuestos editables desde Manager). Router HTTP: `api/routers/ia.py` (bearer + `require_module("ia")`): briefing, observabilidad, presupuestos/saldo, y el COPILOTO de mesa (`/api/ia/copiloto*` — **doc vivo con changelog OBLIGATORIO: `docs/COPILOTO.md`**, leerlo antes de tocar `api/services/copiloto.py`).
 - `research` — fundamentals Refinitiv: `companies`, `fundamentals`, `market_snapshot` (ver `docs/RESEARCH_REFINITIV.md`).
 - `partner` — app separada `partner_api`: `cartera`, `api_users` (antes Mongo `ACAPortfolio`).
 

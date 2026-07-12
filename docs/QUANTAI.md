@@ -227,8 +227,20 @@ el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
 además de 'error' si hace falta · subir max_tokens de `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1.3 DEPLOYADA (2026-07-11) — EN SHADOW (admin)** ·
-Tipo: copiloto contextual por vista · Gate: `ia` + módulo RBAC de la vista
+**Estado: v1.28 (2026-07-12) — 2 VISTAS EN SHADOW (admin): Renta Variable y
+TRADING (+ el VIGÍA reactivo)** · Tipo: copiloto contextual por vista ·
+Gate: `ia` + módulo RBAC de la vista
+
+> El detalle fino del asistente (qué ve HOY, técnicas, changelog v1→v1.28)
+> vive en `docs/COPILOTO.md`. Resumen de lo construido 11-12/07: vista RV
+> completa (pulso/rankings/screenings/extremos desde 2005) · vista TRADING
+> (8 tarjetas con overrides, libro, tape, movers, posiciones del INTRADAY,
+> reloj de mercado con zona muerta 13-16 y doctrina de 3 estrategias) ·
+> políticas duras: verificado-o-nada, cero aritmética del modelo, guardrails
+> de código con auto-corrección (reflexion), voz de operador, tono por rol,
+> chips curados, conversaciones separadas · EL VIGÍA: watchers deterministas
+> (tarjeta en nivel / radar top-15 ±4%) → toasts cero-tokens con "¿lo
+> miramos?" y agregar-tarjeta 1-click.
 
 > **Doc vivo del asistente: `docs/COPILOTO.md`** — mapa del código, qué ve el
 > asistente HOY y **changelog fechado OBLIGATORIO**: todo cambio a contexto/
@@ -513,6 +525,13 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
+- **2026-07-11/12 — P3 v1→v1.28: copiloto de mesa COMPLETO en shadow** (2
+  vistas: RV y TRADING + vigía reactivo determinista + doctrina del trader +
+  verificación estricta con auto-corrección + memoria por conversaciones +
+  presupuestos editables con excepciones por usuario + saldo real del
+  proveedor). Historia completa versión a versión: `docs/COPILOTO.md`.
+  Colateral: fix de series de precios (backfill 2024+ con auto-reparación de
+  splits) + extremos históricos destilados desde 2005.
 - **2026-07-11 — P3 v1: copiloto contextual por vista, CONSTRUIDO** (backend
   `api/services/copiloto.py` + endpoints `/api/ia/copiloto*` + tarea
   `copiloto_vista` + `completar_con_traza` en el gateway + panel

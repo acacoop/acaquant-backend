@@ -17,7 +17,9 @@
 | Panel UI | `acaquant-web/src/components/ia-vista-panel.tsx` | Drawer + botón "Consultale a la IA". Historial corto client-side. Se oculta si el backend no habilita la vista. |
 | Ubicación del botón | `acaquant-web/src/components/renta-variable-shell.tsx` | Monta `<IaVistaPanel vista="renta_variable" />` en la barra de tabs. |
 | Observabilidad | tabla `ia.trazas` + Manager → OBSERVABILIDAD → pill IA | Cada pregunta: tokens, latencia, ok/error, feedback 👍/👎. |
-| Tests | `tests/unit/test_copiloto.py` | Congelan contrato: TSV, gates, caps, degradación, detección de tickers. |
+| Tests | `tests/unit/test_copiloto.py` | Congelan contrato: TSV, gates, caps, degradación, detección de tickers, verificador. |
+| Diag de contexto | `scripts/diag_contexto_rf.py` | LA LUPA: imprime el contexto exacto que ve el modelo, sin tokens. Primer comando ante cualquier rareza. |
+| Baterías | `scripts/bateria_rf.py` (+ `smoke_copiloto.py`, `eval_copiloto.py`) | Mapeo masivo de preguntas reales contra el copiloto vivo (gasta tokens del email que se pase). |
 
 ## Cómo fluye una pregunta
 

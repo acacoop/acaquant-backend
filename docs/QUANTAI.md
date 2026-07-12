@@ -227,20 +227,27 @@ el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
 además de 'error' si hace falta · subir max_tokens de `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1.28 (2026-07-12) — 2 VISTAS EN SHADOW (admin): Renta Variable y
-TRADING (+ el VIGÍA reactivo)** · Tipo: copiloto contextual por vista ·
-Gate: `ia` + módulo RBAC de la vista
+**Estado: v1.39 (2026-07-12) — 3 VISTAS EN SHADOW (admin): Renta Variable,
+TRADING (+ el VIGÍA reactivo) y RENTA FIJA** · Tipo: copiloto contextual por
+vista · Gate: `ia` + módulo RBAC de la vista
 
-> El detalle fino del asistente (qué ve HOY, técnicas, changelog v1→v1.28)
+> El detalle fino del asistente (qué ve HOY, técnicas, changelog v1→v1.39)
 > vive en `docs/COPILOTO.md`. Resumen de lo construido 11-12/07: vista RV
 > completa (pulso/rankings/screenings/extremos desde 2005) · vista TRADING
 > (8 tarjetas con overrides, libro, tape, movers, posiciones del INTRADAY,
 > reloj de mercado con zona muerta 13-16 y doctrina de 3 estrategias) ·
-> políticas duras: verificado-o-nada, cero aritmética del modelo, guardrails
-> de código con auto-corrección (reflexion), voz de operador, tono por rol,
-> chips curados, conversaciones separadas · EL VIGÍA: watchers deterministas
-> (tarjeta en nivel / radar top-15 ±4%) → toasts cero-tokens con "¿lo
-> miramos?" y agregar-tarjeta 1-click.
+> vista RENTA FIJA (fair value/residuos filtrados a señal real, movimientos
+> vs cierre, forwards por z, breakevens+señal vs REM, spread de legislación
+> con historia, retorno por curva 7d/14d/MTD, carry+canje, y comparar/
+> sensibilidad-por-shocks/descomposición de Estrategia bajo demanda; marco
+> PM de breakeven y carry&rolldown) · políticas duras: verificado-o-nada,
+> cero aritmética del modelo, solo-señales-reales, guardrails de código con
+> auto-corrección (reflexion), voz de operador, tono por rol, chips curados,
+> conversaciones separadas · EL VIGÍA: watchers deterministas → toasts
+> cero-tokens con "¿lo miramos?" y agregar-tarjeta 1-click. Tooling:
+> bateria_rf (35 preguntas, cazó ~15 bugs) + diag_contexto_rf (el contexto
+> exacto sin tokens). Pendiente de verificar con rueda abierta: semántica de
+> ventana del carry_trade.
 
 > **Doc vivo del asistente: `docs/COPILOTO.md`** — mapa del código, qué ve el
 > asistente HOY y **changelog fechado OBLIGATORIO**: todo cambio a contexto/
@@ -525,13 +532,14 @@ plataforma del Copiloto si algún día se retoman.
 
 ## Hecho
 
-- **2026-07-11/12 — P3 v1→v1.28: copiloto de mesa COMPLETO en shadow** (2
-  vistas: RV y TRADING + vigía reactivo determinista + doctrina del trader +
-  verificación estricta con auto-corrección + memoria por conversaciones +
-  presupuestos editables con excepciones por usuario + saldo real del
-  proveedor). Historia completa versión a versión: `docs/COPILOTO.md`.
-  Colateral: fix de series de precios (backfill 2024+ con auto-reparación de
-  splits) + extremos históricos destilados desde 2005.
+- **2026-07-11/12 — P3 v1→v1.39: copiloto de mesa COMPLETO en shadow** (3
+  vistas: RV, TRADING + vigía reactivo, y RENTA FIJA con marco de portfolio;
+  doctrina del trader; verificación estricta con auto-corrección; memoria
+  por conversaciones; presupuestos editables con excepciones por usuario;
+  saldo real del proveedor; 3 baterías de prueba que cazaron ~15 bugs).
+  Historia completa versión a versión: `docs/COPILOTO.md`. Colateral: fix de
+  series de precios (backfill 2024+ con auto-reparación de splits) +
+  extremos históricos destilados desde 2005.
 - **2026-07-11 — P3 v1: copiloto contextual por vista, CONSTRUIDO** (backend
   `api/services/copiloto.py` + endpoints `/api/ia/copiloto*` + tarea
   `copiloto_vista` + `completar_con_traza` en el gateway + panel

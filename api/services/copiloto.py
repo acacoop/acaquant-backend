@@ -698,15 +698,32 @@ def _sanear_params_trading(params: dict | None) -> tuple[list[str], str | None, 
     return tickers, seleccionado, overrides
 
 
+def _px_dif(last: float | None, precio: float | None) -> str | None:
+    """Celda 'precio (dif%)' — el mismo toggle PRECIO/DIF% de la vista, ya
+    calculado (la política es cero aritmética del modelo)."""
+    if precio is None:
+        return None
+    if not last:
+        return f"{precio:.2f}"
+    return f"{precio:.2f} ({(precio / last - 1) * 100:+.2f}%)"
+
+
 def _fetch_trading(params: dict | None = None) -> list[dict]:
     """Las 8 tarjetas como filas: pivots de trading_pivots (live, sin cache)
-    con los overrides del usuario re-aplicados server-side + zona actual."""
-    from api.services import trading_pivots
+    con los overrides del usuario re-aplicados server-side, cada nivel con su
+    distancia al last YA calculada, zona actual, nivel más cercano y el día/
+    rubro del papel (para la alineación de tendencia)."""
+    from api.services import scanner_sql, trading_pivots
     from quant.pivot_points import calcular
 
     tickers, seleccionado, overrides = _sanear_params_trading(params)
     if not tickers:
         return []
+    try:
+        por_ticker = {s.get("ticker_corto"): s for s in scanner_sql.get_cedears_scanner()}
+    except Exception as e:
+        logger.warning("copiloto trading: scanner para día/rubro falló (%s)", e)
+        por_ticker = {}
     filas = []
     for it in trading_pivots.get_pivots(tickers=tickers):
         f = dict(it)
@@ -718,13 +735,48 @@ def _fetch_trading(params: dict | None = None) -> list[dict]:
         piv = f.get("pivots") or {}
         if ov and h and lo and c:
             piv = calcular(high=float(h), low=float(lo), close=float(c))
-        f.update(high=h, low=lo, close=c, **{k: piv.get(k) for k in
-                 ("pp", "r1", "r2", "r3", "s1", "s2", "s3")})
         last = f.get("last")
-        f["zona"] = _zona(float(last), piv) if last and piv.get("pp") else None
+        f.update(high=h, low=lo, close=c)
+        for k in ("pp", "r1", "r2", "r3", "s1", "s2", "s3"):
+            f[k] = _px_dif(float(last) if last else None, piv.get(k))
+        if last and piv.get("pp"):
+            f["zona"] = _zona(float(last), piv)
+            nombre, precio = min(
+                ((n.upper(), p) for n, p in piv.items() if p),
+                key=lambda np: abs(float(last) - np[1]),
+            )
+            f["nivel_cercano"] = f"{nombre} a {(precio / float(last) - 1) * 100:+.2f}%"
+        else:
+            f["zona"] = None
+            f["nivel_cercano"] = None
+        s = por_ticker.get(tk) or {}
+        f["dia_pct"] = s.get("vs_1d_pct")
+        f["rubro"] = s.get("rubro")
         f["foco"] = tk == seleccionado
         filas.append(f)
     return filas
+
+
+def _sanear_posiciones(params: dict | None) -> list[dict]:
+    """Posiciones abiertas del monitor INTRADAY (viajan del cliente porque son
+    efímeras — el excel vive en su browser). Solo números validados."""
+    p = params if isinstance(params, dict) else {}
+    out = []
+    for pos in (p.get("posiciones") or [])[:12]:
+        if not isinstance(pos, dict):
+            continue
+        esp = str(pos.get("especie") or "").strip().upper()
+        estado = str(pos.get("estado") or "").strip().upper()
+        if not esp or len(esp) > 12 or estado not in ("LONG", "SHORT"):
+            continue
+        try:
+            qty = abs(float(pos.get("qty")))
+            precio = float(pos.get("precio"))
+        except (TypeError, ValueError):
+            continue
+        if qty > 0 and precio > 0:
+            out.append({"especie": esp, "estado": estado, "qty": qty, "precio": precio})
+    return out
 
 
 def _libro_resumen(ticker: str) -> list[str]:
@@ -867,6 +919,29 @@ def _reloj_mercado() -> list[str]:
     return [f"[reloj de mercado] {dia} {ahora_art:%H:%M} ART — {estado}. Lectura: {lectura}."]
 
 
+def _tendencia_rubros_cards(filas_cards: list[dict]) -> list[str]:
+    """Día del RUBRO de cada tarjeta (ponderado por monto ARS, por código):
+    la pata 'rubro' del checklist de alineación de tendencia."""
+    from api.services import scanner_sql
+
+    rubros = {f.get("rubro") for f in filas_cards if f.get("rubro")}
+    if not rubros:
+        return []
+    try:
+        todas = scanner_sql.get_cedears_scanner()
+    except Exception as e:
+        logger.warning("copiloto trading: tendencia rubros falló (%s)", e)
+        return []
+    partes = []
+    for rubro in sorted(rubros):
+        grupo = [s for s in todas if s.get("rubro") == rubro]
+        prom = _wavg([{**s, "adr_dollar_vol": s.get("total_money")} for s in grupo],
+                     "vs_1d_pct")
+        if prom is not None:
+            partes.append(f"{rubro} {prom:+.2f}% hoy ({len(grupo)} papeles)")
+    return ["[tendencia rubros de tus tarjetas] " + " · ".join(partes)] if partes else []
+
+
 def _extras_trading(
     filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
 ) -> list[str]:
@@ -875,6 +950,13 @@ def _extras_trading(
     _tickers, seleccionado, _ov = _sanear_params_trading(params)
     partes: list[str] = []
     partes.extend(_reloj_mercado())
+    posiciones = _sanear_posiciones(params)
+    if posiciones:
+        partes.append(
+            "[mis posiciones abiertas — monitor INTRADAY] "
+            + " · ".join(f"{p['estado']} {p['qty']:.0f} {p['especie']} a {p['precio']:.2f}"
+                         for p in posiciones)
+        )
     try:
         ccl = scanner.get_ccl_live() or {}
         if ccl.get("value") is not None:
@@ -894,6 +976,7 @@ def _extras_trading(
                                  if q.get("pct_day") is not None else ""))
     except Exception as e:
         logger.warning("copiloto trading: SPY/QQQ fallaron (%s)", e)
+    partes.extend(_tendencia_rubros_cards(filas))
     if seleccionado:
         partes.extend(_libro_resumen(seleccionado))
         partes.extend(_tape_resumen(seleccionado))
@@ -905,12 +988,32 @@ _REGLAS_TRADING = """Sos el copiloto de la vista TRADING: acá el usuario OPERA 
 tarjetas (la tabla) son los papeles que él eligió; "foco: si" es el que tiene en el chart, \
 libro y tape. Precios en ARS del CEDEAR.
 
-Columnas de la tabla: last/vwap = live de la rueda. base_max/base_min/base_cierre = la base \
-de cálculo de los pivots (última rueda, o EDITADA a mano por el usuario — respetala siempre). \
-PP/R1-R3/S1-S3 = niveles Floor Trader intradía. zona_actual = dónde está el last ahora.
+Columnas de la tabla: last/vwap = live de la rueda. dia% = variación del papel hoy. \
+base_max/base_min/base_cierre = la base de cálculo de los pivots (última rueda, o EDITADA a \
+mano por el usuario — respetala siempre). PP/R1-R3/S1-S3 = "precio (dif%)": el nivel Y su \
+distancia al last, YA calculada — usá esas cifras, no calcules nada. zona_actual = dónde \
+está parado. nivel_cercano = el nivel más próximo y a cuánto está.
 
 EN ESTA VISTA la nomenclatura de pivots ES el idioma: hablá de PP, R1, S2 con naturalidad y \
 con los PRECIOS de los niveles ("está pegado a R1 en 10.793; si lo pasa, R2 está en 11.007").
+
+LAS 3 ESTRATEGIAS DEL USUARIO — tu marco para TODO consejo:
+1) REBOTE EN NIVEL (contra-tendencia): entrar SOLO cuando el precio ESTÁ en un pivot y el \
+tape muestra el giro. Sin nivel + sin señal en el tape, no hay estrategia 1.
+2) TENDENCIA DEL DÍA: subirse al día. JAMÁS avales shortear un papel cuyo día/rubro/mercado \
+(dia%, [tendencia rubros], QQQ/SPY, CCL) viene claramente al alza — ni un long contra un \
+día rojo — salvo estrategia 1 confirmada EN un nivel.
+3) TOMA DE GANANCIAS: papel que ya subió mucho hoy → la jugada es ESPERAR el giro, no \
+perseguir la suba.
+
+DISCIPLINA DE PIVOTS — SIEMPRE presente, es tu mantra: se opera EN los niveles, nunca en el \
+medio. Si nivel_cercano dice más de ±0.50%, el papel está EN EL MEDIO: tu consejo default \
+es ESPERAR a que llegue ("estás a mitad de camino entre PP y S1 — dejalo llegar al nivel"). \
+Repetíselo cada vez que insinúe entrar lejos de un nivel: tu trabajo es que no se tiente.
+
+POSICIONES: si [mis posiciones abiertas] tiene el papel, TODA lectura se hace desde la \
+posición: el próximo nivel a favor es el objetivo, el nivel en contra es el riesgo ("estás \
+SHORT desde PP: el objetivo es S1 en 10.373; si te pasa R1 en contra, repensá").
 
 Bloques después de la tabla:
 - [libro X CI/24hs]: mejores puntas, spread y desbalance de profundidad YA calculados. \
@@ -1025,10 +1128,11 @@ VISTAS: dict[str, dict] = {
         "columnas": [
             ("ticker", "ticker"), ("foco", "foco"),
             ("last", "last"), ("vwap", "vwap"),
+            ("dia_pct", "dia%"), ("rubro", "rubro"),
             ("high", "base_max"), ("low", "base_min"), ("close", "base_cierre"),
             ("pp", "PP"), ("r1", "R1"), ("r2", "R2"), ("r3", "R3"),
             ("s1", "S1"), ("s2", "S2"), ("s3", "S3"),
-            ("zona", "zona_actual"),
+            ("zona", "zona_actual"), ("nivel_cercano", "nivel_cercano"),
         ],
         "reglas": _REGLAS_TRADING,
     },

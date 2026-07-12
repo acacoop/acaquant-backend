@@ -113,6 +113,23 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.26 (la doctrina del trader: pivots, tendencia, posiciones)
+- **[contexto +]** Tarjetas enriquecidas: cada nivel PP..S3 como "precio
+  (dif%)" YA calculado (el toggle DIF% de la vista — cero aritmética del
+  modelo), `nivel_cercano` (cuál y a cuánto), `dia%` y `rubro` del papel,
+  bloque `[tendencia rubros de tus tarjetas]` (día del rubro ponderado por
+  monto).
+- **[contexto +]** `[mis posiciones abiertas]`: puente desde el monitor
+  INTRADAY (el excel es efímero en el browser → las posiciones LONG/SHORT
+  quedan en localStorage al analizar y viajan como parámetro saneado).
+- **[prompt +]** LA DOCTRINA (dictada por el user): (1) rebote en nivel =
+  contra-tendencia SOLO en pivot con giro en el tape; (2) tendencia del día =
+  jamás avalar short contra día/rubro/índices al alza ni long contra día
+  rojo; (3) día muy arriba = esperar la toma de ganancias. DISCIPLINA DE
+  PIVOTS como mantra: nivel_cercano > ±0.50% = está EN EL MEDIO → el consejo
+  default es ESPERAR el nivel. Con posición abierta: todo se lee DESDE la
+  posición (nivel a favor = objetivo, en contra = riesgo).
+
 ### 2026-07-12 — v1.25 (números es-AR + reloj de mercado y disciplina)
 - **[bugfix crítico]** La verificación bloqueaba TODA la vista trading: el
   modelo escribe precios a la argentina ("10.793" = 10793) y el parser los

@@ -457,6 +457,7 @@ def test_sanear_params_trading():
 
 
 def test_fetch_trading_aplica_overrides(monkeypatch):
+    import api.services.scanner_sql as ssql
     import api.services.trading_pivots as tp
 
     monkeypatch.setattr(tp, "get_pivots", lambda *, tickers: [{
@@ -465,17 +466,34 @@ def test_fetch_trading_aplica_overrides(monkeypatch):
         "pivots": {"pp": 10586.7, "r1": 10773.3, "r2": 10986.7, "r3": 11173.3,
                    "s1": 10373.3, "s2": 10186.7, "s3": 9973.3},
     }])
-    # sin override: usa los pivots del service y calcula la zona
+    monkeypatch.setattr(ssql, "get_cedears_scanner",
+                        lambda: [{"ticker_corto": "RKLB", "vs_1d_pct": 3.1,
+                                  "rubro": "Espacial"}])
     filas = copiloto._fetch_trading({"tickers": ["RKLB"], "seleccionado": "RKLB"})
-    assert filas[0]["zona"] == "S1-PP" or filas[0]["zona"] == "PP-R1"  # según last vs pp
-    assert filas[0]["foco"] is True
+    f = filas[0]
+    assert f["foco"] is True and f["dia_pct"] == 3.1 and f["rubro"] == "Espacial"
+    # niveles como "precio (dif%)" — la distancia YA calculada (toggle DIF%)
+    assert f["pp"].startswith("10586.70 (") and "%" in f["pp"]
+    # nivel más cercano: PP está a +0.06% del last 10580
+    assert f["nivel_cercano"].startswith("PP a +0.0")
+    assert f["zona"] == "S1-PP"
     # con override del usuario: los pivots se RECALCULAN con su base editada
     filas = copiloto._fetch_trading({
         "tickers": ["RKLB"],
         "overrides": {"RKLB": {"high": 11000, "low": 10000, "close": 10500}},
     })
-    assert filas[0]["pp"] == (11000 + 10000 + 10500) / 3
+    assert filas[0]["pp"].startswith(f"{(11000 + 10000 + 10500) / 3:.2f} (")
     assert filas[0]["high"] == 11000
+
+
+def test_sanear_posiciones():
+    out = copiloto._sanear_posiciones({"posiciones": [
+        {"especie": "rklb", "estado": "long", "qty": -350, "precio": "10700.5"},
+        {"especie": "SNDK", "estado": "CERRADA", "qty": 1, "precio": 1},  # cerrada afuera
+        {"especie": "X", "estado": "SHORT", "qty": "nada", "precio": 5},  # qty inválida
+    ]})
+    assert out == [{"especie": "RKLB", "estado": "LONG", "qty": 350.0, "precio": 10700.5}]
+    assert copiloto._sanear_posiciones(None) == []
 
 
 def test_feedback_valor_invalido():

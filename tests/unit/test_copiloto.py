@@ -264,7 +264,12 @@ def test_screenings_filtra_por_codigo():
         {"ticker_corto": "BIDU", "adr_ret_ytd_pct": -10.0, "adr_ret_15r_pct": -9.5,
          "adr_ret_wtd_pct": 3.7, "total_money": 50, "piv_anual": "S2-S1"},
         {"ticker_corto": "SNDK", "adr_ret_ytd_pct": 707.1, "adr_ret_15r_pct": 20.0,
-         "adr_ret_wtd_pct": 9.8, "total_money": 900, "piv_anual": ">R3"},
+         "adr_ret_wtd_pct": 9.8, "total_money": 900, "piv_anual": ">R3",
+         "es_ia": True, "adr_vs_1d_pct": 12.2},
+        # GGAL sube más que nadie hoy pero NO es IA → no puede colarse
+        {"ticker_corto": "GGAL", "adr_ret_ytd_pct": -0.1, "adr_ret_15r_pct": 4.0,
+         "adr_ret_wtd_pct": 6.7, "total_money": 800, "piv_anual": "PP-R1",
+         "es_ia": None, "adr_vs_1d_pct": 15.0},
     ]
     lineas = copiloto._screenings(filas)
     texto = "\n".join(lineas)
@@ -274,6 +279,9 @@ def test_screenings_filtra_por_codigo():
     assert "SNDK" in next(li for li in lineas if "rompieron todos los techos" in li)
     # T también está en zona de decisión (S1-PP)
     assert "T" in next(li for li in lineas if "zona de decisión" in li)
+    # destacados IA del día: SOLO es_ia — GGAL (líder del día) queda afuera
+    linea_ia = next(li for li in lineas if "papeles de IA destacados" in li)
+    assert "SNDK" in linea_ia and "GGAL" not in linea_ia
 
 
 def test_rankings_ordena_por_codigo():

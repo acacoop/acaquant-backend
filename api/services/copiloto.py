@@ -313,7 +313,7 @@ def _screenings(filas: list[dict]) -> list[str]:
         v = f.get(campo)
         return float(v) if v is not None else None
 
-    rez, rebotes, decision, sin_techo = [], [], [], []
+    rez, rebotes, decision, sin_techo, ia_dia = [], [], [], [], []
     for f in filas:
         anio, r15 = val(f, "adr_ret_ytd_pct"), val(f, "adr_ret_15r_pct")
         sem, tk = val(f, "adr_ret_wtd_pct"), f.get("ticker_corto")
@@ -329,10 +329,14 @@ def _screenings(filas: list[dict]) -> list[str]:
             decision.append((val(f, "total_money") or 0, tk))
         if f.get("piv_anual") == ">R3":
             sin_techo.append((anio or 0, tk))
+        dia = val(f, "adr_vs_1d_pct")
+        if f.get("es_ia") and dia is not None:
+            ia_dia.append((dia, f"{tk} {dia:+.1f}%"))
 
     rez.sort(reverse=True)
     decision.sort(reverse=True)
     sin_techo.sort(reverse=True)
+    ia_dia.sort(reverse=True)
     return [
         "[screenings ya calculados — la pertenencia la define el CÓDIGO; para "
         "'rezagados', 'zona de decisión' o 'rompieron techos' usá ESTAS listas tal cual]",
@@ -344,6 +348,8 @@ def _screenings(filas: list[dict]) -> list[str]:
         + (", ".join(t for _, t in decision[:10]) if decision else "ninguno"),
         "rompieron todos los techos del año pasado: "
         + (", ".join(t for _, t in sin_techo[:10]) if sin_techo else "ninguno"),
+        "papeles de IA destacados HOY (solo ia=si, mejores del día): "
+        + ("; ".join(s for _, s in ia_dia[:5]) if ia_dia else "sin datos"),
     ]
 
 
@@ -656,8 +662,9 @@ nombre el ticker exacto en la pregunta."""
 # versionado — es conocimiento institucional, no texto libre del usuario.
 _CHIPS_RENTA_VARIABLE = [
     {"label": "Papeles de IA",
-     "pregunta": "¿Cómo viene hoy la cadena de IA? Qué parte empuja, qué parte "
-                 "queda atrás, y 3 destacados del día."},
+     "pregunta": "En 5 líneas máximo y SOLO papeles de IA: ¿qué parte de la "
+                 "cadena empuja hoy y cuál queda atrás? Cerrá con los 3 papeles "
+                 "de IA más fuertes del día."},
     {"label": "Argentina",
      "pregunta": "¿Cómo vienen hoy los papeles argentinos? ¿El movimiento es "
                  "genuino en dólares o es efecto del CCL?"},

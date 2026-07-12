@@ -113,6 +113,16 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.21 (destacados IA deterministas + chip afinado + cursiva)
+- **[contexto +]** Línea "papeles de IA destacados HOY" en los screenings
+  (top 5 del día SOLO entre ia=si, por código) — el chip de IA colaba a GGAL
+  porque el modelo tomaba el ranking general del día.
+- **[chips ~]** "Papeles de IA" acotado: 5 líneas máx, solo cadena IA, cierra
+  con los 3 más fuertes del día (la versión anterior mezclaba plazos y rubros
+  sin foco).
+- **[UI]** El panel renderiza *cursiva* además de **negrita** (los asteriscos
+  sueltos se veían crudos).
+
 ### 2026-07-11 — v1.20 (máx/mín histórico REAL desde 2005, sin cargar la historia)
 - **[datos +]** Diseño del user: la historia profunda NO se carga — se
   DESTILA. `scripts/backfill_extremos_hist.py` pide 2005→2024 a Yahoo por

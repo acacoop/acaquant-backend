@@ -113,6 +113,15 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.23 (conversaciones separadas — cada chat su mundo)
+- **[producto ~]** Pedido del user: como los chatbots serios — cada
+  conversación tiene su id (`ia.trazas.conv_id`, requiere apply_schema),
+  botón **＋ NUEVA** en el panel arranca un mundo limpio, y al abrir se
+  retoma SOLO la última conversación (no una mezcla de todo el historial —
+  que además contaminaba follow-ups y detección de tickers). Al modelo le
+  siguen viajando como máximo 4 pares: el costo no cambia; cambia la
+  higiene semántica.
+
 ### 2026-07-12 — v1.22 (memoria persistente + etapas del pensando · streaming DESCARTADO)
 - **[producto +]** Memoria persistente del chat SIN tabla nueva: al abrir el
   panel se recuperan los últimos 8 intercambios del usuario, reconstruidos

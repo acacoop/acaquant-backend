@@ -1548,7 +1548,8 @@ CREATE TABLE IF NOT EXISTS ia.trazas (
     feedback    smallint,
     detalle     text,   -- extracto del pedido (ej. la pregunta), cap en core/ai
     respuesta   text,   -- extracto de la respuesta del modelo, cap en core/ai
-    razonamiento text   -- extracto del reasoning_content (thinking), cap en core/ai
+    razonamiento text,  -- extracto del reasoning_content (thinking), cap en core/ai
+    conv_id     text    -- conversación del copiloto (cada chat su mundo)
 );
 CREATE INDEX IF NOT EXISTS ix_ia_trazas_ts ON ia.trazas (ts);
 CREATE INDEX IF NOT EXISTS ix_ia_trazas_usuario_ts ON ia.trazas (usuario, ts);
@@ -1556,6 +1557,8 @@ CREATE INDEX IF NOT EXISTS ix_ia_trazas_usuario_ts ON ia.trazas (usuario, ts);
 ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS detalle text;
 ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS respuesta text;
 ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS razonamiento text;
+-- 2026-07-12: conversaciones separadas del copiloto (cada chat su mundo)
+ALTER TABLE ia.trazas ADD COLUMN IF NOT EXISTS conv_id text;
 
 -- Extremos históricos PRE-serie (2005 → arranque de la serie diaria) por
 -- underlying. Decisión user 2026-07-11: NO cargar 20 años de velas — el

@@ -79,9 +79,10 @@ def briefing_apertura():
 class PreguntaCopiloto(BaseModel):
     vista: str
     pregunta: str
-    # pares {pregunta, respuesta} previos de ESTE panel (ventana corta, vive
-    # en el cliente — v1 no persiste conversación)
+    # pares {pregunta, respuesta} previos de ESTE panel (ventana corta)
     historial: list[dict] = Field(default_factory=list)
+    # conversación a la que pertenece la pregunta (cada chat su mundo)
+    conv_id: str | None = None
 
 
 class FeedbackCopiloto(BaseModel):
@@ -99,9 +100,9 @@ def copiloto_vistas(email: str = Depends(get_user_email)):
 
 @router.get("/copiloto/historial")
 def copiloto_historial(limit: int = 8, email: str = Depends(get_user_email)):
-    """Últimos intercambios del usuario con el copiloto (memoria persistente,
-    reconstruida desde ia.trazas — sin tabla nueva)."""
-    return {"mensajes": copiloto.historial_persistido(usuario=email, limit=limit)}
+    """Última CONVERSACIÓN del usuario con el copiloto (memoria persistente
+    desde ia.trazas — cada chat es su propio mundo)."""
+    return copiloto.historial_persistido(usuario=email, limit=limit)
 
 
 @router.post("/copiloto")
@@ -112,7 +113,7 @@ def copiloto_preguntar(body: PreguntaCopiloto, email: str = Depends(get_user_ema
         raise HTTPException(status_code=403, detail="módulo de la vista no autorizado")
     return copiloto.preguntar(
         vista=body.vista, pregunta=body.pregunta,
-        historial=body.historial, usuario=email,
+        historial=body.historial, usuario=email, conv_id=body.conv_id,
     )
 
 

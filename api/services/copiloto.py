@@ -840,11 +840,27 @@ def puede_usar(email: str, vista: str) -> bool:
     return bool(cfg) and has_access(email, cfg["modulo"])
 
 
+def _marcar_conversacion(traza_id: int | None, conv_id: str | None) -> None:
+    """Etiqueta la traza con la conversación (best-effort, sin tocar el
+    gateway: el id ya lo tenemos de vuelta)."""
+    if not traza_id or not conv_id:
+        return
+    try:
+        from core.postgres import get_pool
+
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE ia.trazas SET conv_id = %s WHERE id = %s",
+                        (conv_id[:64], traza_id))
+    except Exception as e:
+        logger.warning("copiloto: no pude marcar la conversación (%s)", e)
+
+
 def preguntar(
     vista: str,
     pregunta: str,
     historial: list[dict] | None = None,
     usuario: str | None = None,
+    conv_id: str | None = None,
 ) -> dict:
     """Una pregunta sobre la tabla de la vista. Devuelve ok=True con la
     respuesta + fuente + traza_id (para feedback), u ok=False con motivo —
@@ -985,6 +1001,7 @@ def preguntar(
                        vista, malos)
         return {"ok": False, "error": "verificacion"}
 
+    _marcar_conversacion(traza_id, conv_id)
     return {
         "ok": True,
         "respuesta": texto,
@@ -999,35 +1016,46 @@ def preguntar(
     }
 
 
-def historial_persistido(usuario: str, limit: int = 8) -> list[dict]:
-    """Memoria persistente del chat SIN tabla nueva: las trazas de
-    observabilidad YA guardan cada intercambio (detalle=pregunta, respuesta=
-    extracto cap 1500). Al abrir el panel se recuperan los últimos, y el
-    historial que el cliente re-inyecta al modelo sale de ahí. Se excluyen
-    los reintentos de autocorrección (son internos)."""
+def historial_persistido(usuario: str, limit: int = 8) -> dict:
+    """Memoria persistente SIN tabla nueva: las trazas YA guardan cada
+    intercambio. Devuelve SOLO la última CONVERSACIÓN del usuario (cada chat
+    es su propio mundo — pedido del user 2026-07-12) + su conv_id para que el
+    panel la continúe. Sin conversaciones etiquetadas → vacío (mundo nuevo)."""
     try:
         from core.postgres import get_pool
 
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
+                "SELECT conv_id FROM ia.trazas WHERE usuario = %s AND conv_id IS NOT NULL "
+                "ORDER BY id DESC LIMIT 1",
+                (usuario,),
+            )
+            fila = cur.fetchone()
+            if not fila:
+                return {"conv_id": None, "mensajes": []}
+            conv_id = fila[0]
+            cur.execute(
                 """
                 SELECT id, detalle, respuesta, feedback
                 FROM ia.trazas
-                WHERE usuario = %s AND tarea = 'copiloto_vista' AND ok
+                WHERE usuario = %s AND conv_id = %s AND tarea = 'copiloto_vista' AND ok
                   AND respuesta IS NOT NULL AND detalle IS NOT NULL
                   AND detalle NOT LIKE '[autocorrección]%%'
                 ORDER BY id DESC LIMIT %s
                 """,
-                (usuario, max(1, min(int(limit), 20))),
+                (usuario, conv_id, max(1, min(int(limit), 20))),
             )
             filas = cur.fetchall()
-        return [
-            {"traza_id": r[0], "pregunta": r[1], "respuesta": r[2], "feedback": r[3]}
-            for r in reversed(filas)
-        ]
+        return {
+            "conv_id": conv_id,
+            "mensajes": [
+                {"traza_id": r[0], "pregunta": r[1], "respuesta": r[2], "feedback": r[3]}
+                for r in reversed(filas)
+            ],
+        }
     except Exception as e:
         logger.warning("copiloto historial: no pude leer (%s) — panel arranca vacío", e)
-        return []
+        return {"conv_id": None, "mensajes": []}
 
 
 def registrar_feedback(traza_id: int, valor: int, usuario: str) -> dict:

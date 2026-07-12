@@ -409,6 +409,21 @@ def test_verificacion_estricta_bloquea(monkeypatch):
     assert out == {"ok": False, "error": "verificacion"}
 
 
+def test_numeros_pegados_a_letras():
+    # bug real (batería ronda 3): "156bps"/"143d" en el CONTEXTO eran
+    # invisibles por el \b del regex → bloqueaba respuestas correctas
+    ctx = ("AL30D−GD30D: hoy +156bps vs promedio 90d +111bps (35 ruedas); "
+           "AL35D−GD35D: hoy +64bps vs +60bps; a 143d: mercado 1.53%/mes")
+    malos, _ = copiloto._numeros_sin_respaldo(
+        "El spread está en 156 bps contra 111 de promedio; a 143 días paga 1.53%", ctx)
+    assert malos == []
+    malos, _ = copiloto._numeros_sin_respaldo("hoy 156bps vs 60 y 64", ctx)
+    assert malos == []
+    # y lo inventado se sigue cazando
+    malos, _ = copiloto._numeros_sin_respaldo("me invento 999 bps", ctx)
+    assert malos == ["999b"] or malos == ["999"]
+
+
 def test_numeros_formato_argentino():
     # contexto en formato del TSV (punto decimal); precios en miles
     ctx = "ticker\tlast\tPP\tR1\nRKLB\t10580.00\t10587.00\t10793.00"

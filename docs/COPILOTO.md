@@ -113,6 +113,16 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.38 (el bug de los números fantasma + forwards sin ONs)
+- **[bugfix crítico, cazado con diag_contexto_rf]** El verificador NO VEÍA
+  los números pegados a letras en el contexto ("156bps", "143d", "90d" — el
+  `\b` final del regex los hacía invisibles) → bloqueaba respuestas
+  CORRECTAS (26/29/33 de la batería: 156/143/64/60 estaban en los bloques).
+  Regex corregida con regresión de las líneas exactas; el sufijo K/M/B ya no
+  se come letras de palabras ("1. MU" no es un mega).
+- **[contexto ~]** Forwards filtrados a las curvas de ESTA vista — los de
+  ONs (on_energia z±3.5) contaminaban el bloque; las ONs tienen su vista.
+
 ### 2026-07-12 — v1.37 (carry solo-real + diag de contexto)
 - **[filtro +]** |carry USD| >15% en 14d = dato roto (batería ronda 3: PARP
   "+464%", TO26 "−37%" eran precios viejos) → excluido del bloque, misma

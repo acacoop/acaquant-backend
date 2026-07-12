@@ -817,8 +817,12 @@ def _forwards_rf(filas: list[dict], pregunta: str, historial: list[dict]) -> lis
     from api.services import mercado_hist_sql
 
     try:
-        docs = {d.get("curva"): d for d in mercado_hist_sql.get_forwards() or []}
-        zs = {d.get("curva"): d for d in mercado_hist_sql.get_forwards_zscore() or []}
+        # solo curvas de ESTA vista — las ONs tienen su propia vista y sus
+        # forwards contaminaban el bloque (diag 2026-07-12: on_energia z±3.5)
+        docs = {d.get("curva"): d for d in mercado_hist_sql.get_forwards() or []
+                if not str(d.get("curva") or "").startswith("on")}
+        zs = {d.get("curva"): d for d in mercado_hist_sql.get_forwards_zscore() or []
+              if not str(d.get("curva") or "").startswith("on")}
     except Exception as e:
         logger.warning("copiloto rf: forwards fallaron (%s)", e)
         return []
@@ -1837,7 +1841,11 @@ VISTAS: dict[str, dict] = {
 # le dieron. El shadow (2026-07-11) mostró al modelo citando la columna
 # equivocada y volteando signos → esto lo detecta código, no un humano.
 
-_RE_NUM = re.compile(r"(-?\d[\d.,]*)\s*([kKmMbB])?\b")
+# SIN \b final: "156bps"/"143d" (número pegado a letras) deben tokenizar — el
+# \b los hacía invisibles en el contexto y bloqueaba respuestas correctas
+# (batería ronda 3). El sufijo K/M/B solo vale si NO le sigue otra letra
+# ("325M y" sí; "1. MU" no es un mega).
+_RE_NUM = re.compile(r"(-?\d[\d.,]*)(?:\s*([kKmMbB])(?![A-Za-z]))?")
 _ESCALAS = {"k": 1e3, "m": 1e6, "b": 1e9}
 
 
@@ -1905,7 +1913,7 @@ def _numeros_sin_respaldo(respuesta: str, contexto: str) -> tuple[list[str], int
             return False
 
         if not any(_match(c) for c in ctx):
-            malos.append(m.group(0).strip())
+            malos.append(m.group(1) + (m.group(2) or ""))
     return malos, total
 
 

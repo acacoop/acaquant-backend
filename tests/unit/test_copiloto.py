@@ -424,6 +424,18 @@ def test_numeros_pegados_a_letras():
     assert malos == ["999b"] or malos == ["999"]
 
 
+def test_numeros_redondeados_medio_decimal():
+    # batería home 2026-07-12: el modelo redondea a 1 decimal ("5,9" para
+    # 5.85) y la respuesta moría — media unidad del último decimal se acepta
+    ctx = "brent\t5.85\nwti\t4.11\nytd\t24.54"
+    malos, _ = copiloto._numeros_sin_respaldo(
+        "el brent sube 5,9% en la semana y acumula 24.5% en el año", ctx)
+    assert malos == []
+    # un redondeo MAL hecho (4.11 no es 4.2) sigue cayendo
+    malos, _ = copiloto._numeros_sin_respaldo("el wti sube 4.2%", ctx)
+    assert malos == ["4.2"]
+
+
 def test_numeros_formato_argentino():
     # contexto en formato del TSV (punto decimal); precios en miles
     ctx = "ticker\tlast\tPP\tR1\nRKLB\t10580.00\t10587.00\t10793.00"

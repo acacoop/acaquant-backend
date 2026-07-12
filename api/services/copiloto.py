@@ -1952,6 +1952,19 @@ PROHIBIDO PROMEDIAR GRUPOS A MANO: si querés decir "los granos vienen fuertes",
 el que más se mueve con SU número exacto de la tabla ("maíz +7.6%") — nunca un promedio \
 o cifra de grupo que no esté precalculada en los bloques.
 
+LÍMITES DE ESTA VISTA (cuándo derivar y cuándo no):
+- El [pulso por rubro] es SOLO para el segmento acciones del panorama. Si la pregunta es \
+DEDICADA a acciones/CEDEARs/rubros/papeles ("¿qué compro?", "¿cómo están las acciones?", \
+"¿qué rubros empujan?"), respondé el titular en 1-2 frases y DERIVÁ a Renta Variable con \
+el marcador — una recomendación o análisis de papeles puntuales JAMÁS se intenta desde \
+acá, ni pidiéndole la lista al usuario.
+- Un instrumento de la watchlist con valor "-" (ej. la caución un fin de semana) NO es \
+"eso no está en esta tabla": el instrumento EXISTE en la vista; lo que falta es el dato \
+de este momento (sin rueda / fuera de horario). Respondelo así, y si algún plazo suyo sí \
+tiene dato, dalo.
+- Los futuros DLR son TUYOS ([futuros DLR ROFEX]): si el bloque no aparece, decí que no \
+hay dato en este momento — NO derives a otra vista por esto (ninguna otra los tiene).
+
 REGLA DE HONESTIDAD — la más importante de esta vista: tus datos dicen QUÉ se movió, \
 nunca POR QUÉ. Ante un "¿por qué subió/bajó?" respondés el movimiento con sus plazos y \
 aclarás que el motivo no está en tus datos. PROHIBIDO inventar causas macro, políticas o \
@@ -2196,10 +2209,16 @@ def _numeros_sin_respaldo(respuesta: str, contexto: str) -> tuple[list[str], int
         total += 1
         if sufijo:
             candidatos = candidatos + [c * _ESCALAS[sufijo] for c in candidatos]
+        # Redondeo legítimo: "5,9%" cuando el dato es 5.85 es media unidad del
+        # último decimal escrito — se acepta (batería home 2026-07-12: el
+        # modelo redondea a 1 decimal y la respuesta moría). "4,2" para 4.11
+        # NO pasa: eso es un redondeo mal hecho, sigue siendo error.
+        frac = re.search(r"[.,](\d+)\s*$", m.group(1))
+        tol_redondeo = 0.51 * 10 ** -len(frac.group(1)) if frac else 0.0
 
         def _match(c: float) -> bool:
             for v in candidatos:  # noqa: B023 — se consume dentro del mismo loop
-                if abs(c - v) <= max(0.011, 0.001 * v):
+                if abs(c - v) <= max(0.011, 0.001 * v, tol_redondeo):  # noqa: B023
                     return True
                 if v.is_integer() and round(c) == v:
                     return True

@@ -18,7 +18,7 @@
 | Ubicación del botón | `acaquant-web/src/components/renta-variable-shell.tsx` | Monta `<IaVistaPanel vista="renta_variable" />` en la barra de tabs. |
 | Observabilidad | tabla `ia.trazas` + Manager → OBSERVABILIDAD → pill IA | Cada pregunta: tokens, latencia, ok/error, feedback 👍/👎. |
 | Tests | `tests/unit/test_copiloto.py` | Congelan contrato: TSV, gates, caps, degradación, detección de tickers, verificador. |
-| Diag de contexto | `scripts/diag_contexto_rf.py` | LA LUPA: imprime el contexto exacto que ve el modelo, sin tokens. Primer comando ante cualquier rareza. |
+| Diag de contexto | `scripts/diag_contexto.py --vista <v>` | LA LUPA (todas las vistas): imprime el contexto exacto que ve el modelo, sin tokens. Primer comando ante cualquier rareza. |
 | Baterías | `scripts/bateria_rf.py`, `scripts/bateria_home.py` (+ `smoke_copiloto.py`, `eval_copiloto.py`) | Mapeo masivo de preguntas reales contra el copiloto vivo (gasta tokens del email que se pase). |
 
 ## Cómo fluye una pregunta
@@ -115,6 +115,28 @@ completas + 👍/👎 · presupuestos con kill switch editables.
 prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
+
+### 2026-07-12 — v1.45 (post-batería HOME: límites de la vista + redondeo legítimo)
+- **[verificación ~]** El modelo redondea a 1 decimal ("5,9%" cuando el dato
+  es 5.85) y la pregunta 11 de la batería moría bloqueada: el verificador
+  ahora acepta MEDIA UNIDAD del último decimal escrito (5,9↔5.85 pasa;
+  "4,2" para 4.11 sigue cayendo — redondeo mal hecho es error). Menos
+  reintentos de reflexion, menos bloqueos duros.
+- **[prompt +]** Límites de la vista HOME (batería 9/10/14): (1) pregunta
+  DEDICADA a acciones/CEDEARs → titular en 1-2 frases + derivar a Renta
+  Variable, jamás intentar recomendaciones de papeles desde acá (la 14
+  respondía por rubro y pedía la lista); (2) instrumento de la watchlist con
+  "-" (caución en finde) = "existe pero sin dato ahora", NO "no está en esta
+  tabla"; (3) futuros DLR son de ESTA vista — sin bloque = "sin dato ahora",
+  no derivar a Trading (la 8 derivaba mal).
+- **[tooling]** `scripts/diag_contexto.py --vista <v>`: la lupa GENERALIZADA
+  a las 4 vistas (borra `diag_contexto_rf.py`, REGLA #5) — primer paso para
+  diagnosticar el bloque DLR ausente de la batería (correr
+  `--vista home` y mirar si [futuros DLR ROFEX] aparece).
+- **[en observación]** El verificador matchea números por valor ABSOLUTO: la
+  pregunta 6 escribió el canje con signo invertido ("-2.97%" cuando el bloque
+  dice +2.97%) y pasó. Enforcement de signo pendiente — tiene falsos
+  positivos no triviales (rangos "4-6", "cayó 4.7%" en positivo).
 
 ### 2026-07-12 — v1.44 (HOME segmentada — el mercado no es uno)
 - **[rediseño, feedback del shadow]** "¿Cómo viene el mercado?" mezclaba

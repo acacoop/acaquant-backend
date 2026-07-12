@@ -659,7 +659,248 @@ ratios, en la moneda indicada) + márgenes. Solo existe para las empresas cargad
 pivots/beta/retornos/fundamentals de un papel y su bloque no está, pedile al usuario que \
 nombre el ticker exacto en la pregunta."""
 
-# ── Vista TRADING (página /trading — pivots intradía, libro, tape) ──────────
+# ── Vista RENTA FIJA (página /renta-fija — curvas, fair value, forwards, BE) ─
+#
+# Acá el idioma es TEA/curva/forward/breakeven. El "caro o barato" del bono es
+# su residuo contra el fit de fair value (el equivalente de la zona de pivots
+# en trading). Todo precalculado por los motores; el copiloto narra.
+
+_CURVAS_RF = ("cer", "tasa_fija", "soberanos", "dolar_linked")
+_CURVAS_FIT = ("cer", "tasa_fija")  # fair value solo existe para estas
+
+
+def _fetch_renta_fija(params: dict | None = None) -> list[dict]:
+    """Una fila por bono de las 4 curvas de la vista, con el fair value
+    mergeado (tea teórica + residuo) donde existe."""
+    from api.services import fair_value, renta_fija
+
+    fv_por_ticker: dict[str, dict] = {}
+    for curva in _CURVAS_FIT:
+        try:
+            for b in (fair_value.get_fair_value_live(curva) or {}).get("bonos") or []:
+                fv_por_ticker[b.get("ticker_corto") or b.get("ticker")] = b
+        except Exception as e:
+            logger.warning("copiloto rf: fair value %s falló (%s)", curva, e)
+
+    tc_por_corto: dict[str, float] = {}
+    try:
+        for r in renta_fija.get_renta_fija() or []:
+            tc = (r.get("metrics") or {}).get("tc_breakeven")
+            inst = str(r.get("instrumento") or "")
+            if tc is not None and " - " in inst:
+                tc_por_corto[inst.split(" - ")[2]] = tc
+    except Exception as e:
+        logger.warning("copiloto rf: tc_breakeven falló (%s)", e)
+
+    filas = []
+    for curva in _CURVAS_RF:
+        try:
+            bonos = renta_fija.listar_curva(curva=curva)
+        except Exception as e:
+            logger.warning("copiloto rf: listar_curva %s falló (%s)", curva, e)
+            continue
+        for b in bonos:
+            f = dict(b)
+            tipo = f.get("tipo")
+            etiqueta = tipo if curva == "soberanos" and tipo else curva
+            if f.get("cer_fijado"):
+                etiqueta = "tasa_fija (CER fijado)"
+            f["curva_label"] = etiqueta
+            fv = fv_por_ticker.get(f.get("ticker_corto")) or {}
+            f["tea_teorica"] = fv.get("tea_teorica")
+            f["residuo_bps"] = fv.get("residuo_bps")
+            f["tc_breakeven"] = tc_por_corto.get(f.get("ticker_corto"))
+            filas.append(f)
+    return filas
+
+
+def _teas_cierre_anterior() -> dict[str, float]:
+    """{ticker_corto: TEA del último cierre persistido} — para el delta del
+    día (mercado.snapshots_cierre_hist, escrito por jobs.snapshot_cierre)."""
+    from core.postgres import get_pool
+
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT ticker_corto, tea FROM mercado.snapshots_cierre_hist
+            WHERE fecha = (SELECT max(fecha) FROM mercado.snapshots_cierre_hist
+                           WHERE fecha < now()::date)
+              AND tea IS NOT NULL
+            """
+        )
+        return {r[0]: float(r[1]) for r in cur.fetchall() if r[0]}
+
+
+def _movimientos_dia_rf(filas: list[dict]) -> list[str]:
+    """[movimientos del día]: Δ de TEA hoy vs último cierre, por código —
+    pedido del user: la curva se VE en el gráfico; lo que falta es cómo se
+    MOVIÓ."""
+    try:
+        cierre = _teas_cierre_anterior()
+    except Exception as e:
+        logger.warning("copiloto rf: teas de cierre fallaron (%s)", e)
+        return []
+    deltas = []
+    for f in filas:
+        tk, tea = f.get("ticker_corto"), f.get("tea")
+        prev = cierre.get(tk)
+        if tea is None or prev is None:
+            continue
+        deltas.append((abs(tea - prev), f"{tk} {(tea - prev) * 100:+.0f}bps "
+                                        f"({prev:.1f}%→{tea:.1f}%)"))
+    if not deltas:
+        return ["[movimientos del día] sin cierre previo para comparar"]
+    deltas.sort(reverse=True)
+    return ["[movimientos del día — TEA hoy vs último cierre, en bps] "
+            + "; ".join(s for _, s in deltas[:12])]
+
+
+def _baratos_caros_rf() -> list[str]:
+    """[baratos y caros vs la curva]: ranking determinista de residuos del
+    fair value (positivo = paga MÁS que la curva = barato)."""
+    from api.services import fair_value
+
+    partes = []
+    for curva in _CURVAS_FIT:
+        try:
+            fv = fair_value.get_fair_value_live(curva) or {}
+        except Exception as e:
+            logger.warning("copiloto rf: fv %s falló (%s)", curva, e)
+            continue
+        bonos = [b for b in fv.get("bonos") or [] if b.get("residuo_bps") is not None]
+        if not bonos:
+            continue
+        bonos.sort(key=lambda b: -b["residuo_bps"])
+        r2 = fv.get("r2")
+        partes.append(
+            f"{curva} (fit r²={r2:.2f})" + (" ⚠ fit flojo, tomar con cautela" if r2 and r2 < 0.9 else "")
+            + " · baratos: "
+            + ", ".join(f"{b.get('ticker_corto')} +{b['residuo_bps']:.0f}bps" for b in bonos[:4])
+            + " · caros: "
+            + ", ".join(f"{b.get('ticker_corto')} {b['residuo_bps']:.0f}bps" for b in bonos[-4:][::-1])
+        )
+    return (["[baratos y caros vs la curva — residuo del fair value; positivo = "
+             "rinde MÁS que la curva]"] + partes) if partes else []
+
+
+def _forwards_rf(filas: list[dict], pregunta: str, historial: list[dict]) -> list[str]:
+    """[forwards]: los pares más desarbitrados contra su historia (z por
+    código) + el forward puntual si la pregunta nombra dos bonos."""
+    from api.services import mercado_hist_sql
+
+    try:
+        docs = {d.get("curva"): d for d in mercado_hist_sql.get_forwards() or []}
+        zs = {d.get("curva"): d for d in mercado_hist_sql.get_forwards_zscore() or []}
+    except Exception as e:
+        logger.warning("copiloto rf: forwards fallaron (%s)", e)
+        return []
+    extremos = []
+    for curva, doc in docs.items():
+        stats = (zs.get(curva) or {}).get("stats") or {}
+        for largo, fila_m in (doc.get("matrix") or {}).items():
+            for corto, fwd in (fila_m or {}).items():
+                st = (stats.get(largo) or {}).get(corto) or {}
+                media, desvio = st.get("media"), st.get("desvio")
+                if fwd is None or media is None or not desvio:
+                    continue
+                z = (fwd - media) / desvio
+                if abs(z) >= 1.5:
+                    extremos.append((abs(z), f"{corto}→{largo} ({curva}) fwd {fwd:.1f}% "
+                                             f"vs media {media:.1f}% · z {z:+.1f}"))
+    extremos.sort(reverse=True)
+    partes = []
+    if extremos:
+        partes.append("[forwards desarbitrados — z contra su propia historia] "
+                      + "; ".join(s for _, s in extremos[:5]))
+    # par puntual si nombró dos bonos de la misma curva
+    nombrados = [f["ticker_corto"] for f in _detectar_tickers(
+        [{"ticker_corto": t} for d in docs.values() for t in d.get("tickers") or []],
+        pregunta, historial)]
+    if len(nombrados) >= 2:
+        a, b = nombrados[0], nombrados[1]
+        for curva, doc in docs.items():
+            m = doc.get("matrix") or {}
+            fwd = (m.get(b) or {}).get(a) or (m.get(a) or {}).get(b)
+            if fwd is not None:
+                tasas = doc.get("tasas") or {}
+                partes.append(f"[forward {a}↔{b} ({curva})] implícito {fwd:.2f}% · "
+                              f"spot {a} {tasas.get(a, 0):.2f}% · {b} {tasas.get(b, 0):.2f}%")
+                break
+    return partes
+
+
+def _breakevens_rf() -> list[str]:
+    """[breakevens]: los pares lecap-CER completos + REM/IPC para el cruce."""
+    from api.services import mercado_hist_sql, rem_sql
+
+    partes = []
+    try:
+        pares = (mercado_hist_sql.get_breakevens() or {}).get("pares") or []
+        if pares:
+            partes.append("[breakevens lecap-CER — inflación mensual implícita] "
+                          + "; ".join(
+                              f"{p.get('lecap')}/{p.get('cer')} a {p.get('dias')}d: "
+                              f"{p.get('breakeven_mensual'):.2f}%"
+                              for p in pares if p.get("breakeven_mensual") is not None))
+    except Exception as e:
+        logger.warning("copiloto rf: breakevens fallaron (%s)", e)
+    try:
+        rem = rem_sql.breakeven_acumulado() or {}
+        if rem:
+            resumen = {k: rem[k] for k in ("informe", "meses", "acumulado_pct")
+                       if k in rem}
+            if resumen:
+                partes.append(f"[REM] {resumen}")
+    except Exception as e:
+        logger.warning("copiloto rf: REM falló (%s)", e)
+    return partes
+
+
+def _extras_renta_fija(
+    filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
+) -> list[str]:
+    partes: list[str] = []
+    try:
+        from api.services._mep import get_ultimo_mep
+
+        mep = get_ultimo_mep()
+        if mep:
+            partes.append(f"[MEP live] {float(mep):.2f} ARS/USD (referencia de los tc_breakeven)")
+    except Exception as e:
+        logger.warning("copiloto rf: MEP falló (%s)", e)
+    partes.extend(_movimientos_dia_rf(filas))
+    partes.extend(_baratos_caros_rf())
+    partes.extend(_forwards_rf(filas, pregunta, historial))
+    partes.extend(_breakevens_rf())
+    return partes
+
+
+_REGLAS_RENTA_FIJA = """Sos el copiloto de la vista RENTA FIJA (bonos ARG). El idioma acá es \
+TEA, curva, forward, breakeven — usalo con naturalidad.
+
+Columnas: ticker · curva (cer / tasa_fija / globales / bonares / dolar_linked; "CER fijado" \
+= bono CER cuyo índice ya quedó fijado por el BCRA, rinde como tasa fija) · vence / meses · \
+precio · tea% (efectiva anual) · tem% (mensual) · paridad% · dur (Macaulay, sensibilidad a \
+tasa — no es plazo) · tc_breakeven (tipo de cambio al vencimiento que EMPATA el bono en \
+pesos contra tener dólares hoy al MEP) · tea_fit% y residuo_bps (fair value: residuo = TEA \
+observada − teórica; POSITIVO = rinde más que la curva = BARATO; negativo = caro) · \
+nominales_dia (volumen).
+
+Bloques: [movimientos del día] = Δ de TEA vs el último cierre, ya calculado. [baratos y \
+caros] = ranking por residuo (ojo al r² del fit). [forwards] = tasa implícita entre dos \
+vencimientos; z alto = lejos de su historia (candidato a arbitraje o a cambio de régimen — \
+decí las dos lecturas). [breakevens] = inflación mensual que empata cada par lecap-CER: si \
+el breakeven > expectativa (REM/IPC), el mercado paga por cobertura CER; si <, la tasa \
+fija gana si la inflación acompaña. [MEP live] ancla los tc_breakeven.
+
+Reglas de acá:
+- CER tiene settlement T-10 hábiles: si un bono no operó hoy, su TEA puede arrastrar el \
+CER de ayer — ante algo raro en un CER ilíquido, mencioná esta salvedad.
+- Comparar dos bonos = spot de ambos + el forward implícito entre ellos (si aparece el \
+bloque) + residuos: quién está caro contra la curva. NUNCA "cuál es mejor" a secas: mostrá \
+el trade-off (plazo/duration/curva).
+- Duration alta = más sensible: aclaralo cuando recomiendes mirar la parte larga.
+- JAMÁS consejo de inversión directo; ranking objetivo con criterio, como siempre."""
 #
 # La selección de tickers de las 8 tarjetas es del USUARIO (vive en su
 # browser) → viaja como PARÁMETRO (como la pregunta), se sanea acá, y el
@@ -1114,6 +1355,37 @@ VISTAS: dict[str, dict] = {
         ],
         "reglas": _REGLAS_RENTA_VARIABLE,
     },
+    "renta_fija": {
+        "titulo": "Renta Fija",
+        "modulo": "renta-fija",
+        "fetch": _fetch_renta_fija,
+        "extras": _extras_renta_fija,
+        # acá TEA/bps/duration/breakeven SON el idioma — no son jerga
+        "jerga_permitida": {"tea", "tem", "paridad", "duration", "dur", "residuo",
+                            "residuo_bps", "tc_breakeven", "tea_fit", "nominales_dia",
+                            "meses", "vence", "curva", "fit", "bps", "precio"},
+        "chips": [
+            {"label": "Movimientos del día",
+             "pregunta": "¿Cómo se movieron las curvas hoy contra el último cierre? "
+                         "Qué comprimió, qué descomprimió, y si hay una historia detrás."},
+            {"label": "Baratos vs curva",
+             "pregunta": "¿Qué bonos están baratos y cuáles caros contra su curva hoy? "
+                         "Tabla y una línea de lectura."},
+            {"label": "Forwards desarbitrados",
+             "pregunta": "¿Hay forwards lejos de su historia hoy? Contame si huele a "
+                         "arbitraje o a cambio de régimen."},
+        ],
+        "columnas": [
+            ("ticker_corto", "ticker"), ("curva_label", "curva"),
+            ("fecha_vencimiento", "vence"), ("meses_al_vto", "meses"),
+            ("ultimo_precio", "precio"), ("tea", "tea%"), ("tem", "tem%"),
+            ("paridad", "paridad%"), ("duration", "dur"),
+            ("tc_breakeven", "tc_breakeven"),
+            ("tea_teorica", "tea_fit%"), ("residuo_bps", "residuo_bps"),
+            ("total_nominals_dia", "nominales_dia"),
+        ],
+        "reglas": _REGLAS_RENTA_FIJA,
+    },
     "trading": {
         "titulo": "Trading",
         "modulo": "trading",
@@ -1248,8 +1520,9 @@ def _jerga_en_respuesta(respuesta: str, cfg: dict, pregunta: str) -> list[str]:
     for c in cfg.get("columnas") or []:
         campo, header = c if isinstance(c, tuple) else (c, c)
         terminos.update((campo.strip("%").lower(), header.strip("%").lower()))
+    permitidos_vista = {str(t).lower() for t in cfg.get("jerga_permitida") or ()}
     out = []
-    for t in sorted(terminos - _NO_ES_JERGA):
+    for t in sorted(terminos - _NO_ES_JERGA - permitidos_vista):
         if len(t) < 3 or t in preg:
             continue
         # OJO: el "%" NO delimita — "ret_año%" en la respuesta ES el término

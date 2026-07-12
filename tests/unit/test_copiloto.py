@@ -496,6 +496,49 @@ def test_sanear_posiciones():
     assert copiloto._sanear_posiciones(None) == []
 
 
+def test_fetch_renta_fija_merge(monkeypatch):
+    import api.services.fair_value as fv
+    import api.services.renta_fija as rf
+
+    monkeypatch.setattr(fv, "get_fair_value_live", lambda curva: {
+        "r2": 0.97,
+        "bonos": [{"ticker_corto": "TX26", "tea_teorica": 41.0, "residuo_bps": 85.0}],
+    } if curva == "cer" else {"bonos": []})
+    monkeypatch.setattr(rf, "get_renta_fija", lambda: [
+        {"instrumento": "MERV - XMEV - S31O5 - 24hs",
+         "metrics": {"tc_breakeven": 1450.5}},
+    ])
+
+    def fake_listar(*, curva):
+        if curva == "cer":
+            return [{"ticker_corto": "TX26", "tipo": "cer", "tea": 41.85,
+                     "meses_al_vto": 14.0, "ultimo_precio": 1520.0}]
+        if curva == "tasa_fija":
+            return [{"ticker_corto": "S31O5", "tipo": "tasa_fija", "tea": 39.0,
+                     "cer_fijado": True, "meses_al_vto": 3.0, "ultimo_precio": 132.0}]
+        return []
+
+    monkeypatch.setattr(rf, "listar_curva", fake_listar)
+    filas = copiloto._fetch_renta_fija()
+    tx = next(f for f in filas if f["ticker_corto"] == "TX26")
+    assert tx["residuo_bps"] == 85.0 and tx["tea_teorica"] == 41.0
+    s31 = next(f for f in filas if f["ticker_corto"] == "S31O5")
+    assert s31["curva_label"] == "tasa_fija (CER fijado)"
+    assert s31["tc_breakeven"] == 1450.5  # mapeado del instrumento ROFEX largo
+
+
+def test_jerga_permitida_por_vista():
+    cfg_rf = copiloto.VISTAS["renta_fija"]
+    # en renta fija, TEA/bps/duration SON el idioma → no disparan
+    assert copiloto._jerga_en_respuesta(
+        "TX26 rinde 41.85% de tea con residuo de +85 bps y duration 1.2",
+        cfg_rf, "¿cómo está TX26?",
+    ) == []
+    # pero la jerga fija del sistema sigue prohibida acá también
+    jerga = copiloto._jerga_en_respuesta("los que tienen es_ia prendido", cfg_rf, "¿y?")
+    assert "es_ia" in jerga
+
+
 def test_vigia_disparadores(monkeypatch):
     import api.services.scanner_sql as ssql
     import api.services.trading_pivots as tp

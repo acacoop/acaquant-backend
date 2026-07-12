@@ -113,6 +113,25 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.29 (TERCERA VISTA: Renta Fija — curvas, fair value, forwards, breakevens)
+- **[vista +]** `renta_fija` (módulo `renta-fija`, 3 roles): el idioma acá es
+  TEA/curva/forward/breakeven (jerga_permitida por vista). Tabla = ~4 curvas
+  (cer / tasa_fija con CER-fijados / globales+bonares / dolar_linked) con
+  precio, tea/tem, paridad, duration, tc_breakeven y el FAIR VALUE mergeado
+  (tea_fit + residuo_bps = el "caro o barato" del bono, equivalente de la
+  zona de pivots).
+- **[contexto]** Precómputos: [movimientos del día] (Δ TEA vs último cierre,
+  de snapshots_cierre_hist — pedido del user: la curva se ve, el movimiento
+  no) · [baratos y caros vs curva] (residuos + r² del fit) · [forwards
+  desarbitrados] (z contra su historia, calculado por código; + forward
+  puntual si nombrás dos bonos = comparación bono vs bono) · [breakevens
+  lecap-CER + REM] · [MEP live].
+- **[chips]** Movimientos del día · Baratos vs curva · Forwards
+  desarbitrados (elegidos por el user; "curvas hoy" descartado — se ve en el
+  gráfico).
+- **[fuera de alcance]** Canje/carry/comparar/sensibilidad = vista ESTRATEGIA;
+  MEP/cauciones/DLR = DERIVADOS; ONs = su propia vista. Copilotos futuros.
+
 ### 2026-07-12 — v1.28 (EL VIGÍA — reactividad sin LLM)
 - **[reactividad +]** `POST /api/ia/copiloto/vigia` (gate ia+trading):
   watchers DETERMINISTAS elegidos por el user, cero tokens — T1: una de sus

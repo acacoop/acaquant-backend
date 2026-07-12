@@ -129,6 +129,20 @@
       ]
     },
     {
+      "id": "hilo_narrativo",
+      "origen": "shadow 2026-07-12 — 'como viene rklb' respondida en 4 bullets sueltos sin hilo (inventario tecnico: retornos / pivots / ruedas / fundamentals sin conectar)",
+      "pregunta": "como viene RKLB?",
+      "esperado_any": [
+        "RKLB",
+        "[Rr]ocket"
+      ],
+      "prohibido": [
+        "- [^\\n]*\\n- [^\\n]*\\n- [^\\n]*\\n- ",
+        "zona de decisi[óo]n (anual|mensual)"
+      ],
+      "max_chars": 1000
+    },
+    {
       "id": "ticker_natural",
       "origen": "shadow 2026-07-11 — respuesta tecnica (PP-R1, z-score, beta) a una pregunta simple de mesa",
       "pregunta": "como viene GGAL? le queda recorrido para arriba?",

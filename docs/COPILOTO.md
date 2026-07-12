@@ -116,6 +116,19 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.42 (hilo narrativo — la respuesta cuenta UNA historia)
+- **[prompt ~]** Fallo real del shadow ("¿cómo viene RKLB?" → 4 bullets
+  sueltos: retornos / pivots / ruedas / fundamentals sin conectar): la regla
+  4 del método pedía "texto plano con guiones" — empujaba al inventario.
+  Reescrita como HILO NARRATIVO: pregunta por UN papel = párrafo corrido de
+  3-5 frases conectadas (qué pasó → por qué → qué mirar), bullets prohibidos
+  para enumerar aspectos del mismo papel; solo 2-3 números que sostienen la
+  conclusión, el resto en palabras. Ejemplo MAL/BIEN nuevo con el caso RKLB
+  real. Bullets quedan solo para listas de papeles sin datos; con datos,
+  tabla chica como siempre.
+- **[evals]** Caso `hilo_narrativo` (prohíbe 4+ bullets consecutivos y el
+  derrame del nombre de screening "zona de decisión mensual").
+
 ### 2026-07-12 — v1.41 (handoff automático de la derivación + fix marcador en historial)
 - **[bugfix]** El marcador `[[VISTA:x]]` reaparecía LITERAL al restaurar el
   chat tras navegar: `ia.trazas.respuesta` guarda la respuesta CRUDA del

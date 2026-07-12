@@ -113,6 +113,17 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-11 — v1.20 (máx/mín histórico REAL desde 2005, sin cargar la historia)
+- **[datos +]** Diseño del user: la historia profunda NO se carga — se
+  DESTILA. `scripts/backfill_extremos_hist.py` pide 2005→2024 a Yahoo por
+  papel, extrae máx/mín y guarda SOLO los lados que superan a la serie viva
+  (tabla mínima `mercado.precios_extremos_hist`, ≤1 fila por papel; si el
+  extremo ya está en 2024+ no se guarda nada, y se borra si dejó de superar).
+- **[contexto ~]** `max_hist_usd`/`min_hist_usd` ahora son los históricos
+  relevados desde 2005 (merge serie viva + tabla de extremos); el prompt dice
+  "máximo histórico (desde 2005)". Requiere apply_schema + una corrida del
+  script (~4 min, re-correr al sumar CEDEARs nuevos).
+
 ### 2026-07-11 — v1.19 (verificado o no se muestra + máx/mín de serie)
 - **[política]** VERIFICADO O NADA (directiva del user): si tras la
   auto-corrección quedan números sin respaldo, la respuesta NO se muestra

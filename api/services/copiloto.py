@@ -209,16 +209,27 @@ def _velas_periodo_previo() -> dict:
 
 @cached(ttl=3600)
 def _extremos_serie() -> dict:
-    """{underlying: {"max": x, "min": y}} — máximo/mínimo de NUESTRA serie
-    (mercado.precios_acciones arranca en DESDE_BACKFILL = ene-2024). Pedido de
-    la mesa: saber a cuánto está cada papel de sus extremos. OJO: no es el
-    histórico de toda la vida del papel — las reglas del prompt lo aclaran."""
+    """{underlying: {"max": x, "min": y}} — máximo/mínimo histórico relevado:
+    serie diaria viva (desde 2024) MERGEADA con mercado.precios_extremos_hist
+    (extremos 2005→2024 destilados por scripts/backfill_extremos_hist.py — la
+    decisión del user: la historia profunda no se carga, se destila en ≤2
+    valores por papel y solo si superan a los de la serie)."""
     from core.postgres import get_pool
 
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT ticker, max(high), min(low) FROM mercado.precios_acciones "
-            "WHERE high IS NOT NULL AND low IS NOT NULL GROUP BY ticker"
+            """
+            SELECT s.ticker,
+                   GREATEST(s.mx, coalesce(h.max_high, s.mx)),
+                   LEAST(s.mn, coalesce(h.min_low, s.mn))
+            FROM (
+                SELECT ticker, max(high) AS mx, min(low) AS mn
+                FROM mercado.precios_acciones
+                WHERE high IS NOT NULL AND low IS NOT NULL
+                GROUP BY ticker
+            ) s
+            LEFT JOIN mercado.precios_extremos_hist h USING (ticker)
+            """
         )
         return {tk: {"max": float(mx), "min": float(mn)} for tk, mx, mn in cur.fetchall()}
 
@@ -609,10 +620,10 @@ positivas). Una semana verde aislada NO es repunte — llamalo "rebote de corto"
 del CEDEAR. monto_usd_ny: lo operado de la acción en NY.
 - zona_piv_año / zona_piv_mes: dónde está parado el papel respecto de los pivots del \
 período previo (contexto de posición, ver abajo cómo usarlo).
-- max_serie_usd / min_serie_usd: máximo y mínimo del subyacente en NUESTRA serie de \
-precios, que arranca en enero 2024 — al hablar decí "máximo de los últimos dos años", \
-NUNCA "máximo histórico de siempre". dist_al_max%: cuán lejos está del máximo de la \
-serie (0 = en máximos; -30 = un 30% abajo). Muy útil para "¿ya corrió demasiado?".
+- max_hist_usd / min_hist_usd: máximo y mínimo HISTÓRICOS del subyacente relevados desde \
+2005. Al hablar decí "máximo histórico (desde 2005)". dist_al_max%: cuán lejos está del \
+máximo (0 = en máximos históricos; -30 = un 30% abajo). Muy útil para "¿ya corrió \
+demasiado?".
 
 Cómo usar las zonas de pivots — SON CONTEXTO PARA TU LECTURA, NO VOCABULARIO: al usuario \
 JAMÁS le digas "PP", "R1", "S2", "zona_piv" ni nomenclatura técnica, salvo que ÉL nombre \
@@ -700,7 +711,7 @@ VISTAS: dict[str, dict] = {
             ("adr_ret_mtd_pct", "ret_mes%"), ("adr_ret_ytd_pct", "ret_año%"),
             ("adr_dollar_vol", "monto_usd_ny"),
             ("piv_anual", "zona_piv_año"), ("piv_mensual", "zona_piv_mes"),
-            ("max_serie", "max_serie_usd"), ("min_serie", "min_serie_usd"),
+            ("max_serie", "max_hist_usd"), ("min_serie", "min_hist_usd"),
             ("dist_max", "dist_al_max%"),
         ],
         "reglas": _REGLAS_RENTA_VARIABLE,

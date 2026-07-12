@@ -159,7 +159,10 @@ contenido (REGLA #5). Si se retoma el bloque Agenda, se re-arma uno puntual.
 **Modal (acaquant-web `briefing-modal.tsx`):** rehecho al shape v2 — tabla
 uniforme de 4 columnas, futuros agrupados, mayorista "Sin Ops", bloque "Bonos que
 pagan hoy" (solo si hay). Aparece 10:00 ART L-V (gate `ia`), dismiss por día,
-botón ☀ BRIEFING para re-lectura.
+botón ☀ BRIEFING para re-lectura — desde 2026-07-12 vive INLINE en la barra de
+estado inferior (footer global de `layout.tsx`, junto a MERVAL/ROFEX; antes era
+un fixed flotante que quedaba desolapado sobre la barra). Efecto: botón y
+auto-modal ahora existen en TODAS las páginas, no solo HOME.
 
 **Pendientes:** (1) Agenda vía FMP (ver arriba — necesita `FMP_API_KEY`).
 (2) Health: `titulos_sin_flujo` → control automático en `controles_datos`.

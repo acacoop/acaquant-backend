@@ -83,6 +83,9 @@ class PreguntaCopiloto(BaseModel):
     historial: list[dict] = Field(default_factory=list)
     # conversación a la que pertenece la pregunta (cada chat su mundo)
     conv_id: str | None = None
+    # parámetros de la vista (ej. trading: tickers de las 8 tarjetas, foco,
+    # overrides de máx/mín/cierre) — se SANEAN en el service, jamás son datos
+    params: dict | None = None
 
 
 class FeedbackCopiloto(BaseModel):
@@ -114,6 +117,7 @@ def copiloto_preguntar(body: PreguntaCopiloto, email: str = Depends(get_user_ema
     return copiloto.preguntar(
         vista=body.vista, pregunta=body.pregunta,
         historial=body.historial, usuario=email, conv_id=body.conv_id,
+        params=body.params,
     )
 
 

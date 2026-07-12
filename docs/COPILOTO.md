@@ -113,6 +113,22 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-12 — v1.24 (SEGUNDA VISTA: Trading — pivots live, libro, tape)
+- **[vista +]** `trading` (página /trading, módulo RBAC `trading`, admin-only):
+  el copiloto del que TRADEA. Novedad arquitectónica: la vista recibe
+  PARÁMETROS del cliente (`params`: los tickers de las 8 tarjetas, el foco y
+  los overrides de máx/mín/cierre) — se SANEAN server-side (upper/dedup/
+  floats) y el server busca los datos frescos él mismo. La selección viaja;
+  los datos jamás.
+- **[contexto]** Tabla = las tarjetas (last/vwap, base de pivots CON los
+  overrides del usuario re-aplicados por código, PP..S3, zona actual, foco) ·
+  [libro CI/24hs] con spread y desbalance calculados · [tape] resumido
+  (monto, % agresión compradora, últimos trades) · [movers ±4%] · CCL/SPY/QQQ.
+- **[prompt]** Acá la nomenclatura de pivots ES el idioma (cfg
+  `permitir_pivots` desactiva ese guardrail por vista). Respuestas 3-6
+  líneas, cruzar zona+libro+tape, JAMÁS dar órdenes de compra/venta.
+- **[chips]** Mis tarjetas · Lectura del libro · Movers en juego.
+
 ### 2026-07-12 — v1.23 (conversaciones separadas — cada chat su mundo)
 - **[producto ~]** Pedido del user: como los chatbots serios — cada
   conversación tiene su id (`ia.trazas.conv_id`, requiere apply_schema),

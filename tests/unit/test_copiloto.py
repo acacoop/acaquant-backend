@@ -27,7 +27,7 @@ def _vista_fake(monkeypatch, filas=None):
         copiloto.VISTAS, "fake",
         {
             "titulo": "Vista Fake", "modulo": "renta-variable",
-            "fetch": lambda: filas if filas is not None else _FILAS,
+            "fetch": lambda params=None: filas if filas is not None else _FILAS,
             "columnas": ["ticker_corto", "nombre", "last", "intraday_pct", "vs_1d_pct"],
             "reglas": "reglas de la vista fake",
         },
@@ -61,7 +61,7 @@ def test_sin_datos_degrada(monkeypatch):
 def test_fetch_que_explota_degrada(monkeypatch):
     monkeypatch.setitem(
         copiloto.VISTAS, "fake",
-        {**copiloto.VISTAS["renta_variable"], "fetch": lambda: 1 / 0},
+        {**copiloto.VISTAS["renta_variable"], "fetch": lambda params=None: 1 / 0},
     )
     assert copiloto.preguntar("fake", "x")["error"] == "datos_no_disponibles"
 
@@ -169,7 +169,9 @@ def test_extras_entran_al_contexto_y_su_fallo_no_rompe(monkeypatch):
     monkeypatch.setattr("core.ai.completar_con_traza", fake_completar)
 
     _vista_fake(monkeypatch)
-    copiloto.VISTAS["fake"]["extras"] = lambda filas, pregunta, historial: ["[CCL live] 1.234"]
+    copiloto.VISTAS["fake"]["extras"] = (
+        lambda filas, pregunta, historial, params=None: ["[CCL live] 1.234"]
+    )
     assert copiloto.preguntar("fake", "¿cuánto está el ccl?")["ok"] is True
     assert "[CCL live] 1.234" in capturado["user"]
 
@@ -405,6 +407,43 @@ def test_verificacion_estricta_bloquea(monkeypatch):
     out = copiloto.preguntar("fake", "¿cómo viene AAPL?")
     # política estricta: verificada o no se muestra
     assert out == {"ok": False, "error": "verificacion"}
+
+
+def test_sanear_params_trading():
+    tickers, sel, ov = copiloto._sanear_params_trading({
+        "tickers": ["rklb", "SNDK", "rklb", "../x", ""],
+        "seleccionado": "sndk",
+        "overrides": {"RKLB": {"high": "10800", "low": 10400, "close": "no"},
+                      "OTRO": {"high": 1}},
+    })
+    assert tickers == ["RKLB", "SNDK"]  # upper, dedup, basura afuera
+    assert sel == "SNDK"
+    # override solo de tickers presentes, solo números válidos
+    assert ov == {"RKLB": {"high": 10800.0, "low": 10400.0}}
+    # sin params → vacío, sin explotar
+    assert copiloto._sanear_params_trading(None) == ([], None, {})
+
+
+def test_fetch_trading_aplica_overrides(monkeypatch):
+    import api.services.trading_pivots as tp
+
+    monkeypatch.setattr(tp, "get_pivots", lambda *, tickers: [{
+        "ticker": "RKLB", "high": 10800.0, "low": 10400.0, "close": 10560.0,
+        "last": 10580.0, "vwap": 10533.0,
+        "pivots": {"pp": 10586.7, "r1": 10773.3, "r2": 10986.7, "r3": 11173.3,
+                   "s1": 10373.3, "s2": 10186.7, "s3": 9973.3},
+    }])
+    # sin override: usa los pivots del service y calcula la zona
+    filas = copiloto._fetch_trading({"tickers": ["RKLB"], "seleccionado": "RKLB"})
+    assert filas[0]["zona"] == "S1-PP" or filas[0]["zona"] == "PP-R1"  # según last vs pp
+    assert filas[0]["foco"] is True
+    # con override del usuario: los pivots se RECALCULAN con su base editada
+    filas = copiloto._fetch_trading({
+        "tickers": ["RKLB"],
+        "overrides": {"RKLB": {"high": 11000, "low": 10000, "close": 10500}},
+    })
+    assert filas[0]["pp"] == (11000 + 10000 + 10500) / 3
+    assert filas[0]["high"] == 11000
 
 
 def test_feedback_valor_invalido():

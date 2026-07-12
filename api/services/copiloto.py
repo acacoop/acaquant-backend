@@ -134,7 +134,7 @@ def _tsv(filas: list[dict], columnas: list) -> str:
     return "\n".join(lineas)
 
 
-def _fetch_cedears() -> list[dict]:
+def _fetch_cedears(params: dict | None = None) -> list[dict]:
     from api.services import scanner_sql
 
     return scanner_sql.get_cedears_scanner()
@@ -571,7 +571,9 @@ def _pulso_por_rubro(filas: list[dict]) -> list[str]:
     return lineas
 
 
-def _extras_renta_variable(filas: list[dict], pregunta: str, historial: list[dict]) -> list[str]:
+def _extras_renta_variable(
+    filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
+) -> list[str]:
     partes: list[str] = []
     try:
         from api.services import scanner
@@ -657,6 +659,227 @@ ratios, en la moneda indicada) + márgenes. Solo existe para las empresas cargad
 pivots/beta/retornos/fundamentals de un papel y su bloque no está, pedile al usuario que \
 nombre el ticker exacto en la pregunta."""
 
+# ── Vista TRADING (página /trading — pivots intradía, libro, tape) ──────────
+#
+# La selección de tickers de las 8 tarjetas es del USUARIO (vive en su
+# browser) → viaja como PARÁMETRO (como la pregunta), se sanea acá, y el
+# server busca los datos frescos de ESOS tickers en sus propios services.
+# Los overrides de máx/mín/cierre también viajan (números validados): los
+# pivots que ve la IA son EXACTAMENTE los que ve el trader en pantalla.
+
+_MAX_TARJETAS = 8
+
+
+def _sanear_params_trading(params: dict | None) -> tuple[list[str], str | None, dict]:
+    p = params if isinstance(params, dict) else {}
+    tickers: list[str] = []
+    for t in (p.get("tickers") or [])[:_MAX_TARJETAS]:
+        t = str(t).strip().upper()
+        if t and len(t) <= 12 and t.replace(".", "").isalnum() and t not in tickers:
+            tickers.append(t)
+    sel = str(p.get("seleccionado") or "").strip().upper()
+    seleccionado = sel if sel in tickers else (tickers[0] if tickers else None)
+    overrides: dict[str, dict] = {}
+    ov_crudos = p.get("overrides") if isinstance(p.get("overrides"), dict) else {}
+    for tk, ov in ov_crudos.items():
+        tk = str(tk).strip().upper()
+        if tk not in tickers or not isinstance(ov, dict):
+            continue
+        limpio = {}
+        for k in ("high", "low", "close"):
+            try:
+                v = float(ov.get(k))
+                if v > 0:
+                    limpio[k] = v
+            except (TypeError, ValueError):
+                continue
+        if limpio:
+            overrides[tk] = limpio
+    return tickers, seleccionado, overrides
+
+
+def _fetch_trading(params: dict | None = None) -> list[dict]:
+    """Las 8 tarjetas como filas: pivots de trading_pivots (live, sin cache)
+    con los overrides del usuario re-aplicados server-side + zona actual."""
+    from api.services import trading_pivots
+    from quant.pivot_points import calcular
+
+    tickers, seleccionado, overrides = _sanear_params_trading(params)
+    if not tickers:
+        return []
+    filas = []
+    for it in trading_pivots.get_pivots(tickers=tickers):
+        f = dict(it)
+        tk = f.get("ticker")
+        ov = overrides.get(tk) or {}
+        h = ov.get("high", f.get("high"))
+        lo = ov.get("low", f.get("low"))
+        c = ov.get("close", f.get("close"))
+        piv = f.get("pivots") or {}
+        if ov and h and lo and c:
+            piv = calcular(high=float(h), low=float(lo), close=float(c))
+        f.update(high=h, low=lo, close=c, **{k: piv.get(k) for k in
+                 ("pp", "r1", "r2", "r3", "s1", "s2", "s3")})
+        last = f.get("last")
+        f["zona"] = _zona(float(last), piv) if last and piv.get("pp") else None
+        f["foco"] = tk == seleccionado
+        filas.append(f)
+    return filas
+
+
+def _libro_resumen(ticker: str) -> list[str]:
+    """Libro del activo enfocado, CI y 24hs: mejores puntas, spread y
+    desbalance calculados por código (misma cuenta que el panel)."""
+    from api.services import order_book
+
+    partes = []
+    for plazo in ("CI", "24hs"):
+        try:
+            ob = order_book.get_order_book(ticker, plazo)
+        except Exception as e:
+            logger.warning("copiloto trading: libro %s %s falló (%s)", ticker, plazo, e)
+            continue
+        book = (ob or {}).get("book") or {}
+        bids, offers = book.get("bids") or [], book.get("offers") or []
+        if not bids and not offers:
+            continue
+        tot_bid = sum(b.get("size") or 0 for b in bids)
+        tot_off = sum(o.get("size") or 0 for o in offers)
+        linea = f"[libro {ticker} {plazo}]"
+        if bids:
+            linea += f" mejor compra {_num(bids[0].get('price'))} x{bids[0].get('size')}"
+        if offers:
+            linea += f" · mejor venta {_num(offers[0].get('price'))} x{offers[0].get('size')}"
+        if bids and offers:
+            spread = float(offers[0]["price"]) - float(bids[0]["price"])
+            linea += f" · spread {_num(spread)}"
+        if tot_bid + tot_off:
+            pct_bid = round(100 * tot_bid / (tot_bid + tot_off))
+            linea += (f" · profundidad {tot_bid} nominales comprando vs {tot_off} vendiendo "
+                      f"({pct_bid}% del lado comprador)")
+        partes.append(linea)
+    return partes
+
+
+def _tape_resumen(ticker: str) -> list[str]:
+    """Time & sales de hoy resumido por código: volumen, presión BUY/SELL,
+    rango y últimos trades."""
+    from api.services import scanner
+
+    try:
+        trades = scanner.get_cedears_trades(ticker=ticker, limite=500) or []
+    except Exception as e:
+        logger.warning("copiloto trading: tape %s falló (%s)", ticker, e)
+        return []
+    if not trades:
+        return [f"[tape {ticker}] sin trades en la rueda de hoy"]
+    n = len(trades)
+    monto = sum(t.get("money") or 0 for t in trades)
+    compras = sum(t.get("money") or 0 for t in trades if t.get("side") == "BUY")
+    ventas = sum(t.get("money") or 0 for t in trades if t.get("side") == "SELL")
+    precios = [t.get("price") for t in trades if t.get("price")]
+    ult = trades[:5]  # vienen desc por ts
+
+    def _hora(t: dict) -> str:
+        ts = str(t.get("timestamp") or "")
+        return ts[11:16] if len(ts) >= 16 else ts
+
+    lineas = [
+        f"[tape {ticker}] {n} trades hoy · monto {_num(monto)} ARS · rango "
+        f"{_num(min(precios))}-{_num(max(precios))}"
+        + (f" · presión: {round(100 * compras / (compras + ventas))}% del monto fue "
+           f"agresión compradora" if compras + ventas else ""),
+        "últimos trades (hora precio x nominales lado): "
+        + "; ".join(f"{_hora(t)} {_num(t.get('price'))} x{t.get('size')} {t.get('side')}"
+                    for t in ult),
+    ]
+    return lineas
+
+
+def _movers_resumen(umbral: float = 4.0) -> list[str]:
+    """Movers ±umbral% del día (mismo criterio que el radar de la vista),
+    filtrados por código."""
+    from api.services import scanner_sql
+
+    try:
+        filas = scanner_sql.get_cedears_scanner()
+    except Exception as e:
+        logger.warning("copiloto trading: movers fallaron (%s)", e)
+        return []
+    movers = []
+    for f in filas:
+        d = f.get("vs_1d_pct")
+        if d is not None and abs(d) >= umbral:
+            movers.append((abs(d), f"{f.get('ticker_corto')} {d:+.1f}%"
+                           + (f" ({f.get('rubro')})" if f.get("rubro") else "")))
+    movers.sort(reverse=True)
+    if not movers:
+        return [f"[movers ±{umbral:.0f}%] ninguno hoy"]
+    return [f"[movers ±{umbral:.0f}% del día] " + "; ".join(s for _, s in movers[:12])]
+
+
+def _extras_trading(
+    filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
+) -> list[str]:
+    from api.services import scanner
+
+    _tickers, seleccionado, _ov = _sanear_params_trading(params)
+    partes: list[str] = []
+    try:
+        ccl = scanner.get_ccl_live() or {}
+        if ccl.get("value") is not None:
+            linea = f"[CCL live] {_num(ccl['value'])} ARS/USD"
+            if ccl.get("vs_1d_pct") is not None:
+                linea += f" · vs cierre anterior {ccl['vs_1d_pct']:+.2f}%"
+            partes.append(linea)
+    except Exception as e:
+        logger.warning("copiloto trading: CCL falló (%s)", e)
+    try:
+        from api.services import market_sql
+
+        for q in market_sql.quotes(symbols=["SPY", "QQQ"]) or []:
+            if q.get("last") is not None:
+                partes.append(f"[{q.get('symbol')}] {_num(q.get('last'))}"
+                              + (f" ({q.get('pct_day'):+.2f}% hoy)"
+                                 if q.get("pct_day") is not None else ""))
+    except Exception as e:
+        logger.warning("copiloto trading: SPY/QQQ fallaron (%s)", e)
+    if seleccionado:
+        partes.extend(_libro_resumen(seleccionado))
+        partes.extend(_tape_resumen(seleccionado))
+    partes.extend(_movers_resumen())
+    return partes
+
+
+_REGLAS_TRADING = """Sos el copiloto de la vista TRADING: acá el usuario OPERA en vivo. Sus 8 \
+tarjetas (la tabla) son los papeles que él eligió; "foco: si" es el que tiene en el chart, \
+libro y tape. Precios en ARS del CEDEAR.
+
+Columnas de la tabla: last/vwap = live de la rueda. base_max/base_min/base_cierre = la base \
+de cálculo de los pivots (última rueda, o EDITADA a mano por el usuario — respetala siempre). \
+PP/R1-R3/S1-S3 = niveles Floor Trader intradía. zona_actual = dónde está el last ahora.
+
+EN ESTA VISTA la nomenclatura de pivots ES el idioma: hablá de PP, R1, S2 con naturalidad y \
+con los PRECIOS de los niveles ("está pegado a R1 en 10.793; si lo pasa, R2 está en 11.007").
+
+Bloques después de la tabla:
+- [libro X CI/24hs]: mejores puntas, spread y desbalance de profundidad YA calculados. \
+Desbalance alto del lado comprador = presión de demanda; spread ancho = poca liquidez, \
+cuidado con entrar a mercado.
+- [tape X]: resumen de los trades de hoy (monto, % de agresión compradora, últimos trades). \
+"Agresión compradora" = trades ejecutados contra la punta vendedora.
+- [movers]: los que se mueven fuerte hoy (±4%), mismo criterio que el radar de la vista.
+- [CCL]/[SPY]/[QQQ]: contexto de mercado.
+
+Reglas de acá:
+- Respuestas CORTAS: el usuario está operando, no leyendo un informe. 3-6 líneas.
+- Cruzá SIEMPRE que puedas: zona de pivots + libro + tape ("está contra R1 con 86% de la \
+profundidad vendedora y el tape mostrando agresión compradora al 60%: si rompe, el libro \
+está fino hasta R2").
+- JAMÁS des una orden ("comprá", "vendé"): describí el cuadro y los niveles; la decisión \
+es del trader. "Si rompe X, lo próximo es Y" está bien; "entrá" no.
+- Si el libro o el tape están vacíos, decilo sin vueltas."""
+
 # Biblioteca de consultas de mesa (libro de finanzas, elegidas por el user
 # 2026-07-11): chips de un click en el panel. El prompt curado vive ACÁ,
 # versionado — es conocimiento institucional, no texto libre del usuario.
@@ -722,6 +945,33 @@ VISTAS: dict[str, dict] = {
             ("dist_max", "dist_al_max%"),
         ],
         "reglas": _REGLAS_RENTA_VARIABLE,
+    },
+    "trading": {
+        "titulo": "Trading",
+        "modulo": "trading",
+        "permitir_pivots": True,  # acá la nomenclatura PP/R1/S3 ES el idioma
+        "fetch": _fetch_trading,
+        "extras": _extras_trading,
+        "chips": [
+            {"label": "Mis tarjetas",
+             "pregunta": "Estado de mis tarjetas: en qué zona está cada una y cuál "
+                         "está peleando un nivel ahora. Tabla y una línea."},
+            {"label": "Lectura del libro",
+             "pregunta": "Leeme el libro y el tape del activo enfocado: ¿quién tiene "
+                         "la presión y contra qué nivel está?"},
+            {"label": "Movers en juego",
+             "pregunta": "¿Qué se está moviendo fuerte hoy y cuáles de mis tarjetas "
+                         "están en juego?"},
+        ],
+        "columnas": [
+            ("ticker", "ticker"), ("foco", "foco"),
+            ("last", "last"), ("vwap", "vwap"),
+            ("high", "base_max"), ("low", "base_min"), ("close", "base_cierre"),
+            ("pp", "PP"), ("r1", "R1"), ("r2", "R2"), ("r3", "R3"),
+            ("s1", "S1"), ("s2", "S2"), ("s3", "S3"),
+            ("zona", "zona_actual"),
+        ],
+        "reglas": _REGLAS_TRADING,
     },
 }
 
@@ -810,8 +1060,9 @@ def _jerga_en_respuesta(respuesta: str, cfg: dict, pregunta: str) -> list[str]:
             out.append(t)
     # Nomenclatura de pivots (PP/R1-R3/S1-S3): prohibida salvo que el usuario
     # hable de pivots/niveles ("zona >R3 anual" seguía apareciendo — R1/S3
-    # esquivaban el filtro de longitud mínima).
-    if not re.search(r"pivot|nivel|\bpp\b|\b[rs][1-3]\b", preg):
+    # esquivaban el filtro de longitud mínima). En vistas de trading es el
+    # idioma nativo (cfg permitir_pivots) y no se filtra.
+    if not cfg.get("permitir_pivots") and not re.search(r"pivot|nivel|\bpp\b|\b[rs][1-3]\b", preg):
         if re.search(r"\b(?:PP|[RS][1-3])\b", respuesta):
             out.append("nomenclatura de pivots (PP/R1/S3)")
     return out
@@ -861,6 +1112,7 @@ def preguntar(
     historial: list[dict] | None = None,
     usuario: str | None = None,
     conv_id: str | None = None,
+    params: dict | None = None,
 ) -> dict:
     """Una pregunta sobre la tabla de la vista. Devuelve ok=True con la
     respuesta + fuente + traza_id (para feedback), u ok=False con motivo —
@@ -881,7 +1133,7 @@ def preguntar(
         return {"ok": False, "error": f"presupuesto_{motivo}"}
 
     try:
-        filas = cfg["fetch"]()
+        filas = cfg["fetch"](params)
     except Exception as e:
         logger.warning("copiloto %s: no pude leer los datos (%s)", vista, e)
         filas = None
@@ -910,7 +1162,7 @@ def preguntar(
     extras = cfg.get("extras")
     if extras:
         try:
-            partes.extend(extras(filas[:_MAX_FILAS], pregunta, historial or []))
+            partes.extend(extras(filas[:_MAX_FILAS], pregunta, historial or [], params))
         except Exception as e:
             logger.warning("copiloto %s: extras fallaron (%s) — sigo sin detalle", vista, e)
     for h in (historial or [])[-_MAX_HISTORIAL:]:

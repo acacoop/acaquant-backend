@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from api.services.db_obs import db_observabilidad
 from api.services.diagnostico import arbol
 
 router = APIRouter()
@@ -16,3 +17,10 @@ router = APIRouter()
 @router.get("/diagnostico")
 def get_diagnostico() -> dict:
     return arbol()
+
+
+@router.get("/db-observabilidad")
+def get_db_observabilidad() -> dict:
+    """Espacio/salud de la base para OBSERVABILIDAD → BASE: tamaño total + límite
+    del plan, por schema, y top tablas con bloat / último dato."""
+    return db_observabilidad()

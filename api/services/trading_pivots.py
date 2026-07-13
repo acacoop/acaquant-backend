@@ -237,7 +237,7 @@ def get_renta_fija_radar() -> list[dict]:
     out: list[dict] = []
     vistos: set[str] = set()
     for curva in ("tasa_fija", "cer"):
-        for b in renta_fija_sql.listar_curva(curva, ordenar_por="volumen_dia"):
+        for b in renta_fija_sql.listar_curva(curva=curva, ordenar_por="volumen_dia"):
             tk = b.get("ticker_corto")
             if not tk or tk in vistos:
                 continue

@@ -82,7 +82,7 @@ def calendario_instrumentos() -> dict[str, dict]:
         cal: list[dict] = []
         for f in d.get("flujos") or []:
             fd = fecha_flujo(f)
-            if not fd or fd <= hoy:          # solo flujos futuros
+            if not fd or fd < hoy:           # hoy en adelante (incluye lo que se cobra HOY)
                 continue
             if curva == "soberanos" or curva == "dolar_linked":
                 monto = monto_flujo_soberano(f, 100)
@@ -107,7 +107,7 @@ def calendario_instrumentos() -> dict[str, dict]:
                 vto = date.fromisoformat(str(vraw)[:10]) if vraw else None
             except ValueError:
                 vto = None
-            if fv and float(fv) > 0 and vto and vto > hoy:
+            if fv and float(fv) > 0 and vto and vto >= hoy:  # incluye vto HOY
                 cal = [{"fecha": vto.isoformat(), "monto": round(float(fv), 6)}]
         if cal:
             cal.sort(key=lambda x: x["fecha"])

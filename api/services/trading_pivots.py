@@ -246,6 +246,7 @@ def get_renta_fija_radar() -> list[dict]:
             out.append({
                 "ticker_corto": tk,
                 "last": b.get("ultimo_precio"),
+                "tea": b.get("tea"),  # los CER cotizan en TEA (no tienen TNA)
                 "tna": tem * 12 if tem is not None else None,
                 "volumen": b.get("total_nominals_dia"),
             })

@@ -508,6 +508,21 @@ CREATE INDEX IF NOT EXISTS ix_assets_cartera ON portafolio.assets(cartera);
 CREATE INDEX IF NOT EXISTS ix_assets_clase   ON portafolio.assets(clase_activo);
 CREATE INDEX IF NOT EXISTS ix_assets_ticker  ON portafolio.assets(ticker);
 
+-- Marca DURABLE de alquiler por (título, cuenta) — cuentas propias 100/255/256.
+-- La escribe/lee la vista "Títulos en Alquiler" (api/services/tenencia_hd.py, que
+-- además la self-crea). Netea la Tenencia Valorizada dentro de [desde, hasta].
+CREATE TABLE IF NOT EXISTS portafolio.alquiler (
+    id_cuenta   text NOT NULL,
+    unidad      text NOT NULL,
+    en_alquiler boolean DEFAULT false,
+    cantidad    numeric,
+    desde       date,
+    hasta       date,
+    updated_by  text,
+    updated_at  timestamptz,
+    PRIMARY KEY (id_cuenta, unidad)
+);
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- VALUACIONES — cache de consolidado + feeds de precio para el PnL
 -- ─────────────────────────────────────────────────────────────────────────────

@@ -165,6 +165,30 @@ def get_pivots(*, tickers: list[str]) -> list[dict]:
     return out
 
 
+def get_trades(*, ticker: str, limite: int = 200) -> list[dict]:
+    """Time & Sales (tape) del activo, resolviendo la fuente por clase — MISMO
+    criterio que get_pivots (CEDEAR vs bono por el master de renta fija):
+      • CEDEAR → mercado.cedears_time_sales (tape inferido por motor_cedears).
+      • Bono   → mercado.timesales (trades del día del motor de curvas, la misma
+        fuente que el tape de la vista Renta Fija).
+    Shape unificado (el que espera el panel): [{timestamp, price, size, side,
+    money}] desc por ts. `ticker` = ticker_corto (ej 'AL30' / 'NVDA')."""
+    tk = (ticker or "").strip().upper()
+    if not tk:
+        return []
+    if tk in _bonos_corto_a_largo():
+        # Bono: el tape vive en mercado.timesales (RF). get_historico_trades
+        # resuelve el ticker_corto → largo ROFEX y filtra al día de hoy.
+        from api.services import renta_fija_sql
+        filas = renta_fija_sql.get_historico_trades(instrumento=tk) or []
+        return [
+            {"timestamp": r.get("timestamp"), "price": r.get("price"),
+             "size": r.get("size"), "side": r.get("side"), "money": r.get("money")}
+            for r in filas[:limite]
+        ]
+    return scanner_svc.get_cedears_trades(ticker=tk, limite=limite)
+
+
 @cached(ttl=2)
 def pivot_radar() -> list[dict]:
     """Radar de proximidad a pivote sobre TODO el universo de CEDEARs.

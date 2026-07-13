@@ -13,10 +13,13 @@ que todavía toca Mongo (Valuaciones.Dolar); la serie MEP se migra por separado.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from api.cache import cached, invalidate
 from core.postgres import get_pool
+
+logger = logging.getLogger(__name__)
 
 CUENTAS = ["100", "255", "256"]
 # Sets de unidades por cartera del catálogo SQL portafolio.assets (IS NOT NULL para no
@@ -238,17 +241,27 @@ def titulos_en_alquiler(*, desde: str | None = None) -> dict[str, Any]:
     marcas_raw: dict[tuple[str, str], dict[str, Any]] = {}
     posiciones: list[dict[str, Any]] = []
     ultima = None
+    # Marcas: BEST-EFFORT — si la tabla de alquiler no se puede crear/leer (permiso,
+    # PG caído), seguimos SIN marcas. Las posiciones NO dependen de esa tabla y son
+    # lo importante (antes un fallo acá dejaba la vista entera vacía).
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            _ensure_alquiler_table(cur)
+            cur.execute(
+                f"SELECT id_cuenta, unidad, en_alquiler, cantidad, desde, hasta FROM {_ALQUILER_TABLE}")
+            for idc, u, en, cant, d, h in cur.fetchall():
+                marcas_raw[(str(idc), str(u))] = {
+                    "en_alquiler": bool(en),
+                    "cantidad": float(cant) if cant is not None else None,
+                    "desde": d.isoformat() if d else None,
+                    "hasta": h.isoformat() if h else None,
+                }
+            conn.commit()
+    except Exception as e:
+        logger.warning("titulos_en_alquiler: marcas no disponibles (%s)", e)
+        marcas_raw = {}
+
     with get_pool().connection() as conn, conn.cursor() as cur:
-        _ensure_alquiler_table(cur)
-        cur.execute(
-            f"SELECT id_cuenta, unidad, en_alquiler, cantidad, desde, hasta FROM {_ALQUILER_TABLE}")
-        for idc, u, en, cant, d, h in cur.fetchall():
-            marcas_raw[(str(idc), str(u))] = {
-                "en_alquiler": bool(en),
-                "cantidad": float(cant) if cant is not None else None,
-                "desde": d.isoformat() if d else None,
-                "hasta": h.isoformat() if h else None,
-            }
         cur.execute("SELECT max(fecha) FROM portafolio.tenencia "
                     "WHERE aum = 'si' AND id_cuenta = ANY(%s)", (CUENTAS,))
         row = cur.fetchone()

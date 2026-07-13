@@ -46,6 +46,10 @@ Reglas obligatorias:
 - Respondés SOLO con lo que está en la tabla. Si la pregunta necesita un dato que no está \
 (otro mercado, noticias, fundamentals, posiciones, cualquier cosa externa), decilo claro: \
 "eso no está en esta tabla". NO uses conocimiento propio para completar datos faltantes.
+- Si te piden ESPECÍFICAMENTE un instrumento, tipo o clase que NO tenés (ej. ONs cuando \
+solo tenés soberanos), decí derecho que acá no lo tenés —y, si vive en otra vista, mandalo \
+ahí— y PARÁ. JAMÁS ofrezcas "lo más parecido" ni recomiendes un papel que el usuario NO \
+pidió como reemplazo: sustituir lo que no tenés por otra cosa es peor que decir "no lo tengo".
 - Todo número de tu respuesta tiene que estar EXACTO en los datos. PROHIBIDA la aritmética \
 propia (promedios, sumas, "aprox"): los únicos agregados válidos son los que vienen YA \
 calculados (pulso, rankings, screenings). JAMÁS inventes agrupaciones nuevas ("foundry", \
@@ -1733,21 +1737,6 @@ es del trader. "Si rompe X, lo próximo es Y" está bien; "entrá" no.
 # numérico y precalculado — acá el copiloto describe y cruza, no explica
 # causas (sin noticias en el contexto, decisión del user 2026-07-12).
 
-# Prompt curado de la narración del briefing (P1: "la capa de redacción IA
-# arriba del briefing determinista"). Lo usan el chip del panel y el botón
-# 🗣 NARRÁMELO del modal (briefing-modal.tsx copia este texto).
-# SEGMENTADO (feedback del shadow 2026-07-12): el mercado no es uno — granos,
-# bonos, dólar y acciones no se mezclan en una misma conclusión.
-_PREGUNTA_NARRAR_BRIEFING = (
-    "Narrame el día como informe de mesa, POR SEGMENTO y en este orden: renta "
-    "fija (por curva — ¿comprime la parte corta o la larga? ¿CER, tasa fija o "
-    "soberanos?), acciones, dólares y tasas (¿el canje se abre o se cierra?), "
-    "y commodities e índices globales. 2-3 frases por segmento, salteá los que "
-    "no tengan nada para decir, y JAMÁS los mezcles. Cerrá con qué mirar en la "
-    "rueda y los bonos que pagan hoy solo si hay."
-)
-
-
 def _renta_fija_pulso() -> list[str]:
     """[renta fija hoy]: TEA promedio por curva y TRAMO (corto <6m / medio /
     largo >18m) + Δ promedio vs el último cierre en bps. El segmento más
@@ -2060,7 +2049,6 @@ VISTAS: dict[str, dict] = {
         "jerga_permitida": {"canje", "tna", "mep", "ccl", "carry", "bps", "brecha",
                             "riesgo", "caucion", "valor"},
         "chips": [
-            {"label": "Narrame el briefing", "pregunta": _PREGUNTA_NARRAR_BRIEFING},
             {"label": "¿Cómo viene el mercado?",
              "pregunta": "El pulso de hoy POR SEGMENTO: renta fija (qué curva y qué "
                          "tramo se mueve), acciones, dólares y tasas, commodities e "

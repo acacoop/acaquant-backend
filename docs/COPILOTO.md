@@ -116,6 +116,21 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-13 — v1.48 (no sustituir lo que no se tiene + NARRÁMELO fuera del briefing)
+- **[prompt ~, fallo real]** "¿Qué ONs ley local me recomendás?" en RF → el
+  modelo reconocía que no tenía ONs ("solo soberanos y del Tesoro") pero igual
+  ofrecía bonares como "lo más parecido" y recomendaba papeles que el usuario NO
+  pidió. Regla GLOBAL (`_SYSTEM_BASE`, aplica a todas las vistas): si piden
+  específicamente un instrumento/tipo/clase que no está, se dice derecho que acá
+  no lo hay (y si vive en otra vista, se deriva) y se PARA — jamás "lo más
+  parecido" ni una recomendación de reemplazo no pedida.
+- **[producto −]** Narración del briefing ELIMINADA por completo (pedido del
+  user: "no sirve, no tiene sentido, no funciona bien"). Se quitó: botón
+  🗣 NARRÁMELO + handler + imports del handoff del modal (`briefing-modal.tsx`),
+  el chip "Narrame el briefing" del copiloto HOME y el prompt
+  `_PREGUNTA_NARRAR_BRIEFING` (copiloto.py). El chip "¿Cómo viene el mercado?"
+  (panorama por segmentos) se mantiene — es otra consulta, sí útil.
+
 ### 2026-07-13 — v1.47 (TRADING: tarjeta ≠ posición + "¿qué tengo abierto?" directo)
 - **[prompt ~, fallo real del shadow]** "¿Qué posiciones tengo abiertas?" (única
   abierta: SHORT 18 SNDK) → el modelo trajo MU (que está en las TARJETAS, no en

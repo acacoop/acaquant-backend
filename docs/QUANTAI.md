@@ -243,9 +243,16 @@ el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
 además de 'error' si hace falta · subir max_tokens de `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1.46 (2026-07-13) — 4 VISTAS EN SHADOW (admin): HOME, Renta Variable,
+**Estado: v1.46 (2026-07-13) — 4 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
 TRADING (+ el VIGÍA reactivo) y RENTA FIJA** · Tipo: copiloto contextual por
 vista · Gate: `ia` + módulo RBAC de la vista
+
+> **Rollout 2026-07-13:** el user sumó el módulo `ia` a **trader y sales** →
+> el copiloto y el briefing dejan el shadow admin-only y quedan disponibles
+> para toda la mesa (canary → producción). Se sumó un **cartel de novedad**
+> del copiloto (modal centrado una-sola-vez, desde 10:00 ART, global en todas
+> las páginas): `acaquant-web/src/components/copiloto-noticia.tsx` — detalle en
+> el changelog de `docs/COPILOTO.md`.
 
 > El detalle fino del asistente (qué ve HOY, técnicas, changelog v1→v1.46)
 > vive en `docs/COPILOTO.md`. Resumen de lo construido 11-12/07: vista RV

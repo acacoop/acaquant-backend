@@ -116,6 +116,27 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-13 — Rollout a la mesa + cartel de NOVEDAD + fix color del botón
+- **[rollout]** El user sumó el módulo `ia` a **trader y sales** en la matriz de
+  roles → el copiloto (y el briefing) dejan el shadow admin-only y quedan
+  disponibles para toda la mesa. Canary → producción.
+- **[producto +]** Cartel de novedad del copiloto: `acaquant-web/src/components/
+  copiloto-noticia.tsx`, montado GLOBAL en `layout.tsx` (todas las páginas).
+  Modal centrado tipo NOTICIA, una-sola-vez por usuario (localStorage
+  `noticia.copiloto.v1` — subir la versión re-anuncia), **sin horario** (aparece
+  apenas carga la app — es anuncio de feature, no data de mercado), con poll de
+  60s + visibilitychange para que aparezca también a quien ya tenía la sesión
+  abierta. Gate `ia` resuelto en el layout (prop `hasIa`, cero llamadas al
+  backend). z-index sobre el briefing (one-time, va arriba). "Probar ahora →"
+  lleva a /renta-variable. Copia sin jerga (curvas/bonos/CEDEARs/señal, sin
+  "pivots").
+- **[UI fix]** Botón "Consultale a la IA" del header: usaba `bg-[var(--t-accent)]`
+  → en modo oscuro quedaba una pastilla NARANJA sobre el header azul fijo
+  (`#094293`), fuera de tono con la nav blanca. Nueva prop `tone` en
+  `IaVistaPanel`: `onDark` (header HOME/RF/RV = blanco/sutil como la nav, en
+  ambos temas) vs `accent` (default — /trading, donde el botón se apoya sobre el
+  fondo de la página y el acento sí funciona).
+
 ### 2026-07-13 — v1.46 (ronda 2 de la batería HOME: DLR con fallback + puntual ≠ panorama)
 - **[datos +]** `[futuros DLR ROFEX]` con FALLBACK al último cierre: la lupa
   confirmó que el snapshot live viene vacío fuera de rueda (por eso la #8

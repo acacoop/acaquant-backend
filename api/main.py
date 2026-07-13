@@ -27,6 +27,7 @@ from api.ratelimit import limiter
 from api.routers import (
     analitica,
     back_office,
+    calendario,
     carteras,
     cotizaciones,
     cuentas,
@@ -203,6 +204,7 @@ app.include_router(me.router)                                      # /api/me —
 app.include_router(ingest.router)                                  # /api/ingest — auth propia (X-Ingest-Token), no _PUBLIC
 app.include_router(analitica.router,         dependencies=_PUBLIC)
 app.include_router(cotizaciones.router,      dependencies=_PUBLIC)
+app.include_router(calendario.router,        dependencies=_PUBLIC)
 app.include_router(news.router,              dependencies=_PUBLIC)
 app.include_router(market.router,            dependencies=_PUBLIC)
 # Derivados Agro: GET público (todos los roles ven derivados); el PATCH

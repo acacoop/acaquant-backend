@@ -32,6 +32,15 @@ calendario.
 - **Sin MCP como base.** El copiloto y todo lo interactivo va NATIVO en la app
   (endpoints propios + panel propio). El MCP server existente queda como está
   (conector de claude.ai para RV) pero no es la plataforma de esto.
+- **Datos del NEGOCIO no van a proveedores LLM — punto (decisión del user
+  2026-07-13).** Se evaluó llevar la IA al lado negocio (prep de reuniones,
+  resumen semanal por operador, triage de excepciones de back office) con
+  doble candado (anonimización en el gateway + proveedor con no-retención
+  contractual tipo OpenAI/Anthropic) y el user lo DESCARTÓ: no quiere datos
+  de la empresa saliendo a ningún proveedor, y el valor determinista (las
+  listas: cuentas enfriadas, cupones próximos, excepciones) se puede lograr
+  con scripts/vistas sin LLM. La IA queda para DATOS PÚBLICOS DE MERCADO.
+  No re-proponer sin novedad (ej. modelo local on-premise viable).
 - **Reglas de oro (aplican a TODOS los proyectos):**
   1. La IA nunca es la fuente de un número: todo dato sale de una tool que
      llama a `api/services` / SQL. La IA redacta, traduce, agrupa, propone.
@@ -349,7 +358,7 @@ las preguntas reales del shadow (arranca la Fase 0.4) · replicar a más vistas
 el context caching de DeepSeek abarataría preguntas sucesivas — medir en
 `ia.trazas` antes de contar con eso.
 
-### P4 — Prep de reuniones comerciales
+### P4 — Prep de reuniones comerciales — DESCARTADO (2026-07-13, ver "Datos del NEGOCIO" en Decisiones)
 **Estado: PENDIENTE** · Tipo: informe con receta (workflow sobre el copiloto) ·
 Gate: `ia` + RBAC comercial
 
@@ -361,7 +370,7 @@ nombres del cliente se ANONIMIZAN antes de salir al proveedor (CLIENTE_A) y se
 re-insertan server-side en el texto final — al proveedor solo llegan números y
 placeholders. Éxito medible en reactivación de cuentas DORMIDAS.
 
-### P5 — Analista ad-hoc de datos
+### P5 — Analista ad-hoc de datos — OJO: alcanzado por la decisión "datos del negocio no salen al proveedor" (2026-07-13); requiere re-decisión explícita antes de arrancar
 **Estado: PENDIENTE** · Tipo: agente con generación de SQL · Gate: `ia`,
 inicialmente solo admin
 

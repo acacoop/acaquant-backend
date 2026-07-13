@@ -8,7 +8,7 @@ Encadenado al cron de snapshot_cierre. Por cada curva:
   2. Filtra el universo del fit:
        - dias_al_vto >= 15
        - total_nominals_dia >= --vol-min (default 50M)
-       - tea > 0 y duration > 0 (TEA nula o <=0 = dato faltante → fuera del fit)
+       - tea y duration not None
        - dias_desde_emision >= 5
        - is_zero_coupon == True (solo CER — los con cupón viejo desvirtúan
          el OLS porque sus paridades distintas a Lecers de duration similar
@@ -121,11 +121,7 @@ def _en_universo_fit(
     """Filtros del universo que afecta el ajuste OLS (β)."""
     tea = bono.get("tea")
     dur = bono.get("duration")
-    # TEA <= 0 = dato faltante / roto: un tasa fija (o CER) en ARS válido SIEMPRE
-    # tiene TEA positiva. Se descarta igual que los que no tienen TEA — sin esto,
-    # un bono con TEA en 0 (sin operar / sin dato, ej. TO26 el 2026-07-13) entraba
-    # al OLS y torcía β₂ → la curva se hundía en el tramo largo (-80%).
-    if tea is None or tea <= 0 or dur is None or dur <= 0:
+    if tea is None or dur is None or dur <= 0:
         return False
 
     dvto = _dias_al_vto(bono.get("fecha_vencimiento"), fecha_ref)

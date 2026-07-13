@@ -158,9 +158,11 @@ def _ensure_alquiler_table(cur) -> None:
     cur.execute(
         f"CREATE TABLE IF NOT EXISTS {_ALQUILER_TABLE} ("
         "id_cuenta text NOT NULL, unidad text NOT NULL, "
-        "en_alquiler boolean DEFAULT false, cantidad numeric, desde date, "
+        "en_alquiler boolean DEFAULT false, cantidad numeric, desde date, hasta date, "
         "updated_by text, updated_at timestamptz, "
         "PRIMARY KEY (id_cuenta, unidad))")
+    # `hasta` se agregó después (período del alquiler) → ALTER para tablas viejas.
+    cur.execute(f"ALTER TABLE {_ALQUILER_TABLE} ADD COLUMN IF NOT EXISTS hasta date")
 
 
 def get_alquiler_marcas() -> dict[tuple[str, str], dict[str, Any]]:
@@ -171,11 +173,12 @@ def get_alquiler_marcas() -> dict[tuple[str, str], dict[str, Any]]:
         with get_pool().connection() as conn, conn.cursor() as cur:
             _ensure_alquiler_table(cur)
             cur.execute(
-                f"SELECT id_cuenta, unidad, cantidad, desde FROM {_ALQUILER_TABLE} "
+                f"SELECT id_cuenta, unidad, cantidad, desde, hasta FROM {_ALQUILER_TABLE} "
                 f"WHERE en_alquiler = true AND cantidad > 0")
-            for idc, u, cant, desde in cur.fetchall():
+            for idc, u, cant, desde, hasta in cur.fetchall():
                 if idc and u and cant:
-                    out[(str(idc), str(u))] = {"cantidad": float(cant), "desde": desde}
+                    out[(str(idc), str(u))] = {"cantidad": float(cant), "desde": desde,
+                                               "hasta": hasta}
             conn.commit()
     except Exception:
         return {}
@@ -184,71 +187,99 @@ def get_alquiler_marcas() -> dict[tuple[str, str], dict[str, Any]]:
 
 def _net_factor(cant: float, marca: dict[str, Any] | None, fecha: str) -> float:
     """Fracción de la posición que QUEDA tras descontar el alquiler (0..1).
-    Aplica solo si hay marca activa y `fecha` >= `desde` (date-aware). `fecha` y
-    `desde` en ISO YYYY-MM-DD → la comparación lexicográfica equivale a la de fechas."""
+    Aplica solo si hay marca activa y `fecha` está DENTRO del período [desde, hasta]
+    (date-aware). `desde` vacío = desde siempre; `hasta` vacío = sigue en alquiler.
+    Fechas en ISO YYYY-MM-DD → comparación lexicográfica == comparación de fechas."""
     if not marca or cant <= 0:
         return 1.0
     desde = marca.get("desde")
     if desde is not None and str(desde) > fecha:
         return 1.0   # el alquiler todavía no arrancó ese día
+    hasta = marca.get("hasta")
+    if hasta is not None and str(hasta) < fecha:
+        return 1.0   # el alquiler ya terminó ese día
     lent = min(float(marca["cantidad"]), cant)
     return max(0.0, (cant - lent) / cant)
 
 
-def titulos_en_alquiler() -> dict[str, Any]:
-    """TODOS los (título, cuenta) en posición al último día + su marca de alquiler
-    (SI/NO, cantidad, desde). Alimenta la vista de edición 'Títulos en alquiler'."""
+# Arranque del proceso legal: se listan los títulos tenidos DESDE esta fecha, aunque
+# hoy ya no estén en posición (hay que poder marcarlos igual).
+_ALQUILER_DESDE_DEFAULT = "2026-06-01"
+
+
+def titulos_en_alquiler(*, desde: str | None = None) -> dict[str, Any]:
+    """TODOS los (título, cuenta) de 100/255/256 que aparecieron en tenencia entre
+    `desde` (default 01/06/2026, arranque del proceso legal) y HOY + su marca de
+    alquiler (SI/NO, cantidad, desde, hasta). Un título tenido el 01/06 pero NO hoy
+    IGUAL aparece (para poder marcarlo). Los valores (cantidad/precio/valuación) son
+    los del ÚLTIMO día en que se lo tuvo dentro del rango. Alimenta la vista de
+    edición 'Títulos en alquiler'."""
+    desde = (desde or _ALQUILER_DESDE_DEFAULT)[:10]
     marcas_raw: dict[tuple[str, str], dict[str, Any]] = {}
     posiciones: list[dict[str, Any]] = []
     ultima = None
     with get_pool().connection() as conn, conn.cursor() as cur:
         _ensure_alquiler_table(cur)
-        cur.execute(f"SELECT id_cuenta, unidad, en_alquiler, cantidad, desde FROM {_ALQUILER_TABLE}")
-        for idc, u, en, cant, desde in cur.fetchall():
+        cur.execute(
+            f"SELECT id_cuenta, unidad, en_alquiler, cantidad, desde, hasta FROM {_ALQUILER_TABLE}")
+        for idc, u, en, cant, d, h in cur.fetchall():
             marcas_raw[(str(idc), str(u))] = {
                 "en_alquiler": bool(en),
                 "cantidad": float(cant) if cant is not None else None,
-                "desde": desde.isoformat() if desde else None,
+                "desde": d.isoformat() if d else None,
+                "hasta": h.isoformat() if h else None,
             }
         cur.execute("SELECT max(fecha) FROM portafolio.tenencia "
                     "WHERE aum = 'si' AND id_cuenta = ANY(%s)", (CUENTAS,))
         row = cur.fetchone()
         ultima = row[0] if row and row[0] else None
-        if ultima:
-            cur.execute(
-                "SELECT id_cuenta, unidad, cartera, SUM(cantidad), MAX(precio), SUM(valuacion) "
-                "FROM portafolio.tenencia "
-                "WHERE fecha = %s AND aum = 'si' AND id_cuenta = ANY(%s) "
-                "GROUP BY id_cuenta, unidad, cartera HAVING SUM(cantidad) <> 0 "
-                "ORDER BY unidad, id_cuenta", (ultima, CUENTAS))
-            for idc, u, cart, cant, prec, val in cur.fetchall():
-                m = marcas_raw.get((str(idc), str(u))) or {}
-                cant_f = round(float(cant or 0.0), 4)
-                val_f = round(float(val or 0.0), 2)
-                # Valor en alquiler = valuación proporcional a los nominales prestados.
-                alq_cant = m.get("cantidad")
-                alq_valor = (round(val_f * min(alq_cant, cant_f) / cant_f, 2)
-                             if (alq_cant and cant_f) else None)
-                posiciones.append({
-                    "id_cuenta":   str(idc),
-                    "unidad":      u,
-                    "cartera":     cart,
-                    "cantidad":    cant_f,
-                    "precio":      round(float(prec), 4) if prec is not None else None,
-                    "valuacion":   val_f,
-                    "en_alquiler": m.get("en_alquiler", False),
-                    "alq_cant":    alq_cant,
-                    "alq_valor":   alq_valor,
-                    "desde":       m.get("desde"),
-                })
+
+        # Unión de (cuenta, unidad) del rango [desde, hoy] con los valores del ÚLTIMO
+        # día tenido: se agrega por (fecha, cuenta, unidad) y en Python nos quedamos
+        # con la fila de mayor fecha por (cuenta, unidad) (ORDER BY fecha DESC).
+        cur.execute(
+            "SELECT id_cuenta, unidad, cartera, fecha, SUM(cantidad), MAX(precio), SUM(valuacion) "
+            "FROM portafolio.tenencia "
+            "WHERE fecha >= %s AND aum = 'si' AND id_cuenta = ANY(%s) "
+            "GROUP BY id_cuenta, unidad, cartera, fecha HAVING SUM(cantidad) <> 0 "
+            "ORDER BY id_cuenta, unidad, fecha DESC", (desde, CUENTAS))
+        visto: set[tuple[str, str]] = set()
+        for idc, u, cart, f, cant, prec, val in cur.fetchall():
+            key = (str(idc), str(u))
+            if key in visto:
+                continue   # ya tomamos el día más reciente de este (cuenta, unidad)
+            visto.add(key)
+            m = marcas_raw.get(key) or {}
+            cant_f = round(float(cant or 0.0), 4)
+            val_f = round(float(val or 0.0), 2)
+            alq_cant = m.get("cantidad")
+            alq_valor = (round(val_f * min(alq_cant, cant_f) / cant_f, 2)
+                         if (alq_cant and cant_f) else None)
+            posiciones.append({
+                "id_cuenta":     str(idc),
+                "unidad":        u,
+                "cartera":       cart,
+                "cantidad":      cant_f,
+                "precio":        round(float(prec), 4) if prec is not None else None,
+                "valuacion":     val_f,
+                "ultimo_dia":    f.isoformat() if f else None,  # último día tenido en el rango
+                "en_alquiler":   m.get("en_alquiler", False),
+                "alq_cant":      alq_cant,
+                "alq_valor":     alq_valor,
+                "desde":         m.get("desde"),
+                "hasta":         m.get("hasta"),
+            })
+        posiciones.sort(key=lambda p: (p["unidad"], p["id_cuenta"]))
     return {"ultima_fecha": ultima.isoformat() if ultima else None,
-            "cuentas": CUENTAS, "posiciones": posiciones}
+            "desde": desde, "cuentas": CUENTAS, "posiciones": posiciones}
 
 
 def set_alquiler_marca(*, id_cuenta: str, unidad: str, en_alquiler: bool,
-                       cantidad: float | None, desde: str | None, email: str) -> dict[str, Any]:
+                       cantidad: float | None, desde: str | None,
+                       hasta: str | None = None, email: str) -> dict[str, Any]:
     """Upsert de la marca de alquiler de un (título, cuenta). en_alquiler=False o
-    cantidad<=0 → apaga la marca. Devuelve el estado guardado."""
+    cantidad<=0 → apaga la marca. `hasta` vacío = sigue en alquiler. Devuelve el
+    estado guardado."""
     from datetime import UTC, datetime
     from datetime import date as _date
     idc = (id_cuenta or "").strip()
@@ -261,28 +292,40 @@ def set_alquiler_marca(*, id_cuenta: str, unidad: str, en_alquiler: bool,
             cant = float(cantidad)
         except (TypeError, ValueError):
             return {"ok": False, "error": f"cantidad inválida: {cantidad!r}"}
-    d = None
-    if desde:
+
+    def _parse(v: str | None, campo: str):
+        if not v:
+            return None, None
         try:
-            d = _date.fromisoformat(desde[:10])
+            return _date.fromisoformat(v[:10]), None
         except ValueError:
-            return {"ok": False, "error": f"fecha inválida: {desde!r}"}
+            return None, {"ok": False, "error": f"{campo} inválida: {v!r}"}
+
+    d, err = _parse(desde, "fecha desde")
+    if err:
+        return err
+    h, err = _parse(hasta, "fecha hasta")
+    if err:
+        return err
+    if d is not None and h is not None and h < d:
+        return {"ok": False, "error": "la fecha hasta no puede ser anterior a la desde"}
     activo = bool(en_alquiler) and (cant or 0) > 0
 
     with get_pool().connection() as conn, conn.cursor() as cur:
         _ensure_alquiler_table(cur)
         cur.execute(
             f"INSERT INTO {_ALQUILER_TABLE} "
-            f"(id_cuenta, unidad, en_alquiler, cantidad, desde, updated_by, updated_at) "
-            f"VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id_cuenta, unidad) DO UPDATE SET "
+            f"(id_cuenta, unidad, en_alquiler, cantidad, desde, hasta, updated_by, updated_at) "
+            f"VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id_cuenta, unidad) DO UPDATE SET "
             f"en_alquiler = EXCLUDED.en_alquiler, cantidad = EXCLUDED.cantidad, "
-            f"desde = EXCLUDED.desde, updated_by = EXCLUDED.updated_by, "
-            f"updated_at = EXCLUDED.updated_at",
-            (idc, u, activo, cant, d, email, datetime.now(UTC)))
+            f"desde = EXCLUDED.desde, hasta = EXCLUDED.hasta, "
+            f"updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at",
+            (idc, u, activo, cant, d, h, email, datetime.now(UTC)))
         conn.commit()
     invalidate("tenencia_dias")   # el netting cambió → refrescar la serie de AuM
     return {"ok": True, "id_cuenta": idc, "unidad": u, "en_alquiler": activo,
-            "cantidad": cant, "desde": d.isoformat() if d else None}
+            "cantidad": cant, "desde": d.isoformat() if d else None,
+            "hasta": h.isoformat() if h else None}
 
 
 def actualizar_precio_posicion(*, fecha: str, unidad: str, precio: float,

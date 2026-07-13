@@ -115,11 +115,14 @@ def tenencia_hd_precio(
 
 @router.get("/tenencia-hd/en-alquiler")
 def tenencia_hd_en_alquiler(
+    desde: str | None = None,
     _email: str = Depends(get_user_email),
 ):
-    """Lista TODOS los (título, cuenta) en posición al último día + su marca de
-    alquiler (SI/NO, cantidad, desde). Alimenta la vista 'Títulos en alquiler'."""
-    return svc_ten.titulos_en_alquiler()
+    """TODOS los (título, cuenta) de 100/255/256 tenidos entre `desde` (default
+    01/06/2026, arranque del proceso legal) y HOY + su marca de alquiler (SI/NO,
+    cantidad, desde, hasta). Un título tenido en el rango pero ya no hoy aparece
+    igual. Alimenta la vista 'Títulos en alquiler'."""
+    return svc_ten.titulos_en_alquiler(desde=desde)
 
 
 @router.post("/tenencia-hd/alquiler")
@@ -129,11 +132,12 @@ def tenencia_hd_alquiler(
     en_alquiler: bool = Body(..., embed=True),
     cantidad:    float | None = Body(None, embed=True, description="nominales en alquiler"),
     desde:       str | None = Body(None, embed=True, description="ISO YYYY-MM-DD; fecha desde"),
+    hasta:       str | None = Body(None, embed=True, description="ISO YYYY-MM-DD; fecha hasta (vacío = sigue)"),
     email: str = Depends(get_user_email),
 ):
-    """Marca DURABLE de alquiler por (título, cuenta): SI/NO, nominales y fecha
-    desde. NO es por día — dura hasta que se cambie. Netea la posición en las
-    vistas de tenencia a partir de `desde`."""
+    """Marca DURABLE de alquiler por (título, cuenta): SI/NO, nominales y período
+    desde/hasta. NO es por día — persiste hasta que el back office la cambie. Netea
+    la posición en las vistas de tenencia dentro de [desde, hasta]."""
     return svc_ten.set_alquiler_marca(
         id_cuenta=id_cuenta, unidad=unidad, en_alquiler=en_alquiler,
-        cantidad=cantidad, desde=desde, email=email)
+        cantidad=cantidad, desde=desde, hasta=hasta, email=email)

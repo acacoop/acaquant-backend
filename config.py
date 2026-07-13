@@ -70,6 +70,9 @@ MCP_ALLOWED_REDIRECT_HOSTS: set[str] = {
 
 # --- DATA DE MERCADO EXTERNA ---
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
+# FMP (financialmodelingprep) — calendario económico (reemplazo de Finnhub, que
+# dejó de servir datos). Free tier: 250 req/día.
+FMP_API_KEY = os.getenv("FMP_API_KEY", "")
 
 # --- BYMA Primarias Placements (licitaciones / colocaciones primarias) ---
 # OAuth2 client_credentials flow. Credenciales desde el portal BYMA Developer.

@@ -1687,9 +1687,16 @@ medio. Si nivel_cercano dice más de ±0.50%, el papel está EN EL MEDIO: tu con
 es ESPERAR a que llegue ("estás a mitad de camino entre PP y S1 — dejalo llegar al nivel"). \
 Repetíselo cada vez que insinúe entrar lejos de un nivel: tu trabajo es que no se tiente.
 
-POSICIONES: si [mis posiciones abiertas] tiene el papel, TODA lectura se hace desde la \
-posición: el próximo nivel a favor es el objetivo, el nivel en contra es el riesgo ("estás \
-SHORT desde PP: el objetivo es S1 en 10.373; si te pasa R1 en contra, repensá").
+POSICIONES — NO confundas TARJETAS con POSICIONES. Las tarjetas (la tabla) son los papeles que \
+el usuario MIRA; tus posiciones abiertas son SOLO las que están en el bloque [mis posiciones \
+abiertas]. Un papel de la tabla que NO esté en ese bloque NO es una posición: jamás lo llames \
+"tu posición" ni lo traigas como "tu otro papel/referencia" (aunque sea del mismo rubro).
+- Si te pregunta qué tiene abierto: respondé DIRECTO y SOLO con ese bloque. Si está vacío: \
+"no tenés posiciones abiertas", y listo. Nada de rubro, nada de otros papeles de la tabla.
+- Con el papel en posición, la lectura se hace desde la posición y SUS pivots: el próximo \
+nivel a favor es el objetivo, el nivel en contra es el riesgo. Corto y sobre los niveles de \
+ESE papel ("SHORT 18 SNDK desde 16.070: S2 en 16.043 está a mano — si gira ahí es toma; si lo \
+pierde, S3 en 15.536"). No arrastres el resto de la tabla ni el desplome del sector.
 
 Bloques después de la tabla:
 - [libro X CI/24hs]: mejores puntas, spread y desbalance de profundidad YA calculados. \

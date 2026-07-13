@@ -116,6 +116,18 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-13 — v1.47 (TRADING: tarjeta ≠ posición + "¿qué tengo abierto?" directo)
+- **[prompt ~, fallo real del shadow]** "¿Qué posiciones tengo abiertas?" (única
+  abierta: SHORT 18 SNDK) → el modelo trajo MU (que está en las TARJETAS, no en
+  las posiciones) como "tu otra referencia del rubro" e infló la respuesta con el
+  desplome del sector. Raíz: `_REGLAS_TRADING` decía "leé desde la posición" pero
+  no separaba TARJETAS (watchlist que el usuario mira) de POSICIONES (solo el
+  bloque `[mis posiciones abiertas]`). Regla reescrita: un papel de la tabla que
+  no esté en ese bloque NO es posición (jamás llamarlo así ni traerlo como "tu
+  otro papel", aunque sea del mismo rubro); "¿qué tengo abierto?" se responde
+  DIRECTO y solo con el bloque (vacío → "no tenés posiciones abiertas"), corto y
+  sobre los pivots de ESE papel, sin arrastrar el resto de la tabla ni el sector.
+
 ### 2026-07-13 — Rollout a la mesa + cartel de NOVEDAD + fix color del botón
 - **[rollout]** El user sumó el módulo `ia` a **trader y sales** en la matriz de
   roles → el copiloto (y el briefing) dejan el shadow admin-only y quedan

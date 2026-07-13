@@ -39,6 +39,14 @@ def intraday(ticker: str):
     return svc.get_intraday(ticker=ticker)
 
 
+@router.get("/renta-fija")
+def renta_fija():
+    """Radar de renta fija (pesos: tasa fija + CER) para el tab RENTA FIJA del
+    panel de movers de TRADING: [{ticker_corto, last, tna, volumen}] ordenado
+    por volumen del día desc. Click en una fila → carga la card."""
+    return svc.get_renta_fija_radar()
+
+
 @router.get("/pivot-radar")
 def pivot_radar():
     """Radar de proximidad a pivote de TODO el universo de CEDEARs. Cada item:

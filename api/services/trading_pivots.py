@@ -224,6 +224,35 @@ def get_intraday(*, ticker: str) -> list[dict]:
     return [por_min[k] for k in sorted(por_min)]
 
 
+@cached(ttl=4)
+def get_renta_fija_radar() -> list[dict]:
+    """Radar de RENTA FIJA (vista TRADING): bonos en PESOS suscriptos (tasa fija
+    + CER) con last, TNA y volumen del día, ordenados por volumen desc — para el
+    tab RENTA FIJA del panel de movers (click → carga la card). Reusa
+    renta_fija_sql.listar_curva (el MISMO ensamblado live de la vista RF). TNA =
+    TEM × 12 (nominal anual). Incluye todos los suscriptos; los que no operaron
+    quedan al fondo (volumen 0) y muestran '—' donde no hay dato."""
+    from api.services import renta_fija_sql
+
+    out: list[dict] = []
+    vistos: set[str] = set()
+    for curva in ("tasa_fija", "cer"):
+        for b in renta_fija_sql.listar_curva(curva, ordenar_por="volumen_dia"):
+            tk = b.get("ticker_corto")
+            if not tk or tk in vistos:
+                continue
+            vistos.add(tk)
+            tem = b.get("tem")
+            out.append({
+                "ticker_corto": tk,
+                "last": b.get("ultimo_precio"),
+                "tna": tem * 12 if tem is not None else None,
+                "volumen": b.get("total_nominals_dia"),
+            })
+    out.sort(key=lambda x: -(x.get("volumen") or 0))
+    return out
+
+
 @cached(ttl=2)
 def pivot_radar() -> list[dict]:
     """Radar de proximidad a pivote sobre TODO el universo de CEDEARs.

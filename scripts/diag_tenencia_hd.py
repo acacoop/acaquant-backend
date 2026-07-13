@@ -39,7 +39,7 @@ def main() -> None:
     if not filas:
         print("  (NINGUNA fila de esas cuentas en portafolio.tenencia → la vista no puede mostrar nada)")
     for r in filas:
-        print(f"  cuenta {r['id_cuenta']:<6} aum={str(r['aum']):<5} {r['n']:>7} filas · última {r['ult']}")
+        print(f"  cuenta {r['id_cuenta']:<6} aum={r['aum']!s:<5} {r['n']:>7} filas · última {r['ult']}")
 
     print("\n== LA QUERY EXACTA DE LA VISTA (aum='si', esas cuentas) ==")
     v = _q("""

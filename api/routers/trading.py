@@ -31,6 +31,14 @@ def trades(ticker: str, limite: int = 200):
     return svc.get_trades(ticker=ticker, limite=limite)
 
 
+@router.get("/intraday")
+def intraday(ticker: str):
+    """Serie intradía por minuto (OHLC) para el chart LIVE. Resuelve la fuente
+    por `ticker` igual que /pivots y /trades: CEDEAR → tabla de CEDEARs; bono →
+    mercado.timesales agregado por minuto. Shape: [{t, o, h, l, c, vol}] asc."""
+    return svc.get_intraday(ticker=ticker)
+
+
 @router.get("/pivot-radar")
 def pivot_radar():
     """Radar de proximidad a pivote de TODO el universo de CEDEARs. Cada item:

@@ -189,6 +189,41 @@ def get_trades(*, ticker: str, limite: int = 200) -> list[dict]:
     return scanner_svc.get_cedears_trades(ticker=tk, limite=limite)
 
 
+def get_intraday(*, ticker: str) -> list[dict]:
+    """Serie intradía por minuto (OHLC) del activo para el chart LIVE, resolviendo
+    la fuente por clase igual que get_pivots/get_trades:
+      • CEDEAR → mercado.cedears_time_sales (scanner).
+      • Bono   → agrega los trades de HOY de mercado.timesales por minuto (el
+        chart solo usa t + close; se arma OHLC para el mismo shape).
+    Shape: [{t, o, h, l, c, vol}] asc por minuto. `t` naive ART (== ts de la
+    tabla) → el browser lo lee en hora local, igual que el tape de bonos."""
+    tk = (ticker or "").strip().upper()
+    if not tk:
+        return []
+    if tk not in _bonos_corto_a_largo():
+        return scanner_svc.get_cedears_intraday(ticker=tk)
+
+    from api.services import renta_fija_sql
+    trades = renta_fija_sql.get_historico_trades(instrumento=tk) or []
+    por_min: dict[str, dict] = {}
+    for tr in reversed(trades):  # trades vienen desc → asc para que `c` sea el último
+        ts = tr.get("timestamp")
+        px = tr.get("price")
+        if ts is None or px is None:
+            continue
+        key = ts.strftime("%Y-%m-%dT%H:%M:00")
+        sz = tr.get("size") or 0.0
+        b = por_min.get(key)
+        if b is None:
+            por_min[key] = {"t": key, "o": px, "h": px, "l": px, "c": px, "vol": sz}
+        else:
+            b["h"] = max(b["h"], px)
+            b["l"] = min(b["l"], px)
+            b["c"] = px
+            b["vol"] = (b["vol"] or 0.0) + sz
+    return [por_min[k] for k in sorted(por_min)]
+
+
 @cached(ttl=2)
 def pivot_radar() -> list[dict]:
     """Radar de proximidad a pivote sobre TODO el universo de CEDEARs.

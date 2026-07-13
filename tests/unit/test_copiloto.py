@@ -561,6 +561,25 @@ def test_renta_fija_pulso_por_curva_y_tramo(monkeypatch):
     assert "cer: medio 10.0%" in bloque
 
 
+def test_futuros_dlr_fallback_al_cierre(monkeypatch):
+    # el snapshot live viene vacío fuera de rueda (verificado con diag en el
+    # Droplet) → cae al último cierre persistido, declarando la fecha
+    monkeypatch.setattr("api.services.mercado_hist_sql.get_futuros_dlr", lambda: [])
+    monkeypatch.setattr(
+        "api.services.derivados.get_historico_futuros_dlr",
+        lambda **kw: [
+            {"fecha": "2026-07-10", "ticker": "DLR/AGO26", "vencimiento": "20260831",
+             "dias_a_vto": 49, "precio_cierre": 1560.5, "tasa_implicita_tna_cierre": 35.2},
+            {"fecha": "2026-07-09", "ticker": "DLR/AGO26", "vencimiento": "20260831",
+             "dias_a_vto": 50, "precio_cierre": 1555.0, "tasa_implicita_tna_cierre": 34.0},
+        ],
+    )
+    bloque = "\n".join(copiloto._futuros_dlr_bloque())
+    assert "cierre del 2026-07-10" in bloque
+    assert "DLR/AGO26 (49d): 1560.5 · TNA implícita 35.2%" in bloque
+    assert "1555.0" not in bloque  # solo la última fecha persistida
+
+
 def test_briefing_bloque_serializa(monkeypatch):
     monkeypatch.setattr(
         "api.services.briefing.briefing_hoy",

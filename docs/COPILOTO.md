@@ -116,23 +116,36 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-13 — v1.46 (ronda 2 de la batería HOME: DLR con fallback + puntual ≠ panorama)
+- **[datos +]** `[futuros DLR ROFEX]` con FALLBACK al último cierre: la lupa
+  confirmó que el snapshot live viene vacío fuera de rueda (por eso la #8
+  no veía la curva e inventó una "vista de Futuros ROFEX") → si el live no
+  trae nada se lee `mercado_hist` FuturosDLR (última fecha, precio_cierre +
+  TNA de cierre) y el header declara "cierre del YYYY-MM-DD".
+- **[prompt ~]** Puntual ≠ panorama: la estructura por segmentos es SOLO
+  para "¿cómo viene el mercado?"/narración — una pregunta puntual (la #12,
+  el MERVAL) se responde puntual, sin recorrer segmentos que nadie pidió.
+- **[prompt ~]** Un dato faltante de ESTA vista jamás es motivo de
+  derivación (la #9 mandaba cauciones a Renta Fija, la #13 dólares a
+  Trading): cauciones/DLR/watchlist son de acá — "existe pero sin dato
+  ahora"; derivar solo cuando la pregunta cae DE LLENO en otra vista, ante
+  la duda no derivar ni inventar vistas.
+
+### 2026-07-12 — v1.45 (post-batería HOME: límites de la vista + redondeo legítimo)
+
 ### 2026-07-12 — v1.45 (post-batería HOME: límites de la vista + redondeo legítimo)
 - **[verificación ~]** El modelo redondea a 1 decimal ("5,9%" cuando el dato
   es 5.85) y la pregunta 11 de la batería moría bloqueada: el verificador
   ahora acepta MEDIA UNIDAD del último decimal escrito (5,9↔5.85 pasa;
   "4,2" para 4.11 sigue cayendo — redondeo mal hecho es error). Menos
   reintentos de reflexion, menos bloqueos duros.
-- **[prompt +]** Límites de la vista HOME (batería 9/10/14): (1) pregunta
+- **[prompt +]** Límites de la vista HOME (batería 9/10/14): pregunta
   DEDICADA a acciones/CEDEARs → titular en 1-2 frases + derivar a Renta
   Variable, jamás intentar recomendaciones de papeles desde acá (la 14
-  respondía por rubro y pedía la lista); (2) instrumento de la watchlist con
-  "-" (caución en finde) = "existe pero sin dato ahora", NO "no está en esta
-  tabla"; (3) futuros DLR son de ESTA vista — sin bloque = "sin dato ahora",
-  no derivar a Trading (la 8 derivaba mal).
+  respondía por rubro y pedía la lista). Verificado en ronda 2: 10/11/14 OK.
 - **[tooling]** `scripts/diag_contexto.py --vista <v>`: la lupa GENERALIZADA
-  a las 4 vistas (borra `diag_contexto_rf.py`, REGLA #5) — primer paso para
-  diagnosticar el bloque DLR ausente de la batería (correr
-  `--vista home` y mirar si [futuros DLR ROFEX] aparece).
+  a las 4 vistas (borra `diag_contexto_rf.py`, REGLA #5) — con ella se
+  confirmó el bloque DLR ausente (→ fallback en v1.46).
 - **[en observación]** El verificador matchea números por valor ABSOLUTO: la
   pregunta 6 escribió el canje con signo invertido ("-2.97%" cuando el bloque
   dice +2.97%) y pasó. Enforcement de signo pendiente — tiene falsos

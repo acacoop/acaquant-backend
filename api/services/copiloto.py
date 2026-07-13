@@ -1870,26 +1870,56 @@ def _briefing_bloque() -> list[str]:
 
 def _futuros_dlr_bloque() -> list[str]:
     """[futuros DLR]: la curva ROFEX con su devaluación implícita (TNA lineal
-    en %, convención del terminal Rofex), calculada por el motor."""
+    en %, convención del terminal Rofex), calculada por el motor. El snapshot
+    live viene VACÍO fuera de rueda (verificado con diag_contexto en finde,
+    batería 2026-07-12) → fallback al último CIERRE persistido, con la fecha
+    declarada en el header."""
     from api.services import mercado_hist_sql
 
+    lineas: list[str] = []
+    origen = "live"
     try:
-        docs = mercado_hist_sql.get_futuros_dlr() or []
+        for d in mercado_hist_sql.get_futuros_dlr() or []:
+            px = d.get("last") or d.get("closing")
+            if px is None:
+                continue
+            s = f"{d.get('ticker')} ({d.get('dias_a_vto')}d): {float(px):.1f}"
+            tna = d.get("tasa_implicita_tna")
+            if tna is not None:
+                s += f" · TNA implícita {float(tna):.1f}%"
+            lineas.append(s)
     except Exception as e:
-        logger.warning("copiloto home: futuros DLR fallaron (%s)", e)
+        logger.warning("copiloto home: futuros DLR live fallaron (%s)", e)
+
+    if not lineas:
+        try:
+            from api.services import derivados
+
+            desde = (datetime.now(UTC).date() - timedelta(days=7)).isoformat()
+            docs = derivados.get_historico_futuros_dlr(desde=desde) or []  # @cached → kwargs
+            ultima = max((str(d.get("fecha"))[:10] for d in docs), default=None)
+            hoy = datetime.now(UTC).date().isoformat()
+            for d in docs:
+                if str(d.get("fecha"))[:10] != ultima:
+                    continue
+                if str(d.get("vencimiento") or "") <= hoy.replace("-", ""):
+                    continue
+                px = d.get("precio_cierre")
+                if px is None:
+                    continue
+                s = f"{d.get('ticker')} ({d.get('dias_a_vto')}d): {float(px):.1f}"
+                tna = d.get("tasa_implicita_tna_cierre")
+                if tna is not None:
+                    s += f" · TNA implícita {float(tna):.1f}%"
+                lineas.append(s)
+            origen = f"cierre del {ultima}"
+        except Exception as e:
+            logger.warning("copiloto home: futuros DLR históricos fallaron (%s)", e)
+
+    if not lineas:
         return []
-    lineas = []
-    for d in docs[:12]:
-        px = d.get("last") or d.get("closing")
-        if px is None:
-            continue
-        s = f"{d.get('ticker')} ({d.get('dias_a_vto')}d): {float(px):.1f}"
-        tna = d.get("tasa_implicita_tna")
-        if tna is not None:
-            s += f" · TNA implícita {float(tna):.1f}%"
-        lineas.append(s)
-    return (["[futuros DLR ROFEX — precio del dólar futuro y devaluación implícita "
-             "(TNA lineal %)]"] + lineas) if lineas else []
+    return [f"[futuros DLR ROFEX ({origen}) — precio del dólar futuro y devaluación "
+            "implícita (TNA lineal %)]"] + lineas[:12]
 
 
 def _extras_home(
@@ -1952,18 +1982,24 @@ PROHIBIDO PROMEDIAR GRUPOS A MANO: si querés decir "los granos vienen fuertes",
 el que más se mueve con SU número exacto de la tabla ("maíz +7.6%") — nunca un promedio \
 o cifra de grupo que no esté precalculada en los bloques.
 
+LA ESTRUCTURA POR SEGMENTOS ES SOLO PARA PREGUNTAS DE PANORAMA ("¿cómo viene el \
+mercado?", "narrame el día"). Una pregunta PUNTUAL (el MERVAL, un dólar, un futuro, el \
+riesgo país) se responde PUNTUAL: su dato con sus plazos y listo — jamás recorras los \
+demás segmentos que nadie pidió.
+
 LÍMITES DE ESTA VISTA (cuándo derivar y cuándo no):
 - El [pulso por rubro] es SOLO para el segmento acciones del panorama. Si la pregunta es \
 DEDICADA a acciones/CEDEARs/rubros/papeles ("¿qué compro?", "¿cómo están las acciones?", \
 "¿qué rubros empujan?"), respondé el titular en 1-2 frases y DERIVÁ a Renta Variable con \
 el marcador — una recomendación o análisis de papeles puntuales JAMÁS se intenta desde \
 acá, ni pidiéndole la lista al usuario.
-- Un instrumento de la watchlist con valor "-" (ej. la caución un fin de semana) NO es \
-"eso no está en esta tabla": el instrumento EXISTE en la vista; lo que falta es el dato \
-de este momento (sin rueda / fuera de horario). Respondelo así, y si algún plazo suyo sí \
-tiene dato, dalo.
-- Los futuros DLR son TUYOS ([futuros DLR ROFEX]): si el bloque no aparece, decí que no \
-hay dato en este momento — NO derives a otra vista por esto (ninguna otra los tiene).
+- UN DATO FALTANTE DE ESTA VISTA JAMÁS ES MOTIVO DE DERIVACIÓN. Las cauciones, los \
+futuros DLR y todo lo de la watchlist son de ACÁ: si el valor está en "-" o un bloque no \
+aparece (ej. fin de semana, fuera de horario), decí que el instrumento existe pero sin \
+dato en este momento — no lo mandes a otra vista (las otras tampoco lo tienen) ni \
+inventes vistas que no están en tu lista.
+- Derivá SOLO cuando la pregunta cae de lleno en el dominio de otra vista de tu lista; \
+ante la duda, respondé con lo tuyo y no derives.
 
 REGLA DE HONESTIDAD — la más importante de esta vista: tus datos dicen QUÉ se movió, \
 nunca POR QUÉ. Ante un "¿por qué subió/bajó?" respondés el movimiento con sus plazos y \

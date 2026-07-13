@@ -318,12 +318,30 @@ def set_tasas_cobertura(
 _DOLARES_FIELDS = ("dolar_bna", "dolar_matba", "bna_comprador_t1")
 
 
+def _oficial_live_value() -> float | None:
+    """Valor del dólar oficial live (feed MAE, `mid_oficial_live`) — EL MISMO que
+    muestra la watchlist como DOLAR OFICIAL. None si no hay dato (→ cae al manual)."""
+    try:
+        from core.dolar_oficial import mid_oficial_live
+        v = (mid_oficial_live("oficial") or {}).get("value")
+        return float(v) if v else None
+    except Exception:
+        return None
+
+
 def get_dolares_referencia() -> dict[str, Any]:
-    """Dólares manuales BNA / Matba / BNA Comprador T-1 (global). None si no cargados.
+    """Dólares de referencia (global). `dolar_matba` sale AUTOMÁTICO del dólar
+    oficial live (feed MAE — el mismo que la watchlist DOLAR OFICIAL), en real-time;
+    fallback al valor manual si el feed está caído. `dolar_bna` / `bna_comprador_t1`
+    siguen manuales.
 
     Output: {"dolar_bna", "dolar_matba", "bna_comprador_t1", "updated_by", "updated_at"}
     """
-    return _get_param_doc(_DOLARES_KEY, _DOLARES_FIELDS)
+    doc = _get_param_doc(_DOLARES_KEY, _DOLARES_FIELDS)
+    oficial = _oficial_live_value()
+    if oficial is not None:
+        doc["dolar_matba"] = oficial  # real-time desde el dólar oficial (watchlist)
+    return doc
 
 
 def set_dolares_referencia(

@@ -34,6 +34,7 @@ Conecta con: lo importan los routers (`cuentas`, `carteras`, etc.) para envolver
 - [[api.services.comparar_inversion]]  ·  _module_
 - [[api.services.compliance]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
+- [[api.services.copiloto]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_
 - [[api.services.derivados]]  ·  _module_
 - [[api.services.descomposicion_retorno]]  ·  _module_

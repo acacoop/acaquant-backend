@@ -1,6 +1,6 @@
 # 🧩 web — componentes
 
-109 notas.
+108 notas.
 
 - [[web.cmp.acreencias-view]]
 - [[web.cmp.agro-datos]]
@@ -19,7 +19,6 @@
 - [[web.cmp.canje-tab]]
 - [[web.cmp.cedears-scanner-table]]
 - [[web.cmp.cedears-timesales-panel]]
-- [[web.cmp.coberturas-view]]
 - [[web.cmp.cobros-futuros-view]]
 - [[web.cmp.comercial-control-view]]
 - [[web.cmp.comercial-informe-view]]
@@ -41,7 +40,6 @@
 - [[web.cmp.dolar-mep-venta-view]]
 - [[web.cmp.download-button]]
 - [[web.cmp.escenarios-tabla]]
-- [[web.cmp.estrategia-shared]]
 - [[web.cmp.estrategias-tabla]]
 - [[web.cmp.fair-value-modal]]
 - [[web.cmp.fair-value-view]]
@@ -53,6 +51,7 @@
 - [[web.cmp.grupos-panel]]
 - [[web.cmp.header]]
 - [[web.cmp.home-view]]
+- [[web.cmp.ia-vista-panel]]
 - [[web.cmp.intraday-view]]
 - [[web.cmp.jobs-runs-panel]]
 - [[web.cmp.live-intraday-chart]]

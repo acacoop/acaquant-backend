@@ -17,6 +17,7 @@ Barra de navegación global de la app. Arma el menú (links sueltos HOME/OPERAR/
 Conecta con: consume los módulos permitidos del usuario (vía `/api/me` / RBAC); si modules es null (dev o backend caído) muestra todo. Se renderiza en el layout raíz de todas las páginas.
 
 ## Usa / conecta con →
+- [[web.cmp.ia-vista-panel]]  ·  _component_
 - [[web.lib.use-is-guest]]  ·  _lib_
 
 ## Lo usan (backlinks) ←

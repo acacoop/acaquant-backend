@@ -44,7 +44,8 @@ trader + sales). Verificado en `api/routers/scanner.py:16-18`.
 | **Retornos diarios** (histograma, lazy) | `GET /api/scanner/returns/{ticker}` | on-demand | `scanner.py::get_ticker_returns` |
 | **Pulso por sector** | — (cálculo client-side sobre la tabla) | — | — |
 | **Chart histórico** | TradingView (widget externo) | — | — |
-| **Day-trading** (costumbre/vueltas) | `GET /api/scanner/day-trading`, `/companeros/{t}`, `/correlaciones`, `/trade-analysis/{t}`, `/book-analysis` | — | `day_trading.py`, `rv_motor.py` |
+| **Day-trading** (costumbre/vueltas) | `GET /api/scanner/day-trading`, `/companeros/{t}` | — | `day_trading.py` |
+| **Mesa de Estrategia** (correlación/trade/book) | — (sin HTTP desde 2026-07-13; solo tools del MCP) | — | `rv_motor.py` |
 
 ---
 

@@ -18,7 +18,6 @@ Conecta con: utilidad pura de presentación, sin I/O; la consumen los componente
 
 ## Lo usan (backlinks) ←
 - [[web.cmp.acreencias-view]]  ·  _component_
-- [[web.cmp.coberturas-view]]  ·  _component_
 - [[web.cmp.cobros-futuros-view]]  ·  _component_
 - [[web.cmp.comercial-control-view]]  ·  _component_
 - [[web.cmp.comercial-informe-view]]  ·  _component_

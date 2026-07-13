@@ -37,6 +37,7 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[api.services.debug_curva]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
+- [[api.services.ia_obs]]  ·  _module_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.macro_sql]]  ·  _module_
 - [[api.services.ons]]  ·  _module_
@@ -74,4 +75,5 @@ Conecta con: lo importan engines, jobs y api/services; no depende de ellos.
 - [[jobs.operaciones_informes]]  ·  _module_
 - [[jobs.precios_acciones_daily]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
+- [[jobs.triage]]  ·  _module_
 - [[jobs.volatilidad_ggal]]  ·  _module_

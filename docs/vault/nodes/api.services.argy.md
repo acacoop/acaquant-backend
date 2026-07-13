@@ -29,3 +29,4 @@ Conecta con: lee live de `Valuaciones.DolarSnapshot` y `Trading.CaucionSnapshot`
 
 ## Lo usan (backlinks) ←
 - [[api.routers.cotizaciones]]  ·  _module_
+- [[api.services.copiloto]]  ·  _module_

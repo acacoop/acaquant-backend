@@ -23,7 +23,6 @@ Conecta con: delega en `api.services.scanner` y `api.services.rv_motor` (leen `T
 - [[api.services]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_
 - [[api.services.operaciones_view]]  ·  _module_
-- [[api.services.rv_motor]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
 - [[api.services.scanner_sql]]  ·  _module_
 
@@ -31,8 +30,6 @@ Conecta con: delega en `api.services.scanner` y `api.services.rv_motor` (leen `T
 - [[api.main]]  ·  _module_
 - [[web.api.api.scanner.[...path]]]  ·  _route_
 - [[web.cmp.cedears-timesales-panel]]  ·  _component_
-- [[web.cmp.coberturas-view]]  ·  _component_
-- [[web.cmp.estrategia-shared]]  ·  _component_
 - [[web.cmp.live-intraday-chart]]  ·  _component_
 - [[web.cmp.pivot-points-panel]]  ·  _component_
 - [[web.cmp.scanner-view]]  ·  _component_

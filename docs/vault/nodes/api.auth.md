@@ -29,6 +29,7 @@ Conecta con: lee las claves públicas JWKS de Cloudflare; lo usan casi todos los
 - [[api.routers.cotizaciones]]  ·  _module_
 - [[api.routers.derivados_agro]]  ·  _module_
 - [[api.routers.derivados_sinteticos]]  ·  _module_
+- [[api.routers.ia]]  ·  _module_
 - [[api.routers.manager]]  ·  _module_
 - [[api.routers.manager.aca_valores]]  ·  _module_
 - [[api.routers.manager.assets]]  ·  _module_

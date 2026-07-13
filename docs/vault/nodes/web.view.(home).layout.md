@@ -19,6 +19,7 @@ Layout raíz de la app Next.js (acaquant-web): define el `<html>`, la fuente Jet
 Conecta con: `getMe()` → backend `/api/me`; componentes `Header`, `PauseBanner`, `ThemeToggle`. Envuelve todas las views.
 
 ## Usa / conecta con →
+- [[web.cmp.briefing-modal]]  ·  _component_
 - [[web.cmp.header]]  ·  _component_
 - [[web.cmp.theme-toggle]]  ·  _component_
 - [[web.lib.me]]  ·  _lib_

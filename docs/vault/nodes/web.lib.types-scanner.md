@@ -18,7 +18,6 @@ Conecta con: refleja lo que sirven `GET /api/scanner/*` (`api.routers.scanner` +
 
 ## Lo usan (backlinks) ←
 - [[web.cmp.cedears-scanner-table]]  ·  _component_
-- [[web.cmp.estrategia-shared]]  ·  _component_
 - [[web.cmp.metricas-panel]]  ·  _component_
 - [[web.cmp.pivot-points-panel]]  ·  _component_
 - [[web.cmp.renta-variable-shell]]  ·  _component_

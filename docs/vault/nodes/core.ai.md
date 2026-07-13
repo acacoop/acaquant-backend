@@ -20,5 +20,7 @@ _(pendiente de enriquecimiento)_
 - [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
+- [[api.services.copiloto]]  ·  _module_
 - [[api.services.ia_obs]]  ·  _module_
 - [[core.ai_resumen]]  ·  _module_
+- [[jobs.triage]]  ·  _module_

@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-46 notas.
+47 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -46,5 +46,6 @@
 - [[jobs.snapshot_cierre]] — snapshot_cierre.py — materializa el cierre diario por bono SQL-NATIVE.
 - [[jobs.snapshot_sinteticos]] — snapshot_sinteticos.py — materializa el cierre diario de sintéticos en mercado.snapshots_sinteticos (SQL).
 - [[jobs.sync_comitentes]] — Sync de cuentas comitentes desde Aunesa → master SQL `clientes.comitentes`
+- [[jobs.triage]] — jobs/triage.py — Triage REACTIVO de incidentes (QuantAI P2, docs/QUANTAI.md).
 - [[jobs.volatilidad_ggal]]
 - [[jobs.watchdog]] — jobs/watchdog.py — "el agente que evalúa solo": detecta jobs colgados y alerta.

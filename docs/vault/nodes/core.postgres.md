@@ -54,6 +54,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.control_automatico]]  ·  _module_
 - [[api.services.control_comercial_sql]]  ·  _module_
 - [[api.services.controles_sql]]  ·  _module_
+- [[api.services.copiloto]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_
 - [[api.services.derivados_agro]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_
@@ -146,5 +147,6 @@ _(pendiente de enriquecimiento)_
 - [[jobs.segmentar_patrimonial]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_
+- [[jobs.triage]]  ·  _module_
 - [[jobs.watchdog]]  ·  _module_
 - [[quant.pivot_points]]  ·  _module_

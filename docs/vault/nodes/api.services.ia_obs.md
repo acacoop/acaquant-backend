@@ -17,6 +17,7 @@ path: api/services/ia_obs.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[core]]  ·  _module_
 - [[core.ai]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 

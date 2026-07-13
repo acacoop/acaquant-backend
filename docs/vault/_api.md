@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-156 notas.
+157 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -103,6 +103,7 @@
 - [[api.services.control_automatico]] — Control Automático (Clientes): concilia un Excel de CUITs contra nuestras cuentas.
 - [[api.services.control_comercial_sql]] — api/services/control_comercial_sql.py — vista CONTROL COMERCIAL (jefatura).
 - [[api.services.controles_sql]] — api/services/controles_sql.py — lectura del auto-control de calidad de datos.
+- [[api.services.copiloto]] — api/services/copiloto.py — P3 Copiloto de Mesa (QuantAI, docs/QUANTAI.md).
 - [[api.services.day_trading]] — day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).
 - [[api.services.debug_curva]] — Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.
 - [[api.services.derivados]] — Capa de servicio — derivados (futuros DLR, forwards, breakevens).

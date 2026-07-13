@@ -342,8 +342,10 @@
 "path": "api/routers/ia.py",
 "summary": "api/routers/ia.py — endpoints del módulo IA (QuantAI, docs/QUANTAI.md).",
 "links": [
+"api.auth",
 "api.services",
 "api.services.briefing",
+"api.services.copiloto",
 "api.services.ia_obs"
 ]
 },
@@ -905,7 +907,6 @@
 "api.services",
 "api.services.day_trading",
 "api.services.operaciones_view",
-"api.services.rv_motor",
 "api.services.scanner",
 "api.services.scanner_sql"
 ]
@@ -1235,6 +1236,8 @@
 "path": "api/services/briefing.py",
 "summary": "api/services/briefing.py — Briefing de apertura (QuantAI P1, v1 DETERMINISTA).",
 "links": [
+"api.services",
+"api.services.acreencias",
 "core.postgres",
 "db.Trading.DOLAR"
 ]
@@ -1405,6 +1408,41 @@
 ]
 },
 {
+"id": "api.services.copiloto",
+"type": "module",
+"layer": "api",
+"repo": "backend",
+"path": "api/services/copiloto.py",
+"summary": "api/services/copiloto.py — P3 Copiloto de Mesa (QuantAI, docs/QUANTAI.md).",
+"links": [
+"api.cache",
+"api.services",
+"api.services.argy",
+"api.services.briefing",
+"api.services.canje",
+"api.services.carry_trade",
+"api.services.comparar_inversion",
+"api.services.derivados",
+"api.services.descomposicion_retorno",
+"api.services.fair_value",
+"api.services.macro",
+"api.services.market_sql",
+"api.services.mercado_hist_sql",
+"api.services.order_book",
+"api.services.rem_sql",
+"api.services.renta_fija",
+"api.services.research_fundamentals",
+"api.services.scanner",
+"api.services.scanner_sql",
+"api.services.sensibilidad",
+"api.services.trading_pivots",
+"core.ai",
+"core.postgres",
+"core.roles",
+"quant.pivot_points"
+]
+},
+{
 "id": "api.services.day_trading",
 "type": "module",
 "layer": "api",
@@ -1525,6 +1563,7 @@
 "path": "api/services/ia_obs.py",
 "summary": "api/services/ia_obs.py — observabilidad del gateway de IA (SQL ia.trazas).",
 "links": [
+"core",
 "core.ai",
 "core.postgres"
 ]
@@ -2922,6 +2961,17 @@
 ]
 },
 {
+"id": "cron.jobs.triage",
+"type": "cron",
+"layer": "deploy",
+"repo": "infra",
+"path": "deploy/crontab.txt",
+"summary": "Tarea programada (cron).",
+"links": [
+"jobs.triage"
+]
+},
+{
 "id": "cron.jobs.volatilidad_ggal",
 "type": "cron",
 "layer": "deploy",
@@ -4045,6 +4095,21 @@
 "config",
 "core.doc_fiscal",
 "core.job_runs",
+"core.postgres"
+]
+},
+{
+"id": "jobs.triage",
+"type": "module",
+"layer": "jobs",
+"repo": "backend",
+"path": "jobs/triage.py",
+"summary": "jobs/triage.py — Triage REACTIVO de incidentes (QuantAI P2, docs/QUANTAI.md).",
+"links": [
+"core",
+"core.ai",
+"core.job_runs",
+"core.notify",
 "core.postgres"
 ]
 },
@@ -5260,7 +5325,8 @@
 "path": "src/components/briefing-modal.tsx",
 "summary": "",
 "links": [
-"api.routers.ia"
+"api.routers.ia",
+"web.cmp.ia-vista-panel"
 ]
 },
 {
@@ -5295,20 +5361,6 @@
 "summary": "",
 "links": [
 "api.routers.scanner"
-]
-},
-{
-"id": "web.cmp.coberturas-view",
-"type": "component",
-"layer": "web-component",
-"repo": "frontend",
-"path": "src/components/coberturas-view.tsx",
-"summary": "",
-"links": [
-"api.routers.scanner",
-"web.lib.fmt-money",
-"web.lib.types-estrategia",
-"web.lib.use-persisted-state"
 ]
 },
 {
@@ -5558,19 +5610,6 @@
 ]
 },
 {
-"id": "web.cmp.estrategia-shared",
-"type": "component",
-"layer": "web-component",
-"repo": "frontend",
-"path": "src/components/estrategia-shared.tsx",
-"summary": "",
-"links": [
-"api.routers.scanner",
-"web.lib.types-estrategia",
-"web.lib.types-scanner"
-]
-},
-{
 "id": "web.cmp.estrategias-tabla",
 "type": "component",
 "layer": "web-component",
@@ -5683,6 +5722,7 @@
 "path": "src/components/header.tsx",
 "summary": "",
 "links": [
+"web.cmp.ia-vista-panel",
 "web.lib.use-is-guest"
 ]
 },
@@ -5694,13 +5734,23 @@
 "path": "src/components/home-view.tsx",
 "summary": "",
 "links": [
-"web.cmp.briefing-modal",
 "web.cmp.canje-tab",
 "web.cmp.futuros-dlr-curve-chart",
 "web.cmp.news-panel",
 "web.cmp.retorno-total-mini",
 "web.cmp.tradingview-chart",
 "web.cmp.watchlist-panel"
+]
+},
+{
+"id": "web.cmp.ia-vista-panel",
+"type": "component",
+"layer": "web-component",
+"repo": "frontend",
+"path": "src/components/ia-vista-panel.tsx",
+"summary": "",
+"links": [
+"api.routers.ia"
 ]
 },
 {
@@ -6306,10 +6356,12 @@
 "path": "src/components/trading-view.tsx",
 "summary": "",
 "links": [
+"api.routers.ia",
 "api.routers.market",
 "api.routers.scanner",
 "api.routers.trading",
 "web.cmp.cedears-timesales-panel",
+"web.cmp.ia-vista-panel",
 "web.cmp.live-intraday-chart",
 "web.cmp.order-book-panel",
 "web.cmp.trading-radar-panel",
@@ -6474,15 +6526,6 @@
 "links": []
 },
 {
-"id": "web.lib.types-estrategia",
-"type": "lib",
-"layer": "web-lib",
-"repo": "frontend",
-"path": "src/lib/types-estrategia.ts",
-"summary": "",
-"links": []
-},
-{
 "id": "web.lib.types-scanner",
 "type": "lib",
 "layer": "web-lib",
@@ -6564,6 +6607,7 @@
 "path": "src/app/layout.tsx",
 "summary": "",
 "links": [
+"web.cmp.briefing-modal",
 "web.cmp.header",
 "web.cmp.theme-toggle",
 "web.lib.me"

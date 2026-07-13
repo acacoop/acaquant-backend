@@ -17,8 +17,11 @@ path: api/services/briefing.py
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.services]]  ·  _module_
+- [[api.services.acreencias]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[db.Trading.DOLAR]]  ·  _collection_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.ia]]  ·  _module_
+- [[api.services.copiloto]]  ·  _module_

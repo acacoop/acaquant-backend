@@ -16,6 +16,7 @@ _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
 - [[api.routers.ia]]  ·  _module_
+- [[web.cmp.ia-vista-panel]]  ·  _component_
 
 ## Lo usan (backlinks) ←
-- [[web.cmp.home-view]]  ·  _component_
+- [[web.view.(home).layout]]  ·  _view_

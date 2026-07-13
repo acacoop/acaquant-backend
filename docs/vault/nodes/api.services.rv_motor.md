@@ -26,5 +26,4 @@ Conecta con: lee `Trading.Cedears` (master de tickers/underlying) y `Trading.Pre
 
 ## Lo usan (backlinks) ←
 - [[api.mcp.tools.renta_variable]]  ·  _module_
-- [[api.routers.scanner]]  ·  _module_
 - [[api.services.day_trading]]  ·  _module_

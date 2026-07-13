@@ -15,7 +15,6 @@ from fastapi import APIRouter, Depends, Query
 
 from api.auth import require_admin, require_module
 from api.services import day_trading as svc_dt
-from api.services import rv_motor
 from api.services import scanner as svc
 from api.services import scanner_sql as svc_sql
 from api.services.operaciones_view import motor as _motor
@@ -149,50 +148,8 @@ def companeros(ticker: str, n: int = 6):
     return svc_dt.get_companeros(ticker=ticker, n=n)
 
 
-@router.get("/correlaciones")
-def correlaciones(ventana: int = 252, tickers: str | None = None):
-    """Matriz de correlación de retornos diarios — motor de la Mesa de
-    Estrategia (UI: acaquant-web /retorno → CORRELACIONES).
-
-    Sin `tickers` usa todo el universo de Renta Variable. `tickers` opcional
-    es un CSV de ticker_corto. `ventana` = días hábiles comunes (default 252).
-    Base del hedge-finder y de la optimización de carteras.
-    """
-    tks = (
-        tuple(t.strip().upper() for t in tickers.split(",") if t.strip())
-        if tickers else None
-    )
-    return rv_motor.get_correlation_matrix(tickers=tks, ventana_dias=ventana)
-
-
-@router.get("/trade-analysis")
-def trade_analysis(ticker: str, monto: float = 1_000_000, direccion: str = "long"):
-    """Análisis de un trade individual — caracterización de riesgo +
-    hedge-finder. Módulo 1 de la Mesa de Estrategia (UI: acaquant-web
-    /retorno → TRADE LAB). `monto` en USD, `direccion` long|short.
-    """
-    return rv_motor.get_trade_analysis(
-        ticker=ticker, monto=monto, direccion=direccion,
-    )
-
-
-@router.get("/book-analysis")
-def book_analysis(posiciones: str = ""):
-    """Análisis de un book entero — Módulo 2 de la Mesa de Estrategia
-    (UI: acaquant-web /retorno → BOOK & RIESGO).
-
-    `posiciones` es un CSV de `ticker:notional` (notional en USD, negativo =
-    short). Ej: `NVDA:1000000,AMD:-500000`. Devuelve exposición, concentración,
-    riesgo agregado y contribución de riesgo.
-    """
-    items: list[tuple[str, float]] = []
-    for parte in posiciones.split(","):
-        parte = parte.strip()
-        if not parte or ":" not in parte:
-            continue
-        tk, _, monto = parte.partition(":")
-        try:
-            items.append((tk.strip().upper(), float(monto)))
-        except ValueError:
-            continue
-    return rv_motor.get_book_analysis(posiciones=tuple(items))
+# Los endpoints HTTP de la Mesa de Estrategia (/correlaciones,
+# /trade-analysis, /book-analysis) se ELIMINARON (2026-07-13): sus tabs de UI
+# ya no existen (COBERTURAS fue la última) y ningún frontend los consumía.
+# Los services de rv_motor SIGUEN VIVOS — los usan las tools del MCP
+# (correlacion / trade_analysis / book_analysis, ver docs/MCP_TOOLS.md).

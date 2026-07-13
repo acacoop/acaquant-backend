@@ -53,7 +53,9 @@ Conecta con: lo importan los routers de `api/routers/`; los services adentro lee
 - [[api.services.agro_cobertura]]  ·  _module_
 - [[api.services.agro_sql]]  ·  _module_
 - [[api.services.argy]]  ·  _module_
+- [[api.services.briefing]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
+- [[api.services.copiloto]]  ·  _module_
 - [[api.services.derivados]]  ·  _module_
 - [[api.services.diagnostico]]  ·  _module_
 - [[api.services.macro]]  ·  _module_

@@ -7,11 +7,11 @@ nunca arrastre data vieja entre ruedas (es solo para intraday).
 SQL-NATIVE (decomiso Mongo 2026-06-28): antes vaciaba Trading.CedearsTimeSales.
 TRUNCATE ... RESTART IDENTITY resetea también la secuencia del id.
 
-Cron: PRE-APERTURA del día siguiente (12:35 UTC = 09:35 ART, L-V — motores
-arrancan 13:20). Antes corría al cierre (20:10 UTC) y la mesa perdía el
-tape/chart 15 minutos después de cerrar (pedido 2026-07-14); borrando a la
-mañana, el post-cierre queda disponible para revisar la rueda y la apertura
-arranca limpia igual (el reader además filtra "solo hoy").
+Cron: tarde del MISMO día (23:50 UTC = 20:50 ART, L-V). Antes corría 5 min
+después del cierre (20:10 UTC) y la mesa perdía el tape/chart al toque
+(pedido 2026-07-14): ahora la rueda queda disponible para revisar de 17:05 a
+20:50 ART y se borra justo antes de que rote la ventana "solo hoy" del reader
+(21:00 ART = 00:00 UTC).
 
 Uso:
     python -m jobs.cleanup_cedears_timesales

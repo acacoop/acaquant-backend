@@ -282,6 +282,17 @@ def dolares_referencia(
     return get_dolares_referencia()
 
 
+@router.get("/agro/costo-pase")
+def costo_pase(
+    _email: str = Depends(get_user_email),
+):
+    """Panel COSTO PASE de la tab DATOS (100% automático): desglose de los
+    gastos MATBA + ALyC (0,175% + 0,05% × 2 patas = 0,45%) + costo en US$/Tn
+    por commodity. Este costo se le resta al Pase Lleno en las cards."""
+    from api.services.agro_cobertura import get_costo_pase
+    return get_costo_pase()
+
+
 class DolaresReferenciaIn(BaseModel):
     dolar_bna: float | None = Field(
         default=None, gt=0, description="Dólar Banco Nación ($); null = no tocar",

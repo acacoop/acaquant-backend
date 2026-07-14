@@ -25,9 +25,13 @@ PASE_COMMODITIES = ("TRIGO", "MAIZ", "SOJA")
 _CAUCION_DIAS = 7
 _ANIO_BASE = 365
 
-# Gastos de la pata futuro: MATBA + ALyC = (0,175% der. mercado + 0,05% apertura)
-# × 2 (ida y vuelta) = 0,45%. Se aplican sobre el "Valor en US$" del Pase Agro.
-GASTOS_FUTURO_PCT = 0.0045
+# Gastos de la pata futuro ("Costo Pase"): MATBA + ALyC. Desglose por pata:
+# 0,175% derechos de mercado + 0,05% derecho de apertura/registro = 0,225%;
+# × 2 patas (ida y vuelta) = 0,45%. Se aplican sobre el "Valor en US$" del
+# Pase Agro (el precio del futuro) → a precios actuales da ≈ US$ 1 por Tn.
+GASTOS_DER_MERCADO_PCT = 0.00175
+GASTOS_APERTURA_PCT = 0.0005
+GASTOS_FUTURO_PCT = (GASTOS_DER_MERCADO_PCT + GASTOS_APERTURA_PCT) * 2  # 0,45%
 
 _MESES_ES = {
     "01": "ENERO", "02": "FEBRERO", "03": "MARZO", "04": "ABRIL",
@@ -149,11 +153,18 @@ def pase_card(
 
     `monto_pesos_cau_7d` (descuento a caución) es display-only: se muestra en la
     card pero la compra_usd usa la Venta Dispo directa (así lo da la planilla)."""
-    # Común: gastos + compra futuro (misma para ON y Pagaré).
+    # Común: costo pase (gastos MATBA+ALyC) + compra futuro (misma para ON y Pagaré).
     total_gastos = compra_futuro = None
     if valor_pase_agro_usd is not None:
         total_gastos = valor_pase_agro_usd * GASTOS_FUTURO_PCT
         compra_futuro = valor_pase_agro_usd + total_gastos
+
+    # Pase Lleno NETO del costo pase (pedido de la mesa 2026-07-14): el pase
+    # bruto (pizarra − futuro) le restaba ~US$ 1/Tn de gastos que el operador
+    # paga sí o sí. `pase_bruto` queda para el explicador paso a paso.
+    pase_bruto = pase_lleno
+    if pase_bruto is not None and total_gastos is not None:
+        pase_lleno = pase_bruto - total_gastos
 
     # Columna ON (dólar Matba + Tasa ON).
     interes = _interes_descontado(tc, tasa_on_pct, dias)
@@ -176,7 +187,8 @@ def pase_card(
         "ticker":               ticker,
         "vto":                  vto,
         "dias":                 dias,
-        "pase_lleno":           pase_lleno,
+        "pase_bruto":           pase_bruto,
+        "pase_lleno":           pase_lleno,   # neto del costo pase (bruto − gastos)
         "tc":                   tc,
         "venta_dispo_ars":      venta_dispo_ars,
         "monto_pesos_cau_7d":   monto_pesos_cau_7d,
@@ -197,6 +209,35 @@ def pase_card(
         "tc_pagare":            tc_pagare,
         "compra_usd_pagare":    compra_usd_pagare,
         "ganancia_pagare_usd":  ganancia_pagare,
+    }
+
+
+def get_costo_pase() -> dict[str, Any]:
+    """Panel "COSTO PASE" de la tab DATOS — 100% automático, nada editable.
+
+    Muestra CÓMO se genera el costo de la pata futuro (gastos MATBA + ALyC):
+    el desglose porcentual (constantes de mercado) y, como referencia viva, el
+    costo en US$/Tn por commodity aplicando el 0,45% sobre el precio dispo US$
+    de la Cámara (≈ US$ 1/Tn a precios actuales). En las cards el costo exacto
+    se calcula sobre el US$ de CADA futuro — esto es la referencia del panel.
+    """
+    from api.services.camara_cereales import get_camara_cereales
+
+    por_cereal = {r["cereal"]: r.get("precio_usd") for r in get_camara_cereales()["cereales"]}
+    commodities = []
+    for c in PASE_COMMODITIES:
+        us_ref = por_cereal.get(c)
+        commodities.append({
+            "commodity": c,
+            "us_ref":    us_ref,
+            "costo_usd": round(us_ref * GASTOS_FUTURO_PCT, 2) if us_ref else None,
+        })
+    return {
+        "der_mercado_pct": GASTOS_DER_MERCADO_PCT * 100,   # 0.175
+        "apertura_pct":    GASTOS_APERTURA_PCT * 100,      # 0.05
+        "por_pata_pct":    (GASTOS_DER_MERCADO_PCT + GASTOS_APERTURA_PCT) * 100,  # 0.225
+        "total_pct":       GASTOS_FUTURO_PCT * 100,        # 0.45
+        "commodities":     commodities,
     }
 
 

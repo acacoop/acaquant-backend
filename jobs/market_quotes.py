@@ -54,7 +54,8 @@ HOME_STOCKS: list[tuple[str, str]] = [
     ("DIA",  "Índices"),
     ("IWM",  "Índices"),
     ("EWZ",  "Índices"),
-    ("SPCX", "Índices"),
+    # SPCX dado de baja de la watchlist 2026-07-14 (pedido de la mesa) — sigue
+    # disponible en /renta-variable (Scanner) como cualquier CEDEAR.
 ]
 
 # ── Futuros CME / CBOT / COMEX / NYMEX / ICE + cripto spot vía Yahoo.
@@ -236,16 +237,17 @@ def ingesta() -> int:
         _write_quote(doc)
         ok += 1
 
-    # Limpieza: eliminar filas cuyo grupo ya no existe (ej. los ETFs viejos de
-    # "Commodities" que migraron a "Futuros"). Idempotente. Filtra por
-    # `data->>'grupo'` (el grupo vive dentro del jsonb; la columna `grupo` queda
-    # NULL con el merge y no se lee).
-    grupos_validos = (
-        {g for _, g in HOME_STOCKS}
-        | {g for _, _, g in HOME_INDICES_YAHOO}
-        | {"Futuros", "US Treasury"}
+    # Limpieza: eliminar filas cuyo símbolo ya no está configurado (baja de la
+    # watchlist, ej. SPCX 2026-07-14) — cubre también los grupos obsoletos, porque
+    # sus símbolos tampoco están en las listas. Idempotente: la baja en el código
+    # se refleja sola en la tabla en el próximo run, sin script de limpieza.
+    simbolos_validos = (
+        {s for s, _ in HOME_STOCKS}
+        | {lbl for _, lbl, _ in HOME_FUTUROS}
+        | {lbl for _, lbl in HOME_TREASURIES}
+        | {lbl for _, lbl, _ in HOME_INDICES_YAHOO}
     )
-    _purga_grupos_obsoletos(grupos_validos)
+    _purga_simbolos_obsoletos(simbolos_validos)
 
     logger.info(
         "market_quotes — ok=%d fail=%d stocks=%d futuros=%d treasuries=%d indices=%d",
@@ -255,19 +257,19 @@ def ingesta() -> int:
     return 0 if fail < ok else 1
 
 
-def _purga_grupos_obsoletos(grupos_validos: set[str]) -> None:
-    """Borra filas de market_quotes cuyo `data->>'grupo'` ya no es válido.
-    Best-effort: un fallo de SQL nunca tumba el job (la watchlist sigue fresca)."""
+def _purga_simbolos_obsoletos(simbolos_validos: set[str]) -> None:
+    """Borra filas de market_quotes cuyo símbolo ya no está en las listas del job
+    (bajas de la watchlist y grupos viejos). Best-effort: un fallo de SQL nunca
+    tumba el job (la watchlist sigue fresca)."""
     try:
         from core.postgres import get_pool
         with get_pool().connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM market_quotes "
-                "WHERE COALESCE(data->>'grupo', '') <> ALL(%s)",
-                (list(grupos_validos),),
+                "DELETE FROM market_quotes WHERE symbol <> ALL(%s)",
+                (list(simbolos_validos),),
             )
             if cur.rowcount:
-                logger.info("market_quotes — purgadas %d filas de grupos obsoletos",
+                logger.info("market_quotes — purgadas %d filas de símbolos obsoletos",
                             cur.rowcount)
     except Exception as e:
         logger.error("market_quotes purga: %s", str(e).splitlines()[0][:200])

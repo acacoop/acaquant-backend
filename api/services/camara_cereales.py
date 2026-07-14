@@ -14,7 +14,7 @@ trader le compra al productor hoy. Pueden coincidir o no.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 CEREALES = ("TRIGO", "MAIZ", "GIRASOL", "SOJA", "SORGO")
@@ -311,10 +311,10 @@ def set_tasas_cobertura(
 
 
 # ── Dólares de referencia (Banco Nación / Matba Rofex / BNA Comprador T-1) ────
-# Cotizaciones que el trader carga a mano en la tab DATOS y alimentan el "Pase
-# con Cobertura". bna_comprador_t1 = BNA comprador de AYER (T−1), usado en la
-# columna Pagaré. Antes se pensaron como discovery MAE automático; por decisión
-# de la mesa hoy se cargan manual.
+# Cotizaciones que alimentan el "Pase con Cobertura". `dolar_bna` lo carga el trader
+# a mano; `dolar_matba` sale del dólar oficial live (MAE) y `bna_comprador_t1` del
+# fixing A3500 del BCRA del último día hábil anterior (T−1), que es el que usa la
+# columna Pagaré. Los automáticos caen al último valor manual si su fuente falla.
 _DOLARES_FIELDS = ("dolar_bna", "dolar_matba", "bna_comprador_t1")
 
 
@@ -329,18 +329,43 @@ def _oficial_live_value() -> float | None:
         return None
 
 
-def get_dolares_referencia() -> dict[str, Any]:
-    """Dólares de referencia (global). `dolar_matba` sale AUTOMÁTICO del dólar
-    oficial live (feed MAE — el mismo que la watchlist DOLAR OFICIAL), en real-time;
-    fallback al valor manual si el feed está caído. `dolar_bna` / `bna_comprador_t1`
-    siguen manuales.
+def _a3500_t1() -> tuple[float | None, str | None]:
+    """Fixing A3500 del BCRA (`macro.series_macro` serie 'DOLAR') del último día
+    hábil ANTERIOR a hoy (T−1) → (valor, fecha ISO). El BCRA publica con un día de
+    rezago, así que este es siempre el último dato disponible; pedirlo con
+    `hasta = ayer` garantiza que nunca tomemos un fixing de hoy.
+    None si la serie está vacía (→ cae al valor manual)."""
+    try:
+        from core.series_macro import punto_asof
+        ayer = (date.today() - timedelta(days=1)).isoformat()
+        p = punto_asof("DOLAR", ayer, positivo=True)
+    except Exception:
+        return None, None
+    if not p:
+        return None, None
+    return p["valor"], p["fecha"]
 
-    Output: {"dolar_bna", "dolar_matba", "bna_comprador_t1", "updated_by", "updated_at"}
+
+def get_dolares_referencia() -> dict[str, Any]:
+    """Dólares de referencia (global). Dos de los tres son AUTOMÁTICOS:
+
+    - `dolar_matba`      ← dólar oficial live (feed MAE, el mismo de la watchlist).
+    - `bna_comprador_t1` ← fixing A3500 del BCRA de T−1 (último día hábil anterior).
+    - `dolar_bna`        ← manual (lo carga el trader en la tab DATOS).
+
+    Los automáticos caen al último valor manual guardado si su fuente no tiene dato.
+
+    Output: {"dolar_bna", "dolar_matba", "bna_comprador_t1",
+             "bna_comprador_t1_fecha", "updated_by", "updated_at"}
     """
     doc = _get_param_doc(_DOLARES_KEY, _DOLARES_FIELDS)
     oficial = _oficial_live_value()
     if oficial is not None:
         doc["dolar_matba"] = oficial  # real-time desde el dólar oficial (watchlist)
+    a3500, fecha_a3500 = _a3500_t1()
+    doc["bna_comprador_t1_fecha"] = fecha_a3500
+    if a3500 is not None:
+        doc["bna_comprador_t1"] = a3500
     return doc
 
 

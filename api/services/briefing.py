@@ -11,8 +11,9 @@ UNIFORME para todas las filas: HOY · 1D · WTD · MTD.
 Punto clave: WTD y MTD se calculan SIEMPRE sobre el último cierre disponible —
 sirven aunque hoy no haya operado (no dependen de 1D). Los futuros toman las
 anclas que persiste jobs/market_anchors en su doc; los dólares (A3500/MEP/CCL)
-se calculan al vuelo desde su propio histórico. El mayorista MAE aún no tiene
-histórico → HOY vivo o "Sin Ops", WTD/MTD en None.
+se calculan al vuelo desde su propio histórico. El mayorista MAE no persiste
+histórico (el feed upsertea una fila) → HOY vivo o "Sin Ops", y sus anclas WTD/MTD
+salen de los cierres del A3500 del BCRA, que es el fixing de ese mismo mercado.
 
 TODO determinista (regla de oro 1: la IA nunca es la fuente de un número). La
 capa de redacción IA se agrega ARRIBA de esto; este service es su fallback.
@@ -59,6 +60,17 @@ def _var_pct(actual: float | None, anterior: float | None) -> float | None:
     return round((float(actual) / float(anterior) - 1) * 100, 2)
 
 
+def _anclas_wtd_mtd(serie: list[tuple[date, float]],
+                    hoy_art: date) -> tuple[float | None, float | None]:
+    """De una serie de cierres DESCENDENTE por fecha, devuelve los dos valores-ancla:
+    el cierre previo al lunes de esta semana (WTD) y el previo al 1° del mes (MTD)."""
+    lunes = hoy_art - timedelta(days=hoy_art.weekday())
+    primero_mes = hoy_art.replace(day=1)
+    wtd = next((v for f, v in serie if f < lunes), None)
+    mtd = next((v for f, v in serie if f < primero_mes), None)
+    return wtd, mtd
+
+
 def _rets_hist(serie: list[tuple[date, Any]], hoy_art: date) -> dict[str, Any] | None:
     """Dada una serie de cierres [(fecha, valor), ...] DESCENDENTE por fecha,
     devuelve HOY (último cierre) + 1D/WTD/MTD. Las tres variaciones se anclan al
@@ -68,10 +80,7 @@ def _rets_hist(serie: list[tuple[date, Any]], hoy_art: date) -> dict[str, Any] |
         return None
     fecha0, hoy = limpia[0]
     prev = limpia[1][1] if len(limpia) > 1 else None
-    lunes = hoy_art - timedelta(days=hoy_art.weekday())
-    primero_mes = hoy_art.replace(day=1)
-    wtd = next((v for f, v in limpia if f < lunes), None)
-    mtd = next((v for f, v in limpia if f < primero_mes), None)
+    wtd, mtd = _anclas_wtd_mtd(limpia, hoy_art)
     return {
         "fecha":   fecha0,
         "hoy":     hoy,
@@ -115,9 +124,24 @@ def _futuros(cur) -> list[dict[str, Any]]:
     return out
 
 
-def _mayorista(cur, hoy_art: date) -> dict[str, Any]:
-    """Mayorista MAE de HOY (live). Sin histórico usable → WTD/MTD None; si el feed
-    no operó hoy, HOY=None (el front muestra 'Sin Ops', nunca un número viejo)."""
+def _serie_a3500(cur) -> list[tuple[date, float]]:
+    """Cierres del A3500 (BCRA) DESCENDENTE por fecha. 45 ruedas alcanzan para
+    las anclas WTD/MTD."""
+    cur.execute(
+        "SELECT fecha, valor FROM macro.series_macro"
+        " WHERE serie = 'DOLAR' AND valor IS NOT NULL ORDER BY fecha DESC LIMIT 45"
+    )
+    return [(f["fecha"], float(f["valor"])) for f in cur.fetchall()]
+
+
+def _mayorista(cur, hoy_art: date, serie_a3500: list[tuple[date, float]]) -> dict[str, Any]:
+    """Mayorista MAE de HOY (live). Si el feed no operó hoy, HOY=None (el front
+    muestra 'Sin Ops', nunca un número viejo).
+
+    El feed MAE no persiste histórico (upsertea UNA fila por instrumento), así que
+    WTD/MTD se anclan en los cierres del A3500 del BCRA — que ES el fixing de ese
+    mismo mercado mayorista. 1D sigue siendo la variación intradía que reporta MAE.
+    """
     row = {"label": "Mayorista MAE", "hoy": None, "ret_1d": None,
            "ret_wtd": None, "ret_mtd": None, "ts": None}
     cur.execute(
@@ -127,17 +151,15 @@ def _mayorista(cur, hoy_art: date) -> dict[str, Any]:
     fila = cur.fetchone()
     if fila and fila["updated_at"] and fila["updated_at"].astimezone(_ART).date() == hoy_art:
         data = fila["data"]
-        row.update(hoy=data.get("precioUltimo"), ret_1d=data.get("variacion"),
-                   ts=fila["updated_at"])
+        hoy = data.get("precioUltimo")
+        wtd, mtd = _anclas_wtd_mtd(serie_a3500, hoy_art)
+        row.update(hoy=hoy, ret_1d=data.get("variacion"), ts=fila["updated_at"],
+                   ret_wtd=_var_pct(hoy, wtd), ret_mtd=_var_pct(hoy, mtd))
     return row
 
 
-def _a3500(cur, hoy_art: date) -> dict[str, Any] | None:
-    cur.execute(
-        "SELECT fecha, valor FROM macro.series_macro"
-        " WHERE serie = 'DOLAR' ORDER BY fecha DESC LIMIT 45"
-    )
-    r = _rets_hist([(f["fecha"], f["valor"]) for f in cur.fetchall()], hoy_art)
+def _a3500(serie_a3500: list[tuple[date, float]], hoy_art: date) -> dict[str, Any] | None:
+    r = _rets_hist(serie_a3500, hoy_art)
     if r:
         r["label"] = "A3500 BCRA"
     return r
@@ -171,8 +193,9 @@ def briefing_hoy() -> dict[str, Any]:
     hoy_art = datetime.now(_ART).date()
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
         futuros = _futuros(cur)
-        mayorista = _mayorista(cur, hoy_art)
-        a3500 = _a3500(cur, hoy_art)
+        serie_a3500 = _serie_a3500(cur)
+        mayorista = _mayorista(cur, hoy_art, serie_a3500)
+        a3500 = _a3500(serie_a3500, hoy_art)
         financieros = _financieros(cur, hoy_art)
     oficial = [mayorista] + ([a3500] if a3500 else [])
     # Bonos que pagan hoy (cupón/amort/vto). Estructural sobre curvas, filtrado a lo

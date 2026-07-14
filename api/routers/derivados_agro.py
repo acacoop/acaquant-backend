@@ -276,8 +276,9 @@ def patch_tasas_cobertura(
 def dolares_referencia(
     _email: str = Depends(get_user_email),
 ):
-    """Dólares manuales Banco Nación / Matba Rofex (globales) que alimentarán el
-    Pase con Cobertura."""
+    """Dólares de referencia (globales) que alimentan el Pase con Cobertura.
+    Banco Nación es manual; Matba Rofex sale del oficial live y BNA Comprador T−1
+    del fixing A3500 del BCRA de T−1 (con `bna_comprador_t1_fecha`)."""
     return get_dolares_referencia()
 
 

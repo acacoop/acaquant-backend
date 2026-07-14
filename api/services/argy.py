@@ -175,6 +175,29 @@ def _live_oficial(casa: str) -> dict:
     return mid_oficial_live(casa)
 
 
+def _serie_oficial(today: date) -> list[tuple[date, float]]:
+    """Serie de cierres del dólar mayorista = fixing A3500 del BCRA
+    (`macro.series_macro` serie 'DOLAR', escrita por jobs/bcra).
+
+    El feed MAE (live) NO persiste histórico — upsertea una sola fila por
+    instrumento — así que los anchors 7d/MTD/YTD del oficial se toman del A3500,
+    que es el cierre oficial del MISMO mercado mayorista. Se pide sólo desde
+    diciembre del año pasado: alcanza para el ancla YTD y evita traer la serie
+    entera en un endpoint que corre cada 5s.
+    """
+    from core.series_macro import serie_dict
+    desde = date(today.year - 1, 12, 1).isoformat()
+    d = serie_dict("DOLAR", desde=desde, positivo=True)
+    out: list[tuple[date, float]] = []
+    for f, v in d.items():
+        try:
+            out.append((date.fromisoformat(f), float(v)))
+        except (ValueError, TypeError):
+            continue
+    out.sort()
+    return out
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
@@ -223,21 +246,22 @@ def get_argy_with_returns() -> list[dict[str, Any]]:
         })
 
     # ── Dólar oficial (MAE mayorista UST$T) ──
-    # Spot vivo + %Día desde Valuaciones.DolarOficialLive (script
-    # `mae_forex.py` corriendo en PC oficina, IP no bloqueada por MAE).
-    # 7d/MTD/YTD quedan en None — la fuente histórica anterior
-    # (Valuaciones.DolarOficial / dolarapi.com) se eliminó el 2026-05-04.
-    # Cuando DolarOficialLive acumule history se puede agregar la serie acá.
+    # Spot vivo + %Día desde valuaciones.dolar_oficial_live (script `mae_forex.py`
+    # corriendo en PC oficina, IP no bloqueada por MAE). El %Día es el que reporta
+    # MAE (intradía); 7d/MTD/YTD se anclan en el fixing A3500 del BCRA — el feed MAE
+    # no guarda histórico y el A3500 ES el cierre de ese mismo mercado mayorista.
     live_oficial = _live_oficial("oficial")
     var_mae = live_oficial.get("variacion")
+    val_oficial = live_oficial.get("value")
+    s_oficial = _serie_oficial(today)
     out.append({
         "label":   "DOLAR OFICIAL",
-        "value":   live_oficial.get("value"),
+        "value":   val_oficial,
         "unit":    "$",
         "ret_day": round(var_mae, 2) if var_mae is not None else None,
-        "ret_7d":  None,
-        "ret_mtd": None,
-        "ret_ytd": None,
+        "ret_7d":  _ret_pct(val_oficial, _last_le(s_oficial, anchors["7d"])),
+        "ret_mtd": _ret_pct(val_oficial, _last_le(s_oficial, anchors["mtd"])),
+        "ret_ytd": _ret_pct(val_oficial, _last_le(s_oficial, anchors["ytd"])),
         "ts":      live_oficial.get("ts").isoformat() if isinstance(live_oficial.get("ts"), datetime) else None,
         "source":  live_oficial.get("source"),
     })

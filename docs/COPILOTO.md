@@ -15,7 +15,7 @@
 | Transporte LLM | `core/ai.py` | Gateway único: tarea `copiloto_vista` (tier flash, max_tokens 2000), presupuesto diario, retry, traza de cada llamada. No sabe nada del copiloto. |
 | HTTP | `api/routers/ia.py` | 3 endpoints: `GET /api/ia/copiloto/vistas`, `POST /api/ia/copiloto`, `POST /api/ia/copiloto/feedback`. Solo plumbing; gate `ia` en el montaje. |
 | Panel UI | `acaquant-web/src/components/ia-vista-panel.tsx` | Drawer + botón "Consultale a la IA". Historial corto client-side. Se oculta si el backend no habilita la vista. |
-| Ubicación del botón | `acaquant-web/src/components/renta-variable-shell.tsx` | Monta `<IaVistaPanel vista="renta_variable" />` en la barra de tabs. |
+| Ubicación del botón | `acaquant-web/src/components/header.tsx` (`VISTA_IA_POR_RUTA`) | Slot derecho del header (ex-TERMINAL) para HOME/RF/RV/Agro/Opciones/ONs. Excepción: /trading monta el suyo in-view (cableado a tarjetas + vigía). |
 | Observabilidad | tabla `ia.trazas` + Manager → OBSERVABILIDAD → pill IA | Cada pregunta: tokens, latencia, ok/error, feedback 👍/👎. |
 | Tests | `tests/unit/test_copiloto.py` | Congelan contrato: TSV, gates, caps, degradación, detección de tickers, verificador. |
 | Diag de contexto | `scripts/diag_contexto.py --vista <v>` | LA LUPA (todas las vistas): imprime el contexto exacto que ve el modelo, sin tokens. Primer comando ante cualquier rareza. |
@@ -115,6 +115,43 @@ completas + 👍/👎 · presupuestos con kill switch editables.
 prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
+
+### 2026-07-14 — v1.49 (TRES VISTAS NUEVAS: Agro · Opciones · ONs — pedido del user)
+- **[vista +]** `agro` (módulo `agro`, página /agro): tabla = el PASE AGRO
+  aplanado (pizarra + futuros por commodity; pase en US$/Tn y TNAV ya en %).
+  Extras: [pase con cobertura] (cards ON/Pagaré con ganancia por tonelada y el
+  pase lleno NETO del costo pase, todo precalculado), [datos de referencia]
+  (dólar BNA / Matba / BNA T-1 con su fecha A3500 + costo pase 0,45%), [cámara
+  de cereales] y aviso de frescura fuera de rueda. `agro_sql.get_pase_agro`
+  ganó `@cached(5s)`: fetch y extras comparten el payload (y el poll del shell
+  lo aprovecha). Reglas: los inputs manuales pueden faltar → "sin dato cargado"
+  (jamás estimar); semántica del signo del pase; ON vs Pagaré SIEMPRE juntos
+  (la elección es del usuario); nada de clima/cosecha/retenciones de memoria.
+  Chips: Panorama agro · ¿ON o Pagaré? · Datos de referencia.
+- **[vista +]** `derivados` (módulo `derivados`, página /derivados): la chain
+  de OPCIONES sobre GGAL — solo contratos CON precio (mismo filtro que la
+  vista), IV fracción→%, griegas tal cual las calcula el motor (jamás
+  recalcular). Extras: [referencias] (tasa libre de riesgo + vol realizada 40
+  ruedas local/ADR) y [resumen por vencimiento] (calls/puts, rango de strikes,
+  volumen efectivo, IV del strike más cercano al spot — precalculado). Reglas:
+  la prima no es el subyacente; IV vs realizada SOLO con los números dados;
+  griegas traducidas a lenguaje de mesa; actividad = vol_efectivo; PROHIBIDA la
+  recomendación de operatoria concreta; la acción GGAL se deriva a RV/Trading.
+  Chips: Panorama de la chain · ¿La vol está cara? · Calls vs puts.
+- **[vista +]** `ons` (módulo `renta-fija` — el mismo gate que la página /ons
+  en la nav): la curva de ONs por sector (energía/finanzas/otros), TEA
+  fracción→%. Extras: [TEA promedio por sector y moneda] (precalculado — la
+  moneda separa rankings SIEMPRE) y [próximos pagos] (calendario 90 días,
+  monto por 100 VN). Reglas: LA ILIQUIDEZ ES EL TEMA CENTRAL (nominales_dia
+  manda; una TEA altísima = precio viejo O riesgo del emisor, sin inventar
+  cuál); riesgo crediticio además de tasa; soberanos/lecaps → Renta Fija.
+  Chips: Panorama de ONs · Mejores TEA en USD · Pagos próximos.
+- **[UI]** Botón "Consultale a la IA" del header también en /agro, /derivados
+  y /ons (mapa `VISTA_IA_POR_RUTA`, header.tsx). La derivación entre vistas
+  las incorpora sola (lista RBAC-aware).
+- **[tests]** 5 casos nuevos congelan: registro/módulos de las 3 vistas,
+  aplanado + tnav% del agro, filtro sin-precio + iv% de opciones, tea% +
+  sector de ONs, y promedios por sector-moneda.
 
 ### 2026-07-13 — v1.48 (no sustituir lo que no se tiene + NARRÁMELO fuera del briefing)
 - **[prompt ~, fallo real]** "¿Qué ONs ley local me recomendás?" en RF → el

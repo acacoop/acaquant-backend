@@ -25,6 +25,7 @@ from typing import Any
 
 from psycopg.rows import dict_row
 
+from api.cache import cached
 from api.services import agro_cobertura as _cob
 from api.services import camara_cereales as _cam
 from api.services import derivados_agro as _agro
@@ -62,11 +63,16 @@ def _rows(table: str, where: str = "", params: tuple = ()) -> list[dict]:
 
 
 # ── PASE AGRO ────────────────────────────────────────────────────────────────
+@cached(ttl=5)
 def get_pase_agro() -> dict[str, Any]:
     """Tabla PASE AGRO desde SQL. Mismo shape que `derivados_agro.get_pase_agro`.
 
     Reusa los builders puros del módulo Mongo (`_build_bloque`, frescura) — acá
     solo se cambian las 3 lecturas (AgroPizarra/CamaraCereales/AgroSnapshot) por SQL.
+
+    @cached(5s): el shell de /agro pollea y el copiloto la lee DOS veces por
+    pregunta (fetch + extras) — con el cache la segunda es gratis y la frescura
+    real no cambia (el motor escribe cada ~5s).
     """
     pizarras = {p["commodity"]: p for p in _rows("agro_pizarra")
                 if p.get("commodity")}

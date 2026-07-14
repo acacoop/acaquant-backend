@@ -68,13 +68,13 @@ calendario.
 - **Fase 0: 3 de 4 hechos** (gateway, RBAC, observabilidad). Falta solo la
   suite de evals (punto 4), diferida A PROPÓSITO hasta tener outputs reales
   que congelar como casos (hoy no hay ninguna tarea LLM corriendo en prod).
-- **Cabos sueltos al cierre 2026-07-10:**
-  1. Validar la frescura del feed MAE (PC oficina) a las 10:00 ART — el propio
-     modal del briefing lo revela: si muestra "aún sin operaciones" a las 10 y
-     precio a las 10:15, se corre la hora o se acepta el delay.
-  2. `.env` del Droplet tiene una línea mal formada (warning python-dotenv
-     "line 33") — no rompe, pero si esa línea era una var real se está
-     ignorando en silencio. Ver con `sed -n '33p' /root/TradingAV/.env`.
+- **Cabos sueltos:**
+  1. `.env` del Droplet tiene una línea mal formada (warning python-dotenv
+     "line 33", sigue apareciendo al 2026-07-14) — no rompe, pero si esa línea
+     era una var real se está ignorando en silencio. Ver con
+     `sed -n '33p' /root/TradingAV/.env`.
+  (El cabo de la frescura del feed MAE a las 10:00 se descartó junto con los
+  pendientes del briefing — P1 cerrado 2026-07-14.)
 
 ---
 
@@ -125,78 +125,15 @@ calendario.
 
 ## Proyectos elegidos (orden = dependencias)
 
-### P1 — Briefing de apertura automático
-**Estado: v2 COMPLETA (backend + modal), en shadow · falta solo el bloque
-Agenda (fuente)** · Tipo: modal in-app · Canal: SOLO interno (decisión del user
-2026-07: NADA de Telegram para esto)
-
-**Decisión 2026-07-10 (user): la v1/v2 son SIN LLM.** El contenido son solo
-números → regla de oro 1: se renderiza determinista. La capa de redacción IA se
-suma ARRIBA cuando el briefing incorpore narrativa; este cartel ES su fallback.
-**HECHO (2026-07-12): la capa narrativa llegó vía el copiloto** — botón
-🗣 NARRÁMELO en el modal (y chip "Narrame el briefing" en la vista HOME del
-copiloto, P3 v1.43): narración A DEMANDA con el mismo payload como contexto
-(cero tokens de cron; la tabla determinista sigue siendo fuente y fallback).
-
-**v1 (base):** `api/services/briefing.py` (compute-on-read, sin cron ni tabla:
-reusa `home.market_quotes`, `valuaciones.dolar_oficial_live`, `macro.series_macro`
-DOLAR, `valuaciones.dolar`; "rueda anterior" = últimos días CON datos → feriados
-gratis) + `GET /api/ia/briefing` (gate `ia`) + `BriefingModal` en HOME.
-
-**v2 (2026-07-10, backend hecho — falta rehacer el modal):** rediseño de contenido
-pedido por la mesa, medido con diags antes de construir. Modelo de columnas
-UNIFORME `HOY · 1D · WTD · MTD` para toda fila. Bloques del payload:
-- **`futuros`** (10, agrupados Índices US/Energía/Metales/Granos/Cripto): los 10 de
-  `HOME_FUTUROS` ya se ingerían; se extendió `jobs/market_anchors` para cubrirlos
-  (+ ancla nueva `anchor_wtd` = week-to-date real, además de `anchor_7d` rolling
-  que se mantiene para /argy). 1D=pct_day, WTD/MTD desde anclas del doc.
-- **`oficial`** (mayorista MAE live + A3500) y **`financieros`** (MEP/CCL): WTD/MTD
-  se calculan al vuelo desde su propio histórico (sirven aunque hoy no opere —
-  se anclan al último cierre). Mayorista sin histórico → HOY "Sin Ops", WTD/MTD None.
-- **`pagan_hoy`**: bonos que pagan cupón/amort/vto hoy (título SIN "en cartera" pero
-  FILTRADO a lo held). `acreencias.bonos_pagan_en_fecha`: ESTRUCTURAL sobre
-  `mercado.curvas` (existe el flujo con fecha == hoy, no lo valúa → un CER que paga
-  hoy aparece aunque su CER de liq no esté publicado) cruzado con el último AUM.
-  Cacheado por día (el poll no recomputa). NO toca la tabla de acreencias ni el job.
-  Pendiente aparte (pedido del user): llevar `titulos_sin_flujo` (bonos en cartera
-  SIN flujo) a un control automático de health (hoy vive solo en el Manager).
-- **`agenda` — DIFERIDO por fuente muerta.** `home.market_calendar` (Finnhub free)
-  dejó de servir datos ~2026-04; última ventana 17/04→17/06. Reemplazo decidido:
-  **FMP** (`/api/v3/economic_calendar`, free 250 req/día, verificado). PENDIENTE:
-  `FMP_API_KEY` en el Droplet (REGLA #6) → escribir `core/fmp.py` + reapuntar
-  `jobs/economic_calendar` a FMP (misma tabla) + sumar bloque `agenda` al briefing.
-
-Los diags de diseño del briefing (`diag_briefing_*`) se borraron al cerrar el
-contenido (REGLA #5). Si se retoma el bloque Agenda, se re-arma uno puntual.
-
-**Modal (acaquant-web `briefing-modal.tsx`):** rehecho al shape v2 — tabla
-uniforme de 4 columnas, futuros agrupados, mayorista "Sin Ops", bloque "Bonos que
-pagan hoy" (solo si hay). Aparece 10:00 ART L-V (gate `ia`), dismiss por día,
-botón ☀ BRIEFING para re-lectura — desde 2026-07-12 vive INLINE en la barra de
-estado inferior (footer global de `layout.tsx`, junto a MERVAL/ROFEX; antes era
-un fixed flotante que quedaba desolapado sobre la barra). Efecto: botón y
-auto-modal ahora existen en TODAS las páginas, no solo HOME.
-
-**Pendientes:** (1) Agenda vía FMP (ver arriba — necesita `FMP_API_KEY`).
-(2) Health: `titulos_sin_flujo` → control automático en `controles_datos`.
-(3) frescura del feed MAE a las 10:00 (PC oficina). (4) verificar el cruce de
-"bonos que pagan hoy" el día que pague alguno (hoy 10/07 no paga ninguno).
-
-Cron pre-apertura que junta lo YA ingerido (ADRs, dólar, riesgo país,
-economic_calendar, news_headlines, acreencias próximas, estado de controles) en
-un JSON, el LLM lo REDACTA como informe de mesa de ~12 líneas y se PERSISTE
-(tabla SQL, 1 fila por día). La IA no busca ni decide: narra datos verificados
-(workflow determinista con un paso de redacción — no es un agente, y no debe
-serlo).
-
-**Entrega — modal "Briefing" en HOME:** al abrir acaquant, al usuario (con
-módulo `ia`) le aparece una ventana centrada con el briefing del día y un botón
-**"No volver a mostrar"** que lo silencia POR ESE DÍA (dismiss persistido por
-usuario+fecha — localStorage alcanza para v1; al día siguiente reaparece con el
-briefing nuevo). Si el briefing del día aún no se generó o el LLM falló, el
-modal no aparece (failing gracefully: nunca una ventana vacía). Re-lectura
-manual: acceso desde HOME para volver a abrirlo aunque se haya descartado.
-Éxito: que la mesa lo reclame el día que falte.
+### P1 — Briefing de apertura — CERRADO COMO ESTÁ (decisión del user 2026-07-14)
+La feature queda VIVA tal cual corre (modal 10:00 ART + botón ☀ BRIEFING en el
+footer global + `GET /api/ia/briefing` + `api/services/briefing.py`, columnas
+HOY·1D·WTD·MTD, determinista sin LLM) pero **no se invierte más en ella**: los
+pendientes que tenía (bloque Agenda vía FMP, health de `titulos_sin_flujo`,
+frescura del feed MAE a las 10, verificación de "pagan hoy") quedan DESCARTADOS
+del roadmap — no re-proponer sin pedido del user. Mantenimiento correctivo
+solamente (si se rompe, se arregla). Nota: el mayorista MAE ganó WTD/MTD
+anclado en el A3500 el 2026-07-14, ya deployado.
 
 ### P2 — Triage inteligente de incidentes
 **Estado: v1 FUNCIONANDO (2026-07-10) — probado con fallas reales, falta shadow** ·
@@ -243,9 +180,10 @@ el razonamiento se guarda en `ia.trazas.razonamiento`) · sumar 'partial'
 además de 'error' si hace falta · subir max_tokens de `controles_resumen`.
 
 ### P3 — Copiloto de Mesa
-**Estado: v1.46 (2026-07-13) — 4 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
-TRADING (+ el VIGÍA reactivo) y RENTA FIJA** · Tipo: copiloto contextual por
-vista · Gate: `ia` + módulo RBAC de la vista
+**Estado: v1.49 (2026-07-14) — 7 VISTAS ABIERTAS A LA MESA: HOME, Renta Variable,
+TRADING (+ el VIGÍA reactivo), RENTA FIJA, y las 3 nuevas AGRO, OPCIONES
+(derivados) y ONs** · Tipo: copiloto contextual por vista · Gate: `ia` + módulo
+RBAC de la vista
 
 > **Rollout 2026-07-13:** el user sumó el módulo `ia` a **trader y sales** →
 > el copiloto y el briefing dejan el shadow admin-only y quedan disponibles

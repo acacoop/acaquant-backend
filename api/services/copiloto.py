@@ -2037,6 +2037,352 @@ _TONO_POR_ROL = {
 }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Vista AGRO — pase agro (pizarra vs futuros Matba) + pase con cobertura
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _fmtn(v, dec: int = 2) -> str:
+    """Número para los bloques de extras — '—' si falta (input manual sin cargar)."""
+    try:
+        return f"{float(v):.{dec}f}" if v is not None else "—"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _fetch_agro(params: dict | None = None) -> list[dict]:
+    """Una fila por renglón del PASE AGRO (pizarra + futuros de TRIGO/MAIZ/SOJA).
+    La fila 'dispo' (placeholder sin datos) se saltea. tnav viene en FRACCIÓN del
+    service → % (lección v1.34). El resto del payload (cards de cobertura, tasas,
+    dólares) va en los extras — get_pase_agro es @cached(5s), el refetch es gratis."""
+    from api.services import agro_sql
+
+    data = agro_sql.get_pase_agro() or {}
+    filas: list[dict] = []
+    for b in data.get("bloques") or []:
+        for r in b.get("rows") or []:
+            if r.get("tipo") == "dispo":
+                continue
+            tnav = r.get("tnav_us")
+            filas.append({
+                "commodity": b.get("commodity"),
+                "tipo": r.get("tipo"),
+                "posicion": r.get("posicion"),
+                "vencimiento": r.get("vencimiento"),
+                "dias": r.get("dias_a_vto"),
+                "us": r.get("us"),
+                "ars": r.get("ars"),
+                "pase": r.get("pase"),
+                "tnav": float(tnav) * 100 if tnav is not None else None,
+            })
+    return filas
+
+
+def _extras_agro(
+    filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
+) -> list[str]:
+    from api.services import agro_sql
+
+    partes: list[str] = []
+    try:
+        data = agro_sql.get_pase_agro() or {}  # @cached → mismo payload que el fetch
+    except Exception as e:
+        logger.warning("copiloto agro: extras sin payload (%s)", e)
+        return partes
+
+    # [pase con cobertura] — las cards ON/Pagaré YA calculadas por código
+    pc = data.get("pase_cobertura") or {}
+    lineas: list[str] = []
+    for c in pc.get("commodities") or []:
+        vd = c.get("venta_dispo_ars")
+        lineas.append(
+            f"{c.get('commodity')}: venta dispo {_fmtn(vd)} ARS/Tn"
+            if vd is not None else f"{c.get('commodity')}: sin precio dispo cargado"
+        )
+        for card in c.get("cards") or []:
+            seg = [f"  {card.get('posicion')} ({card.get('dias')}d)"]
+            pl = card.get("pase_lleno")
+            if pl is not None and card.get("pase_bruto") is not None:
+                seg.append(
+                    f"pase lleno {_fmtn(pl)} US$/Tn (bruto {_fmtn(card.get('pase_bruto'))} "
+                    f"− costo pase {_fmtn(card.get('total_gastos'))})"
+                )
+            else:
+                seg.append(f"pase lleno {_fmtn(pl)} US$/Tn")
+            seg.append(f"ganancia ON {_fmtn(card.get('ganancia_on_usd'))} US$/Tn")
+            seg.append(f"ganancia Pagaré {_fmtn(card.get('ganancia_pagare_usd'))} US$/Tn")
+            lineas.append(" · ".join(seg))
+    if lineas:
+        tasas = data.get("tasas_cobertura") or {}
+        partes.append(
+            "[pase con cobertura — la vuelta de vender el grano dispo hoy, colocar los "
+            "pesos a tasa y recomprar el futuro (costo pase ya incluido); tasa ON "
+            f"{_fmtn(tasas.get('tasa_on'))}% · tasa Pagaré {_fmtn(tasas.get('tasa_pagare'))}% · "
+            f"caución 7d {_fmtn(tasas.get('tasa_caucion_7d'))}%]"
+        )
+        partes.extend(lineas)
+
+    # [datos de referencia] — dólares + costo pase (constantes de mercado)
+    try:
+        from api.services.agro_cobertura import get_costo_pase
+        from api.services.camara_cereales import get_camara_cereales, get_dolares_referencia
+
+        d = get_dolares_referencia() or {}
+        cp = get_costo_pase() or {}
+        linea_ref = (
+            f"[datos de referencia] dólar BNA {_fmtn(d.get('dolar_bna'))} · "
+            f"dólar Matba (oficial live) {_fmtn(d.get('dolar_matba'))} · "
+            f"BNA comprador T-1 {_fmtn(d.get('bna_comprador_t1'))}"
+        )
+        if d.get("bna_comprador_t1_fecha"):
+            linea_ref += f" (fixing A3500 del {d['bna_comprador_t1_fecha']})"
+        linea_ref += (
+            f" · costo pase {_fmtn(cp.get('total_pct'))}% del valor del futuro "
+            "(derechos de mercado + apertura, ida y vuelta)"
+        )
+        partes.append(linea_ref)
+
+        cam = get_camara_cereales() or {}
+        lin = [
+            f"{r.get('cereal')}: {_fmtn(r.get('precio_ars'))} ARS/Tn · "
+            f"{_fmtn(r.get('precio_usd'))} US$/Tn"
+            for r in cam.get("cereales") or []
+            if r.get("precio_ars") is not None or r.get("precio_usd") is not None
+        ]
+        if lin:
+            partes.append("[cámara de cereales — precio disponible de hoy]")
+            partes.extend(lin)
+    except Exception as e:
+        logger.warning("copiloto agro: datos de referencia fallaron (%s)", e)
+
+    if data.get("data_fresh") is False:
+        partes.append(
+            "[aviso] los futuros NO están live ahora (motor fuera de rueda): los "
+            "precios son del último snapshot guardado — decilo si preguntan por 'ahora'."
+        )
+    return partes
+
+
+_REGLAS_AGRO = """Sos el copiloto de la vista AGRO — granos (trigo, maíz, soja): la pizarra \
+contra los futuros de Matba Rofex y el pase con cobertura del productor.
+
+Columnas de la tabla: commodity · tipo (pizarra = precio disponible de HOY, el que carga la \
+mesa desde la Cámara; futuro = contrato Matba Rofex con su last) · posicion · vence · dias \
+(al vencimiento) · precio_usd_tn · precio_ars_tn (al dólar oficial) · pase_usd_tn (pizarra − \
+futuro, en US$/Tn: NEGATIVO = el futuro cotiza POR ENCIMA de la pizarra, vender a plazo paga \
+más que el disponible; POSITIVO = al revés) · tnav% (la tasa anualizada compuesta de ese pase).
+
+[pase con cobertura]: la vuelta completa por posición, YA calculada por código: vender el \
+grano disponible hoy, colocar los pesos a tasa y recomprar el futuro al vencimiento (el \
+costo pase de mercado ya está incluido). Dos caminos que SIEMPRE se presentan juntos con \
+sus números: ON (descuenta con el dólar Matba y la tasa ON) y Pagaré (descuenta con el BNA \
+comprador T-1 y la tasa Pagaré). "Ganancia" es US$ por tonelada contra quedarse con el \
+grano: positiva = la vuelta paga; negativa = no paga. La elección es del usuario — vos \
+mostrás el trade-off, jamás ordenás uno.
+
+Reglas duras de esta vista:
+- Varios inputs son CARGA MANUAL de la mesa (precios de Cámara, dólar BNA, tasas). Si un \
+dato viene "—", decí "sin dato cargado hoy" — jamás lo estimes ni lo completes de memoria.
+- El pase se lee DENTRO de cada commodity (contra sus otros vencimientos); comparar trigo \
+contra soja solo si te lo piden explícito.
+- Nada de causas de mercado inventadas (clima, cosecha, retenciones, FAS teórico): tus \
+datos dicen QUÉ pasa con precios y pases, no POR QUÉ."""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vista DERIVADOS — la chain de OPCIONES (calls/puts, primas, IV, griegas)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _fetch_opciones(params: dict | None = None) -> list[dict]:
+    """La chain vigente (mercado.options_snapshot vía opciones_sql, @cached 60s).
+    Mismo filtro que la vista: solo contratos con ALGÚN precio (bid/offer/last) —
+    un strike sin cotizar no aporta nada y quema tokens. IV en FRACCIÓN → %."""
+    from api.services import opciones_sql
+
+    filas: list[dict] = []
+    for o in opciones_sql.get_opciones() or []:
+        if not ((o.get("last") or 0) > 0 or (o.get("bid") or 0) > 0
+                or (o.get("offer") or 0) > 0):
+            continue
+        f = dict(o)
+        if f.get("iv") is not None:
+            f["iv"] = float(f["iv"]) * 100
+        filas.append(f)
+    filas.sort(key=lambda f: (str(f.get("vence") or ""),
+                              float(f.get("strike") or 0), str(f.get("tipo") or "")))
+    return filas
+
+
+def _extras_opciones(
+    filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
+) -> list[str]:
+    partes: list[str] = []
+    try:
+        from api.services import opciones_sql
+
+        meta = opciones_sql.get_opciones_meta() or {}
+        tasa = meta.get("tasa")
+        vrl, vra = meta.get("vr_local"), meta.get("vr_adr")
+        partes.append(
+            "[referencias] tasa libre de riesgo "
+            f"{_fmtn(tasa * 100 if tasa else None, 1)}% · vol realizada del subyacente "
+            f"(40 ruedas): local {_fmtn(vrl * 100 if vrl else None, 1)}% · "
+            f"ADR {_fmtn(vra * 100 if vra else None, 1)}%"
+        )
+    except Exception as e:
+        logger.warning("copiloto opciones: meta falló (%s)", e)
+
+    # [resumen por vencimiento] — agregados deterministas (regla de oro 1)
+    spot = next((f.get("spot") for f in filas if f.get("spot")), None)
+    por_vto: dict[str, dict] = {}
+    for f in filas:
+        v = str(f.get("vence") or "?")
+        g = por_vto.setdefault(v, {"calls": 0, "puts": 0, "vol": 0.0,
+                                   "strikes": [], "atm": None, "atm_dist": None})
+        if str(f.get("tipo") or "").upper().startswith("C"):
+            g["calls"] += 1
+        else:
+            g["puts"] += 1
+        g["vol"] += float(f.get("ev") or 0)
+        st = f.get("strike")
+        if st is not None:
+            g["strikes"].append(float(st))
+            if spot and f.get("iv") is not None:
+                dist = abs(float(st) - float(spot))
+                if g["atm_dist"] is None or dist < g["atm_dist"]:
+                    g["atm_dist"], g["atm"] = dist, float(f["iv"])
+    if por_vto:
+        partes.append(f"[resumen por vencimiento — spot del subyacente {_fmtn(spot)}]")
+        for v, g in sorted(por_vto.items()):
+            rng = (f"{min(g['strikes']):.0f} a {max(g['strikes']):.0f}"
+                   if g["strikes"] else "—")
+            partes.append(
+                f"{v}: {g['calls']} calls · {g['puts']} puts · strikes {rng} · "
+                f"volumen efectivo {g['vol']:.0f} · IV del strike más cercano al spot "
+                f"{_fmtn(g['atm'], 1)}%"
+            )
+    return partes
+
+
+_REGLAS_OPCIONES = """Sos el copiloto de la vista OPCIONES (derivados) — la cadena de \
+opciones sobre GGAL (el spot de cada fila es el precio del subyacente).
+
+Columnas: contrato · tipo (CALL/PUT) · strike (precio de ejercicio) · vence · compra/venta/\
+ultima_prima (lo que COTIZA LA OPCIÓN — la prima, no el subyacente) · cierre_ant · \
+vol_efectivo (cuánto se operó ese contrato) · iv% (volatilidad implícita anualizada) · \
+delta/gamma/theta/vega (griegas ya calculadas por el sistema — JAMÁS las recalcules) · \
+spot_subyacente.
+
+Cómo se lee acá:
+- Fuera de rueda la chain muestra el último cierre — si preguntan por "ahora", aclaralo.
+- IV vs la vol realizada del bloque [referencias]: IV bien arriba de la realizada = el \
+mercado paga caro el seguro; abajo = lo paga barato. Compará SOLO con esos números dados.
+- Las griegas se traducen a lenguaje de mesa: delta ≈ cuánto acompaña al subyacente (y una \
+idea de probabilidad de terminar en el dinero), theta = lo que la prima pierde por día, \
+vega = cuánto la mueve un cambio de vol. La letra griega pelada solo si el usuario la usa.
+- "El strike más operado" / "dónde está la actividad" sale de vol_efectivo — jamás lo \
+inventes de la cantidad de filas.
+- PROHIBIDO armar la recomendación de una operatoria concreta ("comprá el call X", \
+"vendé la put Y", lanzamientos cubiertos con nombres). Podés describir qué strikes \
+concentran actividad, qué IV paga cada vencimiento y qué implica, con números.
+- El análisis del papel GGAL como ACCIÓN (retornos, pivots, sector) vive en Renta \
+Variable / Trading — si la pregunta es sobre la acción y no sobre las opciones, derivá."""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vista ONs — obligaciones negociables (deuda corporativa, curva on_<sector>)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SECTOR_ON_LABEL = {"on_energia": "energia", "on_finanzas": "finanzas",
+                    "on_otros": "otros", "on": "otros"}
+
+
+def _fetch_ons(params: dict | None = None) -> list[dict]:
+    """Las ONs de la vista /ons: renta_fija_sql.listar_curva(curva='on') — el
+    MISMO service @cached(10s) que la página (kwargs SIEMPRE: es @cached).
+    TEA viene en FRACCIÓN → % (paridad ya está en escala 100)."""
+    from api.services import renta_fija_sql
+
+    filas: list[dict] = []
+    for b in renta_fija_sql.listar_curva(curva="on", ordenar_por="vencimiento") or []:
+        f = dict(b)
+        f["sector_label"] = _SECTOR_ON_LABEL.get(str(f.get("sector") or ""), "otros")
+        if f.get("tea") is not None:
+            f["tea"] = float(f["tea"]) * 100
+        filas.append(f)
+    return filas
+
+
+def _extras_ons(
+    filas: list[dict], pregunta: str, historial: list[dict], params: dict | None = None
+) -> list[str]:
+    partes: list[str] = []
+
+    # [TEA promedio por sector y moneda] — precalculado por código
+    grupos: dict[tuple, list[float]] = {}
+    for f in filas:
+        if f.get("tea") is None:
+            continue
+        clave = (f.get("sector_label") or "otros", f.get("moneda") or "?")
+        grupos.setdefault(clave, []).append(float(f["tea"]))
+    if grupos:
+        partes.append("[TEA promedio por sector y moneda — calculado por código]")
+        for (sec, mon), teas in sorted(grupos.items()):
+            partes.append(
+                f"{sec} ({mon}): {len(teas)} ONs · TEA promedio "
+                f"{sum(teas) / len(teas):.2f}%"
+            )
+
+    # [próximos pagos] — cupones/amortizaciones que vienen (90 días)
+    try:
+        from api.services import renta_fija
+
+        pagos = renta_fija.calendario_ons(meses=3) or []
+        lin = []
+        for p in pagos[:15]:
+            s = f"{p.get('fecha')}: {p.get('ticker')} ({p.get('emisor') or '—'}) — paga "
+            s += f"{_fmtn(p.get('monto'))} por 100 VN"
+            if p.get("amortizacion"):
+                s += f" (amortiza {_fmtn(p.get('amortizacion'))})"
+            if p.get("moneda"):
+                s += f" · {p['moneda']}"
+            lin.append(s)
+        if lin:
+            partes.append(
+                f"[próximos pagos de ONs (90 días) — {len(pagos)} pagos"
+                + (f", muestro los primeros {len(lin)}" if len(pagos) > len(lin) else "")
+                + "]"
+            )
+            partes.extend(lin)
+    except Exception as e:
+        logger.warning("copiloto ons: calendario falló (%s)", e)
+    return partes
+
+
+_REGLAS_ONS = """Sos el copiloto de la vista ONs — obligaciones negociables: deuda \
+CORPORATIVA argentina, agrupada por sector (energía / finanzas / otros).
+
+Columnas: ticker · emisor (la empresa que debe — acá el riesgo es CREDITICIO además de \
+tasa) · sector · moneda · vence · meses · precio · tea% (rendimiento anual efectivo, YA \
+en %) · dur (duration en años: sensibilidad a tasa) · paridad% · nominales_dia (cuánto \
+operó HOY).
+
+Cómo se lee acá:
+- LA ILIQUIDEZ ES EL TEMA CENTRAL: muchas ONs operan poco o nada en el día. nominales_dia \
+bajo o vacío = el precio puede ser VIEJO y su TEA, engañosa. Cualquier ranking de \
+rendimiento prioriza papeles CON volumen y lleva la advertencia de liquidez pegada.
+- Una TEA altísima contra el resto de su sector suele ser precio viejo O riesgo del \
+emisor que el mercado está cobrando — decí que puede ser cualquiera de los dos, sin \
+inventar cuál.
+- MONEDA MANDA: una TEA en USD y una en ARS NO son comparables — jamás las mezcles en un \
+mismo ranking; siempre separá por moneda como hace el bloque de promedios.
+- [próximos pagos] responde "¿qué cupones/amortizaciones vienen?" con fecha, emisor y \
+monto por 100 VN.
+- Los soberanos, lecaps y CER viven en Renta Fija — derivá si preguntan por bonos del \
+Tesoro. Acá solo deuda corporativa."""
+
+
 VISTAS: dict[str, dict] = {
     "home": {
         "titulo": "Home",
@@ -2171,6 +2517,106 @@ VISTAS: dict[str, dict] = {
             ("zona", "zona_actual"), ("nivel_cercano", "nivel_cercano"),
         ],
         "reglas": _REGLAS_TRADING,
+    },
+    "agro": {
+        "titulo": "Agro",
+        "modulo": "agro",
+        "dominio": "granos (trigo, maíz, soja) — pizarra vs futuros Matba Rofex, "
+                   "pase agro, pase con cobertura ON/Pagaré, precios de Cámara",
+        "fetch": _fetch_agro,
+        "extras": _extras_agro,
+        # el idioma del productor/la mesa agro — no es jerga interna
+        "jerga_permitida": {"pase", "tnav", "pizarra", "dispo", "bna", "matba",
+                            "tna", "caucion", "commodity", "posicion", "vencimiento",
+                            "tipo", "ars", "dias", "cobertura", "pagare"},
+        "chips": [
+            {"label": "Panorama agro",
+             "pregunta": "¿Cómo están hoy trigo, maíz y soja? Pizarra contra futuros "
+                         "y qué pase se destaca en cada uno. Cortito, por commodity."},
+            {"label": "¿ON o Pagaré?",
+             "pregunta": "Con las cards del pase con cobertura de hoy: ¿dónde da más "
+                         "la vuelta, ON o Pagaré, y en qué posición? Números por "
+                         "tonelada y el supuesto de cada camino, sin ordenarme uno."},
+            {"label": "Datos de referencia",
+             "pregunta": "¿Con qué dólares y tasas está calculado todo hoy? BNA, "
+                         "Matba, BNA T-1, tasas ON/Pagaré/caución y el costo pase."},
+        ],
+        "columnas": [
+            ("commodity", "commodity"), ("tipo", "tipo"), ("posicion", "posicion"),
+            ("vencimiento", "vence"), ("dias", "dias"),
+            ("us", "precio_usd_tn"), ("ars", "precio_ars_tn"),
+            ("pase", "pase_usd_tn"), ("tnav", "tnav%"),
+        ],
+        "reglas": _REGLAS_AGRO,
+    },
+    "derivados": {
+        "titulo": "Opciones",
+        "modulo": "derivados",
+        "dominio": "opciones financieras (cadena sobre GGAL) — calls y puts, strikes, "
+                   "primas, volatilidad implícita, griegas",
+        "fetch": _fetch_opciones,
+        "extras": _extras_opciones,
+        # vocabulario nativo de opciones — no es jerga interna
+        "jerga_permitida": {"strike", "call", "put", "prima", "spot", "atm", "vega",
+                            "delta", "gamma", "theta", "vencimiento", "contrato",
+                            "vence", "vol", "subyacente"},
+        "chips": [
+            {"label": "Panorama de la chain",
+             "pregunta": "¿Cómo está la cadena hoy? Dónde está el spot, qué "
+                         "vencimientos concentran el volumen y en qué strikes está "
+                         "la actividad. Cortito."},
+            {"label": "¿La vol está cara?",
+             "pregunta": "¿Qué volatilidad implícita paga cada vencimiento cerca del "
+                         "spot y cómo queda contra la vol realizada de referencia? "
+                         "¿El seguro está caro o barato hoy?"},
+            {"label": "Calls vs puts",
+             "pregunta": "¿Dónde está la actividad hoy, en calls o en puts, y en qué "
+                         "strikes? Leelo por volumen efectivo, no por cantidad de "
+                         "contratos listados."},
+        ],
+        "columnas": [
+            ("instrumento", "contrato"), ("tipo", "tipo"), ("strike", "strike"),
+            ("vence", "vence"), ("bid", "compra"), ("offer", "venta"),
+            ("last", "ultima_prima"), ("closing_price", "cierre_ant"),
+            ("ev", "vol_efectivo"), ("iv", "iv%"),
+            ("delta", "delta"), ("gamma", "gamma"), ("theta", "theta"),
+            ("vega", "vega"), ("spot", "spot_subyacente"),
+        ],
+        "reglas": _REGLAS_OPCIONES,
+    },
+    "ons": {
+        "titulo": "ONs",
+        # la página /ons vive bajo el módulo renta-fija en la nav — mismo gate
+        "modulo": "renta-fija",
+        "dominio": "obligaciones negociables — deuda corporativa por sector "
+                   "(energía/finanzas/otros), TEA, vencimientos, cupones y "
+                   "amortizaciones que vienen",
+        "fetch": _fetch_ons,
+        "extras": _extras_ons,
+        # mismo idioma que renta fija
+        "jerga_permitida": {"tea", "paridad", "duration", "dur", "bps", "curva",
+                            "cupon", "emisor", "moneda", "meses", "precio", "vence",
+                            "vn", "nominales"},
+        "chips": [
+            {"label": "Panorama de ONs",
+             "pregunta": "¿Cómo está la curva de ONs hoy? TEA por sector y moneda, "
+                         "y qué papeles operaron de verdad. Cortito."},
+            {"label": "Mejores TEA en USD",
+             "pregunta": "¿Qué ONs en dólares rinden más hoy entre las que tienen "
+                         "volumen real? Tabla chica: ticker | emisor | TEA | vence — "
+                         "y marcá dónde la liquidez obliga a tomar el dato con pinzas."},
+            {"label": "Pagos próximos",
+             "pregunta": "¿Qué cupones y amortizaciones de ONs vienen en los próximos "
+                         "90 días? Ordenado por fecha, con emisor y monto por 100 VN."},
+        ],
+        "columnas": [
+            ("ticker_corto", "ticker"), ("emisor", "emisor"),
+            ("sector_label", "sector"), ("moneda", "moneda"),
+            ("fecha_vencimiento", "vence"), ("meses_al_vto", "meses"),
+            ("ultimo_precio", "precio"), ("tea", "tea%"), ("duration", "dur"),
+            ("paridad", "paridad%"), ("total_nominals_dia", "nominales_dia"),
+        ],
+        "reglas": _REGLAS_ONS,
     },
 }
 

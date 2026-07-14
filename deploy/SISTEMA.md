@@ -81,7 +81,6 @@
 | 22:00 · L-V | `jobs.bcra` |
 | 22:00 · L-V | `jobs.market_anchors'` |
 | 23:00 · diario | `jobs.informe_salud'` |
-| 20:10 · L-V | `jobs.cleanup_cedears_timesales'` |
 | 20:15 · L-V | `jobs.options_rollup'` |
 | 20:15 · L-V | `jobs.cedears_ohlc_daily'` |
 | 20:16 · L-V | `jobs.bonos_ohlc_daily'` |
@@ -97,6 +96,7 @@
 | 22:30 · L-V | `jobs.actividad_mensual'` |
 | 11:35 · diario | `jobs.news_ingesta'` |
 | 11:35 · diario | `jobs.news_finnhub'` |
+| 12:35 · L-V | `jobs.cleanup_cedears_timesales'` |
 | 20:35 · L-V | `jobs.cierre_canje'` |
 | 11:40 · diario | `jobs.economic_calendar'` |
 | 20:40 · L-V | `jobs.snapshot_sinteticos'` |

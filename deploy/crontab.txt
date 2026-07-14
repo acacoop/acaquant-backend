@@ -205,9 +205,15 @@
 # móvil 20 ruedas. Gemelo de cedears_ohlc_daily.
 16 20 * * 1-5 /root/TradingAV/deploy/run_job.sh bonos_ohlc_daily 3m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.bonos_ohlc_daily'
 
-# ─── Vaciado del Time & Sales intradía de CEDEARs (20:10 UTC = 17:10 ART, L-V)
-# Trading.CedearsTimeSales es intradía (tape del scanner); se borra al cierre.
-10 20 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_cedears_timesales 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_cedears_timesales'
+# ─── Vaciado del Time & Sales intradía de CEDEARs (12:35 UTC = 09:35 ART, L-V — pre-apertura)
+# mercado.cedears_time_sales es intradía (tape del scanner). ANTES se borraba al
+# cierre (20:10 UTC) y la mesa perdía el tape/chart 15 min después de cerrar
+# (pedido 2026-07-14): ahora se borra a la MAÑANA siguiente, antes de que
+# arranquen los motores (13:20). La vista igual muestra "solo hoy" (el reader
+# filtra ts >= 00:00 UTC), así que de noche ya se ve vacía aunque el dato viva;
+# el post-cierre (17:05→21:00 ART) queda disponible para revisar la rueda.
+# day_trading_stats (20:06, destila el día) sigue corriendo ANTES del borrado.
+35 12 * * 1-5 /root/TradingAV/deploy/run_job.sh cleanup_cedears_timesales 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.cleanup_cedears_timesales'
 
 # ─── Atlas cluster pause/resume ELIMINADO (decomiso Mongo 2026-06-29): Mongo vacío, no se
 # pausa/resumea más. El M10 se pausa/cancela A MANO una sola vez (tras limpiar el código).

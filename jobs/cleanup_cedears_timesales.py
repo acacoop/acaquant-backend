@@ -1,13 +1,17 @@
 """cleanup_cedears_timesales.py — vacía el Time & Sales intradía de CEDEARs.
 
 mercado.cedears_time_sales (SQL) es una tabla INTRADÍA: el motor_cedears infiere
-trades durante la rueda (tape para el scanner) y este job la vacía al cierre,
-para que nunca arrastre data vieja entre ruedas (es solo para intraday).
+trades durante la rueda (tape para el scanner) y este job la vacía para que
+nunca arrastre data vieja entre ruedas (es solo para intraday).
 
 SQL-NATIVE (decomiso Mongo 2026-06-28): antes vaciaba Trading.CedearsTimeSales.
 TRUNCATE ... RESTART IDENTITY resetea también la secuencia del id.
 
-Cron: post-cierre (20:10 UTC = 17:10 ART, L-V — motores paran 20:05).
+Cron: PRE-APERTURA del día siguiente (12:35 UTC = 09:35 ART, L-V — motores
+arrancan 13:20). Antes corría al cierre (20:10 UTC) y la mesa perdía el
+tape/chart 15 minutos después de cerrar (pedido 2026-07-14); borrando a la
+mañana, el post-cierre queda disponible para revisar la rueda y la apertura
+arranca limpia igual (el reader además filtra "solo hoy").
 
 Uso:
     python -m jobs.cleanup_cedears_timesales

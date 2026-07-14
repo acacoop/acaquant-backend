@@ -2155,9 +2155,17 @@ def _extras_agro(
     except Exception as e:
         logger.warning("copiloto agro: datos de referencia fallaron (%s)", e)
 
-    if data.get("data_fresh") is False:
+    # Estado SIEMPRE explícito (batería 2026-07-14: sin esta línea el modelo no
+    # podía confirmar si los futuros estaban operando en vivo).
+    if data.get("data_fresh"):
+        edad = data.get("snapshot_age_s")
         partes.append(
-            "[aviso] los futuros NO están live ahora (motor fuera de rueda): los "
+            "[estado] futuros de Matba Rofex OPERANDO EN VIVO ahora"
+            + (f" (último tick hace {edad:.0f}s)" if edad is not None else "") + "."
+        )
+    else:
+        partes.append(
+            "[estado] los futuros NO están live ahora (motor fuera de rueda): los "
             "precios son del último snapshot guardado — decilo si preguntan por 'ahora'."
         )
     return partes
@@ -2181,6 +2189,10 @@ grano: positiva = la vuelta paga; negativa = no paga. La elección es del usuari
 mostrás el trade-off, jamás ordenás uno.
 
 Reglas duras de esta vista:
+- COSTO PASE = SOLO los gastos de mercado (derechos + apertura, ida y vuelta = 0,45% \
+sobre el US$ del futuro). Es una CONSTANTE de mercado, no la carga la mesa, y NO incluye \
+el spread pizarra−futuro (ese es el pase bruto — son dos cosas distintas que se suman \
+para el pase lleno).
 - Varios inputs son CARGA MANUAL de la mesa (precios de Cámara, dólar BNA, tasas). Si un \
 dato viene "—", decí "sin dato cargado hoy" — jamás lo estimes ni lo completes de memoria.
 - El pase se lee DENTRO de cada commodity (contra sus otros vencimientos); comparar trigo \
@@ -2379,6 +2391,11 @@ inventar cuál.
 mismo ranking; siempre separá por moneda como hace el bloque de promedios.
 - [próximos pagos] responde "¿qué cupones/amortizaciones vienen?" con fecha, emisor y \
 monto por 100 VN.
+- LA LEY DE EMISIÓN (argentina / Nueva York) NO ESTÁ EN TUS DATOS: jamás afirmes bajo \
+qué ley está emitida una ON ni digas "acá son todas ley local" — muchas ONs argentinas \
+se emiten bajo ley extranjera y no tenés cómo saber cuál es cuál. Si preguntan, podés \
+explicar el CONCEPTO (la ley extranjera suele dar más protección al acreedor en una \
+reestructuración) y decir derecho que el dato no está cargado en el sistema.
 - Los soberanos, lecaps y CER viven en Renta Fija — derivá si preguntan por bonos del \
 Tesoro. Acá solo deuda corporativa."""
 
@@ -2556,10 +2573,12 @@ VISTAS: dict[str, dict] = {
                    "primas, volatilidad implícita, griegas",
         "fetch": _fetch_opciones,
         "extras": _extras_opciones,
-        # vocabulario nativo de opciones — no es jerga interna
+        # vocabulario nativo de opciones — no es jerga interna. "adr" acá es
+        # legítimo: la vol realizada de referencia viene local Y del ADR
+        # (batería 2026-07-14: la autocorrección lo borraba al citarla).
         "jerga_permitida": {"strike", "call", "put", "prima", "spot", "atm", "vega",
                             "delta", "gamma", "theta", "vencimiento", "contrato",
-                            "vence", "vol", "subyacente"},
+                            "vence", "vol", "subyacente", "adr"},
         "chips": [
             {"label": "Panorama de la chain",
              "pregunta": "¿Cómo está la cadena hoy? Dónde está el spot, qué "
@@ -2640,7 +2659,10 @@ def _candidatos_numericos(token: str) -> list[float]:
     10.793 — se prueban AMBAS contra el contexto. Bug real del shadow: la
     vista trading (precios en miles) quedaba bloqueada entera porque el
     modelo escribía a la argentina y el parser leía decimales."""
-    token = token.strip().lstrip("-")
+    # Puntuación de FRASE pegada al final ("operó 634.100, y…" → token
+    # '634.100,'): rompía TODOS los parseos y bloqueaba respuestas correctas
+    # (batería ONs 2026-07-14 — 3 de las 4 fallas eran esto).
+    token = token.strip().lstrip("-").rstrip(".,")
     out: list[float] = []
     # es-AR: 1.234.567,89 o 10.793 (puntos de miles, coma decimal)
     if re.fullmatch(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?", token):
@@ -2968,7 +2990,9 @@ def preguntar(
         if malos:
             problemas.append(
                 f"estos números NO aparecen en los datos: {', '.join(malos)} — usá solo "
-                "números exactos de los datos (si abreviás un monto con M, redondeá el real)"
+                "números exactos de los datos (si abreviás un monto con M, redondeá el "
+                "real; y si redondeás un %, redondeá AL MÁS CERCANO con un decimal: "
+                "-83.56 se escribe -83.6, jamás -83)"
             )
         if jerga:
             problemas.append(

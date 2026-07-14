@@ -116,6 +116,33 @@ prompt y baja a código. Prompt para el estilo, código para la verdad.
 
 ## Changelog del asistente (obligatorio, con fecha)
 
+### 2026-07-14 — v1.50 (post-batería de las 3 vistas nuevas: 41/45 buenas, 4 fallas → fixes)
+Corrida real en el Droplet (`scripts/bateria_nuevas_vistas`, 15×3): agro 14/15 ·
+opciones 15/15 · ons 12/15. Lo que se cazó y bajó a código:
+- **[bugfix verificador, causa de 3 de las 4 fallas]** La puntuación de FRASE
+  pegada al número ("operó 634.100, y…" → token `634.100,`) rompía TODOS los
+  parseos → bloqueaba respuestas CORRECTAS. `_candidatos_numericos` ahora
+  descarta `.`/`,` finales. Test de regresión con la línea exacta de la batería.
+- **[prompt ~, fallo grave]** ONs #12 afirmó "acá todas las ONs son ley
+  argentina" — INVENTADO (el campo ley no existe en el master y muchas ONs son
+  ley NY). Regla dura en `_REGLAS_ONS`: jamás afirmar la ley de emisión; concepto
+  sí, mapeo a papeles no. (Fix de fondo pendiente de decisión del user: agregar
+  campo `ley` al master de ONs en Manager.)
+- **[prompt ~]** Agro #8 mezcló el costo pase con el spread pizarra−futuro y
+  dijo que "la mesa lo carga": definición exacta en `_REGLAS_AGRO` (constante de
+  mercado 0,45%, NO incluye el pase bruto).
+- **[jerga ~]** "adr" whitelisted en la vista opciones — la vol realizada de
+  referencia ES del ADR y la autocorrección lo borraba (3 veces en la batería).
+- **[contexto +]** Agro: línea `[estado]` SIEMPRE (live con edad del tick, o
+  snapshot) — la #15 no podía confirmar si los futuros operaban en vivo.
+- **[verificación ~]** El mensaje de autocorrección ahora enseña el redondeo
+  correcto ("-83.56 se escribe -83.6, jamás -83") — el caso del TNAV truncado
+  (agro #2, única falla que la reflexion no pudo salvar).
+- **[hallazgos de DATOS (no del asistente)]** TMF27 aparece en la curva ONs con
+  paridad 4704% y es Tesoro, no corporativa → revisar su fila en el master;
+  PNDCO precio 43 con paridad 107,5 (inconsistente). El asistente los manejó
+  con cautela pero ensucian los bloques.
+
 ### 2026-07-14 — v1.49 (TRES VISTAS NUEVAS: Agro · Opciones · ONs — pedido del user)
 - **[vista +]** `agro` (módulo `agro`, página /agro): tabla = el PASE AGRO
   aplanado (pizarra + futuros por commodity; pase en US$/Tn y TNAV ya en %).

@@ -917,3 +917,15 @@ def test_extras_ons_promedio_por_sector_y_moneda():
     bloque = "\n".join(copiloto._extras_ons(filas, "panorama", []))
     assert "energia (USD): 2 ONs · TEA promedio 7.00%" in bloque
     assert "energia (ARS): 1 ONs · TEA promedio 40.00%" in bloque
+
+
+def test_verificador_puntuacion_final_pegada():
+    """Batería ONs 2026-07-14: 'operó 634.100, y…' tokenizaba '634.100,' (con la
+    coma de la FRASE pegada) → todos los parseos fallaban → bloqueo de respuestas
+    correctas. La puntuación final se descarta antes de interpretar."""
+    assert 634100.0 in copiloto._candidatos_numericos("634.100,")
+    assert 651209.0 in copiloto._candidatos_numericos("651.209.")
+    contexto = "YMCXO\t634100\nYM42O\t651209"
+    malos, _ = copiloto._numeros_sin_respaldo(
+        "La más líquida operó 634.100, y le siguió otra con 651.209.", contexto)
+    assert malos == []

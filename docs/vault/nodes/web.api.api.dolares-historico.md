@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/dolares-historico/route.ts
+path: src\app\api\dolares-historico\route.ts
 ---
 
 # web /api/dolares-historico  (proxy)
 
-**Archivo:** `src/app/api/dolares-historico/route.ts`
+**Archivo:** `src\app\api\dolares-historico\route.ts`
 
 ## Qué hace
 Proxy del histórico de dólares (MEP + CCL + oficial) que alimenta el chart custom del panel ARGY: propaga la querystring a `/api/cotizaciones/historico/dolares` y devuelve sin cache (la cadencia la decide el polling del cliente).

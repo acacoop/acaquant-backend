@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/ordenes/[[...path]]/route.ts
+path: src\app\api\ordenes\[[...path]]\route.ts
 ---
 
 # web /api/ordenes/[[...path]]  (proxy)
 
-**Archivo:** `src/app/api/ordenes/[[...path]]/route.ts`
+**Archivo:** `src\app\api\ordenes\[[...path]]\route.ts`
 
 ## Qué hace
 Proxy catch-all (GET/POST/DELETE) hacia /api/ordenes/* del backend — envío, cancelación y listado de órdenes contra ROFEX. Propaga la identidad del usuario para que el audit registre quién mandó/canceló cada orden.

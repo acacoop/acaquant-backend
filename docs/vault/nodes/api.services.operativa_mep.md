@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/operativa_mep.py
+path: api\services\operativa_mep.py
 ---
 
 # api/services/operativa_mep
 
 > Operativa Dólar MEP — wrapper de 2 órdenes MARKET (BUY AL30 + SELL AL30D).
 
-**Archivo:** `api/services/operativa_mep.py`
+**Archivo:** `api\services\operativa_mep.py`
 
 ## Qué hace
 Ejecuta la operativa "Dólar MEP" como wrapper de dos órdenes MARKET: BUY AL30 (en ARS) + SELL AL30D (en USD), sobre la misma especie en distintas ruedas. El cliente entra pesos y sale dólares MEP. No es atómica: entre pata y pata el precio puede moverse, pero AL30/AL30D son ultra-líquidos. Registra estado y resultado de ambas patas.

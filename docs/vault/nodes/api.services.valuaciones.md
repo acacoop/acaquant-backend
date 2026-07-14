@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/valuaciones.py
+path: api\services\valuaciones.py
 ---
 
 # api/services/valuaciones
 
 > Valuaciones — performance e historia por cuenta. SQL-only (decomiso Mongo).
 
-**Archivo:** `api/services/valuaciones.py`
+**Archivo:** `api\services\valuaciones.py`
 
 ## Qué hace
 Service de performance e historia por cuenta, con dos enfoques convivientes: (A) AUM-BASED para /serie y /mensual, que suma el snapshot MTM diario y lo combina con flujos externos (depósitos/extracciones) para la mensualización "valor de cierre + flujo neto" y la TIR; (B) COST-BASIS LEDGER para /posiciones, que reconstruye lots de boletos para PnL realizado vs no realizado por ticker. Pesifica monedas USD al MEP del día.
@@ -27,6 +27,7 @@ Conecta con: lee `Valuaciones.AuM`, `CashFlow.NegocioMovimientos` (flujos) y `Tr
 - [[api.services.valuaciones_sql]]  ·  _module_
 - [[core]]  ·  _module_
 - [[core.curvas_sql]]  ·  _module_
+- [[core.dolar_sql]]  ·  _module_
 - [[core.market_snapshot]]  ·  _module_
 - [[core.postgres]]  ·  _module_
 - [[quant.xirr]]  ·  _module_

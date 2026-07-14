@@ -377,6 +377,35 @@ nombres del cliente se ANONIMIZAN antes de salir al proveedor (CLIENTE_A) y se
 re-insertan server-side en el texto final — al proveedor solo llegan números y
 placeholders. Éxito medible en reactivación de cuentas DORMIDAS.
 
+### P6 — Memoria de research diario (mail → contexto)
+**Estado: INGESTA CONSTRUIDA (2026-07-14) — PENDIENTE credenciales del user +
+paso 2 (consumo)** · Tipo: workflow determinista con 1 paso de LLM · Gate: los
+consumidores heredan el suyo (copiloto/briefing)
+
+El user recibe un research diario de mercado por mail (macro AR + mundo, estilo
+"el día en pocas líneas"). Decisión del user (2026-07-14): ingesta AUTOMÁTICA
+por IMAP, nada manual. El objetivo NO es fine-tuning (hechos perecederos no van
+a pesos): **la memoria vive en Postgres, no en el modelo** — se persiste y se
+inyecta como contexto (nonparametric, ver Principios).
+
+**Paso 1 — ingesta (HECHO 2026-07-14):** `jobs/research_mail.py` (cron */30
+10-14 UTC L-V): lee la casilla por IMAP (readonly), filtra por remitente,
+persiste el mail CRUDO en `ia.research` (fuente de verdad, citable; dedup por
+Message-ID → idempotente) + DESTILADO del LLM `{resumen, temas, hechos}` (tarea
+`research_destilar`, flash sin thinking; mail tratado como DATO hostil). LLM
+caído → queda `destilado NULL` y el próximo run lo reintenta (el crudo nunca se
+pierde). FTS español sobre el cuerpo (ADOPTAR YA: full-text antes que vectores).
+**PENDIENTE del user (REGLA #6):** app password de la casilla + remitente →
+`RESEARCH_IMAP_USER` / `RESEARCH_IMAP_PASSWORD` / `RESEARCH_MAIL_FROM` en el
+`.env` del Droplet (ver docs/SECRETS.md). Probar: `python -m jobs.research_mail
+--dry-run`.
+
+**Paso 2 — consumo (SIGUIENTE):** bloque "research de mercado — últimos días
+(destilado)" en el contexto del copiloto (vista HOME primero) y del 🗣 NARRÁMELO
+del briefing. Después de validar en shadow: ¿el contexto mejora respuestas?
+pgvector sigue DIFERIDO — recencia + FTS cubren el uso actual; se activa solo si
+aparece la pregunta semántica sobre meses de historia.
+
 ### P5 — Analista ad-hoc de datos — OJO: alcanzado por la decisión "datos del negocio no salen al proveedor" (2026-07-13); requiere re-decisión explícita antes de arrancar
 **Estado: PENDIENTE** · Tipo: agente con generación de SQL · Gate: `ia`,
 inicialmente solo admin
@@ -440,7 +469,9 @@ diseño — o se actualiza esta sección con la decisión nueva.
   tabla). Condición de disparo: el primer corpus NO estructurado de tamaño real
   — ej. base educativa del copiloto (>50 documentos), histórico de research, o
   prospectos. Cuando pase: pgvector dentro del Postgres existente (no un vector
-  store aparte — menos infra, misma casa).
+  store aparte — menos infra, misma casa). **2026-07-14: el corpus de research
+  llegó (`ia.research`, P6) — igual el v1 va con recencia + FTS; pgvector recién
+  si hace falta búsqueda semántica sobre meses de historia.**
 - **Semantic experience memory / note-taking del agente — DIFERIDO** (versión
   liviana con el triage: registrar diagnósticos pasados y consultarlos como
   contexto "¿esto ya pasó?"; eso ES experience memory, sin llamarlo así).

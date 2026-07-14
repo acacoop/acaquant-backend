@@ -4,21 +4,21 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/cashflow_sql.py
+path: api\services\cashflow_sql.py
 ---
 
 # api/services/cashflow_sql
 
 > api/services/cashflow_sql.py — lecturas SQL (Supabase) de las colecciones CashFlow
 
-**Archivo:** `api/services/cashflow_sql.py`
+**Archivo:** `api\services\cashflow_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
 
 ## Usa / conecta con →
+- [[api.services._sql]]  ·  _module_
 - [[api.services.operaciones_view]]  ·  _module_
-- [[core.postgres]]  ·  _module_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.operaciones]]  ·  _module_

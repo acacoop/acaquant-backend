@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/download-button.tsx
+path: src\components\download-button.tsx
 ---
 
 # web/components/download-button
 
-**Archivo:** `src/components/download-button.tsx`
+**Archivo:** `src\components\download-button.tsx`
 
 ## Qué hace
 Botón minimalista de descarga (típicamente XLSX) con icono download y estado de loading mientras se resuelve la promesa de export (la lib SheetJS es lazy-load). Reutilizable en headers de paneles.

@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/griegas-historico-chart.tsx
+path: src\components\griegas-historico-chart.tsx
 ---
 
 # web/components/griegas-historico-chart
 
-**Archivo:** `src/components/griegas-historico-chart.tsx`
+**Archivo:** `src\components\griegas-historico-chart.tsx`
 
 ## Qué hace
 Gráfico de evolución diaria de las griegas (delta, gamma, vega, theta, IV) de un contrato de opción GGAL. Un solo chart con selector de griega; usa índice como eje X para no abrir huecos en fines de semana.

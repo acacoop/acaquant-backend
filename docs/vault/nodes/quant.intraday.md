@@ -4,14 +4,14 @@ type: module
 layer: quant
 repo: backend
 tags: [module, quant, backend]
-path: quant/intraday.py
+path: quant\intraday.py
 ---
 
 # quant/intraday
 
 > intraday.py — métricas intradía sobre series de precios por minuto.
 
-**Archivo:** `quant/intraday.py`
+**Archivo:** `quant\intraday.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

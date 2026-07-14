@@ -4,12 +4,12 @@ type: lib
 layer: web-lib
 repo: frontend
 tags: [lib, web-lib, frontend]
-path: src/lib/use-is-guest.ts
+path: src\lib\use-is-guest.ts
 ---
 
 # web/lib/use-is-guest
 
-**Archivo:** `src/lib/use-is-guest.ts`
+**Archivo:** `src\lib\use-is-guest.ts`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/derivados-agro-futuros.tsx
+path: src\components\derivados-agro-futuros.tsx
 ---
 
 # web/components/derivados-agro-futuros
 
-**Archivo:** `src/components/derivados-agro-futuros.tsx`
+**Archivo:** `src\components\derivados-agro-futuros.tsx`
 
 ## Qué hace
 Tabla de futuros agro (Trigo / Maíz / Soja Rosario) por commodity: precio US$, bid/offer, apertura, cierre previo y variación intradía, con días al vencimiento. Pollea cada 5 s.

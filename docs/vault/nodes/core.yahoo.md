@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/yahoo.py
+path: core\yahoo.py
 ---
 
 # core/yahoo
 
 > Cliente Yahoo Finance vía yfinance (gratis, sin API key).
 
-**Archivo:** `core/yahoo.py`
+**Archivo:** `core\yahoo.py`
 
 ## Qué hace
 Cliente de Yahoo Finance vía la librería `yfinance` (gratis, sin API key). Reemplazó a Finnhub para histórico cuando este bloqueó `/stock/candle` con 403. Expone `yahoo_quote()` (último + previous close) y `stock_candle()` (OHLCV histórico), ambos emulando el shape de Finnhub (`{s,t,o,h,l,c,v}`) para que los callers migren sin tocar nada. Cubre acciones US, ETFs, ADRs, índices globales y yields de Treasury (^IRX, ^TNX).

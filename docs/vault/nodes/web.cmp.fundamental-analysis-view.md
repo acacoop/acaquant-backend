@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/fundamental-analysis-view.tsx
+path: src\components\fundamental-analysis-view.tsx
 ---
 
 # web/components/fundamental-analysis-view
 
-**Archivo:** `src/components/fundamental-analysis-view.tsx`
+**Archivo:** `src\components\fundamental-analysis-view.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

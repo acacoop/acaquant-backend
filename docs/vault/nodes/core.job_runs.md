@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/job_runs.py
+path: core\job_runs.py
 ---
 
 # core/job_runs
 
 > Context manager para registrar runs de jobs automáticos en manager.job_runs (SQL).
 
-**Archivo:** `core/job_runs.py`
+**Archivo:** `core\job_runs.py`
 
 ## Qué hace
 Context manager `JobRunLogger("tipo")` para instrumentar los cron jobs: captura stdout, contadores estructurados (`set_stat`), errores non-fatal, duración y estado (ok/partial/error), y al salir persiste un doc resumen en `Manager.JobRuns` sin perder los logs de archivo. Guarda las últimas ~200 líneas de log.
@@ -34,6 +34,7 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.cashflow]]  ·  _module_
 - [[jobs.cedears_ohlc_daily]]  ·  _module_
 - [[jobs.cleanup_cedears_timesales]]  ·  _module_
+- [[jobs.cleanup_retencion]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_
 - [[jobs.controles_datos]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
@@ -41,8 +42,10 @@ Conecta con: escribe `Manager.JobRuns` (TTL creado en `scripts/crear_indices.py`
 - [[jobs.informe_salud]]  ·  _module_
 - [[jobs.negocio_movimientos]]  ·  _module_
 - [[jobs.operaciones_informes]]  ·  _module_
+- [[jobs.partner_export]]  ·  _module_
 - [[jobs.pnl_totales_precompute]]  ·  _module_
 - [[jobs.portafolio_backfill]]  ·  _module_
+- [[jobs.research_mail]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.snapshot_sinteticos]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_

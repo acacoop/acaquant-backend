@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/valuaciones-shell.tsx
+path: src\components\valuaciones-shell.tsx
 ---
 
 # web/components/valuaciones-shell
 
-**Archivo:** `src/components/valuaciones-shell.tsx`
+**Archivo:** `src\components\valuaciones-shell.tsx`
 
 ## Qué hace
 Shell (contenedor con sub-tabs) de la pantalla Valuaciones. Tres sub-vistas: PORTAFOLIO (serie/historia por cuenta), PnL Títulos y Totales (todas las cuentas). Incluye el combobox de selección de cuenta y persiste la sub-tab y la cuenta elegida en la URL para no perder la posición al refrescar.

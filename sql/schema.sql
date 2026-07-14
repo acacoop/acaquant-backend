@@ -1629,3 +1629,25 @@ CREATE TABLE IF NOT EXISTS ia.triage_estado (
     id                text PRIMARY KEY,        -- 'watermark'
     ultimo_procesado  timestamptz
 );
+
+-- Research diario de mercado (QuantAI — memoria de mercado, docs/QUANTAI.md).
+-- jobs/research_mail.py lee la casilla por IMAP, persiste el mail CRUDO (fuente
+-- de verdad, siempre citable) + un DESTILADO del LLM (resumen/temas/hechos) que
+-- es lo que se inyecta barato como contexto al copiloto/briefing. destilado NULL
+-- = pendiente (el LLM falló al ingestar; el próximo run lo reintenta).
+CREATE TABLE IF NOT EXISTS ia.research (
+    id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    fecha        date NOT NULL,          -- día del research (header Date del mail, ART)
+    fuente       text NOT NULL,          -- remitente
+    asunto       text,
+    message_id   text UNIQUE,            -- dedup (Message-ID del mail): re-correr no duplica
+    cuerpo       text NOT NULL,          -- texto completo del mail (fuente de verdad)
+    destilado    jsonb,                  -- {resumen, temas[], hechos[]} — generado por LLM
+    destilado_modelo text,
+    created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_ia_research_fecha ON ia.research (fecha DESC);
+-- Full-text español sobre el cuerpo ("¿qué decía el research sobre X?") —
+-- ADOPTAR YA de QUANTAI.md: FTS antes que vectores.
+CREATE INDEX IF NOT EXISTS ix_ia_research_fts ON ia.research
+    USING gin (to_tsvector('spanish', cuerpo));

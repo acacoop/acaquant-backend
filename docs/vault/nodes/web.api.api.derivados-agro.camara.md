@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/derivados-agro/camara/route.ts
+path: src\app\api\derivados-agro\camara\route.ts
 ---
 
 # web /api/derivados-agro/camara  (proxy)
 
-**Archivo:** `src/app/api/derivados-agro/camara/route.ts`
+**Archivo:** `src\app\api\derivados-agro\camara\route.ts`
 
 ## Qué hace
 Lista los cereales de la Cámara Arbitral de Cereales de Rosario con sus precios ARS y USD manuales (pega a `/api/derivados/agro/camara`). Sin cache para reflejar ediciones en tiempo real.

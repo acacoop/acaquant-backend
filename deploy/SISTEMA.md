@@ -62,6 +62,7 @@
 | cada 15min · 12-23h · diario | `jobs.news_ingesta'` |
 | cada 15min · 13-20h · L-V | `jobs.adr_live'` |
 | cada 15min · 13-20h · L-V | `engines.dolar_mep'` |
+| cada 30min · 10-14h · L-V | `jobs.research_mail'` |
 | cada 30min · 12-23h · diario | `jobs.news_finnhub'` |
 | cada 30min · 14-22h · L-V | `jobs.negocio_movimientos` + `jobs.aranceles` + `jobs.fci_bilateral'` |
 | cada 4min · 13-20h · L-V | `jobs.comercial_warm'` |

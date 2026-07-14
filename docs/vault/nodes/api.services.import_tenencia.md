@@ -4,21 +4,17 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/import_tenencia.py
+path: api\services\import_tenencia.py
 ---
 
 # api/services/import_tenencia
 
-> api/services/import_tenencia.py — import masivo de tenencia a Valuaciones.AuM.
+> api/services/import_tenencia.py — parsers de celdas del import manual de tenencia.
 
-**Archivo:** `api/services/import_tenencia.py`
+**Archivo:** `api\services\import_tenencia.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
-
-## Usa / conecta con →
-- [[core.postgres]]  ·  _module_
-- [[db.Valuaciones.AuM]]  ·  _collection_
 
 ## Lo usan (backlinks) ←
 - [[api.services.import_tenencia_sql]]  ·  _module_

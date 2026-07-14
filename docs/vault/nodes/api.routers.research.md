@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/research.py
+path: api\routers\research.py
 ---
 
 # api/routers/research
 
 > Router /api/research — vista Análisis Fundamental del módulo Renta Variable.
 
-**Archivo:** `api/routers/research.py`
+**Archivo:** `api\routers\research.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

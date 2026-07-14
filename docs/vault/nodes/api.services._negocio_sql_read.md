@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/_negocio_sql_read.py
+path: api\services\_negocio_sql_read.py
 ---
 
 # api/services/_negocio_sql_read
 
 > Lectura de boletos desde SQL `operaciones.negocio_movimientos` devolviendo dicts
 
-**Archivo:** `api/services/_negocio_sql_read.py`
+**Archivo:** `api\services\_negocio_sql_read.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

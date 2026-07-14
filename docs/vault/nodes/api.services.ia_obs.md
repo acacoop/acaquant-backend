@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/ia_obs.py
+path: api\services\ia_obs.py
 ---
 
 # api/services/ia_obs
 
 > api/services/ia_obs.py — observabilidad del gateway de IA (SQL ia.trazas).
 
-**Archivo:** `api/services/ia_obs.py`
+**Archivo:** `api\services\ia_obs.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

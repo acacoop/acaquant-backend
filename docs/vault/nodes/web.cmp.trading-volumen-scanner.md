@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/trading-volumen-scanner.tsx
+path: src\components\trading-volumen-scanner.tsx
 ---
 
 # web/components/trading-volumen-scanner
 
-**Archivo:** `src/components/trading-volumen-scanner.tsx`
+**Archivo:** `src\components\trading-volumen-scanner.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

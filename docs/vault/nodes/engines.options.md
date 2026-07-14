@@ -4,14 +4,14 @@ type: module
 layer: engines
 repo: backend
 tags: [module, engines, backend]
-path: engines/options.py
+path: engines\options.py
 ---
 
 # engines/options
 
 > Motor de Opciones GGAL - Servicio Headless
 
-**Archivo:** `engines/options.py`
+**Archivo:** `engines\options.py`
 
 ## Qué hace
 Motor headless de opciones de GGAL. Mantiene una sesión pyRofex propia (segunda conexión WS) y, en cada tick del book, calcula las griegas (delta/gamma/theta/vega), valor intrínseco e IV implícita con Black-Scholes, escribiendo el snapshot a Mongo con throttle de 300ms por símbolo. Es always-on en rueda (systemd `motor_options.service`).

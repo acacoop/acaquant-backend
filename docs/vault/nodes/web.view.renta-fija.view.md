@@ -4,12 +4,12 @@ type: view
 layer: web-view
 repo: frontend
 tags: [view, web-view, frontend]
-path: src/app/renta-fija/page.tsx
+path: src\app\renta-fija\page.tsx
 ---
 
 # web /renta-fija  (view)
 
-**Archivo:** `src/app/renta-fija/page.tsx`
+**Archivo:** `src\app\renta-fija\page.tsx`
 
 ## Qué hace
 Vista `/renta-fija` — terminal de renta fija. SSR inicial en paralelo de 9 datasets (renta fija, forwards, flujos, breakevens, históricos de breakevens/forwards, forwards-zscore, fair value tasa_fija y CER) desde `/api/cotizaciones/*` y `/api/titulos/flujos`. Carga rápida con el último snapshot; luego `RentaFijaLiveView` mantiene los datasets live con polling client-side.

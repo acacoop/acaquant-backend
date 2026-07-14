@@ -4,14 +4,14 @@ type: service
 layer: deploy
 repo: infra
 tags: [service, deploy, infra]
-path: deploy/systemd/motor_dolares.service
+path: deploy\systemd\motor_dolares.service
 ---
 
 # systemd: motor_dolares
 
 > Servicio systemd.
 
-**Archivo:** `deploy/systemd/motor_dolares.service`
+**Archivo:** `deploy\systemd\motor_dolares.service`
 
 ## Qué hace
 Servicio systemd del motor de dólares — corre `engines.dolares`, que calcula MEP / CCL / canje en tiempo real vía WebSocket. Vive solo en rueda (cron restart 13:00 UTC / stop 20:05 UTC, L-V).

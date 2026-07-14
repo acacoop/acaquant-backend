@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/postgres.py
+path: core\postgres.py
 ---
 
 # core/postgres
 
 > core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.
 
-**Archivo:** `core/postgres.py`
+**Archivo:** `core\postgres.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -33,6 +33,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services._cuentas_filter]]  ·  _module_
 - [[api.services._idempotencia]]  ·  _module_
 - [[api.services._negocio_sql_read]]  ·  _module_
+- [[api.services._sql]]  ·  _module_
 - [[api.services.aca_valores]]  ·  _module_
 - [[api.services.acreencias]]  ·  _module_
 - [[api.services.agro_sql]]  ·  _module_
@@ -43,12 +44,10 @@ _(pendiente de enriquecimiento)_
 - [[api.services.bonos_admin]]  ·  _module_
 - [[api.services.breakevens_admin]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
+- [[api.services.calendario]]  ·  _module_
 - [[api.services.camara_cereales]]  ·  _module_
 - [[api.services.canje]]  ·  _module_
-- [[api.services.carry_trade]]  ·  _module_
-- [[api.services.cashflow_sql]]  ·  _module_
 - [[api.services.comercial]]  ·  _module_
-- [[api.services.comercial_sql]]  ·  _module_
 - [[api.services.compliance]]  ·  _module_
 - [[api.services.contrapartes_seg]]  ·  _module_
 - [[api.services.control_automatico]]  ·  _module_
@@ -60,29 +59,18 @@ _(pendiente de enriquecimiento)_
 - [[api.services.diagnostico]]  ·  _module_
 - [[api.services.fair_value]]  ·  _module_
 - [[api.services.ia_obs]]  ·  _module_
-- [[api.services.import_tenencia]]  ·  _module_
 - [[api.services.import_tenencia_sql]]  ·  _module_
 - [[api.services.intraday]]  ·  _module_
 - [[api.services.jobs_catalogo]]  ·  _module_
-- [[api.services.macro_sql]]  ·  _module_
-- [[api.services.manager_infra_sql]]  ·  _module_
-- [[api.services.market_sql]]  ·  _module_
 - [[api.services.mercado_hist_sql]]  ·  _module_
-- [[api.services.news_sql]]  ·  _module_
 - [[api.services.ons]]  ·  _module_
 - [[api.services.opciones_sql]]  ·  _module_
 - [[api.services.operaciones_informes]]  ·  _module_
 - [[api.services.operaciones_sql]]  ·  _module_
 - [[api.services.operativa_mep]]  ·  _module_
-- [[api.services.operativa_mep_sql]]  ·  _module_
 - [[api.services.ordenes]]  ·  _module_
-- [[api.services.ordenes_sql]]  ·  _module_
 - [[api.services.order_book]]  ·  _module_
 - [[api.services.pnl]]  ·  _module_
-- [[api.services.pnl_sql]]  ·  _module_
-- [[api.services.portfolio_sql]]  ·  _module_
-- [[api.services.rem_sql]]  ·  _module_
-- [[api.services.renta_fija_sql]]  ·  _module_
 - [[api.services.research_fundamentals]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
 - [[api.services.rv_motor]]  ·  _module_
@@ -95,7 +83,6 @@ _(pendiente de enriquecimiento)_
 - [[api.services.titulos_flujos]]  ·  _module_
 - [[api.services.trading_pivots]]  ·  _module_
 - [[api.services.valuaciones]]  ·  _module_
-- [[api.services.valuaciones_sql]]  ·  _module_
 - [[core.adhoc_subscriptions]]  ·  _module_
 - [[core.ai]]  ·  _module_
 - [[core.brackets]]  ·  _module_
@@ -129,6 +116,7 @@ _(pendiente de enriquecimiento)_
 - [[jobs.cleanup_cedears_timesales]]  ·  _module_
 - [[jobs.cleanup_curvas]]  ·  _module_
 - [[jobs.cleanup_futuros_dlr]]  ·  _module_
+- [[jobs.cleanup_retencion]]  ·  _module_
 - [[jobs.consolidado_cuentas]]  ·  _module_
 - [[jobs.controles_datos]]  ·  _module_
 - [[jobs.day_trading_stats]]  ·  _module_
@@ -144,6 +132,7 @@ _(pendiente de enriquecimiento)_
 - [[jobs.portafolio_backfill]]  ·  _module_
 - [[jobs.portafolio_reparar_timeouts]]  ·  _module_
 - [[jobs.precios_acciones_daily]]  ·  _module_
+- [[jobs.research_mail]]  ·  _module_
 - [[jobs.segmentar_patrimonial]]  ·  _module_
 - [[jobs.snapshot_cierre]]  ·  _module_
 - [[jobs.sync_comitentes]]  ·  _module_

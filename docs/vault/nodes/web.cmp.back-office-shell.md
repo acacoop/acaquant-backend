@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/back-office-shell.tsx
+path: src\components\back-office-shell.tsx
 ---
 
 # web/components/back-office-shell
 
-**Archivo:** `src/components/back-office-shell.tsx`
+**Archivo:** `src\components\back-office-shell.tsx`
 
 ## Qué hace
 Contenedor con tabs de la sección Back Office. Por ahora expone una sola pestaña, "Títulos / Mercado" (`TitulosMercadoView`); está armado para sumar futuras tabs (conciliación, archivos a enviar, etc.) sin reestructurar.

@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/dolar_sql.py
+path: core\dolar_sql.py
 ---
 
 # core/dolar_sql
 
 > core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje (decomiso Mongo).
 
-**Archivo:** `core/dolar_sql.py`
+**Archivo:** `core\dolar_sql.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -26,5 +26,7 @@ _(pendiente de enriquecimiento)_
 - [[api.services.macro]]  ·  _module_
 - [[api.services.macro_sql]]  ·  _module_
 - [[api.services.scanner]]  ·  _module_
+- [[api.services.tenencia_hd]]  ·  _module_
+- [[api.services.valuaciones]]  ·  _module_
 - [[engines.curvas]]  ·  _module_
 - [[engines.futuros_dlr]]  ·  _module_

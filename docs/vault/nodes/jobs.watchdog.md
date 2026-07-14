@@ -4,14 +4,14 @@ type: module
 layer: jobs
 repo: backend
 tags: [module, jobs, backend]
-path: jobs/watchdog.py
+path: jobs\watchdog.py
 ---
 
 # jobs/watchdog
 
 > jobs/watchdog.py — "el agente que evalúa solo": detecta jobs colgados y alerta.
 
-**Archivo:** `jobs/watchdog.py`
+**Archivo:** `jobs\watchdog.py`
 
 ## Qué hace
 Job de visibilidad ("el agente que evalúa solo") que corre cada 5 min y escanea los procesos `python -m jobs.X` vivos en el Droplet. Si un job sigue corriendo tras superar su presupuesto (timeout de run_job.sh + margen) manda alerta a Telegram — una alerta significa que el kill automático falló. Aparte, best-effort, detecta queries Mongo que examinan mucho y devuelven poco (lo que Atlas no avisa por mail). Cooldown por job para no spamear.

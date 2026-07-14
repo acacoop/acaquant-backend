@@ -1,6 +1,6 @@
 # 🌐 api — services · routers · mcp
 
-157 notas.
+160 notas.
 
 - [[api]]
 - [[api.auth]] — Autenticación de identidad — validación JWT de Cloudflare Access.
@@ -20,6 +20,7 @@
 - [[api.routers]]
 - [[api.routers.analitica]] — Router Analítica — Tier 1 + Tier 2 tools del asistente expuestas como HTTP.
 - [[api.routers.back_office]] — Router /api/back-office — sección Back Office.
+- [[api.routers.calendario]] — GET /api/calendario — calendario económico (watchlist HOME, tab CALENDARIO).
 - [[api.routers.carteras]] — Router Portfolio — thin wrappers sobre `api.services.portfolio`.
 - [[api.routers.cotizaciones]] — Router Cotizaciones — thin wrappers sobre la capa de servicio.
 - [[api.routers.cuentas]] — Router Cuentas: accionistas y contrapartes (ambos SQL — fuente única;
@@ -77,6 +78,7 @@
 - [[api.services._negocio_futuros]] — Filtro de exclusión de futuros para queries sobre CashFlow.NegocioMovimientos.
 - [[api.services._negocio_informacion_filter]] — Filtro de exclusión por `informacion` para CashFlow.NegocioMovimientos.
 - [[api.services._negocio_sql_read]] — Lectura de boletos desde SQL `operaciones.negocio_movimientos` devolviendo dicts
+- [[api.services._sql]] — Helper compartido de lectura SQL (canónico).
 - [[api.services.aca_valores]] — api/services/aca_valores.py — CRUD del set de cuentas "ACA VALORES" (SQL).
 - [[api.services.acreencias]] — api/services/acreencias.py — motor de acreencias (cobros futuros por cliente).
 - [[api.services.agro_cobertura]] — Service — Pase con Cobertura (AGRO).
@@ -91,6 +93,7 @@
 - [[api.services.bonos_admin]] — api/services/bonos_admin.py — alta/edición de bonos NO-ON directo en Trading.Curvas.
 - [[api.services.breakevens_admin]] — api/services/breakevens_admin.py — curaduría de pares de breakevens.
 - [[api.services.briefing]] — api/services/briefing.py — Briefing de apertura (QuantAI P1, v1 DETERMINISTA).
+- [[api.services.calendario]] — calendario.py — calendario económico para la watchlist HOME (tab CALENDARIO).
 - [[api.services.camara_cereales]] — Service — Cámara Arbitral de Cereales de Rosario.
 - [[api.services.canje]] — Serie histórica del canje CCL/MEP intra-bono (ej. AL30C / AL30D − 1).
 - [[api.services.carry_trade]] — Serie de carry trade en USD para una curva (tasa_fija / cer).
@@ -105,6 +108,7 @@
 - [[api.services.controles_sql]] — api/services/controles_sql.py — lectura del auto-control de calidad de datos.
 - [[api.services.copiloto]] — api/services/copiloto.py — P3 Copiloto de Mesa (QuantAI, docs/QUANTAI.md).
 - [[api.services.day_trading]] — day_trading.py — service del TRADE LAB intradía (scalping de CEDEARs).
+- [[api.services.db_obs]] — db_obs.py — observabilidad de espacio/salud de la base (Manager OBSERVABILIDAD → BASE).
 - [[api.services.debug_curva]] — Debug paso-a-paso del cálculo de TEA/TNA/Duration que hace engines/curvas.py.
 - [[api.services.derivados]] — Capa de servicio — derivados (futuros DLR, forwards, breakevens).
 - [[api.services.derivados_agro]] — Service puro — Pase Agro (Trigo / Maíz / Soja Rosario).
@@ -113,7 +117,7 @@
 - [[api.services.diagnostico_registry]] — Registro ÚNICO del Diagnóstico: vista → motores / jobs / APIs que la alimentan.
 - [[api.services.fair_value]] — fair_value.py — service del módulo Fair Value relativo intra-curva.
 - [[api.services.ia_obs]] — api/services/ia_obs.py — observabilidad del gateway de IA (SQL ia.trazas).
-- [[api.services.import_tenencia]] — api/services/import_tenencia.py — import masivo de tenencia a Valuaciones.AuM.
+- [[api.services.import_tenencia]] — api/services/import_tenencia.py — parsers de celdas del import manual de tenencia.
 - [[api.services.import_tenencia_sql]] — api/services/import_tenencia_sql.py — import manual a SQL `portafolio.tenencia`.
 - [[api.services.intraday]] — api/services/intraday.py — monitor intradía de renta variable (FIFO).
 - [[api.services.jobs_catalogo]] — api/services/jobs_catalogo.py — catálogo COMPLETO de jobs agendados.
@@ -139,7 +143,6 @@
 - [[api.services.pnl_sql]] — api/services/pnl_sql.py — PnL Títulos leyendo de Postgres, REUSANDO el motor de pnl.py.
 - [[api.services.portfolio]] — Capa de servicio — portfolio / AuM / FCI: helpers PUROS compartidos.
 - [[api.services.portfolio_sql]] — api/services/portfolio_sql.py — vista PORTFOLIO / AuM leyendo de Postgres (Supabase).
-- [[api.services.rem]] — Expectativas REM (Relevamiento de Expectativas de Mercado, BCRA).
 - [[api.services.rem_sql]] — api/services/rem_sql.py — Expectativas REM (IPC INDEC, BCRA) leyendo Postgres.
 - [[api.services.renta_fija]] — Capa de servicio — renta fija (MarketSnapshot + TimeSales + Curvas).
 - [[api.services.renta_fija_sql]] — api/services/renta_fija_sql.py — renta fija LIVE leyendo Postgres (mercado.*).

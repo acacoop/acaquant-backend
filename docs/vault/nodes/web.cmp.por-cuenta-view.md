@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/por-cuenta-view.tsx
+path: src\components\por-cuenta-view.tsx
 ---
 
 # web/components/por-cuenta-view
 
-**Archivo:** `src/components/por-cuenta-view.tsx`
+**Archivo:** `src\components\por-cuenta-view.tsx`
 
 ## Qué hace
 Vista resumen con una fila por cuenta: valor en ARS y USD, base 100 (performance indexada) y PnL acumulado. Tiene filtro por tipo de cuenta (todas / accionistas / sin accionistas / cooperativas / productores), ordenamiento por columnas y descarta cuentas con saldo "muerto". Es la sub-pestaña agregada del PnL total.

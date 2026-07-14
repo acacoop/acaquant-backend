@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/valuaciones-view.tsx
+path: src\components\valuaciones-view.tsx
 ---
 
 # web/components/valuaciones-view
 
-**Archivo:** `src/components/valuaciones-view.tsx`
+**Archivo:** `src\components\valuaciones-view.tsx`
 
 ## Qué hace
 Sub-vista PORTAFOLIO de Valuaciones: serie histórica de valuación de una cuenta (gráfico de línea) más una tabla mensual con valuación de cierre, depósitos, extracciones, flujo neto y los deltas bruto/real (performance neta de aportes y retiros). Permite exportar a XLSX.

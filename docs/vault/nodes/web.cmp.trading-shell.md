@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/trading-shell.tsx
+path: src\components\trading-shell.tsx
 ---
 
 # web/components/trading-shell
 
-**Archivo:** `src/components/trading-shell.tsx`
+**Archivo:** `src\components\trading-shell.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

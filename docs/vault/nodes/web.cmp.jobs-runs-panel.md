@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/jobs-runs-panel.tsx
+path: src\components\jobs-runs-panel.tsx
 ---
 
 # web/components/jobs-runs-panel
 
-**Archivo:** `src/components/jobs-runs-panel.tsx`
+**Archivo:** `src\components\jobs-runs-panel.tsx`
 
 ## Qué hace
 Panel de monitoreo de corridas de jobs/crons batch: lista los runs recientes (estado ok/partial/error, duración, stats, errores, log) y estadísticas agregadas por tipo de job, con filtros por tipo y estado.

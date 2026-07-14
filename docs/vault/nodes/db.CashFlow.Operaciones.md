@@ -22,4 +22,3 @@ Conecta con: la escriben `jobs/operaciones_informes.py` y `api/services/operacio
 - [[api.services.operativa_mep]]  ·  _module_
 - [[api.services.ordenes]]  ·  _module_
 - [[api.services.risk]]  ·  _module_
-- [[engines.motor_ordenes]]  ·  _module_

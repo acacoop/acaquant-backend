@@ -4,12 +4,12 @@ type: lib
 layer: web-lib
 repo: frontend
 tags: [lib, web-lib, frontend]
-path: src/proxy.ts
+path: src\proxy.ts
 ---
 
 # web/proxy
 
-**Archivo:** `src/proxy.ts`
+**Archivo:** `src\proxy.ts`
 
 ## Qué hace
 El proxy de Next.js (el ex-middleware) es el portero de las rutas restringidas del frontend: intercepta navegaciones y llamadas a /api/* en paths sensibles (manager, operar, operaciones, aum, valuaciones, back-office, renta-variable) y decide quién pasa según el role del usuario. Resuelve el email de confianza desde el sello firmado de Cloudflare Access, sanitiza headers entrantes para evitar spoofeo, consulta /api/me del backend (con cache en memoria de 30s por email) y exige que el usuario tenga alguno de los módulos requeridos por ese path; si no, redirige al home o devuelve 403/502. Falla cerrado en prod para evitar el flash de páginas restringidas. El mapeo path→módulo debe mantenerse en sync con ENDPOINT_MODULE_PREFIXES de api/auth.py.

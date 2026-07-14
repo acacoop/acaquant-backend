@@ -1,6 +1,6 @@
 # 🧩 web — componentes
 
-108 notas.
+110 notas.
 
 - [[web.cmp.acreencias-view]]
 - [[web.cmp.agro-datos]]
@@ -16,6 +16,7 @@
 - [[web.cmp.back-office-shell]]
 - [[web.cmp.breakevens-block]]
 - [[web.cmp.briefing-modal]]
+- [[web.cmp.calendario-panel]]
 - [[web.cmp.canje-tab]]
 - [[web.cmp.cedears-scanner-table]]
 - [[web.cmp.cedears-timesales-panel]]
@@ -101,6 +102,7 @@
 - [[web.cmp.trading-movers-scanner]]
 - [[web.cmp.trading-pivot-radar]]
 - [[web.cmp.trading-radar-panel]]
+- [[web.cmp.trading-renta-fija-scanner]]
 - [[web.cmp.trading-shell]]
 - [[web.cmp.trading-view]]
 - [[web.cmp.trading-volumen-scanner]]

@@ -1,6 +1,6 @@
 # 🧱 core — infraestructura
 
-34 notas.
+35 notas.
 
 - [[core]]
 - [[core.adhoc_subscriptions]] — Helpers para mercado.adhoc_subscriptions — suscripciones live efímeras.
@@ -17,13 +17,14 @@
 - [[core.dolar_oficial]] — Fuente única para el "dólar oficial" mayorista.
 - [[core.dolar_sql]] — core/dolar_sql.py — lecturas SQL del feed MEP/CCL/canje (decomiso Mongo).
 - [[core.finnhub]] — Cliente Finnhub con rate limiting interno.
+- [[core.fmp]] — Cliente FMP (financialmodelingprep) — calendario económico.
 - [[core.grupos]] — core/grupos.py — grupos de acceso por cuenta (scoping multi-tenant).
 - [[core.grupos_sql]] — core/grupos_sql.py — lectura + escritura del scope de cuentas (grupos) desde Postgres.
 - [[core.job_runs]] — Context manager para registrar runs de jobs automáticos en manager.job_runs (SQL).
 - [[core.mae]] — Cliente MAE MarketData.
 - [[core.market_snapshot]] — Lectura de mercado.market_snapshot (SQL) — estado live por ticker. SQL-only.
 - [[core.notify]] — Notificaciones operativas (Telegram).
-- [[core.pg_mirror]] — core/pg_mirror.py — dual-write best-effort Mongo→Postgres (Fase 2, capa MERCADO).
+- [[core.pg_mirror]] — core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).
 - [[core.postgres]] — core/postgres.py — conexión a Postgres (Supabase), capa relacional analítica.
 - [[core.profiler]] — Stopwatch mínimo para instrumentar pasos dentro de una función.
 - [[core.rofex_orders_session]] — Sesión pyRofex dedicada a envío/seguimiento de órdenes.

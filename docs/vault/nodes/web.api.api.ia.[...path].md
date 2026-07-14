@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/ia/[...path]/route.ts
+path: src\app\api\ia\[...path]\route.ts
 ---
 
 # web /api/ia/[...path]  (proxy)
 
-**Archivo:** `src/app/api/ia/[...path]/route.ts`
+**Archivo:** `src\app\api\ia\[...path]\route.ts`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

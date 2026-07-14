@@ -1,6 +1,6 @@
 # ⏱️ jobs — batch / cron
 
-47 notas.
+49 notas.
 
 - [[jobs]]
 - [[jobs._aum_filters]] — Reglas de exclusión aplicadas a `Valuaciones.AuM`.
@@ -10,7 +10,7 @@
 - [[jobs.aranceles]] — Job de aranceles — pega a Aunesa /informes y completa los boletos sin arancel.
 - [[jobs.archive_options_data]] — archive_options_data.py — purga de mercado.options_data (SQL).
 - [[jobs.argentina_datos]] — Cron: pega argentinadatos.com y persiste riesgo país / IPC / REM en SQL (SQL-only).
-- [[jobs.aum]]
+- [[jobs.aum]] — jobs/aum.py — CLIENTE Aunesa (librería, no es un job).
 - [[jobs.backfill_tasas]] — backfill_tasas.py — recalcula TEA/TEM/duration/paridad de TODOS los bonos de
 - [[jobs.bcra]]
 - [[jobs.bonos_ohlc_daily]] — bonos_ohlc_daily.py — guarda el OHLC diario de cada bono (ventana móvil).
@@ -20,28 +20,30 @@
 - [[jobs.cleanup_cedears_timesales]] — cleanup_cedears_timesales.py — vacía el Time & Sales intradía de CEDEARs.
 - [[jobs.cleanup_curvas]] — Limpieza de instrumentos vencidos en mercado.curvas (SQL-native).
 - [[jobs.cleanup_futuros_dlr]] — Limpieza de contratos DLR vencidos en mercado.futuros_dlr_snapshot (SQL).
+- [[jobs.cleanup_retencion]] — cleanup_retencion.py — aplica la RETENCIÓN que el schema ya prometía pero nadie ejecutaba.
 - [[jobs.comercial_warm]] — jobs/comercial_warm.py — precalienta la cache in-process de la vista COMERCIAL.
 - [[jobs.consolidado_cuentas]] — consolidado_cuentas.py — precalcula la valuación consolidada por cuenta.
 - [[jobs.controles_datos]] — controles_datos.py — Auto-control de CALIDAD DE DATOS de ACAQuant.
 - [[jobs.day_trading_stats]] — day_trading_stats.py — resumen diario de scalping por CEDEAR.
 - [[jobs.dias_habiles]] — dias_habiles.py — Carga días hábiles del calendario argentino a SQL (mercado.dias_habiles).
-- [[jobs.economic_calendar]] — economic_calendar.py — ingesta diaria del calendario económico global.
+- [[jobs.economic_calendar]] — economic_calendar.py — ingesta diaria del calendario económico (FMP).
 - [[jobs.fair_value]] — fair_value.py — fit cuadrático + residuos + z-scores diarios.
-- [[jobs.fci_bilateral]] — jobs/fci_bilateral.py — lleva el FCI bilateral de CashFlow.NegocioMovimientos a
+- [[jobs.fci_bilateral]] — jobs/fci_bilateral.py — lleva el FCI bilateral de `operaciones.negocio_movimientos`
 - [[jobs.forwards_zscore]] — forwards_zscore.py — coeficientes (media, desvío) por par de la matriz de forwards.
 - [[jobs.informe_salud]] — informe_salud.py — Informe de salud de ACAQuant (health report a Telegram).
 - [[jobs.market_anchors]] — market_anchors.py — anchors diarios de retorno (7d, MTD, YTD, 1Y).
-- [[jobs.market_quotes]] — market_quotes.py — cotizaciones equity + forex para watchlists.
+- [[jobs.market_quotes]] — market_quotes.py — cotizaciones de equity/futuros/índices para el watchlist HOME.
 - [[jobs.negocio_movimientos]] — negocio_movimientos.py — pega a Aunesa, consolida y persiste boletos
 - [[jobs.news_finnhub]] — news_finnhub.py — ingesta de noticias desde Finnhub.
 - [[jobs.news_ingesta]] — news_ingesta.py — Ingesta de RSS de medios económicos argentinos.
 - [[jobs.operaciones_informes]] — operaciones_informes.py — ingesta de operaciones desde Aunesa /informes a
 - [[jobs.options_rollup]] — options_rollup.py — rollup diario de mercado.options_data (SQL) → mercado.options_data_hist (SQL).
-- [[jobs.partner_export]] — partner_export.py — exporta posiciones de cuentas puntuales a ACAPortfolio.Cartera.
+- [[jobs.partner_export]] — partner_export.py — exporta posiciones de cuentas puntuales a `partner.cartera` (SQL).
 - [[jobs.pnl_totales_precompute]] — pnl_totales_precompute.py — precalcula el PnL de TODAS las cuentas.
 - [[jobs.portafolio_backfill]] — jobs/portafolio_backfill.py — backfill de portafolio.tenencia (SQL), self-healing.
 - [[jobs.portafolio_reparar_timeouts]] — jobs/portafolio_reparar_timeouts.py — recupera los TIMEOUT/ERROR del backfill.
 - [[jobs.precios_acciones_daily]] — precios_acciones_daily.py — agrega 1 vela daily por activo a
+- [[jobs.research_mail]] — jobs/research_mail.py — Ingesta automática del research diario por mail (QuantAI P6).
 - [[jobs.segmentar_patrimonial]] — segmentar_patrimonial.py — re-clasifica `nivel_3` de todas las Comitentes activas.
 - [[jobs.snapshot_cierre]] — snapshot_cierre.py — materializa el cierre diario por bono SQL-NATIVE.
 - [[jobs.snapshot_sinteticos]] — snapshot_sinteticos.py — materializa el cierre diario de sintéticos en mercado.snapshots_sinteticos (SQL).

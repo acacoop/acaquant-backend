@@ -35,6 +35,7 @@ Conecta con: lo importa medio repo. Los motores (`engines/`) y `core/rofex_sessi
 - [[core.aunesa]]  ·  _module_
 - [[core.byma]]  ·  _module_
 - [[core.finnhub]]  ·  _module_
+- [[core.fmp]]  ·  _module_
 - [[core.mae]]  ·  _module_
 - [[core.notify]]  ·  _module_
 - [[core.rofex_session]]  ·  _module_

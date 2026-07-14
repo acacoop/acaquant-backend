@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/retorno-total-mini.tsx
+path: src\components\retorno-total-mini.tsx
 ---
 
 # web/components/retorno-total-mini
 
-**Archivo:** `src/components/retorno-total-mini.tsx`
+**Archivo:** `src\components\retorno-total-mini.tsx`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

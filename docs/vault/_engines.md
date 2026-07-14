@@ -7,7 +7,7 @@
 - [[engines._universo_portfolio]] — Universo dinámico para motor_portfolio_snapshot.
 - [[engines.breakevens]] — main_breakevens.py — Motor de breakevens CER/Lecap en tiempo real.
 - [[engines.caucion]] — Motor de caución ARS y USD a corto plazo.
-- [[engines.curvas]] — main_curvas.py — Motor de enriquecimiento en tiempo real para Trading.TimeSales.
+- [[engines.curvas]] — curvas.py — Motor de enriquecimiento analítico en tiempo real (SQL-only).
 - [[engines.dolar_mep]]
 - [[engines.dolares]] — Motor de dólares MEP/CCL/canje en tiempo real (WebSocket).
 - [[engines.forwards]] — main_forwards.py — Motor de tasas forward en tiempo real.

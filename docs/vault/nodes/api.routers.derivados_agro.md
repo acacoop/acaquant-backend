@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/derivados_agro.py
+path: api\routers\derivados_agro.py
 ---
 
 # api/routers/derivados_agro
 
 > Router /api/derivados/agro — Pase Agro + Estrategias + Cámara + Mejoras Dispo.
 
-**Archivo:** `api/routers/derivados_agro.py`
+**Archivo:** `api\routers\derivados_agro.py`
 
 ## Qué hace
 Router HTTP `/api/derivados/agro/*` para el módulo Agro Rosario (Trigo/Maíz/Soja): expone la tabla Pase Agro, la cadena de opciones, el simulador de estrategias de cobertura (put sintético / long put), la Cámara Arbitral de Cereales (5 cereales) y Mejoras Precio Disponible. Algunos GET son abiertos a los 3 roles; los PATCH (pizarra, cámara) exigen el módulo `agro` y dejan el email en audit. Es solo plumbing HTTP: delega todo a los services.

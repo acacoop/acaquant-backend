@@ -4,12 +4,12 @@ type: component
 layer: web-component
 repo: frontend
 tags: [component, web-component, frontend]
-path: src/components/derivados-sinteticos-view.tsx
+path: src\components\derivados-sinteticos-view.tsx
 ---
 
 # web/components/derivados-sinteticos-view
 
-**Archivo:** `src/components/derivados-sinteticos-view.tsx`
+**Archivo:** `src\components\derivados-sinteticos-view.tsx`
 
 ## Qué hace
 Vista de sintéticos (long LECAP / short DLK contra futuro DLR): tabla con precios de cada pata, descalce de plazos y la TNA resultante del armado sintético, más un gráfico recharts. Pollea cada 5 s.

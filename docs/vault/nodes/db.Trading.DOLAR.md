@@ -17,7 +17,9 @@ Conecta con: la escribe `jobs/bcra.py`; la leen `api/services/macro.py`, `carry_
 
 ## Lo usan (backlinks) ←
 - [[api.routers.manager.status]]  ·  _module_
+- [[api.services.argy]]  ·  _module_
 - [[api.services.briefing]]  ·  _module_
+- [[api.services.camara_cereales]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.intraday]]  ·  _module_
 - [[api.services.macro]]  ·  _module_

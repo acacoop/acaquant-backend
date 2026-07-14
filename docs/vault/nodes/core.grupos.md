@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/grupos.py
+path: core\grupos.py
 ---
 
 # core/grupos
 
 > core/grupos.py — grupos de acceso por cuenta (scoping multi-tenant).
 
-**Archivo:** `core/grupos.py`
+**Archivo:** `core\grupos.py`
 
 ## Qué hace
 Implementa los grupos de acceso por cuenta (scoping multi-tenant). Un grupo asocia usuarios (emails) con cuentas comitentes (id_cuenta). La función central `cuentas_visibles(email)` devuelve el set de cuentas que el usuario puede ver, o `None` cuando no hay restricción (admin, o usuario sin grupo asignado — transición fail-open). Cachea por email con TTL de 60s y `invalidate_cache` tras cada mutación.

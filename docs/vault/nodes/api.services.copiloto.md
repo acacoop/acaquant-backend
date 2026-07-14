@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/copiloto.py
+path: api\services\copiloto.py
 ---
 
 # api/services/copiloto
 
 > api/services/copiloto.py — P3 Copiloto de Mesa (QuantAI, docs/QUANTAI.md).
 
-**Archivo:** `api/services/copiloto.py`
+**Archivo:** `api\services\copiloto.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

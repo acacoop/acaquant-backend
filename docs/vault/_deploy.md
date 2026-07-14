@@ -1,6 +1,6 @@
 # 🚀 deploy — servicios + crons
 
-53 notas.
+55 notas.
 
 - [[cron.engines.dolar_mep]] — Tarea programada (cron).
 - [[cron.jobs.acreencias]] — Tarea programada (cron).
@@ -16,6 +16,7 @@
 - [[cron.jobs.cleanup_cedears_timesales]] — Tarea programada (cron).
 - [[cron.jobs.cleanup_curvas]] — Tarea programada (cron).
 - [[cron.jobs.cleanup_futuros_dlr]] — Tarea programada (cron).
+- [[cron.jobs.cleanup_retencion]] — Tarea programada (cron).
 - [[cron.jobs.comercial_warm]] — Tarea programada (cron).
 - [[cron.jobs.consolidado_cuentas]] — Tarea programada (cron).
 - [[cron.jobs.controles_datos]] — Tarea programada (cron).
@@ -34,6 +35,7 @@
 - [[cron.jobs.pnl_totales_precompute]] — Tarea programada (cron).
 - [[cron.jobs.portafolio_backfill]] — Tarea programada (cron).
 - [[cron.jobs.precios_acciones_daily]] — Tarea programada (cron).
+- [[cron.jobs.research_mail]] — Tarea programada (cron).
 - [[cron.jobs.snapshot_cierre]] — Tarea programada (cron).
 - [[cron.jobs.snapshot_sinteticos]] — Tarea programada (cron).
 - [[cron.jobs.sync_comitentes]] — Tarea programada (cron).

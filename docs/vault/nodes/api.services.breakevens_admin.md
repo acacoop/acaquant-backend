@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/breakevens_admin.py
+path: api\services\breakevens_admin.py
 ---
 
 # api/services/breakevens_admin
 
 > api/services/breakevens_admin.py — curaduría de pares de breakevens.
 
-**Archivo:** `api/services/breakevens_admin.py`
+**Archivo:** `api\services\breakevens_admin.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

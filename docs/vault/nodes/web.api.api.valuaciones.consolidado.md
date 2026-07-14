@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/valuaciones/consolidado/route.ts
+path: src\app\api\valuaciones\consolidado\route.ts
 ---
 
 # web /api/valuaciones/consolidado  (proxy)
 
-**Archivo:** `src/app/api/valuaciones/consolidado/route.ts`
+**Archivo:** `src\app\api\valuaciones\consolidado\route.ts`
 
 ## Qué hace
 Route handler que proxea la valuación consolidada por cuenta a /api/valuaciones/consolidado, con ?filtro_cuenta (default "todas"). force-dynamic + no-store.

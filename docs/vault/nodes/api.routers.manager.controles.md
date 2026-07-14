@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/manager/controles.py
+path: api\routers\manager\controles.py
 ---
 
 # api/routers/manager/controles
 
 > GET /api/manager/controles — anomalías del auto-control de calidad de datos.
 
-**Archivo:** `api/routers/manager/controles.py`
+**Archivo:** `api\routers\manager\controles.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

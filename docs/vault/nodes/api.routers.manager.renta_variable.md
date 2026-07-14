@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/routers/manager/renta_variable.py
+path: api\routers\manager\renta_variable.py
 ---
 
 # api/routers/manager/renta_variable
 
 > Manager sub-router — Títulos → Renta Variable (CEDEARs: rubro + es_ia).
 
-**Archivo:** `api/routers/manager/renta_variable.py`
+**Archivo:** `api\routers\manager\renta_variable.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

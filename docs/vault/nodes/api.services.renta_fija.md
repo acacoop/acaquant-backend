@@ -4,14 +4,14 @@ type: module
 layer: api
 repo: backend
 tags: [module, api, backend]
-path: api/services/renta_fija.py
+path: api\services\renta_fija.py
 ---
 
 # api/services/renta_fija
 
 > Capa de servicio — renta fija (MarketSnapshot + TimeSales + Curvas).
 
-**Archivo:** `api/services/renta_fija.py`
+**Archivo:** `api\services\renta_fija.py`
 
 ## Qué hace
 Capa de servicio de renta fija: snapshot de libro/trades, histórico de trades por ticker, serie diaria por curva, y el tool maestro `listar_curva` que enriquece cada bono con TEA/TEM/paridad/duration/convexity. Define los helpers compartidos de tickers/curvas (`resolver_ticker_exacto`, `_ticker_filter`, `_CURVAS_VALIDAS`) que el resto de services importa. Resuelve ticker corto→completo vía índice para evitar table-scans.

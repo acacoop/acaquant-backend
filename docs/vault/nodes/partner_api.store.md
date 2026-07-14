@@ -4,14 +4,14 @@ type: module
 layer: partner_api
 repo: backend
 tags: [module, partner_api, backend]
-path: partner_api/store.py
+path: partner_api\store.py
 ---
 
 # partner_api/store
 
 > partner_api/store.py — capa de datos SQL-native (decomiso Mongo).
 
-**Archivo:** `partner_api/store.py`
+**Archivo:** `partner_api\store.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

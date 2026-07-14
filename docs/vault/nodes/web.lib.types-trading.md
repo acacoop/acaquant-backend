@@ -4,12 +4,12 @@ type: lib
 layer: web-lib
 repo: frontend
 tags: [lib, web-lib, frontend]
-path: src/lib/types-trading.ts
+path: src\lib\types-trading.ts
 ---
 
 # web/lib/types-trading
 
-**Archivo:** `src/lib/types-trading.ts`
+**Archivo:** `src\lib\types-trading.ts`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

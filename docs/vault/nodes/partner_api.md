@@ -4,14 +4,14 @@ type: module
 layer: partner_api
 repo: backend
 tags: [module, partner_api, backend]
-path: partner_api/__init__.py
+path: partner_api\__init__.py
 ---
 
 # partner_api/__init__
 
 > partner_api — API externa de datos de portfolio para un proveedor.
 
-**Archivo:** `partner_api/__init__.py`
+**Archivo:** `partner_api\__init__.py`
 
 ## Qué hace
 Paquete raíz del servicio externo de datos de portfolio para un proveedor. Es una app FastAPI SEPARADA de la mesa (proceso y puerto propios): solo lee `ACAPortfolio.Cartera`, con auth propia (usuario/password → JWT) independiente de Cloudflare Access. Diseñado para aislar: si lo atacan o se cae, `api.acaquant.com` no se entera.

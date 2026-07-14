@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/pg_mirror.py
+path: core\pg_mirror.py
 ---
 
 # core/pg_mirror
 
-> core/pg_mirror.py — dual-write best-effort Mongo→Postgres (Fase 2, capa MERCADO).
+> core/pg_mirror.py — capa de ESCRITURA a Postgres (única base; Mongo decomisado).
 
-**Archivo:** `core/pg_mirror.py`
+**Archivo:** `core\pg_mirror.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_

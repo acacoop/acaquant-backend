@@ -66,6 +66,12 @@ _TAREAS: dict[str, dict] = {
     # (shadow 2026-07-11). max_tokens generoso — lección del P2.
     "copiloto_vista": {"tier": "flash", "max_tokens": 3000, "timeout_s": 60,
                        "thinking": "disabled"},
+    # P6 memoria de research (jobs/research_mail.py): destila el mail diario de
+    # research (prosa larga) a JSON {resumen, temas, hechos} para inyectarlo
+    # barato como contexto. Extracción, no razonamiento → flash sin thinking;
+    # max_tokens holgado porque el JSON con ~10 hechos ocupa (lección del P2).
+    "research_destilar": {"tier": "flash", "max_tokens": 2000, "timeout_s": 90,
+                          "thinking": "disabled"},
 }
 
 _DEFAULT_TAREA = {"tier": "flash", "max_tokens": 800, "timeout_s": 60, "thinking": "disabled"}

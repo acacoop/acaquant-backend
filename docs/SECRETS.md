@@ -38,6 +38,7 @@ run es un proceso nuevo).
 | `DOLAR_INGEST_TOKEN` | Token de `POST /api/ingest/dolar-oficial` (la PC de oficina lo manda en `X-Ingest-Token`). Va en el `.env` del Droplet **y** en la oficina (deben coincidir). Si se filtra: solo permite escribir el dólar oficial live, no da acceso a la DB. | Random nuevo → `.env` Droplet + oficina → restart API. |
 | `FINNHUB_API_KEY` | Data de mercado externa. | Dashboard de Finnhub. |
 | `DEEPSEEK_API_KEY` | LLM del sistema — gateway `core/ai.py` (QuantAI). Cuenta prepaga, saldo chico: si se filtra, el daño máximo es quemar el saldo. Sin ella la capa AI degrada (todo sigue funcionando sin IA). | platform.deepseek.com → API Keys → regenerar → `.env` (los crons la toman solos; restart API cuando la use la API). |
+| `RESEARCH_IMAP_USER` / `RESEARCH_IMAP_PASSWORD` / `RESEARCH_MAIL_FROM` | Casilla que recibe el research diario + app password + remitente(s) — los lee `jobs/research_mail.py` (IMAP readonly, QuantAI P6). OJO: la app password da acceso de LECTURA a toda la casilla — usar una app password dedicada, jamás la contraseña real. | Gmail: Cuenta → Seguridad → Contraseñas de aplicaciones → revocar y generar otra → `.env` (el cron la toma solo). |
 | `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | LLM del asistente (legacy, no en uso hoy). | Consola Anthropic / Google. |
 
 ## 🟢 Config sensible (no son secretos, pero cuidá quién los edita)

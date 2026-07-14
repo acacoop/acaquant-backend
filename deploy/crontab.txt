@@ -245,3 +245,9 @@
 # nuevas en job_runs (query gratis) y solo una firma NUEVA gasta un diagnóstico
 # del LLM (guardas: dedup + watermark + presupuesto + severidad). docs/QUANTAI.md.
 */10 * * * * /root/TradingAV/deploy/run_job.sh triage 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.triage'
+
+# ─── Research diario por mail (QuantAI P6) — ingesta IMAP + destilado LLM → ia.research
+# Cada 30 min a la mañana L-V (el mail llega temprano ART): dedup por Message-ID
+# → re-correr no duplica ni re-gasta tokens; un run sin mail nuevo = 0 tokens.
+# Requiere RESEARCH_IMAP_USER/PASSWORD/MAIL_FROM en el .env. docs/QUANTAI.md.
+*/30 10-14 * * 1-5 /root/TradingAV/deploy/run_job.sh research_mail 5m 'cd /root/TradingAV && /root/TradingAV/venv/bin/python -m jobs.research_mail'

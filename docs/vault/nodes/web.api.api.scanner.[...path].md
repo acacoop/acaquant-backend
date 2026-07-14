@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/scanner/[...path]/route.ts
+path: src\app\api\scanner\[...path]\route.ts
 ---
 
 # web /api/scanner/[...path]  (proxy)
 
-**Archivo:** `src/app/api/scanner/[...path]/route.ts`
+**Archivo:** `src\app\api\scanner\[...path]\route.ts`
 
 ## Qué hace
 Proxy catch-all read-only (solo GET) hacia /api/scanner/* del backend — Scanner de Renta Variable (ej. CEDEARs). Usa apiFetch (propaga email para RBAC). force-dynamic + no-store porque sirve datos live del motor.

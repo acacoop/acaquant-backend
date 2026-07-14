@@ -4,14 +4,14 @@ type: module
 layer: core
 repo: backend
 tags: [module, core, backend]
-path: core/series_macro.py
+path: core\series_macro.py
 ---
 
 # core/series_macro
 
 > Series macro (CER, DOLAR, BADLAR, TAMAR, RiesgoPais, Inflación…) — SQL-ONLY.
 
-**Archivo:** `core/series_macro.py`
+**Archivo:** `core\series_macro.py`
 
 ## Qué hace
 _(pendiente de enriquecimiento)_
@@ -21,6 +21,7 @@ _(pendiente de enriquecimiento)_
 
 ## Lo usan (backlinks) ←
 - [[api.services.argy]]  ·  _module_
+- [[api.services.camara_cereales]]  ·  _module_
 - [[api.services.carry_trade]]  ·  _module_
 - [[api.services.descomposicion_retorno]]  ·  _module_
 - [[api.services.macro]]  ·  _module_

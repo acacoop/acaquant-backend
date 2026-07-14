@@ -4,12 +4,12 @@ type: route
 layer: web-api
 repo: frontend
 tags: [route, web-api, frontend]
-path: src/app/api/valuaciones/[id_cuenta]/posiciones-actuales/route.ts
+path: src\app\api\valuaciones\[id_cuenta]\posiciones-actuales\route.ts
 ---
 
 # web /api/valuaciones/[id_cuenta]/posiciones-actuales  (proxy)
 
-**Archivo:** `src/app/api/valuaciones/[id_cuenta]/posiciones-actuales/route.ts`
+**Archivo:** `src\app\api\valuaciones\[id_cuenta]\posiciones-actuales\route.ts`
 
 ## Qué hace
 Route handler que proxea las posiciones actuales de una cuenta a una fecha (?fecha opcional) a /api/valuaciones/{id_cuenta}/posiciones-actuales. force-dynamic + no-store.

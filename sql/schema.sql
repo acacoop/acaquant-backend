@@ -525,12 +525,26 @@ CREATE TABLE IF NOT EXISTS portafolio.alquiler (
 
 -- PORTFOLIO ALQUILER (tab de "Títulos en Alquiler"): lista CURADA de títulos que
 -- el back office elige a mano (fila "+" con buscador). La vista los muestra como
--- Tenencia Valorizada (serie diaria + PX/100/255/256/Total, valuación en bruto).
+-- Tenencia Valorizada (serie diaria desde 01/06/2026 + PX/100/255/256/Total).
 -- La escribe/lee api/services/tenencia_hd.py (que además la self-crea).
 CREATE TABLE IF NOT EXISTS portafolio.alquiler_portfolio (
     unidad      text PRIMARY KEY,
     updated_by  text,
     updated_at  timestamptz
+);
+
+-- Nominales EN ALQUILER por (título, cuenta, fecha) — editables desde la tab.
+-- Semántica CARRY-FORWARD: la edición de un día rige de ese día en adelante
+-- hasta la próxima edición (0 = apaga). Es la fuente del filtro SIN ALQUILER
+-- de Tenencia Valorizada (base − alquiler, puede dar negativo).
+CREATE TABLE IF NOT EXISTS portafolio.alquiler_portfolio_nominales (
+    unidad      text NOT NULL,
+    id_cuenta   text NOT NULL,
+    fecha       date NOT NULL,
+    cantidad    numeric NOT NULL,
+    updated_by  text,
+    updated_at  timestamptz,
+    PRIMARY KEY (unidad, id_cuenta, fecha)
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────

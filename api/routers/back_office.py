@@ -184,3 +184,19 @@ def tenencia_hd_portfolio_alquiler_set(
     """Agrega o quita un título de la lista del Portfolio Alquiler (durable,
     compartida por todo el back office)."""
     return svc_ten.set_portfolio_alquiler(unidad=unidad, en_portfolio=en_portfolio, email=email)
+
+
+@router.post("/tenencia-hd/portfolio-alquiler/nominal")
+def tenencia_hd_portfolio_alquiler_nominal(
+    unidad:    str = Body(..., embed=True),
+    id_cuenta: str = Body(..., embed=True),
+    fecha:     str = Body(..., embed=True, description="ISO YYYY-MM-DD (el día que se está editando)"),
+    cantidad:  float | None = Body(None, embed=True,
+                                   description="nominales en alquiler; None = borrar la edición de ese día"),
+    email: str = Depends(get_user_email),
+):
+    """Nominales en alquiler de (título, cuenta) A PARTIR de `fecha` — carry
+    forward: rigen hasta la próxima edición. 0 = apaga de ese día en adelante.
+    Es la fuente del filtro SIN ALQUILER de Tenencia Valorizada."""
+    return svc_ten.set_portfolio_alquiler_nominal(
+        unidad=unidad, id_cuenta=id_cuenta, fecha=fecha, cantidad=cantidad, email=email)

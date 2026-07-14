@@ -60,26 +60,22 @@ def _tc_map(fechas: list[str]) -> dict[str, float | None]:
 
 @cached(ttl=300)
 def tenencia_dias(cartera: str = "HD") -> dict[str, Any]:
-    """Serie diaria: 1 fila por fecha con el AuM de cada cuenta + total + tc.
+    """Serie diaria: 1 fila por fecha con el AuM BRUTO de cada cuenta + total + tc.
     Live desde SQL portafolio.tenencia (aum='si', cuentas 100/255/256), filtrado por
     `cartera`: 'HD' (Cartera USD) o 'ARS' (todo lo no-HD).
 
-    NETEA el alquiler (por título+cuenta) date-aware: a partir de la fecha `desde`
-    de cada marca, descuenta la valuación de los nominales en alquiler."""
-    marcas = get_alquiler_marcas()
+    Desde 2026-07-14 la serie es BRUTA: el alquiler ya NO se descuenta acá (el
+    netting por marcas se retiró de esta vista). El descuento vive en el filtro
+    SIN ALQUILER de posiciones, alimentado por el PORTFOLIO ALQUILER."""
     por_fecha: dict[str, dict[str, float]] = {}
     with get_pool().connection() as conn, conn.cursor() as cur:
         cur.execute(
-            f"SELECT fecha, id_cuenta, unidad, SUM(valuacion), SUM(cantidad) "
+            f"SELECT fecha, id_cuenta, SUM(valuacion) "
             f"FROM portafolio.tenencia "
             f"WHERE aum = 'si' AND id_cuenta = ANY(%s) AND {_cartera_subq(cartera)} "
-            f"GROUP BY fecha, id_cuenta, unidad ORDER BY fecha", (CUENTAS,))
-        for fecha, idc, unidad, val, cant in cur.fetchall():
-            f_iso = fecha.isoformat()
-            c = str(idc)
-            factor = _net_factor(float(cant or 0.0), marcas.get((c, str(unidad))), f_iso)
-            byc = por_fecha.setdefault(f_iso, {})
-            byc[c] = byc.get(c, 0.0) + float(val or 0.0) * factor
+            f"GROUP BY fecha, id_cuenta ORDER BY fecha", (CUENTAS,))
+        for fecha, idc, val in cur.fetchall():
+            por_fecha.setdefault(fecha.isoformat(), {})[str(idc)] = float(val or 0.0)
     fechas = sorted(por_fecha)
     tcs = _tc_map(fechas)
     dias = []
@@ -96,12 +92,16 @@ def tenencia_posiciones(*, fecha: str, cartera: str = "HD") -> dict[str, Any]:
     """Posiciones (por título, desglose por cuenta) de un día — live desde SQL,
     filtrado por `cartera` ('HD' = Cartera USD / 'ARS' = todo lo no-HD).
 
-    NETEA el alquiler (por título+cuenta, date-aware): descuenta los nominales en
-    alquiler y su valuación. Si un título queda 100% en alquiler, no aparece.
+    Los valores son BRUTOS (desde 2026-07-14 el netting por marcas se retiró).
+    Adjunta por título la parte EN ALQUILER según los nominales cargados en el
+    PORTFOLIO ALQUILER (carry-forward por día): la vista los usa para el filtro
+    SIN ALQUILER (base − alquiler — puede dar NEGATIVO si se alquiló más de lo
+    que hay en cartera ese día).
 
     Adjunta el desglose en GARANTÍA (estado GAR de Aunesa) por cuenta: `gar`
     (valor) y `gar_cant` (nominales) → la vista filtra Todos / Sin GAR / Solo GAR."""
-    marcas = get_alquiler_marcas()
+    pa_unidades = set(portfolio_alquiler_unidades())
+    overrides = _portfolio_alq_overrides() if pa_unidades else {}
     por_unidad: dict[str, dict[str, float]] = {}
     cant_unidad: dict[str, dict[str, float]] = {}
     gar_val_unidad: dict[str, dict[str, float]] = {}
@@ -120,19 +120,20 @@ def tenencia_posiciones(*, fecha: str, cartera: str = "HD") -> dict[str, Any]:
             c = str(idc)
             cant_f = float(cant or 0.0)
             gross_val = float(val or 0.0)
-            factor = _net_factor(cant_f, marcas.get((c, u)), fecha)  # descuenta alquiler
-            net_val = gross_val * factor
-            net_cant = cant_f * factor
-            # Parte EN ALQUILER ese día (la que se descontó, date-aware) = 1 - factor.
-            alq_frac = 1.0 - factor
+            # Parte EN ALQUILER = nominales cargados en el Portfolio Alquiler ese
+            # día, valuados al precio unitario implícito de la tenencia.
+            alq_cant = (_alq_efectivo(overrides.get((u, c)), fecha)
+                        if u in pa_unidades else 0.0)
+            unit = (gross_val / cant_f) if cant_f else None
+            alq_val = alq_cant * unit if unit is not None else 0.0
             # Fracción del título en garantía (sobre el nominal crudo, clamp 0..1).
             gar_frac = min(1.0, max(0.0, float(gar or 0.0) / cant_f)) if cant_f else 0.0
-            por_unidad.setdefault(u, {})[c] = net_val
-            cant_unidad.setdefault(u, {})[c] = net_cant
-            gar_val_unidad.setdefault(u, {})[c] = net_val * gar_frac
-            gar_cant_unidad.setdefault(u, {})[c] = net_cant * gar_frac
-            alq_val_unidad.setdefault(u, {})[c] = gross_val * alq_frac
-            alq_cant_unidad.setdefault(u, {})[c] = cant_f * alq_frac
+            por_unidad.setdefault(u, {})[c] = gross_val
+            cant_unidad.setdefault(u, {})[c] = cant_f
+            gar_val_unidad.setdefault(u, {})[c] = gross_val * gar_frac
+            gar_cant_unidad.setdefault(u, {})[c] = cant_f * gar_frac
+            alq_val_unidad.setdefault(u, {})[c] = alq_val
+            alq_cant_unidad.setdefault(u, {})[c] = alq_cant
             if prec is not None:
                 precio_unidad[u] = float(prec)
 
@@ -182,9 +183,9 @@ def tenencia_posiciones(*, fecha: str, cartera: str = "HD") -> dict[str, Any]:
 
 # ── ALQUILER (marca durable por título + cuenta, self-service) ───────────────
 # Por (id_cuenta, unidad): SI/NO, nominales en alquiler y fecha DESDE. Durable
-# (no por día). Se edita en la vista "Títulos en alquiler". NETEA la posición en
-# las vistas de tenencia (posiciones + AuM diario) a partir de `desde`. Tabla
-# self-create para tolerar el drift de schema.
+# (no por día). Se edita en la sub-tab "Marcas por cuenta". Desde 2026-07-14 es
+# SOLO un registro (ya NO netea Tenencia Valorizada — eso lo hace el PORTFOLIO
+# ALQUILER vía el filtro SIN ALQUILER). Tabla self-create.
 _ALQUILER_TABLE = "portafolio.alquiler"
 
 
@@ -197,43 +198,6 @@ def _ensure_alquiler_table(cur) -> None:
         "PRIMARY KEY (id_cuenta, unidad))")
     # `hasta` se agregó después (período del alquiler) → ALTER para tablas viejas.
     cur.execute(f"ALTER TABLE {_ALQUILER_TABLE} ADD COLUMN IF NOT EXISTS hasta date")
-
-
-def get_alquiler_marcas() -> dict[tuple[str, str], dict[str, Any]]:
-    """{(id_cuenta, unidad): {cantidad, desde}} de las marcas ACTIVAS (en_alquiler
-    y cantidad > 0). `desde` es date|None. Vacío si la tabla no existe / PG caído."""
-    out: dict[tuple[str, str], dict[str, Any]] = {}
-    try:
-        with get_pool().connection() as conn, conn.cursor() as cur:
-            _ensure_alquiler_table(cur)
-            cur.execute(
-                f"SELECT id_cuenta, unidad, cantidad, desde, hasta FROM {_ALQUILER_TABLE} "
-                f"WHERE en_alquiler = true AND cantidad > 0")
-            for idc, u, cant, desde, hasta in cur.fetchall():
-                if idc and u and cant:
-                    out[(str(idc), str(u))] = {"cantidad": float(cant), "desde": desde,
-                                               "hasta": hasta}
-            conn.commit()
-    except Exception:
-        return {}
-    return out
-
-
-def _net_factor(cant: float, marca: dict[str, Any] | None, fecha: str) -> float:
-    """Fracción de la posición que QUEDA tras descontar el alquiler (0..1).
-    Aplica solo si hay marca activa y `fecha` está DENTRO del período [desde, hasta]
-    (date-aware). `desde` vacío = desde siempre; `hasta` vacío = sigue en alquiler.
-    Fechas en ISO YYYY-MM-DD → comparación lexicográfica == comparación de fechas."""
-    if not marca or cant <= 0:
-        return 1.0
-    desde = marca.get("desde")
-    if desde is not None and str(desde) > fecha:
-        return 1.0   # el alquiler todavía no arrancó ese día
-    hasta = marca.get("hasta")
-    if hasta is not None and str(hasta) < fecha:
-        return 1.0   # el alquiler ya terminó ese día
-    lent = min(float(marca["cantidad"]), cant)
-    return max(0.0, (cant - lent) / cant)
 
 
 # Arranque del proceso legal: se listan los títulos tenidos DESDE esta fecha, aunque
@@ -375,16 +339,63 @@ def set_alquiler_marca(*, id_cuenta: str, unidad: str, en_alquiler: bool,
 # ── PORTFOLIO ALQUILER (lista curada de títulos — tab propia) ────────────────
 # Pedido de la mesa 2026-07-14: en vez de operar el netting por marcas, una
 # tabla tipo Tenencia Valorizada pero SOLO con los títulos que el back office
-# ELIGE a mano (fila "+" con buscador sobre todos los instrumentos). La
-# selección es DURABLE y compartida (tabla SQL self-create, como alquiler);
-# los valores salen de portafolio.tenencia EN BRUTO (sin netear marcas).
+# ELIGE a mano (fila "+" con buscador sobre todos los instrumentos) y con los
+# NOMINALES EN ALQUILER editables POR CUENTA Y POR DÍA. Semántica carry-forward:
+# el nominal cargado un día RIGE de ese día en adelante hasta la próxima edición
+# (como un alquiler real — no se re-tipea cada día). La serie arranca en el
+# inicio del proceso legal (01/06/2026). Es la fuente del filtro SIN ALQUILER
+# de Tenencia Valorizada. Tablas self-create + en schema.sql.
 _PORTFOLIO_ALQ_TABLE = "portafolio.alquiler_portfolio"
+_PORTFOLIO_ALQ_NOM_TABLE = "portafolio.alquiler_portfolio_nominales"
+_PORTFOLIO_ALQ_DESDE = "2026-06-01"   # arranque del proceso legal
 
 
 def _ensure_portfolio_alq_table(cur) -> None:
     cur.execute(
         f"CREATE TABLE IF NOT EXISTS {_PORTFOLIO_ALQ_TABLE} ("
         "unidad text PRIMARY KEY, updated_by text, updated_at timestamptz)")
+
+
+def _ensure_portfolio_alq_nom_table(cur) -> None:
+    cur.execute(
+        f"CREATE TABLE IF NOT EXISTS {_PORTFOLIO_ALQ_NOM_TABLE} ("
+        "unidad text NOT NULL, id_cuenta text NOT NULL, fecha date NOT NULL, "
+        "cantidad numeric NOT NULL, updated_by text, updated_at timestamptz, "
+        "PRIMARY KEY (unidad, id_cuenta, fecha))")
+
+
+def _portfolio_alq_overrides() -> dict[tuple[str, str], list[tuple[str, float]]]:
+    """{(unidad, id_cuenta): [(fecha_iso, cantidad), ...] ASC} — las ediciones de
+    nominales. Carry-forward: cada una rige desde su fecha hasta la siguiente."""
+    out: dict[tuple[str, str], list[tuple[str, float]]] = {}
+    try:
+        with get_pool().connection() as conn, conn.cursor() as cur:
+            _ensure_portfolio_alq_nom_table(cur)
+            cur.execute(
+                f"SELECT unidad, id_cuenta, fecha, cantidad "
+                f"FROM {_PORTFOLIO_ALQ_NOM_TABLE} ORDER BY fecha")
+            for u, c, f, cant in cur.fetchall():
+                out.setdefault((str(u), str(c)), []).append(
+                    (f.isoformat(), float(cant or 0.0)))
+            conn.commit()
+    except Exception as e:
+        logger.warning("portfolio_alquiler: nominales no disponibles (%s)", e)
+        return {}
+    return out
+
+
+def _alq_efectivo(ediciones: list[tuple[str, float]] | None, fecha: str) -> float:
+    """Nominales en alquiler EFECTIVOS el día `fecha`: la última edición con
+    fecha <= `fecha` manda (carry-forward). Sin ediciones previas → 0."""
+    if not ediciones:
+        return 0.0
+    cant = 0.0
+    for f, c in ediciones:
+        if f <= fecha:
+            cant = c
+        else:
+            break
+    return cant
 
 
 def portfolio_alquiler_unidades() -> list[str]:
@@ -403,26 +414,45 @@ def portfolio_alquiler_unidades() -> list[str]:
 
 
 def portfolio_alquiler_dias() -> dict[str, Any]:
-    """Serie diaria de la tab PORTFOLIO ALQUILER: 1 fila por fecha con la
-    valuación de los títulos ELEGIDOS por cuenta propia + total + tc. Valuación
-    EN BRUTO (sin netear marcas de alquiler): acá se mira el portfolio elegido."""
+    """Serie diaria de la tab PORTFOLIO ALQUILER (desde 01/06/2026): 1 fila por
+    fecha con la valuación de los NOMINALES EN ALQUILER cargados, por cuenta.
+    Precio unitario del día = valuación/cantidad de la tenencia de esa unidad
+    (a nivel día, sumando las 3 cuentas); un título sin tenencia ese día no
+    valúa (nominales sin precio)."""
     unidades = portfolio_alquiler_unidades()
     if not unidades:
         return {"cuentas": CUENTAS, "unidades": [], "dias": [], "ultima_fecha": None}
+    ediciones = _portfolio_alq_overrides()
+    precio_unit: dict[tuple[str, str], float] = {}
+    fechas_set: set[str] = set()
     with get_pool().connection() as conn, conn.cursor() as cur:
+        # Calendario (todas las fechas con tenencia de las cuentas propias desde
+        # el arranque) + precio unitario por (fecha, unidad) de los elegidos.
         cur.execute(
-            "SELECT fecha, id_cuenta, SUM(valuacion) FROM portafolio.tenencia "
-            "WHERE aum = 'si' AND id_cuenta = ANY(%s) AND unidad = ANY(%s) "
-            "GROUP BY fecha, id_cuenta ORDER BY fecha", (CUENTAS, unidades))
-        filas = cur.fetchall()
-    por_fecha: dict[str, dict[str, float]] = {}
-    for fecha, idc, val in filas:
-        por_fecha.setdefault(fecha.isoformat(), {})[str(idc)] = float(val or 0.0)
-    fechas = sorted(por_fecha)
+            "SELECT DISTINCT fecha FROM portafolio.tenencia "
+            "WHERE fecha >= %s AND aum = 'si' AND id_cuenta = ANY(%s)",
+            (_PORTFOLIO_ALQ_DESDE, CUENTAS))
+        fechas_set = {r[0].isoformat() for r in cur.fetchall()}
+        cur.execute(
+            "SELECT fecha, unidad, SUM(valuacion), SUM(cantidad) FROM portafolio.tenencia "
+            "WHERE fecha >= %s AND aum = 'si' AND id_cuenta = ANY(%s) AND unidad = ANY(%s) "
+            "GROUP BY fecha, unidad", (_PORTFOLIO_ALQ_DESDE, CUENTAS, unidades))
+        for f, u, val, cant in cur.fetchall():
+            if cant:
+                precio_unit[(f.isoformat(), u)] = float(val or 0.0) / float(cant)
+    fechas = sorted(fechas_set)
     tcs = _tc_map(fechas)
     dias = []
     for f in fechas:
-        byc = por_fecha[f]
+        byc: dict[str, float] = {}
+        for u in unidades:
+            unit = precio_unit.get((f, u))
+            if unit is None:
+                continue
+            for c in CUENTAS:
+                cant_alq = _alq_efectivo(ediciones.get((u, c)), f)
+                if cant_alq:
+                    byc[c] = byc.get(c, 0.0) + cant_alq * unit
         fila = {"fecha": f, "tc": tcs.get(f), "total": round(sum(byc.values()), 2)}
         fila.update({c: round(byc.get(c, 0.0), 2) for c in CUENTAS})
         dias.append(fila)
@@ -431,13 +461,15 @@ def portfolio_alquiler_dias() -> dict[str, Any]:
 
 
 def portfolio_alquiler_posiciones(*, fecha: str) -> dict[str, Any]:
-    """Posiciones del día SOLO de los títulos elegidos (desglose por cuenta,
-    mismas columnas que Tenencia Valorizada: PX · 100 · 255 · 256 · Total).
-    Un título elegido SIN posición ese día igual aparece (fila en cero) — la
-    vista lo muestra con '—' y deja quitarlo."""
+    """Posiciones del día de la tab PORTFOLIO ALQUILER: por título elegido, los
+    NOMINALES EN ALQUILER por cuenta (efectivos ese día, carry-forward) y su
+    valuación al precio de la tenencia. `ten_cant` = nominales EN CARTERA ese
+    día (referencia para cargar). Un título sin tenencia ese día aparece igual
+    (sin precio) para poder cargarle nominales o quitarlo."""
     unidades = portfolio_alquiler_unidades()
-    por_unidad: dict[str, dict[str, float]] = {}
-    cant_unidad: dict[str, dict[str, float]] = {}
+    ediciones = _portfolio_alq_overrides()
+    ten_val: dict[str, dict[str, float]] = {}
+    ten_cant: dict[str, dict[str, float]] = {}
     precio_unidad: dict[str, float] = {}
     if unidades:
         with get_pool().connection() as conn, conn.cursor() as cur:
@@ -448,27 +480,76 @@ def portfolio_alquiler_posiciones(*, fecha: str) -> dict[str, Any]:
                 "GROUP BY unidad, id_cuenta", (fecha, CUENTAS, unidades))
             for u, idc, val, cant, prec in cur.fetchall():
                 c = str(idc)
-                por_unidad.setdefault(u, {})[c] = float(val or 0.0)
-                cant_unidad.setdefault(u, {})[c] = float(cant or 0.0)
+                ten_val.setdefault(u, {})[c] = float(val or 0.0)
+                ten_cant.setdefault(u, {})[c] = float(cant or 0.0)
                 if prec is not None:
                     precio_unidad[u] = float(prec)
     posiciones = []
     for u in unidades:
-        byc = por_unidad.get(u, {})
-        cantc = cant_unidad.get(u, {})
+        tv, tcnt = ten_val.get(u, {}), ten_cant.get(u, {})
+        tot_val_ten = sum(tv.values())
+        tot_cant_ten = sum(tcnt.values())
+        unit = (tot_val_ten / tot_cant_ten) if tot_cant_ten else None
+        cant_alq = {c: _alq_efectivo(ediciones.get((u, c)), fecha) for c in CUENTAS}
+        val_alq = {c: (cant_alq[c] * unit if unit is not None else 0.0) for c in CUENTAS}
         fila = {
             "unidad": u,
             "precio": round(precio_unidad[u], 4) if u in precio_unidad else None,
-            "total": round(sum(byc.values()), 2),
-            "total_cant": round(sum(cantc.values()), 4),
-            "cant": {c: round(cantc.get(c, 0.0), 4) for c in CUENTAS},
+            "cant": {c: round(cant_alq[c], 4) for c in CUENTAS},          # editables
+            "ten_cant": {c: round(tcnt.get(c, 0.0), 4) for c in CUENTAS},  # referencia
+            "total": round(sum(val_alq.values()), 2),
+            "total_cant": round(sum(cant_alq.values()), 4),
+            "sin_precio": unit is None,
         }
-        fila.update({c: round(byc.get(c, 0.0), 2) for c in CUENTAS})
+        fila.update({c: round(val_alq[c], 2) for c in CUENTAS})
         posiciones.append(fila)
-    posiciones.sort(key=lambda p: -p["total"])
+    posiciones.sort(key=lambda p: (-p["total"], p["unidad"]))
     total = round(sum(p["total"] for p in posiciones), 2)
     return {"fecha": fecha, "cuentas": CUENTAS, "tc": _tc(fecha),
             "total": total, "posiciones": posiciones}
+
+
+def set_portfolio_alquiler_nominal(*, unidad: str, id_cuenta: str, fecha: str,
+                                   cantidad: float | None, email: str) -> dict[str, Any]:
+    """Edita los nominales en alquiler de (título, cuenta) A PARTIR de `fecha`
+    (carry-forward: rige hasta la próxima edición). cantidad None = borra la
+    edición de ese día exacto (vuelve a regir la anterior); 0 = apaga de ese
+    día en adelante."""
+    from datetime import UTC, datetime
+    from datetime import date as _date
+    u, c = (unidad or "").strip(), (id_cuenta or "").strip()
+    if not u or not c or c not in CUENTAS:
+        return {"ok": False, "error": "unidad y cuenta (100/255/256) son obligatorias"}
+    try:
+        f = _date.fromisoformat((fecha or "")[:10])
+    except ValueError:
+        return {"ok": False, "error": f"fecha inválida: {fecha!r}"}
+    cant = None
+    if cantidad is not None:
+        try:
+            cant = float(cantidad)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": f"cantidad inválida: {cantidad!r}"}
+        if cant < 0:
+            return {"ok": False, "error": "la cantidad no puede ser negativa"}
+    with get_pool().connection() as conn, conn.cursor() as cur:
+        _ensure_portfolio_alq_nom_table(cur)
+        if cant is None:
+            cur.execute(
+                f"DELETE FROM {_PORTFOLIO_ALQ_NOM_TABLE} "
+                f"WHERE unidad = %s AND id_cuenta = %s AND fecha = %s", (u, c, f))
+        else:
+            cur.execute(
+                f"INSERT INTO {_PORTFOLIO_ALQ_NOM_TABLE} "
+                f"(unidad, id_cuenta, fecha, cantidad, updated_by, updated_at) "
+                f"VALUES (%s,%s,%s,%s,%s,%s) "
+                f"ON CONFLICT (unidad, id_cuenta, fecha) DO UPDATE SET "
+                f"cantidad = EXCLUDED.cantidad, updated_by = EXCLUDED.updated_by, "
+                f"updated_at = EXCLUDED.updated_at",
+                (u, c, f, cant, email, datetime.now(UTC)))
+        conn.commit()
+    return {"ok": True, "unidad": u, "id_cuenta": c, "fecha": f.isoformat(),
+            "cantidad": cant}
 
 
 @cached(ttl=300)

@@ -14,11 +14,18 @@ activo USD — parte del movimiento ARS es la devaluación implícita del CCL.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from psycopg.rows import dict_row
 
 from api.cache import cached
 from core.postgres import get_pool
+
+# Los timestamps del tape/intradía SALEN en hora ARGENTINA naive (como los bonos
+# en mercado.timesales): la tabla guarda UTC y emitirlo naive-UTC hacía que el
+# tape mostrara 19:52 cuando eran las 16:52 (bug 2026-07-14).
+_ART = ZoneInfo("America/Argentina/Buenos_Aires")
+_TZ_ART_SQL = "America/Argentina/Buenos_Aires"
 
 # Si valuaciones.dolar (snapshot live) tiene timestamp más viejo que esto, lo
 # consideramos stale y caemos al último valuaciones.dolar. Mismo valor que argy.
@@ -89,7 +96,8 @@ def get_cedears_trades(*, ticker: str, limite: int = 200) -> list[dict]:
     for d in rows:
         ts = d["ts"]
         out.append({
-            "timestamp": (ts.astimezone(UTC).replace(tzinfo=None).isoformat()
+            # naive ART — misma convención que el tape de bonos (timesales)
+            "timestamp": (ts.astimezone(_ART).replace(tzinfo=None).isoformat()
                           if isinstance(ts, datetime) else ts),
             "price":     float(d["price"]) if d["price"] is not None else None,
             "size":      float(d["size"])  if d["size"]  is not None else None,
@@ -105,11 +113,13 @@ def get_cedears_intraday(*, ticker: str) -> list[dict]:
     minuto por `ts` (array_agg ordenado, `id` como desempate)."""
     inicio_hoy = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     with get_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        # `t` naive ART (sin sufijo Z) — misma convención que el intradía de
+        # bonos: el chart muestra la hora de pared argentina en cualquier browser.
         cur.execute(
-            """
+            f"""
             SELECT
-                to_char(date_trunc('minute', ts AT TIME ZONE 'UTC'),
-                        'YYYY-MM-DD"T"HH24:MI:00"Z"')           AS t,
+                to_char(date_trunc('minute', ts AT TIME ZONE '{_TZ_ART_SQL}'),
+                        'YYYY-MM-DD"T"HH24:MI:00')              AS t,
                 (array_agg(price ORDER BY ts, id))[1]           AS o,
                 max(price)                                      AS h,
                 min(price)                                      AS l,
@@ -117,8 +127,8 @@ def get_cedears_intraday(*, ticker: str) -> list[dict]:
                 COALESCE(sum(size), 0)                          AS vol
             FROM mercado.cedears_time_sales
             WHERE ticker_corto = %s AND ts >= %s
-            GROUP BY date_trunc('minute', ts AT TIME ZONE 'UTC')
-            ORDER BY date_trunc('minute', ts AT TIME ZONE 'UTC')
+            GROUP BY date_trunc('minute', ts AT TIME ZONE '{_TZ_ART_SQL}')
+            ORDER BY date_trunc('minute', ts AT TIME ZONE '{_TZ_ART_SQL}')
             """,
             (ticker.upper(), inicio_hoy),
         )

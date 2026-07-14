@@ -79,7 +79,8 @@ def register(mcp) -> None:
     @mcp.tool(
         description=(
             "TIME & SALES (tape) intradía de un CEDEAR: los trades crudos de HOY, "
-            "más recientes primero. Cada trade trae {timestamp (UTC), price, size "
+            "más recientes primero. Cada trade trae {timestamp (hora ARGENTINA, "
+            "naive), price, size "
             "(nominales), side ('BUY'|'SELL'|'MID'), money (price×size)}. ticker es "
             "el ticker_corto BYMA ('AAPL'). limite 1-1000 (default 200). Lee "
             "Trading.CedearsTimeSales (se vacía al cierre → solo datos en rueda)."
@@ -91,7 +92,8 @@ def register(mcp) -> None:
     @mcp.tool(
         description=(
             "Tape de HOY de un CEDEAR AGREGADO por minuto: velas OHLC + volumen por "
-            "minuto (UTC), orden ascendente. Para reconstruir el intradía / chart "
+            "minuto (hora ARGENTINA, naive), orden ascendente. Para reconstruir el "
+            "intradía / chart "
             "minuto a minuto de un papel. ticker es el ticker_corto BYMA. Solo hay "
             "datos en horario de rueda (la tape se vacía al cierre)."
         ),

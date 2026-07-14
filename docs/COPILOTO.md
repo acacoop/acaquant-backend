@@ -142,6 +142,12 @@ opciones 15/15 · ons 12/15. Lo que se cazó y bajó a código:
   paridad 4704% y es Tesoro, no corporativa → revisar su fila en el master;
   PNDCO precio 43 con paridad 107,5 (inconsistente). El asistente los manejó
   con cautela pero ensucian los bloques.
+- **[datos ~, mismo día]** El tape de CEDEARs (`scanner.get_cedears_trades` /
+  `get_cedears_intraday`) emitía timestamps UTC → el copiloto de TRADING le
+  contaba al trader horas corridas +3 ("19:52" a las 16:52) y la vista igual.
+  Ahora TODO el tape sale en hora ARGENTINA naive (misma convención que los
+  bonos). Afecta: bloque [tape] del copiloto, panel Time & Sales, chart LIVE
+  y tools MCP (descripciones actualizadas).
 
 ### 2026-07-14 — v1.49 (TRES VISTAS NUEVAS: Agro · Opciones · ONs — pedido del user)
 - **[vista +]** `agro` (módulo `agro`, página /agro): tabla = el PASE AGRO
